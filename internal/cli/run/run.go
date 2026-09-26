@@ -999,8 +999,7 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 		//
 		// A launch that WAITED for the lock found this jail because the launch it waited for
 		// started it, so it gets the raced banner, as it did when it waited further down.
-		rc, restarted := o.attachExisting(cname, rt, targetCmd, cfg, staged, channel, o.launchLockWaited, o.releaseLaunchLock)
-		if !restarted {
+		if rc, restarted := o.attachExisting(cname, rt, targetCmd, cfg, staged, channel, o.launchLockWaited, o.releaseLaunchLock); !restarted {
 			return rc
 		}
 		// Restarted: the jail this entry could not use is stopped and gone, and this launch

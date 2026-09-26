@@ -58,7 +58,8 @@ import (
 // NO OTHER OVERRIDE IMPLIES THE ACKNOWLEDGMENT. The ruling's words: "if you pass an override
 // flag acknowledging it, that's fine, but it shouldn't just silently ride along, even if there's
 // another similar override flag". So this file reads AllowAttachSkewEnv and nothing else, and
-// TestNoOtherHatchAcknowledgesAttachSkew sets every other YOLO_ALLOW_* the tree spells.
+// TestNoOtherHatchAcknowledgesAttachSkew sets every other YOLO_* variable the tree spells, and
+// every override-style Options field.
 
 // AllowAttachSkewEnv is the acknowledgment that lets an attach proceed into a jail missing a
 // contract this entry needs. Named in the refusal, in the house style of every YOLO_ALLOW_*

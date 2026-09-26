@@ -438,8 +438,9 @@ The gate for what an attach delivers today, and a check on what the next release
     continues as a fresh one; no, or end of input, refuses.
   - Anything else: a refusal naming `yolo stop`, then a launch, and the acknowledgment.
 
-  No other `YOLO_ALLOW_*` implies the acknowledgment, which a test pins by setting every other one
-  the tree spells.
+  No other override implies the acknowledgment, which a test pins by setting every other `YOLO_*`
+  variable the tree spells, and every override-style `Options` field, such as
+  `AcceptConfigChanges`.
 - **It replaced two ride-alongs.** The credential gate's CN-D18 arm warned and delivered nothing
   for a config-only selection a pre-gate jail could not receive. The pre-change jail's arm
   ([`OQ-CS6`](../reference/providers.md#oq-cs6)) did the same for a config-side selection a

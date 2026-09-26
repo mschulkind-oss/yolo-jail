@@ -10,7 +10,8 @@ import (
 // TestAnotherLaunchsSweepCannotReapThisLaunchsStaging is the regression for the half of
 // the self-reap bug that adding the LAUNCHING cname to the known set could not reach.
 //
-// THE SHAPE: stagePacks writes AGENTS_DIR/<cname>/packs early in Run, and the dir is only
+// THE SHAPE: stagePacks writes a new pack tree under AGENTS_DIR/<cname>/pack-trees early in Run
+// (it wrote AGENTS_DIR/<cname>/packs before per-launch pack trees), and the dir is only
 // protected BY NAME once runtimeWriteTracking records it — after the nix build, the
 // briefing refresh, and AUTO-CAPTURE. A capture is a full in-process Run of its own
 // (internal/cli.runCaptureJail), so its housekeeping slot sweeps with the CAPTURE jail's
@@ -21,9 +22,12 @@ import (
 //
 // What closes it is the AGE FLOOR, which already claims to cover "a jail mid-startup whose
 // container/tracking record hasn't landed yet" and could not, because it reads
-// AGENTS_DIR/<cname>'s mtime while staging creates the `packs` CHILD — so on a relaunch
-// (where that child already exists) MkdirAll is a no-op and the parent keeps a weeks-old
-// mtime. The fixture below builds exactly that state.
+// AGENTS_DIR/<cname>'s mtime while staging creates a GRANDCHILD: the new tree inside the
+// `pack-trees` child. On a relaunch that child already exists, so its MkdirAll is a no-op, the
+// new tree bumps only the child's mtime, and the parent keeps a weeks-old one. The fixture below
+// builds exactly that state. (It pre-created the old `packs` child for a while after per-launch
+// trees landed, and then passed with the touch deleted: staging CREATED `pack-trees`, which
+// bumped the parent's mtime itself, a state no real relaunch is in.)
 //
 // ⚠ THIS IS A CALL-SITE TEST ON PURPOSE. It drives the real stagePacks and the real
 // reapSmallAutomaticClasses and then looks at the filesystem; a test that asserted
@@ -42,9 +46,9 @@ func TestAnotherLaunchsSweepCannotReapThisLaunchsStaging(t *testing.T) {
 	const capture = "yolo-capture-0f0f0f0f"
 	agents := filepath.Join(home, ".local", "share", "yolo-jail", "agents")
 
-	// The RELAUNCH state: `packs` already exists, so stagePacks' MkdirAll is a no-op and
-	// nothing in the staging path would otherwise move the parent's mtime.
-	if err := os.MkdirAll(filepath.Join(agents, outer, "packs"), 0o755); err != nil {
+	// The RELAUNCH state: `pack-trees` already exists, so stagePacks' MkdirAll of it is a no-op
+	// and nothing in the staging path would otherwise move the parent's mtime.
+	if err := os.MkdirAll(filepath.Join(agents, outer, "pack-trees"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	// A genuine orphan, aged the same, so the assertions below cannot be satisfied by a
@@ -63,10 +67,14 @@ func TestAnotherLaunchsSweepCannotReapThisLaunchsStaging(t *testing.T) {
 	// The OUTER launch stages. Nothing else about it has happened yet: no container, no
 	// tracking file.
 	outerOpts := &Options{Workspace: t.TempDir()}
-	if _, _, _, err := outerOpts.stagePacks(outer); err != nil {
+	tree, _, _, err := outerOpts.stagePacks(outer)
+	if err != nil {
 		t.Fatalf("stagePacks: %v", err)
 	}
-	marker := filepath.Join(agents, outer, "packs", "marker")
+	if filepath.Dir(tree) != filepath.Join(agents, outer, "pack-trees") {
+		t.Fatalf("stagePacks staged %s, not under the pack-trees child this fixture pre-creates", tree)
+	}
+	marker := filepath.Join(tree, "marker")
 	if err := os.WriteFile(marker, []byte("staged"), 0o644); err != nil {
 		t.Fatal(err)
 	}

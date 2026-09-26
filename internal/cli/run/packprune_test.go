@@ -212,6 +212,11 @@ func TestAStagedTreeRecordsItsPacksInLoadOrder(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(tree, packTreeRecordName)); err != nil {
 		t.Errorf("the tree carries no record: %v", err)
 	}
+	// 0755, not os.MkdirTemp's 0700: a podman jail reads the tree through a bind as whatever uid
+	// the entrypoint drops to, which on a rootless host is not the uid that staged it.
+	if info, err := os.Stat(tree); err != nil || info.Mode().Perm() != 0o755 {
+		t.Errorf("the tree's mode is %v (%v), want 0755 so the jail's own uid can read it", info.Mode().Perm(), err)
+	}
 }
 
 // TestNoPackNameCollidesWithTheTreeRecord: a pack name may be any string without "/", "\\" or

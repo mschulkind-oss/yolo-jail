@@ -14,6 +14,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"reflect"
 	"regexp"
 	"slices"
 	"sort"
@@ -367,15 +368,17 @@ func TestAttachSkewAcknowledgedProceedsWithoutDelivery(t *testing.T) {
 	assertLiveChannelFileUnchanged(t, s.envFile, s.before)
 }
 
-// allowHatchSpellings is every YOLO_ALLOW_* the tree's non-test Go source spells, read fresh so a
-// hatch added tomorrow is in the set without an edit here.
-func allowHatchSpellings(t *testing.T) []string {
+// yoloEnvSpellings is every YOLO_* variable the tree's non-test Go source spells, read fresh so an
+// override added tomorrow is in the set without an edit here. Every one, not only the YOLO_ALLOW_*
+// hatches: an override need not be spelled like one (YOLO_ACCEPT_CONFIG_CHANGES,
+// YOLO_BYPASS_SHIMS, YOLO_NO_HOST_LOOPBACK).
+func yoloEnvSpellings(t *testing.T) []string {
 	t.Helper()
 	root, err := filepath.Abs(filepath.Join("..", "..", ".."))
 	if err != nil {
 		t.Fatal(err)
 	}
-	re := regexp.MustCompile(`YOLO_ALLOW_[A-Z_]+`)
+	re := regexp.MustCompile(`YOLO_[A-Z0-9_]+`)
 	seen := map[string]bool{}
 	for _, dir := range []string{"internal", "cmd"} {
 		err := filepath.WalkDir(filepath.Join(root, dir), func(path string, d fs.DirEntry, err error) error {
@@ -406,28 +409,44 @@ func allowHatchSpellings(t *testing.T) []string {
 	return out
 }
 
+// overrideOptionBool matches an Options field that overrides a check the way a hatch does.
+var overrideOptionBool = regexp.MustCompile(`^(Accept|Allow|Assume|Bypass|Force|Ignore|Skip|Yes)`)
+
 // TestNoOtherHatchAcknowledgesAttachSkew: the ruling's words are "it shouldn't just silently
-// ride along, even if there's another similar override flag". Every other YOLO_ALLOW_* set at
-// once still refuses.
+// ride along, even if there's another similar override flag". Every other YOLO_* variable the tree
+// spells, set at once, and every override-style Options field set true, still refuse.
 func TestNoOtherHatchAcknowledgesAttachSkew(t *testing.T) {
-	hatches := allowHatchSpellings(t)
+	spellings := yoloEnvSpellings(t)
 	for _, must := range []string{AllowAttachSkewEnv, "YOLO_ALLOW_SOURCE_SKEW", "YOLO_ALLOW_MISSING_PROVIDERS",
-		"YOLO_ALLOW_STALE_IMAGE", "YOLO_ALLOW_UNREACHABLE_SERVICES"} {
-		if !slices.Contains(hatches, must) {
-			t.Fatalf("the hatch census found no %s, so it is not reading the tree: %v", must, hatches)
+		"YOLO_ALLOW_STALE_IMAGE", "YOLO_ALLOW_UNREACHABLE_SERVICES", "YOLO_ACCEPT_CONFIG_CHANGES",
+		"YOLO_BYPASS_SHIMS", "YOLO_NO_HOST_LOOPBACK"} {
+		if !slices.Contains(spellings, must) {
+			t.Fatalf("the census found no %s, so it is not reading the tree: %v", must, spellings)
 		}
 	}
 	env := map[string]string{}
-	for _, h := range hatches {
+	for _, h := range spellings {
 		if h != AllowAttachSkewEnv {
 			env[h] = "1"
 		}
 	}
 	s := newSkewAttach(t, false, false, "", env)
+	var set []string
+	v := reflect.ValueOf(s.o).Elem()
+	for i := 0; i < v.NumField(); i++ {
+		f := v.Type().Field(i)
+		if f.IsExported() && f.Type.Kind() == reflect.Bool && overrideOptionBool.MatchString(f.Name) {
+			v.Field(i).SetBool(true)
+			set = append(set, f.Name)
+		}
+	}
+	if !slices.Contains(set, "AcceptConfigChanges") {
+		t.Fatalf("the Options census found no AcceptConfigChanges, so it is not reading the struct: %v", set)
+	}
 	rc, restarted := s.attach()
 	if rc != 1 || restarted || s.didExec() {
-		t.Fatalf("another hatch acknowledged the attach skew (%v): rc=%d restarted=%v execed=%v\n%s",
-			hatches, rc, restarted, s.didExec(), s.stderr)
+		t.Fatalf("another override acknowledged the attach skew (%d variables, Options %v): rc=%d "+
+			"restarted=%v execed=%v\n%s", len(env), set, rc, restarted, s.didExec(), s.stderr)
 	}
 	if !strings.Contains(s.stderr.String(), "Refusing to attach") {
 		t.Errorf("the attach must refuse:\n%s", s.stderr)
@@ -480,39 +499,72 @@ func TestARestartedAttachContinuesAsAFreshLaunch(t *testing.T) {
 }
 
 // TestEveryAttachSiteKeepsTheRestart pins runContainer's other attach sites, which a unit
-// fixture cannot reach (each needs a jail that appears while this launch waits): none may
-// discard attachExisting's restarted result, or a restart there would return 0 with no jail.
+// fixture cannot reach (each needs a jail that appears while this launch waits): every one must be
+// exactly `if rc, restarted := o.attachExisting(...); !restarted { return rc }`. A site that
+// discards restarted returns 0 with no jail after a restart; one that ignores or inverts it either
+// returns after a restart or falls through into a fresh launch beside a running jail. The first
+// site's behavior is also driven (TestARestartedAttachContinuesAsAFreshLaunch); this pins the
+// shape every site shares, so the three cannot drift apart.
 func TestEveryAttachSiteKeepsTheRestart(t *testing.T) {
 	fn := methodDecl(t, "run.go", "runContainer")
-	sites := 0
+	isAttach := func(e ast.Expr) bool {
+		call, ok := e.(*ast.CallExpr)
+		if !ok {
+			return false
+		}
+		sel, ok := call.Fun.(*ast.SelectorExpr)
+		return ok && sel.Sel.Name == "attachExisting"
+	}
+	calls, sites := 0, 0
 	ast.Inspect(fn, func(n ast.Node) bool {
 		switch st := n.(type) {
-		case *ast.AssignStmt:
-			for _, rhs := range st.Rhs {
-				call, ok := rhs.(*ast.CallExpr)
-				if !ok {
-					continue
-				}
-				if sel, ok := call.Fun.(*ast.SelectorExpr); ok && sel.Sel.Name == "attachExisting" {
-					sites++
-					if len(st.Lhs) != 2 {
-						t.Errorf("an attach site assigns %d results; it must keep both", len(st.Lhs))
-					} else if id, ok := st.Lhs[1].(*ast.Ident); !ok || id.Name == "_" {
-						t.Error("an attach site discards attachExisting's restarted result")
-					}
-				}
+		case *ast.CallExpr:
+			if isAttach(st) {
+				calls++
 			}
-		case *ast.ReturnStmt:
-			for _, r := range st.Results {
-				if call, ok := r.(*ast.CallExpr); ok {
-					if sel, ok := call.Fun.(*ast.SelectorExpr); ok && sel.Sel.Name == "attachExisting" {
-						t.Error("an attach site returns attachExisting's result directly, dropping a restart")
-					}
-				}
+		case *ast.IfStmt:
+			init, ok := st.Init.(*ast.AssignStmt)
+			if !ok || len(init.Rhs) != 1 || !isAttach(init.Rhs[0]) {
+				return true
+			}
+			sites++
+			if len(init.Lhs) != 2 {
+				t.Errorf("an attach site assigns %d results; it must keep both", len(init.Lhs))
+				return true
+			}
+			rc, _ := init.Lhs[0].(*ast.Ident)
+			restarted, _ := init.Lhs[1].(*ast.Ident)
+			if rc == nil || restarted == nil || rc.Name == "_" || restarted.Name == "_" {
+				t.Error("an attach site discards one of attachExisting's results")
+				return true
+			}
+			cond, _ := st.Cond.(*ast.UnaryExpr)
+			var negated *ast.Ident
+			if cond != nil {
+				negated, _ = cond.X.(*ast.Ident)
+			}
+			if cond == nil || cond.Op != token.NOT || negated == nil || negated.Name != restarted.Name {
+				t.Errorf("an attach site's condition is not exactly !%s", restarted.Name)
+			}
+			if st.Else != nil || len(st.Body.List) != 1 {
+				t.Error("an attach site's body is not exactly one return, with no else")
+				return true
+			}
+			ret, ok := st.Body.List[0].(*ast.ReturnStmt)
+			if !ok || len(ret.Results) != 1 {
+				t.Error("an attach site's body is not `return rc`")
+				return true
+			}
+			if id, ok := ret.Results[0].(*ast.Ident); !ok || id.Name != rc.Name {
+				t.Errorf("an attach site does not return attachExisting's own rc (%s)", rc.Name)
 			}
 		}
 		return true
 	})
+	if sites != calls {
+		t.Errorf("runContainer calls attachExisting %d times, and %d of them are the pinned "+
+			"`if rc, restarted := o.attachExisting(...); !restarted { return rc }`", calls, sites)
+	}
 	if sites < 3 {
 		t.Errorf("found %d attach sites in runContainer, want the three (the first look, the raced "+
 			"re-check, the stale removal's wait)", sites)
