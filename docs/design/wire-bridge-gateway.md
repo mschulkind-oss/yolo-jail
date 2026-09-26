@@ -14,7 +14,7 @@ vantage:
 provider, what may it do? It could sign for AWS, choose an upstream per model or per agent,
 fail over when a subscription runs out, or refuse a model that is not on a list.
 
-**Status:** DESIGN, 2026-09-25, one ruling owed ([OQ-WG6](#OQ-WG6), found while starting Part 3). Split out of [`bedrock-plumbing.md`](bedrock-plumbing.md) that
+**Status:** DESIGN, 2026-09-25 — the SigV4 signer is BUILT, [OQ-WG6](#OQ-WG6) is ruled, and [OQ-WG7](#OQ-WG7) (how the daemon carries more than one route) is owed before WG6 can be built. Split out of [`bedrock-plumbing.md`](bedrock-plumbing.md) that
 day, carrying its bridge questions with their ids unchanged. **Part 1 (signing) is BUILT,
 2026-09-25** ([§2](#2-part-1--the-bridge-signs-its-own-upstream-requests-ruled)), except the
 region-composed upstream URL. Parts 2–5 are DECIDED and unbuilt; Part 5's four questions were ruled
@@ -27,7 +27,7 @@ has exercised runtime's Anthropic Messages route or the subscription's usage-lim
 
 **Needs your ruling:**
 
-[OQ-WG6](#OQ-WG6): what a profile writes to put its agent on the bridge path; it gates Parts 3 and 5. [OQ-WG1](#OQ-WG1)–[OQ-WG5](#OQ-WG5) are ruled ([Decision Ledger](#decision-ledger)).
+[OQ-WG7](#OQ-WG7): the multi-route bridge in five parts (route layout, port, how the bridge joins the jail, each agent's URL, credentials per route), one ruling. [OQ-WG1](#OQ-WG1)–[OQ-WG6](#OQ-WG6) are ruled ([Decision Ledger](#decision-ledger)).
 [OQ-WG1](#OQ-WG1) carries a follow-up that waits on [OQ-BR2](providers-and-profiles-redesign.md#OQ-BR2):
 re-key the signer on the provider's Bedrock marker.
 
@@ -562,7 +562,7 @@ Three earlier non-licenses are reopened here by name:
    > translates it. Every native wire gets a pass-through route, Converse included; the order is
    > [§8](#8-build-order)'s. Folded into [§6](#6-part-5--all-traffic-through-the-bridge-new-direction-design).
 
-6. 💬 <a id="OQ-WG6"></a>**[OQ-WG6](#OQ-WG6): what does a profile write to put its agent on
+6. ✅ <a id="OQ-WG6"></a>**[OQ-WG6](#OQ-WG6): what does a profile write to put its agent on
    the bridge path?** Found 2026-09-25 while starting Part 3. [OQ-WG2](#OQ-WG2) ruled all-traffic
    mode a property of the profile, but no schema carries it. The bridge serves a route only when
    `routeFor` finds a composed provider whose `anthropic` endpoint is the jail's loopback, and
@@ -581,7 +581,38 @@ Three earlier non-licenses are reopened here by name:
    concrete, and it needs no new provider vocabulary. (a) would tie selection to the provider
    redesign ([OQ-BR2](providers-and-profiles-redesign.md#OQ-BR2)) that WG1 was ruled to avoid.
 
-   <!-- vantage: oq id=OQ-WG6 leaning="(b): a profile field (e.g. via: bridge); the derive writes the agent's base URL as the bridge's per-agent path (WG4) and routeFor takes the upstream from the provider's own openai endpoint. It is WG2 and WG4 made concrete and needs no new provider vocabulary." -->
+
+   **Answer:**
+   > **(b)**, ruled in review 2026-09-25: a profile field (e.g. `via: "bridge"`). The derive writes
+   > the agent's base URL as the bridge's per-agent path ([OQ-WG4](#OQ-WG4)), and `routeFor` takes
+   > the upstream from the provider's own `openai` endpoint. It is [OQ-WG2](#OQ-WG2) and
+   > [OQ-WG4](#OQ-WG4) made concrete and needs no new provider vocabulary. Unbuilt.
+
+7. 💬 <a id="OQ-WG7"></a>**[OQ-WG7](#OQ-WG7): the multi-route bridge, in five parts, rule together.**
+   Found 2026-09-25 when the [OQ-WG6](#OQ-WG6) build stopped before writing code. WG2, WG4 and
+   WG6 say what a profile writes. They do not say how the daemon, the ports, the jail's pack set,
+   the derives and the credentials carry more than one route. Checked against the tree: the
+   daemon serves exactly one route (`routeFor` returns the first match, and `serve` builds one
+   handler); `packs/wire-bridge` declares two adapter addresses (`:8214` for chat-completions to
+   Anthropic, `:8215` for Responses to Anthropic); only `packs/claude` `needs` wire-bridge
+   unconditionally; the composed provider table is jail-wide; and the outbound key is one file
+   read at boot ([WB-D4](../reference/wire-bridge.md#wb-d4)).
+
+   | Part | The question | Leaning |
+   | :--- | :--- | :--- |
+   | **a. Route layout** | Do today's adapter routes move under `/agent/<name>/`? | **No.** They stay at the root of their own ports, so claude's `ANTHROPIC_BASE_URL` and its derive are unchanged. [OQ-WG4](#OQ-WG4)'s "a missing prefix is refused" applies to the per-agent port only |
+   | **b. The port** | Where do per-agent routes live? | **One new declared address** on the wire-bridge service (the next free port after `:8215`), serving every `via` route under `/agent/<name>/`. The two adapter ports are untouched |
+   | **c. Bringing the bridge in** | How does a pi-only jail with a `via` profile get a bridge daemon, when core may not name one? | **`via`'s value names the service pack** (`via: "wire-bridge"`), and selecting such a profile adds that pack the way `needs` does. Core knows only "a service pack", never which. [OQ-WG6](#OQ-WG6)'s `"bridge"` was an example value |
+   | **d. Each agent's URL** | The provider table is jail-wide; `via` is one agent's. How does a derive learn its own bridge URL? | **A per-agent derive input** (`ctx.via_url`), set only when that agent's active profile has `via`. Composition stays jail-wide; a derive writes `ctx.via_url` as its base URL when present |
+   | **e. Credentials per route** | One key file cannot serve routes to several providers | **Per route, from the provider's declared `api_key_env_name`**, read at boot from the jail env the credential is already delivered to; a Bedrock route uses the signer's chain. One route with no credential idles and says so, and the others still serve |
+
+   Stakes: without (a)–(e), a via route is either unreachable or breaks claude's existing one.
+
+   _Leaning:_ all five as the table says. Each keeps today's launches byte-identical, and each
+   extends an existing vocabulary (a declared address, `needs`, a derive ctx field, a provider's
+   env name) rather than adding a new one.
+
+   <!-- vantage: oq id=OQ-WG7 leaning="All five as tabled: (a) existing adapter routes stay at their ports' roots; (b) one new declared address for every via route under /agent/<name>/; (c) via's value names the service pack and selecting the profile adds it like needs; (d) a per-agent ctx.via_url derive input; (e) credentials per route from the provider's api_key_env_name, Bedrock via the signer chain." -->
 
    **Answer:**
    > _(empty — fill in when decided)_
@@ -612,6 +643,7 @@ Three earlier non-licenses are reopened here by name:
 | OQ-BR16 | **The everything profile carries the subscription too**, forwarded untranslated with its own bearer, so one model list spans Teams and Bedrock. *"yes that would be amazing"* | 2026-09-24 | [§5](#5-part-4--the-subscription-arm-and-opt-in-failover-ruled) (moved) | — |
 | OQ-BR17 | **Opt-in automatic failover, per model, from the subscription to Bedrock** on the subscription's usage-limit response, every switch disclosed. *"yes, opt in"*. Supersedes [agent-auth-modes OQ-1](agent-auth-modes.md#12-decision-ledger)'s deferral for this path | 2026-09-24 | [§5](#5-part-4--the-subscription-arm-and-opt-in-failover-ruled) (moved) | — |
 | OQ-WG1 | **The signer keys on the upstream host now** (`bedrock-runtime.<region>.amazonaws.com`, `*.gateway.bedrock-agentcore.<region>.amazonaws.com`), **and re-keys on the provider's Bedrock marker once [OQ-BR2](providers-and-profiles-redesign.md#OQ-BR2) gives one** — host patterns cannot know other people's configurations | 2026-09-25 | [§2.1](#21-behavior-the-signer-fixes) | 2026-09-25, (a): `sigv4.BedrockRuntimeRegion` decides at boot (`route.SignRegion`). (b), the marker re-key, waits on [OQ-BR2](providers-and-profiles-redesign.md#OQ-BR2) |
+| OQ-WG6 | **A profile field (`via: "bridge"`) puts its agent on the bridge path**: the derive writes the agent's base URL as the bridge's per-agent path (WG4), and `routeFor` takes the upstream from the provider's own `openai` endpoint; no new provider vocabulary | 2026-09-25 | [OQ-WG6](#OQ-WG6) | — |
 | OQ-WG2 | **All-traffic mode is a property of the profile**, opt-in and off by default; one active profile per agent decides how it reaches the world | 2026-09-25 | [§6](#6-part-5--all-traffic-through-the-bridge-new-direction-design) | — |
 | OQ-WG3 | **One list** (the picker's effective list after an `only`), **and a separate enforcement switch** on the profile, **default on**; off means the list only shapes pickers | 2026-09-25 | [§6](#6-part-5--all-traffic-through-the-bridge-new-direction-design) | — |
 | OQ-WG4 | **A path prefix per agent on the one listen port**, written by each derive; an unknown prefix is refused; a port per agent only for an agent measured to drop a base URL's path (delegated, decided in review) | 2026-09-25 | [§6](#6-part-5--all-traffic-through-the-bridge-new-direction-design) | — |
