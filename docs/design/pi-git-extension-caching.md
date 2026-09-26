@@ -1,460 +1,398 @@
 ---
-title: "Sharing Pi git extensions across workspaces: from cold clones to machine-scoped checkouts"
+title: "Sharing pi git extensions across jails: immutable per-commit trees, never one shared checkout"
 date: 2026-09-25
 status: in-review
-tags: [pi, extensions, git, caching, machine-tier, storage]
-summary: "Pi git extension checkouts move into a machine-scoped `.pi-shared-git` store beside `.pi-shared-npm`, so a repository already on the machine is fetched rather than cloned per workspace. Sharing adds a first-install race the per-workspace store never had, closed by a content-keyed `due_on_change` refresh trigger. Built on the three leanings; their rulings and a fourth question are open."
+tags: [pi, extensions, git, caching, machine-tier, storage, isolation]
+summary: "pi's git extensions cost every new jail a clone and a dependency build. The first build shared one mutable checkout per repository across jails, which let one jail's pin or update change the files another jail was running; the maintainer's rulings of 2026-09-25 withdraw it. The redesign shares content, never state: a machine store of bare mirrors and one immutable tree per resolved commit, each jail pointing at the commit its own config resolves to, pi loading each tree as a local package so it never clones or updates one itself. A launch waits for the tree it needs and never boots on another launch's leftovers. One question is open: whether the npm store gets the same treatment now."
 vantage:
   status-chip: true
 ---
 
-# Sharing Pi git extensions across workspaces: from cold clones to machine-scoped checkouts
+# Sharing pi git extensions across jails: immutable per-commit trees, never one shared checkout
 
-**Status:** DESIGN, 2026-09-25 — **BUILT provisionally** on the leanings of [OQ-1](#OQ-1)–[OQ-3](#OQ-3),
-whose rulings are still owed, and [OQ-4](#OQ-4) is new. Built: the `.pi-shared-git` store and hook,
-and the `due_on_change` refresh trigger that closes the first-install race
-([§3.4](#34-the-first-install-race)). **MEASURED:** pi 0.87.1's package manager, read (not run) at
-`dist/core/package-manager.js` in the jail's install: `installGit` and
-`cleanAndInstallGitDependencies` behave as [§2.1](#21-how-pi-manages-git-extensions-today) says. **UNMEASURED:** nothing has run against a
-real pi git extension (no network clone is possible from the build environment), so every
-latency figure below is an estimate, labeled where it appears.
+**Status:** DESIGN, 2026-09-25 — **redesigned after review the same day.** The redesign is not
+built. What `c402dd43` built from the first draft is half withdrawn: its `.pi-shared-git` shared
+checkout is to be reverted ([§3.10](#310-migration-from-what-c402dd43-shipped)), and its
+`due_on_change` refresh trigger stays ([§3.12](#312-the-refresh-trigger-that-stays)). **MEASURED:**
+pi 0.87.1's package manager, read (not run) at `dist/core/package-manager.js` in the jail's install.
+**UNMEASURED:** nothing has run against a real pi git extension; every cost figure is an estimate.
 
-> **In short.** Pi's git extensions are currently trapped in the workspace-scoped state
-> directory, forcing every new jail to perform redundant, uncached network clones and cold
-> `npm install` cycles on startup. Lifting `~/.pi/agent/git` into a machine-scoped
-> `.pi-shared-git` store paired with a `shared_directory` hook mirrors the `.pi-shared-npm`
-> architecture, turning repetitive startup clones into `git fetch` delta checks shared across all workspaces.
-> Sharing one store adds a race the per-workspace store never had; a content-keyed refresh
-> trigger closes it ([§3.4](#34-the-first-install-race)).
+> **In short.** Jails may share what is identical, never what one of them can change. So the
+> machine keeps one immutable tree per resolved commit, each jail points at the commit its own
+> config asks for, and pi loads that tree as a local package it never updates.
 
-**Why it matters.** A user with multiple git extensions pays a full clone and dependency build
-per extension every time a new workspace jail launches (an estimated 30–60 s for a few
-extensions; unmeasured). These
-operations burn disk space, trigger launcher timeouts (`UPDATE_TIMEOUT=60`), and bypass
-cross-jail synchronization.
+**Why it matters.** Without sharing, every new jail pays a full clone and `npm install` per git
+extension (an estimated 30–60 s for a few; unmeasured). The first build removed that cost by
+sharing one working copy per repository, and in doing so let jail A's `git reset --hard` or
+different pin change the files jail B's running pi was using.
 
-**The shape.** A machine-scoped state contribution (`.pi-shared-git`) in `packs/pi/pack.json`
-paired with a `shared_directory` hook mapping `~/.pi/agent/git`, relying on Pi's native
-`updateGit` fetch reconciliation and YOLO's pre-launch mutual exclusion lock, plus a
-`due_on_change` trigger on that refresh so a newly configured extension is installed under the
-lock rather than by pi itself.
+**The shape.** A machine store of bare **mirrors** and per-commit **trees**; per-workspace
+**pointers**, one per extension, each a link to a tree; pi's settings naming the pointer as a
+local package; and the pi launcher resolving each pointer before pi starts.
 
-**Cost.** Workspaces sharing the machine-scoped git store share one active checkout per git
-repository in user scope; workspaces requiring isolated branch pins must use project-scoped
-configuration (`.pi/settings.json`), which remains workspace-private.
+**Cost.** A second store beside the npm store, a new post-fold hook in the pack language
+([§3.2](#32-pointing-pi-at-a-tree)), and a launch that now waits, visibly, for a clone or build
+it needs. One re-clone per repository per machine when the first build is reverted.
 
-**Start at [§3](#3-the-proposed-architecture)** — the storage split and update flow. The rest falls out of it.
+**Start at [§3](#3-the-design--share-content-never-state)**, the store and how a jail reaches it.
 
-**Needs your ruling:** [OQ-1](#OQ-1), [OQ-2](#OQ-2), [OQ-3](#OQ-3) (each built on its leaning),
-[OQ-4](#OQ-4) (new).
+**Needs your ruling:** [OQ-5](#OQ-5), whether the npm store gets the same treatment now.
 
-**Reads with:** [`pi-extension-lifecycle.md`](pi-extension-lifecycle.md) (the npm store and prelaunch refresh foundation),
-[`pi-git-extension-caching-plan.md`](pi-git-extension-caching-plan.md) (the companion implementation sketch — incomplete while questions are open).
+**Reads with:**
+- [`pack-pi-resources.md`](pack-pi-resources.md): pack-shipped trees registered as local pi
+  packages. Both designs make pi load yolo-managed content as **local** packages, which pi never
+  installs or updates; the two must leave each other's `packages` entries alone.
+- [`pi-extension-lifecycle.md`](pi-extension-lifecycle.md): the npm store and the pre-launch
+  refresh this builds on.
+- [`image-retention.md`](../reference/image-retention.md): the reaper rules
+  [§3.8](#38-garbage-collection) follows.
+- [`pi-git-extension-caching-plan.md`](pi-git-extension-caching-plan.md): the implementation
+  sketch. It is incomplete, and nobody builds from it.
 
 ---
 
-## 1. Principles and Verdict
+## Defined terms
 
-* **P1. Single source of truth for global tools.** Extensions configured in user scope
-  (`~/.pi/agent/settings.json`) are global tools like node runtimes or CLI utilities. They
-  belong in machine-scoped storage shared by all workspaces on the host, not copied into N
-  isolated directories.
-* **P2. Never clone what already exists.** A repository already present on the machine must
-  never be downloaded from scratch over the network. Reconciling an existing checkout with
-  upstream requires only a `git fetch` delta, not a fresh clone.
-* **P3. Zero vendor code modification.** YOLO does not fork or patch `@earendil-works/pi-coding-agent`.
-  All optimizations must work through Pi's public directory contracts and existing CLI flags
-  (`pi update --extensions`).
-* **P4. Launch outranks updating.** No background update failure, network timeout, or lock
-  contention may prevent the interactive coding agent session from starting.
+All four are coined here.
 
-**Verdict:** Add `.pi-shared-git` as a machine-scoped state directory (`scope: "machine"`)
-in `packs/pi/pack.json` with a `shared_directory` hook pointing from `.pi/agent/git`. This
-reuses YOLO's proven directory-sharing and migration subsystem (`internal/entrypoint/sharedlink.go`),
-instantly eliminating duplicate git clones across workspaces without writing custom git wrappers.
+- **Mirror**: a bare git repository per extension repository, in the machine store. It is only
+  ever fetched into, never checked out.
+- **Tree**: one extension at one resolved commit, checked out with its dependencies installed,
+  complete and then never modified. Its key is the commit plus the dependency recipe
+  ([§3.4](#34-building-a-tree)).
+- **Pointer**: a per-workspace symbolic link naming the tree one extension resolved to in that
+  workspace. pi's settings name the pointer, never a tree.
+- **Recipe**: the exact dependency-install command a tree was built with, and the Node it ran
+  under.
 
----
+## 1. Principles
 
-## 2. Current State and Problem Analysis
+- **P1. Share content, never state.** Two jails that need identical bytes share one copy. Nothing
+  one jail does may change what another jail reads ([OQ-4](#OQ-4)).
+- **P2. A launch gets what its own config calls for.** Its result does not depend on what other
+  launches did or are doing. If what it needs is being produced, it waits and then uses it; it
+  never boots on whatever happened to be installed ([OQ-2](#OQ-2)). This replaces the first
+  draft's "launch outranks updating".
+- **P3. No winner.** Two jails asking for different versions each get their own ([OQ-3](#OQ-3)).
+- **P4. Never clone what the machine already has.** A repository on the machine is fetched, not
+  cloned again.
+- **P5. No vendor code modification.** pi is not forked or patched. Everything works through pi's
+  public contracts: its settings file and its local-package loading.
 
-### 2.1 How Pi manages git extensions today
+## 2. How pi handles git packages today
 
-Pi supports installing extensions from git repositories via `git:<url>[@<ref>]`
-(e.g., `git:github.com/mschulkind/pi-archimedes`).
+From pi 0.87.1's `dist/core/package-manager.js`:
 
-In Pi's package manager (`dist/core/package-manager.js`):
-1. **Target Directory**: For user-scoped packages, `getGitInstallPath()` resolves target paths
-   under `this.agentDir/git` (`~/.pi/agent/git/<host>/<user>/<repo>`).
-2. **Installation (`installGit`)**: If `!existsSync(targetDir)`, Pi executes:
-   ```bash
-   git clone <source.repo> <targetDir>
-   ```
-   If a ref was specified, it checks out the ref (`git checkout <ref>`). If `package.json`
-   exists in the repository, it executes `npm install` (`getGitDependencyInstallArgs()`) inside
-   `targetDir`.
-3. **Update (`updateGit`)**: If `existsSync(targetDir)` is true:
-   - For pinned refs: Pi runs `git fetch origin <ref>` and checks if `HEAD` equals `FETCH_HEAD`.
-   - For unpinned refs: Pi resolves `@{upstream}` or `origin/HEAD` and runs:
-     ```bash
-     git fetch --prune --no-tags origin +refs/heads/<branch>:refs/remotes/origin/<branch>
-     ```
-   - If local `HEAD` matches remote `HEAD`, it verifies `node_modules` exists and exits immediately.
-   - If local `HEAD` differs from remote `HEAD`, Pi writes a marker file
-     (`.<name>.pi-update-incomplete`), executes `git reset --hard <commit>`, cleans untracked files
-     via `git clean -fdx` (wiping `node_modules`), and executes a full `npm install`.
-
-### 2.2 The root cause of startup cloning
-
-In `packs/pi/pack.json`, Pi's state configuration currently declares:
-
-```json
-{
-  "at": ".pi",
-  "kind": "state",
-  "scope": "workspace"
-},
-{
-  "at": ".pi-shared-npm",
-  "because": "the extension package store, shared so every workspace on the machine runs one version of an extension instead of N that drift",
-  "kind": "state",
-  "scope": "machine"
-},
-{
-  "at": ".pi-shared-npm",
-  "from": ".pi/agent/npm",
-  "hook": "shared_directory",
-  "kind": "hook"
-}
-```
-
-Notice the critical asymmetry:
-* `~/.pi/agent/npm` is redirected to `.pi-shared-npm` at `scope: "machine"`.
-* `~/.pi/agent/git` has **no hook** and inherits `~/.pi`'s `scope: "workspace"`.
-
-This creates four distinct failure modes on jail startup:
-
-| Scenario | What happens | Result |
+| Situation | What pi does | Where |
 | :--- | :--- | :--- |
-| **New workspace jail** | `~/.pi/agent/git` is empty. | `pi update --extensions` runs `installGit()` for every git extension, triggering N full network clones + N cold `npm install` builds. |
-| **Launcher timeout** | 4 git clones + builds exceed `UPDATE_TIMEOUT=60`. | Launcher kills updater; `installGit` error handler removes `targetDir` (`rmSync(targetDir)`). Next boot re-clones from scratch. |
-| **Throttled refresh** | Machine stamp `< 3600s` skips pre-launch refresh. | Pi's startup `resolve()` detects missing `targetDir` and runs `installGit()` inside interactive startup with zero locking. |
-| **Disk duplication** | Every workspace has its own clone. | N workspaces multiply repository history and `node_modules` on host disk ($N \times \approx 80\text{ MB}$). |
+| A `git:<host>/<path>[@<ref>]` entry in `packages`, user scope | Installs to `~/.pi/agent/git/<host>/<path>`: `git clone`, `git checkout <ref>` when pinned, then the dependency step | `installGit`, `getGitInstallPath` |
+| The dependency step | If the checkout has a `package.json`: `<npmCommand> install` when the settings set `npmCommand`, otherwise `npm install --omit=dev` | `getGitDependencyInstallArgs` |
+| A failed install | `rmSync(targetDir, { recursive: true, force: true })` | `installGit`'s catch |
+| `pi update` / `pi update --extensions` | Every `git:` entry, pinned or not: `git fetch`, then `git reset --hard <commit>`, `git clean -fdx` (which deletes `node_modules`), and the dependency step again when the commit moved | `updateConfiguredSources`, `updateGit` |
+| A **local** entry (a path) in `packages` | Loaded in place from the path; **never installed, never updated, never fetched**. A path that does not exist is skipped | `resolveLocalExtensionSource`; `updateConfiguredSources` takes npm and git only |
+| A local directory | Loaded as a pi package: its `package.json` `pi` key, else its conventional `extensions/` `skills/` `prompts/` `themes/` folders, else the directory as one extension | `collectPackageResources` |
+| Duplicate entries | One per identity: npm name, git host and path, or a local path's resolved absolute path | `getPackageIdentity` |
+| A project-scope entry (`.pi/settings.json` in the repository) | Installs under the workspace's own `.pi/git`, after project trust | `getBaseDirForScope` |
 
-The author of [`pi-extension-lifecycle.md`](pi-extension-lifecycle.md) ([§3.2](pi-extension-lifecycle.md#32-execution-tier-pre-launch-auto-refresh) warning) noted this gap during earlier implementation
-but left `~/.pi/agent/git` unshared.
+Two facts carry the design. **A local package is never touched by pi's updater**, so a tree pi
+loads as a local package cannot be mutated by pi. And **pi's own updater rewrites a git checkout
+in place**, so any checkout pi manages cannot be shared.
 
----
+### 2.1 What the first build did, and why it is withdrawn
 
-## 3. The Proposed Architecture
+`c402dd43` declared `.pi-shared-git`, a machine-scoped directory, and a `shared_directory` hook
+that made every workspace's `~/.pi/agent/git` a link to it. Every jail's pi then cloned into, and
+updated, one working copy per repository. That fails all three rulings:
 
-The design lifts Pi's user-scoped git extension storage into the machine-scoped storage tier
-alongside `.pi-shared-npm`.
+- **No winner ([OQ-3](#OQ-3)).** Workspace A's `@v1` and workspace B's `@v2` are one directory; the
+  last `pi update` decides which commit both run.
+- **No leakage ([OQ-4](#OQ-4)).** A's update runs `git reset --hard` and `git clean -fdx` in the
+  directory B's pi is running from, and B's extension has no `node_modules` for the whole install.
+- **A launch's own result ([OQ-2](#OQ-2)).** The first draft let a launch that found the refresh
+  lock held boot on whatever was installed.
+
+The interim, until this redesign is built, is the pre-`c402dd43` behavior: a per-workspace
+`~/.pi/agent/git`, cloned per workspace. It is slow, and it honors every ruling.
+
+## 3. The design — share content, never state
+
+### 3.1 The store
+
+A machine-scoped state directory of the pi pack, `.pi-git-store`, mounted read-write at
+`/home/agent/.pi-git-store` in every jail that selects pi:
 
 ```
-Host Store: ~/.local/share/yolo-jail/home/
-├── .pi-shared-npm/               (Machine-scoped npm modules)
-│   └── .yolo-update.lock         (Shared mutual exclusion lock)
-└── .pi-shared-git/               (Machine-scoped git checkouts)
-    └── github.com/
-        ├── mschulkind/pi-archimedes/ (.git + node_modules)
-        ├── mschulkind/pi-subagents/
-        └── Jawfish/pi-background-tasks/
-
-Jail Container: /home/agent/
-└── .pi/agent/                    (Workspace-scoped state)
-    ├── npm -> ../../.pi-shared-npm
-    ├── git -> ../../.pi-shared-git
-    ├── sessions/                 (Private to workspace)
-    └── settings.json
+.pi-git-store/
+├── mirrors/<repo-slug>.git        bare mirror per repository, fetch only
+├── trees/<commit>-<recipe>/       one extension at one commit, dependencies installed
+│   └── .yolo-tree-complete        written LAST; a tree without it does not exist
+├── tmp/                           builds in progress, renamed into trees/ when complete
+├── locks/                         mirror-<slug>.lock, tree-<key>.lock
+└── stamps/<repo-slug>/<ref>       time of the mirror's last successful fetch of that ref
 ```
 
-### 3.1 Storage Tier: `.pi-shared-git`
+It reuses `internal/packsrc`'s machinery, which already keeps a bare mirror per repository and a
+checkout per commit for git packs:
+- the mirror layout and slug;
+- the fetch flags: fsck on transfer, terminal prompts disabled, and git's inherited state
+  stripped;
+- the per-mirror lock;
+- the fetch stamp and its one-hour branch interval;
+- the reset of a moved tag after a launch-time fetch.
 
-We add a machine-scoped state declaration and symlink hook to `packs/pi/pack.json`:
+What differs: the dependency step, the recipe in the key, the build-then-rename, and the
+read-only finish. A tree is made read-only once complete (`chmod -R a-w`). That protects against
+an accidental write, not a hostile one. The store is writable by every pi jail, which is the same
+trust the npm store already extends; [§4](#4-invariants-and-done-conditions) states the limit.
 
-```json
-{
-  "at": ".pi-shared-git",
-  "because": "machine-wide store for Pi git extensions, avoiding redundant clones and drift across workspaces",
-  "kind": "state",
-  "scope": "machine"
-},
-{
-  "at": ".pi-shared-git",
-  "from": ".pi/agent/git",
-  "hook": "shared_directory",
-  "kind": "hook"
-}
+### 3.2 Pointing pi at a tree
+
+pi must load a tree without ever installing or updating it, so pi must see a **local** package.
+The jail's composed `~/.pi/agent/settings.json` therefore never contains a `git:` entry for a
+yolo-managed extension. Each is rewritten to a pointer path:
+
+```
+git:github.com/mschulkind/pi-archimedes@main
+  →  ~/.pi/agent/yolo-git/github.com/mschulkind/pi-archimedes/@main
 ```
 
-At container initialization, YOLO's entrypoint executes `linkThroughShared` (`sharedlink.go`):
-1. **Empty store initialization**: If `.pi-shared-git` is empty and an existing workspace contains
-   `~/.pi/agent/git`, the existing tree is copied into `.pi-shared-git` via `copyTreeIntoShared()`.
-2. **Shared store wins**: Once `.pi-shared-git` is populated, any workspace jail mounting it
-   replaces its local `~/.pi/agent/git` directory with a symlink pointing to `/home/agent/.pi-shared-git`.
-3. **Backend portability**:
-   - **Podman & Apple Container**: The host machine directory (`paths.GlobalHome() + "/.pi-shared-git"`)
-     is bind-mounted into the jail at `/home/agent/.pi-shared-git`.
-   - **macos-user**: Lives directly in the sandbox user home and is mirrored to sidecars via
-     `DeriveDarwinHomeLayout` (`darwinhomelayout.go`).
+The ref is encoded into the pointer's last path segment (`@main`, `@v1.2.0`, `@<sha>`, `@HEAD` when
+the entry names none; a `/` in a ref is escaped). So the pointer path is stable across commits, and
+the settings file's content moves only when the extension list moves.
 
-### 3.2 Execution Tier: Delta Updates via `git fetch`
+**Who rewrites.** The pi pack, through a new post-fold hook: `yolo.finalize("pi", "settings", fn)`
+in `packs/pi/derive.lua`. Core calls it on the fully folded document, after every layer and every
+`config-list` entry, and writes what it returns. It exists because a derive cannot do this: a
+derive writes the `computed` layer, which never sees the host layer or the user's captured edits,
+and replacing an array there would erase the user's list ([`pack-pi-resources.md` §2.3](pack-pi-resources.md#23-how-pis-packages-list-is-composed)
+found the same wall for appending). Core never parses pi's `git:` grammar. The pack does, in
+its own code, and emits pointer paths, which are yolo's grammar.
 
-With `~/.pi/agent/git` mapped to `.pi-shared-git`, the lifecycle behavior in Pi's
-`DefaultPackageManager` changes completely:
+**Scope.** Only the user-scope surface is rewritten. Project-scope `git:` entries in a repository's
+`.pi/settings.json` install under that workspace's own `.pi/git`, which no other jail sees, and pi
+keeps managing them itself. Local entries, `npm:` entries and the registrations of
+[`pack-pi-resources.md`](pack-pi-resources.md) pass through untouched.
 
-1. **First install on machine**:
-   - `!existsSync(targetDir)` is true only once per machine.
-   - Pi runs `git clone` into `.pi-shared-git` and builds dependencies via `npm install`.
-2. **Subsequent launches across ANY workspace**:
-   - `existsSync(targetDir)` is immediately true.
-   - During launcher pre-launch refresh (`pi update --extensions`):
-     - Pi calls `updateGit(source, scope)`.
-     - Pi detects existing checkout and runs `getLocalGitUpdateTarget()`.
-     - Executes `git fetch origin` for the configured branch or ref.
-     - Compares commit hashes: if no remote updates exist, Pi exits quickly (an estimated ~200 ms; unmeasured).
-     - If updates exist, Pi downloads only the delta packfile, resets `HEAD`, and refreshes
-       dependencies.
-3. **Subsequent workspace launches under throttled stamp (< 1 hour)**:
-   - Launcher skips pre-launch refresh.
-   - Pi's interactive `resolve()` sees `existsSync(installedPath) === true`.
-   - Pi loads extensions directly from disk (an estimated < 10 ms; unmeasured). Zero git commands
-     run. Zero network requests. **Unless the settings changed:** then the refresh is due at once
-     ([§3.4](#34-the-first-install-race)).
+**A user edit.** `pi install git:X` inside a jail writes `git:X` into the file and clones into the
+workspace's own `~/.pi/agent/git` for that session. Capture records the new entry as the user's.
+The next launch renders it as a pointer and resolves it like any other.
 
-### 3.3 Concurrency Tier: Cross-Jail Mutual Exclusion
+### 3.3 Resolving at launch
 
-Because all workspaces now write to the same `.pi-shared-git` directory, concurrent jail launches
-must not race during `git fetch`, `git reset`, or `npm install`.
+pi's pack declares one more pre-launch step, beside its existing refresh. The pi launcher runs it
+before every pi exec in the jail; nothing runs at boot. It invokes the in-jail `yolo` binary to
+read the pointers the rendered settings name and to resolve each one:
 
-1. **Reusing the pre-launch refresh lock**:
-   The launcher's pre-launch refresh (`prelaunchrefresh.go`) already executes `pi update --extensions`
-   under an atomic non-blocking directory lock:
-   `REFRESH_LOCK="$HOME/$REFRESH_LOCK_REL"` (currently `.pi-shared-npm/.yolo-update.lock`).
-   Because `pi update --extensions` reconciles both npm and git packages in a single command,
-   this single lock arbitrates all background package updates across all jails.
-2. **Non-blocking launch semantics**:
-   If Jail 2 launches while Jail 1 holds the refresh lock:
-   - Jail 2 logs an advisory message to `stderr`:
-     ```text
-     pi: another refresh holds ~/.pi-shared-npm/.yolo-update.lock — running what is installed.
-     ```
-   - Jail 2 skips the refresh and executes Pi immediately using the existing checkouts in
-     `.pi-shared-git`.
-3. **One exception to non-blocking, and why.** A launch that finds the lock held while its own
-   `~/.pi/agent/settings.json` content has never been refreshed with WAITS for the holder, bounded by
-   the launcher's `UPDATE_TIMEOUT` (60 s), then refreshes under the lock itself. Running pi straight
-   away would let pi install that content's new extensions outside the lock, into the store the
-   holder is writing ([§3.4](#34-the-first-install-race)). Every other held-lock launch still runs
-   what is installed, per [OQ-2](#OQ-2).
-4. **Incomplete update protection**:
-   When Pi updates a git checkout with new commits, it writes `.<name>.pi-update-incomplete` before
-   `git clean -fdx` and deletes it after `npm install` finishes.
-   If an update is interrupted (power loss, SIGKILL), Pi automatically detects the marker on the
-   next run and repairs dependencies (`repairMissingGitDependencies()`).
+1. **Fetch when due.** A branch or `HEAD` ref is due when its stamp is older than one hour, or when
+   the ref does not resolve in the mirror. A tag or a full commit is due only when it does not
+   resolve. A mirror that does not exist yet is cloned.
+2. **Resolve the ref to a commit** in the mirror. This is a local lookup that runs on every launch,
+   whether or not a fetch was due. So two launches at the same moment resolve the same commit from
+   the same mirror, and neither depends on which of them fetched.
+3. **Ensure the tree** for that commit and this jail's recipe exists, building it if not
+   ([§3.4](#34-building-a-tree)).
+4. **Repoint** the pointer at the tree: a new link beside the old one, renamed over it, so the
+   pointer is never missing or half-written.
 
-### 3.4 The first-install race
+Then pi execs. The per-machine stamp throttles only the network. A launch always re-resolves
+against the mirror as it is, including a fetch another jail made a minute ago. That is the
+result the launch would have produced by fetching itself.
 
-*Found while building; not in the first draft.* The pre-launch refresh is due only by its hourly
-stamp. Within the hour, an extension newly added to `~/.pi/agent/settings.json` is therefore
-installed by pi itself, at startup, with no lock. Per workspace that was harmless. With one shared
-`.pi-shared-git`, two jails launching together both run `installGit` for the same
-`<host>/<user>/<repo>`: the second `git clone` fails because the destination exists, and pi 0.87.1's
-error handler then runs `rmSync(targetDir, { recursive: true, force: true })`, deleting the first
-jail's checkout.
+### 3.4 Building a tree
 
-**The fix: a content-keyed refresh trigger.** The pack `refresh` declaration gains
-`due_on_change`, a list of home-relative files; pi declares `[".pi/agent/settings.json"]`
-([`pack-system.md`](../reference/pack-system.md#program)). The launcher keys the content of every
-listed file (an absent file counts as its own content) and keeps one marker per key beside the
-refresh stamp (`<stamps>/refresh/<bin>.seen/`). A key no refresh has succeeded for makes the
-refresh due at once, so the first install of a new extension runs under the lock. The three
-choices that make it work:
+A tree is built exactly as pi 0.87.1 would install the same commit, so an extension behaves the
+same as when pi installs it:
+1. A checkout of the commit from the mirror, in a fresh directory under `tmp/`.
+2. The dependency step, only if the checkout has a `package.json`. It is the settings'
+   `npmCommand` plus `install` when `npmCommand` is set, else `npm install --omit=dev`. The pi pack
+   declares where `npmCommand` lives and the default argv, so core runs a declared command rather
+   than knowing pi's settings.
+3. A completeness check: the checkout exists, and the dependency step exited 0.
+4. `chmod -R a-w`, then `.yolo-tree-complete`, then a rename to `trees/<commit>-<recipe>/`.
 
-- **Content, not mtime.** yolo rewrites `settings.json` on every boot, so its mtime moves when
-  nothing changed.
-- **One marker per key, not per workspace.** Two workspaces with different settings each refresh
-  once and then stop. A single "last content" record would have them take turns forever.
-- **Success only.** A refresh that exits non-zero records nothing, so the change stays due and the
-  next launch retries under the lock. A store that cannot be locked at all records the key, like
-  the stamp it already writes, so a missing mount warns hourly rather than every launch.
+**The recipe key** is a hash of the dependency argv as configured, the output of `node --version`
+run under that argv's environment, and the OS and architecture. So a jail running `mise exec
+node@24` and a jail on node 22 never share native modules, and two jails with the same recipe
+always do.
 
-The second window is a launch that finds the lock HELD for content it has never refreshed with.
-It waits (the one exception to non-blocking, [§3.3](#33-concurrency-tier-cross-jail-mutual-exclusion)),
-because the holder is plausibly installing exactly that content. After `UPDATE_TIMEOUT` it gives up
-and runs what is installed, so a wedged holder costs one bounded wait and cannot hang a launch.
+A build that fails deletes its `tmp/` directory and leaves no tree. A rename that finds the tree
+already present, because another launch finished the same key first, discards its own copy and
+uses the existing one: the two are identical by key.
 
-**What it does not close.** A holder that dies mid-clone leaves its lock until `STALE_LOCK`
-(600 s); a launch in that window waits 60 s, then runs pi, which may race whatever the dead holder
-left. That needs a crashed launcher AND a new extension AND a launch within ten minutes of each
-other.
+### 3.5 Locks, waits and bounds
 
----
-
-## 4. Invariants and Failure Modes
-
-### 4.1 Invariants
-
-* **I1. Single active checkout per git URL in user scope.** All workspaces sharing user configuration
-  share the single repository checkout in `.pi-shared-git`.
-* **I2. Workspace isolation for project packages.** Project-scoped packages (`scope: "project"`,
-  configured in `.pi/settings.json`) install strictly to `<workspace>/.pi/git/` and are never shared
-  or linked to `.pi-shared-git`.
-* **I3. Non-blocking launch priority.** Updating extensions must never block jail startup. A held lock
-  or network failure must result in running the installed version.
-* **I4. Migration without data loss.** Existing checkouts in legacy workspace homes must be safely
-  copied to `.pi-shared-git` on first boot before symlinking.
-
-### 4.2 Failure Mode Matrix
-
-| Failure Mode | Detection | System Behavior | User Impact |
+| Lock | Held for | Bound on the holder | A second launch that finds it held |
 | :--- | :--- | :--- | :--- |
-| **Offline startup** | `git fetch` times out / fails network resolution | Pi catches network error; exits update step; launcher logs warning; Pi boots | Pi boots immediately using existing checkouts. No retry for 1 hour. |
-| **Contended launch during git update** | Refresh lock held by another jail | Launcher skips pre-launch refresh; execs Pi immediately | Second jail boots in <1s. If target checkout is mid-update, Pi reports load diagnostic and continues. |
-| **Corrupted git checkout in shared store** | `.git` index lock or broken object | `git fetch` returns non-zero; Pi update catches error | Other extensions load normally; error reported to stderr. |
-| **Interrupted git update (timeout / crash)** | `.<name>.pi-update-incomplete` marker present | On next run, Pi detects marker and runs `cleanAndInstallGitDependencies` | Self-healing on subsequent launch. |
-| **Two jails first-install one new extension at once** | settings content never refreshed with | The change is due; the first launch refreshes under the lock, the second waits for it (bounded), then finds the content recorded ([§3.4](#34-the-first-install-race)) | One clone, no deleted checkout |
-| **An update runs under a live session in another jail** | upstream moved; `git reset --hard`, `git clean -fdx`, `npm install` in the shared checkout | The other jail's pi keeps running on files that change under it, and its extension has no `node_modules` until the install ends | [OQ-4](#OQ-4) |
-| **Conflicting branch refs in user scope** | Workspaces specify different `@ref` for same repo | Last workspace to run update resets shared working tree to its configured ref | Handled via [OQ-3](#OQ-3); project-scoped packages are the clean boundary. |
+| `mirror-<slug>` | clone or fetch | 60 s, the launch-time fetch timeout | waits while the holder's heartbeat is fresh, at most the holder's bound plus one heartbeat, then re-resolves from what the holder left |
+| `tree-<key>` | one tree's build | 600 s | waits the same way, then uses the tree the holder completed |
 
----
+Locks are directories with a heartbeat every 60 s, the pre-launch refresh lock's shape. A lock with
+no heartbeat for 600 s is stale and may be taken over. A waiter announces the wait on stderr, naming
+the extension and what it is waiting for, because a launch parked in silence reads as a hang.
 
-## 5. Alternatives Considered
+**When the holder fails**, the waiter does not inherit the failure. It retries the step once itself.
+So a launch's result is its own even when another launch's build broke ([OQ-2](#OQ-2)).
 
-### Alternative A: Bare git mirrors with workspace-local checkouts via `--reference`
+### 3.6 Failure paths
 
-* **Shape**: Maintain bare repositories in a machine-scoped cache (`~/.cache/git-mirrors/<repo>.git`).
-  Each workspace keeps its own checkout in `<workspace>/.pi/agent/git/` cloned with
-  `git clone --reference ~/.cache/git-mirrors/...`.
-* **Verdict**: **Rejected**.
-  1. *Requires vendor patching*: Pi's `package-manager.js` hardcodes `git clone <repo> <dir>`.
-     Pi provides no hook or flag to pass `--reference`.
-  2. *Duplicate disk & CPU overhead*: Every workspace would still contain a separate `node_modules`
-     directory and would still run `npm install` on startup. 4 extensions across 5 workspaces
-     would still result in 20 separate `node_modules` installations.
-  3. *Cross-workspace drift*: Updating an extension in Workspace A leaves Workspace B stale.
+The rule, from [OQ-2](#OQ-2): **a launch that cannot get what its config calls for does not start pi
+on something else.** It stops before exec with one message naming the extension, the step that
+failed, the build log's path, and the remedies (retry, or pin or remove the extension in settings).
+The jail and its shell stay up.
 
-### Alternative B: Git wrapper shim injecting shallow clone flags (`--depth 1`)
+| Failure | What the launch does |
+| :--- | :--- |
+| Offline; the mirror holds the ref | Warns that the fetch failed and resolves from the mirror as it is |
+| Offline; no mirror, or the ref does not resolve | Stops before exec, naming the fetch error |
+| The dependency step fails (network, a broken `package.json`, a native build) | Stops before exec. No tree is created, so the next launch retries |
+| Disk full during a fetch or build | As the failed step above. The `tmp/` build is removed |
+| A tree deleted or damaged after completion | Not detected per launch: the marker is trusted. pi reports the extension's load error. [§4](#4-invariants-and-done-conditions) states the limit |
+| A crashed holder | Its lock goes stale after 600 s; a waiter then takes over |
 
-* **Shape**: Deploy a `git` shim in the jail that intercepts `git clone` calls from Pi and injects
-  `--depth 1 --single-branch`.
-* **Verdict**: **Rejected**.
-  1. *Fragile argument parsing*: Shimming core utilities like `git` inside the jail risks breaking
-     other developer workflows.
-  2. *Solves the wrong problem*: Shallow cloning speeds up the network download from 10s to 3s,
-     but does not solve the 30s `npm install` cycle, disk duplication, or cross-workspace drift.
-  3. *Breaks commit-pinned extensions*: Shallow clones break checkouts pinned to historical commit
-     SHAs not at branch heads.
+### 3.7 Running sessions and moving pointers
 
-### Alternative C: YOLO-managed package resolution (`internal/packsrc`)
+A pointer moves only on its own workspace's launch; no other jail can see it. Within one jail, a
+second pi launched while a first is running may repoint an extension. The first pi keeps its old
+tree: Node resolves a module's symlinks to its real path when it loads it, and anything it loads
+later resolves relative to that real path. So the old tree, which is immutable, stays what the
+first session reads. This is INFERRED from Node's default symlink handling
+(`preserveSymlinks: false`) and pi's loader; it is not measured.
 
-* **Shape**: YOLO resolves git extension versions on the host, records commit SHAs in
-  `packs.lock.json`, and stages read-only trees into the jail.
-* **Verdict**: **Deferred to future milestone**.
-  While this matches [Alternative D](pi-extension-lifecycle.md#alternative-d-resolve-and-pin-through-yolos-existing-pack-source-store)
-  in [`pi-extension-lifecycle.md`](pi-extension-lifecycle.md), building a custom git resolver and lockfile system for Pi
-  is a Heavy track project. Lifting `~/.pi/agent/git` into machine storage delivers immediate
-  95%+ startup latency reduction using existing, proven mechanisms (`shared_directory`).
+### 3.8 Garbage collection
 
-### Alternative D: Machine-scoped `.pi-shared-git` via `shared_directory` hook
+Every launch touches `.yolo-last-used` in each tree it points at and in each mirror it resolves
+from. `yolo prune --apply` is the only reaper, and nothing reaps automatically in this design:
+- a tree unused for 14 days is removed;
+- a mirror with no tree left and unused for 14 days is removed;
+- a `tmp/` build older than one day is removed, since no build outlives its 600 s bound.
 
-* **Shape**: Declare `.pi-shared-git` as `scope: "machine"` in `packs/pi/pack.json` with a
-  `shared_directory` hook pointing from `.pi/agent/git`.
-* **Verdict**: **Chosen**. Reuses existing entrypoint infrastructure, requires zero changes to
-  Pi vendor code, eliminates duplicate disk usage, and turns cold clones into fast `git fetch`
-  updates.
+This is an age rule, not a liveness rule. [`image-retention.md`](../reference/image-retention.md)
+lets each reaper choose, and this one can afford to: a reaped tree costs one rebuild, never a
+wrong result. The one exposure is a pi session running for more than 14 days without a relaunch
+that then loads a file lazily. That is stated here rather than engineered away.
 
----
+### 3.9 Notches and backends
 
-## 6. Open Questions
+- **Podman and Apple Container:** the store is a bind-mounted machine directory, as the npm store is.
+- **macos-user:** the store lives in the sandbox account's machine tier, as the npm store does
+  (`DeriveDarwinHomeLayout`), and the launcher is the same. UNVERIFIED: no Mac has run it.
+- **`yolo host`:** no rewrite. `yolo.finalize` sees the notch and leaves `git:` entries alone. pi
+  runs in the user's own home, manages its own git packages, and shares nothing with any jail.
 
-1. 💬 **OQ-1: Lock directory location for combined npm and git refresh.**
-   Should the pre-launch refresh lock remain at `.pi-shared-npm/.yolo-update.lock` or move to
-   a neutral store path?
+### 3.10 Migration from what `c402dd43` shipped
 
-   <!-- vantage: oq id=OQ-1 leaning="Keep .pi-shared-npm/.yolo-update.lock — pi update --extensions reconciles both npm and git in one process, so the existing lock path serializes both with zero code changes." -->
+**The revert:**
+- `packs/pi/pack.json` drops the `.pi-shared-git` state and its `shared_directory` hook.
+- `internal/entrypoint/shareddirgit_test.go` goes with the hook.
+- `internal/packload/packproperties_test.go`'s `TestMachineGlobalTierStaysNarrow` drops
+  `.pi-shared-git` from its list, along with the comment that explains it.
+- `internal/cli/run/homeskeleton_test.go` may keep `.pi-shared-git` in its "must be absent" list,
+  where it stays true.
+- `due_on_change` stays ([§3.12](#312-the-refresh-trigger-that-stays)).
 
-   _Leaning:_ Keep `.pi-shared-npm/.yolo-update.lock`. The `pi update --extensions` command updates
-   both npm and git packages in a single execution. The launcher already locks on
-   `.pi-shared-npm/.yolo-update.lock` before spawning the process. Renaming or splitting the lock
-   would require changing `packdecl.Refresh` and `prelaunchrefresh.go` for zero functional gain.
+**Existing homes.** Every workspace that booted with `c402dd43` has a `~/.pi/agent/git` link to
+`/home/agent/.pi-shared-git`, which nothing mounts after the revert. The next boot removes that
+link when its target is exactly the retired store, and leaves any other link or directory alone.
+pi recreates the directory when it next needs it. The mechanism is the implementer's choice, for
+example a retired-hook entry in the shared-directory hook machinery.
 
-   *Built on the leaning, provisionally, 2026-09-25; the ruling is still owed.* The shared lock
-   is unchanged, and it now serializes the git store's refresh too.
+**The machine directory.** `.pi-shared-git` on the host is left in place, per the move-over-delete
+rule. `yolo check` and `yolo stores` report it as retired, and `yolo prune --apply` reclaims it. Its
+checkouts do not seed the new mirrors: a jail no longer mounts it, so each repository is cloned once
+more per machine.
+
+### 3.11 The npm store
+
+`.pi-shared-npm` is one mutable npm prefix shared by every pi jail, so it has the same fault. A
+`pi update` in one jail replaces package files under another jail's running session, which is
+[OQ-4](#OQ-4)'s leakage. Two jails pinning different versions of one package share one
+`node_modules/<name>`, which is [OQ-3](#OQ-3)'s winner. The same shape fixes it: one tree per
+package at a resolved version and recipe, `npm:` entries rewritten to pointers, and yolo resolving
+versions. pi's own `pi update` would then have nothing left to touch in a jail. Whether that is done
+now is [OQ-5](#OQ-5).
+
+### 3.12 The refresh trigger that stays
+
+`c402dd43`'s `due_on_change` makes pi's pre-launch refresh due whenever the settings content
+changed since the last successful refresh, keyed per content
+([`pack-system.md`](../reference/pack-system.md#program)). Git extensions no longer need it: pi
+never installs them. It still serves the npm store until [OQ-5](#OQ-5) is ruled and built, because
+an npm package newly added within the hour would otherwise be installed by pi's own startup,
+unlocked. It is independent of the store's shape, so it stays either way.
+
+## 4. Invariants and done conditions
+
+**Invariants.**
+- **I1.** No file a jail reads is changed by another jail. Trees are immutable; only pointers move,
+  and only in their own workspace.
+- **I2.** Two jails naming the same commit and recipe share one tree; two naming different ones
+  never do.
+- **I3.** A launch either runs pi on exactly the trees its config resolves to, or stops before exec
+  and names why.
+- **I4.** pi never clones, fetches or updates a yolo-managed git extension.
+- **Limit.** A hostile agent in one jail can still write into the shared store: read-only trees stop
+  accidents, not an attacker. The npm store has the same exposure today.
+
+**Done looks like:**
+- A second workspace launching pi with the same git extensions clones nothing. `.pi-git-store/trees/`
+  has one entry per extension, and `~/.pi/agent/yolo-git/…` links resolve into it.
+- Workspace A pins `@v1` and workspace B pins `@v2` of one extension; each runs its own version, and
+  `trees/` holds both.
+- An upstream moves while a pi session runs in workspace A. Workspace B's next launch builds a new
+  tree and repoints B's pointer; A's session's files are byte-identical before and after.
+- Two jails launched together on a new extension: one builds, the other announces a wait and then
+  uses the same tree. `trees/` has exactly one entry for it.
+- A broken dependency build stops the launch with the extension's name and the build log's path,
+  and pi does not start.
+- `~/.pi/agent/settings.json` in a jail contains no `git:` entry for a user-scope extension, and
+  `pi update --extensions` changes nothing under `.pi-git-store`.
+
+## 5. Alternatives
+
+| Alternative | Verdict |
+| :--- | :--- |
+| **One shared checkout per repository** (`.pi-shared-git`, what `c402dd43` built) | **Withdrawn** by [OQ-2](#OQ-2)–[OQ-4](#OQ-4) ([§2.1](#21-what-the-first-build-did-and-why-it-is-withdrawn)) |
+| **Per-workspace clones via `git clone --reference` a shared mirror** | **Rejected.** pi hard-codes its `git clone`; there is no flag to pass. It also shares no `node_modules` |
+| **A `git` shim adding `--depth 1`** | **Rejected.** It breaks commit pins and saves the download, not the dependency build |
+| **Trees as git worktrees of the mirror, loaded through pi's own git path** | **Rejected.** pi's updater would `git fetch` and `reset --hard` inside a shared worktree: the same leakage |
+| **A read-only tree linked at pi's own `~/.pi/agent/git/<host>/<path>`** | **Rejected.** `pi update --extensions` still runs `updateGit` on every git entry, fails on the read-only tree, and makes the pre-launch refresh fail every hour |
+| **Core rewriting `git:` entries itself** | **Rejected.** Core would parse a vendor's grammar; the pack does it in `yolo.finalize` ([§3.2](#32-pointing-pi-at-a-tree)) |
+| **Immutable trees, pointers, local packages** | **Chosen** |
+
+## 6. Open question
+
+1. 💬 <a id="OQ-5"></a>**[OQ-5](#OQ-5): does the npm store move to the same shape now?**
+   [§3.11](#311-the-npm-store): `.pi-shared-npm` breaks [OQ-3](#OQ-3) and [OQ-4](#OQ-4) in the same
+   way the git store did, and it is live today. The earlier ruling that shared it
+   ([`pi-extension-lifecycle.md` OQ-1](pi-extension-lifecycle.md#OQ-1), *"one version instead of N that
+   drift"*) predates the no-winner ruling, and the two now pull apart for any pinned version.
+   - **(a)** Extend this design to `npm:` entries now: one mechanism, and pi's updater touches
+     nothing in a jail. The largest build, and pi's pre-launch refresh then has nothing to do.
+   - **(b)** Ship git first and give npm its own follow-up; npm stays leaky until then.
+   - **(c)** Unshare the npm store for now (per-workspace prefixes). No leakage, at the cost of a
+     full npm install per workspace until (a).
+
+   _Leaning:_ **(a)**, sequenced git first then npm inside one build. The rulings apply to npm
+   exactly as they do to git, and a second mechanism for the same property is the drift this repo
+   keeps paying for.
+
+   <!-- vantage: oq id=OQ-5 leaning="(a): extend the immutable-tree design to npm entries now, sequenced git first then npm in one build. The rulings apply to npm exactly as to git, and two mechanisms for one property is drift." -->
 
    **Answer:**
    > _(empty — fill in when decided)_
-
-2. 💬 **OQ-2: Handling the contended launch window during git dependency rebuilds.**
-   When Jail 1 acquires the refresh lock and fetches a new commit, Pi runs `git reset --hard`,
-   `git clean -fdx`, and `npm install` in `.pi-shared-git`. If Jail 2 launches during this
-   multi-second window, should it wait or proceed?
-
-   <!-- vantage: oq id=OQ-2 leaning="Proceed immediately (non-blocking) — launch priority outranks updates. The update window is brief, and Pi logs an advisory load diagnostic without crashing." -->
-
-   _Leaning:_ Proceed immediately (non-blocking launch). Invariant 4.1.3 dictates that jail startup
-   never blocks on extension updates. The rebuild window opens only when upstream repositories
-   have new commits (infrequent), and lasts only 2–4 seconds. If a second jail starts in that
-   exact window, Pi reports an extension load error for that session, while the agent session itself
-   boots cleanly.
-
-   *Built on the leaning, provisionally, 2026-09-25; the ruling is still owed.* One refinement
-   was forced by [§3.4](#34-the-first-install-race): a launch whose settings content has never
-   been refreshed with waits for a held lock, bounded by `UPDATE_TIMEOUT`, because proceeding
-   lets pi's own unlocked install race the holder. Every other held-lock launch proceeds.
-
-   **Answer:**
-   > _(empty — fill in when decided)_
-
-3. 💬 **OQ-3: Handling multi-workspace ref conflicts in user scope.**
-   What is the defined behavior if Workspace A configures `git:github.com/foo/bar@v1` and
-   Workspace B configures `git:github.com/foo/bar@v2` in global settings?
-
-   <!-- vantage: oq id=OQ-3 leaning="Last-writer-wins in .pi-shared-git for user scope; workspaces requiring conflicting versions must use project scope (.pi/settings.json)." -->
-
-   _Leaning:_ Last-writer-wins in `.pi-shared-git` for user scope. Extensions declared in
-   `~/.pi/agent/settings.json` are global user tools. This matches the maintainer's ruling on
-   [`pi-extension-lifecycle.md`](pi-extension-lifecycle.md) [`OQ-1`](pi-extension-lifecycle.md#OQ-1) for npm packages: user-level extensions are shared capabilities
-   where drift is avoided. Workspaces that genuinely require different branches or pins must declare
-   them in project scope (`.pi/settings.json`), which installs to `<workspace>/.pi/git` without
-   touching the shared machine store.
-
-   *Built on the leaning, provisionally, 2026-09-25; the ruling is still owed.* Nothing prevents
-   the conflict; the last refresh to run sets the shared checkout's ref.
-
-   **Answer:**
-   > _(empty — fill in when decided)_
-
-4. 💬 <a id="OQ-4"></a>**OQ-4: Is an update under a live session in another jail acceptable for
-   git, as it is for npm?** When upstream moves, pi's `updateGit` runs `git reset --hard`, then
-   `git clean -fdx` (which deletes the extension's `node_modules`), then `npm install`, in the one
-   shared checkout. A pi session running in another jail keeps the extension's already-loaded
-   modules, but any file it loads later changes under it, and during the install the extension
-   has no dependencies at all. The npm store makes the same trade in kind: an update replaces a
-   package under running sessions. **It is worse in degree for git:** npm replaces a package's
-   files, while `git clean -fdx` empties the dependency tree for the whole `npm install`, seconds
-   to a minute. Stakes: a mid-session extension failure in a jail the user is not looking at,
-   once per upstream move, at most hourly per the stamp.
-
-   (a) Accept it, as the npm store does, and say so. (b) Refresh only when no other pi session is
-   live, which yolo cannot see across jails without new machinery. (c) Stop sharing git checkouts
-   and keep only the fetch saving, which gives up the store.
-
-   _Leaning:_ (a). The window opens only when an upstream moved, and the npm store already
-   accepted the same class. The difference in degree is stated rather than hidden.
-
-   <!-- vantage: oq id=OQ-4 leaning="(a): accept it, as the npm store does, and state that git is worse in degree because git clean -fdx empties node_modules for the whole npm install." -->
-
-   **Answer:**
-   > _(empty — fill in when decided)_
-
----
 
 ## 7. Decision Ledger
 
 | ID | Ruling / Decision | Date | Settled in | Built |
 | :--- | :--- | :--- | :--- | :--- |
-| **OQ-1** | Retain `.pi-shared-npm/.yolo-update.lock` as the single refresh lock | — | [§6](#6-open-questions) | — |
-| **OQ-2** | Non-blocking launch during git dependency rebuilds | — | [§6](#6-open-questions) | — |
-| **OQ-3** | Last-writer-wins for user scope; project scope for isolated pins | — | [§6](#6-open-questions) | — |
-| **OQ-4** | An update under a live session in another jail: accepted as for npm? | — | [§6](#6-open-questions) | — |
+| <a id="OQ-1"></a>[**OQ-1**](#OQ-1) | The refresh lock's location: **an implementation decision**, not the maintainer's (*"an implementation decision I don't need to comment on"*). This design's locks are [§3.5](#35-locks-waits-and-bounds)'s | 2026-09-25 | [§3.5](#35-locks-waits-and-bounds) | — |
+| <a id="OQ-2"></a>[**OQ-2**](#OQ-2) | **A launch's result never depends on other launches.** It waits for the update it needs and gets what its config calls for; it never boots on another launch's leftovers (*"what you get in a launch should not depend on the state of other launches"*). Overturns the non-blocking leaning and the first draft's P4 | 2026-09-25 | [§1](#1-principles) P2, [§3.5](#35-locks-waits-and-bounds), [§3.6](#36-failure-paths) | — |
+| <a id="OQ-3"></a>[**OQ-3**](#OQ-3) | **No winner.** Jails pick their own versions (*"You can't have one jail's configuration impact another"*) | 2026-09-25 | [§1](#1-principles) P3, [§3.3](#33-resolving-at-launch) | — |
+| <a id="OQ-4"></a>[**OQ-4**](#OQ-4) | **No leakage of effects between jails**; sharing and efficiency yes (*"something has to change about your design"*) | 2026-09-25 | [§1](#1-principles) P1, [§3.1](#31-the-store) | — |
+| PG-D1 | *Implementation decision.* Trees keyed by commit plus recipe, built in `tmp/` and renamed, read-only after completion | 2026-09-25 | [§3.4](#34-building-a-tree) | — |
+| PG-D2 | *Implementation decision.* pi sees each tree as a **local package** through a stable per-workspace pointer, rewritten by the pi pack's `yolo.finalize` post-fold hook, user scope only, never at the host notch | 2026-09-25 | [§3.2](#32-pointing-pi-at-a-tree) | — |
+| PG-D3 | *Implementation decision.* Resolution runs in the pi launcher before every exec; the fetch is throttled per mirror (one hour for branches, never for resolving tags or commits), the resolution is not | 2026-09-25 | [§3.3](#33-resolving-at-launch) | — |
+| PG-D4 | *Implementation decision.* Fetch bound 60 s, build bound 600 s, heartbeat locks with 600 s staleness; a waiter retries a failed step once itself | 2026-09-25 | [§3.5](#35-locks-waits-and-bounds) | — |
+| PG-D5 | *Implementation decision, from [OQ-2](#OQ-2).* A launch that cannot get its trees stops before exec, naming the extension and the log; offline with a resolvable mirror proceeds with a warning | 2026-09-25 | [§3.6](#36-failure-paths) | — |
+| PG-D6 | *Implementation decision.* Garbage collection by last use, 14 days, only through `yolo prune --apply` | 2026-09-25 | [§3.8](#38-garbage-collection) | — |
+| PG-D7 | *Implementation decision.* Revert `c402dd43`'s shared hook; remove the dangling `~/.pi/agent/git` link; keep `due_on_change`; no seeding from the retired store | 2026-09-25 | [§3.10](#310-migration-from-what-c402dd43-shipped) | — |

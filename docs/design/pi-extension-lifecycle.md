@@ -259,8 +259,10 @@ transitive MCP/LSP step runs `yolo internal refresh-servers` before the agent's 
 >   ⚠ **The stamp also throttles what the refresh reaches outside that store.**
 >   `pi update --extensions` reads its package list from `~/.pi/agent/settings.json` and a
 >   project's `.pi/settings.json`. It also updates the git packages under `~/.pi/agent/git`,
->   which since 2026-09-25 is a machine-shared store too (`.pi-shared-git`,
->   [`pi-git-extension-caching.md`](pi-git-extension-caching.md)). The package lists still live
+>   which is per-workspace. (It was a machine-shared `.pi-shared-git` for part of 2026-09-25; the
+>   no-leakage rulings withdrew that, and the redesign in
+>   [`pi-git-extension-caching.md`](pi-git-extension-caching.md) moves yolo-managed git packages
+>   to immutable per-commit trees pi never updates.) The package lists still live
 >   in the workspace-scoped `~/.pi`. So a refresh in one workspace suppresses every other
 >   workspace's refresh for the next hour, **except** that a changed package list is now due at
 >   once: the refresh declares `due_on_change: [".pi/agent/settings.json"]`, keyed on content
