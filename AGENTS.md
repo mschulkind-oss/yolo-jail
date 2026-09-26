@@ -488,6 +488,29 @@ in the workspace's own overlay, `<workspace>/.yolo/home/`, under `copilot/` and 
 the leading dot stripped) and on macos-user (the account home's links point there), and under `.copilot/` and
 `.claude/` on Apple Container, which binds that directory whole at `/home/agent`.
 
+## The changelog is the release
+
+**[`CHANGELOG.md`](CHANGELOG.md)'s section for a version IS its GitHub release body, word for word**,
+and `just release <version>` is the one path to a tag: rename `[Unreleased]` to
+`[<version>] - <YYYY-MM-DD>` and commit that first, and the recipe refuses a bad version, a dirty tree,
+an existing tag, a HEAD origin cannot see, or a section
+[`scripts/changelog-section.sh`](scripts/changelog-section.sh) rejects. That script is the gate
+everywhere — `just release`, `release.yml` and `publish.yml` all run it, and `just check-ci` runs its
+tests — and it refuses a missing, empty or placeholder section, filler ("various improvements",
+"under the hood") and a list of commit subjects. There is no hatch, because a tag is never moved: a bad
+release is fixed by the next one. What the script cannot judge is who the section is written for:
+
+- **A line needs two yeses**: could a reader who never opens the repository notice it, and did what it
+  fixes ship in a published version? A fix to something added in the same cycle folds into that
+  feature's paragraph. Refactors, tests, dependency bumps, CI and internal docs never get a line.
+- **Write to the user, in their terms**: what they can now do, see or stop working around. No commit
+  hashes, PR numbers, package names or file paths; a repository-relative doc link is fine, since
+  `release.yml` pins it to the tag.
+- **Prose for a feature, a bullet for an unrelated fix**, under `### Added`, `### Changed` and
+  `### Fixed`; a number only where a test or a constant pins it.
+- An old minor line's retrospective section is headed `## 0.9.x`. A heading that spells a full version
+  is one the extractor will publish.
+
 ## Workflow
 
 **The `Workers Builds: yolo-jail` check is Cloudflare's.** Its build command (`bash scripts/build-site.sh`) and deploy command (`npx wrangler deploy --config docs-wrangler.toml`) live in the Cloudflare dashboard, not this repository. Renaming the script without updating that dashboard command leaves the site stale and the check red. Workers Builds is the only docs deployer; `docs.yolo-jail.mschulkind.dev` is attached in the dashboard, not by a second deploy script.
