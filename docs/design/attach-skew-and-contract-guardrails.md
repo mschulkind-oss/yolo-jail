@@ -22,7 +22,7 @@ container's older mounted binaries do not possess.
 
 **The shape.** A three-layer guard: (1) capability advertising in the container's
 inspect environment, (2) a pre-attach capability compatibility check in
-[`deliverChannelOnAttach`](file:///workspace/internal/cli/run/run.go#L1862), and
+[`deliverChannelOnAttach`](../../internal/cli/run/run.go), and
 (3) automated remediation (interactive restart prompt in a TTY, loud refusal in CI,
 and safe feature degradation in pack rendering).
 
@@ -71,7 +71,7 @@ On 2026-09-26, launching Antigravity via `yolo -- agy` in an active workspace
      Full logs at: /home/agent/.gemini/antigravity-cli/log/cli-20260926_104613.log
 ```
 
-The statusline implementation in [`internal/footer`](file:///workspace/internal/footer/footer.go)
+The statusline implementation in [`internal/footer`](../../internal/footer/footer.go)
 was completely healthy. In a freshly launched jail, running the exact command
 succeeded with code 0:
 
@@ -111,8 +111,8 @@ sequenceDiagram
 1. **2026-09-24**: Container `yolo-backplane-d78933d7` was started. Its `/opt/yolo-jail/bin`
    mount pinned the Linux binaries from bundle generation G1. At this time, `yolo internal`
    had no `footer` subcommand.
-2. **2026-09-25**: Commits [`ce31884e`](file:///workspace/internal/cli/internal.go#L41)
-   and [`c0e7728e`](file:///workspace/packs/agy/pack.json#L49) landed on the host, adding
+2. **2026-09-25**: Commits [`ce31884e`](../../internal/cli/internal.go)
+   and [`c0e7728e`](../../packs/agy/pack.json) landed on the host, adding
    `yolo internal footer` and updating the default statusline across Claude, Antigravity,
    and Copilot. The host ran `just install`, activating generation G2.
 3. **2026-09-26**: The user executed `yolo -- agy` in `backplane`.
@@ -120,7 +120,7 @@ sequenceDiagram
    - The host launcher ran `stageRunPacks(cname)`, copying the **newest** pack manifests
      (G2) from the host into the workspace's `/ctx/packs`.
    - The host identified that container `yolo-backplane-d78933d7` was already running and
-     diverted to [`attachExisting`](file:///workspace/internal/cli/run/run.go#L1777).
+     diverted to [`attachExisting`](../../internal/cli/run/run.go).
    - It printed a single dim yellow line on stderr:
      `⚠ This jail runs yolo 0.10.0+...; this launcher is 0.10.0+483...`
    - It invoked `podman exec ... /opt/yolo-jail/bin/yolo-entrypoint agy`.
@@ -144,12 +144,12 @@ caught or prevented this breakage:
 
 | Gate | Where it lives | What it compares | Why it was blind to this incident |
 | :--- | :--- | :--- | :--- |
-| **`SourceSkew`** | [`internal/version/srcskew.go`](file:///workspace/internal/version/srcskew.go) | Host binary vs source tree | Only runs when developing against a live git checkout (`YOLO_REPO_ROOT`). The host was running an installed binary against a distinct workspace. |
-| **`ImageSkew`** | [`integration/imageskew_test.go`](file:///workspace/integration/imageskew_test.go) | OCI base image hash vs nix eval | Guards the base NixOS layer (packages, glibc, systemd-free init). The prefix `/opt/yolo-jail` is mounted, not baked in the image. |
-| **`AttachSkew`** | [`internal/cli/run/attachskew.go`](file:///workspace/internal/cli/run/attachskew.go) | Host binary version vs container's baked `YOLO_VERSION` | By design ([`39b7b7a7`](file:///workspace/internal/cli/run/attachskew.go#L5-L25)), it is **informational only** ("ONE DIM LINE, never a refusal"). Furthermore, printing to stderr before a full-screen curses/TUI exec is completely invisible. |
-| **`ChannelDelivery`** | [`internal/cli/run/run.go:1907`](file:///workspace/internal/cli/run/run.go#L1907) | Profile/provider environment against container's frozen `YOLO_PROVIDERS` | Checks only credential pointer collisions and un-hydrated provider keys. Does not inspect CLI subcommands or pack capabilities. |
+| **`SourceSkew`** | [`internal/version/srcskew.go`](../../internal/version/srcskew.go) | Host binary vs source tree | Only runs when developing against a live git checkout (`YOLO_REPO_ROOT`). The host was running an installed binary against a distinct workspace. |
+| **`ImageSkew`** | [`integration/imageskew_test.go`](../../integration/imageskew_test.go) | OCI base image hash vs nix eval | Guards the base NixOS layer (packages, glibc, systemd-free init). The prefix `/opt/yolo-jail` is mounted, not baked in the image. |
+| **`AttachSkew`** | [`internal/cli/run/attachskew.go`](../../internal/cli/run/attachskew.go) | Host binary version vs container's baked `YOLO_VERSION` | By design ([`39b7b7a7`](../../internal/cli/run/attachskew.go)), it is **informational only** ("ONE DIM LINE, never a refusal"). Furthermore, printing to stderr before a full-screen curses/TUI exec is completely invisible. |
+| **`ChannelDelivery`** | [`internal/cli/run/run.go:1907`](../../internal/cli/run/run.go) | Profile/provider environment against container's frozen `YOLO_PROVIDERS` | Checks only credential pointer collisions and un-hydrated provider keys. Does not inspect CLI subcommands or pack capabilities. |
 
-The crucial flaw in [`attachskew.go`](file:///workspace/internal/cli/run/attachskew.go)
+The crucial flaw in [`attachskew.go`](../../internal/cli/run/attachskew.go)
 was the premise that *any* version difference between host and jail is benign enough
 to ignore:
 
@@ -228,7 +228,7 @@ Instead of treating `YOLO_VERSION` as an opaque string, `yolo` must track concre
 contract capabilities.
 
 A jail's capabilities are determined at container creation and baked into its environment
-(e.g., in `commonEnvBlock` in [`internal/cli/run/assemble.go`](file:///workspace/internal/cli/run/assemble.go#L1030)):
+(e.g., in `commonEnvBlock` in [`internal/cli/run/assemble.go`](../../internal/cli/run/assemble.go)):
 
 ```bash
 YOLO_VERSION=0.10.0+483.g74d830f2
@@ -244,7 +244,7 @@ matrix (e.g. `version >= 0.10.0+480` implies `internal-footer`).
 When a pack manifest or internal surface introduces a dependency on a yolo binary feature,
 it declares what capability it requires.
 
-For example, in [`packs/agy/pack.json`](file:///workspace/packs/agy/pack.json):
+For example, in [`packs/agy/pack.json`](../../packs/agy/pack.json):
 
 ```jsonc
 {
@@ -272,7 +272,7 @@ For example, in [`packs/agy/pack.json`](file:///workspace/packs/agy/pack.json):
 
 ### Layer 3: Pre-Attach Capability Gate
 
-During [`attachExisting`](file:///workspace/internal/cli/run/run.go#L1777), before
+During [`attachExisting`](../../internal/cli/run/run.go), before
 `stageRunPacks` or `deliverChannelOnAttach` modifies live configuration, the host compares
 the container's capabilities against the requirements of the selected packs:
 
