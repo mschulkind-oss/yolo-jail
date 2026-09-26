@@ -134,6 +134,28 @@ func (e *Env) chromeDevtoolsArgs() []any {
 // the block at the top of this file) says why and why not to add it back.
 // yolo writes the literal ${VAR} and the consuming agent resolves it.
 func (e *Env) LoadMCPServers() *jsonx.OrderedMap {
+	servers, skipped := e.mcpServersWith(e.Lookup)
+	for _, s := range skipped {
+		e.warn(s.notice())
+	}
+	return servers
+}
+
+// mcpSkip is one server the requires_env gate removed, and the variables it lacked.
+type mcpSkip struct {
+	name    string
+	missing []string
+}
+
+func (s mcpSkip) notice() string {
+	return "notice: MCP server '" + s.name + "' skipped — required env not set: " +
+		strings.Join(s.missing, ", ")
+}
+
+// mcpServersWith is LoadMCPServers with the requires_env gate asking lookup rather than the
+// boot's environment, returning what it removed instead of warning. The per-agent tables
+// (mcpTablesFor) ask a lookup that also sees one agent's own env file.
+func (e *Env) mcpServersWith(lookup func(string) (string, bool)) (*jsonx.OrderedMap, []mcpSkip) {
 	mcpWrappers := e.McpWrappersBin()
 	npmBin := e.NpmBin()
 
@@ -187,6 +209,7 @@ func (e *Env) LoadMCPServers() *jsonx.OrderedMap {
 
 	// Conditional loading: requires_env gate. Iterate a snapshot of the keys,
 	// mutating servers as we go.
+	var skipped []mcpSkip
 	for _, name := range append([]string(nil), servers.Keys()...) {
 		v, _ := servers.Get(name)
 		cfg, ok := v.(*jsonx.OrderedMap)
@@ -204,13 +227,13 @@ func (e *Env) LoadMCPServers() *jsonx.OrderedMap {
 		var missing []string
 		for _, rv := range required {
 			if s, isStr := rv.(string); isStr {
-				if val, present := e.Lookup(s); !present || val == "" {
+				if val, present := lookup(s); !present || val == "" {
 					missing = append(missing, s)
 				}
 			}
 		}
 		if len(missing) > 0 {
-			e.warn("notice: MCP server '" + name + "' skipped — required env not set: " + strings.Join(missing, ", "))
+			skipped = append(skipped, mcpSkip{name: name, missing: missing})
 			servers.Delete(name)
 		} else {
 			// Strip requires_env, preserving other keys' order.
@@ -226,7 +249,54 @@ func (e *Env) LoadMCPServers() *jsonx.OrderedMap {
 		}
 	}
 
-	return servers
+	return servers, skipped
+}
+
+// mcpTables is the MCP server table each surface renders: the jail-wide one, and, for each
+// agent the credential gate wrote an env file for, that agent's own.
+type mcpTables struct {
+	shared   *jsonx.OrderedMap
+	perAgent map[string]*jsonx.OrderedMap
+}
+
+// loadMCPTables evaluates requires_env PER AGENT (provider-credential-scope.md, OQ-CN6).
+//
+// WHY PER AGENT. A server's `requires_env` names the variables its entry needs, and yolo
+// writes the entry's ${VAR} references literally for the consuming agent to resolve from ITS
+// environment (no interpolation, above). Since the credential gate, a provider-claimed
+// variable (ZAI_API_KEY, the AWS pair) reaches only the agent that selected that provider, in
+// ~/.config/yolo-agent-env/<agent>.sh, and never the boot's environment — so a jail-wide gate
+// skipped such a server on every launch, even for the agent that holds the key. The gate now
+// asks, for each agent with a file, the boot's environment plus that file: the server is
+// written into that agent's config and no other, which is exactly the set of agents whose
+// process can resolve it.
+//
+// ONE NOTICE PER SERVER, jail-wide: skipped everywhere keeps the old line; configured for
+// some agents only names them.
+func loadMCPTables(e *Env) mcpTables {
+	shared, skipped := e.mcpServersWith(e.Lookup)
+	t := mcpTables{shared: shared, perAgent: map[string]*jsonx.OrderedMap{}}
+	agents := agentsWithEnvFiles(e)
+	for _, agent := range agents {
+		own, _ := e.mcpServersWith(agentEnvLookup(e, agent))
+		t.perAgent[agent] = own
+	}
+	for _, s := range skipped {
+		var got []string
+		for _, agent := range agents {
+			if _, ok := t.perAgent[agent].Get(s.name); ok {
+				got = append(got, agent)
+			}
+		}
+		if len(got) == 0 {
+			e.warn(s.notice())
+			continue
+		}
+		e.warn("notice: MCP server '" + s.name + "' configured only for " +
+			strings.Join(got, ", ") + " — its required env (" + strings.Join(s.missing, ", ") +
+			") reaches only the agent that selected its provider")
+	}
+	return t
 }
 
 // contains reports whether list holds s.

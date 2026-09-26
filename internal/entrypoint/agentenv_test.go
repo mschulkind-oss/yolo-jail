@@ -17,6 +17,7 @@ import (
 	"testing"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
+	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 )
 
 // writeAgentEnvFile puts one agent's env file where the host launcher's bind lands it.
@@ -279,5 +280,74 @@ func TestTheRefreshStepsRunWithoutTheAgentsCredentials(t *testing.T) {
 				t.Errorf("the program must still receive its own file: got %q\n%s", got, out)
 			}
 		})
+	}
+}
+
+// AN MCP SERVER GATED ON A PROVIDER-CLAIMED VARIABLE IS CONFIGURED FOR THE AGENT THAT HOLDS
+// IT. requires_env was evaluated against the boot's environment, which since the credential
+// gate never carries a claimed name (ZAI_API_KEY reaches only the agent that selected zai, in
+// its own file) — so the server was skipped on every launch, even for claude on zai. Through
+// the boot loop over the SHIPPED claude and codex packs: claude, whose file carries the key,
+// gets the server; codex, whose process never holds it, does not; and the notice names the
+// one agent instead of saying the server was skipped.
+func TestRequiresEnvIsEvaluatedPerAgent(t *testing.T) {
+	home := t.TempDir()
+	var stderr strings.Builder
+	e := &Env{Home: home, Workspace: t.TempDir(), Stderr: &stderr, Vars: map[string]string{
+		"JAIL_HOME":        home,
+		"YOLO_PACK_ROOT":   stageShippedPacks(t),
+		"YOLO_MCP_SERVERS": `{"zai-search":{"command":"zai-mcp","requires_env":["ZAI_API_KEY"]}}`,
+	}}
+	writeAgentEnvFile(t, home, "claude", "export ZAI_API_KEY=${ZAI_API_KEY:-'tok-zai'}\n")
+	all, err := LoadJailPacks(e)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var packs []*packload.Pack
+	for _, p := range all {
+		if p.Name == "claude" || p.Name == "codex" {
+			packs = append(packs, p)
+		}
+	}
+	ConfigurePackSurfaces(e, packs)
+
+	claudeJSON, err := os.ReadFile(e.ClaudeJSONPath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(claudeJSON), `"zai-search"`) {
+		t.Errorf("claude's own file carries ZAI_API_KEY, so its config must name the server:\n%s", claudeJSON)
+	}
+	codexCfg, err := os.ReadFile(filepath.Join(e.CodexDir(), "config.toml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(codexCfg), "zai-search") {
+		t.Errorf("codex's process never holds ZAI_API_KEY, so its config must not name the server:\n%s", codexCfg)
+	}
+	out := stderr.String()
+	if !strings.Contains(out, "'zai-search' configured only for claude") {
+		t.Errorf("the notice must name the agent the server is configured for:\n%s", out)
+	}
+	if strings.Contains(out, "'zai-search' skipped") {
+		t.Errorf("a server configured for claude must not be reported as skipped:\n%s", out)
+	}
+}
+
+// agentEnvLookup reads the file in its own grammar: a def-form default loses to the boot's
+// environment, a plain-form value wins, and `unset` removes a value the environment holds.
+func TestAgentEnvLookupFollowsTheFileGrammar(t *testing.T) {
+	home := t.TempDir()
+	e := &Env{Home: home, Vars: map[string]string{"HAS": "env", "GONE": "env"}}
+	writeAgentEnvFile(t, home, "a", "export DEF=${DEF:-'d'}\nexport HAS=${HAS:-'file'}\n"+
+		"export PLAIN='it'\\''s'\nunset GONE\n")
+	lookup := agentEnvLookup(e, "a")
+	for key, want := range map[string]string{"DEF": "d", "HAS": "env", "PLAIN": "it's"} {
+		if got, ok := lookup(key); !ok || got != want {
+			t.Errorf("%s = %q (%v), want %q", key, got, ok, want)
+		}
+	}
+	if v, ok := lookup("GONE"); ok {
+		t.Errorf("an unset line must remove GONE, got %q", v)
 	}
 }

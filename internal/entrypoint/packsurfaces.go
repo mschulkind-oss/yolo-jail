@@ -36,6 +36,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg"
 	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg/luahook"
 	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg/manifest"
+	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/packoverlay"
 )
@@ -134,7 +135,10 @@ func LoadJailPacks(e *Env) ([]*packload.Pack, error) {
 // no per-pack branching at all. Failures are collected through genStep, so one boot
 // reports every broken surface rather than one per restart (A12).
 func ConfigurePackSurfaces(e *Env, packs []*packload.Pack) {
-	tables := liveTables(e)
+	// The MCP table is PER AGENT (loadMCPTables): a server whose requires_env names a
+	// provider-claimed variable is written only for the agents whose own env file carries it.
+	mcp := loadMCPTables(e)
+	tables := liveTables(e, mcp.shared)
 	// The §4.2 autonomy policy comes from THIS target's confinement profile — the same
 	// render.ProfileFor table the host render reads (plan §6c step 1) — rather than from
 	// the literal `true` that used to sit here and in p.Surfaces(). It resolves to ON for
@@ -191,7 +195,7 @@ func ConfigurePackSurfaces(e *Env, packs []*packload.Pack) {
 		for _, s := range surfaces {
 			surface := s
 			genStep(e, "configure_"+surface.Agent+"_"+surface.Name, func() error {
-				return renderDeclaredSurface(e, surface, tables, deriveScript,
+				return renderDeclaredSurface(e, surface, tablesForAgent(tables, mcp, surface.Agent), deriveScript,
 					surfaceSelectionFor(packs, resolved, profiles, surface),
 					contribsFor(overlays, surface.Agent, surface.Name))
 			})
@@ -386,9 +390,12 @@ func activeProfileOptions(e *Env, name string) map[string]string {
 // CORE owns this list, and that is the division of labor that makes the rest work: an
 // MCP server is a yolo config concept, not an agent concept, so core knows how to
 // produce the table and a pack only says which one it wants and what shape it needs.
-func liveTables(e *Env) map[string]map[string]any {
+//
+// The MCP server table arrives already loaded (loadMCPTables' jail-wide one): its
+// requires_env gate is asked per agent, and tablesForAgent swaps in an agent's own table.
+func liveTables(e *Env, mcpServers *jsonx.OrderedMap) map[string]map[string]any {
 	return map[string]map[string]any{
-		manifest.SourceMCPServers: prismMap(e.LoadMCPServers()),
+		manifest.SourceMCPServers: prismMap(mcpServers),
 		manifest.SourceLSPServers: prismMap(LoadLSPServers(e)),
 		// The derive's VIEW of the table (packload.ProvidersForDerive): a provider that
 		// lists several credential variables (OQ-CN1) points a derive at none of them,
@@ -396,6 +403,21 @@ func liveTables(e *Env) map[string]map[string]any {
 		manifest.SourceProviders:   prismMap(packload.ProvidersForDerive(e.LoadProviders())),
 		manifest.SourceUseProfiles: prismMap(e.LoadUseProfiles()),
 	}
+}
+
+// tablesForAgent is tables with agent's own MCP server table in place of the jail-wide one,
+// when the credential gate wrote agent a file (loadMCPTables); tables itself otherwise.
+func tablesForAgent(tables map[string]map[string]any, mcp mcpTables, agent string) map[string]map[string]any {
+	own, ok := mcp.perAgent[agent]
+	if !ok {
+		return tables
+	}
+	out := make(map[string]map[string]any, len(tables))
+	for k, v := range tables {
+		out[k] = v
+	}
+	out[manifest.SourceMCPServers] = prismMap(own)
+	return out
 }
 
 // dropReservedSelection removes the reserved selection namespace

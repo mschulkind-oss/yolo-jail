@@ -1627,7 +1627,10 @@
         (and non-empty) in the jail's startup env. If any is missing,
         the server is skipped with a notice — not an error. Lets a
         dotfiles-shared user config declare machine-dependent servers
-        that activate only where env_sources provides the keys.
+        that activate only where env_sources provides the keys. It is
+        asked per agent: a variable a provider claims (its
+        api_key_env_name) reaches only the agent whose profile selected
+        that provider, so the server is configured for that agent only.
         Example:
           {"tavily": {
             "command": "npx", "args": ["-y", "tavily-mcp"],

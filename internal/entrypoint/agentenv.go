@@ -16,7 +16,12 @@ package entrypoint
 // started by another agent inherits that agent's environment, as any child does, and a value a
 // user exported by hand in a jail shell is never unset by it.
 
-import "path/filepath"
+import (
+	"os"
+	"path/filepath"
+	"sort"
+	"strings"
+)
 
 // AgentEnvDirRel is the per-agent env directory, relative to the jail home. podman binds it
 // `:ro` from <workspace>/.yolo/home/agent-env; Apple Container, which binds the workspace's
@@ -59,3 +64,71 @@ if [ -r "$HOME/` + AgentEnvDirRel + `/$BIN.sh" ]; then
     . "$HOME/` + AgentEnvDirRel + `/$BIN.sh"
 fi
 `
+
+// agentsWithEnvFiles lists, sorted, the agents this entry wrote an env file for — the names
+// in AgentEnvDirRel whose file is <agent>.sh.
+func agentsWithEnvFiles(e *Env) []string {
+	entries, err := os.ReadDir(filepath.Join(e.Home, AgentEnvDirRel))
+	if err != nil {
+		return nil
+	}
+	var out []string
+	for _, ent := range entries {
+		if name, ok := strings.CutSuffix(ent.Name(), ".sh"); ok && name != "" && !ent.IsDir() {
+			out = append(out, name)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+// agentEnvLookup is e.Lookup as agent's own launcher will see it: the boot's environment
+// with agent's env file applied over it, in the file's own grammar — a def-form line
+// (`export K=${K:-'v'}`) sets K only when the environment lacks it, a plain-form line sets
+// it, and `unset K` removes it. A boot-time answer to "will this agent's process hold K?",
+// for the gates that decide what its config names (loadMCPTables). A file it cannot read
+// changes nothing.
+func agentEnvLookup(e *Env, agent string) func(string) (string, bool) {
+	own := map[string]string{}
+	unset := map[string]bool{}
+	if data, err := os.ReadFile(AgentEnvFile(e.Home, agent)); err == nil {
+		for _, line := range splitLines(string(data)) {
+			if key, ok := strings.CutPrefix(strings.TrimSpace(line), "unset "); ok {
+				key = strings.TrimSpace(key)
+				delete(own, key)
+				unset[key] = true
+				continue
+			}
+			loc := exportLineRe.FindStringSubmatchIndex(line)
+			if loc == nil {
+				continue
+			}
+			key := groupStr(line, loc, exportGroupKey)
+			var raw string
+			switch {
+			case groupParticipated(loc, exportGroupDef):
+				if v, ok := e.Vars[key]; ok && v != "" && !unset[key] {
+					continue // a default the environment already beats
+				}
+				raw = groupStr(line, loc, exportGroupDef)
+			case groupParticipated(loc, exportGroupSq):
+				raw = groupStr(line, loc, exportGroupSq)
+			case groupParticipated(loc, exportGroupDq):
+				raw = groupStr(line, loc, exportGroupDq)
+			default:
+				raw = groupStr(line, loc, exportGroupBare)
+			}
+			own[key] = strings.ReplaceAll(raw, "'\\''", "'")
+			delete(unset, key)
+		}
+	}
+	return func(key string) (string, bool) {
+		if v, ok := own[key]; ok {
+			return v, true
+		}
+		if unset[key] {
+			return "", false
+		}
+		return e.Lookup(key)
+	}
+}

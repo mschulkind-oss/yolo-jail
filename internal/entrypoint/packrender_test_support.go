@@ -40,7 +40,10 @@ func ConfigurePackByName(e *Env, name string) error {
 	// does — a pack-declared name and a user-declared one are both already IN it, and
 	// re-deriving either here would be a second implementation of ResolveProfiles.
 	resolved := e.LoadProfiles()
-	tables := liveTables(e)
+	// Per agent, as the boot loop's (loadMCPTables): a server gated on a variable only one
+	// agent's own env file carries is written for that agent alone.
+	mcp := loadMCPTables(e)
+	tables := liveTables(e, mcp.shared)
 	// The autonomy policy reads off the target's profile, exactly as the boot loop does
 	// (ConfigurePackSurfaces) — this entry has to agree with it or the parity proofs above
 	// would be measuring a posture the boot path never renders.
@@ -74,7 +77,7 @@ func ConfigurePackByName(e *Env, name string) error {
 		// for a surface whose agent this pack installs — every shipped one — and answers
 		// nothing for a surface an agent pack elsewhere would speak for. "Render this
 		// pack" is what the entry means; the boot loop is what sees the whole set.
-		if err := renderDeclaredSurface(e, s, tables, deriveScript,
+		if err := renderDeclaredSurface(e, s, tablesForAgent(tables, mcp, s.Agent), deriveScript,
 			surfaceSelectionFor([]*packload.Pack{p}, resolved, profiles, s),
 			contribsFor(overlays, s.Agent, s.Name)); err != nil {
 			return err

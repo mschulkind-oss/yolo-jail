@@ -101,7 +101,11 @@ MCP-enabled tool.
   and allowed.
 - **`requires_env` gates** a server: if any listed variable is unset or empty in the jail the
   server is dropped with a notice, and otherwise the `requires_env` key itself is **stripped**
-  before the entry reaches the tool.
+  before the entry reaches the tool. The gate is asked **per agent**: a variable a provider
+  claims reaches only the agent that selected that provider, in that agent's own env file
+  ([the credential gate](providers.md#the-credential-gate)), so the server is written into
+  that agent's config and no other, and the notice names the agents it was configured for
+  (`loadMCPTables` in `internal/entrypoint`).
 - **Key order is insertion order** — presets in the order the config listed them, then custom
   entries — so a projection's output is byte-stable across boots.
 
