@@ -55,21 +55,23 @@ func shortBrokerSocketDir(t *testing.T) string {
 // Measured 2026-08-19: changing both literals in broker.go passes `go test -short
 // ./...` in full.
 func TestCheckSingletonPathsMatchTheDerivedOnes(t *testing.T) {
-	for _, tc := range []struct{ what, here, derived, constant string }{
-		{"socket", brokerSingletonSocket,
-			paths.HostSingletonSocket(brokerLoopholeName), broker.BrokerSingletonSocket},
-		{"pid file", brokerSingletonPIDFil,
-			paths.HostSingletonPIDFile(brokerLoopholeName), broker.BrokerSingletonPIDFile},
+	// This package no longer carries a literal of its own: it derives through
+	// paths.HostSingleton*, the same function the run pipeline's front and
+	// internal/broker use, so the three cannot drift apart by construction. What
+	// still has to hold is the production BYTES, because a not-yet-upgraded yolo on
+	// the same host hard-codes them. Checked under the production directory, since
+	// this package's TestMain gives its own launches a private one.
+	prev := paths.HostSingletonDir
+	paths.HostSingletonDir = paths.DefaultHostSingletonDir
+	t.Cleanup(func() { paths.HostSingletonDir = prev })
+	for _, tc := range []struct{ what, derived, want string }{
+		{"socket", paths.HostSingletonSocket(brokerLoopholeName), "/tmp/yolo-claude-oauth-broker.sock"},
+		{"pid file", paths.HostSingletonPIDFile(brokerLoopholeName), "/tmp/yolo-claude-oauth-broker.pid"},
+		{"socket (broker)", broker.BrokerSingletonSocket(), "/tmp/yolo-claude-oauth-broker.sock"},
 	} {
-		if tc.here != tc.derived {
-			t.Errorf("check's %s literal is %q but paths.HostSingleton* derives %q — the run "+
-				"pipeline fronts one file while this command inspects another, so a healthy "+
-				"broker reports as absent", tc.what, tc.here, tc.derived)
-		}
-		if tc.here != tc.constant {
-			t.Errorf("check's %s literal is %q but internal/broker's constant is %q — "+
-				"`yolo broker status` and `yolo check` would disagree about the same daemon",
-				tc.what, tc.here, tc.constant)
+		if tc.derived != tc.want {
+			t.Errorf("the broker %s is %q in production, want %q — an older yolo on the same "+
+				"host would inspect a different file", tc.what, tc.derived, tc.want)
 		}
 	}
 	// And the NAME this package keys on is the one the rest of the tree does, since

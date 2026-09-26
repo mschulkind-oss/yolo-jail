@@ -18,6 +18,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/oauthbroker"
 	"github.com/mschulkind-oss/yolo-jail/internal/openaiauthdaemon"
 	"github.com/mschulkind-oss/yolo-jail/internal/svcendpoint"
+	"github.com/mschulkind-oss/yolo-jail/internal/testsupport"
 )
 
 // TestMain lets a self-exec'd `yolo internal daemon journal` spawn resolve to THIS
@@ -59,7 +60,14 @@ func TestMain(m *testing.M) {
 	if len(os.Args) >= 4 && os.Args[1] == "-front-upstream-child" {
 		os.Exit(frontUpstreamChildMain(os.Args[2], os.Args[3]))
 	}
-	os.Exit(m.Run())
+	// Past every daemon dispatch above, so a re-exec'd child neither redirects nor stops
+	// anything: this package's launches spawn real host singletons, which get a private
+	// directory instead of the machine-wide /tmp/yolo-<name>.* (testsupport says why), and
+	// the ones they started are stopped when the package ends.
+	release := testsupport.IsolateHostSingletons()
+	code := m.Run()
+	release()
+	os.Exit(code)
 }
 
 // TestShippedJournalPackRunsBehindTheFront is what replaced TestResolveJournalMode,

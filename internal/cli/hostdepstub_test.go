@@ -26,6 +26,7 @@ import (
 	"testing"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
+	"github.com/mschulkind-oss/yolo-jail/internal/testsupport"
 )
 
 // TestMain disarms the install runner for the WHOLE package, and isolates the package from the
@@ -47,7 +48,11 @@ func TestMain(m *testing.M) {
 			"depInstallRun in your test if the install itself is what you are exercising", cmd)
 	}
 	releaseStagedTree := isolateTheStagedTree()
+	// `yolo host-daemon`, `yolo broker` and host launches ensure real host singletons;
+	// they get a private directory, not the machine-wide /tmp/yolo-<name>.* (testsupport).
+	releaseSingletons := testsupport.IsolateHostSingletons()
 	code := m.Run()
+	releaseSingletons()
 	releaseStagedTree()
 	os.Exit(code)
 }

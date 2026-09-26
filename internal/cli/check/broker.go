@@ -13,14 +13,10 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
-// Broker singleton socket / pid file locations. Frozen contract (must not
-// drift — the broker daemon in internal/loopholes writes/binds these exact
-// paths; both sides must agree byte-for-byte).
-const (
-	brokerLoopholeName    = "claude-oauth-broker"
-	brokerSingletonSocket = "/tmp/yolo-claude-oauth-broker.sock"
-	brokerSingletonPIDFil = "/tmp/yolo-claude-oauth-broker.pid"
-)
+// brokerLoopholeName is the Claude broker's loophole name. Its socket and PID file are
+// DERIVED (paths.HostSingleton*), never spelled here, so this section and the daemon
+// that binds them cannot drift apart.
+const brokerLoopholeName = "claude-oauth-broker"
 
 // hostServiceDefaultJailEndpoint returns the in-jail path of a host service's
 // published endpoint file — a REGULAR FILE, which is why the in-jail probe tests
@@ -50,8 +46,8 @@ type brokerStatus struct {
 func (o *Options) brokerStatus() brokerStatus {
 	pid, present := brokerReadPID()
 	pidLive := present && execx.IsAlive(pid)
-	sockExists := o.PathExists(brokerSingletonSocket)
-	accepts := sockExists && brokerSocketAccepts(brokerSingletonSocket, 2*time.Second)
+	sockExists := o.PathExists(paths.HostSingletonSocket(brokerLoopholeName))
+	accepts := sockExists && brokerSocketAccepts(paths.HostSingletonSocket(brokerLoopholeName), 2*time.Second)
 	return brokerStatus{
 		pid:           pid,
 		pidPresent:    present,
@@ -63,7 +59,7 @@ func (o *Options) brokerStatus() brokerStatus {
 
 // brokerReadPID returns (pid, present).
 func brokerReadPID() (int, bool) {
-	data, err := os.ReadFile(brokerSingletonPIDFil)
+	data, err := os.ReadFile(paths.HostSingletonPIDFile(brokerLoopholeName))
 	if err != nil {
 		return 0, false
 	}

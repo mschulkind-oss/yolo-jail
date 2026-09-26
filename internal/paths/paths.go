@@ -354,24 +354,42 @@ func HostServicesDirName(shortHash string) string { return hostServicesDirPrefix
 // They live under /tmp so AF_UNIX sun_path limits are never a concern (108 bytes
 // on Linux, 104 on darwin) and a host reboot leaves a clean slate — the same
 // reasoning, and for claude-oauth-broker the same BYTES, as the broker singleton
-// constants these generalize (internal/broker; a test pins the three pairs equal,
-// because `yolo broker status`, `yolo check` and the run pipeline's front all have
-// to reach one file).
+// constants these replaced: internal/broker's BrokerSingleton* now derive from these
+// functions, so `yolo broker status`, `yolo check` and the run pipeline's front reach
+// one file by construction, and a test pins the production bytes an older yolo on the
+// same host still spells.
 func HostSingletonSocket(loopholeName string) string {
-	return "/tmp/yolo-" + loopholeName + ".sock"
+	return HostSingletonDir + "/yolo-" + loopholeName + ".sock"
 }
 
 // HostSingletonPIDFile returns the singleton's PID file — see HostSingletonSocket.
 func HostSingletonPIDFile(loopholeName string) string {
-	return "/tmp/yolo-" + loopholeName + ".pid"
+	return HostSingletonDir + "/yolo-" + loopholeName + ".pid"
 }
 
 // HostSingletonLock returns the singleton's spawn lock — see HostSingletonSocket.
 // It is the flock two concurrent launches contend for, so that the loser observes
 // the winner's daemon instead of starting a second one.
 func HostSingletonLock(loopholeName string) string {
-	return "/tmp/yolo-" + loopholeName + ".lock"
+	return HostSingletonDir + "/yolo-" + loopholeName + ".lock"
 }
+
+// HostSingletonGlob matches every host-wide daemon's spawn lock under HostSingletonDir
+// (`yolo host-daemon` enumerates the singletons by it).
+func HostSingletonGlob() string { return HostSingletonDir + "/yolo-*.lock" }
+
+// DefaultHostSingletonDir is where the host-wide singleton rendezvous files live in
+// production: /tmp, machine-wide by design (see HostSingletonSocket).
+const DefaultHostSingletonDir = "/tmp"
+
+// HostSingletonDir is the directory every host-wide singleton path above is built in.
+// It is always DefaultHostSingletonDir in production. It is a variable for ONE reason:
+// a test package that spawns real singletons redirects it to a private directory in its
+// TestMain (testsupport.IsolateHostSingletons), because `go test ./...` runs packages in
+// parallel and two packages' daemons on the one machine-wide path take each other's
+// socket. The spawned daemon learns its socket from its argv (`--socket`), so the
+// redirect reaches it without any environment variable. Nothing in production writes it.
+var HostSingletonDir = DefaultHostSingletonDir
 
 // HostServicesDir returns the per-jail host-side directory holding this jail's
 // published endpoint files: /tmp/yolo-host-services-<8hex>.

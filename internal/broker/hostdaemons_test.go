@@ -147,9 +147,9 @@ func TestTheBrokerSingletonDoesNotDependOnDiscovery(t *testing.T) {
 	}
 	deps := CLIDepsFor(s)
 	for _, tc := range []struct{ what, got, want string }{
-		{"socket", deps.Life.SocketPath, BrokerSingletonSocket},
-		{"pid file", deps.Life.PIDFilePath, BrokerSingletonPIDFile},
-		{"lock", deps.Life.LockPath, BrokerSingletonLock},
+		{"socket", deps.Life.SocketPath, BrokerSingletonSocket()},
+		{"pid file", deps.Life.PIDFilePath, BrokerSingletonPIDFile()},
+		{"lock", deps.Life.LockPath, BrokerSingletonLock()},
 		{"log", deps.LogPath, BrokerLogPath()},
 	} {
 		if tc.got != tc.want {

@@ -52,20 +52,24 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
 )
 
-// Singleton path constants — byte-identical to loopholes_runtime:
-//
-//	BROKER_SINGLETON_SOCKET = Path("/tmp/yolo-claude-oauth-broker.sock")
-//	BROKER_SINGLETON_PID_FILE = Path("/tmp/yolo-claude-oauth-broker.pid")
-//	BROKER_SINGLETON_LOCK = Path("/tmp/yolo-claude-oauth-broker.lock")
-//	BROKER_LOOPHOLE_NAME = "claude-oauth-broker"
-//
-// The socket lives under /tmp so AF_UNIX path-length limits aren't a concern
-// (108 bytes on Linux, 104 on macOS) and a host reboot leaves a clean slate.
+// BrokerSingletonSocket / BrokerSingletonPIDFile / BrokerSingletonLock are the Claude
+// broker's host-singleton paths. They are DERIVED from paths.HostSingleton* rather than
+// spelled here, so `yolo broker status`, `yolo check`'s broker section and the run
+// pipeline's front cannot reach different files, and a test package's private
+// paths.HostSingletonDir reaches them too. In production they are, byte for byte, the
+// retired Python constants: /tmp/yolo-claude-oauth-broker.{sock,pid,lock}. The socket
+// lives under /tmp so AF_UNIX path-length limits aren't a concern (108 bytes on Linux,
+// 104 on macOS) and a host reboot leaves a clean slate.
+func BrokerSingletonSocket() string { return paths.HostSingletonSocket(BrokerLoopholeName) }
+
+// BrokerSingletonPIDFile is the Claude broker's PID file (see BrokerSingletonSocket).
+func BrokerSingletonPIDFile() string { return paths.HostSingletonPIDFile(BrokerLoopholeName) }
+
+// BrokerSingletonLock is the Claude broker's spawn lock (see BrokerSingletonSocket).
+func BrokerSingletonLock() string { return paths.HostSingletonLock(BrokerLoopholeName) }
+
 const (
-	BrokerSingletonSocket  = "/tmp/yolo-claude-oauth-broker.sock"
-	BrokerSingletonPIDFile = "/tmp/yolo-claude-oauth-broker.pid"
-	BrokerSingletonLock    = "/tmp/yolo-claude-oauth-broker.lock"
-	BrokerLoopholeName     = "claude-oauth-broker"
+	BrokerLoopholeName = "claude-oauth-broker"
 
 	// BrokerConsoleName is the LEGACY standalone console-script / Go-binary name
 	// the singleton used to be spawned as. It is retained ONLY as a pgrep
@@ -197,7 +201,7 @@ type Deps struct {
 // RealDeps returns Deps backed by the real singleton paths and OS effects.
 func RealDeps() Deps {
 	return SingletonDeps(BrokerLoopholeName,
-		BrokerSpawnArgv(execx.SelfExecArgv([]string{"yolo"}), BrokerSingletonSocket))
+		BrokerSpawnArgv(execx.SelfExecArgv([]string{"yolo"}), BrokerSingletonSocket()))
 }
 
 // SingletonDeps returns Deps for the host-wide daemon of the loophole named

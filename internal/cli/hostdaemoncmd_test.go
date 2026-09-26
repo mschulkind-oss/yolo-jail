@@ -45,13 +45,13 @@ func TestTheBrokerAliasStillResolvesToTheClaudeSingleton(t *testing.T) {
 		t.Fatalf("`yolo host-daemon status <name> --format json` is not one JSON object: %v\n%s",
 			err, verbOut)
 	}
-	if alias["socket"] != broker.BrokerSingletonSocket {
+	if alias["socket"] != broker.BrokerSingletonSocket() {
 		t.Errorf("the alias reports socket %v, want the Claude singleton's %s — "+
 			"`yolo broker` must resolve to the broker whatever else is running",
-			alias["socket"], broker.BrokerSingletonSocket)
+			alias["socket"], broker.BrokerSingletonSocket())
 	}
-	if alias["pid_file"] != broker.BrokerSingletonPIDFile {
-		t.Errorf("the alias reports pid_file %v, want %s", alias["pid_file"], broker.BrokerSingletonPIDFile)
+	if alias["pid_file"] != broker.BrokerSingletonPIDFile() {
+		t.Errorf("the alias reports pid_file %v, want %s", alias["pid_file"], broker.BrokerSingletonPIDFile())
 	}
 	if !reflect.DeepEqual(alias, verb) {
 		t.Errorf("`yolo broker status` and `yolo host-daemon status %s` describe different daemons:\n"+
@@ -69,9 +69,9 @@ func TestTheBrokerAliasStillResolvesToTheClaudeSingleton(t *testing.T) {
 		t.Fatalf("with discovery empty, `yolo broker status` no longer reports the broker: "+
 			"%v\nstdout: %s\nstderr: %s", err, darkOut, darkErr)
 	}
-	if dark["socket"] != broker.BrokerSingletonSocket {
+	if dark["socket"] != broker.BrokerSingletonSocket() {
 		t.Errorf("with discovery empty the alias reports socket %v, want %s",
-			dark["socket"], broker.BrokerSingletonSocket)
+			dark["socket"], broker.BrokerSingletonSocket())
 	}
 	// AND IT RESOLVES TO A RESTARTABLE RECORD. Reporting is the easy half: every
 	// path is a function of the name, so even a record derived from a stray PID

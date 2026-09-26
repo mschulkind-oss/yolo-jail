@@ -42,18 +42,24 @@ import (
 // /tmp/yolo-claude-oauth-broker.sock. That is why the generalization needed no
 // migration and no compatibility shim.
 func TestSingletonPathsMatchTheBrokerConstants(t *testing.T) {
-	for _, tc := range []struct {
-		what, derived, constant string
-	}{
-		{"socket", paths.HostSingletonSocket(BrokerLoopholeName), BrokerSingletonSocket},
-		{"pid file", paths.HostSingletonPIDFile(BrokerLoopholeName), BrokerSingletonPIDFile},
-		{"lock", paths.HostSingletonLock(BrokerLoopholeName), BrokerSingletonLock},
+	// The Broker* paths are derived from paths.HostSingleton* now, so the two cannot
+	// disagree; what this pins is that the derivation still yields the retired
+	// literals byte for byte in production, which is what a not-yet-upgraded yolo on
+	// the same host reaches. Checked under the production directory, since this
+	// package's TestMain gives its own launches a private one.
+	prev := paths.HostSingletonDir
+	paths.HostSingletonDir = paths.DefaultHostSingletonDir
+	t.Cleanup(func() { paths.HostSingletonDir = prev })
+	for _, tc := range []struct{ what, got, want string }{
+		{"socket", BrokerSingletonSocket(), "/tmp/yolo-claude-oauth-broker.sock"},
+		{"pid file", BrokerSingletonPIDFile(), "/tmp/yolo-claude-oauth-broker.pid"},
+		{"lock", BrokerSingletonLock(), "/tmp/yolo-claude-oauth-broker.lock"},
+		{"lock glob", paths.HostSingletonGlob(), "/tmp/yolo-*.lock"},
 	} {
-		if tc.derived != tc.constant {
-			t.Errorf("the %s derived from the loophole name is %q but the constant is %q — "+
-				"the run pipeline would front one file while `yolo broker status` and "+
-				"`yolo check` inspect another, and two singletons would run",
-				tc.what, tc.derived, tc.constant)
+		if tc.got != tc.want {
+			t.Errorf("the broker %s is %q in production, want %q — the run pipeline, "+
+				"`yolo broker status` and an older yolo on this host must reach one file",
+				tc.what, tc.got, tc.want)
 		}
 	}
 }
@@ -64,13 +70,17 @@ func TestSingletonPathsMatchTheBrokerConstants(t *testing.T) {
 // and fail here.
 func TestSingletonDepsUsesTheDerivedPaths(t *testing.T) {
 	deps := SingletonDeps("some-other-loophole", []string{"/bin/d"})
-	if deps.SocketPath != "/tmp/yolo-some-other-loophole.sock" {
+	// Under this package's private paths.HostSingletonDir (TestMain), not /tmp: the
+	// derivation must follow the directory, which is what lets a test redirect reach
+	// every singleton path at once.
+	dir := paths.HostSingletonDir
+	if deps.SocketPath != dir+"/yolo-some-other-loophole.sock" {
 		t.Errorf("SocketPath = %q", deps.SocketPath)
 	}
-	if deps.PIDFilePath != "/tmp/yolo-some-other-loophole.pid" {
+	if deps.PIDFilePath != dir+"/yolo-some-other-loophole.pid" {
 		t.Errorf("PIDFilePath = %q", deps.PIDFilePath)
 	}
-	if deps.LockPath != "/tmp/yolo-some-other-loophole.lock" {
+	if deps.LockPath != dir+"/yolo-some-other-loophole.lock" {
 		t.Errorf("LockPath = %q", deps.LockPath)
 	}
 	if !strings.HasSuffix(deps.LogPath, filepath.Join("logs", "host-service-some-other-loophole.log")) {
@@ -101,7 +111,7 @@ func TestRealDepsCarriesTheSelfExecBrokerArgv(t *testing.T) {
 	if err != nil {
 		t.Fatalf("os.Executable: %v", err)
 	}
-	want := []string{exe, "internal", "daemon", BrokerLoopholeName, "--socket", BrokerSingletonSocket}
+	want := []string{exe, "internal", "daemon", BrokerLoopholeName, "--socket", BrokerSingletonSocket()}
 	if got := RealDeps().Argv; !reflect.DeepEqual(got, want) {
 		t.Errorf("RealDeps().Argv = %v, want %v", got, want)
 	}

@@ -74,7 +74,7 @@ func BrokerSingleton() Singleton {
 		Name:        BrokerLoopholeName,
 		Description: "Serializes Claude OAuth refreshes so concurrent jails cannot burn the single-use refresh token.",
 		Declared:    true,
-		Argv:        BrokerSpawnArgv(execx.SelfExecArgv([]string{"yolo"}), BrokerSingletonSocket),
+		Argv:        BrokerSpawnArgv(execx.SelfExecArgv([]string{"yolo"}), BrokerSingletonSocket()),
 	}
 }
 
@@ -177,7 +177,7 @@ func SingletonArgv(name string, cmd []string) []string {
 // question ("has a singleton by this name been ensured on this host?") rather than
 // the momentary one, which is what a management surface wants: a daemon that was
 // stopped is still one a user may ask the status of.
-const rendezvousGlob = "/tmp/yolo-*.lock"
+func rendezvousGlob() string { return paths.HostSingletonGlob() }
 
 // RendezvousSingletonNames is the ON-DISK half of Singletons: the loophole names
 // this host has ensured a singleton for, whatever it currently declares.
@@ -185,7 +185,7 @@ const rendezvousGlob = "/tmp/yolo-*.lock"
 // Silent on every failure, empty on any doubt: a management verb that invented a
 // member from an unreadable /tmp would offer to stop a daemon that does not exist.
 func RendezvousSingletonNames() []string {
-	matches, err := filepath.Glob(rendezvousGlob)
+	matches, err := filepath.Glob(rendezvousGlob())
 	if err != nil {
 		return nil
 	}
