@@ -491,8 +491,8 @@ at all, is open in [`providers-and-profiles-redesign.md`](../design/providers-an
 
 ### Declaring and selecting a profile
 
-Two sources declare profiles. A pack ships `kind: "profile"` — exactly `{name, provider}`, both
-required ([OQ-PT8](#oq-pt8)); the user's `profiles` key declares more, or customizes a pack's by
+Two sources declare profiles. A pack ships `kind: "profile"` — `{name, provider}`, both
+required ([OQ-PT8](#oq-pt8)), plus an optional [`via`](#routing-a-profile-through-the-bridge-via); the user's `profiles` key declares more, or customizes a pack's by
 name. A pack-shipped profile is a **default the user overrides**, never a second schema: for a
 name both sides declare, the user's values win per option and the pack's provider stands unless
 the user names another. Profiles **point at** a provider; there is no `extends`
@@ -536,6 +536,41 @@ no CLI — a provider pack — still reads any CLI's selected name.
 > them puts a notch-owned permission bypass behind a user-owned selector, and the dangerous
 > direction is `-p autonomous` **at the host notch**, which hands a real host the agent's
 > permission bypass.
+
+### Routing a profile through the bridge: `via`
+
+`via` is an optional profile field, on a pack's `kind: "profile"` and on a user `profiles`
+entry alike. Its value names a **service pack**, and today the one that serves it is
+`wire-bridge`. A profile with `via` sends its agent's model traffic through that service instead
+of straight to the provider ([OQ-WG6](../design/wire-bridge-gateway.md#OQ-WG6)):
+
+```jsonc
+// ~/.config/yolo-jail/config.jsonc
+"profiles": {
+  "pi-zai": { "provider": "zai", "via": "wire-bridge", "model": "glm-5.3" }
+},
+"use_profiles": { "pi": "pi-zai" }
+```
+
+What it does, in order:
+
+1. **The launch adds the pack.** Selecting the profile brings `wire-bridge` into the jail the way
+   `needs` does, and says so (`+ wire-bridge (via of profile pi-zai, active for pi)`). A `via`
+   naming a pack yolo does not ship, or one that declares no `via_address`, refuses the launch.
+2. **The agent gets its own URL.** Its derive receives `ctx.via_url`,
+   `http://127.0.0.1:8216/agent/pi` here, and writes it as the selected provider's base URL. Only
+   the agent whose active profile has `via` gets one. Every other agent, and every other provider
+   row of the same agent, keeps its own URL.
+3. **The bridge forwards to the provider unchanged**, adding the provider's own credential: its
+   `api_key_env_name`, or a SigV4 signature for a `bedrock-runtime` upstream
+   ([the via route](wire-bridge.md#the-via-route--one-route-per-agent-under-agentname)).
+
+`via` is a field, not an option: the provider's option census does not apply to it, and a user's
+`via` replaces a pack-shipped one for the same profile name. It works for agents that speak OpenAI
+chat-completions and take a base URL: pi, oh-omp and opencode. codex speaks Responses only and is
+not wired yet. claude and copilot already reach the bridge through its adapter routes, which a
+via profile does not change. At the host notch (`yolo host`) there is no bridge daemon, and the
+agent uses its own client.
 
 ### The `profile` modifier
 
