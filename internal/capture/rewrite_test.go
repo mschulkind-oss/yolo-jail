@@ -467,6 +467,40 @@ printf 'ELF\000\000%s/.local/share/vendor\000\n' "$HOME" > "$HOME/.local/share/v
 	}
 }
 
+// A CONFLICT WITH THE HOME IS NOT A RELOCATION VERDICT, AND IT IS NOT REFUSED BEFORE WRITING. A
+// directory where the capture has a rewritten file is refused where placement meets it, so the
+// entries that sort before it are already in the home (install-capture.md H2 (f)). It must not be
+// ErrNotRelocatable, because recapturing changes nothing about this home. And the home's
+// directory, and what is in it, must come through untouched.
+func TestAHomeConflictDuringARelocationIsRefusedWhereItIsMet(t *testing.T) {
+	_, _, entry := recordRelocatable(t, rewriteInstaller, nil)
+	to := t.TempDir()
+	userData := filepath.Join(to, ".local", "share", "vendor", "1.0.0", "config", "user-data")
+	must(t, os.MkdirAll(userData, 0o755))
+	must(t, os.WriteFile(filepath.Join(userData, "keep"), []byte("the user's\n"), 0o644))
+
+	_, err := Materialize(MaterializeOptions{Entry: entry, Home: to})
+	if err == nil {
+		t.Fatal("a relocation over a directory where the capture has a file succeeded")
+	}
+	if errors.Is(err, ErrNotRelocatable) {
+		t.Errorf("a conflict with this home is not a relocation verdict: %v", err)
+	}
+	if !strings.Contains(err.Error(), "is a directory in this home and a file in the capture") {
+		t.Errorf("the refusal does not name the conflict: %v", err)
+	}
+	if got := readString(t, filepath.Join(userData, "keep")); got != "the user's\n" {
+		t.Errorf("the home's directory lost its contents: %q", got)
+	}
+	// The manifest is sorted, and .local/bin sorts before .local/share, so a rewritten link was
+	// placed before the conflict was met. This is why the plan does not call the refusal pre-write.
+	if link, err := os.Readlink(filepath.Join(to, ".local", "bin", "vendor")); err != nil {
+		t.Errorf("the link that sorts before the conflict was not placed: %v", err)
+	} else if want := to + "/.local/share/vendor/1.0.0/vendor"; link != want {
+		t.Errorf("the link placed before the conflict -> %q, want the rewritten %q", link, want)
+	}
+}
+
 // A WRITE THAT FAILS HALFWAY NEVER LANDS AT THE DESTINATION PATH. The rewrite streams into a temp
 // file beside the destination and renames it into place, so a stale shim already in the home
 // survives a failed rewrite intact, and no temp file is left behind.

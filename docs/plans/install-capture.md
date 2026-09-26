@@ -634,8 +634,8 @@ wrong one to sequence on.
    The last sentence is still true, for a different reason: see H4. *Implementation decisions,
    and what building it found:*
 
-   **(a) Every refusal happens before the home is written.** `planRelocation` checks the whole
-   manifest first and collects every reason rather than stopping at the first, the way
+   **(a) Every relocation refusal happens before the home is written.** `planRelocation` checks
+   the whole manifest first and collects every reason rather than stopping at the first, the way
    `notRelocatable` is a list. Each refusal wraps `ErrNotRelocatable`, so the launcher's fallback
    is the one it always had. The refusals:
 
@@ -686,7 +686,12 @@ wrong one to sequence on.
    the previous file at its path and no temp file behind. A failure partway through a materialize
    still leaves the entries already placed: materialize is not transactional, for the reason its
    file comment gives. The recovery is unchanged, because the launcher falls through to the vendor
-   installer. Since every refusal is pre-write, only I/O can fail partway.
+   installer. Only the relocation refusals in (a) are pre-write, together with a failure to read
+   the store for them. Two other kinds of failure can happen partway, and neither wraps
+   `ErrNotRelocatable`, since recapturing would change neither. One is I/O on the destination. The
+   other is a conflict with what the home already holds, such as a directory where the capture has
+   a file, which `rewriteFile` and `replaceable` refuse where placement meets it. Either can leave
+   a partial tree.
 
    **(g) The macos-user destination is a home of LINKS, and materialize chmodded through them.**
    Found by the test, not by reading. That backend's account home reaches `.local`,
@@ -971,9 +976,10 @@ wrong one to sequence on.
   `relocatable:false` naming the file; no scan → `relocatable:false` naming the scan; a
   pre-fields manifest reading back `false`. *H2 shipped the rewrite side on 2026-09-26*
   (`internal/capture/rewrite_test.go`): an absolute symlink and a file-content reference
-  rewritten into another home, with the program run from there; every pre-write refusal; the
-  store left untouched on the hardlink arm; a failed write leaving the previous file; a home
-  whose `.local` is a link.
+  rewritten into another home, with the program run from there; every pre-write refusal; a
+  store entry that cannot be read, stopping before the first write; the store left untouched on
+  the hardlink arm; a failed write leaving the previous file; a home directory where the capture
+  has a file, refused where placement meets it; a home whose `.local` is a link.
 - **Integration:** `integration/capture_test.go` — capture once, materialize into **two** workspaces,
   assert the second performs no download and that the two files share an inode. That is the test that
   catches a regression to per-workspace refetch; no unit test can.

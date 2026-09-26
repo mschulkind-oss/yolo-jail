@@ -32,15 +32,21 @@
 //     in one step. A write that fails leaves whatever was at the path before, and the temp file is
 //     removed.
 //
-// # Everything that can refuse, refuses BEFORE the home is touched
+// # Every RELOCATION refusal happens BEFORE the home is touched
 //
 // planRelocation checks the whole manifest before the first file is placed: the verdict, the
 // scan it rests on, that every reference names an entry of the right kind with the value the
 // record would have written, that every file carrying a reference is still text, and that no
-// absolute link into the capture home is missing from the list. A refusal is therefore the same
-// outcome the pre-rewrite refusal was: nothing in the home changed, and the launcher falls
-// through to the vendor installer. The only failures left after that are I/O on the destination
-// (a full disk, a permission), and materialize is not transactional about those
+// absolute link into the capture home is missing from the list. A relocation refusal
+// (ErrNotRelocatable) is therefore the same outcome the pre-rewrite refusal was: nothing in the
+// home changed, and the launcher falls through to the vendor installer. A failure to READ the
+// store for those checks also comes before the first write.
+//
+// Two other kinds of failure can still happen once placement has started, and neither is a
+// relocation verdict. One is I/O on the destination (a full disk, a permission). The other is a
+// conflict with what the home already holds, such as a directory where the capture has a file:
+// rewriteFile and replaceable refuse it at the point placement reaches it. Either one can leave
+// behind the entries placed before it, because materialize is not transactional
 // (materialize.go, "Not transactional, and it must not be").
 //
 // # What is MEASURED here and what is not
