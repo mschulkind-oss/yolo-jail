@@ -379,6 +379,15 @@ state the fatal makes reachable, where there is no jail left to ask. A healthy w
 verdict there and stays silent on the terminal, because "ran and found nothing" and "never ran"
 are otherwise the same bytes.
 
+- 💬 <a id="oq-r8"></a>**[`OQ-R8`](#oq-r8) — should a required jail daemon that cannot publish
+  refuse the launch with nothing to get past it?** The escape hatch downgrades the witness, but
+  the jail-daemon supervisor (`startJailDaemonSupervisor`, `internal/entrypoint/runtime.go`)
+  refuses on its own, through the boot's `genStep`, which reads no hatch. So a jail whose required
+  daemon cannot start gets no shell even with `YOLO_ALLOW_UNREACHABLE_SERVICES` set. MEASURED on a
+  host 2026-09-19. Two gates meet here and neither one's ruling covers the pair: [OQ-R2](#oq-r2)
+  made the witness fatal with a hatch, and a failed boot generator refuses the boot with none
+  ([`jail-home.md`](jail-home.md)). Filed 2026-09-26; until then the question had no id.
+
 ## A nested jail is structurally blind to this
 
 A nested podman is forced onto `--net=host`, the one mode where the bug **cannot** reproduce. So

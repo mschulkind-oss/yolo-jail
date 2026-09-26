@@ -1550,8 +1550,8 @@ machine is in
 > beside the overlay (`render.Target.ListCapturePath`), not a reserved key inside it, because
 > every overlay reader — `config diff`, `config promote`, the overlay entry count, the host drop
 > prune — would read the marker as a user key, and `promote` would copy it into a pack.
-> `yolo config promote` does not lift list captures into a pack yet; that is a separate roadmap
-> item, and it is not a reason to move the records into the overlay.
+> `yolo config promote` does not lift list captures into a pack yet; whether it should is
+> [`OQ-AL4`](#oq-al4), and it is not a reason to move the records into the overlay.
 
 **At the host, the insert record is kept under both contracts.** `yolo host apply` under `own`
 renders through `stateful`, but it also writes the `rmw` insert record (the entries a contribution
@@ -1616,6 +1616,20 @@ would read as that one pack's list — so the per-entry account is printed separ
 > **Do not make arrays additive in the merge patch to get this.** A `"packages": null` in a patch
 > deletes the whole key; it is not a request to remove one package. Deliberate empty arrays and
 > every overlay that exists to replace a list depend on RFC 7386 staying as it is.
+
+The first two limits above are open questions, not rulings: nothing records either as accepted,
+the way [OQ-LT2](#oq-lt2) accepts the third. Their ids continue the additive config-lists
+design's numbering ([`OQ-AL1`](#oq-al1), [`OQ-AL2`](#oq-al2)), because both are that design's
+residue.
+
+- 💬 <a id="oq-al3"></a>**[`OQ-AL3`](#oq-al3) — should dropping the owner and every contributor
+  withdraw the entries yolo inserted?** Today they stay in the host file: the drop prune in
+  `yolo host apply` retires `config-overlay` keys only, and no render reaches a surface whose owner
+  is not loaded. `yolo host apply --revert` is the one path that removes them, and only for an
+  owner yolo ships.
+- 💬 <a id="oq-al4"></a>**[`OQ-AL4`](#oq-al4) — should `yolo config promote` lift list
+  captures?** Today it leaves them in the workspace and names how many captured list entries a
+  surface holds, and at which paths ([the list above](#config-list-visibility)).
 
 ### Provenance, and what `config diff` can say
 
@@ -1764,33 +1778,31 @@ config-composition pipeline has no user-supplied script slot.
 > string still varies between runs. Nothing yolo ships does. The package doc and
 > `sandbox.go` record the remaining gap.
 
-<a id="oq-dr1"></a>
+- 💬 <a id="oq-dr1"></a>**[`OQ-DR1`](#oq-dr1) — should the sandbox enforce reference identity too?** Opened 2026-09-25,
+  when `5c1bfa5d` closed the randomness half and recorded this one as open. *DR* stands for "derive";
+  the prefix is new with this question.
 
-**💬 [`OQ-DR1`](#oq-dr1) — should the sandbox enforce reference identity too?** Opened 2026-09-25,
-when `5c1bfa5d` closed the randomness half and recorded this one as open. *DR* stands for "derive";
-the prefix is new with this question.
+  - **(a) Leave it a requirement on the script.** Documented here and in the package doc; nothing
+    yolo ships prints a reference. Cost: a third-party `derive.lua` that emits `tostring(t)`
+    produces a different computed layer every boot, and nothing names the cause.
+  - **(b) Close it in the sandbox, as the randomness half was closed.** Replace the base
+    `tostring` with one that renders a table, function, userdata or thread as its type name
+    alone (`"table"`), so no Go pointer reaches the script. Cost: it must reach every path that
+    renders a reference, not only the global `tostring`, or it becomes a partial fix that reads
+    as complete.
+  - **(c) Detect it at the output instead.** Run each derive twice and refuse a layer that
+    differs between the runs. This catches every source of variation, not only this one. Cost:
+    it doubles derive time on every boot, or covers only the shipped packs if it runs only in
+    `TestEveryShippedPackDeriveStillRuns`.
 
-- **(a) Leave it a requirement on the script.** Documented here and in the package doc; nothing
-  yolo ships prints a reference. Cost: a third-party `derive.lua` that emits `tostring(t)`
-  produces a different computed layer every boot, and nothing names the cause.
-- **(b) Close it in the sandbox, as the randomness half was closed.** Replace the base
-  `tostring` with one that renders a table, function, userdata or thread as its type name
-  alone (`"table"`), so no Go pointer reaches the script. Cost: it must reach every path that
-  renders a reference, not only the global `tostring`, or it becomes a partial fix that reads
-  as complete.
-- **(c) Detect it at the output instead.** Run each derive twice and refuse a layer that
-  differs between the runs. This catches every source of variation, not only this one. Cost:
-  it doubles derive time on every boot, or covers only the shipped packs if it runs only in
-  `TestEveryShippedPackDeriveStillRuns`.
+  <!-- vantage: oq id=OQ-DR1 leaning="(b), with a test that renders a table through every path gopher-lua offers and asserts no 0x appears. It matches how the randomness half was closed: take the nondeterministic source out of the sandbox, so the script cannot reach it at all." -->
 
-<!-- vantage: oq id=OQ-DR1 leaning="(b), with a test that renders a table through every path gopher-lua offers and asserts no 0x appears. It matches how the randomness half was closed: take the nondeterministic source out of the sandbox, so the script cannot reach it at all." -->
+  _Leaning:_ **(b)**, pinned by a test that renders a table and a function through every path
+  gopher-lua offers and asserts that no pointer appears. That is how the randomness half was
+  closed: the nondeterministic source is taken out of the sandbox, so no script can reach it.
 
-_Leaning:_ **(b)**, pinned by a test that renders a table and a function through every path
-gopher-lua offers and asserts that no pointer appears. That is how the randomness half was
-closed: the nondeterministic source is taken out of the sandbox, so no script can reach it.
-
-**Answer:**
-> _(empty — fill in when decided)_
+  **Answer:**
+  > _(empty — fill in when decided)_
 
 The **canonical MCP-server type** lives in core: `name → {command, args, env}`, open and
 additively versioned, so a new transport is a new optional field that never breaks an
@@ -1992,6 +2004,22 @@ Three source forms:
 The object form adds `name` and `only`/`exclude` globs, for per-project narrowing of a shared
 corpus. A config still carrying the retired `allow_exec` is refused as an unknown key, because
 a key that does nothing must not be accepted quietly.
+
+- 💬 <a id="oq-pk1"></a>**[`OQ-PK1`](#oq-pk1) — which packs may a workspace config declare?**
+  The user-scope rule above stands in the code, but
+  [`OQ-MP7`](../design/mcp-presets-removal.md#OQ-MP7) ruled on 2026-09-20 that it should not
+  simply stand: define a **safe subset** of packs a workspace may declare, drawn on host reach
+  rather than on install. The subset itself is not ruled. The hard case the ruling names is an
+  `mcp` entry, which is code that runs unconditionally at jail start in a home holding real
+  credentials, so the rule has to say why that is acceptable or admit content kinds first and
+  leave executable kinds to a second ruling. The ruling asks for
+  [`OQ-WS1`](../design/workspace-skills.md#OQ-WS1) (the same question for skills) to be ruled in
+  the same sitting, and names R5 in [`loophole-system.md`](loophole-system.md#principles) as the
+  wording it amends. It blocks building
+  [`mcp-presets-removal.md`](../design/mcp-presets-removal.md): that doc's
+  [§13](../design/mcp-presets-removal.md#13-what-i-would-build-in-order) steps 1–3 wait on it,
+  because that ruling moved the workspace-scope boundary they build against. *PK* stands for the
+  `packs` key; the prefix is new with this question.
 
 ### Fetch, refresh, lock
 

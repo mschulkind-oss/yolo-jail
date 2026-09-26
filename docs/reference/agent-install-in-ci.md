@@ -334,6 +334,10 @@ The macOS nightly shards the whole `./integration` package but never sets
 test do run, so the podman-VM install path is exercised on macOS by the pinned fixtures only
 (INFERRED from the workflow's env; not observed in a run log for this stamp).
 
+- 💬 <a id="oq-ci7"></a>**[`OQ-CI7`](#oq-ci7) — should the macOS nightly run any vendor agent
+  install at all?** Today it runs none, as above. Filed 2026-09-26; until then the question had
+  no id.
+
 ## Traps
 
 > [!WARNING]

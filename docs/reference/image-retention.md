@@ -156,6 +156,16 @@ an age policy reads the modification time off the link and has no authority it c
 > protects is the *store* copy of an image the runtime already holds, so reaping one costs a
 > rebuild on the next cache miss and never a broken launch.
 
+- 💬 <a id="oq-ls4"></a>**[`OQ-LS4`](#oq-ls4) — does [OQ-LS1](#why-its-this-way)'s premise, that
+  losing an image root costs a rebuild and never a running jail, hold on podman/Linux?** There,
+  with a host nix daemon, the host `/nix/store` is bind-mounted read-only over the jail's
+  (`hostNixStore`, `internal/cli/run/assemble.go`), which is how a host GC broke a running jail's
+  `/bin` on 2026-07-22 ([`storage-lifecycle.md`](../plans/storage-lifecycle.md)). A jail up for
+  more than the retention horizon on an image no later launch rebuilt then has an unrooted closure
+  again. Read from code, not measured. Filed here 2026-09-26, beside the ruling it questions:
+  the storage-lifecycle plan reports the disagreement for a ruling and says it is not where that
+  is decided, and nothing records one yet.
+
 ## Declining, and how loud
 
 A decline is not the same as "nothing to reclaim", and the volume follows from which of the two it

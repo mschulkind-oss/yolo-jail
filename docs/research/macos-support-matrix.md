@@ -14,6 +14,8 @@ Apple Container parity job on a self-hosted Mac
 ([`apple-container.yml`](../../.github/workflows/apple-container.yml), since 2026-09-14,
 dispatch-only). A cell a test on either job pins is marked [CI].
 
+**Needs your ruling:** [OQ-MX1](#OQ-MX1) (what replaces `macos-26-intel` before nixpkgs 26.05 lapses — the one item here with a deadline), [OQ-MX2](#OQ-MX2) (whether the three `packages:` tests skip on a builder-less runner). *MX* stands for this matrix; the prefix was coined for these two questions on 2026-09-26.
+
 > [!NOTE]
 > **Code citations name a FILE, not a line** (since 2026-09-24). The line numbers this tracker
 > carried had drifted and were removed rather than refreshed; resolve a citation by the symbol
@@ -91,6 +93,15 @@ and nothing else here does.** Verified against `flake.nix` 2026-08-23.
 | The real 08-22 failure | `TestExtraPackageLibFarm` at **1216.11s** against the job's 1200s cap — the only one. Fixed by an explicit 40-minute `withTimeout(nixBuildJailTimeout)` on both `packages:`-setting tests (`01a51dc4`, `integration/packages_test.go`); the lib farm then passed at 812.37s | 2026-08-23 |
 | **Darwin warmup: SKIPPED** | `warmJail` returns early on `GOOS == "darwin"` — `integration/harness_test.go`, commit `e5b60902` (2026-08-23). A warmup pre-pays a *container start*; on darwin every launch **realises an image** (a loaded image can never match a darwin `nix eval`), so the warmup was a full nix build wearing a warmup's name — **12m0s of waste per night**. The first container test absorbs the one-time cost instead. Linux CI keeps the warmup, where the premise holds and it earns its 1m56s | 2026-08-23 |
 | Image-skew oracle on darwin | **auto-downgraded to `warn`** — a Linux-runner-built image can never match a darwin `nix eval`, so on a Mac you do **not** get the stale-image protection. Check by hand | 2026-08-23 |
+
+- 💬 <a id="OQ-MX2"></a>**[OQ-MX2](#OQ-MX2): Should the three `packages:`-declaring tests SKIP
+  rather than fail on a builder-less runner?** `TestExtraPackageLibFarm`,
+  `TestExtraPackagesFromMountedStore` and `TestDevPackageLinksRuntimeLib` declare `packages:`,
+  which makes them genuinely non-stock, so they build an image, and the nightly's runner has no
+  Linux builder. Failing there is the designed behavior, not a bug; nobody has ruled whether they
+  should skip instead. Filed 2026-09-26 from
+  [`handoff-mac-unmeasured-claims.md` §4](../plans/handoff-mac-unmeasured-claims.md#4-the-nightly--five-links-all-now-named),
+  where it was recorded without an id.
 
 **Still unobserved:** nobody has watched a nightly run *with* the warmup skip in
 place. The expectation is `integration-macos` losing ~12 minutes of wall clock
@@ -269,14 +280,15 @@ is the single collected list, with the open questions attached.
    (Open Decision #3, 2026-07-23). No longer a documented fallback; the
    container builder is the sole builder. A user's own nix-darwin
    `linux-builder` remains only as a personal escape hatch (row above).
-8. 💬 **Decide what replaces `macos-26-intel` before nixpkgs 26.05 lapses** —
+8. 💬 <a id="OQ-MX1"></a>**[OQ-MX1](#OQ-MX1): Decide what replaces `macos-26-intel` before nixpkgs 26.05 lapses** —
    NEW, added 2026-08-23. See [§0](#0-the-platform-deadline--x86_64-darwin-is-on-a-clock): 26.05 is the last branch supporting
    `x86_64-darwin` and is security-fixed only to the end of 2026, while the
    nightly must stay on an Intel runner because GitHub's Apple Silicon runners
    cannot nest a VM for Podman Machine. The choice is a **self-hosted arm64 Mac
    runner** or **macos-user-only macOS tests**. Deadline-driven, not
    defect-driven — it needs a ruling before the window closes, and it is the only
-   item in this list with a date attached.
+   item in this list with a date attached. *(The id was minted 2026-09-26 so the question can be
+   linked.)*
 
 ## 6. Cross-refs
 - **[runbooks/mac-ac-container-builder.md](../plans/runbooks/mac-ac-container-builder.md)** — Mac test (zero-sudo) for the gating AC-builder cell.

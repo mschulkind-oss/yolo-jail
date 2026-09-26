@@ -8,7 +8,8 @@ summary: "yolo's observability facility is mature and entirely host-side. The on
 
 # The instrument stops at the boundary
 
-**Status:** DESIGN, 2026-09-19, evidence read at `16ef96cb`. Five rulings owed. Two of
+**Status:** DESIGN, 2026-09-19, evidence read at `16ef96cb`. Rulings owed: see **Needs your
+ruling** below. Two of
 [§8](#8-what-i-would-build-in-order)'s steps landed the same day, independently of any ruling:
 step 2, the [listener inventory](#43-the-listener-inventory-in-go) (`internal/listeners`,
 `cf91ab33`), and step 1, the port-forward loop naming what holds a skipped port (`68562ded`).
@@ -39,7 +40,7 @@ a sink cannot be reported to it ([OQ-DB5](#oq-db5)).
 **Start at [§3](#3-the-failures-are-the-specification)** — the six failures and the one
 measurement each needed. [§4](#4-the-proposal) falls out of that table and nothing else.
 
-**Needs your ruling:** [OQ-DB1](#oq-db1), [OQ-DB2](#oq-db2), [OQ-DB3](#oq-db3), [OQ-DB4](#oq-db4), [OQ-DB5](#oq-db5).
+**Needs your ruling:** [OQ-DB1](#oq-db1), [OQ-DB2](#oq-db2), [OQ-DB3](#oq-db3), [OQ-DB4](#oq-db4), [OQ-DB5](#oq-db5), [OQ-DB6](#oq-db6).
 
 **Reads with:** [`perf-logging.md`](../reference/perf-logging.md) (the host half this extends;
 P5 forbids the obvious shortcut), [`report-tiers.md`](../reference/report-tiers.md) ([`OQ-RO3`](../reference/report-tiers.md#why-its-this-way),
@@ -561,7 +562,8 @@ they stay listed because the order is the argument.
    so they reach the **terminal** as well as `boot.log`. That includes the "already
    established" line on a re-entered, healthy container, which [§9](#9-success-criteria)'s
    last criterion (a healthy jail's terminal byte-identical to before) does not allow. Whether
-   that line belongs on the terminal or only in `boot.log` through `e.note` is not ruled here.
+   that line belongs on the terminal or only in `boot.log` through `e.note` is not ruled here;
+   it is [OQ-DB6](#oq-db6).
 2. **The listener inventory**, as a standalone readable unit with no caller. It is the
    component with real content and it is testable against a fixture `/proc`. **BUILT
    2026-09-19 (`cf91ab33`)** as `internal/listeners`; it gained callers before the snapshot
@@ -688,6 +690,20 @@ Observable outcomes a human can check, not test names:
    assert on, which is what makes *"does the test fail if I delete the call site?"* answerable
    for a timeout at all. Repointing the supervisor's stderr is the cheaper edit and the worse
    answer: it re-decides a boot-path detachment for a diagnostic reason.
+
+   **Answer:**
+   > _(empty — fill in when decided)_
+
+6. <a id="oq-db6"></a>💬 **[OQ-DB6](#oq-db6): Does step 1's "already established" line, printed on a healthy re-entry, stay on the terminal, or go to `boot.log` only through `e.note`?**
+   [§8](#8-what-i-would-build-in-order) step 1 shipped with both registers going through
+   `e.warn` (`68562ded`), so they reach the **terminal** as well as `boot.log`. For the
+   "already established" line on a re-entered, healthy container, that breaks
+   [§9](#9-success-criteria)'s last criterion (a healthy jail's terminal byte-identical to
+   before). The alternative is `e.note`, which writes to `boot.log` alone. The other register,
+   the warning that names the port's holder, is not part of this question: it stays on the
+   terminal either way, because it is what made a skipped forward stop being silent
+   ([§3.2](#32-the-8214-failure-as-the-worked-case), the collision-branch finding). Filed
+   2026-09-26 from step 1's own note, which leaves the one line unruled.
 
    **Answer:**
    > _(empty — fill in when decided)_

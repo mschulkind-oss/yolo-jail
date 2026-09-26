@@ -13,7 +13,8 @@ briefing batch, both notice sets and `DP-L1`'s privileged crossing ran on hardwa
 [§4](#4-the-nightly--five-links-all-now-named)'s `exit 125` was two more links, both fixed. What is
 left needs no Mac: the `Nightly macOS Integration` workflow is not yet steadily green (the Actions
 API, read 2026-09-23: green 2026-09-19 and 2026-09-21, red 2026-09-18, 2026-09-20 and 2026-09-22),
-and whether the three NON-STOCK tests should skip on a builder-less runner is unruled.
+and whether the three NON-STOCK tests should skip on a builder-less runner is unruled
+([`OQ-MX2`](../research/macos-support-matrix.md#OQ-MX2)).
 
 **Audience:** an agent or human at a real Mac. Each thread says whether it needs Apple Silicon,
 a password, or only a Mac.
@@ -216,11 +217,11 @@ asserted only against Linux fixtures:
 What to check is not that they appear — Linux proves that — but that they read correctly beside
 a real launch's other output, and that a config declaring **none** of these keys produces
 **none** of these lines. A warning people learn to skip is worse than none
-([`OQ-BP-3`](../design/backend-parity.md#open-questions)), and that is the failure mode here.
+([`OQ-BP-3`](../design/backend-parity.md#OQ-BP-3)), and that is the failure mode here.
 
 > [!NOTE]
 > **MEASURED 2026-09-13, both halves.** The negative half first, because it is the one
-> [`OQ-BP-3`](../design/backend-parity.md#open-questions) cares about: the real launch above
+> [`OQ-BP-3`](../design/backend-parity.md#OQ-BP-3) cares about: the real launch above
 > declares none of these keys and printed **none** of these lines. The positive half came from a
 > throwaway workspace declaring all five (a `--dry-run`, so no password) — every notice fired,
 > and none of them reuses the container path's *"not supported on macOS"* string:
@@ -294,7 +295,8 @@ named, and [`OQ-IP4`](../reference/image-staging-vs-baking.md#why-its-this-way) 
 > `TestExtraPackagesFromMountedStore`, `TestDevPackageLinksRuntimeLib`) declare `packages:`, which
 > makes them genuinely NON-STOCK, so they correctly build — and this runner has no Linux builder.
 > That is the designed behaviour, not a bug. Whether they should SKIP on a builder-less runner
-> rather than fail is an open question nobody has ruled.
+> rather than fail is an open question nobody has ruled, filed 2026-09-26 as
+> [`OQ-MX2`](../research/macos-support-matrix.md#OQ-MX2).
 >
 > **Still open:** the run proving link 5 had not finished when this was written. Confirm with
 > `exec: "bash"` → 0, `IMAGE BUILD FAILED` → still 3, and the other 38 green.
