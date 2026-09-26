@@ -309,7 +309,9 @@ Where each answer lands is the vehicle's:
   carries the shared values plus the launched program's own, and says so when another agent
   had values it cannot carry. `macosuser.buildPlan` no longer hydrates `env_sources` itself.
 - **The host notch.** `yolo host -- <agent>` composes one process: the shared values plus that
-  agent's. The shell it inherits is the user's and passes through untouched.
+  agent's. The shell it inherits is the user's and passes through untouched. `yolo host env`
+  prints the same one-agent slice for a shell to eval (`--agent`, default `claude`), and its
+  disclosure goes to stderr.
 
 Every arm discloses what it scoped or withheld, by name and never by value
 (`CredentialScope.Disclosure`). The files are readable by every process of the jail's uid, as

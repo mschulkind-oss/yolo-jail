@@ -90,7 +90,9 @@ env flags:
   --format <fmt>  export (default) or json.
   --profile <name>, -p <name>   As above.
   --agent <name>  Compose as if launching this agent (default: claude). The agent name
-                  selects which use_profiles entry applies.
+                  selects which use_profiles entry applies, and the output is that
+                  agent's slice: a provider credential another agent's profile claims
+                  is withheld from it, and stderr says which, by name.
 
 Examples:
   yolo host -- claude                 # bare claude, with the composed environment
@@ -855,12 +857,24 @@ func hostEnv(args []string, out, errw io.Writer) int {
 	// Only what yolo ADDS is printed, never the whole inherited environment: `yolo host
 	// env` is meant to be eval'd, and echoing os.Environ() back into the shell would be
 	// both enormous and a way to leak an unrelated secret into a log.
-	added, err := hostEnvDelta(agent, profile, func(msg string) {
+	added, disclosure, err := hostEnvDelta(agent, profile, func(msg string) {
 		fmt.Fprintf(errw, "Warning: %s\n", msg)
 	})
 	if err != nil {
 		fmt.Fprintf(errw, "yolo host env: %v\n", err)
 		return 1
+	}
+	// THE CREDENTIAL GATE'S DISCLOSURE, as `yolo host --` prints it and on stderr for the
+	// same reason: an eval'ing shell reads only stdout, and "no silent narrowing"
+	// (provider-credential-scope.md §4) holds for this front door too. The script below is
+	// ONE agent's slice, so an env_sources credential another agent's profile claims is not
+	// in it — which a shell that used to receive every value must be told.
+	for i, line := range disclosure {
+		if i == 0 {
+			fmt.Fprintf(errw, "yolo host env: %s\n", line)
+			continue
+		}
+		fmt.Fprintln(errw, line)
 	}
 	if format == "json" {
 		m := jsonx.NewOrderedMap()
@@ -891,16 +905,20 @@ func hostEnv(args []string, out, errw io.Writer) int {
 	return 0
 }
 
-// hostEnvDelta returns just the variables yolo would add or remove, in composition order.
-// The composition's own refusal travels with it — `yolo host env` is an observe verb and
-// has to say why it has no environment to show, but it says it as an error rather than
-// printing a refusal an eval'ing shell would swallow.
-func hostEnvDelta(agent, profile string, warn func(string)) ([]agentenv.Var, error) {
+// hostEnvDelta returns just the variables yolo would add or remove, in composition order,
+// and the credential gate's disclosure for them. The composition's own refusal travels with
+// it — `yolo host env` is an observe verb and has to say why it has no environment to show,
+// but it says it as an error rather than printing a refusal an eval'ing shell would swallow.
+func hostEnvDelta(agent, profile string, warn func(string)) ([]agentenv.Var, []string, error) {
 	workspace, err := os.Getwd()
 	if err != nil {
 		workspace = "."
 	}
-	return hostEnvVars(config.UserScopeConfigOrEmpty(), workspace, agent, profile, warn)
+	c := composeHostVars(config.UserScopeConfigOrEmpty(), workspace, agent, profile, warn)
+	if c.err != nil {
+		return nil, nil, c.err
+	}
+	return c.vars, c.credentialScopeLines(), nil
 }
 
 // shellQuote wraps a value in single quotes for `export K=V`, escaping embedded quotes.

@@ -232,7 +232,11 @@ parsing to discover whether a verb was present at all.
 > door breaks first, and loudly.
 
 `eval "$(yolo host env)"` is a third front door onto the same composition, for direnv and mise
-users. It emits POSIX `export` lines by default, with a JSON format for tooling.
+users. It emits POSIX `export` lines by default, with a JSON format for tooling. The script is
+**one agent's slice** (`--agent`, default `claude`): a provider credential another agent's
+profile claims is not in it ([the credential gate](providers.md#the-credential-gate)), and the
+gate's disclosure goes to stderr, which an eval'ing shell does not read, naming what was
+withheld.
 
 ## apply reports actions, check reports state
 

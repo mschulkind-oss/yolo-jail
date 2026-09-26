@@ -21,22 +21,24 @@ import (
 // environment the exec would have handed the agent plus what the launch printed.
 func hostGateLaunch(t *testing.T, flags []string, agent string) (map[string]string, string) {
 	t.Helper()
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("YOLO_VERSION", "")
-	// The shell `yolo host` inherits is the USER's, and passes through untouched; blank the
-	// names under test so what the agent receives is what yolo composed.
-	for _, k := range []string{"AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "ZAI_API_KEY",
-		"CLAUDE_CODE_USE_BEDROCK", "AWS_CONTAINER_CREDENTIALS_FULL_URI"} {
-		t.Setenv(k, "")
-	}
-	t.Chdir(t.TempDir())
-	userCfg(t, home, `{"packs": ["claude", "codex", "pi", "zai", "aws-auth"], "env_sources": [`+
+	return hostGateLaunchWith(t, `{"packs": ["claude", "codex", "pi", "zai", "aws-auth"], "env_sources": [`+
 		`{"AWS_ACCESS_KEY_ID": "AKIA-host", "AWS_SECRET_ACCESS_KEY": "secret-host", `+
-		`"ZAI_API_KEY": "tok-host"}]}`)
-	orig := prepareOpenAIAuthHost
-	prepareOpenAIAuthHost = func(string, io.Writer) (managedOpenAIHostLaunch, error) { return nil, nil }
-	t.Cleanup(func() { prepareOpenAIAuthHost = orig })
+		`"ZAI_API_KEY": "tok-host"}]}`, nil, flags, agent)
+}
+
+// hostGateNames are the variables the host gate cells read, blanked in the invoking shell
+// so what the agent receives is what yolo composed.
+var hostGateNames = []string{"AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "ZAI_API_KEY",
+	"CLAUDE_CODE_USE_BEDROCK", "AWS_CONTAINER_CREDENTIALS_FULL_URI", "ANTHROPIC_AUTH_TOKEN",
+	"ANTHROPIC_BASE_URL"}
+
+// hostGateLaunchWith is hostGateLaunch over a user config and invoking-shell values of the
+// caller's choosing.
+func hostGateLaunchWith(t *testing.T, cfg string, shell map[string]string, flags []string,
+	agent string) (map[string]string, string) {
+	t.Helper()
+	home := hostGateHome(t, cfg, shell)
+	_ = home
 
 	bin := filepath.Join(t.TempDir(), "bin")
 	if err := os.MkdirAll(bin, 0o755); err != nil {
@@ -70,6 +72,29 @@ func hostGateLaunch(t *testing.T, flags []string, agent string) (map[string]stri
 		}
 	}
 	return env, errw.String()
+}
+
+// hostGateHome sets up a temp HOME with the user config, a blanked shell and the broker seam
+// stubbed, for a host-notch cell.
+func hostGateHome(t *testing.T, cfg string, shell map[string]string) string {
+	t.Helper()
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("YOLO_VERSION", "")
+	// The shell `yolo host` inherits is the USER's, and passes through untouched; blank the
+	// names under test so what the agent receives is what yolo composed.
+	for _, k := range hostGateNames {
+		t.Setenv(k, "")
+	}
+	for k, v := range shell {
+		t.Setenv(k, v)
+	}
+	t.Chdir(t.TempDir())
+	userCfg(t, home, cfg)
+	orig := prepareOpenAIAuthHost
+	prepareOpenAIAuthHost = func(string, io.Writer) (managedOpenAIHostLaunch, error) { return nil, nil }
+	t.Cleanup(func() { prepareOpenAIAuthHost = orig })
+	return home
 }
 
 // Done condition 1 at the host: `yolo host -p zai -- pi` hands pi zai's key and none of the
@@ -113,6 +138,46 @@ func TestHostGateCodexOnBedrockAndClaudeUnselected(t *testing.T) {
 		"CLAUDE_CODE_USE_BEDROCK", "AWS_CONTAINER_CREDENTIALS_FULL_URI"} {
 		if claude[k] != "" {
 			t.Errorf("claude selected nothing and was handed %s=%q", k, claude[k])
+		}
+	}
+}
+
+// A KEY HELD ONLY IN THE INVOKING SHELL still reaches the agent's env derive at the host
+// notch: `yolo host -p zai -- claude` with no env_sources and ZAI_API_KEY exported must hand
+// claude the derive-composed token, not a base URL with none while the pre-flight passes.
+// The gate's input for that is its Fallback, which is this notch's own call site.
+func TestHostGateRelaysAShellHeldKeyToTheEnvDerive(t *testing.T) {
+	env, errs := hostGateLaunchWith(t, `{"packs": ["claude", "zai"]}`,
+		map[string]string{"ZAI_API_KEY": "tok-shell"}, []string{"-p", "zai"}, "claude")
+	if env["ANTHROPIC_AUTH_TOKEN"] != "tok-shell" {
+		t.Errorf("claude on zai with the key only in the shell: ANTHROPIC_AUTH_TOKEN = %q, want "+
+			"the shell's key (base URL %q)\n%s", env["ANTHROPIC_AUTH_TOKEN"], env["ANTHROPIC_BASE_URL"], errs)
+	}
+}
+
+// `yolo host env` is ONE agent's slice, printed for a shell to eval, and it says so: a
+// credential another agent's profile claims is withheld from the default agent's script,
+// and the gate's disclosure names it on stderr, as `yolo host --` does. It used to drop the
+// value from the export with no message at all.
+func TestHostEnvDisclosesWhatItsSliceWithholds(t *testing.T) {
+	hostGateHome(t, `{"packs": ["claude", "pi", "zai"], "use_profiles": {"pi": "zai"}, "env_sources": [`+
+		`{"ZAI_API_KEY": "tok-host", "GH_TOKEN": "gh-host"}]}`, nil)
+	var out, errw bytes.Buffer
+	if rc := hostMain([]string{"env"}, &out, &errw, false, nil); rc != 0 {
+		t.Fatalf("yolo host env: rc = %d\n%s", rc, errw.String())
+	}
+	if strings.Contains(out.String(), "tok-host") || strings.Contains(out.String(), "ZAI_API_KEY") {
+		t.Errorf("claude's slice must not export pi's provider key:\n%s", out.String())
+	}
+	if !strings.Contains(out.String(), "export GH_TOKEN='gh-host'") {
+		t.Errorf("an unclaimed value stays in every slice:\n%s", out.String())
+	}
+	errs := errw.String()
+	// The host notch composes ONE agent, so from claude's slice pi's selection is not in
+	// the launch and the key reads as withheld from every process this launch starts.
+	for _, want := range []string{"yolo host env: ", "ZAI_API_KEY", "withheld"} {
+		if !strings.Contains(errs, want) {
+			t.Errorf("stderr must disclose the withheld credential (%q missing):\n%s", want, errs)
 		}
 	}
 }
