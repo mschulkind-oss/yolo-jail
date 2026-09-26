@@ -42,7 +42,7 @@ func TestSignalReadyWritesTheServiceName(t *testing.T) {
 	}
 }
 
-func TestWaitForActiveRouteFailsRatherThanWaitingWhenBootRequiresReady(t *testing.T) {
+func TestWaitForActivePlanFailsRatherThanWaitingWhenBootRequiresReady(t *testing.T) {
 	// A fresh boot that registered the endpoint promised that this daemon has a
 	// route. If its initial channel disagrees, waiting for a future attach turns
 	// that contradiction into an unbounded PID 1 stall.
@@ -53,10 +53,10 @@ func TestWaitForActiveRouteFailsRatherThanWaitingWhenBootRequiresReady(t *testin
 	defer read.Close()
 	defer write.Close()
 	t.Setenv(paths.JailDaemonReadyFDEnv, strconv.Itoa(int(write.Fd())))
-	_, _, ok := waitForActiveRoute(context.Background(), entrypoint.NewEnv(map[string]string{}),
+	_, _, ok := waitForActivePlan(context.Background(), entrypoint.NewEnv(map[string]string{}),
 		entryChannelPollInterval)
 	if ok {
-		t.Fatal("waitForActiveRoute() found a route in an empty channel")
+		t.Fatal("waitForActivePlan() found a route in an empty channel")
 	}
 }
 
@@ -312,8 +312,12 @@ func TestWaitForActiveRouteSeesAttachedClaudeCodex(t *testing.T) {
 	}
 	resultCh := make(chan result, 1)
 	go func() {
-		route, _, ok := waitForActiveRoute(ctx, initial, 5*time.Millisecond)
-		resultCh <- result{route, ok}
+		p, _, ok := waitForActivePlan(ctx, initial, 5*time.Millisecond)
+		var r route
+		if p.adapter != nil {
+			r = *p.adapter
+		}
+		resultCh <- result{r, ok}
 	}()
 	writeChannel(t, home, `{}`, `{"codex":{"provider":"openai-codex"}}`, `{"claude":"codex"}`)
 	select {

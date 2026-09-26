@@ -138,17 +138,56 @@ func daemonContext() (context.Context, context.CancelFunc) {
 // a jail may have concurrent entries, and letting the latest attach replace a
 // listener under an earlier entry would redirect that entry's traffic.
 func run(ctx context.Context, initial *entrypoint.Env, pollInterval time.Duration) int {
-	route, e, ok := waitForActiveRoute(ctx, initial, pollInterval)
+	p, e, ok := waitForActivePlan(ctx, initial, pollInterval)
 	if !ok {
 		return 0
 	}
-	return serve(ctx, route, e)
+	return servePlan(ctx, p, e)
 }
 
-func waitForActiveRoute(ctx context.Context, initial *entrypoint.Env, pollInterval time.Duration) (route, *entrypoint.Env, bool) {
-	if selected, idleReason := resolveRoute(initial); idleReason == "" {
+// plan is everything one boot serves (OQ-WG7): the adapter route on its own port, when
+// one is selected, and the via routes on the declared via address. Either may be absent;
+// a plan with neither is an idle.
+type plan struct {
+	adapter    *route
+	adapterWhy string // why no adapter route, when adapter is nil
+	via        viaPlan
+}
+
+func (p plan) serves() bool { return p.adapter != nil || len(p.via.Routes) > 0 }
+
+// idleReason is the whole plan's idle line: the adapter's reason, then each skipped via
+// profile's, so an almost-working via selection is named rather than hidden behind the
+// adapter's "nothing routes at the bridge".
+func (p plan) idleReason() string {
+	parts := []string{p.adapterWhy}
+	parts = append(parts, p.via.Skipped...)
+	return strings.Join(parts, "; ")
+}
+
+// resolvePlan is the boot read of the whole decision.
+func resolvePlan(e *entrypoint.Env) plan {
+	return planFor(e.LoadProviders(), useProfilesTable(e.LoadUseProfiles()), e.LoadProfiles())
+}
+
+// planFor is the pure core both call sites share (WillServe, the daemon's boot).
+func planFor(providers *jsonx.OrderedMap, useProfiles map[string]string,
+	resolved map[string]packload.ResolvedProfile) plan {
+	var p plan
+	if rt, why := routeFor(providers, useProfiles, resolved); why == "" {
+		p.adapter = &rt
+	} else {
+		p.adapterWhy = why
+	}
+	p.via = viaRoutesFor(providers, useProfiles, resolved)
+	return p
+}
+
+func waitForActivePlan(ctx context.Context, initial *entrypoint.Env, pollInterval time.Duration) (plan, *entrypoint.Env, bool) {
+	if selected := resolvePlan(initial); selected.serves() {
 		return selected, initial, true
 	} else {
+		idleReason := selected.idleReason()
 		logIdle(idleReason)
 		// A boot that registered this endpoint has already established that a
 		// route must exist. Waiting for a later attach in that state would make
@@ -157,7 +196,7 @@ func waitForActiveRoute(ctx context.Context, initial *entrypoint.Env, pollInterv
 		// ordinary selection-lazy daemon lifetime still waits for attaches below.
 		if readinessRequested() {
 			signalNotReady(ServiceName, idleReason)
-			return route{}, nil, false
+			return plan{}, nil, false
 		}
 	}
 	ticker := time.NewTicker(pollInterval)
@@ -165,7 +204,7 @@ func waitForActiveRoute(ctx context.Context, initial *entrypoint.Env, pollInterv
 	for {
 		select {
 		case <-ctx.Done():
-			return route{}, nil, false
+			return plan{}, nil, false
 		case <-ticker.C:
 			candidate := cloneEnv(initial)
 			if !entrypoint.HydrateEntryChannel(candidate) {
@@ -180,10 +219,11 @@ func waitForActiveRoute(ctx context.Context, initial *entrypoint.Env, pollInterv
 					"pick the file up if it appears", userEnvFilePath(candidate.Home))
 				continue
 			}
-			route, idleReason := resolveRoute(candidate)
-			if idleReason == "" {
-				return route, candidate, true
+			next := resolvePlan(candidate)
+			if next.serves() {
+				return next, candidate, true
 			}
+			idleReason := next.idleReason()
 			// An attach rewrote the channel and this bridge STILL idles. That is
 			// a legitimate no-op, but a silent one used to make an
 			// almost-working selection indistinguishable from an unnoticed
@@ -211,21 +251,23 @@ func cloneEnv(e *entrypoint.Env) *entrypoint.Env {
 }
 
 func serve(ctx context.Context, route route, e *entrypoint.Env) int {
+	return servePlan(ctx, plan{adapter: &route}, e)
+}
 
-	var (
-		key, keySource string
-		handler        http.Handler
-	)
+// adapterHandler builds the adapter route's handler and describes its credential, or
+// returns why it cannot serve (a missing credential): the bridge never serves
+// unauthenticated upstream traffic (wire-bridge.md §5).
+func adapterHandler(route route, e *entrypoint.Env) (http.Handler, string, string) {
 	if route.CodexAccessToken {
 		endpoint := e.Getenv(openauthclient.EndpointEnv)
 		if endpoint == "" {
-			logf("idling: Codex route needs %s; no unauthenticated upstream is served", openauthclient.EndpointEnv)
-			signalNotReady(ServiceName, "Codex upstream credential endpoint is unavailable")
-			return idleUntilStopped(ctx)
+			return nil, "", "Codex route needs " + openauthclient.EndpointEnv +
+				"; no unauthenticated upstream is served"
 		}
-		handler = NewCodexResponsesHandler(route.UpstreamBaseURL, endpoint)
-		keySource = "OpenAI credential service access-token views"
-	} else if route.SignRegion != "" {
+		return NewCodexResponsesHandler(route.UpstreamBaseURL, endpoint),
+			"OpenAI credential service access-token views", ""
+	}
+	if route.SignRegion != "" {
 		// A Bedrock upstream: the credential chain is snapshotted from the key channel
 		// now and resolved lazily per request (signing.go). A jail with no source at
 		// all idles, as a missing key does: the bridge never serves unauthenticated.
@@ -234,29 +276,73 @@ func serve(ctx context.Context, route route, e *entrypoint.Env) int {
 			return v
 		})
 		if !hasAWSCredentialSource(env) {
-			logf("idling: provider %q's upstream is Bedrock (%s), and none of its credential sources "+
-				"is set — a static AWS_ACCESS_KEY_ID + AWS_SECRET_ACCESS_KEY pair, the aws-auth pointer "+
-				"AWS_CONTAINER_CREDENTIALS_FULL_URI, or AWS_BEARER_TOKEN_BEDROCK — in %s or this "+
-				"process's environment", route.ProviderName, route.UpstreamBaseURL, userEnvFilePath(e.Home))
-			signalNotReady(ServiceName, "Bedrock upstream has no credential source")
-			return idleUntilStopped(ctx)
+			return nil, "", fmt.Sprintf("provider %q's upstream is Bedrock (%s), and none of its "+
+				"credential sources is set — a static AWS_ACCESS_KEY_ID + AWS_SECRET_ACCESS_KEY pair, "+
+				"the aws-auth pointer AWS_CONTAINER_CREDENTIALS_FULL_URI, or AWS_BEARER_TOKEN_BEDROCK — "+
+				"in %s or this process's environment", route.ProviderName, route.UpstreamBaseURL,
+				userEnvFilePath(e.Home))
 		}
-		handler = newSignedChatHandler(route.UpstreamBaseURL,
-			wirebridge.ChatOptions{OmitStreamUsage: route.OmitStreamUsage},
-			&bedrockSigner{region: route.SignRegion, chain: &sigv4.Chain{Env: env}})
-		keySource = "SigV4 for bedrock in " + route.SignRegion + ", from " + env.String()
-	} else {
-		key, keySource = resolveKey(route.KeyEnvName, e.Home)
-		if key == "" && route.KeyEnvName != "" {
-			logf("idling: provider %q names credential variable "+
-				"%s, and it is set neither in %s nor in this process's environment — the bridge "+
-				"never serves unauthenticated upstream traffic (wire-bridge.md §5)",
-				route.ProviderName, route.KeyEnvName, userEnvFilePath(e.Home))
-			signalNotReady(ServiceName, "provider credential is unavailable")
+		return newSignedChatHandler(route.UpstreamBaseURL,
+				wirebridge.ChatOptions{OmitStreamUsage: route.OmitStreamUsage},
+				&bedrockSigner{region: route.SignRegion, chain: &sigv4.Chain{Env: env}}),
+			"SigV4 for bedrock in " + route.SignRegion + ", from " + env.String(), ""
+	}
+	key, keySource := resolveKey(route.KeyEnvName, e.Home)
+	if key == "" && route.KeyEnvName != "" {
+		return nil, "", fmt.Sprintf("provider %q names credential variable %s, and it is set "+
+			"neither in %s nor in this process's environment — the bridge never serves "+
+			"unauthenticated upstream traffic (wire-bridge.md §5)",
+			route.ProviderName, route.KeyEnvName, userEnvFilePath(e.Home))
+	}
+	return newChatHandler(route.UpstreamBaseURL, key,
+		wirebridge.ChatOptions{OmitStreamUsage: route.OmitStreamUsage}), keySource, ""
+}
+
+// listener is one bound address and what it serves.
+type listener struct {
+	addr    string
+	what    string // for the log: "provider \"x\" (from its anthropic base_url)" or "via routes"
+	handler http.Handler
+	ln      net.Listener
+}
+
+// servePlan serves every route in p (OQ-WG7): the adapter route on its own port and the
+// via routes on the via address, one listener each. A route that cannot serve (no
+// credential) is dropped while another serves; a plan left with nothing to serve idles.
+func servePlan(ctx context.Context, p plan, e *entrypoint.Env) int {
+	var ls []*listener
+	var serving []string
+	if p.adapter != nil {
+		route := *p.adapter
+		handler, keySource, why := adapterHandler(route, e)
+		switch {
+		case why != "" && len(p.via.Routes) == 0:
+			logf("idling: %s", why)
+			if route.CodexAccessToken {
+				signalNotReady(ServiceName, "Codex upstream credential endpoint is unavailable")
+			} else if route.SignRegion != "" {
+				signalNotReady(ServiceName, "Bedrock upstream has no credential source")
+			} else {
+				signalNotReady(ServiceName, "provider credential is unavailable")
+			}
 			return idleUntilStopped(ctx)
+		case why != "":
+			logf("the adapter route for provider %q does not serve: %s — the via routes still do",
+				route.ProviderName, why)
+		default:
+			ls = append(ls, &listener{addr: route.ListenAddr, handler: handler,
+				what: fmt.Sprintf("provider %q (from its anthropic base_url)", route.ProviderName)})
+			serving = append(serving, fmt.Sprintf("provider %q: anthropic on {addr} → openai %s (endpoint {endpoint}, credential %s)",
+				route.ProviderName, route.UpstreamBaseURL, credentialDescription(route, keySource)))
 		}
-		handler = newChatHandler(route.UpstreamBaseURL, key,
-			wirebridge.ChatOptions{OmitStreamUsage: route.OmitStreamUsage})
+	}
+	if len(p.via.Routes) > 0 {
+		handler, lines := viaHandlerFor(p.via, e.Home)
+		ls = append(ls, &listener{addr: p.via.ListenAddr, handler: handler, what: "via routes"})
+		serving = append(serving, "via routes on {addr} (endpoint {endpoint}): "+strings.Join(lines, "; "))
+		for _, skip := range p.via.Skipped {
+			logf("a via profile is not served: %s", skip)
+		}
 	}
 
 	// BIND BEFORE PUBLISH (§5): the endpoint file's appearance is the promise
@@ -267,46 +353,61 @@ func serve(ctx context.Context, route route, e *entrypoint.Env) int {
 	// nothing at all, so "the bridge got as far as trying to bind X" was itself an
 	// unavailable fact. A line here also survives the case an error string cannot
 	// reach — a bind that hangs, or a process killed between these two statements.
-	logf("binding %s for provider %q (from its anthropic base_url)", route.ListenAddr, route.ProviderName)
-	ln, err := net.Listen("tcp", route.ListenAddr)
-	if err != nil {
-		// A port the manifest URL names that something else holds is a real
-		// fault (WB-D13: the URL is the single source of the port), not an
-		// idle. A boot waiting on this daemon must hear that result immediately;
-		// otherwise supervisor's intentional retry loop turns an actionable bind
-		// conflict into a terminal with no new output.
-		//
-		// THREE FACTS, ALWAYS, because the first two alone are what made this
-		// class cost four wrong hypotheses: the address tried, the syscall error
-		// verbatim (net.OpError already carries "listen tcp <addr>: bind: …"),
-		// and WHO HOLDS THE PORT (portholder.go, which asks /proc because the
-		// host-side instrument cannot see a jail-side listener).
-		holder := describePortHolder(route.ListenAddr)
-		logf("cannot bind %s for provider %q (from its anthropic base_url): %v — %s",
-			route.ListenAddr, route.ProviderName, err, holder)
-		signalNotReady(ServiceName, "cannot bind "+route.ListenAddr+": "+err.Error()+" — "+holder)
-		return 1
+	for _, l := range ls {
+		logf("binding %s for %s", l.addr, l.what)
+		ln, err := net.Listen("tcp", l.addr)
+		if err != nil {
+			// A port the manifest URL names that something else holds is a real
+			// fault (WB-D13: the URL is the single source of the port), not an
+			// idle. A boot waiting on this daemon must hear that result immediately;
+			// otherwise supervisor's intentional retry loop turns an actionable bind
+			// conflict into a terminal with no new output.
+			//
+			// THREE FACTS, ALWAYS, because the first two alone are what made this
+			// class cost four wrong hypotheses: the address tried, the syscall error
+			// verbatim (net.OpError already carries "listen tcp <addr>: bind: …"),
+			// and WHO HOLDS THE PORT (portholder.go, which asks /proc because the
+			// host-side instrument cannot see a jail-side listener).
+			holder := describePortHolder(l.addr)
+			logf("cannot bind %s for %s: %v — %s", l.addr, l.what, err, holder)
+			signalNotReady(ServiceName, "cannot bind "+l.addr+": "+err.Error()+" — "+holder)
+			for _, done := range ls {
+				if done.ln != nil {
+					_ = done.ln.Close()
+				}
+			}
+			return 1
+		}
+		l.ln = ln
 	}
-	if err := publishEndpoint(EndpointFile, ln.Addr().String()); err != nil {
-		// The listener is abandoned with the process, one statement from now: the
-		// only reason to close it explicitly is the in-process test that asserts
+	// The endpoint file names the FIRST listener (the adapter route's when there is one):
+	// its contract is "a listener of this daemon exists at the address inside", which the
+	// reachability witness probes, and any one bound listener proves the daemon is up.
+	if err := publishEndpoint(EndpointFile, ls[0].ln.Addr().String()); err != nil {
+		// The listeners are abandoned with the process, one statement from now: the
+		// only reason to close them explicitly is the in-process test that asserts
 		// the port is free again, and a Close error on a listener nobody will
 		// accept on has no consumer and no remedy.
-		_ = ln.Close()
+		for _, l := range ls {
+			_ = l.ln.Close()
+		}
 		logf("cannot publish %s (the §5 marker for the live listener on %s): %v",
-			EndpointFile, ln.Addr().String(), err)
+			EndpointFile, ls[0].ln.Addr().String(), err)
 		signalNotReady(ServiceName, "cannot publish endpoint "+EndpointFile+": "+err.Error())
 		return 1
 	}
 	signalReady(ServiceName)
+	for i, line := range serving {
+		line = strings.ReplaceAll(line, "{addr}", ls[i].ln.Addr().String())
+		logf("serving %s", strings.ReplaceAll(line, "{endpoint}", EndpointFile))
+	}
 
-	logf("serving provider %q: anthropic on %s → openai %s (endpoint %s, credential %s)",
-		route.ProviderName, ln.Addr().String(), route.UpstreamBaseURL, EndpointFile,
-		credentialDescription(route, keySource))
-
-	srv := &http.Server{Handler: handler}
-	errCh := make(chan error, 1)
-	go func() { errCh <- srv.Serve(ln) }()
+	servers := make([]*http.Server, len(ls))
+	errCh := make(chan error, len(ls))
+	for i, l := range ls {
+		servers[i] = &http.Server{Handler: l.handler}
+		go func(srv *http.Server, ln net.Listener) { errCh <- srv.Serve(ln) }(servers[i], l.ln)
+	}
 	select {
 	case <-ctx.Done():
 		logf("stopping: the daemon's context is done (the supervisor signalled, or the jail is retiring)")
@@ -314,9 +415,13 @@ func serve(ctx context.Context, route route, e *entrypoint.Env) int {
 		// discarding anyway, on the way out of a process that is about to exit;
 		// it names nothing a reader could act on. The Serve error below IS
 		// reported, and it is the one that can say something.
-		_ = srv.Close()
-		if err := <-errCh; !errors.Is(err, http.ErrServerClosed) {
-			logf("the listener stopped with an error while shutting down: %v", err)
+		for _, srv := range servers {
+			_ = srv.Close()
+		}
+		for range servers {
+			if err := <-errCh; !errors.Is(err, http.ErrServerClosed) {
+				logf("a listener stopped with an error while shutting down: %v", err)
+			}
 		}
 		// A STALE ENDPOINT FILE IS A LIE: the file's whole contract is "a
 		// listener exists at the address inside" (§5), so one that outlives the
@@ -329,6 +434,9 @@ func serve(ctx context.Context, route route, e *entrypoint.Env) int {
 		}
 		return 0
 	case err := <-errCh:
+		for _, srv := range servers {
+			_ = srv.Close()
+		}
 		if !errors.Is(err, http.ErrServerClosed) {
 			logf("server stopped: %v", err)
 			return 1
@@ -539,8 +647,7 @@ func useProfilesTable(m *jsonx.OrderedMap) map[string]string {
 // could not answer differently even in principle.
 func WillServe(providers *jsonx.OrderedMap, useProfiles map[string]string,
 	resolved map[string]packload.ResolvedProfile) bool {
-	_, idle := routeFor(providers, useProfiles, resolved)
-	return idle == ""
+	return planFor(providers, useProfiles, resolved).serves()
 }
 
 // routeFor is the pure core of the decision, and the only place it is made:
