@@ -458,7 +458,7 @@ Re-running `yolo` in a workspace whose jail is still running does **not** start 
 | `resources`, `network`, `ports`, `mounts`, `devices`, `gpu`, `packages`, `host_files` | **absent, silent** | **absent, silent** | `works`[^macuserkeys] |
 | The config-change diff prompt (your y/N review) | **absent, silent** | **absent, silent** | `works` — every invocation shows the diff |
 | The frozen config snapshot `yolo config drift` compares against | **absent, silent**[^drift] | **absent, silent** | `n/a` — never written, drift says "cannot determine" |
-| The jail's own `yolo` version | `absent, warns` — one dim line naming `yolo stop` | `absent, warns` | `n/a` — re-staged every launch |
+| The jail's own `yolo` version | `absent, warns` — one dim line naming `yolo stop`, or a restart question when the older jail cannot take what you selected[^olderjail] | `absent, warns` | `n/a` — re-staged every launch |
 
 **On `macos-user` every `yolo` starts a fresh sandbox from your current config**, so every setting it reads takes effect on the next launch. What differs there is which settings it reads at all.
 
@@ -468,6 +468,7 @@ Re-running `yolo` in a workspace whose jail is still running does **not** start 
 [^packpartly]: A newly added pack's config files, skills, briefing, hooks and launchers arrive on a re-entry; its mounts and host services do not. A pack that needs to write somewhere new in the home can make the re-entry fail outright. Dropping a pack works cleanly. Restart the jail to add one.
 [^acpack]: Apple Container gets a copy of the packs at launch, so the agent cannot rewrite them, and that copy is not refreshed on a re-entry. A running jail keeps the packs it started with: their files, skills and hooks.
 [^envhalf]: These cross as environment variables on the container command line. An added MCP server does not appear in the agent's list until you stop and relaunch, even though the boot visibly regenerated the MCP config.
+[^olderjail]: A jail keeps the yolo it started with. When a newer yolo re-enters it with a profile whose credentials that jail cannot receive, yolo asks `Restart jail now? [Y/n]` and says how many sessions the restart ends. Without a terminal it stops and tells you to run `yolo stop` first. `YOLO_ALLOW_ATTACH_SKEW=1` re-enters anyway, without delivering the profile.
 [^drift]: After a re-entry, in-jail config readers still see the config the jail was *launched* with, and `yolo config drift` compares against a baseline that may be several edits old — so it reports drift for edits you thought you had applied.
 [^macuserkeys]: For the keys this setup reads. Resource limits are not enforced here, and `mounts` binds nothing.
 

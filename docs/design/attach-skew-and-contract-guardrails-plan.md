@@ -1,6 +1,22 @@
 # Implementation Plan Sketch: Attach Skew and Contract Guardrails
 
-**Status:** SKETCH, 2026-09-26 — incomplete, and unstable while questions are open.
+**Status:** SKETCH, 2026-09-26, and SUPERSEDED where it disagrees with what was built the same
+day. The design doc's [What was built](attach-skew-and-contract-guardrails.md#what-was-built-2026-09-26)
+and [ledger](attach-skew-and-contract-guardrails.md#decision-ledger) are the record; the table
+below says where each piece landed. The signature sketches further down are the pre-ruling
+draft and were not built as written: no `YOLO_CAPABILITIES`, no version matrix, no
+`requires_capabilities`, and no in-jail filtering.
+
+## Where it landed
+
+| Path | What it holds |
+| :--- | :--- |
+| `internal/cli/run/contracttags.go` | The contract tags, the launch's own set, the jail's tags read from its inspect env (legacy markers included), an attach's needs, and the disposition: acknowledgment, restart prompt, refusal, restart |
+| `internal/entrypoint/contracttags.go` | `ContractTagsEnv`, the variable's name, beside the legacy `AgentEnvFilesEnv` |
+| `internal/cli/run/assemble.go` | Freezes `YOLO_CONTRACT_TAGS` into every container |
+| `internal/cli/run/run.go` | `attachExisting` runs the gate before any write; `runContainer`'s three attach sites continue into the fresh launch on a restart; `deliverChannelOnAttach` lost its stale-jail arms |
+| `internal/tty/confirm.go` | The shared yes/no reader the prompt uses |
+| `packs/releasedecode_test.go` | Decodes the shipped packs with the last release's in-jail reader; the known-break allowlist |
 
 > **Precedence.** This is the companion sketch to
 > [`attach-skew-and-contract-guardrails.md`](attach-skew-and-contract-guardrails.md).
@@ -9,7 +25,7 @@
 
 ---
 
-## File Map
+## File Map (the pre-ruling draft)
 
 | Path | Role |
 | :--- | :--- |

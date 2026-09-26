@@ -246,21 +246,28 @@ re-hydrates it). Consequences worth knowing:
 - A provider credential no longer rides a `ps`-visible argv line; it lands in a 0600
   file — the selecting agent's own. The argv-exposure trade-off this reference
   used to record is retired by the same move.
-- An attach to a jail launched BEFORE the file crossing carries the tables in its
-  frozen environment, which its older entrypoint lets beat the file — so the attach
-  compares its own selection table to the jail's FROZEN one and splits by
-  explicitness: a TYPED `-p` naming a different profile refuses (the delivery cannot
-  take, and the remedy names the two-command restart series — `yolo stop`, then an
-  ordinary launch); a config-side drift warns and proceeds; a matching or empty
-  selection is a plain re-entry and stays silent.
-- An attach to a jail launched after that but BEFORE [the credential gate](#the-credential-gate)
-  reads the shared file on every entry but has no per-agent env directory, and its launchers
-  source none. A current launch freezes `YOLO_AGENT_ENV_FILES=1` into the container, so an
-  attach that inspects an environment without it knows the per-agent half cannot arrive. When
-  this entry scopes nothing to any agent, the delivery runs as usual. When it does, a TYPED
-  `-p` refuses, naming the agents and the restart, and a config-only selection warns by name
-  and delivers nothing, so the jail keeps what its last entry gave it. Neither prints the
-  gate's "`… only`" disclosure, which would describe a delivery that jail cannot receive.
+- **An attach first asks whether the running jail can receive this delivery**, by comparing
+  the contract tags the container froze at launch (`YOLO_CONTRACT_TAGS`) with the tags this
+  entry needs ([`attach-skew-and-contract-guardrails.md`](../design/attach-skew-and-contract-guardrails.md#what-was-built-2026-09-26)).
+  When one is missing it never proceeds on its own. At a terminal it asks
+  `Restart jail now? [Y/n]`, naming the sessions the restart ends, and a restart continues
+  as a fresh launch. Elsewhere, or when the question is declined, it refuses and names the
+  two-command series, `yolo stop` and then an ordinary launch. `YOLO_ALLOW_ATTACH_SKEW=1`
+  proceeds but delivers nothing, so the jail keeps what its last entry gave it, and says
+  so on stderr. Typed `-p` and config-side selections are treated alike. Two older jails
+  lack a tag:
+  - A jail launched BEFORE the file crossing carries the tables in its frozen environment,
+    which its older entrypoint lets beat the file. It lacks `entry-channel`, so an entry
+    selecting a DIFFERENT table than the frozen one takes the disposition. A matching or
+    empty selection is a plain re-entry: nothing is needed, nothing is written, and nothing
+    is said.
+  - A jail launched after that but BEFORE [the credential gate](#the-credential-gate)
+    reads the shared file on every entry but has no per-agent env directory, and its
+    launchers source none. It lacks `agent-env-files`, which a jail the gate's first build
+    launched shows by its legacy `YOLO_AGENT_ENV_FILES=1` instead. An entry that scopes
+    nothing to any agent needs no such tag and delivers as usual. One that does takes the
+    disposition, and no path prints the gate's "`… only`" disclosure for a delivery the jail
+    cannot receive.
 - The macos-user backend has no attach and no frozen copy; it still layers the same
   channel into its per-invocation plan env, narrowed to the one program it launches.
 

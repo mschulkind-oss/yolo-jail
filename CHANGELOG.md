@@ -39,6 +39,10 @@ protocol its provider serves is refused, naming any shipped pack that translates
 
 - **Ctrl-C reaches the jail**, interrupting what runs there, such as a Claude reply, instead of
   ending your session.
+- **Re-entering a jail an older yolo started asks before going on** when that jail cannot take
+  the profile you selected. At a terminal, `Restart jail now? [Y/n]` says how many sessions a
+  restart ends. Elsewhere, yolo stops and tells you to run `yolo stop` first. It used to warn
+  and start the session without the profile. `YOLO_ALLOW_ATTACH_SKEW=1` re-enters anyway.
 - **Git packs are fetched at launch**, and a `?ref=<branch>` pack follows its branch within the
   hour. Pin a tag or commit for any pack that runs code on your machine.
 - **`lsp_servers` installs nothing.** Install servers through `mise_tools` or `packages`. Run

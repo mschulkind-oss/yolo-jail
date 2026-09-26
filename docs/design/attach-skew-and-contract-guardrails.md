@@ -8,7 +8,7 @@ summary: "When a host yolo updates, running containers retain their original bin
 
 # Why host-jail version skew breaks running sessions — and how to prevent contract drift
 
-**Status:** DESIGN, 2026-09-26. [OQ-SK1](#OQ-SK1)–[OQ-SK3](#OQ-SK3) ruled the same day (never silent: a terminal restart prompt, a refusal elsewhere, one explicit acknowledgment; named tags); [OQ-SK4](#OQ-SK4) is open. Nothing built. Evidence verified at `7b572b6c`; [what changed since](#findings-since-filing-2026-09-26) is checked at `7da7993b`.
+**Status:** DESIGN, 2026-09-26. [OQ-SK1](#OQ-SK1)–[OQ-SK3](#OQ-SK3) ruled the same day (never silent: a terminal restart prompt, a refusal elsewhere, one explicit acknowledgment; named tags); [OQ-SK4](#OQ-SK4) is open. **The attach gate is BUILT** for the contracts an attach delivers today, the provider/profile channel and the per-agent env files, together with the CI check that decodes the shipped packs with the last release's reader ([what was built](#what-was-built-2026-09-26), [ledger](#decision-ledger)). Pack-contract skew is NOT closed yet: an attach still re-stages the host's packs until [`OQ-PK2`](../reference/pack-system.md#oq-pk2)'s per-launch trees land. Layer 2 (pack `requires_capabilities`) is not built, and those trees make it unnecessary. MEASURED on a real podman, against a stand-in older jail: a container named for the workspace whose frozen environment an older launch would have left. Without a terminal the attach refused and counted the live sessions (`TestAttachRefusesAJailThatCannotReceiveTheSelection`). At a real pty, answering `y` stopped the jail, and the same launch started a fresh one carrying the tags and ran the command (`TestAttachRestartsAnOlderJailAtATerminal`). The acknowledgment is unit-tested only, and no jail an actual older yolo launched has been attached to. Evidence verified at `7b572b6c`; [what changed since](#findings-since-filing-2026-09-26) is checked at `7da7993b`.
 
 > **In short.** When an existing container is attached to after a host update, the
 > host re-stages current packs into an immutable prefix whose binaries predate them.
@@ -34,7 +34,7 @@ into an immutable prefix creates the gap. The rest falls out of it.
 
 **Needs your ruling:** [OQ-SK4](#OQ-SK4).
 
-**Reads with:** [`attach-skew-and-contract-guardrails-plan.md`](attach-skew-and-contract-guardrails-plan.md) (the companion sketch — incomplete while questions are open),
+**Reads with:** [`attach-skew-and-contract-guardrails-plan.md`](attach-skew-and-contract-guardrails-plan.md) (the companion sketch, now a record of what was built where),
 [`agent-footer.md`](agent-footer.md) (the footer contract whose addition triggered this finding),
 [`../reference/image-staging-vs-baking.md`](../reference/image-staging-vs-baking.md) (how mounted prefixes and generations work).
 
@@ -403,6 +403,57 @@ Checked against `7da7993b` by three independent readers and by hand; each claim 
   leaning) cannot protect an old jail, whose tolerant decoder drops unknown fields; the proposed
   capability names collide with the existing `required_capabilities` gate; and the plan cites
   `internal/packdecl/manifest.go`, which does not exist.
+- **The v0.10.0 breaks are three, not two** (measured 2026-09-26 by the release-decode test
+  below): pi also declares the `shared_directory` hook, which v0.10.0's reader reports as
+  `unknown hook` beside `unshare_directory`. And v0.10.0 SKIPS both of wire-bridge's `adapter`
+  contributions, an unknown kind to it, without failing: an old jail handed this tree boots with
+  no bridge adapters and says so only on its boot's stderr. That is a degraded jail rather than
+  a refused one, and per-launch trees close it the same way.
+
+## What was built (2026-09-26)
+
+The gate for what an attach delivers today, and a check on what the next release ships. The
+[ledger](#decision-ledger) holds each mechanism choice and why.
+
+- **Contract tags** ("contract tag" is this build's term for the doc's named capability tag,
+  chosen because "capability" is already `required_capabilities`' word). Every container launch
+  freezes `YOLO_CONTRACT_TAGS=entry-channel,agent-env-files` into its environment
+  ([`contracttags.go`](../../internal/cli/run/contracttags.go),
+  [`assemble.go`](../../internal/cli/run/assemble.go)). `entry-channel` means the jail's boot
+  applies a later entry's provider selection. `agent-env-files` means its launchers source the
+  per-agent env files. A jail launched before the tags gets each tag inferred from the marker its
+  contract left: the credential gate's `YOLO_AGENT_ENV_FILES=1`, and the absence of a frozen
+  `YOLO_PROVIDERS`.
+- **The attach computes what it needs.** It needs `entry-channel` whenever it delivers a profile
+  selection, and `agent-env-files` whenever the credential gate scoped a value to an agent. A tag
+  the jail lacks is resolved in `attachExisting`, before any write:
+  - `YOLO_ALLOW_ATTACH_SKEW` set: the attach proceeds, prints on stderr what differs and each
+    withheld variable's name, and delivers no part of this entry's channel.
+  - A terminal on stdin and stdout: `Restart jail now? [Y/n]`, naming the sessions the stop
+    ends (`every session in it (3 running now)` on podman). Yes stops the jail and the launch
+    continues as a fresh one; no, or end of input, refuses.
+  - Anything else: a refusal naming `yolo stop`, then a launch, and the acknowledgment.
+
+  No other `YOLO_ALLOW_*` implies the acknowledgment, which a test pins by setting every other one
+  the tree spells.
+- **It replaced two ride-alongs.** The credential gate's CN-D18 arm warned and delivered nothing
+  for a config-only selection a pre-gate jail could not receive. The pre-change jail's arm
+  ([`OQ-CS6`](../reference/providers.md#oq-cs6)) did the same for a config-side selection a
+  frozen `YOLO_PROVIDERS` would beat. Both now take the disposition above, whether or not the
+  selection was typed. The plain re-entry into a pre-change jail, with its launch-time selection
+  or none, still needs nothing and delivers nothing.
+- **The release-decode check.** `TestShippedPacksDecodeUnderTheLastRelease`
+  ([`packs/releasedecode_test.go`](../../packs/releasedecode_test.go)) builds the last release
+  tag's in-jail reader from `git archive` and decodes this tree's embedded packs with it, the
+  way that release's boot does. Every known break is listed with its guard, and an unlisted one
+  fails the short suite in CI.
+
+**Not built, and why.** In-session visibility beyond stderr waits on [OQ-SK4](#OQ-SK4). Layer 2's
+pack `requires_capabilities` would ask each pack contract to be declared twice, and per-launch
+pack trees remove the need, since an attach then hands an old jail no new manifest at all. **Until
+those trees land, an attach to a v0.10.0 jail still re-stages this tree's packs, and that jail
+still fails to boot.** The release-decode entries cite that guard in advance, and the change that
+builds the trees pins it.
 
 ## Open Questions
 
@@ -477,3 +528,22 @@ Checked against `7da7993b` by three independent readers and by hand; each claim 
    > _(empty — fill in when decided)_. Live again since [OQ-SK3](#OQ-SK3): an acknowledged
    > attach is a skewed session. The host-written briefing is the one channel an old jail's
    > session shows ([findings](#findings-since-filing-2026-09-26)).
+
+## Decision ledger
+
+The rulings are [OQ-SK1](#OQ-SK1)–[OQ-SK3](#OQ-SK3) above. Each row below is a mechanism choice
+made to build them, and none changes what they rule.
+
+| ID | Decision | Date | Built |
+| :--- | :--- | :--- | :--- |
+| SK-D1 | *Implementation decision.* The tags cross as `YOLO_CONTRACT_TAGS`, comma-separated (`entrypoint.ContractTagsEnv`). The vocabulary, the launch's own set and both halves of the comparison live in [`contracttags.go`](../../internal/cli/run/contracttags.go): assembly freezes the value it returns, and the attach reads it back. Nothing in the jail reads the variable. The first two tags are `entry-channel` and `agent-env-files`. "Contract tag", not "capability", because `required_capabilities` already owns that word ([findings](#findings-since-filing-2026-09-26)). The launch writes its own set because the jail it launches runs binaries built from the same source, which the source-skew gate enforces | 2026-09-26 | ✅ `1fe963d2` |
+| SK-D2 | *Implementation decision.* A present `YOLO_CONTRACT_TAGS` is authoritative, even empty. A jail without it gets each tag inferred from the marker its contract left: `agent-env-files` from `YOLO_AGENT_ENV_FILES`, which [OQ-SK2](#OQ-SK2)'s answer folded in, and `entry-channel` from the absence of a frozen `YOLO_PROVIDERS`. An inspect that returned nothing proves nothing, and the jail is treated as current, which was the credential gate's rule too. New launches stop writing `YOLO_AGENT_ENV_FILES`, so the tag has one spelling. The cost: an OLDER host attaching to a jail a newer one launched reads that jail as pre-gate and refuses a scoped delivery, which is the safe direction | 2026-09-26 | ✅ `1fe963d2` |
+| SK-D3 | *Implementation decision.* An attach needs `entry-channel` whenever it delivers a profile selection, and `agent-env-files` whenever the credential gate scoped any value to an agent. A pre-change jail re-entered with the selection it froze, or with none, needs nothing and is written nothing, because its launch-time delivery stands in for this entry's. That plain re-entry has to stay silent: its first cut refused, and every plain attach of a config carrying `use_profiles` broke (measured 2026-09-05) | 2026-09-26 | ✅ `1fe963d2` |
+| SK-D4 | *Implementation decision.* The pre-change jail's config-side drift arm ([`OQ-CS6`](../reference/providers.md#oq-cs6)) takes the same disposition as the CN-D18 arm ([`provider-credential-scope.md`](provider-credential-scope.md#7-decision-ledger)). It warned and proceeded on the jail's launch-time providers, which is the ride-along [OQ-SK1](#OQ-SK1) forbids. Typed and config-only selections are no longer told apart: both ask in a terminal and refuse elsewhere | 2026-09-26 | ✅ `1fe963d2` |
+| SK-D5 | *Implementation decision.* The gate sits in `attachExisting`, after the one inspect and the launch line and before anything is written. The launch lock is held through it and released once the attach settles on proceeding, or on a refusal. A restart keeps the lock, and `runContainer` continues into the fresh launch at each of its three attach sites (the first look, the raced re-check, and the stale removal's wait). The lock is what makes the stopped jail's teardown leave its host-services dir to the relaunch (`stopLoopholes`) | 2026-09-26 | ✅ `1fe963d2` |
+| SK-D6 | *Implementation decision.* A restart is the teardown's bounded `stop`, then a wait of up to 15 s for the stopped container's `--rm` removal, then the fresh path's stale removal for a stopped leftover. A container still running refuses the launch with `did not stop` rather than create a second one beside it | 2026-09-26 | ✅ `1fe963d2` |
+| SK-D7 | *Implementation decision.* The prompt counts sessions as one plus `inspect --format '{{len .ExecIDs}}'`: the launching session and each live exec. A finished exec leaves `ExecIDs` and a running one stays (measured on podman 5.8.6). Any other answer prints `every session in it` with no number. Apple Container's inspect has not been measured. If it rejects a Go-template `--format`, as its `image ls` does (measured 2026-09-14, `integration/harness_test.go`), then the gate reads no environment there and treats every jail as current, as the checks it replaced did | 2026-09-26 | ✅ `1fe963d2` |
+| SK-D8 | *Implementation decision.* The prompt needs a terminal on stdin and on stdout (`o.IsTTYStdin`, `o.IsTTYStdout`, both `internal/tty`). The answer is read by `tty.Confirm`, a new shared reader that `internal/cli`'s `promptYesNo` now calls too. Enter takes the capital letter, yes. End of input is no, because a closed stdin is not a person accepting the default | 2026-09-26 | ✅ `8e75f3db`, `1fe963d2` |
+| SK-D9 | *Implementation decision.* Under the acknowledgment, the host degrades by writing no part of this entry's channel. Writing the shared half alone would strip every scoped credential the jail holds while naming agents as recipients (CN-D18's reasoning). `YOLO_ALLOW_ATTACH_SKEW` counts when set to any non-empty value, as every `YOLO_ALLOW_*` does. The disclosure goes to stderr and nowhere else, since [OQ-SK4](#OQ-SK4) is open | 2026-09-26 | ✅ `1fe963d2` |
+| SK-D10 | *Implementation decision.* The prompt and its account go to stdout, as the config-change prompt's do. Refusals and the acknowledgment's disclosure go to stderr, as the credential gate's attach refusals did | 2026-09-26 | ✅ `1fe963d2` |
+| SK-D11 | *Implementation decision.* The release-decode check lives in `packs/` and runs in the short suite, so the pre-commit gate and CI's `check-go` run it. The baseline is `git describe --tags --abbrev=0 --match 'v[0-9]*' HEAD^`, so a release commit is compared with the release before it. The old tree comes from `git archive`, and the probe builds with `GOFLAGS=-mod=vendor GOTOOLCHAIN=local GOPROXY=off`, calling `packload.TolerateSkew` and then `LoadDir`, as every in-jail boot since v0.9.0 has. HEAD's copies of those two are pinned (`TestReleaseDecodeProbeAPIIsStable`). Allowlist entries are keyed by release and carry a guard, plus an optional `pinnedBy` test that must exist. An unlisted break fails, and so does a listed one that no longer occurs. Entries for another release are logged as removable, so the next tag needs no edit. Under GitHub Actions a missing tag fails the check instead of skipping it | 2026-09-26 | ✅ `88533921` |
