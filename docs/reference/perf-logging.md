@@ -268,7 +268,10 @@ builds a collector.
 > proved on a real pty: SIGTERM to the launcher put the `terminate.*` spans in the
 > file *after* the arm's exit and printed the report at rc 143 — an end-of-run dump
 > would have lost the whole record on the one path most worth seeing. The same
-> rule is why the file sink trims at *open* and never rewrites at exit.
+> rule is why the file sink trims at *open* and never rewrites at exit. No
+> automated test drives this arm end to end. To reproduce it, use Python's
+> `pty.fork()`: in the child, `os.execve` the launcher; in the parent, sleep, then
+> `os.kill(pid, signal.SIGTERM)`. `script(1)` is not in the image.
 
 ## What is spanned
 

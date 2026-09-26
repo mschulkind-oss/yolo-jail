@@ -9,7 +9,8 @@ import (
 // sectionNixLD runs the "FHS loader (nix-ld)" block — an in-jail-only smoke test
 // that the FHS ELF interpreter wiring still resolves an FHS binary under a fully
 // scrubbed environment. This is the baseline-drift tripwire the nix-ld design
-// asks for (docs/reference/mise-node-dynamic-linking.md step 8): before nix-ld a
+// asks for (docs/reference/mise-node-dynamic-linking.md, "The regression
+// tripwire"): before nix-ld a
 // mise-installed node crashed with `libstdc++.so.6: cannot open` whenever a
 // launcher scrubbed LD_LIBRARY_PATH; nix-ld (the /lib64 interpreter) makes it
 // work env-free. If a future nixpkgs bump or flake change regresses that, this

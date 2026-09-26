@@ -4,12 +4,19 @@
 (ruled [OQ-PD10](../design/program-delivery.md#decision-ledger)) ·
 Written against `839d0745`, 2026-09-03.
 
-**Status:** BUILT, 2026-09-04 — MEASURED that day. Every slice is built; the sequencing below was
-reversed by [OQ-CP1](../reference/agent-cli-copies.md#oq-cp1). Re-checked against the tree
-2026-09-24. **One thing is owed, on `macos-user` only:** slice 6's hand-off H1 (wiring
-`yolo capture` to that backend) landed 2026-09-04 and its recording half was measured on hardware
-2026-09-11, but **H2, the relocation rewrite, is not built**, so nothing on that backend
-materializes a capture. H3 is a stated non-default, not a gap.
+**Status:** DECIDED, 2026-09-26 — **owed: slice 6's hand-off
+[H2](#hand-offs--what-is-not-wired-and-the-exact-line-that-wires-it), the relocation rewrite**, so
+nothing on `macos-user` materializes a capture. Slices 1–5 and 7 are built and were measured in a
+nested jail on 2026-09-04; slice 6 built its recording half only (re-checked against the tree
+2026-09-24). One confirmation of uid mapping on a real rootless host is still unrecorded
+([Verification](#verification-honestly)). The sequencing below was
+reversed by [OQ-CP1](../reference/agent-cli-copies.md#oq-cp1). On `macos-user`, hand-off H1 (wiring
+`yolo capture` to that backend) landed 2026-09-04 and the recording half was measured on hardware
+2026-09-11. The confinement denial probe (slice 6's hardware item 3) has no recorded run. H3 is a
+stated non-default, not a gap. **This is not a graduation candidate until H2 lands or is retired.**
+Owed work is `DECIDED` in this tree's status vocabulary, and live designs cite H2 here
+([`provisioner-sets.md`](../design/provisioner-sets.md),
+[`OQ-WP11`](../design/workspace-path-mirroring.md#OQ-WP11)).
 
 **Precedence:** the design wins on behavior; the tree wins on fact; this file is advice and is
 the first thing to be wrong. Never twist code to match it — correct it in the commit.

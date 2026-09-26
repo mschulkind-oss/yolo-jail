@@ -223,7 +223,7 @@ Highest value, low risk (text stays byte-identical after strip).
   `markupANSI`. `richtext.ansiForTag` already covers the full palette. Route the
   plain surfaces onto `internal/richtext` rather than growing a fourth table
   (also unblocks init's missing-red gap). Natural intersection with
-  [module-consolidation-and-cleanup.md](module-consolidation-and-cleanup.md).
+  `module-consolidation-and-cleanup.md` (retired; `git log -- docs/plans/module-consolidation-and-cleanup.md`).
 
 ## Enforcement / tests
 

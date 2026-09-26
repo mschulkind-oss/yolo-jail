@@ -11,7 +11,7 @@ ANSI-leak-to-a-pipe closed (`c9ea5e8`), and the last three commands
 correctly, the other two are intentionally plain (no leaked markup). Pulled out
 of the archived `go-port-post-transition.md` (its CLI-colour section; the doc is gone, so the number resolves nowhere). Was jail-testable end-to-end
 (no host needed); paired with the renderer consolidation in
-[module-consolidation-and-cleanup.md](module-consolidation-and-cleanup.md).
+`module-consolidation-and-cleanup.md` (retired; `git log -- docs/plans/module-consolidation-and-cleanup.md`).
 
 ## The bug class
 
@@ -78,7 +78,7 @@ Classification of the remaining commands:
   `broker` (`8e5302f`), `ps` (`d71dba3`), and finally `internal/cli/run/console.go`
   (`67454a8` — the copy richtext was extracted *from*) all route through it. The
   natural intersection with
-  [module-consolidation-and-cleanup.md](module-consolidation-and-cleanup.md).
+  `module-consolidation-and-cleanup.md` (retired; `git log -- docs/plans/module-consolidation-and-cleanup.md`).
 - [x] Audit + classify the remaining commands; fix the ones that lost color.
   `check`/`doctor` (leak fixed) and `config-ref` done; `loopholes`/`init`/
   `init-user-config` classified — `init` colors, the other two are intentionally

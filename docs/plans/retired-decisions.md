@@ -146,3 +146,39 @@ the **host** later executes, that is the blind cell —
 — and its instrument is `workspace_readonly` and its protected-path list, not a `/dev/null` bind.
 Root `.mcp.json` and `.git/hooks` were already writable in-jail, so this was one entry on a list that
 was never complete.
+
+## No package consolidation, and the `py*` names stay
+
+**Decided 2026-07-21, in the cleanup that followed the port of yolo from Python to Go.** The plan that
+carried both decisions, `module-consolidation-and-cleanup.md`, was retired 2026-09-26 and is in
+`git log -- docs/plans/module-consolidation-and-cleanup.md`. This entry exists so neither decision is
+re-proposed.
+
+**What was considered.** Merging the `internal/*` packages the port left behind, on the theory that
+they mirrored the Python implementation's module boundaries and were transition scaffolding.
+
+**What was chosen instead.** Cleanup without consolidation: the sweep that rewrote "ports X"
+docstrings into statements of what the code does (`743e053`), native-Go file names in place of
+Python-shaped ones (`d2b2db7`), and removal of the parity-era leftovers. The maintainer's steer:
+*"reorg to how it would be if built in a direct path; I don't want consolidation for consolidation's
+sake, I want clean up."*
+
+**Why.**
+
+1. **No package was a Python-boundary shim.** Every `internal/*` package was assessed. Each was a
+   cohesive Go package split by concept: `internal/cli/run` is large but split by topic, as a Go
+   package built directly would be, and the single-file packages (`shquote`, `pytext`, `paths`,
+   `version`) are utilities in the manner of the standard library's `path/filepath`. Merging them
+   would move code without changing what it means.
+2. **The daemons were already folded.** Host daemons are subcommands of `yolo` and in-jail daemons
+   of `yolo-jaild` (AGENTS.md, "Daemons are subcommands, not separate binaries"), so no `cmd/`
+   consolidation was left to do.
+
+**The `py*` identifiers and package `pytext` are kept on purpose.** Helpers such as `pyTruthy` and
+`pyStr` (`internal/hostprocesses`), `pyReprValue` (`internal/config`) and `pytext.Repr` reproduce
+Python's *value semantics* (truthiness, `str()`, `repr()`) wherever yolo keeps output byte-identical
+with what the Python implementation produced: a validation error that embeds a value's `repr()`, or a
+falsy mode routed to `list` as Python's `mode or "list"` did (`pyStrOrList`). The prefix is the
+signal that a function follows Python's rules rather than Go's. **Do not rename them to
+Go-idiomatic names.** The rename would erase the one hint that changing such a function changes a
+user-visible string.

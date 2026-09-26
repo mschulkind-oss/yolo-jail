@@ -108,7 +108,7 @@ Every clause of that is already satisfied. Evidence, verified 2026-08-15:
 | the module dir reachable from inside the container | **Built.** `-v <module>:/etc/yolo-jail/loopholes/<name>:ro` (`internal/loopholes/runtime.go`; the mount point is `loopholedecl.JailLoopholeDir`) |
 | a way to *name* that path in the manifest | **Built.** `{jail_loophole_dir}` is legal in `jail_daemon.cmd` and refused in host fields, with the mount point as one constant (`loopholedecl.TokenJailLoopholeDir`, `refuseJailTokenInHostField`, in `internal/loopholedecl/tokens.go`) |
 | the mount to permit execution | **Satisfied by omission.** The `-v` is `:ro` with **no `noexec`** |
-| a runtime for a non-nix binary | **Shipped 2026-07-22.** `nix-ld` is the FHS interpreter; that is precisely its job ([`../plans/nix-ld-dynamic-linking.md`](../plans/nix-ld-dynamic-linking.md), IMPLEMENTED) |
+| a runtime for a non-nix binary | **Shipped 2026-07-22.** `nix-ld` is the FHS interpreter; that is precisely its job ([`../reference/mise-node-dynamic-linking.md`](../reference/mise-node-dynamic-linking.md), the as-built reference) |
 | the pack-shipped subset to permit a `jail_daemon` | **Never restricted it.** The subset constrains jail *env*, bind mounts, `ca_cert`, `requires` and `publishes` (`internal/loopholedecl/packshipped.go`) — there is no `jail_daemon` rule |
 | a way to say "Linux/amd64 only" | **Landed 2026-08-14** as `platforms`, closed-list `<goos>[/<goarch>]` |
 | the daemon to be spawned generically | **Built.** `jail_daemon` payloads become `YOLO_JAIL_DAEMONS` for `yolo-jaild supervise` with no per-loophole code (`loopholes.JailDaemonPayload`, `internal/loopholes/runtime.go`) |

@@ -344,7 +344,7 @@ files in `docs/plans/` announce their own completion in the first six lines —
 [`pack-host-management-plan.md`](pack-host-management-plan.md) (*"ALL PHASES SHIPPED 2026-08-02"*), [`host-pack-drop-cleanup.md`](host-pack-drop-cleanup.md)
 (*"ALL FOUR RULINGS SHIPPED 2026-08-03"*), [`host-file-staging.md`](host-file-staging.md) (*"✅ SHIPPED 2026-07-25"*),
 [`feedback-real-pack-adoption.md`](feedback-real-pack-adoption.md) (*"ALL SEVEN FINDINGS CLOSED"*), [`cache-relocation.md`](cache-relocation.md)
-(*"Implemented 2026-07-21"*), [`module-consolidation-and-cleanup.md`](module-consolidation-and-cleanup.md), [`agent-settings-composition.md`](agent-settings-composition.md)
+(*"Implemented 2026-07-21"*), `module-consolidation-and-cleanup.md` (retired 2026-09-26; `git log -- docs/plans/module-consolidation-and-cleanup.md`), [`agent-settings-composition.md`](agent-settings-composition.md)
 and [`handoff-fzf-pack-adoption.md`](handoff-fzf-pack-adoption.md). The triage that produced
 this layout (recorded in `doc-triage.md`, retired 2026-09-25) ran once, in July, and was executed properly; nothing
 has swept since.
