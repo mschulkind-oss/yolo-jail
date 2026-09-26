@@ -116,6 +116,13 @@ func TestAttachDeliversTheSelectedProfile(t *testing.T) {
 	if !strings.Contains(r.stderr, "Profile zai: declared: zai") {
 		t.Errorf("the attach must print where the selection landed:\n%s", r.stderr)
 	}
+	// And the channel was composed over the jail's OWN pack tree, found through the record the
+	// fresh launch left (OQ-PK2 (c)); the config did not change, so nothing differs.
+	for _, never := range []string{"could not find the pack tree", "configured packs differ"} {
+		if strings.Contains(r.stderr, never) {
+			t.Errorf("the attach printed %q for a jail launched with this very config:\n%s", never, r.stderr)
+		}
+	}
 }
 
 // firstHasAnswer is the first session's sync point: the ANSWER to the env probe,

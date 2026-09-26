@@ -41,14 +41,15 @@ import (
 //     Whatever the answer, the broker the pair spawned is stopped at cleanup, because it runs
 //     under this test's temp HOME but answers on the machine-wide socket.
 //   - WORKSPACE-LOCK: whether either launch printed the per-workspace lock's waiting notice.
-//     READ FROM CODE: since the staging-race fix (2026-09-26,
-//     docs/reference/pack-system.md#concurrent-launches-of-one-workspace) that lock is taken
-//     BEFORE pack staging and held until the orchestrator releases it before the agent, so on
-//     this backend it spans run.go's native arm's startLoopholesDisclosed. A launch that
-//     printed the notice therefore started its host daemons after the other launch's window
-//     closed, and its spawn met a broker already alive rather than contending the spawn flock.
-//     It is still the courtesy lock that warns and continues when it cannot be taken, which
-//     is why it does not by itself answer OQ-HD10.
+//     READ FROM CODE: since per-launch pack trees (docs/reference/pack-system.md#oq-pk2) that
+//     lock is taken on this backend AFTER run.go's native arm's startLoopholesDisclosed and
+//     before its content staging (refreshJailBriefings), and held until the orchestrator
+//     releases it before the agent. Each launch's host daemons run from that launch's own pack
+//     tree, so nothing they read is shared, and the two launches' spawns CAN contend the spawn
+//     flock again, as they could before the staging-race fix (2026-09-26) put the lock ahead of
+//     staging. A launch that printed the notice waited on the other's content staging and
+//     sandbox bootstrap, not on its daemon start. It is still the courtesy lock that warns and
+//     continues when it cannot be taken, which is why it does not by itself answer OQ-HD10.
 //   - ENDPOINT DURING: what each session's claude-oauth-broker endpoint variable named, and
 //     whether the file was readable and its host:port dialable while both sessions were up.
 //   - ENDPOINT AFTER: the same probe in the LONGER session after the shorter one's `yolo`
