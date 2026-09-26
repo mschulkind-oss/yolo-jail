@@ -142,7 +142,7 @@ type Hook struct {
 //
 // Duplicating the names is the lesser evil versus a package dependency from the host CLI
 // into the entrypoint; HookSetsAgree pins them together so the duplicate cannot drift.
-var KnownHooks = []string{"shared_credentials", "shared_directory", "per_jail_history"}
+var KnownHooks = []string{"shared_credentials", "shared_directory", "unshare_directory", "per_jail_history"}
 
 // hookRequiredFields is what each hook cannot run without, in MANIFEST spelling — the
 // contribution keys an author writes, not Hook's field names.
@@ -158,6 +158,7 @@ var KnownHooks = []string{"shared_credentials", "shared_directory", "per_jail_hi
 var hookRequiredFields = map[string][]string{
 	"shared_credentials": {"from", "at"},
 	"shared_directory":   {"from", "at"},
+	"unshare_directory":  {"from", "at"},
 	"per_jail_history":   {"from"},
 }
 

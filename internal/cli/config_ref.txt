@@ -1259,12 +1259,15 @@
                     installs first, else on ANY bin — the second pass is what lets a
                     pack that installs no CLI (a provider pack) still deliver a
                     profile's environment.
-      hook          {hook:"shared_credentials"|"shared_directory"|"per_jail_history",
-                    from (~-relative path the hook acts on), at (a machine-scope state
-                    dir THIS pack declares; the two shared_* hooks only)} — the shared
-                    pair replaces `from` with a symlink into `at`, a FILE for
-                    shared_credentials and a whole DIRECTORY for shared_directory, so one
-                    login (or one package store) serves every workspace on the machine.
+      hook          {hook:"shared_credentials"|"shared_directory"|"unshare_directory"|
+                    "per_jail_history", from (~-relative path the hook acts on), at (a
+                    machine-scope state dir THIS pack declares; the two shared_* hooks
+                    only)} — the shared pair replaces `from` with a symlink into `at`, a
+                    FILE for shared_credentials and a whole DIRECTORY for
+                    shared_directory, so one login (or one package store) serves every
+                    workspace on the machine. unshare_directory undoes a
+                    shared_directory the pack no longer declares: the link at `from` to
+                    `at` becomes an empty directory; anything else there is left alone.
       autonomy      {autonomous:{...}, guarded:{...}} — the agent's two permission
                     postures; the confinement notch selects one (autonomous at
                     jail/guest, guarded at host), so a jail-bypass key never reaches

@@ -145,14 +145,8 @@
     },
     {
       "at": ".pi-shared-git",
-      "because": "the git extension checkouts, shared so a repository already on the machine is fetched rather than cloned again in every workspace, and every workspace runs one checkout instead of N that drift",
-      "kind": "state",
-      "scope": "machine"
-    },
-    {
-      "at": ".pi-shared-git",
       "from": ".pi/agent/git",
-      "hook": "shared_directory",
+      "hook": "unshare_directory",
       "kind": "hook"
     }
   ],

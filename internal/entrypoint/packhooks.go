@@ -65,6 +65,10 @@ const (
 	// want, for a mechanism any pack can use. What it does is the DIRECTORY twin of
 	// shared_credentials, so that is what it is called.
 	HookSharedDirectory = "shared_directory"
+	// HookUnshareDirectory undoes a shared_directory link a pack no longer makes: the
+	// symlink at `from` whose target is exactly the one linkIntoSharedDir wrote for `at`
+	// is replaced by an empty real directory. Anything else at `from` is left alone.
+	HookUnshareDirectory = "unshare_directory"
 	// HookPerJailHistory points the tool's history file at a per-workspace file, so two
 	// jails on one machine do not interleave their history.
 	HookPerJailHistory = "per_jail_history"
@@ -89,6 +93,8 @@ func runPackHook(e *Env, p *packload.Pack, h packdecl.Hook) error {
 		return e.linkSharedCredential(p, h)
 	case HookSharedDirectory:
 		return e.linkSharedDirectory(p, h)
+	case HookUnshareDirectory:
+		return e.unshareDirectory(p, h)
 	case HookPerJailHistory:
 		return e.isolateHistoryFile(h)
 	default:
@@ -137,6 +143,56 @@ func (e *Env) linkSharedCredential(p *packload.Pack, h packdecl.Hook) error {
 // this payload the leak is also what the user asked for.
 func (e *Env) linkSharedDirectory(p *packload.Pack, h packdecl.Hook) error {
 	return e.linkIntoSharedDir(p, h, sharedTreeNode)
+}
+
+// unshareDirectory is how a pack STOPS sharing a directory it once linked into the machine
+// tier. A home that booted under the old shared_directory hook holds `from` as a symlink to
+// `at`; once the pack no longer declares `at`, that directory is no longer mounted, the link
+// dangles, and the tool's next write into it fails. So the link is replaced with an empty real
+// directory, and the tool repopulates its own copy per workspace.
+//
+// It removes EXACTLY the link linkIntoSharedDir wrote, recognised by its target (the same
+// relative path, computed the same way) and never by following it. A real directory, a link
+// to any other target, or an absent path are all left untouched, and the store the link
+// pointed at is never read or removed: on a machine it is every other workspace's view too,
+// until each of them boots once. First used for pi's git checkouts
+// (docs/design/pi-git-extension-caching.md §3.5), reverting c402dd43's shared store.
+func (e *Env) unshareDirectory(p *packload.Pack, h packdecl.Hook) error {
+	if h.File == "" || h.SharedDir == "" {
+		return &badHookError{pack: p.Name, name: h.Name, why: "needs both \"from\" and \"at\""}
+	}
+	link := filepath.Join(e.Home, filepath.FromSlash(h.File))
+	shared := sharedTreeNode.sharedPath(filepath.Join(e.Home, filepath.FromSlash(h.SharedDir)), h.File)
+	target, err := filepath.Rel(filepath.Dir(link), shared)
+	if err != nil {
+		return err
+	}
+	fi, err := os.Lstat(link)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if fi.Mode()&os.ModeSymlink == 0 {
+		return nil
+	}
+	cur, err := os.Readlink(link)
+	if err != nil {
+		return err
+	}
+	if cur != target {
+		return nil
+	}
+	if err := os.Remove(link); err != nil {
+		return err
+	}
+	if err := os.Mkdir(link, 0o755); err != nil {
+		return err
+	}
+	e.logSharedHook(h.Name, p.Name, h.File, h.SharedDir,
+		"removed the link to the shared store this pack no longer uses; an empty directory takes its place")
+	return nil
 }
 
 // linkIntoSharedDir is the part both shared-tier hooks share: validate the declaration,

@@ -25,6 +25,7 @@ func TestHookSetsAgree(t *testing.T) {
 	implemented := map[string]bool{
 		HookSharedCredentials: true,
 		HookSharedDirectory:   true,
+		HookUnshareDirectory:  true,
 		HookPerJailHistory:    true,
 	}
 	declared := map[string]bool{}
@@ -55,7 +56,7 @@ func TestEveryEmbeddedPackHookIsHonored(t *testing.T) {
 		}
 		for _, h := range p.Decl.HookContributions() {
 			switch h.Name {
-			case HookSharedCredentials, HookSharedDirectory, HookPerJailHistory:
+			case HookSharedCredentials, HookSharedDirectory, HookUnshareDirectory, HookPerJailHistory:
 			default:
 				t.Errorf("pack %s requests unimplemented hook %q", name, h.Name)
 			}
