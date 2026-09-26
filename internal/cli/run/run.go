@@ -1954,7 +1954,7 @@ func (o *Options) attachExisting(cname, rt, targetCmd string, cfg *jsonx.Ordered
 		// across a host install, so nothing else would tell the user their session is
 		// running last week's yolo-entrypoint (attachskew.go). A jail missing a contract
 		// got the gate's fuller account above instead.
-		o.warnIfJailIsOlderThanTheLauncher(baked)
+		o.warnIfJailIsOlderThanTheLauncher(rt, cname, baked)
 	}
 	// Going ahead. The host-side readers switch to the jail's own packs, and the skills and
 	// briefing staging the jail binds is refreshed from them, still under the lock: another
@@ -2214,12 +2214,26 @@ func (o *Options) emitLaunchBanner(rt, cname string, resParts []string, jailVers
 
 // inspectContainerEnv reads a running container's whole frozen environment via
 // `<rt> inspect`, one entry per line, or nil when the inspect cannot run. The
-// attach path's single source for both the banner's baked version and the channel
-// delivery's pre-change-jail probe (a frozen YOLO_PROVIDERS is the signature of a
-// jail launched before the channel moved onto the file).
+// attach path's single source for both the banner's baked version and the contract
+// gate's tags (contracttags.go).
+//
+// APPLE CONTAINER'S INSPECT TAKES NO --format: it answers a JSON document, which
+// internal/cli's ps and check already read that way. The podman template used to go to
+// every runtime, so on Apple Container this read nothing, and the gate, which reads an
+// empty listing as "cannot prove, treat as current", let an older jail there receive a
+// scoped delivery its launchers never source. runtime.EnvFromContainerInspectJSON reads the
+// measured payload (docs/plans/setup-support-gaps.md §5.1 row 5) into the same lines.
 func (o *Options) inspectContainerEnv(rt, cname string) []string {
 	if o.Exec == nil {
 		return nil
+	}
+	if rt == "container" { // parity: Honored — AC's inspect answers JSON and takes no --format; the same env lines come back
+		res := o.Exec([]string{"container", "inspect", cname}, "", nil, 3*time.Second)
+		if !res.Ran || res.RC != 0 {
+			return nil
+		}
+		env, _ := runtime.EnvFromContainerInspectJSON(res.Stdout)
+		return env
 	}
 	res := o.Exec([]string{rt, "inspect", "--format", "{{range .Config.Env}}{{println .}}{{end}}", cname}, "", nil, 3*time.Second)
 	if !res.Ran || res.RC != 0 {

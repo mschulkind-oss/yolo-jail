@@ -29,7 +29,7 @@ import "fmt"
 // version means a container older than the variable, and an "unknown" host
 // version means an unstamped binary. Neither is evidence of skew, and a warning
 // that fires on "I cannot tell" is one a user learns to scroll past.
-func (o *Options) warnIfJailIsOlderThanTheLauncher(baked string) {
+func (o *Options) warnIfJailIsOlderThanTheLauncher(rt, cname, baked string) {
 	host := o.yoloVersion("")
 	if baked == "" || host == "" || host == "unknown" || baked == host {
 		return
@@ -37,7 +37,19 @@ func (o *Options) warnIfJailIsOlderThanTheLauncher(baked string) {
 	o.pr(o.Stderr).print(fmt.Sprintf(
 		"[yellow]⚠ This jail runs yolo %s; this launcher is %s.[/yellow] "+
 			"[dim]A jail keeps the binaries it launched with, so fixes and contract "+
-			"changes since then are not in it. 'yolo stop' from this workspace "+
+			"changes since then are not in it. %s "+
 			"(finishing its running sessions), then relaunch, to pick them up.[/dim]",
-		baked, host))
+		baked, host, stopRemedy(rt, cname)))
+}
+
+// stopRemedy names the command that stops cname's jail on rt, for a message that prescribes a
+// restart. `yolo stop` everywhere but Apple Container, where it reads the container through a
+// Go-template inspect that runtime does not take, and so says "No jail running" while the jail
+// runs (G11, docs/plans/setup-support-gaps.md); `container stop` is what restartJailForAttach
+// runs there.
+func stopRemedy(rt, cname string) string {
+	if rt == "container" { // parity: Honored — the stop a restart runs there; `yolo stop` cannot see an AC jail (G11)
+		return "'container stop " + cname + "'"
+	}
+	return "'yolo stop' from this workspace"
 }

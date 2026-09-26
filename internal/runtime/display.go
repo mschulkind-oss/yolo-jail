@@ -26,34 +26,51 @@ func WorkspaceFromInspectEnv(envLines []string) (string, bool) {
 }
 
 // WorkspaceFromContainerInspectJSON parses Apple Container's `container inspect`
-// JSON output for the YOLO_HOST_DIR env var. AC emits a JSON document (no
-// --format); the env lives at config.env (a list of "K=V" strings). Scan
-// config.env for "YOLO_HOST_DIR=". Returns ("", false) on any parse error or
-// absence.
+// JSON output for the YOLO_HOST_DIR env var (EnvFromContainerInspectJSON reads the
+// environment). Returns ("", false) on any parse error or absence.
 func WorkspaceFromContainerInspectJSON(stdout string) (string, bool) {
-	var docs []struct {
+	env, ok := EnvFromContainerInspectJSON(stdout)
+	if !ok {
+		return "", false
+	}
+	return WorkspaceFromInspectEnv(env)
+}
+
+// EnvFromContainerInspectJSON returns the container's environment, one "K=V" string per entry,
+// from Apple Container's `container inspect` output: a JSON document, since that inspect takes
+// no --format. The payload measured on 2026-09-16 (docs/plans/setup-support-gaps.md §5.1 row 5)
+// is a top-level ARRAY of objects carrying the environment at configuration.initProcess.environment;
+// config.env, which this reader's first cut read, is kept as a second place to look. A single
+// object is accepted as well as a list. ok is false when the output is not such a document, or
+// holds no environment at either place: the caller then knows nothing about the container.
+func EnvFromContainerInspectJSON(stdout string) ([]string, bool) {
+	type doc struct {
+		Configuration struct {
+			InitProcess struct {
+				Environment []string `json:"environment"`
+			} `json:"initProcess"`
+		} `json:"configuration"`
 		Config struct {
 			Env []string `json:"env"`
 		} `json:"config"`
 	}
-	// AC inspect may return a single object or a list; try list first, then a
-	// single object. Some AC versions wrap the document in a list, others emit
-	// a bare object — tolerate both.
-	if err := jsonUnmarshal(stdout, &docs); err == nil && len(docs) > 0 {
-		if ws, ok := WorkspaceFromInspectEnv(docs[0].Config.Env); ok {
-			return ws, true
+	var first doc
+	var docs []doc
+	if err := jsonUnmarshal(stdout, &docs); err == nil {
+		if len(docs) == 0 {
+			return nil, false
 		}
-		return "", false
+		first = docs[0]
+	} else if err := jsonUnmarshal(stdout, &first); err != nil {
+		return nil, false
 	}
-	var doc struct {
-		Config struct {
-			Env []string `json:"env"`
-		} `json:"config"`
+	if env := first.Configuration.InitProcess.Environment; len(env) > 0 {
+		return env, true
 	}
-	if err := jsonUnmarshal(stdout, &doc); err != nil {
-		return "", false
+	if env := first.Config.Env; len(env) > 0 {
+		return env, true
 	}
-	return WorkspaceFromInspectEnv(doc.Config.Env)
+	return nil, false
 }
 
 // BakedYoloVersionFromInspectEnv extracts the YOLO_VERSION baked into a

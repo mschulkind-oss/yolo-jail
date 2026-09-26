@@ -1,0 +1,128 @@
+package run
+
+// acinspect_test.go pins the attach's read of an Apple Container jail's environment. AC's
+// `container inspect` takes no --format and answers JSON (internal/cli/ps.go and
+// internal/cli/check/probes.go read it that way already), so the podman template the attach used
+// for every runtime read nothing there: the contract gate then treated every AC jail as current,
+// and an older one silently received a scoped delivery its launchers never source. And `yolo stop`
+// reads the same template (G11, docs/plans/setup-support-gaps.md), so on AC it says "No jail
+// running" while the jail runs: a remedy an AC attach names must be `container stop`.
+
+import (
+	"bytes"
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+)
+
+// acInspectPayload is AC's inspect answer for a jail frozen with env, in the measured shape
+// (setup-support-gaps.md §5.1 row 5; internal/runtime's inspectenv_test.go carries the whole
+// document): a top-level array, the environment at configuration.initProcess.environment.
+func acInspectPayload(t *testing.T, env string) string {
+	t.Helper()
+	var lines []string
+	for _, l := range strings.Split(env, "\n") {
+		if l != "" {
+			lines = append(lines, l)
+		}
+	}
+	doc := []map[string]any{{
+		"id":     "yolo-ws-abcd1234",
+		"status": map[string]any{"state": "running"},
+		"configuration": map[string]any{
+			"initProcess": map[string]any{"environment": lines},
+		},
+	}}
+	b, err := json.Marshal(doc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(b)
+}
+
+// acRuntime answers the way Apple Container does: inspect with a Go template fails, inspect
+// without one prints the JSON document.
+func acRuntime(t *testing.T, env string) func([]string, string, []string, time.Duration) ExecResult {
+	payload := acInspectPayload(t, env)
+	return func(argv []string, _ string, _ []string, _ time.Duration) ExecResult {
+		if len(argv) > 1 && argv[0] == "container" && argv[1] == "inspect" {
+			for _, a := range argv {
+				if a == "--format" {
+					return ExecResult{Ran: true, RC: 1, Stderr: "Error: Unknown option '--format'"}
+				}
+			}
+			return ExecResult{Ran: true, RC: 0, Stdout: payload}
+		}
+		return ExecResult{Ran: false}
+	}
+}
+
+// TestInspectContainerEnvReadsAppleContainersJSON: the environment an AC jail was launched with
+// comes back as the same env lines the podman template yields.
+func TestInspectContainerEnvReadsAppleContainersJSON(t *testing.T) {
+	o := &Options{Exec: acRuntime(t, "YOLO_VERSION=0.10.0\nYOLO_HOST_DIR=/ws\n")}
+	got := o.inspectContainerEnv("container", "yolo-ws-abcd1234")
+	if envLineValue(got, "YOLO_VERSION") != "0.10.0" || envLineValue(got, "YOLO_HOST_DIR") != "/ws" {
+		t.Errorf("inspectContainerEnv on Apple Container = %q, want the jail's environment", got)
+	}
+}
+
+// acAttach is one attach into an Apple Container jail frozen with env, with a typed zai
+// selection, which scopes values to claude and so needs agent-env-files. A fake `container` on
+// PATH stands in for the exec.
+func acAttach(t *testing.T, env string) (rc int, execed bool, stderr string, envFile string, before []byte) {
+	t.Helper()
+	packs := zaiSelected(t)
+	o, cfg, channel, errBuf := attachFixture(t, env, packs, hydratedKey(),
+		func(o *Options, _ *jsonx.OrderedMap) { o.ProfileName = "zai" })
+	o.Exec = acRuntime(t, env)
+	o.Stdout = &bytes.Buffer{}
+	o.IsTTYStdin = func() bool { return false }
+	o.IsTTYStdout = func() bool { return false }
+	envFile, before = seedLiveChannelFile(t, o)
+	bin, marker := t.TempDir(), filepath.Join(t.TempDir(), "execed")
+	if err := os.WriteFile(filepath.Join(bin, "container"), []byte("#!/bin/sh\n: > '"+marker+"'\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin)
+	rc, _ = o.attachExisting("yolo-ws-abcd1234", "container", "true", cfg,
+		stagedPacks{root: "/ctx/packs", packs: packs}, channel, false, nil)
+	_, err := os.Stat(marker)
+	return rc, err == nil, errBuf.String(), envFile, before
+}
+
+// TestTheContractGateReadsAnAppleContainerJail: an AC jail launched before the per-agent env
+// files is refused a scoped delivery, and the refusal names the stop that works on AC.
+func TestTheContractGateReadsAnAppleContainerJail(t *testing.T) {
+	rc, execed, stderr, envFile, before := acAttach(t, preGateEnv)
+	if rc != 1 || execed {
+		t.Fatalf("an older Apple Container jail was handed a scoped delivery: rc=%d execed=%v\n%s", rc, execed, stderr)
+	}
+	for _, want := range []string{"Refusing to attach", "agent-env-files", "'container stop yolo-ws-abcd1234'"} {
+		if !strings.Contains(stderr, want) {
+			t.Errorf("the refusal must name %q:\n%s", want, stderr)
+		}
+	}
+	if strings.Contains(stderr, "yolo stop") {
+		t.Errorf("an Apple Container refusal names 'yolo stop', which says \"No jail running\" there:\n%s", stderr)
+	}
+	assertLiveChannelFileUnchanged(t, envFile, before)
+}
+
+// TestTheContractGatePassesACurrentAppleContainerJail: the same attach into an AC jail this build
+// launched, whose environment carries the tags, goes ahead and delivers.
+func TestTheContractGatePassesACurrentAppleContainerJail(t *testing.T) {
+	rc, execed, stderr, envFile, _ := acAttach(t, "YOLO_VERSION=9.9.9-test\n"+entrypointContractTagsLine()+"\n")
+	if rc != 0 || !execed {
+		t.Fatalf("a current Apple Container jail was refused: rc=%d execed=%v\n%s", rc, execed, stderr)
+	}
+	body, err := os.ReadFile(envFile)
+	if err != nil || !strings.Contains(string(body), "zai") {
+		t.Errorf("the attach did not deliver the selection into the live channel file (%v):\n%s", err, body)
+	}
+}

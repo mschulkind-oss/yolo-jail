@@ -41,7 +41,8 @@ import (
 //     is not written, so the jail keeps what its last entry gave it.
 //   - a terminal on stdin and stdout: `Restart jail now? [Y/n]`, naming the sessions a stop
 //     ends. Yes stops the jail and this launch continues as a fresh one; no refuses.
-//   - anything else: refuse, naming `yolo stop` and then a launch.
+//   - anything else: refuse, naming `yolo stop` (`container stop` on Apple Container, where
+//     `yolo stop` cannot see the jail) and then a launch.
 //
 // WHAT THIS OVERRULES. The config-only arms this replaced warned and proceeded because
 // "refusing here would hold a workspace's day-to-day re-entry hostage to a one-time upgrade".
@@ -298,15 +299,15 @@ const (
 // or a refusal.
 func (o *Options) settleAttachSkew(cname, rt, baked string, missing []contractNeed) skewDisposition {
 	if o.Getenv(AllowAttachSkewEnv) != "" {
-		o.discloseAcknowledgedAttachSkew(baked, missing)
+		o.discloseAcknowledgedAttachSkew(cname, rt, baked, missing)
 		return skewAcknowledged
 	}
 	if o.IsTTYStdin() && o.IsTTYStdout() {
 		if !o.askToRestartJail(cname, rt, baked, missing) {
 			err := o.pr(o.Stderr)
 			err.print("[bold red]Refusing to attach: the jail was not restarted.[/bold red]")
-			err.printf("[dim]'yolo stop' from this workspace once its sessions are done, then launch "+
-				"again; or attach without what it cannot receive: %s=1.[/dim]", AllowAttachSkewEnv)
+			err.printf("[dim]%s once its sessions are done, then launch again; or attach without "+
+				"what it cannot receive: %s=1.[/dim]", stopRemedy(rt, cname), AllowAttachSkewEnv)
 			return skewRefused
 		}
 		if !o.restartJailForAttach(cname, rt) {
@@ -347,8 +348,8 @@ func (o *Options) refuseAttachSkew(cname, rt, baked string, missing []contractNe
 	for _, l := range o.attachSkewLines(baked, missing) {
 		out.print(l)
 	}
-	out.printf("[dim]Restart the jail to pick it up: 'yolo stop' from this workspace, then launch "+
-		"again — the next launch is fresh. The stop ends %s.[/dim]", o.jailSessionsPhrase(rt, cname))
+	out.printf("[dim]Restart the jail to pick it up: %s, then launch again — the next launch is "+
+		"fresh. The stop ends %s.[/dim]", stopRemedy(rt, cname), o.jailSessionsPhrase(rt, cname))
 	out.printf("[dim]Or attach without it, acknowledging the difference: %s=1. This entry then "+
 		"delivers nothing, and the jail keeps the environment its last entry gave it.[/dim]", AllowAttachSkewEnv)
 }
@@ -369,16 +370,16 @@ func (o *Options) askToRestartJail(cname, rt, baked string, missing []contractNe
 
 // discloseAcknowledgedAttachSkew is the acknowledgment's loud line: what differs, what is
 // withheld, and that the jail keeps what its last entry gave it.
-func (o *Options) discloseAcknowledgedAttachSkew(baked string, missing []contractNeed) {
+func (o *Options) discloseAcknowledgedAttachSkew(cname, rt, baked string, missing []contractNeed) {
 	out := o.pr(o.Stderr)
 	out.printf("[bold yellow]⚠  %s is set: attaching to a jail launched by an older yolo, which "+
 		"cannot receive what this entry delivers.[/bold yellow]", AllowAttachSkewEnv)
 	for _, l := range o.attachSkewLines(baked, missing) {
 		out.print(l)
 	}
-	out.print("[bold yellow]This entry delivers nothing: its provider/profile channel is withheld " +
-		"whole, and the jail keeps the environment its last entry gave it. 'yolo stop', then a " +
-		"launch, ends the difference.[/bold yellow]")
+	out.printf("[bold yellow]This entry delivers nothing: its provider/profile channel is withheld "+
+		"whole, and the jail keeps the environment its last entry gave it. %s, then a launch, ends "+
+		"the difference.[/bold yellow]", stopRemedy(rt, cname))
 }
 
 // jailSessionsPhrase words what stopping the jail ends: every session in it, with the count
@@ -441,6 +442,6 @@ func (o *Options) restartJailForAttach(cname, rt string) bool {
 		return true
 	}
 	o.pr(o.Stderr).printf("[bold red]Refusing to launch: %s did not stop.[/bold red] "+
-		"[dim]Try 'yolo stop' from this workspace, then launch again.[/dim]", cname)
+		"[dim]Try %s, then launch again.[/dim]", cname, stopRemedy(rt, cname))
 	return false
 }

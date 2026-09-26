@@ -22,7 +22,7 @@ func versionSkewOptions(t *testing.T, host string) (*Options, *bytes.Buffer) {
 func TestAttachWarnsWhenTheJailIsOlderThanTheLauncher(t *testing.T) {
 	o, stderr := versionSkewOptions(t, "0.8.0+1160.gd6b2fc82")
 
-	o.warnIfJailIsOlderThanTheLauncher("0.8.0+1114.g6025161d")
+	o.warnIfJailIsOlderThanTheLauncher("podman", "yolo-ws-abcd1234", "0.8.0+1114.g6025161d")
 
 	out := stderr.String()
 	for _, want := range []string{"0.8.0+1114.g6025161d", "0.8.0+1160.gd6b2fc82", "yolo stop"} {
@@ -50,7 +50,7 @@ func TestAttachSkewStaysSilent(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			o, stderr := versionSkewOptions(t, tc.host)
-			o.warnIfJailIsOlderThanTheLauncher(tc.baked)
+			o.warnIfJailIsOlderThanTheLauncher("podman", "yolo-ws-abcd1234", tc.baked)
 			if out := stderr.String(); out != "" {
 				t.Errorf("must stay silent (%s), got:\n%s", tc.why, out)
 			}
