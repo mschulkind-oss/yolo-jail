@@ -12,7 +12,7 @@ covers:
   - internal/cli/run/hostports.go
   - packs/wire-bridge/
 tags: [packs, providers, services, claude, translation, needs, networking, diagnosis]
-summary: "An in-jail translating reverse proxy that manufactures an Anthropic-Messages endpoint on the jail's loopback for OpenAI chat-completions providers and Claude's Codex Responses profile — plus the `service` contribution kind and `needs`, a pack dependency resolved at selection."
+summary: "An in-jail translating reverse proxy that manufactures an Anthropic-Messages endpoint on the jail's loopback for OpenAI chat-completions providers and Claude's Codex Responses profile, and passes a via agent's own OpenAI chat-completions or Responses traffic through to its provider — plus the `service` contribution kind and `needs`, a pack dependency resolved at selection."
 ---
 
 # The wire bridge — an Anthropic endpoint on the jail's loopback
@@ -22,8 +22,9 @@ was rewritten 2026-09-25, after that verification, and is UNMEASURED against the
 reported the listen-port collision: that the provider-table fix ends it is inferred from an
 in-process reproduction, and no launch there has been observed succeeding
 ([what can hold the listen port](#what-can-hold-the-listen-port-before-the-bridge-does)).
-[The via route](#the-via-route--one-route-per-agent-under-agentname) was added 2026-09-25 and is
-MEASURED in-process only, against a stubbed upstream; no agent has sent a request through it.
+[The via route](#the-via-route--one-route-per-agent-under-agentname) was added 2026-09-25, and its
+Responses wire 2026-09-26. It is MEASURED in-process only, against a stubbed upstream; no agent has
+sent a request through it.
 
 A **wire bridge** *(coined here)* is an in-jail daemon that manufactures, on the jail's own
 loopback, a wire protocol a provider does not natively serve, by translating to one it does.
@@ -31,8 +32,8 @@ Two translating routes exist: **Anthropic Messages → OpenAI chat-completions**
 providers, and the Claude Codex-profile route to OpenAI Responses described in
 [`omp-and-codex-claude-profile.md`](omp-and-codex-claude-profile.md). A third kind translates
 nothing: the [via route](#the-via-route--one-route-per-agent-under-agentname), which a profile's
-`via` selects, passes an agent's own OpenAI chat-completions traffic through to its provider,
-adding only the credential.
+`via` selects, passes an agent's own OpenAI chat-completions or Responses traffic through to its
+provider, adding only the credential.
 
 It exists because an agent can speak exactly one wire protocol and some providers serve only the
 other one. No amount of configuration closes that gap: yolo's derives translate config *dialects*,
@@ -75,7 +76,7 @@ bridge exists, and should not.
 | Implicit localhost-provider forwards, their merge and their disclosure | `internal/cli/run` (`localProviderForwardSources`, `mergeHostForwards`, `discloseImplicitProviderForwards`, `briefingPortsFor`) |
 | In-jail forwarders, the readiness wait, the orphan refusal | `internal/entrypoint` (`startContainerPortForwarding`, `startJailDaemonSupervisor`, `refuseOnOrphanedJailDaemons`) |
 | The pack itself — the first `kind: "service"`, and the two `adapter` contributions that declare its addresses | `packs/wire-bridge` |
-| The via route: the per-agent table, the prefix mux, the pass-through, per-route credentials | `internal/wirebridged` (`via.go`: `viaRoutesFor`, `viaMux`, `passthroughHandler`, `viaHandlerFor`); the serve plan in `boot.go` (`planFor`, `servePlan`) |
+| The via route: the per-agent table, the prefix mux, the wire split, the pass-through, per-upstream credentials | `internal/wirebridged` (`via.go`: `viaRoutesFor`, `viaUpstreams`, `viaMux`, `viaWireSplit`, `passthroughHandler`, `viaHandlerFor`); the serve plan in `boot.go` (`planFor`, `servePlan`) |
 | The via selection: the profile field, the address, the pack closure, the per-agent URL | `internal/packdecl` (`ProfileContribution.Via`, `ServiceContribution.ViaAddress`); `internal/packload` (`via.go`: `ResolveVias`; `profiles.go`: `ViaURLFor`) |
 
 **Reads with:** [`providers.md`](providers.md) (what a provider declares and which agent reads
@@ -405,22 +406,40 @@ declared `via_address`, under the path prefix `/agent/<agent>/`. The design and 
   share the one port, each under its own prefix, each to its own provider.
 - **An unknown or missing prefix is refused**, with a 404 OpenAI-shaped error that lists the
   served agents. Nothing is routed to a default.
+- **Only a canonical path is forwarded.** A path after the prefix with a `.`, `..` or empty
+  segment (one trailing `/` aside), or with an encoded `?` or `#`, gets a 404 and sends nothing
+  upstream, so the path the route classifies is the path the provider receives. The forwarded
+  path is re-escaped, never decoded twice
+  ([WG-I23](../design/wire-bridge-gateway.md#WG-I23)).
 - **Nothing is translated.** The method, the path after the prefix, the query and the body are
-  forwarded unchanged to the provider's own `openai` base URL. The `Content-Type` and `Accept`
+  forwarded unchanged to one of the provider's own base URLs. The `Content-Type` and `Accept`
   headers are copied, and a response streams back chunk by chunk, flushed as it arrives.
-- **The credential is per route.** A route reads its provider's `api_key_env_name` from the same
-  key channel as the adapter route ([WB-D4](#wb-d4)). An upstream on an exact
+- **Two wires, and the path picks one.** A route carries the provider's chat-completions
+  endpoint (its `openai` endpoint with `wire_api` unset or `openai-chat-completions`) and its
+  Responses endpoint (its `openai-responses` endpoint, else its `openai` endpoint with `wire_api`
+  unset or `openai-responses`). `/responses` and below go to the Responses endpoint,
+  `/chat/completions` and below to the chat-completions one, and any other path to the
+  chat-completions endpoint, or the Responses one when that is all there is. A path naming a wire
+  the provider does not declare gets a 404 naming the provider, and is never translated or sent to
+  the other endpoint. pi, oh-omp and opencode send chat-completions; codex sends Responses.
+- **The credential is per upstream.** A route reads its provider's `api_key_env_name` from the
+  same key channel as the adapter route ([WB-D4](#wb-d4)). An upstream on an exact
   `bedrock-runtime.<region>.amazonaws.com` host is signed with SigV4 instead, through the same
   chain as the adapter route. The agent's own `Authorization` header is never forwarded.
-- **A route with no credential idles alone.** It answers 503 with an OpenAI-shaped error naming
-  the variable (or, for Bedrock, the credential sources) it needs, and the other routes still
-  serve. The daemon log states each route's upstream and credential source, or why it idles.
+- **An upstream with no credential idles alone.** It answers 503 with an OpenAI-shaped error
+  naming the variable (or, for Bedrock, the credential sources) it needs, and the other routes
+  still serve. The daemon log states each route's upstream and credential source, or why it idles.
 - **Errors are OpenAI-shaped** (`{"error": {"message", "type", "code"}}`), because a via agent
-  speaks OpenAI. An unreachable upstream is a 502; an upstream's own error status and body pass
-  through.
-- **Only chat-completions.** A route is served for a provider whose `openai` endpoint has
-  `wire_api` unset or `openai-chat-completions`. Any other provider is skipped, and the skip is
-  logged with its reason.
+  speaks OpenAI. An unreachable upstream is a 502, and one that sends no response headers within
+  ten minutes a 504; an upstream's own error status and body pass through.
+- **A stream the upstream cuts short fails at the agent.** Once the status line has gone out, an
+  upstream read error is logged with the byte count and cause, and the agent's connection is
+  aborted, so its read fails instead of ending like a finished reply. The agent closing its own
+  request is not logged. Only the wait for headers is bounded: a stream runs as long as the
+  upstream keeps sending ([WG-I24](../design/wire-bridge-gateway.md#WG-I24)).
+- **What is skipped.** A provider offering neither wire is skipped, and so is `openai-codex`, the
+  ChatGPT subscription, whose credential a via route does not carry; each skip is logged with its
+  reason.
 
 **Selecting a via profile brings the pack in.** An active via profile adds the pack its `via`
 names, the way a live [`needs`](#needs--a-conditional-pack-dependency) entry does, and the launch
@@ -739,10 +758,10 @@ only place the values themselves are stated.
 | Listen address, via routes (added 2026-09-25, after the commit this table was verified at) | `http://127.0.0.1:8216` — the service's declared `via_address`; every via agent's base URL is this plus `/agent/<agent>` | `packs/wire-bridge/pack.json`, read by `packload.ViaServiceAddress`; served by `wirebridged.viaRoutesFor` |
 | Address override key | `adapters.<from>-><to>.address`, **user scope only** | `internal/config/adapters.go`, `yolo config-ref` |
 | Restart policy | on failure | `packs/wire-bridge/pack.json` |
-| Served path | adapter routes: `POST /v1/messages` and nothing else; via routes: any path under `/agent/<agent>/` | `internal/wirebridged/handler.go`; `wirebridged.viaMux` |
-| Upstream path | the provider's `openai` base URL plus `/chat/completions`; on the Codex route, the subscription base plus `/responses`; on a via route, the provider's `openai` base URL plus the path after the prefix | `wirebridged.NewHandler`, `wirebridged.CodexResponsesBaseURL`, `wirebridged.passthroughHandler` |
+| Served path | adapter routes: `POST /v1/messages` and nothing else; via routes: any canonical path under `/agent/<agent>/` (no `.`, `..` or empty segment, no encoded `?` or `#`; added 2026-09-26) | `internal/wirebridged/handler.go`; `wirebridged.viaMux`, `wirebridged.canonicalViaTail` |
+| Upstream path | the provider's `openai` base URL plus `/chat/completions`; on the Codex route, the subscription base plus `/responses`; on a via route, the provider's chat-completions or Responses base URL (the one the path names) plus the path after the prefix | `wirebridged.NewHandler`, `wirebridged.CodexResponsesBaseURL`, `wirebridged.viaUpstreams`, `wirebridged.passthroughHandler` |
 | Via request body limit (added 2026-09-25) | 64 MiB; larger is a 413 | `wirebridged.maxViaBody` |
-| Upstream timeout | 10 minutes, the one timeout the daemon adds | `wirebridged.upstreamTimeout` |
+| Upstream timeout | 10 minutes, the one timeout the daemon adds. The adapter routes bound the whole exchange; a via route bounds only the wait for response headers (added 2026-09-26), and a timeout there is a 504 | `wirebridged.upstreamTimeout`; `wirebridged.viaHeaderTimeout` |
 | Streamed-usage request field, chat-completions route (added 2026-09-25, after the commit this table was verified at) | `"stream_options": {"include_usage": true}` on every streamed request; left off when the selected profile's `supports_usage_in_streaming` is `"false"` | `wirebridge.TranslateRequestWith`, `wirebridge.ChatOptions`; the option read in `wirebridged.routeFor` |
 | Upstream error mapping | 4xx same-status; every 5xx, timeout or dial failure → 502 | `bridgeHandler.relayUpstreamError` |
 | Endpoint variable | `YOLO_SERVICE_WIRE_BRIDGE_ENDPOINT`, emitted only when the daemon will serve | `run.serviceEndpointEnvArgs`, `wirebridged.WillServe` |

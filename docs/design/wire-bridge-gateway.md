@@ -3,7 +3,7 @@ title: "The wire bridge as the jail's model gateway: signing, routing by model a
 date: 2026-09-25
 status: accepted
 tags: [wire-bridge, bedrock, aws, sigv4, routing, failover, models, allowlist, providers, subscription]
-summary: "What the wire bridge may do once it stands in front of an agent's model traffic. Four parts are ruled and unbuilt: it signs its own AWS requests with SigV4, routes claude's everything profile by model id, offers a sign-only OpenAI chat-completions route, and carries claude's subscription with opt-in per-model failover to Bedrock. A fifth part, ruled 2026-09-25: a profile can send its agent's traffic through the bridge (native pass-through or translated) instead of the agent's own client, so the bridge can enforce the picker's model list (on by default) and route each agent by a per-agent path prefix. Every question is ruled; the signer keys on the upstream address now and on a provider marker once one exists."
+summary: "What the wire bridge may do once it stands in front of an agent's model traffic. Four parts are ruled and unbuilt: it signs its own AWS requests with SigV4, routes claude's everything profile by model id, offers a sign-only OpenAI chat-completions route, and carries claude's subscription with opt-in per-model failover to Bedrock. A fifth part, ruled 2026-09-25: a profile can send its agent's traffic through the bridge (native pass-through or translated) instead of the agent's own client, so the bridge can enforce the picker's model list (on by default) and route each agent by a per-agent path prefix. The via route passes OpenAI chat-completions and Responses through (codex rides the second); Converse, the last native wire, waits on OQ-WG8, which asks whether pi's own client still uses the AWS credential on that route. The signer keys on the upstream address now and on a provider marker once one exists."
 vantage:
   status-chip: true
 ---
@@ -14,7 +14,7 @@ vantage:
 provider, what may it do? It could sign for AWS, choose an upstream per model or per agent,
 fail over when a subscription runs out, or refuse a model that is not on a list.
 
-**Status:** DECIDED, 2026-09-25 — the SigV4 signer, [OQ-WG6](#OQ-WG6), [OQ-WG7](#OQ-WG7) and Part 3's sign-only route are BUILT. Split out of [`bedrock-plumbing.md`](bedrock-plumbing.md) that
+**Status:** DECIDED, 2026-09-25, with one question open since 2026-09-26 ([OQ-WG8](#OQ-WG8)) — the SigV4 signer, [OQ-WG6](#OQ-WG6), [OQ-WG7](#OQ-WG7) and Part 3's sign-only route are BUILT, and the via route's Responses wire for codex is BUILT (2026-09-26, [WG-I20](#WG-I20)). Split out of [`bedrock-plumbing.md`](bedrock-plumbing.md) that
 day, carrying its bridge questions with their ids unchanged. **Part 1 (signing) is BUILT,
 2026-09-25** ([§2](#2-part-1--the-bridge-signs-its-own-upstream-requests-ruled)), except the
 region-composed upstream URL. **Part 3 (the sign-only route) and Part 5's selection are BUILT,
@@ -28,13 +28,21 @@ through the bridge with any credential, so AWS has never accepted one of its sig
 has exercised runtime's Anthropic Messages route or the subscription's usage-limit response. The
 via route is MEASURED in-process only: its tests run the real daemon, mux and signer against a
 stubbed upstream, and the pi, oh-omp and opencode derives against the real shipped `derive.lua`.
-No agent has sent a request through it. That pi and opencode keep a base URL's path is read from
-their installed client sources ([§4.1](#41-how-it-is-built)), not observed on the wire; oh-omp's is
-UNMEASURED.
+No agent has sent a request through it, and whether `bedrock-runtime` serves Responses at
+`/openai/v1/responses` is unread, so a codex route to Bedrock is signed but unproven. That pi,
+opencode and codex keep a base URL's path is read
+from their installed client sources, and oh-omp's from its published package
+([§4.1](#41-how-it-is-built)); none is observed on the wire.
 
 **Needs your ruling:**
 
-**None.** [OQ-WG1](#OQ-WG1)–[OQ-WG7](#OQ-WG7) are settled ([Decision Ledger](#decision-ledger)); WG6 and WG7 are built.
+- [OQ-WG8](#OQ-WG8) — on pi's Converse pass-through, does pi's own client still use the AWS
+  credential: (a) pi keeps signing, (b) pi sends a placeholder bearer and only the bridge signs,
+  or (c) no Converse route at all. Keeping the credential out of pi's environment is a separate
+  matter, which [OQ-CN6](provider-credential-scope.md#OQ-CN6) decides whatever this rules.
+  Converse is not built until it rules.
+
+[OQ-WG1](#OQ-WG1)–[OQ-WG7](#OQ-WG7) are settled ([Decision Ledger](#decision-ledger)); WG6 and WG7 are built.
 [OQ-WG1](#OQ-WG1) carries a follow-up that waits on [OQ-BR2](providers-and-profiles-redesign.md#OQ-BR2):
 re-key the signer on the provider's Bedrock marker.
 
@@ -267,6 +275,9 @@ oh-omp's own client cannot reach runtime. It serves:
 - **Any agent a user points at the gateway route**, which speaks OpenAI already and gains SigV4
   with no client change.
 
+Since 2026-09-26 the same route also passes **OpenAI Responses** through, for codex, which speaks
+nothing else ([WG-I20](#WG-I20)).
+
 ### 4.1 How it is built
 
 **BUILT 2026-09-25**, with Part 5's selection ([OQ-WG6](#OQ-WG6), [OQ-WG7](#OQ-WG7)). A user
@@ -286,14 +297,14 @@ own `openai` endpoint with zai's key. The chain, one link per [OQ-WG7](#OQ-WG7) 
 | :--- | :--- | :--- |
 | The field | `via` on a pack `kind: "profile"` and on a user `profiles` entry, a pack name; a user's value wins. It is a field, never a provider option | `packdecl.ProfileContribution.Via`, `packdecl.ValidPackName`; `config.checkProfileEntry` |
 | The address (b) | the service's declared `via_address`, loopback `http` with a port and no path | `packdecl.ServiceContribution.ViaAddress`, `packdecl.ViaAddressProblem`; `packs/wire-bridge/pack.json` |
-| Bringing the pack in (c) | an active via profile adds the pack its `via` names, like a live need, and prints a cause line (`+ wire-bridge (via of profile pi-zai, active for pi)`) | `packload.ResolveVias`, called from `run.Options.viaClosure` inside `stagePacks` |
+| Bringing the pack in (c) | an active via profile adds the pack its `via` names, like a live need, and prints a cause line (`+ wire-bridge (via of profile pi-zai, active for pi)`) | `packload.Selection.Close`, which runs `packload.ResolveVias`, called from `stagePacks` through `run.Options.launchSelection` ([WG-I11](#WG-I11)) |
 | Resolution | the resolved profile carries `Via` and `ViaBase` (the `via_address`, empty when the pack is not in the launch) and crosses in `YOLO_PROFILES` | `packload.ResolveProfiles`, `packload.ProfilesWireTable`; `entrypoint.Env.LoadProfiles` |
 | Each agent's URL (d) | `ctx.via_url` = `<via_address>/agent/<agent>`, set only for the agent whose active profile has via | `packload.ViaURLFor`; `entrypoint.surfaceSelectionFor`; `luahook.DeriveCtx.ViaURL` |
-| The derives | pi, oh-omp and opencode write `ctx.via_url` as the SELECTED provider's base URL, speaking chat-completions there; every other provider row is untouched | `packs/pi/derive.lua`, `packs/omp/derive.lua`, `packs/opencode/derive.lua` |
+| The derives | pi, oh-omp and opencode write `ctx.via_url` as the SELECTED provider's base URL, speaking chat-completions there; codex writes it as that provider's `base_url`, speaking Responses, with no `env_key` ([WG-I22](#WG-I22)); every other provider row is untouched | `packs/pi/derive.lua`, `packs/omp/derive.lua`, `packs/opencode/derive.lua`, `packs/codex/derive.lua` |
 | The routes (a, b) | one listener on the via address serves `/agent/<name>/` per via agent; the adapter routes keep their own ports, so claude's URL and route do not move | `wirebridged.viaRoutesFor`, `wirebridged.planFor`, `wirebridged.servePlan` |
-| The pass-through | the body and the query cross unchanged; the upstream is the provider's `openai` base plus the path remainder; SSE is copied chunk by chunk and flushed; errors are OpenAI-shaped | `wirebridged.passthroughHandler` |
-| Credentials (e) | per route: the provider's `api_key_env_name` from the key channel, or the SigV4 chain when the upstream is an exact `bedrock-runtime` host. A route with no credential idles with a 503 naming what it needs, and the others serve | `wirebridged.viaHandlerFor`, `wirebridged.bedrockSignRegion` |
-| The prefix refusal | a path without a known `/agent/<name>/` gets a 404 OpenAI error listing the served agents; nothing is routed to a default | `wirebridged.viaMux` |
+| The pass-through | the body and the query cross unchanged; the upstream is the provider's chat-completions or Responses base, whichever the request's path names ([WG-I20](#WG-I20)), plus the path remainder, escaped ([WG-I23](#WG-I23)); SSE is copied chunk by chunk and flushed; a stream the upstream cuts short aborts the agent's connection, and only the wait for headers is bounded ([WG-I24](#WG-I24)); errors are OpenAI-shaped | `wirebridged.viaUpstreams`, `wirebridged.viaWireSplit`, `wirebridged.passthroughHandler` |
+| Credentials (e) | per upstream: the provider's `api_key_env_name` from the key channel, or the SigV4 chain when the upstream is an exact `bedrock-runtime` host. An upstream with no credential idles with a 503 naming what it needs, and the others serve | `wirebridged.viaHandlerFor`, `wirebridged.viaUpstreamHandler`, `wirebridged.bedrockSignRegion` |
+| The prefix refusal | a path without a known `/agent/<name>/` gets a 404 OpenAI error listing the served agents; nothing is routed to a default. A path after the prefix that is not canonical gets a 404 too ([WG-I23](#WG-I23)) | `wirebridged.viaMux`, `wirebridged.canonicalViaTail` |
 
 **Which agents are wired.** Each agent must take a base URL and keep its path, or the prefix is
 lost ([§8](#8-build-order), step 5):
@@ -302,8 +313,8 @@ lost ([§8](#8-build-order), step 5):
 | :--- | :--- | :--- |
 | pi | yes | its `openai-completions` client is the OpenAI SDK, which builds `new URL(baseURL + path)` (read in the installed `openai` 6.40.0 `buildURL`) |
 | opencode | yes | `@ai-sdk/openai-compatible` builds `${baseURL}${path}` (read in the installed opencode 1.18.32 bundle) |
-| oh-omp | yes, UNMEASURED | its derive already writes a `baseUrl` per provider; whether its client keeps the path is not measured, because it is not installed here |
-| codex | **no** | it speaks Responses only, and the via route is chat-completions. It is [§8](#8-build-order)'s next pass-through route |
+| oh-omp | yes | its `openai-completions` client is the OpenAI SDK, which builds `new URL(baseURL + path)` (read 2026-09-26 in the published `@oh-labs/oh-omp-linux-x64` 0.15.3 binary's bundled `openai` 6.33.0 `buildURL`, fetched with `npm pack` and not run). No derive change |
+| codex | yes, since 2026-09-26 | a custom provider's client builds `format!("{base}/{path}")` (read in codex 0.157.0's `codex-api` `Provider::url_for_path`, the version installed here), and it speaks Responses, which the via route now passes through ([WG-I20](#WG-I20)) |
 | claude, copilot | no, by design | they reach the bridge through the adapter routes, which (a) leaves unchanged |
 
 **Implementation decisions.** [OQ-WG7](#OQ-WG7) was ruled an implementation decision. These are
@@ -324,38 +335,207 @@ the mechanism choices its build made, each the one answer that made the ruled be
    `/embeddings` pass through as `/chat/completions` does.
 5. <a id="WG-I5"></a>**[WG-I5](#WG-I5)** — the agent's own `Authorization` is never forwarded,
    including on a route with no credential of its own ([WB-D4](../reference/wire-bridge.md#wb-d4)).
-   pi and opencode still send one, the `local` placeholder their derives give every loopback
-   base URL, because pi drops a provider whose row has no key.
+   pi and opencode always send one, and oh-omp does for a keyed provider. For a keyed provider
+   their via row carries the provider's own key reference (`${VAR}` for pi, `{env:VAR}` for
+   opencode, the variable's name for oh-omp), so the agent sends the real key to the bridge,
+   which drops it. For a keyless one pi and
+   opencode send the `local` placeholder their derives give a loopback base URL, because pi drops
+   a provider whose row has no key, and oh-omp's row says `auth = "none"`. **Corrected
+   2026-09-26:** this item said the `local` placeholder was what they always sent.
 6. <a id="WG-I6"></a>**[WG-I6](#WG-I6)** — a via route is served only for a provider whose
    `openai` endpoint is chat-completions (`wire_api` unset or `openai-chat-completions`). Any other
-   is skipped with its reason in the daemon log.
+   is skipped with its reason in the daemon log. **Amended 2026-09-26 by [WG-I20](#WG-I20):** a
+   provider offering chat-completions or Responses is served.
 7. <a id="WG-I7"></a>**[WG-I7](#WG-I7)** — a via may name only an embedded official pack, the
    needs rule ([WB-D9](../reference/wire-bridge.md#wb-d9)), and one
    whose service declares a `via_address`. Either failure refuses the launch naming the profile.
 8. <a id="WG-I8"></a>**[WG-I8](#WG-I8)** — at the host notch via is inert. `yolo host` runs
    neither closure, so the service pack is absent, `ViaBase` is empty and the agent keeps its own
    client. `ctx.via_url` is only ever read by file derives, which the host notch does not feed
-   from `YOLO_PROFILES`.
+   from `YOLO_PROFILES`. **Amended 2026-09-26 by [WG-I12](#WG-I12):** the service pack is present
+   at the host when a user lists `wire-bridge` in `packs`, so the host now clears every via
+   address instead.
 9. <a id="WG-I9"></a>**[WG-I9](#WG-I9)** — `stagePacks` reads the launch's config through a
    field on the run options (`stagingCfg`) rather than a new parameter, so its many test call
    sites stand; an empty config computes the same `use_profiles` defaults a launch would.
 
+The Responses build (2026-09-26) made three more. Their ids start at 20 because a concurrent
+track holds the ids from 10:
+
+10. <a id="WG-I20"></a>**[WG-I20](#WG-I20)** — **a via route carries two upstreams, and the
+    request's path picks one.** A route's chat-completions upstream is the provider's `openai`
+    endpoint when its `wire_api` is unset or `openai-chat-completions`. Its Responses upstream is
+    the provider's `openai-responses` endpoint when declared, else its `openai` endpoint when its
+    `wire_api` is unset or `openai-responses`, which is the preference `packs/codex/derive.lua`
+    reads. A path of `/responses` or below goes to the Responses upstream, `/chat/completions` or
+    below to the chat-completions one, and any other path (`/models`) to the chat-completions
+    upstream, or to the Responses one when that is all the provider offers. A path naming a wire
+    the provider does not declare gets an OpenAI-shaped 404 naming the provider. It is never
+    translated and never sent to the other endpoint; [WG-I23](#WG-I23) closes the path spellings
+    that got past this. **Why by path:** the daemon has no table of
+    which wire each agent speaks, and each agent's own client has already chosen one: pi, oh-omp
+    and opencode send chat-completions, codex sends Responses. The destinations are still only
+    the two the provider row declares, so [§7](#7-what-the-bridge-still-refuses)'s "nothing in a
+    request can name a new destination" holds.
+11. <a id="WG-I21"></a>**[WG-I21](#WG-I21)** — **no via route is served for `openai-codex`**, the
+    ChatGPT subscription, and it is skipped by name with its reason. Reading `openai-responses`
+    endpoints ([WG-I20](#WG-I20)) would otherwise make it a route, and its credential is
+    `openai-auth`'s access-token view, which is neither a declared key nor SigV4. So the route
+    would forward unauthenticated requests to the subscription backend. Every agent that speaks
+    it implements it natively, and no derive re-points it
+    ([`pi-codex-provider-shadowing.md` OQ-2](pi-codex-provider-shadowing.md#OQ-2)). The name,
+    not a flag, follows that doc's [OQ-1](pi-codex-provider-shadowing.md#OQ-1). Whether codex's
+    subscription should ride the bridge at all is Part 4's kind of question, not this build's.
+12. <a id="WG-I22"></a>**[WG-I22](#WG-I22)** — **codex's via row names no `env_key`.** The bridge
+    holds the provider's key and drops an inbound `Authorization` ([WG-I5](#WG-I5)). codex 0.157.0
+    sends no `Authorization` for a custom provider with neither `env_key` nor
+    `requires_openai_auth`, and fails each request with an environment-variable error when a
+    declared `env_key` is unset: `resolve_provider_auth` calls the provider's `api_key` whenever a
+    client is set up, not once at startup (`model-provider/src/auth.rs` `resolve_provider_auth`;
+    `model-provider-info/src/lib.rs` `api_key`). So a via row that named one would make codex need
+    a key it never uses. pi, opencode and oh-omp keep a key on their via rows: the provider's key
+    reference for a keyed provider, and for a keyless one pi's and opencode's `local` placeholder,
+    because pi drops a keyless row ([WG-I5](#WG-I5)). codex's row carries neither. Dropping the
+    real key from their via rows too would match [OQ-BR4](provider-credential-scope.md#OQ-BR4)'s
+    narrowing, and is those packs' change to make. The route needs no WebSocket upgrade: codex opens Responses over WebSocket only for a provider
+    with `supports_websockets`, which defaults off for a custom provider, and the derive never
+    sets it (`core/src/client.rs` `responses_websocket_enabled`). It compresses a request body
+    only for its built-in OpenAI provider, so copying `Content-Type` and `Accept` alone loses
+    nothing.
+
+The via residuals build (2026-09-26) closed the first build's loose ends and made six more,
+WG-I10 to WG-I15. Three terms are coined here. A **via agent** is an agent whose pack's first
+declared protocol is one the via route carries (`openai` or `openai-responses`); an agent that
+declares no protocols is not one. Its **preferred wire** is the wire that protocol names on the
+route: chat-completions for `openai`, Responses for `openai-responses`. A via agent is
+**re-pointed** when its derived config carries its via URL, so that some request it sends goes
+to the bridge ([WG-I15](#WG-I15)).
+
+13. <a id="WG-I10"></a>**[WG-I10](#WG-I10)** — **a via is active only for an agent a selected
+    pack installs.** A `use_profiles` key is checked against every CLI any resolvable pack
+    installs, selected or not, so a user-scope entry for an agent this launch does not carry is
+    legal. Its via adds no pack, prints no "active for" line and is never refused. This is the
+    protocol gate's rule: an agent no selected pack installs pairs with nothing. Lives in
+    `packload.ActiveVias`, which `packload.ResolveVias` walks.
+14. <a id="WG-I11"></a>**[WG-I11](#WG-I11)** — **one resolver for the whole selection
+    closure.** `packload.Selection.Close` runs the needs closure, then the via closure over the
+    needs-closed set, then the needs closure over what via added. The launch (`stagePacks`,
+    through `run.Options.launchSelection`), `yolo check`'s Packs section, config validation
+    (`config.resolveSelectedPacks`), `config promote`'s fold (`cli.loadPromoteFold`) and the lazy
+    loophole resolvers (`run.resolveConfiguredPacks`) all call it. Each caller supplies only its
+    selection table. The launch folds `-p` in, `check` reads the merged config's `use_profiles`,
+    and the other three read the user scope through `config.UserScopeSelection`. That is the whole
+    selection, because a workspace `use_profiles` is refused. A refused closure returns no
+    additions. Before it, `check`, validation and `promote` ran the needs closure alone, so their
+    pack lists omitted a pack a via profile adds.
+15. <a id="WG-I12"></a>**[WG-I12](#WG-I12)** — **via is inert at the host notch through the
+    launch's own predicate.** `packload.ViaURLFor` is what both derive paths ask. `yolo host`'s
+    env composition (`cli.composeHostVars`) and the footer's tables (`cli.hostFooterTables`) pass
+    their resolved table through `packload.ViaInert`, which clears every `ViaBase` and keeps
+    `Via`. So `ViaURLFor` answers "" there whatever the pack set holds. This amends
+    [WG-I8](#WG-I8), whose "the service pack is absent" is false when a user lists `wire-bridge`
+    in `packs`. Before it, the host's env derive (`packload.AgentEnv`) received a `ctx.via_url`
+    for an address nothing serves there.
+16. <a id="WG-I13"></a>**[WG-I13](#WG-I13)** — **the launch refuses a re-pointed via agent the
+    daemon serves no route for.** It is the ninth launch pre-flight (`run.Options.checkViaRoutes`),
+    and `yolo check` predicts it as a FAIL. Both call `wirebridged.ViaRouteGate`, which reads
+    `wirebridged.viaRoutesFor`, the core the daemon boots from, so the launch and the daemon
+    cannot disagree (`wirebridged.WillServe`'s rule: one decision, two call sites). The refusal
+    names the profile, the agent, the daemon's reason (a provider declaring neither wire, one not
+    in the composed table, or [WG-I21](#WG-I21)'s subscription), the via URL and what the agent
+    would meet there. With no via route served at all the daemon binds no via listener, so the
+    agent's connection is refused. When another agent's route is served, the prefix gets
+    `wirebridged.viaMux`'s 404. **Refuse, not disclose:** no request to that prefix can succeed
+    whatever client sends it, and the launch refuses a selection it knows it cannot honor
+    (`checkProfileDeclarations`' rule). No hatch, because the remedy is a config line. It applies
+    only to a via agent whose via URL is non-empty and whose config the via re-points
+    ([WG-I15](#WG-I15)). So a via over `openai-codex` refuses opencode, whose derive re-points the
+    selected provider whatever it is, and not pi, oh-omp or codex, which keep the subscription on
+    their own client. claude and copilot prefer `anthropic`, agy declares no protocols, none of
+    their derives read the via URL, and a via on their profile is neither refused nor disclosed.
+    Before it, a provider offering neither wire still gave the agent `ctx.via_url`, and the agent
+    met the failure at its first request, recorded only in the daemon's log.
+17. <a id="WG-I14"></a>**[WG-I14](#WG-I14)** — **a route without a re-pointed agent's preferred
+    wire is disclosed, not refused.** The route serves, but only the other wire, so the agent's
+    requests get [WG-I20](#WG-I20)'s 404. The launch prints a warning on stderr and `yolo check` a
+    WARN, each naming the profile, the agent, the provider and the endpoint it lacks. The
+    preferred wire is read from the agent pack's declared `protocols`, because the via route has
+    no declaration of its own. **Why disclose:** the launcher's evidence is an inference. For
+    every shipped via agent the preference and the wire its via row speaks agree, so there the
+    requests are certain to fail. But `protocols` is a preference list for protocol pairing, not
+    a statement of what a derive writes on its via row. That wire is spelled in each agent's own
+    config vocabulary (pi's `api`, codex's `wire_api`), which core does not read, so a pack yolo
+    does not ship can write either. Refusing on the inference would refuse such a pack's working
+    launch. `TestShippedViaRowsSpeakTheWireTheAgentPrefers` runs each wired agent's real derive
+    with `ctx.via_url` set and checks that the row it re-points speaks the preferred wire: pi,
+    oh-omp and opencode chat-completions, codex Responses. claude and copilot are not via agents.
+    A declared via wire per agent would let the launch refuse it.
+18. <a id="WG-I15"></a>**[WG-I15](#WG-I15)** — **the via checks ask the agent's own derives whether
+    the via re-points it, and a via that re-points nothing is disclosed, never refused.**
+    `packload.DerivedViaPointers` runs every rendered surface's derive the selected packs declare
+    for the agent, and the agent's env producer, over the launch's own provider and profile
+    tables with `ctx.via_url` set as the boot sets it. It returns each output string that is the
+    via URL or lies under it. None means the agent's config is what it would be without via.
+    **Why the derives:** a profile's `via` is an input to a derive, not an instruction to it, and
+    each derive decides which rows ride it. pi and oh-omp keep `openai-codex` on their own client,
+    codex writes a row only for a provider it can reach, and opencode re-points whatever provider
+    is selected. No declaration states those rules, so a gate reading only manifests refused
+    launches that worked: pi, oh-omp and codex on a via over `openai-codex`, and warned codex of
+    404s on a chat-only provider it never sends to. **Why disclose:** the launch the user gets is
+    the launch without via, which works, so a refusal would stop a working jail. The notice says
+    the via has no effect and, where the daemon would skip the route too, why. A derive the check
+    cannot run is disclosed as unchecked and not refused, because the boot runs the same derive
+    and refuses the launch over its error. The derives run in the same Lua sandbox the boot uses,
+    and the launcher already runs each agent's own pack script for the environment
+    (`packload.AgentEnv`). Lives in `packload.DerivedViaPointers` and
+    `wirebridged.ViaRouteGate`.
+
+The review of the Responses build (2026-09-26) made two more, again numbered past the
+concurrent track's:
+
+19. <a id="WG-I23"></a>**[WG-I23](#WG-I23)** — **a via route forwards only a canonical path, and
+    forwards it escaped.** A path after the prefix with a `.`, `..` or empty segment (one trailing
+    `/` aside), or with a `?` or `#` in its decoded form, gets an OpenAI-shaped 404 and sends
+    nothing upstream. The upstream URL is the base URL joined with the path's escaped form, not the
+    decoded path concatenated. **Why:** the split classifies the path as written and an upstream
+    normalizes it before routing, so `/x/../chat/completions` was refused as neither wire and
+    served as chat-completions, which reached a Responses-only provider, reached the other of two
+    endpoints, or climbed out of the provider's declared base path. The concatenation turned an
+    encoded `?` into a query separator. The host never changed, so [§7](#7-what-the-bridge-still-refuses)'s
+    rule held throughout. Bedrock failed closed already: the signer signs the path with its dot
+    segments and AWS normalizes it first, so the signature mismatched. Refusing, not cleaning,
+    keeps what the route classifies and what the provider receives the same without rewriting what
+    the agent sent. None of the four wired clients builds such a path, since each joins its base
+    URL with a fixed one. Lives in `wirebridged.viaMux`,
+    `wirebridged.canonicalViaTail` and `passthroughHandler.do`.
+20. <a id="WG-I24"></a>**[WG-I24](#WG-I24)** — **a stream the upstream cuts short aborts the
+    agent's connection, and only the wait for response headers is bounded.** When the upstream's
+    body fails after the status line went out, the daemon logs the cut, the byte count and the
+    cause, and aborts the connection (`http.ErrAbortHandler`, as `httputil.ReverseProxy` does), so
+    the agent's read fails. The agent closing its own request is no fault and is neither aborted
+    nor logged. The wait for the upstream's headers is bounded by `upstreamTimeout`'s ten minutes
+    (`wirebridged.viaHeaderTimeout`), and the pass-through's client has no whole-exchange timeout.
+    **Why:** returning let net/http end the response cleanly. codex notices a Responses stream
+    without `response.completed`, but a chat-completions client (pi, oh-omp and opencode, through
+    the OpenAI SDK) reads an end of stream without `[DONE]` as a finished reply, so it accepted a
+    truncated one, and the log said nothing. A `Client.Timeout` bounds reading the body too, so it
+    cut every stream longer than ten minutes the same silent way. Lives in
+    `passthroughHandler.ServeHTTP` and `passthroughHandler.do`. The adapter routes keep their
+    whole-exchange timeout; they translate, and are not part of this build.
+
 **What is not built, or not closed:**
 
 - Part 5's allowlist, which waits on [OQ-BR12](model-lists-and-pickers.md#OQ-BR12)'s `only`.
-- The Responses and Converse pass-through routes (codex, then Converse).
+- The Converse pass-through route, pi's: it waits on [OQ-WG8](#OQ-WG8).
 - A Bedrock provider named by region alone has no `openai` endpoint until the region-composed URL
   lands ([§8](#8-build-order), step 1), so it gets no via route.
-- A via profile whose provider offers no chat-completions endpoint still gets `ctx.via_url`, so
-  its agent is pointed at a prefix the daemon does not serve. The daemon names the skip in its
-  log, and the agent gets the prefix refusal. The launch does not refuse it.
-- A user who lists `wire-bridge` in `packs` explicitly does give `yolo host` a `ViaBase`, and the
-  host's env derive (`packload.AgentEnv`) then receives a `ctx.via_url` for an address nothing
-  serves there. No shipped `yolo.env` producer reads it, so nothing moves today; a producer that
-  starts reading it would need the host notch to clear the field first.
-- `yolo check`, config validation and `config promote` run the needs closure without the via
-  closure, so their pack lists omit a pack a via profile adds. The wire-bridge pack declares no
-  loophole capability and no writable dir, so no check reads a wrong answer from it today.
+- A via agent whose derive speaks a wire its provider does not declare is served, and each request
+  is refused with [WG-I20](#WG-I20)'s 404. pi, oh-omp and opencode speak chat-completions on the
+  via route, so selecting a Responses-only provider (such as `openrouter`) for one of them lands
+  here. Until [WG-I20](#WG-I20) that route was skipped at boot. The launch warns about it and
+  `yolo check` reports a WARN ([WG-I14](#WG-I14)), but neither refuses: the daemon learns an
+  agent's wire only from its requests, and the launcher reads it off the agent's `protocols`. A
+  refusal would need the wire each derive's via row speaks declared somewhere both can read.
 
 ---
 
@@ -534,8 +714,9 @@ Three earlier non-licenses are reopened here by name:
    routes land in this order: OpenAI chat-completions (oh-omp, pi), then Responses (codex), then
    Bedrock Converse. Before an agent's derive relies on the path prefix, measure that the agent
    keeps a base URL's path; an agent that drops it gets its own port instead.
-   The selection and the chat-completions route are BUILT ([§4.1](#41-how-it-is-built)); the
-   allowlist, Responses and Converse are not.
+   The selection, the chat-completions route and the Responses route are BUILT
+   ([§4.1](#41-how-it-is-built)); the allowlist is not, and Converse waits on
+   [OQ-WG8](#OQ-WG8).
 
 ---
 
@@ -723,6 +904,80 @@ Three earlier non-licenses are reopened here by name:
    > ([§4.1](#41-how-it-is-built)), with the mechanism choices recorded as
    > [WG-I1](#WG-I1)–[WG-I9](#WG-I9).
 
+8. 💬 <a id="OQ-WG8"></a>**[OQ-WG8](#OQ-WG8): on pi's Converse pass-through, does pi's own client
+   use the AWS credential?** Found 2026-09-26, when Converse came next in [§8](#8-build-order)'s
+   order, and reframed the same day in review. [OQ-WG5](#OQ-WG5) ruled that every native wire gets
+   a pass-through route, Converse included. Converse is Bedrock's own API, and pi's Converse client
+   is the AWS SDK. Read in the installed pi 0.87.1 (`pi-ai`'s `dist/api/bedrock-converse-stream.js`;
+   nothing was run):
+   - it takes a model's `baseUrl` as its endpoint whenever that is not a standard
+     `bedrock-runtime` host, and keeps that URL's path, so the per-agent prefix works;
+   - it has **three authorization modes**. With a bearer token resolved and
+     `AWS_BEDROCK_SKIP_AUTH` unset, it sets the SDK's token and prefers `httpBearerAuth`, so it
+     sends `Authorization: Bearer <token>` and **no SigV4 signature**. Under
+     `AWS_BEDROCK_SKIP_AUTH=1` it signs with the literal keys `dummy-access-key` and
+     `dummy-secret-key`. Otherwise it signs with the SDK credential chain;
+   - the bearer token is taken from the request's options (`bearerToken`, then `apiKey`) before
+     `AWS_BEARER_TOKEN_BEDROCK`, and a `models.json` `apiKey` on the `amazon-bedrock` provider becomes that `apiKey` with no
+     environment variable: `provider-composer.js` `composeApiKeyAuth` hands a configured key to
+     the built-in resolver, and `providers/amazon-bedrock.js` `resolve` returns it as the auth's
+     `apiKey`.
+
+   So a via override on pi's `amazon-bedrock` provider that carries a **placeholder `apiKey`**
+   makes pi send a placeholder bearer, which the bridge drops ([WG-I5](#WG-I5)) before signing
+   with its own chain. That is the shape pi's derive already gives a keyless loopback row
+   (`apiKey = "local"`). The response is AWS's binary event stream, which the pass-through copies
+   byte for byte, so nothing needs re-framing.
+
+   Two properties are easy to conflate here, and only the first is this question:
+   - **pi's client does not use the AWS credential.** The placeholder bearer gives it now, with
+     no new delivery mechanism.
+   - **pi's environment does not carry the AWS credential.** No mechanism here gives it. The
+     jail-wide AWS variables reach every agent until
+     [OQ-CN6](provider-credential-scope.md#OQ-CN6)'s per-agent env file (ruled 2026-09-26,
+     unbuilt) narrows them, and `AWS_BEDROCK_SKIP_AUTH=1` does not remove them either. It follows
+     [OQ-CN6](provider-credential-scope.md#OQ-CN6) whatever this question rules.
+
+   The options:
+   - **(a) pi keeps signing with its own credential.** The bridge discards pi's signature and
+     signs with its own chain. Nothing new reaches pi's configuration, and two signers run per
+     request.
+   - **(b) pi sends a placeholder bearer, and only the bridge signs.** The via override carries
+     `apiKey = "local"`, so pi's client uses no AWS credential. Environment narrowing follows
+     [OQ-CN6](provider-credential-scope.md#OQ-CN6) separately. The dummy-key switch is the other way
+     to stop pi's client signing with the real credential, but it is an environment variable, and
+     one agent receives a variable alone only through
+     [OQ-CN6](provider-credential-scope.md#OQ-CN6), so it is not the mechanism.
+   - **(c) No Converse pass-through.** pi's bridge path stays the chat-completions route, as
+     [`bedrock-plumbing.md`](bedrock-plumbing.md) records as [OQ-BR5](bedrock-plumbing.md#OQ-BR5)'s design consequence ("the
+     bridge version speaks OpenAI chat-completions"), and WG5's "Converse included" is withdrawn.
+
+   Stakes: under (a) pi's client goes on using the credential on the bridge path, so that path
+   delivers it no more narrowly than native; (b) keeps it out of pi's requests from the first
+   build and waits on no other ruling; (c) reverses part of a ruling. Three facts hold
+   under (a) and (b) and are implementation, not part of the question. The upstream is
+   `bedrock-runtime.<region>.amazonaws.com` composed from the provider's `region`
+   ([§2.1](#21-behavior-the-signer-fixes)'s last bullet, unbuilt), because the shipped `bedrock`
+   provider declares no endpoint. A Converse path names the model, and an inference-profile ARN
+   carries an encoded `/`, which the via mux decodes today, so the Converse route must forward the
+   path as the agent encoded it. And the re-pointing lives in pi's derive, as a `baseUrl` on pi's
+   built-in `amazon-bedrock` provider. Whether that override counts as a catalog entry under
+   [`pi-codex-provider-shadowing.md` OQ-2](pi-codex-provider-shadowing.md#OQ-2)'s rule is for that
+   doc to say, and the override keeps pi's own Converse client.
+
+   _Leaning:_ **(b)**. [OQ-BR4](provider-credential-scope.md#OQ-BR4) ruled that nothing leaks and
+   delivery is as specific as possible. A pass-through whose client still signs with the key
+   delivers it no more narrowly than native, and (b) costs one placeholder in a derive that
+   already writes one. The daemon half and the placeholder can land together with the
+   region-composed upstream, and [OQ-CN6](provider-credential-scope.md#OQ-CN6)'s per-agent env
+   file later takes the variables out of pi's environment. The placeholder path is read from
+   pi's source, not measured: no pi session has sent a Converse request through it.
+
+   <!-- vantage: oq id=OQ-WG8 leaning="(b): pi's via override carries a placeholder apiKey, so pi's client sends a placeholder bearer the bridge drops and only the bridge signs; it waits on no other ruling, and OQ-CN6's per-agent env file later takes the AWS variables out of pi's environment." -->
+
+   **Answer:**
+   > _(empty — fill in when decided)_
+
 ### 10.1 Ruled, moved here from bedrock-plumbing
 
 - <a id="OQ-BR10"></a>[**OQ-BR10**](#OQ-BR10) (answered 2026-09-24 by
@@ -758,8 +1013,19 @@ Three earlier non-licenses are reopened here by name:
 | WG-I5 | **The agent's own `Authorization` is never forwarded, on any via route.** An implementation decision ([OQ-WG7](#OQ-WG7)) | 2026-09-25 | [WG-I5](#WG-I5) | 2026-09-25 |
 | WG-I6 | **A via route is served only for a chat-completions `openai` endpoint; others are skipped and logged.** An implementation decision ([OQ-WG7](#OQ-WG7)) | 2026-09-25 | [WG-I6](#WG-I6) | 2026-09-25 |
 | WG-I7 | **A via names only an embedded official pack whose service declares a `via_address`, or the launch refuses.** An implementation decision ([OQ-WG7](#OQ-WG7)) | 2026-09-25 | [WG-I7](#WG-I7) | 2026-09-25 |
-| WG-I8 | **Via is inert at the host notch: no closure runs there, so no `ViaBase`, and no file derive reads `ctx.via_url` there.** An implementation decision ([OQ-WG7](#OQ-WG7)) | 2026-09-25 | [WG-I8](#WG-I8) | 2026-09-25 |
+| WG-I8 | **Via is inert at the host notch: no closure runs there, so no `ViaBase`, and no file derive reads `ctx.via_url` there.** Amended by WG-I12. An implementation decision ([OQ-WG7](#OQ-WG7)) | 2026-09-25 | [WG-I8](#WG-I8) | 2026-09-25 |
 | WG-I9 | **`stagePacks` reads the config through the run options' `stagingCfg` field.** An implementation decision ([OQ-WG7](#OQ-WG7)) | 2026-09-25 | [WG-I9](#WG-I9) | 2026-09-25 |
+| WG-I20 | **A via route carries the provider's chat-completions and Responses endpoints, and each request's path picks one; a path naming an undeclared wire is refused, never translated.** Amends WG-I6. An implementation decision ([OQ-WG5](#OQ-WG5)'s Responses route) | 2026-09-26 | [WG-I20](#WG-I20) | 2026-09-26: `wirebridged.viaUpstreams`, `wirebridged.viaWireSplit` |
+| WG-I21 | **No via route is served for `openai-codex`; it is skipped by name.** An implementation decision | 2026-09-26 | [WG-I21](#WG-I21) | 2026-09-26: `wirebridged.viaRoutesFor` |
+| WG-I22 | **codex's via row names no `env_key`, and needs no WebSocket.** An implementation decision | 2026-09-26 | [WG-I22](#WG-I22) | 2026-09-26: `packs/codex/derive.lua` |
+| WG-I10 | **A via is active only for an agent a selected pack installs**: an entry for an agent the launch does not carry adds no pack and is never refused. An implementation decision | 2026-09-26 | [WG-I10](#WG-I10) | 2026-09-26: `packload.ActiveVias` |
+| WG-I11 | **One resolver for the selection closure (needs, via, needs), called by the launch, `yolo check`, config validation, `config promote` and the lazy loophole resolvers.** An implementation decision | 2026-09-26 | [WG-I11](#WG-I11) | 2026-09-26: `packload.Selection.Close`, `config.UserScopeSelection` |
+| WG-I12 | **Via is inert at the host notch through `ViaURLFor`: the host's resolved table has every `ViaBase` cleared.** Amends WG-I8. An implementation decision | 2026-09-26 | [WG-I12](#WG-I12) | 2026-09-26: `packload.ViaInert`, called by `cli.composeHostVars` and `cli.hostFooterTables` |
+| WG-I13 | **The launch refuses a re-pointed via agent the daemon serves no route for, through the daemon's own core; `yolo check` predicts it as a FAIL.** An implementation decision | 2026-09-26 | [WG-I13](#WG-I13) | 2026-09-26: `wirebridged.ViaRouteGate`, `run.Options.checkViaRoutes` |
+| WG-I14 | **A route without a re-pointed agent's preferred wire (its first declared protocol) is disclosed as a warning, not refused.** An implementation decision | 2026-09-26 | [WG-I14](#WG-I14) | 2026-09-26: `wirebridged.ViaRouteGate`, `wirebridged.preferredViaWire` |
+| WG-I15 | **The via checks run the agent's own derives to see whether the via re-points it; a via that re-points nothing is disclosed as having no effect, never refused.** An implementation decision | 2026-09-26 | [WG-I15](#WG-I15) | 2026-09-26: `packload.DerivedViaPointers`, `wirebridged.ViaRouteGate` |
+| WG-I23 | **A via route forwards only a canonical path (no `.`, `..` or empty segment, no decoded `?` or `#`), and forwards it escaped; any other gets a 404.** An implementation decision, closing a bypass of WG-I20 | 2026-09-26 | [WG-I23](#WG-I23) | 2026-09-26: `wirebridged.canonicalViaTail`, `passthroughHandler.do` |
+| WG-I24 | **A stream the upstream cuts short aborts the agent's connection and is logged; only the wait for response headers is bounded.** An implementation decision | 2026-09-26 | [WG-I24](#WG-I24) | 2026-09-26: `passthroughHandler.ServeHTTP`, `wirebridged.viaHeaderTimeout` |
 | OQ-WG2 | **All-traffic mode is a property of the profile**, opt-in and off by default; one active profile per agent decides how it reaches the world | 2026-09-25 | [§6](#6-part-5--all-traffic-through-the-bridge-new-direction-design) | — |
 | OQ-WG3 | **One list** (the picker's effective list after an `only`), **and a separate enforcement switch** on the profile, **default on**; off means the list only shapes pickers | 2026-09-25 | [§6](#6-part-5--all-traffic-through-the-bridge-new-direction-design) | — |
 | OQ-WG4 | **A path prefix per agent on the one listen port**, written by each derive; an unknown prefix is refused; a port per agent only for an agent measured to drop a base URL's path (delegated, decided in review) | 2026-09-25 | [§6](#6-part-5--all-traffic-through-the-bridge-new-direction-design) | — |
@@ -789,6 +1055,19 @@ Re-check instructions:
 | *"use temporary security credentials provided by AWS Security Token Service (AWS STS) service whenever possible"*; keys *"when your use case blocks the use of temporary AWS STS credentials"*; SCPs to block both actions. Posted 2025-10-17, updated 2026-07-01 | AWS Security Blog, *Securing Amazon Bedrock API keys* |
 | Long-term key mechanics: one IAM user per key, two per user for rotation, expiry from one day to never | IAM user guide, read 2026-09-04 |
 | The Messages API is listed on `bedrock-runtime`; path and stream framing unread | Bedrock endpoints page, read 2026-09-25 |
+
+**Client sources**, read 2026-09-26; nothing was run:
+
+| Claim | Source |
+| :--- | :--- |
+| codex joins a custom provider's `base_url` and a path as `format!("{base}/{path}")` | codex `rust-v0.157.0` (the version installed here), `codex-rs/codex-api/src/provider.rs` `Provider::url_for_path` |
+| codex sends no `Authorization` for a provider with neither `env_key` nor `requires_openai_auth`; a declared `env_key` that is unset or empty is an error, raised each time a client is set up rather than at startup | `codex-rs/model-provider/src/auth.rs` `resolve_provider_auth`; `codex-rs/model-provider-info/src/lib.rs` `api_key` |
+| codex uses Responses over WebSocket only when the provider sets `supports_websockets`, false by default for a custom provider, and compresses request bodies only for the OpenAI provider on ChatGPT auth | `codex-rs/core/src/client.rs` `responses_websocket_enabled`, `responses_request_compression`; `model-provider-info` `ModelProviderInfo` |
+| oh-omp's `openai-completions` client is `new OpenAI({ baseURL })`, whose `buildURL` is `new URL(baseURL + path)` | `@oh-labs/oh-omp-linux-x64` 0.15.3 (`npm pack`), strings of the bundled `packages/ai/src/providers/openai-completions.ts` and `openai` 6.33.0 `client.mjs` |
+| pi's Converse client uses a non-standard `baseUrl` as its endpoint, keeps the endpoint's path (`@smithy/core` `requestBuilder.bp`), and under `AWS_BEDROCK_SKIP_AUTH=1` signs with `dummy-access-key` / `dummy-secret-key` | pi 0.87.1, `dist/bundle/chunks/bedrock-converse-stream.js` |
+| pi's Converse client sends a bearer and no SigV4 signature when a bearer token resolves (`options.bearerToken`, then `options.apiKey`, then `AWS_BEARER_TOKEN_BEDROCK`) and `AWS_BEDROCK_SKIP_AUTH` is not `1`: it sets `config.token` and `authSchemePreference = ["httpBearerAuth"]` | pi 0.87.1, `pi-ai/dist/api/bedrock-converse-stream.js` |
+| a `models.json` `apiKey` on `amazon-bedrock` becomes that request `apiKey` with no environment variable | pi 0.87.1, `dist/core/provider-composer.js` `composeApiKeyAuth`; `pi-ai/dist/providers/amazon-bedrock.js` `resolve` |
+| the SDK encodes a non-greedy path label, such as ConverseStream's `/model/{modelId}/converse-stream`, whole with `extendedEncodeURIComponent`, so a `/` in a model ARN crosses as `%2F` | pi 0.87.1's `@smithy/core` `protocols` `resolvedPath`; `@aws-sdk/client-bedrock-runtime` `dist-cjs/index.js` |
 
 **Repo claims**, re-checkable in seconds:
 

@@ -704,20 +704,52 @@ What it does, in order:
 1. **The launch adds the pack.** Selecting the profile brings `wire-bridge` into the jail the way
    `needs` does, and says so (`+ wire-bridge (via of profile pi-zai, active for pi)`). A `via`
    naming a pack yolo does not ship, or one that declares no `via_address`, refuses the launch.
+   Only an agent a selected pack installs counts: a `use_profiles` entry for an agent the launch
+   does not carry adds nothing ([WG-I10](../design/wire-bridge-gateway.md#WG-I10)). `yolo check`,
+   config validation and `yolo config promote` resolve the same pack set
+   ([WG-I11](../design/wire-bridge-gateway.md#WG-I11)).
 2. **The agent gets its own URL.** Its derive receives `ctx.via_url`,
    `http://127.0.0.1:8216/agent/pi` here, and writes it as the selected provider's base URL. Only
    the agent whose active profile has `via` gets one. Every other agent, and every other provider
    row of the same agent, keeps its own URL.
 3. **The bridge forwards to the provider unchanged**, adding the provider's own credential: its
    `api_key_env_name`, or a SigV4 signature for a `bedrock-runtime` upstream
-   ([the via route](wire-bridge.md#the-via-route--one-route-per-agent-under-agentname)).
+   ([the via route](wire-bridge.md#the-via-route--one-route-per-agent-under-agentname)). It
+   passes two wires through, OpenAI chat-completions and OpenAI Responses, and sends each
+   request to the provider endpoint for the wire its path names
+   ([WG-I20](../design/wire-bridge-gateway.md#WG-I20)).
+
+The launch checks that the bridge can serve the agent before it starts anything. First it runs
+the agent's own derives with `ctx.via_url` set, to see whether the agent's config points at the
+URL at all. A derive decides which provider rows ride it: pi, oh-omp and codex keep
+`openai-codex` on their own subscription client, and codex writes no row for a provider it
+cannot reach. A via there changes nothing the agent sends
+([WG-I15](../design/wire-bridge-gateway.md#WG-I15)). `yolo check` predicts every answer for the
+`use_profiles` selection; a `-p` is an argument to a launch that has not happened, so `check`
+cannot see it.
+
+| What the via does for the agent | Launch | `yolo check` |
+| :--- | :--- | :--- |
+| **Nothing**: the agent's config does not point at its via URL, for example pi with a via over `openai-codex` | warns on stderr that the via has no effect, and starts ([WG-I15](../design/wire-bridge-gateway.md#WG-I15)) | WARN |
+| **Points the agent at a prefix the bridge serves no route for**: the provider declares neither wire, is not in the composed table, or is the ChatGPT subscription (opencode, whose derive re-points any selected provider) | refuses, naming the profile, the agent, the reason and the via URL ([WG-I13](../design/wire-bridge-gateway.md#WG-I13)) | FAIL |
+| **Points the agent at a route with only the wire it does not prefer**, for example pi on a Responses-only provider such as `openrouter` | warns on stderr, naming the endpoint the provider lacks, and starts ([WG-I14](../design/wire-bridge-gateway.md#WG-I14)) | WARN |
+
+The agent's **preferred wire** *(coined in [WG-I14](../design/wire-bridge-gateway.md#WG-I14))* is
+the one its pack's first declared protocol names: chat-completions for `openai`, Responses for
+`openai-responses`. For every shipped agent that is the wire its derive speaks on the via route, so
+the third row's requests will fail. It is a warning, not a refusal, because the launcher reads the
+wire off the declared `protocols`, not off what the derive writes, and a pack yolo does not ship
+can write either. An agent whose first protocol is neither, such as claude or copilot, or that
+declares none, such as agy, is not checked: none of their derives read the via URL.
 
 `via` is a field, not an option: the provider's option census does not apply to it, and a user's
-`via` replaces a pack-shipped one for the same profile name. It works for agents that speak OpenAI
-chat-completions and take a base URL: pi, oh-omp and opencode. codex speaks Responses only and is
-not wired yet. claude and copilot already reach the bridge through its adapter routes, which a
-via profile does not change. At the host notch (`yolo host`) there is no bridge daemon, and the
-agent uses its own client.
+`via` replaces a pack-shipped one for the same profile name. It works for agents that take a base
+URL and keep its path: pi, oh-omp and opencode, which speak chat-completions there, and codex,
+which speaks Responses. claude and copilot already reach the bridge through its adapter routes,
+which a via profile does not change. At the host notch (`yolo host`) there is no bridge daemon,
+so the agent uses its own client. That holds even when `wire-bridge` is listed in `packs`: the
+host clears every via address before any derive reads one
+([WG-I12](../design/wire-bridge-gateway.md#WG-I12)).
 
 ### The `profile` modifier
 
