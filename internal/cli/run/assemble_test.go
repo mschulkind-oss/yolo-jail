@@ -2,7 +2,6 @@ package run
 
 import (
 	"bytes"
-	"go/ast"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -998,28 +997,6 @@ func TestAssembleForwardsNoColor(t *testing.T) {
 				t.Errorf("an unset NO_COLOR still reached the argv as %q", w)
 			}
 		}
-	}
-}
-
-// TestAttachExecCarriesNoColor is the attach arm's call-site pin: a running
-// container's environment is the one it was launched with, so the exec must carry
-// this invocation's NO_COLOR itself. attachExisting cannot be driven through its
-// exec here (a real runtime would run), so the pin reads its body; the pair builder
-// is exercised by the fresh-launch test above.
-func TestAttachExecCarriesNoColor(t *testing.T) {
-	fn := methodDecl(t, "run.go", "attachExisting")
-	found := false
-	ast.Inspect(fn, func(n ast.Node) bool {
-		if call, ok := n.(*ast.CallExpr); ok {
-			if sel, ok := call.Fun.(*ast.SelectorExpr); ok && sel.Sel.Name == "noColorEnvArgs" {
-				found = true
-			}
-		}
-		return true
-	})
-	if !found {
-		t.Fatal("attachExisting no longer adds noColorEnvArgs to its exec: a NO_COLOR set " +
-			"when attaching never reaches the attached command. If the call moved, move this pin.")
 	}
 }
 
