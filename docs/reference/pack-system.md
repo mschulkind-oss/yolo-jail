@@ -2425,11 +2425,13 @@ workspace.
 **What is left:**
 
 - **A changed config still reaches a live podman jail on attach.** This is today's behavior,
-  kept on purpose. The sync applies it one file at a time. A single-file bind keeps the old
-  file, as it always did. The first launch's lock is released once its container is running,
-  which can be before its entrypoint has finished reading `/ctx/packs`. So a changed-config
-  attach landing in that window can give the booting jail a mix of the two configs. It never
-  gives it a truncated file or an emptied directory.
+  kept on purpose. The sync applies it one file at a time, and a pack or skills file is
+  replaced by rename, so a reader never sees one truncated. A single-file bind keeps the old
+  file, as it always did. A changed briefing is still rewritten in place, because that is how
+  its single-file bind sees the change. A dropped pack's trees go, as they always did. The
+  first launch's lock is released once its container is running, which can be before its
+  entrypoint has finished reading `/ctx/packs`, so a changed-config attach landing in that
+  window can give the booting jail a mix of the two configs.
 - **A lock file that cannot be opened** warns and leaves the launch unserialised, because the
   workspace lock is a courtesy (`acquireWorkspaceLock`).
 - **Not verified on the macOS backend.** The unit tests above run on Linux. Whether
