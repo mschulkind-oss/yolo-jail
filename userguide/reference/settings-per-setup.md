@@ -431,7 +431,7 @@ Two things cut across the whole table. First, **`macos-user` has no re-entry**: 
 
 [^packsmac]: On `macos-user` a pack's skills and briefing are writable by the agent and are overwritten on the next launch, and pack-shipped MCP presets are not delivered. A pack-shipped loophole is **half** delivered, which is the precise version of what this note used to call "inert": its HOST daemon starts and its endpoint is delivered (with a per-file ACL grant for the sandbox account), while its `jail_daemon` — the in-jail half — runs for nothing at all, because this backend has no in-jail supervisor. So an *intercepting* loophole does nothing useful even with its daemon up: `claude-oauth-broker`'s TLS terminator is its jail half. The launch says all of it rather than failing quietly: one disclosure line per host daemon it starts, and one `Declined:` line per jail daemon it will not.
 
-[^packspartial]: On podman, adding a pack and *re-entering* a running jail is the worst of both: the pack's config surfaces and hooks render, while its skills, briefing, files and host-file grants do not, and its loopholes never start. Half-arrived, with nothing said. Restart for a whole pack.
+[^packspartial]: On podman and Apple Container a running jail keeps the packs it started with. Re-entering it after you add, drop or edit a pack changes none of them, and yolo says which packs differ and that a restart picks them up.
 
 [^reentry]: On Apple Container the jail's home is the workspace's own `.yolo/home`, and every entry, a re-entry included, rewrites the provider/profile/`env_sources` channel and each agent's own env file there before the command starts. Until 2026-09-26 only a fresh launch wrote them where this backend reads them, so a re-entry ran the previous launch's values. Checked by tests; not yet run on a Mac. On podman the same files are live binds.
 
@@ -445,14 +445,14 @@ Two things cut across the whole table. First, **`macos-user` has no re-entry**: 
 
 ## What a running jail picks up when you run `yolo` again
 
-Re-running `yolo` in a workspace whose jail is still running does **not** start a new jail — it *re-enters* the one you have (the banner says `Attaching to existing jail`). Settings passed when the container was created stay as they were. Skills, briefings and pack files are rebuilt on every entry, so you see the boot run again, yet some edits still wait for a restart. This table says which.
+Re-running `yolo` in a workspace whose jail is still running does **not** start a new jail — it *re-enters* the one you have (the banner says `Attaching to existing jail`). Settings passed when the container was created stay as they were, and so do its packs. Skills and briefings are rebuilt on every entry from the packs the jail started with, so you see the boot run again, yet some edits still wait for a restart. This table says which.
 
 | What you changed | `podman` re-entry (Linux, macOS) | `container` re-entry | `macos-user` |
 |---|---|---|---|
-| Skills (built-in, pack, your own) | `works` | `works` | `works differently`[^macuserre] |
-| Briefings (`AGENTS.md`, `CLAUDE.md`), `agents_md_extra`, a filed handoff | `works` | **absent, silent** | `works differently`[^macuserre] |
-| Adding or dropping a pack | `partly`[^packpartly] | **absent, silent**[^acpack] | `works` |
-| Pack launch flags (`--yolo`, `--dangerously-skip-permissions`) | `works` | `works` | `works` |
+| Skills (built-in, pack, your own) | `partly`[^packcontent] | `partly`[^packcontent] | `works differently`[^macuserre] |
+| Briefings (`AGENTS.md`, `CLAUDE.md`), `agents_md_extra`, a filed handoff | `partly`[^packcontent] | **absent, silent** | `works differently`[^macuserre] |
+| Adding, dropping or editing a pack | `absent, warns`[^packpartly] | `absent, warns`[^acpack] | `works` |
+| Pack launch flags (`--yolo`, `--dangerously-skip-permissions`) | `works` — the flags of the packs the jail started with | `works` — the same | `works` |
 | `-p <profile>` / a rotated key in `env_sources` | `works` — live env file | **absent, silent** — and prints as if delivered | `works differently` |
 | `mcp_servers`, `lsp_servers`, `mise_tools`, `blocked_tools` | **absent, silent**[^envhalf] | **absent, silent** | `works` |
 | `resources`, `network`, `ports`, `mounts`, `devices`, `gpu`, `packages`, `host_files` | **absent, silent** | **absent, silent** | `works`[^macuserkeys] |
@@ -465,8 +465,9 @@ Re-running `yolo` in a workspace whose jail is still running does **not** start 
 **To get a fresh jail:** `yolo stop`, then `yolo -- <cmd>`. On Apple Container, `yolo stop` cannot see the jail yet: it prints `No jail running for this workspace` while the jail is running. Find the jail's name with `container ls` and stop it with `container stop <name>`, including whenever yolo suggests `yolo stop` there.
 
 [^macuserre]: Rebuilt on every launch and copied into the sandbox home, so it works — but the copy is **writable**, so the agent can edit its own skills and briefing, and the next launch overwrites those edits. The agent's briefing tells it so.
-[^packpartly]: A newly added pack's config files, skills, briefing, hooks and launchers arrive on a re-entry; its mounts and host services do not. A pack that needs to write somewhere new in the home can make the re-entry fail outright. Dropping a pack works cleanly. Restart the jail to add one.
-[^acpack]: Apple Container gets a copy of the packs at launch, so the agent cannot rewrite them, and that copy is not refreshed on a re-entry. A running jail keeps the packs it started with: their files, skills and hooks.
+[^packcontent]: yolo's built-in skills, `agents_md_extra` and a filed handoff reach a re-entry. A pack's own skills and briefing text come from the packs the jail started with, so an edit to one, your local pack's included, waits for a restart, and the re-entry names the pack that changed.
+[^packpartly]: A running jail keeps the packs it started with, whatever you add, drop or edit: their files, skills, briefing, hooks, launchers and launch flags. The re-entry says which packs differ and that `yolo stop`, then a new launch, picks them up. A `-p` profile only a newly added pack provides is refused until then.
+[^acpack]: Apple Container gets a copy of the packs at launch, so the agent cannot rewrite them. As on podman, a running jail keeps the packs it started with, and a re-entry says which differ. Not yet run on a Mac.
 [^envhalf]: These cross as environment variables on the container command line. An added MCP server does not appear in the agent's list until you stop and relaunch, even though the boot visibly regenerated the MCP config.
 [^olderjail]: A jail keeps the yolo it started with. When a newer yolo re-enters it with a profile whose credentials that jail cannot receive, yolo asks `Restart jail now? [Y/n]` and says how many sessions the restart ends. Without a terminal it stops and tells you to run `yolo stop` first. `YOLO_ALLOW_ATTACH_SKEW=1` re-enters anyway, without delivering the profile.
 [^drift]: After a re-entry, in-jail config readers still see the config the jail was *launched* with, and `yolo config drift` compares against a baseline that may be several edits old — so it reports drift for edits you thought you had applied.
@@ -485,7 +486,7 @@ Every contribution kind is delivered on all four setups — config files and the
 | `profile` — a named `-p` selection | works | works | works — a pack edit needs a restart[^acfreeze] | partly — the vars land, the config surfaces do not[^profmu] |
 | `loophole` — a host service | works | works — the jail-to-Mac connection is tested[^machop] | one starts, none usable[^theone] | all start, none fully usable[^theone] |
 
-On **podman** and **macos-user**, content contributions are re-rendered on any entry, so a host-side edit reaches a jail you re-enter. On **Apple Container** they are a snapshot of the last fresh launch: an edited pack or a fresh `.yolo/handover.md` is composed, announced as delivered, and does not arrive until you restart the jail.[^acfreeze]
+On **macos-user** every launch is fresh, so a pack edit reaches your next command. On **podman** and **Apple Container** a running jail keeps the packs it started with: a pack edit arrives at the next fresh launch, and a re-entry says which packs differ. On Apple Container a fresh `.yolo/handover.md` waits for the restart too.[^acfreeze]
 
 [^capture]: `program` launchers (a name on PATH plus a lazy installer that keeps the tool current) are delivered on all four. What `macos-user`, and Apple Container before 1.1.0, lack is the install-capture store that pre-seeds those installs, so a first use downloads the vendor installer instead — slower, same result.
 [^acfreeze]: Apple Container renders pack surfaces from a per-launch copy of the pack tree rather than a live read-only bind, and the copy is only refreshed by a fresh launch. An edited pack therefore does not arrive until you restart the jail. A `-p <name>` selection and the `env` values it composes do reach a re-entry, since the channel files are rewritten on every entry[^reentry], but they are rendered through that launch's copy of each pack. Restart the jail after any pack edit on this backend.
