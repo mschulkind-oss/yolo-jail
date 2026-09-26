@@ -250,3 +250,23 @@ func TestProfileNameRefusesThePairSeparator(t *testing.T) {
 		t.Fatalf("problem = %q, want the = refusal", problem)
 	}
 }
+
+// `via` is a profile FIELD, lifted out before options are read (OQ-WG6): it lands on
+// UserProfile.Via and never in Options, and a value that cannot name a pack is refused.
+func TestAProfileViaIsAFieldNotAnOption(t *testing.T) {
+	got, problems := checkProfiles(decode(t, `{"pz": {"provider": "zai", "via": "wire-bridge", "model": "glm"}}`))
+	if len(problems) != 0 {
+		t.Fatalf("problems: %v", problems)
+	}
+	p := got["pz"]
+	if p.Via != "wire-bridge" || p.Options["model"] != "glm" {
+		t.Errorf("entry = %+v, want via lifted and model kept", p)
+	}
+	if _, leaked := p.Options["via"]; leaked {
+		t.Errorf("via leaked into options: %v", p.Options)
+	}
+	_, problems = checkProfiles(decode(t, `{"pz": {"provider": "zai", "via": "no/pack"}}`))
+	if !strings.Contains(strings.Join(problems, "\n"), "pz.via: expected a service pack name") {
+		t.Errorf("problems %v, want the via refusal", problems)
+	}
+}

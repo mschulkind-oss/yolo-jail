@@ -26,7 +26,8 @@
         "restart": "on-failure"
       },
       "kind": "service",
-      "name": "wire-bridge"
+      "name": "wire-bridge",
+      "via_address": "http://127.0.0.1:8216"
     }
   ],
   "name": "wire-bridge"

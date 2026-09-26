@@ -49,6 +49,11 @@ type UserProfile struct {
 	// option means is the derive's business, and the only thing core checks is that the
 	// NAME is one the provider declares.
 	Options map[string]string
+
+	// Via is the profile's `via` (OQ-WG6): the service pack that carries its traffic, ""
+	// for the agent's own client. It is a profile FIELD, not an option — the config layer
+	// lifts it out of the entry before the options are read.
+	Via string
 }
 
 // ResolvedProfile is one profile after resolution: the provider it selects and the full
@@ -57,6 +62,49 @@ type UserProfile struct {
 type ResolvedProfile struct {
 	Provider string
 	Options  map[string]string
+	// Via is the service pack this profile's traffic goes through, "" when the agent uses
+	// its own client (OQ-WG6). The user's value wins over the pack-shipped one, the
+	// convention every other field of the table follows.
+	Via string
+	// ViaBase is that service's declared `via_address` (OQ-WG7 (b)), resolved against the
+	// packs of THIS launch, "" when Via is empty or the named pack is not among them — the
+	// host notch is the ordinary "not among them" case: a service is a jail daemon, so
+	// there the agent keeps its own client. A derive never reads this; it reads the
+	// per-agent URL built from it (ViaURLFor).
+	ViaBase string
+}
+
+// ViaURLFor is the per-agent URL a via profile puts its agent on (OQ-WG4/WG7 (d)):
+// <via_address>/agent/<agent>, "" when the profile is not a via profile or its service
+// is not in the launch. One function, so the derive input and the daemon's route table
+// cannot spell the prefix differently.
+func ViaURLFor(r ResolvedProfile, agent string) string {
+	if r.Via == "" || r.ViaBase == "" || agent == "" {
+		return ""
+	}
+	return strings.TrimRight(r.ViaBase, "/") + ViaAgentPrefix(agent)
+}
+
+// ViaAgentPrefix is the path prefix one agent's via route is served under.
+func ViaAgentPrefix(agent string) string { return "/agent/" + agent }
+
+// ViaServiceAddress returns the `via_address` of the service the named pack declares,
+// and whether the pack is among packs at all. "" with true means the pack is present
+// but serves no via route — a launch that selects a profile naming it is refused
+// (ResolveVias).
+func ViaServiceAddress(packs []*Pack, pack string) (string, bool) {
+	for _, p := range packs {
+		if p == nil || p.Name != pack {
+			continue
+		}
+		for _, svc := range p.Decl.Services() {
+			if svc.ViaAddress != "" {
+				return svc.ViaAddress, true
+			}
+		}
+		return "", true
+	}
+	return "", false
 }
 
 // ResolveProfiles returns the resolved table for a launch: every profile name anything
@@ -160,7 +208,15 @@ func ResolveProfiles(packs []*Pack, user map[string]UserProfile,
 			}
 			opts[key] = userProf.Options[key]
 		}
-		out[name] = ResolvedProfile{Provider: provider, Options: opts}
+		via := packProf.Via
+		if fromUser && userProf.Via != "" {
+			via = userProf.Via
+		}
+		viaBase := ""
+		if via != "" {
+			viaBase, _ = ViaServiceAddress(packs, via)
+		}
+		out[name] = ResolvedProfile{Provider: provider, Options: opts, Via: via, ViaBase: viaBase}
 	}
 	if len(problems) > 0 {
 		return nil, fmt.Errorf("profiles: %s", strings.Join(problems, "\nprofiles: "))
@@ -306,6 +362,13 @@ func UndeclaredProfileMessage(name string, declared []string) string {
 		name, have)
 }
 
+// WireViaKey and WireViaBaseKey are ProfilesWireTable's reserved keys for a profile's
+// via pair; LoadProfiles (internal/entrypoint) reads them back into the fields.
+const (
+	WireViaKey     = "_via"
+	WireViaBaseKey = "_via_base"
+)
+
 // ProfilesWireTable renders the resolved table as the object that travels in
 // YOLO_PROFILES: profile name → {provider, <options in sorted order>}. Deterministic by
 // construction — a Go map has no order, and this is an env var the jail parses — so an
@@ -323,6 +386,16 @@ func ProfilesWireTable(resolved map[string]ResolvedProfile) *jsonx.OrderedMap {
 		entry.Set("provider", r.Provider)
 		for _, key := range sortedMapKeys(r.Options) {
 			entry.Set(key, r.Options[key])
+		}
+		// The via pair rides under RESERVED keys, beside the options in one flat object: a
+		// provider option named "via" is legal vocabulary, so the plain spelling could
+		// collide, and an older entrypoint reads an unknown key as one more option, which no
+		// derive asks for (the skew is harmless).
+		if r.Via != "" {
+			entry.Set(WireViaKey, r.Via)
+			if r.ViaBase != "" {
+				entry.Set(WireViaBaseKey, r.ViaBase)
+			}
 		}
 		out.Set(name, entry)
 	}

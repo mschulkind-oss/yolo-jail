@@ -35,7 +35,7 @@ type Contribution struct {
 
 	// --- program (install) / requires (assertion) ---
 	Bin     string   `json:"bin,omitempty"`     // program/requires: the binary name
-	Via     string   `json:"via,omitempty"`     // program: "npm" | "installer"
+	Via     string   `json:"via,omitempty"`     // program: "npm" | "installer"; profile: a service pack name (OQ-WG6)
 	Package string   `json:"package,omitempty"` // program via npm: the npm package
 	URL     string   `json:"url,omitempty"`     // program via installer: the curl-to-shell URL
 	Flags   []string `json:"flags,omitempty"`   // program: extra install flags
@@ -496,6 +496,12 @@ type Contribution struct {
 	// publishes nothing (a pure worker) declares none, and the wire-bridge pack
 	// — whose whole discovery story is the file — declares one.
 	Endpoint string `json:"endpoint,omitempty"`
+	// ViaAddress is the base URL a service serves `via` routes under (OQ-WG7 (b),
+	// docs/design/wire-bridge-gateway.md): a profile whose `via` names this service's pack
+	// puts its agent on `<via_address>/agent/<name>/`. Service-only, loopback http with an
+	// explicit port and no path; a service that declares none serves no via route, and a
+	// profile naming its pack is refused at the launch.
+	ViaAddress string `json:"via_address,omitempty"`
 	// Platforms is WHERE THE THING CAN EXIST AT ALL (the loophole half's same-named
 	// field, same semantics: `<goos>` or `<goos>/<goarch>` entries, absent =
 	// everywhere). Read by TWO kinds, and the field is declared once because it is one
@@ -992,6 +998,10 @@ func OptionDefaultFromValue(v any) (OptionDefault, bool) {
 // modifier gates, not here.
 type ProfileContribution struct {
 	Name string
+	// Via names the SERVICE PACK that carries this profile's agent traffic (OQ-WG6/WG7),
+	// "" for the agent's own client. Selecting the profile adds that pack the way `needs`
+	// does, and the agent's derive is handed the service's per-agent URL (ctx.via_url).
+	Via string
 	// Provider is MANDATORY (§5.2 property 3): the schema refuses a declaration without
 	// one, so a ProfileContribution in memory always carries a selection. It is what the
 	// lowering reads and what ResolveProfiles resolves the option map against.
@@ -1011,7 +1021,7 @@ func (m *Manifest) Profiles() []ProfileContribution {
 		if c.Kind != KindProfile {
 			continue
 		}
-		out = append(out, ProfileContribution{Name: c.Name, Provider: c.Provider})
+		out = append(out, ProfileContribution{Name: c.Name, Provider: c.Provider, Via: c.Via})
 	}
 	return out
 }
@@ -1028,7 +1038,7 @@ func (m *Manifest) ProfileFor(name string) *ProfileContribution {
 		if c.Kind != KindProfile || c.Name != name {
 			continue
 		}
-		return &ProfileContribution{Name: c.Name, Provider: c.Provider}
+		return &ProfileContribution{Name: c.Name, Provider: c.Provider, Via: c.Via}
 	}
 	return nil
 }
@@ -1254,6 +1264,7 @@ type ServiceContribution struct {
 	JailDaemon *ServiceJailDaemon
 	HostDaemon *ServiceHostDaemon
 	Endpoint   string
+	ViaAddress string
 	Platforms  []string
 	Serves     []string
 	Settings   []ServiceSetting
@@ -1276,6 +1287,7 @@ func (m *Manifest) Services() []ServiceContribution {
 			JailDaemon: c.JailDaemon,
 			HostDaemon: c.HostDaemon,
 			Endpoint:   c.Endpoint,
+			ViaAddress: c.ViaAddress,
 			Platforms:  c.Platforms,
 			Serves:     c.Serves,
 			Settings:   c.Settings,
@@ -2326,6 +2338,39 @@ func ValidBinName(name string) bool {
 	return !strings.ContainsAny(name, "/:")
 }
 
+// ValidPackName is the grammar a pack REFERENCE must satisfy where the schema names one
+// (a profile's `via`): a bare name — ValidBinName's refusals, because the name becomes a
+// staging directory — and no "=", the profile-selector separator (validateNeeds refuses
+// it on `needs` for the same reason).
+func ValidPackName(name string) bool {
+	return ValidBinName(name) && !strings.Contains(name, "=")
+}
+
+// ViaAddressProblem returns why a service's `via_address` cannot serve via routes, or "".
+// Loopback http with an explicit port and nothing after it: the daemon BINDS this address
+// (so it must be this jail's loopback, as an adapter's is), and every via route hangs off
+// it as /agent/<name>/ (so a path of its own would be a second prefix nothing composes).
+func ViaAddressProblem(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return "is not a URL: " + err.Error()
+	}
+	if u.Scheme != "http" {
+		return "must be http:// — the bridge serves the jail's loopback in the clear, as an adapter does"
+	}
+	host := u.Hostname()
+	if host != "127.0.0.1" && host != "localhost" && host != "::1" {
+		return "must name the jail's loopback (127.0.0.1, localhost or ::1) — the service binds it"
+	}
+	if u.Port() == "" {
+		return "must carry an explicit port — the service binds it, and a default port is a guess"
+	}
+	if (u.Path != "" && u.Path != "/") || u.RawQuery != "" || u.Fragment != "" || u.User != nil {
+		return "must be a bare scheme://host:port — every via route hangs off it as /agent/<name>/"
+	}
+	return ""
+}
+
 // binProblem appends the bare-program-name refusal for a bin field. Split from
 // validateContribution's kind switch because FOUR fields route through it (program,
 // requires, launch, autonomy launch) and their messages must not drift.
@@ -2428,6 +2473,16 @@ func validateContribution(label string, c Contribution) []string {
 				"%s: kind %q does not take %q — a protocol pair and the address that serves it "+
 					"are the \"adapter\" kind's whole body; no consumer reads either on this kind",
 				label, c.Kind, f.name))
+		}
+	}
+	// `via_address` is the service kind's own (OQ-WG7): on any other kind no daemon binds it.
+	if c.ViaAddress != "" {
+		if c.Kind != KindService {
+			problems = append(problems, fmt.Sprintf(
+				"%s: kind %q does not take \"via_address\" — it is the address a SERVICE serves "+
+					"via routes under; no consumer reads it on this kind", label, c.Kind))
+		} else if why := ViaAddressProblem(c.ViaAddress); why != "" {
+			problems = append(problems, fmt.Sprintf("%s: via_address %q %s", label, c.ViaAddress, why))
 		}
 	}
 	// `path` and `add` are the config-list kind's whole body, refused elsewhere in
@@ -2751,6 +2806,12 @@ func validateContribution(label string, c Contribution) []string {
 		req("provider", c.Provider)
 		// A name containing "=" is unspellable on the launch flags: -p/--profile
 		// dispatch their value grammar on it (bare name vs cli=name).
+		if c.Via != "" && !ValidPackName(c.Via) {
+			problems = append(problems, fmt.Sprintf("%s: kind \"profile\" via %q is not a pack "+
+				"name — via names the service pack that carries this profile's traffic "+
+				"(e.g. \"wire-bridge\"), and it is resolved against the embedded official packs "+
+				"at launch", label, c.Via))
+		}
 		if strings.Contains(c.Name, "=") {
 			problems = append(problems, label+": kind \"profile\" name "+strconv.Quote(c.Name)+
 				" must not contain '=' — the -p/--profile value grammar dispatches on it "+

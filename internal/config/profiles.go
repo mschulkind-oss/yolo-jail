@@ -30,6 +30,7 @@ import (
 	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
@@ -132,8 +133,22 @@ func checkProfileEntry(name string, raw any) (packload.UserProfile, string) {
 			`selection over a provider, and an empty one names nothing`
 	}
 	options := map[string]string{}
+	via := ""
 	for _, key := range m.Keys() {
 		if key == "provider" {
+			continue
+		}
+		if key == "via" {
+			// `via` is a profile FIELD, not a provider option (OQ-WG6): it names the service
+			// pack that carries this profile's traffic instead of the agent's own client.
+			v, _ := m.Get(key)
+			s, isStr := asStr(v)
+			if !isStr || !packdecl.ValidPackName(s) {
+				return packload.UserProfile{}, fmt.Sprintf("%s.via: expected a service pack "+
+					"name such as \"wire-bridge\" — via names the pack whose service carries "+
+					"this profile's traffic", path)
+			}
+			via = s
 			continue
 		}
 		v, _ := m.Get(key)
@@ -145,7 +160,7 @@ func checkProfileEntry(name string, raw any) (packload.UserProfile, string) {
 		}
 		options[key] = s
 	}
-	return packload.UserProfile{Provider: provider, Options: options}, ""
+	return packload.UserProfile{Provider: provider, Options: options, Via: via}, ""
 }
 
 // validateProfiles reports `profiles` problems, and it is the reason a malformed entry
