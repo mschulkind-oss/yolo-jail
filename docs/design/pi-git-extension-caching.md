@@ -1,7 +1,7 @@
 ---
 title: "Sharing pi git extensions across jails: immutable per-commit trees, never one shared checkout"
 date: 2026-09-25
-status: in-review
+status: accepted
 tags: [pi, extensions, git, caching, machine-tier, storage, isolation]
 summary: "pi's git extensions cost every new jail a clone and a dependency build. The first build shared one mutable checkout per repository across jails, which let one jail's pin or update change the files another jail was running; the maintainer's rulings of 2026-09-25 withdraw it. The redesign shares content, never state: a machine store of bare mirrors and one immutable tree per resolved commit, each jail pointing at the commit its own config resolves to, pi loading each tree as a local package so it never clones or updates one itself. A launch waits for the tree it needs and never boots on another launch's leftovers. One question is open: whether the npm store gets the same treatment now."
 vantage:
@@ -10,7 +10,7 @@ vantage:
 
 # Sharing pi git extensions across jails: immutable per-commit trees, never one shared checkout
 
-**Status:** DESIGN, 2026-09-25 — **redesigned after review the same day.** The redesign is not
+**Status:** DECIDED, 2026-09-26 — **redesigned after review on 2026-09-25**, and [OQ-5](#OQ-5) ruled on 2026-09-26 (npm gets the same design, git first). The redesign is not
 built. What `c402dd43` built from the first draft is half withdrawn: its `.pi-shared-git` shared
 checkout is REVERTED, with the boot step that removes the link it left BUILT
 ([§3.10](#310-migration-from-what-c402dd43-shipped)), and its `due_on_change` refresh trigger
@@ -39,7 +39,7 @@ git extensions again, as it did before `c402dd43`.
 
 **Start at [§3](#3-the-design--share-content-never-state)**, the store and how a jail reaches it.
 
-**Needs your ruling:** [OQ-5](#OQ-5), whether the npm store gets the same treatment now.
+**Needs your ruling:** none. [OQ-5](#OQ-5) is ruled: the npm store gets the same immutable-tree design, built after git in the same build.
 
 **Reads with:**
 - [`pack-pi-resources.md`](pack-pi-resources.md): pack-shipped trees registered as local pi
@@ -370,7 +370,7 @@ unlocked. It is independent of the store's shape, so it stays either way.
 
 ## 6. Open question
 
-1. 💬 <a id="OQ-5"></a>**[OQ-5](#OQ-5): does the npm store move to the same shape now?**
+1. ✅ <a id="OQ-5"></a>**[OQ-5](#OQ-5): does the npm store move to the same shape now?**
    [§3.11](#311-the-npm-store): `.pi-shared-npm` breaks [OQ-3](#OQ-3) and [OQ-4](#OQ-4) in the same
    way the git store did, and it is live today. The earlier ruling that shared it
    ([`pi-extension-lifecycle.md` OQ-1](pi-extension-lifecycle.md#OQ-1), *"one version instead of N that
@@ -385,10 +385,11 @@ unlocked. It is independent of the store's shape, so it stays either way.
    exactly as they do to git, and a second mechanism for the same property is the drift this repo
    keeps paying for.
 
-   <!-- vantage: oq id=OQ-5 leaning="(a): extend the immutable-tree design to npm entries now, sequenced git first then npm in one build. The rulings apply to npm exactly as to git, and two mechanisms for one property is drift." -->
 
    **Answer:**
-   > _(empty — fill in when decided)_
+   > **(a)**, ruled in review 2026-09-26: extend the immutable-tree design to npm entries now,
+   > sequenced git first then npm in one build. The rulings apply to npm exactly as to git, and
+   > two mechanisms for one property is drift. Unbuilt.
 
 ## 7. Decision Ledger
 
@@ -406,3 +407,4 @@ unlocked. It is independent of the store's shape, so it stays either way.
 | PG-D6 | *Implementation decision.* Garbage collection by last use, 14 days, only through `yolo prune --apply` | 2026-09-25 | [§3.8](#38-garbage-collection) | — |
 | PG-D7 | *Implementation decision.* Revert `c402dd43`'s shared hook; remove the dangling `~/.pi/agent/git` link; keep `due_on_change`; no seeding from the retired store | 2026-09-25 | [§3.10](#310-migration-from-what-c402dd43-shipped) | — |
 | PG-D8 | *Implementation decision.* The dangling link is removed by a new generic hook, `unshare_directory` (`from`, `at`), which pi declares in place of its retired shared pair: it replaces exactly the link `linkIntoSharedDir` wrote (matched by its relative target, never followed) with an empty directory, and touches nothing else. A hook rather than a boot rule keyed on "no current hook claims it", because only the pack knows which link it once made | 2026-09-25 | [§3.10](#310-migration-from-what-c402dd43-shipped) | yes, 2026-09-25 |
+| OQ-5 | **The npm store gets the immutable-tree design too**, built after git in the same build; two mechanisms for one property is drift | 2026-09-26 | [OQ-5](#OQ-5) | — |
