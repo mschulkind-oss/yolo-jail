@@ -24,9 +24,10 @@
 //
 // Everything in this file is exercised by unit tests against real files in a temp dir on the
 // machine running them: the scan, the text/binary classification, and the relocatable decision
-// are MEASURED. What is NOT measured anywhere is the macOS side that makes them necessary — no
-// Seatbelt profile has been loaded by a kernel, and this backend's installer pipeline is itself
-// unverified on hardware (docs/reference/macos-user-nix-and-features.md). See seatbeltcapture.go.
+// are MEASURED. The macOS side that makes them necessary has run once: the recording half on
+// hardware on 2026-09-11, under capture's own Seatbelt profile (install-capture.md slice 6, the
+// M4 measurement). That run did not record whether its manifest came out relocatable, so what
+// this scan finds in a real vendor install is NOT MEASURED. See seatbeltcapture.go.
 package capture
 
 import (

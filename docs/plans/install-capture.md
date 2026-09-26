@@ -5,18 +5,25 @@
 Written against `839d0745`, 2026-09-03.
 
 **Status:** DECIDED, 2026-09-26 — **owed: slice 6's hand-off
-[H2](#hand-offs--what-is-not-wired-and-the-exact-line-that-wires-it), the relocation rewrite**, so
-nothing on `macos-user` materializes a capture. Slices 1–5 and 7 are built and were measured in a
-nested jail on 2026-09-04; slice 6 built its recording half only (re-checked against the tree
-2026-09-24). One confirmation of uid mapping on a real rootless host is still unrecorded
+[H4](#hand-offs--what-is-not-wired-and-the-exact-line-that-wires-it), a capture store a
+`macos-user` launch can read**, so no launch on that backend materializes a capture yet. H4 needs a
+ruling before it is built: every way to wire it changes what that backend's sandbox may read.
+Hand-off H2, the relocation rewrite, **landed 2026-09-26** and is measured on Linux only, against
+temp dirs standing in for the two macOS homes. Slices 1–5 and 7 are built and were measured in a
+nested jail on 2026-09-04; slice 6 built its recording half and, with H2, its rewrite. One
+confirmation of uid mapping on a real rootless host is still unrecorded
 ([Verification](#verification-honestly)). The sequencing below was
 reversed by [OQ-CP1](../reference/agent-cli-copies.md#oq-cp1). On `macos-user`, hand-off H1 (wiring
 `yolo capture` to that backend) landed 2026-09-04 and the recording half was measured on hardware
 2026-09-11. The confinement denial probe (slice 6's hardware item 3) has no recorded run. H3 is a
-stated non-default, not a gap. **This is not a graduation candidate until H2 lands or is retired.**
-Owed work is `DECIDED` in this tree's status vocabulary, and live designs cite H2 here
-([`provisioner-sets.md`](../design/provisioner-sets.md),
-[`OQ-WP11`](../design/workspace-path-mirroring.md#OQ-WP11)).
+stated non-default, not a gap. **This is not a graduation candidate until H4 lands or is retired.**
+The word stays `DECIDED` although H4 wants a ruling, because H4's question is about the
+`macos-user` sandbox's read set (the session Seatbelt profile), not one of this design's rulings;
+it is named here so that judgement can be checked
+([the tie-breaker](README.md#the-vocabulary--seven-words-and-the-word-names-what-is-owed)).
+Live designs cite this plan's relocation
+work: [`provisioner-sets.md`](../design/provisioner-sets.md) for the guest's materialize half, and
+[`OQ-WP11`](../design/workspace-path-mirroring.md#OQ-WP11) for relocation itself.
 
 **Precedence:** the design wins on behavior; the tree wins on fact; this file is advice and is
 the first thing to be wrong. Never twist code to match it — correct it in the commit.
@@ -69,6 +76,7 @@ wrong one to sequence on.
 | `internal/macosuser/capture.go` | **new** (slice 6) — the capture plan, its invariants, and the executor over the existing `Deps` seams |
 | `internal/macosuser/runplan.go`, `macosuser.go` | slice 6 lifted `buildBootstrapEnv` (home is now a parameter) and `sandboxEnvPairs` out; no behavior change |
 | `internal/capture/relocate.go` | **new** (slice 6) — the file-content reference scan and the relocatable verdict |
+| `internal/capture/rewrite.go` | **new** (slice 6, hand-off H2) — the relocation rewrite: the pre-write checks and the rewrite plan (`planRelocation`), the symlink-target rewrite, and the streamed file-content substitution. `materialize.go` calls it where it used to refuse |
 | [`../reference/storage-and-config.md`](../reference/storage-and-config.md) | [§2](../reference/storage-and-config.md#machine-wide-storage)'s `<gs>` table (line 112) — already missing 9 dirs; add `captures/` |
 | `docs/design/program-delivery.md` | [§10](../design/program-delivery.md#10-what-i-would-build-in-order)'s capture step (was six, now seven — [OQ-CP1](../reference/agent-cli-copies.md#oq-cp1)) → SHIPPED, per slice; [§6.3](../design/program-delivery.md#63-installers-that-just-do-whatever-capture-the-install-then-treat-the-capture-as-the-package)'s *materialize* verb amended by slice 4 (reflink, not hardlink) |
 
@@ -378,6 +386,8 @@ wrong one to sequence on.
    destination REFUSES, printing `notRelocatable` when the entry says so and naming the unbuilt
    rewrite when it does not. The rewrite itself is slice 6's hand-off H2 and is deliberately NOT
    built here; the refusal is what keeps a not-yet-built rewrite from being skipped silently.
+   ⚠ *Superseded 2026-09-26: H2 landed, so all three clauses are implemented and the "unbuilt
+   rewrite" refusal no longer exists. See H2 under slice 6.*
 
    **(h) ONE LINE IS PINNED ONLY BY THE INTEGRATION TEST, and it is stated rather than left as a
    gap.** `run.go`'s `capturesDir: o.CapturesDir()` sits on the CONTAINER arm of `Run`, and every
@@ -500,7 +510,8 @@ wrong one to sequence on.
    files `Admit` froze read-only — is still removable, which is exactly what `store.go`'s "directories
    keep their write bit, because GC has to be able to unlink the entry" promises.
 
-6. **`macos-user`. — LANDED 2026-09-04, RECORDING HALF ONLY.** `SeatbeltCaptureProfile`:
+6. **`macos-user`. — RECORDING HALF LANDED 2026-09-04; THE REWRITE (hand-off H2) LANDED
+   2026-09-26; no launch there materializes yet (hand-off H4).** `SeatbeltCaptureProfile`:
    `deny file-write* /` then allow only the staging dir + `/tmp` + `/var/folders` — the shared
    `/Users/_yolojail` home denied for the duration. Same inner driver, `HOME=<staging>`. Adds
    **relocation**: the manifest records every absolute reference to the staging prefix (symlink
@@ -609,12 +620,148 @@ wrong one to sequence on.
    mechanism ahead of its wiring has precedent in this package: `EndpointGrantCommands` has done
    exactly this since 2026-08.
 
-   **H2. The REWRITE is not built.** `relocatable:true` entries carry a complete `absoluteRefs`
-   list and nothing consumes it. Materialize into `/Users/_yolojail` from a capture whose
-   `Manifest.Home` is `/Users/Shared/yolo-captures/<bin>/home` must apply the contract in (d) — the
-   symlink refs by re-creating the link with a rewritten target, the file-content refs by
-   substituting the prefix through the file's bytes — or refuse. Until it does, a macos-user
-   capture is a recorded artifact nobody materializes.
+   **H2. The REWRITE. — ✅ LANDED 2026-09-26**, in
+   `internal/capture/rewrite.go`, called by `capture.Materialize` at the point where it used to
+   refuse. Measured on Linux only: see (i) below. As it stood before:
+
+   > `relocatable:true` entries carry a complete `absoluteRefs` list and nothing consumes it.
+   > Materialize into `/Users/_yolojail` from a capture whose `Manifest.Home` is
+   > `/Users/Shared/yolo-captures/<bin>/home` must apply the contract in (d) — the symlink refs by
+   > re-creating the link with a rewritten target, the file-content refs by substituting the
+   > prefix through the file's bytes — or refuse. Until it does, a macos-user capture is a
+   > recorded artifact nobody materializes.
+
+   The last sentence is still true, for a different reason: see H4. *Implementation decisions,
+   and what building it found:*
+
+   **(a) Every refusal happens before the home is written.** `planRelocation` checks the whole
+   manifest first and collects every reason rather than stopping at the first, the way
+   `notRelocatable` is a list. Each refusal wraps `ErrNotRelocatable`, so the launcher's fallback
+   is the one it always had. The refusals:
+
+   - the record says no (clause two, unchanged);
+   - `relocatable:true` over a symlink-only `refScan`, which the record never writes and which
+     therefore means the manifest disagrees with itself;
+   - a reference naming a path the capture does not hold, an entry of the wrong kind, a symlink
+     value that is not the link's recorded target, or a file-content prefix that is not
+     `Manifest.Home`;
+   - a file-content reference inside a file that sniffs binary. This is the recording half's own
+     test (a NUL in the first 8000 bytes), re-applied to the bytes being materialized: the
+     manifest is the entry's claim, and the tree is the fact;
+   - a reference kind this yolo does not know how to rewrite;
+   - an absolute link into the capture home that no reference lists. For symlinks the list's
+     completeness is checkable from the manifest alone. For file contents it is not, without
+     re-reading the whole tree, which is the scan's job and was done at record time.
+
+   **(b) A symlink is created with the rewritten target.** The target is CLEANED before the prefix
+   is swapped, the same way the record compared it (`underPrefix`). A recorded
+   `<home>/.local/../x` was written against a flat staging home, while the destination reaches
+   `.local` through a link into the workspace sidecar, and darwin resolves `..` physically
+   ([M5](runbooks/mac-provisioner-measurements.md#m5--does-seatbelt-resolve--through-a-symlinked-directory)).
+   The verbatim suffix would land somewhere else.
+
+   **(c) A file is rewritten into a NEW inode, never through a placed one.** The store's bytes are
+   streamed through the substitution into a temp file beside the destination, and the temp file is
+   renamed into place. On the hardlink arm a placed file IS the store's inode, so an in-place edit
+   would rewrite the entry every other workspace materializes from. A rewritten file cannot take
+   the reflink/hardlink/copy chain either, because its bytes differ from the store's.
+   `MaterializeResult.Rewritten` counts these files apart from the chain's three arms, so the loud
+   copy report stays a report about the chain.
+
+   **(d) The substitution is plain bytes, every occurrence, and deliberately NOT path-aware.** It is
+   a streamed `bytes.ReplaceAll`: non-overlapping, left to right. The recording scan is
+   `bytes.Contains` of the same needle, so the rewrite changes exactly the occurrences the record
+   counted. The price is that a capture-home string followed by more name characters
+   (`<home>2/…`) is rewritten too. On macos-user the capture home is
+   `/Users/Shared/yolo-captures/<bin>/home`, which nothing outside the staging tree extends. This
+   is stated here rather than guarded against.
+
+   **(e) There is no length check.** Slice 6(e) put "length checking against a specific
+   destination" on the rewrite. That clause is about binaries, where Homebrew pads the prefix
+   instead of editing it. Every reference inside a binary refuses (a), so a length check would
+   have nothing to guard: a text file's length is free to change. If a padding rewrite for
+   binaries is ever built, the length check belongs to it.
+
+   **(f) A partial write never lands at a destination path.** A failed rewrite of one file leaves
+   the previous file at its path and no temp file behind. A failure partway through a materialize
+   still leaves the entries already placed: materialize is not transactional, for the reason its
+   file comment gives. The recovery is unchanged, because the launcher falls through to the vendor
+   installer. Since every refusal is pre-write, only I/O can fail partway.
+
+   **(g) The macos-user destination is a home of LINKS, and materialize chmodded through them.**
+   Found by the test, not by reading. That backend's account home reaches `.local`,
+   `.npm-global` and `go` through symlinks into `<ws>/.yolo/home`
+   ([`macos-user-home-tiers.md`](../reference/macos-user-home-tiers.md#the-layout-what-is-a-symlink-what-is-a-mirror)).
+   `dirExists` used `Lstat`, so the manifest's `.local` directory read as absent and the `Chmod`
+   that follows went through the link into the sidecar. That is an edit to a directory
+   materialize was only asked to add to. Where the sandbox user does not own the sidecar
+   directory, the chmod fails with EPERM and fails the whole materialize; who owns it on a Mac is
+   NOT MEASURED. The fix: a symlink that resolves to a directory is an existing
+   directory.
+
+   **(h) No schema change.** No manifest field and no receipt field were added, so the Blockers
+   line below is not crossed. The in-memory `MaterializeResult` gained `Rewritten`,
+   `RewrittenLinks` and `RelocatedFrom`. `capture-materialize` prints one extra line when it
+   relocated, naming the capture home and what it rewrote.
+
+   **(i) What is measured, and what is not.** MEASURED on Linux, by `internal/capture/rewrite_test.go`
+   and `internal/cli/capturerelocate_test.go`: a capture recorded by the real
+   `capture-run --scan-content-refs` under one temp home, admitted by the real store, the capture
+   home deleted, then materialized by `capture-materialize` into another temp home. After that the
+   vendor program runs from the new home through both its rewritten link and its rewritten shim.
+   The refusals, the hardlink-arm store check, the failed-write case and the linked-home case each
+   have a test. Sixteen mutations of the production path were each confirmed to turn a test red,
+   three of them in both packages. Among them: reverting the call site to the old refusal,
+   ignoring either rewrite kind, writing through the placed file, rewriting in place without the
+   temp file, dropping the binary sniff or the completeness check, deleting the relocation line
+   `capture-materialize` prints, and `dirExists` back on `Lstat`.
+
+   NOT MEASURED: **no Mac has run any of it.** The two Linux temp dirs stand in for
+   `/Users/Shared/yolo-captures/<bin>/home` and `/Users/_yolojail`. Also unmeasured on darwin:
+   whether `link(2)` from a store owned by the invoking user into the sandbox user's sidecar
+   succeeds, since darwin has no reflink wired (`clone_other.go`) and so takes the hardlink or
+   copy arm.
+
+   **H4. No `macos-user` launch can reach the store. — OPEN, needs a ruling.** Found while landing
+   H2. The generated launcher materializes only when a store path was baked into it
+   (`_try_materialize` opens with `[ -n "$CAPTURES_DIR" ] || return 1`). On the container backends
+   `capturesArgs` emits `YOLO_CAPTURES_DIR` beside a `:ro` bind of the store. macos-user's
+   `buildBootstrapEnv` emits nothing, so every launcher there bakes an empty value and never calls
+   `capture-materialize`. H2 is therefore reachable on that backend only by running the subcommand
+   by hand.
+
+   Emitting the variable is not the whole fix. READ FROM CODE: the store is `paths.CapturesDir()`,
+   under the invoking user's home, and the session Seatbelt profile
+   (`macosuser.SeatbeltProfile`) denies reads under `/Users` except the workspace, its ancestors
+   as literals, and the sandbox home. A sandbox told where the store is still could not read an
+   entry. Every way through changes what that backend's sandbox may read, which is why this is a
+   ruling and not an implementation choice:
+
+   - **(a) Allow reads of `<CapturesDir>/entries` in the session profile**, plus whatever DAC
+     grant the path needs. It is the smallest change. It puts a subtree of the invoking user's
+     state dir inside the sandbox's read set, which is the thing the `/Users` deny exists to
+     prevent.
+   - **(b) Give this backend a machine store on neutral ground outside every home**, for example
+     root-owned under `/var/yolo-jail`. The packs and the context tree already stage there, and
+     reads there under the session profile were MEASURED to work on 2026-09-13
+     (`macosuser.StagedCtxRoot`'s comment). The host act would admit there with sudo, and each
+     place that locates the machine store today would have to learn a second root:
+     `captureHost`'s admit, the auto-capture miss check, and `yolo prune`'s capture section.
+   - **(c) Retire the macos-user materialize half** and keep its captures as records only. H2
+     would then serve no backend on hardware.
+
+   No leaning. The facts that decide between (a) and (b) have not been measured on a Mac: what
+   DAC lets `_yolojail` reach under `~/.local/share/yolo-jail`, and whether a hardlink from a store
+   owned by another uid succeeds. One more fact decides whether H4 is worth building at all:
+   [M4](runbooks/mac-provisioner-measurements.md#m4--does-the-capture-recording-half-work-on-hardware)
+   admitted a real claude capture and did not record whether its manifest came out
+   `relocatable:true`. If claude's binary embeds the staging home, that entry is not relocatable,
+   H2 refuses it, and H4 buys nothing for claude. `cat` the entry's `capture-manifest.json` on
+   that Mac first. Once ruled, the wiring is `buildBootstrapEnv` setting
+   `entrypoint.CapturesDirEnv` to the path the sandbox reads. The launcher already bakes it and
+   already passes `--home="$HOME"`, so H2 relocates from the staging home to `/Users/_yolojail`
+   with no further change. Slice 7(a)'s container-only placement of auto-capture should be
+   revisited at the same time.
 
    **H3. A capture does not materialize `packages:`.** `CaptureOptions.Darwin` exists and the
    caller passes nil, so an installer needing a `packages:`-declared tool fails inside the capture
@@ -646,6 +793,12 @@ wrong one to sequence on.
    4. Whether `getpwuid`-based home resolution (as opposed to `$HOME`) trips the `/Users` read deny
       for a vendor installer's shell — the one failure mode designed around rather than observed.
    5. Whether the `EXDEV` refusal in (b) ever fires in practice.
+   6. *Added 2026-09-26 with H2, and runnable only once H4 is ruled and wired:* a launch
+      materializes the entry from item 2 into `/Users/_yolojail`. Check that
+      `capture-materialize` prints its relocation line naming
+      `/Users/Shared/yolo-captures/claude/home`, that `~/.local/bin/claude` links under
+      `/Users/_yolojail`, that `claude --version` runs, and which arm placed the files (the line
+      names it; `hardlink` or `copy` on darwin, since no reflink is wired there).
 
 7. **Auto-capture on first launch, DEFAULT ON. — LANDED 2026-09-04.** Ruled 2026-09-04 as
    [OQ-PD18](../design/program-delivery.md#decision-ledger) — *"I want (d) default on."* Until this
@@ -707,6 +860,8 @@ wrong one to sequence on.
    slice 6's hand-off H2 (the relocation rewrite) means it would refuse to materialize anyway. So
    the call site sits BELOW the macos-user return in `Run`, which makes the exclusion structural
    rather than a guard, and `yolo capture` stays available there as an explicit act.
+   ⚠ *Since 2026-09-26 only the first reason holds: H2 landed, so a relocatable entry
+   materializes into another home. The empty `CAPTURES_DIR` is hand-off H4.*
 
    **(b) The lock is captureHost's, and taking it again would have been self-contention.** The Map
    specifies `tryFlockAt`; `captureHost` already calls it, with exactly the disposition slice 7 asks
@@ -790,9 +945,10 @@ wrong one to sequence on.
   launchers and capture's recording half both ran on 2026-09-11 (M1 and
   [M4](runbooks/mac-provisioner-measurements.md#m4--does-the-capture-recording-half-work-on-hardware));
   whether Seatbelt *denies* the shared home during a capture is still unrecorded (slice 6's item 3).
-  ⚠ *This line said "the relocation rewrite". There is no rewrite: slice 6 built the record and
-  handed the rewrite on (slice 6 hand-off H2). Nothing in the tree substitutes a prefix.* The
-  hardware checklist that would close the gap is in slice 6's own section.
+  ⚠ *This line once said "the relocation rewrite" when there was none. Since 2026-09-26 there is
+  one (hand-off H2), MEASURED on Linux against temp dirs standing in for the two macOS homes, and
+  run by no Mac: no launch on that backend reaches it until H4.* The hardware checklist that would
+  close the gap is in slice 6's own section.
 
 ## Ships with
 
@@ -803,7 +959,11 @@ wrong one to sequence on.
   *Slice 6 shipped the record side of the last two:* an absolute symlink AND a file-content
   reference recorded with `relocatable:true`; a reference inside a non-text file recorded with
   `relocatable:false` naming the file; no scan → `relocatable:false` naming the scan; a
-  pre-fields manifest reading back `false`. The REWRITE and its refusal are still owed (H2).
+  pre-fields manifest reading back `false`. *H2 shipped the rewrite side on 2026-09-26*
+  (`internal/capture/rewrite_test.go`): an absolute symlink and a file-content reference
+  rewritten into another home, with the program run from there; every pre-write refusal; the
+  store left untouched on the hardlink arm; a failed write leaving the previous file; a home
+  whose `.local` is a link.
 - **Integration:** `integration/capture_test.go` — capture once, materialize into **two** workspaces,
   assert the second performs no download and that the two files share an inode. That is the test that
   catches a regression to per-workspace refetch; no unit test can.
@@ -871,5 +1031,6 @@ wrong one to sequence on.
   new `absoluteRefs[].kind` value, and NO new per-entry field — deliberately, against this line.
   All four are additive, all default to the fail-safe reading, and `ManifestSchema` stays 1
   because an older reader that ignores them materializes only into the home the capture names,
-  which is what it did before they existed.*
+  which is what it did before they existed.* *H2, the rewrite that reads them, added no field to
+  the manifest or the receipt (slice 6, H2 (h)).*
 - No open questions in the design: [§6.3](../design/program-delivery.md#63-installers-that-just-do-whatever-capture-the-install-then-treat-the-capture-as-the-package) is ruled, and the Open Questions section reads *"None open."*

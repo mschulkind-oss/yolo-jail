@@ -248,8 +248,9 @@ $ YOLO_RUNTIME=macos-user yolo capture claude
 
 **Expect:** a staged install under `/Users/Shared/yolo-captures/claude/home` and a manifest. ⚠
 **Do not expect materialize to work** — it cannot, and that is by design until
-[`../install-capture.md`](../install-capture.md) hand-off H2 lands
-(`internal/cli/run/autocapture.go`). This measures the half that exists, and it is the
+[`../install-capture.md`](../install-capture.md#hand-offs--what-is-not-wired-and-the-exact-line-that-wires-it)
+hand-off H4 lands (`internal/cli/run/autocapture.go`). This line named H2, the relocation rewrite,
+until that landed on 2026-09-26. This measures the half that exists, and it is the
 first run of capture's **own Seatbelt profile**, which is the narrow thing
 [the stale-comment note above](#what-the-mac-runbook-already-settled-and-one-stale-comment) says
 has never been kernel-loaded.
@@ -305,7 +306,7 @@ answer.**
 ## Deliberately not asked
 
 The runbook's four checks (passed 2026-09-10). Capture's
-*materialize* half (H2-gated, so a failure would prove nothing). And *"which of the image's 36
+*materialize* half (H2-gated then, H4-gated since 2026-09-26, so a failure would prove nothing). And *"which of the image's 36
 core packages have native darwin builds"* for
 [`OQ-P1`](../../reference/macos-user-provisioning.md#why-it-is-this-way) — that
 is a per-attr `nix eval`, which is platform-independent and runs faster from a Linux jail than

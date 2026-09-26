@@ -197,11 +197,15 @@ rather than an implementation detail:
 
 - **Relocation's recording half exists and its necessity is unmeasured.** The scan, the
   text/binary classification and the relocatable decision are unit-tested against real files.
-  What has never run is a capture on the backend that needs them. The `macos-user` CI job now
-  loads the *session* Seatbelt profile under `sandbox-exec` and asserts the kernel's refusals,
-  but no capture has run under the capture profile (`macosuser.SeatbeltCaptureProfile`) and no
-  relocating materialize has run anywhere. ([`relocate.go`](../../internal/capture/relocate.go)'s
-  header still says no Seatbelt profile has been loaded by a kernel, which predates that job.)
+  The `macos-user` CI job loads the *session* Seatbelt profile under `sandbox-exec` and asserts
+  the kernel's refusals. One capture has run on the backend that needs them, on hardware on
+  2026-09-11 under the capture profile (`macosuser.SeatbeltCaptureProfile`,
+  [M4](../plans/runbooks/mac-provisioner-measurements.md#m4--does-the-capture-recording-half-work-on-hardware)),
+  and it did not record whether its manifest came out relocatable. The relocating materialize
+  ([`install-capture.md`](../plans/install-capture.md#hand-offs--what-is-not-wired-and-the-exact-line-that-wires-it)
+  hand-off H2) landed 2026-09-26 and has run only in Linux unit tests; no Mac has run it. ⚠ This
+  bullet said no capture had run under the capture profile and no relocating materialize had run
+  anywhere.
 - **A source build embeds more than an installer does.** An installer writes scripts and
   symlinks. A compiler writes `RUNPATH`s, interpreter lines, embedded prefixes and debug paths
   — some in binaries, where a textual rewrite is not available.
