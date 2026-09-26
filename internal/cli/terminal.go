@@ -30,6 +30,12 @@ func projectName() string {
 // border) and returns a restore func (or nil). Detection priority mirrors
 // main(): KITTY_PID (and not TMUX) -> kitty; else tmux. YOLO_NO_TMUX=1 skips
 // tmux. Only call this when NOT delegating (see the package doc).
+//
+// ITS RED HONORS NO_COLOR (https://no-color.org). The indicator is drawn by kitty or
+// tmux rather than written as ANSI, but the red tab and border are color yolo adds, so
+// they take the gate's NO_COLOR half (tty.NoColor, over this process's environment):
+// with it set, the tab keeps its "🔒 JAIL <project>" title and the pane its border
+// line and text, and neither turns red. The words carry the signal; the red repeats it.
 func SetupJailIndicator() func() {
 	if os.Getenv("KITTY_PID") != "" && os.Getenv("TMUX") == "" {
 		return kittySetupJailTab()
@@ -49,11 +55,16 @@ var tmuxCmd = func(args ...string) ([]byte, error) {
 	return exec.Command("tmux", args...).Output()
 }
 
+// kittenCmd is the ONE exec seam for every `kitten @` call this file makes, for the
+// reason tmuxCmd is: a test drives the real kittySetupJailTab and asserts on exactly
+// what reaches kitty.
+var kittenCmd = func(args ...string) ([]byte, error) {
+	return exec.Command("kitten", append([]string{"@"}, args...)...).Output()
+}
+
+// kittenRun is a kitten call whose outcome nothing reads.
 func kittenRun(args ...string) {
-	cmd := exec.Command("kitten", append([]string{"@"}, args...)...)
-	cmd.Stdout = nil
-	cmd.Stderr = nil
-	_ = cmd.Run()
+	_, _ = kittenCmd(args...)
 }
 
 func kittySetupJailTab() func() {
@@ -68,17 +79,20 @@ func kittySetupJailTab() func() {
 	}
 
 	oldTitle := ""
-	if out, err := exec.Command("kitten", "@", "get-tab-title", "--match", matchArg).Output(); err == nil {
+	if out, err := kittenCmd("get-tab-title", "--match", matchArg); err == nil {
 		oldTitle = strings.TrimSpace(string(out))
 	}
 
-	set := exec.Command("kitten", "@", "set-tab-title", "--match", matchArg, "🔒 JAIL "+project)
-	set.Stdout, set.Stderr = nil, nil
-	if err := set.Run(); err != nil {
+	if _, err := kittenCmd("set-tab-title", "--match", matchArg, "🔒 JAIL "+project); err != nil {
 		return nil
 	}
-	kittenRun("set-tab-color", "--match", matchArg,
-		"active_bg=#cc0000", "active_fg=#ffffff", "inactive_bg=#880000", "inactive_fg=#cccccc")
+	// The restore resets only a color this launch set: under NO_COLOR it set none, and a
+	// reset to "none" would clear a tab color the user chose.
+	colored := !tty.NoColor(nil)
+	if colored {
+		kittenRun("set-tab-color", "--match", matchArg,
+			"active_bg=#cc0000", "active_fg=#ffffff", "inactive_bg=#880000", "inactive_fg=#cccccc")
+	}
 
 	return func() {
 		restoreTitle := oldTitle
@@ -86,10 +100,17 @@ func kittySetupJailTab() func() {
 			restoreTitle = "bash"
 		}
 		kittenRun("set-tab-title", "--match", matchArg, restoreTitle)
-		kittenRun("set-tab-color", "--match", matchArg,
-			"active_bg=none", "active_fg=none", "inactive_bg=none", "inactive_fg=none")
+		if colored {
+			kittenRun("set-tab-color", "--match", matchArg,
+				"active_bg=none", "active_fg=none", "inactive_bg=none", "inactive_fg=none")
+		}
 	}
 }
+
+// jailColorOpts are the border options whose jail value is COLOR alone, which
+// NO_COLOR withholds. pane-border-status and pane-border-format are the border's line
+// and its "🔒 JAIL" text, and stay.
+var jailColorOpts = map[string]bool{"pane-border-style": true, "pane-active-border-style": true}
 
 func tmuxSetupJailPane() func() {
 	if os.Getenv("YOLO_NO_TMUX") == "1" {
@@ -183,7 +204,14 @@ func tmuxSetupJailPane() func() {
 		oldAutoRename = strings.TrimSpace(string(out))
 	}
 
+	// Under NO_COLOR the two style options are not SET, and are still captured above
+	// and restored below: the restore then puts back what was already there, and it
+	// still heals a red border an earlier colored launch left latched.
+	noColor := tty.NoColor(nil)
 	for _, opt := range borderOpts {
+		if noColor && jailColorOpts[opt] {
+			continue
+		}
 		tmuxSet(opt, jailValues[opt])
 	}
 	_, _ = tmuxCmd("set-window-option", "automatic-rename", "off")

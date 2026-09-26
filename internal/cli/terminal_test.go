@@ -253,3 +253,93 @@ func hasUnsetFlagBefore(argv []string, i int) bool {
 	}
 	return false
 }
+
+// jailColorOptions are the tmux options the jail border sets that are COLOR and nothing
+// else. The border's status line and its "🔒 JAIL <project>" text are the indicator's
+// words, and stay under NO_COLOR.
+var jailColorOptions = []string{"pane-border-style", "pane-active-border-style"}
+
+// setsOption reports whether any recorded tmux call SETS opt to a value (the
+// `set-option -pt <pane> <opt> <value>` spelling; the restore's unset is `-put`).
+func setsOption(calls [][]string, opt string) bool {
+	for _, c := range calls {
+		if len(c) >= 5 && c[0] == "set-option" && c[1] == "-pt" && c[3] == opt {
+			return true
+		}
+	}
+	return false
+}
+
+// TestTmuxJailBorderHonorsNoColor: the jail border's red is color yolo adds, so it goes
+// through the NO_COLOR half of the gate (https://no-color.org) — with NO_COLOR set the
+// pane gets the border's status line and text but no red. The unset run is the control.
+// Driven through SetupJailIndicator, the entry point runRun calls.
+func TestTmuxJailBorderHonorsNoColor(t *testing.T) {
+	for _, tc := range []struct {
+		noColor   string
+		wantColor bool
+	}{{"", true}, {"1", false}} {
+		f := withFakeTmux(t, map[string]string{"display-message -p #{window_name}": "zsh"})
+		t.Setenv("KITTY_PID", "")
+		t.Setenv("NO_COLOR", tc.noColor)
+		if SetupJailIndicator() == nil {
+			t.Fatal("SetupJailIndicator returned no restore func for a tmux pane")
+		}
+		for _, opt := range jailColorOptions {
+			if got := setsOption(f.calls, opt); got != tc.wantColor {
+				t.Errorf("NO_COLOR=%q: the jail border sets %s = %v, want %v; calls: %q",
+					tc.noColor, opt, got, tc.wantColor, f.calls)
+			}
+		}
+		if !setsOption(f.calls, "pane-border-format") {
+			t.Errorf("NO_COLOR=%q: the jail border lost its text; calls: %q", tc.noColor, f.calls)
+		}
+	}
+}
+
+// TestKittyJailTabHonorsNoColor is the kitty half: the tab's red is withheld under
+// NO_COLOR, in the setup AND the restore (which resets the color it set, so it has
+// nothing to reset), and the "🔒 JAIL <project>" title is set either way.
+func TestKittyJailTabHonorsNoColor(t *testing.T) {
+	for _, tc := range []struct {
+		noColor   string
+		wantColor bool
+	}{{"", true}, {"1", false}} {
+		var calls [][]string
+		oldCmd, oldAtty := kittenCmd, isattyStdin
+		kittenCmd = func(args ...string) ([]byte, error) {
+			calls = append(calls, args)
+			return nil, nil
+		}
+		isattyStdin = func() bool { return true }
+		t.Cleanup(func() { kittenCmd, isattyStdin = oldCmd, oldAtty })
+		t.Setenv("KITTY_PID", "4242")
+		t.Setenv("KITTY_WINDOW_ID", "3")
+		t.Setenv("TMUX", "")
+		t.Setenv("SM_PROJECT", "yolo-jail")
+		t.Setenv("NO_COLOR", tc.noColor)
+
+		restore := SetupJailIndicator()
+		if restore == nil {
+			t.Fatal("SetupJailIndicator returned no restore func for a kitty tab")
+		}
+		restore()
+		var colors, titles int
+		for _, c := range calls {
+			switch {
+			case len(c) > 0 && c[0] == "set-tab-color":
+				colors++
+			case len(c) > 0 && c[0] == "set-tab-title":
+				titles++
+			}
+		}
+		if want := map[bool]int{true: 2, false: 0}[tc.wantColor]; colors != want {
+			t.Errorf("NO_COLOR=%q: kitty got %d set-tab-color calls, want %d; calls: %q",
+				tc.noColor, colors, want, calls)
+		}
+		if titles != 2 {
+			t.Errorf("NO_COLOR=%q: kitty got %d set-tab-title calls, want 2 (the jail "+
+				"title, then the restore); calls: %q", tc.noColor, titles, calls)
+		}
+	}
+}
