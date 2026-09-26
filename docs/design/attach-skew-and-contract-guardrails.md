@@ -8,7 +8,7 @@ summary: "When a host yolo updates, running containers retain their original bin
 
 # Why host-jail version skew breaks running sessions — and how to prevent contract drift
 
-**Status:** DESIGN, 2026-09-26. Nothing built. Evidence verified at `7b572b6c`.
+**Status:** DESIGN, 2026-09-26. [OQ-SK1](#OQ-SK1)–[OQ-SK3](#OQ-SK3) ruled the same day (never silent: a terminal restart prompt, a refusal elsewhere, one explicit acknowledgment; named tags); [OQ-SK4](#OQ-SK4) is open. Nothing built. Evidence verified at `7b572b6c`; [what changed since](#findings-since-filing-2026-09-26) is checked at `7da7993b`.
 
 > **In short.** When an existing container is attached to after a host update, the
 > host re-stages current packs into an immutable prefix whose binaries predate them.
@@ -32,7 +32,7 @@ restart confirmation or an explicit bypass hatch (`YOLO_ALLOW_ATTACH_SKEW=1`).
 **Start at [§3](#3-the-contract-skew-problem-why-attaching-is-not-a-bare-reconnect)** — how staging
 into an immutable prefix creates the gap. The rest falls out of it.
 
-**Needs your ruling:** [OQ-SK1](#OQ-SK1), [OQ-SK2](#OQ-SK2), [OQ-SK3](#OQ-SK3), [OQ-SK4](#OQ-SK4).
+**Needs your ruling:** [OQ-SK4](#OQ-SK4).
 
 **Reads with:** [`attach-skew-and-contract-guardrails-plan.md`](attach-skew-and-contract-guardrails-plan.md) (the companion sketch — incomplete while questions are open),
 [`agent-footer.md`](agent-footer.md) (the footer contract whose addition triggered this finding),
@@ -373,57 +373,107 @@ The entrypoint injects a persistent skew indicator into:
 
 ---
 
+## Findings since filing (2026-09-26)
+
+Checked against `7da7993b` by three independent readers and by hand; each claim cites where it was read.
+
+- **The live case is a boot failure, not a broken statusline.** Two contracts landed the same day
+  that a pre-2026-09-26 jail cannot decode: claude's bedrock provider declares `api_key_env_name`
+  as a list ([`OQ-CN1`](provider-credential-scope.md#OQ-CN1); `packs/claude/pack.json`), where
+  v0.10.0's `packdecl` declares a string, and pi declares the `unshare_directory` hook, which
+  v0.10.0 reports as `unknown hook`. v0.10.0's in-jail loader treats any decode problem as fatal
+  (`LoadJailPacks` returns `pack <name>: <problem>`, `internal/entrypoint/packsurfaces.go` at
+  v0.10.0), and an attach re-stages the host's packs and re-runs the jail's boot, so an attach to
+  such a jail refuses to boot. Reproduced at the decoder level, not in a live container.
+- **It still reproduces on podman at `7da7993b`.** Staging runs before the attach decision and
+  the attach re-stages by diff-sync ([`pack-system.md`, concurrent launches](../reference/pack-system.md#concurrent-launches-of-one-workspace));
+  the entrypoint re-runs the whole boot on attach. Apple Container copies packs only at a fresh
+  launch, and macos-user has no attach.
+- **A precedent for Layer 1 exists.** The credential gate freezes `YOLO_AGENT_ENV_FILES=1` into
+  every container it launches, and an attach reads its absence as "this jail predates the
+  per-agent env files" ([`provider-credential-scope.md`](provider-credential-scope.md), CN-D18):
+  one named marker per contract, no version matrix, and no hatch.
+- **[`OQ-PK2`](../reference/pack-system.md#oq-pk2) is ruled (c)** the same day: one immutable pack
+  tree per launch, kept until the jail stops, plus a notice on attach when the configured pack set
+  differs. That is [§7](#7-alternatives-considered)'s rejected Alternative 1, and it removes pack-contract skew on attach
+  entirely: an attach no longer re-stages.
+- **Claims here that are stale or wrong at `7da7993b`:** [§2](#2-why-existing-skew-controls-failed)'s channel check already probes skew
+  (twice, since the credential gate); Layer 3's "gate before `stageRunPacks`" cannot be built as
+  drawn, since the launch lock now surrounds staging; in-jail filtering (the old [OQ-SK3](#OQ-SK3)
+  leaning) cannot protect an old jail, whose tolerant decoder drops unknown fields; the proposed
+  capability names collide with the existing `required_capabilities` gate; and the plan cites
+  `internal/packdecl/manifest.go`, which does not exist.
+
 ## Open Questions
 
-1. 💬 **OQ-SK1: Disposition on Incompatible Contract Skew.**
+1. ✅ <a id="OQ-SK1"></a>**OQ-SK1: Disposition on Incompatible Contract Skew.**
    When `yolo` attaches to an existing running jail whose binaries lack a capability
    required by the host's current packs, what should the default behavior be?
 
-   <!-- vantage: oq id=OQ-SK1 leaning="Interactive restart prompt in TTY, fatal refusal in non-interactive/CI. Preserves flow for humans while preventing silent corruption in automated pipelines." -->
 
    _Leaning:_ Interactive restart prompt in TTY (`Restart jail now? [Y/n]`), fatal refusal
    in non-interactive/CI unless `YOLO_ALLOW_ATTACH_SKEW=1` is passed.
 
    **Answer:**
-   > _(empty — fill in when decided)_
+   > **As leaned, and never silent**, ruled 2026-09-26 in review (*"Interactive restart prompt in
+   > TTY, fatal refusal in non-interactive/CI"*) and in conversation (*"it's fine if new jails refuse
+   > to launch if we can't make it compatible. that should be always. not crazy to restart jails
+   > after an app upgrade"*). An attach that cannot be made compatible never proceeds on its own:
+   > in a terminal it asks `Restart jail now? [Y/n]`, and declining refuses; anywhere else it
+   > refuses and names the restart (`yolo stop`, then launch again). The restart ends every session
+   > in the jail, so the prompt names what it will end. `YOLO_ALLOW_ATTACH_SKEW=1` is the one
+   > acknowledgment that proceeds, loudly; no other override implies it (*"if you pass an override
+   > flag acknowledging it, that's fine, but it shouldn't just silently ride along, even if there's
+   > another similar override flag"*).
 
-2. 💬 **OQ-SK2: Granularity of Capability Tracking.**
+2. ✅ <a id="OQ-SK2"></a>**OQ-SK2: Granularity of Capability Tracking.**
    Should yolo track contract versions as a single monotonic epoch counter
    (`YOLO_CONTRACT_EPOCH=4`), or as discrete feature capability tags
    (`YOLO_CAPABILITIES=internal-footer,wirebridge-sigv4`)?
 
-   <!-- vantage: oq id=OQ-SK2 leaning="Discrete named capability tags. Feature tags allow independent evolution across branches and packs without requiring a single centralized counter." -->
 
    _Leaning:_ Discrete named capability tags (`internal-footer`, `profile-channel-v2`).
    Tags make requirements explicit in pack manifests and avoid merge collisions on a single
    monotonic number.
 
    **Answer:**
-   > _(empty — fill in when decided)_
+   > **Named capability tags, as leaned**, ruled 2026-09-26 in review: *"Feature tags allow
+   > independent evolution across branches and packs without requiring a single centralized
+   > counter."* The credential gate's `YOLO_AGENT_ENV_FILES=1` is the first such tag in practice;
+   > the tag set folds it in rather than inventing a second spelling.
 
-3. 💬 **OQ-SK3: Staging Behavior for Unsupported Pack Features.**
+3. ✅ <a id="OQ-SK3"></a>**OQ-SK3: Staging Behavior for Unsupported Pack Features.**
    If a user declines to restart an older jail (or passes `YOLO_ALLOW_ATTACH_SKEW=1`),
    should `stageRunPacks` filter out unsupported pack surfaces (e.g. omitting the
    `statusLine` setting that requires `internal-footer`), or write the full configuration
    and allow downstream commands to fail?
 
-   <!-- vantage: oq id=OQ-SK3 leaning="Filter out unsupported features during prism render. Omitting a new statusLine leaves the agent functional with its default UI, whereas writing it guarantees a crash." -->
 
    _Leaning:_ Filter out unsupported surfaces during prism render when capability is missing.
    Degrading gracefully (e.g., omitting the yolo status line) allows the agent to run
    without crashing.
 
    **Answer:**
-   > _(empty — fill in when decided)_
+   > **Only under the explicit acknowledgment, never silently**, ruled 2026-09-26 in review: *"Is
+   > this going to be another case of the running environment differs and we know that it differs,
+   > but we're still going to run it anyway? That sounds dangerous. ... if you pass an override flag
+   > acknowledging it, that's fine, but it shouldn't just silently ride along, even if there's
+   > another similar override flag."* A declined restart refuses ([OQ-SK1](#OQ-SK1)); only
+   > `YOLO_ALLOW_ATTACH_SKEW=1` reaches a degraded attach. Any filtering happens on the host, since
+   > an old jail's tolerant decoder cannot filter what it does not know ([findings](#findings-since-filing-2026-09-26)),
+   > and [`OQ-PK2`](../reference/pack-system.md#oq-pk2)'s per-launch trees keep new pack contracts
+   > from reaching a running jail at all.
 
-4. 💬 **OQ-SK4: In-Session Visibility Channel.**
+4. 💬 <a id="OQ-SK4"></a>**OQ-SK4: In-Session Visibility Channel.**
    How should an attached agent session be made aware that it is running in a skewed jail
    when skew is tolerated?
 
-   <!-- vantage: oq id=OQ-SK4 leaning="Briefing injection into AGENTS.md. Ensures both human developers inspecting briefings and agents diagnosing tool issues have visible evidence without relying on pre-exec stderr." -->
 
    _Leaning:_ Briefing injection into `AGENTS.md`. It survives TUI screen clears and provides
    ground truth to both the agent and developer.
+   <!-- vantage: oq id=OQ-SK4 leaning="Briefing injection into AGENTS.md. Ensures both human developers inspecting briefings and agents diagnosing tool issues have visible evidence without relying on pre-exec stderr." -->
 
    **Answer:**
-   > _(empty — fill in when decided)_
+   > _(empty — fill in when decided)_. Live again since [OQ-SK3](#OQ-SK3): an acknowledged
+   > attach is a skewed session. The host-written briefing is the one channel an old jail's
+   > session shows ([findings](#findings-since-filing-2026-09-26)).

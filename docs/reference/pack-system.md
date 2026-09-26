@@ -2438,9 +2438,9 @@ workspace.
   `TestMacosUserTwoConcurrentLaunchesOfOneWorkspace` now reaches its sessions is for the next
   macos-user CI run to show.
 
-#### <a id="oq-pk2"></a>💬 [`OQ-PK2`](#oq-pk2) — does a running jail keep the pack tree it booted with?
+#### <a id="oq-pk2"></a>✅ [`OQ-PK2`](#oq-pk2) — does a running jail keep the pack tree it booted with?
 
-**Not ruled.** Today an attach re-stages the tree a live podman jail has bound, so after a config
+**Ruled (c), 2026-09-26, not built:** one immutable pack tree per launch, plus a notice on attach. Chosen with the attach-skew stopgap ([`attach-skew-and-contract-guardrails.md`](../design/attach-skew-and-contract-guardrails.md#findings-since-filing-2026-09-26)): an attach that re-stages hands a running jail pack contracts its binaries may not read, and per-launch trees close that class. The options as they stood: Today an attach re-stages the tree a live podman jail has bound, so after a config
 change the jail's `/ctx/packs` shows the new pack set. Nothing in the jail is re-rendered from
 it ([above](#host-side-staging-then-jail-side-render)).
 
@@ -2456,7 +2456,6 @@ it ([above](#host-side-staging-then-jail-side-render)).
 **Recommendation: (c).** Under (a) a live jail is inconsistent after a changed-config attach:
 the launchers, config and shims a dropped pack rendered at boot stay, while its tree goes.
 Under (b) the jail stays whole until it restarts, and the notice says a restart is needed.
-<!-- vantage: oq id=OQ-PK2 leaning="(c): one immutable pack tree per launch, bound at /ctx/packs and kept until the jail stops, collected when its container is known gone (as the home skeleton is), plus a notice on attach when the config's pack set differs from the one the jail booted with, saying a restart is needed." -->
 
 ## The credential boundary: disclosure, not consent
 
