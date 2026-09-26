@@ -1,7 +1,7 @@
 ---
 title: "What reaches which agent: a profile's credentials and env stay with the agent that selected it"
 date: 2026-09-22
-status: draft
+status: accepted
 tags: [providers, profiles, credentials, env-sources, delivery, notches, bedrock]
 summary: "When one agent selects a provider, yolo today delivers that provider's credentials and profile-gated variables to every agent in the jail, through four channels that all end in one shared env file. OQ-BR4 is ruled (2026-09-25): nothing leaks, delivery is as specific as possible. The gate has four candidate layers, three delivery vehicles and a shipped pre-flight that refuses the key it would withhold, and it needs a per-agent vehicle that does not exist yet (OQ-CN6)."
 vantage:
@@ -15,12 +15,13 @@ credentials and settings. Should claude, pi, or a plain shell in the same jail g
 maintainer ruled no. This doc works out how yolo delivers a provider's credentials and
 profile-gated variables to the agent that selected it, and to no other.
 
-**Status:** DESIGN, 2026-09-23. [OQ-BR4](#OQ-BR4) DECIDED 2026-09-25, unbuilt;
-[OQ-CN1](#OQ-CN1)–[OQ-CN6](#OQ-CN6) open. No gate is built. MEASURED: the leak, in this jail on
-2026-09-22 ([§2.1](#21-delivery-is-profile-blind-by-construction)), and pi's `enabledModels`,
-read statically from installed pi 0.87.1 ([§2.4.1](#241-what-pis-enabledmodels-actually-constrains)).
-Code claims re-verified 2026-09-24; they cite a symbol, never a line. UNMEASURED: whether a
-per-agent env file reaches every way an agent is started ([OQ-CN6](#OQ-CN6)).
+**Status:** DECIDED, 2026-09-26. [OQ-BR4](#OQ-BR4) was ruled 2026-09-25 and
+[OQ-CN1](#OQ-CN1)–[OQ-CN6](#OQ-CN6) on 2026-09-26, all as leaned. No gate is built. MEASURED: the
+leak, in this jail on 2026-09-22 ([§2.1](#21-delivery-is-profile-blind-by-construction)), and
+pi's `enabledModels`, read statically from installed pi 0.87.1
+([§2.4.1](#241-what-pis-enabledmodels-actually-constrains)). Code claims re-verified 2026-09-24;
+they cite a symbol, never a line. UNMEASURED: whether a per-agent env file reaches every way an
+agent is started ([OQ-CN6](#OQ-CN6)).
 
 **Where things stand.** Today a profile picks which provider an agent *uses*, not which
 credentials and variables it can *see*, so one agent's selection reaches every agent.
@@ -31,19 +32,7 @@ every hydrated credential, every agent's shape variables and every satisfied pac
 land in one file that every process in the jail reads
 ([§2.7](#27-one-shared-file-five-readers)). [OQ-CN6](#OQ-CN6) picks the per-agent vehicle.
 
-**Needs your ruling:**
-
-Rule these two together; they make the ruled [OQ-BR4](#OQ-BR4) buildable:
-
-- [OQ-CN6](#OQ-CN6): how a value reaches one agent only. Leaning: a per-agent env file written from the one gate.
-- [OQ-CN2](#OQ-CN2): which layer holds the gate. Leaning: one gate in `composePackChannel`, read by every write path.
-
-Then:
-
-- [OQ-CN1](#OQ-CN1): where the key→provider association lives. Leaning: `api_key_env_name` grows into a list on the provider.
-- [OQ-CN3](#OQ-CN3): what happens to the credential pre-flight. Leaning: it narrows with the gate.
-- [OQ-CN4](#OQ-CN4): narrow the menu or withhold the credential. Leaning: both, named separately.
-- [OQ-CN5](#OQ-CN5): all three vehicles at once. Leaning: yes; if not, the host notch first.
+**Needs your ruling:** none. [OQ-CN1](#OQ-CN1)–[OQ-CN6](#OQ-CN6) were ruled 2026-09-26 as leaned; the gate is unbuilt.
 
 **Start at [§2.7](#27-one-shared-file-five-readers) and [§3](#3-where-the-gate-can-sit):** why
 nothing is per-agent today, and where the gate can sit. That choice decides the rest.
@@ -394,7 +383,7 @@ reaches two agents.
 
 ## 6. Open Questions
 
-1. 💬 <a id="OQ-CN1"></a>**[OQ-CN1](#OQ-CN1): where does the key→provider association live?**
+1. ✅ <a id="OQ-CN1"></a>**[OQ-CN1](#OQ-CN1): where does the key→provider association live?**
    `api_key_env_name` has nine consumers but is **single-valued**, and `bedrock` sets it to
    nothing ([§2.5](#25-the-mapping-half-exists)). A second credential route to one service need
    not make a provider multi-keyed **if** [`OQ-BR8`](providers-and-profiles-redesign.md#OQ-BR8)
@@ -408,46 +397,51 @@ reaches two agents.
    every user restate a fact about each provider. The stakes: whether the gate is built on a field
    that exists, and whether a user restates a fact about zai in their own config.
 
-   <!-- vantage: oq id=OQ-CN1 leaning="Grow api_key_env_name into a list on the provider declaration. The key name is a fact about the provider, and a single-valued field cannot express Bedrock, which is the case that produced the bug. A per-profile allowlist in user config is the fallback and is worse: it puts a fact about zai in every user's file." -->
 
    _Leaning:_ Grow the field on the **provider declaration** into a list. The key name is a fact
    about the provider, not the user, and single-valued cannot express Bedrock, the case that
    produced the bug.
 
    **Answer:**
-   > _(empty — fill in when decided)_
+   > **Ruled in review 2026-09-26, as leaned:** Grow `api_key_env_name` into a list on the provider
+   > declaration. The key name is a fact about the provider, and a single-valued field cannot
+   > express Bedrock, which is the case that produced the bug. A per-profile allowlist in user
+   > config is the fallback and is worse: it puts a fact about zai in every user's file.
 
-2. 💬 <a id="OQ-CN2"></a>**[OQ-CN2](#OQ-CN2): which layer holds the gate, and is the rendered config gated too?**
+2. ✅ <a id="OQ-CN2"></a>**[OQ-CN2](#OQ-CN2): which layer holds the gate, and is the rendered config gated too?**
    Filtering the environment leaves `hydrateProviders` writing every `api_key` into the agent's
    config ([§3.1](#31-four-layers-and-filtering-the-environment-is-not-enough)); gating only the
    config leaves the environment open. The alternative, two independent filters on
    `writeUserEnvFile` and `hydrateProviders`, is the duplicate-implementation shape. The stakes:
    one gate or two, and whether `composePackChannel` becomes the single chokepoint.
 
-   <!-- vantage: oq id=OQ-CN2 leaning="Gate once in composePackChannel and let all three vehicles read the narrowed set, including the rendered-config path. Two independent filters is the duplicate-implementation defect this repo already treats as a class." -->
 
    _Leaning:_ **One gate, in `composePackChannel`**, with all three vehicles and the
    rendered-config path reading the narrowed set.
 
    **Answer:**
-   > _(empty — fill in when decided)_
+   > **Ruled in review 2026-09-26, as leaned:** Gate once in `composePackChannel` and let all three
+   > vehicles read the narrowed set, including the rendered-config path. Two independent filters is
+   > the duplicate-implementation defect this repo already treats as a class.
 
-3. 💬 <a id="OQ-CN3"></a>**[OQ-CN3](#OQ-CN3): what happens to the credential pre-flight?**
+3. ✅ <a id="OQ-CN3"></a>**[OQ-CN3](#OQ-CN3): what happens to the credential pre-flight?**
    `requiredProviders` is scoped to the selected packs, not the profile, so it refuses the launch
    for exactly the key the gate withholds ([§3.2](#32-the-pre-flight-refuses-what-the-gate-withholds)).
    Either it narrows with the gate, reopening the ruling that scoped it to packs, or the gate sits
    downstream and the pre-flight keeps demanding keys nobody will deliver.
 
-   <!-- vantage: oq id=OQ-CN3 leaning="Narrow the pre-flight with the gate: a key nobody will deliver is not a missing credential, and refusing a launch over one is the defect this doc is fixing, one layer up. That reopens the pack-scoping ruling deliberately rather than by accident." -->
 
    _Leaning:_ **Narrow the pre-flight with the gate.** A key nothing will deliver is not a missing
    credential, and refusing over it is this defect one layer up. Reopen the pack-scoping ruling
    deliberately rather than route around it.
 
    **Answer:**
-   > _(empty — fill in when decided)_
+   > **Ruled in review 2026-09-26, as leaned:** Narrow the pre-flight with the gate: a key nobody
+   > will deliver is not a missing credential, and refusing a launch over one is the defect this
+   > doc is fixing, one layer up. That reopens the pack-scoping ruling deliberately rather than by
+   > accident.
 
-4. 💬 <a id="OQ-CN4"></a>**[OQ-CN4](#OQ-CN4): is the goal narrowing the MENU or withholding the CREDENTIAL?**
+4. ✅ <a id="OQ-CN4"></a>**[OQ-CN4](#OQ-CN4): is the goal narrowing the MENU or withholding the CREDENTIAL?**
    They come apart ([§2.4](#24-the-agents-disagree-about-what-a-credential-even-decides)). opencode
    and claude ship a hard menu key, cheap and exact. For pi, narrowing the menu means writing
    `enabledModels`, which **yolo already does**, and that is as strong as pi's menu gets: a default
@@ -458,31 +452,34 @@ reaches two agents.
    is [`OQ-WG3`](wire-bridge-gateway.md#OQ-WG3). The stakes: one mechanism, or a per-agent
    capability the provider system dispatches on and discloses the strength of.
 
-   <!-- vantage: oq id=OQ-CN4 leaning="Both, named separately. Withholding is the security property and applies everywhere. Menu narrowing is the ergonomic one and uses each agent's own key: hard for opencode and claude, and for pi the soft enabledModels shortlist yolo already writes, which must never be described as a restriction." -->
 
    _Leaning:_ **Both, named separately.** Withholding is the security property and applies
    everywhere. Menu narrowing is ergonomic and uses each agent's own key: hard for opencode and
    claude, soft for pi, whose shortlist must never be described as a restriction.
 
    **Answer:**
-   > _(empty — fill in when decided)_
+   > **Ruled in review 2026-09-26, as leaned:** Both, named separately. Withholding is the security
+   > property and applies everywhere. Menu narrowing is the ergonomic one and uses each agent's own
+   > key: hard for opencode and claude, and for pi the soft `enabledModels` shortlist yolo already
+   > writes, which must never be described as a restriction.
 
-5. 💬 <a id="OQ-CN5"></a>**[OQ-CN5](#OQ-CN5): does the gate ship on all three vehicles at once?**
+5. ✅ <a id="OQ-CN5"></a>**[OQ-CN5](#OQ-CN5): does the gate ship on all three vehicles at once?**
    `macos-user` hydrates on its own and the host notch composes independently
    ([§2.3](#23-three-vehicles-and-a-gate-in-one-covers-one-backend)), so a container-only gate
    leaves two paths delivering everything, one of them the host notch outside every sandbox. The
    alternative, a container gate with a named gap, leaves the weakest boundary unfixed while the
    doc reads as done. The stakes: one change, or a container change with a named gap.
 
-   <!-- vantage: oq id=OQ-CN5 leaning="All three, because the host notch is the highest-stakes one and shipping the container first would leave the weakest boundary unfixed while the doc reads as done. If that is too large, the host notch goes first, not last." -->
 
    _Leaning:_ **All three.** If that is too large, the **host** notch goes first, because it
    composes an environment for a process outside every sandbox.
 
    **Answer:**
-   > _(empty — fill in when decided)_
+   > **Ruled in review 2026-09-26, as leaned:** All three, because the host notch is the highest-
+   > stakes one and shipping the container first would leave the weakest boundary unfixed while the
+   > doc reads as done. If that is too large, the host notch goes first, not last.
 
-6. 💬 <a id="OQ-CN6"></a>**[OQ-CN6](#OQ-CN6): how does a value reach only the agent that selected it?**
+6. ✅ <a id="OQ-CN6"></a>**[OQ-CN6](#OQ-CN6): how does a value reach only the agent that selected it?**
    Every agent reads one shared env file, whose first reader exports it into the entrypoint's
    process environment ([§2.7](#27-one-shared-file-five-readers)). With [OQ-BR4](#7-decision-ledger)
    ruled "as specific as possible", a credential, a shape variable or a satisfied pack `env` gate
@@ -499,7 +496,6 @@ reaches two agents.
    shell selects no provider, so it gets no provider value. The stakes: whether the BR4 ruling is
    buildable, and how many readers the file contract grows.
 
-   <!-- vantage: oq id=OQ-CN6 leaning="A per-agent env file, written from CN2's single gate in composePackChannel and sourced by that agent's launcher. The host notch and macos-user read the same narrowed set, per CN5. A vehicle that cannot express per-agent delivery stays per launch and says so as a disclosure." -->
 
    _Leaning:_ **A per-agent env file**, written from CN2's single gate in `composePackChannel` and
    sourced by that agent's launcher; the shared file keeps only what every agent may see. The host
@@ -507,13 +503,22 @@ reaches two agents.
    vehicle that cannot express per-agent delivery stays per launch and says so as a disclosure.
 
    **Answer:**
-   > _(empty — fill in when decided)_
+   > **Ruled in review 2026-09-26, as leaned:** A per-agent env file, written from CN2's single
+   > gate in `composePackChannel` and sourced by that agent's launcher. The host notch and macos-
+   > user read the same narrowed set, per CN5. A vehicle that cannot express per-agent delivery
+   > stays per launch and says so as a disclosure.
 
 ## 7. Decision Ledger
 
 | ID | Ruling / Decision | Date | Settled in | Built |
 | :--- | :--- | :--- | :--- | :--- |
 | OQ-BR4 | **A profile's gated env reaches only the agent that selected it; nothing leaks.** *"no I don't want it to leak … as specific as possible … certainly not Claude Code gets Bedrock"* because another agent selected it. Moved from [`bedrock-plumbing.md`](bedrock-plumbing.md) with its id. The leaning (scope by agent, as `packoverlay.Collect` does) is the ruling's shape; accepting the leak with a briefing note is rejected. The same comment's direction, all traffic through the wire bridge, is [DIR-WG1](wire-bridge-gateway.md#DIR-WG1) | 2026-09-25 | [§2.6](#26-the-pack-env-gate-is-the-same-leak-through-a-second-door-trap-d2) | — |
+| OQ-CN1 | **Grow `api_key_env_name` into a list on the provider declaration.** | 2026-09-26 | [OQ-CN1](#OQ-CN1) | — |
+| OQ-CN2 | **Gate once in `composePackChannel` and let all three vehicles read the narrowed set, including the rendered-config path.** | 2026-09-26 | [OQ-CN2](#OQ-CN2) | — |
+| OQ-CN3 | **Narrow the pre-flight with the gate: a key nobody will deliver is not a missing credential, and refusing a launch over one is the defect this doc is fixing, one layer up.** | 2026-09-26 | [OQ-CN3](#OQ-CN3) | — |
+| OQ-CN4 | **Both, named separately.** | 2026-09-26 | [OQ-CN4](#OQ-CN4) | — |
+| OQ-CN5 | **All three, because the host notch is the highest-stakes one and shipping the container first would leave the weakest boundary unfixed while the doc reads as done.** | 2026-09-26 | [OQ-CN5](#OQ-CN5) | — |
+| OQ-CN6 | **A per-agent env file, written from CN2's single gate in `composePackChannel` and sourced by that agent's launcher.** | 2026-09-26 | [OQ-CN6](#OQ-CN6) | — |
 
 ## 8. Downstream edits
 
