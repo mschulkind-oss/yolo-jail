@@ -420,8 +420,11 @@ live, so edits are visible on the host instantly — there is no sync step.
   as a divergence rather than quietly reordered: which order is right is a ruling.
 - **Env hygiene** (agents can't handle interactive UI): `PAGER`/`GIT_PAGER`=`cat`, `BAT_PAGER=""`;
   `EDITOR=cat` (stops `git commit` hanging) but `VISUAL=nvim` (human ctrl-g editing); the host's `TERM` is
-  forwarded so color survives; `OVERMIND_SOCKET=/tmp/overmind.sock` so jail overmind doesn't collide with the
-  host's; `LD_LIBRARY_PATH=/lib:/usr/lib:/usr/lib/<multilib>` baked into the image Env to survive agents
+  forwarded so color survives, and its `NO_COLOR` (when set) so a request for none does too — every
+  color decision goes through `tty.Color`
+  ([`cli-visual-polish.md`](docs/plans/cli-visual-polish.md#the-invariant--color-is-additive));
+  `OVERMIND_SOCKET=/tmp/overmind.sock` so jail overmind doesn't collide with the host's;
+  `LD_LIBRARY_PATH=/lib:/usr/lib:/usr/lib/<multilib>` baked into the image Env to survive agents
   sanitizing the environment.
 - The built-in skills (`configuring-the-jail`, `diagnosing-the-jail`) are injected into every jail. The
   one-time host→jail handoff is NOT a skill: a fresh `.yolo/handover.md` the host agent filed becomes a

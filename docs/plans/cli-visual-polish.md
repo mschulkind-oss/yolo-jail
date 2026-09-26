@@ -14,7 +14,10 @@ colored (dim/red/yellow, bold header, TTY-gated, byte-parity locked). `check`
 keeps its own richer private ANSI (background/inverse badges richtext lacks) —
 left as-is per the palette-gaps note. Remaining: `init`/`init-user-config`
 status lines, `broker`/`builder` polish, and the run-boot frozen lines (golden
-updates needing sign-off). This is the *content* follow-on to
+updates needing sign-off). The invariant's `NO_COLOR` clause, unbuilt until then, is
+enforced by one gate since 2026-09-26 — see
+[Implementation decisions](#implementation-decisions--no_color-2026-09-26), which also names
+the one gap left. This is the *content* follow-on to
 [cli-color-audit.md](cli-color-audit.md): that plan fixed the color-*rendering*
 mechanism (rich markup now renders to ANSI on a TTY via `internal/richtext`
 instead of being stripped unconditionally); this plan spends that capability by
@@ -40,9 +43,18 @@ rule for every edit below:
   `[green]…[/green]`, …). When color is off (`Strip`), the tags vanish and the
   bytes are exactly what they were before. Golden/parity tests that pin
   `Color=false` therefore do not break.
-- **Color only on a TTY.** Render ANSI only when `Color && IsTTYStdout()`
-  (the gate `internal/cli/run` and now `prune` use). Never emit escapes to a
-  pipe/redirect; honor `NO_COLOR`. Captured/greppable output stays clean.
+- **Color only on a TTY, and never under `NO_COLOR`.** Every color decision
+  goes through one **color gate** — the predicate that decides whether one
+  stream receives ANSI escapes — which is `tty.Color` in `internal/tty`. It
+  renders ANSI only when the command requested color, the stream it writes is
+  a real terminal, and `NO_COLOR` is unset or empty (the
+  [NO_COLOR convention](https://no-color.org): any non-empty value disables
+  color). Never emit escapes to a pipe/redirect. Captured/greppable output
+  stays clean. Text that another process prints — the bash a launch generates
+  for the jail, the entrypoint's hand-over line — takes the gate's `NO_COLOR`
+  half alone, `tty.NoColor`, because the process that decides cannot probe the
+  stream that text reaches. [Implementation decisions](#implementation-decisions--no_color-2026-09-26)
+  records how, and the one gap left.
 - **Glyphs are literal text.** Any `✓`/`✗`/`!` symbols added are plain Unicode
   colored via existing tags — they survive ANSI-strip as literal characters, so
   they are part of the (new but stable) plain-text baseline, not escape codes.
@@ -51,6 +63,35 @@ rule for every edit below:
   banner strings, macos dry-run plan). Changing those is a deliberate golden
   update requiring human sign-off, not a silent additive change — flagged per
   item below.
+
+## Implementation decisions — `NO_COLOR` (2026-09-26)
+
+The invariant has said to honor `NO_COLOR` since 2026-07-20, and until 2026-09-26 nothing
+read the variable: each engine composed `Color && IsTTYStdout()` itself, and most `yolo`
+entry points passed a terminal probe as their color. These are the mechanism choices that
+made the ruled behavior work. None is a product ruling.
+
+| # | Decision | Why |
+| :--- | :--- | :--- |
+| 1 | **One gate.** `tty.Color(getenv, requested, terminal)` decides every stream yolo writes. `tty.NoColor(getenv)` is the only reader of the variable, and `Color` is built on it. In package `cli`, `colorForWriter` is the one color decision, and every entry point writing to stdout asks it. | "Honor `NO_COLOR`" is one rule. Written into each gate separately, one gets missed — and before this, every one was. |
+| 2 | **An empty value counts as unset.** `NO_COLOR= yolo check` colors. | The convention's own definition of "set". |
+| 3 | **The environment read is the one the command already reads.** The run pipeline and `check` read `NO_COLOR` through their injected `Options.Getenv`, and macos-user through `Deps.Getenv`; its provisioning stage's line reads the env the sandbox will run in. Everything else reads the process environment. | One invocation reads one environment, and a test's fake environment decides color the way it decides everything else. |
+| 4 | **Text another process prints takes only the `NoColor` half.** That is the generated container script's three lines (`📦 Provisioning tools...`, the provisioning failure line, `⚡ Executing`), the macos-user provisioning stage's failure line, and the entrypoint's exec-into `⚡ Executing` line. With `NO_COLOR` unset their bytes are unchanged, so `internal/cli/run/testdata/final_cmd_bash.txt` did not move. | They print from a stream the deciding process cannot probe, and they were never terminal-gated. `provision.Script` therefore takes the decision as a parameter rather than making it. |
+| 5 | **`NO_COLOR` crosses into the jail**, beside `TERM` and `COLORTERM`: as `-e NO_COLOR=<value>` on a container launch and on an attach's `exec`, and in the session env file on macos-user. It crosses only when non-empty. | The in-jail `yolo`, the entrypoint and the prompt read it there. A running container keeps its launch environment, so the attach carries it too. The consequence is deliberate: an agent CLI that honors the convention also sees it, which is what setting it asks. |
+| 6 | **The jail's shell honors it at start.** The generated `.bashrc` defines the prompt colors and the `ls --color=auto` alias only when `NO_COLOR` is unset or empty. | The prompt is color yolo adds. GNU `ls` does not read the variable, so the alias is what has to be withheld. |
+| 7 | **`NO_COLOR` changes color and nothing else.** It never changes whether yolo is interactive (the run's `-t` flag, its prompts), never touches JSON output (already colorless), and never suppresses ttyproxy's terminal reset. | `isTTYStdout` stays the interaction probe. The reset *clears* attributes a child left set; the convention is about adding them. |
+| 8 | **Enforced by an inventory**, not by review. `TestEveryColorEmitterIsInventoried` (in `internal/tty`) lists every file that emits ANSI together with the gate that governs it, and fails on an unlisted one. `TestNoPrivateTerminalProbe` fails on a terminal probe outside `internal/tty`. Every gate and entry point has a test that fails when it stops consulting the gate, with an unset-`NO_COLOR` control run so the veto cannot pass on output that never colored. | Two private copies of the probe, `prune`'s and ttyproxy's, survived [the color audit](cli-color-audit.md)'s record that the probe was unified. |
+
+Two defects surfaced on the way and are fixed by the same routing: `yolo capture` and the
+auto-capture trigger `yolo run` wires both passed a literal `true` as their color, so both
+wrote ANSI to a pipe as well as ignoring `NO_COLOR`.
+
+> [!WARNING]
+> **The terminal half is still missing for the text in decision 4.** A launch whose stderr
+> is redirected still receives the colored provisioning and `⚡ Executing` lines unless
+> `NO_COLOR` is set. Those lines are frozen bytes pinned by the golden above, so gating them
+> on a terminal is a deliberate golden update needing sign-off, like the run sub-steps item
+> in Group B.
 
 ## Semantic color convention (apply everywhere)
 

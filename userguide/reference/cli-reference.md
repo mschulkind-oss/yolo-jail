@@ -32,6 +32,24 @@ YOLO_NO_BANNER=1 yolo config drift
 Inside a jail, the version shown is the **host** launcher's, because that is what the jail
 was built by; this is exactly why the line names the side.
 
+### Color
+
+Commands color what they print to a terminal and print plain text into a pipe or a file.
+To turn color off everywhere, set `NO_COLOR` to any non-empty value — the
+[NO_COLOR](https://no-color.org) convention:
+
+```bash
+NO_COLOR=1 yolo check
+```
+
+Every `yolo` command honors it, and so does the jail: a launch carries your `NO_COLOR` into
+the jail alongside your terminal's `TERM`, so the jail's prompt, the lines a launch prints
+while it provisions, and any tool inside the jail that follows the convention stay plain too.
+An empty value (`NO_COLOR=`) counts as unset.
+
+One exception to the terminal rule today: the provisioning lines a launch prints from inside
+the jail are colored even when you redirect them. `NO_COLOR` turns those off as well.
+
 ### `yolo` — Start a Jail
 
 ```bash

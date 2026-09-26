@@ -141,8 +141,8 @@ The ruling is about yolo's predictability, so:
   and `TZ` describe the session the user asked the program to run in. A Waybar-started widget has
   to talk to that Waybar's display. Dropping these variables would make the child uniformly
   broken, not more predictable. yolo's own decisions do not vary with them, so passing them
-  through does not breach the ruling. This matches the jail notch, which forwards `TERM` and
-  `COLORTERM` explicitly (`internal/cli/run/assemble.go`).
+  through does not breach the ruling. This matches the jail notch, which forwards `TERM`,
+  `COLORTERM` and — when set — `NO_COLOR` explicitly (`internal/cli/run/assemble.go`).
 
 **PATH falls in both classes.** yolo reads it to resolve the target and probe dependencies, and the
 child reads it for every subprocess it spawns. An npm-installed CLI whose entry script is
@@ -619,7 +619,7 @@ working tree on 2026-09-25. They are cited by function, not by line.
 - **Other notches:**
   - `internal/entrypoint/boot.go`: `BootPath` and `execBash`.
   - `internal/macosuser/macosuser.go`: `LaunchArgv` (`env -i`), `sandboxEnvPairs`, `SandboxPath`.
-  - `internal/cli/run/assemble.go`: `TERM`/`COLORTERM` forwarding.
+  - `internal/cli/run/assemble.go`: `TERM`/`COLORTERM`/`NO_COLOR` forwarding.
 - **Scope pattern:** `internal/config/hostwrappers.go` reads user scope directly, `validate.go` has a
   "user-scope only" error, and `inherit.go` classifies the `host_*` keys as *Neither*.
 - **`packs/opencode/pack.json`:** `opencode` is a `program` with `via: "npm"` and brew and pacman

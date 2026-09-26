@@ -234,7 +234,7 @@ the whole of it:
 | the pack env fold | each selected pack's `kind: "env"` values with the active variant's literals folded on top | the same three |
 | `YOLO_PROVIDERS`, `YOLO_PROFILES`, `YOLO_USE_PROFILES` | composed tables — addresses and option names. No credential VALUES by design: a `base_url` carrying userinfo is refused at validation | the same three |
 | git identity | the host's `git config` — personal data rather than a secret | the same three, **and the bootstrap** |
-| `MISE_TRUSTED_CONFIG_PATHS`, `TERM`, `COLORTERM` | this backend and the invoking terminal | the same three |
+| `MISE_TRUSTED_CONFIG_PATHS`, `TERM`, `COLORTERM`, `NO_COLOR` (when set, since 2026-09-26) | this backend and the invoking terminal | the same three |
 | `YOLO_MCP_SERVERS` | the `mcp_servers` section verbatim, which MAY hold a literal key in a server's `env` block | **the bootstrap only** — and the container's podman argv carries the identical value |
 
 ⚠ **The capture driver is the row worth stopping on.** It carries the provider credentials

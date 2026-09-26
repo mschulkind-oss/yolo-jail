@@ -55,12 +55,12 @@ Classification of the remaining commands:
 - [x] **`config-ref`** (`internal/cli/configref.go` — a single file in package
   `cli`, not a `configref/` package/dir) — has a `tagReplacer` ANSI renderer
   gated on a `color` bool. TTY wiring is **confirmed**: `RunStdout` calls
-  `configRefRun(os.Stdout, isTTY(os.Stdout))`, and its `isTTY` now delegates to
-  the shared `internal/tty` ioctl probe (`b76b2ba`) — no longer the char-device
-  check.
+  `configRefRun(os.Stdout, colorForWriter(os.Stdout))` — the package's one color
+  decision since 2026-09-26, which adds `NO_COLOR` to the shared `internal/tty`
+  ioctl probe (`b76b2ba`) rather than the char-device check.
 - [x] **`loopholes`, `init`, `init-user-config`** — classified:
   - **`init`** *colors* — its `printBriefing` calls `renderMarkup(text, color)`
-    with `color = isTTYStdout()` (`commands.go:210`, the shared ioctl gate), so
+    with `color = colorForWriter(os.Stdout)` (the shared gate), so
     the briefing's `[bold …]` tags render to ANSI on a terminal and strip on a
     pipe. Correct as-is.
   - **`init-user-config`** is *intentionally plain* — it emits only status lines
@@ -89,10 +89,16 @@ Classification of the remaining commands:
   char-device check (which false-positived on the container `-t` flag and on
   `/dev/null`) is gone from `commands.go`, `terminal.go`, `configref.go`,
   `runcmd.go`, `broker`, and `builder`; the dead `isattyFD` copies were deleted.
-  Regression tests cover the nil, pipe, and `/dev/null` cases.
-- [ ] **Gate rule (same as run):** render ANSI only when `Color &&
+  Regression tests cover the nil, pipe, and `/dev/null` cases. **It missed two
+  private copies of the ioctl**, `prune`'s and ttyproxy's; both were folded onto
+  `internal/tty` on 2026-09-26, and `TestNoPrivateTerminalProbe` (in
+  `internal/tty`) now fails on a probe outside that package.
+- [x] **Gate rule (same as run):** render ANSI only when `Color &&
   IsTTYStdout()` — never emit escapes to a pipe/redirect, so captured/greppable
-  output stays clean and `NO_COLOR` is honored.
+  output stays clean and `NO_COLOR` is honored. **Built 2026-09-26** as one gate,
+  `tty.Color`; the `NO_COLOR` half was the part no command had, and
+  [cli-visual-polish.md](cli-visual-polish.md#implementation-decisions--no_color-2026-09-26)
+  records how it was built and the terminal-half gap it leaves.
 
 ## Tests
 
