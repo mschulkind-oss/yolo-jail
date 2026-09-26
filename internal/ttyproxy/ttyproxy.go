@@ -83,7 +83,7 @@ func getWinsize(fd int) (*unix.Winsize, error) {
 // (verified — tcgetpgrp on it returns ENOTTY). A coin flip with no recovery path,
 // decided per resize.
 //
-// Measured 2026-09-09 across eight live jails on terrapin: both outer ptys agreed
+// Measured 2026-09-09 across eight live jails on one Linux host: both outer ptys agreed
 // and several containers were a row short, three of them re-drifting on their own
 // within fifteen minutes. A bare `kill -WINCH` at the podman pid fixed each
 // instantly, which is what places the fault at this boundary.
