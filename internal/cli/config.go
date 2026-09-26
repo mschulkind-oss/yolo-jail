@@ -24,6 +24,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/render"
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
+	"github.com/mschulkind-oss/yolo-jail/internal/tty"
 )
 
 // configUsage is the `yolo config` help, printed on `--help`, `help`, or misuse.
@@ -281,13 +282,25 @@ func isHelpToken(tok string) bool {
 	return tok == "--help" || tok == "-h" || tok == "help"
 }
 
-// colorForWriter reports whether to emit ANSI: only when out is os.Stdout AND a
-// real terminal. A bytes.Buffer (tests) or a pipe/redirect yields false, so the
-// rendered/explain output stays plain and byte-stable off a TTY.
+// colorForWriter is THE color decision for every command in this package, and it
+// is made through the one gate, tty.Color: ANSI only when out is an *os.File that
+// is a real terminal AND NO_COLOR is unset or empty (https://no-color.org). A
+// bytes.Buffer (tests) or a pipe/redirect yields false, so the rendered/explain
+// output stays plain and byte-stable off a TTY.
+//
+// Every entry point that writes to os.Stdout asks colorForWriter(os.Stdout) —
+// never isTTYStdout(), which answers "is this interactive?" and knows nothing of
+// NO_COLOR. TestEveryCommandHonorsNoColor drives each of those entry points.
 func colorForWriter(out io.Writer) bool {
 	f, ok := out.(*os.File)
-	return ok && isTTY(f)
+	return tty.Color(nil, true, ok && fileIsTerminal(f))
 }
+
+// fileIsTerminal is the terminal probe behind colorForWriter. A var so a test can
+// stand a terminal in for the pipe it captures a command's stdout through; it is
+// NOT the probe interactive decisions use (isTTY), so overriding it changes what
+// is colored and nothing else.
+var fileIsTerminal = tty.IsTerminalFile
 
 // configRender implements `yolo config render <agent[/surface]> [--explain]`.
 func configRender(t configTarget, args []string, out, errw io.Writer, color bool) int {

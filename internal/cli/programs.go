@@ -73,7 +73,7 @@ func runPrograms(args []string) int {
 	if len(rest) > 0 {
 		rest = rest[1:]
 	}
-	return programsMain(rest, os.Stdout, os.Stderr, isTTYStdout())
+	return programsMain(rest, os.Stdout, os.Stderr, colorForWriter(os.Stdout))
 }
 
 // programsMain dispatches a subcommand. Bare `yolo programs` prints the usage rather than

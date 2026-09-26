@@ -56,7 +56,7 @@ func TestWorkspaceLockSeamReallyLocks(t *testing.T) {
 // Weak on its own (non-nil), and deliberately not on its own — the only value it can hold
 // is workspaceLockSeam, which the test above proves takes a real flock.
 func TestMacosLaunchDepsWiresTheWorkspaceLock(t *testing.T) {
-	deps := macosLaunchDeps(nil, nil, false)
+	deps := macosLaunchDeps(nil, nil)
 	if deps.LockWorkspace == nil {
 		t.Fatal("a macos-user LAUNCH assembles Deps with no workspace lock: two launches in " +
 			"one workspace would run two provisioning stages against one npm prefix and " +

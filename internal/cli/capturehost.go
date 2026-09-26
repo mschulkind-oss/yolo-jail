@@ -91,7 +91,7 @@ func runCapture(args []string) int {
 	if len(rest) > 0 {
 		rest = rest[1:]
 	}
-	return captureHost(rest, os.Stdout, os.Stderr, true)
+	return captureHost(rest, os.Stdout, os.Stderr, colorForWriter(os.Stdout))
 }
 
 // captureHost is runCapture with its writers injected, so a test can read what it said.

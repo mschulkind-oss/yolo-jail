@@ -53,7 +53,7 @@ func configRefRun(w io.Writer, color bool) int {
 // RunStdout is the front-door entry: prints to stdout with color when stdout is
 // a TTY.
 func RunStdout() int {
-	return configRefRun(os.Stdout, isTTY(os.Stdout))
+	return configRefRun(os.Stdout, colorForWriter(os.Stdout))
 }
 
 // stripTags removes every rich tag, leaving plain text (for non-TTY output).
@@ -88,7 +88,8 @@ func isRichTag(tok string) bool {
 
 // isTTY reports whether f is a real terminal, via the shared ioctl probe
 // (internal/tty) — not an os.ModeCharDevice stat, which false-positives on the
-// container `-t` flag and /dev/null.
+// container `-t` flag and /dev/null. It answers INTERACTION questions (may this
+// prompt?); a color decision goes through colorForWriter, which adds NO_COLOR.
 func isTTY(f *os.File) bool {
 	return tty.IsTerminalFile(f)
 }

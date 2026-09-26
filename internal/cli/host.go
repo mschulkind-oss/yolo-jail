@@ -109,7 +109,7 @@ func runHost(args []string) int {
 	if len(rest) > 0 {
 		rest = rest[1:] // drop the "host" token
 	}
-	return hostMain(rest, os.Stdout, os.Stderr, isTTYStdout(), os.Stdin)
+	return hostMain(rest, os.Stdout, os.Stderr, colorForWriter(os.Stdout), os.Stdin)
 }
 
 // hostMain dispatches `yolo host`.

@@ -213,7 +213,7 @@ func runPack(args []string) int {
 	if len(rest) > 0 {
 		rest = rest[1:]
 	}
-	return packMain(rest, os.Stdout, os.Stderr, isTTYStdout())
+	return packMain(rest, os.Stdout, os.Stderr, colorForWriter(os.Stdout))
 }
 
 // packMain dispatches a pack subcommand.

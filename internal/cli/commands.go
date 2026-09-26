@@ -98,13 +98,13 @@ func runMacosSetup(args []string) int {
 	if answerHelp("macos-setup", args, os.Stdout) {
 		return 0
 	}
-	return macosuser.MacosSetup(macosuser.RealDeps(nil, nil, isTTYStdout()))
+	return macosuser.MacosSetup(macosuser.RealDeps(nil, nil, colorForWriter(os.Stdout)))
 }
 func runMacosTeardown(args []string) int {
 	if answerHelp("macos-teardown", args, os.Stdout) {
 		return 0
 	}
-	return macosuser.MacosTeardown(macosuser.RealDeps(nil, nil, isTTYStdout()))
+	return macosuser.MacosTeardown(macosuser.RealDeps(nil, nil, colorForWriter(os.Stdout)))
 }
 
 func runMacosUnshare(args []string) int {
@@ -115,7 +115,7 @@ func runMacosUnshare(args []string) int {
 	if len(args) > 1 {
 		ws = args[1]
 	}
-	return macosuser.MacosUnshare(macosuser.RealDeps(nil, nil, isTTYStdout()), ws)
+	return macosuser.MacosUnshare(macosuser.RealDeps(nil, nil, colorForWriter(os.Stdout)), ws)
 }
 
 func runMacosFixPermissions(args []string) int {
@@ -126,7 +126,7 @@ func runMacosFixPermissions(args []string) int {
 	if len(args) > 1 {
 		path = args[1]
 	}
-	return macosuser.MacosFixPermissions(macosuser.RealDeps(nil, nil, isTTYStdout()), path)
+	return macosuser.MacosFixPermissions(macosuser.RealDeps(nil, nil, colorForWriter(os.Stdout)), path)
 }
 
 // pruneUsage is what `yolo prune --help` prints. The flag list is exactly the
@@ -785,7 +785,7 @@ func runInit(args []string) int {
 		fmt.Fprintf(os.Stderr, "cannot resolve cwd: %v\n", err)
 		return 1
 	}
-	return Init(cwd, mounts, os.Stdout, isTTYStdout())
+	return Init(cwd, mounts, os.Stdout, colorForWriter(os.Stdout))
 }
 
 const initUserConfigUsage = `Usage: yolo init-user-config
@@ -813,6 +813,11 @@ func runInitUserConfig(args []string) int {
 	return InitUserConfig(os.Stdout)
 }
 
+// isTTYStdout reports whether os.Stdout is a real terminal. It is the IsTTYStdout
+// seam handed to the engines that take one (run, stores, the host daemons), which
+// use it both for interaction (the run's -t flag, its prompts) and as the
+// terminal input to their own tty.Color gate. It is NOT a color decision by
+// itself: an entry point that needs one asks colorForWriter(os.Stdout).
 func isTTYStdout() bool {
 	return tty.IsTerminalFile(os.Stdout)
 }
@@ -1153,7 +1158,7 @@ func runRun(args []string) int {
 	// reads Options.CapturesDir, which that jail suppresses (see
 	// run.Options.autoCaptureInstallerPrograms).
 	opts.AutoCapture = func(bins []string, platform string) {
-		autoCapture(bins, platform, os.Stdout, os.Stderr, true)
+		autoCapture(bins, platform, os.Stdout, os.Stderr, colorForWriter(os.Stdout))
 	}
 	// Set the tmux/kitty jail indicator around the run, restoring on exit. The
 	// restore runs as subprocesses (kitten/tmux) with no timeout of their own,
@@ -1247,11 +1252,7 @@ func macosUserRun(cfg *jsonx.OrderedMap, workspace string, agents, agentArgv []s
 			ProfilePath: pkgs.ProfilePath,
 		}, true, nil
 	}
-	// Mirror run's `Color && IsTTYStdout()`: color is requested for the
-	// interactive front door, gated on a real TTY. The dry-run plan render
-	// forces color OFF internally (byte-pinned goldens), so this only affects
-	// the live setup/teardown chatter.
-	return macosuser.RunMacosUser(macosLaunchDeps(runProxy, materialize, isTTYStdout()),
+	return macosuser.RunMacosUser(macosLaunchDeps(runProxy, materialize),
 		macosuser.Options{
 			Workspace:       workspace,
 			Config:          cfg,
@@ -1300,10 +1301,17 @@ func workspaceLockSeam(ws, cname string) func() {
 // is not on its own: the only value it can hold is workspaceLockSeam, and
 // TestWorkspaceLockSeamReallyLocks proves THAT takes a real flock. The pair is what makes
 // "wired" mean something.
+//
+// THE COLOR DECISION IS MADE HERE TOO, for the same reason: it mirrors run's gate
+// (tty.Color, via colorForWriter) — requested for the interactive front door, gated on a
+// real TTY and on NO_COLOR — and resolved inline at the launch call site it could stop
+// consulting that gate with nothing failing, since no unit test runs a launch.
+// TestMacosLaunchDepsHonorNoColor reads it off this function. The dry-run plan render
+// forces color OFF internally (byte-pinned goldens), so it only affects the live
+// setup/teardown chatter.
 func macosLaunchDeps(runProxy func(argv []string) int,
-	materialize func(repoRoot string, packages []any) (*macosuser.Darwin, bool, error),
-	color bool) macosuser.Deps {
-	deps := macosuser.RealDeps(runProxy, materialize, color)
+	materialize func(repoRoot string, packages []any) (*macosuser.Darwin, bool, error)) macosuser.Deps {
+	deps := macosuser.RealDeps(runProxy, materialize, colorForWriter(os.Stdout))
 	deps.LockWorkspace = workspaceLockSeam
 	return deps
 }
