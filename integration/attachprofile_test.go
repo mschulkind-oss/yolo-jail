@@ -80,10 +80,16 @@ func TestAttachDeliversTheSelectedProfile(t *testing.T) {
 			"(the frozen env this test needs to be empty):\n%s", up)
 	}
 
-	// The attach: same workspace, same running jail, one profile on the flag.
+	// The attach: same workspace, same running jail, one profile on the flag. Since the
+	// credential gate (docs/reference/providers.md#the-credential-gate, OQ-BR4) the pair
+	// reaches ONLY the agent that selected it, through that agent's own env file, which its
+	// launcher sources: so the bare shell this command runs must carry none of it, and
+	// sourcing claude's file must yield exactly the pair. The launcher's sourcing is pinned
+	// by internal/entrypoint's launcher tests; no agent CLI runs here.
 	r := runCommand(t, dir, append(jailRunArgs(),
 		"-p", "claude=zai", "--", "bash", "-lc",
-		`env | grep -E '^ANTHROPIC_(BASE_URL|AUTH_TOKEN)=' | sort`))
+		`echo BARE-HAS-$(env | grep -cE '^ANTHROPIC_(BASE_URL|AUTH_TOKEN)=' || true); `+
+			`( . ~/.config/yolo-agent-env/claude.sh && env | grep -E '^ANTHROPIC_(BASE_URL|AUTH_TOKEN)=' | sort )`))
 	if r.rc != 0 {
 		t.Fatalf("profiled attach failed: rc %d\n%s", r.rc, r.combined())
 	}
@@ -97,11 +103,13 @@ func TestAttachDeliversTheSelectedProfile(t *testing.T) {
 		t.Errorf("the attach report is not where the pair should follow it:\n%s", r.stdout)
 	}
 	tail := r.stdout[strings.IndexByte(r.stdout, '\n')+1:]
-	want := "ANTHROPIC_AUTH_TOKEN=integration-probe-not-a-real-key\n" +
+	want := "BARE-HAS-0\n" +
+		"ANTHROPIC_AUTH_TOKEN=integration-probe-not-a-real-key\n" +
 		"ANTHROPIC_BASE_URL=https://api.z.ai/api/anthropic\n"
 	if tail != want {
-		t.Errorf("the attached session's provider env =\n%s\nwant exactly the composed pair "+
-			"(z.ai, delivered per-entry into a jail that launched without it):\n%s", tail, want)
+		t.Errorf("the attached session's provider env =\n%s\nwant a bare shell carrying none of it "+
+			"and claude's own env file carrying exactly the composed pair (z.ai, delivered "+
+			"per-entry into a jail that launched without it):\n%s", tail, want)
 	}
 	// The disclosure belongs to the delivery: an attach that delivers a profile says
 	// which packs declared the name it carried.
