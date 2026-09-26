@@ -28,7 +28,8 @@
   // Available presets: chrome-devtools, sequential-thinking
   // "mcp_presets": ["chrome-devtools", "sequential-thinking"]
 
-  // Additional custom MCP servers for Copilot and Gemini.
+  // Additional custom MCP servers, wired into every selected agent that
+  // supports MCP.
   // Add custom servers or set a preset/inherited server to null to disable it.
   // Binary must be on PATH or absolute.
   // "mcp_servers": {

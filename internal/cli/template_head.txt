@@ -5,7 +5,8 @@
   // reference, and `yolo check` after every edit to this file.
   // ───────────────────────────────────────────────────────────────
 
-  // Container runtime: "podman" or "container" (Apple)
+  // Isolation backend: "podman", "container" (Apple Container), or
+  // "macos-user" (a sandboxed macOS account, no VM; never auto-detected)
   // (also settable via YOLO_RUNTIME env var)
   // "runtime": "podman",
 
@@ -32,11 +33,11 @@
   // Common output names: out (default), dev (headers + pkg-config), bin, lib, man, doc.
   // Find nixpkgs commits for specific versions at: https://lazamar.co.uk/nix-versions/
 
-  // security: tool shims injected into the jail's PATH.  Defaults (no
-  // config needed): grep is blocked only for recursive usage (``-r``,
-  // ``-R``, ``--recursive``, ``-rn`` etc. — pipe filters and
-  // single-file greps pass through); find is blocked unconditionally.
-  // Override only if you want custom rules — the defaults are sane.
+  // security: tool shims injected into the jail's PATH.  Nothing is
+  // blocked by default.  The "guardrails" pack (named in "packs", user
+  // config) blocks recursive grep in favor of rg and find in favor of fd;
+  // the example below spells out the same two rules by hand, plus one of
+  // your own.
   // "security": {
   //   "blocked_tools": [
   //     {
