@@ -45,8 +45,10 @@ chmod 755 "$HOME/.local/bin/vendor-shim"
 # A config file naming the home more than once on one line.
 printf 'root=%s bin=%s/.local/bin\n' "$HOME" "$HOME" > "$v/config"
 
-# A RELATIVE link and a file with no reference: both already correct anywhere.
+# A RELATIVE link, an absolute link OUTSIDE the home, and a file with no reference: all three
+# already correct anywhere.
 ln -s ../share/vendor/1.0.0/vendor "$HOME/.local/bin/vendor-rel"
+ln -s /bin/sh "$HOME/.local/bin/vendor-sys"
 printf 'no paths in here\n' > "$v/README"
 `
 
@@ -86,7 +88,15 @@ func TestRelocatingMaterializeRewritesEveryReference(t *testing.T) {
 	if !m.Relocatable {
 		t.Fatalf("the fixture must record a relocatable capture: %v", m.NotRelocatable)
 	}
-	to := t.TempDir()
+	// A destination of a DIFFERENT LENGTH from the capture home, as /Users/_yolojail is from
+	// /Users/Shared/yolo-captures/<bin>/home. A rewritten file's size then differs from the one
+	// the manifest recorded, which is what lets Bytes below tell the bytes written from the
+	// bytes recorded.
+	to := filepath.Join(t.TempDir(), "account-home")
+	must(t, os.Mkdir(to, 0o755))
+	if len(to) == len(from) {
+		t.Fatalf("the two homes are the same length (%q, %q); Bytes would not be pinned", from, to)
+	}
 
 	res, err := Materialize(MaterializeOptions{Entry: entry, Home: to})
 	if err != nil {
@@ -100,6 +110,7 @@ func TestRelocatingMaterializeRewritesEveryReference(t *testing.T) {
 		".local/bin/vendor":        to + "/.local/share/vendor/1.0.0/vendor",
 		".local/bin/vendor-dotdot": to + "/.local/share/vendor/1.0.0/vendor",
 		".local/bin/vendor-rel":    "../share/vendor/1.0.0/vendor",
+		".local/bin/vendor-sys":    "/bin/sh",
 	} {
 		got, err := os.Readlink(filepath.Join(to, filepath.FromSlash(link)))
 		if err != nil {
@@ -174,6 +185,72 @@ func TestRelocatingMaterializeRewritesEveryReference(t *testing.T) {
 	if res.Reflinked+res.Linked+res.Copied+res.Rewritten != res.Files {
 		t.Errorf("the mechanism counters (%d/%d/%d/%d) do not partition the %d files",
 			res.Reflinked, res.Linked, res.Copied, res.Rewritten, res.Files)
+	}
+	// Bytes is what was PLACED, and a rewritten file's placed size is not its recorded one.
+	var placed int64
+	for _, e := range m.Entries {
+		if e.Kind == KindFile {
+			fi, err := os.Lstat(filepath.Join(to, filepath.FromSlash(e.Path)))
+			must(t, err)
+			placed += fi.Size()
+		}
+	}
+	if res.Bytes != placed {
+		t.Errorf("Bytes = %d, want %d, the size of the files the home now holds (the manifest "+
+			"recorded %d)", res.Bytes, placed, m.TotalBytes())
+	}
+}
+
+// A relocation that places ONLY rewritten files names the rewrite as its mechanism. None of the
+// chain's three arms placed anything, so naming one of them would be false. "nothing" is also
+// wrong: that describes a materialize that wrote no program, and this one did.
+func TestARelocationOfOnlyRewrittenFilesReportsTheRewrite(t *testing.T) {
+	script := `#!/bin/sh
+set -eu
+mkdir -p "$HOME/.local/bin"
+printf '#!/bin/sh\nexec %s/.local/share/vendor/vendor "$@"\n' "$HOME" > "$HOME/.local/bin/vendor-shim"
+`
+	_, _, entry := recordRelocatable(t, script, nil)
+	res, err := Materialize(MaterializeOptions{Entry: entry, Home: t.TempDir()})
+	if err != nil {
+		t.Fatalf("relocating materialize: %v", err)
+	}
+	if res.Files != 1 || res.Rewritten != 1 {
+		t.Fatalf("placed %d files, %d rewritten; the fixture must be one rewritten file", res.Files, res.Rewritten)
+	}
+	if got := res.Mechanism(); got != "rewrite" {
+		t.Errorf("Mechanism() = %q, want %q", got, "rewrite")
+	}
+}
+
+// A STORE THAT CANNOT BE READ IS NOT A VERDICT, AND IT STILL WRITES NOTHING. planRelocation reads
+// every file carrying a content reference before the first entry is placed (the binary sniff), so
+// a torn store fails there. The error must not be ErrNotRelocatable, because recapturing does not
+// repair a store. And Materialize must STOP on it. Carrying on without the plan would write the
+// capture's links verbatim into this home, still naming the capture home, and the contract permits
+// that in no clause.
+func TestARelocationThatCannotReadTheStoreWritesNothing(t *testing.T) {
+	_, _, entry := recordRelocatable(t, rewriteInstaller, nil)
+	// Tear the entry: the shim the manifest says embeds the home becomes a directory, which
+	// open(2) accepts and read(2) refuses. admit freezes files, not directories, so the parent
+	// can take the edit.
+	shim := filepath.Join(entry.Tree, ".local", "bin", "vendor-shim")
+	must(t, os.Remove(shim))
+	must(t, os.Mkdir(shim, 0o755))
+	to := t.TempDir()
+
+	_, err := Materialize(MaterializeOptions{Entry: entry, Home: to})
+	if err == nil {
+		t.Fatal("a relocation over an unreadable store entry succeeded")
+	}
+	if errors.Is(err, ErrNotRelocatable) {
+		t.Errorf("an unreadable store is not a relocation verdict: %v", err)
+	}
+	if !strings.Contains(err.Error(), "reading .local/bin/vendor-shim to rewrite it") {
+		t.Errorf("the error is not the pre-write read of the shim: %v", err)
+	}
+	if ents, _ := os.ReadDir(to); len(ents) != 0 {
+		t.Errorf("a relocation that could not be planned wrote into the home: %v", ents)
 	}
 }
 
@@ -301,6 +378,49 @@ printf 'ELF\000\000%s/.local/share/vendor\000\n' "$HOME" > "$HOME/.local/share/v
 				})
 			},
 			want: "README",
+		},
+		{
+			// The link and the reference agree, and both point outside the capture home, so
+			// there is no prefix to swap. A rewrite would glue the new home onto /bin/sh.
+			name: "a symlink reference to a target outside the capture home", script: rewriteInstaller,
+			mutate: func(m *Manifest) {
+				m.AbsoluteRefs = append(m.AbsoluteRefs, AbsoluteRef{
+					Path: ".local/bin/vendor-sys", Kind: RefSymlinkTarget, Value: "/bin/sh",
+				})
+			},
+			want: "is not under the capture home",
+		},
+		{
+			name: "a file-content reference on a symlink", script: rewriteInstaller,
+			mutate: func(m *Manifest) {
+				m.AbsoluteRefs = append(m.AbsoluteRefs, AbsoluteRef{
+					Path: ".local/bin/vendor", Kind: RefFileContent, Value: m.Home,
+				})
+			},
+			want: "file-content reference but the capture holds a symlink",
+		},
+		{
+			// Every other check passes: the file-content references name the recorded home
+			// and sit in text files, and no link is under "/" by underPrefix's rule. So the
+			// guard is all that stops a rewrite of every '/' byte in those files.
+			name: "a capture home of /", script: rewriteInstaller,
+			mutate: func(m *Manifest) {
+				m.Home = "/"
+				var refs []AbsoluteRef
+				for _, r := range m.AbsoluteRefs {
+					if r.Kind == RefFileContent {
+						r.Value = "/"
+						refs = append(refs, r)
+					}
+				}
+				m.AbsoluteRefs = refs
+			},
+			want: `"/" is not a prefix a rewrite can substitute`,
+		},
+		{
+			name: "a relative capture home", script: rewriteInstaller,
+			mutate: func(m *Manifest) { m.Home = "home" },
+			want:   `"home" is not a prefix a rewrite can substitute`,
 		},
 		{
 			name: "a file-content prefix that is not the capture home", script: rewriteInstaller,

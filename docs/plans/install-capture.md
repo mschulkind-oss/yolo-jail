@@ -716,6 +716,16 @@ wrong one to sequence on.
    temp file, dropping the binary sniff or the completeness check, deleting the relocation line
    `capture-materialize` prints, and `dirExists` back on `Lstat`.
 
+   *Review, 2026-09-26:* a second mutation pass found six branches no test reached, so the sentence
+   above was not yet true. Each now has a test, and each mutation was confirmed to turn it red. The
+   six: carrying on after `planRelocation`'s read error (a torn store), which wrote the capture's
+   links unrewritten into the home; the refusal of a symlink reference whose target is outside the
+   capture home; the refusal of a file-content reference on a symlink; the capture-home-`/` guard
+   (its relative-home half was found untested alongside it); `Mechanism()`'s `rewrite` arm; and
+   `Bytes` counting recorded sizes rather than bytes written. The last one was invisible because
+   both test homes had the same length. The main test's destination now has a different length from
+   the capture home, as `/Users/_yolojail` does from the staging home.
+
    NOT MEASURED: **no Mac has run any of it.** The two Linux temp dirs stand in for
    `/Users/Shared/yolo-captures/<bin>/home` and `/Users/_yolojail`. Also unmeasured on darwin:
    whether `link(2)` from a store owned by the invoking user into the sandbox user's sidecar
