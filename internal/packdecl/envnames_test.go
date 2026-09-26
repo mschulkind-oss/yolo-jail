@@ -65,3 +65,23 @@ func TestEnvNamesEncodeTheirOwnShape(t *testing.T) {
 		t.Error("an empty config list must be refused")
 	}
 }
+
+// A manifest's `"api_key_env_name": null` or `""` meant "no credential pointer" while the
+// field was a plain string, and packs were loaded under that reading — so both still read as
+// ABSENT rather than as a list holding one empty name, which manifest validation refuses and
+// LoadJailPacks makes fatal at boot: a third-party pack that loaded before the field became a
+// list must not stop a jail from starting.
+func TestAnEmptyOrNullCredentialVariableReadsAsAbsent(t *testing.T) {
+	for _, body := range []string{`null`, `""`} {
+		t.Run(body, func(t *testing.T) {
+			m, problems := Decode([]byte(`{"contributes":[{"kind":"provider","name":"p",` +
+				`"api_key_env_name":` + body + `}]}`))
+			if len(problems) != 0 {
+				t.Fatalf("api_key_env_name: %s was accepted as no pointer and must stay so: %v", body, problems)
+			}
+			if got := m.Providers()[0].APIKeyEnvName; len(got) != 0 {
+				t.Errorf("api_key_env_name: %s must decode to no names, got %#v", body, got)
+			}
+		})
+	}
+}

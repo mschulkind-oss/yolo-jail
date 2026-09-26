@@ -33,10 +33,21 @@ type EnvNames []string
 // EMPTY array is refused rather than read as "none": an author who wrote the key meant to
 // name something, and a list that silently scopes nothing is the failure the gate exists to
 // end.
+//
+// JSON null and the EMPTY STRING read as ABSENT. While the field was a plain string, both
+// decoded to "" and meant "no credential pointer", unvalidated, and manifests were loaded
+// under that reading; decoding them to a list holding one empty name would turn a pack that
+// loaded yesterday into a manifest refusal, which LoadJailPacks makes fatal at boot. A user
+// config's `providers` entry does not come through here (EnvNamesFromValue), and its "" was
+// already refused by the name rule before the field grew, so that stays as it was.
 func (n *EnvNames) UnmarshalJSON(b []byte) error {
-	var one string
+	var one *string
 	if err := json.Unmarshal(b, &one); err == nil {
-		*n = EnvNames{one}
+		if one == nil || *one == "" {
+			*n = nil
+			return nil
+		}
+		*n = EnvNames{*one}
 		return nil
 	}
 	var many []string
