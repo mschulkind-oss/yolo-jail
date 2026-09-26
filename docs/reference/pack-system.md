@@ -2455,7 +2455,7 @@ longer waits for the other launch's staging.
   READ FROM CODE, not run on a Mac.
 - **A lock file that cannot be opened** warns and leaves the launch unserialised, because the
   workspace lock is a courtesy (`acquireWorkspaceLock`).
-- **A host-scoped singleton that names `{loophole_dir}` in its `host_daemon.cmd` resolves it
+- 💬 <a id="oq-pk3"></a>**[`OQ-PK3`](#oq-pk3) — a host-scoped singleton that names `{loophole_dir}` in its `host_daemon.cmd` resolves it
   inside the launch's own tree**, and that tree goes once the launch's container is known gone,
   while the singleton, by design, outlives the jail that started it (`internal/broker`). A
   singleton that reads its module dir after it starts (a lazy import, a data file) then loses it;
@@ -2466,6 +2466,12 @@ longer waits for the other launch's staging.
   also needs the orphan-staging reaper to honour that veto); resolve the token, for host scope
   only, against a stable content-addressed copy with its own liveness collection; or refuse the
   token in a host-scoped `cmd` and say why.
+
+  <!-- vantage: oq id=OQ-PK3 leaning="Refuse {loophole_dir} in a host-scoped host_daemon.cmd, naming why: no shipped pack uses it, and keeping a tree alive for a singleton (a reaper veto) or a content-addressed host-scope copy (a new store) each add machinery for a case nobody has." -->
+
+  _Leaning:_ refuse the token in a host-scoped `cmd`, naming why: no shipped pack uses it, and the
+  other two add a veto or a store for a case nobody has yet.
+
 - **Not verified on the macOS backends.** The unit and integration tests run on Linux podman.
   Whether `TestMacosUserTwoConcurrentLaunchesOfOneWorkspace` reaches its sessions, and whether an
   Apple Container attach finds its tree through the host record, are for a Mac run to show.
@@ -2585,7 +2591,7 @@ the ruling and none changing it:
     (`TestAnAttachToAJailTheLastReleaseLaunchedNeverRidesAlong`), which the release-decode allowlist
     cites.
 12. *Implementation decision.* **A selection the jail's packs cannot serve takes the same
-    disposition**, where the first build refused it outright. OQ-SK1's terminal arm applies to
+    disposition**, where the first build refused it outright. [`OQ-SK1`](../design/attach-skew-and-contract-guardrails.md#OQ-SK1)'s terminal arm applies to
     every attach that cannot be made compatible, so at a terminal the attach asks
     `Restart jail now? [Y/n]` and a yes continues into the fresh launch, still holding the lock, as
     a missing contract tag does. The headline names the packs the jail lacks (`this jail was
