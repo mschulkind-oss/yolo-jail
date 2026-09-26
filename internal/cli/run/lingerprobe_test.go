@@ -25,11 +25,19 @@ import (
 
 const lingerCtrID = "4f2a9c1be0d34f2a9c1be0d34f2a9c1be0d34f2a9c1be0d34f2a9c1be0d3aaaa"
 
-// windowAEventsFixture is a --rm container's events, stamped relative to now:
-// it died `ago` before now, podman's teardown took `teardown`, and an attached
-// exec session died just before the container did.
-func windowAEventsFixture(ago, teardown time.Duration) string {
-	die := time.Now().Add(-ago)
+// windowAEventsFixture is a --rm container's events, stamped relative to end,
+// the moment Window A is measured to (windowAEnd: the child.exited mark, or the
+// terminate arm's signal). The container died `ago` before end, podman's teardown
+// took `teardown`, and an attached exec session died just before the container did.
+//
+// ANCHORED TO THE MARK, NEVER TO time.Now() AT QUERY TIME. Every duration the
+// launch records is end minus one of these stamps, and the whole teardown chain
+// (and stopLingerProbe) runs between the mark and the query. A now-relative stamp
+// shortened every recorded duration by that work, tens of milliseconds under CPU
+// load, and "podman stayed 1.6s" (then 1.558s, 8ms above the rounding edge)
+// printed 1.5s.
+func windowAEventsFixture(end time.Time, ago, teardown time.Duration) string {
+	die := end.Add(-ago)
 	return fmt.Sprintf("%d start\n%d exec_died\n%d died\n%d cleanup\n%d remove\n",
 		die.Add(-time.Hour).UnixNano(), die.Add(-20*time.Millisecond).UnixNano(), die.UnixNano(),
 		die.Add(teardown/2).UnixNano(), die.Add(teardown).UnixNano())
@@ -56,9 +64,10 @@ func TestWindowASplitsPodmanTeardownFromTheClientsExit(t *testing.T) {
 	var errb bytes.Buffer
 	o.Stderr = &errb
 	o.Perf.Mark("child.exited")
+	end := markAt(t, o, "child.exited")
 	o.Exec = func(argv []string, _ string, _ []string, _ time.Duration) ExecResult {
 		if len(argv) > 1 && argv[1] == "events" {
-			return ExecResult{Ran: true, Stdout: windowAEventsFixture(2*time.Second, 42*time.Millisecond)}
+			return ExecResult{Ran: true, Stdout: windowAEventsFixture(end, 2*time.Second, 42*time.Millisecond)}
 		}
 		return ExecResult{Ran: true}
 	}
@@ -66,8 +75,9 @@ func TestWindowASplitsPodmanTeardownFromTheClientsExit(t *testing.T) {
 	o.teardownAfterExit(nil, "", nil, t.TempDir(), "yolo-ws-test0000", "podman", "", 0)
 
 	total, ok := o.Perf.LastEvent("shutdown.window_a")
-	if !ok || total.Dur < 1900*time.Millisecond || total.Dur > 2300*time.Millisecond {
-		t.Fatalf("total = %v (%v), want ~2s under the OLD name so old logs still compare", total.Dur, ok)
+	if !ok || total.Dur != 2*time.Second {
+		t.Fatalf("total = %v (%v), want exactly died→child.exited = 2s under the OLD name so old logs still compare",
+			total.Dur, ok)
 	}
 	td, ok := o.Perf.LastEvent("shutdown.window_a.podman_teardown")
 	if !ok || td.Dur != 42*time.Millisecond {
@@ -109,14 +119,14 @@ func TestWindowASplitsPodmanTeardownFromTheClientsExit(t *testing.T) {
 func TestWindowAUnsplitSaysWhy(t *testing.T) {
 	for _, tc := range []struct {
 		name, token string
-		events      func() string
+		events      func(end time.Time) string
 	}{
-		{"no teardown event", "no_teardown", func() string {
-			return fmt.Sprintf("%d died\n", time.Now().Add(-1500*time.Millisecond).UnixNano())
+		{"no teardown event", "no_teardown", func(end time.Time) string {
+			return fmt.Sprintf("%d died\n", end.Add(-1500*time.Millisecond).UnixNano())
 		}},
-		{"teardown after exit", "teardown_after_exit", func() string {
-			return fmt.Sprintf("%d died\n%d remove\n", time.Now().Add(-1500*time.Millisecond).UnixNano(),
-				time.Now().Add(time.Hour).UnixNano())
+		{"teardown after exit", "teardown_after_exit", func(end time.Time) string {
+			return fmt.Sprintf("%d died\n%d remove\n", end.Add(-1500*time.Millisecond).UnixNano(),
+				end.Add(time.Hour).UnixNano())
 		}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -126,9 +136,10 @@ func TestWindowAUnsplitSaysWhy(t *testing.T) {
 			o := quietRecordingOptions(t, ws, home)
 			o.Stderr = &bytes.Buffer{}
 			o.Perf.Mark("child.exited")
+			end := markAt(t, o, "child.exited")
 			o.Exec = func(argv []string, _ string, _ []string, _ time.Duration) ExecResult {
 				if len(argv) > 1 && argv[1] == "events" {
-					return ExecResult{Ran: true, Stdout: tc.events()}
+					return ExecResult{Ran: true, Stdout: tc.events(end)}
 				}
 				return ExecResult{Ran: true}
 			}
@@ -235,22 +246,36 @@ func TestLingeringClientIsSampledAndNamedAtAQuietQuit(t *testing.T) {
 	}
 
 	o.Perf.Mark("child.exited")
+	end := markAt(t, o, "child.exited")
+	// died 1.690s before the exit, removed 42ms after the death: the client stayed
+	// exactly 1.648s. The two round apart (1.7 vs 1.6), so the line below can only
+	// pass if it prints the client's stay rather than the whole window.
 	o.Exec = func(argv []string, _ string, _ []string, _ time.Duration) ExecResult {
 		if len(argv) > 1 && argv[1] == "events" {
-			return ExecResult{Ran: true, Stdout: windowAEventsFixture(1600*time.Millisecond, 42*time.Millisecond)}
+			return ExecResult{Ran: true, Stdout: windowAEventsFixture(end, 1690*time.Millisecond, 42*time.Millisecond)}
 		}
 		return ExecResult{Ran: true}
 	}
 	o.teardownAfterExit(nil, "", nil, t.TempDir(), "yolo-ws-test0000", "podman", "", 0)
 	o.emitTimingReport(0, "yolo-ws-test0000", "podman")
 
-	if !strings.Contains(perfFile(t, ws), "note   shutdown.window_a.input_to_exit  no input forwarded this session") {
-		t.Errorf("the input-gap note is missing on a launch that saw the death:\n%s", perfFile(t, ws))
+	file = perfFile(t, ws)
+	for _, w := range []string{
+		"note   shutdown.window_a.input_to_exit  no input forwarded this session",
+		"end    shutdown.window_a.client_exit  dur=1.648s",
+	} {
+		if !strings.Contains(file, w) {
+			t.Errorf("missing %q:\n%s", w, file)
+		}
 	}
 	got := errb.String()
-	line := "yolo: podman stayed 1.6s after its container was removed, blocked in " + want
-	if !strings.Contains(got, line) {
-		t.Errorf("stderr missing %q:\n%s", line, got)
+	for _, line := range []string{
+		"yolo: shutdown.window_a took 1.690s",
+		"yolo: podman stayed 1.6s after its container was removed, blocked in " + want,
+	} {
+		if !strings.Contains(got, line) {
+			t.Errorf("stderr missing %q:\n%s", line, got)
+		}
 	}
 	settled := perfFile(t, ws)
 	time.Sleep(150 * time.Millisecond)
@@ -270,9 +295,10 @@ func TestUnarmedProbeRecordsWhy(t *testing.T) {
 	client, _ := lingeringClient(t)
 	o.startLingerProbe("podman", "yolo-ws-test0000", "", client.Process) // the id never appeared
 	o.Perf.Mark("child.exited")
+	end := markAt(t, o, "child.exited")
 	o.Exec = func(argv []string, _ string, _ []string, _ time.Duration) ExecResult {
 		if len(argv) > 1 && argv[1] == "events" {
-			return ExecResult{Ran: true, Stdout: windowAEventsFixture(1500*time.Millisecond, 42*time.Millisecond)}
+			return ExecResult{Ran: true, Stdout: windowAEventsFixture(end, 1500*time.Millisecond, 42*time.Millisecond)}
 		}
 		return ExecResult{Ran: true}
 	}
@@ -316,10 +342,11 @@ func TestTerminateArmRecordsAWindowACutAtTheSignal(t *testing.T) {
 
 	// What onTerminate does first (pinned in source by TestTheArmsCallTheProbe).
 	o.Perf.Mark("terminate.signal")
+	end := markAt(t, o, "terminate.signal") // windowAEnd's end on this arm: the cut
 	o.lingerFinalSample("final (terminate arm)")
 	o.Exec = func(argv []string, _ string, _ []string, _ time.Duration) ExecResult {
 		if len(argv) > 1 && argv[1] == "events" {
-			return ExecResult{Ran: true, Stdout: windowAEventsFixture(1500*time.Millisecond, 42*time.Millisecond)}
+			return ExecResult{Ran: true, Stdout: windowAEventsFixture(end, 1500*time.Millisecond, 42*time.Millisecond)}
 		}
 		return ExecResult{Ran: true}
 	}
@@ -332,8 +359,10 @@ func TestTerminateArmRecordsAWindowACutAtTheSignal(t *testing.T) {
 	if !strings.Contains(file, "mark   shutdown.window_a_cut.signal") {
 		t.Errorf("the cut is not marked:\n%s", file)
 	}
-	if _, ok := o.Perf.LastEvent("shutdown.window_a.client_exit"); !ok {
+	if ce, ok := o.Perf.LastEvent("shutdown.window_a.client_exit"); !ok {
 		t.Error("the terminate arm recorded no split")
+	} else if ce.Dur != 1458*time.Millisecond {
+		t.Errorf("client_exit = %v, want exactly remove→signal = 1.458s: the window is cut AT the signal", ce.Dur)
 	}
 }
 
@@ -375,8 +404,9 @@ func TestForwardedInputAfterTheDeathIsTimedNeverRecorded(t *testing.T) {
 	}
 	// The gap is written by recordWindowA itself, the production call site.
 	o.Perf.Mark("child.exited")
+	end := markAt(t, o, "child.exited")
 	o.Exec = func(argv []string, _ string, _ []string, _ time.Duration) ExecResult {
-		return ExecResult{Ran: true, Stdout: windowAEventsFixture(time.Second, 42*time.Millisecond)}
+		return ExecResult{Ran: true, Stdout: windowAEventsFixture(end, time.Second, 42*time.Millisecond)}
 	}
 	o.recordWindowA("yolo-ws-test0000", "podman")
 
@@ -513,9 +543,10 @@ func TestNoLingerLineUnderTheThreshold(t *testing.T) {
 	var errb bytes.Buffer
 	o.Stderr = &errb
 	o.Perf.Mark("child.exited")
+	end := markAt(t, o, "child.exited")
 	o.Exec = func(argv []string, _ string, _ []string, _ time.Duration) ExecResult {
 		if len(argv) > 1 && argv[1] == "events" {
-			return ExecResult{Ran: true, Stdout: windowAEventsFixture(perf.SlowSpanThreshold/2, 42*time.Millisecond)}
+			return ExecResult{Ran: true, Stdout: windowAEventsFixture(end, perf.SlowSpanThreshold/2, 42*time.Millisecond)}
 		}
 		return ExecResult{Ran: true}
 	}

@@ -646,15 +646,30 @@ func TestInitPerfWithNoRefIsFine(t *testing.T) {
 }
 
 // windowAFixture renders a `podman events --format '{{.TimeNano}} {{.Status}}'`
-// log for a container that died `ago` before now and was removed 300ms later.
-// Relative to now, not a frozen unix stamp, because the gap Window A measures is
-// (child.exited mark) - (died event) and the mark is real-clock. The statuses are
-// the ones podman actually emits for a `--rm` container: `died`, then `remove`.
-func windowAFixture(ago time.Duration) string {
-	die := time.Now().Add(-ago)
+// log for a container that died `ago` before end and was removed 300ms later,
+// where end is the child.exited mark (markAt). Relative to that mark, not a frozen
+// unix stamp and not time.Now() when the query runs, because the gap Window A
+// measures is (child.exited mark) - (died event): the mark is real-clock, and the
+// teardown chain runs between it and the query, so a now-relative stamp comes out
+// short by however long that took (windowAEventsFixture has the flake it caused).
+// The statuses are the ones podman actually emits for a `--rm` container: `died`,
+// then `remove`.
+func windowAFixture(end time.Time, ago time.Duration) string {
+	die := end.Add(-ago)
 	return fmt.Sprintf("%d start\n%d died\n%d remove\n",
 		die.Add(-time.Second).UnixNano(), die.UnixNano(),
 		die.Add(300*time.Millisecond).UnixNano())
+}
+
+// markAt is when the launch recorded the named mark: the end a Window A fixture
+// is stamped against (here and in lingerprobe_test.go).
+func markAt(t *testing.T, o *Options, name string) time.Time {
+	t.Helper()
+	ev, ok := o.Perf.LastEvent(name)
+	if !ok {
+		t.Fatalf("no %s mark", name)
+	}
+	return ev.At
 }
 
 // quietRecordingOptions is a launch with the PERSISTENT opt-in on and neither
@@ -694,8 +709,9 @@ func TestQuietTeardownRecordsWindowA(t *testing.T) {
 	emptyLoopholeDirs(t)
 	o := quietRecordingOptions(t, ws, home)
 	o.Perf.Mark("child.exited") // the arm's precondition, as the proxy leaves it
+	end := markAt(t, o, "child.exited")
 	o.Exec = func([]string, string, []string, time.Duration) ExecResult {
-		return ExecResult{Ran: true, RC: 0, Stdout: windowAFixture(1500 * time.Millisecond)}
+		return ExecResult{Ran: true, RC: 0, Stdout: windowAFixture(end, 1500*time.Millisecond)}
 	}
 
 	o.teardownAfterExit(nil, "", nil, t.TempDir(), "yolo-ws-test0000", "podman", "", 0)
@@ -704,14 +720,14 @@ func TestQuietTeardownRecordsWindowA(t *testing.T) {
 	if !ok {
 		t.Fatal("shutdown.window_a was not recorded — a quiet launch still cannot price Window A")
 	}
-	if ev.Dur < 1300*time.Millisecond || ev.Dur > 1900*time.Millisecond {
-		t.Errorf("Window A recorded as %v, want ~1.5s from the fixture", ev.Dur)
+	if ev.Dur != 1500*time.Millisecond {
+		t.Errorf("Window A recorded as %v, want exactly died→child.exited = 1.5s from the fixture", ev.Dur)
 	}
 	fileBytes, err := os.ReadFile(filepath.Join(ws, ".yolo", HostPerfLogName))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(fileBytes), "end    shutdown.window_a  dur=1.") {
+	if !strings.Contains(string(fileBytes), "end    shutdown.window_a  dur=1.500s") {
 		t.Errorf("the number did not reach the file; got:\n%s", fileBytes)
 	}
 }
@@ -758,12 +774,13 @@ func TestWindowAQueriedOncePerLaunch(t *testing.T) {
 	o.Timing = true // the printing launch: arm records, report renders
 	o.initPerf("yolo-ws-test0000")
 	o.Perf.Mark("child.exited")
+	end := markAt(t, o, "child.exited")
 	queries := 0
 	o.Exec = func(argv []string, _ string, _ []string, _ time.Duration) ExecResult {
 		// The chain also runs the liveness `podman ps`; count only the events query.
 		if len(argv) > 1 && argv[1] == "events" {
 			queries++
-			return ExecResult{Ran: true, RC: 0, Stdout: windowAFixture(2 * time.Second)}
+			return ExecResult{Ran: true, RC: 0, Stdout: windowAFixture(end, 2*time.Second)}
 		}
 		return ExecResult{Ran: true, RC: 0}
 	}
