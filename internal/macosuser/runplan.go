@@ -11,6 +11,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/provision"
 	"github.com/mschulkind-oss/yolo-jail/internal/runtime"
+	"github.com/mschulkind-oss/yolo-jail/internal/tty"
 )
 
 // RunPlan is the fully-resolved, ordered artifacts + commands for one session.
@@ -347,7 +348,18 @@ func BuildRunPlan(workspace string, cfg *jsonx.OrderedMap, agents, agentArgv []s
 	provisionScriptPath := ""
 	if ProvisionNeeded(cfg) {
 		provisionScriptPath = ProvisionBootstrapScript(workspace)
-		provisionArgv = ProvisionArgv(ProvisionScript(workspace, provisionScriptPath),
+		// The console line's color is the NO_COLOR half of the one gate (tty.NoColor), read
+		// from the env this stage will run in — the forwarded host value (MacosSandboxEnv), or
+		// one the user's own env layers set — because the stage prints from the sandbox, a
+		// stream nothing here can probe, exactly as the container's does.
+		scriptColor := !tty.NoColor(func(k string) string {
+			if sandboxEnv == nil {
+				return ""
+			}
+			v, _ := sandboxEnv.Get(k)
+			return asStr(v)
+		})
+		provisionArgv = ProvisionArgv(ProvisionScript(workspace, provisionScriptPath, scriptColor),
 			profilePath, envFile, workspace, "", "", darwinPrefix)
 	}
 

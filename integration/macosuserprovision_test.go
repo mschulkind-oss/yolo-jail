@@ -349,7 +349,7 @@ func TestMacosUserStageAnnounceTextIsWhatTheStageEchoes(t *testing.T) {
 // timestamp LAYOUT against the strftime format the script hands `date`, because there is
 // no mechanical translation between Go's reference time and strftime.
 func TestMacosUserStageBannerMatchesTheScriptItParses(t *testing.T) {
-	script := provision.Script("/Users/Shared/yolo/ws/.yolo/startup.log", "true")
+	script := provision.Script("/Users/Shared/yolo/ws/.yolo/startup.log", "true", true)
 	for _, want := range []string{
 		macosUserStageBannerPrefix,
 		macosUserStageBannerSuffix,

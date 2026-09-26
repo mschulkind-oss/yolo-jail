@@ -67,7 +67,13 @@ func shellQuoteForTest(s string) string { return "'" + strings.ReplaceAll(s, "'"
 // non-interactive shape every harnessed launch has).
 func (f stageFixture) run(t *testing.T, target string, timing bool) (rc int, stdout, stderr string) {
 	t.Helper()
-	cmdText := finalCmdIn(t, buildFinalInternalCmd(target, timing), f.log)
+	return f.runComposed(t, buildFinalInternalCmd(target, timing, true))
+}
+
+// runComposed runs an already-composed container command the way run does.
+func (f stageFixture) runComposed(t *testing.T, composed string) (rc int, stdout, stderr string) {
+	t.Helper()
+	cmdText := finalCmdIn(t, composed, f.log)
 	cmd := exec.Command("bash", "-c", cmdText)
 	cmd.Dir = f.home
 	cmd.Env = []string{"HOME=" + f.home, "PATH=" + f.fakeBin + ":/bin:/usr/bin"}
@@ -182,9 +188,9 @@ func TestExecutingBannerPrintsTheTargetVerbatim(t *testing.T) {
 		"%",
 		`\`,
 	} {
-		banner := executingBanner(target)
+		banner := executingBanner(target, true)
 		for _, timing := range []bool{false, true} {
-			if !strings.Contains(buildFinalInternalCmd(target, timing), banner+"; "+target) {
+			if !strings.Contains(buildFinalInternalCmd(target, timing, true), banner+"; "+target) {
 				t.Errorf("timing=%v: buildFinalInternalCmd does not print executingBanner(%q) "+
 					"immediately before the target", timing, target)
 			}

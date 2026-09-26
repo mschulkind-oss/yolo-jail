@@ -160,7 +160,7 @@ const macosUserStageAbortedConsoleLine = "Provisioning was aborted."
 // Pins the needles above against the code that prints them. See the item 7 file's pair for
 // why a Mac-only assertion never spells its expected value by hand.
 func TestMacosUserStageFailureConsoleLinesAreWhatTheScriptPrints(t *testing.T) {
-	script := provision.Script("/Users/Shared/yolo/ws/.yolo/startup.log", "false")
+	script := provision.Script("/Users/Shared/yolo/ws/.yolo/startup.log", "false", true)
 	for _, want := range []string{
 		macosUserStageFailedConsoleLine,
 		macosUserStagePromptLine,

@@ -80,8 +80,12 @@ func ProvisionSetup(bootstrapScript string) string {
 // has that status passed through here exactly as in the container, and runProvisionStage
 // (orchestrator.go) stops the launch on it. The bootstrap is already this backend's LAST step,
 // which is what keeps a refusal from skipping anything else ProvisionSetup runs.
-func ProvisionScript(workspace, bootstrapScript string) string {
-	return provision.Script(provision.StartupLog(workspace), ProvisionSetup(bootstrapScript))
+//
+// `color` decides only whether the console failure line is red (provision.Script says why the
+// caller decides); BuildRunPlan passes the NO_COLOR half of the one gate over the env the
+// sandbox will run in.
+func ProvisionScript(workspace, bootstrapScript string, color bool) string {
+	return provision.Script(provision.StartupLog(workspace), ProvisionSetup(bootstrapScript), color)
 }
 
 // ProvisionArgv builds the stage's privileged argv:

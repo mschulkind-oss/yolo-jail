@@ -10,7 +10,7 @@ import "testing"
 // otherwise unpinned, so a reintroduced upgrade would ship green there.
 func TestFinalInternalCmdNeverUpgrades(t *testing.T) {
 	for _, profile := range []bool{false, true} {
-		got := buildFinalInternalCmd("bash", profile)
+		got := buildFinalInternalCmd("bash", profile, true)
 		if contains(got, "mise upgrade") {
 			t.Errorf("profile=%v: launch command runs `mise upgrade`: %q", profile, got)
 		}

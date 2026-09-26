@@ -37,7 +37,7 @@ func TestProvisioningFailedBannerBindsItsThreeSites(t *testing.T) {
 	// EMITTER. provisionScript writes the banner into startup.log; setupScript, which it
 	// wraps, does not contain the string at all — the attribution the old comment got
 	// backwards.
-	if !strings.Contains(provisionScript, provisioningFailedBanner) {
+	if !strings.Contains(provisionScript(true), provisioningFailedBanner) {
 		t.Errorf("provisionScript no longer emits %q — nothing else writes it, so a failed "+
 			"provision leaves a log its two readers cannot recognize", provisioningFailedBanner)
 	}
@@ -83,10 +83,10 @@ func TestProvisioningFailedBannerBindsItsThreeSites(t *testing.T) {
 // comment would be promising a pin that no longer covers it — and the golden would keep
 // passing, since the golden only ever sees this function's output.
 func TestFinalInternalCmdClosesOverEveryFrozenConstant(t *testing.T) {
-	got := buildFinalInternalCmd("bash", false)
+	got := buildFinalInternalCmd("bash", false, true)
 	for name, part := range map[string]string{
 		"setupScript":     setupScript,
-		"provisionScript": provisionScript,
+		"provisionScript": provisionScript(true),
 		"miseActivate":    miseActivate,
 	} {
 		if !strings.Contains(got, part) {

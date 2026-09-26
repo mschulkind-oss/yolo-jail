@@ -1443,7 +1443,7 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 	// PRINT-ONLY (the jail appends to ~/.yolo-perf.log with or without it), so a
 	// silently-recording launch must not switch it on — it is the second half of
 	// the noise D12 removes, and the larger half on a fast host.
-	runCmd = append(runCmd, buildFinalInternalCmd(targetCmd, o.timingReporting()))
+	runCmd = append(runCmd, o.finalInternalCmd(targetCmd))
 
 	if o.Getenv("YOLO_DEBUG") != "" {
 		// Write RAW (not via the rich-stripping printer): the argv contains

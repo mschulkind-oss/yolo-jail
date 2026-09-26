@@ -14,7 +14,7 @@ func TestBuildFinalInternalCmdBashGolden(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got := buildFinalInternalCmd("bash", false)
+	got := buildFinalInternalCmd("bash", false, true)
 	if got != string(want) {
 		t.Errorf("final_internal_cmd mismatch\n got: %q\nwant: %q", got, string(want))
 	}
@@ -25,7 +25,7 @@ func TestBuildFinalInternalCmdBashGolden(t *testing.T) {
 // it is TestExecutingBannerPrintsTheTargetVerbatim's job, which runs it rather than
 // grepping for an escape.
 func TestBuildFinalInternalCmdQuotingEscapesDisplay(t *testing.T) {
-	got := buildFinalInternalCmd("echo 'hi'", false)
+	got := buildFinalInternalCmd("echo 'hi'", false, true)
 	if !hasSuffixStr(got, "; echo 'hi'") {
 		t.Errorf("target_cmd tail not raw: %q", got)
 	}

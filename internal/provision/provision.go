@@ -138,6 +138,14 @@ func SetupBypassingShims(steps ...string) string {
 // line and the continue/abort prompt. `logPath` is StartupLog for the workspace being
 // provisioned; `setup` is a Setup/SetupBypassingShims result.
 //
+// `color` decides whether the console line is red, and it is the CALLER'S decision
+// because this script cannot make it well: it runs in a process whose stream the
+// launcher never probes, and in an environment the backend composes. Each caller passes
+// the NO_COLOR half of the one gate (tty.NoColor) over the launch environment — the
+// line was never terminal-gated — and color=false drops exactly the two escape pairs,
+// leaving every other byte, the log's included, as it is. The container's golden pins
+// the color=true bytes.
+//
 // It is bash, not sh: ${PIPESTATUS[0]} is how the exit status of the stage survives the
 // pipe into tee, and a plain `sh` would report tee's.
 //
@@ -162,9 +170,13 @@ func SetupBypassingShims(steps ...string) string {
 // because the clause reads like a supported knob and is not one: whoever needs it should
 // wire a writer, and whoever does not should delete the clause (the container's golden
 // moves with it).
-func Script(logPath, setup string) string {
+func Script(logPath, setup string, color bool) string {
 	log := shquote.Quote(logPath)
 	refused := strconv.Itoa(RefusedStatus)
+	red, reset := `\033[1;31m`, `\033[0m`
+	if !color {
+		red, reset = "", ""
+	}
 	return "" +
 		`printf "=== yolo provisioning %s ===\n" "$(date "+%Y-%m-%dT%H:%M:%S%z")" ` +
 		">" + log + "; " +
@@ -173,11 +185,11 @@ func Script(logPath, setup string) string {
 		`if [ "$_prc" -ne 0 ]; then ` +
 		`printf "` + FailedMarker + ` (exit %s)\n" "$_prc" >>` + log + "; " +
 		`if [ "$_prc" -eq ` + refused + ` ]; then ` +
-		`printf "\033[1;31m✗ Provisioning refused the launch (exit %s): the reason is above — log: ` +
-		dquoteEscape(logPath) + `\033[0m\n" "$_prc" >&2; ` +
+		`printf "` + red + `✗ Provisioning refused the launch (exit %s): the reason is above — log: ` +
+		dquoteEscape(logPath) + reset + `\n" "$_prc" >&2; ` +
 		`exit "$_prc"; fi; ` +
-		`printf "\033[1;31m✗ Provisioning failed (exit %s) — log: ` +
-		dquoteEscape(logPath) + `\033[0m\n" "$_prc" >&2; ` +
+		`printf "` + red + `✗ Provisioning failed (exit %s) — log: ` +
+		dquoteEscape(logPath) + reset + `\n" "$_prc" >&2; ` +
 		`if [ -t 0 ] && [ "${YOLO_PROVISION_PROMPT:-1}" != "0" ]; then ` +
 		`printf "Provisioning failed — continue anyway? [Y/n] " >&2; ` +
 		`read -r _ans; case "$_ans" in [nN]*) exit "$_prc";; esac; ` +

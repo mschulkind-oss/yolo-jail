@@ -3,6 +3,7 @@ package run
 import (
 	"github.com/mschulkind-oss/yolo-jail/internal/provision"
 	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
+	"github.com/mschulkind-oss/yolo-jail/internal/tty"
 )
 
 // jailWorkspace is where every container backend binds the workspace. The stage's log
@@ -62,7 +63,8 @@ const miseActivate = `. "$HOME/.config/yolo-user-env.sh" 2>/dev/null; ` +
 // provisionScript wraps setupScript with the tee-to-log + PROVISIONING FAILED
 // banner + continue/abort prompt. The wrapper is provision.Script, shared with the
 // macos-user stage; what is container-specific here is only the log path and which
-// steps the body carries.
+// steps the body carries. `color` is scriptColor's decision, and colors only the
+// console line.
 //
 // It is also what keeps a REFUSED stage from reaching the target: provision.Script ends in
 // `exit` on provision.RefusedStatus, and because provisionScript is spliced into
@@ -70,12 +72,48 @@ const miseActivate = `. "$HOME/.config/yolo-user-env.sh" 2>/dev/null; ` +
 // container's command before miseActivate, the Executing banner and the target.
 //
 // The WHOLE string is composed into buildFinalInternalCmd's output, pinned byte-for-byte
-// by TestBuildFinalInternalCmdBashGolden against testdata/final_cmd_bash.txt — so drift
-// is a golden diff. The cross-process contract the literal carries is documented where
+// (its color=true form) by TestBuildFinalInternalCmdBashGolden against
+// testdata/final_cmd_bash.txt — so drift is a golden diff. The cross-process contract the literal carries is documented where
 // the literal now lives (provision.FailedMarker), which is also where its readers are
 // named; the golden would be re-blessed around a rename without complaint, and only a
 // single definition makes the rename a compile error instead.
-var provisionScript = provision.Script(startupLog, setupScript)
+func provisionScript(color bool) string { return provision.Script(startupLog, setupScript, color) }
+
+// scriptSGR is the escape pair one generated printf line is wrapped in, spelled as
+// printf's own `\033` escape (the bytes the golden pins), or two empty strings when
+// color is off — so a plain line differs from a colored one by exactly its escapes.
+func scriptSGR(color bool, code string) (open, reset string) {
+	if !color {
+		return "", ""
+	}
+	return `\033[` + code + `m`, `\033[0m`
+}
+
+// provisioningLine is the "📦 Provisioning tools..." line both branches of
+// buildFinalInternalCmd print first.
+func provisioningLine(color bool) string {
+	dim, reset := scriptSGR(color, "2")
+	return `printf '` + dim + `📦 Provisioning tools...` + reset + `\n' >&2; `
+}
+
+// scriptColor is the color decision for every line the GENERATED container script
+// prints — the provisioning line, a provisioning failure, the "⚡ Executing" hand-over.
+//
+// It is the NO_COLOR half of the one gate (tty.NoColor) and nothing else, because the
+// terminal half has no subject here: these lines print from inside the container, whose
+// stream this process never probes, and they were never terminal-gated. The environment
+// is o.Getenv — the launch environment every other decision reads, and the one
+// noColorEnvArgs hands the jail — so the script and the jail it runs in agree.
+func (o *Options) scriptColor() bool { return !tty.NoColor(o.Getenv) }
+
+// finalInternalCmd is buildFinalInternalCmd with this launch's two decisions made:
+// the timing report (timingReporting, the PRINT gate) and the script's color. The
+// launch calls THIS, never buildFinalInternalCmd directly —
+// TestTheLaunchBuildsItsCommandThroughFinalInternalCmd pins that, so the color decision
+// cannot be dropped at the call site while the function below stays green.
+func (o *Options) finalInternalCmd(targetCmd string) string {
+	return buildFinalInternalCmd(targetCmd, o.timingReporting(), o.scriptColor())
+}
 
 // executingBanner is the "⚡ Executing: <target>" line both branches of
 // buildFinalInternalCmd print just before the target runs.
@@ -85,8 +123,9 @@ var provisionScript = provision.Script(startupLog, setupScript)
 // printf directive: `stat -c "%u:%g %a" f` was displayed as `stat -c "0:0 0x0p+0" f`, which
 // shows the user a command they did not type. As an argument to `%s` it is printed
 // byte-for-byte, and shquote.Quote makes it one word whatever it contains.
-func executingBanner(targetCmd string) string {
-	return `printf '\033[1;36m⚡ Executing: %s\033[0m\n' ` + shquote.Quote(targetCmd) + ` >&2`
+func executingBanner(targetCmd string, color bool) string {
+	cyan, reset := scriptSGR(color, "1;36")
+	return `printf '` + cyan + `⚡ Executing: %s` + reset + `\n' ` + shquote.Quote(targetCmd) + ` >&2`
 }
 
 // buildFinalInternalCmd assembles the final_internal_cmd:
@@ -104,16 +143,21 @@ func executingBanner(targetCmd string) string {
 // (the banner, run through bash), TestARefusedStageNeverReachesTheTarget (the composed
 // command run with a refusing bootstrap) and TestFinalInternalCmdNeverUpgrades (the one
 // OQ-PD3 property). Anything else confined to the timing branch still ships green.
-func buildFinalInternalCmd(targetCmd string, timing bool) string {
+//
+// `color` is scriptColor's decision, made by finalInternalCmd. The golden pins color=true;
+// color=false is exactly those bytes minus their escapes, which
+// TestFinalInternalCmdIsTheGoldenWhenColorIsOn asserts, so NO_COLOR moved no frozen byte for
+// a launch that does not set it.
+func buildFinalInternalCmd(targetCmd string, timing, color bool) string {
 	if timing {
 		return "" +
 			"exec 3>&2; " +
-			`printf '\033[2m📦 Provisioning tools...\033[0m\n' >&2; ` +
-			"_t0=$(date +%s%N); " + provisionScript + "; " +
+			provisioningLine(color) +
+			"_t0=$(date +%s%N); " + provisionScript(color) + "; " +
 			"_t1=$(date +%s%N); " +
 			miseActivate + "; " +
 			"_t2=$(date +%s%N); " +
-			executingBanner(targetCmd) + "; " +
+			executingBanner(targetCmd, color) + "; " +
 			targetCmd + "; _rc=$?; " +
 			"_t3=$(date +%s%N); " +
 			"echo '' >&3; echo '=== YOLO Jail Profile ===' >&3; " +
@@ -134,9 +178,9 @@ func buildFinalInternalCmd(targetCmd string, timing bool) string {
 			"exit $_rc"
 	}
 	return "" +
-		`printf '\033[2m📦 Provisioning tools...\033[0m\n' >&2; ` +
-		provisionScript + "; " +
+		provisioningLine(color) +
+		provisionScript(color) + "; " +
 		miseActivate + "; " +
-		executingBanner(targetCmd) + "; " +
+		executingBanner(targetCmd, color) + "; " +
 		targetCmd
 }

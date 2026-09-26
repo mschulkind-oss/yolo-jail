@@ -517,3 +517,37 @@ func TestARefusingStageStopsTheLaunchAndSaysSo(t *testing.T) {
 		t.Errorf("a refusal was reported as a human's veto:\n%s", buf.String())
 	}
 }
+
+// TestTheProvisioningStageHonorsNoColor: the stage's console failure line is red unless
+// the host's NO_COLOR is set, which the plan reads from the env the sandbox runs in —
+// driven from the host environment through buildPlan, so the forwarding
+// (MacosSandboxEnv) and the decision (BuildRunPlan) are both on the path. The unset run
+// is the control that keeps the veto from passing on a script that never colored.
+func TestTheProvisioningStageHonorsNoColor(t *testing.T) {
+	for _, tc := range []struct {
+		noColor  string
+		wantANSI bool
+	}{{"", true}, {"1", false}} {
+		d := mockDeps(nil)
+		d.Getenv = func(k string) string {
+			if k == "NO_COLOR" {
+				return tc.noColor
+			}
+			return ""
+		}
+		opts := newOpts("/Users/Shared/yolo/proj")
+		opts.Config = provisionCfg()
+		plan := buildPlan(d, opts, mockDarwin())
+		if len(plan.ProvisionArgv) == 0 {
+			t.Fatal("the fixture asks for the stage, and the plan carries none")
+		}
+		stage := strings.Join(plan.ProvisionArgv, " ")
+		if !strings.Contains(stage, "✗ Provisioning failed") {
+			t.Fatalf("the stage no longer carries its failure line:\n%s", stage)
+		}
+		if hasANSI := strings.Contains(stage, `\033[`); hasANSI != tc.wantANSI {
+			t.Errorf("host NO_COLOR=%q: the stage's console line carries an escape = %v, want %v",
+				tc.noColor, hasANSI, tc.wantANSI)
+		}
+	}
+}

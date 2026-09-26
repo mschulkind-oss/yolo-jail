@@ -30,7 +30,7 @@ func TestFailedMarkerIsTheLiteralTheSkillAndTheBriefingLookFor(t *testing.T) {
 // The marker has to reach the LOG, not only the console: the console line scrolls away
 // and the log is what the next launch's briefing reads.
 func TestScriptWritesTheMarkerIntoTheLog(t *testing.T) {
-	s := Script(StartupLog("/ws"), Setup("false"))
+	s := Script(StartupLog("/ws"), Setup("false"), true)
 	idx := strings.Index(s, FailedMarker)
 	if idx < 0 {
 		t.Fatal("the script never emits the marker")
@@ -46,7 +46,7 @@ func TestScriptWritesTheMarkerIntoTheLog(t *testing.T) {
 // nobody to ask, and a jail whose tools did not install is still a jail the user asked
 // for — the record is in the log.
 func TestOnlyAnExplicitNoPropagatesAFailure(t *testing.T) {
-	s := Script(StartupLog("/ws"), Setup("false"))
+	s := Script(StartupLog("/ws"), Setup("false"), true)
 	if !strings.Contains(s, `if [ -t 0 ]`) {
 		t.Error("the prompt is not gated on a tty, so a non-interactive launch would block " +
 			"or abort on a failed stage")
@@ -59,7 +59,7 @@ func TestOnlyAnExplicitNoPropagatesAFailure(t *testing.T) {
 // The stage's own exit status has to survive the pipe into tee, or a failure is invisible:
 // the pipeline's status is tee's, which is 0 whenever tee could write.
 func TestTheStagesStatusIsReadThroughPIPESTATUS(t *testing.T) {
-	s := Script(StartupLog("/ws"), Setup("false"))
+	s := Script(StartupLog("/ws"), Setup("false"), true)
 	if !strings.Contains(s, `_prc="${PIPESTATUS[0]}"`) {
 		t.Error("the script reads the pipeline's status rather than the stage's; a failed " +
 			"stage would report success because tee succeeded")
@@ -84,7 +84,7 @@ func TestAnAwkwardWorkspacePathCannotBreakTheScript(t *testing.T) {
 		"/Users/Shared/`whoami`",
 		`/Users/Shared/back\slash`,
 	} {
-		assertParses(t, Script(StartupLog(ws), Setup(StepRunBootstrapAt(ws+"/.yolo/home/yolo-bootstrap.sh"))))
+		assertParses(t, Script(StartupLog(ws), Setup(StepRunBootstrapAt(ws+"/.yolo/home/yolo-bootstrap.sh")), true))
 	}
 }
 
@@ -93,10 +93,10 @@ func TestAnAwkwardWorkspacePathCannotBreakTheScript(t *testing.T) {
 func TestBothBackendsComposeParseableScripts(t *testing.T) {
 	assertParses(t, Script(StartupLog("/workspace"), SetupBypassingShims(
 		StepPruneStore, StepAnnounceMiseInstall, StepMiseInstall,
-		StepAnnounceBootstrap, StepRunBootstrap, StepRunVenvPrecreate)))
+		StepAnnounceBootstrap, StepRunBootstrap, StepRunVenvPrecreate), true))
 	assertParses(t, Script(StartupLog("/Users/Shared/yolo/proj"), Setup(
 		StepAnnounceMiseInstall, StepMiseInstall, StepAnnounceBootstrap,
-		StepRunBootstrapAt("/Users/Shared/yolo/proj/.yolo/home/yolo-bootstrap.sh"))))
+		StepRunBootstrapAt("/Users/Shared/yolo/proj/.yolo/home/yolo-bootstrap.sh")), true))
 }
 
 // assertParses runs `bash -n` over a composed script. Skipped where bash is absent —
@@ -155,6 +155,11 @@ func TestSetupBypassingShimsActuallyBypasses(t *testing.T) {
 // stdin wired to `stdin` (nil = /dev/null, the non-interactive shape). It returns the exit
 // status, stdout, stderr and the log.
 func runStage(t *testing.T, setup string, stdin *os.File) (rc int, stdout, stderr, log string) {
+	return runStageColor(t, setup, stdin, true)
+}
+
+// runStageColor is runStage with the console line's color decided by the caller.
+func runStageColor(t *testing.T, setup string, stdin *os.File, color bool) (rc int, stdout, stderr, log string) {
 	t.Helper()
 	bash, err := exec.LookPath("bash")
 	if err != nil {
@@ -164,7 +169,7 @@ func runStage(t *testing.T, setup string, stdin *os.File) (rc int, stdout, stder
 	if err := os.MkdirAll(filepath.Dir(logPath), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	cmd := exec.Command(bash, "-c", Script(logPath, setup)+"; echo TARGET-REACHED")
+	cmd := exec.Command(bash, "-c", Script(logPath, setup, color)+"; echo TARGET-REACHED")
 	if stdin != nil {
 		cmd.Stdin = stdin
 	}
@@ -229,7 +234,7 @@ func TestAnOrdinaryFailureStillReachesTheTarget(t *testing.T) {
 // THE STATUS IS SPELLED ONCE. The literal 78 must reach the script from the constant, or a
 // renumbering would leave the wrapper testing for a status nothing produces any more.
 func TestTheRefusalTestReadsTheConstant(t *testing.T) {
-	s := Script(StartupLog("/ws"), Setup("true"))
+	s := Script(StartupLog("/ws"), Setup("true"), true)
 	if !strings.Contains(s, `[ "$_prc" -eq `+strconv.Itoa(RefusedStatus)+` ]`) {
 		t.Errorf("the wrapper does not test for RefusedStatus (%d):\n%s", RefusedStatus, s)
 	}
@@ -239,5 +244,31 @@ func TestTheRefusalTestReadsTheConstant(t *testing.T) {
 	prompt := strings.Index(s, "[ -t 0 ]")
 	if refuse < 0 || prompt < 0 || refuse > prompt {
 		t.Errorf("the refusal must be decided before the tty prompt (refusal at %d, prompt at %d)", refuse, prompt)
+	}
+}
+
+// TestTheConsoleLineHonorsColor runs a FAILING stage both ways. With color the
+// console line is red; without it — the NO_COLOR half of the one gate, decided by
+// each backend's caller — it carries no escape at all, and the words, the marker in
+// the log and the exit behavior are exactly the colored stage's.
+//
+// MUTATION: ignore `color` in Script and the plain run fails.
+func TestTheConsoleLineHonorsColor(t *testing.T) {
+	_, _, colored, _ := runStageColor(t, "false", nil, true)
+	if !strings.Contains(colored, "\x1b[1;31m") {
+		t.Fatalf("control: the colored failure line is not red:\n%q", colored)
+	}
+	rc, stdout, plain, log := runStageColor(t, "false", nil, false)
+	if strings.Contains(plain, "\x1b[") {
+		t.Errorf("color=false still wrote an escape to the console:\n%q", plain)
+	}
+	if !strings.Contains(plain, "✗ Provisioning failed (exit 1)") {
+		t.Errorf("the plain failure line lost its words:\n%q", plain)
+	}
+	if !strings.Contains(log, FailedMarker) || rc != 0 || !strings.Contains(stdout, "TARGET-REACHED") {
+		t.Errorf("color=false changed more than the escapes: rc %d, stdout %q, log %q", rc, stdout, log)
+	}
+	if s := Script(StartupLog("/ws"), Setup("false"), false); strings.Contains(s, `\033`) {
+		t.Errorf("color=false left an escape in the script:\n%s", s)
 	}
 }
