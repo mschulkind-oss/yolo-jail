@@ -485,18 +485,42 @@ hand.
 Two things remain open. First, the loopback refusal is not evidence that nothing listens there.
 The fourth Mac run (run 36193230191 at `74d830f2`) shows `container inspect` publishing both
 ports with `hostAddress 0.0.0.0`, and `lsof` showing the `container` process listening on
-`*:<port>` (IPv4), which includes `127.0.0.1`. The probe keeps only each listener's last error,
-and its last loopback dials land after the jail has exited, so the recorded `refused` is the
-probe's own artifact. Whether loopback also resets while the jail runs is unmeasured; the probe
-should record each error kind with its time. `[::1]` is genuinely refused, because the listener
-is IPv4 only. Second, it is **unverified** that granting the
-permission makes #10 hold. A grant is keyed to a binary's code signature, so an ad-hoc-signed
-helper's grant may not survive a `brew upgrade`, and a background helper may never raise a prompt.
-Apple's Developer-ID-signed release package may behave differently. The next step is a grant in
-System Settings → Privacy & Security → Local Network, or that package on the runner, then a #10
-rerun. Until then #10 measures the runner's Local Network permissions, not yolo. The macos-user
-checks #6, #7, #9 and #14 are still unrun: the last `macos-user.yml` run, on 2026-09-25, did not
-select them.
+`*:<port>` (IPv4), which includes `127.0.0.1`. That run's probe kept only each listener's last
+error, and its last loopback dials land after the jail has exited, so the recorded `refused` is
+the probe's own artifact. Whether loopback also resets while the jail runs is unmeasured.
+`[::1]` is genuinely refused, because the listener is IPv4 only. Second, it is **unverified**
+that granting the permission makes #10 hold. A grant is keyed to a binary's code signature, so an
+ad-hoc-signed helper's grant may not survive a `brew upgrade`, and a background helper may never
+raise a prompt. Apple's Developer-ID-signed release package may behave differently. The next step
+is a grant in System Settings → Privacy & Security → Local Network, or that package on the
+runner, then a #10 rerun. Until then #10 measures the runner's Local Network permissions, not
+yolo.
+
+**Since 2026-09-26 the probe records what that rerun needs.** The change is unit-tested on Linux
+and unrun on the Mac.
+- **Every dial, not the last one.** Each dial keeps its time, the kind of answer, and the jail's
+  phase when it started (`acListenerResult`). The kinds are refused, no route to host, accepted
+  then reset, accepted then EOF, and a few rarer ones. The phases are before the jail reported
+  listening, while it ran, and after its script ended. The jail marks each boundary by writing a
+  file into the shared workspace: the first once both servers have had a second to bind, the
+  second as its script's last act. Each target's record is run-length encoded, so a run prints
+  lines such as "while the jail ran: 12× accepted, then reset" and "after the jail's script
+  ended: 3× refused". That answers the loopback question above.
+- **Local Network privacy, named in the verdict.** When no dial to the container's own address
+  reaches it, at least one fails `EHOSTUNREACH`, and `route -n get` shows a live route, the
+  evidence opens with a diagnosis naming Local Network privacy and the fix: a Local Network grant
+  for the runner and the container helpers, or Apple's signed package (`acLocalNetworkFinding`).
+  A live route here is one that is flagged `UP` and not `GATEWAY`, meaning directly attached, as
+  `bridge100` is for the vmnet subnet. A route through a gateway does not count, because a Mac
+  with a default route has one for every address. The diagnosis speaks for the test process, the
+  one binary whose dials are recorded; that the helpers are denied stays inferred. If neither mode
+  reached the Mac, the verdict line points to the diagnosis instead of naming `-p` itself as the
+  finding (`acPortVerdict`). If a published port did answer, the diagnosis says the denial is the
+  test process's own and does not decide #10. That is the likely shape of a run where the helpers
+  are granted and the `go test` binary is not. Both verdicts still pass.
+
+The macos-user checks #6, #7, #9 and #14 are still unrun: the last `macos-user.yml` run, on
+2026-09-25, did not select them.
 
 ---
 
