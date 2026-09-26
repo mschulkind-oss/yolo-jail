@@ -18,6 +18,8 @@ covers:
   - internal/cli/applyhostbriefings.go
   - internal/entrypoint/hostbriefing.go
   - internal/entrypoint/hostoverlayprune.go
+  - internal/cli/applyhostprune.go
+  - internal/cli/applyhostoverlaykeys.go
   - internal/entrypoint/hostrevert.go
   - internal/agentcfg/
   - internal/loopholedecl/settings.go
@@ -42,7 +44,17 @@ was re-checked against `5a44129d` (2026-09-25) when its design folded in. MEASUR
 `ubuntu-latest` and `ubuntu-24.04-arm`): `TestConfigListSurvivesInJailEditsAndPackDrop` passed. It
 runs three launches of one workspace: pi with a `file://` pack's list contribution, an in-jail `jq`
 append standing in for `pi install`, then the contributing pack dropped. UNMEASURED: no real
-`pi install` has been observed against a list path.
+`pi install` has been observed against a list path. The
+[dropped-pack retirement section](#retiring-a-dropped-packs-host-output) and its four
+*pack drop* rulings were folded in on 2026-09-26 and verified against `1912f8f8`. UNMEASURED: no
+real `yolo host apply` over a dropped pack is recorded; the behavior is pinned by unit tests that
+drive the apply into throwaway homes (`applyhostprune_test.go`, `applyhostoverlaykeys_test.go`,
+`provenanceretire_test.go`). The *open rulings* and *pack batch* rows of the
+[appendix](#why-its-this-way), the [lint questions](#pack-lint-questions), the
+[S4 warning](#skills-fanout-s4) and the [host-side dependency rule](#host-side-staging-then-jail-side-render)
+were folded in on 2026-09-26 and verified against `38814ba4`. MEASURED for the *pack batch*
+rows: each defect they record was found by running the host lifecycle (apply, re-apply, drop)
+with a real binary in a temporary home, on 2026-08-04.
 
 A **pack** is a directory of jail configuration — skills, briefing prose, composed config
 files, environment variables, and optionally a tool to install — that yolo delivers into
@@ -312,6 +324,20 @@ deliver the script it tells an agent to run.
 `yolo pack lint` runs the real staging executor against a directory and reports what it
 would stage and what it would drop, so these rules are checkable before a pack is
 configured.
+
+<a id="pack-lint-questions"></a>Its two whole-pack checks ask two questions, and never as one
+([§7 (pack batch)](#batch-7)). Each is a failure, not a warning: lint prints it as a ✗ line and
+exits 1.
+
+- **Does the pack do anything?** A pack that declares zero contributions *and* ships nothing read
+  by convention fails lint. Both halves are required, because a pack with no manifest does
+  real work through its `skills/` tree and its `briefing/` prose.
+- **Does it stage content nothing reads?** This fires only when not one staged content file is
+  claimed, by a contribution or by a conventionally-read location, so one stray file beside
+  working content draws no line.
+
+A declared `from` that stages nothing is a more specific complaint, and it replaces both. A pack
+that merely leaves out a part it could ship never fails either check.
 
 ## The manifest
 
@@ -624,8 +650,11 @@ which is what lets a content-only pack carry a remedy.
 
 #### `skills`
 
-A skills tree merged into an agent's skills dir. Precedence is built-in < pack < the user's
-own tree, so a local skill always wins. `from` defaults to `skills/`, and is honored at both
+A skills tree merged into an agent's skills dir. Layer order is built-in < pack < the local
+pack (`~/.config/yolo-jail/local`, appended last). In a jail a later layer wins a same-named
+skill silently; at the host, two packs claiming one unnamespaced name at one destination is
+fatal, the local pack included ([the collision warning](#skills-collision)). `from` defaults
+to `skills/`, and is honored at both
 notches and by wrapped-plugin discovery through one resolver (`packload.SkillsSourceDir`).
 
 A content contribution routes by `into` (a path), by `agents` (an audience), or by **neither**,
@@ -678,6 +707,8 @@ which looks like success and loses the user's edits later.
 A pack still carrying a per-contribution `"tier"` is refused BY NAME with the migration in
 the message, rather than failing on the strict decoder's bare unknown-field error.
 
+<a id="skills-collision"></a>
+
 > [!WARNING]
 > **A skills name collision between two packs is FATAL at apply time**, naming both packs,
 > both source paths, and both remedies (rename, or opt one pack into namespacing). At flat
@@ -687,6 +718,22 @@ the message, rather than failing on the strict decoder's bare unknown-field erro
 > user should. **Adoption preserves, declaration refuses** — migrating a user's pre-existing
 > tree keeps both copies (`mine`, `mine-from-codex`), because those are two different
 > situations.
+
+<a id="skills-fanout-s4"></a>
+
+> [!WARNING]
+> **The jail's skills fan-out is not a hole in the selection gate. The S4 audit settled that the
+> gate holds; do not re-audit it as one.** In a jail every selected pack's skills reach every
+> skills destination the selected packs declare, where the host narrows a content `into` (the
+> note under [`briefing`](#briefing)). The fan-out bypasses nothing. `into` is a path, and core
+> has no concept of an agent to check it against. Every destination traces to a contribution on a
+> pack in `packs`, and `packs` is user scope only, so a repo-committed config cannot add one.
+> Selecting a pack is consent to its declared destinations, which `yolo pack footprint` shows
+> beforehand. What the audit did find is a reporting gap: a manifest understates where its
+> content goes, because the merge is global. Whether the jail should narrow to match the host is
+> [`OQ-S4`](../plans/BACKLOG.md#OQ-S4),
+> which is open, and `internal/cli/run/packskillsdelivery_test.go` pins today's behavior so that
+> answering it moves a test on purpose.
 
 #### `briefing`
 
@@ -931,9 +978,12 @@ before the container exists, with the remedy (narrow the `into`) — it used to 
 boot with an error naming the *surface* rather than the claim that shadowed it, and usually
 cross-pack, so neither author could see it.
 
-Apple Container cannot bind-mount a single file, so a `files` contribution naming one FILE
-is copied into the jail home there instead of mounted. A directory is mounted on both
-backends. **At the HOST notch the tree is WRITTEN, not bound** — `yolo host apply` copies it
+On Apple Container a `files` contribution naming one FILE is copied into the jail home instead
+of mounted. That is a choice, not a limitation: a single regular-file bind was measured to
+arrive and honor `:ro` on `container` 1.1.0, and the copy is kept because it works on every
+version with no version gate to get wrong
+([`composed-file-permissions.md`](composed-file-permissions.md#why-0o444-is-not-a-posture),
+`run.acMaterialize`). A directory is mounted on both backends. **At the HOST notch the tree is WRITTEN, not bound** — `yolo host apply` copies it
 into the real `$HOME` against an ownership record shared with skill delivery: it writes only
 paths that record says are yolo's, archives the previous copy into the kind's own archive
 bucket before replacing one, and **fails closed** — a render that cannot prove ownership
@@ -1679,14 +1729,140 @@ every destination. That is the point of the rule rather than a side effect: a pe
 used to live in each agent's dir independently and drift per agent, with no command
 reporting the divergence. One copy cannot diverge.
 
-- **Precedence is the LAYER ORDER**, so the local pack — appended last — outranks every
-  shared pack. The per-entry rule it replaced asked "did THIS PACK write it?", which refused
-  any pack overwriting another's recorded name whatever the order; composition asks only "is
-  this yolo's?", so the refusal is unrepresentable rather than handled.
+- **Precedence is the LAYER ORDER**, and the local pack is appended last. The per-entry rule it
+  replaced asked "did THIS PACK write it?", which refused any pack overwriting another's
+  recorded name whatever the order; composition asks only "is this yolo's?", so the refusal is
+  unrepresentable rather than handled ([§6a-5 (pack batch)](#batch-6a-5)). Order is not a
+  licence to shadow a name: at the host notch two packs claiming one unnamespaced skill at one
+  destination is [a fatal collision](#skills-collision), the local pack included. The jail still lets the
+  later layer win silently.
 - **Migration collisions are resolved by CONTENT, not by name.** Byte-identical copies of one
   name union silently. DIFFERING content is a real conflict — both survive as `<name>` and
   `<name>-from-<agent>`, warned about ONCE, at the migration, naming both sources. Losing one
   of two hand-written skills silently is the failure that rule exists to prevent.
+
+## Retiring a dropped pack's host output
+
+`yolo host apply`'s render loop visits the packs that are configured, so a pack removed from
+`packs` is never asked what it left in the home. Each kind's own retire pass ("what this pack
+wrote last time, minus what it ships now") is keyed on the pack being rendered: it handles a pack
+that **changed** and cannot see a pack that **left**. A separate retire pass covers the second
+case, for every kind a pack writes into a real home:
+
+| Kind | When its pack is dropped from `packs` |
+| :--- | :--- |
+| `briefing` | a destination no remaining pack composes into is archived, with **no** prompt ([R4 (pack drop)](#pd-r4)) |
+| `skills` | archived, behind the prompt ([R1](#pd-r1), [R2 (pack drop)](#pd-r2)) |
+| `files` | archived, behind the same prompt |
+| `config-overlay` | the key is removed from the file in place, in the same prompt, and its provenance entry goes with it ([R3 (pack drop)](#pd-r3)) |
+
+Three rules decide what counts as dropped:
+
+- **The set is the one the config NAMES, not the one that resolved.** A fetched pack whose remote
+  is unreachable resolves to nothing, and to a retire pass keyed on the resolved set it looks
+  dropped. For a briefing that mistake heals on its own, but an archived skills tree does not
+  come back until the user goes digging in the state dir. An `--assert` over an unresolvable pack
+  is refused outright ([the dispositions](host-apply-staleness.md#the-dispositions)), so the
+  retire pass meets an incomplete set only in a dry run, where this rule keeps the preview
+  honest. The briefing prune reaches the same outcome another way: it retires nothing while the
+  pack set is incomplete.
+- **Emptying `packs` still retires.** With nothing to render, the apply still runs the retire
+  pass against an empty configured set. That is the most complete drop there is.
+- **An unknown set is refused.** A caller that passes no configured set would otherwise read as
+  "every pack is gone" and archive everything yolo ever delivered.
+
+**The evidence of ownership is self-contained.** The two host ownership records (the per-entry
+record that `files` and per-entry skill delivery share, and the composed-skills record) each map
+an absolute path to the pack that wrote it. So they answer "whose was this?" without the dropped
+pack's manifest or tree, which may be gone from the machine. A namespaced skills subtree is also
+recognized by its own plugin marker (`hostskills.YoloPluginOwner`), consulted only for a
+directory no record already owns: for a wrapped plugin the marker names the *plugin*, not the pack
+that delivered it. The marker scan looks in the skills destinations the candidate packs declare,
+so a dropped pack whose `into` no other pack names leaves no discoverable subtree. That gap is
+narrow, and accepted. A record whose path is already gone is dropped without a prompt, since
+nothing is lost.
+
+**The prompt.** One confirmation covers every path and every key a drop left behind, grouped by
+pack. It appears only when something would actually move. A dry run never prompts and prints
+`would archive` and `would remove key` lines instead, and a nil or EOF stdin reads as **no**. A
+decline leaves all of it, with no partial application, and says so. It also leaves the exit
+status unchanged: nothing the user asked for failed, and a non-zero exit would make every
+scripted `--assert` after a drop look broken, with no non-interactive way to answer. A record is
+forgotten only after its path has moved, so a path still in the home is never read as the user's.
+
+A silent archive would be recoverable, and it is still the wrong shape. The user's action was
+*edit a config list*; the consequence is *files left my real home*. Those are far enough apart
+that the action is named at the moment it happens.
+
+**The `config-overlay` half reads the provenance record, because nothing else knows.** An
+overlay folds in below the owning surface's managed layer and leaves no mark in the file's
+bytes. The per-key host provenance record is the only place "a pack put this here" was written
+down (`entrypoint.PruneHostOverlayKeys`). A key is eligible when the record attributes it to the
+dropped pack as `config-overlay:<pack>` or as `retired:config-overlay:<pack>`. Which of those is
+on disk depends only on whether a render has run since the drop, so accepting only one spelling
+would make the prune work in only one posture. Four conservatisms each keep a key rather than
+remove one:
+
+- **`host` is never touched**, so a key the user set, even one whose name a pack also uses, is
+  out of reach.
+- **A key a live layer still claims is not an orphan**, whatever the record says (`liveClaims`,
+  which ignores `defaults`, since that layer only fills an absent key). The record holds one
+  winner per key, so when two packs contribute one key and the one it names is dropped, the
+  record alone would call a live key an orphan. An `--assert` would self-correct through its own
+  render. A dry run would not, and would print `would remove` for a key the next assert keeps.
+- **An unparseable file yields nothing.** The render refuses that file loudly, once.
+- **An unknown active set is refused**, as above.
+
+Two cases are out of reach on purpose. A dynamic managed table (the `mcpServers` block) folds an
+overlay's entries into a wholesale table attributed `computed`, and the next apply regenerates
+that table without them (`regenerateManagedTables`); a second remover would race it.
+`retired:managed` and `retired:computed` are the owning pack's own keys, which is a different
+axis. A pack that contributes an overlay and nothing else still raises the prompt by itself. A
+removed key is not archived, unlike a path: a delivered path may carry the user's edits, while a
+key is the pack's own assertion, and putting the pack back in `packs` restores it exactly.
+
+<a id="the-retired-provenance-label"></a>
+
+### The `retired:` provenance label
+
+An `rmw` render has no layer fold, so its provenance record is derived by replaying the write
+order: every key the file already has starts as `host`, and each live layer then claims its
+own. Drop the pack that contributed a key and nothing claims it, so yolo's own output reads
+`host`, *the user set this*. That mislabel is **provenance laundering** *(the name the
+drop-retirement work gave it)*, and it feeds itself: once a key reads `host`, every mechanism
+that asks "did yolo write this?" answers no, forever, although the true answer was in the
+record one apply earlier.
+
+So the render rewrites a key to `retired:<the layer that last claimed it>`, for example
+`retired:config-overlay:dropme`, when all three hold (`retireUnclaimed`):
+
+1. this render derived `host` for it;
+2. the previous record attributed it to a layer yolo **force-writes** (`agentcfg.LayerAsserted`:
+   `managed`, `computed`, or `config-overlay:<pack>`);
+3. the key is still in the file.
+
+- **Sticky.** A retired key stays retired, and keeps naming the original layer rather than
+  nesting (`agentcfg.RetiredOf`). Without that the fix would only delay the laundering by one
+  apply.
+- **A prefix on the previous label, not a bare token or a second column.** The record stays one
+  `key<TAB>layer` line, so every reader parses it unchanged. The label is not `host`, so
+  nothing mistakes the key for the user's, and it is not `config-overlay:<pack>`, so a reader
+  asking "did my pack win this key?" correctly answers no.
+- **`host` and `defaults` are never retired.** Retiring a user's key is the same laundering in
+  reverse, and the direction that costs something: a prune reading the record would delete it.
+  A default is written once, fill-if-absent, and its value is the user's from then on.
+- **Fail-safe.** A missing or unreadable previous record proves nothing and changes nothing.
+  Corruption inside a readable record is skipped line by line, and only a closed set of exact
+  tokens can claim a key, so one bad byte cannot relaunder a surface.
+- **`Compose` never emits it.** A fold renders only from the layers it has, so a key no layer
+  claims is simply not in the file, and there is nothing to launder. The provenance parity table
+  asserts that no first-render host record carries a retired label
+  (`provenanceparity_test.go`), so a retirement that ever fired without a previous record would
+  fail the table rather than invalidate its premise.
+
+The reader is `yolo config diff`, which reaches a surface whose only finding is a retired key and
+reports it as written by a past apply for a pack that no longer asserts it
+([provenance](#provenance-and-what-config-diff-can-say)).
 
 ## The derive slot
 
@@ -2141,6 +2317,17 @@ reason. The dry run says it would refuse.
   tool name**: for each contribution it dispatches on `kind`. This loop is the concrete proof
   of principle 2.
 
+**For a jail launch, what runs host-side is decided by dependency, not by preference**
+([Rulings 3 and 4 (open rulings)](#open-rulings-3)). Only what needs the host runs there: the
+image-build inputs, which feed a nix derivation built before any container exists, and anything
+that reads a host file or a host credential, such as pack fetch and the lockfile, `host_files`
+staging and the `host` layer. Everything that needs no host influence runs in the jail's
+entrypoint: composing each surface, capturing in-jail edits into overlays, and writing the
+sidecars under `<workspace>/.yolo/prism/`. **A running jail is never re-rendered.** An agent's
+edit to a composed file is folded into its overlay by the next boot's render
+([`config-migration-to-prism.md`](config-migration-to-prism.md)), so only observability waits for a
+restart, and nothing is lost.
+
 ## The credential boundary: disclosure, not consent
 
 **Host access is six crossings**: a host file read (a `reads-host` contribution, or a config
@@ -2316,7 +2503,24 @@ their original spelling and are QUALIFIED where the bare id already means someth
 [in the derive slot](#lt-p1) and [the managed floor](#the-managed-floor)). [`OQ-AL1`](#oq-al1)
 and [`OQ-AL2`](#oq-al2) come from the additive config-lists design, folded into
 [the `config-list` section](#adding-entries-to-an-array-config-list); their ids are unambiguous
-here, so they carry no qualifier. The unqualified **R1–R5** below are the config-overlay rulings.
+here, so they carry no qualifier. *Pack drop* qualifies the four rulings of the dropped-pack
+retirement work, folded into [its section](#retiring-a-dropped-packs-host-output). Go comments
+mostly cite them BARE: in the dropped-pack code (`applyhostprune.go`, `applyhostoverlaykeys.go`,
+`hostoverlayprune.go`, the retire call in `cli.applyHostSurveyed`, and the dropped-pack checks in
+`cli.applyHostSkills`) a bare R1–R4 is one of these four, and only a few comments add
+"(pack drop)". Outside that code a bare R-number is not a pack-drop ruling: in `apply.go`'s
+surface-ownership and overlay-provenance checks it is one of the config-overlay rulings below.
+<a id="open-rulings"></a>*Open rulings* are the
+five rulings of 2026-07-26 on where composition runs and what a dropped pack leaves: Rulings 2–4
+are below, Ruling 1 is in [`config-migration-to-prism.md`](config-migration-to-prism.md#ruling-1),
+and Ruling 5 is [`A12`](jail-home.md#why-its-this-way). <a id="pack-batch"></a>*Pack batch* ids
+([§6a (pack batch)](#batch-6a) through [§6c (pack batch)](#batch-6c), and
+[§7 (pack batch)](#batch-7)) are the section numbers of the 2026-08 pack batch, which code comments
+cite, often prefixed with `roadmap.md` or `plan` after the documents those sections lived in first.
+A Go comment citing `pack-system.md` by section number 7 uses an older numbering of this
+system's docs: in the derive and Lua comments it means [the derive slot](#the-derive-slot), and
+in the config-overlay comments (R2, R3) it means the R1–R5 table below, never
+[§7 (pack batch)](#batch-7). The unqualified **R1–R5** below are the config-overlay rulings.
 
 | Ruling | Why it holds |
 | :--- | :--- |
@@ -2325,6 +2529,21 @@ here, so they carry no qualifier. The unqualified **R1–R5** below are the conf
 | **R3** — provenance must be USER-VISIBLE, in `yolo config diff` | Provenance nobody can read does not make an override legible, which was the whole justification for the kind. |
 | **R4** — the double `rendered` line is fixed by REFUSING, not deduping | Deduping hides the clash; refusing removes the state that produced the second line. |
 | **R5** (corrected) — a user-scope list is a ceiling a workspace can only WIDEN | Lists union-merge at every depth and the replace-wholesale exception was deleted deliberately, so "the weak scope is bounded by the strong one" is false for any list-shaped setting. |
+| <a id="pd-r1"></a>**R1** (pack drop) — removing a dropped pack's `skills` and `files` output from a real home is CONFIRMED, once, only when something would move, never in a dry run, fail-closed on a nil or EOF stdin; a decline leaves the exit status alone ([the prompt](#retiring-a-dropped-packs-host-output)) | The user edited a config list; the consequence is files leaving their home, and that gap needs naming at the moment it happens. A decline that failed the apply would make every scripted `--assert` after a drop fail forever, with no non-interactive way to answer. |
+| <a id="pd-r2"></a>**R2** (pack drop) — retirement ARCHIVES, never deletes, reclaimed by `yolo prune`'s host-render archive sweep | The authority to remove comes from an ownership record that can go stale, so being wrong must cost the user one `mv` back. |
+| <a id="pd-r3"></a>**R3** (pack drop) — a dropped pack's `config-overlay` keys ride the SAME prompt; and provenance never launders an unclaimed key yolo force-wrote into `host` ([the `retired:` label](#the-retired-provenance-label)) | The key is a value, not content, but it sits in a file the user owns, so it gets no silent path of its own; two prompts for one edit to `packs` would teach the user to stop reading them. The record exists so yolo can tell its output from the user's, and a record that relabels yolo's key as the user's defeats every mechanism that asks. |
+| <a id="pd-r4"></a>**R4** (pack drop) — briefing retirement stays OUTSIDE the prompt | Every byte moved is one yolo composed: a briefing destination is generated wholesale. Pinned by `TestApplyHostRetireDoesNotGateBriefingRemoval`, so the two halves cannot be quietly unified. |
+| <a id="open-rulings-2"></a>**Ruling 2** (open rulings) — pack selection is user scope only; state a pack keeps across jails is pack-declared (a `machine`-scope [`state`](#state) contribution, the `shared_credentials` and `shared_directory` hooks); dropping a pack deletes nothing it left in a workspace | A repository needs no distribution mechanism to reach files it already owns, so there is no workspace pack scope. Declaring shared state per pack is what let claude's credential directory become pack data instead of a path core hardcoded. A workspace clean-up on drop would have nothing to walk, since nothing enumerates workspaces, and the render already stops composing a dropped input: a re-selected pack finds its state intact, and `<workspace>/.yolo/` is the user's to delete. Nothing reports what a drop left in a workspace. The real home is handled differently on purpose ([retiring a dropped pack's host output](#retiring-a-dropped-packs-host-output)). |
+| <a id="open-rulings-3"></a>**Rulings 3 and 4** (open rulings) — for a jail launch, composition runs in the jail and only what needs the host runs host-side; a running jail is never re-rendered ([staging](#host-side-staging-then-jail-side-render)) | Where composition runs was a free choice, since the engine composes with no container at all ([`what-yolo-is.md`](what-yolo-is.md#the-separability-test-could-you-use-the-config-engine-without-a-jail)). Moving it host-side would have bought earlier error reporting, and Ruling 5 recovered that directly by making a failed generator fatal at boot. Re-rendering a running jail was ruled unsupported, which removed the one reason left to move. |
+| <a id="batch-6a"></a><a id="batch-6a-2"></a>[**§6a**](#batch-6a) **and** [**§6a-2**](#batch-6a-2) (pack batch) — `briefing` and `skills` destinations are composed wholesale at every notch, and a user's own prose and skills MOVE into the conventional local pack, archived only when they cannot move ([`briefing`](#briefing), [composed-file posture](#composed-file-posture-what-writable-means)) | A destination two parties own needs a negotiation (a marker block for prose, refuse-what-yolo-cannot-prove for skills) and a second mechanism beside the jail's, which already composed wholesale. One owner and one mechanism remove the question at every notch. Archiving alone is safe but is not a migration: moved content still reaches the user's agents, and one copy cannot drift per agent. Maintainer rulings, 2026-08-04. |
+| <a id="batch-6a-3"></a>[**§6a-3**](#batch-6a-3) (pack batch) — conventions over configuration: a `skills` or `briefing` source defaults to its conventional location, and a destination's `into` is always declared by the pack that owns the agent, never inferred by core | A destination has one right answer per agent, so core inferring one would mean core knowing the agent set, which is what `packs` states. When one notch inferred a destination and the other did not, a pack rendered at one and silently rendered nothing at the other. |
+| <a id="batch-6a-4"></a>[**§6a-4**](#batch-6a-4) (pack batch) — every notch reads a pack's sources through one resolver | A `from` that one notch honored and the other ignored was a silent divergence. The resolver is now `packload.GovernedSources` ([R5 (briefing defaults)](#briefing-r5-row)), and the fallback chain that once stood behind a missing `from` is gone ([P4](#briefing-p4)). |
+| <a id="batch-6a-5"></a>[**§6a-5**](#batch-6a-5) (pack batch) — host skills delivery asks whether a path is yolo's, never whether it is this pack's, so precedence is layer order | Asking "is it this pack's?" left a later layer unable to replace another pack's recorded entry, so the local pack lost at flat tier. Winning that collision was later given up on purpose: two packs claiming one unnamespaced name at the host is fatal ([the collision warning](#skills-collision), maintainer ruling 2026-08-05), the local pack included. A test of this rule applies twice, because one apply is decided by that run's own claims and the defect lived in the saved record. |
+| <a id="batch-6a-6"></a>[**§6a-6**](#batch-6a-6) (pack batch) — the briefing ownership record is a file of its own (`host-briefing-manifest.json`); the pack set is re-resolved once after a confirmed migration; an incomplete pack set retires no briefing (`PackSetComplete`, false at its zero value) | A composed briefing belongs to the whole pack set, so its record's owner is a pseudo-owner no config can name, and read by the skills record's dropped-pack pass it retired every composed briefing on the next apply. The migration creates the local pack, so a set resolved before it lacked the user's prose for one run. And a wholesale destination does not heal itself the way the old marker block did, so archiving an unreachable pack's briefing cost the user a trip to the state dir. Each defect was found only by running the lifecycle. |
+| <a id="batch-6a-7"></a>[**§6a-7**](#batch-6a-7) (pack batch) — a silent retire is only yolo's own upkeep: a pack removed from `packs` is retired behind the confirmation on every path, the render's included (`ComposeRequest.Configured`, [R1 (pack drop)](#pd-r1)); an incomplete pack set retires nothing on either path; an entry already byte-identical is neither copied nor archived; a hand-authored plugin directory is never migrated as a skill; `skills_tier` still decides a skill's invocation shape | "The pack I still have stopped shipping this skill" and "I removed a pack" are different user actions, and the render reaches a dropped pack's entries before the prune does, so gating only the prune let the confirmation stop firing. An offline apply archived an unreachable pack's skills while reporting success. Archiving on every apply grew an unchanged home without bound. A plugin moved into `skills/` would be delivered again under a different namespace, breaking the paths its own manifest declares. The tier survived wholesale composition because dropping it would rename every namespaced invocation, which nobody asked for. |
+| <a id="batch-6b"></a>[**§6b**](#batch-6b) (pack batch) — a kind means one thing at every notch. The notch is DECLARED by the constructor that builds a render target, never inferred from its shape (a bare target gets `KindUnset`), and a mechanism chosen for the jail is not the kind's definition. Its items: `skills` unified (D1, [§6a-2](#batch-6a-2)); which modes a notch runs, and which keep provenance, are census data a new notch must state (D2); `env` is unbuilt at the host because `yolo host apply` launches no process, a limit of the command and not of the notch (D3) | Inferred from shape, a `guest` target resolved silently to jail semantics; declared, adding a notch is a compile-time question. `stateful` exists because yolo regenerates a file an agent may edit, not because a jail home is disposable (it is not), so the mode is not jail-shaped. `files` keeps refuse-what-yolo-cannot-prove at the host, since it has no layer model to regenerate from. |
+| <a id="batch-6c"></a>[**§6c**](#batch-6c) (pack batch) — confinement is not a pack. A notch's policy, the autonomy bit included, comes from its confinement profile (`render.Profile`), and core knows notch NAMES only at its two edges: `render.KindForNotch` on the way in, `Kind.String()` on the way out | A pack is content yolo renders; confinement is enforcement yolo executes, and it decides whether a pack may read the host at all, so a pack declaring it would let the confined thing choose its own confinement. The two also compose oppositely: pack kinds by merge, where the later pack wins, and confinement primitives by intersection, where the strictest wins. The profile replaced a hardcoded `true` or `false` at each call site, the boot loop's included. Letting a user assemble a primitive vector stays out of scope ([`happy-path-principle.md`](happy-path-principle.md)). |
+| <a id="batch-7"></a>[**§7**](#batch-7) (pack batch) — `yolo pack lint` asks "does this pack do anything?" and "does it stage content nothing reads?" as separate questions ([its checks](#pack-lint-questions)) | The rule it replaced used "ships `skills/` or `AGENTS.md`" as a proxy for "does anything read this pack". That rejected every shipped pack and a working config-only pack, and gave a pack that did nothing the same message, so it was useless in the one case it existed for. Maintainer framing, 2026-08-04: *"a pack that does absolutely nothing should be warned about, but not one that leaves out a part it could ship."* What shipped is stricter than the word "warned": both checks fail lint. |
 | <a id="oq-al1"></a>[**OQ-AL1**](#oq-al1) — a `config-list` path captures PER ENTRY — relative to the last render on `stateful`, to yolo's insert record on `rmw` — and a mechanism that cannot is refused at launch ([capture per entry](#config-list-capture)) | A whole-array capture of one `pi install` would hold every pack's entries, outrank every contribution and freeze the list: later additions masked, a dropped pack's entries never removed. The obvious shortcuts each fail: limiting the kind to `computed` surfaces does not reach pi's `settings`, making the path `computed` wipes every `pi install`, and an owner opt-in per path protects nothing, since any pack's `config-overlay` can already replace the key. |
 | <a id="oq-al2"></a>[**OQ-AL2**](#oq-al2) — list contributions apply after every ordinary overlay; only capture, `computed` and `managed` replace the final array ([order](#config-list-order)) | An overlay has no per-entry veto to express, so folding lists below overlays would let any overlay silently erase them. |
 | **[OQ-K1](#why-its-this-way)** — settings declarations are AUTHORITATIVE, never advisory | A launch fetches a git pack it does not have before it resolves anything ([`OQ-PF1`](#oq-pf1)), and a pack still unresolvable after that is fatal, so there is no launch where a configured pack's declaration is missing and the jail starts anyway. (Ruled when launches never fetched; the fetch changes how a pack arrives, not what happens when one cannot.) |
@@ -2396,3 +2615,6 @@ only place the values themselves are stated.
 | Settings scope default | `user` | `loopholedecl/settings.go` |
 | Cgroup loophole name constant | `paths.BuiltinCgroupLoopholeName` | `internal/paths` |
 | Core-owned config surfaces | `mise/config` and nothing else | `agentcfg.BuiltinManifest` |
+| Host ownership records | `~/.local/share/yolo-jail/host-skills-manifest.json` (per-entry `skills` and `files`); `host-composed-skills.json` beside it (composed skills) | `cli.hostSkillsManifestPath`, `cli.hostComposedSkillsManifestPath` |
+| Host-render archive | `~/.local/share/yolo-jail/archive/<bucket>/<stamp>/`, one bucket per kind plus `retired` for a dropped pack's `skills` and `files` | `cli.hostArchiveRoot`, `cli.archiveBucketRetired`; swept by `prune.PruneHostArchiveBuckets` |
+| Retired provenance label | `retired:<the layer that last claimed the key>` | `agentcfg.RetiredLayer`, `agentcfg.RetiredOf` |

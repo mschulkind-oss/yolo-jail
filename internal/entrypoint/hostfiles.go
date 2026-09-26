@@ -1,6 +1,7 @@
 package entrypoint
 
-// hostfiles.go is the entrypoint-side half of docs/plans/host-file-staging.md:
+// hostfiles.go is the entrypoint-side half of host_files
+// (docs/reference/composed-file-permissions.md):
 // the generic render loop that stages every `host_files` entry into the jail
 // home. Where prism.go renders the fixed set of BUILTIN agent surfaces, this
 // renders USER-declared surfaces — one per host_files entry — through the very

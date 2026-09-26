@@ -19,8 +19,8 @@ four*). This doc is about the friction on the way, ranked by how much damage it 
 someone who doesn't already know the answer.
 
 Prior handoffs from the same effort:
-[`handoff-pack-host-management-gaps.md`](handoff-pack-host-management-gaps.md) (five gaps,
-all now closed) and [`handoff-host-mcp-servers.md`](handoff-host-mcp-servers.md).
+`handoff-pack-host-management-gaps.md` (five gaps,
+all now closed; retired 2026-09-26, `git log -- docs/plans/handoff-pack-host-management-gaps.md`) and [`handoff-host-mcp-servers.md`](handoff-host-mcp-servers.md).
 
 ---
 
@@ -133,7 +133,7 @@ reads like a safe no-op rather than "your pack will never work."
 
 ## F3 — ✅ DISSOLVED 2026-08-04 — Briefings duplicated on first apply against an existing file
 
-**Not fixed — dissolved**, by §[6a](shipped-2026-08-pack-batch.md#6a-ruled--briefings-are-fully-generated-and-controlled)'s ruling that `briefing` is generated WHOLESALE. The duplication
+**Not fixed — dissolved**, by [§6a](../reference/pack-system.md#batch-6a)'s ruling that `briefing` is generated WHOLESALE. The duplication
 was an artifact of the append-based first write; with no append nothing can double, so the
 suggested fix below ("adopt the prose into the markers") is moot — the ruling claims that ownership
 explicitly and up front, which is the honest version of the same move. The prose is MOVED into the

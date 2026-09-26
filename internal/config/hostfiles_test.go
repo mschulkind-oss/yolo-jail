@@ -6,8 +6,8 @@ import (
 	"testing"
 )
 
-// Unit tests for the host_files config layer (docs/plans/host-file-staging.md
-// Phase 1): shape validation, codec auto-detect, the source⊕content rule, path
+// Unit tests for the host_files config layer (docs/reference/composed-file-permissions.md,
+// "How a host_files entry becomes a surface"): shape validation, codec auto-detect, the source⊕content rule, path
 // and source rejection, directory entries, mode defaults, layer-shape checks, the
 // per-entry credential-boundary scope rule, cross-scope collisions, and the
 // injective Slug derivation.

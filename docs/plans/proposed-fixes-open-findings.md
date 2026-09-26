@@ -64,7 +64,7 @@ waiting on a decision — this doc is ready to implement against.
 | 8 | `rmwProvenance` is a second "which layer won" | Parity table now; **unify at the third** derivation | **RULED — wait for 3** · **TABLE SHIPPED 2026-08-03** (`TestProvenanceParityAcrossBothDerivations`); unification still deferred, by ruling |
 | 9 | Nightly macOS builder arch mismatch (BACKLOG E8) | Publish the builder multi-arch (or skip the two tests, recorded) | **CORRECTED** — a CI capability constraint, not platform support · **SHIPPED 2026-08-03**, and it was BIGGER than this row: the advertised system was hardcoded in three places, not one (see BACKLOG E8) |
 | 10 | A pack cannot install Claude MCP servers on the host | Prune workspace-keyed subtrees instead of refusing the surface | **RULED — warn and wait for confirm** · **SHIPPED 2026-08-03** |
-| 11 | A DROPPED pack's host output is never retired (new) | Archive skills/files and drop overlay keys, behind a confirm; stop provenance laundering the keys into `host` | **RULED 2026-08-03 — confirm before removing host files** · **SHIPPED 2026-08-03**, all four rulings · spec at [`host-pack-drop-cleanup.md`](host-pack-drop-cleanup.md) |
+| 11 | A DROPPED pack's host output is never retired (new) | Archive skills/files and drop overlay keys, behind a confirm; stop provenance laundering the keys into `host` | **RULED 2026-08-03 — confirm before removing host files** · **SHIPPED 2026-08-03**, all four rulings · described in [`pack-system.md`](../reference/pack-system.md#retiring-a-dropped-packs-host-output) |
 
 ---
 
@@ -902,7 +902,7 @@ radius**, not about waiting for answers.
 
 ## 11. A dropped pack's host output is never retired (new, 2026-08-03)
 
-Full spec: [`host-pack-drop-cleanup.md`](host-pack-drop-cleanup.md). Summarized here because
+Now described in [`pack-system.md`](../reference/pack-system.md#retiring-a-dropped-packs-host-output); the spec, `host-pack-drop-cleanup.md`, was retired 2026-09-26 (`git log -- docs/plans/host-pack-drop-cleanup.md`). Summarized here because
 this doc is the index of open findings.
 
 Reported by a subagent as "host pack-drop cleanup is briefing-only". Reproduced in a throwaway

@@ -38,8 +38,8 @@
 from a pack, and do in fact."* Today that is **not possible** — one refusal blocks the
 whole surface.
 
-Follow-up to [`handoff-pack-host-management-gaps.md`](handoff-pack-host-management-gaps.md)
-(all five gaps there are now closed). This is the next one, found while planning the
+Follow-up to the five host-management gaps [`pack-host-management-plan.md`](pack-host-management-plan.md#revised-gap-table)
+sequenced (all closed; the original report, `handoff-pack-host-management-gaps.md`, was retired 2026-09-26; `git log -- docs/plans/handoff-pack-host-management-gaps.md` recovers it). This is the next one, found while planning the
 adoption.
 
 ---

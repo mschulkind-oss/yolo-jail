@@ -1,7 +1,7 @@
 package entrypoint
 
 // hostoverlayprune.go retires the `config-overlay` KEYS of a pack that has been DROPPED from
-// config — ruling R3's first sentence in docs/plans/host-pack-drop-cleanup.md.
+// config — ruling R3 (pack drop)'s first half, in docs/reference/pack-system.md.
 //
 // It is a separate entry from RenderHostPack for the same structural reason
 // PruneHostBriefings is separate from RenderHostBriefing: `yolo host apply`'s render loop is

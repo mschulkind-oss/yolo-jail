@@ -1,6 +1,7 @@
 package config
 
-// hostfiles.go is the config-side half of docs/plans/host-file-staging.md: the
+// hostfiles.go is the config-side half of the host-file mechanism in
+// docs/reference/composed-file-permissions.md: the
 // `host_files` key, which lets a user declare ANY host file (or a source-less
 // file yolo brings into being) as a composed surface, rendered by the same engine
 // that renders the builtin agent surfaces.
@@ -44,7 +45,8 @@ const hostFilesKey = "host_files"
 //     signal and a speed bump, not a sandbox.
 //   - HostFileModeOnce seeds the file when absent and then never touches it. In-jail
 //     edits persist as ordinary file writes — no sidecar, no precedence puzzle —
-//     and later host-side edits do NOT propagate. `yolo config reset` re-seeds.
+//     and later host-side edits do NOT propagate. To re-seed, delete the file:
+//     `yolo config reset` acts only on capture sidecars, and a once surface has none.
 //   - HostFileModeCopy overwrites the file every boot, 0o644. In-jail edits are
 //     silently lost. This is the mode a directory entry implies.
 //   - HostFileModeCapture is THE OVERLAY EXCEPTION: re-rendered every boot AND
@@ -68,7 +70,7 @@ var hostFileModes = []string{
 }
 
 // knownHostFileKeys is the accepted key set of the object form. Mirrors the
-// per-key doc table in docs/plans/host-file-staging.md.
+// object-form key list in `yolo config-ref` (internal/cli/config_ref.txt).
 var knownHostFileKeys = set(
 	"path", "source", "content", "codec", "managed", "defaults", "mode",
 )
@@ -190,8 +192,10 @@ func (e HostFileEntry) Slug() string {
 //
 // .yaml/.yml remain raw until their author explicitly selects the yaml codec,
 // preserving byte-for-byte treatment for files whose formatting matters.
-// .jsonc is raw on purpose: routing it through the json codec would sort keys
-// and DROP COMMENTS, silently mangling a hand-written file.
+// .jsonc is raw on purpose: the json codec is strict JSON, so a commented file
+// fails to decode, and host_files staging is fail-closed — the boot aborts. `yolo
+// check` cannot catch that, because it never reads a source's bytes. (toml and
+// yaml are the codecs that decode a comment away rather than refuse it.)
 var hostFileCodecByExt = map[string]string{
 	".json": "json",
 	".toml": "toml",

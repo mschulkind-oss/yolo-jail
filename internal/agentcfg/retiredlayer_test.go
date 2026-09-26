@@ -1,7 +1,7 @@
 package agentcfg
 
 // retiredlayer_test.go pins the PROVENANCE VOCABULARY the anti-laundering fix rests on
-// (docs/plans/host-pack-drop-cleanup.md ruling R3). Three properties, and each one is a way
+// (docs/reference/pack-system.md, ruling R3 (pack drop)). Three properties, and each one is a way
 // the fix could be silently wrong:
 //
 //   - ROUND-TRIP. RetiredLayer/RetiredOf must be inverses, because the label is the ONLY place

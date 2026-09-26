@@ -7,7 +7,7 @@ and a data-filter vocabulary — this is the line in the sand. Retiring the
 `a84b11c`); its D4 "no config may ever widen the host-file set" clause was
 subsequently **reversed and generalized** into the `host_files` key
 (2026-07-25 — see the D4 annotation in [§10](#10-retiring-the-host__files-keys-decided---implemented-2026-07-23) and
-[host-file-staging.md](host-file-staging.md)). **Per-phase status:**
+[composed-file-permissions.md](../reference/composed-file-permissions.md#how-a-host_files-entry-becomes-a-surface)). **Per-phase status:**
 **Phase A complete** — the engine is built + tested (`internal/agentcfg`, with
 `compose.go`/`engine.go`/`manifest`/`codec`/`luahook` and their tests). **Phase
 B complete** — all **agent** surfaces are in the manifest and reachable via
@@ -782,7 +782,7 @@ keys never existed.
 
 > **⚠ D4 was REVERSED and generalized (2026-07-25).** The two named keys stay
 > gone, but the *ability* they provided is back under a different, safer shape:
-> **`host_files`** (see [host-file-staging.md](host-file-staging.md), shipped).
+> **`host_files`** (see [composed-file-permissions.md](../reference/composed-file-permissions.md#how-a-host_files-entry-becomes-a-surface), shipped).
 > The error in D4 was treating *"the set of host files that cross into the jail is
 > a credential boundary"* as *"no config may ever widen it."* The real boundary is
 > narrower and **per entry**: a config may not make a host file cross unless it is

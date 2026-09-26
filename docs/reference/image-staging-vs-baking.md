@@ -1272,8 +1272,14 @@ flake config to accept.
 What the cache reaches: first-run cost on a new machine or CI runner, and the `flake.lock` bump —
 the one case where the nixpkgs half moves. That half is also what `cache.nixos.org` can
 substitute, which is why `imageClosureRoot` names exactly the nixpkgs half of the image's
-contents: the weekly `flake.lock` diff over it is a download rather than a build. What it
-cannot reach: a from-source build of uncommitted local
+contents: the weekly `flake.lock` diff over it is a download rather than a build. What the
+bump changes, since the question recurs: of the lock's three lines for nixpkgs, `rev` is the
+nixpkgs git SHA and the whole input, `narHash` verifies the fetched tree, and `lastModified` is
+the tip commit's timestamp, descriptive metadata that nothing resolves by. What decides *what*
+resolves is `nixpkgs.url` in [`flake.nix`](../../flake.nix), the `nixos-unstable` branch, so a
+bump moves `rev` to that branch's head. The scheduled job
+([`update-flake-lock.yml`](../../.github/workflows/update-flake-lock.yml)) opens no PR when the
+lock has not moved. What the cache cannot reach: a from-source build of uncommitted local
 code, which has never existed anywhere; and every `packages:`-bearing image, because CI publishes
 only the stock attributes, so a baked `packages:` user is a cache miss by construction. Store
 delivery is what makes the cache useful to them — complements, not alternatives. `macos-user` has

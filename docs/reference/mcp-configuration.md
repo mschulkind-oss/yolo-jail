@@ -28,6 +28,10 @@ pinned the plugin's injection call site (both uncommitted when this was written,
 UNMEASURED: no `claude` session has been started against the generated LSP plugin — the facts
 about Claude's plugin loader were read statically from its bundle, and by the no-agent-tests
 rule a live check is a human's ([Claude's LSP route](#lsp-claudes-route-is-a-generated-plugin)).
+The [derive-boundary section](#what-the-derive-boundary-removes) was re-checked against
+`38814ba4` on 2026-09-26, when the capability-delivery rule's own note folded into it.
+UNMEASURED: no launch with a `provides` server configured is recorded. The rule's acceptance
+cells drive the boot loop over the shipped packs in unit tests, not in a launched jail.
 
 MCP config is **pack-declarative**. Core builds **one** canonical server table in-jail from
 the user's config — presets expanded, custom entries merged, `requires_env` gates applied —
@@ -135,13 +139,48 @@ content, in the same words as the `url` case.
 ### What the derive boundary removes
 
 One more cut happens after the loader and before any pack sees the table, where the derive
-context is built. **Capability-driven MCP delivery** drops a server whose `provides` names a
-capability the launch's **authentication source** already performs — a search MCP is not
-delivered to an agent whose login searches natively. The source is either the provider a
-profile selects (its row's `capabilities`) or, when none is selected, the agent's own built-in
-login (the capabilities its pack's program contribution declares). A server with no `provides`
-makes no claim and always passes; only an exact-name match is dropped. Because it sits at the
-context boundary, no pack can opt out of it and none has to opt in.
+context is built. yolo coined two terms for it, and this section is where both are defined:
+
+- <a id="authentication-source"></a>An **authentication source** is the credential-and-endpoint
+  mode an agent runs under for one launch. It is either the provider a profile selects at that
+  agent's CLI name, such as Kilo or Z.AI, or, when no profile selects one, the agent's own
+  built-in login, such as Claude's subscription or agy's Google sign-in. It is not the agent:
+  one agent runs under different sources in different profiles.
+- <a id="capability-driven-mcp-delivery"></a>**Capability-driven MCP delivery** is the
+  per-render rule that omits an MCP server when the active authentication source already
+  performs the job that server declares with `provides`. A search MCP is not delivered to an
+  agent whose login searches natively.
+
+The rule compares the server's `provides` with the source's capabilities, and nothing else:
+
+1. A server with no `provides` makes no claim, and always passes.
+2. A server whose `provides` names a capability the source declares is dropped. One naming any
+   other capability passes. Only the exact-name match is dropped, which keeps the resolver
+   generic: a future named job needs no edit to it and none to a pack.
+3. `requires_env` is a separate gate, and a server has to pass both. It runs upstream, in the
+   loader, so a server whose variable is absent is gone whatever the source declares. Being
+   eligible by capability never stands in for the credential.
+
+A selected provider's capabilities are a field of its row in the composed providers table. A
+built-in login has no row, which is why a pack declares its agent's native `capabilities` on its
+`kind: "program"` contribution (`packdecl.Manifest.NativeCapabilities`). **A selected provider
+that the composed table has no row for resolves to the EMPTY set, never to the built-in one.** An
+absent row means the launcher composed nothing for that name, not that the agent fell back to its
+own login, and borrowing the agent's capabilities there would suppress a server on a source that
+never claimed to replace it.
+
+The decision is made per rendered target and follows the selected source, never the agent's name
+and never the jail-wide pack set, so changing one agent's profile changes only that target's
+result. Because it sits at the context boundary, the one place both production callers pass
+through (the surface render and the env composition), no pack can opt out of it and none has to
+opt in. Which packs declare which capabilities is pack data: `rg -n web_search packs/*/pack.json`
+answers it, and no list here does.
+
+**It is not `required_capabilities`**, though the two share one vocabulary: both read an
+`mcp_servers.<name>.provides` and a `providers.<name>.capabilities`, so a change to either
+declaration moves both. `required_capabilities` refuses a launch whose declared requirement
+nothing satisfies. This rule chooses among things that already work. Config validation refuses
+two `mcp_servers` entries that declare the same `provides`, which keeps that choice unambiguous.
 
 Then `provides` itself is stripped from every surviving entry, unconditionally: it is yolo's
 own vocabulary, and a pack that copies an entry verbatim into its agent's file would otherwise
@@ -461,6 +500,8 @@ are stated.
 | Retired sidecar name | `yolo-managed-mcp-servers.json`, deleted on first composed render | each pack's `retireOnFirstRender` |
 | Bootstrap-installed MCP packages | gated on the same preset declaration that builds the table | `Env.LoadMCPPresetNames` |
 | MCP entry key the capability filter reads, then strips | `provides` | `luahook.eligibleMCPServers`, `withoutProvidesKey` |
+| Where a source's capabilities are declared | `providers.<name>.capabilities` for a selected provider (a pack default under the user's override); `capabilities` on a `kind: "program"` contribution for an agent's built-in login | `packdecl.Contribution.Capabilities`, `packdecl.Manifest.NativeCapabilities`; resolved by `luahook.sourceCapabilities` |
+| Where capability-driven delivery is pinned | the acceptance cells, each driving `ConfigurePackSurfaces` over the shipped packs and the launcher's composed wire tables | `internal/entrypoint/capabilitymcp_test.go` (re-checked at `38814ba4`) |
 | LSP plugin directory name | `yolo-lsp` | `jailcontent.LSPPluginDir` |
 | LSP plugin manifest path | `<skills destination>/yolo-lsp/.claude-plugin/plugin.json` | `jailcontent.writeLSPPlugin` |
 | Ownership marker | `x-yolo-managed-by: "yolo-jail"` | `jailcontent.yoloPluginManagedBy`, `hostskills.yoloManagedMarker` |
@@ -476,6 +517,7 @@ Forward-facing rulings a maintainer would otherwise undo, with their original id
 | ID | Ruling | Why it stays |
 | :--- | :--- | :--- |
 | `D6` | The bootstrap's npm install for a preset is gated on the **same declaration** that builds the server table | Hardcoding a package list beside the preset table lets the two drift, and the failure is a preset that is configured and whose package was never installed. |
+| Capability-driven delivery ([above](#capability-driven-mcp-delivery)) | The filter sits at the derive **context boundary**, never in an agent's `derive.lua`, and keys on the selected **source**, never on the agent | The per-agent `provides == "web_search"` branches it replaced were opt-in, and one had drifted: claude's suppressed web search for every profile that was not bedrock or codex, so a Kilo launch, a source with no native search, lost its search MCP because of the agent it ran under. |
 | Principle 2 of [`pack-system.md`](pack-system.md) | Core publishes the **domain** (`mcp_servers`); the pack owns the **tool's dialect** | A per-tool branch in core is the agent registry coming back through a different door. The projection changes when the tool changes, which is the pack's business. |
 | <a id="oq-lsp1"></a>[`OQ-LSP1`](#oq-lsp1) | **Option D — generate.** yolo authors ONE plugin whose `lspServers` is rendered from the user's own `lsp_servers` table, and delivers it as content. Never a per-language map, never marketplace plugin ids — neither the three it replaced nor the full official set | A per-language map is yolo picking "the" server for a language, which is the user's choice; marketplace ids also need an install path, and a jail runs no vendor install verb. The ruling said "and enables it", but no enable step exists: the skills-tree load path is opt-out. The same rule deleted the install side: the three-entry recipe table that picked `pyright`, `typescript-language-server` and `gopls`, and its install lists, sentinel and refresh arm, went on 2026-09-25, so yolo installs no language server. |
 | <a id="oq-lsp3"></a>[`OQ-LSP3`](#oq-lsp3) | Claude **auto-loads a plugin from `~/.claude/skills/*`** with no marketplace, no `enabledPlugins` entry and no flag; it is **enabled by default** there; ONE plugin may declare MANY servers, keyed by server name. Measured statically against Claude Code 2.1.278 | This is the precondition option D rests on, and it is version-pinned. **Falsifier:** a Claude release that removes the skills-tree or session load arm, or a managed-settings `disableSideloadFlags` in force — shipped on by default, or set by a policy on the user's machine. Anyone revisiting it re-reads the installed version's plugin assembler. Two servers claiming one extension is a warning, not a load failure. |

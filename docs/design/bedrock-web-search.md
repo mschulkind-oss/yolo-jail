@@ -48,7 +48,7 @@ and when a user's own Tavily search server is also eligible, which one does it g
 all), [`mcp-configuration.md`](../reference/mcp-configuration.md) (the MCP pipeline this amends:
 pack-contributed entries, the closed preset list; the settled parts fold in there at graduation),
 [`mcp-presets-removal.md`](mcp-presets-removal.md) (the `mcp` kind),
-[`kilo-tavily-profile-gating.md`](../research/kilo-tavily-profile-gating.md) (the delivery rule this
+[capability-driven MCP delivery](../reference/mcp-configuration.md#capability-driven-mcp-delivery) (the delivery rule this
 reuses), [`providers-and-profiles-redesign.md`](providers-and-profiles-redesign.md) (how "this is
 Bedrock" gets spelled), [`provider-credential-scope.md`](provider-credential-scope.md) (why nothing
 selected for one agent reaches another), [`sso-backed-bedrock.md`](sso-backed-bedrock.md) (where
@@ -155,7 +155,7 @@ MEASURED at `6f21b82c`, from the code and [`mcp-configuration.md`](../reference/
 - **`${VAR}` is never interpolated by yolo.** It is written verbatim, and the agent that launches
   the server resolves it ([`mcp-configuration.md`](../reference/mcp-configuration.md#the-rules-the-one-loader-enforces)).
 - **Capability-driven MCP delivery** — the rule, and the term **authentication source**, are both
-  defined in [`kilo-tavily-profile-gating.md`](../research/kilo-tavily-profile-gating.md). A server
+  defined in [`mcp-configuration.md`](../reference/mcp-configuration.md#what-the-derive-boundary-removes). A server
   whose `provides` names a capability the launch's authentication source already has is dropped.
   `sourceCapabilities` (`internal/agentcfg/luahook/derive.go`) reads the selected provider row's
   `capabilities`, or with none selected the agent's `kind: "program"` contribution

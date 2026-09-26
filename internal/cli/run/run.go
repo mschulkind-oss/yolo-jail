@@ -1197,7 +1197,7 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 	// disclosed instead (noteHostCASAlias, at the banner).
 	hostCAS := prepareHostCASAlias(o.planHostCASAlias(rt, relocations))
 
-	// User host_files (docs/plans/host-file-staging.md). Read with the same
+	// User host_files (docs/reference/composed-file-permissions.md). Read with the same
 	// scope rule as cache_relocations — a SOURCE-BEARING entry comes only from the
 	// host user config, never the merged/workspace one, so a repo cannot decide
 	// which host files cross into the jail (config.LoadHostFiles enforces that by

@@ -394,8 +394,8 @@ type Contribution struct {
 	// Capabilities are the NAMED JOBS an AUTHENTICATION SOURCE performs for itself —
 	// agent-auth-modes.md §6.1 clause 1, "Agents / Modes declare native capabilities in
 	// pack.json or provider blocks". An authentication source is the credential-and-
-	// endpoint mode an agent runs under for a launch (docs/research/
-	// kilo-tavily-profile-gating.md coins the term), and this is the field it says
+	// endpoint mode an agent runs under for a launch (docs/reference/
+	// mcp-configuration.md#authentication-source), and this is the field it says
 	// `web_search` with.
 	//
 	// READ BY TWO KINDS, declared once, for the reason Platforms is: it is ONE question

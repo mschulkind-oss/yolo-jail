@@ -3,8 +3,8 @@ package entrypoint
 // provenanceretire_test.go pins the ANTI-LAUNDERING property of the host provenance record:
 // a key yolo force-wrote for a layer that no longer claims it must NOT come back as `host`.
 //
-// THE DEFECT (docs/plans/host-pack-drop-cleanup.md, "The real defect: provenance laundering",
-// ruling R3). rmwProvenance derives `host` for every key the existing file has, then upgrades
+// THE DEFECT (docs/reference/pack-system.md, "The `retired:` provenance label", ruling
+// R3 (pack drop)). rmwProvenance derives `host` for every key the existing file has, then upgrades
 // the ones a live layer claims. While a pack is configured its overlay key records as
 // `config-overlay:<pack>`; drop the pack and the very next apply rewrites that to `host`,
 // because the key is still in the file and nothing claims it any more. yolo's own output

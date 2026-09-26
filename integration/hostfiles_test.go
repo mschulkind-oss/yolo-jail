@@ -7,7 +7,8 @@ import (
 	"testing"
 )
 
-// host_files end-to-end tests (docs/plans/host-file-staging.md).
+// host_files end-to-end tests (docs/reference/composed-file-permissions.md, "How a
+// host_files entry becomes a surface").
 //
 // SCOPE NOTE — why these cover the source-LESS half only. A source-bearing entry
 // (bare string, or an object with `source`) is read ONLY from

@@ -7,7 +7,8 @@ package cli
 // the pack being ITERATED, so it can only see a pack that CHANGED. A pack dropped from config
 // is absent from `entries` entirely — nothing ever asks about it, and its skills stayed
 // loadable and its files stayed on disk forever, with the ownership record still naming a pack
-// that no longer exists (docs/plans/host-pack-drop-cleanup.md).
+// that no longer exists (docs/reference/pack-system.md, "Retiring a dropped pack's host output";
+// the R1–R4 below are its "(pack drop)" rulings).
 //
 // Two decisions carry the weight here, and they are the maintainer's rulings rather than
 // implementation taste:

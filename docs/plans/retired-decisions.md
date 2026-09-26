@@ -24,8 +24,8 @@ instead, and *why*, so a future reader (or a future agent) can tell "we never th
 "we thought of that and it does not work."
 
 **This is not a changelog.** Work that shipped is recorded in
-[`shipped-2026-08-12.md`](shipped-2026-08-12.md) and its siblings, or in the commit
-history. Open work is in [`roadmap.md`](roadmap.md). **Nothing in
+the commit history, and how the shipped system works is in the reference docs under
+`docs/reference/`. Open work is in [`roadmap.md`](roadmap.md). **Nothing in
 this file is pending.**
 
 **Adding an entry.** Move it here the moment the decision is made, not later — the reasoning is

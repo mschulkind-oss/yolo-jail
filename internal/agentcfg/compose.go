@@ -236,8 +236,8 @@ func OverlayLayer(pack string) string { return layerConfigOverlay + ":" + pack }
 // longer claims it: "retired:<the layer that last claimed it>", e.g.
 // "retired:config-overlay:dropme".
 //
-// WHY A LAYER TOKEN AT ALL — the defect it closes (host-pack-drop-cleanup.md, "The real
-// defect: provenance laundering"). The RMW notch derives `host` for every key the existing
+// WHY A LAYER TOKEN AT ALL — the defect it closes (docs/reference/pack-system.md, "The
+// `retired:` provenance label"). The RMW notch derives `host` for every key the existing
 // file has, then upgrades the ones a live layer claims. Drop the pack that contributed a
 // key and nothing claims it any more, so the key yolo itself wrote reads as `host` — "the
 // user set this". That is self-reinforcing: once a key reads `host`, every mechanism that

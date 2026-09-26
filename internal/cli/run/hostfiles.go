@@ -1,6 +1,7 @@
 package run
 
-// hostfiles.go is the HOST half of docs/plans/host-file-staging.md: the run
+// hostfiles.go is the HOST half of host_files
+// (docs/reference/composed-file-permissions.md): the run
 // pipeline's job is to resolve the user's `host_files` entries once, carry each
 // source-bearing entry's bytes across the boundary as a `:ro` mount, make every
 // destination writable, and hand the resolved list to the entrypoint through
@@ -96,11 +97,15 @@ func (o *Options) hostUserFileArgs(in *assembleInput) []string {
 		if !isFile(entry.Source) {
 			continue
 		}
-		// APPLE CONTAINER CANNOT BIND A SINGLE FILE, and unlike the pack `reads-host`
-		// case this one does not merely omit — it MASKS. The entrypoint swallows the
-		// read error and prism.go writes the destination anyway at the `readonly`
-		// default mode, so the user ends up with an EMPTY 0o444 file where their
-		// .npmrc should be, which they then cannot fix from inside the jail.
+		// APPLE CONTAINER GETS A COPY, BY CHOICE. A single regular-file bind works on
+		// `container` 1.1.0 (TestAppleContainerBindsASingleFile); the copy is kept
+		// because it needs no version gate (acMaterialize says why). What it guards
+		// against is why guessing wrong is costly here: a file bind that does not
+		// arrive does not error, and unlike the pack `reads-host` case this one would
+		// not merely omit — it would MASK. The entrypoint renders the destination
+		// anyway at the `readonly` default mode, so the user would get their other
+		// layers only (an EMPTY 0o444 file for a plain copy) where their .npmrc
+		// should be, and could not fix it from inside the jail.
 		//
 		// The dir branch above is not converted to a copy: AC nests directory mounts
 		// fine (paths.GlobalCache proves it), so from acROBindsFloor a dir entry binds,

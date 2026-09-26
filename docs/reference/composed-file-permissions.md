@@ -9,13 +9,21 @@ covers:
   - internal/entrypoint/helpers.go
   - internal/cli/configls.go
   - internal/cli/configdiff.go
+  - internal/cli/run/hostfiles.go
 tags: [config, prism, permissions, postures, host_files, capture]
-summary: "Which files the composition engine produces are read-only, which are read-write, and how to tell: the Derived/Shared/State taxonomy, the host-linked axis that sharpens it, why `0o444` is not a posture and `:ro` buys non-persistence rather than immutability, and the two classes of writer a posture has to serve."
+summary: "Which files the composition engine produces are read-only, which are read-write, and how to tell: the Derived/Shared/State taxonomy, the host-linked axis that sharpens it, why `0o444` is not a posture and `:ro` buys non-persistence rather than immutability, the two classes of writer a posture has to serve, and how a `host_files` entry becomes a composed surface."
 ---
 
 # Composed-file postures — what the prism makes read-only, and what it must not
 
-**Status:** CURRENT as of 2026-09-09, verified against `38873c0d`.
+**Status:** CURRENT as of 2026-09-09, verified against `38873c0d`. The
+[`host_files` mechanism section](#how-a-host_files-entry-becomes-a-surface), its five rulings and
+its Current values rows were folded in on 2026-09-26 from the retired `host_files` planning doc
+and verified against `1912f8f8`; so was the Apple Container single-file correction under
+[why `0o444` is not a posture](#why-0o444-is-not-a-posture). MEASURED: every mode was run end to
+end in a nested jail when `host_files` was built (2026-07-25), and real-container tests drive the
+source-less half (`integration/hostfiles_test.go`). The source-bearing half is covered by unit
+tests against a fake `/ctx/host-user` mount, because a test cannot write the user config.
 
 Every file the composition engine writes has a *posture*: who may write it, and what happens to
 their write. The instinct to keep as much read-only as possible is right in spirit and cannot be
@@ -43,6 +51,9 @@ There is no fourth answer, and "read-only-ish" is not one of the three: a `0o444
 | Component | Lives in |
 | :--- | :--- |
 | `host_files` modes, defaults, and destination validation | `internal/config` (`HostFileMode*`, `hostFileDefaultMode`, `checkHostFileDest`) |
+| Resolving `host_files` entries: scope, codec, slug, dedupe | `internal/config` (`LoadHostFiles`, `HostFileEntry.Slug`, `hostFileCodecByExt`, `dedupeHostFilesByPath`) |
+| Lowering an entry to a surface and rendering it by mode | `internal/entrypoint` (`HostFileSurface`, `renderHostFileSurface`) |
+| Source mounts and the resolved-entry wire | `internal/cli/run` (`hostUserFileArgs`, `hostFilesEnv`) |
 | Reserved destinations, file and subtree | `internal/config` (`reservedHomeFiles`, `reservedHomeSubtrees`) |
 | Applying a mode in the jail, and the lock/unlock pair | `internal/entrypoint` (`hostfiles.go`, `hostFileModes`) |
 | Writing a composed file, and its mode | `internal/entrypoint` (`WriteStringInPlace`, `writeInPlaceString`, `writeExecutable`) |
@@ -135,9 +146,11 @@ another. The three honest mechanisms, and what each actually buys:
 Apple Container **honors `:ro` from `container` 1.1.0** and ignored it below that
 ([apple/container#889](https://github.com/apple/container/issues/889), measured 2026-09-14 — see
 [`backend-parity.md` §5.3](../design/backend-parity.md#53-the-premise-under-defects-11-and-13-was-measured-and-inverted)); yolo reads the version per launch and declines when it
-cannot. ⚠ It still cannot do **single-file** binds, which is a separate limitation
-([apple/container#1089](https://github.com/apple/container/issues/1089)) and is **unmeasured** — so a
-single-file `:ro` surface still degrades to a writable materialized copy there, at every version. `macos-user` has no bind mounts at all, so `:ro` is
+cannot. A **single-file** surface there is still a writable materialized copy, at every version,
+and that is now a choice rather than a limitation:
+[apple/container#1089](https://github.com/apple/container/issues/1089) does not hold on 1.1.0,
+where a regular-file bind was measured to arrive and honor `:ro` (`TestAppleContainerBindsASingleFile`,
+2026-09-14). The copy is kept because it needs no version gate (`run.acMaterialize`). `macos-user` has no bind mounts at all, so `:ro` is
 structurally absent and a mount-shaped control has to be re-expressed in its Seatbelt profile —
 see [`host-execution-from-the-workspace.md`](host-execution-from-the-workspace.md), where exactly
 that translation is done for `workspace_readonly`.
@@ -210,6 +223,89 @@ unlocking an executable to `0o644` and re-locking it to `0o444` silently strips 
 > [`../plans/pack-host-management-plan.md`](../plans/pack-host-management-plan.md). Those IDs are
 > the API; the sections above are that cluster's *argument*. Anyone answering one of them is
 > answering all of them, so do not mint a fourth name for it.
+
+## How a `host_files` entry becomes a surface
+
+`host_files` is one config key whose entries are either a **string** (bring this host file in at
+the same home-relative path) or an **object** naming a codec, inline `content`, `defaults` and
+`managed` layers, and a mode. The schema is `yolo config-ref`'s. This section is the mechanism
+under it. The scope rule, that an entry naming a host `source` is legal only in the user's own
+config, is [`agent-credentials.md`](agent-credentials.md#user-declared-host-files-host_files)'s.
+
+- **One engine, not two.** Every file entry lowers to one surface, owned by the synthetic agent
+  `user` and named by the entry's slug (`entrypoint.HostFileSurface`), and renders through the
+  same surface writers as an agent's settings. A plain copy is just the `raw` codec. User
+  surfaces join no pack's manifest; each renders on its own, which is why destination
+  uniqueness is checked in config rather than by a manifest.
+- **A keyless codec replaces; it does not merge.** `raw` (bytes) and `lines` fold by whole-value
+  replacement in layer order. A `managed` layer on one pins the exact file
+  ([the managed floor](pack-system.md#lt-r3)), and capture records the whole edited value
+  ([keyless surfaces](config-migration-to-prism.md#the-accumulation-step-preserves-tombstones)). Key-level layering is a
+  structured-codec feature.
+- **The codec comes from the extension unless the entry names one.** `.json` and `.toml` pick
+  their codec. Everything else is `raw`. That includes `.jsonc`, because the `json` codec is
+  strict JSON (`codec.JSON` decodes with the standard library) and refuses a file carrying a
+  comment. It also includes `.yaml`/`.yml`, which stay bytes unless the entry names `yaml`. A
+  named codec is accepted only if the codec registry implements it, so no codec *name* validates
+  and then fails at render. A file's *contents* are another matter; the last item in this list
+  says which contents fail.
+- **A directory is not a codec.** An entry whose destination or source ends in `/` is a
+  recursive copy. It needs a `source`, it is always mode `copy`, and every composition key
+  (`codec`, `content`, `defaults`, `managed`) is refused on it.
+- **The slug is an escape, not a prettifier.** The sidecar names and the source's mount point
+  derive from it, so two destinations sharing a slug would share sidecars, and one file's
+  captured edit would replay onto the other. The slug passes a small safe alphabet through and
+  escapes every other byte behind `_`, the only escape prefix; a literal `_` is escaped too, so the
+  mapping is reversible and therefore injective ([Current values](#current-values)). Dots
+  survive, so a dotfile's slug stays legible.
+- **Refresh follows the mode.** `readonly`, `copy` and `capture` re-render every boot from the
+  source's read-only copy, so a host-side edit reaches the next launch. `once` writes only when
+  the destination is absent. To re-seed one, delete the file: `yolo config reset` acts on capture
+  sidecars, and a `once` surface has none. A source that does not exist yet is kept, the launch
+  binds nothing for it, and the surface renders from its other layers.
+- **No `config-overlay` reaches a user surface.** An overlay names a surface a pack owns. A
+  `host_files` entry is the user's own declaration, and a pack asserting keys into it would run
+  consent in the wrong direction.
+- **One destination, one entry.** Two entries in one config value naming one destination are
+  refused. A source-bearing user entry and a source-less workspace entry naming one destination
+  resolve to the user's, with a warning (`config.dedupeHostFilesByPath`). A destination is
+  home-relative: an absolute path is refused with a pointer at `mounts`, and so are `..` and
+  `:`. A reserved destination is matched exactly, or as a path inside a reserved subtree. It is
+  never matched by its first path segment alone, which would refuse `~/.config/<tool>/config.json`,
+  the key's central case. A destination a selected pack's surface also writes is refused at
+  launch ([`jail-home.md`](jail-home.md#reserving-a-name-is-not-creating-a-directory)).
+- **What `yolo check` cannot see is a file's contents.** Every limit on an entry's *shape* is a
+  `yolo check` error. Check stats a source (`config.probeHostFileSource`) but never reads its
+  bytes, and it does not decode inline `content` either. So what a structured codec does to a
+  *commented* file is decided at boot, and the answer depends on the codec:
+  - `toml` and `yaml` decode a comment away. The render re-emits the values with every comment
+    gone, and the boot succeeds. Both sides of that trade are legitimate, which is why it is not
+    an error.
+  - `json` refuses the file. `json` accepts no comment syntax, so the decode fails
+    (`agentcfg.Compose`'s "decode host bytes"). `host_files` staging is fail-closed
+    (`entrypoint.ConfigureHostFiles`), so the boot aborts. An entry that names `json` for a
+    commented `.jsonc` file passes `yolo check` and then refuses to launch. That is why
+    `.jsonc` defaults to `raw`, which neither loses the comments nor fails the boot.
+
+  What each surface mode does with comments is in
+  [the four modes](pack-system.md#the-four-modes). On a structured surface capture carries values,
+  so a comment added in the jail is not captured back. An array in `managed` or `defaults`
+  replaces the array rather than appending to it.
+
+> [!WARNING]
+> **Never stat a host source from inside a jail.** Host paths are deliberately absent from the
+> jail's mount namespace, so a probe there turns a valid user config into a fatal error on every
+> nested launch. The source probe runs host-side only (`config.LoadHostFiles`' `probeSource`,
+> passed as "not in a jail" by the launch). The entries still load in a jail, because a nested
+> launch re-emits them for the jail it starts.
+
+**Backends.** podman binds a source read-only at `/ctx/host-user/<slug>`. Apple Container copies
+a file source into the home instead. That is a choice, not a necessity: a regular-file bind was
+measured to arrive and honor `:ro` on `container` 1.1.0, and the copy is kept because it needs no
+version gate and every consumer reads its file at boot (`run.acMaterialize`). `macos-user` has no
+mounts, so the host CLI copies a file source into a root-owned context tree, and skips a
+directory source with a warning that names it. The full matrix is
+[`agent-credentials.md`](agent-credentials.md#per-backend-differences)'s.
 
 ## Home-root destinations and new top-level directories
 
@@ -331,6 +427,11 @@ Class-2 guidance depends on this, and the boundary is sharper than it looks:
 | **State surfaces are `rmw`, never rendered from layers** | A first-migration render composes from defaults alone, so rendering a token-bearing file wipes it on any boot with no trusted baseline. |
 | **Home-root destinations go through a relative symlink into a writable overlay** | It needs no new mount, reuses three existing precedents, and a *dangling* symlink is what keeps `once` correct on the seeding boot. |
 | **Capture is routed by writer class, not maximized or minimized** | Class 1 cannot be steered and needs capture; class 2 can be steered and is served worse by a silent success than by a loud failure. |
+| **`host_files` is one key, string or object, and a copy is codec `raw`** ([how an entry becomes a surface](#how-a-host_files-entry-becomes-a-surface)) | One engine renders every composed file, so a mirrored dotfile gets the same modes, capture visibility and `yolo config ls` row as an agent's settings. A separate raw-copy path would be a second engine to keep in step. |
+| **`.jsonc` and `.yaml` auto-detect to `raw`** | A structured codec cannot carry a comment through. `yaml` (and `toml`) decode it away, and a render re-emits the file without it. `json` is strict and refuses a commented file, which aborts the boot, and `yolo check` cannot catch that because it never reads a source's bytes. Inferring structure from an extension that allows comments would either mangle a hand-written file in silence or fail the launch, so structure is opt-in: the entry names the codec. |
+| **The `host_files` slug is an injective escape, not a readable flatten** | Sidecars and the source mount derive from it. A flatten that maps separators to one character collides (`.config/a/b.json` and `.config/a.b.json`), and then one file's captured edit replays onto another. |
+| **A reserved destination matches exactly, or inside a reserved subtree** | A first-segment rule would refuse `~/.config/<tool>/…`, which is the key's central use. |
+| **No `config-overlay` crosses into a `host_files` surface** | The entry is the user's declaration for themselves. A pack asserting into it would reverse the consent direction every other pack claim runs in. |
 
 ## Current values
 
@@ -341,6 +442,11 @@ only place the values themselves are stated.
 | :--- | :--- | :--- |
 | `host_files` modes | `readonly`, `once`, `copy`, `capture` — the full key schema is in `yolo config-ref` | `internal/config/hostfiles.go` |
 | Mode defaults | source-bearing → `readonly`; source-less → `once`; directory → `copy`; **never** `capture` | `config.hostFileDefaultMode` |
+| Codec auto-detect | `.json` → `json`, `.toml` → `toml`, anything else → `raw`; `yaml` only when the entry names it | `config.hostFileCodecByExt` |
+| `host_files` slug | `[A-Za-z0-9.-]` pass through; every other byte, `_` included, becomes `_` plus two lowercase hex digits | `config.HostFileEntry.Slug` |
+| User surface owner | `user`, with the slug as the surface name | `entrypoint.HostFileSurface` |
+| Source mount | `/ctx/host-user/<slug>`, read-only | `run.hostUserCtxDir`, `run.hostUserFileArgs` |
+| Resolved-entry wire | `YOLO_HOST_FILES`, JSON | `config.MarshalHostFiles` |
 | Locked / unlocked mode pair | `0o555`/`0o755` for an executable source, else `0o444`/`0o644` | `entrypoint.hostFileModes` |
 | Composed-file write mode | `0o644`, truncate-in-place — and **umask-masked**, not umask-independent | `entrypoint.writeInPlaceString`, `WriteStringInPlace` |
 | Generated-script mode | explicit `0o755` chmod after the write | `entrypoint.writeExecutable` |

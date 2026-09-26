@@ -10,7 +10,7 @@ import (
 
 // capabilitymcp_test.go measures CAPABILITY-DRIVEN MCP DELIVERY — the rule that omits an
 // MCP server when the active authentication source already performs the job that server
-// declares with `provides` (docs/research/kilo-tavily-profile-gating.md).
+// declares with `provides` (docs/reference/mcp-configuration.md#capability-driven-mcp-delivery).
 //
 // EVERY TEST HERE DRIVES THE BOOT LOOP, ConfigurePackSurfaces, over the packs yolo
 // actually ships and the wire tables the launcher actually composes

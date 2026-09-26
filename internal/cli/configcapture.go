@@ -18,8 +18,8 @@ package cli
 //     "capturing silently changes what the next launch composes" objection: the
 //     next launch composes what it was going to compose either way.
 //  2. It only touches surfaces already declaring `mode: capture`. Capture is never
-//     implicit (docs/plans/host-file-staging.md, "Overlay capture is the exception,
-//     never a default") — a user had to write the mode. This does not widen that
+//     implicit (docs/reference/composed-file-permissions.md, "What this means for
+//     host_files' modes") — a user had to write the mode. This does not widen that
 //     set by one file.
 //  3. The gap it closes is a DEFAULT-correctness property of a reporting command.
 //     `yolo config capture`'s own doc says the cost of not capturing is that

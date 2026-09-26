@@ -101,7 +101,7 @@ because surface data can't become pack data while it hardcodes the jail path.
 
 **Gate RESOLVED 2026-07-26:** `reset` also truncates the surface file to the pure render, so
 nothing is left to adopt and first-migration can safely adopt the on-disk file.
-**Stage B is fully unblocked.** Detail: [open-rulings.md](open-rulings.md) ruling 1,
+**Stage B is fully unblocked.** Detail: [Ruling 1](../reference/config-migration-to-prism.md#ruling-1),
 [composed-config-work.md §2.1](composed-config-work.md).
 
 | # | Item | Kind |
@@ -171,7 +171,7 @@ address.
 
 **D1 is RESOLVED and mostly deleted.** Composition **stays in the container**; only
 image-build inputs and host-file reads run host-side. There is no port. See
-[open-rulings.md](open-rulings.md) ruling 3.
+[Rulings 3 and 4](../reference/pack-system.md#open-rulings-3).
 
 | # | Item | Gate |
 |---|---|---|
@@ -250,7 +250,7 @@ restating them. **This section is their doc.**
 > **IDs are an API — do not renumber these into the E-series.** `S5`, `OQ-CO`, [`OQ-S4`](#OQ-S4) and
 > [`OQ-E4`](#OQ-E4) keep the exact spellings they were born with in the deleted `outstanding-work.md`
 > (last intact at commit `58ae8227`, 2026-08-13). They are cited today by
-> [shipped-2026-08-12.md](shipped-2026-08-12.md) (§S4 and the E4 entry) and by
+> [`pack-system.md`](../reference/pack-system.md#skills-fanout-s4) (the S4 audit) and by
 > `internal/cli/run/packskillsdelivery_test.go`. `S5` in particular is an S-series pack ID,
 > not an E-series backlog ID, and re-spelling it would silently orphan those references.
 
@@ -373,8 +373,8 @@ four cases are now closed, and the fourth was promoted to its own question ID:
 | `json` (any mode) | **provably vacuous** | strict JSON has no comment syntax, so a commented file never decodes and the RMW path refuses it byte-untouched; now pinned by a test |
 | `stateful` | **still open** → **[`OQ-E4`](#OQ-E4)** | see below |
 
-Full argument: [host-file-staging.md](host-file-staging.md) §*"What shipped: option 3, for
-`rmw` only"*, and [shipped-2026-08-12.md](shipped-2026-08-12.md) §E4.
+Full argument: the retired `host-file-staging.md` §*"What shipped: option 3, for
+`rmw` only"* (`git log -- docs/plans/host-file-staging.md`; the shipped rule is [the four modes](../reference/pack-system.md#the-four-modes)), and the retired `shipped-2026-08-12.md` §E4 (`git log -- docs/plans/shipped-2026-08-12.md`).
 
 ### <a id="E5"></a>💬 **E5 — `managed`/`defaults` array-append pinning**
 
@@ -383,7 +383,7 @@ Full argument: [host-file-staging.md](host-file-staging.md) §*"What shipped: op
 `managed` layer REPLACES the on-disk array wholesale**. So a pack that wants to *add one
 entry* to a list the user also maintains cannot: it either clobbers the user's whole list or
 leaves the key alone. Settled as deferred at implementation time —
-[host-file-staging.md](host-file-staging.md), *"Resolved during implementation"*: *"Array-append
+the retired `host-file-staging.md` (`git log -- docs/plans/host-file-staging.md`), *"Resolved during implementation"*: *"Array-append
 pinning was deferred: no user surface has needed it. Still open if one does."*
 
 **Stakes:** low today and self-limiting. The trigger is named and has not fired — no shipped
@@ -505,8 +505,8 @@ key and rely on order — I have not found one.
 
 **Context.** A `skills` contribution may name an `into` (a destination directory). The two
 notches disagree about what that declaration means, measured by the S4 audit
-([shipped-2026-08-12.md](shipped-2026-08-12.md) §S4, which also says loudly **"AUDITED: the
-gate holds. Do not re-audit this"** — this is a fan-out question, not a security one):
+([`pack-system.md`](../reference/pack-system.md#skills-fanout-s4), which also says loudly **"the
+gate holds; do not re-audit it"** — this is a fan-out question, not a security one):
 
 - **Jail:** *every* loaded pack's skills reach *every* declared destination.
   `PrepareSkills` copies every entry of `packSkillDirs` into every `packSkillTarget`
@@ -561,7 +561,7 @@ in-place edit. `tomltrivia.go`'s header names exactly this, and notes that the e
 `stateful` would have to change is also the one the A12-fatal boot path and the render
 fingerprint gate depend on.
 
-**Stakes.** Three options, priced in [host-file-staging.md](host-file-staging.md):
+**Stakes.** Three options, priced in the retired `host-file-staging.md` (`git log -- docs/plans/host-file-staging.md`):
 
 1. **Do it.** `Codec` grows an optional `TriviaCodec`; trivia rides the compose result; the
    staleness rule ① is keyed on `Result.Provenance` (emit a comment only where the winning
@@ -607,11 +607,13 @@ entries, which get `raw` by auto-detect and keep their bytes exactly.
 
 ## Rulings — ALL ANSWERED 2026-07-26
 
-Nothing is blocked on a decision any more. Context: [open-rulings.md](open-rulings.md).
+Nothing is blocked on a decision any more. Where each ruling now lives: 1 is
+[Ruling 1](../reference/config-migration-to-prism.md#ruling-1), 2–4 are
+[in `pack-system.md`](../reference/pack-system.md#open-rulings), and 5 is
+[`A12`](../reference/jail-home.md#why-its-this-way); the options weighed are in
+`git log -- docs/plans/open-rulings.md`. The numbers are the original rulings doc's, which
+`pack-system.md` uses too.
 
-0. **Config/pack generator failure** → **fatal: loud and halting, the jail does not start.**
-   Removes `genStep`'s fail-open behavior. New item **A12**, and it retires the biggest stated
-   risk of keeping composition in-jail.
 1. **First-migration vs discard** → `reset` also truncates the surface to the pure render.
    Unblocks stage B.
 2. **Pack state scope** → **two tiers, both by design**: per-workspace by default,
@@ -625,6 +627,9 @@ Nothing is blocked on a decision any more. Context: [open-rulings.md](open-rulin
    replaces it with host-side pack validation.
 4. **Re-render while running** → **not supported.** This was ruling 3's premise, so it needs no
    separate work.
+5. **Config/pack generator failure** → **fatal: loud and halting, the jail does not start.**
+   Removes `genStep`'s fail-open behavior. New item **A12**, and it retires the biggest stated
+   risk of keeping composition in-jail.
 
 ## Suggested order
 

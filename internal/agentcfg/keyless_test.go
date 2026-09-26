@@ -4,7 +4,7 @@ package agentcfg
 // and lines (a whole file as a []any of strings) — end to end through Compose
 // and ComposeStateful.
 //
-// These paths exist because docs/plans/host-file-staging.md lets a user declare
+// These paths exist because host_files (docs/reference/composed-file-permissions.md) lets a user declare
 // ANY host file as a surface, and most host files are not JSON: a shell rc, an
 // SSH known_hosts, a netrc. The engine was object-only before host_files (every
 // builtin surface happened to be json or toml), so "raw" was a codec with no

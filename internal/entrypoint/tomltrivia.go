@@ -5,7 +5,8 @@ package entrypoint
 //
 // # Why this is the mode where it is small
 //
-// docs/plans/host-file-staging.md ranked five ways to keep a comment through a structured
+// The retired host_files planning doc (`git log -- docs/plans/host-file-staging.md`)
+// ranked five ways to keep a comment through a structured
 // codec and put the "trivia sidecar" third, as real work wanting a decision. Three of its
 // four listed costs — widening the capture overlay to carry trivia, a sidecar migration,
 // and the staleness rule needing per-key provenance — are costs of CAPTURED STATE. An
@@ -29,7 +30,8 @@ package entrypoint
 //
 // # The rule for which comments survive
 //
-// host-file-staging.md's sub-question ① rules that trivia is DROPPED WHEN ITS VALUE IS
+// That doc's sub-question ①, now stated in docs/reference/pack-system.md ("The four
+// modes"), rules that trivia is DROPPED WHEN ITS VALUE IS
 // OVERRIDDEN — "better a missing explanation than a lying one", the failure being a
 // `# pinned to 2.13` sitting above `"2.15"`. Translated to `rmw`, where the file itself is
 // the layer the comment came from, that is exactly: a comment survives iff the render did
@@ -554,7 +556,7 @@ func emittedLineKey(line string, table []string) (string, bool, bool) {
 }
 
 // triviaDropReport names every comment this render did not put back, one line per cause.
-// It is what turns host-file-staging.md's conceded "silently drops the user's comment" into
+// It is what turns the retired planning doc's conceded "silently drops the user's comment" into
 // a reported one — and it stays empty when nothing is lost, or the line stops being read.
 func triviaDropReport(tv *tomlTrivia, used map[string]bool, keep func(string) bool) []string {
 	dropped := map[string]bool{}

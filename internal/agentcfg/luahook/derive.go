@@ -537,7 +537,7 @@ func buildDeriveCtxTable(L *lua.LState, ctx *DeriveCtx, sentinel, emptyArr *lua.
 // agent-auth-modes.md §6.1's "if the active agent/mode already has capability C" — as a
 // set, for eligibleMCPServers to ask membership of.
 //
-// An authentication source (docs/research/kilo-tavily-profile-gating.md coins the term)
+// An authentication source (docs/reference/mcp-configuration.md#authentication-source)
 // is the credential-and-endpoint mode this render's agent runs under. There are exactly
 // two, and the selection is what tells them apart rather than the agent's name:
 //

@@ -1,14 +1,24 @@
+---
+status: in-review
+---
+
 # Implementation plan — pack-managed host briefings, skills, and files
 
 **Status:** BUILT, 2026-08-02 — MEASURED: the acceptance test passed at both notches that day, one
 pack delivering the fzf file finder into a real home and into a jail (the build-status note
 below). **Phases 0–10 shipped** that day and
 [Phase 11](#phase-11--three-programstaging-defects-found-by-building-the-real-pack--shipped)'s
-three defects by 2026-08-03. **One question is still live** ([OQ-B](#open-questions), on the
-host `files` mode). Three phases were **redesigned after they shipped**, so read
+three defects by 2026-08-03. **Not a graduation candidate while one question is live:**
+[OQ-B](#open-questions), whether a pack's `files` copy in a real home is `0o444`. It is one
+decision with [`E1`](BACKLOG.md#E1) and [`E2`](BACKLOG.md#E2), and the roadmap and both
+composed-file-permissions docs cite it here by that id, so this doc stays in the planning tree
+until the three are ruled. Three phases were **redesigned after they shipped**, so read
 [what changed since](#what-changed-after-this-plan-shipped) before building on any of them.
-Sequences [`handoff-pack-host-management-gaps.md`](handoff-pack-host-management-gaps.md) (the
-gap report — five gaps, each verified by running the binary) into buildable phases.
+Sequences the gap report `handoff-pack-host-management-gaps.md` (five gaps, each verified by
+running the binary; retired 2026-09-26, `git log -- docs/plans/handoff-pack-host-management-gaps.md`)
+into buildable phases.
+
+**Needs your ruling:** [OQ-B](#open-questions), with `E1` and `E2`.
 
 ## What changed after this plan shipped
 
@@ -19,17 +29,17 @@ not here:
 
 - **Phases 4 and 9: host skills are composed as a whole, not delivered entry by entry.** Ruled
   2026-08-04
-  ([6a-2](shipped-2026-08-pack-batch.md#6a-2-ruled--skills-wholesale-owned-migrated-into-a-conventional-local-pack)).
+  ([§6a-2](../reference/pack-system.md#batch-6a-2)).
   yolo owns the agent's skills directory at the host, as it does in a jail. A user's own
   skills move into the local pack at `~/.config/yolo-jail/local/`, and yolo composes them back
   into every destination. The tier is now a per-pack `skills_tier` (unnamespaced by default,
   `namespaced` on request), not a per-agent A/B table
-  ([6a-7](shipped-2026-08-pack-batch.md#6a-7-found-shipping-q6-four-defects-and-the-tier-question-answered)).
+  ([§6a-7](../reference/pack-system.md#batch-6a-7)).
   A skill name declared by two packs is a fatal error. A pack may also mark a child of its
   destination as `reserved`: `packs/claude` reserves `synced`
   ([`skills`](../reference/pack-system.md#skills)).
 - **Phase 5: the delimited briefing block is gone.** Ruled 2026-08-04
-  ([6a](shipped-2026-08-pack-batch.md#6a-ruled--briefings-are-fully-generated-and-controlled)).
+  ([§6a](../reference/pack-system.md#batch-6a)).
   A briefing destination is generated as a whole at every notch. Hand-written prose moves into
   the local pack's `briefing/local.md`, and has done since 2026-09-23. Before that it moved to
   the local pack's root `AGENTS.md`, which is no longer read as pack prose. Since 2026-09-22 the
@@ -102,7 +112,7 @@ from packs, including *"packify my fzf customized file finder"* for Claude. Expl
 deps (`fd`, `fzf`) — to **both** a jail and the real host, **while the user can still add
 their own skills to the same agent by hand.** When that works, this plan is done.
 
-**Reads with:** the handoff (the evidence);
+**Reads with:** the retired gap report (the evidence; `git log -- docs/plans/handoff-pack-host-management-gaps.md`);
 [`environment-manager-plan.md`](environment-manager-plan.md) (Phases 4/9 built the host
 notch this extends); [`../reference/pack-system.md` §14](../reference/pack-system.md#config-surfaces-and-the-compose-engine) (the
 schema-vs-shipped gap list this plan shortens);
@@ -994,8 +1004,8 @@ Checks:
   **The Copilot half was answered by reference on 2026-08-04**: skills are composed as a whole
   at the host for every agent, so "did yolo write this?" no longer decides what may be
   overwritten
-  ([6a-2](shipped-2026-08-pack-batch.md#6a-2-ruled--skills-wholesale-owned-migrated-into-a-conventional-local-pack),
-  [6a-7](shipped-2026-08-pack-batch.md#6a-7-found-shipping-q6-four-defects-and-the-tier-question-answered)).
+  ([§6a-2](../reference/pack-system.md#batch-6a-2),
+  [§6a-7](../reference/pack-system.md#batch-6a-7)).
 - **OQ-D — per-agent skills delivery strategy. SUPERSEDED by N6 + Phase 9/10.** The answer is
   a declared **capability tier** per destination, not inference: tier A (plugin-namespaced)
   for claude + copilot, tier B (flat, manifest-tracked) for the rest. See N6 and Phase 9.

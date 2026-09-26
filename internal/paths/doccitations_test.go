@@ -70,6 +70,16 @@ var fixtureCitations = map[string]string{
 	"docs/design/jail-version-predictability.md": "deleted in 5eb1643f. " +
 		".github/workflows/update-flake-lock.yml names it; the text is at " +
 		"`git show 5eb1643f^:docs/design/jail-version-predictability.md`",
+	// Retired 2026-09-26 when its durable facts graduated into
+	// docs/reference/composed-file-permissions.md ("How a host_files entry becomes a
+	// surface"). The one thing that did NOT graduate is the ranked list of ways to keep a
+	// comment through a structured codec, which internal/entrypoint/tomltrivia.go argues
+	// from — so it names the path inside `git log -- <path>`, the same in-history shape as
+	// the entries above.
+	"docs/plans/host-file-staging.md": "retired 2026-09-26 (graduated into " +
+		"docs/reference/composed-file-permissions.md). internal/entrypoint/tomltrivia.go cites " +
+		"it as `git log -- docs/plans/host-file-staging.md` for the trivia-options ranking, " +
+		"which lives only in history",
 }
 
 // TestEveryDocCitationFromGoResolves is the tripwire for a class that has bitten
