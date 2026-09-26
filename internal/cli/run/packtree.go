@@ -66,7 +66,12 @@ import (
 // a retirement record and the profile disclosure all use the pack's name) and the ORDER (later
 // wins for skills and briefing prose, and the closure's additions come last). Neither can be
 // recovered from the directories alone.
-const packTreeRecordName = ".yolo-pack-tree.json"
+//
+// A NAME NO PACK SLUG CAN TAKE, for officialStagingDir's reason: a slug spells every byte outside
+// [A-Za-z0-9.-] as "_" plus two hex digits, so a slug starting "_pa" cannot exist. A dot-name
+// could: a pack name may be any string without "/", "\" or ":", and `.yolo-pack-tree.json` was
+// one, whose staged directory then took the record's place and refused the launch.
+const packTreeRecordName = "_pack-tree.json"
 
 // packTreeTimeLayout prefixes each tree's directory name, so a human listing the root can tell
 // the launches apart. os.MkdirTemp's random suffix is what makes the name unique.

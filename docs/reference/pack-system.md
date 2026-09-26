@@ -2495,8 +2495,8 @@ choices, each made to build the ruling and none changing it:
    stamp>-<random>` (`paths.PackTreeRoot`, `os.MkdirTemp`, mode 0755), with the old layout
    inside it: `_official/<name>` and `<slug>`. Beside the home skeleton's root, so the reaper that
    removes a gone jail's whole `AGENTS_DIR/<cname>` reaches it the same way.
-2. *Implementation decision.* **A tree records its own packs**, in `.yolo-pack-tree.json` at its
-   top level: each pack's name and directory, in the order the launch loaded them. An attach
+2. *Implementation decision.* **A tree records its own packs**, in `_pack-tree.json` at its
+   top level (a name no pack slug can spell, as `_official` is not): each pack's name and directory, in the order the launch loaded them. An attach
    rebuilds the jail's pack set from it, and the directories alone cannot say it: a configured
    pack's directory is its slug, not its name, and the order decides precedence (later wins for
    skills and briefing prose). The jail's loader skips every top-level file, so the record renders

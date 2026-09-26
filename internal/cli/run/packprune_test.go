@@ -213,3 +213,24 @@ func TestAStagedTreeRecordsItsPacksInLoadOrder(t *testing.T) {
 		t.Errorf("the tree carries no record: %v", err)
 	}
 }
+
+// TestNoPackNameCollidesWithTheTreeRecord: a pack name may be any string without "/", "\\" or
+// ":", so a configured pack named after the tree's record must still stage beside it, and the tree
+// must still read back. The record's name is one no slug can spell (packTreeRecordName).
+func TestNoPackNameCollidesWithTheTreeRecord(t *testing.T) {
+	home := packHome(t)
+	for _, name := range []string{packTreeRecordName, ".yolo-pack-tree.json"} {
+		dir := localPackDir(t, "collider")
+		writePack(t, dir, `{"name":"collider"}`)
+		writeUserPacks(t, home, `[{"source":"file://`+dir+`","name":"`+name+`"}]`)
+		o, out := stagingOptions(t)
+		tree, _, _, err := o.stagePacks("yolo-test-record-name")
+		if err != nil {
+			t.Fatalf("a pack named %q refused the launch: %v\n%s", name, err, out.String())
+		}
+		reread, err := loadPackTree(tree)
+		if err != nil || len(reread) != 1 || reread[0].Name != name {
+			t.Errorf("a pack named %q does not read back from its tree: %v (%d packs)", name, err, len(reread))
+		}
+	}
+}
