@@ -95,3 +95,41 @@ func TestAttachExecCarriesNoColor(t *testing.T) {
 		}
 	}
 }
+
+// TestAttachExecClearsAFrozenNoColor is the other direction: a jail LAUNCHED with
+// NO_COLOR froze it into the container's environment, and every exec inherits that. An
+// attach from a shell without it would run the entrypoint, the prompt and the agents
+// colorless while the host half of the same attach colors — one invocation reading two
+// environments. So the exec sets it EMPTY, which the convention counts as unset
+// (https://no-color.org); `podman exec` has no way to remove a variable outright.
+//
+// Only for a container whose inspect showed a non-empty NO_COLOR: a jail launched
+// without it never gains an empty one, and an inspect that answered nothing proves
+// nothing, so it changes nothing.
+func TestAttachExecClearsAFrozenNoColor(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		invocation string
+		frozenEnv  string
+		want       []string
+	}{
+		{"frozen, unset at attach", "", "YOLO_VERSION=9.9.9-test\nNO_COLOR=1\n", []string{"NO_COLOR="}},
+		{"frozen, set at attach", "1", "NO_COLOR=1\n", []string{"NO_COLOR=1"}},
+		{"frozen empty", "", "NO_COLOR=\n", nil},
+		{"never frozen", "", "YOLO_VERSION=9.9.9-test\n", nil},
+		{"inspect answered nothing", "", "", nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			argv := attachExecArgv(t, map[string]string{"NO_COLOR": tc.invocation}, tc.frozenEnv)
+			var got []string
+			for _, e := range execEnvBeforeContainer(t, argv) {
+				if strings.HasPrefix(e, "NO_COLOR=") {
+					got = append(got, e)
+				}
+			}
+			if !slices.Equal(got, tc.want) {
+				t.Errorf("the exec sets %q, want %q; argv: %q", got, tc.want, argv)
+			}
+		})
+	}
+}

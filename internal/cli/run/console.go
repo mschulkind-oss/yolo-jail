@@ -35,14 +35,37 @@ func (p printer) printf(format string, args ...any) { p.rt.Printf(format, args..
 // that tests for presence rather than value as a request for no color.
 //
 // ONE builder for BOTH argvs that start a process in the jail: assembleRunCmd's
-// fresh launch and attachExisting's `exec`. The exec needs its own copy because a
-// running container's environment is the one it was launched with, so a NO_COLOR
-// set only at attach would otherwise never reach the command attached to.
+// fresh launch and attachExisting's `exec` (through attachNoColorEnvArgs). The exec
+// needs its own copy because a running container's environment is the one it was
+// launched with, so a NO_COLOR set only at attach would otherwise never reach the
+// command attached to.
 func (o *Options) noColorEnvArgs() []string {
 	if !tty.NoColor(o.Getenv) {
 		return nil
 	}
 	return []string{"-e", tty.NoColorVar + "=" + o.Getenv(tty.NoColorVar)}
+}
+
+// attachNoColorEnvArgs is the attach exec's NO_COLOR, and it answers for BOTH ways a
+// running container's frozen launch environment (envLines, from inspect) can disagree
+// with this invocation. Set here: noColorEnvArgs carries it. Unset here but frozen
+// non-empty — the jail was launched with NO_COLOR — and every exec would inherit it, so
+// the entrypoint, the prompt and the agents would stay colorless while the host half of
+// this same attach colors. That pair is `-e NO_COLOR=`: EMPTY, which the convention
+// counts as unset, because `podman exec` cannot remove a variable outright.
+//
+// The empty pair goes only to a container whose inspect SHOWED a non-empty NO_COLOR.
+// A jail launched without it never gains one (noColorEnvArgs says why an empty value
+// is otherwise avoided), and an inspect that answered nothing proves nothing, so it
+// changes nothing.
+func (o *Options) attachNoColorEnvArgs(envLines []string) []string {
+	if args := o.noColorEnvArgs(); args != nil {
+		return args
+	}
+	if envLineValue(envLines, tty.NoColorVar) != "" {
+		return []string{"-e", tty.NoColorVar + "="}
+	}
+	return nil
 }
 
 // pr builds a color-aware printer for w, through the one gate (tty.Color).
