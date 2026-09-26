@@ -47,8 +47,9 @@ jobs:
     steps:
       # Full history AND TAGS, which the short suite reads: packs'
       # TestShippedPacksDecodeUnderTheLastRelease builds the last release tag's
-      # in-jail pack reader from git and decodes this tree's shipped packs with
-      # it, so a manifest change that would stop an older jail's boot fails here.
+      # in-jail pack reader from git and runs this tree's shipped packs through
+      # that release's boot-time decode passes (manifests, surfaces, overlays),
+      # so a manifest change any of them would refuse fails here.
       # Under GitHub Actions a missing tag is a failure, not a skip.
       - uses: actions/checkout@v7
         with:
