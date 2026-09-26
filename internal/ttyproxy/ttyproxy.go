@@ -49,6 +49,8 @@ import (
 	"unsafe"
 
 	"golang.org/x/sys/unix"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/tty"
 )
 
 const (
@@ -524,6 +526,10 @@ func proxyLoop(inFd, master int, c *exec.Cmd, cooked *unix.Termios, obs Observer
 // the agent inside it is killed with no chance to pop what it pushed. This
 // process survives that, so it is the only thing that can.
 //
+// NOT A COLOR DECISION, so NO_COLOR does not gate it: the \x1b[0m here CLEARS attributes a
+// child left set rather than adding any, and the convention (https://no-color.org) is about
+// the second. Every other byte is terminal-mode restoration.
+//
 // ⚠ DELIBERATELY ABSENT: \x1b[?1049l (leave the alternate screen). restoreTerminal
 // is also the Ctrl-Z path (selfSuspend), where dropping the alt screen would wipe
 // the suspended program's display and `fg` would not bring it back. Screen state
@@ -600,10 +606,10 @@ func setRaw(fd int, cooked *unix.Termios) {
 	_ = unix.IoctlSetTermios(fd, unix.TCSETS, &raw)
 }
 
-func isatty(fd int) bool {
-	_, err := unix.IoctlGetTermios(fd, unix.TCGETS)
-	return err == nil
-}
+// isatty is the shared terminal probe (internal/tty, a TCGETS ioctl here), named for the
+// int descriptors this file works in. It used to be a private copy of that ioctl — the one
+// cli-color-audit.md's "every command uses internal/tty" claim missed.
+func isatty(fd int) bool { return tty.IsTerminal(uintptr(fd)) }
 
 func exitCode(err error) int {
 	if err == nil {
