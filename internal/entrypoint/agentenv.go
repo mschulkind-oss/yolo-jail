@@ -38,12 +38,15 @@ func AgentEnvFile(home, agent string) string {
 	return filepath.Join(home, AgentEnvDirRel, agent+".sh")
 }
 
-// agentEnvShellFn is spliced into the npm and native agent launchers ahead of the pre-launch
-// authentication step, and into the launch-flag wrapper ahead of its exec. Ahead of the
-// authentication step because that step reads its own switches from the environment, and a
-// profile-gated one (pi's YOLO_AUTH_PRELAUNCH_PI_FLAG, gated on `codex`) is exactly the kind of
-// value that now lives here rather than in the shared file. After the install and update steps,
-// which need no credential and should not run holding one.
+// agentEnvShellFn is spliced into the npm and native agent launchers immediately ahead of the
+// pre-launch authentication step and the exec, and into the wrapper ahead of its exec. Ahead
+// of the authentication step because that step reads its own switches from the environment,
+// and a profile-gated one (pi's YOLO_AUTH_PRELAUNCH_PI_FLAG, gated on `codex`) is exactly the
+// kind of value that now lives here rather than in the shared file. AFTER everything else the
+// launchers run — the install, the update, the MCP server refresh (`yolo internal
+// refresh-servers`, npm installs whose lifecycle scripts run) and the pre-launch refresh (pi's
+// `update --extensions`) — because none of those needs a credential and none should run
+// holding one.
 //
 // $HOME, not a baked path: the path is the same fact on every backend (a jail home's
 // .config/yolo-agent-env), and the templates already name their install prefixes through

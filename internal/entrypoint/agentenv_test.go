@@ -171,45 +171,113 @@ func TestAShadowedAgentWithoutLaunchFlagsStillSourcesItsOwnFile(t *testing.T) {
 	}
 }
 
-// The file is sourced AHEAD OF the pre-launch authentication step, because that step reads
-// its own switches from the environment and a profile-gated switch is exactly what the
-// gate now puts in the agent's file: pi's YOLO_AUTH_PRELAUNCH_PI_FLAG is gated on the
-// `codex` profile, so it no longer rides the shared file. With the switch ONLY in pi's own
-// file the launcher must still ask the broker for a token before pi starts.
-func TestTheAuthPrelaunchReadsItsSwitchFromTheAgentsOwnFile(t *testing.T) {
-	home := t.TempDir()
-	binDir := filepath.Join(home, "fake-bin")
-	calls := filepath.Join(home, "calls")
-	fakeYolo := "#!/bin/sh\nprintf '%s\\n' \"$*\" >> '" + calls + "'\n"
-	if err := os.MkdirAll(binDir, 0o755); err != nil {
-		t.Fatal(err)
+// probeLauncher writes the npm or native launcher for a probe program whose real binary
+// reports $SCOPED and $OTHER into logPath, and returns the launcher's path.
+func probeLauncher(t *testing.T, home, kind, logPath string, servers launcherServers) string {
+	t.Helper()
+	inst := &packdecl.Install{Kind: kind, Bin: "probe"}
+	var body, realBin string
+	switch kind {
+	case "npm":
+		inst.Package = "probe-pkg"
+		realBin = filepath.Join(home, ".npm-global", "bin", "probe")
+		body = npmAgentLauncher(inst, filepath.Join(home, "stamps"), filepath.Join(home, "receipts"),
+			false, servers, nil)
+	case "native":
+		inst.InstallerURL = "http://127.0.0.1:9/i.sh" // never fetched: the bin exists
+		realBin = filepath.Join(home, ".local", "bin", "probe")
+		body = nativeAgentLauncher(inst, filepath.Join(home, "stamps"), filepath.Join(home, "receipts"),
+			"", false, servers, nil)
 	}
-	if err := os.WriteFile(filepath.Join(binDir, "yolo"), []byte(fakeYolo), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	inst := &packdecl.Install{Kind: "native", Bin: "probe", InstallerURL: "http://127.0.0.1:9/i.sh"}
-	logPath := filepath.Join(home, "seen.log")
-	envReporter(t, filepath.Join(home, ".local", "bin", "probe"), logPath)
-	body := nativeAgentLauncher(inst, filepath.Join(home, "stamps"), filepath.Join(home, "receipts"),
-		"", false, launcherServers{}, nil)
+	envReporter(t, realBin, logPath)
 	launcher := filepath.Join(home, "launch-probe")
 	if err := os.WriteFile(launcher, []byte(body), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	writeAgentEnvFile(t, home, "probe", "export YOLO_AUTH_PRELAUNCH_PROBE_FLAG='--probe-auth'\n"+
-		"export YOLO_AUTH_PRELAUNCH_PROBE_PATH='.probe/auth.json'\n")
+	return launcher
+}
 
-	out, rc := runScript(t, launcher, nil,
-		[]string{"HOME=" + home, "PATH=" + binDir + ":/usr/bin:/bin"})
-	if rc != 0 {
-		t.Fatalf("the launcher exited %d:\n%s", rc, out)
+// fakeYoloRecording puts a `yolo` on binDir that appends its argv and the $SCOPED it was
+// handed to callsPath, one line per call.
+func fakeYoloRecording(t *testing.T, binDir, callsPath string) {
+	t.Helper()
+	if err := os.MkdirAll(binDir, 0o755); err != nil {
+		t.Fatal(err)
 	}
-	log, err := os.ReadFile(calls)
-	if err != nil {
-		t.Fatalf("the pre-launch authentication step never ran — its switch, in the agent's "+
-			"own file, was not sourced before it: %v\n%s", err, out)
+	script := "#!/bin/sh\nprintf '%s SCOPED=%s\\n' \"$*\" \"${SCOPED:-}\" >> '" + callsPath + "'\n"
+	if err := os.WriteFile(filepath.Join(binDir, "yolo"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
 	}
-	if want := "internal openai-auth-client token --probe-auth=" + filepath.Join(home, ".probe/auth.json"); !strings.Contains(string(log), want) {
-		t.Errorf("auth prelaunch calls = %q, want %q", log, want)
+}
+
+// The file is sourced AHEAD OF the pre-launch authentication step, because that step reads
+// its own switches from the environment and a profile-gated switch is exactly what the
+// gate now puts in the agent's file: pi's YOLO_AUTH_PRELAUNCH_PI_FLAG is gated on the
+// `codex` profile, so it no longer rides the shared file. With the switch ONLY in the
+// agent's own file the launcher must still ask the broker for a token before the program
+// starts — on BOTH templates, since pi's launcher is the npm one and it is the case CN-D10
+// names (swapping the two fragments in that template alone used to leave the suite green).
+func TestTheAuthPrelaunchReadsItsSwitchFromTheAgentsOwnFile(t *testing.T) {
+	for _, kind := range []string{"npm", "native"} {
+		t.Run(kind, func(t *testing.T) {
+			home := t.TempDir()
+			binDir := filepath.Join(home, "fake-bin")
+			calls := filepath.Join(home, "calls")
+			fakeYoloRecording(t, binDir, calls)
+			launcher := probeLauncher(t, home, kind, filepath.Join(home, "seen.log"), launcherServers{})
+			writeAgentEnvFile(t, home, "probe", "export YOLO_AUTH_PRELAUNCH_PROBE_FLAG='--probe-auth'\n"+
+				"export YOLO_AUTH_PRELAUNCH_PROBE_PATH='.probe/auth.json'\n")
+
+			out, rc := runScript(t, launcher, nil,
+				[]string{"HOME=" + home, "PATH=" + binDir + ":/usr/bin:/bin"})
+			if rc != 0 {
+				t.Fatalf("the launcher exited %d:\n%s", rc, out)
+			}
+			log, err := os.ReadFile(calls)
+			if err != nil {
+				t.Fatalf("the pre-launch authentication step never ran — its switch, in the agent's "+
+					"own file, was not sourced before it: %v\n%s", err, out)
+			}
+			if want := "internal openai-auth-client token --probe-auth=" + filepath.Join(home, ".probe/auth.json"); !strings.Contains(string(log), want) {
+				t.Errorf("auth prelaunch calls = %q, want %q", log, want)
+			}
+		})
+	}
+}
+
+// THE REFRESH STEPS RUN WITHOUT THE AGENT'S CREDENTIALS. The MCP server refresh installs npm
+// packages, whose lifecycle scripts run, and the pre-launch refresh updates pi's extensions;
+// neither needs a provider credential, so neither may run holding one. The file is sourced
+// after both, immediately before the authentication step and the exec — and the program
+// still receives it.
+func TestTheRefreshStepsRunWithoutTheAgentsCredentials(t *testing.T) {
+	for _, kind := range []string{"npm", "native"} {
+		t.Run(kind, func(t *testing.T) {
+			home := t.TempDir()
+			binDir := filepath.Join(home, "fake-bin")
+			calls := filepath.Join(home, "calls")
+			fakeYoloRecording(t, binDir, calls)
+			seen := filepath.Join(home, "seen.log")
+			launcher := probeLauncher(t, home, kind, seen, launcherServers{npm: "some-mcp-server"})
+			writeAgentEnvFile(t, home, "probe", "export SCOPED='the-agents-key'\n")
+
+			out, rc := runScript(t, launcher, nil,
+				[]string{"HOME=" + home, "PATH=" + binDir + ":/usr/bin:/bin"})
+			if rc != 0 {
+				t.Fatalf("the launcher exited %d:\n%s", rc, out)
+			}
+			log, err := os.ReadFile(calls)
+			if err != nil || !strings.Contains(string(log), "internal refresh-servers") {
+				t.Fatalf("the MCP server refresh never ran, so this proves nothing: %v %q\n%s", err, log, out)
+			}
+			for _, line := range strings.Split(strings.TrimSpace(string(log)), "\n") {
+				if strings.Contains(line, "refresh-servers") && !strings.HasSuffix(line, "SCOPED=") {
+					t.Errorf("the MCP server refresh ran holding the agent's credential: %q", line)
+				}
+			}
+			if got := strings.Join(logLines(t, seen), " "); got != "SCOPED=the-agents-key OTHER=" {
+				t.Errorf("the program must still receive its own file: got %q\n%s", got, out)
+			}
+		})
 	}
 }

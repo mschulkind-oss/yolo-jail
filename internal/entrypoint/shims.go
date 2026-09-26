@@ -1314,7 +1314,6 @@ elif _update_due; then
     _locked_update || true
 fi
 
-` + agentEnvShellFn + agentAuthPrelaunchShellFn + `
 # --- transitive MCP server refresh (§3.5, OQ-PD12a) ---------------------------------
 # The servers this agent connects to inherit ITS trigger: a server exists only to serve an
 # agent, so there is no boot step and no timer — the refresh happens here, at the moment
@@ -1344,6 +1343,7 @@ if [ "$SERVERS_ENABLED" = "1" ]; then
     _refresh_servers
 fi
 ` + prelaunchRefreshShellFn + `
+` + agentEnvShellFn + agentAuthPrelaunchShellFn + `
 if [ -x "$REAL_BIN" ]; then
     _yolo_launch_argv "$@"
     exec __YOLO_EXEC_PREFIX__"$REAL_BIN" ${YOLO_ARGV[@]+"${YOLO_ARGV[@]}"}
@@ -1851,8 +1851,6 @@ if [ "${` + InstallOnlyEnv + `:-}" = "1" ]; then
     exit 1
 fi
 
-` + agentEnvShellFn + agentAuthPrelaunchShellFn + `
-
 # --- transitive MCP server refresh (§3.5, OQ-PD12a) ---------------------------------
 # The servers this agent connects to inherit ITS trigger: a server exists only to serve an
 # agent, so there is no boot step and no timer — the refresh happens here, at the moment
@@ -1883,6 +1881,7 @@ if [ "$SERVERS_ENABLED" = "1" ]; then
 fi
 
 ` + prelaunchRefreshShellFn + `
+` + agentEnvShellFn + agentAuthPrelaunchShellFn + `
 if [ -x "$REAL_BIN" ]; then
     _yolo_launch_argv "$@"
     exec "$REAL_BIN" ${YOLO_ARGV[@]+"${YOLO_ARGV[@]}"}
