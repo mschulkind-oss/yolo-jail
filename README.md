@@ -358,7 +358,7 @@ yolo-jail is a Go module, and [AGENTS.md](AGENTS.md) is the guide to developing 
 architecture, the build and test traps, and the file that enforces each rule. From a clone:
 
 ```bash
-just setup           # the toolchain mise.toml pins (Go, just, staticcheck, uv), and the Go module deps
+just setup           # the toolchain mise.toml pins, and the Go module deps
 just install-hooks   # a pre-commit hook that runs the same gate CI runs
 just check-ci        # that gate: go vet and staticcheck for linux and darwin, gofmt, the changelog
                      # and user-guide checks, and the short test suite
