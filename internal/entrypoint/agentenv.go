@@ -29,13 +29,13 @@ import (
 // reads a served agent's key out of it.
 const AgentEnvDirRel = ".config/yolo-agent-env"
 
-// AgentEnvFilesEnv marks a container whose jail reads the per-agent env files: the host
-// launcher that created it sets it to "1" in the container's frozen environment, beside the
-// directory's bind. Nothing in the jail reads it. It is for the NEXT host yolo that attaches:
-// a container's frozen environment is the one fact about its launch an attach can inspect,
-// and a jail an older yolo launched has neither the bind nor launchers that source the file,
-// so its absence tells deliverChannelOnAttach that a per-agent delivery cannot reach that
-// jail (provider-credential-scope.md, OQ-CN6).
+// AgentEnvFilesEnv is the LEGACY spelling of the `agent-env-files` contract tag
+// (ContractTagsEnv). The credential gate's first build froze it as "1" into every container it
+// launched, the first named contract marker in practice (provider-credential-scope.md, CN-D18),
+// and the tag set folded it in (attach-skew-and-contract-guardrails.md, OQ-SK2). No launch
+// writes it any more. It is still READ, by internal/cli/run's jailContractTags, for a container
+// that carries no ContractTagsEnv: a jail launched between the gate and the tags must keep
+// counting as one whose launchers source the per-agent files.
 const AgentEnvFilesEnv = "YOLO_AGENT_ENV_FILES"
 
 // AgentEnvFile is the env file of one agent (its CLI name) under home.

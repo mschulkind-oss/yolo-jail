@@ -992,7 +992,7 @@ func TestAttachLeavesTheSkeletonByteIdentical(t *testing.T) {
 	}
 	t.Setenv("PATH", t.TempDir())
 	channel := channelFor(t, o, changed, staged.packs, nil)
-	rc := o.attachExisting(cname, "podman", "true", changed, staged, channel, false)
+	rc, _ := o.attachExisting(cname, "podman", "true", changed, staged, channel, false, nil)
 	if got := stdout.String(); rc != 1 || !strings.Contains(got, "Attaching to existing jail") ||
 		!strings.Contains(got, "not found on PATH") {
 		t.Fatalf("the attach arm did not run through to its exec (rc=%d), so this test proves "+

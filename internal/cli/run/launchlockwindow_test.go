@@ -101,8 +101,13 @@ func TestTheMacosUserBackendIsHandedTheLaunchLockStagingTook(t *testing.T) {
 // TestAnAttachReleasesTheLaunchLockBeforeItsSession: on podman, a launch that finds its jail
 // running restages and refreshes under the lock and then attaches — and the attach session must
 // not hold it, or every other terminal in the workspace would queue behind this one's shell.
-// The attach arm's first runtime question (the version inspect, attachskew.go) is where it is
-// read: by then the window is over.
+//
+// The window closes after the attach's CONTRACT GATE (contracttags.go), not at its first runtime
+// question: a gate that restarts the jail continues as a fresh launch, and the stopped jail's
+// teardown leaves its host-services dir alone only for a launch still holding the lock
+// (stopLoopholes). So the lock is read twice: HELD at the inspect the gate reads, and RELEASED
+// by the "Attaching to existing jail" line, which the attach prints once it has settled on going
+// ahead and before its exec.
 func TestAnAttachReleasesTheLaunchLockBeforeItsSession(t *testing.T) {
 	home := packHome(t)
 	writeUserPacks(t, home, `[]`)
@@ -114,7 +119,19 @@ func TestAnAttachReleasesTheLaunchLockBeforeItsSession(t *testing.T) {
 	t.Setenv("PATH", t.TempDir())
 
 	var stdout, stderr bytes.Buffer
+	attachLineSeen := false
+	watched := writerFunc(func(p []byte) (int, error) {
+		if strings.Contains(string(p), "Attaching to existing jail") {
+			attachLineSeen = true
+			if launchLockHeld(t, lockPath) {
+				t.Error("the attach arm still holds the workspace launch lock: its session would " +
+					"make every other launch of this workspace wait until it exits")
+			}
+		}
+		return stdout.Write(p)
+	})
 	o := dispatchOptions(t, ws, "podman", &stdout, &stderr, nil)
+	o.Stdout = watched
 	inspected := false
 	o.Exec = func(argv []string, _ string, _ []string, _ time.Duration) ExecResult {
 		switch {
@@ -124,9 +141,10 @@ func TestAnAttachReleasesTheLaunchLockBeforeItsSession(t *testing.T) {
 			return ExecResult{Ran: true, RC: 0, Stdout: "abc123\n"}
 		case len(argv) >= 2 && argv[1] == "inspect":
 			inspected = true
-			if launchLockHeld(t, lockPath) {
-				t.Error("the attach arm still holds the workspace launch lock: its session would " +
-					"make every other launch of this workspace wait until it exits")
+			if !launchLockHeld(t, lockPath) {
+				t.Error("the attach released the launch lock before its contract gate: a gate that " +
+					"restarts the jail would continue into a fresh launch without it, and the " +
+					"stopped jail's teardown could remove the host-services dir that launch publishes into")
 			}
 			return ExecResult{Ran: true, RC: 0, Stdout: "YOLO_VERSION=9.9.9-test\n"}
 		}
@@ -134,7 +152,7 @@ func TestAnAttachReleasesTheLaunchLockBeforeItsSession(t *testing.T) {
 	}
 
 	_ = Run(*o)
-	if !strings.Contains(stdout.String(), "Attaching to existing jail") {
+	if !strings.Contains(stdout.String(), "Attaching to existing jail") || !attachLineSeen {
 		t.Fatalf("the launch did not take the attach arm, so this test says nothing about it\n"+
 			"stdout:\n%s\nstderr:\n%s", stdout.String(), stderr.String())
 	}
@@ -143,3 +161,9 @@ func TestAnAttachReleasesTheLaunchLockBeforeItsSession(t *testing.T) {
 			"stdout:\n%s", stdout.String())
 	}
 }
+
+// writerFunc adapts a function to io.Writer, for a test that must act at the moment a line is
+// printed.
+type writerFunc func(p []byte) (int, error)
+
+func (f writerFunc) Write(p []byte) (int, error) { return f(p) }

@@ -519,8 +519,11 @@ func podmanLinuxGolden(home string) []string {
 		"-e", "YOLO_MCP_PRESETS=[]",
 		// Empty because no user config declares `agent_updates`; the jail defaults OPEN.
 		"-e", "YOLO_AGENT_UPDATES=",
-		// The per-agent env marker an attach reads to know this jail sources the files.
-		"-e", "YOLO_AGENT_ENV_FILES=1",
+		// The contract tags a later attach reads to know what this jail can receive
+		// (contracttags.go). Spelled out, not read from launchContractTags: a tag dropped
+		// from the launch must fail here, since an attach from this build would then refuse
+		// a jail this build launched.
+		"-e", "YOLO_CONTRACT_TAGS=entry-channel,agent-env-files",
 		// The three provider/profile wire tables are NOT on the argv: they cross in
 		// yolo-user-env.sh's channel section with the pack env fold and the shape
 		// vars (writeUserEnvFile), so the container's frozen environment holds no

@@ -492,8 +492,8 @@ func TestAttachRefusesAnOverriddenContribution(t *testing.T) {
 		})
 	envFile, before := seedLiveChannelFile(t, o)
 
-	rc := o.attachExisting("yolo-ws-abcd1234", "podman", "true", cfg,
-		stagedPacks{root: "/ctx/packs", packs: packs}, channel, false)
+	rc, _ := o.attachExisting("yolo-ws-abcd1234", "podman", "true", cfg,
+		stagedPacks{root: "/ctx/packs", packs: packs}, channel, false, nil)
 	if rc != 1 {
 		t.Fatalf("an attach delivering aws-auth's pointer beside a bearer must refuse, rc=%d\n"+
 			"stderr:\n%s", rc, stderr.String())
@@ -516,8 +516,8 @@ func TestAttachCredentialRefusalLeavesTheLiveFileAlone(t *testing.T) {
 		packs, emptyEnv(), func(o *Options, _ *jsonx.OrderedMap) { o.ProfileName = "zai" })
 	envFile, before := seedLiveChannelFile(t, o)
 
-	rc := o.attachExisting("yolo-ws-abcd1234", "podman", "true", cfg,
-		stagedPacks{root: "/ctx/packs", packs: packs}, channel, false)
+	rc, _ := o.attachExisting("yolo-ws-abcd1234", "podman", "true", cfg,
+		stagedPacks{root: "/ctx/packs", packs: packs}, channel, false, nil)
 	if rc != 1 {
 		t.Fatalf("an attach that cannot hydrate the selected provider's key must refuse, rc=%d\n%s",
 			rc, stderr.String())

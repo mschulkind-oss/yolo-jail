@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
-	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/jailcontent"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
@@ -959,15 +958,22 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 	}
 
 	if existingCID != "" {
-		// The attach's window over the workspace's shared staging ends here: it restaged and
-		// refreshed above, and the exec below reads none of it back. Held across the attach
-		// session, the lock would make every other terminal in the workspace wait for this one
-		// to exit.
+		// The attach's window over the workspace's shared staging ends inside attachExisting,
+		// once its contract gate has passed (contracttags.go): it restaged and refreshed above,
+		// and the exec reads none of it back. Held across the attach session, the lock would
+		// make every other terminal in the workspace wait for this one to exit. Held through the
+		// gate, because a gate that restarts the jail continues below as a fresh launch, and the
+		// stopped jail's teardown leaves its host-services dir alone only for a launch holding
+		// the lock.
 		//
 		// A launch that WAITED for the lock found this jail because the launch it waited for
 		// started it, so it gets the raced banner, as it did when it waited further down.
-		o.releaseLaunchLock()
-		return o.attachExisting(cname, rt, targetCmd, cfg, staged, channel, o.launchLockWaited)
+		rc, restarted := o.attachExisting(cname, rt, targetCmd, cfg, staged, channel, o.launchLockWaited, o.releaseLaunchLock)
+		if !restarted {
+			return rc
+		}
+		// Restarted: the jail this entry could not use is stopped and gone, and this launch
+		// is now a fresh one — the path below, lock still held.
 	}
 
 	// --- Fresh launch: config-change approval ---
@@ -1013,8 +1019,9 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 	// Re-check after acquiring the lock — another process may have won.
 	if !o.NeverAttach {
 		if raced := o.findRunningContainer(cname, rt); raced != "" {
-			lock.Close()
-			return o.attachExisting(cname, rt, targetCmd, cfg, staged, channel, true)
+			if rc, restarted := o.attachExisting(cname, rt, targetCmd, cfg, staged, channel, true, lock.Close); !restarted {
+				return rc
+			}
 		}
 	}
 
@@ -1043,8 +1050,9 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 		o.pr(o.Stderr).printf("Removing stale container %s...", cname)
 		if !o.removeStaleContainer(cname, rt) && !o.NeverAttach {
 			if live := o.waitForRunningContainer(cname, rt); live != "" {
-				lock.Close()
-				return o.attachExisting(cname, rt, targetCmd, cfg, staged, channel, true)
+				if rc, restarted := o.attachExisting(cname, rt, targetCmd, cfg, staged, channel, true, lock.Close); !restarted {
+					return rc
+				}
 			}
 		}
 	}
@@ -1818,23 +1826,57 @@ func startedLoophole(handles []loopholeDaemon, name string) bool {
 // staged and channel are the pieces Run composed above the backend dispatch — the same
 // values the fresh path consumes — because an attach is an ENTRY: it delivers the
 // per-entry channel (deliverChannelOnAttach below), not nothing.
+//
+// release ends the caller's hold on the workspace launch lock. It runs once the attach has
+// settled on going ahead, before the exec, and on a refusal; it does NOT run when the contract
+// gate restarts the jail. restarted is true exactly then: the jail is stopped and gone, nothing
+// was exec'd, and the caller continues into the fresh launch still holding the lock.
 func (o *Options) attachExisting(cname, rt, targetCmd string, cfg *jsonx.OrderedMap,
-	staged stagedPacks, channel *packChannel, raced bool) int {
+	staged stagedPacks, channel *packChannel, raced bool, release func()) (rc int, restarted bool) {
 	out := o.pr(o.Stdout)
-	// ONE inspect serves both the banner's baked version and the channel delivery's
-	// stale-jail probe — the container's whole frozen env, read once.
+	released := false
+	releaseLock := func() {
+		if !released && release != nil {
+			released = true
+			release()
+		}
+	}
+	// ONE inspect serves the banner's baked version and the contract gate's tags — the
+	// container's whole frozen env, read once.
 	envLines := o.inspectContainerEnv(rt, cname)
 	// Launch line to stderr — surfaces the jail's BAKED version so a host CLI
 	// upgrade attaching to a pre-upgrade container (stale shims/mounts/entrypoint)
 	// is visible at a glance (audit §B#4.
 	baked, _ := runtime.BakedYoloVersionFromInspectEnv(envLines)
 	o.emitLaunchBanner(rt, cname, nil, baked)
-	// THE SKEW LINE. The banner prints the baked version; this prints the
-	// DIFFERENCE, which is the actionable half. It matters more now than it did:
-	// since flake-bundle generations, an old jail keeps WORKING across a host
-	// install instead of breaking, so nothing else would tell the user their
-	// session is running last week's yolo-entrypoint (attachskew.go).
-	o.warnIfJailIsOlderThanTheLauncher(baked)
+	// THE CONTRACT GATE (contracttags.go). What this entry would deliver decides the tags it
+	// needs; a tag the jail lacks means the jail's binaries cannot receive it, and the attach
+	// never proceeds on its own then: the acknowledgment, a restart, or a refusal.
+	contract := attachContractFor(channel, envLines)
+	deliver := !contract.standIn
+	if missing := contract.missingFrom(envLines); len(missing) > 0 {
+		switch o.settleAttachSkew(cname, rt, baked, missing) {
+		case skewRestarted:
+			return 0, true
+		case skewAcknowledged:
+			// The host-side degradation: nothing of this entry's channel is written, so the
+			// jail keeps what its last entry gave it. A partial write would be worse than
+			// none — the shared half alone strips every scoped value the jail now holds.
+			deliver = false
+		default:
+			releaseLock()
+			return 1, false
+		}
+	} else {
+		// THE SKEW LINE, for a jail that is older but can take everything this entry
+		// delivers. The banner prints the baked version; this prints the DIFFERENCE, which
+		// is the actionable half: since flake-bundle generations an old jail keeps WORKING
+		// across a host install, so nothing else would tell the user their session is
+		// running last week's yolo-entrypoint (attachskew.go). A jail missing a contract
+		// got the gate's fuller account above instead.
+		o.warnIfJailIsOlderThanTheLauncher(baked)
+	}
+	releaseLock()
 	if raced {
 		out.printf("[bold cyan]Attaching to jail started by another process [dim](%s)[/dim]...[/bold cyan]", cname)
 	} else {
@@ -1849,8 +1891,10 @@ func (o *Options) attachExisting(cname, rt, targetCmd string, cfg *jsonx.Ordered
 	// attach branch never had — until it did, 'yolo -p <name> -- claude' against a
 	// running jail parsed and validated the selection, composed the channel, and
 	// dropped it, silently.
-	if rc := o.deliverChannelOnAttach(cname, rt, cfg, staged, channel, envLines); rc != 0 {
-		return rc
+	if deliver {
+		if rc := o.deliverChannelOnAttach(cname, rt, cfg, staged, channel); rc != 0 {
+			return rc, false
+		}
 	}
 	// NOTHING TO HEAL HERE ANY MORE, and the absence is worth a note because the
 	// call this replaces was deliberate. An attach used to re-ensure the per-jail
@@ -1890,7 +1934,7 @@ func (o *Options) attachExisting(cname, rt, targetCmd string, cfg *jsonx.Ordered
 	if err != nil {
 		out.printf("[bold red]Configured runtime '%s' not found on PATH.[/bold red]", rt)
 		out.print("[dim]Run `yolo check` to validate runtime availability before restarting.[/dim]")
-		return 1
+		return 1, false
 	}
 	// THE POST-MORTEM, on stderr and only when the exec itself failed. The
 	// runtime has already printed which path it could not stat; this says what
@@ -1904,68 +1948,29 @@ func (o *Options) attachExisting(cname, rt, targetCmd string, cfg *jsonx.Ordered
 	o.maybeWarnAboutOOMKiller(rc, rt)
 	sp.End()
 	o.emitTimingReport(rc, cname, rt)
-	return rc
+	return rc, false
 }
 
 // deliverChannelOnAttach delivers this entry's provider/profile channel into the
-// RUNNING jail, and refuses only the one state in which a typed selection cannot
-// work. The mechanism is the fresh path's own: deliverChannel over the channel,
-// into the live-mounted yolo-user-env.sh and agent env files — the binds show the rewrite inside the
-// jail instantly, and the exec'd yolo-entrypoint re-runs the boot, whose FIRST step
-// (hydrate) applies the plain-form channel lines over whatever the entry's
-// environment holds. Per-session by construction: an already-running session's
-// processes keep the env they started with, and each new entry reads the file as
-// written for it.
+// RUNNING jail. The mechanism is the fresh path's own: deliverChannel over the channel,
+// into the live-mounted yolo-user-env.sh and agent env files — the binds show the rewrite
+// inside the jail instantly, and the exec'd yolo-entrypoint re-runs the boot, whose FIRST
+// step (hydrate) applies the plain-form channel lines over whatever the entry's environment
+// holds. Per-session by construction: an already-running session's processes keep the env
+// they started with, and each new entry reads the file as written for it.
 //
-// A PRE-CHANGE JAIL (launched before the channel moved onto the file, detected by a
-// frozen YOLO_PROVIDERS — post-change argv carries none) cannot take this delivery:
-// its old entrypoint's hydrate lets the frozen environment beat the file. What
-// happens then is decided by COMPARING this entry's effective selection table to the
-// jail's frozen one, and by whether the selection was TYPED:
+// WHETHER THE JAIL CAN TAKE IT is not decided here any more. attachExisting's contract gate
+// (contracttags.go) runs first and calls this only for a jail that has every contract tag the
+// delivery needs. It replaced two splits that lived here, both keyed on whether a selection
+// was TYPED: the pre-change jail's (a frozen YOLO_PROVIDERS, OQ-CS6) and the pre-gate jail's
+// (no per-agent env marker, CN-D18). Each refused a typed '-p', and for a config-only
+// selection warned and proceeded without delivery. That second half was the silent
+// ride-along the attach-skew ruling forbids (OQ-SK1), so both arms now take the gate's
+// disposition, typed or not: the acknowledgment, a restart prompt, or a refusal. The plain
+// re-entry into a pre-change jail with its own selection, or none, is the gate's standIn: no
+// delivery, no refusal, as before.
 //
-//   - tables EQUAL, or this entry selects nothing: the jail is already running
-//     what this entry selects — its launch-time delivery stands in for this one.
-//     Deliver nothing, say nothing, refuse nothing: a plain re-entry into an old
-//     jail must keep behaving exactly as it did before per-entry delivery existed
-//     (the first cut of this check refused here, which broke every plain attach —
-//     measured on a live jail 2026-09-05, whose config carries a persistent
-//     use_profiles and whose bare 'yolo -- agy' was refused outright).
-//
-//   - tables DIFFER and the selection was TYPED (-p): refuse. A typed profile that
-//     cannot take effect is the silently-inert selector OQ-CS6 killed, and running
-//     the session on the jail's launch-time provider instead would honour the flag
-//     by coincidence of wording. The remedy names a RESTART, never 'yolo --new':
-//     --new force-removes the RUNNING container and kills its live sessions, which
-//     is a fine tool against a wedged jail and a terrible thing to recommend as the
-//     fix for this (the same live measurement).
-//
-//   - tables DIFFER and the selection came from config only: WARN and proceed
-//     without delivery. Nothing was typed, so nothing is betrayed; the jail runs
-//     its launch-time providers and the warning says so. Refusing here would hold
-//     a workspace's day-to-day re-entry hostage to a one-time upgrade.
-//
-// A PRE-GATE JAIL (launched after per-entry delivery but before the credential gate,
-// detected by the ABSENCE of entrypoint.AgentEnvFilesEnv from an environment the inspect
-// did return) reads the shared file on every entry but has no per-agent env directory and
-// launchers that never source one. The shared half of this delivery reaches it; the
-// per-agent half cannot. When this entry scopes nothing to any agent, that loses nothing and
-// the delivery runs as below. When it does, the split is the pre-change jail's, for the same
-// reasons, with the gate's rule on top — nothing is ever written back into the shared file:
-//
-//   - the selection was TYPED: refuse, naming the agents that would start without what it
-//     scopes to them and the restart. A typed '-p' whose credentials cannot arrive is the
-//     silently-inert selector OQ-CS6 killed.
-//   - it came from config only: WARN by name and proceed WITHOUT delivery, so the jail keeps
-//     the environment its last entry delivered. Delivering the shared half alone would
-//     strip every scoped credential and shape variable from the agents that selected them,
-//     and point claude at a different provider with nothing but a line to say so.
-//
-// Neither prints the gate's per-agent disclosure: "zai: claude only" would describe a
-// delivery this jail cannot receive. An inspect that returned nothing proves nothing, so it
-// is treated as a current jail — the same "cannot prove, do not refuse" rule the frozen
-// probe above follows.
-//
-// On a POST-CHANGE jail the delivery runs unless a pre-flight refuses it: the
+// On a jail that can take it the delivery runs unless a pre-flight refuses it: the
 // env-override check, then the CREDENTIAL PRE-FLIGHT — the same checks the fresh
 // path runs (§6.2, OQ-13), the second of whose attach exemption existed because
 // "attaching to a running jail delivers no environment". Both run BEFORE the write,
@@ -1974,48 +1979,7 @@ func (o *Options) attachExisting(cname, rt, targetCmd string, cfg *jsonx.Ordered
 // mysterious-first-API-call failure the gate refuses elsewhere;
 // YOLO_ALLOW_MISSING_PROVIDERS=1 remains the loud hatch.
 func (o *Options) deliverChannelOnAttach(cname, rt string, cfg *jsonx.OrderedMap,
-	staged stagedPacks, channel *packChannel, envLines []string) int {
-	out := o.pr(o.Stderr)
-	if frozenLine := envLineValue(envLines, "YOLO_PROVIDERS"); frozenLine != "" {
-		frozenUse := frozenUseProfiles(envLines)
-		// EQUAL — or this entry selects NOTHING: a jail launched with an ephemeral
-		// '-p' and re-entered bare is the common plain attach, and the frozen
-		// delivery is exactly what those re-entries want. Either way this is a plain
-		// re-entry and the old jail keeps its old behaviour whole.
-		if channel.profiles.Len() == 0 || profileTablesEqual(frozenUse, channel.profiles) {
-			return 0
-		}
-		if o.ProfileName != "" || len(o.UseProfiles) > 0 {
-			out.printf("[bold red]Refusing to attach: '-p' cannot switch this jail's provider — " +
-				"it was launched by an older yolo that froze its provider environment into " +
-				"the container at launch.[/bold red]")
-			out.print("[dim]Restart the jail to gain per-entry profiles: 'yolo stop' from " +
-				"this workspace (finishing its running sessions), then rerun yolo — the " +
-				"next launch is fresh.[/dim]")
-			return 1
-		}
-		out.print("[yellow]This jail predates per-entry profiles and is running the providers " +
-			"it was launched with; a config-side selection change cannot reach it. Restart " +
-			"it ('yolo stop', then rerun yolo) to pick the selection up.[/yellow]")
-		return 0
-	}
-	if scoped := channel.agentsWithOwnValues(); len(scoped) > 0 && jailPredatesAgentEnvFiles(envLines) {
-		names := strings.Join(scoped, ", ")
-		if o.ProfileName != "" || len(o.UseProfiles) > 0 {
-			out.printf("[bold red]Refusing to attach: this jail was launched by an older yolo "+
-				"whose launchers read no per-agent env file, so what this selection scopes "+
-				"to %s alone (its provider's credentials and settings) cannot reach it.[/bold red]", names)
-			out.print("[dim]Restart the jail to gain per-agent delivery: 'yolo stop' from " +
-				"this workspace (finishing its running sessions), then rerun yolo — the " +
-				"next launch is fresh.[/dim]")
-			return 1
-		}
-		out.printf("[yellow]This jail predates per-agent credential delivery: what the "+
-			"configured selection scopes to %s alone cannot reach it, so this entry delivers "+
-			"nothing and the jail keeps the environment its last entry gave it. Restart it "+
-			"('yolo stop', then rerun yolo) to pick the selection up.[/yellow]", names)
-		return 0
-	}
+	staged stagedPacks, channel *packChannel) int {
 	// The two pre-flights run BEFORE the write, not after it. The file is the RUNNING
 	// jail's, live-mounted: every new shell and agent process in it sources what was last
 	// written. A refusal after the write would have told this entry "no" while already
@@ -2045,22 +2009,6 @@ func (o *Options) deliverChannelOnAttach(cname, rt string, cfg *jsonx.OrderedMap
 	// sentence; providers.md#pv-oq-10's rule (never "honored") travels with it.
 	o.noteUseProfiles(channel.profiles, staged.packs)
 	return 0
-}
-
-// jailPredatesAgentEnvFiles reports whether a container-inspect env listing proves the jail
-// was launched before the per-agent env files: the inspect returned an environment, and the
-// marker every current launch freezes into it (entrypoint.AgentEnvFilesEnv) is not there. An
-// empty listing — an inspect that failed, or a runtime whose inspect does not answer — proves
-// nothing and reports false.
-func jailPredatesAgentEnvFiles(envLines []string) bool {
-	inspected := false
-	for _, l := range envLines {
-		if strings.TrimSpace(l) != "" {
-			inspected = true
-			break
-		}
-	}
-	return inspected && envLineValue(envLines, entrypoint.AgentEnvFilesEnv) == ""
 }
 
 // envLineValue returns the value of KEY= in a container-inspect env listing, or "".
