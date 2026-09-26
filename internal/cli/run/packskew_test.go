@@ -479,3 +479,56 @@ func archiveReleasePacks(t *testing.T, root, tag, dest string) {
 		t.Fatalf("%s's packs/ holds no pack directory", tag)
 	}
 }
+
+// TestAnAcknowledgedPackSkewExecsWithTheJailsOwnLaunchFlags: under the acknowledgment an attach
+// whose selection the jail's packs cannot serve delivers nothing, and the command it execs still
+// carries the launch flags of the packs the jail booted with. Here the jail has copilot, which the
+// config has since dropped for zai, so copilot keeps its flag; the configured packs would run it
+// bare.
+func TestAnAcknowledgedPackSkewExecsWithTheJailsOwnLaunchFlags(t *testing.T) {
+	home := packHome(t)
+	emptyLoopholeDirs(t)
+	writeUserPacks(t, home, `["claude", "copilot"]`)
+	ws := t.TempDir()
+	cname := yoloruntime.FromWorkspace(ws)
+	var out bytes.Buffer
+	fresh := dispatchOptions(t, ws, "podman", &out, &out, nil)
+	cfg, ok := fresh.loadAndValidateConfig()
+	if !ok {
+		t.Fatalf("config:\n%s", out.String())
+	}
+	fresh.stagingCfg = cfg
+	staged, ok := fresh.stageRunPacks(cname)
+	if !ok {
+		t.Fatalf("staging:\n%s", out.String())
+	}
+	if err := writeLivePackTree(cname, staged.root); err != nil {
+		t.Fatal(err)
+	}
+	body := "{\n  \"packs\": [\"claude\", \"zai\"],\n  \"use_profiles\": {\"claude\": \"zai\"}\n}\n"
+	if err := os.WriteFile(filepath.Join(home, ".config", "yolo-jail", "config.jsonc"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	bin, argvFile := t.TempDir(), filepath.Join(t.TempDir(), "argv")
+	current := "YOLO_VERSION=9.9.9-test\n" + entrypointContractTagsLine() + "\n"
+	r := runPackSkew(t, ws, current, false, "",
+		map[string]string{AllowAttachSkewEnv: "1", "ZAI_API_KEY": "sk-test"}, func(o *Options) {
+			o.Args = []string{"copilot", "chat"}
+			script := "#!/bin/sh\nprintf '%s ' \"$@\" > '" + argvFile + "'\n"
+			if err := os.WriteFile(filepath.Join(bin, "podman"), []byte(script), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			t.Setenv("PATH", bin+":/bin:/usr/bin")
+		})
+	if r.rc != 0 || !strings.Contains(r.stderr, "launched without zai") {
+		t.Fatalf("the acknowledged attach did not proceed past a pack skew: rc=%d\nstdout:\n%s\nstderr:\n%s",
+			r.rc, r.stdout, r.stderr)
+	}
+	argv, err := os.ReadFile(argvFile)
+	if err != nil || !strings.Contains(string(argv), "copilot --yolo chat") {
+		t.Errorf("the attach exec'd %q (%v), want the jail's own copilot flag", argv, err)
+	}
+	if _, err := os.Stat(r.envFile); !os.IsNotExist(err) {
+		t.Errorf("the acknowledged attach wrote the live channel file (%v)", err)
+	}
+}
