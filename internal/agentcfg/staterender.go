@@ -143,6 +143,21 @@ type StatefulInputs struct {
 	// That is what keeps a host ownership switch (`assert` to `own`) from turning a pack's
 	// entries into the user's. FAIL-SAFE: an unreadable record claims nothing.
 	InsertRecordJSON []byte
+
+	// SelectionCleared are the keys the selection apply CLEARED for this render
+	// (ApplySelectionReport, OQ-PSW2): values yolo's own selection wrote, still in the file
+	// unedited, that the computed layer now omits so each falls through to the host layer
+	// or the agent's default. nil = none, which is every render of a surface whose
+	// selection did not just stop naming a key.
+	//
+	// The render keeps each one OUT OF THE CAPTURE OVERLAY, on both branches. A clear
+	// works by omission, and omission holds only while no overlay carries the key. That is
+	// true in steady state, where narrowOverlay dropped the key on every boot computed
+	// asserted it. It is FALSE on an adopting boot: the residue is taken from the file,
+	// which holds exactly the value being cleared, so adoption re-captured yolo's own id as
+	// the user's, the file kept it, and with the record entry gone no later deselect could
+	// clear it (docs/reference/providers.md#deselection-clear-what-yolo-wrote-keep-what-the-user-wrote).
+	SelectionCleared []SelectionClear
 }
 
 // StatefulOutput is the render plus the sidecar values the caller must
@@ -187,6 +202,14 @@ type StatefulOutput struct {
 	// yolo left). A REPORT, printed by the caller; never an input.
 	ListNotes []string
 
+	// SelectionCleared is the part of StatefulInputs.SelectionCleared whose value LEFT the
+	// rendered file: the key is gone, or a lower layer now supplies a different value. A
+	// clear the file still shows (the host layer supplying the very value yolo wrote) is
+	// not in it. A REPORT, read by the boot log's `selection: cleared` line
+	// (entrypoint.noteSelectionClears, OQ-PSW4), so the line is computed from the file it
+	// describes and the two cannot disagree. nil when nothing left.
+	SelectionCleared []SelectionClear
+
 	// OverlayJSON is what to write to the overlay sidecar (JSON): on a first
 	// migration the ADOPTED residue of the on-disk file — {} when there is no file,
 	// or nothing in it beyond what yolo already asserts — else the accumulated
@@ -228,6 +251,7 @@ type StatefulOutput struct {
 //	    delta   = mergeDiff(last_render_decoded, current_decoded)
 //	    overlay = mergeAccumulate(overlay, delta)                   # §3.4 tombstones
 //	then BOTH paths:
+//	    overlay = dropSelectionCleared(overlay, cleared)            # yolo's own, just cleared
 //	    overlay = narrowOverlay(overlay, computed, managed)         # leaf-level
 //	    overlay = retireConvergedOverlay(overlay, layers)           # no-op entries
 //	    render  = Compose(overlay)
@@ -478,6 +502,11 @@ func ComposeStateful(in StatefulInputs) (*StatefulOutput, error) {
 	// contamination and leave every sidecar already carrying dead keys dirty
 	// forever. Narrowing after the accumulate makes the store SELF-HEALING — a
 	// sidecar an older yolo wrote is canonicalized on the next boot.
+	//
+	// A key the selection just CLEARED is narrowed out first, for the reason
+	// StatefulInputs.SelectionCleared gives: it is yolo's own value, never a captured
+	// edit, and the clear only holds if the overlay does not put it back.
+	overlay = dropSelectionCleared(overlay, in.SelectionCleared)
 	overlay = narrowOverlay(kind, overlay, in.Base.Computed, in.Base.Surface.Managed)
 	// The same rule for the list records: one under a computed or managed layer that
 	// replaces its path is provably dead.
@@ -540,14 +569,15 @@ func ComposeStateful(in StatefulInputs) (*StatefulOutput, error) {
 	}
 
 	return &StatefulOutput{
-		Result:          res,
-		LastRenderBytes: res.Encoded,
-		OverlayJSON:     overlayJSON,
-		ListCaptureJSON: listJSON,
-		ListNotes:       lc.notesFor(in.Base, overlay),
-		FirstMigration:  firstMigration,
-		PureBytes:       pureBytes,
-		Repairs:         repairs,
+		Result:           res,
+		LastRenderBytes:  res.Encoded,
+		OverlayJSON:      overlayJSON,
+		ListCaptureJSON:  listJSON,
+		ListNotes:        lc.notesFor(in.Base, overlay),
+		SelectionCleared: clearsThatLeft(in.SelectionCleared, res.ConfigMap()),
+		FirstMigration:   firstMigration,
+		PureBytes:        pureBytes,
+		Repairs:          repairs,
 	}, nil
 }
 

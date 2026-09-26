@@ -8,6 +8,7 @@ covers:
   - internal/packload/profiles.go
   - internal/packload/deriveenv.go
   - internal/agentcfg/selection.go
+  - internal/agentcfg/staterender.go
   - internal/agentcfg/luahook/derive.go
   - internal/entrypoint/packsurfaces.go
   - internal/entrypoint/prism.go
@@ -47,9 +48,10 @@ line, the per-agent spellings by spot check against the derives. UNMEASURED: Bed
 [codex's `openai-codex` selection](#selecting-openai-codex-for-codex) came from the provider-switching design
 (`provider-switching.md`, graduated 2026-09-26), and they were verified against `38814ba4` on 2026-09-26.
 The rest of the doc keeps its `7ad8358c` stamp. MEASURED: the clear, its boot-log record and
-the host-layer override are pinned through the boot render by unit tests in `internal/entrypoint`,
-and the adopting-boot failure was reproduced through the same render at `38814ba4`. UNMEASURED: no
-live agent session has been watched across a deselect.
+the host-layer override are pinned through the boot render by unit tests in `internal/entrypoint`.
+The adopting-boot failure was reproduced through the same render at `38814ba4`, and the fix that
+[the clear on an adopting boot](#a-clear-holds-on-an-adopting-boot-too) describes is pinned the same
+way, newer than that stamp. UNMEASURED: no live agent session has been watched across a deselect.
 
 A **provider** is a declaration of a service's facts — where its endpoints are, which wire
 protocol each speaks, which model aliases it offers, which environment variable holds its
@@ -87,7 +89,7 @@ provider can reach *at all*, one level below the delivery channels below),
 [`host-agent-environment.md`](host-agent-environment.md) (the host notch's own delivery: `yolo
 host --` and its wrapper directory), [`config-migration-to-prism.md`](config-migration-to-prism.md)
 (the stateful render a selection lifts into: the captured overlay, `last_render`, and the adopting
-boot that [deselection](#deselection-clear-what-yolo-wrote-keep-what-the-user-wrote) does not survive).
+boot, on which [deselection](#deselection-clear-what-yolo-wrote-keep-what-the-user-wrote) clears too).
 
 ---
 
@@ -425,28 +427,39 @@ the agent's own default.
 > then comes back — the key flaps between two answers across two launches. Omission returns to the
 > host value and holds it.
 
-> [!WARNING]
-> **The clear does not hold on an adopting boot, and its boot-log line says it did.** An
-> **adopting boot** is one whose `last_render` sidecar is absent or does not decode, so the
-> render seeds the captured overlay from the file on disk
-> ([adoption](config-migration-to-prism.md#adoption-what-the-first-migration-keeps)). If a
-> deselect lands on such a boot, the clear drops the record entry and logs `selection: cleared`,
-> but adoption re-captures yolo's own stale id from the file as the user's, and the file keeps it.
-> With no record left, no later deselect clears it. Reproduced through the boot render at
-> `38814ba4` (pi, a selection written, `last_render` deleted, then two deselects): both keys
-> survived both deselects. Nothing in the tree handles this case yet. The cleared keys reach
-> only the log (`noteSelectionClears`) and never the compose, which is where a fix would have
-> to exclude them from the adopted residue.
+<a id="a-clear-holds-on-an-adopting-boot-too"></a>
+
+**A clear holds on an adopting boot too.** An **adopting boot** is one whose `last_render`
+sidecar is absent or does not decode, so the render seeds the captured overlay from the file on
+disk ([adoption](config-migration-to-prism.md#adoption-what-the-first-migration-keeps)). That file
+holds the very value being cleared, so adoption alone would re-capture yolo's own id as the user's,
+the file would keep it, and with the record entry gone no later deselect could clear it. So the
+render is handed the cleared keys (`StatefulInputs.SelectionCleared`) and removes them from the
+captured overlay before narrowing it, on every boot (`dropSelectionCleared`):
+
+- **On an adopting boot**, the cleared key leaves the file exactly as on any other boot.
+- **A key the user changed** is not a clear, so it is kept as on any boot, and every other key the
+  file holds is adopted as usual.
+- **In steady state** the overlay never holds a selected key, so the step changes nothing unless a
+  capture between boots left a stale value for it. The key then falls through to the host layer or
+  the agent's default, never to that capture.
+
+The failure this closes was reproduced through the boot render at `38814ba4` (pi, a selection
+written, `last_render` deleted, then two deselects: both keys survived both). Both ways a boot
+adopts, sidecar absent and sidecar undecodable, are now pinned through the same render
+(`selectionadoptclear_test.go`).
 
 <a id="where-a-clear-is-recorded"></a>
 
-**Where a clear is recorded** ([`OQ-PSW4`](#oq-psw4)). Each cleared key is one line in the
-jail's `boot.log` and nothing on the terminal. The line names the agent, surface and key, and the
+**Where a clear is recorded** ([`OQ-PSW4`](#oq-psw4)). Each cleared key whose value left the file
+is one line in the jail's `boot.log` and nothing on the terminal. The line names the agent, surface and key, and the
 value it held, which is safe to print because a selection key carries a provider or model choice
-and never a credential. A kept user edit records nothing. The line comes from the same call that
-decides the clear (`ApplySelectionReport`, the one implementation of the arm, which
-`ApplySelection` and `ApplySelectionOver` wrap), so the two cannot disagree about which keys
-cleared. The adopting boot above is the one case where the file does not match. The host notch
+and never a credential. A kept user edit records nothing. The clear is decided once
+(`ApplySelectionReport`, the one implementation of the arm, which `ApplySelection` and
+`ApplySelectionOver` wrap) and handed to the render. The line is printed after the render writes
+the file, from the render's own report of which cleared values left it
+(`StatefulOutput.SelectionCleared`), so the log and the file cannot disagree. A clear the file
+still shows, because the host layer supplies the very value yolo wrote, records nothing. The host notch
 runs the same apply, but it has no boot log, so a clear there is recorded nowhere. When the jail
 gets a verbosity ([`OQ-DB1`](../design/diagnostics-past-the-boundary.md#oq-db1), unruled),
 promoting the line to the terminal is a change at `noteSelectionClears` alone.
@@ -926,7 +939,7 @@ place the exact spellings are stated.
 | Resolved-profiles env var | `YOLO_PROFILES` | same |
 | Selection namespace key | `selection` | `agentcfg.SelectionKey` |
 | Selection record path | `<workspace>/.yolo/prism/<agent>-<name>.selection.json` in a jail; the state dir's host-capture store at the host notch under `host_management: own` | `render.Target.SelectionPath` |
-| Deselection clear's log line | `selection: cleared <agent>/<surface> <key> (was <value as JSON>): the profile that set it is no longer selected`, one per cleared key, the value cut at 200 bytes with a trailing `…` | `entrypoint.noteSelectionClears` |
+| Deselection clear's log line | `selection: cleared <agent>/<surface> <key> (was <value as JSON>): the profile that set it is no longer selected`, one per cleared key whose value left the file, the value cut at 200 bytes with a trailing `…` | `entrypoint.noteSelectionClears` |
 | Where that line goes | `<workspace>/.yolo/boot.log` (the previous boot's is `boot.log.prev`); never the terminal | `entrypoint.bootLogName`, `Env.note` |
 | Id-writing surfaces with a host layer | pi's `settings` (`~/.pi/agent/settings.json`) only; codex's `config.toml` and opencode's `opencode.json` declare no `readsHost` | `packs/{pi,codex,opencode}/pack.json` |
 | codex's model for `openai-codex` | the profile's `model` option; `gpt-6-sol` when the profile names none or names `default` | `packs/codex/derive.lua` |

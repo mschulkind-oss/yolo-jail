@@ -93,6 +93,11 @@ type State struct {
 	// migration's adoption, so an entry yolo inserted under the host's other contract is never
 	// adopted as the user's (agentcfg.StatefulInputs.InsertRecordJSON).
 	InsertRecordJSON []byte
+	// SelectionCleared are the keys the selection apply cleared for this render: values in
+	// CurrentBytes that are yolo's own selection write, not a captured edit, so the render
+	// keeps them out of the capture overlay (agentcfg.StatefulInputs.SelectionCleared). nil
+	// = none.
+	SelectionCleared []agentcfg.SelectionClear
 }
 
 // Prepare resolves the ${workspace} placeholder in a surface's declared layers against
@@ -171,6 +176,7 @@ func (t Target) ComposeStateful(s manifest.Surface, l Layers, st State) (manifes
 		OverlayJSON:       st.OverlayJSON,
 		ListCaptureJSON:   st.ListCaptureJSON,
 		InsertRecordJSON:  st.InsertRecordJSON,
+		SelectionCleared:  st.SelectionCleared,
 	})
 	if err != nil {
 		return s, nil, err

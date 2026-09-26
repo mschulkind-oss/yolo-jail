@@ -13,9 +13,9 @@ Nothing is owed here.
 
 > [!IMPORTANT]
 > **The design is BUILT, and this file no longer describes it.** The as-built account is in
-> [`../reference/providers.md`](../reference/providers.md). It covers the deselection clear, the
-> host-layer override, codex's `openai-codex` selection, and one gap the build left: the clear does
-> not hold on an adopting boot. The rulings keep their ids in that doc's
+> [`../reference/providers.md`](../reference/providers.md). It covers the deselection clear, which
+> holds on an adopting boot too, the host-layer override, and codex's `openai-codex` selection. The
+> rulings keep their ids in that doc's
 > [*Why it's this way*](../reference/providers.md#why-its-this-way) appendix.
 
 **Why it still exists.** Some files that link here are held by in-flight work and could not be

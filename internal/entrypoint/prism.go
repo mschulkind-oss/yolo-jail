@@ -109,7 +109,8 @@ func readSelectionRecord(e *Env, agent, name string) map[string]any {
 	return agentcfg.ParseSelectionRecord(data)
 }
 
-// noteSelectionClears records, in the boot log only, each key a deselect cleared (OQ-PSW4,
+// noteSelectionClears records, in the boot log only, each key a deselect cleared out of the
+// file the render just wrote (agentcfg.StatefulOutput.SelectionCleared; OQ-PSW4,
 // docs/design/provider-switching.md: "no print, except in verbose mode"). The terminal stays
 // silent. This is the one call site for the record, so promoting it to the terminal under
 // in-jail verbosity, once OQ-DB1 gives the jail one, is a change here alone.
@@ -525,7 +526,6 @@ func composeStatefulSurface(e *Env, surface manifest.Surface, hostBytes []byte, 
 			readProvenanceRecord(e, surface.Agent, surface.Name))
 	}
 	lift, next, cleared := agentcfg.ApplySelectionReport(selection, fileObj, selectionRecord, hostOwned)
-	noteSelectionClears(e, surface, cleared)
 	if len(lift) > 0 {
 		computed = mergeSurfaceRoot(computed, lift)
 	}
@@ -543,6 +543,7 @@ func composeStatefulSurface(e *Env, surface manifest.Surface, hostBytes []byte, 
 			OverlayJSON:       overlayJSON,
 			ListCaptureJSON:   listCaptureJSON,
 			InsertRecordJSON:  insertRecordJSON,
+			SelectionCleared:  cleared,
 		})
 	if err != nil {
 		return nil, err
@@ -578,6 +579,8 @@ func persistStatefulSurface(e *Env, r *statefulRender) error {
 	if err := writeInPlaceString(r.path, r.text()); err != nil {
 		return err
 	}
+	// The render's report, not ApplySelectionReport's, once the file holds it: a clear that left it.
+	noteSelectionClears(e, surface, out.SelectionCleared)
 
 	// Persist the two sidecars (last_render matches the surface bytes exactly, so
 	// the next boot's mergeDiff has a truthful baseline). The last_render sidecar

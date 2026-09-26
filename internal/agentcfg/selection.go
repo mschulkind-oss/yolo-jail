@@ -122,12 +122,14 @@ func DropSelection(computed map[string]any) (map[string]any, []string) {
 // outranks the overlay, so the file keeps exactly what it had.
 //
 // A clear (OQ-PSW2) is the one decision that omits, and omission is safe there
-// because the overlay is narrowed against the computed layer every boot
-// (narrowOverlay): a key yolo's selection wrote never sits in it, so omitting the key
-// falls through to the host layer or the agent's own default, which is the point.
-// A tombstone would delete the user's host value too. The exception is an ADOPTING
-// boot, whose seeded overlay re-captures the stale value from the file
-// (docs/reference/providers.md#deselection-clear-what-yolo-wrote-keep-what-the-user-wrote).
+// because no capture overlay carries the key: the overlay is narrowed against the
+// computed layer every boot (narrowOverlay), so a key yolo's selection wrote never
+// sits in it, and omitting the key falls through to the host layer or the agent's own
+// default, which is the point. A tombstone would delete the user's host value too. An
+// ADOPTING boot seeds its overlay from the file, which holds the very value being
+// cleared, so the caller hands the clears to the render too
+// (StatefulInputs.SelectionCleared), which narrows them out of the overlay on either
+// branch (docs/reference/providers.md#deselection-clear-what-yolo-wrote-keep-what-the-user-wrote).
 //
 // The record, not last_render, is what tells a yolo-written value from a
 // user-written one, and that is forced rather than chosen: last_render is the bytes
@@ -185,8 +187,10 @@ type SelectionClear struct {
 
 // ApplySelectionReport is ApplySelectionOver that also reports every key the deactivated arm
 // cleared, sorted by key. It is the ONE implementation of the arm: the report is what the arm
-// did, never a second reading of the same rule, so a boot log line (OQ-PSW4) cannot drift
-// from the clear it describes.
+// did, never a second reading of the same rule. The caller hands it to the stateful render
+// (StatefulInputs.SelectionCleared), which keeps those keys out of the capture overlay and
+// reports back the ones that left the file (StatefulOutput.SelectionCleared); that second
+// report, not this one, is what the boot log (OQ-PSW4) prints.
 func ApplySelectionReport(selection, file, record map[string]any, hostOwned map[string]bool) (lift, next map[string]any, cleared []SelectionClear) {
 	if len(selection) == 0 && len(record) == 0 {
 		return nil, nil, nil
@@ -266,6 +270,35 @@ func ApplySelectionReport(selection, file, record map[string]any, hostOwned map[
 		}
 	}
 	return lift, next, cleared
+}
+
+// dropSelectionCleared removes every cleared key from an object overlay (a new map; the
+// input is never mutated), and returns any other overlay as it came. Top level only, because
+// a selection key is a top-level key of the surface (TakeSelection's body is a flat map).
+func dropSelectionCleared(overlay any, cleared []SelectionClear) any {
+	om, isMap := overlay.(map[string]any)
+	if !isMap {
+		return overlay
+	}
+	for _, c := range cleared {
+		om = withoutKey(om, c.Key)
+	}
+	return om
+}
+
+// clearsThatLeft is the part of cleared whose value no longer stands in the rendered file:
+// the key is absent, or it holds a different value (a lower layer's). A key still holding the
+// cleared value is dropped from the report, since the file does not show that clear. nil when
+// nothing left.
+func clearsThatLeft(cleared []SelectionClear, rendered map[string]any) []SelectionClear {
+	var out []SelectionClear
+	for _, c := range cleared {
+		if v, stands := rendered[c.Key]; stands && sameScalar(v, c.Value) {
+			continue
+		}
+		out = append(out, c)
+	}
+	return out
 }
 
 // HostOwnedKeys names the top-level keys whose value in the surface file belongs to the
