@@ -551,7 +551,7 @@ skipped, with one exception: a launch whose content has never been refreshed wit
 holder, bounded by the update timeout, because running the program instead would let it install
 what that content names outside the lock. It exists for the first-install race of a
 machine-shared store
-([`pi-git-extension-caching.md`](../design/pi-git-extension-caching.md#34-the-first-install-race)).
+([`pi-git-extension-caching.md` §3.12](../design/pi-git-extension-caching.md#312-the-refresh-trigger-that-stays)).
 `packdecl` refuses an empty list, an empty, absolute, escaping or unclean entry, and a
 duplicate.
 
@@ -1045,6 +1045,14 @@ copy is a strict tree copy that reports every per-entry error, and a copy in pro
 inside the shared dir so an interrupted one is retried instead of read as the populated side
 that wins. The discard in row three is priced differently too: a lost login needs a human, a
 lost package store needs a re-install.
+
+`unshare_directory` (`from`, `at`) is how a pack STOPS sharing a directory. A home that booted
+under the old `shared_directory` hook holds `from` as a symlink to `at`; once the pack no longer
+declares `at`, that directory is not mounted and the link dangles. The hook replaces exactly
+that link, recognised by its target and never followed, with an empty real directory, so the
+tool repopulates its own copy per workspace. A real directory, a link to anything else, or an
+absent path are left alone, and the store the link pointed at is never touched. First used for
+pi's git checkouts ([`pi-git-extension-caching.md`](../design/pi-git-extension-caching.md)).
 
 The copy-if-empty branch is not a freshness rule — it is what makes a first login in a fresh
 install survive. There is deliberately no freshness comparison in any schema: a
@@ -2324,7 +2332,7 @@ only place the values themselves are stated.
 | Branch refresh interval | one hour: a branch-pinned git pack is re-fetched at launch when its last successful fetch is older ([`OQ-PF1`](#oq-pf1)) | `packsrc.BranchRefreshInterval` |
 | Launch-time fetch timeout | 60 seconds per repository fetch, shared by its clone, fetch and checkouts, against the store's 2-minute default for `install` and `update` | `packsrc.LaunchFetchTimeout`, `packsrc.Store.Timeout` |
 | Kind set | the `footprints` map key, from which `KnownKinds()` derives (sorted alphabetically) | `packdecl.footprints`, count-pinned by `packdecl.TestKnownKindsCoverEveryConstant` |
-| Hook set | `shared_credentials`, `shared_directory`, `per_jail_history`. `claude_plugins` was a member until it was retired ([`OQ-2`](../design/pi-pack-extensions.md#10-decision-ledger), 2026-09-19 — retire it and add nothing like it, no agent-named hook); the name is not unknown but REFUSED, with a migration message | `packdecl.KnownHooks`, drift-pinned by `entrypoint.TestHookSetsAgree`; the refusal is `packdecl.RetiredHook` |
+| Hook set | `shared_credentials`, `shared_directory`, `unshare_directory`, `per_jail_history`. `claude_plugins` was a member until it was retired ([`OQ-2`](../design/pi-pack-extensions.md#10-decision-ledger), 2026-09-19 — retire it and add nothing like it, no agent-named hook); the name is not unknown but REFUSED, with a migration message | `packdecl.KnownHooks`, drift-pinned by `entrypoint.TestHookSetsAgree`; the refusal is `packdecl.RetiredHook` |
 | Manifest top-level keys | `name`, `description`, `contributes`, `skills_tier`, `supersedes`, `needs` | `packdecl.Manifest` |
 | Conventional briefing source | every `*.md` directly inside `briefing/` | `packdecl.DefaultBriefingDir`, `packdecl.ConventionalBriefingFile` |
 | Never a briefing source | `AGENTS.md`, `CLAUDE.md`, `GEMINI.md`, at any depth | `packdecl.RepositoryInstructionFile` |

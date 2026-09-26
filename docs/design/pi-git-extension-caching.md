@@ -12,8 +12,10 @@ vantage:
 
 **Status:** DESIGN, 2026-09-25 — **redesigned after review the same day.** The redesign is not
 built. What `c402dd43` built from the first draft is half withdrawn: its `.pi-shared-git` shared
-checkout is to be reverted ([§3.10](#310-migration-from-what-c402dd43-shipped)), and its
-`due_on_change` refresh trigger stays ([§3.12](#312-the-refresh-trigger-that-stays)). **MEASURED:**
+checkout is REVERTED, with the boot step that removes the link it left BUILT
+([§3.10](#310-migration-from-what-c402dd43-shipped)), and its `due_on_change` refresh trigger
+stays ([§3.12](#312-the-refresh-trigger-that-stays)). Until the redesign is built, each workspace
+clones its own git extensions again, as before `c402dd43`. **MEASURED:**
 pi 0.87.1's package manager, read (not run) at `dist/core/package-manager.js` in the jail's install.
 **UNMEASURED:** nothing has run against a real pi git extension; every cost figure is an estimate.
 
@@ -32,7 +34,8 @@ local package; and the pi launcher resolving each pointer before pi starts.
 
 **Cost.** A second store beside the npm store, a new post-fold hook in the pack language
 ([§3.2](#32-pointing-pi-at-a-tree)), and a launch that now waits, visibly, for a clone or build
-it needs. One re-clone per repository per machine when the first build is reverted.
+it needs. With the first build reverted and the redesign unbuilt, each workspace clones its own
+git extensions again, as it did before `c402dd43`.
 
 **Start at [§3](#3-the-design--share-content-never-state)**, the store and how a jail reaches it.
 
@@ -281,7 +284,7 @@ that then loads a file lazily. That is stated here rather than engineered away.
 
 ### 3.10 Migration from what `c402dd43` shipped
 
-**The revert:**
+**The revert, BUILT 2026-09-25:**
 - `packs/pi/pack.json` drops the `.pi-shared-git` state and its `shared_directory` hook.
 - `internal/entrypoint/shareddirgit_test.go` goes with the hook.
 - `internal/packload/packproperties_test.go`'s `TestMachineGlobalTierStaysNarrow` drops
@@ -290,16 +293,22 @@ that then loads a file lazily. That is stated here rather than engineered away.
   where it stays true.
 - `due_on_change` stays ([§3.12](#312-the-refresh-trigger-that-stays)).
 
-**Existing homes.** Every workspace that booted with `c402dd43` has a `~/.pi/agent/git` link to
-`/home/agent/.pi-shared-git`, which nothing mounts after the revert. The next boot removes that
-link when its target is exactly the retired store, and leaves any other link or directory alone.
-pi recreates the directory when it next needs it. The mechanism is the implementer's choice, for
-example a retired-hook entry in the shared-directory hook machinery.
+**Existing homes, BUILT 2026-09-25.** Every workspace that booted with `c402dd43` holds
+`~/.pi/agent/git` as the link `linkIntoSharedDir` wrote: the RELATIVE target
+`../../.pi-shared-git`, which nothing mounts after the revert, so the link dangles. A new generic
+hook, `unshare_directory` (`from`, `at`), undoes exactly that link: at boot, a symlink at `from`
+whose target is the one `linkIntoSharedDir` would compute for `at` is removed and replaced by an
+empty real directory, and pi re-clones into it. A real directory, a link to anything else, or an
+absent path are left alone, and the link is never followed, so the store is never read or
+removed. `packs/pi` declares it as `{kind:"hook", hook:"unshare_directory",
+from:".pi/agent/git", at:".pi-shared-git"}` in place of the retired pair
+(`entrypoint.unshareDirectory`; tests in `internal/entrypoint/unsharedir_test.go`).
 
-**The machine directory.** `.pi-shared-git` on the host is left in place, per the move-over-delete
-rule. `yolo check` and `yolo stores` report it as retired, and `yolo prune --apply` reclaims it. Its
-checkouts do not seed the new mirrors: a jail no longer mounts it, so each repository is cloned once
-more per machine.
+**The machine directory.** `.pi-shared-git` on the host
+(`~/.local/share/yolo-jail/home/.pi-shared-git`) is left in place, per the move-over-delete rule,
+and nothing reads or mounts it any more. No yolo command reports or reclaims it: delete it by hand
+once every jail started before the revert has exited. Its checkouts do not seed the redesign's
+mirrors.
 
 ### 3.11 The npm store
 
@@ -396,3 +405,4 @@ unlocked. It is independent of the store's shape, so it stays either way.
 | PG-D5 | *Implementation decision, from [OQ-2](#OQ-2).* A launch that cannot get its trees stops before exec, naming the extension and the log; offline with a resolvable mirror proceeds with a warning | 2026-09-25 | [§3.6](#36-failure-paths) | — |
 | PG-D6 | *Implementation decision.* Garbage collection by last use, 14 days, only through `yolo prune --apply` | 2026-09-25 | [§3.8](#38-garbage-collection) | — |
 | PG-D7 | *Implementation decision.* Revert `c402dd43`'s shared hook; remove the dangling `~/.pi/agent/git` link; keep `due_on_change`; no seeding from the retired store | 2026-09-25 | [§3.10](#310-migration-from-what-c402dd43-shipped) | — |
+| PG-D8 | *Implementation decision.* The dangling link is removed by a new generic hook, `unshare_directory` (`from`, `at`), which pi declares in place of its retired shared pair: it replaces exactly the link `linkIntoSharedDir` wrote (matched by its relative target, never followed) with an empty directory, and touches nothing else. A hook rather than a boot rule keyed on "no current hook claims it", because only the pack knows which link it once made | 2026-09-25 | [§3.10](#310-migration-from-what-c402dd43-shipped) | yes, 2026-09-25 |
