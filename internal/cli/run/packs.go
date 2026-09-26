@@ -20,6 +20,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/jailcontent"
+	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
@@ -304,6 +305,22 @@ func (o *Options) stagePacks(cname string) (string, []*packload.Pack, []jailcont
 	for _, cause := range causes {
 		o.pr(o.Stderr).print("[dim]" + cause + "[/dim]")
 	}
+	// THE VIA CLOSURE (OQ-WG6/WG7 (c)): a selected profile whose `via` names a service pack
+	// adds that pack like a need, so the agent it re-points at the service's route finds a
+	// daemon there. Over the needs-closed set, and the needs closure re-run over what it adds,
+	// because an added service pack may declare needs of its own.
+	viaAdded, viaCauses, err := o.viaClosure(append(append([]*packload.Pack{}, loaded...), added...),
+		func(name string) (*packload.Pack, bool) {
+			p, ok := byName[name]
+			return p, ok
+		})
+	if err != nil {
+		return "", nil, nil, fmt.Errorf("packs: %w", err)
+	}
+	for _, cause := range viaCauses {
+		o.pr(o.Stderr).print("[dim]" + cause + "[/dim]")
+	}
+	added = append(added, viaAdded...)
 	for _, p := range added {
 		dest := filepath.Join(officialRoot, p.Name)
 		if err := copyTree(p.Root, dest); err != nil {
@@ -1177,4 +1194,39 @@ func packProviderNameConflicts(loaded []*packload.Pack) []string {
 			name, who, name, name))
 	}
 	return out
+}
+
+// viaClosure is stagePacks' `via` step: packload.ResolveVias over the effective
+// use_profiles table (config plus -p), then the needs closure over what it added. It
+// returns only packs not already in packs.
+func (o *Options) viaClosure(packs []*packload.Pack,
+	embedded func(name string) (*packload.Pack, bool)) ([]*packload.Pack, []string, error) {
+	cfg := o.stagingCfg
+	if cfg == nil {
+		cfg = jsonx.NewOrderedMap()
+	}
+	active := map[string]string{}
+	eff := o.effectiveUseProfiles(cfg, packs)
+	for _, k := range eff.Keys() {
+		if name := mapStr(eff, k); name != "" {
+			active[k] = name
+		}
+	}
+	if len(active) == 0 {
+		return nil, nil, nil
+	}
+	userProfiles, err := config.LoadProfiles(func(string) {})
+	if err != nil {
+		return nil, nil, err
+	}
+	added, causes, err := packload.ResolveVias(packs, active, userProfiles, embedded)
+	if err != nil || len(added) == 0 {
+		return nil, causes, err
+	}
+	grown := append(append([]*packload.Pack{}, packs...), added...)
+	more, moreCauses, err := packload.ResolveNeeds(grown, embedded)
+	if err != nil {
+		return nil, nil, err
+	}
+	return append(added, more...), append(causes, moreCauses...), nil
 }

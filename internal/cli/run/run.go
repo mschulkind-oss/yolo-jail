@@ -257,6 +257,7 @@ func Run(opts Options) (rc int) {
 	// what makes "a pack works on macos-user" a property of the pipeline instead of a
 	// second implementation. Pinned by TestPacksAreStagedBeforeBackendDispatch.
 	cname := runtime.FromWorkspace(o.Workspace)
+	o.stagingCfg = cfg
 	staged, stagedOK := o.stageRunPacks(cname)
 	if !stagedOK {
 		return 1

@@ -135,6 +135,11 @@ type Options struct {
 	// profile spelling that NAMES a CLI, so a key no resolvable pack installs is
 	// refused at launch (checkProfileTargets).
 	UseProfiles map[string]string
+	// stagingCfg is the launch's merged config, handed to stagePacks so the `via` closure
+	// (OQ-WG6/WG7 (c)) sees the config's use_profiles as well as -p. Set by Run before
+	// staging; nil in a caller that stages without a config (every such caller is a test),
+	// where only the flags select.
+	stagingCfg *jsonx.OrderedMap
 	// Args is ctx.args — the command after `--` (empty → interactive bash).
 	Args []string
 
