@@ -200,7 +200,7 @@ Each coding agent authenticates itself inside the jail — see the per-agent
 auth column in [Agents](#agents). Agents that take a provider API key
 (opencode, pi, codex) can instead read it from [`env_sources`](#configuration).
 
-These logins persist across jail restarts. Each workspace keeps its own, under `<workspace>/.yolo/home/`, unless a pack shares one across every workspace on the machine: the claude pack does that for Claude's OAuth login, so one `/login` serves every jail. Its `claude-oauth-broker` loophole refreshes that shared token on the host when a jail first needs it, so jails never race the refresh flow. [The jail home](docs/reference/jail-home.md#sharing-semantics) has the full layout.
+These logins persist across jail restarts. Each workspace keeps its own, under `<workspace>/.yolo/home/`, unless a pack shares one across every workspace on the machine: the claude pack does that for Claude's OAuth login, so one `/login` serves every jail. On podman, its `claude-oauth-broker` loophole refreshes that shared token on the host, both when a jail asks and ahead of expiry, so concurrent jails never race the refresh flow. Apple Container and `macos-user` have no such serialization: concurrent jails each refresh their own token, as the [loopholes guide](userguide/guides/loopholes.md) explains. [The jail home](docs/reference/jail-home.md#sharing-semantics) has the full layout.
 
 ## Configuration
 
