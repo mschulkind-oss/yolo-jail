@@ -14,7 +14,8 @@ package config
 // hands it to the deriver directly. Validation runs before staging, so it resolves the same
 // selection here, the way
 // UseProfileCLINames resolves its universe: an embedded entry by name, a configured one from
-// the pack store with no network, then the `needs` closure over the embedded set.
+// the pack store with no network, then the selection closure (`needs` and `via`) over the
+// embedded set.
 
 import (
 	"os"
@@ -28,7 +29,7 @@ import (
 // resolveSelectedPacks returns the packs the user config selects, loaded, plus complete=false
 // when some of the selection could not be read: a malformed user config, a configured pack
 // the store cannot resolve without writing (never fetched, a ref not fetched yet, moved, or
-// fetched but its tree not checked out), or a `needs` declaration the closure refuses. The
+// fetched but its tree not checked out), or a `needs` or `via` the closure refuses. The
 // packs that DID resolve are still returned. Validation NEVER FETCHES: fetching is the
 // launch's pack refresh step, which runs before that launch validates and stages, so a pack
 // unresolvable here is one the launch fetches first.
@@ -112,12 +113,14 @@ func resolveSelectedPacks() (packs []*packload.Pack, complete bool) {
 		}
 		packs = append(packs, p)
 	}
-	// THE NEEDS CLOSURE: a pack a selected pack's live `needs` pulls in is selected too
-	// (docs/reference/wire-bridge.md §3.1), exactly as stagePacks extends its loaded set.
-	added, _, err := packload.ResolveNeeds(packs, func(name string) (*packload.Pack, bool) {
+	// THE SELECTION CLOSURE: a pack a selected pack's live `needs` pulls in is selected too
+	// (docs/reference/wire-bridge.md §3.1), and so is a service pack an active profile's
+	// `via` names (docs/design/wire-bridge-gateway.md WG-I11) — the one resolver stagePacks
+	// extends its loaded set with.
+	added, _, err := UserScopeSelection(func(name string) (*packload.Pack, bool) {
 		p, ok := byName[name]
 		return p, ok
-	})
+	}).Close(packs)
 	if err != nil {
 		return packs, false
 	}

@@ -658,7 +658,7 @@ type promoteFold struct {
 	order map[string]int
 	// afterConfigured is the position a destination pack that is not currently in the fold
 	// would take — the conventional local pack's slot, which is after every configured entry
-	// and before anything `needs` appended.
+	// and before anything the selection closure (`needs`, `via`) appended.
 	afterConfigured int
 	// packs is the fold in order, kept so the owner question is asked of the same set the
 	// overlays were collected over.
@@ -669,10 +669,12 @@ type promoteFold struct {
 // loadPromoteFold resolves the pack fold order the way a launch does, plus the names of any
 // configured pack it could not read.
 //
-// The NEEDS CLOSURE is included, and it is the whole reason this is not just
+// The SELECTION CLOSURE is included, and it is the whole reason this is not just
 // configuredPacksForInspection: `config/packs.go` appends the conventional local pack LAST,
 // which is what makes `--to local` outrank every other pack's overlay — with one exception,
-// a pack pulled in through `needs`, which run/packs.go appends AFTER the closure runs. No
+// a pack pulled in through `needs` or an active profile's `via`, which run/packs.go appends
+// AFTER the closure runs. It is the launch's resolver (packload.Selection.Close, WG-I11) with
+// the user-scope selection table, so the fold cannot omit a pack the launch stages. No
 // shipped pack in that position declares a config-overlay today, so this changes no answer
 // yet; leaving it out would make the check silently wrong on the day one does.
 func loadPromoteFold() (promoteFold, []unresolvedPack) {
@@ -682,10 +684,10 @@ func loadPromoteFold() (promoteFold, []unresolvedPack) {
 	for _, p := range packload.Embedded() {
 		byName[p.Name] = p
 	}
-	added, _, err := packload.ResolveNeeds(packs, func(name string) (*packload.Pack, bool) {
+	added, _, err := config.UserScopeSelection(func(name string) (*packload.Pack, bool) {
 		p, ok := byName[name]
 		return p, ok
-	})
+	}).Close(packs)
 	if err == nil {
 		packs = append(packs, added...)
 	}
