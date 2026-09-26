@@ -314,6 +314,28 @@ func TestACDialKindsAgainstLocalListeners(t *testing.T) {
 	}
 }
 
+// TestACDialKindResetEitherSideOfTheConnect covers the peer the gate keeps out of the cases
+// above: one that resets as soon as it accepts, as the third Mac run's gateway did. Nothing waits
+// for the dialer here, so whether each reset lands before this process has read its connect's
+// result is scheduling, and a dial reads as acKindConnReset or acKindReset (acDialHook says why).
+// Which of the two such a peer should read as is not decided here. What both share is: the peer
+// accepted, so it never reads as a refusal, an EOF or silence.
+func TestACDialKindResetEitherSideOfTheConnect(t *testing.T) {
+	const dials = 50
+	addr := acServe(t, acResetConn)
+	seen := map[string]int{}
+	for i := 1; i <= dials; i++ {
+		line, err := acDialLine(addr)
+		kind := acDialKind(line, err, "TOKEN")
+		seen[kind]++
+		if kind != acKindReset && kind != acKindConnReset {
+			t.Errorf("dial %d of %d to a peer that resets on accept: kind %q, want %q or %q (line %q, err %v)",
+				i, dials, kind, acKindReset, acKindConnReset, line, err)
+		}
+	}
+	t.Logf("kinds over %d dials: %v", dials, seen)
+}
+
 // TestACDialKindNamesConnectErrors covers the kinds a Linux loopback cannot produce, above all
 // EHOSTUNREACH: macOS Local Network privacy's answer, which acMacEvidence.localNetworkDenied
 // keys on.

@@ -600,6 +600,13 @@ const (
 // policy said before any byte was exchanged; the "accepted" kinds mean something on the far
 // side took the connection and then did not answer with the token. EHOSTUNREACH with a live
 // route is the Local Network privacy signature (acMacEvidence.localNetworkDenied).
+//
+// One peer can read as two kinds. A peer that resets as soon as it accepts, as the third Mac
+// run's gateway did, reads as acKindReset or acKindConnReset depending only on whether its reset
+// lands before this process has read its connect's result (acDialHook says why), so a run of such
+// dials can split between the two. That is measured on a Linux loopback and unmeasured on the Mac.
+// No verdict keys on either kind, and TestACDialKindResetEitherSideOfTheConnect pins what both
+// share: such a peer never reads as a refusal.
 const (
 	acKindReached     = "REACHED"
 	acKindRefused     = "refused (ECONNREFUSED)"
