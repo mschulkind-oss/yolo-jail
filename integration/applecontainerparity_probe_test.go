@@ -2,9 +2,11 @@ package integration
 
 import (
 	"errors"
+	"fmt"
 	"net"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -23,28 +25,31 @@ import (
 // the Mac job's `-list '^TestAppleContainer'` selection does not pick them up.
 
 // acServe runs a loopback TCP server that hands each accepted connection to handle.
-func acServe(t *testing.T, handle func(n int, c *net.TCPConn)) string {
+//
+// It does not number the connections: anything on the machine can connect to a loopback port,
+// so a count of accepted connections is not a count of this test's dials. A handler that must
+// tell the test's own dials apart asks acConnectGate.admit.
+func acServe(t *testing.T, handle func(c *net.TCPConn)) string {
 	t.Helper()
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { ln.Close() })
-	var n atomic.Int32
 	go func() {
 		for {
 			c, err := ln.Accept()
 			if err != nil {
 				return
 			}
-			go handle(int(n.Add(1)), c.(*net.TCPConn))
+			go handle(c.(*net.TCPConn))
 		}
 	}()
 	return ln.Addr().String()
 }
 
-func acReply(line string) func(int, *net.TCPConn) {
-	return func(_ int, c *net.TCPConn) {
+func acReply(line string) func(*net.TCPConn) {
+	return func(c *net.TCPConn) {
 		_, _ = c.Write([]byte(line))
 		c.Close()
 	}
@@ -55,23 +60,160 @@ func acResetConn(c *net.TCPConn) {
 	c.Close()
 }
 
+// acConnectGate tells an accept-then-reset fixture when, and whether, to reset: after the
+// dialer's connect has returned, and only for a connection this test dialed. So the fixture
+// produces one outcome, "accepted, then reset", every time.
+//
+// WHEN: ungated, the fixture was a scheduling race on a real socket. When the server's reset beat
+// the dialing goroutine to the connect's result, the dial read as acKindConnReset (acDialConn says
+// why). That failed the short suite in CI (run 36255255312), and fails most runs under CPU load.
+// WHETHER: anything on the machine can connect to the listener. A test binary running beside this
+// one (go test runs packages in parallel) that dials a port it released reaches this listener if
+// the listener took that port. Measured with two of these binaries at once: the listener counted
+// the other process's dial as one of the poll's, and the token came a dial early.
+//
+// A connection is matched by the dialer's local address, which is the server side's RemoteAddr.
+type acConnectGate struct {
+	mu        sync.Mutex
+	open      map[string]chan struct{} // closed once that connection's connect has returned
+	strangers atomic.Int32             // connections admit turned away
+}
+
+// acGateWait bounds how long admit waits for a connection's connect to be reported. A dial this
+// test made reports it within microseconds; the bound only decides how long a stranger is held.
+// It is below acDialLine's three-second read deadline, so if acDialLine stops dialing through
+// acDialConn, every one of its dials is turned away and reads as "accepted, then EOF", and the
+// test fails on the kind rather than on a silent peer.
+const acGateWait = 2 * time.Second
+
+// acGateDials routes acDialLine's connects through a new gate until t ends.
+func acGateDials(t *testing.T) *acConnectGate {
+	t.Helper()
+	g := &acConnectGate{open: map[string]chan struct{}{}}
+	dial := acDialConn
+	acDialConn = func(addr string) (net.Conn, error) {
+		c, err := dial(addr)
+		if err != nil {
+			return nil, err
+		}
+		local := c.LocalAddr().String()
+		g.connected(local)
+		return acGatedConn{c, func() { g.forget(local) }}, nil
+	}
+	t.Cleanup(func() { acDialConn = dial })
+	return g
+}
+
+func (g *acConnectGate) chLocked(addr string) chan struct{} {
+	ch, ok := g.open[addr]
+	if !ok {
+		ch = make(chan struct{})
+		g.open[addr] = ch
+	}
+	return ch
+}
+
+func (g *acConnectGate) connected(addr string) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	ch := g.chLocked(addr)
+	select {
+	case <-ch:
+	default:
+		close(ch)
+	}
+}
+
+func (g *acConnectGate) forget(addr string) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	delete(g.open, addr)
+}
+
+// admit waits until the connect of c's dialer has returned through acDialConn, and reports
+// whether it did within acGateWait. False means this test did not dial c.
+func (g *acConnectGate) admit(c *net.TCPConn) bool {
+	g.mu.Lock()
+	ch := g.chLocked(c.RemoteAddr().String())
+	g.mu.Unlock()
+	select {
+	case <-ch:
+		return true
+	case <-time.After(acGateWait):
+		g.strangers.Add(1)
+		return false
+	}
+}
+
+// resetOurs resets c once its dialer's connect has returned, and closes a stranger's connection.
+func (g *acConnectGate) resetOurs(c *net.TCPConn) {
+	if !g.admit(c) {
+		c.Close()
+		return
+	}
+	acResetConn(c)
+}
+
+// note is the gate's part of a failure message: how many connections it turned away.
+func (g *acConnectGate) note() string {
+	n := g.strangers.Load()
+	if n == 0 {
+		return ""
+	}
+	return fmt.Sprintf(" [%d connection(s) matched no connect acDialConn returned and were closed "+
+		"uncounted: another process's, or acDialLine no longer dials through acDialConn]", n)
+}
+
+// acGatedConn drops its gate entry when acDialLine closes it, so a later connection that reuses
+// the local port never finds a gate some earlier connection opened.
+type acGatedConn struct {
+	net.Conn
+	forget func()
+}
+
+func (c acGatedConn) Close() error {
+	c.forget()
+	return c.Conn.Close()
+}
+
+// acClosedPort returns a loopback address nothing listens on, and HOLDS the port until t ends:
+// a TCP socket is bound to it and never put in LISTEN. A connect there is refused, and no other
+// socket can bind the port while it is held.
+//
+// Binding a listener and closing it, as this did first, released the port before the dial. A
+// test binary running beside this one could bind it in between. Measured with two of these
+// binaries at once: "nothing listening" was answered with the other process's token, and the
+// bounded poll was REACHED.
 func acClosedPort(t *testing.T) string {
 	t.Helper()
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	fd, err := syscall.Socket(syscall.AF_INET, syscall.SOCK_STREAM, 0)
 	if err != nil {
-		t.Fatal(err)
+		t.Fatal(os.NewSyscallError("socket", err))
 	}
-	addr := ln.Addr().String()
-	ln.Close()
-	return addr
+	syscall.CloseOnExec(fd)
+	t.Cleanup(func() { syscall.Close(fd) })
+	if err := syscall.Bind(fd, &syscall.SockaddrInet4{Addr: [4]byte{127, 0, 0, 1}}); err != nil {
+		t.Fatal(os.NewSyscallError("bind", err))
+	}
+	sa, err := syscall.Getsockname(fd)
+	if err != nil {
+		t.Fatal(os.NewSyscallError("getsockname", err))
+	}
+	in4, ok := sa.(*syscall.SockaddrInet4)
+	if !ok {
+		t.Fatalf("getsockname on an AF_INET socket returned %T", sa)
+	}
+	return net.JoinHostPort("127.0.0.1", strconv.Itoa(in4.Port))
 }
 
 // TestACDialKindsAgainstLocalListeners pins acDialLine and acDialKind together against real
 // sockets. The split that matters is the connect/read one: "accepted, then reset" (the third
 // Mac run's gateway answer, a forwarder that cannot reach its container) must never read as a
-// refusal, and the kind is only right if acDialLine marks a post-accept failure.
+// refusal, and the kind is only right if acDialLine marks a post-accept failure. The reset waits
+// for the dialer's connect (acConnectGate), or the case is a race between the two kinds.
 func TestACDialKindsAgainstLocalListeners(t *testing.T) {
 	const token = "YOLO-AC-PORT-TEST"
+	gate := acGateDials(t)
 	for _, tc := range []struct {
 		name string
 		addr string
@@ -79,14 +221,14 @@ func TestACDialKindsAgainstLocalListeners(t *testing.T) {
 	}{
 		{"token", acServe(t, acReply(token+"\n")), acKindReached},
 		{"wrong reply", acServe(t, acReply("nope\n")), `accepted, read "nope" instead of the token`},
-		{"accept then close", acServe(t, func(_ int, c *net.TCPConn) { c.Close() }), acKindEOF},
-		{"accept then reset", acServe(t, func(_ int, c *net.TCPConn) { acResetConn(c) }), acKindReset},
+		{"accept then close", acServe(t, func(c *net.TCPConn) { c.Close() }), acKindEOF},
+		{"accept then reset", acServe(t, gate.resetOurs), acKindReset},
 		{"nothing listening", acClosedPort(t), acKindRefused},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			line, err := acDialLine(tc.addr)
 			if got := acDialKind(line, err, token); got != tc.want {
-				t.Errorf("dialing %s: kind %q, want %q (line %q, err %v)", tc.addr, got, tc.want, line, err)
+				t.Errorf("dialing %s: kind %q, want %q (line %q, err %v)%s", tc.addr, got, tc.want, line, err, gate.note())
 			}
 		})
 	}
@@ -144,16 +286,24 @@ func TestACPollListenerRecordsEveryDial(t *testing.T) {
 	clock := acProbeClock{start: time.Now(), dir: dir}
 
 	t.Run("until the token answers", func(t *testing.T) {
-		addr := acServe(t, func(n int, c *net.TCPConn) {
-			if n <= 3 {
+		gate := acGateDials(t)
+		var ours atomic.Int32 // this test's dials the server has taken, strangers not counted
+		addr := acServe(t, func(c *net.TCPConn) {
+			switch {
+			case !gate.admit(c):
+				c.Close()
+			case ours.Add(1) <= 3:
 				acResetConn(c)
-				return
+			default:
+				acReply(token + "\n")(c)
 			}
-			acReply(token+"\n")(n, c)
 		})
-		r := acPollListener(make(chan struct{}), addr, token, clock, 5*time.Millisecond, 0)
+		// Capped, where the Mac's loopback polls are not. Uncapped, a server that never sends the
+		// token (its accept loop ends on any Accept error) left this poll dialing until go test's
+		// own timeout; capped, the test fails after two dials past the expected four.
+		r := acPollListener(make(chan struct{}), addr, token, clock, 5*time.Millisecond, 6)
 		if !r.reached || len(r.dials) != 4 {
-			t.Fatalf("reached=%v after %d dial(s), want reached after 4: %+v", r.reached, len(r.dials), r.dials)
+			t.Fatalf("reached=%v after %d dial(s), want reached after 4: %+v%s", r.reached, len(r.dials), r.dials, gate.note())
 		}
 		for i, d := range r.dials {
 			want := acKindReset
@@ -161,7 +311,7 @@ func TestACPollListenerRecordsEveryDial(t *testing.T) {
 				want = acKindReached
 			}
 			if d.kind != want || d.phase != acPhaseRunning {
-				t.Errorf("dial %d = %q %q, want %q %q", i+1, d.phase, d.kind, acPhaseRunning, want)
+				t.Errorf("dial %d = %q %q, want %q %q%s", i+1, d.phase, d.kind, acPhaseRunning, want, gate.note())
 			}
 		}
 		tl := r.timeline()
@@ -181,7 +331,9 @@ func TestACPollListenerRecordsEveryDial(t *testing.T) {
 	t.Run("stopped", func(t *testing.T) {
 		stop := make(chan struct{})
 		close(stop)
-		r := acPollListener(stop, acClosedPort(t), token, clock, time.Millisecond, 0)
+		// Capped at one dial: a poll that dials despite the closed stop still records that dial
+		// and fails here, instead of dialing until go test's timeout.
+		r := acPollListener(stop, acClosedPort(t), token, clock, time.Millisecond, 1)
 		if len(r.dials) != 0 || !strings.HasSuffix(r.describe("x"), "never dialed") {
 			t.Errorf("a closed stop still dialed: %s", r.describe("x"))
 		}
@@ -496,6 +648,9 @@ func TestACPortVerdict(t *testing.T) {
 // cap, so the cleanup must stop them anyway, and the explicit call plus the cleanup must not close
 // stop twice.
 func TestACHaltOnCleanupStopsTheDialersOnGoexit(t *testing.T) {
+	// One dial in flight when stop closes is bounded by acDialLine (two seconds to connect, three
+	// to read); past both, with margin, the poll is not stopping.
+	const haltBound = 10 * time.Second
 	addr := acClosedPort(t)
 	clock := acProbeClock{start: time.Now(), dir: t.TempDir()}
 	start := func(t *testing.T) (chan acListenerResult, func()) {
@@ -507,7 +662,18 @@ func TestACHaltOnCleanupStopsTheDialersOnGoexit(t *testing.T) {
 			defer dialers.Done()
 			done <- acPollListener(stop, addr, "TOKEN", clock, 5*time.Millisecond, 0)
 		}()
-		return done, acHaltOnCleanup(t, stop, dialers.Wait)
+		// The wait is bounded, so a poll that no longer honors stop fails the test instead of
+		// holding halt, and the test, until go test's timeout.
+		wait := func() {
+			waited := make(chan struct{})
+			go func() { dialers.Wait(); close(waited) }()
+			select {
+			case <-waited:
+			case <-time.After(haltBound):
+				t.Errorf("the uncapped poll was still dialing %s after halt closed stop", haltBound)
+			}
+		}
+		return done, acHaltOnCleanup(t, stop, wait)
 	}
 
 	var done chan acListenerResult

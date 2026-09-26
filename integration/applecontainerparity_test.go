@@ -933,10 +933,22 @@ type acReadErr struct{ err error }
 func (e acReadErr) Error() string { return "connected, then " + e.err.Error() }
 func (e acReadErr) Unwrap() error { return e.err }
 
+// acDialConn is acDialLine's connect, bounded so a dropped SYN cannot hold the poll.
+//
+// It is a variable for one reason: the -short tests' accept-then-reset fixture must reset only
+// after this process's connect has returned (acConnectGate in applecontainerparity_probe_test.go).
+// A reset that lands first comes back as the connect's OWN error. Measured on a Linux loopback:
+// the server's Accept had returned the connection, and the dial still failed "connect: connection
+// reset by peer". Go reads a connect's result from SO_ERROR once the poller wakes the dialer, and a
+// reset that arrives after the handshake and before that read is what SO_ERROR then holds. So the
+// same accept-then-reset peer reads as acKindConnReset or acKindReset by scheduling alone. The Mac
+// run leaves this variable as it is.
+var acDialConn = func(addr string) (net.Conn, error) { return net.DialTimeout("tcp", addr, 2*time.Second) }
+
 // acDialLine connects to addr and reads one line, bounded, so a dropped SYN or a silent peer
 // cannot hold the poll. A failure after the connect is an acReadErr.
 func acDialLine(addr string) (string, error) {
-	c, err := net.DialTimeout("tcp", addr, 2*time.Second)
+	c, err := acDialConn(addr)
 	if err != nil {
 		return "", err
 	}
