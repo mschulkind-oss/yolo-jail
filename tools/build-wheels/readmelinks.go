@@ -22,8 +22,9 @@ import (
 //   - A link becomes `https://github.com/<repo>/blob/<tag>/<path>`, and an image
 //     `https://raw.githubusercontent.com/<repo>/<tag>/<path>`, because a blob URL serves an
 //     HTML page that an <img> cannot display.
-//   - A bare fragment (`#agents`) points at the README on GitHub, since PyPI does not give
-//     headings the ids GitHub does.
+//   - A bare fragment (`#agents`) points at the README on GitHub, whose heading ids are the
+//     ones the README's fragments were written against; nothing promises a PyPI page the
+//     same ids.
 //   - Absolute targets (any URL scheme, or `//host`) are left alone, and so is everything
 //     inside a fenced code block or an inline code span, where a `](x)` is text, not a link.
 //   - Inline links and images, and reference definitions (`[id]: target`), are rewritten.
