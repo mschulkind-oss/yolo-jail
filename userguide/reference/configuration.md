@@ -115,12 +115,14 @@ your **user** config, then have profiles select the aliases you want as defaults
 }
 ```
 
-Put `OPENROUTER_API_KEY` and `KILO_API_KEY` in an existing `env_sources` file or
-the launching environment; never put a key value in the JSONC file. Each key reaches
-only the agents whose profile selects its provider: here `OPENROUTER_API_KEY` reaches
-Claude and `KILO_API_KEY` reaches Pi, and a plain shell in the jail sees neither. The
-launch lists which keys went where, and which it kept from every agent because no
-profile selected their provider. OpenRouter
+Put `OPENROUTER_API_KEY` and `KILO_API_KEY` in an existing `env_sources` file; never
+put a key value in the JSONC file. Each key reaches only the agents whose profile
+selects its provider: here `OPENROUTER_API_KEY` reaches Claude and `KILO_API_KEY`
+reaches Pi, and a plain shell in the jail sees neither. The launch lists which keys
+went where, and which it kept from every agent because no profile selected their
+provider. A key exported only in the shell you launch from is not listed, and reaches
+only an agent whose pack builds its provider settings from it, such as Claude's
+token. OpenRouter
 works directly with Claude, Codex, Pi, OpenCode, and Copilot. Kilo works with
 Claude and Copilot through yolo's local wire bridge, and directly with Pi and
 OpenCode; it is not offered to Codex because Kilo documents Chat Completions,

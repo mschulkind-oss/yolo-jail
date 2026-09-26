@@ -138,8 +138,15 @@ agent's environment. **Do not "fix" the gate by narrowing it to the pack's own b
 would break this pack outright, because CLI-less is the case the gate's CLI-less arm exists
 for.
 
-What limits the blast radius inside one agent is the narrowing you configure above: the
-credentials that agent and its children can reach are exactly the ones `role_arn` and
+**⚠ The pointer is scoped; the adapter behind it is not.** The adapter listens on
+`127.0.0.1:1461` in every jail that enables this loophole, whatever any profile selects, and
+any process there that sends `GET /credentials` receives the minted credential: a bare shell,
+or claude under `-p codex=bedrock`. The credential gate governs what each agent's environment
+carries, not which process can reach a loopback service. Narrowing the adapter too is
+[`OQ-CN7`](../../docs/design/provider-credential-scope.md#OQ-CN7), open.
+
+What limits the blast radius is the narrowing you configure above: the credentials any
+process in the jail can reach through the adapter are exactly the ones `role_arn` and
 `session_policy` allow. That is the same argument as the netns one below, one layer up.
 
 **A nested jail shares this endpoint.** Podman-in-podman forces `--net=host`, so a

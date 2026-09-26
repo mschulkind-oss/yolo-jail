@@ -93,6 +93,14 @@ protocol its provider serves is refused, naming any shipped pack that translates
 
 ### Security
 
+- A provider credential, and the settings a profile composes, reached every process in the jail
+  whichever agent selected the profile, so pi could use Bedrock because Claude had the keys. Each
+  now reaches only the agent that selected it
+  ([the credential gate](docs/reference/providers.md#the-credential-gate)). A plain shell sees
+  only `env_sources` values no provider claims, and `yolo host env` prints one agent's slice.
+  On macos-user only the program the invocation starts gets its profile's values, so an agent
+  started from the sandbox's login shell gets none. A variable you set on an agent's command
+  line no longer overrides what its profile composes.
 - Host-side yolo followed symbolic links in a workspace's `.yolo` state, so an agent could have
   the next launch or `yolo prune` write to a host path as you.
 - A provider key could be sent to `api.anthropic.com` when the provider named no Anthropic

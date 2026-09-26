@@ -656,7 +656,7 @@ $ rg -n '"scope": "host"' packs/*/loopholes/*/manifest.jsonc
 | Per-agent host grant mount | `/ctx/host-<pack>/<file>`, `:ro` | `internal/cli/run` (`hostFileArgs`) |
 | User host-file mount | `/ctx/host-user/<slug>`, `:ro` | `internal/cli/run/hostfiles.go` (`hostUserFileArgs`) |
 | Resolved `env_sources` file | `~/.config/yolo-user-env.sh`, `export K=${K:-'v'}` lines — the values no provider claims | `internal/cli/run/userenv.go` |
-| Per-agent env file | `~/.config/yolo-agent-env/<agent>.sh`, `0600`, `:ro` bind — the credentials and gated env the credential gate scopes to that agent, sourced by its launcher ([`providers.md`](providers.md#the-credential-gate)) | `internal/cli/run/agentenvfiles.go`, `internal/entrypoint/agentenv.go` |
+| Per-agent env file | `~/.config/yolo-agent-env/<agent>.sh`, `0600`, a `:ro` bind on podman and written in place on Apple Container — the credentials and gated env the credential gate scopes to that agent, sourced by its launcher ([`providers.md`](providers.md#the-credential-gate)) | `internal/cli/run/agentenvfiles.go`, `internal/entrypoint/agentenv.go` |
 | Jail service dir | `/run/yolo-services/` | `internal/svcendpoint`, `internal/loopholes` |
 | Endpoint file | `<name>.endpoint`, mode `0600`, named by `YOLO_SERVICE_<NAME>_ENDPOINT` | `internal/svcendpoint` |
 | Declared-service socket | `<name>.sock`, named by `YOLO_SERVICE_<NAME>_SOCKET` | `internal/loopholes` |

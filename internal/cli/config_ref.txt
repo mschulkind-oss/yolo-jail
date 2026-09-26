@@ -409,17 +409,26 @@
     Missing files warn
     and skip rather than failing the run — keep secrets in an unsynced
     file outside your dotfiles tree.
-    Written to ~/.config/yolo-user-env.sh (sourced by .bashrc and entrypoint);
+    A value no provider claims is written to ~/.config/yolo-user-env.sh
+    (sourced by .bashrc and the entrypoint), so every process sees it; it
     can be overridden by mise .env or by editing that file inside the jail.
+    A value a provider CLAIMS (names in its api_key_env_name) is written
+    only to ~/.config/yolo-agent-env/<agent>.sh for each agent whose
+    profile selects that provider, which that agent's launcher sources:
+    no other process, a bare shell included, sees it.  With no agent
+    selecting the provider it reaches nothing, and the launch says so.
     Dropping a key (or the whole list) REVOKES it: the next launch rewrites
     that file, truncating it to empty when nothing resolves, so a removed
     credential stops being exported.  Values already live in a RUNNING jail
     persist until it restarts.
     The same file carries the per-entry provider channel (see `use_profiles`):
-    the tables and provider env a launch composes land in a marked section as
+    the three tables and the ungated pack env land in a marked section as
     unconditional exports, rewritten by every ENTRY — a fresh launch and an
     attach alike — so `-p` reaches a running jail.  Those lines are not
-    overridable defaults; the whole section is recomposed each time.
+    overridable defaults; the whole section is recomposed each time.  What a
+    profile composes for ONE agent (its provider's settings and token, and
+    the pack env its selection gates) goes to that agent's own file instead,
+    rewritten by every entry the same way, and beats a value you export.
     Example: [
       "~/.config/yolo-jail/defaults.env",
       {"DEBUG": "1"},
@@ -1456,9 +1465,12 @@
                      base_url routes an ADDRESS, never a credential.
       wire_api       the DIALECT an endpoint speaks, when it is not the protocol key's
                      own default; declared inside an `endpoints` entry.
-      api_key_env_name  the NAME of the variable you hydrate (env_sources) — the
-                     credential itself is never in this config, and the launch
-                     pre-flight refuses to start a provider whose variable is empty.
+      api_key_env_name  the NAME of the variable you hydrate (env_sources), or a list of
+                     names for a provider with several credential routes (packs/claude's
+                     bedrock lists six) — the credential itself is never in this
+                     config.  A named variable reaches only the agents whose profile
+                     selects this provider, and the launch pre-flight refuses a provider
+                     some agent selected whose variable is empty.
       region         the region a regional provider is reached through.
       models         {alias: model id} — the aliases a profile's `model` option names.
                      The agent pack's own derive.lua decides which alias each of the

@@ -308,6 +308,8 @@ Where each answer lands is the vehicle's:
 - **macos-user.** One command per invocation, so the delivery is **per launch**: the session
   carries the shared values plus the launched program's own, and says so when another agent
   had values it cannot carry. `macosuser.buildPlan` no longer hydrates `env_sources` itself.
+  A bare `yolo` starts a login zsh, which is no agent, so an agent started from that shell
+  gets none of its profile's values ([`OQ-CN9`](../design/provider-credential-scope.md#OQ-CN9), open).
 - **The host notch.** `yolo host -- <agent>` composes one process: the shared values plus that
   agent's. The shell it inherits is the user's and passes through untouched. `yolo host env`
   prints the same one-agent slice for a shell to eval (`--agent`, default `claude`), and its
@@ -316,7 +318,22 @@ Where each answer lands is the vehicle's:
 Every arm discloses what it scoped or withheld, by name and never by value
 (`CredentialScope.Disclosure`). The files are readable by every process of the jail's uid, as
 the shared file is: the gate decides what each agent's **environment** carries, and an agent
-started by another agent inherits that agent's environment, as any child does. The menu half of
+started by another agent inherits that agent's environment, as any child does.
+
+Two consequences to know:
+
+- **A loopback credential service is outside the gate.** The gate withholds `aws-auth`'s
+  pointer variable, not the adapter it names: that adapter listens on `127.0.0.1:1461` in
+  every jail that enables the loophole, and answers any process's `GET /credentials` with
+  the minted credential. The wire bridge's listeners likewise attach the served agent's key
+  to whatever request reaches them, so another process can use the key without seeing it.
+  Whether to narrow either is [`OQ-CN7`](../design/provider-credential-scope.md#OQ-CN7), open.
+- **A profile's composed value beats your own.** The agent's launcher sources its file after
+  the shell you typed the command in, and composed values are plain-form, so
+  `ANTHROPIC_MODEL=x claude`, or `export ANTHROPIC_BASE_URL=…` before it, is overridden by
+  what the selected profile composes. Only an `env_sources` value (def-form) yields to one you
+  set. Before the gate these values were in the shared file, sourced first, and yours won.
+  [`OQ-CN8`](../design/provider-credential-scope.md#OQ-CN8), open, asks whether to restore that. The menu half of
 [`OQ-CN4`](../design/provider-credential-scope.md#OQ-CN4) is each agent's own key:
 opencode's derive writes `enabled_providers: [<selected provider>]` beside its selected model;
 claude's single `ANTHROPIC_BASE_URL` already reaches one provider per launch; pi's
