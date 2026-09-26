@@ -219,25 +219,23 @@ func acBindLoopback(network string, fd int) (string, error) {
 	return net.JoinHostPort("127.0.0.1", strconv.Itoa(in4.Port)), nil
 }
 
-// acClosedPort returns a loopback address nothing listens on, and HOLDS the port until t ends:
-// a TCP socket is bound to it and never put in LISTEN. A connect there is refused, and no other
-// socket can bind the port while it is held.
+// acClosedPort returns a loopback address nothing listens on: port 1 (tcpmux), which no test
+// host serves and no test here binds. A connect there is refused on Linux and on darwin alike.
 //
-// Binding a listener and closing it, as this did first, released the port before the dial. A
-// test binary running beside this one could bind it in between. Measured with two of these
-// binaries at once: "nothing listening" was answered with the other process's token, and the
-// bounded poll was REACHED.
+// Two earlier spellings each failed one platform. Binding a listener and closing it released the
+// port before the dial, and a test binary running beside this one could bind it in between
+// (measured with two binaries at once: "nothing listening" was answered with the other process's
+// token). Holding the port with a bound socket that never listens fixed that on Linux, which
+// refuses such a connect, but darwin's TCP stack silently drops a SYN aimed at a bound,
+// non-listening socket, so the dial timed out there (check-macos, run 36271509679). A port
+// nothing binds avoids both. If something does answer on it, the test cannot judge "nothing
+// listening", so it says so rather than misreading the answer.
 func acClosedPort(t *testing.T) string {
 	t.Helper()
-	fd, err := syscall.Socket(syscall.AF_INET, syscall.SOCK_STREAM, 0)
-	if err != nil {
-		t.Fatal(os.NewSyscallError("socket", err))
-	}
-	syscall.CloseOnExec(fd)
-	t.Cleanup(func() { syscall.Close(fd) })
-	addr, err := acBindLoopback("tcp4", fd)
-	if err != nil {
-		t.Fatal(err)
+	const addr = "127.0.0.1:1"
+	if c, err := net.DialTimeout("tcp", addr, acConnectTimeout); err == nil {
+		_ = c.Close()
+		t.Skipf("something listens on %s on this host, so it cannot stand in for a port nothing listens on", addr)
 	}
 	return addr
 }
