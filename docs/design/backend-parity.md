@@ -505,7 +505,12 @@ and unrun on the Mac.
   file into the shared workspace: the first once both servers have had a second to bind, the
   second as its script's last act. Each target's record is run-length encoded, so a run prints
   lines such as "while the jail ran: 12× accepted, then reset" and "after the jail's script
-  ended: 3× refused". That answers the loopback question above.
+  ended: 3× refused". That answers the loopback question above. One peer can show as two kinds:
+  a peer that resets as soon as it accepts, as the gateway did, is recorded as "accepted, then
+  reset" or as "reset during connect", depending only on whether its reset lands before the
+  dialing process has read its connect's result. A run of such dials can therefore split between
+  the two. That is measured on a Linux loopback and unmeasured on the Mac. No verdict keys on
+  either kind (`acKindConnReset`).
 - **Local Network privacy, named in the verdict.** When no dial to the container's own address
   reaches it, at least one fails `EHOSTUNREACH`, and `route -n get` shows a live route, the
   evidence opens with a diagnosis naming Local Network privacy and the fix: a Local Network grant
