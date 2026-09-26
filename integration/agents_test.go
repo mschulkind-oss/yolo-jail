@@ -203,8 +203,8 @@ func TestPackInstallsVersionsAndConfigures(t *testing.T) {
 			// drifted stamp path fails here rather than quietly running the vendor's update.
 			refreshStamp := "$HOME/.cache/yolo-agent-stamps/refresh/" + tc.binary + ".stamp"
 			cmd := fmt.Sprintf(
-				"mkdir -p \"$(dirname %s)\" && touch %s && %s %s && test -f %s && grep -q '%s' \"$HOME/%s\"",
-				refreshStamp, refreshStamp, tc.binary, tc.versionArg, stamp, tc.marker, tc.configRel,
+				"mkdir -p \"$(dirname %s)\" && touch %s && %s%s %s && test -f %s && grep -q '%s' \"$HOME/%s\"",
+				refreshStamp, refreshStamp, seedRefreshSeen(t, tc.pack, tc.binary), tc.binary, tc.versionArg, stamp, tc.marker, tc.configRel,
 			)
 			r := runYolo(t, dir, cmd)
 			if r.rc != 0 {
@@ -262,4 +262,38 @@ func TestJailConfigsPresent(t *testing.T) {
 	if r.rc != 0 {
 		t.Fatalf("expected rc 0, got %d\n%s", r.rc, r.combined())
 	}
+}
+
+// seedRefreshSeen returns shell that marks the pack's due_on_change content as already
+// refreshed, so the pre-launch refresh stays throttled for a --version probe (AGENTS.md: no
+// agent runs beyond --version). A pack whose refresh declares due_on_change is ALSO due when
+// the watched files' content was never refreshed, which on a fresh CI home it never was, so
+// touching the hourly stamp alone no longer suffices. The key is computed exactly as the
+// launcher's _refresh_content_key does (internal/entrypoint/prelaunchrefresh.go); if that
+// formula drifts, the "Refreshing" check below fails rather than quietly running the vendor.
+// The list is read from the shipped pack's own declaration, so it cannot drift from pack.json.
+func seedRefreshSeen(t *testing.T, pack, bin string) string {
+	t.Helper()
+	var files []string
+	for _, p := range packload.Embedded() {
+		if p.Name != pack {
+			continue
+		}
+		for _, in := range p.Decl.InstallContributions() {
+			if in.Bin == bin && in.Refresh != nil {
+				files = in.Refresh.DueOnChange
+			}
+		}
+	}
+	if len(files) == 0 {
+		return ""
+	}
+	var parts []string
+	for _, f := range files {
+		parts = append(parts, fmt.Sprintf(
+			`if [ -f "$HOME/%[1]s" ]; then printf '%%s %%s\n' '%[1]s' "$(cksum < "$HOME/%[1]s")"; else printf '%%s absent\n' '%[1]s'; fi`, f))
+	}
+	seen := "$HOME/.cache/yolo-agent-stamps/refresh/" + bin + ".seen"
+	return fmt.Sprintf(`k=$({ %s; } | cksum | tr ' ' '-') && mkdir -p "%s" && touch "%s/$k" && `,
+		strings.Join(parts, "; "), seen, seen)
 }
