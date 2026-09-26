@@ -14,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"testing"
 	"time"
@@ -933,27 +934,40 @@ type acReadErr struct{ err error }
 func (e acReadErr) Error() string { return "connected, then " + e.err.Error() }
 func (e acReadErr) Unwrap() error { return e.err }
 
-// acDialConn is acDialLine's connect, bounded so a dropped SYN cannot hold the poll.
+// acDialLine's two bounds: the connect, so a dropped SYN cannot hold the poll, and the read of
+// the reply, so a silent peer cannot.
+const (
+	acConnectTimeout = 2 * time.Second
+	acReadTimeout    = 3 * time.Second
+)
+
+// acDialHook, when set, is acDialLine's connect in place of net.DialTimeout.
 //
-// It is a variable for one reason: the -short tests' accept-then-reset fixture must reset only
-// after this process's connect has returned (acConnectGate in applecontainerparity_probe_test.go).
+// It exists for one reason: the -short tests' accept-then-reset fixture must reset only after
+// this process's connect has returned (acConnectGate in applecontainerparity_probe_test.go).
 // A reset that lands first comes back as the connect's OWN error. Measured on a Linux loopback:
 // the server's Accept had returned the connection, and the dial still failed "connect: connection
 // reset by peer". Go reads a connect's result from SO_ERROR once the poller wakes the dialer, and a
 // reset that arrives after the handshake and before that read is what SO_ERROR then holds. So the
-// same accept-then-reset peer reads as acKindConnReset or acKindReset by scheduling alone. The Mac
-// run leaves this variable as it is.
-var acDialConn = func(addr string) (net.Conn, error) { return net.DialTimeout("tcp", addr, 2*time.Second) }
+// same accept-then-reset peer reads as acKindConnReset or acKindReset by scheduling alone.
+//
+// The Mac run never sets it. It is atomic because a test sets it while a poll that an earlier,
+// already failed test could not stop may still be dialing.
+var acDialHook atomic.Pointer[func(addr string) (net.Conn, error)]
 
 // acDialLine connects to addr and reads one line, bounded, so a dropped SYN or a silent peer
 // cannot hold the poll. A failure after the connect is an acReadErr.
 func acDialLine(addr string) (string, error) {
-	c, err := acDialConn(addr)
+	dial := func(addr string) (net.Conn, error) { return net.DialTimeout("tcp", addr, acConnectTimeout) }
+	if hook := acDialHook.Load(); hook != nil {
+		dial = *hook
+	}
+	c, err := dial(addr)
 	if err != nil {
 		return "", err
 	}
 	defer c.Close()
-	_ = c.SetReadDeadline(time.Now().Add(3 * time.Second))
+	_ = c.SetReadDeadline(time.Now().Add(acReadTimeout))
 	line, err := bufio.NewReader(c).ReadString('\n')
 	if err != nil && line == "" {
 		return "", acReadErr{err}
