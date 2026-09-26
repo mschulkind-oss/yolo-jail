@@ -27,6 +27,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/packsrc"
 	"github.com/mschulkind-oss/yolo-jail/internal/packstage"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	"github.com/mschulkind-oss/yolo-jail/internal/wirebridged"
 	"github.com/mschulkind-oss/yolo-jail/packs"
 )
 
@@ -274,8 +275,14 @@ func (o *Options) stagePacks(cname string) (string, []*packload.Pack, []jailcont
 		skillDirs = append(skillDirs, o.packSkillSourceDirs(p)...)
 		briefings = append(briefings, o.packBriefingProses(entry.Name, p)...)
 	}
-	// THE NEEDS CLOSURE (docs/reference/wire-bridge.md §3.1, WB-D10): extend the
-	// selected set with every pack a live `needs` entry pulls in, transitively.
+	// THE SELECTION CLOSURE (docs/reference/wire-bridge.md §3.1, WB-D10; OQ-WG6/WG7 (c)):
+	// extend the selected set with every pack a live `needs` entry pulls in, transitively,
+	// and with every service pack a selected profile's `via` names, so the agent a via
+	// re-points at the service's route finds a daemon there. One resolver
+	// (packload.Selection.Close) that `yolo check`, config validation and `config promote`
+	// call too, so none of them can describe a narrower pack set than this launch stages
+	// (WG-I11).
+	//
 	// Here — after both staging loops, because a configured pack's bins can be
 	// what a when_bins condition keys on (and a configured manifest can declare
 	// needs of its own), and before every pre-flight below, because "this is where
@@ -284,8 +291,8 @@ func (o *Options) stagePacks(cname string) (string, []*packload.Pack, []jailcont
 	// must see it exactly as the launch will deliver it.
 	//
 	// The additions stage through the _official path — an added pack is always
-	// EMBEDDED (needs may name only the embedded official set; ResolveNeeds
-	// refuses anything wider, WB-D9), and _official is derived content, cleared
+	// EMBEDDED (needs and via may name only the embedded official set; the closure
+	// refuses anything wider, WB-D9 and WG-I7), and _official is derived content, cleared
 	// and rebuilt wholesale every launch, so there is no prune interaction. Staging
 	// here rather than trusting the load is the mount-is-the-filter rule: the
 	// entrypoint renders every pack under YOLO_PACK_ROOT, so an added pack whose
@@ -294,33 +301,16 @@ func (o *Options) stagePacks(cname string) (string, []*packload.Pack, []jailcont
 	// EVERY addition prints, before its staging (WB-D12: a pack nobody typed
 	// joining a launch silently is the one forbidden behavior of the closure).
 	// Stderr, beside the other launch-time disclosure lines.
-	added, causes, err := packload.ResolveNeeds(loaded,
-		func(name string) (*packload.Pack, bool) {
-			p, ok := byName[name]
-			return p, ok
-		})
+	added, causes, err := o.launchSelection(func(name string) (*packload.Pack, bool) {
+		p, ok := byName[name]
+		return p, ok
+	}).Close(loaded)
 	if err != nil {
 		return "", nil, nil, fmt.Errorf("packs: %w", err)
 	}
 	for _, cause := range causes {
 		o.pr(o.Stderr).print("[dim]" + cause + "[/dim]")
 	}
-	// THE VIA CLOSURE (OQ-WG6/WG7 (c)): a selected profile whose `via` names a service pack
-	// adds that pack like a need, so the agent it re-points at the service's route finds a
-	// daemon there. Over the needs-closed set, and the needs closure re-run over what it adds,
-	// because an added service pack may declare needs of its own.
-	viaAdded, viaCauses, err := o.viaClosure(append(append([]*packload.Pack{}, loaded...), added...),
-		func(name string) (*packload.Pack, bool) {
-			p, ok := byName[name]
-			return p, ok
-		})
-	if err != nil {
-		return "", nil, nil, fmt.Errorf("packs: %w", err)
-	}
-	for _, cause := range viaCauses {
-		o.pr(o.Stderr).print("[dim]" + cause + "[/dim]")
-	}
-	added = append(added, viaAdded...)
 	for _, p := range added {
 		dest := filepath.Join(officialRoot, p.Name)
 		if err := copyTree(p.Root, dest); err != nil {
@@ -479,6 +469,11 @@ func (o *Options) stagePacks(cname string) (string, []*packload.Pack, []jailcont
 	// split, and why keeping both severities is what makes P3 and R1 one rule).
 	if probs := packload.AgentAudienceProblems(loaded); len(probs) > 0 {
 		return "", nil, nil, fmt.Errorf("packs: %s", strings.Join(probs, "\npacks: "))
+	}
+	// THE NINTH: a via profile its service will serve no route for (checkViaRoutes). After
+	// the closure, because the via's service pack is what makes the agent's via URL real.
+	if err := o.checkViaRoutes(loaded); err != nil {
+		return "", nil, nil, err
 	}
 	// And R1 itself, the half that is REPORTED: every name here is now known to be owned by a
 	// selected pack, so an addressed contribution that still reaches no destination of its kind
@@ -816,8 +811,9 @@ func resolvePackLoopholeModules() []loopholes.PackModule {
 }
 
 // resolveConfiguredPacks is the pack set the lazy resolvers read: every configured pack
-// that resolves OFFLINE, extended by the same needs closure stagePacks computes, so a
-// read-only surface describes the pack set the launch would deliver.
+// that resolves OFFLINE, extended by the same selection closure stagePacks computes (the
+// `needs` and `via` halves, packload.Selection.Close — WG-I11), so a read-only surface
+// describes the pack set the launch would deliver.
 //
 // THE CLOSURE IS NOT OPTIONAL, and its absence was measured: with `"packs": ["claude"]`,
 // packs/claude needs openai-auth, the launch stages it, and its openai-oauth-refresh
@@ -826,7 +822,7 @@ func resolvePackLoopholeModules() []loopholes.PackModule {
 // capability", sending the user to fix a pack that was right.
 //
 // Silent-and-empty like its callers: a pack that cannot be resolved contributes nothing,
-// and a closure that errors (a cycle, a need naming a non-embedded pack) contributes no
+// and a closure that errors (a cycle, a need or via naming a non-embedded pack) contributes no
 // additions — the launch refuses that config loudly through stagePacks, and a read-only
 // surface has nothing more honest to say than the configured set.
 func resolveConfiguredPacks() []*packload.Pack {
@@ -875,10 +871,10 @@ func resolveConfiguredPacks() []*packload.Pack {
 		}
 		out = append(out, p)
 	}
-	added, _, err := packload.ResolveNeeds(out, func(name string) (*packload.Pack, bool) {
+	added, _, err := config.UserScopeSelection(func(name string) (*packload.Pack, bool) {
 		p, ok := embedded[name]
 		return p, ok
-	})
+	}).Close(out)
 	if err != nil {
 		return out
 	}
@@ -1196,37 +1192,83 @@ func packProviderNameConflicts(loaded []*packload.Pack) []string {
 	return out
 }
 
-// viaClosure is stagePacks' `via` step: packload.ResolveVias over the effective
-// use_profiles table (config plus -p), then the needs closure over what it added. It
-// returns only packs not already in packs.
-func (o *Options) viaClosure(packs []*packload.Pack,
-	embedded func(name string) (*packload.Pack, bool)) ([]*packload.Pack, []string, error) {
+// launchSelection is the selection closure's input as the launch reads it: the effective
+// use_profiles table over the set the closure hands it (effectiveUseProfiles — config plus
+// `-p`, a bare `-p` folded over every bin that set installs), and the user's profile
+// declarations. The config arrives through o.stagingCfg (WG-I9); an empty one computes the
+// same table a launch with no config would.
+func (o *Options) launchSelection(embedded func(name string) (*packload.Pack, bool)) packload.Selection {
 	cfg := o.stagingCfg
 	if cfg == nil {
 		cfg = jsonx.NewOrderedMap()
 	}
-	active := map[string]string{}
-	eff := o.effectiveUseProfiles(cfg, packs)
-	for _, k := range eff.Keys() {
-		if name := mapStr(eff, k); name != "" {
-			active[k] = name
-		}
+	return packload.Selection{
+		Embedded: embedded,
+		UseProfiles: func(set []*packload.Pack) map[string]string {
+			return packload.ProfileTable(o.effectiveUseProfiles(cfg, set))
+		},
+		UserProfiles: func() (map[string]packload.UserProfile, error) {
+			return config.LoadProfiles(func(string) {})
+		},
 	}
+}
+
+// checkViaRoutes is the NINTH bespoke pre-flight: a via profile whose service will not serve
+// its agent (docs/design/wire-bridge-gateway.md WG-I13, WG-I14, WG-I15). The agent's derive
+// is handed ctx.via_url whether or not the daemon serves what it sends there, so an
+// unservable via used to start a jail whose agent failed at its first request, and the only
+// record was a line in the daemon's log.
+//
+// The gate first runs the agent's own derives to see whether its config points it at the
+// via URL at all (packload.DerivedViaPointers): a derive decides which provider rows ride
+// the URL, and a via that re-points nothing cannot fail a request, so it is DISCLOSED as
+// having no effect and never refused. For a re-pointed agent, two severities, by what the
+// launcher can know. NO ROUTE AT ALL is FATAL, like the eight above and for
+// checkProfileDeclarations' reason: a selection the launch knows it cannot honor refuses
+// with the remedy named, rather than starting a jail that fails at the first request (the
+// protocol-pairing gate's outcome 4, one layer down). A ROUTE WITHOUT THE WIRE THE AGENT
+// PREFERS is a WARNING on stderr: the preference is the agent's first declared protocol,
+// and the wire its derive writes is spelled in the agent's own config vocabulary, which core
+// does not read, so the launch discloses the mismatch instead of refusing on it. No hatch:
+// either remedy is a config line, drop `via` or pick a provider that has the endpoint.
+//
+// The decision is the daemon's own (wirebridged.ViaRouteGate asks viaRoutesFor, the
+// function the daemon boots from), over the tables composePackChannel relays: the provider
+// table and the profile resolution are composed here with the same functions and inputs.
+// Composing them only when an installed agent's active profile names a via keeps a launch
+// with no via from paying for it. A composition or resolution that fails is left to
+// composePackChannel, which refuses the launch with that failure's own message.
+func (o *Options) checkViaRoutes(packs []*packload.Pack) error {
+	cfg := o.stagingCfg
+	if cfg == nil {
+		cfg = jsonx.NewOrderedMap()
+	}
+	active := packload.ProfileTable(o.effectiveUseProfiles(cfg, packs))
 	if len(active) == 0 {
-		return nil, nil, nil
+		return nil
 	}
 	userProfiles, err := config.LoadProfiles(func(string) {})
+	if err != nil || len(packload.ActiveVias(packs, active, userProfiles)) == 0 {
+		return nil
+	}
+	providers, err := composedProviders(cfg, packs)
 	if err != nil {
-		return nil, nil, err
+		return nil
 	}
-	added, causes, err := packload.ResolveVias(packs, active, userProfiles, embedded)
-	if err != nil || len(added) == 0 {
-		return nil, causes, err
-	}
-	grown := append(append([]*packload.Pack{}, packs...), added...)
-	more, moreCauses, err := packload.ResolveNeeds(grown, embedded)
+	resolved, err := packload.ResolveProfiles(packs, userProfiles, providers)
 	if err != nil {
-		return nil, nil, err
+		return nil
 	}
-	return append(added, more...), append(causes, moreCauses...), nil
+	refusals, notices := wirebridged.ViaRouteGate(packs, providers, active, resolved)
+	for _, n := range notices {
+		o.pr(o.Stderr).print("[yellow]Warning: " + n + "[/yellow]")
+	}
+	if len(refusals) == 0 {
+		return nil
+	}
+	msgs := make([]string, len(refusals))
+	for i, r := range refusals {
+		msgs[i] = r.Error()
+	}
+	return fmt.Errorf("packs: %s", strings.Join(msgs, "\npacks: "))
 }

@@ -24,6 +24,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
@@ -213,25 +214,41 @@ func (o *Options) sectionPacks(r *reporter, merged *jsonx.OrderedMap) {
 	o.selectedPacks = append([]*packload.Pack(nil), loaded...)
 	o.selectedPacksKnown = true
 
-	// The NEEDS CLOSURE (docs/reference/wire-bridge.md §3.1, WB-D10), beside the pack
-	// list and before the exclusivity checks below, for the reason those checks
-	// give: the launch runs them over the COMPLETE set — the closure runs inside
-	// staging, before every pre-flight — so check running them over anything
-	// narrower could pass a config the launch refuses. A closure refusal (a need
-	// naming a pack outside the embedded official set, a needs cycle) is a FAIL
-	// here, not a warning, for the same reason: `yolo check` passing on a config
-	// that cannot start a jail is the one outcome this section exists to prevent.
+	// The SELECTION CLOSURE (docs/reference/wire-bridge.md §3.1, WB-D10; the `via` half,
+	// docs/design/wire-bridge-gateway.md WG-I11), beside the pack list and before the
+	// exclusivity checks below, for the reason those checks give: the launch runs them
+	// over the COMPLETE set — the closure runs inside staging, before every pre-flight —
+	// so check running them over anything narrower could pass a config the launch
+	// refuses. It is the launch's own resolver (packload.Selection.Close); what differs is
+	// only the selection table, the merged config's `use_profiles` (the table the
+	// protocol-pairing prediction reads, and it cannot see `-p` either). A closure refusal
+	// (a need or a via naming a pack outside the embedded official set, a via naming a
+	// pack that serves no via route, a needs cycle) is a FAIL here, not a warning, for the
+	// same reason: `yolo check` passing on a config that cannot start a jail is the one
+	// outcome this section exists to prevent.
 	//
 	// The additions print (WB-D12 — the same cause strings the launch banner
 	// carries, and never silently), and each added pack joins `loaded` so it is
 	// footprint-accounted exactly as the launch will account it.
-	added, causes, err := packload.ResolveNeeds(loaded,
-		func(name string) (*packload.Pack, bool) {
+	//
+	// The user's profile declarations are read ONCE for the section and shared with the
+	// protocol-pairing prediction below: both need them, and each read hands its findings to
+	// r.configWarn, so a second read would grade and count every malformed entry twice.
+	userProfiles := sync.OnceValues(func() (map[string]packload.UserProfile, error) {
+		return config.LoadProfiles(r.configWarn)
+	})
+	added, causes, err := packload.Selection{
+		Embedded: func(name string) (*packload.Pack, bool) {
 			p, ok := byName[name]
 			return p, ok
-		})
+		},
+		UseProfiles: func([]*packload.Pack) map[string]string {
+			return packload.ProfileTable(subMap(merged, "use_profiles"))
+		},
+		UserProfiles: userProfiles,
+	}.Close(loaded)
 	if err != nil {
-		r.fail("Pack needs: "+err.Error(), "")
+		r.fail("Pack selection: "+err.Error(), "")
 	} else {
 		loaded = append(loaded, added...)
 		for _, cause := range causes {
@@ -265,7 +282,7 @@ func (o *Options) sectionPacks(r *reporter, merged *jsonx.OrderedMap) {
 	// ResolveNeeds, so a pack pulled in by `needs` can supply the adapter that resolves a
 	// pairing, exactly as it does at launch. protocols.go states why this calls the
 	// launch's own gate instead of restating it.
-	pairErrs, pairWarns := protocolPairingGap(loaded, merged, r.configWarn)
+	pairErrs, pairWarns := protocolPairingGap(loaded, merged, r.configWarn, userProfiles)
 	for _, e := range pairErrs {
 		r.fail(e, "")
 	}

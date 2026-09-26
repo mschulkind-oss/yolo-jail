@@ -27,10 +27,12 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
+	"github.com/mschulkind-oss/yolo-jail/internal/wirebridged"
 )
 
-// protocolPairingGap reports what the Packs block should say about the pairing gate, as
-// (errors, warnings) in this section's own vocabulary.
+// protocolPairingGap reports what the Packs block should say about the pairing gate, and
+// about the via-route gate that reads the same assembled inputs, as (errors, warnings) in
+// this section's own vocabulary.
 //
 // Three outcomes, mirroring capabilityGap's shape because the two predict gates of the same
 // severity and a reader should not have to learn two report vocabularies:
@@ -46,6 +48,11 @@ import (
 //     look" reported as a pass is the defect OQ-3 ruled against in
 //     docs/reference/claude-oauth-interposition.md#oq-3; the same rule binds here.
 //
+// The via-route gate adds its two severities to the same pair: a re-pointed via agent with
+// no route is an error (the launch refuses it), and a route without the wire the agent
+// prefers, or a via that re-points nothing, is a warning (the launch warns about it) —
+// wirebridged.ViaRouteGate's answers, verbatim.
+//
 // ⚠ IT CANNOT SEE `-p`. `check` reads configuration; a `-p <name>` is an argument to a
 // launch that has not happened, and `effectiveUseProfiles` folds it in ABOVE this. So a
 // clean prediction means "the `use_profiles` selection pairs", never "any launch from this
@@ -53,13 +60,16 @@ import (
 // here to guess at flags would make the prediction wrong in places the launch is not, which
 // is capabilities.go's ⚠ with the sign flipped.
 //
-// configWarn receives the two config loaders' own findings. They are GRADED and COUNTED
-// rather than printed beside the verdict, because a finding nothing counts is the
+// configWarn receives the adapter loader's findings, and userProfiles is the section's one
+// read of the user's profile declarations (sectionPacks memoizes it, because the selection
+// closure reads the same file first and a second counted read would grade every malformed
+// entry twice). Both loaders' findings are GRADED and COUNTED rather than printed beside the
+// verdict, because a finding nothing counts is the
 // two-channel defect docs/design/reference-mismatch-diagnostics.md §3 names — and
 // TestEveryConfigWarnSinkIsGraded is what noticed the first draft of this file discarding
 // both.
 func protocolPairingGap(packs []*packload.Pack, merged *jsonx.OrderedMap,
-	configWarn func(string)) (errs []string, warns []string) {
+	configWarn func(string), userProfiles func() (map[string]packload.UserProfile, error)) (errs []string, warns []string) {
 	profiles := packload.ProfileTable(subMap(merged, "use_profiles"))
 	if len(profiles) == 0 || len(packs) == 0 {
 		return nil, nil
@@ -78,13 +88,13 @@ func protocolPairingGap(packs []*packload.Pack, merged *jsonx.OrderedMap,
 			"problem first; the pairing is unchecked until it is fixed"}
 	}
 
-	userProfiles, err := config.LoadProfiles(configWarn)
+	declared, err := userProfiles()
 	if err != nil {
 		return nil, []string{"Could not predict the protocol-pairing gate: the user " +
 			"profile declarations did not load (" + err.Error() + "). The pairing is " +
 			"unchecked"}
 	}
-	resolved, err := packload.ResolveProfiles(packs, userProfiles, providers)
+	resolved, err := packload.ResolveProfiles(packs, declared, providers)
 	if err != nil {
 		return nil, []string{"Could not predict the protocol-pairing gate: the profiles " +
 			"did not resolve (" + err.Error() + "). The launch will report this problem " +
@@ -95,5 +105,17 @@ func protocolPairingGap(packs []*packload.Pack, merged *jsonx.OrderedMap,
 		errs = append(errs, "This launch will be REFUSED: "+
 			strings.TrimSuffix(refusal.Error(), "\n"))
 	}
-	return errs, nil
+	// The launch's VIA-ROUTE gate (checkViaRoutes in internal/cli/run, WG-I13 to WG-I15),
+	// predicted over the same assembled inputs: a via profile whose service will serve no
+	// route for the agent it re-points (a FAIL, as the launch refuses it), or a route without
+	// the wire the agent prefers or a via that re-points nothing (a WARN, as the launch
+	// warns). The same function the launch calls, which asks the daemon's own serve decision,
+	// so the prediction and the launch share one wording and one rule. It runs after the
+	// selection closure, so `packs` holds the service pack a via adds and the agent's via URL
+	// is real.
+	viaRefusals, viaNotices := wirebridged.ViaRouteGate(packs, providers, profiles, resolved)
+	for _, refusal := range viaRefusals {
+		errs = append(errs, "This launch will be REFUSED: "+refusal.Error())
+	}
+	return errs, viaNotices
 }
