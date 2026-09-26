@@ -2412,7 +2412,7 @@ agent saw its skills vanish until the copy caught up.
 **Why a lock and a sync, and not per-launch immutable trees.** A new tree per launch would
 also close the race, but a running podman jail would then keep the pack tree it booted with,
 and an attach after a config change would no longer reach it. That changes what a live session
-sees, which is a product decision ([below](#open-does-a-running-jail-keep-the-pack-tree-it-booted-with)).
+sees, which is a product decision ([below](#oq-pk2)).
 The lock and the sync keep today's attach behavior exactly.
 
 **What it costs.** A second launch of the workspace waits for the first launch's whole
@@ -2438,7 +2438,7 @@ workspace.
   `TestMacosUserTwoConcurrentLaunchesOfOneWorkspace` now reaches its sessions is for the next
   macos-user CI run to show.
 
-#### Open: does a running jail keep the pack tree it booted with?
+#### <a id="oq-pk2"></a>💬 [`OQ-PK2`](#oq-pk2) — does a running jail keep the pack tree it booted with?
 
 **Not ruled.** Today an attach re-stages the tree a live podman jail has bound, so after a config
 change the jail's `/ctx/packs` shows the new pack set. Nothing in the jail is re-rendered from
@@ -2456,6 +2456,7 @@ it ([above](#host-side-staging-then-jail-side-render)).
 **Recommendation: (c).** Under (a) a live jail is inconsistent after a changed-config attach:
 the launchers, config and shims a dropped pack rendered at boot stay, while its tree goes.
 Under (b) the jail stays whole until it restarts, and the notice says a restart is needed.
+<!-- vantage: oq id=OQ-PK2 leaning="(c): one immutable pack tree per launch, bound at /ctx/packs and kept until the jail stops, collected when its container is known gone (as the home skeleton is), plus a notice on attach when the config's pack set differs from the one the jail booted with, saying a restart is needed." -->
 
 ## The credential boundary: disclosure, not consent
 

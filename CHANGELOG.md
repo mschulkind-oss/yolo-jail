@@ -90,6 +90,9 @@ protocol its provider serves is refused, naming any shipped pack that translates
 - A workspace's `.vscode/mcp.json` was hidden from agents and showed as modified in git.
 - `yolo -p <profile> -- <command>` refused any command that was not an agent.
 - Every yolo process left a copy of the shipped packs in `/tmp`, which `yolo prune` now removes.
+- Two launches of one workspace at once could fail with `directory not empty`, or start with
+  part of a pack missing; the second now waits for the first. Attaching to a running jail no
+  longer empties and re-copies the pack files it has mounted.
 
 ### Security
 
