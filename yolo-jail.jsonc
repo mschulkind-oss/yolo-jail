@@ -7,7 +7,8 @@
   // overview, `yolo config-ref` for the full field reference, and
   // `yolo check` after every edit to this file.
   // ───────────────────────────────────────────────────────────────
-  // Container runtime: "podman", "docker", or "container" (Apple)
+  // Isolation backend: "podman", "container" (Apple Container), or
+  // "macos-user" (a sandboxed macOS account, no VM; never auto-detected)
   // (also settable via YOLO_RUNTIME env var)
   // "runtime": "podman",
   // There is no "agents" key — it was removed.  An agent arrives as a pack,
@@ -29,13 +30,11 @@
     // to run the Justfile recipes this repo ships (test, lint, deploy).
     "just"
   ],
-  // security: tool shims injected into the jail's PATH.  Defaults (no
-  // config needed): grep is blocked only for recursive usage (``-r``,
-  // ``-R``, ``--recursive``, ``-rn`` etc. — pipe filters and
-  // single-file greps pass through); find is blocked unconditionally.
-  // NOTE: neither is on by DEFAULT since 2026-09-04 — they ship in the
-  // `guardrails` pack, which a user config opts into via `packs`.
-  // Override only if you want custom rules — the defaults are sane.
+  // security: tool shims injected into the jail's PATH.  Nothing is
+  // blocked by default.  The "guardrails" pack (named in "packs", user
+  // config) blocks recursive grep in favor of rg and find in favor of fd;
+  // the example below spells out the same two rules by hand, plus one of
+  // your own.
   // "security": {
   //   "blocked_tools": [
   //     {
@@ -70,11 +69,10 @@
   //   ".secrets/claude.env"
   // ]
   // Extra tools to install via mise (key: tool name, value: version string).
-  // Default: {"neovim": "stable"} — override in user or workspace config.
+  // No defaults — yolo ships no mise tool of its own. Declare only what you want.
   // "mise_tools": {"neovim": "nightly", "typst": "latest"}
-  // Additional language servers.
-  // Defaults (always present): python (pyright), typescript, go (gopls).
-  // Add new servers or override defaults. Binary must be on PATH (e.g., via mise_tools).
+  // Additional language servers. No defaults — declare each server you want; its binary
+  // must be on PATH (e.g. via mise_tools) or given as an absolute command.
   // "lsp_servers": {
   //   "rust": {
   //     "command": "rust-analyzer",
@@ -86,7 +84,8 @@
   // Enable built-in MCP server presets by name.
   // Available presets: chrome-devtools, sequential-thinking
   // "mcp_presets": ["chrome-devtools", "sequential-thinking"]
-  // Additional custom MCP servers.
+  // Additional custom MCP servers, wired into every selected agent that
+  // supports MCP.
   // Add custom servers or set a preset/inherited server to null to disable it.
   // Binary must be on PATH or absolute.
   // "mcp_servers": {
@@ -118,11 +117,11 @@
   // }
   // Container resource limits.
   // On Apple Container: applied as VM hardware limits (defaults: half host CPUs/RAM).
-  // On Docker/Podman: applied as --cpus/--memory flags (no defaults — inherits VM limits).
+  // On Podman: applied as --cpus/--memory flags (no defaults — inherits VM limits).
   // On Linux: also feeds cgroup delegation for in-container yolo-cglimit.
   // "resources": {
   //   "memory": "8g",            // Max memory (b/k/m/g suffix). OOM-killed if exceeded.
   //   "cpus": 4,                 // CPU limit (decimal). e.g. 4, 2.5, "0.5"
-  //   "pids_limit": 4096         // Max processes (Docker/Podman only). Prevents fork bombs.
+  //   "pids_limit": 4096         // Max processes (podman only). Prevents fork bombs.
   // }
 }
