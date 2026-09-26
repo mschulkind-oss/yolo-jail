@@ -1,7 +1,7 @@
 ---
 title: "The wire bridge as the jail's model gateway: signing, routing by model and by agent, failover, and allowlists"
 date: 2026-09-25
-status: accepted
+status: in-review
 tags: [wire-bridge, bedrock, aws, sigv4, routing, failover, models, allowlist, providers, subscription]
 summary: "What the wire bridge may do once it stands in front of an agent's model traffic. Four parts are ruled and unbuilt: it signs its own AWS requests with SigV4, routes claude's everything profile by model id, offers a sign-only OpenAI chat-completions route, and carries claude's subscription with opt-in per-model failover to Bedrock. A fifth part, ruled 2026-09-25: a profile can send its agent's traffic through the bridge (native pass-through or translated) instead of the agent's own client, so the bridge can enforce the picker's model list (on by default) and route each agent by a per-agent path prefix. Every question is ruled; the signer keys on the upstream address now and on a provider marker once one exists."
 vantage:
@@ -14,7 +14,7 @@ vantage:
 provider, what may it do? It could sign for AWS, choose an upstream per model or per agent,
 fail over when a subscription runs out, or refuse a model that is not on a list.
 
-**Status:** DECIDED, 2026-09-25. Split out of [`bedrock-plumbing.md`](bedrock-plumbing.md) that
+**Status:** DESIGN, 2026-09-25, one ruling owed ([OQ-WG6](#OQ-WG6), found while starting Part 3). Split out of [`bedrock-plumbing.md`](bedrock-plumbing.md) that
 day, carrying its bridge questions with their ids unchanged. **Part 1 (signing) is BUILT,
 2026-09-25** ([§2](#2-part-1--the-bridge-signs-its-own-upstream-requests-ruled)), except the
 region-composed upstream URL. Parts 2–5 are DECIDED and unbuilt; Part 5's four questions were ruled
@@ -27,7 +27,7 @@ has exercised runtime's Anthropic Messages route or the subscription's usage-lim
 
 **Needs your ruling:**
 
-**None.** [OQ-WG1](#OQ-WG1)–[OQ-WG5](#OQ-WG5) are ruled ([Decision Ledger](#decision-ledger)).
+[OQ-WG6](#OQ-WG6): what a profile writes to put its agent on the bridge path; it gates Parts 3 and 5. [OQ-WG1](#OQ-WG1)–[OQ-WG5](#OQ-WG5) are ruled ([Decision Ledger](#decision-ledger)).
 [OQ-WG1](#OQ-WG1) carries a follow-up that waits on [OQ-BR2](providers-and-profiles-redesign.md#OQ-BR2):
 re-key the signer on the provider's Bedrock marker.
 
@@ -561,6 +561,30 @@ Three earlier non-licenses are reopened here by name:
    > both paths at once. A bridged profile either passes the agent's native protocol through or
    > translates it. Every native wire gets a pass-through route, Converse included; the order is
    > [§8](#8-build-order)'s. Folded into [§6](#6-part-5--all-traffic-through-the-bridge-new-direction-design).
+
+6. 💬 <a id="OQ-WG6"></a>**[OQ-WG6](#OQ-WG6): what does a profile write to put its agent on
+   the bridge path?** Found 2026-09-25 while starting Part 3. [OQ-WG2](#OQ-WG2) ruled all-traffic
+   mode a property of the profile, but no schema carries it. The bridge serves a route only when
+   `routeFor` finds a composed provider whose `anthropic` endpoint is the jail's loopback, and
+   that shape exists only because `packload.adaptEndpoints` writes an adapter's address into a
+   protocol the provider does NOT already offer. The sign-only route has OpenAI chat-completions
+   on both sides, so an `openai → openai` adapter can never be composed, and nothing today can
+   say "front this provider's `openai` endpoint with a signing hop". Stakes: Part 3 and Part 5
+   have no selection, so a handler built now would have no production call site.
+   - **(a) A provider marker** (via [OQ-BR9](bedrock-plumbing.md#OQ-BR9)'s Bedrock pack) that
+     `routeFor` reads as "sign-only upstream".
+   - **(b) A profile field**, for example `via: "bridge"`. The agent's derive writes its base URL
+     as the bridge's per-agent path ([OQ-WG4](#OQ-WG4)), and `routeFor` takes the upstream from
+     the provider's own `openai` endpoint.
+
+   _Leaning:_ **(b)**. It is [OQ-WG2](#OQ-WG2) and [OQ-WG4](#OQ-WG4) as already ruled, made
+   concrete, and it needs no new provider vocabulary. (a) would tie selection to the provider
+   redesign ([OQ-BR2](providers-and-profiles-redesign.md#OQ-BR2)) that WG1 was ruled to avoid.
+
+   <!-- vantage: oq id=OQ-WG6 leaning="(b): a profile field (e.g. via: bridge); the derive writes the agent's base URL as the bridge's per-agent path (WG4) and routeFor takes the upstream from the provider's own openai endpoint. It is WG2 and WG4 made concrete and needs no new provider vocabulary." -->
+
+   **Answer:**
+   > _(empty — fill in when decided)_
 
 ### 10.1 Ruled, moved here from bedrock-plumbing
 
