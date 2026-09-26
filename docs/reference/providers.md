@@ -299,8 +299,10 @@ Where each answer lands is the vehicle's:
   `<workspace>/.yolo/home` itself as the home, so there the files are written straight to
   `<workspace>/.yolo/home/.config/yolo-agent-env/`, with the same modes, on every entry. The agent's
   launcher in `~/.yolo/bin/launch` sources its own file immediately before the pre-launch
-  authentication step and the exec (`agentEnvShellFn` in `internal/entrypoint`), and the
-  launch-flag wrapper does the same. An attach rewrites the directory whole, so an agent that
+  authentication step and the exec (`agentEnvShellFn` in `internal/entrypoint`). An agent the
+  image, the store package farm or a declared mise tool provides gets no launcher, so it gets
+  the transparent wrapper instead, with its launch flags if it has any and with none if not,
+  whenever the entry wrote it a file; the wrapper sources the file too. An attach rewrites the directory whole, so an agent that
   lost its profile loses its file. The wire bridge reads a served agent's key from that agent's
   file (`resolveKey` in `internal/wirebridged`).
 - **macos-user.** One command per invocation, so the delivery is **per launch**: the session

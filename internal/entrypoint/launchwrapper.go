@@ -29,9 +29,23 @@ package entrypoint
 // THE RESULT IS TOTAL, AND THAT IS THE POINT: after this pass, every binary any pack
 // declares `launch` flags for has a script in ~/.yolo/bin/launch that injects them. There
 // is no "most packs" left to be partial about.
+//
+// THE SAME WRAPPER CARRIES AN AGENT'S OWN ENV FILE (provider-credential-scope.md, OQ-CN6).
+// The credential gate delivers what it scopes to one agent in ~/.config/yolo-agent-env/<bin>.sh,
+// and only a carrier in the launch dir sources it. An agent the image, the store package
+// farm or a declared mise tool provides gets no installer, and one with no launch flags got
+// no wrapper either, so nothing sourced its file: its provider's credentials, the gated env
+// and the shape vars the shared file used to hand it never arrived, while the launch's
+// disclosure named it as their recipient. So a pack-declared program that has a file of its
+// own this entry, and still no carrier, gets the wrapper with no flags. Only then: a
+// transparent wrapper in front of a baked /bin name that has nothing to carry is exactly the
+// "stand in front of /bin for its own sake" TestTheCollisionCheckStillRefusesTheInstaller
+// forbids, and every entry re-runs this pass after writing its files, so the carrier comes
+// and goes with the file.
 
 import (
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
@@ -93,14 +107,72 @@ func DeliverLaunchFlags(e *Env) error {
 			provider = "no pack installs it"
 		}
 		body := launchWrapper(bin, launchDir, wrapperFallback(e, bin, probePath, miseBins),
-			provider, inj)
+			provider, "pack "+inj.Pack+" declares launch flags for this name; it did not "+
+				"declare the program.", inj)
 		if err := writeExecutable(path, body); err != nil {
 			return err
 		}
 		wrapped = append(wrapped, bin)
 	}
 	discloseLaunchFlagDelivery(e, delivered, wrapped)
+
+	carried, err := deliverEnvCarriers(e, packs, launchDir, probePath, miseBins)
+	if err != nil {
+		return err
+	}
+	discloseEnvCarriers(e, carried)
 	return nil
+}
+
+// deliverEnvCarriers writes the flagless wrapper for every pack-declared program that has an
+// env file of its own this entry (AgentEnvFile) and no carrier after every other generator —
+// the program the image, the store package farm or a declared mise tool provides, which the
+// installer pass leaves alone. It returns the names it wrote, sorted.
+//
+// A name nothing provides (launcherShadows says nothing) is skipped: its installer was
+// declined for another reason (no vendor build here, or another pack claimed the name), and a
+// wrapper would have no program to run.
+func deliverEnvCarriers(e *Env, packs []*packload.Pack, launchDir, probePath string,
+	miseBins map[string]struct{}) ([]string, error) {
+	var carried []string
+	for _, p := range packs {
+		installs, _ := p.HonoredInstalls()
+		for i := range installs {
+			bin := installs[i].Bin
+			if !packdecl.ValidBinName(bin) {
+				continue
+			}
+			path := filepath.Join(launchDir, bin)
+			if pathExists(path) || !pathExists(AgentEnvFile(e.Home, bin)) {
+				continue
+			}
+			provider := launcherShadows(bin, probePath, miseBins)
+			if provider == "" {
+				continue
+			}
+			body := launchWrapper(bin, launchDir, wrapperFallback(e, bin, probePath, miseBins),
+				provider, "pack "+p.Name+" declares this program, and "+provider+
+					"; this wrapper only adds the agent's own environment.",
+				&packload.LaunchInjection{Pack: p.Name})
+			if err := writeExecutable(path, body); err != nil {
+				return nil, err
+			}
+			carried = append(carried, bin)
+		}
+	}
+	sort.Strings(carried)
+	return carried, nil
+}
+
+// discloseEnvCarriers says, once per boot, that these names now run through a wrapper — the
+// half the installer pass's "no launcher for X" line cannot say. Silent when there are none.
+func discloseEnvCarriers(e *Env, carried []string) {
+	if len(carried) == 0 {
+		return
+	}
+	e.warn("  " + strings.Join(carried, ", ") + ": yolo installs nothing for these names — a " +
+		"wrapper in " + e.LaunchDir() + " sources each one's own env file (what this launch " +
+		"scoped to it alone) and runs whatever PATH already provides.")
 }
 
 // wrapperFallback is the absolute path the wrapper falls back to when the PATH it runs
@@ -133,7 +205,10 @@ func wrapperFallback(e *Env, bin, probePath string, mise map[string]struct{}) st
 // launchWrapper renders the wrapper for one binary. Same splice contract as the three
 // launcher templates (see npmLauncherTemplate): every sentinel is a shquote'd literal
 // landing in a bare position.
-func launchWrapper(bin, launchDir, fallback, provider string,
+//
+// note is the one sentence the wrapper prints under its not-found line, saying what the pack
+// declared for the name that nothing in this jail supplies.
+func launchWrapper(bin, launchDir, fallback, provider, note string,
 	inj *packload.LaunchInjection) string {
 	r := strings.NewReplacer(append([]string{
 		"__YOLO_BIN__", shquote.Quote(bin),
@@ -141,6 +216,7 @@ func launchWrapper(bin, launchDir, fallback, provider string,
 		"__YOLO_FALLBACK_BIN__", shquote.Quote(fallback),
 		"__YOLO_PROVIDER__", shquote.Quote(provider),
 		"__YOLO_PACK__", shquote.Quote(inj.Pack),
+		"__YOLO_NOT_FOUND_NOTE__", shquote.Quote(note),
 	}, launchFlagSplices(inj)...)...)
 	return r.Replace(launchWrapperTemplate)
 }
@@ -156,16 +232,18 @@ func launchWrapper(bin, launchDir, fallback, provider string,
 // Resolving by PATH rather than by a baked path is what keeps that true after an install
 // moves the answer.
 const launchWrapperTemplate = `#!/bin/bash
-# Launch-flag WRAPPER (declaration-parity.md §5.6, DP-B44). yolo installs nothing for this
-# name — PROVIDER below says what does. All this script adds is the flags the pack declared,
-# to every invocation, in any shell. Delete-proof by construction: it is regenerated at each
-# boot from the pack manifest.
+# Launch-flag WRAPPER (declaration-parity.md §5.6, DP-B44), and the credential gate's carrier
+# (provider-credential-scope.md, OQ-CN6). yolo installs nothing for this name — PROVIDER below
+# says what does. All this script adds, to every invocation in any shell, is what a pack
+# declared for the name: its launch flags when there are any, and this agent's own env file.
+# Delete-proof by construction: it is regenerated at each boot from the pack manifest.
 set -euo pipefail
 BIN=__YOLO_BIN__
 LAUNCH_DIR=__YOLO_LAUNCH_DIR__
 FALLBACK_BIN=__YOLO_FALLBACK_BIN__
 PROVIDER=__YOLO_PROVIDER__
 PACK=__YOLO_PACK__
+NOT_FOUND_NOTE=__YOLO_NOT_FOUND_NOTE__
 HAS_LAUNCH_FLAGS=__YOLO_HAS_LAUNCH_FLAGS__
 LAUNCH_FLAGS=(__YOLO_LAUNCH_FLAGS__)
 ` + launchFlagsShellFn + `
@@ -213,10 +291,10 @@ _resolve() {
 REAL_BIN=$(_resolve) || REAL_BIN=""
 if [ -z "$REAL_BIN" ]; then
     # 127 is the shell's own "command not found", which is what this is: the wrapper adds
-    # flags to a program it does not provide, and pack $PACK declared those flags for a name
-    # nothing in this jail supplies.
+    # to a program it does not provide, and pack $PACK declared something for a name nothing
+    # in this jail supplies.
     echo "  ⚠ $BIN: not found on PATH, and yolo installs nothing for it — $PROVIDER." >&2
-    echo "    (pack $PACK declares launch flags for this name; it did not declare the program.)" >&2
+    echo "    ($NOT_FOUND_NOTE)" >&2
     exit 127
 fi
 

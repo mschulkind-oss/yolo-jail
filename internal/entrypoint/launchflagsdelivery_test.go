@@ -157,7 +157,9 @@ func TestAShadowedNameGetsAWrapperAndNOTAnInstaller(t *testing.T) {
 
 // TestTheCollisionCheckStillRefusesTheInstaller is the guard on the guard: adding the
 // wrapper must not have relaxed launcherShadows, whose whole job is that a lazy INSTALLER
-// never shadows a baked binary. A flagless shadowed name still gets nothing at all.
+// never shadows a baked binary. A flagless shadowed name still gets nothing at all — unless
+// the credential gate wrote it an env file this entry, which only an agent a profile selects
+// has (TestAShadowedAgentWithoutLaunchFlagsStillSourcesItsOwnFile).
 func TestTheCollisionCheckStillRefusesTheInstaller(t *testing.T) {
 	home := t.TempDir()
 	e := NewEnv(map[string]string{

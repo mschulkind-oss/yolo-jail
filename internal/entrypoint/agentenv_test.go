@@ -2,14 +2,16 @@ package entrypoint
 
 // agentenv_test.go pins the JAIL HALF of the per-agent env file
 // (docs/design/provider-credential-scope.md, OQ-CN6): every carrier a bare agent name can
-// resolve to in ~/.yolo/bin/launch — the npm launcher, the native launcher and the launch-flag
-// wrapper — sources $HOME/.config/yolo-agent-env/<bin>.sh before it hands over to the
+// resolve to in ~/.yolo/bin/launch — the npm launcher, the native launcher and the wrapper,
+// with launch flags or, for an agent the image provides, with none — sources
+// $HOME/.config/yolo-agent-env/<bin>.sh before it hands over to the
 // program, and only its own. Each cell RUNS the generated script against a fake program that
 // reports what it received, so deleting the splice from a template fails here rather than in a
 // jail. No real agent runs.
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -85,9 +87,10 @@ func TestTheInstallerLaunchersSourceTheAgentsOwnEnvFile(t *testing.T) {
 	}
 }
 
-// The launch-flag wrapper — the carrier a bare name resolves to when the image or a mise
+// The launch-flag wrapper — one carrier a bare name resolves to when the image or a mise
 // tool provides the program — sources the file too, so an agent whose launcher collision
-// check wrote no installer still receives what the gate scoped to it.
+// check wrote no installer still receives what the gate scoped to it. The flagless case is
+// TestAShadowedAgentWithoutLaunchFlagsStillSourcesItsOwnFile.
 func TestTheLaunchWrapperSourcesTheAgentsOwnEnvFile(t *testing.T) {
 	home := t.TempDir()
 	e := NewEnv(map[string]string{
@@ -108,6 +111,63 @@ func TestTheLaunchWrapperSourcesTheAgentsOwnEnvFile(t *testing.T) {
 	}
 	if got := strings.Join(logLines(t, logPath), " "); got != "SCOPED=wrapped-own OTHER=" {
 		t.Errorf("the wrapper handed its program %q, want its own env file's value\n%s", got, out)
+	}
+}
+
+// AN AGENT THE IMAGE PROVIDES STILL RECEIVES ITS FILE. pi and opencode declare no launch
+// flags, so when the image (or the store farm, or a declared mise tool) provides them the
+// installer pass writes no launcher and the flag pass no wrapper — and nothing sourced
+// ~/.config/yolo-agent-env/<bin>.sh, so the agent that selected a profile started without the
+// credentials the gate scoped to it, which the shared file used to hand it. Over the SHIPPED
+// packs, through all three launch-dir generators, the bare name must resolve to a carrier
+// that sources the agent's own file and runs the image's program.
+func TestAShadowedAgentWithoutLaunchFlagsStillSourcesItsOwnFile(t *testing.T) {
+	if _, err := exec.LookPath("bash"); err != nil {
+		t.Skip("bash not found")
+	}
+	image := t.TempDir()
+	orig := imageProbeBase
+	imageProbeBase = image
+	t.Cleanup(func() { imageProbeBase = orig })
+	home := t.TempDir()
+	e := NewEnv(map[string]string{"JAIL_HOME": home, "YOLO_PACK_ROOT": stageShippedPacks(t)})
+	for _, agent := range []string{"pi", "opencode"} {
+		envReporter(t, filepath.Join(image, agent), filepath.Join(home, agent+".log"))
+	}
+
+	// An entry that scoped something to pi alone: pi gets a carrier, and opencode — provided
+	// by the image too, with nothing of its own — gets nothing standing in front of it.
+	writeAgentEnvFile(t, home, "pi", "export SCOPED='pi-own'\n")
+	runLaunchDirPasses(t, e)
+	if _, err := os.Stat(filepath.Join(e.LaunchDir(), "opencode")); !os.IsNotExist(err) {
+		t.Errorf("opencode has no env file this entry, so no wrapper may stand in front of the "+
+			"image's copy (err=%v)", err)
+	}
+
+	// The next entry scopes something to opencode too; the boot re-runs the pass.
+	writeAgentEnvFile(t, home, "opencode", "export SCOPED='opencode-own'\n")
+	runLaunchDirPasses(t, e)
+	path := strings.Join([]string{e.LaunchDir(), image, "/usr/bin", "/bin"}, ":")
+	for _, agent := range []string{"pi", "opencode"} {
+		carrier := filepath.Join(e.LaunchDir(), agent)
+		body, err := os.ReadFile(carrier)
+		if err != nil {
+			t.Errorf("%s: the image provides it and it has an env file, but the launch dir has "+
+				"no carrier, so nothing sources its file: %v", agent, err)
+			continue
+		}
+		for _, forbidden := range []string{"npm install", "_do_install"} {
+			if strings.Contains(string(body), forbidden) {
+				t.Errorf("%s: the carrier for an image-provided agent must install nothing (%q)", agent, forbidden)
+			}
+		}
+		out, rc := runScript(t, carrier, nil, []string{"HOME=" + home, "PATH=" + path})
+		if rc != 0 {
+			t.Fatalf("%s's carrier exited %d:\n%s", agent, rc, out)
+		}
+		if got := strings.Join(logLines(t, filepath.Join(home, agent+".log")), " "); got != "SCOPED="+agent+"-own OTHER=" {
+			t.Errorf("%s ran with %q, want its own file's value\n%s", agent, got, out)
+		}
 	}
 }
 

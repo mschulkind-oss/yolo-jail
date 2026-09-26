@@ -169,7 +169,7 @@ func TestLauncherTemplatesParseWithHostileValues(t *testing.T) {
 	// The wrapper is the fourth carrier and obeys the same contract; its own two values
 	// (the dir it must skip and the fallback it may exec) are paths derived from $HOME,
 	// which a hostile workspace name reaches.
-	assertParses(t, launchWrapper(v, v, v, v, inj), "launch-flag wrapper")
+	assertParses(t, launchWrapper(v, v, v, v, v, inj), "launch-flag wrapper")
 
 	// The package-manager launcher takes no per-pack input at all: its bin and package are
 	// a hardcoded list, so the only value that can be hostile is the stamp dir, which is
@@ -619,7 +619,7 @@ func TestTheWrapperPassesAHostileFlagAsDATA(t *testing.T) {
 	if err := os.MkdirAll(launchDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	body := launchWrapper("wrapped", launchDir, "", "a test", inj)
+	body := launchWrapper("wrapped", launchDir, "", "a test", "a note", inj)
 	script := filepath.Join(launchDir, "wrapped")
 	if err := os.WriteFile(script, []byte(body), 0o755); err != nil {
 		t.Fatal(err)
