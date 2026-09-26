@@ -200,8 +200,9 @@ func gitCommit(root string) string {
 }
 
 // compileBinaries cross-compiles every host binary for one platform and returns
-// script-name -> bytes. The ldflags set is copied verbatim from the Python
-// builder so the embedded binaries stay byte-identical (no -trimpath added).
+// script-name -> bytes. The ldflags set is the retired Python builder's, kept
+// when the wheels were checked byte for byte against it: no -trimpath, unlike
+// scripts/build-go.sh and the flake's hermetic build.
 func compileBinaries(version, goos, goarch, goBinary, commit, tmpDir, root string) (map[string][]byte, error) {
 	ldflags := "-s -w -X " + versionPkg + ".buildVersion=" + version
 	if commit != "" {
@@ -288,8 +289,8 @@ func generateMetadata(version, readme string) string {
 	return strings.Join(lines, "\n") + "\n"
 }
 
-// generateWheelMetadata renders dist-info/WHEEL. The Generator line is kept
-// verbatim from the Python builder so the byte-diff validation passes.
+// generateWheelMetadata renders dist-info/WHEEL. The Generator line is the
+// retired Python builder's, verbatim.
 func generateWheelMetadata(platformTag string) string {
 	return "Wheel-Version: 1.0\n" +
 		"Generator: yolo-jail build_wheels (go-to-wheel-derived)\n" +
