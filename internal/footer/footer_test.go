@@ -225,6 +225,43 @@ func TestRenderTemplate(t *testing.T) {
 	}
 }
 
+// TestRenderOptionalPrefix pins the `{prefix|field}` form: the text before the last `|` is
+// printed only when the field has a value, so an optional field never leaves its separator
+// behind. It is how claude's footer puts the session's effort level next to the model.
+func TestRenderOptionalPrefix(t *testing.T) {
+	t.Setenv("YOLO_VERSION", "x")
+	e := env(map[string]string{"YOLO_USE_PROFILES": `{"claude": "bedrock"}`,
+		"YOLO_PROFILES": profilesTable, "YOLO_PROVIDERS": providersTable})
+	withEffort := map[string]any{"model": map[string]any{"display_name": "Opus"}, "effort": map[string]any{"level": "high"}}
+	noEffort := map[string]any{"model": map[string]any{"display_name": "Opus"}}
+	const tmpl = "{stdin.model.display_name}{ · |stdin.effort.level} · yolo: {yolo.billing}"
+	cases := []struct {
+		name string
+		tmpl string
+		doc  any
+		want string
+	}{
+		{"present", tmpl, withEffort, "Opus · high · yolo: Bedrock"},
+		{"absent", tmpl, noEffort, "Opus · yolo: Bedrock"},
+		{"no stdin at all", tmpl, nil, "· yolo: Bedrock"},
+		{"the prefix keeps its own spaces", "[{  -  |stdin.effort.level}]", withEffort, "[  -  high]"},
+		{"only the last bar splits", "[{a|b|stdin.effort.level}]", withEffort, "[a|bhigh]"},
+		{"an empty prefix is a plain optional field", "[{|stdin.effort.level}]", withEffort, "[high]"},
+		{"a yolo fact takes a prefix too", "[{at |yolo.notch}]", noEffort, "[at jail]"},
+		{"an empty field name prints nothing", "[{x|}]", withEffort, "[]"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			o := claudeOpts()
+			o.Template = c.tmpl
+			doc := c.doc
+			if got := Render(o, e, func() any { return doc }); got != c.want {
+				t.Errorf("Render(%q) = %q, want %q", c.tmpl, got, c.want)
+			}
+		})
+	}
+}
+
 // TestRenderNeverShowsABraceField pins "a literal {…} never reaches the screen" over
 // templates built to leave one behind.
 func TestRenderNeverShowsABraceField(t *testing.T) {

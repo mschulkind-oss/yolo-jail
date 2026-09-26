@@ -33,7 +33,8 @@
 //	--words ID=WORDS     the plain words for a provider id; repeatable
 //	--bridged NAME       a profile name or provider id this agent reaches through the wire
 //	                     bridge; repeatable
-//	--template TEXT      the line; `{yolo.billing}`, `{yolo.notch}`, `{stdin.a.b}`
+//	--template TEXT      the line; `{yolo.billing}`, `{yolo.notch}`, `{stdin.a.b}`, and
+//	                     `{prefix|name}`, which prints prefix only when name has a value
 //
 // # What it never does
 //
@@ -257,7 +258,8 @@ func (o Options) words(id string) string {
 //
 // A placeholder is `{name}`: `yolo.billing` and `yolo.notch` are this package's facts, and
 // `stdin.<path>` is a dotted path into the agent's JSON (an all-digit segment indexes an
-// array). A missing field, an unknown name, an object or an array renders empty. An
+// array). A missing field, an unknown name, an object or an array renders empty.
+// `{prefix|name}` prints prefix before the value only when there is one (placeholder). An
 // unclosed `{` is dropped, so no literal `{…}` reaches the screen. Every substituted value
 // loses its control characters, and the whole line its line breaks, so neither the agent's
 // data nor a template can split the footer or smuggle a terminal escape through a value.
@@ -300,11 +302,29 @@ func Render(o Options, getenv func(string) string, stdin func() any) string {
 			t = rest
 			continue
 		}
-		b.WriteString(clean(field(strings.TrimSpace(rest[:end]))))
+		b.WriteString(placeholder(rest[:end], field))
 		t = rest[end+1:]
 	}
 	line := strings.NewReplacer("\r\n", " ", "\n", " ", "\r", " ").Replace(b.String())
 	return strings.TrimSpace(line)
+}
+
+// placeholder renders the text between one `{` and its `}`. `{name}` is the field's value;
+// `{prefix|name}` is prefix then the value, and NOTHING when the value is empty, so an
+// optional field never leaves its separator behind ("Opus · high", or just "Opus"). The
+// split is at the last `|`, and the prefix keeps its own spaces. A renderer older than this
+// form reads the whole text as an unknown name and renders it empty, so a command frozen
+// into a file (§3) loses the optional field rather than showing a literal.
+func placeholder(raw string, field func(string) string) string {
+	prefix, name := "", raw
+	if i := strings.LastIndexByte(raw, '|'); i >= 0 {
+		prefix, name = raw[:i], raw[i+1:]
+	}
+	value := clean(field(strings.TrimSpace(name)))
+	if value == "" {
+		return ""
+	}
+	return prefix + value
 }
 
 // lookup walks a dotted path into decoded JSON and renders a scalar leaf.

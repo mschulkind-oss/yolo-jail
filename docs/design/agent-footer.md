@@ -148,6 +148,29 @@ Degenerate inputs:
 - A profile naming an unknown provider renders the profile name alone.
 - The renderer never exits non-zero, never writes to stderr, and never prints a credential value.
 
+### 1.3 The thinking level, next to the model
+
+Added 2026-09-25 at the maintainer's request (*"add the thinking level next to the model display in our custom
+footer"*). One format everywhere yolo draws it: `Model · level`, the agent's own words for the level (`Opus ·
+high`), and nothing at all when the agent reports none, never a guess. The value is the LIVE session's wherever the
+agent exposes one, so a mid-session change shows.
+
+Only claude's footer is one yolo draws the model in, because its `statusLine` replaces Claude's own line; every other
+agent keeps its stock footer, which already names the model, and in each of those the stock footer already shows
+the level beside it. So yolo adds the level to claude alone and repeats nothing:
+
+| Agent | Where the level is | What yolo does |
+|---|---|---|
+| claude | the status-line JSON's `effort.level`, the live, effective level, present only for a model that supports effort (2.1.283 strings: `...OS(model)&&{effort:{level:…}}` beside `thinking:{enabled:…}`) | `{ · \|stdin.effort.level}` after the model. A model without effort shows the model alone; the `thinking.enabled` boolean is not shown |
+| pi | pi's stock footer: `model • level`, or `model • thinking off` (`dist/modes/interactive/components/footer.js`, 0.87.1) | nothing; it is already next to the model |
+| omp | the stock status line's `model` segment appends the level (`showThinkingLevel`, on in the default presets; `status-line/segments.ts` at upstream `8b619a2f`) | nothing |
+| opencode | the prompt row shows `· <variant>` after the model when a variant is selected (1.18.32 binary) | nothing |
+| copilot | its footer's `showModelEffort` (1.0.48 `app.js`) | nothing |
+| agy | agy's own line, which stays above yolo's ([`OQ-FT12`](#OQ-FT12)); whether agy's status-line JSON carries a level was not established from the binary, and agy is never run to find out | nothing |
+
+A command already frozen into a user's Claude `settings.json` ([§3](#3-how-a-users-own-footer-survives)) keeps its old template, and so keeps showing the
+model alone; a fresh file gets the new one.
+
 ## 2. One renderer, one adapter per agent
 
 **Rendering lives in one hidden core subcommand, not in per-agent scripts.** A script goes blank when a guardrails
@@ -157,6 +180,8 @@ takes the agent's name, switches and plain words as arguments, so core keeps no 
 and, optionally, the agent's JSON on stdin, and prints one line from a template the pack passes, so core never
 learns an agent's stdin schema. A template names yolo facts (`{yolo.billing}`, `{yolo.notch}`) and JSON paths into
 stdin (`{stdin.model.display_name}`); a missing field renders empty, and a literal `{…}` never reaches the screen.
+`{prefix|name}` prints prefix before the value only when there is one, so an optional field never leaves its
+separator behind; a renderer older than that form reads it as an unknown name and prints nothing.
 In a jail it reads no file and makes no network call. At the host it reads your user config, and, when that selects
 any profile, the packs it selects ([OQ-FT6](#OQ-FT6)). A run costs a median 2.2 ms in a jail and 4.8 ms at
 the host when it composes a profile (MEASURED, [§2.1](#21-as-built)).
@@ -201,7 +226,8 @@ Built 2026-09-25, and not yet seen under a live agent: a human confirms build it
   `Amazon Bedrock (Mantle)` is `Bedrock Mantle`, keeping a parenthesis out of a segment that uses them for `(env)`,
   and `Google Vertex AI` is `Vertex AI`. `openai-codex`, `cerebras` and `kilo` are marked bridged: claude speaks
   only `anthropic`, and none of the three declares an `anthropic` endpoint of its own, so claude reaches each at the
-  wire bridge's address. Template: `{stdin.model.display_name} · yolo: {yolo.billing} · {yolo.notch}`.
+  wire bridge's address. Template: `{stdin.model.display_name}{ · |stdin.effort.level} · yolo: {yolo.billing} ·
+  {yolo.notch}`, so the session's effort level sits next to the model ([§1.3](#13-the-thinking-level-next-to-the-model)).
 - **agy**: login `Google AI subscription`, template `yolo: {yolo.billing} · {yolo.notch}` (agy's own line, which
   stays, already names the model), and `stack_with_default: true`.
 - **copilot**: login `Copilot subscription`, and the same three routes marked bridged, since copilot prefers an

@@ -201,6 +201,27 @@ func TestClaudeAdapter(t *testing.T) {
 	}
 }
 
+// TestClaudeAdapterShowsTheEffortLevel: claude's footer is the one yolo draws the model in,
+// so the session's effort level sits next to it. Claude 2.1.283 pipes the LIVE level as
+// `effort.level` (only for a model that supports effort), so a mid-session change shows on
+// the next refresh; with no such field the line is exactly the model alone.
+func TestClaudeAdapterShowsTheEffortLevel(t *testing.T) {
+	command, _ := statusLineDefault(t, surfaceOf(t, packNamed(t, shippedPacks(t), "claude"), "claude", "settings"))["command"].(string)
+	env := with(bedrockTables("claude"), "YOLO_VERSION", "0.10.0")
+	const withEffort = `{"model": {"id": "claude-opus-4", "display_name": "Opus"}, "effort": {"level": "high"}, "thinking": {"enabled": true}}`
+	cases := []struct{ name, stdin, want string }{
+		{"a model with an effort level", withEffort, "Opus · high · yolo: Bedrock · jail"},
+		{"a model without one", claudeStatus, "Opus · yolo: Bedrock · jail"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := runStatusCommand(t, command, t.TempDir(), c.stdin, env); got != c.want {
+				t.Errorf("claude footer = %q, want %q", got, c.want)
+			}
+		})
+	}
+}
+
 // TestAgyAdapter is build step 3's agy half: yolo's line stacks with agy's own
 // (stack_with_default, OQ-FT12), and repeats nothing agy's line already shows.
 func TestAgyAdapter(t *testing.T) {
