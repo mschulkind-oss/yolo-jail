@@ -8,7 +8,7 @@ summary: "Adding an openai-responses endpoint to the openai-codex provider allow
 
 # Why a bridge endpoint shadowed Pi's Codex provider — and how ambient keys took over
 
-**Status:** DECIDED, 2026-09-26. [OQ-1](#OQ-1) and [OQ-2](#OQ-2) ruled as leaned; nothing built yet. Evidence verified at `c5bab09b`.
+**Status:** BUILT, 2026-09-26, at `c9982bce` (pi) and `d079ac31` (omp); codex already excluded `openai-codex`. Measured through the boot render only, by the catalog tests; no live pi or omp has run it. Evidence verified at `c5bab09b`.
 
 > **In short.** A pack-level endpoint added for wire-bridge adaptation caused Pi's derive
 > to generate a `models.json` entry for `openai-codex`, overriding Pi's built-in subscription
@@ -375,7 +375,7 @@ or masked to prevent tools or subagents from inadvertently picking them up.
    > changes until another subscription provider exists."* `packs/pi/derive.lua` skips `openai-
    > codex` when it builds `models.json`, exactly as `packs/codex/derive.lua` does. A provider-
    > level flag waits until a second subscription provider exists (it is the same question as [OQ-
-   > BR2](providers-and-profiles-redesign.md#OQ-BR2)'s marker). Unbuilt.
+   > BR2](providers-and-profiles-redesign.md#OQ-BR2)'s marker). Built in `c9982bce`.
 
 2. ✅ <a id="OQ-2"></a>**OQ-2: Packaging of inter-agent adaptation endpoints.** Does `packs/openai-auth` legitimately
    own `endpoints["openai-responses"]` on `openai-codex`, or should inter-agent adapter targets
@@ -391,7 +391,11 @@ or masked to prevent tools or subagents from inadvertently picking them up.
    > **Keep the endpoint on `openai-codex` in `packs/openai-auth`, and establish the rule**, ruled
    > in review 2026-09-26: *an agent never derives catalog entries from providers it natively
    > implements.* The declaration is true and stays; the defect was a derive cataloging a provider
-   > its agent already implements. Every agent derive is checked against the rule. Unbuilt.
+   > its agent already implements. The rule is P1's: it covers a *subscription* provider the agent
+   > implements with its own client and login, not a vendor the agent also knows by the same key
+   > name. Every agent derive was checked against it: omp had the same defect, fixed in `d079ac31`
+   > (omp applies a `models.yml` row's `baseUrl` to its built-in provider of that name); claude,
+   > copilot, agy and opencode catalog nothing that shadows a native subscription client.
 
 ---
 
@@ -399,5 +403,5 @@ or masked to prevent tools or subagents from inadvertently picking them up.
 
 | ID | Ruling / Decision | Date | Settled in | Built |
 | :--- | :--- | :--- | :--- | :--- |
-| OQ-1 | **Exclude `openai-codex` from pi's catalog by name**, matching `packs/codex/derive.lua`; a provider flag waits for a second subscription provider ([OQ-BR2](providers-and-profiles-redesign.md#OQ-BR2)'s marker) | 2026-09-26 | [OQ-1](#OQ-1) | — |
-| OQ-2 | **Keep the `openai-responses` endpoint on `openai-codex`**, and the rule: an agent never derives catalog entries from a provider it natively implements | 2026-09-26 | [OQ-2](#OQ-2) | — |
+| OQ-1 | **Exclude `openai-codex` from pi's catalog by name**, matching `packs/codex/derive.lua`; a provider flag waits for a second subscription provider ([OQ-BR2](providers-and-profiles-redesign.md#OQ-BR2)'s marker) | 2026-09-26 | [OQ-1](#OQ-1) | yes, 2026-09-26 (`c9982bce`) |
+| OQ-2 | **Keep the `openai-responses` endpoint on `openai-codex`**, and the rule: an agent never derives catalog entries from a subscription provider it natively implements ([P1](#1-verdict-and-core-principles)) | 2026-09-26 | [OQ-2](#OQ-2) | yes, 2026-09-26 (omp `d079ac31`; the other derives needed nothing) |
