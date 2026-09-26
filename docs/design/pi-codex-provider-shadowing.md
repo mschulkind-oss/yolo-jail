@@ -1,14 +1,14 @@
 ---
 title: "Why a bridge endpoint shadowed Pi's Codex provider — and how ambient keys took over"
 date: 2026-09-25
-status: in-review
+status: accepted
 tags: [providers, codex, pi, openai-auth, shadowing, credentials]
 summary: "Adding an openai-responses endpoint to the openai-codex provider allowed wire-bridge to route to ChatGPT, but caused Pi's derive to shadow its built-in subscription provider with a third-party models.json row. When Pi treated openai-codex as a generic OpenAI platform endpoint, it picked up the workspace's ambient OPENAI_API_KEY, resulting in 401 errors against the Codex backend."
 ---
 
 # Why a bridge endpoint shadowed Pi's Codex provider — and how ambient keys took over
 
-**Status:** DESIGN, 2026-09-25. Nothing built. Evidence verified at `c5bab09b`.
+**Status:** DECIDED, 2026-09-26. [OQ-1](#OQ-1) and [OQ-2](#OQ-2) ruled as leaned; nothing built yet. Evidence verified at `c5bab09b`.
 
 > **In short.** A pack-level endpoint added for wire-bridge adaptation caused Pi's derive
 > to generate a `models.json` entry for `openai-codex`, overriding Pi's built-in subscription
@@ -29,7 +29,7 @@ the boundary between subscription OAuth tokens and ambient platform API keys.
 
 **Start at [§3](#3-the-mechanism-of-shadowing-how-modelsjson-overrode-pis-native-client)** — how the shadow happened. The rest falls out of it.
 
-**Needs your ruling:** [OQ-1](#OQ-1), [OQ-2](#OQ-2).
+**Needs your ruling:** none. [OQ-1](#OQ-1) (exclude by name) and [OQ-2](#OQ-2) (keep the endpoint; never catalog a natively implemented provider) are ruled.
 
 **Reads with:** [`pi-codex-provider-shadowing-plan.md`](pi-codex-provider-shadowing-plan.md) (the companion sketch — incomplete while questions are open),
 [`provider-credential-scope.md`](provider-credential-scope.md) (the ambient environment delivery boundary),
@@ -359,12 +359,11 @@ or masked to prevent tools or subagents from inadvertently picking them up.
 
 ## 9. Open Questions
 
-1. 💬 **OQ-1: Distinguishing first-party subscription providers in agent derives.** Should
+1. ✅ <a id="OQ-1"></a>**OQ-1: Distinguishing first-party subscription providers in agent derives.** Should
    `packs/pi/derive.lua` exclude `openai-codex` by bare name (matching `packs/codex/derive.lua`),
    or should `kind: "provider"` declare an explicit capability/flag (such as `is_subscription`
    or `native`) that all derives inspect?
 
-   <!-- vantage: oq id=OQ-1 leaning="Name exclusion for v1 to match Codex CLI, deferring schema changes until another subscription provider exists." -->
 
    _Leaning:_ Name exclusion (`name ~= "openai-codex"`) in `packs/pi/derive.lua` for v1. Codex CLI
    already uses this exact check (`if name ~= "openai-codex"` in `packs/codex/derive.lua:139`). Adding
@@ -372,13 +371,16 @@ or masked to prevent tools or subagents from inadvertently picking them up.
    `openai-codex` is already recognized across core as the sole subscription provider.
 
    **Answer:**
-   > _(empty — fill in when decided)_
+   > **Name exclusion for v1**, ruled in review 2026-09-26: *"to match Codex CLI, deferring schema
+   > changes until another subscription provider exists."* `packs/pi/derive.lua` skips `openai-
+   > codex` when it builds `models.json`, exactly as `packs/codex/derive.lua` does. A provider-
+   > level flag waits until a second subscription provider exists (it is the same question as [OQ-
+   > BR2](providers-and-profiles-redesign.md#OQ-BR2)'s marker). Unbuilt.
 
-2. 💬 **OQ-2: Packaging of inter-agent adaptation endpoints.** Does `packs/openai-auth` legitimately
+2. ✅ <a id="OQ-2"></a>**OQ-2: Packaging of inter-agent adaptation endpoints.** Does `packs/openai-auth` legitimately
    own `endpoints["openai-responses"]` on `openai-codex`, or should inter-agent adapter targets
    be declared in a separate namespace or contribution that catalog derives ignore?
 
-   <!-- vantage: oq id=OQ-2 leaning="Keep the endpoint on openai-codex in packs/openai-auth, but establish the rule that an agent never derives catalog entries from providers it natively implements." -->
 
    _Leaning:_ Keep the endpoint on `openai-codex` in `packs/openai-auth`. The endpoint declaration
    is factually true: ChatGPT's backend does expose an `openai-responses` wire API at that URL. The
@@ -386,7 +388,10 @@ or masked to prevent tools or subagents from inadvertently picking them up.
    endpoint must be cataloged in `models.json`, even for providers Pi implements natively.
 
    **Answer:**
-   > _(empty — fill in when decided)_
+   > **Keep the endpoint on `openai-codex` in `packs/openai-auth`, and establish the rule**, ruled
+   > in review 2026-09-26: *an agent never derives catalog entries from providers it natively
+   > implements.* The declaration is true and stays; the defect was a derive cataloging a provider
+   > its agent already implements. Every agent derive is checked against the rule. Unbuilt.
 
 ---
 
@@ -394,3 +399,5 @@ or masked to prevent tools or subagents from inadvertently picking them up.
 
 | ID | Ruling / Decision | Date | Settled in | Built |
 | :--- | :--- | :--- | :--- | :--- |
+| OQ-1 | **Exclude `openai-codex` from pi's catalog by name**, matching `packs/codex/derive.lua`; a provider flag waits for a second subscription provider ([OQ-BR2](providers-and-profiles-redesign.md#OQ-BR2)'s marker) | 2026-09-26 | [OQ-1](#OQ-1) | — |
+| OQ-2 | **Keep the `openai-responses` endpoint on `openai-codex`**, and the rule: an agent never derives catalog entries from a provider it natively implements | 2026-09-26 | [OQ-2](#OQ-2) | — |
