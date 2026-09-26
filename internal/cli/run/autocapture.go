@@ -15,21 +15,23 @@ package run
 // # Container backends only, and that is structural rather than a guard
 //
 // The call site is BELOW the macos-user arm's return in Run, so this file cannot run for
-// that backend. Two independent reasons, either of which alone would be enough:
+// that backend. The reason:
 //
 //   - NOTHING ON macos-user CAN MATERIALIZE A CAPTURE. entrypoint.CapturesDirEnv is
 //     emitted by capturesArgs (the podman/Apple-Container argv) and by nothing else, so
 //     a native launcher there bakes an empty CAPTURES_DIR and `_try_materialize` returns 1
 //     on its first line. An auto-capture would pay a full installer download to file an
-//     entry no launcher on that backend could ever read.
-//   - THE REWRITE IS NOT BUILT. A macos-user capture stages on neutral ground
-//     (/Users/Shared/yolo-captures/<bin>/home), so its Manifest.Home is never the
-//     /Users/_yolojail a materialize would target, and slice 6's relocation contract
-//     REFUSES a destination that is not Manifest.Home until hand-off H2 lands
-//     (docs/plans/install-capture.md slice 6, H2).
+//     entry no launcher on that backend could ever read (docs/plans/install-capture.md
+//     hand-off H4).
+//
+// There used to be a second reason: a macos-user capture stages on neutral ground
+// (/Users/Shared/yolo-captures/<bin>/home), so its Manifest.Home is never the
+// /Users/_yolojail a materialize would target, and the relocation contract refused every
+// such destination. Hand-off H2, the rewrite, landed 2026-09-26 (internal/capture/rewrite.go),
+// so a relocatable capture now materializes into another home. What remains is H4 above.
 //
 // `yolo capture <bin>` stays available on that backend and is the right way to exercise
-// it — an explicit act, by a human who knows both facts.
+// it — an explicit act, by a human who knows that fact.
 
 import (
 	goruntime "runtime" // stdlib; this package's `runtime` is yolo's own (run.go)

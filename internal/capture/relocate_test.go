@@ -17,8 +17,8 @@ import (
 // because there is no way to force a 64 KiB boundary from a fixture installer without writing a
 // file whose only purpose is to be that boundary anyway.
 //
-// What is NOT measured here: the REWRITE. Materialize is slice 4's, and nothing in this package
-// substitutes a prefix into anything. These tests pin what a rewrite will be handed.
+// What is NOT measured here: the REWRITE, which consumes what these tests pin. That is
+// rewrite_test.go (install-capture.md hand-off H2).
 
 // relocInstaller writes the four shapes that decide a capture's relocatability, plus one that
 // must not be reported.

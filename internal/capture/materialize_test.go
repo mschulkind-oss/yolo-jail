@@ -330,12 +330,11 @@ func forceChain(t *testing.T, rl func(string, string, fs.FileMode) error, hl fun
 	return func() { reflinkOne, hardlinkOne = oldR, oldH }
 }
 
-// An entry captured under ANOTHER HOME is refused, and the refusal says which of the two
-// refusals it is — "not relocatable, because X" or "the rewrite is not built yet".
+// An entry captured under ANOTHER HOME whose record says it may not move is refused (clause two
+// of Manifest.Relocatable's contract), naming both homes and writing nothing.
 //
 // Unreachable on the container backends (capture home and materialize home are both
-// /home/agent) and the whole of macos-user's problem, so this is the guard that keeps a
-// not-yet-built rewrite from being skipped rather than a feature.
+// /home/agent). The relocatable half — clause three, the rewrite — is rewrite_test.go's.
 func TestMaterializeRefusesAnEntryCapturedUnderAnotherHome(t *testing.T) {
 	home := t.TempDir()
 	_, entry := entryFixture(t, "/some/other/home", Platform(), []AbsoluteRef{{

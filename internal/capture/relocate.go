@@ -1,6 +1,7 @@
 // relocate.go is the RECORDING half of relocation: finding every absolute reference to the
 // capture-time HOME that a later materialize would have to rewrite, and deciding whether the
-// entry may be materialized into a different home at all.
+// entry may be materialized into a different home at all. rewrite.go is the half that consumes
+// the record.
 //
 // # Why this exists, and only for one backend
 //

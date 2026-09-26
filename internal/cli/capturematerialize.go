@@ -151,6 +151,14 @@ func materializeCapture(a materializeArgs, errw io.Writer) int {
 	}
 	fmt.Fprintf(errw, "  Materialized %s from capture %s by %s (%d files, %s)\n",
 		a.bin, entry.Key, res.Mechanism(), res.Files, humanBytes(res.Bytes))
+	// A RELOCATED materialize says so, and names both homes. The files it rewrote are this
+	// home's own bytes rather than the store's, and a program that misbehaves after a move
+	// is one whose first suspect is the rewrite, so the line that would send a reader there
+	// has to exist.
+	if res.RelocatedFrom != "" {
+		fmt.Fprintf(errw, "  (captured under %s: rewrote %d links and %d files to name %s)\n",
+			res.RelocatedFrom, res.RewrittenLinks, res.Rewritten, a.home)
+	}
 	return 0
 }
 

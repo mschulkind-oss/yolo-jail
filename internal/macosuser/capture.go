@@ -49,10 +49,13 @@ package macosuser
 // kernel" — true when written, then stale in two stages (the session profile was measured
 // 2026-09-10 by docs/plans/runbooks/macos-user-manual-checks.md item 2).
 //
-// STILL NOT MEASURED: the MATERIALIZE half, which cannot run until install-capture.md hand-off H2
-// lands (internal/cli/run/autocapture.go), and podman-in-podman cannot exercise this backend at
-// all, so no nested jail will ever cover any of it. The hardware checklist is in
-// install-capture.md's slice 6 section.
+// STILL NOT MEASURED: the MATERIALIZE half. Its rewrite (install-capture.md hand-off H2,
+// internal/capture/rewrite.go) is built and measured on Linux against temp dirs standing in for
+// this backend's two homes, but no launch on this backend reaches it: nothing emits a store path
+// here, so the generated launcher's `_try_materialize` returns before calling it (hand-off H4,
+// internal/cli/run/autocapture.go). Podman-in-podman cannot exercise this backend at all, so no
+// nested jail will ever cover any of it. The hardware checklist is in install-capture.md's
+// slice 6 section.
 
 import (
 	"errors"

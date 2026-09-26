@@ -69,15 +69,15 @@ import (
 // its own paths.
 
 // ErrNotRelocatable reports that an entry cannot be materialized into the home it was asked
-// for, because that home is not the one it was captured under.
+// for: that home is not the one it was captured under, and either the record says the entry
+// may not move or the rewrite cannot honor one of its references (rewrite.go, planRelocation).
 //
-// A sentinel because the answer to it is a DIFFERENT ACT — recapture under this home, or the
-// relocating materialize the macos-user slice adds — never a retry. Unreachable on the
-// container backends by construction: capture home and materialize home are both
-// /home/agent, which is why relocation is macos-user's problem and this is the guard that
-// keeps a not-yet-built rewrite from being skipped silently.
+// A sentinel because the answer to it is a DIFFERENT ACT — recapture under this home — never a
+// retry. Unreachable on the container backends by construction: capture home and materialize
+// home are both /home/agent, which is why relocation is macos-user's problem. Every path that
+// returns it returns BEFORE the home is written.
 //
-// See Manifest.Relocatable for the three-clause contract this implements two clauses of.
+// See Manifest.Relocatable for the three-clause contract Materialize implements.
 var ErrNotRelocatable = errors.New("the capture was made under a different home")
 
 // MaterializeOptions configures putting one admitted entry into one home.
@@ -101,10 +101,18 @@ type MaterializeOptions struct {
 type MaterializeResult struct {
 	// Dirs, Files and Symlinks count the manifest entries realized, by kind.
 	Dirs, Files, Symlinks int
-	// Reflinked, Linked and Copied partition Files by the mechanism that placed them.
-	Reflinked, Linked, Copied int
+	// Reflinked, Linked, Copied and Rewritten partition Files by the mechanism that placed
+	// them. Rewritten is a relocation's file-content rewrite (rewrite.go): new bytes, so no
+	// arm of the chain could have placed them, and counted apart so the copy report stays a
+	// report about the chain.
+	Reflinked, Linked, Copied, Rewritten int
+	// RelocatedFrom is the capture home a relocating materialize rewrote references FROM,
+	// empty when the destination was the capture home itself. RewrittenLinks counts the
+	// symlinks created with a rewritten target; Rewritten above counts the files.
+	RelocatedFrom  string
+	RewrittenLinks int
 	// Bytes is the total size of the files placed — what a copy actually cost, and what a
-	// reflink did not.
+	// reflink did not. A rewritten file counts the bytes actually written.
 	Bytes int64
 	// ReflinkRetired and LinkRetired carry the error that retired each mechanism for this
 	// run, empty when it was never needed or never failed. They are the "measured, never
@@ -125,6 +133,8 @@ func (r *MaterializeResult) Mechanism() string {
 		return "hardlink"
 	case r.Reflinked > 0:
 		return "reflink"
+	case r.Rewritten > 0:
+		return "rewrite"
 	default:
 		return "nothing"
 	}
@@ -166,33 +176,37 @@ func Materialize(opts MaterializeOptions) (*MaterializeResult, error) {
 		return nil, fmt.Errorf("capture materialize: entry %s is a %s capture and this is %s",
 			opts.Entry.Key, m.Platform, Platform())
 	}
-	// THE RELOCATION CONTRACT (Manifest.Relocatable), two of its three clauses.
+	// THE RELOCATION CONTRACT (Manifest.Relocatable), all three clauses.
 	//
 	// Clause one is the whole container story and it is the fall-through below: a
 	// destination home EQUAL to the capture home ignores Relocatable entirely, because
-	// every absolute self-reference in the tree is still correct. Clause two is this
-	// refusal. Clause three — rewrite the AbsoluteRefs when Relocatable is true — is the
-	// macos-user slice's, and until it lands a relocatable entry is refused HERE with a
-	// message that says which of the two refusals it is. Silently materializing a tree
-	// full of references to a home that does not exist is the one outcome neither clause
-	// permits.
+	// every absolute self-reference in the tree is still correct, and rel stays nil.
+	// Clauses two and three are planRelocation: refuse when the record says the entry may
+	// not move, and otherwise plan the rewrite of every AbsoluteRefs entry — refusing, too,
+	// when any one of them cannot be honored. Both refusals happen HERE, before the first
+	// entry is placed. Materializing a tree full of references to a home that does not
+	// exist is the one outcome no clause permits.
+	var rel *relocation
 	if m.Home != "" && filepath.Clean(m.Home) != home {
-		why := "the relocating materialize is not built yet (it is the macos-user slice's)"
-		if !m.Relocatable {
-			why = "the capture is not relocatable"
-			if len(m.NotRelocatable) > 0 {
-				why += ": " + strings.Join(m.NotRelocatable, "; ")
-			}
+		var reasons []string
+		rel, reasons, err = planRelocation(m, opts.Entry.Tree, home)
+		if err != nil {
+			return nil, fmt.Errorf("capture materialize: entry %s: %w", opts.Entry.Key, err)
 		}
-		return nil, fmt.Errorf("capture materialize: entry %s was captured under %s and "+
-			"cannot be materialized into %s — %s: %w",
-			opts.Entry.Key, m.Home, home, why, ErrNotRelocatable)
+		if len(reasons) > 0 {
+			return nil, fmt.Errorf("capture materialize: entry %s was captured under %s and "+
+				"cannot be materialized into %s — %s: %w",
+				opts.Entry.Key, m.Home, home, strings.Join(reasons, "; "), ErrNotRelocatable)
+		}
 	}
 
 	res := &MaterializeResult{}
+	if rel != nil {
+		res.RelocatedFrom = rel.from
+	}
 	ch := &chain{reflink: true, link: true}
 	for _, e := range m.Entries {
-		if err := placeEntry(opts.Entry.Tree, home, e, ch, res); err != nil {
+		if err := placeEntry(opts.Entry.Tree, home, e, ch, rel, res); err != nil {
 			return res, fmt.Errorf("capture materialize %s: %w", e.Path, err)
 		}
 	}
@@ -204,11 +218,12 @@ func Materialize(opts MaterializeOptions) (*MaterializeResult, error) {
 	return res, nil
 }
 
-// placeEntry realizes one manifest entry under home.
-func placeEntry(tree, home string, e ManifestEntry, ch *chain, res *MaterializeResult) error {
-	rel := filepath.FromSlash(e.Path)
-	src := filepath.Join(tree, rel)
-	dst := filepath.Join(home, rel)
+// placeEntry realizes one manifest entry under home. rel is the relocation plan, nil when home
+// is the capture home.
+func placeEntry(tree, home string, e ManifestEntry, ch *chain, rel *relocation, res *MaterializeResult) error {
+	p := filepath.FromSlash(e.Path)
+	src := filepath.Join(tree, p)
+	dst := filepath.Join(home, p)
 	switch e.Kind {
 	case KindDir:
 		// MkdirAll, not Mkdir: a manifest lists every ancestor it captured, but a home
@@ -227,15 +242,38 @@ func placeEntry(tree, home string, e ManifestEntry, ch *chain, res *MaterializeR
 		res.Dirs++
 		return nil
 	case KindSymlink:
+		target := e.Target
+		rewritten := false
+		if rel != nil {
+			if t, ok := rel.links[e.Path]; ok {
+				target, rewritten = t, true
+			}
+		}
 		if err := replaceable(dst); err != nil {
 			return err
 		}
-		if err := os.Symlink(e.Target, dst); err != nil {
+		if err := os.Symlink(target, dst); err != nil {
 			return err
 		}
 		res.Symlinks++
+		if rewritten {
+			res.RewrittenLinks++
+		}
 		return nil
 	default:
+		if rel != nil && rel.content[e.Path] {
+			// Not through the chain: see rewrite.go for why a rewritten file is always
+			// its own inode, and why it never passes through replaceable (a failed
+			// rewrite must leave the old file where it was).
+			n, err := rewriteFile(src, dst, permOf(e, src, 0o644), rel.from, rel.to)
+			if err != nil {
+				return err
+			}
+			res.Files++
+			res.Rewritten++
+			res.Bytes += n
+			return nil
+		}
 		if err := replaceable(dst); err != nil {
 			return err
 		}
