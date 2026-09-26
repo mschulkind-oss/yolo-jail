@@ -132,7 +132,7 @@ func TestPiAndOpencodeSelectionFollowTheActiveProfile(t *testing.T) {
 		requireCataloged(t, ocConfig.raw, "provider", "zai", "opencode.json")
 
 		// The second launch on the SAME workspace, with no profile. OQ-PSW2
-		// (docs/design/provider-switching.md, ruled 2026-09-25) replaced OQ-CS2's
+		// (docs/reference/providers.md#oq-psw2, ruled 2026-09-25) narrowed OQ-CS2's
 		// never-clear: a deselect clears the keys yolo wrote, so each agent falls back to
 		// its native default or the host layer, and only an interactive user edit
 		// survives. Nothing here edited the files, so both pairs are yolo's and both clear.

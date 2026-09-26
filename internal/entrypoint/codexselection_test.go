@@ -202,7 +202,7 @@ func TestCodexDeriveWritesTheSelectionKeys(t *testing.T) {
 			cataloged:    true,
 		},
 		{
-			// openai-codex is Codex's native first-party subscription provider (docs/design/provider-switching.md §4.1).
+			// openai-codex is Codex's native first-party subscription provider (docs/reference/providers.md#selecting-openai-codex-for-codex).
 			// Selecting it writes model = "gpt-6-sol" directly without model_provider, and does not emit
 			// openai-codex into model_providers table.
 			name: "native openai-codex provider writes model alone without model_provider",

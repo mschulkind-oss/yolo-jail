@@ -29,7 +29,8 @@ covers:
   - packs/llamacpp/pack.json
   - packs/aws-auth/pack.json
   - packs/openai-auth/pack.json
-tags: [providers, profiles, packs, derives, selection, zai, cerebras, openrouter, kilo]
+  - packs/codex/pack.json
+tags: [providers, profiles, packs, derives, selection, deselection, zai, cerebras, openrouter, kilo]
 ---
 
 # The provider system — catalog, composition, and selection
@@ -40,6 +41,15 @@ are [the profile-variant rows](#the-profile-variant-rulings) of the appendix. ME
 section was re-read against the code at `7ad8358c` — the profile and preflight sections line by
 line, the per-agent spellings by spot check against the derives. UNMEASURED: Bedrock mode end to end — see
 [the Bedrock example](#two-channels-split-by-payload-type).
+
+**The deselection rule is newer than that stamp.** [Deselection](#deselection-clear-what-yolo-wrote-keep-what-the-user-wrote),
+[the host-layer override](#a-selection-outranks-a-host-layer-value) and
+[codex's `openai-codex` selection](#selecting-openai-codex-for-codex) came from the provider-switching design
+(`provider-switching.md`, graduated 2026-09-26), and they were verified against `38814ba4` on 2026-09-26.
+The rest of the doc keeps its `7ad8358c` stamp. MEASURED: the clear, its boot-log record and
+the host-layer override are pinned through the boot render by unit tests in `internal/entrypoint`,
+and the adopting-boot failure was reproduced through the same render at `38814ba4`. UNMEASURED: no
+live agent session has been watched across a deselect.
 
 A **provider** is a declaration of a service's facts — where its endpoints are, which wire
 protocol each speaks, which model aliases it offers, which environment variable holds its
@@ -75,7 +85,9 @@ source-verified per-agent vocabularies the dialect maps translate into),
 [`cerebras-pack-and-copilot-delivery.md`](cerebras-pack-and-copilot-delivery.md) (which agents a
 provider can reach *at all*, one level below the delivery channels below),
 [`host-agent-environment.md`](host-agent-environment.md) (the host notch's own delivery: `yolo
-host --` and its wrapper directory).
+host --` and its wrapper directory), [`config-migration-to-prism.md`](config-migration-to-prism.md)
+(the stateful render a selection lifts into: the captured overlay, `last_render`, and the adopting
+boot that [deselection](#deselection-clear-what-yolo-wrote-keep-what-the-user-wrote) does not survive).
 
 ---
 
@@ -346,18 +358,19 @@ onto the surface root with an edge-triggered apply (`ApplySelection`):
 | Key absent in the file, selection names it | **writes it** (activation) |
 | File value equals what yolo last wrote, selection moved | **writes the new value** |
 | File value differs from what yolo last wrote | **keeps the user's value** — yolo claims nothing |
-| File value is the host layer's (equal to what your host config supplies, or unchanged since a render that took it from the host) | **writes the selection over it**: a host value is not an in-jail edit ([`OQ-SW1`](../design/provider-switching.md#OQ-SW1)) |
+| File value is the host layer's (equal to what your host config supplies, or unchanged since a render that took it from the host) | **writes the selection over it**: a host value is not an in-jail edit ([below](#a-selection-outranks-a-host-layer-value), [`OQ-SW1`](#oq-sw1)) |
 | Nothing recorded for the key, file value equals the selection | **adopts it** as yolo's write — the upgrade path for a key that moved into the selection, such as pi's `enabledModels` |
-| Selection stops naming the key, file still holds what yolo wrote | **clears it**, so the agent's default or the host layer applies ([`OQ-PSW2`](../design/provider-switching.md#decision-ledger)) |
+| Selection stops naming the key, file still holds what yolo wrote | **clears it**, so the agent's default or the host layer applies ([below](#deselection-clear-what-yolo-wrote-keep-what-the-user-wrote), [`OQ-PSW2`](#oq-psw2)) |
 | Selection stops naming the key, file value differs from what yolo wrote | **keeps the user's value** |
 
-The baseline "what yolo last wrote" is a per-surface record beside the last-render state —
-NOT the last render itself (a user edit is captured into the overlay and re-asserted by it,
-so last-render converges to the file and would revert the user one boot later). A lost or
-corrupt record claims nothing — every key then reads as the user's — which is the safe
-direction, and the re-arm path if a selection ever seems inert: delete the key from the file
-once. Non-stateful surfaces drop the namespace with a warning; the host render's key-probe
-never claims it.
+The baseline "what yolo last wrote" is the **selection record**: a per-surface sidecar, beside
+the last-render state, holding the value yolo's selection mechanism last wrote for each key. It
+is NOT the last render itself (a user edit is captured into the overlay and re-asserted by it,
+so last-render converges to the file and would revert the user one boot later). Only the
+selection mechanism writes it. A lost or corrupt record claims nothing — every key then reads as
+the user's — which is the safe direction, and the re-arm path if a selection ever seems inert:
+delete the key from the file once. Non-stateful surfaces drop the namespace with a warning; the
+host render's key-probe never claims it.
 
 An array compares by value and in order, so a reordered list is a user edit: pi starts a
 session on the first entry of `enabledModels`.
@@ -371,13 +384,134 @@ session on the first entry of `enabledModels`.
 > reader, replaced whole and never merged into, so it carries neither risk. Catalog tables come
 > from presence; selection values are scalars or arrays.
 
+### Deselection: clear what yolo wrote, keep what the user wrote
+
+**Deselection is a state, not the absence of one.** Without a clear, "no profile" would mean
+"whatever the last profile left behind": run `yolo -p bedrock -- codex`, then `yolo -- codex`,
+and codex would keep asking its default endpoint for the Bedrock model yolo wrote. That state is
+reached by doing nothing, which is why it is the one that bites.
+
+A key the selection stops naming is decided on its own, against the selection record:
+
+| The key, no longer selected | What the render does |
+| :--- | :--- |
+| File value equals the record (**yolo's own value**, unedited) | **clears it** — lifts nothing for it — and **drops the key from the record** |
+| File value differs from the record (the user changed it) | keeps it, lifting the current value |
+| No record for the key (yolo never wrote it) | keeps it — yolo claims nothing |
+| Key absent from the file | nothing to clear; the record entry is dropped |
+
+- **Each key clears on its own.** A provider-and-model pair nobody touched clears as a pair,
+  but if the user edited one half in the jail, that half stays and the untouched half clears.
+- **Dropping the record entry is what makes the clear safe.** If yolo cleared the key and kept
+  remembering the value, a user who later typed the same id by hand would lose it on the next
+  deselect. After a clear yolo has no claim, the same rule as "a lost record claims nothing".
+- **An emptied record removes its sidecar**, so a surface whose every key was cleared keeps no
+  selection state at all.
+
+**The clear works by omission, so what comes back is whatever sits underneath.** The render
+rewrites the file from its layers every boot, so a key no layer asserts simply stops existing, or
+falls through to a lower layer that still asserts it. A selected key never lingers in the
+[captured overlay](config-migration-to-prism.md#vocabulary): the overlay is narrowed every boot
+against the computed layer, which asserts the key while it is selected (`narrowOverlay`). So the
+value a clear returns to is pi's host layer where one is set, and otherwise the agent's own
+default. **Only pi has a host layer to return to.** Of the three surfaces that carry selection
+keys, only pi's `settings` declares `readsHost`, so for codex and opencode a clear always means
+the agent's own default.
+
+> [!WARNING]
+> **Do not clear with a tombstone.** A tombstone in the computed layer deletes the key through
+> every layer below it, the user's host file included, so "clear" would mean the agent's built-in
+> default and never the host value. Because the next boot has no record left, the host value
+> then comes back — the key flaps between two answers across two launches. Omission returns to the
+> host value and holds it.
+
+> [!WARNING]
+> **The clear does not hold on an adopting boot, and its boot-log line says it did.** An
+> **adopting boot** is one whose `last_render` sidecar is absent or does not decode, so the
+> render seeds the captured overlay from the file on disk
+> ([adoption](config-migration-to-prism.md#adoption-what-the-first-migration-keeps)). If a
+> deselect lands on such a boot, the clear drops the record entry and logs `selection: cleared`,
+> but adoption re-captures yolo's own stale id from the file as the user's, and the file keeps it.
+> With no record left, no later deselect clears it. Reproduced through the boot render at
+> `38814ba4` (pi, a selection written, `last_render` deleted, then two deselects): both keys
+> survived both deselects. Nothing in the tree handles this case yet. The cleared keys reach
+> only the log (`noteSelectionClears`) and never the compose, which is where a fix would have
+> to exclude them from the adopted residue.
+
+<a id="where-a-clear-is-recorded"></a>
+
+**Where a clear is recorded** ([`OQ-PSW4`](#oq-psw4)). Each cleared key is one line in the
+jail's `boot.log` and nothing on the terminal. The line names the agent, surface and key, and the
+value it held, which is safe to print because a selection key carries a provider or model choice
+and never a credential. A kept user edit records nothing. The line comes from the same call that
+decides the clear (`ApplySelectionReport`, the one implementation of the arm, which
+`ApplySelection` and `ApplySelectionOver` wrap), so the two cannot disagree about which keys
+cleared. The adopting boot above is the one case where the file does not match. The host notch
+runs the same apply, but it has no boot log, so a clear there is recorded nowhere. When the jail
+gets a verbosity ([`OQ-DB1`](../design/diagnostics-past-the-boundary.md#oq-db1), unruled),
+promoting the line to the terminal is a change at `noteSelectionClears` alone.
+
+> [!IMPORTANT]
+> **Claude needs no clear, so do not add one.** Claude resolves a tier name such as `opus` to a
+> provider's id itself, so yolo never writes claude a model id through the selection namespace.
+> The claude env derive emits `ANTHROPIC_MODEL` and the per-tier variables only while a provider
+> is selected, and they are process environment rebuilt on every launch, so a deselect simply
+> stops emitting them. The codex profile's picker keys in `claude/settings` (`availableModels`,
+> `modelPicker`) are ordinary computed keys, re-asserted every boot. They leave with the profile
+> for the same reason.
+
+### A selection outranks a host-layer value
+
+pi's `settings.json` is a stateful surface with a host layer, so after one launch the value the
+user's **host** `~/.pi/agent/settings.json` supplies sits in the jail's own file. Read naively,
+that is a value with no record, which the rule above treats as an in-jail edit to keep. That
+reading made `-p` inert for pi for every user whose host config names a model. The layer order
+was never the problem: a selection lifts onto the computed layer, which outranks the host layer.
+The edge trigger in front of it had the provenance wrong.
+
+So a file value is **the host's** (`HostOwnedKeys`), and a selection writes over it
+(`ApplySelectionOver`), when it either:
+
+- equals what the host layer supplies now, or
+- is unchanged since the previous render **and** that render's provenance record names the host
+  layer as the key's winner — a host value an earlier launch rendered, whose source has since
+  moved on the host.
+
+An in-jail edit matches neither: it differs from the host value and from the previous render.
+An edit that happens to equal the host value is indistinguishable from it, and treating it as
+the host's is harmless. The check runs only when a selection exists, because it decides
+activation and never a clear. Together with omission it gives pi a full cycle. A selection
+writes over the host value, a deselect clears yolo's write so the host value comes back, and
+the next selection writes over it again.
+
+### Selecting `openai-codex` for codex
+
+`openai-codex` is the subscription provider the `openai-auth` pack ships — codex's own
+first-party ChatGPT login, backed by the host's `openai-auth` broker — and codex's derive treats
+it differently from every other provider:
+
+- **No catalog row.** The derive excludes `openai-codex` from `model_providers` by name, because
+  codex implements it natively; a third-party row for it would point codex at the endpoint as if
+  it were someone else's API.
+- **The selection is `model` alone, never `model_provider`**, so codex runs on its own login. The
+  value is the profile's `model` option as written, not an alias looked up in a `models` map,
+  and a derive default when the profile names none or names `default` (see
+  [Current values](#current-values)).
+- **A switch from a third-party provider clears the stale `model_provider`.** The selection stops
+  naming that key, so the per-key rule above clears the value yolo wrote for the previous
+  provider. Nothing special-cases it.
+
+codex's pack declares `openai-responses` among the protocols its program speaks, which is the
+protocol the `openai-codex` entry serves, so pointing codex at it resolves like any other pairing
+([`protocol-resolution.md`](protocol-resolution.md)).
+
 ## Per-agent delivery
 
 What each agent actually receives, from one composed table and one selection:
 
 | Agent | Catalog | Selection |
 | :--- | :--- | :--- |
-| codex | `~/.codex/config.toml` `[model_providers.<id>]` (TOML) | top-level `model_provider` + `model` |
+| codex | `~/.codex/config.toml` `[model_providers.<id>]` (TOML); never a row for `openai-codex` | top-level `model_provider` + `model`; `model` alone for `openai-codex` ([above](#selecting-openai-codex-for-codex)) |
 | pi | `~/.pi/agent/models.json` `providers.<id>` (JSON; credential as `apiKey: "${VAR}"` config-value syntax) | `~/.pi/agent/settings.json` `defaultProvider` + `defaultModel` (a pair of bare ids), and `enabledModels` (the scoped list, default first) |
 | opencode | `~/.config/opencode/opencode.json` `provider.<id>` — `baseURL`/`apiKey` live UNDER `options` | top-level `model = "<provider>/<model>"` |
 | omp | `~/.oh-omp/agent/models.yml` `providers.<id>` (YAML; credential as the provider's env-var NAME, which oh-omp resolves before treating it as a literal) | **none** — the derive writes a catalog and no selection key, so a selected profile makes the provider *available* and the user chooses it inside the agent |
@@ -703,6 +837,14 @@ the same line.
   one in CI over the same files.
 - **No gating the catalog on selection.** The directory is the feature; pi and opencode have
   interactive pickers that browse it.
+- **No clearing a value yolo did not write.** The selection record is the whole authority for a
+  [deselection clear](#deselection-clear-what-yolo-wrote-keep-what-the-user-wrote): no record, or
+  a corrupt one, means no claim, and a value the user changed is never cleared.
+- <a id="no-launch-time-model-id-refusal"></a>**No refusing a launch because a config holds a
+  model id outside the selected provider's `models`.** It would catch deselection residue loudly,
+  but it also refuses every legitimate hand-picked model, and a launch-time check cannot see a
+  mid-session `/model` switch at all. An enforced model allowlist is the wire bridge's job, which
+  sees every request ([`OQ-WG3`](../design/wire-bridge-gateway.md#OQ-WG3), ruled, not built).
 - **No value schema for options** — a typechecker in core is `wire_api`'s enum one layer up.
 - **No credential VALUE in any composed or wire table.** The name crosses; the value is
   hydrated per derive invocation and in `yolo-user-env.sh` (0600) only.
@@ -730,7 +872,10 @@ older links.
 | <a id="oq-pt8"></a>[OQ-PT8](#oq-pt8) — `kind: "profile"` is `{name, provider}` and nothing else | A config patch, launch flags and an env map were never a profile; as contributions gated on a profile name they live in the kinds that own those channels, and the CLI-less reachability defect goes with the body rather than being guarded. A `config` on a profile is refused with the migration named. |
 | <a id="oq-pt9"></a>[OQ-PT9](#oq-pt9) — everything goes to the derive, credential included | The sandbox never was the boundary: a derive already controls `mcp_servers` commands, and a fetched pack's `env` is granted in-jail exec knowingly. |
 | <a id="oq-cs1"></a>[OQ-CS1](#oq-cs1) — selection written into each agent's own key | "Activating a profile should work for all." |
-| <a id="oq-cs2"></a>[OQ-CS2](#oq-cs2) — never write the selection key when no profile is active | An interactive in-agent choice must survive the next launch. |
+| <a id="oq-cs2"></a>[OQ-CS2](#oq-cs2) — never write the selection key when no profile is active; narrowed by [OQ-PSW2](#oq-psw2) | An interactive in-agent choice must survive the next launch. It still binds the derive, which emits nothing selection-shaped with no profile active: no default, and no tombstone. What [OQ-PSW2](#oq-psw2) narrowed is the render's old never-clear. A value yolo wrote and nobody edited is now cleared on deselect, and a value the user wrote is still kept. |
+| <a id="oq-psw2"></a>[OQ-PSW2](#oq-psw2) — deselecting clears what yolo wrote, by omission, and forgets it | A value only yolo's stale record protects is residue: the next launch asks a new endpoint for the old provider's model. Omission rather than a tombstone, so the host layer's value returns and holds ([the tombstone warning](#deselection-clear-what-yolo-wrote-keep-what-the-user-wrote)); forgetting the record entry means a later hand-typed identical id is the user's. |
+| <a id="oq-psw4"></a>[OQ-PSW4](#oq-psw4) — the clear is silent on the terminal and recorded in `boot.log` | Ruled *"no print, except in verbose mode"*: a deselect is a routine path, and a line on every one is noise; the log makes a changed file explainable afterward. The verbose half waits on the jail getting a verbosity ([`OQ-DB1`](../design/diagnostics-past-the-boundary.md#oq-db1)) and is then one call site ([where a clear is recorded](#where-a-clear-is-recorded)). |
+| <a id="oq-sw1"></a>[OQ-SW1](#oq-sw1) — a selection outranks a host-layer value | *"Just because they're the host files doesn't mean you want them that way in the jail."* An explicit `-p` is a more specific choice than a standing host default, and the hazard [OQ-CS2](#oq-cs2) protects, an in-jail edit, still wins because it differs from the host value ([the override](#a-selection-outranks-a-host-layer-value)). |
 | <a id="oq-cs3"></a>[OQ-CS3](#oq-cs3) — core resolves no model | The derive gets the active profile and the provider entry and picks its own agent's model and fallback; `default` is an ordinary alias, not a core concept. |
 | <a id="oq-cs4"></a>[OQ-CS4](#oq-cs4)/CS7 — provider-declared flat options; core checks the key census only | "Model can't be the only config we'll want"; a validated value set is the enum mistake one layer up. |
 | <a id="oq-cs5"></a>[OQ-CS5](#oq-cs5) — `profiles` and `use_profiles` are user-scope-only | A workspace config is agent-editable and travels with the repo; it cannot steer endpoints. |
@@ -768,7 +913,9 @@ row says what replaced it.
 
 ## Current values
 
-Verified at `7ad8358c`. The prose above explains what each is for; this table is the only
+Verified at `7ad8358c`, except the four deselection rows (the clear's log line, the boot log,
+the id-writing surfaces with a host layer, and codex's `openai-codex` default), which were
+verified at `38814ba4`. The prose above explains what each is for; this table is the only
 place the exact spellings are stated.
 
 | Value | Setting | Defined in |
@@ -779,6 +926,10 @@ place the exact spellings are stated.
 | Resolved-profiles env var | `YOLO_PROFILES` | same |
 | Selection namespace key | `selection` | `agentcfg.SelectionKey` |
 | Selection record path | `<workspace>/.yolo/prism/<agent>-<name>.selection.json` in a jail; the state dir's host-capture store at the host notch under `host_management: own` | `render.Target.SelectionPath` |
+| Deselection clear's log line | `selection: cleared <agent>/<surface> <key> (was <value as JSON>): the profile that set it is no longer selected`, one per cleared key, the value cut at 200 bytes with a trailing `…` | `entrypoint.noteSelectionClears` |
+| Where that line goes | `<workspace>/.yolo/boot.log` (the previous boot's is `boot.log.prev`); never the terminal | `entrypoint.bootLogName`, `Env.note` |
+| Id-writing surfaces with a host layer | pi's `settings` (`~/.pi/agent/settings.json`) only; codex's `config.toml` and opencode's `opencode.json` declare no `readsHost` | `packs/{pi,codex,opencode}/pack.json` |
+| codex's model for `openai-codex` | the profile's `model` option; `gpt-6-sol` when the profile names none or names `default` | `packs/codex/derive.lua` |
 | User config keys | `providers` (merged-scope — **except the ADDRESS**), `profiles` / `use_profiles` (user-scope-only); `agent_profiles` refused by name as the old spelling of `use_profiles` | `internal/config` |
 | Provider address scope | `endpoints.<protocol>.base_url` is **USER-SCOPE ONLY** since 2026-09-17: a workspace `yolo-jail.jsonc` or `yolo-jail.local.jsonc` carrying one is a fatal config error. The rest of a `providers` entry still merges from either scope. The reason is the workspace file is AGENT-EDITABLE, and the address decides where inference goes — [`OQ-LM3`](../research/local-model-endpoints.md#oq-lm3) calls it the one answer that cannot be revised later without a breaking config change. The entry-level `base_url` shorthand is refused at any scope | `internal/config/validate.go` |
 | Missing-provider hatch | `YOLO_ALLOW_MISSING_PROVIDERS=1` | `internal/paths` |

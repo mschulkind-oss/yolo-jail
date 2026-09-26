@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-// The deselect clear's record (OQ-PSW4, docs/design/provider-switching.md, ruled "no print,
+// The deselect clear's record (OQ-PSW4, docs/reference/providers.md#oq-psw4, ruled "no print,
 // except in verbose mode"): each key a deselect clears is noted in the boot log, and the
 // terminal stays silent. These drive the real pi, opencode and zai packs across boots with
 // the multi-boot harness, with a boot-log channel attached beside the terminal one.
