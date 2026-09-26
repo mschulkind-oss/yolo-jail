@@ -29,10 +29,14 @@ var citingExts = map[string]bool{
 }
 
 // citingDirs are walked recursively; citingRootFiles are single files at the
-// repository root.
+// repository root. The root config files are listed because they cite docs the
+// way the rest of the tree does and rot the same way: .goreleaser.yaml kept a
+// citation of a doc archived in 2c229fbc while nothing here read the file at all.
+// (That one was also split across a line break, which no pattern here matches —
+// keep a citation on one line.)
 var (
 	citingDirs      = []string{"internal", "cmd", "packs", "integration", "scripts", ".github"}
-	citingRootFiles = []string{"flake.nix", "Justfile"}
+	citingRootFiles = []string{"flake.nix", "Justfile", ".goreleaser.yaml", "yolo-jail.jsonc", "mise.toml"}
 )
 
 // fixtureCitations are strings that LOOK like doc citations and are not: paths
