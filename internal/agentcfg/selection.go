@@ -26,7 +26,7 @@ package agentcfg
 //	write on activation    a key the file does not have gets the selected value.
 //	clear yolo's own       a key the selection stops naming is cleared when the file
 //	                       still holds what yolo wrote, and kept when the user changed
-//	                       it (OQ-PSW2, docs/design/provider-switching.md).
+//	                       it (OQ-PSW2, docs/reference/providers.md#oq-psw2).
 //	user edit wins         a key whose value the user changed since yolo wrote it is
 //	                       left alone, until a NEW selection value differs from the
 //	                       last one yolo wrote — an explicit selection outranks a
@@ -113,14 +113,21 @@ func DropSelection(computed map[string]any) (map[string]any, []string) {
 // layer's root and the record to persist.
 //
 // Every key the selection names or the record remembers is decided, and every
-// decision is LIFTED rather than omitted — including "keep the value that is
-// already there". Lifting the current value is what makes a deactivation hold: the
-// stateful render rewrites the file wholesale from its layers, the capture overlay
-// may still carry a STALE value for the key (the user's edit from before yolo took
-// the key over), and a key no layer asserts would fall back to that stale value and
-// silently change. Lifting the current value puts it in the computed layer, which
-// outranks the overlay, so the file keeps exactly what it had — the never-clear
-// guarantee expressed in the layer the render already re-asserts.
+// decision except a CLEAR is LIFTED rather than omitted — including "keep the value
+// that is already there". Lifting the current value is what makes a kept value hold:
+// the stateful render rewrites the file wholesale from its layers, the capture
+// overlay may still carry a STALE value for the key (the user's edit from before yolo
+// took the key over), and a key no layer asserts would fall back to that stale value
+// and silently change. Lifting the current value puts it in the computed layer, which
+// outranks the overlay, so the file keeps exactly what it had.
+//
+// A clear (OQ-PSW2) is the one decision that omits, and omission is safe there
+// because the overlay is narrowed against the computed layer every boot
+// (narrowOverlay): a key yolo's selection wrote never sits in it, so omitting the key
+// falls through to the host layer or the agent's own default, which is the point.
+// A tombstone would delete the user's host value too. The exception is an ADOPTING
+// boot, whose seeded overlay re-captures the stale value from the file
+// (docs/reference/providers.md#deselection-clear-what-yolo-wrote-keep-what-the-user-wrote).
 //
 // The record, not last_render, is what tells a yolo-written value from a
 // user-written one, and that is forced rather than chosen: last_render is the bytes
@@ -162,7 +169,7 @@ func ApplySelection(selection, file, record map[string]any) (lift, next map[stri
 // ApplySelectionOver is ApplySelection with the keys whose current file value belongs to
 // the HOST layer (HostOwnedKeys). Without that set every unrecorded file value reads as the
 // user's in-jail edit, which is how a host settings.json rendered into a jail's file once
-// made `-p` inert for pi forever (OQ-SW1, docs/design/provider-switching.md).
+// made `-p` inert for pi forever (OQ-SW1, docs/reference/providers.md#oq-sw1).
 func ApplySelectionOver(selection, file, record map[string]any, hostOwned map[string]bool) (lift, next map[string]any) {
 	lift, next, _ = ApplySelectionReport(selection, file, record, hostOwned)
 	return lift, next
