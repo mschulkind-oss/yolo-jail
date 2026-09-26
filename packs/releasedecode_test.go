@@ -60,22 +60,33 @@ type knownReleaseBreak struct {
 	pinnedBy string
 }
 
-// guardNoRestageOnAttach is the guard for every pack-contract break an old jail could meet.
-// ⚠ It holds only once OQ-PK2's per-launch pack trees land (docs/reference/pack-system.md#oq-pk2):
-// until then an attach re-stages the host's packs into the tree a running podman jail binds,
-// and re-runs that jail's boot over them. The change that builds the trees sets pinnedBy on
-// these entries to the test that pins an attach writing nothing into a running jail's tree.
+// guardNoRestageOnAttach is the guard for every pack-contract break an old jail could meet:
+// OQ-PK2's per-launch pack trees (docs/reference/pack-system.md#oq-pk2), built. Every launch
+// stages a tree of its own and an attach writes into none, so a jail keeps the tree it booted
+// with; a jail launched before the change binds the one shared tree every launch used to
+// re-stage, and nothing writes that tree any more (internal/cli/run/packtree.go).
+// pinAttachLeavesAnOlderJailsTree pins exactly that case, the one a jail a release launched is
+// in; TestAnAttachWritesNothingIntoTheRunningJailsPackTree pins the same for a jail this tree
+// launched.
 const guardNoRestageOnAttach = "an attach never re-stages (one immutable pack tree per launch, " +
 	"pack-system.md OQ-PK2), so a jail an older yolo launched never reads this tree's packs; " +
 	"only a fresh launch does, and a fresh launch mounts this tree's binaries"
+
+// pinAttachLeavesAnOlderJailsTree is the test that fails if the guard stops holding: an attach by
+// this tree to a jail launched before per-launch trees must leave that jail's shared tree
+// byte-identical.
+const pinAttachLeavesAnOlderJailsTree = "TestAnAttachToAJailLaunchedBeforePerLaunchTreesLeavesItsSharedTreeAlone"
 
 // knownReleaseBreaks is the allowlist. Measured against v0.10.0 on 2026-09-26: claude's bedrock
 // provider declares api_key_env_name as a list where v0.10.0's packdecl declares a string, and pi
 // declares two hooks v0.10.0 does not know.
 var knownReleaseBreaks = []knownReleaseBreak{
-	{release: "v0.10.0", pack: "claude", problem: "api_key_env_name", guard: guardNoRestageOnAttach},
-	{release: "v0.10.0", pack: "pi", problem: `unknown hook "shared_directory"`, guard: guardNoRestageOnAttach},
-	{release: "v0.10.0", pack: "pi", problem: `unknown hook "unshare_directory"`, guard: guardNoRestageOnAttach},
+	{release: "v0.10.0", pack: "claude", problem: "api_key_env_name",
+		guard: guardNoRestageOnAttach, pinnedBy: pinAttachLeavesAnOlderJailsTree},
+	{release: "v0.10.0", pack: "pi", problem: `unknown hook "shared_directory"`,
+		guard: guardNoRestageOnAttach, pinnedBy: pinAttachLeavesAnOlderJailsTree},
+	{release: "v0.10.0", pack: "pi", problem: `unknown hook "unshare_directory"`,
+		guard: guardNoRestageOnAttach, pinnedBy: pinAttachLeavesAnOlderJailsTree},
 }
 
 // releaseDecodeProbe is the program compiled INSIDE the last release's tree: that release's
