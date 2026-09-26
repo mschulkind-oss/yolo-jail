@@ -288,7 +288,10 @@ func TestProvidersRenderInTheAgentsOwnVocabulary(t *testing.T) {
 		// The persistent spelling, in the user config where selection keys live (OQ-CS5).
 		// Last subtest on purpose: this packHome redirect wins for the rest of the test.
 		packHome(t, `{"packs": ["claude", "zai"], "use_profiles": {"claude": "zai"}}`)
-		r := runYolo(t, dir, `env | grep -E '^ANTHROPIC_(BASE_URL|AUTH_TOKEN)=' | sort`)
+		// The pair reaches claude alone, through its own env file (the credential gate,
+		// docs/reference/providers.md#the-credential-gate), so read it the way claude's
+		// launcher does: by sourcing that file.
+		r := runYolo(t, dir, `. ~/.config/yolo-agent-env/claude.sh && env | grep -E '^ANTHROPIC_(BASE_URL|AUTH_TOKEN)=' | sort`)
 		if r.rc != 0 {
 			t.Fatalf("profiled launch failed: rc %d\n%s", r.rc, r.combined())
 		}
@@ -316,8 +319,9 @@ func TestProvidersRenderInTheAgentsOwnVocabulary(t *testing.T) {
 	t.Run("copilot env carries the selected provider's BYOK block", func(t *testing.T) {
 		packHome(t, `{"packs": ["copilot", "cerebras"], "use_profiles": {"copilot": "cerebras"},
 			"env_sources": [{"CEREBRAS_API_KEY": "integration-probe-not-a-real-key"}]}`)
+		// Copilot's own env file, as its launcher sources it (the credential gate).
 		r := runYolo(t, dir,
-			`env | grep -E '^COPILOT_(MODEL|PROVIDER_API_KEY|PROVIDER_BASE_URL|PROVIDER_TYPE|PROVIDER_WIRE_API)=' | sort`)
+			`. ~/.config/yolo-agent-env/copilot.sh && env | grep -E '^COPILOT_(MODEL|PROVIDER_API_KEY|PROVIDER_BASE_URL|PROVIDER_TYPE|PROVIDER_WIRE_API)=' | sort`)
 		if r.rc != 0 {
 			t.Fatalf("profiled copilot launch failed: rc %d\n%s", r.rc, r.combined())
 		}

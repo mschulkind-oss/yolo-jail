@@ -120,7 +120,11 @@ func TestWireBridgeTranslatesAnthropicToOpenai(t *testing.T) {
 		"providers": {"cerebras": {"endpoints": {"openai": {"base_url": "http://`+stubAddr+`/v1"}}}}
 	}`)
 
+	// $ANTHROPIC_BASE_URL is claude's alone under the credential gate, delivered in its
+	// own env file (docs/reference/providers.md#the-credential-gate); source it as
+	// claude's launcher does.
 	script := `set -u
+. ~/.config/yolo-agent-env/claude.sh
 # The implicit forward for the provider's port is set up before this command runs;
 # wait for it rather than assuming, so a slow forwarder cannot read as a bridge fault.
 for i in $(seq 1 50); do (exec 3<>/dev/tcp/127.0.0.1/` + strconv.Itoa(stubPort) + `) 2>/dev/null && break; sleep 0.1; done
