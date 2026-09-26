@@ -905,13 +905,14 @@ func (o *Options) assembleRunCmd(in *assembleInput) []string {
 	// why the source is the STAGED tree.
 	runCmd = append(runCmd, o.packFilesMountArgs(in)...)
 
-	// --- TERM + timing ---
+	// --- TERM, the color environment (COLORTERM, NO_COLOR) + timing ---
 	if term := o.Getenv("TERM"); term != "" {
 		runCmd = append(runCmd, "-e", "TERM="+term)
 	}
 	if ct := o.Getenv("COLORTERM"); ct != "" {
 		runCmd = append(runCmd, "-e", "COLORTERM="+ct)
 	}
+	runCmd = append(runCmd, o.noColorEnvArgs()...)
 	if o.timingReporting() {
 		// Renamed from YOLO_PROFILE (design D13). It was named for the flag that used
 		// to own this meaning (--profile, before docs/reference/providers.md OQ-PT5

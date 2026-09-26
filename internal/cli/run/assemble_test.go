@@ -2,6 +2,7 @@ package run
 
 import (
 	"bytes"
+	"go/ast"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -952,6 +953,73 @@ func TestAssembleForwardsTermAndColorterm(t *testing.T) {
 				t.Errorf("COLORTERM=%q present=%v, want %v; argv: %v", tc.colorterm, hasColorterm, tc.wantColorterm, got)
 			}
 		})
+	}
+}
+
+// TestAssembleForwardsNoColor: the launch environment's NO_COLOR rides the fresh
+// launch's argv beside TERM and COLORTERM, as one `-e NO_COLOR=<value>` pair, and
+// only when set — non-empty, the convention's definition (https://no-color.org).
+func TestAssembleForwardsNoColor(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	emptyLoopholeDirs(t)
+
+	for _, tc := range []struct {
+		value string
+		want  bool
+	}{{"1", true}, {"", false}} {
+		o := goldenOptions("/ws", home)
+		o.Getenv = func(k string) string {
+			if k == "NO_COLOR" {
+				return tc.value
+			}
+			return ""
+		}
+		sec := jsonx.NewOrderedMap()
+		sec.Set("blocked_tools", []any{})
+		got := o.assembleRunCmd(&assembleInput{
+			cfg:          newConfig("agents", []any{"claude"}, "security", sec),
+			rt:           "podman",
+			cname:        "yolo-ws-abcd1234",
+			packs:        claudePackFixture(t),
+			agentsPath:   "/agents/yolo-ws-abcd1234",
+			wsState:      "/ws/.yolo/home",
+			miseStore:    "/mise-store",
+			yoloVersion:  "9.9.9-test",
+			mountTargets: map[string]struct{}{},
+		})
+		i := slices.Index(got, "NO_COLOR=1")
+		if has := i > 0 && got[i-1] == "-e"; has != tc.want {
+			t.Errorf("host NO_COLOR=%q: argv forwards `-e NO_COLOR=1` = %v, want %v; argv: %v",
+				tc.value, has, tc.want, got)
+		}
+		for _, w := range got {
+			if !tc.want && strings.HasPrefix(w, "NO_COLOR") {
+				t.Errorf("an unset NO_COLOR still reached the argv as %q", w)
+			}
+		}
+	}
+}
+
+// TestAttachExecCarriesNoColor is the attach arm's call-site pin: a running
+// container's environment is the one it was launched with, so the exec must carry
+// this invocation's NO_COLOR itself. attachExisting cannot be driven through its
+// exec here (a real runtime would run), so the pin reads its body; the pair builder
+// is exercised by the fresh-launch test above.
+func TestAttachExecCarriesNoColor(t *testing.T) {
+	fn := methodDecl(t, "run.go", "attachExisting")
+	found := false
+	ast.Inspect(fn, func(n ast.Node) bool {
+		if call, ok := n.(*ast.CallExpr); ok {
+			if sel, ok := call.Fun.(*ast.SelectorExpr); ok && sel.Sel.Name == "noColorEnvArgs" {
+				found = true
+			}
+		}
+		return true
+	})
+	if !found {
+		t.Fatal("attachExisting no longer adds noColorEnvArgs to its exec: a NO_COLOR set " +
+			"when attaching never reaches the attached command. If the call moved, move this pin.")
 	}
 }
 

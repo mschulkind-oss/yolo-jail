@@ -102,6 +102,33 @@ func TestSandboxPlanTrustsTheWorkspaceMiseConfigs(t *testing.T) {
 	}
 }
 
+// The host's NO_COLOR crosses into the sandbox's session env file, beside TERM and
+// COLORTERM: a user who asked for no color asked it of the sandboxed programs too
+// (https://no-color.org). Unset or empty, it does not cross — empty is the
+// convention's "not set", and a program testing presence would misread it.
+func TestSandboxPlanCarriesNoColor(t *testing.T) {
+	for _, tc := range []struct {
+		value string
+		want  bool
+	}{{"1", true}, {"", false}} {
+		d := mockDeps(nil)
+		d.Getenv = func(k string) string {
+			if k == "NO_COLOR" {
+				return tc.value
+			}
+			return ""
+		}
+		env := buildPlan(d, newOpts("/Users/Shared/proj"), nil).EnvFileContent
+		if got := strings.Contains(env, "NO_COLOR="); got != tc.want {
+			t.Errorf("host NO_COLOR=%q: env file carries NO_COLOR = %v, want %v:\n%s",
+				tc.value, got, tc.want, env)
+		}
+		if tc.want && !strings.Contains(env, "NO_COLOR='1'") {
+			t.Errorf("NO_COLOR crossed with the wrong value:\n%s", env)
+		}
+	}
+}
+
 // A user who sets it explicitly wins: it goes in BEFORE env_sources and SandboxEnv precisely so
 // it stays a default rather than an override.
 func TestSandboxTrustPathIsOverridable(t *testing.T) {

@@ -12,6 +12,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/provision"
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
+	"github.com/mschulkind-oss/yolo-jail/internal/tty"
 	"github.com/mschulkind-oss/yolo-jail/internal/version"
 )
 
@@ -173,7 +174,12 @@ func (p printer) print(msg string)          { fmt.Fprintln(p.w, richtext.Render(
 func (p printer) printf(f string, a ...any) { p.print(fmt.Sprintf(f, a...)) }
 
 // MacosSandboxEnv returns the extra env layered into the sandbox launch (git
-// identity + TERM/COLORTERM). Host credentials never cross.
+// identity + TERM/COLORTERM/NO_COLOR). Host credentials never cross.
+//
+// NO_COLOR crosses for the container's reason (run.Options.noColorEnvArgs): a user
+// who asked the host for no color asked it of the sandbox's programs too, and it
+// crosses only when set — non-empty, the convention's definition
+// (https://no-color.org).
 func MacosSandboxEnv(deps Deps, cfg *jsonx.OrderedMap) *jsonx.OrderedMap {
 	env := jsonx.NewOrderedMap()
 	if term := deps.Getenv("TERM"); term != "" {
@@ -181,6 +187,9 @@ func MacosSandboxEnv(deps Deps, cfg *jsonx.OrderedMap) *jsonx.OrderedMap {
 	}
 	if ct := deps.Getenv("COLORTERM"); ct != "" {
 		env.Set("COLORTERM", ct)
+	}
+	if tty.NoColor(deps.Getenv) {
+		env.Set(tty.NoColorVar, deps.Getenv(tty.NoColorVar))
 	}
 	for _, pair := range [][2]string{{"YOLO_GIT_NAME", "user.name"}, {"YOLO_GIT_EMAIL", "user.email"}} {
 		if val, ok := deps.GitConfig(pair[1]); ok && val != "" {

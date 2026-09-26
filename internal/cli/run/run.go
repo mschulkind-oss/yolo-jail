@@ -1866,6 +1866,9 @@ func (o *Options) attachExisting(cname, rt, targetCmd string, cfg *jsonx.Ordered
 	if o.IsTTYStdout() {
 		execFlags = append(execFlags, "-t")
 	}
+	// The container's environment is the one it was LAUNCHED with, so this invocation's
+	// NO_COLOR rides the exec itself (noColorEnvArgs says why only when set).
+	execFlags = append(execFlags, o.noColorEnvArgs()...)
 	runCmd := append([]string{rt, "exec"}, execFlags...)
 	// The absolute path into the mounted install prefix, matching the fresh-launch
 	// argv. `podman exec <cname> yolo-entrypoint` would resolve on the CONTAINER's

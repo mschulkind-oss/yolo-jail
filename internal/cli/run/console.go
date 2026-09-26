@@ -24,6 +24,27 @@ func (p printer) print(msg string) { p.rt.Print(msg) }
 // printf is print with a format string.
 func (p printer) printf(format string, args ...any) { p.rt.Printf(format, args...) }
 
+// noColorEnvArgs is the `-e NO_COLOR=<value>` pair that carries the launch
+// environment's NO_COLOR into the container, or nothing when it is unset or empty
+// (the convention's definition of "not set", https://no-color.org).
+//
+// A user who asked the host for no color asked it of the jail too: the in-jail
+// `yolo`, the entrypoint's hand-over line, the shell prompt, and any agent CLI
+// that honors the convention all read it there. Carried like TERM and COLORTERM,
+// and like them only when present — an empty `-e NO_COLOR=` would reach a program
+// that tests for presence rather than value as a request for no color.
+//
+// ONE builder for BOTH argvs that start a process in the jail: assembleRunCmd's
+// fresh launch and attachExisting's `exec`. The exec needs its own copy because a
+// running container's environment is the one it was launched with, so a NO_COLOR
+// set only at attach would otherwise never reach the command attached to.
+func (o *Options) noColorEnvArgs() []string {
+	if !tty.NoColor(o.Getenv) {
+		return nil
+	}
+	return []string{"-e", tty.NoColorVar + "=" + o.Getenv(tty.NoColorVar)}
+}
+
 // pr builds a color-aware printer for w, through the one gate (tty.Color).
 // Color is emitted only when the run requested it (o.Color) AND stdout is a
 // real terminal — never to a pipe/file, so redirected output stays clean — AND
