@@ -11,17 +11,24 @@ package run
 // each profiled agent's file gets what only it receives: its selected provider's claimed
 // credentials, the gated env its own selection satisfies, and its pack's env derive's output.
 //
-// HOW IT REACHES THE JAIL. The files live in <wsState>/agent-env/<agent>.sh, a directory the
-// podman arm binds `:ro` at ~/.config/yolo-agent-env and the Apple Container arm copies there
-// (assemble.go). A directory bind shows a rewrite to a running jail, so an attach delivers
-// the same way the shared file does: write, then exec. The reader is the agent's launcher
+// HOW IT REACHES THE JAIL. On podman the files live in <wsState>/agent-env/<agent>.sh, a
+// directory the launch binds `:ro` at ~/.config/yolo-agent-env (assemble.go); a directory
+// bind shows a rewrite to a running jail, so an attach delivers the same way the shared file
+// does: write, then exec. Apple Container binds wsState ITSELF at /home/agent and ignores
+// `:ro`, so there deliverChannel writes the files straight into <wsState>/.config/yolo-agent-env
+// — the jail's own path, live through that bind — on the fresh launch and on every attach
+// alike, owner-only like the podman source. The reader is the agent's launcher
 // (entrypoint.agentEnvShellFn), and the wire bridge reads a served agent's key from it.
 
 import (
+	"errors"
+	"io/fs"
+	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 )
 
@@ -41,29 +48,44 @@ const (
 //
 // THE SHARED FILE GETS THE GATE'S SHARED HALF, never the hydration: a caller that handed it
 // channel.userEnv would put every provider credential back in every process, which is the
-// leak this whole design closes (TestAGateLaunchLeavesNoCredentialInTheSharedFile is the pin).
-func deliverChannel(wsState string, channel *packChannel) {
-	writeUserEnvFile(filepath.Join(wsState, "yolo-user-env.sh"), channel.scope.SharedEnvSources(), channel)
-	writeAgentEnvFiles(wsState, channel)
+// leak this whole design closes (TestDeliverChannelScopesCredentialsPerAgent is the pin).
+//
+// rt picks where the files land, because the two container backends reach the jail home
+// differently. podman binds <wsState>/yolo-user-env.sh and <wsState>/agent-env into it;
+// Apple Container binds wsState itself at /home/agent, so the jail reads
+// <wsState>/.config/yolo-user-env.sh and <wsState>/.config/yolo-agent-env, and those are
+// written HERE, on every entry. They used to be copied only by the fresh launch's argv
+// assembly, so an attach rewrote files that jail never reads: a deselecting attach left the
+// previous entry's credential in the agent's file, and the copy made the files 0644 in a
+// 0755 directory on a host path under the workspace.
+func deliverChannel(wsState, rt string, channel *packChannel) {
+	shared := filepath.Join(wsState, "yolo-user-env.sh")
+	writeUserEnvFile(shared, channel.scope.SharedEnvSources(), channel)
+	if rt == "container" { // parity: HonoredBy — Apple Container binds wsState at /home/agent, so both files are written at their in-home paths beneath it, live on every entry, instead of bound
+		acMaterialize(shared, ".config/yolo-user-env.sh", wsState)
+		writeAgentEnvFiles(wsState, entrypoint.AgentEnvDirRel, channel)
+		return
+	}
+	writeAgentEnvFiles(wsState, agentEnvStateDir, channel)
 }
 
-// writeAgentEnvFiles rewrites <wsState>/agent-env to hold exactly this entry's per-agent
-// files: one per profiled agent with anything of its own, and nothing else. REPLACE, NEVER
-// MERGE — an agent the previous entry scoped a credential to and this one does not must
-// lose its file, or the attach that deselected its profile would leave the credential in
-// place. Best-effort like writeUserEnvFile: a failure leaves the agent without its values
-// (fail closed), and podman names a bind source it cannot find.
+// writeAgentEnvFiles rewrites <wsState>/<dir> to hold exactly this entry's per-agent files:
+// one per profiled agent with anything of its own, and nothing else. REPLACE, NEVER MERGE —
+// an agent the previous entry scoped a credential to and this one does not must lose its
+// file, or the attach that deselected its profile would leave the credential in place.
+// Best-effort like writeUserEnvFile: a failure leaves the agent without its values (fail
+// closed), and podman names a bind source it cannot find.
 //
-// The directory is a BIND SOURCE, so it is made with bindSourceDirBeneath, which replaces a
-// symbolic link the jail may have left there instead of handing it to podman; the writes and
-// removals are beneath wsState's os.Root for writeUserEnvFile's reason.
-func writeAgentEnvFiles(wsState string, channel *packChannel) {
+// The directory is agentEnvDirMode and each file agentEnvFileMode on EVERY write, not only
+// on creation: a directory an earlier build or the jail left wider is narrowed again. The
+// writes and removals are beneath wsState's os.Root for writeUserEnvFile's reason.
+func writeAgentEnvFiles(wsState, dir string, channel *packChannel) {
 	r, err := openStateRoot(wsState)
 	if err != nil {
 		return
 	}
 	defer r.Close()
-	if _, err := bindSourceDirBeneath(r, agentEnvStateDir, agentEnvDirMode); err != nil {
+	if err := agentEnvDirBeneath(r, dir); err != nil {
 		return
 	}
 	keep := map[string]bool{}
@@ -77,18 +99,39 @@ func writeAgentEnvFiles(wsState string, channel *packChannel) {
 				continue
 			}
 			name := agent + ".sh"
-			if err := writeBeneath(r, filepath.Join(agentEnvStateDir, name),
+			if err := writeBeneath(r, filepath.Join(dir, name),
 				agentEnvFileMode, agentEnvFileMode, writeBytes([]byte(body))); err != nil {
 				continue
 			}
 			keep[name] = true
 		}
 	}
-	for _, e := range readDirBeneath(r, agentEnvStateDir) {
+	for _, e := range readDirBeneath(r, dir) {
 		if !keep[e.Name()] {
-			_ = r.RemoveAll(filepath.Join(agentEnvStateDir, e.Name()))
+			_ = r.RemoveAll(filepath.Join(dir, e.Name()))
 		}
 	}
+}
+
+// agentEnvDirBeneath makes dir below r a real directory of agentEnvDirMode. Its PARENTS are
+// made the ordinary way (a link on the way that stays inside the root is followed — on Apple
+// Container dir's parent is the jail home's own .config, which is the user's to shape), but
+// the directory itself is yolo's: anything else found there, a symbolic link the jail left
+// included, is removed rather than written through, so podman never binds a link and a copy
+// never lands where a link points.
+func agentEnvDirBeneath(r *os.Root, dir string) error {
+	if err := mkdirParentBeneath(r, dir); err != nil {
+		return err
+	}
+	if fi, err := r.Lstat(dir); err == nil && !fi.IsDir() {
+		if err := r.RemoveAll(dir); err != nil {
+			return err
+		}
+	}
+	if err := r.Mkdir(dir, agentEnvDirMode); err != nil && !errors.Is(err, fs.ErrExist) {
+		return err
+	}
+	return r.Chmod(dir, agentEnvDirMode)
 }
 
 // agentEnvFileContent renders one agent's file, "" when the gate scoped nothing to it. The

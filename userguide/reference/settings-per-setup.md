@@ -399,11 +399,11 @@ The `--network` CLI flag does **not** override the config: a `network.mode` in `
 | `lsp_servers` | works — config only, you bring the binary[^lsp] | works — config only, you bring the binary[^lsp] | works — config only, you bring the binary[^lsp] | works — config only, you bring the binary[^lsp] | fresh launch |
 | `security.blocked_tools` | works — blocker shims on PATH | works | works | works — but blocks the Mac's BSD tool[^bsd] | fresh launch |
 | `packs` † | works | works — workspace must be VM-shared[^vm-store] | works — staged copy, never re-read | works — some surfaces inert, said aloud[^packsmac] | fresh launch[^packspartial] |
-| `providers` | works | works | works — lost on re-entry[^reentry] | works | any entry[^reentry] |
-| `profiles` † | works | works | works — lost on re-entry[^reentry] | half-arrives, **silent**[^profmac] | any entry[^reentry] |
-| `use_profiles` † / `-p <name>` | works — refuses a `-p` it cannot honor | works | **silently** ineffective on re-entry[^reentry] | selection arrives, body does not[^profmac] | any entry[^reentry] |
+| `providers` | works | works | works[^reentry] | works | any entry[^reentry] |
+| `profiles` † | works | works | works[^reentry] | half-arrives, **silent**[^profmac] | any entry[^reentry] |
+| `use_profiles` † / `-p <name>` | works — refuses a `-p` it cannot honor | works | works[^reentry] | selection arrives, body does not[^profmac] | any entry[^reentry] |
 | `agent_updates` † | works | works | works | works | fresh launch |
-| `env_sources` (dotenv files) | works | works | **silently** lost on re-entry[^reentry] | works — per-session, not editable in-jail | any entry[^reentry] |
+| `env_sources` (dotenv files) | works | works | works[^reentry] | works — per-session, not editable in-jail | any entry[^reentry] |
 | `nix build` usable inside the jail | works — host daemon, store read-only[^gcroot] | **absent, silent** — possible, not planned for now[^nixmac] | **absent, silent** — possible, not planned for now[^nixmac] | works — the host's own `nix`, through its daemon[^munix] | fresh launch |
 | GNU behaviour of `sed`/`find`/`grep`/`tar` | works — GNU userland baked | works | works | BSD tools — GNU flags fail[^bsd] | fresh launch |
 | Build toolchain (`cc`, `make`, `strace`) | works — baked | works | works | works only with Xcode CLT[^clt] | fresh launch |
@@ -433,7 +433,7 @@ Two things cut across the whole table. First, **`macos-user` has no re-entry**: 
 
 [^packspartial]: On podman, adding a pack and *re-entering* a running jail is the worst of both: the pack's config surfaces and hooks render, while its skills, briefing, files and host-file grants do not, and its loopholes never start. Half-arrived, with nothing said. Restart for a whole pack.
 
-[^reentry]: Apple Container receives the provider/profile/`env_sources` channel as a **copied** file, made only on a fresh launch. Re-entering a running jail prints the delivery line, exits 0, and runs the previous launch's providers, profiles and dotenv values. On podman the same channel is a live file, so it does reach the next entry.
+[^reentry]: On Apple Container the jail's home is the workspace's own `.yolo/home`, and every entry, a re-entry included, rewrites the provider/profile/`env_sources` channel and each agent's own env file there before the command starts. Until 2026-09-26 only a fresh launch wrote them where this backend reads them, so a re-entry ran the previous launch's values. Checked by tests; not yet run on a Mac. On podman the same files are live binds.
 
 [^gcroot]: The image turns on `nix-command` and `flakes` in `/etc/nix/nix.conf`, so plain `nix build` and `nix shell` work with no flags. It needs a multi-user nix on the host, the kind with a nix daemon. An in-jail `nix build`'s result gets no durable garbage-collection root, so a host `nix-collect-garbage` can delete a store path a running jail is executing from, with no warning in either place.
 
@@ -477,17 +477,17 @@ Every contribution kind is delivered on all four setups — config files and the
 
 | Contribution | podman/Linux | podman/macOS | container/macOS | macos-user/macOS |
 |---|---|---|---|---|
-| `env` — static vars | works | works | works, **silent on re-entry**[^acfreeze] | works — carried in the launch env |
+| `env` — static vars | works | works | works — a pack edit needs a restart[^acfreeze] | works — carried in the launch env |
 | `files` — a tree in the agent's home | works | works | works — writable copy | **absent, silent**[^files] |
 | `mount` — host dir read-only at `/ctx/<into>` | works | works | works — needs Apple Container 1.1.0+[^acver-mount] | **absent** — and the banner says otherwise[^mountmu] |
 | `service` — an in-jail daemon (the wire bridge) | works | works | works | absent — named at launch, breaks a shipped default[^svc] |
-| `profile` — a named `-p` selection | works | works | works, **silent on re-entry**[^acfreeze] | partly — the vars land, the config surfaces do not[^profmu] |
+| `profile` — a named `-p` selection | works | works | works — a pack edit needs a restart[^acfreeze] | partly — the vars land, the config surfaces do not[^profmu] |
 | `loophole` — a host service | works | works — the jail-to-Mac connection is tested[^machop] | one starts, none usable[^theone] | all start, none fully usable[^theone] |
 
-On **podman** and **macos-user**, content contributions are re-rendered on any entry, so a host-side edit reaches a jail you re-enter. On **Apple Container** they are a snapshot of the last fresh launch: an edited pack, a changed setting, or a fresh `.yolo/handover.md` is composed, announced as delivered, and does not arrive until you restart the jail.[^acfreeze]
+On **podman** and **macos-user**, content contributions are re-rendered on any entry, so a host-side edit reaches a jail you re-enter. On **Apple Container** they are a snapshot of the last fresh launch: an edited pack or a fresh `.yolo/handover.md` is composed, announced as delivered, and does not arrive until you restart the jail.[^acfreeze]
 
 [^capture]: `program` launchers (a name on PATH plus a lazy installer that keeps the tool current) are delivered on all four. What `macos-user`, and Apple Container before 1.1.0, lack is the install-capture store that pre-seeds those installs, so a first use downloads the vendor installer instead — slower, same result.
-[^acfreeze]: Apple Container renders pack surfaces from a per-launch copy of the pack tree rather than a live read-only bind, and the copy is only refreshed by a fresh launch. Consequence for `env` and `profile`: `yolo -p <name> -- <agent>` against a running jail prints the selection it made, and the jail keeps the previous one. Restart the jail after any config or pack edit on this backend.
+[^acfreeze]: Apple Container renders pack surfaces from a per-launch copy of the pack tree rather than a live read-only bind, and the copy is only refreshed by a fresh launch. An edited pack therefore does not arrive until you restart the jail. A `-p <name>` selection and the `env` values it composes do reach a re-entry, since the channel files are rewritten on every entry[^reentry], but they are rendered through that launch's copy of each pack. Restart the jail after any pack edit on this backend.
 [^files]: `packs: ["pi"]` on macos-user silently omits the extension file the pack ships into the agent's home, so the OpenAI broker runs and the code that dials it never arrives. A gap not yet built, not a limit of the backend.
 [^acver-mount]: Read your own value with `container --version`. From 1.1.0 read-only binds are honored and this works; below it, or if the version cannot be read, the mount is skipped with a yellow line and `/ctx/<into>` does not exist. Closing the below-floor case is unbuilt work, not a permanent limit.
 [^mountmu]: On macos-user the tree is not delivered at all, and the launch's host-access banner still discloses the read as if it were — the one place here where the launch is actively misleading. Unbuilt, and known to be buildable.

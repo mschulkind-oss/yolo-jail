@@ -286,8 +286,10 @@ at none of them.
 Where each answer lands is the vehicle's:
 
 - **Container backends.** `yolo-user-env.sh` carries the shared values; each profiled agent's
-  own values go to `<workspace>/.yolo/home/agent-env/<agent>.sh` (0600), bound `:ro` at
-  `~/.config/yolo-agent-env/` on podman and copied there on Apple Container. The agent's
+  own values go to `<workspace>/.yolo/home/agent-env/<agent>.sh` (0600, in a 0700
+  directory), bound `:ro` at `~/.config/yolo-agent-env/` on podman. Apple Container binds
+  `<workspace>/.yolo/home` itself as the home, so there the files are written straight to
+  `<workspace>/.yolo/home/.config/yolo-agent-env/`, with the same modes, on every entry. The agent's
   launcher in `~/.yolo/bin/launch` sources its own file immediately before the pre-launch
   authentication step and the exec (`agentEnvShellFn` in `internal/entrypoint`), and the
   launch-flag wrapper does the same. An attach rewrites the directory whole, so an agent that

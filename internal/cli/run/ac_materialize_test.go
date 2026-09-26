@@ -17,6 +17,11 @@ import (
 // as single files (which Apple Container silently drops). A prior version only
 // handled the rt!="container" mount branch, so on AC every env_sources var and
 // every briefing silently vanished.
+//
+// yolo-user-env.sh's copy is no longer the ASSEMBLER's: deliverChannel writes it (with
+// the per-agent env files) at its in-home path on every entry, so an attach re-delivers
+// it too — TestAppleContainerWritesOwnerOnlyAgentFilesAtTheJailsPath pins that write.
+// What this test still pins for it is the other half: the assembly binds neither.
 func TestAppleContainerMaterializesSingleFiles(t *testing.T) {
 	ws := t.TempDir()
 	home := t.TempDir()
@@ -30,11 +35,7 @@ func TestAppleContainerMaterializesSingleFiles(t *testing.T) {
 	if err := os.MkdirAll(wsState, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	// Pre-stage the source files the assembler materializes.
-	userEnv := filepath.Join(wsState, "yolo-user-env.sh")
-	if err := os.WriteFile(userEnv, []byte("export FOO=bar\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	// Pre-stage the source file the assembler materializes.
 	agentsPath := filepath.Join(ws, "agents")
 	if err := os.MkdirAll(agentsPath, 0o755); err != nil {
 		t.Fatal(err)
@@ -69,12 +70,7 @@ func TestAppleContainerMaterializesSingleFiles(t *testing.T) {
 	got := o.assembleRunCmd(in)
 	joined := strings.Join(got, " ")
 
-	// 1. yolo-user-env.sh copied under ws_state at the expected rel path.
-	materializedEnv := filepath.Join(wsState, ".config", "yolo-user-env.sh")
-	if b, err := os.ReadFile(materializedEnv); err != nil || string(b) != "export FOO=bar\n" {
-		t.Errorf("yolo-user-env.sh not materialized into ws_state: err=%v content=%q", err, string(b))
-	}
-	// 2. briefing copied under ws_state at the PACK's declared mount destination — read
+	// 1. briefing copied under ws_state at the PACK's declared mount destination — read
 	// off the declaration, so the test breaks if the pack moves it rather than asserting a
 	// path the assembler never looks at.
 	briefDest := ""
@@ -90,9 +86,13 @@ func TestAppleContainerMaterializesSingleFiles(t *testing.T) {
 	if b, err := os.ReadFile(materializedBrief); err != nil || string(b) != "# briefing\n" {
 		t.Errorf("briefing not materialized into ws_state: err=%v content=%q", err, string(b))
 	}
-	// 3. NO single-file -v mount for either (that's the AC bug being avoided).
+	// 2. NO single-file -v mount for either (that's the AC bug being avoided), and no
+	// bind of the per-agent directory, which deliverChannel writes in-home on this backend.
 	if strings.Contains(joined, "yolo-user-env.sh:/home/agent") {
 		t.Errorf("AC path must NOT single-file-mount yolo-user-env.sh: %v", got)
+	}
+	if strings.Contains(joined, ":/home/agent/.config/yolo-agent-env") {
+		t.Errorf("AC path must NOT bind the per-agent env directory: %v", got)
 	}
 	if strings.Contains(joined, ":/home/agent/"+briefDest+":ro") {
 		t.Errorf("AC path must NOT single-file-mount the briefing: %v", got)

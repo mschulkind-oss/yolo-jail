@@ -74,7 +74,7 @@ func launchGateJail(t *testing.T, packNames []string, tune func(*Options)) (*gat
 	}
 	channel := channelFor(t, o, bareConfig(), packs, gateCredentials())
 	ws := t.TempDir()
-	deliverChannel(ws, channel)
+	deliverChannel(ws, "podman", channel)
 	o.noteCredentialScope(channel)
 
 	jail := &gateJail{t: t, home: t.TempDir(), fakeBin: t.TempDir()}
@@ -304,6 +304,24 @@ func TestTheLaunchPathsDeliverThroughTheGate(t *testing.T) {
 				t.Errorf("%s calls deliverChannel %d times, want once — the gate's delivery "+
 					"is the channel's only crossing", fn, calls["deliverChannel"])
 			}
+			// The RUNTIME reaches the writer, because the two container backends read the
+			// files at different places: a literal here (or a dropped argument) would write
+			// Apple Container's jail a podman bind source it never reads.
+			ast.Inspect(decl, func(n ast.Node) bool {
+				call, ok := n.(*ast.CallExpr)
+				if !ok {
+					return true
+				}
+				if f, ok := call.Fun.(*ast.Ident); ok && f.Name == "deliverChannel" {
+					if len(call.Args) != 3 {
+						t.Errorf("%s: deliverChannel takes (wsState, rt, channel)", fn)
+					} else if id, ok := call.Args[1].(*ast.Ident); !ok || id.Name != "rt" {
+						t.Errorf("%s hands deliverChannel something other than its own runtime, "+
+							"so Apple Container's attach would miss the files its jail reads", fn)
+					}
+				}
+				return true
+			})
 			if calls["writeUserEnvFile"] != 0 {
 				t.Errorf("%s writes yolo-user-env.sh directly — a writer handed the hydration "+
 					"instead of the gate's shared half puts every credential in every process", fn)

@@ -388,29 +388,23 @@ func (o *Options) assembleRunCmd(in *assembleInput) []string {
 	// --- Common env block (frozen order) ---
 	runCmd = append(runCmd, o.commonEnvBlock(in, blockedConfigJSON, netMode)...)
 
-	// --- yolo-user-env.sh (written by the lifecycle phase; mounted here) ---
-	// Apple Container can't do single-file mounts under the ws_state parent
-	// mount without dropping it, so it materializes the file into ws_state
-	// instead. Skipping the container branch silently dropped every env_sources
-	// var (the file is sourced with 2>/dev/null).
+	// --- yolo-user-env.sh and the per-agent env files (written by deliverChannel) ---
+	// Both are written by the lifecycle phase before this assembly and by every attach.
+	// podman gets them as binds: the shared file single, the per-agent directory whole —
+	// what the credential gate scopes to ONE agent, each file sourced by that agent's
+	// launcher (agentenvfiles.go, OQ-CN6) — so an attach's rewrite shows in the running
+	// jail, and `:ro`, because nothing in the jail has a reason to write what the launcher
+	// delivers. Apple Container gets NO bind for either: it binds wsState over the home and
+	// ignores `:ro` (roBindsUnsupported), so deliverChannel writes both straight to their
+	// in-home paths beneath wsState, on this launch and on every attach. Copying them here
+	// instead, as this block used to, reached the jail only on a fresh launch — an attach
+	// rewrote files that backend never reads.
 	userEnvFile := filepath.Join(in.wsState, "yolo-user-env.sh")
-	if rt == "container" {
-		acMaterialize(userEnvFile, ".config/yolo-user-env.sh", in.wsState)
-	} else {
-		runCmd = append(runCmd, "-v", userEnvFile+":/home/agent/.config/yolo-user-env.sh")
-	}
-	// --- the per-agent env files (written by deliverChannel; OQ-CN6) ---
-	// What the credential gate scopes to ONE agent, each file sourced by that agent's
-	// launcher (agentenvfiles.go). A DIRECTORY bind, so an attach's rewrite shows in the
-	// running jail, and `:ro`, because nothing in the jail has a reason to write what the
-	// launcher delivers. Apple Container ignores `:ro` (roBindsUnsupported) and binds
-	// wsState over the home anyway, so it gets the tree copied into place, the
-	// yolo-user-env.sh arrangement above.
 	agentEnvDir := filepath.Join(in.wsState, agentEnvStateDir)
-	if rt == "container" { // parity: HonoredBy — Apple Container gets the per-agent env tree copied into the wsState it binds at /home/agent, the yolo-user-env.sh arrangement
-		_ = acMaterializeTree(agentEnvDir, entrypoint.AgentEnvDirRel, in.wsState)
-	} else {
-		runCmd = append(runCmd, "-v", agentEnvDir+":/home/agent/"+entrypoint.AgentEnvDirRel+":ro")
+	if rt != "container" { // parity: HonoredBy — Apple Container binds wsState at /home/agent, and deliverChannel writes both files at their in-home paths beneath it on every entry
+		runCmd = append(runCmd,
+			"-v", userEnvFile+":/home/agent/.config/yolo-user-env.sh",
+			"-v", agentEnvDir+":/home/agent/"+entrypoint.AgentEnvDirRel+":ro")
 	}
 
 	// --- container cwd ---

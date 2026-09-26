@@ -1109,7 +1109,7 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 	// holds no provider state for a later exec to inherit, and this same write is what an
 	// attach performs to deliver a different profile into a running jail.
 	userEnv := channel.userEnv
-	deliverChannel(wsState, channel)
+	deliverChannel(wsState, rt, channel)
 	o.noteCredentialScope(channel)
 
 	// Broker singleton + relay: ensure BEFORE building the argv (the sockets-dir
@@ -1968,7 +1968,7 @@ func (o *Options) deliverChannelOnAttach(cname, rt string, cfg *jsonx.OrderedMap
 	// this entry did not compose is revoked by the rewrite — including a previous
 	// entry's shape vars and a deselected agent's whole file, which an override-only
 	// channel would have left behind. Both binds are live; no argv changes.
-	deliverChannel(paths.WorkspaceHomeState(o.Workspace), channel)
+	deliverChannel(paths.WorkspaceHomeState(o.Workspace), rt, channel)
 	o.noteCredentialScope(channel)
 	// WHERE THE SELECTIONS LANDED, on this arm too — the disclosure line the fresh
 	// path prints beside its banner. An attach that delivers a profile owes the same

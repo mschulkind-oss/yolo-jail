@@ -134,7 +134,7 @@ var parityMarker = regexp.MustCompile(`//\s*parity:\s*(\w+)\s*[-—:]*\s*(.*)$`)
 // touched in the change that added this test — several of those files were held by another
 // agent — so they are recorded rather than silently blessed.
 var parityBacklog = map[string]int{
-	"assemble.go":            10,
+	"assemble.go":            9,
 	"assemble_parts.go":      6,
 	"backendlimits.go":       1,
 	"cgroupresolve_linux.go": 1,

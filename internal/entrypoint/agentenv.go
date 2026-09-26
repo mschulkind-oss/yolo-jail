@@ -18,9 +18,10 @@ package entrypoint
 
 import "path/filepath"
 
-// AgentEnvDirRel is the per-agent env directory, relative to the jail home. The container
-// backends bind it `:ro` from <workspace>/.yolo/home/agent-env (podman) or copy it there
-// (Apple Container); the wire bridge reads a served agent's key out of it.
+// AgentEnvDirRel is the per-agent env directory, relative to the jail home. podman binds it
+// `:ro` from <workspace>/.yolo/home/agent-env; Apple Container, which binds the workspace's
+// home state itself, has the host launcher write it in place on every entry. The wire bridge
+// reads a served agent's key out of it.
 const AgentEnvDirRel = ".config/yolo-agent-env"
 
 // AgentEnvFile is the env file of one agent (its CLI name) under home.
