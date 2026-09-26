@@ -74,7 +74,7 @@ maintainer did not rule it:
 shape and profile names: [`bedrock-plumbing.md`](bedrock-plumbing.md)
 ([OQ-BR9](bedrock-plumbing.md#OQ-BR9), [OQ-BR1](bedrock-plumbing.md#OQ-BR1)). Model lists:
 [`model-lists-and-pickers.md`](model-lists-and-pickers.md). The deselection state machine:
-[`provider-switching.md`](provider-switching.md). Routing all traffic through the wire bridge:
+[the providers reference](../reference/providers.md#deselection-clear-what-yolo-wrote-keep-what-the-user-wrote). Routing all traffic through the wire bridge:
 [`wire-bridge-gateway.md`](wire-bridge-gateway.md). Rewriting
 [`providers.md`](../reference/providers.md) happens only after this doc rules.
 

@@ -42,7 +42,7 @@ names what is open there.
 
 | Order | Doc | Its one question | Ruled |
 | :--- | :--- | :--- | :--- |
-| 1 | [`provider-switching.md`](provider-switching.md) | what happens to the model id yolo wrote when you drop a profile ([OQ-PSW2](provider-switching.md#decision-ledger), [OQ-PSW4](provider-switching.md#OQ-PSW4)) | 2026-09-25 |
+| 1 | [`providers.md`](../reference/providers.md#deselection-clear-what-yolo-wrote-keep-what-the-user-wrote) | what happens to the model id yolo wrote when you drop a profile ([OQ-PSW2](../reference/providers.md#oq-psw2), [OQ-PSW4](../reference/providers.md#oq-psw4)) | 2026-09-25 |
 | 2 | this doc | one Bedrock provider, and what you type ([OQ-BR9](#OQ-BR9) with [OQ-BR1](#OQ-BR1)) | — |
 | 3 | [`provider-credential-scope.md`](provider-credential-scope.md) | which credentials and env a profile lets through to which agent ([OQ-CN6](provider-credential-scope.md#OQ-CN6) with [OQ-CN2](provider-credential-scope.md#OQ-CN2) first) | 2026-09-26 |
 | 4 | [`providers-and-profiles-redesign.md`](providers-and-profiles-redesign.md) | what a provider and a profile should mean ([OQ-BR2](providers-and-profiles-redesign.md#OQ-BR2), then [OQ-BR8](providers-and-profiles-redesign.md#OQ-BR8), then the PP questions) | — |
@@ -136,7 +136,7 @@ out the SSO credential, the primary one ([§6.4](#64-the-credential-three-are-su
 together.** This machine's 2026-05 switch from Bedrock to Teams left the Bedrock-shaped model pin
 behind, and it failed later as a 404. For Bedrock, the endpoint family and the model id are one
 decision. The general form, and the defect it left in selection, is
-[`provider-switching.md`](provider-switching.md).
+[the providers reference](../reference/providers.md#deselection-clear-what-yolo-wrote-keep-what-the-user-wrote).
 
 **P2. Where the agent already knows the service, yolo supplies facts, not plumbing.** A provider
 with no endpoints says "the client composes its own URL from a region", and packs/claude's
@@ -810,7 +810,7 @@ links.
 | <a id="OQ-BR10"></a>[OQ-BR10](wire-bridge-gateway.md#OQ-BR10), <a id="OQ-BR16"></a>[OQ-BR16](wire-bridge-gateway.md#OQ-BR16), <a id="OQ-BR17"></a>[OQ-BR17](wire-bridge-gateway.md#OQ-BR17), <a id="OQ-BR18"></a>[OQ-BR18](wire-bridge-gateway.md#OQ-BR18); the signer and everything-profile routing (parts 3 and 4 of the former section 6.6); the Claude-subscription route (former section 6.8); done-condition 6; R6 and R7 | [`wire-bridge-gateway.md`](wire-bridge-gateway.md) | all ruled 2026-09-24 |
 | <a id="OQ-BR19"></a>[OQ-BR19](bedrock-web-search.md#OQ-BR19), <a id="OQ-BR20"></a>[OQ-BR20](bedrock-web-search.md#OQ-BR20), <a id="OQ-BR21"></a>[OQ-BR21](bedrock-web-search.md#OQ-BR21), <a id="OQ-BR22"></a>[OQ-BR22](bedrock-web-search.md#OQ-BR22), <a id="OQ-BR23"></a>[OQ-BR23](bedrock-web-search.md#OQ-BR23), <a id="DIR-BR4"></a>[DIR-BR4](bedrock-web-search.md#DIR-BR4); the former section 6.9; D6 and D7; done-condition 12; R10 and R11; the AgentCore evidence | [`bedrock-web-search.md`](bedrock-web-search.md) | DIR-BR4 ruled 2026-09-25 |
 | static keys beside `aws-auth`'s pointer ([OQ-SSO8](sso-backed-bedrock.md#OQ-SSO8)), option D's retirement ([OQ-SSO9](sso-backed-bedrock.md#OQ-SSO9)), AWS's guidance on the three credentials | [`sso-backed-bedrock.md`](sso-backed-bedrock.md) | ruled there |
-| deselection and the id a dropped profile leaves (P1's general form, done-condition 4) | [`provider-switching.md`](provider-switching.md) | — |
+| deselection and the id a dropped profile leaves (P1's general form, done-condition 4) | [`providers.md`](../reference/providers.md#deselection-clear-what-yolo-wrote-keep-what-the-user-wrote) | — |
 
 ---
 

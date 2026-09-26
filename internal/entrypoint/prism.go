@@ -111,7 +111,7 @@ func readSelectionRecord(e *Env, agent, name string) map[string]any {
 
 // noteSelectionClears records, in the boot log only, each key a deselect cleared out of the
 // file the render just wrote (agentcfg.StatefulOutput.SelectionCleared; OQ-PSW4,
-// docs/design/provider-switching.md: "no print, except in verbose mode"). The terminal stays
+// docs/reference/providers.md#oq-psw4: "no print, except in verbose mode"). The terminal stays
 // silent. This is the one call site for the record, so promoting it to the terminal under
 // in-jail verbosity, once OQ-DB1 gives the jail one, is a change here alone.
 //

@@ -646,9 +646,9 @@ narrows are user-curated ([OQ-GP2](gateway-provider-packs.md#decision-ledger), a
 Kilo already reaches claude and copilot through the bridge
 ([OQ-GP3](gateway-provider-packs.md#decision-ledger)).
 
-**A rejected alternative, revisited.** [`provider-switching.md`](provider-switching.md) rejected
-refusing a launch when the config holds an id outside the selected provider's `models`, "for v1 —
-reconsider later": it would catch residue loudly but refuse most legitimate hand-picked models.
+**A rejected alternative, revisited.** The providers reference
+[rejects refusing a launch](../reference/providers.md#no-launch-time-model-id-refusal) when the
+config holds an id outside the selected provider's `models`: it would catch residue loudly but refuse most legitimate hand-picked models.
 A launch-time check also cannot see a mid-session `/model` switch or a `--model` flag, and the
 bridge sees every request. So the rejection stands as the *enforcement point*, while its intent
 moves here.
@@ -728,7 +728,7 @@ Three earlier non-licenses are reopened here by name:
 | **A host-side signing proxy** ([option E](sso-backed-bedrock.md#4-five-options)) | **Not needed.** An in-jail signer gets the refresh and the policy resilience without the host seeing any prompt. |
 | **Vendor the AWS SDK's signer** ([OQ-BR10](#OQ-BR10)'s option C) | **Not taken; the implementer's call**, to keep the hermetic build free of an AWS module. The test vectors pin the standard-library signer instead. |
 | **Two claude profiles, no routing by model** ([OQ-BR11](bedrock-plumbing.md#OQ-BR11)'s leaning) | **Overruled**: one session could never switch between Claude and an OpenAI model. |
-| **Refuse a launch on an id outside the provider's `models`** ([`provider-switching.md`](provider-switching.md)) | **Still rejected as the enforcement point**; its intent moves to the bridge ([OQ-WG3](#OQ-WG3)). |
+| **Refuse a launch on an id outside the provider's `models`** ([providers reference](../reference/providers.md#no-launch-time-model-id-refusal)) | **Still rejected as the enforcement point**; its intent moves to the bridge ([OQ-WG3](#OQ-WG3)). |
 | **Sign on the provider's Bedrock marker** | **Deferred, not rejected ([OQ-WG1](#OQ-WG1))**: the follow-up once [OQ-BR2](providers-and-profiles-redesign.md#OQ-BR2) gives providers a marker, because host patterns cannot know every configuration. |
 
 ---
@@ -789,8 +789,8 @@ Three earlier non-licenses are reopened here by name:
    ([OQ-BR12](model-lists-and-pickers.md#OQ-BR12)) is the one allowlist. The bridge refuses any
    other model id with an error shaped for the agent's protocol (Anthropic or OpenAI) that names
    the list. The bridge is the only hard enforcer for agents whose picker is soft (pi's
-   `enabledModels`). The launch-time "refuse unknown id" of
-   [`provider-switching.md`](provider-switching.md) stays rejected as the enforcement point.
+   `enabledModels`). The launch-time "refuse unknown id"
+   ([providers reference](../reference/providers.md#no-launch-time-model-id-refusal)) stays rejected as the enforcement point.
 
 
    **Answer:**

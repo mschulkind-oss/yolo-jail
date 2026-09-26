@@ -46,7 +46,7 @@ local function codexWireAPI(canonical)
 end
 
 -- The provider's URL for the protocol codex speaks — `openai-responses` (preferred) or
--- `openai`, per docs/design/provider-switching.md §4.1. The single-protocol `base_url`
+-- `openai`, per docs/reference/providers.md (the per-agent table). The single-protocol `base_url`
 -- shorthand wins; otherwise the openai-responses or openai endpoint. Total over non-tables
 -- so the call site stays a one-line gate. Returns nil when the provider names no URL an
 -- openai-speaking agent can use, which is what keeps that gate honest: an endpoints-only
@@ -204,7 +204,7 @@ yolo.derive("codex", "config", function(ctx)
   -- it out of the selection: no keys at all, never a `model_provider` naming a provider
   -- whose row the catalog dropped — codex refuses that config at startup.
   --
-  -- openai-codex (docs/design/provider-switching.md §4.1) is Codex's native first-party
+  -- openai-codex (docs/reference/providers.md#selecting-openai-codex-for-codex) is Codex's native first-party
   -- subscription provider. When selected, the selection asserts `model` directly without
   -- `model_provider`, allowing Codex CLI to authenticate natively via OAuth while clearing
   -- any third-party `model_provider` residue.
