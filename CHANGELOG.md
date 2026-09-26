@@ -19,26 +19,21 @@ and a launch refuses an agent that cannot speak its provider's protocol.
 
 ### Added
 
-**Bedrock from your SSO login.** The `aws-auth` pack turns a host `aws sso login` into a
-short-lived credential for a role you name, optionally narrowed further by a session policy, and
-serves it to the jail on a loopback address. The jail holds no key and no `~/.aws`. Enable
-`loopholes.aws-auth` in your user config with `profile` and `role_arn` set under its `settings`,
-then run `yolo -p bedrock -- claude`. See [the pack's README](packs/aws-auth/README.md).
+**Bedrock from your SSO login.** The `aws-auth` pack, which the claude pack brings along, turns a
+host `aws sso login` into a short-lived credential for a role you name. The jail holds no key and
+no `~/.aws`. Enable `loopholes.aws-auth` in your user config with a `profile` and `role_arn`, as
+[the pack's README](packs/aws-auth/README.md) shows, then run `yolo -p bedrock -- claude`.
 
 **An agent footer.** Every agent with a status-line hook shows its billing route and whether it
-runs in a jail or on the host, unless you set your own `statusLine`. Claude hides most of its
-keyboard hints while any status line is set.
+runs in a jail or on the host, unless you set your own `statusLine`. Claude's also shows its
+thinking level.
 
 **Agents and providers are checked against each other.** A launch whose agent cannot speak any
 protocol its provider serves is refused, naming any shipped pack that translates between them.
 `yolo check` predicts it. See [Providers](docs/reference/providers.md).
 
-- `yolo host-daemon status|stop|restart|logs` manages the machine-wide daemons: the Claude broker,
-  the OpenAI login broker and aws-auth.
-- `YOLO_HOLD_ON_REFUSAL=1` keeps a jail whose boot refused running, so you can exec into it.
-- `yolo check` prints `[SKIP]` for an area it did not look at, where it used to report a pass.
+- `yolo host-daemon status|stop|restart|logs` manages the machine-wide daemons.
 - `nix shell` and `nix build` work in a jail with no extra flags.
-- On a Mac, a changed image sends only the layers the runtime does not already hold.
 
 ### Changed
 
@@ -47,37 +42,48 @@ protocol its provider serves is refused, naming any shipped pack that translates
 - **Git packs are fetched at launch**, and a `?ref=<branch>` pack follows its branch within the
   hour. Pin a tag or commit for any pack that runs code on your machine.
 - **`lsp_servers` installs nothing.** Install servers through `mise_tools` or `packages`. Run
-  `yolo programs ls` before `programs.autoprune: true`, which would delete the old copies along with
-  every tool in `~/go/bin`.
-- **A new podman workspace copies only your Claude account and onboarding state from the
-  machine-wide home**, so a login that lived only there asks you to sign in once.
-- **Pack briefings come only from a pack's `briefing/` directory**, no longer from the
-  instructions file at its root. `briefing_provenance: true` labels each pack's section.
-- A launch warns when a pack's content is addressed, by its `agents` selector, to no agent in the
-  jail.
-- `writable_home_dirs` may not name a selected pack's directory, and may now name an unselected
-  one's, such as `.codex`.
-- pi updates its extensions before it starts, at most hourly, and every workspace shares them.
-  `agent_updates: false` turns it off.
-- `host_management: "own"` turns on host wrappers. `host_wrappers: false` still wins.
+  `yolo programs ls` before `programs.autoprune: true`, which deletes the old copies and all of
+  `~/go/bin`.
+- **A new podman workspace copies only your Claude account and onboarding state** from the
+  machine-wide home, so a login kept only there asks you to sign in once.
+- **Pack briefings come only from a pack's `briefing/` directory**, not the instructions file at
+  its root.
+- **Dropping a profile clears the provider and model yolo wrote for it** into pi, opencode or
+  codex, and keeps a model you picked inside the agent.
+- `writable_home_dirs` and `host_files` refuse the paths of the packs you select, including packs
+  yolo does not ship, and no others. A claude-only workspace may now name `.codex` or
+  `~/.codex/config.toml`.
+- pi updates its extensions before it starts, at most hourly and whenever its settings change.
+  `agent_updates: false` turns that off.
 - An unknown flag exits 2 instead of being ignored.
 - Two writers for one `host_files` destination refuse the launch; the last one used to win.
-- An installer URL that does not return a shell script is refused.
-- Claude's and pi's `codex` profiles offer the GPT-6 models, defaulting to GPT-6 Sol.
 
 ### Removed
 
 - A provider's bare `base_url`, which agents read as different protocols. Write
   `endpoints.<protocol>.base_url`.
 - The `claude_plugins` pack hook. Its refusal names the replacements.
+- `yolo host wrappers enable` and `disable`. Wrappers are on by default when `host_management` is
+  `"own"`, and `"host_wrappers": false` in your user config turns them off.
 
 ### Fixed
 
 - The Claude OAuth broker could return the token a jail already held, and Claude Code stopped
   with `api_request_oauth_refresh_exhausted`.
+- Claude on its `codex` profile showed `did not translate` in place of ChatGPT's own errors.
 - Claude over the wire bridge reported zero input tokens. A provider that rejects the usage
   request needs `"supports_usage_in_streaming": "false"` in its `options`
   ([Streamed usage](docs/reference/wire-bridge.md#streamed-usage)).
+- `yolo -p` stopped changing pi's model once your host's pi settings named one.
+- The models you scoped inside pi were reset to yolo's list at every launch.
+- Every pi launch printed `Failed to load theme "system"`.
+- With the kilo pack and no profile naming a kilo model, pi rejected its whole `models.json`.
+- Claude's LSP plugins that you enabled on the host were off in the jail unless `lsp_servers`
+  named their language.
+- Codex could not renew its ChatGPT sign-in through the `openai-auth` pack.
+- `yolo host apply --assert` replaced the `env` block of your host `~/.claude/settings.json`,
+  dropping your own variables.
+- `yolo host apply` skipped every git pack, even an installed one.
 - `yolo host apply` adopted `~/.claude/skills/synced/`, and the next claude.ai sync lost new and
   edited skills.
 - A workspace pinning an older Node, such as 20, left pi unable to start.
