@@ -36,7 +36,7 @@ lane order:
 | ✅ 7 | ~~the queued pack batch~~ — **ALL TEN SHIPPED 2026-08-04** (its rulings: [`pack-system.md`](../reference/pack-system.md#pack-batch); its history: `git log -- docs/plans/shipped-2026-08-pack-batch.md`). What remains across the whole project now lives in [roadmap.md](roadmap.md) | — | — |
 | 4 | **agent auth — capture the model, fix the asymmetry** (Claude broker rationale, the five un-investigated agents, macos-user parity, 4 verified defects) | jail-side (macos-user half is Mac-gated) | none for the audit/docs half; the macos-user fixes need a Mac to verify |
 | 5 | **agent config packs** — share skills/AGENTS.md prose across agents by `(repo, path, branch)`, no PR ([agent-config-packs.md](agent-config-packs.md)) | jail-side | none; Phase 0 is local-only and fixes a standalone `pi`/`codex` skills gap |
-| ✅ 6 | ~~pack first-contact fixes~~ — **ALL SEVEN CLOSED** (F7, a regression against the batch, fixed 2026-08-05) ([feedback-real-pack-adoption.md](feedback-real-pack-adoption.md)) | — | — |
+| ✅ 6 | ~~pack first-contact fixes~~ — **ALL SEVEN CLOSED** (F7, a regression against the batch, fixed 2026-08-05) (`feedback-real-pack-adoption.md`, retired 2026-09-27; its rulings are in [`pack-system.md`](../reference/pack-system.md#batch-6a), the notes are in `git log -- docs/plans/feedback-real-pack-adoption.md`) | — | — |
 
 ### Item 0 — remove the `gemini` agent
 

@@ -9,13 +9,14 @@ package packload
 // (run.packBriefingProses), both over GovernedSources, then merges the union into every
 // destination any pack DECLARED. The host render did not, because it iterates `Decl.Contributions()` and a
 // manifest-less pack has none — so `pack lint` said `✓ pack ok`, the apply printed nothing
-// about it, and a real $HOME received zero files (docs/plans/feedback-real-pack-adoption.md F1).
+// about it, and a real $HOME received zero files (finding F1 of the 2026-08-04 pack-adoption
+// field notes; the ruling is docs/reference/pack-system.md#batch-6a-3).
 //
 // That was a NOTCH ASYMMETRY, not a host policy: the jail already proves the inference is
 // well-defined, and the destination list already exists in the manifests. So this is that
 // inference, extracted to one place, rather than a second hardcoded ".claude/skills" — which
 // would have to guess the agent set, and is exactly what `into` is deliberately NOT
-// conventionalized to avoid (roadmap.md §6a-3).
+// conventionalized to avoid (docs/reference/pack-system.md#batch-6a-3).
 //
 // THE DESTINATIONS COME FROM THE SELECTED PACK SET. An agent pack's `skills` contribution
 // exists to NAME the directory its agent reads from (hostskills.Deliver says so), and its
