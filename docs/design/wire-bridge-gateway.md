@@ -435,7 +435,11 @@ to the bridge ([WG-I15](#WG-I15)).
     `Via`. So `ViaURLFor` answers "" there whatever the pack set holds. This amends
     [WG-I8](#WG-I8), whose "the service pack is absent" is false when a user lists `wire-bridge`
     in `packs`. Before it, the host's env derive (`packload.AgentEnv`) received a `ctx.via_url`
-    for an address nothing serves there.
+    for an address nothing serves there. The same gap held for the bridge's ADAPTER addresses,
+    which this cleared nothing of. [`credential-sources-separation.md`
+    ES-D18](credential-sources-separation.md#10-decision-ledger) (2026-09-27) closes it: the
+    host's table composes no address a pack's own service serves, and a profile only such an
+    address would pair refuses.
 16. <a id="WG-I13"></a>**[WG-I13](#WG-I13)** — **the launch refuses a re-pointed via agent the
     daemon serves no route for.** It is the ninth launch pre-flight (`run.Options.checkViaRoutes`),
     and `yolo check` predicts it as a FAIL. Both call `wirebridged.ViaRouteGate`, which reads

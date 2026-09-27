@@ -24,7 +24,8 @@ in-process reproduction, and no launch there has been observed succeeding
 ([what can hold the listen port](#what-can-hold-the-listen-port-before-the-bridge-does)).
 [The via route](#the-via-route--one-route-per-agent-under-agentname) was added 2026-09-25, and its
 Responses wire 2026-09-26. It is MEASURED in-process only, against a stubbed upstream; no agent has
-sent a request through it.
+sent a request through it. [What the host notch does with the bridge's addresses](#at-the-host-notch)
+is newer still (2026-09-27), and is MEASURED through `hostMain` by unit tests in `internal/cli`.
 
 A **wire bridge** *(coined here)* is an in-jail daemon that manufactures, on the jail's own
 loopback, a wire protocol a provider does not natively serve, by translating to one it does.
@@ -660,7 +661,30 @@ listeners. These are the facts that survive:
   remapping beyond passthrough.
 - **No host-side bridge.** The bridge exists only in-jail. The code has no jail dependencies,
   which is what keeps the door open for a host notch to run the same subcommand later — not a
-  promise to walk through it.
+  promise to walk through it. <a id="at-the-host-notch"></a>**So `yolo host` composes none of
+  its addresses** (2026-09-27, [ES-D18](../design/credential-sources-separation.md#10-decision-ledger)).
+  A user can still select the pack there, by listing `wire-bridge` in `packs`, because the host
+  notch applies no pack's `needs`. The host composes its provider table with
+  `packload.WithoutServiceAdaptations`: an adaptation whose own pack serves it with a `service`
+  contributes no address, since nothing at the host listens on it. The via address was already
+  cleared the same way, by `packload.ViaInert` ([WG-I12](../design/wire-bridge-gateway.md#WG-I12)).
+  Two outcomes follow. An agent that also speaks the provider's own wire runs on that endpoint:
+  copilot on cerebras goes to cerebras's openai endpoint, as it does with wire-bridge unlisted.
+  An agent that does not REFUSES, before anything is exec'd, and so does `yolo host env`. The
+  refusal names the profile, the address and the service that serves it inside a jail, and the
+  jail spelling where the profile works:
+
+  ```console
+  $ yolo host -p cerebras -- claude
+  yolo host: refusing to launch: profile "cerebras" points claude at http://127.0.0.1:8214, where pack "wire-bridge" adapts "openai" → "anthropic" for provider "cerebras" — and that address is served by the pack's own "wire-bridge" service, a daemon yolo runs only inside a jail. No host process serves it, so `yolo host` will not run claude pointed at it.
+    The profile works inside a jail: `yolo -p claude=cerebras -- claude`.
+    At the host, choose a profile whose provider claude speaks to directly
+  ```
+
+  Before this, that launch ran claude with `ANTHROPIC_BASE_URL=http://127.0.0.1:8214`, an
+  address no host process serves. An adapter whose pack runs no service, such as a remote gateway
+  or a proxy the user runs, still composes at the host
+  ([`protocol-resolution.md`](protocol-resolution.md#the-three-declarations)).
 - **No inbound authentication scheme.** The jail is the trust boundary. If that ever stops being
   true, the bridge grows auth before it grows anything else.
 - **No provider-side knob for the port.** The address is the *adapter's* own declaration, with

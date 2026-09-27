@@ -131,7 +131,7 @@ func AgentEnv(packs []*Pack, providers *jsonx.OrderedMap, useProfiles map[string
 	// the resolved selection in hand. Above DeriveScript on purpose — a pairing nothing can
 	// serve is broken whether or not the pack ships a producer, and a silent pass for a
 	// pack with no derive.lua would make the gate depend on a file's existence.
-	if err := refuseUnspeakableProvider(packs, owner, agent, selected, providers); err != nil {
+	if err := refuseUnspeakableProvider(packs, owner, agent, selected, providers, cfg.unserved); err != nil {
 		return nil, err
 	}
 	script := DeriveScript(owner)
@@ -197,6 +197,17 @@ func AgentEnv(packs []*Pack, providers *jsonx.OrderedMap, useProfiles map[string
 // them hand over a nil it does not have.
 type agentEnvOpts struct {
 	resolved map[string]ResolvedProfile
+	// unserved is WithUnservedAdaptations' list.
+	unserved []Adaptation
+}
+
+// WithUnservedAdaptations hands the protocol gate the conversions this notch's composition
+// left out because it cannot serve them (WithoutServiceAdaptations, ServiceAdaptations), so a
+// pairing only one of them would resolve refuses as *UnservedAdapterError, saying why, rather
+// than as a pairing nothing declares an adapter for. It changes no pairing's outcome: the
+// table decides that, and the table already lacks these addresses.
+func WithUnservedAdaptations(unserved []Adaptation) AgentEnvOption {
+	return func(o *agentEnvOpts) { o.unserved = unserved }
 }
 
 // AgentEnvOption mutates the optional inputs.

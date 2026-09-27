@@ -353,8 +353,9 @@ Where each answer lands is the vehicle's:
     does. The line is checked the way the launch it names would be, so it never names a launch
     that refuses. With `"packs": ["claude", "cerebras"]`, claude cannot run on the openai-only
     cerebras profile here: this notch applies no pack's `needs`, so wire-bridge does not join
-    as it does in a jail. The line names `yolo host -p cerebras -- bash` instead, and says
-    why. On an agent, the named `-p` replaces the agent's
+    as it does in a jail. Listing wire-bridge in `packs` does not change that, since the host
+    composes none of the bridge's addresses (next bullet). The line names
+    `yolo host -p cerebras -- bash` instead, and says why. On an agent, the named `-p` replaces the agent's
     own profile, and the line says so ("run claude on the zai profile for one launch, replacing
     its bedrock profile"). At `yolo host env` the shell spelling is always
     `eval "$(yolo host env --agent bash -p <profile>)"`, never the verb's own agent, whose
@@ -364,6 +365,15 @@ Where each answer lands is the vehicle's:
     is disclosed as not delivered from `env_sources`, the process holding that source's value.
     Neither line calls the name withheld, because the command holds it anyway
     ([ES-D10 to ES-D12](../design/credential-sources-separation.md#10-decision-ledger)).
+  - **A profile the in-jail bridge would serve refuses here.** The host runs no pack's
+    `service`, so it composes no adapter address a pack's own service serves
+    (`packload.WithoutServiceAdaptations`). With `wire-bridge` listed in `packs`,
+    `yolo host -p cerebras -- claude` refuses before the exec, as does `yolo host env`. The
+    refusal names `http://127.0.0.1:8214` and the `wire-bridge` service that serves it only
+    inside a jail, and gives the jail spelling, `yolo -p claude=cerebras -- claude`. It never
+    runs claude pointed at that address. Copilot, which also speaks openai, runs on cerebras's
+    own endpoint instead ([`wire-bridge.md`](wire-bridge.md#at-the-host-notch),
+    [ES-D18](../design/credential-sources-separation.md#10-decision-ledger)).
   - **`--with-credentials` grants keys by provider, for one run.**
     `yolo host --with-credentials zai,cerebras -- <cmd>` hands the command those providers'
     claimed `env_sources` values, and `all` names every composed provider that claims a value

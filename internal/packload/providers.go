@@ -82,7 +82,7 @@ func ComposeProviders(user *jsonx.OrderedMap, packs []*Pack, opts ...ComposeOpti
 		// launch whose providers are entirely pack-shipped is the common bridged case, and
 		// an early return that skipped it would leave exactly that launch unresolved.
 		liftModelFacts(out)
-		adaptEndpoints(out, packs, cfg.adapterAddresses)
+		adaptEndpoints(out, packs, cfg)
 		return orderedOrNil(out), nil
 	}
 	for _, name := range user.Keys() {
@@ -138,7 +138,7 @@ func ComposeProviders(user *jsonx.OrderedMap, packs []*Pack, opts ...ComposeOpti
 	// listen. Below the user layer so an explicit `endpoints.<protocol>.base_url` always
 	// wins: an adapter fills a hole, and a user who wrote an address did not leave one.
 	liftModelFacts(out)
-	adaptEndpoints(out, packs, cfg.adapterAddresses)
+	adaptEndpoints(out, packs, cfg)
 	return orderedOrNil(out), nil
 }
 
@@ -302,8 +302,17 @@ func numberString(v any) string {
 // NOTHING IS OVERWRITTEN. A provider that offers the protocol itself keeps its own address:
 // an adapter is never preferred over a native endpoint (§4.1), so a provider with a real
 // anthropic route is reached directly even in a jail where the bridge is running.
-func adaptEndpoints(table *jsonx.OrderedMap, packs []*Pack, addresses map[string]string) {
-	adapters := Adaptations(packs)
+func adaptEndpoints(table *jsonx.OrderedMap, packs []*Pack, cfg composeOpts) {
+	addresses := cfg.adapterAddresses
+	var adapters []Adaptation
+	for _, a := range Adaptations(packs) {
+		// A NOTCH THAT RUNS NO PACK SERVICE composes no address one serves
+		// (WithoutServiceAdaptations): nothing there listens on it.
+		if cfg.withoutServiceAdaptations && a.Service != "" {
+			continue
+		}
+		adapters = append(adapters, a)
+	}
 	if len(adapters) == 0 {
 		return
 	}

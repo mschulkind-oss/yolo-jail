@@ -53,6 +53,13 @@ type Adaptation struct {
 	From, To string
 	// Address is where the converted wire is served.
 	Address string
+	// Service is the `service` the declaring pack contributes beside the adapter, "" when it
+	// contributes none. It is the one fact that tells an adapter whose own pack runs the
+	// daemon serving Address from one naming a remote gateway or a proxy the user runs
+	// (protocol-resolution.md#the-three-declarations: "the presence of a sibling `service`
+	// contribution is the only thing that tells the three apart"). A notch that runs no pack
+	// service cannot serve the first kind (ServiceAdaptations).
+	Service string
 }
 
 // AdapterKey is the SOLE-OWNED IDENTITY of an adaptation, spelled as one string: the pair,
@@ -71,6 +78,63 @@ type ComposeOption func(*composeOpts)
 
 type composeOpts struct {
 	adapterAddresses map[string]string
+	// withoutServiceAdaptations composes no address a pack's own service serves
+	// (WithoutServiceAdaptations).
+	withoutServiceAdaptations bool
+}
+
+// WithoutServiceAdaptations composes the table for a notch that runs NO pack service — the
+// host, whose `yolo host` starts no daemon a pack's `service` declares (a service's host half
+// is declared and carried, not executed). An adaptation whose declaring pack serves it with
+// such a daemon (Adaptation.Service) then composes no address: the address is one nothing at
+// this notch listens on, and an agent pointed there fails at its first request. Every other
+// adaptation composes as usual, and so does every provider's own endpoint, so an agent that
+// speaks the provider's wire resolves to it directly, as it would with the adapter's pack
+// unselected. A pairing only the left-out adaptation would resolve refuses at the gate, and
+// WithUnservedAdaptations lets that refusal say why.
+//
+// It mirrors ViaInert (WG-I12) for the adapter's address: that clears the via address, and
+// this keeps the adapter address out of the table.
+func WithoutServiceAdaptations() ComposeOption {
+	return func(o *composeOpts) { o.withoutServiceAdaptations = true }
+}
+
+// ServiceAdaptations returns the conversions packs declare whose own pack serves them with a
+// `service` (Adaptation.Service), each Address carrying the user's override when there is one
+// (WithAdapterAddresses' map): the adaptations WithoutServiceAdaptations leaves out, spelled
+// for a refusal to name where the agent would have been pointed.
+func ServiceAdaptations(packs []*Pack, addresses map[string]string) []Adaptation {
+	var out []Adaptation
+	for _, a := range Adaptations(packs) {
+		if a.Service == "" {
+			continue
+		}
+		if override, ok := addresses[AdapterKey(a.From, a.To)]; ok && override != "" {
+			a.Address = override
+		}
+		out = append(out, a)
+	}
+	return out
+}
+
+// UnservedAdapterError is the gate's refusal for a pairing only an adaptation this notch cannot
+// serve would resolve: a selected pack declares the conversion, and serves its address from a
+// daemon of its own that does not run here. Typed, so the notch that left the adaptation out
+// (the host) can name where the profile does work; its Error() is complete without that.
+type UnservedAdapterError struct {
+	// Agent and Provider are the pairing that refused.
+	Agent, Provider string
+	// Adaptation is the conversion that would have resolved it, with the address the agent
+	// would have been pointed at.
+	Adaptation Adaptation
+}
+
+func (e *UnservedAdapterError) Error() string {
+	a := e.Adaptation
+	return fmt.Sprintf("provider %q would reach agent %q only through pack %q's %s → %s adapter at "+
+		"%s, and that address is served by the pack's own %q service, a daemon that runs only "+
+		"inside a jail — nothing serves it here, so %s would be pointed at a dead address",
+		e.Provider, e.Agent, a.Pack, strconv.Quote(a.From), strconv.Quote(a.To), a.Address, a.Service, e.Agent)
 }
 
 // WithAdapterAddresses supplies the user's adapter address overrides, keyed by AdapterKey
@@ -99,6 +163,10 @@ func Adaptations(packs []*Pack) []Adaptation {
 	var out []Adaptation
 	seen := map[string]bool{}
 	for _, p := range packs {
+		service := ""
+		if svcs := p.Decl.Services(); len(svcs) > 0 {
+			service = svcs[0].Name
+		}
 		for _, a := range p.Decl.Adapters() {
 			if a.From == "" || a.To == "" || a.Address == "" {
 				continue
@@ -108,7 +176,8 @@ func Adaptations(packs []*Pack) []Adaptation {
 				continue
 			}
 			seen[key] = true
-			out = append(out, Adaptation{Pack: p.Name, From: a.From, To: a.To, Address: a.Address})
+			out = append(out, Adaptation{Pack: p.Name, From: a.From, To: a.To, Address: a.Address,
+				Service: service})
 		}
 	}
 	return out
@@ -237,8 +306,14 @@ func missingAdapterFor(spoken []string, offered map[string]bool, elsewhere []Ada
 // owner is the pack that installs agent's CLI, found by bin ownership: the same identity
 // AgentEnv discovers a producer through, so the pack that speaks for an agent's environment
 // is the pack that speaks for its wires.
+//
+// unserved is what the composition left out because this notch cannot serve it
+// (WithoutServiceAdaptations), nil at a notch that runs its packs' services. A pairing one of
+// them would have resolved refuses as *UnservedAdapterError instead of outcome 4, whose
+// "nothing declares an adapter" is false of it: a selected pack declares one, and the notch
+// cannot serve it.
 func refuseUnspeakableProvider(packs []*Pack, owner *Pack, agent, selected string,
-	providers *jsonx.OrderedMap) error {
+	providers *jsonx.OrderedMap, unserved []Adaptation) error {
 	if selected == "" || providers == nil {
 		return nil
 	}
@@ -250,8 +325,13 @@ func refuseUnspeakableProvider(packs []*Pack, owner *Pack, agent, selected strin
 	if !ok {
 		return nil
 	}
-	_, err := ResolveProtocol(agent, owner.Decl.SpokenProtocols(agent), selected, entry,
-		UnselectedAdaptations(packs))
+	spoken := owner.Decl.SpokenProtocols(agent)
+	_, err := ResolveProtocol(agent, spoken, selected, entry, UnselectedAdaptations(packs))
+	if err != nil {
+		if a := missingAdapterFor(spoken, providerProtocols(entry), unserved); a != nil {
+			return &UnservedAdapterError{Agent: agent, Provider: selected, Adaptation: *a}
+		}
+	}
 	return err
 }
 
@@ -415,7 +495,7 @@ func PairingRefusals(packs []*Pack, providers *jsonx.OrderedMap,
 			continue
 		}
 		if err := refuseUnspeakableProvider(packs, owner, agent,
-			ProviderFor(resolved, profile), providers); err != nil {
+			ProviderFor(resolved, profile), providers, nil); err != nil {
 			out = append(out, err)
 		}
 	}

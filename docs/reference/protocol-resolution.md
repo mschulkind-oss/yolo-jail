@@ -136,6 +136,15 @@ Only the first involves a daemon, and nothing assumes the others away: an adapte
 running service is the common case, not the definition. The presence of a sibling `service`
 contribution is the only thing that tells the three apart.
 
+**That fact decides the host notch too** (2026-09-27,
+[ES-D18](../design/credential-sources-separation.md#10-decision-ledger)). `yolo host` runs no pack's
+`service`, so it composes its table with `WithoutServiceAdaptations`. The first shape's address
+is left out there, because nothing at the host listens on it. The other two compose as they do
+in a jail. A pairing only a left-out adaptation would resolve refuses at the gate as
+`UnservedAdapterError`, naming the pack's service and saying the address is served only inside a
+jail, instead of outcome 4's "nothing declares an adapter"
+([`wire-bridge.md`](wire-bridge.md#at-the-host-notch)).
+
 **The adapter set is every SELECTED pack that declares an adaptation** — no registry, no built-in
 list, and `wire-bridge` in it by the same route as anyone else's pack (P6). An `adapter`
 contribution is not review-worthy: it declares an ADDRESS, the same class of fact a provider

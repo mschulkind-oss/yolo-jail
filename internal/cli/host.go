@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -1018,9 +1019,16 @@ func composeHostVarsGranting(cfg *jsonx.OrderedMap, workspace, agent, profile st
 		EnvSources: userEnv,
 		Fallback:   os.LookupEnv,
 		Grants:     grants,
+		// What composedHostProviders left out, so a pairing only one of them would resolve
+		// refuses naming why (ES-D18) rather than as one nothing declares an adapter for.
+		UnservedAdaptations: packload.ServiceAdaptations(packs, hostAdapterAddresses()),
 	}
 	scope, err := packload.ScopeCredentials(c.scopeInput)
 	if err != nil {
+		var unserved *packload.UnservedAdapterError
+		if errors.As(err, &unserved) && unserved.Agent == agent {
+			err = unservedAdapterRefusal(unserved, profileName)
+		}
 		c.err = err
 		return c
 	}
@@ -1106,11 +1114,38 @@ func composedHostProviders(cfg *jsonx.OrderedMap, packs []*packload.Pack) (*json
 	if v, ok := cfg.Get("providers"); ok {
 		user, _ = v.(*jsonx.OrderedMap)
 	}
-	// The adapter address overrides, read the same way the jail notch reads them
-	// (run.composedProviders): from the user file directly, so the two notches cannot
-	// disagree about where an adapted provider answers.
+	// NO ADDRESS A PACK'S OWN SERVICE SERVES (docs/design/credential-sources-separation.md
+	// ES-D18): `yolo host` starts no pack service, so the wire bridge's adapter address —
+	// declared by packs/wire-bridge beside the service whose in-jail daemon listens on it — is
+	// one no host process serves (wire-bridge.md, "No host-side bridge"). Composed in, an agent
+	// the bridge would front is pointed at a dead address: claude on cerebras at
+	// http://127.0.0.1:8214. Left out, an agent that speaks the provider's own wire resolves to
+	// it directly, and one that cannot refuses at the gate, which composeHostVars words.
+	return packload.ComposeProviders(user, packs, packload.WithAdapterAddresses(hostAdapterAddresses()),
+		packload.WithoutServiceAdaptations())
+}
+
+// hostAdapterAddresses is the user's adapter address overrides, read the same way the jail
+// notch reads them (run.composedProviders): from the user file directly, so the two notches
+// cannot disagree about where an adapted provider answers.
+func hostAdapterAddresses() map[string]string {
 	addresses, _ := config.LoadAdapterAddresses(nil)
-	return packload.ComposeProviders(user, packs, packload.WithAdapterAddresses(addresses))
+	return addresses
+}
+
+// unservedAdapterRefusal words the gate's *packload.UnservedAdapterError for this notch: the
+// profile, the address the agent would have been pointed at and what serves it, that nothing
+// at the host does, and the launch where the profile works.
+func unservedAdapterRefusal(e *packload.UnservedAdapterError, profile string) error {
+	a := e.Adaptation
+	agent, p := shquote.Quote(e.Agent), shquote.Quote(profile)
+	return fmt.Errorf("profile %q points %s at %s, where pack %q adapts %q → %q for provider %q — "+
+		"and that address is served by the pack's own %q service, a daemon yolo runs only inside a "+
+		"jail. No host process serves it, so `yolo host` will not run %s pointed at it.\n"+
+		"  The profile works inside a jail: `yolo -p %s=%s -- %s`.\n"+
+		"  At the host, choose a profile whose provider %s speaks to directly",
+		profile, agent, a.Address, a.Pack, a.From, a.To, e.Provider, a.Service, agent,
+		agent, p, agent, agent)
 }
 
 // hostScopedEnvSources returns cfg with any still-RELATIVE env_sources file entry

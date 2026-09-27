@@ -71,6 +71,12 @@ type ScopeInput struct {
 	// its own. Only `yolo host --with-credentials` passes one; nil is every jail launch, whose
 	// answer is therefore unchanged.
 	Grants map[string][]string
+	// UnservedAdaptations are the conversions this notch's composition left out because it
+	// cannot serve them (ServiceAdaptations, at a notch that runs no pack service: the host).
+	// Handed to every derive's protocol gate (WithUnservedAdaptations), so a pairing only one of
+	// them would resolve refuses as *UnservedAdapterError, saying why. Nil at the jail notch,
+	// which runs its packs' services and composes their addresses.
+	UnservedAdaptations []Adaptation
 }
 
 // CredentialScope is the gate's answer for one launch. Its accessors answer on a nil
@@ -168,7 +174,8 @@ func ScopeCredentials(in ScopeInput) (*CredentialScope, error) {
 			continue
 		}
 		shape, err := AgentEnv(in.Packs, in.Providers, in.Profiles, agent, profile,
-			s.LookupFor(agent), WithResolvedProfiles(in.Resolved))
+			s.LookupFor(agent), WithResolvedProfiles(in.Resolved),
+			WithUnservedAdaptations(in.UnservedAdaptations))
 		if err != nil {
 			return nil, err
 		}
