@@ -105,6 +105,21 @@ ADDR=$(container ls 2>/dev/null | awk -v n="$NAME" '$1==n {print $6}' | cut -d/ 
 The column layout may have changed; run it by hand and read the IP column."
 log "builder at $ADDR"
 
+# ─── CLEAR /homeless-shelter BEFORE EVERY USE ───
+#
+# The builder runs nix WITHOUT a sandbox (a container cannot give it the namespaces
+# one needs), and it is long-lived: started once, reused by every later build. nix
+# points each build's HOME at /homeless-shelter and refuses to start one while that
+# path EXISTS ("home directory \"/homeless-shelter\" exists; please remove it to
+# assure purity of builds without sandboxing"), so one build that creates its HOME
+# and leaves it behind fails every build after it. Observed on run 36298992896
+# (2026-09-27): nodejs-24.20.0 refused on exactly that. Removing it is nix's own
+# remedy, and nothing else lives there.
+if ! container exec "$NAME" rm -rf /homeless-shelter >/dev/null 2>&1; then
+  log "warning: could not clear /homeless-shelter in $NAME; a build may refuse on it. \
+Clear it by hand: container exec $NAME rm -rf /homeless-shelter"
+fi
+
 # ─── THE HOST KEY IS PINNED IN THE SPEC, AND THAT IS LOAD-BEARING ───
 #
 # A remote build is performed by the nix DAEMON, as root — not by this shell. So
