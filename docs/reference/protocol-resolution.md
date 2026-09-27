@@ -143,7 +143,11 @@ is left out there, because nothing at the host listens on it. The other two comp
 in a jail. A pairing only a left-out adaptation would resolve refuses at the gate as
 `UnservedAdapterError`, naming the pack's service and saying the address is served only inside a
 jail, instead of outcome 4's "nothing declares an adapter"
-([`wire-bridge.md`](wire-bridge.md#at-the-host-notch)).
+([`wire-bridge.md`](wire-bridge.md#at-the-host-notch)). An UNSELECTED shipped pack of that
+shape is no outcome 3 there either, since selecting it composes no address: the host hands the
+gate those adaptations too (`UnservableAdaptations`), and the pairing refuses as
+`UnservedAdapterError` rather than as "Add it to `packs` and this pairing resolves"
+([ES-D19](../design/credential-sources-separation.md#10-decision-ledger)).
 
 **The adapter set is every SELECTED pack that declares an adaptation** — no registry, no built-in
 list, and `wire-bridge` in it by the same route as anyone else's pack (P6). An `adapter`

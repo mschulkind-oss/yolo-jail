@@ -20,7 +20,7 @@ command (execution flow step 2, and the paragraph after it) is newer, from 2026-
 remedy's corrections in ES-D10 to ES-D12), and is pinned by unit tests through `hostMain`. So is
 the `--with-credentials` grant beside it, from the same day
 ([OQ-ES5](../design/credential-sources-separation.md#OQ-ES5)'s host half, ES-D13 to ES-D17), and
-the refusal of a profile the in-jail bridge would serve (ES-D18).
+the refusal of a profile the in-jail bridge would serve (ES-D18, ES-D19).
 
 Inside a jail, injecting environment is trivial: yolo controls the process spawn, so it passes
 `-e KEY=VAL` and PID 1 has the exact environment. On the host it controls nothing — the user
@@ -275,12 +275,13 @@ ones. Only the typed flag grants, and a jail launch given it refuses as host-onl
 
 **A profile that would point the agent at the in-jail bridge refuses.** No host process serves
 the wire bridge, so the host's provider table carries none of the adapter addresses a pack's own
-`service` serves. With `wire-bridge` in `packs`, `yolo host -p cerebras -- claude` and
-`yolo host env --agent claude -p cerebras` refuse. The refusal names the address, which the
-bridge serves only inside a jail, and gives `yolo -p claude=cerebras -- claude` as the launch
-where the profile works. An agent that also speaks the provider's own wire runs on it directly
+`service` serves. `yolo host -p cerebras -- claude` and `yolo host env --agent claude -p cerebras`
+refuse, whether `wire-bridge` is in `packs` or not. The refusal names the address, which the
+bridge serves only inside a jail, says listing the pack changes nothing here, and gives
+`yolo -p claude=cerebras -- claude` as the launch where the profile works. It never tells the
+user to add `wire-bridge` to `packs`. An agent that also speaks the provider's own wire runs on it directly
 ([`wire-bridge.md`](wire-bridge.md#at-the-host-notch),
-[ES-D18](../design/credential-sources-separation.md#10-decision-ledger)).
+[ES-D18 and ES-D19](../design/credential-sources-separation.md#10-decision-ledger)).
 
 ## apply reports actions, check reports state
 

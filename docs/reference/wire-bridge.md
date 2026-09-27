@@ -672,14 +672,22 @@ listeners. These are the facts that survive:
   copilot on cerebras goes to cerebras's openai endpoint, as it does with wire-bridge unlisted.
   An agent that does not REFUSES, before anything is exec'd, and so does `yolo host env`. The
   refusal names the profile, the address and the service that serves it inside a jail, and the
-  jail spelling where the profile works:
+  jail spelling where the profile works. With `wire-bridge` listed:
 
   ```console
   $ yolo host -p cerebras -- claude
-  yolo host: refusing to launch: profile "cerebras" points claude at http://127.0.0.1:8214, where pack "wire-bridge" adapts "openai" → "anthropic" for provider "cerebras" — and that address is served by the pack's own "wire-bridge" service, a daemon yolo runs only inside a jail. No host process serves it, so `yolo host` will not run claude pointed at it.
+  yolo host: refusing to launch: profile "cerebras" would point claude at http://127.0.0.1:8214, where pack "wire-bridge" adapts "openai" → "anthropic" for provider "cerebras" — and that address is served by the pack's own "wire-bridge" service, a daemon yolo runs only inside a jail. No host process serves it, so `yolo host` will not run claude pointed at it, though "wire-bridge" is in `packs`.
     The profile works inside a jail: `yolo -p claude=cerebras -- claude`.
     At the host, choose a profile whose provider claude speaks to directly
   ```
+
+  With it unlisted, the refusal is the same one, ending
+  ``and adding "wire-bridge" to `packs` does not change that here`` ([ES-D19](../design/credential-sources-separation.md#10-decision-ledger)).
+  The ordinary pairing refusal would say instead to add the pack to `packs` and the pairing
+  resolves, which is true in a jail and false here, so the host never says it. The gate is
+  handed every adaptation this notch can never serve, the unselected shipped packs' included
+  (`packload.UnservableAdaptations`). A pairing only one of them resolves then refuses as
+  `UnservedAdapterError`, never as that remedy.
 
   Before this, that launch ran claude with `ANTHROPIC_BASE_URL=http://127.0.0.1:8214`, an
   address no host process serves. An adapter whose pack runs no service, such as a remote gateway

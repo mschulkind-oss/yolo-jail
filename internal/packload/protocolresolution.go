@@ -32,6 +32,7 @@ package packload
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -103,6 +104,10 @@ func WithoutServiceAdaptations() ComposeOption {
 // `service` (Adaptation.Service), each Address carrying the user's override when there is one
 // (WithAdapterAddresses' map): the adaptations WithoutServiceAdaptations leaves out, spelled
 // for a refusal to name where the agent would have been pointed.
+//
+// Over the selected packs this is what the composition left out. UnservableAdaptations adds
+// the unselected shipped packs' to it, which is what a notch running no pack service hands the
+// gate.
 func ServiceAdaptations(packs []*Pack, addresses map[string]string) []Adaptation {
 	var out []Adaptation
 	for _, a := range Adaptations(packs) {
@@ -117,24 +122,44 @@ func ServiceAdaptations(packs []*Pack, addresses map[string]string) []Adaptation
 	return out
 }
 
+// UnservableAdaptations is every conversion a notch that runs NO pack service can never serve:
+// the selected packs' ServiceAdaptations, then those of the shipped packs this launch did not
+// select, each at the user's override. The second half is what keeps outcome 3 honest there.
+// UnselectedAdaptations would offer such a pack as "Add it to `packs` and this pairing
+// resolves", but selecting it at that notch composes no address (WithoutServiceAdaptations).
+// The user would then meet the *UnservedAdapterError refusal next, so the gate names that
+// refusal at once instead.
+func UnservableAdaptations(selected []*Pack, addresses map[string]string) []Adaptation {
+	return append(ServiceAdaptations(selected, addresses),
+		ServiceAdaptations(unselectedEmbedded(selected), addresses)...)
+}
+
 // UnservedAdapterError is the gate's refusal for a pairing only an adaptation this notch cannot
-// serve would resolve: a selected pack declares the conversion, and serves its address from a
-// daemon of its own that does not run here. Typed, so the notch that left the adaptation out
-// (the host) can name where the profile does work; its Error() is complete without that.
+// serve would resolve: a pack declares the conversion, and serves its address from a daemon of
+// its own that does not run here. The pack may be selected or not, and selecting it would not
+// change the answer. Typed, so the notch that left the adaptation out (the host) can name where
+// the profile does work; its Error() is complete without that.
 type UnservedAdapterError struct {
 	// Agent and Provider are the pairing that refused.
 	Agent, Provider string
 	// Adaptation is the conversion that would have resolved it, with the address the agent
 	// would have been pointed at.
 	Adaptation Adaptation
+	// Selected reports whether the adaptation's pack is selected at this launch. When it is
+	// not, the pack is a shipped one outcome 3 would otherwise have offered.
+	Selected bool
 }
 
 func (e *UnservedAdapterError) Error() string {
 	a := e.Adaptation
+	pointed := fmt.Sprintf("%s would be pointed at a dead address", e.Agent)
+	if !e.Selected {
+		pointed = fmt.Sprintf("selecting pack %q would point %s at a dead address", a.Pack, e.Agent)
+	}
 	return fmt.Sprintf("provider %q would reach agent %q only through pack %q's %s → %s adapter at "+
 		"%s, and that address is served by the pack's own %q service, a daemon that runs only "+
-		"inside a jail — nothing serves it here, so %s would be pointed at a dead address",
-		e.Provider, e.Agent, a.Pack, strconv.Quote(a.From), strconv.Quote(a.To), a.Address, a.Service, e.Agent)
+		"inside a jail — nothing serves it here, so %s",
+		e.Provider, e.Agent, a.Pack, strconv.Quote(a.From), strconv.Quote(a.To), a.Address, a.Service, pointed)
 }
 
 // WithAdapterAddresses supplies the user's adapter address overrides, keyed by AdapterKey
@@ -263,6 +288,11 @@ func ResolveProtocol(agent string, spoken []string, providerName string,
 // of outcome 3's. That is a limit on the REMEDY, never on the rule — the pairing resolves
 // identically once either pack is selected (P6), and core can only name what it can see.
 func UnselectedAdaptations(selected []*Pack) []Adaptation {
+	return Adaptations(unselectedEmbedded(selected))
+}
+
+// unselectedEmbedded is every pack yolo ships that selected does not hold by name.
+func unselectedEmbedded(selected []*Pack) []*Pack {
 	chosen := map[string]bool{}
 	for _, p := range selected {
 		chosen[p.Name] = true
@@ -273,7 +303,24 @@ func UnselectedAdaptations(selected []*Pack) []Adaptation {
 			rest = append(rest, p)
 		}
 	}
-	return Adaptations(rest)
+	return rest
+}
+
+// withoutAdaptations is list with every adaptation drop names (the same pack and pair) left
+// out. The address is not compared, since an override moves it and not the identity.
+func withoutAdaptations(list, drop []Adaptation) []Adaptation {
+	if len(drop) == 0 {
+		return list
+	}
+	var out []Adaptation
+	for _, a := range list {
+		if !slices.ContainsFunc(drop, func(d Adaptation) bool {
+			return d.Pack == a.Pack && AdapterKey(d.From, d.To) == AdapterKey(a.From, a.To)
+		}) {
+			out = append(out, a)
+		}
+	}
+	return out
 }
 
 // missingAdapterFor picks the conversion an unselected pack declares that WOULD resolve
@@ -307,11 +354,12 @@ func missingAdapterFor(spoken []string, offered map[string]bool, elsewhere []Ada
 // AgentEnv discovers a producer through, so the pack that speaks for an agent's environment
 // is the pack that speaks for its wires.
 //
-// unserved is what the composition left out because this notch cannot serve it
-// (WithoutServiceAdaptations), nil at a notch that runs its packs' services. A pairing one of
-// them would have resolved refuses as *UnservedAdapterError instead of outcome 4, whose
-// "nothing declares an adapter" is false of it: a selected pack declares one, and the notch
-// cannot serve it.
+// unserved is what this notch can never serve (UnservableAdaptations: the adaptations the
+// composition left out, and the unselected shipped packs' of the same kind), nil at a notch
+// that runs its packs' services. It is taken out of outcome 3's candidates, because selecting
+// such a pack there resolves nothing. A pairing one of them would have resolved then refuses
+// as *UnservedAdapterError. That replaces outcome 4, whose "nothing declares an adapter" is
+// false of it, and outcome 3, whose "Add it to `packs`" would lead to this same refusal.
 func refuseUnspeakableProvider(packs []*Pack, owner *Pack, agent, selected string,
 	providers *jsonx.OrderedMap, unserved []Adaptation) error {
 	if selected == "" || providers == nil {
@@ -326,11 +374,32 @@ func refuseUnspeakableProvider(packs []*Pack, owner *Pack, agent, selected strin
 		return nil
 	}
 	spoken := owner.Decl.SpokenProtocols(agent)
-	_, err := ResolveProtocol(agent, spoken, selected, entry, UnselectedAdaptations(packs))
-	if err != nil {
-		if a := missingAdapterFor(spoken, providerProtocols(entry), unserved); a != nil {
-			return &UnservedAdapterError{Agent: agent, Provider: selected, Adaptation: *a}
+	elsewhere := withoutAdaptations(UnselectedAdaptations(packs), unserved)
+	_, err := ResolveProtocol(agent, spoken, selected, entry, elsewhere)
+	if err == nil {
+		return nil
+	}
+	// THE ORDER: a SELECTED pack's unservable adaptation first, since the user already chose the
+	// pack declaring the conversion. Then outcome 3, when an unselected pack this notch CAN
+	// serve would resolve the pairing, because adding that one works. Only then an unselected
+	// pack's unservable one, which outcome 3 no longer offers.
+	offered := providerProtocols(entry)
+	var chosen, unchosen []Adaptation
+	for _, a := range unserved {
+		if hasPackNamed(packs, a.Pack) {
+			chosen = append(chosen, a)
+		} else {
+			unchosen = append(unchosen, a)
 		}
+	}
+	if a := missingAdapterFor(spoken, offered, chosen); a != nil {
+		return &UnservedAdapterError{Agent: agent, Provider: selected, Adaptation: *a, Selected: true}
+	}
+	if missingAdapterFor(spoken, offered, elsewhere) != nil {
+		return err
+	}
+	if a := missingAdapterFor(spoken, offered, unchosen); a != nil {
+		return &UnservedAdapterError{Agent: agent, Provider: selected, Adaptation: *a}
 	}
 	return err
 }
@@ -427,6 +496,11 @@ func quotedProtocols(names []string) string {
 		return parts[0]
 	}
 	return strings.Join(parts[:len(parts)-1], ", ") + " and " + parts[len(parts)-1]
+}
+
+// hasPackNamed reports whether packs holds a pack called name.
+func hasPackNamed(packs []*Pack, name string) bool {
+	return slices.ContainsFunc(packs, func(p *Pack) bool { return p.Name == name })
 }
 
 // binOwner returns the selected pack that installs bin, or nil.

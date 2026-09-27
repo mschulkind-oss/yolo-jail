@@ -94,3 +94,48 @@ func TestHostStillComposesAnAdapterNoPackServiceServes(t *testing.T) {
 			"ANTHROPIC_BASE_URL = %q\n%s", rc, env["ANTHROPIC_BASE_URL"], errs)
 	}
 }
+
+// With wire-bridge NOT listed, the pairing refuses the same way, once: the ordinary pairing
+// refusal's remedy (outcome 3, "Add it to `packs` and this pairing resolves") is false here,
+// since listing it leads only to the refusal above. The chain is the same for `-p codex`
+// through the bridge's openai-responses adapter.
+func TestHostNeverTellsTheUserToListTheBridge(t *testing.T) {
+	for _, tc := range []struct {
+		cfg, profile, address string
+	}{
+		{`{"packs": ["claude", "cerebras"], "env_sources": [{"CEREBRAS_API_KEY": "tok-c"}]}`, "cerebras",
+			"http://127.0.0.1:8214"},
+		{`{"packs": ["claude", "openai-auth"]}`, "codex", "http://127.0.0.1:8215"},
+	} {
+		rc, env, errs := hostGateRun(t, tc.cfg, wcShell(nil), []string{"-p", tc.profile}, "claude")
+		if rc == 0 || env != nil {
+			t.Fatalf("-p %s -- claude must refuse: rc = %d\n%s", tc.profile, rc, errs)
+		}
+		if strings.Contains(errs, "Add it to `packs`") {
+			t.Errorf("-p %s: at the host, listing wire-bridge resolves nothing, so the refusal must "+
+				"not say to:\n%s", tc.profile, errs)
+		}
+		for _, want := range []string{`profile "` + tc.profile + `"`, tc.address, `"wire-bridge"`,
+			"No host process serves it", "adding \"wire-bridge\" to `packs` does not change that",
+			"`yolo -p claude=" + tc.profile + " -- claude`"} {
+			if !strings.Contains(errs, want) {
+				t.Errorf("-p %s: the refusal must say %q:\n%s", tc.profile, want, errs)
+			}
+		}
+	}
+}
+
+// The refusal names the address the user's `adapters` override moves the adapter to, listed or
+// not: the host hands the gate the override, and a refusal naming the manifest's default would
+// point the user at the wrong port.
+func TestHostUnservedRefusalNamesTheAdapterOverride(t *testing.T) {
+	for _, packs := range []string{`"claude", "cerebras", "wire-bridge"`, `"claude", "cerebras"`} {
+		cfg := `{"packs": [` + packs + `], "env_sources": [{"CEREBRAS_API_KEY": "tok-c"}], ` +
+			`"adapters": {"openai->anthropic": {"address": "http://127.0.0.1:9214"}}}`
+		rc, _, errs := hostGateRun(t, cfg, wcShell(nil), []string{"-p", "cerebras"}, "claude")
+		if rc == 0 || !strings.Contains(errs, "http://127.0.0.1:9214") || strings.Contains(errs, ":8214") {
+			t.Errorf("packs [%s]: the refusal must name the override address, not the default: rc = %d\n%s",
+				packs, rc, errs)
+		}
+	}
+}

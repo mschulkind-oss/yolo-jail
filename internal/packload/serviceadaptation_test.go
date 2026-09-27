@@ -106,3 +106,74 @@ func TestTheGateNamesAnUnservedAdapter(t *testing.T) {
 		t.Errorf("ScopeCredentials must pass UnservedAdaptations to the gate: %v", err)
 	}
 }
+
+// At a notch that runs no pack service, an UNSELECTED pack's service adaptation is no remedy
+// either: selecting the pack there composes no address (WithoutServiceAdaptations), so outcome
+// 3's "Add it to `packs` and this pairing resolves" would send the user straight into the
+// refusal above. Handed UnservableAdaptations, the gate refuses the pairing once, as
+// *UnservedAdapterError naming the unselected pack and the user's address override. The jail
+// notch hands the gate nothing, so there outcome 3 still names the pack to add.
+func TestAnUnselectedServiceAdaptationIsNoRemedyWhereNoServiceRuns(t *testing.T) {
+	agent := protocolAgentPack(t, `,"protocols":["anthropic"]`)
+	vendor := providerPack(t, `,"endpoints":{"openai":{"base_url":"https://vendor.example/v1"}}`)
+	packs := []*Pack{agent, vendor}
+	providers, err := ComposeProviders(nil, packs, WithoutServiceAdaptations())
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := ResolveProfiles(packs, nil, providers)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lookup := func(string) (string, bool) { return "", false }
+	unservable := UnservableAdaptations(packs, map[string]string{"openai->anthropic": "http://127.0.0.1:9214"})
+	_, err = AgentEnv(packs, providers, map[string]string{"claude": "sel"}, "claude", "sel", lookup,
+		WithResolvedProfiles(resolved), WithUnservedAdaptations(unservable))
+	var unserved *UnservedAdapterError
+	if !errors.As(err, &unserved) {
+		t.Fatalf("err = %v, want *UnservedAdapterError for the unselected wire-bridge", err)
+	}
+	if unserved.Adaptation.Pack != "wire-bridge" || unserved.Selected ||
+		unserved.Adaptation.Address != "http://127.0.0.1:9214" {
+		t.Errorf("the refusal names the unselected shipped pack at the user's override: %+v", unserved)
+	}
+	if strings.Contains(err.Error(), "Add it to `packs`") {
+		t.Errorf("selecting the pack resolves nothing at this notch, so the refusal must not say to: %v", err)
+	}
+
+	_, err = AgentEnv(packs, providers, map[string]string{"claude": "sel"}, "claude", "sel", lookup,
+		WithResolvedProfiles(resolved))
+	if err == nil || errors.As(err, &unserved) ||
+		!strings.Contains(err.Error(), "Pack \"wire-bridge\" adapts \"openai\" → \"anthropic\". Add it to `packs`") {
+		t.Errorf("a notch that runs its packs' services still names the pack to add (outcome 3): %v", err)
+	}
+}
+
+// UnservableAdaptations is the selected packs' service adaptations, then the unselected shipped
+// packs', each at the user's override; a service-less adapter is in neither half.
+func TestUnservableAdaptationsSpansSelectedAndUnselectedServicePacks(t *testing.T) {
+	gateway := adapterPack(t, "openai-responses", "anthropic", "https://gw.example/a")
+	got := UnservableAdaptations([]*Pack{servicedAdapterPack(t), gateway},
+		map[string]string{"openai->anthropic": "http://127.0.0.1:9214"})
+	byPack := map[string][]Adaptation{}
+	for _, a := range got {
+		byPack[a.Pack] = append(byPack[a.Pack], a)
+	}
+	if b := byPack["bridge"]; len(b) != 1 || b[0].Address != "http://127.0.0.1:9214" {
+		t.Errorf("the selected service pack's adaptation, at the override: %+v", b)
+	}
+	if len(byPack["wire-bridge"]) == 0 {
+		t.Errorf("the unselected shipped wire-bridge's adaptations are unservable too: %+v", got)
+	}
+	for _, a := range byPack["wire-bridge"] {
+		if a.Service == "" {
+			t.Errorf("only service adaptations are unservable: %+v", a)
+		}
+		if a.From == "openai" && a.Address != "http://127.0.0.1:9214" {
+			t.Errorf("the override reaches an unselected pack's adaptation too: %+v", a)
+		}
+	}
+	if len(byPack["gateway"]) != 0 {
+		t.Errorf("a service-less adapter is servable wherever it is declared: %+v", byPack["gateway"])
+	}
+}

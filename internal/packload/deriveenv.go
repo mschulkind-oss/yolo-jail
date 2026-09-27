@@ -201,11 +201,13 @@ type agentEnvOpts struct {
 	unserved []Adaptation
 }
 
-// WithUnservedAdaptations hands the protocol gate the conversions this notch's composition
-// left out because it cannot serve them (WithoutServiceAdaptations, ServiceAdaptations), so a
-// pairing only one of them would resolve refuses as *UnservedAdapterError, saying why, rather
-// than as a pairing nothing declares an adapter for. It changes no pairing's outcome: the
-// table decides that, and the table already lacks these addresses.
+// WithUnservedAdaptations hands the protocol gate the conversions this notch can never serve
+// (UnservableAdaptations: what WithoutServiceAdaptations left out, and the unselected shipped
+// packs' of the same kind). A pairing only one of them would resolve then refuses as
+// *UnservedAdapterError, saying why. Without the list it would refuse as a pairing nothing
+// declares an adapter for, or as outcome 3 naming a pack whose selection resolves nothing here.
+// It changes no pairing's outcome: the table decides that, and the table already lacks these
+// addresses.
 func WithUnservedAdaptations(unserved []Adaptation) AgentEnvOption {
 	return func(o *agentEnvOpts) { o.unserved = unserved }
 }

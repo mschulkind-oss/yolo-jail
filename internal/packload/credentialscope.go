@@ -71,11 +71,12 @@ type ScopeInput struct {
 	// its own. Only `yolo host --with-credentials` passes one; nil is every jail launch, whose
 	// answer is therefore unchanged.
 	Grants map[string][]string
-	// UnservedAdaptations are the conversions this notch's composition left out because it
-	// cannot serve them (ServiceAdaptations, at a notch that runs no pack service: the host).
-	// Handed to every derive's protocol gate (WithUnservedAdaptations), so a pairing only one of
-	// them would resolve refuses as *UnservedAdapterError, saying why. Nil at the jail notch,
-	// which runs its packs' services and composes their addresses.
+	// UnservedAdaptations are the conversions this notch can never serve
+	// (UnservableAdaptations, at a notch that runs no pack service: the host): the ones its
+	// composition left out, and the unselected shipped packs' of the same kind. Handed to every
+	// derive's protocol gate (WithUnservedAdaptations), so a pairing only one of them would
+	// resolve refuses as *UnservedAdapterError, saying why, and outcome 3 never offers one. Nil
+	// at the jail notch, which runs its packs' services and composes their addresses.
 	UnservedAdaptations []Adaptation
 }
 

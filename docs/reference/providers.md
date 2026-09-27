@@ -367,13 +367,17 @@ Where each answer lands is the vehicle's:
     ([ES-D10 to ES-D12](../design/credential-sources-separation.md#10-decision-ledger)).
   - **A profile the in-jail bridge would serve refuses here.** The host runs no pack's
     `service`, so it composes no adapter address a pack's own service serves
-    (`packload.WithoutServiceAdaptations`). With `wire-bridge` listed in `packs`,
-    `yolo host -p cerebras -- claude` refuses before the exec, as does `yolo host env`. The
+    (`packload.WithoutServiceAdaptations`). So `yolo host -p cerebras -- claude` refuses before
+    the exec, as does `yolo host env`, whether `wire-bridge` is listed in `packs` or not. The
     refusal names `http://127.0.0.1:8214` and the `wire-bridge` service that serves it only
-    inside a jail, and gives the jail spelling, `yolo -p claude=cerebras -- claude`. It never
-    runs claude pointed at that address. Copilot, which also speaks openai, runs on cerebras's
-    own endpoint instead ([`wire-bridge.md`](wire-bridge.md#at-the-host-notch),
-    [ES-D18](../design/credential-sources-separation.md#10-decision-ledger)).
+    inside a jail. It says that listing the pack changes nothing here, and gives the jail
+    spelling, `yolo -p claude=cerebras -- claude`. It never runs claude pointed at that address,
+    and it never tells the user to add `wire-bridge` to `packs`, as the ordinary pairing refusal
+    does in a jail. `-p codex -- claude` refuses the same way, through the bridge's
+    `openai-responses` adapter at `http://127.0.0.1:8215`. A user's `adapters` override moves the
+    address the refusal names. Copilot, which also speaks openai, runs on cerebras's own endpoint
+    instead ([`wire-bridge.md`](wire-bridge.md#at-the-host-notch),
+    [ES-D18 and ES-D19](../design/credential-sources-separation.md#10-decision-ledger)).
   - **`--with-credentials` grants keys by provider, for one run.**
     `yolo host --with-credentials zai,cerebras -- <cmd>` hands the command those providers'
     claimed `env_sources` values, and `all` names every composed provider that claims a value

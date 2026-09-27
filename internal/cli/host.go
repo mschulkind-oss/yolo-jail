@@ -1020,9 +1020,11 @@ func composeHostVarsGranting(cfg *jsonx.OrderedMap, workspace, agent, profile st
 		EnvSources: userEnv,
 		Fallback:   os.LookupEnv,
 		Grants:     grants,
-		// What composedHostProviders left out, so a pairing only one of them would resolve
-		// refuses naming why (ES-D18) rather than as one nothing declares an adapter for.
-		UnservedAdaptations: packload.ServiceAdaptations(packs, hostAdapterAddresses()),
+		// What composedHostProviders left out, and the unselected shipped packs' adaptations
+		// of the same kind, so a pairing only one of them would resolve refuses once, naming
+		// why (ES-D18, ES-D19). It never refuses as a pairing nothing declares an adapter for,
+		// and never as outcome 3 telling the user to list a pack that resolves nothing here.
+		UnservedAdaptations: packload.UnservableAdaptations(packs, hostAdapterAddresses()),
 	}
 	scope, err := packload.ScopeCredentials(c.scopeInput)
 	if err != nil {
@@ -1136,16 +1138,22 @@ func hostAdapterAddresses() map[string]string {
 
 // unservedAdapterRefusal words the gate's *packload.UnservedAdapterError for this notch: the
 // profile, the address the agent would have been pointed at and what serves it, that nothing
-// at the host does, and the launch where the profile works.
+// at the host does, and the launch where the profile works. It also says that the pack's
+// place in `packs` changes nothing here, whether the pack is listed or not (ES-D19). Unlisted,
+// the pack is one the ordinary pairing refusal would have told the user to add.
 func unservedAdapterRefusal(e *packload.UnservedAdapterError, profile string) error {
 	a := e.Adaptation
 	agent, p := shquote.Quote(e.Agent), shquote.Quote(profile)
-	return fmt.Errorf("profile %q points %s at %s, where pack %q adapts %q → %q for provider %q — "+
+	listing := fmt.Sprintf("though %q is in `packs`", a.Pack)
+	if !e.Selected {
+		listing = fmt.Sprintf("and adding %q to `packs` does not change that here", a.Pack)
+	}
+	return fmt.Errorf("profile %q would point %s at %s, where pack %q adapts %q → %q for provider %q — "+
 		"and that address is served by the pack's own %q service, a daemon yolo runs only inside a "+
-		"jail. No host process serves it, so `yolo host` will not run %s pointed at it.\n"+
+		"jail. No host process serves it, so `yolo host` will not run %s pointed at it, %s.\n"+
 		"  The profile works inside a jail: `yolo -p %s=%s -- %s`.\n"+
 		"  At the host, choose a profile whose provider %s speaks to directly",
-		profile, agent, a.Address, a.Pack, a.From, a.To, e.Provider, a.Service, agent,
+		profile, agent, a.Address, a.Pack, a.From, a.To, e.Provider, a.Service, agent, listing,
 		agent, p, agent, agent)
 }
 
