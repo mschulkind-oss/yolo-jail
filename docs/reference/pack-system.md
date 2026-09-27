@@ -2399,11 +2399,18 @@ throwaway directory first, under the launch's no-escaping-symlink rule, because 
 the content lands in the real home. **An incomplete set is refused whole**: if any configured
 pack cannot be resolved, `--assert` writes nothing and exits 1, naming each pack and its
 reason. The dry run says it would refuse. A pack whose manifest has problems, the ones
-`yolo pack lint`, `yolo check` and every launch refuse, counts as unresolvable here: it is named
-with each problem, and the fix is the manifest, not a fetch
-([NS-D14](../design/notch-scoped-config-contributions.md#10-decision-ledger)). The other host
-verbs leave such a pack out and say so: `yolo host --` and `yolo host env` compose without it,
-`--revert` keeps its keys recorded, `check-deps` exits 1, and the `config` verbs report it.
+`yolo check` and every launch refuse, counts as unresolvable here: it is named with each
+problem, and the fix is in the pack, not a fetch
+([NS-D14](../design/notch-scoped-config-contributions.md#10-decision-ledger)). For the
+conventional local pack, which has no `packs` entry, the remedy names its directory. The
+problems, and the declaration every host verb reads, come from the tree the entry's
+`only`/`exclude` leave, as the launch loads it: a file the entry excludes is no problem, and a
+`pack.json` it filters out is not read ([NS-D15](../design/notch-scoped-config-contributions.md#10-decision-ledger)).
+The host notch still reads a pack's other files in place, without the filters. The other host
+verbs leave such a pack out and say so: `yolo host --` and `yolo host env` compose without it
+(a profile only it declares refuses the launch, naming it), `--revert` keeps its keys recorded,
+`check-deps` exits 1, the read-only `config` verbs report it, and `config promote` refuses to
+write into it.
 
 ### Host-side staging, then jail-side render
 

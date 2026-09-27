@@ -225,7 +225,9 @@ The manifest schema is documented in full by `yolo config-ref` (the `packs` sect
 `pack lint` validates both the file tree **and** the `pack.json` manifest (unknown kind,
 missing field, bad path — every problem, not the first), then prints the pack's
 footprint so you see exactly what it claims. A manifest problem it reports also stops every jail
-launch and `yolo host apply --assert`, so fix it here:
+launch and `yolo host apply --assert`, so fix it here. The one exception is a file your `packs`
+entry leaves out with `only` or `exclude`: lint checks the whole directory, and launches skip
+that file.
 
 ```console
 $ yolo pack lint ~/code/my-agent-pack

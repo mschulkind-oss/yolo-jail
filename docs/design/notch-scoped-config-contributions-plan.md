@@ -6,7 +6,7 @@ and [§4](#4-the-end-to-end-test-of-the-fifth-disposition) were BUILT on 2026-09
 [OQ-5](notch-scoped-config-contributions.md#OQ-5)'s leaning (`0965feeb`, `ccea898c`,
 `30a4d448`); the design's [ledger](notch-scoped-config-contributions.md#10-decision-ledger)
 records the mechanism choices as `NS-D` rows (NS-D14 is a host-apply fix the review found outside
-this build).
+this build, and NS-D15 to NS-D18 correct it).
 [§3](#3-only-if-the-rulings-are-amended--the-posture-modifier) stays blocked on
 [OQ-5](notch-scoped-config-contributions.md#OQ-5).
 

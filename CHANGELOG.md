@@ -112,7 +112,9 @@ only cost tokens and prompts in a jail. See [posture lists](docs/reference/pack-
 - `yolo host apply` skipped every git pack, even an installed one.
 - `yolo host apply --assert` wrote the rest of a pack whose `pack.json` has problems, the ones
   `yolo pack lint` and every launch refuse, into your home. It now writes nothing and names each
-  problem, and the other host commands leave such a pack out and say so.
+  problem, and the other host commands leave such a pack out and say so. `yolo config promote`
+  no longer writes into such a pack and reports success. Host commands also skip a `pack.json`
+  that the pack's `only` or `exclude` filters out, as jails always did.
 - `yolo host apply` adopted `~/.claude/skills/synced/`, and the next claude.ai sync lost new and
   edited skills.
 - A workspace pinning an older Node, such as 20, left pi unable to start.

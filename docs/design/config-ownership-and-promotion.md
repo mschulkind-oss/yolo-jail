@@ -1352,6 +1352,7 @@ which keys people actually promote.
 | `--keys` names a key not in the capture | error, exit 2, naming it |
 | destination pack is fetched (not `file://`) | refused, naming the pack and why |
 | destination pack has no `pack.json` | one is created with the pack's name |
+| destination pack has problems every launch refuses it over (a second `autonomy`, a field this yolo does not know, a `briefing/CLAUDE.md`) | the write is refused, exit 1, naming each problem and `yolo pack lint`; the dry run and `--plan` say so and exit 0 ([NS-D16](notch-scoped-config-contributions.md#10-decision-ledger)) |
 | destination already declares the key | deep-merged; the promoted value wins; the overwrite is reported |
 | two workspaces captured the same key with different values | promote is per-workspace and one-at-a-time; the second promotion reports the overwrite of the first and requires confirmation |
 | write succeeds, reset fails | whole promotion abandoned, destination restored, non-zero exit |
