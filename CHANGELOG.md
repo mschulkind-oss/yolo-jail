@@ -32,6 +32,11 @@ thinking level.
 protocol its provider serves is refused, naming any shipped pack that translates between them.
 `yolo check` predicts it. See [Providers](docs/reference/providers.md).
 
+**Host-only entries from a pack.** A pack's `autonomy` postures can carry `lists`: entries added
+to another pack's config array only at that posture. A `guarded` list reaches your host through
+`yolo host apply` and no jail, so a pack can give host pi a permission-gate extension that would
+only cost tokens and prompts in a jail. See [posture lists](docs/reference/pack-system.md#autonomy).
+
 - `yolo host-daemon status|stop|restart|logs` manages the machine-wide daemons.
 - `nix shell` and `nix build` work in a jail with no extra flags.
 
@@ -94,6 +99,8 @@ protocol its provider serves is refused, naming any shipped pack that translates
 - Codex could not renew its ChatGPT sign-in through the `openai-auth` pack.
 - `yolo host apply --assert` replaced the `env` block of your host `~/.claude/settings.json`,
   dropping your own variables.
+- A settings file `yolo host apply --assert` had written came back into your jails as your own
+  settings, on every backend, so a value a pack later dropped stayed in them.
 - `yolo host apply` skipped every git pack, even an installed one.
 - `yolo host apply` adopted `~/.claude/skills/synced/`, and the next claude.ai sync lost new and
   edited skills.
