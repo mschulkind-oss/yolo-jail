@@ -358,6 +358,7 @@ the only place the values themselves are stated.
 | Per-jail upstream socket for a fronted daemon | `/tmp/yolo-front-<8hex>-<name>.sock` | `internal/cli/run` (`frontSocketFile`) |
 | Host-scoped rendezvous socket | derived from the loophole name | `paths.HostSingletonSocket` |
 | Per-jail published-endpoint directory | `/tmp/yolo-host-services-<8hex>` | `internal/paths/paths.go` |
+| A macos-user session's published-endpoint directory, one per session | `/tmp/yolo-host-services-<8hex>-<random>` | `internal/cli/run/servicessession.go` ([`HSD-4`](jail-home.md#why-its-this-way)) |
 | Jail-side services directory | `/run/yolo-services` | `paths.JailHostServicesDir` |
 | Advertised-host override | `YOLO_SVC_ADVERTISE_HOST` | `svcendpoint.AdvertiseHostEnv` |
 

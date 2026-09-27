@@ -445,7 +445,10 @@ daemon, prints the same "This launch runs pack code on your machine" disclosure 
 publishes each endpoint and ACL-grants it to the sandbox account. Measured: a bare
 `"packs": ["claude"]` publishes both `claude-oauth-broker.endpoint` and
 `openai-auth-broker.endpoint`. The credential service is fail-closed here — a launch whose
-OpenAI loophole is active and whose broker did not start is refused.
+OpenAI loophole is active and whose broker did not start is refused. Each session publishes into
+a host-services directory of its own and removes only that one, so a second terminal in the same
+workspace neither replaces the first's endpoints nor removes them when it exits
+([`HSD-4`](jail-home.md#why-its-this-way)).
 
 **What is inert here is the JAIL half.** No `jail_daemon` runs on this backend (see the warning
 above), so a loophole whose work happens inside the jail does nothing however healthy its host

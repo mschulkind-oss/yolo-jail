@@ -2361,7 +2361,12 @@ Two launches of one workspace share one per-workspace directory, `AGENTS_DIR/<cn
 skills and briefing staging a podman jail binds, and on macos-user the home-overlay and `/ctx`
 trees its sandbox copies. On macos-user the two launches are two sandboxes. On podman and Apple
 Container the second attaches to the jail the first started. They do NOT share a pack tree: each
-launch stages its own ([`OQ-PK2`](#oq-pk2)), which is what this section's first fix became.
+launch stages its own ([`OQ-PK2`](#oq-pk2)), which is what this section's first fix became. Nor
+do two macos-user sessions share a host-services dir: each publishes its endpoints into one of
+its own and removes only that one
+([`HSD-4`](jail-home.md#why-its-this-way)), after the second Mac run measured the first
+session to exit removing the other's
+([`OQ-HD10`](../design/host-daemon-ownership.md#OQ-HD10)).
 
 **What went wrong, MEASURED.** The first macOS run of
 `TestMacosUserTwoConcurrentLaunchesOfOneWorkspace` (CI run 36240337031, commit `6eb92400`)

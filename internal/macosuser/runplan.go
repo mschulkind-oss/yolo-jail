@@ -428,7 +428,8 @@ func BuildRunPlan(workspace string, cfg *jsonx.OrderedMap, agents, agentArgv []s
 // boundary being stated before it is crossed, not one being worked around.
 //
 // DEDUPED ON THE WHOLE COMMAND, because every endpoint of one launch lives in the SAME
-// per-jail services dir, so the directory's search ACE repeats once per service. A stage
+// services dir, the session's own (internal/cli/run/servicessession.go), so the directory's
+// search ACE repeats once per service. A stage
 // command's failure is FATAL to the launch (orchestrator.go), so a repeated `chmod +a` is not
 // a cosmetic duplicate. Deduping the emitted argv rather than the parent path is what keeps
 // this from re-deriving what EndpointGrantCommands decided to emit.

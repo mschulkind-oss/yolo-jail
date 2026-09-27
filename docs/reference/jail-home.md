@@ -13,6 +13,7 @@ covers:
   - internal/cli/run/jailprefix.go
   - internal/cli/run/storagehelpers.go
   - internal/cli/run/wsstatebeneath.go
+  - internal/cli/run/servicessession.go
   - internal/storage/
   - internal/paths/homeskeleton.go
   - internal/paths/statefile.go
@@ -346,10 +347,21 @@ orientation, not an inventory.
   the machine reaps that jail (`reapOrphanedJails`) and removes the directory through the
   same checks.
   ⚠ If the jail is gone too, nothing sweeps the directory until that workspace's next
-  launch ends, or the host reboots. ⚠ On
-  macos-user the teardown removes it without either check, which can delete the endpoint
-  files of a second live session in the same workspace
-  ([`OQ-HD10`](../design/host-daemon-ownership.md#OQ-HD10)).
+  launch ends, or the host reboots.
+- **On macos-user, one host-services directory per session** (`HSD-4`). A session is one
+  macos-user invocation: a sandbox and its host services, from launch to teardown. There is no
+  container and no mount, so the sandbox reads its endpoint files where they are, through the
+  per-file ACL grant the plan stages. The spawn creates
+  `/tmp/yolo-host-services-<8hex>-<random>` (`os.MkdirTemp`, `0700`), the session publishes
+  every endpoint there, and its fronted daemons' upstream sockets are keyed by a hash of that
+  path. The session holds an exclusive `flock` on `.session.lock` inside it for its whole life.
+  Its teardown removes that directory and no other, without the container checks, which answer
+  a question about a relaunch publishing into the same directory and have nothing to answer
+  here. A session killed without its teardown leaves its directory behind with its lock free,
+  and the next macos-user launch on the machine removes it. Every session directory whose lock
+  is held, that has no lock file, or whose lock cannot be opened stays. The directory the
+  workspace's container name selects is not used on this backend. A `--dry-run` names
+  `…-<session>` in place of the suffix, because it creates none.
 - **Pack manifests at `/ctx/packs`** — `:ro`, and that is load-bearing rather than
   tidiness: a manifest is an *input* to composition, and an agent that could rewrite one
   in-jail could grant its own pack a host file on the next boot, or hand the next attach
@@ -1002,6 +1014,7 @@ themselves are stated.
 | In-jail install prefix | `/opt/yolo-jail/bin` + `/opt/yolo-jail/share/yolo-jail`, both `:ro` | `run.jailPrefixMountArgs` |
 | Host-service socket dir, in-jail | `/run/yolo-services` | `paths.JailHostServicesDir` |
 | Host-service dir, host side | `/tmp/yolo-host-services-<8hex>`, built in `paths.HostSingletonDir` | `paths.HostServicesDir` |
+| Host-service dir, one macos-user session | `/tmp/yolo-host-services-<8hex>-<random>`, with the session's lock `.session.lock` in it | `paths.HostServicesSessionPrefix`, `paths.HostServicesSessionLockName`, `internal/cli/run/servicessession.go` |
 | Staged content root, per jail | `<global storage>/agents/<container name>/` | `paths.AgentsDir` |
 | Pack manifest mount | `/ctx/packs`, `:ro`, with `YOLO_PACK_ROOT`; source `<global storage>/agents/<container name>/pack-trees/<UTC stamp>-<random>`, one per launch | `internal/cli/run/assemble.go` (`packCtxDir`), `paths.PackTreeRoot`, `internal/cli/run/packtree.go` |
 | Vestigial mount | `~/.yolo-entrypoint.lock` — mounted, touched and reserved; nothing `flock`s it | `assemble_parts.go`, `paths.HomeFileMountpoints`, `config/writablehome.go` |
@@ -1024,3 +1037,4 @@ Forward-facing rulings a maintainer would otherwise undo, with their original id
 | `HSD-1` | The host-services dir has **one creator, the spawn**, and the teardown removes it **only when the runtime answers** that no container of that name exists, running or not. (`HSD` stands for host-services dir, an id coined for this ledger.) | A second creation earlier in the launch had no teardown on the refusal paths between it and the spawn, so every refused launch left an empty directory in `/tmp`. The teardown used to read "could not ask the runtime" as "not running" and delete a possibly-live jail's endpoint files on no evidence. It asks whether a container exists, not whether one runs, because a relaunch releases the workspace lock once its bounded wait for a running container gives up, and a container that is only created is invisible to the running-only listing. That is the rule the tracking-file cleanup (`forgetGoneContainer`) already follows in the same teardown. Declining costs one directory, which the next launch of the workspace reuses. |
 | `HSD-2` | The host-services dir is built in `paths.HostSingletonDir`, not in a literal `/tmp` | The two are the same directory in production. A test package that isolates its host singletons (`testsupport.IsolateHostSingletons`) then carries these dirs into its private directory too. Before that, tests that started host services and never stopped them left empty `/tmp/yolo-host-services-<8hex>` dirs on every run. |
 | `HSD-3` | Reaping an orphaned jail also removes its host-services dir, by calling the launch teardown (`stopLoopholes`) with the orphan's name rather than deleting the directory directly | The orphan's owner died without its teardown, so nothing else removes the directory, and its endpoint files name listeners that died with the owner. Going through the teardown keeps its checks, the orphan's relaunch lock and then the container existence probe, which matter because a relaunch of the orphan's workspace publishes into the same directory. The cost is one `shutdown.container_check` timing mark inside the launch's reap span. |
+| `HSD-4` / [`HD-D1`](../design/host-daemon-ownership.md#HD-D1) | On macos-user each **session** has its own host-services dir, removed by its own teardown, and a dead session's dir is collected only when its lock is free | Two sessions of one workspace shared the directory the container name selects. The second session's front replaced the first's endpoint file, and the first teardown removed the directory under the survivor, whose jail lost its Claude OAuth broker endpoint (measured on a Mac, [`OQ-HD10`](../design/host-daemon-ownership.md#OQ-HD10)). A shared directory cannot be fixed by counting its users: an endpoint file names one front, and a front lives in one session's yolo process. A missing lock file stays because a session creates its directory before its lock, so that state is a session starting up as much as a dead one. |

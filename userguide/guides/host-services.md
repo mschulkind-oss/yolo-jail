@@ -59,6 +59,8 @@ For each service, on `yolo run`:
 6. When the container exits, yolo sends `SIGTERM` to each service it spawned, waits 5 seconds, then `SIGKILL`s its process group. **A *host-scoped* daemon is exempt, and the asymmetry is the point:** a loophole manifest may declare `"scope": "host"` in its `host_daemon` block, meaning one daemon per machine serving every jail on it. yolo *ensures* such a daemon rather than spawning it, and gives each jail its own front over the one socket — so a jail ending closes **only its own front** and never signals the daemon, which other jails are still using. It keeps running after your last jail exits, so nothing about your jail's teardown is how you inspect or cycle one: `yolo loopholes status` runs each loophole's own host-side self-check, and the loophole's own tooling replaces the daemon (for the Claude broker, `yolo broker restart`). Which shipped loopholes declare it changes, so derive the set rather than trusting a list: `rg -n '"scope": "host"' packs/*/loopholes/*/manifest.jsonc`.
 7. The per-jail directory is removed — which is also how a manifest loophole's bearer token is retired, since the token lives only in the file inside it.
 
+On `macos-user` there is no container to mount the directory into, so the sandbox reads the endpoint files where they are. Each session gets a directory of its own, `/tmp/yolo-host-services-<8hex>-<random>/`, and removes only that one when it ends, so two terminals in one project never cut each other off.
+
 Service stdout and stderr are captured to `~/.local/share/yolo-jail/logs/host-service-<name>.log` for debugging.
 
 ### Discovering the service from inside the jail

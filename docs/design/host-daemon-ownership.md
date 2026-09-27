@@ -26,7 +26,9 @@ taken for the ruling are dated 2026-09-20 and marked.
 > launch. Sections headed **Today** describe the built tree and stay true until somebody
 > builds this. Sections headed **Under the ruling** are a decision with no implementation
 > plan behind it. If you are here to find out what your machine does right now, read only
-> the **Today** halves.
+> the **Today** halves. One fix this doc records IS built and is not the ruling: the
+> macos-user teardown defect [OQ-HD10](#OQ-HD10)'s second run measured
+> ([`HD-D1`](#HD-D1)).
 
 > **In short.** The scope rests on a premise that is false in the code. `ScopeHost`'s own
 > doc comment says the Claude OAuth broker "holds the flock that stops two jails burning
@@ -664,7 +666,8 @@ macos-user is the interesting row, and it is where [OQ-HD10](#OQ-HD10) lives: it
 full host half and none of the jail half, so "the host side has no supervisor" is the
 *entire* supervision story there — and under the ruling it is also the backend where
 "per-jail" means per-workspace-path
-([§1.4](#14-what-was-refuted-and-what-was-not)).
+([§1.4](#14-what-was-refuted-and-what-was-not)). Its host-services dir is the exception, and
+is built: each macos-user session publishes into a dir of its own ([`HD-D1`](#HD-D1)).
 
 ---
 
@@ -1124,6 +1127,7 @@ each, because a deleted question is one the next reader re-derives.
      survivor after the other session exits is `GONE`. That is a defect in the macos-user
      teardown whatever this question's answer turns out to be. It would bear on the leaning's
      "if they already collide" branch, but it is a collision over the endpoint, not over spawn.
+     **Fixed** since the second run, below ([`HD-D1`](#HD-D1)).
 
    **The second run, MEASURED (scheduled macos-user run 36319436117, commit `f937d0fd`, which
    carries the staging fix and per-launch pack trees)** confirmed both predictions above. Both
@@ -1135,6 +1139,21 @@ each, because a deleted question is one the next reader re-derives.
    `ENDPOINT AFTER B EXITED: GONE`: B's teardown removed the per-workspace host-services dir
    while A was still running, so A's jail lost its endpoint, the teardown defect predicted
    above.
+
+   **The teardown defect is FIXED (2026-09-27, `c6d638c8`), and fixing it rules nothing
+   here.** Each macos-user session now publishes into a host-services dir of its own and removes
+   only that one, so one session's exit cannot remove or replace an endpoint another live session
+   uses ([`HD-D1`](#HD-D1) has the mechanism). Confirmed from code first: the cname is per
+   workspace (`macosuser.cnameFor` → `runtime.FromWorkspace`), `startHostSingleton` removes the
+   endpoint file before its front publishes, and the arm's deferred teardown passed no cname, so
+   it took no guard and removed the dir. `TestAMacosUserSessionsExitLeavesAConcurrentSessionsEndpointsWorking`
+   ([`macosusersessions_test.go`](../../internal/cli/run/macosusersessions_test.go)) reproduced
+   the `GONE` on Linux through the real macos-user arm and passes now. What the next Mac run should
+   show, NOT YET RUN: `ENDPOINT AFTER B EXITED: STILL WORKS`, and `ENDPOINT DURING` naming two
+   files (`one file for both: false`). The experiment is no longer silent on this half: it now
+   fails when the survivor's endpoint does not answer (`hd10SurvivorFailure`). The spawn question
+   is unchanged. Both sessions still front the one host-wide broker, and only
+   `paths.HostSingletonLock` serializes its spawn.
 
    **Answer:**
    > _(empty — fill in when decided)_
@@ -1331,3 +1350,4 @@ where the ruling went past them — that record is the point.
 | :--- | :--- | :--- | :--- | :--- |
 | <a id="HD-R1"></a>[`HD-R1`](#11-decision-ledger) | **NO SINGLETON — retire `host_daemon.scope: "host"`.** A host-side daemon is spawned by the launch that wants it and ends with that jail. The scope's stated justification is false in the code: each host-scoped daemon serializes on a flock keyed by a path (`oauthbroker.RefreshLockPath` under `BrokerDir()`, openai's `refresh.lock` beside its state file, `awsauth.LockFileName`), so N copies in one home take the same kernel lock — and `DoRefresh` re-reads the creds inside the lock and returns a cache hit. The credential-boundary story is false too: the shared creds file is bind-mounted `rw` and writable from in-jail, and the only thing keeping the jail off the real endpoint is an `/etc/hosts` name pin. What genuinely forces host-side is **lifetime** and that pin, and neither requires exactly one. Disposition: **detach, do not drain** (a mid-flight refresh finishes in the background after the jail is gone — its write is wanted), **do not reap** (a straggler is bounded by the thirty-second upstream deadline). Dissolves [OQ-HD1](#OQ-HD1), [OQ-HD3](#OQ-HD3), [OQ-HD6](#OQ-HD6), [OQ-HD7](#OQ-HD7) and most of [OQ-HD8](#OQ-HD8); leaves [OQ-HD4](#OQ-HD4) and [OQ-HD5](#OQ-HD5) live, and creates [OQ-HD9](#OQ-HD9) and [OQ-HD10](#OQ-HD10). ⚠ **Does NOT answer** the macos-user spawn-serialization objection — that is [OQ-HD10](#OQ-HD10), carried live rather than absorbed | 2026-09-20 | [§1](#1-the-ruling) | ❌ **not built** |
 | <a id="OQ-HD2"></a>[`OQ-HD2`](#11-decision-ledger) | **Generalize the management surface.** One verb — `yolo host-daemon {status,stop,restart,logs} [<name>]` — over the host-scoped set, derived from the `scope: "host"` declarations joined with the rendezvous files on disk, never from a list. `broker` is retained as an alias for `host-daemon <verb> claude-oauth-broker`, resolved from the broker's own constants so it survives an empty discovery. A bare invocation means the SET for `status` and is refused for the three verbs that act. Every message, including every failure path, names its daemon — which is what fixes the incompatible-daemon warning at its source. Deliberately not the endpoint-emission question ([§9](#9-what-this-doc-does-not-cover)). ⚠ **Reworked, not deleted, by [`HD-R1`](#HD-R1)**: it manages the singleton the ruling retires — see [§5.2](#52-what-the-ruling-deletes-from-that-table) | 2026-09-20 | [§5.1](#51-the-management-surface-one-verb-over-the-host-scoped-set) | ✅ |
+| <a id="HD-D1"></a>[`HD-D1`](#11-decision-ledger) | *Implementation decision.* **One host-services dir per macos-user SESSION** (one macos-user invocation: a sandbox and its host services, launch to teardown), fixing the teardown defect [OQ-HD10](#OQ-HD10)'s second run measured, and ruling nothing about the spawn question [OQ-HD10](#OQ-HD10) asks. Each session creates `yolo-host-services-<8hex>-<random>` in the host-services base with `os.MkdirTemp` (mode 0700, and a name no other account can take first), publishes every endpoint of its launch there, keys its fronted daemons' upstream sockets by a hash of that dir, and removes only that dir at its teardown. It holds an exclusive `flock` on `.session.lock` inside the dir for its whole life. Each new session first collects every session dir, of any workspace, whose lock nobody holds, because the kernel drops a flock when its process dies. That is tri-state: a held lock, a missing lock file, or one that cannot be opened collects nothing. Chosen over a refcounted shared dir because an endpoint file names one front, and a front lives in one session's yolo process, so a shared file would still name a front that died with its session. It mirrors per-launch pack trees ([`OQ-PK2`](../reference/pack-system.md#oq-pk2)). The upstream-socket key is a hash of the path rather than `<8hex>-<random>` because a container teardown of the same name retires `yolo-front-<8hex>-*`. No session's teardown signals the host-wide broker, and container backends are unchanged. The host-asserted `jail_id` on macos-user now names the session's dir. A `--dry-run` names a placeholder dir, `…-<session>`, since it creates none. Code: [`servicessession.go`](../../internal/cli/run/servicessession.go) | 2026-09-27 | [OQ-HD10](#OQ-HD10) | ✅ `c6d638c8` |
