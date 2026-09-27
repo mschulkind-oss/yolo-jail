@@ -30,15 +30,30 @@ func hostGateLaunch(t *testing.T, flags []string, agent string) (map[string]stri
 // so what the agent receives is what yolo composed.
 var hostGateNames = []string{"AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "ZAI_API_KEY",
 	"CLAUDE_CODE_USE_BEDROCK", "AWS_CONTAINER_CREDENTIALS_FULL_URI", "ANTHROPIC_AUTH_TOKEN",
-	"ANTHROPIC_BASE_URL"}
+	"ANTHROPIC_BASE_URL", "PORT", "DEEPSEEK_API_KEY"}
 
 // hostGateLaunchWith is hostGateLaunch over a user config and invoking-shell values of the
 // caller's choosing.
 func hostGateLaunchWith(t *testing.T, cfg string, shell map[string]string, flags []string,
 	agent string) (map[string]string, string) {
 	t.Helper()
-	home := hostGateHome(t, cfg, shell)
-	_ = home
+	rc, env, errs := hostGateRun(t, cfg, shell, flags, agent)
+	if rc != 0 {
+		t.Fatalf("yolo host %v -- %s: rc = %d\nstderr:\n%s", flags, agent, rc, errs)
+	}
+	if env == nil {
+		t.Fatalf("yolo host %v -- %s never reached the exec\nstderr:\n%s", flags, agent, errs)
+	}
+	return env, errs
+}
+
+// hostGateRun is hostGateLaunchWith without the success assertion, for a cell whose launch is
+// meant to refuse: the exit code, the environment the exec was handed (nil when the launch
+// never reached it), and what the launch printed.
+func hostGateRun(t *testing.T, cfg string, shell map[string]string, flags []string,
+	agent string) (int, map[string]string, string) {
+	t.Helper()
+	hostGateHome(t, cfg, shell)
 
 	bin := filepath.Join(t.TempDir(), "bin")
 	if err := os.MkdirAll(bin, 0o755); err != nil {
@@ -59,11 +74,9 @@ func hostGateLaunchWith(t *testing.T, cfg string, shell map[string]string, flags
 
 	var out, errw bytes.Buffer
 	args := append(append([]string{}, flags...), "--", agent)
-	if rc := hostMain(args, &out, &errw, false, nil); rc != 0 {
-		t.Fatalf("yolo host %v: rc = %d\nstderr:\n%s", args, rc, errw.String())
-	}
+	rc := hostMain(args, &out, &errw, false, nil)
 	if got == nil {
-		t.Fatalf("yolo host %v never reached the exec\nstderr:\n%s", args, errw.String())
+		return rc, nil, errw.String()
 	}
 	env := map[string]string{}
 	for _, kv := range got {
@@ -71,7 +84,7 @@ func hostGateLaunchWith(t *testing.T, cfg string, shell map[string]string, flags
 			env[k] = v
 		}
 	}
-	return env, errw.String()
+	return rc, env, errw.String()
 }
 
 // hostGateHome sets up a temp HOME with the user config, a blanked shell and the broker seam
