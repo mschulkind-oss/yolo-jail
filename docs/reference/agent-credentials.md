@@ -27,7 +27,7 @@ tags: [credentials, security, boundary, env_sources, host_files, broker, oauth]
 
 # Agent credentials — what crosses the jail boundary, and how
 
-**Status:** CURRENT as of 2026-09-09, verified against `41dde711`. The
+**Status:** CURRENT as of 2026-09-20, verified against `bd0e4142`. The
 [gemini-paths paragraph](#agys-paths-under-gemini) alone was re-checked against `9990882a` on
 2026-09-27; nothing else in the doc was.
 
