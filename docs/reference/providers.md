@@ -369,15 +369,18 @@ Where each answer lands is the vehicle's:
     `service`, so it composes no adapter address a pack's own service serves
     (`packload.WithoutServiceAdaptations`). So `yolo host -p cerebras -- claude` refuses before
     the exec, as does `yolo host env`, whether `wire-bridge` is listed in `packs` or not. The
-    refusal names `http://127.0.0.1:8214` and the `wire-bridge` service that serves it only
-    inside a jail. It says that listing the pack changes nothing here, and gives the jail
-    spelling, `yolo -p claude=cerebras -- claude`. It never runs claude pointed at that address,
+    refusal names `http://127.0.0.1:8214` and the `wire-bridge` service that serves it only in
+    a container jail. It says that listing the pack changes nothing here, and gives the jail
+    spelling, `yolo -p claude=cerebras -- claude`, for podman or Apple Container. The macos-user
+    backend starts no jail daemons, so the refusal says the bridge does not run there either and
+    names `YOLO_RUNTIME=podman` or `YOLO_RUNTIME=container` as the one-launch dial that picks a
+    container backend. It never runs claude pointed at that address,
     and it never tells the user to add `wire-bridge` to `packs`, as the ordinary pairing refusal
     does in a jail. `-p codex -- claude` refuses the same way, through the bridge's
     `openai-responses` adapter at `http://127.0.0.1:8215`. A user's `adapters` override moves the
     address the refusal names. Copilot, which also speaks openai, runs on cerebras's own endpoint
     instead ([`wire-bridge.md`](wire-bridge.md#at-the-host-notch),
-    [ES-D18 and ES-D19](../design/credential-sources-separation.md#10-decision-ledger)).
+    [ES-D18 to ES-D20](../design/credential-sources-separation.md#10-decision-ledger)).
   - **`--with-credentials` grants keys by provider, for one run.**
     `yolo host --with-credentials zai,cerebras -- <cmd>` hands the command those providers'
     claimed `env_sources` values, and `all` names every composed provider that claims a value

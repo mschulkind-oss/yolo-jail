@@ -1141,6 +1141,12 @@ func hostAdapterAddresses() map[string]string {
 // at the host does, and the launch where the profile works. It also says that the pack's
 // place in `packs` changes nothing here, whether the pack is listed or not (ES-D19). Unlisted,
 // the pack is one the ordinary pairing refusal would have told the user to add.
+//
+// THAT LAUNCH IS A CONTAINER JAIL'S (ES-D20). The macos-user backend starts no jail daemons
+// (run.noteMacosUserJailDaemonDeclines), so a pack's service does not run there either and the
+// agent would meet the same dead address. So the refusal names the container backends, says
+// macos-user is not one, and names the dial that picks one for a launch. It never says the
+// profile works "in a jail" unqualified.
 func unservedAdapterRefusal(e *packload.UnservedAdapterError, profile string) error {
 	a := e.Adaptation
 	agent, p := shquote.Quote(e.Agent), shquote.Quote(profile)
@@ -1149,9 +1155,12 @@ func unservedAdapterRefusal(e *packload.UnservedAdapterError, profile string) er
 		listing = fmt.Sprintf("and adding %q to `packs` does not change that here", a.Pack)
 	}
 	return fmt.Errorf("profile %q would point %s at %s, where pack %q adapts %q → %q for provider %q — "+
-		"and that address is served by the pack's own %q service, a daemon yolo runs only inside a "+
-		"jail. No host process serves it, so `yolo host` will not run %s pointed at it, %s.\n"+
-		"  The profile works inside a jail: `yolo -p %s=%s -- %s`.\n"+
+		"and that address is served by the pack's own %q service, a daemon yolo runs only in a "+
+		"container jail. No host process serves it, so `yolo host` will not run %s pointed at it, %s.\n"+
+		"  The profile works in a container jail (podman or Apple Container), where that service "+
+		"runs: `yolo -p %s=%s -- %s`. The macos-user backend starts no jail daemons, so the service "+
+		"does not run there either; `YOLO_RUNTIME=podman` or `YOLO_RUNTIME=container` picks a "+
+		"container backend for one launch.\n"+
 		"  At the host, choose a profile whose provider %s speaks to directly",
 		profile, agent, a.Address, a.Pack, a.From, a.To, e.Provider, a.Service, agent, listing,
 		agent, p, agent, agent)

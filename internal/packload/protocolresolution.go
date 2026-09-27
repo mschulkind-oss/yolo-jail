@@ -158,7 +158,7 @@ func (e *UnservedAdapterError) Error() string {
 	}
 	return fmt.Sprintf("provider %q would reach agent %q only through pack %q's %s → %s adapter at "+
 		"%s, and that address is served by the pack's own %q service, a daemon that runs only "+
-		"inside a jail — nothing serves it here, so %s",
+		"in a container jail — nothing serves it here, so %s",
 		e.Provider, e.Agent, a.Pack, strconv.Quote(a.From), strconv.Quote(a.To), a.Address, a.Service, pointed)
 }
 

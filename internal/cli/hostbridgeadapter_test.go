@@ -28,7 +28,7 @@ func TestHostRefusesAProfilePointedAtTheInJailBridge(t *testing.T) {
 			"bridge's address: rc = %d, ANTHROPIC_BASE_URL = %q\n%s", rc, env["ANTHROPIC_BASE_URL"], errs)
 	}
 	for _, want := range []string{"refusing to launch", `profile "cerebras"`, "claude",
-		"http://127.0.0.1:8214", `"wire-bridge"`, "inside a jail", "No host process serves it",
+		"http://127.0.0.1:8214", `"wire-bridge"`, "container jail", "No host process serves it",
 		"`yolo -p claude=cerebras -- claude`"} {
 		if !strings.Contains(errs, want) {
 			t.Errorf("the refusal must say %q:\n%s", want, errs)
@@ -44,7 +44,7 @@ func TestHostEnvRefusesAProfilePointedAtTheInJailBridge(t *testing.T) {
 	if rc := hostMain([]string{"env", "--agent", "claude", "-p", "cerebras"}, &out, &errw, false, nil); rc == 0 {
 		t.Fatalf("yolo host env --agent claude -p cerebras must refuse:\n%s", out.String())
 	}
-	if out.Len() != 0 || !strings.Contains(errw.String(), "inside a jail") {
+	if out.Len() != 0 || !strings.Contains(errw.String(), "container jail") {
 		t.Errorf("stdout = %q, stderr = %q", out.String(), errw.String())
 	}
 }
@@ -137,5 +137,27 @@ func TestHostUnservedRefusalNamesTheAdapterOverride(t *testing.T) {
 			t.Errorf("packs [%s]: the refusal must name the override address, not the default: rc = %d\n%s",
 				packs, rc, errs)
 		}
+	}
+}
+
+// The jail launch the refusal names works only on a CONTAINER backend: macos-user starts no jail
+// daemons, the bridge included (wire-bridge.md, "No macos-user bridge"), so there claude would
+// be pointed at the same dead address. The refusal says so and names the dial that picks a
+// container backend for one launch, rather than calling the profile one that works "in a jail".
+func TestHostUnservedRefusalNamesOnlyAContainerJail(t *testing.T) {
+	_, _, errs := hostGateRun(t, bridgeConfig, wcShell(nil), []string{"-p", "cerebras"}, "claude")
+	for _, want := range []string{
+		"a daemon yolo runs only in a container jail",
+		"The profile works in a container jail (podman or Apple Container), where that service runs: " +
+			"`yolo -p claude=cerebras -- claude`",
+		"The macos-user backend starts no jail daemons, so the service does not run there either",
+		"`YOLO_RUNTIME=podman` or `YOLO_RUNTIME=container`",
+	} {
+		if !strings.Contains(errs, want) {
+			t.Errorf("the refusal must say %q:\n%s", want, errs)
+		}
+	}
+	if strings.Contains(errs, "inside a jail") {
+		t.Errorf("a macos-user jail runs no bridge either, so \"inside a jail\" is false of it:\n%s", errs)
 	}
 }

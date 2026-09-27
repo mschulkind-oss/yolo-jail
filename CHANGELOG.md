@@ -31,8 +31,10 @@ thinking level.
 **Agents and providers are checked against each other.** A launch whose agent cannot speak any
 protocol its provider serves is refused, naming any shipped pack that translates between them.
 `yolo check` predicts it. On your own machine, `yolo host` refuses a profile its agent could
-reach only through the jail's wire bridge, which runs only in a jail, and names the jail launch
-that works. It no longer starts the agent pointed at an address nothing serves. See
+reach only through the jail's wire bridge, which runs only in a container jail (podman or Apple
+Container, not macos-user), and names the jail launch that works. It no longer starts the agent
+pointed at an address nothing serves, and it no longer tells you to add `wire-bridge` to
+`packs`, which changes nothing there. See
 [Providers](docs/reference/providers.md).
 
 **Host-only entries from a pack.** A pack's `autonomy` postures can carry `lists`: entries added

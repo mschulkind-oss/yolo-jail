@@ -671,13 +671,17 @@ listeners. These are the facts that survive:
   Two outcomes follow. An agent that also speaks the provider's own wire runs on that endpoint:
   copilot on cerebras goes to cerebras's openai endpoint, as it does with wire-bridge unlisted.
   An agent that does not REFUSES, before anything is exec'd, and so does `yolo host env`. The
-  refusal names the profile, the address and the service that serves it inside a jail, and the
-  jail spelling where the profile works. With `wire-bridge` listed:
+  refusal names the profile, the address and the service that serves it in a container jail, and
+  the jail spelling where the profile works. That spelling is for podman or Apple Container. Under
+  macos-user the bridge does not run either ([below](#no-macos-user-bridge)), so the refusal says
+  so and names `YOLO_RUNTIME` as the dial that picks a container backend for one launch
+  ([ES-D20](../design/credential-sources-separation.md#10-decision-ledger)). With `wire-bridge`
+  listed:
 
   ```console
   $ yolo host -p cerebras -- claude
-  yolo host: refusing to launch: profile "cerebras" would point claude at http://127.0.0.1:8214, where pack "wire-bridge" adapts "openai" → "anthropic" for provider "cerebras" — and that address is served by the pack's own "wire-bridge" service, a daemon yolo runs only inside a jail. No host process serves it, so `yolo host` will not run claude pointed at it, though "wire-bridge" is in `packs`.
-    The profile works inside a jail: `yolo -p claude=cerebras -- claude`.
+  yolo host: refusing to launch: profile "cerebras" would point claude at http://127.0.0.1:8214, where pack "wire-bridge" adapts "openai" → "anthropic" for provider "cerebras" — and that address is served by the pack's own "wire-bridge" service, a daemon yolo runs only in a container jail. No host process serves it, so `yolo host` will not run claude pointed at it, though "wire-bridge" is in `packs`.
+    The profile works in a container jail (podman or Apple Container), where that service runs: `yolo -p claude=cerebras -- claude`. The macos-user backend starts no jail daemons, so the service does not run there either; `YOLO_RUNTIME=podman` or `YOLO_RUNTIME=container` picks a container backend for one launch.
     At the host, choose a profile whose provider claude speaks to directly
   ```
 
@@ -699,8 +703,9 @@ listeners. These are the facts that survive:
   exactly one user-scope override (`adapters.<from>-><to>.address`) and nothing else: a provider
   cannot move it, and a workspace config cannot set it at all. The override moves the bind and the
   agent's URL together, on both routes — see [the listen address](#the-listen-address).
-- **No `macos-user` bridge.** That backend starts no jail daemons: a launch there names each
-  declared one, the bridge included, as not running, and does not fail. It also has no network
+- <a id="no-macos-user-bridge"></a>**No `macos-user` bridge.** That backend starts no jail
+  daemons: a launch there names each declared one, the bridge included, as not running, and does
+  not fail. It also has no network
   namespace, so an adapter's port there would be a host port, and nothing in
   [what can hold the listen port](#what-can-hold-the-listen-port-before-the-bridge-does) has been
   worked through for that blast radius.
