@@ -137,7 +137,7 @@ configuration files.
 
 ## Current values
 
-Verified at `e0d62605`, except the default profile model, verified at `ce2badbe`. The prose
+Verified at `e0d62605`, except the default profile model, verified at `adb150f4`. The prose
 above describes the durable boundaries; these are the operational values that may change with a
 release.
 

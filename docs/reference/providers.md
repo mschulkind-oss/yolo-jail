@@ -1193,7 +1193,7 @@ row says what replaced it.
 Verified at `7ad8358c`, except the deselection rows for the boot log and the id-writing
 surfaces with a host layer, verified at `38814ba4`, and the rows the `openai-codex` model list
 touched (the clear's log line, codex's `openai-codex` default, the list and pi's copy of it),
-verified at `ce2badbe`, except the host half of pi's copy, verified at `72c46409`. The prose
+verified at `adb150f4`, except the host half of pi's copy, verified at `4ba65297`. The prose
 above explains what each is for; this table is the only place the exact spellings are stated.
 
 | Value | Setting | Defined in |
