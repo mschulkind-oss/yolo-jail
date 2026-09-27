@@ -3,8 +3,8 @@
 **Status:** SKETCH, 2026-09-27 — incomplete, and unstable while [OQ-5](notch-scoped-config-contributions.md#OQ-5)
 is open. Evidence verified at `8da7840d`. **[§2](#2-step-1--posture-lists) (rows 1–7), row 8
 and [§4](#4-the-end-to-end-test-of-the-fifth-disposition) were BUILT on 2026-09-27** on
-[OQ-5](notch-scoped-config-contributions.md#OQ-5)'s leaning (`0965feeb`, `ccea898c`,
-`30a4d448`); the design's [ledger](notch-scoped-config-contributions.md#10-decision-ledger)
+[OQ-5](notch-scoped-config-contributions.md#OQ-5)'s leaning (`bbe5c878`, `499a332f`,
+`a6021d86`); the design's [ledger](notch-scoped-config-contributions.md#10-decision-ledger)
 records the mechanism choices as `NS-D` rows (NS-D14 is a host-apply fix the review found outside
 this build, and NS-D15 to NS-D18 correct it).
 [§3](#3-only-if-the-rulings-are-amended--the-posture-modifier) stays blocked on
@@ -122,7 +122,7 @@ Every test here must fail when its production call site is deleted (AGENTS.md, T
   `Collect` call; no embedded pack declares a posture list.
 - **`Collect`'s doc comment names `configdiff.go` as a caller.** At `8da7840d` it is not one; the
   callers are the six in [§1](#1-codebase-map). Fix the comment while rewriting it (row 4).
-  *Fixed in `0965feeb`:* the comment now names the six.
+  *Fixed in `bbe5c878`:* the comment now names the six.
 - **Run the in-jail suite with the jail's variables unset** (`YOLO_VERSION`, `YOLO_HOST_LAYERS`);
   both skew `go test` in here.
 - **`git add` before any nested-jail verification**: the nested image build sees tracked files only.
