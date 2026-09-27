@@ -159,8 +159,9 @@ func (p *Pack) governors(kind packdecl.Kind) ([]packdecl.Contribution, []int) {
 
 // inPack is the lexical containment check every source read makes, kept verbatim from the resolvers
 // it replaced: `from` is manifest data, packdecl.Validate rejects ".." at the authoring boundary,
-// but a caller may hold a pack whose Decode problems it discarded (`yolo host apply` reads a pack
-// through internal/cli's resolveConfiguredPack, which does exactly that). A "../../.ssh/id_rsa" that slipped
+// but a caller may hold a pack whose Decode problems it discarded (`yolo host apply` did, through
+// internal/cli's resolveConfiguredPack, until NS-D14 made that resolver refuse a pack with
+// problems; LoadDir still returns the pack beside them). A "../../.ssh/id_rsa" that slipped
 // through would otherwise be copied into a file the user reads as INSTRUCTIONS. Lexical, so it
 // bounds a declared path and not a symlink inside the tree; on the jail path packstage has already
 // refused escaping symlinks.

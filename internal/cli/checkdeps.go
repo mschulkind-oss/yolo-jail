@@ -155,6 +155,12 @@ type unresolvedPack struct {
 	// JSON key) from when install was the only way. Carried as a fact decided where the
 	// failure happened, never recovered from the reason's wording.
 	NeedsInstall bool `json:"needs_install"`
+	// ManifestProblems are the pack's manifest problems when THAT is why it is unresolvable
+	// (manifestProblemsError): the tree is there and loads, and the fix is an edit to its
+	// manifest, never a fetch. Each is stated without LoadDir's "pack <name>: " prefix, since
+	// the record already carries the name. Empty for every other failure, so it doubles as
+	// the class a report groups the remedy by.
+	ManifestProblems []string `json:"manifest_problems,omitempty"`
 }
 
 // newUnresolvedPack records a resolution failure from resolveConfiguredPack. The resolver's
@@ -162,8 +168,29 @@ type unresolvedPack struct {
 // beside it.
 func newUnresolvedPack(name string, err error) unresolvedPack {
 	var miss storeMissError
-	return unresolvedPack{Name: name, Reason: strings.TrimPrefix(err.Error(), "packs: "+name+": "),
+	var malformed manifestProblemsError
+	u := unresolvedPack{Name: name, Reason: strings.TrimPrefix(err.Error(), "packs: "+name+": "),
 		NeedsInstall: errors.As(err, &miss)}
+	if errors.As(err, &malformed) {
+		u.ManifestProblems = append([]string(nil), malformed.problems...)
+	}
+	return u
+}
+
+// manifestProblemsError is a configured pack whose manifest HAS PROBLEMS — the ones `yolo pack
+// lint`, `yolo check` and every launch refuse it over (run's stagePacks returns the first as
+// the launch's error). The pack still LOADS: packload.LoadDir returns it beside its problems,
+// with whatever part of the manifest decoded. Reading that part is the defect this type ends:
+// `yolo host apply --assert` wrote a pack with two `autonomy` contributions into a real home at
+// rc=0 (notch-scoped-config-contributions.md NS-D14). problems carry no "pack <name>: " prefix.
+type manifestProblemsError struct {
+	name     string
+	problems []string
+}
+
+func (e manifestProblemsError) Error() string {
+	return fmt.Sprintf("packs: %s: manifest %s: %s", e.name,
+		plural(len(e.problems), "problem", "problems"), strings.Join(e.problems, "; "))
 }
 
 // storeMissError marks a git pack the pack store cannot supply YET — never fetched, or a ref
@@ -215,8 +242,16 @@ func describeUnresolved(list []unresolvedPack) string {
 // into a throwaway directory first — packstage.Stage, the launch's own rule, with the entry's
 // filters — and a refusal there makes the pack unresolvable, exactly as it would fail the launch.
 //
-// Manifest problems are DISCARDED here, as they always were: `yolo check` and `yolo pack lint`
-// report them, and the host-notch guards (packload's containment checks) exist for this caller.
+// A MANIFEST WITH PROBLEMS MAKES THE PACK UNRESOLVABLE (manifestProblemsError), as it fails the
+// launch. They used to be discarded here whenever the pack still loaded, so every host verb read
+// whatever part of a malformed manifest decoded, and `yolo host apply --assert` applied it —
+// partially, at rc=0 — while `yolo pack lint`, `yolo check` and the launch refused the same pack
+// (NS-D14). Each caller keeps its own disposition for an unresolvable pack, which is where the
+// per-verb decision lives: `host apply --assert` refuses the whole set and writes nothing (its
+// dry run and the launch gate say so), `yolo host --`/`host env` compose without the pack and
+// warn, `--revert` leaves its keys recorded, capture does not search it, check-deps exits 1, and
+// the `config` inspection verbs report it as not folded. None reads a malformed manifest.
+// packload's host-notch containment guards stay, for a manifest no decoder checked.
 func resolveConfiguredPack(e config.PackEntry) (*packload.Pack, error) {
 	if e.Embedded() {
 		for _, p := range packload.Embedded() {
@@ -241,6 +276,13 @@ func resolveConfiguredPack(e config.PackEntry) (*packload.Pack, error) {
 	p, probs := packload.LoadDir(root, e.Name)
 	if p == nil {
 		return nil, fmt.Errorf("packs: %s: %s", e.Name, strings.Join(probs, "; "))
+	}
+	if len(probs) > 0 {
+		stated := make([]string, len(probs))
+		for i, prob := range probs {
+			stated[i] = strings.TrimPrefix(prob, "pack "+e.Name+": ")
+		}
+		return nil, manifestProblemsError{name: e.Name, problems: stated}
 	}
 	return p, nil
 }
@@ -282,7 +324,8 @@ and kin) you can run in one step.
 Packs resolve the way a launch resolves them: a git pack from the pack store, a
 local one from its path. check-deps never fetches: a git pack not in the store yet
 is fetched by the next launch, or now by ` + "`yolo pack install`" + `. A configured pack
-that cannot be resolved is named with the reason, and its deps are not probed.
+that cannot be resolved, or whose manifest has problems, is named with the reason, and
+its deps are not probed.
 
 It never installs anything — it detects and hands off. Exit is non-zero when a declared
 dep is missing, or when a configured pack could not be resolved.

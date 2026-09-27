@@ -214,23 +214,37 @@ func TestApplyHostMoveAndMigrationShareOneFile(t *testing.T) {
 	}
 }
 
-// AN ADDRESSED LOCAL pack.json STILL NAMING THE LEGACY FILE STOPS THE KIND. Without the refusal
+// AN ADDRESSED LOCAL pack.json STILL NAMING THE LEGACY FILE STOPS THE APPLY. Without a refusal
 // the move made the file the local pack's implicit broadcast (governance never reads the
 // reserved `from`), so prose the user routed to claude alone was composed into pi's briefing
-// by the same apply. The refusal names the pack.json edit, and nothing is composed.
+// by the same apply.
+//
+// SINCE NS-D14 THE REFUSAL IS THE RESOLVER'S, and it is WHOLE: a `from` naming AGENTS.md is a
+// manifest problem (OQ-PB2), so resolveConfiguredPack refuses the local pack before the move is
+// reached, naming the problem the launch names, and NOTHING is written. The move's own refusal
+// (legacyFromDeclaration, pinned in internal/entrypoint) used to be what stopped it, after the
+// config surfaces had already been rendered — a half state with rc 1.
 func TestApplyHostRefusesTheMoveWhileTheLocalManifestNamesTheLegacyFile(t *testing.T) {
 	home, legacy, target := legacyLocalPackHome(t, "Claude only.\n")
 	selectPacks(t, home, `"claude","pi"`)
 	manifest := filepath.Join(filepath.Dir(legacy), "pack.json")
 	writeFile(t, manifest, `{"name":"local","contributes":[`+
 		`{"kind":"briefing","from":"AGENTS.md","agents":["claude"]}]}`)
+	before := hashTree(t, home)
 
 	rc, report := applyWith(t, true, nil)
 	if rc != 1 {
-		t.Fatalf("want rc 1 (the move refused), got %d\n%s", rc, report)
+		t.Fatalf("want rc 1 (the local pack refused), got %d\n%s", rc, report)
 	}
-	if n := countLines(report, "refused", manifest, "briefing/local.md"); n != 1 {
-		t.Errorf("want ONE refusal line naming the pack.json and the edit, got %d:\n%s", n, report)
+	if n := countLines(report, "cannot be resolved", "local", `from "AGENTS.md"`); n != 1 {
+		t.Errorf("want ONE refusal line naming the local pack and its AGENTS.md `from`, got %d:\n%s",
+			n, report)
+	}
+	if !strings.Contains(report, "Nothing was written") {
+		t.Errorf("the refusal must say nothing was written:\n%s", report)
+	}
+	if hashTree(t, home) != before {
+		t.Errorf("a refused apply wrote into the home:\n%s", report)
 	}
 	if got, err := os.ReadFile(legacy); err != nil || string(got) != "Claude only.\n" {
 		t.Errorf("the refusal touched %s: %v %q", legacy, err, got)

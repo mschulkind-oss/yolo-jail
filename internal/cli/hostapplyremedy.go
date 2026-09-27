@@ -112,19 +112,24 @@ func hostApplyRemedyGroups(s *hostApplySurvey, home string, write bool) []remedy
 
 // unresolvedPackGroups is the unresolvable-pack BLOCKER, grouped by remedy: one group for the
 // git packs (this apply already tried to fetch them at its entry, so the remedy is to fix what
-// the fetch error names and retry, `yolo pack install` being the retry) and one for everything
-// else (a local path or an address only the config can fix). The per-pack REASON is printed where the pack was resolved; the group states the fix once.
+// the fetch error names and retry, `yolo pack install` being the retry), one for the packs whose
+// manifest has problems (the fix is the manifest, which `yolo pack lint` re-checks), and one for
+// everything else (a local path or an address only the config can fix). The per-pack REASON is
+// printed where the pack was resolved; the group states the fix once.
 //
 // Shared by the dry run's report and the --assert refusal, so the lines a user reads when the
 // apply refuses are the lines the dry run showed them.
 func unresolvedPackGroups(list []unresolvedPack) []remedyGroup {
-	var git, other []string
+	var git, malformed, other []string
 	for _, u := range list {
-		if u.NeedsInstall {
+		switch {
+		case u.NeedsInstall:
 			git = append(git, u.Name)
-			continue
+		case len(u.ManifestProblems) > 0:
+			malformed = append(malformed, u.Name)
+		default:
+			other = append(other, u.Name)
 		}
-		other = append(other, u.Name)
 	}
 	var out []remedyGroup
 	if len(git) > 0 {
@@ -136,6 +141,19 @@ func unresolvedPackGroups(list []unresolvedPack) []remedyGroup {
 			Remedy: "yolo pack install   (retries the fetch this apply already attempted — " +
 				"why it failed is named above for each pack; the next host launch retries it too)",
 			VerdictTerm: git[0],
+			Warn:        true,
+		})
+	}
+	if len(malformed) > 0 {
+		out = append(out, remedyGroup{
+			Class:    remedyClassUnresolvedPack,
+			Key:      "yolo pack lint",
+			Headline: "configured packs whose manifest has problems, so nothing can be applied",
+			Items:    malformed,
+			Remedy: "fix each problem named above in the pack's manifest (`yolo pack lint <its " +
+				"dir>` re-checks it; every launch refuses it too), or remove it from `packs` in " +
+				paths.UserConfigPath(),
+			VerdictTerm: malformed[0],
 			Warn:        true,
 		})
 	}

@@ -122,8 +122,11 @@ func hostRevert(out, errw io.Writer, color bool, write bool) int {
 // surface its OWNER declares — so without the shipped set a revert after a `packs: []` edit
 // would find no surfaces and report a clean home while every key yolo wrote was still in it.
 //
-// An unresolvable pack (a git pack the pack store does not have) contributes nothing and is not
-// an error: its keys keep their record and the next revert takes them. It is named on errw.
+// An unresolvable pack (a git pack the pack store does not have, or one whose manifest has
+// problems — NS-D14) contributes nothing and is not an error: its keys keep their record and the
+// next revert takes them. It is named on errw. For a malformed manifest that is the conservative
+// half: a revert removes keys by the surfaces packs declare, and none is read from a manifest
+// every launch refuses.
 func hostRevertCandidates(errw io.Writer) []*packload.Pack {
 	var loaded []*packload.Pack
 	entries, err := config.LoadPacks(nil)

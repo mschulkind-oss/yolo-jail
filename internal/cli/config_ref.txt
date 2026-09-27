@@ -708,10 +708,11 @@
 
       nothing would change      silent; the agent starts as usual.
       a configured pack cannot  renders NOTHING, names each pack with why and the
-      be resolved               remedy (for a git pack, the fetch this launch already
-                                tried; `yolo pack install` retries it), and the
-                                agent launches on the render already in place: an
-                                incomplete pack set is never applied.
+      be resolved, or its       remedy (for a git pack, the fetch this launch already
+      manifest has problems     tried; `yolo pack install` retries it; for a manifest,
+                                the problems, which `yolo pack lint` re-checks), and
+                                the agent launches on the render already in place:
+                                an incomplete pack set is never applied.
       an apply would ask        renders NOTHING, prints each question (a skills or
       something                 briefing adoption, a dropped pack's retire, a missing
                                 declared dependency) and `yolo host apply --assert`

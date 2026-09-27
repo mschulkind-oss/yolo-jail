@@ -74,9 +74,9 @@ With ` + "`host_apply_on_launch`" + ` enabled (defaulting to on when ` + "`host_
 and automatically synchronizes host configuration before launch — silently exec'ing when fresh.
 When first-time adoption would overwrite unmanaged host keys, it prompts for confirmation or
 reads approval from ` + "`YOLO_ACCEPT_CONFIG_CHANGES`" + ` (any non-empty value, this launch only).
-An apply that would ask anything else, or a configured pack that cannot be resolved, renders
-NOTHING: the launch says what needs deciding or fixing, and the agent starts on the render
-already in place. See ` + "`yolo config-ref`" + `.
+An apply that would ask anything else, or a configured pack that cannot be resolved or whose
+manifest has problems, renders NOTHING: the launch says what needs deciding or fixing, and the
+agent starts on the render already in place. See ` + "`yolo config-ref`" + `.
 
 apply flags:
   --assert        Write. Without it apply is a DRY RUN and writes nothing.
@@ -103,8 +103,9 @@ The report ends in one sentence saying how the run went, with the counts beneath
 Packs resolve the way a launch resolves them: a git pack from the pack store, which this
 command first fetches when it never was and refreshes when it follows a branch (hourly; a
 tag or commit pin is never re-fetched), a local one from its path. If ANY configured pack
-cannot be resolved, an --assert is REFUSED with nothing written — an incomplete pack set
-is never applied — and the dry run names each pack, why, and the fix.
+cannot be resolved, or its manifest has problems (the ones ` + "`yolo pack lint`" + ` and every launch
+refuse), an --assert is REFUSED with nothing written — an incomplete pack set is never
+applied — and the dry run names each pack, why, and the fix.
 A missing declared dependency STOPS an --assert: yolo shows the install command each
 pack declares and offers to run it, and a NO refuses the run with nothing written.
 ` + "`yolo pack --help`" + ` says what each contribution kind is, and ` + "`yolo config-ref`" + ` says why
@@ -1261,9 +1262,11 @@ func hostScopedEnvSources(cfg *jsonx.OrderedMap, warn func(string)) *jsonx.Order
 }
 
 // loadedHostPacks resolves the selected packs for a host launch, plus every one it could not
-// resolve. A pack that cannot be resolved (a git pack not in the store) contributes nothing
-// rather than failing the launch — the user asked to run an agent, not to reconcile their pack
-// set — but it is RETURNED, so the caller names it rather than dropping it in silence.
+// resolve. A pack that cannot be resolved (a git pack not in the store, or one whose manifest has
+// problems — resolveConfiguredPack, NS-D14) contributes nothing rather than failing the launch —
+// the user asked to run an agent, not to reconcile their pack set — but it is RETURNED, so the
+// caller names it rather than dropping it in silence. Nothing is composed from a malformed
+// manifest: its env and providers are the declarations the launch would refuse.
 func loadedHostPacks() ([]*packload.Pack, []unresolvedPack, error) {
 	entries, err := config.LoadPacks(nil)
 	if err != nil {

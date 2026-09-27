@@ -238,9 +238,11 @@ func resolveCaptureTarget(bin string) (*captureTarget, error) {
 	for _, e := range entries {
 		p, rerr := resolveConfiguredPack(e)
 		if rerr != nil {
-			// A git pack the pack store does not have (never `yolo pack install`ed), or a
-			// local one whose directory is gone. Named with the reason rather than skipped:
-			// "no pack declares <bin>" would be a lie about a config that may well declare it.
+			// A git pack the pack store does not have (never `yolo pack install`ed), a local
+			// one whose directory is gone, or one whose manifest has problems (NS-D14: no
+			// installer is captured from a manifest every launch refuses). Named with the
+			// reason rather than skipped: "no pack declares <bin>" would be a lie about a
+			// config that may well declare it.
 			unresolved = append(unresolved, newUnresolvedPack(e.Name, rerr))
 			continue
 		}

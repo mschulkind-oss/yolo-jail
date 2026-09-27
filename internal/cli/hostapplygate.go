@@ -197,6 +197,8 @@ func hostApplyGate(errw io.Writer, stdin io.Reader, bin string) bool {
 	// AN INCOMPLETE PACK SET RENDERS NOTHING (no half states — the same rule `yolo host apply
 	// --assert` refuses by). Checked before cannot-determine, because the observe pass DID
 	// answer: it named the packs it could not resolve, and that is the loud line the user needs.
+	// A pack whose manifest has problems is one of them (resolveConfiguredPack, NS-D14), named
+	// with its problems, rather than applied from whatever part of its manifest decoded.
 	//
 	// THE PROGRAM STILL LAUNCHES, which is this hook's contract for a problem found by the
 	// observe pass (a pack-authoring or pack-set fault is `yolo check`'s to report and never a
@@ -208,10 +210,12 @@ func hostApplyGate(errw io.Writer, stdin io.Reader, bin string) bool {
 		return true
 	}
 	if survey == nil {
-		// CANNOT DETERMINE (§4.4): a malformed pack manifest, an unreadable home, an
-		// unresolvable file:// pack, a budget overrun. The predicate has no answer, so there is
-		// no change to refuse over — exec, with at most one line. Per internal/version's
-		// srcskew house rule, a gate that cannot prove its condition does not fire.
+		// CANNOT DETERMINE (§4.4): an observe pass that failed on its own terms (an inert pack,
+		// an unresolvable config-overlay, a doubly-owned surface), an unreadable home, a budget
+		// overrun. An unresolvable or malformed PACK is not here: the branch above names it.
+		// The predicate has no answer, so there is no change to refuse over — exec, with at
+		// most one line. Per internal/version's srcskew house rule, a gate that cannot prove
+		// its condition does not fire.
 		fmt.Fprintf(errw, "yolo host: could not check whether your host render is up to date "+
 			"(%s) — launching %s anyway.\n", why, bin)
 		return true

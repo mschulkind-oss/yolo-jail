@@ -71,10 +71,11 @@ func hostFooterTables() footer.Tables {
 // status-line redraw would put the network on the footer's path, so a git pack no launch has
 // fetched yet is simply unresolved here. A fetched pack whose tree for the pinned commit is
 // not already checked out is skipped rather than checked out (packsrc.Store.ResolveExisting).
-// A pack that does not resolve contributes nothing, as it contributes nothing to a host
-// launch's env, so a profile only it declares reads as its bare name: an under-claim, never a
-// wrong provider. The one write a refresh can still cause is packload.Embedded's tree, made
-// once per build by the first host `yolo` of that build, whatever the command.
+// A pack that does not resolve, or whose manifest has problems, contributes nothing, as it
+// contributes nothing to a host launch's env, so a profile only it declares reads as its bare
+// name: an under-claim, never a wrong provider. The one write a refresh can still cause is
+// packload.Embedded's tree, made once per build by the first host `yolo` of that build,
+// whatever the command.
 func footerHostPacks() []*packload.Pack {
 	entries, err := config.LoadPacks(nil)
 	if err != nil {
@@ -98,7 +99,10 @@ func footerHostPacks() []*packload.Pack {
 		if err != nil {
 			continue
 		}
-		if p, _ := packload.LoadDir(res.Root, e.Name); p != nil {
+		// A pack with manifest problems is skipped, as loadedHostPacks' resolver skips it for a
+		// host launch's env (resolveConfiguredPack, NS-D14): a profile only it declares then
+		// reads as its bare name here, exactly as that launch composes it.
+		if p, probs := packload.LoadDir(res.Root, e.Name); p != nil && len(probs) == 0 {
 			packs = append(packs, p)
 		}
 	}

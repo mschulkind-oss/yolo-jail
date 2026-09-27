@@ -535,7 +535,9 @@ func readProvenance(f captureFile) map[string]string {
 // It resolves the way a launch does (resolveConfiguredPack): embedded, local, and a git pack
 // from the pack store, offline. One the store does not have is returned for the caller to
 // report — a `config diff` that failed over it would be worse than one that names what it
-// could not read.
+// could not read. A pack whose manifest has problems is returned the same way, with them
+// (NS-D14): these verbs REPORT rather than refuse, since they write nothing, but they never fold
+// a manifest no render would read — the launch refuses it, and so does `host apply --assert`.
 func configuredPacksForInspection() ([]*packload.Pack, []unresolvedPack) {
 	entries, err := config.LoadPacks(nil)
 	if err != nil {

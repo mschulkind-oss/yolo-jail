@@ -48,8 +48,10 @@ import (
 //
 // The containment check is the same one hostBriefingProse makes, for the same reason and with
 // the same reach: `from` is manifest data, packdecl.Validate rejects ".." at the authoring
-// boundary, but a caller may hold a pack whose Decode problems it discarded — `yolo host apply`
-// reads a pack through resolveConfiguredPack (internal/cli), which does exactly that. It is
+// boundary, but a caller may hold a pack whose Decode problems it discarded. `yolo host apply`
+// did, through internal/cli's resolveConfiguredPack, until that resolver began refusing a pack
+// with problems (notch-scoped-config-contributions.md NS-D14); the check stays for the next
+// caller that discards them, since LoadDir still returns the pack beside its problems. It is
 // lexical, so it bounds a declared path and not a symlink inside the tree; on the jail path
 // packstage has already refused escaping symlinks, and on the host path an unstaged tree is
 // either a local pack the user pointed at themselves or a fetched one that resolver has run

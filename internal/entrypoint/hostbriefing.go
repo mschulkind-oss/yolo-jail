@@ -476,7 +476,11 @@ const LegacyLocalPackBriefingRel = "AGENTS.md"
 // reserved `from`, so the moved briefing/local.md would be named by NOBODY and become the implicit
 // broadcast — prose the user routed to one agent (`agents`, `into`) composed into every agent's
 // briefing, by the apply that moved it. The refusal names the one-line edit that makes the move
-// delivery-preserving; the user's declarations stay theirs to write.
+// delivery-preserving; the user's declarations stay theirs to write. `yolo host apply` no longer
+// reaches it: that `from` is a manifest problem, and since NS-D14 its resolver refuses the local
+// pack before the briefing kind runs (docs/design/notch-scoped-config-contributions.md). The
+// refusal stays as this function's own guard, since nothing in its signature says a resolver ran
+// first.
 //
 // observe writes nothing and reports what the move would do — including the refusal.
 func MoveLegacyLocalPackBriefing(localPackDir string, observe bool) (*HostRenderResult, error) {
