@@ -530,6 +530,8 @@ The three constructors are the whole API surface. **`HostLayer` is the subtle fi
 *different file* from the output; on a host target it is the output file itself, which makes
 composition a fixpoint over its own result. That is why every host-target surface is `rmw`.
 
+> **The `Tables` line's premise is re-argued in [`host-computed-layer.md`](host-computed-layer.md#3-why-the-computed-layer-is-jail-only--the-stated-reasons-and-which-hold)** (2026-09-27): of the four derive inputs, only `mcp_servers` carries jail paths, through the MCP presets.
+
 ### 3.4 What this buys immediately, before any host target exists
 
 Worth separating, because these land at step 3 with no new user-facing feature and no risk:
