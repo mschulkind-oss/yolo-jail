@@ -22,7 +22,8 @@
     {
       "agent": "opencode",
       "into": ".config/opencode/skills",
-      "kind": "skills"
+      "kind": "skills",
+      "project_dirs": [".opencode/skills", ".claude/skills", ".agents/skills"]
     },
     {
       "from": "footer/yolo-footer.js",

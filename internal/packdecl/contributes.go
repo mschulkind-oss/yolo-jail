@@ -116,6 +116,31 @@ type Contribution struct {
 	// is how core learns what an agent is, one vendor string at a time — the coupling this
 	// package's tier comment already refuses by name, and the ruling on OQ-ST2.
 	Reserved []string `json:"reserved,omitempty"`
+	// ProjectDirs names the WORKSPACE-RELATIVE directories this destination's agent reads
+	// skills from at PROJECT scope, in the agent's own precedence order: `.claude/skills` for
+	// claude, `.github/skills`, `.agents/skills` and `.claude/skills` for copilot. `skills`
+	// DESTINATIONS only (`agent` set) — refused anywhere else.
+	//
+	// # What it drives (docs/design/workspace-skills.md §5)
+	//
+	// Two things, and both are facts about the agent rather than choices of the user's:
+	//
+	//   - THE SOURCE SET. The union of every declaration here, across every pack yolo SHIPS
+	//     whether or not a jail selects it, plus the selected packs' own (OQ-WS3), is the set of
+	//     workspace directories a launch mirrors into every skills destination as the LOWEST
+	//     layer. A repo that committed `.claude/skills/` reaches `pi` because the claude pack
+	//     declares that path, not because core knows it.
+	//   - THE SKIP RULE. A destination whose own list names a source directory reads it
+	//     natively, so it gets no copy of that directory: `pi` deduplicates skills by real path,
+	//     so a copy beside the original would load as two.
+	//
+	// # Why a pack declares this and core does not know the paths
+	//
+	// Where an agent reads at project scope changes when the agent changes, and only its pack
+	// can keep that current — the rule `into` already follows for the home-scope half (P2 of
+	// the design, docs/reference/extension-point-principle.md). IGNORED AT THE HOST NOTCH, by
+	// ruling (OQ-WS5): `yolo host apply` never writes a workspace's skills into a real home.
+	ProjectDirs []string `json:"project_dirs,omitempty"`
 	// NodeFloor is the MINIMUM Node version this program's entrypoint requires. `program` only.
 	//
 	// # Why a program declares it and core does not derive it
@@ -2596,6 +2621,7 @@ func validateContribution(label string, c Contribution) []string {
 					"silently protect nothing", label, r))
 		}
 	}
+	problems = append(problems, projectDirsProblems(label, c)...)
 	// `update` is program's alone, refused in `profile`'s position and for `profile`'s
 	// reason: a verb declared on `requires` (which installs nothing) or on a content kind
 	// is read by no consumer, so accepting it would be a declaration that silently does

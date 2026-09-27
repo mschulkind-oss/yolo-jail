@@ -22,7 +22,8 @@
     {
       "agent": "copilot",
       "into": ".copilot/skills",
-      "kind": "skills"
+      "kind": "skills",
+      "project_dirs": [".github/skills", ".agents/skills", ".claude/skills"]
     },
     {
       "config": [

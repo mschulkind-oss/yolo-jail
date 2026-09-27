@@ -26,7 +26,8 @@
     {
       "agent": "codex",
       "into": ".codex/skills",
-      "kind": "skills"
+      "kind": "skills",
+      "project_dirs": [".codex/skills"]
     },
     {
       "config": [

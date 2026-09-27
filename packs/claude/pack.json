@@ -32,6 +32,7 @@
       "agent": "claude",
       "into": ".claude/skills",
       "kind": "skills",
+      "project_dirs": [".claude/skills"],
       "reserved": ["synced"]
     },
     {

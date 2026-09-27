@@ -37,7 +37,8 @@
     {
       "agent": "pi",
       "into": ".pi/agent/skills",
-      "kind": "skills"
+      "kind": "skills",
+      "project_dirs": [".pi/skills", ".agents/skills"]
     },
     {
       "kind": "profile",

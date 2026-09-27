@@ -205,7 +205,7 @@ func TestPackInstallsVersionsAndConfigures(t *testing.T) {
 			cmd := fmt.Sprintf(
 				"mkdir -p \"$(dirname %s)\" && touch %s && %s%s %s && test -f %s && grep -q '%s' \"$HOME/%s\"",
 				refreshStamp, refreshStamp, seedRefreshSeen(t, tc.pack, tc.binary), tc.binary, tc.versionArg, stamp, tc.marker, tc.configRel,
-			)
+			) + projectDirsProbe(t, tc.pack, tc.binary)
 			r := runYolo(t, dir, cmd)
 			if r.rc != 0 {
 				t.Fatalf("%s: install/version/config check failed: rc %d\nstdout: %s\nstderr: %s",
@@ -272,6 +272,40 @@ func TestJailConfigsPresent(t *testing.T) {
 // launcher's _refresh_content_key does (internal/entrypoint/prelaunchrefresh.go); if that
 // formula drifts, the "Refreshing" check below fails rather than quietly running the vendor.
 // The list is read from the shipped pack's own declaration, so it cannot drift from pack.json.
+// projectDirsProbe is the `project_dirs` WITNESS (docs/design/workspace-skills.md §5, R5): the
+// shell that asserts every project-scope skills directory the pack declares is a string in the
+// agent it just installed. It pins nothing but the strings and runs nothing — the vendor's files
+// are grepped, never executed (AGENTS.md's no-agent-tests rule) — so an agent that stops naming
+// its own project path fails here, which is the silent break a docs citation would not catch:
+// the mirror would go on skipping an agent that no longer reads there, or copying into one that
+// now does.
+//
+// The installed tree is found from the launcher's own REAL_BIN, resolved, and widened to the
+// nearest npm package root when there is one (an npm bundle names its paths in files beside
+// its bin, not in the bin). "" when the pack declares nothing.
+func projectDirsProbe(t *testing.T, pack, bin string) string {
+	t.Helper()
+	var dirs []string
+	for _, p := range packload.Embedded() {
+		if p.Name == pack {
+			dirs = p.Decl.ProjectSkillDirs()
+		}
+	}
+	if len(dirs) == 0 {
+		return ""
+	}
+	var checks []string
+	for _, d := range dirs {
+		checks = append(checks, fmt.Sprintf(
+			`{ grep -rqaF -- '%[1]s' "$root" || { echo "PROJECT_DIRS: %[2]s declares %[1]s but $root never names it"; false; }; }`,
+			d, pack))
+	}
+	return fmt.Sprintf(` && BIN=%s && eval "$(grep '^REAL_BIN=' "$HOME/.yolo/bin/launch/%s")" && `+
+		`root=$(readlink -f "$REAL_BIN") && d=$(dirname "$root") && `+
+		`for i in 1 2 3 4; do if [ -f "$d/package.json" ]; then root=$d; break; fi; d=$(dirname "$d"); done && `+
+		`%s`, bin, bin, strings.Join(checks, " && "))
+}
+
 func seedRefreshSeen(t *testing.T, pack, bin string) string {
 	t.Helper()
 	var files []string

@@ -24,7 +24,8 @@
     {
       "agent": "agy",
       "into": ".gemini/config/skills",
-      "kind": "skills"
+      "kind": "skills",
+      "project_dirs": [".agents/skills"]
     },
     {
       "config": [
