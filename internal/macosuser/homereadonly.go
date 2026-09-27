@@ -37,8 +37,8 @@ import (
 // inside the workspace, which an earlier session could write with a profile that did not cover
 // these paths. So the bootstrap holds the other end: a link in the sidecar refuses both its
 // layout and its overlay step (entrypoint.LinkedSidecarError), and the overlay install follows
-// no link but the layout's own, replacing one planted at a destination and refusing one in the
-// account home (entrypoint.InstallHomeOverlay). Pinned together, over a planted link at each
+// no link but the layout's own, replacing one planted at a destination in the sidecar and
+// refusing one above a destination or in the account home (entrypoint.InstallHomeOverlay). Pinned together, over a planted link at each
 // position, by TestTheBootstrapDeliversOnlyWhereTheHostsRulesPoint.
 //
 // JOB TWO: THE CHAIN ABOVE THE DESTINATION. A path deny protects a path, not an inode. With

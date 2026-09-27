@@ -65,8 +65,9 @@ echo "=== END STATE ==="
 `)
 	if r2.rc != 0 {
 		t.Fatalf("the second macos-user launch failed (rc %d). If stderr names "+
-			"install_home_overlay, read its message: the install refuses a destination that is "+
-			"a symbolic link, or whose directory resolves outside the sandbox home and the "+
+			"install_home_overlay, read its message: the install refuses a symbolic link the "+
+			"home layout did not lay on the way to a destination, a link at a destination in "+
+			"the account home, and a directory that resolves outside the sandbox home and the "+
 			"workspace sidecar — and on a real Mac that refusal would be a false one.\n"+
 			"stdout:\n%s\nstderr:\n%s", r2.rc, r2.stdout, r2.stderr)
 	}
