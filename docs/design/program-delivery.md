@@ -88,7 +88,7 @@ staging-removal half shipped and whose install-removal half did not),
 [`storage-and-config.md`](../reference/storage-and-config.md) (which directory has which lifetime),
 [`agent-cli-copies.md`](../reference/agent-cli-copies.md) (the disk measurement that reversed the build order),
 and the two plans that built [§3.5](#35-the-second-axis-who-the-dependency-serves-amendment-2026-09-03) and [§6.3](#63-installers-that-just-do-whatever-capture-the-install-then-treat-the-capture-as-the-package) —
-[`../plans/evergreen-agent-updates.md`](../plans/evergreen-agent-updates.md) and
+`evergreen-agent-updates.md` (retired 2026-09-27; `git log -- docs/plans/evergreen-agent-updates.md`) and
 [`../plans/install-capture.md`](../plans/install-capture.md).
 
 ---
@@ -250,7 +250,7 @@ covered (pi, copilot, codex, opencode) are all in that class.
 #### What "evergreen" means, precisely
 
 **RULED ([OQ-PD11](#decision-ledger)–[OQ-PD14](#decision-ledger), 2026-09-03) and SHIPPED
-2026-09-04** ([`../plans/evergreen-agent-updates.md`](../plans/evergreen-agent-updates.md)).
+2026-09-04** (`evergreen-agent-updates.md`, retired 2026-09-27; `git log -- docs/plans/evergreen-agent-updates.md`).
 Everything below is behaviour in the tree. Two dates rather than one: the agent CLIs on
 2026-09-04 and point 2's MCP/LSP half under *"The four things an implementer would otherwise have
 to guess"* on 2026-09-09. One exception remains, stated where it arises — `copilot` is still on npm
@@ -1917,11 +1917,9 @@ does not allow, or a vendor-compatibility hold, which would be an exception P6 d
 ### Compacted questions — headings kept because sibling docs link to them
 
 *Each of these was ruled and its scaffolding folded into the [Decision Ledger](#decision-ledger) and
-the body on 2026-09-06. The headings stay because [`agent-cli-copies.md`](../reference/agent-cli-copies.md),
-[`provisioner-sets.md`](provisioner-sets.md),
-[`../plans/install-capture.md`](../plans/install-capture.md) and
-[`../plans/evergreen-agent-updates.md`](../plans/evergreen-agent-updates.md) link to them; the text
-under each says only where the ruling now lives.*
+the body on 2026-09-06. The headings stay because sibling docs link to them
+(`rg -n -i '#-oq-pd1[567]' docs` lists which); the text under each says only where the ruling now
+lives.*
 
 #### ✅ [`OQ-PD17`](#-oq-pd17--what-is-the-unreferenced-oracle-for-a-capture-entry-now-that-reflink-has-retired-st_nlink--resolved-2026-09-04) — what is the unreferenced oracle for a capture entry, now that reflink has retired `st_nlink`? — RESOLVED (2026-09-04)
 

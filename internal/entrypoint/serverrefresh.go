@@ -13,10 +13,9 @@ import (
 
 // serverrefresh.go is the TRANSITIVE half of evergreen agent updates — the MCP servers a
 // yolo-installed agent connects to (docs/design/program-delivery.md §3.5,
-// OQ-PD12/OQ-PD12a; ../plans/evergreen-agent-updates.md build-order step 7). The agent CLIs
-// went evergreen on 2026-09-04 and their servers did not: a yolo-installed MCP server moved
-// only when the bootstrap reinstalled it, which for a warm home is never, because every
-// install arm in the bootstrap is guarded by "is it missing?".
+// OQ-PD12/OQ-PD12a). The agent CLIs went evergreen on 2026-09-04 and their servers did not:
+// a yolo-installed MCP server moved only when the bootstrap reinstalled it, which for a warm
+// home is never, because every install arm in the bootstrap is guarded by "is it missing?".
 //
 // # The trigger is the agent's, not its own
 //

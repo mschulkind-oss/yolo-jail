@@ -1,7 +1,7 @@
 package entrypoint
 
 // serverrefresh_test.go drives the transitive MCP server refresh (program-delivery.md §3.5,
-// OQ-PD12a; evergreen-agent-updates.md step 7).
+// OQ-PD12a).
 //
 // THE FIRST TWO CELLS ARE THE CALL-SITE HALF, and they are first on purpose. AGENTS.md's
 // *"a test that pins the CALLEE while the CALL SITE is unpinned is not a test"* is the shape

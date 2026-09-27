@@ -108,10 +108,11 @@ exactly the same work to do.
 
 ## The V-axis prune
 
-`_prune_versions` is a keep-newest-K rule over a program's own version directory, run **by the act
-that created the new version**, in the same workspace, immediately after it succeeds. It is
-generated into every native launcher and is called from both the update arm and the cold-install arm
-— "whoever installed the new one" is the trigger, so both qualify.
+`_prune_versions` — **A7**, the id the launcher template, its tests and sibling design docs cite it
+by — is a keep-newest-K rule over a program's own version directory, run **by the act that created
+the new version**, in the same workspace, immediately after it succeeds. It is generated into every
+native launcher and is called from both the update arm and the cold-install arm — "whoever installed
+the new one" is the trigger, so both qualify.
 
 It needs **no store, no oracle and no enumeration**, and that is a property of the tree rather than
 a policy: the referrer set for `~/.local/share/<bin>/versions/*` is one symlink,

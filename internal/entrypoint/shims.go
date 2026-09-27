@@ -1424,10 +1424,10 @@ UPDATE_TIMEOUT=60
 # A lock nobody released — a killed shell, a jail torn down mid-update — must not freeze
 # updates for the life of the home. Ten times the bound on a single attempt.
 STALE_LOCK=600
-# A7's keep-newest-K over the VENDOR's own version directory (agent-cli-copies.md §5.1):
-# the live build plus one rollback target. This K is per workspace and over VERSIONS; it
-# is NOT the capture store's K (OQ-PD17: machine-wide, 1), and neither is the N this
-# corpus uses for the workspace count.
+# A7's keep-newest-K over the VENDOR's own version directory (agent-cli-copies.md, the
+# V-axis prune): the live build plus one rollback target. This K is per workspace and over
+# VERSIONS; it is NOT the capture store's K (OQ-PD17: machine-wide, 1), and neither is the N
+# this corpus uses for the workspace count.
 KEEP_VERSIONS=2
 # 1 when this jail's agent_updates policy lets this pack move. BAKED, so a launcher
 # generated under a frozen policy carries no update branch at all.
@@ -1517,8 +1517,8 @@ _take_lock() {
 
 _drop_lock() { rmdir "$LOCK_DIR" 2>/dev/null || true; }
 
-# _prune_versions is A7, the V-axis prune (agent-cli-copies.md §5.1): keep-newest-K over
-# the vendor's own version directory, run by the act that created the new version, in this
+# _prune_versions is A7 (agent-cli-copies.md, the V-axis prune): keep-newest-K over the
+# vendor's own version directory, run by the act that created the new version, in this
 # workspace, immediately, on success.
 #
 # IT NEEDS NO STORE, NO ORACLE AND NO ENUMERATION, and that is a property of the tree

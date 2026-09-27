@@ -29,7 +29,7 @@ work: [`provisioner-sets.md`](../design/provisioner-sets.md) for the guest's mat
 the first thing to be wrong. Never twist code to match it — correct it in the commit.
 
 **Sequencing — REVERSED 2026-09-04 by [OQ-CP1](../reference/agent-cli-copies.md#oq-cp1).** This plan lands **AFTER**
-[`evergreen-agent-updates.md`](evergreen-agent-updates.md), not before it. The original order rested
+[evergreen agent updates](../design/program-delivery.md#35-the-second-axis-who-the-dependency-serves-amendment-2026-09-03), not before it. The original order rested
 on capture being the disk fix, and it is not: capture collapses the **workspace** axis, evergreen
 multiplies the **version** axis, and on **ext4 capture adds a machine-wide copy and saves no disk at
 all** ([`agent-cli-copies.md` §4.1](../reference/agent-cli-copies.md#the-ext4-inversion)).

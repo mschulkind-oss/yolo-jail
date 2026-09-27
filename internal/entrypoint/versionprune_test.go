@@ -1,8 +1,7 @@
 package entrypoint
 
 // versionprune_test.go RUNS A7, the V-axis prune
-// (docs/reference/agent-cli-copies.md §5.1, adopted by
-// docs/plans/evergreen-agent-updates.md's A7 section).
+// (docs/reference/agent-cli-copies.md, the V-axis prune).
 //
 // WHAT IT IS FOR, in one measurement: this development jail's one workspace held five
 // claude builds totalling 1223.4 MiB, of which 1018.6 MiB — 83.3 % — were referenced by

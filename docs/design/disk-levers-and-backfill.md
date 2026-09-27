@@ -66,8 +66,7 @@ and defers.
   and [the mounted prefix](../reference/image-staging-vs-baking.md#the-mounted-prefix) (shipped today), and [OQ-6](../reference/image-staging-vs-baking.md#why-its-this-way) (C6).
 - [`../plans/storage-lifecycle.md`](../plans/storage-lifecycle.md) — the consumer map, the rooting
   work, and the bounded store GC this doc proposes to replace with something narrower.
-- [`agent-cli-copies.md`](../reference/agent-cli-copies.md) [§5.1](../reference/agent-cli-copies.md#the-v-axis-prune) and
-  [`../plans/evergreen-agent-updates.md`](../plans/evergreen-agent-updates.md) — A7, the vendor-version prune, which is the one reclaimer here whose steady state shipped with a trigger that skips its own backfill.
+- [`agent-cli-copies.md`](../reference/agent-cli-copies.md), [the V-axis prune](../reference/agent-cli-copies.md#the-v-axis-prune) — A7, the vendor-version prune, which is the one reclaimer here whose steady state shipped with a trigger that skips its own backfill.
 
 ---
 
@@ -1318,5 +1317,5 @@ are authoritative.
 | `minimal-disk` [OQ-DF1](minimal-disk-footprint.md#112-open-questions) | *"Stream, keep zero tars."* | L4's number is that ruling applied to the reaper's default ([OQ-BF6](#OQ-BF6)). |
 | `minimal-disk` [OQ-DF3](minimal-disk-footprint.md#OQ-DF3) (NUMBER + TRIGGER) | `keep=2`, automatic on the launch path, debounced 24 h, `YOLO_NO_AUTO_IMAGE_REAP=1`. The count has since been deleted by [`OQ-LS3`](../reference/image-retention.md#why-its-this-way); the trigger stands, in the housekeeping slot. | The precedent P3 generalises and P4 distinguishes ([§4](#4-why-backfill-and-steady-state-do-not-share-a-disposition)); its REACH half was ruled NARROW there on 2026-09-08. |
 | `image-staging` [OQ-8](../reference/image-staging-vs-baking.md#why-its-this-way) (C8) | yolo's binaries are delivered by mount; the out-link is the prefix's GC root, keyed by checkout. | The store-garbage finding ([§2.3](#23-yolos-own-store-outputs-are-never-collected--the-c8-finding)) and [OQ-BF4](#OQ-BF4). |
-| `agent-cli-copies` A7 / [`../plans/evergreen-agent-updates.md`](../plans/evergreen-agent-updates.md) | Keep-newest-2 over the vendor's version dir, run by the act that installed the new one. | L7 widens the trigger, not the rule. |
+| [`agent-cli-copies.md`](../reference/agent-cli-copies.md#the-v-axis-prune) A7 | Keep-newest-2 over the vendor's version dir, run by the act that installed the new one. | L7 widens the trigger, not the rule. |
 | `program-delivery` [OQ-PD17](program-delivery.md#decision-ledger) | Capture store reap is the complement of the resolver; K = 1; no age floor. | L8 gives it a trigger, not a policy. |

@@ -65,7 +65,8 @@ postdates this plan and was not assessed by it.
 > **[OQ-PD12a](../design/program-delivery.md#decision-ledger)** the launch dir stayed last on
 > `BootPath`, so an existing workspace kept resolving `$NPM_CONFIG_PREFIX/bin/codex` and never
 > reached the new launcher. ✅ **Both shipped 2026-09-04** in
-> [`evergreen-agent-updates.md`](evergreen-agent-updates.md)'s merge: `packs/codex` declares
+> the evergreen merge `208a5e43` (plan `evergreen-agent-updates.md`, retired 2026-09-27;
+> `git log -- docs/plans/evergreen-agent-updates.md`): `packs/codex` declares
 > `update: ["update"]`, and the launch dir now sits ahead of the install prefixes. The flip now
 > reaches old workspaces too.
 
@@ -272,11 +273,11 @@ edit, so each step's proof is its own CI cell on both arches.
 ## Blockers
 
 - ✅ **[OQ-PD14](../design/program-delivery.md#decision-ledger) (the pack-declared update verb)** —
-  a hard dependency for the *benefit*, not for the flip — **shipped 2026-09-04** in
-  [`evergreen-agent-updates.md`](evergreen-agent-updates.md).
+  a hard dependency for the *benefit*, not for the flip — **shipped 2026-09-04** in the evergreen
+  merge `208a5e43` ([`program-delivery.md` §3.5](../design/program-delivery.md#35-the-second-axis-who-the-dependency-serves-amendment-2026-09-03)).
 - ✅ **[OQ-PD12a](../design/program-delivery.md#decision-ledger) / B2 (launch dir ahead of the
   install prefixes)**, what makes a flip reach an existing workspace, **shipped 2026-09-04** in the
-  same plan. Neither blocks copilot's flip; the `PREFIX` problem does.
+  same merge. Neither blocks copilot's flip; the `PREFIX` problem does.
 - **copilot's `--no-auto-update`: ASKED, AND ANSWERED — option A, 2026-09-12. The flag is
   DROPPED.** The maintainer's words: *"drop the no auto update too, we decided to just let agents be
   agents. and of course fix the autonomy."* It shipped on its own, with copilot still on npm and the

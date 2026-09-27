@@ -9,8 +9,7 @@ import (
 )
 
 // refreshservers.go is `yolo internal refresh-servers` — the transitive half of evergreen
-// agent updates (docs/design/program-delivery.md §3.5, OQ-PD12a;
-// docs/plans/evergreen-agent-updates.md build-order step 7).
+// agent updates (docs/design/program-delivery.md §3.5, OQ-PD12a).
 //
 // # Who calls it, and from where
 //
