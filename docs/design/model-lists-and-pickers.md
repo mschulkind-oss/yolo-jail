@@ -149,9 +149,9 @@ MEASURED at `ee8154f2`, 2026-09-24, unless marked.
 - **Two derives hard-code the same three GPT-6 ids, plus 1M context options alongside each model type, for `openai-codex` only.** In
   `packs/claude/derive.lua`, `availableModels` lists `gpt-6-sol`, `gpt-6-sol[1m]`, `gpt-6-astra`,
   `gpt-6-astra[1m]`, `gpt-6-luna`, `gpt-6-luna[1m]` (the default first, so Claude Code's Default row
-  resolves to Sol), with `enforceAvailableModels`; `modelPicker.options` lists Astra, Sol, Luna and
-  their corresponding `[1m]` options directly alongside each model type, with labels and descriptions
-  ("Frontier", "Balanced", "Fast", and their "· 1M context" variants), and `replaceBuiltInOptions`. In
+  resolves to Sol), with `enforceAvailableModels`; `modelPicker.options` lists the top 6 in the same
+  Sol-first order (Sol, Sol 1M, Astra, Astra 1M, Luna, Luna 1M), with labels and descriptions
+  ("Balanced", "Frontier", "Fast", and their "· 1M context" variants), and `replaceBuiltInOptions`. In
   `packs/pi/derive.lua`, `enabledModels` lists the same models and their 1M context options
   (`openai-codex/gpt-6-sol`, `openai-codex/gpt-6-sol[1m]`, `openai-codex/gpt-6-astra`,
   `openai-codex/gpt-6-astra[1m]`, `openai-codex/gpt-6-luna`, `openai-codex/gpt-6-luna[1m]`), with the

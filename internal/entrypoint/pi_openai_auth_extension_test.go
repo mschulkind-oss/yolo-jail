@@ -210,9 +210,22 @@ const models = registration.config.models;
 if (!Array.isArray(models)) {
 	throw new Error("models not defined or not an array");
 }
+const expectedTop6 = [
+	"gpt-6-sol",
+	"gpt-6-sol[1m]",
+	"gpt-6-astra",
+	"gpt-6-astra[1m]",
+	"gpt-6-luna",
+	"gpt-6-luna[1m]",
+];
+for (let i = 0; i < expectedTop6.length; i++) {
+	if (!models[i] || models[i].id !== expectedTop6[i]) {
+		throw new Error("models[" + i + "] = " + (models[i] ? models[i].id : "undefined") + ", want " + expectedTop6[i]);
+	}
+}
 const expectedPairs = [
-	["gpt-6-astra", "gpt-6-astra[1m]"],
 	["gpt-6-sol", "gpt-6-sol[1m]"],
+	["gpt-6-astra", "gpt-6-astra[1m]"],
 	["gpt-6-luna", "gpt-6-luna[1m]"],
 ];
 for (const [baseId, oneMId] of expectedPairs) {

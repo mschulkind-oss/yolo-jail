@@ -335,8 +335,8 @@ func TestConfigureClaudePrismCodexModelPicker(t *testing.T) {
 		t.Fatalf("modelPicker.options missing/!array: %v", picker["options"])
 	}
 	want := []string{
-		"gpt-6-astra", "gpt-6-astra[1m]",
 		"gpt-6-sol", "gpt-6-sol[1m]",
+		"gpt-6-astra", "gpt-6-astra[1m]",
 		"gpt-6-luna", "gpt-6-luna[1m]",
 	}
 	if len(options) != len(want) {

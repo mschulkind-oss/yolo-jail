@@ -92,22 +92,15 @@ yolo.derive("claude", "settings", function(ctx)
   -- Replacing the built-ins prevents retired pre-6 choices from leaking into
   -- a Codex-profile launch; `Default` resolves to ANTHROPIC_MODEL below.
   --
-  -- TWO ORDERS, ON PURPOSE, mirroring Claude's own picker (a `Default` row above
-  -- the explicit models). modelPicker.options is the USER-FACING list and follows
-  -- the STANDING RULE: most capable first — Astra (frontier), Sol (balanced),
-  -- Luna (fast). pi's enabledModels does NOT follow it: its FIRST entry is the model
-  -- pi starts a fresh session on whenever the saved selection fails to resolve
-  -- (packs/pi/derive.lua's standing rule), so that list leads with the default — Sol.
-  -- availableModels is NOT a
-  -- display list: it is the enforcement set, and its FIRST entry is the model
-  -- Claude Code's RETAINED built-in `Default` row resolves to. So it is ordered
-  -- Default-first — Sol, the balanced model — which makes that row resolve to Sol
-  -- while the explicit list below still reads Astra, Sol, Luna. Keep the two in
-  -- agreement on membership; only the first element's role differs.
+  -- Both availableModels and modelPicker.options lead with the balanced default (Sol,
+  -- Sol 1M), followed by frontier (Astra, Astra 1M) and fast (Luna, Luna 1M).
+  -- availableModels' FIRST entry is what Claude Code's RETAINED built-in `Default` row
+  -- resolves to, so leading with Sol makes `Default` resolve to Sol while the explicit
+  -- picker list beneath it presents the top 6 in the same coherent Sol-first order.
   if ctx.selected_provider == "openai-codex" then
     -- The client retains a hard-coded Default row. Constraining Default makes it
     -- resolve to the FIRST allowlisted ID (GPT-6 Sol, the balanced default);
-    -- modelPicker then lists the models most-capable-first beneath it, with 1M
+    -- modelPicker then lists the top 6 in the same Sol-first order beneath it, with 1M
     -- context options alongside each model type.
     -- GPT-5.6 Terra has no GPT-6 successor: Sol carries the balanced role now.
     out.availableModels = {
@@ -121,10 +114,10 @@ yolo.derive("claude", "settings", function(ctx)
     out.enforceAvailableModels = true
     out.modelPicker = {
       options = {
-        { model = "gpt-6-astra",     label = "GPT-6 Astra",              description = "Frontier" },
-        { model = "gpt-6-astra[1m]", label = "GPT-6 Astra (1M context)", description = "Frontier · 1M context" },
         { model = "gpt-6-sol",       label = "GPT-6 Sol",                description = "Balanced" },
         { model = "gpt-6-sol[1m]",   label = "GPT-6 Sol (1M context)",   description = "Balanced · 1M context" },
+        { model = "gpt-6-astra",     label = "GPT-6 Astra",              description = "Frontier" },
+        { model = "gpt-6-astra[1m]", label = "GPT-6 Astra (1M context)", description = "Frontier · 1M context" },
         { model = "gpt-6-luna",      label = "GPT-6 Luna",               description = "Fast" },
         { model = "gpt-6-luna[1m]",  label = "GPT-6 Luna (1M context)",  description = "Fast · 1M context" },
       },
