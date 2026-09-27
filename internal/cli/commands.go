@@ -1137,7 +1137,7 @@ func runRun(args []string) int {
 	// composed profile/provider channel, which run.Run composes above the backend
 	// dispatch and passes to whichever arm runs — forwarded verbatim.
 	opts.MacosUserRun = func(cfg *jsonx.OrderedMap, workspace string, agents, agentArgv []string,
-		repoRoot, packRoot, homeOverlay string, hostCtx macosuser.HostContext, dryRun bool,
+		repoRoot, packRoot string, homeOverlay macosuser.HomeOverlay, hostCtx macosuser.HostContext, dryRun bool,
 		packEnv *jsonx.OrderedMap, blocked []packload.BlockedTool) int {
 		return macosUserRun(cfg, workspace, agents, agentArgv, repoRoot, packRoot, homeOverlay,
 			hostCtx, dryRun, packEnv, blocked)
@@ -1226,7 +1226,7 @@ var launchRunPipeline = run.Run
 // profile/provider channel it composed before dispatching there too. macos-hardware-gated;
 // on Linux macosuser fails closed at its IsMacOS precondition (dry-run works anywhere).
 func macosUserRun(cfg *jsonx.OrderedMap, workspace string, agents, agentArgv []string,
-	repoRoot, packRoot, homeOverlay string, hostCtx macosuser.HostContext, dryRun bool,
+	repoRoot, packRoot string, homeOverlay macosuser.HomeOverlay, hostCtx macosuser.HostContext, dryRun bool,
 	packEnv *jsonx.OrderedMap, blocked []packload.BlockedTool) int {
 	runProxy := run.RunWithProxy
 	materialize := func(nixRoot string, packages []any) (*macosuser.Darwin, bool, error) {

@@ -109,14 +109,16 @@ type Options struct {
 	// already loaded the packs, and a second load could disagree with the first.
 	BlockedTools []packload.BlockedTool
 
-	// HostHomeOverlay is the host-side tree of composed CONTENT — skills and
-	// pack-declared briefings — already laid out at the home-relative paths it belongs
-	// at, or "" when there is nothing to deliver. The container backends mount each
-	// staged dir at its destination; this one has no mounts, so the tree is staged
-	// root-owned beside the packs and copied over the sandbox home by the bootstrap.
-	// See internal/cli/run/macoshomeoverlay.go for why it crosses as a TREE rather
-	// than as a mapping the bootstrap would have to re-implement.
-	HostHomeOverlay string
+	// HostHomeOverlay is the host-side composed CONTENT — skills and pack-declared
+	// briefings — as a tree already laid out at the home-relative paths it belongs at
+	// (Tree "" when there is nothing to deliver), with the destinations that tree holds.
+	// The container backends mount each staged dir `:ro` at its destination; this one
+	// has no mounts, so the tree is staged root-owned beside the packs and copied over
+	// the sandbox home by the bootstrap, and the destinations become Seatbelt write
+	// denies (homereadonly.go). See internal/cli/run/macoshomeoverlay.go for why it
+	// crosses as a TREE rather than as a mapping the bootstrap would have to
+	// re-implement.
+	HostHomeOverlay HomeOverlay
 
 	// HostCtx is the host-side composed CONTEXT tree and the record of what the run
 	// pipeline put in it: pack `reads-host` grants and the user's source-bearing

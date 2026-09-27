@@ -81,7 +81,7 @@ func TestEveryAcceptedMacosLogModeGeneratesItsOwnHelper(t *testing.T) {
 func TestMacosLogReachesTheDarwinBootstrapEnv(t *testing.T) {
 	plan := func(cfg *jsonx.OrderedMap) RunPlan {
 		return BuildRunPlan("/Users/Shared/yolo/proj", cfg,
-			[]string{"claude"}, []string{"claude"}, "/usr/local/bin/yolo", "", "",
+			[]string{"claude"}, []string{"claude"}, "/usr/local/bin/yolo", "", HomeOverlay{},
 			HostContext{}, jsonx.NewOrderedMap(), nil, nil)
 	}
 	for _, mode := range config.MacosLogModes {

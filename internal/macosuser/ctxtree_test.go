@@ -35,7 +35,7 @@ func deliveredCtx() HostContext {
 func planWithCtx(t *testing.T, hostCtx HostContext) RunPlan {
 	t.Helper()
 	return BuildRunPlan("/Users/Shared/yolo/proj", jsonx.NewOrderedMap(), []string{"claude"},
-		[]string{"/bin/zsh", "-l"}, "/usr/local/bin/yolo", hostStaged, "", hostCtx,
+		[]string{"/bin/zsh", "-l"}, "/usr/local/bin/yolo", hostStaged, HomeOverlay{}, hostCtx,
 		jsonx.NewOrderedMap(), nil, nil)
 }
 
@@ -160,7 +160,7 @@ func TestRunPlanCarriesBothHalvesOfHostFiles(t *testing.T) {
 		mapOf("path", "~/.config/seed.json", "content", "x\n"),
 	})
 	plan := BuildRunPlan("/Users/Shared/yolo/proj", cfg, []string{"claude"},
-		[]string{"/bin/zsh", "-l"}, "/usr/local/bin/yolo", hostStaged, "", deliveredCtx(),
+		[]string{"/bin/zsh", "-l"}, "/usr/local/bin/yolo", hostStaged, HomeOverlay{}, deliveredCtx(),
 		jsonx.NewOrderedMap(), nil, nil)
 
 	wire, ok := argvEnvValue(plan.BootstrapArgv, "YOLO_HOST_FILES")
@@ -202,7 +202,7 @@ func TestRunPlanPrefersTheStagedSourceOverASourceLessTwin(t *testing.T) {
 		mapOf("path", "~/.npmrc", "content", "from-the-workspace\n"),
 	})
 	plan := BuildRunPlan("/Users/Shared/yolo/proj", cfg, []string{"claude"},
-		[]string{"/bin/zsh", "-l"}, "/usr/local/bin/yolo", hostStaged, "", deliveredCtx(),
+		[]string{"/bin/zsh", "-l"}, "/usr/local/bin/yolo", hostStaged, HomeOverlay{}, deliveredCtx(),
 		jsonx.NewOrderedMap(), nil, nil)
 
 	wire, _ := argvEnvValue(plan.BootstrapArgv, "YOLO_HOST_FILES")

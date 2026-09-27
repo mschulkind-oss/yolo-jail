@@ -159,7 +159,7 @@ var e2eLaunchers = []launcher{
 			t.Fatalf("buildMacosCtxTree: %v", err)
 		}
 		plan := macosuser.BuildRunPlan("/Users/Shared/yolo/proj", jsonx.NewOrderedMap(),
-			[]string{"pi"}, []string{"/bin/zsh", "-l"}, "/usr/local/bin/yolo", "", "",
+			[]string{"pi"}, []string{"/bin/zsh", "-l"}, "/usr/local/bin/yolo", "", macosuser.HomeOverlay{},
 			delivery.ctx, jsonx.NewOrderedMap(), nil, nil)
 		var wire string
 		for _, a := range plan.BootstrapArgv {

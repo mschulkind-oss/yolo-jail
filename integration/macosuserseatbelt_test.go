@@ -85,6 +85,8 @@ var seatbeltRules = []seatbeltRule{
 	{id: "write-outside-deny"},
 	{id: "workspace-write-allow"},
 	{id: "workspace-readonly-deny"},
+	{id: "home-content-write-deny"},
+	{id: "home-content-anchor-deny"},
 	{id: "volumes-read-deny"},
 	{id: "boot-volume-read-allow", unproven: "/Volumes/Macintosh HD is not on every Mac — " +
 		"an APFS boot volume is mounted at / and the /Volumes entry is a synthetic link " +
@@ -147,6 +149,16 @@ type seatbeltFixtures struct {
 	neutral    string
 	canaryPID  int    // a process spawned OUTSIDE the sandbox
 	canaryWord string // a word on that process's command line
+	// THE STAGED CONTENT (G14), laid out where a launch with the claude pack puts it: in
+	// the workspace sidecar, which ~/.claude is a symlink into. stateDir is the agent's
+	// own state directory there, skills and briefing the two things the bootstrap copied
+	// into it, and content the rules the profile carries for them — computed by the same
+	// resolver BuildRunPlan calls, with the real sandbox home, so nothing is written
+	// outside the fixture and the text under test is what a launch would install.
+	stateDir string // <ws>/.yolo/home/claude — the agent's, and must stay writable
+	skills   string // <stateDir>/skills          — staged, write-protected
+	briefing string // <stateDir>/CLAUDE.md       — staged, write-protected
+	content  macosuser.HomeReadonly
 }
 
 type seatbeltCase struct {
@@ -239,6 +251,86 @@ func seatbeltCases() []seatbeltCase {
 			want: wantRefused,
 		},
 		{
+			name: "home_content_skill_write_refused",
+			id:   "home-content-write-deny",
+			why: "G14: a staged skill is delivered by COPY into a home the agent owns, so the " +
+				"file mode cannot protect it — only this deny can. It names the PHYSICAL path in " +
+				"the workspace sidecar, because ~/.claude is a symlink there and the kernel " +
+				"resolves it before the policy is consulted.",
+			script: func(f seatbeltFixtures) string {
+				return "printf 'x' >> " + sh(f.skills+"/demo/SKILL.md")
+			},
+			want: wantRefused,
+		},
+		{
+			name: "home_content_briefing_write_refused",
+			id:   "home-content-write-deny",
+			why: "the briefing is a FILE, protected by the same (subpath …) form as a skills " +
+				"directory — a subpath covers the path itself.",
+			script: func(f seatbeltFixtures) string {
+				return "printf 'x' >> " + sh(f.briefing)
+			},
+			want: wantRefused,
+		},
+		{
+			name: "home_content_planting_a_skill_refused",
+			id:   "home-content-write-deny",
+			why: "a new file under the staged skills dir is a skill the agent would load next " +
+				"session; the deny covers creation, not only existing files. Self-cleaning, " +
+				"because the bare control really does create it.",
+			script: func(f seatbeltFixtures) string {
+				return "touch " + sh(f.skills+"/planted") + " && rm -f " + sh(f.skills+"/planted")
+			},
+			want: wantRefused,
+		},
+		{
+			name: "home_content_delete_refused",
+			id:   "home-content-write-deny",
+			why: "deleting a staged skill. The bare control deletes AND restores it, so the " +
+				"sandboxed run still has a file to be refused on.",
+			script: func(f seatbeltFixtures) string {
+				skill := sh(f.skills + "/demo/SKILL.md")
+				return "rm " + skill + " && printf 'demo skill\\n' > " + skill
+			},
+			want: wantRefused,
+		},
+		{
+			name: "home_content_rename_refused",
+			id:   "home-content-write-deny",
+			why: "renaming the staged skills dir away, which would leave the path free for one " +
+				"the agent wrote. The bare control renames it back.",
+			script: func(f seatbeltFixtures) string {
+				return "mv " + sh(f.skills) + " " + sh(f.skills+".moved") +
+					" && mv " + sh(f.skills+".moved") + " " + sh(f.skills)
+			},
+			want: wantRefused,
+		},
+		{
+			name: "home_content_leaves_agent_state_writable",
+			id:   "home-content-write-deny",
+			why: "the other half of \"write-protected\": the agent's OWN state beside the " +
+				"staged content — transcripts, settings, credentials — must stay writable, or the " +
+				"deny has frozen the agent rather than its instructions.",
+			script: func(f seatbeltFixtures) string {
+				probe := sh(f.stateDir + "/projects/probe")
+				return "touch " + probe + " && rm " + probe + " && echo " + seatbeltOK
+			},
+			want: wantAllowed,
+		},
+		{
+			name: "home_content_anchor_leaves_the_state_dir_usable",
+			id:   "home-content-anchor-deny",
+			why: "the anchor deny is create+unlink on the directory's OWN path, never file-write*, " +
+				"so the agent can still add entries to its state dir and chmod it — the startup " +
+				"shape an agent needs that the container's :ro bind never took away.",
+			script: func(f seatbeltFixtures) string {
+				entry := sh(f.stateDir + "/new-entry")
+				return "touch " + entry + " && rm " + entry + " && chmod 755 " + sh(f.stateDir) +
+					" && echo " + seatbeltOK
+			},
+			want: wantAllowed,
+		},
+		{
 			name:   "volumes_listing_refused",
 			id:     "volumes-read-deny",
 			why:    "an attached volume is somebody's backup disk.",
@@ -321,6 +413,25 @@ func seatbeltCases() []seatbeltCase {
 			},
 			want: wantAllowed,
 		},
+		// LAST, deliberately: if the kernel lets the rename-away through and refuses only the
+		// replacement, the sandboxed run leaves the state dir at its .moved name, and a case
+		// after this one would be measuring a different fixture.
+		{
+			name: "home_content_anchor_replace_refused",
+			id:   "home-content-anchor-deny",
+			why: "a PATH deny protects a path, not an inode: move the state dir aside and put a " +
+				"directory of the agent's own where it was, and every staged file is untouched while " +
+				"~/.claude now resolves to something else. The anchor refuses unlinking the " +
+				"directory (so the move) and creating at its path (so the replacement); either " +
+				"refusal fails this script. ⚠ WHICH ONE fires is the part never measured — SBPL's " +
+				"mapping of rename(2) onto operations is not documented — which is why the deny " +
+				"names both.",
+			script: func(f seatbeltFixtures) string {
+				d, moved := sh(f.stateDir), sh(f.stateDir+".moved")
+				return "mv " + d + " " + moved + " && mkdir " + d + " && rmdir " + d + " && mv " + moved + " " + d
+			},
+			want: wantRefused,
+		},
 	}
 }
 
@@ -391,7 +502,11 @@ func TestMacosUserSeatbeltProfileEnforcesItsRules(t *testing.T) {
 // that develop this repo cannot load a Seatbelt profile, so if this check waited for a
 // Mac, a deny added today would sit unproven until the next nightly at the earliest.
 func TestMacosUserSeatbeltRegistryMatchesTheProfile(t *testing.T) {
-	profile := macosuser.SeatbeltProfile("/Users/Shared/proj", "", []string{"vendored"})
+	// With delivered content, so the two G14 rules are in the text too — otherwise the rules a
+	// launch with a pack generates are the ones this never checks.
+	profile := macosuser.SeatbeltProfile("/Users/Shared/proj", "", []string{"vendored"},
+		macosuser.ResolveHomeReadonly(macosuser.SandboxHome(), "/Users/Shared/proj",
+			[]string{".claude"}, []string{".claude/skills", ".claude/CLAUDE.md"}))
 
 	inProfile := map[string]bool{}
 	for _, m := range seatbeltIDPattern.FindAllStringSubmatch(profile, -1) {
@@ -436,6 +551,67 @@ func TestMacosUserSeatbeltRegistryMatchesTheProfile(t *testing.T) {
 		case r.unproven != "" && proved[r.id] > 0:
 			t.Errorf("rule %q is registered as unproven and %d case(s) carry its id; delete "+
 				"the reason or delete the cases, but the file must not say both", r.id, proved[r.id])
+		}
+	}
+}
+
+// TestMacosUserSeatbeltContentControlsRunUnsandboxed runs the BARE CONTROL of every G14
+// case on the machine that develops this repo, and checks the fixture survives them.
+//
+// WHY. Those scripts are built by string concatenation and nobody who writes them can run
+// the suite above: it skips everywhere but a Mac. A quoting bug, or a control that forgets
+// to restore what it moved, would surface as a broken control hours into the macOS job,
+// which is the one run the whole exercise is for. What a Mac uniquely settles is the
+// REFUSAL; whether each script does what its bare half claims does not need one. It
+// asserts nothing about Seatbelt.
+//
+// Not behind requireMacosUserSeatbelt, so not in the vacuity ledger: it exercises no
+// profile, and counting it would let the macOS job's "something ran" check pass without
+// one. Only the home_content cases, because the older cases' controls lean on BSD `script`
+// and macOS paths.
+func TestMacosUserSeatbeltContentControlsRunUnsandboxed(t *testing.T) {
+	if _, err := exec.LookPath("sh"); err != nil {
+		t.Skip("no sh on PATH")
+	}
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	f := seatbeltTree(t, root)
+	ran := 0
+	for _, tc := range seatbeltCases() {
+		if !strings.HasPrefix(tc.name, "home_content_") {
+			continue
+		}
+		ran++
+		out, rc := runScript(t, tc.script(f), nil)
+		if rc != 0 {
+			t.Errorf("%s: the bare control exits %d, so on a Mac this case would report a "+
+				"broken control instead of measuring the profile:\n%s", tc.name, rc, out)
+		}
+		if tc.want == wantAllowed && !strings.Contains(out, seatbeltOK) {
+			t.Errorf("%s: the bare control does not print %s:\n%s", tc.name, seatbeltOK, out)
+		}
+		// Every control must leave the fixture as it found it, or the next case measures a
+		// different tree.
+		for _, p := range []string{f.stateDir, filepath.Join(f.skills, "demo", "SKILL.md"), f.briefing} {
+			if _, err := os.Stat(p); err != nil {
+				t.Errorf("after %s's control, %s is gone (%v): the control does not restore "+
+					"what it changed", tc.name, p, err)
+			}
+		}
+	}
+	if ran == 0 {
+		t.Fatal("no home_content case found; the prefix this test selects on has drifted")
+	}
+	// The fixture's rules must name the fixture's own staged content, spelled as resolved.
+	for _, want := range []string{f.skills, f.briefing} {
+		found := false
+		for _, p := range f.content.Paths {
+			found = found || p == want
+		}
+		if !found {
+			t.Errorf("the fixture's content rules %v do not name %s", f.content.Paths, want)
 		}
 	}
 }
@@ -579,6 +755,17 @@ func seatbeltFixture(t *testing.T) seatbeltFixtures {
 		t.Fatalf("creating the fixture root under %s: %v", sharedUsersDir, err)
 	}
 	t.Cleanup(func() { _ = os.RemoveAll(root) })
+	f := seatbeltTree(t, root)
+	f.canaryPID, f.canaryWord = startSeatbeltCanary(t)
+	return f
+}
+
+// seatbeltTree lays the fixture tree out under root (which must exist) and fills every
+// path field — everything seatbeltFixture does but choose WHERE, and start the canary.
+// Split out so the scripts' bare controls can be run on Linux (see
+// TestMacosUserSeatbeltContentControlsRunUnsandboxed), where /Users/Shared does not exist.
+func seatbeltTree(t *testing.T, root string) seatbeltFixtures {
+	t.Helper()
 	resolved, err := filepath.EvalSymlinks(root)
 	if err != nil {
 		t.Fatalf("resolving %s: %v", root, err)
@@ -592,20 +779,27 @@ func seatbeltFixture(t *testing.T) seatbeltFixtures {
 			fmt.Sprintf("yolo-sb-write-%d-%d", os.Getpid(), time.Now().UnixNano())),
 	}
 	t.Cleanup(func() { _ = os.Remove(f.neutral) })
-	for _, d := range []string{f.ws, f.readonly, f.outside} {
+	f.stateDir = filepath.Join(f.ws, ".yolo", "home", "claude")
+	f.skills = filepath.Join(f.stateDir, "skills")
+	f.briefing = filepath.Join(f.stateDir, "CLAUDE.md")
+	f.content = macosuser.ResolveHomeReadonly(macosuser.SandboxHome(), f.ws,
+		[]string{".claude"}, []string{".claude/skills", ".claude/CLAUDE.md"})
+	for _, d := range []string{f.ws, f.readonly, f.outside,
+		filepath.Join(f.skills, "demo"), filepath.Join(f.stateDir, "projects")} {
 		if err := os.MkdirAll(d, 0o755); err != nil {
 			t.Fatalf("creating %s: %v", d, err)
 		}
 	}
 	for path, content := range map[string]string{
-		filepath.Join(f.ws, "seed"):        seatbeltOK + "\n",
-		filepath.Join(f.outside, "secret"): "a sibling checkout's private file\n",
+		filepath.Join(f.ws, "seed"):                 seatbeltOK + "\n",
+		filepath.Join(f.outside, "secret"):          "a sibling checkout's private file\n",
+		filepath.Join(f.skills, "demo", "SKILL.md"): "demo skill\n",
+		f.briefing: "the briefing\n",
 	} {
 		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 			t.Fatalf("writing %s: %v", path, err)
 		}
 	}
-	f.canaryPID, f.canaryWord = startSeatbeltCanary(t)
 	return f
 }
 
@@ -646,13 +840,14 @@ func startSeatbeltCanary(t *testing.T) (int, string) {
 // seatbeltProfileFile writes the generated profile where sandbox-exec can read it.
 //
 // The arguments are the ones BuildRunPlan passes (runplan.go): the workspace, the real
-// sandbox home, and the workspace_readonly list — so the text under test is the text a
-// launch would install, not a second profile written for the occasion. It is left in
+// sandbox home, the workspace_readonly list, and the content rules ResolveHomeReadonly
+// derives for a claude-pack delivery — so the text under test is the text a launch would
+// install, not a second profile written for the occasion. It is left in
 // the temp dir on failure and its path is logged, because the first question about a
 // surprising refusal is what the profile actually said.
 func seatbeltProfileFile(t *testing.T, f seatbeltFixtures) string {
 	t.Helper()
-	profile := macosuser.SeatbeltProfile(f.ws, "", []string{"vendored"})
+	profile := macosuser.SeatbeltProfile(f.ws, "", []string{"vendored"}, f.content)
 	path := filepath.Join(t.TempDir(), "session.sb")
 	if err := os.WriteFile(path, []byte(profile), 0o644); err != nil {
 		t.Fatalf("writing the profile to %s: %v", path, err)

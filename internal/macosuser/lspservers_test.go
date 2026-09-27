@@ -39,7 +39,7 @@ func lspOnlyConfig(t *testing.T) *jsonx.OrderedMap {
 func lspOnlyPlan(t *testing.T, cfg *jsonx.OrderedMap) RunPlan {
 	t.Helper()
 	return BuildRunPlan("/Users/Shared/proj", cfg, []string{"claude"}, []string{"claude"},
-		"/opt/yolo-jail/bin/yolo", "", "", HostContext{}, jsonx.NewOrderedMap(), nil, nil)
+		"/opt/yolo-jail/bin/yolo", "", HomeOverlay{}, HostContext{}, jsonx.NewOrderedMap(), nil, nil)
 }
 
 // THE HALF THAT STAYS: the table still reaches the bootstrap, whose derives render it.

@@ -13,7 +13,7 @@ func TestRunPlanGrantsAndCarriesOpenAIAuthEndpoint(t *testing.T) {
 	env := jsonx.NewOrderedMap()
 	env.Set("YOLO_SERVICE_OPENAI_AUTH_BROKER_ENDPOINT", endpoint)
 	plan := BuildRunPlan("/Users/Shared/proj", jsonx.NewOrderedMap(), []string{"pi"},
-		[]string{"pi"}, "/opt/yolo", "", "", HostContext{}, env, nil, nil)
+		[]string{"pi"}, "/opt/yolo", "", HomeOverlay{}, HostContext{}, env, nil, nil)
 
 	want := EndpointGrantCommands(endpoint, "")
 	if len(plan.StageCommands) < len(want) ||

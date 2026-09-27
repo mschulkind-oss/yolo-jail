@@ -67,7 +67,8 @@ const acROBindsFloor = "1.1.0"
 // the user picked for isolation is not a degradation anyone consented to.
 //
 // macos-user is deliberately absent: it has no bind mounts at all, so a `:ro` question
-// does not arise there. Its gaps are reported by noteMacosUserContentGaps.
+// does not arise there. What it delivers by copy instead is write-protected by its Seatbelt
+// profile (macosuser.ResolveHomeReadonly).
 func (o *Options) roBindsUnsupported(rt string) string {
 	if rt != "container" { // parity: NotApplicable — only AC ever ignored :ro; podman honors it and macos-user has no binds
 		return ""

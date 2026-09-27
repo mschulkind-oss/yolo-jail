@@ -104,7 +104,7 @@ func macosUserLaunch(t *testing.T, ws string) macosUserLaunchResult {
 	o := dispatchOptions(t, ws, "macos-user", &stdout, &stderr, nil)
 	cname := runtime.FromWorkspace(ws)
 	got := macosUserLaunchResult{}
-	o.MacosUserRun = func(_ *jsonx.OrderedMap, _ string, _, _ []string, _, _, _ string,
+	o.MacosUserRun = func(_ *jsonx.OrderedMap, _ string, _, _ []string, _, _ string, _ macosuser.HomeOverlay,
 		_ macosuser.HostContext, _ bool, launchEnv *jsonx.OrderedMap, _ []packload.BlockedTool) int {
 		got.env = launchEnv
 		got.sessionDirs = servicesSessionDirs(t, cname)
@@ -234,7 +234,7 @@ func TestMacosUserDryRunStartsNoHostServices(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	o := dispatchOptions(t, ws, "macos-user", &stdout, &stderr, nil)
 	o.DryRun = true
-	o.MacosUserRun = func(_ *jsonx.OrderedMap, _ string, _, _ []string, _, _, _ string,
+	o.MacosUserRun = func(_ *jsonx.OrderedMap, _ string, _, _ []string, _, _ string, _ macosuser.HomeOverlay,
 		_ macosuser.HostContext, _ bool, _ *jsonx.OrderedMap, _ []packload.BlockedTool) int {
 		return 0
 	}

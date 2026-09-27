@@ -63,7 +63,7 @@ func TestCapturePlanRefusesTheSessionProfile(t *testing.T) {
 	if plan.Seatbelt != SeatbeltCaptureProfile(plan.StagingRoot) {
 		t.Fatalf("BuildCapturePlan did not use SeatbeltCaptureProfile")
 	}
-	plan.Seatbelt = SeatbeltProfile(plan.StagingRoot, "", nil)
+	plan.Seatbelt = SeatbeltProfile(plan.StagingRoot, "", nil, HomeReadonly{})
 	problems := CapturePlanInvariants(plan)
 	if !anyContains(problems, "ALLOWS writes to the shared sandbox home") {
 		t.Errorf("a session profile in a capture plan was not refused: %v", problems)
@@ -383,7 +383,7 @@ func TestRunCapturePlanAbortsOnAFailedStep(t *testing.T) {
 func TestRunCapturePlanRefusesAnUnviablePlanBeforeAnySudo(t *testing.T) {
 	c := &captureDeps{}
 	plan := BuildCapturePlan(testCaptureOptions())
-	plan.Seatbelt = SeatbeltProfile(plan.StagingRoot, "", nil)
+	plan.Seatbelt = SeatbeltProfile(plan.StagingRoot, "", nil, HomeReadonly{})
 	if rc := RunCapturePlan(c.deps(), plan); rc != 1 {
 		t.Errorf("RunCapturePlan on an unviable plan = %d, want 1", rc)
 	}

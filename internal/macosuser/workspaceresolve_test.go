@@ -50,7 +50,7 @@ func TestBuildRunPlanResolvesTheWorkspaceIntoTheSeatbeltProfile(t *testing.T) {
 	}
 
 	plan := BuildRunPlan(link, jsonx.NewOrderedMap(), nil, []string{"true"},
-		"/opt/yolo-jail/dist-go/darwin-arm64/yolo", "", "", HostContext{},
+		"/opt/yolo-jail/dist-go/darwin-arm64/yolo", "", HomeOverlay{}, HostContext{},
 		jsonx.NewOrderedMap(), nil, nil)
 
 	if strings.Contains(plan.Seatbelt, link) {

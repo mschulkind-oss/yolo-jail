@@ -32,9 +32,11 @@ var seatbeltTestID = regexp.MustCompile(`#seatbelt-test-id:([a-z0-9-]+)#`)
 // on one, but they are not required to: an allow that goes missing shows up as a broken
 // agent, while a deny that goes missing shows up as nothing at all.
 func TestEverySeatbeltDenyCarriesATestID(t *testing.T) {
-	// The readonly entry is passed so the config-driven deny is in the text too —
-	// otherwise the one deny a user's config generates is the one this never checks.
-	lines := strings.Split(SeatbeltProfile("/Users/Shared/proj", "", []string{"vendored"}), "\n")
+	// The readonly entry and delivered content are passed so the config- and pack-driven
+	// denies are in the text too — otherwise the denies a launch generates are the ones this
+	// never checks.
+	lines := strings.Split(SeatbeltProfile("/Users/Shared/proj", "", []string{"vendored"},
+		sampleHomeReadonly()), "\n")
 	seen := map[string]int{}
 	denies := 0
 	for i, ln := range lines {
@@ -74,7 +76,7 @@ func TestEverySeatbeltDenyCarriesATestID(t *testing.T) {
 // above them. That failure is invisible in the artifact: the directives are right
 // there in the file a human reads.
 func TestSeatbeltDeniesCrossProcessArgv(t *testing.T) {
-	p := SeatbeltProfile("/Users/Shared/proj", "", nil)
+	p := SeatbeltProfile("/Users/Shared/proj", "", nil, HomeReadonly{})
 	for _, want := range []string{
 		`(deny sysctl-read (sysctl-name-regex #"procargs"))`,
 		"(deny process-info-pidinfo)",
@@ -96,7 +98,7 @@ func TestSeatbeltDeniesCrossProcessArgv(t *testing.T) {
 // /System/Library/Keychains was not, which agent-safehouse.md §3.2 found while
 // comparing the two profiles. Both now are, and neither is re-allowed later.
 func TestSeatbeltDeniesSystemKeychains(t *testing.T) {
-	p := SeatbeltProfile("/Users/Shared/proj", "", nil)
+	p := SeatbeltProfile("/Users/Shared/proj", "", nil, HomeReadonly{})
 	for _, want := range []string{
 		`(deny file-read* (subpath "/Library/Keychains"))`,
 		`(deny file-read* (subpath "/System/Library/Keychains"))`,
@@ -123,7 +125,7 @@ func TestSeatbeltDeniesSystemKeychains(t *testing.T) {
 // tooling allocates without its ioctls, which is a broken terminal rather than a
 // refused one.
 func TestSeatbeltRestrictsIoctlToTerminals(t *testing.T) {
-	p := SeatbeltProfile("/Users/Shared/proj", "", nil)
+	p := SeatbeltProfile("/Users/Shared/proj", "", nil, HomeReadonly{})
 	if !strings.Contains(p, "(deny file-ioctl)") {
 		t.Errorf("profile does not deny file-ioctl\n%s", p)
 	}
@@ -148,7 +150,7 @@ func TestSeatbeltRestrictsIoctlToTerminals(t *testing.T) {
 // TestSeatbeltProfileHasNoWriteAllowAfterReadonlyDenies stays a statement about the
 // whole profile rather than about the part of it that existed when it was written.
 func TestSeatbeltNewDeniesFollowTheWritableSet(t *testing.T) {
-	p := SeatbeltProfile("/Users/Shared/proj", "", []string{"vendored"})
+	p := SeatbeltProfile("/Users/Shared/proj", "", []string{"vendored"}, HomeReadonly{})
 	last := strings.LastIndex(p, "(allow file-write*")
 	if last < 0 {
 		t.Fatalf("no file-write allow in the profile\n%s", p)

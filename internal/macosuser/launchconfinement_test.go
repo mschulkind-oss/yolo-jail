@@ -32,7 +32,7 @@ const launchConfinementProblem = "the agent launch argv does not run under"
 func testRunPlan(t *testing.T) RunPlan {
 	t.Helper()
 	return BuildRunPlan("/Users/Shared/proj", jsonx.NewOrderedMap(), nil, []string{"claude"},
-		"/usr/local/bin/yolo", "", "", HostContext{}, jsonx.NewOrderedMap(), nil, nil)
+		"/usr/local/bin/yolo", "", HomeOverlay{}, HostContext{}, jsonx.NewOrderedMap(), nil, nil)
 }
 
 // TestLaunchArgvIsConfined is the CALL-SITE pin: delete

@@ -142,7 +142,7 @@ func TestAMacosUserSessionsExitLeavesAConcurrentSessionsEndpointsWorking(t *test
 	rcB := -1
 
 	oB := dispatchOptions(t, ws, "macos-user", &outB, &errB, nil)
-	oB.MacosUserRun = func(_ *jsonx.OrderedMap, _ string, _, _ []string, _, _, _ string,
+	oB.MacosUserRun = func(_ *jsonx.OrderedMap, _ string, _, _ []string, _, _ string, _ macosuser.HomeOverlay,
 		_ macosuser.HostContext, _ bool, env *jsonx.OrderedMap, _ []packload.BlockedTool) int {
 		b = endpointsIn(env, broker, proxy)
 		bDuring[0], bDuringErr[0] = frontReply(b.broker, "ping")
@@ -150,7 +150,7 @@ func TestAMacosUserSessionsExitLeavesAConcurrentSessionsEndpointsWorking(t *test
 		return 0
 	}
 	oA := dispatchOptions(t, ws, "macos-user", &outA, &errA, nil)
-	oA.MacosUserRun = func(_ *jsonx.OrderedMap, _ string, _, _ []string, _, _, _ string,
+	oA.MacosUserRun = func(_ *jsonx.OrderedMap, _ string, _, _ []string, _, _ string, _ macosuser.HomeOverlay,
 		_ macosuser.HostContext, _ bool, env *jsonx.OrderedMap, _ []packload.BlockedTool) int {
 		a = endpointsIn(env, broker, proxy)
 		// The real backend releases the launch lock it is handed before it starts the agent
@@ -281,7 +281,7 @@ func TestAMacosUserLaunchCollectsOnlySessionsKnownToBeGone(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	o := dispatchOptions(t, ws, "macos-user", &stdout, &stderr, nil)
 	var during []string
-	o.MacosUserRun = func(_ *jsonx.OrderedMap, _ string, _, _ []string, _, _, _ string,
+	o.MacosUserRun = func(_ *jsonx.OrderedMap, _ string, _, _ []string, _, _ string, _ macosuser.HomeOverlay,
 		_ macosuser.HostContext, _ bool, _ *jsonx.OrderedMap, _ []packload.BlockedTool) int {
 		during = servicesSessionDirs(t, cname)
 		return 0
@@ -406,7 +406,7 @@ func TestADryRunNamesTheSessionDirsShapeAndItsGrant(t *testing.T) {
 	o := dispatchOptions(t, ws, "macos-user", &stdout, &stderr, nil)
 	o.DryRun = true
 	var env *jsonx.OrderedMap
-	o.MacosUserRun = func(_ *jsonx.OrderedMap, _ string, _, _ []string, _, _, _ string,
+	o.MacosUserRun = func(_ *jsonx.OrderedMap, _ string, _, _ []string, _, _ string, _ macosuser.HomeOverlay,
 		_ macosuser.HostContext, _ bool, launchEnv *jsonx.OrderedMap, _ []packload.BlockedTool) int {
 		env = launchEnv
 		return 0
@@ -425,7 +425,7 @@ func TestADryRunNamesTheSessionDirsShapeAndItsGrant(t *testing.T) {
 		t.Errorf("the dry run's endpoint dir %s is not a session dir of this workspace", filepath.Dir(endpoint))
 	}
 	plan := macosuser.BuildRunPlan(ws, jsonx.NewOrderedMap(), []string{"pi"}, []string{"pi"},
-		"/opt/yolo", "", "", macosuser.HostContext{}, env, nil, nil)
+		"/opt/yolo", "", macosuser.HomeOverlay{}, macosuser.HostContext{}, env, nil, nil)
 	if !strings.Contains(plan.EnvFileContent, key+"=") {
 		t.Fatalf("the plan's env file does not carry %s, so the invariant below would check "+
 			"nothing:\n%s", key, plan.EnvFileContent)

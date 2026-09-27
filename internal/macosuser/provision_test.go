@@ -278,7 +278,7 @@ func TestStageTakesFourOfTheSixSteps(t *testing.T) {
 func provisionPlan(t *testing.T) RunPlan {
 	t.Helper()
 	return BuildRunPlan("/Users/Shared/yolo/proj", provisionCfg(), []string{"claude"},
-		[]string{"claude"}, "/opt/yolo-jail/bin/yolo", "", "", HostContext{},
+		[]string{"claude"}, "/opt/yolo-jail/bin/yolo", "", HomeOverlay{}, HostContext{},
 		jsonx.NewOrderedMap(), mockDarwin(), nil)
 }
 

@@ -59,7 +59,7 @@ func TestALaunchWithNoPackagesStillBuildsTheFloor(t *testing.T) {
 func TestTheFloorReachesBothPATHsThePlanCarries(t *testing.T) {
 	storeBin := "/nix/store/000mock-yolo-noncontainer-profile/bin"
 	plan := BuildRunPlan("/Users/Shared/yolo/proj", jsonx.NewOrderedMap(),
-		[]string{"claude"}, []string{"claude"}, "/usr/local/bin/yolo", "", "",
+		[]string{"claude"}, []string{"claude"}, "/usr/local/bin/yolo", "", HomeOverlay{},
 		HostContext{}, jsonx.NewOrderedMap(), mockDarwin(), nil)
 
 	if !strings.Contains(strings.Join(plan.LaunchArgv, " "), storeBin) {
@@ -93,7 +93,7 @@ func TestTheFloorReachesBothPATHsThePlanCarries(t *testing.T) {
 // perfectly launchable by every other check. This is the one that notices.
 func TestPlanInvariantsCatchAFloorThatNeverReachedTheBootstrap(t *testing.T) {
 	plan := BuildRunPlan("/Users/Shared/yolo/proj", jsonx.NewOrderedMap(),
-		[]string{"claude"}, []string{"claude"}, "/usr/local/bin/yolo", "", "",
+		[]string{"claude"}, []string{"claude"}, "/usr/local/bin/yolo", "", HomeOverlay{},
 		HostContext{}, jsonx.NewOrderedMap(), mockDarwin(), nil)
 
 	// Strip the store bin out of the bootstrap env, leaving the launch PATH intact.

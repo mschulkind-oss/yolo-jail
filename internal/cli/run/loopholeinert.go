@@ -324,68 +324,33 @@ func inertLineFor(pack string, note loopholes.InertNote) string {
 // container backends bind from (entrypoint.DeriveDarwinHomeLayout,
 // docs/design/macos-user-home-tiers.md). A warning that describes a closed gap is worse than
 // no warning — it teaches the reader to distrust the ones that are still true — which is the
-// rule noteMacosUserContentGaps below was already rewritten under.
+// rule noteMacosUserContentGaps was rewritten under before it, too, was retired (below).
 
-// noteMacosUserContentGaps names the two content pipelines that never reach this
-// backend. Both are host-side steps inside runContainer, which the macos-user arm
-// returns before — the same B-0 shape as pack staging and launch flags, but with a
-// fix that is a delivery mechanism rather than a moved call, so it warns for now.
+// noteMacosUserContentGaps is GONE (G14, 2026-09-27), and its absence is the record that the
+// gap it named was CLOSED rather than that the line became inconvenient.
 //
-// SKILLS AND BRIEFINGS ARE NOW DELIVERED (2026-09-03), by composing the same trees the
-// container path composes and copying them over the sandbox home instead of mounting
-// them (macoshomeoverlay.go). What survives is a DIFFERENT and smaller statement, and
-// this function now makes it: the copy is writable where a bind is `:ro`.
+// Its last text was "briefings and skills are delivered by COPY on macos-user — every other
+// backend mounts them read-only, so here the agent can edit its own skills and briefing". They
+// are still delivered by copy (macoshomeoverlay.go), and the copy is now write-protected by the
+// session's own Seatbelt profile: every write, rename and unlink of a delivered skills dir or
+// briefing is denied at the physical path the kernel sees, and the chain above each one may not
+// be moved aside or replaced (macosuser.ResolveHomeReadonly, homeReadonlyDenies). That is the
+// container's `:ro` done by the kernel's policy instead of by a mount, which the gap tracker
+// records as HonoredBy — a disposition that owes the launch no line. Leaving the sentence would
+// be the failure this file's own rule names: a warning that describes a gap yolo has closed
+// teaches the reader to distrust the warnings that are still true.
 //
-// It shrank AGAIN with the home-tier layout. The second half — "a concurrent second
-// workspace replaces what this one delivered" — was true of one machine-wide home and is
-// not true of a destination that is a symlink into <workspace>/.yolo/home. What is left is
-// the one difference the layout cannot close, because it is about the enforcement primitive
-// rather than the location: a copy is writable and a bind is not.
+// ⚠ WHAT LINUX CANNOT SAY is whether the kernel honors the rule. The policy suite
+// (integration/macosuserseatbelt_test.go) and a real launch (macosusercontent_test.go) ask it on
+// a Mac; until one of them has run green, the profile's text is what is pinned.
 //
-// The text this replaced said the agent "starts with no AGENTS.md/CLAUDE.md and no
-// skills". Leaving it would be the worse failure of the two available: a warning that
-// describes a gap yolo has closed teaches the reader to distrust the warnings that are
-// still true.
-func (o *Options) noteMacosUserContentGaps(packs []*packload.Pack, cfg *jsonx.OrderedMap) {
-	if len(packs) > 0 {
-		o.pr(o.Stderr).print("[yellow]Note: briefings and skills are delivered by COPY on macos-user[/yellow] — " +
-			"every other backend mounts them read-only, so here the agent can edit its own " +
-			"skills and briefing, and the next launch overwrites them again.")
-	}
-	// ⚠ TWO WARNINGS WERE RETIRED HERE ON 2026-09-12, and what retired them is that the
-	// gap they named is closed rather than that they became inconvenient.
-	//
-	// One said `mise_tools` are NOT installed on macos-user, on three stated grounds:
-	// nothing provides a `mise` binary the sandbox can reach, nothing runs
-	// `mise install`, and the sandbox home has no mise data dir. All three are now
-	// false. The floor puts mise on the sandbox's PATH
-	// (docs/design/macos-user-provisioning.md §9), MISE_DATA_DIR names a real
-	// machine-wide store (macosuser.SandboxMiseData), and the confined provisioning
-	// stage runs `mise install` before the agent starts (macosuser.ProvisionSetup).
-	//
-	// The other said `lsp_servers` CONFIG renders but the binaries never install,
-	// because the installer is a generated bootstrap script "the container path runs and
-	// this backend deliberately does not". That script is now generated here too
-	// (entrypoint.GenerateDarwinBootstrapScript) and the stage execs it — and since the LSP
-	// recipe table's deletion (docs/reference/mcp-configuration.md#oq-lsp1) no backend
-	// installs a language server at all, so the property is shared rather than a gap.
-	//
-	// Leaving either would be the failure the note above this function names: a warning
-	// that describes a gap yolo has closed teaches the reader to distrust the warnings
-	// that are still true — and the ones below are still true.
-	//
-	// What is NOT retired is `mcp_presets`, which really is still undelivered here: the
-	// preset wrappers are Linux-absolute, so the bootstrap skips them and warns from
-	// inside itself (entrypoint.RunDarwinBootstrap), and the stage installs none of the
-	// npm packages behind them either (Env.SkipMCPPresets).
-	//
-	// ⚠ THE HOST-BYTE WARNINGS USED TO BE CALLED FROM HERE and are now a separate call
-	// on the arm, below the composition they describe. That is not tidying: what they
-	// have left to say depends on what the launch actually staged (DP-L1), and this
-	// function runs long before the context tree is composed. A printer that ran first
-	// would be back to describing the config rather than the delivery, which is the
-	// whole failure mode both of them were written under.
-}
+// The function had shrunk twice before. The concurrent-workspace half of its warning went with
+// the home-tier layout, which made each destination a symlink into <workspace>/.yolo/home. And
+// on 2026-09-12 two sibling warnings were retired from here for gaps that closed: `mise_tools`
+// (the floor puts mise on the sandbox PATH and the confined provisioning stage runs
+// `mise install`) and `lsp_servers` (no backend installs a language server since
+// docs/reference/mcp-configuration.md#oq-lsp1). What still warns is `mcp_presets`, from inside
+// the bootstrap (entrypoint.RunDarwinBootstrap), because the preset wrappers are Linux-absolute.
 
 // noteMacosUserHostByteGaps names what carries HOST BYTES into a config surface and did
 // NOT cross on this launch. Since DP-L1 that is one shape only, and the shrinking is the

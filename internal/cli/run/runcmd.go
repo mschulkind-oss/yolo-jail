@@ -376,7 +376,7 @@ type Options struct {
 	// — composing it requires reading the invoking user's own config and home, which the
 	// backend must not do (macosuser.HostContext states why), so the backend cannot be
 	// dispatched without the host CLI having decided what crosses.
-	MacosUserRun func(cfg *jsonx.OrderedMap, workspace string, agents, agentArgv []string, repoRoot, packRoot, homeOverlay string, hostCtx macosuser.HostContext, dryRun bool, packEnv *jsonx.OrderedMap, blocked []packload.BlockedTool) int
+	MacosUserRun func(cfg *jsonx.OrderedMap, workspace string, agents, agentArgv []string, repoRoot, packRoot string, homeOverlay macosuser.HomeOverlay, hostCtx macosuser.HostContext, dryRun bool, packEnv *jsonx.OrderedMap, blocked []packload.BlockedTool) int
 	// CaptureOnTerminate folds this session's in-jail edits to capture-mode surfaces
 	// into their overlay sidecars once the jail is down (E3). It receives the
 	// workspace and the resolved runtime, and reads only HOST-side dirs — by

@@ -13,6 +13,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/jailcontent"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
+	"github.com/mschulkind-oss/yolo-jail/internal/macosuser"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	_ "github.com/mschulkind-oss/yolo-jail/internal/packreg" // registers the embedded packs with packload
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
@@ -357,7 +358,7 @@ func Run(opts Options) (rc int) {
 		if len(agentArgv) == 0 {
 			agentArgv = []string{"/bin/zsh", "-l"}
 		}
-		var homeOverlay string
+		var homeOverlay macosuser.HomeOverlay
 		// CONFIG-CHANGE APPROVAL, on this arm too (docs/reference/config-safety.md:
 		// "Every config change requires explicit approval"). The gate used to live
 		// only inside runContainer, several lines below the return above — the same
@@ -508,7 +509,11 @@ func Run(opts Options) (rc int) {
 		// mechanism", is RETRACTED (§3). The mechanism is the `shared_credentials` HOOK,
 		// which runs here unchanged; colocation only ever supplied the backing of the dir
 		// the pack declared at scope:machine. That directory has not moved.
-		o.noteMacosUserContentGaps(staged.packs, cfg)
+		//
+		// AND THE CONTENT NOTE THAT STOOD HERE IS RETIRED TOO (G14): skills and briefings
+		// are still copied rather than mounted, and the Seatbelt profile now write-protects
+		// the copy, so "the agent can edit its own skills" is no longer true to say
+		// (loopholeinert.go records why, where the function was).
 		// THE PLATFORM KEYS AND THE PORT KEYS, on this arm for the same structural
 		// reason as everything above: their only other printers live inside
 		// assembleRunCmd (deviceArgs, kvmArgs, the GPU line) and hostForwardPorts,

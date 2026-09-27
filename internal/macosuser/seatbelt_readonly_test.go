@@ -20,7 +20,7 @@ import (
 // must fail.
 
 func TestSeatbeltProfileEmitsWorkspaceReadonlyDenies(t *testing.T) {
-	p := SeatbeltProfile("/Users/Shared/proj", "", []string{".git/hooks", ".git/info"})
+	p := SeatbeltProfile("/Users/Shared/proj", "", []string{".git/hooks", ".git/info"}, HomeReadonly{})
 	for _, want := range []string{
 		`(deny file-write*`,
 		`(subpath "/Users/Shared/proj/.git/hooks")`,
@@ -37,7 +37,7 @@ func TestSeatbeltProfileEmitsWorkspaceReadonlyDenies(t *testing.T) {
 // writable-set allow would be overridden by it and the key would be inert while
 // still appearing in the profile — the same silent-no-op failure in a new place.
 func TestSeatbeltProfileReadonlyDeniesFollowTheAllow(t *testing.T) {
-	p := SeatbeltProfile("/Users/Shared/proj", "", []string{".git/hooks"})
+	p := SeatbeltProfile("/Users/Shared/proj", "", []string{".git/hooks"}, HomeReadonly{})
 	allow := strings.Index(p, "(allow file-write*")
 	deny := strings.Index(p, `(subpath "/Users/Shared/proj/.git/hooks")`)
 	if allow < 0 || deny < 0 {
@@ -55,7 +55,7 @@ func TestSeatbeltProfileReadonlyDeniesFollowTheAllow(t *testing.T) {
 // file-write*. Someone adding a write grant below them would silently reopen
 // every path the key names.
 func TestSeatbeltProfileHasNoWriteAllowAfterReadonlyDenies(t *testing.T) {
-	p := SeatbeltProfile("/Users/Shared/proj", "", []string{".git/hooks"})
+	p := SeatbeltProfile("/Users/Shared/proj", "", []string{".git/hooks"}, HomeReadonly{})
 	deny := strings.Index(p, `(subpath "/Users/Shared/proj/.git/hooks")`)
 	if deny < 0 {
 		t.Fatalf("deny not emitted\n%s", p)
@@ -69,9 +69,9 @@ func TestSeatbeltProfileHasNoWriteAllowAfterReadonlyDenies(t *testing.T) {
 // TestSeatbeltProfileWithoutReadonlyIsUnchanged keeps the feature a pure no-op
 // for anyone not using it, matching how the container path treats the same key.
 func TestSeatbeltProfileWithoutReadonlyIsUnchanged(t *testing.T) {
-	base := SeatbeltProfile("/Users/Shared/proj", "", nil)
+	base := SeatbeltProfile("/Users/Shared/proj", "", nil, HomeReadonly{})
 	for _, empty := range [][]string{nil, {}, {""}, {"   "}} {
-		if got := SeatbeltProfile("/Users/Shared/proj", "", empty); got != base {
+		if got := SeatbeltProfile("/Users/Shared/proj", "", empty, HomeReadonly{}); got != base {
 			t.Errorf("profile drifted for %q entries:\n%s", empty, got)
 		}
 	}
@@ -88,7 +88,7 @@ func TestSeatbeltProfileWithoutReadonlyIsUnchanged(t *testing.T) {
 func TestSeatbeltProfileDropsEscapingReadonlyEntries(t *testing.T) {
 	p := SeatbeltProfile("/Users/Shared/proj", "", []string{
 		"/etc", "..", "../../elsewhere", "a/../../b", "ok/..",
-	})
+	}, HomeReadonly{})
 	if strings.Contains(p, "workspace_readonly") {
 		t.Errorf("escaping-only entry set still emitted a deny block\n%s", p)
 	}
@@ -103,7 +103,7 @@ func TestSeatbeltProfileDropsEscapingReadonlyEntries(t *testing.T) {
 // SBPL as string literals, so they take the same quoting the workspace path
 // already gets rather than being interpolated raw.
 func TestSeatbeltProfileEscapesReadonlyPaths(t *testing.T) {
-	p := SeatbeltProfile("/Users/Shared/proj", "", []string{`a"b\c`})
+	p := SeatbeltProfile("/Users/Shared/proj", "", []string{`a"b\c`}, HomeReadonly{})
 	if !strings.Contains(p, `(subpath "/Users/Shared/proj/a\"b\\c")`) {
 		t.Errorf("readonly path not SBPL-escaped\n%s", p)
 	}
@@ -116,7 +116,7 @@ func TestBuildRunPlanWiresWorkspaceReadonly(t *testing.T) {
 	cfg := jsonx.NewOrderedMap()
 	cfg.Set("workspace_readonly", []any{".git/hooks", ".git/config"})
 
-	plan := BuildRunPlan("/Users/Shared/proj", cfg, nil, []string{"bash"}, "/usr/local/bin/yolo", "", "",
+	plan := BuildRunPlan("/Users/Shared/proj", cfg, nil, []string{"bash"}, "/usr/local/bin/yolo", "", HomeOverlay{},
 		HostContext{}, jsonx.NewOrderedMap(), nil, nil)
 
 	for _, want := range []string{
@@ -134,7 +134,7 @@ func TestBuildRunPlanWiresWorkspaceReadonly(t *testing.T) {
 // a config without the key must not grow a deny block.
 func TestBuildRunPlanWithoutWorkspaceReadonlyEmitsNoDenies(t *testing.T) {
 	plan := BuildRunPlan("/Users/Shared/proj", jsonx.NewOrderedMap(), nil, []string{"bash"}, "/usr/local/bin/yolo",
-		"", "", HostContext{}, jsonx.NewOrderedMap(), nil, nil)
+		"", HomeOverlay{}, HostContext{}, jsonx.NewOrderedMap(), nil, nil)
 	if strings.Contains(plan.Seatbelt, "workspace_readonly") {
 		t.Errorf("profile emitted a readonly block with no key set\n%s", plan.Seatbelt)
 	}

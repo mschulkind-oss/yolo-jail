@@ -30,7 +30,7 @@ func macosUserStorePackagesOutput(t *testing.T, val string) (string, bool) {
 		return ""
 	}
 	reached := false
-	o.MacosUserRun = func(*jsonx.OrderedMap, string, []string, []string, string, string, string, macosuser.HostContext, bool, *jsonx.OrderedMap, []packload.BlockedTool) int {
+	o.MacosUserRun = func(*jsonx.OrderedMap, string, []string, []string, string, string, macosuser.HomeOverlay, macosuser.HostContext, bool, *jsonx.OrderedMap, []packload.BlockedTool) int {
 		reached = true
 		return 0
 	}

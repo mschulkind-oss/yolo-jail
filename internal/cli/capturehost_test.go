@@ -489,7 +489,7 @@ func TestCaptureWiresTheMacosUserBackend(t *testing.T) {
 	// Drive the real closure on its dry-run path. The act sets deps.Out to captureHost's
 	// own stdout writer, so the plan lands in `out`.
 	before := out.Len()
-	_ = seen.MacosUserRun(jsonx.NewOrderedMap(), "", nil, nil, "", "", "", /*homeOverlay*/
+	_ = seen.MacosUserRun(jsonx.NewOrderedMap(), "", nil, nil, "", "", macosuser.HomeOverlay{}, /*homeOverlay*/
 		macosuser.HostContext{} /*hostCtx*/, true, /*dryRun*/
 		jsonx.NewOrderedMap(), []packload.BlockedTool{{Name: "probeblocker", Suggestion: "use rg"}})
 	plan := out.String()[before:]

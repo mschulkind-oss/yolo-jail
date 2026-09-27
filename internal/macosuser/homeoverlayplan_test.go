@@ -22,7 +22,7 @@ import (
 func planWithOverlay(t *testing.T, hostOverlay string) RunPlan {
 	t.Helper()
 	return BuildRunPlan("/Users/Shared/yolo/proj", jsonx.NewOrderedMap(), []string{"claude"},
-		[]string{"/bin/zsh", "-l"}, "/usr/local/bin/yolo", "", hostOverlay, HostContext{},
+		[]string{"/bin/zsh", "-l"}, "/usr/local/bin/yolo", "", HomeOverlay{Tree: hostOverlay}, HostContext{},
 		jsonx.NewOrderedMap(), nil, nil)
 }
 

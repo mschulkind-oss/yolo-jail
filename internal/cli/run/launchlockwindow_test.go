@@ -63,7 +63,7 @@ func TestTheMacosUserBackendIsHandedTheLaunchLockStagingTook(t *testing.T) {
 	o.DryRun = true
 
 	reached := false
-	o.MacosUserRun = func(_ *jsonx.OrderedMap, _ string, _, _ []string, _, _, _ string,
+	o.MacosUserRun = func(_ *jsonx.OrderedMap, _ string, _, _ []string, _, _ string, _ macosuser.HomeOverlay,
 		_ macosuser.HostContext, _ bool, _ *jsonx.OrderedMap, _ []packload.BlockedTool) int {
 		reached = true
 		if !launchLockHeld(t, lockPath) {

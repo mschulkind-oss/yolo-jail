@@ -106,7 +106,7 @@ func TestBuildRunPlanPutsTheHostNixClientOnEverySandboxPath(t *testing.T) {
 	mise.Set("jq", "latest")
 	cfg.Set("mise_tools", mise) // so the provisioning stage exists
 	plan := BuildRunPlan("/Users/Shared/yolo/ws", cfg, []string{"claude"}, []string{"claude"},
-		"/opt/yolo", "", "", HostContext{}, jsonx.NewOrderedMap(), darwinWithNix(), nil)
+		"/opt/yolo", "", HomeOverlay{}, HostContext{}, jsonx.NewOrderedMap(), darwinWithNix(), nil)
 
 	if plan.NixClientDir != fakeNixStoreBin {
 		t.Errorf("plan.NixClientDir = %q, want %q", plan.NixClientDir, fakeNixStoreBin)
@@ -155,7 +155,7 @@ func TestBuildRunPlanWithoutAHostNixDeliversNoNix(t *testing.T) {
 	d := mockDarwin()
 	d.Nix = HostNix{Absent: "no nix daemon socket"}
 	plan := BuildRunPlan("/Users/Shared/yolo/ws", jsonx.NewOrderedMap(), []string{"claude"},
-		[]string{"claude"}, "/opt/yolo", "", "", HostContext{}, jsonx.NewOrderedMap(), d, nil)
+		[]string{"claude"}, "/opt/yolo", "", HomeOverlay{}, HostContext{}, jsonx.NewOrderedMap(), d, nil)
 	if plan.NixClientDir != "" || strings.Contains(pathPairOf(plan.LaunchArgv), "nix-2.") {
 		t.Errorf("no client was resolved, yet the plan delivers one: %q / %s",
 			plan.NixClientDir, pathPairOf(plan.LaunchArgv))
@@ -174,7 +174,7 @@ func TestHostNixEnvIsADefaultTheUserOverrides(t *testing.T) {
 	env.Set("NIX_CONFIG", "access-tokens = github.com=x")
 	env.Set("NIX_REMOTE", "unix:///elsewhere")
 	plan := BuildRunPlan("/Users/Shared/yolo/ws", jsonx.NewOrderedMap(), []string{"claude"},
-		[]string{"claude"}, "/opt/yolo", "", "", HostContext{}, env, darwinWithNix(), nil)
+		[]string{"claude"}, "/opt/yolo", "", HomeOverlay{}, HostContext{}, env, darwinWithNix(), nil)
 	merged := "access-tokens = github.com=x\nextra-experimental-features = nix-command flakes"
 	if !SandboxEnvFileSets(plan.EnvFileContent, "NIX_CONFIG", merged) {
 		t.Errorf("the user's NIX_CONFIG must be kept AND gain yolo's features line, want %q:\n%s",

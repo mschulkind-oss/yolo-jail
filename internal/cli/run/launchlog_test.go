@@ -42,7 +42,7 @@ func TestLaunchIsRecordedInTheWorkspaceLog(t *testing.T) {
 
 	var stdout, stderr bytes.Buffer
 	o := dispatchOptions(t, ws, "macos-user", &stdout, &stderr, nil)
-	o.MacosUserRun = func(*jsonx.OrderedMap, string, []string, []string, string, string, string, macosuser.HostContext, bool, *jsonx.OrderedMap, []packload.BlockedTool) int {
+	o.MacosUserRun = func(*jsonx.OrderedMap, string, []string, []string, string, string, macosuser.HomeOverlay, macosuser.HostContext, bool, *jsonx.OrderedMap, []packload.BlockedTool) int {
 		return 0
 	}
 	if rc := Run(*o); rc != 0 {
@@ -235,7 +235,7 @@ func TestTheMacosUserBackendPrintsIntoTheLaunchLog(t *testing.T) {
 	const disclosure = "sandbox profile: /var/db/yolo-jail/session.sb"
 	var stdout, stderr bytes.Buffer
 	o := dispatchOptions(t, ws, "macos-user", &stdout, &stderr, nil)
-	o.MacosUserRun = func(*jsonx.OrderedMap, string, []string, []string, string, string, string, macosuser.HostContext, bool, *jsonx.OrderedMap, []packload.BlockedTool) int {
+	o.MacosUserRun = func(*jsonx.OrderedMap, string, []string, []string, string, string, macosuser.HomeOverlay, macosuser.HostContext, bool, *jsonx.OrderedMap, []packload.BlockedTool) int {
 		deps := macosuser.RealDeps(nil, nil, false)
 		fmt.Fprintln(deps.Out, disclosure)
 		return 0

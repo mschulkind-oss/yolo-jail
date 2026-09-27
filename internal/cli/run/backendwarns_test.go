@@ -76,7 +76,7 @@ func TestMacosUserNoLongerClaimsMachineWideWorkspaceState(t *testing.T) {
 
 	var stdout, stderr bytes.Buffer
 	o := dispatchOptions(t, ws, "macos-user", &stdout, &stderr, nil)
-	o.MacosUserRun = func(*jsonx.OrderedMap, string, []string, []string, string, string, string, macosuser.HostContext, bool, *jsonx.OrderedMap, []packload.BlockedTool) int {
+	o.MacosUserRun = func(*jsonx.OrderedMap, string, []string, []string, string, string, macosuser.HomeOverlay, macosuser.HostContext, bool, *jsonx.OrderedMap, []packload.BlockedTool) int {
 		return 0
 	}
 	if rc := Run(*o); rc != 0 {
@@ -94,35 +94,35 @@ func TestMacosUserNoLongerClaimsMachineWideWorkspaceState(t *testing.T) {
 // also named lsp_servers binaries, "installed by a bootstrap script it deliberately does
 // not run"; that gap closed on 2026-09-12, and since 2026-09-25 no backend installs a
 // language server at all — docs/reference/mcp-configuration.md#oq-lsp1.)
-func TestMacosUserNotesContentGaps(t *testing.T) {
+//
+// It asserted "briefings and skills are NOT delivered" until 2026-09-03, when they started
+// being delivered by copy; then, until G14 (2026-09-27), that the launch SAYS the copy is
+// writable where a bind is `:ro`. It is not writable any more — the Seatbelt profile denies
+// every write to what was copied (internal/macosuser/homereadonly.go) — so the claim that
+// survives is the negative one: the launch must say NEITHER retired thing. A warning that
+// describes a closed gap teaches the reader to distrust the ones that are still true.
+func TestMacosUserNoLongerClaimsItsContentIsUndeliveredOrWritable(t *testing.T) {
 	home := packHome(t)
 	writeUserPacks(t, home, `["claude"]`)
 	ws := t.TempDir()
 
 	var stdout, stderr bytes.Buffer
 	o := dispatchOptions(t, ws, "macos-user", &stdout, &stderr, nil)
-	o.MacosUserRun = func(*jsonx.OrderedMap, string, []string, []string, string, string, string, macosuser.HostContext, bool, *jsonx.OrderedMap, []packload.BlockedTool) int {
+	o.MacosUserRun = func(*jsonx.OrderedMap, string, []string, []string, string, string, macosuser.HomeOverlay, macosuser.HostContext, bool, *jsonx.OrderedMap, []packload.BlockedTool) int {
 		return 0
 	}
 	if rc := Run(*o); rc != 0 {
 		t.Fatalf("Run() = %d\nstderr:\n%s", rc, stderr.String())
 	}
 	got := stdout.String() + stderr.String()
-	// This asserted "briefings and skills are NOT delivered" until 2026-09-03, when
-	// they started being delivered (by copy rather than by mount). The claim that
-	// survives is about the DIFFERENCE from every other backend, not about absence:
-	// the copy is writable where a bind is `:ro`. Its second half — a concurrent second
-	// workspace replacing what this one delivered — went with the home-tier layout, which
-	// gave the destination a per-workspace one.
-	if !strings.Contains(got, "delivered by COPY on macos-user") {
-		t.Errorf("a macos-user launch did not say how content is delivered here.\n"+
-			"Every other backend mounts it read-only; this one copies, so the agent can "+
-			"edit what it was given, which changes what it can rely on.\noutput:\n%s", got)
-	}
-	// And it must not still claim the gap it no longer has: a warning describing a
-	// closed gap teaches the reader to distrust the ones that are still true.
-	if strings.Contains(got, "NOT delivered") {
-		t.Errorf("the launch still reports skills/briefings as undelivered:\n%s", got)
+	for _, retired := range []string{
+		"NOT delivered",
+		"delivered by COPY on macos-user",
+		"can edit its own skills",
+	} {
+		if strings.Contains(got, retired) {
+			t.Errorf("the launch still says %q, a gap it no longer has:\n%s", retired, got)
+		}
 	}
 }
 
@@ -197,7 +197,7 @@ func TestMacosUserNoLongerWarnsThatToolsAreUninstallable(t *testing.T) {
 	// A workspace config that did not exist before is a CHANGE, and this arm gates on
 	// approval with no terminal to prompt on. The flag is the non-interactive grant.
 	o.AcceptConfigChanges = true
-	o.MacosUserRun = func(*jsonx.OrderedMap, string, []string, []string, string, string, string,
+	o.MacosUserRun = func(*jsonx.OrderedMap, string, []string, []string, string, string, macosuser.HomeOverlay,
 		macosuser.HostContext,
 		bool, *jsonx.OrderedMap, []packload.BlockedTool) int {
 		return 0

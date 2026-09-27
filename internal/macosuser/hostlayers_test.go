@@ -56,7 +56,7 @@ func TestHostLayerReportIsTheShapeTheJailParses(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			plan := BuildRunPlan("/Users/Shared/yolo/proj", jsonx.NewOrderedMap(),
 				[]string{"claude"}, []string{"/bin/zsh", "-l"}, "/usr/local/bin/yolo",
-				hostStaged, "", tc.hostCtx, jsonx.NewOrderedMap(), nil, nil)
+				hostStaged, HomeOverlay{}, tc.hostCtx, jsonx.NewOrderedMap(), nil, nil)
 
 			wire, ok := argvEnvValue(plan.BootstrapArgv, packload.HostLayerEnvVar)
 			if !ok {

@@ -76,7 +76,7 @@ func TestProfileChannelReachesTheMacosUserBackend(t *testing.T) {
 	o, stderr := zaiNativeLaunch(t, true)
 
 	var got *jsonx.OrderedMap
-	o.MacosUserRun = func(_ *jsonx.OrderedMap, _ string, _, _ []string, _, _, _ string, _ macosuser.HostContext, _ bool,
+	o.MacosUserRun = func(_ *jsonx.OrderedMap, _ string, _, _ []string, _, _ string, _ macosuser.HomeOverlay, _ macosuser.HostContext, _ bool,
 		packEnv *jsonx.OrderedMap, _ []packload.BlockedTool) int {
 		got = packEnv
 		return 0
@@ -118,7 +118,7 @@ func TestProfileChannelPreflightRefusesTheMacosUserLaunch(t *testing.T) {
 	o, stderr := zaiNativeLaunch(t, false)
 
 	reached := false
-	o.MacosUserRun = func(_ *jsonx.OrderedMap, _ string, _, _ []string, _, _, _ string, _ macosuser.HostContext, _ bool,
+	o.MacosUserRun = func(_ *jsonx.OrderedMap, _ string, _, _ []string, _, _ string, _ macosuser.HomeOverlay, _ macosuser.HostContext, _ bool,
 		_ *jsonx.OrderedMap, _ []packload.BlockedTool) int {
 		reached = true
 		return 0
@@ -147,7 +147,7 @@ func TestProfileChannelPreflightRefusesTheMacosUserLaunch(t *testing.T) {
 		}
 		return ""
 	}
-	o.MacosUserRun = func(_ *jsonx.OrderedMap, _ string, _, _ []string, _, _, _ string, _ macosuser.HostContext, _ bool,
+	o.MacosUserRun = func(_ *jsonx.OrderedMap, _ string, _, _ []string, _, _ string, _ macosuser.HomeOverlay, _ macosuser.HostContext, _ bool,
 		_ *jsonx.OrderedMap, _ []packload.BlockedTool) int {
 		return 0
 	}
@@ -168,7 +168,7 @@ func TestUnprofiledNativeLaunchStillCarriesTheEmptyWireTables(t *testing.T) {
 	o.ProfileName = "" // the packs, no selection
 
 	var got *jsonx.OrderedMap
-	o.MacosUserRun = func(_ *jsonx.OrderedMap, _ string, _, _ []string, _, _, _ string, _ macosuser.HostContext, _ bool,
+	o.MacosUserRun = func(_ *jsonx.OrderedMap, _ string, _, _ []string, _, _ string, _ macosuser.HomeOverlay, _ macosuser.HostContext, _ bool,
 		packEnv *jsonx.OrderedMap, _ []packload.BlockedTool) int {
 		got = packEnv
 		return 0
@@ -243,7 +243,7 @@ func TestRunRefusesAnUnresolvableProviderAddress(t *testing.T) {
 		return ""
 	}
 	reached := false
-	o.MacosUserRun = func(_ *jsonx.OrderedMap, _ string, _, _ []string, _, _, _ string, _ macosuser.HostContext, _ bool,
+	o.MacosUserRun = func(_ *jsonx.OrderedMap, _ string, _, _ []string, _, _ string, _ macosuser.HomeOverlay, _ macosuser.HostContext, _ bool,
 		_ *jsonx.OrderedMap, _ []packload.BlockedTool) int {
 		reached = true
 		return 0

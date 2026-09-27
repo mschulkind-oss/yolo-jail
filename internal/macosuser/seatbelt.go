@@ -70,7 +70,18 @@ import (
 //     rather than by reading that file, so this should not reach TLS — but a tool that
 //     reads the keychain file directly is the failure to watch for, and this deny is
 //     one line to revert if one turns up.
-func SeatbeltProfile(workspace, sandboxHome string, readonlyRels []string) string {
+//
+// # THE SANDBOX HOME'S OWN CARVE-OUTS: THE STAGED SKILLS AND BRIEFINGS (G14)
+//
+// homeReadonly carries the content the bootstrap copied into the sandbox home — every
+// staged skills dir and briefing — as the ABSOLUTE paths the kernel will see
+// (ResolveHomeReadonly, homereadonly.go). It is rendered by homeReadonlyDenies, a
+// SIBLING of readonlyDenies rather than more entries for it, because readonlyDenies drops
+// absolute entries on purpose, and it is emitted in the same position for the same
+// reason: after the writable-set allow that re-opens the sandbox home, and before
+// anything that could re-open it again (nothing does). The zero value renders nothing, so
+// a launch that delivered no content gets the profile it always got.
+func SeatbeltProfile(workspace, sandboxHome string, readonlyRels []string, homeReadonly HomeReadonly) string {
 	if sandboxHome == "" {
 		sandboxHome = SandboxHome()
 	}
@@ -95,6 +106,7 @@ func SeatbeltProfile(workspace, sandboxHome string, readonlyRels []string) strin
 		"    (subpath \"/private/var/folders\")\n" +
 		"    (subpath \"/dev\"))\n" +
 		readonlyDenies(workspace, readonlyRels) +
+		homeReadonlyDenies(homeReadonly) +
 		"\n" +
 		";; --- Volumes: deny reads except the boot volume ---\n" +
 		";; #seatbelt-test-id:volumes-read-deny#\n" +
@@ -202,6 +214,64 @@ func readonlyDenies(workspace string, rels []string) string {
 		";;     write.  Must follow the allow above — last match wins. ---\n" +
 		";; #seatbelt-test-id:workspace-readonly-deny#\n" +
 		"(deny file-write*\n" + strings.TrimSuffix(b.String(), "\n") + ")\n"
+}
+
+// homeReadonlyDenies renders the sandbox home's content carve-outs (G14): TWO forms, one
+// per kind of entry, or "" when there are none — so a launch that delivered no skills and
+// no briefing gets a profile byte-identical to the one it got before this existed.
+//
+//   - `(deny file-write* (subpath …))` over every delivered destination. file-write* is
+//     every file-write-* operation — data, create, unlink, mode, owner, flags, times,
+//     xattrs — so whichever of them the kernel checks a rename or a delete as, it is
+//     denied: "the agent can neither modify, rename nor delete what it was given". The
+//     shape was measured on hardware on 2026-09-16 (setup-support-gaps.md §5.1 row 14:
+//     `touch` refused, `claude --version` and `claude mcp list` unaffected); the rename,
+//     delete and plant cases are integration/macosuserseatbelt_test.go's, unrun on a Mac.
+//   - `(deny file-write-create file-write-unlink (literal …))` over the anchors — the
+//     chain ABOVE each destination. Deliberately NOT file-write*: an anchor is also the
+//     agent's own state directory (`~/.claude`, `~/.pi/agent`), and refusing a chmod or a
+//     utimes on it would be a new way to break an agent at startup that the container's
+//     `:ro` bind never had. Unlink stops the chain being moved aside; create stops
+//     anything being put where it was.
+//
+// Entries that are not absolute are dropped rather than emitted, the mirror image of
+// readonlyDenies dropping absolute ones: a relative SBPL path is not a path the kernel ever
+// reports, so it would be a deny that reads as protection and matches nothing.
+func homeReadonlyDenies(h HomeReadonly) string {
+	render := func(filter string, entries []string) string {
+		var b strings.Builder
+		seen := map[string]bool{}
+		for _, p := range entries {
+			if !strings.HasPrefix(p, "/") || seen[p] {
+				continue
+			}
+			seen[p] = true
+			b.WriteString("    (" + filter + " " + sbplStr(path.Clean(p)) + ")\n")
+		}
+		return strings.TrimSuffix(b.String(), "\n")
+	}
+	subpaths := render("subpath", h.Paths)
+	literals := render("literal", h.Anchors)
+	if subpaths == "" && literals == "" {
+		return ""
+	}
+	out := "\n" +
+		";; --- The sandbox home's staged skills and briefings: delivered by COPY, so\n" +
+		";;     write-protected here the way every container backend's `:ro` bind\n" +
+		";;     protects them.  Physical paths — the kernel resolves the home-tier\n" +
+		";;     layout's symlinks before this is consulted.  Must follow the allow\n" +
+		";;     above — last match wins. ---\n"
+	if subpaths != "" {
+		out += ";; #seatbelt-test-id:home-content-write-deny#\n" +
+			"(deny file-write*\n" + subpaths + ")\n"
+	}
+	if literals != "" {
+		out += ";; --- ...and every directory and layout link above them, so the chain\n" +
+			";;     cannot be moved aside and replaced by one the agent wrote. ---\n" +
+			";; #seatbelt-test-id:home-content-anchor-deny#\n" +
+			"(deny file-write-create file-write-unlink\n" + literals + ")\n"
+	}
+	return out
 }
 
 // ancestorLiterals renders one `(literal "…")` line per INTERMEDIATE directory of

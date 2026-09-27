@@ -114,7 +114,7 @@ func overrideNativeLaunch(t *testing.T, userConfig string, env func(string) stri
 		return env(name)
 	}
 	seen := &nativeLaunch{home: home}
-	o.MacosUserRun = func(_ *jsonx.OrderedMap, _ string, _, _ []string, _, _, _ string, hostCtx macosuser.HostContext, _ bool,
+	o.MacosUserRun = func(_ *jsonx.OrderedMap, _ string, _, _ []string, _, _ string, _ macosuser.HomeOverlay, hostCtx macosuser.HostContext, _ bool,
 		launchEnv *jsonx.OrderedMap, _ []packload.BlockedTool) int {
 		seen.reached = true
 		seen.env = launchEnv

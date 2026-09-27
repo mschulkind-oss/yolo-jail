@@ -177,10 +177,14 @@ func RunDarwinBootstrap(e *Env, opts DarwinBootstrapOptions) error {
 // declare no skills and no briefing.
 //
 // WHY A COPY RATHER THAN A MOUNT: this backend has none. The container path delivers
-// each staged dir with a `-v …:ro` bind, which is also why its copy is READ-ONLY to the
-// agent and this one is not — an agent here can edit its own skills, and the next launch
-// overwrites them again. That is a real difference in kind and is recorded in the launch
-// warning rather than papered over.
+// each staged dir with a `-v …:ro` bind, which is also what makes its copy READ-ONLY to the
+// agent. Here the read-only half is the session's Seatbelt profile (G14): every write,
+// rename and unlink of what this copies is denied to the agent at the physical path it lands
+// at (macosuser.ResolveHomeReadonly). That deny cannot get in THIS function's way, because
+// the bootstrap runs outside the sandbox — its argv carries no sandbox-exec — so the next
+// launch replaces the delivered trees exactly as it always has. The files are the sandbox
+// user's own, so the file mode protects nothing; the profile is the whole guarantee, and only
+// a Mac run proves the kernel honors it.
 //
 // The tree carries no schema: the host laid it out at the destinations the container
 // would have mounted, so this walks it and writes files. Any mapping logic here would be

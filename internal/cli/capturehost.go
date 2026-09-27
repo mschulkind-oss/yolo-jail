@@ -383,7 +383,7 @@ func runCaptureJail(workspace, bin string, out, errw io.Writer, color bool) int 
 	// `blocked` is NOT dropped — the staging home must carry the same shims a launch
 	// would, and core contributes none of them by itself.
 	opts.MacosUserRun = func(cfg *jsonx.OrderedMap, _ string, _, _ []string,
-		_, packRoot, _ string, _ macosuser.HostContext, dryRun bool,
+		_, packRoot string, _ macosuser.HomeOverlay, _ macosuser.HostContext, dryRun bool,
 		packEnv *jsonx.OrderedMap, blocked []packload.BlockedTool) int {
 		deps := macosuser.RealDeps(nil, nil, color)
 		deps.Out = out

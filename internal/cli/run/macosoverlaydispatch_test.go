@@ -29,9 +29,9 @@ func TestMacosUserLaunchComposesAndPassesTheHomeOverlay(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	o := dispatchOptions(t, ws, "macos-user", &stdout, &stderr, nil)
 
-	var gotOverlay string
-	o.MacosUserRun = func(_ *jsonx.OrderedMap, _ string, _, _ []string, _, _, overlay string,
-		_ macosuser.HostContext,
+	var gotOverlay macosuser.HomeOverlay
+	o.MacosUserRun = func(_ *jsonx.OrderedMap, _ string, _, _ []string, _, _ string,
+		overlay macosuser.HomeOverlay, _ macosuser.HostContext,
 		_ bool, _ *jsonx.OrderedMap, _ []packload.BlockedTool) int {
 		gotOverlay = overlay
 		return 0
@@ -40,19 +40,19 @@ func TestMacosUserLaunchComposesAndPassesTheHomeOverlay(t *testing.T) {
 		t.Fatalf("Run() = %d\nstderr:\n%s", rc, stderr.String())
 	}
 
-	if gotOverlay == "" {
+	if gotOverlay.Tree == "" {
 		t.Fatalf("the macos-user arm was handed no overlay — the agent would start with "+
 			"no AGENTS.md and no skills\nstderr:\n%s", stderr.String())
 	}
 	// It must be a real composed tree, not just a path: the claude pack declares a
 	// skills destination, so the built-in suite has to be in it.
-	if _, err := os.Stat(filepath.Join(gotOverlay, ".claude", "skills")); err != nil {
+	if _, err := os.Stat(filepath.Join(gotOverlay.Tree, ".claude", "skills")); err != nil {
 		t.Errorf("the overlay carries no skills tree at .claude/skills: %v", err)
 	}
 	// Laid out by DESTINATION, never by staging name — the layout IS the manifest the
 	// bootstrap copies, so a staging-side name here would land in the home verbatim.
 	var leaked []string
-	_ = filepath.Walk(gotOverlay, func(p string, _ os.FileInfo, _ error) error {
+	_ = filepath.Walk(gotOverlay.Tree, func(p string, _ os.FileInfo, _ error) error {
 		if strings.HasPrefix(filepath.Base(p), "briefing-") ||
 			strings.HasPrefix(filepath.Base(p), "skills-") {
 			leaked = append(leaked, p)
@@ -76,10 +76,10 @@ func TestMacosUserDryRunStillComposesTheOverlay(t *testing.T) {
 	o := dispatchOptions(t, ws, "macos-user", &stdout, &stderr, nil)
 	o.DryRun = true
 
-	var gotOverlay string
+	var gotOverlay macosuser.HomeOverlay
 	var gotDryRun bool
-	o.MacosUserRun = func(_ *jsonx.OrderedMap, _ string, _, _ []string, _, _, overlay string,
-		_ macosuser.HostContext,
+	o.MacosUserRun = func(_ *jsonx.OrderedMap, _ string, _, _ []string, _, _ string,
+		overlay macosuser.HomeOverlay, _ macosuser.HostContext,
 		dryRun bool, _ *jsonx.OrderedMap, _ []packload.BlockedTool) int {
 		gotOverlay, gotDryRun = overlay, dryRun
 		return 0
@@ -90,7 +90,7 @@ func TestMacosUserDryRunStillComposesTheOverlay(t *testing.T) {
 	if !gotDryRun {
 		t.Fatal("dry-run flag did not reach the backend")
 	}
-	if gotOverlay == "" {
+	if gotOverlay.Tree == "" {
 		t.Errorf("--dry-run composed no overlay, so the plan it prints omits the content "+
 			"staging a real launch performs\nstderr:\n%s", stderr.String())
 	}

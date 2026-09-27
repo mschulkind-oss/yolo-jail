@@ -19,7 +19,7 @@ import (
 
 func runPlanFor(workspace string) RunPlan {
 	return BuildRunPlan(workspace, jsonx.NewOrderedMap(), []string{"claude"}, []string{"claude"},
-		"/usr/local/bin/yolo", "", "", HostContext{}, jsonx.NewOrderedMap(), nil, nil)
+		"/usr/local/bin/yolo", "", HomeOverlay{}, HostContext{}, jsonx.NewOrderedMap(), nil, nil)
 }
 
 func TestBuildRunPlanNamesTheWorkspaceSidecar(t *testing.T) {

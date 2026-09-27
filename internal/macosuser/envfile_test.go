@@ -28,7 +28,7 @@ func planWithSecrets(t *testing.T) RunPlan {
 	mise.Set("neovim", "nightly") // makes ProvisionNeeded true, so the stage argv exists
 	cfg.Set("mise_tools", mise)
 	return BuildRunPlan("/Users/Shared/proj", cfg, []string{"claude"}, []string{"claude"},
-		"/opt/yolo-jail/bin/yolo", "", "", HostContext{}, secretEnv(), nil, nil)
+		"/opt/yolo-jail/bin/yolo", "", HomeOverlay{}, HostContext{}, secretEnv(), nil, nil)
 }
 
 // THE HEADLINE REGRESSION TEST: no composed value appears anywhere on a command line.

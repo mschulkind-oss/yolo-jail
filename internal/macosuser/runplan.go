@@ -68,6 +68,12 @@ type RunPlan struct {
 	// NixClientDir is the host nix client's store bin dir when this launch put one on the
 	// sandbox PATH (it is also the last entry of DarwinPathPrefix), "" when it did not.
 	NixClientDir string
+	// HomeReadonly is what Seatbelt was told to write-protect in the sandbox home: every
+	// staged skills dir and briefing this launch delivered, at the PHYSICAL path the kernel
+	// will see, and the chain above each (ResolveHomeReadonly). Empty when the launch
+	// delivered no content. Carried so a reader can check the profile against the
+	// delivery rather than re-deriving one from the other.
+	HomeReadonly HomeReadonly
 }
 
 // HostContext is what the HOST CLI composed for this launch's `/ctx` delivery: the tree
@@ -221,13 +227,14 @@ func DarwinBootstrapArgv(stagedYolo, home string, bootstrapEnv *jsonx.OrderedMap
 // `selfExe` is the running yolo binary (os.Executable()) staged for the sandbox
 // to self-exec as the bootstrap; `hostPackRoot` is the host-side staged pack tree
 // the run pipeline produced before dispatching here (""=no packs); `hostHomeOverlay`
-// is the host-side composed CONTENT tree — skills and briefings, already laid out at
-// their home-relative destinations (""=nothing to deliver); `hostCtx` is the host-side
+// is the host-side composed CONTENT — the tree of skills and briefings, already laid out
+// at their home-relative destinations (Tree ""=nothing to deliver), and the destinations
+// it holds, which the Seatbelt profile write-protects (HomeOverlay); `hostCtx` is the host-side
 // composed CONTEXT tree and the record of what the host CLI put in it (HostContext, and
 // see it for why this package may not compose one itself); `blockedTools` are the
 // selected packs' own blocked-tool declarations, merged with the config's security
 // section (core blocks nothing by default). `darwin` may be nil.
-func BuildRunPlan(workspace string, cfg *jsonx.OrderedMap, agents, agentArgv []string, selfExe, hostPackRoot, hostHomeOverlay string, hostCtx HostContext, sandboxEnv *jsonx.OrderedMap, darwin *Darwin, blockedTools []packload.BlockedTool) RunPlan {
+func BuildRunPlan(workspace string, cfg *jsonx.OrderedMap, agents, agentArgv []string, selfExe, hostPackRoot string, hostHomeOverlay HomeOverlay, hostCtx HostContext, sandboxEnv *jsonx.OrderedMap, darwin *Darwin, blockedTools []packload.BlockedTool) RunPlan {
 	// SYMLINK-RESOLVED ONCE, HERE, BECAUSE THE KERNEL RESOLVES BEFORE THE POLICY IS CONSULTED.
 	// Measured on hardware 2026-09-13 (declaration-parity.md §6.1's probe 2): a profile denying
 	// `(subpath "/tmp")` does not stop `touch /tmp/canary`, while one denying
@@ -315,8 +322,16 @@ func BuildRunPlan(workspace string, cfg *jsonx.OrderedMap, agents, agentArgv []s
 		packRoot = StagedPackRoot(cname, "")
 	}
 	homeOverlay := ""
-	if hostHomeOverlay != "" {
+	// WHAT THAT TREE DELIVERS IS WRITE-PROTECTED, and resolved here for the reason the
+	// workspace is resolved at the top of this function: the profile is a list of paths,
+	// and a path the kernel never reports is a deny that matches nothing. See
+	// homereadonly.go for the layout walk and for why the chain above each destination is
+	// denied too. Nothing delivered, nothing to protect: the zero value renders no rule.
+	var homeReadonly HomeReadonly
+	if hostHomeOverlay.Tree != "" {
 		homeOverlay = StagedHomeOverlay(cname, "")
+		homeReadonly = ResolveHomeReadonly(SandboxHome(), workspace,
+			hostHomeOverlay.WorkspaceDirs, hostHomeOverlay.Dests)
 	}
 	// AND THE THIRD, on the same rule: the CONTEXT tree (DP-L1). The host CLI composed it
 	// — it is the only half that may read the invoking user's config and home — and this
@@ -378,7 +393,7 @@ func BuildRunPlan(workspace string, cfg *jsonx.OrderedMap, agents, agentArgv []s
 
 	stageCommands := append([][]string{}, StageBinaryCommands(selfExe, "")...)
 	stageCommands = append(stageCommands, StagePackCommands(hostPackRoot, cname, "")...)
-	stageCommands = append(stageCommands, StageHomeOverlayCommands(hostHomeOverlay, cname, "")...)
+	stageCommands = append(stageCommands, StageHomeOverlayCommands(hostHomeOverlay.Tree, cname, "")...)
 	stageCommands = append(stageCommands, StageCtxCommands(hostCtx.Tree, cname, "")...)
 	stageCommands = append(stageCommands, endpointGrantCommands(sandboxEnv)...)
 
@@ -386,7 +401,7 @@ func BuildRunPlan(workspace string, cfg *jsonx.OrderedMap, agents, agentArgv []s
 		Workspace:   workspace,
 		Cname:       cname,
 		ProfilePath: profilePath,
-		Seatbelt:    SeatbeltProfile(workspace, SandboxHome(), cfgStrList(cfg, "workspace_readonly")),
+		Seatbelt:    SeatbeltProfile(workspace, SandboxHome(), cfgStrList(cfg, "workspace_readonly"), homeReadonly),
 		StagedDir:   stateDir,
 		StagedYolo:  stagedYolo,
 		// Binary first, then the pack trees, then the content overlay, then the context
@@ -414,6 +429,7 @@ func BuildRunPlan(workspace string, cfg *jsonx.OrderedMap, agents, agentArgv []s
 		DarwinSkipped:      darwinSkipped,
 		DarwinMaterialized: darwin != nil,
 		NixClientDir:       nixClientDir,
+		HomeReadonly:       homeReadonly,
 	}
 }
 

@@ -104,7 +104,7 @@ func TestPacksAreStagedBeforeBackendDispatch(t *testing.T) {
 	o := dispatchOptions(t, ws, "macos-user", &stdout, &stderr, nil)
 
 	reached := false
-	o.MacosUserRun = func(_ *jsonx.OrderedMap, _ string, _, _ []string, _, packRoot, _ string, _ macosuser.HostContext, _ bool, _ *jsonx.OrderedMap, _ []packload.BlockedTool) int {
+	o.MacosUserRun = func(_ *jsonx.OrderedMap, _ string, _, _ []string, _, packRoot string, _ macosuser.HomeOverlay, _ macosuser.HostContext, _ bool, _ *jsonx.OrderedMap, _ []packload.BlockedTool) int {
 		reached = true
 		if packRoot == "" {
 			t.Error("macos-user was dispatched with an empty pack root — " +
@@ -152,7 +152,7 @@ func TestPackRootIsEmptyWhenNoPacksAreConfigured(t *testing.T) {
 	var entries []os.DirEntry
 	var readErr error
 	gotSet := false
-	o.MacosUserRun = func(_ *jsonx.OrderedMap, _ string, _, _ []string, _, packRoot, _ string, _ macosuser.HostContext, _ bool, _ *jsonx.OrderedMap, _ []packload.BlockedTool) int {
+	o.MacosUserRun = func(_ *jsonx.OrderedMap, _ string, _, _ []string, _, packRoot string, _ macosuser.HomeOverlay, _ macosuser.HostContext, _ bool, _ *jsonx.OrderedMap, _ []packload.BlockedTool) int {
 		got, gotSet = packRoot, true
 		entries, readErr = os.ReadDir(got)
 		return 0
@@ -193,7 +193,7 @@ func TestAMacosUserLaunchDiscardsItsPackTreeAtReturn(t *testing.T) {
 	o.DryRun = true
 	var got string
 	existed := false
-	o.MacosUserRun = func(_ *jsonx.OrderedMap, _ string, _, _ []string, _, packRoot, _ string, _ macosuser.HostContext, _ bool, _ *jsonx.OrderedMap, _ []packload.BlockedTool) int {
+	o.MacosUserRun = func(_ *jsonx.OrderedMap, _ string, _, _ []string, _, packRoot string, _ macosuser.HomeOverlay, _ macosuser.HostContext, _ bool, _ *jsonx.OrderedMap, _ []packload.BlockedTool) int {
 		got = packRoot
 		existed = isDir(filepath.Join(packRoot, officialStagingDir, "claude"))
 		return 0

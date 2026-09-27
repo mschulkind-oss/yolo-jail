@@ -59,7 +59,7 @@ func TestRunInjectsNoFlagForASelectedProfile(t *testing.T) {
 	o.UseProfiles = map[string]string{"acme": "bedrock"}
 
 	var got []string
-	o.MacosUserRun = func(_ *jsonx.OrderedMap, _ string, _, agentArgv []string, _, _, _ string, _ macosuser.HostContext, _ bool, _ *jsonx.OrderedMap, _ []packload.BlockedTool) int {
+	o.MacosUserRun = func(_ *jsonx.OrderedMap, _ string, _, agentArgv []string, _, _ string, _ macosuser.HomeOverlay, _ macosuser.HostContext, _ bool, _ *jsonx.OrderedMap, _ []packload.BlockedTool) int {
 		got = agentArgv
 		return 0
 	}
@@ -85,7 +85,7 @@ func TestRunWithoutAProfileSelectionInjectsTheStaticFlags(t *testing.T) {
 	o.Args = []string{"acme"}
 
 	var got []string
-	o.MacosUserRun = func(_ *jsonx.OrderedMap, _ string, _, agentArgv []string, _, _, _ string, _ macosuser.HostContext, _ bool, _ *jsonx.OrderedMap, _ []packload.BlockedTool) int {
+	o.MacosUserRun = func(_ *jsonx.OrderedMap, _ string, _, agentArgv []string, _, _ string, _ macosuser.HomeOverlay, _ macosuser.HostContext, _ bool, _ *jsonx.OrderedMap, _ []packload.BlockedTool) int {
 		got = agentArgv
 		return 0
 	}

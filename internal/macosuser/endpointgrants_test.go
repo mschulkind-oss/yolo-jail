@@ -33,7 +33,7 @@ func planWithEndpoints(t *testing.T, pairs ...string) RunPlan {
 		env.Set(pairs[i], pairs[i+1])
 	}
 	return BuildRunPlan("/Users/Shared/proj", jsonx.NewOrderedMap(), []string{"pi"},
-		[]string{"pi"}, "/opt/yolo", "", "", HostContext{}, env, nil, nil)
+		[]string{"pi"}, "/opt/yolo", "", HomeOverlay{}, HostContext{}, env, nil, nil)
 }
 
 // hasCommand reports whether the plan stages exactly this argv.
