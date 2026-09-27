@@ -460,3 +460,78 @@ func TestARefusalReasonCannotForgeADisclosureLine(t *testing.T) {
 		}
 	}
 }
+
+// R4 AT THE GRAIN OF A NAME, through the shipped declarations and in both orders: `.claude/skills`
+// and `.agents/skills` both carry a `lint`, with different content. claude reads the first
+// natively and pi the second, so whichever copy wins the name, the agent reading the OTHER copy
+// natively must not be sent the winner — it would see two skills called lint — and the collision
+// line says which agent reads the losing copy.
+func TestAnAgentReadingALosingCopyNativelyIsSentNoOther(t *testing.T) {
+	for _, tc := range []struct {
+		packs, winner, loser, reader string
+	}{
+		{`["claude", "pi"]`, ".claude/skills", ".agents/skills", "pi"},
+		{`["pi", "claude"]`, ".agents/skills", ".claude/skills", "claude"},
+	} {
+		t.Run(tc.packs, func(t *testing.T) {
+			o, ws, stderr := wsSkillsLaunch(t, tc.packs)
+			wsWrite(t, ws, ".claude/skills/lint/SKILL.md", "CLAUDE")
+			wsWrite(t, ws, ".agents/skills/lint/SKILL.md", "AGENTS")
+
+			staging := stageWorkspaceSkills(t, o, "podman")
+
+			for _, pack := range []string{"claude", "pi"} {
+				if has(t, staging, pack, "lint") {
+					t.Errorf("%s reads a lint natively and was sent another; stderr:\n%s", pack, stderr)
+				}
+			}
+			want := `"lint" is in both ` + tc.winner + ` and ` + tc.loser + ` — the copy in ` + tc.winner +
+				` is the one delivered; ` + tc.reader + ` reads the copy in ` + tc.loser + ` natively and is sent no other`
+			if !strings.Contains(stderr.String(), want) {
+				t.Errorf("want %q in:\n%s", want, stderr)
+			}
+		})
+	}
+}
+
+// §10's fifth bullet, in its exact form: a repo with `.agents/skills/configuring-the-jail/` and
+// an agent that reads `.agents/skills` natively. yolo still stages its built-in under that name;
+// the agent also sees the repo's copy natively, which yolo cannot prevent, and the launch says so.
+func TestANativelyReadSkillUnderABuiltinNameIsSaid(t *testing.T) {
+	o, ws, stderr := wsSkillsLaunch(t, `["pi"]`)
+	wsWrite(t, ws, ".agents/skills/configuring-the-jail/SKILL.md", "the repo's own version")
+
+	staging := stageWorkspaceSkills(t, o, "podman")
+
+	want, _ := builtinskills.FS.ReadFile("configuring-the-jail/SKILL.md")
+	got, err := os.ReadFile(filepath.Join(staging, jailcontent.SkillStagingName("pi"), "configuring-the-jail", "SKILL.md"))
+	if err != nil || !bytes.Equal(got, want) {
+		t.Errorf("pi's staged configuring-the-jail must be yolo's built-in")
+	}
+	line := "Workspace skills: pi reads .agents/skills/configuring-the-jail natively, so yolo cannot keep it " +
+		"from competing with yolo's built-in skill of that name"
+	if !strings.Contains(stderr.String(), line) {
+		t.Errorf("want %q in:\n%s", line, stderr)
+	}
+}
+
+// The held-back line, where no collision says it: the repo's `.agents/skills/x` is a link into
+// node_modules — refused in a container, whose jail sees its own node_modules there, and where pi
+// resolves it natively to whatever the jail has. So `.claude/skills/x` is not sent to pi, and
+// since the refused entry was never a copy to collide with, the launch says so on its own line.
+func TestAHeldBackSkillIsSaidWhenNoCollisionSaysIt(t *testing.T) {
+	o, ws, stderr := wsSkillsLaunch(t, `["pi"]`)
+	wsWrite(t, ws, "node_modules/x/SKILL.md", "the host's per-side copy")
+	wsLink(t, ws, ".agents/skills/x", "../../node_modules/x")
+	wsWrite(t, ws, ".claude/skills/x/SKILL.md", "claude's x")
+
+	staging := stageWorkspaceSkills(t, o, "podman")
+
+	if has(t, staging, "pi", "x") {
+		t.Errorf("pi reads .agents/skills/x natively and was sent claude's x too; stderr:\n%s", stderr)
+	}
+	line := `Workspace skills: "x" from .claude/skills was not sent to pi, which reads a skill of that name in .agents/skills natively`
+	if !strings.Contains(stderr.String(), line) {
+		t.Errorf("want %q in:\n%s", line, stderr)
+	}
+}

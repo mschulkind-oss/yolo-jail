@@ -53,6 +53,13 @@ package jailcontent
 // PER-SIDE path: the jail sees its own copy of `.venv`, `node_modules` and every `per_side_paths`
 // entry, so the host's bytes there are exactly what the jail cannot read, and the mirror's whole
 // justification is that it grants no authority the repo lacks (OQ-WS1's answer).
+//
+// # What a destination is never sent
+//
+// A copy of a skill its own agent already reads natively, at either grain (the skip rule), and a
+// copy of any skill whose NAME a directory it reads natively carries: a second skill of one name,
+// with different content, is the double delivery the skip rule exists to prevent, whichever copy
+// won the name among the sources.
 
 import (
 	"errors"
@@ -96,6 +103,13 @@ type WorkspaceSkillsReport struct {
 	// Collisions is one entry per skill name two source dirs both carry, with different
 	// content.
 	Collisions []WorkspaceSkillCollision
+	// HeldBack is one entry per skill a destination was not sent because a directory its agent
+	// reads natively carries a skill of the same name — when no collision line already says so.
+	HeldBack []WorkspaceSkillHeldBack
+	// Competing is one entry per workspace skill an agent reads NATIVELY under a name a higher
+	// layer also delivers to it. The mirror can hold its own copy back; it cannot stop an agent
+	// reading its project directory, so this is said rather than prevented.
+	Competing []WorkspaceSkillCompeting
 	// Refused is every entry skipped because reading it would have left the workspace, or
 	// could not be read or staged safely — named by its workspace-relative path.
 	Refused []WorkspaceSkillRefusal
@@ -103,7 +117,8 @@ type WorkspaceSkillsReport struct {
 
 // Empty reports whether the report has nothing to say — the common case, which is silent.
 func (r *WorkspaceSkillsReport) Empty() bool {
-	return r == nil || len(r.Mirrored)+len(r.Shadowed)+len(r.Collisions)+len(r.Refused) == 0
+	return r == nil || len(r.Mirrored)+len(r.Shadowed)+len(r.Collisions)+len(r.HeldBack)+
+		len(r.Competing)+len(r.Refused) == 0
 }
 
 // WorkspaceSkillDelivery is what one source dir delivered, and to whom.
@@ -126,6 +141,34 @@ type WorkspaceSkillCollision struct {
 	Name   string
 	Winner string   // the source dir whose copy is delivered
 	Losers []string // the source dirs whose copies are not
+	// ReadNatively is, per losing dir, the destinations whose agent reads THAT copy natively.
+	// They are sent no other copy, so for them the winner is not the copy in use.
+	ReadNatively []WorkspaceSkillNativeCopy
+}
+
+// WorkspaceSkillNativeCopy is one source dir's copy of a skill, and the destinations whose
+// agents read it natively.
+type WorkspaceSkillNativeCopy struct {
+	Source string
+	By     []string
+}
+
+// WorkspaceSkillHeldBack is one skill some destinations were not sent because a directory their
+// agent reads natively carries a skill of that name.
+type WorkspaceSkillHeldBack struct {
+	Name   string
+	From   string   // the source dir whose copy was not sent
+	Native string   // the natively-read source dir that carries the name
+	In     []string // the destinations
+}
+
+// WorkspaceSkillCompeting is one workspace skill some agents read natively under a name a higher
+// layer also delivers to them.
+type WorkspaceSkillCompeting struct {
+	Name    string
+	Source  string   // the source dir they read it from natively
+	With    []string // who delivers the same name ("yolo's built-in skill")
+	Readers []string // the destinations whose agents read it natively
 }
 
 // WorkspaceSkillRefusal is one entry the reader would not read, or could not stage.
@@ -159,10 +202,14 @@ type workspaceLayer struct {
 
 	refused    []WorkspaceSkillRefusal
 	refusedAt  map[string]bool
-	collisions map[string]*WorkspaceSkillCollision
+	collisions map[string]*wsCollision
 	collOrder  []string
 	shadows    map[string]*WorkspaceSkillShadow
 	shadowOrd  []string
+	heldBack   map[string]*WorkspaceSkillHeldBack
+	heldOrd    []string
+	competing  map[string]*WorkspaceSkillCompeting
+	compOrd    []string
 	delivered  map[*wsSource]*deliveryAcc
 }
 
@@ -172,6 +219,12 @@ type wsSource struct {
 	// entryReals is the real path of every skill directory in this source, winners and losers
 	// alike: the skill-level half of the skip rule.
 	entryReals map[string]bool
+	// names is every top-level entry an agent reading this directory natively may take for a
+	// skill: every directory, and every link, refused ones included — the agent resolves a link
+	// in the jail, where a target this reader refused (a per-side path, say) may well be a
+	// directory. A destination reading this source natively is sent no copy of any of these
+	// names from another source.
+	names map[string]bool
 }
 
 type wsSkill struct {
@@ -179,6 +232,13 @@ type wsSkill struct {
 	source *wsSource
 	real   string // root-relative real path of the skill directory
 	stored string // its copy in the scratch tree
+}
+
+type wsCollision struct {
+	name   string
+	winner *wsSource
+	losers []*wsSource
+	native map[*wsSource][]string // a losing source → the destinations reading it natively
 }
 
 type deliveryAcc struct {
@@ -204,8 +264,10 @@ func stageWorkspaceLayer(ws *WorkspaceSkills) (l *workspaceLayer, err error) {
 	l = &workspaceLayer{
 		resolved:   map[string]string{},
 		refusedAt:  map[string]bool{},
-		collisions: map[string]*WorkspaceSkillCollision{},
+		collisions: map[string]*wsCollision{},
 		shadows:    map[string]*WorkspaceSkillShadow{},
+		heldBack:   map[string]*WorkspaceSkillHeldBack{},
+		competing:  map[string]*WorkspaceSkillCompeting{},
 		delivered:  map[*wsSource]*deliveryAcc{},
 	}
 	if ws == nil || ws.Root == "" || len(ws.Dirs) == 0 {
@@ -247,7 +309,7 @@ func stageWorkspaceLayer(ws *WorkspaceSkills) (l *workspaceLayer, err error) {
 		if _, dup := bySource[real]; dup {
 			continue // a second spelling of a source already in the set (a committed link)
 		}
-		src := &wsSource{rel: rel, real: real, entryReals: map[string]bool{}}
+		src := &wsSource{rel: rel, real: real, entryReals: map[string]bool{}, names: map[string]bool{}}
 		bySource[real] = src
 		l.sources = append(l.sources, src)
 		names, err := tree.listDir(real)
@@ -263,6 +325,7 @@ func stageWorkspaceLayer(ws *WorkspaceSkills) (l *workspaceLayer, err error) {
 			entry := joinRel(real, name)
 			childReal, reason := tree.resolveEntry(entry)
 			if reason != "" {
+				src.names[name] = true
 				l.refuse(display, reason)
 				continue
 			}
@@ -272,6 +335,7 @@ func stageWorkspaceLayer(ws *WorkspaceSkills) (l *workspaceLayer, err error) {
 			if containsPath(childReal, real) {
 				// `x → .` or `x → ../..`: a "skill" that is its own source dir, or the whole
 				// workspace, is a cycle before a single file is copied.
+				src.names[name] = true
 				l.refuse(display, "a symlink to a directory that contains it (a cycle)")
 				continue
 			}
@@ -281,10 +345,11 @@ func stageWorkspaceLayer(ws *WorkspaceSkills) (l *workspaceLayer, err error) {
 				// other one (copySkillSubdirs skips it too).
 				continue
 			}
+			src.names[name] = true
 			src.entryReals[childReal] = true
 			if w, ok := winners[name]; ok {
 				if w.real != childReal {
-					l.collide(name, w.source.rel, rel)
+					l.collide(name, w.source, src)
 				}
 				continue
 			}
@@ -350,20 +415,52 @@ func (l *workspaceLayer) close() {
 // the layers above left free, honoring the skip rule; a skill whose name is taken is recorded as
 // shadowed rather than delivered.
 func (l *workspaceLayer) deliver(target SkillTarget, skillsDir string, taken map[string]string) error {
-	if l == nil || len(l.skills) == 0 {
+	if l == nil || l.tree == nil {
 		return nil
 	}
 	dest := target.Agent
 	if dest == "" {
 		dest = "~/" + target.Dest
 	}
-	nativeDirs, nativeSkills := l.nativeFor(target)
+	native := l.nativeFor(target)
+
+	// What this agent reads natively under a name a higher layer ALSO delivers to it: two skills
+	// of one name the mirror had no hand in and cannot prevent, only say.
+	for _, src := range native.sources {
+		for _, name := range sortedSet(src.names) {
+			if by, ok := taken[name]; ok {
+				l.compete(name, src, by, dest)
+			}
+		}
+	}
+	// The losing copies of a collision this agent reads natively: for it, the winner is not the
+	// copy in use, and the collision line says so.
+	for _, name := range l.collOrder {
+		c := l.collisions[name]
+		for _, lo := range c.losers {
+			if native.dirs[lo.real] {
+				c.native[lo] = appendUnique(c.native[lo], dest)
+			}
+		}
+	}
+
 	for _, sk := range l.skills {
 		// THE SKIP RULE, at both grains: the agent reads the source dir natively, or reads this
 		// very skill directory natively through another source it reads (a committed
 		// `.claude/skills/x → ../../.agents/skills/x`). Either way a copy would be the agent's
 		// second sight of one skill, which pi loads as two.
-		if nativeDirs[sk.source.real] || nativeSkills[sk.real] {
+		if native.dirs[sk.source.real] || native.skills[sk.real] {
+			continue
+		}
+		// AND AT THE GRAIN OF A NAME: a directory the agent reads natively carries a skill of this
+		// name — a collision's losing copy, or an entry this reader refused — so a copy of the
+		// winner would be a second, different skill of one name in one agent.
+		if others := native.names[sk.name]; len(others) > 0 {
+			for _, o := range others {
+				if !l.collisions[sk.name].hasLoser(o) {
+					l.holdBack(sk, o, dest)
+				}
+			}
 			continue
 		}
 		if by, ok := taken[sk.name]; ok {
@@ -378,25 +475,38 @@ func (l *workspaceLayer) deliver(target SkillTarget, skillsDir string, taken map
 	return nil
 }
 
-// nativeFor is the source dirs, and the skill directories inside them, that target's own agent
-// reads at project scope — its ProjectDirs, resolved the same confined way.
-func (l *workspaceLayer) nativeFor(target SkillTarget) (dirs, skills map[string]bool) {
-	dirs, skills = map[string]bool{}, map[string]bool{}
+// nativeReads is what one destination's agent reads at project scope, resolved against the
+// source set.
+type nativeReads struct {
+	dirs    map[string]bool        // real source dirs
+	skills  map[string]bool        // real skill directories inside them
+	names   map[string][]*wsSource // a name → the natively-read sources carrying it
+	sources []*wsSource            // the natively-read sources, in source order
+}
+
+// nativeFor is the source dirs, the skill directories inside them and the names they carry,
+// that target's own agent reads at project scope — its ProjectDirs, resolved the same confined
+// way.
+func (l *workspaceLayer) nativeFor(target SkillTarget) nativeReads {
+	n := nativeReads{dirs: map[string]bool{}, skills: map[string]bool{}, names: map[string][]*wsSource{}}
 	for _, rel := range target.ProjectDirs {
-		real := l.resolveQuiet(rel)
-		if real == "" {
-			continue
-		}
-		dirs[real] = true
-		for _, src := range l.sources {
-			if src.real == real {
-				for r := range src.entryReals {
-					skills[r] = true
-				}
-			}
+		if real := l.resolveQuiet(rel); real != "" {
+			n.dirs[real] = true
 		}
 	}
-	return dirs, skills
+	for _, src := range l.sources {
+		if !n.dirs[src.real] {
+			continue
+		}
+		n.sources = append(n.sources, src)
+		for r := range src.entryReals {
+			n.skills[r] = true
+		}
+		for name := range src.names {
+			n.names[name] = append(n.names[name], src)
+		}
+	}
+	return n
 }
 
 // resolveQuiet resolves a workspace-relative dir for the skip rule, reporting nothing: a
@@ -423,19 +533,29 @@ func (l *workspaceLayer) refuse(path, reason string) {
 	l.refused = append(l.refused, WorkspaceSkillRefusal{Path: path, Reason: reason})
 }
 
-func (l *workspaceLayer) collide(name, winner, loser string) {
+func (l *workspaceLayer) collide(name string, winner, loser *wsSource) {
 	c, ok := l.collisions[name]
 	if !ok {
-		c = &WorkspaceSkillCollision{Name: name, Winner: winner}
+		c = &wsCollision{name: name, winner: winner, native: map[*wsSource][]string{}}
 		l.collisions[name] = c
 		l.collOrder = append(l.collOrder, name)
 	}
-	for _, have := range c.Losers {
-		if have == loser {
-			return
+	if !c.hasLoser(loser) {
+		c.losers = append(c.losers, loser)
+	}
+}
+
+// hasLoser reports whether src is one of this collision's losing dirs; false on a nil collision.
+func (c *wsCollision) hasLoser(src *wsSource) bool {
+	if c == nil {
+		return false
+	}
+	for _, have := range c.losers {
+		if have == src {
+			return true
 		}
 	}
-	c.Losers = append(c.Losers, loser)
+	return false
 }
 
 func (l *workspaceLayer) shadow(sk *wsSkill, by, dest string) {
@@ -447,6 +567,29 @@ func (l *workspaceLayer) shadow(sk *wsSkill, by, dest string) {
 	}
 	s.By = appendUnique(s.By, by)
 	s.In = appendUnique(s.In, dest)
+}
+
+func (l *workspaceLayer) holdBack(sk *wsSkill, native *wsSource, dest string) {
+	key := sk.name + "\x00" + sk.source.rel + "\x00" + native.rel
+	h, ok := l.heldBack[key]
+	if !ok {
+		h = &WorkspaceSkillHeldBack{Name: sk.name, From: sk.source.rel, Native: native.rel}
+		l.heldBack[key] = h
+		l.heldOrd = append(l.heldOrd, key)
+	}
+	h.In = appendUnique(h.In, dest)
+}
+
+func (l *workspaceLayer) compete(name string, src *wsSource, by, dest string) {
+	key := name + "\x00" + src.rel
+	c, ok := l.competing[key]
+	if !ok {
+		c = &WorkspaceSkillCompeting{Name: name, Source: src.rel}
+		l.competing[key] = c
+		l.compOrd = append(l.compOrd, key)
+	}
+	c.With = appendUnique(c.With, by)
+	c.Readers = appendUnique(c.Readers, dest)
 }
 
 func (l *workspaceLayer) deliveredTo(sk *wsSkill, dest string) {
@@ -484,7 +627,22 @@ func (l *workspaceLayer) report() *WorkspaceSkillsReport {
 		r.Shadowed = append(r.Shadowed, *l.shadows[name])
 	}
 	for _, name := range l.collOrder {
-		r.Collisions = append(r.Collisions, *l.collisions[name])
+		c := l.collisions[name]
+		out := WorkspaceSkillCollision{Name: name, Winner: c.winner.rel}
+		for _, lo := range c.losers {
+			out.Losers = append(out.Losers, lo.rel)
+			if by := c.native[lo]; len(by) > 0 {
+				out.ReadNatively = append(out.ReadNatively,
+					WorkspaceSkillNativeCopy{Source: lo.rel, By: append([]string(nil), by...)})
+			}
+		}
+		r.Collisions = append(r.Collisions, out)
+	}
+	for _, key := range l.heldOrd {
+		r.HeldBack = append(r.HeldBack, *l.heldBack[key])
+	}
+	for _, key := range l.compOrd {
+		r.Competing = append(r.Competing, *l.competing[key])
 	}
 	r.Refused = append(r.Refused, l.refused...)
 	return r
@@ -497,6 +655,15 @@ func appendUnique(xs []string, x string) []string {
 		}
 	}
 	return append(xs, x)
+}
+
+func sortedSet(m map[string]bool) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
 }
 
 // skillWalk copies one skill directory out of the confined tree.

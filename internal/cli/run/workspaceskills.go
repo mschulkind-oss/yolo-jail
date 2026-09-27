@@ -108,13 +108,18 @@ func perSideShadowRels(cfg *jsonx.OrderedMap, workspace string) []string {
 // lines that do print are read. Stderr for the reason noteLaunchFlagInjection gives and one more:
 // this runs on an attach too, whose stdout belongs to its "Attaching" line and the command after.
 //
-// Four kinds of line, each one fact:
+// Six kinds of line, each one fact:
 //
 //   - a REFUSAL per entry not read or not staged (P5's escaping symlink above all), naming the
 //     entry and never its target;
-//   - a COLLISION per skill name two source dirs both carry, naming which copy is delivered;
+//   - a COLLISION per skill name two source dirs both carry, naming which copy is delivered and
+//     which agents read a losing copy natively instead;
+//   - a HELD-BACK line per skill some agents were not sent because a directory they read natively
+//     carries that name, when no collision line says so already;
 //   - a SHADOW per workspace skill a built-in, pack or local-pack skill took the name of — one
 //     line per name, however many destinations (OQ-WS2);
+//   - a COMPETING line per workspace skill an agent reads natively under a name a higher layer
+//     also gives it, which the mirror cannot prevent;
 //   - a MIRROR line per source dir that delivered anything, naming the destinations and the
 //     skills — the line R6 of the design leans on, since an attach re-stages the workspace as it
 //     stands into a live session.
@@ -135,14 +140,31 @@ func (o *Options) noteWorkspaceSkills(r *jailcontent.WorkspaceSkillsReport) {
 		for i, l := range c.Losers {
 			losers[i] = displaySafe(l)
 		}
-		out.print(fmt.Sprintf("[yellow]Workspace skills: %s is in both %s and %s — the copy in %s "+
-			"is the one delivered[/yellow]", quoteSafe(c.Name), displaySafe(c.Winner),
-			strings.Join(losers, " and "), displaySafe(c.Winner)))
+		line := fmt.Sprintf("Workspace skills: %s is in both %s and %s — the copy in %s is the one "+
+			"delivered", quoteSafe(c.Name), displaySafe(c.Winner), strings.Join(losers, " and "),
+			displaySafe(c.Winner))
+		for _, n := range c.ReadNatively {
+			line += fmt.Sprintf("; %s %s the copy in %s natively and %s sent no other",
+				strings.Join(n.By, ", "), plural(len(n.By), "reads", "read"), displaySafe(n.Source),
+				plural(len(n.By), "is", "are"))
+		}
+		out.print("[yellow]" + line + "[/yellow]")
+	}
+	for _, h := range r.HeldBack {
+		out.print(fmt.Sprintf("[yellow]Workspace skills: %s from %s was not sent to %s, which %s a "+
+			"skill of that name in %s natively[/yellow]", quoteSafe(h.Name), displaySafe(h.From),
+			strings.Join(h.In, ", "), plural(len(h.In), "reads", "read"), displaySafe(h.Native)))
 	}
 	for _, s := range r.Shadowed {
 		out.print(fmt.Sprintf("[yellow]Workspace skills: %s from %s is shadowed by %s, so it was not "+
 			"delivered to %s[/yellow]", quoteSafe(s.Name), displaySafe(s.Source),
 			strings.Join(s.By, " and "), strings.Join(s.In, ", ")))
+	}
+	for _, c := range r.Competing {
+		out.print(fmt.Sprintf("[yellow]Workspace skills: %s %s %s natively, so yolo cannot keep it "+
+			"from competing with %s of that name[/yellow]", strings.Join(c.Readers, ", "),
+			plural(len(c.Readers), "reads", "read"), displaySafe(c.Source+"/"+c.Name),
+			strings.Join(c.With, " and ")))
 	}
 	for _, m := range r.Mirrored {
 		names := make([]string, len(m.Skills))
@@ -152,6 +174,14 @@ func (o *Options) noteWorkspaceSkills(r *jailcontent.WorkspaceSkillsReport) {
 		out.print(fmt.Sprintf("[dim]Workspace skills from %s mirrored into %s: %s[/dim]",
 			displaySafe(m.Source), strings.Join(m.To, ", "), strings.Join(names, ", ")))
 	}
+}
+
+// plural picks one or many by n.
+func plural(n int, one, many string) string {
+	if n == 1 {
+		return one
+	}
+	return many
 }
 
 // displaySafe renders a workspace-supplied path or name for a disclosure line: verbatim when it
