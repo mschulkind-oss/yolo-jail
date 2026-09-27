@@ -148,7 +148,9 @@ const (
 	// patch folds into the managed layer of the pack's OWN surfaces and its launch
 	// flags merge into the binary's. Sole-owned by the pack (one autonomy declaration
 	// per pack); it patches surfaces the same pack owns, so it never collides across
-	// packs the way a second config writer would.
+	// packs the way a second config writer would. Its POSTURE LISTS (`lists`, config-list
+	// bodies gated on the posture — docs/design/notch-scoped-config-contributions.md §4.1)
+	// may name another pack's surface, and still never collide: a list only appends.
 	KindAutonomy Kind = "autonomy"
 	// KindProfile: a NAMED SELECTION OVER A PROVIDER
 	// (docs/reference/providers.md#declaring-and-selecting-a-profile) — `name` is the selector `-p` sets and

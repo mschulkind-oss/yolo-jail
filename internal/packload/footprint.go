@@ -481,12 +481,23 @@ func FootprintOf(p *Pack) Footprint {
 			case c.Guarded == nil:
 				detail = "autonomous posture only"
 			}
+			//
+			// A posture's LISTS are named here too, and here rather than as config-list
+			// claims (notch-scoped-config-contributions.md NS-D2): the claim leads with the kind
+			// the author WROTE, which is `autonomy`, and the posture is the gate a reader
+			// needs beside the entries — the `profile` modifier's precedent, where the gate
+			// is spelled in the detail of an unconditional claim. Unconditional here as well:
+			// the footprint reports what a pack wants, and which posture renders is a notch
+			// fact this report does not have.
 			for _, half := range []struct {
 				name    string
 				posture *packdecl.AutonomyPosture
 			}{{"autonomous", c.Autonomous}, {"guarded", c.Guarded}} {
 				if inj := postureInjects(half.posture); inj != "" {
 					detail += "; " + half.name + " injects " + inj
+				}
+				if lists := postureAppends(half.posture); lists != "" {
+					detail += "; " + half.name + " appends " + lists
 				}
 			}
 			add(packdecl.KindAutonomy, p.Name, detail, false)
@@ -721,14 +732,31 @@ const configListClaimShown = 3
 // half an author needs before relying on it: the owner's own entries are kept, and a
 // captured, computed or managed value can still replace the whole array.
 func configListClaimDetail(add json.RawMessage) string {
+	shown := configListShown(add)
+	if shown == configListShownEmpty {
+		return "appends " + shown
+	}
+	return "appends " + shown + " (owner's entries kept; captured, computed and managed " +
+		"still win)"
+}
+
+// configListShownEmpty is configListShown's answer for an empty `add`, which appends nothing
+// and so carries no precedence clause.
+const configListShownEmpty = "nothing (empty `add`, a no-op)"
+
+// configListShown is the entries half of a list's footprint line — `<n> entries: <first
+// configListClaimShown, as compact JSON>` — shared by the config-list claim and the autonomy
+// claim's posture lists (postureAppends), so the two spellings of one append describe their
+// entries identically.
+func configListShown(add json.RawMessage) string {
 	var entries []json.RawMessage
 	if err := json.Unmarshal(add, &entries); err != nil {
 		// packdecl already refused an `add` that is not an array; say what little is known
 		// rather than invent a count.
-		return "appends entries (owner's entries kept; captured, computed and managed still win)"
+		return "entries"
 	}
 	if len(entries) == 0 {
-		return "appends nothing (empty `add`, a no-op)"
+		return configListShownEmpty
 	}
 	noun := "entries"
 	if len(entries) == 1 {
@@ -742,8 +770,7 @@ func configListClaimDetail(add json.RawMessage) string {
 		}
 		shown = append(shown, string(e))
 	}
-	return fmt.Sprintf("appends %d %s: %s (owner's entries kept; captured, computed and "+
-		"managed still win)", len(entries), noun, strings.Join(shown, ", "))
+	return fmt.Sprintf("%d %s: %s", len(entries), noun, strings.Join(shown, ", "))
 }
 
 // pluginClaimDetail describes a wrapped plugin in one footprint line: the components it
@@ -1395,6 +1422,25 @@ func packExecutables(root string) []string {
 	})
 	sort.Strings(out)
 	return out
+}
+
+// postureAppends renders the posture lists one autonomy posture declares, as
+// `<entries> to <agent/name#pointer>` per list — the config-list claim's target spelling, so a
+// reader looking for who appends to an array finds the same string in either claim — or ""
+// when the posture declares none.
+//
+// The entries are shown the way a config-list claim shows them (configListShown), and an
+// empty `add` says so rather than claiming an append that does not happen. Lists are joined
+// by " and " because the entries inside one are already comma-separated.
+func postureAppends(p *packdecl.AutonomyPosture) string {
+	if p == nil {
+		return ""
+	}
+	var parts []string
+	for _, l := range p.Lists {
+		parts = append(parts, configListShown(l.Add)+" to "+l.Surface+"#"+l.Path)
+	}
+	return strings.Join(parts, " and ")
 }
 
 // postureInjects renders the launch flags one autonomy posture injects, as

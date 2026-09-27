@@ -1317,14 +1317,21 @@ See ` + "`yolo describe`" + ` for what the current description resolves to, and
 ` + "`yolo host`" + ` for the host notch's own verbs.`
 
 // collectProblemKind is the kind a packoverlay.Collect problem is about, for the line that
-// refuses it: "config-list" for a malformed list contribution, "config-overlay" for every
-// other problem Collect reports. Read off the problem's own text, whose shape Collect fixes —
-// `pack <name>: config-list…` for a list — because the set carries its problems as strings,
-// and a list problem printed under a config-overlay label names a declaration the author
-// never wrote.
+// refuses it: "config-list" for a malformed list contribution, "autonomy" for a malformed
+// posture list (an autonomy posture's `lists`), "config-overlay" for every other problem
+// Collect reports. Read off the problem's own text, whose shape Collect fixes —
+// `pack <name>: config-list…` for a list, `pack <name>: autonomy <posture>.lists…` for a
+// posture list — because the set carries its problems as strings, and a list problem printed
+// under a config-overlay label names a declaration the author never wrote.
 func collectProblemKind(prob string) string {
-	if _, rest, ok := strings.Cut(prob, ": "); ok && strings.HasPrefix(rest, string(packdecl.KindConfigList)) {
-		return string(packdecl.KindConfigList)
+	_, rest, ok := strings.Cut(prob, ": ")
+	if !ok {
+		return string(packdecl.KindConfigOverlay)
+	}
+	for _, k := range []packdecl.Kind{packdecl.KindConfigList, packdecl.KindAutonomy} {
+		if strings.HasPrefix(rest, string(k)+" ") || strings.HasPrefix(rest, string(k)+":") {
+			return string(k)
+		}
 	}
 	return string(packdecl.KindConfigOverlay)
 }

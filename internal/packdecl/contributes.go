@@ -307,7 +307,10 @@ type Contribution struct {
 	// The confinement notch's AgentAutonomy policy selects which posture renders
 	// (autonomous at jail/guest, guarded at host). Each posture folds config-managed keys
 	// into the pack's OWN surfaces and merges launch flags — it is not a second config
-	// writer, it is a notch-gated patch of the managed layer.
+	// writer, it is a notch-gated patch of the managed layer. A posture may also carry
+	// POSTURE LISTS (AutonomyPosture.Lists): config-list bodies appended to any selected
+	// pack's surface only while the notch selects that posture — the one half of a posture
+	// that reaches beyond the pack's own surfaces, because an append cannot contend.
 	//
 	// EITHER POSTURE MAY BE ABSENT, and both directions ship. pi is permissive by default,
 	// so its autonomous is empty and only guarded tightens it. copilot is the mirror: its
@@ -891,6 +894,58 @@ type AutonomyPosture struct {
 	// Launch is the flags to inject for a binary in this posture (e.g.
 	// ["--dangerously-skip-permissions"] for autonomous, [] for guarded).
 	Launch []AutonomyLaunch `json:"launch,omitempty"`
+	// Lists are this posture's POSTURE LISTS — a term coined by
+	// docs/design/notch-scoped-config-contributions.md §4.1 for a `config-list` body declared
+	// inside a posture: entries appended to an array of a pack-owned surface ONLY while the
+	// notch selects this posture. `guarded.lists` therefore reach the host notch (and an
+	// unset target) and no jail; `autonomous.lists` reach every jail and not the host.
+	//
+	// UNLIKE Config, A POSTURE LIST MAY NAME ANOTHER PACK'S SURFACE. It is the same
+	// cross-pack join a `config-list` is (packoverlay.Collect places both through one pass,
+	// against one owner set), because an append cannot contend: the fold dedups by whole
+	// value, so two packs' lists on one array never collide the way two config writers would.
+	// That is what lets a personal pack give a surface another pack owns a host-only entry
+	// (pi-automode in pi's `packages`, the design's motivating case) without editing the
+	// owner, and without spelling a notch name in a manifest.
+	//
+	// Each entry is validated by config-list's own rules (configListBodyProblems). An older
+	// build reading a manifest that carries this field drops it (DecodeTolerant ignores an
+	// unknown nested field), which FAILS CLOSED: the entry renders nowhere rather than at
+	// every notch.
+	Lists []PostureList `json:"lists,omitempty"`
+}
+
+// PostureList is one config-list body inside an autonomy posture (AutonomyPosture.Lists):
+// the same three fields a `config-list` contribution carries, with the posture it sits under
+// as its only gate.
+type PostureList struct {
+	// Surface is the target surface identity, "agent/name". Parsed by the collector
+	// (manifest.ParseSurfaceID), exactly as a config-list's is.
+	Surface string `json:"surface,omitempty"`
+	// Path is the RFC 6901 JSON Pointer to the array — Contribution.Path's rules.
+	Path string `json:"path,omitempty"`
+	// Add is the entries — Contribution.Add's rules: required, a JSON array, no null inside.
+	Add json.RawMessage `json:"add,omitempty"`
+}
+
+// Posture names one side of an autonomy contribution: the key it is spelled under in a
+// manifest, and the label a report names it by.
+type Posture string
+
+// The two postures. The notch's confinement profile picks one through its AgentAutonomy bit
+// (render.ProfileFor): autonomous at jail, guest and preview; guarded at host and unset.
+const (
+	PostureAutonomous Posture = "autonomous"
+	PostureGuarded    Posture = "guarded"
+)
+
+// PostureOf returns the posture an autonomy policy bit selects — PostureFor's selection as a
+// value, for the readers that hold a declaration's posture rather than a manifest.
+func PostureOf(autonomy bool) Posture {
+	if autonomy {
+		return PostureAutonomous
+	}
+	return PostureGuarded
 }
 
 // AutonomyLaunch is a per-binary launch-flag set within a posture.
@@ -1674,16 +1729,67 @@ type ConfigList struct {
 	// cleanJSON5 re-marshals every manifest; the engine decodes it, for the same reason
 	// ConfigOverlay.Config is raw — packdecl stays free of the engine.
 	Add json.RawMessage
+	// Posture is "" for a `config-list` contribution, which contributes at every notch, and
+	// the posture a POSTURE LIST sits under (AutonomyPosture.Lists) for one declared inside an
+	// autonomy contribution, which contributes only while the notch selects that posture.
+	// ListContributions is the one projection that sets it; ConfigListContributions never
+	// does.
+	Posture Posture
 }
 
 // ConfigListContributions returns every config-list the pack declares, in declaration
 // order — which is the FOLD order the engine appends in (after pack order), so it must not
-// be normalized here.
+// be normalized here. `config-list` contributions ONLY: a posture list is declared under
+// kind `autonomy`, and the readers that report by the kind the author wrote (the footprint's
+// config-list claims) must not see one here. ListContributions is the walk that includes
+// them.
 func (m *Manifest) ConfigListContributions() []ConfigList {
 	var out []ConfigList
 	for _, c := range m.Contributions() {
 		if c.Kind == KindConfigList {
 			out = append(out, ConfigList{Surface: c.Surface, Path: c.Path, Add: c.Add})
+		}
+	}
+	return out
+}
+
+// ListContributions returns every list body the pack declares — each `config-list`
+// contribution (Posture "") and each posture list of its autonomy contribution (Posture
+// set) — in DECLARATION ORDER, which is the fold order (pack-system.md#config-list-order):
+// a posture's lists stand at the autonomy contribution's position in `contributes`, the
+// autonomous posture's before the guarded one's.
+//
+// BOTH postures are returned, whatever the notch. Selecting one is a render fact, and the
+// collector gates AFTER decoding every body (packoverlay.Collect), so a malformed entry is
+// reported at every notch — including the one it would never render at, or its author would
+// not hear it until they ran the other one.
+//
+// Only the FIRST autonomy contribution counts, the one PostureFor reads, so a posture's
+// config, its launch flags and its lists always come from one declaration.
+func (m *Manifest) ListContributions() []ConfigList {
+	var out []ConfigList
+	seenAutonomy := false
+	for _, c := range m.Contributions() {
+		switch c.Kind {
+		case KindConfigList:
+			out = append(out, ConfigList{Surface: c.Surface, Path: c.Path, Add: c.Add})
+		case KindAutonomy:
+			if seenAutonomy {
+				continue
+			}
+			seenAutonomy = true
+			for _, half := range []struct {
+				posture Posture
+				decl    *AutonomyPosture
+			}{{PostureAutonomous, c.Autonomous}, {PostureGuarded, c.Guarded}} {
+				if half.decl == nil {
+					continue
+				}
+				for _, l := range half.decl.Lists {
+					out = append(out, ConfigList{Surface: l.Surface, Path: l.Path, Add: l.Add,
+						Posture: half.posture})
+				}
+			}
 		}
 	}
 	return out
@@ -2946,16 +3052,41 @@ func configListProblems(label string, c Contribution) []string {
 			"its entries ARE its body, in \"add\"; a config body is a config-overlay, which "+
 			"REPLACES an array rather than appending to it")
 	}
-	if c.Path != "" {
-		problems = append(problems, configListPathProblems(label+".path", c.Path)...)
+	return append(problems, configListBodyProblems(label, `kind "config-list"`, c.Path, c.Add)...)
+}
+
+// postureListProblems checks one posture list (AutonomyPosture.Lists) by config-list's
+// rules: the two required identities, then configListBodyProblems — the SAME checks a
+// `config-list` contribution gets, so the two spellings of one append cannot come to
+// disagree about what a well-formed entry is. The surface identity is the collector's to
+// parse, as it is for a config-list.
+func postureListProblems(label string, l PostureList) []string {
+	var problems []string
+	const what = "a posture list (a config-list body)"
+	for _, f := range []struct{ name, val string }{{"surface", l.Surface}, {"path", l.Path}} {
+		if f.val == "" {
+			problems = append(problems, fmt.Sprintf("%s: %s needs %q", label, what, f.name))
+		}
 	}
-	if len(c.Add) == 0 {
-		problems = append(problems, label+": kind \"config-list\" needs \"add\" — a JSON "+
+	return append(problems, configListBodyProblems(label, what, l.Path, l.Add)...)
+}
+
+// configListBodyProblems checks a config-list BODY — its pointer (when set; a missing one is
+// the caller's required-field message) and its entries — wherever it is declared: as a
+// `config-list` contribution, or as a posture list inside an autonomy posture. `what` names
+// the declaration in the "needs add" message.
+func configListBodyProblems(label, what, path string, add json.RawMessage) []string {
+	var problems []string
+	if path != "" {
+		problems = append(problems, configListPathProblems(label+".path", path)...)
+	}
+	if len(add) == 0 {
+		problems = append(problems, label+": "+what+" needs \"add\" — a JSON "+
 			"array of the entries to append ([] is a declared no-op)")
 		return problems
 	}
 	var v any
-	if err := json.Unmarshal(c.Add, &v); err != nil {
+	if err := json.Unmarshal(add, &v); err != nil {
 		return append(problems, fmt.Sprintf("%s.add: %v", label, err))
 	}
 	entries, ok := v.([]any)
@@ -3039,10 +3170,14 @@ func jsonTypeName(v any) string {
 	return fmt.Sprintf("%T", v)
 }
 
-// validateAutonomyPosture checks one posture's shape: each launch entry needs a bin.
-// The config patch's surface schema is validated by the engine at decode time (packdecl
-// stays free of the agentcfg dependency), so here we only enforce the structural
-// invariants packdecl owns.
+// validateAutonomyPosture checks one posture's shape: each launch entry needs a bin, and each
+// posture list passes config-list's rules (postureListProblems). The config patch's surface
+// schema is validated by the engine at decode time (packdecl stays free of the agentcfg
+// dependency), so here we only enforce the structural invariants packdecl owns.
+//
+// A posture holding ONLY lists is a valid posture: nothing requires a config patch or a
+// launch flag beside them, which is the shape a contributor pack's posture takes when all it
+// adds is a host-only entry to a surface another pack owns.
 func validateAutonomyPosture(label string, p *AutonomyPosture) []string {
 	if p == nil {
 		return nil
@@ -3053,6 +3188,9 @@ func validateAutonomyPosture(label string, p *AutonomyPosture) []string {
 			problems = append(problems, fmt.Sprintf("%s.launch[%d]: needs a \"bin\"", label, i))
 		}
 		problems = binProblem(problems, fmt.Sprintf("%s.launch[%d].bin", label, i), l.Bin)
+	}
+	for i, l := range p.Lists {
+		problems = append(problems, postureListProblems(fmt.Sprintf("%s.lists[%d]", label, i), l)...)
 	}
 	return problems
 }

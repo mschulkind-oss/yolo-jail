@@ -3,7 +3,8 @@
 // sat inert (docs/reference/pack-system.md §6 Option 2). `config-list` contributions
 // (docs/reference/pack-system.md#adding-entries-to-an-array-config-list) are the same
 // cross-pack join and are collected in the same pass against the same owner set
-// (OverlaySet.ListsFor).
+// (OverlaySet.ListsFor), and so are an autonomy posture's `lists`, gated on the posture the
+// caller's notch selects (docs/design/notch-scoped-config-contributions.md §4.1).
 //
 // CROSS-PACK BY CONSTRUCTION, and that is the one structural fact worth stating: an
 // overlay in pack B targets a surface pack A owns, so collection cannot be per-pack.
@@ -48,7 +49,10 @@ type OverlaySet struct {
 	// it, in the same pack-then-declaration order
 	// (docs/reference/pack-system.md#config-list-order). Collected in the same two passes
 	// and against the same owner set, because a list is the same cross-pack join an
-	// overlay is: pack B appending to a list pack A owns.
+	// overlay is: pack B appending to a list pack A owns. The posture lists the render's
+	// posture selects are here too, indistinguishable from a config-list once placed: the
+	// fold, the per-entry capture and the rmw insert record key on the pack, not on which
+	// kind declared the entries.
 	listsByTarget map[manifest.SurfaceKey][]agentcfg.ListContribution
 
 	// Orphans are the overlays whose target surface has no owner in this pack set —
@@ -64,9 +68,11 @@ type OverlaySet struct {
 // OrphanOverlay is one overlay with no owner: enough to report it by name, including
 // which pack would have had to be selected for it to work.
 type OrphanOverlay struct {
-	// Kind is the contribution kind that went nowhere — packdecl.KindConfigOverlay or
-	// packdecl.KindConfigList — so a report names the kind the author wrote. Both are inert
-	// and reported by the same rule (R2).
+	// Kind is the contribution kind that went nowhere — packdecl.KindConfigOverlay,
+	// packdecl.KindConfigList, or packdecl.KindAutonomy for a posture list — so a report
+	// names the kind the author wrote. All three are inert and reported by the same rule
+	// (R2). A posture list is an orphan only at a notch that selects its posture; at any
+	// other it was never placed at all.
 	Kind packdecl.Kind
 	// Pack is the pack that declared the overlay.
 	Pack string
@@ -91,8 +97,15 @@ func (o OrphanOverlay) Reason() string {
 		return fmt.Sprintf("no effect — %s has no owner (the `%s` pack is not selected)",
 			o.Target, o.Owner)
 	case o.CoreOwned:
+		what := o.kindName()
+		if o.Kind == packdecl.KindAutonomy {
+			// The kind leads the line already; the sentence is about the declaration inside
+			// it, since an autonomy posture's own config patch contributes to its OWN pack's
+			// surfaces and "autonomy contributes to a surface a pack owns" would say otherwise.
+			what = "a posture list"
+		}
 		return fmt.Sprintf("no effect — %s is one of yolo's OWN surfaces, not a pack's; "+
-			"%s contributes to a surface a pack owns", o.Target, o.kindName())
+			"%s contributes to a surface a pack owns", o.Target, what)
 	default:
 		return fmt.Sprintf("no effect — %s has no owner among the selected packs "+
 			"(no pack declares that surface — check the identity)", o.Target)
@@ -132,37 +145,49 @@ func (s *OverlaySet) For(agent, name string) []agentcfg.Overlay {
 	return s.byTarget[manifest.SurfaceKey{Agent: agent, Name: name}]
 }
 
-// Collect resolves every loaded pack's config-overlay contributions against the surfaces
-// those same packs own.
+// Collect resolves every loaded pack's config-overlay and config-list contributions — and
+// the POSTURE LISTS its autonomy contributions declare — against the surfaces those same
+// packs own.
 //
 // autonomy is the §4.2 policy bit of the render target's confinement profile
-// (render.Target.Profile().AgentAutonomy): it selects which posture the OWNER's surfaces are
-// decoded under, so the owner set matches the render the overlays will fold into. It only
-// affects which surfaces exist to be found, never the overlay bodies — an overlay carries no
-// posture.
+// (render.Target.Profile().AgentAutonomy). It does exactly two things here, and only the
+// second reaches the output:
+//
+//   - It selects which posture the OWNER's surfaces are decoded under, so the owner set
+//     matches the render the contributions will fold into.
+//   - It selects which posture's LISTS contribute (packdecl.AutonomyPosture.Lists,
+//     docs/design/notch-scoped-config-contributions.md §4.1): `guarded.lists` while it is
+//     off, `autonomous.lists` while it is on. An overlay and a plain config-list carry no
+//     posture and contribute at both.
 //
 // Still a bool rather than a render.Profile, and by now that is a deliberate boundary rather
-// than a leftover: every caller derives the bit from a Target's Profile (packsurfaces.go from
-// the boot Target, apply.go from render.Host, configdiff.go from render.ProfileFor over the
-// notch it is describing), so the literals plan §6c step 1 set out to remove are gone — C3
-// closed the last one. Taking a Profile here would import the confinement model into a package
-// whose whole job is resolving overlays against owners — it needs ONE bit, and receiving one
-// bit is what keeps this package unable to disagree with the notch that computed it.
+// than a leftover: every caller derives the bit from a Target's Profile — the boot loop and
+// `yolo check`'s probe from the boot Target (entrypoint.ConfigurePackSurfaces,
+// entrypoint.ConfigurePackByName), `yolo host apply` from render.Host (applyHostSurveyed), and
+// `yolo config render`, `config ls` and `config promote` from render.ProfileFor over the notch
+// they describe (renderContributions, overlayContributionRows, loadPromoteFold) — so the
+// literals plan §6c step 1 set out to remove are gone; C3 closed the last one. Taking a
+// Profile here would import the confinement model into a package whose whole job is resolving
+// contributions against owners — it needs ONE bit, and receiving one bit is what keeps this
+// package unable to disagree with the notch that computed it. It also keeps notch NAMES out
+// of here and out of every manifest (pack-system.md §6c): a posture list is gated on the
+// posture the notch's profile picks, never on a spelling of the notch.
 //
-// AND ITS EFFECT ON THIS FUNCTION'S OUTPUT IS ZERO, which is worth stating because it looks
-// like a gap. The posture fold (packload.foldPostureManaged) merges keys into the Managed
-// layer of surfaces already declared, IGNORES a patch naming no base surface, and never adds
-// or removes an identity — it only deep-merges into one that is there — so both postures
-// yield the same surface-identity set — and identities are all this function reads.
-// (The ignored patch is now REPORTED, by the render paths that run the fold; that this
-// package reads surfaces through the same SurfacesFor and discards the notes is fine, since
-// it is not the notch whose user wrote the patch.) Inverting the argument at every caller
-// therefore leaves the suite green. That survival is a
-// property, not missing coverage, and autonomyinert_test.go pins it so the two stay
-// distinguishable: if a posture ever gains the power to add or remove an identity, the
-// parameter starts deciding which overlays find an owner, and that test fails at the moment it
-// does. Where the bit IS consequential — p.SurfacesFor at the render — it is pinned in both
-// directions by internal/entrypoint/bootautonomy_test.go.
+// THE BIT NEVER CHANGES SURFACE IDENTITIES OR OWNERSHIP, which is worth stating because the
+// first half above looks like it should. The posture fold (packload.foldPostureManaged)
+// merges keys into the Managed layer of surfaces already declared, IGNORES a patch naming no
+// base surface, and never adds or removes an identity — it only deep-merges into one that is
+// there — so both postures yield the same surface-identity set, and identities are all the
+// owner pass reads. (The ignored patch is REPORTED, by the render paths that run the fold;
+// that this package reads surfaces through the same SurfacesFor and discards the notes is
+// fine, since it is not the notch whose user wrote the patch.) autonomyinert_test.go pins
+// that half as a property: if a posture ever gains the power to add or remove an identity,
+// the bit starts deciding which contributions find an owner, and that test fails at the
+// moment it does. What the bit DOES decide is which posture lists are placed, and the same
+// file pins that in both directions — inverting the argument at a caller is no longer
+// invisible, since a posture list moves between the two answers. Where the bit is
+// consequential for the surfaces themselves — p.SurfacesFor at the render — it is pinned in
+// both directions by internal/entrypoint/bootautonomy_test.go.
 //
 // There is NO PROFILE FOLD for the same reason, and since OQ-PT8 that is a statement about
 // the kind rather than about a missing parameter: the profile's config body used to be a
@@ -248,30 +273,53 @@ func Collect(packs []*packload.Pack, autonomy bool, profiles map[string]string) 
 		}
 	}
 
-	// Pass 3: place each config-list the same way — pack order, then declaration order,
-	// which is the order the entries append in (pack-system.md#config-list-order). No
-	// profile gate: the kind takes none (packdecl refuses `profile` on it). A malformed one
-	// is a Problem, loud like a
-	// malformed overlay; an ownerless one is inert and reported (R2). A list on a KEYLESS
-	// surface is NOT refused here — the owner's codec is the render's to judge, and the
-	// render refuses it naming the surface and its mode (agentcfg.ListCaptureRefusal).
+	// Pass 3: place each list the same way — pack order, then declaration order, which is
+	// the order the entries append in (pack-system.md#config-list-order). Two declarations
+	// take this pass: a `config-list` contribution, and a POSTURE LIST (an autonomy
+	// posture's `lists`), which stands at its autonomy contribution's position. A malformed
+	// one is a Problem, loud like a malformed overlay; an ownerless one is inert and
+	// reported (R2), led by the kind the author wrote. A list on a KEYLESS surface is NOT
+	// refused here — the owner's codec is the render's to judge, and the render refuses it
+	// naming the surface and its mode (agentcfg.ListCaptureRefusal).
+	//
+	// No profile gate: config-list takes none (packdecl refuses `profile` on it). The one
+	// gate is the POSTURE's, below.
+	selected := packdecl.PostureOf(autonomy)
 	for _, p := range packs {
-		for _, cl := range p.Decl.ConfigListContributions() {
+		for _, cl := range p.Decl.ListContributions() {
+			kind, what := packdecl.KindConfigList, string(packdecl.KindConfigList)
+			if cl.Posture != "" {
+				// The problem text leads with the kind as written, for the reader that labels
+				// a problem by it (apply.go's collectProblemKind): "config-list" there would
+				// name a declaration the author never made.
+				kind, what = packdecl.KindAutonomy, fmt.Sprintf("%s %s.lists",
+					packdecl.KindAutonomy, cl.Posture)
+			}
 			key, err := manifest.ParseSurfaceID(cl.Surface)
 			if err != nil {
-				set.Problems = append(set.Problems, "pack "+p.Name+": config-list: "+err.Error())
+				set.Problems = append(set.Problems, "pack "+p.Name+": "+what+": "+err.Error())
 				continue
 			}
 			list, err := agentcfg.NewListContribution(p.Name, cl.Path, cl.Add)
 			if err != nil {
-				set.Problems = append(set.Problems, "pack "+p.Name+": config-list on "+
+				set.Problems = append(set.Problems, "pack "+p.Name+": "+what+" on "+
 					cl.Surface+": "+err.Error())
+				continue
+			}
+			// THE POSTURE GATE, after the decode and before the owner check — the profile
+			// gate's two positions, for the profile gate's two reasons (Pass 2). A malformed
+			// posture list is reported at EVERY notch, because the author must hear about a
+			// host-only entry from a jail boot too. And a posture this notch does not select
+			// is a CLEAN SKIP — no problem, no orphan, no applied row — because the reason it
+			// contributed nothing is the notch, and R2's remedy ("select that pack") would be
+			// the wrong one.
+			if cl.Posture != "" && cl.Posture != selected {
 				continue
 			}
 			if _, owned := owners[key]; !owned {
 				_, coreOwned := agentcfg.BuiltinManifest().Lookup(key.Agent, key.Name)
 				set.Orphans = append(set.Orphans, OrphanOverlay{
-					Kind: packdecl.KindConfigList, Pack: p.Name, Target: cl.Surface,
+					Kind: kind, Pack: p.Name, Target: cl.Surface,
 					Owner: shippedOwnerOf(key, autonomy), CoreOwned: coreOwned,
 				})
 				continue

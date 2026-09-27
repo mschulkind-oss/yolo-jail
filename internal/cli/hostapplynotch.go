@@ -66,6 +66,12 @@ type notchFacts struct {
 	// flag and whose guarded posture is absent (a flag has no persistence, so not selecting it
 	// IS the tightening). The line below promises the fold "in the config surfaces below", and
 	// for a pack set like that one there is nothing below to point at.
+	//
+	// A POSTURE LIST COUNTS AS A FOLD (notch-scoped-config-contributions.md NS-D2): its entries
+	// land in a config surface below exactly as a config patch's keys do, so a pack whose
+	// guarded posture is lists alone — a personal pack adding a host-only package to a surface
+	// another pack owns — must not read as "no selected pack's guarded posture patches a
+	// config surface here".
 	AutonomyFolds bool
 }
 
@@ -83,7 +89,8 @@ func surveyNotchFacts(loaded []*packload.Pack, fields render.FieldSet) notchFact
 	// the two come apart.
 	hostAutonomy := render.ProfileFor(render.KindHost).AgentAutonomy
 	for _, p := range loaded {
-		if posture := p.Decl.PostureFor(hostAutonomy); posture != nil && len(posture.Config) > 0 {
+		if posture := p.Decl.PostureFor(hostAutonomy); posture != nil &&
+			(len(posture.Config) > 0 || len(posture.Lists) > 0) {
 			f.AutonomyFolds = true
 		}
 		for _, c := range p.Decl.Contributions() {
