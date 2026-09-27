@@ -10,7 +10,11 @@ vantage:
 
 # Workspace skills — the repo picks the content, never the agent
 
-**Status:** DECIDED, 2026-09-27 — [OQ-WS1](#OQ-WS1)–[OQ-WS5](#OQ-WS5) ruled in review that day ([OQ-WS3](#OQ-WS3) beyond its options: every agent's project-scope path, whatever packs are selected), [OQ-WS6](#OQ-WS6) deferred with the host half; nothing built. Earlier stamps: Every current-behavior
+**Status:** BUILT (v1), 2026-09-27 — the staged mirror in containers and on `macos-user`, as
+[OQ-WS1](#OQ-WS1)–[OQ-WS4](#OQ-WS4) ruled that day (`d71163af` the declarations, `cc7c1536` the
+layer); every mechanism choice is a `WS-D` row in the [ledger](#12-decision-ledger). The host
+half ([OQ-WS5](#OQ-WS5), [OQ-WS6](#OQ-WS6)) is out of v1 and unbuilt. How it works now:
+[the workspace layer](../reference/agent-briefings.md#the-workspace-layer). DECIDED, 2026-09-27 — [OQ-WS1](#OQ-WS1)–[OQ-WS5](#OQ-WS5) ruled in review that day ([OQ-WS3](#OQ-WS3) beyond its options: every agent's project-scope path, whatever packs are selected), [OQ-WS6](#OQ-WS6) deferred with the host half. Earlier stamps: Every current-behavior
 claim below was checked against the tree on 2026-09-17 and re-checked on 2026-09-24, and every
 claim about an agent's discovery paths against the bundle installed in this jail, version named
 in the table that makes it (those were not re-read on 2026-09-24).
@@ -46,7 +50,7 @@ that reshapes it. [§6](#6-both-notches-honestly) is where the host answer has t
 **Needs your ruling:** none for v1.
 
 **Reads with:** [`workspace-skills-plan.md`](workspace-skills-plan.md) (the implementation
-sketch — incomplete, and unstable while these questions are open);
+sketch, superseded by the build);
 [`../reference/agent-briefings.md`](../reference/agent-briefings.md#skills) (the skills
 composition as built, and the deleted layer this design must not re-add);
 [`../plans/agent-config-packs.md`](../plans/agent-config-packs.md#whether-pack_requests-in-workspace-scope-is-worth-its-complexity-in-v1)
@@ -107,7 +111,7 @@ first and *project* for the second.
 | `copilot` 1.0.48 | `.github/skills`, `.agents/skills`, `.claude/skills` | `~/.copilot/skills` (also reads `~/.agents/skills`, `~/.claude/skills`, `COPILOT_SKILLS_DIRS`) | project first; **first-found-wins, deduplicated by bare name**, loser silently dropped; plugin skills namespaced but deduplicated flat | not verified |
 | `codex` 0.145.0 | `.codex/skills` | `$CODEX_HOME/skills` = `~/.codex/skills` | not verified | not verified |
 | `opencode` 1.18.31 | `.opencode/skills`, `.claude/skills`, `.agents/skills` | `~/.config/opencode/skills` | not verified | not verified |
-| `pi` 0.85.1 | `.pi/skills` (its `CONFIG_DIR_NAME` is `.pi`) | `~/.pi/agent/skills` | loads both scopes; **deduplicates by real path**, so a symlink to an already-loaded file loads once | yes (follows symlinked dirs, skips broken ones) |
+| `pi` 0.85.1 (row corrected against 0.87.1, 2026-09-27) | `.pi/skills` (its `CONFIG_DIR_NAME` is `.pi`) **and `.agents/skills`**, the latter discovered from the cwd up to the repository root — its `docs/skills.md` and the package manager's ancestor walk both say so; this row first read `CONFIG_DIR_NAME` alone and missed it ([WS-D12](#12-decision-ledger)) | `~/.pi/agent/skills` | loads both scopes; **deduplicates by real path**, so a symlink to an already-loaded file loads once | yes (follows symlinked dirs, skips broken ones) |
 | `agy` 1.1.7 | `.agents/skills` | `.gemini/config/skills` (the pack's `into`; the binary's strings do not name it) | not verified | not verified |
 | `oh-omp` | not installed here — unverified | `.oh-omp/agent/skills` | — | — |
 
@@ -120,9 +124,10 @@ first and *project* for the second.
 
 **The fact this table settles:** there is **no project-scope path every agent reads.**
 `.agents/skills/` — the Agent Skills standard's emerging interop path — reaches `copilot`,
-`opencode` and `agy` and misses `claude` and `pi`. `.claude/skills/` reaches `claude`,
-`copilot` and `opencode` and misses `codex`, `pi` and `agy`. A repo that wants all six ships at
-least three trees, or two symlinks, and has to know that.
+`opencode`, `agy` and `pi` and misses `claude` (and `codex`, unconfirmed). `.claude/skills/`
+reaches `claude`, `copilot` and `opencode` and misses `codex`, `pi` and `agy`. A repo that wants
+all six ships at least three trees, or two symlinks, and has to know that. (The sentence first said
+`.agents/skills/` missed `pi` too, from the row corrected above.)
 
 ### 2.2 What yolo composes today
 
@@ -277,15 +282,15 @@ destination.
 | :--- | :--- |
 | What is created, where | Skill subdirectories inside each pack's existing staging directory under the machine storage's per-jail tree — the same place the built-ins and pack skills already land. Nothing under `<ws>` |
 | Who writes | The launcher, host-side, in the same pass that stages every other layer; on `macos-user`, the same composed content tree the sidecar already receives |
-| Trigger | Every `yolo` invocation against the jail, fresh launch and attach alike — the existing refresh contract, unchanged |
+| Trigger | Every `yolo` invocation against the jail, fresh launch and attach alike — the existing refresh contract, unchanged. *As built:* an attach re-reads the workspace though it keeps the pack tree the jail booted with ([WS-D9](#12-decision-ledger), closing R6's open half) |
 | Layer position | [OQ-WS2](#OQ-WS2). The leaning is **lowest** — below the built-ins — for the reason in [§2.5](#25-the-packs-boundary-and-the-ruling-behind-it)'s *against* bullet |
 | Which agents receive a given source dir | Every declared destination **except an agent whose own declared project paths include that dir** — it already reads it natively, and a second copy is at best redundant ([§5](#5-the-pack-declares-what-its-agent-reads)) |
 | Name collision with a pack or built-in skill | Resolved by layer order. Under the leaning the workspace copy is dropped and **one line per shadowed name is disclosed at launch**, at the once-per-run tier ([`../reference/report-tiers.md`](../reference/report-tiers.md#principles) P4 — a disclosure is never suppressible). Whether the jail should *refuse* on a collision is [S5](../plans/BACKLOG.md#-s5--a-jail-resolves-a-skill-name-collision-silently)'s question, not this doc's |
-| Two source dirs carry the same skill name | Config-order of the declaring packs decides, and the same disclosure line names both |
+| Two source dirs carry the same skill name | Config-order of the declaring packs decides, and the same disclosure line names both. *As built:* the first dir in the source set's order wins everywhere — the selected packs in config order, then the rest of the shipped packs by name ([WS-D2](#12-decision-ledger), [WS-D3](#12-decision-ledger)) |
 | The repo already has the file | Not applicable — nothing is written into the repo |
 | `git status` afterwards | Unchanged |
 | When the jail stops | The staging dir persists on the host as it does today, and is rebuilt on the next invocation; nothing in the workspace changes |
-| Symlink inside a source dir | **Refused if its target resolves outside the workspace root** (P5), the entry skipped and **named** at launch; a symlink that stays inside the workspace is dereferenced as today. A dangling symlink is skipped and named |
+| Symlink inside a source dir | **Refused if its target resolves outside the workspace root** (P5), the entry skipped and **named** at launch; a symlink that stays inside the workspace is dereferenced as today. A dangling symlink is skipped and named. *As built,* also skipped and named: a cycle, a second link to one directory within a skill, a special file, and anything resolving under `.git`, `.yolo` or a container's per-side paths ([WS-D6](#12-decision-ledger)–[WS-D8](#12-decision-ledger)) |
 | Source dir absent or empty | Nothing staged, nothing said — the common case must be silent |
 | Source dir is a file, or unreadable | Skipped and named |
 | A skill dir with no `SKILL.md` | Copied as-is; what counts as a skill is the agent's business, as it is for every other layer today |
@@ -394,7 +399,10 @@ this doc's:
 - **The source set is the union of every selected pack's declared project paths that exist in
   the workspace.** With `packs: ["claude", "pi"]` and a repo that ships only `.claude/skills/`,
   the source set is `{.claude/skills}`. Nothing is conventional to core: `.agents/skills/`
-  enters the set only because `copilot`, `opencode` and `agy` declare it.
+  enters the set only because `copilot`, `opencode` and `agy` declare it. *Superseded by
+  [OQ-WS3](#OQ-WS3)'s answer:* every shipped pack's declaration counts whether or not it is
+  selected, and the selected packs' own are read first ([WS-D2](#12-decision-ledger)). The field is
+  `project_dirs` on the destination ([WS-D1](#12-decision-ledger)).
 - **The skip rule.** An agent whose own declared project paths contain a source dir does not
   receive that dir's mirror — it reads it natively, and a second copy is redundant at best
   ([§2.1](#21-where-each-agent-reads-skills--measured): `claude` would resolve it silently,
@@ -478,7 +486,7 @@ and the read, because on the host yolo pre-trusts nothing. The cost is the one i
 | **R3. yolo commits to your repo by proxy** — links land in the next `git add .` (B) | [OQ-WS6](#OQ-WS6); and the links are relative, so even committed they work for the next reader, which limits the damage to "yolo chose for you" |
 | **R4. Double delivery** — an agent reads the source natively and receives the mirror (A) | the skip rule in [§5](#5-the-pack-declares-what-its-agent-reads); `pi`'s real-path dedup is why it is a rule and not a nicety |
 | **R5. A pack's declared project path is wrong or stale** — the mirror skips an agent that no longer reads there | the probe test in [§5](#5-the-pack-declares-what-its-agent-reads); the declaration is data with a witness |
-| **R6. An attach re-stages a colleague's working-tree edits into a live session** (A) | the existing refresh contract already does this for pack edits; the disclosure line makes it visible. ⚠ That premise changed on 2026-09-26: an attach no longer re-stages pack edits into a live jail, which keeps the pack tree it booted with and is told what differs ([`OQ-PK2`](../reference/pack-system.md#oq-pk2)), so a workspace source refreshed on attach would now be the one exception to decide on purpose. The pairing case is [OQ-ACP1](../plans/agent-config-packs.md#-oq-acp1--what-happens-when-two-people-attach-to-the-same-jail-with-different-pack-sets)'s and stays there |
+| **R6. An attach re-stages a colleague's working-tree edits into a live session** (A) | the existing refresh contract already does this for pack edits; the disclosure line makes it visible. ⚠ That premise changed on 2026-09-26: an attach no longer re-stages pack edits into a live jail, which keeps the pack tree it booted with and is told what differs ([`OQ-PK2`](../reference/pack-system.md#oq-pk2)), so a workspace source refreshed on attach would now be the one exception to decide on purpose. **Decided as that exception ([WS-D9](#12-decision-ledger)):** the running jail's agents already read the same tree natively and live, so the mirror follows it, and each entry's `mirrored into` line is the disclosure. The pairing case is [OQ-ACP1](../plans/agent-config-packs.md#-oq-acp1--what-happens-when-two-people-attach-to-the-same-jail-with-different-pack-sets)'s and stays there |
 | **R7. B creates a `.codex/` or `.pi/` directory in a repo that had none**, and the agent starts reading other things there | only the skills link is written; no config file is created. Stated so an implementer does not "helpfully" add one |
 | **R8. Two source dirs with different content under B** | reported by name; A unions them, which is why A is the container answer |
 | **R9. `.git/info/exclude` becomes a file yolo writes** — the blind cell, and the file `workspace_readonly` wants locked (B) | [OQ-WS6](#OQ-WS6); P4 |
@@ -512,7 +520,9 @@ Observable by a human, not by a test name:
   (copilot reads `.claude/skills` natively), and `copilot` lists it once.
 - The same repo with `packs: ["claude", "pi"]` and a second tree `.agents/skills/lint/`:
   `claude` receives `lint` in `~/.claude/skills` and nothing else from the workspace; `pi`
-  receives both.
+  receives both. *As built,* `pi` receives `review` in `~/.pi/agent/skills` and reads `lint`
+  natively from `.agents/skills/`, which it reads at project scope ([§2.1](#21-where-each-agent-reads-skills--measured)'s
+  corrected row) — once each, which is what the skip rule is for.
 - A repo containing `.agents/skills/x/SKILL.md → ~/.ssh/config`: the jail starts, no skill
   named `x` exists in any home-scope dir, and the launch names the refused link.
 - A repo with `.agents/skills/configuring-the-jail/`: every agent still sees yolo's built-in
@@ -666,9 +676,21 @@ is answered *by* two of them.
 
 | ID | Ruling / Decision | Date | Settled in | Built |
 | :--- | :--- | :--- | :--- | :--- |
-| OQ-WS1 | **The workspace may contribute skills**, in containers and on `macos-user`, at the lowest layer, with escaping symlinks refused (P5) | 2026-09-27 | [OQ-WS1](#OQ-WS1) | — |
-| OQ-WS2 | **Lowest layer**: a workspace skill adds but never shadows a built-in, shared-pack or local-pack skill; every shadowed name is disclosed | 2026-09-27 | [OQ-WS2](#OQ-WS2) | — |
-| OQ-WS3 | **The source set is every shipped agent pack's declared project-scope skills paths, whether or not the pack is selected** — the world's conventions, not the user's agents; core names no path | 2026-09-27 | [OQ-WS3](#OQ-WS3) | — |
-| OQ-WS4 | **Mechanism A (the staged mirror) alone** in containers and on `macos-user`; B (in-workspace links) is a host-notch tool only; closes [OQ-ACP2](../plans/agent-config-packs.md#-oq-acp2--whether-opencodes-skills-gap-should-be-closed-by-writing-into-workspace) | 2026-09-27 | [OQ-WS4](#OQ-WS4) | — |
-| OQ-WS5 | **The host notch is out of v1** | 2026-09-27 | [OQ-WS5](#OQ-WS5) | — |
+| OQ-WS1 | **The workspace may contribute skills**, in containers and on `macos-user`, at the lowest layer, with escaping symlinks refused (P5) | 2026-09-27 | [OQ-WS1](#OQ-WS1) | ✅ `cc7c1536` |
+| OQ-WS2 | **Lowest layer**: a workspace skill adds but never shadows a built-in, shared-pack or local-pack skill; every shadowed name is disclosed | 2026-09-27 | [OQ-WS2](#OQ-WS2) | ✅ `cc7c1536` |
+| OQ-WS3 | **The source set is every shipped agent pack's declared project-scope skills paths, whether or not the pack is selected** — the world's conventions, not the user's agents; core names no path | 2026-09-27 | [OQ-WS3](#OQ-WS3) | ✅ `d71163af` (the declarations), `cc7c1536` (the source set) |
+| OQ-WS4 | **Mechanism A (the staged mirror) alone** in containers and on `macos-user`; B (in-workspace links) is a host-notch tool only; closes [OQ-ACP2](../plans/agent-config-packs.md#-oq-acp2--whether-opencodes-skills-gap-should-be-closed-by-writing-into-workspace) | 2026-09-27 | [OQ-WS4](#OQ-WS4) | ✅ `cc7c1536` (A only; nothing is written into a workspace) |
+| OQ-WS5 | **The host notch is out of v1** | 2026-09-27 | [OQ-WS5](#OQ-WS5) | — (the host half is unbuilt; nothing at the host notch reads `project_dirs`) |
 | OQ-WS6 | **Deferred with [OQ-WS5](#OQ-WS5)** | 2026-09-27 | [OQ-WS6](#OQ-WS6) | — |
+| WS-D1 | *Implementation decision.* The declaration is `project_dirs` on the agent pack's `skills` **destination** (`agent` + `into`), in the agent's own precedence order, read through one accessor (`Manifest.ProjectSkillDirs`). Entries must be clean, relative, inside the workspace and outside `.git`/`.yolo`, each once; the field is refused on any other kind and on a content entry. The in-jail decode tolerates it as it tolerates any newer field, so the strict-decoder trap the sketch warned of does not arise | 2026-09-27 | [§5](#5-the-pack-declares-what-its-agent-reads) | ✅ `d71163af` |
+| WS-D2 | *Implementation decision.* The source set is the **selected** packs' declarations in config order, then every **shipped** pack's by name, each path at its first appearance. The selected packs are read too so a configured agent pack yolo does not ship counts: its destination's skip rule already names its paths. This order is the collision rule (WS-D3) | 2026-09-27 | [OQ-WS3](#OQ-WS3) | ✅ `cc7c1536` |
+| WS-D3 | *Implementation decision.* Two source dirs with a same-named skill: the **first** in WS-D2's order wins in every destination, the loser is never delivered, and one line names both. One real directory reached by two spellings (a committed link) is one skill, not a collision, and a source dir that is a link to another source is one source | 2026-09-27 | [§4.1](#41-mechanism-a--the-staged-mirror) | ✅ `cc7c1536` |
+| WS-D4 | *Implementation decision.* The skip rule works at two grains: a destination gets no copy of a source dir its own `project_dirs` resolve to, **nor** of a skill whose real directory it already reaches through another source it reads (`.claude/skills/x → ../../.agents/skills/x` reaches `pi` natively). A destination declaring none receives every source | 2026-09-27 | [§5](#5-the-pack-declares-what-its-agent-reads) | ✅ `cc7c1536` |
+| WS-D5 | *Implementation decision.* "Lowest" is built as **fill the free names**: the built-ins, the packs and yolo's LSP plugin compose first, then the workspace takes only names none of them took. The LSP plugin's name is always taken, because its writer removes a same-named dir when nothing is configured. Each shadowed name is one line naming who took it and in which destinations | 2026-09-27 | [OQ-WS2](#OQ-WS2) | ✅ `cc7c1536` |
+| WS-D6 | *Implementation decision.* P5's reader is `confinedTree`: every read goes through an `os.Root` on the workspace; links are resolved lexically inside it with the root's own `Lstat`/`Readlink` before anything is opened, so an escape is named without anything outside being touched; every open is `O_NONBLOCK` (`O_DIRECTORY` for a dir), since an unflagged `os.Root` open blocked forever on a FIFO (measured). Skipped and named, never fatal: an escape, a dangling link, a chain over 40 links, a cycle, a second link to one directory within a skill (which keeps the copy linear in the links), a special file, an unreadable entry. A refusal names the entry, never its target | 2026-09-27 | [§4.1](#41-mechanism-a--the-staged-mirror) | ✅ `cc7c1536` |
+| WS-D7 | *Implementation decision.* Also never read: anything resolving under `.git` or `.yolo` (yolo's state — reading it would be a layer reading generated output, [§2.2](#22-what-yolo-composes-today)), and in a container the per-side shadow set `venvShadowMountArgs` mounts. The jail sees its own copy there, and the mirror must grant no authority the repo lacks ([OQ-WS1](#OQ-WS1)'s answer). macos-user shadows nothing, so nothing is excluded there | 2026-09-27 | [OQ-WS1](#OQ-WS1) | ✅ `cc7c1536` |
+| WS-D8 | *Implementation decision.* An absolute link is inside the workspace when it names the root as given, its real path, or, in a container, the jail's mount path `/workspace`: the agent there writes links that way. Nothing at that path on the host is read. Every other absolute target is an escape | 2026-09-27 | [§4.1](#41-mechanism-a--the-staged-mirror) | ✅ `cc7c1536` |
+| WS-D9 | *Implementation decision.* The layer is re-read on **every** entry, attach included, though an attach keeps the pack tree the jail booted with ([`OQ-PK2`](../reference/pack-system.md#oq-pk2)). The jail's agents already read the same tree natively and live, so a frozen mirror would be the stale half; each entry's `mirrored into` line discloses it. Closes R6's open half | 2026-09-27 | [§8](#8-risks) R6 | ✅ `cc7c1536` |
+| WS-D10 | *Implementation decision.* The disclosure goes to stderr, where an attach's other lines go, and has no quiet mode ([`OQ-RO3`](../reference/report-tiers.md#why-its-this-way)). One line each per refusal, collision and shadowed name, plus one `Workspace skills from <dir> mirrored into <destinations>: <skills>` line per delivering source dir. Silent when there is nothing to say. A workspace-supplied name that is not plain text is printed Go-quoted with `[` escaped, so a directory name cannot forge a line or restyle one | 2026-09-27 | [§4.1](#41-mechanism-a--the-staged-mirror) | ✅ `cc7c1536` |
+| WS-D11 | *Implementation decision.* The layer is copied **once** per invocation into a private scratch tree and handed to each destination from there, so a refusal is said once and every destination gets the same bytes. The execute bit is carried, as packstage carries it. A top-level file in a source dir is not a skill, as for every layer; a skill with no `SKILL.md` is copied as-is; absent and empty dirs are silent; a source dir that is a file, the workspace root, or a link out is named. There is no byte bound, since this doc sets none | 2026-09-27 | [§4.1](#41-mechanism-a--the-staged-mirror) | ✅ `cc7c1536` |
+| WS-D12 | *Implementation decision.* The shipped declarations come from the bundles installed on 2026-09-27. `pi` declares `.agents/skills` too, correcting [§2.1](#21-where-each-agent-reads-skills--measured). `codex` keeps `.codex/skills` alone, because its `.agents/skills` string sits beside an external-agent migration. `omp` declares nothing, because it was not measured, so it receives every source. The witness is `internal/packload`'s census test and a real-install integration probe that greps each installed agent, from its launcher's `REAL_BIN`, for every path its pack declares | 2026-09-27 | [§5](#5-the-pack-declares-what-its-agent-reads) | ✅ `d71163af` |

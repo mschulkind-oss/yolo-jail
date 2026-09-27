@@ -42,6 +42,14 @@ to another pack's config array only at that posture. A `guarded` list reaches yo
 `yolo host apply` and no jail, so a pack can give host pi a permission-gate extension that would
 only cost tokens and prompts in a jail. See [posture lists](docs/reference/pack-system.md#autonomy).
 
+**A repository's skills reach every agent in the jail.** Skills a repo commits for one agent,
+such as `.claude/skills/`, `.agents/skills/` or `.github/skills/`, now also reach the agents
+that do not read that directory, in containers and on macos-user. An agent that reads the
+directory itself gets no second copy. A repo skill never replaces yolo's own skills or a pack's,
+and the launch names every one it held back. It also names any symlink that points outside the
+repository, and never reads through one. Nothing is written into the repository. See
+[the workspace layer](docs/reference/agent-briefings.md#the-workspace-layer).
+
 - `yolo host-daemon status|stop|restart|logs` manages the machine-wide daemons.
 - `nix shell` and `nix build` work in a jail with no extra flags.
 

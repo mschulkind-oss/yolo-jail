@@ -271,9 +271,9 @@ destination the *pack declares*. Core reads the destination off the declaration;
 per-agent table anywhere.
 
 - **Skills** — the source is the per-pack staging dir rather than the pack's own tree,
-  because `jailcontent.PrepareSkills` merges three sources into it (built-ins < every pack's
-  skills < the user's own host skills) and that merge has to land somewhere. Rebuilt on
-  every invocation.
+  because `jailcontent.PrepareSkillsWith` merges three sources into it (the workspace's
+  project-scope skills < built-ins < every pack's skills, the local pack last) and that merge has
+  to land somewhere ([the layers](agent-briefings.md#skills)). Rebuilt on every invocation.
 - **Briefings** — keyed by **destination**, not by pack, because the composed prose varies
   per destination. The destination list and the staging filename both come from
   `briefingDestinations` / `briefingStagingName`, which the write half calls too: that

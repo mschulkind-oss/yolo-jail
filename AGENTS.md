@@ -436,8 +436,14 @@ live, so edits are visible on the host instantly — there is no sync step.
   **Handoff** section in the environment briefing and is consumed by the run pipeline — but only once a
   briefing has actually been WRITTEN, so a jail whose packs declare no briefing destination leaves the
   pointer fresh instead of eating it. Core cannot tell an agent launch from `yolo -- bash`, so a consumed
-  handoff is announced on stderr with the `mv` that restores it. Skill priority: built-in < shared packs <
-  **the conventional local pack** (`~/.config/yolo-jail/local`, appended LAST by `config.LoadPacks`). ⚠ The
+  handoff is announced on stderr with the `mv` that restores it. Skill priority: **the workspace** < built-in
+  < shared packs < **the conventional local pack** (`~/.config/yolo-jail/local`, appended LAST by
+  `config.LoadPacks`). The workspace term is every project-scope skills dir ANY agent pack declares
+  (`project_dirs`, shipped packs whether or not selected), mirrored host-side into every destination except
+  one whose agent reads that dir natively; it fills only names nothing above took, and each shadowed name is
+  disclosed ([`workspace-skills.md`](docs/design/workspace-skills.md)). ⚠ **Its reader is
+  [`workspaceskills.go`](internal/jailcontent/workspaceskills.go)'s `confinedTree`, NEVER `copySkillSubdirs`**:
+  that copier follows symlinks, and on a cloned, agent-editable tree that is a host-file read (P5). ⚠ The
   middle term is not "host user-level" — there is no such tree, and a skill in `~/.claude/skills` on the host
   reaches the jail by no path ([`skills.go`](internal/jailcontent/skills.go), where the deleted
   `SkillTarget.HostSource` was). ⚠ **A skills contribution may FENCE children of its destination**

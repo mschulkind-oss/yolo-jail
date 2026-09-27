@@ -327,7 +327,10 @@ not skipped** — a pack that half-stages is worse than one that fails loudly:
 | Staging clears a destination dir's *contents*, never the dir itself | avoids clobbering a mountpoint |
 
 Skills staging deliberately *does* dereference symlinks, because its source is the user's
-own home — a different source, so a different rule.
+own home — a different source, so a different rule. The one skills source that is **not** yours
+is the workspace, which a `git clone` populates and the agent can edit, so its layer has its own
+reader: links are followed only while they stay inside the workspace, and one that leaves it is
+skipped and named, never read ([the workspace layer](agent-briefings.md#the-workspace-layer)).
 
 A pack **ships its tools**: a file carrying the exec bit stages executable, so a skill can
 deliver the script it tells an agent to run.
@@ -671,9 +674,10 @@ which is what lets a content-only pack carry a remedy.
 
 #### `skills`
 
-A skills tree merged into an agent's skills dir. Layer order is built-in < pack < the local
-pack (`~/.config/yolo-jail/local`, appended last). In a jail a later layer wins a same-named
-skill silently; at the host, two packs claiming one unnamespaced name at one destination is
+A skills tree merged into an agent's skills dir. Layer order is the workspace < built-in < pack
+< the local pack (`~/.config/yolo-jail/local`, appended last); the workspace layer exists in a
+jail only and never shadows ([below](#project_dirs)). In a jail a later pack layer wins a
+same-named skill silently; at the host, two packs claiming one unnamespaced name at one destination is
 fatal, the local pack included ([the collision warning](#skills-collision)). `from` defaults
 to `skills/`, and is honored at both
 notches and by wrapped-plugin discovery through one resolver (`packload.SkillsSourceDir`).
@@ -696,6 +700,20 @@ A `from` naming a directory the pack does not contain delivers nothing and is **
 name** — a warning at launch, a `refused` line and a non-zero exit at `yolo host apply` —
 rather than silently falling back. An absent *conventional* `skills/` is silent, because most
 packs carry none.
+
+<a id="project_dirs"></a>A destination may also declare **`project_dirs`**: the
+workspace-relative directories its agent reads skills from at project scope, in that agent's own
+precedence order (`"project_dirs": [".github/skills", ".agents/skills", ".claude/skills"]` for
+copilot). It is data about the agent, and it drives the jail's **workspace layer**
+([`workspace-skills.md`](../design/workspace-skills.md)): every shipped pack's declaration,
+selected or not, plus the selected packs' own, is the set of workspace directories mirrored into
+every destination as the lowest layer; and a destination whose own list names a directory gets no
+copy of it, because its agent reads it natively. Each entry must be clean, relative, inside the
+workspace and outside `.git` and `.yolo`; the field is refused on any other kind and on a content
+entry. The host notch ignores it — `yolo host apply` never writes a workspace's skills into a
+real home ([`OQ-WS5`](../design/workspace-skills.md#OQ-WS5)). What each shipped pack declares is
+pinned in `internal/packload/projectskilldirs_test.go` and witnessed against the installed agent
+by `integration/agents_test.go`'s probe.
 
 `skills_tier` is a **per-pack** choice, not per contribution, and that is the whole of the
 ruling behind it: a tier decides what a skill is CALLED, which is a global property.

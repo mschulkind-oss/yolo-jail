@@ -1,7 +1,7 @@
 ---
 title: "Sketch: workspace skills"
 date: 2026-09-17
-status: draft
+status: deprecated
 tags: [plan, sketch, skills, packs, workspace, implementation]
 summary: "Implementation material parked beside workspace-skills.md while its six questions are open: the declaration a pack would carry, the change points in the skills staging, the symlink walk that must not reuse the existing copier, the links mechanism's git plumbing, the tests that pin call sites, and the corpus edits. Not a hand-off; nothing here decides behaviour."
 vantage:
@@ -10,8 +10,12 @@ vantage:
 
 # Sketch: workspace skills
 
-**Status:** SKETCH, 2026-09-17 — incomplete, and unstable while questions are open. Nothing is
-built and nobody should build from this.
+**Status:** SUPERSEDED by the build, 2026-09-27 — mechanism A shipped as v1 (`d71163af`,
+`cc7c1536`), and every choice this sketch left open is a `WS-D` row in
+[the design's ledger](workspace-skills.md#12-decision-ledger). Kept for the tree facts it
+gathered; where it and the tree disagree, the tree wins. Mechanism B's section is the material
+the host half ([`OQ-WS5`](workspace-skills.md#OQ-WS5), [`OQ-WS6`](workspace-skills.md#OQ-WS6)) would start from. Earlier: SKETCH, 2026-09-17 — incomplete, and
+unstable while questions are open.
 
 **Design:** [`workspace-skills.md`](workspace-skills.md). The design wins on behaviour; this
 file holds the settled-but-boring material and the tree facts an implementer will want, and

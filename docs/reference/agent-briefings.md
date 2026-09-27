@@ -5,6 +5,8 @@ verified_commit: 7ad8358c
 covers:
   - internal/jailcontent/briefing.go
   - internal/jailcontent/skills.go
+  - internal/jailcontent/workspaceskills.go
+  - internal/cli/run/workspaceskills.go
   - internal/jailcontent/write.go
   - internal/cli/run/prepare.go
   - internal/cli/run/briefingdest.go
@@ -22,7 +24,8 @@ summary: "Where the text an in-jail agent reads at session start comes from: the
 
 **Status:** CURRENT as of 2026-09-23, verified against `7ad8358c`. MEASURED: the audience
 model runs end to end in a real container in CI's integration jobs, which were green at that
-commit.
+commit. [The workspace layer](#the-workspace-layer) was added on 2026-09-27 with the code that
+builds it.
 
 Every coding agent reads an instruction file at session start. yolo **composes one per
 destination**, host-side, on every invocation (on an attach, from the packs the running jail
@@ -533,12 +536,45 @@ Skills ride the same staging directory, one subdirectory per `skills` contributi
 mounted read-only at that contribution's `into`. Staging is **rebuilt every invocation**,
 clearing contents *inside* each directory.
 
-**Two layers, in this order:** the built-in skill suite, then every selected pack's skills in
-config order. On an attach the pack layer comes from the packs the running jail booted with, not
-the configured ones, since a running jail keeps its pack tree
+**Three layers, lowest first:** the **workspace**, the built-in skill suite, then every
+selected pack's skills in config order. On an attach the pack layer comes from the packs the
+running jail booted with, not the configured ones, since a running jail keeps its pack tree
 ([`OQ-PK2`](pack-system.md#oq-pk2)). A pack may therefore override a built-in — a legitimate reason to ship one — and
 because the conventional local pack is appended last among packs, a personal skill still
 outranks every shared pack's.
+
+### The workspace layer
+
+A repo's committed skills reach every agent, not only the one whose path the repo chose
+([`workspace-skills.md`](../design/workspace-skills.md)). The **source set** is every
+project-scope skills directory any agent pack declares on its skills destination
+(`project_dirs`, [the `skills` kind](pack-system.md#skills)) — the shipped packs' whether or not
+they are selected, then the selected packs' own. Today that is `.claude/skills`,
+`.agents/skills`, `.github/skills`, `.codex/skills`, `.opencode/skills` and `.pi/skills`; core
+names none of them. Each source's skill directories are copied, host-side, into every skills
+destination's staging dir, and nothing is ever written into the workspace.
+
+- **Lowest, so it adds and never shadows.** A workspace skill takes only a name no built-in,
+  pack, local-pack skill or yolo's own LSP plugin took. A shadowed name is **disclosed, one line
+  per name**, however many destinations it was shadowed in.
+- **The skip rule.** A destination whose own `project_dirs` include a source directory reads it
+  natively, so it gets no copy of that directory — nor of a skill it reaches natively through a
+  link from another source. `pi` deduplicates by real path, so a copy would load as a second
+  skill of the same name.
+- **Two source dirs, one name.** The first in the source set's order wins everywhere (selected
+  packs in config order, then the rest of the shipped packs by name), and the collision is said.
+- **Nothing outside the workspace is read.** The reader resolves every link itself, inside the
+  workspace, and opens through an `os.Root` confined to it; a link that leaves the workspace, a
+  dangling one, a cycle, a special file, and anything resolving into `.git`, `.yolo` or (in a
+  container) a per-side path is **skipped and named** — never fatal. An absolute link spelled
+  `/workspace/…` is read as the workspace in a container, since that is how the agent there wrote
+  it.
+- **Re-read on every invocation**, attach included, so an edit under a declared path reaches the
+  next `yolo` command against a running jail — the same tree the agent there already reads live.
+  Each source that delivered anything gets one `Workspace skills from <dir> mirrored into …` line.
+- **Containers and `macos-user` only.** macos-user receives it through the same composed tree it
+  copies; the host notch never does, by ruling
+  ([`OQ-WS5`](../design/workspace-skills.md#OQ-WS5)).
 
 After both layers, yolo writes its **own LSP plugin** into every skills destination, rendered
 from `lsp_servers`, or removes it when that list is empty. This is not a third content layer: it
@@ -552,8 +588,9 @@ every selected pack's skills reach every destination — so an agent-specific sk
 copied into another agent's tree with nothing able to stop it.
 
 > [!WARNING]
-> **There is no third layer reading the host's own `~/.<agent>/skills` tree, and adding one
-> back is circular.** That layer named "the user's own skills tree" but was set to the
+> **There is no layer reading the host's own `~/.<agent>/skills` tree, and adding one
+> back is circular.** The workspace layer is not that layer: it reads project-scope *sources* no
+> render writes, and refuses anything under `.yolo`. That layer named "the user's own skills tree" but was set to the
 > *destination* — the host's copy of the very path the staging dir gets mounted over. It was
 > right while the destination held loose user files and became circular the moment
 > `yolo host apply` **composed** it: the jail read yolo's own generated output back in as the
@@ -564,7 +601,8 @@ copied into another agent's tree with nothing able to stop it.
 
 `PrepareSkills` still takes a home directory and an agent-name list; both are vestigial, kept
 because its callers pass them and churning those would be a bigger diff than the fix with no
-behavior in it.
+behavior in it. The launch calls `PrepareSkillsWith`, which is the same composition with the
+workspace layer as an argument.
 
 ## Refresh — a live jail sees host edits
 
@@ -600,7 +638,8 @@ gated on at least one briefing having actually been written. See
   it in the local pack instead.
 - **All jails, every destination:** `agents_md_extra` in the user config.
 - **One workspace:** `agents_md_extra` in the workspace config, or the repo's own checked-in
-  project-level file, which yolo does not touch.
+  project-level file, which yolo does not touch. A repo's skills under any agent's project path
+  reach every agent in the jail through [the workspace layer](#the-workspace-layer).
 - **One session:** write the handover pointer in the workspace state dir; it is surfaced as a
   **Handoff** section on the next launch and consumed once that briefing is written.
 - **Sharing one corpus across agents:** ship it as a pack. Per-agent copies drift, which is
@@ -613,7 +652,9 @@ gated on at least one briefing having actually been written. See
   refresh the text on the next invocation, but the running container's actual mounts and limits
   do not change until restart — so the text can be ahead of reality.
 - In-jail skill directories are read-only by the same mechanism. Skill development happens in
-  the workspace tree and is promoted host-side.
+  the workspace tree: a skill under a declared project path reaches every agent's home-scope
+  dir at the next invocation, as the lowest layer, and is promoted host-side (into a pack) when it
+  should reach every workspace.
 - A prepended host briefing is unrelated to that agent's host **settings** file, which is a
   separate `reads-host` grant composed into the agent's settings rather than into prose.
 
