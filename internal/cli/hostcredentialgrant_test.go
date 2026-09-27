@@ -78,8 +78,12 @@ func TestHostGrantWithheldLineNamesTheTypedProfileRemedy(t *testing.T) {
 	}
 }
 
-// ES-D2 at `yolo host env`: the same remedy, spelled for the slice the verb composes — its own
-// --agent spelling for the shell, and the exec spelling for one launch of that agent.
+// ES-D2 at `yolo host env`: the same remedy, spelled for what the verb is for. The shell
+// spelling is the ad-hoc one, `--agent bash` (§3.1, and the help's own example), never the
+// default agent's: `--agent claude -p zai` would export claude's whole zai shape into the
+// shell, the zai key riding again under ANTHROPIC_AUTH_TOKEN, and every later process the
+// shell starts would inherit it undisclosed (CN-D13). The exec spelling is for one launch of
+// the agent. The named shell command is run, and must print the key and nothing of claude's.
 func TestHostEnvWithheldLineNamesTheTypedProfileRemedy(t *testing.T) {
 	hostGateHome(t, esGrantConfig, nil)
 	var out, errw bytes.Buffer
@@ -87,11 +91,87 @@ func TestHostEnvWithheldLineNamesTheTypedProfileRemedy(t *testing.T) {
 		t.Fatalf("yolo host env: rc = %d\n%s", rc, errw.String())
 	}
 	line := scopeLine(t, errw.String(), "ZAI_API_KEY")
-	for _, want := range []string{"`yolo host env --agent claude -p zai`", "`yolo host -p zai -- claude`"} {
+	for _, want := range []string{"`eval \"$(yolo host env --agent bash -p zai)\"`", "`yolo host -p zai -- claude`"} {
 		if !strings.Contains(line, want) {
 			t.Errorf("yolo host env's withheld line must name %s (ES-D2): %q", want, line)
 		}
 	}
+	if strings.Contains(line, "--agent claude") {
+		t.Errorf("the shell spelling must not be the default agent's slice: %q", line)
+	}
+	var shell []string
+	for _, argv := range remedyCommands(line) {
+		if len(argv) > 0 && argv[0] == "env" {
+			shell = argv
+		}
+	}
+	if shell == nil {
+		t.Fatalf("the line names no `yolo host env` spelling: %q", line)
+	}
+	rc, script, _, errs := runRemedy(t, shell)
+	if rc != 0 || !strings.Contains(script, "export ZAI_API_KEY='tok-es'") {
+		t.Errorf("yolo host %s: rc = %d, want the key exported\n%s\n%s", strings.Join(shell, " "), rc, script, errs)
+	}
+	for _, k := range []string{"ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL", "ANTHROPIC_MODEL"} {
+		if strings.Contains(script, k) {
+			t.Errorf("the shell spelling exported claude's %s:\n%s", k, script)
+		}
+	}
+}
+
+// remedyCommands returns each `yolo host …` command a disclosure line names, as the argv
+// hostMain takes: the `yolo host` prefix dropped and an `eval "$(…)"` wrapper unwrapped. The
+// names in these cells need no shell quoting, so a field split is the whole parse.
+func remedyCommands(line string) [][]string {
+	var out [][]string
+	parts := strings.Split(line, "`")
+	for i := 1; i < len(parts); i += 2 {
+		s := parts[i]
+		if inner, ok := strings.CutPrefix(s, `eval "$(`); ok {
+			s = strings.TrimSuffix(inner, `)"`)
+		}
+		if f := strings.Fields(s); len(f) >= 2 && f[0] == "yolo" && f[1] == "host" {
+			out = append(out, f[2:])
+		}
+	}
+	return out
+}
+
+// runRemedy runs one command a disclosure line named through hostMain, in the fixture home
+// already set up, with the exec replaced as hostGateRun replaces it: the exit code, what it
+// printed on stdout (`yolo host env`'s script), the environment an exec was handed (nil when
+// none was reached) and stderr.
+func runRemedy(t *testing.T, argv []string) (int, string, map[string]string, string) {
+	t.Helper()
+	if i := indexOf(argv, "--"); i >= 0 && i+1 < len(argv) {
+		bin := filepath.Join(t.TempDir(), "bin")
+		if err := os.MkdirAll(bin, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(bin, argv[i+1]), []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	}
+	var got []string
+	origExec := hostSyscallExec
+	hostSyscallExec = func(_ string, _, env []string) error {
+		got = env
+		return nil
+	}
+	defer func() { hostSyscallExec = origExec }()
+	var out, errw bytes.Buffer
+	rc := hostMain(argv, &out, &errw, false, nil)
+	var env map[string]string
+	if got != nil {
+		env = map[string]string{}
+		for _, kv := range got {
+			if k, v, ok := strings.Cut(kv, "="); ok {
+				env[k] = v
+			}
+		}
+	}
+	return rc, out.String(), env, errw.String()
 }
 
 // ES-D2's other arm: a provider the user declared under `providers` has no profile until the

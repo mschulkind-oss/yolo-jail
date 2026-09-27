@@ -412,8 +412,13 @@ func (c *hostComposition) shellHolds() func(string) bool {
 // profile name, never a provider's.
 //
 // The front door decides the spelling: `yolo host --` names the command it was given, and
-// `yolo host env`, which launches nothing, names its own `--agent` beside the exec spelling
-// for the same agent.
+// `yolo host env`, which launches nothing, names the ad-hoc slice for the shell beside the exec
+// spelling for its agent. The shell spelling is `--agent bash` and never the verb's own
+// `--agent`: an agent's slice on that profile carries its whole provider shape (claude's
+// ANTHROPIC_BASE_URL, and the key again under ANTHROPIC_AUTH_TOKEN), which an eval'ing shell
+// would then hand, undisclosed, to every process it starts (CN-D13). Any name no selected pack
+// installs composes the same slice, so `bash` stands for all of them, as §3.1 and the help's
+// example spell it.
 func (c *hostComposition) credentialRemedy(claimants []string) string {
 	cmd := c.command
 	if cmd == "" {
@@ -433,9 +438,8 @@ func (c *hostComposition) credentialRemedy(claimants []string) string {
 	}
 	p := shquote.Quote(profile)
 	if c.command == "" {
-		return fmt.Sprintf("To receive it, select a profile that claims it: "+
-			"`yolo host env --agent %s -p %s` for this shell, `yolo host -p %s -- %s` for one launch",
-			cmd, p, p, cmd)
+		return fmt.Sprintf("To receive it in this shell: `eval \"$(yolo host env --agent bash -p %s)\"`; "+
+			"for one launch of %s: `yolo host -p %s -- %s`", p, cmd, p, cmd)
 	}
 	return fmt.Sprintf("To hand it to %s for one launch: `yolo host -p %s -- %s`", cmd, p, cmd)
 }
