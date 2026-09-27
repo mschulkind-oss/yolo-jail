@@ -210,7 +210,7 @@ projection has to get right:
 - One flattens `command` plus `args` into a single argv **array** and renames `env`.
 - One tool's MCP goes in a *different file* from its permissions, so its projection writes two
   surfaces.
-- Pi projects the canonical table into `~/.pi/agent/mcp.json` (`mcpServers`), where adapter
+- Pi projects the canonical table into `~/.pi/agent/mcp-adapter.json` (`mcpServers`), where adapter
   extensions like `pi-mcp-adapter` or `pi-mcp-extension` read it.
 
 **Convergence — how a dropped server disappears** — is the composition engine's job, not a
@@ -479,7 +479,7 @@ change in one place rather than a call-site hunt.
 [`OQ-MP1`](../design/mcp-presets-removal.md#decision-ledger).
 
 Auto-installing or bundling an MCP adapter extension for Pi: `packs/pi` projects the canonical
-server table into `~/.pi/agent/mcp.json`, which `pi-mcp-adapter` and `pi-mcp-extension` consume
+server table into `~/.pi/agent/mcp-adapter.json`, which `pi-mcp-adapter` and `pi-mcp-extension` consume
 natively, but yolo does not auto-install either extension at boot. Deciding whether to bundle
 a standalone extension in `kind: "files"`, auto-install via a hook, or leave it to user
 configuration is a choice about Pi's minimal posture against boot-time network dependencies.

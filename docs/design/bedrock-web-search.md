@@ -168,7 +168,7 @@ MEASURED at `6f21b82c`, from the code and [`mcp-configuration.md`](../reference/
   agy program contributions, the `zai` provider, and `openai-codex` in `packs/openai-auth`).
   claude's `bedrock` provider declares no capabilities, so under `-p bedrock` such a server already
   reaches claude. INFERRED from the resolver; not run.
-- **pi projects the table** into `~/.pi/agent/mcp.json`, which pi reads only through an MCP adapter
+- **pi projects the table** into `~/.pi/agent/mcp-adapter.json`, which pi reads only through an MCP adapter
   extension yolo does not install ([`mcp-configuration.md`](../reference/mcp-configuration.md#unbuilt)).
 
 ## 4. The shape

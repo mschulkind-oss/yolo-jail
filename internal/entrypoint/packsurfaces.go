@@ -507,6 +507,9 @@ func renderDeclaredSurface(e *Env, surface manifest.Surface, tables map[string]m
 			return err
 		}
 		_, err = renderSurfaceStatelessSurface(e, surface, hostBytes, computed, contribs)
+		if err == nil {
+			retireOrphanSidecars(e, surface)
+		}
 		return err
 	case manifest.ModeRMW:
 		computed = dropReservedSelection(e, surface, computed)
@@ -529,6 +532,9 @@ func renderDeclaredSurface(e *Env, surface manifest.Surface, tables map[string]m
 		if refusal, isRefusal := asRMWRefusal(err); isRefusal {
 			e.warn("warning: " + refusal.Error() + " (this file was NOT modified)")
 			return nil
+		}
+		if err == nil {
+			retireOrphanSidecars(e, surface)
 		}
 		return err
 	default:
