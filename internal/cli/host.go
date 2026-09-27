@@ -359,6 +359,10 @@ type hostComposition struct {
 	// command is the command as the user typed it after `--`, for the remedy to spell back;
 	// empty for `yolo host env`, which launches nothing.
 	command string
+	// profile is the profile this launch selected for its command — a typed -p, else the
+	// command's use_profiles entry — "" when none. The remedy says the -p it names replaces
+	// it (remedyAction).
+	profile string
 }
 
 // selectedProviders is the provider this launch's agent selected, as the narrowed
@@ -420,11 +424,6 @@ func (c *hostComposition) shellHolds() func(string) bool {
 // installs composes the same slice, so `bash` stands for all of them, as §3.1 and the help's
 // example spell it.
 func (c *hostComposition) credentialRemedy(claimants []string) string {
-	cmd := c.command
-	if cmd == "" {
-		cmd = c.agent
-	}
-	cmd = shquote.Quote(cmd)
 	profile := remedyProfile(c.resolved, claimants)
 	if profile == "" {
 		example := "<name>"
@@ -432,16 +431,43 @@ func (c *hostComposition) credentialRemedy(claimants []string) string {
 			example = claimants[0]
 		}
 		return fmt.Sprintf("No declared profile selects %s: declare one under `profiles` in %s "+
-			"(for example `%q: {\"provider\": %q}`), then run `yolo host -p %s -- %s`",
+			"(for example `%q: {\"provider\": %q}`), then %s",
 			strings.Join(claimants, " or "), paths.UserConfigPath(), example, example,
-			shquote.Quote(example), cmd)
+			c.remedyAction(example))
 	}
+	action := c.remedyAction(profile)
+	return strings.ToUpper(action[:1]) + action[1:]
+}
+
+// remedyAction is the remedy's instruction for one profile, as a clause starting "to …".
+//
+// A -p NAMES ONE PROFILE, so the one it names REPLACES the command's own: a withheld name
+// belongs to a provider this launch's profile did not select, and on an agent a selected pack
+// installs, the named -p re-points the agent's backend rather than adding a key to it. So an
+// agent's remedy is worded as the switch it is ("run claude on the zai profile"), an ad-hoc
+// command's as the grant it is ("hand it to bash"), and either says which profile it replaces
+// when the launch selected one.
+func (c *hostComposition) remedyAction(profile string) string {
 	p := shquote.Quote(profile)
-	if c.command == "" {
-		return fmt.Sprintf("To receive it in this shell: `eval \"$(yolo host env --agent bash -p %s)\"`; "+
-			"for one launch of %s: `yolo host -p %s -- %s`", p, cmd, p, cmd)
+	cmd := c.command
+	if cmd == "" {
+		cmd = c.agent
 	}
-	return fmt.Sprintf("To hand it to %s for one launch: `yolo host -p %s -- %s`", cmd, p, cmd)
+	cmd = shquote.Quote(cmd)
+	replacing := ""
+	if c.profile != "" {
+		replacing = fmt.Sprintf(", replacing its %s profile", c.profile)
+	}
+	launch := fmt.Sprintf("to hand it to %s for one launch%s: `yolo host -p %s -- %s`", cmd, replacing, p, cmd)
+	if selectedPackInstalls(c.packs, c.agent) {
+		launch = fmt.Sprintf("to run %s on the %s profile for one launch%s: `yolo host -p %s -- %s`",
+			cmd, profile, replacing, p, cmd)
+	}
+	if c.command == "" {
+		return fmt.Sprintf("to receive it in this shell: `eval \"$(yolo host env --agent bash -p %s)\"`; %s",
+			p, launch)
+	}
+	return launch
 }
 
 // remedyProfile is the declared profile the remedy names for a group claimed by claimants:
@@ -603,6 +629,7 @@ func composeHostVars(cfg *jsonx.OrderedMap, workspace, agent, profile string, wa
 	if profileName != "" {
 		agentTable[agent] = profileName
 	}
+	c.profile = profileName
 	// ONLY A TYPED -p KEYS A COMMAND NO PACK INSTALLS
 	// (docs/design/credential-sources-separation.md ES-D5). The one-agent table above keys
 	// whatever basename was launched, which is what makes `yolo host -p zai -- bash` the host's

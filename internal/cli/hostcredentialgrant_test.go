@@ -174,6 +174,49 @@ func runRemedy(t *testing.T, argv []string) (int, string, map[string]string, str
 	return rc, out.String(), env, errw.String()
 }
 
+// A named -p on an AGENT is a provider switch, not one more key: the withheld name belongs to a
+// provider the agent's profile did not select, so the -p replaces that profile and re-points
+// the agent's backend. The line says so, naming the profile it replaces, and never words it as
+// handing the agent the key.
+func TestHostGrantAgentRemedyIsWordedAsAProfileSwitch(t *testing.T) {
+	_, errs := hostGateLaunchWith(t, `{"packs": ["claude", "zai"], "use_profiles": {"claude": "bedrock"}, `+
+		`"env_sources": [{"ZAI_API_KEY": "tok-es", "AWS_PROFILE": "dev"}]}`, nil, nil, "claude")
+	line := scopeLine(t, errs, "ZAI_API_KEY")
+	want := "To run claude on the zai profile for one launch, replacing its bedrock profile: " +
+		"`yolo host -p zai -- claude`"
+	if !strings.Contains(line, want) {
+		t.Errorf("the remedy for an agent must say it switches the agent's profile (%q): %q", want, line)
+	}
+	if strings.Contains(line, "hand it to claude") {
+		t.Errorf("a -p on an agent re-points its backend; it does not hand it one key: %q", line)
+	}
+}
+
+// The same holds for an ad-hoc command on a typed grant: -p names one profile, so naming
+// another replaces the first.
+func TestHostGrantAdHocRemedySaysItReplacesTheTypedProfile(t *testing.T) {
+	_, errs := hostGateLaunchWith(t, `{"packs": ["claude", "zai"], "env_sources": [`+
+		`{"ZAI_API_KEY": "tok-es", "AWS_ACCESS_KEY_ID": "AKIA-host"}]}`, nil, []string{"-p", "zai"}, "bash")
+	line := scopeLine(t, errs, "AWS_ACCESS_KEY_ID")
+	want := "To hand it to bash for one launch, replacing its zai profile: `yolo host -p bedrock -- bash`"
+	if !strings.Contains(line, want) {
+		t.Errorf("the remedy must say the named -p replaces the typed one (%q): %q", want, line)
+	}
+}
+
+// At `yolo host env` the one-launch spelling for the agent is worded as the switch too.
+func TestHostEnvAgentRemedyIsWordedAsAProfileSwitch(t *testing.T) {
+	hostGateHome(t, esGrantConfig, nil)
+	var out, errw bytes.Buffer
+	if rc := hostMain([]string{"env"}, &out, &errw, false, nil); rc != 0 {
+		t.Fatalf("yolo host env: rc = %d\n%s", rc, errw.String())
+	}
+	line := scopeLine(t, errw.String(), "ZAI_API_KEY")
+	if want := "to run claude on the zai profile for one launch: `yolo host -p zai -- claude`"; !strings.Contains(line, want) {
+		t.Errorf("yolo host env's one-launch spelling must say it runs claude on zai (%q): %q", want, line)
+	}
+}
+
 // ES-D2's other arm: a provider the user declared under `providers` has no profile until the
 // user declares one, and -p takes a profile name, so the line says to declare one rather than
 // naming a -p that would refuse. The §1 incident's deepseek line.
