@@ -563,8 +563,7 @@ func (s *CredentialScope) DisclosureWith(notes DisclosureNotes) []string {
 	if len(order) == 0 {
 		return nil
 	}
-	lines := []string{"Credential scope: a provider's credential reaches only the agents " +
-		"whose profile selects it."}
+	lines := []string{s.disclosureRule()}
 	for _, key := range order {
 		g := groups[key]
 		names := strings.Join(g.names, ", ")
@@ -591,6 +590,21 @@ func (s *CredentialScope) DisclosureWith(notes DisclosureNotes) []string {
 		}
 	}
 	return lines
+}
+
+// disclosureRule is the disclosure's head line: the rule every line under it follows. Under a
+// grant (ScopeInput.Grants) a process no profile selects is a recipient too, so the rule names
+// the grant beside the profile (credential-sources-separation.md ES-D22). Otherwise, as at every
+// jail launch, the recipients are the agents whose profile selects the provider.
+func (s *CredentialScope) disclosureRule() string {
+	for _, d := range s.agents {
+		if len(d.Granted) > 0 {
+			return "Credential scope: a provider's credential reaches only the processes whose " +
+				"profile selects it or whose --with-credentials grant names it."
+		}
+	}
+	return "Credential scope: a provider's credential reaches only the agents whose profile " +
+		"selects it."
 }
 
 // CredentialEnvNames returns every credential variable a composed provider entry names

@@ -137,7 +137,9 @@ notches, rather than starting an agent that will 401 on its first call. Selectin
 no agent on zai demands nothing, because the credential gate would deliver the key to nobody
 ([`providers.md`, the credential gate](providers.md#the-credential-gate); narrowed by
 [`OQ-CN3`](../design/provider-credential-scope.md#OQ-CN3)). The key reaches only the agents
-that selected zai — never a shell or another agent.
+that selected zai — never a shell or another agent, unless at `yolo host` you hand it to one
+command yourself, with `-p zai` or `--with-credentials zai` on that command
+([`providers.md`](providers.md#the-credential-gate)).
 
 ## What this does not license
 

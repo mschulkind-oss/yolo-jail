@@ -320,3 +320,18 @@ func TestHostEnvWithCredentialsKeepsATypedProfilesSlice(t *testing.T) {
 		t.Errorf("the disclosure names the slice the typed -p composes:\n%s", errs)
 	}
 }
+
+// Through the host's own disclosure path: the rule line heading `--with-credentials zai --
+// usage-bar`'s scope block names the grant, since usage-bar, which no profile selects, is the
+// next line's recipient (ES-D22).
+func TestWithCredentialsScopeHeaderNamesTheGrant(t *testing.T) {
+	_, errs := hostGateLaunchWith(t, wcConfig, wcShell(nil), []string{"--with-credentials", "zai"}, "usage-bar")
+	want := "yolo host: Credential scope: a provider's credential reaches only the processes whose " +
+		"profile selects it or whose --with-credentials grant names it."
+	if !strings.Contains(errs, want) || !strings.Contains(errs, "ZAI_API_KEY (provider zai): usage-bar only") {
+		t.Errorf("the rule line must be true of its usage-bar recipient (%q):\n%s", want, errs)
+	}
+	if strings.Contains(errs, "reaches only the agents whose profile selects it.") {
+		t.Errorf("the no-grant rule line is false of a grant-only recipient:\n%s", errs)
+	}
+}

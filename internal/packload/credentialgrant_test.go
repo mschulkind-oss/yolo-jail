@@ -93,3 +93,35 @@ func TestClaimingProvidersIsEveryClaimantOfAHeldName(t *testing.T) {
 		t.Error("an empty table claims nothing")
 	}
 }
+
+// The disclosure's rule line must be true of the launch it heads (ES-D22). Under a grant a key
+// reaches a process whose profile selects nothing, so "reaches only the agents whose profile
+// selects it" would be contradicted by the very next line. With no grant, as at every jail
+// launch, the rule line is unchanged.
+func TestDisclosureHeaderNamesTheGrantAsARecipientRule(t *testing.T) {
+	in := ScopeInput{
+		Providers:  twoProviders(t),
+		Profiles:   map[string]string{"pi": "zai-profile"},
+		Resolved:   map[string]ResolvedProfile{"zai-profile": {Provider: "zai"}},
+		EnvSources: hydrated("ZAI_API_KEY", "z", "CEREBRAS_API_KEY", "c"),
+	}
+	plain, err := ScopeCredentials(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const selectsOnly = "Credential scope: a provider's credential reaches only the agents whose profile selects it."
+	if got := plain.Disclosure(); len(got) == 0 || got[0] != selectsOnly {
+		t.Errorf("without a grant the rule line is unchanged: %q", got)
+	}
+	in.Grants = map[string][]string{"usage-bar": {"cerebras"}}
+	granted, err := ScopeCredentials(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := granted.Disclosure()
+	want := "Credential scope: a provider's credential reaches only the processes whose profile " +
+		"selects it or whose --with-credentials grant names it."
+	if len(got) == 0 || got[0] != want {
+		t.Errorf("under a grant the rule line must name the grant as a recipient rule:\n got %q\nwant %q", got, want)
+	}
+}
