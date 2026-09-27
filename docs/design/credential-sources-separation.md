@@ -3,7 +3,7 @@ title: "Should credentials leave env_sources?"
 date: 2026-09-27
 status: in-review
 tags: [providers, profiles, credentials, env-sources, notches, cli]
-summary: "A key listed in env_sources is withheld from `yolo host -- bash`, and the filing proposed a separate credential_sources key. Measured against the built credential gate: the surprise happens only for a claimed name that env_sources supplies, the host remedy (`yolo host -p <profile> -- <cmd>`) is already built but undocumented, and the split would revisit OQ-CN1. Five implementation decisions, now built, make the host remedy findable. Four questions stay open: the split itself, a grant for a command `-p` cannot reach, shared generic names such as AWS_PROFILE, and aws-auth's pointer under a typed -p."
+summary: "A key listed in env_sources is withheld from `yolo host -- bash`, and the filing proposed a separate credential_sources key. Measured against the built credential gate: the surprise happens only for a claimed name that env_sources supplies, the host remedy (`yolo host -p <profile> -- <cmd>`) is already built but undocumented, and the split would revisit OQ-CN1. Five implementation decisions, now built, make the host remedy findable. OQ-ES5's host half is ruled (2026-09-27): an explicit `yolo host --with-credentials <provider…|all>` grant, keys only, host only. Four questions stay open: the split itself, OQ-ES5's jail half, shared generic names such as AWS_PROFILE, and aws-auth's pointer under a typed -p."
 vantage:
   status-chip: true
 ---
@@ -17,8 +17,10 @@ to `430bc866`; the cells are `internal/cli/hostcredentialgrant_test.go`), with t
 choices recorded as ES-D6 to ES-D12 in the [ledger](#10-decision-ledger). A review the same day
 found the built remedy naming `-p` launches the named agent refuses, and a `yolo host env` shell
 spelling that exported the agent's whole provider shape; ES-D7 and ES-D8 are amended, and ES-D10
-to ES-D12 record the fixes (`edf88e4f` to `3415cbc6`). The four open questions are untouched, and
-nothing under them is built.
+to ES-D12 record the fixes (`edf88e4f` to `3415cbc6`). **[OQ-ES5](#OQ-ES5)'s host half was ruled
+by the maintainer later the same day**: an explicit `yolo host --with-credentials
+<provider[,provider...]|all> -- <cmd>` grant, keys only, host only. Its jail half, and
+[OQ-ES1](#OQ-ES1), [OQ-ES6](#OQ-ES6) and [OQ-ES7](#OQ-ES7), are still open.
 
 > **In short.** The gate withholds a claimed name only when `env_sources` supplies it, and the
 > host has had a per-command remedy since the gate shipped: `yolo host -p <profile> -- <cmd>`. A
@@ -39,7 +41,8 @@ fires on `AWS_PROFILE` for every claude-pack user.
 **Start at [§3](#3-where-the-surprise-is-by-spelling-and-by-notch)**; for the host-only answer,
 [§5](#5-the-host-half-is-built-what-shipping-it-takes).
 
-**Needs your ruling:** [OQ-ES1](#OQ-ES1), [OQ-ES5](#OQ-ES5), [OQ-ES6](#OQ-ES6), [OQ-ES7](#OQ-ES7).
+**Needs your ruling:** [OQ-ES1](#OQ-ES1), [OQ-ES5](#OQ-ES5)'s jail half (its host half is
+ruled), [OQ-ES6](#OQ-ES6), [OQ-ES7](#OQ-ES7).
 Ruling [OQ-ES1](#OQ-ES1) revisits [OQ-CN1](provider-credential-scope.md#OQ-CN1);
 [OQ-ES6](#OQ-ES6) asks for an exception to [OQ-BR4](provider-credential-scope.md#OQ-BR4).
 
@@ -380,8 +383,8 @@ works:
 | :--- | :--- |
 | **A. `credential_sources`, with a refusal in `env_sources`** (the filing's proposal) | Open, as [OQ-ES1](#OQ-ES1). I lean against it: it revisits [OQ-CN1](provider-credential-scope.md#OQ-CN1) and [CN-D6](provider-credential-scope.md#7-decision-ledger) and still needs their claim |
 | **B. `yolo host -p <profile> -- <cmd>` for any command** | **Built.** ES-D1 to ES-D5 pin it and make it findable |
-| **C. `--all-credentials` for one invocation** | Rejected. It hands one process every provider's credentials, the opposite of [OQ-BR4](provider-credential-scope.md#OQ-BR4)'s "as specific as possible" |
-| **C′. `--with-credentials <provider…>`, an explicit grant naming providers** | Open, as [OQ-ES5](#OQ-ES5). It is the only grant for a jail or macos-user shell, and the only multi-provider grant anywhere |
+| **C. `--all-credentials` for one invocation** | Rejected as a flag of its own. At the host, the maintainer's [OQ-ES5](#OQ-ES5) ruling makes the same grant a VALUE of the one explicit flag, `--with-credentials all`, for a command that needs every provider's key: the usage-bar case |
+| **C′. `--with-credentials <provider…>`, an explicit grant naming providers** | **Ruled for the host, 2026-09-27** ([OQ-ES5](#OQ-ES5)). The jail and macos-user half is still open |
 | **D. `unscoped: true` inside an `env_sources` inline map** | Rejected. It is a per-file flag in a per-name problem, and it would sit in a workspace-editable file |
 | **E. A user-scope acknowledgment that shares one claimed name with every process** | Open, as [OQ-ES6](#OQ-ES6). It is the `AWS_PROFILE` case |
 
@@ -457,11 +460,12 @@ works:
    _Leaning, should it open:_ User scope only, for the reason in
    [§8](#8-what-this-does-not-license).
 
-5. 💬 **OQ-ES5: An explicit grant for a command `-p` cannot reach?**
+5. 💬 **OQ-ES5: An explicit grant for a command `-p` cannot reach?** — **the host half RULED
+   2026-09-27; the jail half open**
 
-   <!-- vantage: oq id=OQ-ES5 leaning="Yes: one explicit per-invocation flag naming providers, for example --with-credentials zai, at every notch. It is its own flag, implied by no other override; it rides only that entry's exec environment, never a file; it is disclosed on every entry, naming that the command's children inherit it; and it is never expressible in config. Documenting a hand-sourced per-agent file is the fallback." -->
+   <!-- vantage: oq id=OQ-ES5 leaning="Host half ruled 2026-09-27: yolo host --with-credentials <provider[,provider...]|all> -- <cmd>, keys only, disclosed on every run, implied by nothing else. Open: the jail half (a jail or macos-user shell) — the same flag at every notch, or the hand-sourced per-agent file as the fallback." -->
 
-   This case has no mechanism today:
+   This case had no mechanism when it was filed:
    - a jail shell (`-p bash=zai` is refused);
    - a macos-user shell (delivery is keyed by argv[0]);
    - a host command that needs two providers at once. `-p` names one profile, and the last one
@@ -487,7 +491,35 @@ works:
    `--all-credentials` is rejected ([§7](#7-alternatives-considered)).
 
    **Answer:**
-   > _(empty — fill in when decided)_
+   > **The HOST half ruled by the maintainer, 2026-09-27.** The case that decided it: an AI usage
+   > bar run under `yolo host` pings every subscription and provider, so it needs ALL provider
+   > keys, from the one credential store the user keeps in `env_sources` — *"this is the
+   > credential store and it needs to be able to be shared because I don't want to put it in
+   > multiple places"* — and after the credential gate it received none, because no profile
+   > selected them. The approved solution, in the maintainer's reply *"I like the rest of the
+   > solution a lot"*:
+   >
+   > - **`env_sources` stays the one store.** No split; this is [OQ-ES1](#OQ-ES1)'s leaning, and
+   >   OQ-ES1 itself is not otherwise ruled here.
+   > - **An explicit grant flag,** `yolo host --with-credentials <provider[,provider...]|all> --
+   >   <cmd>`. It hands that one command the named providers' CLAIMED `env_sources` values: keys
+   >   only, with no profile routing and no shape variables, so nothing re-points a base URL.
+   >   `all` is every provider in the composed table that claims a value.
+   > - **The same flag on `yolo host env`:** `eval "$(yolo host env --with-credentials all)"`
+   >   exports them into the current shell.
+   > - **Disclosed on every run,** names only and never values.
+   > - **An unknown provider name refuses,** naming the known ones. **A named provider with no
+   >   value is reported,** not silently skipped.
+   > - **It combines with `-p`:** an agent keeps its profile and additionally receives the granted
+   >   keys.
+   > - **Nothing else implies it:** not `-p`, not `use_profiles`, not any `YOLO_ALLOW_*`
+   >   ([OQ-SK1](attach-skew-and-contract-guardrails.md#OQ-SK1)'s acknowledgment rule).
+   > - **HOST ONLY.** A jail launch does not accept it, and a jail launch given the flag refuses,
+   >   naming that it is host-only.
+   >
+   > **The jail half stays open:** whether a jail shell or a macos-user shell gets a grant, and
+   > whether it is this flag, is not ruled. The `--all-credentials` rejection above is overtaken
+   > for the host by `all` as a value of the one explicit flag ([§7](#7-alternatives-considered)).
 
 6. 💬 **OQ-ES6: May a user share a claimed generic name, such as `AWS_PROFILE`, with every process?**
 
@@ -539,6 +571,7 @@ works:
 
 | ID | Ruling / Decision | Date | Settled in | Built |
 | :--- | :--- | :--- | :--- | :--- |
+| OQ-ES5 | **The host half, ruled by the maintainer.** `yolo host --with-credentials <provider[,provider...]\|all> -- <cmd>`, and the same flag on `yolo host env`, hands one command the named providers' claimed `env_sources` values: keys only, no profile routing and no shape variables. `all` is every composed provider that claims a value. Disclosed on every run, names only. An unknown provider refuses, naming the known ones; a named provider with no value is reported. It combines with `-p`. Nothing else implies it. HOST ONLY: a jail launch given it refuses, naming that it is host-only. `env_sources` stays the one store. The jail half is open | 2026-09-27 | [OQ-ES5](#OQ-ES5) | not yet |
 | OQ-ES3 | *Answered by the tree, not ruled.* Filed as question 3: "how should an arbitrary command request provider credentials?" At the host, `yolo host -p <profile> -- <cmd>` already delivers that profile's claimed `env_sources` values to any command and discloses it as `<cmd> only`. ES-D1 to ES-D5 finish it. The jail and multi-provider half is [OQ-ES5](#OQ-ES5); the CLI-less half is [OQ-ES7](#OQ-ES7) | 2026-09-27 | [§5](#5-the-host-half-is-built-what-shipping-it-takes) | ✅ behavior at `8da7840d`; pinned `c809adc2` |
 | ES-D1 | *Implementation decision.* The typed host `-p` is the grant for any command, pinned through `hostMain` with a non-agent basename. The cells fail if the agent loop checks installation or the basename keying goes. The notches differ on purpose: the jail's `-p` never keys the `--` command | 2026-09-27 | [§5](#5-the-host-half-is-built-what-shipping-it-takes) | ✅ `c809adc2` |
 | ES-D2 | *Implementation decision.* At the host, a "withheld" line names `yolo host -p <profile> -- <cmd>`, using a declared profile that resolves to the claimant, or says to declare one. The jail's line is unchanged until [OQ-ES5](#OQ-ES5) | 2026-09-27 | [§5](#5-the-host-half-is-built-what-shipping-it-takes) | ✅ `dbe10a15` |
