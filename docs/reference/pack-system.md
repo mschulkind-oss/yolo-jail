@@ -928,9 +928,13 @@ so that nothing of the user's is lost or chosen between:
   under both names, which is what an interrupted move leaves; that is finished.
 - **A symlink** — refused, naming both files, since renaming it one directory deeper would break a
   relative link and rewriting the user's link is not yolo's to do.
-- **The local `pack.json` still names `AGENTS.md` in a briefing `from`** — refused, naming the
-  edit: governance never reads a reserved `from`, so the moved file would be named by no
-  declaration and broadcast to every agent instead of the audience that `from` routed it to.
+- **The local `pack.json` still names `AGENTS.md` in a briefing `from`** — refused: governance
+  never reads a reserved `from`, so the moved file would be named by no declaration and broadcast
+  to every agent instead of the audience that `from` routed it to. Such a `from` is a manifest
+  problem ([OQ-PB2](#oq-pb2)), so `yolo host apply` refuses the local pack before this step,
+  with the launch's own words and nothing written
+  ([NS-D14](../design/notch-scoped-config-contributions.md#10-decision-ledger)). The move's
+  refusal, which names the edit to `briefing/local.md`, stays as the function's own guard.
 - Otherwise it moves **without clobbering**: a hard link then an unlink, so a file created at the
   target between the check and the move is never replaced. Only a filesystem without hard links
   falls back to a rename, behind the earlier existence check. A dry run reports `would move` and
@@ -2394,7 +2398,12 @@ execution.**
 throwaway directory first, under the launch's no-escaping-symlink rule, because at the host
 the content lands in the real home. **An incomplete set is refused whole**: if any configured
 pack cannot be resolved, `--assert` writes nothing and exits 1, naming each pack and its
-reason. The dry run says it would refuse.
+reason. The dry run says it would refuse. A pack whose manifest has problems, the ones
+`yolo pack lint`, `yolo check` and every launch refuse, counts as unresolvable here: it is named
+with each problem, and the fix is the manifest, not a fetch
+([NS-D14](../design/notch-scoped-config-contributions.md#10-decision-ledger)). The other host
+verbs leave such a pack out and say so: `yolo host --` and `yolo host env` compose without it,
+`--revert` keeps its keys recorded, `check-deps` exits 1, and the `config` verbs report it.
 
 ### Host-side staging, then jail-side render
 
