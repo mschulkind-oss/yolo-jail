@@ -332,9 +332,10 @@ func hostExec(flagArgs, cmd []string, out, errw io.Writer, stdin io.Reader) int 
 	// silent narrowing"): a launch that withholds a credential the user configured says so,
 	// on stderr like every other line here, names only. The same wording the jail notch
 	// prints, because it is the same gate's answer.
-	// THE GRANT'S DISCLOSURE (OQ-ES5): on every run the flag is given, whatever it delivered,
-	// names only. Never suppressible (OQ-RO3), so it is printed unconditionally here rather
-	// than folded into a line a quieter path could skip.
+	//
+	// THE GRANT'S DISCLOSURE (OQ-ES5) follows it: on every run the flag is given, whatever it
+	// delivered, names only. Never suppressible (OQ-RO3), so it is printed unconditionally
+	// here rather than folded into a line a quieter path could skip.
 	for _, block := range [][]string{launch.credentialScopeLines(), launch.grantLines()} {
 		for i, line := range block {
 			if i == 0 {
