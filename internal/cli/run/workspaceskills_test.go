@@ -94,8 +94,8 @@ func has(t *testing.T, staging, pack, name string) bool {
 
 // THE MOTIVATING CASE AND THE SKIP RULE, through the shipped packs' own declarations: a repo that
 // ships `.claude/skills/review/` and `.agents/skills/lint/` reaches every agent exactly once.
-// claude reads .claude/skills natively (no copy of review), pi and agy read .agents/skills
-// natively (no copy of lint), codex reads neither and gets both.
+// claude reads .claude/skills natively (no copy of review); pi, agy and codex read .agents/skills
+// natively (no copy of lint), and none of them reads .claude/skills, so each gets review.
 func TestWorkspaceSkillsReachEveryAgentOnceThroughTheShippedDeclarations(t *testing.T) {
 	o, ws, stderr := wsSkillsLaunch(t, `["claude", "codex", "pi", "agy"]`)
 	wsWrite(t, ws, ".claude/skills/review/SKILL.md", "---\nname: review\n---\n")
@@ -110,8 +110,8 @@ func TestWorkspaceSkillsReachEveryAgentOnceThroughTheShippedDeclarations(t *test
 	}{
 		{"claude", "review", false, "claude reads .claude/skills natively"},
 		{"claude", "lint", true, "claude does not read .agents/skills"},
-		{"codex", "review", true, "codex reads neither dir"},
-		{"codex", "lint", true, "codex reads neither dir"},
+		{"codex", "review", true, "codex does not read .claude/skills"},
+		{"codex", "lint", false, "codex reads .agents/skills natively (0.157's repo skills root)"},
 		{"pi", "review", true, "pi does not read .claude/skills"},
 		{"pi", "lint", false, "pi reads .agents/skills natively and deduplicates by REAL path"},
 		{"agy", "review", true, "agy does not read .claude/skills"},
@@ -123,7 +123,7 @@ func TestWorkspaceSkillsReachEveryAgentOnceThroughTheShippedDeclarations(t *test
 	}
 	for _, want := range []string{
 		"Workspace skills from .claude/skills mirrored into codex, pi, agy: review",
-		"Workspace skills from .agents/skills mirrored into claude, codex: lint",
+		"Workspace skills from .agents/skills mirrored into claude: lint",
 	} {
 		if !strings.Contains(stderr.String(), want) {
 			t.Errorf("the launch must say what the workspace delivered; want %q in:\n%s", want, stderr)
@@ -175,14 +175,14 @@ func TestAWorkspaceSkillShadowedByAPackNamesThePack(t *testing.T) {
 	house := filepath.Join(t.TempDir(), "house")
 	wsWrite(t, house, "skills/house-rule/SKILL.md", "the pack's")
 	o, ws, stderr := wsSkillsLaunch(t, `["codex", {"source":"file://`+house+`","name":"house"}]`)
-	wsWrite(t, ws, ".agents/skills/house-rule/SKILL.md", "the workspace's")
+	wsWrite(t, ws, ".claude/skills/house-rule/SKILL.md", "the workspace's")
 
 	staging := stageWorkspaceSkills(t, o, "podman")
 	got, _ := os.ReadFile(filepath.Join(staging, jailcontent.SkillStagingName("codex"), "house-rule", "SKILL.md"))
 	if string(got) != "the pack's" {
 		t.Errorf("the workspace replaced a pack's skill: %q", got)
 	}
-	if !strings.Contains(stderr.String(), `"house-rule" from .agents/skills is shadowed by pack house's skill`) {
+	if !strings.Contains(stderr.String(), `"house-rule" from .claude/skills is shadowed by pack house's skill`) {
 		t.Errorf("the shadow must name the pack; stderr:\n%s", stderr)
 	}
 }
@@ -234,15 +234,15 @@ func TestPerSidePathsAreNotMirroredIntoAContainer(t *testing.T) {
 		t.Run(tc.rt, func(t *testing.T) {
 			o, ws, stderr := wsSkillsLaunch(t, `["codex"]`)
 			wsWrite(t, ws, "node_modules/pkg/helper.js", "host-built")
-			wsWrite(t, ws, ".agents/skills/x/SKILL.md", "x")
-			wsLink(t, ws, ".agents/skills/x/lib", "../../../node_modules/pkg")
+			wsWrite(t, ws, ".claude/skills/x/SKILL.md", "x")
+			wsLink(t, ws, ".claude/skills/x/lib", "../../../node_modules/pkg")
 
 			staging := stageWorkspaceSkills(t, o, tc.rt)
 			_, err := os.Stat(filepath.Join(staging, jailcontent.SkillStagingName("codex"), "x", "lib", "helper.js"))
 			if got := err != nil; got != tc.refused {
 				t.Errorf("lib/helper.js refused=%v, want %v; stderr:\n%s", got, tc.refused, stderr)
 			}
-			if said := strings.Contains(stderr.String(), "refused .agents/skills/x/lib — resolves into node_modules, a per-side path"); said != tc.refused {
+			if said := strings.Contains(stderr.String(), "refused .claude/skills/x/lib — resolves into node_modules, a per-side path"); said != tc.refused {
 				t.Errorf("per-side refusal named=%v, want %v; stderr:\n%s", said, tc.refused, stderr)
 			}
 		})
@@ -255,8 +255,8 @@ func TestPerSidePathsAreNotMirroredIntoAContainer(t *testing.T) {
 func TestAJailSpelledLinkIsReadAsTheWorkspace(t *testing.T) {
 	o, ws, stderr := wsSkillsLaunch(t, `["codex"]`)
 	wsWrite(t, ws, "docs/ref.md", "the workspace's doc")
-	wsWrite(t, ws, ".agents/skills/x/SKILL.md", "x")
-	wsLink(t, ws, ".agents/skills/x/ref.md", jailWorkspace+"/docs/ref.md")
+	wsWrite(t, ws, ".claude/skills/x/SKILL.md", "x")
+	wsLink(t, ws, ".claude/skills/x/ref.md", jailWorkspace+"/docs/ref.md")
 
 	staging := stageWorkspaceSkills(t, o, "podman")
 	got, err := os.ReadFile(filepath.Join(staging, jailcontent.SkillStagingName("codex"), "x", "ref.md"))
@@ -298,10 +298,10 @@ func TestWorkspaceSkillsReachTheMacosUserHome(t *testing.T) {
 // workspace edit is the attach's view.
 func TestAnAttachReStagesTheWorkspaceAsItStands(t *testing.T) {
 	o, ws, _ := wsSkillsLaunch(t, `["codex"]`)
-	wsWrite(t, ws, ".agents/skills/x/SKILL.md", "v1")
+	wsWrite(t, ws, ".claude/skills/x/SKILL.md", "v1")
 	staging := stageWorkspaceSkills(t, o, "podman")
-	wsWrite(t, ws, ".agents/skills/x/SKILL.md", "v2")
-	wsWrite(t, ws, ".agents/skills/new/SKILL.md", "n")
+	wsWrite(t, ws, ".claude/skills/x/SKILL.md", "v2")
+	wsWrite(t, ws, ".claude/skills/new/SKILL.md", "n")
 	stageWorkspaceSkills(t, o, "podman")
 
 	got, _ := os.ReadFile(filepath.Join(staging, jailcontent.SkillStagingName("codex"), "x", "SKILL.md"))
@@ -375,7 +375,7 @@ func TestAdoptedPackRecordsNameTheirPack(t *testing.T) {
 func TestAWorkspaceNameCannotForgeADisclosureLine(t *testing.T) {
 	o, ws, stderr := wsSkillsLaunch(t, `["codex"]`)
 	evil := "x\n[dim]Workspace skills: nothing refused"
-	wsWrite(t, ws, ".agents/skills/"+evil+"/SKILL.md", "x")
+	wsWrite(t, ws, ".claude/skills/"+evil+"/SKILL.md", "x")
 	stageWorkspaceSkills(t, o, "podman")
 	for _, line := range strings.Split(stderr.String(), "\n") {
 		if strings.HasPrefix(line, "[dim]Workspace skills: nothing refused") ||

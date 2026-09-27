@@ -2,11 +2,12 @@ package packload_test
 
 // projectskilldirs_test.go pins what each shipped agent pack declares as the project-scope skills
 // directories its agent reads (`project_dirs`, docs/design/workspace-skills.md §5). The
-// declaration is DATA about a vendor's binary, so this is a census: the rows are what the
-// bundles installed on 2026-09-27 contain (design §2.1), and a new agent pack fails here until
-// somebody measures its agent. Whether the installed binaries still name these strings is
-// integration/agents_test.go's probe (TestPackProjectSkillDirsAreInTheInstalledAgent) — this
-// half runs under -short, where a pack is added.
+// declaration is DATA about a vendor's binary, so this is a census: the rows are what the agents
+// installed on 2026-09-27 read (design §2.1), and a new agent pack fails here until somebody
+// measures its agent. Whether an installed agent still names a row as text is
+// integration/agents_test.go's probe (projectDirsProbe, run by TestPackInstallsVersionsAndConfigures),
+// which also lists the rows no bundle carries as text and where each was measured instead —
+// this half runs under -short, where a pack is added.
 
 import (
 	"reflect"
@@ -23,8 +24,14 @@ var shippedProjectSkillDirs = map[string][]string{
 	"claude": {".claude/skills"},
 	// `.agents/skills` appears in the claude binary only inside an IMPORTER that copies it into
 	// .claude/skills — not a directory claude reads.
-	"copilot":  {".github/skills", ".agents/skills", ".claude/skills"},
-	"codex":    {".codex/skills"}, // `.agents/skills` is in the binary beside an external-agent migration; unconfirmed as a read path
+	"copilot": {".github/skills", ".agents/skills", ".claude/skills"},
+	// codex 0.157.0 reads BOTH, and its binary names neither as text: the loader
+	// (codex-rs/ext/skills/src/host_roots.rs at the rust-v0.157.0 tag) joins `skills` onto every
+	// project config layer's `.codex/` folder, and walks every directory from the project root
+	// to the cwd for `.agents/skills`, built from the constants `.agents` and `skills`. The one
+	// `.agents/skills` literal in the binary belongs to an external-agent migration, and both
+	// `.codex/skills` literals are prose about the HOME dir.
+	"codex":    {".codex/skills", ".agents/skills"},
 	"opencode": {".opencode/skills", ".claude/skills", ".agents/skills"},
 	// pi reads `.agents/skills` too — its docs/skills.md and its package manager's ancestor walk
 	// (pi 0.87.1, 2026-09-27); the design's first table, read from `CONFIG_DIR_NAME` alone,

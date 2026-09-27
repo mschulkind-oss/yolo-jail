@@ -2,11 +2,13 @@ package integration
 
 import (
 	"fmt"
+	"regexp"
 	"runtime"
 	"strings"
 	"testing"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
+	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 )
 
 // Agent library-model tests. They prove the selectable-agent surface: each
@@ -264,6 +266,111 @@ func TestJailConfigsPresent(t *testing.T) {
 	}
 }
 
+// projectDirsProbe is the `project_dirs` WITNESS (docs/design/workspace-skills.md §5, R5): the
+// shell that asserts each project-scope skills directory the pack declares is named, AT PROJECT
+// SCOPE, in the agent it just installed. It pins nothing but strings and runs nothing — the
+// vendor's files are grepped, never executed (AGENTS.md's no-agent-tests rule) — so an agent that
+// stops naming its own project path fails here, the silent break a docs citation would not catch.
+//
+// PROJECT SCOPE, NOT A BARE SUBSTRING. `.codex/skills` is also the tail of `~/.codex/skills`, the
+// HOME dir, and a bare grep passed on that alone: codex's only two `.codex/skills` literals are
+// home-dir prose, so the witness said nothing while the declaration it vouched for was missing the
+// directory codex does read (`.agents/skills`). An occurrence counts only when the byte before it
+// is not part of a path — not `/`, not `~`, not a letter, digit or `_` — which is how a repo path
+// is written in prose, a string literal or a markdown table: "files to .claude/skills/ in your
+// project", a quoted ".agents/skills", a backticked .pi/skills/.
+//
+// A declared row the bundle does not carry as text at all — a path assembled from segments, or a
+// bundle shipping its code compressed — is in projectDirsNotText with where it was measured
+// instead, and is logged rather than checked: a witness that cannot tell must say so, not pass.
+// What this can never do is find a directory the agent reads and the pack does not declare.
+//
+// The installed tree is found from the launcher's own REAL_BIN, resolved, and widened to the
+// nearest npm package root when there is one (an npm bundle names its paths in files beside
+// its bin, not in the bin). "" when the pack declares nothing checkable.
+func projectDirsProbe(t *testing.T, pack, bin string) string {
+	t.Helper()
+	var checks []string
+	for _, d := range declaredProjectDirs(pack) {
+		if why, ok := projectDirsNotText[pack][d]; ok {
+			t.Logf("%s's project_dirs row %s is not witnessed by the installed bundle: %s", pack, d, why)
+			continue
+		}
+		pattern := `(^|[^/~A-Za-z0-9_])` + regexp.QuoteMeta(d)
+		checks = append(checks, fmt.Sprintf(
+			`{ grep -rqaE -- %s "$root" || { echo %s; false; }; }`,
+			shquote.Quote(pattern),
+			shquote.Quote("PROJECT_DIRS: "+pack+" declares "+d+" but the installed bundle never names it at project scope")))
+	}
+	if len(checks) == 0 {
+		return ""
+	}
+	return fmt.Sprintf(` && BIN=%s && eval "$(grep '^REAL_BIN=' "$HOME/.yolo/bin/launch/%s")" && `+
+		`root=$(readlink -f "$REAL_BIN") && d=$(dirname "$root") && `+
+		`for i in 1 2 3 4; do if [ -f "$d/package.json" ]; then root=$d; break; fi; d=$(dirname "$d"); done && `+
+		`%s`, bin, bin, strings.Join(checks, " && "))
+}
+
+// declaredProjectDirs is what the shipped pack declares, from its own pack.json.
+func declaredProjectDirs(pack string) []string {
+	for _, p := range packload.Embedded() {
+		if p.Name == pack {
+			return p.Decl.ProjectSkillDirs()
+		}
+	}
+	return nil
+}
+
+// projectDirsNotText is, per pack, each declared project_dirs row its installed bundle does not
+// carry as text at project scope, and where the row was measured instead. Each was checked
+// against the installed bundle on 2026-09-27; TestProjectDirsNotTextNamesDeclaredRows keeps the
+// table from naming a row no pack declares.
+var projectDirsNotText = map[string]map[string]string{
+	"codex": {
+		".codex/skills": "codex 0.157.0 joins `skills` onto every project config layer's `.codex` folder " +
+			"(codex-rs/ext/skills/src/host_roots.rs at rust-v0.157.0, roots_from_layer_stack); its only " +
+			"`.codex/skills` literals are prose about the home dir",
+		".agents/skills": "codex 0.157.0 builds it from the constants `.agents` and `skills` " +
+			"(host_roots.rs, repo_agents_skill_roots); the binary's one `.agents/skills` literal belongs " +
+			"to an external-agent migration",
+	},
+	"copilot": {
+		".github/skills": copilotCompressed,
+		".agents/skills": copilotCompressed,
+		".claude/skills": copilotCompressed,
+	},
+	"opencode": {
+		".claude/skills": opencodeHomeOnly,
+		".agents/skills": opencodeHomeOnly,
+	},
+}
+
+// TestProjectDirsNotTextNamesDeclaredRows keeps projectDirsNotText honest under -short, where a
+// pack's declaration changes: every row it exempts from the probe must be one that pack still
+// declares, or the table goes on excusing a row that is gone — or one that was corrected into
+// a different path and now goes unchecked.
+func TestProjectDirsNotTextNamesDeclaredRows(t *testing.T) {
+	for pack, rows := range projectDirsNotText {
+		declared := map[string]bool{}
+		for _, d := range declaredProjectDirs(pack) {
+			declared[d] = true
+		}
+		for d := range rows {
+			if !declared[d] {
+				t.Errorf("projectDirsNotText[%q] exempts %s, which pack %s does not declare", pack, d, pack)
+			}
+		}
+	}
+}
+
+const (
+	copilotCompressed = "copilot 1.0.88 ships its JavaScript compressed inside one executable, so no path " +
+		"in it is text; the row is 1.0.48's strings (docs/design/workspace-skills.md §2.1)"
+	opencodeHomeOnly = "opencode names it only as a home dir (`~/.claude/skills`, `~/.agents/skills`); its " +
+		"project walk is built from segments, and the row is its documented project search " +
+		"(docs/design/workspace-skills.md §2.1)"
+)
+
 // seedRefreshSeen returns shell that marks the pack's due_on_change content as already
 // refreshed, so the pre-launch refresh stays throttled for a --version probe (AGENTS.md: no
 // agent runs beyond --version). A pack whose refresh declares due_on_change is ALSO due when
@@ -272,40 +379,6 @@ func TestJailConfigsPresent(t *testing.T) {
 // launcher's _refresh_content_key does (internal/entrypoint/prelaunchrefresh.go); if that
 // formula drifts, the "Refreshing" check below fails rather than quietly running the vendor.
 // The list is read from the shipped pack's own declaration, so it cannot drift from pack.json.
-// projectDirsProbe is the `project_dirs` WITNESS (docs/design/workspace-skills.md §5, R5): the
-// shell that asserts every project-scope skills directory the pack declares is a string in the
-// agent it just installed. It pins nothing but the strings and runs nothing — the vendor's files
-// are grepped, never executed (AGENTS.md's no-agent-tests rule) — so an agent that stops naming
-// its own project path fails here, which is the silent break a docs citation would not catch:
-// the mirror would go on skipping an agent that no longer reads there, or copying into one that
-// now does.
-//
-// The installed tree is found from the launcher's own REAL_BIN, resolved, and widened to the
-// nearest npm package root when there is one (an npm bundle names its paths in files beside
-// its bin, not in the bin). "" when the pack declares nothing.
-func projectDirsProbe(t *testing.T, pack, bin string) string {
-	t.Helper()
-	var dirs []string
-	for _, p := range packload.Embedded() {
-		if p.Name == pack {
-			dirs = p.Decl.ProjectSkillDirs()
-		}
-	}
-	if len(dirs) == 0 {
-		return ""
-	}
-	var checks []string
-	for _, d := range dirs {
-		checks = append(checks, fmt.Sprintf(
-			`{ grep -rqaF -- '%[1]s' "$root" || { echo "PROJECT_DIRS: %[2]s declares %[1]s but $root never names it"; false; }; }`,
-			d, pack))
-	}
-	return fmt.Sprintf(` && BIN=%s && eval "$(grep '^REAL_BIN=' "$HOME/.yolo/bin/launch/%s")" && `+
-		`root=$(readlink -f "$REAL_BIN") && d=$(dirname "$root") && `+
-		`for i in 1 2 3 4; do if [ -f "$d/package.json" ]; then root=$d; break; fi; d=$(dirname "$d"); done && `+
-		`%s`, bin, bin, strings.Join(checks, " && "))
-}
-
 func seedRefreshSeen(t *testing.T, pack, bin string) string {
 	t.Helper()
 	var files []string
