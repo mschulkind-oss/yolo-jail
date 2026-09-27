@@ -17,7 +17,9 @@ summary: "The two channels that deliver a pack's environment to an agent running
 **Status:** CURRENT as of 2026-09-09, verified against `38873c0d`. The `-p` grant for an ad-hoc
 command (execution flow step 2, and the paragraph after it) is newer, from 2026-09-27
 ([ES-D1 to ES-D5](../design/credential-sources-separation.md#10-decision-ledger), with the
-remedy's corrections in ES-D10 to ES-D12), and is pinned by unit tests through `hostMain`.
+remedy's corrections in ES-D10 to ES-D12), and is pinned by unit tests through `hostMain`. So is
+the `--with-credentials` grant beside it, from the same day
+([OQ-ES5](../design/credential-sources-separation.md#OQ-ES5)'s host half, ES-D13 to ES-D17).
 
 Inside a jail, injecting environment is trivial: yolo controls the process spawn, so it passes
 `-e KEY=VAL` and PID 1 has the exact environment. On the host it controls nothing — the user
@@ -255,6 +257,20 @@ spelling (`yolo host -p <profile> -- bash`) instead; on an agent that can, it sa
 replaces the agent's own profile. A withheld name the invoking shell already exports is disclosed
 as not added by yolo, and one a pack's `env` sets as held from that source, since the command
 holds either anyway ([`providers.md`](providers.md#the-credential-gate)).
+
+**`--with-credentials` hands a command keys by provider, several at once.**
+`yolo host --with-credentials <provider[,provider...]|all> -- <cmd>` gives the one command the
+named providers' claimed `env_sources` values, keys only. `all` means every composed provider
+that claims a value, which is what a usage bar that pings every subscription needs from the one
+store the user keeps. It selects no profile and re-points nothing, and it combines with `-p`: an
+agent keeps its profile and receives the granted keys too.
+`eval "$(yolo host env --with-credentials all)"` is the shell spelling. There, with no
+`--agent`, the script is an ad-hoc command's slice, so no agent's provider shape reaches the
+shell. Every run given the flag prints a `Credential grant` block, names only, and a named
+provider with nothing to hand over is reported. An unknown provider refuses, naming the known
+ones. Only the typed flag grants, and a jail launch given it refuses as host-only
+([OQ-ES5](../design/credential-sources-separation.md#OQ-ES5), ruled for the host;
+[ES-D13 to ES-D17](../design/credential-sources-separation.md#10-decision-ledger)).
 
 ## apply reports actions, check reports state
 

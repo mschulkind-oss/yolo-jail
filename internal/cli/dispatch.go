@@ -71,6 +71,12 @@ var valueTakingFlags = map[string]bool{
 	// Stripped by StripUserLayer before RewriteArgv sees argv, so this entry is
 	// defensive — it costs nothing and removes an ordering dependency.
 	"--user-layer": true,
+	// The host's grant (`yolo host --with-credentials <providers> -- <cmd>`). A jail launch
+	// REFUSES it (refuseHostOnlyFlags), and this skip is what lets it get there: without it
+	// `yolo --with-credentials zai -- bash` read "zai" as a command name and answered
+	// `unknown command "zai"`, a refusal that never said the flag is host-only. Its value
+	// is a provider name, user text like every other value here.
+	withCredentialsFlag: true,
 }
 
 // namesSubcommand reports whether any token in args is a subcommand NAME, skipping the

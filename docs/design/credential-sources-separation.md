@@ -19,7 +19,8 @@ found the built remedy naming `-p` launches the named agent refuses, and a `yolo
 spelling that exported the agent's whole provider shape; ES-D7 and ES-D8 are amended, and ES-D10
 to ES-D12 record the fixes (`edf88e4f` to `3415cbc6`). **[OQ-ES5](#OQ-ES5)'s host half was ruled
 by the maintainer later the same day**: an explicit `yolo host --with-credentials
-<provider[,provider...]|all> -- <cmd>` grant, keys only, host only. Its jail half, and
+<provider[,provider...]|all> -- <cmd>` grant, keys only, host only. It is BUILT
+([§5.1](#51-the-explicit-grant---with-credentials-built), ES-D13 to ES-D17). Its jail half, and
 [OQ-ES1](#OQ-ES1), [OQ-ES6](#OQ-ES6) and [OQ-ES7](#OQ-ES7), are still open.
 
 > **In short.** The gate withholds a claimed name only when `env_sources` supplies it, and the
@@ -39,7 +40,8 @@ surface the existing grant; three new questions the filing's cases lead to.
 fires on `AWS_PROFILE` for every claude-pack user.
 
 **Start at [§3](#3-where-the-surprise-is-by-spelling-and-by-notch)**; for the host-only answer,
-[§5](#5-the-host-half-is-built-what-shipping-it-takes).
+[§5](#5-the-host-half-is-built-what-shipping-it-takes), and for the ruled multi-provider grant,
+[§5.1](#51-the-explicit-grant---with-credentials-built).
 
 **Needs your ruling:** [OQ-ES1](#OQ-ES1), [OQ-ES5](#OQ-ES5)'s jail half (its host half is
 ruled), [OQ-ES6](#OQ-ES6), [OQ-ES7](#OQ-ES7).
@@ -353,6 +355,52 @@ call site is removed):
    `yolo host -- claude` names `yolo host -p cerebras -- bash`, never a claude launch that
    refuses on the protocol pairing ([ES-D10](#10-decision-ledger)).
 
+### 5.1 The explicit grant: `--with-credentials`, built
+
+[OQ-ES5](#OQ-ES5)'s host half is ruled, and it is built as ruled. The case is a command that
+needs many providers' keys at once, such as a usage bar that pings every subscription. `-p`
+names one profile, so it cannot serve that case.
+
+With packs `claude`, `zai` and `cerebras` and both keys in `env_sources` (measured through
+`hostMain`, as the cells run it):
+
+```console
+$ yolo host --with-credentials all -- usage-bar
+yolo host: Credential scope: a provider's credential reaches only the agents whose profile selects it.
+  ZAI_API_KEY (provider zai): usage-bar only
+  CEREBRAS_API_KEY (provider cerebras): usage-bar only
+yolo host: Credential grant (--with-credentials all): usage-bar receives the granted providers' claimed env_sources values, keys only — the grant selects no profile and re-points nothing, and every process usage-bar starts inherits them
+  cerebras: CEREBRAS_API_KEY
+  zai: ZAI_API_KEY
+```
+
+The grant is a **recipient of the gate**, not a second path around it
+([ES-D13](#10-decision-ledger)). The flag's grammar is
+[ES-D14](#10-decision-ledger), its disclosure [ES-D15](#10-decision-ledger), `yolo host env`'s
+default slice under it [ES-D16](#10-decision-ledger), and the jail's refusal
+[ES-D17](#10-decision-ledger).
+
+**What done looks like.** All nine are met, each by a cell in
+`internal/cli/hostwithcredentials_test.go`, `internal/cli/hostonlyflags_test.go` or
+`internal/packload/credentialgrant_test.go`. Each cell was checked to fail when its production
+call site is removed.
+
+1. `yolo host --with-credentials zai,cerebras -- bash` hands `bash` both keys and the unclaimed
+   values, and nothing of a provider it did not name.
+2. Granted to `claude`, zai's key arrives, and none of the zai profile's shape does: no
+   `ANTHROPIC_BASE_URL`, and no `ANTHROPIC_AUTH_TOKEN`.
+3. `all` grants every provider that claims a value env_sources holds, and no other.
+4. The grant is disclosed on every run, by name, including a grant that delivers nothing. No
+   value is ever printed.
+5. A named provider env_sources holds no value for is reported with the names it claims.
+6. An unknown provider refuses before the exec, naming every known provider.
+7. `-p bedrock --with-credentials zai -- claude` keeps claude's bedrock shape and keys and adds
+   zai's key.
+8. Without the typed flag, nothing grants: `-p`, `use_profiles`, and every `YOLO_ALLOW_*` variable
+   set together leave an unnamed provider's key withheld and print no grant line.
+9. `eval "$(yolo host env --with-credentials all)"` exports the keys and none of an agent's shape.
+   A jail launch given the flag exits 2, naming that it is host-only and the host spelling.
+
 ## 6. Trade-offs
 
 | Dimension | Today: one channel, classified by name | The split: `credential_sources` |
@@ -392,7 +440,8 @@ works:
 
 - **No suppressed disclosure.** Every grant is disclosed. The existing `-p` route already says
   "bash only" ([CN-D16](provider-credential-scope.md#7-decision-ledger),
-  [`OQ-RO3`](../reference/report-tiers.md#why-its-this-way)).
+  [`OQ-RO3`](../reference/report-tiers.md#why-its-this-way)), and `--with-credentials` prints
+  its own block on every run ([ES-D15](#10-decision-ledger)).
 - **No grant written into a file.** An entry rewrites the per-agent directory whole
   ([CN-D7](provider-credential-scope.md#7-decision-ledger)), so a grant that lived in a file would
   be changed by the next attach, and one launch's result would depend on another's. A grant rides
@@ -500,7 +549,7 @@ works:
    > solution a lot"*:
    >
    > - **`env_sources` stays the one store.** No split; this is [OQ-ES1](#OQ-ES1)'s leaning, and
-   >   OQ-ES1 itself is not otherwise ruled here.
+   >   [OQ-ES1](#OQ-ES1) itself is not otherwise ruled here.
    > - **An explicit grant flag,** `yolo host --with-credentials <provider[,provider...]|all> --
    >   <cmd>`. It hands that one command the named providers' CLAIMED `env_sources` values: keys
    >   only, with no profile routing and no shape variables, so nothing re-points a base URL.
@@ -571,7 +620,7 @@ works:
 
 | ID | Ruling / Decision | Date | Settled in | Built |
 | :--- | :--- | :--- | :--- | :--- |
-| OQ-ES5 | **The host half, ruled by the maintainer.** `yolo host --with-credentials <provider[,provider...]\|all> -- <cmd>`, and the same flag on `yolo host env`, hands one command the named providers' claimed `env_sources` values: keys only, no profile routing and no shape variables. `all` is every composed provider that claims a value. Disclosed on every run, names only. An unknown provider refuses, naming the known ones; a named provider with no value is reported. It combines with `-p`. Nothing else implies it. HOST ONLY: a jail launch given it refuses, naming that it is host-only. `env_sources` stays the one store. The jail half is open | 2026-09-27 | [OQ-ES5](#OQ-ES5) | not yet |
+| OQ-ES5 | **The host half, ruled by the maintainer.** `yolo host --with-credentials <provider[,provider...]\|all> -- <cmd>`, and the same flag on `yolo host env`, hands one command the named providers' claimed `env_sources` values: keys only, no profile routing and no shape variables. `all` is every composed provider that claims a value. Disclosed on every run, names only. An unknown provider refuses, naming the known ones; a named provider with no value is reported. It combines with `-p`. Nothing else implies it. HOST ONLY: a jail launch given it refuses, naming that it is host-only. `env_sources` stays the one store. The jail half is open | 2026-09-27 | [OQ-ES5](#OQ-ES5) | ✅ 2026-09-27, as ES-D13 to ES-D17 |
 | OQ-ES3 | *Answered by the tree, not ruled.* Filed as question 3: "how should an arbitrary command request provider credentials?" At the host, `yolo host -p <profile> -- <cmd>` already delivers that profile's claimed `env_sources` values to any command and discloses it as `<cmd> only`. ES-D1 to ES-D5 finish it. The jail and multi-provider half is [OQ-ES5](#OQ-ES5); the CLI-less half is [OQ-ES7](#OQ-ES7) | 2026-09-27 | [§5](#5-the-host-half-is-built-what-shipping-it-takes) | ✅ behavior at `8da7840d`; pinned `c809adc2` |
 | ES-D1 | *Implementation decision.* The typed host `-p` is the grant for any command, pinned through `hostMain` with a non-agent basename. The cells fail if the agent loop checks installation or the basename keying goes. The notches differ on purpose: the jail's `-p` never keys the `--` command | 2026-09-27 | [§5](#5-the-host-half-is-built-what-shipping-it-takes) | ✅ `c809adc2` |
 | ES-D2 | *Implementation decision.* At the host, a "withheld" line names `yolo host -p <profile> -- <cmd>`, using a declared profile that resolves to the claimant, or says to declare one. The jail's line is unchanged until [OQ-ES5](#OQ-ES5) | 2026-09-27 | [§5](#5-the-host-half-is-built-what-shipping-it-takes) | ✅ `dbe10a15` |
@@ -585,3 +634,8 @@ works:
 | ES-D10 | *Implementation decision.* A remedy is a command the user will run, so the profile it names must be one the named command can run on, asked the way that launch asks. `runsOn` calls `ScopeCredentials` over the launch's own inputs with the candidate selected for the command, which runs `AgentEnv`'s protocol pairing gate and the pack's env derive. ES-D7's order gives the candidates, and the first that composes is named. When none does, the line says the agent cannot run on that profile and names the ad-hoc spelling instead: `yolo host -p <profile> -- bash`, or only the shell spelling at `yolo host env`. The declare-a-profile arm asks the same of the entry it shows, resolved to its provider alone. A command no selected pack installs is never asked, since no pack code runs for it. The credential pre-flight is not re-asked, because the name the line is about is the credential it looks for. Chosen over `PairingRefusals`, the pairing gate alone, which would miss a derive's refusal. The pairing refusal's own fix, adding wire-bridge to `packs`, is not named: at the host that composes claude onto the adapter's address, `http://127.0.0.1:8214` (measured), and the bridge exists only in-jail ([`wire-bridge.md`](../reference/wire-bridge.md#what-this-does-not-license)) | 2026-09-27 | [§5](#5-the-host-half-is-built-what-shipping-it-takes) | ✅ `4201610e` |
 | ES-D11 | *Implementation decision.* A `-p` names one profile, so the one a remedy names replaces the launch's own. A withheld name belongs to a provider the command's profile did not select, so on a command a selected pack installs, the named `-p` re-points the agent's backend and adds no key. That line is worded as the switch it is ("To run claude on the zai profile for one launch, replacing its bedrock profile"). An ad-hoc command's line stays a grant ("To hand it to bash for one launch"), and says which typed profile it replaces when there is one. Chosen over also offering the ad-hoc spelling on an agent's exec line, which would lengthen every such line for a case `yolo host env`'s shell spelling already covers | 2026-09-27 | [§5](#5-the-host-half-is-built-what-shipping-it-takes) | ✅ `35c504ec` |
 | ES-D12 | *Implementation decision.* A withheld name the process holds from a value yolo composed from another source than `env_sources`, such as a pack's `env` of the same name, is disclosed as not delivered from `env_sources`, the process holding that source's value. It is never disclosed as "withheld from every process". The mechanism is `DisclosureNotes.Composed`, beside `Inherited`, which is asked first. At the host it answers for a name whose composed value is not the shell's own, with or without a shell value. The line keeps its remedy, because a delivered `env_sources` value beats the pack's. The jail passes no notes (ES-D6), so its line is unchanged. The jail has the same case, read from the code and not measured: `ScopeCredentials` gives every process the selected packs' static env | 2026-09-27 | [§3.5](#35-what-the-disclosure-says-and-what-it-gets-wrong) | ✅ `3415cbc6` |
+| ES-D13 | *Implementation decision.* [OQ-ES5](#OQ-ES5)'s grant is a RECIPIENT of the gate: `packload.ScopeInput.Grants` maps a process to the providers it is granted, and `ScopeCredentials` gives that process a delivery carrying every `env_sources` name a granted provider claims (`credentialClaims`, the one claim model). A grant-only process has no profile and no provider, so no derive runs, no gated env fires and nothing is re-pointed. `SelectedProviders` never lists a granted provider, so the pre-flight asks nothing of it. `LookupFor` is not widened, so no derive sees a granted key. The disclosure counts the grantee as a recipient (`ZAI_API_KEY (provider zai): bash only`). Chosen over appending the values at the host after the gate, which would re-derive the claim model and leave the gate's own lines calling a delivered name withheld. A jail passes no grant, so its answer is unchanged | 2026-09-27 | [§5.1](#51-the-explicit-grant---with-credentials-built) | ✅ 2026-09-27 |
+| ES-D14 | *Implementation decision.* The flag's grammar. It is repeatable, and each value is a comma list; the occurrences merge. An empty element refuses at the parse, exit 2, because a grant of nothing is a mistake. `all` is a keyword: every composed provider that claims a name `env_sources` holds (`packload.ClaimingProviders`), and it may stand beside names. A provider literally named `all` cannot be granted by name. Any other name the composed table does not hold refuses the launch, exit 1, before the exec, naming every composed provider. The same refusal is `yolo host env`'s error | 2026-09-27 | [§5.1](#51-the-explicit-grant---with-credentials-built) | ✅ 2026-09-27 |
+| ES-D15 | *Implementation decision.* The grant's disclosure is its own block after the gate's lines, `Credential grant (--with-credentials <as typed>)`, printed on every run given the flag, including one that grants nothing. It says the values are keys only, that the grant selects no profile and re-points nothing, and that everything the command starts inherits them ([CN-D8](provider-credential-scope.md#7-decision-ledger)). With a profile it says the command keeps it. Then there is one line per granted provider: the names it delivered, or `nothing granted`, with the names it claims or that it claims none. It prints names only. Unconditional in `hostExec` and in `hostEnvDelta`'s result ([`OQ-RO3`](../reference/report-tiers.md#why-its-this-way)) | 2026-09-27 | [§5.1](#51-the-explicit-grant---with-credentials-built) | ✅ 2026-09-27 |
+| ES-D16 | *Implementation decision.* `yolo host env --with-credentials …` with no `--agent` composes the ad-hoc slice (`bash`, ES-D7's stand-in for a name no selected pack installs), not the verb's default `claude`. The ruled spelling `eval "$(yolo host env --with-credentials all)"` asks for keys, and claude's slice would export its profile's whole shape beside them, `ANTHROPIC_BASE_URL` included, re-pointing every claude that shell starts. That is ES-D7's defect, and a grant re-points nothing. `--agent <name>` still composes that agent's slice, profile included, with the keys added | 2026-09-27 | [§5.1](#51-the-explicit-grant---with-credentials-built) | ✅ 2026-09-27 |
+| ES-D17 | *Implementation decision.* A jail launch given `--with-credentials` exits 2 through `refuseHostOnlyFlags`, ahead of the unknown-flag refusal. The message names the flag as host-only, says the jail half is open, and gives the host spelling with the value typed. Only yolo's own tokens are asked (`parseRunArgs`' boundary), so a wrapped program's flag of the same name is its own. The front door skips the flag's value (`valueTakingFlags`). Without that skip, `yolo --with-credentials zai -- bash` answered `unknown command "zai"`, which never said the flag is host-only. `yolo --at host --with-credentials … -- <cmd>` is the host verb's spelling and carries it there | 2026-09-27 | [§5.1](#51-the-explicit-grant---with-credentials-built) | ✅ 2026-09-27 |

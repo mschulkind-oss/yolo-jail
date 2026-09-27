@@ -1118,6 +1118,11 @@ func runRun(args []string) int {
 	// The one refusal the fold used to make (a -p with no readable name) went with the heuristic
 	// that needed it — docs/reference/providers.md OQ-PT5.
 	yoloArgs := parseRunArgs(args, &opts)
+	// A HOST-ONLY flag is named as one before the generic refusal would call it unknown: the
+	// grant exists, at `yolo host`, and the refusal says so (refuseHostOnlyFlags).
+	if refuseHostOnlyFlags(args, yoloArgs, os.Stderr) {
+		return 2
+	}
 	if refuseUnknownFlags("run", args[:yoloArgs], runKnownFlags(), os.Stderr) {
 		return 2
 	}

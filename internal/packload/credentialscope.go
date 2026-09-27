@@ -30,6 +30,7 @@ package packload
 // the one launched agent's session on macos-user, the one exec'd process at the host notch.
 
 import (
+	"slices"
 	"sort"
 	"strings"
 
@@ -61,6 +62,15 @@ type ScopeInput struct {
 	// does not execute pack code (internal/cli/check/envoverrides.go) — so every launch
 	// path, which leaves it false, gets the derives by default.
 	NoDerives bool
+	// Grants is the per-invocation GRANT (docs/design/credential-sources-separation.md
+	// OQ-ES5, ruled for the host notch 2026-09-27): process name → the providers whose
+	// claimed env_sources values that process ALSO receives. Keys only: a grant selects no
+	// profile and no provider, so it runs no derive, fires no gated env, re-points nothing,
+	// and the pre-flight asks nothing of it (SelectedProviders never lists a granted
+	// provider). A process with a profile keeps it and receives the granted values beside
+	// its own. Only `yolo host --with-credentials` passes one; nil is every jail launch, whose
+	// answer is therefore unchanged.
+	Grants map[string][]string
 }
 
 // CredentialScope is the gate's answer for one launch. Its accessors answer on a nil
@@ -86,8 +96,12 @@ type AgentDelivery struct {
 	Agent    string
 	Profile  string
 	Provider string
+	// Granted is the providers this process's grant names (ScopeInput.Grants), sorted and
+	// deduplicated; empty without one. A grant-only process has no Profile and no Provider.
+	Granted []string
 	// EnvSources is the env_sources entries only this agent receives: the claimed
-	// credentials of the provider its profile selects, in hydration order.
+	// credentials of the provider its profile selects, and of every provider its grant
+	// names, in hydration order.
 	EnvSources *jsonx.OrderedMap
 	// PackEnv is this agent's pack env fold where it differs from the shared fold — the
 	// values of the gated contributions its selection satisfies.
@@ -120,21 +134,21 @@ func ScopeCredentials(in ScopeInput) (*CredentialScope, error) {
 		v, _ := s.envSources.Get(k)
 		s.sharedEnvSources.Set(k, v)
 	}
-	for _, agent := range sortedMapKeys(in.Profiles) {
+	for _, agent := range deliveryAgents(in.Profiles, in.Grants) {
 		profile := in.Profiles[agent]
-		if profile == "" {
-			continue
-		}
 		d := &AgentDelivery{
 			Agent:      agent,
 			Profile:    profile,
-			Provider:   ProviderFor(in.Resolved, profile),
+			Granted:    sortedUnique(in.Grants[agent]),
 			EnvSources: jsonx.NewOrderedMap(),
 			PackEnv:    map[string]string{},
 			Fold:       EnvFold(in.Packs, in.Profiles, agent),
 		}
+		if profile != "" {
+			d.Provider = ProviderFor(in.Resolved, profile)
+		}
 		for _, k := range s.envSources.Keys() {
-			if _, claimed := s.claims[k]; claimed && s.receives(d.Provider, k) {
+			if _, claimed := s.claims[k]; claimed && s.delivers(d, k) {
 				v, _ := s.envSources.Get(k)
 				d.EnvSources.Set(k, v)
 			}
@@ -148,7 +162,9 @@ func ScopeCredentials(in ScopeInput) (*CredentialScope, error) {
 			}
 		}
 		s.agents[agent] = d
-		if in.NoDerives {
+		// A grant-only process has no profile, so there is no derive to run for it: the
+		// grant is keys only, never a shape.
+		if in.NoDerives || profile == "" {
 			continue
 		}
 		shape, err := AgentEnv(in.Packs, in.Providers, in.Profiles, agent, profile,
@@ -159,6 +175,88 @@ func ScopeCredentials(in ScopeInput) (*CredentialScope, error) {
 		d.Shape = shape
 	}
 	return s, nil
+}
+
+// deliveryAgents is every process the gate composes a delivery for, sorted: each with a
+// selected profile, and each a grant names.
+func deliveryAgents(profiles map[string]string, grants map[string][]string) []string {
+	set := map[string]string{}
+	for agent, profile := range profiles {
+		if profile != "" {
+			set[agent] = ""
+		}
+	}
+	for agent, providers := range grants {
+		if len(providers) > 0 {
+			set[agent] = ""
+		}
+	}
+	return sortedMapKeys(set)
+}
+
+// sortedUnique is names sorted with duplicates dropped, nil for none.
+func sortedUnique(names []string) []string {
+	if len(names) == 0 {
+		return nil
+	}
+	out := append([]string(nil), names...)
+	sort.Strings(out)
+	return slices.Compact(out)
+}
+
+// ClaimingProviders is every composed provider that claims a name envSources holds, sorted:
+// what a grant of `all` names (OQ-ES5 — "every provider in the composed table that claims a
+// value"). The claims are the gate's own (credentialClaims), so a user's override of a
+// provider's api_key_env_name moves this answer exactly as it moves the gate's.
+func ClaimingProviders(providers, envSources *jsonx.OrderedMap) []string {
+	claims := credentialClaims(providers)
+	seen := map[string]string{}
+	if envSources != nil {
+		for _, k := range envSources.Keys() {
+			for _, p := range claims[k] {
+				seen[p] = ""
+			}
+		}
+	}
+	return sortedMapKeys(seen)
+}
+
+// GrantedProvider is what one granted provider delivered to a process: the names it claims
+// that env_sources held, in hydration order, beside every name it claims, sorted. Delivered
+// empty is the "no value" case a caller reports rather than skips.
+type GrantedProvider struct {
+	Provider  string
+	Delivered []string
+	Claims    []string
+}
+
+// GrantedTo is agent's grant as delivered, one entry per granted provider, sorted: nil when
+// the process has no grant. Names only — never a value.
+func (s *CredentialScope) GrantedTo(agent string) []GrantedProvider {
+	if s == nil {
+		return nil
+	}
+	d := s.agents[agent]
+	if d == nil || len(d.Granted) == 0 {
+		return nil
+	}
+	out := make([]GrantedProvider, 0, len(d.Granted))
+	for _, p := range d.Granted {
+		g := GrantedProvider{Provider: p}
+		for name, claimants := range s.claims {
+			if slices.Contains(claimants, p) {
+				g.Claims = append(g.Claims, name)
+			}
+		}
+		sort.Strings(g.Claims)
+		for _, k := range s.envSources.Keys() {
+			if slices.Contains(s.claims[k], p) {
+				g.Delivered = append(g.Delivered, k)
+			}
+		}
+		out = append(out, g)
+	}
+	return out
 }
 
 // credentialClaims maps each credential variable to the composed providers listing it.
@@ -196,10 +294,30 @@ func (s *CredentialScope) receives(provider, name string) bool {
 	return false
 }
 
+// delivers reports whether delivery d's process may see variable name: what its profile's
+// provider receives, plus every name a provider its grant names claims. A nil delivery is a
+// process with neither, which receives the unclaimed names only.
+func (s *CredentialScope) delivers(d *AgentDelivery, name string) bool {
+	if d == nil {
+		return s.receives("", name)
+	}
+	if s.receives(d.Provider, name) {
+		return true
+	}
+	for _, g := range d.Granted {
+		if slices.Contains(s.claims[name], g) {
+			return true
+		}
+	}
+	return false
+}
+
 // LookupFor is the credential lookup agent's env derive composes through: the hydrated
 // env_sources, then the fallback, and neither for a name another provider claims. It is
 // what makes hydrateProviders write only the agent's own provider's api_key into the
-// derive's copy of the table (OQ-CN2's rendered-config half).
+// derive's copy of the table (OQ-CN2's rendered-config half). A grant does not widen it: a
+// granted key reaches the process's environment and never its derive, so no derive can
+// point the agent at a granted provider (the grant re-points nothing).
 func (s *CredentialScope) LookupFor(agent string) func(string) (string, bool) {
 	provider := ""
 	if d := s.agents[agent]; d != nil {
@@ -275,19 +393,16 @@ func (s *CredentialScope) SelectedProviders() []string {
 }
 
 // EnvSourcesFor is the env_sources one agent's process receives, in hydration order: the
-// shared entries and its own provider's claimed ones. An agent with no profile — or "" —
-// receives the shared entries only.
+// shared entries, its own provider's claimed ones and its grant's. An agent with no profile
+// and no grant — or "" — receives the shared entries only.
 func (s *CredentialScope) EnvSourcesFor(agent string) *jsonx.OrderedMap {
 	if s == nil {
 		return jsonx.NewOrderedMap()
 	}
-	provider := ""
-	if d := s.agents[agent]; d != nil {
-		provider = d.Provider
-	}
+	d := s.agents[agent]
 	out := jsonx.NewOrderedMap()
 	for _, k := range s.envSources.Keys() {
-		if s.receives(provider, k) {
+		if s.delivers(d, k) {
 			v, _ := s.envSources.Get(k)
 			out.Set(k, v)
 		}
@@ -305,7 +420,7 @@ func (s *CredentialScope) DeliversEnvSource(name string) bool {
 		return true
 	}
 	for _, d := range s.agents {
-		if s.receives(d.Provider, name) {
+		if s.delivers(d, name) {
 			return true
 		}
 	}
@@ -412,7 +527,7 @@ func (s *CredentialScope) DisclosureWith(notes DisclosureNotes) []string {
 		}
 		var recipients []string
 		for _, agent := range s.Agents() {
-			if s.receives(s.agents[agent].Provider, k) {
+			if s.delivers(s.agents[agent], k) {
 				recipients = append(recipients, agent)
 			}
 		}

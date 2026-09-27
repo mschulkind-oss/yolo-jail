@@ -18,6 +18,7 @@ package cli
 // property cli.go's top-level help branch documents for itself.
 
 import (
+	"fmt"
 	"io"
 	"strings"
 
@@ -124,6 +125,43 @@ var runFlags = []string{"--profile", "--timing", "--dry-run", "--network", "--ac
 func runKnownFlags() []string {
 	return append(append([]string(nil), runFlags...),
 		"-p", "--help", "-h", "--verbose", "-v", "run")
+}
+
+// refuseHostOnlyFlags refuses a jail launch given a flag only `yolo host` takes, naming that it
+// is host-only and the host spelling that does take it. args is runRun's argv and boundary the
+// count of its leading tokens that are yolo's (parseRunArgs), so a wrapped program's own
+// `--with-credentials` is never read as yolo's.
+//
+// ONE SUCH FLAG TODAY, the grant (docs/design/credential-sources-separation.md OQ-ES5): it was
+// ruled for the host on 2026-09-27 and its jail half is still open, so a jail launch must not
+// quietly accept it, and an "unknown flag" refusal would hide that the flag exists and where.
+// It exits 2 like every other misuse refusal (refuseUnknownFlags).
+func refuseHostOnlyFlags(args []string, boundary int, errw io.Writer) bool {
+	for i := 0; i < boundary && i < len(args); i++ {
+		a := args[i]
+		value := ""
+		switch {
+		case a == withCredentialsFlag:
+			if i+1 < len(args) && args[i+1] != "--" && args[i+1] != "run" {
+				value = args[i+1]
+			}
+		case strings.HasPrefix(a, withCredentialsFlag+"="):
+			value = a[len(withCredentialsFlag+"="):]
+		default:
+			continue
+		}
+		if value == "" {
+			value = "<provider[,provider...]|all>"
+		}
+		fmt.Fprintf(errw, "yolo run: %s is HOST-ONLY: it grants providers' claimed env_sources "+
+			"credentials to the one command `yolo host` runs, and a jail launch does not take it "+
+			"(whether a jail shell gets a grant is still open, OQ-ES5).\n"+
+			"  At the host: `yolo host %s %s -- <command>`, or "+
+			"`eval \"$(yolo host env %s %s)\"` for a shell.\n",
+			withCredentialsFlag, withCredentialsFlag, value, withCredentialsFlag, value)
+		return true
+	}
+	return false
 }
 
 // applyProfileValue reads one -p/--profile value: "cli=name" (comma-separated,

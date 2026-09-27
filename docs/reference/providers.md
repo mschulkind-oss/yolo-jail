@@ -61,7 +61,9 @@ way, newer than that stamp. UNMEASURED: no live agent session has been watched a
 disclosure wording and the `use_profiles` key refusal at `yolo host`, described under
 [the credential gate](#the-credential-gate), come from
 [`credential-sources-separation.md`](../design/credential-sources-separation.md) ES-D1 to ES-D5, and
-the remedy's corrections from ES-D10 to ES-D12.
+the remedy's corrections from ES-D10 to ES-D12. The `--with-credentials` grant is from the same
+day's ruling of that doc's [OQ-ES5](../design/credential-sources-separation.md#OQ-ES5) host
+half, built as ES-D13 to ES-D17.
 MEASURED: pinned through `hostMain` by unit tests in `internal/cli`. UNMEASURED: no real host has
 run it.
 
@@ -362,6 +364,21 @@ Where each answer lands is the vehicle's:
     is disclosed as not delivered from `env_sources`, the process holding that source's value.
     Neither line calls the name withheld, because the command holds it anyway
     ([ES-D10 to ES-D12](../design/credential-sources-separation.md#10-decision-ledger)).
+  - **`--with-credentials` grants keys by provider, for one run.**
+    `yolo host --with-credentials zai,cerebras -- <cmd>` hands the command those providers'
+    claimed `env_sources` values, and `all` names every composed provider that claims a value
+    there. `eval "$(yolo host env --with-credentials all)"` exports them into the current shell;
+    with no `--agent` that script is an ad-hoc command's slice, so no agent's shape rides along.
+    The grant is keys only: it selects no profile, runs no derive, re-points no base URL, and
+    the credential pre-flight asks nothing of a granted provider. The gate delivers it
+    (`ScopeInput.Grants`), so its lines name the command as the recipient, and a
+    `Credential grant` block follows on every run given the flag. The block names each
+    provider's delivered names, or says a named provider delivered nothing. An unknown provider
+    refuses, naming the composed ones. It combines with `-p`: an agent keeps its profile and
+    also receives the granted keys. Only the typed flag grants. `-p`, `use_profiles`, a
+    `YOLO_ALLOW_*` variable and config cannot, and a jail launch given the flag refuses as
+    host-only ([OQ-ES5](../design/credential-sources-separation.md#OQ-ES5), ruled for the host;
+    [ES-D13 to ES-D17](../design/credential-sources-separation.md#10-decision-ledger)).
 
 Every arm discloses what it scoped or withheld, by name and never by value
 (`CredentialScope.Disclosure`; the host notch adds its remedy and its shell note through

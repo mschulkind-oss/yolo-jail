@@ -129,8 +129,12 @@ only cost tokens and prompts in a jail. See [posture lists](docs/reference/pack-
   only `env_sources` values no provider claims, and `yolo host env` prints one agent's slice.
   On your own machine, `yolo host -p <profile> -- <command>` hands any command, not only an
   agent, the credentials that profile claims from `env_sources` for one run, and each withheld
-  credential's line names a command that delivers it. An SSO-backed Bedrock profile's
-  credential endpoint still reaches only an agent.
+  credential's line names a command that delivers it. For a command that needs several
+  providers' keys at once, such as a usage bar, `yolo host --with-credentials zai,cerebras --
+  <command>` (or `all`) hands it just those keys for one run, without switching any profile, and
+  names what it handed over; `eval "$(yolo host env --with-credentials all)"` puts them in your
+  shell. A jail launch refuses the flag. An SSO-backed Bedrock profile's credential endpoint
+  still reaches only an agent.
   On macos-user only the program the invocation starts gets its profile's values, so an agent
   started from the sandbox's login shell gets none. A variable you set on an agent's command
   line no longer overrides what its profile composes.

@@ -50,6 +50,21 @@ Exec flags (yolo host -- ...):
                                 claimed env_sources credentials, which are otherwise
                                 withheld from it. use_profiles cannot do this for a
                                 command no pack installs; only the typed flag can.
+  --with-credentials <provider[,provider...]|all>
+                                GRANT the wrapped command the named providers' claimed
+                                env_sources credentials, this launch only. KEYS ONLY: no
+                                profile is selected and nothing is re-pointed (no base
+                                URL, no model). ` + "`all`" + ` is every composed provider that claims
+                                a value in env_sources. Repeatable; also
+                                --with-credentials=<list>. It combines with -p: an agent
+                                keeps its profile and also receives the granted keys.
+                                Every run names what it granted, by name, never by value,
+                                and everything the command starts inherits it. An
+                                unknown provider refuses, naming the known ones; a named
+                                provider env_sources holds no value for is reported.
+                                Nothing else implies it: not -p, not use_profiles, not
+                                any YOLO_ALLOW_* variable, and no config key. HOST ONLY:
+                                a jail launch refuses it.
   --help, -h                    Show this help.
 
 With ` + "`host_apply_on_launch`" + ` enabled (defaulting to on when ` + "`host_wrappers: true`" + `),
@@ -96,17 +111,25 @@ some of them do not apply at this notch.
 env flags:
   --format <fmt>  export (default) or json.
   --profile <name>, -p <name>   As above, for the --agent it composes.
-  --agent <name>  Compose as if launching this agent (default: claude). The agent name
-                  selects which use_profiles entry applies, and the output is that
-                  agent's slice: a provider credential another agent's profile claims
-                  is withheld from it, and stderr says which, by name.
+  --with-credentials <provider[,provider...]|all>
+                  As above, for the script: it exports the granted keys. With no
+                  --agent the script is an ad-hoc command's slice (as --agent bash),
+                  so no agent's provider shape reaches the shell alongside the keys.
+  --agent <name>  Compose as if launching this agent (default: claude, or bash under
+                  --with-credentials). The agent name selects which use_profiles entry
+                  applies, and the output is that agent's slice: a provider credential
+                  another agent's profile claims is withheld from it, and stderr says
+                  which, by name.
 
 Examples:
   yolo host -- claude                 # bare claude, with the composed environment
   yolo host -p bedrock -- claude      # ... on the bedrock profile, this launch only
   yolo host -p zai -- curl ...        # any command, handed zai's claimed key
+  yolo host --with-credentials all -- usage-bar   # every provider's key, keys only
+  yolo host -p bedrock --with-credentials zai -- claude   # bedrock, plus zai's key
   eval "$(yolo host env)"             # the same environment, in this shell
   eval "$(yolo host env --agent bash -p zai)"   # zai's key, in this shell
+  eval "$(yolo host env --with-credentials all)"   # every provider's key, in this shell
   yolo host apply --assert            # write the config surfaces
   yolo host apply --revert            # what would withdrawing yolo remove?
 
@@ -154,10 +177,48 @@ func hostMain(args []string, out, errw io.Writer, color bool, stdin io.Reader) i
 // hostExecFlags is what the exec half accepts before `--`.
 type hostExecFlags struct {
 	profile string
+	// grant is the --with-credentials request, nil when the flag was not given: the only
+	// spelling that makes one (credential-sources-separation.md OQ-ES5, ruled for the host).
+	grant *hostGrantRequest
+}
+
+// hostGrantRequest is a --with-credentials request as typed: provider names and `all`, from
+// every occurrence of the flag, comma lists split, in the order given.
+type hostGrantRequest struct {
+	names []string
+}
+
+// withCredentialsFlag is the grant's one spelling. A constant because the jail's refusal
+// (refuseHostOnlyFlags) names it too, and the two must not drift apart.
+const withCredentialsFlag = "--with-credentials"
+
+// addGrantValue folds one --with-credentials value into the request: comma-separated, every
+// element a name. An empty element is refused rather than dropped — `--with-credentials ""`
+// asking for nothing is a mistake, and a grant that silently grants nothing hides it.
+func addGrantValue(req *hostGrantRequest, v string) error {
+	for _, n := range strings.Split(v, ",") {
+		n = strings.TrimSpace(n)
+		if n == "" {
+			return fmt.Errorf("%s needs a provider name, a comma-separated list of them, or all "+
+				"(got %q)", withCredentialsFlag, v)
+		}
+		req.names = append(req.names, n)
+	}
+	return nil
 }
 
 func parseHostExecFlags(args []string, errw io.Writer) (hostExecFlags, bool) {
 	var f hostExecFlags
+	grant := func(v string) bool {
+		if f.grant == nil {
+			f.grant = &hostGrantRequest{}
+		}
+		if err := addGrantValue(f.grant, v); err != nil {
+			fmt.Fprintf(errw, "yolo host: %v\n", err)
+			return false
+		}
+		return true
+	}
 	for i := 0; i < len(args); i++ {
 		switch a := args[i]; {
 		case a == "--profile" || a == "-p":
@@ -169,6 +230,19 @@ func parseHostExecFlags(args []string, errw io.Writer) (hostExecFlags, bool) {
 			f.profile = args[i]
 		case strings.HasPrefix(a, "--profile="):
 			f.profile = a[len("--profile="):]
+		case a == withCredentialsFlag:
+			if i+1 >= len(args) {
+				fmt.Fprintf(errw, "yolo host: %s needs a value\n", a)
+				return f, false
+			}
+			i++
+			if !grant(args[i]) {
+				return f, false
+			}
+		case strings.HasPrefix(a, withCredentialsFlag+"="):
+			if !grant(a[len(withCredentialsFlag+"="):]) {
+				return f, false
+			}
 		default:
 			fmt.Fprintf(errw, "yolo host: unexpected argument %q before `--`\n\n%s\n", a, hostUsage)
 			return f, false
@@ -206,7 +280,7 @@ func hostExec(flagArgs, cmd []string, out, errw io.Writer, stdin io.Reader) int 
 		return 1
 	}
 
-	launch := composeHostLaunch(cmd[0], flags.profile, func(msg string) {
+	launch := composeHostLaunch(cmd[0], flags.profile, flags.grant, func(msg string) {
 		fmt.Fprintf(errw, "Warning: %s\n", msg)
 	})
 
@@ -257,12 +331,17 @@ func hostExec(flagArgs, cmd []string, out, errw io.Writer, stdin io.Reader) int 
 	// silent narrowing"): a launch that withholds a credential the user configured says so,
 	// on stderr like every other line here, names only. The same wording the jail notch
 	// prints, because it is the same gate's answer.
-	for i, line := range launch.credentialScopeLines() {
-		if i == 0 {
-			fmt.Fprintf(errw, "yolo host: %s\n", line)
-			continue
+	// THE GRANT'S DISCLOSURE (OQ-ES5): on every run the flag is given, whatever it delivered,
+	// names only. Never suppressible (OQ-RO3), so it is printed unconditionally here rather
+	// than folded into a line a quieter path could skip.
+	for _, block := range [][]string{launch.credentialScopeLines(), launch.grantLines()} {
+		for i, line := range block {
+			if i == 0 {
+				fmt.Fprintf(errw, "yolo host: %s\n", line)
+				continue
+			}
+			fmt.Fprintln(errw, line)
 		}
-		fmt.Fprintln(errw, line)
 	}
 
 	target, err := resolveHostTarget(os.Getenv("PATH"), cmd[0])
@@ -367,6 +446,102 @@ type hostComposition struct {
 	// command's use_profiles entry — "" when none. The remedy says the -p it names replaces
 	// it (remedyAction).
 	profile string
+	// grant is the --with-credentials request this launch was given, resolved; nil without
+	// the flag. Its disclosure is grantLines.
+	grant *hostGrant
+}
+
+// hostGrant is a --with-credentials request resolved against this launch's composed provider
+// table: the providers it names, `all` expanded.
+type hostGrant struct {
+	// spelled is the request as typed, comma-joined, for the disclosure to quote back.
+	spelled string
+	// providers is every provider the grant hands the command, sorted: the named ones, plus
+	// every one claiming an env_sources value when `all` was among the names.
+	providers []string
+}
+
+// resolveHostGrant resolves a --with-credentials request over the launch's composed provider
+// table and its hydrated env_sources. A name the table does not hold REFUSES, naming the known
+// ones, because a typo that silently granted nothing would read as "the provider has no key".
+// `all` is every provider that claims a name env_sources holds (packload.ClaimingProviders,
+// the gate's own claim model), and it may stand beside names.
+func resolveHostGrant(req *hostGrantRequest, providers, envSources *jsonx.OrderedMap) (*hostGrant, error) {
+	var known []string
+	if providers != nil {
+		known = append(known, providers.Keys()...)
+	}
+	sort.Strings(known)
+	var named, unknown []string
+	all := false
+	for _, n := range req.names {
+		switch {
+		case n == "all":
+			all = true
+		case slices.Contains(known, n):
+			named = append(named, n)
+		default:
+			unknown = append(unknown, n)
+		}
+	}
+	if len(unknown) > 0 {
+		quoted := make([]string, len(unknown))
+		for i, u := range unknown {
+			quoted[i] = fmt.Sprintf("%q", u)
+		}
+		if len(known) == 0 {
+			return nil, fmt.Errorf("%s names %s, and no provider is composed at this notch: no "+
+				"selected pack ships one and %s declares none under `providers`",
+				withCredentialsFlag, strings.Join(quoted, ", "), paths.UserConfigPath())
+		}
+		return nil, fmt.Errorf("%s names %s, which no composed provider is: the known providers "+
+			"are %s (or `all`, every one that claims a value in env_sources)",
+			withCredentialsFlag, strings.Join(quoted, ", "), strings.Join(known, ", "))
+	}
+	if all {
+		named = append(named, packload.ClaimingProviders(providers, envSources)...)
+	}
+	sort.Strings(named)
+	return &hostGrant{spelled: strings.Join(req.names, ","), providers: slices.Compact(named)}, nil
+}
+
+// grantLines is the grant's disclosure, nil without one: a header saying what a grant is and
+// who holds it, then one line per granted provider naming what it delivered — or that it
+// delivered nothing, which is reported rather than skipped. Names only, never a value.
+func (c *hostComposition) grantLines() []string {
+	if c.grant == nil {
+		return nil
+	}
+	subject, heirs, owner := "the script exports", "every process the eval'ing shell starts",
+		shquote.Quote(c.agent)+"'s slice"
+	if c.command != "" {
+		cmd := shquote.Quote(c.command)
+		subject, heirs, owner = cmd+" receives", "every process "+cmd+" starts", cmd
+	}
+	header := fmt.Sprintf("Credential grant (%s %s): %s the granted providers' claimed "+
+		"env_sources values, keys only — the grant selects no profile and re-points nothing, "+
+		"and %s inherits them", withCredentialsFlag, c.grant.spelled, subject, heirs)
+	if c.profile != "" {
+		header += fmt.Sprintf("; %s keeps its %s profile, and the grant only adds keys beside it",
+			owner, c.profile)
+	}
+	lines := []string{header}
+	if len(c.grant.providers) == 0 {
+		return append(lines, "  nothing granted: no composed provider claims a value env_sources holds")
+	}
+	for _, g := range c.scope.GrantedTo(c.agent) {
+		switch {
+		case len(g.Delivered) > 0:
+			lines = append(lines, fmt.Sprintf("  %s: %s", g.Provider, strings.Join(g.Delivered, ", ")))
+		case len(g.Claims) == 0:
+			lines = append(lines, fmt.Sprintf("  %s: nothing granted — it claims no credential "+
+				"name (no api_key_env_name), so there is no value to hand over", g.Provider))
+		default:
+			lines = append(lines, fmt.Sprintf("  %s: nothing granted — env_sources holds no value "+
+				"for the names it claims (%s)", g.Provider, strings.Join(g.Claims, ", ")))
+		}
+	}
+	return lines
 }
 
 // selectedProviders is the provider this launch's agent selected, as the narrowed
@@ -601,7 +776,7 @@ func (c *hostComposition) credentialGaps(getenv func(string) string) []string {
 // composeHostEnv builds the environment for one agent launch, and returns it alongside
 // the agent name it resolved.
 func composeHostEnv(bin, profile string, warn func(string)) ([]string, string, error) {
-	c := composeHostLaunch(bin, profile, warn)
+	c := composeHostLaunch(bin, profile, nil, warn)
 	return c.environ(), c.agent, c.err
 }
 
@@ -620,7 +795,7 @@ func composeHostEnv(bin, profile string, warn func(string)) ([]string, string, e
 //     the same runner the jail's podman argv is built from).
 //  4. removals — a null in env_sources, i.e. `unset AWS_PROFILE`. Last, so a removal
 //     beats an assignment from any earlier step.
-func composeHostLaunch(bin, profile string, warn func(string)) *hostComposition {
+func composeHostLaunch(bin, profile string, grant *hostGrantRequest, warn func(string)) *hostComposition {
 	agent := filepath.Base(bin)
 	cfg := config.UserScopeConfigOrEmpty()
 	workspace, err := os.Getwd()
@@ -628,7 +803,7 @@ func composeHostLaunch(bin, profile string, warn func(string)) *hostComposition 
 		workspace = "."
 	}
 
-	c := composeHostVars(cfg, workspace, agent, profile, warn)
+	c := composeHostVarsGranting(cfg, workspace, agent, profile, grant, warn)
 	c.command = bin
 	return c
 }
@@ -665,6 +840,16 @@ func hostEnvVars(cfg *jsonx.OrderedMap, workspace, agent, profile string, warn f
 // table and the same env_sources walk the vars were composed from, and re-reading them
 // for the check would let the check and the exec disagree about what the launch carries.
 func composeHostVars(cfg *jsonx.OrderedMap, workspace, agent, profile string, warn func(string)) *hostComposition {
+	return composeHostVarsGranting(cfg, workspace, agent, profile, nil, warn)
+}
+
+// composeHostVarsGranting is composeHostVars with a --with-credentials request, nil for none:
+// the body both front doors reach, `yolo host --` through composeHostLaunch and `yolo host env`
+// through hostEnvDelta. The grant is resolved over the same composed table and the same
+// hydrated env_sources the gate reads, and handed to the gate itself (ScopeInput.Grants), so
+// the disclosure's recipients, the pre-flight and the vars cannot disagree about it.
+func composeHostVarsGranting(cfg *jsonx.OrderedMap, workspace, agent, profile string,
+	grant *hostGrantRequest, warn func(string)) *hostComposition {
 	var vars []agentenv.Var
 	c := &hostComposition{agent: agent}
 
@@ -793,6 +978,25 @@ func composeHostVars(cfg *jsonx.OrderedMap, workspace, agent, profile string, wa
 	// looked and not only that the key never arrived.
 	c.consulted = append(config.DescribeEnvSources(workspace, scoped), "the invoking shell's environment")
 
+	// THE GRANT (docs/design/credential-sources-separation.md OQ-ES5, ruled for the host
+	// 2026-09-27): the named providers' claimed env_sources values, for this one process, keys
+	// only. Resolved here, after the table and env_sources it reads and before the gate, which
+	// delivers it — a grant is one more recipient of a claimed value, so the gate's own claim
+	// model decides which names it carries. Nothing but the typed flag reaches this: no config
+	// key, no use_profiles entry, no -p and no environment variable builds a request.
+	var grants map[string][]string
+	if grant != nil {
+		g, err := resolveHostGrant(grant, providers, userEnv)
+		if err != nil {
+			c.err = err
+			return c
+		}
+		c.grant = g
+		if len(g.providers) > 0 {
+			grants = map[string][]string{agent: g.providers}
+		}
+	}
+
 	// THE CREDENTIAL GATE (docs/design/provider-credential-scope.md; OQ-CN5 ruled that the
 	// host notch ships with the jail's, since it composes for a process outside every
 	// sandbox). The same packload.ScopeCredentials the jail notch's composePackChannel
@@ -813,6 +1017,7 @@ func composeHostVars(cfg *jsonx.OrderedMap, workspace, agent, profile string, wa
 		Resolved:   resolvedProfiles,
 		EnvSources: userEnv,
 		Fallback:   os.LookupEnv,
+		Grants:     grants,
 	}
 	scope, err := packload.ScopeCredentials(c.scopeInput)
 	if err != nil {
@@ -1043,11 +1248,35 @@ func hostEnv(args []string, out, errw io.Writer) int {
 	format := "export"
 	profile := ""
 	agent := ""
+	var grant *hostGrantRequest
+	addGrant := func(v string) bool {
+		if grant == nil {
+			grant = &hostGrantRequest{}
+		}
+		if err := addGrantValue(grant, v); err != nil {
+			fmt.Fprintf(errw, "yolo host env: %v\n", err)
+			return false
+		}
+		return true
+	}
 	for i := 0; i < len(args); i++ {
 		switch a := args[i]; {
 		case isHelpToken(a):
 			fmt.Fprintln(out, hostUsage)
 			return 0
+		case a == withCredentialsFlag:
+			if i+1 >= len(args) {
+				fmt.Fprintf(errw, "yolo host env: %s needs a value\n", a)
+				return 2
+			}
+			i++
+			if !addGrant(args[i]) {
+				return 2
+			}
+		case strings.HasPrefix(a, withCredentialsFlag+"="):
+			if !addGrant(a[len(withCredentialsFlag+"="):]) {
+				return 2
+			}
 		case a == "--format":
 			if i+1 >= len(args) {
 				fmt.Fprintln(errw, "yolo host env: --format needs a value (export|json)")
@@ -1092,13 +1321,23 @@ func hostEnv(args []string, out, errw io.Writer) int {
 		// default because it is the pack this repo's own workflows assume; --agent names
 		// any other. The help says exactly this, and used to say "every configured one",
 		// which was never what the code did.
+		//
+		// UNDER A GRANT THE DEFAULT IS THE AD-HOC SLICE, `bash` (ES-D7's stand-in for any
+		// name no selected pack installs): `eval "$(yolo host env --with-credentials all)"`
+		// asks for keys, and claude's slice would export its profile's whole provider shape
+		// beside them — ANTHROPIC_BASE_URL among it — re-pointing every claude that shell
+		// starts, which is the one thing a grant never does. --agent still names an agent
+		// whose profile the caller does want.
 		agent = "claude"
+		if grant != nil {
+			agent = "bash"
+		}
 	}
 
 	// Only what yolo ADDS is printed, never the whole inherited environment: `yolo host
 	// env` is meant to be eval'd, and echoing os.Environ() back into the shell would be
 	// both enormous and a way to leak an unrelated secret into a log.
-	added, disclosure, err := hostEnvDelta(agent, profile, func(msg string) {
+	added, disclosure, err := hostEnvDelta(agent, profile, grant, func(msg string) {
 		fmt.Fprintf(errw, "Warning: %s\n", msg)
 	})
 	if err != nil {
@@ -1110,8 +1349,10 @@ func hostEnv(args []string, out, errw io.Writer) int {
 	// (provider-credential-scope.md §4) holds for this front door too. The script below is
 	// ONE agent's slice, so an env_sources credential another agent's profile claims is not
 	// in it — which a shell that used to receive every value must be told.
-	for i, line := range disclosure {
-		if i == 0 {
+	// Each block's head line is unindented (the gate's rule line, the grant's header) and
+	// carries the verb's prefix; the indented lines under it are its detail.
+	for _, line := range disclosure {
+		if !strings.HasPrefix(line, "  ") {
 			fmt.Fprintf(errw, "yolo host env: %s\n", line)
 			continue
 		}
@@ -1150,16 +1391,19 @@ func hostEnv(args []string, out, errw io.Writer) int {
 // and the credential gate's disclosure for them. The composition's own refusal travels with
 // it — `yolo host env` is an observe verb and has to say why it has no environment to show,
 // but it says it as an error rather than printing a refusal an eval'ing shell would swallow.
-func hostEnvDelta(agent, profile string, warn func(string)) ([]agentenv.Var, []string, error) {
+//
+// The disclosure is the gate's lines, then the grant's when a --with-credentials request was
+// given, which are printed on every run that carries one (OQ-ES5).
+func hostEnvDelta(agent, profile string, grant *hostGrantRequest, warn func(string)) ([]agentenv.Var, []string, error) {
 	workspace, err := os.Getwd()
 	if err != nil {
 		workspace = "."
 	}
-	c := composeHostVars(config.UserScopeConfigOrEmpty(), workspace, agent, profile, warn)
+	c := composeHostVarsGranting(config.UserScopeConfigOrEmpty(), workspace, agent, profile, grant, warn)
 	if c.err != nil {
 		return nil, nil, c.err
 	}
-	return c.vars, c.credentialScopeLines(), nil
+	return c.vars, append(c.credentialScopeLines(), c.grantLines()...), nil
 }
 
 // shellQuote wraps a value in single quotes for `export K=V`, escaping embedded quotes.

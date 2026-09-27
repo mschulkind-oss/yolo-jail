@@ -661,6 +661,7 @@ Tracking for all of it: [../plans/environment-manager-plan.md](https://github.co
 | Preview host config render | `yolo host apply` (⚠ names the keys it would overwrite, never the payload — read the pack first) |
 | Apply config to your real home | `yolo host apply --assert` (⚠ writes jail-bypass keys from shipped agent packs — see banner) |
 | Check host has the needed tools | `yolo check-deps` |
+| Hand one host command your provider keys | `yolo host --with-credentials <provider,…\|all> -- <cmd>` (keys only, this run); `eval "$(yolo host env --with-credentials all)"` for your shell |
 | Prove nothing undeclared crept in | `yolo apply --sealed` |
 | In-jail: is a restart owed? | `yolo config drift` |
 
