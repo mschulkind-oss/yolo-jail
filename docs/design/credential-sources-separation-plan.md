@@ -2,7 +2,7 @@
 
 **Status:** SKETCH, 2026-09-27. [§1](#1-ship-now-es-d1-to-es-d5) is BUILT (2026-09-27; the
 design's [ledger](credential-sources-separation.md#10-decision-ledger) has the commits and the
-mechanism choices, ES-D6 to ES-D9). Everything after it is incomplete and blocked on the question
+mechanism choices and the review's fixes, ES-D6 to ES-D12). Everything after it is incomplete and blocked on the question
 it names. Codebase facts were verified at `8da7840d`.
 
 > **Precedence.** This sketch accompanies

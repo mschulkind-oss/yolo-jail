@@ -60,7 +60,8 @@ way, newer than that stamp. UNMEASURED: no live agent session has been watched a
 **The host notch's grant is newer too** (2026-09-27): the typed `-p` for any command, its
 disclosure wording and the `use_profiles` key refusal at `yolo host`, described under
 [the credential gate](#the-credential-gate), come from
-[`credential-sources-separation.md`](../design/credential-sources-separation.md) ES-D1 to ES-D5.
+[`credential-sources-separation.md`](../design/credential-sources-separation.md) ES-D1 to ES-D5, and
+the remedy's corrections from ES-D10 to ES-D12.
 MEASURED: pinned through `hostMain` by unit tests in `internal/cli`. UNMEASURED: no real host has
 run it.
 
@@ -344,11 +345,23 @@ Where each answer lands is the vehicle's:
     here with the validator's message, as `yolo check` and every jail launch refuse it. The
     jail's `-p` never keys the `--` command
     ([ES-D1 to ES-D5](../design/credential-sources-separation.md#10-decision-ledger)).
-  - **Its disclosure says what this notch can do about it.** A withheld line names the typed
-    `-p` that would deliver it, with a declared profile that resolves to the claiming provider,
-    or says to declare one under `profiles` when none does. A withheld name the invoking shell
-    also exports is disclosed as not added by yolo, the shell's own value passing through,
-    because the command holds it anyway.
+  - **Its disclosure says what this notch can do about it.** A withheld line names a typed
+    `-p` that would deliver it, with a declared profile that resolves to the claiming provider
+    and that the named command can run on, or says to declare one under `profiles` when none
+    does. The line is checked the way the launch it names would be, so it never names a launch
+    that refuses. With `"packs": ["claude", "cerebras"]`, claude cannot run on the openai-only
+    cerebras profile here: this notch applies no pack's `needs`, so wire-bridge does not join
+    as it does in a jail. The line names `yolo host -p cerebras -- bash` instead, and says
+    why. On an agent, the named `-p` replaces the agent's
+    own profile, and the line says so ("run claude on the zai profile for one launch, replacing
+    its bedrock profile"). At `yolo host env` the shell spelling is always
+    `eval "$(yolo host env --agent bash -p <profile>)"`, never the verb's own agent, whose
+    slice would export that agent's whole provider shape into the shell. A withheld name the
+    invoking shell also exports is disclosed as not added by yolo, the shell's own value
+    passing through. A withheld name yolo sets from another source, such as a pack's `env`,
+    is disclosed as not delivered from `env_sources`, the process holding that source's value.
+    Neither line calls the name withheld, because the command holds it anyway
+    ([ES-D10 to ES-D12](../design/credential-sources-separation.md#10-decision-ledger)).
 
 Every arm discloses what it scoped or withheld, by name and never by value
 (`CredentialScope.Disclosure`; the host notch adds its remedy and its shell note through

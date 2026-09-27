@@ -16,8 +16,8 @@ summary: "The two channels that deliver a pack's environment to an agent running
 
 **Status:** CURRENT as of 2026-09-09, verified against `38873c0d`. The `-p` grant for an ad-hoc
 command (execution flow step 2, and the paragraph after it) is newer, from 2026-09-27
-([ES-D1 to ES-D5](../design/credential-sources-separation.md#10-decision-ledger)), and is pinned by
-unit tests through `hostMain`.
+([ES-D1 to ES-D5](../design/credential-sources-separation.md#10-decision-ledger), with the
+remedy's corrections in ES-D10 to ES-D12), and is pinned by unit tests through `hostMain`.
 
 Inside a jail, injecting environment is trivial: yolo controls the process spawn, so it passes
 `-e KEY=VAL` and PID 1 has the exact environment. On the host it controls nothing — the user
@@ -249,9 +249,12 @@ withheld.
 hands `curl` the zai profile's claimed `env_sources` values, and
 `eval "$(yolo host env --agent bash -p zai)"` puts them in the current shell. That is the host's
 grant for an ad-hoc command, one invocation at a time. Each withheld line in the disclosure names
-it, with a declared profile resolving to the claiming provider, or says to declare one. A withheld
-name the invoking shell already exports is disclosed as not added by yolo, since the shell's value
-reaches the command anyway ([`providers.md`](providers.md#the-credential-gate)).
+it, with a declared profile resolving to the claiming provider that the named command can run on,
+or says to declare one. When an agent cannot run on that profile, the line names the ad-hoc
+spelling (`yolo host -p <profile> -- bash`) instead; on an agent that can, it says the `-p`
+replaces the agent's own profile. A withheld name the invoking shell already exports is disclosed
+as not added by yolo, and one a pack's `env` sets as held from that source, since the command
+holds either anyway ([`providers.md`](providers.md#the-credential-gate)).
 
 ## apply reports actions, check reports state
 
