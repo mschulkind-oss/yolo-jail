@@ -253,8 +253,9 @@ func describeUnresolved(list []unresolvedPack) string {
 // (NS-D14). Each caller keeps its own disposition for an unresolvable pack, which is where the
 // per-verb decision lives: `host apply --assert` refuses the whole set and writes nothing (its
 // dry run and the launch gate say so), `yolo host --`/`host env` compose without the pack and
-// warn, `--revert` leaves its keys recorded, capture does not search it, check-deps exits 1, and
-// the `config` inspection verbs report it as not folded. None reads a malformed manifest.
+// warn, `--revert` leaves its keys recorded, capture does not search it, check-deps exits 1, the
+// read-only `config` verbs report it as not folded, and `config promote` refuses to write into it
+// as a destination. None reads a malformed manifest.
 // packload's host-notch containment guards stay, for a manifest no decoder checked.
 func resolveConfiguredPack(e config.PackEntry) (*packload.Pack, error) {
 	if e.Embedded() {

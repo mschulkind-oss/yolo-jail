@@ -755,6 +755,13 @@ func writePromoteReport(pr richtext.Printer, plan promotePlan) {
 		pr.Printf("[yellow]⚠ not inspected — could not be resolved: %s. A config-overlay "+
 			"they declare could outrank this promotion.[/yellow]", describeUnresolved(plan.Unresolved))
 	}
+	if len(plan.destManifestProblems()) > 0 {
+		// Said in the plan as well as at the write, so `--plan` does not read as a promotion
+		// that only needs its flag (applyPromotion refuses it).
+		pr.Printf("[yellow]⚠ the destination %s has manifest problems (named above), so nothing "+
+			"can be promoted into it until they are fixed — every launch refuses the pack.[/yellow]",
+			plan.Dest.label())
+	}
 	for _, ps := range plan.Surfaces {
 		pr.Printf("[bold]# %s/%s → %s[/bold]", ps.Surface.Agent, ps.Surface.Name,
 			surfacePathOrSidecar(ps.Surface))

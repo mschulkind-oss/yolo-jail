@@ -266,6 +266,30 @@ func applyPromotion(plan promotePlan, o promoteOptions, pr richtext.Printer, err
 		pr.Printf("[dim]Nothing to promote for %s%s.[/dim]", plan.Agent, surfaceSuffix(o.surface))
 		return 0
 	}
+	if problems := plan.destManifestProblems(); len(problems) > 0 {
+		// A MANIFEST EVERY LAUNCH REFUSES IS NO DESTINATION. The fold's resolver already named
+		// the pack as not inspected (resolveConfiguredPack, NS-D14); declaring a key there
+		// would clear it from the capture overlay and render it NOWHERE, since every launch and
+		// `yolo host apply --assert` refuse the pack — while the success line said the next
+		// launch renders it. The value would survive in the manifest, so what this stops is a
+		// promotion reported as delivered that is not. The dry run says the same and exits 0.
+		if !o.accept {
+			pr.Printf("[bold]%d %s would be declared in %s[/bold] [dim](%s)[/dim]",
+				moves, plural(moves, "key", "keys"), plan.Dest.label(), plan.Dest.path)
+			pr.Printf("Nothing was written, and %s is refused until the destination's manifest "+
+				"problems are fixed.", promoteFlagAccept)
+			return 0
+		}
+		them := plural(len(problems), "it", "them")
+		fmt.Fprintf(errw, "yolo config promote: refusing — the destination %s (%s) has %s, and "+
+			"every launch and `yolo host apply --assert` refuse the pack over %s, so a key "+
+			"declared there would render nowhere: %s\n"+
+			"  Fix %s (`yolo pack lint %s` re-checks the pack) and promote again. Nothing was "+
+			"written.\n", plan.Dest.label(), plan.Dest.path,
+			plural(len(problems), "a manifest problem", "manifest problems"), them,
+			strings.Join(problems, "; "), them, plan.Dest.dir)
+		return 1
+	}
 	if !o.accept {
 		pr.Printf("[bold]%d %s would be declared in %s[/bold] [dim](%s)[/dim]",
 			moves, plural(moves, "key", "keys"), plan.Dest.label(), plan.Dest.path)
@@ -302,6 +326,21 @@ func applyPromotion(plan promotePlan, o promoteOptions, pr richtext.Printer, err
 	pr.Printf("[dim]Declared in %s. The next launch renders these keys from there; the "+
 		"capture overlay no longer holds them.[/dim]", plan.Dest.path)
 	return 0
+}
+
+// destManifestProblems is the destination pack's manifest problems when the fold's resolver
+// found some (manifestProblemsError, carried on plan.Unresolved), or nil — for `--to host`, for a
+// destination that resolved clean, and for the conventional local pack before it exists.
+func (plan promotePlan) destManifestProblems() []string {
+	if plan.Dest.host {
+		return nil
+	}
+	for _, u := range plan.Unresolved {
+		if u.Name == plan.Dest.pack && len(u.ManifestProblems) > 0 {
+			return u.ManifestProblems
+		}
+	}
+	return nil
 }
 
 // promotableCount is how many keys the plan would actually move.

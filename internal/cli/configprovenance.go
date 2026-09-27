@@ -536,8 +536,11 @@ func readProvenance(f captureFile) map[string]string {
 // from the pack store, offline. One the store does not have is returned for the caller to
 // report — a `config diff` that failed over it would be worse than one that names what it
 // could not read. A pack whose manifest has problems is returned the same way, with them
-// (NS-D14): these verbs REPORT rather than refuse, since they write nothing, but they never fold
-// a manifest no render would read — the launch refuses it, and so does `host apply --assert`.
+// (NS-D14), and no caller folds a manifest no render would read — the launch refuses it, and so
+// does `host apply --assert`. The read-only verbs (`config render`, `ls`, `diff`) REPORT such a
+// pack and exit as before. `config promote` also reads its fold through here, and it is NOT
+// read-only: it writes a manifest, so it refuses to write into a destination that is one of these
+// packs (promotePlan.destManifestProblems) and reports every other one as not inspected.
 func configuredPacksForInspection() ([]*packload.Pack, []unresolvedPack) {
 	entries, err := config.LoadPacks(nil)
 	if err != nil {
