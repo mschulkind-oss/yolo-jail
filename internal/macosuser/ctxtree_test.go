@@ -443,7 +443,9 @@ func TestPlanRenderNamesTheContextTreeEitherWay(t *testing.T) {
 	if !strings.Contains(staged.String(), want) {
 		t.Errorf("the plan never names the staged context tree %s:\n%s", want, staged.String())
 	}
-	if strings.Contains(staged.String(), "host bytes:  [dim]none") {
+	// PrintPlan strips its markup, so the plain text is what to look for: a "[dim]none"
+	// literal can never appear in its output, and a check spelled that way cannot fail.
+	if strings.Contains(staged.String(), "host bytes:  none") {
 		t.Errorf("the plan says no host bytes were staged while staging some:\n%s", staged.String())
 	}
 	if !strings.Contains(bare.String(), "host bytes:") {
