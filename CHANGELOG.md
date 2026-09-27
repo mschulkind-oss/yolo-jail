@@ -45,9 +45,13 @@ only cost tokens and prompts in a jail. See [posture lists](docs/reference/pack-
 **A repository's skills reach every agent in the jail.** Skills a repo commits for one agent,
 such as `.claude/skills/`, `.agents/skills/` or `.github/skills/`, now also reach the agents
 that do not read that directory, in containers and on macos-user. An agent that reads the
-directory itself gets no second copy. A repo skill never replaces yolo's own skills or a pack's,
-and the launch names every one it held back. It also names any symlink that points outside the
-repository, and never reads through one. Nothing is written into the repository. See
+directory itself gets no second copy, and no other skill of the same name from elsewhere in the
+repo. A repo skill never replaces yolo's own skills or a pack's in what yolo gives an agent, and
+the launch names every one it held back; when an agent reads the repo's copy of such a skill by
+itself, the launch says that too. It also names any symlink that points outside the repository,
+and never reads through one. A repository cannot stop a launch this way: a path too deep for
+every agent to be given, or a file that cannot be copied, is named and skipped. Nothing is
+written into the repository. See
 [the workspace layer](docs/reference/agent-briefings.md#the-workspace-layer).
 
 - `yolo host-daemon status|stop|restart|logs` manages the machine-wide daemons.

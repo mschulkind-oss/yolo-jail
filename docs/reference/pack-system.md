@@ -708,12 +708,14 @@ copilot). It is data about the agent, and it drives the jail's **workspace layer
 ([`workspace-skills.md`](../design/workspace-skills.md)): every shipped pack's declaration,
 selected or not, plus the selected packs' own, is the set of workspace directories mirrored into
 every destination as the lowest layer; and a destination whose own list names a directory gets no
-copy of it, because its agent reads it natively. Each entry must be clean, relative, inside the
+copy of it, because its agent reads it natively — nor a copy of any skill whose name that
+directory carries, from any other. Each entry must be clean, relative, inside the
 workspace and outside `.git` and `.yolo`; the field is refused on any other kind and on a content
 entry. The host notch ignores it — `yolo host apply` never writes a workspace's skills into a
 real home ([`OQ-WS5`](../design/workspace-skills.md#OQ-WS5)). What each shipped pack declares is
 pinned in `internal/packload/projectskilldirs_test.go` and witnessed against the installed agent
-by `integration/agents_test.go`'s probe.
+by `integration/agents_test.go`'s probe, wherever the agent's bundle names the path at project
+scope as text; the probe lists the rows it cannot witness and where each was measured instead.
 
 `skills_tier` is a **per-pack** choice, not per contribution, and that is the whole of the
 ruling behind it: a tier decides what a skill is CALLED, which is a global property.

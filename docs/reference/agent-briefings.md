@@ -556,20 +556,35 @@ destination's staging dir, and nothing is ever written into the workspace.
 
 - **Lowest, so it adds and never shadows.** A workspace skill takes only a name no built-in,
   pack, local-pack skill or yolo's own LSP plugin took. A shadowed name is **disclosed, one line
-  per name**, however many destinations it was shadowed in.
+  per name**, however many destinations it was shadowed in. That order governs only what yolo
+  stages: an agent that reads the repo's directory itself sees the repo's copy beside yolo's
+  whatever yolo stages, so the launch names each such agent and skill instead
+  (`pi reads .agents/skills/configuring-the-jail natively, so yolo cannot keep it from competing
+  with yolo's built-in skill of that name`).
 - **The skip rule.** A destination whose own `project_dirs` include a source directory reads it
   natively, so it gets no copy of that directory — nor of a skill it reaches natively through a
-  link from another source. `pi` deduplicates by real path, so a copy would load as a second
-  skill of the same name.
-- **Two source dirs, one name.** The first in the source set's order wins everywhere (selected
-  packs in config order, then the rest of the shipped packs by name), and the collision is said.
-- **Nothing outside the workspace is read.** The reader resolves every link itself, inside the
-  workspace, and opens through an `os.Root` confined to it; a link that leaves the workspace, a
-  dangling one, a cycle, a special file, and anything resolving into `.git`, `.yolo` or (in a
-  container) a per-side path is **skipped and named** — never fatal — and a skill left with no
-  file to stage is not delivered at all. An absolute link spelled
-  `/workspace/…` is read as the workspace in a container, since that is how the agent there wrote
-  it.
+  link from another source, nor of any skill whose **name** a directory it reads natively
+  carries. `pi` deduplicates by real path, so a copy would load as a second skill of the same
+  name.
+- **Two source dirs, one name.** The first in the source set's order wins in every destination
+  yolo delivers it to (selected packs in config order, then the rest of the shipped packs by
+  name), and the collision is said, naming any agent that reads a losing copy natively and so is
+  sent neither. A skill held back for that reason with no collision to explain it gets a line of
+  its own.
+- **Nothing outside the workspace is read, and nothing but what was checked.** The reader
+  resolves every link itself, inside the workspace, through an `os.Root` confined to it, and then
+  reads only the real path it classified: every open is a walk from the workspace root that
+  follows no link, so an entry swapped for a link after it was checked is refused, not followed.
+  A link that leaves the workspace, a dangling one, a cycle, a special file, anything resolving
+  into `.git`, `.yolo` or (in a container) a per-side path, an entry whose path inside its skill
+  passes 512 bytes, and one whose copy cannot be written are all **skipped and named** — never
+  fatal — and a skill left with no file to stage is not delivered at all. A refusal names the
+  entry and a fixed reason, never the link's target. An absolute link spelled `/workspace/…` is
+  read as the workspace in a container, since that is how the agent there wrote it.
+- **Nothing bounds the bytes.** Each skill copies the trees its links reach, so many skills
+  linking one large in-repo directory copy it once per skill into every destination that
+  receives them; a budget is an open question
+  ([`OQ-WS7`](../design/workspace-skills.md#OQ-WS7)).
 - **Re-read on every invocation**, attach included, so an edit under a declared path reaches the
   next `yolo` command against a running jail — the same tree the agent there already reads live.
   Each source that delivered anything gets one `Workspace skills from <dir> mirrored into …` line.

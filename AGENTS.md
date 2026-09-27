@@ -440,10 +440,12 @@ live, so edits are visible on the host instantly — there is no sync step.
   < shared packs < **the conventional local pack** (`~/.config/yolo-jail/local`, appended LAST by
   `config.LoadPacks`). The workspace term is every project-scope skills dir ANY agent pack declares
   (`project_dirs`, shipped packs whether or not selected), mirrored host-side into every destination except
-  one whose agent reads that dir natively; it fills only names nothing above took, and each shadowed name is
-  disclosed ([`workspace-skills.md`](docs/design/workspace-skills.md)). ⚠ **Its reader is
+  one whose agent reads that dir, or a same-named skill, natively; it fills only names nothing above took,
+  and each shadowed name is disclosed ([`workspace-skills.md`](docs/design/workspace-skills.md)). ⚠ **Its reader is
   [`workspaceskills.go`](internal/jailcontent/workspaceskills.go)'s `confinedTree`, NEVER `copySkillSubdirs`**:
-  that copier follows symlinks, and on a cloned, agent-editable tree that is a host-file read (P5). ⚠ The
+  that copier follows symlinks, and on a cloned, agent-editable tree that is a host-file read (P5). Nor an
+  `os.Root` for the read itself: it follows a link that stays inside it, which a race turns into a read of
+  the host's per-side bytes, so the bytes are read by an `O_NOFOLLOW` walk along the path `os.Root` classified. ⚠ The
   middle term is not "host user-level" — there is no such tree, and a skill in `~/.claude/skills` on the host
   reaches the jail by no path ([`skills.go`](internal/jailcontent/skills.go), where the deleted
   `SkillTarget.HostSource` was). ⚠ **A skills contribution may FENCE children of its destination**
