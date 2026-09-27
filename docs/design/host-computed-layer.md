@@ -27,8 +27,9 @@ the real home, and yolo's own remedy for a dropped MCP entry deletes the entry
 four derive inputs at user scope and runs only those derives
 ([§6](#6-the-proposed-shape-under-b1)).
 
-**Cost.** A registration option, a provider composition inside host apply, and provider catalogs
-that become yolo-owned tables at the host, where a hand-added provider survives today.
+**Cost.** A registration option, a provider composition inside host apply, a per-key write the
+host's `rmw` arm lacks today, and provider catalogs that become yolo-owned tables at the host,
+where a hand-added provider survives today.
 
 **Start at [§3](#3-why-the-computed-layer-is-jail-only--the-stated-reasons-and-which-hold)**, the
 reasons. Everything else falls out of which of them hold.
@@ -74,9 +75,12 @@ implementation sketch, incomplete while [OQ-HC1](#OQ-HC1) is open).
 
 My recommendation is **B1** ([§5](#5-the-options)): a derive declares itself host-derivable on
 its own registration, and host apply runs exactly those derives over inputs it composes from your
-user config and your selected packs. The derives do not change, because none of them was ever the
-problem: none embeds a jail path of its own, and every jail-absolute value a host render would
-have to fear arrives through one input table, `mcp_servers`, from the MCP presets.
+user config and your selected packs' provider facts. The derives do not change, because none of
+them was ever the problem: none embeds a jail path of its own, and every jail-absolute value a
+host render would have to fear arrives through one input table, `mcp_servers`, from the MCP
+presets. What does change is how their output lands in a file you own: per key, by the derive's
+own in-full declaration, and never through a tombstone
+([§6.4](#64-per-contract-behavior)).
 
 Several fixes do not wait for that ruling, and one of them is a startup error in host pi today
 ([§7](#7-fixes-that-do-not-wait-for-a-ruling)).
@@ -101,7 +105,7 @@ into a fresh home.
 | :--- | :--- | :--- | :--- | :--- |
 | `agy/mcp` | computed | `mcpServers` | `{"mcpServers": {}}` | refused |
 | `claude/config` | rmw | `mcpServers` | skipped when no overlay targets it: only `${workspace}`-keyed keys remain | same |
-| `claude/settings` | stateful | `env.ENABLE_LSP_TOOL` with an LSP server; with `-p codex`, the model picker and allowlist | declared keys only | same |
+| `claude/settings` | stateful | `env` (with `ENABLE_LSP_TOOL` when an LSP server is configured, otherwise empty) and a tombstone on `mcpServers`, always; with `-p codex`, the model picker and allowlist. None of these is declared in full | declared keys only | same |
 | `codex/config` | stateful | `mcp_servers`, `model_providers`; the profile's `model` | empty `[mcp_servers]`, no `model_providers` | same, under a header saying "composed at jail start" |
 | `copilot/lsp` | computed | `lspServers` | `{"lspServers": {}}` | refused |
 | `copilot/mcp` | computed | `mcpServers` | `{"mcpServers": {}}` | refused |
@@ -137,7 +141,7 @@ or in a design doc, and each gives a reason:
 
 | Stated reason | Where it is stated | Ruling or statement | Does it hold? |
 | :--- | :--- | :--- | :--- |
-| "Its values embed jail-absolute paths" | `render.KindHost`'s comment ([`target.go`](../../internal/render/target.go)); the header of [`hostrender.go`](../../internal/entrypoint/hostrender.go); [host-render-target §3.3](host-render-target.md#33-what-each-target-supplies), "Jail-derived => host target gets none" | Statements, 2026-07-27 onward | **For one input.** The MCP presets' commands name the jail's generated node wrapper and the jail's npm prefix (`Env.mcpServersWith`, through `Env.McpWrappersBin` and `Env.NpmBin`). A user's own `mcp_servers` entry is whatever the user wrote, host-valid unless it spells a jail path. LSP commands are bare names such as `gopls`. Provider rows are URLs such as `https://api.cerebras.ai/v1`. No shipped `derive.lua` spells a jail path of its own (MEASURED: a search of every shipped derive for `/home/agent`, `/workspace`, `/opt/yolo`, `/run/yolo`, `/ctx/` and `HOME` finds none) |
+| "Its values embed jail-absolute paths" | `render.KindHost`'s comment ([`target.go`](../../internal/render/target.go)); the header of [`hostrender.go`](../../internal/entrypoint/hostrender.go); [host-render-target §3.3](host-render-target.md#33-what-each-target-supplies), "Jail-derived => host target gets none" | Statements, 2026-07-27 onward | **For one input.** The MCP presets' commands name the jail's generated node wrapper and the jail's npm prefix (`Env.mcpServersWith`, through `Env.McpWrappersBin` and `Env.NpmBin`). Knowing those paths at the host is not the obstacle: [OQ-MP4](mcp-presets-removal.md#OQ-MP4) dissolved that premise, since the host states the jail's PATH directories (`paths.JailPathHomeDirs`) and the host notch gets only their `.local/bin` overlap. The obstacle is that the wrapper is written only by a jail's boot and the npm prefix is the jail's, so neither exists in a real home. A pack's ruled `mcp` declaration is not a host input at all ([OQ-MP3](mcp-presets-removal.md#15-open-questions): it "reaches only the jail"). A user's own `mcp_servers` entry is whatever the user wrote, host-valid unless it spells a jail path. LSP commands are bare names such as `gopls`. Provider rows are URLs such as `https://api.cerebras.ai/v1`. No shipped `derive.lua` spells a jail path of its own (MEASURED: a search of every shipped derive for `/home/agent`, `/workspace`, `/opt/yolo`, `/run/yolo`, `/ctx/` and `HOME` finds none) |
 | `${workspace}` has no host referent | [env-manager plan OQ-2](../plans/environment-manager-plan.md#open-questions-to-resolve-before-their-phase), RESOLVED 2026-08-01; [host-render-target §6.6](host-render-target.md#66-a-host-target-is-user-scoped-not-workspace-scoped) | **Ruling** | **Yes, and it is already handled** without emptying the layer: `PruneWorkspaceKeyed` drops the `${workspace}`-keyed branches by name and renders the rest |
 | "A host apply selects no variant" | the "NO profile table" comment in `RenderHostPack` | A code decision; no ruling found | **For `-p`, which host apply has none of.** Not for `use_profiles`, your user-scope choice, which `yolo host --` already honors (`effectiveHostProfiles`). Whether host apply should is [OQ-HC3](#OQ-HC3) |
 | The provider table is composed only at launch | nowhere in the tree; it is the reading `config-ref`'s host-notch text invites | — | **No.** `composedHostProviders` in [`host.go`](../../internal/cli/host.go) composes the same table host-side, from user-scope config and the selected packs' facts, for `yolo host --` and `yolo host env`. [OQ-CS10](../reference/providers.md#oq-cs10) makes it a constraint: "the composition is host-launch-time, so the derive is too" |
@@ -179,8 +183,8 @@ or in a design doc, and each gives a reason:
 | Option | What changes | Cost | Verdict |
 | :--- | :--- | :--- | :--- |
 | **A.** Keep it ([ML-D8](model-lists-and-pickers.md#ML-D8)) | Nothing | Everything in [§4](#4-what-the-empty-layer-costs), and after the retirement no host path for any `computed` surface | Acceptable only until the retirement is built; the maintainer chose it "for now" for the codex list ([OQ-ML3](model-lists-and-pickers.md#OQ-ML3)) |
-| **B1.** A registration declares its surface host-derivable | Host apply composes the inputs ([§6.2](#62-the-host-inputs)) and runs only the declared derives | A registration option; provider composition in host apply; host columns in `config ls` and `config render`; catalogs become yolo-owned tables at the host ([§6.4](#64-per-contract-behavior)) | **Recommended.** Fails closed for a pack nobody audited |
-| **B2.** Per key, inside the derive, beside `ctx.in_full` | A derive marks which of its keys may cross | Every derive author reasons key by key; one more wrapper in the decoder; finer host `rmw` table semantics | Rejected for now: no shipped derive has a key that must stay behind once the inputs are host-valid. It can be added later without undoing B1 |
+| **B1.** A registration declares its surface host-derivable | Host apply composes the inputs ([§6.2](#62-the-host-inputs)) and runs only the declared derives | A registration option; provider composition in host apply; a per-key write ([HC-D10](#HC-D10)); host columns in `config ls` and `config render`; catalogs become yolo-owned tables at the host ([§6.4](#64-per-contract-behavior)) | **Recommended.** Fails closed for a pack nobody audited |
+| **B2.** Per key, inside the derive, beside `ctx.in_full` | A derive marks which of its keys may cross | Every derive author reasons key by key; one more wrapper in the decoder; finer host `rmw` table semantics | Rejected for now. One shipped key must not reach a real file, `claude/settings`' `mcpServers` tombstone, and it stays behind by a rule about the sentinel rather than an author's marking ([HC-D10](#HC-D10)); `env`, the one object a derive returns with no selection and does not declare in full, crosses as leaves. The selection-keyed keys (`modelPicker`, `pi/settings`' `subagents`, a profile's `model`) are gated by [OQ-HC3](#OQ-HC3), not by a marking. It can be added later without undoing B1 |
 | **B3.** Every derive runs at the host, with a `ctx.notch` | Derives branch on the notch themselves | Reverses the "content does not cross" rule for every pack, fetched ones included; a derive that spells a jail path writes it into your real home | Rejected: it fails open, and it closes the "`DeriveCtx` carries no notch" gap ([notch-scoped §1](notch-scoped-config-contributions.md#1-the-case-and-why-no-channel-carries-it-today)) for a use this design does not need |
 | **C.** A second channel for the codex list | For example, the extension asks `yolo internal …` at load | Fixes one surface; reopens the channel class [ML-D3](model-lists-and-pickers.md#ML-D3) rejected; pi's load then depends on a yolo binary | Rejected |
 
@@ -190,43 +194,93 @@ or in a design doc, and each gives a reason:
 
 - **P1. Same function, different inputs.** A host-derivable derive computes the same function at
   both notches. It never branches on the notch; one that needs to is not host-derivable.
-- **P2. User scope only.** Every host input comes from your user config and your selected packs,
-  never from a workspace ([env-manager OQ-2](../plans/environment-manager-plan.md#open-questions-to-resolve-before-their-phase)).
+- **P2. User scope only.** Every host input comes from your user config and your selected packs'
+  provider facts and native capabilities, never from a workspace
+  ([env-manager OQ-2](../plans/environment-manager-plan.md#open-questions-to-resolve-before-their-phase)),
+  and never from a pack's `mcp` declaration, which by
+  [OQ-MP3](mcp-presets-removal.md#15-open-questions) "reaches only the jail".
 - **P3. Undeclared means today.** A surface whose registration does not declare it renders exactly
   as it does now.
-- **P4. One writer.** Host apply is the only thing that writes a derived value into your real home.
-  `yolo host --` composes the same inputs for its launch environment and writes no file.
+- **P4. One writer.** Host apply's code path is the only thing that writes a derived value into
+  your real home, and every caller of it composes the inputs the same way
+  ([HC-D11](#HC-D11)). `yolo host --` reaches that writer through its launch gate when
+  `host_apply_on_launch` is on, which `host_management: own` turns on by default; its own launch
+  composition sets the agent's environment and writes no derived value.
 
 ### 6.2 The host inputs
 
 | Input | Host value | Decided by |
 | :--- | :--- | :--- |
-| `providers` | `composedHostProviders`' table: no adapter address a pack's own service serves, and every `via` cleared, so `ctx.via_url` is `""` | [OQ-CS10](../reference/providers.md#oq-cs10); ES-D18 in [the credential-sources ledger](credential-sources-separation.md#10-decision-ledger); [WG-I12](wire-bridge-gateway.md#WG-I12) |
-| `mcp_servers` | Your user-scope `mcp_servers` entries, less any entry whose command or arguments name a jail path, which is named in the report. The `mcp_presets` expansion never runs at the host, and each preset it skips is named too | [OQ-2](../plans/environment-manager-plan.md#open-questions-to-resolve-before-their-phase) for the scope; for the presets, their commands exist only in a jail, and [`mcp-presets-removal.md`](mcp-presets-removal.md) retires them ([HC-D6](#HC-D6)) |
-| `requires_env` on an MCP entry | Checked against the environment `yolo host env` would compose at apply time; each skipped server is named with its missing variables | [HC-D6](#HC-D6) |
+| `providers` | `composedHostProviders`' table: the user's `providers` entries over the selected packs' provider facts, with no adapter address a pack's own service serves | [OQ-CS10](../reference/providers.md#oq-cs10); ES-D18 in [the credential-sources ledger](credential-sources-separation.md#10-decision-ledger) |
+| `ctx.via_url` | `""`. Host apply resolves no profile, so no via route is selected; under [OQ-HC3](#OQ-HC3) it resolves `use_profiles` and clears every via address the way `yolo host --` does (`packload.ViaInert`), because no jail daemon serves one here | [WG-I12](wire-bridge-gateway.md#WG-I12) |
+| `mcp_servers` | Your user-scope `mcp_servers` entries, less any entry whose command or arguments name a jail path, which is named in the report. The `mcp_presets` expansion never runs at the host, and each preset it skips is named too. A pack's `mcp` declaration is never an input | [OQ-2](../plans/environment-manager-plan.md#open-questions-to-resolve-before-their-phase) for the scope; [OQ-MP3](mcp-presets-removal.md#15-open-questions) for a pack's declaration; for the presets, their commands exist only in a jail, and [`mcp-presets-removal.md`](mcp-presets-removal.md) retires them ([HC-D6](#HC-D6)) |
+| `requires_env` on an MCP entry | Checked **per surface agent**, against the environment `yolo host env --agent <agent>` would compose at apply time, as a jail checks it per agent. A server is written for each agent whose composition holds its variables, and a skipped one is named with its variables and the agents that did get it | [OQ-CN6](provider-credential-scope.md#OQ-CN6); [HC-D6](#HC-D6) |
+| Native capabilities | Each surface agent's own, from the selected packs' `program` declarations (`packload.NativeCapabilities`), as in a jail. So a server whose `provides` that agent's built-in login already performs is withheld from it: a `provides: "web_search"` server reaches neither claude's nor agy's surfaces | [HC-D6](#HC-D6) |
 | `lsp_servers` | Your user-scope entries as written, less any that names a jail path. A `command` must resolve on the host's `PATH`, as it must in a jail | [OQ-LSP1](../reference/mcp-configuration.md#oq-lsp1); [HC-D6](#HC-D6) |
-| `use_profiles`, and the selection | Empty, unless [OQ-HC3](#OQ-HC3) rules otherwise | [OQ-HC3](#OQ-HC3) |
+| `use_profiles`, and the selected profile and provider | Empty, unless [OQ-HC3](#OQ-HC3) rules otherwise | [OQ-HC3](#OQ-HC3) |
 | `${workspace}` | Unbound; its branches are pruned by name, as today | [OQ-2](../plans/environment-manager-plan.md#open-questions-to-resolve-before-their-phase) |
 
 The composition runs **once per invocation** and every host-target reader of that invocation uses
-it: `yolo host apply` (dry run and `--assert`), `yolo config ls --at host` and
-`yolo config render --at host`. So a preview shows what the write would do.
+it ([HC-D11](#HC-D11)): `yolo host apply`'s dry run, its `--assert`, its `--format json`
+document, the launch gate `yolo host --` runs before a wrapped agent starts, `yolo config ls --at
+host` and `yolo config render --at host`. So a preview shows what the write would do, and a
+wrapped launch neither undoes an apply's rows nor reports them as drift.
 
 ### 6.3 Which surfaces declare it
 
 Every shipped derived surface can, since none spells a jail path
 ([§3](#3-why-the-computed-layer-is-jail-only--the-stated-reasons-and-which-hold)), and the build
-declares each one only after a test shows its host output carries no jail-absolute value. The
-declaration exists for the next pack, not for these. `mise/config` is not a pack surface and stays
-absent ([§9](#9-what-this-does-not-propose)).
+declares each one only after a test shows that its host output carries no jail-absolute value and
+removes no key of yours outside a table declared in full ([§6.7](#67-what-done-looks-like) item 4).
+The declaration exists for the next pack, not for these. `mise/config` is not a pack surface and
+stays absent ([§9](#9-what-this-does-not-propose)).
 
 ### 6.4 Per-contract behavior
 
 | Contract | A host-derivable surface | An undeclared one |
 | :--- | :--- | :--- |
-| `assert` (until retired) | `rmw` with the derive's output as the computed layer; a table declared in full is written wholesale, **so your `mcp_servers` entries are in it** and item 2 of [§4](#4-what-the-empty-layer-costs) becomes true advice | Today's behavior |
-| `own` | Per [OQ-HC2](#OQ-HC2). Leaning: rendered through `stateful`, so the first owned render adopts the existing file | Today's behavior, with the refusal text reworded |
+| `assert` (until retired) | Rendered through `rmw`, as every surface is under `assert`, with the derive's output as the computed layer, applied per key (below). A table declared in full is written wholesale, **so your `mcp_servers` entries are in it** and item 2 of [§4](#4-what-the-empty-layer-costs) becomes true advice | Today's behavior |
+| `own` | A `stateful` or `rmw` surface takes the derive's output as its computed layer, per key as under `assert`. A `computed` surface per [OQ-HC2](#OQ-HC2); leaning: rendered through `stateful`, so the first owned render adopts the existing file | Today's behavior, with the refusal text reworded |
 | `none` | Nothing is written | Nothing is written |
+
+**Per key, by the declaration, and never through a tombstone** ([HC-D10](#HC-D10)). A derive's
+output reaches a file you own by these rules, under both contracts:
+
+1. **A table declared in full** (`ctx.in_full`) is yolo's, and is written wholesale, as the host
+   writes its declared table layer today.
+2. **Any other object a derive returns asserts only the leaves it names**; the rest of that object
+   stays as your file holds it. The shipped case is `claude/settings`' `env`: with no LSP server
+   the derive returns an empty `env` and yours is untouched, and with one it sets
+   `ENABLE_LSP_TOOL` beside your variables.
+3. **A tombstone is dropped before either arm sees it.** At the host the only layer below a derive
+   is your real file, so a tombstone can only delete a key you wrote, the class
+   [`packs/claude/derive.lua`](../../packs/claude/derive.lua) records as a data-loss bug for
+   `enabledPlugins`. The shipped case is `claude/settings`' `mcpServers` tombstone: a `mcpServers`
+   key in your real `settings.json` stays, as it does today. Applied under `own` only, it would
+   also break the criterion that switching a home from `assert` to `own` keeps every key and every
+   value ([config-ownership §11](config-ownership-and-promotion.md#11-success-criteria)).
+4. **A leaf yolo stops asserting** stays in the file under `assert`, attributed
+   `retired:computed`, as every asserted key does at an `rmw` render
+   ([the `retired:` label](../reference/pack-system.md#the-retired-provenance-label)). So removing
+   your last LSP server leaves `ENABLE_LSP_TOOL` in your real `env`. Under `own` the `stateful`
+   recomposition stops writing it.
+
+> [!WARNING]
+> **Handing the derive's output to today's `rmw` computed write clears your `env`.**
+> `regenerateManagedTables` ([`prism.go`](../../internal/entrypoint/prism.go)) clears and
+> rewrites every object-valued computed key, declared in full or not. MEASURED at `b0460995`
+> with a scratch test: `claude/settings`' derive over empty host inputs returns
+> `{"env": {}, "mcpServers": null}` with nothing declared in full, and that write turned a file's
+> `{"env": {"MY_VAR": "x"}}` into `{"env": {}}`. It is the defect `hostTableKeys` was fixed for
+> ([CO13](config-ownership-and-promotion.md#built-2026-09-25--what-shipped)), arriving by
+> another road, so rule 2 is an obligation on the build, not a description of today's writer.
+
+Rule 2 is what the `in_full` declaration already means for a `stateful` surface and for the host's
+table probe. For a surface a pack declares `rmw`, the jail's arm does not read the declaration yet,
+and what it should do is [OQ-CO15](config-ownership-and-promotion.md#oq-co15), whose leaning is
+rule 2. The host follows that ruling for such a surface, since one declaration must mean one thing
+at both notches. No shipped `rmw`-declared derive returns an object it does not declare in full
+(`claude/config` returns only `mcpServers`), so nothing shipped waits on it.
 
 **The catalogs change owner.** A provider catalog declared in full becomes a yolo-owned table at the
 host, so a provider you added by hand to a real file is dropped at the next host apply, where
@@ -245,7 +299,12 @@ home asks before dropping anything in it ([HC-D8](#HC-D8)).
 | The provider composition fails, for example on a malformed `providers` entry | The apply refuses before writing anything, naming the error, as `yolo host --` does ([HC-D7](#HC-D7)) |
 | An MCP preset is enabled | Not expanded; the report names it |
 | A user `mcp_servers` or `lsp_servers` entry names a jail path | Omitted at the host and named in the report ([HC-D6](#HC-D6)) |
-| An MCP entry's `requires_env` variable is missing | The entry is skipped and named, with the variable ([HC-D6](#HC-D6)) |
+| An MCP entry's `requires_env` variable is in no surface agent's composition | The entry is skipped everywhere and named, with the variable ([HC-D6](#HC-D6)) |
+| It is in some agents' compositions only, for example a provider credential that reaches only the agent selecting that provider | The entry is written for those agents only, and the report names them ([HC-D6](#HC-D6)) |
+| The entry is written, and the agent is started outside `yolo host`, from an IDE or directly | The agent resolves `${VAR}` from its own environment, which holds only what your shell gave it. A variable that came from `env_sources` or a provider credential is absent there, and that one server fails when the agent spawns it. The file is right for a launch through `yolo host` or a wrapper, the launch that composed the check |
+| An MCP entry sets `provides` and a surface agent's own login performs it | Withheld from that agent, as in a jail ([HC-D6](#HC-D6)) |
+| A derive returns a tombstone | Dropped before the write ([HC-D10](#HC-D10)) |
+| A derive returns an object it does not declare in full | Its leaves are asserted; nothing else under that key changes ([HC-D10](#HC-D10)) |
 | Host yolo is older than the registration option | It runs no derive for content, so the option is inert and the host keeps today's behavior. An older entrypoint in a jail ignores it too |
 | Config changes after an apply | The real file reflects the last apply until the next one, as declared layers do today |
 | Two applies at once | Unchanged from today's host apply; this design adds no writer, and under [OQ-HC3](#OQ-HC3) one record beside the provenance record |
@@ -257,19 +316,27 @@ home asks before dropping anything in it ([HC-D8](#HC-D8)).
 - Never write a jail-absolute value into your real home: a preset command, a path under
   `/workspace`, `/opt/yolo-jail`, `/run/yolo` or `/ctx`, or a jail home.
 - Never compose an adapter address or a `via` route into a host input.
+- Never take a pack's `mcp` declaration as a host input
+  ([OQ-MP3](mcp-presets-removal.md#15-open-questions)).
+- Never apply a tombstone to a real file, and never clear and rewrite an object a derive does not
+  declare in full ([HC-D10](#HC-D10)).
 - Never select a variant host apply was not told about. It has no `-p`.
 
 ### 6.7 What done looks like
 
 1. With `mcp_servers.tavily` in your user config, `yolo host apply --assert` writes it into every
    host-derivable MCP surface, and an existing identical entry is neither warned about nor dropped.
+   An entry that sets `provides` is written into the surfaces of every agent whose own login does
+   not perform it, and nowhere else: a `provides: "web_search"` entry skips claude's and agy's.
 2. Host pi registers the declared `openai-codex` list, 1M variants included, and pi-ai's GPT-5.x
    ids are gone from its picker, as in a jail. [ML-D8](model-lists-and-pickers.md#ML-D8)'s
    behavior and its test are inverted in the same change.
 3. `yolo config ls --at host` shows a `computed` layer for each host-derivable surface, and
    `yolo config render --at host` shows its content.
 4. A test renders every declared surface at the host and finds no jail-absolute value, and it
-   fails when a preset is let through.
+   fails when a preset is let through. The same test seeds each real file with a key of yours
+   outside every table the derive declares in full (a variable in `claude/settings`' `env`, a
+   `mcpServers` key in `settings.json`), and fails if the render removes or changes one.
 5. `config-ref`'s host-notch text names the provider facts a host apply renders.
 
 ## 7. Fixes that do not wait for a ruling
@@ -352,7 +419,7 @@ The last two correct two rows of
 | [§8.2](#82-read-from-source-not-run) item 1 | `yolo host -- pi` or a wrapped `pi` opens a browser or exits with "prepare shared OpenAI authentication" before pi prints anything |
 | [§8.2](#82-read-from-source-not-run) item 2 | pi exits during startup with an npm error |
 | [§8.1](#81-measured) item 3 with pi-automode | pi starts, and tool calls are blocked after a refresh failure |
-| A host yolo older than `0965feeb` | the apply or launch refuses the pack's manifest by name |
+| A host yolo older than the posture lists (`bbe5c878`), and so older than host verbs refusing a manifest with problems (`d4aa6a43`) | `yolo host apply --assert` and `yolo host --` exit 0 and read the pack declaring the posture list as an empty manifest, so pi's `packages` lacks pi-automode and nothing says why. Only `yolo check`, `yolo pack lint` and a jail launch refuse the manifest by name ([notch-scoped §4.5](notch-scoped-config-contributions.md#45-failure-paths)) |
 
 What would settle it: the first screen pi printed; `yolo host apply --verbose`;
 `cat ~/.pi/agent/models.json`; `yolo openai-auth status`; `yolo --version`; your
@@ -369,6 +436,10 @@ install and the classifier belong to
 - **No `ctx.notch`**, by P1.
 - **No `-p` for host apply.** Only [OQ-HC3](#OQ-HC3)'s `use_profiles` could select anything.
 - **No MCP presets at the host**, including re-rendered with host commands.
+- **No pack `mcp` declaration at the host.** [OQ-MP3](mcp-presets-removal.md#15-open-questions)
+  kept that kind out of the host-grant banner because it "reaches only the jail". Carrying one to
+  the host would change that premise, so it would be a question for that ruling, not a detail of
+  this design.
 - **No change to any jail render**, beyond [HC-D1](#HC-D1)'s default.
 - **No change to the OpenAI broker's host launch** ([§8.2](#82-read-from-source-not-run) item 1),
   until the debugging says whether it is what was hit.
@@ -378,6 +449,7 @@ install and the classifier belong to
 | Risk | Mitigation |
 | :--- | :--- |
 | A pack declares host-derivable and its derive spells a jail path | [§6.7](#67-what-done-looks-like) item 4 covers shipped packs; for a fetched pack the declaration is the author's claim, and the host apply banner already names what each pack writes |
+| A derive's output removes a key of yours from a real file, through a tombstone or through an object cleared and rewritten | [HC-D10](#HC-D10)'s per-key rules, and the seeded-key half of [§6.7](#67-what-done-looks-like) item 4 |
 | A hand-added provider is dropped at the host | [OQ-CO16](config-ownership-and-promotion.md#oq-co16); [HC-D8](#HC-D8) asks first |
 | Host pi's first `/login` selects no model, since `gpt-5.5` is no longer registered ([ML-D4](model-lists-and-pickers.md#ML-D4)) | pi says so and `/model` picks one; under [OQ-HC3](#OQ-HC3) `use_profiles` sets the default |
 | A literal `api_key` in your `providers` config lands in a real agent file | It is your own value, and a jail already writes it to disk under the workspace's home overlay |
@@ -392,12 +464,14 @@ install and the classifier belong to
    [§5](#5-the-options): **A**, keep ML-D8; **B1**, per registration; **B2**, per key; **B3**, every
    derive with a notch.
 
-   <!-- vantage: oq id=OQ-HC1 leaning="B1: a derive registration declares its surface host-derivable, and host apply runs only those derives over inputs composed at user scope (the ES-D18-stripped provider table, mcp_servers without presets, lsp_servers as written, no selection unless OQ-HC3). It fails closed for an unaudited pack, and A expires when the assert retirement is built." -->
+   <!-- vantage: oq id=OQ-HC1 leaning="B1: a derive registration declares its surface host-derivable, and host apply runs only those derives over inputs composed at user scope (the ES-D18-stripped provider table, your own mcp_servers checked per agent with no presets and no pack mcp declaration, lsp_servers as written, no selection unless OQ-HC3), landing per key: in-full tables wholesale, other objects as leaves, tombstones dropped. It fails closed for an unaudited pack, and A expires when the assert retirement is built." -->
 
    _Leaning:_ **B1.** The inputs, not the derives, were the obstacle, and B1 fixes the inputs while
-   failing closed for a pack nobody audited. Its cost: a registration option; host apply composing
-   the provider table; catalogs that become yolo's at the host, so [OQ-CO16](config-ownership-and-promotion.md#oq-co16)
-   reaches the host; and host pi's picker losing pi-ai's GPT-5.x ids.
+   failing closed for a pack nobody audited. Its output lands per key ([HC-D10](#HC-D10)), so no
+   derive removes a key of yours. Its cost: a registration option; host apply composing the
+   provider table; a per-key write the host's `rmw` arm does not have today; catalogs that become
+   yolo's at the host, so [OQ-CO16](config-ownership-and-promotion.md#oq-co16) reaches the host;
+   and host pi's picker losing pi-ai's GPT-5.x ids.
 
    **Answer:**
    > _(empty — fill in when decided)_
@@ -454,10 +528,12 @@ install and the classifier belong to
 | <a id="HC-D3"></a>HC-D3 | *Implementation decision.* **`config-ref`'s host-notch `provider` line says host-rendered files carry provider facts** and render without them because host apply composes no provider table; it changes again with [OQ-HC1](#OQ-HC1) | 2026-09-27 | [§7](#7-fixes-that-do-not-wait-for-a-ruling) | — |
 | <a id="HC-D4"></a>HC-D4 | *Implementation decision.* **A host apply that creates a file reports it as rendered,** in the dry run and the assert, never as unchanged or in sync ([§8.1](#81-measured) item 2) | 2026-09-27 | [§7](#7-fixes-that-do-not-wait-for-a-ruling) | — |
 | <a id="HC-D5"></a>HC-D5 | *Implementation decision.* **Under `own`, a loss line names only what the `stateful` write drops.** MEASURED: a first owned apply kept a hand-added `mcp_servers` entry in `codex/config` and `mcp` entry in `opencode/config` while the report named both as dropped ([§2.3](#23-what-happens-to-an-entry-you-added-by-hand)). The loss list is computed by the mechanism that writes. The same change makes `own`'s `codex/config` header stop saying "composed at jail start" at the host | 2026-09-27 | [§7](#7-fixes-that-do-not-wait-for-a-ruling) | — |
-| <a id="HC-D6"></a>HC-D6 | *Implementation decision*, if [OQ-HC1](#OQ-HC1) is not A. **The host `mcp_servers` input is your user-scope entries, with no preset expansion, and `requires_env` is checked against what `yolo host env` would compose.** Presets name the jail's generated node wrapper and its npm prefix, which no host has, and [`mcp-presets-removal.md`](mcp-presets-removal.md) retires them. A user entry, MCP or LSP, whose command or arguments name a jail path is omitted and named, since writing it would break [§6.6](#66-forbidden-behavior)'s rule against jail-absolute values; which prefixes count is the implementer's list, and it includes the jail home, `/workspace`, `/opt/yolo-jail`, `/run/yolo` and `/ctx`. `yolo host env`'s composition is the environment yolo launches an agent with at the host; a skipped server is named with its variables, as the jail's notice names it | 2026-09-27 | [§6.2](#62-the-host-inputs) | — |
+| <a id="HC-D6"></a>HC-D6 | *Implementation decision*, if [OQ-HC1](#OQ-HC1) is not A. **The host `mcp_servers` input is your user-scope entries, with no preset expansion and no pack `mcp` declaration, and it is filtered per surface agent, as a jail filters it.** A pack's declaration stays out because [OQ-MP3](mcp-presets-removal.md#15-open-questions) ruled it "reaches only the jail". Presets stay out because their node wrapper is written only by a jail's boot and their npm prefix is the jail's; the host can state those paths ([OQ-MP4](mcp-presets-removal.md#OQ-MP4) dissolved the premise that it cannot), but no real home has what they name, and [`mcp-presets-removal.md`](mcp-presets-removal.md) retires them. A user entry, MCP or LSP, whose command or arguments name a jail path is omitted and named, since writing it would break [§6.6](#66-forbidden-behavior)'s rule against jail-absolute values; which prefixes count is the implementer's list, and it includes the jail home, `/workspace`, `/opt/yolo-jail`, `/run/yolo` and `/ctx`. **Per surface agent:** `requires_env` is checked against the environment `yolo host env --agent <agent>` would compose at apply time, since that composition scopes a provider credential to the agent that selected it ([OQ-CN6](provider-credential-scope.md#OQ-CN6)); and the capability filter runs with that agent's native capabilities (`packload.NativeCapabilities`), so a server whose `provides` the agent's own login performs is withheld from it. Without the capabilities the filter keeps every server, and a server a jail withholds from claude or agy would be written for them at the host, where the same config should render the same entries. A skipped server is named with its variables and with the agents that did get it, as the jail's notice names it | 2026-09-27 | [§6.2](#62-the-host-inputs) | — |
 | <a id="HC-D7"></a>HC-D7 | *Implementation decision*, if [OQ-HC1](#OQ-HC1) is not A. **A derive error at the host refuses that surface only; a provider composition error refuses the apply before any write.** The first is one pack's defect, and the rest of the apply is independent of it. The second is an input every host-derivable surface shares, and `yolo host --` refuses on it too | 2026-09-27 | [§6.5](#65-degenerate-inputs-and-failure-paths) | — |
 | <a id="HC-D8"></a>HC-D8 | *Implementation decision*, if [OQ-HC1](#OQ-HC1) is not A and catalogs stay declared in full ([OQ-CO16](config-ownership-and-promotion.md#oq-co16)). **The first host apply that makes a table yolo's in a home confirms before dropping an entry in it,** as a first apply does today (`confirmHostLosses`). Without it a home already asserted would lose a hand-added provider with a report and no prompt, because the prompt fires only on a first apply | 2026-09-27 | [§6.4](#64-per-contract-behavior) | — |
 | <a id="HC-D9"></a>HC-D9 | *Implementation decision*, if [OQ-HC1](#OQ-HC1) rules B1. **The declaration is an option on the `yolo.derive` registration, not a manifest field.** The registration already is the computed-layer declaration (`packload.DerivedSurfaces`), and "its output is host-valid" is a fact about that function. Its spelling is the implementer's | 2026-09-27 | [§5](#5-the-options) | — |
+| <a id="HC-D10"></a>HC-D10 | *Implementation decision*, if [OQ-HC1](#OQ-HC1) is not A. **A derive's output reaches a real file per key: a table declared in full is written wholesale, any other object asserts only its leaves, and a tombstone is dropped before either arm sees it** ([§6.4](#64-per-contract-behavior)). Leaves, because that is what `ctx.in_full` already means for a `stateful` surface and for the host's table probe ([CO13](config-ownership-and-promotion.md#built-2026-09-25--what-shipped)), and today's `rmw` computed write would otherwise clear `claude/settings`' `env` (MEASURED, [§6.4](#64-per-contract-behavior)). No tombstone, because at the host the only layer below a derive is your real file, so a tombstone can only delete your key; and applying it under `own` alone would break [config-ownership §11](config-ownership-and-promotion.md#11-success-criteria)'s switch criterion. For a surface a pack declares `rmw`, [OQ-CO15](config-ownership-and-promotion.md#oq-co15) governs, and the host follows its ruling | 2026-09-27 | [§6.4](#64-per-contract-behavior) | — |
+| <a id="HC-D11"></a>HC-D11 | *Implementation decision*, if [OQ-HC1](#OQ-HC1) is not A. **One host-input composition per invocation, shared by every host-target reader:** the apply's dry run, `--assert` and `--format json`, the launch gate `yolo host --` runs before a wrapped agent, and `yolo config ls` and `render` at `--at host`. The launch gate runs the apply's own code path with writes on (`hostApplyGateApply`), so a composition any of them skipped would render catalogs without providers and undo an apply's rows, or report them as drift, at every wrapped launch | 2026-09-27 | [§6.2](#62-the-host-inputs) | — |
 
 ## 13. Evidence
 
@@ -474,3 +550,9 @@ install and the classifier belong to
   install path. **pi-automode 1.17.0**, read from its npm tarball.
 - **The jail-path search**, [§3](#3-why-the-computed-layer-is-jail-only--the-stated-reasons-and-which-hold):
   `rg` over `packs/*/derive.lua` at `b0460995`.
+- **The per-key rules**, [§6.4](#64-per-contract-behavior) and [HC-D10](#HC-D10): two scratch
+  tests in the same copy, 2026-09-27. One ran every shipped derive with no selection, over empty
+  and over sentinel input tables: the only object returned without an in-full declaration is
+  `claude/settings`' `env`, and the only tombstone is that surface's `mcpServers`. The other handed
+  `claude/settings`' output to `regenerateManagedTables` over a file holding `env.MY_VAR`, which
+  it cleared.

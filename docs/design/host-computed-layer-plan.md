@@ -33,13 +33,37 @@ Blocked on [OQ-HC1](host-computed-layer.md#OQ-HC1).
   `packload.DerivedSurfaces` returns it beside the surface key; the host census and
   `yolo config ls --at host` read it. A script passing the option to an older runtime must not
   fail: check whether the Lua binding rejects a fourth argument.
-- **One provider composition per invocation.** `composedHostProviders` lives in `internal/cli`, and
-  `RenderHostPack` sees one pack at a time, which is why it already takes the cross-pack
-  `overlays` as a parameter. The provider table is a second parameter of the same kind, composed
-  once in `applyHost` over every selected pack. Reuse, do not copy, `composedHostProviders`.
+- **One host-input composition per invocation** ([HC-D11](host-computed-layer.md#HC-D11)).
+  `composedHostProviders` lives in `internal/cli`, and `RenderHostPack` sees one pack at a time,
+  which is why it already takes the cross-pack `overlays` as a parameter. The host inputs are a
+  second parameter of the same kind. Compose them in `applyHostSurveyed`, not `applyHost`:
+  `applyHost` is a one-line wrapper, and `applyHostFormatted`'s `--format json` branch and the
+  launch gate (`hostApplyGateApply` with writes on, `hostApplyGateSurvey` in observe) call
+  `applyHostSurveyed` directly. Hand the result to both `RenderHostPack` call sites there: the
+  render loop and `confirmHostLosses`' observe pass. `yolo config ls` and `yolo config render`
+  at `--at host` reach no `applyHostSurveyed`, so they call the same composition function; note
+  that `renderSurface` (`internal/cli/config.go`) supplies no computed layer at any notch today,
+  for the jail-path reason its scope comment gives. Reuse, do not copy, `composedHostProviders`.
 - **The input tables** ([HC-D6](host-computed-layer.md#HC-D6)). `Env.mcpServersWith` builds the
   jail's table from `YOLO_MCP_PRESETS` and `YOLO_MCP_SERVERS`; the host needs the user-scope
-  `mcp_servers` with no preset map, and a `requires_env` lookup over `composeHostVars`' result.
+  `mcp_servers` with no preset map. `requires_env` is per surface agent: one lookup per agent
+  over `composeHostVars`' result for that agent over the user-scope config, the host twin of
+  `loadMCPTables`' per-agent tables and `tablesForAgent`'s swap. Its `workspace` argument feeds
+  only `env_sources` path resolution, where `hostScopedEnvSources` already refuses an unanchored
+  entry; `hostEnvDelta` passes the cwd, and host apply should pass what `yolo host env` does. The selection passed to
+  `deriveComputedLayer` carries `NativeCapabilities: packload.NativeCapabilities(packs, agent)`
+  even with no profile, as `surfaceSelectionFor` does in a jail; `hostTableKeys`' empty
+  `surfaceSelection{}` is right for its key-name probe and wrong for content.
+- **The per-key write** ([HC-D10](host-computed-layer.md#HC-D10)). Today the host passes only
+  the in-full table layer, and `regenerateManagedTables` clears and rewrites every object-valued
+  computed key, so the derive's output cannot simply be handed to it. Split the output by its
+  `inFull`: in-full tables to `regenerateManagedTables` as now; every other object to a
+  force-writing leaf merge (`applyRMWLayer(obj, layer, true, …)` is the existing shape); nil
+  values stripped at every depth before either, which also keeps a JSON `null` from being written
+  literally and a TOML nil from deleting a key. Under `own`, strip the same nils before the
+  `stateful` composition, where a nil is an RFC-7386 delete. Check that the `rmw` provenance pass
+  labels a derived leaf `computed`, which is what lets `retireUnclaimed` mark one yolo stops
+  asserting as `retired:computed`.
 - **The key-name probe.** `hostTableKeys` stays for undeclared surfaces. For a host-derivable
   one, the real derive's `inFull` names its tables, so the sentinel probe is not run.
 - **The confirmation gate** ([HC-D8](host-computed-layer.md#HC-D8)). `confirmHostLosses` fires on
@@ -48,8 +72,15 @@ Blocked on [OQ-HC1](host-computed-layer.md#OQ-HC1).
 - **Tests.** The jail-path test of
   [§6.7](host-computed-layer.md#67-what-done-looks-like) item 4 renders every declared surface at
   the host with a preset enabled and greps the output for the jail prefixes. It must fail when the
-  preset is let through. `TestTheHostNotchLeavesPiOnItsOwnCodexCatalog` inverts. The launch-path
-  rule applies: run `go test ./integration` as well as `-short`.
+  preset is let through. Its second half seeds each real file with a user key outside every
+  in-full table (`env.MY_VAR` and a `mcpServers` key in `claude/settings`) and fails if the render
+  removes or changes one; it must fail with the leaf merge replaced by `regenerateManagedTables`
+  and with the nil strip removed. `TestTheHostNotchLeavesPiOnItsOwnCodexCatalog` inverts. The
+  per-agent filter needs a test that fails with `NativeCapabilities` left empty (a
+  `provides: "web_search"` server reaching claude's surface) and one that fails with a single
+  shared `requires_env` lookup. The launch gate needs one that fails when it renders a catalog
+  without the composition. The launch-path rule applies: run `go test ./integration` as well as
+  `-short`.
 - **UNMEASURED:** whether `composeStatefulSurface` encodes yaml at the host, which
   `oh-omp/models` needs under [OQ-HC2](host-computed-layer.md#OQ-HC2)'s leaning.
 
@@ -64,5 +95,8 @@ keeps.
 ## 4. If host apply selects the `use_profiles` variant
 
 Blocked on [OQ-HC3](host-computed-layer.md#OQ-HC3). `effectiveHostProfiles(cfg, "", "")` over the
-user-scope config is the selection source. The jail's selection record and its per-key deselect
+user-scope config is the selection source. `ctx.via_url` comes from the resolved profiles, not
+from `composedHostProviders`, which clears no via: pass them through `packload.ViaInert` first, as
+`composeHostVarsGranting` and `hostFooterTables` do
+([WG-I12](wire-bridge-gateway.md#WG-I12)). The jail's selection record and its per-key deselect
 rule need a host home: beside the provenance record under `render.Target.ProvenanceDir`.
