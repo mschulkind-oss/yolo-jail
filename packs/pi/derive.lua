@@ -483,14 +483,14 @@ yolo.derive("pi", "settings", function(ctx)
     return {}
   end
   local p = ctx.providers and ctx.providers[ctx.selected_provider] or nil
-  -- openai-codex is Pi's built-in subscription provider, and this branch is the only
-  -- thing that speaks for its MODEL LIST: packs/openai-auth declares the public Responses
-  -- address its subscription serves and no models, so the catalog above emits an
-  -- address-only row and Pi's own built-in list stands (applyModelsJson merges the row
-  -- into it). The address it composes resolves to the same request URL Pi would use
-  -- untouched — Pi appends `/responses` to a base that already ends in `/codex`, and
-  -- `/codex/responses` to one that does not. The shipped codex profile selects the stable
-  -- default below; a user profile may state another exact Pi model id as `model`.
+  -- openai-codex is Pi's built-in subscription provider, so the catalog above writes NO
+  -- row for it (docs/design/pi-codex-provider-shadowing.md OQ-1). Its address, wire and
+  -- model definitions are the ones packs/pi/extensions/yolo-openai-auth.js registers: the
+  -- broker-backed OAuth login, the openai-codex-responses client at chatgpt.com/backend-api,
+  -- and the model list with its [1m] variants. This branch speaks only for the SELECTION
+  -- within that list — the default pair, the enabledModels scope and the pi-subagents
+  -- policy. The shipped codex profile selects the stable default below; a user profile may
+  -- state another exact model id from that list as `model`.
   if ctx.selected_provider == "openai-codex" then
     -- The subscription catalog currently exposes these as the supported GPT-6
     -- choices, with 1M context options alongside each model type. Keep the list explicit:
