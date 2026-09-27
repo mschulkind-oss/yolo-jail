@@ -354,7 +354,9 @@ orientation, not an inventory.
   per-file ACL grant the plan stages. The spawn creates
   `/tmp/yolo-host-services-<8hex>-<random>` (`os.MkdirTemp`, `0700`), the session publishes
   every endpoint there, and its fronted daemons' upstream sockets are keyed by a hash of that
-  path. The session holds an exclusive `flock` on `.session.lock` inside it for its whole life.
+  path. The session holds an exclusive `flock` on `.session.lock` inside it for its whole life,
+  and the lock reaches that name already held: it is created under a pending name, locked, and
+  renamed, so no sweep finds a live session's lock free.
   Its teardown removes that directory and no other, without the container checks, which answer
   a question about a relaunch publishing into the same directory and have nothing to answer
   here. A session killed without its teardown leaves its directory behind with its lock free,

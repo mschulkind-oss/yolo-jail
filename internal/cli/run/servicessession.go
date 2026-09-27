@@ -57,6 +57,13 @@ type servicesSession struct {
 // which svcendpoint requires of a dir it publishes a bearer token into; and the name is new and
 // taken exclusively, so another account cannot claim it in /tmp ahead of this one, which a
 // deterministic path cannot promise.
+//
+// THE LOCK APPEARS UNDER ITS NAME ALREADY HELD. It is created as servicesSessionLockPending,
+// locked, and only then renamed to paths.HostServicesSessionLockName; a flock belongs to the
+// open file, so the rename keeps it. Created under its final name, it would exist unlocked
+// between the create and the flock, and another session's sweep could lock it in that gap,
+// read "gone", and remove the dir this session is about to publish into. A sweep reads the
+// final name only, so what it can see in the gap is a dir with no lock file, which it keeps.
 func (o *Options) openServicesSession(cname string) (*servicesSession, error) {
 	base := paths.HostServicesBase(o.IsMacOS)
 	o.collectDeadServicesSessions(base)
@@ -64,8 +71,8 @@ func (o *Options) openServicesSession(cname string) (*servicesSession, error) {
 	if err != nil {
 		return nil, err
 	}
-	f, err := os.OpenFile(filepath.Join(dir, paths.HostServicesSessionLockName),
-		os.O_CREATE|os.O_EXCL|os.O_RDWR, 0o600)
+	pending := filepath.Join(dir, servicesSessionLockPending)
+	f, err := os.OpenFile(pending, os.O_CREATE|os.O_EXCL|os.O_RDWR, 0o600)
 	if err != nil {
 		_ = os.RemoveAll(dir)
 		return nil, err
@@ -75,8 +82,17 @@ func (o *Options) openServicesSession(cname string) (*servicesSession, error) {
 		_ = os.RemoveAll(dir)
 		return nil, err
 	}
+	if err := os.Rename(pending, filepath.Join(dir, paths.HostServicesSessionLockName)); err != nil {
+		_ = f.Close()
+		_ = os.RemoveAll(dir)
+		return nil, err
+	}
 	return &servicesSession{dir: dir, lock: f}, nil
 }
+
+// servicesSessionLockPending is the lock file's name between its creation and its flock. No
+// sweep reads it.
+const servicesSessionLockPending = paths.HostServicesSessionLockName + ".pending"
 
 // release lets the session's liveness lock go. Called only after the dir is removed, so a
 // sweeper that finds the lock free never finds this session's dir still standing.
@@ -126,10 +142,11 @@ const (
 // sessionGone it returns the lock, now held by this process, so the dir can be removed while no
 // other sweeper can decide the same thing; the caller removes it and then closes the lock.
 //
-// A MISSING LOCK FILE IS NOT EVIDENCE. A session creates its dir and then its lock, so a dir
-// with no lock yet is a session starting up, and removing it would take the dir a live session
-// is about to publish into. The leak this costs is a dir whose owner died in that window, which
-// stays in /tmp until the machine restarts.
+// A MISSING LOCK FILE IS NOT EVIDENCE. A session creates its dir and then its lock, which
+// reaches its name already held (openServicesSession), so a dir with no lock yet is a session
+// starting up, and removing it would take the dir a live session is about to publish into. The
+// leak this costs is a dir whose owner died in that window, which stays in /tmp until the
+// machine restarts.
 //
 // THE LOCK MUST STILL BE THE FILE AT THE PATH once it is held. The owner removes its dir while
 // holding the lock and releases the lock afterwards, so a sweeper that opened the file before the

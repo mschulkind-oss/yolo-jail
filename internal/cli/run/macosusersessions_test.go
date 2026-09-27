@@ -314,6 +314,59 @@ func TestAMacosUserLaunchCollectsOnlySessionsKnownToBeGone(t *testing.T) {
 	}
 }
 
+// TestAConcurrentSweepNeverTakesASessionThatIsStartingUp: a session's lock file must reach its
+// name already locked. Created there and locked a moment later, it is a free lock on a live
+// session's dir for that moment, and another session's sweep, which reads a free lock as a dead
+// session, removes the dir the new session is about to publish into. So a sweep runs in a loop
+// on another goroutine (another process, as far as flock is concerned: each open has its own
+// lock) while sessions open one after another, and every session must still have its dir and
+// its lock when its open returns.
+//
+// The window is a few microseconds, so this catches a regression by repetition rather than on
+// every run; it cannot fail a correct implementation, whose sweep never sees the lock free.
+func TestAConcurrentSweepNeverTakesASessionThatIsStartingUp(t *testing.T) {
+	const cname = "yolo-ws-sweeprace"
+	base := paths.HostServicesBase(false)
+	o := &Options{Stdout: discardBuf()}
+	fillDefaults(o)
+	sweeper := &Options{Stdout: discardBuf()}
+	fillDefaults(sweeper)
+
+	stop := make(chan struct{})
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+				sweeper.collectDeadServicesSessions(base)
+			}
+		}
+	}()
+	defer func() { close(stop); <-done }()
+
+	for i := 0; i < 2000; i++ {
+		s, err := o.openServicesSession(cname)
+		if err != nil {
+			t.Fatalf("open %d failed (%v). With a sweep running beside it, that is the sweep "+
+				"having locked the new session's lock before the session could, which it can only "+
+				"do while the lock is at its name unlocked", i, err)
+		}
+		lock := filepath.Join(s.dir, paths.HostServicesSessionLockName)
+		if !fileExists(s.dir) || !fileExists(lock) {
+			t.Fatalf("open %d: a concurrent sweep removed the session that had just opened (%s): "+
+				"its lock was free at its name before the session held it", i, s.dir)
+		}
+		o.servicesSession = s
+		o.endServicesSession(nil)
+		if fileExists(s.dir) {
+			t.Fatalf("open %d: the session's own teardown left %s", i, s.dir)
+		}
+	}
+}
+
 // TestASessionsUpstreamSocketsAreOutOfAContainerTeardownsReach: a macos-user session keys its
 // fronted daemons' upstream sockets by its own dir (frontShortHash), and that key does not begin
 // with the workspace's container hash. It must not: a container jail of the same name retires its
