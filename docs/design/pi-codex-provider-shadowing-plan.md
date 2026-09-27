@@ -1,6 +1,6 @@
 # Implementation Sketch: Pi Codex Provider Shadowing
 
-**Status:** SKETCH, 2026-09-25 — incomplete, and unstable while questions are open.
+**Status:** SKETCH, 2026-09-27 — [§2](#2-pi-derive-changes) and [§3](#3-entrypoint-test-alignment) are built (`92c20cc6`, and the 2026-09-27 test helper); [§5](#5-verification-checklist)'s nested-jail step has not run. Unstable while [OQ-3](pi-codex-provider-shadowing.md#OQ-3) is open, which decides whether the exclusion widens past `openai-codex`.
 
 This sketch holds implementation notes, file targets, and test verification details for
 [`pi-codex-provider-shadowing.md`](pi-codex-provider-shadowing.md). The design doc wins on
@@ -12,8 +12,9 @@ all questions of behavior, architecture, and invariants.
 
 | File | Role | Change Summary |
 | :--- | :--- | :--- |
-| `packs/pi/derive.lua` | Pi configuration derive script | Exclude `openai-codex` from the `models` catalog derive loop ([§2](#2-pi-derive-changes)). Blocked on [OQ-1](pi-codex-provider-shadowing.md#OQ-1). |
-| `internal/entrypoint/pi_codex_profile_test.go` | Entrypoint Pi profile tests | Include `openai-auth` in `TestPiCodexProfileSelectsBuiltInProviderAndExplicitModel` to activate the shadowing check ([§3](#3-entrypoint-test-alignment)). |
+| `packs/pi/derive.lua` | Pi configuration derive script | Exclude `openai-codex` from the `models` catalog derive loop ([§2](#2-pi-derive-changes)). Built in `92c20cc6`, as [OQ-1](pi-codex-provider-shadowing.md#OQ-1) ruled. |
+| `internal/entrypoint/pi_codex_profile_test.go` | Entrypoint Pi profile tests | Compose `TestPiCodexProfileSelectsBuiltInProviderAndExplicitModel` from pi's `needs` closure, which brings `openai-auth`, to activate the shadowing check ([§3](#3-entrypoint-test-alignment)). Built 2026-09-27. |
+| `internal/entrypoint/packclosure_test.go` | Test helper | `testPacksForAgent`, the `needs` closure through the launch's resolver (the design doc's R2). Built 2026-09-27. |
 | `docs/plans/roadmap.md` | Living roadmap | Track the design doc and open questions ([§4](#4-roadmap-tracking)). |
 
 ---
@@ -38,15 +39,18 @@ In `packs/pi/derive.lua`, inside `yolo.derive("pi", "models", function(ctx) ...)
   end
 ```
 
-Blocked on [OQ-1](pi-codex-provider-shadowing.md#OQ-1) — if the user rules on an explicit
-provider attribute instead of a name check, this guard will check that attribute instead.
+[OQ-1](pi-codex-provider-shadowing.md#OQ-1) ruled the name check. Built in `92c20cc6` as a
+`native` flag that also gates the via row. If [OQ-3](pi-codex-provider-shadowing.md#OQ-3) rules the
+broad reading, this guard grows a per-agent list of natively implemented providers.
 
 ---
 
 ## 3. Entrypoint Test Alignment
 
-In `internal/entrypoint/pi_codex_profile_test.go`, in `TestPiCodexProfileSelectsBuiltInProviderAndExplicitModel`
-([lines 18–32](../../internal/entrypoint/pi_codex_profile_test.go#L18-L32)):
+Built 2026-09-27 with a helper instead of a hand-added pack: `testPacksForAgent(t, "pi")` returns
+pi and whatever `packload.Selection.Close` adds, so the fixture follows pi's `needs`. The sketch
+this section first carried, in `TestPiCodexProfileSelectsBuiltInProviderAndExplicitModel` in
+`internal/entrypoint/pi_codex_profile_test.go`:
 
 ```go
 func TestPiCodexProfileSelectsBuiltInProviderAndExplicitModel(t *testing.T) {
@@ -68,7 +72,7 @@ func TestPiCodexProfileSelectsBuiltInProviderAndExplicitModel(t *testing.T) {
 ```
 
 With `openai-auth` included in the composed providers, `ctx.providers["openai-codex"]` is
-present during render. The existing assertion at lines 71–75:
+present during render. The shadow assertion, as the test carried it then:
 
 ```go
 	models := r.piModels(t)
@@ -80,13 +84,15 @@ present during render. The existing assertion at lines 71–75:
 ```
 
 will fail if `packs/pi/derive.lua` has not excluded `openai-codex`, and pass when the fix is in place.
+Revert-checked 2026-09-27: removing the exclusion fails the edited test and passes the pre-edit one.
 
 ---
 
 ## 4. Roadmap Tracking
 
-Record the design doc in `docs/plans/roadmap.md` under `## 💬 Needs you`, linking
-[OQ-1](pi-codex-provider-shadowing.md#OQ-1) and [OQ-2](pi-codex-provider-shadowing.md#OQ-2).
+[OQ-1](pi-codex-provider-shadowing.md#OQ-1) and [OQ-2](pi-codex-provider-shadowing.md#OQ-2) are
+ruled. [OQ-3](pi-codex-provider-shadowing.md#OQ-3) is row 70 of `docs/plans/roadmap.md` under
+`## 💬 Needs you`.
 
 ---
 

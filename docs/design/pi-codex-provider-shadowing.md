@@ -1,14 +1,14 @@
 ---
 title: "Why a bridge endpoint shadowed Pi's Codex provider — and how ambient keys took over"
 date: 2026-09-25
-status: accepted
+status: in-review
 tags: [providers, codex, pi, openai-auth, shadowing, credentials]
 summary: "Adding an openai-responses endpoint to the openai-codex provider allowed wire-bridge to route to ChatGPT, but caused Pi's derive to shadow its built-in subscription provider with a third-party models.json row. When Pi treated openai-codex as a generic OpenAI platform endpoint, it picked up the workspace's ambient OPENAI_API_KEY, resulting in 401 errors against the Codex backend."
 ---
 
 # Why a bridge endpoint shadowed Pi's Codex provider — and how ambient keys took over
 
-**Status:** BUILT, 2026-09-26, at `c9982bce` (pi) and `d079ac31` (omp); codex already excluded `openai-codex`. Measured through the boot render only, by the catalog tests; no live pi or omp has run it. Evidence verified at `c5bab09b`.
+**Status:** DESIGN, 2026-09-27 — [OQ-3](#OQ-3) is open: how far [OQ-2](#OQ-2)'s rule reaches. The `openai-codex` exclusion is BUILT, 2026-09-26, at `92c20cc6` (pi) and `4ed48212` (omp); codex already excluded it. Measured through the boot render only, by the catalog tests, which compose each agent's `needs` closure since 2026-09-27 ([§6.2](#62-test-composition-alignment)); no live pi or omp has run it. Evidence verified at `c5bab09b`; pi's and claude's codex handling re-verified at `acf810b5`.
 
 > **In short.** A pack-level endpoint added for wire-bridge adaptation caused Pi's derive
 > to generate a `models.json` entry for `openai-codex`, overriding Pi's built-in subscription
@@ -29,7 +29,7 @@ the boundary between subscription OAuth tokens and ambient platform API keys.
 
 **Start at [§3](#3-the-mechanism-of-shadowing-how-modelsjson-overrode-pis-native-client)** — how the shadow happened. The rest falls out of it.
 
-**Needs your ruling:** none. [OQ-1](#OQ-1) (exclude by name) and [OQ-2](#OQ-2) (keep the endpoint; never catalog a natively implemented provider) are ruled.
+**Needs your ruling:** [OQ-3](#OQ-3): does [OQ-2](#OQ-2)'s rule cover every provider an agent implements natively, or only a subscription provider with its own client and login? [OQ-WG8](wire-bridge-gateway.md#OQ-WG8) waits on it. [OQ-1](#OQ-1) (exclude by name) and [OQ-2](#OQ-2) (keep the endpoint, and the rule) are ruled.
 
 **Reads with:** [`pi-codex-provider-shadowing-plan.md`](pi-codex-provider-shadowing-plan.md) (the companion sketch — incomplete while questions are open),
 [`provider-credential-scope.md`](provider-credential-scope.md) (the ambient environment delivery boundary),
@@ -76,7 +76,9 @@ Three principles govern the fix:
 - **P1. An agent must never derive custom catalog entries for providers it natively implements.**
   If an agent CLI possesses built-in client logic, headers, and OAuth handling for a named
   subscription provider (as both Codex CLI and Pi do for `openai-codex`), yolo must not emit a
-  catalog entry for that provider into the agent's configuration file.
+  catalog entry for that provider into the agent's configuration file. The first sentence and
+  the ruling ([OQ-2](#OQ-2)) name every natively implemented provider, while this example names a
+  subscription one. Which of the two the rule means is [OQ-3](#OQ-3).
 - **P2. Adaptation endpoints must not corrupt native consumers.** Declaring an endpoint on a pack
   contribution to enable third-party adapters (like `wire-bridge` translating Anthropic calls to
   Codex) must not alter the configuration of agents that speak to that provider natively.
@@ -115,8 +117,26 @@ Pi has two completely separate OpenAI provider implementations in `@earendil-wor
 
 | Provider ID | Implementation Function | Wire API (`api`) | Authentication Source | Target Endpoint |
 | :--- | :--- | :--- | :--- | :--- |
-| `openai-codex` | `openaiCodexProvider()` | `openai-codex-responses` | OAuth JWT (`auth.json` via `yolo-openai-auth.js`) | `https://chatgpt.com/backend-api/codex` |
+| `openai-codex` | `openaiCodexProvider()` | `openai-codex-responses` | OAuth JWT (`auth.json` via `yolo-openai-auth.js`) | `https://chatgpt.com/backend-api`, requests to `…/codex/responses` |
 | `openai` | `openaiProvider()` | `openai-responses` | API Key (`OPENAI_API_KEY`) | `https://api.openai.com/v1` |
+
+yolo's extension, [`packs/pi/extensions/yolo-openai-auth.js`](../../packs/pi/extensions/yolo-openai-auth.js),
+re-registers `openai-codex` with `pi.registerProvider`. Since `e2f7bb89` it registers the whole
+provider, not only the login:
+
+- the OAuth login and refresh, both served by yolo's `openai-auth-broker`, with the access token as
+  the key;
+- `api: "openai-codex-responses"` and `baseUrl: "https://chatgpt.com/backend-api"`;
+- yolo's own model list: the GPT-6 models, a 1M-context `[1m]` variant beside each, and the older
+  GPT-5.x ids;
+- a `before_provider_request` hook that strips the `[1m]` suffix from the model id before the
+  request leaves.
+
+Read from pi 0.87.1's installed code, not run: pi composes an extension's registration above
+`models.json` (`composeModelProvider` in `core/provider-composer.js`), so this registration would
+now also override a `models.json` row's address and model list for `openai-codex`. The exclusion
+in [§6.1](#61-catalog-exclusion-in-pis-derive) does not lean on that. [P1](#1-verdict-and-core-principles)
+is a rule about what yolo writes, and layer precedence is pi's to change.
 
 `openai-codex-responses` (`openai-codex-responses.js` in `@earendil-works/pi-ai`)
 is specialized for ChatGPT:
@@ -158,7 +178,7 @@ port numbers or addresses.
 While Codex CLI explicitly filtered `name ~= "openai-codex"` in its derive script, Pi's derive
 script (`packs/pi/derive.lua`) lacked this check.
 
-In `packs/pi/derive.lua` ([lines 299–301](../../packs/pi/derive.lua#L299-L301)):
+In `packs/pi/derive.lua`'s models loop, before `92c20cc6`:
 
 ```lua
 for name, prov in pairs(ctx.providers) do
@@ -196,6 +216,14 @@ when `models.json` configures a provider:
    now requests `openai-responses`, `supportsBaseApi` returns `false`.
 4. Pi falls back to calling `getApiProvider("openai-responses")`, executing the request through the
    OpenAI SDK rather than the native Codex subscription client.
+
+> [!WARNING]
+> **Step 2 does not follow from a re-read at pi 0.87.1** (2026-09-27, installed code read, not
+> run). There `applyModelsJson` applies a row's provider-level `api` only to models the row itself
+> defines. The row in [§3.2](#32-the-derivation-hole-in-pi) defines none, so it moves each built-in
+> model's address and keeps its `openai-codex-responses` wire. The mechanism above is recorded as
+> filed from the `stories` workspace. Which pi version or row produced the 401 was not re-measured.
+> The exclusion stands on [P1](#1-verdict-and-core-principles) either way.
 
 ---
 
@@ -252,7 +280,9 @@ Once Pi routes `openai-codex` through `openai-responses` instead of its native c
 
 The repository already contained an explicit unit test guarding against this exact failure!
 
-In [`internal/entrypoint/pi_codex_profile_test.go:70–75`](../../internal/entrypoint/pi_codex_profile_test.go#L70-L75):
+In [`internal/entrypoint/pi_codex_profile_test.go`](../../internal/entrypoint/pi_codex_profile_test.go),
+`TestPiCodexProfileSelectsBuiltInProviderAndExplicitModel` as it stood before the
+[§6.2](#62-test-composition-alignment) edit:
 
 ```go
 models := r.piModels(t)
@@ -283,10 +313,9 @@ Because `openai-auth` was omitted from the test fixture:
 3. `models.json` never wrote `openai-codex`.
 4. The test assertion passed vacuously.
 
-In the same file, a second test (`TestPiCatalogNeverWritesAModelsMapWhereAnArrayBelongs`,
-[lines 98–143](../../internal/entrypoint/pi_codex_profile_test.go#L98-L143)) *did* include `openai-auth`
-in its pack set, but only verified that the `models` key was not rendered as an empty object—it did
-not assert that `openai-codex` was absent from the catalog.
+In the same file, a second test (`TestPiCatalogNeverWritesAModelsMapWhereAnArrayBelongs`) *did*
+include `openai-auth` in its pack set, but only verified that the `models` key was not rendered as
+an empty object—it did not assert that `openai-codex` was absent from the catalog.
 
 ---
 
@@ -294,37 +323,51 @@ not assert that `openai-codex` was absent from the catalog.
 
 ### 6.1 Catalog Exclusion in Pi's Derive
 
-Mirror Codex CLI's derive logic in `packs/pi/derive.lua`. When iterating over `ctx.providers` to
-construct `~/.pi/agent/models.json`, skip `openai-codex`:
+Mirror Codex CLI's derive logic in `packs/pi/derive.lua`: when iterating over `ctx.providers` to
+construct `~/.pi/agent/models.json`, skip `openai-codex`. Built in `92c20cc6` in this shape:
 
 ```lua
 for name, prov in pairs(ctx.providers) do
-  if name ~= "openai-codex" then
-    local baseUrl, api = piReachable(prov)
-    if baseUrl then
-      ...
-    end
+  local native = (name == "openai-codex")
+  local baseUrl, api = nil, nil
+  if not native then
+    baseUrl, api = piReachable(prov)
   end
+  -- a via row is also gated on `not native`
+  ...
 end
 ```
 
-Pi's settings derive (`yolo.derive("pi", "settings")`) already contains dedicated logic for `openai-codex`
-([lines 475–515](../../packs/pi/derive.lua#L475-L515)), writing `enabledModels` and `selection` while
-relying on Pi's built-in catalog. Excluding `openai-codex` from the `models` derive ensures Pi uses its
-native `openai-codex-responses` implementation and OAuth extension.
+The flag gates the via row too, so a via profile selecting `openai-codex` writes no row either.
+`packs/omp/derive.lua` does the same for omp (`4ed48212`).
+
+Pi's settings derive (`yolo.derive("pi", "settings")`) has its own `openai-codex` branch. It writes
+the selection pair, `enabledModels` (the six GPT-6 ids, the selected one first) and the
+`subagents` policy. The model definitions it selects from are the ones yolo's extension registers
+([§2.2](#22-pi-pi-coding-agent)), so with no `models.json` row pi uses its own
+`openai-codex-responses` client and the broker-backed OAuth.
 
 ### 6.2 Test Composition Alignment
 
-Update `TestPiCodexProfileSelectsBuiltInProviderAndExplicitModel` in
-`internal/entrypoint/pi_codex_profile_test.go` to include `openai-auth` in its input pack list:
+Built 2026-09-27. [R2](#8-risks-and-invariants)'s helper is `testPacksForAgent(t, agent, extra...)` in
+[`internal/entrypoint/packclosure_test.go`](../../internal/entrypoint/packclosure_test.go). It
+returns the named packs plus everything `packload.Selection.Close` adds for them, which is the
+resolver the launch runs over its loaded packs (`internal/cli/run/packs.go`), drawing from the
+embedded official set. No profile is selected at closure time, so the via half adds nothing. That
+matches the launch for every profile these fixtures render, since only a via profile adds a pack.
+`TestTestPacksForAgentResolvesTheNeedsClosure` pins it against the shipped manifests' `needs`.
 
-```go
-pi := shippedPiPack(t)
-openaiAuth := shippedPack(t, "openai-auth")
-providers, err := packload.ComposeProviders(nil, []*packload.Pack{pi, openaiAuth})
-```
+`TestPiCodexProfileSelectsBuiltInProviderAndExplicitModel` composes `testPacksForAgent(t, "pi")`,
+which is pi and `openai-auth`, and first asserts that the composed table holds `openai-codex`, so
+the shadow assertion cannot pass vacuously again. The other pi and omp fixtures that composed a
+hand-listed pack set use the helper too. **Revert-checked:** with the exclusion removed from
+`packs/pi/derive.lua`, the edited test fails with `models.json shadows Pi's built-in openai-codex
+provider`, and the pre-edit test passes. With pi's `needs` removed, the helper's own test,
+`TestPiCatalogFromShippedPacksOmitsOpenAICodex` and the edited test fail.
 
-This transforms the existing shadowing assertion from a vacuum test into an active regression gate.
+This does not duplicate `TestPiCatalogFromShippedPacksOmitsOpenAICodex`. That test renders with no
+profile selected. This one renders with the codex profile active, so `openai-codex` is the selected
+provider and the settings branch runs in the same render.
 
 ### 6.3 Relation to credential scoping
 
@@ -343,8 +386,9 @@ or masked to prevent tools or subagents from inadvertently picking them up.
 - **Not removing the wire-bridge endpoint from `packs/openai-auth`:** Other agents (e.g. Claude
   Code via `wire-bridge`) rely on the `openai-responses` endpoint declaration to target ChatGPT's
   backend.
-- **Not redesigning Pi's OAuth extension:** `packs/pi/extensions/yolo-openai-auth.js` correctly
-  hooks into Pi's OAuth credential flow when Pi uses `openai-codex-responses`.
+- **Not redesigning Pi's OAuth extension:** `packs/pi/extensions/yolo-openai-auth.js` registers
+  `openai-codex` with Pi's own `openai-codex-responses` wire and the broker-backed OAuth
+  ([§2.2](#22-pi-pi-coding-agent)), and nothing here changes it.
 
 ---
 
@@ -353,7 +397,7 @@ or masked to prevent tools or subagents from inadvertently picking them up.
 | Risk | Consequence | Mitigation |
 | :--- | :--- | :--- |
 | **R1. Pi cannot reach custom Codex proxies** | A user configuring a private reverse proxy for Codex via `providers.openai-codex.endpoints` would have their URL ignored if `openai-codex` is unconditionally skipped. | If custom endpoint overrides for Codex are ever needed in Pi, they must specify `wire_api: "openai-codex-responses"` or be routed through a distinct provider name. Built-in subscription providers must not be repurposed as custom endpoints. |
-| **R2. Test pack omission re-occurs** | A future agent test might omit required dependencies and miss catalog collisions. | The helper `testPacksForAgent(agent)` should automatically resolve pack `needs` so unit tests always test the full closure that production runs. |
+| **R2. Test pack omission re-occurs** | A future agent test might omit required dependencies and miss catalog collisions. | The helper `testPacksForAgent(agent)` resolves pack `needs` so unit tests test the full closure that production runs. Built 2026-09-27 on the launch's own resolver ([§6.2](#62-test-composition-alignment)). |
 
 ---
 
@@ -375,7 +419,7 @@ or masked to prevent tools or subagents from inadvertently picking them up.
    > changes until another subscription provider exists."* `packs/pi/derive.lua` skips `openai-
    > codex` when it builds `models.json`, exactly as `packs/codex/derive.lua` does. A provider-
    > level flag waits until a second subscription provider exists (it is the same question as [OQ-
-   > BR2](providers-and-profiles-redesign.md#OQ-BR2)'s marker). Built in `c9982bce`.
+   > BR2](providers-and-profiles-redesign.md#OQ-BR2)'s marker). Built in `92c20cc6`.
 
 2. ✅ <a id="OQ-2"></a>**OQ-2: Packaging of inter-agent adaptation endpoints.** Does `packs/openai-auth` legitimately
    own `endpoints["openai-responses"]` on `openai-codex`, or should inter-agent adapter targets
@@ -389,13 +433,83 @@ or masked to prevent tools or subagents from inadvertently picking them up.
 
    **Answer:**
    > **Keep the endpoint on `openai-codex` in `packs/openai-auth`, and establish the rule**, ruled
-   > in review 2026-09-26: *an agent never derives catalog entries from providers it natively
-   > implements.* The declaration is true and stays; the defect was a derive cataloging a provider
-   > its agent already implements. The rule is P1's: it covers a *subscription* provider the agent
-   > implements with its own client and login, not a vendor the agent also knows by the same key
-   > name. Every agent derive was checked against it: omp had the same defect, fixed in `d079ac31`
-   > (omp applies a `models.yml` row's `baseUrl` to its built-in provider of that name); claude,
-   > copilot, agy and opencode catalog nothing that shadows a native subscription client.
+   > in review 2026-09-26 as leaned: *"Keep the endpoint on openai-codex in packs/openai-auth, but
+   > establish the rule that an agent never derives catalog entries from providers it natively
+   > implements."* The declaration is true and stays; the defect was a derive cataloging a provider
+   > its agent already implements. Every agent derive was checked against the rule for
+   > `openai-codex`: omp had the same defect, fixed in `4ed48212` (omp applies a `models.yml` row's
+   > `baseUrl` to its built-in provider of that name); claude, copilot, agy and opencode catalog
+   > nothing that shadows a native subscription client. How far "natively implements" reaches past
+   > that case is [OQ-3](#OQ-3).
+
+3. 💬 <a id="OQ-3"></a>**OQ-3: How far does the natively-implements rule reach?** [OQ-2](#OQ-2) ruled that an
+   agent never derives catalog entries from providers it natively implements. Does that cover
+   **every** provider an agent ships its own client for under the key a yolo provider uses (the
+   broad reading)? Or does it cover only a **subscription** provider the agent implements with its
+   own client and login (the narrow reading), which is how [P1](#1-verdict-and-core-principles)'s
+   example describes it? The two readings agree on `openai-codex`, the only shipped provider the
+   narrow reading reaches today. The broad reading also changes four other providers' rows in three
+   agents, and it decides [OQ-WG8](wire-bridge-gateway.md#OQ-WG8), which defers to this rule.
+
+   <!-- vantage: oq id=OQ-3 leaning="The narrow reading: only a subscription provider the agent implements with its own client and login. The harm P1 names needs a subscription client displaced by a key-driven wire; the broad reading would take opencode's zai off the coding plan, turn off via for every same-named provider and forbid OQ-WG8's override, while fixing no reported failure. It narrows the ruled words, so it is for the maintainer to confirm or overrule." -->
+
+   **What yolo writes today.** Composed from the shipped packs, pi's, omp's and opencode's derives
+   each write a catalog row for `zai`, `cerebras`, `openrouter`, `kilo` and `llamacpp`. Which of
+   those keys the agent also implements itself, read from each agent's installed code (pi 0.87.1,
+   oh-omp 0.15.3, opencode 1.18.32; none of them run):
+
+   | Agent | Its own provider under the same key | Not one of its own |
+   | :--- | :--- | :--- |
+   | pi | `zai`, `cerebras`, `openrouter` | `kilo`; `llamacpp` (pi's is keyed `llama.cpp`) |
+   | omp | `zai`, `cerebras`, `openrouter`, `kilo` | `llamacpp` (omp's is keyed `llama.cpp`) |
+   | opencode | `zai`, `cerebras`, `openrouter`, `kilo` | `llamacpp` |
+
+   **Under the broad reading**, each derive stops writing the rows in the middle column:
+
+   - **pi** keeps the credential for all three: its own clients read the variables yolo's rows name
+     (`ZAI_API_KEY`, `CEREBRAS_API_KEY`, `OPENROUTER_API_KEY`). What moves is the rest of each row.
+     Pi's own model lists replace yolo's (pi's `zai` has no `glm-4.6`, which the settings derive
+     still names in `enabledModels`), and yolo's context windows and model options stop reaching
+     pi. `openrouter` also goes back from the `openai-responses` wire yolo's row sets to pi's own
+     chat-completions client.
+   - **omp** loses four rows. Its own `zai` speaks Anthropic Messages at `api.z.ai/api/anthropic`,
+     where yolo's row points it at the chat-completions coding endpoint, and its own `openrouter`
+     speaks chat completions where yolo's row sets Responses.
+   - **opencode** loses four rows, and `zai` changes what a zai profile buys. opencode's own `zai`
+     reads `ZHIPU_API_KEY` and calls the metered `api.z.ai/api/paas/v4`. yolo's row sends
+     `ZAI_API_KEY` to the coding plan's `api.z.ai/api/coding/paas/v4`. A jail with only
+     `ZAI_API_KEY` set would have no zai credential in opencode at all.
+   - **Via stops working for every one of those providers in that agent.** A via row is a catalog
+     row under the provider's own key, and pi and omp already drop it for `openai-codex` under this
+     rule. A via profile selecting any of them would re-point nothing, which the launch discloses
+     as a via with no effect.
+   - **[OQ-WG8](wire-bridge-gateway.md#OQ-WG8)'s override is forbidden.** A `baseUrl` on pi's
+     built-in `amazon-bedrock` is a `models.json` row for a provider pi implements natively. WG8's
+     options (a) and (b) both put the re-pointing there. So under this reading WG8 needs its row
+     under a key pi does not implement, where whether pi's Converse client still serves it is
+     unverified, or its option (c).
+   - **The exclusion list is per agent and per version**, because each agent's built-in set moves
+     with its releases. Keeping it true is the provider marker [OQ-1](#OQ-1) deferred.
+
+   **Under the narrow reading**, nothing built changes. `openai-codex` stays excluded in pi, omp
+   and codex, and every row above is kept, via rows included. [OQ-WG8](wire-bridge-gateway.md#OQ-WG8)'s override is allowed, since
+   pi's `amazon-bedrock` is no subscription: it authenticates with a bearer token or the AWS
+   credential chain. The reading has one edge to state. pi's `openrouter` has an OAuth sign-in of
+   its own and omp's `kilo` a device-code sign-in, and neither is a subscription, so both stay
+   catalogued. If a sign-in of its own were the test instead of a subscription, those two rows
+   would go.
+
+   _Leaning:_ **The narrow reading.** It is narrower than the words ruled, so it is offered for the
+   maintainer to confirm or overrule, and nothing is built on it until then. The harm
+   [P1](#1-verdict-and-core-principles) was written against is a subscription client displaced by
+   a key-driven wire that then finds an ambient platform key. A same-named metered provider's row
+   carries the same kind of credential the agent's own client reads, an API key, so that harm
+   cannot arise there. The broad reading would take away behavior the shipped packs rely on, above
+   all opencode's zai coding plan. It would also turn off via for every same-named provider and
+   forbid [OQ-WG8](wire-bridge-gateway.md#OQ-WG8)'s shape, and it fixes no reported failure.
+
+   **Answer:**
+   > _(empty — fill in when decided)_
 
 ---
 
@@ -403,5 +517,5 @@ or masked to prevent tools or subagents from inadvertently picking them up.
 
 | ID | Ruling / Decision | Date | Settled in | Built |
 | :--- | :--- | :--- | :--- | :--- |
-| OQ-1 | **Exclude `openai-codex` from pi's catalog by name**, matching `packs/codex/derive.lua`; a provider flag waits for a second subscription provider ([OQ-BR2](providers-and-profiles-redesign.md#OQ-BR2)'s marker) | 2026-09-26 | [OQ-1](#OQ-1) | yes, 2026-09-26 (`c9982bce`) |
-| OQ-2 | **Keep the `openai-responses` endpoint on `openai-codex`**, and the rule: an agent never derives catalog entries from a subscription provider it natively implements ([P1](#1-verdict-and-core-principles)) | 2026-09-26 | [OQ-2](#OQ-2) | yes, 2026-09-26 (omp `d079ac31`; the other derives needed nothing) |
+| OQ-1 | **Exclude `openai-codex` from pi's catalog by name**, matching `packs/codex/derive.lua`; a provider flag waits for a second subscription provider ([OQ-BR2](providers-and-profiles-redesign.md#OQ-BR2)'s marker) | 2026-09-26 | [OQ-1](#OQ-1) | yes, 2026-09-26 (`92c20cc6`) |
+| OQ-2 | **Keep the `openai-responses` endpoint on `openai-codex`**, and the rule: an agent never derives catalog entries from providers it natively implements. How far that reaches past `openai-codex` is [OQ-3](#OQ-3) | 2026-09-26 | [OQ-2](#OQ-2) | for `openai-codex`, 2026-09-26 (omp `4ed48212`; the other derives needed nothing) |
