@@ -1,88 +1,86 @@
 ---
-title: "Credential Sources vs. Environment Sources — Explicit Secret Boundaries vs. Automatic Variable Withholding"
+title: "Should credentials leave env_sources?"
 date: 2026-09-27
 status: in-review
-tags: [providers, profiles, credentials, env-sources, security, ergonomics, cli]
-summary: "Evaluate replacing automatic credential withholding from env_sources with a dedicated credential_sources configuration key, analyzing developer surprise, two-file dotenv sprawl, leak regressions, and ad-hoc shell execution."
+tags: [providers, profiles, credentials, env-sources, notches, cli]
+summary: "A key listed in env_sources is withheld from `yolo host -- bash`, and the filing proposed a separate credential_sources key. Measured against the built credential gate: the surprise happens only for a claimed name that env_sources supplies, the host remedy (`yolo host -p <profile> -- <cmd>`) is already built but undocumented, and the split would revisit OQ-CN1. Five implementation decisions make the host remedy findable. Four questions stay open: the split itself, a grant for a command `-p` cannot reach, shared generic names such as AWS_PROFILE, and aws-auth's pointer under a typed -p."
 vantage:
   status-chip: true
 ---
 
-# Credential Sources vs. Environment Sources — Explicit Secret Boundaries vs. Automatic Variable Withholding
+# Should credentials leave `env_sources`?
 
-**Status:** DESIGN, 2026-09-27. Evidence verified at `d6f875df`. Nothing built.
+**Status:** DESIGN, 2026-09-27, filed at `9ebbb659` and corrected the same day against the built
+gate (`b8759598`). Nothing new built. Evidence verified at `8da7840d`, by scratch cells driving
+`hostMain` as `internal/cli`'s `TestHostGate*` cells do (not committed; [ES-D1](#10-decision-ledger) commits them).
 
-> **In short.** Yolo currently conflates general environment variables with provider
-> credentials inside `env_sources`, causing the credential gate to automatically
-> withhold any variable matching a provider's `api_key_env_name` from processes that
-> did not select that provider. Moving credentials into a dedicated `credential_sources`
-> key aligns the mental model so that `env_sources` is delivered to all processes
-> unconditionally while `credential_sources` is filtered per-agent; however, it
-> introduces configuration sprawl, requires strict enforcement against credential
-> leakage in `env_sources`, and leaves ad-hoc shell debugging unsolved without an
-> explicit credential grant flag.
+> **In short.** The gate withholds a claimed name only when `env_sources` supplies it, and the
+> host has had a per-command remedy since the gate shipped: `yolo host -p <profile> -- <cmd>`. A
+> separate credentials key would still route by each provider's claim on the name, so it revisits
+> [OQ-CN1](provider-credential-scope.md#OQ-CN1) instead of replacing it.
 
-**Why it matters.** A developer adding `ZAI_API_KEY=...` or `DEEPSEEK_API_KEY=...` to
-an environment file expects `yolo host -- bash -c 'echo $ZAI_API_KEY'` to print the
-value. Instead, yolo withholds it from `bash` because `bash` is not an agent whose
-profile selected `zai`. This surprises developers: they configured an "environment
-source," but the variable was filtered out of their command's environment. While the
-security intent (preventing cross-agent credential leakage) is sound, doing it by
-retroactively censoring general environment files creates confusion over whether
-variables were loaded at all.
+**Why it matters.** Nobody can find the remedy: the warning names none, and `--help` says `-p` is
+for agents. And the same rule takes `AWS_PROFILE` from `terraform` whenever the claude pack is
+selected ([§3.4](#34-the-case-the-filing-missed-claimed-generic-names)).
 
-**The shape.** Partition configuration into:
-1. `env_sources`: General environment variables (e.g. `PORT`, `DEBUG`, `NODE_ENV`)
-   delivered unconditionally to all processes.
-2. `credential_sources`: Explicit authentication secrets partitioned by the
-   Credential Gate (`packload.ScopeCredentials`) and routed strictly to selected agents.
-3. Enforcement: A validation gate refusing known provider credentials in `env_sources`,
-   preventing accidental security regressions.
-4. Ad-hoc Delivery: A `--with-credentials <provider...>` (or profile mapping) flag
-   allowing non-agent commands like `bash` to explicitly request credentials on the host.
+**The shape.** One `env_sources` channel, classified by name as built
+([CN-D6](provider-credential-scope.md#7-decision-ledger)); five host decisions that pin and
+surface the existing grant; three new questions the filing's cases lead to.
 
-**Cost.** Requires developers to manage two separate environment sources (`.env` vs.
-`.credentials.env` or config blocks); breaks existing `env_sources` setups that store
-API keys alongside general variables; requires migration tooling; adds an extra flag
-when running ad-hoc shell commands with provider credentials.
+**Cost.** None on the recommended path. The split adds a key, a migration, and a refusal that
+fires on `AWS_PROFILE` for every claude-pack user.
 
-**Start at [§3](#3-the-mental-model-mismatch-why-withholding-from-env_sources-surprises)** —
-the collision between general environment files and provider credential claims.
+**Start at [§3](#3-where-the-surprise-is-by-spelling-and-by-notch)**; for the host-only answer,
+[§5](#5-the-host-half-is-built-what-shipping-it-takes).
 
-**Needs your ruling:** [OQ-1](#OQ-1), [OQ-2](#OQ-2), [OQ-3](#OQ-3), [OQ-4](#OQ-4).
+**Needs your ruling:** [OQ-ES1](#OQ-ES1), [OQ-ES5](#OQ-ES5), [OQ-ES6](#OQ-ES6), [OQ-ES7](#OQ-ES7).
+Ruling [OQ-ES1](#OQ-ES1) revisits [OQ-CN1](provider-credential-scope.md#OQ-CN1);
+[OQ-ES6](#OQ-ES6) asks for an exception to [OQ-BR4](provider-credential-scope.md#OQ-BR4).
 
 **Reads with:** [`credential-sources-separation-plan.md`](credential-sources-separation-plan.md)
-(the companion implementation sketch),
-[`provider-credential-scope.md`](provider-credential-scope.md)
-(the design of the Credential Gate built on 2026-09-26),
-[`../reference/agent-credentials.md`](../reference/agent-credentials.md)
-(canonical reference for agent credentials and boundaries in yolo-jail).
+(the sketch; its host section is ready), [`provider-credential-scope.md`](provider-credential-scope.md)
+(the gate's design, rulings and implementation decisions),
+[`providers.md`](../reference/providers.md#the-credential-gate) (the gate as built),
+[`host-agent-environment.md`](../reference/host-agent-environment.md) (the host's composition).
 
 ---
 
-## Terms, in plain words
+## Words this doc uses
 
-- **`env_sources`**. The existing configuration key in `yolo-jail.jsonc` that hydrates
-  process environment from dotenv files and inline maps.
-- **`credential_sources`** *(proposed here)*. A separate configuration key dedicated
-  exclusively to provider API keys, tokens, and authentication secrets.
-- **Credential Gate (`packload.ScopeCredentials`)**. The subsystem that inspects
-  hydrated variables, matches them against provider declarations (`api_key_env_name`),
-  and isolates them into per-agent environment files (`~/.config/yolo-agent-env/<agent>.sh`).
-- **Claimed Variable**. An environment variable whose identifier matches an active
-  provider's declared `api_key_env_name` (e.g. `ZAI_API_KEY`, `OPENROUTER_API_KEY`).
-- **Shared Environment (`yolo-user-env.sh`)**. The file sourced by `/etc/profile` and
-  `.bashrc` in container jails, intended for variables visible to every shell and process.
-- **Ad-hoc Process**. Any command or shell (such as `bash`, `curl`, `jq`, `python`)
-  that is not an agent pack's recognized binary.
-- **Leak Regression**. Re-introducing the security vulnerability closed on 2026-09-26
-  where one agent or shell process can read credentials intended for another provider.
+- **`env_sources`**. The config key that hydrates host-side values from dotenv files and inline
+  maps into a launch's environment. A dotenv file is one kind of entry
+  (`config.ResolveEnvSourcesFull`). `yolo host` reads only the user-scope entries
+  (`config.UserScopeConfigOrEmpty`). A workspace config never reaches it.
+- **Claimed name.** A variable that some **composed** provider lists in its `api_key_env_name`
+  (`credentialClaims`). A composed provider is either a selected pack's `kind: "provider"` or one
+  of the user's own `providers` entries (`packload.ComposeProviders`). A claim does not need any
+  profile to select the provider. That is why the incident lists four providers, none of them
+  selected.
+- **The credential gate.** `packload.ScopeCredentials`. It decides which process receives which
+  composed value, and it writes nothing (its header says so). Where each answer lands depends on
+  the vehicle:
+  - container backends: per-agent files, `~/.config/yolo-agent-env/<agent>.sh`, which
+    `deliverChannel` writes;
+  - macos-user: the one launched program's session
+    ([CN-D12](provider-credential-scope.md#7-decision-ledger));
+  - the host notch: the one exec'd process (`composeHostVars`).
+- **The shared file.** `~/.config/yolo-user-env.sh` in a container jail. It carries only the
+  unclaimed `env_sources` values (`SharedEnvSources`). Its readers are:
+  - the `.bashrc` line (`internal/entrypoint/shell.go`);
+  - the container command's `miseActivate` (`internal/cli/run/command.go`);
+  - the entrypoint (`hydrateEnvFromUserEnvFile`, `execBash`);
+  - the wire bridge (`resolveKey`).
+- **Ad-hoc command** *(coined here)*. A command that no selected pack installs, such as `bash`,
+  `curl` or `terraform`. It is not an agent, so no pack's env derive runs for it.
+- **Grant** *(coined here)*. A per-invocation selection that makes an ad-hoc command a recipient
+  of a provider's claimed values. It is not a config setting, and it does not turn off the gate.
+- **Notch**. A place where yolo renders an agent's environment: the jail, `yolo host`, and
+  `guest`, which is not built yet
+  ([`provider-credential-scope.md`](provider-credential-scope.md#words-this-doc-uses)).
 
----
+## 1. What happened, precisely
 
-## 1. The Incident and Problem Statement
-
-On 2026-09-27, running a basic host command to verify a provider API key:
+On 2026-09-27:
 
 ```console
 $ yolo host -- bash -c 'echo $ZAI_API_KEY'
@@ -94,253 +92,441 @@ yolo host: Credential scope: a provider's credential reaches only the agents who
   CEREBRAS_API_KEY (provider cerebras): withheld from every process — no agent in this launch selected it
 ```
 
-The command printed an empty string. The developer had added `ZAI_API_KEY` to their
-`env_sources` file, expecting it to be available. Instead:
+The command printed an empty line. The transcript supports four conclusions. The run itself cannot
+be reproduced from the repository, but the probes reproduce its shape.
 
-1. Yolo identified that `ZAI_API_KEY` was claimed by the `zai` provider.
-2. The invoked command was `bash`, which is not an agent with an active profile
-   selecting `zai`.
-3. The Credential Gate withheld `ZAI_API_KEY` from `bash`'s process environment.
-4. Yolo emitted four lines of disclosure warnings explaining why the keys were withheld.
+1. **`env_sources` was the key's only source.** Had the invoking shell exported `ZAI_API_KEY`,
+   `bash` would have printed it. The shell `yolo host` inherits passes through untouched
+   ([CN-D13](provider-credential-scope.md#7-decision-ledger), `hostComposition.environ`), and the
+   probe printed the same "withheld" line over it
+   ([§3.5](#35-what-the-disclosure-says-and-what-it-gets-wrong)).
+2. **Nothing keyed `bash`.** There was no `-p` and no `use_profiles` entry for `bash`, so `bash`
+   received only the unclaimed values (`EnvSourcesFor`).
+3. **The user declared a deepseek provider.** No `packs/*/pack.json` declares `deepseek`, so the
+   user's own `providers` entry claimed `DEEPSEEK_API_KEY`. zai, openrouter and cerebras are
+   shipped packs.
+4. **The disclosure is five lines.** It is the rule line plus one line per group of names that
+   share a claimant and recipients (`CredentialScope.Disclosure`,
+   [CN-D16](provider-credential-scope.md#7-decision-ledger)).
 
-The developer found this behavior surprising:
+What the maintainer said:
+
 > *"I find it confusing that you can add something to the environment sources of a jail
 > and then start up the jail and then it's not there because it's been filtered out.
 > I think instead we should move credentials into their own files that are very clearly
 > marked as credentials, basically the same thing as environment sources, but it'll be
 > clear that they're credentials and not expected to all make it into the environment."*
 
----
+## 2. Principles
 
-## 2. Load-Bearing Principles
+- **P1. What a user lists under a key named for the environment should reach the
+  environment.** This is the filing's premise and the argument for the split. It collides with
+  [OQ-CN1](provider-credential-scope.md#OQ-CN1)'s ruling, and [OQ-ES1](#OQ-ES1) is where the two
+  are weighed.
+- **P2. Nothing leaks** ([OQ-BR4](provider-credential-scope.md#OQ-BR4), ruled 2026-09-25):
+  *"certainly not Claude Code gets Bedrock"* because another agent selected it. Any change here
+  keeps a claimed name out of every process whose profile did not select its provider, unless the
+  user explicitly asks for it.
+- **P3. A narrowing is said, and an acknowledgment is explicit.** Two rules bind here:
+  - The gate discloses on every arm
+    ([CN-D16](provider-credential-scope.md#7-decision-ledger), and "No silent narrowing" in
+    [`provider-credential-scope.md` §4](provider-credential-scope.md#4-what-this-does-not-license)),
+    and a disclosure is never suppressible
+    ([`OQ-RO3`](../reference/report-tiers.md#why-its-this-way)).
+  - An override has to be acknowledged in as many words, and it *"shouldn't just silently ride
+    along"* ([OQ-SK1](attach-skew-and-contract-guardrails.md#OQ-SK1), 2026-09-26).
+- **P4. A value no provider claims reaches every process**
+  ([CN-D3](provider-credential-scope.md#7-decision-ledger)). The catch is that "claimed" is not
+  the same as "secret". bedrock's claim list includes `AWS_PROFILE`, which is a profile name
+  ([CN-D2](provider-credential-scope.md#7-decision-ledger),
+  [§3.4](#34-the-case-the-filing-missed-claimed-generic-names)).
 
-- **P1. Explicit declaration beats implicit interception.**
-  When a developer places a file in `env_sources`, their expectation is that its
-  contents will be in their environment. Intercepting and withholding variables based
-  on external pack provider definitions creates a spooky action-at-a-distance.
-- **P2. No cross-agent credential leakage ([`OQ-BR4`](provider-credential-scope.md#OQ-BR4) holds).**
-  The maintainer's ruling on 2026-09-25 stands firm: credentials scoped to one
-  provider must not be ambiently visible to other agents. Any design change must not
-  re-introduce the vulnerability where Pi or Claude can ambiently read each other's keys.
-- **P3. Least astonishment in interactive workflows.**
-  Running `yolo host -- <cmd>` or launching a debug subshell inside a jail should behave
-  predictably. If a secret is withheld, the contract must make it obvious before launch
-  why it was withheld.
-- **P4. Non-secret environment must remain ubiquitous.**
-  General environment variables (`DEBUG`, `NODE_ENV`, `HTTP_PROXY`, `DATABASE_URL`)
-  must never be subject to provider-scoping or withholding.
+## 3. Where the surprise is, by spelling and by notch
 
----
+The surprise depends on **where the key came from** and **which notch runs the command**. The
+filing treated it as one case. It is several cases, and only one of them matches the incident.
 
-## 3. The Mental Model Mismatch: Why Withholding from `env_sources` Surprises
+### 3.1 At the host
 
-The current architecture and the developer's mental model diverge in a fundamental way:
+Every cell is measured, with packs `claude`, `pi` and `zai` and an unclaimed `PORT` beside the
+key. In every cell, `PORT` reached `bash`.
 
-```
-Developer Mental Model:
-  "env_sources is where I put variables for my jail."
-  Input: .env (contains PORT=8080, ZAI_API_KEY=sk-...)
-  Expectation: All processes inside the jail (and yolo host) have $PORT and $ZAI_API_KEY.
-
-Current Yolo Implementation:
-  "env_sources is a raw stream that I will censor against provider claims."
-  Input: .env
-  Pass 1: Detect that 'ZAI_API_KEY' matches packs/zai/pack.json:api_key_env_name.
-  Pass 2: Strip 'ZAI_API_KEY' from shared yolo-user-env.sh.
-  Pass 3: Deliver 'ZAI_API_KEY' only to pi.sh (if pi selected zai).
-  Outcome: bash, subshells, and non-profiled agents receive $PORT, but NOT $ZAI_API_KEY.
-```
-
-### Why this produces surprise:
-1. **Reactive, pack-driven classification:** The user never marked `ZAI_API_KEY` as a
-   secret. Yolo classified it as a secret solely because a selected pack (`packs/zai`)
-   declared `"api_key_env_name": "ZAI_API_KEY"`. If the pack had not been selected,
-   the variable would have passed through to `bash`!
-2. **Conflation of secrets with configuration:** Standard industry practice uses `.env`
-   for both settings and keys. Yolo attempts to separate them post-hoc by variable name.
-3. **The ad-hoc shell dilemma:** Developers frequently run `yolo host -- bash` or
-   open an interactive container shell to test curl commands, run CLI scripts, or
-   inspect environment variables. Because `bash` does not have an agent profile, all
-   provider credentials are automatically withheld.
-
----
-
-## 4. The Proposed Architecture: Dedicated `credential_sources`
-
-To resolve the mental model collision, we evaluate splitting environment ingestion into
-two explicit channels:
-
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│ yolo-jail.jsonc                                                             │
-│                                                                             │
-│   "env_sources": [                                                          │
-│     ".env"                   ──► Unfiltered: goes to ALL processes          │
-│   ],                                                                        │
-│                                                                             │
-│   "credential_sources": [                                                   │
-│     ".credentials.env"       ──► Gated: goes ONLY to matching agents        │
-│   ]                                                                         │
-└─────────────────────────────────────────────────────────────────────────────┘
-```
-
-### 4.1 Channel 1: `env_sources` (General Environment)
-- **Role:** General runtime configuration (`PORT`, `LOG_LEVEL`, `DEBUG`, `DATABASE_URL`).
-- **Delivery:** Unconditional. Written to `~/.config/yolo-user-env.sh` in jails and
-  inherited directly by `yolo host -- <cmd>`.
-- **Filtering:** **None.** No variable declared in `env_sources` is ever withheld by
-  the Credential Gate.
-- **Invariant Guard:** To prevent developers from accidentally putting API keys into
-  `env_sources` and leaking them to all processes, yolo validates `env_sources` against
-  active provider claims. If a known provider credential (like `ANTHROPIC_API_KEY`) is
-  found in `env_sources`, yolo **refuses** the launch with a clear diagnostic:
-  ```
-  error: ZAI_API_KEY is a provider credential and cannot be loaded via env_sources.
-  Move it to credential_sources to ensure it is securely scoped per-agent.
-  ```
-
-### 4.2 Channel 2: `credential_sources` (Provider Credentials)
-- **Role:** Model and API authentication secrets (`ZAI_API_KEY`, `DEEPSEEK_API_KEY`,
-  `AWS_SECRET_ACCESS_KEY`).
-- **Syntax:** Mirrors `env_sources` (accepts dotenv file paths and inline JSON maps):
-  ```jsonc
-  "credential_sources": [
-    "~/.config/yolo-jail/credentials.env",
-    ".env.secrets",
-    { "CUSTOM_KEY": "secret-value" }
-  ]
-  ```
-- **Delivery:** Controlled by `packload.ScopeCredentials`. Delivered **only** to
-  `~/.config/yolo-agent-env/<agent>.sh` for agents whose active profile selects the
-  claiming provider.
-- **Mental Model Alignment:** Because the developer explicitly placed the file in
-  `credential_sources`, they *expect* it to be scoped. Withholding it from a non-profiled
-  process is no longer a surprise; it is the stated purpose of the configuration key.
-
-### 4.3 Handling Ad-hoc Host Commands (`yolo host -- bash`)
-Even with `credential_sources`, running `yolo host -- bash -c 'echo $ZAI_API_KEY'` will
-still result in an empty string if `bash` does not select `zai`.
-
-To solve the ad-hoc command problem, introduce an explicit credential grant mechanism:
-1. **Targeted flag:**
-   ```console
-   $ yolo host --with-credentials zai -- bash -c 'echo $ZAI_API_KEY'
-   ```
-   Or reuse `-p`:
-   ```console
-   $ yolo host -p zai -- bash -c 'echo $ZAI_API_KEY'
-   ```
-2. **Behavior:** Explicitly grants the specified provider's credentials to the invoked
-   host process. The developer is in complete control, and no disclosure warning is
-   printed.
-
----
-
-## 5. Trade-off Analysis: The Real Costs
-
-While separating `credential_sources` is conceptually cleaner, it carries substantial
-trade-offs that must be weighed honestly:
-
-| Dimension | Current Architecture (`env_sources` only) | Proposed Architecture (`credential_sources` split) |
+| Where `ZAI_API_KEY` is | `yolo host -- bash` | `yolo host -p zai -- bash` |
 | :--- | :--- | :--- |
-| **Dotenv File Sprawl** | **Low.** Single `.env` file per workspace/user. | **High.** Requires two files (`.env` and `.credentials.env`). Developers must maintain both. |
-| **Tool Compatibility** | **High.** Standard tooling (Vite, Next.js, Django, Cargo) reads `.env` directly. | **Medium/Low.** Standard tooling does not know about `.credentials.env` unless wrapped by yolo. |
-| **Developer Surprise** | **High.** Variables in `.env` vanish from shells without warning when claimed by a provider. | **Low.** Variables in `env_sources` always appear; variables in `credential_sources` are expected to be scoped. |
-| **Security Leak Prevention** | **Automatic.** Any variable matching a provider is secured, even if the user didn't know it was a provider key. | **Requires Enforcement.** If `env_sources` does not refuse provider keys, users will accidentally leak them. |
-| **Configuration Friction** | **Zero.** Add key to `.env`, select profile `-p zai`, done. | **Higher.** Must classify every variable as either general env or credential. |
-| **Ad-hoc Shell Ergonomics** | Needs `-p` or wrapper. Withheld with warning. | Still needs `--with-credentials` or `-p` if stored in `credential_sources`. |
+| `env_sources` only (the incident) | absent. Disclosed `withheld from every process` | **delivered**. Disclosed `ZAI_API_KEY (provider zai): bash only` |
+| exported in the invoking shell only | **present**, from the shell. No disclosure line | present, from the shell. No disclosure line |
+| both | **present**, from the shell. Disclosed `withheld from every process`, which is wrong | delivered: the `env_sources` value beats the shell's. Disclosed `bash only` |
 
-### The Critical Hazard: The "Refusal vs. Leak" Dilemma
-If we introduce `credential_sources`, what happens when a developer puts `ZAI_API_KEY=...`
-into `.env` under `env_sources`?
-- **Option 1 (Pass-through):** `ZAI_API_KEY` is exported to every process.
-  *Result:* Re-opens cross-agent credential leakage ([`OQ-BR4`](provider-credential-scope.md#OQ-BR4) regression). Claude can read
-  Zai's key; Bedrock keys leak to Pi. This violates P2.
-- **Option 2 (Silent Withholding):** `ZAI_API_KEY` is withheld from `env_sources`.
-  *Result:* We have re-created the exact original problem. The developer is still surprised.
-- **Option 3 (Hard Refusal):** Yolo refuses to start if `env_sources` contains a variable
-  matching an active provider's `api_key_env_name`.
-  *Result:* Safe and unambiguous. It forces the developer to move the secret to
-  `credential_sources`, guaranteeing that the user understands it is scoped.
+The middle column is the part the filing missed. `-p` is not agent-only at the host.
+`effectiveHostProfiles` keys the one-agent table by the launched command's basename, whatever that
+command is. `ScopeCredentials` then builds an `AgentDelivery` for every key in that table, with no
+check that a pack installs the name. `AgentEnv` returns nothing for a binary no pack owns
+(`binOwner`), so no pack code runs. The `gateFiresFor` comment already states this reliance.
 
----
+The host also has two narrower facts:
 
-## 6. Alternatives Considered
+- **`-p` takes a profile name, not a provider name** (`packload.DeclaredProfileNames`). Every
+  shipped provider ships a same-named profile, so `-p zai`, `-p openrouter`, `-p cerebras`,
+  `-p kilo`, `-p llamacpp` and `-p bedrock` all work. A provider that the user declares under
+  `providers` also needs a one-line `profiles` entry before `-p` can name it. Without one, the
+  launch refuses with `no profile named … is declared`.
+- **The grant is narrower than a selecting agent's delivery.** It carries the claimed
+  `env_sources` values only. There are no shape variables, because no derive runs for `bash`. A
+  pack that installs no CLI (**CLI-less**) contributes no gated env either, because
+  `gateFiresFor` fires only for a basename that a selected pack installs
+  ([CN-D4](provider-credential-scope.md#7-decision-ledger)). So `yolo host -p bedrock -- bash`
+  receives the static AWS pair, but not aws-auth's `AWS_CONTAINER_CREDENTIALS_FULL_URI`
+  (measured). [OQ-ES7](#OQ-ES7) asks whether that should change.
 
-| Alternative | Description | Verdict |
+To put the key in the current shell instead, `eval "$(yolo host env --agent bash -p zai)"` prints
+`export ZAI_API_KEY=…`, with the disclosure on stderr (`hostEnv`, `hostEnvDelta`). `--agent`
+defaults to `claude`, so the plain `yolo host env` withholds the zai key.
+
+### 3.2 In the jail
+
+This section is read from the code and from
+[`providers.md`](../reference/providers.md#the-credential-gate). It was not measured here.
+
+| Where `ZAI_API_KEY` is | bare shell (`yolo -- bash`) | an agent whose profile selects zai | a child of that agent |
+| :--- | :--- | :--- | :--- |
+| `env_sources` | absent. The shared file carries unclaimed values only (`deliverChannel` writes `SharedEnvSources`) | present, from its per-agent file | present, by inheritance ([CN-D8](provider-credential-scope.md#7-decision-ledger)) |
+| the host shell that ran `yolo` | absent. It never crosses as a raw variable | only what its env derive composes from it (`ScopeInput.Fallback`, [CN-D6](provider-credential-scope.md#7-decision-ledger)) | as its parent |
+
+**The jail has no grant for a shell.** `-p bash=zai` is refused (`(*Options).checkProfileTargets`:
+`no pack installs a CLI named "bash"`). A bare `-p` never keys the `--` command. The 2026-09-03
+ruling, restated at that function on 2026-09-19, is that a profile selects providers "for THE
+AGENTS IN THE JAIL". The only in-jail route is to run `. ~/.config/yolo-agent-env/<agent>.sh`
+by hand, and that works only when some agent selected the provider in this entry. The files are
+readable by every process of the jail's uid, so scoping here governs a process's **ambient
+environment** and is not access control. [OQ-ES5](#OQ-ES5) asks whether the jail should get a
+grant.
+
+### 3.3 On macos-user
+
+Delivery is per launch, keyed by the basename of argv[0]
+([CN-D12](provider-credential-scope.md#7-decision-ledger), `(*packChannel).launchEnv`). So
+`yolo -- zsh` gets the shared values only, and an agent started from that shell gets none of its
+profile's values. That second part is [OQ-CN9](provider-credential-scope.md#OQ-CN9), still open.
+There is no grant for an ad-hoc command here either.
+
+### 3.4 The case the filing missed: claimed generic names
+
+`packs/claude`'s `bedrock` provider claims `AWS_BEARER_TOKEN_BEDROCK`, `AWS_ACCESS_KEY_ID`,
+`AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN`, `AWS_PROFILE` and
+`AWS_CONTAINER_CREDENTIALS_FULL_URI` ([CN-D2](provider-credential-scope.md#7-decision-ledger)).
+With only `"packs": ["claude"]` and `AWS_PROFILE` plus an access key in `env_sources`,
+`yolo host -- terraform` receives neither, and the launch discloses
+`AWS_PROFILE, AWS_ACCESS_KEY_ID (provider bedrock): withheld from every process` (measured). The
+same rule keeps them out of the jail's shared file (`SharedEnvSources`, read from the code), so
+`aws` and `terraform` in a jail shell lose them too.
+
+The gate cannot tell "AWS keys for Bedrock" from "AWS keys for terraform", because both use the
+same variable names. **This is a sharper surprise than the incident**, because the user declared
+no AWS provider and selected no Bedrock profile. Selecting the claude pack is enough.
+`yolo host -p bedrock -- terraform` is a remedy for one command. [OQ-ES6](#OQ-ES6) asks whether a
+standing one is wanted.
+
+### 3.5 What the disclosure says, and what it gets wrong
+
+The disclosure is not silent. It is printed at `yolo host --` and on stderr at `yolo host env`,
+and on every jail entry ([CN-D16](provider-credential-scope.md#7-decision-ledger)). It has two
+defects, both in the built gate rather than in the design:
+
+- **It names no remedy.** "no agent in this launch selected it" gives no way to get the value back,
+  even at the host, where `-p` is one flag away. `hostUsage` makes this worse: it describes `-p`
+  as a preset "for the wrapped agent".
+- **It misreports what the host notch does when the shell holds the same name.**
+  `CredentialScope.Disclosure` reads only the hydrated `env_sources`, never the inherited
+  environment. When the invoking shell also exports a withheld name, the line says
+  "withheld from every process" while the exec'd process holds the shell's value (the table in
+  [§3.1](#31-at-the-host)). The jail has no such case, because a host shell's value never crosses
+  raw.
+
+## 4. The filed proposal: a key of its own for credentials
+
+### 4.1 What it proposes
+
+The filing proposes three changes:
+
+1. **Split the key.** `env_sources` stays for general variables and is delivered to every
+   process. A new `credential_sources` key, which accepts the same entries, is delivered only to
+   agents whose profile selects the claiming provider.
+2. **Refuse claimed names in `env_sources`.** A claimed name found there is refused, not withheld
+   ([OQ-ES2](#OQ-ES2)).
+3. **Add a host grant** so that `bash` can ask for credentials. That grant exists already:
+   [§5](#5-the-host-half-is-built-what-shipping-it-takes).
+
+### 4.2 What it would revisit
+
+The split asks you to revisit gate rulings, which you should know before ruling
+[OQ-ES1](#OQ-ES1):
+
+- **[OQ-CN1](provider-credential-scope.md#OQ-CN1), ruled 2026-09-26.** *"The key name is a fact
+  about the provider … a per-profile allowlist in user config … puts a fact about zai in every
+  user's file."* Under the split, every user restates "this is a credential" by moving it to a
+  file, which is a coarser form of the rejected alternative. The split also still needs the claim
+  to route. The filed design delivers `credential_sources` "only to agents whose active profile
+  selects the claiming provider", which is the [OQ-CN1](provider-credential-scope.md#OQ-CN1) claim.
+- **[CN-D6](provider-credential-scope.md#7-decision-ledger).** "The gate classifies NAMES, not
+  sources." The split classifies by source. It is also silent on the channel CN-D6 exists for:
+  the launch environment, `ScopeInput.Fallback`, can be classified only by name.
+- **[CN-D3](provider-credential-scope.md#7-decision-ledger).** The split's `env_sources` would
+  behave as CN-D3's unclaimed values already do. The only change in behavior is
+  [OQ-ES2](#OQ-ES2)'s refusal.
+
+**A name no provider claims cannot be routed.** The filed example
+`{ "CUSTOM_KEY": "secret-value" }` has no claimant, so the gate cannot tell which agent should
+receive it. The split would have to invent a rule for it: every agent, which is CN-D3; none; or a
+per-name recipient list, which is [OQ-CN1](provider-credential-scope.md#OQ-CN1)'s rejected allowlist.
+
+### 4.3 What it costs that the filing did not count
+
+- **The refusal would hit ordinary AWS configuration.** Under [OQ-ES2](#OQ-ES2)'s filed leaning,
+  a claimed name in `env_sources` is refused. That makes `AWS_PROFILE=dev` a refusal for every user of the
+  claude pack ([§3.4](#34-the-case-the-filing-missed-claimed-generic-names)).
+- **The refusal would depend on which packs are selected.** Claims come from the composed
+  providers, so with no zai pack, `ZAI_API_KEY` is unclaimed and passes (measured). Adding `zai`
+  to `packs` would turn a working launch into a refusal.
+- **The filed examples are wrong.** `ANTHROPIC_API_KEY` and `OPENAI_API_KEY` are claimed by no
+  shipped provider (`api_key_env_name` across `packs/*/pack.json`: zai, openrouter, cerebras,
+  kilo, and bedrock's six). The refusal would never fire on them, and today they reach every
+  process ([CN-D3](provider-credential-scope.md#7-decision-ledger)).
+- **The host needs its own check.** `yolo host` never runs `ValidateConfig` (`composeHostVars`
+  reads `config.UserScopeConfigOrEmpty`). A refusal therefore needs a separate pre-flight at the
+  host, and it can never see a workspace entry.
+- **Other readers depend on the claimed name.** The wire bridge reads a served agent's key from
+  that agent's file, then from the shared file
+  ([CN-D11](provider-credential-scope.md#7-decision-ledger)). MCP `requires_env` is asked per
+  agent ([CN-D19](provider-credential-scope.md#7-decision-ledger)). Any new channel has to feed
+  both, and the refusal would refuse an MCP server's claimed key.
+- **macos-user gets a third vehicle.** The filing designs only the host and container paths.
+  [OQ-CN5](provider-credential-scope.md#OQ-CN5) ruled that all three vehicles ship together.
+
+## 5. The host half is built: what shipping it takes
+
+**The host-only answer:** `yolo host -p zai -- bash -c 'echo $ZAI_API_KEY'` prints the key at
+`8da7840d`, and `eval "$(yolo host env --agent bash -p zai)"` puts it in the current shell.
+Nothing needs a ruling. What is missing is a test, a help line, two disclosure wordings and one
+refusal. All five are recorded as implementation decisions:
+
+| | What | Why it has one answer |
 | :--- | :--- | :--- |
-| **A. Separate `credential_sources` with Refusal on `env_sources` (Proposed)** | Add `credential_sources`, deliver `env_sources` without filtering, hard-refuse provider keys in `env_sources`. | **Viable, but high friction.** Cleanest conceptual separation, but forces two-file management on all projects. |
-| **B. Improve `yolo host` Ad-Hoc Command Support (Low Friction)** | Keep `env_sources` as-is, but allow `yolo host -p <provider> -- <cmd>` for any binary (e.g. `bash`). | **Recommended alternative.** Directly solves the user's immediate frustration (`bash -c 'echo $KEY'`) without breaking configuration schemas or requiring two `.env` files. |
-| **C. Add `--all-credentials` / `--with-credentials` Flag to `yolo host`** | Add an explicit CLI flag to `yolo host` that disables withholding for that single invocation. | **Recommended addition.** Solves developer testing and ad-hoc scripts while preserving containment inside jails. |
-| **D. Inline `unscoped: true` Annotations in `env_sources`** | Allow inline maps in `env_sources` to mark variables as exempt from scoping: `{"ZAI_API_KEY": "...", "unscoped": true}`. | **Rejected.** Clunky syntax, violates single `.env` file standard, confuses precedence. |
+| **ES-D1** | `yolo host -p <profile> -- <cmd>` **is** the host's grant, for any command. Pin it through `hostMain` with a non-agent basename. The cells assert three things: the claimed values arrive; `PORT` still arrives; the line reads `… : bash only`. They must fail if `ScopeCredentials`' agent loop gains an "a pack installs this name" check, or if `effectiveHostProfiles` stops keying the launched basename | It is already the behavior. `hostcredentialgate_test.go` pins pi, codex and claude and no non-agent, so nothing stops it being lost |
+| **ES-D2** | At the host (`yolo host --` and `yolo host env`), each "withheld" line names the remedy: `yolo host -p <profile> -- <cmd>`. The profile named is a declared one that resolves to the claiming provider; if there is none, the line says to declare one. The wording is the implementer's. The jail's line is unchanged until [OQ-ES5](#OQ-ES5) decides whether a shell has a remedy there | "No silent narrowing" already requires the disclosure; naming the one existing remedy is the only way to make it actionable |
+| **ES-D3** | `hostUsage` describes `-p` as applying to the wrapped **command**, and says an ad-hoc command then receives that profile's claimed `env_sources` values. The host-notch bullet in [`providers.md`](../reference/providers.md#the-credential-gate) and [`host-agent-environment.md`](../reference/host-agent-environment.md) say the same | The help text describes the behavior wrongly today |
+| **ES-D4** | At the host, a withheld name that the invoking shell also holds is disclosed as not added by yolo, with the shell's own value passing through. It is never disclosed as "withheld". The wording is the implementer's | The line is false today ([§3.5](#35-what-the-disclosure-says-and-what-it-gets-wrong)); [CN-D13](provider-credential-scope.md#7-decision-ledger) fixes the behavior, and the disclosure has to match it |
+| **ES-D5** | Only a typed `-p` keys a command that no selected pack installs. A `use_profiles` entry for such a name is refused at `yolo host --` too, with `validateUseProfiles`' message plus the `-p` spelling. `yolo check` and every jail launch reading the same user file already refuse it (`unknownProfileCLIMessage`) | Today the host accepts it only because it skips validation (measured: `use_profiles: {"bash": "zai"}` delivers at the host). Two notches disagreeing about one user file is a defect, and the validator's rule stands |
 
----
+**The notches still differ, and ES-D1 says so.** At the host, `-p` keys the `--` command. In the
+jail it never does ([§3.2](#32-in-the-jail)). The host runs exactly one process, so keying that
+process's basename is the only meaning a host `-p` can have. The jail's 2026-09-03 ruling is about
+agents sharing one container, and it stands.
 
-## 7. Open Questions
+**What done looks like:**
 
-1. 💬 **OQ-1: Should yolo split `credential_sources` from `env_sources`?**
-   Should we introduce a dedicated `credential_sources` configuration key, or does the
-   resulting two-file `.env` sprawl outweigh the mental-model clarity?
+1. `yolo host -p zai -- bash -c 'echo $ZAI_API_KEY'` prints the key, and stderr reads
+   `ZAI_API_KEY (provider zai): bash only`.
+2. With the key only in `env_sources`, `yolo host -- bash -c 'echo $ZAI_API_KEY'` prints nothing,
+   and the disclosure names `yolo host -p zai -- …`.
+3. With the key also exported in the invoking shell, no line claims it was withheld.
+4. `yolo host --help` describes `-p` as applying to any wrapped command.
+5. `use_profiles: {"bash": "zai"}` refuses `yolo host -- bash` with the validator's message and
+   the `-p` spelling.
+6. Deleting the host's `ScopeCredentials` call, or its `effectiveHostProfiles` keying, fails a
+   cell.
 
-   <!-- vantage: oq id=OQ-1 leaning="Keep env_sources unified, but add explicit CLI bypass/grant flags (Alternative B/C). Splitting into two config keys forces every user to maintain two dotenv files and coordinate external tooling, whereas the core frustration was simply that yolo host refused to give bash the key." -->
+## 6. Trade-offs
 
-   _Leaning:_ Keep `env_sources` unified, but provide explicit CLI flags (`--with-credentials`
-   or generalized `-p`) for ad-hoc host and shell commands (Alternative B/C).
-   Splitting into `credential_sources` forces two dotenv files onto every repository and breaks
-   external tools (like Next.js or Vite) that expect a single `.env`. The user's actual pain
-   point was that `yolo host -- bash` withheld the key without an obvious way to ask for it.
+| Dimension | Today: one channel, classified by name | The split: `credential_sources` |
+| :--- | :--- | :--- |
+| Files a user keeps | One | Two, and every existing `env_sources` credential moves |
+| A tool that reads `.env` itself (Vite, Next.js, Django) | Unaffected. The gate governs what yolo adds to an environment, not files a tool opens | Unaffected, unless the user moves keys out of `.env` to satisfy the split |
+| A withheld key | Disclosed, but the line names no remedy. ES-D2 fixes that | Disclosed, and scoped by the key's own name |
+| Leak prevention | By name, for every composed provider's claim | Still by name. The split cannot route a name no provider claims ([§4.2](#42-what-it-would-revisit)) |
+| `AWS_PROFILE` under the claude pack | Withheld from shells ([OQ-ES6](#OQ-ES6)) | Refused outright under [OQ-ES2](#OQ-ES2)'s filed leaning |
+| An ad-hoc host command | `yolo host -p <profile> -- <cmd>`, built | The same |
+| Configuration effort | Add the key, select a profile | Classify every variable as one or the other |
+
+**Refusal, leak or disclosure?** The filing offered three options for a claimed name in
+`env_sources`: pass it through, withhold it silently, or refuse it. That list misses how today
+works:
+
+- **Pass it through.** This leaks, and breaks [OQ-BR4](provider-credential-scope.md#OQ-BR4).
+- **Withhold it silently.** This is not what happens today. Today it is withheld and disclosed.
+- **Refuse it.** This refuses the channel the code names as "the SECRET channel"
+  (`composeHostLaunch`'s comment), for reasons that depend on which packs are selected
+  ([§4.3](#43-what-it-costs-that-the-filing-did-not-count)).
+- **Withhold it, disclose it, and name the remedy.** This is today's behavior plus ES-D2, and it
+  is the one I recommend.
+
+## 7. Alternatives considered
+
+| Alternative | Verdict |
+| :--- | :--- |
+| **A. `credential_sources`, with a refusal in `env_sources`** (the filing's proposal) | Open, as [OQ-ES1](#OQ-ES1). I lean against it: it revisits [OQ-CN1](provider-credential-scope.md#OQ-CN1) and [CN-D6](provider-credential-scope.md#7-decision-ledger) and still needs their claim |
+| **B. `yolo host -p <profile> -- <cmd>` for any command** | **Built.** ES-D1 to ES-D5 pin it and make it findable |
+| **C. `--all-credentials` for one invocation** | Rejected. It hands one process every provider's credentials, the opposite of [OQ-BR4](provider-credential-scope.md#OQ-BR4)'s "as specific as possible" |
+| **C′. `--with-credentials <provider…>`, an explicit grant naming providers** | Open, as [OQ-ES5](#OQ-ES5). It is the only grant for a jail or macos-user shell, and the only multi-provider grant anywhere |
+| **D. `unscoped: true` inside an `env_sources` inline map** | Rejected. It is a per-file flag in a per-name problem, and it would sit in a workspace-editable file |
+| **E. A user-scope acknowledgment that shares one claimed name with every process** | Open, as [OQ-ES6](#OQ-ES6). It is the `AWS_PROFILE` case |
+
+## 8. What this does not license
+
+- **No suppressed disclosure.** Every grant is disclosed. The existing `-p` route already says
+  "bash only" ([CN-D16](provider-credential-scope.md#7-decision-ledger),
+  [`OQ-RO3`](../reference/report-tiers.md#why-its-this-way)).
+- **No grant written into a file.** An entry rewrites the per-agent directory whole
+  ([CN-D7](provider-credential-scope.md#7-decision-ledger)), so a grant that lived in a file would
+  be changed by the next attach, and one launch's result would depend on another's. A grant rides
+  only its own entry's exec environment.
+- **No workspace-scope credential key.** A workspace config can be edited by an agent, which is
+  why `yolo host` never reads one (`UserScopeConfig`).
+  [Roadmap row 26](../plans/roadmap.md#-needs-you)
+  ([`OQ-AS3`](../research/agent-safehouse.md#OQ-AS3)) asks whether `env_sources` itself should go
+  user-scope-only.
+- **Not access control within a jail's uid.** A per-agent file is readable by every process of the
+  jail's uid ([§3.2](#32-in-the-jail)). The gate governs ambient environment.
+- **Not the `autonomy` kind, and not the post-merge script slot.** `packdecl.AutonomyPosture`
+  carries only config patches and launch flags per posture, so it cannot express environment
+  delivery.
+  [`OQ-LT2`](../reference/pack-system.md#oq-lt2) (no post-merge script slot) is not involved.
+
+## 9. Open Questions
+
+1. 💬 **OQ-ES1: Should credentials move out of `env_sources` into a key of their own?**
+
+   <!-- vantage: oq id=OQ-ES1 leaning="No. OQ-CN1 and CN-D6 hold: routing a credential needs the provider's claim on its name whichever key holds it, so a second key adds a file and a migration without removing that classification, and it cannot route a name no provider claims. Keep one env_sources channel and make the existing remedy findable with ES-D1 to ES-D4." -->
+
+   This was filed as question 1, and ruling it **revisits a ruling you made.**
+   [OQ-CN1](provider-credential-scope.md#OQ-CN1) put the key-to-provider fact on the provider
+   declaration and rejected a per-user list on 2026-09-26, and CN-D6 made the gate classify
+   names, not sources ([ledger](provider-credential-scope.md#7-decision-ledger)). What has
+   changed since is only the surprise in [§1](#1-what-happened-precisely).
+   [§3](#3-where-the-surprise-is-by-spelling-and-by-notch) shows that surprise is narrower than
+   filed, and [§5](#5-the-host-half-is-built-what-shipping-it-takes) shows its host remedy is
+   built. The stakes: a new config key and a migration for every user, or a disclosure fix.
+
+   _Leaning:_ No; [OQ-CN1](provider-credential-scope.md#OQ-CN1) and CN-D6 hold. The split still
+   needs the provider's claim to route ([§4.2](#42-what-it-would-revisit)). It has no answer for an unclaimed name, and it would turn
+   `AWS_PROFILE` into a refusal ([§4.3](#43-what-it-costs-that-the-filing-did-not-count)). The
+   filing's own leaning was also to keep `env_sources` unified.
 
    **Answer:**
    > _(empty — fill in when decided)_
 
-2. 💬 **OQ-2: If `credential_sources` is adopted, how should `env_sources` handle provider keys?**
-   If a developer puts `OPENAI_API_KEY` into `env_sources`, should yolo hard-refuse,
-   warn and withhold, or pass it through to all processes?
+2. 🔒 <a id="OQ-ES2"></a>**OQ-ES2: Under a split, what happens to a claimed name found in `env_sources`?**
+   This was filed as question 2. It is blocked on [OQ-ES1](#OQ-ES1), and **moot if that rules no.**
+   The filed leaning was a hard refusal, and it is the worst of the options:
+   - it refuses the channel the gate was built to serve;
+   - whether it fires depends on which packs are selected;
+   - it refuses `AWS_PROFILE` for every user of the claude pack;
+   - it can never see a workspace entry at the host
+     ([§4.3](#43-what-it-costs-that-the-filing-did-not-count)).
 
-   <!-- vantage: oq id=OQ-2 leaning="Hard refusal at validation. Allowing it to pass through re-opens OQ-BR4's cross-agent leak; silently withholding it recreates the original surprise. A hard refusal makes the separation unmistakable." -->
+   _Leaning, should it open:_ Keep today's withhold-and-disclose, with ES-D2's remedy. That
+   answer is also the reason the split buys nothing.
 
-   _Leaning:_ Hard refusal with an actionable migration error. If `env_sources` passes it
-   through, we regress on [`OQ-BR4`](provider-credential-scope.md#OQ-BR4) and leak credentials across agents. If it silently
-   withholds, the surprise persists. A refusal clearly instructs: *"ZAI_API_KEY is a provider
-   credential; declare it under credential_sources."*
+3. The filed question 3 (how an ad-hoc host command asks for credentials) is **answered by the
+   tree, not ruled.** `yolo host -p <profile> -- <cmd>` already delivers. It is recorded as
+   [OQ-ES3 and ES-D1 to ES-D5](#10-decision-ledger). What it leaves open is
+   [OQ-ES5](#OQ-ES5) and [OQ-ES7](#OQ-ES7).
+
+4. 🔒 <a id="OQ-ES4"></a>**OQ-ES4: Under a split, at which config scope may `credential_sources` appear?**
+   This was filed as question 4. It is blocked on [OQ-ES1](#OQ-ES1), and **moot if that rules
+   no.** The filed leaning, "both scopes, matching `env_sources`", misreads the host. `yolo host` reads user
+   scope only, whatever the key (`composeHostLaunch`), so a workspace `credential_sources` would
+   feed jails only. A credential in a workspace file is also readable by every jail process,
+   whichever key lists it. That is outside the gate by
+   [`provider-credential-scope.md` §1](provider-credential-scope.md#1-goal-and-non-goals).
+
+   _Leaning, should it open:_ User scope only, for the reason in
+   [§8](#8-what-this-does-not-license).
+
+5. 💬 **OQ-ES5: An explicit grant for a command `-p` cannot reach?**
+
+   <!-- vantage: oq id=OQ-ES5 leaning="Yes: one explicit per-invocation flag naming providers, for example --with-credentials zai, at every notch. It is its own flag, implied by no other override; it rides only that entry's exec environment, never a file; it is disclosed on every entry, naming that the command's children inherit it; and it is never expressible in config. Documenting a hand-sourced per-agent file is the fallback." -->
+
+   This case has no mechanism today:
+   - a jail shell (`-p bash=zai` is refused);
+   - a macos-user shell (delivery is keyed by argv[0]);
+   - a host command that needs two providers at once. `-p` names one profile, and the last one
+     given wins (`parseHostExecFlags`).
+
+   The options are (i) document `. ~/.config/yolo-agent-env/<agent>.sh`, which works only when
+   some agent selected the provider, and stop there; or (ii) add a flag that names providers.
+   Option (ii) **revisits a constraint [OQ-CN6](provider-credential-scope.md#OQ-CN6) stated**:
+   *"a bare `yolo -- bash` shell selects no provider, so it gets no provider value."* It would
+   break that constraint only when the user asks, for one invocation. Reusing `-p` in the jail would instead revisit the 2026-09-03
+   ruling that a profile never keys the `--` command. The stakes: whether a user can debug a
+   provider from a jail shell without starting an agent.
+
+   _Leaning:_ (ii). The flag needs four properties, following the 2026-09-26 acknowledgment rule
+   ([OQ-SK1](attach-skew-and-contract-guardrails.md#OQ-SK1)):
+   - it is its own flag, and no other override implies it;
+   - it is carried only in that entry's exec environment, never in a file
+     ([§8](#8-what-this-does-not-license));
+   - it is disclosed on every entry, including that everything the command starts inherits it
+     ([CN-D8](provider-credential-scope.md#7-decision-ledger));
+   - it can never be expressed in config.
+
+   `--all-credentials` is rejected ([§7](#7-alternatives-considered)).
 
    **Answer:**
    > _(empty — fill in when decided)_
 
-3. 💬 **OQ-3: Enabling `yolo host` to deliver credentials to arbitrary commands.**
-   Currently, `yolo host` only scopes credentials to recognized agent pack binaries.
-   How should an arbitrary command (like `bash` or `curl`) request provider credentials?
+6. 💬 **OQ-ES6: May a user share a claimed generic name, such as `AWS_PROFILE`, with every process?**
 
-   <!-- vantage: oq id=OQ-3 leaning="Allow yolo host -p <provider> -- <cmd> to deliver that provider's credentials to any invoked command, defaulting to 'withhold' only when no profile/provider is specified." -->
+   <!-- vantage: oq id=OQ-ES6 leaning="Yes, by a user-scope, per-name acknowledgment that shares that one claimed name with every process and is disclosed on every launch: a deliberate user exception to OQ-BR4 that only the user file can express, since a workspace config is agent-editable." -->
 
-   _Leaning:_ Allow `yolo host -p <provider> -- <cmd>` to deliver that provider's credentials
-   to any command, regardless of whether `<cmd>` is an agent binary. When someone runs
-   `yolo host -p zai -- bash -c 'echo $ZAI_API_KEY'`, yolo delivers `ZAI_API_KEY` directly to
-   `bash`.
+   bedrock's claim list makes the claude pack alone enough to take `AWS_PROFILE` and the static
+   AWS pair from `aws` and `terraform`, at the host and in every jail shell
+   ([§3.4](#34-the-case-the-filing-missed-claimed-generic-names)). This asks for **a user-made
+   exception to [OQ-BR4](provider-credential-scope.md#OQ-BR4)**, which is yours to make or refuse.
+
+   The options:
+   - (a) the per-invocation grant stays the only remedy: `yolo host -p bedrock -- terraform`, or
+     [OQ-ES5](#OQ-ES5)'s flag in a jail;
+   - (b) a user-scope, per-name acknowledgment that shares one claimed name with every process,
+     disclosed on every launch;
+   - (c) narrow [CN-D2](provider-credential-scope.md#7-decision-ledger)'s list. At the host,
+     though, `AWS_PROFILE` selects the user's own SSO credentials, so it is not a harmless name.
+
+   The stakes: whether selecting the claude pack silently changes ordinary AWS tooling.
+
+   _Leaning:_ (b), in user scope only, because a workspace config can be edited by an agent. It is
+   explicit, it names one variable, and it is disclosed on every launch, so it does not silently
+   ride along.
 
    **Answer:**
    > _(empty — fill in when decided)_
 
-4. 💬 **OQ-4: Backward compatibility and workspace scope.**
-   If `credential_sources` is added, should it be allowed at workspace scope
-   (`yolo-jail.jsonc`), or restricted to user scope (`~/.config/yolo-jail/config.jsonc`)?
+7. 💬 **OQ-ES7: Does a typed host `-p` hand an ad-hoc command a CLI-less pack's gated env?**
 
-   <!-- vantage: oq id=OQ-4 leaning="Allow at both scopes, matching env_sources. A project workspace often maintains its own test keys in an untracked .env file." -->
+   <!-- vantage: oq id=OQ-ES7 leaning="Yes, for a typed host -p only: the named command receives that profile's CLI-less gated env (aws-auth's pointer) as an agent that selected it would, so an SSO-backed Bedrock profile is not half-delivered; nothing else receives it, so OQ-BR4 holds. Restate CN-D4 and gateFiresFor's comment for that case." -->
 
-   _Leaning:_ Allow at both scopes with load-time path anchoring, matching `env_sources`.
-   Workspaces frequently maintain project-specific provider credentials in `.credentials.env`
-   ignored by git.
+   Today `yolo host -p bedrock -- bash` receives the static AWS pair but not aws-auth's
+   `AWS_CONTAINER_CREDENTIALS_FULL_URI`. `gateFiresFor` does not fire for a basename that no
+   selected pack installs ([§3.1](#31-at-the-host)). This revisits
+   [CN-D4](provider-credential-scope.md#7-decision-ledger), an implementation decision, whose
+   rule "a table key naming no CLI any selected pack installs activates nothing" the host relies
+   on by name. The stakes: SSO is the primary Bedrock route
+   ([`OQ-SSO7`](sso-backed-bedrock.md#13-decision-ledger)), so for most Bedrock users a grant
+   without the pointer delivers nothing usable.
+
+   _Leaning:_ Yes, for a typed `-p` only. The user named the profile for this one process, and no
+   other process receives it, so the grant stays as specific as
+   [OQ-BR4](provider-credential-scope.md#OQ-BR4) requires.
 
    **Answer:**
    > _(empty — fill in when decided)_
 
----
-
-## 8. Decision Ledger
+## 10. Decision Ledger
 
 | ID | Ruling / Decision | Date | Settled in | Built |
 | :--- | :--- | :--- | :--- | :--- |
-| OQ-1 | Pending user ruling: `credential_sources` split vs. CLI grant flags | — | [§4](#4-the-proposed-architecture-dedicated-credential_sources) | — |
-| OQ-2 | Pending user ruling: Refusal vs. pass-through for keys in `env_sources` | — | [§4.1](#41-channel-1-env_sources-general-environment) | — |
-| OQ-3 | Pending user ruling: Ad-hoc credential delivery to arbitrary commands | — | [§4.3](#43-handling-ad-hoc-host-commands-yolo-host----bash) | — |
-| OQ-4 | Pending user ruling: Scope permissions for `credential_sources` | — | [§7](#7-open-questions) | — |
+| OQ-ES3 | *Answered by the tree, not ruled.* Filed as question 3: "how should an arbitrary command request provider credentials?" At the host, `yolo host -p <profile> -- <cmd>` already delivers that profile's claimed `env_sources` values to any command and discloses it as `<cmd> only`. ES-D1 to ES-D5 finish it. The jail and multi-provider half is [OQ-ES5](#OQ-ES5); the CLI-less half is [OQ-ES7](#OQ-ES7) | 2026-09-27 | [§5](#5-the-host-half-is-built-what-shipping-it-takes) | ✅ behavior at `8da7840d`; unpinned |
+| ES-D1 | *Implementation decision.* The typed host `-p` is the grant for any command, pinned through `hostMain` with a non-agent basename. The cells fail if the agent loop checks installation or the basename keying goes. The notches differ on purpose: the jail's `-p` never keys the `--` command | 2026-09-27 | [§5](#5-the-host-half-is-built-what-shipping-it-takes) | — |
+| ES-D2 | *Implementation decision.* At the host, a "withheld" line names `yolo host -p <profile> -- <cmd>`, using a declared profile that resolves to the claimant, or says to declare one. The jail's line is unchanged until [OQ-ES5](#OQ-ES5) | 2026-09-27 | [§5](#5-the-host-half-is-built-what-shipping-it-takes) | — |
+| ES-D3 | *Implementation decision.* `hostUsage`, providers.md's host-notch bullet and host-agent-environment.md describe `-p` as applying to any wrapped command | 2026-09-27 | [§5](#5-the-host-half-is-built-what-shipping-it-takes) | — |
+| ES-D4 | *Implementation decision.* At the host, a withheld name the invoking shell holds is disclosed as not added by yolo, never as "withheld" ([CN-D13](provider-credential-scope.md#7-decision-ledger)) | 2026-09-27 | [§3.5](#35-what-the-disclosure-says-and-what-it-gets-wrong) | — |
+| ES-D5 | *Implementation decision.* Only a typed `-p` keys a command no selected pack installs. A `use_profiles` key naming one is refused at `yolo host --` as `validateUseProfiles` refuses it everywhere else | 2026-09-27 | [§5](#5-the-host-half-is-built-what-shipping-it-takes) | — |

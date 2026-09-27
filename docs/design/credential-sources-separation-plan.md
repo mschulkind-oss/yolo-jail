@@ -1,80 +1,105 @@
-# Credential Sources vs. Environment Sources — Implementation Sketch
+# Credential sources: implementation sketch
 
-**Status:** SKETCH, 2026-09-27 — incomplete, and unstable while questions are open.
+**Status:** SKETCH, 2026-09-27. [§1](#1-ship-now-es-d1-to-es-d5) is ready: it rests on no open
+question. Everything after it is incomplete and blocked on the question it names. Codebase facts
+were verified at `8da7840d`.
 
-> **Precedence.** This is an implementation sketch companion to
-> [`credential-sources-separation.md`](credential-sources-separation.md).
-> The design doc wins on all behavioral decisions; nothing here makes a design decision.
+> **Precedence.** This sketch accompanies
+> [`credential-sources-separation.md`](credential-sources-separation.md). The design wins on
+> behavior, and nothing here makes a design decision. [§1](#1-ship-now-es-d1-to-es-d5) builds the design's ES-D1 to ES-D5
+> ([ledger](credential-sources-separation.md#10-decision-ledger)).
 
 ---
 
-## 1. Affected Codebase Map
+## 1. Ship now: ES-D1 to ES-D5
 
-| File / Package | Responsibility in this feature |
+The host grant already works. `yolo host -p <profile> -- <cmd>` keys the one-agent table by the
+command's basename (`effectiveHostProfiles`). `packload.ScopeCredentials` builds a delivery for
+it, and `composeHostVars` step (2), `scope.EnvSourcesFor(agent)`, appends that profile's claimed
+`env_sources` values. What remains to build is a pin, some wording, and one refusal.
+
+| File / symbol | Change | Decision |
+| :--- | :--- | :--- |
+| `internal/cli/hostcredentialgate_test.go` | New cells over `hostGateLaunchWith`, with a non-agent basename (`bash`): see [§4](#4-tests-and-done-conditions) | ES-D1 |
+| `internal/cli/host.go`: `hostUsage` | The `-p` line says "wrapped command", and says an ad-hoc command receives that profile's claimed `env_sources` values | ES-D3 |
+| `internal/packload/credentialscope.go`: `CredentialScope.Disclosure` | Two wording changes at the host notch only. A withheld line names `yolo host -p <profile> -- <cmd>` (ES-D2). A withheld name that the invoking shell holds is worded as not added by yolo (ES-D4). Today `Disclosure` reads only `envSources` and knows nothing of the notch or the shell, while the host caller has `os.LookupEnv`. The implementer chooses the mechanism: a wording input on the scope, or host-side post-processing of the lines. The jail's lines must not change | ES-D2, ES-D4 |
+| `internal/cli/host.go`: `composeHostVars` | A `use_profiles` key for the launched basename that no selected pack installs is refused, with the validator's wording plus the `-p` spelling. A typed `-p` is exempt. "Installs" means `binOwner` over the packs `loadedHostPacks` resolved. The validator's own namespace, `config.UseProfileCLINames`, resolves the same selection | ES-D5 |
+| `docs/reference/providers.md` (the host-notch bullet under "The credential gate") and `docs/reference/host-agent-environment.md` | State the grant and the `yolo host env --agent <name> -p <profile>` front door | ES-D3 |
+
+**Two traps:**
+
+- **`yolo host` never runs `ValidateConfig`.** It reads `config.UserScopeConfigOrEmpty`. That is
+  why `use_profiles: {"bash": "zai"}` delivers at the host today while `yolo check` refuses it.
+  ES-D5's refusal has to live in the host path itself.
+- **`unknownProfileCLIMessage` is unexported** in `internal/config`. Reuse its text through an
+  exported helper, or restate it, but keep one source for the wording.
+
+## 2. Only if the split is ruled in
+
+Blocked on [OQ-ES1](credential-sources-separation.md#OQ-ES1). Its leaning is no, and a no deletes
+this section. These are the call sites a second key would touch. Two of them are easy to miss:
+the shared file is narrowed where `deliverChannel` calls `writeUserEnvFile`, not inside it; and
+`userlayer.go`, not only `load.go`, anchors entries.
+
+| File / symbol | Why it is touched |
 | :--- | :--- |
-| `internal/config/validate.go` | Add validation for `credential_sources`. Add refusal rule checking `env_sources` against provider claims. |
-| `internal/config/load.go` | Anchor relative `credential_sources` paths beside the declaring configuration file. |
-| `internal/config/envsources.go` | Update `ResolveEnvSourcesFull` to support both `env_sources` and `credential_sources`. |
-| `internal/packload/credentialscope.go` | Update `ScopeInput` and `ScopeCredentials` to take both streams. Guarantee that `env_sources` is never filtered and `credential_sources` is partitioned. |
-| `internal/cli/host.go` | Update `composeHostVars` to accept `--with-credentials` or map `-p <provider>` for arbitrary host commands (e.g. `bash`). |
-| `internal/cli/run/profilechannel.go` | Thread both channels into `composePackChannel`. |
-| `internal/cli/run/userenv.go` | Ensure `writeUserEnvFile` receives pure `env_sources` without censoring. |
+| `internal/config/validate.go` | Schema for the new key. It could also carry [OQ-ES2](credential-sources-separation.md#OQ-ES2)'s refusal, but only for the jail and `yolo check` (see [§1](#1-ship-now-es-d1-to-es-d5)'s first trap) |
+| `internal/config/envsources.go`: `ResolveEnvSourcesFull`, `AnchorEnvSources` | Hydration and anchoring of a second key |
+| `internal/config/load.go`, `internal/config/userlayer.go` | Both call `AnchorEnvSources`; `userlayer.go` is the user-scope loader the host notch reads |
+| `internal/packload/credentialscope.go`: `ScopeInput`, `ScopeCredentials` | A second input stream. What it does with a name no provider claims is undefined (the design's [§4.2](credential-sources-separation.md#42-what-it-would-revisit)), and it is a design question, not a sketch entry |
+| `internal/cli/run/profilechannel.go`: `(*Options).composePackChannel` | The jail notch's gate call |
+| `internal/cli/host.go`: `composeHostVars` | The host notch's gate call. It needs its own pre-flight for any refusal |
+| `internal/cli/check/envoverrides.go` | The third `ScopeCredentials` caller (`NoDerives`), which is `yolo check`'s prediction |
+| `internal/cli/run/agentenvfiles.go`: `deliverChannel` | Writes the shared file from `SharedEnvSources` and each agent's file. `writeUserEnvFile` (`userenv.go`) only writes what it is handed |
+| `internal/cli/run/profilechannel.go`: `(*packChannel).launchEnv`; `internal/cli/run/credentialnotes.go`: `noteMacosUserCredentialScope` | The macos-user vehicle ([CN-D12](provider-credential-scope.md#7-decision-ledger)); [OQ-CN5](provider-credential-scope.md#OQ-CN5) requires all three vehicles to ship together |
+| `internal/wirebridged/keyfile.go`: `resolveKey` | Reads a served agent's key from that agent's file, then the shared file ([CN-D11](provider-credential-scope.md#7-decision-ledger)) |
+| `internal/entrypoint/mcp.go`: `loadMCPTables` | `requires_env` is asked per agent ([CN-D19](provider-credential-scope.md#7-decision-ledger)) |
 
----
+[OQ-ES2](credential-sources-separation.md#OQ-ES2) and
+[OQ-ES4](credential-sources-separation.md#OQ-ES4) are blocked on [OQ-ES1](credential-sources-separation.md#OQ-ES1) as well.
 
-## 2. Planned Changes by Component
+## 3. Blocked on the other open questions
 
-### 2.1 Configuration Schema (`internal/config`)
+- **[OQ-ES5](credential-sources-separation.md#OQ-ES5)**, a provider-naming grant flag. The flag
+  lands in three places:
+  - the host: `parseHostExecFlags`, and `ScopeInput.Profiles` or a sibling input;
+  - the jail: only the `--` command's exec environment for that entry, never `deliverChannel`'s
+    files, because an attach rewrites the directory whole
+    ([CN-D7](provider-credential-scope.md#7-decision-ledger));
+  - macos-user: `launchEnv`.
 
-1. **`credential_sources` Key:**
-   - Validated identically to `env_sources`: list of strings (file paths) and JSON objects (inline maps).
-   - Anchored at load time by `config.AnchorCredentialSources`.
-2. **Provider Key Refusal in `env_sources`:**
-   - Blocked on [OQ-2](credential-sources-separation.md#OQ-2).
-   - If an entry in `env_sources` defines a variable matching any composed provider's `api_key_env_name`, emit a validation error:
-     ```go
-     if claimedBy := providerClaims[varName]; len(claimedBy) > 0 {
-         problems = append(problems, fmt.Sprintf("%s is a provider credential (claimed by %s) and must be declared under credential_sources", varName, strings.Join(claimedBy, ", ")))
-     }
-     ```
+  In the jail the flag joins `runFlags` (`internal/cli`), and its disclosure is not
+  suppressible ([`OQ-RO3`](../reference/report-tiers.md#why-its-this-way)).
+- **[OQ-ES6](credential-sources-separation.md#OQ-ES6)**, a user-scope shared-name
+  acknowledgment. It would be read through `UserScopeConfig`, never the merged config. The gate
+  would treat an acknowledged name as unclaimed for `SharedEnvSources` and `EnvSourcesFor`, and
+  `Disclosure` would name it on every launch.
+- **[OQ-ES7](credential-sources-separation.md#OQ-ES7)**, a CLI-less pack's gated env under a
+  typed host `-p`. This touches `gateFiresFor` and `EnvFold` for the host's typed `-p` only, and
+  the comment on `gateFiresFor` (which currently says the host leans on the no-activation rule)
+  has to be restated. The pin is `yolo host -p bedrock -- bash` receiving aws-auth's
+  `AWS_CONTAINER_CREDENTIALS_FULL_URI`.
 
-### 2.2 Credential Gate (`internal/packload/credentialscope.go`)
+## 4. Tests and done conditions
 
-Blocked on [OQ-1](credential-sources-separation.md#OQ-1).
+All the [§1](#1-ship-now-es-d1-to-es-d5) cells drive `hostMain` through `hostGateLaunchWith`, as the `TestHostGate*` cells do.
+They use packs `claude`, `pi` and `zai`, with `env_sources` carrying `ZAI_API_KEY` and an
+unclaimed `PORT`. The scratch versions of cells 1 to 3 passed at `8da7840d` unchanged, which is
+why ES-D1 is a pin and not a feature.
 
-1. **Extend `ScopeInput`:**
-   ```go
-   type ScopeInput struct {
-       EnvSources        *jsonx.OrderedMap // General environment (unfiltered)
-       CredentialSources *jsonx.OrderedMap // Explicit credentials (filtered)
-       // ...
-   }
-   ```
-2. **Partitioning:**
-   - `sharedEnvSources`: Direct copy of `EnvSources` (no keys withheld).
-   - `AgentDelivery.EnvSources`: Populated strictly from `CredentialSources` matching that agent's provider claims.
+1. `-p zai -- bash`: `ZAI_API_KEY` delivered, `PORT` delivered, and stderr contains
+   `ZAI_API_KEY (provider zai): bash only`.
+2. `-- bash`: `ZAI_API_KEY` absent, `PORT` delivered, and the withheld line names
+   `yolo host -p` (ES-D2).
+3. The key both in `env_sources` and exported in the shell, then `-- bash`: the shell's value
+   reaches `bash` ([CN-D13](provider-credential-scope.md#7-decision-ledger)), and no line says
+   "withheld" for it (ES-D4).
+4. `use_profiles: {"bash": "zai"}`, then `-- bash`: refused with the `-p` spelling (ES-D5). The
+   same config with a typed `-p zai` still delivers.
+5. `yolo host env --agent bash -p zai`: stdout carries `export ZAI_API_KEY=…`.
+6. `hostUsage` names "command" for `-p` (ES-D3).
 
-### 2.3 Host Ad-hoc Command Delivery (`internal/cli/host.go`)
-
-Blocked on [OQ-3](credential-sources-separation.md#OQ-3).
-
-1. In `composeHostVars`:
-   - If `agent` is an unknown/ad-hoc binary (e.g. `bash`):
-   - Check if the user specified `-p <provider>` or `--with-credentials <provider>`.
-   - If specified, treat the command as an ad-hoc recipient for that provider's credentials.
-   - Inject the provider's `api_key_env_name` directly into `c.vars`.
-
----
-
-## 3. Test Strategy
-
-1. **Schema Validation Tests:**
-   - `credential_sources` parses dotenv files and inline maps.
-   - If provider keys appear in `env_sources`, verify refusal behavior.
-2. **Gate Partitioning Tests (`internal/packload`):**
-   - General variables in `env_sources` (`PORT`, `DEBUG`) reach all agents and shared environment.
-   - Secrets in `credential_sources` (`ZAI_API_KEY`) reach only the agent selecting `zai`.
-3. **Host Execution Tests (`internal/cli`):**
-   - `yolo host -p zai -- bash -c 'echo $ZAI_API_KEY'` delivers the key.
-   - `yolo host -- bash -c 'echo $ZAI_API_KEY'` withholds the key with clear disclosure.
-   - General variables (`PORT`) always pass through to `bash`.
+**The call-site check.** Before landing, delete each of the following in turn and see a cell
+fail: the host's `ScopeCredentials` call; the `profile != "" && agent != ""` override in
+`effectiveHostProfiles`; and the ES-D5 refusal. If a deletion passes, the cell pins the callee
+and not the call site.
