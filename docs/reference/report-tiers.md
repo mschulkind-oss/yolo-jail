@@ -418,8 +418,10 @@ Six properties an implementer would otherwise decide by accident:
 
 ## What this does not license
 
-- **Not color or glyphs.** [`cli-visual-polish.md`](../plans/cli-visual-polish.md) owns them; the
-  tier-to-style mapping is a consumer of its semantic table, not a change to it.
+- **Not color or glyphs.** [`cli-color.md`](cli-color.md) owns the mechanism (how markup becomes
+  ANSI, and when a stream gets it), and [`cli-visual-polish.md`](../plans/cli-visual-polish.md) owns
+  the palette and the glyphs; the tier-to-style mapping is a consumer of that plan's semantic
+  table, not a change to it.
 - **Not the change predicate, the survey's gate semantics, or the launch gate's dispositions.**
   [`host-apply-staleness.md`](host-apply-staleness.md) owns them. The survey grows fields; it does
   not change what `Changes()` means, and the launch gate keeps reading the same struct — one

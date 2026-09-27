@@ -5,6 +5,8 @@
 // prompt decisions route through here so the ioctl truth is used consistently,
 // and so does color: Color (color.go) is the one color gate, combining the
 // request, this probe's answer and the NO_COLOR convention.
+//
+// Architecture and invariants: docs/reference/cli-color.md
 package tty
 
 import "os"

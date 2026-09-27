@@ -425,7 +425,7 @@ live, so edits are visible on the host instantly — there is no sync step.
   `EDITOR=cat` (stops `git commit` hanging) but `VISUAL=nvim` (human ctrl-g editing); the host's `TERM` is
   forwarded so color survives, and its `NO_COLOR` (when set) so a request for none does too — every
   color decision goes through `tty.Color`
-  ([`cli-visual-polish.md`](docs/plans/cli-visual-polish.md#the-invariant--color-is-additive));
+  ([`cli-color.md`](docs/reference/cli-color.md));
   `OVERMIND_SOCKET=/tmp/overmind.sock` so jail overmind doesn't collide with the host's;
   `LD_LIBRARY_PATH=/lib:/usr/lib:/usr/lib/<multilib>` baked into the image Env to survive agents
   sanitizing the environment.
@@ -470,6 +470,7 @@ live, so edits are visible on the host instantly — there is no sync step.
 | Image and GC-root retention, the reapers | [`image-retention.md`](docs/reference/image-retention.md) |
 | Loopback-TLS reachability, the witness, its severity rule | [`loopback-tls-reachability.md`](docs/reference/loopback-tls-reachability.md) |
 | Report tiers, the launch stream, why there is no quiet mode | [`report-tiers.md`](docs/reference/report-tiers.md) |
+| Terminal color: rich markup, the color gate, the terminal probe, `NO_COLOR` | [`cli-color.md`](docs/reference/cli-color.md) |
 | Program delivery: launchers, evergreen deps, the PATH ruling | [`program-delivery.md`](docs/design/program-delivery.md) |
 | Disk levers, host-cache backfill | [`disk-levers-and-backfill.md`](docs/design/disk-levers-and-backfill.md) |
 | Cgroup delegate security model | [`security-shim.md`](docs/reference/security-shim.md) |

@@ -1,11 +1,13 @@
 // Package richtext renders rich console markup ([bold], [red], [dim], …) either
 // to ANSI escapes (color, on a TTY) or to plain text (piped / color off). It is
 // the single shared renderer for every yolo command's human output — extracted
-// from internal/cli/run's console.go so prune, builder, macos-*, run, and check
-// stop each carrying a near-duplicate strip-always printer (the lost-color bug).
+// from internal/cli/run's console.go so no command carries its own
+// near-duplicate strip-always printer (the lost-color bug).
 //
 // The contract: only KNOWN style tags are touched; a stray literal bracket like
 // [path] or [y/N] is left verbatim in both modes, so it can't be mangled.
+//
+// Architecture and invariants: docs/reference/cli-color.md
 package richtext
 
 import (

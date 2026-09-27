@@ -130,10 +130,10 @@ func TestColorStripsToPlain(t *testing.T) {
 	}
 }
 
-// TestColorGatedOnTTY is the regression for the cli-color-audit leak: Color=true
-// must NOT emit ANSI when Stdout is not a terminal (a pipe/redirect), so
-// captured/greppable `yolo check` output stays clean. The IsTTYStdout seam
-// reports false → the reporter strips.
+// TestColorGatedOnTTY is the regression for check's leak to a pipe
+// (docs/reference/cli-color.md): Color=true must NOT emit ANSI when Stdout is
+// not a terminal (a pipe/redirect), so captured/greppable `yolo check` output
+// stays clean. The IsTTYStdout seam reports false → the reporter strips.
 func TestColorGatedOnTTY(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	var out bytes.Buffer

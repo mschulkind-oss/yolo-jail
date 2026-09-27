@@ -607,8 +607,9 @@ func setRaw(fd int, cooked *unix.Termios) {
 }
 
 // isatty is the shared terminal probe (internal/tty, a TCGETS ioctl here), named for the
-// int descriptors this file works in. It used to be a private copy of that ioctl — the one
-// cli-color-audit.md's "every command uses internal/tty" claim missed.
+// int descriptors this file works in. Keep it a call into internal/tty: this file once held
+// a private copy of the ioctl that survived the probe's first unification
+// (docs/reference/cli-color.md).
 func isatty(fd int) bool { return tty.IsTerminal(uintptr(fd)) }
 
 func exitCode(err error) int {

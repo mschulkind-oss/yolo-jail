@@ -26,7 +26,7 @@ func Check(opts Options) int {
 	fillDefaults(&opts)
 	o := &opts
 	// Gate color through the one gate (tty.Color): o.Color merely requests it,
-	// ANSI must never leak to a pipe/redirect (the cli-color-audit gate rule),
+	// ANSI must never leak to a pipe/redirect (docs/reference/cli-color.md),
 	// and a non-empty NO_COLOR in o.Getenv's environment vetoes it. The
 	// injectable IsTTYStdout seam defaults to the shared ioctl probe on
 	// os.Stdout; a test buffer or a redirect reports false, so goldens stay

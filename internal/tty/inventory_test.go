@@ -96,7 +96,7 @@ var charDeviceReaders = map[string]string{
 // shape — ttyproxy reads termios for their VALUE, which is not a probe), nor test
 // os.ModeCharDevice except where charDeviceReaders says why. A private copy is how a color
 // gate ends up consulting a probe the next reader cannot find — prune and ttyproxy each
-// carried one after cli-color-audit.md recorded the probe as unified.
+// kept one through the first unification of the probe (docs/reference/cli-color.md).
 func TestNoPrivateTerminalProbe(t *testing.T) {
 	root := filepath.Join("..", "..")
 	var probes, charDev []string
