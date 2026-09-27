@@ -146,14 +146,17 @@ MEASURED at `ee8154f2`, 2026-09-24, unless marked.
   contribution in `internal/packdecl/contributes.go`. The object form of a model, with `name`,
   `context_window`, `cost`, `reasoning`, `input` and `max_tokens`, is user config only
   (`knownModelKeys` in `internal/config/config.go`). That set has no `description` field.
-- **Two derives hard-code the same three GPT-6 ids, for `openai-codex` only.** In
-  `packs/claude/derive.lua`, `availableModels` lists `gpt-6-sol`, `gpt-6-astra`, `gpt-6-luna`
-  (the default first, so Claude Code's Default row resolves to Sol), with
-  `enforceAvailableModels`; `modelPicker.options` lists Astra, Sol, Luna, with labels and the
-  descriptions "Frontier", "Balanced", "Fast", and `replaceBuiltInOptions`. In
-  `packs/pi/derive.lua`, `enabledModels` lists the same three, most capable first, with a literal
-  fallback default of `gpt-6-sol` and a subagent `modelScope.allow` of `openai-codex/gpt-6-*`.
-  For every other provider pi renders `enabledModels` from the provider's `models` map, sorted.
+- **Two derives hard-code the same three GPT-6 ids, plus 1M context options alongside each model type, for `openai-codex` only.** In
+  `packs/claude/derive.lua`, `availableModels` lists `gpt-6-sol`, `gpt-6-sol[1m]`, `gpt-6-astra`,
+  `gpt-6-astra[1m]`, `gpt-6-luna`, `gpt-6-luna[1m]` (the default first, so Claude Code's Default row
+  resolves to Sol), with `enforceAvailableModels`; `modelPicker.options` lists Astra, Sol, Luna and
+  their corresponding `[1m]` options directly alongside each model type, with labels and descriptions
+  ("Frontier", "Balanced", "Fast", and their "· 1M context" variants), and `replaceBuiltInOptions`. In
+  `packs/pi/derive.lua`, `enabledModels` lists the same models and their 1M context options
+  (`openai-codex/gpt-6-sol`, `openai-codex/gpt-6-sol[1m]`, `openai-codex/gpt-6-astra`,
+  `openai-codex/gpt-6-astra[1m]`, `openai-codex/gpt-6-luna`, `openai-codex/gpt-6-luna[1m]`), with the
+  selected default leading and a subagent `modelScope.allow` of `openai-codex/gpt-6-*`. For every other
+  provider pi renders `enabledModels` from the provider's `models` map, sorted.
 - **No pack can add to or narrow another pack's provider list.** `KindProvider` combines
   exclusively. `config-list` appends to a list but cannot narrow one, and refuses a `profile` gate
   (`internal/packdecl`, `configlist_test.go`).

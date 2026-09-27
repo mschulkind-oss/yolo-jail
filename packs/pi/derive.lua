@@ -493,8 +493,9 @@ yolo.derive("pi", "settings", function(ctx)
   -- default below; a user profile may state another exact Pi model id as `model`.
   if ctx.selected_provider == "openai-codex" then
     -- The subscription catalog currently exposes these as the supported GPT-6
-    -- choices. Keep the list explicit: the provider wildcard would also make retired
-    -- models selectable, and a future catalog entry needs an intentional policy decision.
+    -- choices, with 1M context options alongside each model type. Keep the list explicit:
+    -- the provider wildcard would also make retired models selectable, and a future catalog
+    -- entry needs an intentional policy decision.
     -- STANDING RULE: the DEFAULT LEADS — Sol first, then most capable first (Astra,
     -- Luna). GPT-5.6 Terra has no GPT-6 successor; Sol carries the balanced role now.
     -- The first slot is not presentation. pi starts a fresh session on the FIRST
@@ -506,6 +507,21 @@ yolo.derive("pi", "settings", function(ctx)
     -- This is the same fix claude's availableModels carries for its retained Default
     -- row: lead with the default, and the fallback lands on it too.
     local model = (ctx.profile and ctx.profile.model) or "gpt-6-sol"
+    local enabledModels = {
+      "openai-codex/gpt-6-sol",
+      "openai-codex/gpt-6-sol[1m]",
+      "openai-codex/gpt-6-astra",
+      "openai-codex/gpt-6-astra[1m]",
+      "openai-codex/gpt-6-luna",
+      "openai-codex/gpt-6-luna[1m]",
+    }
+    for i, em in ipairs(enabledModels) do
+      if em == "openai-codex/" .. model then
+        table.remove(enabledModels, i)
+        table.insert(enabledModels, 1, em)
+        break
+      end
+    end
     return {
       -- Pi-subagents has its own default, independent of Pi's chat selection.
       -- Computed output is intentional here: selection can only lift scalar keys,
@@ -529,11 +545,7 @@ yolo.derive("pi", "settings", function(ctx)
       selection = {
         defaultProvider = "openai-codex",
         defaultModel = model,
-        enabledModels = {
-          "openai-codex/gpt-6-sol",
-          "openai-codex/gpt-6-astra",
-          "openai-codex/gpt-6-luna",
-        },
+        enabledModels = enabledModels,
       },
     }
   end

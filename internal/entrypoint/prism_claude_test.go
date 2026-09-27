@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -318,14 +319,26 @@ func TestConfigureClaudePrismCodexModelPicker(t *testing.T) {
 		t.Errorf("enforceAvailableModels = %v, want true", got["enforceAvailableModels"])
 	}
 	allowed, ok := got["availableModels"].([]any)
-	if !ok || len(allowed) != 3 || allowed[0] != "gpt-6-sol" {
-		t.Errorf("availableModels = %v, want Sol first so Claude's Default row resolves to Sol", got["availableModels"])
+	wantAllowed := []any{
+		"gpt-6-sol",
+		"gpt-6-sol[1m]",
+		"gpt-6-astra",
+		"gpt-6-astra[1m]",
+		"gpt-6-luna",
+		"gpt-6-luna[1m]",
+	}
+	if !ok || !reflect.DeepEqual(allowed, wantAllowed) {
+		t.Errorf("availableModels = %v, want Sol first and 1M context options %v", got["availableModels"], wantAllowed)
 	}
 	options, ok := picker["options"].([]any)
 	if !ok {
 		t.Fatalf("modelPicker.options missing/!array: %v", picker["options"])
 	}
-	want := []string{"gpt-6-astra", "gpt-6-sol", "gpt-6-luna"}
+	want := []string{
+		"gpt-6-astra", "gpt-6-astra[1m]",
+		"gpt-6-sol", "gpt-6-sol[1m]",
+		"gpt-6-luna", "gpt-6-luna[1m]",
+	}
 	if len(options) != len(want) {
 		t.Fatalf("modelPicker.options = %v, want %v", options, want)
 	}

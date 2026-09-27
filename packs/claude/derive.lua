@@ -107,19 +107,26 @@ yolo.derive("claude", "settings", function(ctx)
   if ctx.selected_provider == "openai-codex" then
     -- The client retains a hard-coded Default row. Constraining Default makes it
     -- resolve to the FIRST allowlisted ID (GPT-6 Sol, the balanced default);
-    -- modelPicker then lists the models most-capable-first beneath it.
+    -- modelPicker then lists the models most-capable-first beneath it, with 1M
+    -- context options alongside each model type.
     -- GPT-5.6 Terra has no GPT-6 successor: Sol carries the balanced role now.
     out.availableModels = {
       "gpt-6-sol",
+      "gpt-6-sol[1m]",
       "gpt-6-astra",
+      "gpt-6-astra[1m]",
       "gpt-6-luna",
+      "gpt-6-luna[1m]",
     }
     out.enforceAvailableModels = true
     out.modelPicker = {
       options = {
-        { model = "gpt-6-astra", label = "GPT-6 Astra", description = "Frontier" },
-        { model = "gpt-6-sol",   label = "GPT-6 Sol",   description = "Balanced" },
-        { model = "gpt-6-luna",  label = "GPT-6 Luna",  description = "Fast" },
+        { model = "gpt-6-astra",     label = "GPT-6 Astra",              description = "Frontier" },
+        { model = "gpt-6-astra[1m]", label = "GPT-6 Astra (1M context)", description = "Frontier · 1M context" },
+        { model = "gpt-6-sol",       label = "GPT-6 Sol",                description = "Balanced" },
+        { model = "gpt-6-sol[1m]",   label = "GPT-6 Sol (1M context)",   description = "Balanced · 1M context" },
+        { model = "gpt-6-luna",      label = "GPT-6 Luna",               description = "Fast" },
+        { model = "gpt-6-luna[1m]",  label = "GPT-6 Luna (1M context)",  description = "Fast · 1M context" },
       },
       replaceBuiltInOptions = true,
     }

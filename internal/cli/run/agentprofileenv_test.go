@@ -311,6 +311,34 @@ func TestAssembleEmitsCodexBridgeProfileEnv(t *testing.T) {
 	}
 }
 
+func TestAssembleEmitsCodexBridgeProfileEnvWith1MModel(t *testing.T) {
+	sec := jsonx.NewOrderedMap()
+	sec.Set("blocked_tools", []any{})
+	profiles := jsonx.NewOrderedMap()
+	profiles.Set("claude", "codex")
+	la := assembleWithPacksAssembled(t, newConfig(
+		"agents", []any{"claude"}, "security", sec, "use_profiles", profiles),
+		[]string{"claude", "openai-auth", "wire-bridge"},
+		func() {
+			writeProfilesAtHome(t, `{"codex": {"provider": "openai-codex", "model": "gpt-6-astra[1m]"}}`)
+		})
+	got := la.channelEnv(t, "ANTHROPIC_BASE_URL", "ANTHROPIC_MODEL",
+		"CLAUDE_CODE_SUBAGENT_MODEL")
+	want := []string{
+		"ANTHROPIC_BASE_URL=http://127.0.0.1:8215",
+		"ANTHROPIC_MODEL=gpt-6-astra[1m]",
+		"CLAUDE_CODE_SUBAGENT_MODEL=gpt-6-astra[1m]",
+	}
+	if len(got) != len(want) {
+		t.Fatalf("codex profile env = %q, want %q", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("codex profile env %d = %q, want %q", i, got[i], want[i])
+		}
+	}
+}
+
 // TestAssembleEmitsLocalLLMClaudeEnv pins that local LLM providers without explicit
 // API keys get a dummy token ("local") instead of leaking credentials, that a
 // non-standard context_window sets CLAUDE_CODE_MAX_CONTEXT_TOKENS alongside auto-compact,

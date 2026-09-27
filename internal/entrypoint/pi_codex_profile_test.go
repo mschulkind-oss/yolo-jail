@@ -47,11 +47,14 @@ func TestPiCodexProfileSelectsBuiltInProviderAndExplicitModel(t *testing.T) {
 	// saved selection fails to resolve, so the default must lead the list.
 	wantEnabled := []any{
 		"openai-codex/gpt-6-sol",
+		"openai-codex/gpt-6-sol[1m]",
 		"openai-codex/gpt-6-astra",
+		"openai-codex/gpt-6-astra[1m]",
 		"openai-codex/gpt-6-luna",
+		"openai-codex/gpt-6-luna[1m]",
 	}
 	if !ok || !reflect.DeepEqual(enabled, wantEnabled) {
-		t.Fatalf("Pi enabledModels = %#v, want only GPT-6 models, default first %#v", settings["enabledModels"], wantEnabled)
+		t.Fatalf("Pi enabledModels = %#v, want only GPT-6 models with 1M options, default first %#v", settings["enabledModels"], wantEnabled)
 	}
 	wantSubagents := map[string]any{
 		"defaultProvider": "openai-codex",
@@ -72,6 +75,67 @@ func TestPiCodexProfileSelectsBuiltInProviderAndExplicitModel(t *testing.T) {
 		if _, shadowed := catalog["openai-codex"]; shadowed {
 			t.Fatalf("models.json shadows Pi's built-in openai-codex provider: %#v", catalog)
 		}
+	}
+}
+
+func TestPiCodexProfileSelects1MContextModel(t *testing.T) {
+	piPack, err := embeddedPack("pi")
+	if err != nil {
+		t.Fatal(err)
+	}
+	providers, err := packload.ComposeProviders(nil, []*packload.Pack{piPack})
+	if err != nil {
+		t.Fatal(err)
+	}
+	userProfiles := map[string]packload.UserProfile{
+		"codex": {
+			Provider: "openai-codex",
+			Options:  map[string]string{"model": "gpt-6-astra[1m]"},
+		},
+	}
+	resolved, err := packload.ResolveProfiles([]*packload.Pack{piPack}, userProfiles, providers)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	providersJSON := `{}`
+	if providers != nil {
+		providersJSON = mustCompactJSON(t, providers)
+	}
+	r := newPioencodeRender(t, providersJSON)
+	r.wireProfiles(mustCompactJSON(t, packload.ProfilesWireTable(resolved)))
+	r.render(t, `{"pi":"codex"}`)
+	settings := r.piSettings(t)
+	if settings["defaultProvider"] != "openai-codex" || settings["defaultModel"] != "gpt-6-astra[1m]" {
+		t.Fatalf("Pi selection = provider %#v model %#v, want openai-codex/gpt-6-astra[1m]",
+			settings["defaultProvider"], settings["defaultModel"])
+	}
+	enabled, ok := settings["enabledModels"].([]any)
+	// Rotation rule: selecting gpt-6-astra[1m] rotates it to the front of enabledModels.
+	wantEnabled := []any{
+		"openai-codex/gpt-6-astra[1m]",
+		"openai-codex/gpt-6-sol",
+		"openai-codex/gpt-6-sol[1m]",
+		"openai-codex/gpt-6-astra",
+		"openai-codex/gpt-6-luna",
+		"openai-codex/gpt-6-luna[1m]",
+	}
+	if !ok || !reflect.DeepEqual(enabled, wantEnabled) {
+		t.Fatalf("Pi enabledModels = %#v, want gpt-6-astra[1m] rotated to front: %#v", settings["enabledModels"], wantEnabled)
+	}
+	wantSubagents := map[string]any{
+		"defaultProvider": "openai-codex",
+		"defaultModel":    "openai-codex/gpt-6-astra[1m]",
+		"modelScope": map[string]any{
+			"enforce": true,
+			"strict":  true,
+			"allow": []any{
+				"openai-codex/gpt-6-*",
+			},
+		},
+	}
+	if got := settings["subagents"]; !reflect.DeepEqual(got, wantSubagents) {
+		t.Fatalf("Pi subagents = %#v, want %#v", got, wantSubagents)
 	}
 }
 
