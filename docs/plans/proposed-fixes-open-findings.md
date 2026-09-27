@@ -774,7 +774,13 @@ decision" was simply wrong.
 
 ---
 
-## 10. A pack cannot install Claude MCP servers on the host — **in progress**
+## 10. A pack cannot install Claude MCP servers on the host — **SHIPPED**
+
+> **SHIPPED in `4d1aa68a`, as ruled, with one reversal.** The prune and the first-apply confirm
+> shipped as below (`confirmHostLosses`, gated on `EntryLosses`). The same commit also extended
+> `${VAR}` interpolation from `env` to `url`, which this entry had proposed; `33e70b5b` reversed
+> that the next day, and yolo now interpolates no field at any notch
+> ([the rule](../reference/mcp-configuration.md#the-rules-the-one-loader-enforces)).
 
 Full analysis was in `handoff-host-mcp-servers.md` (retired 2026-09-27; `git log -- docs/plans/handoff-host-mcp-servers.md`);
 this entry is the proposal plus the one ruling that settled its hardest question.
@@ -840,18 +846,13 @@ Four constraints on the implementation, three of which are about not devaluing t
   per-project entries, history and onboarding flags. RMW touches only declared keys, but the
   blast radius dwarfs `settings.json`. A round-trip test proving an untouched multi-key file
   comes back byte-identical apart from the asserted key is not optional here.
-- **`${VAR}` interpolation covers `env` values ONLY** — verified: `interpolateEnv` has exactly
-  one call site (`mcp.go:197`), on `cfg.Get("env")`. So `${TAVILY_API_KEY}` inside a server's
-  `url` is written literally and the server 401s silently. Extending interpolation to `url`
-  (warning on unresolved, as `interpolateEnv` already does at `mcp.go:63`) is the right call —
-  the `http` transport is otherwise unusable with any secret. The key must keep coming from
-  `env_sources`, never from pack content: a pack's `env` kind is static-strings-only by design
-  and must not become a secret carrier.
-
-  *Caveat on the handoff:* it states the maintainer's **host** `~/.claude.json` uses the
-  URL-embedded form. I could not verify that from inside the jail — the file visible here is
-  the JAIL's, which uses `command`+`env`. Treat that as plausible-but-unconfirmed; the `url`
-  interpolation is right regardless of that one file.
+- **`${VAR}` in a server's `url`.** The canonical remote-MCP form carries its credential in the
+  url's query string as `${VAR}`. yolo writes that reference verbatim at every notch, in every
+  field, and the agent that launches the server resolves it from its own environment (in a jail,
+  `env_sources` values are already there)
+  ([why yolo does not interpolate](../reference/mcp-configuration.md#the-rules-the-one-loader-enforces)).
+  The key must keep coming from `env_sources`, never from pack content: a pack's `env` kind is
+  static-strings-only by design and must not become a secret carrier.
 
 **Why this matters beyond Claude:** `copilot/mcp`, `agy/mcp` and `opencode/config` carry MCP
 tables and **already render at the host**. Claude is the odd one out purely because of where
@@ -865,7 +866,7 @@ existing one uniform, which is the actual goal.
 No item is gated on a decision any more. The order below is about **dependency and blast
 radius**, not about waiting for answers.
 
-0. **#10** (host MCP servers) — **already in progress**; the only item with a user-visible
+0. ~~**#10** (host MCP servers)~~ — **DONE** (`4d1aa68a`); the only item with a user-visible
    capability behind it rather than a latent hazard.
 1. ~~**#7** (unfree eval), **#5** (brew cask)~~ — **DONE 2026-08-02.** Isolated as expected;
    see each section's shipped note for what differed from the proposal.

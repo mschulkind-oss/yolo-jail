@@ -584,8 +584,9 @@ func TestPruneWorkspaceKeyedKeepsDeclaredEmptyObject(t *testing.T) {
 // The canonical remote-MCP form puts its credential in the url's query string as ${VAR}.
 // yolo interpolates no field at any notch
 // (docs/reference/mcp-configuration.md#the-rules-the-one-loader-enforces): the reference is
-// written verbatim, and the agent that launches the server resolves it. The test below pins
-// that from the loader the jail boot actually calls.
+// written verbatim, and the agent that launches the server resolves it. The two tests below
+// pin that, for a defined and an undefined variable, from the loader the jail boot actually
+// calls.
 
 // mcpEnv builds an Env with one MCP server declared and the given vars resolvable.
 func mcpEnv(serversJSON string, vars map[string]string) (*Env, *strings.Builder) {
