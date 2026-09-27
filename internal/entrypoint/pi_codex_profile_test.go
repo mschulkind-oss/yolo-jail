@@ -11,17 +11,26 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 )
 
-// This follows the production handoff on both sides: the shipped Pi pack declares and
-// resolves the profile on the host, then ConfigurePackSurfaces consumes those exact wire
-// tables and writes the settings Pi reads. Pi owns openai-codex in its built-in catalog,
-// so yolo selects it without shadowing it in models.json.
+// This follows the production handoff on both sides: the pack set a pi launch carries
+// declares and resolves the profile on the host, then ConfigurePackSurfaces consumes those
+// exact wire tables and writes the settings Pi reads. Pi owns openai-codex in its built-in
+// catalog, so yolo selects it without shadowing it in models.json.
+//
+// The set is pi's selection CLOSURE (testPacksForAgent), not the pi pack alone: pi's
+// `needs` joins openai-auth, the pack that declares openai-codex with a Responses address.
+// Composed from pi alone, openai-codex never reached the catalog derive and the shadow
+// assertion below passed vacuously (docs/design/pi-codex-provider-shadowing.md §5, P3).
 func TestPiCodexProfileSelectsBuiltInProviderAndExplicitModel(t *testing.T) {
-	pi := shippedPiPack(t)
-	providers, err := packload.ComposeProviders(nil, []*packload.Pack{pi})
+	packs := testPacksForAgent(t, "pi")
+	providers, err := packload.ComposeProviders(nil, packs)
 	if err != nil {
 		t.Fatal(err)
 	}
-	resolved, err := packload.ResolveProfiles([]*packload.Pack{pi}, nil, providers)
+	if _, ok := providers.Get("openai-codex"); !ok {
+		t.Fatalf("the composed table has no openai-codex provider, so the shadow assertion "+
+			"measures nothing: %v", providers.Keys())
+	}
+	resolved, err := packload.ResolveProfiles(packs, nil, providers)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -30,11 +39,7 @@ func TestPiCodexProfileSelectsBuiltInProviderAndExplicitModel(t *testing.T) {
 		t.Fatalf("resolved codex profile = %#v, want openai-codex", profile)
 	}
 
-	providersJSON := `{}`
-	if providers != nil {
-		providersJSON = mustCompactJSON(t, providers)
-	}
-	r := newPioencodeRender(t, providersJSON)
+	r := newPioencodeRender(t, mustCompactJSON(t, providers))
 	r.wireProfiles(mustCompactJSON(t, packload.ProfilesWireTable(resolved)))
 	r.render(t, `{"pi":"codex"}`)
 	settings := r.piSettings(t)
@@ -70,20 +75,15 @@ func TestPiCodexProfileSelectsBuiltInProviderAndExplicitModel(t *testing.T) {
 	if got := settings["subagents"]; !reflect.DeepEqual(got, wantSubagents) {
 		t.Fatalf("Pi subagents = %#v, want a strict GPT-6 Codex policy %#v", got, wantSubagents)
 	}
-	models := r.piModels(t)
-	if catalog, _ := models["providers"].(map[string]any); catalog != nil {
-		if _, shadowed := catalog["openai-codex"]; shadowed {
-			t.Fatalf("models.json shadows Pi's built-in openai-codex provider: %#v", catalog)
-		}
+	catalog, _ := r.piModels(t)["providers"].(map[string]any)
+	if _, shadowed := catalog["openai-codex"]; shadowed {
+		t.Fatalf("models.json shadows Pi's built-in openai-codex provider: %#v", catalog)
 	}
 }
 
 func TestPiCodexProfileSelects1MContextModel(t *testing.T) {
-	piPack, err := embeddedPack("pi")
-	if err != nil {
-		t.Fatal(err)
-	}
-	providers, err := packload.ComposeProviders(nil, []*packload.Pack{piPack})
+	packs := testPacksForAgent(t, "pi")
+	providers, err := packload.ComposeProviders(nil, packs)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -93,16 +93,12 @@ func TestPiCodexProfileSelects1MContextModel(t *testing.T) {
 			Options:  map[string]string{"model": "gpt-6-astra[1m]"},
 		},
 	}
-	resolved, err := packload.ResolveProfiles([]*packload.Pack{piPack}, userProfiles, providers)
+	resolved, err := packload.ResolveProfiles(packs, userProfiles, providers)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	providersJSON := `{}`
-	if providers != nil {
-		providersJSON = mustCompactJSON(t, providers)
-	}
-	r := newPioencodeRender(t, providersJSON)
+	r := newPioencodeRender(t, mustCompactJSON(t, providers))
 	r.wireProfiles(mustCompactJSON(t, packload.ProfilesWireTable(resolved)))
 	r.render(t, `{"pi":"codex"}`)
 	settings := r.piSettings(t)
@@ -141,9 +137,10 @@ func TestPiCodexProfileSelects1MContextModel(t *testing.T) {
 
 // THE PRODUCTION PACK SET for a pi launch is pi AND openai-auth: pi's `needs` joins it
 // unconditionally, and openai-auth is the pack that DECLARES the openai-codex provider.
-// The test above composes from the pi pack ALONE, so openai-codex never reaches the
-// catalog derive there and the row it renders in production went unmeasured — the shape
-// that shipped a models.json pi refuses to load.
+// The tests above used to compose from the pi pack ALONE, so openai-codex never reached the
+// catalog derive there and the row it rendered in production went unmeasured — the shape
+// that shipped a models.json pi refuses to load. Every pi fixture here now composes pi's
+// selection closure (testPacksForAgent) plus the providers the case selects.
 //
 // The failure is one type, and it is fatal to the WHOLE FILE. pi's ProviderConfigSchema
 // declares `models` as an optional ARRAY, and a schema failure returns an EMPTY provider
@@ -160,14 +157,7 @@ func TestPiCodexProfileSelects1MContextModel(t *testing.T) {
 // class is every provider that declares an address and no model list: kilo does so
 // whenever no profile names a model, and so does a user's own `endpoints.openai`.
 func TestPiCatalogNeverWritesAModelsMapWhereAnArrayBelongs(t *testing.T) {
-	packs := make([]*packload.Pack, 0, 3)
-	for _, name := range []string{"pi", "openai-auth", "kilo"} {
-		p, err := embeddedPack(name)
-		if err != nil {
-			t.Fatalf("embedded %s: %v", name, err)
-		}
-		packs = append(packs, p)
-	}
+	packs := testPacksForAgent(t, "pi", "kilo")
 	providers, err := packload.ComposeProviders(nil, packs)
 	if err != nil {
 		t.Fatal(err)
@@ -261,15 +251,7 @@ func TestPiExplicitProfileScopesModelsAndNoProfilePreservesUserScope(t *testing.
 // TestPiShippedZaiFlashAcceptsImages follows the shipped provider through host
 // composition and the Pi surface renderer, not a hand-built model fixture.
 func TestPiShippedZaiFlashAcceptsImages(t *testing.T) {
-	packs := make([]*packload.Pack, 0, 2)
-	for _, name := range []string{"pi", "zai"} {
-		p, err := embeddedPack(name)
-		if err != nil {
-			t.Fatal(err)
-		}
-		packs = append(packs, p)
-	}
-	providers, err := packload.ComposeProviders(nil, packs)
+	providers, err := packload.ComposeProviders(nil, testPacksForAgent(t, "pi", "zai"))
 	if err != nil {
 		t.Fatal(err)
 	}
