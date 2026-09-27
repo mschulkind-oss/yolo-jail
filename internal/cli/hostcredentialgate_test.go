@@ -30,7 +30,8 @@ func hostGateLaunch(t *testing.T, flags []string, agent string) (map[string]stri
 // so what the agent receives is what yolo composed.
 var hostGateNames = []string{"AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "ZAI_API_KEY",
 	"CLAUDE_CODE_USE_BEDROCK", "AWS_CONTAINER_CREDENTIALS_FULL_URI", "ANTHROPIC_AUTH_TOKEN",
-	"ANTHROPIC_BASE_URL", "PORT", "DEEPSEEK_API_KEY"}
+	"ANTHROPIC_BASE_URL", "PORT", "DEEPSEEK_API_KEY", "CEREBRAS_API_KEY",
+	"OPENROUTER_API_KEY", "KILO_API_KEY", "YOLO_PROVIDERS"}
 
 // hostGateLaunchWith is hostGateLaunch over a user config and invoking-shell values of the
 // caller's choosing.
