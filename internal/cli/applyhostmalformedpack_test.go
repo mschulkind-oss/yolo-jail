@@ -102,6 +102,27 @@ func TestApplyHostAssertRefusesAPackWithManifestProblems(t *testing.T) {
 	}
 }
 
+// A MANIFEST THAT DOES NOT DECODE AT ALL is the same class, and the one a host yolo OLDER than a
+// field meets (notch-scoped-config-contributions.md §4.5, the host-manifest-read row): LoadDir
+// substitutes an empty manifest and still returns the pack, so the old resolver applied the
+// pack's conventional skills/ as if it declared nothing. Refused whole, naming the field.
+func TestApplyHostAssertRefusesAPackWhoseManifestDoesNotDecode(t *testing.T) {
+	home, dir := malformedPackHome(t, "", false, "")
+	writeFile(t, filepath.Join(dir, "pack.json"), `{"name":"bad","description":"d",`+
+		`"fieldFromANewerYolo":1,"contributes":[{"kind":"skills","from":"skills","into":".claude/skills"}]}`)
+	before := hashTree(t, home)
+	rc, report := applyWith(t, true, strings.NewReader("y\n"))
+	if rc == 0 || hashTree(t, home) != before {
+		t.Fatalf("--assert over an undecodable manifest must refuse and write nothing; rc=%d\n%s",
+			rc, report)
+	}
+	for _, want := range []string{"bad", `unknown field "fieldFromANewerYolo"`, "Nothing was written"} {
+		if !strings.Contains(report, want) {
+			t.Errorf("the refusal must contain %q:\n%s", want, report)
+		}
+	}
+}
+
 // The control: the SAME pack minus the second `autonomy` contribution applies, and its skill
 // lands. Otherwise "nothing was written" above could pass for a reason unrelated to the problem.
 func TestApplyHostWritesTheSamePackOnceItsManifestIsClean(t *testing.T) {
