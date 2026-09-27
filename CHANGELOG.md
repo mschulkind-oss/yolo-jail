@@ -275,7 +275,7 @@ on a Mac, a ready-made Linux builder image is published.
 _0.5.0, July 2026._
 
 - `env_sources`, an ordered list of files and values, replaced the `env` key.
-- `include_if_found` and `yolo-jail.local.jsonc` layer untracked overrides over a workspace config.
+- `include_if_found` and `<workspace>/yolo-jail.local.jsonc` layer untracked overrides over a workspace config.
 - AMD GPUs pass through with ROCm, and video decoding with `gpu.vaapi`.
 - `mcp_servers` entries take per-server `env` with `${VAR}` expansion, and `requires_env` loads a
   server only where its variables exist.
