@@ -176,9 +176,9 @@ written into the repository. See
 - A new workspace's Claude login seed carried other workspaces' `projects` and `mcpServers`.
 - On Apple Container older than 1.1.0, a `host_files` directory source was bound writable.
 - On `macos-user`, an agent could edit, rename or delete the skills and briefing yolo delivers,
-  because they are copied into the sandbox home instead of mounted read-only. The sandbox now
-  refuses those writes, as the read-only mount does on every other backend, and the agent's own
-  state beside them stays writable.
+  because they are copied into the sandbox home instead of mounted read-only. The sandbox profile
+  now denies those writes, as the read-only mount does on every other backend, and leaves the
+  agent's own state beside them writable. This has not yet been verified on a Mac.
 
 ## 0.10.x
 
