@@ -160,6 +160,10 @@ func TestPruneTextFormatIsUnchangedByTheFlag(t *testing.T) {
 	render := func(t *testing.T, format string) string {
 		t.Helper()
 		o, gs := baseOpts(t)
+		// NoImageRoots: the image-root and store-output sections read the LIVE host nix store
+		// (a constant, by design — storeoutputs.go), which a busy machine changes between two
+		// renders; this test compares two renders byte for byte, so it leaves them out.
+		o.NoImageRoots = true
 		seedReclaimable(t, gs)
 		var buf bytes.Buffer
 		o.Out = &buf

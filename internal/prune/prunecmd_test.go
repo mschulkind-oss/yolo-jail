@@ -512,6 +512,10 @@ func TestRunColorGateHonorsTTY(t *testing.T) {
 	t.Setenv("NO_COLOR", "")
 	render := func(color, tty bool) string {
 		o, _ := baseOpts(t)
+		// NoImageRoots: the image-root and store-output sections read the LIVE host nix store
+		// (a constant, by design — storeoutputs.go), which a busy machine changes between two
+		// renders; this test compares two renders byte for byte, so it leaves them out.
+		o.NoImageRoots = true
 		o.Color = color
 		o.IsTTYStdout = func() bool { return tty }
 		var buf bytes.Buffer
@@ -545,6 +549,10 @@ func TestRunColorGateHonorsNoColor(t *testing.T) {
 	render := func(color bool, noColor string) string {
 		t.Setenv("NO_COLOR", noColor)
 		o, _ := baseOpts(t)
+		// NoImageRoots: the image-root and store-output sections read the LIVE host nix store
+		// (a constant, by design — storeoutputs.go), which a busy machine changes between two
+		// renders; this test compares two renders byte for byte, so it leaves them out.
+		o.NoImageRoots = true
 		o.Color = color
 		o.IsTTYStdout = func() bool { return true }
 		var buf bytes.Buffer
