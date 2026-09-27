@@ -381,36 +381,53 @@ func (c *hostComposition) selectedProviders() []string {
 // credentialScopeLines is the gate's disclosure for this launch, nil when nothing the user
 // configured was scoped. It is packload's wording, the jail notch's lines, plus what only this
 // notch can say (docs/design/credential-sources-separation.md): a withheld line names the typed
-// `-p` that would deliver it (credentialRemedy, ES-D2), and a withheld name the invoking shell
-// already holds is said to pass through from it rather than to be withheld (shellHolds, ES-D4).
+// `-p` that would deliver it (credentialRemedy, ES-D2), and a withheld name the process holds
+// anyway — the invoking shell's own value (ES-D4), or one yolo composed from another source —
+// is said to be held, never withheld (processHolds).
 func (c *hostComposition) credentialScopeLines() []string {
 	if c.scope == nil {
 		return nil
 	}
+	inherited, composed := c.processHolds()
 	return c.scope.DisclosureWith(packload.DisclosureNotes{
 		Remedy:    c.credentialRemedy,
-		Inherited: c.shellHolds(),
+		Inherited: inherited,
+		Composed:  composed,
 	})
 }
 
-// shellHolds answers ES-D4's question for this composition: does the process it composes hold
-// name, with the invoking shell's own value? The shell passes through untouched (CN-D13), so a
-// name the gate withheld from env_sources still reaches the process from there, and a
-// disclosure calling it "withheld" would be false. Asked of environ(), the environment the
-// exec hands over and the one an eval'ing shell ends up with, so a removal (an env_sources
-// null) or a value yolo composed over the shell's leaves the name answered "no" — only the
-// shell's own value, arriving intact, counts.
-func (c *hostComposition) shellHolds() func(string) bool {
-	composed := map[string]string{}
+// processHolds answers, for this composition, whether and whence the process it composes holds
+// a name, which the disclosure asks of every withheld one. Both are asked of environ(), the
+// environment the exec hands over and the one an eval'ing shell ends up with, so a removal (an
+// env_sources null) answers "neither" and the name stays "withheld".
+//
+// inherited is ES-D4's question: the name holds the invoking shell's own value, intact. The
+// shell passes through untouched (CN-D13), so a name the gate withheld from env_sources still
+// reaches the process from there, and a disclosure calling it "withheld" would be false.
+//
+// composed is the same question's other half: the name holds a value that is not the shell's,
+// so yolo composed it from another source than env_sources — a pack's `env` of the same name.
+// The process holds the name then too, so "withheld from every process" would be as false.
+func (c *hostComposition) processHolds() (inherited, composed func(string) bool) {
+	env := map[string]string{}
 	for _, kv := range c.environ() {
 		if k, v, ok := strings.Cut(kv, "="); ok {
-			composed[k] = v
+			env[k] = v
 		}
 	}
-	return func(name string) bool {
+	inherited = func(name string) bool {
 		v, ok := os.LookupEnv(name)
-		return ok && v != "" && composed[name] == v
+		return ok && v != "" && env[name] == v
 	}
+	composed = func(name string) bool {
+		v := env[name]
+		if v == "" {
+			return false
+		}
+		shell, ok := os.LookupEnv(name)
+		return !ok || shell != v
+	}
+	return inherited, composed
 }
 
 // credentialRemedy is ES-D2's remedy for a group of withheld names: the one existing way to

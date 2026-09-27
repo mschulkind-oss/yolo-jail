@@ -309,3 +309,40 @@ func TestCredentialScopeDisclosureInheritedRewordsWithheldOnly(t *testing.T) {
 		t.Errorf("only the still-withheld group carries a remedy:\n%s", got)
 	}
 }
+
+// Composed rewords a WITHHELD name the process holds from a value yolo composed from another
+// source than env_sources (a pack's env, say): the env_sources value is not delivered, but the
+// name is not absent either, so the line says neither "withheld from every process" nor that
+// the shell's value passes through. It keeps the remedy, since a delivered env_sources value
+// beats the other source's. Inherited wins where both would answer.
+func TestCredentialScopeDisclosureComposedRewordsWithheldOnly(t *testing.T) {
+	scope, err := ScopeCredentials(ScopeInput{
+		Providers:  twoProviders(t),
+		Profiles:   map[string]string{"pi": "zai-profile"},
+		Resolved:   map[string]ResolvedProfile{"zai-profile": {Provider: "zai"}},
+		EnvSources: hydrated("ZAI_API_KEY", "secret-z", "ROUTE_BEARER", "secret-b", "ROUTE_PAIR_ID", "id"),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := scope.DisclosureWith(DisclosureNotes{
+		Remedy:    func([]string) string { return "REMEDY" },
+		Inherited: func(name string) bool { return name == "ROUTE_PAIR_ID" },
+		Composed:  func(name string) bool { return name != "" },
+	})
+	joined := strings.Join(got, "\n")
+	for _, want := range []string{
+		"ZAI_API_KEY (provider zai): pi only",
+		"ROUTE_BEARER (provider routes): not delivered from env_sources — no agent in this launch " +
+			"selected it — so the value the process holds is one yolo composed from another source, " +
+			"such as a pack's env. REMEDY",
+		"ROUTE_PAIR_ID (provider routes): not added by yolo",
+	} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("disclosure missing %q:\n%s", want, joined)
+		}
+	}
+	if strings.Contains(joined, "withheld from every process") {
+		t.Errorf("no name here is absent from the process:\n%s", joined)
+	}
+}

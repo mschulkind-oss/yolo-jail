@@ -426,9 +426,48 @@ func TestHostEnvShellHeldNameIsDisclosedAsNotAdded(t *testing.T) {
 
 // ES-D4 asks what the process ends up holding, not only what the shell exported: a value yolo
 // composed over the shell's (here a local pack's static env of the same name) means the
-// shell's value does NOT pass through, so the line must not say it does.
+// shell's value does NOT pass through, so the line must not say it does. Nor may it say the
+// name was withheld from every process, which the exported script contradicts: the
+// env_sources value is not delivered, and the process holds one yolo composed from another
+// source. The same with no shell value at all. The remedy stays, since a typed -p's
+// env_sources value beats the pack's.
 func TestHostEnvShellValueComposedOverIsNotDisclosedAsPassingThrough(t *testing.T) {
-	home := hostGateHome(t, esGrantConfig, map[string]string{"ZAI_API_KEY": "tok-shell"})
+	for _, shell := range []map[string]string{{"ZAI_API_KEY": "tok-shell"}, nil} {
+		home := hostGateHome(t, esGrantConfig, shell)
+		dir := filepath.Join(home, ".config", "yolo-jail", "local")
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "pack.json"), []byte(`{"name":"local",`+
+			`"contributes":[{"kind":"env","vars":{"ZAI_API_KEY":"tok-pack"}}]}`), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		var out, errw bytes.Buffer
+		if rc := hostMain([]string{"env", "--agent", "bash"}, &out, &errw, false, nil); rc != 0 {
+			t.Fatalf("yolo host env: rc = %d\n%s", rc, errw.String())
+		}
+		if !strings.Contains(out.String(), "export ZAI_API_KEY='tok-pack'") {
+			t.Fatalf("the fixture must compose the pack's value over the shell's:\n%s", out.String())
+		}
+		line := scopeLine(t, errw.String(), "ZAI_API_KEY")
+		if strings.Contains(line, "not added by yolo") {
+			t.Errorf("shell %v: the shell's value is overridden, so it does not pass through: %q", shell, line)
+		}
+		if strings.Contains(line, "withheld") {
+			t.Errorf("shell %v: the process holds ZAI_API_KEY, so no line may call it withheld: %q", shell, line)
+		}
+		for _, want := range []string{"not delivered from env_sources", "composed from another source",
+			"yolo host env --agent bash -p zai"} {
+			if !strings.Contains(line, want) {
+				t.Errorf("shell %v: the line must say %q: %q", shell, want, line)
+			}
+		}
+	}
+}
+
+// The same at `yolo host --`: the exec'd process holds the pack's value, and the line says so.
+func TestHostGrantComposedNameIsNotDisclosedAsWithheld(t *testing.T) {
+	home := hostGateHome(t, esGrantConfig, nil)
 	dir := filepath.Join(home, ".config", "yolo-jail", "local")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
@@ -437,15 +476,13 @@ func TestHostEnvShellValueComposedOverIsNotDisclosedAsPassingThrough(t *testing.
 		`"contributes":[{"kind":"env","vars":{"ZAI_API_KEY":"tok-pack"}}]}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	var out, errw bytes.Buffer
-	if rc := hostMain([]string{"env", "--agent", "bash"}, &out, &errw, false, nil); rc != 0 {
-		t.Fatalf("yolo host env: rc = %d\n%s", rc, errw.String())
+	rc, _, env, errs := runRemedy(t, []string{"--", "bash"})
+	if rc != 0 || env["ZAI_API_KEY"] != "tok-pack" {
+		t.Fatalf("yolo host -- bash: rc = %d, ZAI_API_KEY = %q, want the pack's value\n%s", rc, env["ZAI_API_KEY"], errs)
 	}
-	if !strings.Contains(out.String(), "export ZAI_API_KEY='tok-pack'") {
-		t.Fatalf("the fixture must compose the pack's value over the shell's:\n%s", out.String())
-	}
-	if line := scopeLine(t, errw.String(), "ZAI_API_KEY"); strings.Contains(line, "not added by yolo") {
-		t.Errorf("the shell's value is overridden, so it does not pass through: %q", line)
+	line := scopeLine(t, errs, "ZAI_API_KEY")
+	if strings.Contains(line, "withheld") || !strings.Contains(line, "composed from another source") {
+		t.Errorf("bash holds the pack's ZAI_API_KEY, so the line must say so, never withheld: %q", line)
 	}
 }
 

@@ -379,11 +379,19 @@ type DisclosureNotes struct {
 	// not add it, never "withheld", and names no remedy (ES-D4). Nil holds nothing: the
 	// jail's case, where a host shell's value never crosses raw.
 	Inherited func(name string) bool
+	// Composed reports whether the process this launch composes holds name, non-empty, from a
+	// value yolo composed from another source than env_sources — a pack's `env` of the same
+	// name, say. A withheld name it holds is not absent from that process either, so its line
+	// says the env_sources value was not delivered and the process holds another source's,
+	// never "withheld from every process". It keeps the remedy, because a delivered
+	// env_sources value beats that source's. Inherited is asked first. Nil holds nothing: the
+	// jail's case, whose wording ES-D6 keeps.
+	Composed func(name string) bool
 }
 
 // DisclosureWith is Disclosure with a notch's notes applied. Names are grouped by claimant,
-// recipients and, under Inherited, whether the process already holds them, so each line tells
-// one story.
+// recipients and, under Inherited and Composed, whether and whence the process already holds
+// them, so each line tells one story.
 func (s *CredentialScope) DisclosureWith(notes DisclosureNotes) []string {
 	if s == nil {
 		return nil
@@ -392,7 +400,7 @@ func (s *CredentialScope) DisclosureWith(notes DisclosureNotes) []string {
 		claimants  []string
 		providers  string
 		recipients string
-		inherited  bool
+		held       string // "", "inherited" or "composed"
 		names      []string
 	}
 	var order []string
@@ -412,11 +420,15 @@ func (s *CredentialScope) DisclosureWith(notes DisclosureNotes) []string {
 			recipients: strings.Join(recipients, ", ")}
 		// Only a withheld name can be misreported by the process's own copy: a delivered one
 		// is the env_sources value, which beats it.
-		g.inherited = g.recipients == "" && notes.Inherited != nil && notes.Inherited(k)
-		key := g.providers + "\x00" + g.recipients
-		if g.inherited {
-			key += "\x00inherited"
+		if g.recipients == "" {
+			switch {
+			case notes.Inherited != nil && notes.Inherited(k):
+				g.held = "inherited"
+			case notes.Composed != nil && notes.Composed(k):
+				g.held = "composed"
+			}
 		}
+		key := g.providers + "\x00" + g.recipients + "\x00" + g.held
 		if existing, ok := groups[key]; ok {
 			existing.names = append(existing.names, k)
 			continue
@@ -434,12 +446,17 @@ func (s *CredentialScope) DisclosureWith(notes DisclosureNotes) []string {
 		g := groups[key]
 		names := strings.Join(g.names, ", ")
 		switch {
-		case g.inherited:
+		case g.held == "inherited":
 			lines = append(lines, "  "+names+" (provider "+g.providers+"): not added by yolo — "+
 				"no agent in this launch selected it, so the invoking shell's own value passes through")
 		case g.recipients == "":
 			line := "  " + names + " (provider " + g.providers + "): withheld from " +
 				"every process — no agent in this launch selected it"
+			if g.held == "composed" {
+				line = "  " + names + " (provider " + g.providers + "): not delivered from " +
+					"env_sources — no agent in this launch selected it — so the value the process " +
+					"holds is one yolo composed from another source, such as a pack's env"
+			}
 			if notes.Remedy != nil {
 				if remedy := notes.Remedy(g.claimants); remedy != "" {
 					line += ". " + remedy
