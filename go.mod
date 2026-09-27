@@ -1,12 +1,12 @@
 module github.com/mschulkind-oss/yolo-jail
 
-go 1.26
+go 1.26.0
 
 require github.com/BurntSushi/toml v1.6.0
 
 require (
 	github.com/yuin/gopher-lua v1.1.2
-	golang.org/x/sys v0.47.0
+	golang.org/x/sys v0.48.0
 )
 
 require gopkg.in/yaml.v3 v3.0.1
