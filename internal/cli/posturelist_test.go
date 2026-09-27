@@ -51,9 +51,15 @@ func TestHostApplyAssertWritesAGuardedPostureList(t *testing.T) {
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
 	selectPacks(t, home, `"pi",`+listPack(t, home, "matt", automodePack))
+	verboseReport(t) // the per-surface contributor line is the --verbose view's
 
-	if rc, report := applyWith(t, true, nil); rc != 0 {
+	rc, report := applyWith(t, true, nil)
+	if rc != 0 {
 		t.Fatalf("host apply --assert rc=%d\n%s", rc, report)
+	}
+	// Named at the moment it applies, like any list (pack-system.md#config-list-visibility).
+	if !hasLine(report, "config-list entries from: matt") {
+		t.Errorf("the apply does not name the pack whose posture list it wrote:\n%s", report)
 	}
 	if got := hostPiPackages(t, home); !reflect.DeepEqual(got, []any{automodeEntry}) {
 		t.Errorf("packages = %#v, want exactly the guarded posture's entry", got)
