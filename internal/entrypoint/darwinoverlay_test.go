@@ -421,18 +421,65 @@ func TestHomeOverlayDestinationsMustLieBelowTheHome(t *testing.T) {
 
 // A destination INSIDE another is dropped from the list as read: the outer destination's
 // tree already carries it, and installing both would replace the outer one's copy twice.
+// That holds however the list sorts: `-` and `.` sort before `/`, so a SIBLING of the outer
+// destination (`.a/skills-extra`) can sit between it and a destination inside it.
 func TestHomeOverlayNestedDestinationsInstallOnce(t *testing.T) {
-	overlay := t.TempDir()
-	if _, err := WriteHomeOverlayManifest(overlay, []string{".x/skills/README.md", ".x/skills", ".x/skills", ".y/AGENTS.md"}); err != nil {
+	for _, c := range []struct {
+		name  string
+		dests []string
+		want  string
+	}{
+		{"adjacent", []string{".x/skills/README.md", ".x/skills", ".x/skills", ".y/AGENTS.md"}, ".x/skills,.y/AGENTS.md"},
+		{"a sibling sorts between", []string{".a/skills", ".a/skills-extra", ".a/skills/sub"}, ".a/skills,.a/skills-extra"},
+		{"two siblings and a deeper one", []string{".a/skills", ".a/skills.d", ".a/skills-x", ".a/skills/sub/deeper"}, ".a/skills,.a/skills-x,.a/skills.d"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			overlay := t.TempDir()
+			wrote, err := WriteHomeOverlayManifest(overlay, c.dests)
+			if err != nil {
+				t.Fatal(err)
+			}
+			got, err := readHomeOverlayManifest(overlay)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if strings.Join(got, ",") != c.want {
+				t.Errorf("destinations = %v, want %s", got, c.want)
+			}
+			// The list the host returns for the profile is the one the install reads (HT-D7).
+			if strings.Join(wrote, ",") != c.want {
+				t.Errorf("WriteHomeOverlayManifest returned %v, want %s", wrote, c.want)
+			}
+		})
+	}
+}
+
+// The same rule seen from the install RunDarwinBootstrap runs: a destination inside another
+// is not installed on its own, even with a sibling sorting between the two.
+func TestOverlayInstallDoesNotInstallANestedDestinationTwice(t *testing.T) {
+	f := newOverlayFixture(t)
+	writeTreeFile(t, filepath.Join(f.overlay, ".pi", "agent", "skills", "sub", "SKILL.md"), "nested skill")
+	writeTreeFile(t, filepath.Join(f.overlay, ".pi", "agent", "skills-extra", "x", "SKILL.md"), "sibling skill")
+	// Written by hand, as a list the host's writer never produces (it drops the nested one
+	// itself), so this pins the READ side's drop.
+	writeTreeFile(t, filepath.Join(f.overlay, HomeOverlayManifestName),
+		`{"destinations":[".pi/agent/skills",".pi/agent/skills-extra",".pi/agent/skills/sub"]}`)
+	var installed []string
+	withOverlayInstallHook(t, func(dest, window string) {
+		if window == "opened" {
+			installed = append(installed, dest)
+		}
+	})
+
+	if err := f.install(t); err != nil {
 		t.Fatal(err)
 	}
-	got, err := readHomeOverlayManifest(overlay)
-	if err != nil {
-		t.Fatal(err)
+	if strings.Join(installed, ",") != ".pi/agent/skills,.pi/agent/skills-extra" {
+		t.Errorf("installed %v, want [.pi/agent/skills .pi/agent/skills-extra]: a destination "+
+			"inside another was installed on its own", installed)
 	}
-	if strings.Join(got, ",") != ".x/skills,.y/AGENTS.md" {
-		t.Errorf("destinations = %v, want [.x/skills .y/AGENTS.md]", got)
-	}
+	requireFile(t, filepath.Join(f.home, ".pi", "agent", "skills", "sub", "SKILL.md"), "nested skill")
+	requireFile(t, filepath.Join(f.home, ".pi", "agent", "skills-extra", "x", "SKILL.md"), "sibling skill")
 }
 
 // withOverlayInstallHook sets overlayInstallHook for one test.

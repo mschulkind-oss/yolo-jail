@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -128,15 +129,31 @@ func normalizeOverlayDests(dests []string) ([]string, error) {
 		}
 		clean = append(clean, c)
 	}
+	// Sorted, a destination's every ancestor comes before it (a prefix sorts first), so one
+	// pass that checks each candidate's ANCESTORS against what it kept drops every nested
+	// one. Comparing with the last kept entry alone is not enough: `-` and `.` sort before
+	// `/`, so `.a/skills-extra` sorts between `.a/skills` and `.a/skills/sub`.
 	sort.Strings(clean)
+	kept := map[string]bool{}
 	var out []string
 	for _, d := range clean {
-		if len(out) > 0 && (d == out[len(out)-1] || strings.HasPrefix(d, out[len(out)-1]+"/")) {
+		if kept[d] || hasKeptAncestor(d, kept) {
 			continue
 		}
+		kept[d] = true
 		out = append(out, d)
 	}
 	return out, nil
+}
+
+// hasKeptAncestor reports whether any directory above the slash path d is in kept.
+func hasKeptAncestor(d string, kept map[string]bool) bool {
+	for up := path.Dir(d); up != "." && up != "/"; up = path.Dir(up) {
+		if kept[up] {
+			return true
+		}
+	}
+	return false
 }
 
 // cleanOverlayDest validates one destination and returns its clean slash form. A
