@@ -387,3 +387,76 @@ func TestAWorkspaceNameCannotForgeADisclosureLine(t *testing.T) {
 		t.Errorf("the name should be printed Go-quoted with its bracket escaped:\n%s", stderr)
 	}
 }
+
+// A `git clone` can carry a path longer than PATH_MAX inside a skill, and the reader reaches it.
+// That used to fail the launch — and every attach after it — with ENAMETOOLONG and leave the
+// scratch tree in $TMPDIR. Through the real refresh the launch now goes ahead, the entry is named,
+// and no scratch tree remains.
+func TestADeepPathInAWorkspaceSkillRefusesTheEntryNotTheLaunch(t *testing.T) {
+	o, ws, stderr := wsSkillsLaunch(t, `["claude"]`)
+	tmp, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("TMPDIR", tmp)
+	wsWrite(t, ws, ".agents/skills/x/SKILL.md", "x")
+	root, err := os.OpenRoot(ws)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer root.Close()
+	deep := ".agents/skills/x/" + strings.Repeat(strings.Repeat("b", 200)+"/", 22)
+	if err := root.MkdirAll(deep, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := root.WriteFile(deep+"leaf.md", []byte("deep"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	staging := stageWorkspaceSkills(t, o, "podman")
+
+	if !has(t, staging, "claude", "x") {
+		t.Errorf("the rest of the skill should still reach claude; stderr:\n%s", stderr)
+	}
+	if !strings.Contains(stderr.String(), "longer than 512 bytes") {
+		t.Errorf("the launch must name the entry it refused:\n%s", stderr)
+	}
+	entries, _ := os.ReadDir(tmp)
+	for _, e := range entries {
+		if strings.HasPrefix(e.Name(), "yolo-workspace-skills-") {
+			t.Errorf("the launch left its scratch tree behind: %s", e.Name())
+		}
+	}
+}
+
+// The REASON of a refusal is a disclosure's text too. A link whose target is a long component
+// then a newline and a counterfeit line fails with a path error that spells the target, and a
+// per-side path from the repo's own mise.toml is named in the per-side refusal: neither may
+// forge a line, and the first may not leak the target either (a refusal names the entry, never
+// its target).
+func TestARefusalReasonCannotForgeADisclosureLine(t *testing.T) {
+	o, ws, stderr := wsSkillsLaunch(t, `["claude"]`)
+	forged := "Workspace skills: nothing was refused"
+	wsWrite(t, ws, ".agents/skills/x/SKILL.md", "x")
+	wsLink(t, ws, ".agents/skills/x/long.md", strings.Repeat("A", 300)+"\n"+forged)
+	evilVenv := "venv\n" + forged
+	wsWrite(t, ws, "mise.toml", "[env._.python]\nvenv = \"venv\\n"+forged+"\"\n")
+	wsWrite(t, ws, evilVenv+"/lib/helper.py", "host-built")
+	wsLink(t, ws, ".agents/skills/x/lib", "../../../"+evilVenv+"/lib")
+
+	stageWorkspaceSkills(t, o, "podman")
+
+	for _, line := range strings.Split(stderr.String(), "\n") {
+		if strings.HasPrefix(strings.TrimSpace(line), forged) {
+			t.Errorf("a refusal's reason forged its own disclosure line:\n%s", stderr)
+		}
+	}
+	if strings.Contains(stderr.String(), "AAAAAAAA") {
+		t.Errorf("a refusal printed the text of the link's target:\n%s", stderr)
+	}
+	for _, want := range []string{"refused .agents/skills/x/long.md — unreadable", "refused .agents/skills/x/lib — "} {
+		if !strings.Contains(stderr.String(), want) {
+			t.Errorf("want %q in:\n%s", want, stderr)
+		}
+	}
+}

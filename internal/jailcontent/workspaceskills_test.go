@@ -327,8 +327,8 @@ func TestConfinedOpensDoNotBlockOnAFIFOSwappedIn(t *testing.T) {
 
 	done := make(chan [2]string, 1)
 	go func() {
-		reason, _ := tree.copyFile("swapped", filepath.Join(t.TempDir(), "out"))
-		_, derr := tree.readDirNames("swapped")
+		reason := tree.copyReal("swapped", filepath.Join(t.TempDir(), "out"))
+		_, derr := tree.listDir("swapped")
 		msg := ""
 		if derr != nil {
 			msg = derr.Error()
@@ -338,10 +338,10 @@ func TestConfinedOpensDoNotBlockOnAFIFOSwappedIn(t *testing.T) {
 	select {
 	case got := <-done:
 		if !strings.Contains(got[0], "not a regular file") {
-			t.Errorf("copyFile on a FIFO should refuse it, got %q", got[0])
+			t.Errorf("copyReal on a FIFO should refuse it, got %q", got[0])
 		}
 		if got[1] == "" {
-			t.Error("readDirNames on a FIFO should fail rather than list it")
+			t.Error("listDir on a FIFO should fail rather than list it")
 		}
 	case <-time.After(20 * time.Second):
 		t.Fatal("a confined open blocked on a FIFO")

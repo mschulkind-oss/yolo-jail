@@ -21,21 +21,30 @@ package jailcontent
 // So the workspace has its own reader, confinedTree, and three properties make the refusal hold
 // rather than merely be checked:
 //
-//  1. EVERY READ GOES THROUGH AN os.Root opened on the workspace, which the kernel-facing
-//     implementation confines (openat, component by component): a path that would leave the root
-//     — by `..`, by an absolute link, by a link swapped in after it was classified — fails to open.
-//     A race between classifying an entry and copying it can make a copy fail; it cannot make
-//     one read outside.
-//  2. LINKS ARE RESOLVED LEXICALLY, INSIDE THE ROOT, before anything is opened. resolve reads each
-//     link's target with the root's own Readlink and walks it; a target that climbs above the root
-//     or is an absolute path outside every spelling of it ends the walk BEFORE anything there is
-//     touched — not even an lstat — so an escaping entry is NAMED without the host having read,
-//     or even checked the existence of, what it pointed at.
+//  1. LINKS ARE RESOLVED LEXICALLY, INSIDE THE ROOT, before anything is opened. resolve reads each
+//     link's target through an os.Root opened on the workspace, with the root's own Readlink,
+//     and walks it; a target that climbs above the root or is an absolute path outside every
+//     spelling of it ends the walk BEFORE anything there is touched — not even an lstat — so an
+//     escaping entry is NAMED without the host having read, or even checked the existence of,
+//     what it pointed at. What resolve returns is the REAL path the entry stands for, a path with
+//     no link in it, and every refusal below is a decision about that path.
+//  2. EVERY READ FOLLOWS NO LINK AT ALL. The bytes are read by a walk from the workspace root's
+//     own descriptor, one component at a time, every open O_NOFOLLOW (and O_DIRECTORY for a
+//     directory): so what is read is exactly the real path that was classified. A component
+//     swapped for a link after it was classified fails the walk instead of being followed. An
+//     os.Root cannot give this — it follows a link that stays inside it — and that is how a race
+//     used to read the host's per-side bytes (a file flipped to a link into node_modules between
+//     its classification and its open). A race can make a copy fail; it cannot make one read
+//     anything but the path that was checked.
 //  3. NOTHING IS OPENED THAT COULD BLOCK. Every open carries O_NONBLOCK (a FIFO planted where a
 //     SKILL.md was would otherwise hang the launcher on the next attach, measured) and a directory
 //     open carries O_DIRECTORY; a special file is refused by its fstat, after the open.
 //
 // A refused entry is SKIPPED AND NAMED, never fatal: a clone must not be able to refuse a jail.
+// That covers the scratch copy too. An entry whose path inside its skill is longer than
+// maxSkillPath, which not every destination could hold, and an entry whose copy could not be
+// written, are refused like one that could not be read. The only error this layer returns is a
+// failure to create its scratch root, and nothing it made outlives the call that made it.
 //
 // # What else is never read
 //
@@ -51,11 +60,13 @@ import (
 	"io"
 	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
 	"sort"
-	"strconv"
 	"strings"
 	"syscall"
+
+	"golang.org/x/sys/unix"
 )
 
 // WorkspaceSkills is the workspace's half of one launch's skills composition.
@@ -86,7 +97,7 @@ type WorkspaceSkillsReport struct {
 	// content.
 	Collisions []WorkspaceSkillCollision
 	// Refused is every entry skipped because reading it would have left the workspace, or
-	// could not be read safely — named by its workspace-relative path.
+	// could not be read or staged safely — named by its workspace-relative path.
 	Refused []WorkspaceSkillRefusal
 }
 
@@ -117,11 +128,21 @@ type WorkspaceSkillCollision struct {
 	Losers []string // the source dirs whose copies are not
 }
 
-// WorkspaceSkillRefusal is one entry the reader would not read.
+// WorkspaceSkillRefusal is one entry the reader would not read, or could not stage.
 type WorkspaceSkillRefusal struct {
-	Path   string // workspace-relative
+	Path string // workspace-relative
+	// Reason is yolo's own fixed text — never an error's message, which can carry a path the
+	// workspace spelled (a link's target), and so a line the workspace wrote.
 	Reason string
 }
+
+// maxSkillPath bounds an entry's path INSIDE its skill (the skill's name, then the rest), in
+// bytes. The copy lands under several prefixes — the scratch tree, each destination's compose
+// dir, its staging dir, and on macos-user the sandbox home — and macOS's PATH_MAX is 1024, so a
+// path the workspace can hold (the reader walks one component at a time and has no limit of its
+// own) could otherwise fail to be written under the longest of them and fail the launch. 512
+// leaves every such prefix room on both systems; a skill deeper than that is not a skill.
+const maxSkillPath = 512
 
 // workspaceLayer is the workspace's skills, copied ONCE per launch out of the confined tree into
 // a private scratch tree, and then handed to each destination from there. Once, so a refusal is
@@ -130,6 +151,7 @@ type WorkspaceSkillRefusal struct {
 type workspaceLayer struct {
 	tree    *confinedTree
 	dir     string // the scratch tree; "" when nothing was staged
+	staged  int    // skills copied into it so far, each into a directory named by its number
 	sources []*wsSource
 	skills  []*wsSkill // the winners, in source order then name order
 	// resolved caches resolveQuiet by workspace-relative path.
@@ -165,10 +187,21 @@ type deliveryAcc struct {
 	toSeen map[string]bool
 }
 
+// scratchBase is where the scratch tree is made: "" is os.TempDir. A variable so a test can put
+// the scratch under a prefix long enough that a write into it fails.
+var scratchBase = ""
+
+// testHookBeforeRead, when set, runs after an entry has been classified and before its bytes are
+// opened: the window a swap would race. Tests only.
+var testHookBeforeRead func(real string)
+
 // stageWorkspaceLayer resolves the source set and copies every winning skill into scratch.
 // A nil or empty ws yields an empty layer that delivers nothing.
-func stageWorkspaceLayer(ws *WorkspaceSkills) (*workspaceLayer, error) {
-	l := &workspaceLayer{
+//
+// The one error it returns is a failure to create the scratch root. Everything else a workspace
+// can cause — an entry that cannot be read, or cannot be written into scratch — is a refusal.
+func stageWorkspaceLayer(ws *WorkspaceSkills) (l *workspaceLayer, err error) {
+	l = &workspaceLayer{
 		resolved:   map[string]string{},
 		refusedAt:  map[string]bool{},
 		collisions: map[string]*WorkspaceSkillCollision{},
@@ -181,13 +214,20 @@ func stageWorkspaceLayer(ws *WorkspaceSkills) (*workspaceLayer, error) {
 	tree, err := openConfinedTree(ws)
 	if err != nil {
 		// Not the clone's doing and not fatal: the layer is simply absent, and SAID to be.
-		l.refuse(".", "the workspace could not be opened for reading skills: "+err.Error())
+		l.refuse(".", "the workspace could not be opened for reading skills ("+errnoText(err)+")")
 		return l, nil
 	}
 	l.tree = tree
-	dir, err := os.MkdirTemp("", "yolo-workspace-skills-")
+	// Whatever this returns an error from, it leaves nothing behind: the tree closed, the
+	// scratch removed.
+	defer func() {
+		if err != nil {
+			l.close()
+			l = nil
+		}
+	}()
+	dir, err := os.MkdirTemp(scratchBase, "yolo-workspace-skills-")
 	if err != nil {
-		tree.close()
 		return nil, err
 	}
 	l.dir = dir
@@ -210,9 +250,9 @@ func stageWorkspaceLayer(ws *WorkspaceSkills) (*workspaceLayer, error) {
 		src := &wsSource{rel: rel, real: real, entryReals: map[string]bool{}}
 		bySource[real] = src
 		l.sources = append(l.sources, src)
-		names, err := tree.readDirNames(real)
+		names, err := tree.listDir(real)
 		if err != nil {
-			l.refuse(rel, "unreadable: "+err.Error())
+			l.refuse(rel, readFailure(err))
 			continue
 		}
 		for _, name := range names {
@@ -248,32 +288,47 @@ func stageWorkspaceLayer(ws *WorkspaceSkills) (*workspaceLayer, error) {
 				}
 				continue
 			}
-			stored := filepath.Join(dir, strconv.Itoa(len(l.skills)))
-			if err := os.Mkdir(stored, 0o755); err != nil {
-				return nil, err
+			if sk := l.stageSkill(src, name, childReal, entry, display); sk != nil {
+				winners[name] = sk
+				l.skills = append(l.skills, sk)
 			}
-			walk := &skillWalk{tree: tree, layer: l, linked: map[string]bool{}}
-			if childReal != entry {
-				walk.linked[childReal] = true
-			}
-			if err := walk.copyDir(childReal, display, stored); err != nil {
-				return nil, err
-			}
-			if !holdsAFile(stored) {
-				// Nothing of it could be staged — every entry refused, or none there — so there
-				// is no skill to deliver, and the mirror line must not claim one. The refusals
-				// were already named; a later source's skill of this name may still win.
-				if err := os.RemoveAll(stored); err != nil {
-					return nil, err
-				}
-				continue
-			}
-			sk := &wsSkill{name: name, source: src, real: childReal, stored: stored}
-			winners[name] = sk
-			l.skills = append(l.skills, sk)
 		}
 	}
 	return l, nil
+}
+
+// stageSkill copies one skill directory into scratch and returns it, or nil when not one file
+// of it could be staged — every entry refused, or none there — so there is no skill to deliver
+// and the mirror line must not claim one. The refusals were already named; a later source's
+// skill of this name may still win.
+func (l *workspaceLayer) stageSkill(src *wsSource, name, real, entry, display string) *wsSkill {
+	l.staged++
+	stored := filepath.Join(l.dir, fmt.Sprint(l.staged))
+	if err := os.Mkdir(stored, 0o755); err != nil {
+		l.refuse(display, stageFailure(err))
+		return nil
+	}
+	if testHookBeforeRead != nil {
+		testHookBeforeRead(real)
+	}
+	fd, err := l.tree.openDir(real)
+	if err != nil {
+		l.refuse(display, readFailure(err))
+		_ = os.RemoveAll(stored)
+		return nil
+	}
+	walk := &skillWalk{tree: l.tree, layer: l, linked: map[string]bool{},
+		skillPrefix: len(src.rel) + 1}
+	if real != entry {
+		walk.linked[real] = true
+	}
+	walk.copyDir(fd, real, display, stored)
+	_ = unix.Close(fd)
+	if !holdsAFile(stored) {
+		_ = os.RemoveAll(stored)
+		return nil
+	}
+	return &wsSkill{name: name, source: src, real: real, stored: stored}
 }
 
 // close releases the confined tree and deletes the scratch copy.
@@ -283,9 +338,11 @@ func (l *workspaceLayer) close() {
 	}
 	if l.tree != nil {
 		l.tree.close()
+		l.tree = nil
 	}
 	if l.dir != "" {
 		_ = os.RemoveAll(l.dir)
+		l.dir = ""
 	}
 }
 
@@ -447,8 +504,10 @@ func appendUnique(xs []string, x string) []string {
 // A link to a directory that CONTAINS the one being copied is a cycle, and refused.
 // linked is every directory this skill has already entered THROUGH A LINK: a second link to one
 // is refused, which is what keeps a tree of links fanning into one directory from copying it
-// exponentially many times — each link target is copied once per skill, so the copy is at most
-// linear in the number of links.
+// exponentially many times. That bounds a skill's copy by (its links) × (the largest tree one of
+// them reaches), not by the workspace's size: N skills each linking one directory copy it N
+// times, and every destination that receives them gets that again. No byte budget bounds it
+// (docs/design/workspace-skills.md, OQ-WS7).
 type skillWalk struct {
 	tree   *confinedTree
 	layer  *workspaceLayer
@@ -456,6 +515,9 @@ type skillWalk struct {
 	// stack is the real directories on the current path, however each was reached: a link to
 	// one of them, or to anything containing one, is a cycle.
 	stack []string
+	// skillPrefix is the length of "<source dir>/" in a display path, so what follows it is the
+	// entry's path inside its skill — the part every destination has to hold.
+	skillPrefix int
 }
 
 // closesACycle reports whether a link to dir would re-enter the current path.
@@ -486,13 +548,15 @@ func containsPath(dir, p string) bool {
 	return dir == "." || dir == p || strings.HasPrefix(p, dir+"/")
 }
 
-func (w *skillWalk) copyDir(real, display, dst string) error {
+// copyDir copies the directory open at fd — the real path real, reached by a walk that followed
+// no link — into dst. Every failure is a refusal of the entry it happened to.
+func (w *skillWalk) copyDir(fd int, real, display, dst string) {
 	w.stack = append(w.stack, real)
 	defer func() { w.stack = w.stack[:len(w.stack)-1] }()
-	names, err := w.tree.readDirNames(real)
+	names, err := readNames(fd)
 	if err != nil {
-		w.layer.refuse(display, "unreadable: "+err.Error())
-		return nil
+		w.layer.refuse(display, readFailure(err))
+		return
 	}
 	for _, name := range names {
 		if name == ".git" {
@@ -500,6 +564,11 @@ func (w *skillWalk) copyDir(real, display, dst string) error {
 		}
 		entry := joinRel(real, name)
 		childDisplay := display + "/" + name
+		if len(childDisplay)-w.skillPrefix > maxSkillPath {
+			w.layer.refuse(childDisplay, fmt.Sprintf("its path inside the skill is longer than %d "+
+				"bytes, more than every agent's skills directory can be counted on to hold", maxSkillPath))
+			continue
+		}
 		childReal, reason := w.tree.resolveEntry(entry)
 		if reason != "" {
 			w.layer.refuse(childDisplay, reason)
@@ -509,52 +578,86 @@ func (w *skillWalk) copyDir(real, display, dst string) error {
 			continue
 		}
 		viaLink := childReal != entry
-		fi, err := w.tree.root.Lstat(childReal)
-		if err != nil {
-			w.layer.refuse(childDisplay, "unreadable: "+err.Error())
-			continue
-		}
-		target := filepath.Join(dst, name)
-		switch {
-		case fi.IsDir():
-			// A CYCLE is a link to any directory that contains one on the current path — not only
-			// one this walk entered: `x/loop → ..` names the source dir above the skill, and
-			// `x/a → ../../shared` with `shared/back → ../.agents/skills/x` returns to the skill
-			// through a directory reached by a link. Either would copy the skill into itself.
-			if viaLink && w.closesACycle(childReal) {
-				w.layer.refuse(childDisplay, "a symlink back to a directory that contains it (a cycle)")
+		// Where the entry's bytes are read from: under this directory's own descriptor when it is
+		// not a link, and by a fresh walk from the root to its target when it is. Either way,
+		// every component on the way was opened without following anything.
+		parent, base, own := fd, name, false
+		if viaLink {
+			p, err := w.tree.openDir(path.Dir(childReal))
+			if err != nil {
+				w.layer.refuse(childDisplay, readFailure(err))
 				continue
 			}
-			if viaLink {
-				if w.linked[childReal] {
-					w.layer.refuse(childDisplay, "a second symlink to a directory this skill "+
-						"already copies through a symlink")
-					continue
-				}
-				w.linked[childReal] = true
-			}
-			if err := os.Mkdir(target, 0o755); err != nil {
-				return err
-			}
-			if err := w.copyDir(childReal, childDisplay, target); err != nil {
-				return err
-			}
-		case fi.Mode().IsRegular():
-			if reason, err := w.tree.copyFile(childReal, target); err != nil {
-				return err
-			} else if reason != "" {
-				w.layer.refuse(childDisplay, reason)
-			}
-		default:
-			w.layer.refuse(childDisplay, "not a regular file or directory")
+			parent, base, own = p, path.Base(childReal), true
+		}
+		w.copyEntry(parent, base, childReal, childDisplay, filepath.Join(dst, name), viaLink)
+		if own {
+			_ = unix.Close(parent)
 		}
 	}
-	return nil
+}
+
+// copyEntry copies one entry, named base under the directory open at parent, whose real path
+// is real.
+func (w *skillWalk) copyEntry(parent int, base, real, display, target string, viaLink bool) {
+	var st unix.Stat_t
+	if err := fstatat(parent, base, &st); err != nil {
+		w.layer.refuse(display, readFailure(err))
+		return
+	}
+	switch st.Mode & unix.S_IFMT {
+	case unix.S_IFDIR:
+		// A CYCLE is a link to any directory that contains one on the current path — not only
+		// one this walk entered: `x/loop → ..` names the source dir above the skill, and
+		// `x/a → ../../shared` with `shared/back → ../.agents/skills/x` returns to the skill
+		// through a directory reached by a link. Either would copy the skill into itself.
+		if viaLink && w.closesACycle(real) {
+			w.layer.refuse(display, "a symlink back to a directory that contains it (a cycle)")
+			return
+		}
+		if viaLink {
+			if w.linked[real] {
+				w.layer.refuse(display, "a second symlink to a directory this skill "+
+					"already copies through a symlink")
+				return
+			}
+			w.linked[real] = true
+		}
+		if testHookBeforeRead != nil {
+			testHookBeforeRead(real)
+		}
+		sub, err := openat(parent, base, dirOpenFlags)
+		if err != nil {
+			w.layer.refuse(display, readFailure(err))
+			return
+		}
+		defer unix.Close(sub)
+		if err := os.Mkdir(target, 0o755); err != nil {
+			w.layer.refuse(display, stageFailure(err))
+			return
+		}
+		w.copyDir(sub, real, display, target)
+	case unix.S_IFREG:
+		if testHookBeforeRead != nil {
+			testHookBeforeRead(real)
+		}
+		if reason := copyFileAt(parent, base, target); reason != "" {
+			w.layer.refuse(display, reason)
+		}
+	case unix.S_IFLNK:
+		// resolve found no link here, so one was swapped in since: not followed, and said.
+		w.layer.refuse(display, errChanged.Error())
+	default:
+		w.layer.refuse(display, "not a regular file or directory")
+	}
 }
 
 // confinedTree reads a workspace without ever reading outside it. See the file comment.
 type confinedTree struct {
+	// root CLASSIFIES: resolve reads links and lstats through it, confined to the workspace.
 	root *os.Root
+	// rootFD READS: every open is a walk from here that follows no link (openDir).
+	rootFD int
 	// spellings are the absolute, cleaned spellings of the root an absolute link may name:
 	// the root as given, its real path, and the aliases.
 	spellings []string
@@ -570,7 +673,13 @@ func openConfinedTree(ws *WorkspaceSkills) (*confinedTree, error) {
 	if err != nil {
 		return nil, err
 	}
-	t := &confinedTree{root: root}
+	// The root's own spelling is trusted and may pass through links; nothing below it is.
+	fd, err := openat(unix.AT_FDCWD, abs, unix.O_RDONLY|unix.O_DIRECTORY|unix.O_NONBLOCK|unix.O_CLOEXEC)
+	if err != nil {
+		root.Close()
+		return nil, err
+	}
+	t := &confinedTree{root: root, rootFD: fd}
 	add := func(s string) {
 		if s == "" || !filepath.IsAbs(s) {
 			return
@@ -600,7 +709,10 @@ func openConfinedTree(ws *WorkspaceSkills) (*confinedTree, error) {
 	return t, nil
 }
 
-func (t *confinedTree) close() { _ = t.root.Close() }
+func (t *confinedTree) close() {
+	_ = t.root.Close()
+	_ = unix.Close(t.rootFD)
+}
 
 type resolution int
 
@@ -727,7 +839,7 @@ func (t *confinedTree) resolveEntry(rel string) (string, string) {
 	case resolvedLoop:
 		return "", "a symlink chain too long to follow (a loop?)"
 	case resolvedUnreadable:
-		return "", "unreadable: " + err.Error()
+		return "", "unreadable (" + errnoText(err) + ")"
 	}
 	if why := t.excluded(real); why != "" {
 		return "", why
@@ -746,7 +858,7 @@ func (t *confinedTree) resolveSource(rel string) (string, string) {
 	}
 	fi, err := t.root.Lstat(real)
 	if err != nil {
-		return "", "unreadable: " + err.Error()
+		return "", "unreadable (" + errnoText(err) + ")"
 	}
 	if !fi.IsDir() {
 		return "", "not a directory"
@@ -754,13 +866,69 @@ func (t *confinedTree) resolveSource(rel string) (string, string) {
 	return real, ""
 }
 
-// readDirNames lists a real directory through the root, sorted. O_DIRECTORY|O_NONBLOCK: a FIFO
-// swapped in for the directory fails instead of blocking the launcher.
-func (t *confinedTree) readDirNames(real string) ([]string, error) {
-	f, err := t.root.OpenFile(real, os.O_RDONLY|syscall.O_DIRECTORY|syscall.O_NONBLOCK, 0)
+// The flags of every read-side open. O_NOFOLLOW is the point: resolve has already said what each
+// path IS, so a link met while reading is one swapped in since, and is not followed. O_NONBLOCK
+// keeps a FIFO swapped in from hanging the launcher; O_DIRECTORY makes a directory open fail on
+// anything else.
+const (
+	dirOpenFlags  = unix.O_RDONLY | unix.O_DIRECTORY | unix.O_NOFOLLOW | unix.O_NONBLOCK | unix.O_CLOEXEC
+	fileOpenFlags = unix.O_RDONLY | unix.O_NOFOLLOW | unix.O_NONBLOCK | unix.O_CLOEXEC
+)
+
+func openat(dirfd int, name string, flags int) (int, error) {
+	for {
+		fd, err := unix.Openat(dirfd, name, flags, 0)
+		if err != unix.EINTR {
+			return fd, err
+		}
+	}
+}
+
+func fstatat(dirfd int, name string, st *unix.Stat_t) error {
+	for {
+		err := unix.Fstatat(dirfd, name, st, unix.AT_SYMLINK_NOFOLLOW)
+		if err != unix.EINTR {
+			return err
+		}
+	}
+}
+
+// openDir opens the directory at root-relative real path dir by a walk from the root's own
+// descriptor, one component at a time, following no link. The caller closes what it returns.
+func (t *confinedTree) openDir(dir string) (int, error) {
+	fd, err := openat(t.rootFD, ".", dirOpenFlags)
+	if err != nil {
+		return -1, err
+	}
+	for _, c := range splitRel(dir) {
+		next, err := openat(fd, c, dirOpenFlags)
+		_ = unix.Close(fd)
+		if err != nil {
+			return -1, err
+		}
+		fd = next
+	}
+	return fd, nil
+}
+
+// listDir lists the directory at real path dir, sorted, through openDir.
+func (t *confinedTree) listDir(dir string) ([]string, error) {
+	fd, err := t.openDir(dir)
 	if err != nil {
 		return nil, err
 	}
+	defer unix.Close(fd)
+	return readNames(fd)
+}
+
+// readNames lists the directory open at fd, sorted. It reads a fresh open of "." under fd, so
+// fd's own offset is untouched and fd stays usable for the openat calls that follow.
+func readNames(fd int) ([]string, error) {
+	own, err := openat(fd, ".", dirOpenFlags)
+	if err != nil {
+		return nil, err
+	}
+	f := os.NewFile(uintptr(own), ".")
 	defer f.Close()
 	names, err := f.Readdirnames(-1)
 	if err != nil {
@@ -770,22 +938,81 @@ func (t *confinedTree) readDirNames(real string) ([]string, error) {
 	return names, nil
 }
 
-// copyFile copies one regular file out of the root into dst, carrying its execute bit. A
-// non-empty reason is a refusal of this file; an error is a failure to write the scratch tree.
-func (t *confinedTree) copyFile(real, dst string) (string, error) {
-	in, err := t.root.OpenFile(real, os.O_RDONLY|syscall.O_NONBLOCK, 0)
+// copyReal copies the regular file at real path real into dst, opening it the way copyDir does.
+// A non-empty reason is a refusal of it.
+func (t *confinedTree) copyReal(real, dst string) string {
+	parent, err := t.openDir(path.Dir(real))
 	if err != nil {
-		return "unreadable: " + err.Error(), nil
+		return readFailure(err)
 	}
+	defer unix.Close(parent)
+	return copyFileAt(parent, path.Base(real), dst)
+}
+
+// copyFileAt copies the regular file base, under the directory open at parent, into dst,
+// carrying its execute bit. A non-empty reason is a refusal of this file: it could not be read,
+// is not a regular file, or its copy could not be written — and then no partial copy remains.
+func copyFileAt(parent int, base, dst string) string {
+	fd, err := openat(parent, base, fileOpenFlags)
+	if err != nil {
+		return readFailure(err)
+	}
+	in := os.NewFile(uintptr(fd), base)
 	defer in.Close()
 	fi, err := in.Stat()
 	if err != nil {
-		return "unreadable: " + err.Error(), nil
+		return readFailure(err)
 	}
 	if !fi.Mode().IsRegular() {
-		return "not a regular file or directory", nil
+		return "not a regular file or directory"
 	}
-	return "", writeCopy(in, dst, fi.Mode())
+	readErr, writeErr := writeCopy(in, dst, fi.Mode())
+	switch {
+	case readErr != nil:
+		return readFailure(readErr)
+	case writeErr != nil:
+		return stageFailure(writeErr)
+	}
+	return ""
+}
+
+// errChanged is a path that is no longer what resolve classified: a component swapped for a
+// link, a file or nothing between the look and the read.
+var errChanged = errors.New("changed while it was being read")
+
+// readFailure is the refusal reason for a read that failed. Fixed text and an errno's own
+// description, NEVER err.Error(): a path error carries the path it failed on, and a path a link
+// in the workspace spelled is text the workspace wrote — a newline and a forged disclosure line
+// included.
+func readFailure(err error) string {
+	var errno syscall.Errno
+	if errors.As(err, &errno) {
+		switch errno {
+		case syscall.ELOOP, syscall.EMLINK, syscall.ENOTDIR, syscall.ENOENT:
+			// O_NOFOLLOW on a link is ELOOP (EMLINK on some BSDs); O_DIRECTORY on a file is
+			// ENOTDIR; gone is ENOENT. Each is a path that changed after it was classified.
+			return errChanged.Error()
+		}
+		return "unreadable (" + errno.Error() + ")"
+	}
+	if errors.Is(err, errChanged) {
+		return errChanged.Error()
+	}
+	return "unreadable"
+}
+
+// stageFailure is the refusal reason for a scratch write that failed, with readFailure's rule.
+func stageFailure(err error) string {
+	return "could not be staged (" + errnoText(err) + ")"
+}
+
+// errnoText is an error's errno description, or a fixed word when it carries none.
+func errnoText(err error) string {
+	var errno syscall.Errno
+	if errors.As(err, &errno) {
+		return errno.Error()
+	}
+	return "error"
 }
 
 // copyPlainTree copies a tree yolo itself wrote (the scratch layer: directories and regular
@@ -814,9 +1041,9 @@ func copyPlainTree(src, dst string) error {
 			if err != nil {
 				return err
 			}
-			err = writeCopy(in, d, fi.Mode())
+			readErr, writeErr := writeCopy(in, d, fi.Mode())
 			in.Close()
-			if err != nil {
+			if err := errors.Join(readErr, writeErr); err != nil {
 				return err
 			}
 		}
@@ -824,26 +1051,50 @@ func copyPlainTree(src, dst string) error {
 	return nil
 }
 
+// trackedReader remembers the reader's own failure, so a copy can tell a failed read from a
+// failed write.
+type trackedReader struct {
+	r   io.Reader
+	err error
+}
+
+func (t *trackedReader) Read(p []byte) (int, error) {
+	n, err := t.r.Read(p)
+	if err != nil && err != io.EOF {
+		t.err = err
+	}
+	return n, err
+}
+
 // writeCopy writes r to a NEW file at dst, 0o644 or — when src carried any execute bit — 0o755.
 // The read/write bits never come from the source, so a group-writable file in someone's repo
-// does not widen the staged copy (packstage.copyFile's rule).
-func writeCopy(r io.Reader, dst string, srcMode fs.FileMode) error {
+// does not widen the staged copy (packstage.copyFile's rule). On any failure dst is removed.
+func writeCopy(r io.Reader, dst string, srcMode fs.FileMode) (readErr, writeErr error) {
 	mode := fs.FileMode(0o644)
 	if srcMode.Perm()&0o111 != 0 {
 		mode = 0o755
 	}
 	out, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, mode)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	if _, err := io.Copy(out, r); err != nil {
-		out.Close()
-		return fmt.Errorf("copying %s: %w", dst, err)
+	tr := &trackedReader{r: r}
+	_, err = io.Copy(out, tr)
+	cerr := out.Close()
+	switch {
+	case tr.err != nil:
+		readErr = tr.err
+	case err != nil:
+		writeErr = err
+	case cerr != nil:
+		writeErr = cerr
+	default:
+		writeErr = os.Chmod(dst, mode)
 	}
-	if err := out.Close(); err != nil {
-		return err
+	if readErr != nil || writeErr != nil {
+		_ = os.Remove(dst)
 	}
-	return os.Chmod(dst, mode)
+	return readErr, writeErr
 }
 
 // splitRel splits a slash-separated path into components, dropping empties.

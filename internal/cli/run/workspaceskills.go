@@ -110,8 +110,8 @@ func perSideShadowRels(cfg *jsonx.OrderedMap, workspace string) []string {
 //
 // Four kinds of line, each one fact:
 //
-//   - a REFUSAL per entry not read (P5's escaping symlink above all), naming the entry and never
-//     its target;
+//   - a REFUSAL per entry not read or not staged (P5's escaping symlink above all), naming the
+//     entry and never its target;
 //   - a COLLISION per skill name two source dirs both carry, naming which copy is delivered;
 //   - a SHADOW per workspace skill a built-in, pack or local-pack skill took the name of — one
 //     line per name, however many destinations (OQ-WS2);
@@ -119,15 +119,16 @@ func perSideShadowRels(cfg *jsonx.OrderedMap, workspace string) []string {
 //     skills — the line R6 of the design leans on, since an attach re-stages the workspace as it
 //     stands into a live session.
 //
-// Every workspace-supplied string is passed through displaySafe: these lines are a disclosure,
-// and a skill directory a clone names `"\n[dim]nothing refused"` must not be able to forge one.
+// Every workspace-supplied string is passed through displaySafe, the refusal's REASON included:
+// these lines are a disclosure, and a skill directory a clone names `"\n[dim]nothing refused"`
+// must not be able to forge one.
 func (o *Options) noteWorkspaceSkills(r *jailcontent.WorkspaceSkillsReport) {
 	if r.Empty() {
 		return
 	}
 	out := o.pr(o.Stderr)
 	for _, f := range r.Refused {
-		out.print("[yellow]Workspace skills: refused " + displaySafe(f.Path) + " — " + f.Reason + "[/yellow]")
+		out.print("[yellow]Workspace skills: refused " + displaySafe(f.Path) + " — " + displaySafe(f.Reason) + "[/yellow]")
 	}
 	for _, c := range r.Collisions {
 		losers := make([]string, len(c.Losers))
