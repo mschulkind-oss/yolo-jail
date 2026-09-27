@@ -3,7 +3,8 @@
 **Status:** SKETCH, 2026-09-27. [§1](#1-ship-now-es-d1-to-es-d5) is BUILT (2026-09-27; the
 design's [ledger](credential-sources-separation.md#10-decision-ledger) has the commits and the
 mechanism choices and the review's fixes, ES-D6 to ES-D12). Everything after it is incomplete and blocked on the question
-it names. Codebase facts were verified at `8da7840d`.
+it names, except [§3](#3-blocked-on-the-other-open-questions)'s [OQ-ES5](credential-sources-separation.md#OQ-ES5) host half, ruled and built
+the same day (ES-D13 to ES-D17). Codebase facts were verified at `8da7840d`.
 
 > **Precedence.** This sketch accompanies
 > [`credential-sources-separation.md`](credential-sources-separation.md). The design wins on
@@ -61,9 +62,12 @@ the shared file is narrowed where `deliverChannel` calls `writeUserEnvFile`, not
 
 ## 3. Blocked on the other open questions
 
-- **[OQ-ES5](credential-sources-separation.md#OQ-ES5)**, a provider-naming grant flag. The flag
-  lands in three places:
-  - the host: `parseHostExecFlags`, and `ScopeInput.Profiles` or a sibling input;
+- **[OQ-ES5](credential-sources-separation.md#OQ-ES5)**, a provider-naming grant flag. **Its
+  host half is ruled and BUILT** (2026-09-27, the design's
+  [§5.1](credential-sources-separation.md#51-the-explicit-grant---with-credentials-built)): the
+  sibling input is `ScopeInput.Grants`, fed from `parseHostExecFlags` and `hostEnv`, and a jail
+  launch refuses the flag (`refuseHostOnlyFlags`). The jail half is still open, and would land in
+  two places:
   - the jail: only the `--` command's exec environment for that entry, never `deliverChannel`'s
     files, because an attach rewrites the directory whole
     ([CN-D7](provider-credential-scope.md#7-decision-ledger));
