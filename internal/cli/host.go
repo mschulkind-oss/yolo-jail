@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"syscall"
@@ -359,6 +360,9 @@ type hostComposition struct {
 	// command is the command as the user typed it after `--`, for the remedy to spell back;
 	// empty for `yolo host env`, which launches nothing.
 	command string
+	// scopeInput is the credential gate's input for this launch, for the remedy to ask the gate
+	// whether a -p it would name composes (runsOn).
+	scopeInput packload.ScopeInput
 	// profile is the profile this launch selected for its command — a typed -p, else the
 	// command's use_profiles entry — "" when none. The remedy says the -p it names replaces
 	// it (remedyAction).
@@ -424,30 +428,72 @@ func (c *hostComposition) shellHolds() func(string) bool {
 // installs composes the same slice, so `bash` stands for all of them, as §3.1 and the help's
 // example spell it.
 func (c *hostComposition) credentialRemedy(claimants []string) string {
-	profile := remedyProfile(c.resolved, claimants)
-	if profile == "" {
+	candidates := remedyProfiles(c.resolved, claimants)
+	if len(candidates) == 0 {
 		example := "<name>"
 		if len(claimants) > 0 {
 			example = claimants[0]
 		}
+		// Asked of the profile the line tells the user to declare, resolved as that
+		// declaration would resolve: to the provider alone.
+		runs := c.runsOn(example, &packload.ResolvedProfile{Provider: example})
 		return fmt.Sprintf("No declared profile selects %s: declare one under `profiles` in %s "+
 			"(for example `%q: {\"provider\": %q}`), then %s",
 			strings.Join(claimants, " or "), paths.UserConfigPath(), example, example,
-			c.remedyAction(example))
+			c.remedyAction(example, runs))
 	}
-	action := c.remedyAction(profile)
+	profile, runs := candidates[0], false
+	for _, name := range candidates {
+		if c.runsOn(name, nil) {
+			profile, runs = name, true
+			break
+		}
+	}
+	action := c.remedyAction(profile, runs)
 	return strings.ToUpper(action[:1]) + action[1:]
 }
 
-// remedyAction is the remedy's instruction for one profile, as a clause starting "to …".
+// runsOn reports whether `yolo host -p <profile> -- <this command>` would compose rather than
+// refuse, asked the way that launch asks: the credential gate over this launch's own inputs
+// with the candidate selected for the command, whose AgentEnv holds the protocol pairing gate
+// and the pack's env derive. A remedy is a command the user will run, so it may never name one
+// that refuses — `yolo host -p cerebras -- claude` does, cerebras speaking only openai and no
+// `needs` joining wire-bridge at this notch. A command no selected pack installs runs on any
+// declared profile, since no pack code runs for it, so it is never asked.
+//
+// extra, when set, is resolved as profile first: the declaration the line tells the user to
+// write. The credential pre-flight is not re-asked, because the name the line is about is the
+// credential it would look for, and env_sources holds it.
+func (c *hostComposition) runsOn(profile string, extra *packload.ResolvedProfile) bool {
+	if !selectedPackInstalls(c.packs, c.agent) {
+		return true
+	}
+	in := c.scopeInput
+	in.Profiles = map[string]string{c.agent: profile}
+	if extra != nil {
+		resolved := make(map[string]packload.ResolvedProfile, len(in.Resolved)+1)
+		for k, v := range in.Resolved {
+			resolved[k] = v
+		}
+		resolved[profile] = *extra
+		in.Resolved = resolved
+	}
+	_, err := packload.ScopeCredentials(in)
+	return err == nil
+}
+
+// remedyAction is the remedy's instruction for one profile, as a clause starting "to …";
+// runs is runsOn's answer for it.
 //
 // A -p NAMES ONE PROFILE, so the one it names REPLACES the command's own: a withheld name
 // belongs to a provider this launch's profile did not select, and on an agent a selected pack
 // installs, the named -p re-points the agent's backend rather than adding a key to it. So an
 // agent's remedy is worded as the switch it is ("run claude on the zai profile"), an ad-hoc
 // command's as the grant it is ("hand it to bash"), and either says which profile it replaces
-// when the launch selected one.
-func (c *hostComposition) remedyAction(profile string) string {
+// when the launch selected one. An agent that cannot run on the profile is named only to say
+// so, and the key goes to the ad-hoc spelling instead: `bash` at the exec, and the shell
+// spelling alone at `yolo host env`.
+func (c *hostComposition) remedyAction(profile string, runs bool) string {
 	p := shquote.Quote(profile)
 	cmd := c.command
 	if cmd == "" {
@@ -458,43 +504,51 @@ func (c *hostComposition) remedyAction(profile string) string {
 	if c.profile != "" {
 		replacing = fmt.Sprintf(", replacing its %s profile", c.profile)
 	}
-	launch := fmt.Sprintf("to hand it to %s for one launch%s: `yolo host -p %s -- %s`", cmd, replacing, p, cmd)
-	if selectedPackInstalls(c.packs, c.agent) {
+	shell := fmt.Sprintf("to receive it in this shell: `eval \"$(yolo host env --agent bash -p %s)\"`", p)
+	var launch string
+	switch {
+	case !runs:
+		cannot := fmt.Sprintf("%s cannot run on the %s profile at this notch", cmd, profile)
+		if c.command == "" {
+			return fmt.Sprintf("%s (%s)", shell, cannot)
+		}
+		return fmt.Sprintf("to hand it to an ad-hoc command for one launch instead, since %s: "+
+			"`yolo host -p %s -- bash`", cannot, p)
+	case selectedPackInstalls(c.packs, c.agent):
 		launch = fmt.Sprintf("to run %s on the %s profile for one launch%s: `yolo host -p %s -- %s`",
 			cmd, profile, replacing, p, cmd)
+	default:
+		launch = fmt.Sprintf("to hand it to %s for one launch%s: `yolo host -p %s -- %s`", cmd, replacing, p, cmd)
 	}
 	if c.command == "" {
-		return fmt.Sprintf("to receive it in this shell: `eval \"$(yolo host env --agent bash -p %s)\"`; %s",
-			p, launch)
+		return shell + "; " + launch
 	}
 	return launch
 }
 
-// remedyProfile is the declared profile the remedy names for a group claimed by claimants:
-// the one named after a claiming provider when it resolves to that provider (every shipped
-// provider ships one), and otherwise the first, by name, that resolves to any claimant. ""
-// when no declared profile selects any of them — a provider the user declared under
-// `providers` with no `profiles` entry beside it.
-func remedyProfile(resolved map[string]packload.ResolvedProfile, claimants []string) string {
+// remedyProfiles are the declared profiles the remedy may name for a group claimed by
+// claimants, in the order it prefers them: each one named after a claiming provider that
+// resolves to that provider (every shipped provider ships one), then every other that resolves
+// to any claimant, by name. Empty when no declared profile selects any of them — a provider
+// the user declared under `providers` with no `profiles` entry beside it.
+func remedyProfiles(resolved map[string]packload.ResolvedProfile, claimants []string) []string {
+	var own []string
 	for _, p := range claimants {
 		if packload.ProviderFor(resolved, p) == p {
-			return p
+			own = append(own, p)
 		}
 	}
-	var names []string
+	var others []string
 	for name, r := range resolved {
-		for _, p := range claimants {
-			if r.Provider == p {
-				names = append(names, name)
-				break
-			}
+		if slices.Contains(own, name) {
+			continue
+		}
+		if slices.Contains(claimants, r.Provider) {
+			others = append(others, name)
 		}
 	}
-	if len(names) == 0 {
-		return ""
-	}
-	sort.Strings(names)
-	return names[0]
+	sort.Strings(others)
+	return append(own, others...)
 }
 
 // environ applies the composition over the environment this process inherited — the env
@@ -734,14 +788,15 @@ func composeHostVars(cfg *jsonx.OrderedMap, workspace, agent, profile string, wa
 	// profile delivers. A GIT PACK CONTRIBUTES HERE TOO: loadedHostPacks resolves through
 	// resolveConfiguredPack, which reads a git pack from the pack store the way a launch
 	// does. One the store does not have is dropped and warned about above.
-	scope, err := packload.ScopeCredentials(packload.ScopeInput{
+	c.scopeInput = packload.ScopeInput{
 		Packs:      packs,
 		Providers:  providers,
 		Profiles:   agentTable,
 		Resolved:   resolvedProfiles,
 		EnvSources: userEnv,
 		Fallback:   os.LookupEnv,
-	})
+	}
+	scope, err := packload.ScopeCredentials(c.scopeInput)
 	if err != nil {
 		c.err = err
 		return c

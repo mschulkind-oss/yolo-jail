@@ -217,6 +217,104 @@ func TestHostEnvAgentRemedyIsWordedAsAProfileSwitch(t *testing.T) {
 	}
 }
 
+// A remedy is a command the user will run, so it must be one that runs: every `yolo host …`
+// the line names, run through hostMain in the same home, has to exit 0. cerebras speaks only
+// openai and claude only anthropic, and at the host no `needs` joins wire-bridge, so
+// `yolo host -p cerebras -- claude` refuses on the protocol pairing. The line must hand the
+// key to an ad-hoc command instead, and say why claude is not named.
+func TestHostGrantRemedyNeverNamesAProfileTheAgentRefuses(t *testing.T) {
+	_, errs := hostGateLaunchWith(t, `{"packs": ["claude", "cerebras"], `+
+		`"env_sources": [{"CEREBRAS_API_KEY": "tok-c"}]}`, nil, nil, "claude")
+	line := scopeLine(t, errs, "CEREBRAS_API_KEY")
+	if strings.Contains(line, "-- claude`") {
+		t.Errorf("claude cannot run on cerebras here, so no named command may launch it: %q", line)
+	}
+	for _, want := range []string{"`yolo host -p cerebras -- bash`", "claude cannot run on the cerebras profile"} {
+		if !strings.Contains(line, want) {
+			t.Errorf("the line must hand the key to an ad-hoc command and say why (%q missing): %q", want, line)
+		}
+	}
+	assertRemediesRun(t, line, "CEREBRAS_API_KEY", "tok-c")
+}
+
+// The §1 incident's own config at `yolo host env`, whose agent defaults to claude: every
+// withheld line's named commands run, openai-only providers (cerebras, kilo) included.
+func TestHostEnvRemediesAllRunOverTheIncidentConfig(t *testing.T) {
+	hostGateHome(t, `{"packs": ["claude", "pi", "zai", "openrouter", "cerebras", "kilo"], `+
+		`"env_sources": [{"ZAI_API_KEY": "z", "OPENROUTER_API_KEY": "o", "CEREBRAS_API_KEY": "c", `+
+		`"KILO_API_KEY": "k"}]}`, nil)
+	var out, errw bytes.Buffer
+	if rc := hostMain([]string{"env"}, &out, &errw, false, nil); rc != 0 {
+		t.Fatalf("yolo host env: rc = %d\n%s", rc, errw.String())
+	}
+	for name, value := range map[string]string{"ZAI_API_KEY": "z", "OPENROUTER_API_KEY": "o",
+		"CEREBRAS_API_KEY": "c", "KILO_API_KEY": "k"} {
+		assertRemediesRun(t, scopeLine(t, errw.String(), name), name, value)
+	}
+	for _, name := range []string{"CEREBRAS_API_KEY", "KILO_API_KEY"} {
+		if line := scopeLine(t, errw.String(), name); strings.Contains(line, "-- claude`") {
+			t.Errorf("claude speaks no openai, so %s's line may not name a claude launch: %q", name, line)
+		}
+	}
+}
+
+// The declare-a-profile arm is asked the same question, of the profile it tells the user to
+// declare: a user provider claude cannot speak to gets the ad-hoc spelling, and once the
+// example entry is declared, the named command runs.
+func TestHostGrantDeclareRemedyNamesACommandThatRunsOnceDeclared(t *testing.T) {
+	provider := `"providers": {"deepseek": {"endpoints": {"openai": {"base_url": "https://api.deepseek.example/v1"}}, ` +
+		`"api_key_env_name": "DEEPSEEK_API_KEY"}}`
+	_, errs := hostGateLaunchWith(t, `{"packs": ["claude"], `+provider+`, `+
+		`"env_sources": [{"DEEPSEEK_API_KEY": "tok-ds"}]}`, nil, nil, "claude")
+	line := scopeLine(t, errs, "DEEPSEEK_API_KEY")
+	if !strings.Contains(line, "`yolo host -p deepseek -- bash`") || strings.Contains(line, "-- claude`") {
+		t.Errorf("claude speaks no openai, so the declared profile's remedy must be ad-hoc: %q", line)
+	}
+	hostGateHome(t, `{"packs": ["claude"], `+provider+`, "profiles": {"deepseek": {"provider": "deepseek"}}, `+
+		`"env_sources": [{"DEEPSEEK_API_KEY": "tok-ds"}]}`, nil)
+	assertRemediesRun(t, line, "DEEPSEEK_API_KEY", "tok-ds")
+}
+
+// With two providers claiming one name, the remedy names the first profile the agent can run
+// on, not merely the first by preference: `aaa` sorts ahead of zai but speaks only openai.
+func TestHostGrantRemedyPrefersAProfileTheAgentRunsOn(t *testing.T) {
+	_, errs := hostGateLaunchWith(t, `{"packs": ["claude", "zai"], `+
+		`"providers": {"aaa": {"endpoints": {"openai": {"base_url": "https://aaa.example/v1"}}, `+
+		`"api_key_env_name": "ZAI_API_KEY"}}, "profiles": {"aaa": {"provider": "aaa"}}, `+
+		`"env_sources": [{"ZAI_API_KEY": "tok-es"}]}`, nil, nil, "claude")
+	line := scopeLine(t, errs, "ZAI_API_KEY")
+	if !strings.Contains(line, "`yolo host -p zai -- claude`") {
+		t.Errorf("claude runs on zai, which also claims the key, so the line must name it: %q", line)
+	}
+	assertRemediesRun(t, line, "ZAI_API_KEY", "tok-es")
+}
+
+// assertRemediesRun runs every `yolo host …` command line names, in the current fixture home,
+// and asserts each exits 0 and hands its process, or prints for its shell, name=value.
+func assertRemediesRun(t *testing.T, line, name, value string) {
+	t.Helper()
+	cmds := remedyCommands(line)
+	if len(cmds) == 0 {
+		t.Fatalf("the line names no command: %q", line)
+	}
+	for _, argv := range cmds {
+		rc, script, env, errs := runRemedy(t, argv)
+		if rc != 0 {
+			t.Errorf("the remedy `yolo host %s` exits %d:\n%s", strings.Join(argv, " "), rc, errs)
+			continue
+		}
+		if argv[0] == "env" {
+			if !strings.Contains(script, "export "+name+"='"+value+"'") {
+				t.Errorf("`yolo host %s` does not export %s:\n%s", strings.Join(argv, " "), name, script)
+			}
+			continue
+		}
+		if env[name] != value {
+			t.Errorf("`yolo host %s` hands %s=%q, want %q", strings.Join(argv, " "), name, env[name], value)
+		}
+	}
+}
+
 // ES-D2's other arm: a provider the user declared under `providers` has no profile until the
 // user declares one, and -p takes a profile name, so the line says to declare one rather than
 // naming a -p that would refuse. The §1 incident's deepseek line.
@@ -249,8 +347,8 @@ func TestHostGrantWithheldLineNamesAUserProfileOverTheProvider(t *testing.T) {
 	}
 }
 
-// remedyProfile prefers the profile named after a claiming provider, and otherwise takes the
-// first by name that resolves to any claimant.
+// remedyProfiles prefers the profile named after a claiming provider, then every other that
+// resolves to any claimant, by name; the remedy names the first of them its command runs on.
 func TestRemedyProfilePrefersTheProvidersOwnName(t *testing.T) {
 	resolved := map[string]packload.ResolvedProfile{
 		"a-zai": {Provider: "zai"}, "zai": {Provider: "zai"}, "b-ds": {Provider: "deepseek"},
@@ -260,13 +358,13 @@ func TestRemedyProfilePrefersTheProvidersOwnName(t *testing.T) {
 		claimants []string
 		want      string
 	}{
-		{[]string{"zai"}, "zai"},
-		{[]string{"deepseek"}, "a-ds"},
-		{[]string{"deepseek", "zai"}, "zai"},
+		{[]string{"zai"}, "zai a-zai"},
+		{[]string{"deepseek"}, "a-ds b-ds"},
+		{[]string{"deepseek", "zai"}, "zai a-ds a-zai b-ds"},
 		{[]string{"cerebras"}, ""},
 	} {
-		if got := remedyProfile(resolved, tc.claimants); got != tc.want {
-			t.Errorf("remedyProfile(%v) = %q, want %q", tc.claimants, got, tc.want)
+		if got := strings.Join(remedyProfiles(resolved, tc.claimants), " "); got != tc.want {
+			t.Errorf("remedyProfiles(%v) = %q, want %q", tc.claimants, got, tc.want)
 		}
 	}
 }
