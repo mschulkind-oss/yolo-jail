@@ -5,6 +5,7 @@ verified_commit: 753bcb88
 covers:
   - internal/entrypoint/darwinhomelayout.go
   - internal/entrypoint/darwin.go
+  - internal/entrypoint/darwinoverlay.go
   - internal/entrypoint/packhooks.go
   - internal/macosuser/macosuser.go
   - internal/macosuser/runplan.go
@@ -52,7 +53,7 @@ from a claim that is still an argument.
 | The sidecar's crossing, and the refusal when it is absent | `internal/macosuser/runplan.go` (`buildBootstrapEnv`, `PlanInvariants`) |
 | The confinement primitive | `internal/macosuser/seatbelt.go` (`SeatbeltProfile`) |
 | The write-protection of the staged skills and briefings | `internal/macosuser/homereadonly.go` (`ResolveHomeReadonly`), rendered by `internal/macosuser/seatbelt.go` (`homeReadonlyDenies`) |
-| Content delivery over the layout | `internal/cli/run/macoshomeoverlay.go`, `internal/entrypoint/darwin.go` (`InstallHomeOverlay`) |
+| Content delivery over the layout | `internal/cli/run/macoshomeoverlay.go` (`buildMacosHomeOverlay`), `internal/entrypoint/darwin.go` (`InstallHomeOverlay`), `internal/entrypoint/darwinoverlay.go` (`WriteHomeOverlayManifest`, `overlayLinks.route`, `installOverlayDestination`) |
 
 **Reads with:** [`macos-user-nix-and-features.md`](macos-user-nix-and-features.md) (the backend,
 and the standing refusal of a per-workspace `HOME` this layout keeps true),
@@ -235,8 +236,8 @@ be derived.
 | `Dirs` before `Links` | `Apply` walks the fields in declaration order; `MkdirAll` THROUGH a dangling symlink fails (`Stat` misses, `Mkdir` hits `EEXIST`, `Lstat` says "not a directory") |
 | The `SharedDirs` mirror before anything RESOLVES one | `Mirrors` is applied in the same step as the `Links`, above every generator |
 | `MISE_DATA_DIR` names a path outside the workspace tier | `macosuser.SandboxMiseData` is the one function the launch env, the bootstrap env and the PATH's shims dir all read; `assertOutsideTheWorkspaceTier` asks the deriver |
-| `InstallHomeOverlay` must not destroy the layout | `installOverlayTree` **descends only through this launch's layout links**, each checked against the target the layout laid, and replaces at the first path that is not one; a layout path that is not yet its link is left alone |
-| Nothing is laid or delivered through a link the layout did not lay | `DarwinHomeLayout.linkedSidecarPaths`, checked first by `Apply` and again by `InstallHomeOverlay`; `installOverlayTree` for a link at or above a destination ([below](#nothing-is-delivered-through-a-link-the-layout-did-not-lay)) |
+| `InstallHomeOverlay` replaces its destinations and nothing else — never the layout, never a directory above or beside a destination | the host lists every destination beside the tree (`.yolo-home-overlay.json`), and `installOverlayDestination` replaces exactly one listed path at a time ([below](#the-overlay-replaces-its-destinations-and-nothing-else)) |
+| Nothing is laid or delivered through a link the layout did not lay | `DarwinHomeLayout.linkedSidecarPaths`, checked first by `Apply` and again by `InstallHomeOverlay`; `overlayLinks.route` for a link at or above each listed destination ([below](#nothing-is-delivered-through-a-link-the-layout-did-not-lay)) |
 | A redirect is laid only when this launch lays the directory that holds it | `DeriveDarwinHomeLayout` tracks the home-relative dirs it laid and filters `paths.HomeFileRedirects()` against them |
 
 > [!WARNING]
@@ -256,17 +257,79 @@ be derived.
 > (`TestDarwinHomeLayoutSurvivesAStaleLinkFromADeletedWorkspace`,
 > `…RepointsAStaleLinkThePackStillDeclares`).
 
-**`InstallHomeOverlay` descending through the layout's links is what makes content delivery land
-at a bind mount's granularity.** The host composes the same trees the container mounts, stages
-them root-owned at `/var/yolo-jail/home-overlay/<cname>`, and the bootstrap copies them over the
-home. That copy used to `RemoveAll` the overlay's TOP-level entry, which for a skills destination
-of `.claude/skills` is `~/.claude` — the whole state dir, credential symlink included. Under the
-layout the same `RemoveAll` would unlink the sidecar symlink and leave a real directory, so the
-next boot's layout refuses: a backend that bricks itself after one launch. A layout link marks a
-path the home merely passes through; the first path that is not one is the destination, and
-replacing it wholesale is what makes a skills dir a pack stopped shipping disappear. Until
-2026-09-27 the install treated ANY symlink as a layout link; what it does with one that is not
-is [below](#nothing-is-delivered-through-a-link-the-layout-did-not-lay).
+### The overlay replaces its destinations, and nothing else
+
+The host composes the same skills trees and briefings the container mounts, lays them out under
+one root at their home-relative destinations, stages that root root-owned at
+`/var/yolo-jail/home-overlay/<cname>`, and the bootstrap installs it over the home as its last
+generator step. A bind mount covers exactly its destination — `~/.pi/agent/skills` — and leaves
+every directory above and beside it alone, so the install has to have the same granularity. A
+destination is **replaced whole**, which is what makes a skill the host stopped staging
+disappear; nothing outside a destination is touched.
+
+**The tree cannot say where a destination starts, so the host lists them.** An overlay holding
+`.pi/agent/skills/demo/SKILL.md` does not say whether the destination is `.pi/agent/skills` or
+`.pi/agent`. `buildMacosHomeOverlay` records every destination it lays out in
+`.yolo-home-overlay.json` at the overlay root, from the same loops that write the tree, and the
+install walks that list, never the tree. The list names the roots the tree already spells; it
+maps nothing, so it is not a second mount assembler. An overlay without one is refused. It is also
+the list the session's Seatbelt profile write-protects ([HT-D7](#ht-d7)).
+
+**A destination is reached only through the layout's own links.** Walking down from the home, the
+install passes a layout link only while it is the link this launch laid, to the target it laid,
+and refuses any other link on the way, in the account home or in the sidecar; a link AT a
+destination is replaced when it is in the sidecar and refused when it is in the account home. The
+rules, and why, are [below](#nothing-is-delivered-through-a-link-the-layout-did-not-lay).
+
+> [!CAUTION]
+> **Two earlier installs guessed the granularity, and both deleted agent state on every launch.**
+> The first (2026-09-03) replaced the overlay's top-level entry: for `.claude/skills` that is
+> `~/.claude`, the whole state dir. The second (2026-09-12, with this layout) descended through
+> the home's symlinks and replaced the first real directory it met; G14's review narrowed which
+> links it would descend through on 2026-09-27, not where it replaced. For claude, codex and copilot
+> that directory is the destination itself, because their skills sit directly in the linked state
+> dir. For **pi, omp, agy and opencode** it is the directory *above* the destination —
+> `~/.pi/agent`, `~/.oh-omp/agent`, `~/.gemini/config`, `~/.config/opencode` — so every launch
+> deleted that directory's sessions, sign-in and the config files the same boot had just
+> generated, and put back only the skills and the briefing (G36). That state lives in the
+> workspace sidecar, which podman binds at the same paths, so the wipe also reached what a podman
+> jail on the same workspace had written there. `TestDarwinOverlayInstallKeepsAgentStateBesideAndAboveEveryDestination`
+> drives the real boot for every shipped pack that declares a destination, enumerated from the pack
+> manifests, and fails on both earlier installs.
+
+How one destination is installed, each rule a test in `internal/entrypoint/darwinoverlay_test.go`:
+
+| Rule | Why |
+| :--- | :--- |
+| The replacement is built completely beside the destination (`.<name>.yolo-overlay-new`) before the destination is touched, with a copy that stops at its first error | A failed copy leaves the previous delivery whole, and a partial copy is never renamed into place |
+| A file replaces a file in one `rename`; a directory moves the old copy to `.<name>.yolo-overlay-old`, renames the new one in, then removes the old | `rename` cannot replace a non-empty directory. A crash between the two renames leaves no destination and the previous copy under the aside name |
+| Both sibling names are removed before an install starts | What a crash left behind is only overlay content, never agent state, so the next launch clears it and delivers |
+| A destination that is itself a symbolic link is never followed: in the account home it is refused, and the launch names it; past a layout link, in the sidecar, it is replaced as a link | Following it would replace whatever it points at. In the account home, replacing it would put a real directory where a layout link may belong, which the next boot refuses ([OQ-HT2](#oq-ht2)); in the sidecar the layout lays no links, so it is an occupant like any previous delivery, moved aside and unlinked, and what it names is never touched |
+| The directory holding a destination is reached only through this launch's layout links (`overlayLinks.route`), and must also resolve under the sandbox home or this workspace's sidecar | A link the layout did not lay is refused on the way, because the profile protects the path the layout laid ([below](#nothing-is-delivered-through-a-link-the-layout-did-not-lay)). The install runs outside Seatbelt, as the sandbox account, so the resolved directory is checked as well: a link the agent planted could otherwise aim it at a directory the agent itself cannot write, such as another workspace's sidecar |
+| A destination inside another listed destination is dropped | The outer one's tree already carries it |
+
+The choices behind those rules, made while fixing G36:
+
+1. *Implementation decision.* **The list travels inside the staged tree**, as a file at its root,
+   rather than as a variable on the bootstrap's argv or as a list the bootstrap derives from its
+   own pack load. One writer produces the tree and the list in the same loops, the root-owned
+   staging copies both in one `cp -R`, and neither can describe a different launch than the
+   other. A bootstrap-side derivation would be a second list, and a failed pack load would change
+   what it replaces.
+2. *Implementation decision.* **A missing list refuses** rather than falling back to walking the
+   tree. On this backend the host and the bootstrap are the same binary (the launch stages its own
+   executable), so only a hand-built overlay lacks one, and the fallback would be the guess that
+   caused G36.
+3. *Implementation decision.* **The working copies are fixed sibling names in the destination's
+   own parent**, not random names and not a directory elsewhere. A sibling is on the same
+   filesystem, so `rename` is guaranteed to work, and a fixed name lets the next install clear a
+   crash's leftovers without guessing which are its own. Two installs of one destination are
+   serialized by the per-workspace launch lock, which covers the bootstrap.
+4. *Implementation decision.* **One destination's failure does not stop the others**; every
+   failure is reported together, the same rule `genStep` applies to generators. The boot still
+   fails.
+5. *Implementation decision.* **The list is a JSON object with one field**, `destinations`, so a
+   later field does not need a new file.
 
 ## Isolation: the Seatbelt profile needs no change
 
@@ -381,7 +444,8 @@ same way.
   create (so a replacement). Only those two operations, never `file-write*`, so the agent can still
   chmod its state directory and add files to it.
 - **What is protected is what was delivered.** The list is the one `buildMacosHomeOverlay` WROTE,
-  carried with the tree as one `macosuser.HomeOverlay`. A launch that delivered nothing gets a
+  carried with the tree as one `macosuser.HomeOverlay` — the same list it wrote beside the tree for
+  the bootstrap's install ([HT-D7](#ht-d7)). A launch that delivered nothing gets a
   profile byte-identical to one that never had the rule.
 - **The copy step is untouched.** The bootstrap's argv carries no `sandbox-exec`, so the next
   launch replaces the delivered trees exactly as it did before.
@@ -401,7 +465,8 @@ the sidecar, so a planted link cannot change what the bind delivers.
 | Where the link is | What the bootstrap does |
 | :--- | :--- |
 | `<ws>/.yolo`, `<ws>/.yolo/home`, or any directory the layout lays in the sidecar (`<sidecar>/claude`, `<sidecar>/local`, …) | **Refuses**, in BOTH the layout step and the overlay step, because every boot step runs after one fails and `~/.claude` may still be the right link from an earlier launch. The refusal (`entrypoint.LinkedSidecarError`) names each link and its target and offers `sudo rm <link>`, which removes the link and never what it points at; nothing is removed for you, because the target may hold the agent's real history |
-| Past a layout link, at a destination or a briefing (`<sidecar>/claude/skills`, `<sidecar>/claude/CLAUDE.md`) | **Replaces** it, like any other occupant of a destination: the link is removed, never its target, and a fresh copy or a regular file is laid in its place. The layout writes no links there, so this destroys nothing yolo made |
+| Past a layout link, at a destination or a briefing (`<sidecar>/claude/skills`, `<sidecar>/claude/CLAUDE.md`) | **Replaces** it, like any other occupant of a destination: the link is moved aside and unlinked by the same renames that replace a previous delivery, never its target, and a fresh copy or a regular file is laid in its place. The layout writes no links there, so this destroys nothing yolo made |
+| Past a layout link, ABOVE a destination (`<sidecar>/pi/agent` on the way to `~/.pi/agent/skills`) | **Refuses** that destination, naming the link and `sudo rm <link>`. Following it lands where no rule names; replacing it would replace a directory above a destination, which is the one thing the install never does ([G36](#the-overlay-replaces-its-destinations-and-nothing-else), [HT-D8](#ht-d8)) |
 | In the account home, where this launch lays no layout link (`~/.claude` on a launch whose packs do not declare it) | **Refuses** the delivery, naming the link and `sudo rm <link>`. It is typically another workspace's layout link, which the layout deliberately leaves alone (removing it would strand a live sidecar, and a real directory there is refused forever by [OQ-HT2](#oq-ht2)); following it wrote this launch's content into that workspace's sidecar |
 | A layout path that is not yet the layout's link (a pre-layout real `~/.claude` the layout just refused) | **Left alone.** The install used to replace it wholesale, deleting the transcripts the refusal had just told the reader to move out first |
 
@@ -552,11 +617,14 @@ more than usual.
 | The deriver, idempotence and the repointing, the stale-link pair | the same gate calling `DeriveDarwinHomeLayout(…).Apply()` directly |
 | The probe script and its parser that the Mac test depends on | `TestMacosUserHomeTierProbeReadsARealLayout`, a Linux preflight applying the REAL deriver |
 | The staged skills and briefings are write-protected at the physical path, the chain above them is anchored, and every shipped pack's state directories are not denied | Linux unit gates on the rendered SBPL: `internal/macosuser/homereadonly_test.go` (including a symlinked base), and `TestEveryShippedDestinationIsWriteProtectedAndNothingElse`, which enumerates the shipped packs' declarations |
-| A link the layout did not lay, at each position in the sidecar and in the account home, is refused or replaced and never followed, and every file a launch delivers lands under a path its profile denies | Linux unit gates driving the real bootstrap: `internal/entrypoint/darwinoverlaylinks_test.go`, and `TestTheBootstrapDeliversOnlyWhereTheHostsRulesPoint` in `internal/macosuser`, which checks the delivery against `ResolveHomeReadonly`'s own output |
+| A link the layout did not lay, at each position in the sidecar and in the account home, is refused or replaced and never followed, and every file a launch delivers lands under a path its profile denies | Linux unit gates driving the real bootstrap: `internal/entrypoint/darwinoverlaylinks_test.go`, and `TestTheBootstrapDeliversOnlyWhereTheHostsRulesPoint` in `internal/macosuser`, which checks the delivery against `ResolveHomeReadonly`'s own output; the install-level cases, a link at and above a listed destination, in `internal/entrypoint/darwinoverlay_test.go` |
+| The profile protects exactly the destinations the install replaces | `TestHomeOverlayReturnsTheDestinationsItWrote` reads the written list file back against `Dests`, and `TestWorkspaceSkillsReachTheMacosUserHome` requires a mirrored workspace skill's destination in both |
 | The kernel REFUSES writes, renames, deletes and a planted skill, and allows the agent's own state | **Not measured.** `TestMacosUserSeatbeltProfileEnforcesItsRules` (`home_content_*`) and `TestMacosUserStagedContentIsWriteProtected` are written and have not run on a Mac. Their scripts' bare halves are exercised on Linux (`TestMacosUserSeatbeltContentControlsRunUnsandboxed`, `TestMacosUserContentProbeReadsARealLayout`) |
 | An occupied ACCOUNT-HOME path refuses | Linux only (`TestDarwinHomeLayoutRefusesToReplaceRealDirectories`); not separately exercised on hardware |
 | A concurrent second workspace leaves the first session pointing at a denied directory | **Not measured** — reasoned from the one-link-set fact plus target evaluation |
 | The pack-load poisoning route | **Not measured, deliberately, and must stay that way** (see the caution above) |
+| The overlay install leaves the state beside and above every destination, for every shipped pack | Linux unit gate driving `RunDarwinBootstrap` with each pack's real manifest (`TestDarwinOverlayInstallKeepsAgentStateBesideAndAboveEveryDestination`); the install's own rules by `internal/entrypoint/darwinoverlay_test.go`; the host builder's list read by the real install in `internal/cli/run/macoshomeoverlay_test.go` |
+| The same on a Mac: the list survives the root-owned staging, and the containment check accepts the real `/Users` paths | `integration/TestMacosUserOverlayInstallKeepsTheAgentStateBesideItsSkills`, two launches with the omp pack. **Written 2026-09-27 and not yet run on hardware or in the nightly** |
 
 The nightly job is [`.github/workflows/macos-user.yml`](../../.github/workflows/macos-user.yml) —
 `macos-latest`, no jail image, `-run '^TestMacosUser'`. It sets `YOLO_TEST_MACOS_USER=1`, which
@@ -595,6 +663,8 @@ documents cite.
 | <a id="ht-d4"></a>[**HT-D4**](#ht-d4) — *Implementation decision.* The "delivered by COPY … can edit its own skills" launch note is retired, not reworded | It describes a gap that is closed. `HonoredBy` owes the launch no line, and a softened sentence would be one more line readers learn to skip. That the kernel honors the rule is asserted by two Mac tests that have not run, and the [warning above](#the-staged-skills-and-briefings-are-write-protected-at-the-path-the-kernel-sees) says so (2026-09-27) |
 | <a id="ht-d5"></a>[**HT-D5**](#ht-d5) — *Implementation decision.* The bootstrap, not the host, keeps the content rules' paths true: it refuses a link in the sidecar, replaces one past a layout link, and refuses one in the account home, rather than the host resolving each full destination at plan time | The host computes the rules before the bootstrap runs, so resolving the full path then names whatever a planted link points at, and the bootstrap's own step would still land somewhere else — the two would disagree in the other direction. Only the step that writes the files can make the path it writes the one the rule names. Refusing in the sidecar, rather than replacing, because the link's target may be the agent's real history; replacing past a layout link, because the layout writes nothing there that could be lost; refusing in the account home, because a link there is typically another workspace's live layout link (2026-09-27) |
 | <a id="ht-d6"></a>[**HT-D6**](#ht-d6) — *Implementation decision.* The overlay install derives the SAME layout the layout step laid (`darwinHomeLayoutFor`) and follows a link only when its path and its target are both the layout's | One derivation for both steps, so they cannot disagree about which links are yolo's. The target is compared because an account-home link can name the right path and another workspace's sidecar. A layout path whose link is not in place is left untouched, since the layout step has already refused it (2026-09-27) |
+| <a id="ht-d7"></a>[**HT-D7**](#ht-d7) — *Implementation decision.* ONE destination list: the one `entrypoint.WriteHomeOverlayManifest` writes beside the tree is the one it returns, and `buildMacosHomeOverlay` hands exactly that on as `macosuser.HomeOverlay.Dests`. The profile protects what the install replaces, by construction | G14 carried `Dests` to the profile and G36 wrote a list for the install, both from the same loop, so they already agreed about the set; they could still have disagreed about a rule, since the list file is cleaned, sorted and stripped of nested destinations and `Dests` was not. Returning the written list removes the second copy rather than adding a test that the two match. `Dests` is therefore sorted rather than in the order written, which changes only the order the profile lists its rules in (2026-09-27) |
+| <a id="ht-d8"></a>[**HT-D8**](#ht-d8) — *Implementation decision.* Past a layout link, a link ABOVE a destination is refused; a link AT one is replaced | G14's tree walk replaced the first path past a layout link whatever it was, and for pi that path was `~/.pi/agent`, a directory above the destination — the G36 shape. The list-driven install replaces only a listed destination, so a link above one cannot be replaced without replacing that directory, and following it would land where no content rule names. It is refused with the same `sudo rm` remedy as a link in the account home. A link AT a destination is still replaced, because the destination is what the install replaces anyway (2026-09-27) |
 | <a id="p1"></a>[**P1**](#p1) — a split must restore every tier it breaks, **explicitly** | Colocation is not a mechanism. The machine tier's *backing* works here by accident — the shared dir is a plain directory because there is only one home to put it in — so any change separating the directories has to replace that accident with something stated. A fix that repairs the workspace tier and leaves the machine tier to luck has moved the bug. |
 | <a id="p2"></a>[**P2**](#p2) — the tier of a path is what the pack declares, and there is no second list of "which dirs are per-workspace" | The list is the podman mount table, and adding a directory to one without the other is the drift this layout exists to end. Applied to home-root files it also decides the redirect rule: the layout manages what THIS launch declares. |
 | <a id="retraction"></a>[**Retracted**](#retraction) — *"the single home IS this backend's shared-credentials mechanism"* | It stood in this doc's first draft, in `run.go`, in `seatbeltcapture.go`, in the backend reference and in the roadmap, and it is wrong in the one way that mattered: the mechanism is the `shared_credentials` **hook**, which runs on every backend, and the home only ever supplied the *backing* of the pack-declared `scope: machine` directory. A carve-out whose stated reason was wrong survived for months because the reason sounded structural ([`declaration-parity.md` DP-D15](../design/declaration-parity.md#7-ruled-divergent-and-the-ones-i-would-re-open)). What actually refuses a per-workspace home is parity. |
@@ -619,8 +689,10 @@ against the stamp at the top.
 | mise data dir | `<home>/.yolo/mise`, crossed as `MISE_DATA_DIR`, not overridable from the launch env | `internal/macosuser/macosuser.go` (`SandboxMiseData`) |
 | Machine-wide cache | `~/.cache` in the account home — deliberately not linked | `internal/entrypoint/darwinhomelayout.go` (by absence); container analogue `paths.GlobalCache` |
 | Login-rc PATH indirection | `YOLO_DARWIN_LOGIN_PATH`, re-prepended in `.zprofile`, `.zshrc`, `.bash_profile` | `internal/entrypoint/darwinhomelayout.go` (`DarwinLoginPathEnv`), `internal/entrypoint/darwin.go` (`WriteLoginRC`) |
-| Staged content tree | `/var/yolo-jail/home-overlay/<cname>`, root-owned, named by `YOLO_DARWIN_HOME_OVERLAY` | `internal/macosuser/macosuser.go` (`StagedHomeOverlay`, `StageHomeOverlayCommands`), copied by `internal/entrypoint/darwin.go` (`InstallHomeOverlay`) |
+| Staged content tree | `/var/yolo-jail/home-overlay/<cname>`, root-owned, named by `YOLO_DARWIN_HOME_OVERLAY` | `internal/macosuser/macosuser.go` (`StagedHomeOverlay`, `StageHomeOverlayCommands`), installed by `internal/entrypoint/darwin.go` (`InstallHomeOverlay`) |
 | Content write-protection | `(deny file-write* (subpath …))` over each delivered skills dir and briefing, and `(deny file-write-create file-write-unlink (literal …))` over the chain above each; ids `home-content-write-deny`, `home-content-anchor-deny` | `internal/macosuser/homereadonly.go` (`ResolveHomeReadonly`), `internal/macosuser/seatbelt.go` (`homeReadonlyDenies`) |
 | A link where the layout lays a directory | refused before anything is laid, at `<workspace>/.yolo`, the sidecar and every link target's chain; remedy `sudo rm <link>` | `internal/entrypoint/darwinhomelayout.go` (`linkedSidecarPaths`, `LinkedSidecarError`), checked by `Apply` and `internal/entrypoint/darwin.go` (`InstallHomeOverlay`) |
+| The content tree's destination list | `.yolo-home-overlay.json` at the tree's root, one `destinations` array of home-relative paths; never copied into the home | `internal/entrypoint/darwinoverlay.go` (`HomeOverlayManifestName`, `WriteHomeOverlayManifest`), written by `internal/cli/run/macoshomeoverlay.go` (`buildMacosHomeOverlayFor`) |
+| An install's working copies | `.<name>.yolo-overlay-new` and `.<name>.yolo-overlay-old`, beside each destination, gone once the install finishes | `internal/entrypoint/darwinoverlay.go` (`overlayStagedSuffix`, `overlayAsideSuffix`) |
 | Per-workspace launch lock | `<global storage>/locks/<cname>.lock`, held from the content staging (skills, briefings, the overlay and context trees) through the bootstrap and stage, released before the agent; not at pack staging, whose tree is per launch | `internal/cli/run/flock.go` (`AcquireWorkspaceLockFor`), seam `internal/macosuser/orchestrator.go` (`Deps.LockWorkspace`) |
 | The supported reset | `sudo rm -rf /Users/_yolojail && yolo macos-setup` | no single site prints both halves: the `rm -rf` by `occupiedLayoutError` (`internal/entrypoint/darwinhomelayout.go`), the reprovision by the missing-home refusal (`internal/macosuser/orchestrator.go`, which is what makes the second half necessary), and the two joined only in [runbook item 5](../plans/runbooks/macos-user-manual-checks.md#5-the-per-workspace-home-layout--new-2026-09-12-never-run) |

@@ -697,6 +697,10 @@ an agent plans around it.
    destination subtree so a dropped pack's skills DISAPPEAR rather than being served forever.
    The tree carries no schema on purpose: the paths ARE the manifest, which is what keeps this
    from being a second implementation of the mount assembler's mapping.
+   ⚠ **Corrected 2026-09-27 (G36):** the paths cannot say where a destination STARTS, and the
+   install that inferred it replaced pi's, omp's, agy's and opencode's whole state dirs on every
+   launch. The tree now carries a list of its destinations beside it — roots only, still no
+   mapping ([the home-tiers reference](../reference/macos-user-home-tiers.md#the-overlay-replaces-its-destinations-and-nothing-else)).
 
    **The fourteen in [§5](#5-what-is-already-fixed-2026-08-24) does not move.** This defect was
    already in the fixed-or-warned half as a WARNING (`6a53a2a3`); what changed is its

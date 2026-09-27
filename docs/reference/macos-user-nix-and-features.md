@@ -6,6 +6,7 @@ covers:
   - internal/macosuser/
   - internal/darwinpkg/
   - internal/entrypoint/darwin.go
+  - internal/entrypoint/darwinoverlay.go
   - internal/cli/run/macoshomeoverlay.go
   - internal/cli/run/loopholeinert.go
 tags: [macos-user, seatbelt, nix, darwin, backend-parity, packages]
@@ -335,17 +336,22 @@ Two properties were recorded here as **permanent differences**, and neither is o
   one delivered.
 
 > [!WARNING]
-> **The overlay overwrites per destination subtree; it must not merge.** The overlay is
-> authoritative for the paths it contains, exactly as a bind mount is — a skills directory a
+> **The overlay replaces each destination whole, and nothing outside one; it must not merge.**
+> The overlay is authoritative for the paths it lists, exactly as a bind mount is — a skill a
 > pack stopped shipping has to **disappear** from the home, and a merge would keep serving it
-> forever. Everything else in the home (credentials, history, anything the agent wrote) is
-> untouched, because the overlay simply does not contain those paths.
+> forever. Everything else in the home (credentials, sessions, generated config, anything the
+> agent wrote beside or above a destination) is untouched.
 
 > [!WARNING]
-> **The tree carries no schema, and adding one would be a second mount assembler.** The host
-> laid it out at the destinations the container would have mounted; the boot walks it and
-> writes files. Any mapping logic in the copier would be a second implementation of the mount
-> assembler's, which is exactly the drift this repo removes elsewhere.
+> **The tree carries a list of its destinations, and no mapping.** The host laid it out at the
+> destinations the container would have mounted and lists those destinations beside it, because
+> the tree alone cannot say where one starts: an install that guessed deleted pi's, omp's, agy's
+> and opencode's state dirs on every launch
+> ([G36](macos-user-home-tiers.md#the-overlay-replaces-its-destinations-and-nothing-else)). The
+> list names paths the tree already spells, so the copier still carries no mapping logic — which
+> would be a second implementation of the mount assembler's, exactly the drift this repo removes
+> elsewhere. It is also the one list the profile write-protects, so what is replaced and what is
+> protected cannot differ ([HT-D7](macos-user-home-tiers.md#ht-d7)).
 
 A **missing** overlay at boot is a warning, not a boot failure: the launch may have raced a
 teardown, and an agent is better off starting with no skills than not starting.
