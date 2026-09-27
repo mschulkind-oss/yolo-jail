@@ -186,6 +186,42 @@ func TestDarwinBootstrapRefusesALinkAtTheAgentsSidecarDirectory(t *testing.T) {
 	}
 }
 
+// THE OVERLAY STEP'S OWN CHECK, where nothing after it would refuse. A link at the agent's sidecar
+// directory that points somewhere ELSE IN THE SIDECAR resolves inside the install's roots, so the
+// install's containment check accepts it, and the route from ~/.codex passes the layout's own link.
+// Only linkedSidecarPaths, checked again by InstallHomeOverlay, keeps the delivery from landing at
+// <sidecar>/elsewhere, a path no content rule names and the agent can therefore rewrite.
+func TestDarwinBootstrapRefusesASidecarLinkThatStaysInsideTheSidecar(t *testing.T) {
+	f := newBootFixture(t, "codex")
+	requireNoContentFailure(t, f.boot(map[string]string{
+		".codex/skills/demo/SKILL.md": "first launch",
+		".codex/AGENTS.md":            "first launch",
+	}))
+
+	elsewhere := filepath.Join(f.sidecar, "elsewhere")
+	if err := os.MkdirAll(elsewhere, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(f.sidecar, "codex")
+	if err := os.RemoveAll(link); err != nil {
+		t.Fatal(err)
+	}
+	symlinkAt(t, link, elsewhere)
+
+	err := f.boot(map[string]string{
+		".codex/skills/demo/SKILL.md": "second launch",
+		".codex/AGENTS.md":            "second launch",
+	})
+	if err == nil || !strings.Contains(err.Error(), "install_home_overlay") {
+		t.Fatalf("the overlay step did not refuse the link at %s: %v", link, err)
+	}
+	assertAbsent(t, filepath.Join(elsewhere, "skills"),
+		"the skills were delivered through a sidecar link the layout did not lay")
+	assertAbsent(t, filepath.Join(elsewhere, "AGENTS.md"),
+		"the briefing was delivered through a sidecar link the layout did not lay")
+	assertLinkTo(t, link, elsewhere, "the refusal names the link and removes nothing")
+}
+
 // THE LAYOUT STEP'S OWN REFUSAL, at every sidecar position it lays through: the sidecar's parent,
 // the sidecar, a pack's state dir, and a core surface. Refused before anything is created,
 // because MkdirAll follows a link and the layout would be laid wherever it points; and the remedy

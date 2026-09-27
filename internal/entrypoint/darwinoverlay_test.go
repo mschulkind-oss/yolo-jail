@@ -361,6 +361,33 @@ func TestOverlayInstallRootsRefuseALinkedSidecar(t *testing.T) {
 	}
 }
 
+// A LAYOUT PATH IS PASSED ONLY WHILE IT IS THE LINK THIS LAUNCH LAID, TO THE TARGET IT LAID (G14,
+// HT-D6). Here ~/.pi is a link at the right path to the wrong target, inside this workspace's own
+// sidecar — so containment would accept it, and only the target comparison keeps the delivery
+// from landing at a sidecar path no content rule names.
+func TestOverlayInstallPassesALayoutPathOnlyToTheTargetTheLayoutLaid(t *testing.T) {
+	f := newOverlayFixture(t)
+	f.stage(t)
+	link := filepath.Join(f.home, ".pi")
+	elsewhere := filepath.Join(f.sidecar, "elsewhere")
+	if err := os.MkdirAll(filepath.Join(elsewhere, "agent"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(link); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(elsewhere, link); err != nil {
+		t.Fatal(err)
+	}
+
+	err := f.install(t)
+	if err == nil || !strings.Contains(err.Error(), "not the layout's link to "+filepath.Join(f.sidecar, "pi")) {
+		t.Fatalf("InstallHomeOverlay = %v, want a refusal naming the target the layout laid", err)
+	}
+	requireAbsent(t, filepath.Join(elsewhere, "agent", "skills"), "the skills were delivered through a link to the wrong target")
+	requireAbsent(t, filepath.Join(elsewhere, "agent", "AGENTS.md"), "the briefing was delivered through a link to the wrong target")
+}
+
 // CONTAINMENT, beyond the layout check. The route check (overlayLinks.route) refuses a link the
 // layout did not lay, by path, before the directory is resolved — so a link that is already
 // there never reaches the containment check. One swapped in just after the route passed does:

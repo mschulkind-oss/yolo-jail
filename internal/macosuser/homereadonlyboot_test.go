@@ -52,6 +52,11 @@ func TestTheBootstrapDeliversOnlyWhereTheHostsRulesPoint(t *testing.T) {
 		"a link at the agent's sidecar dir": func(t *testing.T, ws, sidecar string) {
 			replaceWithLink(t, filepath.Join(sidecar, "codex"), filepath.Join(ws, "evil"))
 		},
+		// Inside the install's own roots, so only the layout-link check stops it (G36's
+		// containment accepts any directory under the sidecar).
+		"a link at the agent's sidecar dir, into the sidecar": func(t *testing.T, ws, sidecar string) {
+			replaceWithLink(t, filepath.Join(sidecar, "codex"), filepath.Join(sidecar, "elsewhere"))
+		},
 		"a link at the skills dir": func(t *testing.T, ws, sidecar string) {
 			writeFile(t, filepath.Join(ws, "evil", "planted", "SKILL.md"), "the agent's own skill")
 			replaceWithLink(t, filepath.Join(sidecar, "codex", "skills"), filepath.Join(ws, "evil"))
