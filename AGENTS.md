@@ -424,8 +424,8 @@ live, so edits are visible on the host instantly — there is no sync step.
 - **Env hygiene** (agents can't handle interactive UI): `PAGER`/`GIT_PAGER`=`cat`, `BAT_PAGER=""`;
   `EDITOR=cat` (stops `git commit` hanging) but `VISUAL=nvim` (human ctrl-g editing); the host's `TERM` is
   forwarded so color survives, and its `NO_COLOR` (when set) so a request for none does too — every
-  color decision goes through `tty.Color`
-  ([`cli-color.md`](docs/reference/cli-color.md));
+  color decision goes through the one gate, `tty.Color`, or through its `NO_COLOR` half alone for
+  text another process prints ([`cli-color.md`](docs/reference/cli-color.md));
   `OVERMIND_SOCKET=/tmp/overmind.sock` so jail overmind doesn't collide with the host's;
   `LD_LIBRARY_PATH=/lib:/usr/lib:/usr/lib/<multilib>` baked into the image Env to survive agents
   sanitizing the environment.

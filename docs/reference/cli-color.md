@@ -146,8 +146,8 @@ The gate is held by tests that walk the tree or drive the real call sites, not b
   any `os.ModeCharDevice` test not listed in `charDeviceReaders`. Reading termios for its value, as
   `ttyproxy` does to set raw mode, is not a probe and passes.
 - **`TestEveryCommandHonorsNoColor`** (in `internal/cli`) runs each entry point in
-  `noColorEntryPoints` with a terminal stood in for stdout, once with `NO_COLOR` unset, where it must
-  color, and once with `NO_COLOR=1`, where it must not. The unset run is the control: without it, a
+  `noColorEntryPoints` with a terminal stood in for stdout, once with `NO_COLOR` empty (unset, by
+  the convention), where it must color, and once with `NO_COLOR=1`, where it must not. The unset run is the control: without it, a
   command that never colored would pass the veto. `TestEveryConfigVerbTakesTheOneColorDecision`
   does the same for the `yolo config` dispatch.
 - **`TestColorGatedOnTTY`** and **`TestColorHonorsNoColor`** (in `internal/cli/check`) drive
@@ -178,23 +178,24 @@ The gate is held by tests that walk the tree or drive the real call sites, not b
 > escape in the calling file.
 
 > [!WARNING]
-> **Two surfaces are frozen bytes, and color is not additive on them.** The run's boot lines, the
-> generated container script's provisioning and `⚡ Executing` lines, are pinned byte for byte by
+> **Two surfaces are exceptions to additive color.** The run's boot lines, the generated container
+> script's provisioning and `⚡ Executing` lines, are pinned byte for byte by
 > `internal/cli/run/testdata/final_cmd_bash.txt`, and they carry color when `NO_COLOR` is unset even
 > when stderr is redirected: that is the terminal-half gap recorded in
 > [`cli-visual-polish.md`](../plans/cli-visual-polish.md#implementation-decisions--no_color-2026-09-26).
-> The macos-user dry-run plan renders with color forced off on every path (`PrintPlan`, and the
-> dry-run branch of `RunMacosUser`, which clears `Deps.Color` for the plan build). The code comments
-> give byte-pinned goldens as the reason; no golden file for the plan exists at `9990882a`, so the
-> forced-off printer is the whole guard. Change either surface only as a deliberate update a
-> maintainer signs off, never as a side effect of adding color.
+> Change them only as a deliberate golden update a maintainer signs off. The macos-user dry-run plan
+> renders with color forced off on every path (`PrintPlan`, and the dry-run branch of
+> `RunMacosUser`, which clears `Deps.Color` for the plan build). CI and a Mac agent inspect a launch
+> through that plan, and no golden pins its bytes, so the forced-off printer is the whole guard: do
+> not route the plan through the gate as a side effect of adding color.
 
 ## What is measured
 
 The tests drive the pipe, `/dev/null` and `NO_COLOR` cases through the probe, the gate and the real
 entry points, with a terminal stood in where one is needed. One observation on a real terminal is
-recorded: a pty run of `yolo check` emitting ANSI, on 2026-07-20. Nothing else is recorded as
-observed on a terminal.
+recorded: on 2026-07-22, in a nested jail, a pty run of `yolo check` emitted ANSI while a piped run
+emitted none, recorded by the commit that gated `check` on the terminal (`c9ea5e85`). Nothing else
+is recorded as observed on a terminal.
 
 ## What this does not cover
 
@@ -205,8 +206,9 @@ observed on a terminal.
 - **JSON output.** It is ANSI-free by
   [`self-documenting-cli.md`](self-documenting-cli.md#7-state-reporting-surfaces-offer---format-json),
   and the gate never has to reach it.
-- **`check`'s private palette.** `internal/cli/check` writes its background and inverse badges from
-  its own SGR constants, because the markup has no background colors. Its color flag still comes
+- **`check`'s private palette.** `internal/cli/check` writes its report styles, including its
+  background-colored badges, from its own SGR constants, because the markup has no background
+  colors. Its color flag still comes
   from the gate.
 
 ## Current values

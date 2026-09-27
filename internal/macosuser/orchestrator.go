@@ -88,10 +88,11 @@ type Deps struct {
 	// Out receives the human output. Rich markup is rendered to ANSI when
 	// Color is set, else stripped to plain text.
 	Out io.Writer
-	// Color is the resolved color capability (the caller's requested color AND
-	// stdout is a real TTY). When false the printer strips rich markup. It is
-	// forced OFF for the dry-run plan render (byte-pinned goldens) and any
-	// non-TTY path — only interactive chatter gains color.
+	// Color is the resolved color decision, made through the one gate (tty.Color:
+	// requested, stdout a real terminal, no NO_COLOR veto). When false the printer
+	// strips rich markup. It is forced OFF for the dry-run plan render (see
+	// PrintPlan) and false on any non-TTY path — only interactive chatter gains
+	// color.
 	Color bool
 }
 
@@ -344,9 +345,10 @@ func RunMacosUser(deps Deps, opts Options) int {
 
 	// 0. Dry-run: build the plan, print it + invariants, execute nothing. Pure
 	// (darwin=nil → no nix build), so CI and a Mac agent can both inspect it.
-	// The plan (and the env-source warnings intermixed with it) is byte-pinned
-	// by the goldens, so force color OFF for the whole dry-run render — only
-	// interactive live chatter gains color.
+	// The plan (and the env-source warnings intermixed with it) stays plain text,
+	// so force color OFF for the whole dry-run render — only interactive live
+	// chatter gains color. No golden pins these bytes; this and PrintPlan's
+	// forced-off printer are the whole guard.
 	if opts.DryRun {
 		plainDeps := deps
 		plainDeps.Color = false
@@ -705,9 +707,10 @@ func runProvisionStage(deps Deps, out printer, plan RunPlan) bool {
 }
 
 // PrintPlan renders a RunPlan for --dry-run (human-readable; rich markup
-// stripped — parity is on the ARTIFACTS, which are byte-pinned by the producer
-// differential). Color is deliberately OFF here: the plan output is byte-pinned
-// by the goldens, so it must stay plain text on every path.
+// stripped). Color is deliberately OFF here, on every path: the dry run is what
+// CI and a Mac agent read to inspect a launch, and no golden pins its bytes, so
+// this printer is the only thing keeping it plain
+// (docs/reference/cli-color.md).
 func PrintPlan(w io.Writer, plan RunPlan, problems []string) {
 	p := printer{w: w, color: false}
 	p.print("[bold]macos-user run plan[/bold] (dry-run — nothing executed)\n")
