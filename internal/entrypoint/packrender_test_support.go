@@ -35,6 +35,19 @@ func ConfigurePackByName(e *Env, name string) error {
 	if err != nil {
 		return err
 	}
+	return configureOnePack(e, p)
+}
+
+// configureOnePack is ConfigurePackByName's body over a pack already in hand: every surface p
+// declares, rendered from a single-pack view, then its hooks.
+//
+// Split from the lookup so the render is reachable with a fixture pack. ConfigurePackByName
+// only ever resolves an EMBEDDED pack, and no shipped pack carries every declaration this
+// body gates (posture lists, today), so a gate here — the autonomy bit handed to
+// packoverlay.Collect below — could otherwise be inverted with every test green
+// (configureonepack_test.go).
+func configureOnePack(e *Env, p *packload.Pack) error {
+	name := p.Name
 	// The resolved table the launch lowered in, read before anything renders: the
 	// selection a derive sees (surfaceSelection) answers off it, exactly as the boot loop
 	// does — a pack-declared name and a user-declared one are both already IN it, and

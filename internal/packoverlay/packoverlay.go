@@ -203,8 +203,13 @@ func (s *OverlaySet) For(agent, name string) []agentcfg.Overlay {
 // that half as a property: if a posture ever gains the power to add or remove an identity,
 // the bit starts deciding which contributions find an owner, and that test fails at the
 // moment it does. What the bit DOES decide is which posture lists are placed, and the same
-// file pins that in both directions — inverting the argument at a caller is no longer
-// invisible, since a posture list moves between the two answers. Where the bit is
+// file pins that in both directions. At a caller, inverting the argument is visible wherever
+// the caller reads ListsFor, because a posture list moves between the two answers, and each
+// such caller has a test that reads the moved entry: the boot loop and `yolo check`'s probe
+// (posturelistrender_test.go, configureonepack_test.go), `yolo host apply`, `config render`
+// and `config ls` (internal/cli's posturelist_test.go). `config promote` (loadPromoteFold) is
+// the exception, and a harmless one: it reads only overlays (For), where the bit selects
+// nothing, so inverting it there changes no answer. Where the bit is
 // consequential for the surfaces themselves — p.SurfacesFor at the render — it is pinned in
 // both directions by internal/entrypoint/bootautonomy_test.go.
 //
