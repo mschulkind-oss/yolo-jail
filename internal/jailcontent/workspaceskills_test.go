@@ -167,6 +167,32 @@ func TestWorkspaceLayerNeverReadsASymlinkOutOfTheWorkspace(t *testing.T) {
 	}
 }
 
+// A skill NOTHING of which could be staged is no skill: it is not delivered as an empty
+// directory, the mirror line does not claim it, and a later source's skill of that name wins.
+func TestWorkspaceLayerDropsASkillWhoseEveryEntryWasRefused(t *testing.T) {
+	f := newWSFixture(t)
+	f.link(t, ".claude/skills/x/SKILL.md", f.secret)
+	f.file(t, ".agents/skills/x/SKILL.md", "the real x")
+	targets(t, map[string][]string{"codex": nil})
+
+	staging, rep := f.stage(t, []string{".claude/skills", ".agents/skills"})
+	data, _ := os.ReadFile(filepath.Join(staging, SkillStagingName("codex"), "x", "SKILL.md"))
+	if string(data) != "the real x" {
+		t.Errorf("the later source's x should win over an x that staged nothing, got %q", data)
+	}
+	for _, m := range rep.Mirrored {
+		if m.Source == ".claude/skills" {
+			t.Errorf("the mirror line claims a skill nothing of which was staged: %+v", m)
+		}
+	}
+	if len(rep.Collisions) != 0 {
+		t.Errorf("an x that staged nothing collides with nothing: %+v", rep.Collisions)
+	}
+	if _, ok := refusedPaths(rep)[".claude/skills/x/SKILL.md"]; !ok {
+		t.Errorf("the refusal must still be named: %+v", rep.Refused)
+	}
+}
+
 // Every other shape an escape can take: a chain, a relative climb, a directory link, a source
 // dir that is itself a link out, a link whose parent component is the escaping one.
 func TestWorkspaceLayerRefusesEveryShapeOfEscape(t *testing.T) {

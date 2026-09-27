@@ -75,14 +75,15 @@ func TestWorkspaceSkillsReachAContainerJail(t *testing.T) {
 	r := runYolo(t, dir, strings.Join([]string{
 		`grep -q REVIEW-` + nonce + ` /home/agent/.codex/skills/review/SKILL.md`,
 		`! test -e /home/agent/.claude/skills/review`,
-		`! test -e /home/agent/.codex/skills/x/SKILL.md`,
+		`! test -e /home/agent/.codex/skills/x`,
+		`! test -e /home/agent/.claude/skills/x`,
 		`! grep -rq SECRET-` + nonce + ` /home/agent/.codex/skills /home/agent/.claude/skills`,
 		`echo WS_SKILLS_OK`,
 	}, " && "))
 	if r.rc != 0 || !strings.Contains(r.stdout, "WS_SKILLS_OK") {
 		t.Fatalf("the workspace layer did not reach the jail as ruled: codex should hold review, "+
-			"claude (which reads .claude/skills natively) should not, and the escaping link should "+
-			"deliver nothing.\nrc %d\nstdout: %s\nstderr: %s", r.rc, r.stdout, r.stderr)
+			"claude (which reads .claude/skills natively) should not, and no skill named x — whose "+
+			"only file is a link out of the workspace — should exist anywhere.\nrc %d\nstdout: %s\nstderr: %s", r.rc, r.stdout, r.stderr)
 	}
 	for _, want := range []string{
 		"Workspace skills: refused .agents/skills/x/SKILL.md — a symlink that resolves outside the workspace",

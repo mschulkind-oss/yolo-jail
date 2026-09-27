@@ -566,7 +566,8 @@ destination's staging dir, and nothing is ever written into the workspace.
 - **Nothing outside the workspace is read.** The reader resolves every link itself, inside the
   workspace, and opens through an `os.Root` confined to it; a link that leaves the workspace, a
   dangling one, a cycle, a special file, and anything resolving into `.git`, `.yolo` or (in a
-  container) a per-side path is **skipped and named** — never fatal. An absolute link spelled
+  container) a per-side path is **skipped and named** — never fatal — and a skill left with no
+  file to stage is not delivered at all. An absolute link spelled
   `/workspace/…` is read as the workspace in a container, since that is how the agent there wrote
   it.
 - **Re-read on every invocation**, attach included, so an edit under a declared path reaches the

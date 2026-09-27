@@ -259,6 +259,15 @@ func stageWorkspaceLayer(ws *WorkspaceSkills) (*workspaceLayer, error) {
 			if err := walk.copyDir(childReal, display, stored); err != nil {
 				return nil, err
 			}
+			if !holdsAFile(stored) {
+				// Nothing of it could be staged — every entry refused, or none there — so there
+				// is no skill to deliver, and the mirror line must not claim one. The refusals
+				// were already named; a later source's skill of this name may still win.
+				if err := os.RemoveAll(stored); err != nil {
+					return nil, err
+				}
+				continue
+			}
 			sk := &wsSkill{name: name, source: src, real: childReal, stored: stored}
 			winners[name] = sk
 			l.skills = append(l.skills, sk)
@@ -457,6 +466,19 @@ func (w *skillWalk) closesACycle(dir string) bool {
 		}
 	}
 	return false
+}
+
+// holdsAFile reports whether a scratch tree yolo wrote contains at least one regular file.
+func holdsAFile(dir string) bool {
+	found := false
+	_ = filepath.WalkDir(dir, func(_ string, d fs.DirEntry, err error) error {
+		if err == nil && d.Type().IsRegular() {
+			found = true
+			return fs.SkipAll
+		}
+		return nil
+	})
+	return found
 }
 
 // containsPath reports whether root-relative real path dir is p or an ancestor of it.
