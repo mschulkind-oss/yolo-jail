@@ -142,7 +142,7 @@ func hostRevertCandidates(errw io.Writer) []*packload.Pack {
 			// know why this revert left them.
 			fmt.Fprintf(errw, "yolo host apply --revert: pack %s could not be resolved, so the "+
 				"keys only it declares stay recorded for the next revert: %s\n", e.Name,
-				newUnresolvedPack(e.Name, rerr).Reason)
+				newUnresolvedPack(e, rerr).Reason)
 			continue
 		}
 		loaded = append(loaded, p)

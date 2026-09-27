@@ -1277,7 +1277,7 @@ func loadedHostPacks() ([]*packload.Pack, []unresolvedPack, error) {
 	for _, e := range entries {
 		p, rerr := resolveConfiguredPack(e)
 		if rerr != nil {
-			unresolved = append(unresolved, newUnresolvedPack(e.Name, rerr))
+			unresolved = append(unresolved, newUnresolvedPack(e, rerr))
 			continue
 		}
 		packs = append(packs, p)

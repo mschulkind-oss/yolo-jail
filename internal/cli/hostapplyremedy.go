@@ -112,19 +112,28 @@ func hostApplyRemedyGroups(s *hostApplySurvey, home string, write bool) []remedy
 
 // unresolvedPackGroups is the unresolvable-pack BLOCKER, grouped by remedy: one group for the
 // git packs (this apply already tried to fetch them at its entry, so the remedy is to fix what
-// the fetch error names and retry, `yolo pack install` being the retry), one for the packs whose
-// manifest has problems (the fix is the manifest, which `yolo pack lint` re-checks), and one for
-// everything else (a local path or an address only the config can fix). The per-pack REASON is
-// printed where the pack was resolved; the group states the fix once.
+// the fetch error names and retry, `yolo pack install` being the retry), one for the configured
+// packs with problems every launch refuses (the fix is in the pack, which `yolo pack lint`
+// re-checks, or its `packs` entry), one for the conventional local pack whatever failed (the fix
+// is in its directory: no `packs` list names it), and one for everything else (a local
+// path or an address only the config can fix). The per-pack REASON is printed where the pack was
+// resolved; the group states the fix once.
+//
+// "In the pack", never "in the pack's manifest": a problem LoadDir reports can be a FILE, such as
+// a briefing/CLAUDE.md, which is fixed by renaming it.
 //
 // Shared by the dry run's report and the --assert refusal, so the lines a user reads when the
 // apply refuses are the lines the dry run showed them.
 func unresolvedPackGroups(list []unresolvedPack) []remedyGroup {
-	var git, malformed, other []string
+	var git, malformed, local, other []string
 	for _, u := range list {
 		switch {
 		case u.NeedsInstall:
 			git = append(git, u.Name)
+		case u.Implicit:
+			// Whatever failed (a manifest problem, or a pack.json LoadDir could not read), the
+			// local pack's fix is in its directory: no `packs` list names it.
+			local = append(local, u.Name)
 		case len(u.ManifestProblems) > 0:
 			malformed = append(malformed, u.Name)
 		default:
@@ -148,12 +157,26 @@ func unresolvedPackGroups(list []unresolvedPack) []remedyGroup {
 		out = append(out, remedyGroup{
 			Class:    remedyClassUnresolvedPack,
 			Key:      "yolo pack lint",
-			Headline: "configured packs whose manifest has problems, so nothing can be applied",
+			Headline: "configured packs with problems every launch refuses, so nothing can be applied",
 			Items:    malformed,
-			Remedy: "fix each problem named above in the pack's manifest (`yolo pack lint <its " +
-				"dir>` re-checks it; every launch refuses it too), or remove it from `packs` in " +
+			Remedy: "fix each problem named above in the pack (`yolo pack lint <its dir>` " +
+				"re-checks it; every launch refuses it too), or remove it from `packs` in " +
 				paths.UserConfigPath(),
 			VerdictTerm: malformed[0],
+			Warn:        true,
+		})
+	}
+	if len(local) > 0 {
+		dir := paths.LocalPackDir()
+		out = append(out, remedyGroup{
+			Class:    remedyClassUnresolvedPack,
+			Key:      dir,
+			Headline: "the local pack has problems every launch refuses, so nothing can be applied",
+			Items:    local,
+			Remedy: "fix each problem named above in " + dir + " (`yolo pack lint " + dir +
+				"` re-checks it; every launch refuses it too) — it has no `packs` entry to " +
+				"remove, since it is included because that directory exists",
+			VerdictTerm: local[0],
 			Warn:        true,
 		})
 	}

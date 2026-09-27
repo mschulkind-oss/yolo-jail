@@ -419,7 +419,7 @@ func applyHostSurveyed(out, errw io.Writer, color bool, write bool, stdin io.Rea
 		if rerr != nil {
 			// LOUD, and not a skip. It used to be a dim "— skipped" line, and the rest of the set
 			// was applied without the pack: a half state in a real home, reported as a footnote.
-			u := newUnresolvedPack(e.Name, rerr)
+			u := newUnresolvedPack(e, rerr)
 			pr.Printf("  [bold red]pack       cannot be resolved[/bold red] — %s: %s", u.Name, u.Reason)
 			unresolved = append(unresolved, u)
 			survey.noteUnresolved(u)

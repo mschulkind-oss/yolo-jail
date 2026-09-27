@@ -135,7 +135,7 @@ func configuredDepRequirements() ([]depcheck.Requirement, []unresolvedPack) {
 	for _, e := range entries {
 		p, err := resolveConfiguredPack(e)
 		if err != nil {
-			unresolved = append(unresolved, newUnresolvedPack(e.Name, err))
+			unresolved = append(unresolved, newUnresolvedPack(e, err))
 			continue
 		}
 		reqs = append(reqs, packDepRequirements(p)...)
@@ -156,21 +156,27 @@ type unresolvedPack struct {
 	// failure happened, never recovered from the reason's wording.
 	NeedsInstall bool `json:"needs_install"`
 	// ManifestProblems are the pack's manifest problems when THAT is why it is unresolvable
-	// (manifestProblemsError): the tree is there and loads, and the fix is an edit to its
-	// manifest, never a fetch. Each is stated without LoadDir's "pack <name>: " prefix, since
+	// (manifestProblemsError): the tree is there and loads, and the fix is an edit IN THE PACK,
+	// never a fetch — to its manifest, or to a file whose presence is a problem (packload's
+	// reservedBriefingFiles). Each is stated without LoadDir's "pack <name>: " prefix, since
 	// the record already carries the name. Empty for every other failure, so it doubles as
 	// the class a report groups the remedy by.
 	ManifestProblems []string `json:"manifest_problems,omitempty"`
+	// Implicit is config.PackEntry.Implicit: the conventional local pack, which no `packs` list
+	// names, so a remedy may not offer "remove it from `packs`" for it. Not on the wire, as on
+	// the entry.
+	Implicit bool `json:"-"`
 }
 
-// newUnresolvedPack records a resolution failure from resolveConfiguredPack. The resolver's
-// "packs: <name>: " prefix is dropped from the reason, because every report prints the name
-// beside it.
-func newUnresolvedPack(name string, err error) unresolvedPack {
+// newUnresolvedPack records a resolution failure from resolveConfiguredPack for entry e. The
+// resolver's "packs: <name>: " prefix is dropped from the reason, because every report prints
+// the name beside it.
+func newUnresolvedPack(e config.PackEntry, err error) unresolvedPack {
 	var miss storeMissError
 	var malformed manifestProblemsError
+	name := e.Name
 	u := unresolvedPack{Name: name, Reason: strings.TrimPrefix(err.Error(), "packs: "+name+": "),
-		NeedsInstall: errors.As(err, &miss)}
+		NeedsInstall: errors.As(err, &miss), Implicit: e.Implicit}
 	if errors.As(err, &malformed) {
 		u.ManifestProblems = append([]string(nil), malformed.problems...)
 	}

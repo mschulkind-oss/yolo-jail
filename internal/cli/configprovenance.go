@@ -551,7 +551,7 @@ func configuredPacksForInspection() ([]*packload.Pack, []unresolvedPack) {
 	for _, e := range entries {
 		p, rerr := resolveConfiguredPack(e)
 		if rerr != nil {
-			unresolved = append(unresolved, newUnresolvedPack(e.Name, rerr))
+			unresolved = append(unresolved, newUnresolvedPack(e, rerr))
 			continue
 		}
 		packs = append(packs, p)

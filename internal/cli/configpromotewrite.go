@@ -276,8 +276,8 @@ func applyPromotion(plan promotePlan, o promoteOptions, pr richtext.Printer, err
 		if !o.accept {
 			pr.Printf("[bold]%d %s would be declared in %s[/bold] [dim](%s)[/dim]",
 				moves, plural(moves, "key", "keys"), plan.Dest.label(), plan.Dest.path)
-			pr.Printf("Nothing was written, and %s is refused until the destination's manifest "+
-				"problems are fixed.", promoteFlagAccept)
+			pr.Printf("Nothing was written, and %s is refused until the destination's problems "+
+				"are fixed.", promoteFlagAccept)
 			return 0
 		}
 		them := plural(len(problems), "it", "them")
@@ -286,7 +286,7 @@ func applyPromotion(plan promotePlan, o promoteOptions, pr richtext.Printer, err
 			"declared there would render nowhere: %s\n"+
 			"  Fix %s (`yolo pack lint %s` re-checks the pack) and promote again. Nothing was "+
 			"written.\n", plan.Dest.label(), plan.Dest.path,
-			plural(len(problems), "a manifest problem", "manifest problems"), them,
+			plural(len(problems), "a problem", "problems"), them,
 			strings.Join(problems, "; "), them, plan.Dest.dir)
 		return 1
 	}

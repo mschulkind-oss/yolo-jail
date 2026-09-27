@@ -112,7 +112,7 @@ func TestPromoteDryRunAndPlanSayAMalformedDestinationIsRefused(t *testing.T) {
 		if after, _ := os.ReadFile(manifest); string(after) != string(before) {
 			t.Errorf("%s wrote the manifest", mode)
 		}
-		if !strings.Contains(out, "destination local has manifest problems") {
+		if !strings.Contains(out, "destination local has problems every launch refuses") {
 			t.Errorf("%s must say the destination cannot be written:\n%s", mode, out)
 		}
 		if mode == "dry run" && strings.Contains(out, "Re-run with") {

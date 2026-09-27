@@ -243,7 +243,7 @@ func resolveCaptureTarget(bin string) (*captureTarget, error) {
 			// installer is captured from a manifest every launch refuses). Named with the
 			// reason rather than skipped: "no pack declares <bin>" would be a lie about a
 			// config that may well declare it.
-			unresolved = append(unresolved, newUnresolvedPack(e.Name, rerr))
+			unresolved = append(unresolved, newUnresolvedPack(e, rerr))
 			continue
 		}
 		granted, refused := p.HonoredInstalls()

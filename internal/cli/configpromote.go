@@ -758,8 +758,8 @@ func writePromoteReport(pr richtext.Printer, plan promotePlan) {
 	if len(plan.destManifestProblems()) > 0 {
 		// Said in the plan as well as at the write, so `--plan` does not read as a promotion
 		// that only needs its flag (applyPromotion refuses it).
-		pr.Printf("[yellow]⚠ the destination %s has manifest problems (named above), so nothing "+
-			"can be promoted into it until they are fixed — every launch refuses the pack.[/yellow]",
+		pr.Printf("[yellow]⚠ the destination %s has problems every launch refuses (named "+
+			"above), so nothing can be promoted into it until they are fixed.[/yellow]",
 			plan.Dest.label())
 	}
 	for _, ps := range plan.Surfaces {
