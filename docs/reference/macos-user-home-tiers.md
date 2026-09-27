@@ -394,8 +394,9 @@ cover these paths â€” a `packs: []` launch, or one with another pack selection â
 symbolic link in it. The layout's `MkdirAll` and the overlay install both followed one, so the
 delivered skills and briefing landed wherever it pointed, where no rule names them, and a link at
 a skills destination MERGED into its target, so a skill the agent had planted there was loaded
-beside the delivered ones. Reproduced on Linux against the real deriver and install. The container
-backends are not affected: the `:ro` bind's source is the launcher's staging directory.
+beside the delivered ones. Reproduced on Linux against the real deriver and install. On the container
+backends the delivered tree is a `:ro` bind whose SOURCE is the launcher's staging directory, not
+the sidecar, so a planted link cannot change what the bind delivers.
 
 | Where the link is | What the bootstrap does |
 | :--- | :--- |
