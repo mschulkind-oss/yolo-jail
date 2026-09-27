@@ -88,20 +88,27 @@ function readCodexModelList() {
 // pi-dialect fact yolo does not declare (cost tiers, thinking levels, compat, image limits):
 // the consumer translates, yolo does not re-copy pi-ai (docs/reference/providers.md OQ-CS4).
 // The specifier resolves through the alias pi's extension loader installs for its own
-// packages. Anything unavailable degrades to "unknown", never to a failed load.
+// packages. Anything unavailable degrades to "unknown", never to a failed load, and
+// `failure` says why the catalog could not be reached so the degradation is reported.
 async function codexCatalog() {
+	let getBuiltinModel;
 	try {
-		const { getBuiltinModel } = await import("@earendil-works/pi-ai/providers/all");
-		return (id) => {
+		({ getBuiltinModel } = await import("@earendil-works/pi-ai/providers/all"));
+	} catch (error) {
+		return { lookup: () => undefined, failure: error?.message || String(error) };
+	}
+	if (typeof getBuiltinModel !== "function") {
+		return { lookup: () => undefined, failure: "the module exports no getBuiltinModel" };
+	}
+	return {
+		lookup: (id) => {
 			try {
 				return getBuiltinModel("openai-codex", id);
 			} catch {
 				return undefined;
 			}
-		};
-	} catch {
-		return () => undefined;
-	}
+		},
+	};
 }
 
 // codexModelDefinition merges one rendered entry over pi's catalog entry for its base id.
@@ -127,15 +134,33 @@ function codexModelDefinition(entry, lookup) {
 		input: ["text"],
 		cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
 		contextWindow: entry.contextWindow ?? 128000,
-		maxTokens: 16384,
+		maxTokens: DEFAULT_MAX_TOKENS,
 	};
+}
+
+// The output cap pi's models.json loader gives a model that states none.
+const DEFAULT_MAX_TOKENS = 16384;
+
+// degradedWarning says which registered models fell back to the defaults above, or returns
+// undefined when pi's catalog described every one. The fallback registers a model pi cannot
+// think with, send images to or give its real output cap, and pi is not version-pinned, so a
+// renamed catalog module would otherwise cost every model that silently.
+function degradedWarning(list, catalog) {
+	const what = `registered as text-only with no thinking levels and a ${DEFAULT_MAX_TOKENS}-token output cap`;
+	if (catalog.failure) {
+		return `yolo: pi's own openai-codex catalog did not load (${catalog.failure}), so the ${list.length} ChatGPT subscription models yolo lists are ${what}.`;
+	}
+	const missing = [...new Set(list.map((entry) => entry.base ?? entry.id))].filter((id) => !catalog.lookup(id));
+	if (missing.length === 0) return undefined;
+	return `yolo: pi's openai-codex catalog has no ${missing.join(", ")}, so ${missing.length === 1 ? "that model is" : "those models are"} ${what}.`;
 }
 
 // pi awaits an extension's factory (core/extensions/loader.js), so the catalog import
 // finishes before the registration is read.
 export default async function registerYoloOpenAIAuth(pi) {
 	const list = readCodexModelList();
-	const lookup = list.length > 0 ? await codexCatalog() : () => undefined;
+	const catalog = list.length > 0 ? await codexCatalog() : { lookup: () => undefined };
+	const lookup = catalog.lookup;
 	pi.registerProvider("openai-codex", {
 		baseUrl: "https://chatgpt.com/backend-api",
 		api: "openai-codex-responses",
@@ -148,6 +173,20 @@ export default async function registerYoloOpenAIAuth(pi) {
 		},
 		...(list.length > 0 ? { models: list.map((entry) => codexModelDefinition(entry, lookup)) } : {}),
 	});
+
+	// ONCE PER LOAD, where the user can see it: pi's own notification when there is a UI, else
+	// stderr, which is what pi's extension runner does with its own diagnostics. session_start
+	// fires again on /new and on a resume, and the degradation is the same each time.
+	const warning = list.length > 0 ? degradedWarning(list, catalog) : undefined;
+	if (warning) {
+		let told = false;
+		pi.on?.("session_start", (_event, ctx) => {
+			if (told) return;
+			told = true;
+			if (ctx?.hasUI) ctx.ui.notify(warning, "warning");
+			else console.warn(warning);
+		});
+	}
 
 	pi.on?.("before_provider_request", (event) => {
 		if (

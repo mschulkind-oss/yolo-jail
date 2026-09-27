@@ -1,6 +1,7 @@
 package entrypoint
 
 import (
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -370,4 +371,122 @@ eq(res1, { model: "gpt-6-sol", input: ["test"] }, "stripped payload");
 eq(beforeProviderHandler({ payload: { model: "gpt-6-astra", input: ["x"] } }), undefined, "a model with no suffix");
 eq(beforeProviderHandler({ payload: { model: "gpt-6-luna[1m]" } }), { model: "gpt-6-luna" }, "a second base");
 `)
+}
+
+// piWarningHarness loads the extension with a session_start listener captured, fires it twice
+// the way pi does on /new or a resume, with a UI and without one, and prints what reached the
+// user: every ctx.ui.notify call and every console.warn line.
+const piWarningHarness = `
+import extension from "./extension.mjs";
+const handlers = [];
+const seen = { notified: [], warned: [] };
+console.warn = (...args) => { seen.warned.push(args.join(" ")); };
+await extension({
+	registerProvider() {},
+	on(event, handler) { if (event === "session_start") handlers.push(handler); },
+});
+const withUI = { hasUI: true, ui: { notify(message, type) { seen.notified.push([type, message]); } } };
+const withoutUI = { hasUI: false, ui: { notify() { throw new Error("notify called without a UI"); } } };
+const ctx = process.env.PI_HAS_UI === "1" ? withUI : withoutUI;
+for (let i = 0; i < 2; i++) for (const h of handlers) await h({ type: "session_start" }, ctx);
+console.log(JSON.stringify(seen));
+`
+
+// runWarningHarness runs piWarningHarness in the fixture and decodes what it printed.
+func (f piExtensionFixture) runWarningHarness(t *testing.T, hasUI bool) (notified [][2]string, warned []string) {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(f.dir, "harness.mjs"), []byte(piWarningHarness), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ui := "0"
+	if hasUI {
+		ui = "1"
+	}
+	cmd := exec.Command("node", "harness.mjs")
+	cmd.Dir = f.dir
+	cmd.Env = append(os.Environ(), "HOME="+f.home, "PI_HAS_UI="+ui)
+	out, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("executing the Pi OpenAI extension warning harness: %v\n%s", err, out)
+	}
+	var seen struct {
+		Notified [][2]string `json:"notified"`
+		Warned   []string    `json:"warned"`
+	}
+	if err := json.Unmarshal(out, &seen); err != nil {
+		t.Fatalf("decoding the harness output %q: %v", out, err)
+	}
+	return seen.Notified, seen.Warned
+}
+
+// A REGISTRATION THAT FELL BACK TO DEFAULTS SAYS SO. When pi's catalog cannot be imported (a pi
+// that renamed the alias or the function) or lacks an id, the model registers as a text-only
+// model with no thinking levels and a 16384-token output cap. That is a real loss, and pi is
+// not version-pinned, so the extension tells the user once per process: through pi's own
+// notification when there is a UI, on stderr when there is none, as pi's own runner does.
+func TestPiOpenAIAuthExtensionWarnsOnceWhenPisCatalogCannotDescribeAModel(t *testing.T) {
+	t.Run("the catalog does not import", func(t *testing.T) {
+		f := newPiExtensionFixture(t)
+		f.modelsFile(t, piCodexModelsFixture)
+		notified, warned := f.runWarningHarness(t, true)
+		if len(warned) != 0 {
+			t.Errorf("stderr warnings with a UI present: %q", warned)
+		}
+		if len(notified) != 1 {
+			t.Fatalf("notifications = %q, want exactly one across two session starts", notified)
+		}
+		if notified[0][0] != "warning" || !strings.Contains(notified[0][1], "catalog") ||
+			!strings.Contains(notified[0][1], "16384") {
+			t.Errorf("notification = %q, want a warning that pi's catalog did not load and what the models lost", notified[0])
+		}
+	})
+	t.Run("the catalog module no longer exports the lookup", func(t *testing.T) {
+		f := newPiExtensionFixture(t)
+		f.modelsFile(t, piCodexModelsFixture)
+		f.catalogStub(t)
+		all := filepath.Join(f.dir, "node_modules", "@earendil-works", "pi-ai", "all.js")
+		if err := os.WriteFile(all, []byte("export function getModel() { return undefined; }\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		notified, _ := f.runWarningHarness(t, true)
+		if len(notified) != 1 || !strings.Contains(notified[0][1], "getBuiltinModel") {
+			t.Errorf("notifications = %q, want one naming the missing getBuiltinModel", notified)
+		}
+	})
+	t.Run("the catalog lacks an id", func(t *testing.T) {
+		f := newPiExtensionFixture(t)
+		f.modelsFile(t, piCodexModelsFixture)
+		f.catalogStub(t)
+		notified, _ := f.runWarningHarness(t, true)
+		if len(notified) != 1 {
+			t.Fatalf("notifications = %q, want exactly one", notified)
+		}
+		msg := notified[0][1]
+		if !strings.Contains(msg, "gpt-6-nova") || strings.Contains(msg, "gpt-6-sol") {
+			t.Errorf("notification = %q, want it to name gpt-6-nova, the one id the catalog lacks, and no other", msg)
+		}
+	})
+	t.Run("without a UI it goes to stderr", func(t *testing.T) {
+		f := newPiExtensionFixture(t)
+		f.modelsFile(t, piCodexModelsFixture)
+		_, warned := f.runWarningHarness(t, false)
+		if len(warned) != 1 || !strings.Contains(warned[0], "catalog") {
+			t.Errorf("stderr warnings = %q, want exactly one naming pi's catalog", warned)
+		}
+	})
+	t.Run("every id is in the catalog", func(t *testing.T) {
+		f := newPiExtensionFixture(t)
+		f.modelsFile(t, `{"models":[{"id":"gpt-6-sol"},{"id":"gpt-6-sol[1m]","base":"gpt-6-sol"},{"id":"gpt-6-astra"}]}`)
+		f.catalogStub(t)
+		if notified, warned := f.runWarningHarness(t, true); len(notified) != 0 || len(warned) != 0 {
+			t.Errorf("a list pi's catalog fully describes warned: notified %q, stderr %q", notified, warned)
+		}
+	})
+	t.Run("no list registers nothing and says nothing", func(t *testing.T) {
+		f := newPiExtensionFixture(t)
+		f.modelsFile(t, "{}")
+		if notified, warned := f.runWarningHarness(t, true); len(notified) != 0 || len(warned) != 0 {
+			t.Errorf("an empty list, which leaves pi's own catalog in place, warned: notified %q, stderr %q", notified, warned)
+		}
+	})
 }
