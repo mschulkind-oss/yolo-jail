@@ -1298,7 +1298,8 @@ jail:
   source label.
 - **Disclosure.** `yolo pack footprint` names each posture's lists in the pack's `autonomy`
   claim, with the posture and the `agent/name#<pointer>` target. `yolo host apply`'s notch line
-  counts a posture list as a fold. `yolo config render` and `yolo config ls` show it at
+  counts a posture list as a fold only when it lands in a surface; an ownerless one is reported
+  as having no effect and folds nothing. `yolo config render` and `yolo config ls` show it at
   `--at host` and not at `--at jail`, because each passes its notch's bit.
 - **It stays out of jails through the host file too.** Once `yolo host apply --assert` has
   written a `readsHost` surface, every backend's launcher labels the host copy a render, and

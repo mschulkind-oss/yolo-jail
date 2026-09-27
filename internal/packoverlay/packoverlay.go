@@ -55,6 +55,12 @@ type OverlaySet struct {
 	// kind declared the entries.
 	listsByTarget map[manifest.SurfaceKey][]agentcfg.ListContribution
 
+	// postureListsPlaced names each pack at least one of whose POSTURE LISTS was placed —
+	// selected by the bit and given an owner — which listsByTarget cannot answer, since a
+	// placed posture list is an ordinary ListContribution there. PlacesPostureListFrom reads
+	// it.
+	postureListsPlaced map[string]bool
+
 	// Orphans are the overlays whose target surface has no owner in this pack set —
 	// ruling R2's "no effect, reported by name". Ordered deterministically.
 	Orphans []OrphanOverlay
@@ -132,6 +138,19 @@ func (s *OverlaySet) ListsFor(agent, name string) []agentcfg.ListContribution {
 		return nil
 	}
 	return s.listsByTarget[manifest.SurfaceKey{Agent: agent, Name: name}]
+}
+
+// PlacesPostureListFrom reports whether this collection PLACED a posture list the named pack
+// declares: one whose posture the collecting notch selects and whose surface has an owner in
+// the set. A declared posture list is not enough — an unselected one is skipped and an
+// ownerless one is an orphan, and neither lands in a surface — so this is the question
+// `yolo host apply`'s notch line asks before it says the posture "folded into the config
+// surfaces below" (notch-scoped-config-contributions.md NS-D12).
+func (s *OverlaySet) PlacesPostureListFrom(pack string) bool {
+	if s == nil {
+		return false
+	}
+	return s.postureListsPlaced[pack]
 }
 
 // For returns the overlay layers folding onto one surface, or nil for none. nil is the
@@ -215,8 +234,9 @@ func (s *OverlaySet) For(agent, name string) []agentcfg.Overlay {
 // contribution.
 func Collect(packs []*packload.Pack, autonomy bool, profiles map[string]string) *OverlaySet {
 	set := &OverlaySet{
-		byTarget:      map[manifest.SurfaceKey][]agentcfg.Overlay{},
-		listsByTarget: map[manifest.SurfaceKey][]agentcfg.ListContribution{},
+		byTarget:           map[manifest.SurfaceKey][]agentcfg.Overlay{},
+		listsByTarget:      map[manifest.SurfaceKey][]agentcfg.ListContribution{},
+		postureListsPlaced: map[string]bool{},
 	}
 
 	// Pass 1: who owns what. A surface's owner is the pack whose `config` contribution
@@ -325,6 +345,9 @@ func Collect(packs []*packload.Pack, autonomy bool, profiles map[string]string) 
 				continue
 			}
 			set.listsByTarget[key] = append(set.listsByTarget[key], list)
+			if cl.Posture != "" {
+				set.postureListsPlaced[p.Name] = true
+			}
 		}
 	}
 

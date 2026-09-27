@@ -44,6 +44,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
+	"github.com/mschulkind-oss/yolo-jail/internal/packoverlay"
 	"github.com/mschulkind-oss/yolo-jail/internal/render"
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
 )
@@ -67,11 +68,13 @@ type notchFacts struct {
 	// IS the tightening). The line below promises the fold "in the config surfaces below", and
 	// for a pack set like that one there is nothing below to point at.
 	//
-	// A POSTURE LIST COUNTS AS A FOLD (notch-scoped-config-contributions.md NS-D2): its entries
-	// land in a config surface below exactly as a config patch's keys do, so a pack whose
-	// guarded posture is lists alone — a personal pack adding a host-only package to a surface
-	// another pack owns — must not read as "no selected pack's guarded posture patches a
-	// config surface here".
+	// A PLACED POSTURE LIST COUNTS AS A FOLD (notch-scoped-config-contributions.md NS-D2): its
+	// entries land in a config surface below exactly as a config patch's keys do, so a pack
+	// whose guarded posture is lists alone — a personal pack adding a host-only package to a
+	// surface another pack owns — must not read as "no selected pack's guarded posture patches
+	// a config surface here". PLACED, not declared (NS-D12): a list whose surface has no owner
+	// is an orphan reported "no effect" one line above, and lands in nothing below, so the
+	// answer is the collector's (OverlaySet.PlacesPostureListFrom) rather than the manifest's.
 	AutonomyFolds bool
 }
 
@@ -81,7 +84,11 @@ type notchFacts struct {
 // It runs over `loaded` AFTER packload.ResolveDestinations, for the same reason the render
 // loop does: a zero-ceremony pack's contributions are whatever the resolution gave it, and a
 // census taken before that would report a different set from the one the apply acts on.
-func surveyNotchFacts(loaded []*packload.Pack, fields render.FieldSet) notchFacts {
+//
+// overlays is the apply's own packoverlay.Collect over the same packs at the same notch — the
+// set the render folds — so a posture list counts only where that render will place it.
+func surveyNotchFacts(loaded []*packload.Pack, fields render.FieldSet,
+	overlays *packoverlay.OverlaySet) notchFacts {
 	var f notchFacts
 	seen := map[packdecl.Kind]bool{}
 	// The posture this notch selects, read off render's ONE notch->preset table rather than
@@ -89,8 +96,10 @@ func surveyNotchFacts(loaded []*packload.Pack, fields render.FieldSet) notchFact
 	// the two come apart.
 	hostAutonomy := render.ProfileFor(render.KindHost).AgentAutonomy
 	for _, p := range loaded {
-		if posture := p.Decl.PostureFor(hostAutonomy); posture != nil &&
-			(len(posture.Config) > 0 || len(posture.Lists) > 0) {
+		if posture := p.Decl.PostureFor(hostAutonomy); posture != nil && len(posture.Config) > 0 {
+			f.AutonomyFolds = true
+		}
+		if overlays.PlacesPostureListFrom(p.Name) {
 			f.AutonomyFolds = true
 		}
 		for _, c := range p.Decl.Contributions() {

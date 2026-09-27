@@ -115,3 +115,38 @@ func TestAPostureListOntoACoreSurfaceSaysWhatItIs(t *testing.T) {
 		t.Errorf("reason = %q", r)
 	}
 }
+
+// PLACED, NOT DECLARED (NS-D12). PlacesPostureListFrom answers only for a posture list this
+// collection put into a surface — the question `yolo host apply`'s notch line asks before it
+// promises a fold "in the config surfaces below". Declared-but-unselected, declared-but-
+// ownerless and a plain config-list each answer no.
+func TestPlacesPostureListFromAnswersOnlyForAPlacedPostureList(t *testing.T) {
+	guarded := []packdecl.PostureList{
+		{Surface: "claude/settings", Path: "/extra", Add: json.RawMessage(`["host-only"]`)}}
+	packs := []*packload.Pack{
+		ownerPack("claude"),
+		postureListPack("placed", nil, guarded),
+		postureListPack("orphaned", nil, []packdecl.PostureList{
+			{Surface: "pi/settings", Path: "/packages", Add: json.RawMessage(`["x"]`)}}),
+		listPack("plain", listContribution("claude/settings", "/extra", `["y"]`)),
+	}
+
+	host := Collect(packs, false, nil)
+	for pack, want := range map[string]bool{"placed": true, "orphaned": false, "plain": false,
+		"claude": false, "absent": false} {
+		if got := host.PlacesPostureListFrom(pack); got != want {
+			t.Errorf("at the guarded posture: PlacesPostureListFrom(%q) = %v, want %v", pack, got, want)
+		}
+	}
+	if len(host.Orphans) != 1 || host.Orphans[0].Pack != "orphaned" {
+		t.Fatalf("fixture: orphans = %+v, want only the orphaned pack's list", host.Orphans)
+	}
+	// The same pack at the posture its list is not for: skipped, so not placed.
+	if Collect(packs, true, nil).PlacesPostureListFrom("placed") {
+		t.Error("at the autonomous posture a guarded list is skipped, and read as placed")
+	}
+	var nilSet *OverlaySet
+	if nilSet.PlacesPostureListFrom("placed") {
+		t.Error("a nil set placed a posture list")
+	}
+}

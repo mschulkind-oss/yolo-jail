@@ -623,7 +623,7 @@ func applyHostSurveyed(out, errw io.Writer, color bool, write bool, stdin io.Rea
 	//
 	// Before the loop, so "folded into the config surfaces below" is a true word about what
 	// comes next, and so a reader meets the notch before they meet this home.
-	notch := surveyNotchFacts(loaded, hostFields)
+	notch := surveyNotchFacts(loaded, hostFields, overlays)
 	survey.noteNotch(notch)
 	printNotchFacts(pr, notch)
 

@@ -101,6 +101,32 @@ func TestHostApplyNotchLineCountsAPostureListAsAFold(t *testing.T) {
 	}
 }
 
+// …AND ONLY A POSTURE LIST THE COLLECTOR PLACED (NS-D12). The motivating pack without `pi`: its
+// guarded list names a surface nothing selected owns, so the line above it says "no effect",
+// and no surface is listed below. Counting the declaration rather than the placement printed
+// "folded into the config surfaces below" directly under that orphan line.
+func TestHostApplyNotchLineDoesNotCountAnOrphanedPostureList(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+	selectPacks(t, home, listPack(t, home, "matt", automodePack))
+
+	rc, report := applyWith(t, false, nil)
+	if rc != 0 {
+		t.Fatalf("host apply rc=%d\n%s", rc, report)
+	}
+	// Fixture guard: the case is the orphan, reported as one.
+	if !hasLine(report, "autonomy", "no effect", "pi/settings", "pack matt") {
+		t.Fatalf("fixture bug: the posture list is not reported as an orphan:\n%s", report)
+	}
+	if strings.Contains(report, "folded into the config surfaces below") {
+		t.Errorf("the notch line promises a fold for a posture list that has no owner:\n%s", report)
+	}
+	if !strings.Contains(report, "no selected pack's guarded posture patches a config surface here") {
+		t.Errorf("the notch line does not say nothing folds:\n%s", report)
+	}
+}
+
 // A MALFORMED POSTURE LIST IS REFUSED UNDER ITS OWN KIND. packdecl cannot parse a surface
 // identity (the engine's), so an unparseable one reaches Collect, and the apply's refusal line
 // must lead with `autonomy` — the kind the author wrote — rather than `config-overlay`
