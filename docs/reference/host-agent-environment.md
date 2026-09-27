@@ -268,9 +268,13 @@ agent keeps its profile and receives the granted keys too.
 `eval "$(yolo host env --with-credentials all)"` is the shell spelling. There, with neither
 `--agent` nor `-p`, the script is an ad-hoc command's slice, so no agent's provider shape reaches
 the shell. With `-p` it is the slice `-p` composes, the verb's default agent's, plus the keys
-([ES-D21](../design/credential-sources-separation.md#10-decision-ledger)). Every run given the flag prints a `Credential grant` block, names only, and a named
-provider with nothing to hand over is reported. An unknown provider refuses, naming the known
-ones. Only the typed flag grants, and a jail launch given it refuses as host-only
+([ES-D21](../design/credential-sources-separation.md#10-decision-ledger)). Every run given the
+flag prints a `Credential grant` block, names only, and a named provider with nothing to hand
+over is reported. On such a run, a withheld line names the same run with the claimant added to
+the grant, such as `yolo host --with-credentials zai,cerebras -- usage-bar`, rather than a `-p`,
+which would replace the typed profile and drop the grant
+([ES-D23](../design/credential-sources-separation.md#10-decision-ledger)). An unknown provider
+refuses, naming the known ones. Only the typed flag grants, and a jail launch given it refuses as host-only
 ([OQ-ES5](../design/credential-sources-separation.md#OQ-ES5), ruled for the host;
 [ES-D13 to ES-D17](../design/credential-sources-separation.md#10-decision-ledger)).
 

@@ -50,7 +50,8 @@ Exec flags (yolo host -- ...):
                                 one (bash, curl, terraform) then receives that profile's
                                 claimed env_sources credentials, which are otherwise
                                 withheld from it. use_profiles cannot do this for a
-                                command no pack installs; only the typed flag can.
+                                command no pack installs; only a typed flag can: this
+                                one, or --with-credentials below.
   --with-credentials <provider[,provider...]|all>
                                 GRANT the wrapped command the named providers' claimed
                                 env_sources credentials, this launch only. KEYS ONLY: no
@@ -452,6 +453,10 @@ type hostComposition struct {
 	// grant is the --with-credentials request this launch was given, resolved; nil without
 	// the flag. Its disclosure is grantLines.
 	grant *hostGrant
+	// typedProfile is the -p as typed, "" when none: what a remedy that re-runs this launch
+	// with its grant widened must spell again (grantRemedy). profile can instead come from
+	// use_profiles, which the re-run picks up by itself.
+	typedProfile string
 }
 
 // hostGrant is a --with-credentials request resolved against this launch's composed provider
@@ -608,12 +613,16 @@ func (c *hostComposition) processHolds() (inherited, composed func(string) bool)
 	return inherited, composed
 }
 
-// credentialRemedy is ES-D2's remedy for a group of withheld names: the one existing way to
-// receive them at this notch, a typed `-p` naming a declared profile that resolves to a
-// claiming provider — `yolo host -p <profile> -- <cmd>`, which keys the launched command
-// whatever it is (ES-D1). With no such profile it says to declare one, because `-p` takes a
-// profile name, never a provider's. Either way the profile is one the named command can run
-// on (runsOn, ES-D10), so the line never names a launch that refuses.
+// credentialRemedy is ES-D2's remedy for a group of withheld names: a typed `-p` naming a
+// declared profile that resolves to a claiming provider — `yolo host -p <profile> -- <cmd>`,
+// which keys the launched command whatever it is (ES-D1). With no such profile it says to
+// declare one, because `-p` takes a profile name, never a provider's. Either way the profile is
+// one the named command can run on (runsOn, ES-D10), so the line never names a launch that
+// refuses.
+//
+// ON A RUN GIVEN --with-credentials the remedy is the grant widened instead (grantRemedy,
+// ES-D23). The run already chose the grant, and a named -p would replace the typed one and drop
+// it.
 //
 // The front door decides the spelling: `yolo host --` names the command it was given, and
 // `yolo host env`, which launches nothing, names the ad-hoc slice for the shell beside the exec
@@ -624,6 +633,9 @@ func (c *hostComposition) processHolds() (inherited, composed func(string) bool)
 // installs composes the same slice, so `bash` stands for all of them, as §3.1 and the help's
 // example spell it.
 func (c *hostComposition) credentialRemedy(claimants []string) string {
+	if c.grant != nil {
+		return c.grantRemedy(claimants)
+	}
 	candidates := remedyProfiles(c.resolved, claimants)
 	if len(candidates) == 0 {
 		example := "<name>"
@@ -647,6 +659,36 @@ func (c *hostComposition) credentialRemedy(claimants []string) string {
 	}
 	action := c.remedyAction(profile, runs)
 	return strings.ToUpper(action[:1]) + action[1:]
+}
+
+// grantRemedy is the remedy on a run given --with-credentials (ES-D23): this same run with a
+// claimant added to its grant, `yolo host [-p <typed>] --with-credentials <as typed>,<claimant>
+// -- <cmd>`. A grant is keys only and runs no derive, so the widened run composes whenever this
+// one did, and it keeps what the grant already delivered. That is why it is named over a -p,
+// which would replace the typed profile and silently drop the grant. Any one claimant delivers
+// every name of the group, so the first is named.
+//
+// At `yolo host env` it keeps the flags that chose this slice: the typed -p, and --agent only
+// when this agent is not the one the verb would default to for that spelling
+// (hostEnvDefaultAgent). So the widened script is this one plus the key.
+func (c *hostComposition) grantRemedy(claimants []string) string {
+	if len(claimants) == 0 {
+		return ""
+	}
+	var flags []string
+	if c.command == "" && c.agent != hostEnvDefaultAgent(true, c.typedProfile) {
+		flags = append(flags, "--agent", shquote.Quote(c.agent))
+	}
+	if c.typedProfile != "" {
+		flags = append(flags, "-p", shquote.Quote(c.typedProfile))
+	}
+	flags = append(flags, withCredentialsFlag, shquote.Quote(c.grant.spelled+","+claimants[0]))
+	if c.command == "" {
+		return fmt.Sprintf("To add it to this shell's grant: `eval \"$(yolo host env %s)\"`",
+			strings.Join(flags, " "))
+	}
+	return fmt.Sprintf("To add it to this launch's grant: `yolo host %s -- %s`",
+		strings.Join(flags, " "), shquote.Quote(c.command))
 }
 
 // runsOn reports whether `yolo host -p <profile> -- <this command>` would compose rather than
@@ -890,6 +932,7 @@ func composeHostVarsGranting(cfg *jsonx.OrderedMap, workspace, agent, profile st
 		agentTable[agent] = profileName
 	}
 	c.profile = profileName
+	c.typedProfile = profile
 	// ONLY A TYPED -p KEYS A COMMAND NO PACK INSTALLS
 	// (docs/design/credential-sources-separation.md ES-D5). The one-agent table above keys
 	// whatever basename was launched, which is what makes `yolo host -p zai -- bash` the host's
@@ -1386,10 +1429,7 @@ func hostEnv(args []string, out, errw io.Writer) int {
 		// A TYPED -p KEEPS THE VERB'S DEFAULT (ES-D21): `yolo host env -p zai` is claude's zai
 		// slice, and the grant only adds keys beside it. Flipping to bash there would drop the
 		// shape the -p asked for, which is not additive.
-		agent = "claude"
-		if grant != nil && profile == "" {
-			agent = "bash"
-		}
+		agent = hostEnvDefaultAgent(grant != nil, profile)
 	}
 
 	// Only what yolo ADDS is printed, never the whole inherited environment: `yolo host
@@ -1462,6 +1502,16 @@ func hostEnvDelta(agent, profile string, grant *hostGrantRequest, warn func(stri
 		return nil, nil, c.err
 	}
 	return c.vars, append(c.credentialScopeLines(), c.grantLines()...), nil
+}
+
+// hostEnvDefaultAgent is the agent `yolo host env` composes for when no --agent is given:
+// claude, or the ad-hoc slice `bash` under a grant with no typed -p (ES-D16, ES-D21). One
+// function because grantRemedy has to know it too, to spell back a script's slice.
+func hostEnvDefaultAgent(granted bool, typedProfile string) string {
+	if granted && typedProfile == "" {
+		return "bash"
+	}
+	return "claude"
 }
 
 // shellQuote wraps a value in single quotes for `export K=V`, escaping embedded quotes.

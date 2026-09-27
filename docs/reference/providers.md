@@ -392,7 +392,11 @@ Where each answer lands is the vehicle's:
     the credential pre-flight asks nothing of a granted provider. The gate delivers it
     (`ScopeInput.Grants`), so its lines name the command as the recipient, and a
     `Credential grant` block follows on every run given the flag. The block names each
-    provider's delivered names, or says a named provider delivered nothing. An unknown provider
+    provider's delivered names, or says a named provider delivered nothing. The scope block's
+    rule line then names the grant beside the profile. A withheld line on such a run names the
+    same run with the claimant added to the grant (`--with-credentials zai,cerebras`, keeping a
+    typed `-p`), never a `-p` that would drop the grant
+    ([ES-D22 and ES-D23](../design/credential-sources-separation.md#10-decision-ledger)). An unknown provider
     refuses, naming the composed ones. It combines with `-p`: an agent keeps its profile and
     also receives the granted keys. Only the typed flag grants. `-p`, `use_profiles`, a
     `YOLO_ALLOW_*` variable and config cannot, and a jail launch given the flag refuses as

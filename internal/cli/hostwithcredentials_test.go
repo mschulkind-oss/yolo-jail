@@ -280,7 +280,9 @@ func TestHostHelpDocumentsWithCredentials(t *testing.T) {
 		t.Fatalf("rc = %d", rc)
 	}
 	for _, want := range []string{"--with-credentials <provider[,provider...]|all>", "KEYS ONLY", "HOST ONLY",
-		`eval "$(yolo host env --with-credentials all)"`} {
+		`eval "$(yolo host env --with-credentials all)"`,
+		// -p's own help no longer calls itself the only typed flag that reaches such a command.
+		"only a typed flag can: this\n                                one, or --with-credentials below."} {
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("yolo host --help must say %q", want)
 		}
@@ -333,5 +335,84 @@ func TestWithCredentialsScopeHeaderNamesTheGrant(t *testing.T) {
 	}
 	if strings.Contains(errs, "reaches only the agents whose profile selects it.") {
 		t.Errorf("the no-grant rule line is false of a grant-only recipient:\n%s", errs)
+	}
+}
+
+// ON A RUN GIVEN A GRANT, A WITHHELD LINE NAMES THE GRANT WIDENED (ES-D23). A named -p would
+// replace the typed one and silently drop the grant: `yolo host -p cerebras -- usage-bar` loses
+// ZAI_API_KEY. The additive command is the same run with the claimant added to the grant, and
+// every command the line names runs and still delivers the key the grant already carried.
+func TestWithCredentialsRemedyWidensTheGrant(t *testing.T) {
+	cfg := `{"packs": ["claude", "zai", "cerebras"], "env_sources": [` +
+		`{"ZAI_API_KEY": "tok-z", "CEREBRAS_API_KEY": "tok-c", "AWS_ACCESS_KEY_ID": "AKIA-host"}]}`
+	for _, tc := range []struct {
+		flags []string
+		cmd   string
+		want  string
+		keeps map[string]string
+	}{
+		{[]string{"--with-credentials", "zai"}, "usage-bar",
+			"To add it to this launch's grant: `yolo host --with-credentials zai,cerebras -- usage-bar`",
+			map[string]string{"ZAI_API_KEY": "tok-z"}},
+		{[]string{"-p", "bedrock", "--with-credentials", "zai"}, "claude",
+			"To add it to this launch's grant: `yolo host -p bedrock --with-credentials zai,cerebras -- claude`",
+			map[string]string{"ZAI_API_KEY": "tok-z", "CLAUDE_CODE_USE_BEDROCK": "1"}},
+	} {
+		_, errs := hostGateLaunchWith(t, cfg, wcShell(nil), tc.flags, tc.cmd)
+		line := scopeLine(t, errs, "CEREBRAS_API_KEY")
+		if !strings.Contains(line, tc.want) {
+			t.Errorf("%v -- %s: the remedy must widen the grant (%q):\n%s", tc.flags, tc.cmd, tc.want, line)
+		}
+		if strings.Contains(line, "`yolo host -p cerebras") {
+			t.Errorf("%v -- %s: a named -p drops the grant, so it is not the remedy on a grant run:\n%s",
+				tc.flags, tc.cmd, line)
+		}
+		assertRemediesRun(t, line, "CEREBRAS_API_KEY", "tok-c")
+		for _, argv := range remedyCommands(line) {
+			_, _, env, _ := runRemedy(t, argv)
+			for k, v := range tc.keeps {
+				if env[k] != v {
+					t.Errorf("the remedy `yolo host %s` lost %s (= %q, want %q)", strings.Join(argv, " "), k, env[k], v)
+				}
+			}
+		}
+	}
+}
+
+// `yolo host env` names the shell spelling of the widened grant, keeping the flags that chose the
+// slice: none for the ad-hoc default, the typed -p, and --agent where it is not the default.
+func TestHostEnvWithCredentialsRemedyWidensTheGrant(t *testing.T) {
+	cfg := `{"packs": ["claude", "zai", "cerebras", "openrouter"], "env_sources": [` +
+		`{"ZAI_API_KEY": "tok-z", "CEREBRAS_API_KEY": "tok-c", "OPENROUTER_API_KEY": "tok-o"}]}`
+	for _, tc := range []struct {
+		args []string
+		want string
+	}{
+		{[]string{"--with-credentials", "zai"},
+			"`eval \"$(yolo host env --with-credentials zai,cerebras)\"`"},
+		{[]string{"-p", "zai", "--with-credentials", "openrouter"},
+			"`eval \"$(yolo host env -p zai --with-credentials openrouter,cerebras)\"`"},
+		{[]string{"--agent", "claude", "--with-credentials", "zai"},
+			"`eval \"$(yolo host env --agent claude --with-credentials zai,cerebras)\"`"},
+	} {
+		hostGateHome(t, cfg, wcShell(nil))
+		var out, errw bytes.Buffer
+		if rc := hostMain(append([]string{"env"}, tc.args...), &out, &errw, false, nil); rc != 0 {
+			t.Fatalf("yolo host env %v: rc = %d\n%s", tc.args, rc, errw.String())
+		}
+		line := scopeLine(t, errw.String(), "CEREBRAS_API_KEY")
+		if !strings.Contains(line, "To add it to this shell's grant: "+tc.want) {
+			t.Errorf("yolo host env %v: the remedy must be %s:\n%s", tc.args, tc.want, line)
+		}
+		assertRemediesRun(t, line, "CEREBRAS_API_KEY", "tok-c")
+		for _, argv := range remedyCommands(line) {
+			rc, script, _, errs := runRemedy(t, argv)
+			for _, l := range strings.Split(strings.TrimSpace(out.String()), "\n") {
+				if rc != 0 || !strings.Contains(script, l) {
+					t.Errorf("the remedy `yolo host %s` must export everything the original did (%q "+
+						"missing):\n%s\n%s", strings.Join(argv, " "), l, script, errs)
+				}
+			}
+		}
 	}
 }
