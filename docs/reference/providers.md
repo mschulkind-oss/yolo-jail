@@ -714,8 +714,10 @@ pack ships, and every agent that can use the provider renders that one list
   profile's `model` or the first id;
 - **codex** starts on the profile's `model` or the first id;
 - **pi**'s extension registers exactly the list for `openai-codex`, read from a file yolo writes
-  at every boot, with the cost, thinking and image facts taken from pi's own catalog. pi gets no
-  model scope for it, and its sub-agents may use only the listed ids.
+  at every jail boot, with the cost, thinking and image facts taken from pi's own catalog. pi gets
+  no model scope for it, and its sub-agents may use only the listed ids. On the host,
+  `yolo host apply` writes no list into that file, so pi keeps its own `openai-codex` models
+  there ([ML-D8](../design/model-lists-and-pickers.md#ML-D8)).
 
 A declared model that has a 1M-context variant lists it right after itself, as `<id>[1m]`. The
 suffix is the clients' spelling for the long-context request, and each strips it before the
@@ -1205,7 +1207,7 @@ place the exact spellings are stated.
 | Id-writing surfaces with a host layer | pi's `settings` (`~/.pi/agent/settings.json`) only; codex's `config.toml` and opencode's `opencode.json` declare no `readsHost` | `packs/{pi,codex,opencode}/pack.json` |
 | codex's model for `openai-codex` | the profile's `model` option; the first declared `openai-codex` id when the profile names none or names `default` (`gpt-6-sol` as shipped); no `model` when the list is empty | `packs/codex/derive.lua` |
 | The `openai-codex` model list | ids `gpt-6-sol`, `gpt-6-astra`, `gpt-6-luna` in that order, each with a `[1m]` variant at 1,000,000 tokens after it; declared as `models` (alias = id) plus `model_options` facts `order`, `name`, `description`, `context_window`, `long_context_window` | `packs/openai-auth/pack.json` |
-| pi's copy of that list | `~/.pi/agent/yolo-openai-codex-models.json`, the computed surface `pi/codex-models`: `{"models": [{"id", "base", "name", "contextWindow"}, …]}`, read by the openai-auth extension at load | `packs/pi/pack.json`, `packs/pi/extensions/yolo-openai-auth.js` |
+| pi's copy of that list | `~/.pi/agent/yolo-openai-codex-models.json`, the computed surface `pi/codex-models`: `{"models": [{"id", "base", "name", "contextWindow"}, …]}`, read by the openai-auth extension at load. At the host notch it is `{}` under `host_management: assert` and refused under `own` | `packs/pi/pack.json`, `packs/pi/extensions/yolo-openai-auth.js` |
 | User config keys | `providers` (merged-scope — **except the ADDRESS**), `profiles` / `use_profiles` (user-scope-only); `agent_profiles` refused by name as the old spelling of `use_profiles` | `internal/config` |
 | Provider address scope | `endpoints.<protocol>.base_url` is **USER-SCOPE ONLY** since 2026-09-17: a workspace `yolo-jail.jsonc` or `yolo-jail.local.jsonc` carrying one is a fatal config error. The rest of a `providers` entry still merges from either scope. The reason is the workspace file is AGENT-EDITABLE, and the address decides where inference goes — [`OQ-LM3`](../research/local-model-endpoints.md#oq-lm3) calls it the one answer that cannot be revised later without a breaking config change. The entry-level `base_url` shorthand is refused at any scope | `internal/config/validate.go` |
 | Missing-provider hatch | `YOLO_ALLOW_MISSING_PROVIDERS=1` | `internal/paths` |

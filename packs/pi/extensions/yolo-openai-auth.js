@@ -62,11 +62,13 @@ async function brokerLogin(signal) {
 }
 
 // THE MODEL LIST IS DATA, NOT A COPY. yolo renders the one openai-codex declaration
-// (packs/openai-auth/pack.json) into this file at every boot: the `pi/codex-models` surface
-// packs/pi/pack.json declares, written by `yolo.derive("pi", "codex-models")` in
+// (packs/openai-auth/pack.json) into this file at every jail boot: the `pi/codex-models`
+// surface packs/pi/pack.json declares, written by `yolo.derive("pi", "codex-models")` in
 // packs/pi/derive.lua. claude's picker renders the same list, so the two cannot drift
 // (docs/design/model-lists-and-pickers.md ML-D1, ML-D3). The file sits beside extensions/,
 // outside pi's extension discovery and outside this file's own read-only delivery.
+// `yolo host apply` runs no derive for content, so on the host the file holds no list, this
+// extension registers no models, and pi keeps its own openai-codex catalog (ML-D8, OQ-ML3).
 const CODEX_LIST_FILE = join(homedir(), ".pi", "agent", "yolo-openai-codex-models.json");
 
 // readCodexModelList returns the rendered entries, or [] when the file is missing, is not

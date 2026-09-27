@@ -132,12 +132,13 @@ provider, not only the login:
 - `api: "openai-codex-responses"` and `baseUrl: "https://chatgpt.com/backend-api"`;
 - yolo's own model list, which since 2026-09-27 is the one declaration on the `openai-codex`
   provider ([ML-D1](model-lists-and-pickers.md#ML-D1)): the extension reads it from
-  `~/.pi/agent/yolo-openai-codex-models.json`, a file yolo renders every boot, and takes each
+  `~/.pi/agent/yolo-openai-codex-models.json`, a file yolo renders at every jail boot, and takes each
   entry's cost, thinking and image facts from pi's own catalog
   ([ML-D3](model-lists-and-pickers.md#ML-D3)). It is the GPT-6 models with a `[1m]` variant
   beside each; the GPT-5.x ids a hand copy of pi's catalog carried until then are gone
   ([ML-D4](model-lists-and-pickers.md#ML-D4)). With no file it registers no models, and pi keeps
-  its built-in catalog;
+  its built-in catalog, which is what `yolo host apply` leaves on the host
+  ([ML-D8](model-lists-and-pickers.md#ML-D8));
 - a `before_provider_request` hook that strips the `[1m]` suffix from the model id before the
   request leaves.
 

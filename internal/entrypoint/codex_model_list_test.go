@@ -29,6 +29,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
+	"github.com/mschulkind-oss/yolo-jail/internal/render"
 )
 
 // codexModel is one row of the expanded list, the Go statement of codexModelList's rule.
@@ -527,5 +528,80 @@ func TestCodexModelListHelperIsIdenticalInEveryDerive(t *testing.T) {
 		if matches[0] != first {
 			t.Errorf("packs/%s/derive.lua's codex model-list helper differs from packs/%s/derive.lua's", pack, firstPack)
 		}
+	}
+}
+
+// THE HOST NOTCH HAS NO LIST, and this pins that it says so rather than assuming it. `yolo host
+// apply` renders a pack's surfaces from its DECLARED layers only: a host render runs no derive
+// for content (hostrender.go, "NO JAIL-DERIVED computed layer"; host-render-target.md §3.3,
+// `Tables` empty at the host), and composes no provider table. So pi/codex-models, whose whole
+// content is the derive's expansion of the openai-codex declaration, renders as an empty object
+// under `assert` and is refused under `own`, which runs no `computed` surface. The extension,
+// which the host notch DOES deliver, then registers no models and pi keeps its built-in
+// openai-codex catalog (docs/design/model-lists-and-pickers.md ML-D8, OQ-ML3). A change that
+// renders the list at the host fails this, and must update ML-D8 and the pages it names.
+func TestTheHostNotchLeavesPiOnItsOwnCodexCatalog(t *testing.T) {
+	p := shippedPiPack(t)
+	rel := piCodexModelsRel(t)
+	for _, tc := range []struct {
+		ownership  render.HostOwnership
+		wantAction string
+	}{
+		{render.OwnershipAssert, "rendered"},
+		{render.OwnershipOwn, "refused: "},
+	} {
+		t.Run(tc.ownership.String(), func(t *testing.T) {
+			home := t.TempDir()
+			results, err := RenderHostPack(p, home, tc.ownership, false, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var action string
+			for _, r := range results {
+				if r.Surface == "pi/codex-models" {
+					action = r.Action
+				}
+			}
+			if !strings.HasPrefix(action, tc.wantAction) {
+				t.Fatalf("pi/codex-models at the host under %s: %q, want %q…", tc.ownership, action, tc.wantAction)
+			}
+			if _, err := RenderHostFiles(p, home, filesReq(t), false); err != nil {
+				t.Fatal(err)
+			}
+			if raw, err := os.ReadFile(filepath.Join(home, filepath.FromSlash(rel))); err == nil {
+				var file map[string]any
+				if err := json.Unmarshal(raw, &file); err != nil {
+					t.Fatalf("the host-rendered %s is not JSON: %v\n%s", rel, err, raw)
+				}
+				if models, present := file["models"]; present {
+					t.Fatalf("the host notch rendered an openai-codex list %v: update ML-D8 and the "+
+						"pages it names, then this test", models)
+				}
+			} else if !os.IsNotExist(err) {
+				t.Fatal(err)
+			}
+			// The extension the host notch delivered, run from where it landed with that home.
+			harness := filepath.Join(t.TempDir(), "harness.mjs")
+			ext := filepath.Join(home, ".pi", "agent", "extensions", "yolo-openai-auth.js")
+			if err := os.WriteFile(harness, []byte(`
+const { default: extension } = await import(process.env.EXT);
+let registration;
+await extension({ registerProvider(name, config) { registration = { name, config }; }, on() {} });
+if (!registration || registration.name !== "openai-codex") throw new Error("openai-codex was not registered");
+console.log(JSON.stringify("models" in registration.config));
+`), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			cmd := exec.Command("node", harness)
+			cmd.Env = append(os.Environ(), "HOME="+home, "EXT="+ext)
+			out, err := cmd.Output()
+			if err != nil {
+				t.Fatalf("running the host-delivered extension: %v\n%s", err, out)
+			}
+			if strings.TrimSpace(string(out)) != "false" {
+				t.Errorf("the host-delivered extension registered models (%s); pi's built-in catalog "+
+					"is what the host notch leaves in place", out)
+			}
+		})
 	}
 }
