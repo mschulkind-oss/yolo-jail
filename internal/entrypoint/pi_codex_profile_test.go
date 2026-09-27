@@ -11,6 +11,19 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 )
 
+// piCodexExactAllow is pi-subagents' modelScope.allow for the shipped codex declaration:
+// every declared id, EXACTLY, where a hand-written `openai-codex/gpt-6-*` glob used to
+// state the family a third time (docs/design/model-lists-and-pickers.md ML-D5). The literal
+// is the expectation; codex_model_list_test.go pins that it follows the declaration.
+var piCodexExactAllow = []any{
+	"openai-codex/gpt-6-sol",
+	"openai-codex/gpt-6-sol[1m]",
+	"openai-codex/gpt-6-astra",
+	"openai-codex/gpt-6-astra[1m]",
+	"openai-codex/gpt-6-luna",
+	"openai-codex/gpt-6-luna[1m]",
+}
+
 // This follows the production handoff on both sides: the pack set a pi launch carries
 // declares and resolves the profile on the host, then ConfigurePackSurfaces consumes those
 // exact wire tables and writes the settings Pi reads. Pi owns openai-codex in its built-in
@@ -67,9 +80,7 @@ func TestPiCodexProfileSelectsBuiltInProviderAndExplicitModel(t *testing.T) {
 		"modelScope": map[string]any{
 			"enforce": true,
 			"strict":  true,
-			"allow": []any{
-				"openai-codex/gpt-6-*",
-			},
+			"allow":   piCodexExactAllow,
 		},
 	}
 	if got := settings["subagents"]; !reflect.DeepEqual(got, wantSubagents) {
@@ -125,9 +136,7 @@ func TestPiCodexProfileSelects1MContextModel(t *testing.T) {
 		"modelScope": map[string]any{
 			"enforce": true,
 			"strict":  true,
-			"allow": []any{
-				"openai-codex/gpt-6-*",
-			},
+			"allow":   piCodexExactAllow,
 		},
 	}
 	if got := settings["subagents"]; !reflect.DeepEqual(got, wantSubagents) {

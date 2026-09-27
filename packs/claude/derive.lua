@@ -11,6 +11,87 @@ local function in_full(ctx, t)
   return t
 end
 
+-- THE openai-codex MODEL LIST. codexModelList expands the one declaration of it — the
+-- `models` and `model_options` packs/openai-auth/pack.json ships on the openai-codex provider,
+-- with the user's `providers.openai-codex` merged over it — into the ordered list every
+-- consumer presents (docs/design/model-lists-and-pickers.md ML-D1). `p` is
+-- ctx.providers["openai-codex"]; anything without a `models` table expands to {}.
+--
+-- Each declared id is WIRE-TRUE. Its facts come from model_options[alias]: `order` (the map
+-- is unordered all the way here, so this is the only order there is; unordered ids go last,
+-- by id), `name`, `description`, `context_window`, and `long_context_window`, which means
+-- "this model also has a 1M variant". That variant is emitted right after its base as
+-- `<id>[1m]`, a CLIENT spelling Claude Code, packs/pi's extension and the wire bridge each
+-- strip before the request leaves.
+--
+-- ⚠ DUPLICATED VERBATIM in packs/claude/derive.lua, packs/pi/derive.lua and
+-- packs/codex/derive.lua, because a derive cannot load another file (the sandbox has no
+-- require and no io). internal/entrypoint/codex_model_list_test.go fails when the copies
+-- differ, and when any consumer stops reading the declaration.
+local function codexModelList(p)
+  if type(p) ~= "table" or type(p.models) ~= "table" then return {} end
+  local opts = type(p.model_options) == "table" and p.model_options or {}
+  local aliases = {}
+  for alias in pairs(p.models) do
+    if type(alias) == "string" then table.insert(aliases, alias) end
+  end
+  table.sort(aliases)
+  local function text(v)
+    if type(v) == "string" and v ~= "" then return v end
+    return nil
+  end
+  local rows, seen = {}, {}
+  for _, alias in ipairs(aliases) do
+    local id = p.models[alias]
+    if type(id) == "string" and id ~= "" and not seen[id] then
+      seen[id] = true
+      local f = type(opts[alias]) == "table" and opts[alias] or {}
+      table.insert(rows, {
+        id = id,
+        order = tonumber(f.order),
+        name = text(f.name),
+        description = text(f.description),
+        context_window = tonumber(f.context_window),
+        long_context_window = tonumber(f.long_context_window),
+      })
+    end
+  end
+  table.sort(rows, function(a, b)
+    if a.order and b.order and a.order ~= b.order then return a.order < b.order end
+    if a.order and not b.order then return true end
+    if b.order and not a.order then return false end
+    return a.id < b.id
+  end)
+  local list = {}
+  for _, r in ipairs(rows) do
+    table.insert(list, {
+      id = r.id,
+      name = r.name,
+      description = r.description,
+      context_window = r.context_window,
+    })
+    if r.long_context_window then
+      table.insert(list, {
+        id = r.id .. "[1m]",
+        base = r.id,
+        name = r.name and (r.name .. " (1M context)"),
+        description = r.description and (r.description .. " · 1M context"),
+        context_window = r.long_context_window,
+      })
+    end
+  end
+  return list
+end
+
+-- codexDefault is the model a codex-profile launch starts on, by ONE rule in every consumer:
+-- the profile's `model` option unless it is absent or "default", else the first declared id,
+-- which is always a base id. nil when the list is empty and the profile names nothing.
+local function codexDefault(list, profile)
+  local m = type(profile) == "table" and profile.model or nil
+  if type(m) == "string" and m ~= "" and m ~= "default" then return m end
+  return list[1] and list[1].id
+end
+
 -- config (~/.claude.json, RMW): the mcpServers managed table — a passthrough of the
 -- servers this launch is eligible for.
 --
@@ -89,40 +170,36 @@ yolo.derive("claude", "settings", function(ctx)
   -- Claude Code's picker accepts exact gateway model IDs.  The Codex Responses
   -- bridge likewise sends model IDs unchanged, so expose the subscription
   -- catalog directly instead of asking users to infer a Claude tier alias.
-  -- Replacing the built-ins prevents retired pre-6 choices from leaking into
+  -- Replacing the built-ins prevents retired choices from leaking into
   -- a Codex-profile launch; `Default` resolves to ANTHROPIC_MODEL below.
   --
-  -- Both availableModels and modelPicker.options lead with the balanced default (Sol,
-  -- Sol 1M), followed by frontier (Astra, Astra 1M) and fast (Luna, Luna 1M).
+  -- THE LIST IS THE ONE DECLARATION (codexModelList above; packs/openai-auth/pack.json),
+  -- the same list pi's extension registers, so the two pickers cannot drift. Both
+  -- availableModels and modelPicker.options follow its order, the declared default first.
   -- availableModels' FIRST entry is what Claude Code's RETAINED built-in `Default` row
-  -- resolves to, so leading with Sol makes `Default` resolve to Sol while the explicit
-  -- picker list beneath it presents the top 6 in the same coherent Sol-first order.
+  -- resolves to, so leading with the default makes `Default` resolve to it while the
+  -- explicit picker list beneath it presents the same models in the same order.
   if ctx.selected_provider == "openai-codex" then
     -- The client retains a hard-coded Default row. Constraining Default makes it
-    -- resolve to the FIRST allowlisted ID (GPT-6 Sol, the balanced default);
-    -- modelPicker then lists the top 6 in the same Sol-first order beneath it, with 1M
-    -- context options alongside each model type.
-    -- GPT-5.6 Terra has no GPT-6 successor: Sol carries the balanced role now.
-    out.availableModels = {
-      "gpt-6-sol",
-      "gpt-6-sol[1m]",
-      "gpt-6-astra",
-      "gpt-6-astra[1m]",
-      "gpt-6-luna",
-      "gpt-6-luna[1m]",
-    }
-    out.enforceAvailableModels = true
-    out.modelPicker = {
-      options = {
-        { model = "gpt-6-sol",       label = "GPT-6 Sol",                description = "Balanced" },
-        { model = "gpt-6-sol[1m]",   label = "GPT-6 Sol (1M context)",   description = "Balanced · 1M context" },
-        { model = "gpt-6-astra",     label = "GPT-6 Astra",              description = "Frontier" },
-        { model = "gpt-6-astra[1m]", label = "GPT-6 Astra (1M context)", description = "Frontier · 1M context" },
-        { model = "gpt-6-luna",      label = "GPT-6 Luna",               description = "Fast" },
-        { model = "gpt-6-luna[1m]",  label = "GPT-6 Luna (1M context)",  description = "Fast · 1M context" },
-      },
-      replaceBuiltInOptions = true,
-    }
+    -- resolve to the FIRST allowlisted ID, the declared default; modelPicker then lists
+    -- every declared model beneath it, each 1M variant right after its base.
+    --
+    -- A list the user's config emptied writes none of the three keys: an enforced empty
+    -- allowlist would leave claude with no model it may pick.
+    local list = codexModelList(ctx.providers and ctx.providers["openai-codex"])
+    if #list > 0 then
+      local ids, options = {}, {}
+      for _, e in ipairs(list) do
+        table.insert(ids, e.id)
+        table.insert(options, { model = e.id, label = e.name or e.id, description = e.description })
+      end
+      out.availableModels = ids
+      out.enforceAvailableModels = true
+      out.modelPicker = {
+        options = options,
+        replaceBuiltInOptions = true,
+      }
+    end
   end
   return out
 end)
@@ -141,9 +218,9 @@ yolo.env("claude", function(ctx)
   -- YOLO_PROVIDERS row (packs/openai-auth) carries the source's `capabilities` and the
   -- PUBLIC ADDRESS of the Responses API, and deliberately no credential pointer — the wire
   -- bridge gets its short-lived access-token view from openai-auth, never from a generated
-  -- configuration file. The model facts below are stated here because the subscription
-  -- catalog is claude's own picker vocabulary, not a provider fact; the Responses endpoint
-  -- accepts concrete Codex model IDs, so this must stay aligned with Pi's Codex default.
+  -- configuration file. The Responses endpoint accepts concrete Codex model IDs, and the
+  -- ones below come from the provider's one declared list (codexModelList), so the model
+  -- this launch starts on is pi's and codex's by construction, not by a copy kept aligned.
   if ctx.selected_provider == "openai-codex" then
     -- THE ADDRESS IS RESOLVED, NOT SPELLED. It used to be the literal 127.0.0.1:8215, a
     -- hand-copy of internal/wirebridged's CodexResponsesListenAddr that this file had no
@@ -153,20 +230,24 @@ yolo.env("claude", function(ctx)
     -- for every other bridged provider (protocol-resolution.md, outcome 2).
     local codexEp = (type(p) == "table" and type(p.endpoints) == "table"
       and type(p.endpoints.anthropic) == "table" and p.endpoints.anthropic.base_url) or nil
+    local list = codexModelList(p)
+    local first = list[1] or {}
+    local model = codexDefault(list, ctx.profile)
     return {
       ANTHROPIC_BASE_URL = codexEp,
       -- Pin a fresh Codex-profile chat and every unassigned subagent to the
-      -- stable balanced model. The picker above remains available for an
-      -- intentional per-session choice.
-      ANTHROPIC_MODEL = (ctx.profile and ctx.profile.model) or "gpt-6-sol",
-      CLAUDE_CODE_SUBAGENT_MODEL = (ctx.profile and ctx.profile.model) or "gpt-6-sol",
+      -- profile's model, else the declared default. The picker above remains
+      -- available for an intentional per-session choice.
+      ANTHROPIC_MODEL = model,
+      CLAUDE_CODE_SUBAGENT_MODEL = model,
       -- Claude Code retains its own Default row even when custom picker
-      -- options replace the built-ins. Pin and label that row as Sol too,
-      -- so choosing it cannot silently return to the Claude subscription
-      -- model advertised by the local client.
-      ANTHROPIC_DEFAULT_OPUS_MODEL = "gpt-6-sol",
-      ANTHROPIC_DEFAULT_OPUS_MODEL_NAME = "GPT-6 Sol",
-      ANTHROPIC_DEFAULT_OPUS_MODEL_DESCRIPTION = "Balanced (default)",
+      -- options replace the built-ins. Pin and label that row as the declared
+      -- default too, so choosing it cannot silently return to the Claude
+      -- subscription model advertised by the local client. Each is omitted when
+      -- the list has no first entry to name.
+      ANTHROPIC_DEFAULT_OPUS_MODEL = first.id,
+      ANTHROPIC_DEFAULT_OPUS_MODEL_NAME = first.name,
+      ANTHROPIC_DEFAULT_OPUS_MODEL_DESCRIPTION = first.description and (first.description .. " (default)"),
       -- These are the Responses models' real 1.05M-token context capacity and
       -- Claude Code's documented 1M maximum proactive-compaction threshold.
       -- Stating both is necessary for an unrecognised custom model ID.

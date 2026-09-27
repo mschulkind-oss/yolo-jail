@@ -37,15 +37,19 @@ func TestPiCodexProfileSeedsFreshAuthBeforeNpmLauncherExec(t *testing.T) {
 		t.Fatalf("unprofiled Pi unexpectedly enables auth prelaunch: %q", got)
 	}
 
-	providers, err := packload.ComposeProviders(nil, []*packload.Pack{pi})
+	// The provider table a pi launch really composes: pi's needs closure brings
+	// packs/openai-auth, whose openai-codex declaration is where the default model comes
+	// from. An empty table here would render a selection with no model at all.
+	closure := testPacksForAgent(t, "pi")
+	providers, err := packload.ComposeProviders(nil, closure)
 	if err != nil {
 		t.Fatal(err)
 	}
-	resolved, err := packload.ResolveProfiles([]*packload.Pack{pi}, nil, providers)
+	resolved, err := packload.ResolveProfiles(closure, nil, providers)
 	if err != nil {
 		t.Fatal(err)
 	}
-	r := newPioencodeRender(t, `{}`)
+	r := newPioencodeRender(t, mustCompactJSON(t, providers))
 	r.wireProfiles(mustCompactJSON(t, packload.ProfilesWireTable(resolved)))
 	r.render(t, `{"pi":"codex"}`)
 	home := r.e.Home

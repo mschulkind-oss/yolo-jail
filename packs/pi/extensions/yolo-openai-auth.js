@@ -1,4 +1,7 @@
 import { execFile } from "node:child_process";
+import { readFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
 
 function brokerCommand(action, signal, showStderr = false) {
 	return new Promise((resolve, reject) => {
@@ -58,141 +61,81 @@ async function brokerLogin(signal) {
 	return brokerToken(signal);
 }
 
-const CODEX_MODELS = [
-	{
-		id: "gpt-6-sol",
-		name: "GPT-6 Sol",
-		reasoning: true,
-		input: ["text", "image"],
-		cost: { input: 2, output: 10, cacheRead: 0.2, cacheWrite: 2.5, tiers: [{ inputTokensAbove: 272000, input: 4, output: 15, cacheRead: 0.4, cacheWrite: 5 }] },
-		contextWindow: 272000,
-		maxTokens: 128000,
-		thinkingLevelMap: { off: "none", minimal: "low", low: "low", medium: "medium", high: "high", xhigh: "xhigh", max: "max" },
-		compat: { supportsOpenAIGrammarTools: true, supportsAdditionalTools: true, supportsToolSearch: true, supportsMidConvoSystemMessages: true },
-		inputLimits: { images: { resize: { maxWidth: 2000, maxHeight: 2000, maxBytes: 4718592, jpegQuality: 80 } } },
-	},
-	{
-		id: "gpt-6-sol[1m]",
-		name: "GPT-6 Sol (1M context)",
-		reasoning: true,
-		input: ["text", "image"],
-		cost: { input: 2, output: 10, cacheRead: 0.2, cacheWrite: 2.5, tiers: [{ inputTokensAbove: 272000, input: 4, output: 15, cacheRead: 0.4, cacheWrite: 5 }] },
-		contextWindow: 1000000,
-		maxTokens: 128000,
-		thinkingLevelMap: { off: "none", minimal: "low", low: "low", medium: "medium", high: "high", xhigh: "xhigh", max: "max" },
-		compat: { supportsOpenAIGrammarTools: true, supportsAdditionalTools: true, supportsToolSearch: true, supportsMidConvoSystemMessages: true },
-		inputLimits: { images: { resize: { maxWidth: 2000, maxHeight: 2000, maxBytes: 4718592, jpegQuality: 80 } } },
-	},
-	{
-		id: "gpt-6-astra",
-		name: "GPT-6 Astra",
-		reasoning: true,
-		input: ["text", "image"],
-		cost: { input: 10, output: 50, cacheRead: 1, cacheWrite: 12.5, tiers: [{ inputTokensAbove: 272000, input: 20, output: 75, cacheRead: 2, cacheWrite: 25 }] },
-		contextWindow: 272000,
-		maxTokens: 128000,
-		thinkingLevelMap: { off: null, minimal: "low", low: "low", medium: "medium", high: "high", xhigh: "xhigh", max: "max" },
-		compat: { supportsOpenAIGrammarTools: true, supportsAdditionalTools: true, supportsToolSearch: true, supportsMidConvoSystemMessages: true },
-		inputLimits: { images: { resize: { maxWidth: 2000, maxHeight: 2000, maxBytes: 4718592, jpegQuality: 80 } } },
-	},
-	{
-		id: "gpt-6-astra[1m]",
-		name: "GPT-6 Astra (1M context)",
-		reasoning: true,
-		input: ["text", "image"],
-		cost: { input: 10, output: 50, cacheRead: 1, cacheWrite: 12.5, tiers: [{ inputTokensAbove: 272000, input: 20, output: 75, cacheRead: 2, cacheWrite: 25 }] },
-		contextWindow: 1000000,
-		maxTokens: 128000,
-		thinkingLevelMap: { off: null, minimal: "low", low: "low", medium: "medium", high: "high", xhigh: "xhigh", max: "max" },
-		compat: { supportsOpenAIGrammarTools: true, supportsAdditionalTools: true, supportsToolSearch: true, supportsMidConvoSystemMessages: true },
-		inputLimits: { images: { resize: { maxWidth: 2000, maxHeight: 2000, maxBytes: 4718592, jpegQuality: 80 } } },
-	},
-	{
-		id: "gpt-6-luna",
-		name: "GPT-6 Luna",
-		reasoning: true,
-		input: ["text", "image"],
-		cost: { input: 0.1, output: 0.5, cacheRead: 0.01, cacheWrite: 0.125, tiers: [{ inputTokensAbove: 272000, input: 0.2, output: 0.75, cacheRead: 0.02, cacheWrite: 0.25 }] },
-		contextWindow: 272000,
-		maxTokens: 128000,
-		thinkingLevelMap: { off: "none", minimal: "low", low: "low", medium: "medium", high: "high", xhigh: "xhigh", max: "max" },
-		compat: { supportsOpenAIGrammarTools: true, supportsAdditionalTools: true, supportsToolSearch: true, supportsMidConvoSystemMessages: true },
-		inputLimits: { images: { resize: { maxWidth: 2000, maxHeight: 2000, maxBytes: 4718592, jpegQuality: 80 } } },
-	},
-	{
-		id: "gpt-6-luna[1m]",
-		name: "GPT-6 Luna (1M context)",
-		reasoning: true,
-		input: ["text", "image"],
-		cost: { input: 0.1, output: 0.5, cacheRead: 0.01, cacheWrite: 0.125, tiers: [{ inputTokensAbove: 272000, input: 0.2, output: 0.75, cacheRead: 0.02, cacheWrite: 0.25 }] },
-		contextWindow: 1000000,
-		maxTokens: 128000,
-		thinkingLevelMap: { off: "none", minimal: "low", low: "low", medium: "medium", high: "high", xhigh: "xhigh", max: "max" },
-		compat: { supportsOpenAIGrammarTools: true, supportsAdditionalTools: true, supportsToolSearch: true, supportsMidConvoSystemMessages: true },
-		inputLimits: { images: { resize: { maxWidth: 2000, maxHeight: 2000, maxBytes: 4718592, jpegQuality: 80 } } },
-	},
-	{
-		id: "gpt-5.6-sol",
-		name: "GPT-5.6 Sol",
-		reasoning: true,
-		input: ["text", "image"],
-		cost: { input: 4, output: 20, cacheRead: 0.4, cacheWrite: 5, tiers: [{ inputTokensAbove: 272000, input: 8, output: 30, cacheRead: 0.8, cacheWrite: 10 }] },
-		contextWindow: 272000,
-		maxTokens: 128000,
-		thinkingLevelMap: { xhigh: "xhigh", max: "max", minimal: "low" },
-		compat: { supportsOpenAIGrammarTools: true, supportsAdditionalTools: true, supportsToolSearch: true, supportsMidConvoSystemMessages: true },
-		inputLimits: { images: { resize: { maxWidth: 2000, maxHeight: 2000, maxBytes: 4718592, jpegQuality: 80 } } },
-	},
-	{
-		id: "gpt-5.6-terra",
-		name: "GPT-5.6 Terra",
-		reasoning: true,
-		input: ["text", "image"],
-		cost: { input: 2, output: 12, cacheRead: 0.2, cacheWrite: 2.5, tiers: [{ inputTokensAbove: 272000, input: 4, output: 18, cacheRead: 0.4, cacheWrite: 5 }] },
-		contextWindow: 272000,
-		maxTokens: 128000,
-		thinkingLevelMap: { xhigh: "xhigh", max: "max", minimal: "low" },
-		compat: { supportsOpenAIGrammarTools: true, supportsAdditionalTools: true, supportsToolSearch: true, supportsMidConvoSystemMessages: true },
-		inputLimits: { images: { resize: { maxWidth: 2000, maxHeight: 2000, maxBytes: 4718592, jpegQuality: 80 } } },
-	},
-	{
-		id: "gpt-5.6-luna",
-		name: "GPT-5.6 Luna",
-		reasoning: true,
-		input: ["text", "image"],
-		cost: { input: 0.2, output: 1.2, cacheRead: 0.02, cacheWrite: 0.25, tiers: [{ inputTokensAbove: 272000, input: 0.4, output: 1.8, cacheRead: 0.04, cacheWrite: 0.5 }] },
-		contextWindow: 272000,
-		maxTokens: 128000,
-		thinkingLevelMap: { xhigh: "xhigh", max: "max", minimal: "low" },
-		compat: { supportsOpenAIGrammarTools: true, supportsAdditionalTools: true, supportsToolSearch: true, supportsMidConvoSystemMessages: true },
-		inputLimits: { images: { resize: { maxWidth: 2000, maxHeight: 2000, maxBytes: 4718592, jpegQuality: 80 } } },
-	},
-	{
-		id: "gpt-5.5",
-		name: "GPT-5.5",
-		reasoning: true,
-		input: ["text", "image"],
-		cost: { input: 5, output: 30, cacheRead: 0.5, cacheWrite: 0, tiers: [{ inputTokensAbove: 272000, input: 10, output: 45, cacheRead: 1, cacheWrite: 0 }] },
-		contextWindow: 272000,
-		maxTokens: 128000,
-		thinkingLevelMap: { xhigh: "xhigh", minimal: "low" },
-		compat: { supportsOpenAIGrammarTools: true, supportsToolSearch: true, supportsMidConvoSystemMessages: true },
-		inputLimits: { images: { resize: { maxWidth: 2000, maxHeight: 2000, maxBytes: 4718592, jpegQuality: 80 } } },
-	},
-	{
-		id: "gpt-5.3-codex-spark",
-		name: "GPT-5.3 Codex Spark",
-		reasoning: true,
-		input: ["text"],
-		cost: { input: 1.75, output: 14, cacheRead: 0.175, cacheWrite: 0 },
-		contextWindow: 128000,
-		maxTokens: 128000,
-		thinkingLevelMap: { xhigh: "xhigh", minimal: "low" },
-		compat: { supportsOpenAIGrammarTools: true },
-	},
-];
+// THE MODEL LIST IS DATA, NOT A COPY. yolo renders the one openai-codex declaration
+// (packs/openai-auth/pack.json) into this file at every boot: the `pi/codex-models` surface
+// packs/pi/pack.json declares, written by `yolo.derive("pi", "codex-models")` in
+// packs/pi/derive.lua. claude's picker renders the same list, so the two cannot drift
+// (docs/design/model-lists-and-pickers.md ML-D1, ML-D3). The file sits beside extensions/,
+// outside pi's extension discovery and outside this file's own read-only delivery.
+const CODEX_LIST_FILE = join(homedir(), ".pi", "agent", "yolo-openai-codex-models.json");
 
-export default function registerYoloOpenAIAuth(pi) {
+// readCodexModelList returns the rendered entries, or [] when the file is missing, is not
+// JSON, or holds no `models` array. [] is never an error: it registers no models of our
+// own, and pi then keeps its built-in openai-codex catalog, so login never depends on it.
+function readCodexModelList() {
+	let parsed;
+	try {
+		parsed = JSON.parse(readFileSync(CODEX_LIST_FILE, "utf8"));
+	} catch {
+		return [];
+	}
+	const models = parsed?.models;
+	if (!Array.isArray(models)) return [];
+	return models.filter((entry) => typeof entry?.id === "string" && entry.id.length > 0);
+}
+
+// codexCatalog returns a lookup into pi's OWN openai-codex catalog, the source of every
+// pi-dialect fact yolo does not declare (cost tiers, thinking levels, compat, image limits):
+// the consumer translates, yolo does not re-copy pi-ai (docs/reference/providers.md OQ-CS4).
+// The specifier resolves through the alias pi's extension loader installs for its own
+// packages. Anything unavailable degrades to "unknown", never to a failed load.
+async function codexCatalog() {
+	try {
+		const { getBuiltinModel } = await import("@earendil-works/pi-ai/providers/all");
+		return (id) => {
+			try {
+				return getBuiltinModel("openai-codex", id);
+			} catch {
+				return undefined;
+			}
+		};
+	} catch {
+		return () => undefined;
+	}
+}
+
+// codexModelDefinition merges one rendered entry over pi's catalog entry for its base id.
+// The catalog's address fields are dropped so the registration below stays the one place
+// that says where requests go. An id pi's catalog lacks gets the defaults pi's own
+// models.json loader applies (core/provider-composer.js, modelFromJson), because
+// registerProvider applies none of its own.
+function codexModelDefinition(entry, lookup) {
+	const builtin = lookup(entry.base ?? entry.id);
+	if (builtin) {
+		const { api: _api, provider: _provider, baseUrl: _baseUrl, headers: _headers, ...facts } = builtin;
+		return {
+			...facts,
+			id: entry.id,
+			name: entry.name ?? builtin.name,
+			contextWindow: entry.contextWindow ?? builtin.contextWindow,
+		};
+	}
+	return {
+		id: entry.id,
+		name: entry.name ?? entry.id,
+		reasoning: false,
+		input: ["text"],
+		cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+		contextWindow: entry.contextWindow ?? 128000,
+		maxTokens: 16384,
+	};
+}
+
+// pi awaits an extension's factory (core/extensions/loader.js), so the catalog import
+// finishes before the registration is read.
+export default async function registerYoloOpenAIAuth(pi) {
+	const list = readCodexModelList();
+	const lookup = list.length > 0 ? await codexCatalog() : () => undefined;
 	pi.registerProvider("openai-codex", {
 		baseUrl: "https://chatgpt.com/backend-api",
 		api: "openai-codex-responses",
@@ -203,7 +146,7 @@ export default function registerYoloOpenAIAuth(pi) {
 			refreshToken: (_credentials, signal) => brokerToken(signal),
 			getApiKey: (credentials) => credentials.access,
 		},
-		models: CODEX_MODELS,
+		...(list.length > 0 ? { models: list.map((entry) => codexModelDefinition(entry, lookup)) } : {}),
 	});
 
 	pi.on?.("before_provider_request", (event) => {

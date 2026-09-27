@@ -143,10 +143,12 @@ func inFullProbeCtx(agent, surface string) *DeriveCtx {
 }
 
 // inFullSelectedProbeCtx is inFullProbeCtx with a provider SELECTED — the shipped
-// `openai-codex` subscription, with the capabilities-only row packs/openai-auth declares.
-// Two tables are produced only under a selection (claude/settings' `modelPicker` and
-// pi/settings' `subagents`), and both are tables the classification says are NOT declared
-// in full, so without this second world neither half of their classification is checked.
+// `openai-codex` subscription, with the row packs/openai-auth declares: its capabilities,
+// its Responses endpoint and its model list. Two tables are produced only under a
+// selection (claude/settings' `modelPicker` and pi/settings' `subagents`), and both are
+// tables the classification says are NOT declared in full, so without this second world
+// neither half of their classification is checked. `modelPicker` also needs the MODEL LIST:
+// claude's derive renders it from the declaration and writes no picker without one.
 func inFullSelectedProbeCtx(agent, surface string) *DeriveCtx {
 	ctx := inFullProbeCtx(agent, surface)
 	ctx.SelectedProvider = "openai-codex"
@@ -156,6 +158,10 @@ func inFullSelectedProbeCtx(agent, surface string) *DeriveCtx {
 		"capabilities": []any{"web_search"},
 		"endpoints": map[string]any{"openai-responses": map[string]any{
 			"base_url": "https://chatgpt.com/backend-api/codex", "wire_api": "openai-responses",
+		}},
+		"models": map[string]any{"probe-codex": "probe-codex"},
+		"model_options": map[string]any{"probe-codex": map[string]any{
+			"order": "1", "name": "Probe Codex", "long_context_window": "1000000",
 		}},
 	}
 	return ctx
@@ -221,6 +227,9 @@ func TestShippedDerivesDeclareTheirInFullTables(t *testing.T) {
 		"pi/mcp":          {"mcpServers"},
 		"pi/models":       {"providers"},
 		"pi/settings":     nil,
+		// Its one key, `models`, is an ARRAY — a leaf, with no named entries to call stale —
+		// so there is no table here to declare in full.
+		"pi/codex-models": nil,
 	}
 	// The fixed-key-set tables, the other half of the classification: each must be
 	// PRODUCED by one of the two probe worlds and never declared, or a later in_full around

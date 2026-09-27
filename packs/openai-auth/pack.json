@@ -15,6 +15,34 @@
         }
       },
       "kind": "provider",
+      "model_options": {
+        "gpt-6-astra": {
+          "context_window": "272000",
+          "description": "Frontier",
+          "long_context_window": "1000000",
+          "name": "GPT-6 Astra",
+          "order": "2"
+        },
+        "gpt-6-luna": {
+          "context_window": "272000",
+          "description": "Fast",
+          "long_context_window": "1000000",
+          "name": "GPT-6 Luna",
+          "order": "3"
+        },
+        "gpt-6-sol": {
+          "context_window": "272000",
+          "description": "Balanced",
+          "long_context_window": "1000000",
+          "name": "GPT-6 Sol",
+          "order": "1"
+        }
+      },
+      "models": {
+        "gpt-6-astra": "gpt-6-astra",
+        "gpt-6-luna": "gpt-6-luna",
+        "gpt-6-sol": "gpt-6-sol"
+      },
       "name": "openai-codex"
     }
   ],

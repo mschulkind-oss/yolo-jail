@@ -1,5 +1,86 @@
 -- codex: project MCP servers and model_providers into codex's TOML format.
 
+-- THE openai-codex MODEL LIST. codexModelList expands the one declaration of it — the
+-- `models` and `model_options` packs/openai-auth/pack.json ships on the openai-codex provider,
+-- with the user's `providers.openai-codex` merged over it — into the ordered list every
+-- consumer presents (docs/design/model-lists-and-pickers.md ML-D1). `p` is
+-- ctx.providers["openai-codex"]; anything without a `models` table expands to {}.
+--
+-- Each declared id is WIRE-TRUE. Its facts come from model_options[alias]: `order` (the map
+-- is unordered all the way here, so this is the only order there is; unordered ids go last,
+-- by id), `name`, `description`, `context_window`, and `long_context_window`, which means
+-- "this model also has a 1M variant". That variant is emitted right after its base as
+-- `<id>[1m]`, a CLIENT spelling Claude Code, packs/pi's extension and the wire bridge each
+-- strip before the request leaves.
+--
+-- ⚠ DUPLICATED VERBATIM in packs/claude/derive.lua, packs/pi/derive.lua and
+-- packs/codex/derive.lua, because a derive cannot load another file (the sandbox has no
+-- require and no io). internal/entrypoint/codex_model_list_test.go fails when the copies
+-- differ, and when any consumer stops reading the declaration.
+local function codexModelList(p)
+  if type(p) ~= "table" or type(p.models) ~= "table" then return {} end
+  local opts = type(p.model_options) == "table" and p.model_options or {}
+  local aliases = {}
+  for alias in pairs(p.models) do
+    if type(alias) == "string" then table.insert(aliases, alias) end
+  end
+  table.sort(aliases)
+  local function text(v)
+    if type(v) == "string" and v ~= "" then return v end
+    return nil
+  end
+  local rows, seen = {}, {}
+  for _, alias in ipairs(aliases) do
+    local id = p.models[alias]
+    if type(id) == "string" and id ~= "" and not seen[id] then
+      seen[id] = true
+      local f = type(opts[alias]) == "table" and opts[alias] or {}
+      table.insert(rows, {
+        id = id,
+        order = tonumber(f.order),
+        name = text(f.name),
+        description = text(f.description),
+        context_window = tonumber(f.context_window),
+        long_context_window = tonumber(f.long_context_window),
+      })
+    end
+  end
+  table.sort(rows, function(a, b)
+    if a.order and b.order and a.order ~= b.order then return a.order < b.order end
+    if a.order and not b.order then return true end
+    if b.order and not a.order then return false end
+    return a.id < b.id
+  end)
+  local list = {}
+  for _, r in ipairs(rows) do
+    table.insert(list, {
+      id = r.id,
+      name = r.name,
+      description = r.description,
+      context_window = r.context_window,
+    })
+    if r.long_context_window then
+      table.insert(list, {
+        id = r.id .. "[1m]",
+        base = r.id,
+        name = r.name and (r.name .. " (1M context)"),
+        description = r.description and (r.description .. " · 1M context"),
+        context_window = r.long_context_window,
+      })
+    end
+  end
+  return list
+end
+
+-- codexDefault is the model a codex-profile launch starts on, by ONE rule in every consumer:
+-- the profile's `model` option unless it is absent or "default", else the first declared id,
+-- which is always a base id. nil when the list is empty and the profile names nothing.
+local function codexDefault(list, profile)
+  local m = type(profile) == "table" and profile.model or nil
+  if type(m) == "string" and m ~= "" and m ~= "default" then return m end
+  return list[1] and list[1].id
+end
+
 -- The DIALECT MAP (docs/reference/providers.md §3.4 / OQ-PT1): yolo's canonical wire_api
 -- → the value codex reads from model_providers.<id>.wire_api. Every row is a measured
 -- fact about codex, carried here because a dialect map with no provenance is the same
@@ -208,13 +289,17 @@ yolo.derive("codex", "config", function(ctx)
   -- subscription provider. When selected, the selection asserts `model` directly without
   -- `model_provider`, allowing Codex CLI to authenticate natively via OAuth while clearing
   -- any third-party `model_provider` residue.
+  --
+  -- The model is codexDefault's: the profile's own `model`, else the FIRST id of the one
+  -- declared list (packs/openai-auth/pack.json), the same default claude and pi start on.
+  -- A list emptied by the user's config and a profile naming nothing write NO model, so
+  -- codex falls back to its own default, and the deselect rule (OQ-PSW2) clears the model
+  -- an earlier launch wrote.
   if ctx.selected_provider ~= nil and ctx.selected_provider ~= "" then
     if ctx.selected_provider == "openai-codex" then
-      local model = (ctx.profile and ctx.profile.model)
-      if not model or model == "default" then
-        model = "gpt-6-sol"
-      end
-      res.selection = { model = model }
+      local list = codexModelList(ctx.providers and ctx.providers["openai-codex"])
+      local model = codexDefault(list, ctx.profile)
+      res.selection = model and { model = model } or {}
     else
       local p = ctx.providers and ctx.providers[ctx.selected_provider] or nil
       if codexReachable(p) then

@@ -1,0 +1,462 @@
+package entrypoint
+
+// codex_model_list_test.go pins the ONE openai-codex model list
+// (docs/design/model-lists-and-pickers.md ML-D1): packs/openai-auth/pack.json declares it on
+// the provider, and every consumer renders it — claude's picker and allowlist, claude's
+// launch env, pi's selection and pi-subagents' scope, the data file pi's extension
+// registers, codex's model. The maintainer's report (2026-09-27) was that two hand-kept
+// lists had drifted apart; the test that keeps them together is this one.
+//
+// Every consumer is driven through its PRODUCTION call site — the boot render
+// (ConfigurePackByName, ConfigurePackSurfaces), the host env composition
+// (packload.AgentEnv), and the shipped extension under node — over a provider table
+// composed from the real needs closure. The SECOND pass composes a user override that adds
+// one id and removes another, and asserts every consumer follows it: a consumer that went
+// back to a literal list passes the first pass and fails the second.
+
+import (
+	"encoding/json"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"reflect"
+	"regexp"
+	"sort"
+	"strconv"
+	"strings"
+	"testing"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
+	"github.com/mschulkind-oss/yolo-jail/internal/packload"
+)
+
+// codexModel is one row of the expanded list, the Go statement of codexModelList's rule.
+type codexModel struct {
+	ID, Base, Name, Description string
+	ContextWindow               float64 // 0: undeclared
+}
+
+// expandCodexModels is codexModelList (packs/{claude,pi,codex}/derive.lua) in Go, written
+// from the rule rather than from the Lua: aliases walked in sorted order, a repeated id
+// dropped, rows ordered by `order` (declared before undeclared, then by id), and a
+// `<id>[1m]` row after each base that declares long_context_window.
+func expandCodexModels(models map[string]string, opts map[string]map[string]string) []codexModel {
+	type row struct {
+		id, name, desc string
+		order, cw, lcw float64
+		hasOrder       bool
+	}
+	num := func(s string) (float64, bool) {
+		f, err := strconv.ParseFloat(s, 64)
+		return f, err == nil
+	}
+	aliases := make([]string, 0, len(models))
+	for a := range models {
+		aliases = append(aliases, a)
+	}
+	sort.Strings(aliases)
+	var rows []row
+	seen := map[string]bool{}
+	for _, a := range aliases {
+		id := models[a]
+		if id == "" || seen[id] {
+			continue
+		}
+		seen[id] = true
+		f := opts[a]
+		r := row{id: id, name: f["name"], desc: f["description"]}
+		r.order, r.hasOrder = num(f["order"])
+		r.cw, _ = num(f["context_window"])
+		r.lcw, _ = num(f["long_context_window"])
+		rows = append(rows, r)
+	}
+	sort.SliceStable(rows, func(i, j int) bool {
+		a, b := rows[i], rows[j]
+		if a.hasOrder != b.hasOrder {
+			return a.hasOrder
+		}
+		if a.hasOrder && a.order != b.order {
+			return a.order < b.order
+		}
+		return a.id < b.id
+	})
+	var out []codexModel
+	for _, r := range rows {
+		out = append(out, codexModel{ID: r.id, Name: r.name, Description: r.desc, ContextWindow: r.cw})
+		if r.lcw != 0 {
+			m := codexModel{ID: r.id + "[1m]", Base: r.id, ContextWindow: r.lcw}
+			if r.name != "" {
+				m.Name = r.name + " (1M context)"
+			}
+			if r.desc != "" {
+				m.Description = r.desc + " · 1M context"
+			}
+			out = append(out, m)
+		}
+	}
+	return out
+}
+
+// composedCodexModels reads the openai-codex entry's models and model_options back out of a
+// composed table, so the expected list follows whatever the table holds.
+func composedCodexModels(t *testing.T, providers *jsonx.OrderedMap) (map[string]string, map[string]map[string]string) {
+	t.Helper()
+	raw, ok := providers.Get("openai-codex")
+	entry, isMap := raw.(*jsonx.OrderedMap)
+	if !ok || !isMap {
+		t.Fatalf("the composed table has no openai-codex entry: %v", providers.Keys())
+	}
+	models := map[string]string{}
+	if mv, ok := entry.Get("models"); ok {
+		m, _ := mv.(*jsonx.OrderedMap)
+		for _, a := range m.Keys() {
+			v, _ := m.Get(a)
+			if s, ok := v.(string); ok {
+				models[a] = s
+			}
+		}
+	}
+	opts := map[string]map[string]string{}
+	if ov, ok := entry.Get("model_options"); ok {
+		o, _ := ov.(*jsonx.OrderedMap)
+		for _, a := range o.Keys() {
+			v, _ := o.Get(a)
+			facts, _ := v.(*jsonx.OrderedMap)
+			if facts == nil {
+				continue
+			}
+			opts[a] = map[string]string{}
+			for _, k := range facts.Keys() {
+				fv, _ := facts.Get(k)
+				if s, ok := fv.(string); ok {
+					opts[a][k] = s
+				}
+			}
+		}
+	}
+	return models, opts
+}
+
+func codexIDs(list []codexModel, prefix string) []any {
+	out := make([]any, 0, len(list))
+	for _, m := range list {
+		out = append(out, prefix+m.ID)
+	}
+	return out
+}
+
+// shippedCodexDeclaration is the openai-codex provider contribution packs/openai-auth ships.
+func shippedCodexDeclaration(t *testing.T) packdecl.ProviderContribution {
+	t.Helper()
+	p, err := embeddedPack("openai-auth")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, prov := range p.Decl.Providers() {
+		if prov.Name == "openai-codex" {
+			return prov
+		}
+	}
+	t.Fatal("packs/openai-auth declares no openai-codex provider")
+	return packdecl.ProviderContribution{}
+}
+
+// codexConsumers is what every consumer rendered for one composed table.
+type codexConsumers struct {
+	claudeAvailable []any
+	claudeOptions   []any
+	claudeEnv       map[string]string
+	piSettings      map[string]any
+	piModelsFile    map[string]any
+	codexModel      any
+}
+
+// piCodexModelsRel is the pi/codex-models surface's path, relative to HOME, read off the
+// shipped pi manifest — never spelled here, so the extension's path is pinned to the
+// manifest's rather than to a third copy.
+func piCodexModelsRel(t *testing.T) string {
+	t.Helper()
+	pi, err := embeddedPack("pi")
+	if err != nil {
+		t.Fatal(err)
+	}
+	surfaces, _ := pi.SurfacesFor(false)
+	for _, s := range surfaces {
+		if s.Agent == "pi" && s.Name == "codex-models" {
+			rel, ok := strings.CutPrefix(s.Path, "~/")
+			if !ok {
+				t.Fatalf("pi/codex-models path %q is not home-relative", s.Path)
+			}
+			return rel
+		}
+	}
+	t.Fatal("packs/pi declares no pi/codex-models surface")
+	return ""
+}
+
+func renderCodexConsumers(t *testing.T, user *jsonx.OrderedMap) (codexConsumers, *jsonx.OrderedMap) {
+	t.Helper()
+	packs := testPacksForAgent(t, "pi", "claude", "codex")
+	providers, err := packload.ComposeProviders(user, packs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := packload.ResolveProfiles(packs, nil, providers)
+	if err != nil {
+		t.Fatal(err)
+	}
+	providersJSON := mustCompactJSON(t, providers)
+	wire := mustCompactJSON(t, packload.ProfilesWireTable(resolved))
+	var got codexConsumers
+
+	// claude settings, through the boot render.
+	e, _ := newClaudePrismEnv(t, map[string]string{
+		"YOLO_PROVIDERS":    providersJSON,
+		"YOLO_USE_PROFILES": `{"claude":"codex"}`,
+		"YOLO_PROFILES":     wire,
+	})
+	if err := ConfigurePackByName(e, "claude"); err != nil {
+		t.Fatal(err)
+	}
+	settings := decodeJSONFile(t, filepath.Join(e.ClaudeDir(), "settings.json"))
+	got.claudeAvailable, _ = settings["availableModels"].([]any)
+	if picker, ok := settings["modelPicker"].(map[string]any); ok {
+		got.claudeOptions, _ = picker["options"].([]any)
+	}
+
+	// claude env, through the host composition a launch runs.
+	vars, err := packload.AgentEnv(packs, providers, map[string]string{"claude": "codex"},
+		"claude", "codex", func(string) (string, bool) { return "", false },
+		packload.WithResolvedProfiles(resolved))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got.claudeEnv = map[string]string{}
+	for _, v := range vars {
+		got.claudeEnv[v.Key] = v.Value
+	}
+
+	// pi settings and the extension's data file, through the boot render.
+	r := newPioencodeRender(t, providersJSON)
+	r.wireProfiles(wire)
+	r.render(t, `{"pi":"codex"}`)
+	got.piSettings = r.piSettings(t)
+	got.piModelsFile = r.surface(t, strings.Split(piCodexModelsRel(t), "/")...)
+
+	// codex, through the boot render.
+	codexCfg := renderCodexConfig(t, providersJSON, `{"codex":"codex"}`, wire)
+	got.codexModel = codexCfg["model"]
+	return got, providers
+}
+
+// requireConsumersRender asserts every consumer against one expected list.
+func requireConsumersRender(t *testing.T, got codexConsumers, want []codexModel) {
+	t.Helper()
+	if len(want) == 0 {
+		t.Fatal("the expected list is empty, so every assertion below would measure nothing")
+	}
+	first := want[0]
+
+	if !reflect.DeepEqual(got.claudeAvailable, codexIDs(want, "")) {
+		t.Errorf("claude availableModels = %v, want %v", got.claudeAvailable, codexIDs(want, ""))
+	}
+	var wantOptions []any
+	for _, m := range want {
+		o := map[string]any{"model": m.ID, "label": m.ID}
+		if m.Name != "" {
+			o["label"] = m.Name
+		}
+		if m.Description != "" {
+			o["description"] = m.Description
+		}
+		wantOptions = append(wantOptions, o)
+	}
+	if !reflect.DeepEqual(got.claudeOptions, wantOptions) {
+		t.Errorf("claude modelPicker.options = %v, want %v", got.claudeOptions, wantOptions)
+	}
+
+	wantEnv := map[string]string{
+		"ANTHROPIC_MODEL":              first.ID,
+		"CLAUDE_CODE_SUBAGENT_MODEL":   first.ID,
+		"ANTHROPIC_DEFAULT_OPUS_MODEL": first.ID,
+	}
+	if first.Name != "" {
+		wantEnv["ANTHROPIC_DEFAULT_OPUS_MODEL_NAME"] = first.Name
+	}
+	if first.Description != "" {
+		wantEnv["ANTHROPIC_DEFAULT_OPUS_MODEL_DESCRIPTION"] = first.Description + " (default)"
+	}
+	for k, v := range wantEnv {
+		if got.claudeEnv[k] != v {
+			t.Errorf("claude env %s = %q, want %q", k, got.claudeEnv[k], v)
+		}
+	}
+
+	if got.piSettings["defaultProvider"] != "openai-codex" || got.piSettings["defaultModel"] != first.ID {
+		t.Errorf("pi selection = %v/%v, want openai-codex/%s",
+			got.piSettings["defaultProvider"], got.piSettings["defaultModel"], first.ID)
+	}
+	sub, _ := got.piSettings["subagents"].(map[string]any)
+	if sub["defaultModel"] != "openai-codex/"+first.ID {
+		t.Errorf("pi subagents.defaultModel = %v, want openai-codex/%s", sub["defaultModel"], first.ID)
+	}
+	scope, _ := sub["modelScope"].(map[string]any)
+	if !reflect.DeepEqual(scope["allow"], codexIDs(want, "openai-codex/")) {
+		t.Errorf("pi subagents.modelScope.allow = %v, want the exact declared ids %v",
+			scope["allow"], codexIDs(want, "openai-codex/"))
+	}
+	if !reflect.DeepEqual(got.piSettings["enabledModels"], codexIDs(want, "openai-codex/")) {
+		t.Errorf("pi enabledModels = %v, want %v", got.piSettings["enabledModels"], codexIDs(want, "openai-codex/"))
+	}
+
+	var wantFile []any
+	for _, m := range want {
+		o := map[string]any{"id": m.ID}
+		if m.Base != "" {
+			o["base"] = m.Base
+		}
+		if m.Name != "" {
+			o["name"] = m.Name
+		}
+		if m.ContextWindow != 0 {
+			o["contextWindow"] = m.ContextWindow
+		}
+		wantFile = append(wantFile, o)
+	}
+	if !reflect.DeepEqual(got.piModelsFile["models"], wantFile) {
+		t.Errorf("pi codex-models file models = %v, want %v", got.piModelsFile["models"], wantFile)
+	}
+
+	if got.codexModel != first.ID {
+		t.Errorf("codex config model = %v, want %s", got.codexModel, first.ID)
+	}
+}
+
+func TestEveryCodexModelConsumerReadsTheOneDeclaration(t *testing.T) {
+	// 1-2. The declaration, and the rule over it. The literal pins the RULE: the order, the
+	// variant placement and the [1m] spelling, stated once here rather than per consumer.
+	decl := shippedCodexDeclaration(t)
+	shipped := expandCodexModels(decl.Models, decl.ModelOptions)
+	wantIDs := []any{"gpt-6-sol", "gpt-6-sol[1m]", "gpt-6-astra", "gpt-6-astra[1m]", "gpt-6-luna", "gpt-6-luna[1m]"}
+	if got := codexIDs(shipped, ""); !reflect.DeepEqual(got, wantIDs) {
+		t.Fatalf("the shipped declaration expands to %v, want %v", got, wantIDs)
+	}
+
+	// 3-4. Every consumer, over the table the real needs closure composes.
+	got, composed := renderCodexConsumers(t, nil)
+	models, opts := composedCodexModels(t, composed)
+	if composedList := expandCodexModels(models, opts); !reflect.DeepEqual(composedList, shipped) {
+		t.Fatalf("the composed table expands to %v, want the declaration's %v", composedList, shipped)
+	}
+	requireConsumersRender(t, got, shipped)
+
+	// 5. A USER OVERRIDE, which is what fails a consumer that went back to a literal: one id
+	// added with no facts (so it sorts last and has no 1M variant), and two removed. One of
+	// the two is the declared DEFAULT, because the consumers that read only the first id
+	// (claude's env, codex's model) would otherwise pass against a literal default.
+	user := jsonx.NewOrderedMap()
+	codexOverride := jsonx.NewOrderedMap()
+	overrideModels := jsonx.NewOrderedMap()
+	overrideModels.Set("gpt-6-nova", "gpt-6-nova")
+	overrideModels.Set("gpt-6-sol", nil)
+	overrideModels.Set("gpt-6-luna", nil)
+	codexOverride.Set("models", overrideModels)
+	user.Set("openai-codex", codexOverride)
+	gotOverride, composedOverride := renderCodexConsumers(t, user)
+	models, opts = composedCodexModels(t, composedOverride)
+	overridden := expandCodexModels(models, opts)
+	wantOverrideIDs := []any{"gpt-6-astra", "gpt-6-astra[1m]", "gpt-6-nova"}
+	if ids := codexIDs(overridden, ""); !reflect.DeepEqual(ids, wantOverrideIDs) {
+		t.Fatalf("the overridden table expands to %v, want %v", ids, wantOverrideIDs)
+	}
+	requireConsumersRender(t, gotOverride, overridden)
+
+	// 6. The shipped extension, under node, reading the file the boot render just wrote from
+	// the path the manifest declares. Its registered ids must be claude's allowlist.
+	for _, pass := range []struct {
+		name string
+		got  codexConsumers
+	}{{"shipped", got}, {"override", gotOverride}} {
+		ids := runExtensionRegisteredIDs(t, pass.got.piModelsFile)
+		if !reflect.DeepEqual(ids, pass.got.claudeAvailable) {
+			t.Errorf("%s: the pi extension registers %v, and claude's availableModels is %v",
+				pass.name, ids, pass.got.claudeAvailable)
+		}
+	}
+}
+
+// runExtensionRegisteredIDs writes the rendered data file into a fresh HOME, at the
+// manifest's path, and runs the shipped extension there, returning the model ids it passed
+// to registerProvider.
+func runExtensionRegisteredIDs(t *testing.T, file map[string]any) []any {
+	t.Helper()
+	p := shippedPiPack(t)
+	source, err := os.ReadFile(filepath.Join(p.Root, "extensions", "yolo-openai-auth.js"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	home := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "extension.mjs"), source, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	data, err := json.Marshal(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dest := filepath.Join(home, filepath.FromSlash(piCodexModelsRel(t)))
+	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(dest, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "harness.mjs"), []byte(`
+import extension from "./extension.mjs";
+let registration;
+await extension({ registerProvider(name, config) { registration = { name, config }; }, on() {} });
+if (!registration || registration.name !== "openai-codex") throw new Error("openai-codex was not registered");
+console.log(JSON.stringify((registration.config.models ?? []).map((m) => m.id)));
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command("node", "harness.mjs")
+	cmd.Dir = dir
+	cmd.Env = append(os.Environ(), "HOME="+home)
+	out, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("running the shipped pi extension: %v\n%s", err, out)
+	}
+	var ids []any
+	if err := json.Unmarshal(out, &ids); err != nil {
+		t.Fatalf("decoding the extension's registered ids %q: %v", out, err)
+	}
+	return ids
+}
+
+// THE HELPER IS ONE TEXT IN THREE FILES. A derive cannot load another file, so
+// codexModelList and codexDefault are copied into each consumer's derive.lua; a copy edited
+// alone is exactly the drift this list exists to end, so every copy must be byte-identical.
+func TestCodexModelListHelperIsIdenticalInEveryDerive(t *testing.T) {
+	helper := regexp.MustCompile(`(?s)-- THE openai-codex MODEL LIST\..*?\nlocal function codexDefault\(list, profile\)\n.*?\nend\n`)
+	var first, firstPack string
+	for _, pack := range []string{"claude", "pi", "codex"} {
+		p, err := embeddedPack(pack)
+		if err != nil {
+			t.Fatal(err)
+		}
+		script := packload.DeriveScript(p)
+		matches := helper.FindAllString(script, -1)
+		if len(matches) != 1 {
+			t.Fatalf("packs/%s/derive.lua carries %d copies of the codex model-list helper, want 1", pack, len(matches))
+		}
+		if first == "" {
+			first, firstPack = matches[0], pack
+			continue
+		}
+		if matches[0] != first {
+			t.Errorf("packs/%s/derive.lua's codex model-list helper differs from packs/%s/derive.lua's", pack, firstPack)
+		}
+	}
+}

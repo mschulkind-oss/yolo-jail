@@ -291,6 +291,87 @@ local function in_full(ctx, t)
   return t
 end
 
+-- THE openai-codex MODEL LIST. codexModelList expands the one declaration of it — the
+-- `models` and `model_options` packs/openai-auth/pack.json ships on the openai-codex provider,
+-- with the user's `providers.openai-codex` merged over it — into the ordered list every
+-- consumer presents (docs/design/model-lists-and-pickers.md ML-D1). `p` is
+-- ctx.providers["openai-codex"]; anything without a `models` table expands to {}.
+--
+-- Each declared id is WIRE-TRUE. Its facts come from model_options[alias]: `order` (the map
+-- is unordered all the way here, so this is the only order there is; unordered ids go last,
+-- by id), `name`, `description`, `context_window`, and `long_context_window`, which means
+-- "this model also has a 1M variant". That variant is emitted right after its base as
+-- `<id>[1m]`, a CLIENT spelling Claude Code, packs/pi's extension and the wire bridge each
+-- strip before the request leaves.
+--
+-- ⚠ DUPLICATED VERBATIM in packs/claude/derive.lua, packs/pi/derive.lua and
+-- packs/codex/derive.lua, because a derive cannot load another file (the sandbox has no
+-- require and no io). internal/entrypoint/codex_model_list_test.go fails when the copies
+-- differ, and when any consumer stops reading the declaration.
+local function codexModelList(p)
+  if type(p) ~= "table" or type(p.models) ~= "table" then return {} end
+  local opts = type(p.model_options) == "table" and p.model_options or {}
+  local aliases = {}
+  for alias in pairs(p.models) do
+    if type(alias) == "string" then table.insert(aliases, alias) end
+  end
+  table.sort(aliases)
+  local function text(v)
+    if type(v) == "string" and v ~= "" then return v end
+    return nil
+  end
+  local rows, seen = {}, {}
+  for _, alias in ipairs(aliases) do
+    local id = p.models[alias]
+    if type(id) == "string" and id ~= "" and not seen[id] then
+      seen[id] = true
+      local f = type(opts[alias]) == "table" and opts[alias] or {}
+      table.insert(rows, {
+        id = id,
+        order = tonumber(f.order),
+        name = text(f.name),
+        description = text(f.description),
+        context_window = tonumber(f.context_window),
+        long_context_window = tonumber(f.long_context_window),
+      })
+    end
+  end
+  table.sort(rows, function(a, b)
+    if a.order and b.order and a.order ~= b.order then return a.order < b.order end
+    if a.order and not b.order then return true end
+    if b.order and not a.order then return false end
+    return a.id < b.id
+  end)
+  local list = {}
+  for _, r in ipairs(rows) do
+    table.insert(list, {
+      id = r.id,
+      name = r.name,
+      description = r.description,
+      context_window = r.context_window,
+    })
+    if r.long_context_window then
+      table.insert(list, {
+        id = r.id .. "[1m]",
+        base = r.id,
+        name = r.name and (r.name .. " (1M context)"),
+        description = r.description and (r.description .. " · 1M context"),
+        context_window = r.long_context_window,
+      })
+    end
+  end
+  return list
+end
+
+-- codexDefault is the model a codex-profile launch starts on, by ONE rule in every consumer:
+-- the profile's `model` option unless it is absent or "default", else the first declared id,
+-- which is always a base id. nil when the list is empty and the profile names nothing.
+local function codexDefault(list, profile)
+  local m = type(profile) == "table" and profile.model or nil
+  if type(m) == "string" and m ~= "" and m ~= "default" then return m end
+  return list[1] and list[1].id
+end
+
 yolo.derive("pi", "models", function(ctx)
   if not ctx.providers or next(ctx.providers) == nil then
     return {}
@@ -487,67 +568,61 @@ yolo.derive("pi", "settings", function(ctx)
   -- row for it (docs/design/pi-codex-provider-shadowing.md OQ-1). Its address, wire and
   -- model definitions are the ones packs/pi/extensions/yolo-openai-auth.js registers: the
   -- broker-backed OAuth login, the openai-codex-responses client at chatgpt.com/backend-api,
-  -- and the model list with its [1m] variants. This branch speaks only for the SELECTION
+  -- and the model list — the ONE declared list (codexModelList above), which that extension
+  -- reads from the pi/codex-models surface below. This branch speaks only for the SELECTION
   -- within that list — the default pair, the enabledModels scope and the pi-subagents
-  -- policy. The shipped codex profile selects the stable default below; a user profile may
+  -- policy. The shipped codex profile selects the declared default; a user profile may
   -- state another exact model id from that list as `model`.
   if ctx.selected_provider == "openai-codex" then
-    -- The subscription catalog currently exposes these as the supported GPT-6
-    -- choices, with 1M context options alongside each model type. Keep the list explicit:
-    -- the provider wildcard would also make retired models selectable, and a future catalog
-    -- entry needs an intentional policy decision.
-    -- STANDING RULE: the DEFAULT LEADS — Sol first, then most capable first (Astra,
-    -- Luna). GPT-5.6 Terra has no GPT-6 successor; Sol carries the balanced role now.
-    -- The first slot is not presentation. pi starts a fresh session on the FIRST
-    -- enabledModel whenever the saved defaultProvider/defaultModel pair fails to
-    -- resolve — and a stale id is exactly that (dist/main.js, buildSessionOptions:
-    -- the saved default is used only when it resolves AND sits in scope, "otherwise
-    -- first scoped model"; verified against the installed pi 0.87.1, 2026-09-25) —
-    -- so the previous most-capable-first order started every such launch on Astra.
-    -- This is the same fix claude's availableModels carries for its retained Default
-    -- row: lead with the default, and the fallback lands on it too.
-    local model = (ctx.profile and ctx.profile.model) or "gpt-6-sol"
-    local enabledModels = {
-      "openai-codex/gpt-6-sol",
-      "openai-codex/gpt-6-sol[1m]",
-      "openai-codex/gpt-6-astra",
-      "openai-codex/gpt-6-astra[1m]",
-      "openai-codex/gpt-6-luna",
-      "openai-codex/gpt-6-luna[1m]",
-    }
+    local list = codexModelList(p)
+    local model = codexDefault(list, ctx.profile)
+    -- STANDING RULE: the DEFAULT LEADS. The first slot is not presentation. pi starts a
+    -- fresh session on the FIRST enabledModel whenever the saved
+    -- defaultProvider/defaultModel pair fails to resolve — and a stale id is exactly that
+    -- (dist/main.js, buildSessionOptions: the saved default is used only when it resolves
+    -- AND sits in scope, "otherwise first scoped model"; verified against the installed pi
+    -- 0.87.1, 2026-09-25). This is the same fix claude's availableModels carries for its
+    -- retained Default row: lead with the default, and the fallback lands on it too.
+    local enabledModels, allow = {}, {}
+    for _, e in ipairs(list) do
+      table.insert(enabledModels, "openai-codex/" .. e.id)
+      table.insert(allow, "openai-codex/" .. e.id)
+    end
     for i, em in ipairs(enabledModels) do
-      if em == "openai-codex/" .. model then
+      if model and em == "openai-codex/" .. model then
         table.remove(enabledModels, i)
         table.insert(enabledModels, 1, em)
         break
       end
     end
-    return {
-      -- Pi-subagents has its own default, independent of Pi's chat selection.
-      -- Computed output is intentional here: selection can only lift scalar keys,
-      -- while this structured policy must reject legacy explicit workflow models.
-      subagents = {
-        defaultProvider = "openai-codex",
-        defaultModel = "openai-codex/" .. model,
-        modelScope = {
-          enforce = true,
-          strict = true,
-          allow = {
-            "openai-codex/gpt-6-*",
-          },
-        },
-      },
-      -- enabledModels rides the selection, not the computed layer: pi's /model scoping
-      -- writes the same key, and a computed key is re-asserted every boot, which would
-      -- revert the user's scoped list on the next launch. Under the selection it gets
-      -- the same rules as the pair: written on activation, a user edit kept, yolo's own
-      -- list cleared on deselect (OQ-PSW2). An array is a leaf there, replaced whole.
-      selection = {
-        defaultProvider = "openai-codex",
-        defaultModel = model,
-        enabledModels = enabledModels,
-      },
-    }
+    -- Pi-subagents has its own default, independent of Pi's chat selection.
+    -- Computed output is intentional here: selection can only lift scalar keys,
+    -- while this structured policy must reject legacy explicit workflow models.
+    --
+    -- The allow list is the declared ids, EXACTLY (docs/design/model-lists-and-pickers.md
+    -- ML-D5), not a family glob written down a third time. pi-subagents 0.35.1's
+    -- globToRegExp escapes `[` and `]` before it turns `*` into a wildcard
+    -- (src/runs/shared/model-scope.ts), so `openai-codex/<id>[1m]` matches literally. An
+    -- EMPTY list writes no modelScope at all: an enforced, strict, empty allow would refuse
+    -- every child model.
+    local subagents = { defaultProvider = "openai-codex" }
+    if model then
+      subagents.defaultModel = "openai-codex/" .. model
+    end
+    if #allow > 0 then
+      subagents.modelScope = { enforce = true, strict = true, allow = allow }
+    end
+    -- enabledModels rides the selection, not the computed layer: pi's /model scoping
+    -- writes the same key, and a computed key is re-asserted every boot, which would
+    -- revert the user's scoped list on the next launch. Under the selection it gets
+    -- the same rules as the pair: written on activation, a user edit kept, yolo's own
+    -- list cleared on deselect (OQ-PSW2). An array is a leaf there, replaced whole — and
+    -- an EMPTY one is omitted, since an empty Lua table marshals as a JSON object.
+    local selection = { defaultProvider = "openai-codex", defaultModel = model }
+    if #enabledModels > 0 then
+      selection.enabledModels = enabledModels
+    end
+    return { subagents = subagents, selection = selection }
   end
   if not piReachable(p) then
     return {}
@@ -618,6 +693,31 @@ yolo.derive("pi", "settings", function(ctx)
   -- branch above: a computed key would revert pi's own /model scoping every launch.
   sel.enabledModels = enabled
   return { selection = sel }
+end)
+
+-- codex-models (~/.pi/agent/yolo-openai-codex-models.json): the openai-codex model list
+-- packs/pi/extensions/yolo-openai-auth.js registers, as data. The extension cannot read the
+-- declaration itself — it is JavaScript pi loads, not a derive — and this surface is the
+-- one channel that reaches it (docs/design/model-lists-and-pickers.md ML-D3): an env var
+-- composes nothing without a profile while the extension registers the provider always, a
+-- models.json row for openai-codex is the shadow OQ-1/OQ-2 of
+-- docs/design/pi-codex-provider-shadowing.md forbid, and parsing YOLO_PROVIDERS in the
+-- extension would be a second copy of codexModelList.
+--
+-- It renders WHETHER OR NOT a profile is active, because the extension registers the
+-- provider on every launch. Each entry carries only what yolo declares — id, the [1m]
+-- variant's base, the display name and the context window; the extension takes every
+-- pi-dialect fact (cost tiers, thinking levels, compat) from pi's own catalog, looked up
+-- by `base` or `id`. An empty list renders `{}`, and the extension then registers no
+-- models of its own, which leaves pi's built-in openai-codex catalog in place.
+yolo.derive("pi", "codex-models", function(ctx)
+  local list = codexModelList(ctx.providers and ctx.providers["openai-codex"])
+  if #list == 0 then return {} end
+  local models = {}
+  for _, e in ipairs(list) do
+    table.insert(models, { id = e.id, base = e.base, name = e.name, contextWindow = e.context_window })
+  end
+  return { models = models }
 end)
 
 -- mcp: passthrough — canonical mcp_servers lands verbatim under mcpServers

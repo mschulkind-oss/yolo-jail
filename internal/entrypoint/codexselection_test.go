@@ -85,6 +85,22 @@ const zaiProviderJSON = `{"zai":{
   }
 },"llamacpp":{"base_url":"http://127.0.0.1:8080/v1","models":{"default":"llama"}}}`
 
+// shippedCodexWithNeighbourJSON is the openai-codex row codex's needs closure composes
+// (packs/openai-auth declares it, its model list included) beside a speakable neighbour,
+// spelled as the composed table carries it.
+func shippedCodexWithNeighbourJSON(t *testing.T) string {
+	t.Helper()
+	providers, err := packload.ComposeProviders(nil, testPacksForAgent(t, "codex"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	row, ok := providers.Get("openai-codex")
+	if !ok {
+		t.Fatalf("codex's pack closure composes no openai-codex provider: %v", providers.Keys())
+	}
+	return `{"openai-codex":` + mustCompactJSON(t, row) + `,"llamacpp":{"base_url":"http://127.0.0.1:8080/v1"}}`
+}
+
 // reachableProviderJSON is a provider codex CAN speak: the base_url shorthand with no
 // wire_api, which is codex's own default (responses) — the shape a user's local llama.cpp
 // entry takes (local-model-endpoints.md §"Codex CLI" recipe).
@@ -94,6 +110,7 @@ const reachableProviderJSON = `{"llamacpp":{
 }}`
 
 func TestCodexDeriveWritesTheSelectionKeys(t *testing.T) {
+	shippedCodexNeighbourJSON := shippedCodexWithNeighbourJSON(t)
 	cases := []struct {
 		name         string
 		providers    string
@@ -203,12 +220,11 @@ func TestCodexDeriveWritesTheSelectionKeys(t *testing.T) {
 		},
 		{
 			// openai-codex is Codex's native first-party subscription provider (docs/reference/providers.md#selecting-openai-codex-for-codex).
-			// Selecting it writes model = "gpt-6-sol" directly without model_provider, and does not emit
-			// openai-codex into model_providers table.
-			name: "native openai-codex provider writes model alone without model_provider",
-			providers: `{"openai-codex":{"capabilities":["web_search"],"endpoints":` +
-				`{"openai-responses":{"base_url":"https://chatgpt.com/backend-api/codex","wire_api":"openai-responses"}}},` +
-				`"llamacpp":{"base_url":"http://127.0.0.1:8080/v1"}}`,
+			// Selecting it writes the FIRST declared id directly without model_provider, and
+			// does not emit openai-codex into model_providers table. The row is the one the
+			// shipped packs compose, so the default is packs/openai-auth's declaration.
+			name:         "native openai-codex provider writes model alone without model_provider",
+			providers:    shippedCodexNeighbourJSON,
 			profiles:     `{"codex":"codex"}`,
 			wire:         `{"codex": {"provider": "openai-codex"}}`,
 			wantProvider: "",
@@ -216,14 +232,25 @@ func TestCodexDeriveWritesTheSelectionKeys(t *testing.T) {
 			guard:        "llamacpp",
 		},
 		{
-			name: "native openai-codex provider honors profile model option",
-			providers: `{"openai-codex":{"capabilities":["web_search"],"endpoints":` +
-				`{"openai-responses":{"base_url":"https://chatgpt.com/backend-api/codex","wire_api":"openai-responses"}}},` +
-				`"llamacpp":{"base_url":"http://127.0.0.1:8080/v1"}}`,
+			name:         "native openai-codex provider honors profile model option",
+			providers:    shippedCodexNeighbourJSON,
 			profiles:     `{"codex":"codex"}`,
 			wire:         `{"codex": {"provider": "openai-codex", "model": "gpt-6-astra"}}`,
 			wantProvider: "",
 			wantModel:    "gpt-6-astra",
+			guard:        "llamacpp",
+		},
+		{
+			// A row with NO models — every alias nulled in the user's config — has no default
+			// to name, so the selection writes no `model` and codex starts on its own.
+			name: "native openai-codex provider with no declared models writes no model",
+			providers: `{"openai-codex":{"capabilities":["web_search"],"endpoints":` +
+				`{"openai-responses":{"base_url":"https://chatgpt.com/backend-api/codex","wire_api":"openai-responses"}}},` +
+				`"llamacpp":{"base_url":"http://127.0.0.1:8080/v1"}}`,
+			profiles:     `{"codex":"codex"}`,
+			wire:         `{"codex": {"provider": "openai-codex"}}`,
+			wantProvider: "",
+			wantModel:    "",
 			guard:        "llamacpp",
 		},
 	}

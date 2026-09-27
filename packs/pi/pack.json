@@ -87,6 +87,13 @@
         {
           "agent": "pi",
           "codec": "json",
+          "mode": "computed",
+          "name": "codex-models",
+          "path": "~/.pi/agent/yolo-openai-codex-models.json"
+        },
+        {
+          "agent": "pi",
+          "codec": "json",
           "defaults": {
             "mcpServers": {}
           },

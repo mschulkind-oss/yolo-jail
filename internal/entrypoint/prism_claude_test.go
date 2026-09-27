@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg"
+	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 )
 
 // newClaudePrismEnv builds an Env with a fake jail home, a fake /ctx/host-claude
@@ -299,8 +300,17 @@ func TestConfigureClaudePrismNoLSP(t *testing.T) {
 // reads receives the exact subscription model IDs. This is a profile-specific computed
 // surface: deleting the provider context hand-off, or falling back to Claude's built-in
 // picker, makes this test fail at the boot writer rather than only in a Lua unit test.
+//
+// The provider table is the one a claude launch composes (claude's needs closure brings
+// packs/openai-auth, which DECLARES the list), so the ids below are the declaration's as
+// rendered — without the table the derive has no list and writes no picker at all.
 func TestConfigureClaudePrismCodexModelPicker(t *testing.T) {
+	providers, err := packload.ComposeProviders(nil, testPacksForAgent(t, "claude"))
+	if err != nil {
+		t.Fatal(err)
+	}
 	e, _ := newClaudePrismEnv(t, map[string]string{
+		"YOLO_PROVIDERS":    mustCompactJSON(t, providers),
 		"YOLO_USE_PROFILES": `{"claude":"codex"}`,
 		"YOLO_PROFILES":     `{"codex":{"provider":"openai-codex"}}`,
 	})
@@ -334,19 +344,18 @@ func TestConfigureClaudePrismCodexModelPicker(t *testing.T) {
 	if !ok {
 		t.Fatalf("modelPicker.options missing/!array: %v", picker["options"])
 	}
-	want := []string{
-		"gpt-6-sol", "gpt-6-sol[1m]",
-		"gpt-6-astra", "gpt-6-astra[1m]",
-		"gpt-6-luna", "gpt-6-luna[1m]",
+	// The options the derive's literal table carried before the list became data, row for
+	// row: the move into packs/openai-auth's declaration changed no byte of the picker.
+	want := []any{
+		map[string]any{"model": "gpt-6-sol", "label": "GPT-6 Sol", "description": "Balanced"},
+		map[string]any{"model": "gpt-6-sol[1m]", "label": "GPT-6 Sol (1M context)", "description": "Balanced · 1M context"},
+		map[string]any{"model": "gpt-6-astra", "label": "GPT-6 Astra", "description": "Frontier"},
+		map[string]any{"model": "gpt-6-astra[1m]", "label": "GPT-6 Astra (1M context)", "description": "Frontier · 1M context"},
+		map[string]any{"model": "gpt-6-luna", "label": "GPT-6 Luna", "description": "Fast"},
+		map[string]any{"model": "gpt-6-luna[1m]", "label": "GPT-6 Luna (1M context)", "description": "Fast · 1M context"},
 	}
-	if len(options) != len(want) {
-		t.Fatalf("modelPicker.options = %v, want %v", options, want)
-	}
-	for i, model := range want {
-		option, ok := options[i].(map[string]any)
-		if !ok || option["model"] != model {
-			t.Errorf("modelPicker.options[%d] = %v, want model %q", i, options[i], model)
-		}
+	if !reflect.DeepEqual(options, want) {
+		t.Errorf("modelPicker.options = %v, want %v", options, want)
 	}
 }
 
