@@ -776,8 +776,8 @@ decision" was simply wrong.
 
 ## 10. A pack cannot install Claude MCP servers on the host — **in progress**
 
-Full analysis in [`handoff-host-mcp-servers.md`](handoff-host-mcp-servers.md); this entry is
-the proposal plus the one ruling that settled its hardest question.
+Full analysis was in `handoff-host-mcp-servers.md` (retired 2026-09-27; `git log -- docs/plans/handoff-host-mcp-servers.md`);
+this entry is the proposal plus the one ruling that settled its hardest question.
 
 **The defect, reproduced.** Claude keeps user-scope MCP servers in `~/.claude.json` under
 `mcpServers` — the `claude/config` surface. `usesWorkspacePlaceholder`

@@ -101,7 +101,8 @@ state today; it is each vendor's, and yolo neither knows nor reports it.
 winning is a defensible default — the repo is the user's choice for that workspace. But yolo is the
 sole author of the file it regenerates, and it has an existing rule for exactly this shape: a managed
 table yolo owns is regenerated wholesale, and an entry it does not declare is dropped *with a notice*
-(the `claude/config` `mcpServers` case, [`handoff-host-mcp-servers.md`](../plans/handoff-host-mcp-servers.md)).
+(the `claude/config` `mcpServers` case, whose notice is the MCP-entry row of
+[the remedy contract](../reference/report-tiers.md#the-remedy-contract)).
 Silently losing to a workspace file is the same surprise the notice exists to prevent.
 
 **Leaning.** Workspace wins, but yolo **discloses** when a workspace source overrides a server the

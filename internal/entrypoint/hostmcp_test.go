@@ -1,8 +1,12 @@
 package entrypoint
 
-// hostmcp_test.go covers "a pack can install Claude MCP servers on the host" — the gap
-// docs/plans/handoff-host-mcp-servers.md reported, plus the three care-required items it
-// attached to it.
+// hostmcp_test.go covers "a pack can install Claude MCP servers on the host": the host render
+// refused all of ~/.claude.json because two unrelated keys in it were ${workspace}-keyed. A
+// 2026-08-02 handoff reported that gap with three care-required items attached: the file is
+// live agent state, `mcpServers` is a table yolo regenerates wholesale, and ${VAR} in a
+// server's fields. The handoff is retired (`git log -- docs/plans/handoff-host-mcp-servers.md`); its
+// rulings live in docs/reference/host-apply-staleness.md#the-two-carve-outs and
+// docs/reference/mcp-configuration.md#the-rules-the-one-loader-enforces.
 //
 // The gap was a granularity bug, and the tests are shaped around that. Claude Code keeps
 // user-scope MCP servers in ~/.claude.json (the claude/config surface), and that surface also
@@ -46,7 +50,7 @@ func embeddedPlaceholderSurface() manifest.Surface {
 }
 
 // mcpOverlayPack is a user's own pack contributing MCP servers to claude/config via
-// config-overlay — the exact shape the handoff's reproduction used.
+// config-overlay — the exact shape the gap's reproduction used.
 func mcpOverlayPack(t *testing.T, servers map[string]any) *packload.Pack {
 	t.Helper()
 	raw, err := json.Marshal(map[string]any{
@@ -183,7 +187,7 @@ func TestHostConfigSkippedWhenOnlyWorkspaceKeyed(t *testing.T) {
 
 // realisticClaudeJSON is a ~32-key ~/.claude.json in the shape a real host carries: live
 // agent state (startup counters, onboarding flags, cached release notes, per-project history)
-// alongside the one key yolo manages. The handoff asked for exactly this test, and the reason
+// alongside the one key yolo manages. The gap's report asked for exactly this test, and the reason
 // is blast radius: this file is not settings.json, and a bug in an RMW writer here loses a
 // user's history rather than a preference.
 const realisticClaudeJSON = `{
@@ -575,12 +579,13 @@ func TestPruneWorkspaceKeyedKeepsDeclaredEmptyObject(t *testing.T) {
 	}
 }
 
-// --- the JAIL half of §3: ${VAR} in `url` -------------------------------------------
+// --- the JAIL half of the ${VAR}-in-`url` case -------------------------------------
 //
-// Interpolation used to cover `env` values ONLY, which made the http/sse transports
-// unusable with any secret: the canonical remote-MCP form puts the credential in the query
-// string, and that landed verbatim so the server 401'd with nothing said. These pin the
-// widened field set from the loader the jail boot actually calls.
+// The canonical remote-MCP form puts its credential in the url's query string as ${VAR}.
+// yolo interpolates no field at any notch
+// (docs/reference/mcp-configuration.md#the-rules-the-one-loader-enforces): the reference is
+// written verbatim, and the agent that launches the server resolves it. The test below pins
+// that from the loader the jail boot actually calls.
 
 // mcpEnv builds an Env with one MCP server declared and the given vars resolvable.
 func mcpEnv(serversJSON string, vars map[string]string) (*Env, *strings.Builder) {
@@ -663,7 +668,7 @@ func TestJailMCPUndefinedVarIsAlsoJustLiteral(t *testing.T) {
 
 // --- UNIFORMITY: every agent's MCP table is a wholesale table at the host ---------------
 //
-// The whole point of the handoff was that claude was "the odd one out purely because of
+// The whole point of the fix was that claude was "the odd one out purely because of
 // where Claude Code chose to store user MCP config". Once claude renders, host MCP
 // management should be uniform — and uniform means the same WRITE SEMANTICS, not just that a
 // file gets written.

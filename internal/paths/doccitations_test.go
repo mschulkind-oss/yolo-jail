@@ -84,6 +84,13 @@ var fixtureCitations = map[string]string{
 		"docs/reference/composed-file-permissions.md). internal/entrypoint/tomltrivia.go cites " +
 		"it as `git log -- docs/plans/host-file-staging.md` for the trivia-options ranking, " +
 		"which lives only in history",
+	// Retired 2026-09-27: every question it raised was ruled elsewhere (host-apply-staleness.md,
+	// mcp-configuration.md, report-tiers.md, pack-system.md). The test file that pins its fix
+	// names it inside `git log -- <path>` so the report stays findable, the same in-history
+	// shape as the entry above.
+	"docs/plans/handoff-host-mcp-servers.md": "retired 2026-09-27. internal/entrypoint/hostmcp_test.go " +
+		"cites it as `git log -- docs/plans/handoff-host-mcp-servers.md` for the original gap report, " +
+		"which lives only in history",
 }
 
 // TestEveryDocCitationFromGoResolves is the tripwire for a class that has bitten
