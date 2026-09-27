@@ -85,12 +85,16 @@ func writeLocalLoopholePack(t *testing.T, home, loopholeName, manifest string) {
 type macosUserLaunchResult struct {
 	env *jsonx.OrderedMap
 	// published is read INSIDE the handler, which is the only window in which it exists: the
-	// launch's deferred stopLoopholes closes each front, and a front's listener Close unlinks
-	// the endpoint file — retiring the jail's credential — before Run returns. A test that
-	// looked afterwards would measure the teardown and conclude nothing ever started.
+	// launch's deferred teardown closes each front, and a front's listener Close unlinks the
+	// endpoint file — retiring the jail's credential — before Run returns, and then removes the
+	// session's dir. A test that looked afterwards would measure the teardown and conclude
+	// nothing ever started.
 	published []string
-	out       string
-	rc        int
+	// sessionDirs is every host-services dir of this workspace's sessions that existed while the
+	// handler ran: this launch's own, since it is the only session (servicessession.go).
+	sessionDirs []string
+	out         string
+	rc          int
 }
 
 // macosUserLaunch runs a real macos-user launch against a stub backend handler.
@@ -98,18 +102,20 @@ func macosUserLaunch(t *testing.T, ws string) macosUserLaunchResult {
 	t.Helper()
 	var stdout, stderr bytes.Buffer
 	o := dispatchOptions(t, ws, "macos-user", &stdout, &stderr, nil)
-	socketsDir := hostServiceSocketsDir(runtime.FromWorkspace(ws), false)
+	cname := runtime.FromWorkspace(ws)
 	got := macosUserLaunchResult{}
 	o.MacosUserRun = func(_ *jsonx.OrderedMap, _ string, _, _ []string, _, _, _ string,
 		_ macosuser.HostContext, _ bool, launchEnv *jsonx.OrderedMap, _ []packload.BlockedTool) int {
 		got.env = launchEnv
-		entries, _ := os.ReadDir(socketsDir)
-		for _, e := range entries {
-			got.published = append(got.published, e.Name())
+		got.sessionDirs = servicesSessionDirs(t, cname)
+		for _, dir := range got.sessionDirs {
+			entries, _ := os.ReadDir(dir)
+			for _, e := range entries {
+				got.published = append(got.published, e.Name())
+			}
 		}
 		return 0
 	}
-	t.Cleanup(func() { _ = os.RemoveAll(socketsDir) })
 	got.rc = Run(*o)
 	got.out = stdout.String() + stderr.String()
 	return got
@@ -151,8 +157,13 @@ func TestMacosUserLaunchStartsAConfigDeclaredServiceAndCarriesItsEndpoint(t *tes
 			"through startLoopholesDisclosed; carrying the endpoint is the other half of that.\n%s",
 			name, out)
 	}
-	want := filepath.Join(hostServiceSocketsDir(runtime.FromWorkspace(ws), false),
-		"acme-proxy"+paths.ServiceEndpointExt)
+	// This session's OWN dir (servicessession.go), the one dir of this workspace that existed
+	// while the backend ran.
+	if len(got.sessionDirs) != 1 {
+		t.Fatalf("the launch had %d host-services session dirs while its backend ran (%v), want "+
+			"exactly its own\n%s", len(got.sessionDirs), got.sessionDirs, out)
+	}
+	want := filepath.Join(got.sessionDirs[0], "acme-proxy"+paths.ServiceEndpointExt)
 	if got, _ := value.(string); got != want {
 		t.Errorf("%s = %q, want the HOST path the daemon published (%q). The sandbox reads this "+
 			"machine's own filesystem — a jail path names nothing here", name, got, want)
@@ -228,7 +239,6 @@ func TestMacosUserDryRunStartsNoHostServices(t *testing.T) {
 		return 0
 	}
 	cname := runtime.FromWorkspace(ws)
-	t.Cleanup(func() { _ = os.RemoveAll(hostServiceSocketsDir(cname, false)) })
 
 	if rc := Run(*o); rc != 0 {
 		t.Fatalf("Run(--dry-run) = %d, want 0\nstdout:\n%s\nstderr:\n%s", rc, stdout.String(), stderr.String())
@@ -237,9 +247,8 @@ func TestMacosUserDryRunStartsNoHostServices(t *testing.T) {
 	if strings.Contains(out, "runs pack code on your machine") || strings.Contains(out, "acme-dryrun-daemon") {
 		t.Errorf("a dry run announced host execution it never performed:\n%s", out)
 	}
-	if _, err := os.Stat(filepath.Join(hostServiceSocketsDir(cname, false),
-		"acme-proxy"+paths.ServiceEndpointExt)); err == nil {
-		t.Error("a dry run started a host daemon; the plan render must describe the launch, " +
-			"not perform it")
+	if dirs := servicesSessionDirs(t, cname); len(dirs) != 0 {
+		t.Errorf("a dry run created host-services session dirs %v, so it started the spawn; the "+
+			"plan render must describe the launch, not perform it", dirs)
 	}
 }

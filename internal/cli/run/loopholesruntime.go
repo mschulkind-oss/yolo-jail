@@ -179,8 +179,25 @@ func (o *Options) startLoopholes(cname, rt string, cfg *jsonx.OrderedMap) []loop
 // subset of host services. Apple Container admits the OpenAI credential endpoint file,
 // while macos-user starts that same one service without activating unrelated loopholes.
 func (o *Options) startLoopholesMatching(cname, rt string, cfg *jsonx.OrderedMap, allow func(string) bool) []loopholeDaemon {
-	socketsDir := hostServiceSocketsDir(cname, o.IsMacOS)
-	mkdirHostServicesDir(socketsDir)
+	// ONE DIR PER SESSION ON macos-user, one per jail everywhere else (servicessession.go). A
+	// container jail has one set of fronts however many terminals attach to it, so its
+	// workspace-keyed dir has one publisher; a macos-user session is a sandbox of its own, and
+	// two of one workspace sharing that dir is the teardown defect OQ-HD10's second run measured.
+	var socketsDir string
+	if rt == "macos-user" { // parity: HonoredBy — a container backend has one container per name, so its cname-keyed dir has one publisher, and its teardown's relaunch lock and existence probe keep it for a live jail
+		if o.servicesSession == nil {
+			s, err := o.openServicesSession(cname)
+			if err != nil {
+				o.pr(o.Stdout).print(servicesSessionFailure(err))
+				return nil
+			}
+			o.servicesSession = s
+		}
+		socketsDir = o.servicesSession.dir
+	} else {
+		socketsDir = hostServiceSocketsDir(cname, o.IsMacOS)
+		mkdirHostServicesDir(socketsDir)
+	}
 
 	advertise := o.advertiseHostFor(rt, cfg)
 	var handles []loopholeDaemon
@@ -382,8 +399,11 @@ func (o *Options) cgroupDelegateHonored(set loopholes.Set) bool {
 // jails never writes there: its rendezvous is keyed by the loophole name
 // (paths.HostSingletonSocket), and each jail's endpoint file for it is published
 // by that jail's own front, in the yolo process that launched the jail. The one exception is macos-user, whose
-// caller passes no cname and so skips both guards; two sessions of one workspace
-// share the dir there (docs/design/host-daemon-ownership.md, OQ-HD10).
+// caller passes no cname and so skips both guards. That is right there because the dir is the
+// SESSION's own (servicessession.go): no relaunch or second session publishes into it, so its
+// session's end is the whole liveness answer. It was wrong while two sessions of one workspace
+// shared one dir, and the first to end removed the other's endpoints
+// (docs/design/host-daemon-ownership.md, OQ-HD10).
 //
 // THE RELAY REAP THAT USED TO SIT HERE IS GONE with internal/brokerrelay: a
 // SIGTERM-and-wait on a pid file, an unlink of the relay's own socket, and an
@@ -492,9 +512,10 @@ func (o *Options) stopLoopholes(handles []loopholeDaemon, socketsDir, cname, rt 
 	// cannot, and the leftover file would litter /tmp forever. A HOST-SCOPED
 	// daemon's socket is not in this set and must not be — it is keyed by loophole
 	// name, not by this jail's hash, and other jails are still using it.
-	base := filepath.Base(socketsDir)
-	if strings.HasPrefix(base, hostServicesDirPrefix) {
-		retireFrontSockets(strings.TrimPrefix(base, hostServicesDirPrefix))
+	// frontShortHash, the key the spawn bound them under, so a macos-user session's dir retires
+	// that session's sockets and no other's.
+	if strings.HasPrefix(filepath.Base(socketsDir), hostServicesDirPrefix) {
+		retireFrontSockets(frontShortHash(socketsDir))
 	}
 	if fileExists(socketsDir) {
 		// A FAILED RMTREE IS THE STALE-ENDPOINT HAZARD this whole file keeps
@@ -1255,14 +1276,34 @@ func frontSocketFile(shortHash, name string) string {
 
 // frontShortHash keys a fronted daemon's upstream socket to its jail. The
 // sockets dir is normally /tmp/yolo-host-services-<8hex>; reusing that hash
-// lets stopLoopholes find every front socket from the dir name alone. A dir
-// without the prefix (tests) hashes the whole path instead.
+// lets stopLoopholes find every front socket from the dir name alone. Any other
+// dir hashes its whole path instead: a dir without the prefix (tests), and a
+// macos-user SESSION's dir, /tmp/yolo-host-services-<8hex>-<random>
+// (servicessession.go).
+//
+// THE SESSION'S KEY MUST NOT START WITH ITS WORKSPACE'S HASH. Trimmed like a jail's,
+// it would be "<8hex>-<random>", and a container teardown of the same workspace name
+// retires by the glob /tmp/yolo-front-<8hex>-*.sock (retireFrontSockets), which
+// matches it. A hash of the path is a key of its own.
 func frontShortHash(socketsDir string) string {
 	base := filepath.Base(socketsDir)
-	if h := strings.TrimPrefix(base, hostServicesDirPrefix); h != base {
+	if h := strings.TrimPrefix(base, hostServicesDirPrefix); h != base && isJailShortHash(h) {
 		return h
 	}
 	return sha1Hex8(socketsDir)
+}
+
+// isJailShortHash reports whether s has paths.JailShortHash's form: eight lowercase hex digits.
+func isJailShortHash(s string) bool {
+	if len(s) != 8 {
+		return false
+	}
+	for _, c := range s {
+		if (c < '0' || c > '9') && (c < 'a' || c > 'f') {
+			return false
+		}
+	}
+	return true
 }
 
 // retireFrontSockets removes every PER-JAIL fronted daemon's upstream socket for

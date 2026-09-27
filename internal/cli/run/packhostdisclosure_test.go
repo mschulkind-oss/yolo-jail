@@ -414,12 +414,13 @@ func TestOpenAIAuthSubsetSpawnDisclosesBeforeItSpawns(t *testing.T) {
 			"--socket", "{socket}"], "scope": "host"}
 	}`)
 
+	// On macos-user the spawn's first side effect is this SESSION's own host-services dir
+	// (servicessession.go), whose name is not known until it exists, so the dir is looked for by
+	// the workspace's session prefix.
 	cname := "yolo-subset-disclose-" + t.Name()
-	socketsDir := hostServiceSocketsDir(cname, false)
-	if _, err := os.Lstat(socketsDir); err == nil {
-		t.Fatalf("fixture is not clean: %s already exists", socketsDir)
+	if dirs := servicesSessionDirs(t, cname); len(dirs) != 0 {
+		t.Fatalf("fixture is not clean: %v already exist", dirs)
 	}
-	t.Cleanup(func() { _ = os.RemoveAll(socketsDir) })
 
 	dirExistedAtPrint := true // pessimistic: the assertion must be earned
 	seen := ""
@@ -427,11 +428,11 @@ func TestOpenAIAuthSubsetSpawnDisclosesBeforeItSpawns(t *testing.T) {
 	errBuf.onWrite = func(s string) {
 		if strings.Contains(s, "openai-auth-broker") && seen == "" {
 			seen = s
-			_, err := os.Lstat(socketsDir)
-			dirExistedAtPrint = err == nil
+			dirExistedAtPrint = len(servicesSessionDirs(t, cname)) != 0
 		}
 	}
 	o := &Options{}
+	t.Cleanup(func() { o.endServicesSession(nil) })
 	fillDefaults(o)
 	o.Stderr = &errBuf
 	o.Stdout = discardBuf()
@@ -452,9 +453,9 @@ func TestOpenAIAuthSubsetSpawnDisclosesBeforeItSpawns(t *testing.T) {
 		t.Error("the broker argv printed AFTER the spawn had begun — for an exec claim that " +
 			"is a notification that something already happened, not a disclosure (§4.3 G4)")
 	}
-	if _, err := os.Lstat(socketsDir); err != nil {
-		t.Errorf("the spawn never ran after the disclosure (%v); the ordering assertion "+
-			"would pass vacuously", err)
+	if dirs := servicesSessionDirs(t, cname); len(dirs) == 0 {
+		t.Error("the spawn never ran after the disclosure (no session dir exists); the ordering " +
+			"assertion would pass vacuously")
 	}
 }
 
@@ -488,9 +489,9 @@ func TestMacosUserDisclosureNamesEveryPackItNowStarts(t *testing.T) {
 	}`)
 
 	cname := "yolo-subset-scope-" + t.Name()
-	t.Cleanup(func() { _ = os.RemoveAll(hostServiceSocketsDir(cname, false)) })
 	var errBuf bytes.Buffer
 	o := &Options{}
+	t.Cleanup(func() { o.endServicesSession(nil) })
 	fillDefaults(o)
 	o.Stderr = &errBuf
 	o.Stdout = discardBuf()

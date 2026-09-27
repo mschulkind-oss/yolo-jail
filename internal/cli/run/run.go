@@ -449,16 +449,23 @@ func Run(opts Options) (rc int) {
 			// lets a report and a lifecycle disagree. It is named because the plan is read
 			// to check the ACL grant it gets (macosuser.EndpointGrantCommands) — the one
 			// thing a dry run is the right instrument for here.
+			//
+			// THE DIR IN THAT PATH IS A PLACEHOLDER. A live session publishes into a dir of its
+			// own that its spawn creates (servicessession.go), so a plan render, which creates
+			// nothing, cannot know its name; servicesSessionPlanDir names its shape.
 			o.notePackLoopholesInert(rt, staged.packs, cfg)
 			if openAIAuthLoopholeActive(cfg) {
 				launchEnv.Set(hostServiceEnvVar(openAIAuthBrokerName),
-					filepath.Join(hostServiceSocketsDir(cname, o.IsMacOS),
+					filepath.Join(servicesSessionPlanDir(cname, o.IsMacOS),
 						openAIAuthBrokerName+paths.ServiceEndpointExt))
 			}
 		} else {
-			socketsDir := hostServiceSocketsDir(cname, o.IsMacOS)
+			// THE SESSION'S OWN DIR, created by the spawn and removed by this teardown alone
+			// (servicessession.go). Two sessions of one workspace used to share the dir the
+			// workspace's cname selects, and this deferred teardown, which takes no container
+			// guard, removed it under the other session (OQ-HD10's second run, measured).
 			handles := o.startLoopholesDisclosed(cname, rt, cfg, staged.packs)
-			defer o.stopLoopholes(handles, socketsDir, "", "")
+			defer o.endServicesSession(handles)
 			for _, h := range handles {
 				// THE HOST PATH, never the jail path: there is no jail filesystem here, so
 				// the file the daemon published IS the file the sandbox opens.

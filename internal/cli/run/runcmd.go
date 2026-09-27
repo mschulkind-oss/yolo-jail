@@ -152,6 +152,11 @@ type Options struct {
 	// then on the container holds packTree, so Run's deferred discardUnheldPackTree leaves it
 	// and forgetGoneContainer removes it once the runtime answers the container is gone.
 	packTreeHeld bool
+	// servicesSession is a macos-user launch's own host-services dir and its liveness lock
+	// (servicessession.go), created by the spawn (startLoopholesMatching) and removed by the
+	// arm's deferred endServicesSession. nil on every other backend, before the spawn, and after
+	// the teardown.
+	servicesSession *servicesSession
 	// launchLockWaited records that taking launchLock meant waiting for another launch of
 	// this workspace to finish its window — so a jail found running afterwards is the one
 	// THAT launch started, and the attach says so.

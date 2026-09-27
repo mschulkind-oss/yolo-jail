@@ -202,6 +202,31 @@ func TestHostServicesDirFollowsTheSingletonDir(t *testing.T) {
 	}
 }
 
+// TestSessionHostServicesDirsNeverMatchAJailsDir: a macos-user session's own dir is the jail's
+// dir name plus a dash and a suffix, and the session sweep's glob matches that family and not
+// the container jail's dir, which has nothing after its hash. A glob that matched both would let
+// the session sweep, which removes on its own liveness evidence, reach a container's endpoints.
+func TestSessionHostServicesDirsNeverMatchAJailsDir(t *testing.T) {
+	prev := HostSingletonDir
+	t.Cleanup(func() { HostSingletonDir = prev })
+	HostSingletonDir = "/tmp/ys-isolated"
+	const cname = "yolo-ws-abcd1234"
+	if got, want := HostServicesSessionPrefix(cname), "yolo-host-services-0420db18-"; got != want {
+		t.Errorf("HostServicesSessionPrefix = %q, want %q", got, want)
+	}
+	if got := HostServicesBase(false); got != "/tmp/ys-isolated" {
+		t.Errorf("HostServicesBase = %q: it does not follow HostSingletonDir", got)
+	}
+	glob := HostServicesSessionGlob(HostServicesBase(false))
+	session := filepath.Join(HostServicesBase(false), HostServicesSessionPrefix(cname)+"123456")
+	if ok, _ := filepath.Match(glob, session); !ok {
+		t.Errorf("the session glob %q does not match a session dir %q", glob, session)
+	}
+	if ok, _ := filepath.Match(glob, HostServicesDir(cname, false)); ok {
+		t.Errorf("the session glob %q matches the container jail's dir %q", glob, HostServicesDir(cname, false))
+	}
+}
+
 func TestUserConfigPathFallsBackToJSON(t *testing.T) {
 	tmp := t.TempDir()
 	t.Setenv("HOME", tmp)

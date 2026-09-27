@@ -411,15 +411,55 @@ var HostSingletonDir = DefaultHostSingletonDir
 // inject the platform (the run pipeline's golden fixtures do) get the same answer
 // they assert. On macOS /tmp is a symlink to /private/tmp and the resolved form is
 // used, so a path here matches what the kernel reports.
+//
+// ⚠ ON macos-user NO LAUNCH PUBLISHES HERE. That backend runs one sandbox per invocation and
+// no container, so two terminals in one workspace are two live sessions of one cname, and a
+// dir keyed by the cname alone was one dir for both: the second session's front replaced the
+// first's endpoint file, and the first teardown removed the dir under the survivor
+// (docs/design/host-daemon-ownership.md#OQ-HD10). Each macos-user session creates its own
+// dir instead, named by HostServicesSessionPrefix (internal/cli/run/servicessession.go).
 func HostServicesDir(cname string, isMacOS bool) string {
+	return filepath.Join(HostServicesBase(isMacOS), HostServicesDirName(JailShortHash(cname)))
+}
+
+// HostServicesBase is the directory every host-services dir is built in: HostSingletonDir,
+// resolved on macOS, where /tmp is a symlink to /private/tmp, so a path built here matches
+// what the kernel reports.
+func HostServicesBase(isMacOS bool) string {
 	base := HostSingletonDir
 	if isMacOS {
 		if r, err := filepath.EvalSymlinks(base); err == nil {
 			base = r
 		}
 	}
-	return filepath.Join(base, HostServicesDirName(JailShortHash(cname)))
+	return base
 }
+
+// HostServicesSessionPrefix is the base-name prefix of a macos-user SESSION's own
+// host-services dir: yolo-host-services-<8hex>-, the workspace's key and a dash, to which the
+// session's creation (os.MkdirTemp) appends a random suffix. A SESSION, a term coined here, is
+// one macos-user invocation of yolo: one sandbox and the host services started for it, from
+// launch to teardown.
+//
+// The dash is what keeps the two families apart. A container jail's dir is exactly
+// HostServicesDirName(<8hex>), with nothing after the hash, so HostServicesSessionGlob never
+// matches one, and nothing that sweeps session dirs can reach a container's.
+func HostServicesSessionPrefix(cname string) string {
+	return HostServicesDirName(JailShortHash(cname)) + "-"
+}
+
+// HostServicesSessionGlob matches every macos-user session's host-services dir under base, of
+// every workspace: the prefix, any 8-hex key, a dash, any suffix.
+func HostServicesSessionGlob(base string) string {
+	return filepath.Join(base, hostServicesDirPrefix+"*-*")
+}
+
+// HostServicesSessionLockName is the file inside a session's host-services dir that its yolo
+// process holds an exclusive flock on for the session's whole life. The kernel drops the lock
+// when that process exits, however it exits, so a lock nobody holds is the evidence that the
+// session is gone. Host-only: the file is 0600 and the sandbox account's grant on the dir is
+// search alone (macosuser.EndpointGrantCommands), so the sandbox can neither open nor remove it.
+const HostServicesSessionLockName = ".session.lock"
 
 // Home-relative storage layout. Python computes these from Path.home() at
 // import time; Go exposes the fixed suffixes plus helpers that join with the

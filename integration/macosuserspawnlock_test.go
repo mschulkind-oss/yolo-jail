@@ -53,21 +53,24 @@ import (
 //   - ENDPOINT DURING: what each session's claude-oauth-broker endpoint variable named, and
 //     whether the file was readable and its host:port dialable while both sessions were up.
 //   - ENDPOINT AFTER: the same probe in the LONGER session after the shorter one's `yolo`
-//     process had exited. READ FROM CODE, the prediction: both sessions publish into ONE
-//     per-workspace host-services dir (paths.HostServicesDir of one cname), startHostSingleton
-//     unlinks the endpoint file before publishing its own, and the macos-user arm's deferred
-//     stopLoopholes passes no cname, so it removes that whole dir unconditionally. If so, the
-//     survivor's endpoint is gone — a collision over per-workspace state that is not the spawn
-//     flock's and that the flock does not prevent.
+//     process had exited. This one is ASSERTED, below. The second run (scheduled macos-user run
+//     36319436117, f937d0fd) measured it GONE: both sessions published into ONE per-workspace
+//     host-services dir, the second session's front replaced the first's endpoint file, and the
+//     shorter session's teardown removed the dir under the survivor. Each session now publishes
+//     into a dir of its own and tears down only that one (internal/cli/run/servicessession.go),
+//     so the survivor's endpoint must still answer: its own front, in its own yolo process, over
+//     the host-wide broker that no session's teardown stops.
 //
-// # Every answer PASSES. Only an experiment not conducted is red
+// # Every answer about SPAWN passes. Only an experiment not conducted is red, and the survivor
 //
-// TestAppleContainerReachesHostLoopback's rule. What fails: neither launch running its probe
-// (then nothing about concurrency was observed — the single-launch tests are the control and
-// say why), or the two sessions never being up at the same time (then there was no
-// concurrency to observe). Two failures are about the MACHINE, not the answer: the refusal to
-// run beside an undeclared live broker, and a broker the pair spawned still alive after the
-// cleanup stopped it.
+// TestAppleContainerReachesHostLoopback's rule, for the spawn question OQ-HD10 still asks. What
+// fails: neither launch running its probe (then nothing about concurrency was observed — the
+// single-launch tests are the control and say why), or the two sessions never being up at the
+// same time (then there was no concurrency to observe). Two failures are about the MACHINE, not
+// the answer: the refusal to run beside an undeclared live broker, and a broker the pair spawned
+// still alive after the cleanup stopped it. And one is a DEFECT, the teardown defect the second
+// run measured, which is not OQ-HD10's to rule and is fixed: a survivor whose endpoint does not
+// answer after the other session exited, or a run that could not observe it (hd10SurvivorFailure).
 //
 // ONE LAUNCH PAIR, and the pair's sessions coordinate through marker files in the workspace
 // (which both the sandbox account and this process can write), so the overlap is arranged
@@ -202,13 +205,36 @@ func TestMacosUserTwoConcurrentLaunchesOfOneWorkspace(t *testing.T) {
 	t.Logf("HD10 WORKSPACE-LOCK: A printed the waiting notice: %v; B printed it: %v "+
 		"(taken after the host-daemon start, before content staging: a wait means one launch "+
 		"waited for the other's staging and bootstrap, not for its spawn)", waited(rA), waited(rB))
-	t.Logf("HD10 ENDPOINT DURING: A %s | B %s", hd10Probe(fa, "A_DURING"), hd10Probe(fb, "B_DURING"))
+	t.Logf("HD10 ENDPOINT DURING: A %s | B %s | one file for both: %v", hd10Probe(fa, "A_DURING"),
+		hd10Probe(fb, "B_DURING"), fa["A_DURING_VAR"] != "" && fa["A_DURING_VAR"] == fb["B_DURING_VAR"])
 	t.Logf("HD10 ENDPOINT AFTER B EXITED: A saw the exit marker: %s; A %s",
 		fa["A_SAW_B_EXIT"], hd10Probe(fa, "A_AFTER"))
 	t.Logf("HD10 WARNINGS: A:\n%s\nB:\n%s", hd10Warnings(rA.combined()), hd10Warnings(rB.combined()))
 	t.Logf("HD10 VERDICT: %s; the survivor's endpoint after the other session ended: %s. "+
 		"Record both in docs/design/host-daemon-ownership.md#OQ-HD10.",
 		spawn, hd10AfterVerdict(fa))
+	if failure := hd10SurvivorFailure(fa); failure != "" {
+		t.Errorf("%s\nA rc=%d:\n%s\nB rc=%d:\n%s", failure,
+			rA.rc, lastLines(rA.combined(), 40), rB.rc, lastLines(rB.combined(), 40))
+	}
+}
+
+// hd10SurvivorFailure is the experiment's one assertion about its answer: "" when the longer
+// session's endpoint still answered after the shorter session's `yolo` had exited, teardown and
+// all, and otherwise why that is a failure. PURE, and pinned with the verdicts.
+//
+// NOT OBSERVED fails too. It means the longer session never probed after the other's exit, so a
+// run that ends there has not shown the survivor keeps a working endpoint, which is the claim.
+func hd10SurvivorFailure(fa map[string]string) string {
+	verdict := hd10AfterVerdict(fa)
+	if strings.HasPrefix(verdict, "STILL WORKS") {
+		return ""
+	}
+	return "HD10: after the shorter session exited, the longer session's " + hd10Broker +
+		" endpoint was " + verdict + ". One macos-user session's exit must never remove or " +
+		"invalidate an endpoint another live session of the same workspace uses: each session " +
+		"publishes into a host-services dir of its own and removes only that one " +
+		"(internal/cli/run/servicessession.go; docs/design/host-daemon-ownership.md#OQ-HD10)"
 }
 
 // hd10Broker is the host-scoped loophole whose spawn this measures.
@@ -421,7 +447,8 @@ func hd10AfterVerdict(fa map[string]string) string {
 		return "NOT OBSERVED (the longer session never saw the shorter one exit)"
 	case fa["A_AFTER_FILE"] == "ABSENT":
 		return "GONE — the shorter session's teardown removed the endpoint file the longer " +
-			"session is using (one per-workspace host-services dir, removed unconditionally)"
+			"session is using (what the second run measured, when both sessions shared one " +
+			"per-workspace host-services dir)"
 	case fa["A_AFTER_DIAL"] == "OK":
 		return "STILL WORKS — the file is there and its host:port answers"
 	case fa["A_AFTER_FILE"] == "READABLE":
@@ -513,6 +540,15 @@ func TestMacosUserHD10VerdictsNameEachCase(t *testing.T) {
 		if got := hd10AfterVerdict(hd10Fields(tc.fields)); !strings.HasPrefix(got, tc.want) {
 			t.Errorf("%s: hd10AfterVerdict = %q, want it to start %q", tc.name, got, tc.want)
 		}
+		// The survivor assertion passes on a working endpoint alone, and every other verdict,
+		// NOT OBSERVED included, is a failure that names it.
+		failure := hd10SurvivorFailure(hd10Fields(tc.fields))
+		switch {
+		case tc.want == "STILL WORKS" && failure != "":
+			t.Errorf("%s: hd10SurvivorFailure = %q, want \"\" for a survivor whose endpoint answers", tc.name, failure)
+		case tc.want != "STILL WORKS" && !strings.Contains(failure, tc.want):
+			t.Errorf("%s: hd10SurvivorFailure = %q, want a failure naming %q", tc.name, failure, tc.want)
+		}
 	}
 
 	// The pre-state rule: a developer's live broker is refused, never killed; only a declared
@@ -594,5 +630,12 @@ func TestMacosUserHD10GuardsTheMachineWideBroker(t *testing.T) {
 		t.Error("the experiment no longer stops, at cleanup, the broker its launch pair spawned; " +
 			"that broker outlives the temp HOME it was spawned under and every later launch on " +
 			"the machine adopts it")
+	}
+	// The survivor ASSERTION, not just its verdict line: hd10SurvivorFailure's cases pass whether
+	// or not the experiment consults it, and the teardown fix it checks can only be seen on a Mac.
+	if !strings.Contains(fn, "if failure := hd10SurvivorFailure(fa); failure != \"\" {\n\t\tt.Errorf(") {
+		t.Error("the experiment no longer fails when the surviving session's endpoint stops " +
+			"answering after the other session exits (hd10SurvivorFailure); it would go back to " +
+			"recording the macos-user teardown defect instead of catching it")
 	}
 }
