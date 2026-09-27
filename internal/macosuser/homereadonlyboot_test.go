@@ -134,6 +134,9 @@ func bootContent(t *testing.T, home, sidecar string, packs []*packload.Pack, bod
 	tree := t.TempDir()
 	writeFile(t, filepath.Join(tree, ".codex", "skills", "demo", "SKILL.md"), body)
 	writeFile(t, filepath.Join(tree, ".codex", "AGENTS.md"), body)
+	if _, err := entrypoint.WriteHomeOverlayManifest(tree, []string{".codex/skills", ".codex/AGENTS.md"}); err != nil {
+		t.Fatal(err)
+	}
 	e := entrypoint.DarwinEnvFrom(map[string]string{
 		"HOME":                          home,
 		entrypoint.DarwinHomeSidecarEnv: sidecar,

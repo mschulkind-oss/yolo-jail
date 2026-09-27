@@ -1,0 +1,327 @@
+package entrypoint
+
+import (
+	"os"
+	"path/filepath"
+	"strings"
+	"syscall"
+	"testing"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/packload"
+)
+
+// darwinoverlay_test.go pins the overlay install's own rules (darwinoverlay.go): the
+// destination list is required and never copied, a crash or a failed copy loses no agent
+// state, a link AT a destination is never followed (replaced past a layout link, refused in
+// the account home), and a link ABOVE one that the layout did not lay is refused. The G36
+// reproducer, which drives the whole boot for every shipped pack, is in
+// darwinoverlaystate_test.go; the G14 link plants, through the whole boot, are in
+// darwinoverlaylinks_test.go.
+//
+// Every test here goes through InstallHomeOverlay, the entry RunDarwinBootstrap calls, so
+// none of them can pass with the installer's call site removed.
+
+// overlayFixture is a sandbox home laid out the way the workspace-tier layout lays pi's:
+// ~/.pi is a symlink into the workspace sidecar, and ~/.pi/agent is a REAL directory
+// holding the agent's state — the shape that G36 wiped. install selects the pi pack, so
+// ~/.pi is this launch's own layout link (overlayLinks) and the install may pass through it.
+type overlayFixture struct {
+	home, sidecar, overlay string
+}
+
+func newOverlayFixture(t *testing.T) overlayFixture {
+	t.Helper()
+	base := t.TempDir()
+	f := overlayFixture{
+		home:    filepath.Join(base, "home"),
+		sidecar: filepath.Join(base, "workspace", ".yolo", "home"),
+		overlay: filepath.Join(base, "overlay"),
+	}
+	for _, d := range []string{f.home, filepath.Join(f.sidecar, "pi", "agent"), f.overlay} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.Symlink(filepath.Join(f.sidecar, "pi"), filepath.Join(f.home, ".pi")); err != nil {
+		t.Fatal(err)
+	}
+	return f
+}
+
+// stage lays one skills destination and one briefing destination into the overlay and
+// lists both, as the host builder does.
+func (f overlayFixture) stage(t *testing.T) {
+	t.Helper()
+	writeTreeFile(t, filepath.Join(f.overlay, ".pi", "agent", "skills", "demo", "SKILL.md"), "new skill")
+	writeTreeFile(t, filepath.Join(f.overlay, ".pi", "agent", "AGENTS.md"), "new briefing")
+	if _, err := WriteHomeOverlayManifest(f.overlay, []string{".pi/agent/skills", ".pi/agent/AGENTS.md"}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func (f overlayFixture) install(t *testing.T) error {
+	t.Helper()
+	e := DarwinEnvFrom(map[string]string{
+		"HOME":                     f.home,
+		"JAIL_HOME":                f.home,
+		DarwinHomeSidecarEnv:       f.sidecar,
+		"YOLO_DARWIN_HOME_OVERLAY": f.overlay,
+	}, f.home)
+	e.Stderr = &strings.Builder{}
+	pi, err := embeddedPack("pi")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return InstallHomeOverlay(e, []*packload.Pack{pi})
+}
+
+func (f overlayFixture) agentState(t *testing.T) string {
+	t.Helper()
+	p := filepath.Join(f.home, ".pi", "agent", "auth.json")
+	writeTreeFile(t, p, "pi's sign-in")
+	return p
+}
+
+func requireFile(t *testing.T, path, want string) {
+	t.Helper()
+	got, err := os.ReadFile(path)
+	if err != nil || string(got) != want {
+		t.Errorf("%s = %q (err %v), want %q", path, got, err, want)
+	}
+}
+
+func requireAbsent(t *testing.T, path, why string) {
+	t.Helper()
+	if _, err := os.Lstat(path); !os.IsNotExist(err) {
+		t.Errorf("%s exists (err %v): %s", path, err, why)
+	}
+}
+
+// An overlay with no destination list is REFUSED, and nothing in the home moves: without
+// the list the install can only guess where a destination starts, and the guess is what
+// deleted pi's state.
+func TestOverlayInstallRefusesAnOverlayWithNoDestinationList(t *testing.T) {
+	f := newOverlayFixture(t)
+	writeTreeFile(t, filepath.Join(f.overlay, ".pi", "agent", "skills", "demo", "SKILL.md"), "new skill")
+	state := f.agentState(t)
+
+	err := f.install(t)
+	if err == nil || !strings.Contains(err.Error(), HomeOverlayManifestName) {
+		t.Fatalf("InstallHomeOverlay = %v, want a refusal naming %s", err, HomeOverlayManifestName)
+	}
+	requireFile(t, state, "pi's sign-in")
+	requireAbsent(t, filepath.Join(f.home, ".pi", "agent", "skills"), "an unlisted overlay was installed anyway")
+}
+
+// The list is read, never delivered, and content the list does not name is not delivered
+// either: the install walks the list, not the tree.
+func TestOverlayInstallDeliversOnlyListedDestinationsAndNotTheList(t *testing.T) {
+	f := newOverlayFixture(t)
+	f.stage(t)
+	writeTreeFile(t, filepath.Join(f.overlay, ".pi", "agent", "unlisted.json"), "not a destination")
+
+	if err := f.install(t); err != nil {
+		t.Fatal(err)
+	}
+	requireFile(t, filepath.Join(f.home, ".pi", "agent", "skills", "demo", "SKILL.md"), "new skill")
+	requireFile(t, filepath.Join(f.home, ".pi", "agent", "AGENTS.md"), "new briefing")
+	requireAbsent(t, filepath.Join(f.home, HomeOverlayManifestName), "the destination list was copied into the home")
+	requireAbsent(t, filepath.Join(f.home, ".pi", "agent", "unlisted.json"), "a path the list does not name was delivered")
+}
+
+// A second install REPLACES both kinds of destination — a skill the host stopped staging
+// goes, a briefing is rewritten — and the state beside them stays.
+func TestOverlayInstallReplacesThePreviousDeliveryAndKeepsTheStateBesideIt(t *testing.T) {
+	f := newOverlayFixture(t)
+	f.stage(t)
+	if err := f.install(t); err != nil {
+		t.Fatal(err)
+	}
+	state := f.agentState(t)
+	writeTreeFile(t, filepath.Join(f.home, ".pi", "agent", "skills", "gone", "SKILL.md"), "stale")
+	writeTreeFile(t, filepath.Join(f.overlay, ".pi", "agent", "AGENTS.md"), "second briefing")
+
+	if err := f.install(t); err != nil {
+		t.Fatal(err)
+	}
+	requireFile(t, state, "pi's sign-in")
+	requireFile(t, filepath.Join(f.home, ".pi", "agent", "AGENTS.md"), "second briefing")
+	requireAbsent(t, filepath.Join(f.home, ".pi", "agent", "skills", "gone"), "a skill the host stopped staging lingered")
+	for _, leftover := range []string{".skills" + overlayStagedSuffix, ".skills" + overlayAsideSuffix,
+		".AGENTS.md" + overlayStagedSuffix, ".AGENTS.md" + overlayAsideSuffix} {
+		requireAbsent(t, filepath.Join(f.home, ".pi", "agent", leftover), "an install left its working copy behind")
+	}
+}
+
+// A CRASH between the two renames of a directory leaves the previous delivery under the
+// aside name and no destination at all; a crash while copying leaves a half-built staged
+// copy. The next install must clear both and deliver — and neither state ever involved the
+// agent's own files.
+func TestOverlayInstallRecoversFromACrashedInstall(t *testing.T) {
+	f := newOverlayFixture(t)
+	f.stage(t)
+	state := f.agentState(t)
+	agentDir := filepath.Join(f.home, ".pi", "agent")
+	writeTreeFile(t, filepath.Join(agentDir, ".skills"+overlayAsideSuffix, "old", "SKILL.md"), "previous delivery")
+	writeTreeFile(t, filepath.Join(agentDir, ".skills"+overlayStagedSuffix, "half", "SKILL.md"), "half copied")
+
+	if err := f.install(t); err != nil {
+		t.Fatalf("an install after a crash failed: %v", err)
+	}
+	requireFile(t, state, "pi's sign-in")
+	requireFile(t, filepath.Join(agentDir, "skills", "demo", "SKILL.md"), "new skill")
+	requireAbsent(t, filepath.Join(agentDir, "skills", "half"), "a crashed install's half copy was delivered")
+	requireAbsent(t, filepath.Join(agentDir, ".skills"+overlayAsideSuffix), "a crashed install's aside copy lingered")
+	requireAbsent(t, filepath.Join(agentDir, ".skills"+overlayStagedSuffix), "a crashed install's staged copy lingered")
+}
+
+// A copy that FAILS part-way leaves the previous delivery exactly as it was — never a
+// partial one, never an empty destination — and removes its own half-built copy.
+func TestOverlayInstallFailureKeepsThePreviousDeliveryWhole(t *testing.T) {
+	f := newOverlayFixture(t)
+	f.stage(t)
+	if err := f.install(t); err != nil {
+		t.Fatal(err)
+	}
+	state := f.agentState(t)
+	// A FIFO in the staged tree: copyTreeStrict refuses what it cannot reproduce, which is
+	// a copy failure no file permission can fake when the test runs as root.
+	if err := syscall.Mkfifo(filepath.Join(f.overlay, ".pi", "agent", "skills", "demo", "pipe"), 0o644); err != nil {
+		t.Skipf("cannot make a FIFO here: %v", err)
+	}
+	writeTreeFile(t, filepath.Join(f.overlay, ".pi", "agent", "skills", "demo", "SKILL.md"), "never delivered")
+
+	if err := f.install(t); err == nil {
+		t.Fatal("an install whose copy failed reported success")
+	}
+	agentDir := filepath.Join(f.home, ".pi", "agent")
+	requireFile(t, state, "pi's sign-in")
+	requireFile(t, filepath.Join(agentDir, "skills", "demo", "SKILL.md"), "new skill")
+	requireAbsent(t, filepath.Join(agentDir, ".skills"+overlayStagedSuffix), "a failed install left its half-built copy")
+}
+
+// A symlink AT a destination PAST A LAYOUT LINK is replaced, never followed. Following it
+// would replace whatever it names — here a directory of the agent's — and deliver where no
+// content rule points. In the sidecar the layout lays no links, so one there is an occupant
+// like any other (G14): the install moves the LINK aside and unlinks it, and what it named is
+// left exactly as it was.
+func TestOverlayInstallReplacesASymlinkAtADestinationAndNeverWhatItNames(t *testing.T) {
+	f := newOverlayFixture(t)
+	f.stage(t)
+	precious := filepath.Join(f.sidecar, "pi", "sessions")
+	writeTreeFile(t, filepath.Join(precious, "s.jsonl"), "a transcript")
+	link := filepath.Join(f.home, ".pi", "agent", "skills")
+	if err := os.Symlink(precious, link); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := f.install(t); err != nil {
+		t.Fatalf("InstallHomeOverlay = %v, want the link at ~/.pi/agent/skills replaced", err)
+	}
+	if fi, err := os.Lstat(link); err != nil || fi.Mode()&os.ModeSymlink != 0 || !fi.IsDir() {
+		t.Fatalf("~/.pi/agent/skills is not a real directory after the install (err %v)", err)
+	}
+	requireFile(t, filepath.Join(link, "demo", "SKILL.md"), "new skill")
+	requireFile(t, filepath.Join(precious, "s.jsonl"), "a transcript")
+	requireAbsent(t, filepath.Join(precious, "demo"), "the delivery went through the link into what it named")
+	requireFile(t, filepath.Join(f.home, ".pi", "agent", "AGENTS.md"), "new briefing")
+}
+
+// A symlink AT a destination IN THE ACCOUNT HOME is refused, not followed and not replaced.
+// Replacing it would put a real path where a layout link may belong — another launch's, for
+// a pack this one does not select — which that launch's next boot refuses (OQ-HT2).
+func TestOverlayInstallRefusesASymlinkAtADestinationInTheAccountHome(t *testing.T) {
+	f := newOverlayFixture(t)
+	writeTreeFile(t, filepath.Join(f.overlay, ".pi", "agent", "AGENTS.md"), "new briefing")
+	writeTreeFile(t, filepath.Join(f.overlay, ".other", "AGENTS.md"), "not delivered")
+	if _, err := WriteHomeOverlayManifest(f.overlay, []string{".pi/agent/AGENTS.md", ".other/AGENTS.md"}); err != nil {
+		t.Fatal(err)
+	}
+	precious := filepath.Join(f.home, "notes.md")
+	writeTreeFile(t, precious, "the agent's own file")
+	link := filepath.Join(f.home, ".other", "AGENTS.md")
+	if err := os.MkdirAll(filepath.Dir(link), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(precious, link); err != nil {
+		t.Fatal(err)
+	}
+
+	err := f.install(t)
+	if err == nil || !strings.Contains(err.Error(), "symbolic link") || !strings.Contains(err.Error(), link) {
+		t.Fatalf("InstallHomeOverlay = %v, want a refusal naming the link at %s", err, link)
+	}
+	requireFile(t, precious, "the agent's own file")
+	if got, err := os.Readlink(link); err != nil || got != precious {
+		t.Errorf("the link at the destination was changed: %q, %v", got, err)
+	}
+	// The other destination is still delivered: one refusal does not cost the rest.
+	requireFile(t, filepath.Join(f.home, ".pi", "agent", "AGENTS.md"), "new briefing")
+}
+
+// A symlink ABOVE a destination, past the layout's own link, is refused: the layout lays no
+// link in the sidecar, so one there was planted, and delivering through it lands where no
+// content rule points — here, outside the jail's own directories altogether, which the install
+// runs with the sandbox account's full reach to write. Nothing is written through it, and it
+// is left in place for the reader to remove.
+func TestOverlayInstallRefusesALinkAboveADestinationThatTheLayoutDidNotLay(t *testing.T) {
+	f := newOverlayFixture(t)
+	f.stage(t)
+	outside := filepath.Join(t.TempDir(), "another-workspace", "pi-agent")
+	writeTreeFile(t, filepath.Join(outside, "skills", "theirs", "SKILL.md"), "someone else's")
+	agentDir := filepath.Join(f.sidecar, "pi", "agent")
+	if err := os.RemoveAll(agentDir); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, agentDir); err != nil {
+		t.Fatal(err)
+	}
+
+	err := f.install(t)
+	if err == nil || !strings.Contains(err.Error(), "sudo rm "+agentDir) {
+		t.Fatalf("InstallHomeOverlay = %v, want a refusal naming the link at %s", err, agentDir)
+	}
+	requireFile(t, filepath.Join(outside, "skills", "theirs", "SKILL.md"), "someone else's")
+	requireAbsent(t, filepath.Join(outside, "AGENTS.md"), "the briefing was written through the link")
+	if got, err := os.Readlink(agentDir); err != nil || got != outside {
+		t.Errorf("the refused link was changed: %q, %v", got, err)
+	}
+}
+
+// The destination list refuses what is not a path strictly below the home, on both sides:
+// the host may not write one, and a list naming one is refused before anything moves.
+func TestHomeOverlayDestinationsMustLieBelowTheHome(t *testing.T) {
+	for _, bad := range []string{"", ".", "/etc/passwd", "../escape", ".pi/../../escape",
+		HomeOverlayManifestName, HomeOverlayManifestName + "/x"} {
+		if _, err := WriteHomeOverlayManifest(t.TempDir(), []string{bad}); err == nil {
+			t.Errorf("WriteHomeOverlayManifest accepted %q", bad)
+		}
+	}
+
+	// The overlay one level deeper than the home, so `../escape` names a real SOURCE beside
+	// it and a distinct DESTINATION beside the home: without the check the copy would land.
+	f := newOverlayFixture(t)
+	f.overlay = filepath.Join(t.TempDir(), "staged", "overlay")
+	writeTreeFile(t, filepath.Join(f.overlay, HomeOverlayManifestName), `{"destinations":["../escape"]}`)
+	writeTreeFile(t, filepath.Join(filepath.Dir(f.overlay), "escape"), "outside the overlay")
+	if err := f.install(t); err == nil {
+		t.Fatal("a list naming a path above the home was installed")
+	}
+	requireAbsent(t, filepath.Join(filepath.Dir(f.home), "escape"), "a destination above the home was written")
+}
+
+// A destination INSIDE another is dropped from the list as read: the outer destination's
+// tree already carries it, and installing both would replace the outer one's copy twice.
+func TestHomeOverlayNestedDestinationsInstallOnce(t *testing.T) {
+	overlay := t.TempDir()
+	if _, err := WriteHomeOverlayManifest(overlay, []string{".x/skills/README.md", ".x/skills", ".x/skills", ".y/AGENTS.md"}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := readHomeOverlayManifest(overlay)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(got, ",") != ".x/skills,.y/AGENTS.md" {
+		t.Errorf("destinations = %v, want [.x/skills .y/AGENTS.md]", got)
+	}
+}

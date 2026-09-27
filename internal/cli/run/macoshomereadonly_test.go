@@ -2,6 +2,7 @@ package run
 
 import (
 	"bytes"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -10,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/jailcontent"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/macosuser"
@@ -22,9 +24,11 @@ import (
 // own rendering and path resolution are pinned in internal/macosuser; what is pinned here is
 // that the list starts from the pack declarations and survives every hop to the backend.
 
-// The destinations are the ones WRITTEN, in the order written and once each — not the declared
-// list. A skills target nothing was staged for is neither delivered nor protected, and two
-// packs merging into one destination are one destination.
+// The destinations are the ones WRITTEN, once each — not the declared list. A skills target
+// nothing was staged for is neither delivered nor protected, and two packs merging into one
+// destination are one destination. And they are the SAME list the sandbox install reads: what
+// the builder returns for the profile is the destination list it wrote beside the tree, so the
+// paths Seatbelt protects and the paths the bootstrap replaces cannot come apart.
 func TestHomeOverlayReturnsTheDestinationsItWrote(t *testing.T) {
 	staging := t.TempDir()
 	for _, dir := range []string{"skills-claude", "skills-shared"} {
@@ -48,8 +52,22 @@ func TestHomeOverlayReturnsTheDestinationsItWrote(t *testing.T) {
 	if tree == "" {
 		t.Fatal("no overlay built")
 	}
-	if want := []string{".claude/skills", ".claude/CLAUDE.md"}; !reflect.DeepEqual(dests, want) {
-		t.Errorf("dests = %v, want %v — the written set, deduplicated, in order", dests, want)
+	if want := []string{".claude/CLAUDE.md", ".claude/skills"}; !reflect.DeepEqual(dests, want) {
+		t.Errorf("dests = %v, want %v — the written set, deduplicated, as the list sorts", dests, want)
+	}
+	body, err := os.ReadFile(filepath.Join(tree, entrypoint.HomeOverlayManifestName))
+	if err != nil {
+		t.Fatalf("the overlay carries no destination list: %v", err)
+	}
+	var listed struct {
+		Destinations []string `json:"destinations"`
+	}
+	if err := json.Unmarshal(body, &listed); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(listed.Destinations, dests) {
+		t.Errorf("the profile protects %v but the sandbox install replaces %v: one list, two answers",
+			dests, listed.Destinations)
 	}
 }
 

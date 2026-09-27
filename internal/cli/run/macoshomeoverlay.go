@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/jailcontent"
 	"github.com/mschulkind-oss/yolo-jail/internal/macosuser"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
@@ -13,24 +14,31 @@ import (
 // macoshomeoverlay.go builds the HOME OVERLAY: the staged skills and briefings laid
 // out at their home-relative destinations, ready to be copied over a jail home.
 //
-// WHY A TREE AND NOT A MANIFEST. On the container backends each staged dir is bind-
+// WHY A TREE AND NOT A MAPPING. On the container backends each staged dir is bind-
 // mounted at its destination, so the mapping "staging dir → home path" lives in the
 // mount list and never crosses into the jail. macos-user has no mounts, so the
-// mapping has to reach the sandbox somehow. Sending it as data (a JSON table the
-// bootstrap reads and acts on) would put the same mapping in two implementations —
-// the mount assembler's and the bootstrap's — which is the drift the transport
-// unification exists to end. Laying the tree out by DESTINATION host-side instead
-// makes delivery a single `cp -R overlay/. $HOME/` with no schema at all: the paths
-// ARE the manifest.
+// mapping has to reach the sandbox somehow. Sending it as data (a JSON table from
+// staging names to home paths that the bootstrap interprets) would put the same
+// mapping in two implementations — the mount assembler's and the bootstrap's — which
+// is the drift the transport unification exists to end. Laying the tree out by
+// DESTINATION host-side instead means the paths in the tree ARE the home paths.
+//
+// ⚠ BUT THE TREE CANNOT SAY WHERE A DESTINATION STARTS, and that is why a LIST of the
+// destinations rides beside it (entrypoint.HomeOverlayManifestName). `.pi/agent/skills/x`
+// in the tree does not say whether `.pi/agent/skills` or `.pi/agent` is what a bind would
+// have covered, and the install that guessed — replacing the first real directory below
+// the home's layout links — deleted pi's whole state dir on every launch (G36). The list
+// carries only the roots the tree already spells, written by the same loops that lay the
+// tree out, so it maps nothing and cannot disagree with the tree about a path.
 //
 // It also survives the change that should replace it. The per-workspace sandbox home
 // (docs/design/macos-user-home-tiers.md) moves only the DESTINATION home; the overlay
 // itself, and everything below, is unchanged.
 //
 // WHAT THIS IS NOT: it is not a merge. The overlay holds only what yolo composes, and
-// the copy that applies it overwrites those paths and leaves the rest of the home
-// alone — the same semantics a bind mount has. The read-only part is the session's
-// Seatbelt profile, which denies writes to every destination this returns.
+// the install that applies it replaces exactly the listed destinations and leaves the
+// rest of the home alone — the same semantics a bind mount has. The read-only part is
+// the session's Seatbelt profile, which denies writes to every destination this returns.
 
 // buildMacosHomeOverlay lays the staged skills + briefings out under one root at the
 // home-relative paths they belong at, and returns that root with the destinations it
@@ -43,11 +51,14 @@ import (
 //
 // THE DESTINATIONS TRAVEL WITH THE TREE because the container's `:ro` is part of the
 // delivery, not an extra: the Seatbelt profile write-protects exactly what this wrote
-// (macosuser.ResolveHomeReadonly, G14). They are the list the loop below WROTE rather
-// than a second walk of the declarations, so a destination nothing was staged for is
-// neither delivered nor protected, and the two cannot come apart. WorkspaceDirs is the
-// selection's scope:workspace state list, which is what decides where each destination
-// physically lands once the bootstrap lays the home-tier layout.
+// (macosuser.ResolveHomeReadonly, G14). ⚠ AND THEY ARE ONE LIST WITH THE ONE THE SANDBOX
+// INSTALL READS: Dests is what entrypoint.WriteHomeOverlayManifest returned when it wrote
+// the tree's destination list, so the destinations the profile protects and the ones the
+// bootstrap replaces are the same list rather than two derivations of it. They are the
+// destinations the loop below WROTE rather than a second walk of the declarations, so a
+// destination nothing was staged for is neither delivered nor protected. WorkspaceDirs is
+// the selection's scope:workspace state list, which is what decides where each
+// destination physically lands once the bootstrap lays the home-tier layout.
 func buildMacosHomeOverlay(staging string, packs []*packload.Pack) (macosuser.HomeOverlay, error) {
 	tree, dests, err := buildMacosHomeOverlayFor(staging, packSkillTargets(packs), briefingDestinations(packs))
 	if err != nil || tree == "" {
@@ -57,8 +68,9 @@ func buildMacosHomeOverlay(staging string, packs []*packload.Pack) (macosuser.Ho
 }
 
 // buildMacosHomeOverlayFor is the body, taking the two declaration lists directly, and
-// returning the tree and the home-relative destinations it wrote, deduplicated in the
-// order written.
+// returning the tree and the destination list it wrote beside the tree
+// (entrypoint.WriteHomeOverlayManifest's result: cleaned, once each, sorted, with a
+// destination inside another dropped).
 //
 // Split from the wrapper so a test can state the destinations rather than construct
 // packs that produce them: the property under test is "staged name → home path", and
@@ -75,14 +87,11 @@ func buildMacosHomeOverlayFor(staging string, skills []jailcontent.SkillTarget,
 		return "", nil, fmt.Errorf("clearing the macos-user home overlay: %w", err)
 	}
 
-	var dests []string
-	seen := map[string]bool{}
-	wrote := func(dest string) {
-		if !seen[dest] {
-			seen[dest] = true
-			dests = append(dests, dest)
-		}
-	}
+	// Every destination laid out below, in the order it was written — the input to the
+	// list the sandbox install walks (entrypoint.HomeOverlayManifestName). Collected in the
+	// SAME loops that write the tree, so a destination is listed exactly when its content
+	// is there.
+	var written []string
 	for _, t := range skills {
 		src := filepath.Join(staging, t.Staging)
 		if _, err := os.Stat(src); err != nil {
@@ -95,7 +104,7 @@ func buildMacosHomeOverlayFor(staging string, skills []jailcontent.SkillTarget,
 		if err := copyTree(src, dst); err != nil {
 			return "", nil, fmt.Errorf("staging skills for %s: %w", t.Dest, err)
 		}
-		wrote(t.Dest)
+		written = append(written, t.Dest)
 	}
 
 	for _, d := range briefings {
@@ -111,15 +120,23 @@ func buildMacosHomeOverlayFor(staging string, skills []jailcontent.SkillTarget,
 		if err := os.WriteFile(dst, body, 0o644); err != nil {
 			return "", nil, err
 		}
-		wrote(d.Into)
+		written = append(written, d.Into)
 	}
 
-	if len(dests) == 0 {
+	if len(written) == 0 {
 		// Nothing to deliver — no packs, or none declaring skills or briefings.
 		// Returning "" rather than an empty dir keeps the staging and the bootstrap
 		// step off the launch entirely, so a bare `yolo -- bash` pays nothing.
 		_ = os.RemoveAll(overlay)
 		return "", nil, nil
+	}
+	// THE DESTINATION LIST, beside the tree it describes (G36). Without it the install can
+	// only guess where a destination starts, and its guess — the first real directory below
+	// the home's links — was pi's whole state dir. What it wrote is what this returns, so
+	// the profile (Dests) and the install read one list.
+	dests, err := entrypoint.WriteHomeOverlayManifest(overlay, written)
+	if err != nil {
+		return "", nil, fmt.Errorf("listing the macos-user home overlay's destinations: %w", err)
 	}
 	return overlay, dests, nil
 }

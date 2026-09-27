@@ -183,6 +183,9 @@ func TestDarwinBootstrapOverlayDeliversWithoutEatingTheLayout(t *testing.T) {
 	overlay := filepath.Join(base, "overlay")
 	writeTreeFile(t, filepath.Join(overlay, ".claude", "skills", "demo", "SKILL.md"), "demo skill")
 	writeTreeFile(t, filepath.Join(overlay, ".claude", "CLAUDE.md"), "the briefing")
+	if _, err := WriteHomeOverlayManifest(overlay, []string{".claude/skills", ".claude/CLAUDE.md"}); err != nil {
+		t.Fatal(err)
+	}
 
 	home, ws := darwinBootstrapHome(t, map[string]string{"YOLO_DARWIN_HOME_OVERLAY": overlay})
 	sidecar := filepath.Join(ws, ".yolo", "home")

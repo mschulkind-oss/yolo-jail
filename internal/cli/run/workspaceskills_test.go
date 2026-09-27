@@ -10,12 +10,15 @@ package run
 
 import (
 	"bytes"
+	"encoding/json"
 	"io/fs"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/jailcontent"
 	"github.com/mschulkind-oss/yolo-jail/internal/jailcontent/builtinskills"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
@@ -283,6 +286,24 @@ func TestWorkspaceSkillsReachTheMacosUserHome(t *testing.T) {
 		reached = true
 		if _, err := os.Stat(filepath.Join(homeOverlay.Tree, ".pi", "agent", "skills", "review", "SKILL.md")); err != nil {
 			t.Errorf("the workspace skill never reached the macos-user home overlay: %v", err)
+		}
+		// And its destination is LISTED: the sandbox install replaces only what the overlay's
+		// destination list names (G36), and the profile protects only Dests (G14), so a
+		// mirrored skill outside both would be neither delivered nor write-protected.
+		body, err := os.ReadFile(filepath.Join(homeOverlay.Tree, entrypoint.HomeOverlayManifestName))
+		if err != nil {
+			t.Errorf("the macos-user home overlay carries no destination list: %v", err)
+		}
+		var listed struct {
+			Destinations []string `json:"destinations"`
+		}
+		_ = json.Unmarshal(body, &listed)
+		if !containsStr(listed.Destinations, ".pi/agent/skills") {
+			t.Errorf("the destination list %v does not name .pi/agent/skills, where the workspace "+
+				"skill is laid out", listed.Destinations)
+		}
+		if !reflect.DeepEqual(listed.Destinations, homeOverlay.Dests) {
+			t.Errorf("the profile protects %v and the install replaces %v", homeOverlay.Dests, listed.Destinations)
 		}
 		return 0
 	}

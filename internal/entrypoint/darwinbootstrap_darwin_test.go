@@ -151,6 +151,9 @@ func TestDarwinBootstrapInstallsTheHomeOverlay(t *testing.T) {
 	}
 	write(filepath.Join(overlay, ".claude", "skills", "demo", "SKILL.md"), "demo body")
 	write(filepath.Join(overlay, ".claude", "CLAUDE.md"), "briefing body")
+	if _, err := WriteHomeOverlayManifest(overlay, []string{".claude/skills", ".claude/CLAUDE.md"}); err != nil {
+		t.Fatal(err)
+	}
 
 	// A skill from a PREVIOUS launch, whose pack has since been removed.
 	write(filepath.Join(home, ".claude", "skills", "gone", "SKILL.md"), "stale")

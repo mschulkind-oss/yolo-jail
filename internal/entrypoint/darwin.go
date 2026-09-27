@@ -189,17 +189,18 @@ func RunDarwinBootstrap(e *Env, opts DarwinBootstrapOptions) error {
 // user's own, so the file mode protects nothing; the profile is the whole guarantee, and only
 // a Mac run proves the kernel honors it.
 //
-// The tree carries no schema: the host laid it out at the destinations the container
-// would have mounted, so this walks it and writes files. Any mapping logic here would be
-// a second implementation of the mount assembler's, which is the drift the transport
-// unification exists to end (loophole-transport.md §8.4 makes the same argument about
-// generated clients).
+// The host laid the tree out at the destinations the container would have mounted, and
+// listed those destinations beside it (HomeOverlayManifestName). This installs each listed
+// destination and nothing else — darwinoverlay.go says why the list has to exist (G36:
+// inferring the granularity from the tree deleted pi's whole state dir on every launch).
+// The list names roots the tree already spells, so there is still no mapping logic here to
+// drift from the mount assembler's.
 //
-// OVERWRITE, NOT MERGE, per destination subtree: the overlay is authoritative for the
-// paths it contains, exactly as a bind mount is. A skills dir that a pack stopped
-// shipping must DISAPPEAR from the home, and a merge would keep serving it forever. The
-// rest of the home — credentials, history, anything the agent wrote — is untouched,
-// because the overlay simply does not contain those paths.
+// OVERWRITE, NOT MERGE, per destination: the overlay is authoritative for the paths it
+// lists, exactly as a bind mount is. A skill a pack stopped shipping must DISAPPEAR from
+// the home, and a merge would keep serving it forever. The rest of the home — credentials,
+// sessions, generated settings, anything the agent wrote beside or above a destination —
+// is untouched, because no destination contains it.
 //
 // ⚠ IT LANDS AT THE PATH THE PROFILE PROTECTS, OR NOWHERE. The content rules are computed on
 // the host before this runs, by joining each destination onto the resolved workspace and
@@ -207,8 +208,8 @@ func RunDarwinBootstrap(e *Env, opts DarwinBootstrapOptions) error {
 // the kernel reports only if nothing below those two bases is a symbolic link the layout did
 // not lay, and the sidecar is in the agent-writable workspace. So `packs` derives the SAME
 // layout the layout step laid (darwinHomeLayoutFor): a link in the sidecar refuses the
-// delivery, exactly as it refused the layout, and installOverlayTree follows no link but the
-// layout's own.
+// delivery, exactly as it refused the layout, and each destination's route from the home
+// passes through no link but the layout's own (overlayLinks.route).
 func InstallHomeOverlay(e *Env, packs []*packload.Pack) error {
 	src := e.Vars["YOLO_DARWIN_HOME_OVERLAY"]
 	if src == "" {
@@ -228,125 +229,11 @@ func InstallHomeOverlay(e *Env, packs []*packload.Pack) error {
 		}
 		return err
 	}
-	return installOverlayTree(src, e.Home, overlayLinksOf(layout), false)
-}
-
-// overlayLinks is what installOverlayTree needs to know about the layout: the links it may
-// follow, each mapped from its account-home path to the target this launch laid it at. Only
-// the directory Links: a FileRedirect is a link too, and is refused like any other link in the
-// account home, because a regular file written in its place would be a real file where the next
-// launch's layout needs its link, which OQ-HT2 then refuses forever.
-type overlayLinks struct {
-	follow map[string]string
-}
-
-func overlayLinksOf(l DarwinHomeLayout) overlayLinks {
-	o := overlayLinks{follow: map[string]string{}}
-	for _, ln := range l.Links {
-		o.follow[ln.Path] = ln.Target
-	}
-	return o
-}
-
-// installOverlayTree copies one level of the overlay into dst and recurses.
-//
-// ⚠ IT DESCENDS THROUGH A LAYOUT LINK AND REPLACES EVERYTHING ELSE, and that one rule is
-// what makes the delivery land at the granularity a bind mount has.
-//
-// The container mounts each staged tree AT ITS DESTINATION — <staging>/skills-claude over
-// /home/agent/.claude/skills — and leaves the parent alone. This used to RemoveAll the
-// overlay's TOP-level entry, which for a skills dest of `.claude/skills` is `~/.claude`:
-// the whole state dir, including the credential symlink the pack hooks had written minutes
-// earlier and the transcripts under projects/. Under the home-tier layout that same
-// RemoveAll unlinks the sidecar symlink and puts a real directory in its place, so the next
-// boot's layout refuses (OQ-HT2 never deletes one) — a backend that bricks itself after one
-// launch.
-//
-// A LAYOUT link — one `links.follow` names, pointing where this launch laid it — marks a path
-// the home merely passes through on its way to a destination, so descending through it is
-// exactly right. The first path that is not one is the destination itself, and replacing it
-// wholesale is what makes a skills dir a pack stopped shipping DISAPPEAR rather than linger
-// forever.
-//
-// ANY OTHER LINK IS NEVER A WAY THROUGH (G14). It used to be followed, which merged the
-// delivery into whatever the link named: a skill the agent had planted there was loaded beside
-// the delivered ones, and both sat at a path the session's content rules do not name. What
-// happens to it instead depends on which side of the layout it is on (`throughLink`):
-//
-//   - PAST A LAYOUT LINK, in the workspace sidecar, the layout writes no links, so one there is
-//     an occupant like any other: removed — the link, never what it points at — and a fresh copy
-//     laid in its place, or, at a briefing, a regular file written where it stood.
-//   - IN THE ACCOUNT HOME, a link this launch did not lay may be ANOTHER launch's layout link —
-//     one a different pack selection declared, pointing into that workspace — which the layout
-//     leaves alone for the reason DeriveDarwinHomeLayout gives (a real directory there would be
-//     refused forever by the next launch that declares it). It is not replaced, and it is not
-//     followed either, which used to deliver this launch's content into another workspace. The
-//     delivery refuses, naming it.
-//
-// A LAYOUT PATH THAT IS NOT YET THE LAYOUT'S LINK IS LEFT ALONE. That is a real directory the
-// layout step refused to replace (OQ-HT2: never deleted), or a path it failed to lay. Every boot
-// step runs after one fails, and this one used to replace such a path wholesale — deleting the
-// very directory the refusal had just told the reader to move their transcripts out of.
-//
-// The one shape it reads differently from a bind: an overlay destination that IS a layout
-// link (a pack declaring skills into `.claude` itself, which no pack does) would be merged
-// into rather than replaced. Stale files in a state dir, never a destroyed one.
-func installOverlayTree(src, dst string, links overlayLinks, throughLink bool) error {
-	entries, err := os.ReadDir(src)
+	roots, err := overlayInstallRoots(e.Home, e.DarwinSidecar())
 	if err != nil {
 		return err
 	}
-	for _, ent := range entries {
-		from := filepath.Join(src, ent.Name())
-		to := filepath.Join(dst, ent.Name())
-		if target, ok := links.follow[to]; ok {
-			if cur, err := os.Readlink(to); err != nil || cur != target || !ent.IsDir() {
-				return fmt.Errorf("nothing was delivered under %s: it is not the layout's "+
-					"link to %s yet (the darwin_home_layout step says why), and a path the "+
-					"layout owns is never replaced", to, target)
-			}
-			if err := installOverlayTree(from, to, links, true); err != nil {
-				return err
-			}
-			continue
-		}
-		if fi, err := os.Lstat(to); err == nil && fi.Mode()&os.ModeSymlink != 0 && !throughLink {
-			return fmt.Errorf("nothing was delivered at %s: it is a symbolic link in the "+
-				"account home that is not one of this launch's layout links to a directory — "+
-				"typically another workspace's, for a pack this launch does not select — and "+
-				"delivering through it would land where the session's sandbox profile does not "+
-				"protect. Remove the link (what it points at is left alone):\n  sudo rm %s", to, to)
-		}
-		if ent.IsDir() {
-			// Replace the destination subtree wholesale — see OVERWRITE above. A link here
-			// is removed as a link: RemoveAll does not follow one.
-			if err := os.RemoveAll(to); err != nil {
-				return err
-			}
-			if err := copyTree(from, to); err != nil {
-				return err
-			}
-			continue
-		}
-		body, err := os.ReadFile(from)
-		if err != nil {
-			return err
-		}
-		if err := os.MkdirAll(filepath.Dir(to), 0o755); err != nil {
-			return err
-		}
-		// os.WriteFile follows a link, so one here would take the briefing wherever it
-		// points. Removed first, dangling or not; a regular file is rewritten in place.
-		if fi, err := os.Lstat(to); err == nil && fi.Mode()&os.ModeSymlink != 0 {
-			if err := os.Remove(to); err != nil {
-				return err
-			}
-		}
-		if err := os.WriteFile(to, body, 0o644); err != nil {
-			return err
-		}
-	}
-	return nil
+	return installHomeOverlayDestinations(src, e.Home, roots, overlayLinksOf(layout))
 }
 
 // InstallYoloLog writes the yolo-log helper to ~/.local/bin/yolo-log (0755) —

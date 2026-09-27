@@ -147,6 +147,13 @@ written into the repository. See
   longer empties and re-copies the pack files it has mounted.
 - On `macos-user`, closing one of two sessions in the same project cut the other off from
   Claude's sign-in renewal and every other host service it was using.
+- On `macos-user`, every launch with the pi, omp, agy or opencode pack deleted the whole folder
+  holding that agent's skills (`~/.pi/agent`, `~/.oh-omp/agent`, `~/.gemini/config`,
+  `~/.config/opencode`) and put back only the skills and briefing. In 0.9.0 that cost pi's
+  `settings.json` and `models.json`, and in 0.10.0 its `mcp.json` too; in both, omp's
+  `models.yml`, opencode's `opencode.json`, pi's sign-in (`auth.json`) and sessions, and anything
+  else the agent kept in those folders. A launch now replaces only the skills and the briefing.
+  What was deleted can be recovered only from your own backup of `<workspace>/.yolo/home`.
 - `yolo init` wrote a workspace config saying grep and find are blocked by default, and both it and
   `yolo init-user-config` wrote a config offering no `macos-user` runtime.
 - The links on yolo-jail's PyPI page led nowhere. They now open that release's files on GitHub.

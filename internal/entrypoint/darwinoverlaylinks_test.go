@@ -59,11 +59,20 @@ func (f *bootFixture) workspace(name string) {
 // boot runs the real native bootstrap with a fresh overlay tree holding `overlay`, and returns
 // its error. Not asserted here: a temp home can fail an unrelated generator (no git, no node),
 // so each test asserts on the substrings it is about.
+//
+// The tree is listed the way the host builder lists it (WriteHomeOverlayManifest), each file
+// under a `skills` directory belonging to that skills destination and every other file being a
+// destination of its own — the two shapes run.buildMacosHomeOverlayFor lays out.
 func (f *bootFixture) boot(overlay map[string]string) error {
 	f.t.Helper()
 	tree := f.t.TempDir()
+	var dests []string
 	for rel, body := range overlay {
 		writeTreeFile(f.t, filepath.Join(tree, filepath.FromSlash(rel)), body)
+		dests = append(dests, overlayDestOf(rel))
+	}
+	if _, err := WriteHomeOverlayManifest(tree, dests); err != nil {
+		f.t.Fatal(err)
 	}
 	vars := map[string]string{
 		"HOME":                     f.home,
@@ -82,6 +91,18 @@ func (f *bootFixture) boot(overlay map[string]string) error {
 	e := DarwinEnvFrom(vars, f.home)
 	e.Stderr = &strings.Builder{}
 	return RunDarwinBootstrap(e, DarwinBootstrapOptions{MacosLog: "off"})
+}
+
+// overlayDestOf is the destination a fixture overlay file belongs to: the `skills` directory
+// above it when there is one (`.codex/skills/demo/SKILL.md` → `.codex/skills`), else the file.
+func overlayDestOf(rel string) string {
+	parts := strings.Split(rel, "/")
+	for i, p := range parts[:len(parts)-1] {
+		if p == "skills" {
+			return strings.Join(parts[:i+1], "/")
+		}
+	}
+	return rel
 }
 
 // requireNoContentFailure fails when the layout or the overlay step failed. Other generators may
