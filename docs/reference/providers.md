@@ -385,7 +385,9 @@ Where each answer lands is the vehicle's:
     `yolo host --with-credentials zai,cerebras -- <cmd>` hands the command those providers'
     claimed `env_sources` values, and `all` names every composed provider that claims a value
     there. `eval "$(yolo host env --with-credentials all)"` exports them into the current shell;
-    with no `--agent` that script is an ad-hoc command's slice, so no agent's shape rides along.
+    with neither `--agent` nor `-p` that script is an ad-hoc command's slice, so no agent's
+    shape rides along. With `-p` it is the slice `-p` composes, plus the keys
+    ([ES-D21](../design/credential-sources-separation.md#10-decision-ledger)).
     The grant is keys only: it selects no profile, runs no derive, re-points no base URL, and
     the credential pre-flight asks nothing of a granted provider. The gate delivers it
     (`ScopeInput.Grants`), so its lines name the command as the recipient, and a

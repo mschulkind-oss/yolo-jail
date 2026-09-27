@@ -113,14 +113,15 @@ env flags:
   --format <fmt>  export (default) or json.
   --profile <name>, -p <name>   As above, for the --agent it composes.
   --with-credentials <provider[,provider...]|all>
-                  As above, for the script: it exports the granted keys. With no
-                  --agent the script is an ad-hoc command's slice (as --agent bash),
-                  so no agent's provider shape reaches the shell alongside the keys.
+                  As above, for the script: it exports the granted keys. With neither
+                  --agent nor -p the script is an ad-hoc command's slice (as --agent
+                  bash), so no agent's provider shape reaches the shell alongside the
+                  keys. With -p it is the slice -p composes, plus the keys.
   --agent <name>  Compose as if launching this agent (default: claude, or bash under
-                  --with-credentials). The agent name selects which use_profiles entry
-                  applies, and the output is that agent's slice: a provider credential
-                  another agent's profile claims is withheld from it, and stderr says
-                  which, by name.
+                  --with-credentials without -p). The agent name selects which
+                  use_profiles entry applies, and the output is that agent's slice: a
+                  provider credential another agent's profile claims is withheld from
+                  it, and stderr says which, by name.
 
 Examples:
   yolo host -- claude                 # bare claude, with the composed environment
@@ -1375,14 +1376,18 @@ func hostEnv(args []string, out, errw io.Writer) int {
 		// any other. The help says exactly this, and used to say "every configured one",
 		// which was never what the code did.
 		//
-		// UNDER A GRANT THE DEFAULT IS THE AD-HOC SLICE, `bash` (ES-D7's stand-in for any
-		// name no selected pack installs): `eval "$(yolo host env --with-credentials all)"`
-		// asks for keys, and claude's slice would export its profile's whole provider shape
-		// beside them — ANTHROPIC_BASE_URL among it — re-pointing every claude that shell
-		// starts, which is the one thing a grant never does. --agent still names an agent
-		// whose profile the caller does want.
+		// UNDER A GRANT WITH NO -p THE DEFAULT IS THE AD-HOC SLICE, `bash` (ES-D7's stand-in
+		// for any name no selected pack installs): `eval "$(yolo host env --with-credentials
+		// all)"` asks for keys, and claude's slice would export its profile's whole provider
+		// shape beside them — ANTHROPIC_BASE_URL among it — re-pointing every claude that shell
+		// starts, which is the one thing a grant never does. --agent still names an agent whose
+		// profile the caller does want.
+		//
+		// A TYPED -p KEEPS THE VERB'S DEFAULT (ES-D21): `yolo host env -p zai` is claude's zai
+		// slice, and the grant only adds keys beside it. Flipping to bash there would drop the
+		// shape the -p asked for, which is not additive.
 		agent = "claude"
-		if grant != nil {
+		if grant != nil && profile == "" {
 			agent = "bash"
 		}
 	}

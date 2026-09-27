@@ -286,3 +286,37 @@ func TestHostHelpDocumentsWithCredentials(t *testing.T) {
 		}
 	}
 }
+
+// A TYPED -p KEEPS ITS SLICE UNDER A GRANT (ES-D21): `yolo host env -p zai --with-credentials
+// cerebras` is `yolo host env -p zai`, which composes claude's zai slice, with cerebras's key
+// added. The grant only adds keys. So it must not move the script to another agent's slice and
+// drop the profile's shape. Only a run with neither --agent nor -p takes the ad-hoc slice
+// (ES-D16).
+func TestHostEnvWithCredentialsKeepsATypedProfilesSlice(t *testing.T) {
+	hostGateHome(t, `{"packs": ["claude", "zai", "cerebras"], "env_sources": [`+
+		`{"ZAI_API_KEY": "tok-z", "CEREBRAS_API_KEY": "tok-c"}]}`, wcShell(nil))
+	script := func(args ...string) (string, string) {
+		t.Helper()
+		var out, errw bytes.Buffer
+		if rc := hostMain(append([]string{"env"}, args...), &out, &errw, false, nil); rc != 0 {
+			t.Fatalf("yolo host env %v: rc = %d\n%s", args, rc, errw.String())
+		}
+		return out.String(), errw.String()
+	}
+	plain, _ := script("-p", "zai")
+	granted, errs := script("-p", "zai", "--with-credentials", "cerebras")
+	if !strings.Contains(plain, "export ANTHROPIC_BASE_URL=") {
+		t.Fatalf("the fixture's -p zai slice carries the profile's shape:\n%s", plain)
+	}
+	for _, line := range strings.Split(strings.TrimSpace(plain), "\n") {
+		if !strings.Contains(granted, line) {
+			t.Errorf("the grant dropped %q from the -p zai slice:\n%s", line, granted)
+		}
+	}
+	if !strings.Contains(granted, "export CEREBRAS_API_KEY='tok-c'") {
+		t.Errorf("the granted key is added beside the slice:\n%s", granted)
+	}
+	if !strings.Contains(errs, "claude's slice keeps its zai profile") {
+		t.Errorf("the disclosure names the slice the typed -p composes:\n%s", errs)
+	}
+}
