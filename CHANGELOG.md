@@ -76,7 +76,9 @@ only cost tokens and prompts in a jail. See [posture lists](docs/reference/pack-
   for them any more, and its sub-agents may use only those models. The older GPT-5 models are
   no longer offered; add one under `providers.openai-codex.models` in your config and it
   appears in every agent ([the `openai-codex` model list](docs/reference/providers.md#the-openai-codex-model-list)).
-  A list you scoped inside pi is kept.
+  A list you scoped inside pi is kept. In a pi launched without `-p codex` that has no model
+  chosen yet, signing in to ChatGPT no longer picks one for you, because pi's own pick is a GPT-5
+  model: choose one with `/model`.
 - `writable_home_dirs` and `host_files` refuse the paths of the packs you select, including packs
   yolo does not ship, and no others. A claude-only workspace may now name `.codex` or
   `~/.codex/config.toml`.
