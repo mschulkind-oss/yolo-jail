@@ -207,9 +207,14 @@ func TestDarwinBootstrapOverlayDeliversWithoutEatingTheLayout(t *testing.T) {
 	writeTreeFile(t, stale, "removed from the pack")
 	kept := filepath.Join(sidecar, "claude", "projects", "session.jsonl")
 	writeTreeFile(t, kept, "a transcript")
+	// The pack is still selected — it is the one that stopped shipping the skill. (This boot
+	// used to name no pack root, which passed only while the overlay followed ANY link: with
+	// no pack, `~/.claude` is not this launch's layout link, and the install now refuses to
+	// deliver through it rather than write into whichever sidecar it names.)
 	e := DarwinEnvFrom(map[string]string{
 		"HOME": home, "JAIL_HOME": home, "YOLO_HOST_DIR": ws,
 		"YOLO_BLOCK_CONFIG": `[]`, "YOLO_MISE_TOOLS": `{}`,
+		"YOLO_PACK_ROOT":        stagePackForBootstrap(t, "claude"),
 		"YOLO_DARWIN_WORKSPACE": ws, DarwinHomeSidecarEnv: sidecar,
 		"YOLO_DARWIN_HOME_OVERLAY": overlay,
 	}, home)

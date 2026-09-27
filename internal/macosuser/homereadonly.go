@@ -29,6 +29,18 @@ import (
 // PHYSICAL path, derived from the same deriver the bootstrap lays the layout with and the
 // same pack list it reads, so the two cannot disagree about where a destination lands.
 //
+// ⚠ THAT DERIVATION IS A TEXT JOIN, and it is sound only because the bootstrap makes it so.
+// Only the two bases — the account home and the workspace — are resolved here; everything
+// below them is joined through the layout's links as written, because on a first launch none
+// of it exists yet and this runs before the bootstrap. The kernel reports the same string only
+// while nothing below the bases is a symbolic link the layout did not lay, and the sidecar is
+// inside the workspace, which an earlier session could write with a profile that did not cover
+// these paths. So the bootstrap holds the other end: a link in the sidecar refuses both its
+// layout and its overlay step (entrypoint.LinkedSidecarError), and the overlay install follows
+// no link but the layout's own, replacing one planted at a destination and refusing one in the
+// account home (entrypoint.InstallHomeOverlay). Pinned together, over a planted link at each
+// position, by TestTheBootstrapDeliversOnlyWhereTheHostsRulesPoint.
+//
 // JOB TWO: THE CHAIN ABOVE THE DESTINATION. A path deny protects a path, not an inode. With
 // only the destinations denied, `mv ~/.claude ~/.claude-old && ln -s /tmp/x ~/.claude`
 // would leave every staged file untouched and point the agent's own reader at a tree it
@@ -95,6 +107,7 @@ func (h HomeReadonly) Empty() bool { return len(h.Paths) == 0 && len(h.Anchors) 
 // Both are resolved through their longest EXISTING prefix before anything is joined onto
 // them: SandboxHome() reaches here as a constant that nothing has EvalSymlinks'd, and a
 // fixture home under a symlinked TMPDIR is exactly the darwin /var → /private/var shape.
+// Nothing below them is resolved, and the file header says why that is sound.
 //
 // For each destination the walk is the one the kernel does. Starting at the home, each
 // component is a directory in the account home until one of them is a LAYOUT LINK

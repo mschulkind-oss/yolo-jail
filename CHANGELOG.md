@@ -178,7 +178,12 @@ written into the repository. See
 - On `macos-user`, an agent could edit, rename or delete the skills and briefing yolo delivers,
   because they are copied into the sandbox home instead of mounted read-only. The sandbox profile
   now denies those writes, as the read-only mount does on every other backend, and leaves the
-  agent's own state beside them writable. This has not yet been verified on a Mac.
+  agent's own state beside them writable. This has not yet been verified on a Mac. A symbolic link
+  an earlier session left in the workspace can no longer send the copies somewhere the profile does
+  not cover: the launch replaces the link, or refuses and names it.
+- On `macos-user`, a launch that refused to set up the per-workspace home over an older sandbox
+  account still deleted that account's agent directory, transcripts included, right after telling
+  you to move them out first.
 
 ## 0.10.x
 

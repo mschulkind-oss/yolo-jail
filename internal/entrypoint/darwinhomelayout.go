@@ -91,6 +91,11 @@ type DarwinHomeLayout struct {
 	// the reset without this package having to know what that account is called —
 	// macosuser imports entrypoint, never the reverse.
 	Home string
+	// Sidecar is the workspace sidecar the Links point into (<workspace>/.yolo/home), or ""
+	// for a layout derived with none. Carried because the sidecar is in the WORKSPACE, which
+	// the agent can always write, so nothing may be laid through a symbolic link in it
+	// (linkedSidecarPaths).
+	Sidecar string
 	// Dirs are created BEFORE any link. Two reasons, both load-bearing: a link to a
 	// missing directory dangles, and MkdirAll THROUGH a dangling symlink fails (Stat
 	// misses, Mkdir hits EEXIST, Lstat says "not a directory") — which is how the first
@@ -121,7 +126,7 @@ type DarwinHomeLayout struct {
 // packload.SharedDirs (scope: machine) — the same two lists assemble.go consumes, which is
 // what makes the tier of a path the PACK's declaration on this backend too (P2).
 func DeriveDarwinHomeLayout(home, sidecar string, writableDirs, sharedDirs []string) DarwinHomeLayout {
-	l := DarwinHomeLayout{Home: home}
+	l := DarwinHomeLayout{Home: home, Sidecar: sidecar}
 	// The home-relative directories THIS layout lays, which is what decides whether a
 	// home-root file redirect has anywhere to point (see the FileRedirects loop below).
 	laid := map[string]struct{}{}
@@ -197,7 +202,16 @@ func DeriveDarwinHomeLayout(home, sidecar string, writableDirs, sharedDirs []str
 // Recorded as one of the two defects a mutation pass found and this fixes:
 // docs/design/macos-user-home-tiers.md §10, runbook item 10
 // (docs/plans/runbooks/macos-user-manual-checks.md).
+//
+// ⚠ A SYMBOLIC LINK IN THE SIDECAR IS REFUSED FIRST, before anything is created, because
+// MkdirAll follows one: the layout would be laid, and the skills and briefings delivered,
+// wherever the link points (linkedSidecarPaths says who can put one there and what it breaks).
+// That refusal is reported ALONE rather than with the occupied paths below: finding those
+// means laying links, and laying them through a planted link is the harm.
 func (l DarwinHomeLayout) Apply() error {
+	if linked := l.linkedSidecarPaths(); len(linked) > 0 {
+		return &LinkedSidecarError{Links: linked}
+	}
 	for _, dir := range l.Dirs {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			return err
@@ -283,6 +297,98 @@ func occupiedLayoutError(home string, inHome []string, inSidecar []DarwinHomeLin
 	return fmt.Errorf("%s", strings.TrimRight(b.String(), "\n"))
 }
 
+// linkedSidecarPaths returns every path from <workspace>/.yolo down to each Link's target that
+// is a symbolic link, stopping each chain at the first one (what lies below it is the link's
+// target, not the layout).
+//
+// WHY A LINK HERE IS NOT THE LAYOUT'S TO REPLACE. The layout creates these as real directories
+// and never writes a link among them. The sidecar is inside the workspace, which the agent can
+// always write, so a link there was left by an earlier session whose sandbox profile did not
+// cover it — a `packs: []` launch, or one with another pack selection — or by the user. Laid
+// through, it sends the agent's state, and the skills and briefings the overlay delivers, to a
+// path of its author's choosing, and the session's content rules
+// (macosuser.ResolveHomeReadonly) name the sidecar spelling the kernel then never reports. It
+// is not replaced either, because the directory it points at may hold the agent's real
+// history: the refusal names it and removes nothing, the rule OQ-HT2 gives a real directory in
+// the account home.
+//
+// `<workspace>/.yolo` is checked as the sidecar's parent: the sidecar is always
+// paths.WorkspaceHomeState, and `.yolo` is as writable as the rest of the workspace. The
+// workspace itself is not: the launcher resolved it, and its parent is outside the writable set.
+func (l DarwinHomeLayout) linkedSidecarPaths() []string {
+	if l.Sidecar == "" {
+		return nil
+	}
+	root := filepath.Dir(l.Sidecar)
+	chains := [][]string{{root, l.Sidecar}}
+	for _, ln := range l.Links {
+		rel, err := filepath.Rel(l.Sidecar, ln.Target)
+		if err != nil || rel == "." || strings.HasPrefix(rel, "..") {
+			continue
+		}
+		chain := []string{root, l.Sidecar}
+		cur := l.Sidecar
+		for _, part := range strings.Split(filepath.ToSlash(rel), "/") {
+			cur = filepath.Join(cur, part)
+			chain = append(chain, cur)
+		}
+		chains = append(chains, chain)
+	}
+	seen := map[string]bool{}
+	var out []string
+	for _, chain := range chains {
+		for _, p := range chain {
+			fi, err := os.Lstat(p)
+			if err != nil {
+				break // absent: nothing below it exists yet, so nothing below it is a link
+			}
+			if fi.Mode()&os.ModeSymlink == 0 {
+				continue
+			}
+			if !seen[p] {
+				seen[p] = true
+				out = append(out, p)
+			}
+			break
+		}
+	}
+	return out
+}
+
+// LinkedSidecarError is the refusal of a symbolic link where the layout lays a directory of its
+// own in the workspace (linkedSidecarPaths). Both the layout step and the overlay step return
+// it, because every boot step runs after one fails, and the overlay must not deliver through
+// the link the layout refused.
+type LinkedSidecarError struct {
+	// Links are the linked paths, in the order the layout walks them.
+	Links []string
+}
+
+func (e *LinkedSidecarError) Error() string {
+	var b strings.Builder
+	n := len(e.Links)
+	fmt.Fprintf(&b, "the per-workspace home layout cannot be laid: %d %s in the workspace "+
+		"%s a symbolic link, where the layout's own directory belongs.\n", n,
+		plural(n, "path", "paths"), plural(n, "is", "are"))
+	b.WriteString("Nothing is laid or delivered through a link the layout did not lay: the " +
+		"agent's state, and the skills and briefings this launch delivers, would land wherever " +
+		"it points, where the session's sandbox profile does not protect them.\n")
+	for _, p := range e.Links {
+		if target, err := os.Readlink(p); err == nil {
+			fmt.Fprintf(&b, "  %s -> %s\n", p, target)
+		} else {
+			fmt.Fprintf(&b, "  %s\n", p)
+		}
+	}
+	b.WriteString("Nothing here is removed for you. Move what you want to keep out of the " +
+		"directory each link points at, then remove the LINK, which leaves that directory " +
+		"alone; yolo recreates the directory on the next launch:\n")
+	for _, p := range e.Links {
+		fmt.Fprintf(&b, "  sudo rm %s\n", p)
+	}
+	return strings.TrimRight(b.String(), "\n")
+}
+
 // ensureLayoutSymlink makes path a symlink to target, and reports whether a real file or
 // directory was sitting there instead.
 //
@@ -320,12 +426,24 @@ func plural(n int, one, many string) string {
 // InstallDarwinHomeLayout is the boot-path entry: derive from this Env and the staged packs,
 // then apply. A launch that named no sidecar lays nothing (see DarwinHomeSidecarEnv).
 func InstallDarwinHomeLayout(e *Env, packs []*packload.Pack) error {
-	sidecar := e.Getenv(DarwinHomeSidecarEnv)
-	if sidecar == "" {
+	l, ok := darwinHomeLayoutFor(e, packs)
+	if !ok {
 		return nil
 	}
+	return l.Apply()
+}
+
+// darwinHomeLayoutFor derives this Env's layout from the staged packs, and reports false when
+// the launcher named no sidecar. The ONE derivation both boot steps use — the layout step lays
+// it, and the overlay step follows only the links it names (InstallHomeOverlay) — so the two
+// cannot disagree about which links are yolo's.
+func darwinHomeLayoutFor(e *Env, packs []*packload.Pack) (DarwinHomeLayout, bool) {
+	sidecar := e.Getenv(DarwinHomeSidecarEnv)
+	if sidecar == "" {
+		return DarwinHomeLayout{Home: e.Home}, false
+	}
 	return DeriveDarwinHomeLayout(e.Home, sidecar,
-		packload.WritableDirs(packs), packload.SharedDirs(packs)).Apply()
+		packload.WritableDirs(packs), packload.SharedDirs(packs)), true
 }
 
 // DarwinSidecar returns this Env's workspace sidecar (<workspace>/.yolo/home), or "" when
