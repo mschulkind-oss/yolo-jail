@@ -15,7 +15,7 @@ vantage:
 mechanism choice is a `WS-D` row in the [ledger](#12-decision-ledger), whose Built column names
 the commits. The host half ([OQ-WS5](#OQ-WS5), [OQ-WS6](#OQ-WS6)) is out of v1 and unbuilt, and
 one question is open: [OQ-WS7](#OQ-WS7), a bound on what the layer copies. How it works now:
-[the workspace layer](../reference/agent-briefings.md#the-workspace-layer). DECIDED, 2026-09-27 — [OQ-WS1](#OQ-WS1)–[OQ-WS5](#OQ-WS5) ruled in review that day ([OQ-WS3](#OQ-WS3) beyond its options: every agent's project-scope path, whatever packs are selected), [OQ-WS6](#OQ-WS6) deferred with the host half. Earlier stamps: Every current-behavior
+[the workspace layer](../reference/agent-briefings.md#the-workspace-layer). Earlier stamps: every current-behavior
 claim below was checked against the tree on 2026-09-17 and re-checked on 2026-09-24, and every
 claim about an agent's discovery paths against the bundle installed in this jail, version named
 in the table that makes it (those were not re-read on 2026-09-24).
@@ -25,8 +25,8 @@ in the table that makes it (those were not re-read on 2026-09-24).
 > already converge is the per-agent staging yolo composes host-side and binds read-only into
 > the jail — so the agent-neutral answer is to make the workspace one more **source** of that
 > composition, with each agent pack declaring where its agent reads at project scope exactly
-> as it already declares where it reads at home scope. Whether the workspace may be a source at
-> all is [OQ-WS1](#OQ-WS1), and it is genuinely arguable in both directions.
+> as it already declares where it reads at home scope. [OQ-WS1](#OQ-WS1) ruled that it may,
+> and [OQ-WS3](#OQ-WS3) that the source set is every agent's project-scope path, whatever packs are selected.
 
 **Why it matters.** Today a `.claude/skills/` tree reaches `claude`, `copilot` and `opencode`
 and misses `codex`, `pi` and `agy`; no single project path reaches all six
