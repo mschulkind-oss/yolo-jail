@@ -5,7 +5,7 @@ is open. Evidence verified at `8da7840d`. **[§2](#2-step-1--posture-lists) (row
 and [§4](#4-the-end-to-end-test-of-the-fifth-disposition) were BUILT on 2026-09-27** on
 [OQ-5](notch-scoped-config-contributions.md#OQ-5)'s leaning (`0965feeb`, `ccea898c`,
 `30a4d448`); the design's [ledger](notch-scoped-config-contributions.md#10-decision-ledger)
-records the mechanism choices as NS-D4 to NS-D10.
+records the mechanism choices as NS-D4 to NS-D13.
 [§3](#3-only-if-the-rulings-are-amended--the-posture-modifier) stays blocked on
 [OQ-5](notch-scoped-config-contributions.md#OQ-5).
 
@@ -30,7 +30,7 @@ it is answered.
 | 3 | `packoverlay.Collect` (`internal/packoverlay/packoverlay.go`) | Take each pack's posture lists in the existing list pass: decode both postures' lists, then the gate on `autonomy`, then the owner check and `listsByTarget`. An ownerless one is an `OrphanOverlay` whose kind is `autonomy`. No signature change |
 | 4 | `Collect`'s doc comment and `internal/packoverlay/autonomyinert_test.go` | Rewrite "its effect on this function's output is zero" to "it never changes surface identities or ownership, and it selects posture lists"; keep the identity pin, add the list assertion |
 | 5 | `packload` footprint (`internal/packload/footprint.go`, the `KindAutonomy` case) | Name each posture's lists in the claim's detail, as the `profile` detail does |
-| 6 | `surveyNotchFacts` (`internal/cli/hostapplynotch.go`) | `AutonomyFolds` true when the host posture declares `lists`, not only `config` |
+| 6 | `surveyNotchFacts` (`internal/cli/hostapplynotch.go`) | `AutonomyFolds` true when the host posture declares `lists`, not only `config`. *Narrowed after review (NS-D12):* true only for a list `Collect` placed (`OverlaySet.PlacesPostureListFrom`), since an ownerless one folds nothing |
 | 7 | `docs/reference/pack-system.md` | The `autonomy` and `config-list` sections: posture lists, their gate, their disclosure |
 | 8 | `(*Options).buildMacosCtxTree` (`internal/cli/run/macosctxtree.go`), `macosuser.HostContext`, `macosuser.hostLayerWire` (`internal/macosuser/runplan.go`) | Render-mark parity: compute `Rendered` with `hostLayerIsRender`, carry it on the context, marshal `entrypoint.HostLayerWire` |
 | 9 | `docs/reference/config-target-resolution.md` | Gap 1 closes when row 8 lands; gap 2 closes with [§4](#4-the-end-to-end-test-of-the-fifth-disposition) |
@@ -117,6 +117,8 @@ Every test here must fail when its production call site is deleted (AGENTS.md, T
 
 - **`packrender_test_support.go` is production code.** `ConfigurePackByName` in it is
   `yolo check`'s dry-run probe (`internal/cli/check/entrypoint.go`), not only a test helper.
+  *After review (NS-D13):* its body is `configureOnePack`, so a fixture pack reaches the probe's
+  `Collect` call; no embedded pack declares a posture list.
 - **`Collect`'s doc comment names `configdiff.go` as a caller.** At `8da7840d` it is not one; the
   callers are the six in [§1](#1-codebase-map). Fix the comment while rewriting it (row 4).
   *Fixed in `0965feeb`:* the comment now names the six.

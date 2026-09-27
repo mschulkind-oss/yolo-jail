@@ -194,8 +194,8 @@ func TestPostureOfAgreesWithPostureFor(t *testing.T) {
 // ONE AUTONOMY CONTRIBUTION PER PACK (notch-scoped-config-contributions.md NS-D11). A second
 // is the natural way to write one contribution per posture, and it used to decode clean while
 // every posture reader took only the first — so its lists rendered nowhere and `yolo pack
-// footprint` still claimed they appended. The strict decoder (every host read) refuses it,
-// naming both positions and the merge.
+// footprint` still claimed they appended. The strict decoder (`pack lint`, `check`, the
+// launch) refuses it, naming both positions and the merge.
 func TestASecondAutonomyContributionIsRefused(t *testing.T) {
 	_, problems := Decode([]byte(`{"name":"matt","contributes":[
 		{"kind":"autonomy","guarded":{"lists":[{"surface":"pi/settings","path":"/packages","add":["host-only"]}]}},

@@ -1310,8 +1310,10 @@ jail:
   ignores an unknown nested field), so the entry renders nowhere rather than everywhere. Install
   the host yolo before a pack uses the field, since the host refuses the manifest otherwise.
 
-`autonomy` is Exclusive per pack, and it never collides across packs: the `config` half
-patches only the pack's own surfaces, and a list only appends.
+A pack declares at most one `autonomy` contribution, with both postures inside it.
+`yolo pack lint`, `yolo check` and the launch refuse a second one, and a jail's read skips it
+with a warning, so no reader there sees postures that do not render. `autonomy` never collides
+across packs: the `config` half patches only the pack's own surfaces, and a list only appends.
 
 #### `provider` and `profile`
 
