@@ -663,10 +663,11 @@ yolo.derive("pi", "settings", function(ctx)
       end
     end
     table.sort(modelIds)
-    -- THE DEFAULT LEADS, for the same reason the codex list above leads with Sol:
-    -- pi starts a fresh session on the FIRST enabledModel whenever the saved
-    -- selection fails to resolve, so a purely sorted list put the alphabetically
-    -- first id there — glm-4.6, the OLDEST model zai serves, not its declared
+    -- THE DEFAULT LEADS, and the first slot is not presentation: pi starts a fresh
+    -- session on the FIRST enabledModel whenever the saved defaultProvider/defaultModel
+    -- pair fails to resolve or sits outside the scope (buildSessionOptions in pi 0.87.1's
+    -- dist/main.js, "otherwise first scoped model"), so a purely sorted list put the
+    -- alphabetically first id there — glm-4.6, the OLDEST model zai serves, not its declared
     -- default. Rotate the selection's model to the front; the rest keep their sorted
     -- order, so the list stays deterministic. A nil defaultModel (no alias resolved)
     -- leaves the sorted order untouched, and an id that is somehow absent from the
@@ -688,8 +689,11 @@ yolo.derive("pi", "settings", function(ctx)
   else
     table.insert(enabled, ctx.selected_provider .. "/*")
   end
-  -- enabledModels travels under the selection for the reason given in the openai-codex
-  -- branch above: a computed key would revert pi's own /model scoping every launch.
+  -- enabledModels travels under the selection, not the computed layer. pi's own /model
+  -- scoping writes the same key, and a computed key is re-asserted every boot, which would
+  -- revert the user's scoped list on the next launch. Under the selection it takes the
+  -- pair's rules: written on activation, a user edit kept, yolo's own list cleared on
+  -- deselect (OQ-PSW2). An array is a leaf there, replaced whole.
   sel.enabledModels = enabled
   return { selection = sel }
 end)
