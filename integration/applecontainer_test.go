@@ -292,10 +292,8 @@ func TestAppleContainerBindsASingleFile(t *testing.T) {
 	}
 
 	// A regular file, read-only: the shape every acMaterialize site would bind.
-	out, err := exec.Command("container", "run", "--rm",
-		"-v", reg+":/probe/regular.txt:ro", ref,
-		"sh", "-c", "cat /probe/regular.txt 2>&1",
-	).CombinedOutput()
+	out, err := acContainerRun(context.Background(), t,
+		[]string{"-v", reg + ":/probe/regular.txt:ro", ref}, "sh", "cat /probe/regular.txt 2>&1")
 	if err != nil {
 		t.Fatalf("the single-file probe could not run: %v\n%s", err, out)
 	}
@@ -323,13 +321,12 @@ func TestAppleContainerBindsASingleFile(t *testing.T) {
 	if err := os.WriteFile(shadowed, []byte("REAL USER CONTENT"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	out, err = exec.Command("container", "run", "--rm",
-		"-v", dir+":/ws", "-v", "/dev/null:/ws/shadowed.json", ref,
-		"sh", "-c", `echo "type=$(stat -c %F /ws/shadowed.json 2>&1)"; `+
+	out, err = acContainerRun(context.Background(), t,
+		[]string{"-v", dir + ":/ws", "-v", "/dev/null:/ws/shadowed.json", ref}, "sh",
+		`echo "type=$(stat -c %F /ws/shadowed.json 2>&1)"; `+
 			`echo "dev=$(stat -c %t:%T /ws/shadowed.json 2>&1)"; `+
 			`echo "realdev=$(stat -c %t:%T /dev/null)"; `+
-			`echo "read=[$(cat /ws/shadowed.json 2>&1)]"`,
-	).CombinedOutput()
+			`echo "read=[$(cat /ws/shadowed.json 2>&1)]"`)
 	if err != nil {
 		t.Fatalf("the shadow probe could not run: %v\n%s", err, out)
 	}
@@ -399,10 +396,9 @@ func TestAppleContainerHonorsReadOnlyBinds(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	out, err := exec.Command("container", "run", "--rm",
-		"-v", dir+":/ro-probe:ro", ref,
-		"sh", "-c", "touch /ro-probe/written 2>/dev/null && echo RO-IGNORED || echo RO-HONORED",
-	).CombinedOutput()
+	out, err := acContainerRun(context.Background(), t,
+		[]string{"-v", dir + ":/ro-probe:ro", ref}, "sh",
+		"touch /ro-probe/written 2>/dev/null && echo RO-IGNORED || echo RO-HONORED")
 	if err != nil {
 		t.Fatalf("the :ro probe could not run: %v\n%s", err, out)
 	}
@@ -1368,14 +1364,49 @@ func acRunProbe(t *testing.T, ref, what, script string) string {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), jailTimeout())
 	defer cancel()
-	out, err := exec.CommandContext(ctx, "container", "run", "--rm", ref, "/bin/bash", "-c", script).
-		CombinedOutput()
+	out, err := acContainerRun(ctx, t, []string{ref}, "/bin/bash", script)
 	if err != nil {
 		t.Fatalf("AC-HOST-REACH: the %s container could not run (%v), so nothing was measured. "+
 			"Read this as a fault in the runtime or the image, NOT as an answer about host "+
 			"reachability.\nimage: %s\noutput:\n%s\nscript:\n%s", what, err, ref, out, script)
 	}
 	return string(out)
+}
+
+// acProbeDone is the line acContainerRun appends to every probe script: seeing it proves the
+// script ran to its end inside the container.
+const acProbeDone = "__yolo_ac_probe_done__"
+
+// acTeardownRace is the error Apple Container's `container run --rm` prints when the container
+// exits before the CLI's own teardown reaches it (seen on `container` 1.1.0, run 36298275277:
+// every probe line printed, then "Error: no runtime client exists: container is stopped", exit 1).
+const acTeardownRace = "no runtime client exists: container is stopped"
+
+// acContainerRun runs `container run --rm <args> <shell> -c <script>` and returns its combined
+// output with the done marker removed. A non-zero exit is forgiven in exactly one case: the
+// script reached its end (the marker printed) AND the only failure is acTeardownRace, the CLI's
+// teardown losing a race with a container that already exited. Any other failure, or a script
+// that did not finish, is returned as an error, so a probe that did not happen still fails.
+func acContainerRun(ctx context.Context, t *testing.T, args []string, shell, script string) ([]byte, error) {
+	t.Helper()
+	argv := append(append([]string{"run", "--rm"}, args...), shell, "-c", script+"\necho "+acProbeDone)
+	out, err := exec.CommandContext(ctx, "container", argv...).CombinedOutput()
+	if err != nil && acForgivableTeardown(string(out)) {
+		t.Logf("apple container: forgiving the CLI's teardown race after a completed probe (%v)", err)
+		err = nil
+	}
+	return []byte(strings.Replace(string(out), acProbeDone+"\n", "", 1)), err
+}
+
+// acForgivableTeardown reports whether a failed `container run` output shows a completed probe
+// followed by nothing but the teardown race.
+func acForgivableTeardown(out string) bool {
+	i := strings.Index(out, acProbeDone)
+	if i < 0 {
+		return false
+	}
+	rest := strings.TrimSpace(out[i+len(acProbeDone):])
+	return rest == "Error: "+acTeardownRace || rest == acTeardownRace
 }
 
 // TestACHostCandidatesFromFacts pins the candidate derivation from Linux, which is the only
