@@ -364,14 +364,16 @@ func (e *Env) BashrcPath() string { return filepath.Join(e.Home, ".bashrc") }
 func (e *Env) CopilotDir() string { return filepath.Join(e.Home, ".copilot") }
 
 // GeminiDir is HOME/.gemini. The `gemini` AGENT was removed (A1), but this tree
-// is still live: it is where agy (Google Antigravity CLI) keeps its state, under
-// the antigravity-cli subdir. Kept for AgyDir, not for gemini.
+// is still live: the whole of it is agy's (Google Antigravity CLI) workspace
+// state, and agy's config dir is its antigravity-cli subdir. Kept for AgyDir, not
+// for gemini.
 func (e *Env) GeminiDir() string { return filepath.Join(e.Home, ".gemini") }
 
-// AgyDir is HOME/.gemini/antigravity-cli — the Google Antigravity CLI's state
-// dir. It sits under the ~/.gemini tree (a Google convention agy inherits) but is
-// a distinct subdir, so
-// the two agents never collide (see the agy AgentSpec / agySettings surface).
+// AgyDir is HOME/.gemini/antigravity-cli — the dir the agy pack renders the
+// Google Antigravity CLI's settings.json and mcp_config.json into
+// (packs/agy/pack.json). It is NOT agy's whole state: agy also writes
+// ~/.gemini/config, so the pack's state contribution is all of ~/.gemini
+// (docs/reference/agent-credentials.md).
 func (e *Env) AgyDir() string { return filepath.Join(e.GeminiDir(), "antigravity-cli") }
 
 // ClaudeDir is HOME/.claude.

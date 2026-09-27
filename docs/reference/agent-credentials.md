@@ -27,7 +27,9 @@ tags: [credentials, security, boundary, env_sources, host_files, broker, oauth]
 
 # Agent credentials — what crosses the jail boundary, and how
 
-**Status:** CURRENT as of 2026-09-09, verified against `41dde711`.
+**Status:** CURRENT as of 2026-09-09, verified against `41dde711`. The
+[gemini-paths paragraph](#agys-paths-under-gemini) alone was re-checked against `9990882a` on
+2026-09-27; nothing else in the doc was.
 
 yolo-jail's credential story is **structural, not a policy one**: host credentials are
 *physically absent* from the jail, and the only credentials an agent can reach are ones a human
@@ -548,10 +550,25 @@ Two asymmetries are the load-bearing part, and neither is visible from a per-age
 > subscription authentication keeps one canonical service file and materializes narrower Codex
 > and Pi views. Other agent overlays are still seeded one-way per workspace.
 
-There is no `gemini` pack and there never was, but the **gemini-shaped paths are real**: `agy`
-occupies a subdirectory of the gemini tree, `Env.GeminiDir` is a live exported method whose
-comment says as much, `Env.AgyDir` is built on top of it, and `yolo prune` sweeps gemini log dirs.
-A path under `~/.gemini` is agy's, not a leftover.
+<a id="agys-paths-under-gemini"></a>
+
+There is no `gemini` pack and there never was, but the **gemini-shaped paths are real, and they
+are agy's.** Two different directories matter, and they are not the same one:
+
+- **agy's config dir** is `~/.gemini/antigravity-cli` (`Env.AgyDir`, built on `Env.GeminiDir`),
+  where `packs/agy` renders `settings.json` and `mcp_config.json` and where agy keeps its OAuth
+  token, the file the shared-credentials hook links.
+- **agy's workspace state** is the **whole** `~/.gemini`: the `state` contribution in
+  `packs/agy/pack.json` names `.gemini`, not the config dir.
+
+`yolo prune` also sweeps gemini log dirs. A path under `~/.gemini` is agy's, not a leftover.
+
+> [!WARNING]
+> **Do not narrow agy's `state` to `.gemini/antigravity-cli`.** agy writes its own project state
+> to `~/.gemini/config/projects`, a sibling of the config dir rather than a child of it. With the
+> state narrowed, `~/.gemini/config` is read-only in the jail, and agy fails at boot with
+> `mkdir /home/agent/.gemini/config: read-only file system` (fixed in `01e01808`, which widened
+> the state to `.gemini`).
 
 ## Per-backend differences
 
