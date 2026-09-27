@@ -1675,9 +1675,29 @@ func validateUseProfiles(config *jsonx.OrderedMap, errs *[]string) {
 			continue
 		}
 		if namespaceKnown && !containsStr(installed, agent) {
-			add(errs, path+": "+unknownProfileCLIMessage(agent, installed))
+			add(errs, unknownUseProfileKeyError(agent, installed))
 		}
 	}
+}
+
+// UnknownUseProfileKey is validateUseProfiles' refusal for ONE use_profiles key, for a caller
+// that never runs ValidateConfig: `yolo host`, which reads the user file directly
+// (docs/design/credential-sources-separation.md ES-D5). It returns the exact message the
+// validator adds and true when no resolvable pack — selected or not — installs a CLI named key,
+// and false when one does or when that namespace cannot be enumerated (an unresolvable
+// configured pack), where the validator steps aside too. One rule and one message, so the host
+// refuses exactly what `yolo check` and every jail launch refuse in the same user file.
+func UnknownUseProfileKey(key string) (string, bool) {
+	installed, known := UseProfileCLINames()
+	if !known || containsStr(installed, key) {
+		return "", false
+	}
+	return unknownUseProfileKeyError(key, installed), true
+}
+
+// unknownUseProfileKeyError is the one spelling of the refusal, path included.
+func unknownUseProfileKeyError(key string, installed []string) string {
+	return "config.use_profiles." + key + ": " + unknownProfileCLIMessage(key, installed)
 }
 
 // unknownProfileCLIMessage explains a use_profiles key no resolvable pack answers to.

@@ -592,6 +592,23 @@ func composeHostVars(cfg *jsonx.OrderedMap, workspace, agent, profile string, wa
 	if profileName != "" {
 		agentTable[agent] = profileName
 	}
+	// ONLY A TYPED -p KEYS A COMMAND NO PACK INSTALLS
+	// (docs/design/credential-sources-separation.md ES-D5). The one-agent table above keys
+	// whatever basename was launched, which is what makes `yolo host -p zai -- bash` the host's
+	// grant (ES-D1) — and what made a `use_profiles` entry for `bash` deliver here too, only
+	// because this notch never runs ValidateConfig while `yolo check` and every jail launch
+	// refuse that entry in the same user file. So a use_profiles key doing the selecting is
+	// asked the validator's own question, and refused with its message plus the spelling that
+	// IS legal.
+	if profile == "" && profileName != "" && !selectedPackInstalls(packs, agent) {
+		if msg, unknown := config.UnknownUseProfileKey(agent); unknown {
+			p, a := shquote.Quote(profileName), shquote.Quote(agent)
+			c.err = fmt.Errorf("%s. Only a typed -p selects a profile for a command no pack "+
+				"installs: remove the entry and run `yolo host -p %s -- %s` (or "+
+				"`yolo host env --agent %s -p %s` for a shell)", msg, p, a, a, p)
+			return c
+		}
+	}
 
 	// The user's profile declarations, resolved ONCE for this launch — the host notch's
 	// half of the resolution the jail notch composes in its channel, read from the same
@@ -744,6 +761,20 @@ func composeHostVars(cfg *jsonx.OrderedMap, workspace, agent, profile string, wa
 	}
 	c.vars = vars
 	return c
+}
+
+// selectedPackInstalls reports whether a selected pack installs a CLI named bin — the case in
+// which a use_profiles key for it is certainly one the validator accepts, so ES-D5's refusal
+// need not enumerate the whole namespace to know it.
+func selectedPackInstalls(packs []*packload.Pack, bin string) bool {
+	for _, p := range packs {
+		for _, b := range p.InstallBins() {
+			if b == bin {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // composedHostProviders is the host notch's ONE provider composition — the host spelling

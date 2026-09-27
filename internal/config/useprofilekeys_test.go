@@ -125,3 +125,36 @@ func TestValidateUseProfilesStillChecksValuesWhenTheUniverseIsUnknown(t *testing
 	t.Errorf("a non-string profile value must still be reported when a configured pack "+
 		"cannot resolve, got %v", errs)
 }
+
+// UnknownUseProfileKey is the validator's refusal for one key, for `yolo host`, which never
+// runs ValidateConfig (credential-sources-separation.md ES-D5): it must answer exactly what
+// ValidateConfig answers — the same message for an unknown key, and nothing for a key some
+// resolvable pack installs, selected or not — or the two notches would disagree about one
+// user file again.
+func TestUnknownUseProfileKeyIsTheValidatorsRefusal(t *testing.T) {
+	useProfileKeysHome(t)
+	errs, _ := ValidateConfig(decode(t, `{"use_profiles": {"bash": "zai"}}`), t.TempDir(), nil)
+	if len(errs) != 1 {
+		t.Fatalf("want the validator's one refusal for bash, got %v", errs)
+	}
+	msg, unknown := UnknownUseProfileKey("bash")
+	if !unknown || msg != errs[0] {
+		t.Errorf("UnknownUseProfileKey(bash) = %q, %v; want the validator's %q", msg, unknown, errs[0])
+	}
+	for _, installed := range []string{"claude", "codex", "pi"} {
+		if msg, unknown := UnknownUseProfileKey(installed); unknown {
+			t.Errorf("%s is installed by a shipped pack, which the validator accepts; got %q", installed, msg)
+		}
+	}
+}
+
+// Where the validator steps aside — an unresolvable configured pack makes the namespace
+// unknowable — the helper does too, rather than refusing every key.
+func TestUnknownUseProfileKeyStepsAsideWhenTheNamespaceIsUnknowable(t *testing.T) {
+	home := useProfileKeysHome(t)
+	writeUseProfileKeysUserConfig(t, home,
+		`[{"name": "gone", "source": "git+ssh://git@example.com/gone/pack.git"}]`)
+	if msg, unknown := UnknownUseProfileKey("bash"); unknown {
+		t.Errorf("an unknowable namespace refuses nothing, got %q", msg)
+	}
+}
