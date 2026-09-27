@@ -38,9 +38,11 @@ type codexModel struct {
 }
 
 // expandCodexModels is codexModelList (packs/{claude,pi,codex}/derive.lua) in Go, written
-// from the rule rather than from the Lua: aliases walked in sorted order, a repeated id
-// dropped, rows ordered by `order` (declared before undeclared, then by id), and a
-// `<id>[1m]` row after each base that declares long_context_window.
+// from the rule rather than from the Lua: one row per distinct id, whose facts are the alias
+// spelled as the id when there is one, with every other alias naming that id filling only
+// the facts still missing, in sorted alias order; rows ordered by `order` (declared before
+// undeclared, then by id); and a `<id>[1m]` row after each base that declares
+// long_context_window.
 func expandCodexModels(models map[string]string, opts map[string]map[string]string) []codexModel {
 	type row struct {
 		id, name, desc string
@@ -56,20 +58,45 @@ func expandCodexModels(models map[string]string, opts map[string]map[string]stri
 		aliases = append(aliases, a)
 	}
 	sort.Strings(aliases)
-	var rows []row
-	seen := map[string]bool{}
-	for _, a := range aliases {
-		id := models[a]
-		if id == "" || seen[id] {
-			continue
+	byID := map[string]*row{}
+	var ids []string
+	absorb := func(id, alias string) {
+		r, ok := byID[id]
+		if !ok {
+			r = &row{id: id}
+			byID[id] = r
+			ids = append(ids, id)
 		}
-		seen[id] = true
-		f := opts[a]
-		r := row{id: id, name: f["name"], desc: f["description"]}
-		r.order, r.hasOrder = num(f["order"])
-		r.cw, _ = num(f["context_window"])
-		r.lcw, _ = num(f["long_context_window"])
-		rows = append(rows, r)
+		f := opts[alias]
+		if r.name == "" {
+			r.name = f["name"]
+		}
+		if r.desc == "" {
+			r.desc = f["description"]
+		}
+		if !r.hasOrder {
+			r.order, r.hasOrder = num(f["order"])
+		}
+		if r.cw == 0 {
+			r.cw, _ = num(f["context_window"])
+		}
+		if r.lcw == 0 {
+			r.lcw, _ = num(f["long_context_window"])
+		}
+	}
+	for _, a := range aliases {
+		if id := models[a]; id != "" && id == a {
+			absorb(id, a)
+		}
+	}
+	for _, a := range aliases {
+		if id := models[a]; id != "" && id != a {
+			absorb(id, a)
+		}
+	}
+	rows := make([]row, 0, len(ids))
+	for _, id := range ids {
+		rows = append(rows, *byID[id])
 	}
 	sort.SliceStable(rows, func(i, j int) bool {
 		a, b := rows[i], rows[j]
@@ -436,6 +463,45 @@ console.log(JSON.stringify((registration.config.models ?? []).map((m) => m.id)))
 		t.Fatalf("decoding the extension's registered ids %q: %v", out, err)
 	}
 	return ids
+}
+
+// AN ALIAS FOR A DECLARED ID ADDS NOTHING. `default` and `fast` are yolo's conventional alias
+// names (copilot's derive and pi's non-codex arm look `default` up, and config-ref's example
+// spells both), so a user who adds one for a declared id must leave every consumer where the
+// declaration put it. The helper walks aliases in sorted order and both names sort before
+// every gpt-6 id, so under a first-alias-wins rule the id took the NEW alias's facts, which
+// are none: Sol fell to last with no name and no 1M variant, and every agent's default moved
+// to Astra. The alias spelled as the id is the one that carries the facts; another alias for
+// it fills only a fact that one lacks, which the added id below pins.
+func TestAnAliasForADeclaredCodexIDChangesNoConsumer(t *testing.T) {
+	decl := shippedCodexDeclaration(t)
+	shipped := expandCodexModels(decl.Models, decl.ModelOptions)
+
+	user := jsonx.NewOrderedMap()
+	codexOverride := jsonx.NewOrderedMap()
+	overrideModels := jsonx.NewOrderedMap()
+	overrideModels.Set("default", "gpt-6-sol")
+	overrideModels.Set("fast", "gpt-6-luna")
+	// An added id with no facts of its own under its id-named alias, and a second alias that
+	// sorts before it and names it: the second alias's name fills the gap.
+	overrideModels.Set("gpt-6-nova", "gpt-6-nova")
+	named := jsonx.NewOrderedMap()
+	named.Set("id", "gpt-6-nova")
+	named.Set("name", "GPT-6 Nova")
+	overrideModels.Set("a-nova", named)
+	codexOverride.Set("models", overrideModels)
+	user.Set("openai-codex", codexOverride)
+
+	want := append(append([]codexModel(nil), shipped...), codexModel{ID: "gpt-6-nova", Name: "GPT-6 Nova"})
+	got, composed := renderCodexConsumers(t, user)
+	models, opts := composedCodexModels(t, composed)
+	if list := expandCodexModels(models, opts); !reflect.DeepEqual(list, want) {
+		t.Fatalf("the Go statement of the rule expands the aliased table to %v, want %v", list, want)
+	}
+	requireConsumersRender(t, got, want)
+	if ids := runExtensionRegisteredIDs(t, got.piModelsFile); !reflect.DeepEqual(ids, codexIDs(want, "")) {
+		t.Errorf("the pi extension registers %v, want %v", ids, codexIDs(want, ""))
+	}
 }
 
 // THE HELPER IS ONE TEXT IN THREE FILES. A derive cannot load another file, so

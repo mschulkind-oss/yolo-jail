@@ -735,6 +735,11 @@ declared ones, with no 1M variant:
 
 Removing the first model moves every agent's default to the next one.
 
+A second alias for a model already in the list, such as `"default": "gpt-6-sol"`, adds no row
+and changes nothing: each model is listed once, with the facts of the alias spelled the same as
+its id. Another alias naming it only fills in a fact that one lacks, such as a `name` for a model
+you added.
+
 ## Per-agent delivery
 
 What each agent actually receives, from one composed table and one selection:

@@ -17,10 +17,10 @@ end
 -- consumer presents (docs/design/model-lists-and-pickers.md ML-D1). `p` is
 -- ctx.providers["openai-codex"]; anything without a `models` table expands to {}.
 --
--- Each declared id is WIRE-TRUE. Its facts come from model_options[alias]: `order` (the map
--- is unordered all the way here, so this is the only order there is; unordered ids go last,
--- by id), `name`, `description`, `context_window`, and `long_context_window`, which means
--- "this model also has a 1M variant". That variant is emitted right after its base as
+-- Each declared id is WIRE-TRUE. Its facts come from model_options under the alias spelled
+-- as the id: `order` (the map is unordered all the way here, so this is the only order there
+-- is; unordered ids go last, by id), `name`, `description`, `context_window`, and
+-- `long_context_window`, which means "this model also has a 1M variant". That variant is emitted right after its base as
 -- `<id>[1m]`, a CLIENT spelling Claude Code, packs/pi's extension and the wire bridge each
 -- strip before the request leaves.
 --
@@ -40,21 +40,32 @@ local function codexModelList(p)
     if type(v) == "string" and v ~= "" then return v end
     return nil
   end
-  local rows, seen = {}, {}
+  -- ONE ROW PER ID, and the alias spelled as the id carries its facts. Another alias naming
+  -- the same id (a `default` or `fast` the user added) fills only a fact that row still
+  -- lacks, in sorted alias order, so adding one moves nothing. Both of those names sort
+  -- before every declared id, and a first-alias-wins walk handed the id the new alias's
+  -- facts, which are none (docs/design/model-lists-and-pickers.md ML-D6).
+  local rows, byId = {}, {}
+  local function absorb(id, alias)
+    local r = byId[id]
+    if not r then
+      r = { id = id }
+      byId[id] = r
+      table.insert(rows, r)
+    end
+    local f = type(opts[alias]) == "table" and opts[alias] or {}
+    if r.order == nil then r.order = tonumber(f.order) end
+    if r.name == nil then r.name = text(f.name) end
+    if r.description == nil then r.description = text(f.description) end
+    if r.context_window == nil then r.context_window = tonumber(f.context_window) end
+    if r.long_context_window == nil then r.long_context_window = tonumber(f.long_context_window) end
+  end
+  for _, alias in ipairs(aliases) do
+    if alias ~= "" and p.models[alias] == alias then absorb(alias, alias) end
+  end
   for _, alias in ipairs(aliases) do
     local id = p.models[alias]
-    if type(id) == "string" and id ~= "" and not seen[id] then
-      seen[id] = true
-      local f = type(opts[alias]) == "table" and opts[alias] or {}
-      table.insert(rows, {
-        id = id,
-        order = tonumber(f.order),
-        name = text(f.name),
-        description = text(f.description),
-        context_window = tonumber(f.context_window),
-        long_context_window = tonumber(f.long_context_window),
-      })
-    end
+    if type(id) == "string" and id ~= "" and id ~= alias then absorb(id, alias) end
   end
   table.sort(rows, function(a, b)
     if a.order and b.order and a.order ~= b.order then return a.order < b.order end
