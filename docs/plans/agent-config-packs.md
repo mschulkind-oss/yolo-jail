@@ -4,7 +4,7 @@
 2026-08-23 and again 2026-09-24: the `packs` key, host-side fetch, the lockfile, the origin gate and
 `yolo pack {install,status,lint,footprint}` are all in the tree, so read this for its **landscape
 research and its scope verdict**, not as a plan. The live questions are
-[OQ-ACP1](#OQ-ACP1), [OQ-ACP2](#OQ-ACP2) and [OQ-ACP4](#OQ-ACP4) at the end;
+[OQ-ACP1](#OQ-ACP1) and [OQ-ACP4](#OQ-ACP4) at the end ([OQ-ACP2](#OQ-ACP2) was ruled 2026-09-27);
 [OQ-ACP3](#-oq-acp3--whether-the-prism-should-become-a-standalone-tool-that-also-manages-host-configs) is answered by reference ([Decision ledger](#decision-ledger)). *(The old header said
 "ROADMAP item: 5" — a numbering the 2026-08-17 restructure retired; the roadmap holds states and OQ
 IDs now.)*
@@ -26,7 +26,7 @@ IDs now.)*
 > - **Code paths.** `internal/agents` is now `internal/jailcontent`, and the file:line citations
 >   in the body are from 2026-07; treat them as history.
 
-**Needs your ruling:** [OQ-ACP1](#OQ-ACP1), [OQ-ACP2](#OQ-ACP2), [OQ-ACP4](#OQ-ACP4).
+**Needs your ruling:** [OQ-ACP1](#OQ-ACP1), [OQ-ACP4](#OQ-ACP4).
 **Research base:** [`../research/agent-config-distribution.md`](../research/agent-config-distribution.md)
 (14 agents surveyed, 6 distribution mechanisms, measured git plumbing).
 
@@ -1551,7 +1551,7 @@ Recorded so scope creep is visible:
 ## Open Questions
 
 > [!IMPORTANT]
-> **[OQ-ACP1](#OQ-ACP1), [OQ-ACP2](#OQ-ACP2) and [OQ-ACP4](#OQ-ACP4) are still live, and they are the only
+> **[OQ-ACP1](#OQ-ACP1) and [OQ-ACP4](#OQ-ACP4) are still live ([OQ-ACP2](#OQ-ACP2) was ruled 2026-09-27), and they are the only
 > reason this doc is not purely historical** (checked 2026-09-24). The `OQ-ACP` prefix was
 > verified free across `docs/` when the names were given. [OQ-ACP3](#-oq-acp3--whether-the-prism-should-become-a-standalone-tool-that-also-manages-host-configs) is answered by
 > reference and now sits under [Answered questions](#answered-questions); the older answered
@@ -1616,7 +1616,7 @@ the three.
 **Answer:**
 > _(empty — fill in when decided)_
 
-### <a id="OQ-ACP2"></a>💬 [OQ-ACP2](#OQ-ACP2) — whether opencode's skills gap should be closed by writing into `/workspace`
+### <a id="OQ-ACP2"></a>✅ [OQ-ACP2](#OQ-ACP2) — whether opencode's skills gap should be closed by writing into `/workspace`
 
 opencode has no user-level skills directory; `.agents/skills/` is project-scoped.
 The only way to give it real skills is to write into the workspace tree — which
@@ -1634,11 +1634,11 @@ becomes the dominant complaint, the right fix is upstream in opencode.
 > 2026-08-31. So there is no opencode gap left to close. What survives is the general half —
 > whether yolo ever writes into `/workspace` — and
 > [`workspace-skills.md`](../design/workspace-skills.md)'s
-> [`OQ-WS4`](../design/workspace-skills.md#OQ-WS4) (open) is filed to answer it and to record the
+> [`OQ-WS4`](../design/workspace-skills.md#OQ-WS4) is filed to answer it and to record the
 > answer here.
 
 **Answer:**
-> _(empty — fill in when decided)_
+> **Never in containers or on `macos-user`**, ruled 2026-09-27 as [`OQ-WS4`](../design/workspace-skills.md#OQ-WS4): *"A alone in containers and on macos-user; B is a host-notch tool and nothing else — and this ruling closes [`OQ-ACP2`](#OQ-ACP2) in its own doc."* The workspace's skills reach every agent through the staged mirror, which writes nothing into `/workspace`; writing links into a repo is left to the host notch, deferred to v2 ([`OQ-WS5`](../design/workspace-skills.md#OQ-WS5)).
 
 ### <a id="OQ-ACP4"></a>💬 [OQ-ACP4](#OQ-ACP4) — whether pruning needs usage telemetry to be anybody's job
 

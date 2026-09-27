@@ -1,7 +1,7 @@
 ---
 title: "Workspace skills — the repo picks the content, never the agent"
 date: 2026-09-17
-status: in-review
+status: accepted
 tags: [design, skills, packs, workspace, notch, git, trust]
 summary: "A repo that commits .claude/skills/ has chosen its readers' agent for them: a codex or pi user gets a worse experience from the same repo for no reason either of them chose. yolo already owns the one place every agent's skills converge — the per-agent staging it composes host-side and binds read-only — and the cheapest agent-neutral answer is to make the workspace one more SOURCE of that composition, declared by the agent packs rather than known to core. Whether the workspace may be a source at all is the user's ruling, and the argument runs both ways; the fact that most reshapes the answer is that the staging copier dereferences symlinks host-side, which a cloned repo turns into a host-file read."
 vantage:
@@ -10,7 +10,7 @@ vantage:
 
 # Workspace skills — the repo picks the content, never the agent
 
-**Status:** DESIGN, 2026-09-17 — nothing built; six questions open. Every current-behavior
+**Status:** DECIDED, 2026-09-27 — [OQ-WS1](#OQ-WS1)–[OQ-WS5](#OQ-WS5) ruled in review that day ([OQ-WS3](#OQ-WS3) beyond its options: every agent's project-scope path, whatever packs are selected), [OQ-WS6](#OQ-WS6) deferred with the host half; nothing built. Earlier stamps: Every current-behavior
 claim below was checked against the tree on 2026-09-17 and re-checked on 2026-09-24, and every
 claim about an agent's discovery paths against the bundle installed in this jail, version named
 in the table that makes it (those were not re-read on 2026-09-24).
@@ -43,7 +43,7 @@ layer on purpose. The links variant writes into a repo yolo does not own.
 **Start at [§4.1](#41-mechanism-a--the-staged-mirror)** — the mirror, and the symlink rule
 that reshapes it. [§6](#6-both-notches-honestly) is where the host answer has to differ.
 
-**Needs your ruling:** [OQ-WS1](#OQ-WS1), [OQ-WS2](#OQ-WS2), [OQ-WS3](#OQ-WS3), [OQ-WS4](#OQ-WS4), [OQ-WS5](#OQ-WS5), [OQ-WS6](#OQ-WS6).
+**Needs your ruling:** none for v1.
 
 **Reads with:** [`workspace-skills-plan.md`](workspace-skills-plan.md) (the implementation
 sketch — incomplete, and unstable while these questions are open);
@@ -538,7 +538,7 @@ none of it answers these, and one live sibling question
 ([OQ-ACP2](../plans/agent-config-packs.md#-oq-acp2--whether-opencodes-skills-gap-should-be-closed-by-writing-into-workspace))
 is answered *by* two of them.
 
-1. 💬 **OQ-WS1: May the workspace contribute skills at all?** This is the closure question;
+1. ✅ <a id="OQ-WS1"></a>**OQ-WS1: May the workspace contribute skills at all?** This is the closure question;
    every other question is moot on a *no*. What it decides: whether a `git clone` (and the
    in-jail agent, which can write the same tree) becomes a source of the composed skills every
    agent in the jail reads. The case for and against is
@@ -548,7 +548,6 @@ is answered *by* two of them.
    most tempers it is that the staging copier would have turned a committed symlink into a host
    read had this been built without [§4.1](#41-mechanism-a--the-staged-mirror)'s caution.
 
-   <!-- vantage: oq id=OQ-WS1 leaning="Yes, in containers and macos-user, at the lowest layer, with escaping symlinks refused — the repo already reaches every agent by shipping every path, so the mirror grants no authority it lacks; but this is the user's call and the against case is real." -->
 
    _Leaning:_ **yes** — jail and `macos-user`, lowest layer, P5 enforced. By the authority
    test the repo already reaches every agent by shipping every path; a mirror removes a tax,
@@ -556,9 +555,9 @@ is answered *by* two of them.
    than "another pack".
 
    **Answer:**
-   > _(empty — fill in when decided)_
+   > **As leaned**, ruled 2026-09-27 in review: *"Yes, in containers and macos-user, at the lowest layer, with escaping symlinks refused — the repo already reaches every agent by shipping every path, so the mirror grants no authority it lacks; but this is the user's call and the against case is real."*
 
-2. 💬 **OQ-WS2: Where does the workspace layer sit?** Decides who wins a same-name collision
+2. ✅ <a id="OQ-WS2"></a>**OQ-WS2: Where does the workspace layer sit?** Decides who wins a same-name collision
    between a workspace skill and a built-in, a shared pack's, or the local pack's. Three
    positions: **(a) lowest** — below the built-ins, so the workspace can add but never shadow;
    **(b) between the shared packs and the local pack** — a repo's conventions beat a company
@@ -567,31 +566,39 @@ is answered *by* two of them.
    among themselves (`claude` personal > project; `copilot` project > personal), so no position
    matches every agent's native rule.
 
-   <!-- vantage: oq id=OQ-WS2 leaning="(a) lowest — the workspace is the one agent-writable and clone-populated source, so it must never be able to shadow a jail-management skill; every shadowed name is disclosed." -->
 
    _Leaning:_ **(a).** The workspace is the one source a clone populates and an agent edits;
    letting it shadow `configuring-the-jail` is R2. Disclosure of every shadowed name makes the
    loss visible without reopening S5.
 
    **Answer:**
-   > _(empty — fill in when decided)_
+   > **As leaned, (a)**, ruled 2026-09-27 in review: *"(a) lowest — the workspace is the one agent-writable and clone-populated source, so it must never be able to shadow a jail-management skill; every shadowed name is disclosed."*
 
-3. 💬 **OQ-WS3: Is the source set pack-declared, or one directory yolo names?** Decides
+3. ✅ <a id="OQ-WS3"></a>**OQ-WS3: Is the source set pack-declared, or one directory yolo names?** Decides
    whether core learns a path. **(a)** the union of every selected agent pack's declared
    project paths ([§5](#5-the-pack-declares-what-its-agent-reads)) — a repo that already chose
    `.claude/skills/` is served with no change to the repo, which is the motivating case;
    **(b)** one conventional directory (`.agents/skills/`, the field's interop path) that core
    knows the way it knows a pack's `skills/` — simpler, and a repo has to adopt it; **(c)** both.
 
-   <!-- vantage: oq id=OQ-WS3 leaning="(a) — the union of pack-declared project paths; core names no path, and the repo that already picked .claude/skills is served as-is, which is the case the user described." -->
 
    _Leaning:_ **(a).** P2, and it serves the repo that already made its choice — the user's
    framing — rather than asking it to make another.
 
    **Answer:**
-   > _(empty — fill in when decided)_
+   > **Neither (a) nor (b): every agent's convention, whatever is selected**, ruled 2026-09-27 in
+   > review: *"I don't actually believe this should depend on the packs that we have selected because
+   > this is a property of … the world … if we get a repository with files in it that are of a path
+   > that are related to skills, I want them in my agent … I want it to be from the world of agents.
+   > Like if I clone an open source project and I trust that person, like I still want these
+   > skills."* So the source set is the union of the project-scope skills paths **every shipped
+   > agent pack** declares, selected or not: today `.claude/skills`, `.agents/skills`,
+   > `.github/skills`, `.codex/skills`, `.opencode/skills` and `.pi/skills` ([§2.1](#21-where-each-agent-reads-skills--measured)).
+   > Core still names no path (P2); the packs declare, and selection no longer filters the
+   > source set. The skip rule is unchanged: an agent whose own declared project paths include a
+   > dir reads it natively and gets no copy.
 
-4. 💬 **OQ-WS4: In containers, mechanism A, B, or both?** Decides whether yolo ever writes
+4. ✅ <a id="OQ-WS4"></a>**OQ-WS4: In containers, mechanism A, B, or both?** Decides whether yolo ever writes
    into a repo where a container is available. A serves every agent from the `:ro` dirs yolo
    already owns and unions several source dirs; B is what the user first sketched, writes into
    the repo, and cannot union. Building both in a jail delivers each skill twice to some agents.
@@ -601,7 +608,6 @@ is answered *by* two of them.
    had no home-scope skills dir — has since fallen: the `opencode` pack declares
    `.config/opencode/skills` and it is bound `:ro` in this jail today.
 
-   <!-- vantage: oq id=OQ-WS4 leaning="A alone in containers and on macos-user; B is a host-notch tool and nothing else — and this ruling closes OQ-ACP2 in its own doc." -->
 
    _Leaning:_ **A alone** where a composed home exists; B only where it does not
    ([OQ-WS5](#OQ-WS5)). Record the answer in
@@ -609,24 +615,23 @@ is answered *by* two of them.
    too.
 
    **Answer:**
-   > _(empty — fill in when decided)_
+   > **As leaned, A alone**, ruled 2026-09-27 in review: *"A alone in containers and on macos-user; B is a host-notch tool and nothing else — and this ruling closes [`OQ-ACP2`](../plans/agent-config-packs.md#-oq-acp2--whether-opencodes-skills-gap-should-be-closed-by-writing-into-workspace) in its own doc."*
 
-5. 💬 **OQ-WS5: Is the host notch in scope for v1 — and by B only?** Decides whether
+5. ✅ <a id="OQ-WS5"></a>**OQ-WS5: Is the host notch in scope for v1 — and by B only?** Decides whether
    `yolo host -- <agent>` writes links into the cwd repo. The mirror is closed on the host by
    two standing rulings this doc does not reopen ([§6](#6-both-notches-honestly)); the question
    is only whether B is worth shipping there now, given that a host user can commit the same
    links by hand and that the agent's own trust gate still governs the read. A *yes* makes
    [OQ-WS6](#OQ-WS6) load-bearing; a *no* parks it.
 
-   <!-- vantage: oq id=OQ-WS5 leaning="Out of scope for v1 — ship A in containers first; the host half is B or nothing, is one exec-time step, and can follow once OQ-WS6 is ruled." -->
 
    _Leaning:_ **v2.** The container answer stands alone; the host half is a single exec-time
    step that can land later without reshaping anything, and it should not delay A.
 
    **Answer:**
-   > _(empty — fill in when decided)_
+   > **As leaned, not in v1**, ruled 2026-09-27 in review: *"Out of scope for v1 — ship A in containers first; the host half is B or nothing, is one exec-time step, and can follow once [`OQ-WS6`](#OQ-WS6) is ruled."*
 
-6. 💬 **OQ-WS6: For the links, root `.gitignore`, `.git/info/exclude`, or a yolo-owned
+6. ✅ <a id="OQ-WS6"></a>**OQ-WS6: For the links, root `.gitignore`, `.git/info/exclude`, or a yolo-owned
    parent's `.gitignore`?** Decides what `git status` shows after a launch under B, and which
    file yolo becomes a writer of. **(a) root `.gitignore` append**, write-once by content check
    — `yolo init`'s precedent; visible as `M .gitignore` once, then quiet for every clone once
@@ -639,7 +644,6 @@ is answered *by* two of them.
    `.codex/`, impossible when the repo already has `.codex/`, so it needs (a) or (b) as a
    fallback anyway.
 
-   <!-- vantage: oq id=OQ-WS6 leaning="(a) root .gitignore append, write-once and never fought — the yolo init precedent, and P4: the change is visible in a diff, and once committed every clone is quiet without yolo writing the blind cell." -->
 
    _Leaning:_ **(a).** P4 decides it: a visible one-line edit the user commits once beats an
    invisible per-clone write to the file that defines invisibility. The write-once rule
@@ -654,4 +658,17 @@ is answered *by* two of them.
    having written the line once. The leaning itself is unchanged.
 
    **Answer:**
-   > _(empty — fill in when decided)_
+   > **Deferred with [OQ-WS5](#OQ-WS5)**, 2026-09-27: the maintainer confirmed it is moot for v1
+   > (*"and OQ6 is moot, right?"*). The links are the host half's mechanism, which v1 does not
+   > build; the question returns, unchanged, when the host half is taken up.
+
+## 12. Decision Ledger
+
+| ID | Ruling / Decision | Date | Settled in | Built |
+| :--- | :--- | :--- | :--- | :--- |
+| OQ-WS1 | **The workspace may contribute skills**, in containers and on `macos-user`, at the lowest layer, with escaping symlinks refused (P5) | 2026-09-27 | [OQ-WS1](#OQ-WS1) | — |
+| OQ-WS2 | **Lowest layer**: a workspace skill adds but never shadows a built-in, shared-pack or local-pack skill; every shadowed name is disclosed | 2026-09-27 | [OQ-WS2](#OQ-WS2) | — |
+| OQ-WS3 | **The source set is every shipped agent pack's declared project-scope skills paths, whether or not the pack is selected** — the world's conventions, not the user's agents; core names no path | 2026-09-27 | [OQ-WS3](#OQ-WS3) | — |
+| OQ-WS4 | **Mechanism A (the staged mirror) alone** in containers and on `macos-user`; B (in-workspace links) is a host-notch tool only; closes [OQ-ACP2](../plans/agent-config-packs.md#-oq-acp2--whether-opencodes-skills-gap-should-be-closed-by-writing-into-workspace) | 2026-09-27 | [OQ-WS4](#OQ-WS4) | — |
+| OQ-WS5 | **The host notch is out of v1** | 2026-09-27 | [OQ-WS5](#OQ-WS5) | — |
+| OQ-WS6 | **Deferred with [OQ-WS5](#OQ-WS5)** | 2026-09-27 | [OQ-WS6](#OQ-WS6) | — |
