@@ -290,10 +290,13 @@ rules, and why, are [below](#nothing-is-delivered-through-a-link-the-layout-did-
 > that directory is the destination itself, because their skills sit directly in the linked state
 > dir. For **pi, omp, agy and opencode** it is the directory *above* the destination —
 > `~/.pi/agent`, `~/.oh-omp/agent`, `~/.gemini/config`, `~/.config/opencode` — so every launch
-> deleted that directory's sessions, sign-in and the config files the same boot had just
-> generated, and put back only the skills and the briefing (G36). That state lives in the
-> workspace sidecar, which podman binds at the same paths, so the wipe also reached what a podman
-> jail on the same workspace had written there. `TestDarwinOverlayInstallKeepsAgentStateBesideAndAboveEveryDestination`
+> deleted everything in that directory, among it pi's sign-in and sessions and the config files
+> the same boot had just generated for pi, omp and opencode, and put back only the skills and the
+> briefing (G36). Both releases that carried it lost the same set: 0.9.0 pi's `settings.json` and
+> `models.json`, 0.10.0 its `mcp.json` too, and both omp's `models.yml`, opencode's
+> `opencode.json`, pi's `auth.json` and sessions, and anything else those four directories held.
+> Nothing recovers it but the user's own backup of `<workspace>/.yolo/home`. That state lives in the workspace sidecar, which podman binds at the same paths,
+> so the wipe also reached what a podman jail on the same workspace had written there. `TestDarwinOverlayInstallKeepsAgentStateBesideAndAboveEveryDestination`
 > drives the real boot for every shipped pack that declares a destination, enumerated from the pack
 > manifests, and fails on both earlier installs.
 
@@ -306,7 +309,9 @@ How one destination is installed, each rule a test in `internal/entrypoint/darwi
 | Both sibling names are removed before an install starts | What a crash left behind is only overlay content, never agent state, so the next launch clears it and delivers |
 | A destination that is itself a symbolic link is never followed: in the account home it is refused, and the launch names it; past a layout link, in the sidecar, it is replaced as a link | Following it would replace whatever it points at. In the account home, replacing it would put a real directory where a layout link may belong, which the next boot refuses ([OQ-HT2](#oq-ht2)); in the sidecar the layout lays no links, so it is an occupant like any previous delivery, moved aside and unlinked, and what it names is never touched |
 | The directory holding a destination is reached only through this launch's layout links (`overlayLinks.route`), and must also resolve under the sandbox home or this workspace's sidecar | A link the layout did not lay is refused on the way, because the profile protects the path the layout laid ([below](#nothing-is-delivered-through-a-link-the-layout-did-not-lay)). The install runs outside Seatbelt, as the sandbox account, so the resolved directory is checked as well: a link the agent planted could otherwise aim it at a directory the agent itself cannot write, such as another workspace's sidecar |
-| A destination inside another listed destination is dropped | The outer one's tree already carries it |
+| Every step after the containment check goes through a handle on the checked directory, opened beneath the home or the sidecar, never through the directory's path: creating it, clearing the working copies, the copy, both renames and the removal | The agent can be running during the install. The launch lock is released before the agent starts, and every workspace shares the one account home, so another session's agent can swap the directory, or one above it, for a link between two steps. A path is resolved again at every step and would follow that link. The handle keeps naming the directory that was checked, and `os.Root` refuses a swapped-in link that leads out of the root it was opened beneath. A swap can make the install fail, or finish in the directory the agent moved, but never write outside |
+| The sidecar, and the `.yolo` above it, may not be links | The layout's links name the sidecar by path, so a link at either would carry every destination under it to wherever it points, and the check above would accept that target as the sidecar. The launcher refuses to launch with a link at either, so one found here was made after that check. `InstallHomeOverlay` refuses it first with G14's `LinkedSidecarError`, and the install's roots are opened refusing it again |
+| A destination inside another listed destination is dropped, however the list sorts | The outer one's tree already carries it. `-` and `.` sort before `/`, so a sibling such as `skills-extra` can sort between `skills` and `skills/sub` |
 
 The choices behind those rules, made while fixing G36:
 
@@ -331,6 +336,19 @@ The choices behind those rules, made while fixing G36:
    fails.
 5. *Implementation decision.* **The list is a JSON object with one field**, `destinations`, so a
    later field does not need a new file.
+6. *Implementation decision.* **Containment is an `os.Root` handle, not a check of a path.** The
+   first version of this install resolved the directory, checked it and then wrote by path, and a
+   review reproduced the gap: an agent that swapped the directory for a link after the check had
+   another workspace's `skills` deleted and yolo's written in its place. The home and the sidecar
+   are each opened as a root. A destination's directory is found by resolving its path once and
+   is then opened beneath the root that holds it, by its path relative to that root. The
+   container backends' host code in jail-writable state follows the same rule
+   ([`jail-home.md`](jail-home.md), "Host code touches jail-writable state only beneath an
+   `os.Root`").
+7. *Implementation decision.* **The staged copy is written beneath the same handle**, with each
+   directory made by `Mkdir` and each file created exclusively, so nothing already at a staged
+   name, a swapped-in link included, is written through. The overlay itself is read by path,
+   because it is root-owned under `/var/yolo-jail` and the sandbox account cannot write it.
 
 ## Isolation: the Seatbelt profile needs no change
 
@@ -625,6 +643,7 @@ more than usual.
 | A concurrent second workspace leaves the first session pointing at a denied directory | **Not measured** — reasoned from the one-link-set fact plus target evaluation |
 | The pack-load poisoning route | **Not measured, deliberately, and must stay that way** (see the caution above) |
 | The overlay install leaves the state beside and above every destination, for every shipped pack | Linux unit gate driving `RunDarwinBootstrap` with each pack's real manifest (`TestDarwinOverlayInstallKeepsAgentStateBesideAndAboveEveryDestination`); the install's own rules by `internal/entrypoint/darwinoverlay_test.go`; the host builder's list read by the real install in `internal/cli/run/macoshomeoverlay_test.go` |
+| A directory swapped for a link during the install cannot carry it outside the home and the sidecar | Linux unit gate (`TestOverlayInstallStaysInsideTheJailWhenADirectoryIsSwappedMidInstall`): a test hook makes the swap at each of four points, from just after the layout check passed the path to just before the new copy is swapped into place, and the test fails on the install that checked a path. **Not measured against a real concurrent agent on a Mac** |
 | The same on a Mac: the list survives the root-owned staging, and the containment check accepts the real `/Users` paths | `integration/TestMacosUserOverlayInstallKeepsTheAgentStateBesideItsSkills`, two launches with the omp pack. **Written 2026-09-27 and not yet run on hardware or in the nightly** |
 
 The nightly job is [`.github/workflows/macos-user.yml`](../../.github/workflows/macos-user.yml) —
