@@ -33,6 +33,11 @@ import (
 // refresh, so a copy of each fetched pack per refresh would be pure cost, and a checkout per
 // refresh a write into the pack store that two refreshing sessions would race on.
 //
+// THE FILTERS ARE THE EXCEPTION TO THAT NARROWING: an entry with `only`/`exclude` is staged
+// into a temp copy (removed before the read returns), because its filters decide which manifest
+// the launch reads at all. An unfiltered pack is read in place, so only a filtered entry pays a
+// copy per refresh.
+//
 // It never writes to stderr: every loader is handed a nil (silent) warn, and a table that
 // cannot be composed is left empty, which the renderer reads as absent.
 func hostFooterTables() footer.Tables {
@@ -73,9 +78,9 @@ func hostFooterTables() footer.Tables {
 // not already checked out is skipped rather than checked out (packsrc.Store.ResolveExisting).
 // A pack that does not resolve, or whose manifest has problems, contributes nothing, as it
 // contributes nothing to a host launch's env, so a profile only it declares reads as its bare
-// name: an under-claim, never a wrong provider. The one write a refresh can still cause is
-// packload.Embedded's tree, made once per build by the first host `yolo` of that build,
-// whatever the command.
+// name: an under-claim, never a wrong provider. The one lasting write a refresh can still cause
+// is packload.Embedded's tree, made once per build by the first host `yolo` of that build,
+// whatever the command; a filtered entry's temp copy is removed before this returns.
 func footerHostPacks() []*packload.Pack {
 	entries, err := config.LoadPacks(nil)
 	if err != nil {
@@ -99,10 +104,12 @@ func footerHostPacks() []*packload.Pack {
 		if err != nil {
 			continue
 		}
-		// A pack with manifest problems is skipped, as loadedHostPacks' resolver skips it for a
-		// host launch's env (resolveConfiguredPack, NS-D14): a profile only it declares then
-		// reads as its bare name here, exactly as that launch composes it.
-		if p, probs := packload.LoadDir(res.Root, e.Name); p != nil && len(probs) == 0 {
+		// The declaration the host launch composes: the one the entry's filters leave
+		// (loadAsStaged, unforced — a copy only for a filtered entry), and none from a pack
+		// with manifest problems, which loadedHostPacks' resolver skips for a host launch's env
+		// (resolveConfiguredPack, NS-D14). A profile only such a pack declares then reads as its
+		// bare name here, exactly as that launch composes it.
+		if p, probs, err := loadAsStaged(e, res.Root, false); err == nil && p != nil && len(probs) == 0 {
 			packs = append(packs, p)
 		}
 	}

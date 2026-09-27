@@ -234,13 +234,17 @@ func describeUnresolved(list []unresolvedPack) string {
 // nothing for every git pack without asking the store, so `yolo host apply` skipped a pack the
 // user HAD installed and told them to install it.
 //
-// A FETCHED TREE IS CHECKED THE WAY A LAUNCH STAGES IT. The host notch reads a pack in place
-// rather than staging it, which is harmless for a local pack (a tree the user pointed at
+// A FETCHED TREE IS CHECKED THE WAY A LAUNCH STAGES IT. The host notch reads a pack's files in
+// place rather than staging them, which is harmless for a local pack (a tree the user pointed at
 // themselves) and is not for a fetched one: packstage's NO-ESCAPE rule is what stops a third-
 // party repo's `ln -s ~/.ssh/id_ed25519 skills/x/SKILL.md` from delivering a secret, and at this
 // notch the content lands in the real home, where agents read it. So a fetched pack is staged
 // into a throwaway directory first — packstage.Stage, the launch's own rule, with the entry's
 // filters — and a refusal there makes the pack unresolvable, exactly as it would fail the launch.
+//
+// THE DECLARATION IS READ FROM THE FILTERED TREE, the one the launch loads (loadAsStaged): an
+// entry's `only`/`exclude` can drop the manifest itself, or a file whose presence is a problem,
+// and the launch, `yolo check` and config validation all load the tree those filters leave.
 //
 // A MANIFEST WITH PROBLEMS MAKES THE PACK UNRESOLVABLE (manifestProblemsError), as it fails the
 // launch. They used to be discarded here whenever the pack still loaded, so every host verb read
@@ -268,12 +272,12 @@ func resolveConfiguredPack(e config.PackEntry) (*packload.Pack, error) {
 		}
 		return nil, err
 	}
-	if !e.IsLocal() {
-		if err := checkFetchedTreeStages(e, root); err != nil {
-			return nil, err
-		}
+	// A fetched tree is always staged (the no-escape check above); a local one only when its
+	// entry filters it, since only then does the launch load anything but the tree itself.
+	p, probs, err := loadAsStaged(e, root, !e.IsLocal())
+	if err != nil {
+		return nil, err
 	}
-	p, probs := packload.LoadDir(root, e.Name)
 	if p == nil {
 		return nil, fmt.Errorf("packs: %s: %s", e.Name, strings.Join(probs, "; "))
 	}
@@ -287,20 +291,42 @@ func resolveConfiguredPack(e config.PackEntry) (*packload.Pack, error) {
 	return p, nil
 }
 
-// checkFetchedTreeStages runs the launch's staging rule over a fetched pack's tree into a
-// throwaway directory, and returns its refusal (see resolveConfiguredPack for why).
-func checkFetchedTreeStages(e config.PackEntry, root string) error {
+// loadAsStaged is packload.LoadDir over the tree a LAUNCH loads for this entry: root staged
+// through the entry's `only`/`exclude` filters into a throwaway directory by packstage.Stage —
+// the launch's own rule (run's stagePacks), which `yolo check` and config validation's
+// resolveSelectedPacks also load from. A staging refusal (an escaping symlink) is returned as
+// the error, as it fails the launch. Unfiltered and not forced, it reads root itself, which is
+// that same tree without a copy.
+//
+// THE DECLARATION AND ITS PROBLEMS ARE THE FILTERED TREE'S, and they are why this exists. Read
+// from root, a problem only in a file the entry excludes (briefing/CLAUDE.md) refused a pack every
+// launch stages clean, and a manifest the entry filters out was still read — its declarations
+// applied to the real home, or its decode failure refusing the pack — although no launch sees it.
+//
+// THE RETURNED PACK'S Root IS root, not the copy, which is deleted before this returns: the host
+// notch reads a pack's FILES in place, and a caller that reads one (skills, briefings, `files`)
+// needs a directory that still exists. That read does not apply the filters — a pre-existing gap
+// of the host notch, which this function does not close.
+func loadAsStaged(e config.PackEntry, root string, force bool) (*packload.Pack, []string, error) {
+	if !force && len(e.Only) == 0 && len(e.Exclude) == 0 {
+		p, probs := packload.LoadDir(root, e.Name)
+		return p, probs, nil
+	}
 	dest, err := os.MkdirTemp("", "yolo-host-pack-check-")
 	if err != nil {
-		return fmt.Errorf("packs: %s: %w", e.Name, err)
+		return nil, nil, fmt.Errorf("packs: %s: %w", e.Name, err)
 	}
 	defer os.RemoveAll(dest)
 	if _, err := packstage.Stage(packstage.Spec{
 		Root: root, Dest: dest, Only: e.Only, Exclude: e.Exclude,
 	}); err != nil {
-		return fmt.Errorf("packs: %s: %w", e.Name, err)
+		return nil, nil, fmt.Errorf("packs: %s: %w", e.Name, err)
 	}
-	return nil
+	p, probs := packload.LoadDir(dest, e.Name)
+	if p != nil {
+		p.Root = root
+	}
+	return p, probs, nil
 }
 
 // packForCheckDeps is resolveConfiguredPack for a caller that has nothing to say about a pack
