@@ -100,7 +100,10 @@ only cost tokens and prompts in a jail. See [posture lists](docs/reference/pack-
 - `yolo host apply --assert` replaced the `env` block of your host `~/.claude/settings.json`,
   dropping your own variables.
 - A settings file `yolo host apply --assert` had written came back into your jails as your own
-  settings, on every backend, so a value a pack later dropped stayed in them.
+  settings, on every backend, so a value a pack later dropped stayed in them. Jails now leave
+  that file out entirely, your own settings in it included, so a setting you add to it by hand
+  afterwards stays on the host. `yolo host apply --revert --assert` takes yolo back out of the
+  file, and jails read it again.
 - `yolo host apply` skipped every git pack, even an installed one.
 - `yolo host apply` adopted `~/.claude/skills/synced/`, and the next claude.ai sync lost new and
   edited skills.
