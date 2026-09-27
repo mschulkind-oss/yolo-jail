@@ -229,10 +229,11 @@ func InstallHomeOverlay(e *Env, packs []*packload.Pack) error {
 		}
 		return err
 	}
-	roots, err := overlayInstallRoots(e.Home, e.DarwinSidecar())
+	roots, err := openOverlayInstallRoots(e.Home, e.DarwinSidecar())
 	if err != nil {
 		return err
 	}
+	defer closeOverlayRoots(roots)
 	return installHomeOverlayDestinations(src, e.Home, roots, overlayLinksOf(layout))
 }
 

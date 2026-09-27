@@ -1,6 +1,7 @@
 package entrypoint
 
 import (
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -288,6 +289,114 @@ func TestOverlayInstallRefusesALinkAboveADestinationThatTheLayoutDidNotLay(t *te
 	}
 }
 
+// The WORKSPACE SIDECAR itself, and the `.yolo` above it, may not be links. Both are in the
+// workspace, which the sandbox account can write, and the layout's links name the sidecar by
+// path, so a link at either would carry every destination under it — here, all of them — to
+// wherever it points, and the containment check would accept that as "the sidecar". The
+// launcher refuses a launch with such a link; one here was made after that check. Through the
+// entry, G14's check (LinkedSidecarError) is the refusal that speaks; the install's own roots
+// refuse the same link as well, pinned directly by TestOverlayInstallRootsRefuseALinkedSidecar.
+func TestOverlayInstallRefusesASidecarThatIsALink(t *testing.T) {
+	for _, at := range []string{"home", ".yolo"} {
+		t.Run(at, func(t *testing.T) {
+			f := newOverlayFixture(t)
+			f.stage(t)
+			linked := f.sidecar
+			if at == ".yolo" {
+				linked = filepath.Dir(f.sidecar)
+			}
+			elsewhere := filepath.Join(t.TempDir(), "another-workspace", filepath.Base(linked))
+			if err := os.MkdirAll(filepath.Dir(elsewhere), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Rename(linked, elsewhere); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Symlink(elsewhere, linked); err != nil {
+				t.Fatal(err)
+			}
+			before := snapshotTree(t, elsewhere)
+
+			err := f.install(t)
+			if err == nil || !strings.Contains(err.Error(), "symbolic link") || !strings.Contains(err.Error(), linked) {
+				t.Fatalf("InstallHomeOverlay = %v, want a refusal naming the link at %s", err, linked)
+			}
+			after := snapshotTree(t, elsewhere)
+			if len(after) != len(before) {
+				t.Errorf("the install wrote through the linked %s: %v, was %v", at, after, before)
+			}
+			for rel, was := range before {
+				if after[rel] != was {
+					t.Errorf("through the linked %s, %s was %q and is now %q", at, rel, was, after[rel])
+				}
+			}
+		})
+	}
+}
+
+// The install's roots are opened refusing a link at the sidecar or the `.yolo` above it
+// (openSidecarRoot), the second line behind G14's check at InstallHomeOverlay, which always
+// refuses such a link first and so hides this one from every test through the entry.
+func TestOverlayInstallRootsRefuseALinkedSidecar(t *testing.T) {
+	for _, at := range []string{"home", ".yolo"} {
+		t.Run(at, func(t *testing.T) {
+			f := newOverlayFixture(t)
+			linked := f.sidecar
+			if at == ".yolo" {
+				linked = filepath.Dir(f.sidecar)
+			}
+			elsewhere := filepath.Join(t.TempDir(), filepath.Base(linked))
+			if err := os.Rename(linked, elsewhere); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Symlink(elsewhere, linked); err != nil {
+				t.Fatal(err)
+			}
+			roots, err := openOverlayInstallRoots(f.home, f.sidecar)
+			if err == nil {
+				closeOverlayRoots(roots)
+				t.Fatalf("the install's roots opened through the link at %s", linked)
+			}
+		})
+	}
+}
+
+// CONTAINMENT, beyond the layout check. The route check (overlayLinks.route) refuses a link the
+// layout did not lay, by path, before the directory is resolved — so a link that is already
+// there never reaches the containment check. One swapped in just after the route passed does:
+// the directory is resolved once, and a directory that resolves outside the sandbox home and
+// the workspace sidecar is refused rather than opened, so nothing is written there.
+func TestOverlayInstallRefusesAParentThatResolvesOutOfTheJail(t *testing.T) {
+	f := newOverlayFixture(t)
+	f.stage(t)
+	outside := filepath.Join(t.TempDir(), "another-workspace", "pi-agent")
+	writeTreeFile(t, filepath.Join(outside, "skills", "theirs", "SKILL.md"), "someone else's")
+	agentDir := filepath.Join(f.sidecar, "pi", "agent")
+	swapped := false
+	withOverlayInstallHook(t, func(dest, window string) {
+		if swapped || window != "routed" {
+			return
+		}
+		swapped = true
+		if err := os.RemoveAll(agentDir); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(outside, agentDir); err != nil {
+			t.Fatal(err)
+		}
+	})
+
+	err := f.install(t)
+	if !swapped {
+		t.Fatal("the install never reached the routed window")
+	}
+	if err == nil || !strings.Contains(err.Error(), "outside the sandbox home") {
+		t.Fatalf("InstallHomeOverlay = %v, want a refusal naming the escape", err)
+	}
+	requireFile(t, filepath.Join(outside, "skills", "theirs", "SKILL.md"), "someone else's")
+	requireAbsent(t, filepath.Join(outside, "AGENTS.md"), "the briefing was written through the escaping link")
+}
+
 // The destination list refuses what is not a path strictly below the home, on both sides:
 // the host may not write one, and a list naming one is refused before anything moves.
 func TestHomeOverlayDestinationsMustLieBelowTheHome(t *testing.T) {
@@ -323,5 +432,112 @@ func TestHomeOverlayNestedDestinationsInstallOnce(t *testing.T) {
 	}
 	if strings.Join(got, ",") != ".x/skills,.y/AGENTS.md" {
 		t.Errorf("destinations = %v, want [.x/skills .y/AGENTS.md]", got)
+	}
+}
+
+// withOverlayInstallHook sets overlayInstallHook for one test.
+func withOverlayInstallHook(t *testing.T, hook func(dest, window string)) {
+	t.Helper()
+	overlayInstallHook = hook
+	t.Cleanup(func() { overlayInstallHook = nil })
+}
+
+// snapshotTree records every entry below dir, links as links, with each regular file's
+// content and each link's target, so a test can say that NOTHING there changed.
+func snapshotTree(t *testing.T, dir string) map[string]string {
+	t.Helper()
+	out := map[string]string{}
+	err := filepath.WalkDir(dir, func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, _ := filepath.Rel(dir, p)
+		switch {
+		case d.Type()&fs.ModeSymlink != 0:
+			target, _ := os.Readlink(p)
+			out[rel] = "link to " + target
+		case d.IsDir():
+			out[rel] = "dir"
+		default:
+			b, _ := os.ReadFile(p)
+			out[rel] = "file " + string(b)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return out
+}
+
+// THE CONTAINMENT RULE HOLDS AGAINST A CONCURRENT SESSION, not only against a link that was
+// there before the install began. The launch lock is released before the agent runs, and the
+// account home is shared by every workspace, so an agent can re-point a directory while
+// another launch installs into it. Here the "agent" moves the destination's directory aside
+// and puts a link to another workspace in its place at each moment that matters: just after
+// the layout check passed its path and before the directory is resolved, just after the
+// install checked that directory and before it opened it, just after it opened it, and just
+// before it swaps the new copy in. The other workspace also holds a copy under the
+// install's own working-copy name, which an install that renames by path would move into
+// place.
+//
+// Nothing outside the home and the sidecar may change, and the agent state in the directory
+// that was moved must survive.
+func TestOverlayInstallStaysInsideTheJailWhenADirectoryIsSwappedMidInstall(t *testing.T) {
+	for _, window := range []string{"routed", "checked", "opened", "staged"} {
+		for _, swapAt := range []string{".pi/agent/skills", ".pi/agent/AGENTS.md"} {
+			t.Run(window+" "+swapAt, func(t *testing.T) {
+				f := newOverlayFixture(t)
+				f.stage(t)
+				// A previous launch already delivered, as on every launch but the first.
+				if err := f.install(t); err != nil {
+					t.Fatal(err)
+				}
+				state := f.agentState(t)
+				outside := filepath.Join(t.TempDir(), "another-workspace", "pi-agent")
+				writeTreeFile(t, filepath.Join(outside, "skills", "theirs", "SKILL.md"), "someone else's")
+				writeTreeFile(t, filepath.Join(outside, "AGENTS.md"), "their briefing")
+				writeTreeFile(t, filepath.Join(outside, ".skills"+overlayStagedSuffix, "planted", "SKILL.md"), "planted")
+				writeTreeFile(t, filepath.Join(outside, ".AGENTS.md"+overlayStagedSuffix), "planted briefing")
+				before := snapshotTree(t, outside)
+
+				agentDir := filepath.Join(f.sidecar, "pi", "agent")
+				moved := agentDir + ".moved"
+				swapped := false
+				withOverlayInstallHook(t, func(dest, w string) {
+					if swapped || dest != swapAt || w != window {
+						return
+					}
+					swapped = true
+					if err := os.Rename(agentDir, moved); err != nil {
+						t.Fatal(err)
+					}
+					if err := os.Symlink(outside, agentDir); err != nil {
+						t.Fatal(err)
+					}
+				})
+
+				// The install's own result is not the point: a destination whose directory is
+				// swapped before it is opened is refused, and one opened before the swap
+				// finishes in the directory the agent moved.
+				_ = f.install(t)
+				if !swapped {
+					t.Fatalf("the install never reached the %q window for %s", window, swapAt)
+				}
+				after := snapshotTree(t, outside)
+				for rel, was := range before {
+					if after[rel] != was {
+						t.Errorf("outside the jail, %s was %q and is now %q", rel, was, after[rel])
+					}
+				}
+				for rel, is := range after {
+					if _, ok := before[rel]; !ok {
+						t.Errorf("outside the jail, the install created %s (%q)", rel, is)
+					}
+				}
+				rel, _ := filepath.Rel(filepath.Join(f.home, ".pi", "agent"), state)
+				requireFile(t, filepath.Join(moved, rel), "pi's sign-in")
+			})
+		}
 	}
 }

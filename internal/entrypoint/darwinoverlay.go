@@ -4,10 +4,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
 // darwinoverlay.go installs the macos-user HOME OVERLAY: the skills and briefings the host
@@ -245,15 +248,35 @@ func (l overlayLinks) route(home, dest string) (pastLink bool, err error) {
 	return pastLink, nil
 }
 
+// overlayInstallHook runs at four moments of each destination's install — "routed", once its
+// path has passed the layout check (overlayLinks.route) and before its directory is resolved;
+// "checked", once the directory that holds it has been resolved and found under a root and
+// before it is opened; "opened", once it is open and before anything in it is touched; and
+// "staged", once the replacement is built and before the swap — nil in production. They are
+// the windows in which a concurrent session could swap that directory for a link, and a test
+// swaps one there.
+var overlayInstallHook func(dest, window string)
+
+// overlayRoot is one directory an install may write beneath: path is its resolved spelling,
+// used only to find which root holds a destination's directory, and root is the handle every
+// read and write below it goes through. sidecar marks the workspace sidecar, where the layout
+// lays no links, so a link found AT a destination there is an occupant to replace rather than
+// one to refuse (installOverlayDestination).
+type overlayRoot struct {
+	path    string
+	root    *os.Root
+	sidecar bool
+}
+
 // installHomeOverlayDestinations installs every listed destination of overlay into home.
 // Each destination is installed on its own, and a failure in one does not stop the others
 // — the same "report every problem in one boot" rule genStep follows.
 //
-// `roots` are the directories an install may write under once symlinks are resolved: the
+// `roots` are the directories an install may write beneath (openOverlayInstallRoots): the
 // home and, when the layout laid one, the workspace sidecar its links point into. `links` are
 // the layout's own links, the only ones a destination's route may pass through
 // (overlayLinks.route).
-func installHomeOverlayDestinations(overlay, home string, roots []string, links overlayLinks) error {
+func installHomeOverlayDestinations(overlay, home string, roots []overlayRoot, links overlayLinks) error {
 	dests, err := readHomeOverlayManifest(overlay)
 	if err != nil {
 		return err
@@ -267,22 +290,61 @@ func installHomeOverlayDestinations(overlay, home string, roots []string, links 
 	return errors.Join(errs...)
 }
 
-// overlayInstallRoots resolves the directories an overlay install may write under: the home
-// and the workspace sidecar ("" when the launch laid no layout). Resolved here, once, so a
-// home or sidecar behind a symlink (macOS's /var → /private/var) compares equal to the
-// resolved parents it is checked against.
-func overlayInstallRoots(home, sidecar string) ([]string, error) {
+// openOverlayInstallRoots opens the directories an overlay install may write beneath: the
+// home, and the workspace sidecar when the launch named one and it exists. Each path is
+// resolved once, so a home or sidecar behind a symlink (macOS's /var → /private/var)
+// compares equal to the resolved directories it is matched against. The caller closes the
+// handles (closeOverlayRoots).
+//
+// The sidecar is opened refusing a link AT it or at the `.yolo` above it: both are in the
+// workspace, which the sandbox account can write, and the launcher refuses a launch with a
+// link at either (run.linkedWorkspaceState), so one here was put there after that check.
+func openOverlayInstallRoots(home, sidecar string) ([]overlayRoot, error) {
 	h, err := filepath.EvalSymlinks(home)
 	if err != nil {
 		return nil, fmt.Errorf("resolving the home %s: %w", home, err)
 	}
-	roots := []string{h}
-	if sidecar != "" {
-		if s, err := filepath.EvalSymlinks(sidecar); err == nil {
-			roots = append(roots, s)
-		}
+	hr, err := os.OpenRoot(h)
+	if err != nil {
+		return nil, fmt.Errorf("opening the home %s: %w", home, err)
 	}
-	return roots, nil
+	roots := []overlayRoot{{path: h, root: hr}}
+	if sidecar == "" {
+		return roots, nil
+	}
+	if _, err := os.Lstat(sidecar); os.IsNotExist(err) {
+		return roots, nil
+	}
+	sr, err := openSidecarRoot(sidecar)
+	if err != nil {
+		closeOverlayRoots(roots)
+		return nil, fmt.Errorf("opening the workspace sidecar %s: %w", sidecar, err)
+	}
+	s, err := filepath.EvalSymlinks(sidecar)
+	if err != nil {
+		sr.Close()
+		closeOverlayRoots(roots)
+		return nil, fmt.Errorf("resolving the workspace sidecar %s: %w", sidecar, err)
+	}
+	return append(roots, overlayRoot{path: s, root: sr, sidecar: true}), nil
+}
+
+// openSidecarRoot opens sidecar as an os.Root beneath a root on its parent, refusing a link
+// at either (paths.OpenStateDirRoot, paths.OpenStateSubdirRoot).
+func openSidecarRoot(sidecar string) (*os.Root, error) {
+	sidecar = filepath.Clean(sidecar)
+	parent, err := paths.OpenStateDirRoot(filepath.Dir(sidecar))
+	if err != nil {
+		return nil, err
+	}
+	defer parent.Close()
+	return paths.OpenStateSubdirRoot(parent, filepath.Base(sidecar), sidecar)
+}
+
+func closeOverlayRoots(roots []overlayRoot) {
+	for _, r := range roots {
+		r.root.Close()
+	}
 }
 
 // installOverlayDestination replaces ONE destination with the overlay's copy of it.
@@ -297,19 +359,26 @@ func overlayInstallRoots(home, sidecar string) ([]string, error) {
 // is at stake, never the agent's.
 //
 // Symlinks: a directory ABOVE the destination may be a link only when it is one of the
-// layout's own (overlayLinks.route refuses any other, G14), and the parent they resolve to
+// layout's own (overlayLinks.route refuses any other, G14), and the directory they resolve to
 // must also lie under one of `roots`, because this runs outside Seatbelt with the sandbox
 // account's full reach and a link the agent planted would otherwise aim the write at a
-// directory the agent itself cannot reach. The destination ITSELF is never followed.
-// In the account home a link there is refused: replacing it would put a real directory where
-// a layout link may belong (which the next boot refuses, OQ-HT2). Past a layout link, in the
-// sidecar, where the layout lays no links, it is an occupant like any other and is replaced:
-// the rename moves the LINK aside and the removal unlinks it, so what it points at is never
-// touched.
-func installOverlayDestination(overlay, home string, roots []string, links overlayLinks, dest string) error {
+// directory the agent itself cannot reach. The destination ITSELF is never followed, which
+// would replace whatever it points at. In the account home a link there is refused:
+// replacing it would put a real directory where a layout link may belong (which the next boot
+// refuses, OQ-HT2). Past a layout link, in the sidecar, where the layout lays no links, it is
+// an occupant like any other and is replaced — the rename moves the LINK aside and the removal
+// unlinks it, so what it points at is never touched.
+//
+// ⚠ EVERY OPERATION AFTER THE CHECK GOES THROUGH A HANDLE ON THE CHECKED DIRECTORY, never
+// through its path. The agent may be running while this does (the launch lock is released
+// before the agent, and the account home is shared by every workspace), so it can swap that
+// directory, or any directory above it, for a link between two calls. A path would be
+// resolved again by each call and follow the new link; the handle names the directory that
+// was checked, and os.Root refuses a component swapped for a link that leaves it. A swap
+// can make the install fail or land in the directory the agent moved, never outside.
+func installOverlayDestination(overlay, home string, roots []overlayRoot, links overlayLinks, dest string) error {
 	rel := filepath.FromSlash(dest)
 	src := filepath.Join(overlay, rel)
-	dst := filepath.Join(home, rel)
 	srcInfo, err := os.Lstat(src)
 	if err != nil {
 		return fmt.Errorf("the home overlay lists ~/%s but carries nothing there: %w", dest, err)
@@ -323,13 +392,24 @@ func installOverlayDestination(overlay, home string, roots []string, links overl
 	if err != nil {
 		return err
 	}
-	parent := filepath.Dir(dst)
-	if err := ensureOverlayParent(parent, roots, dest); err != nil {
+	if overlayInstallHook != nil {
+		overlayInstallHook(dest, "routed")
+	}
+	dir, inSidecar, err := openOverlayParent(filepath.Dir(filepath.Join(home, rel)), roots, dest)
+	if err != nil {
 		return err
 	}
-	cur, curErr := os.Lstat(dst)
-	if curErr == nil && cur.Mode()&os.ModeSymlink != 0 && !pastLink {
-		target, _ := os.Readlink(dst)
+	defer dir.Close()
+	if overlayInstallHook != nil {
+		overlayInstallHook(dest, "opened")
+	}
+
+	base := filepath.Base(rel)
+	cur, curErr := dir.Lstat(base)
+	// Replaced only when BOTH say sidecar: the route, by path, and the root the handle was
+	// opened beneath. A concurrent swap can make them disagree, and then the link is refused.
+	if curErr == nil && cur.Mode()&os.ModeSymlink != 0 && !(pastLink && inSidecar) {
+		target, _ := dir.Readlink(base)
 		return fmt.Errorf("not installing ~/%s: it is a symbolic link (to %s) in the account "+
 			"home, and the overlay neither follows a link at a destination nor replaces one "+
 			"there. Remove the link and launch again", dest, target)
@@ -338,64 +418,72 @@ func installOverlayDestination(overlay, home string, roots []string, links overl
 		return curErr
 	}
 
-	base := filepath.Base(dst)
-	staged := filepath.Join(parent, "."+base+overlayStagedSuffix)
-	aside := filepath.Join(parent, "."+base+overlayAsideSuffix)
+	staged := "." + base + overlayStagedSuffix
+	aside := "." + base + overlayAsideSuffix
 	// Leftovers of an install that crashed. Both hold only overlay content — the staged copy
 	// a half-built replacement, the aside copy the previous delivery — so removing them
 	// loses nothing of the agent's.
 	for _, leftover := range []string{staged, aside} {
-		if err := os.RemoveAll(leftover); err != nil {
-			return fmt.Errorf("clearing a previous install's %s: %w", leftover, err)
+		if err := dir.RemoveAll(leftover); err != nil {
+			return fmt.Errorf("clearing a previous install's %s beside ~/%s: %w", leftover, dest, err)
 		}
 	}
 
 	// Build the whole replacement before touching the destination. Strict: a partial copy
 	// renamed into place would look like a complete delivery.
 	if srcInfo.IsDir() {
-		err = os.Mkdir(staged, 0o755)
+		err = dir.Mkdir(staged, 0o755)
 		if err == nil {
-			err = copyTreeStrict(src, staged)
+			err = copyTreeStrictBeneath(src, dir, staged)
 		}
 	} else {
-		err = copyFileStrict(src, staged, srcInfo.Mode().Perm())
+		err = copyFileStrictBeneath(src, dir, staged, srcInfo.Mode().Perm())
 	}
 	if err != nil {
-		_ = os.RemoveAll(staged)
+		_ = dir.RemoveAll(staged)
 		return fmt.Errorf("staging ~/%s: %w", dest, err)
+	}
+	if overlayInstallHook != nil {
+		overlayInstallHook(dest, "staged")
 	}
 
 	// Swap. A file over a file (or over nothing) is one atomic rename. A directory cannot be
 	// renamed over a non-empty one, so the old copy steps aside first and is removed after.
 	if os.IsNotExist(curErr) || (!cur.IsDir() && !srcInfo.IsDir()) {
-		if err := os.Rename(staged, dst); err != nil {
-			_ = os.RemoveAll(staged)
+		if err := dir.Rename(staged, base); err != nil {
+			_ = dir.RemoveAll(staged)
 			return fmt.Errorf("installing ~/%s: %w", dest, err)
 		}
 		return nil
 	}
-	if err := os.Rename(dst, aside); err != nil {
-		_ = os.RemoveAll(staged)
+	if err := dir.Rename(base, aside); err != nil {
+		_ = dir.RemoveAll(staged)
 		return fmt.Errorf("moving the previous ~/%s aside: %w", dest, err)
 	}
-	if err := os.Rename(staged, dst); err != nil {
+	if err := dir.Rename(staged, base); err != nil {
 		// Put the previous delivery back rather than leave the destination empty.
-		_ = os.Rename(aside, dst)
-		_ = os.RemoveAll(staged)
+		_ = dir.Rename(aside, base)
+		_ = dir.RemoveAll(staged)
 		return fmt.Errorf("installing ~/%s: %w", dest, err)
 	}
 	// The delivery is in place. A failure to remove the previous copy leaves it under the
 	// aside name, where the next install removes it before building its own.
-	_ = os.RemoveAll(aside)
+	_ = dir.RemoveAll(aside)
 	return nil
 }
 
-// ensureOverlayParent creates a destination's parent directory, refusing when the parent
-// resolves — through any symlink on the way — outside every root. The check runs on the
-// nearest EXISTING ancestor before anything is created, so a link aimed elsewhere cannot
-// even have directories made under its target, and again on the created parent.
-func ensureOverlayParent(parent string, roots []string, dest string) error {
-	existing := parent
+// openOverlayParent returns a handle on parent, the directory that holds dest, creating it
+// and any missing directory above it, and whether that handle is beneath the workspace
+// sidecar's root. It refuses when parent resolves — through any symlink on the way — outside
+// every root.
+//
+// The nearest EXISTING ancestor is resolved and checked before anything is created, so a
+// link aimed elsewhere cannot even have directories made under its target. The missing rest
+// is then created, and the handle opened, BENEATH THE ROOT that holds that ancestor, by its
+// resolved path relative to the root: os.Root resolves every component itself and refuses
+// one that leaves the root, including a component swapped for a link after the check.
+func openOverlayParent(parent string, roots []overlayRoot, dest string) (*os.Root, bool, error) {
+	existing, missing := parent, ""
 	for {
 		if _, err := os.Lstat(existing); err == nil {
 			break
@@ -404,30 +492,123 @@ func ensureOverlayParent(parent string, roots []string, dest string) error {
 		if up == existing {
 			break
 		}
+		missing = filepath.Join(filepath.Base(existing), missing)
 		existing = up
 	}
-	if err := requireWithinRoots(existing, roots, dest); err != nil {
-		return err
-	}
-	if err := os.MkdirAll(parent, 0o755); err != nil {
-		return fmt.Errorf("creating the directory for ~/%s: %w", dest, err)
-	}
-	return requireWithinRoots(parent, roots, dest)
-}
-
-// requireWithinRoots resolves path and refuses it unless it lies at or below one of roots.
-func requireWithinRoots(path string, roots []string, dest string) error {
-	resolved, err := filepath.EvalSymlinks(path)
+	resolved, err := filepath.EvalSymlinks(existing)
 	if err != nil {
-		return fmt.Errorf("resolving the directory for ~/%s: %w", dest, err)
+		return nil, false, fmt.Errorf("resolving the directory for ~/%s: %w", dest, err)
 	}
-	for _, r := range roots {
-		if resolved == r || strings.HasPrefix(resolved, r+string(filepath.Separator)) {
-			return nil
+	r, relToRoot, ok := containingOverlayRoot(roots, resolved)
+	if !ok {
+		var names []string
+		for _, r := range roots {
+			names = append(names, r.path)
+		}
+		return nil, false, fmt.Errorf("not installing ~/%s: its directory %s resolves to %s, outside "+
+			"the sandbox home and the workspace's own sidecar (%s). A symbolic link on the way "+
+			"there points out of the jail's own directories; remove it and launch again",
+			dest, parent, filepath.Join(resolved, missing), strings.Join(names, ", "))
+	}
+	if overlayInstallHook != nil {
+		overlayInstallHook(dest, "checked")
+	}
+	target := filepath.Join(relToRoot, missing)
+	if missing != "" {
+		if err := r.root.MkdirAll(target, 0o755); err != nil {
+			return nil, false, fmt.Errorf("creating the directory for ~/%s: %w", dest, err)
 		}
 	}
-	return fmt.Errorf("not installing ~/%s: its directory %s resolves to %s, outside the "+
-		"sandbox home and the workspace's own sidecar (%s). A symbolic link on the way there "+
-		"points out of the jail's own directories; remove it and launch again",
-		dest, path, resolved, strings.Join(roots, ", "))
+	dir, err := r.root.OpenRoot(target)
+	if err != nil {
+		return nil, false, fmt.Errorf("opening the directory for ~/%s: %w", dest, err)
+	}
+	return dir, r.sidecar, nil
+}
+
+// containingOverlayRoot returns the root whose path holds resolved, and resolved relative to
+// it. The DEEPEST such root wins, so a sidecar that happened to lie below the home would still
+// be recognized as the sidecar.
+func containingOverlayRoot(roots []overlayRoot, resolved string) (overlayRoot, string, bool) {
+	var best overlayRoot
+	var bestRel string
+	found := false
+	for _, r := range roots {
+		if resolved != r.path && !strings.HasPrefix(resolved, r.path+string(filepath.Separator)) {
+			continue
+		}
+		if found && len(r.path) <= len(best.path) {
+			continue
+		}
+		if rel, err := filepath.Rel(r.path, resolved); err == nil {
+			best, bestRel, found = r, rel, true
+		}
+	}
+	return best, bestRel, found
+}
+
+// copyTreeStrictBeneath is copyTreeStrict with the destination beneath an os.Root: it copies
+// the tree src into rel below dst, which must exist and be empty, and returns the FIRST error
+// it meets. Symlinks are recreated, not followed; a directory is created with Mkdir and a
+// file with O_EXCL, so nothing already there — a link swapped in, above all — is written
+// through. The source is read by path: it is the root-owned staged overlay, which the sandbox
+// account cannot write.
+func copyTreeStrictBeneath(src string, dst *os.Root, rel string) error {
+	ents, err := os.ReadDir(src)
+	if err != nil {
+		return err
+	}
+	for _, ent := range ents {
+		from := filepath.Join(src, ent.Name())
+		to := filepath.Join(rel, ent.Name())
+		fi, err := os.Lstat(from)
+		if err != nil {
+			return err
+		}
+		switch {
+		case fi.Mode()&os.ModeSymlink != 0:
+			target, err := os.Readlink(from)
+			if err != nil {
+				return err
+			}
+			if err := dst.Symlink(target, to); err != nil {
+				return err
+			}
+		case fi.IsDir():
+			if err := dst.Mkdir(to, fi.Mode().Perm()); err != nil {
+				return err
+			}
+			if err := copyTreeStrictBeneath(from, dst, to); err != nil {
+				return err
+			}
+		case fi.Mode().IsRegular():
+			if err := copyFileStrictBeneath(from, dst, to, fi.Mode().Perm()); err != nil {
+				return err
+			}
+		default:
+			// A socket, fifo or device node: skipping it would be a partial copy reported as
+			// a whole one (copyTreeStrict's rule).
+			return fmt.Errorf("%s is a %s, which this copy cannot reproduce", from, fi.Mode().Type())
+		}
+	}
+	return nil
+}
+
+// copyFileStrictBeneath is copyFileStrict with the destination beneath an os.Root, created
+// O_EXCL: rel must not exist.
+func copyFileStrictBeneath(src string, dst *os.Root, rel string, perm os.FileMode) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = in.Close() }()
+	out, err := dst.OpenFile(rel, os.O_WRONLY|os.O_CREATE|os.O_EXCL, perm)
+	if err != nil {
+		return err
+	}
+	if _, err := io.Copy(out, in); err != nil {
+		_ = out.Close()
+		return err
+	}
+	return out.Close()
 }

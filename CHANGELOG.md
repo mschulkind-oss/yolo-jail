@@ -178,6 +178,10 @@ written into the repository. See
   line no longer overrides what its profile composes.
 - Host-side yolo followed symbolic links in a workspace's `.yolo` state, so an agent could have
   the next launch or `yolo prune` write to a host path as you.
+- On `macos-user`, a symbolic link an agent left in its home could make the next launch delete
+  and rewrite the skills and briefing in another folder the sandbox account can write, such as
+  another project's. A launch now writes them only inside the sandbox home and the project's own
+  `.yolo` folder, even while another session's agent is running.
 - A provider key could be sent to `api.anthropic.com` when the provider named no Anthropic
   address.
 - A new workspace's Claude login seed carried other workspaces' `projects` and `mcpServers`.
