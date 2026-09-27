@@ -442,7 +442,8 @@ or masked to prevent tools or subagents from inadvertently picking them up.
    > nothing that shadows a native subscription client. How far "natively implements" reaches past
    > that case is [OQ-3](#OQ-3).
 
-3. 💬 <a id="OQ-3"></a>**OQ-3: How far does the natively-implements rule reach?** [OQ-2](#OQ-2) ruled that an
+3. 💬 <a id="OQ-3"></a>**OQ-3: How far does the natively-implements rule reach?**
+   [OQ-2](#OQ-2) ruled that an
    agent never derives catalog entries from providers it natively implements. Does that cover
    **every** provider an agent ships its own client for under the key a yolo provider uses (the
    broad reading)? Or does it cover only a **subscription** provider the agent implements with its
