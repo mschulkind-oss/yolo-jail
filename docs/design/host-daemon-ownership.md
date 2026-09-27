@@ -1125,6 +1125,17 @@ each, because a deleted question is one the next reader re-derives.
      teardown whatever this question's answer turns out to be. It would bear on the leaning's
      "if they already collide" branch, but it is a collision over the endpoint, not over spawn.
 
+   **The second run, MEASURED (scheduled macos-user run 36319436117, commit `f937d0fd`, which
+   carries the staging fix and per-launch pack trees)** confirmed both predictions above. Both
+   launches ran (`A rc=0`, `B rc=0`) and their sessions overlapped. `SPAWN: ONE BROKER`: a broker
+   left over from before was stopped first, then exactly one daemon was seen during the pair (at
+   most one at once). B printed the workspace-lock waiting notice and A did not; since each
+   launch starts its host daemons before taking that lock, the single broker is the spawn
+   flock's work. `ENDPOINT DURING`: both sessions read the same endpoint file and dialed it.
+   `ENDPOINT AFTER B EXITED: GONE`: B's teardown removed the per-workspace host-services dir
+   while A was still running, so A's jail lost its endpoint, the teardown defect predicted
+   above.
+
    **Answer:**
    > _(empty — fill in when decided)_
 

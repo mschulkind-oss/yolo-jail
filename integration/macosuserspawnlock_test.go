@@ -200,8 +200,8 @@ func TestMacosUserTwoConcurrentLaunchesOfOneWorkspace(t *testing.T) {
 		"once); alive after both exited: %v; pid file now: %q",
 		spawn, stopNote, samples.distinct(), samples.max, final, strings.TrimSpace(string(pidFile)))
 	t.Logf("HD10 WORKSPACE-LOCK: A printed the waiting notice: %v; B printed it: %v "+
-		"(taken before pack staging, so it spans the host-daemon start: a launch that waited "+
-		"spawned after the other's window closed)", waited(rA), waited(rB))
+		"(taken after the host-daemon start, before content staging: a wait means one launch "+
+		"waited for the other's staging and bootstrap, not for its spawn)", waited(rA), waited(rB))
 	t.Logf("HD10 ENDPOINT DURING: A %s | B %s", hd10Probe(fa, "A_DURING"), hd10Probe(fb, "B_DURING"))
 	t.Logf("HD10 ENDPOINT AFTER B EXITED: A saw the exit marker: %s; A %s",
 		fa["A_SAW_B_EXIT"], hd10Probe(fa, "A_AFTER"))
@@ -400,10 +400,10 @@ func hd10SpawnVerdict(exercised bool, distinct []int, maxAtOnce int) string {
 		return "NO BROKER — neither launch left a claude-oauth-broker running long enough to " +
 			"sample, so the spawn itself failed or was skipped; read the WARNINGS line"
 	case len(distinct) == 1:
-		return "ONE BROKER — exactly one daemon was ever seen; the workspace launch lock spans " +
-			"the host-daemon start, so if WORKSPACE-LOCK shows a launch waited, that lock kept " +
-			"the second spawn out of the first's window and the second found the broker alive; " +
-			"if neither waited, the spawn flock or the liveness re-check inside it did the work"
+		return "ONE BROKER — exactly one daemon was ever seen; each launch starts its host " +
+			"daemons BEFORE it takes the workspace launch lock (per-launch pack trees moved the " +
+			"lock after the daemon start), so the spawn flock (paths.HostSingletonLock) or the " +
+			"liveness re-check inside it kept the pair to one"
 	case maxAtOnce >= 2:
 		return fmt.Sprintf("TWO SPAWNS AT ONCE — %d brokers were alive together: the spawn was "+
 			"NOT serialized, and two daemons share one single-use refresh token", maxAtOnce)
