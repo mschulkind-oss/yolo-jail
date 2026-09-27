@@ -519,6 +519,7 @@ func DecodeTolerant(data []byte) (m *Manifest, problems, skipped []string) {
 	problems = append(man.validateSkillsTier(), man.validateSupersedes()...)
 	problems = append(problems, man.validateNeeds()...)
 	kept := make([]Contribution, 0, len(man.Contributes))
+	firstAutonomy := -1
 	for i, c := range man.Contributes {
 		if c.Kind != "" && !KnownKind(c.Kind) {
 			// A RETIRED kind is skipped exactly like an unknown one — the boot must not
@@ -557,6 +558,17 @@ func DecodeTolerant(data []byte) (m *Manifest, problems, skipped []string) {
 		if trimmed, notes := unknownWireAPISkip(i, c); len(notes) > 0 {
 			skipped = append(skipped, notes...)
 			c = trimmed
+		}
+		// A SECOND autonomy contribution is dropped here rather than kept for the readers to
+		// ignore: PostureFor and ListContributions read the first, and FootprintOf walks every
+		// contribution, so keeping it would disclose postures no notch renders. Skipped, not a
+		// problem, for the boot's sake; the strict path refuses it (validateSingleAutonomy).
+		if note := secondAutonomySkip(i, c, firstAutonomy); note != "" {
+			skipped = append(skipped, note)
+			continue
+		}
+		if c.Kind == KindAutonomy {
+			firstAutonomy = i
 		}
 		problems = append(problems, validateContributionAt(i, c)...)
 		kept = append(kept, c)

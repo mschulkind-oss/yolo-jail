@@ -190,3 +190,80 @@ func TestPostureOfAgreesWithPostureFor(t *testing.T) {
 		}
 	}
 }
+
+// ONE AUTONOMY CONTRIBUTION PER PACK (notch-scoped-config-contributions.md NS-D11). A second
+// is the natural way to write one contribution per posture, and it used to decode clean while
+// every posture reader took only the first — so its lists rendered nowhere and `yolo pack
+// footprint` still claimed they appended. The strict decoder (every host read) refuses it,
+// naming both positions and the merge.
+func TestASecondAutonomyContributionIsRefused(t *testing.T) {
+	_, problems := Decode([]byte(`{"name":"matt","contributes":[
+		{"kind":"autonomy","guarded":{"lists":[{"surface":"pi/settings","path":"/packages","add":["host-only"]}]}},
+		{"kind":"config-list","surface":"pi/settings","path":"/other","add":["x"]},
+		{"kind":"autonomy","autonomous":{"lists":[{"surface":"pi/settings","path":"/packages","add":["jail-only"]}]}}
+	]}`))
+	joined := strings.Join(problems, "\n")
+	for _, want := range []string{"contributes[2]", `second "autonomy"`, "contributes[0]"} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("problems do not mention %q:\n%s", want, joined)
+		}
+	}
+	if len(problems) != 1 {
+		t.Errorf("problems = %v, want exactly the one refusal", problems)
+	}
+}
+
+// ACROSS THE VERSION BOUNDARY the second is SKIPPED, never a problem: the boot path treats any
+// problem as fatal, and a jail must still boot. What is kept is exactly one autonomy
+// contribution, so every reader — PostureFor, ListContributions, the footprint — reads the same
+// declaration, and the note says which one was dropped.
+func TestTolerantDecodeSkipsASecondAutonomyContribution(t *testing.T) {
+	m, problems, skipped := DecodeTolerant([]byte(`{"name":"matt","contributes":[
+		{"kind":"autonomy","guarded":{"lists":[{"surface":"pi/settings","path":"/packages","add":["host-only"]}]}},
+		{"kind":"autonomy","autonomous":{"lists":[{"surface":"pi/settings","path":"/packages","add":["jail-only"]}]}}
+	]}`))
+	if len(problems) != 0 {
+		t.Fatalf("a second autonomy contribution must not fail a jail's read: %v", problems)
+	}
+	if len(skipped) != 1 || !strings.Contains(skipped[0], "contributes[1]") ||
+		!strings.Contains(skipped[0], `second "autonomy"`) {
+		t.Fatalf("skipped = %v, want one note naming contributes[1]", skipped)
+	}
+	var kinds int
+	for _, c := range m.Contributions() {
+		if c.Kind == KindAutonomy {
+			kinds++
+		}
+	}
+	if kinds != 1 {
+		t.Errorf("the tolerant manifest keeps %d autonomy contributions, want 1", kinds)
+	}
+	if got := m.ListContributions(); len(got) != 1 || got[0].Posture != PostureGuarded {
+		t.Errorf("ListContributions() = %+v, want the first contribution's guarded list only", got)
+	}
+}
+
+// THE FIRST-ONLY RULE HOLDS FOR A MANIFEST NO DECODER BUILT. Decode refuses a second autonomy
+// contribution and DecodeTolerant drops it, so this guard in ListContributions is what keeps a
+// hand-built manifest's lists agreeing with PostureFor, which reads the first: a posture's
+// config, flags and lists come from one declaration (NS-D5).
+func TestListContributionsReadsOnlyTheFirstAutonomyContribution(t *testing.T) {
+	list := func(entry string) []PostureList {
+		return []PostureList{{Surface: "a/b", Path: "/x", Add: json.RawMessage(`["` + entry + `"]`)}}
+	}
+	m := &Manifest{Name: "p", Contributes: []Contribution{
+		{Kind: KindAutonomy, Guarded: &AutonomyPosture{Lists: list("first")}},
+		{Kind: KindAutonomy, Guarded: &AutonomyPosture{Lists: list("second")},
+			Autonomous: &AutonomyPosture{Lists: list("second-jail")}},
+	}}
+	got := m.ListContributions()
+	if len(got) != 1 || string(got[0].Add) != `["first"]` {
+		t.Fatalf("ListContributions() = %+v, want only the first autonomy contribution's list", got)
+	}
+	if g := m.PostureFor(false); g == nil || string(g.Lists[0].Add) != string(got[0].Add) {
+		t.Errorf("PostureFor(false) = %+v disagrees with ListContributions", g)
+	}
+	if a := m.PostureFor(true); a != nil {
+		t.Errorf("PostureFor(true) = %+v, want nil: the first contribution declares no autonomous posture", a)
+	}
+}

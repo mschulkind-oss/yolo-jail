@@ -962,7 +962,9 @@ type AutonomyContribution struct {
 }
 
 // AutonomyContributions returns the pack's autonomy declaration, or nil when it declares
-// no autonomy contribution. At most one is meaningful (a second is a validation error).
+// no autonomy contribution. A decoded manifest carries at most one: the strict decoder
+// refuses a second and the tolerant one drops it (validateSingleAutonomy). For a manifest
+// built by hand this reads the FIRST, as ListContributions does.
 func (m *Manifest) AutonomyContributions() *AutonomyContribution {
 	for _, c := range m.Contributions() {
 		if c.Kind != KindAutonomy {
@@ -1765,7 +1767,9 @@ func (m *Manifest) ConfigListContributions() []ConfigList {
 // not hear it until they ran the other one.
 //
 // Only the FIRST autonomy contribution counts, the one PostureFor reads, so a posture's
-// config, its launch flags and its lists always come from one declaration.
+// config, its launch flags and its lists always come from one declaration. Decoding already
+// guarantees one (validateSingleAutonomy refuses a second, DecodeTolerant drops it); the guard
+// below keeps a hand-built manifest's projection agreeing with PostureFor.
 func (m *Manifest) ListContributions() []ConfigList {
 	var out []ConfigList
 	seenAutonomy := false
@@ -1881,7 +1885,55 @@ func (m *Manifest) validateContributions() []string {
 	problems = append(problems, m.validateFilesDestinations()...)
 	problems = append(problems, m.validateAddressedFiles()...)
 	problems = append(problems, m.validateDuplicateContentSources()...)
+	problems = append(problems, m.validateSingleAutonomy()...)
 	return problems
+}
+
+// validateSingleAutonomy refuses a SECOND `autonomy` contribution in ONE pack. A pack declares
+// its two postures in one contribution (KindAutonomy), and every posture reader takes the
+// first: PostureFor for the config patch and launch flags, ListContributions for the posture
+// lists.
+//
+// The failure it replaces is the silent kind. One contribution per posture is the natural way
+// to write two postures, and it used to decode clean: the second one's lists and flags rendered
+// at no notch, with no problem, no orphan and no note, while `yolo pack footprint` claimed they
+// appended (notch-scoped-config-contributions.md NS-D11). packload.Collisions cannot see it,
+// because the autonomy claim's target is the pack's own name and one pack is never a collision.
+//
+// Strict path only, like validateFilesDestinations and for the same reason: the boot path
+// treats any problem as fatal. The tolerant decoder SKIPS the second one with a note instead
+// (secondAutonomySkip), so a jail boots and every reader there still sees one declaration.
+func (m *Manifest) validateSingleAutonomy() []string {
+	var problems []string
+	first := -1
+	for i, c := range m.Contributes {
+		if c.Kind != KindAutonomy {
+			continue
+		}
+		if first < 0 {
+			first = i
+			continue
+		}
+		problems = append(problems, fmt.Sprintf(
+			"contributes[%d]: a second \"autonomy\" contribution (first at contributes[%d]) — "+
+				"a pack declares ONE, with both postures inside it, and only the first is read. "+
+				"Move this one's \"autonomous\"/\"guarded\" into contributes[%d]", i, first, first))
+	}
+	return problems
+}
+
+// secondAutonomySkip is the tolerant decoder's note for an `autonomy` contribution after the
+// pack's first (validateSingleAutonomy is the strict refusal), or "" for the first. firstAt is
+// the first one's index, or -1 when none has been seen.
+func secondAutonomySkip(i int, c Contribution, firstAt int) string {
+	if c.Kind != KindAutonomy || firstAt < 0 {
+		return ""
+	}
+	return fmt.Sprintf(
+		"contributes[%d]: skipping a second \"autonomy\" contribution (first at "+
+			"contributes[%d]) — a pack declares one, with both postures inside it, so this "+
+			"one's postures are not rendered (the host refuses the manifest until they are "+
+			"merged)", i, firstAt)
 }
 
 // validateFilesDestinations refuses a SECOND `files` destination for one agent in ONE pack —

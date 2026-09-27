@@ -1,6 +1,8 @@
 package packload_test
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -48,5 +50,44 @@ func TestFootprintNamesAPostureListUnderItsPosture(t *testing.T) {
 	// An empty add says so, rather than claiming an append that does not happen.
 	if !strings.Contains(autonomy[0], "autonomous appends nothing (empty `add`, a no-op) to pi/settings#/packages") {
 		t.Errorf("the empty autonomous list is not described as a no-op: %q", autonomy[0])
+	}
+}
+
+// A SECOND AUTONOMY CONTRIBUTION, THROUGH THE LOADER (NS-D11). The footprint walks every
+// contribution while the posture readers take the first, so the two used to disagree: two
+// claims, one of them describing lists no notch rendered. On the host (strict) the pack is
+// refused; in a jail (tolerant) the second is dropped with a skew note, and the footprint then
+// makes exactly the one claim the render acts on.
+func TestASecondAutonomyContributionNeverReachesTheFootprint(t *testing.T) {
+	dir := t.TempDir()
+	manifest := `{"name":"matt","contributes":[` +
+		`{"kind":"autonomy","guarded":{"lists":[{"surface":"pi/settings","path":"/packages","add":["host-only"]}]}},` +
+		`{"kind":"autonomy","autonomous":{"lists":[{"surface":"pi/settings","path":"/packages","add":["jail-only"]}]}}]}`
+	if err := os.WriteFile(filepath.Join(dir, packdecl.ManifestName), []byte(manifest), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, problems := packload.LoadDir(dir, "matt"); len(problems) == 0 ||
+		!strings.Contains(strings.Join(problems, "\n"), `second "autonomy"`) {
+		t.Errorf("the host load accepted a second autonomy contribution: %v", problems)
+	}
+
+	restore := packload.OverrideSkewTolerance(true)
+	defer restore()
+	p, problems := packload.LoadDir(dir, "matt")
+	if len(problems) != 0 {
+		t.Fatalf("the jail load must not fail on it: %v", problems)
+	}
+	if len(p.SkewNotes) != 1 || !strings.Contains(p.SkewNotes[0], "pack matt: contributes[1]") {
+		t.Errorf("SkewNotes = %v, want the one note naming the dropped contribution", p.SkewNotes)
+	}
+	var autonomy []string
+	for _, c := range packload.FootprintOf(p).Claims {
+		if c.Kind == packdecl.KindAutonomy {
+			autonomy = append(autonomy, c.Detail)
+		}
+	}
+	if len(autonomy) != 1 || strings.Contains(autonomy[0], "jail-only") {
+		t.Errorf("autonomy claims = %q, want one, not naming the dropped contribution's list", autonomy)
 	}
 }
