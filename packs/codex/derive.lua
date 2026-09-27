@@ -9,9 +9,9 @@
 -- Each declared id is WIRE-TRUE. Its facts come from model_options under the alias spelled
 -- as the id: `order` (the map is unordered all the way here, so this is the only order there
 -- is; unordered ids go last, by id), `name`, `description`, `context_window`, and
--- `long_context_window`, which means "this model also has a 1M variant". That variant is emitted right after its base as
--- `<id>[1m]`, a CLIENT spelling Claude Code, packs/pi's extension and the wire bridge each
--- strip before the request leaves.
+-- `long_context_window`, which means "this model also has a 1M variant". That variant is
+-- emitted right after its base as `<id>[1m]`, a CLIENT spelling Claude Code, packs/pi's
+-- extension and the wire bridge each strip before the request leaves.
 --
 -- ⚠ DUPLICATED VERBATIM in packs/claude/derive.lua, packs/pi/derive.lua and
 -- packs/codex/derive.lua, because a derive cannot load another file (the sandbox has no
