@@ -235,7 +235,8 @@ be derived.
 | `Dirs` before `Links` | `Apply` walks the fields in declaration order; `MkdirAll` THROUGH a dangling symlink fails (`Stat` misses, `Mkdir` hits `EEXIST`, `Lstat` says "not a directory") |
 | The `SharedDirs` mirror before anything RESOLVES one | `Mirrors` is applied in the same step as the `Links`, above every generator |
 | `MISE_DATA_DIR` names a path outside the workspace tier | `macosuser.SandboxMiseData` is the one function the launch env, the bootstrap env and the PATH's shims dir all read; `assertOutsideTheWorkspaceTier` asks the deriver |
-| `InstallHomeOverlay` must not destroy the layout | `installOverlayTree` **descends through a symlink** and replaces at the first real directory |
+| `InstallHomeOverlay` must not destroy the layout | `installOverlayTree` **descends only through this launch's layout links**, each checked against the target the layout laid, and replaces at the first path that is not one; a layout path that is not yet its link is left alone |
+| Nothing is laid or delivered through a link the layout did not lay | `DarwinHomeLayout.linkedSidecarPaths`, checked first by `Apply` and again by `InstallHomeOverlay`; `installOverlayTree` for a link at or above a destination ([below](#nothing-is-delivered-through-a-link-the-layout-did-not-lay)) |
 | A redirect is laid only when this launch lays the directory that holds it | `DeriveDarwinHomeLayout` tracks the home-relative dirs it laid and filters `paths.HomeFileRedirects()` against them |
 
 > [!WARNING]
@@ -255,16 +256,17 @@ be derived.
 > (`TestDarwinHomeLayoutSurvivesAStaleLinkFromADeletedWorkspace`,
 > `…RepointsAStaleLinkThePackStillDeclares`).
 
-**`InstallHomeOverlay` descending through a symlink is what makes content delivery land at a bind
-mount's granularity.** The host composes the same trees the container mounts, stages them
-root-owned at `/var/yolo-jail/home-overlay/<cname>`, and the bootstrap copies them over the home.
-That copy used to `RemoveAll` the overlay's TOP-level entry, which for a skills destination of
-`.claude/skills` is `~/.claude` — the whole state dir, credential symlink included. Under the
+**`InstallHomeOverlay` descending through the layout's links is what makes content delivery land
+at a bind mount's granularity.** The host composes the same trees the container mounts, stages
+them root-owned at `/var/yolo-jail/home-overlay/<cname>`, and the bootstrap copies them over the
+home. That copy used to `RemoveAll` the overlay's TOP-level entry, which for a skills destination
+of `.claude/skills` is `~/.claude` — the whole state dir, credential symlink included. Under the
 layout the same `RemoveAll` would unlink the sidecar symlink and leave a real directory, so the
-next boot's layout refuses: a backend that bricks itself after one launch. A symlink in the home
-is a LAYOUT link, marking a path the home merely passes through; the first real directory is the
-destination, and replacing it wholesale is what makes a skills dir a pack stopped shipping
-disappear.
+next boot's layout refuses: a backend that bricks itself after one launch. A layout link marks a
+path the home merely passes through; the first path that is not one is the destination, and
+replacing it wholesale is what makes a skills dir a pack stopped shipping disappear. Until
+2026-09-27 the install treated ANY symlink as a layout link; what it does with one that is not
+is [below](#nothing-is-delivered-through-a-link-the-layout-did-not-lay).
 
 ## Isolation: the Seatbelt profile needs no change
 
@@ -367,8 +369,11 @@ same way.
   while the link stands. So `macosuser.ResolveHomeReadonly` walks each destination the way the
   kernel does, through the same `DeriveDarwinHomeLayout` links the bootstrap lays, and names the
   sidecar path. The account-home spelling is kept too, since it is the one that matches wherever no
-  link stands. Both are resolved through their longest existing prefix first, which is the
-  `/var` → `/private/var` class.
+  link stands. Only the two BASES — the account home and the workspace — are resolved, through
+  their longest existing prefix (the `/var` → `/private/var` class). Everything below them is
+  joined as text, because this runs on the host before the bootstrap and on a first launch none of
+  it exists; that text is the kernel's path only because the bootstrap lays nothing through a link
+  it did not lay ([below](#nothing-is-delivered-through-a-link-the-layout-did-not-lay)).
 - **The chain above a destination is anchored.** A path deny protects a path, not an inode: moving
   `~/.claude` aside and putting a directory of the agent's own where it was would leave every
   staged file untouched and point the agent's reader at something else. Every directory and layout
@@ -380,6 +385,38 @@ same way.
   profile byte-identical to one that never had the rule.
 - **The copy step is untouched.** The bootstrap's argv carries no `sandbox-exec`, so the next
   launch replaces the delivered trees exactly as it did before.
+
+### Nothing is delivered through a link the layout did not lay
+
+Found by review on 2026-09-27, the day the rules shipped, and fixed the same day. The sidecar is
+inside the workspace, which every session can write, so an earlier session whose profile did not
+cover these paths — a `packs: []` launch, or one with another pack selection — could leave a
+symbolic link in it. The layout's `MkdirAll` and the overlay install both followed one, so the
+delivered skills and briefing landed wherever it pointed, where no rule names them, and a link at
+a skills destination MERGED into its target, so a skill the agent had planted there was loaded
+beside the delivered ones. Reproduced on Linux against the real deriver and install. The container
+backends are not affected: the `:ro` bind's source is the launcher's staging directory.
+
+| Where the link is | What the bootstrap does |
+| :--- | :--- |
+| `<ws>/.yolo`, `<ws>/.yolo/home`, or any directory the layout lays in the sidecar (`<sidecar>/claude`, `<sidecar>/local`, …) | **Refuses**, in BOTH the layout step and the overlay step, because every boot step runs after one fails and `~/.claude` may still be the right link from an earlier launch. The refusal (`entrypoint.LinkedSidecarError`) names each link and its target and offers `sudo rm <link>`, which removes the link and never what it points at; nothing is removed for you, because the target may hold the agent's real history |
+| Past a layout link, at a destination or a briefing (`<sidecar>/claude/skills`, `<sidecar>/claude/CLAUDE.md`) | **Replaces** it, like any other occupant of a destination: the link is removed, never its target, and a fresh copy or a regular file is laid in its place. The layout writes no links there, so this destroys nothing yolo made |
+| In the account home, where this launch lays no layout link (`~/.claude` on a launch whose packs do not declare it) | **Refuses** the delivery, naming the link and `sudo rm <link>`. It is typically another workspace's layout link, which the layout deliberately leaves alone (removing it would strand a live sidecar, and a real directory there is refused forever by [OQ-HT2](#oq-ht2)); following it wrote this launch's content into that workspace's sidecar |
+| A layout path that is not yet the layout's link (a pre-layout real `~/.claude` the layout just refused) | **Left alone.** The install used to replace it wholesale, deleting the transcripts the refusal had just told the reader to move out first |
+
+So after a bootstrap that did not fail, every component from the workspace down to each
+destination is a real directory or a layout link pointing where the layout laid it, and the host's
+text join is the kernel's path. `TestTheBootstrapDeliversOnlyWhereTheHostsRulesPoint`
+(`internal/macosuser`) pins the two ends together: it plants a link at each position between two
+launches, drives the real layout and overlay steps, and requires every file carrying the second
+launch's content to sit under a denied path with every directory above it anchored.
+
+> [!NOTE]
+> **What a path rule cannot cover is a CONCURRENT session.** The delivered copies live in the
+> sidecar, and each session's profile protects only what that session delivered. A second session
+> on the same workspace whose selection does not include the pack can write them while the first
+> runs; the next launch replaces them. On podman the delivered tree is a bind from the launcher's
+> staging directory, outside the workspace, so no session can. Reasoned, not measured.
 
 The launch no longer prints *"briefings and skills are delivered by COPY on macos-user … the agent
 can edit its own skills"*. In [`backend-parity.md`](../design/backend-parity.md)'s vocabulary the
@@ -410,7 +447,9 @@ instead of a mount, which [OQ-HT4](#oq-ht4) names as the target shape for this b
 
 `ensureLayoutSymlink` never removes a real file or directory — that is [OQ-HT2](#oq-ht2) as code.
 A symlink yolo itself wrote IS replaced, because the sidecar it named moved; anything else makes
-`Apply` collect the path and refuse. Every occupied path is reported **together**, because one at
+`Apply` collect the path and refuse. (A symlink where the layout lays a real directory in the
+sidecar is a separate refusal, checked before anything is created and reported on its own —
+[above](#nothing-is-delivered-through-a-link-the-layout-did-not-lay).) Every occupied path is reported **together**, because one at
 a time would make the first launch after this shipped a sequence of refusals about an account the
 reader is being told to wipe anyway.
 
@@ -475,7 +514,10 @@ Four things are still one-per-machine, and each is deliberate or named.
 > never be automated.** The link set is derived from the loaded packs, and a load error does not
 > abort the bootstrap (A12: every step still runs), so the layout lays an EMPTY link set,
 > `install_home_overlay` creates a REAL `~/.claude`, and every later launch refuses forever with a
-> remedy that destroys the machine tier the shared-credentials hook exists to preserve. Reaching
+> remedy that destroys the machine tier the shared-credentials hook exists to preserve. Narrowed
+> on 2026-09-27: where an earlier launch had laid `~/.claude`, the install now refuses to deliver
+> through a link this launch did not lay instead of writing over it, so the route needs a failure
+> on the account's first launch of that pack, while `~/.claude` does not exist yet. Reaching
 > it needs a fault injected into `LoadJailPacks` — a seam that does not exist — and no CI job
 > should be able to arrive at that state on a Mac that belongs to somebody
 > ([runbook item 10](../plans/runbooks/macos-user-manual-checks.md#10-the-two-layout-defects-a-mutation-pass-found--new-2026-09-12-never-run)).
@@ -509,6 +551,7 @@ more than usual.
 | The deriver, idempotence and the repointing, the stale-link pair | the same gate calling `DeriveDarwinHomeLayout(…).Apply()` directly |
 | The probe script and its parser that the Mac test depends on | `TestMacosUserHomeTierProbeReadsARealLayout`, a Linux preflight applying the REAL deriver |
 | The staged skills and briefings are write-protected at the physical path, the chain above them is anchored, and every shipped pack's state directories are not denied | Linux unit gates on the rendered SBPL: `internal/macosuser/homereadonly_test.go` (including a symlinked base), and `TestEveryShippedDestinationIsWriteProtectedAndNothingElse`, which enumerates the shipped packs' declarations |
+| A link the layout did not lay, at each position in the sidecar and in the account home, is refused or replaced and never followed, and every file a launch delivers lands under a path its profile denies | Linux unit gates driving the real bootstrap: `internal/entrypoint/darwinoverlaylinks_test.go`, and `TestTheBootstrapDeliversOnlyWhereTheHostsRulesPoint` in `internal/macosuser`, which checks the delivery against `ResolveHomeReadonly`'s own output |
 | The kernel REFUSES writes, renames, deletes and a planted skill, and allows the agent's own state | **Not measured.** `TestMacosUserSeatbeltProfileEnforcesItsRules` (`home_content_*`) and `TestMacosUserStagedContentIsWriteProtected` are written and have not run on a Mac. Their scripts' bare halves are exercised on Linux (`TestMacosUserSeatbeltContentControlsRunUnsandboxed`, `TestMacosUserContentProbeReadsARealLayout`) |
 | An occupied ACCOUNT-HOME path refuses | Linux only (`TestDarwinHomeLayoutRefusesToReplaceRealDirectories`); not separately exercised on hardware |
 | A concurrent second workspace leaves the first session pointing at a denied directory | **Not measured** — reasoned from the one-link-set fact plus target evaluation |
@@ -545,10 +588,12 @@ documents cite.
 | <a id="oq-ht2"></a>[**OQ-HT2**](#oq-ht2) — **no migration; wiping `/Users/_yolojail` is a supported reset** | *"Nobody is using it. No transition needed. If I need to wipe it first, that's fine."* A real file or directory where a link belongs is never removed, renamed or copied: the launch names every offender and the remedy that reaches it. What is given up is real — the old shared home holds the workspace tier for every workspace that ever launched here, and transcripts are user work product where a re-fetchable token is not — and it was accepted on measured grounds: this backend's only session at the time was yolo-generated content. The precedent was already priced in `linkThroughShared`, which accepts losing one login on a layout change. What it buys is that the layout shipped with no one-shot mutation, no `.pre-tiers-<date>` directory and no first-launch copy path. ⚠ Do not reuse the ruling for a different home — for the podman base, which somebody IS using, [`base-home-legacy-state.md`](../design/base-home-legacy-state.md) leaves the legacy bytes in place, unmounted and unread, rather than discarding them ([§2.9](../design/base-home-legacy-state.md#29-backends)). |
 | <a id="oq-ht3"></a>[**OQ-HT3**](#oq-ht3) — per-workspace, not per-session | The same-workspace overwrite is **convergent**: two launches on one workspace compose identical content from identical config, packs and briefing, which is what the container's attach already relies on. A per-session tier is a mechanism no other backend has, buying nothing the workspace tier does not, and it would have multiplied [OQ-HT2](#oq-ht2)'s surface by every session ever run. The container's courtesy flock was a moved call rather than a design point, and it moved: `run.AcquireWorkspaceLockFor` exists for this one caller. |
 | <a id="oq-ht4"></a>[**OQ-HT4**](#oq-ht4) — `HOME` stays `/Users/_yolojail`; the workspace tier is a symlink layout into the sidecar, and `SharedDirs` stay put and are mirrored back | The constraint that outranks the layout choice is **one mechanism on every backend**: *"it's going to be just identical to how you share them in container jails … otherwise you're just fragmenting the utility of this tool and you can't really share things, because you'd have to detect features and stuff and it would be awful."* A per-workspace `HOME` (the recorded runner-up) reaches credentials some other way, which makes *"where are my credentials"* a per-backend question every pack touching them must feature-detect. What may differ between backends is only the **primitive that enforces the boundary** — a bind mount on podman, an SBPL rule here — because that is invisible to a pack and to a user. In [`backend-parity.md`](../design/backend-parity.md)'s vocabulary the target disposition is **HonoredBy**: the same outcome by a named different primitive, never a different mechanism. A per-workspace `HOME` would also have moved the install prefixes out of reach of the `agent_updates` lock the shared home provides, and overturned [`macos-user-nix-and-features.md`](macos-user-nix-and-features.md)'s standing refusal. |
-| <a id="ht-d1"></a>[**HT-D1**](#ht-d1) — *Implementation decision.* The content rules name the PHYSICAL path, derived from the layout deriver, and never from an `EvalSymlinks` of the account home at plan time | The kernel judges the resolved path, and on every shipped pack `~/.<agent>` is a layout link into the sidecar. Resolving the live account home would read a directory the launcher cannot rely on reading, and on a first launch the links do not exist yet. The deriver is the one the bootstrap applies (`DeriveDarwinHomeLayout`), fed the same `packload.WritableDirs`, so the two agree by construction. The account-home spelling rides along because it is the one that matches wherever no link stands (2026-09-27) |
+| <a id="ht-d1"></a>[**HT-D1**](#ht-d1) — *Implementation decision.* The content rules name the PHYSICAL path, derived from the layout deriver, and never from an `EvalSymlinks` of the account home at plan time | The kernel judges the resolved path, and on every shipped pack `~/.<agent>` is a layout link into the sidecar. Resolving the live account home would read a directory the launcher cannot rely on reading, and on a first launch the links do not exist yet. The deriver is the one the bootstrap applies (`DeriveDarwinHomeLayout`), fed the same `packload.WritableDirs`, so the two agree about where each destination lands. They agree about the PATH the kernel reports only while nothing below the two resolved bases is a link the layout did not lay, which is not construction but enforcement: [HT-D5](#ht-d5) (corrected 2026-09-27, when a review showed the first wording claimed more than the code did). The account-home spelling rides along because it is the one that matches wherever no link stands (2026-09-27) |
 | <a id="ht-d2"></a>[**HT-D2**](#ht-d2) — *Implementation decision.* Every directory and layout link between a writable root and a destination is an anchor, denied `file-write-create` and `file-write-unlink` on its literal path; the workspace and the account home themselves are not | A path deny does not follow an inode, so without anchors the chain could be moved aside and replaced. `file-write*` would also have frozen the agent's own state directory (chmod, utimes, xattrs), which the container's `:ro` bind never did. The two roots need no anchor: the workspace's parent is outside the writable set, and `/Users` is root-owned (2026-09-27) |
 | <a id="ht-d3"></a>[**HT-D3**](#ht-d3) — *Implementation decision.* The protected set is what the overlay builder WROTE, carried with the tree and the layout dirs as one `macosuser.HomeOverlay` | The container binds what it stages. Deriving the rules from a second walk of the declarations would let a destination be protected and not delivered, or the reverse, silently. A launch that delivers nothing renders nothing, so its profile is byte-identical to the one it always got (2026-09-27) |
 | <a id="ht-d4"></a>[**HT-D4**](#ht-d4) — *Implementation decision.* The "delivered by COPY … can edit its own skills" launch note is retired, not reworded | It describes a gap that is closed. `HonoredBy` owes the launch no line, and a softened sentence would be one more line readers learn to skip. That the kernel honors the rule is asserted by two Mac tests that have not run, and the [warning above](#the-staged-skills-and-briefings-are-write-protected-at-the-path-the-kernel-sees) says so (2026-09-27) |
+| <a id="ht-d5"></a>[**HT-D5**](#ht-d5) — *Implementation decision.* The bootstrap, not the host, keeps the content rules' paths true: it refuses a link in the sidecar, replaces one past a layout link, and refuses one in the account home, rather than the host resolving each full destination at plan time | The host computes the rules before the bootstrap runs, so resolving the full path then names whatever a planted link points at, and the bootstrap's own step would still land somewhere else — the two would disagree in the other direction. Only the step that writes the files can make the path it writes the one the rule names. Refusing in the sidecar, rather than replacing, because the link's target may be the agent's real history; replacing past a layout link, because the layout writes nothing there that could be lost; refusing in the account home, because a link there is typically another workspace's live layout link (2026-09-27) |
+| <a id="ht-d6"></a>[**HT-D6**](#ht-d6) — *Implementation decision.* The overlay install derives the SAME layout the layout step laid (`darwinHomeLayoutFor`) and follows a link only when its path and its target are both the layout's | One derivation for both steps, so they cannot disagree about which links are yolo's. The target is compared because an account-home link can name the right path and another workspace's sidecar. A layout path whose link is not in place is left untouched, since the layout step has already refused it (2026-09-27) |
 | <a id="p1"></a>[**P1**](#p1) — a split must restore every tier it breaks, **explicitly** | Colocation is not a mechanism. The machine tier's *backing* works here by accident — the shared dir is a plain directory because there is only one home to put it in — so any change separating the directories has to replace that accident with something stated. A fix that repairs the workspace tier and leaves the machine tier to luck has moved the bug. |
 | <a id="p2"></a>[**P2**](#p2) — the tier of a path is what the pack declares, and there is no second list of "which dirs are per-workspace" | The list is the podman mount table, and adding a directory to one without the other is the drift this layout exists to end. Applied to home-root files it also decides the redirect rule: the layout manages what THIS launch declares. |
 | <a id="retraction"></a>[**Retracted**](#retraction) — *"the single home IS this backend's shared-credentials mechanism"* | It stood in this doc's first draft, in `run.go`, in `seatbeltcapture.go`, in the backend reference and in the roadmap, and it is wrong in the one way that mattered: the mechanism is the `shared_credentials` **hook**, which runs on every backend, and the home only ever supplied the *backing* of the pack-declared `scope: machine` directory. A carve-out whose stated reason was wrong survived for months because the reason sounded structural ([`declaration-parity.md` DP-D15](../design/declaration-parity.md#7-ruled-divergent-and-the-ones-i-would-re-open)). What actually refuses a per-workspace home is parity. |
@@ -575,5 +620,6 @@ against the stamp at the top.
 | Login-rc PATH indirection | `YOLO_DARWIN_LOGIN_PATH`, re-prepended in `.zprofile`, `.zshrc`, `.bash_profile` | `internal/entrypoint/darwinhomelayout.go` (`DarwinLoginPathEnv`), `internal/entrypoint/darwin.go` (`WriteLoginRC`) |
 | Staged content tree | `/var/yolo-jail/home-overlay/<cname>`, root-owned, named by `YOLO_DARWIN_HOME_OVERLAY` | `internal/macosuser/macosuser.go` (`StagedHomeOverlay`, `StageHomeOverlayCommands`), copied by `internal/entrypoint/darwin.go` (`InstallHomeOverlay`) |
 | Content write-protection | `(deny file-write* (subpath …))` over each delivered skills dir and briefing, and `(deny file-write-create file-write-unlink (literal …))` over the chain above each; ids `home-content-write-deny`, `home-content-anchor-deny` | `internal/macosuser/homereadonly.go` (`ResolveHomeReadonly`), `internal/macosuser/seatbelt.go` (`homeReadonlyDenies`) |
+| A link where the layout lays a directory | refused before anything is laid, at `<workspace>/.yolo`, the sidecar and every link target's chain; remedy `sudo rm <link>` | `internal/entrypoint/darwinhomelayout.go` (`linkedSidecarPaths`, `LinkedSidecarError`), checked by `Apply` and `internal/entrypoint/darwin.go` (`InstallHomeOverlay`) |
 | Per-workspace launch lock | `<global storage>/locks/<cname>.lock`, held from the content staging (skills, briefings, the overlay and context trees) through the bootstrap and stage, released before the agent; not at pack staging, whose tree is per launch | `internal/cli/run/flock.go` (`AcquireWorkspaceLockFor`), seam `internal/macosuser/orchestrator.go` (`Deps.LockWorkspace`) |
 | The supported reset | `sudo rm -rf /Users/_yolojail && yolo macos-setup` | no single site prints both halves: the `rm -rf` by `occupiedLayoutError` (`internal/entrypoint/darwinhomelayout.go`), the reprovision by the missing-home refusal (`internal/macosuser/orchestrator.go`, which is what makes the second half necessary), and the two joined only in [runbook item 5](../plans/runbooks/macos-user-manual-checks.md#5-the-per-workspace-home-layout--new-2026-09-12-never-run) |

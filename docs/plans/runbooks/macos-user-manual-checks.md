@@ -837,7 +837,9 @@ mechanism was misstated.
 
 **The second, which needs no command:** if `LoadJailPacks` ever fails transiently (a corrupt
 or half-written pack root), the bootstrap continues anyway (A12) with an EMPTY link set, so
-`install_home_overlay` writes a REAL `~/.claude` — and every later launch refuses forever,
+`install_home_overlay` writes a REAL `~/.claude` — on the account's first launch of that pack,
+while `~/.claude` does not exist yet; since 2026-09-27 an earlier launch's `~/.claude` link makes
+the install refuse rather than write over it — and every later launch refuses forever,
 with the same remedy, which here destroys the machine tier the shared-credentials hook exists
 to preserve. If you ever see that refusal on an account you did not touch, this is the likely
 route.
