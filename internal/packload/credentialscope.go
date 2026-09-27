@@ -363,19 +363,27 @@ func (s *CredentialScope) Disclosure() []string {
 	return s.DisclosureWith(DisclosureNotes{})
 }
 
-// DisclosureNotes is what one notch adds to the gate's disclosure, for a fact the gate cannot
-// know: how a withheld credential can be received there. The zero value adds nothing, and is
-// the jail's wording, which docs/design/credential-sources-separation.md ES-D2 leaves unchanged
-// until OQ-ES5 decides whether a jail shell has a remedy at all.
+// DisclosureNotes is what one notch adds to the gate's disclosure, for facts the gate cannot
+// know: how a withheld credential can be received there, and what the launched process already
+// holds. The zero value adds nothing, and is the jail's wording, which
+// docs/design/credential-sources-separation.md ES-D2 leaves unchanged until OQ-ES5 decides
+// whether a jail shell has a remedy at all.
 type DisclosureNotes struct {
 	// Remedy words how a withheld group's names can be received, given the providers that
 	// claim them (sorted), as a sentence appended to that group's line. "" appends nothing.
 	// The host notch names its typed `-p` (ES-D2).
 	Remedy func(claimants []string) string
+	// Inherited reports whether the process this launch composes holds name, non-empty, from
+	// outside yolo — the host notch's invoking shell, which passes through untouched (CN-D13).
+	// A withheld name it holds is not withheld from that process, so its line says yolo did
+	// not add it, never "withheld", and names no remedy (ES-D4). Nil holds nothing: the
+	// jail's case, where a host shell's value never crosses raw.
+	Inherited func(name string) bool
 }
 
-// DisclosureWith is Disclosure with a notch's notes applied. Names are grouped by claimant
-// and recipients, so each line tells one story.
+// DisclosureWith is Disclosure with a notch's notes applied. Names are grouped by claimant,
+// recipients and, under Inherited, whether the process already holds them, so each line tells
+// one story.
 func (s *CredentialScope) DisclosureWith(notes DisclosureNotes) []string {
 	if s == nil {
 		return nil
@@ -384,6 +392,7 @@ func (s *CredentialScope) DisclosureWith(notes DisclosureNotes) []string {
 		claimants  []string
 		providers  string
 		recipients string
+		inherited  bool
 		names      []string
 	}
 	var order []string
@@ -401,7 +410,13 @@ func (s *CredentialScope) DisclosureWith(notes DisclosureNotes) []string {
 		}
 		g := &group{claimants: claimants, providers: strings.Join(claimants, ", "),
 			recipients: strings.Join(recipients, ", ")}
+		// Only a withheld name can be misreported by the process's own copy: a delivered one
+		// is the env_sources value, which beats it.
+		g.inherited = g.recipients == "" && notes.Inherited != nil && notes.Inherited(k)
 		key := g.providers + "\x00" + g.recipients
+		if g.inherited {
+			key += "\x00inherited"
+		}
 		if existing, ok := groups[key]; ok {
 			existing.names = append(existing.names, k)
 			continue
@@ -419,6 +434,9 @@ func (s *CredentialScope) DisclosureWith(notes DisclosureNotes) []string {
 		g := groups[key]
 		names := strings.Join(g.names, ", ")
 		switch {
+		case g.inherited:
+			lines = append(lines, "  "+names+" (provider "+g.providers+"): not added by yolo — "+
+				"no agent in this launch selected it, so the invoking shell's own value passes through")
 		case g.recipients == "":
 			line := "  " + names + " (provider " + g.providers + "): withheld from " +
 				"every process — no agent in this launch selected it"

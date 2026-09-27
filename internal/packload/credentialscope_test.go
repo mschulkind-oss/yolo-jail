@@ -276,3 +276,36 @@ func TestCredentialScopeDisclosureRemedyReachesWithheldLinesOnly(t *testing.T) {
 		t.Errorf("the remedy is asked once, for the withheld group's claimants: %v", asked)
 	}
 }
+
+// Inherited rewords a WITHHELD name the process already holds (ES-D4): "not added by yolo",
+// never "withheld", and with no remedy. A delivered name keeps its line whatever Inherited
+// says, and a withheld name the process does not hold keeps its own.
+func TestCredentialScopeDisclosureInheritedRewordsWithheldOnly(t *testing.T) {
+	scope, err := ScopeCredentials(ScopeInput{
+		Providers:  twoProviders(t),
+		Profiles:   map[string]string{"pi": "zai-profile"},
+		Resolved:   map[string]ResolvedProfile{"zai-profile": {Provider: "zai"}},
+		EnvSources: hydrated("ZAI_API_KEY", "secret-z", "ROUTE_BEARER", "secret-b", "ROUTE_PAIR_ID", "id"),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := strings.Join(scope.DisclosureWith(DisclosureNotes{
+		Remedy:    func([]string) string { return "REMEDY" },
+		Inherited: func(name string) bool { return name == "ROUTE_BEARER" || name == "ZAI_API_KEY" },
+	}), "\n")
+	for _, want := range []string{
+		"ZAI_API_KEY (provider zai): pi only",
+		"ROUTE_BEARER (provider routes): not added by yolo — no agent in this launch selected " +
+			"it, so the invoking shell's own value passes through",
+		"ROUTE_PAIR_ID (provider routes): withheld from every process — no agent in this launch " +
+			"selected it. REMEDY",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("disclosure missing %q:\n%s", want, got)
+		}
+	}
+	if strings.Count(got, "REMEDY") != 1 {
+		t.Errorf("only the still-withheld group carries a remedy:\n%s", got)
+	}
+}

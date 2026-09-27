@@ -365,13 +365,37 @@ func (c *hostComposition) selectedProviders() []string {
 
 // credentialScopeLines is the gate's disclosure for this launch, nil when nothing the user
 // configured was scoped. It is packload's wording, the jail notch's lines, plus what only this
-// notch can say: a withheld line names the typed `-p` that would deliver it
-// (credentialRemedy; docs/design/credential-sources-separation.md ES-D2).
+// notch can say (docs/design/credential-sources-separation.md): a withheld line names the typed
+// `-p` that would deliver it (credentialRemedy, ES-D2), and a withheld name the invoking shell
+// already holds is said to pass through from it rather than to be withheld (shellHolds, ES-D4).
 func (c *hostComposition) credentialScopeLines() []string {
 	if c.scope == nil {
 		return nil
 	}
-	return c.scope.DisclosureWith(packload.DisclosureNotes{Remedy: c.credentialRemedy})
+	return c.scope.DisclosureWith(packload.DisclosureNotes{
+		Remedy:    c.credentialRemedy,
+		Inherited: c.shellHolds(),
+	})
+}
+
+// shellHolds answers ES-D4's question for this composition: does the process it composes hold
+// name, with the invoking shell's own value? The shell passes through untouched (CN-D13), so a
+// name the gate withheld from env_sources still reaches the process from there, and a
+// disclosure calling it "withheld" would be false. Asked of environ(), the environment the
+// exec hands over and the one an eval'ing shell ends up with, so a removal (an env_sources
+// null) or a value yolo composed over the shell's leaves the name answered "no" — only the
+// shell's own value, arriving intact, counts.
+func (c *hostComposition) shellHolds() func(string) bool {
+	composed := map[string]string{}
+	for _, kv := range c.environ() {
+		if k, v, ok := strings.Cut(kv, "="); ok {
+			composed[k] = v
+		}
+	}
+	return func(name string) bool {
+		v, ok := os.LookupEnv(name)
+		return ok && v != "" && composed[name] == v
+	}
 }
 
 // credentialRemedy is ES-D2's remedy for a group of withheld names: the one existing way to

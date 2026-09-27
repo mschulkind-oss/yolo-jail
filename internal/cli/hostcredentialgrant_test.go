@@ -10,6 +10,8 @@ package cli
 
 import (
 	"bytes"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -157,4 +159,84 @@ func scopeLine(t *testing.T, errs, name string) string {
 	}
 	t.Fatalf("no disclosure line names %s:\n%s", name, errs)
 	return ""
+}
+
+// ES-D4: a withheld name the invoking shell also exports reaches the command anyway, from the
+// shell (CN-D13), so the line says yolo did not add it and never calls it withheld; nor does it
+// offer a remedy for a value the command already has.
+func TestHostGrantShellHeldNameIsDisclosedAsNotAddedNeverWithheld(t *testing.T) {
+	env, errs := hostGateLaunchWith(t, esGrantConfig,
+		map[string]string{"ZAI_API_KEY": "tok-shell"}, nil, "bash")
+	if env["ZAI_API_KEY"] != "tok-shell" {
+		t.Errorf("the invoking shell's value passes through untouched: ZAI_API_KEY = %q", env["ZAI_API_KEY"])
+	}
+	line := scopeLine(t, errs, "ZAI_API_KEY")
+	if strings.Contains(line, "withheld") {
+		t.Errorf("bash holds the shell's ZAI_API_KEY, so the line must not say it was withheld "+
+			"(ES-D4): %q", line)
+	}
+	for _, want := range []string{"not added by yolo", "invoking shell"} {
+		if !strings.Contains(line, want) {
+			t.Errorf("the line must say yolo did not add it and the shell's value passes (%q "+
+				"missing): %q", want, line)
+		}
+	}
+	if strings.Contains(line, "yolo host -p") {
+		t.Errorf("a value the command already holds needs no remedy: %q", line)
+	}
+}
+
+// The same at `yolo host env`: the eval'ing shell is the one that already holds the value.
+func TestHostEnvShellHeldNameIsDisclosedAsNotAdded(t *testing.T) {
+	hostGateHome(t, esGrantConfig, map[string]string{"ZAI_API_KEY": "tok-shell"})
+	var out, errw bytes.Buffer
+	if rc := hostMain([]string{"env"}, &out, &errw, false, nil); rc != 0 {
+		t.Fatalf("yolo host env: rc = %d\n%s", rc, errw.String())
+	}
+	if strings.Contains(out.String(), "ZAI_API_KEY") {
+		t.Errorf("claude's slice still adds nothing for zai's key:\n%s", out.String())
+	}
+	line := scopeLine(t, errw.String(), "ZAI_API_KEY")
+	if strings.Contains(line, "withheld") || !strings.Contains(line, "not added by yolo") {
+		t.Errorf("yolo host env must say the shell's own ZAI_API_KEY passes through (ES-D4): %q", line)
+	}
+}
+
+// ES-D4 asks what the process ends up holding, not only what the shell exported: a value yolo
+// composed over the shell's (here a local pack's static env of the same name) means the
+// shell's value does NOT pass through, so the line must not say it does.
+func TestHostEnvShellValueComposedOverIsNotDisclosedAsPassingThrough(t *testing.T) {
+	home := hostGateHome(t, esGrantConfig, map[string]string{"ZAI_API_KEY": "tok-shell"})
+	dir := filepath.Join(home, ".config", "yolo-jail", "local")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "pack.json"), []byte(`{"name":"local",`+
+		`"contributes":[{"kind":"env","vars":{"ZAI_API_KEY":"tok-pack"}}]}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var out, errw bytes.Buffer
+	if rc := hostMain([]string{"env", "--agent", "bash"}, &out, &errw, false, nil); rc != 0 {
+		t.Fatalf("yolo host env: rc = %d\n%s", rc, errw.String())
+	}
+	if !strings.Contains(out.String(), "export ZAI_API_KEY='tok-pack'") {
+		t.Fatalf("the fixture must compose the pack's value over the shell's:\n%s", out.String())
+	}
+	if line := scopeLine(t, errw.String(), "ZAI_API_KEY"); strings.Contains(line, "not added by yolo") {
+		t.Errorf("the shell's value is overridden, so it does not pass through: %q", line)
+	}
+}
+
+// With the grant typed, the env_sources value beats the shell's and the line is the grant's
+// ("bash only"): ES-D4 rewords only a withheld line.
+func TestHostGrantTypedProfileBeatsTheShellsValue(t *testing.T) {
+	env, errs := hostGateLaunchWith(t, esGrantConfig,
+		map[string]string{"ZAI_API_KEY": "tok-shell"}, []string{"-p", "zai"}, "bash")
+	if env["ZAI_API_KEY"] != "tok-es" {
+		t.Errorf("a typed -p delivers the env_sources value over the shell's: ZAI_API_KEY = %q",
+			env["ZAI_API_KEY"])
+	}
+	if line := scopeLine(t, errs, "ZAI_API_KEY"); !strings.HasSuffix(line, "ZAI_API_KEY (provider zai): bash only") {
+		t.Errorf("the grant is disclosed as the grant: %q", line)
+	}
 }
