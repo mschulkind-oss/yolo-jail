@@ -3,23 +3,37 @@ title: "Host-only config contributions — the gate is missing, and the jail lea
 date: 2026-09-27
 status: in-review
 tags: [packs, notch, autonomy, host, config-list, config-overlay, pi, permissions]
-summary: "A pack cannot declare a config-list entry for the host alone, because packoverlay.Collect places every list at every notch. A host-applied entry coming back into a jail through a readsHost mount is already prevented on podman and Apple Container by the OQ-CR6 render mark, and happens only on macos-user. Recommended: posture-selected lists inside the autonomy kind, where standing rulings put confinement-conditional content, plus render-mark parity on macos-user."
+summary: "A pack could not declare a config-list entry for the host alone, because packoverlay.Collect placed every list at every notch. A host-applied entry coming back into a jail through a readsHost mount was already prevented on podman and Apple Container by the OQ-CR6 render mark, and happened only on macos-user. Recommended, and built on 2026-09-27 on OQ-5's leaning: posture-selected lists inside the autonomy kind, where standing rulings put confinement-conditional content, plus render-mark parity on macos-user (unit-tested only)."
 vantage:
   status-chip: true
 ---
 
 # Host-only config contributions — the gate is missing, and the jail leak mostly is not
 
-**Status:** DESIGN, 2026-09-27. Nothing built. [OQ-5](#OQ-5) decides where the gate lives; the
-recommended build needs no new ruling. Evidence verified at `8da7840d`.
+**Status:** DESIGN, 2026-09-27 — **steps 1, 3 and 4 of [§5](#5-fastest-path-to-the-motivating-case)
+are BUILT** (`0965feeb`, `ccea898c`, `30a4d448`): posture lists, render-mark parity on
+`macos-user`, and the end-to-end test. Step 2 is the maintainer's, by hand, and is not done. One
+ruling is owed, [OQ-5](#OQ-5), whose leaning the build implements; if it amends the rulings,
+[§4.2](#42-the-first-drafts-modifier-corrected) replaces what step 1 built. Evidence verified at
+`8da7840d`; the build was made against `fa0e35c7`.
 
-> **In short.** What is missing is collection: `packoverlay.Collect` places every `config-list`
-> at every notch, so no pack can declare an entry for the host alone. The jail side needs almost
-> nothing: once yolo has written a host file, the render mark keeps it out of container jails, so
-> the only leak is on `macos-user`.
+**MEASURED** by unit tests only, each revert-checked against its production call site: the
+decode and refusals, `Collect` at both bits, the jail boot loop, `RenderHostPack` with its insert
+record, the real `yolo host apply --assert`, `yolo config render` and `yolo config ls` at both
+notches, the footprint and the notch line, and one managed home driven from the assert through
+each backend's launcher label to the boot render. **UNMEASURED:** `macos-user` parity is
+unit-tested only — no Mac has run it. No real host, no launched jail and no nested jail has run a
+posture list.
+
+> **In short.** What was missing is collection: `packoverlay.Collect` placed every `config-list`
+> at every notch, so no pack could declare an entry for the host alone. An `autonomy` posture's
+> `lists` now can. The jail side needed almost nothing: once yolo has written a host file, the
+> render mark keeps it out of container jails, and since `ccea898c` out of `macos-user` jails
+> too.
 
 **Why it matters.** A permission gate for pi (`@czottmann/pi-automode`) belongs on the host and
-only costs tokens and prompts in a jail; today a pack can add it everywhere or nowhere.
+only costs tokens and prompts in a jail; until posture lists, a pack could add it everywhere or
+nowhere.
 
 **The shape.** One gate in `Collect` on the autonomy bit its callers already pass, declared as a
 posture's `lists` in the `autonomy` kind (recommended), plus render-mark parity on `macos-user`.
@@ -34,7 +48,8 @@ posture's `lists` in the `autonomy` kind (recommended), plus render-mark parity 
 **Reads with:** [`notch-scoped-config-contributions-plan.md`](notch-scoped-config-contributions-plan.md)
 (the implementation sketch, incomplete while [OQ-5](#OQ-5) is open),
 [`config-target-resolution.md`](../reference/config-target-resolution.md#a-staged-copy-is-not-always-a-layer)
-(the render mark).
+(the render mark), and [`pack-system.md`](../reference/pack-system.md#autonomy) (posture lists as
+built).
 
 ---
 
@@ -84,7 +99,8 @@ That commit is reported, not verifiable from here; the code is consistent with i
    replaces arrays whole; [pack-system.md](../reference/pack-system.md#adding-entries-to-an-array-config-list)
    uses this exact surface and path as the kind's motivating case.
 
-No declared channel can make the entry host-only at `8da7840d`:
+No declared channel could make the entry host-only at `8da7840d` (a posture list can since
+`0965feeb`, [§4.1](#41-recommended-posture-lists-inside-autonomy)):
 
 | Channel | Why it cannot carry a host-only entry | Evidence |
 | :--- | :--- | :--- |
@@ -167,7 +183,9 @@ Every production caller already holds its notch and passes that notch's bit:
 `Collect`'s doc comment calls taking a `render.Profile` instead of one bit "a deliberate boundary
 rather than a leftover", and states that the bit's effect on the output is zero, pinned by
 `TestCollectAutonomyDoesNotChangeTheResolution`. A gate on the bit keeps the first contract and
-ends the second.
+ends the second. **As built (`0965feeb`)** the comment says the bit never changes identities or
+ownership and does select posture lists; the test pins the first half, and
+`TestCollectAutonomySelectsPostureLists` beside it pins the second.
 
 ### 3.2 The host layer is already a baseline on container backends
 
@@ -204,13 +222,15 @@ layer exists for ([`OQ-CR8`](../reference/config-target-resolution.md#oq-cr8)).
 > layer.** On the container backends those bytes are already discarded, and in a home yolo never
 > wrote they are the user's own ([§6](#6-alternatives-considered), F).
 >
-> **`macos-user` is the one backend where the leak is real.** `macosuser.hostLayerWire` marshals
-> a bare `packload.HostLayerReport` with no `Rendered`, and `(*Options).buildMacosCtxTree` never
-> calls `hostLayerIsRender`, so a managed home's host file composes as a layer there
-> ([gap 1](../reference/config-target-resolution.md#where-this-does-not-reach)). A host-applied
-> automode entry would reach a `macos-user` jail. The fix is parity with the container path
-> ([§4.3](#43-render-mark-parity-on-macos-user)), not a sanitizer. The same section's gap 2
-> also stands: no test drives one managed home through the label and the boot read together.
+> **`macos-user` was the one backend where the leak was real, until `ccea898c`.**
+> `macosuser.hostLayerWire` marshalled a bare `packload.HostLayerReport` with no `Rendered`, and
+> `(*Options).buildMacosCtxTree` never called `hostLayerIsRender`, so a managed home's host file
+> composed as a layer there
+> ([gap 1](../reference/config-target-resolution.md#where-this-does-not-reach)), and a
+> host-applied automode entry would have reached a `macos-user` jail. The fix was parity with the
+> container path ([§4.3](#43-render-mark-parity-on-macos-user)), not a sanitizer. The same
+> section's gap 2 — no test drove one managed home through the label and the boot read
+> together — is closed below a real launch by `30a4d448`.
 
 `ReconcileInsertedList` also withdraws: an entry yolo inserted and no longer contributes is removed
 from the host file on the next assert, and an identical entry the user already had is left
@@ -235,10 +255,12 @@ to [§4.6](#46-what-done-looks-like) hold for both.
 ### 4.1 Recommended: posture lists inside `autonomy`
 
 > [!NOTE]
-> **Recommendation (review, 2026-09-27), pending [OQ-5](#OQ-5).** The first draft proposed
+> **Recommendation (review, 2026-09-27), pending [OQ-5](#OQ-5). BUILT on that leaning in
+> `0965feeb`.** The first draft proposed
 > [§4.2](#42-the-first-drafts-modifier-corrected) and rejected this shape on two facts that do not
 > hold ([§6](#6-alternatives-considered), C). This is the shape the standing rulings already
-> prescribe.
+> prescribe. The mechanism choices the build made are NS-D4 to NS-D8 in the
+> [ledger](#10-decision-ledger).
 
 ```json
 {
@@ -271,9 +293,10 @@ to [§4.6](#46-what-done-looks-like) hold for both.
   `TestCollectAutonomyDoesNotChangeTheResolution` are rewritten to say so; the test keeps
   pinning identities.
 - **Disclosure.** `yolo pack footprint` claims the list unconditionally and names the posture in
-  the detail (the `profile` modifier's precedent in `footprint.go`). `yolo host apply`'s notch
-  line counts a posture list as a fold (`surveyNotchFacts.AutonomyFolds`), so it never says
-  "nothing folds" for a pack whose guarded posture is lists only.
+  the detail (the `profile` modifier's precedent in `footprint.go`) — as built, on the pack's
+  `autonomy` claim, e.g. `guarded appends 1 entry: "npm:…" to pi/settings#/packages` (NS-D4).
+  `yolo host apply`'s notch line counts a posture list as a fold (`surveyNotchFacts.AutonomyFolds`),
+  so it never says "nothing folds" for a pack whose guarded posture is lists only.
 - **Inspection.** `yolo config ls` and `yolo config render` follow with no change: each already
   passes `render.ProfileFor(t.notch).AgentAutonomy`, so `--at host` and `--at jail` differ.
 - **No collision.** `autonomy`'s "never collides across packs" survives, because a list only
@@ -312,7 +335,12 @@ compute `Rendered` in `(*Options).buildMacosCtxTree` with the same `hostLayerIsR
 on `macosuser.HostContext`, and have `macosuser.hostLayerWire` marshal `entrypoint.HostLayerWire`
 (`internal/macosuser` already imports `internal/entrypoint`, so there is no cycle). This closes
 gap 1 for every `readsHost` surface on that backend, not just this entry, and it keeps the
-jail's reading identical to the container path's.
+jail's reading identical to the container path's. **BUILT in `ccea898c`, exactly so.** It is
+unit-tested only: `TestMacosUserLaunchLabelsAHostFileYoloHasRendered` drives a real `Run()` of
+the `macos-user` arm, and `TestHostLayerReportCarriesTheRenderLabel` reads the plan's wire back
+through the boot's reader. No Mac has run it. The same commit hides the machine's host-render
+mark in `TestMacosUserDeliversHostBytesByCopy` (NS-D9), which the label would otherwise turn red on
+the self-hosted Mac.
 
 ### 4.4 Behavior at each target, and the degenerate cases
 
@@ -348,26 +376,35 @@ jail's reading identical to the container path's.
 | Host apply | `host_management: none` | Refused, nothing written | The refusal names the key |
 | Host apply | The `assert` retirement lands ([§3.3](#33-a-pending-change-to-the-default)) | Unset becomes `none`; only `own` writes | The done conditions name `own` |
 | Host apply | Only ever a dry run | Nothing written and no mark; the host file holds only the user's own entries, so the jail composing it as a layer adds nothing yolo put there | — |
-| `macos-user` boot | No label ([§4.3](#43-render-mark-parity-on-macos-user) unbuilt) | The host file composes as a layer; an asserted entry reaches the jail | Nobody until parity |
+| `macos-user` boot | Host yolo older than [§4.3](#43-render-mark-parity-on-macos-user) (`ccea898c`); the label is computed host-side, by the launcher | The host file composes as a layer; an asserted entry reaches the jail | Nobody; `just install` ends it |
 | First host pi start | The `npm:` package is not installed | pi installs a missing package at resolve time (read from pi 0.87.1's source by the review, not run) | — |
 | Host pi, any tool call | No classifier model configured | pi-automode blocks the action until `/automode model` is set (its README, as reported) | The user, at the first tool call |
 | Host pi | The package's own skill (`automode-diagnostics`, as reported) | Loads with the package, so it is host-only too | — |
 
 ### 4.6 What done looks like
 
-1. `yolo host apply` lists `pi/settings` with a list entry attributed to the contributing pack;
-   `yolo host apply --assert` writes it into `~/.pi/agent/settings.json` and into the insert
-   record — under an unset or `assert` `host_management` today, and under `own` after the
-   retirement.
-2. A fresh podman or Apple Container jail's `~/.pi/agent/settings.json` lacks the entry, and so
-   does a `macos-user` jail once [§4.3](#43-render-mark-parity-on-macos-user) lands.
-3. `yolo config ls pi --at host` shows the entry and `--at jail` does not; `yolo config render`
-   agrees.
-4. `yolo pack footprint` names the posture in the autonomy claim, and `yolo host apply`'s notch
-   line reports a fold.
-5. One test drives a managed home through the launcher's label and the boot read (gap 2).
-6. Each test fails when its production call site is deleted: the gate in `Collect`, the boot's
-   and the host apply's calls, and the `macos-user` label.
+Each item's state as of `30a4d448`: ✅ built and unit-tested, ⏳ not run anywhere real.
+
+1. ✅ `yolo host apply` lists `pi/settings` with a list entry attributed to the contributing
+   pack; `yolo host apply --assert` writes it into `~/.pi/agent/settings.json` and into the
+   insert record — under an unset or `assert` `host_management` today, and under `own` after the
+   retirement (`TestHostApplyAssertWritesAGuardedPostureList`,
+   `TestHostApplyInsertsOnlyTheGuardedPostureList`). ⏳ No real host has run it.
+2. ✅ A jail's `~/.pi/agent/settings.json` lacks the entry on every backend, `macos-user`
+   included (`TestJailBootRendersOnlyTheAutonomousPostureList`, and through the host file
+   `TestAManagedHomesHostFileIsABaselineFromTheAssertToTheBoot`). ⏳ No launched jail has
+   shown it.
+3. ✅ `yolo config ls --at host` shows the entry and `--at jail` does not; `yolo config render`
+   agrees (`TestConfigRenderAndLsFollowAPostureListsNotch`). The first draft wrote
+   `yolo config ls pi`; `ls` takes no agent.
+4. ✅ `yolo pack footprint` names the posture in the autonomy claim, and `yolo host apply`'s
+   notch line reports a fold (`TestFootprintNamesAPostureListUnderItsPosture`,
+   `TestHostApplyNotchLineCountsAPostureListAsAFold`).
+5. ✅ One test drives a managed home through the launcher's label and the boot read (gap 2),
+   below a real launch: the container runtime's bind is the one step it copies by hand.
+6. ✅ Each test fails when its production call site is deleted: the gate in `Collect`, the
+   boot's and the host apply's calls, `config render` and `config ls`, and the `macos-user`
+   label — each revert-checked.
 
 ---
 
@@ -376,14 +413,18 @@ jail's reading identical to the container path's.
 **Goal:** pi-automode loads in host pi (through `yolo host apply`, IDE and direct launches
 included) and in no jail.
 
-1. **Posture lists (code; needs no new ruling).** Build [§4.1](#41-recommended-posture-lists-inside-autonomy):
+1. **Posture lists (code; needs no new ruling). ✅ BUILT, `0965feeb`.** Build [§4.1](#41-recommended-posture-lists-inside-autonomy):
    the `lists` field, its validation, the gate in `Collect`, the rewritten inertness contract,
    footprint and the notch line, with tests for decode, `Collect` at both bits, the jail boot,
    `RenderHostPack` with its insert record, and `config ls`/`render` at both notches. Then the
    docs, `just check-ci` and the nested-jail check. It is what [PV-OQ-1](../reference/providers.md#pv-oq-1)
    and [OQ-11](yolo-as-environment-manager.md#9-decision-ledger) already prescribe;
    [OQ-5](#OQ-5) only asks whether to depart from them. The review's estimate: 60–80 lines of
-   production Go, 200–250 of tests, half a day to a day.
+   production Go, 200–250 of tests, half a day to a day. **As built:** every listed test, plus
+   the real `yolo host apply --assert`, the malformed and ownerless cases at both bits, and
+   declaration order; `just check-ci` green at each commit. The nested-jail check was not run
+   (the build ran under a no-nested-jail constraint), so no launched jail has rendered a posture
+   list.
 2. **The host, by hand (no ruling; about 15 minutes).**
    1. `just install`, so the host yolo and the flake bundle both know the field.
    2. Add the [§4.1](#41-recommended-posture-lists-inside-autonomy) contribution to the `matt`
@@ -395,10 +436,14 @@ included) and in no jail.
 
    On a podman or Apple Container host that finishes the job, because the mark keeps the host
    file out of jails from the first assert on.
-3. **`macos-user` parity (code; no ruling; the review's estimate is 1–2 hours).**
-   [§4.3](#43-render-mark-parity-on-macos-user). Needed only on that backend, and without it a
-   `macos-user` jail gets automode.
-4. **The end-to-end test (code; no ruling; 2–3 hours).** Gap 2.
+3. **`macos-user` parity (code; no ruling; the review's estimate is 1–2 hours). ✅ BUILT,
+   `ccea898c`; unit-tested only.** [§4.3](#43-render-mark-parity-on-macos-user). Needed only on
+   that backend, and without it a `macos-user` jail gets automode. A Mac with a host yolo from
+   this commit or later is what makes it true there.
+4. **The end-to-end test (code; no ruling; 2–3 hours). ✅ BUILT, `30a4d448`.** Gap 2, as an
+   in-process chain of the production steps (NS-D10):
+   `TestAManagedHomesHostFileIsABaselineFromTheAssertToTheBoot` and its unmanaged twin, for the
+   container launcher and the `macos-user` one.
 
 **What gates what.** Nothing gates steps 1–4 unless [OQ-5](#OQ-5) amends the rulings for the
 modifier, in which case step 1 builds [§4.2](#42-the-first-drafts-modifier-corrected) instead:
@@ -433,9 +478,9 @@ it leaks on `macos-user`, and it depends on the mark outliving the `assert` reti
 | Risk | Impact | Mitigation |
 | :--- | :--- | :--- |
 | **Skew widens a conditional entry** | With the modifier, an older entrypoint renders the list in every jail | The posture shape fails closed; either way, `just install` before the pack change (the host refuses the reverse order) |
-| **`macos-user` leaks until parity** | automode reaches those jails after an assert | [§4.3](#43-render-mark-parity-on-macos-user), step 3 of [§5](#5-fastest-path-to-the-motivating-case) |
+| **`macos-user` leaks until parity** | automode reaches those jails after an assert | [§4.3](#43-render-mark-parity-on-macos-user), step 3 of [§5](#5-fastest-path-to-the-motivating-case) — built in `ccea898c`; a host yolo older than it still leaks |
 | **The `assert` retirement moves the default to `none`** | An unset home stops receiving the entry | Done conditions name `own`; the mark is durable |
-| **The inertness test goes red** | A reviewer reads the pinned contract as broken | Rewrite it to pin identities and ownership only, and add a test that fails when the gate is deleted |
+| **The inertness test goes red** | A reviewer reads the pinned contract as broken | Rewrite it to pin identities and ownership only, and add a test that fails when the gate is deleted — done in `0965feeb` (`TestCollectAutonomySelectsPostureLists`) |
 | **A user's own identical entry** | Removed by yolo? | Never: `ReconcileInsertedList` leaves an unrecorded entry alone (the sanitizer, F, would have stripped it) |
 | **A custom confinement with prompts on** ([env-manager §4.2](yolo-as-environment-manager.md#42-agent-autonomy-is-a-confinement-policy-not-baked-pack-config)) | Should get the gate | The posture shape gives it one; a notch-name match would not |
 
@@ -497,9 +542,16 @@ answer; `NS` is this file's name, notch-scoped.
 
 | ID | Ruling / Decision | Date | Settled in | Built |
 | :--- | :--- | :--- | :--- | :--- |
-| OQ-1 | *Implementation decision*, under [§6c](../reference/pack-system.md#batch-6c) and [PV-OQ-1](../reference/providers.md#pv-oq-1). **The selector is the posture, not a notch name**, in one spelling (no `notch`/`notches` pair). `Collect` already receives the bit at every caller; a name would add a notch-name edge and a `packdecl`→`render` import cycle; at `KindUnset` the posture keeps a permission gate in where a `"host"` match drops it; and a custom confinement with prompts on gets the gate. Today posture and notch give the same answer at every shipped notch | 2026-09-27 | [§4.1](#41-recommended-posture-lists-inside-autonomy) | — |
-| OQ-2 | *Answered — moot.* Filtering host-only entries out of a `readsHost` layer: the render mark already delivers a managed home's host file as a baseline, not a layer, on podman and Apple Container. The residual `macos-user` leak is NS-D3. The sanitizer and the host-record mount are rejected ([§6](#6-alternatives-considered), D and F) | 2026-09-27 | [§3.2](#32-the-host-layer-is-already-a-baseline-on-container-backends) | ✅ `369c6f63` (containers) |
-| OQ-4 | *Answered — moot; the rest is NS-D1 and NS-D2.* `yolo config ls` and `yolo config render` already pass `render.ProfileFor(t.notch).AgentAutonomy`, so `--at host` and `--at jail` follow the gate with no change | 2026-09-27 | [§4.1](#41-recommended-posture-lists-inside-autonomy) | — |
-| NS-D1 | *Implementation decision.* The gate sits after the list decode and before the owner check; an unselected contribution is a clean skip (no problem, no orphan, no applied row), as the `profile` gate is | 2026-09-27 | [§4.1](#41-recommended-posture-lists-inside-autonomy) | — |
-| NS-D2 | *Implementation decision.* `yolo pack footprint` claims a gated list unconditionally and names the posture in the detail; `surveyNotchFacts.AutonomyFolds` counts posture lists | 2026-09-27 | [§4.1](#41-recommended-posture-lists-inside-autonomy) | — |
-| NS-D3 | *Implementation decision*, under [`OQ-CR6`](../reference/config-target-resolution.md#oq-cr6). `macos-user` computes `Rendered` with `hostLayerIsRender` in `buildMacosCtxTree` and emits `entrypoint.HostLayerWire` from `macosuser.hostLayerWire` | 2026-09-27 | [§4.3](#43-render-mark-parity-on-macos-user) | — |
+| OQ-1 | *Implementation decision*, under [§6c](../reference/pack-system.md#batch-6c) and [PV-OQ-1](../reference/providers.md#pv-oq-1). **The selector is the posture, not a notch name**, in one spelling (no `notch`/`notches` pair). `Collect` already receives the bit at every caller; a name would add a notch-name edge and a `packdecl`→`render` import cycle; at `KindUnset` the posture keeps a permission gate in where a `"host"` match drops it; and a custom confinement with prompts on gets the gate. Today posture and notch give the same answer at every shipped notch | 2026-09-27 | [§4.1](#41-recommended-posture-lists-inside-autonomy) | ✅ `0965feeb` |
+| OQ-2 | *Answered — moot.* Filtering host-only entries out of a `readsHost` layer: the render mark already delivers a managed home's host file as a baseline, not a layer, on podman and Apple Container. The residual `macos-user` leak is NS-D3. The sanitizer and the host-record mount are rejected ([§6](#6-alternatives-considered), D and F) | 2026-09-27 | [§3.2](#32-the-host-layer-is-already-a-baseline-on-container-backends) | ✅ `369c6f63` (containers); `macos-user` by NS-D3 |
+| OQ-4 | *Answered — moot; the rest is NS-D1 and NS-D2.* `yolo config ls` and `yolo config render` already pass `render.ProfileFor(t.notch).AgentAutonomy`, so `--at host` and `--at jail` follow the gate with no change | 2026-09-27 | [§4.1](#41-recommended-posture-lists-inside-autonomy) | ✅ `0965feeb`, pinned by `TestConfigRenderAndLsFollowAPostureListsNotch` with no change to either verb |
+| NS-D1 | *Implementation decision.* The gate sits after the list decode and before the owner check; an unselected contribution is a clean skip (no problem, no orphan, no applied row), as the `profile` gate is | 2026-09-27 | [§4.1](#41-recommended-posture-lists-inside-autonomy) | ✅ `0965feeb` |
+| NS-D2 | *Implementation decision.* `yolo pack footprint` claims a gated list unconditionally and names the posture in the detail; `surveyNotchFacts.AutonomyFolds` counts posture lists | 2026-09-27 | [§4.1](#41-recommended-posture-lists-inside-autonomy) | ✅ `0965feeb`; the claim is the `autonomy` one (NS-D4) |
+| NS-D3 | *Implementation decision*, under [`OQ-CR6`](../reference/config-target-resolution.md#oq-cr6). `macos-user` computes `Rendered` with `hostLayerIsRender` in `buildMacosCtxTree` and emits `entrypoint.HostLayerWire` from `macosuser.hostLayerWire` | 2026-09-27 | [§4.3](#43-render-mark-parity-on-macos-user) | ✅ `ccea898c`, unit-tested only |
+| NS-D4 | *Implementation decision.* A posture list is disclosed on its pack's `autonomy` footprint claim, not as a `config-list` claim: `<posture> appends <entries> to <agent/name>#<pointer>`, the entries spelled as the config-list claim spells them (`configListShown`, shared). A claim leads with the kind the author wrote, as an orphan and a problem do (NS-D7); a `config-list` claim would name a declaration the pack does not make | 2026-09-27 | [§4.1](#41-recommended-posture-lists-inside-autonomy) | ✅ `0965feeb` |
+| NS-D5 | *Implementation decision.* One projection, `packdecl.(*Manifest).ListContributions`, walks `config-list` contributions and posture lists in declaration order — a posture's lists at the `autonomy` contribution's position, autonomous before guarded — each tagged with its `Posture`; `ConfigListContributions` stays the kind's own projection. Only the first `autonomy` contribution counts, the one `PostureFor` reads, so a posture's config, flags and lists come from one declaration | 2026-09-27 | [§4.1](#41-recommended-posture-lists-inside-autonomy) | ✅ `0965feeb` |
+| NS-D6 | *Implementation decision.* Validation shares `configListBodyProblems` with the `config-list` kind; a posture list's messages name "a posture list (a config-list body)" and its position (`contributes[i].guarded.lists[j]`). The surface identity is the collector's to parse, as it is for a `config-list` | 2026-09-27 | [§4.1](#41-recommended-posture-lists-inside-autonomy) | ✅ `0965feeb` |
+| NS-D7 | *Implementation decision.* A malformed posture list's problem leads with `autonomy <posture>.lists`, which `collectProblemKind` reads as `autonomy`; an ownerless selected one is an orphan whose kind is `autonomy`, and its core-owned sentence says "a posture list" | 2026-09-27 | [§4.1](#41-recommended-posture-lists-inside-autonomy) | ✅ `0965feeb` |
+| NS-D8 | *Implementation decision.* Once placed, a posture list is an `agentcfg.ListContribution` from its pack, indistinguishable from a `config-list`: the same fold, per-entry capture, `rmw` insert record and `config-list:<pack>` source label in `config render --explain` and `config ls`. The kind is named where an author reads the declaration (NS-D4, NS-D7), not in the fold, which keys on the pack | 2026-09-27 | [§4.1](#41-recommended-posture-lists-inside-autonomy) | ✅ `0965feeb` |
+| NS-D9 | *Implementation decision.* `TestMacosUserDeliversHostBytesByCopy` hides the machine's host-render mark (`privateHostProvenance`), as `TestAppleContainerReadsHostGrantArrives` already does: with the label on `macos-user`, the self-hosted Mac's own mark would drop the test's hand-written settings file for a reason that is not the one it measures | 2026-09-27 | [§4.3](#43-render-mark-parity-on-macos-user) | ✅ `ccea898c` |
+| NS-D10 | *Implementation decision.* Gap 2's test is an in-process chain in `internal/cli/run` — `RenderHostPack` at `assert` over a host-posture `Collect`, each backend's launcher, then `ConfigurePackSurfaces` with that launcher's wire — rather than an integration test. The integration harness links the machine's yolo state dir into every isolated home (`packHomeSharedStores`), so a real `yolo host apply --assert` there writes host-render state into the machine's own store. The container runtime's bind is the one step the test copies by hand | 2026-09-27 | [§5](#5-fastest-path-to-the-motivating-case) | ✅ `30a4d448` |

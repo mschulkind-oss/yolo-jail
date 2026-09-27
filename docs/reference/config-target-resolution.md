@@ -10,6 +10,8 @@ covers:
   - internal/cli/configprovenance.go
   - internal/cli/configrunningjail.go
   - internal/cli/run/packhostgrants.go
+  - internal/cli/run/macosctxtree.go
+  - internal/macosuser/runplan.go
   - internal/entrypoint/hostlayerlabel.go
 tags: [config, cli, notch, workspace, capture, disclosure]
 summary: "One resolved config target per `yolo config` invocation — notch, workspace, capture store, home root, may-write and chosen-by — disclosed on stderr by every verb and selectable with `--at`; the workspace marker that decides it; the four store states and three surface reaches that keep an unknown from reading as an empty; the fifth `YOLO_HOST_LAYERS` disposition that delivers yolo's own render as a baseline rather than a layer, keyed on the provenance mark and not on the posture; and the host-side jail-notch `reset` with its tri-state liveness refusal. ⚠ One PENDING amendment, ruled 2026-09-20 and NOT built: `host_management` retires `assert`, leaving `none` — the new unset answer — and `own`."
@@ -17,17 +19,20 @@ summary: "One resolved config target per `yolo config` invocation — notch, wor
 
 # The config target — which home a `yolo config` verb is about
 
-**Status:** CURRENT as of 2026-09-18, verified against `434b2c2e`.
+**Status:** CURRENT as of 2026-09-18, verified against `434b2c2e`. The `macos-user` label and
+the end-to-end test of the fifth disposition were added on 2026-09-27, in the change that builds
+them, and no later commit has verified those passages.
 
 **MEASURED:** the resolution and its disclosure, the marker and the unknown states, the
 presence answer, `--at`, the preview's host layer in every disposition, and the host-side
 jail-notch `reset` in all three liveness answers — by unit tests in `internal/cli`, plus
 `TestHostFilesConfigLsAndReset` and `TestConfigTargetResolvesFromTheCwd` in `integration`
-against a real jail.
+against a real jail. The fifth host-layer disposition end to end, by one unit test that drives
+a managed home through a host assert, each backend's launcher label and the boot render
+(`TestAManagedHomesHostFileIsABaselineFromTheAssertToTheBoot`, `internal/cli/run`).
 
-**UNMEASURED:** the fifth host-layer disposition end to end through a real launch of a
-*managed* home. The launcher's label and the boot render's reading of it are each pinned by
-unit tests, and nothing drives one home through both. See
+**UNMEASURED:** the fifth disposition through a *real launch*: no test has a container runtime
+bind a managed home's file, and no Mac has run the `macos-user` label. See
 [Where this does not reach](#where-this-does-not-reach).
 
 > [!IMPORTANT]
@@ -60,7 +65,8 @@ and `reset` could disagree about which store they meant, and nothing on screen n
 | `ls`, and the per-key provenance block it inherited from `diff` | `internal/cli` (`configls.go`, `configprovenance.go`) |
 | The running-jail condition on a host-side write | `internal/cli` (`configrunningjail.go`: `jailLiveness`, `workspaceJailLiveness`, `refuseWhileJailRuns`, the `jailLivenessProbe` seam) |
 | The fifth host-layer disposition: the wire, the reader's entry points, the mark | `internal/entrypoint` (`hostlayerlabel.go`: `HostLayerRender`, `HostLayerWire`, `DispositionFor`, `StagedHostLayer`, `HostSurfaceRendered`) |
-| The launcher half that computes the label | `internal/cli/run` (`packhostgrants.go`: `hostLayerIsRender`, `hostLayerEnv`) |
+| The launcher half that computes the label | `internal/cli/run` (`packhostgrants.go`: `hostLayerIsRender`, `hostLayerEnv`; `macosctxtree.go`: `buildMacosCtxTree` for `macos-user`) |
+| The `macos-user` plan's copy of the wire | `internal/macosuser` (`runplan.go`: `HostContext.Rendered`, `hostLayerWire`) |
 | The in-jail reader that consults it before the file read | `internal/entrypoint` (`packsurfaces.go`: `hostSurfaceBytes`) |
 
 **Terms.** A **notch** is the confinement level an operation acts at — `jail`, `guest` or
@@ -372,6 +378,13 @@ destinations. The embedding is load-bearing — an anonymous struct field is inl
 `encoding/json`, so the wire stays the flat object the existing reader already parses, and a
 half that knows only the four fields sees exactly what it saw before.
 
+**Every backend emits it, from one predicate.** The container launcher asks `hostLayerIsRender`
+for each grant it binds (`hostFileArgs`) and emits the wire from `hostLayerEnv`. `macos-user`
+asks the same function for each grant it copies into the context tree (`buildMacosCtxTree`),
+carries the answer on `macosuser.HostContext.Rendered`, and its plan builder marshals the same
+`HostLayerWire` (`macosuser.hostLayerWire`). One predicate is what keeps one home a baseline in
+a container and a baseline in a sandbox, rather than a baseline in one and a layer in the other.
+
 Two ordering rules the mechanism rests on:
 
 - **The label is checked before the file is read.** A labelled path is delivered *and*
@@ -439,22 +452,27 @@ and the reset was a no-op on the surface class most likely to have one.
 
 ## Where this does not reach
 
-Three gaps, all live at the stamped commit. None is hypothetical and none is a plan.
+One gap is live. The first two this section listed were closed on 2026-09-27 and keep their
+numbers, because other documents cite them by number.
 
-**1. `macos-user` never labels a host layer, so a managed home's host file still composes as a
-layer there.** That backend builds its own report in its own plan builder
-(`internal/macosuser`, `hostLayerWire`), constructing the four-field
-`packload.HostLayerReport` directly; nothing in that package references the wire type, the
-label constant or the mark. The container launcher is the only producer that computes the
-label. The gap is reachable rather than theoretical: the darwin bootstrap calls the same
-surface configuration the container boot does, so the identical reader runs — finds the path
-delivered and unlabelled, reads it, and composes it as a layer. **The one thing pinned today is
-compatibility, not coverage:** the tests and comments that mention that plan builder establish
-only that adding the fifth disposition cannot break a reader that knows four.
+**1. Closed: `macos-user` labels a host layer yolo rendered.** It used to build a bare
+four-field report, so a managed home's host file composed into the sandbox as a layer — the
+one backend on which a host-only entry `yolo host apply` wrote reached a jail. It now computes
+the label with the container launcher's own predicate and emits the same wire
+([How it travels](#how-it-travels);
+[NS-D3](../design/notch-scoped-config-contributions.md#10-decision-ledger)). Pinned by
+`TestMacosUserLaunchLabelsAHostFileYoloHasRendered`, through a real `Run()` of that arm, and by
+`TestHostLayerReportCarriesTheRenderLabel`, which reads the plan's wire back through the boot's
+own reader. No Mac has run it.
 
-**2. The fifth disposition is unmeasured end to end.** The launcher's label and the boot
-render's reading of it are each pinned by unit tests; no test drives one managed home through
-both halves in a real launch.
+**2. Closed below a real launch: one managed home through both halves.**
+`TestAManagedHomesHostFileIsABaselineFromTheAssertToTheBoot` (`internal/cli/run`) runs a host
+render at `assert`, then each backend's launcher, then the boot render, over one home, with
+nothing hand-written between them, and its twin does the same for a home yolo never rendered
+into. Each half's own unit test writes the other half by hand. This one fails when either
+launcher's label, the provenance mark or the boot's label check is removed. What it cannot
+reach is the container runtime's bind of the file, so a real launch of a managed home is still
+unmeasured.
 
 **3. `yolo apply --sealed` keeps the bare-working-directory walk, and `--at` is parsed twice.**
 `applySealed` calls the pre-target spellings — `workspaceRoot`, which falls back to the bare

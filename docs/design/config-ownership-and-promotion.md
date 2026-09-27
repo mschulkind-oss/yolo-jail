@@ -735,6 +735,11 @@ question about a file with two owners**, which is the shape of the fragility the
 > before quoting it as a user-visible defect. The sibling doc reaches the same hazard from the
 > migration side and leaves it live work
 > ([there](../reference/config-target-resolution.md#does-the-renderbaseline-disposition-become-dead)).
+> **Reproduced below a live home on 2026-09-27:**
+> `TestAManagedHomesHostFileIsABaselineFromTheAssertToTheBoot` (`internal/cli/run`) renders at
+> `assert` into a home whose pi settings already hold one package of the user's, and the jail
+> boot then composes neither that package nor yolo's entry, through either backend's launcher.
+> The container runtime's bind is the one step it copies by hand.
 
 **Three things the ruling deletes outright**, each measured rather than inferred:
 

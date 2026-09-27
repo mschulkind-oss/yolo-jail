@@ -1,7 +1,13 @@
 # Host-only config contributions — implementation sketch
 
 **Status:** SKETCH, 2026-09-27 — incomplete, and unstable while [OQ-5](notch-scoped-config-contributions.md#OQ-5)
-is open. Evidence verified at `8da7840d`.
+is open. Evidence verified at `8da7840d`. **[§2](#2-step-1--posture-lists) (rows 1–7), row 8
+and [§4](#4-the-end-to-end-test-of-the-fifth-disposition) were BUILT on 2026-09-27** on
+[OQ-5](notch-scoped-config-contributions.md#OQ-5)'s leaning (`0965feeb`, `ccea898c`,
+`30a4d448`); the design's [ledger](notch-scoped-config-contributions.md#10-decision-ledger)
+records the mechanism choices as NS-D4 to NS-D10.
+[§3](#3-only-if-the-rulings-are-amended--the-posture-modifier) stays blocked on
+[OQ-5](notch-scoped-config-contributions.md#OQ-5).
 
 > **Precedence.** This is the implementation sketch beside
 > [`notch-scoped-config-contributions.md`](notch-scoped-config-contributions.md). The design wins on
@@ -47,8 +53,12 @@ Rests on [OQ-5](notch-scoped-config-contributions.md#OQ-5)'s leaning. If [OQ-5](
   ([config-list-order](../reference/pack-system.md#config-list-order)); a posture's lists stand at
   the `autonomy` contribution's position in `contributes`. Check that the existing
   `ConfigListContributions()` walk can keep that order, or walk `Contributions()` instead.
+  *Answered in the build:* it cannot, so a new `ListContributions()` walks `Contributions()`
+  (NS-D5).
 - **`OrphanOverlay.Reason`** prints `kindName`, the kind as written, so an `autonomy`-kind orphan
   needs no new branch; check that the core-owned sentence still reads right with `autonomy` in it.
+  *Answered in the build:* it did not ("autonomy contributes to a surface a pack owns" is false of
+  the kind's own config patch), so that sentence says "a posture list" (NS-D7).
 - **Tolerant decode.** `DecodeTolerant` uses `json.Unmarshal`, so an older entrypoint drops the
   nested `lists` field silently. That is the intended fail-closed behavior; nothing to add.
 
@@ -109,6 +119,7 @@ Every test here must fail when its production call site is deleted (AGENTS.md, T
   `yolo check`'s dry-run probe (`internal/cli/check/entrypoint.go`), not only a test helper.
 - **`Collect`'s doc comment names `configdiff.go` as a caller.** At `8da7840d` it is not one; the
   callers are the six in [§1](#1-codebase-map). Fix the comment while rewriting it (row 4).
+  *Fixed in `0965feeb`:* the comment now names the six.
 - **Run the in-jail suite with the jail's variables unset** (`YOLO_VERSION`, `YOLO_HOST_LAYERS`);
   both skew `go test` in here.
 - **`git add` before any nested-jail verification**: the nested image build sees tracked files only.

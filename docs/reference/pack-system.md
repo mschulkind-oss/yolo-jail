@@ -61,7 +61,12 @@ drive the apply into throwaway homes (`applyhostprune_test.go`, `applyhostoverla
 [S4 warning](#skills-fanout-s4) and the [host-side dependency rule](#host-side-staging-then-jail-side-render)
 were folded in on 2026-09-26 and verified against `38814ba4`. MEASURED for the *pack batch*
 rows: each defect they record was found by running the host lifecycle (apply, re-apply, drop)
-with a real binary in a temporary home, on 2026-08-04.
+with a real binary in a temporary home, on 2026-08-04. The [`autonomy` section](#autonomy) and
+the posture-list lines of the [`config-list` section](#adding-entries-to-an-array-config-list)
+were written on 2026-09-27 in the change that builds posture lists, and no later commit has
+verified them. MEASURED by unit tests that run the real verbs in temporary homes (`yolo host
+apply --assert`, `yolo config render` and `ls` at both notches, the jail boot loop).
+UNMEASURED: no launched jail and no real host has run a posture list.
 
 A **pack** is a directory of jail configuration — skills, briefing prose, composed config
 files, environment variables, and optionally a tool to install — that yolo delivers into
@@ -1247,6 +1252,66 @@ relative to each other is what carries the meaning. They share one bind-mount an
 `~/.yolo/bin`, so both are cleared contents-only. **Nothing may put that shared parent on
 PATH**, or a launcher would be reachable from the blockers' position.
 
+#### `autonomy`
+
+A pack's two permission **postures**: `autonomous` (permission prompts bypassed) and
+`guarded` (prompts on). The notch's confinement profile picks one through its
+`AgentAutonomy` bit (`render.ProfileFor`): autonomous at `jail`, `guest` and preview, guarded
+at `host` and at an unset target. No manifest names a notch ([§6c](#batch-6c)). Either
+posture may be absent. A posture has three halves, and each reaches a different distance:
+
+| Half | What it does | Which surfaces |
+| :--- | :--- | :--- |
+| `config` | Keys folded into a surface's `managed` layer (`packload.foldPostureManaged`) | The declaring pack's own. A patch naming another pack's surface folds nowhere and is reported as a note, never refused |
+| `launch` | Flags for one binary. A posture is the only place a launch flag can be declared | — |
+| `lists` | **Posture lists**: `config-list` bodies appended only while this posture is selected | Any selected pack's, through the [`config-list`](#adding-entries-to-an-array-config-list) path |
+
+A **posture list** *(a term coined by
+[the design](../design/notch-scoped-config-contributions.md#41-recommended-posture-lists-inside-autonomy))*
+is how a pack declares an entry for one side of the confinement line. The motivating case is
+a permission gate for pi that belongs on the host and would only cost tokens and prompts in a
+jail:
+
+```json
+{
+  "kind": "autonomy",
+  "guarded": {
+    "lists": [
+      {"surface": "pi/settings", "path": "/packages",
+       "add": ["npm:@czottmann/pi-automode@1.17.0"]}
+    ]
+  }
+}
+```
+
+- **Validation.** Each entry takes `surface`, `path` and `add` under `config-list`'s rules
+  (`postureListProblems`, which shares `configListBodyProblems` with the kind). A posture
+  holding only `lists` is valid. The host's strict decoder refuses an unknown field.
+- **Collection.** `packoverlay.Collect` decodes both postures' lists at every notch, so a
+  malformed entry is reported wherever it would or would not render. It then skips the posture
+  the notch does not select: no problem, no orphan, no applied line. A selected posture list
+  whose surface has no owner is inert and reported, led by `autonomy`. Order is the
+  [config-list order](#config-list-order), with a posture's lists at the `autonomy`
+  contribution's position.
+- **Rendering.** Once placed, a posture list is a list contribution from its pack: the same
+  fold, the same per-entry capture, the same `rmw` insert record and the same `config-list:<pack>`
+  source label.
+- **Disclosure.** `yolo pack footprint` names each posture's lists in the pack's `autonomy`
+  claim, with the posture and the `agent/name#<pointer>` target. `yolo host apply`'s notch line
+  counts a posture list as a fold. `yolo config render` and `yolo config ls` show it at
+  `--at host` and not at `--at jail`, because each passes its notch's bit.
+- **It stays out of jails through the host file too.** Once `yolo host apply --assert` has
+  written a `readsHost` surface, every backend's launcher labels the host copy a render, and
+  the jail keeps it as a baseline rather than composing it
+  ([`OQ-CR6`](config-target-resolution.md#oq-cr6)). So the host-only entry never re-enters a
+  jail as "the user's".
+- **Skew fails closed.** An entrypoint older than the field drops `lists` (`DecodeTolerant`
+  ignores an unknown nested field), so the entry renders nowhere rather than everywhere. Install
+  the host yolo before a pack uses the field, since the host refuses the manifest otherwise.
+
+`autonomy` is Exclusive per pack, and it never collides across packs: the `config` half
+patches only the pack's own surfaces, and a list only appends.
+
 #### `provider` and `profile`
 
 A `provider` declares a service's facts — endpoints by protocol, wire protocol, model
@@ -1549,6 +1614,10 @@ JSON value. The motivating case, one package added to pi's list without copying 
 - **Refused fields.** `config` and `profile` are refused on this kind, and `path` and `add` are
   refused on every other kind (`internal/packdecl`, `configListProblems`). A malformed
   declaration fails the manifest's validation, so it never reaches a launch.
+- **The same body can sit inside a posture.** An `autonomy` posture's `lists` take these three
+  fields under these rules and contribute only while the notch selects that posture — the one
+  way to make an entry host-only or jail-only ([posture lists](#autonomy)). A top-level
+  `config-list` has no gate and contributes at every notch.
 
 <a id="config-list-fold"></a>**How it folds** (`internal/agentcfg/listcontrib.go`):
 
@@ -1658,7 +1727,8 @@ would read as that one pack's list — so the per-entry account is printed separ
   that `managed` or a captured edit replaces the array, and the in-jail adds and removes recorded
   there. Its OVERLAY column counts captured list entries separately (`N list entries`).
 - `yolo pack footprint` and `yolo pack lint` show one claim per contribution, targeting
-  `agent/name#<pointer>`.
+  `agent/name#<pointer>`. A posture list is named on its pack's `autonomy` claim instead,
+  beside its posture, because a claim leads with the kind the author wrote.
 - `yolo config diff` prints one `+` or `-` line per captured list entry. Which packs contributed
   is not a captured edit, so diff does not say: `diff` reports captured divergence and nothing
   else ([`OQ-CR7`](config-target-resolution.md#oq-cr7)), and the contributor account belongs to
