@@ -500,7 +500,7 @@ func adoptPackRecords(packs []*packload.Pack) {
 	for _, p := range packs {
 		sources, _ := p.SkillsSources()
 		for _, src := range sources {
-			skills = append(skills, jailcontent.PackSkillSource{Dir: src.Dir, Agents: src.Agents})
+			skills = append(skills, jailcontent.PackSkillSource{Dir: src.Dir, Agents: src.Agents, Pack: p.Name})
 		}
 	}
 	jailcontent.SetPackSkillDirs(skills)

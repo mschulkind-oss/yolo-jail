@@ -120,11 +120,14 @@ func (o *Options) refreshJailBriefings(cname string, cfg *jsonx.OrderedMap, rt s
 	// config itself.
 	jailcontent.SetLSPServers(cfgMap(cfg, "lsp_servers"))
 
-	// Skills staging.
-	staging, err := jailcontent.PrepareSkills(cname, homeDir(), nil)
+	// Skills staging — with the WORKSPACE as the lowest layer (docs/design/workspace-skills.md),
+	// re-read from the workspace as it stands on every entry, attach included, and disclosed on
+	// every one that has something to say.
+	staging, wsSkills, err := jailcontent.PrepareSkillsWith(cname, o.workspaceSkillsFor(cfg, rt, loadedPacks))
 	if err != nil {
 		return "", err
 	}
+	o.noteWorkspaceSkills(wsSkills)
 
 	// Resource limits the backend actually IMPOSES (sorted-key rendering handled inside
 	// BriefingContent) — the same list assembleRunCmd turns into flags. Read straight
@@ -653,8 +656,11 @@ func packSkillTargets(loadedPacks []*packload.Pack) []jailcontent.SkillTarget {
 			if c.Into == "" {
 				continue
 			}
+			// ProjectDirs is the destination's SKIP RULE for the workspace layer: where its own
+			// agent already reads skills in a workspace (docs/design/workspace-skills.md §5).
 			out = append(out, jailcontent.SkillTarget{
 				Staging: jailcontent.SkillStagingName(p.Name), Dest: c.Into, Agent: c.Agent,
+				ProjectDirs: append([]string(nil), c.ProjectDirs...),
 			})
 		}
 	}

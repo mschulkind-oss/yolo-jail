@@ -80,19 +80,7 @@ func (o *Options) workspaceReadonlyMountArgs(cfg *jsonx.OrderedMap, rt string) [
 // warning); a host path that is a file or symlink is also skipped (a dir mount
 // over a non-dir aborts container creation). Directory mounts only.
 func (o *Options) venvShadowMountArgs(cfg *jsonx.OrderedMap, wsState string) []string {
-	rels := map[string]struct{}{".venv": {}, "node_modules": {}}
-	if miseVenv, ok := MiseConfigVenvPathFromDir(o.Workspace); ok && miseVenv != "" {
-		rels[miseVenv] = struct{}{}
-	}
-	for _, e := range cfgStrList(cfg, "per_side_paths") {
-		rels[e] = struct{}{}
-	}
-
-	sorted := make([]string, 0, len(rels))
-	for r := range rels {
-		sorted = append(sorted, r)
-	}
-	sort.Strings(sorted)
+	sorted := perSideShadowCandidates(cfg, o.Workspace)
 
 	out := o.pr(o.Stdout)
 	var args []string
@@ -134,6 +122,27 @@ func (o *Options) venvShadowMountArgs(cfg *jsonx.OrderedMap, wsState string) []s
 		args = append(args, "-v", backing+":/workspace/"+rel)
 	}
 	return args
+}
+
+// perSideShadowCandidates is the per-side shadow SET, sorted and unvalidated: `.venv` ∪
+// `node_modules` ∪ the mise-config venv path ∪ config per_side_paths. venvShadowMountArgs
+// validates and mounts it, warning about each entry it cannot shadow; the workspace skills
+// reader (perSideShadowRels) reads the same set, so the two cannot disagree about which host
+// paths the jail never sees.
+func perSideShadowCandidates(cfg *jsonx.OrderedMap, workspace string) []string {
+	rels := map[string]struct{}{".venv": {}, "node_modules": {}}
+	if miseVenv, ok := MiseConfigVenvPathFromDir(workspace); ok && miseVenv != "" {
+		rels[miseVenv] = struct{}{}
+	}
+	for _, e := range cfgStrList(cfg, "per_side_paths") {
+		rels[e] = struct{}{}
+	}
+	sorted := make([]string, 0, len(rels))
+	for r := range rels {
+		sorted = append(sorted, r)
+	}
+	sort.Strings(sorted)
+	return sorted
 }
 
 // --- fs helpers used by the mount builders ---

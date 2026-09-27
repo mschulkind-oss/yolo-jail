@@ -937,11 +937,12 @@ func (o *Options) packSkillSourceDirs(p *packload.Pack) []jailcontent.PackSkillS
 	for _, prob := range problems {
 		o.pr(o.Stdout).print("[yellow]Warning: " + prob + "[/yellow]")
 	}
-	// The two types are field-identical on purpose (jailcontent.PackSkillSource says why the
-	// second one exists), so the conversion is a copy and there is nothing here to get wrong.
+	// Dir and Agents are packload's own fields on purpose (jailcontent.PackSkillSource says why
+	// the second type exists), so the conversion is a copy; Pack names the pack for the one
+	// sentence that must say who took a name a workspace skill wanted.
 	out := make([]jailcontent.PackSkillSource, 0, len(sources))
 	for _, src := range sources {
-		out = append(out, jailcontent.PackSkillSource{Dir: src.Dir, Agents: src.Agents})
+		out = append(out, jailcontent.PackSkillSource{Dir: src.Dir, Agents: src.Agents, Pack: p.Name})
 	}
 	return out
 }

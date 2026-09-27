@@ -2,9 +2,11 @@ package jailcontent
 
 import (
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/jailcontent/builtinskills"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/treesync"
 )
@@ -21,11 +23,12 @@ import (
 // existing four-arg signature and its callers stay untouched; the CLI sets it once
 // per run, before PrepareSkills.
 //
-// Precedence within one agent's staging dir: built-ins < packs, with the
+// Precedence within one agent's staging dir: the WORKSPACE < built-ins < packs, with the
 // CONVENTIONAL LOCAL PACK last among the packs (config.LoadPacks appends it there).
 // So a pack may override a built-in — a legitimate reason to ship one — and the
-// user's own copy still outranks a shared pack's. There is no fourth layer: the one
-// that read the destination back in was S3's defect.
+// user's own copy still outranks a shared pack's. The workspace layer (workspaceskills.go,
+// PrepareSkillsWith) only fills names nothing above took. There is no layer reading a
+// destination back in: that one was S3's defect, and the workspace layer reads sources.
 //
 // IT CARRIES AN AUDIENCE PER SOURCE since the audience selector (docs/reference/agent-briefings.md#audiences-what-varies-per-destination), where it was a flat
 // []string. A flat list was the `skills` half of the same defect the briefing half had: the
@@ -39,14 +42,19 @@ var packSkillDirs []PackSkillSource
 // A re-declaration of packload.SkillsSource rather than a use of it, and that is not
 // duplication for its own sake: jailcontent is core's own content package and does not import
 // packload (the boot path stages a tree and this reads it), so the two types meet at the CLI,
-// which resolves one into the other. The FIELDS are deliberately identical so the conversion
-// is a copy with nothing to get wrong.
+// which resolves one into the other. Dir and Agents are deliberately packload's own so the
+// conversion is a copy with nothing to get wrong; Pack is the one field the CLI adds from the
+// pack it is converting.
 type PackSkillSource struct {
 	// Dir is the absolute source directory to copy skill subdirs from.
 	Dir string
 	// Agents is the audience this source names. EMPTY MEANS BROADCAST (P2) — every pack that
 	// ships today, and the only thing a pack with no pack.json can ask for.
 	Agents []string
+	// Pack is the name of the pack this source belongs to, for the one sentence that has to
+	// say who won a name: a workspace skill this source shadows is disclosed as shadowed BY this
+	// pack (workspaceskills.go). "" reads as "a pack". Nothing routes on it.
+	Pack string
 }
 
 // SetPackSkillDirs sets the pack skills sources consulted by the next PrepareSkills.
@@ -73,6 +81,12 @@ type SkillTarget struct {
 	// the state every pack.json was in before the field existed (R4). Such a destination
 	// still receives every broadcast source; it just cannot be addressed.
 	Agent string
+	// ProjectDirs is where this destination's agent reads skills at PROJECT scope — the
+	// destination contribution's `project_dirs`, workspace-relative. It is the SKIP RULE of the
+	// workspace layer (docs/design/workspace-skills.md §5): a workspace source directory this
+	// list resolves to is one the agent already reads natively, so this destination gets no
+	// copy of it. Empty receives every workspace source — the broadcast reading, as for Agent.
+	ProjectDirs []string
 
 	// A HostSource FIELD USED TO LIVE HERE, naming "the user's OWN skills tree to layer in
 	// last" — and it was set to the DESTINATION (run.packSkillTargets), i.e. the host's own
@@ -120,17 +134,40 @@ func SkillStagingName(pack string) string { return "skills-" + pack }
 // SkillTarget). The signature is left alone deliberately — five call sites pass them, and
 // churning those would be a bigger diff than the fix, with no behavior in it.
 func PrepareSkills(cname, homeDir string, agentNames []string) (string, error) {
+	staging, _, err := PrepareSkillsWith(cname, nil)
+	return staging, err
+}
+
+// PrepareSkillsWith is PrepareSkills with the WORKSPACE as one more source: the lowest layer of
+// every destination, never shadowing anything above it (docs/design/workspace-skills.md). ws nil
+// or with no Dirs stages exactly what PrepareSkills always did.
+//
+// The report is everything the launch must SAY about that layer — what it delivered, what a
+// higher layer shadowed, which same-named skills two source dirs both carried, and every entry
+// refused because reading it would have left the workspace. It is never nil. The caller prints
+// it; this package does not own a stream.
+//
+// A parameter rather than one more package-level setter, unlike the pack records above: the
+// workspace is per LAUNCH, and a process runs more than one launch (auto-capture, packrecords.go),
+// so a record that one launch set and the next forgot to reset would stage the first launch's
+// workspace into the second's jail. An argument cannot outlive its call.
+func PrepareSkillsWith(cname string, ws *WorkspaceSkills) (string, *WorkspaceSkillsReport, error) {
 	staging := filepath.Join(paths.AgentsDir(), cname)
 	if err := os.MkdirAll(staging, 0o755); err != nil {
-		return "", err
+		return "", nil, err
 	}
+	layer, err := stageWorkspaceLayer(ws)
+	if err != nil {
+		return "", nil, err
+	}
+	defer layer.close()
 
 	for _, target := range packSkillTargets {
-		if err := prepareSkillTarget(target, filepath.Join(staging, target.Staging)); err != nil {
-			return "", err
+		if err := prepareSkillTarget(target, filepath.Join(staging, target.Staging), layer); err != nil {
+			return "", nil, err
 		}
 	}
-	return staging, nil
+	return staging, layer.report(), nil
 }
 
 // prepareSkillTarget composes one destination's skills tree and SYNCS it into its staging
@@ -143,7 +180,7 @@ func PrepareSkills(cname, homeDir string, agentNames []string) (string, error) {
 // whether or not anything had changed. The layers are built in a private scratch tree in the
 // same order as before, so precedence is untouched, and treesync then changes only what
 // differs. skillsDir itself is never removed (the bind captured it).
-func prepareSkillTarget(target SkillTarget, skillsDir string) error {
+func prepareSkillTarget(target SkillTarget, skillsDir string, layer *workspaceLayer) error {
 	if err := os.MkdirAll(skillsDir, 0o755); err != nil {
 		return err
 	}
@@ -156,7 +193,7 @@ func prepareSkillTarget(target SkillTarget, skillsDir string) error {
 	if err := os.Mkdir(composed, 0o755); err != nil {
 		return err
 	}
-	if err := composeSkillLayers(target, composed); err != nil {
+	if err := composeSkillLayers(target, composed, layer); err != nil {
 		return err
 	}
 	_, err = treesync.Sync(composed, skillsDir)
@@ -164,12 +201,23 @@ func prepareSkillTarget(target SkillTarget, skillsDir string) error {
 }
 
 // composeSkillLayers writes one destination's skills layers into skillsDir, in precedence
-// order: yolo's built-in suite, then every pack's skills addressed to this destination, then
-// yolo's own LSP plugin.
-func composeSkillLayers(target SkillTarget, skillsDir string) error {
+// order: the WORKSPACE (lowest), yolo's built-in suite, then every pack's skills addressed to
+// this destination, then yolo's own LSP plugin.
+//
+// THE WORKSPACE IS WRITTEN LAST AND RANKS FIRST-FROM-THE-BOTTOM, which are the same thing said
+// two ways: it fills only the names every layer above it left free, so it can add a skill and
+// never replace one (OQ-WS2). Written first and overwritten, it would give the same tree — but
+// the report could not say which names were lost or to whom, and a shadow is a disclosure.
+func composeSkillLayers(target SkillTarget, skillsDir string, layer *workspaceLayer) error {
+	// taken is every name a layer above the workspace wrote, and who wrote it: the input the
+	// workspace layer's shadow disclosure names.
+	taken := map[string]string{}
 	// 1. Built-in skill suite (every skills-bearing agent gets it).
 	if err := writeBuiltinSkills(skillsDir); err != nil {
 		return err
+	}
+	for _, name := range builtinSkillNames() {
+		taken[name] = "yolo's built-in skill"
 	}
 	// 2. PACK skills (C3), in config order — LAST, and that is now the whole of the
 	//    precedence rather than the middle of it. A pack may override a built-in (a
@@ -185,8 +233,16 @@ func composeSkillLayers(target SkillTarget, skillsDir string) error {
 		if !sourceAddressesAgent(src.Agents, target.Agent) {
 			continue
 		}
-		if err := copySkillSubdirs(src.Dir, skillsDir); err != nil {
+		names, err := copySkillSubdirs(src.Dir, skillsDir)
+		if err != nil {
 			return err
+		}
+		by := "a pack's skill"
+		if src.Pack != "" {
+			by = "pack " + src.Pack + "'s skill"
+		}
+		for _, name := range names {
+			taken[name] = by
 		}
 	}
 	// 3. yolo's OWN LSP plugin, LAST — see writeLSPPlugin for why this is not one of the
@@ -194,7 +250,31 @@ func composeSkillLayers(target SkillTarget, skillsDir string) error {
 	//    skills destination: Claude is the agent that reads a plugin, and a destination
 	//    that is not Claude's simply has a directory no tool there looks for, which is
 	//    cheaper than teaching this loop which agent is which (core knows no agents).
-	return writeLSPPlugin(skillsDir)
+	if err := writeLSPPlugin(skillsDir); err != nil {
+		return err
+	}
+	// The plugin's name is taken whether or not a plugin was written: writeLSPPlugin REMOVES a
+	// same-named directory when nothing is configured, so a lowest layer carrying one would have
+	// lost it either way — and a workspace must not be able to plant something Claude loads as
+	// yolo's LSP declaration.
+	taken[LSPPluginDir] = "yolo's LSP plugin"
+	// 4. THE WORKSPACE, into whatever names are left.
+	return layer.deliver(target, skillsDir, taken)
+}
+
+// builtinSkillNames lists the top-level skill directories of the built-in suite.
+func builtinSkillNames() []string {
+	entries, err := fs.ReadDir(builtinskills.FS, ".")
+	if err != nil {
+		return nil
+	}
+	var out []string
+	for _, e := range entries {
+		if e.IsDir() {
+			out = append(out, e.Name())
+		}
+	}
+	return out
 }
 
 // sourceAddressesAgent reports whether a source naming `agents` belongs in the staging dir of
@@ -219,17 +299,23 @@ func sourceAddressesAgent(agents []string, agent string) bool {
 }
 
 // copySkillSubdirs copies skill subdirectories from src into dst, following
-// symlinks (a source that isn't a dir is a no-op). An existing target subdir is
-// copy dereferences symlinks).
-func copySkillSubdirs(src, dst string) error {
+// symlinks (a source that isn't a dir is a no-op), and returns the names it wrote. An
+// existing target subdir is replaced whole (the copy dereferences symlinks).
+//
+// ⚠ NEVER POINT THIS AT THE WORKSPACE. It follows every symlink it meets, which is right for
+// a pack tree packstage has already refused escaping links in and for yolo's own trees, and is
+// a host-file read when the tree came from a `git clone` an in-jail agent can also edit. The
+// workspace has its own reader, workspaceskills.go's confinedTree, for exactly that reason.
+func copySkillSubdirs(src, dst string) ([]string, error) {
 	info, err := os.Stat(src) // follows a symlinked src dir
 	if err != nil || !info.IsDir() {
-		return nil
+		return nil, nil
 	}
 	entries, err := os.ReadDir(src)
 	if err != nil {
-		return nil
+		return nil, nil
 	}
+	var names []string
 	for _, e := range entries {
 		// Stat (not Lstat) so a symlink to a dir counts as a dir.
 		srcItem := filepath.Join(src, e.Name())
@@ -239,13 +325,14 @@ func copySkillSubdirs(src, dst string) error {
 		}
 		target := filepath.Join(dst, e.Name())
 		if err := os.RemoveAll(target); err != nil {
-			return err
+			return nil, err
 		}
 		if err := copyTreeDeref(srcItem, target); err != nil {
-			return err
+			return nil, err
 		}
+		names = append(names, e.Name())
 	}
-	return nil
+	return names, nil
 }
 
 // copyTreeDeref recursively copies src→dst, dereferencing symlinks (files and
