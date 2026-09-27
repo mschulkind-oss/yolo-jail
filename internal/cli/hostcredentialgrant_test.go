@@ -309,3 +309,31 @@ func TestHostGrantAcceptsAUseProfilesKeyTheValidatorAccepts(t *testing.T) {
 			env["ZAI_API_KEY"], errs)
 	}
 }
+
+// ES-D3: `yolo host --help` describes -p as what it is — a selection for the wrapped COMMAND,
+// whatever it is, handing an ad-hoc one that profile's claimed env_sources values — and no
+// longer as a preset "for the wrapped agent". Read through hostMain's help arm, the call site
+// a user reaches.
+func TestHostHelpDescribesProfileAsApplyingToTheWrappedCommand(t *testing.T) {
+	var out, errw bytes.Buffer
+	if rc := hostMain([]string{"--help"}, &out, &errw, false, nil); rc != 0 {
+		t.Fatalf("yolo host --help: rc = %d\n%s", rc, errw.String())
+	}
+	help := out.String()
+	_, flag, ok := strings.Cut(help, "--profile <name>, -p <name>")
+	if !ok {
+		t.Fatalf("yolo host --help documents no -p:\n%s", help)
+	}
+	flag, _, _ = strings.Cut(flag, "--help, -h")
+	for _, want := range []string{"wrapped COMMAND", "ad-hoc", "claimed env_sources"} {
+		if !strings.Contains(flag, want) {
+			t.Errorf("the -p entry must say %q:\n%s", want, flag)
+		}
+	}
+	if strings.Contains(help, "for the wrapped agent") {
+		t.Errorf("-p is not agent-only at the host (ES-D1); the help still says so:\n%s", help)
+	}
+	if !strings.Contains(help, "yolo host env --agent bash -p zai") {
+		t.Errorf("the help shows the shell spelling of the grant:\n%s", help)
+	}
+}

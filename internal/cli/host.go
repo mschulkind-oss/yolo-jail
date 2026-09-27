@@ -43,7 +43,12 @@ Usage:
   yolo host wrappers [status]                report the PATH launch wrappers
 
 Exec flags (yolo host -- ...):
-  --profile <name>, -p <name>   Profile/provider preset for the wrapped agent.
+  --profile <name>, -p <name>   Select a declared profile for the wrapped COMMAND, this
+                                launch only. Any command, not only an agent: an ad-hoc
+                                one (bash, curl, terraform) then receives that profile's
+                                claimed env_sources credentials, which are otherwise
+                                withheld from it. use_profiles cannot do this for a
+                                command no pack installs; only the typed flag can.
   --help, -h                    Show this help.
 
 With ` + "`host_apply_on_launch`" + ` enabled (defaulting to on when ` + "`host_wrappers: true`" + `),
@@ -89,7 +94,7 @@ some of them do not apply at this notch.
 
 env flags:
   --format <fmt>  export (default) or json.
-  --profile <name>, -p <name>   As above.
+  --profile <name>, -p <name>   As above, for the --agent it composes.
   --agent <name>  Compose as if launching this agent (default: claude). The agent name
                   selects which use_profiles entry applies, and the output is that
                   agent's slice: a provider credential another agent's profile claims
@@ -98,7 +103,9 @@ env flags:
 Examples:
   yolo host -- claude                 # bare claude, with the composed environment
   yolo host -p bedrock -- claude      # ... on the bedrock profile, this launch only
+  yolo host -p zai -- curl ...        # any command, handed zai's claimed key
   eval "$(yolo host env)"             # the same environment, in this shell
+  eval "$(yolo host env --agent bash -p zai)"   # zai's key, in this shell
   yolo host apply --assert            # write the config surfaces
   yolo host apply --revert            # what would withdrawing yolo remove?
 
