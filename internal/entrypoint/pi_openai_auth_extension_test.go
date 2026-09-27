@@ -181,3 +181,78 @@ if (result.access !== "access" || result.refresh !== "yolo-broker:1") throw new 
 		t.Fatalf("broker calls = %q, want %q", strings.TrimSpace(string(got)), strings.TrimSpace(want))
 	}
 }
+
+func TestPiOpenAIAuthExtensionRegisters1MModelsAndStripsSuffix(t *testing.T) {
+	p := shippedPiPack(t)
+	source, err := os.ReadFile(filepath.Join(p.Root, "extensions", "yolo-openai-auth.js"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "extension.mjs"), source, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	harness := filepath.Join(dir, "harness.mjs")
+	if err := os.WriteFile(harness, []byte(`
+import extension from "./extension.mjs";
+let registration;
+let beforeProviderHandler;
+extension({
+	registerProvider(name, config) { registration = { name, config }; },
+	on(event, handler) {
+		if (event === "before_provider_request") beforeProviderHandler = handler;
+	}
+});
+if (!registration || registration.name !== "openai-codex") {
+	throw new Error("provider not registered as openai-codex");
+}
+const models = registration.config.models;
+if (!Array.isArray(models)) {
+	throw new Error("models not defined or not an array");
+}
+const expectedPairs = [
+	["gpt-6-astra", "gpt-6-astra[1m]"],
+	["gpt-6-sol", "gpt-6-sol[1m]"],
+	["gpt-6-luna", "gpt-6-luna[1m]"],
+];
+for (const [baseId, oneMId] of expectedPairs) {
+	const base = models.find(m => m.id === baseId);
+	if (!base) throw new Error("missing base model: " + baseId);
+	if (base.contextWindow !== 272000) throw new Error(baseId + " contextWindow = " + base.contextWindow + ", want 272000");
+
+	const oneM = models.find(m => m.id === oneMId);
+	if (!oneM) throw new Error("missing 1M model: " + oneMId);
+	if (oneM.contextWindow !== 1000000) throw new Error(oneMId + " contextWindow = " + oneM.contextWindow + ", want 1000000");
+}
+
+if (typeof beforeProviderHandler !== "function") {
+	throw new Error("before_provider_request handler not registered");
+}
+
+const res1 = beforeProviderHandler({ payload: { model: "gpt-6-sol[1m]", input: ["test"] } });
+if (!res1 || res1.model !== "gpt-6-sol") {
+	throw new Error("expected stripped model gpt-6-sol, got: " + JSON.stringify(res1));
+}
+if (res1.input[0] !== "test") {
+	throw new Error("payload fields corrupted: " + JSON.stringify(res1));
+}
+
+const res2 = beforeProviderHandler({ payload: { model: "gpt-6-astra", input: ["test2"] } });
+if (res2 !== undefined) {
+	throw new Error("expected undefined for model without [1m] suffix, got: " + JSON.stringify(res2));
+}
+
+const res3 = beforeProviderHandler({ payload: { model: "gpt-6-luna[1m]" } });
+if (!res3 || res3.model !== "gpt-6-luna") {
+	throw new Error("expected stripped model gpt-6-luna, got: " + JSON.stringify(res3));
+}
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command("node", harness)
+	cmd.Dir = dir
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("executing Pi OpenAI extension test harness: %v\n%s", err, output)
+	}
+}

@@ -58,8 +58,144 @@ async function brokerLogin(signal) {
 	return brokerToken(signal);
 }
 
+const CODEX_MODELS = [
+	{
+		id: "gpt-5.3-codex-spark",
+		name: "GPT-5.3 Codex Spark",
+		reasoning: true,
+		input: ["text"],
+		cost: { input: 1.75, output: 14, cacheRead: 0.175, cacheWrite: 0 },
+		contextWindow: 128000,
+		maxTokens: 128000,
+		thinkingLevelMap: { xhigh: "xhigh", minimal: "low" },
+		compat: { supportsOpenAIGrammarTools: true },
+	},
+	{
+		id: "gpt-5.5",
+		name: "GPT-5.5",
+		reasoning: true,
+		input: ["text", "image"],
+		cost: { input: 5, output: 30, cacheRead: 0.5, cacheWrite: 0, tiers: [{ inputTokensAbove: 272000, input: 10, output: 45, cacheRead: 1, cacheWrite: 0 }] },
+		contextWindow: 272000,
+		maxTokens: 128000,
+		thinkingLevelMap: { xhigh: "xhigh", minimal: "low" },
+		compat: { supportsOpenAIGrammarTools: true, supportsToolSearch: true, supportsMidConvoSystemMessages: true },
+		inputLimits: { images: { resize: { maxWidth: 2000, maxHeight: 2000, maxBytes: 4718592, jpegQuality: 80 } } },
+	},
+	{
+		id: "gpt-5.6-luna",
+		name: "GPT-5.6 Luna",
+		reasoning: true,
+		input: ["text", "image"],
+		cost: { input: 0.2, output: 1.2, cacheRead: 0.02, cacheWrite: 0.25, tiers: [{ inputTokensAbove: 272000, input: 0.4, output: 1.8, cacheRead: 0.04, cacheWrite: 0.5 }] },
+		contextWindow: 272000,
+		maxTokens: 128000,
+		thinkingLevelMap: { xhigh: "xhigh", max: "max", minimal: "low" },
+		compat: { supportsOpenAIGrammarTools: true, supportsAdditionalTools: true, supportsToolSearch: true, supportsMidConvoSystemMessages: true },
+		inputLimits: { images: { resize: { maxWidth: 2000, maxHeight: 2000, maxBytes: 4718592, jpegQuality: 80 } } },
+	},
+	{
+		id: "gpt-5.6-sol",
+		name: "GPT-5.6 Sol",
+		reasoning: true,
+		input: ["text", "image"],
+		cost: { input: 4, output: 20, cacheRead: 0.4, cacheWrite: 5, tiers: [{ inputTokensAbove: 272000, input: 8, output: 30, cacheRead: 0.8, cacheWrite: 10 }] },
+		contextWindow: 272000,
+		maxTokens: 128000,
+		thinkingLevelMap: { xhigh: "xhigh", max: "max", minimal: "low" },
+		compat: { supportsOpenAIGrammarTools: true, supportsAdditionalTools: true, supportsToolSearch: true, supportsMidConvoSystemMessages: true },
+		inputLimits: { images: { resize: { maxWidth: 2000, maxHeight: 2000, maxBytes: 4718592, jpegQuality: 80 } } },
+	},
+	{
+		id: "gpt-5.6-terra",
+		name: "GPT-5.6 Terra",
+		reasoning: true,
+		input: ["text", "image"],
+		cost: { input: 2, output: 12, cacheRead: 0.2, cacheWrite: 2.5, tiers: [{ inputTokensAbove: 272000, input: 4, output: 18, cacheRead: 0.4, cacheWrite: 5 }] },
+		contextWindow: 272000,
+		maxTokens: 128000,
+		thinkingLevelMap: { xhigh: "xhigh", max: "max", minimal: "low" },
+		compat: { supportsOpenAIGrammarTools: true, supportsAdditionalTools: true, supportsToolSearch: true, supportsMidConvoSystemMessages: true },
+		inputLimits: { images: { resize: { maxWidth: 2000, maxHeight: 2000, maxBytes: 4718592, jpegQuality: 80 } } },
+	},
+	{
+		id: "gpt-6-astra",
+		name: "GPT-6 Astra",
+		reasoning: true,
+		input: ["text", "image"],
+		cost: { input: 10, output: 50, cacheRead: 1, cacheWrite: 12.5, tiers: [{ inputTokensAbove: 272000, input: 20, output: 75, cacheRead: 2, cacheWrite: 25 }] },
+		contextWindow: 272000,
+		maxTokens: 128000,
+		thinkingLevelMap: { off: null, minimal: "low", low: "low", medium: "medium", high: "high", xhigh: "xhigh", max: "max" },
+		compat: { supportsOpenAIGrammarTools: true, supportsAdditionalTools: true, supportsToolSearch: true, supportsMidConvoSystemMessages: true },
+		inputLimits: { images: { resize: { maxWidth: 2000, maxHeight: 2000, maxBytes: 4718592, jpegQuality: 80 } } },
+	},
+	{
+		id: "gpt-6-astra[1m]",
+		name: "GPT-6 Astra (1M context)",
+		reasoning: true,
+		input: ["text", "image"],
+		cost: { input: 10, output: 50, cacheRead: 1, cacheWrite: 12.5, tiers: [{ inputTokensAbove: 272000, input: 20, output: 75, cacheRead: 2, cacheWrite: 25 }] },
+		contextWindow: 1000000,
+		maxTokens: 128000,
+		thinkingLevelMap: { off: null, minimal: "low", low: "low", medium: "medium", high: "high", xhigh: "xhigh", max: "max" },
+		compat: { supportsOpenAIGrammarTools: true, supportsAdditionalTools: true, supportsToolSearch: true, supportsMidConvoSystemMessages: true },
+		inputLimits: { images: { resize: { maxWidth: 2000, maxHeight: 2000, maxBytes: 4718592, jpegQuality: 80 } } },
+	},
+	{
+		id: "gpt-6-sol",
+		name: "GPT-6 Sol",
+		reasoning: true,
+		input: ["text", "image"],
+		cost: { input: 2, output: 10, cacheRead: 0.2, cacheWrite: 2.5, tiers: [{ inputTokensAbove: 272000, input: 4, output: 15, cacheRead: 0.4, cacheWrite: 5 }] },
+		contextWindow: 272000,
+		maxTokens: 128000,
+		thinkingLevelMap: { off: "none", minimal: "low", low: "low", medium: "medium", high: "high", xhigh: "xhigh", max: "max" },
+		compat: { supportsOpenAIGrammarTools: true, supportsAdditionalTools: true, supportsToolSearch: true, supportsMidConvoSystemMessages: true },
+		inputLimits: { images: { resize: { maxWidth: 2000, maxHeight: 2000, maxBytes: 4718592, jpegQuality: 80 } } },
+	},
+	{
+		id: "gpt-6-sol[1m]",
+		name: "GPT-6 Sol (1M context)",
+		reasoning: true,
+		input: ["text", "image"],
+		cost: { input: 2, output: 10, cacheRead: 0.2, cacheWrite: 2.5, tiers: [{ inputTokensAbove: 272000, input: 4, output: 15, cacheRead: 0.4, cacheWrite: 5 }] },
+		contextWindow: 1000000,
+		maxTokens: 128000,
+		thinkingLevelMap: { off: "none", minimal: "low", low: "low", medium: "medium", high: "high", xhigh: "xhigh", max: "max" },
+		compat: { supportsOpenAIGrammarTools: true, supportsAdditionalTools: true, supportsToolSearch: true, supportsMidConvoSystemMessages: true },
+		inputLimits: { images: { resize: { maxWidth: 2000, maxHeight: 2000, maxBytes: 4718592, jpegQuality: 80 } } },
+	},
+	{
+		id: "gpt-6-luna",
+		name: "GPT-6 Luna",
+		reasoning: true,
+		input: ["text", "image"],
+		cost: { input: 0.1, output: 0.5, cacheRead: 0.01, cacheWrite: 0.125, tiers: [{ inputTokensAbove: 272000, input: 0.2, output: 0.75, cacheRead: 0.02, cacheWrite: 0.25 }] },
+		contextWindow: 272000,
+		maxTokens: 128000,
+		thinkingLevelMap: { off: "none", minimal: "low", low: "low", medium: "medium", high: "high", xhigh: "xhigh", max: "max" },
+		compat: { supportsOpenAIGrammarTools: true, supportsAdditionalTools: true, supportsToolSearch: true, supportsMidConvoSystemMessages: true },
+		inputLimits: { images: { resize: { maxWidth: 2000, maxHeight: 2000, maxBytes: 4718592, jpegQuality: 80 } } },
+	},
+	{
+		id: "gpt-6-luna[1m]",
+		name: "GPT-6 Luna (1M context)",
+		reasoning: true,
+		input: ["text", "image"],
+		cost: { input: 0.1, output: 0.5, cacheRead: 0.01, cacheWrite: 0.125, tiers: [{ inputTokensAbove: 272000, input: 0.2, output: 0.75, cacheRead: 0.02, cacheWrite: 0.25 }] },
+		contextWindow: 1000000,
+		maxTokens: 128000,
+		thinkingLevelMap: { off: "none", minimal: "low", low: "low", medium: "medium", high: "high", xhigh: "xhigh", max: "max" },
+		compat: { supportsOpenAIGrammarTools: true, supportsAdditionalTools: true, supportsToolSearch: true, supportsMidConvoSystemMessages: true },
+		inputLimits: { images: { resize: { maxWidth: 2000, maxHeight: 2000, maxBytes: 4718592, jpegQuality: 80 } } },
+	},
+];
+
 export default function registerYoloOpenAIAuth(pi) {
 	pi.registerProvider("openai-codex", {
+		baseUrl: "https://chatgpt.com/backend-api",
+		api: "openai-codex-responses",
 		oauth: {
 			name: "OpenAI Codex (yolo shared login)",
 			isSubscription: true,
@@ -67,5 +203,19 @@ export default function registerYoloOpenAIAuth(pi) {
 			refreshToken: (_credentials, signal) => brokerToken(signal),
 			getApiKey: (credentials) => credentials.access,
 		},
+		models: CODEX_MODELS,
+	});
+
+	pi.on?.("before_provider_request", (event) => {
+		if (
+			event?.payload &&
+			typeof event.payload.model === "string" &&
+			event.payload.model.endsWith("[1m]")
+		) {
+			return {
+				...event.payload,
+				model: event.payload.model.slice(0, -4),
+			};
+		}
 	});
 }
