@@ -29,7 +29,9 @@ the boundary between subscription OAuth tokens and ambient platform API keys.
 
 **Start at [§3](#3-the-mechanism-of-shadowing-how-modelsjson-overrode-pis-native-client)** — how the shadow happened. The rest falls out of it.
 
-**Needs your ruling:** [OQ-3](#OQ-3): does the natively-implements rule cover every provider an agent implements natively, or only a subscription provider with its own client and login? [OQ-WG8](wire-bridge-gateway.md#OQ-WG8) waits on it.
+**Needs your ruling:** [OQ-3](#OQ-3): does the natively-implements rule cover every provider an agent implements natively, or only a subscription provider with its own client and login?
+
+**Blocks:** [`wire-bridge-gateway.md`'s OQ-WG8](wire-bridge-gateway.md#OQ-WG8), which defers to this rule.
 
 **Reads with:** [`pi-codex-provider-shadowing-plan.md`](pi-codex-provider-shadowing-plan.md) (the companion sketch — incomplete while questions are open),
 [`provider-credential-scope.md`](provider-credential-scope.md) (the ambient environment delivery boundary),
