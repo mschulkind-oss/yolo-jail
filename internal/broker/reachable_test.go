@@ -48,15 +48,18 @@ func assertSockPathFits(t *testing.T, path string) {
 // FRONTED daemon reads yolo's connection preamble first and answers nothing until
 // it has one, so a prober that writes bytes and waits for a reply hangs — and a
 // prober that writes the WRONG bytes is refused.
-func serveSilentListener(t *testing.T, got *[]byte) string {
+func serveSilentListener(t *testing.T) (sock string, received func() []byte) {
 	t.Helper()
-	sock := filepath.Join(shortSocketDir(t), "b.sock")
+	sock = filepath.Join(shortSocketDir(t), "b.sock")
 	assertSockPathFits(t, sock)
 	ln, err := net.Listen("unix", sock)
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = ln.Close() })
+	// got is written by the accept goroutine and read only after done closes, so the two
+	// never touch it at once (a shared slice polled by the test was a data race).
+	var got []byte
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
@@ -69,7 +72,7 @@ func serveSilentListener(t *testing.T, got *[]byte) string {
 		if rerr != nil && !errors.Is(rerr, io.EOF) {
 			return
 		}
-		*got = append(*got, b...)
+		got = append(got, b...)
 	}()
 	t.Cleanup(func() {
 		select {
@@ -77,7 +80,17 @@ func serveSilentListener(t *testing.T, got *[]byte) string {
 		case <-time.After(2 * time.Second):
 		}
 	})
-	return sock
+	// received waits for the listener to read to EOF (the probe closing its connection)
+	// and returns what arrived; nil if the connection is still open after the grace.
+	received = func() []byte {
+		select {
+		case <-done:
+			return got
+		case <-time.After(2 * time.Second):
+			return nil
+		}
+	}
+	return sock, received
 }
 
 // TestSingletonReachableWritesNothing is the REGRESSION this probe exists as, and
@@ -97,18 +110,13 @@ func serveSilentListener(t *testing.T, got *[]byte) string {
 // here is reinstating a forged identity, which is why the assertion is on the bytes
 // rather than on the return value alone.
 func TestSingletonReachableWritesNothing(t *testing.T) {
-	var got []byte
-	sock := serveSilentListener(t, &got)
+	sock, received := serveSilentListener(t)
 	if !SingletonReachable(sock, ReachTimeout) {
 		t.Fatal("a listening socket read as unreachable")
 	}
 	// The connection must be closed by the probe, which is what lets the listener's
-	// ReadAll return. Give it the same grace the cleanup does.
-	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) && len(got) == 0 {
-		time.Sleep(10 * time.Millisecond)
-	}
-	if len(got) != 0 {
+	// ReadAll return; received waits for that, with the same grace the cleanup gives.
+	if got := received(); len(got) != 0 {
 		t.Errorf("the reachability probe wrote %d bytes (%q) — it must write NONE; a daemon "+
 			"behind yolo's front reads a connection preamble first, and anything this side "+
 			"could send is either rejected or a forged jail identity", len(got), got)
