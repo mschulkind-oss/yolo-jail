@@ -225,7 +225,8 @@ func TestHostApplyGateRendersNothingOverAMalformedPack(t *testing.T) {
 
 // `yolo host env` (and `yolo host --`, which composes through the same composeHostVars) takes
 // NOTHING from a malformed pack and warns by name, as it does for any unresolvable pack: the
-// host launch never stops over a pack-set fault (§4.4), and never composes from one either.
+// host launch does not stop over a pack-set fault (§4.4) — unless the profile it selects is one
+// only that pack declares (hostmalformedprofile_test.go) — and never composes from one either.
 func TestHostEnvComposesNothingFromAMalformedPack(t *testing.T) {
 	const envContrib = `{"kind":"env","vars":{"BAD_PACK_VAR":"from-bad"}},`
 	for _, malformed := range []bool{true, false} {

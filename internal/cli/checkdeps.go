@@ -166,6 +166,11 @@ type unresolvedPack struct {
 	// names, so a remedy may not offer "remove it from `packs`" for it. Not on the wire, as on
 	// the entry.
 	Implicit bool `json:"-"`
+	// declaredProfiles are the profile names the part of a manifest with problems that DID
+	// decode declares (manifestProblemsError.profiles), for one purpose: a refusal naming the
+	// pack that declares a profile this launch cannot compose (undeclaredHostProfileError).
+	// Never composed from. Empty for a manifest that did not decode, and for every other class.
+	declaredProfiles []string
 }
 
 // newUnresolvedPack records a resolution failure from resolveConfiguredPack for entry e. The
@@ -179,6 +184,7 @@ func newUnresolvedPack(e config.PackEntry, err error) unresolvedPack {
 		NeedsInstall: errors.As(err, &miss), Implicit: e.Implicit}
 	if errors.As(err, &malformed) {
 		u.ManifestProblems = append([]string(nil), malformed.problems...)
+		u.declaredProfiles = malformed.profiles
 	}
 	return u
 }
@@ -189,9 +195,14 @@ func newUnresolvedPack(e config.PackEntry, err error) unresolvedPack {
 // with whatever part of the manifest decoded. Reading that part is the defect this type ends:
 // `yolo host apply --assert` wrote a pack with two `autonomy` contributions into a real home at
 // rc=0 (notch-scoped-config-contributions.md NS-D14). problems carry no "pack <name>: " prefix.
+//
+// profiles are the profile names that decoded part declares, read for a MESSAGE only: a host
+// launch whose selected profile only this pack declares refuses it as undeclared, and names this
+// pack as the cause (undeclaredHostProfileError) rather than saying nothing declares it.
 type manifestProblemsError struct {
 	name     string
 	problems []string
+	profiles []string
 }
 
 func (e manifestProblemsError) Error() string {
@@ -293,7 +304,8 @@ func resolveConfiguredPack(e config.PackEntry) (*packload.Pack, error) {
 		for i, prob := range probs {
 			stated[i] = strings.TrimPrefix(prob, "pack "+e.Name+": ")
 		}
-		return nil, manifestProblemsError{name: e.Name, problems: stated}
+		return nil, manifestProblemsError{name: e.Name, problems: stated,
+			profiles: packload.DeclaredProfileNames([]*packload.Pack{p}, nil)}
 	}
 	return p, nil
 }

@@ -967,7 +967,10 @@ func composeHostVarsGranting(cfg *jsonx.OrderedMap, workspace, agent, profile st
 	// plus the user's own entries — and this notch's known gap applies to it as it does
 	// to the provider table above: a pack that could not be resolved this launch
 	// contributes no declaration, so a profile only THAT pack declared refuses here
-	// rather than composing nothing.
+	// rather than composing nothing — and the refusal names that pack when it is one whose
+	// manifest has problems (undeclaredHostProfileError), since that is the one class that
+	// can say what it declares. So a pack-set fault DOES stop a host launch in this one
+	// case: the profile the launch was asked for comes only from the pack it cannot use.
 	userProfiles, err := config.LoadProfiles(warn)
 	if err != nil {
 		c.err = err
@@ -999,8 +1002,7 @@ func composeHostVarsGranting(cfg *jsonx.OrderedMap, workspace, agent, profile st
 	if profileName != "" {
 		declared := packload.DeclaredProfileNames(packs, userProfiles)
 		if i := sort.SearchStrings(declared, profileName); i >= len(declared) || declared[i] != profileName {
-			c.err = fmt.Errorf("packs: profile %q selected for %s: %s", profileName, agent,
-				packload.UndeclaredProfileMessage(profileName, declared))
+			c.err = undeclaredHostProfileError(profileName, agent, declared, unresolved)
 			return c
 		}
 	}
@@ -1259,6 +1261,34 @@ func hostScopedEnvSources(cfg *jsonx.OrderedMap, warn func(string)) *jsonx.Order
 		out.Set("env_sources", kept)
 	}
 	return out
+}
+
+// undeclaredHostProfileError is OQ-CS6's refusal of a selected profile nothing this host launch
+// read declares, naming the likelier cause when there is one: a pack the launch could not use.
+//
+// A PACK WITH MANIFEST PROBLEMS THAT DECLARES THE PROFILE is named as its declarer, with its
+// problems: loadedHostPacks composes without it, so its profile is undeclared HERE, and a jail
+// launch refuses the same config over the pack. Saying "no profile named … is declared — a profile
+// name must be declared by a selected pack's manifest" about a profile a selected pack's manifest
+// declares sent the user looking for a typo. Any OTHER unusable pack (a git pack the store does
+// not have, a manifest that did not decode) cannot say what it declares, so it is named beside
+// the plain message rather than as the declarer.
+func undeclaredHostProfileError(profile, agent string, declared []string, unresolved []unresolvedPack) error {
+	for _, u := range unresolved {
+		if slices.Contains(u.declaredProfiles, profile) {
+			return fmt.Errorf("packs: profile %q selected for %s is declared by pack %s, which "+
+				"this launch cannot use: %s — fix the pack (`yolo pack lint <its dir>` re-checks "+
+				"it; every launch refuses it too), or select another profile",
+				profile, agent, u.Name, u.Reason)
+		}
+	}
+	msg := packload.UndeclaredProfileMessage(profile, declared)
+	if len(unresolved) > 0 {
+		msg += fmt.Sprintf("; %s could not be resolved (%s), and a profile only %s declares "+
+			"is not declared at this launch", plural(len(unresolved), "a pack", "packs"),
+			describeUnresolved(unresolved), plural(len(unresolved), "it", "one of them"))
+	}
+	return fmt.Errorf("packs: profile %q selected for %s: %s", profile, agent, msg)
 }
 
 // loadedHostPacks resolves the selected packs for a host launch, plus every one it could not
