@@ -1,98 +1,115 @@
-# Notch-Scoped Config Contributions — Implementation Sketch
+# Host-only config contributions — implementation sketch
 
-**Status:** SKETCH, 2026-09-27 — incomplete, and unstable while questions are open.
+**Status:** SKETCH, 2026-09-27 — incomplete, and unstable while [OQ-5](notch-scoped-config-contributions.md#OQ-5)
+is open. Evidence verified at `8da7840d`.
 
-> **Precedence.** This is an implementation sketch companion to
-> [`notch-scoped-config-contributions.md`](notch-scoped-config-contributions.md).
-> The design doc wins on all behavioral decisions; nothing here makes a design decision.
-
----
-
-## 1. Affected Codebase Map
-
-| File / Package | Responsibility in this feature |
-| :--- | :--- |
-| `internal/packdecl/contributes.go` | Add `Notch string` / `Notches []string` to `Contribution`, `ConfigList`, `ConfigOverlay`. Implement normalization and strict validation against `render.SelectableNotches`. |
-| `internal/packdecl/kinds.go` | Document the `notches` modifier on `KindConfigList` and `KindConfigOverlay`. |
-| `internal/packoverlay/packoverlay.go` | Update `Collect` to accept target notch (`render.Kind`) instead of/in addition to `autonomy bool`. Filter `config-overlay` and `config-list` based on target notch matching. |
-| `internal/entrypoint/prism.go` | In `renderSurfaceStateful` and `renderSurfaceRMW`, add list-path sanitization for `readsHost` surfaces: strip entries declared with non-jail notches from `hostBytes`. |
-| `internal/cli/apply.go` | Pass `render.KindHost` to `packoverlay.Collect` during `yolo host apply`. |
-| `internal/entrypoint/packsurfaces.go` | Pass `render.KindJail` to `packoverlay.Collect` during in-jail provisioning. |
-| `internal/cli/config.go` | Pass resolved target notch `t.notch` to `packoverlay.Collect`. |
-| `internal/packload/footprint.go` | Disclose notch scope in `yolo pack footprint` and `yolo describe`. |
+> **Precedence.** This is the implementation sketch beside
+> [`notch-scoped-config-contributions.md`](notch-scoped-config-contributions.md). The design wins on
+> every behavior, and nothing here makes a design decision. Do not build from this file while it is
+> stamped SKETCH; `implementation-plan` owns what it must become first.
 
 ---
 
-## 2. Planned Changes by Component
+## 1. Codebase map
 
-### 2.1 Manifest Validation (`internal/packdecl`)
+Symbols, not lines. Rows 1–7 follow the design's recommended shape
+([§4.1](notch-scoped-config-contributions.md#41-recommended-posture-lists-inside-autonomy)) and rest
+on [OQ-5](notch-scoped-config-contributions.md#OQ-5)'s leaning; rows 8–9 are needed whichever way
+it is answered.
 
-1. **Fields on `Contribution`:**
-   ```go
-   // Notch is an optional single notch constraint ("jail", "host", "guest").
-   Notch string `json:"notch,omitempty"`
-   // Notches is an optional list of notch constraints (["jail", "host"]).
-   Notches []string `json:"notches,omitempty"`
-   ```
-2. **Helper `NotchesDeclared() []string`:**
-   Normalizes `Notch` and `Notches` into a deduplicated slice.
-3. **Validation in `configListProblems` & `configOverlayProblems`:**
-   Check each entry against `render.SelectableNotches`:
-   ```go
-   for _, n := range c.NotchesDeclared() {
-       if !render.IsValidNotch(n) {
-           problems = append(problems, fmt.Sprintf("%s: unknown notch %q (must be jail, host, or guest)", label, n))
-       }
-   }
-   ```
-4. Blocked on [OQ-1](notch-scoped-config-contributions.md#OQ-1) and [OQ-3](notch-scoped-config-contributions.md#OQ-3).
+| # | Where | What changes |
+| :--- | :--- | :--- |
+| 1 | `packdecl.AutonomyPosture` (`internal/packdecl/contributes.go`) | A `Lists` field: `{surface, path, add}` entries, the same shape a `config-list` carries |
+| 2 | `validateAutonomyPosture` | Each entry through `configListProblems` and `configListPathProblems`; a posture with only `lists` is valid |
+| 3 | `packoverlay.Collect` (`internal/packoverlay/packoverlay.go`) | Take each pack's posture lists in the existing list pass: decode both postures' lists, then the gate on `autonomy`, then the owner check and `listsByTarget`. An ownerless one is an `OrphanOverlay` whose kind is `autonomy`. No signature change |
+| 4 | `Collect`'s doc comment and `internal/packoverlay/autonomyinert_test.go` | Rewrite "its effect on this function's output is zero" to "it never changes surface identities or ownership, and it selects posture lists"; keep the identity pin, add the list assertion |
+| 5 | `packload` footprint (`internal/packload/footprint.go`, the `KindAutonomy` case) | Name each posture's lists in the claim's detail, as the `profile` detail does |
+| 6 | `surveyNotchFacts` (`internal/cli/hostapplynotch.go`) | `AutonomyFolds` true when the host posture declares `lists`, not only `config` |
+| 7 | `docs/reference/pack-system.md` | The `autonomy` and `config-list` sections: posture lists, their gate, their disclosure |
+| 8 | `(*Options).buildMacosCtxTree` (`internal/cli/run/macosctxtree.go`), `macosuser.HostContext`, `macosuser.hostLayerWire` (`internal/macosuser/runplan.go`) | Render-mark parity: compute `Rendered` with `hostLayerIsRender`, carry it on the context, marshal `entrypoint.HostLayerWire` |
+| 9 | `docs/reference/config-target-resolution.md` | Gap 1 closes when row 8 lands; gap 2 closes with [§4](#4-the-end-to-end-test-of-the-fifth-disposition) |
 
-### 2.2 Overlay and List Collection (`internal/packoverlay`)
-
-Update `Collect`:
-```go
-func Collect(packs []*packload.Pack, notch render.Kind, profiles map[string]string) *OverlaySet
-```
-- In Pass 2 (`config-overlay`):
-  ```go
-  if len(ov.Notches) > 0 && !contains(ov.Notches, notch.String()) {
-      continue
-  }
-  ```
-- In Pass 3 (`config-list`):
-  ```go
-  if len(cl.Notches) > 0 && !contains(cl.Notches, notch.String()) {
-      continue
-  }
-  ```
-
-### 2.3 `readsHost` List-Path Sanitization (`internal/entrypoint/prism.go`)
-
-Blocked on [OQ-2](notch-scoped-config-contributions.md#OQ-2).
-
-When preparing `hostBytes` for a `readsHost` stateful surface in a jail:
-```go
-func sanitizeHostListPaths(surface manifest.Surface, hostBytes []byte, packs []*packload.Pack) []byte
-```
-1. Extract list paths from selected packs targeting `surface.Key()`.
-2. Collect values from list contributions where `notches` is non-empty and does NOT include `"jail"`.
-3. If any host-only entries exist, parse `hostBytes` into an object, find arrays at the list paths, subtract matching entries, and re-serialize.
-4. Pass the sanitized bytes into `t.ComposeStateful`.
+**No change at the callers.** Every production caller of `Collect` already passes its notch's bit:
+`entrypoint.ConfigurePackSurfaces`, `entrypoint.ConfigurePackByName`, `applyHostSurveyed`,
+`renderContributions`, `overlayContributionRows` and `loadPromoteFold`.
 
 ---
 
-## 3. Test Strategy
+## 2. Step 1 — posture lists
 
-1. **Unit tests (`internal/packdecl`):**
-   - Valid `notch: "host"` and `notches: ["host", "guest"]` decode cleanly.
-   - Misspelled notch `"hosst"` is rejected with clear error.
-   - Refused on kinds that do not support notch scoping.
-2. **Collection tests (`internal/packoverlay`):**
-   - `Collect` with `KindHost` includes host-only and unconditional entries; excludes jail-only.
-   - `Collect` with `KindJail` includes jail-only and unconditional entries; excludes host-only.
-   - Idempotency: multiple packs contributing the same entry to the same notch deduplicate.
-3. **End-to-End composition tests (`internal/entrypoint`):**
-   - Pack fixture contributing shared package `npm:shared-pkg` and host-only package `npm:@czottmann/pi-automode@1.17.0`.
-   - Render at `KindHost`: both entries present in `pi/settings`.
-   - Render at `KindJail` with `readsHost: true`: only `npm:shared-pkg` present; `pi-automode` is absent.
-   - Verify `pi-settings.list-capture.json` in jail does NOT record `pi-automode`.
+Rests on [OQ-5](notch-scoped-config-contributions.md#OQ-5)'s leaning. If [OQ-5](notch-scoped-config-contributions.md#OQ-5) amends the rulings,
+[§3](#3-only-if-the-rulings-are-amended--the-posture-modifier) replaces this section.
+
+- **The gate's position** mirrors the `profile` gate in Pass 2: decode first (so a malformed entry
+  is reported at every notch), gate second, owner check third (so an unselected entry is never an
+  orphan).
+- **Order.** Pack order, then declaration order
+  ([config-list-order](../reference/pack-system.md#config-list-order)); a posture's lists stand at
+  the `autonomy` contribution's position in `contributes`. Check that the existing
+  `ConfigListContributions()` walk can keep that order, or walk `Contributions()` instead.
+- **`OrphanOverlay.Reason`** prints `kindName`, the kind as written, so an `autonomy`-kind orphan
+  needs no new branch; check that the core-owned sentence still reads right with `autonomy` in it.
+- **Tolerant decode.** `DecodeTolerant` uses `json.Unmarshal`, so an older entrypoint drops the
+  nested `lists` field silently. That is the intended fail-closed behavior; nothing to add.
+
+---
+
+## 3. Only if the rulings are amended — the posture modifier
+
+Blocked on [OQ-5](notch-scoped-config-contributions.md#OQ-5). The selector is the posture either
+way ([OQ-1](notch-scoped-config-contributions.md#10-decision-ledger)).
+
+- A `Posture` field on `Contribution`, validated in `validateContribution` by one helper for
+  `config-list` and `config-overlay`, and refused on every other kind with the pattern the
+  `profile` modifier uses (`c.Profile != "" && c.Kind != …`). There is no `configOverlayProblems`.
+- The gate in Pass 2 and Pass 3, at the same position as [§2](#2-step-1--posture-lists)'s.
+- ⚠ **Do not import `render` from `packdecl`**: `internal/render/fieldset.go` imports
+  `internal/packdecl`, so that is a cycle. `render.IsValidNotch` does not exist; `KindForNotch`
+  does. A posture value needs neither.
+- ⚠ **Skew fails open for this shape**: an older in-jail reader ignores the modifier and renders
+  the list unconditionally. The design's [§4.5](notch-scoped-config-contributions.md#45-failure-paths)
+  states it; nothing in the code can close it.
+
+---
+
+## 4. The end-to-end test of the fifth disposition
+
+Gap 2 of [config-target-resolution.md](../reference/config-target-resolution.md#where-this-does-not-reach):
+one managed home, asserted into; the launcher's `hostLayerEnv` output fed to a boot render; assert
+the surface composed without a host layer. The existing unit halves to reuse:
+`TestHostSurfaceRenderedReadsTheProvenanceMark` (the mark),
+`TestBootDoesNotComposeAHostLayerLabelledARender` (the read) and
+`TestRenderDropsAHostLayerTheLaunchLabelledARender` (the host-side preview).
+
+---
+
+## 5. Test strategy
+
+Every test here must fail when its production call site is deleted (AGENTS.md, Testing).
+
+1. **`internal/packdecl`:** `guarded.lists` decodes; a malformed entry (null entry, root path,
+   missing `add`) is refused with `config-list`'s wording; an unknown field is refused by the
+   strict decoder.
+2. **`internal/packoverlay`:** `Collect(…, false, …)` holds the guarded entry and not the
+   autonomous one; `Collect(…, true, …)` the reverse; no orphan for the unselected posture; an
+   ungated `config-list` is unchanged at both bits; the identity pin still holds.
+3. **Jail boot:** through `ConfigurePackSurfaces`, the guarded entry is absent from the rendered
+   `pi/settings`.
+4. **Host:** `RenderHostPack` inserts the entry and writes the insert record
+   (`internal/entrypoint/configlistrender_test.go` has the helpers).
+5. **Inspection:** `yolo config ls` and `yolo config render` at `--at host` and `--at jail` differ.
+6. **`macos-user`:** `hostLayerWire` carries `Rendered` for a marked home, and the boot read
+   drops it.
+
+---
+
+## 6. Traps to check before building
+
+- **`packrender_test_support.go` is production code.** `ConfigurePackByName` in it is
+  `yolo check`'s dry-run probe (`internal/cli/check/entrypoint.go`), not only a test helper.
+- **`Collect`'s doc comment names `configdiff.go` as a caller.** At `8da7840d` it is not one; the
+  callers are the six in [§1](#1-codebase-map). Fix the comment while rewriting it (row 4).
+- **Run the in-jail suite with the jail's variables unset** (`YOLO_VERSION`, `YOLO_HOST_LAYERS`);
+  both skew `go test` in here.
+- **`git add` before any nested-jail verification**: the nested image build sees tracked files only.
+- **`macos-user` parity cannot be verified in a nested Linux jail.** It needs the Mac runner or CI.

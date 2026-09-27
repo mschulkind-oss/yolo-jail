@@ -1,386 +1,505 @@
 ---
-title: "Notch-Scoped Config Contributions — Adding Host-Only Packages and Overlays Without In-Jail Leakage"
+title: "Host-only config contributions — the gate is missing, and the jail leak mostly is not"
 date: 2026-09-27
 status: in-review
-tags: [packs, notch, host, config-list, config-overlay, pi, permissions, autonomy]
-summary: "Enable non-owning packs to scope config-list and config-overlay contributions to specific confinement notches (such as host-only Pi permission gates), and sanitize readsHost layers so host-applied entries do not leak into containerized jails."
+tags: [packs, notch, autonomy, host, config-list, config-overlay, pi, permissions]
+summary: "A pack cannot declare a config-list entry for the host alone, because packoverlay.Collect places every list at every notch. A host-applied entry coming back into a jail through a readsHost mount is already prevented on podman and Apple Container by the OQ-CR6 render mark, and happens only on macos-user. Recommended: posture-selected lists inside the autonomy kind, where standing rulings put confinement-conditional content, plus render-mark parity on macos-user."
 vantage:
   status-chip: true
 ---
 
-# Notch-Scoped Config Contributions — Adding Host-Only Packages and Overlays Without In-Jail Leakage
+# Host-only config contributions — the gate is missing, and the jail leak mostly is not
 
-**Status:** DESIGN, 2026-09-27. Evidence verified at `d6f875df`. Nothing built.
+**Status:** DESIGN, 2026-09-27. Nothing built. [OQ-5](#OQ-5) decides where the gate lives; the
+recommended build needs no new ruling. Evidence verified at `8da7840d`.
 
-> **In short.** Cross-pack contributions (`config-list` and `config-overlay`) are
-> currently notch-blind, while the `autonomy` kind is exclusive to surface owners
-> and restricted to whole-object merge patches. Adding a `notches` selector to
-> `config-list` and `config-overlay` lets non-owning packs declare host-only or
-> jail-only contributions, while an in-jail list-path sanitization step prevents
-> host-applied entries from leaking into containerized environments through
-> `readsHost` mounts.
+> **In short.** What is missing is collection: `packoverlay.Collect` places every `config-list`
+> at every notch, so no pack can declare an entry for the host alone. The jail side needs almost
+> nothing: once yolo has written a host file, the render mark keeps it out of container jails, so
+> the only leak is on `macos-user`.
 
-**Why it matters.** A developer configuring Pi needs `@czottmann/pi-automode`
-active when running on the unconfined host (`yolo host` or direct IDE launches)
-to gate tool actions and prevent unintended modifications to their workstation.
-Inside a yolo jail, the agent is already sandboxed in a container or LSM
-boundary, making the gate redundant, noisy, and expensive in model tokens.
-Because `config-list` currently applies unconditionally across notches and
-`autonomy` cannot append to non-owned arrays, a pack cannot configure Auto Mode
-for the host without polluting the jail. Furthermore, because `pi/settings`
-declares `readsHost: true`, any entry written to the host file by `yolo host apply`
-is mounted into the jail as the `host` layer and leaks into the jail's settings
-unless explicitly filtered.
+**Why it matters.** A permission gate for pi (`@czottmann/pi-automode`) belongs on the host and
+only costs tokens and prompts in a jail; today a pack can add it everywhere or nowhere.
 
-**The shape.** A two-part extension: (1) a `notches` modifier on `config-list` and
-`config-overlay` declarations evaluated during `packoverlay.Collect`, and (2) a
-host-layer list-path filter in `prism.go` that strips declared non-jail list
-entries from `hostBytes` before composing `readsHost` surfaces inside a jail.
+**The shape.** One gate in `Collect` on the autonomy bit its callers already pass, declared as a
+posture's `lists` in the `autonomy` kind (recommended), plus render-mark parity on `macos-user`.
 
-**Cost.** Adds one optional selector to `config-list` and `config-overlay` schemas;
-requires `packoverlay.Collect` to check the target notch; adds list-path entry
-filtering to the `readsHost` ingestion pipeline.
+**Cost.** No `Collect` signature change; `Collect`'s "the bit is inert" contract changes meaning.
 
-**Start at [§3](#3-the-two-fold-breakdown-blind-collection-and-readshost-leakage)** —
-how blind collection and `readsHost` reflection create the gap. The rest falls out of it.
+**Start at [§3.2](#32-the-host-layer-is-already-a-baseline-on-container-backends)**, then
+[§5](#5-fastest-path-to-the-motivating-case) for the build order.
 
-**Needs your ruling:** [OQ-1](#OQ-1), [OQ-2](#OQ-2), [OQ-3](#OQ-3), [OQ-4](#OQ-4).
+**Needs your ruling:** [OQ-5](#OQ-5); [OQ-3](#OQ-3) is live and off the critical path.
 
 **Reads with:** [`notch-scoped-config-contributions-plan.md`](notch-scoped-config-contributions-plan.md)
-(the companion implementation sketch — incomplete while questions are open),
-[`../reference/pack-system.md`](../reference/pack-system.md#adding-entries-to-an-array-config-list)
-(the `config-list` specification and capture mechanics),
-[`host-render-target.md`](host-render-target.md)
-(how yolo renders surfaces at the host notch).
+(the implementation sketch, incomplete while [OQ-5](#OQ-5) is open),
+[`config-target-resolution.md`](../reference/config-target-resolution.md#a-staged-copy-is-not-always-a-layer)
+(the render mark).
 
 ---
 
 ## Terms, in plain words
 
-- **Notch.** Yolo's three confinement presets: `jail` (namespaces or VM container),
-  `guest` (macOS Seatbelt or Linux Landlock sandbox), and `host` (unconfined host execution).
-- **Postures (`autonomous` vs `guarded`).** The policy state of agent autonomy.
-  `autonomous` (permission prompts bypassed) is the preset default for `jail` and `guest`.
-  `guarded` (prompts enforced) is the preset default for `host`.
-- **List Contribution (`config-list`).** A pack contribution that appends entries
-  to a target array at an RFC 6901 pointer on a config surface owned by any selected pack.
-- **Surface Owner vs Contributor.** The pack declaring `kind: "config"` owns the
-  surface identity (`agent/name`), its target path, codec, and lifecycle mode. Any
-  other pack contributes keys via `config-overlay` or array entries via `config-list`.
-- **Host Layer (`readsHost`).** A surface grant where the user's host copy of a config
-  file is mounted read-only into `/ctx/` and folded into the jail's config stack as
-  `defaults < host < workspace < config-overlay…`.
-- **List-Path Leakage** *(coined here)*. The phenomenon where an entry appended to an
-  array on the host (by `yolo host apply`) crosses into a containerized jail through
-  a `readsHost` mount and is adopted as base content, defeating notch exclusion unless
-  explicitly sanitized before composition.
+- **Notch.** One of yolo's selectable confinement levels, `jail`, `guest` or `host`
+  (`render.SelectableNotches`). Every jail boot renders at `jail` today, on every backend:
+  podman, Apple Container and `macos-user` (a dedicated macOS account under Seatbelt) all get
+  `render.Jail` from `(*Env).renderTarget`. `guest` has no constructor yet (`render.KindGuest`,
+  env-manager Phase 7), so nothing renders there. `host` is `yolo host` and `yolo host apply`,
+  the invoking user's real home. Two kinds are not notches: `KindPreview` and `KindUnset` (a
+  target no constructor built).
+- **Posture.** `autonomous` (permission prompts bypassed) or `guarded` (prompts on). The notch's
+  profile picks one through `AgentAutonomy` (`render.ProfileFor`): autonomous at jail, guest and
+  preview; guarded at host and at unset.
+- **`config-list`.** A contribution that appends entries to an array at an RFC 6901 pointer on a
+  surface some selected pack owns ([pack-system.md](../reference/pack-system.md#adding-entries-to-an-array-config-list)).
+- **Surface owner vs contributor.** The pack declaring `kind: "config"` owns the surface identity
+  (`agent/name`), its path, codec and mode. Any other pack contributes keys through
+  `config-overlay` or entries through `config-list`.
+- **Host layer.** For a surface declaring `readsHost`, the user's host copy, staged read-only
+  under `/ctx/` and folded as `defaults < host < workspace < …` — **unless the launcher labelled
+  it a render**, in which case it is a baseline and is not folded at all.
+- **Render mark** (not coined here: [`OQ-CR6`](../reference/config-target-resolution.md#oq-cr6)).
+  The host provenance record a writing `yolo host apply` leaves in the home. The launcher's
+  `run.hostLayerIsRender` reads it and labels that delivery `rendered` in `YOLO_HOST_LAYERS`.
+- **Posture list** *(coined here)*. A `config-list` body declared inside an `autonomy` posture,
+  contributing only while that posture is the selected one. It is not a new kind and not a
+  modifier on `config-list`.
 
 ---
 
-## 1. The Incident and Problem Statement
+## 1. The case, and why no channel carries it today
 
-On 2026-09-27, an attempt to configure `@czottmann/pi-automode@1.17.0` as a default
-permission gate for Pi on the host exposed an architectural boundary gap:
+On 2026-09-27 a trial added `@czottmann/pi-automode@1.17.0` to the maintainer's personal pack
+(`yolo-packs/matt`, outside this repository) and was reverted because it rendered in every jail.
+That commit is reported, not verifiable from here; the code is consistent with it, because
+`ConfigurePackSurfaces` collects every `config-list` at boot with no gate
+(`internal/entrypoint/packsurfaces.go`).
 
-1. **Host necessity:** Direct Pi invocations and IDE launches on the host run with
-   the user's real privileges and host filesystem access. A permission gate like
-   Auto Mode is required to classify tool calls and prompt before destructive actions.
-2. **Jail redundancy:** Inside a yolo jail, Pi is already confined in a Linux
-   container or macOS Seatbelt sandbox. Loading Auto Mode inside the jail costs extra
-   classifier model tokens per tool call and interrupts automated runs with redundant
-   prompts.
-3. **The contribution block:** Contributing to `pi/settings#/packages` requires
-   `kind: "config-list"` because JSON Merge Patch (`config-overlay`) replaces arrays
-   wholesale. But `config-list` is unconditional: it applies at both the `host` and
-   `jail` notches. A trial adding Auto Mode committed to `yolo-packs/matt` had to be
-   immediately reverted because it rendered inside all jails.
-4. **The autonomy block:** Yolo's `kind: "autonomy"` contribution has `autonomous` and
-   `guarded` postures, but its `config` patches are strictly restricted to surfaces
-   **owned by that pack** (`packload.go:191`). A personal or shared pack (like `matt`)
-   contributing to Pi cannot use `autonomy` because the builtin `pi` pack owns
-   `pi/settings`. Furthermore, `autonomy.Config` is a merge patch of `managed` keys
-   and cannot append to an array without replacing it.
+1. **The host needs it.** Direct and IDE launches of pi run with the user's real privileges. A
+   gate that classifies tool calls and prompts before destructive ones is what `guarded` means.
+2. **A jail does not.** The jail already contains pi, and the classifier costs model tokens per
+   tool call and interrupts unattended runs. The per-call cost is a pi-side fact, reported rather
+   than measured here.
+3. **The entry needs `config-list`.** `pi/settings#/packages` is an array, and a merge patch
+   replaces arrays whole; [pack-system.md](../reference/pack-system.md#adding-entries-to-an-array-config-list)
+   uses this exact surface and path as the kind's motivating case.
 
-A non-owning pack currently has no declarative mechanism to contribute configuration
-to the host notch without also applying it to containerized jails.
+No declared channel can make the entry host-only at `8da7840d`:
 
----
+| Channel | Why it cannot carry a host-only entry | Evidence |
+| :--- | :--- | :--- |
+| `config-list` | No gate at all: Pass 3 places it at every notch, and `profile` is refused on the kind | `packoverlay.Collect`; `validateContribution` |
+| `config-overlay` + `profile` | Gates on a profile name, not the notch; and the patch replaces `packages` whole | `Collect` Pass 2 |
+| `autonomy`'s `config` half | Folds only into surfaces the declaring pack owns — a patch naming another pack's surface is inert plus a `FoldNote`, never refused. It lands in the MANAGED layer, which outranks capture and host, and replaces arrays, so even `pi` setting `packages` this way would clobber the user's own list on every render | `(*Pack).SurfacesForReport`, `foldPostureManaged`, `mergeManagedMap` |
+| `autonomy`'s `launch` half | Already cross-pack (`launchFlagClaims`), but `InjectLaunchFlags` asks for the autonomous posture only, so no guarded flag reaches a host launch; a flag would also miss IDE launches | `packload.InjectLaunchFlags` |
+| a derive | `luahook.DeriveCtx` carries no notch, and `computed` replaces arrays | `internal/agentcfg/luahook/derive.go` |
+| a host-only `packs` list | `packs` is one user-scope list for both notches; no `host_*` key selects packs | `internal/config` |
 
-## 2. Load-Bearing Principles
-
-- **P1. Autonomy is not confinement, and confinement is not platform.**
-  `confinement` selects the enforcement boundary (`jail`, `guest`, `host`).
-  `AgentAutonomy` is a policy bit (`true` for `jail`/`guest`, `false` for `host`).
-  Contributions may be conditioned on the confinement notch because of environment
-  dependencies (e.g. host-only CLI tools, native keychains) as well as permission postures.
-- **P2. Contributors never own surfaces, and owners never anticipate all contributors.**
-  An agent pack (like `pi` or `claude`) owns its surface schema. A personal or team
-  pack (`matt`, `corp-defaults`) contributes extensions, MCP servers, and gates.
-  Contribution channels (`config-overlay`, `config-list`) must offer the scoping levers
-  contributors need without requiring changes to the owning pack.
-- **P3. Symmetrical contribution channels.**
-  `config-overlay` and `config-list` are sibling contribution mechanisms: one sets keys,
-  the other appends array entries. Any scoping condition available to one must be
-  available to the other.
-- **P4. No silent inheritance across boundaries.**
-  A host-scoped contribution written to the host filesystem must not reflect into a
-  jail through `readsHost` mounts. If a pack declares an entry as host-only, the jail
-  must not adopt it from the host file.
-- **P5. Backward compatibility and fail-closed validation.**
-  Omitting a notch selector means unconditional application across all notches
-  (preserving all existing pack behavior). An invalid or misspelled notch name must be a
-  fatal validation error, never a silent fallback.
+`autonomy` is one declaration per pack (`CombineExclusive`), and **any** pack may make one; what
+confines its `config` half to the pack's own surfaces is `foldPostureManaged`, not the combine
+rule.
 
 ---
 
-## 3. The Two-Fold Breakdown: Blind Collection and `readsHost` Leakage
+## 2. Load-bearing principles
 
-Achieving host-only array contributions requires resolving two independent failures:
+- **P1. Content conditional on confinement lives in `autonomy`.** The notch decides the posture;
+  a pack declares what each posture means. Env-manager [OQ-11](yolo-as-environment-manager.md#9-decision-ledger)
+  chose a dedicated kind over a `when`-discriminator so a conditional key cannot sit in the
+  always-on half by accident, and [PV-OQ-1](../reference/providers.md#pv-oq-1) rules that
+  *"the confinement-conditional keys live in `autonomy` and nowhere else"*. Env-manager
+  [§4.2](yolo-as-environment-manager.md#42-agent-autonomy-is-a-confinement-policy-not-baked-pack-config)
+  names this direction for pi by name: pi is permissive by default, so *"the `host` notch must
+  add a restriction"* — and a permission gate is that restriction. Conditioning on the notch for an
+  environment dependency instead (host Docker, a native keychain) has no shipped or reported
+  case; it is part of [OQ-5](#OQ-5), not a principle.
+- **P2. Contributors never own surfaces, and owners never anticipate every contributor.** An
+  agent pack owns its surface; a personal or team pack (`matt`, a company pack) contributes to
+  it. The lever a contributor needs must not require editing the owning pack.
+- **P3. Symmetry between `config-overlay` and `config-list` is not a given.** It is already
+  broken by design: `profile` gates `config-overlay` and is refused on `config-list`. Whether a
+  host-only scalar should exist is [OQ-3](#OQ-3).
+- **P4. A host-only entry never reaches a jail through the host file.** On podman and Apple
+  Container the render mark already holds this
+  ([§3.2](#32-the-host-layer-is-already-a-baseline-on-container-backends)); on `macos-user` it does
+  not until parity ([§4.3](#43-render-mark-parity-on-macos-user)).
+- **P5. Backward compatible, fail-closed where the notch is unknown.** No gate means
+  unconditional, as today. A misspelled field is a fatal authoring error on the host, where
+  manifests decode strictly. At `KindUnset` a permission gate stays in. Under version skew a jail
+  must drop, never widen, a conditional entry ([§4.5](#45-failure-paths)).
 
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│ Problem A: Collection (internal/packoverlay/packoverlay.go)                 │
-│ • Collect() iterates all packs' config-list declarations unconditionally.  │
-│ • Both `yolo host apply` and jail boot receive the exact same entries.      │
-└──────────────────────────────────────┬──────────────────────────────────────┘
-                                       │
-                                       ▼
-┌─────────────────────────────────────────────────────────────────────────────┐
-│ Problem B: Reflection Leakage (internal/entrypoint/prism.go)                │
-│ • `yolo host apply` writes the entry into host `~/.pi/agent/settings.json`. │
-│ • Jail boots with `pi/settings` declaring `readsHost: true`.               │
-│ • Jail mounts host file as `hostBytes` at `/ctx/host-pi/settings.json`.    │
-│ • `hostBytes` contains the host entry in `packages: [...]`.                 │
-│ • Jail folds `defaults < host < workspace < config-overlay < lists…`.       │
-│ • Result: Host entry enters the jail via `hostBytes` even if Problem A is   │
-│   solved!                                                                   │
-└─────────────────────────────────────────────────────────────────────────────┘
-```
+**Standing rulings this design is held to:**
 
-### 3.1 Problem A: Notch-Blind Collection
-
-In [`internal/packoverlay/packoverlay.go`](../../internal/packoverlay/packoverlay.go),
-`Collect` processes `config-list` contributions in Pass 3:
-
-```go
-for _, p := range packs {
-    for _, cl := range p.Decl.ConfigListContributions() {
-        // ...
-        list, err := agentcfg.NewListContribution(p.Name, cl.Path, cl.Add)
-        set.listsByTarget[key] = append(set.listsByTarget[key], list)
-    }
-}
-```
-
-The function receives `autonomy bool`, but tests pin that `autonomy` is inert for
-contributions (`autonomyinert_test.go`). It does not receive or consult the render target's
-`render.Kind` (`jail`, `host`, `guest`). Consequently, every list contribution is placed
-into every render target regardless of where it is running.
-
-### 3.2 Problem B: List-Path Reflection via `readsHost`
-
-Even if `packoverlay.Collect` skips the host-only contribution when collecting for a jail,
-the entry still leaks into the jail if the surface declares `readsHost: true`.
-
-1. Running `yolo host apply` applies the host-scoped contribution, writing
-   `"npm:@czottmann/pi-automode@1.17.0"` into `~/.pi/agent/settings.json` on the host.
-2. When a jail is launched for the workspace, `internal/cli/run/packhostgrants.go`
-   mounts `~/.pi/agent/settings.json` read-only at `/ctx/host-pi/settings.json`.
-3. In [`internal/entrypoint/prism.go`](../../internal/entrypoint/prism.go),
-   `renderSurfaceStateful` reads that file as `hostBytes`.
-4. In [`internal/agentcfg/compose.go`](../../internal/agentcfg/compose.go), the layer
-   stack folds in order:
-   ```
-   defaults < host < workspace < config-overlay < lists < capture < list-capture < computed < managed
-   ```
-5. Because `hostBytes` already contains `"npm:@czottmann/pi-automode@1.17.0"`, the base
-   array at `/packages` holds the entry **before any in-jail list contributions are folded**.
-6. Because list contributions can only append (`add`), an absent jail list contribution
-   does not remove the entry.
-7. The jail's rendered `settings.json` ends up with Auto Mode installed, completely
-   defeating the host-only constraint.
-
-Any solution that only filters during `packoverlay.Collect` will fail acceptance tests
-against real `readsHost` surfaces like `pi/settings`.
+| Ruling | Where it lives | What it requires here |
+| :--- | :--- | :--- |
+| Nothing leaks between jails; a launch's result never depends on other launches | [pi-git-extension-caching OQ-2](pi-git-extension-caching.md#OQ-2), [OQ-BR4](provider-credential-scope.md#7-decision-ledger) | The gate is a pure function of the render target's notch; no cross-launch state |
+| The credential gate | [providers.md](../reference/providers.md#the-credential-gate); [CN-D3, CN-D13](provider-credential-scope.md#7-decision-ledger) | No interaction: host pi runs the classifier on the user's inherited environment, and no provider or `env_sources` value changes |
+| Escape hatches are for broken user config; an acknowledgment override only where yolo knows the environment differs | [attach-skew-and-contract-guardrails.md](attach-skew-and-contract-guardrails.md#decision-ledger) | None is needed, and none is proposed |
+| No post-merge script slot; a declarative filter only against a real case | [OQ-LT2](../reference/pack-system.md#oq-lt2) | Rules out any Lua or finalize hook here; see the sanitizer, [§6](#6-alternatives-considered) F |
+| Core knows notch NAMES only at render's two edges | [pack-system.md §6c](../reference/pack-system.md#batch-6c) | A manifest that spells `"host"` adds a third edge |
 
 ---
 
-## 4. Proposed Solution
+## 3. What exists today
 
-### 4.1 Manifest Syntax: The `notches` Modifier
+### 3.1 Collection is notch-blind
 
-Extend `Contribution` in [`internal/packdecl/contributes.go`](../../internal/packdecl/contributes.go)
-to support an optional `notches` field on `config-list` and `config-overlay`:
+`packoverlay.Collect(packs, autonomy, profiles)` runs three passes:
+
+1. **Owners.** Each pack's `SurfacesFor(autonomy)` names the surfaces it owns.
+2. **Overlays**, in pack order then declaration order. The `profile` gate sits after
+   `manifest.DecodeOverlay` and before the owner check, so a malformed body is reported at every
+   profile and a profile-inactive overlay is a clean skip rather than an orphan.
+3. **Lists**, the same order, through `agentcfg.NewListContribution`, with **no gate**. An
+   ownerless one becomes an `OrphanOverlay` (ruling R2, inert and reported).
+
+Every production caller already holds its notch and passes that notch's bit:
+
+| Caller | Notch it renders | Bit it passes |
+| :--- | :--- | :--- |
+| `entrypoint.ConfigurePackSurfaces` (every jail boot) | jail | `e.renderTarget().Profile().AgentAutonomy` |
+| `entrypoint.ConfigurePackByName` (`yolo check`'s dry-run probe; production code despite its file name, `packrender_test_support.go`) | jail | the same |
+| `applyHostSurveyed` (`yolo host apply`, `internal/cli/apply.go`) | host | `render.Host(…).Profile().AgentAutonomy` |
+| `renderContributions` (`yolo config render`) | `t.notch` | `render.ProfileFor(t.notch).AgentAutonomy` |
+| `overlayContributionRows` (`yolo config ls`) | `t.notch` | the same |
+| `loadPromoteFold` (`yolo config promote`) | jail, fixed | `render.ProfileFor(render.KindJail).AgentAutonomy` |
+
+`Collect`'s doc comment calls taking a `render.Profile` instead of one bit "a deliberate boundary
+rather than a leftover", and states that the bit's effect on the output is zero, pinned by
+`TestCollectAutonomyDoesNotChangeTheResolution`. A gate on the bit keeps the first contract and
+ends the second.
+
+### 3.2 The host layer is already a baseline on container backends
+
+A host-applied entry does not come back into a podman or Apple Container jail through the
+`pi/settings` host layer. The render mark that prevents it shipped at `369c6f63` (2026-09-18):
+
+1. **The write.** `yolo host apply` is a dry run and `--assert` writes; `yolo host -- <agent>`
+   also re-applies a stale render when `host_apply_on_launch` is on. With `host_management` unset (it resolves to `assert`,
+   `config.hostManagementValue`), `RenderHostPack` takes the rmw arm
+   (`renderSurfaceRMWSurface`): entries go in through `agentcfg.ReconcileInsertedList`, then
+   the insert record (`writeListRecord`, `<ProvenanceDir>/pi-settings.list-record.json`) and
+   the provenance record (`writeProvenanceRecord`) are written. `own` writes provenance too.
+   `none` refuses the apply and writes nothing (`hostManagementRefusal`).
+2. **The label.** At the next launch `(*Options).hostFileArgs` stages `~/.pi/agent/settings.json`
+   at `/ctx/host-pi/settings.json` (a `:ro` bind on podman, a copy on Apple Container), and
+   `hostLayerIsRender` asks `entrypoint.HostSurfaceRendered` whether the home carries the mark.
+   If it does, the destination goes out as `Rendered` on `YOLO_HOST_LAYERS`
+   (`entrypoint.HostLayerWire`, from `(*Options).hostLayerEnv`).
+3. **The read.** In the jail, `hostSurfaceBytes` checks the label **before** reading the file.
+   On `HostLayerRender` it returns no bytes, and the surface "composes from its packs and its
+   capture alone".
+
+So once an assert has written `pi/settings`, **none** of the host file reaches a container jail:
+not the automode entry, and not the user's hand-added packages either. Pinned by
+`TestBootDoesNotComposeAHostLayerLabelledARender`, `TestHostSurfaceRenderedReadsTheProvenanceMark`
+and `TestRenderDropsAHostLayerTheLaunchLabelledARender`, all green at `8da7840d`.
+
+In a home yolo never asserted into, no yolo-inserted entry can be in the host file, because only
+an assert inserts. What is there is the user's, and composing it is the onboarding path the host
+layer exists for ([`OQ-CR8`](../reference/config-target-resolution.md#oq-cr8)).
+
+> [!WARNING]
+> **Filtering the host file inside the jail is the intuitive fix, and it is aimed at the wrong
+> layer.** On the container backends those bytes are already discarded, and in a home yolo never
+> wrote they are the user's own ([§6](#6-alternatives-considered), F).
+>
+> **`macos-user` is the one backend where the leak is real.** `macosuser.hostLayerWire` marshals
+> a bare `packload.HostLayerReport` with no `Rendered`, and `(*Options).buildMacosCtxTree` never
+> calls `hostLayerIsRender`, so a managed home's host file composes as a layer there
+> ([gap 1](../reference/config-target-resolution.md#where-this-does-not-reach)). A host-applied
+> automode entry would reach a `macos-user` jail. The fix is parity with the container path
+> ([§4.3](#43-render-mark-parity-on-macos-user)), not a sanitizer. The same section's gap 2
+> also stands: no test drives one managed home through the label and the boot read together.
+
+`ReconcileInsertedList` also withdraws: an entry yolo inserted and no longer contributes is removed
+from the host file on the next assert, and an identical entry the user already had is left
+unrecorded and never removed.
+
+### 3.3 A pending change to the default
+
+A 2026-09-20 ruling retires `assert` and makes an unset `host_management` mean `none`
+([not built](../reference/config-target-resolution.md#ruled-2026-09-20-not-built-retiring-assert)).
+After it lands, only `own` writes a host-only entry. The mark survives it: `own` still marks, and
+a mark an earlier assert left stays until `yolo host apply --revert`.
+
+---
+
+## 4. Proposed solution
+
+Two shapes carry the same gate. [§4.1](#41-recommended-posture-lists-inside-autonomy) is the
+recommendation; [§4.2](#42-the-first-drafts-modifier-corrected) is the draft's modifier, corrected
+against the tree. [OQ-5](#OQ-5) chooses between them. [§4.3](#43-render-mark-parity-on-macos-user)
+to [§4.6](#46-what-done-looks-like) hold for both.
+
+### 4.1 Recommended: posture lists inside `autonomy`
+
+> [!NOTE]
+> **Recommendation (review, 2026-09-27), pending [OQ-5](#OQ-5).** The first draft proposed
+> [§4.2](#42-the-first-drafts-modifier-corrected) and rejected this shape on two facts that do not
+> hold ([§6](#6-alternatives-considered), C). This is the shape the standing rulings already
+> prescribe.
 
 ```json
 {
-  "kind": "config-list",
-  "surface": "pi/settings",
-  "path": "/packages",
-  "notches": ["host"],
-  "add": [
-    "npm:@czottmann/pi-automode@1.17.0"
-  ]
+  "kind": "autonomy",
+  "guarded": {
+    "lists": [
+      { "surface": "pi/settings", "path": "/packages",
+        "add": ["npm:@czottmann/pi-automode@1.17.0"] }
+    ]
+  }
 }
 ```
 
-For authoring ergonomics, allow either a single string (`"notch": "host"`) or an array
-of strings (`"notches": ["host"]`), normalized at decode time into `[]string`.
+- **Selector.** The posture `Collect`'s `autonomy` argument already selects (`PostureFor`).
+  `guarded.lists` contribute at host and at `KindUnset`; `autonomous.lists` at jail, guest and
+  preview. No notch name appears in a manifest.
+- **Validation.** Each entry takes `surface`, `path` and `add` under `config-list`'s own rules
+  (`configListProblems`, `configListPathProblems`). A posture holding only `lists` is a valid
+  posture. The host refuses an unknown field (strict `packdecl.Decode`).
+- **Collection.** A posture list takes the existing list path: `NewListContribution`, the owner
+  check, `listsByTarget`. An ownerless one is an orphan reported under the `autonomy` kind. Order
+  is the existing rule, pack order then declaration order
+  ([config-list-order](../reference/pack-system.md#config-list-order)).
+- **Gate position.** Both postures' lists are decoded at every notch, so a malformed entry is
+  reported wherever it would or would not render. The gate sits after the decode and before the
+  owner check, so an unselected posture's list is a clean skip: no problem, no orphan, no applied
+  row — the `profile` gate's behavior.
+- **The inertness contract.** After this the bit still never changes surface identities or
+  ownership, and it does select posture lists. `Collect`'s comment and
+  `TestCollectAutonomyDoesNotChangeTheResolution` are rewritten to say so; the test keeps
+  pinning identities.
+- **Disclosure.** `yolo pack footprint` claims the list unconditionally and names the posture in
+  the detail (the `profile` modifier's precedent in `footprint.go`). `yolo host apply`'s notch
+  line counts a posture list as a fold (`surveyNotchFacts.AutonomyFolds`), so it never says
+  "nothing folds" for a pack whose guarded posture is lists only.
+- **Inspection.** `yolo config ls` and `yolo config render` follow with no change: each already
+  passes `render.ProfileFor(t.notch).AgentAutonomy`, so `--at host` and `--at jail` differ.
+- **No collision.** `autonomy`'s "never collides across packs" survives, because a list only
+  appends and dedups (`entryKey`); two packs' posture lists cannot contend the way two config
+  writers would.
 
-- **Allowed values:** `["jail", "host", "guest"]` (the closed set from `render.SelectableNotches`).
-- **Default (absent/empty):** Unconditional (applies at all notches).
-- **Validation:** Any value outside the allowed set produces a fatal validation error in
-  `configListProblems` and `configOverlayProblems`.
-- **Refused on other kinds:** Fields `notch` and `notches` are refused on kinds that do
-  not support notch filtering (e.g. `program`, which uses `platforms`, or `state`, which
-  uses `scope`).
+### 4.2 The first draft's modifier, corrected
 
-### 4.2 Target-Aware Collection in `packoverlay`
+The draft put `notches: ["host"]` (or a singular `notch`) on `config-list` and `config-overlay`.
+[OQ-1](#10-decision-ledger)'s decision applies to it too, so its corrected form is one spelling of
+one field: a `posture: "guarded"` modifier. What building it takes:
 
-Thread the target notch (`render.Kind`) into `packoverlay.Collect`:
+- **Validation** in `validateContribution`, one helper shared by both kinds, and refusal on every
+  other kind with the `profile` modifier's pattern. There is no `configOverlayProblems`; overlay
+  validation is inline in the kind switch.
+- **Notch names, if kept, cost a third edge.** `packdecl` cannot import `render`
+  (`render/fieldset.go` imports `packdecl`; `packdecl` is dependency-free), and
+  `render.IsValidNotch` does not exist. `packdecl` would carry its own name list, pinned to
+  `SelectableNotches` by a test in `internal/render` like `notchnames_test.go`, and the collector
+  would map names through `render.KindForNotch` once and compare Kinds. And `guest` has no
+  constructor, so `notches: ["guest"]` would validate and never match: refuse it until Phase 7.
+- **Gate position** as in [§4.1](#41-recommended-posture-lists-inside-autonomy): after
+  `DecodeOverlay` or `NewListContribution`, before the owner check.
+- **A signature change.** A `render.Kind` parameter reaches every caller in
+  [§3.1](#31-collection-is-notch-blind) and every test caller; the boot passes
+  `e.renderTarget().KindOf()`, never a literal.
+- **Two rulings amended.** [PV-OQ-1](../reference/providers.md#pv-oq-1) and env-manager
+  [OQ-11](yolo-as-environment-manager.md#9-decision-ledger).
+- **Skew fails open** ([§4.5](#45-failure-paths)).
 
-```go
-func Collect(packs []*packload.Pack, notch render.Kind, profiles map[string]string) *OverlaySet
-```
+### 4.3 Render-mark parity on `macos-user`
 
-During Pass 2 (`config-overlay`) and Pass 3 (`config-list`), evaluate the notch gate:
+Needed whichever shape [OQ-5](#OQ-5) picks, and an implementation decision under the existing
+[`OQ-CR6`](../reference/config-target-resolution.md#oq-cr6) ([ledger](#10-decision-ledger), NS-D3):
+compute `Rendered` in `(*Options).buildMacosCtxTree` with the same `hostLayerIsRender`, carry it
+on `macosuser.HostContext`, and have `macosuser.hostLayerWire` marshal `entrypoint.HostLayerWire`
+(`internal/macosuser` already imports `internal/entrypoint`, so there is no cycle). This closes
+gap 1 for every `readsHost` surface on that backend, not just this entry, and it keeps the
+jail's reading identical to the container path's.
 
-```go
-if len(cl.Notches) > 0 && !cl.MatchesNotch(notch.String()) {
-    continue
-}
-```
+### 4.4 Behavior at each target, and the degenerate cases
 
-An inactive notch contribution is cleanly skipped: no error, no orphan notice, and no
-provenance entry recorded.
+| Target | `AgentAutonomy` | `guarded.lists` | `autonomous.lists` | Draft's `notches: ["host"]` |
+| :--- | :--- | :--- | :--- | :--- |
+| host (`yolo host apply`, `yolo host`) | off | contribute | skipped | contribute |
+| jail (every backend's boot, `yolo check`'s probe) | on | skipped | contribute | skipped |
+| preview (`KindPreview`; no `Collect` caller passes it today) | on (the jail's policy) | skipped | contribute | unstated in the draft |
+| guest | on | nothing renders there yet (`render.NotchUnbuilt`) | the same | validates, never matches |
+| unset | off (`HostProfile`) | contribute: the gate stays in | skipped | skipped: the gate is dropped |
 
-### 4.3 Sanitizing `readsHost` List Paths in `prism.go`
+- **Empty.** `lists: []` and an entry with `add: []` are declared no-ops, as `add: []` already is.
+- **The same entry in both postures** contributes at every target, exactly as an ungated list.
+- **The same entry from an ungated list and a posture list**, or from two packs, is written once
+  and recorded once (`entryKey`; `ReconcileInsertedList` skips a present entry).
+- **Owner not selected.** An orphan, reported only at a target that selects the posture.
+- **Contributor dropped, owner kept.** The next assert removes the inserted entry
+  (`ReconcileInsertedList`).
+- **Owner and every contributor dropped.** The entry stays in the host file
+  ([`OQ-AL3`](../reference/pack-system.md#oq-al3)); `yolo host apply --revert` removes it for a
+  shipped owner. The mark still keeps the file out of container jails.
+- **The user already had the entry** before the first assert: it is theirs, unrecorded, and never
+  removed.
+- **The user deletes the yolo-inserted entry** from the host file: it moves to the record's
+  `Declined` list and is not re-added.
 
-To close Problem B, the in-jail renderer must sanitize `hostBytes` before passing it to
-`agentcfg.ComposeStateful` or `agentcfg.ComposeRMW`.
+### 4.5 Failure paths
 
-In [`internal/entrypoint/prism.go`](../../internal/entrypoint/prism.go), when `e.renderTarget()`
-is a jail target (`KindOf() == KindJail`) and `surface.ReadsHost` is true:
+| Step | Failure | What happens | Who finds out |
+| :--- | :--- | :--- | :--- |
+| Host manifest read | Host yolo older than the new field | Strict decode refuses the manifest; the apply or launch refuses | The user at the host. Order: `just install` before the pack change |
+| Jail manifest read | Entrypoint older than the new field (the host CLI and the flake bundle out of step) | `DecodeTolerant` ignores unknown fields. A posture's `lists` reads as absent (fail closed). A modifier reads as absent, so its list is **unconditional** (fail open, the exact leak) | Nobody, for the modifier |
+| Host apply | `host_management: none` | Refused, nothing written | The refusal names the key |
+| Host apply | The `assert` retirement lands ([§3.3](#33-a-pending-change-to-the-default)) | Unset becomes `none`; only `own` writes | The done conditions name `own` |
+| Host apply | Only ever a dry run | Nothing written and no mark; the host file holds only the user's own entries, so the jail composing it as a layer adds nothing yolo put there | — |
+| `macos-user` boot | No label ([§4.3](#43-render-mark-parity-on-macos-user) unbuilt) | The host file composes as a layer; an asserted entry reaches the jail | Nobody until parity |
+| First host pi start | The `npm:` package is not installed | pi installs a missing package at resolve time (read from pi 0.87.1's source by the review, not run) | — |
+| Host pi, any tool call | No classifier model configured | pi-automode blocks the action until `/automode model` is set (its README, as reported) | The user, at the first tool call |
+| Host pi | The package's own skill (`automode-diagnostics`, as reported) | Loads with the package, so it is host-only too | — |
 
-1. Identify all list paths targeted by selected packs.
-2. For each list path, collect the set of entries contributed by selected packs that are
-   scoped **exclusively to non-jail notches** (e.g. `notches: ["host"]`).
-3. If `hostBytes` contains an array at that path, filter out any entry that exactly matches
-   a known non-jail pack contribution.
-4. Pass the sanitized `hostBytes` to `ComposeStateful`.
+### 4.6 What done looks like
 
-```
-hostBytes (/ctx/host-pi/settings.json)
-  ├── theme: "dark"
-  └── packages: ["kilo-provider", "pi-automode"]
-         │
-         ▼ [Prism List-Path Sanitizer: remove known host-only entries]
-sanitizedHostBytes
-  ├── theme: "dark"
-  └── packages: ["kilo-provider"]
-         │
-         ▼ [Compose Stateful Layer Stack]
-rendered jail ~/.pi/agent/settings.json
-  └── packages: ["kilo-provider"]  <-- pi-automode never enters the jail!
-```
-
-This ensures that:
-- Host Pi gets Auto Mode from `yolo host apply`.
-- Jail Pi gets only shared and jail-scoped packages.
-- User-added packages in `~/.pi/agent/settings.json` that do not match any host-only pack
-  declaration remain intact and are preserved in the jail.
-- No host-only entry is captured into `<workspace>/.yolo/prism/pi-settings.list-capture.json`.
+1. `yolo host apply` lists `pi/settings` with a list entry attributed to the contributing pack;
+   `yolo host apply --assert` writes it into `~/.pi/agent/settings.json` and into the insert
+   record — under an unset or `assert` `host_management` today, and under `own` after the
+   retirement.
+2. A fresh podman or Apple Container jail's `~/.pi/agent/settings.json` lacks the entry, and so
+   does a `macos-user` jail once [§4.3](#43-render-mark-parity-on-macos-user) lands.
+3. `yolo config ls pi --at host` shows the entry and `--at jail` does not; `yolo config render`
+   agrees.
+4. `yolo pack footprint` names the posture in the autonomy claim, and `yolo host apply`'s notch
+   line reports a fold.
+5. One test drives a managed home through the launcher's label and the boot read (gap 2).
+6. Each test fails when its production call site is deleted: the gate in `Collect`, the boot's
+   and the host apply's calls, and the `macos-user` label.
 
 ---
 
-## 5. Alternatives Considered
+## 5. Fastest path to the motivating case
 
-| Alternative | Description | Verdict |
-| :--- | :--- | :--- |
-| **A. `notches: ["host"]` on contributions (Proposed)** | Add an optional notch selector to `config-list` and `config-overlay`. | **Recommended.** Symmetrical, composable, supports both security gates and host-tool packages, follows `platforms` precedent. |
-| **B. `posture: "guarded"` selector** | Condition on the `AgentAutonomy` policy bit (`guarded` vs `autonomous`). | **Rejected as sole selector.** While Auto Mode is a permission gate, other host-only packages (e.g. 1Password integrations, host macOS notification extensions) need host scoping due to environment capabilities, not permission prompt policies. |
-| **C. Expand `kind: "autonomy"` to accept `config-list`** | Allow non-owning packs to declare `autonomy.guarded.lists = [...]`. | **Rejected.** Recreates the [`OQ-PT8`](../reference/providers.md#oq-pt8) container-kind antipattern. `autonomy` is exclusive to agent-owning packs (`CombineExclusive`). Nesting lists under autonomy breaks single-responsibility contribution kinds. |
-| **D. Mount host `list-record.json` into `/ctx/`** | Mount the host's rmw insertion record into the jail and subtract inserted entries during jail adoption. | **Rejected as overcomplicated.** Requires new cross-boundary bind mounts and coupling between host provenance storage and in-jail runtime. In-jail sanitization using staged pack manifests achieves the same guarantee with zero mount changes. |
-| **E. Lua transform hook** | Use a Lua `yolo.transform("pi", ...)` script on host apply. | **Rejected.** Lua transforms were deliberately removed from yolo's architecture (2026-09-24). Packs must remain declarative data. |
+**Goal:** pi-automode loads in host pi (through `yolo host apply`, IDE and direct launches
+included) and in no jail.
+
+1. **Posture lists (code; needs no new ruling).** Build [§4.1](#41-recommended-posture-lists-inside-autonomy):
+   the `lists` field, its validation, the gate in `Collect`, the rewritten inertness contract,
+   footprint and the notch line, with tests for decode, `Collect` at both bits, the jail boot,
+   `RenderHostPack` with its insert record, and `config ls`/`render` at both notches. Then the
+   docs, `just check-ci` and the nested-jail check. It is what [PV-OQ-1](../reference/providers.md#pv-oq-1)
+   and [OQ-11](yolo-as-environment-manager.md#9-decision-ledger) already prescribe;
+   [OQ-5](#OQ-5) only asks whether to depart from them. The review's estimate: 60–80 lines of
+   production Go, 200–250 of tests, half a day to a day.
+2. **The host, by hand (no ruling; about 15 minutes).**
+   1. `just install`, so the host yolo and the flake bundle both know the field.
+   2. Add the [§4.1](#41-recommended-posture-lists-inside-autonomy) contribution to the `matt`
+      pack.
+   3. Confirm `host_management` is unset, `assert` or `own` — not `none`.
+   4. `yolo host apply`, then `yolo host apply --assert`.
+   5. Start pi on the host once, then run `/automode model`.
+   6. Relaunch a jail and confirm the entry is absent.
+
+   On a podman or Apple Container host that finishes the job, because the mark keeps the host
+   file out of jails from the first assert on.
+3. **`macos-user` parity (code; no ruling; the review's estimate is 1–2 hours).**
+   [§4.3](#43-render-mark-parity-on-macos-user). Needed only on that backend, and without it a
+   `macos-user` jail gets automode.
+4. **The end-to-end test (code; no ruling; 2–3 hours).** Gap 2.
+
+**What gates what.** Nothing gates steps 1–4 unless [OQ-5](#OQ-5) amends the rulings for the
+modifier, in which case step 1 builds [§4.2](#42-the-first-drafts-modifier-corrected) instead:
+about the same size, with worse skew behavior. [OQ-3](#OQ-3) gates only a future host-only
+scalar, which automode does not need. [`OQ-PR1`](pack-pi-resources.md#OQ-PR1) and
+pi-git-extension-caching [OQ-6](pi-git-extension-caching.md#OQ-6) gate nothing here.
+
+**An interim with no code, container backends only.** After one `yolo host apply --assert` has
+left the mark, a `pi install` by hand on the host stays out of container jails, because the whole
+host file is a baseline there, and the rmw arm keeps it as the user's entry. It is not declarative,
+it leaks on `macos-user`, and it depends on the mark outliving the `assert` retirement.
 
 ---
 
-## 6. Risks and Mitigations
+## 6. Alternatives considered
+
+| Alternative | Verdict |
+| :--- | :--- |
+| **A. `notches` modifier on `config-list` and `config-overlay`** (the first draft's proposal) | **Not recommended.** It conflicts with [PV-OQ-1](../reference/providers.md#pv-oq-1) and env-manager [OQ-11](yolo-as-environment-manager.md#9-decision-ledger) as written, adds the notch-name edge [§6c](../reference/pack-system.md#batch-6c) rules out, fails open under skew, and changes `Collect`'s signature at every call site. Buildable if [OQ-5](#OQ-5) amends both rulings, and then as B |
+| **B. `posture: "guarded"` modifier on the same kinds** | **The fallback if [OQ-5](#OQ-5) amends the rulings** ([§4.2](#42-the-first-drafts-modifier-corrected)). The draft rejected it as the sole selector for host packages that need the host's environment rather than its permission policy (1Password, host notifications). No such case is shipped or reported; when one arrives, the predicate is a capability such as "a real home on the real filesystem", not a notch name |
+| **C. Posture `lists` inside `autonomy`** | **Recommended** ([§4.1](#41-recommended-posture-lists-inside-autonomy)), pending [OQ-5](#OQ-5). The draft's rejection rested on two facts that do not hold: `autonomy` is one declaration per pack that any pack may make, not reserved to agent-owning packs; and [OQ-PT8](../reference/providers.md#oq-pt8) moved `profile`'s config patch into gated contribution kinds, while [PV-OQ-1](../reference/providers.md#pv-oq-1) keeps `autonomy` a separate bundling kind on purpose |
+| **D. Mount the host's `list-record.json` and subtract** | **Moot.** The zero-mount signal it wanted already crosses as the launcher's `rendered` label ([`OQ-CR6`](../reference/config-target-resolution.md#oq-cr6)) |
+| **E. A Lua transform** | **Rejected.** Transforms were removed on 2026-09-11 (`2c5c84a1`, `e958ed96`); `luahook` is only the derive sandbox now, and [OQ-LT2](../reference/pack-system.md#oq-lt2) forbids a post-merge script slot |
+| **F. Sanitize the host bytes in the jail** (the first draft's second half) | **Rejected; moot on containers.** It filters bytes `hostSurfaceBytes` already discards under the label. In an unlabelled home it could only strip the user's own entry, against [`OQ-CR8`](../reference/config-target-resolution.md#oq-cr8). It is a second model of "which host bytes are yolo's" beside the mark, it knows only the selected packs' entries (so it misses a dropped pack's residue, which the mark covers), and it is a per-entry veto [the kind's limits](../reference/pack-system.md#config-list-limits) say does not exist |
+| **G. A guarded launch flag (`pi -e npm:…`)** | **Rejected.** `InjectLaunchFlags` asks for the autonomous posture only, and a flag misses IDE and direct launches |
+| **H. `host_management: own` plus `pi install` by hand** | **Not recommended.** Zero code, but the host capture stores `packages` as one whole array, which then shadows the contributing pack's own overlay from that day on |
+
+---
+
+## 7. Risks and mitigations
 
 | Risk | Impact | Mitigation |
 | :--- | :--- | :--- |
-| **User manually installs same package on host** | If a user manually added `@czottmann/pi-automode` to their host settings, in-jail sanitization strips it from the jail's host layer. | This is the desired behavior: the pack declared that this package must not run in jails. If the user explicitly wants it in a specific jail, they install it in-jail via `pi install`, which records an in-jail `list-capture` addition that outranks the host layer. |
-| **Typo in notch name** | `"notches": ["hosst"]` could silently fail to apply anywhere. | Strict validation in `packdecl`: any notch name not in `["jail", "host", "guest"]` causes a fatal load error. |
-| **Multiple notches specified** | Author specifies `notches: ["jail", "guest"]`. | Supported naturally by array membership check. |
-| **Repeated composition / idempotency** | `yolo host apply` run multiple times duplicates array entries. | Existing `config-list` deduplication (`entryKey` comparison) already prevents duplicate additions. |
+| **Skew widens a conditional entry** | With the modifier, an older entrypoint renders the list in every jail | The posture shape fails closed; either way, `just install` before the pack change (the host refuses the reverse order) |
+| **`macos-user` leaks until parity** | automode reaches those jails after an assert | [§4.3](#43-render-mark-parity-on-macos-user), step 3 of [§5](#5-fastest-path-to-the-motivating-case) |
+| **The `assert` retirement moves the default to `none`** | An unset home stops receiving the entry | Done conditions name `own`; the mark is durable |
+| **The inertness test goes red** | A reviewer reads the pinned contract as broken | Rewrite it to pin identities and ownership only, and add a test that fails when the gate is deleted |
+| **A user's own identical entry** | Removed by yolo? | Never: `ReconcileInsertedList` leaves an unrecorded entry alone (the sanitizer, F, would have stripped it) |
+| **A custom confinement with prompts on** ([env-manager §4.2](yolo-as-environment-manager.md#42-agent-autonomy-is-a-confinement-policy-not-baked-pack-config)) | Should get the gate | The posture shape gives it one; a notch-name match would not |
 
 ---
 
-## 7. Open Questions
+## 8. What this does not propose
 
-1. 💬 **OQ-1: Selector vocabulary — Confinement notch (`notches`) vs Autonomy posture (`postures`) vs both.**
-   Should the selector field be named `notches: ["host"]` (matching confinement levels `jail`, `guest`, `host`), `postures: ["guarded"]` (matching `autonomous`/`guarded`), or should both concepts be unified?
+- **No host-only scalar** in `pi/settings` or anywhere else ([OQ-3](#OQ-3)).
+- **No per-entry removal or veto** on a host-supplied array ([OQ-LT2](../reference/pack-system.md#oq-lt2)).
+- **No capability predicate** (host Docker, a keychain, notifications) until a real case exists.
+- **No change to which packs a notch selects**: `packs` stays one list.
+- **No escape hatch**, and no interaction with the credential gate.
 
-   <!-- vantage: oq id=OQ-1 leaning="notches: ['host'] (with singular 'notch': 'host' accepted). Yolo's user-facing dial is confinement (--at <notch>, confinement: <notch>). Non-security host tools care about the host environment, not permission prompts. For guest notch, autonomy is on by default, so host-only cleanly isolates unconfined execution." -->
+---
 
-   _Leaning:_ `notches: ["host"]` (with singular `"notch": "host"` accepted as syntactic sugar).
-   Yolo's primary boundary axis is the confinement notch (`render.Kind`). Host-specific tools
-   (e.g., extensions that talk to host Docker, native macOS keychains, or host notification daemons)
-   need host scoping because of host environment reach, not permission policies. The host notch
-   is currently the sole unconfined notch (`AgentAutonomy: false`), so `"host"` satisfies both
-   permission gates and host-environment packages.
+## 9. Open questions
 
-   **Answer:**
-   > _(empty — fill in when decided)_
+- 💬 <a id="OQ-3"></a>**OQ-3: Should posture-conditional content also reach `config-overlay`?**
+   The draft asked for `notches` on both kinds. In the recommended shape the equivalent question
+   is whether a posture's `config` may patch a surface another pack owns. That would activate
+   patches that today only produce a "folded nowhere" `FoldNote`, and it decides whether a
+   host-only scalar ever exists. The motivating case needs none: pi-automode keeps its own
+   settings in `~/.pi/agent/extensions/pi-automode/config.json` (its README, as reported).
 
-2. 💬 **OQ-2: Filtering host-only entries out of `readsHost` layers in the jail.**
-   When `pi/settings` declares `readsHost: true`, the host's `~/.pi/agent/settings.json`
-   (which contains host-applied packages) is mounted into the jail as `hostBytes`.
-   How should the in-jail renderer prevent host-applied entries from entering the jail base array?
+   <!-- vantage: oq id=OQ-3 leaning="Defer until a real case. The motivating case needs no host-only pi/settings scalar, and letting a posture's config reach another pack's surface would activate patches that today only emit a folded-nowhere note, which deserves its own ruling." -->
 
-   <!-- vantage: oq id=OQ-2 leaning="Sanitize hostBytes at known list paths using the staged pack declarations. The jail already holds all selected pack manifests; it knows exactly which entries are scoped non-jail. Stripping them from hostBytes at those paths before composition requires no new mounts or sidecar plumbing." -->
-
-   _Leaning:_ Sanitize `hostBytes` at list paths in `prism.go` using the staged pack declarations.
-   Because the jail already has the full pack manifests staged under `YOLO_PACK_ROOT`, it knows
-   every entry contributed with `notches: ["host"]`. Stripping matching entries from the
-   mounted host array before `ComposeStateful` ensures they never enter the layer fold,
-   cannot be captured by in-jail edits, and require no new host provenance mounts.
+   _Leaning:_ Defer until a real case arrives. Nothing in the motivating case needs it, and
+   widening the posture's `config` reach is a ruling of its own.
 
    **Answer:**
    > _(empty — fill in when decided)_
 
-3. 💬 **OQ-3: Symmetry — extending the selector to `config-overlay`.**
-   Should `config-overlay` receive the exact same `notches` modifier as `config-list`?
+- 💬 <a id="OQ-5"></a>**OQ-5: Do the rulings that put confinement-conditional content in `autonomy` hold for a non-owning pack's host-only entry?**
+   [PV-OQ-1](../reference/providers.md#pv-oq-1) (settled 2026-09-01) and env-manager
+   [OQ-11](yolo-as-environment-manager.md#9-decision-ledger) (2026-08-01) put confinement-conditional
+   content in `autonomy`. Since then the case has changed in two ways: the contributor does not
+   own the surface, and the content is an array append rather than a managed key. If the rulings
+   hold, step 1 builds [§4.1](#41-recommended-posture-lists-inside-autonomy). If they are amended,
+   it builds [§4.2](#42-the-first-drafts-modifier-corrected), a `posture` modifier on
+   `config-list` and `config-overlay`.
 
-   <!-- vantage: oq id=OQ-3 leaning="Yes. Symmetrical cross-pack contribution capabilities. A pack author configuring an agent on the host often needs to set host-specific settings (such as paths or local endpoints) in addition to package lists." -->
+   <!-- vantage: oq id=OQ-5 leaning="They hold: build posture lists inside autonomy. A permission gate is the content OQ-11 moved into autonomy, the shape needs no Collect signature change and no notch names in manifests, and an older in-jail reader drops a nested posture field where it would render a modifier-gated list unconditionally." -->
 
-   _Leaning:_ Yes. `config-overlay` and `config-list` are sibling contribution mechanisms
-   collected in `packoverlay.Collect`. Adding `notches` to both maintains architectural
-   symmetry and prevents a follow-up RFC when a pack needs a host-only scalar config setting.
-
-   **Answer:**
-   > _(empty — fill in when decided)_
-
-4. 💬 **OQ-4: Interaction with `yolo config` inspection commands.**
-   How should `yolo config ls` and `yolo config render` display notch-scoped contributions
-   when inspecting configuration?
-
-   <!-- vantage: oq id=OQ-4 leaning="Honor the target notch specified via --at <notch> (defaulting to cwd context). config ls shows contributions applicable to the selected notch, and notes inactive contributions as filtered by notch." -->
-
-   _Leaning:_ Respect the resolved `t.notch` in `internal/cli/config.go`. `yolo config ls --at host`
-   displays the host contributions as active; `yolo config ls --at jail` displays jail
-   contributions as active and marks host-only contributions as filtered.
+   _Leaning:_ They hold; build posture lists. A permission gate is exactly the content
+   [OQ-11](yolo-as-environment-manager.md#9-decision-ledger) put
+   in `autonomy`. The shape needs no `Collect` signature change and no notch names in manifests,
+   it keeps a permission gate in where the notch is unknown, and an older in-jail reader drops a
+   nested posture field, where it would render a modifier-gated list unconditionally.
 
    **Answer:**
    > _(empty — fill in when decided)_
 
 ---
 
-## 8. Decision Ledger
+## 10. Decision Ledger
+
+The `NS-D` rows are implementation decisions recorded rather than asked, each with one workable
+answer; `NS` is this file's name, notch-scoped.
 
 | ID | Ruling / Decision | Date | Settled in | Built |
 | :--- | :--- | :--- | :--- | :--- |
-| OQ-1 | Pending user ruling: `notches` selector on contributions | — | [§4.1](#41-manifest-syntax-the-notches-modifier) | — |
-| OQ-2 | Pending user ruling: In-jail `hostBytes` list-path sanitization | — | [§4.3](#43-sanitizing-readshost-list-paths-in-prismgo) | — |
-| OQ-3 | Pending user ruling: Symmetrical `notches` on `config-overlay` | — | [§4.1](#41-manifest-syntax-the-notches-modifier) | — |
-| OQ-4 | Pending user ruling: CLI inspection reflects resolved notch | — | [§7](#7-open-questions) | — |
+| OQ-1 | *Implementation decision*, under [§6c](../reference/pack-system.md#batch-6c) and [PV-OQ-1](../reference/providers.md#pv-oq-1). **The selector is the posture, not a notch name**, in one spelling (no `notch`/`notches` pair). `Collect` already receives the bit at every caller; a name would add a notch-name edge and a `packdecl`→`render` import cycle; at `KindUnset` the posture keeps a permission gate in where a `"host"` match drops it; and a custom confinement with prompts on gets the gate. Today posture and notch give the same answer at every shipped notch | 2026-09-27 | [§4.1](#41-recommended-posture-lists-inside-autonomy) | — |
+| OQ-2 | *Answered — moot.* Filtering host-only entries out of a `readsHost` layer: the render mark already delivers a managed home's host file as a baseline, not a layer, on podman and Apple Container. The residual `macos-user` leak is NS-D3. The sanitizer and the host-record mount are rejected ([§6](#6-alternatives-considered), D and F) | 2026-09-27 | [§3.2](#32-the-host-layer-is-already-a-baseline-on-container-backends) | ✅ `369c6f63` (containers) |
+| OQ-4 | *Answered — moot; the rest is NS-D1 and NS-D2.* `yolo config ls` and `yolo config render` already pass `render.ProfileFor(t.notch).AgentAutonomy`, so `--at host` and `--at jail` follow the gate with no change | 2026-09-27 | [§4.1](#41-recommended-posture-lists-inside-autonomy) | — |
+| NS-D1 | *Implementation decision.* The gate sits after the list decode and before the owner check; an unselected contribution is a clean skip (no problem, no orphan, no applied row), as the `profile` gate is | 2026-09-27 | [§4.1](#41-recommended-posture-lists-inside-autonomy) | — |
+| NS-D2 | *Implementation decision.* `yolo pack footprint` claims a gated list unconditionally and names the posture in the detail; `surveyNotchFacts.AutonomyFolds` counts posture lists | 2026-09-27 | [§4.1](#41-recommended-posture-lists-inside-autonomy) | — |
+| NS-D3 | *Implementation decision*, under [`OQ-CR6`](../reference/config-target-resolution.md#oq-cr6). `macos-user` computes `Rendered` with `hostLayerIsRender` in `buildMacosCtxTree` and emits `entrypoint.HostLayerWire` from `macosuser.hostLayerWire` | 2026-09-27 | [§4.3](#43-render-mark-parity-on-macos-user) | — |
