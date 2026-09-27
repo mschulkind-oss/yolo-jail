@@ -704,15 +704,20 @@ an agent plans around it.
    state this doc exists to argue for, arriving as its own worked example.
 
    > [!WARNING]
-   > **A smaller statement survives, and it is not "never delivered" — do not read the launch
-   > note as the old gap.** ONE thing is still true and still warned about: the copy is WRITABLE
-   > where every other backend's bind is `:ro`, so an agent here can edit its own skills and
-   > briefing and the next launch overwrites them. The second half — the destination home being
+   > **A smaller statement survived, and it was not "never delivered".** Until 2026-09-27 ONE
+   > thing stayed true and warned about: the copy was WRITABLE where every other backend's bind
+   > is `:ro`, so an agent here could edit its own skills and briefing and the next launch
+   > overwrote them. That closed with G14
+   > ([`../plans/setup-support-gaps.md`](../plans/setup-support-gaps.md)): the session's Seatbelt
+   > profile denies every write, rename and delete of what was copied, at the physical path in
+   > the workspace sidecar, and the launch note (`noteMacosUserContentGaps`) is retired —
+   > `HonoredBy` again, the kernel's refusal not yet measured on a Mac
+   > ([`../reference/macos-user-home-tiers.md`](../reference/macos-user-home-tiers.md#the-staged-skills-and-briefings-are-write-protected-at-the-path-the-kernel-sees)).
+   > The second half — the destination home being
    > machine-wide, so a second workspace launching while this one runs replaces them mid-session
    > — went when [`../reference/macos-user-home-tiers.md`](../reference/macos-user-home-tiers.md)'s
    > layout shipped: the
-   > destination is a symlink into that workspace's own sidecar now. `noteMacosUserContentGaps`
-   > ([`loopholeinert.go`](../../internal/cli/run/loopholeinert.go)) says the surviving half. Separately, `InstallHomeOverlay` warns rather than failing
+   > destination is a symlink into that workspace's own sidecar now. Separately, `InstallHomeOverlay` warns rather than failing
    > the boot when the staged tree is missing — an agent is better off starting with no skills
    > than not starting. This is the narrow surviving warning
    > [`macos-user-nix-and-features.md`](../reference/macos-user-nix-and-features.md)'s 2026-09-09 amendment

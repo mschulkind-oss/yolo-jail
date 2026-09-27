@@ -69,7 +69,7 @@ and the agent.
 | The stage's environment | `internal/macosuser` (`envfile.go`: `SandboxEnvFile`, `SandboxEnvFileContent`, `ExecWithEnvFile`) |
 | The generated script the stage execs | `internal/entrypoint` (`darwinstage.go`: `DarwinBootstrapScriptPath`, `GenerateDarwinBootstrapScript`) |
 | The per-workspace launch lock, reached through a seam | `internal/cli/run` (`flock.go`: `AcquireWorkspaceLockFor`) |
-| What still warns on this backend | `internal/cli/run` (`loopholeinert.go`: `noteMacosUserContentGaps`) |
+| What still warns on this backend | `internal/cli/run` (the `noteMacosUser*` printers: `loopholeinert.go`, `macosctxtree.go`, `jaildaemondecline.go`, `credentialnotes.go`) |
 | The nightly instrument | [`.github/workflows/macos-user.yml`](../../.github/workflows/macos-user.yml), `integration/macosuser*_test.go` |
 
 **Reads with:** [`nix-across-backends.md`](nix-across-backends.md) (what nix produces for each

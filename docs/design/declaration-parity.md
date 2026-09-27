@@ -439,7 +439,8 @@ The complete set of config keys `internal/macosuser` reads is `workspace_readonl
 (`macosuser.buildPlan`), `security` (`macosuser.securitySection`) and `macos_log`
 (`macosuser.macosLogMode`). The launcher's own notice block WAS
 `run.(*Options).noteMacosUserContentGaps` plus `run.(*Options).noteMacosUserHostByteGaps` —
-skills-and-briefings, `mcp_presets`, pack `reads-host` and source-bearing `host_files` — and
+skills-and-briefings, `mcp_presets`, pack `reads-host` and source-bearing `host_files` (the first
+retired on 2026-09-27 with G14, when the copied skills and briefings became write-protected) — and
 this paragraph ended *"Everything below is in neither list"*, **which is no longer true of
 DP-B1, DP-B2, DP-B3, DP-B4 or DP-B7.** That block has since grown four printers, every one called from the
 macos-user arm of `run.Run` and nowhere else (hoisting one would double-warn on a macOS podman
@@ -517,7 +518,7 @@ and no port is published today either way.
    backend cannot do"*).
 2. **`ports` and `forward_host_ports` are refused as KEYS, never as a launch, and only when
    non-empty.** Exact condition: `rt == "macos-user" && len(entries) > 0`, evaluated per key
-   beside `run.(*Options).noteMacosUserContentGaps`, one stderr line each; the briefing half
+   beside `run.(*Options).noteMacosUserContentGaps` (since retired, G14), one stderr line each; the briefing half
    comes free with [DP-L2](#6-alignable-with-the-mechanism-and-its-cost). Neither key has a
    default, so the notice cannot fire on a launch that never mentioned networking — which is
    what makes it safe where a `mode` refusal is not. `run.roBindsUnsupported` is the right

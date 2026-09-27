@@ -320,11 +320,15 @@ names it in an environment variable; the boot copies it over the sandbox home. I
 among the writers, because the per-surface writers above it create the agent home directories
 it copies into.
 
-Two properties are **permanent differences, not pending gaps**:
+Two properties were recorded here as **permanent differences**, and neither is one any more:
 
-- **The delivered files are WRITABLE**, where a container's bind is `:ro`. An agent here can
-  edit its own skills, and the next launch overwrites them again. That is recorded in the
-  launch warning rather than papered over.
+- **The delivered files are write-protected**, as a container's bind is `:ro`, since
+  2026-09-27. They were writable copies until then, and the launch warned. The session's
+  Seatbelt profile now denies every write, rename and delete of a delivered skills dir or
+  briefing at the physical path it lands at, and the directories above it may not be moved
+  aside ([`macos-user-home-tiers.md`](macos-user-home-tiers.md#the-staged-skills-and-briefings-are-write-protected-at-the-path-the-kernel-sees)).
+  ⚠ Linux pins the rules; that the kernel refuses is asserted by two Mac tests that have not
+  run yet.
 - **The destination is per-workspace**, and used to be the second permanent difference. It
   is not one any more: skills and briefings land under `<workspace>/.yolo/home` through the
   layout symlinks, so a second workspace launching concurrently no longer replaces what this

@@ -188,10 +188,12 @@ read it at project scope; it cannot touch a single byte under any home-scope ski
 **The workspace is the only place a jail-side answer can land**, and it is also the only
 agent-writable one — both halves of this design follow from that one line.
 
-Two backends weaken it and this design must not pretend otherwise: on `macos-user` the staged
-skills are **writable copies**, and on Apple Container below the read-only floor the skills
-bind lands writable onto the launcher's own staging dir
-([G14](../plans/setup-support-gaps.md)). Neither is changed here, in either direction.
+Apple Container weakens it and this design must not pretend otherwise: below the read-only
+floor the skills bind lands writable onto the launcher's own staging dir
+([G14](../plans/setup-support-gaps.md)). On `macos-user` the staged skills are copies, and were
+**writable copies** until 2026-09-27; G14's macos-user half made the session's Seatbelt profile
+refuse writes to them (the kernel's refusal not yet measured on a Mac). Neither is changed here,
+in either direction.
 
 ### 2.4 What yolo writes into a workspace today
 
@@ -300,7 +302,7 @@ destination.
 | Source dir absent or empty | Nothing staged, nothing said — the common case must be silent |
 | Source dir is a file, or unreadable | Skipped and named |
 | A skill dir with no `SKILL.md` | Copied as-is; what counts as a skill is the agent's business, as it is for every other layer today |
-| `macos-user` | Works through the same composed tree; the copies are writable there, as they are today ([G14](../plans/setup-support-gaps.md)) |
+| `macos-user` | Works through the same composed tree, so the copies are write-protected by the session profile like every other delivered skill ([G14](../plans/setup-support-gaps.md), since 2026-09-27) |
 | Host notch (`yolo host`) | **Never.** Writing a workspace's skills into the real `~/.<agent>/skills` is what [§6](#6-both-notches-honestly) rules out |
 
 > [!CAUTION]
@@ -441,7 +443,7 @@ answer differs by mechanism, not by wish.
 | Notch | Mechanism A | Mechanism B | What decides it |
 | :--- | :--- | :--- | :--- |
 | Container jail (`podman`, Apple Container) | yes | possible, redundant with A | [§2.3](#23-the-writability-asymmetry--measured): the home-scope dirs are yolo's `:ro` mounts |
-| `macos-user` | yes — same composed tree into the sidecar | yes | the workspace is a real path; skills are writable copies there today |
+| `macos-user` | yes — same composed tree into the sidecar | yes | the workspace is a real path; the delivered skills are copies, write-protected by the session profile since 2026-09-27 |
 | Host, `yolo host -- <agent>` | **no** | yes | below |
 | Host, `yolo host apply` | **no** | **no** | below |
 
@@ -486,8 +488,8 @@ and the read, because on the host yolo pre-trusts nothing. The cost is the one i
   ([`../reference/agent-briefings.md`](../reference/agent-briefings.md#skills)).
 - **No re-added layer that reads a destination.** The deleted `HostSource` stays deleted; a
   workspace dir is a source and never a destination ([§2.2](#22-what-yolo-composes-today)).
-- **No change to `macos-user`'s writable copies or Apple Container's floor** — G14 is its own
-  gap.
+- **No change to `macos-user`'s copies or Apple Container's floor** — G14 is its own gap (its
+  macos-user half built 2026-09-27).
 
 ## 8. Risks
 

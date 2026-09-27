@@ -527,8 +527,11 @@ The read-only mount is why an in-jail agent gets `Read-only file system` when it
 its own briefing: kernel-enforced and intentional. On Apple Container, single-file mounts under
 the home are unsupported, so the files are materialized under the workspace state dir instead —
 same content, different plumbing. On macos-user there are no mounts at all: the same staged tree
-is **copied** over the sandbox home, which is a real difference in kind (the copy is writable)
-and is recorded in that backend's launch warning rather than papered over.
+is **copied** over the sandbox home, and the session's Seatbelt profile write-protects the copy
+instead of a mount doing it — an edit, rename or delete of a delivered briefing or skills dir is
+refused at the path it physically lands at, since 2026-09-27
+([`macos-user-home-tiers.md`](macos-user-home-tiers.md#the-staged-skills-and-briefings-are-write-protected-at-the-path-the-kernel-sees);
+the kernel's refusal is not yet measured on a Mac).
 
 ## Skills
 
