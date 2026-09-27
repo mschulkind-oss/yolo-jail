@@ -57,6 +57,13 @@ The adopting-boot failure was reproduced through the same render at `38814ba4`, 
 [the clear on an adopting boot](#a-clear-holds-on-an-adopting-boot-too) describes is pinned the same
 way, newer than that stamp. UNMEASURED: no live agent session has been watched across a deselect.
 
+**The host notch's grant is newer too** (2026-09-27): the typed `-p` for any command, its
+disclosure wording and the `use_profiles` key refusal at `yolo host`, described under
+[the credential gate](#the-credential-gate), come from
+[`credential-sources-separation.md`](../design/credential-sources-separation.md) ES-D1 to ES-D5.
+MEASURED: pinned through `hostMain` by unit tests in `internal/cli`. UNMEASURED: no real host has
+run it.
+
 A **provider** is a declaration of a service's facts — where its endpoints are, which wire
 protocol each speaks, which model aliases it offers, which environment variable holds its
 credential, and which knobs ("options") a profile may tune. Providers compose into ONE table
@@ -322,13 +329,30 @@ Where each answer lands is the vehicle's:
   had values it cannot carry. `macosuser.buildPlan` no longer hydrates `env_sources` itself.
   A bare `yolo` starts a login zsh, which is no agent, so an agent started from that shell
   gets none of its profile's values ([`OQ-CN9`](../design/provider-credential-scope.md#OQ-CN9), open).
-- **The host notch.** `yolo host -- <agent>` composes one process: the shared values plus that
-  agent's. The shell it inherits is the user's and passes through untouched. `yolo host env`
-  prints the same one-agent slice for a shell to eval (`--agent`, default `claude`), and its
+- **The host notch.** `yolo host -- <cmd>` composes one process: the shared values plus that
+  command's. The shell it inherits is the user's and passes through untouched. `yolo host env`
+  prints the same one-command slice for a shell to eval (`--agent`, default `claude`), and its
   disclosure goes to stderr.
+  - **A typed `-p` applies to the command, whatever it is.** The one-process table is keyed by
+    the launched basename (`effectiveHostProfiles`), so `yolo host -p zai -- bash` hands `bash`
+    zai's claimed `env_sources` values, disclosed as `ZAI_API_KEY (provider zai): bash only`,
+    and `eval "$(yolo host env --agent bash -p zai)"` puts them in the current shell. An
+    ad-hoc command gets only those values: no pack's env derive runs for a name no pack
+    installs, and a CLI-less pack's gated env (`aws-auth`'s pointer) does not fire for it
+    ([`OQ-ES7`](../design/credential-sources-separation.md#OQ-ES7), open). The grant is per
+    invocation: a `use_profiles` key naming a command no resolvable pack installs is refused
+    here with the validator's message, as `yolo check` and every jail launch refuse it. The
+    jail's `-p` never keys the `--` command
+    ([ES-D1 to ES-D5](../design/credential-sources-separation.md#10-decision-ledger)).
+  - **Its disclosure says what this notch can do about it.** A withheld line names the typed
+    `-p` that would deliver it, with a declared profile that resolves to the claiming provider,
+    or says to declare one under `profiles` when none does. A withheld name the invoking shell
+    also exports is disclosed as not added by yolo, the shell's own value passing through,
+    because the command holds it anyway.
 
 Every arm discloses what it scoped or withheld, by name and never by value
-(`CredentialScope.Disclosure`). The files are readable by every process of the jail's uid, as
+(`CredentialScope.Disclosure`; the host notch adds its remedy and its shell note through
+`CredentialScope.DisclosureWith`). The files are readable by every process of the jail's uid, as
 the shared file is: the gate decides what each agent's **environment** carries, and an agent
 started by another agent inherits that agent's environment, as any child does.
 
@@ -726,8 +750,9 @@ never in a release, and redundant once `-p` carried both grammars.)
 > [!WARNING]
 > **The flag is parsed per notch, and only the run path takes the pair grammar.**
 > `applyProfileValue` is where `cli=name` is understood; `yolo host` and `yolo host env` parse
-> the flag in their own bodies and accept a bare profile NAME only — one notch runs one agent,
-> so there is nothing for a pair to key against. Neither host parser ever carried the timing
+> the flag in their own bodies and accept a bare profile NAME only — the host notch runs one
+> command, and the name keys that command whether or not a pack installs it, so there is nothing
+> for a pair to key against. Neither host parser ever carried the timing
 > meaning, so [OQ-PT5](#oq-pt5)'s split touched the run path alone: do not "unify"
 > them, the grammars differ because the notches do. The run path's help scan mirrors its parse
 > flag for flag, which is the other half of the split — `-p` consumes the next token there
@@ -939,7 +964,7 @@ that can be mistyped is checked against the right set, and each check is fatal:
 
 | Spelling | Checked against | Where |
 | :--- | :--- | :--- |
-| a `use_profiles` **key** | the CLI names every **resolvable** pack installs — selected or not | config validation (`yolo check` and every launch) |
+| a `use_profiles` **key** | the CLI names every **resolvable** pack installs — selected or not | config validation (`yolo check` and every launch); at the host notch, which never validates, the key selecting for the launched command (`yolo host --`, `yolo host env`), through the same rule and message (`config.UnknownUseProfileKey`) |
 | `-p <cli>=<name>` | the same namespace | launch preflight (`checkProfileTargets`) — a flag never reaches config validation |
 | a selected profile **name** | the declared set: selected packs' profiles plus the user's `profiles` | launch preflight, both notches |
 
@@ -947,9 +972,10 @@ The key check answers against the **universe**, not the selection: whether a str
 CLI is a fact about the packs this machine can resolve, while selection only decides whether a
 contribution renders. When the universe cannot be enumerated — a configured pack that does not
 resolve — the key check steps aside; that pack is refused on its own terms, first and louder. A
-**bare** `-p <name>` is not checked against anything but the declared set: it keys the name onto
-every CLI the selected packs install, never onto the command after `--`, so there is no CLI name
-in it to mistype.
+**bare** `-p <name>` is not checked against anything but the declared set: on the run path it keys
+the name onto every CLI the selected packs install, never onto the command after `--`, so there is
+no CLI name in it to mistype. At the host notch it keys the one command after `--`, whatever it is,
+which is the host's grant for an ad-hoc command ([the host notch](#the-credential-gate)).
 
 When anything is selected, the launch prints one line per distinct profile name: **DECLARED** —
 the selected packs shipping a profile of that name — and **RECEIVED** — every selected pack,

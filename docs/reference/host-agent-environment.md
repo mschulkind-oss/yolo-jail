@@ -14,7 +14,10 @@ summary: "The two channels that deliver a pack's environment to an agent running
 
 # Delivering environment to host agents — two channels and a wrapper directory
 
-**Status:** CURRENT as of 2026-09-09, verified against `38873c0d`.
+**Status:** CURRENT as of 2026-09-09, verified against `38873c0d`. The `-p` grant for an ad-hoc
+command (execution flow step 2, and the paragraph after it) is newer, from 2026-09-27
+([ES-D1 to ES-D5](../design/credential-sources-separation.md#10-decision-ledger)), and is pinned by
+unit tests through `hostMain`.
 
 Inside a jail, injecting environment is trivial: yolo controls the process spawn, so it passes
 `-e KEY=VAL` and PID 1 has the exact environment. On the host it controls nothing — the user
@@ -217,8 +220,12 @@ parsing to discover whether a verb was present at all.
 ### Execution flow
 
 1. **Locate the target binary** on the host `PATH`, **skipping yolo-managed directories**.
-2. **Resolve the pack configuration** — the active profile for the target pack, and its
-   effective `env` for the active workspace.
+2. **Resolve the pack configuration** — the active profile for the launched command, and its
+   effective `env` for the active workspace. The profile is a typed `-p`, else the command's
+   `use_profiles` entry. Either keys the command by its basename whether or not a pack installs
+   it, but a `use_profiles` key no resolvable pack installs is refused with the validator's
+   message, so for a command no pack installs only the typed flag selects
+   ([ES-D5](../design/credential-sources-separation.md#10-decision-ledger)).
 3. **Compose the process environment** — start from the current environment, hydrate
    `env_sources` (the secret channel), overlay the resolved `env`, then **apply removals**: a
    `null` is an `unset`, not an empty string. PATH is inherited whole today, so the target and
@@ -237,6 +244,14 @@ users. It emits POSIX `export` lines by default, with a JSON format for tooling.
 profile claims is not in it ([the credential gate](providers.md#the-credential-gate)), and the
 gate's disclosure goes to stderr, which an eval'ing shell does not read, naming what was
 withheld.
+
+**`-p` applies to the wrapped command, not only to an agent.** `yolo host -p zai -- curl …`
+hands `curl` the zai profile's claimed `env_sources` values, and
+`eval "$(yolo host env --agent bash -p zai)"` puts them in the current shell. That is the host's
+grant for an ad-hoc command, one invocation at a time. Each withheld line in the disclosure names
+it, with a declared profile resolving to the claiming provider, or says to declare one. A withheld
+name the invoking shell already exports is disclosed as not added by yolo, since the shell's value
+reaches the command anyway ([`providers.md`](providers.md#the-credential-gate)).
 
 ## apply reports actions, check reports state
 
@@ -304,7 +319,9 @@ exit.
   answer, `packload.ScopeCredentials` over this notch's one-agent table: a value a provider
   claims reaches the agent only when its profile selects that provider, and the launch says what
   it withheld ([`providers.md`](providers.md#the-credential-gate)). The shell the host notch
-  inherits is the user's and passes through untouched.
+  inherits is the user's and passes through untouched. The one table is keyed by the launched
+  command, so a typed `-p` makes an ad-hoc command a recipient; it is not an exemption from the
+  gate, because the command receives only its profile's claimed values.
 
 ## Why it's this way
 
@@ -336,5 +353,5 @@ explains what each of these is for; this table is the only place the values them
 | Wrapper set | every valid bin name a selected pack's `program` contributions install | `hostwrap.Bins` over `Pack.HonoredInstalls` |
 | `yolo host` verbs | `apply`, `env`, `wrappers` (**`status` only** — `enable`/`disable` were deleted 2026-09-22 and now refuse), and the `--` exec half | `internal/cli` (`hostMain`) |
 | `yolo host env` formats | `export` (default), `json` | `internal/cli` (`hostEnv`) |
-| Profile flag | `--profile <name>` / `-p <name>` | `internal/cli` (`parseHostExecFlags`) |
+| Profile flag | `--profile <name>` / `-p <name>`, keying the launched command by its basename, agent or not | `internal/cli` (`parseHostExecFlags`, `effectiveHostProfiles`) |
 | rc line writer | `yolo host apply --shell-init` | `internal/cli` (`runShellInit`) |

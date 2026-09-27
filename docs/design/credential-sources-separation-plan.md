@@ -1,8 +1,9 @@
 # Credential sources: implementation sketch
 
-**Status:** SKETCH, 2026-09-27. [§1](#1-ship-now-es-d1-to-es-d5) is ready: it rests on no open
-question. Everything after it is incomplete and blocked on the question it names. Codebase facts
-were verified at `8da7840d`.
+**Status:** SKETCH, 2026-09-27. [§1](#1-ship-now-es-d1-to-es-d5) is BUILT (2026-09-27; the
+design's [ledger](credential-sources-separation.md#10-decision-ledger) has the commits and the
+mechanism choices, ES-D6 to ES-D9). Everything after it is incomplete and blocked on the question
+it names. Codebase facts were verified at `8da7840d`.
 
 > **Precedence.** This sketch accompanies
 > [`credential-sources-separation.md`](credential-sources-separation.md). The design wins on
@@ -23,7 +24,7 @@ it, and `composeHostVars` step (2), `scope.EnvSourcesFor(agent)`, appends that p
 | `internal/cli/hostcredentialgate_test.go` | New cells over `hostGateLaunchWith`, with a non-agent basename (`bash`): see [§4](#4-tests-and-done-conditions) | ES-D1 |
 | `internal/cli/host.go`: `hostUsage` | The `-p` line says "wrapped command", and says an ad-hoc command receives that profile's claimed `env_sources` values | ES-D3 |
 | `internal/packload/credentialscope.go`: `CredentialScope.Disclosure` | Two wording changes at the host notch only. A withheld line names `yolo host -p <profile> -- <cmd>` (ES-D2). A withheld name that the invoking shell holds is worded as not added by yolo (ES-D4). Today `Disclosure` reads only `envSources` and knows nothing of the notch or the shell, while the host caller has `os.LookupEnv`. The implementer chooses the mechanism: a wording input on the scope, or host-side post-processing of the lines. The jail's lines must not change | ES-D2, ES-D4 |
-| `internal/cli/host.go`: `composeHostVars` | A `use_profiles` key for the launched basename that no selected pack installs is refused, with the validator's wording plus the `-p` spelling. A typed `-p` is exempt. "Installs" means `binOwner` over the packs `loadedHostPacks` resolved. The validator's own namespace, `config.UseProfileCLINames`, resolves the same selection | ES-D5 |
+| `internal/cli/host.go`: `composeHostVars` | A `use_profiles` key for the launched basename that no pack installs is refused, with the validator's wording plus the `-p` spelling. A typed `-p` is exempt. "Installs" means the validator's own namespace, `config.UseProfileCLINames`, which is every resolvable pack, selected or not; this row first said `binOwner` over the selected packs and claimed the two agree, which they do not ([ES-D9](credential-sources-separation.md#10-decision-ledger)) | ES-D5 |
 | `docs/reference/providers.md` (the host-notch bullet under "The credential gate") and `docs/reference/host-agent-environment.md` | State the grant and the `yolo host env --agent <name> -p <profile>` front door | ES-D3 |
 
 **Two traps:**
