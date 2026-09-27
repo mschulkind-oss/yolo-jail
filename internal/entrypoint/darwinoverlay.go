@@ -35,6 +35,12 @@ import (
 // own. The list names only the ROOTS the tree already spells; it is not a mapping from
 // staging names to home paths, so it is not the second implementation of the mount
 // assembler that macoshomeoverlay.go's header argues against.
+//
+// ⚠ AND IT REACHES A DESTINATION THROUGH NO LINK THE LAYOUT DID NOT LAY (G14). The session's
+// Seatbelt profile write-protects each destination at the path the layout lays, so a delivery
+// that followed any other link would land where no rule names it (overlayLinks.route). The
+// list is the same one the profile protects: WriteHomeOverlayManifest returns what it wrote,
+// and the host hands exactly that to the profile as macosuser.HomeOverlay.Dests.
 
 // HomeOverlayManifestName is the file at the root of a home overlay that lists its
 // destinations. It is read from the overlay root and never copied into the home: the
