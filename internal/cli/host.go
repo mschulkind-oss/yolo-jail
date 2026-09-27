@@ -434,7 +434,8 @@ func (c *hostComposition) processHolds() (inherited, composed func(string) bool)
 // receive them at this notch, a typed `-p` naming a declared profile that resolves to a
 // claiming provider — `yolo host -p <profile> -- <cmd>`, which keys the launched command
 // whatever it is (ES-D1). With no such profile it says to declare one, because `-p` takes a
-// profile name, never a provider's.
+// profile name, never a provider's. Either way the profile is one the named command can run
+// on (runsOn, ES-D10), so the line never names a launch that refuses.
 //
 // The front door decides the spelling: `yolo host --` names the command it was given, and
 // `yolo host env`, which launches nothing, names the ad-hoc slice for the shell beside the exec
