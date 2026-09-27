@@ -130,7 +130,8 @@ func (o *Options) hostFileArgs(in *assembleInput) []string {
 // reaches here can carry a host file, Apple Container by copying it into the home rather
 // than binding it. The macos-user arm produces its own report from its plan builder
 // (internal/macosuser/runplan.go): "supported" with the delivered list when the host CLI
-// staged a context tree, "unsupported" only when it staged none.
+// staged a context tree, "unsupported" only when it staged none — and, since render-mark
+// parity, the same `rendered` label, computed by buildMacosCtxTree with hostLayerIsRender.
 //
 // ⚠ NO BACKEND REPORTS "unsupported" UNCONDITIONALLY since DP-L1 shipped (2026-09-13).
 // This comment used to call macos-user "the one backend with no mechanism at all"; that
@@ -228,6 +229,11 @@ func (o *Options) hostMountArgs(in *assembleInput) []string {
 //
 // A grant that feeds no `readsHost` surface is never labelled: the destination list also
 // carries `host_files` and `mount` contributions, which are not config layers at all.
+//
+// TWO CALLERS, ONE ANSWER: hostFileArgs for the container backends and buildMacosCtxTree for
+// macos-user (render-mark parity, notch-scoped-config-contributions.md NS-D3). A second
+// predicate on the other backend is how one home would come to be a baseline in a container
+// and a layer in a sandbox.
 func hostLayerIsRender(p *packload.Pack, dest string) bool {
 	surfaces, probs := p.Surfaces()
 	if len(probs) > 0 {

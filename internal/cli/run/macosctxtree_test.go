@@ -10,6 +10,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/macosuser"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
+	"github.com/mschulkind-oss/yolo-jail/internal/render"
 )
 
 // DP-L1: the host bytes a `/ctx` mount carries on every other backend now cross on
@@ -157,6 +158,49 @@ func TestMacosUserLaunchClaimsNothingForAnAbsentHostFile(t *testing.T) {
 		t.Errorf("composed a tree at %s with nothing to put in it — a launch that carried "+
 			"no host bytes must say so by absence, or the host-layer report claims a "+
 			"delivery mechanism it did not use", ctx.Tree)
+	}
+}
+
+// RENDER-MARK PARITY, the launcher half (docs/design/notch-scoped-config-contributions.md
+// §4.3, NS-D3). Two launches of one home with the same delivered file, differing only in
+// whether yolo has rendered claude/settings into that home: the first is the user's own file
+// and is NOT labelled, the second is yolo's render and IS — read off the provenance mark with
+// the container launcher's own call (hostLayerIsRender), so a managed home is a baseline in a
+// sandbox exactly as it is in a container.
+//
+// Through a real Run(), for this file's standing reason: delete the call from
+// buildMacosCtxTree and the arm still reaches the handler, with nothing labelled. That was
+// the macos-user leak: a host-only entry `yolo host apply` wrote came back into the sandbox
+// as the user's layer.
+func TestMacosUserLaunchLabelsAHostFileYoloHasRendered(t *testing.T) {
+	home := ctxLaunchHome(t, "")
+	writeHostFileAt(t, filepath.Join(home, ".claude", "settings.json"), `{"theme":"mine"}`, 0o644)
+	want := packload.CtxRoot + "/host-claude/settings.json"
+
+	ctx, _ := runMacosUserCapturingCtx(t, t.TempDir(), nil)
+	if !containsString(ctx.Delivered, want) {
+		t.Fatalf("fixture: %s was not delivered at all (Delivered = %v)", want, ctx.Delivered)
+	}
+	if len(ctx.Rendered) != 0 {
+		t.Errorf("Rendered = %v in a home yolo has never rendered into — the sandbox would "+
+			"stop composing the settings file its user already has", ctx.Rendered)
+	}
+
+	// The one trace a writing host apply leaves, written through the Target that decides
+	// where it goes rather than a hand-joined path.
+	mark := render.Host(home, nil, render.OwnershipUnstated).ProvenancePath("claude", "settings")
+	writeHostFileAt(t, mark, "{}", 0o600)
+
+	ctx, _ = runMacosUserCapturingCtx(t, t.TempDir(), nil)
+	if !containsString(ctx.Rendered, want) {
+		t.Errorf("Rendered = %v, want it to name %s — yolo has rendered claude/settings into "+
+			"this home, and the sandbox would fold that render back in as the user's layer",
+			ctx.Rendered, want)
+	}
+	// A labelled path is still DELIVERED: the label says what arrived, not whether anything
+	// did, so the jail's fail-closed witness keeps its subject.
+	if !containsString(ctx.Delivered, want) {
+		t.Errorf("Delivered = %v lost %s once it was labelled", ctx.Delivered, want)
 	}
 }
 

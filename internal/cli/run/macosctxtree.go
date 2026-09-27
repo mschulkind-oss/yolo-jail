@@ -158,6 +158,16 @@ func (o *Options) buildMacosCtxTree(staging string, packs []*packload.Pack,
 					p.Name, hf.From, err)
 			}
 			out.ctx.Delivered = append(out.ctx.Delivered, dest)
+			// AND WHAT THOSE BYTES ARE — the container launcher's own question, asked with its
+			// own call (hostLayerIsRender, packhostgrants.go), so the two backends cannot read
+			// one home differently. A surface yolo has already rendered into this home is
+			// labelled a render, and the jail keeps it as a baseline instead of folding yolo's
+			// own keys and entries back in as the user's ([OQ-CR6]; render-mark parity,
+			// notch-scoped-config-contributions.md NS-D3). Without it this was the one backend
+			// on which a host-only entry `yolo host apply` wrote reached a jail.
+			if hostLayerIsRender(p, dest) {
+				out.ctx.Rendered = append(out.ctx.Rendered, dest)
+			}
 			wrote = true
 		}
 	}
@@ -226,6 +236,7 @@ func (o *Options) buildMacosCtxTree(staging string, packs []*packload.Pack,
 		return out, nil
 	}
 	sort.Strings(out.ctx.Delivered)
+	sort.Strings(out.ctx.Rendered)
 	out.ctx.Tree = tree
 	return out, nil
 }

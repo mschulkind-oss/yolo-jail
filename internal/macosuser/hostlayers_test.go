@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 )
@@ -77,5 +78,46 @@ func TestHostLayerReportIsTheShapeTheJailParses(t *testing.T) {
 				t.Errorf("wire %q does not carry the delivery field verbatim", wire)
 			}
 		})
+	}
+}
+
+// RENDER-MARK PARITY (docs/design/notch-scoped-config-contributions.md §4.3, NS-D3): the plan
+// carries the launcher's `rendered` label on the same wire, so the jail reads a managed home's
+// host file as a BASELINE here exactly as it does under a container ([OQ-CR6]).
+//
+// Read back through entrypoint's own reader, the one the boot render uses — a label the jail
+// cannot find is no label. And through packload's four-disposition reader too, unchanged: the
+// label is an ADDITION, so a reader that does not know it (an older jail) sees the delivery it
+// always saw. Marshal a bare packload.HostLayerReport here again and the first half fails:
+// that was the one backend on which a host-only entry `yolo host apply` wrote reached a jail.
+func TestHostLayerReportCarriesTheRenderLabel(t *testing.T) {
+	rendered := packload.CtxRoot + "/host-claude/settings.json"
+	userOwn := packload.CtxRoot + "/host-pi/settings.json"
+	hostCtx := deliveredCtx()
+	hostCtx.Delivered = []string{rendered, userOwn}
+	hostCtx.Rendered = []string{rendered}
+
+	wire, ok := argvEnvValue(planWithCtx(t, hostCtx).BootstrapArgv, packload.HostLayerEnvVar)
+	if !ok {
+		t.Fatalf("the bootstrap argv does not carry %s", packload.HostLayerEnvVar)
+	}
+	if got := entrypoint.HostLayerDispositionIn(wire, rendered); got != entrypoint.HostLayerRender {
+		t.Errorf("disposition of %s = %q, want %q — the sandbox would compose yolo's own "+
+			"render back in as the user's layer\nwire: %s", rendered, got, entrypoint.HostLayerRender, wire)
+	}
+	if got := entrypoint.HostLayerDispositionIn(wire, userOwn); got != packload.HostLayerDelivered {
+		t.Errorf("disposition of %s = %q, want %q — an unlabelled delivery is the user's own "+
+			"file and must still compose", userOwn, got, packload.HostLayerDelivered)
+	}
+	report, parsed := packload.ParseHostLayerReport(wire)
+	if !parsed || report.DispositionFor(rendered) != packload.HostLayerDelivered {
+		t.Errorf("the four-disposition reader no longer reads this wire (parsed=%v): %+v", parsed, report)
+	}
+
+	// No label to carry, no field on the wire: the value is byte-identical to the one the
+	// plan emitted before parity, for the overwhelmingly common home yolo never rendered into.
+	plain, _ := argvEnvValue(planWithCtx(t, deliveredCtx()).BootstrapArgv, packload.HostLayerEnvVar)
+	if strings.Contains(plain, "rendered") {
+		t.Errorf("a launch with nothing labelled emits a rendered field: %s", plain)
 	}
 }

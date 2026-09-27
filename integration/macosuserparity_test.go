@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
@@ -257,6 +258,19 @@ func TestMacosUserDeliversHostBytesByCopy(t *testing.T) {
 		`{"path": "~/.config/yolo-it-mu/probe.txt", "source": "~/yolo-it-mu-source.txt"}, `+
 		`{"path": "~/.config/yolo-it-mu-dir/", "source": "~/yolo-it-mu-srcdir/"}]}`)
 	home := os.Getenv("HOME")
+	// RENDER-MARK PARITY made this backend label a host layer yolo has rendered, as the
+	// container backends already did (notch-scoped-config-contributions.md NS-D3). So the
+	// MACHINE's host-render mark, linked into this isolated home through the shared state dir,
+	// would now drop the hand-written settings.json below as "yolo's own render" — and the
+	// self-hosted Mac runs as the maintainer's own account, whose home has been host-rendered
+	// (hostprovenanceisolation_test.go). TestAppleContainerReadsHostGrantArrives met the same
+	// shape on 2026-09-25 and took the same fix.
+	privateHostProvenance(t, home, hostHome)
+	if entrypoint.HostSurfaceRendered(home, claudeSettingsSurface) {
+		t.Fatalf("#14: this home still carries a host-render mark for claude/settings, so the " +
+			"launcher would drop its settings.json as yolo's own render — NOTHING WOULD BE " +
+			"MEASURED about #14 (privateHostProvenance did not take)")
+	}
 	for path, body := range map[string]string{
 		filepath.Join(home, ".claude", "settings.json"):       `{"yoloItReadsHostProbe": "` + nonce + `"}`,
 		filepath.Join(home, "yolo-it-mu-source.txt"):          "HOSTFILE-" + nonce,

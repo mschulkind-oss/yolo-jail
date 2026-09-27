@@ -109,6 +109,19 @@ type HostContext struct {
 	// right file at the WRONG path (measured 2026-09-05, a pack whose staged directory
 	// name was escaped).
 	Delivered []string
+	// Rendered is the subset of Delivered whose bytes are YOLO'S OWN RENDER: a `readsHost`
+	// surface a writing `yolo host apply` has already rendered into this home, which the
+	// launcher reads off the host provenance mark (run.hostLayerIsRender →
+	// entrypoint.HostSurfaceRendered). It crosses as entrypoint.HostLayerWire's `rendered`
+	// label, and the jail keeps such a copy as a BASELINE rather than composing it as the
+	// user's layer ([OQ-CR6], docs/reference/config-target-resolution.md) — so a key or an
+	// entry yolo wrote into the host file does not come back into the sandbox as the user's.
+	//
+	// The caller's to compute, for Delivered's reason and one more: the mark lives in the
+	// invoking user's state dir, and this package's plan builder reads no disk. The container
+	// launcher computes the same label with the same call (hostFileArgs), which is what keeps
+	// the two backends' readings of one home identical.
+	Rendered []string
 	// HostFiles are the user's SOURCE-BEARING `host_files` entries this launch RESOLVED —
 	// additive to the source-less ones the plan builder reads from the merged config,
 	// which is the only half a pure function may see.
@@ -1351,14 +1364,25 @@ func hostFilesWire(cfg *jsonx.OrderedMap, hostCtx HostContext) string {
 // that combination, so it would refuse every launch on this backend.
 //
 // Error-free for packload.HostLayersUnsupportedWire's reason: the report is a string and
-// a []string, which cannot fail to marshal.
+// []strings, which cannot fail to marshal.
+//
+// IT IS entrypoint.HostLayerWire, THE CONTAINER LAUNCHER'S TYPE, and not a bare
+// packload.HostLayerReport — render-mark parity (docs/design/notch-scoped-config-contributions.md
+// §4.3, NS-D3). The bare report has no field for the fifth disposition, so until this
+// marshalled the wire type a managed home's host file composed into the sandbox as the
+// user's layer here while every container backend kept it as a baseline: the one backend on
+// which a host-only entry `yolo host apply` wrote reached a jail. The wire embeds the report,
+// so every reader that knows only the four dispositions reads this value exactly as before.
 func hostLayerWire(ctxRoot string, hostCtx HostContext) string {
 	if ctxRoot == "" {
 		return packload.HostLayersUnsupportedWire()
 	}
-	wire, _ := packload.HostLayerReport{
-		Delivery:  packload.HostLayersSupported,
-		Delivered: hostCtx.Delivered,
+	wire, _ := entrypoint.HostLayerWire{
+		HostLayerReport: packload.HostLayerReport{
+			Delivery:  packload.HostLayersSupported,
+			Delivered: hostCtx.Delivered,
+		},
+		Rendered: hostCtx.Rendered,
 	}.Marshal()
 	return wire
 }
