@@ -324,7 +324,8 @@ The choices behind those rules, made while fixing G36:
    own parent**, not random names and not a directory elsewhere. A sibling is on the same
    filesystem, so `rename` is guaranteed to work, and a fixed name lets the next install clear a
    crash's leftovers without guessing which are its own. Two installs of one destination are
-   serialized by the per-workspace launch lock, which covers the bootstrap.
+   serialized by the per-workspace launch lock, which covers the bootstrap; a lock that cannot be
+   taken degrades to a warning here as it does for everything else it covers.
 4. *Implementation decision.* **One destination's failure does not stop the others**; every
    failure is reported together, the same rule `genStep` applies to generators. The boot still
    fails.
