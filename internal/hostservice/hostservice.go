@@ -64,6 +64,7 @@
 package hostservice
 
 import (
+	"crypto/rand"
 	"errors"
 	"io"
 	"log"
@@ -360,6 +361,16 @@ func ServeFrontedUnix(handler Handler, socketPath string, stop <-chan struct{}) 
 // UnlinkOnClose is OFF so a graceful shutdown cannot delete a path a successor
 // has already re-bound.
 //
+// THE PATH APPEARS ONLY ONCE IT ACCEPTS. bind() creates the socket file and listen()
+// comes after it, so a client that waits for the file and then dials can land in
+// between and be refused — measured at 113 of 3000 stat-then-dial attempts on
+// Linux, and it failed check-macos on f937d0fd (awsauthdaemon's handler test). So
+// the listener is bound and put in LISTEN under a sibling name of the same length
+// (a longer one could overflow sun_path where the real path fits, 104 bytes on
+// darwin), chmod'd, and then renamed onto socketPath: connect() resolves the path
+// to the socket, so the renamed socket answers at once, and "the file exists"
+// means "it is listening" for every caller that waits on it.
+//
 // Sharing the BIND is safe in a way that sharing the SERVE would not be, and the
 // distinction is the lesson of the note above ServeUnix: this helper produces a
 // listener and decides nothing about what arrives on it. The preamble decision
@@ -373,15 +384,50 @@ func bindUnixSocket(socketPath string) (*net.UnixListener, error) {
 		return nil, err
 	}
 
+	staged := stagingSocketPath(socketPath)
 	old := syscall.Umask(0o077)
-	ln, err := net.ListenUnix("unix", &net.UnixAddr{Name: socketPath, Net: "unix"})
+	ln, err := net.ListenUnix("unix", &net.UnixAddr{Name: staged, Net: "unix"})
 	syscall.Umask(old)
 	if err != nil {
 		return nil, err
 	}
 	ln.SetUnlinkOnClose(false)
-	_ = os.Chmod(socketPath, 0o600)
+	_ = os.Chmod(staged, 0o600)
+	if staged != socketPath {
+		if err := os.Rename(staged, socketPath); err != nil {
+			_ = ln.Close()
+			_ = os.Remove(staged)
+			return nil, err
+		}
+	}
 	return ln, nil
+}
+
+// stagingSocketPath names the sibling bindUnixSocket listens under before renaming it
+// onto socketPath: same directory, a basename of the SAME length (a dot and random
+// hex), and no existing file. A one-character basename has no room for a dot plus a
+// suffix, so it binds in place, as this package always did.
+func stagingSocketPath(socketPath string) string {
+	dir, base := filepath.Split(socketPath)
+	if len(base) < 2 {
+		return socketPath
+	}
+	for range 8 {
+		b := make([]byte, len(base))
+		if _, err := rand.Read(b); err != nil {
+			break
+		}
+		name := make([]byte, len(base))
+		name[0] = '.'
+		for i := 1; i < len(name); i++ {
+			name[i] = "0123456789abcdef"[b[i]%16]
+		}
+		candidate := filepath.Join(dir, string(name))
+		if _, err := os.Lstat(candidate); os.IsNotExist(err) {
+			return candidate
+		}
+	}
+	return socketPath
 }
 
 // ServeEndpoint publishes a loopback-TLS endpoint at endpointPath and serves it
