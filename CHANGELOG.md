@@ -76,7 +76,8 @@ only cost tokens and prompts in a jail. See [posture lists](docs/reference/pack-
   for them any more, and its sub-agents may use only those models. The older GPT-5 models are
   no longer offered; add one under `providers.openai-codex.models` in your config and it
   appears in every agent ([the `openai-codex` model list](docs/reference/providers.md#the-openai-codex-model-list)).
-  A list you scoped inside pi is kept. In a pi launched without `-p codex` that has no model
+  If pi does not know a model you add, it warns you once and offers it without thinking levels
+  or image input. A list you scoped inside pi is kept. In a pi launched without `-p codex` that has no model
   chosen yet, signing in to ChatGPT no longer picks one for you, because pi's own pick is a GPT-5
   model: choose one with `/model`.
 - `writable_home_dirs` and `host_files` refuse the paths of the packs you select, including packs

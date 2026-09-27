@@ -715,7 +715,9 @@ pack ships, and every agent that can use the provider renders that one list
 - **codex** starts on the profile's `model` or the first id;
 - **pi**'s extension registers exactly the list for `openai-codex`, read from a file yolo writes
   at every jail boot, with the cost, thinking and image facts taken from pi's own catalog. pi gets
-  no model scope for it, and its sub-agents may use only the listed ids. On the host,
+  no model scope for it, and its sub-agents may use only the listed ids. A listed model pi's
+  catalog does not know registers text-only, with no thinking levels, and pi warns once when
+  that happens ([ML-D7](../design/model-lists-and-pickers.md#ML-D7)). On the host,
   `yolo host apply` writes no list into that file, so pi keeps its own `openai-codex` models
   there ([ML-D8](../design/model-lists-and-pickers.md#ML-D8)).
 
