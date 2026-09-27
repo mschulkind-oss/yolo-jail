@@ -690,7 +690,7 @@ func TestPiEnabledModelsFollowTheSelectionRules(t *testing.T) {
 	t.Run("an active codex profile clears the scope an older yolo wrote", func(t *testing.T) {
 		r := newPiCodexRender(t)
 		r.render(t, `{"pi":"codex"}`)
-		r.simulatePreScopeRemovalBoot(t, oldCodexScope)
+		r.simulatePreScopeRemovalBoot(t, oldCodexScope, true)
 		if got := piEnabledModels(t, r.piSettings(t)); len(got) != len(oldCodexScope) {
 			t.Fatalf("the simulated older boot's file holds enabledModels %v, want the old scope", got)
 		}
@@ -718,12 +718,35 @@ func TestPiEnabledModelsFollowTheSelectionRules(t *testing.T) {
 	t.Run("an active codex profile keeps a scope the user edited", func(t *testing.T) {
 		r := newPiCodexRender(t)
 		r.render(t, `{"pi":"codex"}`)
-		r.simulatePreScopeRemovalBoot(t, oldCodexScope)
+		r.simulatePreScopeRemovalBoot(t, oldCodexScope, true)
 		mine := []any{"openai-codex/gpt-6-luna", "openai-codex/gpt-6-sol"}
 		r.editValue(t, piSettings, "enabledModels", mine)
 		r.render(t, `{"pi":"codex"}`)
 		if got := strings.Join(piEnabledModels(t, r.piSettings(t)), ","); got != "openai-codex/gpt-6-luna,openai-codex/gpt-6-sol" {
 			t.Errorf("after the upgrade boot enabledModels = %s, want the user's edited scope kept", got)
+		}
+	})
+	// THE UPGRADE FROM A RELEASE. v0.10.0 wrote codex's scope as a PLAIN computed key
+	// (packs/pi/derive.lua at that tag returns `enabledModels` beside `selection`), so no
+	// selection record names it and the deselect rule above never sees it. The upgrade boot
+	// recomposes settings.json from its layers, the file matching the last render (nothing
+	// was edited in the jail), and no layer asserts the key any more: it is gone. This is
+	// the path every user coming from a published version takes.
+	t.Run("an active codex profile drops the scope a release wrote as a computed key", func(t *testing.T) {
+		r := newPiCodexRender(t)
+		r.render(t, `{"pi":"codex"}`)
+		r.simulatePreScopeRemovalBoot(t, oldCodexScope, false)
+		if got := piEnabledModels(t, r.piSettings(t)); len(got) != len(oldCodexScope) {
+			t.Fatalf("the simulated release boot's file holds enabledModels %v, want the old scope", got)
+		}
+		r.render(t, `{"pi":"codex"}`)
+		settings := r.piSettings(t)
+		if got := piEnabledModels(t, settings); got != nil {
+			t.Errorf("after the upgrade boot enabledModels = %v, want the release's computed scope gone", got)
+		}
+		if settings["defaultProvider"] != "openai-codex" || settings["defaultModel"] != "gpt-6-sol" {
+			t.Errorf("the upgrade moved the pair: %v/%v, want openai-codex/gpt-6-sol",
+				settings["defaultProvider"], settings["defaultModel"])
 		}
 	})
 }
@@ -748,10 +771,12 @@ func newPiCodexRender(t *testing.T) *pioencodeRender {
 }
 
 // simulatePreScopeRemovalBoot rewrites the state one boot left behind into what a yolo that
-// still wrote codex's enabledModels would have left: the list in settings.json, the same
-// bytes as the last_render sidecar (so nothing reads as an in-jail edit), and the list in
-// the selection record as yolo's own write.
-func (r *pioencodeRender) simulatePreScopeRemovalBoot(t *testing.T, scope []any) {
+// still wrote codex's enabledModels would have left: the list in settings.json and the same
+// bytes as the last_render sidecar (so nothing reads as an in-jail edit). recorded says
+// which older yolo: true puts the list in the selection record as yolo's own write, the
+// shape between the key moving under the selection and its removal; false leaves the record
+// alone, the shape v0.10.0 left, which wrote the key as a plain computed one.
+func (r *pioencodeRender) simulatePreScopeRemovalBoot(t *testing.T, scope []any, recorded bool) {
 	t.Helper()
 	settings := r.piSettings(t)
 	settings["enabledModels"] = scope
@@ -766,6 +791,9 @@ func (r *pioencodeRender) simulatePreScopeRemovalBoot(t *testing.T, scope []any)
 		if err := os.WriteFile(path, out, 0o644); err != nil {
 			t.Fatalf("write the simulated render to %s: %v", path, err)
 		}
+	}
+	if !recorded {
+		return
 	}
 	recPath := prismSelectionRecordPath(r.e, "pi", "settings")
 	raw, err := os.ReadFile(recPath)
