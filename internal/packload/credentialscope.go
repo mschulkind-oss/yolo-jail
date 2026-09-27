@@ -357,13 +357,34 @@ func (d *AgentDelivery) Empty() bool {
 // only — never a value. §4's "no silent narrowing": a launch that withholds a credential
 // says so, and one that scopes it says to whom. Nil when env_sources hydrated no claimed
 // name, which is every launch that configured no provider credential.
+//
+// It is the jail notch's wording: DisclosureWith and no notes.
 func (s *CredentialScope) Disclosure() []string {
+	return s.DisclosureWith(DisclosureNotes{})
+}
+
+// DisclosureNotes is what one notch adds to the gate's disclosure, for a fact the gate cannot
+// know: how a withheld credential can be received there. The zero value adds nothing, and is
+// the jail's wording, which docs/design/credential-sources-separation.md ES-D2 leaves unchanged
+// until OQ-ES5 decides whether a jail shell has a remedy at all.
+type DisclosureNotes struct {
+	// Remedy words how a withheld group's names can be received, given the providers that
+	// claim them (sorted), as a sentence appended to that group's line. "" appends nothing.
+	// The host notch names its typed `-p` (ES-D2).
+	Remedy func(claimants []string) string
+}
+
+// DisclosureWith is Disclosure with a notch's notes applied. Names are grouped by claimant
+// and recipients, so each line tells one story.
+func (s *CredentialScope) DisclosureWith(notes DisclosureNotes) []string {
 	if s == nil {
 		return nil
 	}
 	type group struct {
-		providers, recipients string
-		names                 []string
+		claimants  []string
+		providers  string
+		recipients string
+		names      []string
 	}
 	var order []string
 	groups := map[string]*group{}
@@ -378,7 +399,8 @@ func (s *CredentialScope) Disclosure() []string {
 				recipients = append(recipients, agent)
 			}
 		}
-		g := &group{providers: strings.Join(claimants, ", "), recipients: strings.Join(recipients, ", ")}
+		g := &group{claimants: claimants, providers: strings.Join(claimants, ", "),
+			recipients: strings.Join(recipients, ", ")}
 		key := g.providers + "\x00" + g.recipients
 		if existing, ok := groups[key]; ok {
 			existing.names = append(existing.names, k)
@@ -396,12 +418,19 @@ func (s *CredentialScope) Disclosure() []string {
 	for _, key := range order {
 		g := groups[key]
 		names := strings.Join(g.names, ", ")
-		if g.recipients == "" {
-			lines = append(lines, "  "+names+" (provider "+g.providers+"): withheld from "+
-				"every process — no agent in this launch selected it")
-			continue
+		switch {
+		case g.recipients == "":
+			line := "  " + names + " (provider " + g.providers + "): withheld from " +
+				"every process — no agent in this launch selected it"
+			if notes.Remedy != nil {
+				if remedy := notes.Remedy(g.claimants); remedy != "" {
+					line += ". " + remedy
+				}
+			}
+			lines = append(lines, line)
+		default:
+			lines = append(lines, "  "+names+" (provider "+g.providers+"): "+g.recipients+" only")
 		}
-		lines = append(lines, "  "+names+" (provider "+g.providers+"): "+g.recipients+" only")
 	}
 	return lines
 }

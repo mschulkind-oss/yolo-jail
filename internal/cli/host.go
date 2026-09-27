@@ -17,6 +17,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/render"
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
+	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 )
 
 const hostUsage = `yolo host — configure and launch coding agents on the HOST
@@ -344,6 +345,13 @@ type hostComposition struct {
 	// inputs. vars were composed from it; the pre-flight narrows by it and the exec path
 	// discloses it. Nil only when the composition refused before reaching the gate.
 	scope *packload.CredentialScope
+	// resolved is the launch's resolved profile table — every declared profile and the
+	// provider it selects — which the disclosure's remedy reads to name a profile that would
+	// deliver a withheld credential (credentialRemedy).
+	resolved map[string]packload.ResolvedProfile
+	// command is the command as the user typed it after `--`, for the remedy to spell back;
+	// empty for `yolo host env`, which launches nothing.
+	command string
 }
 
 // selectedProviders is the provider this launch's agent selected, as the narrowed
@@ -355,13 +363,77 @@ func (c *hostComposition) selectedProviders() []string {
 	return c.scope.SelectedProviders()
 }
 
-// credentialScopeLines is the gate's disclosure for this launch (packload's wording, the
-// jail notch's lines), nil when nothing the user configured was scoped.
+// credentialScopeLines is the gate's disclosure for this launch, nil when nothing the user
+// configured was scoped. It is packload's wording, the jail notch's lines, plus what only this
+// notch can say: a withheld line names the typed `-p` that would deliver it
+// (credentialRemedy; docs/design/credential-sources-separation.md ES-D2).
 func (c *hostComposition) credentialScopeLines() []string {
 	if c.scope == nil {
 		return nil
 	}
-	return c.scope.Disclosure()
+	return c.scope.DisclosureWith(packload.DisclosureNotes{Remedy: c.credentialRemedy})
+}
+
+// credentialRemedy is ES-D2's remedy for a group of withheld names: the one existing way to
+// receive them at this notch, a typed `-p` naming a declared profile that resolves to a
+// claiming provider — `yolo host -p <profile> -- <cmd>`, which keys the launched command
+// whatever it is (ES-D1). With no such profile it says to declare one, because `-p` takes a
+// profile name, never a provider's.
+//
+// The front door decides the spelling: `yolo host --` names the command it was given, and
+// `yolo host env`, which launches nothing, names its own `--agent` beside the exec spelling
+// for the same agent.
+func (c *hostComposition) credentialRemedy(claimants []string) string {
+	cmd := c.command
+	if cmd == "" {
+		cmd = c.agent
+	}
+	cmd = shquote.Quote(cmd)
+	profile := remedyProfile(c.resolved, claimants)
+	if profile == "" {
+		example := "<name>"
+		if len(claimants) > 0 {
+			example = claimants[0]
+		}
+		return fmt.Sprintf("No declared profile selects %s: declare one under `profiles` in %s "+
+			"(for example `%q: {\"provider\": %q}`), then run `yolo host -p %s -- %s`",
+			strings.Join(claimants, " or "), paths.UserConfigPath(), example, example,
+			shquote.Quote(example), cmd)
+	}
+	p := shquote.Quote(profile)
+	if c.command == "" {
+		return fmt.Sprintf("To receive it, select a profile that claims it: "+
+			"`yolo host env --agent %s -p %s` for this shell, `yolo host -p %s -- %s` for one launch",
+			cmd, p, p, cmd)
+	}
+	return fmt.Sprintf("To hand it to %s for one launch: `yolo host -p %s -- %s`", cmd, p, cmd)
+}
+
+// remedyProfile is the declared profile the remedy names for a group claimed by claimants:
+// the one named after a claiming provider when it resolves to that provider (every shipped
+// provider ships one), and otherwise the first, by name, that resolves to any claimant. ""
+// when no declared profile selects any of them — a provider the user declared under
+// `providers` with no `profiles` entry beside it.
+func remedyProfile(resolved map[string]packload.ResolvedProfile, claimants []string) string {
+	for _, p := range claimants {
+		if packload.ProviderFor(resolved, p) == p {
+			return p
+		}
+	}
+	var names []string
+	for name, r := range resolved {
+		for _, p := range claimants {
+			if r.Provider == p {
+				names = append(names, name)
+				break
+			}
+		}
+	}
+	if len(names) == 0 {
+		return ""
+	}
+	sort.Strings(names)
+	return names[0]
 }
 
 // environ applies the composition over the environment this process inherited — the env
@@ -423,7 +495,9 @@ func composeHostLaunch(bin, profile string, warn func(string)) *hostComposition 
 		workspace = "."
 	}
 
-	return composeHostVars(cfg, workspace, agent, profile, warn)
+	c := composeHostVars(cfg, workspace, agent, profile, warn)
+	c.command = bin
+	return c
 }
 
 // hostEnvVars is the composition itself, without the inherited environment — the
@@ -538,6 +612,7 @@ func composeHostVars(cfg *jsonx.OrderedMap, workspace, agent, profile string, wa
 	// a ctx.via_url nothing serves. packload.ViaInert clears the address, and ViaURLFor, the
 	// predicate both notches' derive paths ask, answers "" for every agent.
 	resolvedProfiles = packload.ViaInert(resolvedProfiles)
+	c.resolved = resolvedProfiles
 	if profileName != "" {
 		declared := packload.DeclaredProfileNames(packs, userProfiles)
 		if i := sort.SearchStrings(declared, profileName); i >= len(declared) || declared[i] != profileName {

@@ -239,3 +239,40 @@ func TestCredentialScopeDisclosureNamesOnly(t *testing.T) {
 		t.Errorf("a launch that hydrated no claimed credential discloses nothing, got %v", lines)
 	}
 }
+
+// A notch's Remedy is appended to each WITHHELD line and to no other, and is handed the
+// group's claimants; with no notes the lines are Disclosure's, which is the jail's wording
+// (credential-sources-separation.md ES-D2 leaves it unchanged).
+func TestCredentialScopeDisclosureRemedyReachesWithheldLinesOnly(t *testing.T) {
+	scope, err := ScopeCredentials(ScopeInput{
+		Providers:  twoProviders(t),
+		Profiles:   map[string]string{"pi": "zai-profile"},
+		Resolved:   map[string]ResolvedProfile{"zai-profile": {Provider: "zai"}},
+		EnvSources: hydrated("ZAI_API_KEY", "secret-z", "ROUTE_BEARER", "secret-b"),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := strings.Join(scope.DisclosureWith(DisclosureNotes{}), "\n"),
+		strings.Join(scope.Disclosure(), "\n"); got != want {
+		t.Errorf("no notes must be the plain disclosure:\n%s\nwant:\n%s", got, want)
+	}
+	var asked [][]string
+	got := scope.DisclosureWith(DisclosureNotes{Remedy: func(claimants []string) string {
+		asked = append(asked, claimants)
+		return "Try -p for " + strings.Join(claimants, "+")
+	}})
+	joined := strings.Join(got, "\n")
+	if !strings.Contains(joined, "ROUTE_BEARER (provider routes): withheld from every process — "+
+		"no agent in this launch selected it. Try -p for routes") {
+		t.Errorf("the withheld line must carry the remedy:\n%s", joined)
+	}
+	for _, l := range got {
+		if strings.Contains(l, "pi only") && strings.Contains(l, "Try -p") {
+			t.Errorf("a delivered line names no remedy: %q", l)
+		}
+	}
+	if len(asked) != 1 || strings.Join(asked[0], ",") != "routes" {
+		t.Errorf("the remedy is asked once, for the withheld group's claimants: %v", asked)
+	}
+}
