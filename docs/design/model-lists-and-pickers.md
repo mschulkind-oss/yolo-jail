@@ -10,10 +10,12 @@ vantage:
 
 # Which model ids yolo ships, how an org shapes the list, and what each picker shows
 
-**Status:** DESIGN, 2026-09-25. Nothing here is built. MEASURED at `ee8154f2` (2026-09-24): a
-pack's provider `models` is a flat alias → id map; the object form of a model is user config
-only; `packs/claude/derive.lua` and `packs/pi/derive.lua` hard-code three GPT-6 ids for the
-`openai-codex` provider; packs/claude's `bedrock` provider declares no `models`. SOURCED
+**Status:** DESIGN, 2026-09-25, with one piece BUILT on 2026-09-27: the `openai-codex` list is
+declared once, in [`packs/openai-auth/pack.json`](../../packs/openai-auth/pack.json), and every
+consumer reads it ([ML-D1](#ML-D1) to [ML-D5](#ML-D5)). The rest is not built. MEASURED at
+`ee8154f2` (2026-09-24): a pack's provider `models` is a flat alias → id map; the object form of
+a model is user config only; `packs/claude/derive.lua` and `packs/pi/derive.lua` hard-coded the
+`openai-codex` ids then; packs/claude's `bedrock` provider declares no `models`. SOURCED
 2026-09-25 from AWS's model cards: the Anthropic-on-Bedrock geographic prefixes are `us.`, `eu.`,
 `au.`, `jp.` and `global.`, and the set differs per model
 ([§5.3](#53-the-prerequisite-verify-before-an-id-ships)). UNMEASURED: whether Claude Code's
@@ -31,8 +33,11 @@ current.
 - **Ruled 2026-09-25:** yolo picks model ids where an agent cannot just default, and ships them
   in a built-in pack that comes with yolo, not in core ([OQ-BR3](#OQ-BR3)). That also answers
   provider-switching's "does yolo ship the ids?" ([OQ-PSW3](#OQ-PSW3)).
-- **Built:** nothing of this design. Today's model lists are per-pack alias maps plus two
-  hard-coded GPT-6 lists ([§3](#3-what-exists-today)).
+- **Built, 2026-09-27:** the `openai-codex` list moved into data, in the provider's own pack.
+  That is [OQ-ML1](#OQ-ML1)'s option (b), and the question stays open
+  ([ML-D1](#ML-D1)). pi writes no model scope for it any more ([ML-D2](#ML-D2)). Nothing else of
+  this design is built. Every other model list is a per-pack alias map
+  ([§3](#3-what-exists-today)).
 - **Moved here on 2026-09-25**, with their ids unchanged: [OQ-BR3](#OQ-BR3) and
   [OQ-BR12](#OQ-BR12)–[OQ-BR15](#OQ-BR15) from [`bedrock-plumbing.md`](bedrock-plumbing.md), and
   [OQ-PSW1](#OQ-PSW1) and [OQ-PSW3](#OQ-PSW3) from the retired `provider-switching.md`.
@@ -146,17 +151,24 @@ MEASURED at `ee8154f2`, 2026-09-24, unless marked.
   contribution in `internal/packdecl/contributes.go`. The object form of a model, with `name`,
   `context_window`, `cost`, `reasoning`, `input` and `max_tokens`, is user config only
   (`knownModelKeys` in `internal/config/config.go`). That set has no `description` field.
-- **Two derives hard-code the same three GPT-6 ids, plus 1M context options alongside each model type, for `openai-codex` only.** In
-  `packs/claude/derive.lua`, `availableModels` lists `gpt-6-sol`, `gpt-6-sol[1m]`, `gpt-6-astra`,
-  `gpt-6-astra[1m]`, `gpt-6-luna`, `gpt-6-luna[1m]` (the default first, so Claude Code's Default row
-  resolves to Sol), with `enforceAvailableModels`; `modelPicker.options` lists the top 6 in the same
-  Sol-first order (Sol, Sol 1M, Astra, Astra 1M, Luna, Luna 1M), with labels and descriptions
-  ("Balanced", "Frontier", "Fast", and their "· 1M context" variants), and `replaceBuiltInOptions`. In
-  `packs/pi/derive.lua`, `enabledModels` lists the same models and their 1M context options
-  (`openai-codex/gpt-6-sol`, `openai-codex/gpt-6-sol[1m]`, `openai-codex/gpt-6-astra`,
-  `openai-codex/gpt-6-astra[1m]`, `openai-codex/gpt-6-luna`, `openai-codex/gpt-6-luna[1m]`), with the
-  selected default leading and a subagent `modelScope.allow` of `openai-codex/gpt-6-*`. For every other
-  provider pi renders `enabledModels` from the provider's `models` map, sorted.
+- **The `openai-codex` list is one declaration** (BUILT 2026-09-27, [ML-D1](#ML-D1); until then
+  `packs/claude/derive.lua` and `packs/pi/derive.lua` each hard-coded it, and pi's extension
+  carried a third copy that had drifted from both). The `openai-codex` provider in
+  [`packs/openai-auth/pack.json`](../../packs/openai-auth/pack.json) declares its ids with an
+  order, a name, a description, a context window, and whether each has a 1M-context variant,
+  which every consumer lists right after its base as `<id>[1m]`. The consumers:
+  - claude: `availableModels` with `enforceAvailableModels`, `modelPicker.options` with
+    `replaceBuiltInOptions`, and the env that pins the start model and the retained Default row.
+    Its output is byte-identical to the literals it replaced;
+  - codex: `model`;
+  - pi: the `defaultProvider`/`defaultModel` pair, and pi-subagents' `modelScope.allow` as the
+    exact ids ([ML-D5](#ML-D5));
+  - pi's extension, which registers exactly the list, from a data file yolo renders
+    ([ML-D3](#ML-D3)).
+
+  The first declared id is the default wherever the profile names no model. pi writes no
+  `enabledModels` for `openai-codex` ([ML-D2](#ML-D2)). For every other provider pi renders
+  `enabledModels` from the provider's `models` map, sorted with the default first.
 - **No pack can add to or narrow another pack's provider list.** `KindProvider` combines
   exclusively. `config-list` appends to a list but cannot narrow one, and refuses a `profile` gate
   (`internal/packdecl`, `configlist_test.go`).
@@ -191,7 +203,7 @@ The ruling's test is whether the agent can pick if yolo says nothing. Candidates
 | Bedrock runtime × opencode | its default for `amazon-bedrock` is unread | UNMEASURED | **yes until measured**, then drop if opencode's own default is callable |
 | claude everything profile | claude's built-in options are Anthropic names; it has no idea a Kimi or GPT id exists | [OQ-BR11](bedrock-plumbing.md#OQ-BR11); claude 2.1.282 | **yes** |
 | copilot through the bridge | `COPILOT_MODEL` unset: copilot has no Bedrock catalog | `packs/copilot/derive.lua` | **yes** (the first callable entry of the same list) |
-| `openai-codex` × claude, pi | already shipped as hard-coded picks ([§3](#3-what-exists-today)) | derive source | **yes, already**; they move into data ([§8](#8-rendering-the-effective-list-into-each-picker)) |
+| `openai-codex` × claude, pi, codex | already shipped as picks, and since 2026-09-27 in data: one declaration on the provider, in its own pack ([§3](#3-what-exists-today), [ML-D1](#ML-D1)) | [`packs/openai-auth/pack.json`](../../packs/openai-auth/pack.json) | **yes, already**, in data |
 | claude native profile (`bedrock`) | Claude Code resolves its own tier words to Anthropic models, older ones on Bedrock | vendor docs, 2026-09-04 | **no** under the leaning: the family is right |
 | first-party `anthropic` provider × claude | Claude Code's own current defaults | — | **no** |
 | gateway packs (OpenRouter, Kilo) | the user curates, per [OQ-GP2](gateway-provider-packs.md#decision-ledger) | — | **no** |
@@ -398,7 +410,7 @@ Each derive writes the effective list into its own agent's picker ([OQ-BR13](#OQ
 | Agent | Picker surface | Notes |
 | :--- | :--- | :--- |
 | claude | `modelPicker.options`, `availableModels` | `availableModels` puts the resolved default first, then the rest in list order; `modelPicker` uses list order |
-| pi | `enabledModels` | a soft shortlist, never a boundary: Tab shows every credentialed model ([`provider-credential-scope.md`](provider-credential-scope.md#241-what-pis-enabledmodels-actually-constrains)) |
+| pi | `enabledModels`; for `openai-codex`, the registered catalog itself | `enabledModels` is a soft shortlist, never a boundary: Tab shows every credentialed model ([`provider-credential-scope.md`](provider-credential-scope.md#241-what-pis-enabledmodels-actually-constrains)). For `openai-codex` yolo writes none: the extension registers exactly the declared list, so pi's "all" view is that list ([ML-D2](#ML-D2)) |
 | opencode | its provider `whitelist` | per the research pass |
 | oh-omp | `models.yml` | not installed here; unverified |
 | codex | `model_catalog_json` | format unread, so codex gets the selection only until it is read |
@@ -414,12 +426,14 @@ Rules:
   list's entries beside them.
 - **`enforceAvailableModels` is set only when an `only` narrowed the list.** A list that merely
   adds must never lock a user out of the agent's built-in choices. `openai-codex` keeps its
-  enforcement with no exception: the picks pack states that list as an `add` plus an `only` over
-  the same three ids.
-- **The hard-coded GPT-6 lists move into data** ([§5.1](#51-its-shape)), and the rendered
-  `openai-codex` output stays byte-identical, pinned by a test that fails when the derive's call
-  site is deleted. pi's subagent `modelScope.allow` wildcard is policy, not a list, and stays in
-  the derive; the test pins it too.
+  enforcement with no exception: the picks pack would state that list as an `add` plus an `only`
+  over the declared ids.
+- **The GPT-6 lists moved into data** (BUILT 2026-09-27, [ML-D1](#ML-D1)): into the provider's
+  own pack rather than the picks pack of [§5.1](#51-its-shape). claude's rendered `openai-codex`
+  output stayed byte-identical, and a test fails when any consumer's read of the declaration is
+  replaced by a literal. Two outputs changed on purpose: pi writes no `enabledModels` for it
+  ([ML-D2](#ML-D2)), and pi-subagents' `modelScope.allow` is the exact declared ids, not a
+  wildcard ([ML-D5](#ML-D5)).
 
 **The model must be in the menu.** DIR-BR2's *"I want to use Kimi in Claude through Bedrock by
 just choosing it in the menu"* ([bedrock-plumbing ledger](bedrock-plumbing.md#decision-ledger))
@@ -513,7 +527,9 @@ through each provider's own pack ([OQ-ML1](#OQ-ML1) option (b)).
 
 1. **The `models` kind** with `alias` and `description` ([OQ-BR12](#OQ-BR12),
    [§7.3](#73-two-fields-the-entry-shape-is-missing)), then **picker rendering**, moving the
-   GPT-6 lists into data under the byte-identical test ([OQ-BR13](#OQ-BR13)).
+   GPT-6 lists into data under the byte-identical test ([OQ-BR13](#OQ-BR13)). The move itself
+   is BUILT (2026-09-27), into the provider's own pack rather than a `models` kind
+   ([ML-D1](#ML-D1)); a `models` kind would take over that declaration.
 2. **The picks pack** ([OQ-ML1](#OQ-ML1)), with the cases [OQ-ML2](#OQ-ML2) rules, each id dated;
    Anthropic ids only after the prefix check ([§5.3](#53-the-prerequisite-verify-before-an-id-ships)).
    provider-switching's three-line `models` map for claude's native `bedrock` provider lands here
@@ -531,7 +547,8 @@ through each provider's own pack ([OQ-ML1](#OQ-ML1) option (b)).
    claude's, pi's and opencode's pickers, each filtered to what that agent can call. copilot's
    `COPILOT_MODEL` is the first entry it can call.
 2. The `openai-codex` pickers render byte-identically to today after the GPT-6 lists move into
-   data, and the test fails if the render's call site is deleted.
+   data, and the test fails if the render's call site is deleted. Met for claude on 2026-09-27;
+   pi's changed on purpose, since it gets no scope for `openai-codex` ([ML-D2](#ML-D2)).
 3. `yolo check` warns about an id no installed catalog knows. With no agent installed, it says it
    could not check.
 4. A provider declaring only `default` produces one warning naming the two missing aliases, and a
@@ -712,13 +729,22 @@ through each provider's own pack ([OQ-ML1](#OQ-ML1) option (b)).
 | :--- | :--- | :--- | :--- | :--- |
 | OQ-BR3 | **yolo picks model ids where an agent cannot default, and ships them in a built-in pack that comes with yolo, not in core.** *"in cases where we can't just fall to the default by just not having an opinion and letting the agent pick … I do want to pick these … let's actually ship this in core some way … a built-in pack (it's not in core per se but it comes with [yolo]) with these that tries to pick these different models."* Moved from [`bedrock-plumbing.md`](bedrock-plumbing.md), id kept. Narrows [OQ-GP2](gateway-provider-packs.md#decision-ledger) (note made there) and, in letter, [agent-auth-modes OQ-3](agent-auth-modes.md#12-decision-ledger) (note owed there) | 2026-09-25 | [§5](#5-the-picks-pack) | — |
 | OQ-PSW3 | **Answered by [OQ-BR3](#OQ-BR3)'s ruling: yolo ships the ids, in a built-in pack.** Moved from the retired `provider-switching.md`, where it was `PS3` before the rename noted at the top of this doc. The Anthropic-on-Bedrock geo-prefix verification stays a build prerequisite, not a question; which cases get ids is [OQ-ML2](#OQ-ML2) | 2026-09-25 | [§5.3](#53-the-prerequisite-verify-before-an-id-ships) | — |
+| <a id="ML-D1"></a>ML-D1 | *Implementation decision.* **The `openai-codex` model list is declared once, on the provider, in [`packs/openai-auth/pack.json`](../../packs/openai-auth/pack.json), and every consumer reads it.** That pack is the provider's only owner, and pi, claude and codex each `needs` it unconditionally, so it is in every launch that has a consumer. The composed provider entry is also the only way pack data reaches a derive, whose sandbox has no `io` and no `require`. **Shape:** `models` maps each alias to an identical id, as `packs/zai` does, so a profile's `model` means the same thing read as an alias or as an id. Only wire-true base ids are declared: `[1m]` is a client spelling that Claude Code, the extension's request hook and the wire bridge each strip. **Facts**, in `model_options`: `order`, because the map is unordered all the way from the Go map through the composed table to Lua's `pairs`; `name`; `description`; `context_window`; and `long_context_window`, meaning the model has a 1M-context variant. The default is the lowest `order`. There are no provider `options`, because declaring any turns on the profile-option census and would refuse user `codex` profiles that pass today. There is no `default` alias, because it would repeat an id every lister then has to drop. **Expansion:** one helper, copied verbatim into the claude, pi and codex derives because a derive cannot load another file, with a test failing when the copies differ. This builds [OQ-ML1](#OQ-ML1) option (b); ML1, [OQ-BR12](#OQ-BR12) and [OQ-BR13](#OQ-BR13) stay open, and ruling (a) later moves only the declaration, since every consumer reads the composed `openai-codex` entry. The three ids are the GPT-6 entries of pi-ai 0.87.1's own `openai-codex` catalog, each at a 272,000-token window, read 2026-09-27 | 2026-09-27 | [§3](#3-what-exists-today) | ✅ `e139d01d` |
+| <a id="ML-D2"></a>ML-D2 | *Implementation decision.* **pi writes no `enabledModels` for `openai-codex`.** The maintainer, 2026-09-27: *"So I just want them aligned for the moment, or we can just stop filling in scoped so there's only all. I don't actually need both of them right now."* The extension registers exactly the declared list ([ML-D3](#ML-D3)), so pi's "all" view for `openai-codex` is that list, and a scope could only restate it. pi 0.87.1 shows its Scope toggle only when the scoped list is non-empty (`ModelSelectorComponent`), and with no scope a fresh session starts on the saved `defaultProvider`/`defaultModel` pair (`findInitialModel`). **Existing jails need no migration code:** the selection's per-key deselect rule ([OQ-PSW2](../reference/providers.md#oq-psw2)) clears the list an older yolo recorded, with the codex profile still active, and notes it in `boot.log` ([OQ-PSW4](../reference/providers.md#oq-psw4)). A list the user or pi's save-as-default edited is kept. v0.10.0 wrote the scope as a plain computed key that no record names, and a jail it booted loses the list too: the upgrade boot recomposes the file from its layers, and none asserts the key any more. The log line used to give the reason "the profile that set it is no longer selected", false on this path, and now says "yolo's selection no longer sets it". **What it rules against:** it narrows the letter of [OQ-CN4](provider-credential-scope.md#OQ-CN4) for `openai-codex`, whose menu narrowing in pi is now the registered catalog rather than `enabledModels`, and supersedes, for `openai-codex` only, CN-D17's *"pi's `enabledModels` is unchanged"* (CN-D20 in [that ledger](provider-credential-scope.md#7-decision-ledger)) and [pi-model-selection-ux §4](../research/pi-model-selection-ux.md#4-recommendation). Every other provider keeps its scope; the non-codex arms render it from the same `models` map as their catalog rows | 2026-09-27 | [§8](#8-rendering-the-effective-list-into-each-picker) | ✅ `f8d05a0c`; the v0.10.0 upgrade pinned `2e95a042` |
+| <a id="ML-D3"></a>ML-D3 | *Implementation decision.* **pi's extension reads the list from a data file yolo renders, and takes every pi-dialect fact from pi's own catalog.** The file is a computed JSON surface, `pi/codex-models`, at `~/.pi/agent/yolo-openai-codex-models.json`: beside `extensions/`, outside pi's extension discovery and outside the extension's own read-only delivery. It renders on every launch, with or without a profile, because the extension registers the provider on every launch. Each entry carries the id, a variant's `base`, the name and the context window. The extension looks each one up with `getBuiltinModel("openai-codex", base ?? id)`, imported from `@earendil-works/pi-ai/providers/all` (an alias pi's extension loader installs), and overrides id, name and context window: the consumer translates ([OQ-CS4](../reference/providers.md#oq-cs4)), so yolo no longer re-copies pi-ai. The catalog entry's address fields are dropped, so the registration alone says where requests go. An id pi's catalog lacks gets pi's own models.json defaults (`modelFromJson`). A missing, malformed or empty file registers no `models`, so pi keeps its built-in catalog and login never depends on the file. MEASURED 2026-09-27 by loading the shipped extension through pi 0.87.1's own `loadExtensions` with an isolated home, no CLI and no session: the import resolves, `gpt-6-sol[1m]` gets its base's facts at a 1,000,000-token window, an unknown id gets the defaults, and no file registers no `models`. The six GPT-6 definitions it registers equal, field for field, the ones the hand copy carried, so pi's cost, thinking and image behavior for them is unchanged. **Rejected channels:** an env var, which composes nothing without a profile while the extension always registers; a `models.json` row, the shadow [OQ-2](pi-codex-provider-shadowing.md#10-decision-ledger) forbids and which the extension's layer would override anyway; parsing `YOLO_PROVIDERS` in JavaScript, a second copy of the expansion reading an internal transport; and rendering the extension itself from Lua, which gives up its read-only files delivery | 2026-09-27 | [pi-codex-provider-shadowing §2.2](pi-codex-provider-shadowing.md#22-pi-pi-coding-agent) | ✅ `e139d01d` |
+| <a id="ML-D4"></a>ML-D4 | *Implementation decision.* **The GPT-5.x models are gone from pi's `openai-codex` list.** The extension registered five GPT-5.x ids only because pi-ai's catalog had been copied into it by hand in `e2f7bb89`: a registration replaces a provider's model list, and cannot add to it. claude's list and pi's scope had already dropped them as superseded (`2f11de95`). **Getting one back** takes one alias in the declaration, with its `model_options` for order, name and a 1M variant, or one alias in your own config, `providers.openai-codex.models` (`"gpt-5.6-sol": "gpt-5.6-sol"`). A model added in your config lists after the declared ones, with no 1M variant, since `order`, `description` and `long_context_window` are declaration facts the user's model entry does not take. Either way it appears in claude's picker too | 2026-09-27 | [§3](#3-what-exists-today) | ✅ `e139d01d` |
+| <a id="ML-D5"></a>ML-D5 | *Implementation decision.* **pi-subagents' `modelScope.allow` for `openai-codex` is the declared ids, exactly**: `openai-codex/<id>` for each entry, 1M variants included. It replaces the hand-written `openai-codex/gpt-6-*` glob, which was the family written down a third time. pi-subagents 0.35.1's `globToRegExp` escapes `[` and `]` before it turns `*` into a wildcard (`src/runs/shared/model-scope.ts`), so an id ending in `[1m]` matches literally. `enforce` and `strict` are unchanged. An empty list writes no `modelScope`, since an enforced, strict, empty allow would refuse every child model | 2026-09-27 | [§8](#8-rendering-the-effective-list-into-each-picker) | ✅ `e139d01d` |
 
 ---
 
 ## 16. Evidence
 
 **Repo**: every code claim is in [§3](#3-what-exists-today), cited by symbol and measured at
-`ee8154f2` (2026-09-24). The `needs` join rule is
+`ee8154f2` (2026-09-24), except the `openai-codex` list, measured at `f8d05a0c` (2026-09-27). The
+test that keeps every consumer on its declaration is
+[`codex_model_list_test.go`](../../internal/entrypoint/codex_model_list_test.go), and its tier
+in a real `-p codex` launch is
+[`integration/codex_model_list_test.go`](../../integration/codex_model_list_test.go). The `needs` join rule is
 [`wire-bridge.md`'s](../reference/wire-bridge.md#needs--a-conditional-pack-dependency).
 
 **claude 2.1.282** (`~/.local/share/claude/versions/2.1.282`), 2026-09-24, MEASURED presence
@@ -733,6 +759,13 @@ Bedrock, and `ANTHROPIC_DEFAULT_*_MODEL` repoints them
 ([model configuration](https://code.claude.com/docs/en/model-config);
 [Claude Code model configuration](https://support.claude.com/en/articles/11940350-claude-code-model-configuration)).
 Read against 2.1.261, the version installed then.
+
+**pi 0.87.1 and pi-subagents 0.35.1**, 2026-09-27, read and loaded, never run as a CLI: pi-ai's
+`getBuiltinModels("openai-codex")` lists GPT-6 Sol, Astra and Luna at 272,000 tokens beside five
+GPT-5.x ids; `findInitialModel` (`core/model-resolver.js`) takes the scoped list first and the
+saved default second; `ModelSelectorComponent` starts on "scoped" only when the scoped list is
+non-empty; pi-subagents' `globToRegExp` escapes brackets. The extension was loaded through pi's
+own `loadExtensions` with an isolated home ([ML-D3](#ML-D3)).
 
 **Model catalogs**, 2026-09-24: pi-ai 0.87.1's `dist/providers/data/amazon-bedrock.json` holds
 165 entries, all `bedrock-converse-stream` (MEASURED count; 0.85.1 holds 121). opencode 1.18.32's

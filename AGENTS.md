@@ -30,9 +30,11 @@ only blocked-tool refusals. `rg -l '"kind": "program"' packs/*/pack.json` is the
 Anything in this corpus saying "the six" names the agent SUBSET from when it had six members. Two
 structural facts, not guessable from a manifest:
 
-- `openai-auth` declares the `openai-codex` PROVIDER (capabilities-only — no endpoint, no credential
-  pointer) rather than an agent pack owning it, because `claude` and `pi` each ship a `codex` profile
-  selecting it and both `needs` it.
+- `openai-auth` declares the `openai-codex` PROVIDER (its capabilities, its Responses endpoint and
+  the subscription's ONE model list — no credential pointer) rather than an agent pack owning it,
+  because `claude`, `codex` and `pi` each ship a `codex` profile selecting it and all `needs` it.
+  Every consumer renders that list, so a model is added there and nowhere else
+  ([ML-D1](docs/design/model-lists-and-pickers.md#ML-D1)).
 - `wire-bridge` is the only `kind: "service"` pack — one in-jail daemon and its endpoint file, joined to a
   launch by any SELECTED pack whose `needs` names it. `packs/claude` names it UNCONDITIONALLY, so a bare
   `"packs": ["claude"]` gets it; `cerebras` and `kilo` name it only when their `when_bins` lists `claude`

@@ -426,7 +426,10 @@ Two consequences to know:
 [`OQ-CN4`](../design/provider-credential-scope.md#OQ-CN4) is each agent's own key:
 opencode's derive writes `enabled_providers: [<selected provider>]` beside its selected model;
 claude's single `ANTHROPIC_BASE_URL` already reaches one provider per launch; pi's
-`enabledModels` is a soft shortlist and restricts nothing.
+`enabledModels` is a soft shortlist and restricts nothing. For `openai-codex` pi gets no
+`enabledModels` at all: its extension registers exactly
+[the declared list](#the-openai-codex-model-list), so pi's view of that provider is the list
+([ML-D2](../design/model-lists-and-pickers.md#ML-D2)).
 
 ## The canonical wire_api vocabulary
 
@@ -690,8 +693,9 @@ it differently from every other provider:
   it were someone else's API.
 - **The selection is `model` alone, never `model_provider`**, so codex runs on its own login. The
   value is the profile's `model` option as written, not an alias looked up in a `models` map,
-  and a derive default when the profile names none or names `default` (see
-  [Current values](#current-values)).
+  and the first id of [the declared list](#the-openai-codex-model-list) when the profile names
+  none or names `default`. With that list emptied it writes no `model`, and codex starts on its
+  own default.
 - **A switch from a third-party provider clears the stale `model_provider`.** The selection stops
   naming that key, so the per-key rule above clears the value yolo wrote for the previous
   provider. Nothing special-cases it.
@@ -700,6 +704,37 @@ codex's pack declares `openai-responses` among the protocols its program speaks,
 protocol the `openai-codex` entry serves, so pointing codex at it resolves like any other pairing
 ([`protocol-resolution.md`](protocol-resolution.md)).
 
+### The `openai-codex` model list
+
+The subscription's models are declared once, on the `openai-codex` provider the `openai-auth`
+pack ships, and every agent that can use the provider renders that one list
+([ML-D1](../design/model-lists-and-pickers.md#ML-D1)):
+
+- **claude** offers exactly the list in its picker and allows nothing else, and starts on the
+  profile's `model` or the first id;
+- **codex** starts on the profile's `model` or the first id;
+- **pi**'s extension registers exactly the list for `openai-codex`, read from a file yolo writes
+  at every boot, with the cost, thinking and image facts taken from pi's own catalog. pi gets no
+  model scope for it, and its sub-agents may use only the listed ids.
+
+A declared model that has a 1M-context variant lists it right after itself, as `<id>[1m]`. The
+suffix is the clients' spelling for the long-context request, and each strips it before the
+model id reaches the service.
+
+To change the list, override the provider's `models` in your config, the same per-field merge
+every shipped provider takes. A `null` removes a model, and a new alias adds one after the
+declared ones, with no 1M variant:
+
+```jsonc
+{
+  "providers": {
+    "openai-codex": { "models": { "gpt-5.6-sol": "gpt-5.6-sol", "gpt-6-luna": null } }
+  }
+}
+```
+
+Removing the first model moves every agent's default to the next one.
+
 ## Per-agent delivery
 
 What each agent actually receives, from one composed table and one selection:
@@ -707,7 +742,7 @@ What each agent actually receives, from one composed table and one selection:
 | Agent | Catalog | Selection |
 | :--- | :--- | :--- |
 | codex | `~/.codex/config.toml` `[model_providers.<id>]` (TOML); never a row for `openai-codex` | top-level `model_provider` + `model`; `model` alone for `openai-codex` ([above](#selecting-openai-codex-for-codex)) |
-| pi | `~/.pi/agent/models.json` `providers.<id>` (JSON; credential as `apiKey: "${VAR}"` config-value syntax) | `~/.pi/agent/settings.json` `defaultProvider` + `defaultModel` (a pair of bare ids), and `enabledModels` (the scoped list, default first) |
+| pi | `~/.pi/agent/models.json` `providers.<id>` (JSON; credential as `apiKey: "${VAR}"` config-value syntax); never a row for `openai-codex`, whose models the extension registers from [the declared list](#the-openai-codex-model-list) | `~/.pi/agent/settings.json` `defaultProvider` + `defaultModel` (a pair of bare ids), and `enabledModels` (the scoped list, default first), which is not written for `openai-codex` |
 | opencode | `~/.config/opencode/opencode.json` `provider.<id>` — `baseURL`/`apiKey` live UNDER `options` | top-level `model = "<provider>/<model>"` |
 | omp | `~/.oh-omp/agent/models.yml` `providers.<id>` (YAML; credential as the provider's env-var NAME, which oh-omp resolves before treating it as a literal) | **none** — the derive writes a catalog and no selection key, so a selected profile makes the provider *available* and the user chooses it inside the agent |
 | copilot | no catalog (BYOK is env-var-only; no copilot config file has provider keys) | process env from the copilot pack's env derive: `COPILOT_PROVIDER_BASE_URL` (the sole activation gate), `COPILOT_PROVIDER_TYPE`, `COPILOT_PROVIDER_WIRE_API` (openai type only), `COPILOT_MODEL` (required — a provider with no resolvable alias composes nothing at all), `COPILOT_PROVIDER_API_KEY` (a placeholder for a keyless loopback endpoint), `COPILOT_PROVIDER_MAX_PROMPT_TOKENS` ← the provider's `context_window` option |
@@ -1146,9 +1181,10 @@ row says what replaced it.
 
 ## Current values
 
-Verified at `7ad8358c`, except the four deselection rows (the clear's log line, the boot log,
-the id-writing surfaces with a host layer, and codex's `openai-codex` default), which were
-verified at `38814ba4`. The prose above explains what each is for; this table is the only
+Verified at `7ad8358c`, except the deselection rows for the boot log and the id-writing
+surfaces with a host layer, verified at `38814ba4`, and the rows the `openai-codex` model list
+touched (the clear's log line, codex's `openai-codex` default, the list and pi's copy of it),
+verified at `f8d05a0c`. The prose above explains what each is for; this table is the only
 place the exact spellings are stated.
 
 | Value | Setting | Defined in |
@@ -1162,7 +1198,9 @@ place the exact spellings are stated.
 | Deselection clear's log line | `selection: cleared <agent>/<surface> <key> (was <value as JSON>): yolo's selection no longer sets it`, one per cleared key whose value left the file, the value cut at 200 bytes with a trailing `…`. A key is cleared when its profile is deselected, or when a derive stops naming it while the profile stays active | `entrypoint.noteSelectionClears` |
 | Where that line goes | `<workspace>/.yolo/boot.log` (the previous boot's is `boot.log.prev`); never the terminal | `entrypoint.bootLogName`, `Env.note` |
 | Id-writing surfaces with a host layer | pi's `settings` (`~/.pi/agent/settings.json`) only; codex's `config.toml` and opencode's `opencode.json` declare no `readsHost` | `packs/{pi,codex,opencode}/pack.json` |
-| codex's model for `openai-codex` | the profile's `model` option; `gpt-6-sol` when the profile names none or names `default` | `packs/codex/derive.lua` |
+| codex's model for `openai-codex` | the profile's `model` option; the first declared `openai-codex` id when the profile names none or names `default` (`gpt-6-sol` as shipped); no `model` when the list is empty | `packs/codex/derive.lua` |
+| The `openai-codex` model list | ids `gpt-6-sol`, `gpt-6-astra`, `gpt-6-luna` in that order, each with a `[1m]` variant at 1,000,000 tokens after it; declared as `models` (alias = id) plus `model_options` facts `order`, `name`, `description`, `context_window`, `long_context_window` | `packs/openai-auth/pack.json` |
+| pi's copy of that list | `~/.pi/agent/yolo-openai-codex-models.json`, the computed surface `pi/codex-models`: `{"models": [{"id", "base", "name", "contextWindow"}, …]}`, read by the openai-auth extension at load | `packs/pi/pack.json`, `packs/pi/extensions/yolo-openai-auth.js` |
 | User config keys | `providers` (merged-scope — **except the ADDRESS**), `profiles` / `use_profiles` (user-scope-only); `agent_profiles` refused by name as the old spelling of `use_profiles` | `internal/config` |
 | Provider address scope | `endpoints.<protocol>.base_url` is **USER-SCOPE ONLY** since 2026-09-17: a workspace `yolo-jail.jsonc` or `yolo-jail.local.jsonc` carrying one is a fatal config error. The rest of a `providers` entry still merges from either scope. The reason is the workspace file is AGENT-EDITABLE, and the address decides where inference goes — [`OQ-LM3`](../research/local-model-endpoints.md#oq-lm3) calls it the one answer that cannot be revised later without a breaking config change. The entry-level `base_url` shorthand is refused at any scope | `internal/config/validate.go` |
 | Missing-provider hatch | `YOLO_ALLOW_MISSING_PROVIDERS=1` | `internal/paths` |

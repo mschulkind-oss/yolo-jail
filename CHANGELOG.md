@@ -71,6 +71,12 @@ only cost tokens and prompts in a jail. See [posture lists](docs/reference/pack-
   its root.
 - **Dropping a profile clears the provider and model yolo wrote for it** into pi, opencode or
   codex, and keeps a model you picked inside the agent.
+- **pi and Claude offer the same models on their `codex` profiles**: the GPT-6 models, each with
+  a 1M-context option, and codex starts on the same default. pi has no separate "scoped" list
+  for them any more, and its sub-agents may use only those models. The older GPT-5 models are
+  no longer offered; add one under `providers.openai-codex.models` in your config and it
+  appears in every agent ([the `openai-codex` model list](docs/reference/providers.md#the-openai-codex-model-list)).
+  A list you scoped inside pi is kept.
 - `writable_home_dirs` and `host_files` refuse the paths of the packs you select, including packs
   yolo does not ship, and no others. A claude-only workspace may now name `.codex` or
   `~/.codex/config.toml`.

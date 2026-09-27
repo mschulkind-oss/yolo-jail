@@ -109,8 +109,9 @@ if name ~= "openai-codex" then
   ...
 ```
 
-When a user selects the `codex` profile (`yolo -p codex -- codex`), Codex sets `model = "gpt-6-sol"`
-in `~/.codex/config.toml` without setting `model_provider`. Codex CLI defaults to its native first-party
+When a user selects the `codex` profile (`yolo -p codex -- codex`), Codex sets `model` to the first
+id of the provider's declared list (`gpt-6-sol` as shipped;
+[ML-D1](model-lists-and-pickers.md#ML-D1)) in `~/.codex/config.toml` without setting `model_provider`. Codex CLI defaults to its native first-party
 backend and uses its internal OAuth mechanism.
 
 ### 2.2 Pi (`pi-coding-agent`)
@@ -129,8 +130,14 @@ provider, not only the login:
 - the OAuth login and refresh, both served by yolo's `openai-auth-broker`, with the access token as
   the key;
 - `api: "openai-codex-responses"` and `baseUrl: "https://chatgpt.com/backend-api"`;
-- yolo's own model list: the GPT-6 models, a 1M-context `[1m]` variant beside each, and the older
-  GPT-5.x ids;
+- yolo's own model list, which since 2026-09-27 is the one declaration on the `openai-codex`
+  provider ([ML-D1](model-lists-and-pickers.md#ML-D1)): the extension reads it from
+  `~/.pi/agent/yolo-openai-codex-models.json`, a file yolo renders every boot, and takes each
+  entry's cost, thinking and image facts from pi's own catalog
+  ([ML-D3](model-lists-and-pickers.md#ML-D3)). It is the GPT-6 models with a `[1m]` variant
+  beside each; the GPT-5.x ids a hand copy of pi's catalog carried until then are gone
+  ([ML-D4](model-lists-and-pickers.md#ML-D4)). With no file it registers no models, and pi keeps
+  its built-in catalog;
 - a `before_provider_request` hook that strips the `[1m]` suffix from the model id before the
   request leaves.
 
@@ -344,8 +351,11 @@ The flag gates the via row too, so a via profile selecting `openai-codex` writes
 `packs/omp/derive.lua` does the same for omp (`4ed48212`).
 
 Pi's settings derive (`yolo.derive("pi", "settings")`) has its own `openai-codex` branch. It writes
-the selection pair, `enabledModels` (the six GPT-6 ids, the selected one first) and the
-`subagents` policy. The model definitions it selects from are the ones yolo's extension registers
+the selection pair and the `subagents` policy, whose `modelScope.allow` is the exact declared ids
+([ML-D5](model-lists-and-pickers.md#ML-D5)). It writes no `enabledModels` since 2026-09-27:
+pi's view of `openai-codex` is the list the extension registers
+([ML-D2](model-lists-and-pickers.md#ML-D2)). A third derive, `yolo.derive("pi", "codex-models")`,
+writes that list for the extension, and no `models.json` row. The model definitions it selects from are the ones yolo's extension registers
 ([§2.2](#22-pi-pi-coding-agent)), so with no `models.json` row pi uses its own
 `openai-codex-responses` client and the broker-backed OAuth.
 

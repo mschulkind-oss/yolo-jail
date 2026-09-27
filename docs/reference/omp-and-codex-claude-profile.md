@@ -137,8 +137,9 @@ configuration files.
 
 ## Current values
 
-Verified at `e0d62605`. The prose above describes the durable boundaries; these
-are the operational values that may change with a release.
+Verified at `e0d62605`, except the default profile model, verified at `f8d05a0c`. The prose
+above describes the durable boundaries; these are the operational values that may change with a
+release.
 
 | Value | Setting | Defined in |
 | :--- | :--- | :--- |
@@ -147,7 +148,7 @@ are the operational values that may change with a release.
 | OMP model catalog | `~/.oh-omp/agent/models.yml` | `packs/omp/pack.json` |
 | OMP workspace state | `.oh-omp` | `packs/omp/pack.json` |
 | Claude profile spelling | `claude=codex` | `packs/claude/pack.json` |
-| Default profile model alias | `terra` | `packs/claude/derive.lua` |
+| Default profile model | the first id of [the `openai-codex` model list](providers.md#the-openai-codex-model-list) (`gpt-6-sol` as shipped) when the profile names none | `packs/openai-auth/pack.json` |
 | Claude bridge address — what the agent is pointed at | `http://127.0.0.1:8215`, declared as the `openai-responses → anthropic` adapter's `address` and composed into `openai-codex`'s entry. Claude's derive **no longer spells it** — it reads the endpoint like any other, and its own comment at that branch records the move ([`protocol-resolution.md`](protocol-resolution.md)) | `packs/wire-bridge/pack.json` |
 | Codex route bind address — what the daemon listens on | `127.0.0.1:8215` — read from the same composed entry as the row above, so a user-scope `adapters.openai-responses->anthropic.address` moves BOTH. `wirebridged.CodexResponsesListenAddr` is the default when the entry names no anthropic endpoint. ⚠ Until 2026-09-20 the daemon read that constant ahead of the table and the two could be made to disagree | `packs/wire-bridge/pack.json`, default in `wirebridged.CodexResponsesListenAddr` |
 | Codex Responses base URL | `https://chatgpt.com/backend-api/codex` | `wirebridged.CodexResponsesBaseURL` |
