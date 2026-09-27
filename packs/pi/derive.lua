@@ -570,30 +570,25 @@ yolo.derive("pi", "settings", function(ctx)
   -- broker-backed OAuth login, the openai-codex-responses client at chatgpt.com/backend-api,
   -- and the model list — the ONE declared list (codexModelList above), which that extension
   -- reads from the pi/codex-models surface below. This branch speaks only for the SELECTION
-  -- within that list — the default pair, the enabledModels scope and the pi-subagents
-  -- policy. The shipped codex profile selects the declared default; a user profile may
-  -- state another exact model id from that list as `model`.
+  -- within that list — the default pair and the pi-subagents policy. The shipped codex
+  -- profile selects the declared default; a user profile may state another exact model id
+  -- from that list as `model`.
+  --
+  -- NO enabledModels, and that is the ruling, not an omission
+  -- (docs/design/model-lists-and-pickers.md ML-D2; the maintainer, 2026-09-27: "stop
+  -- filling in scoped so there's only all"). pi's "all" view for openai-codex IS the
+  -- declared list, because the extension registers exactly it, so a scope yolo wrote could
+  -- only restate that list a second time — which is how the two lists drifted. pi shows its
+  -- Scope toggle only when a scope exists, and with none a fresh session starts on the
+  -- defaultProvider/defaultModel pair below (findInitialModel's saved-default step). A scope
+  -- an earlier launch wrote is cleared by the selection's own deselect rule (OQ-PSW2); one
+  -- the user or pi's save-as-default edited is kept.
   if ctx.selected_provider == "openai-codex" then
     local list = codexModelList(p)
     local model = codexDefault(list, ctx.profile)
-    -- STANDING RULE: the DEFAULT LEADS. The first slot is not presentation. pi starts a
-    -- fresh session on the FIRST enabledModel whenever the saved
-    -- defaultProvider/defaultModel pair fails to resolve — and a stale id is exactly that
-    -- (dist/main.js, buildSessionOptions: the saved default is used only when it resolves
-    -- AND sits in scope, "otherwise first scoped model"; verified against the installed pi
-    -- 0.87.1, 2026-09-25). This is the same fix claude's availableModels carries for its
-    -- retained Default row: lead with the default, and the fallback lands on it too.
-    local enabledModels, allow = {}, {}
+    local allow = {}
     for _, e in ipairs(list) do
-      table.insert(enabledModels, "openai-codex/" .. e.id)
       table.insert(allow, "openai-codex/" .. e.id)
-    end
-    for i, em in ipairs(enabledModels) do
-      if model and em == "openai-codex/" .. model then
-        table.remove(enabledModels, i)
-        table.insert(enabledModels, 1, em)
-        break
-      end
     end
     -- Pi-subagents has its own default, independent of Pi's chat selection.
     -- Computed output is intentional here: selection can only lift scalar keys,
@@ -612,17 +607,10 @@ yolo.derive("pi", "settings", function(ctx)
     if #allow > 0 then
       subagents.modelScope = { enforce = true, strict = true, allow = allow }
     end
-    -- enabledModels rides the selection, not the computed layer: pi's /model scoping
-    -- writes the same key, and a computed key is re-asserted every boot, which would
-    -- revert the user's scoped list on the next launch. Under the selection it gets
-    -- the same rules as the pair: written on activation, a user edit kept, yolo's own
-    -- list cleared on deselect (OQ-PSW2). An array is a leaf there, replaced whole — and
-    -- an EMPTY one is omitted, since an empty Lua table marshals as a JSON object.
-    local selection = { defaultProvider = "openai-codex", defaultModel = model }
-    if #enabledModels > 0 then
-      selection.enabledModels = enabledModels
-    end
-    return { subagents = subagents, selection = selection }
+    return {
+      subagents = subagents,
+      selection = { defaultProvider = "openai-codex", defaultModel = model },
+    }
   end
   if not piReachable(p) then
     return {}

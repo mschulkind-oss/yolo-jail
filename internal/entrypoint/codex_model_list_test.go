@@ -306,8 +306,11 @@ func requireConsumersRender(t *testing.T, got codexConsumers, want []codexModel)
 		t.Errorf("pi subagents.modelScope.allow = %v, want the exact declared ids %v",
 			scope["allow"], codexIDs(want, "openai-codex/"))
 	}
-	if !reflect.DeepEqual(got.piSettings["enabledModels"], codexIDs(want, "openai-codex/")) {
-		t.Errorf("pi enabledModels = %v, want %v", got.piSettings["enabledModels"], codexIDs(want, "openai-codex/"))
+	// pi writes NO scope for openai-codex (ML-D2): its "all" view is the registered list,
+	// which the data file below and the extension pin, so a scope could only restate it.
+	if scoped, present := got.piSettings["enabledModels"]; present {
+		t.Errorf("pi enabledModels = %v, want it absent — pi's \"all\" view for openai-codex "+
+			"is the declared list, and a second copy of it is the drift this test exists for", scoped)
 	}
 
 	var wantFile []any

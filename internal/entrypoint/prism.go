@@ -115,6 +115,11 @@ func readSelectionRecord(e *Env, agent, name string) map[string]any {
 // silent. This is the one call site for the record, so promoting it to the terminal under
 // in-jail verbosity, once OQ-DB1 gives the jail one, is a change here alone.
 //
+// A key is deselected when the selection stops naming it, which is not only a profile
+// leaving: a derive can stop emitting one key while its profile stays active (pi's codex
+// scope, docs/design/model-lists-and-pickers.md ML-D2). So the line says the selection no
+// longer sets the key, which is true of both, and not that the profile left.
+//
 // The value is printed: a selection key carries a provider or model choice the agent's own
 // config file already holds in plain text, never a credential (credentials reach an agent
 // through its environment, not through the selection namespace). It is capped so a long
@@ -129,7 +134,7 @@ func noteSelectionClears(e *Env, surface manifest.Surface, cleared []agentcfg.Se
 		if len(val) > 200 {
 			val = val[:200] + "…"
 		}
-		e.note(fmt.Sprintf("selection: cleared %s/%s %s (was %s): the profile that set it is no longer selected",
+		e.note(fmt.Sprintf("selection: cleared %s/%s %s (was %s): yolo's selection no longer sets it",
 			surface.Agent, surface.Name, c.Key, val))
 	}
 }

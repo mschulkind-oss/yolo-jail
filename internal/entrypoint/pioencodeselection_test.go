@@ -676,6 +676,105 @@ func TestPiEnabledModelsFollowTheSelectionRules(t *testing.T) {
 			t.Errorf("after deactivation enabledModels = %s, want the user's list kept", got)
 		}
 	})
+
+	// THE UPGRADE PATH FOR openai-codex (docs/design/model-lists-and-pickers.md ML-D2): the
+	// codex arm stopped naming enabledModels while its profile stays ACTIVE. A jail an older
+	// yolo booted holds the scope that yolo wrote, in the file and in the selection record;
+	// the same deselect rule that runs when a profile leaves clears it, per key, and notes
+	// it in the boot log — and keeps a list the user (or pi's save-as-default) edited.
+	oldCodexScope := []any{
+		"openai-codex/gpt-6-sol", "openai-codex/gpt-6-sol[1m]",
+		"openai-codex/gpt-6-astra", "openai-codex/gpt-6-astra[1m]",
+		"openai-codex/gpt-6-luna", "openai-codex/gpt-6-luna[1m]",
+	}
+	t.Run("an active codex profile clears the scope an older yolo wrote", func(t *testing.T) {
+		r := newPiCodexRender(t)
+		r.render(t, `{"pi":"codex"}`)
+		r.simulatePreScopeRemovalBoot(t, oldCodexScope)
+		if got := piEnabledModels(t, r.piSettings(t)); len(got) != len(oldCodexScope) {
+			t.Fatalf("the simulated older boot's file holds enabledModels %v, want the old scope", got)
+		}
+		log := withBootLog(r)
+		r.render(t, `{"pi":"codex"}`)
+		settings := r.piSettings(t)
+		if got := piEnabledModels(t, settings); got != nil {
+			t.Errorf("after the upgrade boot enabledModels = %v, want yolo's old scope cleared", got)
+		}
+		if settings["defaultProvider"] != "openai-codex" || settings["defaultModel"] != "gpt-6-sol" {
+			t.Errorf("the clear moved the pair: %v/%v, want openai-codex/gpt-6-sol",
+				settings["defaultProvider"], settings["defaultModel"])
+		}
+		// The whole line: its reason must hold with the profile still active, which the
+		// deselect-only wording ("the profile that set it is no longer selected") did not.
+		if want := `selection: cleared pi/settings enabledModels (was ["openai-codex/gpt-6-sol",` +
+			`"openai-codex/gpt-6-sol[1m]","openai-codex/gpt-6-astra","openai-codex/gpt-6-astra[1m]",` +
+			`"openai-codex/gpt-6-luna","openai-codex/gpt-6-luna[1m]"]): yolo's selection no longer sets it`; !strings.Contains(log.String(), want) {
+			t.Errorf("boot log lacks %q:\n%s", want, log.String())
+		}
+		if strings.Contains(log.String(), "pi/settings defaultModel") {
+			t.Errorf("the pair was recorded as cleared, and the profile is still active:\n%s", log.String())
+		}
+	})
+	t.Run("an active codex profile keeps a scope the user edited", func(t *testing.T) {
+		r := newPiCodexRender(t)
+		r.render(t, `{"pi":"codex"}`)
+		r.simulatePreScopeRemovalBoot(t, oldCodexScope)
+		mine := []any{"openai-codex/gpt-6-luna", "openai-codex/gpt-6-sol"}
+		r.editValue(t, piSettings, "enabledModels", mine)
+		r.render(t, `{"pi":"codex"}`)
+		if got := strings.Join(piEnabledModels(t, r.piSettings(t)), ","); got != "openai-codex/gpt-6-luna,openai-codex/gpt-6-sol" {
+			t.Errorf("after the upgrade boot enabledModels = %s, want the user's edited scope kept", got)
+		}
+	})
+}
+
+// newPiCodexRender is the multi-boot harness over the table a pi launch composes (pi's needs
+// closure, which brings packs/openai-auth and its openai-codex declaration), with the codex
+// profile it resolves installed.
+func newPiCodexRender(t *testing.T) *pioencodeRender {
+	t.Helper()
+	packs := testPacksForAgent(t, "pi")
+	providers, err := packload.ComposeProviders(nil, packs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := packload.ResolveProfiles(packs, nil, providers)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := newPioencodeRender(t, mustCompactJSON(t, providers))
+	r.wireProfiles(mustCompactJSON(t, packload.ProfilesWireTable(resolved)))
+	return r
+}
+
+// simulatePreScopeRemovalBoot rewrites the state one boot left behind into what a yolo that
+// still wrote codex's enabledModels would have left: the list in settings.json, the same
+// bytes as the last_render sidecar (so nothing reads as an in-jail edit), and the list in
+// the selection record as yolo's own write.
+func (r *pioencodeRender) simulatePreScopeRemovalBoot(t *testing.T, scope []any) {
+	t.Helper()
+	settings := r.piSettings(t)
+	settings["enabledModels"] = scope
+	out, err := (codec.JSON{}).Encode(settings)
+	if err != nil {
+		t.Fatalf("encode the simulated render: %v", err)
+	}
+	for _, path := range []string{
+		filepath.Join(r.e.Home, ".pi", "agent", "settings.json"),
+		prismLastRenderPath(r.e, "pi", "settings"),
+	} {
+		if err := os.WriteFile(path, out, 0o644); err != nil {
+			t.Fatalf("write the simulated render to %s: %v", path, err)
+		}
+	}
+	recPath := prismSelectionRecordPath(r.e, "pi", "settings")
+	raw, err := os.ReadFile(recPath)
+	if err != nil {
+		t.Fatalf("read the selection record: %v", err)
+	}
+	rec := agentcfgParseRecordForTest(t, raw)
+	rec["enabledModels"] = scope
+	writeRecordForTest(t, recPath, rec)
 }
 
 // TestPiSelectionArrayIsNotAHostTable pins the host notch's half of letting an array ride

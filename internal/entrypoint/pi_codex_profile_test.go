@@ -60,19 +60,11 @@ func TestPiCodexProfileSelectsBuiltInProviderAndExplicitModel(t *testing.T) {
 		t.Fatalf("Pi selection = provider %#v model %#v, want openai-codex/gpt-6-sol",
 			settings["defaultProvider"], settings["defaultModel"])
 	}
-	enabled, ok := settings["enabledModels"].([]any)
-	// Default-first: pi starts a fresh session on the FIRST enabledModel whenever the
-	// saved selection fails to resolve, so the default must lead the list.
-	wantEnabled := []any{
-		"openai-codex/gpt-6-sol",
-		"openai-codex/gpt-6-sol[1m]",
-		"openai-codex/gpt-6-astra",
-		"openai-codex/gpt-6-astra[1m]",
-		"openai-codex/gpt-6-luna",
-		"openai-codex/gpt-6-luna[1m]",
-	}
-	if !ok || !reflect.DeepEqual(enabled, wantEnabled) {
-		t.Fatalf("Pi enabledModels = %#v, want only GPT-6 models with 1M options, default first %#v", settings["enabledModels"], wantEnabled)
+	// NO SCOPE (docs/design/model-lists-and-pickers.md ML-D2): pi's "all" view for
+	// openai-codex is the list its extension registers, so pi shows no Scope toggle and
+	// starts on the pair above.
+	if scoped, present := settings["enabledModels"]; present {
+		t.Fatalf("Pi enabledModels = %#v, want it absent for openai-codex", scoped)
 	}
 	wantSubagents := map[string]any{
 		"defaultProvider": "openai-codex",
@@ -117,18 +109,10 @@ func TestPiCodexProfileSelects1MContextModel(t *testing.T) {
 		t.Fatalf("Pi selection = provider %#v model %#v, want openai-codex/gpt-6-astra[1m]",
 			settings["defaultProvider"], settings["defaultModel"])
 	}
-	enabled, ok := settings["enabledModels"].([]any)
-	// Rotation rule: selecting gpt-6-astra[1m] rotates it to the front of enabledModels.
-	wantEnabled := []any{
-		"openai-codex/gpt-6-astra[1m]",
-		"openai-codex/gpt-6-sol",
-		"openai-codex/gpt-6-sol[1m]",
-		"openai-codex/gpt-6-astra",
-		"openai-codex/gpt-6-luna",
-		"openai-codex/gpt-6-luna[1m]",
-	}
-	if !ok || !reflect.DeepEqual(enabled, wantEnabled) {
-		t.Fatalf("Pi enabledModels = %#v, want gpt-6-astra[1m] rotated to front: %#v", settings["enabledModels"], wantEnabled)
+	// A 1M variant is a model of its own in pi's list, so it is selected by the pair alone;
+	// there is no scope to lead it with.
+	if scoped, present := settings["enabledModels"]; present {
+		t.Fatalf("Pi enabledModels = %#v, want it absent for openai-codex", scoped)
 	}
 	wantSubagents := map[string]any{
 		"defaultProvider": "openai-codex",

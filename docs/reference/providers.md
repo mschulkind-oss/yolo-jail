@@ -1159,7 +1159,7 @@ place the exact spellings are stated.
 | Resolved-profiles env var | `YOLO_PROFILES` | same |
 | Selection namespace key | `selection` | `agentcfg.SelectionKey` |
 | Selection record path | `<workspace>/.yolo/prism/<agent>-<name>.selection.json` in a jail; the state dir's host-capture store at the host notch under `host_management: own` | `render.Target.SelectionPath` |
-| Deselection clear's log line | `selection: cleared <agent>/<surface> <key> (was <value as JSON>): the profile that set it is no longer selected`, one per cleared key whose value left the file, the value cut at 200 bytes with a trailing `…` | `entrypoint.noteSelectionClears` |
+| Deselection clear's log line | `selection: cleared <agent>/<surface> <key> (was <value as JSON>): yolo's selection no longer sets it`, one per cleared key whose value left the file, the value cut at 200 bytes with a trailing `…`. A key is cleared when its profile is deselected, or when a derive stops naming it while the profile stays active | `entrypoint.noteSelectionClears` |
 | Where that line goes | `<workspace>/.yolo/boot.log` (the previous boot's is `boot.log.prev`); never the terminal | `entrypoint.bootLogName`, `Env.note` |
 | Id-writing surfaces with a host layer | pi's `settings` (`~/.pi/agent/settings.json`) only; codex's `config.toml` and opencode's `opencode.json` declare no `readsHost` | `packs/{pi,codex,opencode}/pack.json` |
 | codex's model for `openai-codex` | the profile's `model` option; `gpt-6-sol` when the profile names none or names `default` | `packs/codex/derive.lua` |
