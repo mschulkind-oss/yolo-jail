@@ -396,7 +396,9 @@ flowchart TD
     skew -->|"no provable skew"| prefix["resolveJailPrefix — prebuilt bin/linux-arch, else nix build .#installPrefix"]
     prefix -->|"build failed, or unreachable from the macOS VM"| refuse2["refuse"]
     prefix -->|"prints Jail binaries"| stock{"stock launch? nix eval .#imageIdentity,<br/>image inspect yolo-jail:stock-hex"}
-    stock -->|"present: Image build skipped"| runstock["run it — no build, no store path"]
+    stock -->|"present, with a valid store-path record"| runstock["Image build skipped — root the recorded path, run it"]
+    stock -->|"present, no valid record, jail reads the host store"| plan
+    stock -->|"present, no valid record, jail has its own store"| runbare["Image build skipped — run it, disclose no GC root"]
     stock -->|"absent, or not a stock launch"| plan["planStorePackages — YOLO_STORE_PACKAGES eligible?"]
     plan -->|"baked"| build["nix build .#ociImage --impure with YOLO_EXTRA_PACKAGES"]
     plan -->|"store-delivered"| buildLean["nix build .#ociImageLean --impure, no YOLO_EXTRA_PACKAGES"]
@@ -445,7 +447,7 @@ image byte for byte.
 A **reload** happens only when the runtime lacks the image for the resulting store path. The
 decision is `image inspect <content ref>`; the load sentinel only explains *why*. A launch that
 matched [the stock tag](#the-stock-tag-and-the-question-asked-before-the-build) reaches neither:
-it has no store path to evaluate a ref from, having built nothing.
+it runs the stock ref, and roots the store path its load recorded rather than evaluating one.
 
 ### A failed build is fatal
 
@@ -571,12 +573,23 @@ delivering an image it built from the default attr with no extras, and the macOS
 `Load jail image` step after loading the archive its Linux `build-image` job produced.
 
 > [!IMPORTANT]
-> **A stock-matched launch has no store path, and that is honest rather than lossy.** It built
-> nothing, so `LoadResult.StorePath` is empty exactly as on the degraded branches: it registers no
-> GC root and appends no load-sentinel entry. Both are cache bookkeeping — a lost root costs a
-> rebuild and never a running container — and the workspace's current-image pointer keeps naming
-> the store path the launch that first loaded this image recorded, because an unchanged identity
-> means an unchanged store path on that host.
+> **A stock-matched launch roots the store path its load recorded.** The load that writes the
+> stock tag also writes a **stock record** *(the term is this repo's)*: one small file per identity
+> under the machine-wide build dir, holding the store path that load built the image from. An
+> unchanged identity means an unchanged store path on that host, so a match reads the record,
+> checks the path is still valid in the nix store, and then does what a built launch does: registers
+> the GC root, appends the path to the load sentinel, and returns it so the workspace's
+> current-image pointer names it. The root is not cache bookkeeping on podman/Linux: the host
+> `/nix/store` is mounted over the jail's own there, so the jail runs from that closure.
+>
+> A match with **no valid record** says so. That covers a tag an older yolo wrote, one the macOS
+> nightly wrote over an archive it never built, and a recorded path a store GC has since deleted.
+> If the jail will read the host store, the launch builds, which restores and roots the closure and
+> writes the record. If the jail has its own store, it runs, and the launch reports that no root was
+> registered. It never roots a path the store does not hold, because `nix-store --add-root
+> --realise` would then substitute or build it. Until 2026-09-28 a match registered no root at all,
+> and `yolo prune --nix-gc` refused while any normally launched jail ran
+> ([image-retention.md](image-retention.md#why-its-this-way)).
 
 > [!NOTE]
 > **An image built before the identity became content-addressed is recognised and still refused.**

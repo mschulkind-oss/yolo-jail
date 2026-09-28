@@ -1149,6 +1149,9 @@ row cannot carry them.
    > too was that doc's [OQ-LS1](../reference/image-retention.md#why-its-this-way), since ruled: the
    > GC-root reaper is a pure age cutoff that consults neither the sentinel nor liveness, and the
    > sentinel survives for the store-GC refusal's protected set and the load diagnosis.
+   > *Amended 2026-09-28 by [OQ-LS4](../reference/image-retention.md#oq-ls4):* the reaper now holds
+   > the root of any image a container is running on, asked of the runtime, and the store-GC
+   > refusal no longer reads the sentinel; the load diagnosis is its one remaining reader.
    >
    > **What this doc must not do in the meantime**, since it proposes new automatic reapers:
    > [OQ-BF4](#OQ-BF4)'s prefix roots must not be protected by the sentinel — see that entry's

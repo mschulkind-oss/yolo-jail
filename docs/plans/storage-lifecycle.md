@@ -16,12 +16,12 @@ safe to run at an arbitrary moment. This plan sequenced the fix.
 >   tri-state live-jail check this plan built with a pure age cutoff: a root untouched for
 >   `prune.ImageRootRetention` (one week) is reaped whether or not a jail is running. The ruling's
 >   stated premise is that losing an image root "costs a rebuild, never a running jail"
->   (`PruneOrphanImageRoots`' doc comment). ⚠ **That premise and this plan's incident disagree,
->   and nothing records a ruling on the disagreement.** On podman/Linux with a host nix daemon,
->   the host `/nix/store` is bind-mounted `:ro` over the jail's (`hostNixStore`,
->   `internal/cli/run/assemble.go`), which is how a host GC broke a running jail's `/bin` on
->   2026-07-22. A jail up for more than a week on an image no later launch rebuilt has an
->   unrooted closure again. This plan is not where that is decided; it is reported for a ruling.
+>   (`PruneOrphanImageRoots`' doc comment). That premise and this plan's incident disagreed:
+>   on podman/Linux with a host nix daemon, the host `/nix/store` is bind-mounted `:ro` over the
+>   jail's (`hostNixStore`, `internal/cli/run/assemble.go`), which is how a host GC broke a running
+>   jail's `/bin` on 2026-07-22. **Ruled 2026-09-28 as
+>   [`OQ-LS4`](../reference/image-retention.md#oq-ls4):** the root of an image a container is
+>   running on is held by liveness again, and the age cutoff keeps every other root.
 > - **The image no longer contains yolo.** The `yolo`/`yolo-entrypoint` binaries are a separate,
 >   mounted prefix with their own durable roots under `build/prefix-roots/`
 >   (`image.RegisterPrefixRoot`), and those keep a liveness guarantee rather than an age cutoff
@@ -41,7 +41,8 @@ safe to run at an arbitrary moment. This plan sequenced the fix.
   (`build/roots/<sha16>`), retained across runs. `yolo prune` reaped roots no
   live jail needed (tri-state fail-safe) until
   [`OQ-LS1`](../reference/image-retention.md#why-its-this-way) replaced that with a one-week
-  age cutoff (see the note above). Mechanism verified in-jail.
+  age cutoff, and [`OQ-LS4`](../reference/image-retention.md#oq-ls4) put liveness back for the
+  roots of running images (see the note above). Mechanism verified in-jail.
 - **[§2](#2-auto-gc-safety-net-min-freemax-free--only-after-1)** — `yolo check` warns when the host nix daemon's auto-GC is off
   (`min-free == 0`), the safety net that [§1](#1-root-the-running-images-closure--first-everything-depends-on-it) makes safe to enable. Host-owns the
   actual nix.conf edit.
@@ -261,7 +262,9 @@ root, and (c) only then invokes a **bounded** `nix-collect-garbage` (or
   store path no live jail depends on. Mirror the fail-safe: liveness unknown →
   delete nothing. **Superseded 2026-09-08 by
   [`OQ-LS1`](../reference/image-retention.md#why-its-this-way):** the reaper
-  (`PruneOrphanImageRoots`) is now a one-week age cutoff with no liveness check.
+  (`PruneOrphanImageRoots`) became a one-week age cutoff with no liveness check, and
+  [`OQ-LS4`](../reference/image-retention.md#oq-ls4) (2026-09-28) restored the liveness check
+  for the roots of images a container is running on.
 - [x] **Fix `BuildOCIImage`** (`internal/image/build.go`) — the check
   preflight's `defer os.Remove(outPath)` is acceptable *only* because check
   doesn't load an image to run; leave it, but add a code comment tying it to this

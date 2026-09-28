@@ -144,9 +144,11 @@ mount pinning an inode rather than a path.
 
 Generations are collected by LIVENESS, never by age. The TRI-STATE half of that is universal here —
 "unreferenced" and "I could not ask the runtime" are the same empty answer, so a reaper that cannot ask
-declines rather than sweeping. ⚠ **The liveness half is NOT universal**, the nix GC-root reaper being a pure
-ONE-WEEK AGE cutoff with no liveness veto by ruling
-([`OQ-LS1`](docs/reference/image-retention.md#why-its-this-way)). Pick per reaper.
+declines rather than sweeping. ⚠ **The liveness half is NOT universal**: the nix GC-root reaper ages out,
+after ONE WEEK, every root no container is running on
+([`OQ-LS1`](docs/reference/image-retention.md#why-its-this-way)), and holds by liveness only the root of an
+image a container IS running on
+([`OQ-LS4`](docs/reference/image-retention.md#why-its-this-way)). Pick per reaper.
 
 **Daemons are subcommands, not separate binaries.** Host daemons are hidden self-exec subcommands of
 `yolo` (`yolo internal daemon <name>`); in-jail daemons are `yolo-jaild <name>` (`supervise` reads

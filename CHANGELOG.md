@@ -147,6 +147,10 @@ apply it, and the launch says that too. See
   on macOS, a wait behind another launch, a pack update, the macOS native build, and a cold
   first-boot `mise install`. Steps that finish within two seconds print nothing new.
 - Every jail start spent two seconds rebuilding the font cache.
+- `yolo prune --nix-gc` refused to run while any jail you had started normally was running.
+- On Linux, a jail running for more than a week could have its tools deleted by
+  `nix-collect-garbage`, because `yolo prune` removed the GC root of the image it was running on.
+  `yolo prune` now keeps that root for as long as a container uses the image.
 - The Claude OAuth broker could return the token a jail already held, and Claude Code stopped
   with `api_request_oauth_refresh_exhausted`.
 - Claude on its `codex` profile showed `did not translate` in place of ChatGPT's own errors.
