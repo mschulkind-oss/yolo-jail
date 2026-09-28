@@ -563,7 +563,7 @@ Measured from pi 0.87.1's `dist/` and the live directory in this jail on 2026-09
 | `agent/models.json` | yours | composed (`computed`) | composed | composed (`rmw` under `assert`) | jail: nothing. Host: your custom providers |
 | `agent/yolo-openai-codex-models.json` | cache | composed (`computed`) | composed | composed under `assert` (`{}`) | nothing |
 | `agent/mcp-adapter.json` | yours | composed (`computed`) | composed | composed (`rmw` under `assert`) | jail: nothing. Host: your MCP table |
-| `agent/mcp.json` | yours; `note`: legacy MCP config that pi-mcp-adapter migrates and pi-subagents still reads | **retired**: deleted at every boot | retired | — | your legacy MCP config |
+| `agent/mcp.json` | yours; `note`: legacy MCP config that pi-mcp-adapter migrates and pi-subagents still reads | — (retired at every boot until `66602a60`, [Appendix B](#appendix-b-defects-the-surveys-found-that-the-map-does-not-fix)) | — | — | your legacy MCP config |
 | `agent/yolo-host-synced-settings.json` | — | retired only by the boot that migrates the `stateful` surface. A copy present when the map runs is not deleted, so it is unexplained | same | — (unexplained if present) | nothing |
 | `agent/AGENTS.md` | yours | composed (briefing, `:ro`, with the host file prepended) | composed (a copy, write-denied) | composed (wholesale; prose already adopted into the local pack) | nothing |
 | `agent/AGENTS.override.md` | yours; `shadows: agent/AGENTS.md` | shadow finding | shadow finding | shadow finding | your override |
@@ -1117,7 +1117,7 @@ this doc's survey ([Appendix A](#appendix-a-evidence)).
   on any read error ([`briefing.go`](../../internal/jailcontent/briefing.go)).
 - A computed surface retires its sidecars after **every** write. `retireOrphanSidecars` runs
   whenever the mechanism is not `stateful` ([`packsurfaces.go`](../../internal/entrypoint/packsurfaces.go)),
-  and it deletes pi's `mcp.json` at every boot. Its docstring says the file is "already unread", but
+  and it deleted pi's `mcp.json` at every boot until `66602a60`. Its docstring says the file is "already unread", but
   pi-subagents 0.35.1 reads `agentDir/mcp.json`
   (`src/runs/shared/mcp-direct-tool-allowlist.ts`, `getConfigPaths`, read in this jail's shared npm
   store). A `stateful` surface retires its sidecars only on the write that migrates it
@@ -1174,7 +1174,7 @@ The map makes each of these visible. Fixing them belongs elsewhere:
 
 | Found | Where it belongs |
 | :--- | :--- |
-| yolo deletes pi's `mcp.json` at every jail boot, though pi-subagents reads it | a pi-pack ruling on `retireOnFirstRender` for a vendor file |
+| yolo deletes pi's `mcp.json` at every jail boot, though pi-subagents reads it | ✅ **Fixed** in `66602a60`: the pi pack no longer retires `mcp.json`, and every shipped `retireOnFirstRender` name must carry a `yolo-` prefix (`TestShippedRetireNamesAreYolosOwn`), since the delete never reads the bytes. A copy yolo 0.10.0 wrote now stays until the user deletes it |
 | `WritePiAuth`'s 10 s lock break against pi's 30 s stale window can lose an OAuth rotation | a fix in [`pi.go`](../../internal/openauthclient/pi.go), before pi's map reads that neighborhood |
 | The launcher's keep-two prune never sees codex's releases | [`shims.go`](../../internal/entrypoint/shims.go) `_prune_versions` |
 | The managed codex home drops codex's `config.toml` edits and leaves stale links | [`openai-auth-broker.md`](openai-auth-broker.md) |
