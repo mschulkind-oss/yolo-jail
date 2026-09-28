@@ -3,7 +3,7 @@ title: "Notch convergence — one code path per concern, and the loopback servic
 date: 2026-09-28
 status: in-review
 tags: [plan, notches, host, parity, security, loopback]
-summary: "Five audits found that the host notch, the container jail and macos-user reach one declaration through different code for flags, pack selection, providers, env order and render, and that the loopback services serving credentials are safe only while the jail has its own network namespace. The plan: one description, one code path per concern, the notch choosing only the confinement. Caller authentication comes first, because network.mode host and macos-user already share the host's loopback. Then an ordered build list: pure merges that need no ruling, and behavior changes gated on eight new questions and seven existing ones."
+summary: "Five audits found that the host notch, the container jail and macos-user reach one declaration through different code for flags, pack selection, providers, env order and render, and that the loopback services serving credentials are safe only while the jail has its own network namespace. The plan: one description, one code path per concern, the notch choosing only the confinement. Caller authentication comes first, because network.mode host and macos-user already share the host's loopback. Then an ordered build list: pure merges that need no ruling, and behavior changes gated on this plan's own questions and on questions other docs own."
 ---
 
 # Notch convergence — one code path per concern, and the loopback services that assumed a boundary
@@ -11,12 +11,13 @@ summary: "Five audits found that the host notch, the container jail and macos-us
 **Status:** DECIDED, 2026-09-28 — owed: **work.** The thesis and every pure merge in the build list
 are ruled by the maintainer's 2026-09-27 words ([§1](#1-the-thesis)). Caller authentication for the
 loopback services is ruled the same day and comes first ([§2](#2-security-first-the-boundary-that-is-not-one)).
-The wire-bridge part of it is being built elsewhere. The word is `DECIDED` although eight 💬 questions
+The wire-bridge part of it is being built elsewhere. The word is `DECIDED` although 💬 questions
 are open. Each one gates a single build item, and none of them gates the thesis or blocks the items
 before it, so this is [the tie-breaker](README.md#the-vocabulary--seven-words-and-the-word-names-what-is-owed)
-applied to per-item gates. That judgement is stated here so it can be checked. Nothing in the list is
-built. Evidence was verified against `eb0af5ee` on 2026-09-28. The measurements are the five auditors'
-from 2026-09-27, taken in scratch homes under `/tmp` against a binary built from that commit.
+applied to per-item gates. That judgement is stated here so it can be checked. Each item's row in
+[§4](#4-the-ordered-build-list) says when it is built. Evidence was verified against `eb0af5ee` on
+2026-09-28. The measurements are the five auditors' from 2026-09-27, taken in scratch homes under
+`/tmp` against a binary built from that commit.
 
 > **In short.** A notch *(the confinement setting a launch runs at: jail, guest or host; see
 > [the dial](../design/yolo-as-environment-manager.md#4-confinement-a-dial-with-three-notches))* should
@@ -41,7 +42,7 @@ premise is retired.
 **Start at [§2](#2-security-first-the-boundary-that-is-not-one)**, the only part that is urgent, then
 [§4](#4-the-ordered-build-list).
 
-**Needs your ruling:** [OQ-NC1](#OQ-NC1), [OQ-NC2](#OQ-NC2), [OQ-NC3](#OQ-NC3), [OQ-NC4](#OQ-NC4), [OQ-NC5](#OQ-NC5), [OQ-NC6](#OQ-NC6), [OQ-NC7](#OQ-NC7), [OQ-NC8](#OQ-NC8).
+**Needs your ruling:** [OQ-NC1](#OQ-NC1), [OQ-NC2](#OQ-NC2), [OQ-NC3](#OQ-NC3), [OQ-NC4](#OQ-NC4), [OQ-NC5](#OQ-NC5), [OQ-NC6](#OQ-NC6), [OQ-NC7](#OQ-NC7), [OQ-NC8](#OQ-NC8), [OQ-NC9](#OQ-NC9).
 
 **Reads with:** [`wire-bridge.md`](../reference/wire-bridge.md#wb-d4) (WB-D4, the premise
 [§2](#2-security-first-the-boundary-that-is-not-one) retires),
@@ -317,9 +318,9 @@ after it, except where its **After** cell says otherwise.
 
 | # | Item | Closes | Kind | After | Done when |
 |---|---|---|---|---|---|
-| 5 | One pack resolver with two modes; the host stages every configured pack through `packstage.Stage`; one embedded materialization | B3, B6, B7 | **pure merge** | — | An `exclude`d skill is absent at both notches. An escaping symlink refuses both |
+| 5 | One pack resolver with two modes; the host stages every configured pack through `packstage.Stage`; one embedded materialization | B3, B6, B7 | **pure merge**, except a local pack's escaping symlink, which is **gated** on [OQ-NC9](#OQ-NC9) | — | An `exclude`d skill is absent at both notches. An escaping symlink refuses both. **✅ Built** (`c51c4cfa`; [NC-D7](#NC-D7) to [NC-D9](#NC-D9)): `config.ResolvePack` is the one resolver, the host stages into a process pack tree, and a fetched or embedded pack's escaping symlink refuses both. A LOCAL pack's is still followed at the host and refused by the launch, pending OQ-NC9 |
 | 6 | One selection function, the closure included, at every host verb; `LoadPacks` returns entry problems and launch-shaped verbs refuse | B1, B4 | **pure merge** (NC-D4, NC-D5) | **2** | `["claude"]` composes four packs at every notch, and host `-p bedrock` exports no unserved pointer |
-| 7 | One installable-program predicate that honors `platforms` | B5 | **pure merge** | 5 | Host apply offers no install the vendor does not publish |
+| 7 | One installable-program predicate that honors `platforms` | B5 | **pure merge** | 5 | Host apply offers no install the vendor does not publish. **✅ Built** (`9294da7a`; [NC-D10](#NC-D10)): `packdecl.Install.UnpublishedReason`, asked by the jail's launcher generation and the host's dep probe |
 | 8 | Pack precedence computed once and recorded | B2 | **behavior-changing, gated** on [OQ-NC4](#OQ-NC4) | 6 | One winner for one key at the launcher, the boot and the host |
 
 ### Tier 3 — one front door (P2)
@@ -546,6 +547,36 @@ is reported verified only against a real rootless host or CI, with
    **Answer:**
    > _(empty — fill in when decided)_
 
+9. 💬 <a id="OQ-NC9"></a>**OQ-NC9: May a local pack carry a symlink that points out of the pack?**
+   Found while building item 5. The launch stages every configured pack through `packstage.Stage`,
+   whose no-escape rule refuses such a link whatever the pack's origin. The host read a local pack
+   in place, so it followed the link and delivered its target as content. A dotfile manager (rcm,
+   stow, chezmoi) deploys exactly that shape: `packs/mine/skills/x` is a link into the dotfiles
+   repo. It is the shape [`host-apply-staleness.md`](../reference/host-apply-staleness.md) calls
+   the one a user's own local pack most often has, and `TestApplyHostConvergesOverASymlinkedPack`
+   pins it at the host. So "an escaping symlink refuses both" would break a shipped host
+   behavior. Today the launch refuses such a pack and the host follows it. Item 5 kept both as
+   they were: `config.ResolvePackSpec.FollowLocalSymlinks` is set by the host verbs alone, and
+   it never reaches a fetched or embedded pack. This question decides that input.
+
+   - **A. Follow a local pack's links at every notch.** The launch stages such a pack with
+     `FollowSymlinks` too. The no-escape rule's stated threat is someone else's repository
+     smuggling a host file into a jail, and a local pack is a directory the user named in their
+     own user config, which [OQ-TP9](../design/trust-paths.md#decision-ledger) already treats as
+     full trust. A fetched pack's escaping link stays refused at every notch.
+   - **B. Refuse at every notch,** as the plan's done-when read. A dotfile-deployed local pack
+     then fails `yolo host apply` the way it already fails a jail launch, and the user replaces
+     the links with copies.
+
+   <!-- vantage: oq id=OQ-NC9 leaning="A: follow a local pack's escaping links at every notch; the no-escape rule guards against someone else's repository, a local pack is the user's own directory named in user config (OQ-TP9's trust), and B breaks the dotfile-manager shape host apply supports today." -->
+
+   _Leaning:_ A. It deletes the input rather than keeping it, which is this plan's rule. It fixes
+   the jail refusing a pack the host accepts, and it keeps the no-escape rule for the case that
+   motivated it.
+
+   **Answer:**
+   > _(empty — fill in when decided)_
+
 ## 7. Decision Ledger
 
 | ID | Ruling / Decision | Date | Settled in | Built |
@@ -556,3 +587,7 @@ is reported verified only against a real rootless host or CI, with
 | NC-D4 | *Implementation decision.* The host's selection closure (item 6) lands after served-address composition (item 2), which removes ES-D24's standing reason for not applying it | 2026-09-28 | [§5](#5-already-merged-and-in-flight) | — |
 | NC-D5 | *Implementation decision, on NC-D1.* Launch-shaped verbs (`yolo --`, `yolo host --`, `yolo host env`) refuse a malformed or unresolvable pack entry at every notch, and read-only verbs report it. This overrides NS-D14's per-verb host dispositions | 2026-09-28 | [§3.2](#32-packs) | — |
 | NC-D6 | *Implementation decision.* Host-loopback forwarding into bridged jails stays all-port. Reaching a host service is a documented feature, and item 1, not narrower forwarding, is what closes yolo's own listeners | 2026-09-28 | [§2.2](#22-why-that-premise-is-false-in-a-jail-too) | ✅ (unchanged) |
+| <a id="NC-D7"></a>NC-D7 | *Implementation decision.* The one pack resolver is `config.ResolvePack`, in `internal/config`, because config validation is one of its callers and `internal/config` cannot import `internal/cli/run`. It has two modes, chosen by whether the caller names a destination. STAGE copies through `packstage.Stage` and loads the copy. DECLARATION loads a filtered entry from a temp copy, and an unfiltered one in place after `packstage.Check`, the same walk without a copy. The pack store's posture (`ReadOnlyStore`) is an input, not a mode, and each caller keeps the one it had. `run.PackRoot` and `cli.loadAsStaged` are deleted | 2026-09-28 | [§4](#4-the-ordered-build-list), item 5 | ✅ `c51c4cfa` |
+| <a id="NC-D8"></a>NC-D8 | *Implementation decision.* The host verbs stage into a **process pack tree** (a term coined in `internal/packload/processtree.go`): one leased directory per process under the embedded fallback's name prefix, released by `packload.ReleaseEmbedded`. That exit point already covers every exit that releases the embedded packs, so no new cleanup call is needed. The existing fallback sweep and `yolo prune` reap a tree its owner left behind, by the same lease, without learning a new name. A message naming a staged file maps it back to the source (`packload.Pack.SourcePath`) | 2026-09-28 | [§4](#4-the-ordered-build-list), item 5 | ✅ `c51c4cfa` |
+| <a id="NC-D9"></a>NC-D9 | *Implementation decision, on B6's "filters always apply".* An embedded entry's `only` and `exclude` apply at every notch. Config accepted them, and every notch then ignored them. `yolo pack explain` resolves through the same resolver, so it explains shipped and fetched entries as well as local ones. A broken embedded materialization is named as a yolo bug at both notches (`config.embeddedPackNamed` asks `EmbeddedProblems` first) | 2026-09-28 | [§4](#4-the-ordered-build-list), item 5 | ✅ `c51c4cfa` |
+| <a id="NC-D10"></a>NC-D10 | *Implementation decision.* The installable-program predicate lives in `packdecl` (`Install.UnpublishedReason`, and `DepRequirement.UnpublishedReason` over the same list), not `packload`, because both projections it answers for are `packdecl` types. At the host, an absent program with no vendor build is neither missing nor a blocker, and gets no install offer. It gets a line and a verdict clause, which is the jail's "no launcher and a line". A present one is present: the probe runs first, the jail's order | 2026-09-28 | [§4](#4-the-ordered-build-list), item 7 | ✅ `9294da7a` |

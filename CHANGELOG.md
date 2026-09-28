@@ -205,6 +205,13 @@ apply it, and the launch says that too. See
   problem, and the other host commands leave such a pack out and say so. `yolo config promote`
   no longer writes into such a pack and reports success. Host commands also skip a `pack.json`
   that the pack's `only` or `exclude` filters out, as jails always did.
+- `yolo host apply` delivered the skills, briefings and files a pack's `only` or `exclude` leaves
+  out, which no jail received. The `only` and `exclude` of a pack yolo ships were ignored
+  everywhere; they now apply in jails and on your host, and `yolo pack explain` shows what they
+  keep for a shipped or fetched pack as well as a local one.
+- `yolo host apply` and `yolo check-deps` offered to install a program on a machine its vendor
+  publishes no build for, and counted it missing. They now say there is no build for this
+  machine and offer nothing, as a jail does.
 - `yolo host apply` adopted `~/.claude/skills/synced/`, and the next claude.ai sync lost new and
   edited skills.
 - A workspace pinning an older Node, such as 20, left pi unable to start.
