@@ -960,18 +960,21 @@ _refresh_agent_auth() {
             YOLO_BYPASS_SHIMS=1 yolo internal openai-auth-client token >/dev/null
         fi
     }
-    local auth_rc=0
-    _agent_auth_token || auth_rc=$?
-    if [ "$auth_rc" -eq 0 ]; then
-        return 0
-    fi
     # 75 is openauthclient.ExitPiAuthLockBusy: the view writer found the agent's own
     # credential lock held by a running copy of the agent past the agent's stale window. That
     # is not a missing login. The holder is refreshing its own token, so the file it guards is
     # being kept current. Leave it in place and start the agent; a login here would send the
     # user to a browser for a credential they already have.
-    if [ "$auth_rc" -eq 75 ]; then
+    _agent_auth_lock_busy() {
         echo "  $BIN: a running $BIN holds its credential lock, so yolo left the existing $auth_path in place; continuing without a login." >&2
+    }
+    local auth_rc=0
+    _agent_auth_token || auth_rc=$?
+    if [ "$auth_rc" -eq 0 ]; then
+        return 0
+    fi
+    if [ "$auth_rc" -eq 75 ]; then
+        _agent_auth_lock_busy
         return 0
     fi
     # A login is a BROWSER flow: it prints a URL and waits for the callback. With no
@@ -992,7 +995,15 @@ _refresh_agent_auth() {
     fi
     echo "  $BIN: OpenAI login is required." >&2
     YOLO_BYPASS_SHIMS=1 yolo internal openai-auth-client login >/dev/null
-    _agent_auth_token
+    # The same lock can be held when the token call runs again after the login, and the
+    # answer is the same. Any other failure still returns nonzero and aborts under set -e.
+    auth_rc=0
+    _agent_auth_token || auth_rc=$?
+    if [ "$auth_rc" -eq 75 ]; then
+        _agent_auth_lock_busy
+        return 0
+    fi
+    return "$auth_rc"
 }
 
 _refresh_agent_auth

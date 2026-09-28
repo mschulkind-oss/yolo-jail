@@ -23,15 +23,17 @@ import (
 // variable (an inherited YOLO_AUTH_PRELAUNCH_* once sent a sibling test's calls to the real
 // client), and the only prelaunch settings are the two this test sets.
 func TestPiLauncherDoesNotLogInWhenARunningPiHoldsItsAuthLock(t *testing.T) {
-	out := runPiLauncherAgainstBusyAuthLock(t, nil)
+	out := runPiLauncherAgainstBusyAuthLock(t, nil, false)
 	if strings.Contains(out, "OpenAI login is required") {
 		t.Errorf("a held lock was reported as a missing login:\n%s", out)
 	}
 }
 
 // runPiLauncherAgainstBusyAuthLock runs the generated pi launcher with stdin as given (nil is
-// /dev/null, i.e. no terminal), asserts the lock-busy contract, and returns the output.
-func runPiLauncherAgainstBusyAuthLock(t *testing.T, stdin *os.File) string {
+// /dev/null, i.e. no terminal), asserts the lock-busy contract, and returns the output. With
+// loginFirst the first token call fails as a missing login does (exit 1), so a launcher at a
+// terminal logs in, and the token call after the login meets the held lock.
+func runPiLauncherAgainstBusyAuthLock(t *testing.T, stdin *os.File, loginFirst bool) string {
 	t.Helper()
 	if _, err := exec.LookPath("bash"); err != nil {
 		t.Skip("bash not found")
@@ -69,10 +71,14 @@ func runPiLauncherAgainstBusyAuthLock(t *testing.T, stdin *os.File) string {
 	// The token call fails the way the real client does when a running pi holds the lock: the
 	// writer's message on stderr and the dedicated exit status. A login call succeeds, so
 	// reaching it cannot be mistaken for some other failure.
+	firstToken := ""
+	if loginFirst {
+		firstToken = "    [ \"$(wc -l < " + shellSingleQuote(calls) + ")\" -gt 1 ] || exit 1\n"
+	}
 	fakeYolo := "#!/usr/bin/env bash\n" +
 		"printf '%s\\n' \"$*\" >> " + shellSingleQuote(calls) + "\n" +
 		"case \"$*\" in\n" +
-		"  *'openai-auth-client token'*)\n" +
+		"  *'openai-auth-client token'*)\n" + firstToken +
 		"    echo 'openai-auth-client: lock Pi auth.json: held by a running pi' >&2\n" +
 		"    exit " + strconv.Itoa(openauthclient.ExitPiAuthLockBusy) + " ;;\n" +
 		"esac\n" +
@@ -117,9 +123,13 @@ func runPiLauncherAgainstBusyAuthLock(t *testing.T, stdin *os.File) string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	wantCalls := "internal openai-auth-client token --pi-auth=" + authPath + "\n"
+	tokenCall := "internal openai-auth-client token --pi-auth=" + authPath + "\n"
+	wantCalls := tokenCall
+	if loginFirst {
+		wantCalls = tokenCall + "internal openai-auth-client login\n" + tokenCall
+	}
 	if string(log) != wantCalls {
-		t.Errorf("yolo calls = %q, want the one token call %q and no login", log, wantCalls)
+		t.Errorf("yolo calls = %q, want %q", log, wantCalls)
 	}
 	for _, want := range []string{"a running pi holds its credential lock", "left the existing " + authPath + " in place"} {
 		if !strings.Contains(out, want) {
