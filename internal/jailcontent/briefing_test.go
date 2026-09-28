@@ -116,13 +116,16 @@ func TestComposePackBriefingsLabelsAPacksFilesOnce(t *testing.T) {
 		{Name: "matt", Text: "Late rule."},
 		{Name: "zc", Text: "Zero."},
 	}
+	// An empty base composes the sections alone (ComposeBriefingSections), which is the host
+	// notch's historical shape; the jail used to lead with a blank line it never shipped, because
+	// no jail destination has an empty base.
 	got := ComposePackBriefings("", packs, "claude", true)
-	want := "\n\n<!-- from pack: matt -->\nHouse rules.\n\nLate rule.\n\n<!-- from pack: zc -->\nZero.\n"
+	want := "<!-- from pack: matt -->\nHouse rules.\n\nLate rule.\n\n<!-- from pack: zc -->\nZero.\n"
 	if got != want {
 		t.Errorf("claude:\n got %q\nwant %q", got, want)
 	}
 	got = ComposePackBriefings("", packs, "pi", false)
-	if want := "\n\nHouse rules.\n\nPi only.\n\nLate rule.\n\nZero.\n"; got != want {
+	if want := "House rules.\n\nPi only.\n\nLate rule.\n\nZero.\n"; got != want {
 		t.Errorf("pi, unlabelled:\n got %q\nwant %q", got, want)
 	}
 }

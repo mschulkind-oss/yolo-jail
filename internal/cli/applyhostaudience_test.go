@@ -14,6 +14,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/jailcontent"
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
 // audienceFixture selects two agent packs — each declaring where its agent reads AND the
@@ -212,6 +215,10 @@ func TestApplyHostBriefingMattShape(t *testing.T) {
 	}
 	alpha, _ := os.ReadFile(filepath.Join(home, ".alpha", "AGENTS.md"))
 	beta, _ := os.ReadFile(filepath.Join(home, ".beta", "AGENTS.md"))
+	// Each destination opens with the host base (notch-convergence item 26); the packs' prose
+	// follows it.
+	base := strings.TrimRight(jailcontent.HostBriefingBase("", paths.IsMacOS), "\n") + "\n\n"
+	alpha, beta = []byte(strings.TrimPrefix(string(alpha), base)), []byte(strings.TrimPrefix(string(beta), base))
 	if string(alpha) != "House rules.\n\nAlpha-only rule.\n" {
 		t.Errorf(".alpha/AGENTS.md = %q, want the house rules and the addressed file, one section "+
 			"in filename order\n%s", alpha, report)

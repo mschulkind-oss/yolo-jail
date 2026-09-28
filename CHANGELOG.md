@@ -183,6 +183,12 @@ apply it, and the launch says that too. See
 - A launch flag a pack declares in its `guarded` posture never reached any launch. `yolo host --`
   now adds it, and says so the way a jail launch does, naming the pack and showing the command
   before and after. The `autonomous` posture's flags still never reach your host.
+- An agent on your own machine was never told it was there: `yolo host apply` wrote only your
+  packs' prose into its briefing, and dropped `agents_md_extra`. Every briefing file your packs
+  name now opens with a short section saying the agent runs on your real machine with permission
+  prompts on, followed by your user config's `agents_md_extra` and your packs' prose, and yolo
+  writes that file even when no pack adds prose. A file you wrote yourself is moved into your
+  local pack first, after a confirmation, as before.
 - `yolo config render --at host`, and a bare `yolo config render` run outside any workspace,
   showed the file a jail gets, including permission-bypass settings `yolo host apply` never
   writes. It now prints exactly the file `yolo host apply --assert` would write into your home,

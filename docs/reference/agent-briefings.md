@@ -142,8 +142,19 @@ conditional sections that appear only when their data exists. Emission order, fr
 
 There is no tool inventory and no MCP listing: agents read their own generated config.
 
+**At the host notch the body is the confinement header alone.** Every section after it describes
+a launch — the `/workspace` bind, the network the launch applied, the mounts, the shims, the
+jail's limitations — and `yolo host apply` launches nothing, so each would be a false sentence to
+an agent on the real machine. What the header says is the one thing a host agent must know: it
+is on the human's real machine, nothing is disposable, nothing enforces a boundary, and
+permission prompts stay on. `yolo host apply` composes it into every briefing destination a
+selected pack declares, with or without pack prose, so yolo owns each of those files for as long
+as a selected pack declares it.
+
 **3. `agents_md_extra`**, appended verbatim — a config key for injecting arbitrary extra
-instructions into every generated briefing, legal at user or workspace scope.
+instructions into every generated briefing, legal at user or workspace scope. `yolo host apply`
+reads the user-scope value only: a workspace config is agent-editable, and what it says reaches a
+jail's briefing and never a file in the real home.
 
 **4. Each selected pack's prose that this destination's audience admits**, appended last, in
 config order, **unlabelled** — one blank line between packs and nothing else. Within a pack its
@@ -724,7 +735,8 @@ only place the values themselves are stated.
 | Host-briefing prepend selector | `after: "host:<home-relative path>"` on a `briefing` contribution | `packdecl` (`Contribution.After`), `run.briefingHostOverlay` |
 | Ownership record gating the prepend | the host-briefing manifest under the user's config dir | `entrypoint.HostBriefingManifestPath`, `HostBriefingOwner` |
 | Pack prose sources | every `*.md` directly inside a pack's `briefing/`, plus any file a `from` names; one governing contribution each | `packload.GovernedSources`, `run.packBriefingProses` |
-| Per-pack label (off by default) | `<!-- from pack: NAME -->`, when `briefing_provenance: true` | `jailcontent.ComposePackBriefings`, `entrypoint.appendHostBriefingSection`; `config.BriefingProvenance` |
+| Per-pack label (off by default) | `<!-- from pack: NAME -->`, when `briefing_provenance: true` | `jailcontent.ComposeBriefingSections` (both notches); `config.BriefingProvenance` |
+| Host base body | the host confinement header, then the user-scope `agents_md_extra` | `jailcontent.HostBriefingBase`, `config.AgentsMDExtraUser` |
 | Host/jail separator | `---` between the prepended host prose and the rest | `jailcontent.PrependHostBriefing` |
 | Extra-prose config key | `agents_md_extra` (string; user or workspace scope) | `jailcontent.ComposeBriefing`; `yolo config-ref` |
 | Built-in skills | one embedded suite | `internal/jailcontent/builtinskills` (`FS`) |

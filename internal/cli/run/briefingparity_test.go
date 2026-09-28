@@ -57,7 +57,7 @@ func TestJailAndHostComposeTheSameBriefing(t *testing.T) {
 
 	for _, provenance := range []bool{false, true} {
 		host := map[string]string{}
-		for _, d := range entrypoint.ComposeHostBriefings(resolved, home, provenance) {
+		for _, d := range entrypoint.ComposeHostBriefings(resolved, home, "", provenance) {
 			rel, err := filepath.Rel(home, d.Path)
 			if err != nil {
 				t.Fatal(err)
@@ -96,6 +96,23 @@ func TestJailAndHostComposeTheSameBriefing(t *testing.T) {
 		for dest, body := range want {
 			if host[dest] != body {
 				t.Errorf("provenance=%v %s = %q\nwant %q", provenance, dest, host[dest], body)
+			}
+		}
+
+		// WITH A BASE, the one composer's other input (jailcontent.ComposeBriefingSections): each
+		// notch opens every destination with its own base — BriefingContent plus agents_md_extra
+		// in a jail, HostBriefingBase at the host — and the packs' sections follow it identically.
+		const base = "# BASE\n\nextra\n"
+		hostWithBase := map[string]string{}
+		for _, d := range entrypoint.ComposeHostBriefings(resolved, home, base, provenance) {
+			rel, _ := filepath.Rel(home, d.Path)
+			hostWithBase[filepath.ToSlash(rel)] = d.Content
+		}
+		for _, d := range dests {
+			jail := jailcontent.ComposePackBriefings(base, proses, d.Agent, provenance)
+			if jail != hostWithBase[d.Into] || !strings.HasPrefix(jail, "# BASE\n\nextra\n\n") {
+				t.Errorf("provenance=%v %s, with a base:\n--- jail ---\n%s--- host ---\n%s",
+					provenance, d.Into, jail, hostWithBase[d.Into])
 			}
 		}
 	}

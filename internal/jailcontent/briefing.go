@@ -374,6 +374,18 @@ func enforcementLines(prof render.Profile) []string {
 }
 
 func BriefingContent(in BriefingInput) string {
+	// THE BASE IS NOTCH-AWARE (docs/plans/notch-convergence.md item 26, row D7). Everything below
+	// the header describes a LAUNCH — the /workspace bind, the network stack it applied, the
+	// mounts, the shims, the loopholes, the jail's own limitations and how to ask for a package —
+	// and at the host notch there is no launch: the agent is the human's own process on the real
+	// machine, and every one of those sections would be a false sentence there. So the host's
+	// base is its confinement header and nothing else: that it is on the REAL machine, that
+	// nothing is disposable, what enforces nothing, and that autonomy is off. It is what
+	// `yolo host apply` composes ahead of the packs' prose (HostBriefingBase), which is how a host
+	// agent is told where it is (env-manager Phase 8's done-when).
+	if notch, known := render.KindForNotch(in.Confinement); known && notch == render.KindHost {
+		return strings.Join(confinementHeader(in.Confinement, in.Mechanism, in.IsMacOS), "\n") + "\n"
+	}
 	// What the launch APPLIED wins over what the config asked for; NetMode is the
 	// fallback for a caller that never resolved a backend. Everything downstream — the
 	// network paragraph and both port sections, which describe forwarding that only
@@ -726,6 +738,17 @@ func packagesSection(mechanism string) []string {
 	}
 }
 
+// HostBriefingBase is the host notch's base body for every briefing destination `yolo host apply`
+// composes: BriefingContent at the host notch (the confinement header — the real machine, nothing
+// disposable, autonomy off) with agents_md_extra appended exactly as a jail appends it
+// (ComposeBriefing). extra is the USER-SCOPE value, which is the caller's to read: a workspace
+// yolo-jail.jsonc is agent-editable, and what it says must not reach a file in the real home.
+// isMacOS picks the platform's spelling of the (empty) enforcement vector, as the jail's header
+// does.
+func HostBriefingBase(extra string, isMacOS bool) string {
+	return ComposeBriefing(BriefingContent(BriefingInput{Confinement: render.KindHost.String(), IsMacOS: isMacOS}), extra)
+}
+
 // ComposeBriefing appends agents_md_extra to the jail content:
 // jailContent + "\n" + rstrip(extra) + "\n" when extra is non-empty.
 func ComposeBriefing(jailContent, extra string) string {
@@ -863,7 +886,7 @@ type PackBriefing struct {
 // the user's `briefing_provenance` asks for it (config.BriefingProvenance says why: the label
 // made agents treat the user's own every-repository rules as someone else's, and Claude strips
 // HTML comments before it reads the file anyway). Off, entries are separated by one blank
-// line and nothing else — the host notch's appendHostBriefingSection matches this byte for byte.
+// line and nothing else — ComposeBriefingSections assembles the file, the host notch's too.
 //
 // ONE LABEL PER CONTIGUOUS RUN of one pack's delivered entries, not one per entry: a pack's
 // several briefing/ files are ONE section headed by the pack's one label
@@ -873,8 +896,7 @@ type PackBriefing struct {
 // Empty text is skipped rather than emitting an empty section: a pack with no
 // briefing should leave no trace.
 func ComposePackBriefings(base string, packs []PackBriefing, agent string, provenance bool) string {
-	out := base
-	last, started := "", false
+	var sections []BriefingSection
 	for _, p := range packs {
 		if !addressesAgent(p.Agents, agent) {
 			continue
@@ -883,15 +905,61 @@ func ComposePackBriefings(base string, packs []PackBriefing, agent string, prove
 		if text == "" {
 			continue
 		}
-		out = strings.TrimRight(out, "\n") + "\n\n"
-		if provenance && (!started || p.Name != last) {
-			out += "<!-- from pack: " + p.Name + " -->\n"
+		// A contiguous run of one pack's entries is ONE section: its files joined by one blank
+		// line, under one label.
+		if n := len(sections); n > 0 && sections[n-1].Pack == p.Name {
+			sections[n-1].Text += "\n\n" + text
+			continue
 		}
-		last, started = p.Name, true
-		out += text + "\n"
+		sections = append(sections, BriefingSection{Pack: p.Name, Text: text})
+	}
+	return ComposeBriefingSections(base, sections, provenance)
+}
+
+// BriefingSection is one pack's section of one destination's briefing: the pack, and all of its
+// prose for that destination already joined.
+type BriefingSection struct {
+	Pack string
+	Text string
+}
+
+// ComposeBriefingSections is THE PER-DESTINATION BRIEFING COMPOSER, at every notch
+// (docs/plans/notch-convergence.md item 26, row D7): the notch's base body, then each pack's
+// section in order, one blank line between them, each headed by `<!-- from pack: NAME -->` only
+// when `provenance` is on. The jail calls it with BriefingContent plus agents_md_extra as the
+// base (ComposePackBriefings); `yolo host apply` with HostBriefingBase
+// (entrypoint.ComposeHostBriefings). Which packs' prose reaches a destination is each notch's
+// own question — the jail matches an audience against the destination's declared identity, the
+// host follows the destinations the packs name (agent-briefings.md#where-each-notch-narrows) —
+// and how a destination's file is ASSEMBLED from it is this function's alone, so one pack set
+// reads the same at both.
+//
+// An empty base composes the sections alone, with nothing ahead of the first; an empty section
+// is skipped rather than emitting an empty one, so a pack with no prose leaves no trace.
+func ComposeBriefingSections(base string, sections []BriefingSection, provenance bool) string {
+	out := base
+	for _, sec := range sections {
+		text := strings.TrimRight(sec.Text, " \t\r\n")
+		if text == "" {
+			continue
+		}
+		section := text + "\n"
+		if provenance {
+			section = BriefingProvenanceLabel(sec.Pack) + "\n" + section
+		}
+		if out == "" {
+			out = section
+			continue
+		}
+		out = strings.TrimRight(out, "\n") + "\n\n" + section
 	}
 	return out
 }
+
+// BriefingProvenanceLabel is the per-section label, emitted only when `briefing_provenance` is
+// on. It is a debugging aid for a human reading a merged file, and off by default: labelled, the
+// user's every-repository rules read to an agent as someone else's (config.BriefingProvenance).
+func BriefingProvenanceLabel(pack string) string { return "<!-- from pack: " + pack + " -->" }
 
 // addressesAgent reports whether prose naming `agents` belongs at a destination whose declared
 // identity is `agent`.

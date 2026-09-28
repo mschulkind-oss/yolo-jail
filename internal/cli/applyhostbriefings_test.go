@@ -22,6 +22,9 @@ import (
 	"sort"
 	"strings"
 	"testing"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/jailcontent"
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
 // userProseFixture builds a home whose ~/.claude/CLAUDE.md is HAND-WRITTEN, plus a pack that
@@ -290,8 +293,11 @@ func TestApplyHostBriefingCleanHomeNeverPrompts(t *testing.T) {
 	}
 }
 
-// THE ORPHAN. Dropping the last pack that contributes prose leaves no generated file behind — it
-// is archived, so nothing is deleted and nothing is left with no owner.
+// THE ORPHAN. Dropping the last pack that DECLARES a destination leaves no generated file behind
+// — it is archived, so nothing is deleted and nothing is left with no owner. Dropping a pack that
+// only contributed PROSE is not that case since the host base exists (notch-convergence item 26):
+// the agent pack still declares the destination, so yolo still composes it, from the host base
+// alone, and the dropped pack's prose leaves by regeneration rather than by an archive.
 //
 // The fixture is a CLEAN home deliberately: with pre-existing user prose the migration creates the
 // local pack, which then contributes to the same destination forever, so the destination is never
@@ -317,16 +323,32 @@ func TestApplyHostBriefingDroppingThePackLeavesNoOrphan(t *testing.T) {
 		t.Fatalf("the first apply should have generated the destination: %v", err)
 	}
 
-	// The prose pack leaves. `claude` still NAMES the destination but ships no prose of its own,
-	// so nothing composes into it — the orphan case.
+	// The prose pack leaves. `claude` still NAMES the destination, so yolo still owns it and
+	// composes the host base into it; the pack's rule is gone, and nothing is archived.
 	selectPacks(t, home, `"claude"`)
 	rc, report := applyWith(t, true, strings.NewReader("y\n"))
 	if rc != 0 {
-		t.Fatalf("apply after the drop rc=%d\n%s", rc, report)
+		t.Fatalf("apply after the prose pack's drop rc=%d\n%s", rc, report)
+	}
+	after, err := os.ReadFile(dest)
+	if err != nil || strings.Contains(string(after), "Pack rule: use rg.") ||
+		string(after) != jailcontent.HostBriefingBase("", paths.IsMacOS) {
+		t.Errorf("with only the agent pack left the destination is the host base alone: %v\n%q\n%s",
+			err, after, report)
+	}
+	if got := archivedBriefings(t, home); len(got) != 0 {
+		t.Errorf("a destination a selected pack still declares is not an orphan: %v\n%s", got, report)
+	}
+
+	// The agent pack leaves too: nothing declares the destination, so it is the orphan.
+	selectPacks(t, home, ``)
+	rc, report = applyWith(t, true, strings.NewReader("y\n"))
+	if rc != 0 {
+		t.Fatalf("apply after the last pack's drop rc=%d\n%s", rc, report)
 	}
 	if _, err := os.Lstat(dest); err == nil {
 		after, _ := os.ReadFile(dest)
-		t.Errorf("a generated briefing with no contributing pack left is an ORPHAN and must be "+
+		t.Errorf("a generated briefing no selected pack declares is an ORPHAN and must be "+
 			"retired:\n%q\nreport:\n%s", after, report)
 	}
 	if got := archivedBriefings(t, home); len(got) == 0 {

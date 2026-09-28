@@ -35,11 +35,17 @@ package entrypoint
 //   - RETIREMENT LEAVES NO ORPHAN. When the last pack contributing to a destination is
 //     dropped, yolo no longer owns that file, so PruneHostBriefings archives it rather than
 //     leaving a generated file behind with nobody to regenerate it.
-//   - The composed body carries the PACKS' prose, not yolo's environment briefing.
-//     BriefingContent's body describes a jail (/workspace, no sudo, the shims, the loopholes);
-//     at the host there is no jail to describe. `after: "host:…"` is likewise inert here — it
-//     exists to pull the user's file INTO a jail staging copy, and the host no longer preserves
-//     the user's file in place to pull from.
+//   - THE BASE IS THE HOST NOTCH'S OWN (docs/plans/notch-convergence.md item 26): every
+//     destination opens with jailcontent.HostBriefingBase — BriefingContent at the host notch,
+//     which is the confinement header alone (the REAL machine, nothing disposable, autonomy off)
+//     — then the user-scope agents_md_extra, then the packs' prose, assembled by the one
+//     per-destination composer the jail uses (jailcontent.ComposeBriefingSections). The rest of
+//     the jail's body describes a launch (/workspace, no sudo, the shims, the loopholes), and at
+//     the host there is no launch to describe, so it is not there. Because the base is never
+//     empty, yolo owns every destination a selected pack declares, prose or none — the §6a
+//     ruling's "fully generated and controlled", which is also what tells a host agent where it
+//     is. `after: "host:…"` is inert here — it exists to pull the user's file INTO a jail
+//     staging copy, and the host no longer preserves the user's file in place to pull from.
 
 import (
 	"encoding/json"
@@ -51,16 +57,11 @@ import (
 	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/hostskills"
+	"github.com/mschulkind-oss/yolo-jail/internal/jailcontent"
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
-
-// hostBriefingProvenance is the per-section label, shared verbatim with the jail's
-// ComposePackBriefings and emitted only when `briefing_provenance` is on. It is a debugging aid
-// for a human reading a merged file, and off by default: labelled, the user's every-repository
-// rules read to an agent as someone else's (config.BriefingProvenance).
-func hostBriefingProvenance(pack string) string { return "<!-- from pack: " + pack + " -->" }
 
 // HostBriefingRequest carries what a host briefing render needs beyond the packs: the ownership
 // record and the archive, both owned by the caller (the CLI owns path layout; this package stays
@@ -103,6 +104,12 @@ type HostBriefingRequest struct {
 	// `briefing_provenance` (config.BriefingProvenanceUser). FALSE IS THE DEFAULT, and a caller
 	// that does not answer composes unlabelled, which is what the jail notch does by default too.
 	Provenance bool
+	// Base is the host notch's base body, composed ahead of every destination's pack prose:
+	// jailcontent.HostBriefingBase over the USER-SCOPE agents_md_extra. The CLI resolves it,
+	// for Provenance's reason. Empty composes the packs' prose alone, and a destination with no
+	// prose then holds nothing yolo would write — the shape before the base existed, which no
+	// production caller asks for.
+	Base string
 }
 
 // HostBriefingDestination is one composed destination: where it goes and which packs contribute.
@@ -112,8 +119,10 @@ type HostBriefingDestination struct {
 	// Packs names the contributing packs in composition order — config order, since that is
 	// the order the caller's pack list arrives in and the order the jail composes.
 	Packs []string
-	// Content is the composed file, or "" when no contributing pack ships prose (in which case
-	// yolo owns nothing here and the destination is left alone or retired).
+	// Content is the composed file: the base, then the contributing packs' prose. It is "" only
+	// when the base is empty AND no contributing pack ships prose (in which case yolo owns nothing
+	// here and the destination is left alone or retired) — which the host apply never asks for,
+	// since its base (HostBriefingRequest.Base) is never empty.
 	Content string
 }
 
@@ -152,9 +161,14 @@ type HostBriefingAdoption struct {
 // CombineConcat footprint, so their sections are concatenated in pack order — each under a
 // provenance label when `provenance` is on. No dedup-by-similarity is attempted — prose has no
 // name, so "these two sections say the same thing" is a judgement yolo would get wrong.
-func ComposeHostBriefings(packs []*packload.Pack, homeDir string, provenance bool) []HostBriefingDestination {
+//
+// base is the notch's base body (HostBriefingRequest.Base), and every destination's Content opens
+// with it: the file a destination holds is the base followed by its packs' sections, assembled by
+// the one composer both notches use (jailcontent.ComposeBriefingSections).
+func ComposeHostBriefings(packs []*packload.Pack, homeDir, base string, provenance bool) []HostBriefingDestination {
 	var order []string
 	byPath := map[string]*HostBriefingDestination{}
+	sections := map[string][]jailcontent.BriefingSection{}
 	for _, p := range packs {
 		if p == nil {
 			continue
@@ -193,12 +207,14 @@ func ComposeHostBriefings(packs []*packload.Pack, homeDir string, provenance boo
 			if prose == "" {
 				continue
 			}
-			d.Content = appendHostBriefingSection(d.Content, p.Name, prose, provenance)
+			sections[path] = append(sections[path], jailcontent.BriefingSection{Pack: p.Name, Text: prose})
 		}
 	}
 	out := make([]HostBriefingDestination, 0, len(order))
 	for _, path := range order {
-		out = append(out, *byPath[path])
+		d := byPath[path]
+		d.Content = jailcontent.ComposeBriefingSections(base, sections[path], provenance)
+		out = append(out, *d)
 	}
 	return out
 }
@@ -220,22 +236,6 @@ func sortedUniqueSources(in []packload.GovernedSource) []packload.GovernedSource
 	return out
 }
 
-// appendHostBriefingSection adds one pack's section — all of its files for this destination,
-// already joined (packload.JoinBriefingSources) — matching jailcontent.ComposePackBriefings'
-// spacing byte-for-byte so the same prose reads the same at both notches: one blank line between
-// files and between packs, and the pack's ONE label heading its section only when `provenance` is
-// on.
-func appendHostBriefingSection(base, pack, prose string, provenance bool) string {
-	section := strings.TrimRight(prose, " \t\r\n") + "\n"
-	if provenance {
-		section = hostBriefingProvenance(pack) + "\n" + section
-	}
-	if base == "" {
-		return section
-	}
-	return strings.TrimRight(base, "\n") + "\n\n" + section
-}
-
 // HostBriefingAdoptions returns the destinations this pack set would take over that currently
 // hold content yolo cannot prove it wrote — the input to the CLI's one-way-door confirmation.
 //
@@ -252,9 +252,9 @@ func appendHostBriefingSection(base, pack, prose string, provenance bool) string
 // it against the composition, and a label the render would add makes an identical file look
 // different.
 func HostBriefingAdoptions(packs []*packload.Pack, homeDir string,
-	man *hostskills.Manifest, provenance bool) []HostBriefingAdoption {
+	man *hostskills.Manifest, base string, provenance bool) []HostBriefingAdoption {
 	var out []HostBriefingAdoption
-	for _, d := range ComposeHostBriefings(packs, homeDir, provenance) {
+	for _, d := range ComposeHostBriefings(packs, homeDir, base, provenance) {
 		if d.Content == "" {
 			continue // nothing would be written, so nothing would be adopted
 		}
@@ -622,13 +622,13 @@ func moveRefused(legacy, target, why string) (*HostRenderResult, error) {
 // The old delimited-block API was per-pack precisely because a block could be asserted
 // independently; nothing in wholesale composition can be.
 //
-// A destination whose contributing packs ship NO prose is left ALONE HERE, not emptied — but it
-// is not left alone by the apply: an OWNED destination with nothing left to compose is exactly
-// the orphan PruneHostBriefings archives, and one yolo never wrote is the user's file at a path
-// some pack happens to name. Splitting it that way is what keeps "yolo owns this" from licensing
-// the truncation of a file yolo never wrote, while still ensuring "the pack stopped shipping
-// prose" and "the pack was dropped" leave the same residue (the property the old mechanism's
-// empty-prose branch had).
+// A destination with NOTHING to compose (an empty base and no prose) is left ALONE HERE, not
+// emptied — but it is not left alone by the apply: an OWNED destination with nothing left to
+// compose is exactly the orphan PruneHostBriefings archives, and one yolo never wrote is the
+// user's file at a path some pack happens to name. Since the host base (item 26) the apply
+// never composes nothing: every destination a selected pack declares holds at least the base, so
+// a pack that stops shipping prose leaves its destination recomposed from the base, and only a
+// destination no selected pack declares any more is an orphan.
 //
 // Anything already at an ADOPTED destination must have been migrated first — the caller runs
 // MigrateHostBriefings behind its confirmation. This function does not re-check that, for the
@@ -637,7 +637,7 @@ func moveRefused(legacy, target, why string) (*HostRenderResult, error) {
 func RenderHostBriefings(packs []*packload.Pack, homeDir string, req HostBriefingRequest,
 	observe bool) ([]HostRenderResult, error) {
 	var out []HostRenderResult
-	for _, d := range ComposeHostBriefings(packs, homeDir, req.Provenance) {
+	for _, d := range ComposeHostBriefings(packs, homeDir, req.Base, req.Provenance) {
 		id := hostBriefingSurfaceID(d)
 		if d.Content == "" {
 			out = append(out, HostRenderResult{Surface: id, Path: d.Path,
@@ -721,11 +721,11 @@ func PruneHostBriefings(candidates []*packload.Pack, active map[string]bool, hom
 	// contribute to survives one of them leaving — which is the case a per-pack prune gets
 	// wrong.
 	//
-	// COMPOSED, not merely declared: a destination whose remaining packs all stopped shipping
-	// prose has nothing left to write into it, and leaving a file yolo generated behind with
-	// nobody to regenerate it is the same orphan as dropping the pack outright. That is the
-	// property the old mechanism's "empty prose removes the stale block" branch carried, kept
-	// here rather than duplicated into the render.
+	// COMPOSED, not merely declared, and with the same base the render composes: a destination
+	// with nothing left to write into it is the same orphan as dropping the pack outright. With
+	// the host base every declared destination composes something, so in practice this is "a
+	// selected pack still declares it"; the composition is asked rather than the declaration so
+	// the render and the prune cannot disagree about which destinations are live.
 	live := map[string]bool{}
 	var activePacks []*packload.Pack
 	for _, p := range candidates {
@@ -735,7 +735,7 @@ func PruneHostBriefings(candidates []*packload.Pack, active map[string]bool, hom
 	}
 	// Liveness is "does anything compose here", which the label cannot change — so the flag's
 	// value is irrelevant and false is passed rather than threaded.
-	for _, d := range ComposeHostBriefings(activePacks, homeDir, false) {
+	for _, d := range ComposeHostBriefings(activePacks, homeDir, req.Base, false) {
 		if d.Content != "" {
 			live[d.Path] = true
 		}

@@ -36,6 +36,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/hostskills"
+	"github.com/mschulkind-oss/yolo-jail/internal/jailcontent"
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
@@ -125,6 +126,11 @@ func applyHostBriefings(pr richtext.Printer, out io.Writer, stdin io.Reader,
 		LocalPackBriefing: localPackBriefingPath(home),
 		PackSetComplete:   complete,
 		Provenance:        config.BriefingProvenanceUser(),
+		// THE HOST NOTCH'S BASE (docs/plans/notch-convergence.md item 26): the confinement header
+		// that tells a host agent it is on the real machine, then the USER-SCOPE agents_md_extra,
+		// ahead of every destination's pack prose — what a jail's BriefingContent and
+		// agents_md_extra are to a jail's destinations.
+		Base: jailcontent.HostBriefingBase(config.AgentsMDExtraUser(), paths.IsMacOS),
 	}
 
 	rc := 0
@@ -193,7 +199,7 @@ func applyHostBriefings(pr richtext.Printer, out io.Writer, stdin io.Reader,
 		reresolve()
 	}
 
-	adoptions := entrypoint.HostBriefingAdoptions(loaded, home, man, req.Provenance)
+	adoptions := entrypoint.HostBriefingAdoptions(loaded, home, man, req.Base, req.Provenance)
 	if len(adoptions) > 0 {
 		if !write {
 			// A QUESTION THE --assert WILL ASK — see the skills adoption's twin.

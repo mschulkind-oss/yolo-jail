@@ -19,11 +19,22 @@ import (
 // construction, which is what "the jail's bytes do not move" means here. The mechanism rows
 // are in the section at the bottom.
 
-// briefingHeader is the confinement header block — everything before "## Environment".
+// briefingHeader is the confinement header block — everything before "## Environment", or the
+// whole body at the host notch, whose base IS the header (there is no launch to describe).
 func briefingHeader(t *testing.T, confinement string) string {
 	t.Helper()
-	out := BriefingContent(BriefingInput{Workspace: "/w", Confinement: confinement})
+	return headerOf(t, confinement, BriefingContent(BriefingInput{Workspace: "/w", Confinement: confinement}))
+}
+
+func headerOf(t *testing.T, confinement, out string) string {
+	t.Helper()
 	i := strings.Index(out, "## Environment")
+	if confinement == "host" {
+		if i >= 0 {
+			t.Fatalf("the host notch's base describes a launch (## Environment):\n%s", out)
+		}
+		return out
+	}
 	if i < 0 {
 		t.Fatalf("briefing has no ## Environment section:\n%s", out)
 	}
@@ -144,14 +155,39 @@ func TestBriefingNetModeHostIsNotTheHostNotch(t *testing.T) {
 		t.Errorf("netMode=host must NOT be read as the host confinement notch:\n%s", jailHostNet)
 	}
 
-	// A host-NOTCH environment with default networking gets the host framing and the BRIDGE
-	// network line — the mirror-image confusion.
+	// A host-NOTCH environment gets the host framing, and — the mirror-image confusion — is
+	// never read as a network mode either way. Since notch convergence item 26 its base is the
+	// header alone, so it carries no network paragraph at all: there is no launch whose stack
+	// the paragraph could describe.
 	hostNotch := BriefingContent(BriefingInput{Workspace: "/w", Confinement: "host"})
 	if !strings.Contains(hostNotch, "NOT disposable") {
 		t.Errorf("confinement=host must produce the host framing:\n%s", hostNotch)
 	}
-	if !strings.Contains(hostNotch, "Bridge mode") {
-		t.Errorf("confinement=host must not change the NETWORK mode (default is bridge):\n%s", hostNotch)
+	if strings.Contains(hostNotch, "Bridge mode") || strings.Contains(hostNotch, "Host networking") {
+		t.Errorf("confinement=host must describe no launch's network:\n%s", hostNotch)
+	}
+}
+
+// THE HOST NOTCH'S BASE IS ITS HEADER, and none of the launch's sections: each describes a jail
+// (the /workspace bind, the jail's limitations, the shims, how to ask for a package), and at the
+// host every one would be a false sentence to an agent on the real machine.
+func TestTheHostNotchBaseIsTheHeaderAlone(t *testing.T) {
+	out := BriefingContent(BriefingInput{Workspace: "/w", Confinement: "host",
+		BlockedTools: []BlockedTool{{Name: "grep"}}, Loopholes: []Loophole{{Name: "l", Desc: "d"}},
+		MountDescriptions: []string{"/a:/ctx/a"}})
+	if want := strings.Join(confinementHeader("host", "", false), "\n") + "\n"; out != want {
+		t.Errorf("host base:\n got %q\nwant %q", out, want)
+	}
+	for _, jailOnly := range []string{"/workspace", "## Limitations", "## Blocked Tools",
+		"## Loopholes", "## Skills", "## Packages"} {
+		if strings.Contains(out, jailOnly) {
+			t.Errorf("the host base carries the jail's %q:\n%s", jailOnly, out)
+		}
+	}
+	// HostBriefingBase is that base with agents_md_extra appended the jail's way.
+	if got := HostBriefingBase("  EXTRA  \n", false); got != ComposeBriefing(out, "  EXTRA  \n") ||
+		!strings.Contains(got, "real machine") && !strings.Contains(got, "REAL") {
+		t.Errorf("HostBriefingBase:\n%s", got)
 	}
 }
 
@@ -193,11 +229,7 @@ func TestBriefingHeaderVectorFollowsTheMechanism(t *testing.T) {
 				Workspace: "/w", Confinement: tc.notch,
 				Mechanism: tc.mechanism, IsMacOS: tc.isMacOS,
 			})
-			i := strings.Index(out, "## Environment")
-			if i < 0 {
-				t.Fatalf("briefing has no ## Environment section:\n%s", out)
-			}
-			header := out[:i]
+			header := headerOf(t, tc.notch, out)
 			for _, prim := range render.PrimitiveOrder() {
 				phrase := render.PrimitiveDoes(prim)
 				want := false

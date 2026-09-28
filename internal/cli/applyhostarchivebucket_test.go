@@ -149,9 +149,14 @@ func TestDroppedPackRetireArchivesUnderRetired(t *testing.T) {
 
 // A retired BRIEFING lands in the briefing bucket — the same defect, the other pack-set-wide
 // kind. Unconfirmed, so this drives the retire with no stdin at all.
+//
+// `claude` leaves too, so no selected pack declares the destination and it is an orphan: while
+// `claude` is selected the destination is recomposed from the host base instead
+// (notch-convergence item 26), and has nothing to archive.
 func TestRetiredBriefingArchivesUnderBriefing(t *testing.T) {
 	home, _ := dropFixture(t, dropPackJSON)
 	applyThenDrop(t, home)
+	selectPacks(t, home, ``)
 
 	rc, report := applyWith(t, true, nil)
 	if rc != 0 {

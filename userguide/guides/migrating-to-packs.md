@@ -451,6 +451,12 @@ Three things this tells you — but note the last is a real gap, not honesty:
     `~/.claude/skills/foo/` by hand is composed away on the next apply — it is offered for
     migration into the local pack instead, and the report says so. Edit
     `~/.config/yolo-jail/local/skills/` and every agent gets it.
+  - **Every briefing file opens by telling the agent where it is.** Each one your packs name,
+    `~/.claude/CLAUDE.md` for example, starts with a short section saying the agent runs on your
+    real machine, that nothing there is disposable, and that its permission prompts stay on.
+    Your user config's `agents_md_extra` follows it, then your packs' prose. A workspace's
+    `agents_md_extra` is never written into your home. yolo writes these files even when no pack
+    adds prose.
 - **A `program` install never runs in the dry run** — and since 2026-09-12 it *can* run under
   `--assert`, behind a confirm. A declared dependency that is missing from your host is a
   **blocker**: the dry run reports it and exits 0, and `--assert` stops at a prompt that lists

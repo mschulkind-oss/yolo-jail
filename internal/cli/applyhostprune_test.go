@@ -496,12 +496,14 @@ func TestApplyHostRetireDropsStaleRecordWithoutPrompting(t *testing.T) {
 
 // R4 SURVIVES §6a, with a new reason: the BRIEFING half is still unconfirmed. Under the
 // delimited block that held because removing it restored the user's own bytes; now a briefing
-// destination is a file yolo composed WHOLESALE, so its retirement ARCHIVES — and still needs no
-// [y/N], because every byte being moved is a byte yolo wrote. The gate protects USER content,
-// and there is none in a generated file.
+// destination is a file yolo composed WHOLESALE, so a dropped pack's prose leaves it by
+// REGENERATION — and still needs no [y/N], because every byte removed is a byte yolo wrote. The
+// gate protects USER content, and there is none in a generated file. Since the host base
+// (notch-convergence item 26) the destination `claude` still declares is recomposed from that
+// base rather than archived; TestRetiredBriefingArchivesUnderBriefing covers the archive.
 //
-// So a declined skills/files retire still retires the briefing, and the two halves stay
-// genuinely separate.
+// So a declined skills/files retire still removes the dropped pack's prose, and the two halves
+// stay genuinely separate.
 func TestApplyHostRetireDoesNotGateBriefingRemoval(t *testing.T) {
 	home, _ := dropFixture(t, dropPackJSON)
 	dest := filepath.Join(home, ".claude", "CLAUDE.md")
@@ -514,15 +516,11 @@ func TestApplyHostRetireDoesNotGateBriefingRemoval(t *testing.T) {
 	if rc, report := applyWith(t, true, strings.NewReader("n\n")); rc != 0 {
 		t.Fatalf("declined retire rc=%d\n%s", rc, report)
 	}
-	if _, err := os.Lstat(dest); err == nil {
-		after, _ := os.ReadFile(dest)
-		t.Errorf("the orphaned briefing destination must be retired even when the FILE retire "+
-			"is DECLINED — the confirmation gate is about user content, and a composed briefing "+
-			"has none:\n%q", after)
-	}
-	// ARCHIVED, not deleted: the composed bytes are recoverable, so being wrong costs one `mv`.
-	if got := archivedBriefings(t, home); len(got) == 0 {
-		t.Error("the retired briefing must be archived, not deleted")
+	after, err := os.ReadFile(dest)
+	if err != nil || strings.Contains(string(after), "Dropme prose.") {
+		t.Errorf("the dropped pack's prose must leave the composed briefing even when the FILE "+
+			"retire is DECLINED — the confirmation gate is about user content, and a composed "+
+			"briefing has none: %v\n%q", err, after)
 	}
 	// And the skill it was declined for is still there — the two halves really are separate.
 	skill, _ := deliveredPaths(home)

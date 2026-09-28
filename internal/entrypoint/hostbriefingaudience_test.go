@@ -63,7 +63,7 @@ func composeAudienced(t *testing.T, home string, packs ...*packload.Pack) map[st
 	t.Helper()
 	resolved, _ := packload.ResolveDestinations(packs)
 	out := map[string]string{}
-	for _, d := range ComposeHostBriefings(resolved, home, false) {
+	for _, d := range ComposeHostBriefings(resolved, home, "", false) {
 		rel, err := filepath.Rel(home, d.Path)
 		if err != nil {
 			t.Fatal(err)
@@ -191,7 +191,7 @@ func TestHostNotchAddressedPackDoesNotOwnTheDestinationsItSkips(t *testing.T) {
 	})
 	home := t.TempDir()
 	owners := map[string][]string{}
-	for _, d := range ComposeHostBriefings(resolved, home, false) {
+	for _, d := range ComposeHostBriefings(resolved, home, "", false) {
 		rel, _ := filepath.Rel(home, d.Path)
 		owners[filepath.ToSlash(rel)] = d.Packs
 	}
@@ -310,7 +310,7 @@ func TestHostNotchComposesOnePackAsOneSortedSection(t *testing.T) {
 		resolved, _ := packload.ResolveDestinations([]*packload.Pack{
 			identityPack(t, "claude", ".claude/CLAUDE.md", "claude"), house})
 		home := t.TempDir()
-		dests := ComposeHostBriefings(resolved, home, true)
+		dests := ComposeHostBriefings(resolved, home, "", true)
 		if len(dests) != 1 {
 			t.Fatalf("destinations = %+v, want claude's alone", dests)
 		}
