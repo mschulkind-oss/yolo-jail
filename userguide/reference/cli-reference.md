@@ -90,7 +90,7 @@ yolo check --no-build   # Quick check (skip nix build)
 
 **Run this after every edit to `yolo-jail.jsonc`.** It validates:
 - Container runtime availability
-- Nix installation and flakes support
+- Nix installation (on macOS, also the Nix daemon, whether it trusts your user, and the Nix store volume)
 - Config file syntax and schema
 - Entrypoint dry-run (shims, MCP, LSP generation)
 - Nix image build (unless `--no-build`)
