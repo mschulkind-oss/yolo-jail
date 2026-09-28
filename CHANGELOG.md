@@ -238,6 +238,10 @@ apply it, and the launch says that too. See
 - A wrapped launch such as `yolo host -- claude` refused to start when another agent's config
   could not be written, such as pi's. It now names that failure with its fix and launches, and
   refuses only when the program being launched is the one whose config failed.
+- `yolo host apply` printed a long paragraph about `~/.claude/skills/synced` on every run and
+  pointed at `claude plugin list`, which does not show that folder. It now says in one line that
+  it holds the skills Claude Code syncs from your claude.ai account and that yolo leaves it alone,
+  and only when the folder is new or has changed.
 
 ### Security
 

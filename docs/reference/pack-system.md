@@ -740,8 +740,14 @@ per identity bucket. So it was adopted, moved into the local pack and composed b
 which looks like success and loses the user's edits later.
 
 - The fence applies at **every posture** — a reserved child is never a pending change.
-- A **non-empty** reserved child is reported, naming why yolo declines. An empty one is silent, so a
-  user with the feature on and nothing synced gets no line.
+- A **non-empty** reserved child is reported on one line: the path, what the tree is, and that yolo
+  leaves it alone. *What the tree is* comes from the pack's `reserved_notes` (a map from a reserved
+  name to one short phrase — `packs/claude` says "skills Claude Code syncs from your claude.ai
+  account"), so core still names no vendor; a child without a note is "another tool's sync root".
+  The line is in the default view the first time `yolo host apply` sees the tree non-empty and
+  whenever its content changes, and under `--verbose` otherwise
+  ([`ST-N2`](../design/synced-skill-trees.md#ST-N2)). An empty one is silent, so a user with the
+  feature on and nothing synced gets no line.
 - An entry must be a **bare child name**; the schema refuses one carrying path structure, because it
   is compared against a single directory entry and could never match — a fence that cannot match is
   worse than none, since it reads as protection.

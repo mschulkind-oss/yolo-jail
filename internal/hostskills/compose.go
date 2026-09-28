@@ -122,6 +122,9 @@ type Destination struct {
 	// contributing here. UNION across layers, not last-wins: a fence is a safety property, so
 	// one pack declaring a name is enough and a later layer cannot un-declare it.
 	Reserved []string
+	// ReservedNotes is what each reserved child IS, in the owning pack's words
+	// (packdecl.Contribution.ReservedNotes), for the notice. First declaration wins.
+	ReservedNotes map[string]string
 }
 
 // IsReserved reports whether a child NAME of this destination is fenced off.
@@ -239,6 +242,14 @@ func ComposeHostSkills(packs []*packload.Pack, homeDir string) []Destination {
 			for _, r := range c.Reserved {
 				if !d.IsReserved(r) {
 					d.Reserved = append(d.Reserved, r)
+				}
+			}
+			for name, note := range c.ReservedNotes {
+				if d.ReservedNotes == nil {
+					d.ReservedNotes = map[string]string{}
+				}
+				if _, set := d.ReservedNotes[name]; !set {
+					d.ReservedNotes[name] = note
 				}
 			}
 		}
@@ -520,17 +531,17 @@ func Adoptions(dests []Destination, req ComposeRequest) (adoptions []Adoption, p
 			// every posture — this is a thing yolo declines to touch, not a pending change.
 			if d.IsReserved(name) {
 				if reservedTreeHasContent(path) {
+					// ONE LINE: what the tree is, in the owning pack's words, and that yolo leaves
+					// it alone (ST-N2, synced-skill-trees.md). The three-part notice it replaces
+					// pointed at `claude plugin list`, which on the maintainer's machine said
+					// "No plugins installed" about a tree claude.ai's skills sync fills.
+					what := d.ReservedNotes[name]
+					if what == "" {
+						what = "another tool's sync root"
+					}
 					plugins = append(plugins, Result{
 						Name: name, Path: path, Action: ActionReserved,
-						// The notice states three things and does nothing (§4.2): the FACT, how
-						// to LOOK, and what to do if the user wants that content in a jail.
-						Detail: "another tool owns this tree and regenerates it from a " +
-							"registration outside it, so anything yolo wrote inside would be lost " +
-							"on that tool's next sync — yolo composes around it and will not read, " +
-							"write, move or archive it. Look with `claude plugin list` (its own tool " +
-							"is the authority on its own tree; yolo does not parse it). To use this " +
-							"content in a jail, add the skill to a pack of your own — " +
-							"`yolo pack --help`",
+						Detail:      what + "; yolo leaves it alone",
 						WouldChange: false,
 					})
 				}

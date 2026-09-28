@@ -116,6 +116,13 @@ type Contribution struct {
 	// is how core learns what an agent is, one vendor string at a time — the coupling this
 	// package's tier comment already refuses by name, and the ruling on OQ-ST2.
 	Reserved []string `json:"reserved,omitempty"`
+	// ReservedNotes says, per reserved child, WHAT that tree is, in the owning tool's own terms —
+	// one short phrase, such as claude's "skills Claude Code syncs from your claude.ai account".
+	// `yolo host apply` prints it in the one line naming a non-empty reserved child, so the line
+	// can say what the tree is without core learning any vendor's vocabulary (the same reason
+	// `reserved` is pack-declared). Keys must be names in `reserved`; a child with no note is
+	// described generically. `skills` only.
+	ReservedNotes map[string]string `json:"reserved_notes,omitempty"`
 	// ProjectDirs names the WORKSPACE-RELATIVE directories this destination's agent reads
 	// skills from at PROJECT scope, in the agent's own precedence order: `.claude/skills` for
 	// claude, `.github/skills`, `.agents/skills` and `.claude/skills` for copilot. `skills`
@@ -2609,6 +2616,22 @@ func validateContribution(label string, c Contribution) []string {
 		problems = append(problems, fmt.Sprintf(
 			"%s: kind %q does not take \"reserved\" — it fences CHILDREN of a skills "+
 				"destination, so only \"skills\" has a tree to fence", label, c.Kind))
+	}
+	for name, note := range c.ReservedNotes {
+		reserved := false
+		for _, r := range c.Reserved {
+			reserved = reserved || r == name
+		}
+		switch {
+		case !reserved:
+			problems = append(problems, fmt.Sprintf(
+				"%s: \"reserved_notes\" names %q, which is not in \"reserved\" — a note describes "+
+					"a fenced child, so it would describe nothing", label, name))
+		case strings.TrimSpace(note) == "" || strings.ContainsAny(note, "\r\n"):
+			problems = append(problems, fmt.Sprintf(
+				"%s: \"reserved_notes\" entry %q must be one non-empty line — it is printed "+
+					"inside a single report line", label, name))
+		}
 	}
 	for _, r := range c.Reserved {
 		// A reserved entry is matched against a single directory ENTRY name, so anything

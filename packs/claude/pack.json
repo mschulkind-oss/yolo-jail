@@ -33,7 +33,8 @@
       "into": ".claude/skills",
       "kind": "skills",
       "project_dirs": [".claude/skills"],
-      "reserved": ["synced"]
+      "reserved": ["synced"],
+      "reserved_notes": {"synced": "skills Claude Code syncs from your claude.ai account"}
     },
     {
       "config": [

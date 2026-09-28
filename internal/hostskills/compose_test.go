@@ -1167,15 +1167,20 @@ func TestAdoptionsFenceOffAReservedChild(t *testing.T) {
 			"a fence a user only sees under --verbose reads later as yolo losing their skills; got %q",
 			notice.Action)
 	}
-	for _, want := range []string{"next sync", "claude plugin list", "yolo pack --help"} {
-		if !strings.Contains(notice.Detail, want) {
-			t.Errorf("the notice must state the fact, how to LOOK, and what to do instead — "+
-				"missing %q in: %s", want, notice.Detail)
-		}
+	// ONE PHRASE (ST-N2): what the tree is and that yolo leaves it alone. With no note from the
+	// pack, the phrase is generic — core names no vendor.
+	if notice.Detail != "another tool's sync root; yolo leaves it alone" {
+		t.Errorf("the notice without a pack note: got %q", notice.Detail)
 	}
-	if !strings.Contains(notice.Detail, "next sync") {
-		t.Errorf("the notice must say WHY yolo declines, or it reads as yolo being broken; got %q",
-			notice.Detail)
+
+	// With the owning pack's note, the phrase is the pack's words.
+	d.ReservedNotes = map[string]string{"synced": "skills Claude Code syncs from your claude.ai account"}
+	_, reported = Adoptions([]Destination{d}, req)
+	for _, r := range reported {
+		if r.Name == "synced" && r.Detail !=
+			"skills Claude Code syncs from your claude.ai account; yolo leaves it alone" {
+			t.Errorf("the notice with a pack note: got %q", r.Detail)
+		}
 	}
 }
 

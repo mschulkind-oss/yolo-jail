@@ -15,6 +15,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
+	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 )
 
 func assertExists(t *testing.T, path, report string) {
@@ -75,6 +78,57 @@ func TestHostApplyFencesAndAnnouncesASyncRoot(t *testing.T) {
 		".claude-plugin", "plugin.json"), report)
 	// And it was NOT moved into the local pack, which is what adoption would have done.
 	assertMissing(t, filepath.Join(home, ".config", "yolo-jail", "local", "skills", "synced"), report)
+}
+
+// NEWS ONLY WHEN IT IS NEWS (ST-N2): the first --assert that sees the tree announces it on one
+// line, the next says nothing in the default view (it is under --verbose), and a change to the
+// tree's content announces it again. A dry run records nothing.
+func TestHostApplyAnnouncesASyncRootOnlyWhenItIsNew(t *testing.T) {
+	home := reservedFixture(t)
+	plugin := filepath.Join(home, ".claude", "skills", "synced", "1111_2222", ".claude-plugin",
+		"plugin.json")
+	writeFile(t, plugin, `{"name":"from-claude-ai"}`)
+	const line = "~/.claude/skills/synced — another tool's sync root; yolo leaves it alone"
+
+	count := func(report string) int { return strings.Count(report, line) }
+	if _, dry := applyWith(t, false, nil); count(dry) != 1 {
+		t.Fatalf("a dry run over a new sync root must announce it once:\n%s", dry)
+	}
+	if _, first := applyWith(t, true, strings.NewReader("y\n")); count(first) != 1 {
+		t.Fatalf("the first --assert must announce it once — the dry run records nothing:\n%s", first)
+	}
+	if _, second := applyWith(t, true, nil); count(second) != 0 {
+		t.Errorf("an unchanged sync root was announced again:\n%s", second)
+	}
+	t.Setenv("YOLO_VERBOSE", "1")
+	if _, verbose := applyWith(t, false, nil); count(verbose) != 1 {
+		t.Errorf("--verbose must still list it:\n%s", verbose)
+	}
+	t.Setenv("YOLO_VERBOSE", "")
+	writeFile(t, plugin, `{"name":"from-claude-ai","version":"2"}`)
+	if _, changed := applyWith(t, true, nil); count(changed) != 1 {
+		t.Errorf("a sync root whose content changed must be announced again:\n%s", changed)
+	}
+}
+
+// THE SHIPPED claude PACK says what its reserved tree is, in the notice's one line: the skills
+// claude.ai syncs (Claude Code's `syncClaudeAiSkills`), not plugins — `claude plugin list`, which
+// the old notice pointed at, said "No plugins installed" on the maintainer's machine.
+func TestTheClaudePackNamesItsSyncRoot(t *testing.T) {
+	for _, p := range packload.Embedded() {
+		if p.Name != "claude" {
+			continue
+		}
+		for _, c := range p.Decl.Contributions() {
+			if c.Kind == packdecl.KindSkills && len(c.Reserved) > 0 {
+				if note := c.ReservedNotes["synced"]; !strings.Contains(note, "claude.ai") {
+					t.Errorf("packs/claude's reserved_notes for synced = %q; want what fills it", note)
+				}
+				return
+			}
+		}
+	}
+	t.Fatal("packs/claude declares no reserved skills child")
 }
 
 // An EMPTY identity-minted bucket is fenced but NOT announced, through the real apply — the

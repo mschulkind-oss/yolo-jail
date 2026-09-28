@@ -39,8 +39,10 @@ package cli
 //     which is composed last and therefore holds exactly the precedence that layer used to.
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -49,6 +51,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
+	"github.com/mschulkind-oss/yolo-jail/internal/treedigest"
 )
 
 // hostSkillsManifestPath is where the pre-composition PER-ENTRY provenance record lives. Under
@@ -198,6 +201,10 @@ func applyHostSkills(pr richtext.Printer, out io.Writer, stdin io.Reader,
 		// A plugin the user authored is left alone at every posture — never adopted, never
 		// composed over — so it is reported once here rather than inside the render loop, where a
 		// reader would take it for an entry the composition considered and declined.
+		if r.Action == hostskills.ActionReserved {
+			printReservedTree(pr, survey, r, home, write)
+			continue
+		}
 		printSkillResult(pr, survey, r)
 	}
 	if len(adoptions) > 0 {
@@ -504,5 +511,59 @@ func reportSkillDestinations(pr richtext.Printer, dests []hostskills.Destination
 		// operator's, and it is one line per destination on every run.
 		detail(pr, "  [dim]skills     %s composed from: %s[/dim]", d.Dir,
 			strings.Join(d.Packs(), ", "))
+	}
+}
+
+// printReservedTree is the notice for a non-empty reserved child of a skills destination — ONE
+// line naming the tree, what it is in the owning pack's words, and that yolo leaves it alone
+// (ST-N2, docs/design/synced-skill-trees.md).
+//
+// NEWS ONLY WHEN IT IS NEWS. The tree is another tool's, and yolo does nothing to it on any run,
+// so the same line on every apply is a line the reader learns to skip — the maintainer's report
+// was that it made the output "very confusing". So it prints in the default view the first time
+// the tree is seen non-empty and whenever its content changes (a digest per path, recorded by an
+// --assert in reservedTreesSeenPath), and under --verbose otherwise. A dry run records nothing,
+// so it keeps saying so until an --assert has.
+func printReservedTree(pr richtext.Printer, survey *hostApplySurvey, r hostskills.Result,
+	home string, write bool) {
+	survey.note(tierRun, string(packdecl.KindSkills), r.Name, r.Path, false)
+	line := fmt.Sprintf("  [green]skills[/green]     %s — %s", prettyHomePath(home, r.Path), r.Detail)
+	digest, err := treedigest.Of(r.Path)
+	seen := loadReservedTreesSeen()
+	if err == nil && seen[r.Path] == digest {
+		detail(pr, "%s", line)
+		return
+	}
+	pr.Printf("%s", line)
+	if write && err == nil {
+		seen[r.Path] = digest
+		saveReservedTreesSeen(seen)
+	}
+}
+
+// reservedTreesSeenPath is the record of each reserved tree's content as the last --assert saw
+// it: path → treedigest. A REPORTING record and nothing else — it decides whether a line is news
+// and never what is written, so a missing or corrupt one costs one repeated line.
+func reservedTreesSeenPath() string {
+	return filepath.Join(paths.GlobalStorage(), "host-reserved-trees.json")
+}
+
+func loadReservedTreesSeen() map[string]string {
+	out := map[string]string{}
+	data, err := os.ReadFile(reservedTreesSeenPath())
+	if err == nil {
+		_ = json.Unmarshal(data, &out)
+	}
+	return out
+}
+
+func saveReservedTreesSeen(seen map[string]string) {
+	data, err := json.MarshalIndent(seen, "", "  ")
+	if err != nil {
+		return
+	}
+	p := reservedTreesSeenPath()
+	if os.MkdirAll(filepath.Dir(p), 0o755) == nil {
+		_ = os.WriteFile(p, append(data, '\n'), 0o644)
 	}
 }

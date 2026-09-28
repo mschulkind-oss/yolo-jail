@@ -230,11 +230,18 @@ constant in the same binary module as the bucket parser. The marker is excluded 
 twice over: it is dot-prefixed *and* not a directory.
 
 **The tree regenerates.** The registration that brings it back after a delete is not in the
-tree: it is `~/.claude/plugins/installed_plugins.json` plus
-`~/.claude/plugins/known_marketplaces.json` (here, the `claude-plugins-official` GitHub
-marketplace with an `installLocation` and a `lastUpdated`), and the bucket directory itself is
-minted from the identity with those empty. So the *bucket* is identity-minted and its *contents*
-arrive from a plugin install or a skills sync — both halves are true, and reading either one as
+tree, and it is not the same one for the two roots. **The skills root is filled by Claude Code's
+claude.ai skills sync**: the skills enabled on the claude.ai account or organization, fetched
+server-side about every ten minutes and removed when disabled there (the `syncClaudeAiSkills`
+setting, whose only honored value is `false`; organization policy `allow_account_skills_sync`).
+Read out of the installed Claude Code 2.1.283 binary on 2026-09-28 — its setting description names
+`~/.claude/skills/synced` — and corrected here: this paragraph used to name
+`~/.claude/plugins/installed_plugins.json` plus `known_marketplaces.json`, which are the
+registration of ordinary plugin installs and belong to the *plugins* root (its `syncClaudeAiPlugins`
+twin writes `~/.claude/plugins/synced`). `claude plugin list` shows a "Synced from claude.ai"
+section; it is not a view of the skills root, and on the maintainer's machine it printed "No plugins
+installed" beside a non-empty one. Either way the bucket directory itself is minted from the
+identity, and its *contents* arrive from the sync — both halves are true, and reading either one as
 the whole story gets the lifecycle wrong.
 
 That single property does more work in this design than anything else measured
@@ -395,6 +402,11 @@ not care must still be able to run `yolo host apply` — refusing would make a v
 into a yolo outage.
 
 ### 4.2 The notice — what replaces the transition
+
+> [!NOTE]
+> **Superseded in part by [ST-N2](#ST-N2) (2026-09-28):** the notice is now one line naming what the
+> tree is and that yolo leaves it alone, printed by default only when the tree is new or changed.
+> The three parts below are the original ruling, kept as the argument.
 
 One report line, emitted where a user is already looking, when **and only when** a reserved child
 exists and is non-empty. It states three things and does nothing:
@@ -975,5 +987,6 @@ once the signal exists.
 | <a id="OQ-ST3"></a>**ST3** | **The sync root IS announced, at the host notch only** — the apply, which is where yolo is about to take the folder over. Not at launch: the launch stream discloses what yolo DID to a jail, "there is content elsewhere you did not ask for" is not that, and by [`OQ-RO3`](../reference/report-tiers.md#why-its-this-way) a line added there is permanent | 2026-09-20 | [§4.2](#42-the-notice--what-replaces-the-transition) | ✅ 2026-09-22, as [the notice](#ST-N) |
 | <a id="OQ-ST4"></a>**ST4** | ~~Does drift ever do more than report?~~ **DISSOLVED.** There is no drift report — yolo holds no copy, so there is nothing to compare against | 2026-09-20 | [§4.3](#43-what-was-deleted-with-the-snapshot-and-why) | n/a |
 | <a id="ST-N"></a>**The notice** | ✅ **BUILT 2026-09-22.** Its own action (`ActionReserved`), printed in the DEFAULT view beside a refusal rather than as detail-on-demand — [§4.2](#42-the-notice--what-replaces-the-transition) asks for a line "emitted where a user is already looking", and a fence discovered only under `--verbose` reads later as yolo having lost the user's skills. Tiered as a run fact, not a loss: nothing left a directory. States all three things — the fact, `claude plugin list` to look, and `yolo pack --help` to use the content instead. ⚠ Keyed on CONTENT, not existence: a bucket is minted from the user's IDENTITY and is empty until something syncs, so an existence test would fire for every user with the feature on and nothing synced — dot-skipping applies BESIDE the buckets and never inside one, since a synced plugin is exactly a `.claude-plugin/` dir | 2026-09-20 · built 2026-09-22 | [§4.2](#42-the-notice--what-replaces-the-transition) | ✅ pinned through a real apply, not just its helper |
+| <a id="ST-N2"></a>**The notice, compressed** | *Implementation decision* (2026-09-28), on the maintainer's report that the host apply output was "very confusing": the notice is **one line** — the path, what the tree is, and "yolo leaves it alone" — and it prints in the default view only when the tree is **new or changed**, under `--verbose` otherwise. *What the tree is* comes from the pack (`reserved_notes`, so core still names no vendor, per [ST2](#OQ-ST2)); `packs/claude` says "skills Claude Code syncs from your claude.ai account". "New or changed" is a per-path `treedigest` an `--assert` records in `host-reserved-trees.json` beside the host skills record; it decides only whether the line is news, never what is written. This supersedes [§4.2](#42-the-notice--what-replaces-the-transition)'s three-part notice: its "how to look" pointed at `claude plugin list`, which does not show this tree ([§2.4](#24-two-sync-roots-one-bucket-name-and-only-one-is-exposed)), and its "what to do instead" belongs in the manual. [ST-N](#ST-N)'s default-view placement stands for a tree the user has not been told about | 2026-09-28 | [§4.2](#42-the-notice--what-replaces-the-transition) | ✅ `applyhostskillsreserved_test.go` |
 | <a id="ST-R"></a>**The recovery** | ✅ **REPORT HALF BUILT 2026-09-22** (`hostskills.ReservedInLocalPack`), which is what R1 asked for. A local-pack skills entry whose NAME is a reserved child can only have got there by a previous apply adopting it, so finding the name finds the defect. It names the destination the tree was taken out of, says it came from a PREVIOUS apply, and claims to have fixed nothing. ⚠ **The offer to put it back is NOT built, deliberately** — by then the copies may have diverged, and a user who never re-authenticated or whose org turned Skills off holds the only copy there is; those users are indistinguishable from here | 2026-09-20 · report built 2026-09-22 | [§7](#7-homes-that-are-already-wrong) | ✅ report only; the offer is not |
 | **The transition itself** | **A NOTICE, not a mechanism.** yolo fences, says so on a non-empty reserved child, names the path, points at the pack documentation — and copies, moves and tracks nothing. The population needing a carried transition is probably nobody: `~/.claude/skills/` does not exist at all on the maintainer's own host | 2026-09-20 | [§4](#4-the-components--and-the-two-this-design-no-longer-has) | ✅ 2026-09-22 — the fence ([ST2](#OQ-ST2)) and [the notice](#ST-N) are the whole of it |
