@@ -50,7 +50,10 @@ Subcommands:
                            outside the jail that staged it reports that layer as
                            unavailable rather than substituting your own file,
                            and a copy the launch labelled yolo's own render is a
-                           baseline rather than a layer.
+                           baseline rather than a layer. At the HOST notch it
+                           prints exactly the file 'yolo host apply --assert'
+                           writes into your real home, from your configured
+                           packs, and --explain the per-key record it keeps.
   diff <agent[/surface]> [flags]
                            Show the captured in-jail edits (the capture overlay)
                            for <agent>, key by key, versus yolo's last render.
@@ -344,6 +347,12 @@ func configRender(t configTarget, args []string, out, errw io.Writer, color bool
 	agent, surface, rc := parseSurfaceIdentity("render", identity, errw)
 	if rc != 0 {
 		return rc
+	}
+	// THE HOST NOTCH PREVIEWS THE HOST APPLY'S OWN RENDER (configrenderhost.go), never the loop
+	// below: that one composes the JAIL's surfaces, at the jail's posture, which is not what
+	// `yolo host apply` writes (docs/plans/notch-convergence.md item 23).
+	if t.notch == render.KindHost {
+		return configRenderHost(agent, surface, explain, out, errw, color)
 	}
 
 	m := surfaceManifest()

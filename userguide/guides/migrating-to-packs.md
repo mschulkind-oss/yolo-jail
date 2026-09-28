@@ -673,7 +673,7 @@ Tracking for all of it: [../plans/environment-manager-plan.md](https://github.co
 | Follow a tag that was moved upstream, or refresh a branch now | `yolo pack install` (or `yolo pack update`, which also refreshes npm-declared programs) |
 | See what packs stage / drifted | `yolo pack ls` · `yolo pack status` |
 | See the resolved environment | `yolo describe` (`--json`, `--hash`) |
-| Preview host config render | `yolo host apply` (⚠ names the keys it would overwrite, never the payload — read the pack first) |
+| Preview host config render | `yolo config render <agent> --at host` prints the exact file `yolo host apply --assert` writes; `yolo host apply` lists what would change and the keys it would overwrite |
 | Apply config to your real home | `yolo host apply --assert` (⚠ writes jail-bypass keys from shipped agent packs — see banner) |
 | Check host has the needed tools | `yolo check-deps` |
 | Hand one host command your provider keys | `yolo host --with-credentials <provider,…\|all> -- <cmd>` (keys only, this run); `eval "$(yolo host env --with-credentials all)"` for your shell |

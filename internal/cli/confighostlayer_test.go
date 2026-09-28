@@ -198,7 +198,7 @@ func TestRenderReportsAnUnavailableHostLayerRatherThanSubstituting(t *testing.T)
 	writeFile(t, filepath.Join(home, ".pi/agent/settings.json"), `{"theme":"the humans own"}`)
 
 	var out, errw bytes.Buffer
-	if rc := configRender(hostTargetForTest(), []string{"pi/settings"}, &out, &errw, false); rc != 0 {
+	if rc := configRender(jailPreviewTargetForTest(t), []string{"pi/settings"}, &out, &errw, false); rc != 0 {
 		t.Fatalf("rc=%d, stderr=%s", rc, errw.String())
 	}
 	got := out.String()

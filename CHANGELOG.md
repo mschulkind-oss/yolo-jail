@@ -183,6 +183,10 @@ apply it, and the launch says that too. See
 - A launch flag a pack declares in its `guarded` posture never reached any launch. `yolo host --`
   now adds it, and says so the way a jail launch does, naming the pack and showing the command
   before and after. The `autonomous` posture's flags still never reach your host.
+- `yolo config render --at host`, and a bare `yolo config render` run outside any workspace,
+  showed the file a jail gets, including permission-bypass settings `yolo host apply` never
+  writes. It now prints exactly the file `yolo host apply --assert` would write into your home,
+  from the packs you configured, and `--explain` shows the per-key record that apply keeps.
 - The Claude OAuth broker could return the token a jail already held, and Claude Code stopped
   with `api_request_oauth_refresh_exhausted`.
 - Claude on its `codex` profile showed `did not translate` in place of ChatGPT's own errors.

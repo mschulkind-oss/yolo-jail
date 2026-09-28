@@ -837,65 +837,23 @@ func expandHomePath(e *Env, p string) string {
 // a file yolo cannot parse is REFUSED (returned as *rmwRefusedError, file untouched) rather
 // than replaced from an empty object.
 func renderSurfaceRMWSurface(e *Env, surface manifest.Surface, computed map[string]any, contribs *surfaceContribs) error {
-	surface = agentcfg.SubstituteWorkspace(surface, e.WorkspaceDir())
-
-	// Codec gate FIRST, before any mkdir: a surface whose codec cannot round-trip through
-	// RMW must leave no trace at all, not an empty parent directory.
-	if refusal := rmwCodecRefusal(surface); refusal != nil {
-		return refusal
-	}
-	path := expandHomePath(e, surface.Path)
-	orig, obj, before, err := readRMWSource(surface, path)
+	r, err := composeRMWSurface(e, surface, computed, contribs)
 	if err != nil {
 		return err
 	}
+	surface, path := r.surface, r.path
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
-	// THE ONE-SHOT REPAIR (agentcfg/rejectedvalues.go), and it must run HERE — before the
-	// two snapshots below and before the layer writes.
-	//
-	// This is the notch where the value is frozen HARDEST. An rmw render reads the file
-	// back as its `host` layer, so a value yolo wrote as a `defaults` fill on an earlier
-	// apply reads as the user's from the next apply on (rmwProvenance's `host` pass) and
-	// no later default will ever displace it. Deleting the key here makes the three lines
-	// that follow tell the truth about it: `present` no longer claims it for `host`,
-	// `intact` no longer sees a filled default, and applyRMWLayers fills the CURRENT
-	// default into the same object — so the file gets the fixed value and the provenance
-	// record reads `defaults`, which is where a fill-if-absent key belongs.
-	//
-	// Reported after the write, not here: a refusal further down leaves the file
-	// untouched, and announcing a mutation that did not land is worse than not announcing.
-	repairs := agentcfg.RepairRejected(surface, obj)
-	// The file's own top-level keys BEFORE the render, snapshotted for provenance: on an
-	// rmw surface the existing content is the `host` layer, and it beats defaults
-	// (fill-if-absent) while losing to everything yolo force-writes. Taken here because
-	// the writes below mutate obj in place.
-	present := obj.Keys()
-	// Which of those keys still hold exactly what the `defaults` layer declares. Snapshotted
-	// here for the same reason `present` is — the defaults write below fills into obj in
-	// place, so after it every default key trivially matches and the measurement is worthless.
-	// See intactDefaults for what the answer is used for.
-	intact := intactDefaults(surface, obj)
-
-	lists, err := applyRMWLayers(e, surface, obj, computed, contribs)
-	if err != nil {
-		return err // a config-list type conflict: refused, and nothing has been written
-	}
-
-	text, err := encodeSurfaceObject(surface, obj, orig, before)
-	if err != nil {
-		return err
-	}
-	if err := writeInPlaceString(path, text); err != nil {
+	if err := writeInPlaceString(path, r.text); err != nil {
 		return err
 	}
 	// The config-list insert record, AFTER the file write it describes: a record naming
 	// entries the file never received would have the next render remove or decline them.
-	writeListRecord(e, surface, lists)
-	// The repair decided above has now landed in the file. Announce it — see
+	writeListRecord(e, surface, r.lists)
+	// The repair decided in the compose has now landed in the file. Announce it — see
 	// noteRepairedValues for why this is never suppressible.
-	noteRepairs(e, repairs, "the file")
+	noteRepairs(e, r.repairs, "the file")
 	// Record which layer won each key — at the notches whose census says THIS MECHANISM is
 	// the one that records (render.ModeSet). True at the host, false in a jail, and the
 	// asymmetry is precisely the shape of the bug it fixes.
@@ -926,11 +884,92 @@ func renderSurfaceRMWSurface(e *Env, surface manifest.Surface, computed map[stri
 		// correct attribution exists only in the record one apply earlier, so a derivation
 		// that ignored it would launder yolo's own output into "the user set this" on the
 		// very next apply. See rmwProvenance's `previous` parameter.
-		writeProvenanceRecord(e, surface.Agent, surface.Name,
-			rmwProvenance(surface, present, intact, computed, contribs.overlayLayers(), lists,
-				readProvenanceRecord(e, surface.Agent, surface.Name)))
+		writeProvenanceRecord(e, surface.Agent, surface.Name, r.provenance(e, computed, contribs))
 	}
 	return nil
+}
+
+// rmwRender is one composed rmw surface: the file text a write would put at path, and what
+// the write's bookkeeping needs beside it. It is the rmw twin of statefulRender, and it exists
+// for the same reason: an OBSERVE caller (`yolo config render --at host`, which previews what
+// `yolo host apply` writes) must be handed THE WRITE'S OWN BYTES, and the honest way to get
+// them is to run the compose the writer runs and stop before the write. A preview that
+// re-derived the file from the surface's layers would be a second model of the write
+// (docs/plans/notch-convergence.md item 23, row D5).
+type rmwRender struct {
+	surface manifest.Surface // after ${workspace} substitution — what actually composed
+	path    string           // the destination, home-expanded for this target
+	text    string           // the exact file content the write puts at path
+	repairs []agentcfg.Repair
+	lists   rmwListOutcome
+	// present and intact are the provenance snapshots taken BEFORE the layer fold: the file's
+	// own top-level keys, and which of them still hold exactly their `defaults` value.
+	present []string
+	intact  map[string]bool
+}
+
+// provenance is the per-key record the write keeps at a notch whose census records rmw
+// (render.ModeSet.Records): which layer won each key. It reads the PREVIOUS record, so it
+// must be computed before the write replaces it.
+func (r *rmwRender) provenance(e *Env, computed map[string]any, contribs *surfaceContribs) map[string]string {
+	return rmwProvenance(r.surface, r.present, r.intact, computed, contribs.overlayLayers(), r.lists,
+		readProvenanceRecord(e, r.surface.Agent, r.surface.Name))
+}
+
+// composeRMWSurface is the PURE half of the rmw render: read the file, repair yolo's own
+// unloadable values, fold the layers, encode. It writes nothing — not the file, not a parent
+// directory, not a record — so it is safe in the observe posture. renderSurfaceRMWSurface is
+// this plus the write, which is what makes a preview built on it byte-identical to the file.
+func composeRMWSurface(e *Env, surface manifest.Surface, computed map[string]any, contribs *surfaceContribs) (*rmwRender, error) {
+	surface = agentcfg.SubstituteWorkspace(surface, e.WorkspaceDir())
+
+	// Codec gate FIRST, before any mkdir: a surface whose codec cannot round-trip through
+	// RMW must leave no trace at all, not an empty parent directory.
+	if refusal := rmwCodecRefusal(surface); refusal != nil {
+		return nil, refusal
+	}
+	path := expandHomePath(e, surface.Path)
+	orig, obj, before, err := readRMWSource(surface, path)
+	if err != nil {
+		return nil, err
+	}
+	// THE ONE-SHOT REPAIR (agentcfg/rejectedvalues.go), and it must run HERE — before the
+	// two snapshots below and before the layer writes.
+	//
+	// This is the notch where the value is frozen HARDEST. An rmw render reads the file
+	// back as its `host` layer, so a value yolo wrote as a `defaults` fill on an earlier
+	// apply reads as the user's from the next apply on (rmwProvenance's `host` pass) and
+	// no later default will ever displace it. Deleting the key here makes the three lines
+	// that follow tell the truth about it: `present` no longer claims it for `host`,
+	// `intact` no longer sees a filled default, and applyRMWLayers fills the CURRENT
+	// default into the same object — so the file gets the fixed value and the provenance
+	// record reads `defaults`, which is where a fill-if-absent key belongs.
+	//
+	// Reported after the write, not here: a refusal further down leaves the file
+	// untouched, and announcing a mutation that did not land is worse than not announcing.
+	repairs := agentcfg.RepairRejected(surface, obj)
+	// The file's own top-level keys BEFORE the render, snapshotted for provenance: on an
+	// rmw surface the existing content is the `host` layer, and it beats defaults
+	// (fill-if-absent) while losing to everything yolo force-writes. Taken here because
+	// the writes below mutate obj in place.
+	present := obj.Keys()
+	// Which of those keys still hold exactly what the `defaults` layer declares. Snapshotted
+	// here for the same reason `present` is — the defaults write below fills into obj in
+	// place, so after it every default key trivially matches and the measurement is worthless.
+	// See intactDefaults for what the answer is used for.
+	intact := intactDefaults(surface, obj)
+
+	lists, err := applyRMWLayers(e, surface, obj, computed, contribs)
+	if err != nil {
+		return nil, err // a config-list type conflict: refused, and nothing has been written
+	}
+
+	text, err := encodeSurfaceObject(surface, obj, orig, before)
+	if err != nil {
+		return nil, err
+	}
+	return &rmwRender{surface: surface, path: path, text: text, repairs: repairs, lists: lists,
+		present: present, intact: intact}, nil
 }
 
 // readProvenanceRecord loads the record a PREVIOUS render of this surface left, as

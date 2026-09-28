@@ -16,10 +16,12 @@ package cli
 
 import (
 	"bytes"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg"
+	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
@@ -34,6 +36,11 @@ import (
 // literal placeholder in the output.
 func TestConfigRenderPreviewsTheJailsWorkspaceNotTheHosts(t *testing.T) {
 	_, repo := withHomeAndCwd(t)
+	// The cwd IS a workspace, so the front door resolves that workspace's JAIL. Without the
+	// marker it resolves the host notch, whose preview is host apply's render and binds no
+	// ${workspace} at all (configrenderhost.go).
+	writeFile(t, filepath.Join(repo, config.WorkspaceConfigName), `{}`)
+	t.Setenv("YOLO_RUNTIME", "podman")
 
 	var out, errw bytes.Buffer
 	if rc := configRunW([]string{"render", "codex/config"}, &out, &errw); rc != 0 {

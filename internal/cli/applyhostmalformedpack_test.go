@@ -306,7 +306,7 @@ func TestConfigRenderReportsAMalformedPackAndFoldsNothingFromIt(t *testing.T) {
 	for _, malformed := range []bool{true, false} {
 		malformedPackHome(t, overlay, malformed, "")
 		var out, errw bytes.Buffer
-		if rc := configRender(hostTargetForTest(), []string{"claude/settings"}, &out, &errw, false); rc != 0 {
+		if rc := configRender(jailPreviewTargetForTest(t), []string{"claude/settings"}, &out, &errw, false); rc != 0 {
 			t.Fatalf("malformed=%v: config render rc=%d\n%s%s", malformed, rc, out.String(), errw.String())
 		}
 		folded := strings.Contains(out.String(), "badOverlayKey")

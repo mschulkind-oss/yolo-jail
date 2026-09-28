@@ -213,7 +213,7 @@ func TestConfigRemovedSurfaceFlagHasMigrationHintThroughDispatch(t *testing.T) {
 // what the jail gets.
 func TestConfigRenderSkipsUnrenderedSurfaces(t *testing.T) {
 	var out, errw bytes.Buffer
-	rc := configRender(hostTargetForTest(), []string{"claude"}, &out, &errw, false)
+	rc := configRender(jailPreviewTargetForTest(t), []string{"claude"}, &out, &errw, false)
 	if rc != 0 {
 		t.Fatalf("rc = %d, stderr = %s", rc, errw.String())
 	}
@@ -241,7 +241,7 @@ func TestConfigRenderSkipsUnrenderedSurfaces(t *testing.T) {
 // `host`.
 func TestConfigRenderExplainDoesNotAttributeOwnOutputToHost(t *testing.T) {
 	var out, errw bytes.Buffer
-	if rc := configRender(hostTargetForTest(), []string{"mise", "--explain"}, &out, &errw, false); rc != 0 {
+	if rc := configRender(jailPreviewTargetForTest(t), []string{"mise", "--explain"}, &out, &errw, false); rc != 0 {
 		t.Fatalf("rc != 0: %s", errw.String())
 	}
 	// mise/config has no host layer; its tools table is computed. Whatever the

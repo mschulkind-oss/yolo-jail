@@ -219,6 +219,45 @@ type HostRenderResult struct {
 	// value of its own that never worked; there is no preference to protect, so the boundary
 	// is disclosure (OQ-TP9), which is this field.
 	Repaired []string
+	// Content is the exact file text an --assert writes to Path: THE WRITE'S OWN BYTES, from
+	// the pure half of the mechanism the census named (composeRMWSurface or
+	// composeStatefulSurface, the calls the writers make before they write). It is what
+	// `yolo config render --at host` prints, so that preview and `yolo host apply --assert`
+	// agree byte for byte (docs/plans/notch-convergence.md item 23, row D5). Before this the
+	// preview composed the JAIL's surfaces — the autonomous posture — and showed keys host
+	// apply never writes.
+	//
+	// OBSERVE ONLY, and empty for a skipped or refused surface: a render that will not happen
+	// has no content, and on --assert the file at Path is the answer.
+	Content string
+	// Provenance is the per-key record the write keeps (key → winning layer), computed the
+	// way the write computes it, for `yolo config render --at host --explain`. Observe only,
+	// like Content; nil where the notch's census keeps no record for the mechanism.
+	Provenance map[string]string
+}
+
+// hostMechanismPreview is the content and provenance an --assert through mechanism would
+// write for s: the writer's own compose, stopped before the write. Every failure answers
+// empty, as the change predicate does — the probes the caller ran first refuse what this
+// cannot compose, and a refusal has no content.
+func hostMechanismPreview(e *Env, mechanism string, s manifest.Surface, computed map[string]any,
+	contribs *surfaceContribs) (string, map[string]string) {
+	if mechanism == manifest.ModeStateful {
+		r, err := composeStatefulSurface(e, s, nil, computed, hostTableInFull(computed), contribs)
+		if err != nil || r.out == nil || r.out.Result == nil {
+			return "", nil
+		}
+		return r.text(), r.out.Result.Provenance
+	}
+	r, err := composeRMWSurface(e, s, computed, contribs)
+	if err != nil {
+		return "", nil
+	}
+	var prov map[string]string
+	if e.renderTarget().Modes().Records(manifest.ModeRMW) {
+		prov = r.provenance(e, computed, contribs)
+	}
+	return r.text, prov
 }
 
 // RenderHostPack renders one pack's config surfaces into homeDir (the real $HOME), pure
@@ -462,12 +501,13 @@ func RenderHostPack(p *packload.Pack, homeDir string, ownership render.HostOwner
 			if !wouldChange {
 				action = "unchanged"
 			}
+			content, provenance := hostMechanismPreview(e, mechanism, s, tableLayer, contribs)
 			out = append(out, HostRenderResult{Surface: id, Path: path, Action: action,
 				Overwrites: overwrites, Kept: kept, Overlays: overlayPackNames(surfaceOverlays),
 				Lists:     contribs.listPacks(),
 				Outranked: outranked, Pruned: pruned, EntryLosses: losses,
 				FirstApply: firstApply, Formatting: formatting, WouldChange: wouldChange,
-				Repaired: repaired})
+				Repaired: repaired, Content: content, Provenance: provenance})
 			continue
 		}
 		// INTO THE REAL HOME, through the mechanism the census named. The `computed` slot
