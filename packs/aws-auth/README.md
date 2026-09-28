@@ -45,7 +45,12 @@ Then `yolo -p bedrock -- claude`. `claude` brings this pack with it (the claude 
 `needs` `aws-auth`, and the launch prints `+ aws-auth (needed by claude)`), so you never
 list it yourself. Having it selected changes nothing observable on its own: the
 credential pointer is gated on the `bedrock` profile, and the loophole is off until you
-enable it.
+enable it. Enabling it starts nothing either: the in-jail adapter starts only on a launch
+where some agent's profile is `bedrock`, and a launch that leaves it out says so:
+
+```
+Not started: the aws-auth jail daemon, because no agent's selected profile is "bedrock", the profile it serves; …
+```
 
 | Setting | What it does |
 |---|---|
@@ -57,7 +62,7 @@ enable it.
 **A narrowing is required, and absence is never un-narrowed.** With neither `role_arn`
 nor `unnarrowed` set the daemon refuses at spawn and names both. That is deliberate and
 it is the whole security argument: a credential this service mints is readable by
-**every process in the jail**, so the narrowing is not defence in depth — it is the only
+**any process in the jail that reads the token beside it**, so the narrowing is not defence in depth — it is the only
 defence. If you genuinely have nothing to narrow with, `"unnarrowed": true` is supported
 and is disclosed everywhere this service reports, **every launch** included:
 
@@ -118,17 +123,21 @@ the shell you run `yolo` from never reaches the jail, so it is not refused, and 
 grant such as `~/.aws/` counts only on a backend that delivers it: podman, and Apple
 Container from 1.1.0. macos-user never copies one.
 
-**Every request carries this launch's caller token.** Loopback is not the jail: a jail on
-`network.mode: "host"` puts the adapter's port on your host's loopback, and a nested jail
-shares its parent's, so without a check any local process could `GET` the credential. Each
-launch mints a new token for the adapter. The jail's boot writes it to the `0600` file
-`/run/yolo/caller-tokens/YOLO_SERVICE_AWS_AUTH_TOKEN`, and this pack points
-`AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE` at that file beside the credentials URI. Your
-agent's AWS SDK reads the file and sends its contents as `Authorization`. A request without
-the token gets `401` with a message naming yolo
+**Every request carries this launch's caller token, and only the selecting agent has it.**
+Loopback is not the jail: a jail on `network.mode: "host"` puts the adapter's port on your
+host's loopback, and a nested jail shares its parent's, so without a check any local process
+could `GET` the credential. Each launch mints a new token for the adapter. This pack sets
+`AWS_CONTAINER_AUTHORIZATION_TOKEN` to it beside the credentials URI, in the env file of each
+agent whose profile is `bedrock` and in no other process's environment, a bare shell's
+included ([`OQ-CN7`](../../docs/design/provider-credential-scope.md#OQ-CN7)). Your agent's AWS
+SDK sends the value as `Authorization`, as it does whenever
+`AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE` is unset, so do not set that variable yourself: the
+SDK would read the file instead. A request without the token gets `401` with a message naming
+yolo
 ([notch convergence §2.3](../../docs/plans/notch-convergence.md#23-the-fix-every-service-authenticates-its-caller-at-every-notch)).
-Inside the jail every process can read the file, so the narrowing above is still the only
-defence there.
+The token is still a same-uid file read away inside the jail, in that agent's env file and in
+an unexported record the adapter reads its token from, so the narrowing above is still the
+only defence there.
 
 ## Properties worth knowing before you are surprised by them
 
@@ -147,18 +156,19 @@ container launch that has not enabled the loophole
 would break this pack outright, because CLI-less is the case the gate's CLI-less arm exists
 for.
 
-**⚠ The pointer is scoped; the adapter behind it is not.** The adapter listens on
-`127.0.0.1:1461` in every jail that enables this loophole, whatever any profile selects (on a jail
-that shares its launcher's loopback, `network.mode: "host"` or nested, a port the launch picks
-instead, which the pointer follows), and
-any process there that sends `GET /credentials` receives the minted credential: a bare shell,
-or claude under `-p codex=bedrock`. The credential gate governs what each agent's environment
-carries, not which process can reach a loopback service. Narrowing the adapter too is
-[`OQ-CN7`](../../docs/design/provider-credential-scope.md#OQ-CN7), open.
+**The adapter follows the pointer.** It listens on `127.0.0.1:1461` (on a jail that shares its
+launcher's loopback, `network.mode: "host"` or nested, a port the launch picks instead, which
+the pointer follows) only in a jail whose launch had some agent on `bedrock`, and it answers
+only a request carrying the token that agent's environment holds. So a bare shell, or claude
+under `-p codex=bedrock`, is refused `401`
+([`OQ-CN7`](../../docs/design/provider-credential-scope.md#OQ-CN7), built 2026-09-28). An
+attach cannot start it: attaching with `-p codex=bedrock` to a jail whose launch selected no
+`bedrock` stops and asks you to restart the jail (or refuses off a terminal, naming
+`yolo stop`), because the pointer it would deliver would point at nothing.
 
-What limits the blast radius is the narrowing you configure above: the credentials any
-process in the jail can reach through the adapter are exactly the ones `role_arn` and
-`session_policy` allow. That is the same argument as the netns one below, one layer up.
+What limits the blast radius is still the narrowing you configure above: the credentials any
+process in the jail that reads the token can reach through the adapter are exactly the ones
+`role_arn` and `session_policy` allow. That is the same argument as the netns one below, one layer up.
 
 **A nested jail shares this endpoint.** Podman-in-podman forces `--net=host`, so a
 nested jail's loopback *is* this jail's loopback and its SDKs will resolve these

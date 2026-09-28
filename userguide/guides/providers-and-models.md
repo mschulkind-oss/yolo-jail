@@ -45,7 +45,11 @@ Two words do the work:
 
 A key reaches only the agents whose profile selects its provider. Another agent, or a plain shell in
 the jail, does not see it, and the launch lists which keys went where. If the selected provider's
-key is empty, the launch stops and says which variable is missing.
+key is empty, the launch stops and says which variable is missing. This holds on every runtime: on
+`macos-user`, an agent you start from the sandbox's shell gets its own profile's settings too.
+
+A value you set yourself wins over the one a profile sets. `ANTHROPIC_MODEL=my-model claude`, or an
+`export` in the jail's shell before you start the agent, keeps your value for that run.
 
 ## The providers yolo ships
 
@@ -60,8 +64,9 @@ key is empty, the launch stops and says which variable is missing.
 Two more come with the agent packs, with no extra pack to add:
 
 - **`bedrock`**, in the `claude` pack: Claude Code on AWS Bedrock. With the `aws-auth` loophole on,
-  it uses your host's `aws sso login`, narrowed to one role before it reaches the jail. See
-  [Host Access and Loopholes](loopholes.md#the-loopholes-yolo-ships).
+  it uses your host's `aws sso login`, narrowed to one role before it reaches the jail. The
+  credential service inside the jail runs only when an agent's profile is `bedrock`, and only that
+  agent can use it. See [Host Access and Loopholes](loopholes.md#the-loopholes-yolo-ships).
 - **`codex`**, in the `claude`, `codex` and `pi` packs: your ChatGPT subscription, through yolo's
   shared OpenAI login. `codex` and `pi` use this login by default; `yolo -p codex -- claude` runs
   Claude Code against it. See [Logins](authentication.md#a-shared-chatgpt-login-for-codex-and-pi).

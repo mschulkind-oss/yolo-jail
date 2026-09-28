@@ -43,8 +43,22 @@ configured none. A child can still ask for another model of the same provider. W
 provider lists models but has no `default` alias and your profile names no model, the launch
 says so, and children start on their parent's model.
 
+**The AWS Bedrock credential service in a jail now runs only for a profile that uses it, and
+only that agent can use it.** With the `aws-auth` loophole on, the in-jail service starts only
+when some agent's profile is `bedrock`, and a launch that leaves it off says so. It answers only
+the agents on `bedrock`: another agent, or a plain shell, is refused. Attaching with
+`-p <agent>=bedrock` to a jail that was started without it asks you to restart the jail rather
+than hand the agent an address nothing answers. See
+[the `aws-auth` pack](packs/aws-auth/README.md).
+
 ### Fixed
 
+- A value you set on the command line beats a profile's value again. `ANTHROPIC_MODEL=x claude`,
+  or an `export` in the jail's shell, had been overridden by what the selected profile sets for
+  that agent; your value now wins, and the profile's still replaces one yolo set itself.
+- On `macos-user`, an agent you start from the sandbox's shell, after a bare `yolo`, gets its
+  profile's settings and keys. It used to start with none of them and reach its default
+  provider.
 - `yolo check` reported a working Nix as "found but not working: probe failed" when
   `nix --version` took longer than five seconds, as a first run inside a jail on a busy Mac can.
   It now waits as long as its other Nix checks, and says whether Nix timed out, could not be

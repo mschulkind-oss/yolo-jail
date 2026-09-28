@@ -113,7 +113,8 @@ A few pointers for the rows above:
   [Packs, and the host services they bring](#packs-and-the-host-services-they-bring).
 - **Use an API key or another provider:** list a dotenv file in `env_sources`, add the provider's pack,
   and pick it with `yolo -p <profile> -- <agent>`. The key reaches only the agent whose profile
-  selects that provider, never another agent or a plain shell. See
+  selects that provider, never another agent or a plain shell, and a value you set yourself on
+  the command line wins over the profile's. See
   [Providers and Models](../guides/providers-and-models.md).
 - **Push from the jail:** create a key inside with `ssh-keygen` and add it to the repository as a deploy
   key, or put a `GH_TOKEN` in an `env_sources` file.
@@ -233,7 +234,7 @@ selects.
 [^lh-rootful]: On rootless podman (the usual setup) yolo asks podman to forward your host's loopback into the jail, and if a service is still unreachable the launch stops with an error rather than continuing without it. On a rootful podman the jail cannot reach yolo's host services at all, and the launch warns; switch to rootless podman, or use `"network": {"mode": "host"}` at the cost of the jail's network isolation. Check yours: `podman info --format '{{.Host.Security.Rootless}}'`.
 [^lh-mac]: The jail reaches your Mac's services through the Podman Machine VM at `host.containers.internal`, and that connection is tested nightly. The services themselves have not yet been run end to end on a Mac. If a service cannot be reached, the launch warns but still starts.
 [^lh-ac]: Apple Container carries no traffic from a container back to the Mac (measured on Apple Container 1.1.0), so no host service can be used, and the launch lists each one it had to skip. This can change only with an Apple Container release.
-[^lh-aws]: Turn it on in your user config with the SSO profile and the role to narrow to, then use the `bedrock` profile: `yolo -p bedrock -- claude`. See [the `aws-auth` pack](https://github.com/mschulkind-oss/yolo-jail/blob/main/packs/aws-auth/README.md). Not yet tested against a real AWS SSO login.
+[^lh-aws]: Turn it on in your user config with the SSO profile and the role to narrow to, then use the `bedrock` profile: `yolo -p bedrock -- claude`. The credential service inside the jail runs only when an agent's profile is `bedrock`, and only that agent can use it. See [the `aws-auth` pack](https://github.com/mschulkind-oss/yolo-jail/blob/main/packs/aws-auth/README.md). Not yet tested against a real AWS SSO login.
 [^lh-linux]: These need Linux on the host. On a Mac, turning one on does nothing, and the launch says so in one line naming the loophole. The `audio` pack still sets `PULSE_SERVER`, though (see [^audiomac]).
 [^cgv2]: Needs cgroup v2 on the host: `test -e /sys/fs/cgroup/cgroup.controllers && echo v2`.
 [^maclog]: `macos-user` offers Apple's unified log instead, behind its own `macos_log` key (`off` / `user` / `full`) and a `yolo-log` helper. It is a convenience, not a boundary: the sandbox can run `/usr/bin/log` directly, so `off` is advisory.

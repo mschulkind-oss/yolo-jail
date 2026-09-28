@@ -327,11 +327,15 @@ Where each answer lands is the vehicle's:
   whenever the entry wrote it a file; the wrapper sources the file too. An attach rewrites the directory whole, so an agent that
   lost its profile loses its file. The wire bridge reads a served agent's key from that agent's
   file (`resolveKey` in `internal/wirebridged`).
-- **macos-user.** One command per invocation, so the delivery is **per launch**: the session
-  carries the shared values plus the launched program's own, and says so when another agent
-  had values it cannot carry. `macosuser.buildPlan` no longer hydrates `env_sources` itself.
-  A bare `yolo` starts a login zsh, which is no agent, so an agent started from that shell
-  gets none of its profile's values ([`OQ-CN9`](../design/provider-credential-scope.md#OQ-CN9), open).
+- **macos-user.** One command per invocation, so the session env is **per launch**: it
+  carries the shared values plus the launched program's own. `macosuser.buildPlan` no longer
+  hydrates `env_sources` itself. Every other profiled agent gets its own values from its own
+  env file, which the launch writes with the container writer into
+  `<workspace>/.yolo/home/config/yolo-agent-env/` (0600, in a 0700 directory), where the
+  bootstrap's home layout links the sandbox's `~/.config`. So an agent started from a bare
+  `yolo`'s login zsh sources its profile's values, as its container twin does
+  ([`OQ-CN9`](../design/provider-credential-scope.md#OQ-CN9), built). No file is written on a
+  dry run.
 - **The host notch.** `yolo host -- <cmd>` composes one process: the shared values plus that
   command's. The shell it inherits is the user's and passes through untouched. `yolo host env`
   prints the same one-command slice for a shell to eval (`--agent`, default `claude`), and its
@@ -421,19 +425,23 @@ started by another agent inherits that agent's environment, as any child does.
 
 Two consequences to know:
 
-- **A loopback credential service is outside the gate.** The gate withholds `aws-auth`'s
-  pointer variable, not the adapter it names: that adapter listens on `127.0.0.1:1461` (a
-  port the launch picked, on a jail sharing its launcher's network namespace) in every jail
-  that enables the loophole, and answers any process's `GET /credentials` with
-  the minted credential. The wire bridge's listeners likewise attach the served agent's key
-  to whatever request reaches them, so another process can use the key without seeing it.
-  Whether to narrow either is [`OQ-CN7`](../design/provider-credential-scope.md#OQ-CN7), open.
-- **A profile's composed value beats your own.** The agent's launcher sources its file after
-  the shell you typed the command in, and composed values are plain-form, so
-  `ANTHROPIC_MODEL=x claude`, or `export ANTHROPIC_BASE_URL=…` before it, is overridden by
-  what the selected profile composes. Only an `env_sources` value (def-form) yields to one you
-  set. Before the gate these values were in the shared file, sourced first, and yours won.
-  [`OQ-CN8`](../design/provider-credential-scope.md#OQ-CN8), open, asks whether to restore that. The menu half of
+- **The loopback credential services follow the selection** ([`OQ-CN7`](../design/provider-credential-scope.md#OQ-CN7),
+  built). `aws-auth`'s adapter (`127.0.0.1:1461`, or a port the launch picked on a jail
+  sharing its launcher's network namespace) starts only when some agent's selected profile is
+  `bedrock`; a fresh launch that leaves it out says so. Its caller token is scoped: the only
+  exported copy is `AWS_CONTAINER_AUTHORIZATION_TOKEN` in each selecting agent's env file,
+  which the AWS SDK sends as `Authorization`, and the adapter refuses a request without it, so
+  a bare shell or another agent is refused. The token is still a same-uid file read away:
+  the agent's file and an unexported record in the shared file hold it. The wire bridge
+  publishes a route only for a provider some agent's profile selects, but its caller token is
+  shared, so any jail process can still use a published route.
+- **Your own value beats a profile's composed one** ([`OQ-CN8`](../design/provider-credential-scope.md#OQ-CN8),
+  built). The agent's launcher sources its file after the shell you typed the command in, so
+  each composed value is written against that incoming environment: `ANTHROPIC_MODEL=x
+  claude`, or `export ANTHROPIC_BASE_URL=…` before it, keeps your value. The profile's value
+  still replaces an empty one and one yolo itself set elsewhere (the shared file, the
+  container's frozen environment, another agent's file), so a stale inherited value does not
+  win. A derive's tombstone removes only such a value, too. The menu half of
 [`OQ-CN4`](../design/provider-credential-scope.md#OQ-CN4) is each agent's own key:
 opencode's derive writes `enabled_providers: [<selected provider>]` beside its selected model;
 claude's single `ANTHROPIC_BASE_URL` already reaches one provider per launch; pi's
