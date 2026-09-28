@@ -137,7 +137,7 @@ func TestASteadyStateOwnedTOMLFileReportsNoCommentLoss(t *testing.T) {
 
 	if r := observeOwn(t, home); len(r.Formatting) != 0 {
 		t.Errorf("a steady-state owned file, holding only yolo's OWN header, still reports a "+
-			"comment loss: %q\n\nThe probe has to ask about the file MINUS generatedHeader — "+
+			"comment loss: %q\n\nThe probe has to ask about the file MINUS yolo's banner — "+
 			"the render reproduces the header exactly, so it is never what is at risk.",
 			r.Formatting)
 	}

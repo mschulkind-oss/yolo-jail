@@ -560,6 +560,13 @@ func composeStatefulSurface(e *Env, surface manifest.Surface, hostBytes []byte, 
 		return nil, err
 	}
 
+	// The banner (A10 — telling an agent that hand-editing this file is the wrong move) is the
+	// target's: render.Target.GeneratedHeader says why it is TOML-only and why its wording is the
+	// notch's. One probe result worth keeping where the boot path can see it: a leading TOML
+	// comment yields an empty overlay ({}) rather than a captured change, because the §5 diff
+	// runs on decoded values. So keeping the banner out of the last_render baseline is
+	// belt-and-braces on top of that, plus it keeps the sidecar a faithful record of what the
+	// engine produced.
 	return &statefulRender{surface: surface, path: surfacePath, current: current,
 		out: out, selection: selectionRecord, header: t.GeneratedHeader(surface)}, nil
 }
@@ -753,18 +760,6 @@ func overlayEntryCount(overlayJSON []byte) int {
 // file and its §5 baseline come to disagree.
 func surfaceText(surface manifest.Surface, encoded []byte) string {
 	return render.SurfaceText(surface, encoded)
-}
-
-// generatedHeader is render.Target.GeneratedHeader for this Env's target (A10 — the banner
-// telling an agent that hand-editing this file is the wrong move). See that method for why it
-// is TOML-only, why its wording is the notch's, and why it is separate from surfaceText.
-//
-// One probe result worth keeping where the boot path can see it: a leading TOML comment
-// yields an empty overlay ({}) rather than a captured change, because the §5 diff runs on
-// decoded values. So keeping the banner out of the last_render baseline is belt-and-braces
-// on top of that, plus it keeps the sidecar a faithful record of what the engine produced.
-func generatedHeader(e *Env, surface manifest.Surface) string {
-	return e.renderTarget().GeneratedHeader(surface)
 }
 
 // renderSurfaceStatelessSurface is the surface-taking core of the stateless

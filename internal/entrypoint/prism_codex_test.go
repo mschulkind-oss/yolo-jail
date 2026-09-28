@@ -1,6 +1,7 @@
 package entrypoint
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -8,6 +9,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg"
 	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg/manifest"
+	"github.com/mschulkind-oss/yolo-jail/internal/render"
 	"github.com/mschulkind-oss/yolo-jail/internal/tomlx"
 )
 
@@ -339,16 +341,54 @@ func TestCodexPrismWritesGeneratedHeaderButNotIntoBaseline(t *testing.T) {
 
 // json surfaces must NOT get the banner — json has no comment syntax, so it would
 // make the file invalid.
+//
+// Asserted on the FILES the production writers produce, at both notches, rather than on the
+// header function: the stateful writer records the banner its target chose
+// (composeStatefulSurface), the stateless one prepends it (render.Target.FileText), and a
+// test of a wrapper neither calls passed with either call site gone. opencode/config is a
+// stateful JSON surface at both notches (the host under `own`) and copilot/mcp a stateless
+// one in the jail.
 func TestJSONSurfaceGetsNoGeneratedHeader(t *testing.T) {
-	// At every notch: the wording is per notch, the TOML-only rule is not.
-	for _, e := range []*Env{{Home: t.TempDir()}, {Home: t.TempDir(), hostTarget: true}} {
-		if h := generatedHeader(e, manifest.Surface{Codec: "json"}); h != "" {
-			t.Errorf("json header = %q, want empty (json has no comments)", h)
+	requireNoBanner := func(t *testing.T, where, path string) {
+		t.Helper()
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("%s: %v", where, err)
 		}
-		// raw/lines promise byte-exact round-trips; any inserted text corrupts them.
-		for _, c := range []string{"raw", "lines"} {
-			if h := generatedHeader(e, manifest.Surface{Codec: c}); h != "" {
-				t.Errorf("%s header = %q, want empty (round-trip contract)", c, h)
+		if strings.HasPrefix(strings.TrimSpace(string(data)), "#") || !json.Valid(data) {
+			t.Errorf("%s: a JSON surface was written under a comment banner, or is otherwise "+
+				"not JSON:\n%s", where, data)
+		}
+	}
+
+	e := siblingEnv(t, nil)
+	withCtxRoot(t, t.TempDir(), "opencode")
+	ConfigurePackSurfaces(e, testPacksForAgent(t, "opencode", "copilot"))
+	if fails := e.GenFailures(); len(fails) != 0 {
+		t.Fatalf("jail boot render failed: %v", fails)
+	}
+	requireNoBanner(t, "jail opencode/config",
+		filepath.Join(e.Home, ".config", "opencode", "opencode.json"))
+	requireNoBanner(t, "jail copilot/mcp", filepath.Join(e.CopilotDir(), "mcp-config.json"))
+
+	home := t.TempDir()
+	res, err := RenderHostPack(mustEmbeddedPack(t, "opencode"), home, render.OwnershipOwn, false, nil)
+	if err != nil {
+		t.Fatalf("owned RenderHostPack(opencode): %v", err)
+	}
+	if r := resultFor(t, res, "opencode/config"); strings.HasPrefix(r.Action, "refused") {
+		t.Fatalf("opencode/config refused under own: %s", r.Action)
+	}
+	requireNoBanner(t, "host (own) opencode/config",
+		filepath.Join(home, ".config", "opencode", "opencode.json"))
+
+	// raw/lines promise byte-exact round-trips; any inserted text corrupts them. No shipped
+	// surface uses them, so the rule is asked of the target that decides it, at both notches.
+	for _, target := range []render.Target{render.Jail(t.TempDir(), t.TempDir(), nil),
+		render.Host(t.TempDir(), nil, render.OwnershipOwn)} {
+		for _, c := range []string{"json", "raw", "lines"} {
+			if h := target.GeneratedHeader(manifest.Surface{Codec: c}); h != "" {
+				t.Errorf("%s header = %q, want empty (no comment syntax, or a round-trip contract)", c, h)
 			}
 		}
 	}
