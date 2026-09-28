@@ -564,7 +564,7 @@ Measured from pi 0.87.1's `dist/` and the live directory in this jail on 2026-09
 | `agent/models.json` | yours | composed (`computed`) | composed | composed (`rmw` under `assert`) | jail: nothing. Host: your custom providers |
 | `agent/yolo-openai-codex-models.json` | cache | composed (`computed`) | composed | composed under `assert` (`{}`) | nothing |
 | `agent/mcp-adapter.json` | yours | composed (`computed`) | composed | composed (`rmw` under `assert`) | jail: nothing. Host: your MCP table |
-| `agent/mcp.json` | yours; `note`: legacy MCP config that pi-mcp-adapter migrates and pi-subagents still reads | — (retired at every boot until `66602a60`, [Appendix B](#appendix-b-defects-the-surveys-found-that-the-map-does-not-fix)) | — | — | your legacy MCP config |
+| `agent/mcp.json` | yours; `note`: legacy MCP config that pi-mcp-adapter migrates and pi-subagents still reads | — (retired at every boot until `af5ebc21`, [Appendix B](#appendix-b-defects-the-surveys-found-that-the-map-does-not-fix)) | — | — | your legacy MCP config |
 | `agent/yolo-host-synced-settings.json` | — | retired only by the boot that migrates the `stateful` surface. A copy present when the map runs is not deleted, so it is unexplained | same | — (unexplained if present) | nothing |
 | `agent/AGENTS.md` | yours | composed (briefing, `:ro`, with the host file prepended) | composed (a copy, write-denied) | composed (wholesale; prose already adopted into the local pack) | nothing |
 | `agent/AGENTS.override.md` | yours; `shadows: agent/AGENTS.md` | shadow finding | shadow finding | shadow finding | your override |
@@ -752,7 +752,7 @@ this doc's survey ([Appendix A](#appendix-a-evidence)).
   `~/.local/bin/codex` is an absolute link into it. The class is cache with a reinstall cost
   ([OQ-AM2](#OQ-AM2)). The launcher's keep-two prune looked in `~/.local/share/codex/versions`, so it
   never pruned codex. This workspace held three releases, 1.2 GiB, one of them installed by this
-  doc's own survey. Fixed in `abe46f6a`: the codex pack declares
+  doc's own survey. Fixed in `b0cb2678`: the codex pack declares
   `versions_dir: ".codex/packages/standalone/releases"`, and the prune follows
   `~/.local/bin/codex` through `current` to the live release
   ([`shims.go`](../../internal/entrypoint/shims.go), `_prune_versions`).
@@ -1121,7 +1121,7 @@ this doc's survey ([Appendix A](#appendix-a-evidence)).
   on any read error ([`briefing.go`](../../internal/jailcontent/briefing.go)).
 - A computed surface retires its sidecars after **every** write. `retireOrphanSidecars` runs
   whenever the mechanism is not `stateful` ([`packsurfaces.go`](../../internal/entrypoint/packsurfaces.go)),
-  and it deleted pi's `mcp.json` at every boot until `66602a60`. Its docstring says the file is "already unread", but
+  and it deleted pi's `mcp.json` at every boot until `af5ebc21`. Its docstring says the file is "already unread", but
   pi-subagents 0.35.1 reads `agentDir/mcp.json`
   (`src/runs/shared/mcp-direct-tool-allowlist.ts`, `getConfigPaths`, read in this jail's shared npm
   store). A `stateful` surface retires its sidecars only on the write that migrates it
@@ -1143,7 +1143,7 @@ this doc's survey ([Appendix A](#appendix-a-evidence)).
   `packs/claude` and `packs/agy` each declare one such hook; `packs/pi` declares none.
 - `WritePiAuth` breaks `auth.json.lock` after 10 s (`piLockStale` in [`pi.go`](../../internal/openauthclient/pi.go)),
   while pi's `acquireLockAsync` uses a 30 s stale window (pi 0.87.1 `dist/core/auth-storage.js`).
-  `576c44d0` fixed this after the survey ([Appendix B](#appendix-b-defects-the-surveys-found-that-the-map-does-not-fix)).
+  `2559f559` fixed this after the survey ([Appendix B](#appendix-b-defects-the-surveys-found-that-the-map-does-not-fix)).
 - The host refuses hooks (`fieldset.go`'s `KindHook` reason), and the launcher prunes only
   `~/.local/share/$BIN/versions` (`_prune_versions` in [`shims.go`](../../internal/entrypoint/shims.go)).
   The managed codex home is `<state>/host-agents/<key>` (`prepare`, `prepareCodexHome` and
@@ -1179,9 +1179,9 @@ The map makes each of these visible. Fixing them belongs elsewhere:
 
 | Found | Where it belongs |
 | :--- | :--- |
-| yolo deletes pi's `mcp.json` at every jail boot, though pi-subagents reads it | ✅ **Fixed** in `66602a60`: the pi pack no longer retires `mcp.json`, and every shipped `retireOnFirstRender` name must carry a `yolo-` prefix (`TestShippedRetireNamesAreYolosOwn`), since the delete never reads the bytes. A copy yolo 0.10.0 wrote now stays until the user deletes it |
-| `WritePiAuth`'s 10 s lock break against pi's 30 s stale window can lose an OAuth rotation | **Fixed in `576c44d0`.** [`pi.go`](../../internal/openauthclient/pi.go) now uses pi's rule: it breaks `auth.json.lock` only after 30 s without an mtime refresh, and waits at most 32 s for a live holder |
-| ✅ **Fixed in `abe46f6a`.** The launcher's keep-two prune never saw codex's releases. It looked only in `~/.local/share/<bin>/versions`, and `~/.local/bin/codex` names the vendor's `current` selector, not a release. The codex pack now declares `versions_dir`, and the prune resolves the whole link chain | [`shims.go`](../../internal/entrypoint/shims.go) `_prune_versions`, [`packs/codex`](../../packs/codex/pack.json) `versions_dir` |
+| yolo deletes pi's `mcp.json` at every jail boot, though pi-subagents reads it | ✅ **Fixed** in `af5ebc21`: the pi pack no longer retires `mcp.json`, and every shipped `retireOnFirstRender` name must carry a `yolo-` prefix (`TestShippedRetireNamesAreYolosOwn`), since the delete never reads the bytes. A copy yolo 0.10.0 wrote now stays until the user deletes it |
+| `WritePiAuth`'s 10 s lock break against pi's 30 s stale window can lose an OAuth rotation | **Fixed in `2559f559`.** [`pi.go`](../../internal/openauthclient/pi.go) now uses pi's rule: it breaks `auth.json.lock` only after 30 s without an mtime refresh, and waits at most 32 s for a live holder |
+| ✅ **Fixed in `b0cb2678`.** The launcher's keep-two prune never saw codex's releases. It looked only in `~/.local/share/<bin>/versions`, and `~/.local/bin/codex` names the vendor's `current` selector, not a release. The codex pack now declares `versions_dir`, and the prune resolves the whole link chain | [`shims.go`](../../internal/entrypoint/shims.go) `_prune_versions`, [`packs/codex`](../../packs/codex/pack.json) `versions_dir` |
 | The managed codex home drops codex's `config.toml` edits and leaves stale links | [`openai-auth-broker.md`](openai-auth-broker.md) |
 | The claude pack does not retire `yolo-managed-mcp-servers.json`, though codex and opencode do | `packs/claude` `retireOnFirstRender` |
 | The `per_jail_history` hook is redundant now that `~/.claude` is per workspace, and leaves orphans | the claude slice ([§7.2](#72-claude)) |
