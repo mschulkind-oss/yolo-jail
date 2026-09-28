@@ -351,7 +351,11 @@ func kvLine(out, key string) string {
 //     singleton: no upstream redemption happened, and the launch reused the daemon rather than
 //     starting a second one.
 func TestOpenAIAuthBrokerRoundTripsAnImportedToken(t *testing.T) {
-	requireJail(t)
+	// EXCLUSIVE: this test owns the machine's openai-auth-broker singleton for its duration,
+	// and another run's claude, codex or pi launch would adopt it, or be the live singleton
+	// this test stops (machinelock_test.go).
+	requireJailExclusive(t, "TestOpenAIAuthBrokerRoundTripsAnImportedToken owns the "+
+		"openai-auth-broker host singleton")
 	if rt := detectRuntime(); rt != "podman" || goruntime.GOOS != "linux" {
 		t.Skipf("this test proves singleton ownership from /proc and runs on podman on Linux — "+
 			"ci.yml's rootless integration job, the instrument step 12 names; this is %q on %s",

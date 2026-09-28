@@ -143,7 +143,9 @@ type awsAuthFixture struct {
 // fragment needs. See the file header for each step's reason.
 func newAWSAuthFixture(t *testing.T, configure func(bin string) string) awsAuthFixture {
 	t.Helper()
-	requireJail(t)
+	// EXCLUSIVE: the fixture owns the machine's aws-auth host singleton and its adapter port
+	// for the test's duration (the file header, and machinelock_test.go).
+	requireJailExclusive(t, "the aws-auth tests own the aws-auth host singleton")
 	if rt := detectRuntime(); rt != "podman" {
 		t.Skipf("aws-auth's chain needs podman, and this runtime is %q: Apple Container is "+
 			"inert for loopback-tls loopholes and macos-user declines the jail-side adapter", rt)

@@ -131,8 +131,11 @@ func runSuite(m *testing.M) int {
 		log.Fatalf("integration: building yolo CLI under test: %v\n%s", err, out)
 	}
 
+	logMachineLock()
+	releaseSetupLock := holdMachineLockForSetup()
 	ensureJailImage()
 	warmJail()
+	releaseSetupLock()
 
 	code := m.Run()
 	os.RemoveAll(binDir)
@@ -926,6 +929,9 @@ func requireJail(t *testing.T) {
 		t.Skip("skipping container integration test (-short)")
 	}
 	isolateHome(t, "{}")
+	// SHARED for the whole test: another run's EXCLUSIVE test (machinelock_test.go) waits
+	// for this one to finish, and this one waits for it. Two ordinary tests never wait.
+	holdMachineLock(t, false, "")
 }
 
 // realPackInstallsEnv gates the tests that install a SHIPPED pack's real program from its

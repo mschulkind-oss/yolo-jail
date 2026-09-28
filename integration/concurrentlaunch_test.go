@@ -308,12 +308,78 @@ const (
 	// this, and it is printed only on the containers-storage copy arm, immediately before the
 	// copy runs. So it is the mark of a launch that REALLY COPIED.
 	copyLockRealCopyNote = "  Store write:"
-	// copyLockHoldRepo names the images this test keeps alive while it removes their jail-repo
-	// names — see evictJailImageRefs. Its own repository, so no yolo reaper (they all filter on
-	// the jail repository) and no imageExists probe ever sees it. If a killed run leaves one
-	// behind, `podman rmi` it by this name.
-	copyLockHoldRepo = "localhost/yolo-integration-copylock-hold"
+	// copyLockHoldRepoPrefix names the images this test keeps alive while it removes their
+	// jail-repo names — see evictJailImageRefs. Its own repository, so no yolo reaper (they all
+	// filter on the jail repository) and no imageExists probe ever sees it. The repository a run
+	// actually uses carries its PID (copyLockHoldRepo), and a run sweeps the names of runs whose
+	// PID is gone (sweepStaleHoldNames).
+	copyLockHoldRepoPrefix = "localhost/yolo-integration-copylock-hold"
 )
+
+// copyLockHoldRepo is THIS process's hold repository: the prefix plus its PID.
+//
+// PER PROCESS, because one shared name was a live defect. Two runs that both evicted names
+// tagged the same image under the same `<prefix>:<id>`, and whichever finished first untagged
+// it — measured 2026-09-28 as `could not drop the hold name …: tag not known` in the run that
+// finished second, and worse in the other order: with the only surviving name gone, a run
+// still mid-test holds an image nothing names, which a reaper may take. The machine lock
+// (machinelock_test.go) keeps two of these tests from overlapping at all now; the per-process
+// name is what keeps one run's cleanup from ever touching a name another run made, overlap or
+// not — a run of an older tree does not take the lock.
+func copyLockHoldRepo() string {
+	return copyLockHoldRepoPrefix + "-" + strconv.Itoa(os.Getpid())
+}
+
+// staleHoldNames returns the hold names in refs whose owning run is gone: a name under
+// copyLockHoldRepoPrefix-<pid> whose pid alive() reports dead. A name without a PID suffix —
+// what trees before the per-process name wrote — is NOT returned: an older run cannot be told
+// apart from a live one, so its names are left for a human (`podman untag` them by name).
+func staleHoldNames(refs []string, alive func(pid int) bool) []string {
+	var stale []string
+	for _, ref := range refs {
+		repo, _, ok := strings.Cut(ref, ":")
+		if !ok {
+			continue
+		}
+		pidText, ok := strings.CutPrefix(repo, copyLockHoldRepoPrefix+"-")
+		if !ok {
+			continue
+		}
+		pid, err := strconv.Atoi(pidText)
+		if err != nil || pid <= 0 || alive(pid) {
+			continue
+		}
+		stale = append(stale, ref)
+	}
+	return stale
+}
+
+// pidAlive reports whether pid names a process: signal 0 delivers nothing, and EPERM is an
+// answer too (the process exists and belongs to someone else).
+func pidAlive(pid int) bool {
+	err := syscall.Kill(pid, 0)
+	return err == nil || err == syscall.EPERM
+}
+
+// sweepStaleHoldNames untags the hold names a killed run left behind. A left-behind hold name
+// pins a whole jail image that no yolo reaper will ever consider (they filter on the jail
+// repository), so a per-process name without this sweep would trade one run's clobbered name
+// for a disk leak per killed run.
+func sweepStaleHoldNames(t *testing.T, rt string) {
+	t.Helper()
+	out, err := imageCmd(rt, "images", "--format", "{{.Repository}}:{{.Tag}}")
+	if err != nil {
+		t.Logf("listing images to sweep stale hold names: %v\n%s", err, out)
+		return
+	}
+	for _, ref := range staleHoldNames(strings.Fields(out), pidAlive) {
+		if o, err := imageCmd(rt, "untag", ref); err != nil {
+			t.Logf("could not untag the stale hold name %s (a killed run's): %v\n%s", ref, err, o)
+		} else {
+			t.Logf("untagged %s, a hold name a killed run left behind", ref)
+		}
+	}
+}
 
 // podmanRootless logs and returns `podman info --format '{{.Host.Security.Rootless}}'`: "true",
 // "false", or "unknown (<why>)". TestOpenAIAuthBrokerRoundTripsAnImportedToken uses it too.
@@ -397,11 +463,12 @@ func evictJailImageRefs(t *testing.T, rt string) []jailImageTag {
 	for _, tg := range tags {
 		ids[tg.id] = true
 	}
+	hold := copyLockHoldRepo()
 	var held []string
 	for id := range ids {
-		if out, err := imageCmd(rt, "tag", id, copyLockHoldRepo+":"+id); err != nil {
+		if out, err := imageCmd(rt, "tag", id, hold+":"+id); err != nil {
 			t.Fatalf("keeping image %s alive under %s before evicting its jail names: %v\n%s",
-				id, copyLockHoldRepo, err, out)
+				id, hold, err, out)
 		}
 		held = append(held, id)
 	}
@@ -415,9 +482,9 @@ func evictJailImageRefs(t *testing.T, rt string) []jailImageTag {
 			}
 		}
 		for _, id := range held {
-			if out, err := imageCmd(rt, "untag", id, copyLockHoldRepo+":"+id); err != nil {
+			if out, err := imageCmd(rt, "untag", id, hold+":"+id); err != nil {
 				t.Errorf("could not drop the hold name %s:%s (remove it by hand): %v\n%s",
-					copyLockHoldRepo, id, err, out)
+					hold, id, err, out)
 			}
 		}
 	})
@@ -434,22 +501,28 @@ func evictJailImageRefs(t *testing.T, rt string) []jailImageTag {
 }
 
 // holdImageCopyLock takes the machine-wide image-copy lock at lockPath from THIS process and
-// returns its release (idempotent). Non-blocking, because a lock some other launch on this
-// machine already holds is a fact about the machine, not a wait this test should absorb.
+// returns its release (idempotent).
+//
+// IT WAITS for a holder rather than failing, and it used to fail. A held lock is some other
+// launch on this machine copying an image — an ordinary event, and on a machine running two
+// suites at once a frequent one — and the right response is the one every launch makes: wait
+// for it to finish. The wait is bounded by jailTimeout(), the budget of the one command that
+// can be holding it, and says how long it took when that was noticeable.
 func holdImageCopyLock(t *testing.T, lockPath string) func() {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Dir(lockPath), 0o755); err != nil {
 		t.Fatalf("creating the lock directory: %v", err)
 	}
-	f, err := os.OpenFile(lockPath, os.O_CREATE|os.O_WRONLY, 0o644)
+	start := time.Now()
+	f, err := flockWait(lockPath, syscall.LOCK_EX, start.Add(jailTimeout()))
 	if err != nil {
-		t.Fatalf("opening the image-copy lock %s: %v", lockPath, err)
+		t.Fatalf("could not take the image-copy lock %s within %s (%v) — some other launch on "+
+			"this machine has been copying an image for that long, and this test needs to be "+
+			"the holder", lockPath, jailTimeout(), err)
 	}
-	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
-		_ = f.Close()
-		t.Fatalf("the image-copy lock %s is already held by another process on this machine "+
-			"(%v) — some other launch is copying an image, and this test needs to be the holder",
-			lockPath, err)
+	if waited := time.Since(start); waited > time.Second {
+		t.Logf("waited %s for another launch's image copy to release %s",
+			waited.Round(100*time.Millisecond), lockPath)
 	}
 	var once sync.Once
 	release := func() { once.Do(func() { _ = f.Close() }) } // closing the fd drops the flock
@@ -509,7 +582,11 @@ func spanEnds(t *testing.T, ws, name string) []float64 {
 // Linux and says which it saw, in the log and in the CI step summary; ci.yml's `integration` job
 // is rootless on both arches and is the instrument the row names.
 func TestImageCopyLockSerializesConcurrentLaunches(t *testing.T) {
-	requireJail(t)
+	// EXCLUSIVE: this test removes every name in the jail image repository, and any other
+	// launch on the machine in that window would need a copy too and could be the one that
+	// makes it (machinelock_test.go).
+	requireJailExclusive(t, "TestImageCopyLockSerializesConcurrentLaunches evicts the jail "+
+		"image names every launch looks for")
 	rt := detectRuntime()
 	if rt != "podman" || goruntime.GOOS != "linux" {
 		t.Skipf("the image-copy lock's containers-storage arm runs on podman on Linux; this is %q "+
@@ -524,10 +601,14 @@ func TestImageCopyLockSerializesConcurrentLaunches(t *testing.T) {
 	// image.copy_lock span has a floor the test controls.
 	const holdAfterAllWaiting = 2 * time.Second
 
-	evicted := evictJailImageRefs(t, rt)
-	t.Logf("evicted %d jail image name(s), images kept under %s: %v", len(evicted), copyLockHoldRepo, evicted)
-
+	// The lock BEFORE the eviction: a launch copying when this test arrives is waited out
+	// here, so the image it delivers is one this test then evicts, instead of a name that
+	// appears after the eviction and lets a launch below skip the copy.
 	release := holdImageCopyLock(t, image.ImageCopyLockPath())
+
+	sweepStaleHoldNames(t, rt)
+	evicted := evictJailImageRefs(t, rt)
+	t.Logf("evicted %d jail image name(s), images kept under %s: %v", len(evicted), copyLockHoldRepo(), evicted)
 
 	// YOLO_TIMING=1 records the spans to <workspace>/.yolo/host-perf.log without printing the
 	// report. YOLO_NO_AUTO_IMAGE_REAP keeps each launch's post-launch reaper out of a store this
@@ -654,5 +735,24 @@ func TestImageCopyLockSerializesConcurrentLaunches(t *testing.T) {
 				"(%.3fs) — a launch that copied nothing should spend no time in delivery",
 				o.name, o.layerCopy[0], copier.name, copier.layerCopy[0])
 		}
+	}
+}
+
+// TestStaleHoldNamesTakesOnlyDeadRunsNames pins the hold-name sweep, under -short: it takes a
+// name only when it can prove its run is gone, and never a name without a PID.
+func TestStaleHoldNamesTakesOnlyDeadRunsNames(t *testing.T) {
+	refs := []string{
+		copyLockHoldRepoPrefix + "-100:abc", // dead run
+		copyLockHoldRepoPrefix + "-200:abc", // live run
+		copyLockHoldRepoPrefix + ":abc",     // an older tree's unsuffixed name
+		copyLockHoldRepoPrefix + "-x:abc",   // not a PID
+		"localhost/yolo-jail:latest",
+	}
+	got := staleHoldNames(refs, func(pid int) bool { return pid == 200 })
+	if len(got) != 1 || got[0] != copyLockHoldRepoPrefix+"-100:abc" {
+		t.Errorf("staleHoldNames = %q, want only the dead run's name", got)
+	}
+	if !strings.HasSuffix(copyLockHoldRepo(), "-"+strconv.Itoa(os.Getpid())) {
+		t.Errorf("copyLockHoldRepo() = %q, want this process's PID as its suffix", copyLockHoldRepo())
 	}
 }
