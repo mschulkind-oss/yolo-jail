@@ -254,9 +254,11 @@ yolo.derive("codex", "config", function(ctx)
           -- A via row's env_key is the via service's CALLER TOKEN, never the provider's key:
           -- the service holds the provider's credential and adds it upstream itself, and it
           -- demands this launch's token of every caller (docs/reference/wire-bridge.md
-          -- WB-D18), which codex sends as its bearer. The variable is in every jail process's
-          -- environment (the per-entry channel), so codex's refusal to start without it
-          -- cannot fire. An entrypoint older than ctx.via_api_key_env_name hands nil, and the
+          -- WB-D18), which codex sends as its bearer. codex fails each request when a declared
+          -- env_key is unset (docs/design/wire-bridge-gateway.md WG-I22), and that cannot fire
+          -- here: a via profile brings in the bridge, a service with a jail daemon, so the launch
+          -- always writes this variable into the per-entry channel every jail process inherits.
+          -- An entrypoint older than ctx.via_api_key_env_name hands nil, and the
           -- row then names no env_key, as it did before: with neither env_key nor
           -- requires_openai_auth, codex sends no Authorization at all (codex 0.157.0,
           -- model-provider/src/auth.rs resolve_provider_auth).

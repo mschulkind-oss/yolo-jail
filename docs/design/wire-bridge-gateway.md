@@ -342,6 +342,14 @@ the mechanism choices its build made, each the one answer that made the ruled be
    opencode send the `local` placeholder their derives give a loopback base URL, because pi drops
    a provider whose row has no key, and oh-omp's row says `auth = "none"`. **Corrected
    2026-09-26:** this item said the `local` placeholder was what they always sent.
+   **Superseded by [WB-D18](../reference/wire-bridge.md#wb-d18) (2026-09-28):** every via row,
+   keyed provider or keyless, now names the bridge's caller token variable,
+   `YOLO_SERVICE_WIRE_BRIDGE_TOKEN`, and never the provider's key. Caller token is the term
+   [`wire-bridge.md`](../reference/wire-bridge.md#caller-authentication) coins: a random
+   per-launch secret the bridge demands of every request. So pi, opencode and oh-omp send the
+   token, the bridge checks it and drops it, and the provider's key never leaves the bridge. The
+   first sentence still holds: no inbound `Authorization`, the token included, is forwarded
+   upstream.
 6. <a id="WG-I6"></a>**[WG-I6](#WG-I6)** — a via route is served only for a provider whose
    `openai` endpoint is chat-completions (`wire_api` unset or `openai-chat-completions`). Any other
    is skipped with its reason in the daemon log. **Amended 2026-09-26 by [WG-I20](#WG-I20):** a
@@ -397,7 +405,16 @@ track holds the ids from 10:
     reference for a keyed provider, and for a keyless one pi's and opencode's `local` placeholder,
     because pi drops a keyless row ([WG-I5](#WG-I5)). codex's row carries neither. Dropping the
     real key from their via rows too would match [OQ-BR4](provider-credential-scope.md#OQ-BR4)'s
-    narrowing, and is those packs' change to make. The route needs no WebSocket upgrade: codex opens Responses over WebSocket only for a provider
+    narrowing, and is those packs' change to make. **Superseded by
+    [WB-D18](../reference/wire-bridge.md#wb-d18) (2026-09-28):** codex's via row now names
+    `env_key = "YOLO_SERVICE_WIRE_BRIDGE_TOKEN"`, the bridge's caller token, and pi's, opencode's
+    and oh-omp's rows name the same variable in place of the provider's key ([WG-I5](#WG-I5)).
+    The bridge now demands that token of every request, so the key codex sends is one it does use.
+    The measurement above still holds: codex fails each request when a declared `env_key` is
+    unset. It cannot fire here, because a via profile brings in the bridge, a pack service with a
+    jail daemon, and the launch then always writes that variable into the `0600` per-entry
+    channel file every jail process inherits
+    ([how the token travels](../reference/wire-bridge.md#how-the-token-travels)). The route needs no WebSocket upgrade: codex opens Responses over WebSocket only for a provider
     with `supports_websockets`, which defaults off for a custom provider, and the derive never
     sets it (`core/src/client.rs` `responses_websocket_enabled`). It compresses a request body
     only for its built-in OpenAI provider, so copying `Content-Type` and `Accept` alone loses
@@ -693,9 +710,16 @@ Three earlier non-licenses are reopened here by name:
   runtime's host built from a declared `region`, from the launch's composed provider table. This
   replaces the earlier draft's "only the upstream selected at boot", which Part 2 contradicts,
   and keeps what it protected: nothing in a request can name a new destination.
-- **No host-side bridge and no inbound authentication**, as
-  [`wire-bridge.md`](../reference/wire-bridge.md#what-this-does-not-license) states. A per-agent
-  token ([OQ-WG4](#OQ-WG4)) would be a routing key, not authentication.
+- **No host-side bridge**, as
+  [`wire-bridge.md`](../reference/wire-bridge.md#what-this-does-not-license) states. **Amended
+  2026-09-28 by [WB-D18](../reference/wire-bridge.md#wb-d18):** this bullet also refused inbound
+  authentication, and a per-agent token ([OQ-WG4](#OQ-WG4)) was to be a routing key, not
+  authentication. The bridge now authenticates every caller: each request must carry the launch's
+  caller token, a random per-launch secret
+  ([caller authentication](../reference/wire-bridge.md#caller-authentication)), or it is refused
+  `401`. The token is one per launch, not one per agent, so it tells a caller that belongs to this
+  launch from one that does not, and never one agent from another; the per-agent path prefix is
+  still the routing key.
 
 ---
 
