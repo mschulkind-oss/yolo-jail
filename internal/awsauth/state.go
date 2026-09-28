@@ -74,7 +74,12 @@ func loadState(path string) (State, error) {
 // writeState atomically replaces the cache with a mode-0600 file in a mode-0700
 // directory. The rename means a lock-free reader — the warm-cache serve path — sees
 // the old complete generation or the new complete one, never a torn file.
-func writeState(path string, state State) error {
+func writeState(path string, state State) error { return writeStateIn(path, state, true) }
+
+// writeStateIn is writeState with the directory's creation decided by the caller: a Broker
+// with NoCreateDir set passes false, and a missing directory is then an error rather than
+// something to bring back.
+func writeStateIn(path string, state State, create bool) error {
 	if state.Version == 0 {
 		state.Version = stateVersion
 	}
@@ -82,11 +87,8 @@ func writeState(path string, state State) error {
 		return err
 	}
 	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return fmt.Errorf("create aws-auth credential directory: %w", err)
-	}
-	if err := os.Chmod(dir, 0o700); err != nil {
-		return fmt.Errorf("secure aws-auth credential directory: %w", err)
+	if err := ensureStateDir(dir, create); err != nil {
+		return err
 	}
 	data, err := json.MarshalIndent(state, "", "  ")
 	if err != nil {
@@ -116,6 +118,24 @@ func writeState(path string, state State) error {
 	}
 	if err := os.Rename(tmpPath, path); err != nil {
 		return fmt.Errorf("replace aws-auth credential state: %w", err)
+	}
+	return nil
+}
+
+// ensureStateDir makes dir a mode-0700 directory, creating it only when create is set. A
+// missing dir that may not be created is reported as gone, naming it, so the error a client
+// sees says why its mint failed while the daemon is on its way out (Broker.NoCreateDir).
+func ensureStateDir(dir string, create bool) error {
+	if create {
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			return fmt.Errorf("create aws-auth credential directory: %w", err)
+		}
+	} else if _, err := os.Stat(dir); err != nil {
+		return fmt.Errorf("aws-auth credential directory %s is gone, and this daemon does not "+
+			"recreate it: %w", dir, err)
+	}
+	if err := os.Chmod(dir, 0o700); err != nil {
+		return fmt.Errorf("secure aws-auth credential directory: %w", err)
 	}
 	return nil
 }

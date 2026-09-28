@@ -112,6 +112,11 @@ type Broker struct {
 	RefreshLead time.Duration
 	Now         func() time.Time
 	Observe     func(Event)
+	// NoCreateDir makes every write REFUSE a state directory that is absent instead of
+	// recreating it. The host daemon sets it: it creates the directory at startup and exits
+	// when the directory goes (hostservice.WatchStateDir), so a write landing between the
+	// removal and that exit must not bring back a directory a launch has just retired.
+	NoCreateDir bool
 }
 
 func (b Broker) now() time.Time {
@@ -172,7 +177,7 @@ func (b Broker) Replace(tokens Tokens) (State, error) {
 			Generation:    generation,
 			LastRefreshMS: b.now().UnixMilli(),
 		}
-		return writeState(b.StatePath, installed)
+		return writeStateIn(b.StatePath, installed, !b.NoCreateDir)
 	})
 	return installed, err
 }
@@ -236,7 +241,7 @@ func (b Broker) Refresh(ctx context.Context, request Request) (Result, error) {
 				if refreshErr.Kind == ErrorPermanent {
 					state.LoginRequired = true
 					state.LastErrorCode = refreshErr.Code
-					if writeErr := writeState(b.StatePath, state); writeErr != nil {
+					if writeErr := writeStateIn(b.StatePath, state, !b.NoCreateDir); writeErr != nil {
 						return errors.Join(err, writeErr)
 					}
 				}
@@ -261,7 +266,7 @@ func (b Broker) Refresh(ctx context.Context, request Request) (Result, error) {
 		state.LoginRequired = false
 		state.LastRefreshMS = b.now().UnixMilli()
 		state.LastErrorCode = ""
-		if err := writeState(b.StatePath, state); err != nil {
+		if err := writeStateIn(b.StatePath, state, !b.NoCreateDir); err != nil {
 			return err
 		}
 		result = Result{State: state, Decision: DecisionRefreshed}
@@ -286,12 +291,8 @@ func eventFor(state State, caller string) Event {
 }
 
 func (b Broker) withLock(fn func() error) error {
-	dir := filepath.Dir(b.LockPath)
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return fmt.Errorf("create OpenAI auth lock directory: %w", err)
-	}
-	if err := os.Chmod(dir, 0o700); err != nil {
-		return fmt.Errorf("secure OpenAI auth lock directory: %w", err)
+	if err := ensureStateDir(filepath.Dir(b.LockPath), !b.NoCreateDir); err != nil {
+		return err
 	}
 	lock, err := os.OpenFile(b.LockPath, os.O_CREATE|os.O_RDWR, 0o600)
 	if err != nil {

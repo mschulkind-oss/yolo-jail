@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"sync"
 	"syscall"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/hostservice"
@@ -84,6 +85,8 @@ func Main(argv []string) int {
 	LogStartup(*credsFile)
 
 	stop := make(chan struct{})
+	var stopOnce sync.Once
+	shutdown := func() { stopOnce.Do(func() { close(stop) }) }
 	if !*noBgRefresh {
 		go RunBackgroundRefresher(*credsFile, stop,
 			BackgroundRefreshTickSeconds, BackgroundRefreshLeadSeconds)
@@ -93,7 +96,19 @@ func Main(argv []string) int {
 	// channel too so the background refresher goroutine exits with the process.
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGTERM, syscall.SIGINT)
-	go func() { <-sigCh; close(stop) }()
+	go func() { <-sigCh; shutdown() }()
+
+	// The state dir holds what this process minted at startup (EnsureCAAndLeaf above)
+	// and the refresh lock. When it goes — a launch retiring the loophole, a deleted HOME —
+	// the daemon EXITS, so the next launch that selects claude spawns one that mints again,
+	// instead of adopting this one and never getting a CA (hostservice.WatchStateDir).
+	if err := hostservice.WatchStateDir(BrokerDir(), stop, func(reason string) {
+		logInfo("%s", hostservice.StateDirGoneExitLine("yolo-claude-oauth-broker-host", reason))
+		shutdown()
+	}); err != nil {
+		fmt.Fprintln(os.Stderr, "yolo-claude-oauth-broker-host: watch the state directory:", err)
+		return 1
+	}
 
 	// ServeFrontedUnix, and the third name is the whole point — see the no-`Serve`
 	// note in internal/hostservice for the outage a signature-preserving change to

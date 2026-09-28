@@ -55,6 +55,11 @@ type Broker struct {
 	RemintLead time.Duration
 	Now        func() time.Time
 	Observe    func(Event)
+	// NoCreateDir makes every write REFUSE a state directory that is absent instead of
+	// recreating it. The host daemon sets it: it creates the directory at startup and exits
+	// when the directory goes (hostservice.WatchStateDir), so a mint landing between the
+	// removal and that exit must not bring back a directory a launch has just retired.
+	NoCreateDir bool
 }
 
 func (b Broker) now() time.Time {
@@ -165,7 +170,7 @@ func (b Broker) Fetch(ctx context.Context, caller string) (Result, error) {
 			return err
 		}
 		state.Credentials[b.Config.Profile] = cred
-		if err := writeState(b.StatePath, state); err != nil {
+		if err := writeStateIn(b.StatePath, state, !b.NoCreateDir); err != nil {
 			return err
 		}
 		result = Result{Credential: cred, Decision: DecisionMinted}
@@ -234,12 +239,8 @@ func (b Broker) emit(caller string, result Result, err error) {
 // file. Beside, rather than anywhere else, so that every process which can write the
 // cache contends for the same inode whatever it calls its state directory.
 func (b Broker) withLock(fn func() error) error {
-	dir := filepath.Dir(b.LockPath)
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return fmt.Errorf("create aws-auth lock directory: %w", err)
-	}
-	if err := os.Chmod(dir, 0o700); err != nil {
-		return fmt.Errorf("secure aws-auth lock directory: %w", err)
+	if err := ensureStateDir(filepath.Dir(b.LockPath), !b.NoCreateDir); err != nil {
+		return err
 	}
 	lock, err := os.OpenFile(b.LockPath, os.O_CREATE|os.O_RDWR, 0o600)
 	if err != nil {

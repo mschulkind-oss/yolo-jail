@@ -107,6 +107,15 @@ func Main(argv []string) int {
 	if rc != 0 {
 		return rc
 	}
+	// The state dir is created HERE, once, and never again: the daemon exits when it goes
+	// (hostservice.WatchStateDir says why), and NoCreateDir stops a mint in the meantime
+	// from bringing it back.
+	stateDir := filepath.Dir(*statePath)
+	if err := os.MkdirAll(stateDir, 0o700); err != nil {
+		fmt.Fprintln(os.Stderr, "yolo-aws-auth: create the state directory:", err)
+		return 1
+	}
+	broker.NoCreateDir = true
 
 	stop := make(chan struct{})
 	var stopOnce sync.Once
@@ -114,6 +123,13 @@ func Main(argv []string) int {
 	signals := make(chan os.Signal, 1)
 	signal.Notify(signals, syscall.SIGINT, syscall.SIGTERM)
 	go func() { <-signals; shutdown() }()
+	if err := hostservice.WatchStateDir(stateDir, stop, func(reason string) {
+		fmt.Fprintln(os.Stderr, hostservice.StateDirGoneExitLine("yolo-aws-auth", reason))
+		shutdown()
+	}); err != nil {
+		fmt.Fprintln(os.Stderr, "yolo-aws-auth: watch the state directory:", err)
+		return 1
+	}
 	if !*noBackground {
 		go runProactive(broker, *refreshInterval, stop, os.Stderr)
 	}

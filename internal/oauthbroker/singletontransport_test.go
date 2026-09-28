@@ -201,6 +201,15 @@ func framed(body string) []byte {
 // below is what reads the result.
 func startSingleton(t *testing.T) (string, string, func() string, func()) {
 	t.Helper()
+	sock, state, out, _, stop := startSingletonProc(t)
+	return sock, state, out, stop
+}
+
+// startSingletonProc is startSingleton that also hands back the child's exit: done
+// delivers cmd.Wait's result once the daemon has exited, for a test whose subject is the
+// daemon ending by itself.
+func startSingletonProc(t *testing.T) (string, string, func() string, <-chan error, func()) {
+	t.Helper()
 	dir := t.TempDir()
 	state := filepath.Join(dir, "state")
 	if err := os.MkdirAll(state, 0o700); err != nil {
@@ -235,9 +244,12 @@ func startSingleton(t *testing.T) (string, string, func() string, func()) {
 		defer mu.Unlock()
 		return sb.String()
 	}
+	done := make(chan error, 1)
+	exited := make(chan struct{})
+	go func() { done <- cmd.Wait(); close(exited) }()
 	stop := func() {
 		_ = cmd.Process.Kill()
-		_, _ = cmd.Process.Wait()
+		<-exited
 	}
 	deadline := time.Now().Add(10 * time.Second)
 	for time.Now().Before(deadline) {
@@ -246,7 +258,7 @@ func startSingleton(t *testing.T) (string, string, func() string, func()) {
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
-	return sock, state, out, stop
+	return sock, state, out, done, stop
 }
 
 // lockedWriter serializes the child's stdout and stderr into one buffer that the

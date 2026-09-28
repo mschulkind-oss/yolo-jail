@@ -64,9 +64,18 @@ func Main(argv []string) int {
 		fmt.Fprintln(os.Stderr, "yolo-openai-auth-host: --socket is required")
 		return 2
 	}
+	// The state dir is created HERE, once, and never again: the daemon exits when it goes
+	// (hostservice.WatchStateDir says why), and NoCreateDir stops a write in the meantime
+	// from bringing it back.
+	stateDir := filepath.Dir(*statePath)
+	if err := os.MkdirAll(stateDir, 0o700); err != nil {
+		fmt.Fprintln(os.Stderr, "yolo-openai-auth-host: create the state directory:", err)
+		return 1
+	}
 	upstream := Upstream{TokenURL: *tokenURL}
 	broker := openaiauth.Broker{
-		StatePath: *statePath, LockPath: filepath.Join(filepath.Dir(*statePath), "refresh.lock"), Refresher: upstream,
+		StatePath: *statePath, LockPath: filepath.Join(stateDir, "refresh.lock"), Refresher: upstream,
+		NoCreateDir: true,
 	}
 	stop := make(chan struct{})
 	var stopOnce sync.Once
@@ -74,6 +83,13 @@ func Main(argv []string) int {
 	signals := make(chan os.Signal, 1)
 	signal.Notify(signals, syscall.SIGINT, syscall.SIGTERM)
 	go func() { <-signals; shutdown() }()
+	if err := hostservice.WatchStateDir(stateDir, stop, func(reason string) {
+		fmt.Fprintln(os.Stderr, hostservice.StateDirGoneExitLine("yolo-openai-auth-host", reason))
+		shutdown()
+	}); err != nil {
+		fmt.Fprintln(os.Stderr, "yolo-openai-auth-host: watch the state directory:", err)
+		return 1
+	}
 	if !*noBackground {
 		go runProactive(broker, *refreshInterval, stop)
 	}

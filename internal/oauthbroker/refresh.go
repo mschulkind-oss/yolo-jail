@@ -18,12 +18,13 @@ func withRefreshLock(fn func() RefreshResult) RefreshResult {
 	if RefreshLockPath == "" {
 		return fn() // no lock configured (unit tests) — behave as if uncontended
 	}
-	if dir := dirOf(RefreshLockPath); dir != "" {
-		_ = os.MkdirAll(dir, 0o755)
-	}
+	// NO MkdirAll of the lock's directory, and there used to be one. The daemon's state
+	// dir is created at startup (EnsureCAAndLeaf) and the daemon exits when it goes
+	// (hostservice.WatchStateDir, wired in Main); recreating it here, on the first refresh
+	// after a retirement moved it away, is exactly what that exit exists to prevent.
 	f, err := os.OpenFile(RefreshLockPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o644)
 	if err != nil {
-		// Can't open the lock (the mkdir above having failed is unusual);
+		// Can't open the lock — its directory is gone, and the daemon is on its way out;
 		// return an error dict rather than proceeding unlocked.
 		return errResult("error", "creds_unreadable", "message", err.Error())
 	}
@@ -220,16 +221,4 @@ func stringField(m *jsonx.OrderedMap, key string) (string, bool) {
 	}
 	s, ok := v.(string)
 	return s, ok
-}
-
-func dirOf(path string) string {
-	for i := len(path) - 1; i >= 0; i-- {
-		if path[i] == '/' {
-			if i == 0 {
-				return "/"
-			}
-			return path[:i]
-		}
-	}
-	return ""
 }

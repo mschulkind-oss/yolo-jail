@@ -76,7 +76,12 @@ func ReadState(path string) (State, error) { return loadState(path) }
 // writeState atomically replaces the canonical state with a mode-0600 file in
 // a mode-0700 directory. The directory rename means lock-free readers see the
 // old complete generation or the new complete generation, never a torn file.
-func writeState(path string, state State) error {
+func writeState(path string, state State) error { return writeStateIn(path, state, true) }
+
+// writeStateIn is writeState with the directory's creation decided by the caller: a Broker
+// with NoCreateDir set passes false, and a missing directory is then an error rather than
+// something to bring back.
+func writeStateIn(path string, state State, create bool) error {
 	if state.Version == 0 {
 		state.Version = stateVersion
 	}
@@ -84,11 +89,8 @@ func writeState(path string, state State) error {
 		return err
 	}
 	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return fmt.Errorf("create OpenAI credential directory: %w", err)
-	}
-	if err := os.Chmod(dir, 0o700); err != nil {
-		return fmt.Errorf("secure OpenAI credential directory: %w", err)
+	if err := ensureStateDir(dir, create); err != nil {
+		return err
 	}
 	data, err := json.MarshalIndent(state, "", "  ")
 	if err != nil {
@@ -130,4 +132,22 @@ func TokenFingerprint(token string) string {
 	}
 	sum := sha256.Sum256([]byte(token))
 	return hex.EncodeToString(sum[:4])
+}
+
+// ensureStateDir makes dir a mode-0700 directory, creating it only when create is set. A
+// missing dir that may not be created is reported as gone, naming it, so the error a client
+// sees says why its write failed while the daemon is on its way out (Broker.NoCreateDir).
+func ensureStateDir(dir string, create bool) error {
+	if create {
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			return fmt.Errorf("create OpenAI credential directory: %w", err)
+		}
+	} else if _, err := os.Stat(dir); err != nil {
+		return fmt.Errorf("OpenAI credential directory %s is gone, and this daemon does not "+
+			"recreate it: %w", dir, err)
+	}
+	if err := os.Chmod(dir, 0o700); err != nil {
+		return fmt.Errorf("secure OpenAI credential directory: %w", err)
+	}
+	return nil
 }

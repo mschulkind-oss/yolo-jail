@@ -711,6 +711,15 @@ daemon deliberately placed outside its own group — a shell-profile line, a cro
 double-forked reparented process. No packaging design changes that, and this one does not claim
 to.
 
+A **host-wide daemon** (`host_daemon.scope: "host"`) is the exception to "teardown kills it": it
+serves every jail, so no jail's teardown stops it. The three yolo ships — `claude-oauth-broker`,
+`openai-auth-broker` and `aws-auth` — instead **exit on their own when their state directory is
+removed or replaced**, which is what retirement does to it, and none of them recreates that
+directory in the meantime ([`statedir.go`](../../internal/hostservice/statedir.go)). So the next
+launch that selects the pack again finds no daemon and spawns one against the state that exists
+now, rather than adopting one whose state was archived — for the Claude broker, one that would
+never mint the CA again, since it mints only when it starts.
+
 Per-loophole **state** is keyed by loophole **name**, which puts it outside the staged tree and
 lets it survive restaging — the property that makes a pack-shipped CA possible at all, since a CA
 regenerated on every launch would break every long-lived TLS client in the jail. The same
