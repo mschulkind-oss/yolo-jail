@@ -281,7 +281,7 @@ func withMachineLockDir(t *testing.T) {
 // turnstile, without which a writer starves behind two runs' overlapping readers.
 func TestMachineLockSharesAndExcludes(t *testing.T) {
 	withMachineLockDir(t)
-	const brief = 150 * time.Millisecond
+	const brief = 50 * time.Millisecond // each refusal below waits exactly this long
 
 	a, err := acquireMachineLock(false, brief)
 	if err != nil {
