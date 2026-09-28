@@ -93,8 +93,9 @@ yolo pack ls                          # the packs you selected, and what each de
 yolo pack explain claude              # which files a pack delivers, and which filters dropped
 ```
 
-Every launch also prints what each pack reads from your machine, and prints anything that runs on
-your machine just before it starts.
+`footprint` takes a shipped pack's name or a folder, so to review a git pack, clone it and run
+`footprint` on the clone. Every launch also prints what each pack reads from your machine, and prints
+anything that runs on your machine just before it starts.
 
 > [!IMPORTANT]
 > **Following a branch means trusting every future commit on it.** A `?ref=main` picks up whatever
