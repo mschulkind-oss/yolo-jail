@@ -16,6 +16,20 @@ you already keep there is merged into rather than replaced, so its servers and s
 so do the servers you add to it later. Without the extension, nothing is written there, and
 `yolo host apply` never writes it. See [MCP configuration](docs/reference/mcp-configuration.md).
 
+**`yolo host apply` now writes your MCP servers, LSP servers, providers and selected model into
+your host agents' config, as jails do.** The servers under `mcp_servers` and `lsp_servers`, the
+providers your packs and `providers` declare, and the model `use_profiles` selects reach each
+agent's files on your own machine, and so does the automatic apply a wrapped launch runs. Host pi
+now offers the same `openai-codex` models a jail's pi does. As in a jail, yolo writes an agent's
+server and provider lists whole, so an entry you added through the agent itself is dropped unless
+your config declares it; each is named, and yolo asks before dropping one the first time it writes
+a list. The selected model is written when your selection changes, and a model you pick later in
+the agent stays. MCP presets and servers whose command is a path that exists only inside a jail
+are not written to your machine, and the report names each one. Under `host_management: own`,
+the files yolo writes whole (pi's, Copilot's and Antigravity's MCP files, Copilot's LSP file, and
+pi's and oh-omp's model files) are now written too, keeping what they already hold, where they
+used to be refused. See [what a host apply writes](docs/design/host-computed-layer.md#14-what-was-built).
+
 **A pack can set another pack's settings for one confinement only.** An `autonomy` posture's
 `config` can now name a config file another pack owns, and its keys apply only where that
 posture does: under `guarded`, a setting only your host gets through `yolo host apply`, and
