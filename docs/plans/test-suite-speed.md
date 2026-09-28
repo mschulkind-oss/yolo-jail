@@ -83,8 +83,10 @@ Together that is about 18.2 s of `internal/cli/run`'s 40.8 s, and about 19 s of
      the source tree. Its size was 269 kB on 09-27. Any change to it invalidates that package's cached
      results.
 - **A fresh worktree pays the cold cost**: about 65 s for its first gate, against about 10 s warm.
-- **`-trimpath` saves 13–14 s cold on `vet` and `staticcheck`.** It cannot be used with `go test`,
-  where 42 tests fail under it.
+- **`-trimpath` saves 13–14 s cold on `vet` and `staticcheck`, and is not used.** It cannot be used
+  with `go test`, where 42 tests fail under it; and on the lint passes a cached finding replays the
+  file path of whichever checkout produced it, so it can name a sibling worktree (found in review,
+  2026-09-28). The gate's measured gain comes from `[parallel]` instead.
 
 ### Integration: the tests that already existed did not slow down
 
@@ -157,7 +159,7 @@ file. The fixes are to tests and harnesses. None of them changes production beha
 | **entrypoint** | `internal/entrypoint` | Adds a fake `fc-cache` to the bootstrap tests' tool directory. Shortens the four refresh-lock tests' sleeps, using the seams the code already has or a fake clock. |
 | **misc-unit** | slow tests outside the two packages above | Points tests that list `/tmp` or `/dev/shm` directly (in `paths`, `loopholes` and `capture`) at a `t.TempDir()` root, where the code already has a way to pass one in. Reduces `hostservice`'s `TestASocketPathThatExistsAccepts`, which runs 2000 rounds with a tight `os.Stat` loop ([`bindready_test.go:18`](../../internal/hostservice/bindready_test.go#L18)). |
 | **integration** | `integration/` | Makes `TestYoloCheckValidConfig` check only its own workspace's jail. Isolates the image-copy lock test from state a concurrent run shares. Cuts the six new tests where their own setup allows. |
-| **gate-ci** | `Justfile`, `.github/workflows/ci.yml` | Puts `[parallel]` on `check-ci`, after confirming that the `just` CI installs supports the attribute (CI downloads the latest `casey/just` release, [`ci.yml:78`](../../.github/workflows/ci.yml#L78)) and that a failure still ends the recipe with a non-zero exit. Optionally runs the four lint passes in parallel. Uses `-trimpath` for `vet` and `staticcheck` only. |
+| **gate-ci** | `Justfile`, `.github/workflows/ci.yml` | Puts `[parallel]` on `check-ci`, after confirming that the `just` CI installs supports the attribute (CI downloads the latest `casey/just` release, [`ci.yml:78`](../../.github/workflows/ci.yml#L78)) and that a failure still ends the recipe with a non-zero exit. Optionally runs the four lint passes in parallel. Tried `-trimpath` for `vet` and `staticcheck`, then dropped it (above). |
 
 These items must not do three things:
 
@@ -277,11 +279,11 @@ two depend on how a particular day's agents were scheduled.
    `just check-ci`?** That pass has cost 43 s since 09-13. Taking it out of the local gate would cut
    that time for everyone, but a darwin-only finding would then first appear after a push.
 
-   <!-- vantage: oq id=OQ-TS4 leaning="No. The Justfile comment rules that the landing gate is the one that must not be blind to darwin-only files, and the pass is close to free on a warm cache. Parallelizing and -trimpath recover most of the cold cost instead." -->
+   <!-- vantage: oq id=OQ-TS4 leaning="No. The Justfile comment rules that the landing gate is the one that must not be blind to darwin-only files, and the pass is close to free on a warm cache. Parallelizing recovers much of the cold cost instead." -->
 
    _Leaning:_ No. The Justfile comment ([`Justfile:298`](../../Justfile#L298)) rules against it: the
    landing gate is the one that must not miss darwin-only files. On a warm cache the pass costs close
-   to nothing. Running the lint passes in parallel and using `-trimpath` get most of the cold cost back
+   to nothing. Running the lint passes in parallel gets much of the cold cost back
    without dropping it.
 
    **Answer:**

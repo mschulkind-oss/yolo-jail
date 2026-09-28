@@ -331,21 +331,13 @@ test-fast:
 # on one day, and the next reader would have no way to tell a stale number from a
 # regression.
 #
-# WHY GOFLAGS=-trimpath, AND WHY ONLY HERE. Without it the checkout's absolute path
-# is part of every local and vendored package's build-cache key, so a checkout at a
-# NEW path — every agent worktree, every fresh clone — re-type-checks the whole tree
-# for all four passes even when the same content was linted a minute earlier from
-# another path. With it the key is the content alone and a new path reuses that
-# work. The diagnostics are unchanged: vet and staticcheck both print positions
-# relative to the working directory either way (checked by planting one finding of
-# each and diffing the two outputs). It is set on THIS recipe only, through `[env]`,
-# because `go test -trimpath` breaks tests that locate the repo through their own
-# source path (runtime.Caller), so it must never reach `test-fast`. `[env]` REPLACES
-# any GOFLAGS the caller exported, for these four passes only. `[env]` needs just >= 1.47
-# (an older just refuses to parse this file, loudly); ci.yml installs the latest release.
+# NO -trimpath HERE, ON PURPOSE. It would take the checkout path out of the build-cache
+# key, so a new worktree reuses another checkout's vet/staticcheck work — but a cached
+# finding is then replayed with the file path of the checkout that produced it, which can
+# name a sibling worktree or a file that no longer exists (found in review, 2026-09-28).
+# The warm gate's gain comes from check-ci's [parallel], not from this.
 #
 # Run linter (Go: vet + staticcheck), once per GOOS this tree targets.
-[env("GOFLAGS", "-trimpath")]
 lint:
     GOOS=linux go vet ./...
     GOOS=linux staticcheck ./...
