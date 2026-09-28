@@ -30,7 +30,7 @@ import (
 // WHAT IS NOT HERE, and why. The jail's `yolo config render` preview is a reader, not a writer:
 // it composes a surface without its computed layer and capture overlay (its documented scope,
 // renderSurface in internal/cli/config.go) and it previews core surfaces (mise/config) no pack
-// declares, so it has no mechanism to ask and no pack walk to share. Recorded as NC-D27 in the
+// declares, so it has no mechanism to ask and no pack walk to share. Recorded as NC-D29 in the
 // plan. `host_files` entries have their own four modes (hostfiles.go), which are the user's
 // vocabulary rather than the engine's, and reach the same two writers directly.
 
