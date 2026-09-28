@@ -83,6 +83,10 @@ than hand the agent an address nothing answers. See
 - Old Codex versions now get cleaned up the way the other agents' are. After Codex installs or
   updates, yolo keeps the two newest versions and the one in use, and removes the rest. Before,
   every old Codex version stayed on disk, so each update left a few hundred megabytes behind.
+- A repository whose skills link one directory many times can no longer make a launch copy far
+  more than the repository holds. One launch now copies at most 32 MiB and 4096 files and
+  directories of a repository's skills. A skill that would go past that is left out and named at
+  launch, and the skills copied before it still reach your agents.
 
 ## [0.11.0] - 2026-09-28
 

@@ -601,10 +601,13 @@ destination's staging dir, and nothing is ever written into the workspace.
   fatal — and a skill left with no file to stage is not delivered at all. A refusal names the
   entry and a fixed reason, never the link's target. An absolute link spelled `/workspace/…` is
   read as the workspace in a container, since that is how the agent there wrote it.
-- **Nothing bounds the bytes.** Each skill copies the trees its links reach, so many skills
-  linking one large in-repo directory copy it once per skill into every destination that
-  receives them; a budget is an open question
-  ([`OQ-WS7`](../design/workspace-skills.md#OQ-WS7)).
+- **One launch copies at most 32 MiB and 4096 files and directories.** Each skill copies the
+  trees its links reach, so many skills linking one large in-repo directory copy it once per
+  skill. A skill whose copy would pass either cap is **refused whole and named**, with the cap
+  and what it would add; the skills copied before it stay, and a later one that still fits is
+  delivered. Everything the layer writes counts, a refused skill's partial copy included, and
+  every destination copies from that one scratch tree, so none receives more than the cap
+  ([`OQ-WS7`](../design/workspace-skills.md#OQ-WS7), where the numbers were measured).
 - **Re-read on every invocation**, attach included, so an edit under a declared path reaches the
   next `yolo` command against a running jail — the same tree the agent there already reads live.
   Each source that delivered anything gets one `Workspace skills from <dir> mirrored into …` line.
