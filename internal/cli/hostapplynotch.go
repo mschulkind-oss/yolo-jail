@@ -76,6 +76,10 @@ type notchFacts struct {
 	// is an orphan reported "no effect" one line above, and lands in nothing below, so the
 	// answer is the collector's (OverlaySet.PlacesPostureListFrom) rather than the manifest's.
 	AutonomyFolds bool
+	// InertPackages is how many `packages:` entries this notch leaves inert, when the default
+	// view folds that fact into the tier-1 line rather than printing describe's own line for it
+	// (reportHostPackages); 0 otherwise.
+	InertPackages int
 }
 
 // surveyNotchFacts walks every contribution the resolved pack set declares and collects the
@@ -139,7 +143,34 @@ func notchInapplicable(fields render.FieldSet, k packdecl.Kind) bool {
 // covered alike); the autonomy line names what it did to the surfaces, because "did my
 // jail-bypass keys reach my real home?" is the single most consequential question this command
 // answers and the answer is one word.
+//
+// ONE LINE BY DEFAULT (report-tiers.md, tier 1: "one line per run, naming the kinds and the
+// posture"). Every tier-1 fact is the same sentence on every run, so the default view names them
+// on a single line — the kinds that do not apply (the census, P5: appearing once is appearing),
+// inert `packages:`, and the posture — and --verbose prints the two full lines below. The
+// maintainer's report was that three lines of this, above every apply, made the output "very
+// confusing".
 func printNotchFacts(pr richtext.Printer, f notchFacts) {
+	if !reportVerbose() {
+		var parts []string
+		var names []string
+		if f.InertPackages > 0 {
+			names = append(names, "packages")
+		}
+		for _, k := range f.Inapplicable {
+			names = append(names, string(k))
+		}
+		if len(names) > 0 {
+			parts = append(parts, "does not apply at the host: "+strings.Join(names, ", "))
+		}
+		if f.Autonomy {
+			parts = append(parts, "guarded posture — permission prompts stay on")
+		}
+		if len(parts) > 0 {
+			pr.Printf("  [dim]%s[/dim]", strings.Join(parts, " · "))
+		}
+		return
+	}
 	if len(f.Inapplicable) > 0 {
 		names := make([]string, len(f.Inapplicable))
 		for i, k := range f.Inapplicable {

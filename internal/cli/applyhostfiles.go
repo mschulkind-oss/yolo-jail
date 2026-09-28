@@ -11,6 +11,7 @@ package cli
 
 import (
 	"io"
+	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/hostskills"
@@ -58,7 +59,14 @@ func applyHostFiles(pr richtext.Printer, errw io.Writer, p *packload.Pack, home,
 		// yolo's, and archives the previous copy of one before replacing it — so nothing of
 		// the user's leaves the home at a destination this loop reports.
 		survey.note(tierRun, string(packdecl.KindFiles), r.Surface, r.Path, r.WouldChange)
-		pr.Printf("  [cyan]%-20s[/cyan] %s  [dim]%s[/dim]", r.Surface, r.Action, r.Path)
+		// An UNCHANGED file is detail (report-tiers.md's tier 2): the verdict counts it, and
+		// --verbose lists it. A change prints, and so does a refusal, which no count states.
+		tier := tierRun
+		if strings.HasPrefix(r.Action, "refused") {
+			tier = tierLoss
+		}
+		reportDestination(pr, tier, r.WouldChange,
+			"  [cyan]%-20s[/cyan] %s  [dim]%s[/dim]", r.Surface, r.Action, r.Path)
 	}
 	if write {
 		if err := man.Save(manPath); err != nil {

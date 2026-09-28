@@ -31,18 +31,18 @@ import (
 // one thing a test of the verdict must not do.
 func applyVerdictLine(t *testing.T, report string) string {
 	t.Helper()
+	// The verdict is the LAST unindented line that is not the dry run's footer (an --assert has
+	// no footer: the verdict ends its report) and not the header.
 	lines := strings.Split(strings.TrimRight(report, "\n"), "\n")
 	for i := len(lines) - 1; i >= 0; i-- {
-		if !strings.HasPrefix(lines[i], "assert —") && !strings.HasPrefix(lines[i], "dry run —") {
+		l := lines[i]
+		if l == "" || strings.HasPrefix(l, " ") || strings.HasPrefix(l, "dry run —") ||
+			strings.HasPrefix(l, "host apply —") || strings.HasPrefix(l, "yolo-jail ") {
 			continue
 		}
-		for j := i - 1; j >= 0; j-- {
-			if !strings.HasPrefix(lines[j], " ") {
-				return lines[j]
-			}
-		}
+		return l
 	}
-	t.Fatalf("the report has no posture footer, so it printed no verdict block at all:\n%s", report)
+	t.Fatalf("the report printed no verdict block at all:\n%s", report)
 	return ""
 }
 

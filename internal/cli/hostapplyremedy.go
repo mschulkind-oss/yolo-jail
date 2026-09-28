@@ -99,7 +99,7 @@ func hostApplyRemedyGroups(s *hostApplySurvey, home string, write bool) []remedy
 	}
 	var out []remedyGroup
 	out = append(out, unresolvedPackGroups(s.UnresolvedPacks())...)
-	out = append(out, failureGroups(s, home)...)
+	out = append(out, failureGroups(s, home, write)...)
 	out = append(out, missingDepGroups(s)...)
 	if g, ok := droppedEntryGroup(s, home, write); ok {
 		out = append(out, g)

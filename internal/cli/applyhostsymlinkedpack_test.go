@@ -93,6 +93,9 @@ func TestApplyHostConvergesOverASymlinkedPack(t *testing.T) {
 	}
 	first := linkAwareHashes(t, home)
 
+	// Under --verbose: an unchanged destination's own line is detail (report-tiers.md, tier 2),
+	// and the assertion below is about that line's word.
+	t.Setenv("YOLO_VERBOSE", "1")
 	rc, report = applyWith(t, true, nil)
 	if rc != 0 {
 		t.Fatalf("second apply rc=%d\n%s", rc, report)

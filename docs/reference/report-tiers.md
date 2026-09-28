@@ -126,8 +126,8 @@ is numbered last so the existing P1–P6 citations keep resolving, not because i
 
 | Tier | Definition | Default rendering | `--verbose` adds |
 | :--- | :--- | :--- | :--- |
-| **1 — Notch facts** | True of this notch regardless of the home: which kinds do not apply here, the autonomy posture | one line per run, naming the kinds and the posture in [the vocabulary](#the-report-vocabulary)'s words | which pack declared each — a fact. Never the reasoning; that is the manual's (P8) |
-| **2 — Run facts** | Vary with the home but need no action: in-sync, skipped and unchanged surfaces, composed-from, inferred destinations, would-render surfaces, and a declared dependency that is **present** | counted in the verdict; a `would render` config surface is itemized | every destination, and the per-entry lines |
+| **1 — Notch facts** | True of this notch regardless of the home: which kinds do not apply here, an inert `packages:`, the autonomy posture | **one line per run**, naming the kinds, `packages` when it is inert, and the posture in [the vocabulary](#the-report-vocabulary)'s words (`printNotchFacts`) | the full lines: the kinds with the `yolo config-ref` pointer, `describe`'s own `packages` line, and where the posture folded. Never the reasoning; that is the manual's (P8) |
+| **2 — Run facts** | Vary with the home but need no action: in-sync, skipped and unchanged surfaces, delivered files and wrappers, composed-from, inferred destinations, would-render surfaces, a reserved skills tree already reported, and a declared dependency that is **present** | counted in the verdict; a destination that changes is itemized, of every kind | every destination, and the per-entry lines |
 | **3 — Losses and blockers** | Two members, one treatment. A **loss**: something of the user's is replaced, dropped, moved or archived. A **blocker**: something stands between this home and a completed apply — a missing declared dependency, a refusal, a pack that failed to render | always itemized, grouped by remedy, each group carrying its remedy once, and every group represented in the verdict line | the per-destination expansion of each group |
 | **4 — Disclosures** (launch only) | Host access this launch has: pack read/exec claims, the cache alias, passthrough, the loopback verdict | always, unchanged, never grouped or compressed | nothing — there is no more to say |
 
@@ -213,10 +213,11 @@ Each count is chosen by P6 — the unit the reader cares about, not the loop cou
 | declared dependencies present, missing, not probed | binaries | `resolveHostDeps` |
 | first apply into this home | flag | `HostRenderResult.FirstApply` |
 
-The footer states the **posture**, never this run's action: the verdict has already said what
-happened, and an `--assert` over a settled home writes nothing, so a footer claiming a write would
-contradict the sentence above it. The dry run's footer also names `--verbose`, because the default
-view counts what it does not itemize and the reader has to be told the word that produces it.
+**Only the dry run has a footer.** It states the posture — nothing was written — and names
+`--verbose`, because the default view counts what it does not itemize and the reader has to be told
+the word that produces it. An `--assert` has none: its header already says *applying into
+&lt;home&gt;*, the verdict says what happened, and the line it used to end on ("Without --assert it
+is a dry run") explained the flag the reader had just typed.
 
 ## The remedy contract
 

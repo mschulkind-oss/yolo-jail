@@ -378,8 +378,9 @@ func applyHostSurveyed(out, errw io.Writer, color bool, write bool, stdin io.Rea
 	// is a fact about the NOTCH and the CONFIG rather than about any destination below — the
 	// one thing in this report that does not depend on which packs are selected — and because
 	// every refusal further down returns before the render loop, where a reader who asked
-	// "where do my tools come from here?" would never reach it.
-	reportHostPackages(pr, errw, home)
+	// "where do my tools come from here?" would never reach it. Inert, it is folded into the
+	// one tier-1 line below instead (reportHostPackages).
+	inertPackages := reportHostPackages(pr, errw, home)
 
 	hostFields := render.HostFields()
 	rc := 0
@@ -632,6 +633,7 @@ func applyHostSurveyed(out, errw io.Writer, color bool, write bool, stdin io.Rea
 	// Before the loop, so "folded into the config surfaces below" is a true word about what
 	// comes next, and so a reader meets the notch before they meet this home.
 	notch := surveyNotchFacts(loaded, hostFields, overlays)
+	notch.InertPackages = inertPackages
 	survey.noteNotch(notch)
 	printNotchFacts(pr, notch)
 
@@ -955,18 +957,29 @@ func applyHostSurveyed(out, errw io.Writer, color bool, write bool, stdin io.Rea
 // ⚠ WHAT THIS DOES NOT CLAIM. This command reports; it provisions nothing. `packages:` is
 // delivered by a baked image or by the boot-written farm at /run/yolo/packages, and the host
 // notch has neither (§6.4).
-func reportHostPackages(pr richtext.Printer, errw io.Writer, home string) {
+//
+// COMPRESSED BY DEFAULT WHEN INERT (report-tiers.md's tier 1). An inert `packages:` is a fact
+// about the notch — the same sentence every run — so outside --verbose it is not printed here and
+// its count is returned instead, for the one tier-1 line (printNotchFacts) to name. A RESOLVED
+// profile is a fact about this machine, with a path the user needs, and still prints.
+func reportHostPackages(pr richtext.Printer, errw io.Writer, home string) (inert int) {
 	cfg, err := config.LoadConfig("", false, func(string) {})
 	if err != nil {
 		// Named, not swallowed: a report that cannot read the config is exactly the silence
 		// this function exists to end, and the apply itself is unaffected — it resolved its
 		// packs from the same config through its own load.
 		fmt.Fprintf(errw, "yolo host apply: cannot read `packages:` for this report: %v\n", err)
-		return
+		return 0
 	}
-	printPackageProfile(pr, render.ProfileFor(render.KindHost),
-		config.EffectivePackages(cfg, runtime.GOOS), darwinpkg.ProfileRootLink(home),
-		jailcontent.MechanismHasNoContainer(resolvedMechanism(cfg)))
+	prof := render.ProfileFor(render.KindHost)
+	packages := config.EffectivePackages(cfg, runtime.GOOS)
+	root := darwinpkg.ProfileRootLink(home)
+	materializes := jailcontent.MechanismHasNoContainer(resolvedMechanism(cfg))
+	if !reportVerbose() && packageProfileInert(prof, packages, root, materializes) {
+		return len(packages)
+	}
+	printPackageProfile(pr, prof, packages, root, materializes)
+	return 0
 }
 
 // confirmHostLosses gates a WRITING host apply on an explicit confirmation when it would

@@ -310,14 +310,16 @@ func TestHostApplyVerdictPrintsOnAllFourPaths(t *testing.T) {
 					"containing %q (the verdict block, P7 — the reader never computes the outcome)\n%s",
 					tc.want, report)
 			}
-			// The POSTURE FOOTER, on every path too: the default view's last line, and the only thing
-			// that tells a reader of a dry run that nothing happened.
-			footer := "dry run — nothing was written"
-			if tc.write {
-				footer = "assert — this posture writes into"
+			// The DRY RUN'S FOOTER, on every path too: the only thing that tells its reader that
+			// nothing happened. An --assert has none — the reader typed the flag, and the verdict
+			// is its last line.
+			const footer = "dry run — nothing was written"
+			if got := strings.Contains(report, footer); got == tc.write {
+				t.Errorf("footer present=%v under write=%v, want the dry run's footer on the dry "+
+					"run only\n%s", got, tc.write, report)
 			}
-			if !strings.Contains(report, footer) {
-				t.Errorf("want the posture footer %q\n%s", footer, report)
+			if tc.write && strings.Contains(report, "Without --assert it is a dry run") {
+				t.Errorf("an --assert explained the flag it was given:\n%s", report)
 			}
 		})
 	}

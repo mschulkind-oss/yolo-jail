@@ -166,7 +166,7 @@ func applyHostWrappers(pr richtext.Printer, errw io.Writer, home string, packs [
 			return 1
 		}
 		noteWrapperPlan(survey, dir, plan)
-		pr.Printf("  [cyan]%-20s[/cyan] %s  [dim]%s[/dim]",
+		reportDestination(pr, tierRun, plan.Changed(), "  [cyan]%-20s[/cyan] %s  [dim]%s[/dim]",
 			"host_wrappers", describeWrapperPlan(plan, false), dir)
 		return 0
 	}
@@ -176,7 +176,8 @@ func applyHostWrappers(pr richtext.Printer, errw io.Writer, home string, packs [
 		return 1
 	}
 	noteWrapperPlan(survey, dir, plan)
-	pr.Printf("  [cyan]%-20s[/cyan] %s  [dim]%s[/dim]",
+	// Unchanged wrappers are detail, as any settled destination is (report-tiers.md, tier 2).
+	reportDestination(pr, tierRun, plan.Changed(), "  [cyan]%-20s[/cyan] %s  [dim]%s[/dim]",
 		"host_wrappers", describeWrapperPlan(plan, true), dir)
 	if plan.Changed() {
 		// The completion notice: "I just wrote these; here is what makes them take

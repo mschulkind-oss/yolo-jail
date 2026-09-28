@@ -101,7 +101,8 @@ func notchKindLines(report string) []string {
 	var out []string
 	for _, l := range strings.Split(report, "\n") {
 		if strings.Contains(l, "do not apply at the host notch") ||
-			strings.Contains(l, "does not apply at the host notch") {
+			strings.Contains(l, "does not apply at the host notch") ||
+			strings.Contains(l, "does not apply at the host:") {
 			out = append(out, l)
 		}
 	}
@@ -162,6 +163,7 @@ func inapplicableKindsInConfig(t *testing.T) (kinds []packdecl.Kind, contributio
 // changes is the second clause.
 func TestHostApplyAutonomyLineDoesNotPromiseAnAbsentFold(t *testing.T) {
 	home := t.TempDir()
+	t.Setenv("YOLO_VERBOSE", "1") // where the fold goes is the --verbose line's (printNotchFacts)
 	selectPacks(t, home, `"copilot"`)
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
@@ -193,10 +195,39 @@ func TestHostApplyAutonomyLineDoesNotPromiseAnAbsentFold(t *testing.T) {
 // DOES patch a surface still says where the patch landed.
 func TestHostApplyAutonomyLineNamesTheFoldWhenThereIsOne(t *testing.T) {
 	shippedPacksFixture(t)
+	t.Setenv("YOLO_VERBOSE", "1") // where the fold goes is the --verbose line's (printNotchFacts)
 	_, report := surveyApply(t)
 
 	if !strings.Contains(report, "folded into the config surfaces below") {
 		t.Errorf("claude, codex, agy, opencode and pi all patch a settings key in their guarded "+
 			"posture, so the fold is real and the line must say where it went:\n%s", report)
+	}
+}
+
+// THE DEFAULT VIEW'S TIER-1 FACTS ARE ONE LINE — the kinds, inert `packages:`, the posture — and
+// the rationale pointer and the fold clause are --verbose's. The maintainer's report opened with
+// three lines of this above every apply.
+func TestHostApplyTierOneFactsAreOneLineByDefault(t *testing.T) {
+	shippedPacksFixture(t)
+	_, report := surveyApply(t)
+	lines := notchKindLines(report)
+	if len(lines) != 1 || !strings.Contains(lines[0], "guarded posture") {
+		t.Fatalf("want one line naming the kinds and the posture, got %q:\n%s", lines, report)
+	}
+	if n := strings.Count(report, "guarded posture"); n != 1 {
+		t.Errorf("the posture is stated %d times:\n%s", n, report)
+	}
+	for _, verboseOnly := range []string{"`yolo config-ref` says why", "folded into the config surfaces below",
+		"inert at this notch"} {
+		if strings.Contains(report, verboseOnly) {
+			t.Errorf("the default view prints %q, which is --verbose's:\n%s", verboseOnly, report)
+		}
+	}
+	t.Setenv("YOLO_VERBOSE", "1")
+	_, verbose := surveyApply(t)
+	for _, want := range []string{"`yolo config-ref` says why", "folded into the config surfaces below"} {
+		if !strings.Contains(verbose, want) {
+			t.Errorf("--verbose lost %q:\n%s", want, verbose)
+		}
 	}
 }

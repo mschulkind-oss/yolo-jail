@@ -242,6 +242,10 @@ apply it, and the launch says that too. See
   pointed at `claude plugin list`, which does not show that folder. It now says in one line that
   it holds the skills Claude Code syncs from your claude.ai account and that yolo leaves it alone,
   and only when the folder is new or has changed.
+- `yolo host apply` listed every file it left unchanged, spent three lines on settings that never
+  apply on your own machine, and ended an `--assert` by explaining what `--assert` means. It now
+  lists only what changed, what failed and what it replaced; puts the settings that do not apply
+  on one line; and ends on its verdict. `--verbose` still lists everything.
 
 ### Security
 

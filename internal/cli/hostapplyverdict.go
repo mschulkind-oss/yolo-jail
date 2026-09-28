@@ -55,11 +55,10 @@ func printHostApplyVerdict(pr richtext.Printer, s *hostApplySurvey, write bool) 
 		pr.Printf("  [dim]%s[/dim]", line)
 	}
 	if write {
-		// The footer states the POSTURE, never this run's action: the verdict above has
-		// already said what happened, and an --assert over a settled home writes nothing,
-		// so a footer claiming a write would contradict the sentence it sits under.
-		pr.Printf("[dim]assert — this posture writes into %s. Without --assert it is a dry "+
-			"run.[/dim]", home)
+		// NO FOOTER UNDER --assert. The reader typed the flag, the header already says
+		// "applying into <home>", and the verdict says what happened; a line explaining what
+		// the flag they just typed means ("Without --assert it is a dry run") was the one line
+		// in the maintainer's report that told them nothing at all.
 		return
 	}
 	// The footer names the DETAIL FLAG as well as the writing posture (the default view): the

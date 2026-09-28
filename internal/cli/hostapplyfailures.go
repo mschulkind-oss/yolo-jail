@@ -107,15 +107,19 @@ func failurePacks(failures []hostFailure) []string {
 // failureGroups is the failure half of the remedy contract: one group per failure, BLOCKERS,
 // each stated once with its fix. A broken link's fix is the link's; a render failure's is
 // whatever the error names, which only the error can say.
-func failureGroups(s *hostApplySurvey, home string) []remedyGroup {
+func failureGroups(s *hostApplySurvey, home string, write bool) []remedyGroup {
 	var out []remedyGroup
+	notWritten := "cannot be written"
+	if write {
+		notWritten = "not written"
+	}
 	for _, f := range s.Failures() {
 		if f.Link != nil {
 			out = append(out, remedyGroup{
 				Class: remedyClassBrokenLink,
 				Key:   f.Link.Link,
-				Headline: fmt.Sprintf("not written: %s is a symlink to %s, whose directory does "+
-					"not exist", prettyHomePath(home, f.Link.Link), prettyHomePath(home, f.Link.Target)),
+				Headline: fmt.Sprintf("%s: %s is a symlink to %s, whose directory does not exist",
+					notWritten, prettyHomePath(home, f.Link.Link), prettyHomePath(home, f.Link.Target)),
 				Remedy: fmt.Sprintf("rm %s   (or recreate %s), then `yolo host apply --assert`",
 					prettyHomePath(home, f.Link.Link),
 					prettyHomePath(home, filepath.Dir(f.Link.Target))),
@@ -273,7 +277,7 @@ func splitLaunchFailures(s *hostApplySurvey, bin string) (related, unrelated []h
 // groups the apply's own report states them in, so a launch and `yolo host apply` say one thing.
 func reportLaunchFailures(errw io.Writer, home string, failures []hostFailure) {
 	s := &hostApplySurvey{failures: failures}
-	for _, g := range failureGroups(s, home) {
+	for _, g := range failureGroups(s, home, true) {
 		fmt.Fprintf(errw, "  ✗ %s\n", g.Headline)
 		if g.Remedy != "" {
 			fmt.Fprintf(errw, "    → %s\n", g.Remedy)

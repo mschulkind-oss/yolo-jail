@@ -75,6 +75,7 @@ func TestHostApplyAssertWritesAGuardedPostureList(t *testing.T) {
 // set printed "no selected pack's guarded posture patches a config surface here" above a
 // surface that was about to receive the posture's entry.
 func TestHostApplyNotchLineCountsAPostureListAsAFold(t *testing.T) {
+	t.Setenv("YOLO_VERBOSE", "1") // the fold clause is the --verbose line's (printNotchFacts)
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
@@ -106,6 +107,7 @@ func TestHostApplyNotchLineCountsAPostureListAsAFold(t *testing.T) {
 // and no surface is listed below. Counting the declaration rather than the placement printed
 // "folded into the config surfaces below" directly under that orphan line.
 func TestHostApplyNotchLineDoesNotCountAnOrphanedPostureList(t *testing.T) {
+	t.Setenv("YOLO_VERBOSE", "1") // the fold clause is the --verbose line's (printNotchFacts)
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))

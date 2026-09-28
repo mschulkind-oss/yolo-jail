@@ -196,6 +196,16 @@ func printConfinementVector(pr richtext.Printer, prof render.Profile) {
 // exist below jail, and one `yolo apply` does not perform at ANY notch. `check` corrected the
 // same cell for itself (check/section_packageprofile.go's `materializes`), and both follow
 // report-tiers.md P2: a loss with no remedy says so rather than borrowing one it cannot cash.
+// packageProfileInert is whether printPackageProfile would print the INERT line: packages are
+// declared, this notch bakes none, no profile is resolved, and nothing here would materialize one.
+func packageProfileInert(prof render.Profile, packages []any, rootLink string, materializes bool) bool {
+	if prof.Has(render.PrimBakedImage) || len(packages) == 0 || materializes {
+		return false
+	}
+	_, err := os.Readlink(rootLink)
+	return err != nil
+}
+
 func printPackageProfile(pr richtext.Printer, prof render.Profile, packages []any, rootLink string, materializes bool) {
 	if prof.Has(render.PrimBakedImage) || len(packages) == 0 {
 		return
