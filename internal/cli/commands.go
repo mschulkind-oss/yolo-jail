@@ -42,7 +42,7 @@ password. macOS only: on any other platform it refuses.
 Examples:
   yolo macos-setup                    # create the sandbox account (idempotent)
 
-See ` + "`yolo config-ref`" + ` for the ` + "`backend`" + ` key, and ` + "`yolo macos-teardown`" + ` to remove
+See ` + "`yolo config-ref`" + ` for the ` + "`runtime`" + ` key, and ` + "`yolo macos-teardown`" + ` to remove
 the account again.`
 
 const macosTeardownUsage = `Usage: yolo macos-teardown

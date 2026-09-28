@@ -312,6 +312,8 @@ apply it, and the launch says that too. See
 - On a Mac with Apple Container, `yolo check` warned `No OCI conversion tool for Apple Container`
   and suggested installing skopeo, which yolo never uses: it builds its own image copier. The
   warning is gone.
+- `yolo macos-setup --help` pointed you to a `backend` config key that does not exist. It now
+  names `runtime`, the key that selects the macos-user backend.
 
 ### Security
 

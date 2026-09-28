@@ -17,6 +17,7 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -103,6 +104,41 @@ func TestSubcommandUsageHasNoStaleEntries(t *testing.T) {
 			t.Errorf("subcommandUsage registers help for %q, which is not a dispatch "+
 				"registry key", name)
 		}
+	}
+}
+
+// usageKeyRef matches a help text naming a config key as "the `<name>` key".
+var usageKeyRef = regexp.MustCompile("`([a-z][a-z0-9_.]*)` key\\b")
+
+// TestUsageNamesOnlyDocumentedConfigKeys: a `--help` that sends the reader to
+// `yolo config-ref` for "the `X` key" must name a key config-ref documents.
+// `yolo macos-setup --help` said "the `backend` key" when the key is `runtime`,
+// so a user following it found nothing. It walks subcommandUsage, the table
+// TestEveryRegisteredCommandAnswersHelp proves `--help` prints, so it reads the
+// text a user actually sees.
+func TestUsageNamesOnlyDocumentedConfigKeys(t *testing.T) {
+	titles := configRefSectionTitles(t)
+	documented := func(key string) bool {
+		for _, title := range titles {
+			if title == key || strings.HasPrefix(title, key+".") {
+				return true
+			}
+		}
+		return false
+	}
+	found := 0
+	for _, name := range slices.Sorted(maps.Keys(subcommandUsage)) {
+		for _, m := range usageKeyRef.FindAllStringSubmatch(subcommandUsage[name].text, -1) {
+			found++
+			if !documented(m[1]) {
+				t.Errorf("`yolo %s --help` names the `%s` key, which `yolo config-ref` "+
+					"has no section for", name, m[1])
+			}
+		}
+	}
+	if found == 0 {
+		t.Fatal("no help text names a config key; the pattern has lost its subject " +
+			"and this test is vacuous")
 	}
 }
 
