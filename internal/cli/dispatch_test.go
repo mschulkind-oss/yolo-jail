@@ -69,11 +69,14 @@ func TestIsNative(t *testing.T) {
 // `--profile check` were the same trap waiting.
 func TestAFlagValueIsNotASubcommand(t *testing.T) {
 	cases := map[string]string{
-		"-p dev":          "run", // global -p: the name is a profile, not a verb
-		"-p host":         "run", // the value spells a registry key on purpose
-		"--profile check": "run",
-		"-p dev -- bash":  "dispatch:run", // the --→run rewrite, with the value skipped
-		"chekc":           "unknown",      // a real typo'd subcommand still errors
+		"-p dev":                         "run", // global -p: the name is a profile, not a verb
+		"-p host":                        "run", // the value spells a registry key on purpose
+		"--profile check":                "run",
+		"-p dev -- bash":                 "dispatch:run", // the --→run rewrite, with the value skipped
+		"-p codex host -- claude":        "dispatch:host",
+		"--profile=codex host -- claude": "dispatch:host",
+		"--network host -- bash":         "dispatch:run", // host is a network value, not a verb
+		"chekc":                          "unknown",      // a real typo'd subcommand still errors
 	}
 	for in, want := range cases {
 		if got := routeDecision(strings.Fields(in)); got != want {

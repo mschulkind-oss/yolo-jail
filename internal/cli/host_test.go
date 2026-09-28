@@ -81,6 +81,48 @@ func shippedClaudeDeriveLua(t *testing.T) string {
 	return ""
 }
 
+// A profile before the host verb belongs to the same exec as one after it.
+// Values spelling a subcommand remain values, never the verb to remove.
+func TestHostArgumentsAcceptLeadingProfile(t *testing.T) {
+	for _, tc := range []struct {
+		in, want []string
+		profile  string
+	}{
+		{[]string{"host", "-p", "codex", "--", "claude"}, []string{"-p", "codex", "--", "claude"}, "codex"},
+		{[]string{"-p", "codex", "host", "--", "claude"}, []string{"-p", "codex", "--", "claude"}, "codex"},
+		{[]string{"--profile=codex", "host", "--", "claude"}, []string{"--profile=codex", "--", "claude"}, "codex"},
+		{[]string{"-p", "host", "host", "--", "claude"}, []string{"-p", "host", "--", "claude"}, "host"},
+	} {
+		got := hostArguments(tc.in)
+		if strings.Join(got, "\x00") != strings.Join(tc.want, "\x00") {
+			t.Errorf("hostArguments(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+		var errw bytes.Buffer
+		flags, ok := parseHostExecFlags(got[:indexOf(got, "--")], &errw)
+		if !ok || flags.profile != tc.profile {
+			t.Errorf("host flags for %q: %+v, %v: %s", tc.in, flags, ok, errw.String())
+		}
+	}
+}
+
+// Drive the public dispatcher: testing hostArguments alone would miss runHost
+// passing the original argv to hostMain after resolving a leading profile.
+func TestLeadingProfileReachesHostExec(t *testing.T) {
+	const helper = "YOLO_TEST_LEADING_HOST_PROFILE"
+	if os.Getenv(helper) == "1" {
+		os.Exit(Main([]string{"yolo", "-p", "codex", "host", "--"}))
+	}
+	cmd := exec.Command(os.Args[0], "-test.run=^TestLeadingProfileReachesHostExec$")
+	cmd.Env = append(os.Environ(), helper+"=1")
+	output, err := cmd.CombinedOutput()
+	if exit, ok := err.(*exec.ExitError); !ok || exit.ExitCode() != 2 {
+		t.Fatalf("exit = %v, want 2; output: %s", err, output)
+	}
+	if !strings.Contains(string(output), "nothing to run") {
+		t.Errorf("leading -p did not reach host exec: %s", output)
+	}
+}
+
 func TestHostMainAnswersHelpAndRejectsUnknownVerb(t *testing.T) {
 	var out, errw bytes.Buffer
 	if rc := hostMain(nil, &out, &errw, false, nil); rc != 0 {

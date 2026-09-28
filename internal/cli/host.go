@@ -128,6 +128,7 @@ env flags:
 Examples:
   yolo host -- claude                 # bare claude, with the composed environment
   yolo host -p bedrock -- claude      # ... on the bedrock profile, this launch only
+  yolo -p bedrock host -- claude      # the same launch, with -p before host
   yolo host -p zai -- curl ...        # any command, handed zai's claimed key
   yolo host --with-credentials all -- usage-bar   # every provider's key, keys only
   yolo host -p bedrock --with-credentials zai -- claude   # bedrock, plus zai's key
@@ -141,11 +142,25 @@ Examples:
 
 // runHost is the `yolo host` entry point.
 func runHost(args []string) int {
-	rest := args
-	if len(rest) > 0 {
-		rest = rest[1:] // drop the "host" token
+	return hostMain(hostArguments(args), os.Stdout, os.Stderr, colorForWriter(os.Stdout), os.Stdin)
+}
+
+// hostArguments removes the host verb wherever dispatch found it, leaving launch flags
+// in their original order. Flag values (including a profile named "host") are not verbs.
+func hostArguments(args []string) []string {
+	for i := 0; i < len(args); i++ {
+		if args[i] == "--" {
+			break
+		}
+		if valueTakingFlags[args[i]] {
+			i++
+			continue
+		}
+		if args[i] == "host" {
+			return append(append([]string{}, args[:i]...), args[i+1:]...)
+		}
 	}
-	return hostMain(rest, os.Stdout, os.Stderr, colorForWriter(os.Stdout), os.Stdin)
+	return args
 }
 
 // hostMain dispatches `yolo host`.
