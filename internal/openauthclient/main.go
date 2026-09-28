@@ -103,7 +103,9 @@ func Run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 	if err != nil {
 		fmt.Fprintln(stderr, "openai-auth-client:", err)
 		var remote *RemoteExitError
-		if errors.As(err, &remote) && remote.Code > 0 && remote.Code <= 125 {
+		// ExitPiAuthLockBusy is this client's own verdict about pi's lock, so a service that
+		// exits with the same number is folded to 1 rather than read as one.
+		if errors.As(err, &remote) && remote.Code > 0 && remote.Code <= 125 && remote.Code != ExitPiAuthLockBusy {
 			return remote.Code
 		}
 		return 1
@@ -120,6 +122,10 @@ func Run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 	} else if piAuth != "" {
 		if err := WritePiAuth(piAuth, response); err != nil {
 			fmt.Fprintln(stderr, "openai-auth-client:", err)
+			var busy *PiAuthLockBusyError
+			if errors.As(err, &busy) {
+				return ExitPiAuthLockBusy
+			}
 			return 1
 		}
 		response, _ = json.Marshal(map[string]any{"auth_path": piAuth})

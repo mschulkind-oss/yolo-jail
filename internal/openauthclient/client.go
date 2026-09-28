@@ -23,6 +23,14 @@ const (
 	dialTimeout   = 5 * time.Second
 )
 
+// ExitPiAuthLockBusy is the client's exit status when --pi-auth could not write pi's auth.json
+// because a running pi held auth.json.lock past pi's own stale window (PiAuthLockBusyError).
+// That is not a missing login: pi holds the lock while it refreshes its own token, so the
+// launcher (agentAuthPrelaunchShellFn in internal/entrypoint, which spells the number
+// literally) leaves the existing file in place and starts pi instead of a browser login.
+// 75 is EX_TEMPFAIL from sysexits.h. No other failure of this command may exit with it.
+const ExitPiAuthLockBusy = 75
+
 // RemoteExitError reports a nonzero exit frame from the host service. Any
 // diagnostic frames have already been copied to the caller's stderr writer.
 type RemoteExitError struct{ Code int }

@@ -89,6 +89,22 @@ type piLockRule struct {
 // then reclaimed before yolo gives up.
 var piAuthLockRule = piLockRule{stale: 30 * time.Second, wait: 32 * time.Second}
 
+// PiAuthLockBusyError is WritePiAuth's failure when a running pi still held auth.json.lock at
+// the end of the wait. It is its own type so the client can tell it from a missing login and
+// exit ExitPiAuthLockBusy: pi holds that lock while it refreshes its own token.
+type PiAuthLockBusyError struct {
+	LockPath     string
+	SinceRefresh time.Duration
+	Rule         piLockRule
+}
+
+func (e *PiAuthLockBusyError) Error() string {
+	return fmt.Sprintf("lock Pi auth.json: %s is held by a running pi (last refreshed %s ago); "+
+		"gave up after %s, since pi counts a lock as abandoned only after %s without a refresh. "+
+		"Let pi finish and try again",
+		e.LockPath, e.SinceRefresh.Round(time.Second), e.Rule.wait, e.Rule.stale)
+}
+
 func acquirePiAuthLock(authPath string, rule piLockRule) (func(), error) {
 	lockPath := authPath + ".lock"
 	release := func() { _ = os.Remove(lockPath) }
@@ -128,10 +144,7 @@ func acquirePiAuthLock(authPath string, rule piLockRule) (func(), error) {
 		}
 		remaining := time.Until(deadline)
 		if remaining <= 0 {
-			return nil, fmt.Errorf("lock Pi auth.json: %s is held by a running pi (last refreshed %s ago); "+
-				"gave up after %s, since pi counts a lock as abandoned only after %s without a refresh. "+
-				"Let pi finish and try again",
-				lockPath, sinceRefresh.Round(time.Second), rule.wait, rule.stale)
+			return nil, &PiAuthLockBusyError{LockPath: lockPath, SinceRefresh: sinceRefresh, Rule: rule}
 		}
 		time.Sleep(min(delay, remaining))
 		delay = min(2*delay, 500*time.Millisecond)
