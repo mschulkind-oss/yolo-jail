@@ -21,11 +21,14 @@ package entrypoint
 // there. Running it after the bootstrap would instead catalog a set the same boot had just
 // re-installed, which answers nothing.
 //
-// IT IS NOT WIRED INTO RunDarwinBootstrap, and that is a fact about the backend rather than
-// an omission. macos-user stages no pack tree to compare against, so the declared-set input
-// this needs would read as empty there — and an empty declared set turns a catalog into a
-// boot that calls every installed package an orphan. A backend that cannot state what it
-// declared must not be asked what is undeclared.
+// IT RUNS ON BOTH BOOTS, from the boot step table (bootsteps.go). It used to be left out of
+// the macos-user bootstrap on the premise that that backend stages no pack tree to compare
+// against, so the declared-set input would read as empty there — and an empty declared set
+// turns a catalog into a boot that calls every installed package an orphan. The premise
+// stopped being true: macos-user stages a pack tree and names it with YOLO_PACK_ROOT, and its
+// install prefixes are per-workspace since the home-tier layout. The rule under it still
+// holds, and the YOLO_PACK_ROOT gate on InstalledOrphans is what keeps it: a boot that cannot
+// state what it declared is not asked what is undeclared.
 //
 // NO LSP RECIPE DECLARES ANYTHING ANY MORE. The three-entry table that mapped `lsp_servers`
 // names to packages (and the ~/.yolo-installed-lsps sentinel recording what it installed) is

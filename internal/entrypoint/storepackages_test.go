@@ -345,77 +345,58 @@ func TestImageProbePathCountsStoreDeliveredPackages(t *testing.T) {
 // TestStorePackagesGenStepRunsBeforeItsTwoConsumers is the CALL-SITE test, and it pins the
 // two orderings the boot depends on rather than the presence of a line.
 //
-// Main() cannot be called from a test (it ends in execBash, which replaces the process),
-// so the call site is pinned by reading the source — the same technique launcherdir_test.go
-// and bootlog_test.go use. Both relations are real and both fail silently:
+// Main() cannot be called from a test (it ends in execBash, which replaces the process), so
+// the call site is the boot step table (bootsteps.go) that Main runs. Both relations are real
+// and both fail silently:
 //
 //   - generate_ld_cache scans the farm's lib dir, so a cache built first omits every
 //     store-delivered library and `ldconfig -p` disagrees with what is loadable;
 //   - generate_agent_launchers asks imageProbePath, which answers by stat'ing files, so a
 //     launcher written before the farm exists shadows a declared tool.
+//
+// And generateLdCache must be handed the farm's lib dir, read off the table's source, or the
+// extra-dir parameter is dead and the cache silently omits the farm.
 func TestStorePackagesGenStepRunsBeforeItsTwoConsumers(t *testing.T) {
-	path := filepath.Join(repoRoot(t), "internal", "entrypoint", "boot.go")
+	if !isGen(mustBootStep(t, "generate_store_packages"), GenerateStorePackages) {
+		t.Fatal("generate_store_packages no longer runs GenerateStorePackages — the farm is " +
+			"never built, so an opt-in launch boots a jail with neither the baked " +
+			"packages nor the staged ones, and every other test in this file passes")
+	}
+	for _, consumer := range []string{"generate_ld_cache", "generate_agent_launchers"} {
+		assertStepBefore(t, bootContainer, "generate_store_packages", consumer,
+			consumer+" reads the farm, and reading it before it exists fails silently")
+	}
+
+	path := filepath.Join(repoRoot(t), "internal", "entrypoint", "bootsteps.go")
 	fset := token.NewFileSet()
 	file, err := parser.ParseFile(fset, path, nil, 0)
 	if err != nil {
-		t.Fatalf("parse boot.go: %v", err)
+		t.Fatalf("parse bootsteps.go: %v", err)
 	}
-
-	pos := map[string]int{}
+	var calls int
 	ast.Inspect(file, func(n ast.Node) bool {
 		call, ok := n.(*ast.CallExpr)
 		if !ok {
 			return true
 		}
-		switch fn := call.Fun.(type) {
-		case *ast.Ident:
-			if fn.Name == "genStep" && len(call.Args) >= 2 {
-				lit, ok := call.Args[1].(*ast.BasicLit)
-				if ok && lit.Kind == token.STRING {
-					name := strings.Trim(lit.Value, `"`)
-					if _, seen := pos[name]; !seen {
-						pos[name] = fset.Position(call.Pos()).Offset
-					}
-				}
-			}
-			if fn.Name == "generateLdCache" {
-				if _, seen := pos["generateLdCache"]; !seen {
-					pos["generateLdCache"] = fset.Position(call.Pos()).Offset
-					// The farm's lib dir must be what it is handed, or the extra-dir
-					// parameter is dead and the cache silently omits the farm. The Env
-					// became the first argument when the ldconfig run learned to report
-					// its own timeout, so the extra dir is the LAST one.
-					if len(call.Args) != 2 {
-						t.Errorf("generateLdCache is called with %d args, want 2 "+
-							"(the Env, then StorePackagesLib()) — without the extra dir "+
-							"the cache omits every store-delivered library", len(call.Args))
-					} else if !namesCallTo(call.Args[1], "StorePackagesLib") {
-						t.Error("generateLdCache's last argument is no longer " +
-							"StorePackagesLib() — without the farm's lib dir the " +
-							"ld.so.cache omits every store-delivered library")
-					}
-				}
+		if fn, ok := call.Fun.(*ast.Ident); ok && fn.Name == "generateLdCache" {
+			calls++
+			// The Env became the first argument when the ldconfig run learned to report
+			// its own timeout, so the extra dir is the LAST one.
+			if len(call.Args) != 2 {
+				t.Errorf("generateLdCache is called with %d args, want 2 "+
+					"(the Env, then StorePackagesLib()) — without the extra dir "+
+					"the cache omits every store-delivered library", len(call.Args))
+			} else if !namesCallTo(call.Args[1], "StorePackagesLib") {
+				t.Error("generateLdCache's last argument is no longer " +
+					"StorePackagesLib() — without the farm's lib dir the " +
+					"ld.so.cache omits every store-delivered library")
 			}
 		}
 		return true
 	})
-
-	farm, ok := pos["generate_store_packages"]
-	if !ok {
-		t.Fatal("boot.go has no genStep(\"generate_store_packages\", …) — the farm is " +
-			"never built, so an opt-in launch boots a jail with neither the baked " +
-			"packages nor the staged ones, and every other test in this file passes")
-	}
-	for _, consumer := range []string{"generateLdCache", "generate_agent_launchers"} {
-		at, ok := pos[consumer]
-		if !ok {
-			t.Fatalf("boot.go no longer calls %s — this pin is not pinning anything; "+
-				"fix the test rather than deleting it", consumer)
-		}
-		if farm > at {
-			t.Errorf("generate_store_packages runs AFTER %s. It must run before: %s "+
-				"reads the farm, and reading it before it exists fails silently", consumer, consumer)
-		}
+	if calls != 1 {
+		t.Errorf("the boot step table calls generateLdCache %d times, want once", calls)
 	}
 }
 

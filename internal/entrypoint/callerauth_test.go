@@ -6,10 +6,6 @@ package entrypoint
 // spelling its agent expands.
 
 import (
-	"go/ast"
-	"go/parser"
-	"go/token"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -45,47 +41,19 @@ func TestTheBootLogSaysWhichServicesRequireCallerAuth(t *testing.T) {
 	}
 }
 
-// The call site: Main records the caller-auth line before it starts the supervisor that runs
-// the daemons demanding the token.
-func TestMainRecordsCallerAuthBeforeStartingTheSupervisor(t *testing.T) {
-	fset := token.NewFileSet()
-	file, err := parser.ParseFile(fset, filepath.Join(repoRoot(t), "internal", "entrypoint", "boot.go"), nil, 0)
-	if err != nil {
-		t.Fatal(err)
+// The call site: the container boot records the caller-auth line before it starts the
+// supervisor that runs the daemons demanding the token. The step's own body is run, so a step
+// that stopped calling noteServiceCallerAuth fails here as well as a step that moved.
+func TestTheBootRecordsCallerAuthBeforeStartingTheSupervisor(t *testing.T) {
+	assertStepBefore(t, bootContainer, "note_service_caller_auth", "start_jail_daemon_supervisor",
+		"boot.log would say the bridge requires caller auth only after the daemons demanding it started")
+	if !isGen(mustBootStep(t, "start_jail_daemon_supervisor"), startJailDaemonSupervisor) {
+		t.Error("start_jail_daemon_supervisor no longer runs startJailDaemonSupervisor")
 	}
-	note, supervisor := -1, -1
-	ast.Inspect(file, func(n ast.Node) bool {
-		fn, ok := n.(*ast.FuncDecl)
-		if !ok || fn.Name.Name != "Main" {
-			return true
-		}
-		ast.Inspect(fn.Body, func(n ast.Node) bool {
-			call, ok := n.(*ast.CallExpr)
-			if !ok {
-				return true
-			}
-			id, ok := call.Fun.(*ast.Ident)
-			if !ok {
-				return true
-			}
-			switch {
-			case id.Name == "noteServiceCallerAuth" && note < 0:
-				note = fset.Position(call.Pos()).Offset
-			case id.Name == "genStep" && len(call.Args) >= 2:
-				if lit, ok := call.Args[1].(*ast.BasicLit); ok && lit.Value == `"start_jail_daemon_supervisor"` {
-					supervisor = fset.Position(call.Pos()).Offset
-				}
-			}
-			return true
-		})
-		return false
-	})
-	if note < 0 {
-		t.Fatal("Main never calls noteServiceCallerAuth: boot.log would not say the bridge requires caller auth")
-	}
-	if supervisor < 0 || note > supervisor {
-		t.Errorf("noteServiceCallerAuth (offset %d) must run before start_jail_daemon_supervisor (offset %d)", note, supervisor)
-	}
+	e, _, logOnly := loudEnv(t)
+	e.Vars[bridgeTokenVar] = strings.Repeat("ab", 32)
+	mustBootStep(t, "note_service_caller_auth").run(&bootRun{e: e, target: bootContainer})
+	mustContain(t, "boot.log", logOnly, "wire-bridge requires caller auth")
 }
 
 // The per-surface selection hands a via agent's derive the via service's token variable,

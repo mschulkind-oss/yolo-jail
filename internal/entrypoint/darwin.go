@@ -15,10 +15,10 @@ import (
 //
 // It runs the SAME pure generators the container boot runs — they are already
 // pure functions of *Env (env.go), so pointing Env.Home/Workspace at the
-// sandbox user's real macOS paths makes them correct natively. The Linux-only
-// boot steps (LD cache, cgroup delegation, port forwarding, the daemon
-// supervisor, the container bootstrap/venv/cglimit/journalctl scripts) are
-// deliberately NOT run here — they are no-ops or nonsensical on a native user.
+// sandbox user's real macOS paths makes them correct natively. Which steps this
+// boot runs is the boot step table's answer (bootsteps.go): every container-only
+// step (LD cache, cgroup delegation, port forwarding, the daemon supervisor, the
+// container bootstrap/venv scripts, …) is excluded there by name, with its reason.
 //
 // Behavioral verification of the Mac side (does the sandbox user actually get a
 // working PATH, do the login-rc files win after path_helper) is a Track M / M1
@@ -69,109 +69,20 @@ func DarwinEnvFrom(vars map[string]string, home string) *Env {
 }
 
 // RunDarwinBootstrap generates the sandbox user's jail config natively: the same
-// shims/launchers/bashrc/mise/MCP/identity/per-agent writers the container runs,
-// plus the two macOS-only pieces (yolo-log helper, login-rc PATH re-prepend).
+// shims/launchers/bashrc/mise/identity/per-agent writers the container runs, plus the
+// macOS-only pieces (the home layout and overlay, the provisioning script, the yolo-log
+// helper, the login-rc PATH re-prepend).
 //
-// A12: a generator failure is FATAL here too, and returning it is the whole point
-// — this path is easy to miss (it has its OWN genStep sites and its own
-// configureAgent loop, so an earlier count of the fail-open sites missed it
-// entirely) and its caller used to print "bootstrap ok" unconditionally. The
-// count is deliberately not restated: it moves whenever a generator is added,
-// and the fact that matters is that this list is a SECOND one. Every
-// step still runs, so one invocation reports every problem; see genStep.
+// It runs THE boot step table (bootsteps.go), the one the container entrypoint runs, and
+// each step this boot does not run is an exclusion declared there with its reason. It was a
+// second, hand-kept list, and a step the container gained was missing here unless someone
+// remembered it (docs/plans/notch-convergence.md, row D10).
+//
+// A12: a generator failure is FATAL here too, and returning it is the whole point — its
+// caller used to print "bootstrap ok" unconditionally. Every step still runs, so one
+// invocation reports every problem; see genStep.
 func RunDarwinBootstrap(e *Env, opts DarwinBootstrapOptions) error {
-	// THE HOME LAYOUT, ABOVE EVERY GENERATOR — the workspace tier this backend otherwise
-	// has no way to express (docs/design/macos-user-home-tiers.md, alternative A′).
-	//
-	// ABOVE genStep #1 AND NOT MERELY "BEFORE THE PACK HOOKS", because ~/.yolo/bin is
-	// itself one of the links and GenerateShims writes THROUGH it: a shim generated into
-	// the account home before the link was laid would be a blocker in the wrong tier, and
-	// a link laid over the directory it had just created would refuse (the layout never
-	// removes a real directory — OQ-HT2).
-	//
-	// The packs are loaded HERE rather than at their old position below, because the two
-	// pack-declared tier lists ARE the layout: scope:workspace dirs become the links,
-	// scope:machine dirs become the mirrors the shared_credentials hook's relative link
-	// resolves through. A failure to load them is still reported at its old place, so the
-	// boot log reads in the same order it always has.
-	jailPacks, packErr := LoadJailPacks(e)
-	genStep(e, "darwin_home_layout", func() error { return InstallDarwinHomeLayout(e, jailPacks) })
-	genStep(e, "generate_shims", func() error { return GenerateShims(e) })
-	genStep(e, "generate_agent_launchers", func() error { return GenerateAgentLaunchers(e) })
-	genStep(e, "generate_package_manager_launchers", func() error { return GeneratePackageManagerLaunchers(e) })
-	// LAST of the three launch-dir steps (launchwrapper.go), and on THIS backend it is
-	// also what delivers a pack's launch flags to the prompt at all: the account's login
-	// shell is zsh, which reads none of the bash rc files the aliases are written into
-	// (DP-B43). The launch dir is second on macosuser.SandboxPath and is re-prepended by
-	// WriteLoginRC, so a launcher — installer or wrapper — is on the path a typed name
-	// takes here, and the alias never was.
-	genStep(e, "deliver_launch_flags", func() error { return DeliverLaunchFlags(e) })
-	// Warn about any absent `requires` binary (generates nothing, so not a genStep). It
-	// matters MORE here than in a container: macos-user bakes no image at all, so a
-	// required tool comes from the user's own machine or not at all.
-	AssertRequiredBins(e)
-	genStep(e, "generate_bashrc", func() error { return GenerateBashrc(e) })
-	genStep(e, "generate_mise_config", func() error { return ConfigureMisePrism(e) })
-	// NO MCP WRAPPERS HERE (Open Decision #4, resolved 2026-09-03 in favour of the
-	// option the plan recommended: skip and say so).
-	//
-	// Their bodies are Linux-absolute — /usr/bin/chromium (mcp_wrappers.go),
-	// `exec /bin/node`, /etc/fonts/fonts.conf — with no GOOS guard, and this backend
-	// bakes no image, so on macOS all three paths are simply absent (verified on
-	// macOS 26.5). Generating them anyway put three executables in the sandbox home
-	// that fail the moment anything execs one, and "harmless until something execs
-	// one" stopped being true the day mcp_presets reached a real Mac config.
-	//
-	// SKIPPED, NOT PORTED. A darwin variant would have to find Chrome, node and a
-	// fontconfig on a machine yolo did not provision, and guess wrong on most of
-	// them. An absent wrapper that says so beats a present one that lies — the same
-	// ruling `workspace_readonly` got on this backend (d0961f2c).
-	if len(e.LoadMCPPresetNames()) > 0 {
-		e.warn("mcp_presets are not delivered on macos-user: the preset wrappers hardcode " +
-			"Linux paths (/usr/bin/chromium, /bin/node, /etc/fonts) that this backend does " +
-			"not provision. Configure the MCP server directly in `mcp_servers` if you need " +
-			"it here.")
-	}
-	configureGit(e)
-	if packErr != nil {
-		genStep(e, "load_packs", func() error { return packErr })
-	}
-	ConfigurePackSurfaces(e, jailPacks)
-	RunPackHooks(e, jailPacks)
-
-	// Stage host_files (YOLO_HOST_FILES), after the builtin agent surfaces, same as the
-	// Linux boot loop.
-	//
-	// ⚠ THE macos-user CARVE-OUT THAT STOOD HERE IS GONE (DP-L1, 2026-09-13). It read: the
-	// launcher passes only the SOURCE-LESS entries, because there is no /ctx/host-user
-	// mount to carry a source into. There is no mount now either — what changed is that
-	// the launcher COPIES each source-bearing entry's bytes into a root-owned tree and
-	// names it with YOLO_CTX_ROOT, which `hostUserPath` resolves through. So this step reads
-	// the same wire and the same directory it does under a container; the relocation is
-	// the only difference, and it is the one Apple Container already uses.
-	genStep(e, "configure_host_files", func() error { return ConfigureHostFiles(e) })
-
-	// CONTENT — skills, pack briefings and pack `files` trees — copied over the home from the staged
-	// overlay. This is the macos-user answer to the container's mounts: the host
-	// composed the same trees the container path composes, laid them out at their
-	// home-relative destinations, and staged the result root-owned; here it becomes
-	// files. LAST among the writers on purpose — the per-agent surface writers above
-	// create the agent home dirs this copies into (~/.claude and kin), so running it
-	// earlier would either race them or have to re-create them itself.
-	genStep(e, "install_home_overlay", func() error { return InstallHomeOverlay(e, jailPacks) })
-
-	// THE PROVISIONING STAGE'S SCRIPT (step 8 of macos-user-provisioning.md half two).
-	// Written LAST among the generators that produce content, because it is the only one
-	// nothing here consumes: the stage is a separate, Seatbelt-confined process the
-	// launcher runs after this bootstrap returns (macosuser.ProvisionArgv). Its
-	// interpolations read the pack set and the MCP/LSP config, which every step above has
-	// already had its turn with, so writing it here cannot observe a half-built home.
-	genStep(e, "generate_bootstrap_script", func() error { return GenerateDarwinBootstrapScript(e) })
-
-	// macOS-only writers (the two pieces unique to the native-macOS bootstrap).
-	genStep(e, "install_yolo_log", func() error { return InstallYoloLog(e, opts.YoloLogScript) })
-	genStep(e, "write_login_rc", func() error { return WriteLoginRC(e) })
-
+	runBootSteps(&bootRun{e: e, target: bootDarwin, darwin: opts})
 	return genFailuresError(e)
 }
 

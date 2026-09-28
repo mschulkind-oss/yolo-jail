@@ -24,9 +24,9 @@ package entrypoint
 //   - IT OBSERVES THE PREVIOUS BOOT'S STATE, deliberately. Main runs before
 //     ~/.yolo-bootstrap.sh and before any lazy launcher, so what is on disk here is what the
 //     LAST launch installed. That is the state a receipt describes.
-//   - IT IS NOT WIRED INTO RunDarwinBootstrap. catalog.go's header states the argument and it
-//     applies unchanged: macos-user stages no pack tree, so the declared-set input would read
-//     as empty there.
+//   - IT RUNS ON BOTH BOOTS, from the boot step table (bootsteps.go). It was left out of the
+//     macos-user bootstrap on the premise that that backend stages no pack tree; it stages
+//     one, named by YOLO_PACK_ROOT, and the gate above still covers a launch that staged none.
 //
 // AND IT IS NOT A genStep, for catalog.go's reason plus one of its own. A drifted version is
 // not a broken generator: nothing was half-written, and genStep is FATAL (A12) — routing this

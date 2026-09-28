@@ -559,185 +559,19 @@ func Main(args []string) error {
 	p := newPerfLog()
 	p.mark("start")
 
-	// Hydrate env_sources values before any configure_* so MCP env ${VAR}
-	// interpolation sees them. bash sources the same file again at shell time.
-	hydrateEnvFromUserEnvFile(e)
-	p.mark("hydrate_user_env")
-
-	// Populate /run/localtime + /run/timezone from $TZ before anything else.
-	configureTimezone(e)
-	p.mark("configure_timezone")
-
-	// Ensure scratch directories (/tmp and /var/tmp) are mode 1777.
-	configureScratchPermissions(e)
-	p.mark("scratch_permissions")
-
-	// C4/C5's jail half: link the store-delivered package profiles into the
-	// /run/yolo/packages farm. THIS RUNS FIRST AMONG THE GENERATORS, and both things
-	// below it depend on that:
+	// EVERY STEP OF THE BOOT'S CONTENT, from the one table the macos-user bootstrap runs
+	// too (bootsteps.go). The container runs each step the table does not exclude from it,
+	// in table order, and marks the perf log after each. The reachability witness is the
+	// table's last step, so it runs after every generator and above the gate below.
 	//
-	//   - generate_ld_cache scans the farm's lib dir, so a cache built before the farm
-	//     exists omits every store-delivered library. flake.nix states the same ordering
-	//     for its own user-package loop ("placed before the ldconfig step below so these
-	//     libs also land in ld.so.cache");
-	//   - generate_agent_launchers asks imageProbePath whether a name is already
-	//     provided, and lookPathIn answers by stat'ing the file. A launcher generated
-	//     before the farm exists would shadow a tool the workspace declared by name —
-	//     defect 11.1 coming back through the door C4 opens.
-	genStep(e, "generate_store_packages", func() error { return GenerateStorePackages(e) })
-	p.mark("generate_store_packages")
-
-	// Populate /run/ld.so.cache from the /lib farm, plus the store-package farm above.
-	generateLdCache(e, StorePackagesLib())
-	p.mark("generate_ld_cache")
-
-	// Generators. A12: a failure is FATAL — each step still runs so one boot
-	// reports every problem, then genFailuresError aborts before exec'ing the
-	// agent. See genStep.
-	genStep(e, "generate_shims", func() error { return GenerateShims(e) })
-	p.mark("generate_shims")
-	genStep(e, "generate_agent_launchers", func() error { return GenerateAgentLaunchers(e) })
-	p.mark("generate_agent_launchers")
-	genStep(e, "generate_package_manager_launchers", func() error { return GeneratePackageManagerLaunchers(e) })
-	p.mark("generate_package_manager_launchers")
-	// LAST of the three launch-dir steps, and it must stay last: it fills the gap the two
-	// above leave, which is only a gap once they have both run (launchwrapper.go).
-	genStep(e, "deliver_launch_flags", func() error { return DeliverLaunchFlags(e) })
-	p.mark("deliver_launch_flags")
-	// `requires` asserts presence and generates nothing, so it is not a genStep: an absent
-	// required binary is a WARNING naming the bin, not a boot failure (see
-	// AssertRequiredBins). Run after the launchers so a `program` the same set of packs
-	// installs is already represented on BootPath.
-	AssertRequiredBins(e)
-	p.mark("assert_required_bins")
-
-	// The orphan catalog is informational too, and for the same reason `requires` is:
-	// nothing is half-written — a package is installed that this launch's declarations do
-	// not account for. OQ-PD4 ruled that dropping a pack does not delete its program, so
-	// this NAMES orphans and removes nothing (program-delivery.md §10 step four). It runs
-	// here, before the bootstrap, on purpose: what is on disk now is what the LAST launch
-	// installed, which is the only state in which "undeclared" means anything.
-	CatalogInstalledOrphans(e)
-	p.mark("catalog_installed_orphans")
-
-	// The reconcile is the catalog's other half and runs beside it, for the same reasons and
-	// with the same non-genStep status: it compares what the receipts say this jail GOT
-	// against what is on disk, offline, and reports (program-delivery.md §10 step two, A4 as
-	// ruled in §5.4 — "reconcile reports; it does not install"). A drifted version is not a
-	// broken generator, so a fatal here would mean a jail whose vendor CLI self-updated
-	// refuses to START — and OQ-PD7 rules that this reports first and gates only if the
-	// reports ever justify one.
-	//
-	// AFTER the catalog, deliberately: the catalog's question is "what has no owner at all",
-	// and this one's is "what does the record get wrong about the things that do". The
-	// coarser finding comes first, the same way AssertRequiredBins precedes the catalog.
-	ReconcileInstalledPrograms(e)
-	p.mark("reconcile_installed_programs")
-
-	// Build the combined CA bundle BEFORE bashrc and before any child spawn, so
-	// the env vars we export propagate to every child the entrypoint spawns.
-	if bundle, err := GenerateCABundle(e); err != nil {
-		e.warn("Warning: generate_ca_bundle: " + err.Error())
-	} else {
-		setEnvBoth(e, "SSL_CERT_FILE", bundle)
-		setEnvBoth(e, "REQUESTS_CA_BUNDLE", bundle)
-		setEnvBoth(e, "CURL_CA_BUNDLE", bundle)
-		setEnvBoth(e, "GIT_SSL_CAINFO", bundle)
-	}
-	p.mark("generate_ca_bundle")
-
-	genStep(e, "generate_bashrc", func() error { return GenerateBashrc(e) })
-	p.mark("generate_bashrc")
-	genStep(e, "generate_bootstrap_script", func() error { return GenerateBootstrapScript(e) })
-	p.mark("generate_bootstrap_script")
-	genStep(e, "generate_venv_precreate_script", func() error { return GenerateVenvPrecreateScript(e) })
-	p.mark("generate_venv_precreate_script")
-	genStep(e, "generate_mise_config", func() error { return ConfigureMisePrism(e) })
-	// Deferred side effect: mise uninstall of retired tools (generate_mise_config tail).
-	miseUninstallRetired(e)
-	p.mark("generate_mise_config")
-
-	// Copy host nvim config into the writable .config/ overlay.
-	copyHostNvimConfig(e)
-	p.mark("nvim_config")
-
-	genStep(e, "generate_mcp_wrappers", func() error { return GenerateMCPWrappers(e) })
-	p.mark("generate_mcp_wrappers")
-	// Git identity is host-composed and :ro-mounted by the CLI (see
-	// gitIdentityMountArgs) — no entrypoint action on the container path.
-	// Skills are mounted :ro by the CLI — no entrypoint action needed.
-	p.mark("skills_skipped")
-
-	// Render every PACK-DECLARED surface. One loop over declarations — no switch on
-	// tool names, because core does not know any (see packsurfaces.go).
-	jailPacks, packErr := LoadJailPacks(e)
-	if packErr != nil {
-		// A pack that parsed on the host and not here means the mounted tree disagrees
-		// with what was staged. Fatal (A12): rendering a subset would yield a jail whose
-		// config is quietly incomplete.
-		genStep(e, "load_packs", func() error { return packErr })
-	}
-	ConfigurePackSurfaces(e, jailPacks)
-	RunPackHooks(e, jailPacks)
-	p.mark("configure_pack_surfaces")
-
-	// Stage the user's host_files entries (YOLO_HOST_FILES) through the same
-	// composition engine, after the builtin agent surfaces so a user entry never
-	// races a builtin (the config layer already forbids one at a builtin path).
-	genStep(e, "configure_host_files", func() error { return ConfigureHostFiles(e) })
-	p.mark("configure_host_files")
-
-	// e.Stderr, not os.Stderr: this is a boot diagnostic and belongs in the log.
-	setupCgroupDelegation(e.Stderr)
-	p.mark("cgroup_delegation")
-	// No generate step for yolo-cglimit / yolo-journalctl any more: the image
-	// bakes both (flake.nix shippedBinaries). All that is left is unlinking the
-	// scripts an older entrypoint wrote into ~/.local/bin, which PRECEDES /bin on
-	// PATH and would otherwise shadow the binaries forever.
-	genStep(e, "cleanup_stale_wrappers", func() error { return RemoveStaleGeneratedClients(e) })
-	p.mark("cleanup_stale_wrappers")
-
-	// Per-container runtime plumbing.
-	setupPublishedPortLocalnet(e)
-	p.mark("published_port_localnet")
-	startContainerPortForwarding(e)
-	p.mark("port_forwarding")
-
-	// Record, in boot.log only, which pack services this launch armed with a caller token: the
-	// daemons below demand it of every request (docs/reference/wire-bridge.md WB-D18).
-	noteServiceCallerAuth(e)
-	// And publish each token as an in-jail 0600 file, for a client that reads its credential
-	// from one (the AWS SDKs' AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE; paths.JailCallerTokenDir).
-	writeCallerTokenFiles(e)
-	// Start the jail-daemon supervisor (child of PID 1; kernel-reaped on exit).
-	genStep(e, "start_jail_daemon_supervisor", func() error { return startJailDaemonSupervisor(e) })
-	p.mark("jail_daemon_supervisor")
-
-	// There used to be a second os.Setenv of PATH here, hand-spelling the same list
-	// BootPath builds — for `mise trust`, the only subprocess that ran below this point.
-	// That subprocess went with trustWorkspaceConfigs (3a309da4), and nothing between
-	// here and execBash spawns a child or resolves a name on PATH any more, so the write
-	// was dead. It also never MATCHED, its comment's claim notwithstanding: it omitted
+	// There used to be a second os.Setenv of PATH after the steps, hand-spelling the same
+	// list BootPath builds — for `mise trust`, the only subprocess that ran below this point.
+	// That subprocess went with trustWorkspaceConfigs (3a309da4), and nothing between here
+	// and execBash spawns a child or resolves a name on PATH any more, so the write was
+	// dead. It also never MATCHED, its comment's claim notwithstanding: it omitted
 	// e.LocalBin() from its first commit onward. BootPath is the single authority, applied
 	// once in execBash; TestBootPathIsTheOnlyPathAuthority refuses a second spelling.
-
-	// The in-jail reachability witness runs LAST, and both halves of that are
-	// deliberate. Its finding is then the closest thing to the agent's first prompt
-	// instead of being buried under pack rendering; and it sits immediately above
-	// genFailuresError, the boot's existing "refuse before handing over control"
-	// gate, which is what OQ-R2's fatal plugs into — a service this jail cannot use
-	// now REFUSES the launch here, having first let every generator above run so one
-	// boot reports every problem. See reachability.go — it is the only check here
-	// that can only be answered from INSIDE the jail, because `yolo check` runs
-	// host-side and substitutes 127.0.0.1 for the advertised host.
-	//
-	// A healthy probe answers in milliseconds, but a blackholed service costs a
-	// dial of up to 30 s plus retries, so the probe runs under a progress line —
-	// line-oriented (boot.log is half of e.Stderr) and silent when it is quick.
-	reach := e.progress("Checking that the jail can reach its host services")
-	ProbeServiceReachability(e)
-	reach.Done("")
-	p.mark("probe_service_reachability")
+	runBootSteps(&bootRun{e: e, target: bootContainer, perf: p})
 
 	// NOTE: We intentionally do NOT call `mise hook-env` here (flock deadlock).
 	p.dump(e.Home)

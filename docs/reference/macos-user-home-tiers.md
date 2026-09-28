@@ -45,7 +45,7 @@ from a claim that is still an argument.
 | Component | Lives in |
 | :--- | :--- |
 | The pure deriver and the boot-path entry | `internal/entrypoint/darwinhomelayout.go` (`DeriveDarwinHomeLayout`, `InstallDarwinHomeLayout`) |
-| Where it runs in the native bootstrap | `internal/entrypoint/darwin.go` (`RunDarwinBootstrap`, its first generator step) |
+| Where it runs in the native bootstrap | `internal/entrypoint/bootsteps.go` (the `darwin_home_layout` step, the first the macos-user bootstrap runs) |
 | The two tier lists it reads | `internal/packload/packload.go` (`WritableDirs`, `SharedDirs`), declared per pack in `packs/*/pack.json` |
 | The directory names both backends share | `internal/paths/paths.go` (`HomeSurfaces`, `HomeFileRedirects`, `WorkspaceHomeState`) |
 | The shared-tier hooks whose links must keep resolving | `internal/entrypoint/packhooks.go` (`linkSharedCredential`, `linkSharedDirectory`) |

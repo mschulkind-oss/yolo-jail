@@ -503,6 +503,29 @@ func TestBootCatalogSaysHowManyAndLogsWhich(t *testing.T) {
 	}
 }
 
+// THE macos-user BOOTSTRAP CATALOGS TOO, driven through RunDarwinBootstrap itself: a sandbox
+// home holding an npm package no staged pack declares gets the same one line and the same
+// boot-log name a container boot gives it. Fails if the bootstrap stops running the table's
+// catalog step (notch-convergence row D10).
+func TestTheDarwinBootstrapCatalogsOrphans(t *testing.T) {
+	home, packRoot := catalogHome(t)
+	seedNpm(t, home, "leftover-agent")
+	var term, logOnly strings.Builder
+	e := NewEnv(map[string]string{"JAIL_HOME": home, "YOLO_PACK_ROOT": packRoot})
+	e.Workspace = t.TempDir()
+	e.Stderr = &term
+	e.LogOnly = &logOnly
+
+	_ = RunDarwinBootstrap(e, DarwinBootstrapOptions{MacosLog: "off"})
+
+	if !strings.Contains(term.String(), catalogPrefix+"1 installed program") {
+		t.Errorf("the macos-user bootstrap did not catalog the orphan:\n%s", term.String())
+	}
+	if !strings.Contains(logOnly.String(), "leftover-agent") {
+		t.Errorf("the orphan's name is not in the boot log:\n%s", logOnly.String())
+	}
+}
+
 // TestBootCatalogIsSilentOnBothSinksWithNoOrphans: a clean home says nothing at all, which
 // is what keeps the one line above worth reading. The old shape got this for free (an empty
 // loop prints nothing); a summary line does not, and "0 installed programs are declared by
@@ -520,63 +543,38 @@ func TestBootCatalogIsSilentOnBothSinksWithNoOrphans(t *testing.T) {
 	}
 }
 
-// TestBootCatalogsOrphansBesideTheOtherInformationalSteps is the CALL SITE.
+// TestBootCatalogsOrphansBesideTheOtherInformationalSteps pins the catalog's place in the boot
+// step table (bootsteps.go), on BOTH boots:
 //
-// Main cannot be called from a test — it ends in execBash, which replaces the process — so
-// nothing here can observe whether the boot path uses any of this. Every test above would
-// pass in full against a boot.go that never calls it, which is the exact shape this repo
-// has shipped five times: the callee pinned, the call site unpinned, the feature switchable
-// off with the unit gate green.
+//   - it is a `run` step, NOT a generator — an installed-but-undeclared package is not a
+//     broken generator, and running it through genStep would make a jail with an orphan
+//     refuse to start;
+//   - it runs AFTER the other informational step that reads pack declarations
+//     (assert_required_bins): both read the same declarations against the same disk, and
+//     the missing-bin finding comes first. The table runs above the exec that hands control
+//     away (TestBothBootsRunTheTable), so it reads the PREVIOUS launch's state, the only state
+//     in which "undeclared" means anything.
 //
-// Pinned by reading the source, the same way reachability_test.go pins the witness ordering
-// and bootlog_test.go pins the log wiring. Two properties, both of which a one-line move
-// would break invisibly:
-//
-//   - it is called at all, and NOT through genStep — an installed-but-undeclared package is
-//     not a broken generator, and routing it through genStep would make a jail with an
-//     orphan refuse to start;
-//   - it runs BESIDE the other informational step that reads pack declarations
-//     (AssertRequiredBins) and BEFORE the bootstrap can reinstall anything, which in Main
-//     means before the exec at the bottom. The state it reads is the PREVIOUS launch's, and
-//     that is the only state in which "undeclared" means anything.
-//
-// Every landmark is located with callIndex, not strings.Index: this file's own prose names
-// all three functions, and boot.go's does too, so a plain substring search is satisfied by a
-// COMMENT — including the comment that would be left behind if the call itself were removed.
+// The macos-user bootstrap runs it too since the table: it had been left out on the premise
+// that that backend stages no pack tree, which stopped being true (notch-convergence row D10).
+// The step's body is located with callIndex, which skips a commented-out mention.
 func TestBootCatalogsOrphansBesideTheOtherInformationalSteps(t *testing.T) {
-	src, err := os.ReadFile(filepath.Join(repoRoot(t), "internal", "entrypoint", "boot.go"))
+	s := mustBootStep(t, "catalog_installed_orphans")
+	if s.gen != nil || s.run == nil {
+		t.Error("the catalog must be a run step, not a generator: it generates nothing, and a " +
+			"fatal there would mean a jail with one orphaned package refuses to START")
+	}
+	for _, target := range []bootTarget{bootContainer, bootDarwin} {
+		assertStepBefore(t, target, "assert_required_bins", "catalog_installed_orphans",
+			"the two informational steps read the same declarations, and the missing-bin finding comes first")
+	}
+	src, err := os.ReadFile(filepath.Join(repoRoot(t), "internal", "entrypoint", "bootsteps.go"))
 	if err != nil {
-		t.Fatalf("reading boot.go: %v", err)
+		t.Fatal(err)
 	}
-	got := string(src)
-
-	call := callIndex(got, "CatalogInstalledOrphans(e)")
-	if call < 0 {
-		t.Fatal("boot.go never calls CatalogInstalledOrphans — the catalog is unreachable, " +
-			"and every test in this file passes anyway")
-	}
-	if strings.Contains(got, `genStep(e, "catalog`) {
-		t.Error("the catalog must not be a genStep: it generates nothing, and a fatal there " +
-			"would mean a jail with one orphaned package refuses to START")
-	}
-	// Beside the other informational step that reads pack declarations, and above the
-	// exec that hands control away.
-	requires := callIndex(got, "AssertRequiredBins(e)")
-	execCall := callIndex(got, "return execBash(e, command)")
-	if requires < 0 || execCall < 0 {
-		t.Fatalf("boot.go no longer contains the landmarks this ordering is about "+
-			"(requires=%d, exec=%d)", requires, execCall)
-	}
-	// AFTER `requires`, which is what "beside" means here and is not cosmetic: both read
-	// the same declarations against the same disk, and `requires` is the one that says a
-	// DECLARED binary is missing. Naming the undeclared leftovers first would put the
-	// answer above the question.
-	if call < requires {
-		t.Error("the catalog must run after AssertRequiredBins — the two informational " +
-			"steps read the same declarations, and the missing-bin finding comes first")
-	}
-	if call > execCall {
-		t.Error("the catalog must run before the exec that replaces this process")
+	if callIndex(string(src), "CatalogInstalledOrphans(b.e)") < 0 {
+		t.Fatal("the boot step table never calls CatalogInstalledOrphans — the catalog is " +
+			"unreachable, and every test in this file passes anyway")
 	}
 }
 

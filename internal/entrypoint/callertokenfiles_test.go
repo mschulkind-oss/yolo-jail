@@ -6,9 +6,6 @@ package entrypoint
 // the slot the AWS SDKs' container-credentials provider reads and sends as `Authorization`.
 
 import (
-	"go/ast"
-	"go/parser"
-	"go/token"
 	"os"
 	"path/filepath"
 	"strings"
@@ -70,46 +67,23 @@ func TestTheAWSPointerNamesTheBootsTokenFile(t *testing.T) {
 	}
 }
 
-// The call site: Main writes the files before it starts the supervisor, so a daemon's client
-// never races an absent file.
-func TestMainWritesCallerTokenFilesBeforeStartingTheSupervisor(t *testing.T) {
-	fset := token.NewFileSet()
-	file, err := parser.ParseFile(fset, filepath.Join(repoRoot(t), "internal", "entrypoint", "boot.go"), nil, 0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	write, supervisor := -1, -1
-	ast.Inspect(file, func(n ast.Node) bool {
-		fn, ok := n.(*ast.FuncDecl)
-		if !ok || fn.Name.Name != "Main" {
-			return true
-		}
-		ast.Inspect(fn.Body, func(n ast.Node) bool {
-			call, ok := n.(*ast.CallExpr)
-			if !ok {
-				return true
-			}
-			id, ok := call.Fun.(*ast.Ident)
-			if !ok {
-				return true
-			}
-			switch {
-			case id.Name == "writeCallerTokenFiles" && write < 0:
-				write = fset.Position(call.Pos()).Offset
-			case id.Name == "genStep" && len(call.Args) >= 2:
-				if lit, ok := call.Args[1].(*ast.BasicLit); ok && lit.Value == `"start_jail_daemon_supervisor"` {
-					supervisor = fset.Position(call.Pos()).Offset
-				}
-			}
-			return true
-		})
-		return false
-	})
-	if write < 0 {
-		t.Fatal("Main never calls writeCallerTokenFiles: an AWS SDK would read no token and be refused")
-	}
-	if supervisor < 0 || write > supervisor {
-		t.Errorf("writeCallerTokenFiles (offset %d) must run before start_jail_daemon_supervisor (offset %d)",
-			write, supervisor)
+// The call site: the container boot writes the files before it starts the supervisor, so a
+// daemon's client never races an absent file. The step's own body is run, so a step that
+// stopped calling writeCallerTokenFiles fails here as well as a step that moved.
+func TestTheBootWritesCallerTokenFilesBeforeStartingTheSupervisor(t *testing.T) {
+	assertStepBefore(t, bootContainer, "write_caller_token_files", "start_jail_daemon_supervisor",
+		"a daemon's client could read an absent token file and be refused")
+	dir := filepath.Join(t.TempDir(), "caller-tokens")
+	prev := callerTokenDir
+	callerTokenDir = dir
+	t.Cleanup(func() { callerTokenDir = prev })
+	tok := strings.Repeat("d4", 32)
+	awsVar := paths.ServiceCallerTokenEnv("aws-auth")
+	e, _, _ := loudEnv(t)
+	e.Vars[awsVar] = tok
+	mustBootStep(t, "write_caller_token_files").run(&bootRun{e: e, target: bootContainer})
+	if got, err := os.ReadFile(filepath.Join(dir, awsVar)); err != nil || string(got) != tok {
+		t.Fatalf("the write_caller_token_files step wrote %q (%v), want the token: an AWS SDK would "+
+			"read no token and be refused", got, err)
 	}
 }

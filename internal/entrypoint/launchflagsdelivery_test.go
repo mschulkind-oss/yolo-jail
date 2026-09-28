@@ -512,37 +512,25 @@ func TestTheWrapperIsAnnouncedAsInstallingNothing(t *testing.T) {
 // (AGENTS.md: "does it fail if I delete the call site?").
 //
 // Everything above drives the generators directly, which is the right instrument for what
-// they DO and the wrong one for whether anything runs them. Both boot paths have to: the
-// container's entrypoint.Main and RunDarwinBootstrap are separate genStep lists that have
-// drifted before — DP-B43 exists because one of them ran a generator whose output the other
-// backend cannot read. A jail whose boot skipped this step would have a launch dir with no
-// wrapper in it and no test anywhere the wiser.
+// they DO and the wrong one for whether anything runs them. Both boots have to: the
+// container's entrypoint.Main and RunDarwinBootstrap were separate genStep lists that drifted
+// before — DP-B43 exists because one of them ran a generator whose output the other backend
+// cannot read. They are one table now (bootsteps.go), and this reads it for both.
 //
-// It reads the SOURCE rather than running a boot, the way run.TestLaunchFlagInjectionHasOne
-// DisclosedCallSite does, because a real boot needs a container and this question is about
-// two lines of Go.
+// ORDER: it fills the gap the other two leave, and a gap is only a gap once they have run.
+// Before GeneratePackageManagerLaunchers it would put a wrapper where pnpm's lazy installer
+// belongs, since that generator yields to any file already at the path.
 func TestBothBootPathsDeliverLaunchFlags(t *testing.T) {
-	for _, file := range []string{"boot.go", "darwin.go"} {
-		src, err := os.ReadFile(file)
-		if err != nil {
-			t.Fatalf("read %s: %v", file, err)
-		}
-		body := string(src)
-		if !strings.Contains(body, "DeliverLaunchFlags(e)") {
-			t.Errorf("%s does not run DeliverLaunchFlags. Every pack-declared launch flag "+
-				"whose binary the image provides — or which no pack installs — reaches "+
-				"nothing on this boot path, silently", file)
-			continue
-		}
-		// ORDER: it fills the gap the other two leave, and a gap is only a gap once they
-		// have run. Before GeneratePackageManagerLaunchers it would put a wrapper where
-		// pnpm's lazy installer belongs, since that generator yields to any file already
-		// at the path.
-		if strings.Index(body, "DeliverLaunchFlags(e)") <
-			strings.Index(body, "GeneratePackageManagerLaunchers(e)") {
-			t.Errorf("%s runs DeliverLaunchFlags BEFORE the package-manager launchers; it "+
-				"must run last of the three launch-dir steps", file)
-		}
+	if !isGen(mustBootStep(t, "deliver_launch_flags"), DeliverLaunchFlags) {
+		t.Fatal("deliver_launch_flags no longer runs DeliverLaunchFlags. Every pack-declared " +
+			"launch flag whose binary the image provides — or which no pack installs — reaches " +
+			"nothing, silently")
+	}
+	for _, target := range []bootTarget{bootContainer, bootDarwin} {
+		assertStepBefore(t, target, "generate_package_manager_launchers", "deliver_launch_flags",
+			"it must run last of the three launch-dir steps")
+		assertStepBefore(t, target, "generate_agent_launchers", "deliver_launch_flags",
+			"it must run last of the three launch-dir steps")
 	}
 }
 

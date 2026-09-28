@@ -1322,44 +1322,30 @@ func TestReachabilityProbeNeverEscalatesWhatItCannotAttribute(t *testing.T) {
 	}
 }
 
-// TestBootRunsTheWitnessAboveTheGateThatAbortsTheBoot pins the one property of the
-// flip that lives in boot.go rather than in this file, and that no runtime test in
-// this package can reach: Main ends in execBash, which replaces the process, so
-// nothing here can call it.
-//
-// The property is an ORDERING and it is what makes a refused boot readable. The
-// witness has to run AFTER every generator, so a jail with a broken pack surface and
-// an unreachable daemon reports both on the same boot instead of one per restart
+// TestBootRunsTheWitnessAboveTheGateThatAbortsTheBoot: the witness must run AFTER every
+// generator — an unreachable daemon reports both on the same boot instead of one per restart
 // (A12's rule, which genStep already follows) — and BEFORE genFailuresError, or its
-// e.genFailure lands after the value Main branches on has already been read and the
-// refusal simply never happens. Neither half is visible in a diff that moves one
-// line, and the second half is a fatal that silently reverts to a warning.
+// e.genFailure lands after the value Main branches on has already been read and the refusal
+// simply never happens. Neither half is visible in a diff that moves one line, and the second
+// half is a fatal that silently reverts to a warning.
 //
-// Pinned by reading the source, the same way shippedclients_test.go pins the ship set
-// and bootlog_test.go pins the log wiring. Brittle by construction, and cheaper than
-// the failure it prevents.
+// The first half is the table's: the probe is the container boot's LAST step. The second is
+// Main's, which runs the whole table above the gate (TestBothBootsRunTheTable).
 func TestBootRunsTheWitnessAboveTheGateThatAbortsTheBoot(t *testing.T) {
+	names := bootStepNames(bootContainer)
+	if len(names) == 0 || names[len(names)-1] != "probe_service_reachability" {
+		t.Errorf("the witness must be the container boot's last step, after every generator, "+
+			"or a boot with two problems reports one of them per restart (A12): %v", names)
+	}
 	src, err := os.ReadFile(filepath.Join(repoRoot(t), "internal", "entrypoint", "boot.go"))
 	if err != nil {
 		t.Fatalf("reading boot.go: %v", err)
 	}
-	got := string(src)
-
-	probe := strings.Index(got, "ProbeServiceReachability(e)")
-	gate := strings.Index(got, "if err := genFailuresError(e); err != nil {")
-	lastGen := strings.LastIndex(got, "genStep(e, ")
-	if probe < 0 || gate < 0 || lastGen < 0 {
-		t.Fatalf("boot.go no longer contains the three landmarks this ordering is about "+
-			"(probe=%d, gate=%d, last genStep=%d)", probe, gate, lastGen)
-	}
-	if probe > gate {
-		t.Error("the witness must run BEFORE genFailuresError, or the failure it records is " +
-			"collected after the boot has already decided to continue — a fatal that reverts " +
-			"to a warning with nothing in the diff to show it")
-	}
-	if lastGen > probe {
-		t.Error("every generator must run BEFORE the witness, or a boot with two problems " +
-			"reports one of them per restart (A12)")
+	run := callIndex(string(src), "runBootSteps(&bootRun{e: e, target: bootContainer")
+	gate := callIndex(string(src), "if err := genFailuresError(e); err != nil {")
+	if run < 0 || gate < 0 || run > gate {
+		t.Errorf("the witness must run BEFORE genFailuresError, or the failure it records is "+
+			"collected after the boot has already decided to continue (table=%d, gate=%d)", run, gate)
 	}
 }
 
@@ -1571,13 +1557,13 @@ func TestReachabilityProbeCoversAPlainService(t *testing.T) {
 // plus retries) that is opened before it and closed after it. Source-pinned for the
 // reason the ordering test above is: Main is not drivable from a unit test.
 func TestTheWitnessRunsUnderAProgressLine(t *testing.T) {
-	src, err := os.ReadFile(filepath.Join(repoRoot(t), "internal", "entrypoint", "boot.go"))
+	src, err := os.ReadFile(filepath.Join(repoRoot(t), "internal", "entrypoint", "bootsteps.go"))
 	if err != nil {
-		t.Fatalf("reading boot.go: %v", err)
+		t.Fatalf("reading bootsteps.go: %v", err)
 	}
 	got := string(src)
-	open := strings.Index(got, `reach := e.progress("Checking that the jail can reach its host services")`)
-	probe := strings.Index(got, "ProbeServiceReachability(e)")
+	open := strings.Index(got, `reach := b.e.progress("Checking that the jail can reach its host services")`)
+	probe := strings.Index(got, "ProbeServiceReachability(b.e)")
 	closeAt := strings.Index(got, `reach.Done("")`)
 	if open < 0 || probe < open || closeAt < probe {
 		t.Errorf("want the progress line opened before the witness and closed after it "+

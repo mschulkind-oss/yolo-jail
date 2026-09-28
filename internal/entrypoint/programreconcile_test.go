@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -405,8 +406,8 @@ func TestReconcileNoLongerJudgesTheRetiredLSPRecord(t *testing.T) {
 
 // TestReconcileIsSilentWithoutAStagedPackTree inherits catalog.go's gate and its reason:
 // without a staged pack tree every declared-set input reads empty for a reason that has
-// nothing to do with what is installed. It is also what keeps this out of macos-user's boot
-// by construction (catalog.go:16-21), where there is no pack tree at all.
+// nothing to do with what is installed. It is the same gate on both boots: a macos-user launch
+// that staged no pack tree is silent here too.
 func TestReconcileIsSilentWithoutAStagedPackTree(t *testing.T) {
 	home, ws, _ := reconcileHome(t)
 	seedNpmVersion(t, home, "tool", "9.9.9")
@@ -713,75 +714,42 @@ func TestReceiptReaderAndWriterAgreeOnThePath(t *testing.T) {
 
 // --- the CALL SITE --------------------------------------------------------------------
 
-// TestBootReconcilesBesideTheCatalog is THE call-site test.
-//
-// Main cannot be called from a test — it ends in execBash, which replaces the process — so
-// nothing else in this file can observe whether the boot path uses any of it. Every test
-// above would pass in full against a boot.go that never calls the reconcile, which is the
-// exact shape this repo has shipped five times: the callee pinned, the call site unpinned,
-// the feature switchable off with the unit gate green.
-//
-// Pinned by reading the source, the way catalog_test.go pins the catalog's own wiring. Three
-// properties, each of which a one-line move would break invisibly:
-//
-//   - it is called at all;
-//   - it is NOT a genStep — a drifted version is not a broken generator, and genStep is FATAL
-//     (A12), so routing it there would mean a jail whose vendor CLI self-updated refuses to
-//     START. OQ-PD7 rules that this reports before it gates, and a fatal on day one would be
-//     the gate granted without the measurement meant to justify it;
-//   - it sits AFTER the catalog and BEFORE the exec. The catalog's question is "what has no
-//     owner at all" and this one's is "what does the record get wrong about the things that
-//     do", so the coarser finding comes first — and both must read the PREVIOUS boot's state,
-//     which means above the exec that hands control away.
-//
-// Every landmark is located with callIndex, not strings.Index: this file's prose names the
-// function and boot.go's comments do too, so a plain substring search is satisfied by a
-// COMMENT — including the comment that would be left behind if the call itself were removed.
+// TestBootReconcilesBesideTheCatalog pins the reconcile's place in the boot step table, on
+// both boots: a `run` step and not a generator (a drifted version is not a broken generator,
+// and OQ-PD7 rules that this reports before it gates), AFTER the catalog ("nothing owns this"
+// is the coarser finding and comes before "the record is wrong about this"), and inside the
+// table, which runs above the exec that hands control away (TestBothBootsRunTheTable), so it
+// reads the PREVIOUS launch's state — the only state a receipt describes.
 func TestBootReconcilesBesideTheCatalog(t *testing.T) {
-	src, err := os.ReadFile(filepath.Join(repoRoot(t), "internal", "entrypoint", "boot.go"))
+	s := mustBootStep(t, "reconcile_installed_programs")
+	if s.gen != nil || s.run == nil {
+		t.Error("the reconcile must be a run step, not a generator: a fatal there would mean " +
+			"a jail whose vendor CLI self-updated refuses to START")
+	}
+	for _, target := range []bootTarget{bootContainer, bootDarwin} {
+		assertStepBefore(t, target, "catalog_installed_orphans", "reconcile_installed_programs",
+			"\"nothing owns this\" is the coarser finding and comes first")
+	}
+	src, err := os.ReadFile(filepath.Join(repoRoot(t), "internal", "entrypoint", "bootsteps.go"))
 	if err != nil {
-		t.Fatalf("reading boot.go: %v", err)
+		t.Fatal(err)
 	}
-	got := string(src)
-
-	call := callIndex(got, "ReconcileInstalledPrograms(e)")
-	if call < 0 {
-		t.Fatal("boot.go never calls ReconcileInstalledPrograms — the reconcile is " +
+	if callIndex(string(src), "ReconcileInstalledPrograms(b.e)") < 0 {
+		t.Fatal("the boot step table never calls ReconcileInstalledPrograms — the reconcile is " +
 			"unreachable, and every test in this file passes anyway")
-	}
-	if strings.Contains(got, `genStep(e, "reconcile`) {
-		t.Error("the reconcile must not be a genStep: it generates nothing, and a fatal there " +
-			"would mean a jail whose vendor CLI self-updated refuses to START")
-	}
-	catalog := callIndex(got, "CatalogInstalledOrphans(e)")
-	execCall := callIndex(got, "return execBash(e, command)")
-	if catalog < 0 || execCall < 0 {
-		t.Fatalf("boot.go no longer contains the landmarks this ordering is about "+
-			"(catalog=%d, exec=%d)", catalog, execCall)
-	}
-	if call < catalog {
-		t.Error("the reconcile must run after the catalog — \"nothing owns this\" is the " +
-			"coarser finding and comes before \"the record is wrong about this\"")
-	}
-	if call > execCall {
-		t.Error("the reconcile must run before the exec that replaces this process: the state " +
-			"it reads is the PREVIOUS launch's, which is the only state a receipt describes")
 	}
 }
 
-// TestReconcileIsNotWiredIntoTheDarwinBootstrap: catalog.go's header states the argument and
-// it applies unchanged. macos-user stages no pack tree, so the declared-set input would read
-// empty there — and an empty declared set turns a report into a boot that calls everything a
-// divergence.
-// A backend that cannot state what it declared must not be asked what diverged.
-func TestReconcileIsNotWiredIntoTheDarwinBootstrap(t *testing.T) {
-	src, err := os.ReadFile(filepath.Join(repoRoot(t), "internal", "entrypoint", "darwin.go"))
-	if err != nil {
-		t.Fatalf("reading darwin.go: %v", err)
-	}
-	if callIndex(string(src), "ReconcileInstalledPrograms(e)") >= 0 {
-		t.Error("RunDarwinBootstrap must not reconcile: it stages no pack tree, so the gate " +
-			"is the only thing standing between it and reporting every installed program as " +
-			"a divergence (catalog.go:16-21)")
+// TestTheDarwinBootstrapReconcilesAndCatalogs: macos-user stages a pack tree and names it with
+// YOLO_PACK_ROOT, so the declared-set input both reports need is there, and the gate both share
+// (InstalledOrphans, ReconcileInstalled: nothing without YOLO_PACK_ROOT) still stands between a
+// launch that staged none and a report calling everything installed a divergence. The two were
+// left out of this bootstrap on the opposite premise (notch-convergence row D10).
+func TestTheDarwinBootstrapReconcilesAndCatalogs(t *testing.T) {
+	names := bootStepNames(bootDarwin)
+	for _, want := range []string{"catalog_installed_orphans", "reconcile_installed_programs"} {
+		if !slices.Contains(names, want) {
+			t.Errorf("the macos-user bootstrap does not run %s: %v", want, names)
+		}
 	}
 }

@@ -1,6 +1,9 @@
 package check
 
 import (
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"os"
 	"regexp"
 	"sort"
@@ -21,15 +24,17 @@ import (
 // carrier). Both were found by a human reading the two lists side by side, which is exactly the
 // review nobody performs twice.
 //
-// So the list is DERIVED here rather than restated: this test reads boot.go's `genStep` calls —
-// the authority on what a boot generates — and requires every one of them to be either in the
-// preflight's list or in `deliberatelyNotPreflighted` below, with a reason. A generator added to
-// the boot and nowhere else fails this test until somebody makes that choice explicitly.
+// So the list is DERIVED here rather than restated: this test reads the container boot's
+// generators out of the boot step table (entrypoint's bootsteps.go) — the authority on what a
+// boot generates — and requires every one of them to be either in the preflight's list or in
+// `deliberatelyNotPreflighted` below, with a reason. A generator added to the boot and nowhere
+// else fails this test until somebody makes that choice explicitly.
 //
 // Both sides are read from SOURCE because the preflight's list is a local variable inside
-// runEntrypointPreflight and cannot be reached from a test any other way. That makes this a
-// text-matching test, with the usual weakness: it is pinned to the shape of those two
-// expressions. The shape is stable (a genStep line and a composite literal of function values),
+// runEntrypointPreflight and cannot be reached from a test any other way. The table is read
+// with go/ast, the preflight's list by text matching, with the usual weakness: it is pinned to
+// the shape of those two expressions. The shape is stable (a `gen:` field of a step literal
+// and a composite literal of function values),
 // and a wrong answer here fails loudly rather than silently, which is the trade being made.
 func TestThePreflightRunsEveryBootGenerator(t *testing.T) {
 	// Boot steps the preflight deliberately skips. A generator belongs here only with a
@@ -43,11 +48,10 @@ func TestThePreflightRunsEveryBootGenerator(t *testing.T) {
 			"from a real home, and there is nothing stale in a fresh temp dir",
 	}
 
-	bootGens := generatorsNamedIn(t, "../../entrypoint/boot.go",
-		regexp.MustCompile(`genStep\(e, "[a-z_]+", func\(\) error \{ return ([A-Z]\w+)\(e\) \}\)`))
+	bootGens := containerBootGenerators(t, "../../entrypoint/bootsteps.go")
 	if len(bootGens) < 8 {
-		t.Fatalf("read only %d genStep generators out of boot.go (%v) — the call shape this "+
-			"test matches has changed, so it is no longer reading the authority it claims to",
+		t.Fatalf("read only %d generators out of the boot step table (%v) — the table's shape "+
+			"has changed, so this test is no longer reading the authority it claims to",
 			len(bootGens), bootGens)
 	}
 
@@ -92,7 +96,7 @@ func TestThePreflightRunsEveryBootGenerator(t *testing.T) {
 	}
 	for _, g := range preflightGens {
 		if !inBoot[g] {
-			t.Errorf("the preflight runs entrypoint.%s and boot.go does not — the preflight is "+
+			t.Errorf("the preflight runs entrypoint.%s and the container boot does not — the preflight is "+
 				"exercising something no jail boot performs", g)
 		}
 	}
@@ -116,6 +120,56 @@ func generatorsNamedIn(t *testing.T, path string, re *regexp.Regexp) []string {
 		seen[name] = true
 		out = append(out, name)
 	}
+	sort.Strings(out)
+	return out
+}
+
+// containerBootGenerators returns the generator of every step in the boot step table that the
+// container boot runs: each `gen: <Name>` field of a step literal carrying no `notContainer`
+// exclusion, deduplicated and sorted. A step excluded from the container is the macos-user
+// bootstrap's alone, which this preflight does not model. Paths are relative to this package's
+// directory.
+func containerBootGenerators(t *testing.T, path string) []string {
+	t.Helper()
+	file, err := parser.ParseFile(token.NewFileSet(), path, nil, 0)
+	if err != nil {
+		t.Fatalf("cannot parse %s, which this test derives its answer from: %v", path, err)
+	}
+	seen := map[string]bool{}
+	var out []string
+	ast.Inspect(file, func(n ast.Node) bool {
+		lit, ok := n.(*ast.CompositeLit)
+		if !ok {
+			return true
+		}
+		gen, excluded := "", false
+		for _, elt := range lit.Elts {
+			kv, ok := elt.(*ast.KeyValueExpr)
+			if !ok {
+				continue
+			}
+			key, ok := kv.Key.(*ast.Ident)
+			if !ok {
+				continue
+			}
+			switch key.Name {
+			case "gen":
+				if id, ok := kv.Value.(*ast.Ident); ok {
+					gen = id.Name
+				}
+			case "notContainer":
+				excluded = true
+			}
+		}
+		// Exported generators only, as the genStep reader this replaced matched: the preflight
+		// can name only what entrypoint exports, and the one unexported generator
+		// (startJailDaemonSupervisor) starts processes, which a temp-home dry run must not.
+		if gen != "" && ast.IsExported(gen) && !excluded && !seen[gen] {
+			seen[gen] = true
+			out = append(out, gen)
+		}
+		return true
+	})
 	sort.Strings(out)
 	return out
 }
