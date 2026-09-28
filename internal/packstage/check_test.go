@@ -1,7 +1,7 @@
 package packstage
 
 // check_test.go pins the two walk variants the one pack resolver (config.ResolvePack) added:
-// Check, Stage's verdict without its copy, and FollowSymlinks, the host notch's reading of a local
+// Check, Stage's verdict without its copy, and FollowSymlinks, how every notch reads a local
 // pack (docs/plans/notch-convergence.md item 5 and OQ-NC9).
 
 import (
@@ -43,7 +43,7 @@ func TestCheckRefusesAnEscapingSymlinkAndCopiesNothing(t *testing.T) {
 
 // FOLLOWSYMLINKS DELIVERS A DOTFILE MANAGER'S TREE AS CONTENT: a whole skill directory linked
 // out of the pack is walked as if it were one, and a linked file stages its target's bytes. This
-// is how the host notch read a local pack in place before it staged one, which OQ-NC9 keeps.
+// is how every notch reads a local pack (OQ-NC9, ruled A).
 func TestFollowSymlinksWalksALinkedDirectoryOutOfThePack(t *testing.T) {
 	root, dest, dotfiles := t.TempDir(), t.TempDir(), t.TempDir()
 	writePack(t, dotfiles, map[string]os.FileMode{

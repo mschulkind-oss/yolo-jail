@@ -164,20 +164,24 @@ func escapingSkill(t *testing.T, e config.PackEntry) {
 	}
 }
 
-// A FILTERED LOCAL PACK'S ESCAPING SYMLINK REFUSES IT AT THE HOST, as it refuses the launch. The host
-// staged a filtered entry through packstage.Stage before there was one resolver, so this is the case
-// where the notches already agreed; only an UNFILTERED local pack, which the host read in place, is
-// followed pending OQ-NC9 (TestApplyHostConvergesOverASymlinkedPack pins that half).
-func TestHostResolverRefusesAFilteredLocalPacksEscapingSymlink(t *testing.T) {
+// A LOCAL PACK'S ESCAPING SYMLINK IS FOLLOWED AT THE HOST, FILTERED OR NOT, as the launch follows
+// it (OQ-NC9, ruled A; TestStagePacksFollowsADotfileManagersLinksInALocalPack is the launch's
+// half). A filtered entry used to be refused here, because the host staged it through
+// packstage.Stage's no-escape rule, while the same pack unfiltered was followed.
+func TestHostResolverFollowsALocalPacksEscapingSymlinkFilteredOrNot(t *testing.T) {
 	filteredPackHome(t, cleanFltManifest, map[string]string{"README.md": "r\n"}, `,"exclude":["README.md"]`, "")
 	flt := firstEntryNamed(t, "flt")
 	escapingSkill(t, flt)
-	if _, err := resolveConfiguredPack(flt); err == nil || !strings.Contains(err.Error(), "outside the pack") {
-		t.Fatalf("resolveConfiguredPack = %v, want the launch's no-escape refusal", err)
+	p, err := resolveConfiguredPack(flt)
+	if err != nil {
+		t.Fatalf("resolveConfiguredPack over a filtered local pack's link = %v, want it followed", err)
+	}
+	if _, err := os.Stat(filepath.Join(p.Root, "README.md")); !os.IsNotExist(err) {
+		t.Errorf("the entry's exclude must still apply (%v)", err)
 	}
 	flt.Exclude = nil
 	if _, err := resolveConfiguredPack(flt); err != nil {
-		t.Errorf("control: the same pack unfiltered is followed at the host: %v", err)
+		t.Errorf("the same pack unfiltered is followed at the host: %v", err)
 	}
 }
 

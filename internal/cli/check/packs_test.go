@@ -32,6 +32,11 @@ func packsFixture(t *testing.T, cfgBody string) {
 // when that gate was retired (see internal/packstage's package doc); D1 is about WHERE a
 // staging problem is reported, not about which rule produced it, so the test moves to the
 // rule that remains rather than retiring with the one it happened to use.
+//
+// And moved again on 2026-09-28: a LOCAL pack's escaping symlink is followed at every notch now
+// (docs/plans/notch-convergence.md OQ-NC9), so the problem is a DANGLING link, which a local
+// pack's staging still refuses. The escaping case is the next test, and a fetched pack's escaping
+// link, still refused, is pinned at the launch (TestStagePacksRefusesAFetchedPacksEscapingSymlink).
 func TestSectionPacksFailsOnStagingRefusal(t *testing.T) {
 	pack := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(pack, "skills", "s"), 0o755); err != nil {
@@ -40,11 +45,7 @@ func TestSectionPacksFailsOnStagingRefusal(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(pack, "skills", "s", "SKILL.md"), []byte("---\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	outside := filepath.Join(t.TempDir(), "secret")
-	if err := os.WriteFile(outside, []byte("k"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Symlink(outside, filepath.Join(pack, "escape.md")); err != nil {
+	if err := os.Symlink(filepath.Join(t.TempDir(), "gone"), filepath.Join(pack, "dangling.md")); err != nil {
 		t.Skipf("symlinks unavailable: %v", err)
 	}
 	packsFixture(t, `{"packs": ["file://`+pack+`"]}`)
@@ -54,10 +55,35 @@ func TestSectionPacksFailsOnStagingRefusal(t *testing.T) {
 	(&Options{}).sectionPacks(r, jsonx.NewOrderedMap())
 
 	if r.failed == 0 {
-		t.Errorf("expected a failure for a symlink escaping the pack root:\n%s", buf.String())
+		t.Errorf("expected a failure for a symlink that resolves to nothing:\n%s", buf.String())
 	}
-	if !strings.Contains(buf.String(), "escape.md") {
+	if !strings.Contains(buf.String(), "dangling.md") {
 		t.Errorf("message should name the offending file:\n%s", buf.String())
+	}
+}
+
+// `yolo check` STAGES A LOCAL PACK AS THE LAUNCH DOES, its escaping links followed (OQ-NC9, ruled
+// A): a dotfile manager's pack is not a problem to report, since the launch it predicts runs.
+func TestSectionPacksFollowsALocalPacksEscapingSymlink(t *testing.T) {
+	pack := t.TempDir()
+	outside := filepath.Join(t.TempDir(), "SKILL.md")
+	if err := os.WriteFile(outside, []byte("---\nname: s\ndescription: d\n---\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(pack, "skills", "s"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(pack, "skills", "s", "SKILL.md")); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	packsFixture(t, `{"packs": ["file://`+pack+`"]}`)
+
+	var buf bytes.Buffer
+	r := &reporter{w: &buf}
+	(&Options{}).sectionPacks(r, jsonx.NewOrderedMap())
+
+	if r.failed != 0 || strings.Contains(buf.String(), "outside the pack") {
+		t.Errorf("a local pack's escaping link must stage as the launch stages it:\n%s", buf.String())
 	}
 }
 

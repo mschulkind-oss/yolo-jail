@@ -58,10 +58,9 @@ func resolveSelectedPacks() (packs []*packload.Pack, complete bool) {
 	// staging will check it out: that launch's own deriver (WritableHomeDirs over the staged set)
 	// then drops the entry the pack's dir covers, and the next validation, with the tree in place,
 	// refuses it. nil Getenv: the store falls back to the real environment, which is how a nested
-	// launch's local packs resolve through the staged-tree fallback. FollowLocalSymlinks: this read
-	// an unfiltered local pack in place before there was one resolver, so it followed its links,
-	// as the host verbs still do (OQ-NC9); refusing here left such a pack out of the reservations
-	// while `yolo host apply` delivered it.
+	// launch's local packs resolve through the staged-tree fallback. A local pack's links are
+	// followed, as at every notch (OQ-NC9), so a dotfile-deployed pack reserves its dirs here as it
+	// does in the launch.
 	//
 	// THE SELECTION CLOSURE through the one selection function (SelectPacks, notch-convergence
 	// item 6): a pack a selected pack's live `needs` pulls in is selected too
@@ -69,7 +68,7 @@ func resolveSelectedPacks() (packs []*packload.Pack, complete bool) {
 	// names (docs/design/wire-bridge-gateway.md WG-I11), exactly as the launch stages them.
 	sel, _ := SelectPacks(entries, PackSelectSpec{
 		Resolve: func(entry PackEntry) (*packload.Pack, error) {
-			res, err := ResolvePack(entry, ResolvePackSpec{ReadOnlyStore: true, FollowLocalSymlinks: true})
+			res, err := ResolvePack(entry, ResolvePackSpec{ReadOnlyStore: true})
 			if err != nil {
 				return nil, err
 			}

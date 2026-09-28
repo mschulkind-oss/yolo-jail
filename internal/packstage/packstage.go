@@ -16,7 +16,8 @@
 //     dereferenced. A pack is fetched from someone else's repo, so `ln -s
 //     ~/.ssh/id_ed25519 skills/innocuous.md` must not exfiltrate a key into a
 //     mounted tree. (Skills staging DOES dereference symlinks, deliberately, because
-//     its source is the user's OWN home — different source, different rule.)
+//     its source is the user's OWN home — different source, different rule. So does a
+//     LOCAL pack's staging, for the same reason: Spec.FollowSymlinks.)
 //  2. CLEAR CONTENTS, NEVER THE DIR. A running jail's bind mount captured the
 //     staging dir's inode; recreating it silently detaches the mount. Same invariant
 //     PrepareSkills documents.
@@ -61,11 +62,11 @@ type Spec struct {
 	Exclude []string
 	// FollowSymlinks follows every symlink wherever it points — a linked directory is walked
 	// as if it were one — instead of refusing one that leaves Root (rule 1). It exists for ONE
-	// kind of caller: a host-side reader of an UNFILTERED LOCAL pack
-	// (config.ResolvePackSpec.FollowLocalSymlinks), which read such a pack in place before there
-	// was one resolver, and so delivered a dotfile manager's symlinked tree as content. Whether a jail should do the same, or the host should refuse as
-	// the jail does, is docs/plans/notch-convergence.md OQ-NC9; until it is ruled this keeps each
-	// notch's shipped behavior. A dangling link and a link loop are refused either way.
+	// kind of pack: a LOCAL one, a directory the user named in their own user config, which the
+	// one pack resolver stages this way at every notch (config.followsSymlinks,
+	// docs/plans/notch-convergence.md OQ-NC9, ruled A), so a dotfile manager's symlinked tree is
+	// delivered as content. A fetched or embedded pack never gets it, so rule 1 still holds for
+	// the case it was written for. A dangling link and a link loop are refused either way.
 	FollowSymlinks bool
 }
 

@@ -1,16 +1,21 @@
 package config
 
-// packresolvefollow_test.go pins which resolutions follow a local pack's escaping symlinks while
-// docs/plans/notch-convergence.md OQ-NC9 is open, and where a process resolution reads a pack from.
+// packresolvefollow_test.go pins that every resolution follows a local pack's escaping symlinks
+// (docs/plans/notch-convergence.md OQ-NC9, ruled A, 2026-09-28), and where a process resolution
+// reads a pack from.
 //
-// Before the one resolver, a local pack was READ IN PLACE by the host verbs, config validation,
-// UseProfileCLINames and the lazy loophole resolver — which followed any link it held — and was
-// STAGED, refusing an escaping link, by the launch, `yolo check`, `yolo pack explain` and every
-// reader of a FILTERED entry. FollowLocalSymlinks keeps exactly that split and no wider one.
+// Before the ruling, a local pack was followed by the callers that had READ it in place before
+// there was one resolver (the host verbs, config validation, UseProfileCLINames and the lazy
+// loophole resolver) and refused by the ones that STAGED it (the launch, `yolo check`, `yolo pack
+// explain`, and every reader of a filtered entry), through an input each caller set. A dotfile
+// manager's pack therefore worked at the host and refused every jail launch. The input is gone:
+// a local pack is a directory the user named in their own user config, and every caller follows
+// its links. A fetched pack's escaping link is refused everywhere (packstage's no-escape rule).
 
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -41,24 +46,31 @@ func escapingLocalPack(t *testing.T, name string) string {
 	return root
 }
 
-// A FILTERED LOCAL PACK'S ESCAPING SYMLINK IS REFUSED EVEN WHEN FOLLOWING, because every notch
-// staged a filtered entry through packstage.Stage, which refuses one: following only ever described
-// reading an unfiltered pack in place.
-func TestResolvePackFollowsOnlyAnUnfilteredLocalPacksLinks(t *testing.T) {
-	root := escapingLocalPack(t, "flt")
-	entry := PackEntry{Source: "file://" + root, Name: "flt", Exclude: []string{"README.md"}}
-	for _, spec := range []ResolvePackSpec{
-		{FollowLocalSymlinks: true},
-		{FollowLocalSymlinks: true, Dest: filepath.Join(t.TempDir(), "flt")},
-	} {
-		if _, err := ResolvePack(entry, spec); err == nil || !strings.Contains(err.Error(), "outside the pack") {
-			t.Errorf("a FILTERED local pack's escaping symlink (dest %q) = %v, want the no-escape refusal",
-				spec.Dest, err)
+// A LOCAL PACK'S LINKS ARE FOLLOWED IN EVERY MODE, FILTERED OR NOT (OQ-NC9, ruled A). Every caller
+// asks the resolver the same way, so there is no input left to set: the launch stages it, a host
+// verb reads it for its process, and a declaration reader loads it in place, and all three follow.
+// The entry's filters still apply to what the links deliver.
+func TestResolvePackFollowsALocalPacksLinksInEveryMode(t *testing.T) {
+	root := escapingLocalPack(t, "stow")
+	for _, exclude := range [][]string{nil, {"README.md"}} {
+		entry := PackEntry{Source: "file://" + root, Name: "stow", Exclude: exclude}
+		for _, spec := range []ResolvePackSpec{{}, {Dest: filepath.Join(t.TempDir(), "stow")}} {
+			res, err := ResolvePack(entry, spec)
+			if err != nil || res.Pack == nil {
+				t.Errorf("exclude %v, dest %q: a local pack's link = %v, want it followed", exclude, spec.Dest, err)
+				continue
+			}
+			if !slices.Contains(res.Staged.Staged, "skills/leak/SKILL.md") {
+				t.Errorf("exclude %v, dest %q: the followed file is not in the result: %v", exclude, spec.Dest,
+					res.Staged.Staged)
+			}
+			if len(exclude) > 0 && slices.Contains(res.Staged.Staged, "README.md") {
+				t.Errorf("dest %q: the filter must still apply to a followed pack: %v", spec.Dest, res.Staged.Staged)
+			}
 		}
-	}
-	entry.Exclude = nil
-	if res, err := ResolvePack(entry, ResolvePackSpec{FollowLocalSymlinks: true}); err != nil || res.Pack == nil {
-		t.Errorf("control: the same pack unfiltered is followed: %v", err)
+		if _, err := ResolvePackForProcess(entry, ResolvePackSpec{}); err != nil {
+			t.Errorf("exclude %v: a process resolution refused a local pack's link: %v", exclude, err)
+		}
 	}
 }
 

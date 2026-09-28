@@ -59,20 +59,6 @@ type ResolvePackSpec struct {
 	// nothing into the pack store, instead of Store.Resolve, which may check a commit out of the
 	// local mirror.
 	ReadOnlyStore bool
-	// FollowLocalSymlinks resolves an UNFILTERED LOCAL pack with packstage.Spec.FollowSymlinks:
-	// every symlink followed wherever it points, instead of refusing one that leaves the pack.
-	//
-	// It is set by exactly the callers that read such a pack IN PLACE before there was one
-	// resolver, and so followed any link it held: the host verbs and the footer, config
-	// validation (resolveSelectedPacks), UseProfileCLINames and the lazy loophole resolver. A
-	// dotfile manager's symlinked pack (rcm, stow, chezmoi) is the shape a user's own pack most
-	// often has at the host. The callers that STAGED a pack — the launch, `yolo check`, `yolo pack
-	// explain` — refused an escaping link and still do, and so did every caller reading a
-	// FILTERED entry, which was staged everywhere: so the input is ignored for a filtered entry,
-	// and never reaches a fetched or embedded pack, whose escaping symlink every notch refuses.
-	// Which answer both notches should give is docs/plans/notch-convergence.md OQ-NC9; this input
-	// keeps each caller's shipped behavior until it is ruled.
-	FollowLocalSymlinks bool
 	// Getenv is threaded to the pack store, whose staged-tree fallback reads YOLO_PACK_ROOT (how
 	// a nested launch resolves the local packs its outer launch delivered). Nil reads the real
 	// environment.
@@ -144,7 +130,7 @@ func ResolvePack(entry PackEntry, spec ResolvePackSpec) (ResolvedPack, error) {
 	}
 
 	stage := packstage.Spec{Root: root, Only: entry.Only, Exclude: entry.Exclude,
-		FollowSymlinks: spec.FollowLocalSymlinks && entry.IsLocal() && !filtered}
+		FollowSymlinks: followsSymlinks(entry)}
 	loadFrom := root
 	var err error
 	switch {
@@ -176,6 +162,30 @@ func ResolvePack(entry PackEntry, spec ResolvePackSpec) (ResolvedPack, error) {
 		out.Pack.SourceRoot = root
 	}
 	return out, nil
+}
+
+// followsSymlinks reports whether entry's pack is staged with packstage.Spec.FollowSymlinks: every
+// symlink followed wherever it points, and a linked directory walked as one, instead of refusing a
+// link that leaves the pack. It is the pack's ORIGIN that decides, never the caller, so every
+// notch and every verb gives one answer (docs/plans/notch-convergence.md OQ-NC9, ruled A,
+// 2026-09-28):
+//
+//   - A LOCAL pack (a file:// entry, the conventional local pack included) is FOLLOWED, filtered
+//     or not. It is a directory the user named in their own user config, which `packs` alone can
+//     say (workspace scope is inexpressible, packs.go's header), and OQ-TP9
+//     (docs/design/trust-paths.md) already gives that act full trust. A dotfile manager (rcm,
+//     stow, chezmoi) deploys exactly this shape: the pack's files, or whole directories of it, are
+//     links into the dotfiles repo. The launch refused such a pack while `yolo host apply`
+//     delivered it; the jail's staged copy holds the links' targets as plain files.
+//   - A FETCHED pack is NOT followed, and neither is an embedded one: packstage's no-escape rule
+//     refuses an escaping link at every notch, because the threat it was written for is someone
+//     else's repository smuggling a host file into a jail or a real home.
+//
+// This replaced an input each caller set (FollowLocalSymlinks), which kept the host's reading and
+// the launch's refusal apart. It is not the workspace skills reader's rule and does not reach it:
+// that tree is agent-editable, and jailcontent's confined reader never follows a link.
+func followsSymlinks(entry PackEntry) bool {
+	return entry.IsLocal() && !entry.Embedded()
 }
 
 // ResolvePackForProcess resolves an entry for a caller with no tree of its own — the host verbs

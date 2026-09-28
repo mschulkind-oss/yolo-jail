@@ -7,6 +7,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -84,10 +85,13 @@ func TestResolvePackNamesABrokenEmbeddedMaterialization(t *testing.T) {
 	}
 }
 
-// DECLARATION MODE STILL APPLIES THE NO-ESCAPE RULE to an unfiltered pack it reads in place
-// (packstage.Check), so the answer "does this pack resolve" is the launch's in both modes — and
-// FollowLocalSymlinks, the host's standing input pending OQ-NC9, is the one thing that changes it.
-func TestResolvePackDeclarationModeRefusesWhatTheLaunchRefuses(t *testing.T) {
+// DECLARATION MODE GIVES THE LAUNCH'S ANSWER for an unfiltered pack it reads in place
+// (packstage.Check), so "does this pack resolve" is the same in both modes: for a LOCAL pack, an
+// escaping link is followed in both (OQ-NC9, ruled A). The refusal half, for a fetched pack, is
+// pinned where a fetched fixture exists (TestStagePacksRefusesAFetchedPacksEscapingSymlink, and
+// TestApplyHostRefusesAFetchedPackWithAnEscapingSymlink at the host); packstage's own tests pin
+// the rule a non-following walk applies.
+func TestResolvePackDeclarationModeAnswersAsTheLaunchDoes(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "esc")
 	if err := os.MkdirAll(filepath.Join(root, "skills"), 0o755); err != nil {
 		t.Fatal(err)
@@ -101,15 +105,19 @@ func TestResolvePackDeclarationModeRefusesWhatTheLaunchRefuses(t *testing.T) {
 	}
 	entry := PackEntry{Source: "file://" + root, Name: "esc"}
 
-	if _, err := ResolvePack(entry, ResolvePackSpec{}); err == nil ||
-		!strings.Contains(err.Error(), "outside the pack") {
-		t.Errorf("declaration mode over an escaping symlink = %v, want the launch's refusal", err)
+	declared, err := ResolvePack(entry, ResolvePackSpec{})
+	if err != nil || declared.Pack == nil {
+		t.Fatalf("declaration mode over a local pack's escaping symlink = %v, want it followed", err)
 	}
-	if _, err := ResolvePack(entry, ResolvePackSpec{Dest: filepath.Join(t.TempDir(), "esc")}); err == nil {
-		t.Error("stage mode must refuse it too")
+	staged, err := ResolvePack(entry, ResolvePackSpec{Dest: filepath.Join(t.TempDir(), "esc")})
+	if err != nil || staged.Pack == nil {
+		t.Fatalf("stage mode over a local pack's escaping symlink = %v, want it followed", err)
 	}
-	res, err := ResolvePack(entry, ResolvePackSpec{FollowLocalSymlinks: true})
-	if err != nil || res.Pack == nil {
-		t.Errorf("FollowLocalSymlinks must follow a LOCAL pack's link: %v", err)
+	if !slices.Equal(declared.Staged.Staged, staged.Staged.Staged) {
+		t.Errorf("the two modes disagree about what the pack holds: %v vs %v",
+			declared.Staged.Staged, staged.Staged.Staged)
+	}
+	if body, err := os.ReadFile(filepath.Join(staged.Pack.Root, "skills", "leak.md")); err != nil || string(body) != "s" {
+		t.Errorf("the staged copy must hold the link's target as a file: %q, %v", body, err)
 	}
 }

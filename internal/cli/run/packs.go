@@ -782,8 +782,7 @@ func resolveConfiguredPacks() []*packload.Pack {
 	// tree), and an unfiltered pack is read in place, where a host-scope daemon spawned from
 	// one of its modules can keep reading it after this process exits. A fetched pack's
 	// escaping symlink makes it contribute nothing, as it refuses the launch; a local pack's
-	// is followed, as this resolver did when it read every local pack in place and as the
-	// host verbs do (FollowLocalSymlinks, pending OQ-NC9).
+	// is followed, as the launch and the host verbs follow it (OQ-NC9).
 	//
 	// AN EMBEDDED PACK CAN SHIP A LOOPHOLE (the official `audio` pack, OQ-LP11, was the
 	// first). This branch used to skip embedded entries, and the omission was measured: with
@@ -799,7 +798,7 @@ func resolveConfiguredPacks() []*packload.Pack {
 	// contributes nothing.
 	sel, _ := config.SelectPacks(entries, config.PackSelectSpec{
 		Resolve: func(entry config.PackEntry) (*packload.Pack, error) {
-			res, err := config.ResolvePackForProcess(entry, config.ResolvePackSpec{FollowLocalSymlinks: true})
+			res, err := config.ResolvePackForProcess(entry, config.ResolvePackSpec{})
 			if err != nil || res.Pack == nil || len(res.Problems) > 0 {
 				return nil, nil // contributes nothing: see above
 			}

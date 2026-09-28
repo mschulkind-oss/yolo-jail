@@ -8,12 +8,15 @@ package run
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"testing/fstest"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
+	"github.com/mschulkind-oss/yolo-jail/internal/packsrc"
 	"github.com/mschulkind-oss/yolo-jail/packs"
 )
 
@@ -51,27 +54,116 @@ func TestStagePacksAppliesAnEmbeddedEntrysFilters(t *testing.T) {
 	}
 }
 
-// A LOCAL PACK'S ESCAPING SYMLINK REFUSES THE LAUNCH (packstage's no-escape rule), which is the
-// jail half of OQ-NC9: the host follows such a link (TestApplyHostConvergesOverASymlinkedPack) and
-// this pins that the launch does not, until the question is ruled.
-func TestStagePacksRefusesALocalPacksEscapingSymlink(t *testing.T) {
+// A LOCAL PACK DEPLOYED BY A DOTFILE MANAGER STAGES, its links followed into the dotfiles repo
+// (docs/plans/notch-convergence.md OQ-NC9, ruled A: a local pack's links are followed at every
+// notch). rcm links each FILE and makes the directories real; stow links a whole DIRECTORY. Both
+// shapes are here, one in the conventional local pack and one in a configured local pack whose
+// entry carries a filter, because a filtered entry is followed too. The launch used to refuse
+// both with packstage's no-escape rule while `yolo host apply` delivered them
+// (TestApplyHostConvergesOverASymlinkedPack). The jail's tree holds plain files: the jail cannot
+// see the dotfiles repo, so a copied link would point at nothing there.
+func TestStagePacksFollowsADotfileManagersLinksInALocalPack(t *testing.T) {
 	home := packHome(t)
-	p := writePackManifest(t, "esc", `{"name":"esc"}`)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+	t.Setenv("YOLO_PACK_ROOT", "")
+	dotfiles := filepath.Join(t.TempDir(), "dotfiles")
+	write := func(path, body string) {
+		t.Helper()
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	link := func(target, path string) {
+		t.Helper()
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(target, path); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// rcm: ~/.config/yolo-jail/local/<file> -> ~/.dotfiles/config/yolo-jail/local/<file>.
+	local := filepath.Join(home, ".config", "yolo-jail", "local")
+	rcmSrc := filepath.Join(dotfiles, "config", "yolo-jail", "local")
+	write(filepath.Join(rcmSrc, "pack.json"), `{"name":"local"}`)
+	write(filepath.Join(rcmSrc, "skills", "review", "SKILL.md"), "---\nname: review\ndescription: d\n---\nFROM RCM\n")
+	link(filepath.Join(rcmSrc, "pack.json"), filepath.Join(local, "pack.json"))
+	link(filepath.Join(rcmSrc, "skills", "review", "SKILL.md"), filepath.Join(local, "skills", "review", "SKILL.md"))
+	// stow: <pack>/skills/tidy -> ~/dotfiles/stow/tidy, a directory link.
+	stowed := localPackDir(t, "stowed")
+	write(filepath.Join(dotfiles, "stow", "tidy", "SKILL.md"), "---\nname: tidy\ndescription: d\n---\nFROM STOW\n")
+	link(filepath.Join(dotfiles, "stow", "tidy"), filepath.Join(stowed, "skills", "tidy"))
+	writeUserPacks(t, home, `[{"source":"file://`+stowed+`","exclude":["marker.txt"]}]`)
+
+	o := &Options{Workspace: t.TempDir(), Stdout: discardBuf(), Stderr: discardBuf()}
+	tree, loaded, _, err := o.stagePacks("yolo-test-dotfiles")
+	if err != nil {
+		t.Fatalf("a local pack a dotfile manager deployed must launch: %v", err)
+	}
+	if got := packNames(loaded); !slices.Equal(got, []string{"stowed", "local"}) {
+		t.Fatalf("loaded = %v, want both local packs", got)
+	}
+	for rel, want := range map[string]string{
+		filepath.Join("local", "skills", "review", "SKILL.md"): "FROM RCM",
+		filepath.Join("stowed", "skills", "tidy", "SKILL.md"):  "FROM STOW",
+	} {
+		path := filepath.Join(tree, rel)
+		fi, err := os.Lstat(path)
+		if err != nil || !fi.Mode().IsRegular() {
+			t.Errorf("%s in the jail's tree must be a plain file (%v, %v)", rel, fi, err)
+			continue
+		}
+		if body, _ := os.ReadFile(path); !strings.Contains(string(body), want) {
+			t.Errorf("%s = %q, want the dotfiles repo's content", rel, body)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(tree, "stowed", "marker.txt")); !os.IsNotExist(err) {
+		t.Errorf("the entry's exclude still applies to a followed pack (%v)", err)
+	}
+}
+
+// A FETCHED PACK'S ESCAPING SYMLINK STILL REFUSES THE LAUNCH (OQ-NC9 keeps the no-escape rule for
+// the case it was written for): someone else's repository must not stage a host file into a jail.
+func TestStagePacksRefusesAFetchedPacksEscapingSymlink(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available")
+	}
+	home := packHome(t)
+	t.Setenv("YOLO_PACK_ROOT", "")
 	secret := filepath.Join(t.TempDir(), "secret")
 	if err := os.WriteFile(secret, []byte("SECRET"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.MkdirAll(filepath.Join(p.Root, "skills", "x"), 0o755); err != nil {
+	repo := t.TempDir()
+	if err := os.WriteFile(filepath.Join(repo, "pack.json"), []byte(`{"name":"acme"}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Symlink(secret, filepath.Join(p.Root, "skills", "x", "SKILL.md")); err != nil {
+	if err := os.MkdirAll(filepath.Join(repo, "skills", "leak"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	writeUserPacks(t, home, `["file://`+p.Root+`"]`)
+	if err := os.Symlink(secret, filepath.Join(repo, "skills", "leak", "SKILL.md")); err != nil {
+		t.Fatal(err)
+	}
+	for _, args := range [][]string{{"init", "-q", "-b", "main"}, {"add", "-A"}, {"commit", "-qm", "pack"}} {
+		cmd := exec.Command("git", args...)
+		cmd.Dir = repo
+		cmd.Env = append(packsrc.CleanGitEnv(os.Environ()), "GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@e",
+			"GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@e")
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	src := "git+file://" + repo + "?ref=main"
+	writeUserPacks(t, home, `[{"name": "acme", "source": "`+src+`"}]`)
+	syncPackStore(t, src)
+
 	o := &Options{Workspace: t.TempDir(), Stdout: discardBuf(), Stderr: discardBuf()}
-	_, _, _, err := o.stagePacks("yolo-test-escape")
-	if err == nil || !strings.Contains(err.Error(), "outside the pack") || !strings.Contains(err.Error(), "esc") {
-		t.Fatalf("a local pack's escaping symlink must refuse the launch, naming the pack: %v", err)
+	_, _, _, err := o.stagePacks("yolo-test-fetched-escape")
+	if err == nil || !strings.Contains(err.Error(), "outside the pack") || !strings.Contains(err.Error(), "acme") {
+		t.Fatalf("a fetched pack's escaping symlink must refuse the launch, naming the pack: %v", err)
 	}
 }
 
@@ -105,7 +197,7 @@ func TestStagePacksReadsTheOneEmbeddedMaterialization(t *testing.T) {
 // did before there was one resolver. In place because a loophole module it hands out is where a
 // host-scope daemon spawned by `yolo host-daemon start` resolves {loophole_dir}, and that daemon
 // outlives the verb, whose process pack tree is deleted when it exits. Following because the host
-// verbs deliver such a pack (OQ-NC9 decides whether they should), and `yolo loopholes list` must not
+// verbs and the launch deliver such a pack (OQ-NC9), and `yolo loopholes list` must not
 // then leave out a loophole it ships.
 func TestResolveConfiguredPacksReadsAnUnfilteredLocalPackInPlace(t *testing.T) {
 	home := packHome(t)

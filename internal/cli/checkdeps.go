@@ -242,9 +242,9 @@ func describeUnresolved(list []unresolvedPack) string {
 // and still delivered it to the real home (rows B3 and B6). Now every file a host verb reads —
 // skills, briefings, `files`, plugins — is one the entry's filters kept. An UNFILTERED pack is read
 // in place, after packstage.Check, since a copy would hold the same files. A FETCHED pack's
-// escaping symlink refuses it exactly as it fails the launch, and so does a FILTERED local pack's.
-// An unfiltered LOCAL pack's symlinks are followed (hostPackResolveSpec): the one difference left
-// between the notches here, kept on purpose until OQ-NC9 rules it. A copy lives until the process
+// escaping symlink refuses it exactly as it fails the launch, and a LOCAL pack's symlinks are
+// followed, filtered or not, exactly as the launch follows them (OQ-NC9; the resolver decides by
+// the pack's origin, config.followsSymlinks). A copy lives until the process
 // releases its packs (packload.ReleaseEmbedded); a message naming a file in it names the source
 // instead (packload.Pack.SourcePath).
 //
@@ -273,16 +273,13 @@ func resolveConfiguredPack(e config.PackEntry) (*packload.Pack, error) {
 	return resolvedOrProblems(e, res)
 }
 
-// hostPackResolveSpec is how every host verb asks the one resolver for a pack: following an
-// unfiltered LOCAL pack's symlinks, which the host read in place before there was one resolver
-// (config.ResolvePackSpec.FollowLocalSymlinks, pending OQ-NC9), and writing nothing into the pack
-// store when readOnly. One constructor so the footer's declaration read and the verbs' reads cannot
-// disagree about which packs resolve. The other callers that read a local pack in place before
-// then — config validation, UseProfileCLINames and the lazy loophole resolver — set the same input
-// themselves, so every host-side reader gives one answer; the launch, `yolo check` and `yolo pack
-// explain` never did and do not.
+// hostPackResolveSpec is how every host verb asks the one resolver for a pack: writing nothing
+// into the pack store when readOnly. One constructor so the footer's declaration read and the
+// verbs' reads cannot disagree about which packs resolve. Whether a pack's symlinks are followed
+// is not the caller's to say: the resolver follows a local pack's and refuses a fetched pack's
+// escaping one, at every notch (OQ-NC9).
 func hostPackResolveSpec(readOnly bool) config.ResolvePackSpec {
-	return config.ResolvePackSpec{FollowLocalSymlinks: true, ReadOnlyStore: readOnly}
+	return config.ResolvePackSpec{ReadOnlyStore: readOnly}
 }
 
 // resolvedOrProblems is a resolution's pack, or the error its manifest problems make it: an
