@@ -80,32 +80,21 @@ var valueTakingFlags = func() map[string]bool {
 	return m
 }()
 
-// namesSubcommand reports whether any token in args is a subcommand NAME, skipping the
-// values of value-taking flags. `--flag=value` forms need no skip: the value cannot be a
-// bare token.
-func namesSubcommand(args []string) bool {
-	for i := 0; i < len(args); i++ {
-		if valueTakingFlags[args[i]] {
-			i++ // its value, whatever it looks like
-			continue
-		}
-		if _, ok := registry[args[i]]; ok {
-			return true
-		}
-	}
-	return false
-}
-
 // RewriteArgv applies the `yolo <args> -- cmd` → `yolo run <args> -- cmd`
-// rewrite: if `--` is present and nothing before it names a subcommand, prepend
-// `run`. args is argv[1:]; returns the (possibly) rewritten
-// argv[1:].
+// rewrite: if `--` is present and no positional precedes it, prepend `run`. args is
+// argv[1:]; returns the (possibly) rewritten argv[1:].
+//
+// ANY POSITIONAL before `--` leaves argv alone, not only a subcommand name: a subcommand
+// runs as itself, and anything else is a command yolo does not have, which Main refuses
+// by name (`yolo chekc -- x`: unknown command "chekc"). The values of value-taking flags
+// are not positionals (firstPositional skips them), so `yolo --network host -- bash` is
+// still a jail launch and never the host verb.
 func RewriteArgv(args []string) []string {
 	dashIdx := indexOf(args, "--")
 	if dashIdx < 0 {
 		return args
 	}
-	if namesSubcommand(args[:dashIdx]) {
+	if firstPositional(args[:dashIdx]) != "" {
 		return args
 	}
 	// `yolo --at host -- <cmd>` is the systematic spelling of `yolo host -- <cmd>`

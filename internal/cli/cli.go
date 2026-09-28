@@ -121,11 +121,13 @@ func Main(argv []string) int {
 
 // firstPositional returns the first non-flag token before any `--`, or "".
 //
-// The value of a value-taking flag is NOT a positional: it skips those values for the
-// same reason namesSubcommand does, and the two are two halves of one decision. This
-// half stayed behind when that skip was added, and nothing noticed until global -p made
-// `yolo -p dev` a spelling a user would type — the front door answered
-// `unknown command "dev"` and the run pipeline that implements the flag never ran.
+// The value of a value-taking flag is NOT a positional: it skips those values, as
+// Subcommand does, so `--network host` is a network mode and never the host verb. It is
+// also what RewriteArgv asks before prepending "run", which makes it the one answer to
+// "did the user name a command before `--`?". It once lacked the skip, and nothing
+// noticed until global -p made `yolo -p dev` a spelling a user would type — the front
+// door answered `unknown command "dev"` and the run pipeline that implements the flag
+// never ran.
 func firstPositional(args []string) string {
 	for i := 0; i < len(args); i++ {
 		if valueTakingFlags[args[i]] {

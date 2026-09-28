@@ -59,10 +59,10 @@ func TestIsNative(t *testing.T) {
 	}
 }
 
-// A run flag's VALUE is not a subcommand name. `namesSubcommand` has skipped those
+// A run flag's VALUE is not a subcommand name. The rewrite's scan has skipped those
 // values since the `--network host` collision was fixed, but `firstPositional` — the
 // other half of the same decision, the one that decides between "unknown command" and
-// the run route — never got the same skip. Nothing noticed until global -p made
+// the run route — did not get the same skip at first (the two are one function now). Nothing noticed until global -p made
 // `yolo -p dev` (no command) a spelling a user would actually type: the front door
 // answered "unknown command \"dev\"" and the run pipeline, which implements the flag,
 // was never reached. Every value in valueTakingFlags is user text, so `-p host` and
@@ -77,6 +77,10 @@ func TestAFlagValueIsNotASubcommand(t *testing.T) {
 		"--profile=codex host -- claude": "dispatch:host",
 		"--network host -- bash":         "dispatch:run", // host is a network value, not a verb
 		"chekc":                          "unknown",      // a real typo'd subcommand still errors
+		// ... and so does one followed by `--`: the rewrite must not turn it into a jail
+		// launch of `chekc -- claude` (it did, for one commit, once "run" went first).
+		"chekc -- claude":        "unknown",
+		"-p dev chekc -- claude": "unknown",
 	}
 	for in, want := range cases {
 		if got := routeDecision(strings.Fields(in)); got != want {
