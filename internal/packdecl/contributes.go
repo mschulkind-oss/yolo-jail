@@ -1974,6 +1974,59 @@ func (m *Manifest) validateContributions() []string {
 	problems = append(problems, m.validateAddressedFiles()...)
 	problems = append(problems, m.validateDuplicateContentSources()...)
 	problems = append(problems, m.validateSingleAutonomy()...)
+	problems = append(problems, m.validateServicePointers()...)
+	return problems
+}
+
+// appendServiceListenTokenProblems refuses loopholedecl.TokenListen in a pack service daemon's
+// argv. A service declares no listen address of its own (only a loophole's `jail_daemon.listen`
+// is one), so nothing resolves the token and the daemon would be handed an empty string. The
+// addresses a service answers at are its adapters' `address` and its `via_address`, which core
+// moves on a shared network namespace (docs/plans/notch-convergence.md NC-D45).
+func appendServiceListenTokenProblems(problems []string, label, half string, cmd []string) []string {
+	for _, a := range cmd {
+		if strings.Contains(a, loopholedecl.TokenListen) {
+			return append(problems, fmt.Sprintf(
+				"%s: %s.cmd names %q, but a pack service declares no listen address for it "+
+					"to resolve to — the service answers at its adapters' \"address\" and its "+
+					"\"via_address\", so read those instead", label, half, loopholedecl.TokenListen))
+		}
+	}
+	return problems
+}
+
+// validateServicePointers refuses an `env` value naming loopholedecl.TokenListen whose
+// `served_by` is a service this manifest declares. A service has no listen address, so the
+// pointer could never be composed and would be withheld on every launch (NC-D45). A pointer
+// served by a loophole daemon, or by a service another pack declares, is not decidable here;
+// the credential scope names it at launch instead.
+func (m *Manifest) validateServicePointers() []string {
+	services := map[string]bool{}
+	for _, c := range m.Contributes {
+		if c.Kind == KindService && c.Name != "" {
+			services[c.Name] = true
+		}
+	}
+	var problems []string
+	for i, c := range m.Contributes {
+		if c.Kind != KindEnv || !services[c.ServedBy] {
+			continue
+		}
+		keys := make([]string, 0, len(c.Vars))
+		for k := range c.Vars {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		for _, k := range keys {
+			if strings.Contains(c.Vars[k], loopholedecl.TokenListen) {
+				problems = append(problems, fmt.Sprintf(
+					"contributes[%d]: env var %q names %q, but it is \"served_by\" %q, a pack "+
+						"service, which declares no listen address — write the service's "+
+						"\"via_address\" or adapter \"address\" literally", i, k,
+					loopholedecl.TokenListen, c.ServedBy))
+			}
+		}
+	}
 	return problems
 }
 
@@ -3189,9 +3242,13 @@ func validateContribution(label string, c Contribution) []string {
 			if len(c.JailDaemon.Cmd) == 0 {
 				problems = append(problems, label+": jail_daemon needs a non-empty \"cmd\"")
 			}
+			problems = appendServiceListenTokenProblems(problems, label, "jail_daemon", c.JailDaemon.Cmd)
 		}
 		if c.HostDaemon != nil && len(c.HostDaemon.Cmd) == 0 {
 			problems = append(problems, label+": host_daemon needs a non-empty \"cmd\"")
+		}
+		if c.HostDaemon != nil {
+			problems = appendServiceListenTokenProblems(problems, label, "host_daemon", c.HostDaemon.Cmd)
 		}
 		// The endpoint is a BARE FILE NAME, not a path: the file lands at
 		// /run/yolo-services/<endpoint>, and the directory is core's — an

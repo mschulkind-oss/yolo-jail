@@ -125,8 +125,9 @@ type CredentialScope struct {
 	unservedEnv map[string]string
 	// unlistenedEnv is every pack env variable withheld because its value names
 	// loopholedecl.TokenListen and the daemon it is served by has no served address — a pack
-	// pointing at a daemon that declares no `jail_daemon.listen` — keyed by variable, naming
-	// the daemon.
+	// pointing at a loophole daemon that declares no `jail_daemon.listen`, or at another
+	// pack's service, which has none (packdecl refuses a pack's own) — keyed by variable,
+	// naming the daemon.
 	unlistenedEnv map[string]string
 }
 
@@ -324,8 +325,9 @@ func (s *CredentialScope) UnservedEnvLines(servedByLaunch func(string) bool) []s
 		vars := unlistened[daemon]
 		sort.Strings(vars)
 		lines = append(lines, strings.Join(vars, ", ")+" — names "+loopholedecl.TokenListen+
-			", the listen address of the "+strconv.Quote(daemon)+" jail daemon, which declares "+
-			"none (jail_daemon.listen), so there is no address to compose")
+			", the listen address of the "+strconv.Quote(daemon)+" jail daemon, which serves "+
+			"at no declared address (a loophole declares one as jail_daemon.listen, and a pack "+
+			"service has none), so there is no address to compose")
 	}
 	return lines
 }

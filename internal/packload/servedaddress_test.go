@@ -118,7 +118,10 @@ func TestAListenPointerComposesItsDaemonsServedAddress(t *testing.T) {
 		t.Errorf("a pointer whose daemon has no address was delivered as %q", v)
 	}
 	lines := strings.Join(UnservedLines(bare, nil, nil), "\n")
-	for _, want := range []string{"CODEX_REFRESH_TOKEN_URL_OVERRIDE", `"openai-auth-broker"`, "declares none"} {
+	for _, want := range []string{"CODEX_REFRESH_TOKEN_URL_OVERRIDE", `"openai-auth-broker"`,
+		// In the author's terms for both daemon kinds `served_by` can name: only a loophole
+		// declares a listen address, so a pointer served by a pack service never composes.
+		"a loophole declares one as jail_daemon.listen", "a pack service has none"} {
 		if !strings.Contains(lines, want) {
 			t.Errorf("the withheld pointer is not named (%s):\n%s", want, lines)
 		}
