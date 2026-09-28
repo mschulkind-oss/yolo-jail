@@ -465,6 +465,21 @@ func (o *Options) checkHostServiceLiveness(r *reporter) {
 	probedLoopbackTLS := false
 	for _, cname := range cnames {
 		socketsDir := hostServiceSocketsDir(cname, o.IsMacOS)
+		// Every service of this jail publishes into one directory, so a missing directory is
+		// ONE cause: one row, naming the loopholes it takes down, rather than a FAIL per
+		// loophole with remedies that disagree (one cause, one row: HE-D2,
+		// docs/reference/host-agent-environment.md).
+		if !o.PathExists(socketsDir) {
+			names := make([]string, 0, len(externals))
+			for _, lp := range externals {
+				names = append(names, lp.Name)
+			}
+			r.fail(cname+": host-services directory missing ("+strings.Join(names, ", ")+")",
+				fmt.Sprintf("Expected %s, where this jail's host services publish their "+
+					"endpoints and sockets.  It was removed after the launch or never "+
+					"created.  Relaunch the jail to recreate it.", socketsDir))
+			continue
+		}
 		for _, lp := range externals {
 			label := fmt.Sprintf("loophole %s @ %s", lp.Name, cname)
 			if lp.Name == brokerLoopholeName {

@@ -606,6 +606,63 @@ func TestHostServiceLivenessNoCaveatWithoutALoopbackTLSProbe(t *testing.T) {
 	}
 }
 
+// TestHostServiceLivenessMissingDirIsOneRow is review finding F5, HE-D2's rule applied to this
+// section. Every host service of a jail publishes into one per-jail directory, so when that
+// directory is gone, every loophole of that jail used to FAIL on its own row: "broker endpoint
+// missing ... Relaunch the jail" for one, "no endpoint published ... Tail the log; restart the
+// jail" for the next. One cause, several rows, and remedies that disagree. Now the directory
+// is checked once per jail, and a missing one is one [FAIL] naming it, the loopholes it takes
+// down, and the relaunch that recreates it.
+func TestHostServiceLivenessMissingDirIsOneRow(t *testing.T) {
+	moduleRoot := isolatedModuleDir(t)
+	for name, transport := range map[string]string{"svc": "loopback-tls", "unixsvc": "none"} {
+		modDir := filepath.Join(moduleRoot, name)
+		if err := os.MkdirAll(modDir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(modDir, "manifest.jsonc"), []byte(
+			`{"name": "`+name+`", "description": "x", "transport": "`+transport+`", `+
+				`"default_enabled": true, "host_daemon": {"cmd": ["true"], "publishes": "socket"}}`), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	const cname = "yolo-check-missing-services-dir-test"
+	svcDir := paths.HostServicesDir(cname, false)
+	_ = os.RemoveAll(svcDir)
+
+	var buf bytes.Buffer
+	r := newReporter(&buf, false)
+	o := &Options{
+		Getenv:   func(string) string { return "" },
+		LookPath: func(name string) (string, bool) { return "/bin/" + name, name == "podman" },
+		Exec: func(argv []string, _ string, _ []string, _ time.Duration) ExecResult {
+			if len(argv) > 1 && argv[0] == "podman" && argv[1] == "ps" {
+				return ExecResult{Ran: true, RC: 0, Stdout: cname + "\n"}
+			}
+			return ExecResult{Ran: true, RC: 1}
+		},
+	}
+	fillDefaults(o)
+	o.checkHostServiceLiveness(r)
+	out := buf.String()
+
+	if r.failed != 1 {
+		t.Errorf("failed = %d, want 1 — one missing directory is one finding:\n%s", r.failed, out)
+	}
+	want := "[FAIL] " + cname + ": host-services directory missing (svc, unixsvc)"
+	if !strings.Contains(out, want) {
+		t.Errorf("the row must name the jail and the loopholes it takes down, want %q:\n%s", want, out)
+	}
+	if !strings.Contains(out, svcDir) || !strings.Contains(out, "Relaunch the jail") {
+		t.Errorf("the row must name the directory and the one fix:\n%s", out)
+	}
+	for _, per := range []string{"no endpoint published", "no socket"} {
+		if strings.Contains(out, per) {
+			t.Errorf("a per-loophole row %q printed beside the directory row:\n%s", per, out)
+		}
+	}
+}
+
 // TestHostServiceLivenessInJailSaysWhy: run from inside a jail this section used to
 // return SILENTLY, leaving its header standing over an empty block — which reads as
 // "probed, nothing to report" in exactly the place where the honest answer is "not

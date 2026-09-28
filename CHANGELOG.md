@@ -111,7 +111,8 @@ apply it, and the launch says that too. See
 - `yolo check` reports one finding, not two or three, when no container runtime answers, whether
   none is installed or one is installed but not started, and one finding for a Claude OAuth
   broker whose certificates were never generated. It no longer says no runtime is on `PATH` when
-  a stopped one is.
+  a stopped one is. A running jail whose host-services directory is gone is one failure naming
+  that directory, not one per loophole with different advice each.
 - Two writers for one `host_files` destination refuse the launch; the last one used to win.
 
 ### Removed
