@@ -507,6 +507,14 @@ func fromCheckout(ch selfupdate.Channel, dir string) (selfupdate.Channel, error)
 	return selfupdate.Channel{Kind: selfupdate.KindSource, Exe: ch.Exe, SourceDir: abs, Version: version.GitCommit}, nil
 }
 
+// internalCheckChannel and internalCheckReleaseURL are runInternalUpdateCheck's
+// two seams, so a test can run the real verb end to end against a local
+// release server without an installed binary.
+var (
+	internalCheckChannel    = selfupdate.Current
+	internalCheckReleaseURL = selfupdate.LatestReleaseAPI
+)
+
 // runInternalUpdateCheck is the detached process SpawnBackgroundCheck starts. It
 // writes the cache and releases the lock the spawner took. It prints nothing:
 // no one is reading its stdio.
@@ -519,14 +527,16 @@ func runInternalUpdateCheck(args []string) int {
 		}
 	}
 	defer os.Remove(selfupdate.LockPath(statePath))
-	ch := selfupdate.Current()
+	ch := internalCheckChannel()
 	if ch.Kind == selfupdate.KindUnknown || ch.Kind == selfupdate.KindSource ||
 		!selfupdate.Enabled(os.Getenv) || !config.UpdateCheckEnabled() {
 		return 0
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
-	st := selfupdate.Check(ctx, ch, selfupdate.LoadState(statePath), selfupdate.DefaultCheckDeps())
+	deps := selfupdate.DefaultCheckDeps()
+	deps.ReleaseURL = internalCheckReleaseURL
+	st := selfupdate.Check(ctx, ch, selfupdate.LoadState(statePath), deps)
 	if err := selfupdate.SaveState(statePath, st); err != nil {
 		return 1
 	}

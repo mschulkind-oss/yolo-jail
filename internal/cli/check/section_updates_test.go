@@ -2,6 +2,7 @@ package check
 
 import (
 	"bytes"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -118,5 +119,29 @@ func TestHumanAge(t *testing.T) {
 		if got := humanAge(d); got != want {
 			t.Errorf("humanAge(%v) = %q, want %q", d, got, want)
 		}
+	}
+}
+
+// "update_check": false in the user config reaches the gate fillDefaults
+// installs for `yolo check`, not only a test's injected one.
+func TestFillDefaultsReadsTheUserConfigUpdateCheck(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	o := &Options{}
+	fillDefaults(o)
+	if !o.UpdateCheckEnabled() {
+		t.Error("with no user config the check must be on")
+	}
+	dir := filepath.Join(home, ".config", "yolo-jail")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "config.jsonc"), []byte(`{"update_check": false}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	o = &Options{}
+	fillDefaults(o)
+	if o.UpdateCheckEnabled() {
+		t.Error(`"update_check": false in the user config did not reach yolo check`)
 	}
 }

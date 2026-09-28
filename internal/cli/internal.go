@@ -25,6 +25,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/openauthclient"
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	"github.com/mschulkind-oss/yolo-jail/internal/selfupdate"
 	"github.com/mschulkind-oss/yolo-jail/internal/serialdaemon"
 )
 
@@ -73,7 +74,7 @@ func runInternal(args []string) int {
 		return runDarwinBootstrap(args[1:])
 	case "migrate-host":
 		return runMigrateHost(args[1:])
-	case "update-check":
+	case selfupdate.InternalCheckVerb:
 		// The detached background check internal/selfupdate spawns when the
 		// cached answer is stale. Hidden because its caller is yolo itself.
 		return runInternalUpdateCheck(args[1:])

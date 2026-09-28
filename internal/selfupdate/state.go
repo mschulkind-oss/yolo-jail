@@ -145,6 +145,18 @@ func AcquireLock(path string, now time.Time) bool {
 	return false
 }
 
+// InternalCheckVerb is the `yolo internal` verb the background check runs as.
+// SpawnBackgroundCheck's argv and runInternal's dispatch (internal/cli) both
+// spell it through this constant, so renaming one side cannot silently turn
+// every background check into a usage error nobody sees.
+const InternalCheckVerb = "update-check"
+
+// BackgroundCheckArgs is the argv, after the executable, that
+// SpawnBackgroundCheck runs.
+func BackgroundCheckArgs(statePath string) []string {
+	return []string{"internal", InternalCheckVerb, "--state", statePath}
+}
+
 // SpawnBackgroundCheck starts `<exe> internal update-check` detached — its own
 // session, no inherited stdio — so the command that noticed a stale release
 // cache finishes at full speed and the next one reads the answer. Source
@@ -155,7 +167,7 @@ func SpawnBackgroundCheck(exe, statePath string, now time.Time) error {
 	if !AcquireLock(lock, now) {
 		return nil
 	}
-	cmd := exec.Command(exe, "internal", "update-check", "--state", statePath)
+	cmd := exec.Command(exe, BackgroundCheckArgs(statePath)...)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	if err := cmd.Start(); err != nil {
 		_ = os.Remove(lock)
