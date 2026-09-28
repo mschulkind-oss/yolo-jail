@@ -292,7 +292,7 @@ yolo --version
 
 The formula comes from yolo's own
 [Homebrew tap](https://github.com/mschulkind-oss/homebrew-tap), a third-party package list, and builds
-yolo from source, so the install takes a few minutes. It installs yolo only: Nix and the runtime come
+yolo from source, so the install can take a few minutes. It installs yolo only: Nix and the runtime come
 from steps 1 and 2.
 
 **Homebrew on a Mac:** install it from [brew.sh](https://brew.sh/), then follow the "Next steps" it
