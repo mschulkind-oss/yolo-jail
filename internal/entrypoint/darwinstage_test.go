@@ -109,3 +109,16 @@ func mcpNpmLine(body string) string {
 	}
 	return "(no YOLO_MCP_NPM= line at all)"
 }
+
+// The bootstrap refreshes the font cache without -f: a forced rebuild makes fc-cache
+// sleep 2 s on every launch (measured), and an unforced one still rebuilds any cache
+// that is out of date.
+func TestTheBootstrapDoesNotForceTheFontCache(t *testing.T) {
+	script := BootstrapScript(NewEnv(map[string]string{"HOME": "/home/agent"}))
+	if !strings.Contains(script, "\nfc-cache >/dev/null 2>&1\n") {
+		t.Errorf("the bootstrap no longer refreshes the font cache:\n%s", script)
+	}
+	if strings.Contains(script, "fc-cache -f") {
+		t.Error("the bootstrap forces the font cache again: fc-cache -f sleeps 2 s on every launch")
+	}
+}

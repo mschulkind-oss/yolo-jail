@@ -395,8 +395,12 @@ _yolo_npm_version() {
     return 0
 }
 
-# Initialize font cache (once, not on every shell session)
-fc-cache -f >/dev/null 2>&1
+# Initialize the font cache (once per launch, not per shell session). NOT -f: forcing
+# a rebuild marks every cache dir changed, and fc-cache then sleeps 2 s so later mtimes
+# are distinguishable (fc-cache.c) -- 2.0 s of wall time and ~0 CPU on every launch,
+# MEASURED 2026-09-28. Unforced it rebuilds only a cache that is out of date (a new
+# fonts dir, a changed one) and returns in ~4 ms when none is.
+fc-cache >/dev/null 2>&1
 
 # Agent CLIs (copilot, claude, codex) are NOT installed here.
 # Lazy-install launchers in ~/.yolo/bin/launch/ install them on first use, keeping boot
