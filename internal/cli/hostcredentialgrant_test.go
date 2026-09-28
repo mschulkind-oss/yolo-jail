@@ -320,7 +320,7 @@ func assertRemediesRun(t *testing.T, line, name, value string) {
 // naming a -p that would refuse. The §1 incident's deepseek line.
 func TestHostGrantWithheldLineSaysToDeclareAProfileWhenNoneSelectsTheProvider(t *testing.T) {
 	_, errs := hostGateLaunchWith(t, `{"packs": ["claude"], `+
-		`"providers": {"deepseek": {"base_url": "https://api.deepseek.example", `+
+		`"providers": {"deepseek": {"endpoints": {"openai": {"base_url": "https://api.deepseek.example"}}, `+
 		`"api_key_env_name": "DEEPSEEK_API_KEY"}}, `+
 		`"env_sources": [{"DEEPSEEK_API_KEY": "tok-ds"}]}`, nil, nil, "bash")
 	line := scopeLine(t, errs, "DEEPSEEK_API_KEY")
@@ -337,7 +337,7 @@ func TestHostGrantWithheldLineSaysToDeclareAProfileWhenNoneSelectsTheProvider(t 
 // that resolves to the claimant, whatever it is called.
 func TestHostGrantWithheldLineNamesAUserProfileOverTheProvider(t *testing.T) {
 	_, errs := hostGateLaunchWith(t, `{"packs": ["claude"], `+
-		`"providers": {"deepseek": {"base_url": "https://api.deepseek.example", `+
+		`"providers": {"deepseek": {"endpoints": {"openai": {"base_url": "https://api.deepseek.example"}}, `+
 		`"api_key_env_name": "DEEPSEEK_API_KEY"}}, `+
 		`"profiles": {"ds": {"provider": "deepseek"}}, `+
 		`"env_sources": [{"DEEPSEEK_API_KEY": "tok-ds"}]}`, nil, nil, "bash")
@@ -525,20 +525,30 @@ func TestHostGrantRefusesAUseProfilesKeyNoPackInstalls(t *testing.T) {
 	}
 }
 
-// The same file with the grant typed still delivers: the refusal is about what the ENTRY
-// selects, and a typed -p is the legal spelling it names.
-func TestHostGrantTypedProfileStillDeliversBesideARefusedEntry(t *testing.T) {
-	env, errs := hostGateLaunchWith(t, esUseProfilesBash, nil, []string{"-p", "zai"}, "bash")
+// The same file with the grant typed REFUSES too, in the validator's words: the host runs the
+// provider and profile section of validation (notch-convergence item 13, row A8), so a config
+// every jail launch refuses — `yolo -p zai -- claude` included — refuses every host launch too.
+// ES-D9 exempted a typed -p while the host ran only ES-D5's one-key check. Without the entry the
+// typed grant delivers.
+func TestHostGrantTypedProfileRefusesBesideARefusedEntry(t *testing.T) {
+	rc, env, errs := hostGateRun(t, esUseProfilesBash, nil, []string{"-p", "zai"}, "bash")
+	want, _ := config.UnknownUseProfileKey("bash")
+	if rc == 0 || env != nil || !strings.Contains(errs, want) {
+		t.Errorf("a typed -p beside a use_profiles key every launch refuses must refuse with the "+
+			"validator's message: rc = %d\n%s", rc, errs)
+	}
+	clean := strings.Replace(esUseProfilesBash, `"use_profiles": {"bash": "zai"}, `, "", 1)
+	env, errs = hostGateLaunchWith(t, clean, nil, []string{"-p", "zai"}, "bash")
 	if env["ZAI_API_KEY"] != "tok-es" {
-		t.Errorf("a typed -p zai delivers whatever use_profiles says: ZAI_API_KEY = %q\n%s",
-			env["ZAI_API_KEY"], errs)
+		t.Errorf("a typed -p zai delivers the grant: ZAI_API_KEY = %q\n%s", env["ZAI_API_KEY"], errs)
 	}
 }
 
-// `yolo host env` composes the same way, so it refuses the entry too, and its own typed -p
-// prints the key for a shell to eval — the design's `eval "$(yolo host env --agent bash -p zai)"`.
+// `yolo host env` composes the same way, so it refuses the entry too, typed -p or not, and with
+// the entry gone its typed -p prints the key for a shell to eval — the design's
+// `eval "$(yolo host env --agent bash -p zai)"`.
 func TestHostEnvRefusesTheEntryAndPrintsTheTypedGrant(t *testing.T) {
-	hostGateHome(t, esUseProfilesBash, nil)
+	home := hostGateHome(t, esUseProfilesBash, nil)
 	var out, errw bytes.Buffer
 	if rc := hostMain([]string{"env", "--agent", "bash"}, &out, &errw, false, nil); rc == 0 {
 		t.Errorf("yolo host env --agent bash must refuse use_profiles {bash: zai}:\n%s", out.String())
@@ -546,6 +556,12 @@ func TestHostEnvRefusesTheEntryAndPrintsTheTypedGrant(t *testing.T) {
 	if !strings.Contains(errw.String(), "`yolo host env --agent bash -p zai`") {
 		t.Errorf("the refusal names the env verb's typed spelling:\n%s", errw.String())
 	}
+	out.Reset()
+	errw.Reset()
+	if rc := hostMain([]string{"env", "--agent", "bash", "-p", "zai"}, &out, &errw, false, nil); rc == 0 {
+		t.Errorf("yolo host env --agent bash -p zai must refuse the entry too:\n%s", out.String())
+	}
+	userCfg(t, home, strings.Replace(esUseProfilesBash, `"use_profiles": {"bash": "zai"}, `, "", 1))
 	out.Reset()
 	errw.Reset()
 	if rc := hostMain([]string{"env", "--agent", "bash", "-p", "zai"}, &out, &errw, false, nil); rc != 0 {

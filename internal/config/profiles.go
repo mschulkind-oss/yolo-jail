@@ -176,10 +176,12 @@ func checkProfileEntry(name string, raw any) (packload.UserProfile, string) {
 // selection is read off the merged config (assemble.effectiveUseProfiles), so a
 // workspace spelling would have taken effect, and only this check stops it.
 //
-// It reads the USER config and the WORKSPACE config separately, never the merged map —
+// It reads the USER config (validateUserScopeProfiles, the half `yolo host` runs too through
+// ValidateProviderSection) and the WORKSPACE config separately, never the merged map —
 // validatePacks is the pattern and the reason is stated there: in the merged map a
 // `profiles` key from either scope looks the same, and only the workspace one is wrong.
-func validateProfiles(workspace string, errs *[]string) {
+// validateUserScopeProfiles is validateProfiles' user-file half: every `profiles` entry's shape.
+func validateUserScopeProfiles(errs *[]string) {
 	userPath := paths.UserConfigPath()
 	if userCfg, err := loadUserScopeConfig(userPath, userPath, false, func(string) {}); err == nil && userCfg != nil {
 		if v, present := userCfg.Get(profilesKey); present && v != nil {
@@ -189,6 +191,10 @@ func validateProfiles(workspace string, errs *[]string) {
 			}
 		}
 	}
+}
+
+func validateProfiles(workspace string, errs *[]string) {
+	validateUserScopeProfiles(errs)
 	wsCfg, err := LoadWorkspaceConfig(workspace, false, func(string) {})
 	if err != nil || wsCfg == nil {
 		return

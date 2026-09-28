@@ -1074,7 +1074,7 @@ that can be mistyped is checked against the right set, and each check is fatal:
 
 | Spelling | Checked against | Where |
 | :--- | :--- | :--- |
-| a `use_profiles` **key** | the CLI names every **resolvable** pack installs — selected or not | config validation (`yolo check` and every launch); at the host notch, which never validates, the key selecting for the launched command (`yolo host --`, `yolo host env`), through the same rule and message (`config.UnknownUseProfileKey`) |
+| a `use_profiles` **key** | the CLI names every **resolvable** pack installs — selected or not | config validation (`yolo check` and every launch); at the host notch (`yolo host --`, `yolo host env`) the provider and profile section of the same validation over user scope (`config.ValidateProviderSection`), with the launched command's own key refused first, adding the `-p` spelling that is legal (`config.UnknownUseProfileKey`) |
 | `-p <cli>=<name>` | the same namespace | launch preflight (`checkProfileTargets`) — a flag never reaches config validation |
 | a selected profile **name** | the declared set: selected packs' profiles plus the user's `profiles` | launch preflight, both notches |
 | a `-p`/`--profile` with **no value** (trailing, followed by `--`, or `--profile=`) | nothing: it is refused as "`-p` needs a value", exit 2 | the front door, both notches, through one value-flag reader that `--at`, `--network` and `--with-credentials` share |
@@ -1093,7 +1093,16 @@ the selected packs shipping a profile of that name — and **RECEIVED** — ever
 because every derive gets the whole table. It never says *honored* ([OQ-10](#pv-oq-10)): what a
 derive does with the string is unobservable from the launcher, and a transparency line that
 overclaims is the silent-skip failure wearing a badge. An attach that delivers a profile prints
-the same line.
+the same line, and so do `yolo host --` and `yolo host env`, over the one profile their launch
+selects (`packload.ProfileDisclosures`, the one function both notches call).
+
+The host notch also runs the [OQ-SSO8](../design/sso-backed-bedrock.md#OQ-SSO8) override check
+a jail launch runs: a pack's env contribution delivered beside a variable the pack declares
+overrides it refuses `yolo host --`, and `yolo host env` prints the same refusal without
+refusing. The one input that differs is the invoking shell, which the agent `yolo host` execs
+inherits, so a variable exported there counts as delivered at the host and never in a jail. A
+pointer the host withholds because nothing there serves it has nothing to override, so a Bedrock
+bearer beside aws-auth's pointer refuses no host launch.
 
 ## What this does not license
 

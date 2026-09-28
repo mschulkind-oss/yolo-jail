@@ -5,7 +5,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -858,70 +857,17 @@ func (o *Options) notePackHostAccess(loadedPacks []*packload.Pack) {
 }
 
 // noteUseProfiles prints, to stderr, where this launch's profile selections landed
-// (docs/reference/providers.md#what-the-launch-checks-and-prints): one line per DISTINCT name in the effective
-// table, naming the packs that DECLARE a variant of that name and the packs that
-// RECEIVED it. It reads the same merge the env block emits (effectiveUseProfiles), so
-// the line cannot describe a table the jail did not get.
+// (docs/reference/providers.md#what-the-launch-checks-and-prints): one line per DISTINCT name in
+// the effective table, naming the packs that DECLARE a variant of that name and the packs that
+// RECEIVED it. It reads the same merge the env block emits (effectiveUseProfiles), so the line
+// cannot describe a table the jail did not get.
 //
-// RECEIVED is deliberately every selected pack, not the pack the name keys to: the
-// table crosses to the jail whole and every pack's derive sees all of it, so "who got
-// it" has no narrower honest answer. DECLARED is the packs shipping a `kind: "profile"`
-// with that name — the half that says whether the name means anything to any selected
-// pack. It is NOT the packs that will act on it: a pack may declare the name and then do
-// its variant work inside a derive this process cannot see.
-//
-// The verb is deliberately never "honored" (providers.md#pv-oq-10). What a derive does with the string
-// is unobservable from here, and a transparency print that overclaims is the
-// silent-skip failure wearing a badge.
-//
-// Printed only when a name was selected at all. A launch with no profile is the common
-// case, and restating its absence on every launch would be noise, not disclosure.
+// The line is packload.ProfileDisclosures', which `yolo host` prints too (notch-convergence
+// item 13): what the two halves mean, and why the verb is never "honored", is stated there.
 func (o *Options) noteUseProfiles(effective *jsonx.OrderedMap, loadedPacks []*packload.Pack) {
-	if effective.Len() == 0 {
-		return
-	}
-	// The line is per NAME, and the table is keyed by CLI: fold the values to the
-	// distinct set. A non-string value (a null in use_profiles, which REMOVES a
-	// profile) is not a selection and prints nothing.
-	seen := map[string]bool{}
-	var names []string
-	for _, cli := range effective.Keys() {
-		v, _ := effective.Get(cli)
-		name, ok := v.(string)
-		if !ok || seen[name] {
-			continue
-		}
-		seen[name] = true
-		names = append(names, name)
-	}
-	if len(names) == 0 {
-		return
-	}
-	sort.Strings(names)
-	received := make([]string, 0, len(loadedPacks))
-	for _, p := range loadedPacks {
-		received = append(received, p.Name)
-	}
-	sort.Strings(received)
 	out := o.pr(o.Stderr)
-	for _, name := range names {
-		// DECLARED: every selected pack whose manifest ships a variant of this exact name.
-		// The name is owned only WITHIN a pack (§3.4), so two packs declaring it are both
-		// listed — they are unrelated declarations of one selector value, and saying so is
-		// more useful than hiding the coincidence.
-		var declared []string
-		for _, p := range loadedPacks {
-			if p.Decl.ProfileFor(name) != nil {
-				declared = append(declared, p.Name)
-			}
-		}
-		sort.Strings(declared)
-		who := "none"
-		if len(declared) > 0 {
-			who = strings.Join(declared, ", ")
-		}
-		out.print("[dim]Profile " + name + ":[/dim] declared: " + who + "; received: " +
-			strings.Join(received, ", "))
+	for _, d := range packload.ProfileDisclosures(packload.ProfileTable(effective), loadedPacks) {
+		out.print("[dim]" + d.Head() + "[/dim] " + d.Detail())
 	}
 }
 

@@ -995,12 +995,11 @@ func TestHostEnvIsNotGatedByTheCredentialPreflight(t *testing.T) {
 	}
 }
 
-// The composition refusal reaches the HOST notch too. composedHostProviders is this
-// notch's one provider composition, and a user `base_url` over the local zai pack's
-// `endpoints` is the pair per-field composition manufactures out of two legal inputs
-// (docs/reference/providers.md, OQ-PT2) — here handed to agentenv, which reads
-// endpoints only, with the derives preferring the shorthand. The exec refuses rather
-// than run on a table the launch cannot resolve consistently.
+// A user `base_url` over the local zai pack's `endpoints` is the pair per-field composition
+// used to manufacture out of two inputs (docs/reference/providers.md, OQ-PT2). The shorthand
+// is a REMOVED key, and the host runs the provider section of validation (notch-convergence
+// item 13, row A8), so the exec refuses it in the validator's words, before any composition,
+// exactly as every jail launch and `yolo check` refuse the same user file.
 func TestHostExecRefusesAManufacturedAddressPair(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
@@ -1016,10 +1015,10 @@ func TestHostExecRefusesAManufacturedAddressPair(t *testing.T) {
 	}
 	got := errw.String()
 	for _, want := range []string{
-		`"zai"`,
-		"pack local",                    // the staged name of the pack that shipped the endpoints
-		"providers.zai.base_url",        // where the shorthand came from
-		"endpoints.<protocol>.base_url", // the override that still works
+		"refusing to launch",
+		"config.providers.zai.base_url: REMOVED", // the validator's own words
+		"endpoints.anthropic.base_url",           // the spelling that still works
+		"`yolo check` reports the same",
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("the refusal must name %q:\n%s", want, got)

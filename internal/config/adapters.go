@@ -122,13 +122,9 @@ func checkAdapters(v any) (map[string]string, []string) {
 	return out, problems
 }
 
-// validateAdapters is the `adapters` key's hard half: the lowering's problems as ERRORS,
-// plus the workspace-scope refusal.
-//
-// It reads the USER config and the WORKSPACE config separately, never the merged map —
-// validatePacks is the pattern and validateProfiles restates the reason: in the merged map
-// an `adapters` key from either scope looks the same, and only the workspace one is wrong.
-func validateAdapters(workspace string, errs *[]string) {
+// validateUserScopeAdapters is validateAdapters' user-file half: every `adapters` entry's
+// shape, which `yolo host` runs too (ValidateProviderSection).
+func validateUserScopeAdapters(errs *[]string) {
 	userPath := paths.UserConfigPath()
 	if userCfg, err := loadUserScopeConfig(userPath, userPath, false, func(string) {}); err == nil && userCfg != nil {
 		if v, present := userCfg.Get(adaptersKey); present && v != nil {
@@ -138,6 +134,16 @@ func validateAdapters(workspace string, errs *[]string) {
 			}
 		}
 	}
+}
+
+// validateAdapters is the `adapters` key's hard half: the lowering's problems as ERRORS,
+// plus the workspace-scope refusal.
+//
+// It reads the USER config and the WORKSPACE config separately, never the merged map —
+// validatePacks is the pattern and validateProfiles restates the reason: in the merged map
+// an `adapters` key from either scope looks the same, and only the workspace one is wrong.
+func validateAdapters(workspace string, errs *[]string) {
+	validateUserScopeAdapters(errs)
 	wsCfg, err := LoadWorkspaceConfig(workspace, false, func(string) {})
 	if err != nil || wsCfg == nil {
 		return

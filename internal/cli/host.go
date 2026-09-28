@@ -487,6 +487,24 @@ func hostExec(flagArgs, cmd []string, out, errw io.Writer, stdin io.Reader) int 
 	for _, line := range launch.selectionLines() {
 		fmt.Fprintf(errw, "yolo host: %s\n", line)
 	}
+	// WHERE THE PROFILE SELECTION LANDED, the line a jail launch prints (noteUseProfiles),
+	// from the same function (notch-convergence item 13, row A7).
+	for _, line := range launch.profileLines() {
+		fmt.Fprintf(errw, "yolo host: %s\n", line)
+	}
+	// THE OQ-SSO8 CHECK, before the credential pre-flight as a jail runs it: a pack's env
+	// contribution this launch delivers beside something the pack declares overrides it. A
+	// certain override refuses, with no hatch (packload's envoverride.go says why); an
+	// uncertain one warns and the launch goes on. It never ran at this notch, so a bearer
+	// beside the pointer it silently beats reached the agent here while every jail refused it.
+	refusal, warnings := launch.envOverrideLines(os.Getenv)
+	for _, w := range warnings {
+		printHostLines(errw, w)
+	}
+	if len(refusal) > 0 {
+		printHostLines(errw, refusal)
+		return 1
+	}
 
 	// THE CREDENTIAL PRE-FLIGHT at the host notch (docs/reference/providers.md#the-credential-preflight,
 	// #pv-oq-13) — the same check the jail's launcher runs, on the environment THIS notch
@@ -669,6 +687,82 @@ type hostComposition struct {
 	// selection is the one selection function's answer this launch composed from: packs is its
 	// complete set, and its causes are the packs the closure joined (selectionLines).
 	selection hostPackSet
+	// origins is, index for index with vars, the delivery channel each var came from (the
+	// packload.From* phrases, fromRemoval for an unset), for the env-override check's lookup
+	// (envOverrideFindings), which names where a delivered variable came from.
+	origins []string
+}
+
+// fromRemoval marks a var in hostComposition.origins that UNSETS its name: an env_sources null.
+// It is never printed; envOverrideFindings' lookup reads it as "not delivered".
+const fromRemoval = "a removal"
+
+// profileLines are the launch's profile disclosure (packload.ProfileDisclosures, the lines a jail
+// launch prints) over this launch's one-agent table and its selected packs.
+func (c *hostComposition) profileLines() []string {
+	table := map[string]string{}
+	if c.profile != "" {
+		table[c.agent] = c.profile
+	}
+	var out []string
+	for _, d := range packload.ProfileDisclosures(table, c.packs) {
+		out = append(out, d.Line())
+	}
+	return out
+}
+
+// envOverrideFindings is the OQ-SSO8 check (packload.EnvOverrideFindings, the one a jail launch
+// runs as its ninth pre-flight) over this launch: its selected packs, its one-agent profile
+// table, the notch's served set, and a lookup answering where each variable the agent would
+// receive comes from. getenv is the process lookup, passed as credentialGaps takes it.
+//
+// THE INHERITED SHELL IS A DELIVERY HERE, and that is the one input that differs from a jail's
+// (P2: a named input, not a second check). No jail backend forwards the environment yolo was
+// launched from, so the jail's lookup answers "not delivered" for it (jailOriginLookup); an
+// agent `yolo host` execs inherits that environment whole, so a bearer exported in the user's
+// shell does reach it, and does override a pointer the launch delivers.
+//
+// No host_files destination is rendered at this notch (OQ-NC8 owns whether one should be), so
+// a `host_file` override is never evaluated here: nil, which costs a false negative and never a
+// false refusal. The host's own files are the agent's own at this notch, which is a question for
+// that ruling, not for this check.
+func (c *hostComposition) envOverrideFindings(getenv func(string) string) []packload.EnvOverrideFinding {
+	final := map[string]string{}
+	for i, v := range c.vars {
+		if v.Unset || v.Value == "" { // an empty value reads as unset (OriginLookup's contract)
+			final[v.Key] = fromRemoval
+			continue
+		}
+		final[v.Key] = c.origins[i]
+	}
+	lookup := func(name string) (string, bool) {
+		if origin, composed := final[name]; composed {
+			return origin, origin != fromRemoval
+		}
+		if getenv(name) != "" {
+			return packload.FromLaunchEnv, true
+		}
+		return "", false
+	}
+	table := map[string]string{}
+	if c.profile != "" {
+		table[c.agent] = c.profile
+	}
+	served := packload.NothingServed()
+	return packload.EnvOverrideFindings(c.packs, table, lookup, nil, &served)
+}
+
+// envOverrideLines splits envOverrideFindings into what refuses, as the lines of one refusal
+// (packload.EnvOverrideRefusal's shape), and what only warns, one block per finding.
+func (c *hostComposition) envOverrideLines(getenv func(string) string) (refusal []string, warnings [][]string) {
+	for _, f := range c.envOverrideFindings(getenv) {
+		if f.Certain {
+			refusal = append(refusal, f.Lines...)
+		} else {
+			warnings = append(warnings, f.Lines)
+		}
+	}
+	return refusal, warnings
 }
 
 // selectionLines are the cause lines of every pack the selection closure joined to this launch,
@@ -1183,10 +1277,11 @@ func composeHostVarsGranting(cfg *jsonx.OrderedMap, workspace, agent, profile st
 	// (docs/design/credential-sources-separation.md ES-D5). The one-agent table above keys
 	// whatever basename was launched, which is what makes `yolo host -p zai -- bash` the host's
 	// grant (ES-D1) — and what made a `use_profiles` entry for `bash` deliver here too, only
-	// because this notch never runs ValidateConfig while `yolo check` and every jail launch
-	// refuse that entry in the same user file. So a use_profiles key doing the selecting is
-	// asked the validator's own question, and refused with its message plus the spelling that
-	// IS legal.
+	// because this notch ran no validation while `yolo check` and every jail launch refuse that
+	// entry in the same user file. So a use_profiles key doing the selecting is asked the
+	// validator's own question, and refused with its message plus the spelling that IS legal.
+	// The provider and profile section of validation below refuses the same entry whatever
+	// selects this launch's profile; this refusal runs first for the remedy it adds.
 	if profile == "" && profileName != "" && !selectedPackInstalls(packs, agent) {
 		if msg, unknown := config.UnknownUseProfileKey(agent); unknown {
 			p, a := shquote.Quote(profileName), shquote.Quote(agent)
@@ -1194,6 +1289,22 @@ func composeHostVarsGranting(cfg *jsonx.OrderedMap, workspace, agent, profile st
 				"installs: remove the entry and run `yolo host -p %s -- %s` (or "+
 				"`yolo host env --agent %s -p %s` for a shell)", msg, p, a, a, p)
 			return c
+		}
+	}
+	// THE PROVIDER AND PROFILE SECTION OF VALIDATION (notch-convergence item 13, row A8), over
+	// the user scope this launch composes from: the same checks, in the same words, that every
+	// jail launch and `yolo check` run over this file. This notch ran none of them, so a
+	// provider written with removed keys composed into a launch that sent claude to its own
+	// first-party endpoint with a model named `m1`. After ES-D5's refusal above, which says
+	// the same thing about the launched command's own key and adds the spelling that is legal.
+	if errs, warns := config.ValidateProviderSection(cfg); len(errs) > 0 {
+		c.err = fmt.Errorf("config: %s that every launch refuses (`yolo check` reports the "+
+			"same):\n  ✗ %s", plural(len(errs), "a problem", fmt.Sprintf("%d problems", len(errs))),
+			strings.Join(errs, "\n  ✗ "))
+		return c
+	} else if warn != nil {
+		for _, w := range warns {
+			warn(w)
 		}
 	}
 
@@ -1357,6 +1468,7 @@ func composeHostVarsGranting(cfg *jsonx.OrderedMap, workspace, agent, profile st
 	// this notch does not serve, which a fold of our own would not.
 	for _, e := range scope.FoldFor(agent) {
 		vars = append(vars, agentenv.Var{Key: e.Key, Value: e.Value})
+		c.origins = append(c.origins, packload.FromPackEnv)
 	}
 
 	// (2) the secret channel, as the gate delivers it to this agent: every unclaimed entry
@@ -1366,12 +1478,16 @@ func composeHostVarsGranting(cfg *jsonx.OrderedMap, workspace, agent, profile st
 		v, _ := sources.Get(k)
 		if s, ok := v.(string); ok {
 			vars = append(vars, agentenv.Var{Key: k, Value: s})
+			c.origins = append(c.origins, packload.FromEnvSources)
 		}
 	}
 
 	// (3) the profile's provider vars, the env derive's output the gate composed.
 	if delivery != nil {
 		vars = append(vars, delivery.Shape...)
+		for range delivery.Shape {
+			c.origins = append(c.origins, packload.FromProfileEnv)
+		}
 	}
 
 	// (4) removals last, so an unset beats every assignment above no matter which source
@@ -1382,6 +1498,7 @@ func composeHostVarsGranting(cfg *jsonx.OrderedMap, workspace, agent, profile st
 	// preserve and the `export` script must not reshuffle between runs.
 	for _, k := range removals {
 		vars = append(vars, agentenv.Var{Key: k, Unset: true})
+		c.origins = append(c.origins, fromRemoval)
 	}
 	c.vars = vars
 	return c
@@ -1806,9 +1923,14 @@ func hostEnvDelta(agent, profile string, grant *hostGrantRequest, warn func(stri
 	if c.err != nil {
 		return nil, nil, c.err
 	}
+	// The override check's findings are DISCLOSED here and refuse nothing, as the credential
+	// pre-flight is: this is the observe verb, which has to answer even when the answer is "the
+	// launch would refuse this" (hostExec's note on the pre-flight).
+	refusal, warnings := c.envOverrideLines(os.Getenv)
+	blocks := [][]string{c.selectionLines(), c.profileLines(), refusal}
+	blocks = append(blocks, warnings...)
 	var disclosure []string
-	for _, block := range [][]string{c.selectionLines(), c.credentialScopeLines(), c.unservedLines(nil),
-		c.grantLines()} {
+	for _, block := range append(blocks, c.credentialScopeLines(), c.unservedLines(nil), c.grantLines()) {
 		disclosure = append(disclosure, block...)
 	}
 	return c.vars, disclosure, nil

@@ -1128,6 +1128,30 @@ func validateProviders(config *jsonx.OrderedMap, workspace string, errs, warns *
 	// the refusal off without switching the feature off. Measured while writing the test
 	// that pins it, with an empty merged map.
 	validateProviderAddressScope(workspace, errs)
+	validateProviderEntries(config, errs, warns)
+}
+
+// ValidateProviderSection is ValidateConfig's provider and profile section over one config
+// with no workspace in it: the `providers` entries, the retired `agent_profiles` key, the
+// `use_profiles` table, and the user file's `profiles` and `adapters`, in ValidateConfig's
+// order and words. `yolo host` composes from user scope alone (UserScopeConfig) and runs no
+// ValidateConfig, so it composed a provider written with removed keys and sent claude to its
+// first-party endpoint with a model named `m1`, where every jail launch and `yolo check`
+// refuse the same user file (docs/plans/notch-convergence.md item 13, row A8). The
+// workspace-scope refusals are not here: the host reads no workspace config, so a workspace
+// file cannot change what it composes.
+func ValidateProviderSection(config *jsonx.OrderedMap) (errors []string, warnings []string) {
+	errs, warns := &[]string{}, &[]string{}
+	validateProviderEntries(config, errs, warns)
+	validateAgentProfilesRetired(config, errs, warns)
+	validateUseProfiles(config, errs)
+	validateUserScopeProfiles(errs)
+	validateUserScopeAdapters(errs)
+	return *errs, *warns
+}
+
+// validateProviderEntries is validateProviders' shape half: every `providers.<name>` entry.
+func validateProviderEntries(config *jsonx.OrderedMap, errs, warns *[]string) {
 	v, present := config.Get(providersKey)
 	if !present || v == nil {
 		return

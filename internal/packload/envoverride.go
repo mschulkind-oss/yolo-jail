@@ -76,10 +76,12 @@ const (
 	FromProfileEnv = "the active profile's provider environment"
 	// FromLaunchEnv is the environment yolo itself was launched from, which the relay can
 	// draw on. The launch's delivery lookup answers it last because the credential
-	// pre-flight needs it. It is NOT a delivery into the jail: no backend forwards that
-	// environment under the variable's own name, and a relayed value is FromProfileEnv. So
-	// an OriginLookup handed to EnvOverrideRefusal must answer "not delivered" rather than
+	// pre-flight needs it. It is NOT a delivery into a JAIL: no jail backend forwards that
+	// environment under the variable's own name, and a relayed value is FromProfileEnv. So a
+	// jail's OriginLookup handed to EnvOverrideRefusal must answer "not delivered" rather than
 	// this phrase — a variable only in the shell overrides nothing (OQ-SSO8 condition 3).
+	// At the HOST notch it is a delivery, and the host's lookup answers it: the agent `yolo
+	// host` execs inherits that environment whole (cli's hostComposition.envOverrideFindings).
 	FromLaunchEnv = "the environment yolo was launched from"
 )
 
