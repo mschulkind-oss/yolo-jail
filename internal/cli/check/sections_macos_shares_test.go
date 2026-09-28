@@ -32,6 +32,19 @@ func TestMacOSPlatformGradesThePodmanMachineShares(t *testing.T) {
 		t.Fatal(err)
 	}
 	workspace := "/Users/me/proj"
+	// The default shares less whichever covers the bundle: on a Mac t.TempDir() is under
+	// /private, a default share, so leaving it in would share the "unshared" bundle.
+	var missing []string
+	for _, s := range []string{"/Users", "/private", "/var/folders"} {
+		if bundle != s && !strings.HasPrefix(bundle, s+"/") {
+			missing = append(missing, s)
+		}
+	}
+	initCmd := "podman machine init"
+	for _, s := range missing {
+		initCmd += " -v " + s + ":" + s
+	}
+	initCmd += " -v "
 
 	cases := []struct {
 		name   string
@@ -39,9 +52,8 @@ func TestMacOSPlatformGradesThePodmanMachineShares(t *testing.T) {
 		badge  string
 		want   []string
 	}{
-		{"the default shares miss the bundle", []string{"/Users", "/private", "/var/folders"}, "[FAIL]",
-			[]string{"does not share: " + bundle, "podman machine rm",
-				"podman machine init -v /Users:/Users -v /private:/private -v /var/folders:/var/folders -v "}},
+		{"the default shares miss the bundle", missing, "[FAIL]",
+			[]string{"does not share: " + bundle, "podman machine rm", initCmd}},
 		{"a share covering the bundle passes", []string{"/Users", filepath.Dir(bundle)}, "[PASS]",
 			[]string{"Podman Machine shares the folders a jail binds", workspace, bundle}},
 		{"an unreadable list is a skip", nil, "[SKIP]",

@@ -50,6 +50,35 @@ func machineShareExec(t *testing.T, shares []string, probes *int) func([]string,
 // getDefaultMachineVolumes for darwin), which does NOT include Homebrew's Cellar.
 var defaultMacShares = []string{"/Users", "/private", "/var/folders"}
 
+// sharesMissing is defaultMacShares less every share that covers p, as written or resolved.
+// On a Mac t.TempDir() is under /var/folders -> /private/var/folders, both default shares,
+// so a fixture meant to sit OUTSIDE the defaults must drop the share that covers it there.
+func sharesMissing(t *testing.T, p string) []string {
+	t.Helper()
+	resolved, err := filepath.EvalSymlinks(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out []string
+	for _, s := range defaultMacShares {
+		if !pathUnder(p, s) && !pathUnder(resolved, s) {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+func pathUnder(p, dir string) bool { return p == dir || strings.HasPrefix(p, dir+"/") }
+
+// initCommandPrefix is the recreate command's spelling for shares, up to the added -v.
+func initCommandPrefix(shares []string) string {
+	cmd := "podman machine init"
+	for _, s := range shares {
+		cmd += " -v " + s + ":" + s
+	}
+	return cmd + " -v "
+}
+
 // TestResolveJailPrefixConsultsTheMachineShares is the CALL-SITE pin for the prefix half:
 // a darwin podman launch whose prebuilt bundle is outside every share the machine
 // records — the Homebrew-Cellar case — refuses in resolveJailPrefix, before the image
@@ -64,7 +93,7 @@ func TestResolveJailPrefixConsultsTheMachineShares(t *testing.T) {
 		refuse bool
 		probed bool
 	}{
-		{"a bundle outside the default shares is refused", "podman", defaultMacShares, true, true},
+		{"a bundle outside the default shares is refused", "podman", sharesMissing(t, root), true, true},
 		// The guide's machine: a share covering the bundle (Cellar, in real life).
 		{"a machine that shares the bundle's folder is accepted", "podman",
 			append(append([]string{}, defaultMacShares...), filepath.Dir(root)), false, true},
@@ -96,7 +125,7 @@ func TestResolveJailPrefixConsultsTheMachineShares(t *testing.T) {
 			}
 			for _, want := range []string{
 				root, "statfs", "podman machine rm",
-				"podman machine init -v /Users:/Users -v /private:/private -v /var/folders:/var/folders -v ",
+				initCommandPrefix(tc.shares),
 			} {
 				if !strings.Contains(buf.String(), want) {
 					t.Errorf("refusal lacks %q:\n%s", want, buf.String())
