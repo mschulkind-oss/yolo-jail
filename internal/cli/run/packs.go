@@ -814,23 +814,6 @@ func resolveConfiguredPacks() []*packload.Pack {
 	return sel.Packs()
 }
 
-// embeddedPacksByName indexes the EMBEDDED packs by name, materialized out of the binary.
-//
-// Through packload.Embedded() rather than a fresh MaterializeEmbedded call: it loads once
-// per process from the build's shared tree, so the read-only commands behind this resolver
-// (`yolo loopholes list`,
-// `yolo check`, config validation — each of which may consult it more than once) do not each
-// pay a tree copy. Its failure mode is an empty set, which matches this resolver's
-// silent-and-empty contract: the honest answer to "I cannot materialize the packs" is "I
-// know of no pack loopholes", never "approved".
-func embeddedPacksByName() map[string]*packload.Pack {
-	out := map[string]*packload.Pack{}
-	for _, p := range packload.Embedded() {
-		out[p.Name] = p
-	}
-	return out
-}
-
 // packSupersessions flattens the loaded packs' supersession claims into the record
 // internal/loopholes consults.
 //
