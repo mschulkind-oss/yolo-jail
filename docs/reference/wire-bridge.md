@@ -477,7 +477,7 @@ for a jail with its own loopback. Three setups break it:
   claude at the bridge's addresses. Those were host ports that nothing of yolo's ever binds, and
   any local user could take one first. It now composes no address it does not serve, and a
   profile that needs one is refused
-  ([notch convergence §4 item 2](../plans/notch-convergence.md#tier-1--the-loopback-services-p3)).
+  ([notch convergence item 2](../plans/notch-convergence.md#tier-1--the-loopback-services-p3)).
 
 There the bridge's ports are reachable from every process on that loopback, other jails
 included. Such a process could spend the user's provider keys and ChatGPT subscription through

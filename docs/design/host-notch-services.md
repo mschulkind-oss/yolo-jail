@@ -253,7 +253,7 @@ loopback, and a process that bound 8215 first would receive claude's Claude logi
 > [OQ-NC1](../plans/notch-convergence.md#OQ-NC1) too ([§4.7](#47-macos-user)).
 > **Closed 2026-09-28** by [notch convergence item 2](../plans/notch-convergence.md#tier-1--the-loopback-services-p3):
 > macos-user now composes with nothing served, as the host does, so it composes no bridge
-> address and refuses a profile that needs one. OQ-NC1 still decides whether it should run the
+> address and refuses a profile that needs one. [OQ-NC1](../plans/notch-convergence.md#OQ-NC1) still decides whether it should run the
 > bridge instead.
 
 ## 4. The proposed shape
