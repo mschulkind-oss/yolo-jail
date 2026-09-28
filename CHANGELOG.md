@@ -5,7 +5,7 @@ What changed in each release of YOLO Jail, newest first.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.11.0] - 2026-09-28
 
 Claude can use Bedrock through your AWS SSO login, and a repository's skills now reach every
 agent in the jail. Each agent shows a footer naming where it runs and who is billed. A
