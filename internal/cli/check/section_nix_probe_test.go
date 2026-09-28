@@ -124,3 +124,47 @@ func TestNixSectionsWorkWithNixCommandOff(t *testing.T) {
 			storeInfo, configShow, seen)
 	}
 }
+
+// TestNixVersionProbeNamesWhatWentWrong: the version probe said "probe failed" for a
+// timeout and an exec failure alike, and passed a nix that exited nonzero. Each outcome
+// now has its own line, and the probe gets the daemon check's 15 s budget.
+func TestNixVersionProbeNamesWhatWentWrong(t *testing.T) {
+	cases := []struct {
+		name string
+		res  ExecResult
+		want string
+		pass bool
+	}{
+		{"timeout", ExecResult{Ran: true, Timeout: true}, "did not answer within 15s", false},
+		{"not run", ExecResult{Ran: false}, "could not be run: /usr/local/bin/nix", false},
+		{"nonzero", ExecResult{Ran: true, RC: 1, Stderr: "boom"}, "`nix --version` exited 1", false},
+		{"works", ExecResult{Ran: true, Stdout: "nix (Nix) 2.31.2\n"}, "nix: nix (Nix) 2.31.2", true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var out bytes.Buffer
+			o := &Options{Stdout: &out, IsTTYStdout: func() bool { return false }}
+			fillDefaults(o)
+			o.LookPath = func(name string) (string, bool) { return "/usr/local/bin/" + name, name == "nix" }
+			var budget time.Duration
+			o.Exec = func(argv []string, _ string, _ []string, d time.Duration) ExecResult {
+				if slices.Equal(argv, []string{"nix", "--version"}) {
+					budget = d
+					return tc.res
+				}
+				return ExecResult{Ran: false}
+			}
+			r := newReporter(&out, false)
+			o.sectionNix(r)
+			if !strings.Contains(out.String(), tc.want) {
+				t.Errorf("output lacks %q:\n%s", tc.want, out.String())
+			}
+			if (r.failed == 0) != tc.pass {
+				t.Errorf("failed=%d, want pass=%v:\n%s", r.failed, tc.pass, out.String())
+			}
+			if budget != 15*time.Second {
+				t.Errorf("nix --version ran with a %v budget, want 15s", budget)
+			}
+		})
+	}
+}

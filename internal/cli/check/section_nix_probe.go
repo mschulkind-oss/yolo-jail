@@ -1,12 +1,18 @@
 package check
 
 import (
+	"fmt"
 	"strings"
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/containerbuilder"
 	"github.com/mschulkind-oss/yolo-jail/internal/storage"
 )
+
+// nixVersionTimeout bounds `nix --version`, the same budget the daemon check gives
+// `nix store info`: a first exec on a loaded VM (a Podman Machine's jail) can take
+// seconds, and a check that times out a working nix reports a false [FAIL].
+const nixVersionTimeout = 15 * time.Second
 
 // sectionNix runs the Nix block: nix version, then (on macOS) the daemon store
 // connectivity check, the extra-platforms footgun warning, and the positive
@@ -15,10 +21,16 @@ func (o *Options) sectionNix(r *reporter) {
 	r.sectionHeader("Nix")
 	nixPath, hasNix := o.LookPath("nix")
 	if hasNix {
-		res := o.Exec([]string{"nix", "--version"}, "", nil, 5*time.Second)
-		if !res.Ran || res.Timeout {
-			r.fail("nix found but not working: probe failed", "")
-		} else {
+		res := o.Exec([]string{"nix", "--version"}, "", nil, nixVersionTimeout)
+		switch {
+		case res.Timeout:
+			r.fail("nix found but `nix --version` did not answer within "+nixVersionTimeout.String(), "")
+		case !res.Ran:
+			r.fail("nix found but could not be run: "+nixPath, "")
+		case res.RC != 0:
+			r.fail(fmt.Sprintf("nix found but `nix --version` exited %d", res.RC),
+				strings.TrimSpace(res.Stderr))
+		default:
 			r.ok("nix: " + strings.TrimSpace(res.Stdout))
 		}
 	} else {
@@ -29,7 +41,6 @@ func (o *Options) sectionNix(r *reporter) {
 		o.nixDaemonStoreCheck(r)
 		o.nixExtraPlatformsAndBuilder(r)
 	}
-	_ = nixPath
 	r.blank()
 }
 
