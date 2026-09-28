@@ -249,11 +249,26 @@ jobs:
         with:
           go-version-file: go.mod
 
+      # accept-flake-config is for the tests that run `nix build .#ociImage`
+      # THEMSELVES rather than through yolo (archivedelta_test.go,
+      # layerplan_test.go). yolo's own nix calls already pass
+      # --accept-flake-config (internal/image/nixflags.go); those direct calls do
+      # not, so nix discards flake.nix's yolo-jail.cachix.org substituter for them
+      # and this runner compiles the image copier (a patched skopeo that no public
+      # cache serves) and builds the full image's layers from a cold store. The
+      # build-image job has no closure to hand over: it builds the MINIMAL image,
+      # and those tests build the full one. The nightly's build-image job pushes
+      # the full image and the copier to yolo-jail.cachix.org, so a flake this
+      # nightly has built is substituted here instead. A flake nobody has built
+      # yet is a cache miss and builds exactly as before, so this costs time only
+      # when it misses and never changes what a test builds or asserts: the store
+      # paths are the same either way. Reading the public cache needs no secret.
       - name: Install Nix
         uses: cachix/install-nix-action@v31
         with:
           extra_nix_config: |
             experimental-features = nix-command flakes
+            accept-flake-config = true
 
       - name: Install Podman and socat
         run: sudo apt-get update && sudo apt-get install -y podman socat
