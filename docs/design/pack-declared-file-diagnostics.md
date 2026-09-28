@@ -19,7 +19,8 @@ host `$HOME` only or the active workspace too.
 
 The companion sketch is [`pack-declared-file-diagnostics-plan.md`](pack-declared-file-diagnostics-plan.md).
 
-**Reads with:** [`../reference/pack-system.md`](../reference/pack-system.md) (what a pack declares),
+**Reads with:** [`agent-directory-map.md`](agent-directory-map.md) (its [`OQ-AM8`](agent-directory-map.md#OQ-AM8) proposes that a trap become an entry of an agent-directory map, which answers all three questions here),
+[`../reference/pack-system.md`](../reference/pack-system.md) (what a pack declares),
 [`../reference/agent-briefings.md`](../reference/agent-briefings.md) (the three supported paths for agent instructions),
 [`../reference/what-yolo-is.md`](../reference/what-yolo-is.md) (the core separation of concerns).
 
