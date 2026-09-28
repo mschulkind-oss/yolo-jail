@@ -1097,10 +1097,10 @@ func statefulTableLosses(e *Env, s manifest.Surface, tables []string, path strin
 		return nil
 	}
 	after := func(key, name string) (any, bool) {
-		table, isMap := written.Get(key)
-		m, _ := table.(*jsonx.OrderedMap)
-		if !isMap || m == nil {
-			return nil, false
+		table, present := written.Get(key)
+		m, isMap := table.(*jsonx.OrderedMap)
+		if !present || !isMap || m == nil {
+			return nil, false // the write leaves no such table, so every entry in it goes
 		}
 		return m.Get(name)
 	}
