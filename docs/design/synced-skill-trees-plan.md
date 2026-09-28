@@ -173,7 +173,11 @@ design question — recorded here so they are not re-discovered.
   key in its own sentence. For an `enabledPlugins` or `env` loss the advice is not merely
   unhelpful, it is impossible to follow. The working remedy is the `config-overlay` above, and
   the remedy is per-SURFACE-KEY rather than per-class — which is a declaration the owning pack
-  could carry, rather than a switch in the reporter.
+  could carry, rather than a switch in the reporter. *Host half fixed:* since `2055a268` the
+  remedy is a `config-overlay`, and since `d4c7f0d9` its example and key list are built from the
+  surfaces and table keys the run's loss lines name. The boot notice still names `mcp_servers`,
+  which is right for the one shipped table a jail boot regenerates, `claude/config`'s
+  `mcpServers`.
 - **`yolo pack lint` passes an overlay body the render refuses BY NAME.** `manifest.DecodeOverlay`
   reports two problems for a body carrying `defaults` where `managed` belongs: `defaults` is one
   of `OverlayDTO`'s explicitly-refused fields (declared rather than left to

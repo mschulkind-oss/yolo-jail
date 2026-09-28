@@ -10,7 +10,7 @@ vantage:
 
 # What a jail derives, the host leaves empty — for a reason that holds for one input in four
 
-**Status:** DESIGN, 2026-09-27. The proposal ([§6](#6-the-proposed-shape-under-b1)) is not built; [§7](#7-fixes-that-do-not-wait-for-a-ruling)'s five fixes and [§8.1](#81-measured) item 3's message are, and the rows below say where each changed what was measured. Evidence MEASURED at `97220184` in a clean build under a temporary home, with no host, no pi CLI and no jail started. Code claims cite a symbol, never a line.
+**Status:** DESIGN, 2026-09-27. The proposal ([§6](#6-the-proposed-shape-under-b1)) is not built; [§7](#7-fixes-that-do-not-wait-for-a-ruling)'s fixes and [§8.1](#81-measured) item 3's message are, and the rows below say where each changed what was measured. Evidence MEASURED at `97220184` in a clean build under a temporary home, with no host, no pi CLI and no jail started. Code claims cite a symbol, never a line.
 
 > **In short.** The host leaves the computed layer empty because a jail's derive inputs carry
 > jail paths, yet only the MCP presets do: the provider table is already composed at the host for
@@ -128,7 +128,7 @@ then ran `RenderHostPack` under each contract:
 | Hand-added entry in the real file | `assert` | `own`, first apply |
 | :--- | :--- | :--- |
 | A provider in `codex/config`'s `model_providers`, `pi/models`'s `providers` or `opencode/config`'s `provider` | **kept** | kept for codex and opencode; `pi/models` refused |
-| An MCP server in `codex/config`, `opencode/config` or `pi/mcp` | **dropped**, and reported | kept for codex and opencode, **but reported as dropped** until `17bbe803`, which reports only what the owned write drops ([HC-D5](#HC-D5)); `pi/mcp` refused |
+| An MCP server in `codex/config`, `opencode/config` or `pi/mcp` | **dropped**, and reported; but with three or more entries in the table the write kept every other one while the report named all of them, until `31bbd255` ([HC-D5](#HC-D5)) | kept for codex and opencode, **but reported as dropped** until `17bbe803`, which reports only what the owned write drops ([HC-D5](#HC-D5)); `pi/mcp` refused |
 
 The catalogs survive at the host for a reason that is easy to miss: the key-name probe's sentinel
 provider has no address, so no catalog derive writes a row for it and none declares its catalog a
@@ -167,7 +167,8 @@ or in a design doc, and each gives a reason:
    run still warned that the entry would be dropped, and `--assert` after `y` left
    `{"mcpServers": {}}`. The one remedy that works at the host today is a `config-overlay` naming
    each surface, for example in the local pack, and since `2055a268` that is the remedy the apply
-   names.
+   names. Since `d4c7f0d9` it names the surfaces and table keys that lost entries in the run, so
+   an LSP server dropped from `copilot/lsp` is no longer handed codex's `mcp_servers`.
 3. **`config-ref` stated the wrong reason, until [HC-D3](#HC-D3).** Its host-notch text said a
    provider has "no derive to feed" because "nothing in those files is a provider"
    (`config_ref.txt`). `pi/models`, `codex/config`, `opencode/config` and `oh-omp/models` carry
@@ -345,8 +346,8 @@ home asks before dropping anything in it ([HC-D8](#HC-D8)).
 
 ## 7. Fixes that do not wait for a ruling
 
-These were defects in what ships, each with one right answer. All five are built, and each
-ledger row names its commit.
+These were defects in what ships, each with one right answer. All are built, and each ledger
+row names its commit.
 
 1. **[HC-D1](#HC-D1): `pi/models` always has `providers`.** The surface declares
    `"defaults": {"providers": {}}`, so neither a host apply into a home with no `models.json` nor a
@@ -360,6 +361,9 @@ ledger row names its commit.
    existed reports it as rendered, never as unchanged or already in sync.
 5. **[HC-D5](#HC-D5): a loss line describes the write.** Under `own`, the report names an entry as
    dropped only when the `stateful` write drops it.
+6. **[HC-D12](#HC-D12): a revert leaves a file its agent reads.** `yolo host apply --revert`
+   keeps an empty declared default, so it no longer turns the `{"providers": {}}` HC-D1 writes
+   back into the `{}` pi rejects.
 
 ## 8. What we found while looking at host pi + auto mode
 
@@ -378,12 +382,15 @@ it with us**. What follows is what the tree does, split by how we know it.
    writes `{}` (re-run 2026-09-27), because since `92c20cc6`, in no release yet, pi's catalog never
    writes `openai-codex`, which leaves a pi-only jail no row. [HC-D1](#HC-D1) is the fix, built in
    `e273e4e1`: both now write `{"providers": {}}`, and the next boot or `--assert` repairs a `{}` an
-   earlier one left. Under `own` the surface is still refused, so nothing repairs it there
+   earlier one left. A `yolo host apply --revert --assert` removed that default again and left
+   `{}`; since `90c16cb6` a revert keeps an empty declared default and names it
+   ([HC-D12](#HC-D12)). Under `own` the surface is still refused, so nothing repairs it there
    ([OQ-HC2](#OQ-HC2)).
 2. **The report hides that write.** The dry run said `pi/models` was unchanged, and the assert
    counted it among the destinations already in sync, while the file was created. Only `--verbose`
    showed `pi/models rendered`. Since `73af4109` a file the apply creates is a change in both
-   postures ([HC-D4](#HC-D4)).
+   postures ([HC-D4](#HC-D4)), and since `8b5553bb` that includes one created through a dangling
+   link.
 3. **A direct or IDE launch cannot refresh the `openai-codex` login.** The host-delivered
    `yolo-openai-auth.js`, loaded under node with no yolo environment and yolo on `PATH`, failed its
    refresh with "OpenAI credential service: openai-auth-client:
@@ -538,17 +545,18 @@ install and the classifier belong to
 | ID | Ruling / Decision | Date | Settled in | Built |
 | :--- | :--- | :--- | :--- | :--- |
 | OQ-ML3 | *Inherited from [`model-lists-and-pickers.md`](model-lists-and-pickers.md#OQ-ML3).* **A, for now: `yolo host apply` renders no `openai-codex` list.** *"basically option 1, but then make sure there's a design doc about the host option left."* This doc is that design, and [OQ-HC1](#OQ-HC1) is the question it left | 2026-09-27 | [model-lists OQ-ML3](model-lists-and-pickers.md#OQ-ML3) | ✅ [ML-D8](model-lists-and-pickers.md#ML-D8) |
-| <a id="HC-D1"></a>HC-D1 | *Implementation decision.* **`pi/models` declares `"defaults": {"providers": {}}`.** pi 0.87.1 rejects a `models.json` without `providers`, and both a host apply into a fresh home and a pi-only jail wrote `{}` before it ([§8.1](#81-measured) item 1). With the default, both render `{"providers": {}}`, and the `-short` suites of `internal/entrypoint`, `internal/cli`, `internal/packload` and `packs` still pass (MEASURED by the research pass in a scratch copy). A derive's rows replace it, since the catalog is declared in full; under `rmw` a default fills only an absent key, so an existing host file keeps its own `providers`. A regression test asserts the rendered file has an object-valued `providers` at both notches | 2026-09-27 | [§7](#7-fixes-that-do-not-wait-for-a-ruling) | ✅ `e273e4e1` |
-| <a id="HC-D2"></a>HC-D2 | *Implementation decision.* **Host apply's MCP remedy names a `config-overlay` per surface,** for example in the local pack, because that is the only declaration that reaches a host MCP table today ([§4](#4-what-the-empty-layer-costs) item 2). Once a host-derivable surface consumes `mcp_servers`, the remedy names `mcp_servers` for that surface again | 2026-09-27 | [§7](#7-fixes-that-do-not-wait-for-a-ruling) | ✅ `2055a268` |
+| <a id="HC-D1"></a>HC-D1 | *Implementation decision.* **`pi/models` declares `"defaults": {"providers": {}}`.** pi 0.87.1 rejects a `models.json` without `providers`, and both a host apply into a fresh home and a pi-only jail wrote `{}` before it ([§8.1](#81-measured) item 1). With the default, both render `{"providers": {}}`, and the `-short` suites of `internal/entrypoint`, `internal/cli`, `internal/packload` and `packs` still pass (MEASURED by the research pass in a scratch copy). A derive's rows replace it, since the catalog is declared in full; under `rmw` a default fills only an absent key, so an existing host file keeps its own `providers`. A regression test asserts the rendered file has an object-valued `providers` at both notches | 2026-09-27 | [§7](#7-fixes-that-do-not-wait-for-a-ruling) | ✅ `e273e4e1`; kept through `--revert` since `90c16cb6` ([HC-D12](#HC-D12)) |
+| <a id="HC-D2"></a>HC-D2 | *Implementation decision.* **Host apply's MCP remedy names a `config-overlay` per surface,** for example in the local pack, because that is the only declaration that reaches a host MCP table today ([§4](#4-what-the-empty-layer-costs) item 2). Once a host-derivable surface consumes `mcp_servers`, the remedy names `mcp_servers` for that surface again | 2026-09-27 | [§7](#7-fixes-that-do-not-wait-for-a-ruling) | ✅ `2055a268`; the example and keys from the tables that lost entries since `d4c7f0d9`; the user guide and the remedy contract since `2fa54eec` |
 | <a id="HC-D3"></a>HC-D3 | *Implementation decision.* **`config-ref`'s host-notch `provider` line says host-rendered files carry provider facts** and render without them because host apply composes no provider table; it changes again with [OQ-HC1](#OQ-HC1) | 2026-09-27 | [§7](#7-fixes-that-do-not-wait-for-a-ruling) | ✅ `5347bc19` |
-| <a id="HC-D4"></a>HC-D4 | *Implementation decision.* **A host apply that creates a file reports it as rendered,** in the dry run and the assert, never as unchanged or in sync ([§8.1](#81-measured) item 2) | 2026-09-27 | [§7](#7-fixes-that-do-not-wait-for-a-ruling) | ✅ `73af4109` |
-| <a id="HC-D5"></a>HC-D5 | *Implementation decision.* **Under `own`, a loss line names only what the `stateful` write drops.** MEASURED: a first owned apply kept a hand-added `mcp_servers` entry in `codex/config` and `mcp` entry in `opencode/config` while the report named both as dropped ([§2.3](#23-what-happens-to-an-entry-you-added-by-hand)). The loss list is computed by the mechanism that writes. The same change makes `own`'s `codex/config` header stop saying "composed at jail start" at the host | 2026-09-27 | [§7](#7-fixes-that-do-not-wait-for-a-ruling) | ✅ `17bbe803` |
+| <a id="HC-D4"></a>HC-D4 | *Implementation decision.* **A host apply that creates a file reports it as rendered,** in the dry run and the assert, never as unchanged or in sync ([§8.1](#81-measured) item 2) | 2026-09-27 | [§7](#7-fixes-that-do-not-wait-for-a-ruling) | ✅ `73af4109`; through a dangling link since `8b5553bb` |
+| <a id="HC-D5"></a>HC-D5 | *Implementation decision.* **Under `own`, a loss line names only what the `stateful` write drops.** MEASURED: a first owned apply kept a hand-added `mcp_servers` entry in `codex/config` and `mcp` entry in `opencode/config` while the report named both as dropped ([§2.3](#23-what-happens-to-an-entry-you-added-by-hand)). The loss list is computed by the mechanism that writes. The same change makes `own`'s `codex/config` header stop saying "composed at jail start" at the host | 2026-09-27 | [§7](#7-fixes-that-do-not-wait-for-a-ruling) | ✅ `17bbe803`; a table of three or more entries is cleared whole, under both contracts and in a jail, since `31bbd255`; the JSON no-banner test reads the written files since `87400893` |
 | <a id="HC-D6"></a>HC-D6 | *Implementation decision*, if [OQ-HC1](#OQ-HC1) is not A. **The host `mcp_servers` input is your user-scope entries, with no preset expansion and no pack `mcp` declaration, and it is filtered per surface agent, as a jail filters it.** A pack's declaration stays out because [OQ-MP3](mcp-presets-removal.md#15-open-questions) ruled it "reaches only the jail". Presets stay out because their node wrapper is written only by a jail's boot and their npm prefix is the jail's; the host can state those paths ([OQ-MP4](mcp-presets-removal.md#OQ-MP4) dissolved the premise that it cannot), but no real home has what they name, and [`mcp-presets-removal.md`](mcp-presets-removal.md) retires them. A user entry, MCP or LSP, whose command or arguments name a jail path is omitted and named, since writing it would break [§6.6](#66-forbidden-behavior)'s rule against jail-absolute values; which prefixes count is the implementer's list, and it includes the jail home, `/workspace`, `/opt/yolo-jail`, `/run/yolo` and `/ctx`. **Per surface agent:** `requires_env` is checked against the environment `yolo host env --agent <agent>` would compose at apply time, since that composition scopes a provider credential to the agent that selected it ([OQ-CN6](provider-credential-scope.md#OQ-CN6)); and the capability filter runs with that agent's native capabilities (`packload.NativeCapabilities`), so a server whose `provides` the agent's own login performs is withheld from it. Without the capabilities the filter keeps every server, and a server a jail withholds from claude or agy would be written for them at the host, where the same config should render the same entries. A skipped server is named with its variables and with the agents that did get it, as the jail's notice names it | 2026-09-27 | [§6.2](#62-the-host-inputs) | — |
 | <a id="HC-D7"></a>HC-D7 | *Implementation decision*, if [OQ-HC1](#OQ-HC1) is not A. **A derive error at the host refuses that surface only; a provider composition error refuses the apply before any write.** The first is one pack's defect, and the rest of the apply is independent of it. The second is an input every host-derivable surface shares, and `yolo host --` refuses on it too | 2026-09-27 | [§6.5](#65-degenerate-inputs-and-failure-paths) | — |
 | <a id="HC-D8"></a>HC-D8 | *Implementation decision*, if [OQ-HC1](#OQ-HC1) is not A and catalogs stay declared in full ([OQ-CO16](config-ownership-and-promotion.md#oq-co16)). **The first host apply that makes a table yolo's in a home confirms before dropping an entry in it,** as a first apply does today (`confirmHostLosses`). Without it a home already asserted would lose a hand-added provider with a report and no prompt, because the prompt fires only on a first apply | 2026-09-27 | [§6.4](#64-per-contract-behavior) | — |
 | <a id="HC-D9"></a>HC-D9 | *Implementation decision*, if [OQ-HC1](#OQ-HC1) rules B1. **The declaration is an option on the `yolo.derive` registration, not a manifest field.** The registration already is the computed-layer declaration (`packload.DerivedSurfaces`), and "its output is host-valid" is a fact about that function. Its spelling is the implementer's | 2026-09-27 | [§5](#5-the-options) | — |
 | <a id="HC-D10"></a>HC-D10 | *Implementation decision*, if [OQ-HC1](#OQ-HC1) is not A. **A derive's output reaches a real file per key: a table declared in full is written wholesale, any other object asserts only its leaves, and a tombstone is dropped before either arm sees it** ([§6.4](#64-per-contract-behavior)). Leaves, because that is what `ctx.in_full` already means for a `stateful` surface and for the host's table probe ([CO13](config-ownership-and-promotion.md#built-2026-09-25--what-shipped)), and today's `rmw` computed write would otherwise clear `claude/settings`' `env` (MEASURED, [§6.4](#64-per-contract-behavior)). No tombstone, because at the host the only layer below a derive is your real file, so a tombstone can only delete your key; and applying it under `own` alone would break [config-ownership §11](config-ownership-and-promotion.md#11-success-criteria)'s switch criterion. For a surface a pack declares `rmw`, [OQ-CO15](config-ownership-and-promotion.md#oq-co15) governs, and the host follows its ruling | 2026-09-27 | [§6.4](#64-per-contract-behavior) | — |
 | <a id="HC-D11"></a>HC-D11 | *Implementation decision*, if [OQ-HC1](#OQ-HC1) is not A. **One host-input composition per invocation, shared by every host-target reader:** the apply's dry run, `--assert` and `--format json`, the launch gate `yolo host --` runs before a wrapped agent, and `yolo config ls` and `render` at `--at host`. The launch gate runs the apply's own code path with writes on (`hostApplyGateApply`), so a composition any of them skipped would render catalogs without providers and undo an apply's rows, or report them as drift, at every wrapped launch | 2026-09-27 | [§6.2](#62-the-host-inputs) | — |
+| <a id="HC-D12"></a>HC-D12 | *Implementation decision.* **`yolo host apply --revert` keeps a `defaults` key whose declared default is an empty object or array and that still holds exactly that, and names it as kept.** MEASURED: on a fresh home with packs `["pi"]`, `--revert --assert` after an `--assert` removed `pi/models`' `providers` default and left `{}` ([§8.1](#81-measured) item 1). A revert empties a file rather than deleting it, and deleting a file yolo created was the other answer; it needs a record of creation yolo does not keep, and the revert refuses to guess it. An empty default holds nothing to withdraw: it is the shape the pack declares its file needs. A non-empty default still goes, and so does an empty one the user has since filled | 2026-09-27 | [§7](#7-fixes-that-do-not-wait-for-a-ruling) | ✅ `90c16cb6` |
 
 ## 13. Evidence
 

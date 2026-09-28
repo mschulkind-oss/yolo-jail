@@ -24,6 +24,7 @@ Symbols, not lines. Each row is a decision recorded in the
 | 3 | [HC-D3](host-computed-layer.md#HC-D3) | `internal/cli/config_ref.txt`, the host-notch `provider` line | Text only |
 | 4 | [HC-D4](host-computed-layer.md#HC-D4) | The in-sync count in `internal/cli/hostapplyverdict.go`, and whatever predicate feeds it from `RenderHostPack`'s change detection | Check first whether the predicate compares the rendered bytes with an absent file's empty read |
 | 5 | [HC-D5](host-computed-layer.md#HC-D5) | `tableLosses` in `internal/entrypoint/hostrender.go`, which predicts losses without the mechanism; `render.GeneratedHeader` for the `own` header | `GeneratedHeader` takes a surface, not a target, so the host spelling needs the target passed in |
+| 6 | [HC-D12](host-computed-layer.md#HC-D12) | `RevertHostRender` in `internal/entrypoint/hostrevert.go`; the report in `internal/cli/hostrevert.go` | The kept keys are reported beside the removed ones, not counted with them |
 
 ## 2. If the host derives, by B1
 
