@@ -293,3 +293,27 @@ func TestTheRootReaperIsHandedTheRuntimesLivenessSet(t *testing.T) {
 		}
 	}
 }
+
+// TestRunningImageRefsAsksAppleContainerItsOwnWay: `container` has no `ps
+// --format`, so without its own argv the GC-root reaper would decline on every
+// Apple Container host and never reap an image root there again.
+func TestRunningImageRefsAsksAppleContainerItsOwnWay(t *testing.T) {
+	var argv []string
+	refs, known := RunningImageRefs("container", func(a []string, _ time.Duration) ProbeResult {
+		argv = a
+		return ProbeResult{Ran: true, Stdout: "ID IMAGE OS ARCH STATE ADDR\n" +
+			"yolo-mac-1 yolo-jail:0123456789abcdef linux arm64 running 192.168.64.9/24\n"}
+	})
+	if !known || !reflect.DeepEqual(refs, []string{"yolo-jail:0123456789abcdef"}) {
+		t.Fatalf("refs=%v known=%v", refs, known)
+	}
+	if strings.Join(argv, " ") != "container ls" {
+		t.Errorf("argv = %q, want `container ls`", argv)
+	}
+	keys, known, why := LiveImageRootKeys("container", t.TempDir(), func([]string, time.Duration) ProbeResult {
+		return ProbeResult{Ran: true, Stdout: "ID IMAGE STATE\n"}
+	})
+	if !known || len(keys) != 0 {
+		t.Errorf("an idle Apple Container host: keys=%v known=%v why=%q", keys, known, why)
+	}
+}

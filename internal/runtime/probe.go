@@ -111,6 +111,21 @@ func ParseContainerLsLive(stdout string) map[string]struct{} {
 	return live
 }
 
+// ParseContainerLsImages parses Apple Container's `container ls` stdout
+// (running only, fixed table, IMAGE the second column) into the image
+// reference of every running container, yolo's or not — the same set `podman
+// ps --format {{.Image}}` prints. A row with no second field contributes
+// nothing.
+func ParseContainerLsImages(stdout string) []string {
+	var refs []string
+	for _, line := range tableRows(stdout) {
+		if parts := strings.Fields(line); len(parts) >= 2 {
+			refs = append(refs, parts[1])
+		}
+	}
+	return refs
+}
+
 // ParseRunningJailNames parses `podman ps --filter name=^yolo- --format
 // "{{.Names}}"` stdout: one name per non-blank line, trimmed.
 func ParseRunningJailNames(stdout string) []string {

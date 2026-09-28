@@ -736,7 +736,24 @@ func LiveYoloContainers(rt string, run RunFunc) runtime.LiveSet {
 //
 // Returns (refs, known); known=false when the runtime could not be enumerated,
 // and every caller must treat that as "decline", never as "nothing running".
+//
+// Apple Container has no `ps --format`, so it is asked with `container ls`,
+// whose IMAGE column is the same fact (runtime.ParseContainerLsImages). Before
+// the GC-root reaper read this (OQ-LS4) only the opt-in store GC did, and on
+// that backend it could never answer; now every `yolo prune` there would stop
+// reaping image roots if it could not.
 func RunningImageRefs(rt string, run RunFunc) ([]string, bool) {
+	if rt == "container" {
+		res := run([]string{"container", "ls"}, psTimeout)
+		if !res.Ran || res.RC != 0 {
+			return nil, false
+		}
+		refs := runtime.ParseContainerLsImages(res.Stdout)
+		if refs == nil {
+			refs = []string{}
+		}
+		return refs, true
+	}
 	res := run([]string{rt, "ps", "--format", "{{.Image}}"}, psTimeout)
 	if !res.Ran || res.RC != 0 {
 		return nil, false

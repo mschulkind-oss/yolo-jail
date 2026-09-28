@@ -49,6 +49,21 @@ func TestParseContainerLsLive(t *testing.T) {
 	}
 }
 
+func TestParseContainerLsImages(t *testing.T) {
+	stdout := "ID IMAGE OS ARCH STATE ADDR\n" +
+		"yolo-mac-aaaa1111 yolo-jail:0123456789abcdef linux arm64 running 192.168.64.9/24\n" +
+		"yolo-ac-builder ghcr.io/x/builder:latest linux arm64 running 192.168.64.10/24\n" +
+		"lonely\n"
+	got := ParseContainerLsImages(stdout)
+	want := []string{"yolo-jail:0123456789abcdef", "ghcr.io/x/builder:latest"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("ParseContainerLsImages = %v, want %v", got, want)
+	}
+	if len(ParseContainerLsImages("ID IMAGE STATE")) != 0 {
+		t.Error("header-only should yield no images")
+	}
+}
+
 func TestParsePodmanPsRows(t *testing.T) {
 	stdout := "yolo-a-1111\tUp 2 hours\t2 hours ago\n" +
 		"yolo-b-2222\tUp 3 minutes\t3 minutes ago\n" +
