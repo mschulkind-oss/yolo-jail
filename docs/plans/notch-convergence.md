@@ -475,6 +475,12 @@ is reported verified only against a real rootless host or CI, with
    > teams with host networking."* The question is now how Claude's login refresh reaches yolo's
    > broker with no hosts-file interception at all, so that a shared network namespace needs no
    > port-443 listener. Research is under way.
+   >
+   > Superseded in substance by
+   > [`claude-login-without-interception.md`](../design/claude-login-without-interception.md): if
+   > the host broker writes each workspace a credential view with no refresh token, Claude never
+   > refreshes, so no terminator listens anywhere and this question dissolves, pending
+   > [OQ-CL1](../design/claude-login-without-interception.md#OQ-CL1).
 
 3. ✅ <a id="OQ-NC3"></a>**OQ-NC3: Does a jail on a shared network namespace keep the autonomous
    posture?** `render.ProfileFor` keys autonomy on the notch alone
