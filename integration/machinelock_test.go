@@ -225,6 +225,47 @@ func logMachineLock() {
 		"take machine state over — machinelock_test.go)", mainPath)
 }
 
+// probeMachineLock reports whether a NEW descriptor could take the main lock in mode how right
+// now — the view another run has of this process's hold.
+func probeMachineLock(t *testing.T, how int) bool {
+	t.Helper()
+	mainPath, _ := machineLockPaths()
+	f, err := os.Open(mainPath)
+	if err != nil {
+		t.Fatalf("opening the cross-run lock %s: %v", mainPath, err)
+	}
+	defer f.Close()
+	if err := syscall.Flock(int(f.Fd()), how|syscall.LOCK_NB); err != nil {
+		return false
+	}
+	_ = syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
+	return true
+}
+
+// TestRequireJailHoldsTheMachineLock pins the CALL SITES: requireJail holds the cross-run lock
+// shared and requireJailExclusive holds it exclusive, as another run would see them. The -short
+// test below proves the lock's semantics; only this one fails if either call is deleted. It runs
+// in the container suite (requireJail skips under -short) and launches nothing.
+func TestRequireJailHoldsTheMachineLock(t *testing.T) {
+	t.Run("shared", func(t *testing.T) {
+		requireJail(t)
+		if probeMachineLock(t, syscall.LOCK_EX) {
+			t.Error("another run could take the lock EXCLUSIVE during a requireJail test — " +
+				"an exclusive test elsewhere would run under this one")
+		}
+		if !probeMachineLock(t, syscall.LOCK_SH) {
+			t.Error("another run could NOT take the lock shared during a requireJail test — " +
+				"two runs' ordinary tests would serialize")
+		}
+	})
+	t.Run("exclusive", func(t *testing.T) {
+		requireJailExclusive(t, "TestRequireJailHoldsTheMachineLock probes it")
+		if probeMachineLock(t, syscall.LOCK_SH) {
+			t.Error("another run could take the lock shared during a requireJailExclusive test")
+		}
+	})
+}
+
 // withMachineLockDir points the cross-run lock at a private directory for one test, so the
 // unit tests below never contend with a real run on this machine.
 func withMachineLockDir(t *testing.T) {

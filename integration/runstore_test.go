@@ -244,3 +244,23 @@ func TestRunStoreIsPrivateExceptTheSharedChildren(t *testing.T) {
 		}
 	}
 }
+
+// TestIsolatedHomeUsesTheRunStore pins the CALL SITES the -short test above cannot see:
+// TestMain made a run store, and a container test's isolated home links to it. It runs in the
+// container suite for the reason TestRequireJailIsolatesHomeByDefault does, and launches
+// nothing.
+func TestIsolatedHomeUsesTheRunStore(t *testing.T) {
+	requireJail(t)
+	if runStore.dir == "" {
+		t.Fatal("this run has no store of its own (TestMain's setUpRunStore did not run, or " +
+			"degraded — see the suite log), so an overlapping run can retire its loophole state")
+	}
+	link := filepath.Join(os.Getenv("HOME"), yoloStoreRel)
+	if got, err := os.Readlink(link); err != nil || got != runStore.dir {
+		t.Errorf("the isolated home's %s -> %q (%v), want this run's store %s", link, got, err,
+			runStore.dir)
+	}
+	if got, want := paths.GlobalStorage(), link; got != want {
+		t.Errorf("paths.GlobalStorage() = %s under the isolated home, want %s", got, want)
+	}
+}
