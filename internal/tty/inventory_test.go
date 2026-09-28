@@ -35,6 +35,10 @@ var colorEmitters = map[string]string{
 		"at shell start",
 	"internal/ttyproxy/ttyproxy.go": "termReset: terminal RESTORATION after a child, which " +
 		"clears attributes rather than adding color, so no gate applies",
+	"internal/progress/progress.go": "a live progress line's erase-line (ESC [K) redraw: " +
+		"cursor control, not color, emitted only when the caller set Live — which the run " +
+		"pipeline does only for a terminal launch stream that is not TERM=dumb " +
+		"(run.progressConfig) — so no color gate applies",
 }
 
 // TestEveryColorEmitterIsInventoried fails when a file starts emitting ANSI without being

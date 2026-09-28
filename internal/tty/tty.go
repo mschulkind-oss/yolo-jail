@@ -9,7 +9,11 @@
 // Architecture and invariants: docs/reference/cli-color.md
 package tty
 
-import "os"
+import (
+	"os"
+
+	"golang.org/x/sys/unix"
+)
 
 // IsTerminal reports whether fd is a real terminal (the platform ioctl
 // succeeds). The syscall itself is in the platform-split isattyFD.
@@ -21,4 +25,15 @@ func IsTerminalFile(f *os.File) bool {
 		return false
 	}
 	return IsTerminal(f.Fd())
+}
+
+// Width reports the column count of the terminal on fd, or 0 when fd is not a
+// terminal or the size cannot be read. A live progress line truncates to it,
+// because a line that wraps cannot be redrawn in place.
+func Width(fd uintptr) int {
+	ws, err := unix.IoctlGetWinsize(int(fd), unix.TIOCGWINSZ)
+	if err != nil || ws == nil {
+		return 0
+	}
+	return int(ws.Col)
 }
