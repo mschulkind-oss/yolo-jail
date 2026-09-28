@@ -957,10 +957,6 @@ Apple's Virtualization.framework has a hard limit on directory-sharing devices
 state into a single `/home/agent` mount instead of individual overlays. If you
 add many custom mounts, you may still hit the limit.
 
-*(An earlier revision of this guide put that limit at "~22". That number came
-from an upstream issue report and is not something this repo measures or
-enforces anywhere, so it is no longer repeated as fact.)*
-
 ### Apple Container: "default kernel not configured for architecture arm64"
 
 Apple Container needs a Linux kernel to boot its VMs. Install the recommended

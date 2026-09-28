@@ -109,7 +109,7 @@ Set `YOLO_REPO_ROOT` in your shell profile if you always want a live checkout â€
 
 **Apple Container: "virtual machine failed to start"**
 
-- VZ.framework caps how many bind mounts a guest can take. YOLO Jail consolidates the workspace state into a single `/home/agent` mount to stay well under it, but many custom `mounts` entries can still reach it. The cap is real and yolo does not know its value: the issue that reported this named a specific number, nothing in the codebase measures or asserts one, so the number is deliberately not repeated here.
+- VZ.framework caps how many bind mounts a guest can take. YOLO Jail consolidates the workspace state into a single `/home/agent` mount to stay well under it, but many custom `mounts` entries can still reach it.
 - Try `YOLO_RUNTIME=podman` to sidestep the limit.
 
 **Apple Container: image load fails**
