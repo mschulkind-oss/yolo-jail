@@ -140,6 +140,31 @@ func assertEveryThreadIsLow(t *testing.T, session, out string) {
 	}
 }
 
+// holdIOPrioJail launches a jail in the background that runs script, says so, and then stays
+// up until the test ends (or writes <dir>/<release>), so the test can attach into it. It
+// returns once the script has run.
+func holdIOPrioJail(t *testing.T, dir, release, script string) *bgRun {
+	t.Helper()
+	first := startYoloBackground(t, "first", dir,
+		script+`; echo FIRST-RAN-$((40+2)); `+
+			`for _ in $(seq 1 600); do [ -f /workspace/`+release+` ] && break; sleep 0.5; done`)
+	t.Cleanup(func() { _ = os.WriteFile(filepath.Join(dir, release), []byte("go\n"), 0o644) })
+	ran := regexp.MustCompile(`FIRST-RAN-42`)
+	deadline := time.Now().Add(jailTimeout())
+	for !ran.MatchString(first.combined()) {
+		select {
+		case err := <-first.done:
+			t.Fatalf("the first launch exited (%v) before its script ran:\n%s", err, first.combined())
+		default:
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("the first session never ran its script within %s:\n%s", jailTimeout(), first.combined())
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	return first
+}
+
 // TestIOPriorityReachesEveryProcessOfTheJail: a jail declaring "low" runs every process at
 // BE7 — the boot's children, the shell and its descendants — and an attach into it does the
 // same for its own shell. The launch and the attach each print the disclosure line exactly
@@ -149,35 +174,27 @@ func TestIOPriorityReachesEveryProcessOfTheJail(t *testing.T) {
 	requireJail(t)
 	dir := writeProject(t, `{"resources": {"io": "low"}}`)
 
+	const release = "release-ioprio"
 	if runtime.GOOS != "linux" {
 		// Apple Container and podman on macOS never pass the value: the Warned line is the
-		// whole behavior there.
-		r := runYolo(t, dir, "true")
-		if r.rc != 0 || !strings.Contains(r.stderr, `resources.io.priority "low" is NOT applied on`) {
-			t.Fatalf("a macOS launch must print the Warned line (rc %d):\n%s", r.rc, r.combined())
+		// whole behavior there, on the launch and on an attach into it (IO-D10).
+		const warned = `resources.io.priority "low" is NOT applied on`
+		first := holdIOPrioJail(t, dir, release, `true`)
+		if !strings.Contains(first.combined(), warned) {
+			t.Errorf("a macOS launch must print the Warned line:\n%s", first.combined())
+		}
+		attach := runYolo(t, dir, "true")
+		if attach.rc != 0 || !strings.Contains(attach.combined(), "Attaching to existing jail") {
+			t.Fatalf("the second run did not attach (rc %d):\n%s", attach.rc, attach.combined())
+		}
+		if !strings.Contains(attach.stderr, warned) {
+			t.Errorf("a macOS attach must print the Warned line too:\n%s", attach.combined())
 		}
 		return
 	}
 	buildIOPrioProbe(t, dir)
 
-	const release = "release-ioprio"
-	first := startYoloBackground(t, "first", dir,
-		`/workspace/.ioprio-probe > /workspace/.ioprio-first.txt; echo FIRST-PROBED-$((40+2)); `+
-			`for _ in $(seq 1 600); do [ -f /workspace/`+release+` ] && break; sleep 0.5; done`)
-	t.Cleanup(func() { _ = os.WriteFile(filepath.Join(dir, release), []byte("go\n"), 0o644) })
-	probed := regexp.MustCompile(`FIRST-PROBED-42`)
-	deadline := time.Now().Add(jailTimeout())
-	for !probed.MatchString(first.combined()) {
-		select {
-		case err := <-first.done:
-			t.Fatalf("the first launch exited (%v) before its probe ran:\n%s", err, first.combined())
-		default:
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("the first session never ran its probe within %s:\n%s", jailTimeout(), first.combined())
-		}
-		time.Sleep(50 * time.Millisecond)
-	}
+	first := holdIOPrioJail(t, dir, release, `/workspace/.ioprio-probe > /workspace/.ioprio-first.txt`)
 	firstOut, err := os.ReadFile(filepath.Join(dir, ".ioprio-first.txt"))
 	if err != nil {
 		t.Fatalf("the first session's probe wrote nothing: %v\n%s", err, first.combined())

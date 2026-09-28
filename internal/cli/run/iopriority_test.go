@@ -182,13 +182,16 @@ func argCallee(call *ast.CallExpr, i int) string {
 // cannot reach (runContainer runs the whole launch):
 //
 //   - runContainer calls noteIOPriority after the launch banner, so the line is on screen when
-//     the container takes the terminal.
+//     the container takes the terminal, and about the DECLARED value (ioprio.FromResources).
+//     The passed value (appliedIOPriority) is Normal on Apple Container and podman on macOS,
+//     where the Warned line is the whole behavior, so handing it that value silences them.
 //   - every fresh refreshJailBriefings call — runContainer's and the macos-user arm's in Run —
 //     briefs appliedIOPriority, the value the argv passes. appliedBriefing, which the argv and
 //     briefing table drives, passes the same expression; this is what ties it to run.go.
 func TestTheFreshLaunchNotesTheIOPriority(t *testing.T) {
 	fn := methodDecl(t, "run.go", "runContainer")
 	var banner, note int
+	var noteArg string
 	var refreshArgs []string
 	ast.Inspect(fn, func(n ast.Node) bool {
 		call, ok := n.(*ast.CallExpr)
@@ -201,7 +204,7 @@ func TestTheFreshLaunchNotesTheIOPriority(t *testing.T) {
 				banner = int(call.Pos())
 			}
 		case "noteIOPriority":
-			note = int(call.Pos())
+			note, noteArg = int(call.Pos()), argCallee(call, 1)
 		case "refreshJailBriefings":
 			refreshArgs = append(refreshArgs, argCallee(call, 4))
 		}
@@ -213,6 +216,10 @@ func TestTheFreshLaunchNotesTheIOPriority(t *testing.T) {
 	}
 	if banner == 0 || note < banner {
 		t.Error("noteIOPriority must follow the launch banner, beside warnIfNoPacks")
+	}
+	if noteArg != "FromResources" {
+		t.Errorf("runContainer's noteIOPriority is about %q, want the declaration (ioprio.FromResources): "+
+			"the VM backends' Warned line is about a value that is never passed", noteArg)
 	}
 	fd := funcDecl(t, "run.go", "Run")
 	ast.Inspect(fd, func(n ast.Node) bool {
@@ -325,6 +332,31 @@ func TestAnAttachBriefsTheIOPriorityTheJailWasLaunchedWith(t *testing.T) {
 			}
 			if tc.want != "" && !strings.Contains(got.briefing, tc.want) {
 				t.Errorf("the attach briefed %q, want the launched value %s", got.briefing, tc.want)
+			}
+		})
+	}
+}
+
+// TestAnAttachOnAVirtiofsBackendWarnsForTheDeclaration: Apple Container and podman on macOS
+// never pass a value, so an attach prints the Warned line for the current declaration
+// (IO-D10) and briefs no class, whatever the frozen environment holds.
+func TestAnAttachOnAVirtiofsBackendWarnsForTheDeclaration(t *testing.T) {
+	for _, tc := range []struct {
+		rt, backend string
+	}{
+		{"container", "Apple Container"},
+		{"podman", "podman on macOS"},
+	} {
+		t.Run(tc.backend, func(t *testing.T) {
+			got := ioAttach(t, tc.rt, true, ioDeclared("low"), "YOLO_VERSION=9.9.9-test\n")
+			if !strings.Contains(got.stderr, `resources.io.priority "low" is NOT applied on `+tc.backend) {
+				t.Errorf("the attach did not print the Warned line for %s:\n%s", tc.backend, got.stderr)
+			}
+			if got.briefing != "" {
+				t.Errorf("the attach briefed a class %s never passes: %q", tc.backend, got.briefing)
+			}
+			if got := ioAttach(t, tc.rt, true, newConfig(), "YOLO_VERSION=9.9.9-test\n"); strings.Contains(got.stderr, "resources.io.priority") {
+				t.Errorf("an undeclared priority printed a line on %s:\n%s", tc.backend, got.stderr)
 			}
 		})
 	}
