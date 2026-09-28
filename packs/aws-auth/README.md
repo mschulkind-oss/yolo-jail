@@ -148,7 +148,9 @@ would break this pack outright, because CLI-less is the case the gate's CLI-less
 for.
 
 **⚠ The pointer is scoped; the adapter behind it is not.** The adapter listens on
-`127.0.0.1:1461` in every jail that enables this loophole, whatever any profile selects, and
+`127.0.0.1:1461` in every jail that enables this loophole, whatever any profile selects (on a jail
+that shares its launcher's loopback, `network.mode: "host"` or nested, a port the launch picks
+instead, which the pointer follows), and
 any process there that sends `GET /credentials` receives the minted credential: a bare shell,
 or claude under `-p codex=bedrock`. The credential gate governs what each agent's environment
 carries, not which process can reach a loopback service. Narrowing the adapter too is

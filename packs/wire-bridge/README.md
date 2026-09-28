@@ -50,7 +50,11 @@ endpoint file. That laziness is what makes the coarse bin condition precise
 The listen port lives ONLY in this pack's own `adapter` declarations (`8214` for
 `openai → anthropic`, `8215` for `openai-responses → anthropic`, both clear of
 every baked service) — one writer, and it is the OWNER rather than each
-consumer. It used to be the other way round: every bridged provider hand-wrote
+consumer. On a jail that shares its launcher's loopback (`network.mode: "host"`,
+or a nested jail) the launch serves each declared address on a port it picks
+instead, so two such jails do not contend for one, and every agent's provider
+environment follows it
+([notch convergence §2.4](../../docs/plans/notch-convergence.md#24-the-addresses-those-secrets-protect-are-composed-not-literal)). It used to be the other way round: every bridged provider hand-wrote
 the port into its own manifest, which worked for a pack author and left a
 user-declared provider unable to be bridged at all. `count_tokens` deliberately
 answers 404 so claude uses its own estimator instead of a fabricated count, and

@@ -76,7 +76,8 @@ pack unchanged. See
     "scope": "jail"               // or "host" (ONE per machine); default "jail"
   },
   "jail_daemon": {                // optional; supervised INSIDE the jail by yolo-jaild
-    "cmd": ["{jail_loophole_dir}/my-agent"],
+    "cmd": ["{jail_loophole_dir}/my-agent", "--listen", "{listen}"],
+    "listen": "127.0.0.1:1470",   // optional; the loopback address it serves at. See below
     "restart": "on-failure",      // or "always" / "no"; default "on-failure"
     "caller_token": true          // optional; default false. See below
   },
@@ -136,6 +137,16 @@ carry it. The shipped OpenAI and AWS credential adapters declare it. The Claude
 OAuth terminator does not, because Claude cannot send one. It checks instead that
 the refresh token Claude presents is the machine's current login
 ([notch convergence §2.3](https://github.com/mschulkind-oss/yolo-jail/blob/main/docs/plans/notch-convergence.md#23-the-fix-every-service-authenticates-its-caller-at-every-notch)).
+
+**`jail_daemon.listen` is where such a daemon serves, written once.** Give it a
+loopback address and a port, and pass `{listen}` in `cmd` where your daemon takes
+its listen address; each needs the other. A pack `env` contribution that points a
+client at the daemon writes `{listen}` too, beside `served_by` naming the loophole:
+`"vars": {"MY_URL": "http://{listen}/v1"}`. yolo fills in the same address in both
+places. In a jail with its own network namespace, the default, that is the address
+you declared. In a jail on `network.mode: "host"`, or a nested jail, it is a free
+port yolo picks for that launch, so two such jails do not fight over one port.
+Attaching to a running jail reuses the ports it started with.
 
 **A key the schema does not know is reported, not dropped.** Two strictnesses,
 deliberately: an authoring read (`loopholedecl.Decode`) refuses an unknown key,

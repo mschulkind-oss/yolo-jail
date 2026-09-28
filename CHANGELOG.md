@@ -353,6 +353,13 @@ apply it, and the launch says that too. See
   refuses any request without it and passes it on to no provider. An agent sends only that
   secret to the bridge
   ([caller authentication](docs/reference/wire-bridge.md#caller-authentication)).
+- Two jails on your machine's own network (`network.mode: "host"`), or two nested jails, running
+  at once contended for the same ports for the wire bridge and the Codex and AWS sign-in
+  services: the second jail's bridge could not start, and the launch was refused. A jail that
+  shares its host's network now runs each of them on a port picked for that launch, its agents
+  are pointed there, and attaching to it again reuses the same ports. A jail with its own network
+  keeps the usual ports
+  ([notch convergence §2.4](docs/plans/notch-convergence.md#24-the-addresses-those-secrets-protect-are-composed-not-literal)).
 
 ## 0.10.x
 
