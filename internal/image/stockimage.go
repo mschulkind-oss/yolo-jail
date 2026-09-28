@@ -199,7 +199,12 @@ func (o *AutoLoadOptions) stockIdentity() string {
 	if o.SkipBuild || o.RepoRoot == "" || !o.stockInputs() {
 		return ""
 	}
+	// A flake eval: half a second warm (measured on Linux), but bounded at
+	// imageIdentityEvalTimeout because a cold one fetches inputs, so it gets a
+	// progress line like every other nix call on this path.
+	line := o.startProgress("Evaluating the image identity with nix")
 	id, ok := o.EvalIdentity(o.RepoRoot)
+	line.Done(verdict(ok))
 	if !ok {
 		return ""
 	}

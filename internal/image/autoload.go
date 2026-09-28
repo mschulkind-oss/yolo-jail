@@ -17,6 +17,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/perf"
+	"github.com/mschulkind-oss/yolo-jail/internal/progress"
 )
 
 // AutoLoadOptions carries the injectable seams for AutoLoadImage so the load
@@ -79,6 +80,17 @@ type AutoLoadOptions struct {
 	// output, Report by the human watching the launch. nil => Out, which keeps
 	// every existing caller and test unchanged.
 	Report io.Writer
+	// Progress is how the long steps of a load render their live progress (the nix
+	// builds, the layer copy, the archive write and load, a wait on another
+	// launch's copy) on Report. The zero value is the line-oriented rendering; the
+	// run pipeline sets Live when its stderr is a terminal. Every step stays silent
+	// for its first progress.DefaultGrace, so a warm launch prints nothing new.
+	//
+	// It exists because the C9 copy (3b1ebdd7) deleted the only progress an image
+	// load had — the stream's "Streaming image... N%" line — and a cold copy then
+	// ran for as long as four minutes with nothing on the terminal between
+	// "Image load needed" and "Copied image".
+	Progress progress.Config
 	// IsMacOS overrides the platform for the build-offload branch.
 	IsMacOS bool
 	// Getpid names the PID-unique out-link. nil => os.Getpid.
@@ -221,6 +233,10 @@ type AutoLoadOptions struct {
 	// twice — once for the span and the attr-naming failure report, once inside
 	// the copy.
 	copier string
+	// nixLine is the progress line of the nix build in flight, if any. The default
+	// builders write nix's summaries through it (nixOut) so a summary never tears
+	// the live line.
+	nixLine *progress.Line
 	// LookupEnv resolves the StaleImageEnv escape hatch (see the fatality
 	// argument on the currentPath=="" branch). nil => os.LookupEnv.
 	//
@@ -240,12 +256,12 @@ func (o *AutoLoadOptions) fill() {
 	}
 	if o.BuildStorePath == nil {
 		o.BuildStorePath = func(repoRoot string, extra []any, outLink string) (string, []string) {
-			return buildImageStorePath(o.Attr, repoRoot, extra, outLink, o.Out)
+			return buildImageStorePath(o.Attr, repoRoot, extra, outLink, o.nixOut())
 		}
 	}
 	if o.BuildOffload == nil {
 		o.BuildOffload = func(repoRoot string, extra []any, outLink string) (string, []string) {
-			return buildImageWithContainerBuilder(o.Runtime, o.Attr, repoRoot, extra, outLink, o.Out)
+			return buildImageWithContainerBuilder(o.Runtime, o.Attr, repoRoot, extra, outLink, o.nixOut())
 		}
 	}
 	if o.Run == nil {
@@ -272,7 +288,7 @@ func (o *AutoLoadOptions) fill() {
 	}
 	if o.BuildCopier == nil {
 		o.BuildCopier = func(repoRoot string) (string, []string) {
-			return BuildImageCopier(repoRoot, o.Out)
+			return BuildImageCopier(repoRoot, o.nixOut())
 		}
 	}
 	if o.PresentDigests == nil {
@@ -319,10 +335,20 @@ func (o *AutoLoadOptions) fill() {
 			// to the human whose terminal is stalled — which is the entire failure
 			// the notice exists to prevent. The copy's own report stays on Out
 			// beside the copied/skipped line it belongs with.
-			return lockImageCopy(ImageCopyLockPath(), copyLockNotices{
-				waiting: func(s string) { fmt.Fprintln(o.reportWriter(o.Out), s) },
-				warn:    func(s string) { fmt.Fprintln(o.reportWriter(o.Out), "Warning: "+s) },
+			//
+			// The wait then gets a progress line of its own: the notice says the
+			// launch is queued, the line says for how long, because the peer's copy
+			// can take minutes and the notice is otherwise the last thing printed.
+			var wait *progress.Line
+			unlock := lockImageCopy(ImageCopyLockPath(), copyLockNotices{
+				waiting: func(s string) {
+					fmt.Fprintln(o.reportWriter(o.Out), s)
+					wait = o.startProgress("Waiting for the image-copy lock")
+				},
+				warn: func(s string) { fmt.Fprintln(o.reportWriter(o.Out), "Warning: "+s) },
 			})
+			wait.Done("acquired")
+			return unlock
 		}
 	}
 	if o.LookupEnv == nil {
@@ -457,7 +483,9 @@ func AutoLoadImage(opts AutoLoadOptions) LoadResult {
 	buildFailed := false
 	if !o.SkipBuild {
 		bsp := o.Perf.Span("image.nix_build")
-		currentPath, buildTail = o.BuildStorePath(o.RepoRoot, o.ExtraPackages, outLink)
+		currentPath, buildTail = o.withNixProgress("Building the jail image with nix", func() (string, []string) {
+			return o.BuildStorePath(o.RepoRoot, o.ExtraPackages, outLink)
+		})
 		bsp.End()
 
 		// macOS build-offload (J3): a from-source `packages:` build needs Linux. If
@@ -465,7 +493,10 @@ func AutoLoadImage(opts AutoLoadOptions) LoadResult {
 		// build over ssh-ng before falling back to a stale cache. On Linux (or when
 		// the offload is disabled) BuildOffload is a nil-returning stub.
 		if currentPath == "" && o.IsMacOS {
-			if off, offTail := o.BuildOffload(o.RepoRoot, o.ExtraPackages, outLink); off != "" {
+			off, offTail := o.withNixProgress("Building the jail image on the Linux builder container", func() (string, []string) {
+				return o.BuildOffload(o.RepoRoot, o.ExtraPackages, outLink)
+			})
+			if off != "" {
 				currentPath, buildTail = off, offTail
 			} else if len(offTail) > 0 {
 				buildTail = offTail
@@ -1097,12 +1128,17 @@ func (o *AutoLoadOptions) deliverArchiveOnce(imageJSON, contentRef string, prese
 		fmt.Fprintf(o.Out, "Note: the image copier wrote %d layer(s) the destination "+
 			"already holds; this archive is larger than it needed to be.\n", overwritten)
 	}
+	tarLine := o.startProgress("Writing the image archive")
 	size, err := tarLayoutConsuming(layoutDir, archivePath)
+	tarLine.Done(verdict(err == nil))
 	if err != nil {
 		fmt.Fprintln(o.Out, "Error writing the image archive: "+err.Error())
 		return archiveDelivery{}
 	}
-	if !o.LoadArchive(archivePath) {
+	loadLine := o.startProgress("Loading the " + FormatImageSize(size) + " image archive into " + o.Runtime)
+	loaded := o.LoadArchive(archivePath)
+	loadLine.Done(verdict(loaded))
+	if !loaded {
 		return archiveDelivery{loadFailed: true}
 	}
 	return archiveDelivery{ok: true, present: present, archiveBytes: size}
@@ -1119,9 +1155,47 @@ func (o *AutoLoadOptions) resolveCopier() []string {
 	if o.copier != "" {
 		return nil
 	}
-	path, tail := o.BuildCopier(o.RepoRoot)
+	path, tail := o.withNixProgress("Building the image copier with nix", func() (string, []string) {
+		return o.BuildCopier(o.RepoRoot)
+	})
 	o.copier = path
 	return tail
+}
+
+// startProgress begins one long step's progress line on the launch stream.
+func (o *AutoLoadOptions) startProgress(label string) *progress.Line {
+	return o.Progress.Start(o.reportWriter(o.Out), label)
+}
+
+// withNixProgress runs one nix build under a progress line, the build's own
+// summaries written through it (nixOut), and closes the line with the verdict the
+// build's contract states: an empty store path is a failure.
+func (o *AutoLoadOptions) withNixProgress(label string, build func() (string, []string)) (string, []string) {
+	line := o.startProgress(label)
+	prev := o.nixLine
+	o.nixLine = line
+	path, tail := build()
+	o.nixLine = prev
+	line.Done(verdict(path != ""))
+	return path, tail
+}
+
+// nixOut is where the default builders write nix's summaries: through the build's
+// progress line when one is running — on the launch stream, beside it — and to Out
+// otherwise.
+func (o *AutoLoadOptions) nixOut() io.Writer {
+	if o.nixLine != nil {
+		return o.nixLine
+	}
+	return o.Out
+}
+
+// verdict is a progress line's result word.
+func verdict(ok bool) string {
+	if ok {
+		return "done"
+	}
+	return "failed"
 }
 
 // copyImageLayers is the LayerCopy seam's real implementation: run the copier the
@@ -1141,7 +1215,8 @@ func (o *AutoLoadOptions) copyImageLayers(imageJSON, dest string, prefix []strin
 		printTail(o.Out, "the image copier's build said", tail)
 		return CopyReport{}, false
 	}
-	return CopyReport{}, copyImageWithRetry(copyArgv(prefix, o.copier, imageJSON, dest), o.Out)
+	return CopyReport{}, copyImageWithRetryWatched(copyArgv(prefix, o.copier, imageJSON, dest), o.Out,
+		o.copyProgress(imageJSON, dest))
 }
 
 // runCapture runs an argv and returns its stdout, ok=false for anything that did

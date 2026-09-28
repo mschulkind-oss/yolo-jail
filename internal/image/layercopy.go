@@ -1,6 +1,7 @@
 package image
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -10,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	"github.com/mschulkind-oss/yolo-jail/internal/progress"
 )
 
 // C9 — DELIVER THE IMAGE AS A NEGOTIATED COPY, NOT AS A STREAM.
@@ -325,14 +327,38 @@ func ContainersStorageDest(contentRef string) string {
 // there too, which is the second thing retryWouldHelp recognises. Pinned by
 // TestACopyThroughAPrefixKeepsTheChildsOwnWords rather than assumed.
 func copyImage(argv []string, out io.Writer) (bool, []string) {
+	return copyImageWatched(argv, out, nil)
+}
+
+// copyWatch is one copy attempt's progress: called as the attempt starts, it returns
+// the observer for each line of the copier's stdout and the callback that closes the
+// attempt's progress line. nil watches nothing.
+type copyWatch func() (onLine func(string), end func(ok bool))
+
+// copyImageWatched is copyImage with the copier's stdout read for progress.
+//
+// skopeo's per-blob lines go to STDOUT ("Copying blob sha256:<digest>" as each blob
+// starts, when stdout is not a terminal — MEASURED 2026-09-28 against the copier
+// this flake builds), and they used to be discarded here as a duplicate of the
+// report the caller prints afterwards. They are the only live signal a copy has, so
+// they now feed the progress line, and are still never printed themselves.
+//
+// The attempt's line is closed BEFORE the failure report below, so the report is
+// never written across a live line.
+func copyImageWatched(argv []string, out io.Writer, watch copyWatch) (bool, []string) {
 	cmd := exec.Command(argv[0], argv[1:]...)
 	tail := &tailWriter{max: copyTailLines}
 	cmd.Stderr = tail
-	// skopeo's per-blob progress goes to stdout and duplicates the report the
-	// caller prints from the layer inventory, so it is discarded (the same choice
-	// the streamed load made for `podman load`'s "Loaded image:" line).
-	cmd.Stdout = nil
+	end := func(bool) {}
+	if watch != nil {
+		var onLine func(string)
+		onLine, end = watch()
+		if onLine != nil {
+			cmd.Stdout = &lineSink{each: onLine}
+		}
+	}
 	err := cmd.Run()
+	end(err == nil)
 	if err == nil {
 		return true, nil
 	}
@@ -380,7 +406,13 @@ func copyImage(argv []string, out io.Writer) (bool, []string) {
 // launch CAN now do is name a cause instead of stopping at "it failed", which is
 // the part of R8 that was avoidable.
 func copyImageWithRetry(argv []string, out io.Writer) bool {
-	ok, tail := copyImage(argv, out)
+	return copyImageWithRetryWatched(argv, out, nil)
+}
+
+// copyImageWithRetryWatched is copyImageWithRetry with each attempt's progress
+// watched; the retry gets a progress line of its own.
+func copyImageWithRetryWatched(argv []string, out io.Writer, watch copyWatch) bool {
+	ok, tail := copyImageWatched(argv, out, watch)
 	if ok {
 		return true
 	}
@@ -389,6 +421,105 @@ func copyImageWithRetry(argv []string, out io.Writer) bool {
 		return false
 	}
 	fmt.Fprintln(out, "Retrying the image copy once.")
-	ok, _ = copyImage(argv, out)
+	ok, _ = copyImageWatched(argv, out, watch)
 	return ok
+}
+
+// copyProgress is the layer copy's progress: a line labelled for its destination,
+// advanced by the copier's per-blob lines against the image's own layer inventory.
+func (o *AutoLoadOptions) copyProgress(imageJSON, dest string) copyWatch {
+	label := "Copying the image into " + o.Runtime
+	if strings.HasPrefix(dest, "oci:") {
+		label = "Copying the image layers for " + o.Runtime
+	}
+	// The inventory is the denominator. Unreadable, the line still counts blobs as
+	// they start; skopeo reads the manifest itself and is the authority either way.
+	layers, _ := ReadLayerInventory(imageJSON)
+	return func() (func(string), func(bool)) {
+		t := newCopyTracker(o.startProgress(label), layers)
+		return t.observe, t.end
+	}
+}
+
+// copyTracker turns the copier's stdout into a progress detail.
+//
+// "layer N of M" counts the blobs the copier has STARTED, and the bytes beside it
+// are theirs — a ceiling on what has landed, by as much as the copier's few
+// parallel transfers, never a figure ahead of what it has begun. A blob the store
+// already holds is started and finished at once, so a delta copy races through the
+// shared layers and slows on the new ones, which is the truth of it.
+type copyTracker struct {
+	line   *progress.Line
+	sizes  map[string]int64
+	layers int
+	total  int64
+	seen   map[string]bool
+	bytes  int64
+}
+
+func newCopyTracker(line *progress.Line, layers []LayerInfo) *copyTracker {
+	t := &copyTracker{line: line, sizes: map[string]int64{}, seen: map[string]bool{}, layers: len(layers)}
+	for _, l := range layers {
+		t.sizes[l.Digest] = l.Size
+		t.total += l.Size
+	}
+	return t
+}
+
+func (t *copyTracker) observe(line string) {
+	line = strings.TrimSpace(line)
+	switch {
+	case strings.HasPrefix(line, "Copying blob "):
+		f := strings.Fields(strings.TrimPrefix(line, "Copying blob "))
+		if len(f) == 0 || t.seen[f[0]] {
+			return
+		}
+		t.seen[f[0]] = true
+		t.bytes += t.sizes[f[0]]
+		t.line.Set(t.detail())
+	case strings.HasPrefix(line, "Copying config"):
+		t.line.Set(t.summary() + "; writing the image config")
+	case strings.HasPrefix(line, "Writing manifest"):
+		t.line.Set(t.summary() + "; writing the manifest")
+	}
+}
+
+func (t *copyTracker) detail() string {
+	n := len(t.seen)
+	if t.layers == 0 {
+		return fmt.Sprintf("layer %d", n)
+	}
+	return fmt.Sprintf("layer %d of %d (%s)", n, t.layers, progress.Of(t.bytes, t.total))
+}
+
+func (t *copyTracker) summary() string {
+	if t.layers == 0 {
+		return fmt.Sprintf("%d layer(s)", len(t.seen))
+	}
+	return fmt.Sprintf("%d layer(s), %s", t.layers, FormatImageSize(t.total))
+}
+
+func (t *copyTracker) end(ok bool) {
+	if ok {
+		t.line.Set(t.summary())
+	}
+	t.line.Done(verdict(ok))
+}
+
+// lineSink is an io.Writer that hands each complete line to each.
+type lineSink struct {
+	each    func(string)
+	pending []byte
+}
+
+func (s *lineSink) Write(p []byte) (int, error) {
+	s.pending = append(s.pending, p...)
+	for {
+		i := bytes.IndexByte(s.pending, '\n')
+		if i < 0 {
+			return len(p), nil
+		}
+		s.each(string(s.pending[:i]))
+		s.pending = s.pending[i+1:]
+	}
 }
