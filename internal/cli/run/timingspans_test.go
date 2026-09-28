@@ -154,9 +154,8 @@ func TestInitPerfConstructsOnlyWhenEnabled(t *testing.T) {
 	// A fast span lands in the file; a slow one also names itself on stderr.
 	fast := o.Perf.Span("fast")
 	fast.End()
-	slow := o.Perf.Span("slow")
-	time.Sleep(perf.SlowSpanThreshold + 50*time.Millisecond)
-	slow.End()
+	requireWallClockSpans(t, o.Perf)
+	slowSpanEnd(o.Perf, "slow")
 
 	got, err := os.ReadFile(filepath.Join(ws, ".yolo", HostPerfLogName))
 	if err != nil {
@@ -194,12 +193,9 @@ func TestSlowSpanNoticeIsSilentWhileTheContainerHoldsTheTerminal(t *testing.T) {
 	var out, errb bytes.Buffer
 	o.Stdout, o.Stderr = &out, &errb
 	o.initPerf("yolo-ws-test0000")
+	requireWallClockSpans(t, o.Perf)
 
-	slow := func(name string) {
-		sp := o.Perf.Span(name)
-		time.Sleep(perf.SlowSpanThreshold + 50*time.Millisecond)
-		sp.End()
-	}
+	slow := func(name string) { slowSpanEnd(o.Perf, name) }
 
 	// The window: spawned → exited is when the agent owns the screen.
 	o.Perf.Mark("child.spawned")
@@ -227,6 +223,35 @@ func TestSlowSpanNoticeIsSilentWhileTheContainerHoldsTheTerminal(t *testing.T) {
 		if !strings.Contains(string(got), want) {
 			t.Errorf("host-perf.log missing %q — the suppressed notice must still be recorded:\n%s", want, got)
 		}
+	}
+}
+
+// slowSpanEnd enters a completed span past perf.SlowSpanThreshold under name, through
+// perf.Log.Record: the same KindEnd event, carrying the same Dur, that Span.End emits
+// after sleeping the threshold out — which is all the file and notice sinks read — so
+// the tests that need a slow span do not each spend a real second waiting for one.
+// (Span.End's own duration arithmetic is internal/perf's to pin, on its fake clock.)
+//
+// What a sleep ALSO proved, and a Record cannot, is that the collector newTimingLog
+// wires runs on the wall clock (design D8): on a frozen clock no span ever crosses the
+// threshold, and the notice goes silent everywhere. requireWallClockSpans keeps that
+// half, for the price of a few milliseconds.
+func slowSpanEnd(l *perf.Log, name string) {
+	l.Record(name, perf.SlowSpanThreshold+50*time.Millisecond)
+}
+
+// requireWallClockSpans fails unless a real sleep inside a span of l is measured as at
+// least that long — the frozen-clock regression slowSpanEnd would otherwise hide.
+func requireWallClockSpans(t *testing.T, l *perf.Log) {
+	t.Helper()
+	const nap = 20 * time.Millisecond
+	sp := l.Span("wall.clock.probe")
+	time.Sleep(nap)
+	sp.End()
+	e, ok := l.LastEvent("wall.clock.probe")
+	if !ok || e.Kind != perf.KindEnd || e.Dur < nap {
+		t.Fatalf("a span around a %s sleep recorded %+v; the collector must run on the wall "+
+			"clock (design D8), or no span ever crosses the slow-span threshold", nap, e)
 	}
 }
 
