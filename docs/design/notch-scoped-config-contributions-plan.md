@@ -9,6 +9,8 @@ records the mechanism choices as `NS-D` rows (NS-D14 is a host-apply fix the rev
 this build, and NS-D15 to NS-D18 correct it).
 [§3](#3-only-if-the-rulings-are-amended--the-posture-modifier) stays blocked on
 [OQ-5](notch-scoped-config-contributions.md#OQ-5).
+[OQ-3](notch-scoped-config-contributions.md#OQ-3)'s posture overlay was built on 2026-09-28
+(`67d86320`) with no section here; the design's ledger rows NS-D19 to NS-D26 are its record.
 
 > **Precedence.** This is the implementation sketch beside
 > [`notch-scoped-config-contributions.md`](notch-scoped-config-contributions.md). The design wins on

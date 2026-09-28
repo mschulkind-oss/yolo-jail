@@ -147,10 +147,12 @@ const (
 	// Phase 9). The confinement notch's AgentAutonomy policy selects one; its config
 	// patch folds into the managed layer of the pack's OWN surfaces and its launch
 	// flags merge into the binary's. Sole-owned by the pack (one autonomy declaration
-	// per pack); it patches surfaces the same pack owns, so it never collides across
-	// packs the way a second config writer would. Its POSTURE LISTS (`lists`, config-list
-	// bodies gated on the posture — docs/design/notch-scoped-config-contributions.md §4.1)
-	// may name another pack's surface, and still never collide: a list only appends.
+	// per pack), and it never collides across packs the way a second config writer would.
+	// Two halves may name another pack's surface: its POSTURE LISTS (`lists`, config-list
+	// bodies gated on the posture — docs/design/notch-scoped-config-contributions.md §4.1),
+	// which only append, and its POSTURE OVERLAYS (`config` entries on a surface the pack
+	// does not declare, OQ-3), which fold at config-overlay's slot below the owner's managed,
+	// where later wins by pack order as it does for every overlay (AutonomyPosture.Config).
 	KindAutonomy Kind = "autonomy"
 	// KindProfile: a NAMED SELECTION OVER A PROVIDER
 	// (docs/reference/providers.md#declaring-and-selecting-a-profile) — `name` is the selector `-p` sets and

@@ -1321,7 +1321,7 @@ posture may be absent. A posture has three halves, and each reaches a different 
 
 | Half | What it does | Which surfaces |
 | :--- | :--- | :--- |
-| `config` | Keys folded into a surface's `managed` layer (`packload.foldPostureManaged`) | The declaring pack's own. A patch naming another pack's surface folds nowhere and is reported as a note, never refused |
+| `config` | On the declaring pack's own surface: keys folded into its `managed` layer (`packload.foldPostureManaged`). On another pack's surface: a **posture overlay**, keys contributed as a [`config-overlay`](#overlay-rules) does | The declaring pack's own, and any selected pack's through the `config-overlay` path |
 | `launch` | Flags for one binary. A posture is the only place a launch flag can be declared | — |
 | `lists` | **Posture lists**: `config-list` bodies appended only while this posture is selected | Any selected pack's, through the [`config-list`](#adding-entries-to-an-array-config-list) path |
 
@@ -1369,10 +1369,63 @@ jail:
   ignores an unknown nested field), so the entry renders nowhere rather than everywhere. Install
   the host yolo before a pack uses the field, since the host refuses the manifest otherwise.
 
+A **posture overlay** *(a term coined by
+[the design's OQ-3 build](../design/notch-scoped-config-contributions.md#10-decision-ledger), NS-D19)*
+is a posture `config` entry naming a surface its own pack does not declare. It is how a pack
+sets another pack's setting for one side of the confinement line, such as a scalar only the
+host gets:
+
+```json
+{
+  "kind": "autonomy",
+  "guarded": {
+    "config": [
+      {"agent": "pi", "name": "settings", "codec": "json",
+       "path": "~/.pi/agent/settings.json", "managed": {"someSetting": "host-only"}}
+    ]
+  }
+}
+```
+
+- **Shape.** The same surface entry as every posture patch: `agent` and `name` identify the
+  target, `path` and `codec` are required and must be the owner's, and `managed` carries the
+  keys. An entry on the pack's own surface keeps folding into its `managed` layer; which of
+  the two an entry is depends only on whether the declaring pack declares its identity.
+- **Validation.** It contributes keys, so [`config-overlay`'s refusals](#overlay-rules) apply:
+  `defaults`, `mode`, `retireOnFirstRender` and `readsHost` are refused, and an empty
+  `managed` is refused (`manifest.DecodePostureOverlay`). Both postures are decoded at every
+  notch, so a malformed entry is reported wherever it would or would not render, led by
+  `autonomy <posture>.config`. A `path` or `codec` different from the owner's is refused at a
+  notch that would place it.
+- **Collection.** `packoverlay.Collect` places it in the overlay pass, gated on the posture
+  after the decode and before the owner check: an unselected posture is a clean skip, and a
+  selected one whose surface has no owner is inert and reported, led by `autonomy`. Order is
+  config-overlay's, pack order then declaration order, with a posture's entries at the
+  `autonomy` contribution's position, and later wins.
+- **Rendering.** Once placed it is a config-overlay layer from its pack: the one slot below
+  the owner's `managed` (the owner still wins a conflict), `config-overlay:<pack>` provenance,
+  the boot's "config-overlay keys from" line, and `yolo config diff`, `yolo config ls` and
+  `yolo config render --at host|jail` as for any overlay.
+- **At the host.** `yolo host apply --assert` writes it into the real file and records it in
+  the provenance record. Once the posture stops selecting it, it leaves the way every
+  overlay key does: `host_management: own` regenerates the file without it, and under
+  `assert` it is recorded `retired:config-overlay:<pack>` and `yolo host apply --revert`
+  removes it. [Dropping the pack](#retiring-a-dropped-packs-host-output) removes it with the
+  pack's other overlay keys.
+- **Disclosure.** `yolo pack footprint` names it in the pack's `autonomy` claim as
+  `<posture> contributes keys to <agent/name> (owner still wins)`. `yolo host apply`'s notch
+  line counts it as a fold only when it lands in a surface.
+- **Skew fails closed.** A yolo older than the posture overlay folds such an entry nowhere, so
+  the key renders at no notch rather than at every one.
+
+Use a posture list for an entry in an array and a posture overlay for a key: a key in
+`managed` replaces an array whole.
+
 A pack declares at most one `autonomy` contribution, with both postures inside it.
 `yolo pack lint`, `yolo check` and the launch refuse a second one, and a jail's read skips it
 with a warning, so no reader there sees postures that do not render. `autonomy` never collides
-across packs: the `config` half patches only the pack's own surfaces, and a list only appends.
+across packs: a posture overlay folds at config-overlay's slot, where later wins by pack
+order as it does for every overlay, and a list only appends.
 
 #### `provider` and `profile`
 

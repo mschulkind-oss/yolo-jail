@@ -16,6 +16,15 @@ you already keep there is merged into rather than replaced, so its servers and s
 so do the servers you add to it later. Without the extension, nothing is written there, and
 `yolo host apply` never writes it. See [MCP configuration](docs/reference/mcp-configuration.md).
 
+**A pack can set another pack's settings for one confinement only.** An `autonomy` posture's
+`config` can now name a config file another pack owns, and its keys apply only where that
+posture does: under `guarded`, a setting only your host gets through `yolo host apply`, and
+under `autonomous`, one only jails get. A personal or company pack can give host pi a setting
+without editing pi's pack. The owning pack still wins a key you both set, `yolo pack footprint`
+names the keys beside the posture, and a setting the posture stops selecting leaves your home as
+any other pack's key does. Before, such a patch did nothing and yolo said it was folded nowhere.
+See [the `autonomy` kind](docs/reference/pack-system.md#autonomy).
+
 ### Fixed
 
 - `yolo check` reported a working Nix as "found but not working: probe failed" when
