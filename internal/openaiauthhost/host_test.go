@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -233,5 +234,114 @@ func TestTheHostCodexAdapterServesOnlyTheMarkerItWrote(t *testing.T) {
 	code, body := post(auth.Tokens.RefreshToken)
 	if code != http.StatusOK || !strings.Contains(body, "access-2") || !strings.Contains(body, "yolo-broker:8."+token) {
 		t.Fatalf("Codex's own marker got %d %s, want 200 with the next marker bound", code, body)
+	}
+}
+
+// TWO HOST CODEX SESSIONS AT ONCE BOTH REFRESH. Every `yolo host -- codex` shares ONE managed
+// CODEX_HOME, so one auth.json, and Codex reloads that file before each refresh
+// (docs/research/openai-subscription-auth.md §1.2). When each launch minted its own caller token,
+// the second launch's token replaced the first's in the shared file, and the first session's
+// Codex then sent a marker its own adapter refused 401: two concurrent host sessions, which
+// worked before the adapter authenticated its caller, broke. Concurrent launches of one managed
+// home now serve behind one token, so whichever session wrote the file last, every live adapter
+// accepts what Codex reads from it. Through the real prepare twice, with a mint that would hand
+// each launch a different token.
+func TestConcurrentHostCodexLaunchesBothRefreshThroughTheSharedAuthFile(t *testing.T) {
+	root := t.TempDir()
+	generation := 7
+	minted := []string{strings.Repeat("aa", 32), strings.Repeat("bb", 32), strings.Repeat("cc", 32)}
+	mints := 0
+	d := deps{
+		ensure: func(io.Writer) (string, error) { return "/tmp/broker.host", nil },
+		request: func(_ string, request any, _ io.Writer) (json.RawMessage, error) {
+			switch request.(map[string]any)["action"] {
+			case "status":
+				return json.RawMessage(`{"logged_in":true}`), nil
+			case "refresh":
+				generation++
+				return json.RawMessage(`{"access_token":"access","id_token":"id","refresh_token":"yolo-broker:` +
+					strconv.Itoa(generation) + `","expires_at":4102444800000}`), nil
+			}
+			return codexViewFixture(), nil
+		},
+		listen:    net.Listen,
+		home:      func() string { return filepath.Join(root, "home") },
+		storage:   func() string { return filepath.Join(root, "store") },
+		workspace: func() (string, error) { return filepath.Join(root, "work"), nil },
+		newToken: func() (string, error) {
+			mints++
+			return minted[mints-1], nil
+		},
+	}
+	first, err := prepare(d, "codex", io.Discard)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := prepare(d, "codex", io.Discard)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.vars["CODEX_HOME"] != second.vars["CODEX_HOME"] {
+		t.Fatalf("the two launches got different CODEX_HOMEs (%q, %q); this test is about the shared one",
+			first.vars["CODEX_HOME"], second.vars["CODEX_HOME"])
+	}
+	authFile := filepath.Join(first.vars["CODEX_HOME"], "auth.json")
+	// refreshAs plays one session's Codex: reload the shared auth.json, POST its marker to this
+	// session's own adapter, write the answer back.
+	refreshAs := func(name string, launch *Launch) {
+		t.Helper()
+		raw, err := os.ReadFile(authFile)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var auth map[string]any
+		if err := json.Unmarshal(raw, &auth); err != nil {
+			t.Fatal(err)
+		}
+		tokens := auth["tokens"].(map[string]any)
+		body := `{"grant_type":"refresh_token","refresh_token":"` + tokens["refresh_token"].(string) + `"}`
+		client := http.Client{Timeout: 5 * time.Second}
+		resp, err := client.Post(launch.vars["CODEX_REFRESH_TOKEN_URL_OVERRIDE"], "application/json", strings.NewReader(body))
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		answer, _ := io.ReadAll(resp.Body)
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("the %s session's refresh got %d %s, want 200", name, resp.StatusCode, answer)
+		}
+		var next map[string]any
+		if err := json.Unmarshal(answer, &next); err != nil {
+			t.Fatal(err)
+		}
+		tokens["refresh_token"] = next["refresh_token"]
+		out, _ := json.Marshal(auth)
+		if err := os.WriteFile(authFile, out, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	refreshAs("first", first)
+	refreshAs("second", second)
+	refreshAs("first", first)
+
+	for _, launch := range []*Launch{first, second} {
+		if rc, handled := launch.Run("/bin/sh", []string{"sh", "-c", "true"}, os.Environ(), nil, io.Discard, io.Discard); !handled || rc != 0 {
+			t.Fatalf("Run = %d, %v", rc, handled)
+		}
+	}
+	// Once no session of the home is live, the next launch mints afresh: the token is shared by
+	// CONCURRENT launches, not kept forever.
+	third, err := prepare(d, "codex", io.Discard)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer third.Run("/bin/sh", []string{"sh", "-c", "true"}, os.Environ(), nil, io.Discard, io.Discard)
+	if mints != 2 {
+		t.Fatalf("minted %d caller tokens over two concurrent launches and one later one, want 2 "+
+			"(the second launch reuses the live token; the third, after both ended, mints)", mints)
+	}
+	raw, _ := os.ReadFile(authFile)
+	if !strings.Contains(string(raw), minted[1]) {
+		t.Fatalf("the launch after both sessions ended did not bind a fresh token: %s", raw)
 	}
 }

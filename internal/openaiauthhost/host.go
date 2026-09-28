@@ -49,6 +49,9 @@ type Launch struct {
 	vars       map[string]string
 	listener   net.Listener
 	adapterEnd <-chan error
+	// live is this launch's shared lock on the managed home's live-launch lock
+	// (sharedCallerToken), held until the agent exits.
+	live *os.File
 }
 
 // Prepare returns nil for commands that do not consume the shared OpenAI login.
@@ -93,22 +96,26 @@ func prepare(d deps, agent string, stderr io.Writer) (*Launch, error) {
 	if err != nil {
 		return nil, fmt.Errorf("resolve managed Codex workspace: %w", err)
 	}
-	// THIS LAUNCH'S CALLER TOKEN (docs/plans/notch-convergence.md §2.3, NC-D3). The adapter
+	// THE CALLER TOKEN (docs/plans/notch-convergence.md §2.3, NC-D3, NC-D18). The adapter
 	// below listens on the HOST's loopback, which every local process can reach, so it serves
 	// only a refresh whose marker carries this token — bound into the auth.json Codex reads,
-	// and so sent back by Codex alone. Minted here, per launch, and held in this process and in
-	// that 0600 file only: never in the environment, which the adapter's client does not need.
-	callerToken, err := d.newToken()
+	// and so sent back by Codex alone. Held in this process and in 0600 files of the managed
+	// home only: never in the environment, which the adapter's client does not need. Every
+	// concurrent launch shares that home and so that auth.json, so they share the token too.
+	callerToken, live, err := sharedCallerToken(managedHome, d.newToken)
 	if err != nil {
-		return nil, fmt.Errorf("mint the managed Codex credential adapter's caller token: %w", err)
+		return nil, err
 	}
 	if err := prepareCodexHome(managedHome, filepath.Join(d.home(), ".codex"), workspace, response, callerToken); err != nil {
+		_ = live.Close()
 		return nil, err
 	}
 	listener, err := d.listen("tcp", "127.0.0.1:0")
 	if err != nil {
+		_ = live.Close()
 		return nil, fmt.Errorf("start managed Codex credential adapter: %w", err)
 	}
+	launch.live = live
 	end := make(chan error, 1)
 	refresh := func(_ context.Context, marker string) (openaiauthadapter.Token, error) {
 		raw, err := d.request(socket, map[string]any{"action": "refresh", "refresh_token": marker}, stderr)
@@ -127,6 +134,83 @@ func prepare(d deps, agent string, stderr io.Writer) (*Launch, error) {
 	launch.vars["CODEX_HOME"] = managedHome
 	launch.vars["CODEX_REFRESH_TOKEN_URL_OVERRIDE"] = "http://" + listener.Addr().String() + "/oauth/token"
 	return launch, nil
+}
+
+// Files of the managed Codex home that carry its caller token and the two locks deciding it.
+const (
+	callerTokenFile = ".yolo-caller-token"
+	decideLockFile  = ".yolo-caller-token.lock"
+	liveLockFile    = ".yolo-live.lock"
+)
+
+// sharedCallerToken returns the caller token a managed Codex launch serves behind, and the lock
+// that keeps it valid while the launch runs (NC-D18). Every `yolo host -- codex` shares one
+// managed CODEX_HOME, so one auth.json, and Codex reloads that file before each refresh: if each
+// launch bound a token of its own, the latest launch's would replace every other session's, and
+// those sessions' adapters would refuse the marker their Codex now sends. So the token belongs to
+// the home's LIVE launches. A launch holds a shared flock on liveLockFile until its agent exits.
+// A launch that can take it exclusively is the only one, and mints a fresh token; otherwise it
+// reuses the live launches' token from callerTokenFile. decideLockFile serializes the decision,
+// so no launch can rotate the token between another's mint and its shared lock.
+//
+// Sharing proves no less than a per-launch token did: both live in 0600 files of the one managed
+// home, so the proof was always "the caller can read the managed Codex home".
+func sharedCallerToken(managed string, mint func() (string, error)) (string, *os.File, error) {
+	if err := os.MkdirAll(managed, 0o700); err != nil {
+		return "", nil, fmt.Errorf("create managed Codex home: %w", err)
+	}
+	decide, err := lockFile(filepath.Join(managed, decideLockFile), syscall.LOCK_EX)
+	if err != nil {
+		return "", nil, err
+	}
+	defer decide.Close()
+	live, err := os.OpenFile(filepath.Join(managed, liveLockFile), os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		return "", nil, fmt.Errorf("open managed Codex launch lock: %w", err)
+	}
+	tokenPath := filepath.Join(managed, callerTokenFile)
+	var token string
+	switch err := syscall.Flock(int(live.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); {
+	case err == nil:
+		// No other launch of this home is live: mint, so a token outlives no session it served.
+		if token, err = mint(); err != nil {
+			_ = live.Close()
+			return "", nil, fmt.Errorf("mint the managed Codex credential adapter's caller token: %w", err)
+		}
+		if err := atomicWritePrivate(tokenPath, []byte(token)); err != nil {
+			_ = live.Close()
+			return "", nil, err
+		}
+	case errors.Is(err, syscall.EWOULDBLOCK):
+		data, err := os.ReadFile(tokenPath)
+		if err != nil || !svcendpoint.IsToken(string(data)) {
+			_ = live.Close()
+			return "", nil, fmt.Errorf("another `yolo host -- codex` is running, but its caller token %s "+
+				"is unreadable or malformed (%v); end the other session and retry", tokenPath, err)
+		}
+		token = string(data)
+	default:
+		_ = live.Close()
+		return "", nil, fmt.Errorf("lock managed Codex launch lock: %w", err)
+	}
+	// Converting an exclusive lock to shared is not atomic, which is why decide is still held.
+	if err := syscall.Flock(int(live.Fd()), syscall.LOCK_SH); err != nil {
+		_ = live.Close()
+		return "", nil, fmt.Errorf("lock managed Codex launch lock: %w", err)
+	}
+	return token, live, nil
+}
+
+func lockFile(path string, how int) (*os.File, error) {
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		return nil, fmt.Errorf("open %s: %w", path, err)
+	}
+	if err := syscall.Flock(int(f.Fd()), how); err != nil {
+		_ = f.Close()
+		return nil, fmt.Errorf("lock %s: %w", path, err)
+	}
+	return f, nil
 }
 
 func ensureLogin(socket string, request requestFunc, stderr io.Writer) error {
@@ -215,9 +299,9 @@ func writeManagedCodexConfig(destination, source, workspace string) error {
 
 func atomicWritePrivate(path string, data []byte) error {
 	dir := filepath.Dir(path)
-	tmp, err := os.CreateTemp(dir, ".codex-config.*")
+	tmp, err := os.CreateTemp(dir, "."+filepath.Base(path)+".*")
 	if err != nil {
-		return fmt.Errorf("create temporary managed Codex config: %w", err)
+		return fmt.Errorf("create temporary %s: %w", path, err)
 	}
 	tmpPath := tmp.Name()
 	defer os.Remove(tmpPath)
@@ -237,7 +321,7 @@ func atomicWritePrivate(path string, data []byte) error {
 		return err
 	}
 	if err := os.Rename(tmpPath, path); err != nil {
-		return fmt.Errorf("replace managed Codex config: %w", err)
+		return fmt.Errorf("replace %s: %w", path, err)
 	}
 	return nil
 }
@@ -276,6 +360,9 @@ func (l *Launch) Run(target string, argv, environ []string, stdin io.Reader, std
 		_ = l.listener.Close()
 		if l.adapterEnd != nil {
 			<-l.adapterEnd
+		}
+		if l.live != nil {
+			_ = l.live.Close()
 		}
 	}()
 	cmd := exec.Command(target, argv[1:]...)
