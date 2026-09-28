@@ -10,8 +10,8 @@ vantage:
 
 # Sketch: workspace skills
 
-**Status:** SUPERSEDED by the build, 2026-09-27 — mechanism A shipped as v1 (`4324b1f8`,
-`d7a6a135`), and every choice this sketch left open is a `WS-D` row in
+**Status:** SUPERSEDED by the build, 2026-09-27 — mechanism A shipped as v1 (`bd79aed3`,
+`7df13e51`), and every choice this sketch left open is a `WS-D` row in
 [the design's ledger](workspace-skills.md#12-decision-ledger). Kept for the tree facts it
 gathered; where it and the tree disagree, the tree wins. Mechanism B's section is the material
 the host half ([`OQ-WS5`](workspace-skills.md#OQ-WS5), [`OQ-WS6`](workspace-skills.md#OQ-WS6)) would start from. Earlier: SKETCH, 2026-09-17 — incomplete, and

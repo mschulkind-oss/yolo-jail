@@ -2,7 +2,7 @@
 
 **Status:** SKETCH, 2026-09-27 — incomplete, and unstable while [OQ-HC1](host-computed-layer.md#OQ-HC1),
 [OQ-HC2](host-computed-layer.md#OQ-HC2) and [OQ-HC3](host-computed-layer.md#OQ-HC3) are open.
-Evidence read at `b0460995`. Nothing here is built.
+Evidence read at `97220184`. Nothing here is built.
 
 > **Precedence.** This is the implementation sketch beside
 > [`host-computed-layer.md`](host-computed-layer.md). The design wins on every behavior, and

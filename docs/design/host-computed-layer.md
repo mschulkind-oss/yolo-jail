@@ -10,7 +10,7 @@ vantage:
 
 # What a jail derives, the host leaves empty — for a reason that holds for one input in four
 
-**Status:** DESIGN, 2026-09-27. Nothing built. Evidence MEASURED at `b0460995` in a clean build under a temporary home, with no host, no pi CLI and no jail started. Code claims cite a symbol, never a line.
+**Status:** DESIGN, 2026-09-27. Nothing built. Evidence MEASURED at `97220184` in a clean build under a temporary home, with no host, no pi CLI and no jail started. Code claims cite a symbol, never a line.
 
 > **In short.** The host leaves the computed layer empty because a jail's derive inputs carry
 > jail paths, yet only the MCP presets do: the provider table is already composed at the host for
@@ -97,7 +97,7 @@ keys to write wholesale. The content comes from the declared layers alone (`host
 
 ### 2.2 The inventory
 
-MEASURED at `b0460995`: the jail column is `deriveComputedLayer` over providers composed from
+MEASURED at `97220184`: the jail column is `deriveComputedLayer` over providers composed from
 every embedded pack, one MCP preset and one LSP server; the host columns are `RenderHostPack`
 into a fresh home.
 
@@ -122,7 +122,7 @@ footer script as it does in a jail.
 
 ### 2.3 What happens to an entry you added by hand
 
-MEASURED at `b0460995` with a scratch test that seeded each real file with one hand-added entry,
+MEASURED at `97220184` with a scratch test that seeded each real file with one hand-added entry,
 then ran `RenderHostPack` under each contract:
 
 | Hand-added entry in the real file | `assert` | `own`, first apply |
@@ -268,7 +268,7 @@ output reaches a file you own by these rules, under both contracts:
 > [!WARNING]
 > **Handing the derive's output to today's `rmw` computed write clears your `env`.**
 > `regenerateManagedTables` ([`prism.go`](../../internal/entrypoint/prism.go)) clears and
-> rewrites every object-valued computed key, declared in full or not. MEASURED at `b0460995`
+> rewrites every object-valued computed key, declared in full or not. MEASURED at `97220184`
 > with a scratch test: `claude/settings`' derive over empty host inputs returns
 > `{"env": {}, "mcpServers": null}` with nothing declared in full, and that write turned a file's
 > `{"env": {"MY_VAR": "x"}}` into `{"env": {}}`. It is the defect `hostTableKeys` was fixed for
@@ -538,7 +538,7 @@ install and the classifier belong to
 ## 13. Evidence
 
 - **The inventory and the pi-only jail**, [§2.2](#22-the-inventory) and [§8.1](#81-measured) item 1:
-  scratch tests in a clean `git archive` of `b0460995` under a temporary home, run by the research
+  scratch tests in a clean `git archive` of `97220184` under a temporary home, run by the research
   pass on 2026-09-27; the pi-only jail case was re-run for this doc. The scratch tests are not
   committed.
 - **Hand-added entries**, [§2.3](#23-what-happens-to-an-entry-you-added-by-hand): a scratch test
@@ -549,7 +549,7 @@ install and the classifier belong to
   `models.json error` line in `modes/interactive/interactive-mode.js`, and the package manager's
   install path. **pi-automode 1.17.0**, read from its npm tarball.
 - **The jail-path search**, [§3](#3-why-the-computed-layer-is-jail-only--the-stated-reasons-and-which-hold):
-  `rg` over `packs/*/derive.lua` at `b0460995`.
+  `rg` over `packs/*/derive.lua` at `97220184`.
 - **The per-key rules**, [§6.4](#64-per-contract-behavior) and [HC-D10](#HC-D10): two scratch
   tests in the same copy, 2026-09-27. One ran every shipped derive with no selection, over empty
   and over sentinel input tables: the only object returned without an in-full declaration is
