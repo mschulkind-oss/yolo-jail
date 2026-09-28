@@ -22,7 +22,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   could lose the refreshed login: yolo broke pi's lock on its credential file after 10 seconds,
   and the two wrote at once. yolo now follows pi's own rule, treating the lock as abandoned only
   after 30 seconds without a refresh, and waits for pi to finish. If pi still holds the lock after
-  about half a minute, yolo gives up and says that a running pi holds it.
+  about half a minute, yolo says that a running pi holds it and starts pi with its credential file
+  as it is.
+- Starting pi on the `codex` profile while another pi session was refreshing its OpenAI login no
+  longer sends you to a browser login. yolo could not update pi's credential file while pi held
+  it, and treated that as a missing login: at a terminal it started a login you did not need, and
+  without one it said a login was required. yolo now says that a running pi holds the file, leaves
+  it as it is, and starts pi, since that session is keeping the login current.
 - Old Codex versions now get cleaned up the way the other agents' are. After Codex installs or
   updates, yolo keeps the two newest versions and the one in use, and removes the rest. Before,
   every old Codex version stayed on disk, so each update left a few hundred megabytes behind.
