@@ -80,9 +80,9 @@ func TestAttachRestartsAnOlderJailAtATerminal(t *testing.T) {
 	privateYoloState(t)
 	master, slave := openTestPty(t)
 
+	awaitDetachedWriters(t, dir)
 	// $YOLO_CONTRACT_TAGS expands in the JAIL's shell: the boot echoes the command with the
 	// literal name, so only the fresh jail's own answer contains the tags.
-	awaitDetachedWriters(t, dir)
 	cmd := exec.Command(yoloBin, append(jailRunArgs(), "-p", "claude=zai", "--", "bash", "-lc",
 		`echo FRESH-TAGS-"$YOLO_CONTRACT_TAGS"`)...)
 	cmd.Dir = dir
