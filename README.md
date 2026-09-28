@@ -46,9 +46,10 @@ Platforms:
 - **macOS, Apple silicon** — Apple Container (recommended) or Podman Machine, running a native
   **arm64** Linux container with no emulation. The `macos-user` sandbox, which needs no container
   runtime, is coming. See the [macOS guide](userguide/guides/macos.md).
-- **macOS, Intel** — Podman Machine only, and ending: Apple Container, Podman 6 and the Determinate
-  Nix installer have dropped Intel Macs, and the Nix packages yolo uses there stop receiving fixes at
-  the end of 2026.
+- **macOS, Intel** — Podman Machine only, and ending: Apple Container, Podman 6, Homebrew's
+  prebuilt packages and the Determinate Nix installer have dropped Intel Macs, and the Nix packages
+  yolo uses there stop receiving fixes at the end of 2026. Install yolo there from a
+  [release archive](https://github.com/mschulkind-oss/yolo-jail/releases) rather than Homebrew.
 
 ## Install
 
@@ -70,7 +71,9 @@ from-source install ship one. `go install` and `pipx install yolo-jail` (or
 
 ### From source
 
-For hacking on yolo-jail itself, or running an unreleased working tree. Identical on Linux and macOS:
+For hacking on yolo-jail itself, or running an unreleased working tree. Identical on Linux and macOS.
+You need `git`, Go and [just](https://github.com/casey/just), or [mise](https://mise.jdx.dev) to
+install the pinned Go and just ([without them installed](userguide/getting-started.md#from-source)):
 
 ```bash
 git clone https://github.com/mschulkind-oss/yolo-jail.git
@@ -102,7 +105,8 @@ yolo                     # or a shell in the jail
 The shipped agent packs include `claude`, `codex`, `copilot`, `opencode`, `pi` and `agy`; list as
 many as you like, and each installs the first time you type its name in the jail. With no packs, a
 jail is a shell with no coding agent. Run `yolo check` after every config edit, and `yolo stop`,
-then `yolo` again, for a running jail to pick the edit up.
+then `yolo` again, for a running jail to pick the edit up. On Apple Container, `yolo stop` does not
+see the jail yet: stop it with `container stop <name>`, taking the name from `container ls`.
 
 Next steps, in the user guide:
 

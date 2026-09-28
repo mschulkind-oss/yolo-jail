@@ -29,7 +29,7 @@ Apple silicon with no emulation. [Getting Started →](getting-started.md) ·
 
 **Bring the agents you want.** Claude Code, Codex, Copilot, opencode, pi, Antigravity and oh-omp,
 each through a pack. Nothing is selected for you, and each runs without permission prompts inside
-the jail. [Choose an agent pack →](guides/packs-and-skills.md#choose-your-packs)
+the jail, except oh-omp, which has no such setting. [Choose an agent pack →](guides/packs-and-skills.md#choose-your-packs)
 
 **Make your setup shareable.** A pack bundles skills, house rules, settings and tools. Use the ones
 yolo ships, write your own, or share one from a git repository.

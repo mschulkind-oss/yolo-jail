@@ -44,6 +44,11 @@ brew install mschulkind-oss/tap/yolo-jail
 yolo check
 ```
 
+`yolo check` ends with a Summary line. A few `[WARN]` rows are expected at this point, including
+`No packs are configured`, because you have not chosen an agent yet; any `[FAIL]` row names its fix.
+[What the rows mean →](#check-the-setup) Its first run also builds the jail's image, which can take
+many minutes.
+
 Then [choose an agent and launch it →](#step-4-first-launch)
 
 The steps below explain each command, and cover Intel Macs, older macOS, other Linux distributions and
@@ -55,7 +60,7 @@ other ways to install yolo.
 |---|---|---|---|
 | **Nix** | [Determinate installer](#step-1-install-nix) | [Official installer](#other-ways-to-get-nix) | [Determinate installer](#step-1-install-nix) |
 | **Container runtime** | [Apple Container](#macos-apple-container-recommended) on macOS 26 or later; [Podman](#macos-podman) otherwise | [Podman](#macos-podman) | [Podman](#linux-podman), rootless |
-| **yolo** | [Homebrew](#homebrew) | [Homebrew](#homebrew) or a [release archive](#other-ways-to-install) | [Homebrew](#homebrew) or a [release archive](#other-ways-to-install) |
+| **yolo** | [Homebrew](#homebrew) | A [release archive](#other-ways-to-install), or [Homebrew](#homebrew) | [Homebrew](#homebrew) or a [release archive](#other-ways-to-install) |
 
 On a Mac you have three ways to run the jail, and yolo supports all three:
 
@@ -71,7 +76,9 @@ On a Mac you have three ways to run the jail, and yolo supports all three:
 > [!NOTE]
 > **Intel Macs work today, but support is ending.** Apple Container, Podman 6 and the Determinate Nix
 > installer have all dropped Intel Macs, and the Nix packages yolo uses on an Intel Mac stop receiving
-> fixes at the end of 2026. Plan on an Apple silicon Mac.
+> fixes at the end of 2026. Homebrew no longer builds packages for Intel Macs either, so a Homebrew
+> install there can compile yolo and its Go toolchain from source; the
+> [release archive](#other-ways-to-install) avoids that. Plan on an Apple silicon Mac.
 
 ## Step 1: Install Nix
 
@@ -135,8 +142,9 @@ nix store info                          # shows "Trusted: 1" once the daemon tru
   The same two config lines apply if you prefer the official installer anywhere else. On Linux, run
   it as `sh -s -- --daemon` and restart with `sudo systemctl restart nix-daemon`. Without the
   `experimental-features` line, `yolo check` on a Mac reports `Nix daemon: connection failed`.
-- **Ubuntu and Debian.** The `nix-bin` package is several releases behind (2.18 on Ubuntu 24.04, 2.8
-  on Debian 12). Use the Determinate installer above.
+- **Ubuntu and Debian.** Use the Determinate installer above. The distribution's own `nix-bin`
+  package is far behind on Ubuntu 24.04 (Nix 2.18), and on every release it leaves flakes and your
+  trusted user for you to configure.
 - **Fedora.** Use the Determinate installer above. The official installer sets up a single-user Nix
   on systems with SELinux, Fedora's default, and a single-user Nix gives the jail no `nix` command
   of its own.
@@ -259,10 +267,11 @@ sudo usermod --add-subuids 100000-165535 --add-subgids 100000-165535 "$(whoami)"
 podman system migrate
 ```
 
-Podman 5.1 or later works best; check with `podman --version`. Ubuntu 24.04 and Debian 12 ship older
-versions, and yolo still works on them: it falls back to a slower network helper and says so when a
-jail starts. Nothing needs configuring for Ubuntu 24.04's AppArmor user-namespace restriction, which
-yolo already works around.
+Podman 5.1 or later works best; check with `podman --version`. Ubuntu 26.04 and Debian 13 ship
+Podman 5, so they are the smoothest. Ubuntu 24.04 ships Podman 4.9, and yolo works there too: it falls
+back to a slower network helper and says so when a jail starts. Older versions, such as Debian 12's
+Podman 4.3, are untested. Nothing needs configuring for the AppArmor user-namespace restriction on
+Ubuntu 24.04 and later, which yolo already works around.
 
 ### Which runtime yolo picks
 
@@ -320,15 +329,31 @@ eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
 
 For working on yolo itself, or running an unreleased version. You need `git`, plus Go (the version
 [`go.mod`](https://github.com/mschulkind-oss/yolo-jail/blob/main/go.mod) names) and
-[just](https://github.com/casey/just), or [mise](https://mise.jdx.dev) to install both for you:
+[just](https://github.com/casey/just), a command runner. If you have both:
 
 ```bash
 git clone https://github.com/mschulkind-oss/yolo-jail.git
 cd yolo-jail
-mise install    # the pinned Go and just; skip if you have them
 just setup
 just deploy     # builds and installs yolo, together with its build files
 ```
+
+If you have neither, [mise](https://mise.jdx.dev/getting-started.html), a tool-version manager, can
+install the versions the repository pins. `mise trust` tells mise it may read the clone's
+`mise.toml`, which it will not do for a new folder without asking:
+
+```bash
+git clone https://github.com/mschulkind-oss/yolo-jail.git
+cd yolo-jail
+mise trust
+mise install              # the pinned Go and just
+mise exec -- just setup
+mise exec -- just deploy
+```
+
+`mise exec --` runs a command with mise's tools on its PATH. If you have
+[activated mise in your shell](https://mise.jdx.dev/getting-started.html#activate-mise), plain
+`just setup` and `just deploy` work instead.
 
 `just deploy` installs `yolo` into Go's bin directory, `$(go env GOPATH)/bin` unless you set `GOBIN`,
 so make sure that directory is on your PATH.
@@ -386,8 +411,9 @@ yolo init-user-config    # writes the file, full of commented examples
 }
 ```
 
-The shipped agent packs are `claude`, `copilot`, `codex`, `opencode`, `pi` and `agy`; list as many as
-you like. An agent installs inside the jail the first time you run it. Only your user config can
+The shipped agent packs are `claude`, `copilot`, `codex`, `opencode`, `pi`, `agy` and `omp`; list as
+many as you like. `omp`'s vendor publishes no ARM Linux build, so it does not run in a jail on an Apple
+silicon Mac. An agent installs inside the jail the first time you run it. Only your user config can
 select packs; a project's own config cannot. [How packs work →](guides/packs-and-skills.md)
 
 ### Check the setup
@@ -482,9 +508,9 @@ gh auth login          # the GitHub CLI
 ```
 
 The jail does not reuse the logins on your host, and every login you make in it is kept on your
-host, so you log in once, not at every launch. Claude's login, and the ChatGPT login Codex and pi
-share, then work in every project on the machine; the others, such as `gh` and `copilot`, are kept
-per project.
+host, so you log in once, not at every launch. Claude's and Antigravity's (`agy`) logins, and the
+ChatGPT login Codex and pi share, then work in every project on the machine; the others, such as
+`copilot`, `opencode`, `omp` and `gh`, are kept per project.
 
 On Podman, a service on your host keeps the shared Claude login fresh, so several jails at once do
 not log each other out. On Apple Container that service and the shared ChatGPT login do not work
