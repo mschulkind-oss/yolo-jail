@@ -128,21 +128,22 @@ func TestGluedShortProfileWorksAtBothNotches(t *testing.T) {
 		t.Errorf("jail -p=zai: ProfileName=%q misuse=%v, want zai and none", opts.ProfileName, parsed.misuse)
 	}
 
-	valueFlagHome(t, `{"packs":["zai"]}`)
+	// pi, an agent CLI a selected pack installs: a bare -p reaches agent CLIs only (OQ-NC5).
+	valueFlagHome(t, `{"packs":["zai", "pi"]}`)
 	t.Setenv("ZAI_API_KEY", "test-key")
 	for _, spelling := range [][]string{{"-p", "zai"}, {"-p=zai"}, {"--profile=zai"}} {
-		rc, reached, errw := hostExecRun(t, "bash", spelling...)
+		rc, reached, errw := hostExecRun(t, "pi", spelling...)
 		if rc != 0 || !reached {
-			t.Errorf("host `yolo host %s -- bash`: rc=%d reached=%v, want the launch\n%s",
+			t.Errorf("host `yolo host %s -- pi`: rc=%d reached=%v, want the launch\n%s",
 				strings.Join(spelling, " "), rc, reached, errw)
 		}
 	}
 	var sep, glued, errw bytes.Buffer
-	if rc := hostMain([]string{"env", "--agent", "bash", "-p", "zai"}, &sep, &errw, false, nil); rc != 0 {
-		t.Fatalf("`yolo host env --agent bash -p zai`: rc=%d\n%s", rc, errw.String())
+	if rc := hostMain([]string{"env", "--agent", "pi", "-p", "zai"}, &sep, &errw, false, nil); rc != 0 {
+		t.Fatalf("`yolo host env --agent pi -p zai`: rc=%d\n%s", rc, errw.String())
 	}
-	if rc := hostMain([]string{"env", "--agent", "bash", "-p=zai"}, &glued, &errw, false, nil); rc != 0 {
-		t.Fatalf("`yolo host env --agent bash -p=zai`: rc=%d\n%s", rc, errw.String())
+	if rc := hostMain([]string{"env", "--agent", "pi", "-p=zai"}, &glued, &errw, false, nil); rc != 0 {
+		t.Fatalf("`yolo host env --agent pi -p=zai`: rc=%d\n%s", rc, errw.String())
 	}
 	if sep.String() != glued.String() {
 		t.Errorf("`-p=zai` and `-p zai` composed different scripts:\n%s\n---\n%s", sep.String(), glued.String())

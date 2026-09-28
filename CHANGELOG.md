@@ -108,6 +108,13 @@ later one's is used, where yolo used to keep the first. So an adapter your perso
 now beats one a pack pulled in through `needs` declares for the same conversion. `yolo
 config-ref` describes the order under `packs`.
 
+**`yolo host -p` gives keys only to agent CLIs, as `-p` does in a jail.** `yolo host -p zai --
+pi` still runs pi on zai, but `yolo host -p zai -- curl` no longer hands curl zai's key: it is
+refused, and the refusal names `yolo host --with-credentials zai -- curl`, which is how to hand a
+provider's key to any other command. `eval "$(yolo host env --with-credentials zai)"` does the
+same for your shell, and the lines that tell you a key was withheld now suggest these spellings.
+See [the credential gate](docs/reference/providers.md#the-credential-gate).
+
 ### Fixed
 
 - A value you set on the command line beats a profile's value again. `ANTHROPIC_MODEL=x claude`,

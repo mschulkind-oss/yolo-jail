@@ -57,13 +57,15 @@ The adopting-boot failure was reproduced through the same render at `38814ba4`, 
 [the clear on an adopting boot](#a-clear-holds-on-an-adopting-boot-too) describes is pinned the same
 way, newer than that stamp. UNMEASURED: no live agent session has been watched across a deselect.
 
-**The host notch's grant is newer too** (2026-09-27): the typed `-p` for any command, its
-disclosure wording and the `use_profiles` key refusal at `yolo host`, described under
+**The host notch's grant is newer too** (2026-09-27): the disclosure wording and the
+`use_profiles` key refusal at `yolo host`, described under
 [the credential gate](#the-credential-gate), come from
-[`credential-sources-separation.md`](../design/credential-sources-separation.md) ES-D1 to ES-D5, and
+[`credential-sources-separation.md`](../design/credential-sources-separation.md) ES-D2 to ES-D5, and
 the remedy's corrections from ES-D10 to ES-D12. The `--with-credentials` grant is from the same
 day's ruling of that doc's [OQ-ES5](../design/credential-sources-separation.md#OQ-ES5) host
-half, built as ES-D13 to ES-D17.
+half, built as ES-D13 to ES-D17. Newer still (2026-09-28), a bare `-p` reaches agent CLIs only at
+the host as in a jail, `--with-credentials` being an ad-hoc command's one grant
+([OQ-NC5](../plans/notch-convergence.md#OQ-NC5), which retired ES-D1).
 MEASURED: pinned through `hostMain` by unit tests in `internal/cli`. UNMEASURED: no real host has
 run it.
 
@@ -340,30 +342,34 @@ Where each answer lands is the vehicle's:
   command's. The shell it inherits is the user's and passes through untouched. `yolo host env`
   prints the same one-command slice for a shell to eval (`--agent`, default `claude`), and its
   disclosure goes to stderr.
-  - **A typed `-p` applies to the command, whatever it is.** The one-process table is keyed by
-    the launched basename (`effectiveHostProfiles`), so `yolo host -p zai -- bash` hands `bash`
-    zai's claimed `env_sources` values, disclosed as `ZAI_API_KEY (provider zai): bash only`,
-    and `eval "$(yolo host env --agent bash -p zai)"` puts them in the current shell. An
-    ad-hoc command gets only those values: no pack's env derive runs for a name no pack
-    installs, and a CLI-less pack's gated env (`aws-auth`'s pointer) does not fire for it
-    ([`OQ-ES7`](../design/credential-sources-separation.md#OQ-ES7), open). The grant is per
-    invocation: a `use_profiles` key naming a command no resolvable pack installs is refused
-    here with the validator's message, as `yolo check` and every jail launch refuse it. The
-    jail's `-p` never keys the `--` command
-    ([ES-D1 to ES-D5](../design/credential-sources-separation.md#10-decision-ledger)).
-  - **Its disclosure says what this notch can do about it.** A withheld line names a typed
-    `-p` that would deliver it, with a declared profile that resolves to the claiming provider
-    and that the named command can run on, or says to declare one under `profiles` when none
-    does. The line is checked the way the launch it names would be, so it never names a launch
-    that refuses. With `"packs": ["claude", "cerebras"]`, claude cannot run on the openai-only
-    cerebras profile here: wire-bridge joins through claude's `needs`, as it does in a jail, but
-    the host composes none of the bridge's addresses (next bullet), and listing it in `packs`
-    changes nothing. The line names
-    `yolo host -p cerebras -- bash` instead, and says why. On an agent, the named `-p` replaces the agent's
-    own profile, and the line says so ("run claude on the zai profile for one launch, replacing
-    its bedrock profile"). At `yolo host env` the shell spelling is always
-    `eval "$(yolo host env --agent bash -p <profile>)"`, never the verb's own agent, whose
-    slice would export that agent's whole provider shape into the shell. A withheld name the
+  - **A profile reaches agent CLIs only, as in a jail.** A bare `-p <name>` selects for the
+    launched command only when a selected pack installs it, so `yolo host -p zai -- pi` is pi
+    on zai, and `yolo host -p zai -- bash` is refused before anything runs, naming the grant
+    spelled for that command: `yolo host --with-credentials zai -- bash`. That grant, keys
+    only, is the one way an ad-hoc command receives a provider's claimed `env_sources` values,
+    disclosed as `ZAI_API_KEY (provider zai): bash only`, and
+    `eval "$(yolo host env --with-credentials zai)"` puts them in the current shell. No pack's
+    env derive runs for a name no pack installs, and a CLI-less pack's gated env (`aws-auth`'s
+    pointer) does not fire for it
+    ([`OQ-ES7`](../design/credential-sources-separation.md#OQ-ES7), open). A `use_profiles` key
+    naming a command no resolvable pack installs is refused here with the validator's message,
+    as `yolo check` and every jail launch refuse it
+    ([OQ-NC5](../plans/notch-convergence.md#OQ-NC5), which retired ES-D1;
+    [ES-D2 to ES-D5](../design/credential-sources-separation.md#10-decision-ledger)).
+  - **Its disclosure says what this notch can do about it.** For an ad-hoc command a withheld
+    line names the grant, `yolo host --with-credentials <provider> -- <cmd>`. For an agent it
+    names a typed `-p` that would deliver it, with a declared profile that resolves to the
+    claiming provider and that the agent can run on, or says to declare one under `profiles`
+    when none does. The line is checked the way the launch it names would be, so it never names
+    a launch that refuses. With `"packs": ["claude", "cerebras"]`, claude cannot run on the
+    openai-only cerebras profile here: wire-bridge joins through claude's `needs`, as it does in
+    a jail, but the host composes none of the bridge's addresses (next bullet), and listing it
+    in `packs` changes nothing. The line names
+    `yolo host --with-credentials cerebras -- bash` instead, and says why. On an agent, the named
+    `-p` replaces the agent's own profile, and the line says so ("run claude on the zai profile
+    for one launch, replacing its bedrock profile"). At `yolo host env` the shell spelling is
+    always `eval "$(yolo host env --with-credentials <provider>)"`, never the verb's own agent
+    with a `-p`, whose slice would export that agent's whole provider shape into the shell. A withheld name the
     invoking shell also exports is disclosed as not added by yolo, the shell's own value
     passing through. A withheld name yolo sets from another source, such as a pack's `env`,
     is disclosed as not delivered from `env_sources`, the process holding that source's value.

@@ -897,18 +897,21 @@ func TestHostEnvStillResolvesAbsoluteEnvSourceFiles(t *testing.T) {
 // whose key was never hydrated refuses the exec, naming the variable, the provider and
 // where it looked. rc 1 is the pre-flight's own exit; rc 127 below is PATH resolution
 // failing, which is how the two are told apart. The same pack with nothing selected owes
-// no key — the gate delivers it to nobody — and goes on to PATH resolution.
+// no key — the gate delivers it to nobody — and goes on to PATH resolution. The command is
+// the fixture pack's own CLI, claude, on a PATH that holds none: a bare -p reaches agent CLIs
+// only (OQ-NC5), and the miss is what tells the pre-flight's pass from its refusal.
 func TestHostExecRefusesASelectedPackWithNoKey(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("YOLO_VERSION", "")
 	t.Setenv("ZAI_API_KEY", "")
+	t.Setenv("PATH", t.TempDir())
 	t.Chdir(t.TempDir())
 	writeZaiLocalPack(t, home)
 	userCfg(t, home, `{}`)
 
 	var out, errw bytes.Buffer
-	if rc := hostMain([]string{"-p", "zai", "--", "no-such-agent-binary"}, &out, &errw, false, nil); rc != 1 {
+	if rc := hostMain([]string{"-p", "zai", "--", "claude"}, &out, &errw, false, nil); rc != 1 {
 		t.Fatalf("rc = %d, want the pre-flight's 1 (stderr: %s)", rc, errw.String())
 	}
 	got := errw.String()
@@ -935,12 +938,13 @@ func TestHostExecProceedsOnceTheKeyIsHydrated(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("YOLO_VERSION", "")
+	t.Setenv("PATH", t.TempDir())
 	t.Chdir(t.TempDir())
 	writeZaiLocalPack(t, home)
 	userCfg(t, home, `{"env_sources": [{"ZAI_API_KEY": "sk-zai"}]}`)
 
 	var out, errw bytes.Buffer
-	if rc := hostMain([]string{"-p", "zai", "--", "no-such-agent-binary"}, &out, &errw, false, nil); rc != 127 {
+	if rc := hostMain([]string{"-p", "zai", "--", "claude"}, &out, &errw, false, nil); rc != 127 {
 		t.Fatalf("rc = %d, want the PATH miss's 127 — the pre-flight must have passed (stderr: %s)",
 			rc, errw.String())
 	}
@@ -955,12 +959,13 @@ func TestHostExecHatchLiftsTheRefusal(t *testing.T) {
 	t.Setenv("ZAI_API_KEY", "")
 	t.Setenv(paths.AllowMissingProvidersEnv, "1")
 	t.Cleanup(func() { os.Unsetenv(paths.AllowMissingProvidersEnv) })
+	t.Setenv("PATH", t.TempDir())
 	t.Chdir(t.TempDir())
 	writeZaiLocalPack(t, home)
 	userCfg(t, home, `{}`)
 
 	var out, errw bytes.Buffer
-	if rc := hostMain([]string{"-p", "zai", "--", "no-such-agent-binary"}, &out, &errw, false, nil); rc != 127 {
+	if rc := hostMain([]string{"-p", "zai", "--", "claude"}, &out, &errw, false, nil); rc != 127 {
 		t.Fatalf("rc = %d, want 127 — the hatch must let the launch reach PATH resolution (stderr: %s)",
 			rc, errw.String())
 	}

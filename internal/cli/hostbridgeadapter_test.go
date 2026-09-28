@@ -69,7 +69,7 @@ func TestHostComposesNoBridgeAddressForAnyAgent(t *testing.T) {
 func TestHostRemedyNeverNamesTheBridgedProfileForClaude(t *testing.T) {
 	_, errs := hostGateLaunchWith(t, bridgeConfig, wcShell(nil), nil, "claude")
 	line := scopeLine(t, errs, "CEREBRAS_API_KEY")
-	if strings.Contains(line, "-- claude`") || !strings.Contains(line, "`yolo host -p cerebras -- bash`") {
+	if strings.Contains(line, "-- claude`") || !strings.Contains(line, "`yolo host --with-credentials cerebras -- bash`") {
 		t.Errorf("claude cannot run on cerebras at this notch even with wire-bridge listed: %q", line)
 	}
 	assertRemediesRun(t, line, "CEREBRAS_API_KEY", "tok-c")

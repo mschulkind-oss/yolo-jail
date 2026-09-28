@@ -24,10 +24,11 @@ const hostCredentialRefusalBody = `yolo host: Refusing to launch: a selected pac
 // first fact, with no sentence saying what was refused, and to name the inherited environment
 // in words of its own.
 func TestHostCredentialRefusalIsTheJailsBody(t *testing.T) {
-	valueFlagHome(t, `{"packs":["zai"]}`)
+	// pi, an agent CLI a selected pack installs: a bare -p reaches agent CLIs only (OQ-NC5).
+	valueFlagHome(t, `{"packs":["zai", "pi"]}`)
 	t.Setenv("ZAI_API_KEY", "")
 	t.Setenv("YOLO_ALLOW_MISSING_PROVIDERS", "")
-	rc, reached, errw := hostExecRun(t, "bash", "-p", "zai")
+	rc, reached, errw := hostExecRun(t, "pi", "-p", "zai")
 	if rc != 1 || reached {
 		t.Fatalf("a selected provider with no key must refuse the host launch: rc=%d reached=%v\n%s", rc, reached, errw)
 	}
@@ -37,7 +38,7 @@ func TestHostCredentialRefusalIsTheJailsBody(t *testing.T) {
 
 	// Held, it is the shared override notice over the same facts, and the launch proceeds.
 	t.Setenv("YOLO_ALLOW_MISSING_PROVIDERS", "1")
-	rc, reached, errw = hostExecRun(t, "bash", "-p", "zai")
+	rc, reached, errw = hostExecRun(t, "pi", "-p", "zai")
 	if rc != 0 || !reached {
 		t.Fatalf("the hatch must let the launch proceed: rc=%d reached=%v\n%s", rc, reached, errw)
 	}

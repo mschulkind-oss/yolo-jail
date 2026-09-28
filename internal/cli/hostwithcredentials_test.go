@@ -196,8 +196,8 @@ func TestWithCredentialsIsImpliedByNothingElse(t *testing.T) {
 		flags []string
 		cmd   string
 	}{
-		{nil, "claude"},                 // use_profiles selects zai for claude
-		{[]string{"-p", "zai"}, "bash"}, // a typed -p grants its own profile's keys, no more
+		{nil, "claude"}, // use_profiles selects zai for claude
+		{nil, "bash"},   // an ad-hoc command, which no profile reaches (OQ-NC5)
 		{[]string{"-p", "zai"}, "claude"},
 	} {
 		env, errs := hostGateLaunchWith(t, cfg, shell, tc.flags, tc.cmd)
@@ -281,8 +281,8 @@ func TestHostHelpDocumentsWithCredentials(t *testing.T) {
 	}
 	for _, want := range []string{"--with-credentials <provider[,provider...]|all>", "KEYS ONLY", "HOST ONLY",
 		`eval "$(yolo host env --with-credentials all)"`,
-		// -p's own help no longer calls itself the only typed flag that reaches such a command.
-		"only a typed flag can: this\n                                one, or --with-credentials below."} {
+		// -p's own help names the grant as the one route to an ad-hoc command (OQ-NC5).
+		"a provider's key, --with-credentials below."} {
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("yolo host --help must say %q", want)
 		}

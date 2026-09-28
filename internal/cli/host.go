@@ -46,18 +46,17 @@ Usage:
   yolo host wrappers [status]                report the PATH launch wrappers
 
 Exec flags (yolo host -- ...):
-  --profile <name>, -p <name>   Select a declared profile for the wrapped COMMAND, this
-                                launch only. Any command, not only an agent: an ad-hoc
-                                one (bash, curl, terraform) then receives that profile's
-                                claimed env_sources credentials, which are otherwise
-                                withheld from it. use_profiles cannot do this for a
-                                command no pack installs; only a typed flag can: this
-                                one, or --with-credentials below. The jail's pair
-                                spelling works too: -p claude=zai -- claude is -p zai.
-                                A pair naming any other command is refused, since this
-                                runs one command. Also -p=<name> and --profile=<name>;
-                                a value flag with no value is refused (exit 2), as in
-                                a jail.
+  --profile <name>, -p <name>   Select a declared profile for the wrapped agent CLI, this
+                                launch only. A profile reaches agent CLIs only (a CLI a
+                                selected pack installs), as it does in a jail, and never
+                                an arbitrary command: -p for any other command (bash,
+                                curl, terraform) is refused, naming the grant that hands
+                                it a provider's key, --with-credentials below. The jail's
+                                pair spelling works too: -p claude=zai -- claude is
+                                -p zai. A pair naming any other command is refused, since
+                                this runs one command. Also -p=<name> and
+                                --profile=<name>; a value flag with no value is refused
+                                (exit 2), as in a jail.
   --with-credentials <provider[,provider...]|all>
                                 GRANT the wrapped command the named providers' claimed
                                 env_sources credentials, this launch only. KEYS ONLY: no
@@ -141,11 +140,11 @@ Examples:
   yolo host -- claude                 # bare claude, with the composed environment
   yolo host -p bedrock -- claude      # ... on the bedrock profile, this launch only
   yolo -p bedrock host -- claude      # the same launch, with -p before host
-  yolo host -p zai -- curl ...        # any command, handed zai's claimed key
+  yolo host --with-credentials zai -- curl ...   # any command, handed zai's key
   yolo host --with-credentials all -- usage-bar   # every provider's key, keys only
   yolo host -p bedrock --with-credentials zai -- claude   # bedrock, plus zai's key
   eval "$(yolo host env)"             # the same environment, in this shell
-  eval "$(yolo host env --agent bash -p zai)"   # zai's key, in this shell
+  eval "$(yolo host env --with-credentials zai)"   # zai's key, in this shell
   eval "$(yolo host env --with-credentials all)"   # every provider's key, in this shell
   yolo host apply --assert            # write the config surfaces
   yolo host apply --revert            # what would withdrawing yolo remove?
@@ -984,9 +983,11 @@ func (c *hostComposition) processHolds() (inherited, composed func(string) bool)
 	return inherited, composed
 }
 
-// credentialRemedy is ES-D2's remedy for a group of withheld names: a typed `-p` naming a
-// declared profile that resolves to a claiming provider — `yolo host -p <profile> -- <cmd>`,
-// which keys the launched command whatever it is (ES-D1). With no such profile it says to
+// credentialRemedy is ES-D2's remedy for a group of withheld names. For an AD-HOC command (one no
+// selected pack installs) it is the grant, `yolo host --with-credentials <claimant> -- <cmd>`:
+// a profile reaches agent CLIs only (OQ-NC5), and the grant needs no declared profile, so there
+// is nothing to declare. For an AGENT it is a typed `-p` naming a declared profile that resolves
+// to a claiming provider — `yolo host -p <profile> -- <agent>`. With no such profile it says to
 // declare one, because `-p` takes a profile name, never a provider's. Either way the profile is
 // one the named command can run on (runsOn, ES-D10), so the line never names a launch that
 // refuses.
@@ -996,16 +997,24 @@ func (c *hostComposition) processHolds() (inherited, composed func(string) bool)
 // it.
 //
 // The front door decides the spelling: `yolo host --` names the command it was given, and
-// `yolo host env`, which launches nothing, names the ad-hoc slice for the shell beside the exec
-// spelling for its agent. The shell spelling is `--agent bash` and never the verb's own
-// `--agent`: an agent's slice on that profile carries its whole provider shape (claude's
-// ANTHROPIC_BASE_URL, and the key again under ANTHROPIC_AUTH_TOKEN), which an eval'ing shell
-// would then hand, undisclosed, to every process it starts (CN-D13). Any name no selected pack
-// installs composes the same slice, so `bash` stands for all of them, as §3.1 and the help's
-// example spell it.
+// `yolo host env`, which launches nothing, names the grant for the shell beside the exec
+// spelling for its agent. The shell spelling is `--with-credentials` and never the verb's own
+// `--agent` with a -p: an agent's slice on that profile carries its whole provider shape
+// (claude's ANTHROPIC_BASE_URL, and the key again under ANTHROPIC_AUTH_TOKEN), which an
+// eval'ing shell would then hand, undisclosed, to every process it starts (CN-D13). The grant
+// is keys only, and with no -p its script is the ad-hoc slice (hostEnvDefaultAgent). Any one
+// claimant delivers every name of the group, so the first is named.
 func (c *hostComposition) credentialRemedy(claimants []string) string {
 	if c.grant != nil {
 		return c.grantRemedy(claimants)
+	}
+	claimant := "<provider>"
+	if len(claimants) > 0 {
+		claimant = claimants[0]
+	}
+	if !selectedPackInstalls(c.packs, c.agent) {
+		action := c.grantAction(claimant)
+		return strings.ToUpper(action[:1]) + action[1:]
 	}
 	candidates := remedyProfiles(c.resolved, claimants)
 	if len(candidates) == 0 {
@@ -1019,7 +1028,7 @@ func (c *hostComposition) credentialRemedy(claimants []string) string {
 		return fmt.Sprintf("No declared profile selects %s: declare one under `profiles` in %s "+
 			"(for example `%q: {\"provider\": %q}`), then %s",
 			strings.Join(claimants, " or "), paths.UserConfigPath(), example, example,
-			c.remedyAction(example, runs))
+			c.remedyAction(example, runs, claimant))
 	}
 	profile, runs := candidates[0], false
 	for _, name := range candidates {
@@ -1028,8 +1037,27 @@ func (c *hostComposition) credentialRemedy(claimants []string) string {
 			break
 		}
 	}
-	action := c.remedyAction(profile, runs)
+	action := c.remedyAction(profile, runs, claimant)
 	return strings.ToUpper(action[:1]) + action[1:]
+}
+
+// grantAction is the remedy's instruction for an ad-hoc command, as a clause starting "to …":
+// the grant of the claimant's keys, spelled for the command as typed at `yolo host --` and for
+// the shell at `yolo host env`.
+func (c *hostComposition) grantAction(claimant string) string {
+	if c.command == "" {
+		return c.shellGrantAction(claimant)
+	}
+	cmd := shquote.Quote(c.command)
+	return fmt.Sprintf("to hand it to %s for one launch: `yolo host %s %s -- %s`", cmd,
+		withCredentialsFlag, shquote.Quote(claimant), cmd)
+}
+
+// shellGrantAction is the grant's shell spelling, the one `yolo host env` names for every
+// withheld group: keys only, into the ad-hoc slice.
+func (c *hostComposition) shellGrantAction(claimant string) string {
+	return fmt.Sprintf("to receive it in this shell: `eval \"$(yolo host env %s %s)\"`",
+		withCredentialsFlag, shquote.Quote(claimant))
 }
 
 // grantRemedy is the remedy on a run given --with-credentials (ES-D23): this same run with a
@@ -1067,8 +1095,8 @@ func (c *hostComposition) grantRemedy(claimants []string) string {
 // with the candidate selected for the command, whose AgentEnv holds the protocol pairing gate
 // and the pack's env derive. A remedy is a command the user will run, so it may never name one
 // that refuses — `yolo host -p cerebras -- claude` does, cerebras speaking only openai and no
-// `needs` joining wire-bridge at this notch. A command no selected pack installs runs on any
-// declared profile, since no pack code runs for it, so it is never asked.
+// `needs` joining wire-bridge at this notch. It is asked only of an agent: an ad-hoc command's
+// remedy is the grant, which names no profile (OQ-NC5), so it answers true for one.
 //
 // extra, when set, is resolved as profile first: the declaration the line tells the user to
 // write. The credential pre-flight is not re-asked, because the name the line is about is the
@@ -1091,18 +1119,17 @@ func (c *hostComposition) runsOn(profile string, extra *packload.ResolvedProfile
 	return err == nil
 }
 
-// remedyAction is the remedy's instruction for one profile, as a clause starting "to …";
-// runs is runsOn's answer for it.
+// remedyAction is an AGENT's remedy instruction for one profile, as a clause starting "to …";
+// runs is runsOn's answer for it, and claimant the provider the grant spelling names.
 //
-// A -p NAMES ONE PROFILE, so the one it names REPLACES the command's own: a withheld name
-// belongs to a provider this launch's profile did not select, and on an agent a selected pack
-// installs, the named -p re-points the agent's backend rather than adding a key to it. So an
-// agent's remedy is worded as the switch it is ("run claude on the zai profile"), an ad-hoc
-// command's as the grant it is ("hand it to bash"), and either says which profile it replaces
-// when the launch selected one. An agent that cannot run on the profile is named only to say
-// so, and the key goes to the ad-hoc spelling instead: `bash` at the exec, and the shell
-// spelling alone at `yolo host env`.
-func (c *hostComposition) remedyAction(profile string, runs bool) string {
+// A -p NAMES ONE PROFILE, so the one it names REPLACES the agent's own: a withheld name belongs
+// to a provider this launch's profile did not select, and on an agent a selected pack installs,
+// the named -p re-points the agent's backend rather than adding a key to it. So the remedy is
+// worded as the switch it is ("run claude on the zai profile"), and says which profile it
+// replaces when the launch selected one. An agent that cannot run on the profile is named only
+// to say so, and the key goes to the grant instead (OQ-NC5): `--with-credentials` for an ad-hoc
+// `bash` at the exec, and the shell spelling alone at `yolo host env`.
+func (c *hostComposition) remedyAction(profile string, runs bool, claimant string) string {
 	p := shquote.Quote(profile)
 	cmd := c.command
 	if cmd == "" {
@@ -1113,22 +1140,17 @@ func (c *hostComposition) remedyAction(profile string, runs bool) string {
 	if c.profile != "" {
 		replacing = fmt.Sprintf(", replacing its %s profile", c.profile)
 	}
-	shell := fmt.Sprintf("to receive it in this shell: `eval \"$(yolo host env --agent bash -p %s)\"`", p)
-	var launch string
-	switch {
-	case !runs:
+	shell := c.shellGrantAction(claimant)
+	if !runs {
 		cannot := fmt.Sprintf("%s cannot run on the %s profile at this notch", cmd, profile)
 		if c.command == "" {
 			return fmt.Sprintf("%s (%s)", shell, cannot)
 		}
 		return fmt.Sprintf("to hand it to an ad-hoc command for one launch instead, since %s: "+
-			"`yolo host -p %s -- bash`", cannot, p)
-	case selectedPackInstalls(c.packs, c.agent):
-		launch = fmt.Sprintf("to run %s on the %s profile for one launch%s: `yolo host -p %s -- %s`",
-			cmd, profile, replacing, p, cmd)
-	default:
-		launch = fmt.Sprintf("to hand it to %s for one launch%s: `yolo host -p %s -- %s`", cmd, replacing, p, cmd)
+			"`yolo host %s %s -- bash`", cannot, withCredentialsFlag, shquote.Quote(claimant))
 	}
+	launch := fmt.Sprintf("to run %s on the %s profile for one launch%s: `yolo host -p %s -- %s`",
+		cmd, profile, replacing, p, cmd)
 	if c.command == "" {
 		return shell + "; " + launch
 	}
@@ -1219,9 +1241,7 @@ func composeHostLaunch(bin, profile string, grant *hostGrantRequest, warn func(s
 		workspace = "."
 	}
 
-	c := composeHostVarsGranting(cfg, workspace, agent, profile, grant, warn)
-	c.command = bin
-	return c
+	return composeHostVarsFor(cfg, workspace, agent, bin, profile, grant, warn)
 }
 
 // hostEnvVars is the composition itself, without the inherited environment — the
@@ -1266,8 +1286,16 @@ func composeHostVars(cfg *jsonx.OrderedMap, workspace, agent, profile string, wa
 // the disclosure's recipients, the pre-flight and the vars cannot disagree about it.
 func composeHostVarsGranting(cfg *jsonx.OrderedMap, workspace, agent, profile string,
 	grant *hostGrantRequest, warn func(string)) *hostComposition {
+	return composeHostVarsFor(cfg, workspace, agent, "", profile, grant, warn)
+}
+
+// composeHostVarsFor is composeHostVarsGranting for a launch of command, the command as typed
+// after `--` ("" for `yolo host env`, which launches nothing): known from the start, so a
+// refusal the composition makes can spell the launch it refuses (adHocGrantSpelling).
+func composeHostVarsFor(cfg *jsonx.OrderedMap, workspace, agent, command, profile string,
+	grant *hostGrantRequest, warn func(string)) *hostComposition {
 	var vars []agentenv.Var
-	c := &hostComposition{agent: agent}
+	c := &hostComposition{agent: agent, command: command}
 
 	// The profile this launch selects, resolved once: it gates (1) and feeds (3), and
 	// both must read the same selection or the env a host launch carries and the one its
@@ -1307,21 +1335,19 @@ func composeHostVarsGranting(cfg *jsonx.OrderedMap, workspace, agent, profile st
 	}
 	c.profile = profileName
 	c.typedProfile = profile
-	// ONLY A TYPED -p KEYS A COMMAND NO PACK INSTALLS
-	// (docs/design/credential-sources-separation.md ES-D5). The one-agent table above keys
-	// whatever basename was launched, which is what makes `yolo host -p zai -- bash` the host's
-	// grant (ES-D1) — and what made a `use_profiles` entry for `bash` deliver here too, only
-	// because this notch ran no validation while `yolo check` and every jail launch refuse that
-	// entry in the same user file. So a use_profiles key doing the selecting is asked the
-	// validator's own question, and refused with its message plus the spelling that IS legal.
-	// The provider and profile section of validation below refuses the same entry whatever
-	// selects this launch's profile; this refusal runs first for the remedy it adds.
+	// NO PROFILE KEYS A COMMAND NO PACK INSTALLS (docs/design/credential-sources-separation.md
+	// ES-D5, and OQ-NC5 for the typed -p below). A `use_profiles` entry for `bash` delivered
+	// here only because this notch ran no validation, while `yolo check` and every jail launch
+	// refuse that entry in the same user file. So a use_profiles key doing the selecting is asked
+	// the validator's own question, and refused with its message plus the spelling that IS
+	// legal: the grant. The provider and profile section of validation below refuses the same
+	// entry whatever selects this launch's profile; this refusal runs first for the remedy it
+	// adds.
 	if profile == "" && profileName != "" && !selectedPackInstalls(packs, agent) {
 		if msg, unknown := config.UnknownUseProfileKey(agent); unknown {
-			p, a := shquote.Quote(profileName), shquote.Quote(agent)
-			c.err = fmt.Errorf("%s. Only a typed -p selects a profile for a command no pack "+
-				"installs: remove the entry and run `yolo host -p %s -- %s` (or "+
-				"`yolo host env --agent %s -p %s` for a shell)", msg, p, a, a, p)
+			c.err = fmt.Errorf("%s. A profile reaches agent CLIs only, so no use_profiles entry "+
+				"or -p selects one for a command no pack installs: remove the entry. %s",
+				msg, c.adHocGrantSpelling(hostProfileProvider(packs, profileName), grant))
 			return c
 		}
 	}
@@ -1393,6 +1419,23 @@ func composeHostVarsGranting(cfg *jsonx.OrderedMap, workspace, agent, profile st
 				packload.UndeclaredProfileMessage(profileName, declared))
 			return c
 		}
+	}
+	// A BARE -p REACHES AGENT CLIs ONLY, AT EVERY NOTCH (docs/plans/notch-convergence.md OQ-NC5,
+	// ruled 2026-09-28; NC-D62). In a jail a bare `-p <name>` keys every CLI a selected pack
+	// installs and never the `--` command (effectiveUseProfiles). Here it used to key whatever
+	// basename was launched, so `yolo host -p zai -- curl` handed curl zai's key (ES-D1, retired
+	// by that ruling). An arbitrary command gets a provider's key through the one grant ruled for
+	// exactly that, --with-credentials, so a typed -p for a command no selected pack installs is
+	// refused, naming the grant spelled for this launch. Refused rather than ignored: at this
+	// notch the command is the whole launch, so a -p that reaches nothing would be a flag that
+	// silently does nothing. After the declaration check, so an undeclared name keeps its own
+	// message, and the provider the refusal names is the profile's resolved one.
+	if profile != "" && !selectedPackInstalls(packs, agent) {
+		c.err = fmt.Errorf("-p %s selects a profile for agent CLIs only, at every notch, and no "+
+			"selected pack installs %q, so it would reach nothing here. An arbitrary command "+
+			"receives a provider's key only through the grant: %s", shquote.Quote(profile), agent,
+			c.adHocGrantSpelling(packload.ProviderFor(resolvedProfiles, profile), grant))
+		return c
 	}
 
 	// The secret channel, hydrated BEFORE the fold because the credential gate below reads
@@ -1540,6 +1583,48 @@ func composeHostVarsGranting(cfg *jsonx.OrderedMap, workspace, agent, profile st
 	}
 	c.vars = vars
 	return c
+}
+
+// adHocGrantSpelling is the pasteable grant that hands this composition's ad-hoc command the
+// named provider's claimed env_sources values, for the refusals that tell a user a profile does
+// not (OQ-NC5): `yolo host --with-credentials <provider> -- <cmd>` for the exec, spelled for the
+// command as typed, and `eval "$(yolo host env --with-credentials <provider>)"` for the shell,
+// whose default slice under a grant is the ad-hoc one (hostEnvDefaultAgent). A grant already
+// typed is kept and widened, so the named run delivers everything this one asked for. provider
+// is "" when the profile does not resolve, and the spelling then shows the placeholder.
+func (c *hostComposition) adHocGrantSpelling(provider string, grant *hostGrantRequest) string {
+	if provider == "" {
+		provider = "<provider>"
+	}
+	names := []string{}
+	if grant != nil {
+		names = append(names, grant.names...)
+	}
+	if !slices.Contains(names, provider) && !slices.Contains(names, "all") {
+		names = append(names, provider)
+	}
+	value := shquote.Quote(strings.Join(names, ","))
+	if c.command == "" {
+		return fmt.Sprintf("`eval \"$(yolo host env %s %s)\"` exports that provider's key into "+
+			"this shell", withCredentialsFlag, value)
+	}
+	return fmt.Sprintf("`yolo host %s %s -- %s` hands %s that provider's key for one launch",
+		withCredentialsFlag, value, shquote.Quote(c.command), shquote.Quote(c.command))
+}
+
+// hostProfileProvider is the provider a declared profile selects, resolved over the selected
+// packs' shipped profiles and the user's own, "" when it resolves to none. For ES-D5's refusal,
+// which runs before the launch's own resolution and needs only the provider's name.
+func hostProfileProvider(packs []*packload.Pack, profile string) string {
+	user, err := config.LoadProfiles(nil)
+	if err != nil {
+		return ""
+	}
+	resolved, err := packload.ResolveProfiles(packs, user, nil)
+	if err != nil {
+		return ""
+	}
+	return packload.ProviderFor(resolved, profile)
 }
 
 // selectedPackInstalls reports whether a selected pack installs a CLI named bin — the case in

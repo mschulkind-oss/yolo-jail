@@ -1,12 +1,13 @@
 package cli
 
-// hostcredentialgrant_test.go pins THE HOST'S GRANT for an ad-hoc command
-// (docs/design/credential-sources-separation.md §5, ES-D1 to ES-D5): `yolo host -p <profile> --
-// <cmd>` makes any command, not only an agent a pack installs, a recipient of that profile's
+// hostcredentialgrant_test.go pins WHO A HOST PROFILE REACHES and the remedies the credential
+// disclosure names (docs/design/credential-sources-separation.md §5, ES-D2 to ES-D5, and
+// docs/plans/notch-convergence.md OQ-NC5): a bare `-p <profile>` reaches agent CLIs only, at
+// every notch, so `yolo host -p <profile> -- <cmd>` for a command no selected pack installs is
+// refused, naming `--with-credentials`, the one grant that hands an ad-hoc command a provider's
 // claimed env_sources values. Every cell runs `yolo host` through hostMain to the exec, as the
-// TestHostGate* cells in hostcredentialgate_test.go do, with `bash` as the command: no selected
-// pack installs it, so no pack code runs for it and the grant is the only thing that can hand it
-// a claimed value.
+// TestHostGate* cells in hostcredentialgate_test.go do, with `bash` as the ad-hoc command: no
+// selected pack installs it, so no pack code runs for it.
 
 import (
 	"bytes"
@@ -24,22 +25,51 @@ import (
 const esGrantConfig = `{"packs": ["claude", "pi", "zai"], "env_sources": [` +
 	`{"ZAI_API_KEY": "tok-es", "PORT": "8080"}]}`
 
-// ES-D1: `yolo host -p zai -- bash` hands bash zai's claimed key, keeps the unclaimed value, and
-// says the key went to bash alone. It fails if ScopeCredentials' agent loop starts asking
-// whether a pack installs the name, or if effectiveHostProfiles stops keying the launched
-// basename: both are what make a non-agent a recipient.
-func TestHostGrantTypedProfileHandsAnAdHocCommandItsClaimedValues(t *testing.T) {
-	env, errs := hostGateLaunchWith(t, esGrantConfig, nil, []string{"-p", "zai"}, "bash")
+// OQ-NC5 at the host: a bare -p reaches agent CLIs only, so `yolo host -p zai -- env` (a command
+// no selected pack installs) is REFUSED before the exec, and never hands the command zai's key.
+// ES-D1 made it the host's grant for any command; the grant is `--with-credentials` now, and the
+// refusal names it, spelled for the command as typed. The pair spelling naming the command is
+// the same -p and refuses the same way. The named grant is run, and delivers the key.
+func TestHostBareProfileNeverKeysAnAdHocCommand(t *testing.T) {
+	for _, flags := range [][]string{{"-p", "zai"}, {"-p", "env=zai"}, {"--profile=zai"}} {
+		rc, env, errs := hostGateRun(t, esGrantConfig, nil, flags, "env")
+		if rc == 0 || env != nil {
+			t.Fatalf("yolo host %v -- env must refuse before the exec: rc = %d, reached exec = %v\n%s",
+				flags, rc, env != nil, errs)
+		}
+		if strings.Contains(errs, "tok-es") {
+			t.Errorf("the refusal leaked the key's value:\n%s", errs)
+		}
+		line := refusalLine(t, errs)
+		for _, want := range []string{"agent CLIs only", `no selected pack installs "env"`,
+			"`yolo host --with-credentials zai -- env`"} {
+			if !strings.Contains(line, want) {
+				t.Errorf("yolo host %v -- env: the refusal must say %q: %q", flags, want, line)
+			}
+		}
+		assertRemediesRun(t, line, "ZAI_API_KEY", "tok-es")
+	}
+}
+
+// refusalLine is the launch's one "refusing to launch" line, or `yolo host env`'s error line.
+func refusalLine(t *testing.T, errs string) string {
+	t.Helper()
+	for _, l := range strings.Split(errs, "\n") {
+		if strings.Contains(l, "refusing to launch") || strings.HasPrefix(l, "yolo host env: ") {
+			return l
+		}
+	}
+	t.Fatalf("no refusal line:\n%s", errs)
+	return ""
+}
+
+// The same rule for an agent is no refusal: `yolo host -p zai -- pi` is pi on zai, since a
+// selected pack installs pi. The contrast is what makes the cell above the agent-only rule
+// rather than a refusal of -p.
+func TestHostBareProfileStillReachesAnAgentCLI(t *testing.T) {
+	env, errs := hostGateLaunchWith(t, esGrantConfig, nil, []string{"-p", "zai"}, "pi")
 	if env["ZAI_API_KEY"] != "tok-es" {
-		t.Errorf("yolo host -p zai -- bash: ZAI_API_KEY = %q, want the env_sources value — "+
-			"a typed -p is the host's grant for any command\n%s", env["ZAI_API_KEY"], errs)
-	}
-	if env["PORT"] != "8080" {
-		t.Errorf("an unclaimed env_sources value reaches every process, bash on zai included: "+
-			"PORT = %q\n%s", env["PORT"], errs)
-	}
-	if !strings.Contains(errs, "ZAI_API_KEY (provider zai): bash only") {
-		t.Errorf("the grant is disclosed, naming its one recipient:\n%s", errs)
+		t.Errorf("yolo host -p zai -- pi: ZAI_API_KEY = %q, want zai's key\n%s", env["ZAI_API_KEY"], errs)
 	}
 }
 
@@ -59,19 +89,23 @@ func TestHostGrantAbsentWithholdsTheClaimedValueAndKeepsTheRest(t *testing.T) {
 	}
 }
 
-// ES-D2 at `yolo host --`: the withheld line names the one existing remedy, the typed -p that
-// would deliver the key, spelled for the command this launch was given. The profile is a
-// declared one resolving to the claiming provider — zai's own same-named profile here.
-func TestHostGrantWithheldLineNamesTheTypedProfileRemedy(t *testing.T) {
+// ES-D2 at `yolo host --`, for an ad-hoc command: the withheld line names the grant that would
+// deliver the key, spelled for the command this launch was given — never a -p, which reaches
+// agent CLIs only (OQ-NC5).
+func TestHostGrantWithheldLineNamesTheGrantRemedy(t *testing.T) {
 	_, errs := hostGateLaunchWith(t, esGrantConfig, nil, nil, "bash")
 	line := scopeLine(t, errs, "ZAI_API_KEY")
 	if !strings.Contains(line, "withheld") {
 		t.Errorf("the key is still disclosed as withheld: %q", line)
 	}
-	if !strings.Contains(line, "`yolo host -p zai -- bash`") {
-		t.Errorf("the withheld line must name `yolo host -p zai -- bash`, the grant that would "+
-			"deliver it (ES-D2): %q", line)
+	if !strings.Contains(line, "`yolo host --with-credentials zai -- bash`") {
+		t.Errorf("the withheld line must name `yolo host --with-credentials zai -- bash`, the "+
+			"grant that would deliver it (ES-D2, OQ-NC5): %q", line)
 	}
+	if strings.Contains(line, "-p ") {
+		t.Errorf("an ad-hoc command's remedy never names a -p (OQ-NC5): %q", line)
+	}
+	assertRemediesRun(t, line, "ZAI_API_KEY", "tok-es")
 	if strings.Contains(line, "yolo host env") {
 		t.Errorf("an exec names the exec spelling for the command it was given, not the env "+
 			"verb's: %q", line)
@@ -79,19 +113,19 @@ func TestHostGrantWithheldLineNamesTheTypedProfileRemedy(t *testing.T) {
 }
 
 // ES-D2 at `yolo host env`: the same remedy, spelled for what the verb is for. The shell
-// spelling is the ad-hoc one, `--agent bash` (§3.1, and the help's own example), never the
-// default agent's: `--agent claude -p zai` would export claude's whole zai shape into the
-// shell, the zai key riding again under ANTHROPIC_AUTH_TOKEN, and every later process the
-// shell starts would inherit it undisclosed (CN-D13). The exec spelling is for one launch of
-// the agent. The named shell command is run, and must print the key and nothing of claude's.
-func TestHostEnvWithheldLineNamesTheTypedProfileRemedy(t *testing.T) {
+// spelling is the grant, `--with-credentials` (OQ-NC5), never the default agent's slice:
+// `--agent claude -p zai` would export claude's whole zai shape into the shell, the zai key
+// riding again under ANTHROPIC_AUTH_TOKEN, and every later process the shell starts would
+// inherit it undisclosed (CN-D13). The exec spelling is for one launch of the agent. The named
+// shell command is run, and must print the key and nothing of claude's.
+func TestHostEnvWithheldLineNamesTheGrantRemedy(t *testing.T) {
 	hostGateHome(t, esGrantConfig, nil)
 	var out, errw bytes.Buffer
 	if rc := hostMain([]string{"env"}, &out, &errw, false, nil); rc != 0 {
 		t.Fatalf("yolo host env: rc = %d\n%s", rc, errw.String())
 	}
 	line := scopeLine(t, errw.String(), "ZAI_API_KEY")
-	for _, want := range []string{"`eval \"$(yolo host env --agent bash -p zai)\"`", "`yolo host -p zai -- claude`"} {
+	for _, want := range []string{"`eval \"$(yolo host env --with-credentials zai)\"`", "`yolo host -p zai -- claude`"} {
 		if !strings.Contains(line, want) {
 			t.Errorf("yolo host env's withheld line must name %s (ES-D2): %q", want, line)
 		}
@@ -192,16 +226,17 @@ func TestHostGrantAgentRemedyIsWordedAsAProfileSwitch(t *testing.T) {
 	}
 }
 
-// The same holds for an ad-hoc command on a typed grant: -p names one profile, so naming
-// another replaces the first.
-func TestHostGrantAdHocRemedySaysItReplacesTheTypedProfile(t *testing.T) {
+// An ad-hoc command's remedy is the grant, whichever provider claims the name: bedrock's key
+// pair is handed to bash by `--with-credentials bedrock`, never by a -p (OQ-NC5).
+func TestHostGrantAdHocRemedyIsTheGrantNeverAProfile(t *testing.T) {
 	_, errs := hostGateLaunchWith(t, `{"packs": ["claude", "zai"], "env_sources": [`+
-		`{"ZAI_API_KEY": "tok-es", "AWS_ACCESS_KEY_ID": "AKIA-host"}]}`, nil, []string{"-p", "zai"}, "bash")
+		`{"ZAI_API_KEY": "tok-es", "AWS_ACCESS_KEY_ID": "AKIA-host"}]}`, nil, nil, "bash")
 	line := scopeLine(t, errs, "AWS_ACCESS_KEY_ID")
-	want := "To hand it to bash for one launch, replacing its zai profile: `yolo host -p bedrock -- bash`"
+	want := "To hand it to bash for one launch: `yolo host --with-credentials bedrock -- bash`"
 	if !strings.Contains(line, want) {
-		t.Errorf("the remedy must say the named -p replaces the typed one (%q): %q", want, line)
+		t.Errorf("the remedy for an ad-hoc command must be the grant (%q): %q", want, line)
 	}
+	assertRemediesRun(t, line, "AWS_ACCESS_KEY_ID", "AKIA-host")
 }
 
 // At `yolo host env` the one-launch spelling for the agent is worded as the switch too.
@@ -229,7 +264,7 @@ func TestHostGrantRemedyNeverNamesAProfileTheAgentRefuses(t *testing.T) {
 	if strings.Contains(line, "-- claude`") {
 		t.Errorf("claude cannot run on cerebras here, so no named command may launch it: %q", line)
 	}
-	for _, want := range []string{"`yolo host -p cerebras -- bash`", "claude cannot run on the cerebras profile"} {
+	for _, want := range []string{"`yolo host --with-credentials cerebras -- bash`", "claude cannot run on the cerebras profile"} {
 		if !strings.Contains(line, want) {
 			t.Errorf("the line must hand the key to an ad-hoc command and say why (%q missing): %q", want, line)
 		}
@@ -267,7 +302,7 @@ func TestHostGrantDeclareRemedyNamesACommandThatRunsOnceDeclared(t *testing.T) {
 	_, errs := hostGateLaunchWith(t, `{"packs": ["claude"], `+provider+`, `+
 		`"env_sources": [{"DEEPSEEK_API_KEY": "tok-ds"}]}`, nil, nil, "claude")
 	line := scopeLine(t, errs, "DEEPSEEK_API_KEY")
-	if !strings.Contains(line, "`yolo host -p deepseek -- bash`") || strings.Contains(line, "-- claude`") {
+	if !strings.Contains(line, "`yolo host --with-credentials deepseek -- bash`") || strings.Contains(line, "-- claude`") {
 		t.Errorf("claude speaks no openai, so the declared profile's remedy must be ad-hoc: %q", line)
 	}
 	hostGateHome(t, `{"packs": ["claude"], `+provider+`, "profiles": {"deepseek": {"provider": "deepseek"}}, `+
@@ -315,17 +350,24 @@ func assertRemediesRun(t *testing.T, line, name, value string) {
 	}
 }
 
-// ES-D2's other arm: a provider the user declared under `providers` has no profile until the
-// user declares one, and -p takes a profile name, so the line says to declare one rather than
-// naming a -p that would refuse. The §1 incident's deepseek line.
+// ES-D2's other arm, for an agent: a provider the user declared under `providers` has no
+// profile until the user declares one, and -p takes a profile name, so the line says to declare
+// one rather than naming a -p that would refuse. The §1 incident's deepseek line, on pi, which
+// speaks openai. An ad-hoc command needs no profile at all: its remedy is the grant.
 func TestHostGrantWithheldLineSaysToDeclareAProfileWhenNoneSelectsTheProvider(t *testing.T) {
-	_, errs := hostGateLaunchWith(t, `{"packs": ["claude"], `+
-		`"providers": {"deepseek": {"endpoints": {"openai": {"base_url": "https://api.deepseek.example"}}, `+
-		`"api_key_env_name": "DEEPSEEK_API_KEY"}}, `+
-		`"env_sources": [{"DEEPSEEK_API_KEY": "tok-ds"}]}`, nil, nil, "bash")
+	cfg := `{"packs": ["pi"], ` +
+		`"providers": {"deepseek": {"endpoints": {"openai": {"base_url": "https://api.deepseek.example"}}, ` +
+		`"api_key_env_name": "DEEPSEEK_API_KEY"}}, ` +
+		`"env_sources": [{"DEEPSEEK_API_KEY": "tok-ds"}]}`
+	_, errs := hostGateLaunchWith(t, cfg, nil, nil, "bash")
+	if line := scopeLine(t, errs, "DEEPSEEK_API_KEY"); strings.Contains(line, "No declared profile") ||
+		!strings.Contains(line, "`yolo host --with-credentials deepseek -- bash`") {
+		t.Errorf("an ad-hoc command's remedy is the grant, needing no profile: %q", line)
+	}
+	_, errs = hostGateLaunchWith(t, cfg, nil, nil, "pi")
 	line := scopeLine(t, errs, "DEEPSEEK_API_KEY")
 	for _, want := range []string{"No declared profile selects deepseek", "`profiles`",
-		`"deepseek": {"provider": "deepseek"}`, "`yolo host -p deepseek -- bash`"} {
+		`"deepseek": {"provider": "deepseek"}`, "`yolo host -p deepseek -- pi`"} {
 		if !strings.Contains(line, want) {
 			t.Errorf("with no profile selecting deepseek the line must say to declare one (%q "+
 				"missing): %q", want, line)
@@ -336,13 +378,13 @@ func TestHostGrantWithheldLineSaysToDeclareAProfileWhenNoneSelectsTheProvider(t 
 // With a user profile declared over that provider, the remedy names it: a declared profile
 // that resolves to the claimant, whatever it is called.
 func TestHostGrantWithheldLineNamesAUserProfileOverTheProvider(t *testing.T) {
-	_, errs := hostGateLaunchWith(t, `{"packs": ["claude"], `+
+	_, errs := hostGateLaunchWith(t, `{"packs": ["pi"], `+
 		`"providers": {"deepseek": {"endpoints": {"openai": {"base_url": "https://api.deepseek.example"}}, `+
 		`"api_key_env_name": "DEEPSEEK_API_KEY"}}, `+
 		`"profiles": {"ds": {"provider": "deepseek"}}, `+
-		`"env_sources": [{"DEEPSEEK_API_KEY": "tok-ds"}]}`, nil, nil, "bash")
+		`"env_sources": [{"DEEPSEEK_API_KEY": "tok-ds"}]}`, nil, nil, "pi")
 	line := scopeLine(t, errs, "DEEPSEEK_API_KEY")
-	if !strings.Contains(line, "`yolo host -p ds -- bash`") {
+	if !strings.Contains(line, "`yolo host -p ds -- pi`") {
 		t.Errorf("the remedy must name the user's profile over deepseek: %q", line)
 	}
 }
@@ -403,7 +445,7 @@ func TestHostGrantShellHeldNameIsDisclosedAsNotAddedNeverWithheld(t *testing.T) 
 				"missing): %q", want, line)
 		}
 	}
-	if strings.Contains(line, "yolo host -p") {
+	if strings.Contains(line, "yolo host -p") || strings.Contains(line, "--with-credentials") {
 		t.Errorf("a value the command already holds needs no remedy: %q", line)
 	}
 }
@@ -429,7 +471,7 @@ func TestHostEnvShellHeldNameIsDisclosedAsNotAdded(t *testing.T) {
 // shell's value does NOT pass through, so the line must not say it does. Nor may it say the
 // name was withheld from every process, which the exported script contradicts: the
 // env_sources value is not delivered, and the process holds one yolo composed from another
-// source. The same with no shell value at all. The remedy stays, since a typed -p's
+// source. The same with no shell value at all. The remedy stays, since a granted
 // env_sources value beats the pack's.
 func TestHostEnvShellValueComposedOverIsNotDisclosedAsPassingThrough(t *testing.T) {
 	for _, shell := range []map[string]string{{"ZAI_API_KEY": "tok-shell"}, nil} {
@@ -457,7 +499,7 @@ func TestHostEnvShellValueComposedOverIsNotDisclosedAsPassingThrough(t *testing.
 			t.Errorf("shell %v: the process holds ZAI_API_KEY, so no line may call it withheld: %q", shell, line)
 		}
 		for _, want := range []string{"not delivered from env_sources", "composed from another source",
-			"yolo host env --agent bash -p zai"} {
+			"yolo host env --with-credentials zai"} {
 			if !strings.Contains(line, want) {
 				t.Errorf("shell %v: the line must say %q: %q", shell, want, line)
 			}
@@ -488,11 +530,11 @@ func TestHostGrantComposedNameIsNotDisclosedAsWithheld(t *testing.T) {
 
 // With the grant typed, the env_sources value beats the shell's and the line is the grant's
 // ("bash only"): ES-D4 rewords only a withheld line.
-func TestHostGrantTypedProfileBeatsTheShellsValue(t *testing.T) {
+func TestHostGrantBeatsTheShellsValue(t *testing.T) {
 	env, errs := hostGateLaunchWith(t, esGrantConfig,
-		map[string]string{"ZAI_API_KEY": "tok-shell"}, []string{"-p", "zai"}, "bash")
+		map[string]string{"ZAI_API_KEY": "tok-shell"}, []string{"--with-credentials", "zai"}, "bash")
 	if env["ZAI_API_KEY"] != "tok-es" {
-		t.Errorf("a typed -p delivers the env_sources value over the shell's: ZAI_API_KEY = %q",
+		t.Errorf("the grant delivers the env_sources value over the shell's: ZAI_API_KEY = %q",
 			env["ZAI_API_KEY"])
 	}
 	if line := scopeLine(t, errs, "ZAI_API_KEY"); !strings.HasSuffix(line, "ZAI_API_KEY (provider zai): bash only") {
@@ -505,9 +547,10 @@ func TestHostGrantTypedProfileBeatsTheShellsValue(t *testing.T) {
 const esUseProfilesBash = `{"packs": ["claude", "pi", "zai"], "use_profiles": {"bash": "zai"}, ` +
 	`"env_sources": [{"ZAI_API_KEY": "tok-es", "PORT": "8080"}]}`
 
-// ES-D5: only a typed -p keys a command no pack installs. The use_profiles entry is refused at
-// `yolo host --` before anything is exec'd, with the validator's own message and the -p
-// spelling that is legal; it used to deliver here only because the host skips validation.
+// ES-D5: no profile keys a command no pack installs. The use_profiles entry is refused at
+// `yolo host --` before anything is exec'd, with the validator's own message and the grant
+// spelling that is legal (OQ-NC5); it used to deliver here only because the host skips
+// validation.
 func TestHostGrantRefusesAUseProfilesKeyNoPackInstalls(t *testing.T) {
 	rc, env, errs := hostGateRun(t, esUseProfilesBash, nil, nil, "bash")
 	if rc == 0 || env != nil {
@@ -518,7 +561,7 @@ func TestHostGrantRefusesAUseProfilesKeyNoPackInstalls(t *testing.T) {
 	if !unknown {
 		t.Fatal("fixture: the validator must refuse a use_profiles key for bash")
 	}
-	for _, s := range []string{want, "`yolo host -p zai -- bash`"} {
+	for _, s := range []string{want, "`yolo host --with-credentials zai -- bash`"} {
 		if !strings.Contains(errs, s) {
 			t.Errorf("the refusal must carry %q:\n%s", s, errs)
 		}
@@ -529,7 +572,7 @@ func TestHostGrantRefusesAUseProfilesKeyNoPackInstalls(t *testing.T) {
 // provider and profile section of validation (notch-convergence item 13, row A8), so a config
 // every jail launch refuses — `yolo -p zai -- claude` included — refuses every host launch too.
 // ES-D9 exempted a typed -p while the host ran only ES-D5's one-key check. Without the entry the
-// typed grant delivers.
+// typed -p still refuses, since it reaches agent CLIs only (OQ-NC5), and the grant delivers.
 func TestHostGrantTypedProfileRefusesBesideARefusedEntry(t *testing.T) {
 	rc, env, errs := hostGateRun(t, esUseProfilesBash, nil, []string{"-p", "zai"}, "bash")
 	want, _ := config.UnknownUseProfileKey("bash")
@@ -538,23 +581,26 @@ func TestHostGrantTypedProfileRefusesBesideARefusedEntry(t *testing.T) {
 			"validator's message: rc = %d\n%s", rc, errs)
 	}
 	clean := strings.Replace(esUseProfilesBash, `"use_profiles": {"bash": "zai"}, `, "", 1)
-	env, errs = hostGateLaunchWith(t, clean, nil, []string{"-p", "zai"}, "bash")
+	if rc, env, errs := hostGateRun(t, clean, nil, []string{"-p", "zai"}, "bash"); rc == 0 || env != nil {
+		t.Errorf("a typed -p zai reaches agent CLIs only, so -- bash refuses: rc = %d\n%s", rc, errs)
+	}
+	env, errs = hostGateLaunchWith(t, clean, nil, []string{"--with-credentials", "zai"}, "bash")
 	if env["ZAI_API_KEY"] != "tok-es" {
-		t.Errorf("a typed -p zai delivers the grant: ZAI_API_KEY = %q\n%s", env["ZAI_API_KEY"], errs)
+		t.Errorf("--with-credentials zai delivers the key: ZAI_API_KEY = %q\n%s", env["ZAI_API_KEY"], errs)
 	}
 }
 
-// `yolo host env` composes the same way, so it refuses the entry too, typed -p or not, and with
-// the entry gone its typed -p prints the key for a shell to eval — the design's
-// `eval "$(yolo host env --agent bash -p zai)"`.
+// `yolo host env` composes the same way, so it refuses the entry too, typed -p or not, naming the
+// grant's shell spelling. With the entry gone its typed -p still refuses for bash (OQ-NC5), and
+// the grant prints the key for a shell to eval: `eval "$(yolo host env --with-credentials zai)"`.
 func TestHostEnvRefusesTheEntryAndPrintsTheTypedGrant(t *testing.T) {
 	home := hostGateHome(t, esUseProfilesBash, nil)
 	var out, errw bytes.Buffer
 	if rc := hostMain([]string{"env", "--agent", "bash"}, &out, &errw, false, nil); rc == 0 {
 		t.Errorf("yolo host env --agent bash must refuse use_profiles {bash: zai}:\n%s", out.String())
 	}
-	if !strings.Contains(errw.String(), "`yolo host env --agent bash -p zai`") {
-		t.Errorf("the refusal names the env verb's typed spelling:\n%s", errw.String())
+	if !strings.Contains(errw.String(), "`eval \"$(yolo host env --with-credentials zai)\"`") {
+		t.Errorf("the refusal names the env verb's grant spelling:\n%s", errw.String())
 	}
 	out.Reset()
 	errw.Reset()
@@ -564,11 +610,18 @@ func TestHostEnvRefusesTheEntryAndPrintsTheTypedGrant(t *testing.T) {
 	userCfg(t, home, strings.Replace(esUseProfilesBash, `"use_profiles": {"bash": "zai"}, `, "", 1))
 	out.Reset()
 	errw.Reset()
-	if rc := hostMain([]string{"env", "--agent", "bash", "-p", "zai"}, &out, &errw, false, nil); rc != 0 {
-		t.Fatalf("yolo host env --agent bash -p zai: rc = %d\n%s", rc, errw.String())
+	if rc := hostMain([]string{"env", "--agent", "bash", "-p", "zai"}, &out, &errw, false, nil); rc == 0 {
+		t.Errorf("yolo host env --agent bash -p zai: a bare -p reaches agent CLIs only (OQ-NC5):\n%s", out.String())
+	} else if !strings.Contains(errw.String(), "`eval \"$(yolo host env --with-credentials zai)\"`") {
+		t.Errorf("the refusal names the grant's shell spelling:\n%s", errw.String())
+	}
+	out.Reset()
+	errw.Reset()
+	if rc := hostMain([]string{"env", "--with-credentials", "zai"}, &out, &errw, false, nil); rc != 0 {
+		t.Fatalf("yolo host env --with-credentials zai: rc = %d\n%s", rc, errw.String())
 	}
 	if !strings.Contains(out.String(), "export ZAI_API_KEY='tok-es'") {
-		t.Errorf("the typed grant prints the key for the shell:\n%s", out.String())
+		t.Errorf("the grant prints the key for the shell:\n%s", out.String())
 	}
 }
 
@@ -584,11 +637,10 @@ func TestHostGrantAcceptsAUseProfilesKeyTheValidatorAccepts(t *testing.T) {
 	}
 }
 
-// ES-D3: `yolo host --help` describes -p as what it is — a selection for the wrapped COMMAND,
-// whatever it is, handing an ad-hoc one that profile's claimed env_sources values — and no
-// longer as a preset "for the wrapped agent". Read through hostMain's help arm, the call site
-// a user reaches.
-func TestHostHelpDescribesProfileAsApplyingToTheWrappedCommand(t *testing.T) {
+// OQ-NC5 in `yolo host --help`: -p is described as reaching agent CLIs only, at every notch, an
+// ad-hoc command's key coming from --with-credentials, and the examples say so. Read through
+// hostMain's help arm, the call site a user reaches.
+func TestHostHelpDescribesProfileAsReachingAgentCLIsOnly(t *testing.T) {
 	var out, errw bytes.Buffer
 	if rc := hostMain([]string{"--help"}, &out, &errw, false, nil); rc != 0 {
 		t.Fatalf("yolo host --help: rc = %d\n%s", rc, errw.String())
@@ -599,15 +651,32 @@ func TestHostHelpDescribesProfileAsApplyingToTheWrappedCommand(t *testing.T) {
 		t.Fatalf("yolo host --help documents no -p:\n%s", help)
 	}
 	flag, _, _ = strings.Cut(flag, "--help, -h")
-	for _, want := range []string{"wrapped COMMAND", "ad-hoc", "claimed env_sources"} {
+	for _, want := range []string{"agent CLI", "refused", "--with-credentials"} {
 		if !strings.Contains(flag, want) {
 			t.Errorf("the -p entry must say %q:\n%s", want, flag)
 		}
 	}
-	if strings.Contains(help, "for the wrapped agent") {
-		t.Errorf("-p is not agent-only at the host (ES-D1); the help still says so:\n%s", help)
+	for _, gone := range []string{"yolo host -p zai -- curl", "yolo host env --agent bash -p zai",
+		"Any command, not only an agent"} {
+		if strings.Contains(help, gone) {
+			t.Errorf("-p reaches agent CLIs only (OQ-NC5); the help still shows %q:\n%s", gone, help)
+		}
 	}
-	if !strings.Contains(help, "yolo host env --agent bash -p zai") {
-		t.Errorf("the help shows the shell spelling of the grant:\n%s", help)
+	for _, want := range []string{"yolo host --with-credentials zai -- curl",
+		`eval "$(yolo host env --with-credentials zai)"`} {
+		if !strings.Contains(help, want) {
+			t.Errorf("the help shows the grant's spelling %q:\n%s", want, help)
+		}
+	}
+	// ONE RECIPIENT RULE, NAMED AT BOTH NOTCHES (notch-convergence item 11's done-when): the
+	// jail's `yolo run --help` names the same rule for its -p.
+	var rc int
+	jail, _ := captureBoth(t, func() { rc = runRun([]string{"run", "--help"}) })
+	_, jailFlag, _ := strings.Cut(jail, "--profile <sel>")
+	jailFlag, _, _ = strings.Cut(jailFlag, "--timing")
+	for _, want := range []string{"agent CLI", "never the command after `--`", "--with-credentials"} {
+		if rc != 0 || !strings.Contains(jailFlag, want) {
+			t.Errorf("yolo run --help's -p entry must say %q (rc %d):\n%s", want, rc, jailFlag)
+		}
 	}
 }

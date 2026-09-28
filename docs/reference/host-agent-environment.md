@@ -14,11 +14,13 @@ summary: "The two channels that deliver a pack's environment to an agent running
 
 # Delivering environment to host agents — two channels and a wrapper directory
 
-**Status:** CURRENT as of 2026-09-09, verified against `38873c0d`. The `-p` grant for an ad-hoc
-command (execution flow step 2, and the paragraph after it) is newer, from 2026-09-27
-([ES-D1 to ES-D5](../design/credential-sources-separation.md#10-decision-ledger), with the
-remedy's corrections in ES-D10 to ES-D12), and is pinned by unit tests through `hostMain`. So is
-the `--with-credentials` grant beside it, from the same day
+**Status:** CURRENT as of 2026-09-09, verified against `38873c0d`. The credential disclosure's
+remedies for an ad-hoc command (execution flow step 2, and the paragraph after it) are newer, from
+2026-09-27 ([ES-D2 to ES-D5](../design/credential-sources-separation.md#10-decision-ledger), with
+the remedy's corrections in ES-D10 to ES-D12), and are pinned by unit tests through `hostMain`;
+since 2026-09-28 a bare `-p` reaches agent CLIs only here, as in a jail
+([OQ-NC5](../plans/notch-convergence.md#OQ-NC5), which retired ES-D1's `-p` grant). So is
+the `--with-credentials` grant beside it, from 2026-09-27
 ([OQ-ES5](../design/credential-sources-separation.md#OQ-ES5)'s host half, ES-D13 to ES-D17), and
 the refusal of a profile the in-jail bridge would serve (ES-D18 to ES-D20). The removal of
 `yolo host apply --shell-init` is newer still, ruled 2026-09-27 ([HE-D1](#he-d1)), and is pinned
@@ -244,10 +246,11 @@ refused for naming no command, the host verb having no default one.
 1. **Locate the target binary** on the host `PATH`, **skipping yolo-managed directories**.
 2. **Resolve the pack configuration** — the active profile for the launched command, and its
    effective `env` for the active workspace. The profile is a typed `-p`, else the command's
-   `use_profiles` entry. Either keys the command by its basename whether or not a pack installs
-   it, but a `use_profiles` key no resolvable pack installs is refused with the validator's
-   message, so for a command no pack installs only the typed flag selects
-   ([ES-D5](../design/credential-sources-separation.md#10-decision-ledger)).
+   `use_profiles` entry. A typed `-p` for a command no selected pack installs is refused, naming
+   `--with-credentials` ([OQ-NC5](../plans/notch-convergence.md#OQ-NC5)), and a `use_profiles`
+   key no resolvable pack installs is refused with the validator's message
+   ([ES-D5](../design/credential-sources-separation.md#10-decision-ledger)), so no profile
+   selects for such a command.
 3. **Compose the process environment** — start from the current environment, hydrate
    `env_sources` (the secret channel), overlay the resolved `env`, then **apply removals**: a
    `null` is an `unset`, not an empty string. PATH is inherited whole today, so the target and
@@ -267,16 +270,18 @@ profile claims is not in it ([the credential gate](providers.md#the-credential-g
 gate's disclosure goes to stderr, which an eval'ing shell does not read, naming what was
 withheld.
 
-**`-p` applies to the wrapped command, not only to an agent.** `yolo host -p zai -- curl …`
-hands `curl` the zai profile's claimed `env_sources` values, and
-`eval "$(yolo host env --agent bash -p zai)"` puts them in the current shell. That is the host's
-grant for an ad-hoc command, one invocation at a time. Each withheld line in the disclosure names
-it, with a declared profile resolving to the claiming provider that the named command can run on,
-or says to declare one. When an agent cannot run on that profile, the line names the ad-hoc
-spelling (`yolo host -p <profile> -- bash`) instead; on an agent that can, it says the `-p`
-replaces the agent's own profile. A withheld name the invoking shell already exports is disclosed
-as not added by yolo, and one a pack's `env` sets as held from that source, since the command
-holds either anyway ([`providers.md`](providers.md#the-credential-gate)).
+**`-p` reaches agent CLIs only, as it does in a jail.** `yolo host -p zai -- pi` runs pi on the
+zai profile, because a selected pack installs pi. `yolo host -p zai -- curl …` is refused before
+anything runs, naming `yolo host --with-credentials zai -- curl …`, the grant for an ad-hoc
+command ([OQ-NC5](../plans/notch-convergence.md#OQ-NC5)).
+`eval "$(yolo host env --with-credentials zai)"` puts the same keys in the current shell. Each
+withheld line in the disclosure names the fix: the grant for an ad-hoc command, and for an agent
+a `-p` with a declared profile resolving to the claiming provider that the agent can run on, or a
+note to declare one. When an agent cannot run on that profile, the line names the grant for an
+ad-hoc `bash` instead; on an agent that can, it says the `-p` replaces the agent's own profile. A
+withheld name the invoking shell already exports is disclosed as not added by yolo, and one a
+pack's `env` sets as held from that source, since the command holds either anyway
+([`providers.md`](providers.md#the-credential-gate)).
 
 **`--with-credentials` hands a command keys by provider, several at once.**
 `yolo host --with-credentials <provider[,provider...]|all> -- <cmd>` gives the one command the
