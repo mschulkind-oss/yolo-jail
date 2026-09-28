@@ -62,6 +62,9 @@ type bgRun struct {
 	name string
 	out  *syncBuffer
 	done chan error
+	// exited is closed once the process has been reaped. done carries the ONE result, which a
+	// caller consumes; exited is what the cleanup waits on, because it stays readable after that.
+	exited chan struct{}
 }
 
 // combined returns everything the run has printed so far (stdout and stderr interleaved
@@ -112,12 +115,22 @@ func startYoloBackground(t *testing.T, name, dir, script string, env ...string) 
 		cancel()
 		t.Fatalf("%s: starting yolo: %v", name, err)
 	}
-	r := &bgRun{name: name, out: out, done: make(chan error, 1)}
-	go func() { r.done <- cmd.Wait() }()
+	r := &bgRun{name: name, out: out, done: make(chan error, 1), exited: make(chan struct{})}
+	go func() {
+		r.done <- cmd.Wait() // buffered: never blocks, whether or not anyone reads it
+		close(r.exited)
+	}()
+	// The cleanup waits on EXITED, not on done. It used to receive from done, the channel
+	// wait() had already drained — so every run a test had waited for sat out the full 30s
+	// here instead of returning at once. Measured: 30s of TestAnAttachKeepsThePackTreeTheJailBootedWith's
+	// 33.4s, 90s of TestImageCopyLockSerializesConcurrentLaunches' 98.5s (three runs, three
+	// sequential cleanups), 60s of TestConcurrentLaunchesInOneWorkspace. The 30s bound still
+	// covers the case it is for: a run nobody waited for, killed by cancel(), taking a moment
+	// to be reaped.
 	t.Cleanup(func() {
 		cancel()
 		select {
-		case <-r.done:
+		case <-r.exited:
 		case <-time.After(30 * time.Second):
 		}
 	})
