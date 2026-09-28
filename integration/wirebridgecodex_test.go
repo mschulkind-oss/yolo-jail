@@ -135,16 +135,23 @@ func TestWireBridgeTranslatesClaudeCodexToResponses(t *testing.T) {
 	script := `set -u
 . ~/.config/yolo-agent-env/claude.sh
 echo "BASE_URL=$ANTHROPIC_BASE_URL"
+[ "${ANTHROPIC_AUTH_TOKEN:-}" = "$YOLO_SERVICE_WIRE_BRIDGE_TOKEN" ] && echo "TOKEN=matches-channel"
 for i in $(seq 1 50); do (exec 3<>/dev/tcp/127.0.0.1/` + strconv.Itoa(stubPort) + `) 2>/dev/null && break; sleep 0.1; done
 code=$(curl -sS --max-time 60 -o /workspace/wirebridge-codex-resp.json -w '%{http_code}' \
   "$ANTHROPIC_BASE_URL/v1/messages" \
   -H 'content-type: application/json' \
+  -H "Authorization: Bearer $ANTHROPIC_AUTH_TOKEN" \
   -d '{"model":"gpt-6-sol","max_tokens":32,"messages":[{"role":"user","content":"say codex bridge"}]}')
 echo "MSGS=$code"
 true`
 	r := runYolo(t, dir, script, withEnv("YOLO_NO_AUTO_IMAGE_REAP=1"))
 	if r.rc != 0 {
 		t.Fatalf("claude-on-codex launch failed: rc %d\n%s", r.rc, r.combined())
+	}
+	// WB-D18: claude sends the launch's caller token, as the bearer claude itself sends, and
+	// the bridge refuses a request without it; the probe sends exactly what claude would.
+	if got := kvLine(r.stdout, "TOKEN"); got != "matches-channel" {
+		t.Errorf("claude's ANTHROPIC_AUTH_TOKEN is not the launch's caller token (TOKEN=%q)", got)
 	}
 	if got := kvLine(r.stdout, "BASE_URL"); got != "http://127.0.0.1:8215" {
 		t.Errorf("claude's ANTHROPIC_BASE_URL = %q, want the Codex adapter's address", got)
