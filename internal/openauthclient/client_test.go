@@ -413,7 +413,7 @@ func TestRunTokenWritesCodexViewAtomically(t *testing.T) {
 func TestWriteCodexAuthRejectsCanonicalRefreshSecret(t *testing.T) {
 	path := filepath.Join(t.TempDir(), ".codex", "auth.json")
 	response := json.RawMessage(`{"access_token":"access","id_token":"id","refresh_token":"canonical-secret","expires_at":4102444800000}`)
-	if err := WriteCodexAuth(path, response); err == nil || !strings.Contains(err.Error(), "non-broker") {
+	if err := WriteCodexAuth(path, response, ""); err == nil || !strings.Contains(err.Error(), "non-broker") {
 		t.Fatalf("WriteCodexAuth error = %v, want non-broker credential refusal", err)
 	}
 	if _, err := os.Stat(path); !os.IsNotExist(err) {

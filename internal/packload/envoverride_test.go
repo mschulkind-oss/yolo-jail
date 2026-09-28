@@ -425,7 +425,7 @@ func TestFootprintClaimsAGatedEnvVariableOnce(t *testing.T) {
 }
 
 // TestShippedAWSAuthFootprintGolden pins every claim of the shipped aws-auth footprint, which
-// is what `yolo pack footprint aws-auth` and `yolo pack lint` print: one env line WITH its
+// is what `yolo pack footprint aws-auth` and `yolo pack lint` print: each env line once WITH its
 // gate, the loophole, and the three override lines — the ~/.aws one as a warning.
 func TestShippedAWSAuthFootprintGolden(t *testing.T) {
 	var aws *Pack
@@ -446,9 +446,11 @@ func TestShippedAWSAuthFootprintGolden(t *testing.T) {
 		}
 		got = append(got, string(c.Kind)+" "+c.Target+" "+c.Detail)
 	}
-	const uri = "AWS_CONTAINER_CREDENTIALS_FULL_URI"
+	// Two pointer variables: the URI and the caller-token file the SDK sends as Authorization.
+	const uri = "AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE, AWS_CONTAINER_CREDENTIALS_FULL_URI"
 	want := []string{
-		`env ` + uri + ` =http://127.0.0.1:1461/credentials when profile "bedrock" is active`,
+		`env AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE =/run/yolo/caller-tokens/YOLO_SERVICE_AWS_AUTH_TOKEN when profile "bedrock" is active`,
+		`env AWS_CONTAINER_CREDENTIALS_FULL_URI =http://127.0.0.1:1461/credentials when profile "bedrock" is active`,
 		`loophole aws-auth`,
 		`overridden-by ` + uri + ` launch refused beside AWS_BEARER_TOKEN_BEDROCK (when profile "bedrock" is active)`,
 		`overridden-by ` + uri + ` launch refused beside AWS_ACCESS_KEY_ID + AWS_SECRET_ACCESS_KEY unless AWS_PROFILE is also delivered (when profile "bedrock" is active)`,

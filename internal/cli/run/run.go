@@ -169,6 +169,7 @@ func Run(opts Options) (rc int) {
 	if !ok {
 		return 1
 	}
+	o.runtime = rt
 	o.Perf.Mark("probes.done")
 
 	// The two container-only gates, hoisted ABOVE pack staging so a launch that is

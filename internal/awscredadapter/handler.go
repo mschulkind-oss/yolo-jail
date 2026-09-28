@@ -26,17 +26,30 @@
 // enumerates them is what keeps a later "more correct" 5xx from deleting the
 // sentence a human needs.
 //
-// # There is no authorization token, and adding one would buy nothing
+// # Every request must carry this launch's caller token
 //
-// The SDK sends `Authorization` only when AWS_CONTAINER_AUTHORIZATION_TOKEN is set.
-// An environment variable is inherited by every process the agent spawns, and
-// everything that could read it can already reach this port — the boundary is
-// positional and the position is the network namespace (design §5's warning). A
-// nested jail shares this port for the same reason, which is a property to know
-// rather than a defect to fix.
+// This package used to say "there is no authorization token, and adding one would buy
+// nothing", because everything that could read a token could already reach the port.
+// That is true only inside a private network namespace, and RETIRED
+// (docs/plans/notch-convergence.md §2.3, NC-D2): a jail on `network.mode: host` puts this
+// port on the host's real loopback, and a nested podman forced onto `--net=host` shares
+// its parent jail's, so host processes and sibling jails can reach it without being able
+// to read the jail agent's environment or files. The token is the whole difference there.
+//
+// So the launcher mints a caller token for this daemon (the loophole declares
+// `jail_daemon.caller_token`), the adapter reads it from YOLO_SERVICE_AWS_AUTH_TOKEN, and
+// the entrypoint writes it to a 0600 file (paths.JailCallerTokenFile) that the pack's
+// `env` contribution names as AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE beside the credentials
+// URI. That is the slot the AWS SDKs' container-credentials provider already has: it reads
+// the file and sends its contents as `Authorization` on every fetch. A request without the
+// token is refused 401 in the protocol's own {Code, Message} shape, before the host is
+// asked. What it proves: the caller could read that file, which inside the jail every
+// process can — the adapter's intended callers — and outside it no process can.
 package awscredadapter
 
 import (
+	"context"
+	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -44,7 +57,13 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"os/signal"
+	"strings"
+	"syscall"
 	"time"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	"github.com/mschulkind-oss/yolo-jail/internal/svcendpoint"
 )
 
 // CredentialsPath is the path AWS_CONTAINER_CREDENTIALS_FULL_URI names. The pack's
@@ -77,10 +96,19 @@ const DefaultListen = "127.0.0.1:1461"
 type Fetch func() (Answer, error)
 
 // Handler is the loopback endpoint an AWS SDK's container-credentials provider
-// dials.
-func Handler(fetch Fetch) http.Handler {
+// dials, serving only a request whose `Authorization` is callerToken (the package
+// comment says why).
+func Handler(callerToken string, fetch Fetch) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
+		if reason := callerCheck(r, callerToken); reason != "" {
+			// Before the path and method checks, so an unauthenticated caller learns nothing
+			// about what is served here. Never the presented value, in the log or the body.
+			fmt.Fprintf(os.Stderr, "aws-credential-adapter: %s %s 401 — refused: caller token %s "+
+				"(the host service was not asked)\n", r.Method, r.URL.Path, reason)
+			writeError(w, http.StatusUnauthorized, "CallerUnauthenticated", callerRefusalMessage(reason))
+			return
+		}
 		if r.URL.Path != CredentialsPath {
 			writeError(w, http.StatusNotFound, "InvalidRequest",
 				"no credentials are served at "+r.URL.Path+" — this adapter serves "+
@@ -178,9 +206,85 @@ func writeError(w http.ResponseWriter, status int, code, message string) {
 	_ = json.NewEncoder(w).Encode(map[string]string{"Code": code, "Message": message})
 }
 
+// CallerTokenEnv is the variable carrying this adapter's per-launch caller token:
+// YOLO_SERVICE_AWS_AUTH_TOKEN, composed from the loophole's name.
+var CallerTokenEnv = paths.ServiceCallerTokenEnv(LoopholeName)
+
+// LoopholeName is the loophole whose jail daemon this is.
+const LoopholeName = "aws-auth"
+
+// The two refusal reasons, which differ only in what a caller that got one should check.
+const (
+	callerTokenMissing = "missing"
+	callerTokenWrong   = "wrong"
+)
+
+// callerCheck returns "" when r's Authorization is callerToken, else why not. The SDK
+// sends the token file's contents verbatim; a `Bearer ` prefix is accepted too, so a
+// human's curl reads the same. Surrounding whitespace is trimmed, since a token file
+// written by hand ends in a newline.
+func callerCheck(r *http.Request, callerToken string) string {
+	values := r.Header.Values("Authorization")
+	if len(values) == 0 {
+		return callerTokenMissing
+	}
+	for _, v := range values {
+		v = strings.TrimSpace(v)
+		if scheme, rest, ok := strings.Cut(v, " "); ok && strings.EqualFold(scheme, "Bearer") {
+			v = strings.TrimSpace(rest)
+		}
+		if callerToken != "" && subtle.ConstantTimeCompare([]byte(v), []byte(callerToken)) == 1 {
+			return ""
+		}
+	}
+	return callerTokenWrong
+}
+
+// callerRefusalMessage is the 401's Message, which the SDK surfaces on the error it raises.
+func callerRefusalMessage(reason string) string {
+	what := "carried no caller token"
+	if reason == callerTokenWrong {
+		what = "carried a caller token that is not this launch's"
+	}
+	return "yolo aws-auth adapter: refused — this request " + what + ". The adapter serves " +
+		"only this launch's agents, whose AWS SDK sends the token in " +
+		"AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE beside AWS_CONTAINER_CREDENTIALS_FULL_URI; a " +
+		"loopback shared with other processes makes this port reachable from outside the jail " +
+		"(docs/plans/notch-convergence.md §2.3). A client that gets this was started without the " +
+		"launch's environment, or by an older yolo: restart it from a fresh `yolo` entry"
+}
+
+// callerTokenFrom reads and checks the adapter's caller token, returning why it cannot
+// serve when it cannot. The format is the launcher's (svcendpoint.NewToken).
+func callerTokenFrom(getenv func(string) string) (string, string) {
+	tok := getenv(CallerTokenEnv)
+	if tok == "" {
+		return "", "this launch handed the adapter no caller token ($" + CallerTokenEnv +
+			" is unset), and it serves no caller it cannot authenticate — a launcher older " +
+			"than the jail's binaries is the usual cause"
+	}
+	if !svcendpoint.IsToken(tok) {
+		return "", "$" + CallerTokenEnv + " is not a caller token this launcher mints " +
+			"(64 lowercase hex characters)"
+	}
+	return tok, ""
+}
+
+// idleUntilStopped blocks until the supervisor stops this daemon. A variable so a test can
+// observe the idle instead of blocking on it.
+var idleUntilStopped = func() {
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, os.Interrupt)
+	defer stop()
+	<-ctx.Done()
+}
+
 // Main runs the jail-local adapter. It holds no credential state: every request
 // crosses the authenticated endpoint file published for this jail and the host
 // service decides what to answer.
+//
+// It serves only behind this launch's caller token. Handed none, or a malformed one, it
+// binds nothing and idles until stopped, logging why: exiting would crash-loop under
+// `restart: on-failure`, and serving would answer every process on its loopback.
 func Main(args []string) int {
 	fs := flag.NewFlagSet("aws-credential-adapter", flag.ContinueOnError)
 	listen := fs.String("listen", DefaultListen, "loopback address to listen on")
@@ -191,6 +295,12 @@ func Main(args []string) int {
 		fmt.Fprintf(os.Stderr, "aws-credential-adapter: unexpected arguments: %v\n", fs.Args())
 		return 2
 	}
+	callerToken, why := callerTokenFrom(os.Getenv)
+	if why != "" {
+		fmt.Fprintln(os.Stderr, "aws-credential-adapter: idling, serving nothing:", why)
+		idleUntilStopped()
+		return 0
+	}
 	endpoint := os.Getenv(EndpointEnv)
 	fetch := func() (Answer, error) {
 		return Request(endpoint, map[string]any{"action": "credentials"}, os.Stderr)
@@ -200,16 +310,22 @@ func Main(args []string) int {
 		fmt.Fprintln(os.Stderr, "aws-credential-adapter:", err)
 		return 1
 	}
-	if err := Serve(listener, fetch); err != nil {
+	fmt.Fprintf(os.Stderr, "aws-credential-adapter: serving on %s; every request must carry this "+
+		"launch's caller token ($%s)\n", listener.Addr(), CallerTokenEnv)
+	if err := Serve(listener, callerToken, fetch); err != nil {
 		fmt.Fprintln(os.Stderr, "aws-credential-adapter:", err)
 		return 1
 	}
 	return 0
 }
 
-// Serve exposes Handler on an already-bound listener; closing listener stops it.
-func Serve(listener net.Listener, fetch Fetch) error {
-	server := &http.Server{Handler: Handler(fetch), ReadHeaderTimeout: 5 * time.Second}
+// Serve exposes Handler on an already-bound listener, behind callerToken; closing
+// listener stops it. It refuses to serve behind anything that is not a well-formed token.
+func Serve(listener net.Listener, callerToken string, fetch Fetch) error {
+	if !svcendpoint.IsToken(callerToken) {
+		return errors.New("refusing to serve the AWS credential adapter without a caller token")
+	}
+	server := &http.Server{Handler: Handler(callerToken, fetch), ReadHeaderTimeout: 5 * time.Second}
 	err := server.Serve(listener)
 	if errors.Is(err, http.ErrServerClosed) || errors.Is(err, net.ErrClosed) {
 		return nil

@@ -14,11 +14,14 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"os/signal"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/openauthclient"
+	"github.com/mschulkind-oss/yolo-jail/internal/svcendpoint"
 )
 
 // Token is the agent-shaped view returned by the host broker.
@@ -29,13 +32,27 @@ type Token struct {
 	ExpiresAtMS  int64  `json:"expires_at"`
 }
 
-// Refresh asks the host broker to resolve a Codex refresh attempt. The caller
-// token is used only for stale-caller detection by the broker.
+// Refresh asks the host broker to resolve a Codex refresh attempt. The marker it is handed is
+// the broker's own `yolo-broker:<generation>`, with the caller token already checked and
+// stripped; the broker uses it only for stale-caller detection.
 type Refresh func(context.Context, string) (Token, error)
 
-// Handler returns the loopback HTTP endpoint used by
-// CODEX_REFRESH_TOKEN_URL_OVERRIDE.
-func Handler(refresh Refresh, now func() time.Time) http.Handler {
+// Handler returns the loopback HTTP endpoint used by CODEX_REFRESH_TOKEN_URL_OVERRIDE.
+//
+// callerToken is this launch's caller token (docs/plans/notch-convergence.md §2.3, NC-D3), and
+// a request must present it bound into its refresh marker (openauthclient.SplitCallerMarker) or
+// it is refused 401 before the broker is asked anything. WHY: the port is a loopback port, and
+// every process sharing that loopback can reach it — the host itself for the host half, and a
+// jail on `network.mode: host` or a nested podman forced onto `--net=host` for the jail half.
+// The broker's stale-caller arm answers any generation marker with the current access and id
+// tokens, so an unchecked adapter hands the user's ChatGPT tokens to anyone who can connect.
+// Codex cannot send a header, but it sends back unchanged the refresh token yolo wrote into its
+// auth.json, and that token is where the writer bound the caller token.
+//
+// The refusal is OAuth's own error shape and names yolo, and it is never a 5xx a client would
+// retry. The marker the broker answers with is bound again before it is returned, so Codex's
+// next refresh carries the token too.
+func Handler(callerToken string, refresh Refresh, now func() time.Time) http.Handler {
 	if now == nil {
 		now = time.Now
 	}
@@ -58,7 +75,21 @@ func Handler(refresh Refresh, now func() time.Time) http.Handler {
 			writeError(w, http.StatusBadRequest, "invalid_request", "refresh_token is required")
 			return
 		}
-		token, err := refresh(r.Context(), callerRefresh)
+		marker, presented, bound := openauthclient.SplitCallerMarker(callerRefresh)
+		if !bound || !openauthclient.CallerTokenMatches(presented, callerToken) {
+			// Never the presented value in the log or the body: a wrong one may be somebody's
+			// real refresh token sent to the wrong port.
+			reason := callerTokenMissing
+			if bound {
+				reason = callerTokenWrong
+			}
+			fmt.Fprintf(os.Stderr, "openai-auth-adapter: %s %s 401 — refused: caller token %s "+
+				"(the broker was not asked)\n", r.Method, r.URL.Path, reason)
+			w.Header().Set("WWW-Authenticate", `Bearer realm="yolo-openai-auth-adapter"`)
+			writeError(w, http.StatusUnauthorized, "invalid_client", callerRefusalMessage(reason))
+			return
+		}
+		token, err := refresh(r.Context(), marker)
 		if err != nil {
 			writeError(w, http.StatusBadGateway, "temporarily_unavailable", err.Error())
 			return
@@ -71,11 +102,30 @@ func Handler(refresh Refresh, now func() time.Time) http.Handler {
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"access_token":  token.AccessToken,
 			"id_token":      token.IDToken,
-			"refresh_token": token.RefreshToken,
+			"refresh_token": openauthclient.BindCallerToken(token.RefreshToken, callerToken),
 			"expires_in":    expiresIn,
 			"token_type":    "Bearer",
 		})
 	})
+}
+
+// The two refusal reasons, which differ only in what a caller that got one should check.
+const (
+	callerTokenMissing = "missing"
+	callerTokenWrong   = "wrong"
+)
+
+// callerRefusalMessage is the 401's error_description.
+func callerRefusalMessage(reason string) string {
+	what := "carried no caller token"
+	if reason == callerTokenWrong {
+		what = "carried a caller token that is not this launch's"
+	}
+	return "yolo openai-auth adapter: refused — this refresh " + what + ". The adapter serves " +
+		"only the Codex this launch started, whose auth.json refresh marker yolo binds to the " +
+		"launch's token; a loopback shared with other processes makes this port reachable from " +
+		"outside the launch (docs/plans/notch-convergence.md §2.3). A Codex that gets this was " +
+		"started without its launcher, or by an older yolo: restart it from a fresh `yolo` entry"
 }
 
 func validGenerationMarker(value string) bool {
@@ -108,6 +158,12 @@ func max(a, b int) int {
 // The adapter has no credential state: every request crosses the authenticated
 // endpoint file published for this jail and the host broker makes the refresh
 // decision.
+//
+// It serves only behind this launch's caller token ($YOLO_SERVICE_OPENAI_AUTH_BROKER_TOKEN,
+// which the launcher mints because the loophole declares `jail_daemon.caller_token`). Handed
+// none, or a malformed one, it binds nothing and idles until it is stopped, logging why: a
+// daemon that exited instead would crash-loop under `restart: on-failure`, and one that served
+// would answer every process on its loopback.
 func Main(args []string) int {
 	fs := flag.NewFlagSet("openai-auth-adapter", flag.ContinueOnError)
 	listen := fs.String("listen", "127.0.0.1:1460", "loopback address to listen on")
@@ -117,6 +173,12 @@ func Main(args []string) int {
 	if len(fs.Args()) != 0 {
 		fmt.Fprintf(os.Stderr, "openai-auth-adapter: unexpected arguments: %v\n", fs.Args())
 		return 2
+	}
+	callerToken, why := CallerToken(os.Getenv)
+	if why != "" {
+		fmt.Fprintln(os.Stderr, "openai-auth-adapter: idling, serving nothing:", why)
+		idleUntilStopped()
+		return 0
 	}
 	endpoint := os.Getenv(openauthclient.EndpointEnv)
 	refresh := func(_ context.Context, callerRefresh string) (Token, error) {
@@ -137,18 +199,48 @@ func Main(args []string) int {
 		fmt.Fprintln(os.Stderr, "openai-auth-adapter:", err)
 		return 1
 	}
-	if err := Serve(listener, refresh); err != nil {
+	fmt.Fprintf(os.Stderr, "openai-auth-adapter: serving on %s; every refresh must carry this "+
+		"launch's caller token ($%s)\n", listener.Addr(), openauthclient.CallerTokenEnv)
+	if err := Serve(listener, callerToken, refresh); err != nil {
 		fmt.Fprintln(os.Stderr, "openai-auth-adapter:", err)
 		return 1
 	}
 	return 0
 }
 
-// Serve exposes Handler on an already-bound listener. Host-managed launches
-// use this form with 127.0.0.1:0 so concurrent workspaces never contend for a
-// fixed port; closing listener stops the server.
-func Serve(listener net.Listener, refresh Refresh) error {
-	server := &http.Server{Handler: Handler(refresh, nil), ReadHeaderTimeout: 5 * time.Second}
+// idleUntilStopped blocks until the supervisor stops this daemon. A variable so a test can
+// observe the idle instead of blocking on it.
+var idleUntilStopped = func() {
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, os.Interrupt)
+	defer stop()
+	<-ctx.Done()
+}
+
+// CallerToken reads and checks the jail adapter's caller token, returning why it cannot serve
+// when it cannot. The format is the launcher's (svcendpoint.NewToken: 64 lowercase hex).
+func CallerToken(getenv func(string) string) (string, string) {
+	tok := getenv(openauthclient.CallerTokenEnv)
+	if tok == "" {
+		return "", "this launch handed the adapter no caller token ($" + openauthclient.CallerTokenEnv +
+			" is unset), and it serves no caller it cannot authenticate — a launcher older than " +
+			"the jail's binaries is the usual cause"
+	}
+	if !svcendpoint.IsToken(tok) {
+		return "", "$" + openauthclient.CallerTokenEnv + " is not a caller token this launcher " +
+			"mints (64 lowercase hex characters)"
+	}
+	return tok, ""
+}
+
+// Serve exposes Handler on an already-bound listener, behind callerToken. Host-managed launches
+// use this form with 127.0.0.1:0 so concurrent workspaces never contend for a fixed port, and
+// mint their own token; closing listener stops the server. It refuses to serve behind anything
+// that is not a well-formed token, so no caller can wire it up unauthenticated.
+func Serve(listener net.Listener, callerToken string, refresh Refresh) error {
+	if !svcendpoint.IsToken(callerToken) {
+		return errors.New("refusing to serve the OpenAI credential adapter without a caller token")
+	}
+	server := &http.Server{Handler: Handler(callerToken, refresh, nil), ReadHeaderTimeout: 5 * time.Second}
 	err := server.Serve(listener)
 	if errors.Is(err, http.ErrServerClosed) || errors.Is(err, net.ErrClosed) {
 		return nil

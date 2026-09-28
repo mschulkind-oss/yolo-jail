@@ -62,8 +62,11 @@ func serviceJailDaemons(packs []*packload.Pack) []loopholes.JailDaemonSpec {
 			if restart == "" {
 				restart = "on-failure"
 			}
+			// CallerToken ALWAYS: every address a service serves names the service's
+			// caller token as its credential (packload's serviceCredentialEnv), so the
+			// daemon behind it demands one (wire-bridge.md WB-D18).
 			entries = append(entries, loopholes.JailDaemonSpec{
-				Name: s.Name, Cmd: s.JailDaemon.Cmd, Restart: restart,
+				Name: s.Name, Cmd: s.JailDaemon.Cmd, Restart: restart, CallerToken: true,
 			})
 		}
 	}

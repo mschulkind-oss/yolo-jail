@@ -119,7 +119,9 @@ func makeHandler(hostEndpoint string) http.Handler {
 
 		var result ProxyResult
 		if isRefresh {
-			result = Refresh(hostEndpoint)
+			// The caller's refresh token authenticates it and nothing more: the broker
+			// refreshes from the shared file (docs/plans/notch-convergence.md §2.3).
+			result = Refresh(hostEndpoint, PresentedRefreshToken(body))
 		} else {
 			result = ProxyUpstream(hostEndpoint, r.Method, r.URL.RequestURI(), flattenHeaders(r.Header), body)
 			LogInfo("proxy: %s %s -> %d body_len=%d",

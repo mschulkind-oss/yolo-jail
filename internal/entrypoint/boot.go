@@ -706,6 +706,9 @@ func Main(args []string) error {
 	// Record, in boot.log only, which pack services this launch armed with a caller token: the
 	// daemons below demand it of every request (docs/reference/wire-bridge.md WB-D18).
 	noteServiceCallerAuth(e)
+	// And publish each token as an in-jail 0600 file, for a client that reads its credential
+	// from one (the AWS SDKs' AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE; paths.JailCallerTokenDir).
+	writeCallerTokenFiles(e)
 	// Start the jail-daemon supervisor (child of PID 1; kernel-reaped on exit).
 	genStep(e, "start_jail_daemon_supervisor", func() error { return startJailDaemonSupervisor(e) })
 	p.mark("jail_daemon_supervisor")

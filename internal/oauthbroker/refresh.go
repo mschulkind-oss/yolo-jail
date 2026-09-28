@@ -1,11 +1,15 @@
 package oauthbroker
 
 import (
+	"crypto/sha256"
+	"crypto/subtle"
 	"os"
+	"sync"
 	"syscall"
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/oauthterminator"
 )
 
 // RefreshLockPath is the flock file serializing refreshes. Set by the daemon
@@ -52,7 +56,117 @@ func DoRefresh(credsPath string) RefreshResult {
 	// asked to refresh (the 2026-04-23 shared-identity drift was invisible for
 	// want of exactly this line).
 	logInfo("do_refresh: shared=%s", describeCreds(credsPath))
+	return withRefreshLock(func() RefreshResult { return doRefreshLocked(credsPath) })
+}
+
+// DoRefreshAsCaller is DoRefresh for a jail terminator's refresh, which must first prove that
+// its caller holds the machine's Claude login (docs/plans/notch-convergence.md §2.3, NC-D3).
+//
+// WHY. The terminator listens on 127.0.0.1:443, and a loopback port is reachable by every
+// process sharing that loopback: a jail on `network.mode: host` shares the host's, a nested
+// podman forced onto `--net=host` shares its parent jail's. Before this, any such process that
+// POSTed a refresh grant got the machine-wide access AND refresh tokens, and could redeem the
+// single-use refresh token to break every jail's login. Claude cannot be told to send a secret
+// (it speaks TLS to a vendor hostname), but it already sends one: the refresh token it re-reads
+// from ~/.claude/.credentials.json, which in a jail is a link to the shared file, immediately
+// before the POST (docs/research/claude-oauth-refresh-mechanics.md §3.4). So the check is that
+// the presented token is the shared file's current one, or one this broker replaced moments ago
+// (the refresh race: another jail, or the background tick, rotated it between Claude's read and
+// its POST). A caller who cannot read the file cannot present either.
+//
+// P1 HOLDS: the presented token is compared and never spent. The refresh is still made from
+// the shared file under the flock, so a stale or burnt token a caller holds is not an input to
+// anything upstream.
+//
+// The comparison runs under the same flock as the refresh, so the file it compares against is
+// the one the refresh then reads. A mismatch is `caller_unauthenticated`, never `invalid_grant`,
+// which would make Claude blank the shared file (P2).
+func DoRefreshAsCaller(credsPath, presented string) RefreshResult {
+	logInfo("do_refresh: shared=%s caller_rt=%s", describeCreds(credsPath), TokenFP(presented))
 	return withRefreshLock(func() RefreshResult {
+		current, err := oauthFromCreds(credsPath)
+		if err != nil {
+			logError("creds file unreadable: %s", err)
+			return errResult("error", "creds_unreadable", "message", err.Error())
+		}
+		currentRT, _ := stringField(current, "refreshToken")
+		if !callerPresentsLogin(currentRT, presented) {
+			logWarn("refresh refused: the caller presented rt=%s, which is neither the shared "+
+				"file's current refresh token (rt=%s) nor one this broker just replaced",
+				TokenFP(presented), TokenFP(currentRT))
+			return errResult("error", CallerUnauthenticated, "message",
+				"yolo claude-oauth-broker: refused — this refresh did not present the machine's "+
+					"current Claude login, so it did not come from a Claude reading the shared "+
+					"credentials. The terminator serves only this machine's jails' Claude; a "+
+					"loopback shared with other processes makes it reachable from outside a jail "+
+					"(docs/plans/notch-convergence.md §2.3)")
+		}
+		return doRefreshLocked(credsPath)
+	})
+}
+
+// CallerUnauthenticated is the broker's error for a refresh whose caller did not present the
+// login (DoRefreshAsCaller). The terminator answers it 401; it is deliberately not
+// `invalid_grant`, which Claude would answer by blanking the shared credentials file.
+const CallerUnauthenticated = oauthterminator.CallerUnauthenticated
+
+// callerPresentsLogin reports whether presented is the shared file's current refresh token or
+// one of the few this broker replaced most recently, compared in constant time. An empty
+// presented token never matches, and neither does anything when the file holds none.
+func callerPresentsLogin(current, presented string) bool {
+	if presented == "" {
+		return false
+	}
+	if current != "" && subtle.ConstantTimeCompare([]byte(presented), []byte(current)) == 1 {
+		return true
+	}
+	return recentlyReplaced.has(presented)
+}
+
+// replacedTokens remembers the SHA-256 of the last few refresh tokens this broker replaced
+// (never the tokens themselves), so a Claude that read the file just before another refresh
+// rotated it is still recognized. Bounded, because a Claude reads the file immediately before
+// it POSTs, so only a token replaced in that window can be presented honestly; in memory,
+// because the window is seconds and a restarted broker has no such window open.
+type replacedTokens struct {
+	mu   sync.Mutex
+	sums [][sha256.Size]byte
+}
+
+// replacedTokenMemory is how many replaced refresh tokens are remembered.
+const replacedTokenMemory = 4
+
+var recentlyReplaced = &replacedTokens{}
+
+func (r *replacedTokens) record(token string) {
+	if token == "" {
+		return
+	}
+	sum := sha256.Sum256([]byte(token))
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.sums = append(r.sums, sum)
+	if len(r.sums) > replacedTokenMemory {
+		r.sums = r.sums[len(r.sums)-replacedTokenMemory:]
+	}
+}
+
+func (r *replacedTokens) has(token string) bool {
+	sum := sha256.Sum256([]byte(token))
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	found := false
+	for _, s := range r.sums {
+		if subtle.ConstantTimeCompare(s[:], sum[:]) == 1 {
+			found = true
+		}
+	}
+	return found
+}
+
+// doRefreshLocked is DoRefresh's body, run under the refresh flock by both entry points.
+func doRefreshLocked(credsPath string) RefreshResult {
+	{
 		// cachedForRefresh, NOT CachedTokens: this is the refresh path, whose
 		// floor must exceed the requesting agent's own due-threshold.
 		if cached := cachedForRefresh(credsPath); cached != nil {
@@ -111,11 +225,14 @@ func DoRefresh(credsPath string) RefreshResult {
 			logError("creds write failed: %s", err)
 			return errResult("error", "creds_unreadable", "message", err.Error())
 		}
+		// The token just replaced stays presentable for the refresh race
+		// (DoRefreshAsCaller): a Claude that read the file a moment ago holds it.
+		recentlyReplaced.record(refreshToken)
 		logInfo("refreshed: rt %s -> %s, at -> %s, exp=%s",
 			TokenFP(refreshToken), fpOf(newOAuth, "refreshToken"),
 			fpOf(newOAuth, "accessToken"), expiresAtStr(newOAuth))
 		return AsOAuthResponse(newOAuth)
-	})
+	}
 }
 
 // RefreshDue reports whether the creds file's access token is within

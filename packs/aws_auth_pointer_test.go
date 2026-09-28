@@ -107,18 +107,16 @@ func TestAWSAuthPointerIsProfileGated(t *testing.T) {
 // spawns, so a value here would be readable by every MCP server and every shell in
 // the jail, permanently, with no expiry.
 //
-// AWS_CONTAINER_AUTHORIZATION_TOKEN is in the list for a different reason and is worth
-// reading twice: it is not a credential, it is the protocol's optional request header,
-// and it is absent DELIBERATELY
-// ([sso-backed-bedrock.md §5](../docs/design/sso-backed-bedrock.md#5-the-recommended-shape)). Setting it would buy nothing — everything
-// that could read the variable can already reach the port — while implying a boundary
-// that is not there. The real boundary is the 0600 endpoint file on the hop the adapter
-// makes, not a header on the hop it serves.
+// AWS_CONTAINER_AUTHORIZATION_TOKEN is in the list for a different reason: it is the
+// protocol's request header carried BY VALUE, and the adapter's caller token must never be a
+// value in a pack's environment. The pack names the token by FILE instead
+// (AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE, the in-jail 0600 file the boot writes; see
+// docs/plans/notch-convergence.md §2.3), which the SDK reads and sends as the same header, so
+// the manifest carries a path and never a secret. That value is pinned below.
 func TestAWSAuthPackCarriesNoCredentialVariable(t *testing.T) {
 	forbidden := []string{
 		"AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN",
 		"AWS_BEARER_TOKEN_BEDROCK", "AWS_CONTAINER_AUTHORIZATION_TOKEN",
-		"AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE",
 	}
 	m := awsAuthPack(t)
 	vars := map[string]string{}
@@ -135,6 +133,13 @@ func TestAWSAuthPackCarriesNoCredentialVariable(t *testing.T) {
 			t.Errorf("the pack declares %s=%q; no credential and no authorization token may "+
 				"travel in this pack's environment", name, value)
 		}
+	}
+	// The token travels by file, and the file is the one the boot writes for the adapter's
+	// caller token (paths.JailCallerTokenFile of YOLO_SERVICE_AWS_AUTH_TOKEN).
+	if got, want := vars["AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE"],
+		"/run/yolo/caller-tokens/YOLO_SERVICE_AWS_AUTH_TOKEN"; got != want {
+		t.Errorf("AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE = %q, want %q — without it the SDK "+
+			"sends no Authorization and the adapter refuses every credential fetch", got, want)
 	}
 	// AWS_REGION belongs to the PROVIDER entry, which already writes it. A second
 	// writer of one fact is how the Bedrock region became confusing in the first place,

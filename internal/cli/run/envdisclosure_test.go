@@ -18,7 +18,7 @@ import (
 )
 
 // TestLaunchBannerQualifiesAGatedEnvVariable is the golden for the shipped aws-auth pack's
-// read disclosure: exactly one env line, carrying its `bedrock` gate. The banner reads the
+// read disclosure: one line per env variable, each carrying its `bedrock` gate. The banner reads the
 // footprint (disclosedClaims), so this fails if the footprint's env loop starts claiming a
 // gated contribution unconditionally again, or if the banner stops printing env claims.
 func TestLaunchBannerQualifiesAGatedEnvVariable(t *testing.T) {
@@ -29,6 +29,9 @@ func TestLaunchBannerQualifiesAGatedEnvVariable(t *testing.T) {
 	o.notePackHostAccess([]*packload.Pack{officialPack(t, "aws-auth")})
 
 	const want = "Pack environment this launch:\n" +
+		"  aws-auth: SETS an environment variable inside the jail: " +
+		"AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE=/run/yolo/caller-tokens/YOLO_SERVICE_AWS_AUTH_TOKEN " +
+		"when profile \"bedrock\" is active  [env]\n" +
 		"  aws-auth: SETS an environment variable inside the jail: " +
 		"AWS_CONTAINER_CREDENTIALS_FULL_URI=http://127.0.0.1:1461/credentials " +
 		"when profile \"bedrock\" is active  [env]\n"

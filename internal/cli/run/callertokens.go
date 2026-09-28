@@ -2,8 +2,9 @@ package run
 
 // callertokens.go is the launcher half of a pack service's CALLER TOKEN (coined in
 // docs/reference/wire-bridge.md, WB-D18; the variable's spelling is paths.ServiceCallerTokenEnv):
-// a random per-launch secret the launcher mints for every selected pack service that runs a jail
-// daemon, and that the daemon then demands of every caller.
+// a random per-launch secret the launcher mints for every jail daemon this launch runs that
+// demands one — every selected pack service's, and each loophole's that declares
+// `jail_daemon.caller_token` — and that the daemon then demands of every caller.
 //
 // WHY. WB-D4 once ruled the bridge's inbound auth out because "the jail is the trust boundary".
 // It is not, on loopback: a jail on `network.mode: host` and a macos-user sandbox share the
@@ -27,18 +28,28 @@ import (
 	"sort"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
+	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/svcendpoint"
 )
 
-// callerTokenVars is the variable of every selected pack service this launch runs a jail daemon
-// for, sorted. A service with no jail_daemon runs nowhere in this build (packservices.go), so it
-// has nothing to demand a token and gets none.
-func callerTokenVars(packs []*packload.Pack) []string {
+// callerTokenVars is the variable of every jail daemon in this launch's composed payload
+// (jailDaemonsFor: the active loopholes' own and the selected pack services') that demands a
+// caller token, sorted. A pack service's always does, because every address it serves names
+// its token as the credential (packload's serviceCredentialEnv); a loophole's does when its
+// manifest declares `jail_daemon.caller_token` — the OpenAI and AWS credential adapters, whose
+// clients carry the token in a slot they already have, and not the Claude OAuth terminator,
+// whose client cannot and which authenticates by refresh-token match instead
+// (docs/plans/notch-convergence.md §2.3, NC-D3). A daemon the payload does not name runs
+// nowhere in this launch, so it has nothing to demand a token and gets none.
+func callerTokenVars(specs []loopholes.JailDaemonSpec) []string {
 	seen := map[string]bool{}
 	var out []string
-	for _, spec := range serviceJailDaemons(packs) {
+	for _, spec := range specs {
+		if !spec.CallerToken {
+			continue
+		}
 		v := paths.ServiceCallerTokenEnv(spec.Name)
 		if v == "" || seen[v] {
 			continue
@@ -50,13 +61,14 @@ func callerTokenVars(packs []*packload.Pack) []string {
 	return out
 }
 
-// launchCallerTokens is the caller token of every service callerTokenVars names, for this
-// launch: the one o already settled on for that variable (minted by an earlier composition in
-// this process, or adopted from the running jail by an attach), else a fresh one. Settled once
-// per process, so the two compositions one launch can run (Run's, and an attach's over the
-// running jail's packs) cannot hand one jail two tokens. nil when no selected service needs one.
-func (o *Options) launchCallerTokens(packs []*packload.Pack) (map[string]string, error) {
-	vars := callerTokenVars(packs)
+// launchCallerTokens is the caller token of every daemon callerTokenVars names in specs, for
+// this launch: the one o already settled on for that variable (minted by an earlier
+// composition in this process, or adopted from the running jail by an attach), else a fresh
+// one. Settled once per process, so the two compositions one launch can run (Run's, and an
+// attach's over the running jail's packs) cannot hand one jail two tokens. nil when no daemon
+// in specs needs one.
+func (o *Options) launchCallerTokens(specs []loopholes.JailDaemonSpec) (map[string]string, error) {
+	vars := callerTokenVars(specs)
 	if len(vars) == 0 {
 		return nil, nil
 	}

@@ -27,12 +27,21 @@
   // yolo endpoint file. This adapter exposes the native OAuth token endpoint
   // shape on jail loopback and forwards it through the authenticated service
   // front named by YOLO_SERVICE_OPENAI_AUTH_BROKER_ENDPOINT.
+  //
+  // `caller_token`: the adapter listens on a LOOPBACK port, which every process sharing that
+  // loopback can reach (a jail on `network.mode: host`, a nested podman forced onto
+  // `--net=host`), and the broker's stale-caller arm answers any generation marker with the
+  // current access and id tokens. So the launcher mints this launch's caller token
+  // (YOLO_SERVICE_OPENAI_AUTH_BROKER_TOKEN), the Codex launcher's auth.json writer binds it into
+  // the refresh marker Codex sends back, and the adapter refuses a refresh without it
+  // (docs/plans/notch-convergence.md §2.3).
   "jail_daemon": {
     "cmd": [
       "yolo-jaild", "openai-auth-adapter",
       "--listen", "127.0.0.1:1460"
     ],
-    "restart": "on-failure"
+    "restart": "on-failure",
+    "caller_token": true
   },
 
   // An absent or empty list mounts the entire host state directory read-only.

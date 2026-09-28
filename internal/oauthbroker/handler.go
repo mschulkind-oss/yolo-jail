@@ -10,6 +10,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/hostservice"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/oauthterminator"
 	"github.com/mschulkind-oss/yolo-jail/internal/pytext"
 )
 
@@ -66,6 +67,10 @@ func isClaudeCodeClientID(decoded proxyRequest) bool {
 	return true
 }
 
+// PresentedRefreshTokenKey is the refresh frame's field carrying the refresh token the
+// terminator's caller presented (DoRefreshAsCaller). One spelling for both binaries.
+const PresentedRefreshTokenKey = oauthterminator.PresentedRefreshTokenKey
+
 // BuildHandler returns the hostservice.Handler for the broker, dispatching on
 // the request "action" field.
 //
@@ -88,6 +93,20 @@ func BuildHandler(credsPath string) hostservice.Handler {
 		logInfo("action=%s method=%s path=%s", action, sessionField(s, "method"), sessionField(s, "path"))
 		switch action {
 		case "refresh":
+			// A terminator this build shipped always sends the refresh token its Claude
+			// presented, and that caller is authenticated by it (DoRefreshAsCaller). A frame
+			// WITHOUT the field is a terminator from before caller authentication, in a jail
+			// still running on the binaries it booted with: served as before, and logged,
+			// because refusing it would log out every such jail's Claude on the day the host
+			// upgrades. A stranger cannot choose that arm — it reaches the broker only
+			// through a terminator, and this build's always sends the field.
+			if v, present := s.Get(PresentedRefreshTokenKey); present {
+				presented, _ := v.(string)
+				_ = s.JSON(DoRefreshAsCaller(credsPath, presented))
+				return
+			}
+			logWarn("action=refresh from a terminator that presents no refresh token (older than " +
+				"caller authentication): served unauthenticated until that jail restarts")
 			_ = s.JSON(DoRefresh(credsPath))
 		case "cached":
 			cached := CachedTokens(credsPath)

@@ -25,6 +25,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/openaiauthdaemon"
 	"github.com/mschulkind-oss/yolo-jail/internal/openauthclient"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	"github.com/mschulkind-oss/yolo-jail/internal/svcendpoint"
 )
 
 const BrokerName = "openai-auth-broker"
@@ -38,6 +39,8 @@ type deps struct {
 	home      func() string
 	storage   func() string
 	workspace func() (string, error)
+	// newToken mints the managed adapter's per-launch caller token (svcendpoint.NewToken).
+	newToken func() (string, error)
 }
 
 // Launch carries environment overrides and, for Codex, the loopback adapter
@@ -53,7 +56,7 @@ func Prepare(agent string, stderr io.Writer) (*Launch, error) {
 	d := deps{
 		ensure: ensureSingleton, request: openauthclient.RequestUnix,
 		listen: net.Listen, home: paths.Home, storage: paths.GlobalStorage,
-		workspace: os.Getwd,
+		workspace: os.Getwd, newToken: svcendpoint.NewToken,
 	}
 	return prepare(d, filepath.Base(agent), stderr)
 }
@@ -90,7 +93,16 @@ func prepare(d deps, agent string, stderr io.Writer) (*Launch, error) {
 	if err != nil {
 		return nil, fmt.Errorf("resolve managed Codex workspace: %w", err)
 	}
-	if err := prepareCodexHome(managedHome, filepath.Join(d.home(), ".codex"), workspace, response); err != nil {
+	// THIS LAUNCH'S CALLER TOKEN (docs/plans/notch-convergence.md §2.3, NC-D3). The adapter
+	// below listens on the HOST's loopback, which every local process can reach, so it serves
+	// only a refresh whose marker carries this token — bound into the auth.json Codex reads,
+	// and so sent back by Codex alone. Minted here, per launch, and held in this process and in
+	// that 0600 file only: never in the environment, which the adapter's client does not need.
+	callerToken, err := d.newToken()
+	if err != nil {
+		return nil, fmt.Errorf("mint the managed Codex credential adapter's caller token: %w", err)
+	}
+	if err := prepareCodexHome(managedHome, filepath.Join(d.home(), ".codex"), workspace, response, callerToken); err != nil {
 		return nil, err
 	}
 	listener, err := d.listen("tcp", "127.0.0.1:0")
@@ -109,7 +121,7 @@ func prepare(d deps, agent string, stderr io.Writer) (*Launch, error) {
 		}
 		return token, nil
 	}
-	go func() { end <- openaiauthadapter.Serve(listener, refresh) }()
+	go func() { end <- openaiauthadapter.Serve(listener, callerToken, refresh) }()
 	launch.listener = listener
 	launch.adapterEnd = end
 	launch.vars["CODEX_HOME"] = managedHome
@@ -136,7 +148,7 @@ func ensureLogin(socket string, request requestFunc, stderr io.Writer) error {
 	return nil
 }
 
-func prepareCodexHome(managed, ordinary, workspace string, response json.RawMessage) error {
+func prepareCodexHome(managed, ordinary, workspace string, response json.RawMessage, callerToken string) error {
 	if err := os.MkdirAll(managed, 0o700); err != nil {
 		return fmt.Errorf("create managed Codex home: %w", err)
 	}
@@ -164,7 +176,7 @@ func prepareCodexHome(managed, ordinary, workspace string, response json.RawMess
 			return fmt.Errorf("link managed Codex %s: %w", name, err)
 		}
 	}
-	return openauthclient.WriteCodexAuth(filepath.Join(managed, "auth.json"), response)
+	return openauthclient.WriteCodexAuth(filepath.Join(managed, "auth.json"), response, callerToken)
 }
 
 // writeManagedCodexConfig copies the ordinary host config into the isolated

@@ -11,6 +11,7 @@ package main
 // through to usage() and returns 2, and the test fails.
 
 import (
+	"strings"
 	"testing"
 	"time"
 )
@@ -50,6 +51,7 @@ func TestUsageStillExits2(t *testing.T) {
 }
 
 func TestDispatchRoutesOpenAIAuthAdapter(t *testing.T) {
+	t.Setenv("YOLO_SERVICE_OPENAI_AUTH_BROKER_TOKEN", strings.Repeat("ab", 32)) // past the caller-token idle
 	// An invalid listen address reaches adapter startup and returns its runtime
 	// failure code. A missing dispatch row would fall through to usage (2).
 	if rc := run([]string{"openai-auth-adapter", "--listen", "bad address"}); rc != 1 {
@@ -65,6 +67,7 @@ func TestDispatchRoutesOpenAIAuthAdapter(t *testing.T) {
 // start()'s error and backs off forever — so a deleted case here is an empty log
 // and no process, with every unit test of the adapter itself still green.
 func TestDispatchRoutesAWSCredentialAdapter(t *testing.T) {
+	t.Setenv("YOLO_SERVICE_AWS_AUTH_TOKEN", strings.Repeat("ab", 32)) // past the caller-token idle
 	if rc := run([]string{"aws-credential-adapter", "--listen", "bad address"}); rc != 1 {
 		t.Fatalf("aws-credential-adapter dispatch rc = %d, want adapter failure 1 "+
 			"(2 means it fell through to usage — the case is missing or misspelled)", rc)

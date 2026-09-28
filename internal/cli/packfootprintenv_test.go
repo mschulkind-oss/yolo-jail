@@ -14,16 +14,20 @@ import (
 )
 
 // TestPackFootprintAWSAuthGolden is the golden for the shipped aws-auth pack's footprint:
-// ONE env line carrying its gate, the loophole with its host argv, and the three
+// each env line once, carrying its gate, the loophole with its host argv, and the three
 // `overridden_by` lines, the ~/.aws one worded as a warning (its entry is `certain: false`).
 func TestPackFootprintAWSAuthGolden(t *testing.T) {
 	var out, errw bytes.Buffer
 	if rc := packMain([]string{"footprint", "aws-auth"}, &out, &errw, false); rc != 0 {
 		t.Fatalf("yolo pack footprint aws-auth: rc=%d\nstdout:\n%s\nstderr:\n%s", rc, out.String(), errw.String())
 	}
-	const uri = "AWS_CONTAINER_CREDENTIALS_FULL_URI"
+	// The pointer is two variables: the credentials URI, and the in-jail file holding the
+	// adapter's caller token, which the SDK sends as Authorization
+	// (docs/plans/notch-convergence.md §2.3). The override lines name both.
+	const uri = "AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE, AWS_CONTAINER_CREDENTIALS_FULL_URI"
 	const want = "aws-auth\n" +
-		"  env            " + uri + "  =http://127.0.0.1:1461/credentials when profile \"bedrock\" is active\n" +
+		"  env            AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE  =/run/yolo/caller-tokens/YOLO_SERVICE_AWS_AUTH_TOKEN when profile \"bedrock\" is active\n" +
+		"  env            AWS_CONTAINER_CREDENTIALS_FULL_URI  =http://127.0.0.1:1461/credentials when profile \"bedrock\" is active\n" +
 		"  loophole       aws-auth  RUNS yolo internal daemon aws-auth --socket '{socket}' " +
 		"--state-file '{state}/credentials.json' --settings '{settings}' and yolo internal daemon " +
 		"aws-auth --self-check --state-file '{state}/credentials.json' --settings '{settings}' " +

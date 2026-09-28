@@ -102,10 +102,43 @@ func ProxyUpstream(endpointPath, method, path string, headers map[string]string,
 	return ProxyResult{Status: status, Headers: respHeaders, Body: respBody}
 }
 
-// Refresh sends action=refresh and maps the response to an HTTP result:
-// transport failure -> 502; broker {error} -> 400; else 200 with the tokens.
-func Refresh(endpointPath string) ProxyResult {
-	resp, err := AskHostBroker(endpointPath, singleton("action", "refresh"))
+// PresentedRefreshTokenKey is the refresh frame's field carrying the refresh token the
+// caller presented, which the host broker authenticates the caller by
+// (oauthbroker.DoRefreshAsCaller; docs/plans/notch-convergence.md §2.3). Always sent, empty
+// when the caller presented none, because the broker reads the field's ABSENCE as a
+// terminator older than caller authentication.
+const PresentedRefreshTokenKey = "presented_refresh_token"
+
+// CallerUnauthenticated is the broker's error for a refresh whose caller did not present
+// the machine's Claude login. This terminator answers it 401. It is deliberately not
+// `invalid_grant`, which Claude answers by blanking the shared credentials file (P2 in
+// docs/research/claude-oauth-refresh-mechanics.md).
+const CallerUnauthenticated = "caller_unauthenticated"
+
+// PresentedRefreshToken is the refresh_token a refresh-grant body carries, "" when it has
+// none. Only read to authenticate the caller: the refresh itself is made from the shared
+// file, so the presented token is never spent (P1).
+func PresentedRefreshToken(body []byte) string {
+	decoded, err := jsonx.Decode(body)
+	if err != nil {
+		return ""
+	}
+	m, ok := decoded.(*jsonx.OrderedMap)
+	if !ok {
+		return ""
+	}
+	v, _ := m.Get("refresh_token")
+	s, _ := v.(string)
+	return s
+}
+
+// Refresh sends action=refresh with the refresh token the caller presented, and maps the
+// response to an HTTP result: transport failure -> 502; a caller the broker could not
+// authenticate -> 401; any other broker {error} -> 400; else 200 with the tokens.
+func Refresh(endpointPath, presented string) ProxyResult {
+	req := singleton("action", "refresh")
+	req.Set(PresentedRefreshTokenKey, presented)
+	resp, err := AskHostBroker(endpointPath, req)
 	if err != nil {
 		// Message names the failing layer (relay vs broker).
 		LogError("refresh failed: %s", err)
@@ -115,7 +148,11 @@ func Refresh(endpointPath string) ProxyResult {
 		errVal, _ := resp.Get("error")
 		LogWarn("refresh: broker returned error=%s (%s)", stringOf(errVal), errDetail(resp))
 		b, _ := jsonx.DumpsCompact(resp)
-		return ProxyResult{Status: 400, Headers: map[string]string{"Content-Type": "application/json"}, Body: []byte(b)}
+		status := 400
+		if stringOf(errVal) == CallerUnauthenticated {
+			status = 401
+		}
+		return ProxyResult{Status: status, Headers: map[string]string{"Content-Type": "application/json"}, Body: []byte(b)}
 	}
 	var expiresIn string
 	if v, ok := resp.Get("expires_in"); ok {

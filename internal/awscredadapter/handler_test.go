@@ -12,11 +12,94 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/awsauth"
 )
 
+// testToken is a well-formed caller token (svcendpoint.NewToken's shape).
+var testToken = strings.Repeat("7e", 32)
+
+// get sends one request as the SDK does: with the token file's contents as Authorization.
 func get(t *testing.T, fetch Fetch, method, path string) *httptest.ResponseRecorder {
 	t.Helper()
 	rec := httptest.NewRecorder()
-	Handler(fetch).ServeHTTP(rec, httptest.NewRequest(method, path, nil))
+	req := httptest.NewRequest(method, path, nil)
+	req.Header.Set("Authorization", testToken)
+	Handler(testToken, fetch).ServeHTTP(rec, req)
 	return rec
+}
+
+// THE CALLER TOKEN IS DEMANDED (docs/plans/notch-convergence.md §2.3, NC-D3). A jail on
+// `network.mode: host` puts this port on the host's loopback, where any local process could
+// GET the narrowed AWS keys. A request without this launch's token — none, another launch's,
+// or one in the wrong header — is refused 401 in the protocol's {Code, Message} shape before
+// the host service is asked, and the body carries no credential.
+func TestARequestWithoutTheCallerTokenIsRefusedBeforeTheHostIsAsked(t *testing.T) {
+	for name, set := range map[string]func(*http.Request){
+		"no Authorization":       func(*http.Request) {},
+		"another launch's":       func(r *http.Request) { r.Header.Set("Authorization", strings.Repeat("11", 32)) },
+		"the token in x-api-key": func(r *http.Request) { r.Header.Set("X-Api-Key", testToken) },
+		"an empty value":         func(r *http.Request) { r.Header.Set("Authorization", "") },
+	} {
+		t.Run(name, func(t *testing.T) {
+			asked := false
+			fetch := func() (Answer, error) {
+				asked = true
+				body, _ := json.Marshal(liveCredential().ContainerCredentials())
+				return Answer{Body: body, OK: true}, nil
+			}
+			req := httptest.NewRequest(http.MethodGet, CredentialsPath, nil)
+			set(req)
+			rec := httptest.NewRecorder()
+			Handler(testToken, fetch).ServeHTTP(rec, req)
+			if rec.Code != http.StatusUnauthorized {
+				t.Fatalf("status = %d, want 401; body = %s", rec.Code, rec.Body.String())
+			}
+			if asked {
+				t.Error("the host service was asked on behalf of an unauthenticated caller")
+			}
+			body := decodeBody(t, rec)
+			if body["Code"] != "CallerUnauthenticated" || !strings.Contains(body["Message"].(string), "yolo") {
+				t.Errorf("refusal = %v, want {Code: CallerUnauthenticated, Message naming yolo}", body)
+			}
+			for _, leaked := range []string{"ASIAEXAMPLE", "wJalrXUtnFEMI", testToken} {
+				if strings.Contains(rec.Body.String(), leaked) {
+					t.Errorf("the refusal carries %q", leaked)
+				}
+			}
+		})
+	}
+}
+
+// The SDK sends the file's bytes verbatim; a trailing newline and a Bearer spelling are the
+// same token.
+func TestTheCallerTokenIsReadAsTheSDKSendsIt(t *testing.T) {
+	for _, v := range []string{testToken, testToken + "\n", "Bearer " + testToken} {
+		req := httptest.NewRequest(http.MethodGet, CredentialsPath, nil)
+		req.Header.Set("Authorization", v)
+		if reason := callerCheck(req, testToken); reason != "" {
+			t.Errorf("Authorization %q refused: %s", v, reason)
+		}
+	}
+	if reason := callerCheck(httptest.NewRequest(http.MethodGet, CredentialsPath, nil), ""); reason == "" {
+		t.Error("an adapter with no token accepted a request")
+	}
+}
+
+func TestServeRefusesWithoutACallerToken(t *testing.T) {
+	if err := Serve(nil, "", func() (Answer, error) { return Answer{}, nil }); err == nil {
+		t.Fatal("Serve accepted an empty caller token")
+	}
+}
+
+func TestTheAdaptersTokenVariableIsTheLaunchersSpelling(t *testing.T) {
+	if CallerTokenEnv != "YOLO_SERVICE_AWS_AUTH_TOKEN" {
+		t.Errorf("CallerTokenEnv = %q", CallerTokenEnv)
+	}
+	env := map[string]string{CallerTokenEnv: "short"}
+	if _, why := callerTokenFrom(func(k string) string { return env[k] }); why == "" {
+		t.Error("a malformed token was accepted")
+	}
+	env[CallerTokenEnv] = testToken
+	if tok, why := callerTokenFrom(func(k string) string { return env[k] }); tok != testToken || why != "" {
+		t.Errorf("callerTokenFrom = %q, %q", tok, why)
+	}
 }
 
 func decodeBody(t *testing.T, rec *httptest.ResponseRecorder) map[string]any {
@@ -244,6 +327,7 @@ func TestMainRefusesTrailingArguments(t *testing.T) {
 // silent (supervisor.superviseOne drops start()'s error), so the exit code is the
 // only signal there is.
 func TestMainReportsAnUnbindableAddress(t *testing.T) {
+	t.Setenv(CallerTokenEnv, testToken)
 	if rc := Main([]string{"--listen", "bad address"}); rc != 1 {
 		t.Errorf("Main with an unbindable address = %d, want 1", rc)
 	}

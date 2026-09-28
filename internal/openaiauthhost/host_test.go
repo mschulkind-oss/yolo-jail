@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"io"
 	"net"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -61,6 +62,7 @@ func TestManagedCodexHomeLeavesOrdinaryAuthUntouchedAndAdapterFollowsAgent(t *te
 		home:      func() string { return filepath.Join(root, "home") },
 		storage:   func() string { return managedStore },
 		workspace: func() (string, error) { return filepath.Join(root, "work", "repo"), nil },
+		newToken:  func() (string, error) { return strings.Repeat("5a", 32), nil },
 	}
 	launch, err := prepare(d, "codex", io.Discard)
 	if err != nil {
@@ -150,5 +152,86 @@ func TestHostSocketWaitRetriesDuringDaemonStartup(t *testing.T) {
 		})
 	if err != nil || attempts != 3 {
 		t.Fatalf("waitHostSocket = %v after %d attempts, want success after retry", err, attempts)
+	}
+}
+
+// THE HOST ADAPTER AUTHENTICATES ITS CALLER (docs/plans/notch-convergence.md §2.3, NC-D3).
+// MEASURED 2026-09-27 before this: a caller holding no credential posted
+// `refresh_token=yolo-broker:999999` to the managed Codex adapter on the host's loopback and got
+// HTTP 200 with the access and id tokens. Now prepare mints a caller token, binds it into the
+// managed auth.json, and the adapter refuses anything else before the broker is asked. Through
+// the real prepare, so deleting the token from either the writer or Serve fails this.
+func TestTheHostCodexAdapterServesOnlyTheMarkerItWrote(t *testing.T) {
+	root := t.TempDir()
+	token := strings.Repeat("5a", 32)
+	refreshes := 0
+	d := deps{
+		ensure: func(io.Writer) (string, error) { return "/tmp/broker.host", nil },
+		request: func(_ string, request any, _ io.Writer) (json.RawMessage, error) {
+			switch request.(map[string]any)["action"] {
+			case "status":
+				return json.RawMessage(`{"logged_in":true}`), nil
+			case "refresh":
+				refreshes++
+				if got := request.(map[string]any)["refresh_token"]; got != "yolo-broker:7" {
+					t.Errorf("the broker was handed %q, want the plain marker", got)
+				}
+				return json.RawMessage(`{"access_token":"access-2","id_token":"id-2","refresh_token":"yolo-broker:8","expires_at":4102444800000}`), nil
+			}
+			return codexViewFixture(), nil
+		},
+		listen:    net.Listen,
+		home:      func() string { return filepath.Join(root, "home") },
+		storage:   func() string { return filepath.Join(root, "store") },
+		workspace: func() (string, error) { return filepath.Join(root, "work"), nil },
+		newToken:  func() (string, error) { return token, nil },
+	}
+	launch, err := prepare(d, "codex", io.Discard)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer launch.listener.Close()
+	authBytes, err := os.ReadFile(filepath.Join(launch.vars["CODEX_HOME"], "auth.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var auth struct {
+		Tokens struct {
+			RefreshToken string `json:"refresh_token"`
+		} `json:"tokens"`
+	}
+	if err := json.Unmarshal(authBytes, &auth); err != nil {
+		t.Fatal(err)
+	}
+	if auth.Tokens.RefreshToken != "yolo-broker:7."+token {
+		t.Fatalf("managed auth.json marker = %q, want the caller token bound", auth.Tokens.RefreshToken)
+	}
+	for k, v := range launch.vars {
+		if strings.Contains(v, token) {
+			t.Errorf("the caller token reached the launch environment as %s", k)
+		}
+	}
+	url := launch.vars["CODEX_REFRESH_TOKEN_URL_OVERRIDE"]
+	post := func(refresh string) (int, string) {
+		t.Helper()
+		body := `{"grant_type":"refresh_token","refresh_token":"` + refresh + `"}`
+		client := http.Client{Timeout: 5 * time.Second}
+		resp, err := client.Post(url, "application/json", strings.NewReader(body))
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		b, _ := io.ReadAll(resp.Body)
+		return resp.StatusCode, string(b)
+	}
+	if code, body := post("yolo-broker:999999"); code != http.StatusUnauthorized || strings.Contains(body, "access") {
+		t.Fatalf("a stranger's marker got %d %s, want 401 with no token", code, body)
+	}
+	if refreshes != 0 {
+		t.Fatalf("the broker was asked %d times for a stranger", refreshes)
+	}
+	code, body := post(auth.Tokens.RefreshToken)
+	if code != http.StatusOK || !strings.Contains(body, "access-2") || !strings.Contains(body, "yolo-broker:8."+token) {
+		t.Fatalf("Codex's own marker got %d %s, want 200 with the next marker bound", code, body)
 	}
 }

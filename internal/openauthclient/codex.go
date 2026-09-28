@@ -36,8 +36,11 @@ type codexTokens struct {
 }
 
 // WriteCodexAuth converts a broker token view into Codex's native auth.json
-// shape and atomically replaces path with a private file.
-func WriteCodexAuth(path string, response json.RawMessage) error {
+// shape and atomically replaces path with a private file. callerToken is the
+// adapter's per-launch caller token, bound into the refresh marker Codex sends
+// back to the adapter (callermarker.go); "" writes the plain marker, for a
+// launch whose adapter demands none.
+func WriteCodexAuth(path string, response json.RawMessage, callerToken string) error {
 	if path == "" {
 		return errors.New("codex auth path is required")
 	}
@@ -56,7 +59,7 @@ func WriteCodexAuth(path string, response json.RawMessage) error {
 		OpenAIAPIKey: nil,
 		Tokens: codexTokens{
 			IDToken: view.IDToken, AccessToken: view.AccessToken,
-			RefreshToken: view.RefreshToken, AccountID: view.AccountID,
+			RefreshToken: BindCallerToken(view.RefreshToken, callerToken), AccountID: view.AccountID,
 		},
 		LastRefresh: time.Now().UTC().Format(time.RFC3339),
 	}

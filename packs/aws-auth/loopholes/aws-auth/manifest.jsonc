@@ -148,16 +148,23 @@
   // a third, 8216, was eliminated when kilo started sharing the first
   // (docs/reference/protocol-resolution.md).
   //
-  // ⚠ The SDK speaks plain http only to 127.0.0.0/8, which is what makes this
-  // unreachable from outside the jail — and INSIDE the jail there is no boundary at
-  // all: every MCP server and every `curl` can GET the same credentials. That is why
-  // the narrowing above is not defence in depth but the only defence.
+  // ⚠ The SDK speaks plain http only to 127.0.0.0/8, and loopback is NOT the jail:
+  // a jail on `network.mode: host` puts this port on the host's real loopback, and a
+  // nested podman forced onto `--net=host` shares its parent jail's. So the adapter
+  // demands this launch's caller token (`caller_token` below; the launcher mints
+  // YOLO_SERVICE_AWS_AUTH_TOKEN), which the entrypoint writes to a 0600 in-jail file
+  // and the pack's `env` contribution names as AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE
+  // beside the URI — the slot the SDK's container provider already reads
+  // (docs/plans/notch-convergence.md §2.3). INSIDE the jail that is still no boundary:
+  // every MCP server and every `curl` can read the file and GET the same credentials.
+  // That is why the narrowing above is not defence in depth but the only defence.
   "jail_daemon": {
     "cmd": [
       "yolo-jaild", "aws-credential-adapter",
       "--listen", "127.0.0.1:1461"
     ],
-    "restart": "on-failure"
+    "restart": "on-failure",
+    "caller_token": true
   },
 
   // An absent or empty list mounts the ENTIRE host state directory read-only, and

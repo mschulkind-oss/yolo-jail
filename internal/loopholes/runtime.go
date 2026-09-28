@@ -126,6 +126,12 @@ type JailDaemonSpec struct {
 	Name    string
 	Cmd     []string
 	Restart string
+	// CallerToken says the daemon demands this launch's caller token of every caller
+	// (loopholedecl.JailDaemon.CallerToken for a loophole's; always true for a pack
+	// service's, whose addresses name that token as their credential). It is the one
+	// input internal/cli/run's callerTokenVars mints from. NOT on the wire: the supervisor
+	// runs the argv and has no use for it, so JailDaemonPayload leaves it out.
+	CallerToken bool
 }
 
 // JailDaemons composes THIS LAUNCH'S jail-daemon entries — every admitted record's own,
@@ -298,6 +304,7 @@ func jailDaemonSpecs(loopholes []*Loophole, runtime string, gate *Set,
 		}
 		specs = append(specs, JailDaemonSpec{
 			Name: m.Name, Cmd: m.JailDaemon.Cmd, Restart: m.JailDaemon.Restart,
+			CallerToken: m.JailDaemon.CallerToken,
 		})
 	}
 	// Pack services' jail daemons join the loopholes' own entries, one list, one env

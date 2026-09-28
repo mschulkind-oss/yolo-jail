@@ -99,6 +99,14 @@ type JailDaemon struct {
 	Cmd []string
 	// Restart is one of ValidRestarts, defaulted to "on-failure".
 	Restart string
+	// CallerToken is `jail_daemon.caller_token`: the daemon serves callers on the jail's
+	// loopback and demands this launch's CALLER TOKEN of every one of them (coined in
+	// docs/reference/wire-bridge.md, WB-D18; the variable is paths.ServiceCallerTokenEnv of
+	// the loophole's name). Declaring it is what makes the launcher mint one and hand it to
+	// the daemon and its clients (internal/cli/run's callerTokenVars); a daemon whose client
+	// cannot carry a secret leaves it false and authenticates some other way, as the Claude
+	// OAuth terminator does (docs/plans/notch-convergence.md §2.3). Default false.
+	CallerToken bool
 }
 
 // HostDaemon is a process spawned on the HOST — the sharpest thing a manifest can
@@ -993,7 +1001,16 @@ func parseJailDaemon(manifestPath string, raw any) (*JailDaemon, error) {
 	if err := refuseHostTokenInJailField(manifestPath, "'jail_daemon.cmd'", cmd); err != nil {
 		return nil, err
 	}
-	return &JailDaemon{Cmd: cmd, Restart: restart}, nil
+	callerToken := false
+	if cv, ok := m.Get(keyCallerToken); ok {
+		b, isBool := cv.(bool)
+		if !isBool {
+			return nil, Errorf("%s: 'jail_daemon.caller_token' must be a boolean, not %s",
+				manifestPath, pytext.Repr(Str(cv)))
+		}
+		callerToken = b
+	}
+	return &JailDaemon{Cmd: cmd, Restart: restart, CallerToken: callerToken}, nil
 }
 
 // parseEnvMap builds an insertion-ordered EnvMap from a JSON object, coercing

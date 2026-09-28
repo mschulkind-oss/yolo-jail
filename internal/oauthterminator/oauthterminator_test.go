@@ -288,7 +288,7 @@ func TestRefreshMapping(t *testing.T) {
 		m.Set("error", "no_refresh_token")
 		return m
 	}))
-	if res := Refresh(errDouble.endpointPath); res.Status != 400 {
+	if res := Refresh(errDouble.endpointPath, "rt-1"); res.Status != 400 {
 		t.Errorf("error refresh status = %d, want 400", res.Status)
 	}
 
@@ -298,7 +298,7 @@ func TestRefreshMapping(t *testing.T) {
 		m.Set("token_type", "Bearer")
 		return m
 	}))
-	res := Refresh(okDouble.endpointPath)
+	res := Refresh(okDouble.endpointPath, "rt-1")
 	if res.Status != 200 {
 		t.Errorf("ok refresh status = %d, want 200", res.Status)
 	}

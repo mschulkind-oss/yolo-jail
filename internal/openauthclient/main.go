@@ -109,7 +109,10 @@ func Run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 		return 1
 	}
 	if codexAuth != "" {
-		if err := WriteCodexAuth(codexAuth, response); err != nil {
+		// THE ADAPTER'S CALLER TOKEN, from this entry's environment (the per-entry channel):
+		// Codex hands the marker back to the adapter on every refresh, and the adapter refuses
+		// one that does not carry it (callermarker.go).
+		if err := WriteCodexAuth(codexAuth, response, getenv(CallerTokenEnv)); err != nil {
 			fmt.Fprintln(stderr, "openai-auth-client:", err)
 			return 1
 		}

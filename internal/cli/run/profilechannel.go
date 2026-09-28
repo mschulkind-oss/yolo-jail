@@ -129,7 +129,10 @@ func (o *Options) composePackChannel(cfg *jsonx.OrderedMap, packs []*packload.Pa
 	if err != nil {
 		return nil, err
 	}
-	callerTokens, err := o.launchCallerTokens(packs)
+	// The caller tokens of the jail daemons THIS LAUNCH'S PAYLOAD names (callertokens.go):
+	// the same composer the container argv serializes and the macos-user arm declines, on
+	// the runtime Run resolved, so a token exists exactly for a daemon the launch declared.
+	callerTokens, err := o.launchCallerTokens(o.jailDaemonsFor(cfg, o.runtime, packs))
 	if err != nil {
 		return nil, err
 	}

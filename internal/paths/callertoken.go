@@ -48,6 +48,18 @@ func ServiceCallerTokenEnv(serviceName string) string {
 	return ServiceEnvVarPrefix + slug + ServiceCallerTokenSuffix
 }
 
+// JailCallerTokenDir is where the entrypoint writes each caller token it was handed as a file
+// of its own, 0600, named by the token's variable (JailCallerTokenFile). It exists for a
+// client that reads a credential from a FILE and cannot be handed a secret any other way: the
+// AWS SDKs' container-credentials provider reads AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE and
+// sends its contents as `Authorization` (docs/plans/notch-convergence.md §2.3). On the /run
+// tmpfs, so it dies with the container, and in-jail only, so no host process can read it.
+const JailCallerTokenDir = "/run/yolo/caller-tokens"
+
+// JailCallerTokenFile is the in-jail file holding the caller token carried in tokenEnv — the
+// path a pack's `env` contribution names for a client that reads its credential from a file.
+func JailCallerTokenFile(tokenEnv string) string { return JailCallerTokenDir + "/" + tokenEnv }
+
 // IsServiceCallerTokenEnv reports whether key has the shape ServiceCallerTokenEnv composes:
 // YOLO_SERVICE_<SLUG>_TOKEN with a non-empty slug.
 func IsServiceCallerTokenEnv(key string) bool {
