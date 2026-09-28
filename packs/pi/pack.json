@@ -103,10 +103,7 @@
           },
           "mode": "computed",
           "name": "mcp",
-          "path": "~/.pi/agent/mcp-adapter.json",
-          "retireOnFirstRender": [
-            "mcp.json"
-          ]
+          "path": "~/.pi/agent/mcp-adapter.json"
         }
       ],
       "kind": "config"

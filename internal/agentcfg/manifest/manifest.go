@@ -168,6 +168,12 @@ type Surface struct {
 	// alive for a one-shot cleanup.
 	//
 	// A missing file is not an error — the common case is that there was nothing to clean.
+	//
+	// ⚠ NAME ONLY A FILE YOLO ALONE WRITES. The delete does not look at the bytes, and a
+	// computed or rmw surface runs it after every write, so a vendor name is a file the
+	// agent, an extension or the user loses at every boot. pi's `mcp.json` was one until
+	// the pi pack stopped retiring it (pi-subagents reads it); every shipped name carries a
+	// `yolo-` prefix, which packload.TestShippedRetireNamesAreYolosOwn pins.
 	RetireOnFirstRender []string
 }
 

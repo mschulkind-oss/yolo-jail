@@ -13,6 +13,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `nix --version` took longer than five seconds, as a first run inside a jail on a busy Mac can.
   It now waits as long as its other Nix checks, and says whether Nix timed out, could not be
   run or exited with an error.
+- A jail no longer deletes pi's `mcp.json` every time it starts. 0.11.0 removed it to clean up
+  the copy older versions of yolo wrote there, and so also deleted the one you or a pi
+  extension keep, such as the MCP servers a subagent's `mcp:` tools are looked up in. yolo's
+  own MCP servers stay in `mcp-adapter.json`. A `mcp.json` an older yolo wrote is now left in
+  place, so delete it yourself if you no longer want it.
 
 ## [0.11.0] - 2026-09-28
 
