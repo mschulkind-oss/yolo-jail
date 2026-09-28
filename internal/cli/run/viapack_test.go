@@ -210,12 +210,13 @@ func TestMacosUserDoesNotGateAViaItClears(t *testing.T) {
 	o := &Options{Workspace: t.TempDir(), Stdout: discardBuf(), Stderr: discardBuf(),
 		UseProfiles: map[string]string{"pi": "pa"},
 		stagingCfg:  viaStagingCfg(t, "anth", `{"anthropic": {"base_url": "https://anth.example"}}`)}
-	_, loaded, _, err := o.stagePacks("yolo-test-via-macos-control")
+	_, _, _, err := o.stagePacks("yolo-test-via-macos-control")
 	if err == nil {
 		t.Fatal("the container control no longer refuses, so this proves nothing")
 	}
 	o.runtime = "macos-user"
-	if _, loaded, _, err = o.stagePacks("yolo-test-via-macos"); err != nil {
+	_, loaded, _, err := o.stagePacks("yolo-test-via-macos")
+	if err != nil {
 		t.Fatalf("macos-user gated a via it clears: %v", err)
 	}
 	if !hasName(namesOf(loaded), "wire-bridge") {
