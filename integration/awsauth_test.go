@@ -3,7 +3,6 @@ package integration
 import (
 	"encoding/json"
 	"fmt"
-	"net"
 	"os"
 	"path/filepath"
 	"sort"
@@ -70,16 +69,16 @@ import (
 // while one is alive (`yolo host-daemon status aws-auth`), and stops the one it spawned when
 // it ends, so the next test's launch spawns afresh against its own fake.
 //
-// # Why a nested jail beside an aws-auth jail skips
+// # A nested jail beside an aws-auth jail
 //
-// The adapter's port is fixed, 127.0.0.1:1461, and podman-in-podman forces --net=host, so a
-// nested jail's 1461 IS the launching jail's. A development jail that selects aws-auth already
-// runs its own adapter there, forwarding to the HOST's real aws-auth daemon: the nested adapter
-// cannot bind, and the nested curl reaches the outer one and the developer's real profile. The
-// PID-file guard above cannot see that, the outer jail's /tmp being its own. So the fixture
-// skips when it runs in a container and 1461 already answers, before anything launches, as
-// openaiauth_test.go does for 1460. A green result needs a jail that does not select aws-auth,
-// or CI.
+// Podman-in-podman forces --net=host, so a nested jail shares the launching jail's loopback, and
+// a development jail that selects aws-auth holds the adapter's declared 127.0.0.1:1461 there,
+// forwarding to the HOST's real aws-auth daemon. The fixture used to skip in that case, since the
+// nested adapter could not bind and the nested curl reached the outer one. Since served
+// addresses (docs/plans/notch-convergence.md NC-D41) a jail on a shared namespace serves its
+// adapter on a port its launch picked, and the pointer names that port, so the nested curl
+// reaches its own adapter: the pointer is asserted to be a picked port there, and the declared
+// one on a bridged jail (servedURLProblem).
 //
 // Nor does a failure echo a served credential value: if a real adapter is ever reached anyway,
 // a mismatch names the key and the fixture's value, never what was served
@@ -95,16 +94,9 @@ import (
 // login command the lapsed case must carry is unambiguous in the body.
 const awsAuthProfile = "yolo-integration"
 
-// awsAuthAdapterAddr is the in-jail adapter's fixed listen address (the manifest's
-// jail_daemon argv), which a nested jail shares with the jail that launched it.
+// awsAuthAdapterAddr is the in-jail adapter's DECLARED listen address (the manifest's
+// `jail_daemon.listen`), where a bridged jail serves it.
 const awsAuthAdapterAddr = "127.0.0.1:1461"
-
-// awsAuthAdapterPortSkip is the skip reason when the launching jail's own adapter holds the port.
-const awsAuthAdapterPortSkip = awsAuthAdapterAddr + " already answers on this loopback, and a " +
-	"nested jail shares it (podman-in-podman forces --net=host): the curl would reach the " +
-	"launching jail's own aws-auth adapter, which forwards to the HOST's real aws-auth daemon " +
-	"and the developer's real profile, not this test's fake `aws`. Run it from a jail that does " +
-	"not select aws-auth, or in CI (AGENTS.md's first carve-out)"
 
 // awsAuthCredentialMismatches compares a served container-credentials body against the values
 // the fake `aws` printed and returns one line per differing key. A line names the key and the
@@ -149,13 +141,6 @@ func newAWSAuthFixture(t *testing.T, configure func(bin string) string) awsAuthF
 	if rt := detectRuntime(); rt != "podman" {
 		t.Skipf("aws-auth's chain needs podman, and this runtime is %q: Apple Container is "+
 			"inert for loopback-tls loopholes and macos-user declines the jail-side adapter", rt)
-	}
-
-	if inContainer() {
-		if c, err := net.DialTimeout("tcp", awsAuthAdapterAddr, time.Second); err == nil {
-			_ = c.Close()
-			t.Skip(awsAuthAdapterPortSkip)
-		}
 	}
 
 	dir := writeProject(t, `{}`)
@@ -226,7 +211,8 @@ const awsAuthCurlScript = `set -u
 uri=${AWS_CONTAINER_CREDENTIALS_FULL_URI:-}
 if [ -z "$uri" ]; then echo "POINTER=unset"; exit 3; fi
 echo "POINTER=$uri"
-for i in $(seq 1 200); do (exec 3<>/dev/tcp/127.0.0.1/1461) 2>/dev/null && break; sleep 0.1; done
+hostport=${uri#http://}; hostport=${hostport%%/*}
+for i in $(seq 1 200); do (exec 3<>/dev/tcp/127.0.0.1/${hostport##*:}) 2>/dev/null && break; sleep 0.1; done
 tokfile=${AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE:-}
 if [ -z "$tokfile" ] || [ ! -r "$tokfile" ]; then echo "TOKEN_FILE=missing"; exit 4; fi
 echo "TOKEN_FILE=present"
@@ -242,9 +228,9 @@ func runAWSAuthCurl(t *testing.T, fx awsAuthFixture) (string, []byte, result) {
 	if r.rc != 0 {
 		t.Fatalf("the aws-auth launch failed: rc %d\n%s%s", r.rc, r.combined(), awsAuthDaemonLog(t))
 	}
-	if !strings.Contains(r.stdout, "POINTER=http://127.0.0.1:1461/credentials") {
-		t.Fatalf("the jail's AWS_CONTAINER_CREDENTIALS_FULL_URI is not the pack's pointer — the "+
-			"`bedrock`-gated env contribution was not delivered:\n%s", r.combined())
+	if p := servedURLProblem(kvLine(r.stdout, "POINTER"), awsAuthAdapterAddr, "/credentials", inContainer()); p != "" {
+		t.Fatalf("the jail's AWS_CONTAINER_CREDENTIALS_FULL_URI is %s — the `bedrock`-gated env "+
+			"contribution was not delivered, or not at the adapter's served address:\n%s", p, r.combined())
 	}
 	// CALLER AUTHENTICATION (docs/plans/notch-convergence.md §2.3): the SDK's token file is
 	// delivered beside the pointer, and a request that does not send it — what any other

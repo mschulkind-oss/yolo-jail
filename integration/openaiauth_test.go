@@ -5,7 +5,7 @@ package integration
 // endpoint Codex is told to use. It is the one test the unit suite cannot represent, because
 // every hop it crosses is a different process on a different side of the jail boundary:
 //
-//	curl (in the jail) → yolo-jaild openai-auth-adapter on 127.0.0.1:1460 (in the jail)
+//	curl (in the jail) → yolo-jaild openai-auth-adapter on its served address (in the jail)
 //	  → the loopback-TLS front the launch published (host) → the machine-wide
 //	  openai-auth-broker singleton (host) → its credentials.json (host, never mounted)
 //
@@ -32,14 +32,16 @@ package integration
 //   - it is stopped afterwards, by that PID, so no later launch reuses a daemon whose state dir
 //     has been deleted.
 //
-// # Why a nested jail skips it
+// # What a nested jail can and cannot tell
 //
-// Podman-in-podman forces --net=host, so a nested jail's 127.0.0.1:1460 IS the launching jail's.
-// A development jail that selects codex already runs its own adapter there, forwarding to the
-// HOST's real broker, and the nested jail's POST would reach that one instead of its own. So the
-// test skips when it runs in a container and 1460 already answers. That is also AGENTS.md's
-// first carve-out restated: a nested jail cannot test reachability across the host loopback at
-// all, and ci.yml's rootless `integration` job is the instrument step 12 names.
+// Podman-in-podman forces --net=host, so a nested jail shares the launching jail's loopback,
+// where that jail's own adapter already holds 127.0.0.1:1460. This test used to skip there, since
+// the nested POST reached the outer adapter and the HOST's real broker. Since served addresses
+// (docs/plans/notch-convergence.md NC-D41) a jail on a shared namespace serves its adapter on a
+// port its launch picked, and the pointer Codex is handed names that port, so the nested run
+// reaches its own adapter and this test runs there. What it still cannot see is AGENTS.md's first
+// carve-out: reachability across the host loopback, whose instrument is ci.yml's rootless
+// `integration` job, where the jail is bridged and serves the declared 1460.
 //
 // # Terms
 //
@@ -57,7 +59,6 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
-	"net"
 	"os"
 	"path/filepath"
 	goruntime "runtime"
@@ -72,11 +73,15 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
-// codexRefreshURL is the refresh endpoint packs/codex/pack.json hands Codex
-// (CODEX_REFRESH_TOKEN_URL_OVERRIDE), and the address the openai-auth-broker manifest's
-// jail_daemon listens on. Spelled literally, and asserted against the jail's own environment, so
-// a pack that moved the URL fails here instead of this test quietly following it.
-const codexRefreshURL = "http://127.0.0.1:1460/oauth/token"
+// codexRefreshListen and codexRefreshPath are where packs/codex/pack.json points Codex
+// (CODEX_REFRESH_TOKEN_URL_OVERRIDE, "http://{listen}/oauth/token") on a bridged jail: the
+// openai-auth-broker manifest's declared `jail_daemon.listen`, and the adapter's path. Spelled
+// literally, and asserted against the jail's own environment (servedURLProblem), so a pack that
+// moved the URL fails here instead of this test quietly following it.
+const (
+	codexRefreshListen = "127.0.0.1:1460"
+	codexRefreshPath   = "/oauth/token"
+)
 
 // forgedCodexLogin is a FORGED LOGIN (see the file header) and the file it was written to.
 type forgedCodexLogin struct {
@@ -313,8 +318,9 @@ func kvLine(out, key string) string {
 //
 // What it asserts, and the defect each one would catch:
 //
-//   - CODEX_REFRESH_TOKEN_URL_OVERRIDE in the jail is codexRefreshURL: the pack's env reached the
-//     jail, and the test POSTs where Codex would.
+//   - CODEX_REFRESH_TOKEN_URL_OVERRIDE in the jail is the adapter's served address: the declared
+//     codexRefreshListen on a bridged jail, a picked port on a nested one. The pack's env reached
+//     the jail, and the test POSTs where Codex would.
 //   - HTTP 200 with the imported token's hash: the adapter is up, the front is reachable from the
 //     jail (step 12's reachability half), the adapter decoded Codex's JSON body (the 2026-09-22
 //     `ParseForm` defect), and the token is the one the import installed.
@@ -337,15 +343,6 @@ func TestOpenAIAuthBrokerRoundTripsAnImportedToken(t *testing.T) {
 			rt, goruntime.GOOS)
 	}
 	rootless := podmanRootless(t)
-	if inContainer() {
-		if c, err := net.DialTimeout("tcp", "127.0.0.1:1460", time.Second); err == nil {
-			_ = c.Close()
-			t.Skip("127.0.0.1:1460 already answers on this loopback, and a nested jail shares it " +
-				"(podman-in-podman forces --net=host): the POST would reach the launching jail's " +
-				"own adapter, which forwards to the HOST's real broker. This test runs in ci.yml's " +
-				"integration job; a nested jail cannot test this path (AGENTS.md's first carve-out)")
-		}
-	}
 
 	dir := writeProject(t, `{}`)
 	packHome(t, `{"packs": ["codex"]}`)
@@ -403,14 +400,15 @@ func TestOpenAIAuthBrokerRoundTripsAnImportedToken(t *testing.T) {
 	if r.rc != 0 {
 		t.Fatalf("codex-selecting launch failed: rc %d\nstdout: %s\nstderr: %s", r.rc, r.stdout, r.stderr)
 	}
-	if got := kvLine(r.stdout, "OVERRIDE_URL"); got != codexRefreshURL {
-		t.Fatalf("CODEX_REFRESH_TOKEN_URL_OVERRIDE in the jail is %q, want %q — the codex pack's env "+
-			"did not reach the jail, or moved\nstdout: %s", got, codexRefreshURL, r.stdout)
+	overrideURL := kvLine(r.stdout, "OVERRIDE_URL")
+	if p := servedURLProblem(overrideURL, codexRefreshListen, codexRefreshPath, inContainer()); p != "" {
+		t.Fatalf("CODEX_REFRESH_TOKEN_URL_OVERRIDE in the jail is %s — the codex pack's env did not "+
+			"reach the jail, or moved\nstdout: %s", p, r.stdout)
 	}
 	if kvLine(r.stdout, "ADAPTER_READY") != "yes" {
 		t.Errorf("nothing answered on %s within 30s of the jail command starting — the "+
 			"openai-auth-adapter jail daemon did not come up\nstdout: %s\nstderr: %s",
-			codexRefreshURL, r.stdout, r.stderr)
+			overrideURL, r.stdout, r.stderr)
 	}
 	if got := kvLine(r.stdout, "HTTP_STATUS"); got != "200" {
 		t.Errorf("the refresh endpoint answered HTTP %s (error: %q), want 200\nstdout: %s\nstderr: %s",
