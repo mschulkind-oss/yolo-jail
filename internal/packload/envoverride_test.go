@@ -212,7 +212,7 @@ func TestEnvOverrideCertaintyDecidesTheSeverity(t *testing.T) {
 		{"absent: neither is delivered", nil, []string{".widgetfoo"}, false, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			findings := EnvOverrideFindings(packs, nil, delivered(tc.env), tc.grants)
+			findings := EnvOverrideFindings(packs, nil, delivered(tc.env), tc.grants, nil)
 			var refused, warned bool
 			for _, f := range findings {
 				if len(f.Lines) == 0 {
@@ -248,7 +248,7 @@ func TestEnvOverrideWarningWording(t *testing.T) {
 	packs := []*Pack{widgetPack(t, "gate", `[{"host_file": ".widget", "certain": false,
 	  "because": "the widget config dir answers first when it holds a key"}]`)}
 	findings := EnvOverrideFindings(packs, map[string]string{"widgetcli": "gate"}, delivered(nil),
-		[]string{".widget/config"})
+		[]string{".widget/config"}, nil)
 	if len(findings) != 1 || findings[0].Certain {
 		t.Fatalf("want one uncertain finding, got %+v", findings)
 	}
@@ -341,7 +341,7 @@ func TestShippedAWSAuthDeclaresTheThreeOverrides(t *testing.T) {
 				t.Errorf("refused=%v want %v:\n%s", len(lines) > 0, tc.refuse, strings.Join(lines, "\n"))
 			}
 			warned := false
-			for _, f := range EnvOverrideFindings(packs, on, delivered(tc.env), tc.grants) {
+			for _, f := range EnvOverrideFindings(packs, on, delivered(tc.env), tc.grants, nil) {
 				if !f.Certain {
 					warned = true
 				}

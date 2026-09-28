@@ -32,6 +32,7 @@ package packload
 import (
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/agentenv"
@@ -72,7 +73,7 @@ type ScopeInput struct {
 	// answer is therefore unchanged.
 	Grants map[string][]string
 	// UnservedAdaptations are the conversions this notch can never serve
-	// (UnservableAdaptations, at a notch that runs no pack service: the host): the ones its
+	// (UnservedAdaptationsAt, at a notch that serves no pack service: the host, macos-user): the ones its
 	// composition left out, and the unselected shipped packs' of the same kind. Handed to every
 	// derive's protocol gate (WithUnservedAdaptations), so a pairing only one of them would
 	// resolve refuses as *UnservedAdapterError, saying why, and outcome 3 never offers one. Nil
@@ -87,6 +88,13 @@ type ScopeInput struct {
 	// never a same-named env_sources entry or a variable in the launching shell. Nil at the
 	// host notch, which runs no pack service.
 	CallerTokens map[string]string
+	// Served is what this notch serves (ServedDaemons; docs/plans/notch-convergence.md §4
+	// item 2). A pack `env` variable declared `served_by` a daemon not served here is
+	// withheld from every process and named (UnservedEnvLines): an address nothing serves is
+	// a dead pointer, and on a shared loopback a credential handed to whoever binds the port.
+	// Nil composes as declared, every variable delivered: the shape of a caller that is not
+	// composing for a notch. Every launch passes one.
+	Served *ServedDaemons
 }
 
 // CredentialScope is the gate's answer for one launch. Its accessors answer on a nil
@@ -107,6 +115,13 @@ type CredentialScope struct {
 	sharedPackEnv map[string]string
 	// agents is each agent (CLI name) with a selected profile, and what only it receives.
 	agents map[string]*AgentDelivery
+	// packs, profiles and served are the inputs FoldFor re-folds an undelivered agent with.
+	packs    []*Pack
+	profiles map[string]string
+	served   *ServedDaemons
+	// unservedEnv is every pack env variable withheld because its daemon is not served here,
+	// keyed by variable, naming the daemon (ScopeInput.Served).
+	unservedEnv map[string]string
 }
 
 // AgentDelivery is what one agent receives beyond the shared set.
@@ -140,8 +155,16 @@ func ScopeCredentials(in ScopeInput) (*CredentialScope, error) {
 		fallback:         in.Fallback,
 		callerTokens:     in.CallerTokens,
 		sharedEnvSources: jsonx.NewOrderedMap(),
-		sharedPackEnv:    EnvVarsFor(in.Packs, in.Profiles, ""),
 		agents:           map[string]*AgentDelivery{},
+		packs:            in.Packs,
+		profiles:         in.Profiles,
+		served:           in.Served,
+	}
+	for _, e := range s.servedFold(EnvFold(in.Packs, in.Profiles, "")) {
+		if s.sharedPackEnv == nil {
+			s.sharedPackEnv = map[string]string{}
+		}
+		s.sharedPackEnv[e.Key] = e.Value
 	}
 	if s.envSources == nil {
 		s.envSources = jsonx.NewOrderedMap()
@@ -161,7 +184,7 @@ func ScopeCredentials(in ScopeInput) (*CredentialScope, error) {
 			Granted:    sortedUnique(in.Grants[agent]),
 			EnvSources: jsonx.NewOrderedMap(),
 			PackEnv:    map[string]string{},
-			Fold:       EnvFold(in.Packs, in.Profiles, agent),
+			Fold:       s.servedFold(EnvFold(in.Packs, in.Profiles, agent)),
 		}
 		if profile != "" {
 			d.Provider = ProviderFor(in.Resolved, profile)
@@ -195,6 +218,74 @@ func ScopeCredentials(in ScopeInput) (*CredentialScope, error) {
 		d.Shape = shape
 	}
 	return s, nil
+}
+
+// servedFold is fold with every entry whose `served_by` daemon is not served at this notch
+// left out, each one recorded for UnservedEnvLines. With no served set (ScopeInput.Served nil)
+// it is fold unchanged.
+func (s *CredentialScope) servedFold(fold []EnvFoldEntry) []EnvFoldEntry {
+	if s.served == nil {
+		return fold
+	}
+	out := fold[:0:0]
+	for _, e := range fold {
+		if e.ServedBy != "" && !s.served.Serves(e.ServedBy) {
+			if s.unservedEnv == nil {
+				s.unservedEnv = map[string]string{}
+			}
+			s.unservedEnv[e.Key] = e.ServedBy
+			continue
+		}
+		out = append(out, e)
+	}
+	return out
+}
+
+// FoldFor is agent's pack env fold as this notch delivers it: its delivery's when the gate
+// composed one, and otherwise the same fold (EnvFold over the gate's packs and profile table)
+// with the same served-at-this-notch filter. The host notch composes one process from scratch
+// and asks this whether or not the agent has a profile, so an unserved address is withheld
+// there by the one rule the jail's vehicles apply.
+func (s *CredentialScope) FoldFor(agent string) []EnvFoldEntry {
+	if s == nil {
+		return nil
+	}
+	if d := s.agents[agent]; d != nil {
+		return d.Fold
+	}
+	return s.servedFold(EnvFold(s.packs, s.profiles, agent))
+}
+
+// UnservedEnvLines names every pack env variable this notch withheld because the jail daemon
+// it points at is not served here, one line per daemon, sorted (P4: what a notch cannot do, it
+// says). nil when nothing was withheld. Names only: the value is an address, but the line is
+// about what is absent, and a reader acts on the variable.
+func (s *CredentialScope) UnservedEnvLines() []string {
+	if s == nil || len(s.unservedEnv) == 0 {
+		return nil
+	}
+	byDaemon := map[string][]string{}
+	var daemons []string
+	for k, daemon := range s.unservedEnv {
+		if _, seen := byDaemon[daemon]; !seen {
+			daemons = append(daemons, daemon)
+		}
+		byDaemon[daemon] = append(byDaemon[daemon], k)
+	}
+	sort.Strings(daemons)
+	why := "which does not run here: jail daemons run only in a container jail (podman or " +
+		"Apple Container), never at the host or on macos-user"
+	if s.served.RunsDaemons() {
+		why = "which this launch does not run (its loophole is disabled, or its pack is not selected)"
+	}
+	var lines []string
+	for _, daemon := range daemons {
+		vars := byDaemon[daemon]
+		sort.Strings(vars)
+		lines = append(lines, strings.Join(vars, ", ")+" — points at the "+
+			strconv.Quote(daemon)+" jail daemon, "+why+", so nothing would answer it")
+	}
+	return lines
 }
 
 // deliveryAgents is every process the gate composes a delivery for, sorted: each with a

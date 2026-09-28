@@ -47,8 +47,8 @@ type notch struct {
 
 var notches = []notch{
 	{name: "jail", unserved: func([]*Pack) []Adaptation { return nil }},
-	{name: "host", opts: []ComposeOption{WithoutServiceAdaptations()},
-		unserved: func(p []*Pack) []Adaptation { return UnservableAdaptations(p, nil) }},
+	{name: "host", opts: []ComposeOption{WithServed(NothingServed())},
+		unserved: func(p []*Pack) []Adaptation { return UnservedAdaptationsAt(p, nil, NothingServed()) }},
 }
 
 // agentEnvAt composes the table the way n does and runs AgentEnv for agent on profile.
@@ -167,7 +167,7 @@ func TestAJailRefusesAUserProfileWhoseProviderItLacks(t *testing.T) {
 		t.Fatal(err)
 	}
 	var mp *MissingProviderError
-	if errs := PairingRefusals(pi, providers, resolved, map[string]string{"pi": "myz"}); len(errs) != 1 ||
+	if errs := PairingRefusals(pi, providers, resolved, map[string]string{"pi": "myz"}, nil); len(errs) != 1 ||
 		!errors.As(errs[0], &mp) {
 		t.Fatalf("PairingRefusals = %v, want the one missing-provider refusal", errs)
 	}
@@ -282,7 +282,7 @@ func TestPairingRefusalsReportsAMissingProvider(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	errs := PairingRefusals(claude, providers, resolved, map[string]string{"claude": "codex"})
+	errs := PairingRefusals(claude, providers, resolved, map[string]string{"claude": "codex"}, nil)
 	var mp *MissingProviderError
 	if len(errs) != 1 || !errors.As(errs[0], &mp) {
 		t.Fatalf("PairingRefusals = %v, want the one missing-provider refusal", errs)

@@ -114,26 +114,6 @@ func ActiveVias(packs []*Pack, active map[string]string, user map[string]UserPro
 	return out
 }
 
-// ViaInert returns resolved with every profile's ViaBase cleared and its Via kept: the
-// table a notch that runs no jail daemon hands its derives (WG-I8, WG-I12). ViaURLFor, the
-// one predicate both derive paths ask "is this agent's via live?", then answers "" for
-// every agent, so each keeps its own client whatever the pack set holds. The pack set is
-// the gap it closes: a user who lists wire-bridge in `packs` explicitly gives
-// ResolveProfiles a via_address to resolve at `yolo host` too, and the host's env derive
-// would otherwise receive a URL no daemon serves there. Via stays stated, so a reader of
-// the table still sees which profiles route through a service.
-func ViaInert(resolved map[string]ResolvedProfile) map[string]ResolvedProfile {
-	if resolved == nil {
-		return nil
-	}
-	out := make(map[string]ResolvedProfile, len(resolved))
-	for name, r := range resolved {
-		r.ViaBase = ""
-		out[name] = r
-	}
-	return out
-}
-
 // ViaPointer is one place an agent's derived config carries its via URL: the surface whose
 // derive wrote it ("" for the agent's env producer), the key path from that layer's root to
 // the string, and the whole layer the path is in.

@@ -68,7 +68,12 @@ import (
 // two-channel defect docs/design/reference-mismatch-diagnostics.md §3 names — and
 // TestEveryConfigWarnSinkIsGraded is what noticed the first draft of this file discarding
 // both.
-func protocolPairingGap(packs []*packload.Pack, merged *jsonx.OrderedMap,
+//
+// served is what the configured runtime's launch serves (predictedServed): the prediction
+// composes the table the way that launch does and hands the gate the same unservable
+// adaptations, so on macos-user it predicts the refusal a bridged profile gets there
+// (notch convergence item 2: `yolo check` predicts per runtime).
+func protocolPairingGap(packs []*packload.Pack, merged *jsonx.OrderedMap, served packload.ServedDaemons,
 	configWarn func(string), userProfiles func() (map[string]packload.UserProfile, error)) (errs []string, warns []string) {
 	profiles := packload.ProfileTable(subMap(merged, "use_profiles"))
 	if len(profiles) == 0 || len(packs) == 0 {
@@ -80,8 +85,8 @@ func protocolPairingGap(packs []*packload.Pack, merged *jsonx.OrderedMap,
 	// decides where inference goes). A read problem degrades to the packs' declared
 	// addresses there, so it degrades to them here too rather than changing the verdict.
 	addresses, _ := config.LoadAdapterAddresses(configWarn)
-	providers, err := packload.ComposeProviders(subMap(merged, "providers"), packs,
-		packload.WithAdapterAddresses(addresses))
+	providers, unserved, err := packload.ComposeProvidersAt(subMap(merged, "providers"), packs,
+		addresses, served)
 	if err != nil {
 		return nil, []string{"Could not predict the protocol-pairing gate: the provider " +
 			"table did not compose (" + err.Error() + "). The launch will report this " +
@@ -100,8 +105,11 @@ func protocolPairingGap(packs []*packload.Pack, merged *jsonx.OrderedMap,
 			"did not resolve (" + err.Error() + "). The launch will report this problem " +
 			"first; the pairing is unchecked until it is fixed"}
 	}
+	// A via the runtime does not serve is cleared, as the launch clears it, so the via gate
+	// below asks nothing of it.
+	resolved, _ = packload.ViaServedAt(resolved, packs, served)
 
-	for _, refusal := range packload.PairingRefusals(packs, providers, resolved, profiles) {
+	for _, refusal := range packload.PairingRefusals(packs, providers, resolved, profiles, unserved) {
 		errs = append(errs, "This launch will be REFUSED: "+
 			strings.TrimSuffix(refusal.Error(), "\n"))
 	}

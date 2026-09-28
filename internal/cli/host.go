@@ -403,7 +403,7 @@ func hostExec(flagArgs, cmd []string, out, errw io.Writer, stdin io.Reader) int 
 	// THE GRANT'S DISCLOSURE (OQ-ES5) follows it: on every run the flag is given, whatever it
 	// delivered, names only. Never suppressible (OQ-RO3), so it is printed unconditionally
 	// here rather than folded into a line a quieter path could skip.
-	for _, block := range [][]string{launch.credentialScopeLines(), launch.grantLines()} {
+	for _, block := range [][]string{launch.credentialScopeLines(), launch.unservedLines(), launch.grantLines()} {
 		for i, line := range block {
 			if i == 0 {
 				fmt.Fprintf(errw, "yolo host: %s\n", line)
@@ -505,6 +505,9 @@ type hostComposition struct {
 	// provider it selects — which the disclosure's remedy reads to name a profile that would
 	// deliver a withheld credential (credentialRemedy).
 	resolved map[string]packload.ResolvedProfile
+	// unservedVias are the profiles whose via this notch cleared (packload.ViaServedAt),
+	// sorted, for the disclosure to name.
+	unservedVias []string
 	// command is the command as the user typed it after `--`, for the remedy to spell back;
 	// empty for `yolo host env`, which launches nothing.
 	command string
@@ -642,6 +645,13 @@ func (c *hostComposition) credentialScopeLines() []string {
 		Inherited: inherited,
 		Composed:  composed,
 	})
+}
+
+// unservedLines names what this notch withheld because nothing here serves it — a pack env
+// variable pointing at a jail daemon, a profile's via (P4, notch convergence item 2) — in the
+// words every notch prints (packload.UnservedLines). Header first, like the disclosure.
+func (c *hostComposition) unservedLines() []string {
+	return packload.UnservedLines(c.scope, c.unservedVias)
 }
 
 // processHolds answers, for this composition, whether and whence the process it composes holds
@@ -1044,7 +1054,7 @@ func composeHostVarsGranting(cfg *jsonx.OrderedMap, workspace, agent, profile st
 	// declared options off it (packload.providerOptions) and must measure the surface
 	// this launch carries. The same object is reused at (3), so the pre-flight and the
 	// env derive read the table the resolution was measured against.
-	providers, err := composedHostProviders(cfg, packs)
+	providers, unservedAdaptations, err := composedHostProviders(cfg, packs)
 	if err != nil {
 		c.err = err
 		return c
@@ -1059,9 +1069,10 @@ func composeHostVarsGranting(cfg *jsonx.OrderedMap, workspace, agent, profile st
 	// route is served whatever the pack set holds. ResolveProfiles gives a via profile a
 	// via_address whenever its service pack is selected, and a user who lists wire-bridge in
 	// `packs` explicitly selects it at this notch too, so the env derive below would be handed
-	// a ctx.via_url nothing serves. packload.ViaInert clears the address, and ViaURLFor, the
-	// predicate both notches' derive paths ask, answers "" for every agent.
-	resolvedProfiles = packload.ViaInert(resolvedProfiles)
+	// a ctx.via_url nothing serves. packload.ViaServedAt clears the address of every via this
+	// notch does not serve, and ViaURLFor, the predicate both notches' derive paths ask,
+	// answers "" for those agents; the cleared profiles are named (credentialScopeLines).
+	resolvedProfiles, c.unservedVias = packload.ViaServedAt(resolvedProfiles, packs, packload.NothingServed())
 	c.resolved = resolvedProfiles
 	if profileName != "" {
 		declared := packload.DeclaredProfileNames(packs, userProfiles)
@@ -1123,6 +1134,7 @@ func composeHostVarsGranting(cfg *jsonx.OrderedMap, workspace, agent, profile st
 	// profile delivers. A GIT PACK CONTRIBUTES HERE TOO: loadedHostPacks resolves through
 	// resolveConfiguredPack, which reads a git pack from the pack store the way a launch
 	// does. One the store does not have is dropped and warned about above.
+	hostServed := packload.NothingServed()
 	c.scopeInput = packload.ScopeInput{
 		Packs:      packs,
 		Providers:  providers,
@@ -1135,7 +1147,12 @@ func composeHostVarsGranting(cfg *jsonx.OrderedMap, workspace, agent, profile st
 		// of the same kind, so a pairing only one of them would resolve refuses once, naming
 		// why (ES-D18, ES-D19). It never refuses as a pairing nothing declares an adapter for,
 		// and never as outcome 3 telling the user to list a pack that resolves nothing here.
-		UnservedAdaptations: packload.UnservableAdaptations(packs, hostAdapterAddresses()),
+		UnservedAdaptations: unservedAdaptations,
+		// Nothing is served at this notch, so a pack env variable pointing at a jail daemon
+		// (`served_by`) is withheld and named rather than exported as a dead address, and on
+		// the host's own loopback a credential for whoever binds the port (notch convergence
+		// item 2). The jail's vehicles apply the same rule through the same gate.
+		Served: &hostServed,
 	}
 	scope, err := packload.ScopeCredentials(c.scopeInput)
 	if err != nil {
@@ -1165,11 +1182,10 @@ func composeHostVarsGranting(cfg *jsonx.OrderedMap, workspace, agent, profile st
 	// env map here that could spell a removal was the profile body's, whose
 	// null-means-unset decoder died with the body. What a removal still has is (2)'s
 	// env_sources nulls, held for (4) below.
-	fold := packload.EnvFold(packs, agentTable, agent)
-	if delivery != nil {
-		fold = delivery.Fold
-	}
-	for _, e := range fold {
+	//
+	// The gate's fold (FoldFor), for an agent with or without a delivery: it withholds what
+	// this notch does not serve, which a fold of our own would not.
+	for _, e := range scope.FoldFor(agent) {
 		vars = append(vars, agentenv.Var{Key: e.Key, Value: e.Value})
 	}
 
@@ -1223,20 +1239,21 @@ func selectedPackInstalls(packs []*packload.Pack, bin string) bool {
 // c.providers — because packload/providers.go states the composition happens exactly once
 // per launch, and two compositions would be two chances for the check and the exec to
 // disagree about what the launch carries.
-func composedHostProviders(cfg *jsonx.OrderedMap, packs []*packload.Pack) (*jsonx.OrderedMap, error) {
+func composedHostProviders(cfg *jsonx.OrderedMap, packs []*packload.Pack) (*jsonx.OrderedMap, []packload.Adaptation, error) {
 	var user *jsonx.OrderedMap
 	if v, ok := cfg.Get("providers"); ok {
 		user, _ = v.(*jsonx.OrderedMap)
 	}
 	// NO ADDRESS A PACK'S OWN SERVICE SERVES (docs/design/credential-sources-separation.md
-	// ES-D18): `yolo host` starts no pack service, so the wire bridge's adapter address —
-	// declared by packs/wire-bridge beside the service whose in-jail daemon listens on it — is
-	// one no host process serves (wire-bridge.md, "No host-side bridge"). Composed in, an agent
-	// the bridge would front is pointed at a dead address: claude on cerebras at
-	// http://127.0.0.1:8214. Left out, an agent that speaks the provider's own wire resolves to
-	// it directly, and one that cannot refuses at the gate, which composeHostVars words.
-	return packload.ComposeProviders(user, packs, packload.WithAdapterAddresses(hostAdapterAddresses()),
-		packload.WithoutServiceAdaptations())
+	// ES-D18): `yolo host` starts no jail daemon, so nothing is served at this notch
+	// (packload.NothingServed) and the wire bridge's adapter address — declared by
+	// packs/wire-bridge beside the service whose in-jail daemon listens on it — is left out.
+	// Composed in, an agent the bridge would front is pointed at a dead address: claude on
+	// cerebras at http://127.0.0.1:8214. Left out, an agent that speaks the provider's own
+	// wire resolves to it directly, and one that cannot refuses at the gate, which
+	// composeHostVars words. The same composition every notch calls (ComposeProvidersAt),
+	// with this notch's served set as its input (notch convergence item 2).
+	return packload.ComposeProvidersAt(user, packs, hostAdapterAddresses(), packload.NothingServed())
 }
 
 // hostAdapterAddresses is the user's adapter address overrides, read the same way the jail
@@ -1635,7 +1652,7 @@ func hostEnvDelta(agent, profile string, grant *hostGrantRequest, warn func(stri
 	if c.err != nil {
 		return nil, nil, c.err
 	}
-	return c.vars, append(c.credentialScopeLines(), c.grantLines()...), nil
+	return c.vars, append(append(c.credentialScopeLines(), c.unservedLines()...), c.grantLines()...), nil
 }
 
 // hostEnvDefaultAgent is the agent `yolo host env` composes for when no --agent is given:

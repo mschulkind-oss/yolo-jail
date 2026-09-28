@@ -81,6 +81,12 @@ type packChannel struct {
 	// bridged client read them from the environment, and the credential gate composes them into
 	// the derives that point a client at the service. nil when no selected service runs.
 	callerTokens map[string]string
+	// unservedVias are the profiles whose via this notch does not serve (packload.ViaServedAt),
+	// sorted: their agents keep their own clients, and the launch names them (noteUnserved).
+	unservedVias []string
+	// served is what this launch's notch serves (servedDaemons), for the checks that read
+	// the channel after it is composed (checkEnvOverrides).
+	served packload.ServedDaemons
 }
 
 // composePackChannel composes the channel from the config and the STAGED pack set.
@@ -121,7 +127,14 @@ func (o *Options) composePackChannel(cfg *jsonx.OrderedMap, packs []*packload.Pa
 	// measure the surface this launch actually carries — not the one a manifest walk
 	// would have described. Same object for both, so the env derive below and the
 	// resolution cannot disagree about what a provider declares.
-	providers, err := composedProviders(cfg, packs)
+	//
+	// THE PAYLOAD FIRST: the jail daemons this launch declares (jailDaemonsFor, the same
+	// composer the container argv serializes and the macos-user arm declines, on the runtime
+	// Run resolved) decide both the caller tokens and what is SERVED AT THIS NOTCH
+	// (servedDaemons), and the provider table composes only the addresses served here.
+	specs := o.jailDaemonsFor(cfg, o.runtime, packs)
+	served := o.servedDaemons(specs)
+	providers, unservedAdaptations, err := composedProviders(cfg, packs, served)
 	if err != nil {
 		return nil, err
 	}
@@ -129,14 +142,18 @@ func (o *Options) composePackChannel(cfg *jsonx.OrderedMap, packs []*packload.Pa
 	if err != nil {
 		return nil, err
 	}
-	// The caller tokens of the jail daemons THIS LAUNCH'S PAYLOAD names (callertokens.go):
-	// the same composer the container argv serializes and the macos-user arm declines, on
-	// the runtime Run resolved, so a token exists exactly for a daemon the launch declared.
-	callerTokens, err := o.launchCallerTokens(o.jailDaemonsFor(cfg, o.runtime, packs))
+	// A via this notch does not serve is cleared, so its agent keeps its own client, and named
+	// (noteUnserved): the host's rule, now every notch's (ViaServedAt).
+	resolved, unservedVias := packload.ViaServedAt(resolved, packs, served)
+	// The caller tokens of the jail daemons the payload names (callertokens.go), so a token
+	// exists exactly for a daemon the launch declared.
+	callerTokens, err := o.launchCallerTokens(specs)
 	if err != nil {
 		return nil, err
 	}
 	c := &packChannel{
+		unservedVias:                unservedVias,
+		served:                      served,
 		callerTokens:                callerTokens,
 		profiles:                    profiles,
 		providers:                   providers,
@@ -162,6 +179,11 @@ func (o *Options) composePackChannel(cfg *jsonx.OrderedMap, packs []*packload.Pa
 		// address a pack service serves names its token as its credential, and the derive of
 		// any agent sent there must read the value that service demands.
 		CallerTokens: callerTokens,
+		// What this notch cannot serve (served above): nil on a container launch, and on
+		// macos-user every service adaptation, so a pairing only one resolves refuses naming
+		// why, exactly as the host's does (ES-D18, generalized by notch convergence item 2).
+		UnservedAdaptations: unservedAdaptations,
+		Served:              &served,
 		Fallback: func(name string) (string, bool) {
 			v := o.Getenv(name)
 			return v, v != ""

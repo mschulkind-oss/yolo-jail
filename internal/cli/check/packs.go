@@ -246,7 +246,8 @@ func (o *Options) sectionPacks(r *reporter, merged *jsonx.OrderedMap) {
 	// ResolveNeeds, so a pack pulled in by `needs` can supply the adapter that resolves a
 	// pairing, exactly as it does at launch. protocols.go states why this calls the
 	// launch's own gate instead of restating it.
-	pairErrs, pairWarns := protocolPairingGap(loaded, merged, r.configWarn, userProfiles)
+	served := o.predictedServed(merged, loaded)
+	pairErrs, pairWarns := protocolPairingGap(loaded, merged, served, r.configWarn, userProfiles)
 	for _, e := range pairErrs {
 		r.fail(e, "")
 	}
@@ -261,7 +262,7 @@ func (o *Options) sectionPacks(r *reporter, merged *jsonx.OrderedMap) {
 	// `needs` delivers here exactly as it does at launch. envoverrides.go states why this
 	// calls the launch's own rule instead of restating it, which two delivery channels it
 	// cannot see, and why a directory grant counts only off macOS (!o.IsMacOS below).
-	overrideErrs, overrideWarns := envOverrideGap(loaded, merged, o.Workspace, !o.IsMacOS, r.configWarn, userProfiles)
+	overrideErrs, overrideWarns := envOverrideGap(loaded, merged, served, o.Workspace, !o.IsMacOS, r.configWarn, userProfiles)
 	for _, e := range overrideErrs {
 		r.fail(e.msg, e.note)
 	}

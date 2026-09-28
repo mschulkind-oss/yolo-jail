@@ -598,6 +598,10 @@ func (p *Pack) HonoredMounts() (granted []packdecl.HostFile, refused []string) {
 type EnvFoldEntry struct {
 	Key   string
 	Value string
+	// ServedBy is the jail daemon the entry's `env` contribution points at (`served_by`), ""
+	// when it points at none. The credential gate withholds an entry whose daemon is not
+	// served at the notch it composes for (ScopeInput.Served).
+	ServedBy string
 }
 
 // EnvFold is the pack env fold ONE AGENT receives, as the ORDERED OPERATION SEQUENCE both
@@ -631,15 +635,16 @@ func EnvFold(packs []*Pack, profiles map[string]string, agent string) []EnvFoldE
 	var out []EnvFoldEntry
 	for _, p := range packs {
 		static := p.Decl.EnvContributions()
+		servedBy := p.Decl.EnvServedBy()
 		for _, k := range sortedMapKeys(static) {
-			out = append(out, EnvFoldEntry{Key: k, Value: static[k]})
+			out = append(out, EnvFoldEntry{Key: k, Value: static[k], ServedBy: servedBy[k]})
 		}
 		for _, gated := range p.Decl.ProfiledEnvContributions() {
 			if !gateFiresFor(packs, p, gated.Profile, profiles, agent) {
 				continue
 			}
 			for _, k := range sortedMapKeys(gated.Vars) {
-				out = append(out, EnvFoldEntry{Key: k, Value: gated.Vars[k]})
+				out = append(out, EnvFoldEntry{Key: k, Value: gated.Vars[k], ServedBy: gated.ServedBy})
 			}
 		}
 	}

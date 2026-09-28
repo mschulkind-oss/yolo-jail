@@ -33,7 +33,9 @@ package run
 // ⚠ THE ~/.aws GRANT WARNS, IT DOES NOT REFUSE (2026-09-25): the shipped entry is
 // `certain: false`, so checkEnvOverrides prints it and returns no refusal. The warning is
 // printed INSIDE checkEnvOverrides, so the three call-site pins above cover it at every arm;
-// TestEnvOverrideWarnsOnTheMacosUserLaunch is its behavioral pin through Run.
+// TestEnvOverrideWarnsAboutARenderedHostFilesGrant is its behavioral pin. On macos-user the
+// pointer is withheld, since nothing there serves it, so a ~/.aws grant beside it overrides
+// nothing and warns about nothing (TestMacosUserWithholdsTheBedrockPointerSoNothingOverridesIt).
 
 import (
 	"bytes"
@@ -48,6 +50,7 @@ import (
 	"testing"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
 	"github.com/mschulkind-oss/yolo-jail/internal/macosuser"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
@@ -124,25 +127,46 @@ func overrideNativeLaunch(t *testing.T, userConfig string, env func(string) stri
 	return o, &stderr, seen
 }
 
+// writeWidgetLocalPack writes the conventional local pack (~/.config/yolo-jail/local, which
+// config.LoadPacks appends to every selection) with an env contribution gated on `bedrock` and
+// an `overridden_by` entry of its own — a pointer that points at no yolo daemon, so it is
+// delivered on EVERY backend, macos-user included. It is what call site 1 is pinned with now
+// that aws-auth's pointer is withheld on macos-user, where nothing serves it.
+func writeWidgetLocalPack(t *testing.T, home string) {
+	t.Helper()
+	dir := filepath.Join(home, ".config", "yolo-jail", "local")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	manifest := `{"name": "local", "contributes": [{"kind": "env", "profile": "bedrock",
+	  "vars": {"WIDGET_POINTER": "https://widget.example/creds"},
+	  "overridden_by": [{"vars": ["WIDGET_TOKEN"], "because": "the widget client reads WIDGET_TOKEN first"}]}]}`
+	if err := os.WriteFile(filepath.Join(dir, "pack.json"), []byte(manifest), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
 // TestEnvOverrideRefusesTheMacosUserLaunch is CALL SITE 1, asserted at the dispatch: the
 // handler must never be reached. This backend is where the credential pre-flight was
 // missing for a whole release (it lived only in runContainer, below the return), so a rule
-// added to one arm and not the other is this file's own history.
+// added to one arm and not the other is this file's own history. Pinned with a local pack's
+// own override, which macos-user delivers (writeWidgetLocalPack).
 func TestEnvOverrideRefusesTheMacosUserLaunch(t *testing.T) {
 	o, stderr, seen := overrideNativeLaunch(t,
-		awsAuthUserConfig(inEnvSources(map[string]string{bearerVar: "sk-bedrock-frozen"})),
+		awsAuthUserConfig(inEnvSources(map[string]string{"WIDGET_TOKEN": "frozen"})),
 		shellWith(nil))
+	writeWidgetLocalPack(t, seen.home)
 	if rc := Run(*o); rc != 1 {
-		t.Fatalf("Run() = %d, want 1: a native launch carrying aws-auth's pointer and a bearer "+
-			"must refuse\nstderr:\n%s", rc, stderr.String())
+		t.Fatalf("Run() = %d, want 1: a native launch carrying a pack's pointer and the "+
+			"variable that overrides it must refuse\nstderr:\n%s", rc, stderr.String())
 	}
 	if seen.reached {
 		t.Error("the refused launch still reached the macos-user handler — the pre-flight " +
 			"must run BEFORE the backend is dispatched, not after the sandbox started")
 	}
 	got := stderr.String()
-	for _, want := range []string{bearerVar + " is delivered by " + packload.FromEnvSources,
-		pointerVar, "pack aws-auth", "Drop one."} {
+	for _, want := range []string{"WIDGET_TOKEN is delivered by " + packload.FromEnvSources,
+		"WIDGET_POINTER", "pack local", "Drop one."} {
 		if !strings.Contains(got, want) {
 			t.Errorf("the refusal must name %q, or the reader cannot tell which to drop:\n%s",
 				want, got)
@@ -150,11 +174,48 @@ func TestEnvOverrideRefusesTheMacosUserLaunch(t *testing.T) {
 	}
 }
 
-// TestEnvOverrideLetsTheNonOverridingShapesThrough is the control for the test above, and
-// it is not decoration: OQ-SSO8 forbids a false positive, and each case here is a jail the
-// pointer still serves. A lone AWS_ACCESS_KEY_ID answers nothing in any SDK; the pair plus
-// AWS_PROFILE, all three delivered, makes the JavaScript SDKs skip their environment
-// provider.
+// TestMacosUserWithholdsTheBedrockPointerSoNothingOverridesIt is aws-auth on macos-user
+// (docs/plans/notch-convergence.md §4 item 2): that backend runs no jail daemon, so the
+// adapter behind AWS_CONTAINER_CREDENTIALS_FULL_URI never starts and the pointer is a port
+// nothing serves (packs/aws-auth/README.md: "macos-user runs no jail-side daemon at all").
+// The launch withholds the pointer and says so. With no pointer, a bearer, a static pair or a
+// ~/.aws grant beside it overrides nothing, so none of them refuses or warns — before this, a
+// macos-user launch refused a working bearer over a pointer that could never answer.
+func TestMacosUserWithholdsTheBedrockPointerSoNothingOverridesIt(t *testing.T) {
+	for _, tc := range []struct{ name, extra string }{
+		{"a bearer", inEnvSources(map[string]string{bearerVar: "sk-bedrock-frozen"})},
+		{"the static pair", inEnvSources(map[string]string{
+			"AWS_ACCESS_KEY_ID": "AKIAEXAMPLE", "AWS_SECRET_ACCESS_KEY": "secret"})},
+		{"a ~/.aws/config grant", `, "host_files": [{"path": "~/.aws/config", "content": "[default]\nregion = us-east-1\n"}]`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			o, stderr, seen := overrideNativeLaunch(t, awsAuthUserConfig(tc.extra), shellWith(nil))
+			if rc := Run(*o); rc != 0 || !seen.reached {
+				t.Fatalf("Run() = %d (reached=%v), want the launch to proceed: nothing serves the "+
+					"pointer here, so nothing can override it\nstderr:\n%s", rc, seen.reached, stderr.String())
+			}
+			if _, ok := seen.env.Get(pointerVar); ok {
+				t.Errorf("macos-user delivered %s, a port no daemon of its binds", pointerVar)
+			}
+			got := stderr.String()
+			for _, unwanted := range []string{"Refusing to launch", "MAY override it"} {
+				if strings.Contains(got, unwanted) {
+					t.Errorf("the launch printed %q over a pointer it withholds:\n%s", unwanted, got)
+				}
+			}
+			for _, want := range []string{"Not set at this notch", pointerVar, `"aws-auth"`} {
+				if !strings.Contains(got, want) {
+					t.Errorf("the launch does not name the withheld pointer (%q):\n%s", want, got)
+				}
+			}
+		})
+	}
+}
+
+// TestEnvOverrideLetsTheNonOverridingShapesThrough is the control for the refusals, and it is
+// not decoration: OQ-SSO8 forbids a false positive, and each case here is a jail the pointer
+// still serves. A lone AWS_ACCESS_KEY_ID answers nothing in any SDK; the pair plus
+// AWS_PROFILE, all three delivered, makes the JavaScript SDKs skip their environment provider.
 func TestEnvOverrideLetsTheNonOverridingShapesThrough(t *testing.T) {
 	for _, tc := range []struct {
 		name string
@@ -167,17 +228,18 @@ func TestEnvOverrideLetsTheNonOverridingShapesThrough(t *testing.T) {
 			"AWS_PROFILE": "work"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			extra := ""
-			if tc.env != nil {
-				extra = inEnvSources(tc.env)
+			o := overrideOptions(t)
+			o.Getenv = shellWith(nil)
+			o.ProfileName = "bedrock"
+			selected := awsAuthSelected(t)
+			cfg := awsAuthServedConfig(t, selected)
+			channel := channelFor(t, o, cfg, selected, userEnvWith(tc.env))
+			if _, ok := channel.scope.DeliveredPackEnv(pointerVar); !ok {
+				t.Fatal("the pointer was not delivered, so this test is not testing anything")
 			}
-			o, stderr, seen := overrideNativeLaunch(t, awsAuthUserConfig(extra), shellWith(nil))
-			if rc := Run(*o); rc != 0 {
-				t.Fatalf("Run() = %d, want 0: nothing here overrides the pointer\nstderr:\n%s",
-					rc, stderr.String())
-			}
-			if !seen.reached {
-				t.Error("a launch nothing overrides never reached the backend")
+			if lines := o.checkEnvOverrides(cfg, "podman", selected, channel, nil); len(lines) != 0 {
+				t.Errorf("nothing here overrides the pointer, and the launch refused:\n%s",
+					strings.Join(lines, "\n"))
 			}
 		})
 	}
@@ -185,13 +247,13 @@ func TestEnvOverrideLetsTheNonOverridingShapesThrough(t *testing.T) {
 
 // TestEnvOverrideIgnoresTheShellYoloWasLaunchedFrom is the regression test for the first
 // cut's false positive. A bearer or a static pair exported in the invoking shell — common
-// for anyone who uses AWS — never reaches the jail: the sandbox starts under `env -i`, and
+// for anyone who uses AWS — never reaches the jail: no backend forwards that environment, and
 // the channel carries no such variable. So the jail holds the pointer alone, the SDK asks
 // the service, and a refusal would have stopped a launch that works.
 //
-// The launch env the handler receives is asserted too, because it is the premise: if a
-// shell variable ever DID start crossing, this test must fail rather than keep blessing
-// a launch that no longer holds the pointer alone.
+// The composed channel is asserted too, because it is the premise: if a shell variable ever
+// DID start crossing, this test must fail rather than keep blessing a launch that no longer
+// holds the pointer alone.
 func TestEnvOverrideIgnoresTheShellYoloWasLaunchedFrom(t *testing.T) {
 	for _, tc := range []struct {
 		name  string
@@ -202,24 +264,24 @@ func TestEnvOverrideIgnoresTheShellYoloWasLaunchedFrom(t *testing.T) {
 			"AWS_ACCESS_KEY_ID": "AKIAEXAMPLE", "AWS_SECRET_ACCESS_KEY": "secret"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			o, stderr, seen := overrideNativeLaunch(t, awsAuthUserConfig(""), shellWith(tc.shell))
-			if rc := Run(*o); rc != 0 || !seen.reached {
-				t.Fatalf("Run() = %d (reached=%v), want the launch to proceed: a variable only "+
-					"in the invoking shell is not delivered, so it overrides nothing\nstderr:\n%s",
-					rc, seen.reached, stderr.String())
-			}
-			if strings.Contains(stderr.String(), "Refusing to launch") {
-				t.Errorf("the launch printed a refusal it did not act on:\n%s", stderr.String())
+			o := overrideOptions(t)
+			o.Getenv = shellWith(tc.shell)
+			o.ProfileName = "bedrock"
+			selected := awsAuthSelected(t)
+			cfg := awsAuthServedConfig(t, selected)
+			channel := channelFor(t, o, cfg, selected, emptyEnv())
+			if lines := o.checkEnvOverrides(cfg, "podman", selected, channel, nil); len(lines) != 0 {
+				t.Errorf("a variable only in the invoking shell is not delivered, so it overrides "+
+					"nothing, and the launch refused:\n%s", strings.Join(lines, "\n"))
 			}
 			for name := range tc.shell {
-				if _, ok := seen.env.Get(name); ok {
-					t.Errorf("%s from the invoking shell reached the sandbox's launch env — the "+
-						"premise of this test is gone, and the refusal it removed is owed again", name)
+				if _, ok := channel.scope.DeliveredPackEnv(name); ok {
+					t.Errorf("%s from the invoking shell reached the channel — the premise of this "+
+						"test is gone, and the refusal it removed is owed again", name)
 				}
 			}
-			if _, ok := seen.env.Get(pointerVar); !ok {
-				t.Errorf("the pointer was not delivered, so this test is not testing anything: %v",
-					seen.env.Keys())
+			if _, ok := channel.scope.DeliveredPackEnv(pointerVar); !ok {
+				t.Error("the pointer was not delivered, so this test is not testing anything")
 			}
 		})
 	}
@@ -231,33 +293,30 @@ func TestEnvOverrideIgnoresTheShellYoloWasLaunchedFrom(t *testing.T) {
 // AWS_PROFILE, so the environment provider answers ahead of the pointer — a shell-only
 // AWS_PROFILE must not make the pair entry step aside.
 func TestEnvOverrideUnlessMustBeDeliveredToo(t *testing.T) {
-	o, stderr, seen := overrideNativeLaunch(t,
-		awsAuthUserConfig(inEnvSources(map[string]string{
-			"AWS_ACCESS_KEY_ID": "AKIAEXAMPLE", "AWS_SECRET_ACCESS_KEY": "secret"})),
-		shellWith(map[string]string{"AWS_PROFILE": "work"}))
-	if rc := Run(*o); rc != 1 || seen.reached {
-		t.Fatalf("Run() = %d (reached=%v), want a refusal: AWS_PROFILE in the shell is not "+
-			"delivered, so the delivered pair still beats the pointer\nstderr:\n%s",
-			rc, seen.reached, stderr.String())
-	}
-	if got := stderr.String(); !strings.Contains(got, "Remove any one of") {
-		t.Errorf("the pair refusal must offer either half:\n%s", got)
+	o := overrideOptions(t)
+	o.Getenv = shellWith(map[string]string{"AWS_PROFILE": "work"})
+	o.ProfileName = "bedrock"
+	selected := awsAuthSelected(t)
+	cfg := awsAuthServedConfig(t, selected)
+	lines := o.checkEnvOverrides(cfg, "podman", selected, channelFor(t, o, cfg, selected,
+		userEnvWith(map[string]string{"AWS_ACCESS_KEY_ID": "AKIAEXAMPLE", "AWS_SECRET_ACCESS_KEY": "secret"})), nil)
+	if got := strings.Join(lines, "\n"); !strings.Contains(got, "Remove any one of") {
+		t.Errorf("AWS_PROFILE in the shell is not delivered, so the delivered pair still beats "+
+			"the pointer, and the pair refusal must offer either half:\n%s", got)
 	}
 }
 
-// TestEnvOverrideRefusesTheStaticPairOnTheMacosUserLaunch: the pair without AWS_PROFILE is
-// the maintainer's own configuration the day he turns SSO on (OQ-SSO8's stakes), so it is
-// pinned through Run as well as through the evaluator.
-func TestEnvOverrideRefusesTheStaticPairOnTheMacosUserLaunch(t *testing.T) {
-	o, stderr, seen := overrideNativeLaunch(t,
-		awsAuthUserConfig(inEnvSources(map[string]string{
-			"AWS_ACCESS_KEY_ID": "AKIAEXAMPLE", "AWS_SECRET_ACCESS_KEY": "secret"})),
-		shellWith(nil))
-	if rc := Run(*o); rc != 1 || seen.reached {
-		t.Fatalf("Run() = %d (reached=%v), want a refusal before dispatch\nstderr:\n%s",
-			rc, seen.reached, stderr.String())
-	}
-	got := stderr.String()
+// TestEnvOverrideRefusesTheStaticPair: the pair without AWS_PROFILE is the maintainer's own
+// configuration the day he turns SSO on (OQ-SSO8's stakes), so it is pinned beside the
+// evaluator's own tests on a launch that serves the pointer.
+func TestEnvOverrideRefusesTheStaticPair(t *testing.T) {
+	o := overrideOptions(t)
+	o.Getenv = shellWith(nil)
+	o.ProfileName = "bedrock"
+	selected := awsAuthSelected(t)
+	cfg := awsAuthServedConfig(t, selected)
+	got := strings.Join(o.checkEnvOverrides(cfg, "podman", selected, channelFor(t, o, cfg, selected,
+		userEnvWith(map[string]string{"AWS_ACCESS_KEY_ID": "AKIAEXAMPLE", "AWS_SECRET_ACCESS_KEY": "secret"})), nil), "\n")
 	for _, want := range []string{"AWS_ACCESS_KEY_ID is delivered by " + packload.FromEnvSources,
 		"AWS_SECRET_ACCESS_KEY is delivered by " + packload.FromEnvSources, "Remove any one of"} {
 		if !strings.Contains(got, want) {
@@ -486,9 +545,13 @@ func TestAttachRefusesAnOverriddenContribution(t *testing.T) {
 	packs := []*packload.Pack{officialPack(t, "claude"), officialPack(t, "aws-auth")}
 	o, cfg, channel, stderr := attachFixture(t, currentJailEnv,
 		packs, userEnvWith(map[string]string{bearerVar: "sk-bedrock-frozen"}),
-		func(o *Options, _ *jsonx.OrderedMap) {
+		func(o *Options, cfg *jsonx.OrderedMap) {
 			o.Getenv = shellWith(nil)
 			o.ProfileName = "bedrock"
+			// A jail that runs aws-auth's adapter, so its pointer is delivered at all.
+			served := awsAuthServedConfig(t, []*packload.Pack{officialPack(t, "claude"), officialPack(t, "aws-auth")})
+			v, _ := served.Get("loopholes")
+			cfg.Set("loopholes", v)
 		})
 	envFile, before := seedLiveChannelFile(t, o)
 
@@ -589,6 +652,18 @@ func awsAuthSelected(t *testing.T) []*packload.Pack {
 	return []*packload.Pack{officialPack(t, "claude"), officialPack(t, "aws-auth")}
 }
 
+// awsAuthServedConfig is the config of a container launch that RUNS aws-auth's adapter: the
+// loophole enabled, as a Bedrock user enables it (packs/aws-auth/README.md), and the staged
+// packs' loophole modules recorded, as staging records them. Without both the adapter is not
+// in the launch's payload, nothing serves the pointer, and the credential gate withholds it
+// (docs/plans/notch-convergence.md §4 item 2) — so there would be nothing to override.
+func awsAuthServedConfig(t *testing.T, packs []*packload.Pack) *jsonx.OrderedMap {
+	t.Helper()
+	t.Cleanup(loopholes.SnapshotPackModules())
+	loopholes.SetPackModules(packLoopholeModules(packs))
+	return newConfig("loopholes", newConfig("aws-auth", newConfig("enabled", true)))
+}
+
 // TestEnvOverrideNeedsTheGatingProfile: selecting aws-auth WITHOUT the profile that gates
 // its pointer delivers no pointer, so a bearer beside it overrides nothing and the launch
 // proceeds — the negative that makes selecting the pack harmless (design §12 step 4).
@@ -596,7 +671,7 @@ func TestEnvOverrideNeedsTheGatingProfile(t *testing.T) {
 	o := overrideOptions(t)
 	o.Getenv = shellWith(nil)
 	selected := awsAuthSelected(t)
-	cfg := newConfig()
+	cfg := awsAuthServedConfig(t, selected)
 	bearer := userEnvWith(map[string]string{bearerVar: "sk-bedrock-frozen"})
 	if lines := o.checkEnvOverrides(cfg, "podman", selected, channelFor(t, o, cfg, selected, bearer), nil); len(lines) != 0 {
 		t.Errorf("aws-auth selected without `bedrock` refused a launch that delivers no "+
@@ -615,7 +690,7 @@ func TestEnvOverrideNamesThePackContributionAndTheSecretChannel(t *testing.T) {
 	userEnv := jsonx.NewOrderedMap()
 	userEnv.Set(bearerVar, "sk-bedrock-frozen")
 	selected := awsAuthSelected(t)
-	cfg := newConfig()
+	cfg := awsAuthServedConfig(t, selected)
 	lines := o.checkEnvOverrides(cfg, "podman", selected, channelFor(t, o, cfg, selected, userEnv), nil)
 	joined := strings.Join(lines, "\n")
 	for _, want := range []string{
@@ -641,7 +716,7 @@ func TestEnvOverrideReadsTheAssembledArgv(t *testing.T) {
 	o.Getenv = shellWith(nil)
 	o.ProfileName = "bedrock"
 	selected := awsAuthSelected(t)
-	cfg := newConfig()
+	cfg := awsAuthServedConfig(t, selected)
 	channel := channelFor(t, o, cfg, selected, emptyEnv())
 
 	if lines := o.checkEnvOverrides(cfg, "podman", selected, channel, nil); len(lines) != 0 {
@@ -681,7 +756,7 @@ func TestEnvOverrideWarnsAboutARenderedHostFilesGrant(t *testing.T) {
 			o.Getenv = shellWith(nil)
 			o.ProfileName = "bedrock"
 			selected := awsAuthSelected(t)
-			cfg := newConfig()
+			cfg := awsAuthServedConfig(t, selected)
 			cfg.Set("host_files", []any{newConfig("path", tc.path, "content", tc.content)})
 			lines := o.checkEnvOverrides(cfg, "podman", selected,
 				channelFor(t, o, cfg, selected, emptyEnv()), nil)
@@ -722,7 +797,7 @@ func TestEnvOverrideWarningDoesNotHideARefusal(t *testing.T) {
 	o.Getenv = shellWith(nil)
 	o.ProfileName = "bedrock"
 	selected := awsAuthSelected(t)
-	cfg := newConfig()
+	cfg := awsAuthServedConfig(t, selected)
 	cfg.Set("host_files", []any{newConfig("path", "~/.aws/config", "content", "[default]\n")})
 	lines := o.checkEnvOverrides(cfg, "podman", selected, channelFor(t, o, cfg, selected,
 		userEnvWith(map[string]string{bearerVar: "sk-bedrock-frozen"})), nil)
@@ -735,27 +810,6 @@ func TestEnvOverrideWarningDoesNotHideARefusal(t *testing.T) {
 	}
 	if !strings.Contains(stderr.String(), "A host_files entry renders ~/.aws/config into the jail.") {
 		t.Errorf("the grant warning was not printed beside the refusal:\n%s", stderr.String())
-	}
-}
-
-// TestEnvOverrideWarnsOnTheMacosUserLaunch is the warning through Run, on call site 1: a
-// ~/.aws/config file grant (a FILE entry, which macos-user does copy) with `-p bedrock`
-// launches — the handler is reached — and the warning is on stderr. A launch that printed
-// nothing here would be the silent wrong answer back again for the grant that does hold keys.
-func TestEnvOverrideWarnsOnTheMacosUserLaunch(t *testing.T) {
-	o, stderr, seen := overrideNativeLaunch(t, awsAuthUserConfig(
-		`, "host_files": [{"path": "~/.aws/config", "content": "[default]\nregion = us-east-1\n"}]`),
-		shellWith(nil))
-	if rc := Run(*o); rc != 0 || !seen.reached {
-		t.Fatalf("Run() = %d (reached=%v), want the launch to proceed: an uncertain override "+
-			"warns and never refuses\nstderr:\n%s", rc, seen.reached, stderr.String())
-	}
-	got := stderr.String()
-	for _, want := range []string{"Warning: pack aws-auth's", "MAY override it",
-		"A host_files entry renders ~/.aws/config into the jail."} {
-		if !strings.Contains(got, want) {
-			t.Errorf("the launch did not print the grant warning %q:\n%s", want, got)
-		}
 	}
 }
 
@@ -793,7 +847,7 @@ func TestEnvOverrideCountsADirectoryGrantOnlyWhereItIsBound(t *testing.T) {
 			o.ProfileName = "bedrock"
 			o.acVersion = tc.ac
 			selected := awsAuthSelected(t)
-			cfg := newConfig()
+			cfg := awsAuthServedConfig(t, selected)
 			lines := o.checkEnvOverrides(cfg, tc.rt, selected,
 				channelFor(t, o, cfg, selected, emptyEnv()), nil)
 			if len(lines) != 0 {
@@ -852,7 +906,7 @@ func TestEnvOverrideTreatsAnEmptyValueAsUndelivered(t *testing.T) {
 	o.Getenv = shellWith(nil)
 	o.ProfileName = "bedrock"
 	selected := awsAuthSelected(t)
-	cfg := newConfig()
+	cfg := awsAuthServedConfig(t, selected)
 	channel := channelFor(t, o, cfg, selected, emptyEnv())
 	if lines := o.checkEnvOverrides(cfg, "podman", selected, channel, map[string]string{bearerVar: ""}); len(lines) != 0 {
 		t.Errorf("an empty bearer counted as delivered:\n%s", strings.Join(lines, "\n"))

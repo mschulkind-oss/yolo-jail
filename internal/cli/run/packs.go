@@ -1124,7 +1124,10 @@ func (o *Options) checkViaRoutes(packs []*packload.Pack) error {
 	if err != nil || len(packload.ActiveVias(packs, active, userProfiles)) == 0 {
 		return nil
 	}
-	providers, err := composedProviders(cfg, packs)
+	// Composed as composePackChannel composes it, served set included, so a via this notch
+	// does not serve is cleared here too and the gate asks nothing of it (ViaURLFor is "").
+	served := o.servedDaemons(o.jailDaemonsFor(cfg, o.runtime, packs))
+	providers, _, err := composedProviders(cfg, packs, served)
 	if err != nil {
 		return nil
 	}
@@ -1132,6 +1135,7 @@ func (o *Options) checkViaRoutes(packs []*packload.Pack) error {
 	if err != nil {
 		return nil
 	}
+	resolved, _ = packload.ViaServedAt(resolved, packs, served)
 	refusals, notices := wirebridged.ViaRouteGate(packs, providers, active, resolved)
 	for _, n := range notices {
 		o.pr(o.Stderr).print("[yellow]Warning: " + n + "[/yellow]")

@@ -307,9 +307,9 @@ func adaptEndpoints(table *jsonx.OrderedMap, packs []*Pack, cfg composeOpts) {
 	addresses := cfg.adapterAddresses
 	var adapters []Adaptation
 	for _, a := range Adaptations(packs) {
-		// A NOTCH THAT RUNS NO PACK SERVICE composes no address one serves
-		// (WithoutServiceAdaptations): nothing there listens on it.
-		if cfg.withoutServiceAdaptations && a.Service != "" {
+		// A NOTCH THAT DOES NOT SERVE THE ADAPTATION'S SERVICE composes no address it serves
+		// (WithServed): nothing there listens on it.
+		if !cfg.adaptationServed(a) {
 			continue
 		}
 		adapters = append(adapters, a)

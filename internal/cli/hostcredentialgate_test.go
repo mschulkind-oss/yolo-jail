@@ -131,17 +131,17 @@ func TestHostGatePiOnZaiSeesNoAWS(t *testing.T) {
 }
 
 // Done conditions 2 and 3 at the host: `yolo host -p bedrock -- codex` hands codex the AWS
-// pair and aws-auth's pointer and nothing of claude's, and a plain `yolo host -- claude`
-// gets none of them.
+// pair and nothing of claude's, and a plain `yolo host -- claude` gets none of them.
+// aws-auth's pointer is WITHHELD at the host: it points at the in-jail adapter, a jail daemon,
+// and no host process serves it (docs/plans/notch-convergence.md §4 item 2).
 func TestHostGateCodexOnBedrockAndClaudeUnselected(t *testing.T) {
 	codex, _ := hostGateLaunch(t, []string{"-p", "bedrock"}, "codex")
-	for k, want := range map[string]string{
-		"AWS_ACCESS_KEY_ID":                  "AKIA-host",
-		"AWS_CONTAINER_CREDENTIALS_FULL_URI": "http://127.0.0.1:1461/credentials",
-	} {
-		if codex[k] != want {
-			t.Errorf("codex on bedrock: %s = %q, want %q", k, codex[k], want)
-		}
+	if codex["AWS_ACCESS_KEY_ID"] != "AKIA-host" {
+		t.Errorf("codex on bedrock: AWS_ACCESS_KEY_ID = %q, want AKIA-host", codex["AWS_ACCESS_KEY_ID"])
+	}
+	if v := codex["AWS_CONTAINER_CREDENTIALS_FULL_URI"]; v != "" {
+		t.Errorf("codex on bedrock at the host was handed AWS_CONTAINER_CREDENTIALS_FULL_URI=%s, "+
+			"a port no host process serves", v)
 	}
 	if codex["CLAUDE_CODE_USE_BEDROCK"] != "" {
 		t.Errorf("codex on bedrock was handed claude's own CLAUDE_CODE_USE_BEDROCK")

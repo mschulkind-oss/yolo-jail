@@ -9,6 +9,8 @@ package run
 import (
 	"sort"
 	"strings"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 )
 
 // noteCredentialScope prints the gate's disclosure to stderr — every arm that delivers a
@@ -18,6 +20,7 @@ func (o *Options) noteCredentialScope(channel *packChannel) {
 	if channel == nil || channel.scope == nil {
 		return
 	}
+	o.noteUnserved(channel)
 	lines := channel.scope.Disclosure()
 	if len(lines) == 0 {
 		return
@@ -26,6 +29,25 @@ func (o *Options) noteCredentialScope(channel *packChannel) {
 	out.print("[dim]" + lines[0] + "[/dim]")
 	for _, l := range lines[1:] {
 		out.print(l)
+	}
+}
+
+// noteUnserved names what this launch withheld because nothing at its notch serves it — a pack
+// env variable pointing at a jail daemon the launch does not run, a profile's via — in the
+// words the host notch prints too (packload.UnservedLines; docs/plans/notch-convergence.md §4
+// item 2, P4). On a container launch whose selected loopholes all run, that is nothing; on
+// macos-user it names every pointer the declined daemons would have served. A disclosure, so
+// no quiet switch (OQ-RO3). Called from noteCredentialScope, so every arm that delivers a
+// channel says it.
+func (o *Options) noteUnserved(channel *packChannel) {
+	lines := packload.UnservedLines(channel.scope, channel.unservedVias)
+	if len(lines) == 0 {
+		return
+	}
+	out := o.pr(o.Stderr)
+	out.print("[yellow]" + lines[0] + "[/yellow]")
+	for _, l := range lines[1:] {
+		out.print("[yellow]" + l + "[/yellow]")
 	}
 }
 

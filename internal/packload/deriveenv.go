@@ -204,7 +204,7 @@ type agentEnvOpts struct {
 }
 
 // WithUnservedAdaptations hands the protocol gate the conversions this notch can never serve
-// (UnservableAdaptations: what WithoutServiceAdaptations left out, and the unselected shipped
+// (UnservedAdaptationsAt: what WithServed left out, and at a notch running no jail daemon the unselected shipped
 // packs' of the same kind). A pairing only one of them would resolve then refuses as
 // *UnservedAdapterError, saying why. Without the list it would refuse as a pairing nothing
 // declares an adapter for, or as outcome 3 naming a pack whose selection resolves nothing here.

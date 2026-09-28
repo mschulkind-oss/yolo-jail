@@ -37,9 +37,10 @@ func TestServiceAdaptationsAreTheOnesAPacksOwnServiceServes(t *testing.T) {
 	}
 }
 
-// Left out at a notch that runs no pack service, kept everywhere else, and a service-less
-// adapter kept at both.
-func TestWithoutServiceAdaptationsComposesNoServedAddress(t *testing.T) {
+// Left out at a notch that does not serve the adapter's service (the host, macos-user, or a
+// container launch whose payload lacks it), kept where it is served and when composing as
+// declared, and a service-less adapter kept at every notch.
+func TestWithServedComposesOnlyAServedAddress(t *testing.T) {
 	agent := protocolAgentPack(t, `,"protocols":["anthropic"]`)
 	vendor := providerPack(t, `,"endpoints":{"openai":{"base_url":"https://vendor.example/v1"}}`)
 	for _, tc := range []struct {
@@ -48,8 +49,13 @@ func TestWithoutServiceAdaptationsComposesNoServedAddress(t *testing.T) {
 		want    string
 	}{
 		{servicedAdapterPack(t), nil, "http://127.0.0.1:8214"},
-		{servicedAdapterPack(t), []ComposeOption{WithoutServiceAdaptations()}, ""},
-		{adapterPack(t, "openai", "anthropic", "https://gw.example/a"), []ComposeOption{WithoutServiceAdaptations()},
+		{servicedAdapterPack(t), []ComposeOption{WithServed(NothingServed())}, ""},
+		{servicedAdapterPack(t), []ComposeOption{WithServed(ServedAtContainer([]string{"bridge-daemon"}))},
+			"http://127.0.0.1:8214"},
+		{servicedAdapterPack(t), []ComposeOption{WithServed(ServedAtContainer(nil))}, ""},
+		{servicedAdapterPack(t), []ComposeOption{WithServed(ServedAtRuntime("macos-user",
+			[]string{"bridge-daemon"}))}, ""},
+		{adapterPack(t, "openai", "anthropic", "https://gw.example/a"), []ComposeOption{WithServed(NothingServed())},
 			"https://gw.example/a"},
 	} {
 		providers, err := ComposeProviders(nil, []*Pack{agent, vendor, tc.adapter}, tc.opts...)
@@ -70,7 +76,7 @@ func TestTheGateNamesAnUnservedAdapter(t *testing.T) {
 	vendor := providerPack(t, `,"endpoints":{"openai":{"base_url":"https://vendor.example/v1"}}`)
 	bridge := servicedAdapterPack(t)
 	packs := []*Pack{agent, vendor, bridge}
-	providers, err := ComposeProviders(nil, packs, WithoutServiceAdaptations())
+	providers, err := ComposeProviders(nil, packs, WithServed(NothingServed()))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -110,14 +116,14 @@ func TestTheGateNamesAnUnservedAdapter(t *testing.T) {
 // At a notch that runs no pack service, an UNSELECTED pack's service adaptation is no remedy
 // either: selecting the pack there composes no address (WithoutServiceAdaptations), so outcome
 // 3's "Add it to `packs` and this pairing resolves" would send the user straight into the
-// refusal above. Handed UnservableAdaptations, the gate refuses the pairing once, as
+// refusal above. Handed UnservedAdaptationsAt, the gate refuses the pairing once, as
 // *UnservedAdapterError naming the unselected pack and the user's address override. The jail
 // notch hands the gate nothing, so there outcome 3 still names the pack to add.
 func TestAnUnselectedServiceAdaptationIsNoRemedyWhereNoServiceRuns(t *testing.T) {
 	agent := protocolAgentPack(t, `,"protocols":["anthropic"]`)
 	vendor := providerPack(t, `,"endpoints":{"openai":{"base_url":"https://vendor.example/v1"}}`)
 	packs := []*Pack{agent, vendor}
-	providers, err := ComposeProviders(nil, packs, WithoutServiceAdaptations())
+	providers, err := ComposeProviders(nil, packs, WithServed(NothingServed()))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -126,7 +132,7 @@ func TestAnUnselectedServiceAdaptationIsNoRemedyWhereNoServiceRuns(t *testing.T)
 		t.Fatal(err)
 	}
 	lookup := func(string) (string, bool) { return "", false }
-	unservable := UnservableAdaptations(packs, map[string]string{"openai->anthropic": "http://127.0.0.1:9214"})
+	unservable := UnservedAdaptationsAt(packs, map[string]string{"openai->anthropic": "http://127.0.0.1:9214"}, NothingServed())
 	_, err = AgentEnv(packs, providers, map[string]string{"claude": "sel"}, "claude", "sel", lookup,
 		WithResolvedProfiles(resolved), WithUnservedAdaptations(unservable))
 	var unserved *UnservedAdapterError
@@ -149,12 +155,12 @@ func TestAnUnselectedServiceAdaptationIsNoRemedyWhereNoServiceRuns(t *testing.T)
 	}
 }
 
-// UnservableAdaptations is the selected packs' service adaptations, then the unselected shipped
+// UnservedAdaptationsAt, at a notch serving nothing, is the selected packs' service adaptations, then the unselected shipped
 // packs', each at the user's override; a service-less adapter is in neither half.
-func TestUnservableAdaptationsSpansSelectedAndUnselectedServicePacks(t *testing.T) {
+func TestUnservedAdaptationsAtANotchServingNothingSpansSelectedAndUnselected(t *testing.T) {
 	gateway := adapterPack(t, "openai-responses", "anthropic", "https://gw.example/a")
-	got := UnservableAdaptations([]*Pack{servicedAdapterPack(t), gateway},
-		map[string]string{"openai->anthropic": "http://127.0.0.1:9214"})
+	got := UnservedAdaptationsAt([]*Pack{servicedAdapterPack(t), gateway},
+		map[string]string{"openai->anthropic": "http://127.0.0.1:9214"}, NothingServed())
 	byPack := map[string][]Adaptation{}
 	for _, a := range got {
 		byPack[a.Pack] = append(byPack[a.Pack], a)

@@ -113,7 +113,7 @@ type EnvOverrideFinding struct {
 func EnvOverrideRefusal(packs []*Pack, profiles map[string]string, look OriginLookup,
 	renderedHostFiles []string) []string {
 	var out []string
-	for _, f := range EnvOverrideFindings(packs, profiles, look, renderedHostFiles) {
+	for _, f := range EnvOverrideFindings(packs, profiles, look, renderedHostFiles, nil) {
 		if f.Certain {
 			out = append(out, f.Lines...)
 		}
@@ -136,8 +136,13 @@ func EnvOverrideRefusal(packs []*Pack, profiles map[string]string, look OriginLo
 // jail destinations the launch's `host_files` would actually render on its backend
 // (config.RenderedHostFilePaths); a caller that cannot tell passes nil, which only ever
 // costs a false negative.
+//
+// served is the notch's served set (ScopeInput.Served). A contribution declared `served_by` a
+// daemon this notch does not serve is not delivered here — the gate withholds it — so it has
+// nothing to be overridden either, and refusing over it would be the same false positive.
+// Nil evaluates every contribution as declared.
 func EnvOverrideFindings(packs []*Pack, profiles map[string]string, look OriginLookup,
-	renderedHostFiles []string) []EnvOverrideFinding {
+	renderedHostFiles []string, served *ServedDaemons) []EnvOverrideFinding {
 	if look == nil {
 		look = func(string) (string, bool) { return "", false }
 	}
@@ -151,6 +156,9 @@ func EnvOverrideFindings(packs []*Pack, profiles map[string]string, look OriginL
 		}
 		for _, d := range p.Decl.EnvOverrideContributions() {
 			if d.Profile != "" && !gateDelivered(packs, p, d.Profile, profiles) {
+				continue
+			}
+			if served != nil && d.ServedBy != "" && !served.Serves(d.ServedBy) {
 				continue
 			}
 			for _, o := range d.Overrides {

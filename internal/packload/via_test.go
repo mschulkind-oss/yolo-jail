@@ -204,25 +204,6 @@ func TestSelectionCloseReadsNoProfilesWithNothingSelected(t *testing.T) {
 	}
 }
 
-// TestViaInertClearsEveryAddressAndKeepsTheVia pins WG-I12's table: ViaURLFor answers ""
-// for every agent over it, and the via each profile names is still stated.
-func TestViaInertClearsEveryAddressAndKeepsTheVia(t *testing.T) {
-	in := map[string]ResolvedProfile{
-		"pz":    {Provider: "zai", Via: "wire-bridge", ViaBase: "http://127.0.0.1:8216"},
-		"plain": {Provider: "zai"},
-	}
-	out := ViaInert(in)
-	if p := out["pz"]; p.Via != "wire-bridge" || p.ViaBase != "" || ViaURLFor(p, "pi") != "" {
-		t.Errorf("pz = %+v, want its via kept and no address", p)
-	}
-	if in["pz"].ViaBase == "" {
-		t.Error("ViaInert modified its input")
-	}
-	if ViaInert(nil) != nil {
-		t.Error("ViaInert(nil) must stay nil")
-	}
-}
-
 // TestTheShippedWireBridgeDeclaresTheViaAddress pins packs/wire-bridge's manifest: the
 // port the daemon's via listener binds and every via agent's URL are this one value.
 func TestTheShippedWireBridgeDeclaresTheViaAddress(t *testing.T) {

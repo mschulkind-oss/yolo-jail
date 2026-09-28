@@ -464,7 +464,7 @@ func TestPrintProviderRefusalBoldsEveryFindingsVerdict(t *testing.T) {
 	o.Getenv = shellWith(nil)
 	o.ProfileName = "bedrock"
 	selected := awsAuthSelected(t)
-	cfg := newConfig()
+	cfg := awsAuthServedConfig(t, selected)
 	lines := o.checkEnvOverrides(cfg, "podman", selected, channelFor(t, o, cfg, selected,
 		userEnvWith(map[string]string{
 			bearerVar:               "sk-bedrock-frozen",

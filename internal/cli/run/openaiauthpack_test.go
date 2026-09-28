@@ -96,7 +96,10 @@ func TestStageRunPacksPreservesNeededOpenAIAuthState(t *testing.T) {
 
 func TestCodexRoutesRefreshesToTheJailAdapter(t *testing.T) {
 	packs := []*packload.Pack{officialPack(t, "codex"), officialPack(t, "openai-auth")}
-	la := zaiLaunchAssembled(t, packs, bareConfig(), nil, nil)
+	// The launch runs the OpenAI adapter (its loophole recorded, as staging records it), so the
+	// refresh URL the adapter serves is delivered (notch convergence item 2).
+	la := zaiLaunchAssembled(t, packs, bareConfig(), nil,
+		func(*Options) { loopholes.SetPackModules(packLoopholeModules(packs)) })
 	if got := la.channelEnv(t, "CODEX_REFRESH_TOKEN_URL_OVERRIDE"); len(got) != 1 ||
 		got[0] != "CODEX_REFRESH_TOKEN_URL_OVERRIDE="+codexRefreshAdapterURL {
 		t.Fatalf("Codex refresh route = %q, want the in-jail broker adapter", got)

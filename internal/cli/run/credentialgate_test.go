@@ -78,7 +78,12 @@ func launchGateJail(t *testing.T, packNames []string, tune func(*Options)) (*gat
 	for _, name := range packNames {
 		packs = append(packs, officialPack(t, name))
 	}
-	channel := channelFor(t, o, bareConfig(), packs, gateCredentials())
+	// The launch RUNS the selected packs' loopholes, aws-auth's included (enabled, as a Bedrock
+	// user enables it), so a pointer one serves is delivered (notch convergence item 2).
+	cfg := bareConfig()
+	served, _ := awsAuthServedConfig(t, packs).Get("loopholes")
+	cfg.Set("loopholes", served)
+	channel := channelFor(t, o, cfg, packs, gateCredentials())
 	ws := t.TempDir()
 	deliverChannel(ws, "podman", channel)
 	o.noteCredentialScope(channel)

@@ -145,6 +145,8 @@ type EnvOverrideDecl struct {
 	// it is satisfied is the evaluator's question — it depends on the launch's profile
 	// table, which the manifest does not see.
 	Profile string
+	// ServedBy is the contribution's `served_by`, "" when it points at no yolo daemon.
+	ServedBy string
 	// Overrides are the declarations, in manifest order.
 	Overrides []EnvOverride
 }
@@ -161,6 +163,7 @@ func (m *Manifest) EnvOverrideContributions() []EnvOverrideDecl {
 		out = append(out, EnvOverrideDecl{
 			Sets:      sortedKeys(c.Vars),
 			Profile:   c.Profile,
+			ServedBy:  c.ServedBy,
 			Overrides: append([]EnvOverride(nil), c.OverriddenBy...),
 		})
 	}

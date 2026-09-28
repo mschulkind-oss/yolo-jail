@@ -313,6 +313,15 @@ type Contribution struct {
 	// its rules and why the pack declares it rather than core are EnvOverride's doc
 	// (envoverride.go).
 	OverriddenBy []EnvOverride `json:"overridden_by,omitempty"`
+	// ServedBy names the jail daemon — a loophole's `jail_daemon` by the loophole's name, or a
+	// pack service's by the service's — whose address these vars point a client at. `env` only.
+	// Core then delivers them only where that daemon is SERVED AT THIS NOTCH (a container
+	// runtime that runs it; never the host, never macos-user), and names them where it drops
+	// them, because an address nothing serves is a dead pointer at best and, on a shared
+	// loopback, a credential handed to whoever binds the port first
+	// (docs/plans/notch-convergence.md §2.4). Absent means the vars do not point at a yolo
+	// daemon and are delivered everywhere, as before.
+	ServedBy string `json:"served_by,omitempty"`
 
 	// --- hook ---
 	Hook string `json:"hook,omitempty"` // hook: the named capability from KnownHooks
@@ -1661,6 +1670,34 @@ type EnvContribution struct {
 	// 3), so an unmatched name is inert rather than an error — the same skip the
 	// config-overlay gate applies, for the same reason.
 	Profile string
+	// ServedBy is the contribution's `served_by`, "" when it points at no yolo daemon.
+	ServedBy string
+}
+
+// EnvServedBy maps each variable an UNCONDITIONAL `env` contribution declares with
+// `served_by` to the jail daemon it points at, later contributions winning a key exactly as
+// EnvContributions merges the values. A gated contribution's is on its EnvContribution. nil
+// when no unconditional contribution declares one.
+func (m *Manifest) EnvServedBy() map[string]string {
+	var out map[string]string
+	for _, c := range m.Contributions() {
+		if c.Kind != KindEnv || c.Profile != "" {
+			continue
+		}
+		for k := range c.Vars {
+			if c.ServedBy == "" {
+				if out != nil {
+					delete(out, k)
+				}
+				continue
+			}
+			if out == nil {
+				out = map[string]string{}
+			}
+			out[k] = c.ServedBy
+		}
+	}
+	return out
 }
 
 // EnvContributions returns every UNCONDITIONAL env contribution's vars merged into one
@@ -1698,7 +1735,7 @@ func (m *Manifest) ProfiledEnvContributions() []EnvContribution {
 		if c.Kind != KindEnv || c.Profile == "" {
 			continue
 		}
-		out = append(out, EnvContribution{Vars: c.Vars, Profile: c.Profile})
+		out = append(out, EnvContribution{Vars: c.Vars, Profile: c.Profile, ServedBy: c.ServedBy})
 	}
 	return out
 }
@@ -2614,6 +2651,19 @@ func validateContribution(label string, c Contribution) []string {
 	// `node_floor` is program's alone, refused in `profile`'s position and for `profile`'s
 	// reason: the only consumer is the launcher generator's interpreter resolution, so a floor
 	// on a content kind is a declaration that silently governs nothing.
+	// `served_by` is env's alone, refused in `profile`'s position and for its reason: the only
+	// consumer is the env fold's served-at-this-notch filter.
+	if c.ServedBy != "" && c.Kind != KindEnv {
+		problems = append(problems, fmt.Sprintf(
+			"%s: kind %q does not take \"served_by\" — it names the jail daemon an \"env\" "+
+				"contribution's variables point at, so only \"env\" has variables to withhold",
+			label, c.Kind))
+	}
+	if c.ServedBy != "" && strings.TrimSpace(c.ServedBy) != c.ServedBy {
+		problems = append(problems, fmt.Sprintf(
+			"%s: \"served_by\" %q has surrounding whitespace, so it could never name a daemon",
+			label, c.ServedBy))
+	}
 	if c.NodeFloor != "" && c.Kind != KindProgram {
 		problems = append(problems, fmt.Sprintf(
 			"%s: kind %q does not take \"node_floor\" — it selects the interpreter a PROGRAM's "+

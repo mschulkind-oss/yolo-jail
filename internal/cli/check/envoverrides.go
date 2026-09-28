@@ -107,7 +107,10 @@ type overrideGapFinding struct {
 //
 // dirsDeliver is whether this platform's launch delivers a directory `host_files` grant; see
 // the backend note above.
-func envOverrideGap(packs []*packload.Pack, merged *jsonx.OrderedMap,
+//
+// served is what the configured runtime's launch serves (predictedServed): a pointer it does
+// not deliver there has nothing to be overridden, as at launch.
+func envOverrideGap(packs []*packload.Pack, merged *jsonx.OrderedMap, served packload.ServedDaemons,
 	workspace string, dirsDeliver bool, configWarn func(string),
 	userProfiles func() (map[string]packload.UserProfile, error)) (errs, warns []overrideGapFinding) {
 	// The hydrated secret channel. A dotenv file that cannot be read degrades to "delivered
@@ -129,7 +132,7 @@ func envOverrideGap(packs []*packload.Pack, merged *jsonx.OrderedMap,
 	// refuses those first and says why. No adapter-address overrides are read: they move
 	// where an adapted endpoint answers, never which variable a provider claims, and
 	// protocols.go's read of them is the one this section grades.
-	providers, err := packload.ComposeProviders(subMap(merged, "providers"), packs)
+	providers, _, err := packload.ComposeProvidersAt(subMap(merged, "providers"), packs, nil, served)
 	if err != nil {
 		providers = nil
 	}
@@ -139,7 +142,7 @@ func envOverrideGap(packs []*packload.Pack, merged *jsonx.OrderedMap,
 	}
 	scope, _ := packload.ScopeCredentials(packload.ScopeInput{
 		Packs: packs, Providers: providers, Profiles: profiles, Resolved: resolved,
-		EnvSources: userEnv, NoDerives: true,
+		EnvSources: userEnv, NoDerives: true, Served: &served,
 	})
 
 	findings := packload.EnvOverrideFindings(packs, profiles, func(name string) (string, bool) {
@@ -154,7 +157,7 @@ func envOverrideGap(packs []*packload.Pack, merged *jsonx.OrderedMap,
 			return packload.FromPackEnv, true
 		}
 		return "", false
-	}, config.RenderedHostFilePaths(merged, dirsDeliver))
+	}, config.RenderedHostFilePaths(merged, dirsDeliver), &served)
 	for _, f := range findings {
 		g := overrideGapFinding{msg: f.Lines[0], note: overrideNote(f.Lines[1:])}
 		if f.Certain {

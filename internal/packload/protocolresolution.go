@@ -80,35 +80,16 @@ type ComposeOption func(*composeOpts)
 
 type composeOpts struct {
 	adapterAddresses map[string]string
-	// withoutServiceAdaptations composes no address a pack's own service serves
-	// (WithoutServiceAdaptations).
-	withoutServiceAdaptations bool
-}
-
-// WithoutServiceAdaptations composes the table for a notch that runs NO pack service — the
-// host, whose `yolo host` starts no daemon a pack's `service` declares (a service's host half
-// is declared and carried, not executed). An adaptation whose declaring pack serves it with
-// such a daemon (Adaptation.Service) then composes no address: the address is one nothing at
-// this notch listens on, and an agent pointed there fails at its first request. Every other
-// adaptation composes as usual, and so does every provider's own endpoint, so an agent that
-// speaks the provider's wire resolves to it directly, as it would with the adapter's pack
-// unselected. A pairing only the left-out adaptation would resolve refuses at the gate, and
-// WithUnservedAdaptations lets that refusal say why.
-//
-// It mirrors ViaInert (WG-I12) for the adapter's address: that clears the via address, and
-// this keeps the adapter address out of the table.
-func WithoutServiceAdaptations() ComposeOption {
-	return func(o *composeOpts) { o.withoutServiceAdaptations = true }
+	// served is the notch's served set (WithServed); servedSet says one was given at all.
+	served    ServedDaemons
+	servedSet bool
 }
 
 // ServiceAdaptations returns the conversions packs declare whose own pack serves them with a
 // `service` (Adaptation.Service), each Address carrying the user's override when there is one
-// (WithAdapterAddresses' map): the adaptations WithoutServiceAdaptations leaves out, spelled
-// for a refusal to name where the agent would have been pointed.
-//
-// Over the selected packs this is what the composition left out. UnservableAdaptations adds
-// the unselected shipped packs' to it, which is what a notch running no pack service hands the
-// gate.
+// (WithAdapterAddresses' map): the adaptations a notch that does not serve that service leaves
+// out (WithServed), spelled for a refusal to name where the agent would have been pointed.
+// UnservedAdaptationsAt picks the ones one notch cannot serve.
 func ServiceAdaptations(packs []*Pack, addresses map[string]string) []Adaptation {
 	var out []Adaptation
 	for _, a := range Adaptations(packs) {
@@ -121,18 +102,6 @@ func ServiceAdaptations(packs []*Pack, addresses map[string]string) []Adaptation
 		out = append(out, a)
 	}
 	return out
-}
-
-// UnservableAdaptations is every conversion a notch that runs NO pack service can never serve:
-// the selected packs' ServiceAdaptations, then those of the shipped packs this launch did not
-// select, each at the user's override. The second half is what keeps outcome 3 honest there.
-// UnselectedAdaptations would offer such a pack as "Add it to `packs` and this pairing
-// resolves", but selecting it at that notch composes no address (WithoutServiceAdaptations).
-// The user would then meet the *UnservedAdapterError refusal next, so the gate names that
-// refusal at once instead.
-func UnservableAdaptations(selected []*Pack, addresses map[string]string) []Adaptation {
-	return append(ServiceAdaptations(selected, addresses),
-		ServiceAdaptations(unselectedEmbedded(selected), addresses)...)
 }
 
 // UnservedAdapterError is the gate's refusal for a pairing only an adaptation this notch cannot
@@ -246,7 +215,7 @@ func neededByClause(neededBy string) string {
 // on its own default. At a jail a `yolo.derive` for the agent in any selected pack is a
 // reader too, and the excuse is left to an agent nothing derives for at all.
 // Otherwise, with such a pack found, the gate is asked again with its declaration composed
-// the way this notch composes (WithoutServiceAdaptations where unserved is non-nil, which is
+// the way this notch composes (WithServed(NothingServed()) where unserved is non-nil, which is
 // the notch that runs no pack service). An *UnservedAdapterError from that is returned
 // itself, annotated with the pack: it is the final answer at this notch, and naming the
 // provider's pack as the remedy would lead the user straight into it (ES-D19's two refusals
@@ -267,7 +236,7 @@ func missingProvider(packs []*Pack, owner *Pack, agent, profile, selected string
 	with := append(append([]*Pack{}, packs...), shipper)
 	var opts []ComposeOption
 	if unserved != nil {
-		opts = append(opts, WithoutServiceAdaptations())
+		opts = append(opts, WithServed(NothingServed()))
 	}
 	table, err := ComposeProviders(nil, with, opts...)
 	if err != nil {
@@ -543,7 +512,7 @@ func missingAdapterFor(spoken []string, offered map[string]bool, elsewhere []Ada
 // AgentEnv discovers a producer through, so the pack that speaks for an agent's environment
 // is the pack that speaks for its wires.
 //
-// unserved is what this notch can never serve (UnservableAdaptations: the adaptations the
+// unserved is what this notch can never serve (UnservedAdaptationsAt: the adaptations the
 // composition left out, and the unselected shipped packs' of the same kind), nil at a notch
 // that runs its packs' services. It is taken out of outcome 3's candidates, because selecting
 // such a pack there resolves nothing. A pairing one of them would have resolved then refuses
@@ -744,9 +713,11 @@ func binOwner(packs []*Pack, bin string) *Pack {
 //     empty profile and so does this, because the gate it predicts is reached through a
 //     SELECTION (§4.1) — a provider merely present in the table repoints nothing.
 //
-// profiles maps an agent's CLI name to its selected profile name (ProfileTable's shape).
+// profiles maps an agent's CLI name to its selected profile name (ProfileTable's shape), and
+// unserved is the predicted notch's UnservedAdaptationsAt, so `yolo check` predicts the refusal the
+// configured runtime's launch makes.
 func PairingRefusals(packs []*Pack, providers *jsonx.OrderedMap,
-	resolved map[string]ResolvedProfile, profiles map[string]string) []error {
+	resolved map[string]ResolvedProfile, profiles map[string]string, unserved []Adaptation) []error {
 	names := make([]string, 0, len(profiles))
 	for agent := range profiles {
 		names = append(names, agent)
@@ -755,7 +726,7 @@ func PairingRefusals(packs []*Pack, providers *jsonx.OrderedMap,
 
 	var out []error
 	for _, agent := range names {
-		if err := PairingRefusal(packs, providers, resolved, agent, profiles[agent], nil); err != nil {
+		if err := PairingRefusal(packs, providers, resolved, agent, profiles[agent], unserved); err != nil {
 			out = append(out, err)
 		}
 	}
@@ -763,7 +734,7 @@ func PairingRefusals(packs []*Pack, providers *jsonx.OrderedMap,
 }
 
 // PairingRefusal is the gate's answer for ONE agent on one profile, or nil — PairingRefusals'
-// body, with the notch's unservable adaptations (UnservableAdaptations at the host, nil where
+// body, with the notch's unservable adaptations (UnservedAdaptationsAt; nil where
 // the packs' services run). An agent with no profile, or one no selected pack installs, pairs
 // with nothing and gets nil, as AgentEnv composes nothing for it.
 //

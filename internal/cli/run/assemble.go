@@ -987,15 +987,32 @@ func (o *Options) assembleRunCmd(in *assembleInput) []string {
 // The error is a launch refusal, not a degraded table: composition can manufacture the
 // base_url+endpoints pair every consumer would resolve differently, and handing the launch
 // a table like that is the defect the refusal exists to prevent.
-func composedProviders(cfg *jsonx.OrderedMap, packs []*packload.Pack) (*jsonx.OrderedMap, error) {
+//
+// served is what this launch's notch serves (servedDaemons): the composition leaves out every
+// adapter address nothing here serves, and the second result names those adaptations for the
+// credential gate, so a pairing only one of them resolves refuses saying why
+// (packload.ComposeProvidersAt, the one composition every notch calls).
+func composedProviders(cfg *jsonx.OrderedMap, packs []*packload.Pack,
+	served packload.ServedDaemons) (*jsonx.OrderedMap, []packload.Adaptation, error) {
 	// The user's adapter address overrides, read from the USER FILE DIRECTLY rather than
 	// from cfg — which is what makes workspace scope inexpressible for a key that decides
 	// where inference goes (config/adapters.go, the rule `packs` and `profiles` follow).
 	// A read problem is a warning and a skip there, so a launch degrades to the addresses
 	// the packs declared rather than refusing over a key it could not parse.
 	addresses, _ := config.LoadAdapterAddresses(nil)
-	return packload.ComposeProviders(cfgMap(cfg, "providers"), packs,
-		packload.WithAdapterAddresses(addresses))
+	return packload.ComposeProvidersAt(cfgMap(cfg, "providers"), packs, addresses, served)
+}
+
+// servedDaemons is the "served at this notch" set for a launch whose composed jail-daemon
+// payload is specs (jailDaemonsFor): a container runtime serves every daemon in it, and
+// macos-user, which has no in-jail supervisor and declines every one
+// (noteMacosUserJailDaemonDeclines), serves none (docs/plans/notch-convergence.md §4 item 2).
+func (o *Options) servedDaemons(specs []loopholes.JailDaemonSpec) packload.ServedDaemons {
+	names := make([]string, 0, len(specs))
+	for _, s := range specs {
+		names = append(names, s.Name)
+	}
+	return packload.ServedAtRuntime(o.runtime, names)
 }
 
 // commonEnvBlock builds the big -e env block. Frozen contract (order and

@@ -60,7 +60,7 @@ func TestComposingProvidersAddsNoImplicitHostForward(t *testing.T) {
 		t.Fatalf("the fixture already asks for a forward (%v); it names no loopback URL", before)
 	}
 
-	providers, err := composedProviders(cfg, packs)
+	providers, _, err := composedProviders(cfg, packs, packload.ServedAtContainer([]string{"wire-bridge"}))
 	if err != nil {
 		t.Fatal(err)
 	}

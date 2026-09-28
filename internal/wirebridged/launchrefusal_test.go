@@ -229,8 +229,9 @@ func TestViaRouteGateSaysNothingWhereNothingIsWrong(t *testing.T) {
 			t.Errorf("%s: refusals %v notices %v", name, refusals, notices)
 		}
 	}
+	inert, _ := packload.ViaServedAt(gateResolved(), nil, packload.NothingServed())
 	refusals, notices := ViaRouteGate(gateAgents(t), mustProviders(t, gateProviders),
-		map[string]string{"chatty": "v-anthro"}, packload.ViaInert(gateResolved()))
+		map[string]string{"chatty": "v-anthro"}, inert)
 	if len(refusals)+len(notices) != 0 {
 		t.Errorf("an inert table refused %v / disclosed %v", refusals, notices)
 	}

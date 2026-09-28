@@ -57,7 +57,7 @@ func hostFooterTables() footer.Tables {
 	}
 	t.UseProfiles = footerJSON(use)
 	packs := footerHostPacks()
-	providers, err := composedHostProviders(cfg, packs)
+	providers, unservable, err := composedHostProviders(cfg, packs)
 	if err != nil {
 		return t
 	}
@@ -70,7 +70,6 @@ func hostFooterTables() footer.Tables {
 	if err != nil {
 		return t
 	}
-	unservable := packload.UnservableAdaptations(packs, hostAdapterAddresses())
 	composed := jsonx.NewOrderedMap()
 	for _, agent := range use.Keys() {
 		v, _ := use.Get(agent)
@@ -86,7 +85,8 @@ func hostFooterTables() footer.Tables {
 	}
 	// Inert via, as composeHostVars makes it (WG-I12): the host notch serves no via route, so
 	// its table carries no via address, whatever the pack set holds.
-	t.Profiles = footerJSON(packload.ProfilesWireTable(packload.ViaInert(resolved)))
+	inert, _ := packload.ViaServedAt(resolved, packs, packload.NothingServed())
+	t.Profiles = footerJSON(packload.ProfilesWireTable(inert))
 	return t
 }
 
