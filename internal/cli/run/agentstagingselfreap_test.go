@@ -76,7 +76,10 @@ func TestReapSmallClassesSparesTheLaunchingJail(t *testing.T) {
 	t.Setenv("YOLO_VERSION", "")
 	t.Setenv(autoReapOptOutEnv, "")
 
-	o := &Options{}
+	// A workspace of its own: the sweep's reclaim note goes to <workspace>/.yolo, and an
+	// empty Workspace resolves that against the cwd — this package's source directory,
+	// where an appended log invalidates `go test`'s result cache on every run.
+	o := &Options{Workspace: t.TempDir()}
 	fillDefaults(o)
 	o.Now = time.Now
 	// The runtime answers, and reports NO live containers: the launching jail's

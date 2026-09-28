@@ -80,7 +80,10 @@ func TestAnotherLaunchsSweepCannotReapThisLaunchsStaging(t *testing.T) {
 	}
 
 	// The CAPTURE sub-launch's housekeeping slot, which knows only its own name.
-	capOpts := &Options{}
+	// A workspace of its own: the sweep's reclaim note goes to <workspace>/.yolo, and an
+	// empty Workspace resolves that against the cwd — this package's source directory,
+	// where an appended log invalidates `go test`'s result cache on every run.
+	capOpts := &Options{Workspace: t.TempDir()}
 	fillDefaults(capOpts)
 	capOpts.Now = time.Now
 	// The runtime answers and reports NO live containers: neither jail's container exists.
