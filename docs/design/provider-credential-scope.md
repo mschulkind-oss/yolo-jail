@@ -15,7 +15,7 @@ credentials and settings. Should claude, pi, or a plain shell in the same jail g
 maintainer ruled no. This doc works out how yolo delivers a provider's credentials and
 profile-gated variables to the agent that selected it, and to no other.
 
-**Status:** DESIGN, 2026-09-26 — three questions raised in review are open ([OQ-CN7](#OQ-CN7)–[OQ-CN9](#OQ-CN9)); everything ruled before them is BUILT, at `6b3eadae` (the gate, all three vehicles, the narrowed
+**Status:** DESIGN, 2026-09-26 — the three questions raised in review ([OQ-CN7](#OQ-CN7)–[OQ-CN9](#OQ-CN9)) are ruled and not yet built; everything ruled before them is BUILT, at `6b3eadae` (the gate, all three vehicles, the narrowed
 pre-flight and trap D2's close) and `fbb5ac8c` (opencode's menu key, [OQ-CN4](#OQ-CN4)'s menu
 half). [OQ-BR4](#OQ-BR4) was ruled 2026-09-25 and [OQ-CN1](#OQ-CN1)–[OQ-CN6](#OQ-CN6) on
 2026-09-26, all as leaned. MEASURED BY TESTS ONLY: the short suite runs the shipped packs through
@@ -58,7 +58,7 @@ values cross in a per-agent env file its launcher sources ([§5](#5-what-done-lo
 [`providers.md`, the credential gate](../reference/providers.md#the-credential-gate)).
 [§2](#2-what-happens-today-precisely) and [§3](#3-where-the-gate-can-sit) are the pre-gate analysis that ruling rested on, kept as the record of why.
 
-**Needs your ruling:** [OQ-CN7](#OQ-CN7) (are loopback credential services inside the gate?), [OQ-CN8](#OQ-CN8) (should a user's own override beat a profile-composed value?) and [OQ-CN9](#OQ-CN9) (should macos-user write per-agent files too?), all raised in review 2026-09-26.
+**Rulings:** [OQ-CN7](#OQ-CN7), [OQ-CN8](#OQ-CN8) and [OQ-CN9](#OQ-CN9), all ruled 2026-09-28 in review, as leaned. Nothing here awaits a ruling; the three builds are the remaining work.
 
 **Start at [§2.7](#27-one-shared-file-five-readers) and [§3](#3-where-the-gate-can-sit):** why
 nothing was per-agent before the gate, and where the gate could sit. That choice decided the
@@ -565,7 +565,7 @@ reaches two agents.
    > user read the same narrowed set, per CN5. A vehicle that cannot express per-agent delivery
    > stays per launch and says so as a disclosure.
 
-7. 💬 <a id="OQ-CN7"></a>**[OQ-CN7](#OQ-CN7): are loopback credential services inside the gate?**
+7. ✅ <a id="OQ-CN7"></a>**[OQ-CN7](#OQ-CN7): are loopback credential services inside the gate?**
    The gate scopes what each agent's ENVIRONMENT carries. `aws-auth`'s in-jail adapter
    (`127.0.0.1:1461`, started whenever the loophole is enabled, whatever any profile selects)
    hands the minted AWS credential to any process that asks, a bare shell and claude under
@@ -580,11 +580,14 @@ reaches two agents.
    stakes: whether done condition 3 holds for the credential or only for the pointer.
 
    _Leaning:_ (b) now, as it narrows with no new secret, and (c) for `aws-auth` after it.
-   <!-- vantage: oq id=OQ-CN7 leaning="(b) now: start the aws-auth adapter, and publish a bridge route, only when some agent's profile selects that provider, which narrows with no new secret; then (c) for aws-auth: a per-launch AWS_CONTAINER_AUTHORIZATION_TOKEN delivered only in the selecting agent's file, which the adapter requires." -->
+      **Answer:**
+   > **Ruled in review 2026-09-28, as leaned:** (b) now, then (c) for `aws-auth`. yolo starts the
+   > `aws-auth` adapter, and publishes a wire-bridge route, only when some agent's profile selects
+   > that provider, which narrows with no new secret. Then `aws-auth` gets a per-launch
+   > `AWS_CONTAINER_AUTHORIZATION_TOKEN`, delivered only in the selecting agent's file, which the
+   > adapter requires.
 
-   **Answer:** open.
-
-8. 💬 <a id="OQ-CN8"></a>**[OQ-CN8](#OQ-CN8): should a user's own override beat a profile-composed value?**
+8. ✅ <a id="OQ-CN8"></a>**[OQ-CN8](#OQ-CN8): should a user's own override beat a profile-composed value?**
    Before the gate, the shape variables and gated env sat in the shared file, sourced before
    the user's command, so `ANTHROPIC_MODEL=x claude` or an `export` in a jail shell won. Now
    the agent's launcher sources its file after the user's shell, and those lines are
@@ -594,11 +597,13 @@ reaches two agents.
    stale inherited one cannot. The stakes: whether a documented override habit keeps working.
 
    _Leaning:_ restore "the user's explicit value wins", by the second option.
-   <!-- vantage: oq id=OQ-CN8 leaning="Restore 'the user's explicit value wins': write composed values def-form against the launcher's incoming environment, overriding only names the shared file or the boot set, so an explicit per-command value wins and a stale inherited one cannot." -->
+      **Answer:**
+   > **Ruled in review 2026-09-28, as leaned:** restore "the user's explicit value wins." Composed
+   > values are written def-form against the launcher's incoming environment, overriding only
+   > names the shared file or the boot set, so an explicit per-command value wins and a stale
+   > inherited one cannot.
 
-   **Answer:** open.
-
-9. 💬 <a id="OQ-CN9"></a>**[OQ-CN9](#OQ-CN9): should macos-user write per-agent files too?**
+9. ✅ <a id="OQ-CN9"></a>**[OQ-CN9](#OQ-CN9): should macos-user write per-agent files too?**
    macos-user delivers per LAUNCH (CN-D12): the session carries the launched program's own
    values. A bare `yolo` there starts a login zsh, which is no agent, so `use_profiles:
    {claude: zai}` and then `claude` inside the sandbox reaches Anthropic first-party; before
@@ -608,9 +613,10 @@ reaches two agents.
    interactive flow keeps its configured providers.
 
    _Leaning:_ yes, the same files, written by the bootstrap.
-   <!-- vantage: oq id=OQ-CN9 leaning="Yes: macos-user's bootstrap writes the same per-agent files, so an agent started from a bare yolo's login shell gets its profile's values." -->
-
-   **Answer:** open.
+      **Answer:**
+   > **Ruled in review 2026-09-28, as leaned:** yes. macos-user's bootstrap writes the same
+   > per-agent files the container vehicle writes, so an agent started from a bare `yolo`'s login
+   > shell gets its profile's values.
 
 ## 7. Decision Ledger
 
@@ -623,6 +629,9 @@ reaches two agents.
 | OQ-CN4 | **Both, named separately.** | 2026-09-26 | [OQ-CN4](#OQ-CN4) | ✅ `6b3eadae` (withholding), `fbb5ac8c` (opencode's menu key) |
 | OQ-CN5 | **All three, because the host notch is the highest-stakes one and shipping the container first would leave the weakest boundary unfixed while the doc reads as done.** | 2026-09-26 | [OQ-CN5](#OQ-CN5) | ✅ `6b3eadae` |
 | OQ-CN6 | **A per-agent env file, written from CN2's single gate in `composePackChannel` and sourced by that agent's launcher.** | 2026-09-26 | [OQ-CN6](#OQ-CN6) | ✅ `6b3eadae`; carriers fixed in `92b5edd5`, `485d8ba4` |
+| OQ-CN7 | **(b) now, then (c) for `aws-auth`**: the adapter starts, and a bridge route is published, only when some agent's profile selects that provider; then a per-launch `AWS_CONTAINER_AUTHORIZATION_TOKEN` in the selecting agent's file, which the adapter requires | 2026-09-28 | [OQ-CN7](#OQ-CN7) | pending |
+| OQ-CN8 | **The user's explicit value wins**: composed values def-form against the launcher's incoming environment, overriding only names the shared file or the boot set | 2026-09-28 | [OQ-CN8](#OQ-CN8) | pending |
+| OQ-CN9 | **macos-user's bootstrap writes the same per-agent files** | 2026-09-28 | [OQ-CN9](#OQ-CN9) | pending |
 | CN-D1 | *Implementation decision.* `api_key_env_name` is a string or a non-empty list of distinct valid names (`packdecl.EnvNames`, one rule for manifests and user `providers`). One name keeps the string spelling on every surface; a list of several points an agent at none of them (`KeyEnvName`), so the derives read a view with the one name or none (`ProvidersForDerive`) and the pre-flight and the wire bridge read `KeyEnvName`. Picking the first of several would, for Bedrock, compose a bearer into claude's `ANTHROPIC_AUTH_TOKEN`. In a manifest, `null` and `""` read as absent, as they did while the field was a plain unvalidated string (review found the first build refusing both, fatally at boot); a user config's `""` stays refused, as it always was. Manifest names are validated now, which a pack author can meet as a new refusal | 2026-09-26 | [providers.md](../reference/providers.md#the-credential-gate) | ✅ `6b3eadae`, `0f794524` |
 | CN-D2 | *Implementation decision.* `bedrock` claims `AWS_BEARER_TOKEN_BEDROCK`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN`, `AWS_PROFILE` and `AWS_CONTAINER_CREDENTIALS_FULL_URI`: [`OQ-SSO7`](sso-backed-bedrock.md#13-decision-ledger)'s three routes as the clients spell them, plus the other two of pi's four spellings ([§2.4](#24-the-agents-disagree-about-what-a-credential-even-decides)) | 2026-09-26 | [providers.md](../reference/providers.md#the-credential-gate) | ✅ `6b3eadae` |
 | CN-D3 | *Implementation decision.* An `env_sources` value no provider claims stays shared, delivered to every process as before. The gate scopes provider credentials; a user's other variables (`GH_TOKEN`) are not a provider's | 2026-09-26 | [providers.md](../reference/providers.md#the-credential-gate) | ✅ `6b3eadae` |
