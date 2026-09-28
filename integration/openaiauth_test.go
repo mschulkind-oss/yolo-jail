@@ -69,7 +69,6 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
 	"github.com/mschulkind-oss/yolo-jail/internal/openaiauth"
-	"github.com/mschulkind-oss/yolo-jail/internal/openaiauthdaemon"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
@@ -119,17 +118,7 @@ func forgeCodexLogin(t *testing.T) forgedCodexLogin {
 }
 
 // singletonPID is the PID the openai-auth-broker singleton's PID file names, or 0.
-func singletonPID() int {
-	raw, err := os.ReadFile(paths.HostSingletonPIDFile(openaiauth.LoopholeName))
-	if err != nil {
-		return 0
-	}
-	pid, err := strconv.Atoi(strings.TrimSpace(string(raw)))
-	if err != nil || pid <= 0 {
-		return 0
-	}
-	return pid
-}
+func singletonPID() int { return hostDaemonPID(openaiauth.LoopholeName) }
 
 // processGone reports that pid is no longer a running process. A ZOMBIE counts as gone: the
 // singleton is spawned detached, so its reaper is whatever adopted it, and a container's PID 1
@@ -173,37 +162,10 @@ func daemonStateFile(pid int) (string, bool) {
 	return state, isBroker && state != ""
 }
 
-// stopSingletonPID stops the singleton process pid — TERM, then KILL after a grace — and then
-// removes the fixed-path files it owned, but only while its PID file still names it, so a
-// successor that some other launch started in between is never unlinked. It never falls back
-// to a process search: internal/broker's BrokerKill does, and a search could match a daemon
-// this test never started.
-func stopSingletonPID(pid int) error {
-	_ = syscall.Kill(pid, syscall.SIGTERM)
-	for deadline := time.Now().Add(5 * time.Second); !processGone(pid) && time.Now().Before(deadline); {
-		time.Sleep(50 * time.Millisecond)
-	}
-	if !processGone(pid) {
-		_ = syscall.Kill(pid, syscall.SIGKILL)
-		for deadline := time.Now().Add(2 * time.Second); !processGone(pid) && time.Now().Before(deadline); {
-			time.Sleep(50 * time.Millisecond)
-		}
-	}
-	if !processGone(pid) {
-		return fmt.Errorf("openai-auth-broker pid %d survived SIGTERM and SIGKILL", pid)
-	}
-	if singletonPID() != pid {
-		return nil
-	}
-	socket := paths.HostSingletonSocket(openaiauth.LoopholeName)
-	pidFile := paths.HostSingletonPIDFile(openaiauth.LoopholeName)
-	for _, p := range []string{socket, openaiauthdaemon.HostSocketPath(socket), pidFile + ".capability", pidFile} {
-		if err := os.Remove(p); err != nil && !errors.Is(err, fs.ErrNotExist) {
-			return err
-		}
-	}
-	return nil
-}
+// stopSingletonPID stops the openai-auth-broker singleton process pid and removes its
+// rendezvous files while its PID file still names it — homedaemons_test.go's stopHostDaemonPID,
+// which never falls back to a process search.
+func stopSingletonPID(pid int) error { return stopHostDaemonPID(openaiauth.LoopholeName, pid) }
 
 // skipIfMachineHoldsAGrant skips the test when the machine's OWN broker state file exists, live
 // singleton or not. With none alive, clearGrantlessSingleton has nothing to judge, and this test

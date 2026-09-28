@@ -102,13 +102,13 @@ func startYoloBackground(t *testing.T, name, dir, script string, env ...string) 
 	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
 	args := append(jailRunArgs(), "--", "bash", "-lc", script)
-	awaitDetachedWriters(t, dir)
 	cmd := exec.CommandContext(ctx, yoloBin, args...)
 	cmd.Dir = dir
 	cmd.Env = append(os.Environ(), "TERM=dumb")
 	cmd.Env = append(cmd.Env, childRepoRootEnv()...)
 	cmd.Env = append(cmd.Env, autoCaptureEnvForSuite()...)
 	cmd.Env = append(cmd.Env, env...)
+	awaitDetachedWriters(t, dir, launchHome(cmd.Env))
 	out := &syncBuffer{}
 	cmd.Stdout = out
 	cmd.Stderr = out

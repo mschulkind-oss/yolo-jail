@@ -15,7 +15,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mschulkind-oss/yolo-jail/internal/cli/run"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
@@ -148,8 +147,8 @@ func TestMacosUserTwoConcurrentLaunchesOfOneWorkspace(t *testing.T) {
 
 	env := hd10LaunchEnv()
 	t0 := time.Now()
-	a := hd10Launch(ws, scriptA, env)
-	b := hd10Launch(ws, scriptB, env)
+	a := hd10Launch(t, ws, scriptA, env)
+	b := hd10Launch(t, ws, scriptB, env)
 	// Each `<X>-exited` marker is written by THIS process once that launch's whole `yolo` —
 	// its deferred teardown included — has returned, never by a session. The longer session
 	// probes again on B-exited, and every wait in either script also stops on the OTHER
@@ -312,9 +311,16 @@ func hd10LaunchEnv() []string {
 // hd10Launch starts one macos-user launch of script in dir and delivers its result. A launch
 // that overruns macosUserTimeout is killed and reported as rc -1: a wedged pair is a finding,
 // and it must not leave the other launch unobserved.
-func hd10Launch(dir, script string, env []string) <-chan hd10Result {
+//
+// The detached-writer cleanup is registered HERE, on the test goroutine, and runs when the
+// test ends — after BOTH launches of the pair, which share one HOME: stopping that HOME's
+// broker when the first launch returned would kill it under the second
+// (detachedwriters_test.go).
+func hd10Launch(t *testing.T, dir, script string, env []string) <-chan hd10Result {
+	t.Helper()
 	ch := make(chan hd10Result, 1)
 	args := append(jailRunArgs(), "--", "bash", "-lc", script)
+	awaitDetachedWriters(t, dir, launchHome(env))
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), macosUserTimeout())
 		defer cancel()
@@ -325,11 +331,6 @@ func hd10Launch(dir, script string, env []string) <-chan hd10Result {
 		cmd.Stdout, cmd.Stderr = &stdout, &stderr
 		err := cmd.Run()
 		r := hd10Result{stdout: stdout.String(), stderr: stderr.String()}
-		// No *testing.T on this goroutine, so the wait is inline (detachedwriters_test.go).
-		// A macos-user launch starts no scratch remover; this returns at once.
-		if werr := run.WaitForScratchRemovers(dir, detachedWriterWait); werr != nil {
-			r.stderr += "\n[HD10: " + werr.Error() + "]"
-		}
 		var ee *exec.ExitError
 		switch {
 		case err == nil:

@@ -80,7 +80,6 @@ func TestAttachRestartsAnOlderJailAtATerminal(t *testing.T) {
 	privateYoloState(t)
 	master, slave := openTestPty(t)
 
-	awaitDetachedWriters(t, dir)
 	// $YOLO_CONTRACT_TAGS expands in the JAIL's shell: the boot echoes the command with the
 	// literal name, so only the fresh jail's own answer contains the tags.
 	cmd := exec.Command(yoloBin, append(jailRunArgs(), "-p", "claude=zai", "--", "bash", "-lc",
@@ -89,6 +88,7 @@ func TestAttachRestartsAnOlderJailAtATerminal(t *testing.T) {
 	cmd.Env = append(os.Environ(), "TERM=dumb")
 	cmd.Env = append(cmd.Env, childRepoRootEnv()...)
 	cmd.Env = append(cmd.Env, autoCaptureEnvForSuite()...)
+	awaitDetachedWriters(t, dir, launchHome(cmd.Env))
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = slave, slave, slave
 	if err := cmd.Start(); err != nil {
 		t.Fatalf("starting yolo: %v", err)

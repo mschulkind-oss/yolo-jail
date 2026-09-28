@@ -267,10 +267,15 @@ func warmJail() {
 	out, err := cmd.CombinedOutput()
 	elapsed := time.Since(start).Round(time.Second)
 	forceRemoveContainer(dir)
-	// Before the deferred RemoveAll: the launch's scratch remover logs into this workspace
-	// after yolo has exited (detachedwriters_test.go).
+	// Before the deferred RemoveAlls: the launch's scratch remover logs into this workspace
+	// after yolo has exited, and a host-wide daemon it spawned runs under this home
+	// (detachedwriters_test.go). The warmup selects no packs, so the second finds nothing —
+	// and is here anyway, so "every launch this suite makes" stays one rule.
 	if werr := run.WaitForScratchRemovers(dir, detachedWriterWait); werr != nil {
 		degraded("warmup: %v", werr)
+	}
+	if _, serr := stopHomeHostDaemons(home); serr != nil {
+		degraded("warmup: stopping its host-wide daemons: %v", serr)
 	}
 
 	if err != nil {
@@ -711,13 +716,13 @@ func runCommand(t *testing.T, dir string, args []string, opts ...runOption) resu
 	ctx, cancel := context.WithTimeout(context.Background(), cfg.timeout)
 	defer cancel()
 
-	awaitDetachedWriters(t, dir)
 	cmd := exec.CommandContext(ctx, yoloBin, args...)
 	cmd.Dir = dir
 	cmd.Env = append(os.Environ(), "TERM=dumb")
 	cmd.Env = append(cmd.Env, childRepoRootEnv()...)
 	cmd.Env = append(cmd.Env, autoCaptureEnvForSuite()...)
 	cmd.Env = append(cmd.Env, cfg.env...)
+	awaitDetachedWriters(t, dir, launchHome(cmd.Env))
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr

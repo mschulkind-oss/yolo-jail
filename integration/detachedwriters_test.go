@@ -20,6 +20,11 @@ package integration
 // launcher before the spawn (run.WaitForScratchRemovers). awaitDetachedWriters is the
 // suite's one spelling of that wait, and TestEveryLaunchSiteAwaitsDetachedWriters makes a
 // launch site without it a failure rather than a flake.
+//
+// THE SECOND DETACHED WRITER IS A HOST-WIDE DAEMON. A launch that needs one spawns it
+// detached, and it outlives the launch by design, running under the test's temp HOME
+// (homedaemons_test.go has the inventory). So the same cleanup also stops the daemons that
+// run under the launch's HOME, and waits for them to exit, before that HOME is removed.
 
 import (
 	"go/ast"
@@ -43,20 +48,51 @@ import (
 const detachedWriterWait = 2 * time.Minute
 
 // awaitDetachedWriters registers, at a launch site, a cleanup that waits for every detached
-// process launched for dir to finish writing into it.
+// process the launch left behind: the scratch removers writing into the workspace dir, and
+// the host-wide daemons running under home, the HOME the launch was given (launchHome).
 //
 // REGISTERED AT THE LAUNCH, not in writeProject, because cleanups run last-registered
 // first: one registered here runs before the cleanup of the workspace it launched in
 // (writeProject's removeWorkspaceTree) and before t.TempDir's RemoveAll, whichever helper
-// made the directory — several tests launch in a bare t.TempDir().
-func awaitDetachedWriters(t *testing.T, dir string) {
+// made the directory — several tests launch in a bare t.TempDir(). The same holds for the
+// home: requireJail and packHome make it before any launch, so its removal runs after this.
+//
+// AT THE END OF THE TEST, not of the launch: a test that launches twice may rely on the
+// second launch adopting the daemon the first one spawned (openaiauth_test.go does).
+//
+// Only a TEST's home is swept. A launch whose HOME is the machine's — nothing isolated it, or
+// ambientHome handed it back — may be sharing its daemons with the developer's real jails.
+func awaitDetachedWriters(t *testing.T, dir, home string) {
 	t.Helper()
+	sweep := home != "" && hostHome != "" && home != hostHome
 	t.Cleanup(func() {
+		if sweep {
+			stopped, err := stopHomeHostDaemons(home)
+			if len(stopped) > 0 {
+				t.Logf("stopped the host-wide daemons left running under this test's HOME %s: %s",
+					home, strings.Join(stopped, ", "))
+			}
+			if err != nil {
+				t.Errorf("stopping the host-wide daemons this test's launch left running under "+
+					"%s: %v", home, err)
+			}
+		}
 		if err := run.WaitForScratchRemovers(dir, detachedWriterWait); err != nil {
 			t.Errorf("%v: its housekeeping line would land in the middle of this test's "+
 				"temp-dir cleanup", err)
 		}
 	})
+}
+
+// launchHome is the HOME a launch with environment env runs with: the LAST HOME= entry, which
+// is the one exec hands the child, or this process's own when env names none.
+func launchHome(env []string) string {
+	for i := len(env) - 1; i >= 0; i-- {
+		if v, ok := strings.CutPrefix(env[i], "HOME="); ok {
+			return v
+		}
+	}
+	return os.Getenv("HOME")
 }
 
 // THE CALL SITE, BY BEHAVIOR: a runCommand launch's cleanup waits for a remover still in
@@ -99,9 +135,16 @@ func TestALaunchesCleanupWaitsForItsDetachedWriters(t *testing.T) {
 
 // THE CALL SITES, BY READING THEM. Every function in this package that execs the yolo
 // binary under test must also wait for what that launch left behind: awaitDetachedWriters
-// when it has a *testing.T, run.WaitForScratchRemovers directly when it has none (the
-// warmup, and a launch run on a goroutine). A new launch helper that forgets fails here,
-// under -short, instead of as one CI shard's cleanup flake a week later.
+// when it has a *testing.T, and when it has none (the warmup) BOTH halves directly —
+// run.WaitForScratchRemovers for the workspace and stopHomeHostDaemons for the home. Either
+// half alone fails: any launch may spawn a host-wide daemon, since selecting a pack is enough.
+// A new launch helper that forgets fails here, under -short, instead of as one CI shard's
+// cleanup flake a week later.
+//
+// awaitDetachedWriters itself is read too, so deleting either half from its body fails here
+// under -short, and not only in the container suite's behavioral tests
+// (TestALaunchesCleanupWaitsForItsDetachedWriters above, and
+// TestALaunchesCleanupStopsItsHomesHostDaemons in homedaemons_test.go).
 func TestEveryLaunchSiteAwaitsDetachedWriters(t *testing.T) {
 	files, err := filepath.Glob("*.go")
 	if err != nil {
@@ -109,6 +152,7 @@ func TestEveryLaunchSiteAwaitsDetachedWriters(t *testing.T) {
 	}
 	fset := token.NewFileSet()
 	var sites, missing []string
+	helperSeen := false
 	for _, name := range files {
 		f, err := parser.ParseFile(fset, name, nil, 0)
 		if err != nil {
@@ -119,7 +163,7 @@ func TestEveryLaunchSiteAwaitsDetachedWriters(t *testing.T) {
 			if !ok || fn.Body == nil {
 				continue
 			}
-			execsYolo, waits := false, false
+			execsYolo, awaits, waitsScratch, stopsDaemons := false, false, false, false
 			ast.Inspect(fn.Body, func(n ast.Node) bool {
 				call, ok := n.(*ast.CallExpr)
 				if !ok {
@@ -134,29 +178,47 @@ func TestEveryLaunchSiteAwaitsDetachedWriters(t *testing.T) {
 							execsYolo = true
 						}
 					}
-				case "awaitDetachedWriters", "run.WaitForScratchRemovers":
-					waits = true
+				case "awaitDetachedWriters":
+					awaits = true
+				case "run.WaitForScratchRemovers":
+					waitsScratch = true
+				case "stopHomeHostDaemons":
+					stopsDaemons = true
 				}
 				return true
 			})
+			if fn.Name.Name == "awaitDetachedWriters" {
+				helperSeen = true
+				if !waitsScratch || !stopsDaemons {
+					t.Errorf("awaitDetachedWriters must both wait for the scratch removers "+
+						"(run.WaitForScratchRemovers: %v) and stop the home's host-wide daemons "+
+						"(stopHomeHostDaemons: %v)", waitsScratch, stopsDaemons)
+				}
+			}
 			if !execsYolo {
 				continue
 			}
 			site := name + ":" + fn.Name.Name
 			sites = append(sites, site)
-			if !waits {
+			if !awaits && !(waitsScratch && stopsDaemons) {
 				missing = append(missing, site)
 			}
 		}
 	}
 	sort.Strings(missing)
+	if !helperSeen {
+		t.Error("awaitDetachedWriters was not found, so its body was not checked")
+	}
 	if len(sites) < 5 {
 		t.Fatalf("found only %d launch sites (%v); the scan no longer sees what it is pinning", len(sites), sites)
 	}
 	if len(missing) > 0 {
 		t.Errorf("these functions launch yolo without waiting for its detached writers, so a "+
-			"scratch remover can write into the workspace during t.TempDir's cleanup: %s\n"+
-			"Add awaitDetachedWriters(t, dir) at the launch (detachedwriters_test.go).",
+			"scratch remover can write into the workspace, or a host-wide daemon into the "+
+			"home, during t.TempDir's cleanup: %s\n"+
+			"Add awaitDetachedWriters(t, dir, launchHome(cmd.Env)) at the launch, or, with no "+
+			"*testing.T, both run.WaitForScratchRemovers and stopHomeHostDaemons "+
+			"(detachedwriters_test.go).",
 			strings.Join(missing, ", "))
 	}
 }
