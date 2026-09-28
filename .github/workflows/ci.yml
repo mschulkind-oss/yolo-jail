@@ -424,7 +424,19 @@ jobs:
   integration-complete:
     runs-on: ubuntu-latest
     needs: integration
+    # ALWAYS runs, and fails unless every shard succeeded: GitHub counts a SKIPPED job as
+    # passing a required status check, so without `always()` a red shard would skip this
+    # job and a branch protection rule on this one stable name would let the PR merge.
+    if: always()
     steps:
+      - name: Every integration shard succeeded
+        run: |
+          result='${{ needs.integration.result }}'
+          if [ "$result" != "success" ]; then
+            echo "::error::the integration shards finished '$result', not success"
+            exit 1
+          fi
+
       - name: Download every shard's test record
         uses: actions/download-artifact@v8
         with:
