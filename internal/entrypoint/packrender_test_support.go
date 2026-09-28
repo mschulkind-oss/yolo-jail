@@ -47,54 +47,25 @@ func ConfigurePackByName(e *Env, name string) error {
 // packoverlay.Collect below — could otherwise be inverted with every test green
 // (configureonepack_test.go).
 func configureOnePack(e *Env, p *packload.Pack) error {
-	name := p.Name
-	// The resolved table the launch lowered in, read before anything renders: the
-	// selection a derive sees (surfaceSelection) answers off it, exactly as the boot loop
-	// does — a pack-declared name and a user-declared one are both already IN it, and
-	// re-deriving either here would be a second implementation of ResolveProfiles.
-	resolved := e.LoadProfiles()
-	// Per agent, as the boot loop's (loadMCPTables): a server gated on a variable only one
-	// agent's own env file carries is written for that agent alone.
-	mcp := loadMCPTables(e)
-	tables := liveTables(e, mcp.shared)
-	// The autonomy policy reads off the target's profile, exactly as the boot loop does
-	// (ConfigurePackSurfaces) — this entry has to agree with it or the parity proofs above
-	// would be measuring a posture the boot path never renders.
-	autonomy := e.renderTarget().Profile().AgentAutonomy
-	// The profile table resolved the same way the boot loop resolves it — this entry must
-	// gate on the same selection, or the parity proofs above measure a render the boot
-	// never produces.
-	profiles := packload.ProfileTable(e.LoadUseProfiles())
-	surfaces, problems, notes := p.SurfacesForReport(autonomy)
-	if len(problems) > 0 {
-		return fmt.Errorf("pack %s: %s", name, problems[0])
-	}
-	// A config patch that named no surface of its own pack merged into nothing. This entry
-	// is `yolo check`'s dry-run probe, which makes it the FIRST place an authoring mistake
-	// of that shape can be seen — a pack is checked before any jail renders it — so the
-	// note is not optional here. Same ruling as the boot loop's: a warning, never an error.
-	for _, n := range notes {
-		e.warnOnce(n.String())
-	}
-	deriveScript := packload.DeriveScript(p)
-	// Overlays over the ONE pack asked for, so a pack that overlays a surface it owns
-	// itself still renders. A cross-pack overlay cannot resolve from a single-pack view
-	// and is reported ownerless (R2) — correct here rather than a limitation, since this
-	// entry means "render this pack" and the boot loop is what sees the whole set. The
-	// profile table is the one resolved above, so this entry gates a `profile`-scoped
-	// overlay on the same selection the boot loop's gate reads.
-	overlays := packoverlay.Collect([]*packload.Pack{p}, autonomy, profiles)
-	for _, s := range surfaces {
-		// The single-pack view again, and the same reading as the overlays above: the
-		// selection's BUILT-IN capability half resolves by bin ownership, so it answers
-		// for a surface whose agent this pack installs — every shipped one — and answers
-		// nothing for a surface an agent pack elsewhere would speak for. "Render this
-		// pack" is what the entry means; the boot loop is what sees the whole set.
-		if err := renderDeclaredSurface(e, s, tablesForAgent(tables, mcp, s.Agent), deriveScript,
-			surfaceSelectionFor([]*packload.Pack{p}, resolved, profiles, s),
-			contribsFor(overlays, s.Agent, s.Name)); err != nil {
-			return err
-		}
+	single := []*packload.Pack{p}
+	// THE ONE LOOP (surfaceloop.go) over a single-pack view, with this entry's failure
+	// disposition: stop at the first error, since a caller asking for one pack by name wants
+	// to know whether that pack worked. Everything else — the posture from the target's
+	// profile, the profile table, the resolved selection, the per-agent MCP table — is the
+	// boot's own, so the parity proofs this entry serves measure the render the boot produces.
+	if err := renderPackSet(e, single, func(autonomy bool, profiles map[string]string) *packoverlay.OverlaySet {
+		// Overlays over the ONE pack asked for, so a pack that overlays a surface it owns
+		// itself still renders. A cross-pack overlay cannot resolve from a single-pack view
+		// and is reported ownerless (R2) — correct here rather than a limitation, since this
+		// entry means "render this pack" and the boot loop is what sees the whole set. The
+		// selection's BUILT-IN capability half reads the same single-pack view: it answers
+		// for a surface whose agent this pack installs — every shipped one — and nothing for
+		// a surface an agent pack elsewhere would speak for.
+		return packoverlay.Collect(single, autonomy, profiles)
+	}, func(_ string, run func() error) error {
+		return run()
+	}); err != nil {
+		return err
 	}
 	for _, h := range p.Decl.HookContributions() {
 		if err := runPackHook(e, p, h); err != nil {

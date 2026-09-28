@@ -135,72 +135,21 @@ func LoadJailPacks(e *Env) ([]*packload.Pack, error) {
 // no per-pack branching at all. Failures are collected through genStep, so one boot
 // reports every broken surface rather than one per restart (A12).
 func ConfigurePackSurfaces(e *Env, packs []*packload.Pack) {
-	// The MCP table is PER AGENT (loadMCPTables): a server whose requires_env names a
-	// provider-claimed variable is written only for the agents whose own env file carries it.
-	mcp := loadMCPTables(e)
-	tables := liveTables(e, mcp.shared)
-	// The §4.2 autonomy policy comes from THIS target's confinement profile — the same
-	// render.ProfileFor table the host render reads (plan §6c step 1) — rather than from
-	// the literal `true` that used to sit here and in p.Surfaces(). It resolves to ON for
-	// a jail target, so the render is byte-identical (TestRenderFingerprintStable); what
-	// changes is that the boot path and the host path now read ONE statement of the policy
-	// instead of each carrying its own constant.
-	autonomy := e.renderTarget().Profile().AgentAutonomy
-	// The active profile table (YOLO_USE_PROFILES), keyed by CLI name. Resolved ONCE and
-	// handed to both consumers below, so the pack env fold and the config-overlay gate
-	// answer "which profile is active" from one resolution — the same rule the derives
-	// follow (every pack sees every key), which is what makes a profile visible to a pack
-	// that installs no CLI (packs/zai) rather than only to one with a bin to gate on.
-	profiles := packload.ProfileTable(e.LoadUseProfiles())
-	// The resolved table (YOLO_PROFILES) the same launch lowered in: what every profile
-	// NAME means, user declarations included. The selection below reads it — the pack
-	// manifests cannot answer for a name only the user declares, and re-deriving here
-	// would be the second implementation of ResolveProfiles the one-composition rule
-	// forbids.
-	resolved := e.LoadProfiles()
-	// config-overlay contributions are collected BEFORE the per-pack loop and across the
-	// whole set, because an overlay in pack B targets a surface pack A owns — the only
-	// case the kind exists for. Collecting per-pack would find, for that case, exactly
-	// none (docs/reference/pack-system.md §6). Since OQ-PT8 the gated overlay
-	// IS the profile's config channel — there is no separate variant fold beside it — so
-	// this table is that gate's whole input, and the same instance reaches
-	// surfaceSelectionFor below, so the gate and the derive cannot disagree.
-	overlays := packoverlay.Collect(packs, autonomy, profiles)
-	reportOverlayResolution(e, overlays)
-	for _, p := range packs {
-		surfaces, problems, notes := p.SurfacesForReport(autonomy)
-		for _, prob := range problems {
-			// A malformed surface is fatal: rendering the rest and skipping this one
-			// yields a jail whose config is quietly incomplete.
-			genStep(e, "pack_"+p.Name+"_surfaces", func() error { return fmt.Errorf("%s", prob) })
-		}
-		// A config patch that named no surface of its own pack merged into nothing — the
-		// OQ-Z5 shape, where the author's patch reads, to them, exactly like one that
-		// folded. Named, never fatal: the render is complete, the patch is merely inert
-		// (the same ruling that makes an ownerless config-overlay a warning).
-		//
-		// warnOnce, not warn, for the reason LoadJailPacks gives: the note is a property
-		// of the staged manifest, not of the pass that noticed it, and more than one
-		// entry renders the same pack's surfaces (the darwin boot path here,
-		// ConfigurePackByName for `yolo check`), so an unchanged manifest would print the
-		// same line twice and read as two problems.
-		for _, n := range notes {
-			e.warnOnce(n.String())
-		}
-		// A pack's derive.lua (if any) produces every dynamic layer for its surfaces
-		// — the projection Lua (docs/reference/pack-system.md §7). Read once per pack;
-		// absent means no surface has a dynamic layer. packload owns the reader —
-		// the host notch's env derive reads the same file through it.
-		deriveScript := packload.DeriveScript(p)
-		for _, s := range surfaces {
-			surface := s
-			genStep(e, "configure_"+surface.Agent+"_"+surface.Name, func() error {
-				return renderDeclaredSurface(e, surface, tablesForAgent(tables, mcp, surface.Agent), deriveScript,
-					surfaceSelectionFor(packs, resolved, profiles, surface),
-					contribsFor(overlays, surface.Agent, surface.Name))
-			})
-		}
-	}
+	// THE ONE LOOP (surfaceloop.go), with the boot's failure disposition: every step through
+	// genStep, so one boot reports every broken surface rather than one per restart (A12).
+	_ = renderPackSet(e, packs, func(autonomy bool, profiles map[string]string) *packoverlay.OverlaySet {
+		// config-overlay contributions are collected BEFORE the walk and across the whole
+		// set, because an overlay in pack B targets a surface pack A owns — the only case the
+		// kind exists for. Collecting per-pack would find, for that case, exactly none
+		// (docs/reference/pack-system.md §6). Since OQ-PT8 the gated overlay IS the profile's
+		// config channel, so the active profile table is that gate's whole input.
+		overlays := packoverlay.Collect(packs, autonomy, profiles)
+		reportOverlayResolution(e, overlays)
+		return overlays
+	}, func(name string, run func() error) error {
+		genStep(e, name, run)
+		return nil
+	})
 }
 
 // reportOverlayResolution surfaces what the overlay collection found, per rulings R2
@@ -443,17 +392,38 @@ func dropReservedSelection(e *Env, surface manifest.Surface, computed map[string
 	return rest
 }
 
-// renderDeclaredSurface writes one declared surface by the mechanism its mode names.
-//
-// sel is the resolved selection this surface's derive reads (surfaceSelection), computed
-// by the caller from the same profile table it folded the variants with.
-//
-// contribs are the config-overlay layers and config-list entries other packs contribute to
-// THIS surface, resolved cross-pack by the caller. nil for every surface nobody contributes
-// to — Compose folds nothing as a no-op, so the boot output of a pack set with no
-// contributions is byte-identical (pinned by TestRenderFingerprintStable).
+// jailLayerSource is where the jail's layers come from: the surface's derive over the live
+// tables, with the resolved selection the derive reads, and the host bytes the launch staged.
+type jailLayerSource struct {
+	tables       map[string]map[string]any
+	deriveScript string
+	// sel is the resolved selection this surface's derive reads (surfaceSelection), computed
+	// by the caller from the same profile table it folded the variants with.
+	sel surfaceSelection
+}
+
+// renderDeclaredSurface writes one declared surface at the Env's target: the one loop's head
+// for a single surface, then its jail tail. contribs are the config-overlay layers and
+// config-list entries other packs contribute to THIS surface, resolved cross-pack by the
+// caller; nil for every surface nobody contributes to — Compose folds nothing as a no-op, so
+// the boot output of a pack set with no contributions is byte-identical (pinned by
+// TestRenderFingerprintStable).
 func renderDeclaredSurface(e *Env, surface manifest.Surface, tables map[string]map[string]any, deriveScript string, sel surfaceSelection, contribs *surfaceContribs) error {
+	pl := surfacePlan{surface: surface, contribs: contribs}
 	if surface.ResolvedMode() == manifest.ModeUnrendered {
+		pl.unrendered = true
+	} else {
+		pl.mechanism, pl.decided = e.renderTarget().Modes().Mechanism(surface.ResolvedMode())
+	}
+	return renderPlannedSurface(e, pl, jailLayerSource{tables: tables, deriveScript: deriveScript, sel: sel})
+}
+
+// renderPlannedSurface is the JAIL tail of the one loop: one planned surface, written through
+// the mechanism the jail's census named (identical to its declared mode — render.JailModes runs
+// all four), with the jail's layers and the jail's disposition of what the writer says.
+func renderPlannedSurface(e *Env, pl surfacePlan, src jailLayerSource) error {
+	surface, contribs := pl.surface, pl.contribs
+	if pl.unrendered {
 		// Declared so `yolo config ls` can describe the file and so host_files cannot
 		// claim its path, but yolo does not write it. Skipping silently is correct here
 		// — "unrendered" is the declaration's whole meaning. A config-list aimed at it is
@@ -466,19 +436,20 @@ func renderDeclaredSurface(e *Env, surface manifest.Surface, tables map[string]m
 		}
 		return nil
 	}
+	if !pl.decided {
+		// Unreachable in a jail, whose census runs every mode; the fail-closed answer for a
+		// target that states no policy, which writes nothing.
+		return fmt.Errorf("surface %s/%s: %s", surface.Agent, surface.Name,
+			e.renderTarget().Modes().Excludes(surface.ResolvedMode()))
+	}
 
-	// OQ-AL1's LAUNCH REFUSAL: a list contribution on a path whose mechanism does not capture
-	// per entry is refused, naming the surface and its mode — never composed into a capture
-	// that would freeze the list. Returned as an ordinary error, so it is A12-fatal to the
-	// in-jail boot. (Not `yolo check`: it renders each embedded pack alone, so a user pack's
-	// cross-pack contribution never reaches this line there.) Deliberately NOT an
-	// rmwRefusedError, which the rmw arm below downgrades to a warning — that downgrade is for
-	// a file the AGENT wrote badly, and this is a declaration the pack author can fix.
-	if len(contribs.listContribs()) > 0 {
-		mechanism, _ := e.renderTarget().Modes().Mechanism(surface.ResolvedMode())
-		if refusal := agentcfg.ListCaptureRefusal(mechanism, surface); refusal != "" {
-			return fmt.Errorf("%s", refusal)
-		}
+	// OQ-AL1's LAUNCH REFUSAL (surfacePlan.listRefusal). Returned as an ordinary error, so it
+	// is A12-fatal to the in-jail boot. (Not `yolo check`: it renders each embedded pack alone,
+	// so a user pack's cross-pack contribution never reaches this line there.) Deliberately NOT
+	// an rmwRefusedError, which the rmw arm below downgrades to a warning — that downgrade is
+	// for a file the AGENT wrote badly, and this is a declaration the pack author can fix.
+	if refusal := pl.listRefusal(surface); refusal != "" {
+		return fmt.Errorf("%s", refusal)
 	}
 
 	// The config dir. Was an os.MkdirAll per agent in the six Go functions; the surface
@@ -494,32 +465,30 @@ func renderDeclaredSurface(e *Env, surface manifest.Surface, tables map[string]m
 	// is what the derive declared about it (ctx.in_full, CO13), and only the stateful arm
 	// reads it: it is the one mechanism that ADOPTS a file, so the one that has to know
 	// which tables it may claim wholesale as yolo's own previous output.
-	computed, inFull, err := deriveComputedLayer(e, surface, deriveScript, sel, tables)
+	computed, inFull, err := deriveComputedLayer(e, surface, src.deriveScript, src.sel, src.tables)
 	if err != nil {
 		return err
 	}
-
-	// THE HOST LAYER IS READ BY THE TWO MODES THAT COMPOSE ONE, and not before the switch.
+	layers := surfaceLayers{computed: computed, inFull: inFull}
+	// THE RESERVED SELECTION NAMESPACE is applied by the stateful writer alone; the two
+	// mechanisms that cannot apply it drop it, by name (dropReservedSelection).
+	if pl.mechanism != manifest.ModeStateful {
+		layers.computed = dropReservedSelection(e, surface, computed)
+	}
+	// THE HOST LAYER IS READ BY THE TWO MODES THAT COMPOSE ONE, and not before the dispatch.
 	// `rmw` never folds a host layer — it read-modify-writes the agent's own file — so
 	// reading it there could only produce a refusal (hostSurfaceBytes fails closed) over
 	// bytes the render would discard. A surface that declares `readsHost` AND `rmw` is
 	// making an inert declaration; refusing the boot for it would be the over-refusal this
 	// whole mechanism is careful not to be.
-	switch surface.ResolvedMode() {
-	case manifest.ModeComputed:
-		computed = dropReservedSelection(e, surface, computed)
-		hostBytes, err := hostSurfaceBytes(e, surface)
-		if err != nil {
+	if pl.mechanism != manifest.ModeRMW {
+		if layers.hostBytes, err = hostSurfaceBytes(e, surface); err != nil {
 			return err
 		}
-		_, err = renderSurfaceStatelessSurface(e, surface, hostBytes, computed, contribs)
-		if err == nil {
-			retireOrphanSidecars(e, surface)
-		}
-		return err
-	case manifest.ModeRMW:
-		computed = dropReservedSelection(e, surface, computed)
-		err := renderSurfaceRMWSurface(e, surface, computed, contribs)
+	}
+
+	w, err := writeSurfaceThrough(e, pl.mechanism, surface, layers, contribs)
+	if pl.mechanism == manifest.ModeRMW {
 		// A REFUSAL IS A WARNING HERE, NOT AN A12 BOOT FAILURE, and the distinction is the
 		// difference between the two things that can go wrong with an rmw surface.
 		//
@@ -539,24 +508,16 @@ func renderDeclaredSurface(e *Env, surface manifest.Surface, tables map[string]m
 			e.warn("warning: " + refusal.Error() + " (this file was NOT modified)")
 			return nil
 		}
-		if err == nil {
-			retireOrphanSidecars(e, surface)
-		}
-		return err
-	default:
-		hostBytes, err := hostSurfaceBytes(e, surface)
-		if err != nil {
-			return err
-		}
-		out, err := renderSurfaceStatefulSurface(e, surface, hostBytes, computed, inFull, contribs)
-		if err != nil {
-			return err
-		}
-		if out != nil && out.FirstMigration {
-			retireOrphanSidecars(e, surface)
-		}
-		return nil
 	}
+	if err != nil {
+		return err
+	}
+	// The sidecars an older layout left are retired once the surface is on its current one:
+	// after every stateless or rmw write, and after the stateful write that migrated it.
+	if pl.mechanism != manifest.ModeStateful || w.firstMigration {
+		retireOrphanSidecars(e, surface)
+	}
+	return nil
 }
 
 // hostSurfaceBytes reads the surface's host source from its /ctx mount, if it has one.

@@ -297,7 +297,10 @@ func RenderHostPack(p *packload.Pack, homeDir string, ownership render.HostOwner
 	// would write a variant's keys into the real home under an intent nobody expressed.
 	// A pack's BASE surfaces render, its variants do not; render's hostUnimplemented says
 	// the same thing to the human.
-	surfaces, problems, notes := p.SurfacesForReport(e.renderTarget().Profile().AgentAutonomy)
+	//
+	// THE ONE LOOP's head (surfaceloop.go, planPackSurfaces): the posture fold, each surface's
+	// contributions and the census's mechanism, decided the way the jail boot decides them.
+	plans, problems, notes := planPackSurfaces(e, p, overlays)
 	if len(problems) > 0 {
 		return nil, fmt.Errorf("pack %s: %s", p.Name, problems[0])
 	}
@@ -320,12 +323,13 @@ func RenderHostPack(p *packload.Pack, homeDir string, ownership render.HostOwner
 	for _, n := range notes {
 		out = append(out, HostRenderResult{Surface: n.Target.String(), Action: n.Action()})
 	}
-	for _, s := range surfaces {
+	modes := e.renderTarget().Modes()
+	for _, pl := range plans {
+		s, contribs := pl.surface, pl.contribs
 		id := s.Agent + "/" + s.Name
 		path := expandHomePath(e, s.Path)
 
-		contribs := contribsFor(overlays, s.Agent, s.Name)
-		if s.ResolvedMode() == manifest.ModeUnrendered {
+		if pl.unrendered {
 			// Declared but never written, at any target. A config-list aimed at it is inert —
 			// nothing is written, so there is nothing to refuse — and gets its own line, because
 			// an author reads a silent no-op exactly like entries that landed.
@@ -360,10 +364,9 @@ func RenderHostPack(p *packload.Pack, homeDir string, ownership render.HostOwner
 		// IN BOTH POSTURES, and ahead of the mechanism-specific probes below, because observe's
 		// job is to report what an --assert would do: a mechanism this notch cannot run is a
 		// refusal a dry run has to print, not one discovered at the write.
-		modes := e.renderTarget().Modes()
-		mechanism, decided := modes.Mechanism(s.ResolvedMode())
+		mechanism := pl.mechanism
 		switch {
-		case !decided:
+		case !pl.decided:
 			// A notch with no stated policy (render.KindGuest), a host target whose caller
 			// never resolved `host_management`, or a declaration this contract refuses — a
 			// `computed` surface under `own`, which has no capture overlay and therefore no
@@ -387,12 +390,10 @@ func RenderHostPack(p *packload.Pack, homeDir string, ownership render.HostOwner
 		// declaration: a `stateful` surface under `assert` renders through `rmw`, and it is
 		// rmw's capture that decides whether a list path is kept per entry. A `refused:` row
 		// in both postures, so a dry run shows it before an --assert would reach the file.
-		if len(contribs.listContribs()) > 0 {
-			if refusal := agentcfg.ListCaptureRefusal(mechanism, s); refusal != "" {
-				out = append(out, HostRenderResult{Surface: id, Path: path, Pruned: pruned,
-					Lists: contribs.listPacks(), Action: "refused: " + refusal})
-				continue
-			}
+		if refusal := pl.listRefusal(s); refusal != "" {
+			out = append(out, HostRenderResult{Surface: id, Path: path, Pruned: pruned,
+				Lists: contribs.listPacks(), Action: "refused: " + refusal})
+			continue
 		}
 		// DYNAMIC MANAGED TABLES at the host notch. yolo owns each of these keys wholesale, so
 		// they are written by replacement (regenerateManagedTables) rather than deep-merged —
@@ -526,56 +527,43 @@ func RenderHostPack(p *packload.Pack, homeDir string, ownership render.HostOwner
 		//
 		// THE MECHANISM RESOLVED ABOVE, executed rather than assumed: the switch there has
 		// already refused everything neither arm handles, and a third mechanism is added at
-		// that switch and here together.
-		var werr error
-		// Where the adoption archive landed, for THIS surface's result line. Set by the
-		// stateful arm alone: rmw asserts individual keys and adopts nothing, so there is
-		// no one-way door for it to net.
-		var archived string
-		switch mechanism {
-		case manifest.ModeStateful:
-			// `host_management: own`. Whole-file composition into a real home, with the capture
-			// store render.Target.SidecarDir resolves for this notch — the SAME writer the boot
-			// path runs, which is what makes "the host is a notch like any other" (P5) a fact
-			// about the code rather than an aspiration.
-			//
-			// ADOPTION IS THE FIRST RENDER'S OWN BEHAVIOUR and needs no SEEDING here.
-			// ComposeStateful reads "no trusted last_render" as a first migration and seeds the
-			// overlay from the file it finds, so the first owned render reproduces every key the
-			// file holds that yolo does not declare (§6.3.1). That branch exists because seeding
-			// an EMPTY overlay was a shipped data-loss bug; it is why this arm can be reached on
-			// a home full of hand-written config without a guard of its own.
-			//
-			// THE ONE GUARD IT IS OWED, and it is BUILT (OQ-CO7, 2026-09-12): one archive
-			// at adoption — the pre-existing file copied once into the archive subsystem, as
-			// a `config` bucket beside the ones that already ship (§6.3.3). The copy is made
-			// by the shared writer this arm calls (entrypoint.archiveAdoption, run from
-			// persistStatefulSurface), so the jail's own firstMigration gets the same net
-			// from the same line rather than from a second implementation here.
-			//
-			// It covers the deep-merged leaf adoption drops, which `confirmHostLosses` is
-			// structurally blind to: that gate reads EntryLosses and fires only on a first
-			// apply, so the `assert` -> `own` switch — the exact transition that loses the
-			// leaf — is unprompted. The archive is what stands in for the prompt there.
-			//
-			// A FAILED ARCHIVE REFUSES THE SURFACE, which is why this arm needs no branch of
-			// its own for it: the refusal arrives as an *rmwRefusedError at the write, and
-			// the paragraph above already says what happens to one of those — a per-surface
-			// result, the file untouched, the remaining surfaces still rendered.
-			//
-			// hostBytes is nil, and that is not the host LAYER going missing: at this notch the
-			// surface's own file IS what a `host` layer would have carried, and it arrives
-			// through adoption. Passing the same bytes as a layer too would fold them in BELOW
-			// the declared layers, so a key the user owns and a pack also declares would flip to
-			// the pack's value while adoption says it should not.
-			var sr *statefulRender
-			sr, werr = renderSurfaceStatefulDetail(e, s, nil, tableLayer, hostTableInFull(tableLayer), contribs)
-			if sr != nil {
-				archived = sr.archived
-			}
-		default:
-			werr = renderSurfaceRMWSurface(e, s, tableLayer, contribs)
-		}
+		// that switch and in writeSurfaceThrough together.
+		//
+		// ONE DISPATCH FOR EVERY NOTCH (writeSurfaceThrough, surfaceloop.go). Under `own` a
+		// `stateful` surface is whole-file composition into a real home, with the capture store
+		// render.Target.SidecarDir resolves for this notch — the SAME writer the boot path runs,
+		// which is what makes "the host is a notch like any other" (P5) a fact about the code
+		// rather than an aspiration.
+		//
+		// ADOPTION IS THE FIRST RENDER'S OWN BEHAVIOUR and needs no SEEDING here.
+		// ComposeStateful reads "no trusted last_render" as a first migration and seeds the
+		// overlay from the file it finds, so the first owned render reproduces every key the
+		// file holds that yolo does not declare (§6.3.1). That branch exists because seeding
+		// an EMPTY overlay was a shipped data-loss bug; it is why this arm can be reached on
+		// a home full of hand-written config without a guard of its own.
+		//
+		// THE ONE GUARD IT IS OWED, and it is BUILT (OQ-CO7, 2026-09-12): one archive at
+		// adoption — the pre-existing file copied once into the archive subsystem, as a
+		// `config` bucket beside the ones that already ship (§6.3.3). The copy is made by the
+		// shared writer (entrypoint.archiveAdoption, run from persistStatefulSurface), so the
+		// jail's own firstMigration gets the same net from the same line rather than from a
+		// second implementation here. It covers the deep-merged leaf adoption drops, which
+		// `confirmHostLosses` is structurally blind to: that gate reads EntryLosses and fires
+		// only on a first apply, so the `assert` -> `own` switch — the exact transition that
+		// loses the leaf — is unprompted. The archive is what stands in for the prompt there.
+		// A FAILED ARCHIVE REFUSES THE SURFACE: the refusal arrives as an *rmwRefusedError at
+		// the write, handled below like any other.
+		//
+		// NO HOST LAYER, at either mechanism, and that is not the host LAYER going missing: at
+		// this notch the surface's own file IS what a `host` layer would have carried, and it
+		// arrives through adoption (stateful) or as the read half of the read-modify-write.
+		// Passing the same bytes as a layer too would fold them in BELOW the declared layers,
+		// so a key the user owns and a pack also declares would flip to the pack's value.
+		// Only the stateful writer reads inFull (it is the one that adopts), and archived is
+		// set by it alone: rmw asserts individual keys and adopts nothing.
+		w, werr := writeSurfaceThrough(e, mechanism, s,
+			surfaceLayers{computed: tableLayer, inFull: hostTableInFull(tableLayer)}, contribs)
+		archived := w.archived
 		if werr != nil {
 			if refusal, isRefusal := asRMWRefusal(werr); isRefusal {
 				out = append(out, HostRenderResult{Surface: id, Path: path, Pruned: pruned,

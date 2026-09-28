@@ -54,8 +54,8 @@ yolo reads.
 
 A pack declares (`internal/packdecl`, read through `internal/packload`) an install spec, mounts,
 writable/shared dirs, host-file grants, composed `surfaces`, launch flags and named `hooks`. The boot path
-renders every one in a single loop (`entrypoint/packsurfaces.go`) with **no switch on any tool name**.
-Three things to know before debugging it:
+renders every one in a single loop (`entrypoint/surfaceloop.go`, which `yolo check` and `yolo host apply`
+run too) with **no switch on any tool name**. Three things to know before debugging it:
 
 - **The MOUNT is the filter, and each launch stages its OWN tree.** The entrypoint renders every pack
   under `YOLO_PACK_ROOT`, so `stagePacks` copies only the SELECTED packs, into a NEW tree under
