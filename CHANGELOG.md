@@ -26,7 +26,8 @@ no `~/.aws`. Enable `loopholes.aws-auth` in your user config with a `profile` an
 Changing those settings takes effect at your next launch, which restarts the shared service and
 says so, and `yolo check` tells you when the running service still has the old ones. The
 credential is served only to the agents of the launch that asked, even in a jail that shares
-your host's network.
+your host's network. Where the service does not run (macos-user, `yolo host`, or a jail that has
+not enabled it) the launch leaves the Bedrock settings out and says so.
 
 **An agent footer.** Every agent with a status-line hook shows its billing route and whether it
 runs in a jail or on the host, unless you set your own `statusLine`. Claude's also shows its
@@ -36,7 +37,8 @@ thinking level.
 protocol its provider serves is refused, naming any shipped pack that translates between them.
 `yolo check` predicts it. On your own machine, `yolo host` refuses a profile its agent could
 reach only through the jail's wire bridge, which runs only in a container jail (podman or Apple
-Container, not macos-user), and names the jail launch that works. It no longer starts the agent
+Container, not macos-user), and names the jail launch that works. A macos-user launch refuses it
+the same way, where it used to start the agent against an address nothing served. It no longer starts the agent
 pointed at an address nothing serves, and it no longer tells you to add `wire-bridge` to
 `packs`, which changes nothing there. A profile whose provider the launch does not have, such as
 one a `null` in your `providers` removes, is refused naming why when yolo would configure the
@@ -142,6 +144,9 @@ apply it, and the launch says that too. See
   started with `yolo host`, that was every process on your machine, which could read your
   ChatGPT tokens or get a fresh Claude login. Each now answers only the agents its own launch
   started.
+- On macos-user, and in the environment `yolo host env` prints, codex was pointed at a ChatGPT
+  sign-in refresh address nothing served. It is now set only where yolo serves it, and the
+  launch names what it left out.
 - Quitting a podman jail could hold your terminal for half a minute after a long session, while
   podman deleted everything the jail had left in `/tmp` and its container dirs. You get the
   prompt back as soon as the jail exits, and the files are deleted in the background.

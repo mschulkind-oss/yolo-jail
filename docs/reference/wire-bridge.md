@@ -473,9 +473,11 @@ for a jail with its own loopback. Three setups break it:
 - **A nested jail** shares its parent jail's loopback, because a nested podman is forced onto
   `--net=host`. That is the host's loopback only when the parent jail is itself on host mode.
 - **A `macos-user` launch** has no loopback of its own: its sandbox runs on the host. That backend
-  does not start the bridge's jail daemon yet, but the launch still points claude at the
-  bridge's addresses. So those are host ports that nothing of yolo's ever binds, and any local
-  user can take one first.
+  does not start the bridge's jail daemon yet, and until 2026-09-28 the launch still pointed
+  claude at the bridge's addresses. Those were host ports that nothing of yolo's ever binds, and
+  any local user could take one first. It now composes no address it does not serve, and a
+  profile that needs one is refused
+  ([notch convergence §4 item 2](../plans/notch-convergence.md#tier-1--the-loopback-services-p3)).
 
 There the bridge's ports are reachable from every process on that loopback, other jails
 included. Such a process could spend the user's provider keys and ChatGPT subscription through
@@ -771,9 +773,12 @@ listeners. These are the facts that survive:
   notch applies no pack's `needs`
   ([ES-D24](../design/credential-sources-separation.md#10-decision-ledger), measured: applying
   them would add aws-auth's jail-only credential address to `yolo host -p bedrock -- claude`). The host composes its provider table with
-  `packload.WithoutServiceAdaptations`: an adaptation whose own pack serves it with a `service`
-  contributes no address, since nothing at the host listens on it. The via address was already
-  cleared the same way, by `packload.ViaInert` ([WG-I12](../design/wire-bridge-gateway.md#WG-I12)).
+  nothing served (`packload.ComposeProvidersAt` with `packload.NothingServed()`, the composition
+  every notch calls): an adaptation whose own pack serves it with a `service` contributes no
+  address, since nothing at the host listens on it. The via address is cleared the same way, by
+  `packload.ViaServedAt` ([WG-I12](../design/wire-bridge-gateway.md#WG-I12)). Since 2026-09-28
+  macos-user composes the same way, since it runs no jail daemon either
+  ([notch convergence item 2](../plans/notch-convergence.md#tier-1--the-loopback-services-p3)).
   Two outcomes follow. An agent that also speaks the provider's own wire runs on that endpoint:
   copilot on cerebras goes to cerebras's openai endpoint, as it does with wire-bridge unlisted.
   An agent that does not REFUSES, before anything is exec'd, and so does `yolo host env`. The
@@ -796,7 +801,7 @@ listeners. These are the facts that survive:
   The ordinary pairing refusal would say instead to add the pack to `packs` and the pairing
   resolves, which is true in a jail and false here, so the host never says it. The gate is
   handed every adaptation this notch can never serve, the unselected shipped packs' included
-  (`packload.UnservableAdaptations`). A pairing only one of them resolves then refuses as
+  (`packload.UnservedAdaptationsAt`). A pairing only one of them resolves then refuses as
   `UnservedAdapterError`, never as that remedy.
 
   Before this, that launch ran claude with `ANTHROPIC_BASE_URL=http://127.0.0.1:8214`, an
@@ -812,7 +817,8 @@ listeners. These are the facts that survive:
   agent's URL together, on both routes — see [the listen address](#the-listen-address).
 - <a id="no-macos-user-bridge"></a>**No `macos-user` bridge.** That backend starts no jail
   daemons: a launch there names each declared one, the bridge included, as not running, and does
-  not fail. It also has no network
+  not fail. It composes none of the bridge's addresses either: a profile that needs one is
+  refused as at the host, and a via is left out and named (since 2026-09-28). It also has no network
   namespace, so an adapter's port there would be a host port, and nothing in
   [what can hold the listen port](#what-can-hold-the-listen-port-before-the-bridge-does) has been
   worked through for that blast radius.

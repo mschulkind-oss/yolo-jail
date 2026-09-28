@@ -245,12 +245,16 @@ loopback, and a process that bound 8215 first would receive claude's Claude logi
 
 > [!WARNING]
 > **`macos-user` already has this shape** (read from code, UNMEASURED). The one caller of
-> `packload.WithoutServiceAdaptations` is `composedHostProviders`, so every jail launch composes
+> `packload.WithoutServiceAdaptations` was `composedHostProviders`, so every jail launch composed
 > the bridge's address, and a `macos-user` launch starts no jail daemon
 > ([`wire-bridge.md`](../reference/wire-bridge.md#no-macos-user-bridge)). Claude on `codex`
 > there is pointed at `127.0.0.1:8215` on the host's own loopback, where nothing of yolo's
 > listens, with no `ANTHROPIC_AUTH_TOKEN` (fact 3). That backend is inside
 > [OQ-NC1](../plans/notch-convergence.md#OQ-NC1) too ([§4.7](#47-macos-user)).
+> **Closed 2026-09-28** by [notch convergence item 2](../plans/notch-convergence.md#tier-1--the-loopback-services-p3):
+> macos-user now composes with nothing served, as the host does, so it composes no bridge
+> address and refuses a profile that needs one. OQ-NC1 still decides whether it should run the
+> bridge instead.
 
 ## 4. The proposed shape
 
@@ -295,7 +299,7 @@ sequenceDiagram
   `yolo host -- codex` the managed adapter (`openaiauthhost.Prepare`) serves the refresh URL on
   its own port and replaces the pointer, so every such launch goes on without a stderr notice.
   `yolo host env --agent codex` starts no adapter, so there the pointer is dropped and named.
-- Via stays inert: `packload.ViaInert` still clears every via address
+- Via stays inert: `packload.ViaServedAt` with nothing served still clears every via address
   ([WG-I12](wire-bridge-gateway.md#WG-I12)).
 - With `"packs": ["claude"]`, `openai-auth` and `wire-bridge` join. Until a host half exists,
   `-p codex -- claude` refuses in ES-D18's words, **with the joined pack worded as joined**

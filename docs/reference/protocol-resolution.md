@@ -138,14 +138,17 @@ contribution is the only thing that tells the three apart.
 
 **That fact decides the host notch too** (2026-09-27,
 [ES-D18](../design/credential-sources-separation.md#10-decision-ledger)). `yolo host` runs no pack's
-`service`, so it composes its table with `WithoutServiceAdaptations`. The first shape's address
-is left out there, because nothing at the host listens on it. The other two compose as they do
+`service`, so it composes its table with nothing served (`ComposeProvidersAt` with
+`NothingServed()`, the one composition every notch calls with its own served set;
+[notch convergence item 2](../plans/notch-convergence.md#tier-1--the-loopback-services-p3)). The
+first shape's address is left out there, because nothing at the host listens on it, and the same
+holds on macos-user, which runs no jail daemon. The other two compose as they do
 in a jail. A pairing only a left-out adaptation would resolve refuses at the gate as
 `UnservedAdapterError`, naming the pack's service and saying the address is served only in a
 container jail, instead of outcome 4's "nothing declares an adapter"
 ([`wire-bridge.md`](wire-bridge.md#at-the-host-notch)). An UNSELECTED shipped pack of that
 shape is no outcome 3 there either, since selecting it composes no address: the host hands the
-gate those adaptations too (`UnservableAdaptations`), and the pairing refuses as
+gate those adaptations too (`UnservedAdaptationsAt`), and the pairing refuses as
 `UnservedAdapterError` rather than as "Add it to `packs` and this pairing resolves"
 ([ES-D19](../design/credential-sources-separation.md#10-decision-ledger)).
 

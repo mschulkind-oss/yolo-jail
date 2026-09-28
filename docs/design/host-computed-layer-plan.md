@@ -98,7 +98,7 @@ keeps.
 
 Blocked on [OQ-HC3](host-computed-layer.md#OQ-HC3). `effectiveHostProfiles(cfg, "", "")` over the
 user-scope config is the selection source. `ctx.via_url` comes from the resolved profiles, not
-from `composedHostProviders`, which clears no via: pass them through `packload.ViaInert` first, as
+from `composedHostProviders`, which clears no via: pass them through `packload.ViaServedAt` (nothing served) first, as
 `composeHostVarsGranting` and `hostFooterTables` do
 ([WG-I12](wire-bridge-gateway.md#WG-I12)). The jail's selection record and its per-key deselect
 rule need a host home: beside the provenance record under `render.Target.ProvenanceDir`.

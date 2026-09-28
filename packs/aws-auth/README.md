@@ -138,9 +138,12 @@ defence there.
 installs no CLI, so its gated pointer goes to every agent whose selected profile is
 `bedrock` — `yolo -p codex=bedrock` gives codex `AWS_CONTAINER_CREDENTIALS_FULL_URI` — and to
 no other process, a bare shell included. In a container jail it crosses in that agent's own
-env file, sourced by its launcher; on macos-user it rides the session of the agent the
-invocation launches. The processes an agent spawns inherit it, as they inherit anything in the
-agent's environment. **Do not "fix" the gate by narrowing it to the pack's own bins**: that
+env file, sourced by its launcher. The processes an agent spawns inherit it, as they inherit
+anything in the agent's environment. **It crosses only where the adapter runs.** The pointer
+names this loophole's jail daemon (`served_by: "aws-auth"`), so a launch that does not run it
+leaves the pointer out and says so: macos-user and `yolo host`, which run no jail daemon, and a
+container launch that has not enabled the loophole
+([notch convergence §2.4](../../docs/plans/notch-convergence.md#24-the-addresses-those-secrets-protect-are-composed-not-literal)). **Do not "fix" the gate by narrowing it to the pack's own bins**: that
 would break this pack outright, because CLI-less is the case the gate's CLI-less arm exists
 for.
 

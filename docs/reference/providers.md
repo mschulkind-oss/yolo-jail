@@ -367,7 +367,8 @@ Where each answer lands is the vehicle's:
     ([ES-D10 to ES-D12](../design/credential-sources-separation.md#10-decision-ledger)).
   - **A profile the in-jail bridge would serve refuses here.** The host runs no pack's
     `service`, so it composes no adapter address a pack's own service serves
-    (`packload.WithoutServiceAdaptations`). So `yolo host -p cerebras -- claude` refuses before
+    (`packload.ComposeProvidersAt` with `packload.NothingServed()`, the composition every notch
+    calls, macos-user included). So `yolo host -p cerebras -- claude` refuses before
     the exec, as does `yolo host env`, whether `wire-bridge` is listed in `packs` or not. The
     refusal names `http://127.0.0.1:8214` and the `wire-bridge` service that serves it only in
     a container jail. It says that listing the pack changes nothing here, and gives the jail

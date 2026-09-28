@@ -448,7 +448,7 @@ to the bridge ([WG-I15](#WG-I15)).
 15. <a id="WG-I12"></a>**[WG-I12](#WG-I12)** — **via is inert at the host notch through the
     launch's own predicate.** `packload.ViaURLFor` is what both derive paths ask. `yolo host`'s
     env composition (`cli.composeHostVars`) and the footer's tables (`cli.hostFooterTables`) pass
-    their resolved table through `packload.ViaInert`, which clears every `ViaBase` and keeps
+    their resolved table through `packload.ViaInert` (since 2026-09-28 `packload.ViaServedAt` with nothing served), which clears every `ViaBase` and keeps
     `Via`. So `ViaURLFor` answers "" there whatever the pack set holds. This amends
     [WG-I8](#WG-I8), whose "the service pack is absent" is false when a user lists `wire-bridge`
     in `packs`. Before it, the host's env derive (`packload.AgentEnv`) received a `ctx.via_url`
