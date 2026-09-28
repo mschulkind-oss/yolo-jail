@@ -36,6 +36,15 @@ import (
 // the summary-COUNTED channel deliberately — an inert configuration nobody is told about
 // is exactly what this row exists to prevent.
 //
+// # One cause, one row
+//
+// Each [WARN] here is one CAUSE: its headline says what is wrong, its note leads with the fix,
+// and then says what the cause breaks — including host_apply_on_launch, when that cause is why
+// the launch sync cannot fire (wrapperState.gateClause). No row points at another row for its
+// fix. This section used to print the sync's failure as a second [WARN] beside the row naming
+// its cause, "the rows below say what to fix", so one missing PATH entry was two warnings; the
+// maintainer's ruling that ended it is HE-D2 (docs/reference/host-agent-environment.md).
+//
 // Silent unless there is something to say: not opted in means no row at all, which is
 // what keeps the whole feature from being a nag for the users who never asked for it.
 func (o *Options) sectionHostWrappers(r *reporter) {
@@ -53,35 +62,45 @@ func (o *Options) sectionHostWrappers(r *reporter) {
 	dir, names := st.dir, st.names
 
 	r.sectionHeader("Host launch wrappers")
-	hostManagementRow(r)
+	// true when the host_management row took over the generation rows below: under "none" the
+	// apply that would generate a wrapper refuses, so "run `yolo host apply --assert`" is a
+	// remedy that cannot work, and the missing wrappers are that row's cause, not their own.
+	generationAbsorbed := hostManagementRow(r, st)
 	hostApplyOnLaunchRow(r, st)
 
 	missingDir := st.dirErr != nil && os.IsNotExist(st.dirErr)
 	if st.dirErr != nil && !missingDir {
-		r.warn("cannot read the wrapper directory "+dir, st.dirErr.Error())
+		r.warn("cannot read the wrapper directory "+dir,
+			joinLines(st.dirErr.Error(), st.gateClause(gateUnreadable)))
 		return
 	}
 	if missingDir || len(names) == 0 {
+		if generationAbsorbed {
+			return
+		}
 		if st.binsKnown && len(st.bins) == 0 {
 			// Known-empty, so say so rather than naming an apply that would generate nothing.
 			r.warn("host_wrappers is on but no selected pack installs a program — there "+
 				"is nothing to wrap",
-				"Select a pack that installs an agent (`yolo pack --help`), or turn host_wrappers off.")
+				joinLines("Select a pack that installs an agent (`yolo pack --help`), or turn "+
+					"host_wrappers off.", st.gateClause(gateNoWrapper)))
 			return
 		}
 		if missingDir {
 			r.warn("host_wrappers is on but no wrapper directory exists yet",
-				"Run `yolo host apply --assert` to generate the wrappers for the programs "+
-					"your selected packs install"+st.programsClause()+".")
+				joinLines("Run `yolo host apply --assert` to generate the wrappers for the "+
+					"programs your selected packs install"+st.programsClause()+".",
+					st.gateClause(gateNoWrapper)))
 			return
 		}
 		detail := "Either no selected pack installs a program, or `yolo host apply --assert` " +
 			"has not run since you enabled the key."
 		if st.binsKnown {
-			detail = "Your selected packs install " + joinNames(st.bins) + ", and " +
-				"`yolo host apply --assert` has not generated their wrappers."
+			detail = "Run `yolo host apply --assert`: your selected packs install " +
+				joinNames(st.bins) + ", and it has not generated their wrappers."
 		}
-		r.warn("host_wrappers is on but no wrappers are generated", detail)
+		r.warn("host_wrappers is on but no wrappers are generated",
+			joinLines(detail, st.gateClause(gateNoWrapper)))
 		return
 	}
 
@@ -91,9 +110,9 @@ func (o *Options) sectionHostWrappers(r *reporter) {
 	// self-syncs, and the only thing that would regenerate its wrapper is a launch of some
 	// OTHER, wrapped program. The plan is hostwrap.PlanFor over the same Bins an apply
 	// uses, so this row and the apply's "would add" line cannot disagree.
-	if len(st.missing) > 0 {
+	if len(st.missing) > 0 && !generationAbsorbed {
 		remedy := "run `yolo host apply --assert`"
-		if config.HostApplyOnLaunchEnabled() {
+		if st.launchOn {
 			remedy += " (or `yolo host -- " + st.missing[0] + "` once)"
 		}
 		r.warn(fmt.Sprintf("%d program(s) have no wrapper: %s — %s",
@@ -104,12 +123,17 @@ func (o *Options) sectionHostWrappers(r *reporter) {
 	}
 
 	if !st.onPath {
-		r.warn("wrapper directory is NOT on PATH — the wrappers do nothing in this shell",
-			"Generated "+joinNames(names)+" in "+dir+", but nothing on PATH reaches them, "+
-				"so a bare `"+names[0]+"` runs unwrapped with no composed environment.\n"+
-				"Add this line to your shell rc (it must PREPEND, ahead of ~/.local/bin):\n"+
-				"  "+hostwrap.PathLine(dir)+"\n"+
-				"Until then "+dir+"/"+names[0]+" works right now as an absolute path.")
+		// ONE row for the one cause. The fix leads, as the literal line; what the cause breaks
+		// follows, once each: every bare command, and the launch sync when it is on. The
+		// directory is spelled once, inside the line — the absolute-path escape hatch needs
+		// no second spelling of it.
+		r.warn("wrapper directory is not on PATH, so no wrapper runs",
+			joinLines(hostwrap.PathLine(dir),
+				"Add that line to your shell rc, below any line that puts ~/.local/bin on "+
+					"PATH, then open a new shell.",
+				"Until then a bare "+orNames(names)+" runs unwrapped, with no composed "+
+					"environment, though each wrapper works by absolute path.",
+				st.gateClause(gateOffPath)))
 		return
 	}
 
@@ -129,11 +153,12 @@ func (o *Options) sectionHostWrappers(r *reporter) {
 		}
 		r.warn(fmt.Sprintf("%d wrapper(s) are shadowed by an earlier PATH entry: %s",
 			len(st.shadowed), joinNames(shadowedNames(st.shadowed))),
-			"The wrapper directory is on PATH but behind them, so a bare invocation runs "+
-				"the binary unwrapped:\n"+strings.Join(lines, "\n")+"\n"+
-				"Prepend the directory instead, in your shell rc (then `hash -r` or open a "+
-				"new shell):\n"+
-				"  "+hostwrap.PathLine(dir))
+			joinLines(hostwrap.PathLine(dir),
+				"Put that line in your shell rc below the lines that add the directories "+
+					"named here, then `hash -r` or open a new shell.",
+				"The wrapper directory is on PATH but behind them, so a bare invocation runs "+
+					"the binary unwrapped:\n"+strings.Join(lines, "\n"),
+				st.gateClause(gateAllShadowed)))
 		return
 	}
 	r.ok("wrapper directory is on PATH and wins for every wrapper (" + joinNames(names) + ")")
@@ -158,10 +183,13 @@ type wrapperState struct {
 	onPath   bool
 	wins     []string // wrappers a bare invocation reaches
 	shadowed []hostwrap.Shadow
+
+	// launchOn is host_apply_on_launch, read once so every row agrees on it.
+	launchOn bool
 }
 
 func (o *Options) observeWrappers(dir string) wrapperState {
-	st := wrapperState{dir: dir}
+	st := wrapperState{dir: dir, launchOn: config.HostApplyOnLaunchEnabled()}
 	st.names, st.dirErr = wrapperNames(dir)
 	if o.selectedPacksKnown {
 		st.binsKnown = true
@@ -187,21 +215,45 @@ func (st wrapperState) programsClause() string {
 	return " (" + joinNames(st.bins) + ")"
 }
 
+// The four reasons no launch can reach the host-apply gate. Each is the CAUSE of exactly one
+// row in this section, which is the row that says the sync cannot fire (gateClause).
+const (
+	gateNoWrapper   = "no wrapper exists"
+	gateUnreadable  = "the wrapper directory cannot be read"
+	gateOffPath     = "the wrapper directory is not on PATH"
+	gateAllShadowed = "every wrapper is shadowed by an earlier PATH entry"
+)
+
 // gateUnreachable says why no launch can reach the host-apply gate, or "" when at least one
 // wrapper wins on PATH. The gate runs inside `yolo host -- <bin>`, and only a generated
 // wrapper execs that, so "no wrapper wins" and "the gate never fires" are one fact.
 func (st wrapperState) gateUnreachable() string {
 	switch {
 	case st.dirErr != nil && os.IsNotExist(st.dirErr), st.dirErr == nil && len(st.names) == 0:
-		return "no wrapper exists"
+		return gateNoWrapper
 	case st.dirErr != nil:
-		return "the wrapper directory cannot be read"
+		return gateUnreadable
 	case !st.onPath:
-		return "the wrapper directory is not on PATH"
+		return gateOffPath
 	case len(st.wins) == 0:
-		return "every wrapper is shadowed by an earlier PATH entry"
+		return gateAllShadowed
 	}
 	return ""
+}
+
+// gateClause is the sentence a cause row adds when THAT cause is why host_apply_on_launch cannot
+// fire: "" unless the key is on and gateUnreachable is reason. Asking for the row's own reason,
+// rather than "is the gate unreachable at all", is what keeps the sentence on the one row whose
+// fix also fixes the sync — a row about a different cause never carries it.
+//
+// It says the key IS ON in as many words, because the row it replaced was the only place a
+// reader learned that: an enabled key makes a wrapped launch stop and ask, and someone debugging
+// that has to be able to find it here even while no launch can reach it.
+func (st wrapperState) gateClause(reason string) string {
+	if !st.launchOn || st.gateUnreachable() != reason {
+		return ""
+	}
+	return "host_apply_on_launch is on but cannot fire, so no launch re-checks this host's render."
 }
 
 func shadowedNames(sh []hostwrap.Shadow) []string {
@@ -213,7 +265,8 @@ func shadowedNames(sh []hostwrap.Shadow) []string {
 }
 
 // hostManagementRow says who owns the config files yolo renders into this home — the
-// declared ownership contract (docs/design/config-ownership-and-promotion.md §4).
+// declared ownership contract (docs/design/config-ownership-and-promotion.md §4) — and reports
+// whether it took over the section's generation rows.
 //
 // IT RIDES THE WRAPPERS SECTION, beside host_apply_on_launch, and the placement earns itself
 // rather than merely being convenient: `none` REFUSES `yolo host apply`, and that same apply
@@ -221,6 +274,11 @@ func shadowedNames(sh []hostwrap.Shadow) []string {
 // has a wrapper directory nothing will ever regenerate — a combination that is invisible
 // anywhere else and is exactly this section's WARN criterion (configuration that is not in
 // effect, rather than a broken jail).
+//
+// UNDER "none" IT IS ALSO THE CAUSE OF ANY WRAPPER THAT IS MISSING, and so it absorbs those
+// rows and returns true: "run `yolo host apply --assert`" (and "`yolo host -- <bin>` once",
+// whose launch gate is a no-op under `none`) would be a remedy that refuses, printed beside the
+// row saying so. One cause, one row — the section doc comment says why.
 //
 // The coverage boundary it inherits is real and worth stating: with host_wrappers OFF the
 // whole section is silent, so this row is not the place a user learns the key exists. That is
@@ -230,16 +288,36 @@ func shadowedNames(sh []hostwrap.Shadow) []string {
 // [OK] for "assert", including when nobody wrote the key: an unset key IS "assert" by ruling
 // (OQ-CO2), and saying so is how a reader learns that the silent default is a decision rather
 // than an absence.
-func hostManagementRow(r *reporter) {
+func hostManagementRow(r *reporter, st wrapperState) (absorbedGeneration bool) {
 	switch config.HostManagementMode() {
 	case config.HostManagementNone:
+		why := "The key says your agents' config files are entirely yours, and yolo honors it " +
+			"by writing nothing at all — the wrapper directory included, which the same " +
+			"command generates."
+		readable := st.dirErr == nil || os.IsNotExist(st.dirErr)
+		if readable && (len(st.names) == 0 || len(st.missing) > 0) {
+			unwrapped := st.missing
+			if len(st.names) == 0 {
+				unwrapped = nil
+				if st.binsKnown {
+					unwrapped = st.bins
+				}
+			}
+			forClause := ""
+			if len(unwrapped) > 0 {
+				forClause = " for " + joinNames(unwrapped)
+			}
+			r.warn("host_management is \"none\", so `yolo host apply` refuses and no wrapper "+
+				"is generated"+forClause,
+				joinLines("Set host_management to \"assert\" in "+paths.UserConfigPath()+
+					" and run `yolo host apply --assert`, or turn host_wrappers off.",
+					why, st.gateClause(gateNoWrapper)))
+			return true
+		}
 		r.warn("host_management is \"none\" — `yolo host apply` refuses, so these wrappers "+
 			"are never regenerated",
-			"The key says your agents' config files are entirely yours, and yolo honors it "+
-				"by writing nothing at all — including the wrapper directory this section is "+
-				"about, which the same command generates.\n"+
-				"Set host_management to \"assert\" in "+paths.UserConfigPath()+" to have "+
-				"yolo own the keys your packs declare, or turn host_wrappers off.")
+			joinLines("Set host_management to \"assert\" in "+paths.UserConfigPath()+" to have "+
+				"yolo own the keys your packs declare, or turn host_wrappers off.", why))
 	case config.HostManagementOwn:
 		r.ok("host_management is \"own\" — yolo composes these files whole and captures your " +
 			"edits, so they are derived output: delete one and the next apply reproduces it")
@@ -247,6 +325,7 @@ func hostManagementRow(r *reporter) {
 		r.ok("host_management is \"assert\" — yolo owns the keys your packs declare and " +
 			"rewrites only those; every other key in those files is yours and is left alone")
 	}
+	return false
 }
 
 // hostApplyOnLaunchRow says whether a wrapped launch re-checks its own render before exec'ing
@@ -272,16 +351,12 @@ func hostManagementRow(r *reporter) {
 // `yolo host -- <bin>`, which only a wrapper execs, so with no wrapper generated, the directory
 // off PATH, or every wrapper shadowed by a real binary ahead of it, no launch ever reaches the
 // gate — and a PASS promising automatic synchronization was reassurance about a mechanism that
-// cannot run. That case is a [WARN] naming the reason (st.gateUnreachable); the rows below it
-// carry the remedy.
+// cannot run. In that case THIS row prints nothing: the row naming the cause says the key is on
+// and cannot fire (wrapperState.gateClause), beside the fix that makes it fire. It used to be a
+// [WARN] of its own pointing at "the rows below", which counted one cause twice (HE-D2).
 func hostApplyOnLaunchRow(r *reporter, st wrapperState) {
-	if config.HostApplyOnLaunchEnabled() {
-		if why := st.gateUnreachable(); why != "" {
-			r.warn("host_apply_on_launch is on, but the automatic sync cannot fire — "+why,
-				"The re-check runs inside `yolo host -- <program>`, and only a generated "+
-					"wrapper execs that, so a launch that does not go through a wrapper never "+
-					"reaches it. Until one does, nothing re-checks this host's render; the "+
-					"rows below say what to fix.")
+	if st.launchOn {
+		if st.gateUnreachable() != "" {
 			return
 		}
 		r.ok("host_apply_on_launch is on — a wrapped launch re-checks the render first, and " +
@@ -320,4 +395,28 @@ func joinNames(names []string) string {
 		out += n
 	}
 	return out
+}
+
+// orNames renders "claude", "claude or pi", "agy, claude or pi": the programs a bare
+// invocation of ANY one of them is about, in a sentence about one invocation.
+func orNames(names []string) string {
+	switch len(names) {
+	case 0:
+		return ""
+	case 1:
+		return names[0]
+	}
+	return strings.Join(names[:len(names)-1], ", ") + " or " + names[len(names)-1]
+}
+
+// joinLines joins a note's lines, dropping the empty ones — a row's optional sentence
+// (gateClause) is "" when it does not apply, and must not leave a blank line in the note.
+func joinLines(lines ...string) string {
+	var kept []string
+	for _, l := range lines {
+		if l != "" {
+			kept = append(kept, l)
+		}
+	}
+	return strings.Join(kept, "\n")
 }

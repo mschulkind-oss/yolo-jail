@@ -91,25 +91,45 @@ func TestHostWrappersSilentInJail(t *testing.T) {
 // TestHostWrappersWarnsWhenNotOnPath is the row this section exists for: generated
 // wrappers that nothing on PATH can reach are inert configuration, and it must be in the
 // summary-COUNTED channel so it cannot be scrolled past.
+//
+// It is ONE row for its one cause (HE-D2). It used to be two — this one, and a
+// host_apply_on_launch [WARN] pointing at "the rows below" for the fix — so the maintainer's
+// check read two warnings for one missing PATH entry. The merged row must still say everything
+// the pair said: the cause, the fix, that a bare command runs unwrapped, that the absolute path
+// still works, and that host_apply_on_launch is on and cannot fire.
 func TestHostWrappersWarnsWhenNotOnPath(t *testing.T) {
 	o, r, buf := hostWrappersFixture(t, true, []string{"claude", "pi"}, "/bin:/usr/bin")
 	o.sectionHostWrappers(r)
 	out := buf.String()
-	// TWO: this row, and the host_apply_on_launch row saying the automatic sync cannot fire
-	// with the directory off PATH (TestHostApplyOnLaunchRowWarnsWhenNoWrapperCanReachTheGate).
-	if r.warned != 2 {
-		t.Errorf("warned = %d, want 2 (it must be summary-counted)", r.warned)
+	if r.warned != 1 {
+		t.Errorf("warned = %d, want 1 — one cause, one row, and it must be summary-counted:\n%s",
+			r.warned, out)
 	}
-	if !strings.Contains(out, "[WARN]") {
-		t.Errorf("no WARN badge:\n%s", out)
+	if !strings.Contains(out, "[WARN] wrapper directory is not on PATH") {
+		t.Errorf("the headline must name the cause:\n%s", out)
 	}
-	if !strings.Contains(out, "NOT on PATH") {
-		t.Errorf("output does not say the dir is not on PATH:\n%s", out)
+	// The FIRST note line is the fix, as the literal line, and it must PREPEND — appending
+	// puts the wrapper behind the real binary and it never runs.
+	dir := wrapDirIn(t)
+	if got := noteLinesAfter(t, out, "[WARN] wrapper directory is not on PATH"); len(got) == 0 ||
+		strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(got[0]), "->")) !=
+			`export PATH="`+dir+`:$PATH"` {
+		t.Errorf("the first note line must be the export line, prepending:\n%s", out)
 	}
-	// The remedy must be present and must PREPEND — appending puts the wrapper behind
-	// the real binary and it never runs.
-	if !strings.Contains(out, `:$PATH"`) {
-		t.Errorf("the remedy does not prepend:\n%s", out)
+	for _, want := range []string{
+		"a bare claude or pi runs unwrapped",
+		"host_apply_on_launch is on but cannot fire",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("the merged row must still say %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "rows below") || strings.Contains(out, "row below") {
+		t.Errorf("a row points at another row for its fix:\n%s", out)
+	}
+	// The directory is spelled ONCE, inside the line: the old pair spelled it three times.
+	if n := strings.Count(out, dir); n != 1 {
+		t.Errorf("the wrapper directory is spelled %d times, want 1:\n%s", n, out)
 	}
 	// And it must say the absolute-path escape hatch still works, which is the whole
 	// reason wrappers are generated unconditionally.
@@ -246,9 +266,9 @@ func TestHostApplyOnLaunchRowSaysItIsOn(t *testing.T) {
 func TestHostWrappersWarnsWhenOptedInButNothingGenerated(t *testing.T) {
 	o, r, buf := hostWrappersFixture(t, true, nil, "/bin")
 	o.sectionHostWrappers(r)
-	// TWO: this row, and the host_apply_on_launch row saying no wrapper exists to reach it.
-	if r.warned != 2 {
-		t.Errorf("warned = %d, want 2:\n%s", r.warned, buf.String())
+	// ONE: the missing directory is the cause, and that row also says the sync cannot fire.
+	if r.warned != 1 {
+		t.Errorf("warned = %d, want 1:\n%s", r.warned, buf.String())
 	}
 	if !strings.Contains(buf.String(), "yolo host apply") {
 		t.Errorf("the remedy does not name the command:\n%s", buf.String())
@@ -258,9 +278,9 @@ func TestHostWrappersWarnsWhenOptedInButNothingGenerated(t *testing.T) {
 func TestHostWrappersWarnsOnEmptyDir(t *testing.T) {
 	o, r, buf := hostWrappersFixture(t, true, []string{}, "/bin")
 	o.sectionHostWrappers(r)
-	// TWO: this row, and the host_apply_on_launch row saying no wrapper exists to reach it.
-	if r.warned != 2 {
-		t.Errorf("warned = %d, want 2:\n%s", r.warned, buf.String())
+	// ONE: the empty directory is the cause, and that row also says the sync cannot fire.
+	if r.warned != 1 {
+		t.Errorf("warned = %d, want 1:\n%s", r.warned, buf.String())
 	}
 }
 
@@ -293,11 +313,11 @@ func TestHostManagementRowWarnsWhenTheApplyCannotRun(t *testing.T) {
 	if !strings.Contains(out, `host_management is "`+mode+`"`) {
 		t.Errorf("the section never names the declared ownership contract:\n%s", out)
 	}
-	// THREE warns: this row, the pre-existing not-on-PATH one, and the host_apply_on_launch
-	// row saying the sync cannot fire with the dir off PATH. The count is the assertion that
-	// the row is summary-COUNTED rather than prose nobody tallies.
-	if r.warned != 3 {
-		t.Errorf("warned = %d, want 3 (host_management + not-on-PATH + gate):\n%s", r.warned, out)
+	// TWO warns, one per cause: this row, and the not-on-PATH one (which also carries the
+	// sync that cannot fire). The count is the assertion that the row is summary-COUNTED
+	// rather than prose nobody tallies.
+	if r.warned != 2 {
+		t.Errorf("warned = %d, want 2 (host_management + not-on-PATH):\n%s", r.warned, out)
 	}
 	if !strings.Contains(out, "refuses") {
 		t.Errorf("the row must say the apply refuses, which is what makes the "+
@@ -326,9 +346,9 @@ func TestHostManagementRowPassesUnderOwn(t *testing.T) {
 	if !strings.Contains(out, `host_management is "own"`) {
 		t.Errorf("the section never names the declared ownership contract:\n%s", out)
 	}
-	// TWO warns: the not-on-PATH row and the gate row it makes unreachable — neither about `own`.
-	if r.warned != 2 {
-		t.Errorf("warned = %d, want 2 (not-on-PATH + gate) — `own` renders, so nothing "+
+	// ONE warn: the not-on-PATH row, which also says the sync cannot fire — nothing about `own`.
+	if r.warned != 1 {
+		t.Errorf("warned = %d, want 1 (not-on-PATH) — `own` renders, so nothing "+
 			"about it makes the wrappers inert:\n%s", r.warned, out)
 	}
 	if strings.Contains(out, "not built yet") {
@@ -346,9 +366,9 @@ func TestHostManagementRowSaysAssertWhenUnset(t *testing.T) {
 	if !strings.Contains(out, `host_management is "assert"`) {
 		t.Errorf("an unset key must still report the contract it means:\n%s", out)
 	}
-	// TWO: the not-on-PATH row and the gate row it makes unreachable — neither about assert.
-	if r.warned != 2 {
-		t.Errorf("warned = %d, want 2 (not-on-PATH + gate):\n%s",
+	// ONE: the not-on-PATH row, which also says the sync cannot fire — nothing about assert.
+	if r.warned != 1 {
+		t.Errorf("warned = %d, want 1 (not-on-PATH):\n%s",
 			r.warned, out)
 	}
 }
@@ -575,9 +595,16 @@ func TestHostWrappersWarnsWhenAWrapperIsShadowed(t *testing.T) {
 	if strings.Contains(out, "[PASS] wrapper directory is on PATH") {
 		t.Errorf("a shadowed wrapper set must not also PASS the PATH row:\n%s", out)
 	}
-	// Two: the shadow row, and the gate row (the only wrapper loses, so no launch reaches it).
-	if r.warned != 2 {
-		t.Errorf("warned = %d, want 2 (shadow + gate):\n%s", r.warned, out)
+	// ONE: the shadow row — which, the only wrapper losing, also says the sync cannot fire.
+	if r.warned != 1 {
+		t.Errorf("warned = %d, want 1 (the shadow row):\n%s", r.warned, out)
+	}
+	if got := noteLinesAfter(t, out, "[WARN] 1 wrapper(s) are shadowed"); len(got) == 0 ||
+		!strings.Contains(got[0], `export PATH="`+dir+`:$PATH"`) {
+		t.Errorf("the shadow row's first note line must be the fix:\n%s", out)
+	}
+	if !strings.Contains(out, "host_apply_on_launch is on but cannot fire") {
+		t.Errorf("with every wrapper shadowed the shadow row must say the sync cannot fire:\n%s", out)
 	}
 }
 
@@ -601,6 +628,10 @@ func TestHostWrappersPartialShadowStillReachesTheGate(t *testing.T) {
 	}
 	if r.warned != 1 {
 		t.Errorf("warned = %d, want 1 (the shadow row):\n%s", r.warned, out)
+	}
+	// pi still reaches the gate, so the shadow is NOT why the sync cannot fire — it can.
+	if strings.Contains(out, "cannot fire") {
+		t.Errorf("a partial shadow must not claim the sync cannot fire:\n%s", out)
 	}
 }
 
@@ -627,20 +658,28 @@ func TestHostWrappersSymlinkedPathSpellingWins(t *testing.T) {
 // TestHostApplyOnLaunchRowWarnsWhenNoWrapperCanReachTheGate is the reassurance defect: the row
 // PASSed "synchronizes host configuration automatically" whatever the wrappers' state, but the
 // re-check runs only inside `yolo host --`, which only a wrapper execs. Each state in which no
-// wrapper wins must WARN, name its reason, and never print the reassurance.
+// wrapper wins must WARN, and never print the reassurance.
+//
+// ONE WARN, ON THE CAUSE'S ROW (HE-D2). The first fix gave the gate a [WARN] of its own that
+// pointed at "the rows below", so every one of these states counted its one cause twice. Now
+// exactly one row is a [WARN], its headline is the cause, and it is that row which says the key
+// is on and cannot fire — so deleting any cause row's gateClause call fails its case here.
 func TestHostApplyOnLaunchRowWarnsWhenNoWrapperCanReachTheGate(t *testing.T) {
 	cases := []struct {
 		name     string
 		wrappers []string
 		shadow   bool
 		onPath   bool
-		reason   string
+		headline string // the cause row's headline, which must carry the gate sentence
 	}{
-		{"no wrapper directory", nil, false, false, "no wrapper exists"},
-		{"empty wrapper directory", []string{}, false, true, "no wrapper exists"},
-		{"directory off PATH", []string{"claude"}, false, false, "the wrapper directory is not on PATH"},
+		{"no wrapper directory", nil, false, false,
+			"[WARN] host_wrappers is on but no wrapper directory exists yet"},
+		{"empty wrapper directory", []string{}, false, true,
+			"[WARN] host_wrappers is on but no wrappers are generated"},
+		{"directory off PATH", []string{"claude"}, false, false,
+			"[WARN] wrapper directory is not on PATH"},
 		{"every wrapper shadowed", []string{"claude"}, true, true,
-			"every wrapper is shadowed by an earlier PATH entry"},
+			"[WARN] 1 wrapper(s) are shadowed by an earlier PATH entry: claude"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -654,15 +693,112 @@ func TestHostApplyOnLaunchRowWarnsWhenNoWrapperCanReachTheGate(t *testing.T) {
 			}
 			setPath(o, pathEnv)
 			var buf bytes.Buffer
-			o.sectionHostWrappers(newReporter(&buf, false))
+			r := newReporter(&buf, false)
+			o.sectionHostWrappers(r)
 			out := buf.String()
-			if !strings.Contains(out, "[WARN] host_apply_on_launch is on, but the automatic sync "+
-				"cannot fire — "+tc.reason) {
-				t.Errorf("the gate row must WARN with reason %q:\n%s", tc.reason, out)
+			if r.warned != 1 {
+				t.Errorf("warned = %d, want 1 — one cause, one row:\n%s", r.warned, out)
+			}
+			note := strings.Join(noteLinesAfter(t, out, tc.headline), "\n")
+			if !strings.Contains(note, "host_apply_on_launch is on but cannot fire") {
+				t.Errorf("the cause row %q must say the sync cannot fire:\n%s", tc.headline, out)
+			}
+			if strings.Count(out, "host_apply_on_launch") != 1 {
+				t.Errorf("host_apply_on_launch must be named once, on the cause row:\n%s", out)
 			}
 			if strings.Contains(out, "synchronizes host configuration automatically") {
 				t.Errorf("the reassurance must not print when no wrapper reaches the gate:\n%s", out)
 			}
+			if strings.Contains(out, "rows below") {
+				t.Errorf("a row points at another row for its fix:\n%s", out)
+			}
 		})
 	}
+}
+
+// TestHostApplyOnLaunchOffKeepsTheCauseRowToItself: with the key OFF, the sync is opted out of
+// rather than broken, so the cause row must not claim it cannot fire — the off row already says
+// what is true.
+func TestHostApplyOnLaunchOffKeepsTheCauseRowToItself(t *testing.T) {
+	o, r, buf := hostManagementFixture(t,
+		`{"host_wrappers": true, "host_apply_on_launch": false}`, []string{"claude"}, "/bin")
+	o.sectionHostWrappers(r)
+	out := buf.String()
+	if !strings.Contains(out, "host_apply_on_launch is off") {
+		t.Errorf("the off row must still print:\n%s", out)
+	}
+	if strings.Contains(out, "cannot fire") {
+		t.Errorf("a key that is off cannot be reported as failing to fire:\n%s", out)
+	}
+	if r.warned != 1 {
+		t.Errorf("warned = %d, want 1 (not-on-PATH):\n%s", r.warned, out)
+	}
+}
+
+// TestHostManagementNoneAbsorbsTheGenerationRows: under `none` the apply that generates a
+// wrapper refuses, and so does the launch gate's, so a missing wrapper has `none` as its cause.
+// A separate row saying "run `yolo host apply --assert`" was a remedy that refuses, printed
+// beside the row saying so. The `none` row names the programs left unwrapped instead, and —
+// when no wrapper exists at all — that the sync cannot fire.
+func TestHostManagementNoneAbsorbsTheGenerationRows(t *testing.T) {
+	t.Run("no wrapper at all", func(t *testing.T) {
+		o, _, _ := hostManagementFixture(t,
+			`{"host_wrappers": true, "host_management": "none", "packs": ["claude"]}`, nil, "/bin")
+		r, out := runPacksThenWrappers(t, o)
+		if r.warned != 1 {
+			t.Errorf("warned = %d, want 1 — `none` is the one cause:\n%s", r.warned, out)
+		}
+		if !strings.Contains(out, `host_management is "none", so `+"`yolo host apply`"+
+			` refuses and no wrapper is generated for claude`) {
+			t.Errorf("the none row must name what is left unwrapped:\n%s", out)
+		}
+		if strings.Contains(out, "no wrapper directory exists yet") {
+			t.Errorf("a generation row offered the apply that refuses:\n%s", out)
+		}
+		if !strings.Contains(out, "host_apply_on_launch is on but cannot fire") {
+			t.Errorf("the none row must carry the sync that cannot fire:\n%s", out)
+		}
+	})
+	t.Run("a program added since", func(t *testing.T) {
+		o, _, _ := hostManagementFixture(t,
+			`{"host_wrappers": true, "host_management": "none", "packs": ["claude", "pi"]}`,
+			[]string{"claude"}, "<WRAP>")
+		r, out := runPacksThenWrappers(t, o)
+		if r.warned != 1 {
+			t.Errorf("warned = %d, want 1 — `none` is the one cause:\n%s", r.warned, out)
+		}
+		if !strings.Contains(out, "no wrapper is generated for pi") {
+			t.Errorf("the none row must name the program with no wrapper:\n%s", out)
+		}
+		if strings.Contains(out, "have no wrapper: pi") {
+			t.Errorf("a completeness row offered the apply that refuses:\n%s", out)
+		}
+		// claude's wrapper wins, so the sync can fire, and nothing may say otherwise.
+		if strings.Contains(out, "cannot fire") {
+			t.Errorf("a reachable gate must not be reported as unable to fire:\n%s", out)
+		}
+	})
+}
+
+// noteLinesAfter returns the note lines ("-> …" and their continuations) printed under the
+// row whose line contains headline, or fails the test when no such row printed.
+func noteLinesAfter(t *testing.T, out, headline string) []string {
+	t.Helper()
+	lines := strings.Split(out, "\n")
+	for i, l := range lines {
+		if !strings.Contains(l, headline) {
+			continue
+		}
+		var note []string
+		for _, n := range lines[i+1:] {
+			trimmed := strings.TrimSpace(n)
+			if trimmed == "" || strings.HasPrefix(trimmed, "[") {
+				break
+			}
+			note = append(note, n)
+		}
+		return note
+	}
+	t.Fatalf("no row %q in:\n%s", headline, out)
+	return nil
 }

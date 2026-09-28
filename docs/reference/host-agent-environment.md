@@ -22,7 +22,8 @@ the `--with-credentials` grant beside it, from the same day
 ([OQ-ES5](../design/credential-sources-separation.md#OQ-ES5)'s host half, ES-D13 to ES-D17), and
 the refusal of a profile the in-jail bridge would serve (ES-D18 to ES-D20). The removal of
 `yolo host apply --shell-init` is newer still, ruled 2026-09-27 ([HE-D1](#he-d1)), and is pinned
-by unit tests through `hostMain`.
+by unit tests through `hostMain`; so is the one-row-per-cause shape of the `yolo check` section
+([HE-D2](#he-d2)), pinned by the section's own unit tests.
 
 Inside a jail, injecting environment is trivial: yolo controls the process spawn, so it passes
 `-e KEY=VAL` and PID 1 has the exact environment. On the host it controls nothing — the user
@@ -316,8 +317,26 @@ launch. It never tells the user to add `wire-bridge` to `packs`. An agent that a
     before exec'ing), so it is the one launch that never brings the host up to date by itself.
   - **The launch gate's reachability.** `host_apply_on_launch` being on is reported as working
     only when at least one wrapper wins on `PATH`. With no wrapper, the directory off `PATH`, or
-    every wrapper shadowed, no launch can reach the re-check, and the row warns and says why
-    rather than promising an automatic sync that cannot happen.
+    every wrapper shadowed, no launch can reach the re-check, so the row that names that cause
+    also says the key is on and cannot fire, rather than anything promising an automatic sync
+    that cannot happen.
+
+  **One cause, one row** *(coined here, for [HE-D2](#he-d2))*: each warning in that section is
+  one cause. Its headline names the cause, its note leads with the fix, and it then says what the
+  cause breaks: a bare command running unwrapped, and the launch sync when that is the reason it
+  cannot fire. No row points at another row for its fix. Two different causes are still two rows;
+  a `host_management` of `"none"` and a directory off `PATH`, for example, have separate fixes.
+  Under `"none"` a missing wrapper is folded into the `host_management` row, because the apply
+  that would generate it is what `"none"` refuses. For a directory off `PATH` the section prints:
+
+  ```text
+  [WARN] wrapper directory is not on PATH, so no wrapper runs
+       -> export PATH="/home/you/.local/share/yolo-jail/bin/wrap:$PATH"
+          Add that line to your shell rc, below any line that puts ~/.local/bin on PATH, then open a new shell.
+          Until then a bare claude or pi runs unwrapped, with no composed environment, though each wrapper works by absolute path.
+          host_apply_on_launch is on but cannot fire, so no launch re-checks this host's render.
+  ```
+
 - **`apply` does not refuse.** It also writes the Channel 1 surfaces, which work regardless;
   refusing the half that works because the other half is unwired would be the wrong gate.
 
@@ -377,6 +396,7 @@ line, pasted by the user. yolo offers no writer for it ([HE-D1](#he-d1)).
 | <a id="oq-5"></a>[**OQ-5**](#oq-5) — every host program a selected pack installs gets a wrapper, unconditionally | The wrap dir is an addressable launch surface; a path that exists on some machines and not others is not one. Overrules an earlier "only when the resolved env is non-empty" leaning. |
 | <a id="oq-6"></a>[**OQ-6**](#oq-6) — the wrap dir is hardcoded under the existing host state root, not `XDG_DATA_HOME` | This repo follows the XDG *layout* and honors no XDG *variable* anywhere, so honoring one for a single new directory would make it the only path in the tree that moves when the variable is set. A cache dir would be worse: an evicted `PATH` entry is a silently broken `claude`. |
 | <a id="oq-7"></a>[**OQ-7**](#oq-7) — `yolo apply --host` is REMOVED, not deprecated | Three spellings for one operation was the problem, and a deprecation message keeps the third spelling alive. Sweep prose with an allowlist, never with a blind substitution: docs that record what shipped *at the time* must keep the old spelling. |
+| <a id="he-d2"></a>[**HE-D2**](#he-d2) — one cause, one row in `yolo check`'s host wrappers section (2026-09-27, maintainer ruling) | The ruling, verbatim, on a section printing two warnings for one wrapper directory missing from `PATH`: *"also why are ther emultiple wranings? this is very hard to read."* The second warning was the `host_apply_on_launch` row saying the sync cannot fire and pointing at "the rows below" for the fix. The key's state now rides on the row whose cause stops it, and that row still names everything the pair named: the cause, the fix line, the unwrapped bare command, the absolute-path fallback, and that the key is on. "One cause, one row" is the implementer's phrasing of the ruling and applies [report tiers' P1](report-tiers.md#principles), one fact once, to `yolo check`. |
 | <a id="he-d1"></a>[**HE-D1**](#he-d1) — `yolo host apply --shell-init` is REMOVED (2026-09-27, maintainer ruling) | The ruling, verbatim: *"this shell init command apperas to do nothing, and I don't th8ink it's ever safe so we shoud reove it."* Both halves were measured before the removal. It did nothing on the spelling every remedy printed: bare `--shell-init` is a dry run, so it printed a "would append" line below the report's closing sentence and wrote nothing. It was unsafe on the spelling that wrote: it chose the rc file by guessing from `$SHELL` (`~/.zshrc` for zsh, `~/.bashrc` for anything else, `/bin/sh` included), and under `--assert` it appended even after the apply had refused and printed "Nothing was written." The flag now refuses with exit 2, writes nothing and prints the line. It refuses by name rather than as an unknown flag, the way `yolo host wrappers enable` does, because the people who type it are the ones a shipped message told to. |
 
 ## Current values

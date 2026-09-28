@@ -276,8 +276,10 @@ flowchart TD
 
 A host-only boolean in the user config, **defaulting to the value of `host_wrappers`** (on when
 wrappers are enabled; off when disabled). An explicit `"host_apply_on_launch": false` serves as
-the opt-out escape hatch. `yolo check` prints a line either way — the feature is on, or it exists
-and is off — so the mechanism is never invisible to someone wondering whether it ran.
+the opt-out escape hatch. `yolo check` says so either way — the feature is on, or it exists and is
+off — so the mechanism is never invisible to someone wondering whether it ran. When it is on but no
+wrapper can reach it, that is said on the row naming the reason, not on a row of its own
+([HE-D2](host-agent-environment.md#he-d2)).
 
 **Since 2026-09-22 the chain starts one key earlier.** `host_wrappers`, when unset, is **derived
 from `host_management: "own"`**, and `yolo host wrappers enable|disable` refuses, naming the key
@@ -469,7 +471,8 @@ That is the same boundary `host_wrappers` already has, and `yolo check` announce
 existing channel. Since 2026-09-23 `sectionHostWrappers` warns in each state where the launch sync
 cannot fire: the wrapper dir is off `PATH`, a wrapper on `PATH` loses to an earlier entry
 (`hostwrap.Precedence`), or a program a selected pack installs has no wrapper yet. The gate row
-passes only when at least one wrapper wins. It
+passes only when at least one wrapper wins; otherwise it prints nothing, and the row naming the
+cause says the sync cannot fire ([HE-D2](host-agent-environment.md#he-d2)). The coverage boundary
 is the price of the approach: a per-command notice would have caught drift *sometime*, just never
 at a moment tied to a launch (P1).
 
