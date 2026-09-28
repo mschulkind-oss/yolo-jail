@@ -382,7 +382,7 @@ yolo init-user-config    # writes the file, full of commented examples
 
 The shipped agent packs are `claude`, `copilot`, `codex`, `opencode`, `pi` and `agy`; list as many as
 you like. An agent installs inside the jail the first time you run it. Only your user config can
-select packs; a project's own config cannot. [How packs work →](features.md#packs-and-agents)
+select packs; a project's own config cannot. [How packs work →](guides/packs-and-skills.md)
 
 ### Check the setup
 
@@ -454,42 +454,36 @@ same project joins the jail that is already running.
    installed for you; see [LSP servers](guides/mcp-and-lsp.md#lsp-servers).
 4. **Runs your command**, or a shell if you gave none.
 
-yolo can also apply the same agents, skills and settings to your own machine, with no jail, through
-`yolo host apply`. [Migrating to Packs](guides/migrating-to-packs.md#part-2--manage-your-host) covers
-that once you have a setup worth keeping.
+### What to do next
+
+- **Add the tools your project needs**: [Packages and Tools](guides/packages-and-tools.md).
+- **Give your agents shared skills and house rules**: [Packs and Skills](guides/packs-and-skills.md).
+- **Open a dev server or reach a host database**: [Networking](guides/networking.md).
+- **Use another model provider or an API key**: [Providers and Models](guides/providers-and-models.md).
+- **Apply the same setup to your own machine**, with no jail:
+  [Writing Your Own Pack](guides/migrating-to-packs.md#part-2--manage-your-host).
 
 ---
 
 ## Authentication
 
-Inside the jail, log in to your tools:
+Log in to each tool inside the jail, the way you would on a new computer:
 
 ```bash
-gh auth login          # GitHub CLI
-claude                 # Claude Code: runs /login on first launch
-agy                    # Google Antigravity: sign in when it asks
+claude                 # Claude Code: runs /login the first time
+codex                  # Codex: prints a browser link the first time
+gh auth login          # the GitHub CLI
 ```
 
-The jail does not reuse the logins on your host; you log in inside the jail. Every login is kept on the host and survives jail restarts, so you do **not** log in again each time you start a jail. How far one login reaches depends on the tool:
+The jail does not reuse the logins on your host, and every login you make in it is kept on your
+host, so you log in once, not at every launch. Claude's login, and the ChatGPT login Codex and pi
+share, then work in every project on the machine; the others, such as `gh` and `copilot`, are kept
+per project.
 
-- `claude` and `agy` keep one login for the whole machine: log in once, and the jails in all your other projects use it too.
-- `codex` and `pi` share one OpenAI login through a login service yolo runs on your host. This does not work on every setup, and not on Apple Container; see [Do I have to log in again in every workspace?](reference/settings-per-setup.md#5-do-i-have-to-log-in-again-in-every-workspace-and-in-a-second-jail-at-the-same-time).
-- `gh`, `copilot`, `opencode` and `omp` keep a separate login for each project, so you log in once per project.
-
-### Claude OAuth broker (refresh serialization)
-
-Anthropic uses single-use refresh tokens — when multiple jails share the same `.credentials.json` and two of them try to refresh in the same window, one loses the race and gets logged out. YOLO Jail ships the **claude-oauth-broker** loophole: a host-side daemon that serializes refreshes behind a flock. Jails route their refresh requests through it instead of calling Anthropic directly. A **loophole** is a named connection from a jail to one capability on your host; see [Loopholes](guides/loopholes.md).
-
-The broker refreshes **both on demand and proactively**:
-
-- **On demand** — when a jail asks for a refresh, a token with headroom is returned from cache; otherwise the broker refreshes upstream once and hands the result back.
-- **Proactively** — the host daemon also runs a background refresher **by default**: it wakes every 60 s and refreshes when the shared token is within 5 minutes of expiry, retrying every 5 s (up to 12 times) while upstream is transiently unreachable. Pass `--no-background-refresh` to turn it off.
-
-The background loop is not an optimization. Claude Code has no proactive refresh of its own for Pro/Max tokens — it refreshes reactively, after a 401 — so a jail that idles past expiry, or a laptop that suspends through it, would otherwise wake up to a logout. Refreshing ahead of expiry on the host is what prevents that.
-
-**Selecting the `claude` pack is what turns the broker on**, and there is nothing else to set up: the broker creates its certificates in `~/.local/share/yolo-jail/state/claude-oauth-broker/` the first time it starts. `yolo check` includes a broker self-check covering those certificates and whether the credentials file parses. On Apple Container and `macos-user`, refreshes do not go through the broker yet, so jails there refresh on their own and can log each other out.
-
-> **Security note:** Auth tokens are stored separately from your host credentials. The jail never accesses your host `~/.ssh/`, `~/.gitconfig`, or cloud credentials. The broker reads and refreshes exactly one file — the machine-shared `~/.local/share/yolo-jail/home/.claude-shared-credentials/.credentials.json`, which every jail on this machine symlinks to. **It never writes your host `~/.claude/.credentials.json`.** So a `/login` inside a jail does not keep host Claude Code logged in, and a broker refresh cannot disturb a host session.
+On Podman, a service on your host keeps the shared Claude login fresh, so several jails at once do
+not log each other out. On Apple Container that service and the shared ChatGPT login do not work
+yet. [Logins →](guides/authentication.md) covers each agent, API keys, and pushing to git from a
+jail.
 
 ---
 
