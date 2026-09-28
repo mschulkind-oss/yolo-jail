@@ -7,7 +7,6 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
-	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 )
 
 // channelSectionHeader marks the per-entry channel inside yolo-user-env.sh. The
@@ -112,10 +111,10 @@ func writeUserEnvFile(userEnvFile string, userEnv *jsonx.OrderedMap, channel *pa
 	}
 	if channel != nil {
 		b.WriteString(channelSectionHeader + "\n")
-		b.WriteString(exportPlain("YOLO_PROVIDERS", jsonDumpsOrEmptyObj(channel.providers)))
-		b.WriteString(exportPlain("YOLO_PROFILES",
-			jsonDumpsOrEmptyObj(packload.ProfilesWireTable(channel.resolvedProfiles))))
-		b.WriteString(exportPlain("YOLO_USE_PROFILES", jsonDumpsOrEmptyObj(channel.profiles)))
+		wire := channel.wireTableValues()
+		for _, k := range entrypoint.WireTables() {
+			b.WriteString(exportPlain(k, wire[k]))
+		}
 		shared := channel.scope.SharedPackEnv()
 		keys := make([]string, 0, len(shared))
 		for k := range shared {

@@ -32,6 +32,7 @@ import (
 	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
+	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 )
@@ -359,13 +360,27 @@ func (c *packChannel) launchEnv(agent string) *jsonx.OrderedMap {
 			env.Set(v.Key, v.Value)
 		}
 	}
-	env.Set("YOLO_PROVIDERS", jsonDumpsOrEmptyObj(c.providers))
-	env.Set("YOLO_PROFILES", jsonDumpsOrEmptyObj(packload.ProfilesWireTable(c.resolvedProfiles)))
-	env.Set("YOLO_USE_PROFILES", jsonDumpsOrEmptyObj(c.profiles))
+	wire := c.wireTableValues()
+	for _, k := range entrypoint.WireTables() {
+		env.Set(k, wire[k])
+	}
 	sources := c.scope.EnvSourcesFor(agent)
 	for _, k := range sources.Keys() {
 		v, _ := sources.Get(k)
 		env.Set(k, v)
 	}
 	return env
+}
+
+// wireTableValues is this channel's three wire tables, serialized, keyed by the names in
+// entrypoint.WireTables — the ONE list both writers (launchEnv and writeUserEnvFile) range
+// over, so a table cannot reach one vehicle and not the other. An empty table is written as
+// `{}` rather than omitted: the readers treat the two alike, and the container and macos-user
+// boots then see the same input shape.
+func (c *packChannel) wireTableValues() map[string]string {
+	return map[string]string{
+		entrypoint.ProvidersWireEnv:   jsonDumpsOrEmptyObj(c.providers),
+		entrypoint.ProfilesWireEnv:    jsonDumpsOrEmptyObj(packload.ProfilesWireTable(c.resolvedProfiles)),
+		entrypoint.UseProfilesWireEnv: jsonDumpsOrEmptyObj(c.profiles),
+	}
 }

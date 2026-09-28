@@ -169,7 +169,7 @@ func ParseEntryChannel(data []byte) (map[string]string, bool) {
 		}
 		values[key] = strings.ReplaceAll(raw, "'\\''", "'")
 	}
-	for _, key := range []string{"YOLO_PROVIDERS", "YOLO_PROFILES", "YOLO_USE_PROFILES"} {
+	for _, key := range WireTables() {
 		if _, ok := values[key]; !ok {
 			return nil, false
 		}

@@ -259,6 +259,9 @@ apply it, and the launch says that too. See
   `models.yml`, opencode's `opencode.json`, pi's sign-in (`auth.json`) and sessions, and anything
   else the agent kept in those folders. A launch now replaces only the skills and the briefing.
   What was deleted can be recovered only from your own backup of `<workspace>/.yolo/home`.
+- On `macos-user`, a profile chosen with `-p` reached the agent's environment but not the
+  settings yolo writes from the profile's provider, so Codex's `config.toml` named no provider
+  or model for it. Those settings are now written as they are in a container jail.
 - `yolo init` wrote a workspace config saying grep and find are blocked by default, and both it and
   `yolo init-user-config` wrote a config offering no `macos-user` runtime.
 - The links on yolo-jail's PyPI page led nowhere. They now open that release's files on GitHub.

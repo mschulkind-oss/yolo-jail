@@ -5,11 +5,35 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 )
 
+// THE WIRE TABLES — the three JSON objects the launch composes once and every boot reads:
+// the composed providers, the resolved profile table, and the per-CLI selection. They cross
+// together or not at all, because each reader resolves one through the others (a selection
+// names a profile, a profile names a provider).
+//
+// WireTables is THE list, and every place that relays or checks the set ranges over it
+// rather than spelling it: the launch's two writers (the run pipeline's packChannel, through
+// its wireTableValues), the channel-section reader (ParseEntryChannel), and the macos-user
+// plan's bootstrap relay and its invariant (macosuser.BuildRunPlan, macosuser.PlanInvariants). Two hand-spelled copies of that set are how YOLO_PROFILES came
+// to be relayed on no macos-user launch while both copies agreed with each other: codex
+// then rendered no model_provider there, because the profile its selection named was
+// absent from a table nobody relayed (docs/plans/notch-convergence.md, row D2).
+const (
+	ProvidersWireEnv   = "YOLO_PROVIDERS"
+	ProfilesWireEnv    = "YOLO_PROFILES"
+	UseProfilesWireEnv = "YOLO_USE_PROFILES"
+)
+
+// WireTables returns the wire-table variable names, in the order the launch writes them.
+// A fresh slice each call, so no caller can edit the list another reads.
+func WireTables() []string {
+	return []string{ProvidersWireEnv, ProfilesWireEnv, UseProfilesWireEnv}
+}
+
 // LoadProviders reads the YOLO_PROVIDERS JSON object passed into the jail environment.
 // Returns an OrderedMap whose key order follows declaration order.
 func (e *Env) LoadProviders() *jsonx.OrderedMap {
 	out := jsonx.NewOrderedMap()
-	raw := e.Getenv("YOLO_PROVIDERS")
+	raw := e.Getenv(ProvidersWireEnv)
 	if raw == "" {
 		return out
 	}
@@ -27,7 +51,7 @@ func (e *Env) LoadProviders() *jsonx.OrderedMap {
 // Returns an OrderedMap mapping agent names to active profile names.
 func (e *Env) LoadUseProfiles() *jsonx.OrderedMap {
 	out := jsonx.NewOrderedMap()
-	raw := e.Getenv("YOLO_USE_PROFILES")
+	raw := e.Getenv(UseProfilesWireEnv)
 	if raw == "" {
 		return out
 	}
@@ -56,7 +80,7 @@ func (e *Env) LoadUseProfiles() *jsonx.OrderedMap {
 // selection" world every derive already handles (OQ-CS2).
 func (e *Env) LoadProfiles() map[string]packload.ResolvedProfile {
 	out := map[string]packload.ResolvedProfile{}
-	raw := e.Getenv("YOLO_PROFILES")
+	raw := e.Getenv(ProfilesWireEnv)
 	if raw == "" {
 		return out
 	}

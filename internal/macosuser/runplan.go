@@ -679,21 +679,25 @@ func buildBootstrapEnv(workspace string, cfg, gitIdentity, sandboxEnv *jsonx.Ord
 		bootstrapEnv.Set(entrypoint.DarwinHomeSidecarEnv, homeSidecar)
 	}
 
-	// THE TWO PROVIDER/PROFILE WIRE TABLES, relayed from the launch env into the
-	// bootstrap env. The container boot reads both out of the jail environment
-	// (ConfigurePackSurfaces resolves the profile table into every pack's config patch;
-	// the derives read the provider table through the prism), and the native bootstrap
-	// runs the SAME generators — so without this relay a `-p` launch would compose the
-	// variant's env correctly and still render every pack surface as if no variant were
-	// selected, which is the silent half of the same defect. Read out of sandboxEnv by
-	// name, the way git identity above is read out of it by prefix: the launch env is
-	// the ONE place the channel lands, and the bootstrap is a consumer of it, not a
-	// second composition site.
+	// THE WIRE TABLES, relayed from the launch env into the bootstrap env. The container
+	// boot reads all three out of the jail environment (ConfigurePackSurfaces resolves the
+	// selection into every pack's config patch through the resolved profile table; the
+	// derives read the provider table through the prism), and the native bootstrap runs the
+	// SAME generators — so without this relay a `-p` launch would compose the variant's env
+	// correctly and still render every pack surface as if no variant were selected, which
+	// is the silent half of the same defect. Read out of sandboxEnv by name, the way git
+	// identity above is read out of it by prefix: the launch env is the ONE place the
+	// channel lands, and the bootstrap is a consumer of it, not a second composition site.
+	//
+	// RANGED OVER entrypoint.WireTables, never spelled here. This loop used to name two of
+	// the three and drop YOLO_PROFILES, and so did the invariant in PlanInvariants, so the
+	// two agreed while codex on this backend rendered no model_provider: its selection named
+	// a profile the bootstrap had no table for (docs/plans/notch-convergence.md, row D2).
 	//
 	// Always relayed when present, including the empty `{}`: an absent variable and an
 	// empty table mean the same thing to the readers, but the container emits the empty
 	// table explicitly, so the two backends' bootstraps see the same input shape.
-	for _, wire := range []string{"YOLO_PROVIDERS", "YOLO_USE_PROFILES"} {
+	for _, wire := range entrypoint.WireTables() {
 		if v, ok := sandboxEnv.Get(wire); ok {
 			bootstrapEnv.Set(wire, v)
 		}
@@ -877,24 +881,24 @@ func PlanInvariants(plan RunPlan) []string {
 				"workspace's agent state in one place (/Users/_yolojail)")
 	}
 
-	// The two provider/profile wire tables must reach BOTH the launch env and the
-	// BOOTSTRAP env. The launch env alone composes the agent's process env; the bootstrap
-	// env is what renders the pack surfaces and the derives — so a launch that carries
-	// YOLO_USE_PROFILES while the bootstrap does not would run the selected variant's
-	// environment against config written as if no variant were selected. Relayed by name
-	// in BuildRunPlan; this is what fails if that relay is deleted, which no test on the
-	// launch env alone can see.
-	for _, wire := range []string{"YOLO_PROVIDERS", "YOLO_USE_PROFILES"} {
-		for _, a := range plan.LaunchArgv {
-			if !strings.HasPrefix(a, wire+"=") {
-				continue
-			}
-			if !containsArg(plan.BootstrapArgv, a) {
-				problems = append(problems,
-					wire+" is in the launch env but not baked into the bootstrap env "+
-						"("+a+"); the pack surfaces and derives would render as if no "+
-						"profile were selected")
-			}
+	// Every wire table must reach BOTH the launch env and the BOOTSTRAP env. The launch env
+	// alone composes the agent's process env; the bootstrap env is what renders the pack
+	// surfaces and the derives — so a launch that carries YOLO_USE_PROFILES while the
+	// bootstrap does not would run the selected variant's environment against config
+	// written as if no variant were selected. Relayed in BuildRunPlan over the same list
+	// (entrypoint.WireTables); this is what fails if that relay is deleted, which no test on
+	// the launch env alone can see.
+	//
+	// READ FROM THE ENV FILE, where the launch env's composed values live. This check used to
+	// scan LaunchArgv, which stopped carrying any composed value when the channel moved into
+	// the session env file (envfile.go), so it could no longer fire for any table.
+	for _, wire := range entrypoint.WireTables() {
+		v, ok := sandboxEnvFileValue(plan.EnvFileContent, wire)
+		if ok && !containsArg(plan.BootstrapArgv, wire+"="+v) {
+			problems = append(problems,
+				wire+" is in the launch env but not baked into the bootstrap env "+
+					"("+wire+"="+v+"); the pack surfaces and derives would render as if no "+
+					"profile were selected")
 		}
 	}
 

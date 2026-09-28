@@ -144,6 +144,26 @@ func SandboxEnvFileSets(content, key, value string) bool {
 	return strings.Contains(content, exportLine(key, value))
 }
 
+// sandboxEnvFileValue returns the value a rendered env file exports for key, undoing
+// exportLine's escaping, and whether the file sets key at all. The last line wins, as it
+// does when the shell sources the file.
+func sandboxEnvFileValue(content, key string) (string, bool) {
+	prefix := "export " + key + "='"
+	value, found := "", false
+	for _, line := range strings.Split(content, "\n") {
+		rest, ok := strings.CutPrefix(line, prefix)
+		if !ok {
+			continue
+		}
+		rest, ok = strings.CutSuffix(rest, "'")
+		if !ok {
+			continue
+		}
+		value, found = strings.ReplaceAll(rest, `'\''`, "'"), true
+	}
+	return value, found
+}
+
 // SandboxEnvFileKeys returns the variable names a rendered env file sets, in file order.
 //
 // It reads the RENDERED BYTES rather than taking the map again, because its caller is the
