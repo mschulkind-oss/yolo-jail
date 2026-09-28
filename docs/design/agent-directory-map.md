@@ -3,7 +3,7 @@ title: "Every path in an agent's directory gets a class, and yolo names the ones
 date: 2026-09-28
 status: in-review
 tags: [design, packs, agent-directories, host, check, dotfiles, credentials, pi]
-summary: "yolo manages an agent's directory only where some pack happens to name a path, so a dotfiles manager's broken links in ~/.pi/agent crashed pi without yolo noticing, and 'can I wipe ~/.pi?' took a code read. Each agent pack should declare its agent's directory whole: every path is state, cache or yours, and yolo's own writes (composed files, links it lays, names it deletes) are derived from the declarations that already cause them rather than declared a second time. One read-only evaluator, run where the agent runs, names broken links, shadowing files and unexplained entries, and it never deletes or refuses anything. Pi ships first, with a full measured map; claude, codex, opencode, copilot, agy and omp follow, each with its own hard parts."
+summary: "yolo manages an agent's directory only where some pack happens to name a path, so a dotfiles manager's dangling links in ~/.pi/agent crashed pi without yolo noticing, and 'can I wipe ~/.pi?' took a code read. Each agent pack should declare its agent's directory whole: every path is state, cache or yours, and yolo's own writes (composed files, links it lays, names it deletes) are derived from the declarations that already cause them rather than declared a second time. One read-only evaluator, run where the agent runs, names dangling links, shadowing files and unexplained entries, and it never deletes or refuses anything. Pi ships first, with a full measured map; claude, codex, opencode, copilot, agy and omp follow, each with its own hard parts."
 vantage:
   status-chip: true
 ---
@@ -58,16 +58,25 @@ Every term below is coined here unless it links to where it is defined.
   its own: `~/.pi`, `~/.claude`, `~/.claude.json`, `~/.codex`. It is not the same thing as a `state`
   contribution. A `state` contribution is a jail mount ([§5.1](#51-a-new-kind-not-an-extension-of-state)),
   and one agent (opencode) has none at all.
-- **Root.** The agent directory as a pack declares it: the top of one map.
+- **Root.** The agent directory as a pack declares it: the top of one map. A declared root is always
+  home-relative.
+- **Derived root.** A directory yolo's own launch points an agent at by setting the agent's
+  relocation variable, such as codex's managed home under `yolo host --`. It is never declared, it
+  is evaluated with the entries of the root the variable relocates, and it is the only kind of root
+  that may lie outside `$HOME` ([AM-D13](#AM-D13)).
 - **Map.** A pack's declaration of every path under a root, with a class for each.
 - **Entry.** One line of a map: a path or glob relative to the root, plus its class.
 - **Class.** What a path is and whose it is. There are three **declared** classes (state, cache,
   yours), three **derived statuses** (composed, laid, retired), and one residual case (unexplained).
   All seven are defined in [§3](#3-the-classes).
 - **Finding.** Something the evaluator reports. It is always a line and never a refusal.
-- **Broken link.** A symlink whose chain ends in a directory that does not exist. This is the
-  predicate [`report-tiers.md`](../reference/report-tiers.md#broken-links) coined for destinations,
-  reused here unchanged.
+- **Broken link.** A symlink on a destination's path whose chain ends in a directory that does not
+  exist. [`report-tiers.md`](../reference/report-tiers.md#broken-links) coined it for the files a
+  host apply writes through, and it exempts a link at the destination itself whose target's
+  directory exists. The map does **not** reuse it unchanged ([AM-D5](#AM-D5)).
+- **Dangling link.** A symlink whose chain does not end at an existing entry, or loops. The map's
+  term, in the plain sense the rest of the corpus already uses it. Every broken link is dangling;
+  a dangling link whose target's directory exists is not broken.
 - **Wipe answer.** What deleting a root would lose, entry by entry, at the notch where it is asked.
 
 ---
@@ -80,11 +89,11 @@ surface to bring it under management. but maybe that's the best we can do."*
 **My answer is that it is not the best we can do.** The instinct behind the second sentence is
 still right, and it shapes this design. yolo cannot know a vendor's layout unless someone writes it
 down, and anything written down by hand drifts from the vendor. What changes the answer is that the
-most damaging failure needs no vendor knowledge. All three of the incident's paths were broken
-links, and a broken link is visible to anyone who walks the directory. So the design has two halves
-with very different costs:
+most damaging failure needs no vendor knowledge. All three of the incident's paths were dangling
+links, and a dangling link is visible to anyone who walks the directory. So the design has two
+halves with very different costs:
 
-1. **The root.** The pack says "this directory is my agent's". That is enough to find every broken
+1. **The root.** The pack says "this directory is my agent's". That is enough to find every dangling
    link, a wrong file type and a relocated root, with no per-path knowledge. This half alone would
    have caught the whole incident.
 2. **The entries.** The pack says what each path is. That is what answers "can I wipe it?", names
@@ -98,10 +107,11 @@ The principles, numbered so later sections can cite them:
   the class the path has **when yolo does not render it**. That yolo renders it, lays a link there,
   or deletes it is read from the contribution that causes it (a surface, `files`, a hook,
   `retireOnFirstRender`) and is never declared again. So there is one source for each fact.
-- **P2. The map observes.** The evaluator calls `Lstat` and `ReadDir` and nothing else. It never
-  opens a file, never follows a link below a root, and never writes, moves or deletes anything
-  under a root. This is the rule [`basehome`](../../internal/basehome/classify.go) already follows
-  (*"THIS PACKAGE OBSERVES"*).
+- **P2. The map observes.** The evaluator lists directories (`ReadDir`) and inspects entries
+  (`Lstat`). To classify a link, and only then, it may read the link's chain hop by hop
+  (`Readlink`) and `Stat` where the chain ends. It never opens a file, never descends through a
+  link, and never writes, moves or deletes anything under a root. This is the rule
+  [`basehome`](../../internal/basehome/classify.go) already follows (*"THIS PACKAGE OBSERVES"*).
 - **P3. The map is evaluated where the agent runs.** Links resolve only through the mount table of
   the agent's own namespace ([the jail-home invariant](../reference/jail-home.md#invariants)). A
   host-side walk of a container jail's sidecar sees mountpoint placeholders, and it sees yolo's own
@@ -109,7 +119,7 @@ The principles, numbered so later sections can cite them:
 - **P4. Findings are warnings, never refusals.** A vendor adding a file must not be able to break a
   launch. The one existing refusal, the host-apply rule for a destination behind a broken link,
   refuses a **write** yolo was about to make and stays exactly as it is.
-- **P5. Only harm repeats.** A broken link, or a file that shadows a composed one, is printed every
+- **P5. Only harm repeats.** A dangling link, or a file that shadows a composed one, is printed every
   time, because each one makes the agent fail or ignore yolo's file. An unexplained entry is printed once,
   when it first appears. This is [ST-N2](synced-skill-trees.md#ST-N2)'s "new or changed" rule
   applied to a whole directory.
@@ -132,7 +142,7 @@ Checked against `daac6eb4`:
 | Config surface destinations | rendered at boot | rendered at boot | rendered by `yolo host apply`. A destination behind a broken link is refused by name ([`hostbrokenlink.go`](../../internal/entrypoint/hostbrokenlink.go), `9ca34974`) |
 | `files`, `skills`, `briefing` destinations | `:ro` binds, whose mountpoints are recorded only for `files` ([`packfiles.go`](../../internal/cli/run/packfiles.go)) | copies, listed in the overlay manifest | written where an ownership record shows they are yolo's |
 | Hook paths (`shared_credentials`, `shared_directory`, `unshare_directory`, `per_jail_history`) | acted on at every boot | acted on at every boot | **refused**: hooks are jail provisioning ([`fieldset.go`](../../internal/render/fieldset.go)) |
-| Host files a jail reads (a surface's `readsHost`, a briefing's `after: host:`) | an absent **or broken** source is skipped **silently** (`isFile` in [`probes.go`](../../internal/cli/run/probes.go); `PrependHostBriefing` in [`briefing.go`](../../internal/jailcontent/briefing.go)) | same | — |
+| Host files a jail reads (a surface's `readsHost`, a briefing's `after: host:`) | an absent **or dangling** source is skipped **silently** (`isFile` in [`probes.go`](../../internal/cli/run/probes.go); `PrependHostBriefing` in [`briefing.go`](../../internal/jailcontent/briefing.go)) | same | — |
 | Credential writers before a launch | pi's and codex's `auth.json` under the `codex` profile ([`pi.go`](../../internal/openauthclient/pi.go)); the Claude login seed synced into the workspace's `claude.json` | same | codex's managed home only ([§7.3](#73-codex)) |
 | Reclaimers | `yolo prune` age-purges `copilot/logs` and `gemini/tmp` in each workspace sidecar, from a hand-written list ([`agentlogs.go`](../../internal/prune/agentlogs.go)); the launcher keeps two versions under `~/.local/share/<bin>/versions` | same | the launcher's version prune |
 | **Every other path** | **nothing reads, checks or reports it** | **nothing** | **nothing** |
@@ -206,8 +216,15 @@ computed per notch from the declarations that cause them:
 | Status | The path is… | Derived from |
 | :--- | :--- | :--- |
 | **composed** | rendered by yolo at this notch | every selected pack's config surfaces and `files`, `skills` and `briefing` destinations, at the notch the kind runs at. A `skills` destination's `reserved` children are excluded |
-| **laid** | a link or placeholder yolo itself places, recognized by its **exact expected target**, never by its name alone | the hooks' `from`→`at` links; macos-user's layout links and overlay siblings; core's home-file redirects (`~/.claude.json` → `.claude/claude.json`); the mountpoint manifest's recorded placeholders; entries named with the `.yolo-` bookkeeping prefix (`packdecl.StoreBookkeepingPrefix`) |
-| **retired** | a name yolo deletes at this notch | a surface's `retireOnFirstRender` (jail only: the host path never retires a sidecar), and the old link an `unshare_directory` hook recognizes |
+| **laid** | a link or placeholder yolo itself places, recognized by its **exact expected target**, never by its name alone | the hooks' `from`→`at` links; macos-user's layout links and overlay siblings; core's home-file redirects (`~/.claude.json` → `.claude/claude.json`); entries named with the `.yolo-` bookkeeping prefix (`packdecl.StoreBookkeepingPrefix`) |
+| **retired** | a name yolo deletes at this notch | a surface's `retireOnFirstRender` **per the surface's mode** (jail only: the host path never retires a sidecar), and the old link an `unshare_directory` hook recognizes. A `computed` or `rmw` surface retires its names at every boot. A `stateful` surface retires them only on the boot that migrates it, which the map cannot observe, so a copy present when the map runs is **not** retired: it falls through to its declared class or to unexplained ([AM-D12](#AM-D12)) |
+
+**The mountpoint manifest is not a source.** In the agent's own view a recorded `files` placeholder
+that is still claimed sits under its live bind, where the path is composed. One that is no longer
+claimed is removed, and its record dropped, before every launch (`retirePackFileMountpoints` in
+[`packfiles.go`](../../internal/cli/run/packfiles.go)). Briefing and skills placeholders are never
+recorded. So the manifest never proves a visible entry is yolo's, and yolo's residue surfaces as
+unexplained ([§9](#9-risks)).
 
 **What losing a composed path costs is its surface mode's answer, not the map's.** A `computed`
 file regenerates. A `stateful` file regenerates, and its captured edits, which live outside the
@@ -232,12 +249,21 @@ exist:
 
 | Finding | When | Printed |
 | :--- | :--- | :--- |
-| **broken link** | the entry is a broken link, by the destination rule's predicate reused as-is. A link whose target directory exists is not broken ([HC-D4](host-computed-layer.md#HC-D4)) | every time ([P5](#1-the-verdict-and-the-principles-it-rests-on)) |
-| **wrong type** | the entry is declared a directory and is a file, or the other way round | every time |
+| **dangling link** | the entry is a [dangling link](#terms-in-plain-words). Two cases are exempt: a laid link ([§3.6](#36-the-hard-cases)), and a **composed file at the host notch** whose chain ends in a directory that exists, because host apply creates the file through the link ([HC-D4](host-computed-layer.md#HC-D4)). Nothing else is exempt, and a directory entry never is | every time ([P5](#1-the-verdict-and-the-principles-it-rests-on)) |
+| **wrong type** | the entry's declared shape (a trailing `/` means a directory) differs from what it **resolves to**: for a plain entry its `Lstat` type, and for a link the type where its chain ends. A link at `npm/` that ends at a regular file is wrong type. A dangling link has no resolved type, so it is reported as dangling only | every time |
 | **shadow** | an entry declared `shadows: <path>` is present, so the agent loads it **instead of** a composed file | every time |
-| **relocated** | a variable the entry names as relocating it is set in the agent's environment, so the agent reads somewhere else while yolo still writes the literal path | every time, once per variable |
-| **yolo's leftover** | a placeholder yolo recorded is visible, which in the agent's own view means nothing is delivered over it any more | once, when new |
+| **relocated** | a variable the entry names as relocating it is set in the agent's environment, so the agent reads somewhere else while yolo still writes the literal path. **A variable yolo's own launch sets is never this finding**: the directory it names is a derived root ([AM-D6](#AM-D6)) | every time, once per variable |
 | **unexplained** | [above](#33-unexplained-and-the-structural-findings) | once, when new ([§4.5](#45-print-when-new)) |
+
+**Why the destination rule is not reused unchanged.** `FindBrokenLink` exempts a link at the
+destination itself whenever the directory holding its target exists
+([`hostbrokenlink.go`](../../internal/entrypoint/hostbrokenlink.go)). That exemption was made for a
+file host apply writes through ([HC-D4](host-computed-layer.md#HC-D4)), and it holds only there. For a
+directory it hides the incident's own crash: with `npm -> dot/npm`, `dot/` present and `dot/npm`
+absent, pi's `ensureNpmProject` sees `existsSync` false, and then `mkdirSync` and `writeFileSync`
+both fail `ENOENT`, which is the error pi crashed with. The maintainer's links broke one after
+another, so a partial move that leaves `~/.dotfiles/pi` in place without `~/.dotfiles/pi/npm` is a
+realistic state, and the destination rule would report nothing in it.
 
 ### 3.4 Precedence
 
@@ -256,8 +282,8 @@ flowchart LR
     A -->|no| U["unexplained"]
 ```
 
-Structural findings are checked alongside all of this and do not replace the class. A broken link at
-`settings.json` is still yours, and it is also a broken link.
+Structural findings are checked alongside all of this and do not replace the class. A dangling link
+at `settings.json` is still yours, and it is also a dangling link.
 
 ### 3.5 Marks and attributes on an entry
 
@@ -269,7 +295,7 @@ A mark adds rules to an entry's class. It does not change the class. The pi slic
 | `transient` | a pattern of in-flight writes: lock directories, temp siblings | never reported, and never removed by any verb. Removing a live lock breaks mutual exclusion |
 | `executes` | the agent runs what sits here at startup (pi's `extensions/`) | an unexplained entry here gets its own louder line: *"runs at every pi start"* ([OQ-AM2](#OQ-AM2)) |
 | `shadows: <path>` | when present, the agent loads this file instead of `<path>` | a **shadow** finding |
-| `relocated_by: [VAR…]` | the vendor moves this entry when a variable is set | a **relocated** finding when it is set. The entry is then not walked ([AM-D6](#AM-D6)) |
+| `relocated_by: [VAR…]` | the vendor moves this entry when a variable is set | a **relocated** finding when the user sets it, and the entry is then not walked. When yolo's own launch sets it, no finding: the named directory is a derived root ([AM-D6](#AM-D6)) |
 | `note` | one sentence, in the vendor's terms, printed with the entry's line | how a trap from [`pack-declared-file-diagnostics.md`](pack-declared-file-diagnostics.md) becomes a map entry ([OQ-AM8](#OQ-AM8)) |
 
 ### 3.6 The hard cases
@@ -280,8 +306,8 @@ A mark adds rules to an entry's class. It does not change the class. The pi slic
 | A state file yolo merges one key into | pi's `auth.json`. The prelaunch writer merges `openai-codex` under the `codex` profile | state + `credential`. The merge is disclosed, derived from the pack's prelaunch declaration. The wipe answer loses **every other provider's** login |
 | An `rmw` surface on a vendor state file | `~/.claude.json` | composed `rmw` over state, so its wipe answer is state's ([§3.2](#32-derived-statuses-what-yolo-does-to-the-path-at-this-notch)) |
 | One path, different class per notch | codex's `auth.json`: a view yolo rewrites every launch in a jail, and the user's only real login at the host | one declaration: state + `credential`. The notch difference is a derived fact (the jail's prelaunch writer), so the wipe answer differs per notch while the class does not |
-| A path an environment variable relocates | `PI_CODING_AGENT_DIR` moves `~/.pi/agent` | `relocated_by`. When it is set, a **relocated** finding names it and says yolo's surfaces still write the literal path ([AM-D6](#AM-D6)) |
-| A link yolo lays in a jail | `~/.pi/agent/npm` → `../../.pi-shared-npm` | laid, from the `shared_directory` hook, and never followed. A laid link with the wrong target is the hook's to report, not the map's |
+| A path an environment variable relocates | `PI_CODING_AGENT_DIR` moves `~/.pi/agent` | `relocated_by`. When the user sets it, a **relocated** finding names it and says yolo's surfaces still write the literal path. When yolo's own launch sets it (codex's `CODEX_HOME` under `yolo host --`), there is no finding, and the directory it names is a derived root ([AM-D6](#AM-D6)) |
+| A link yolo lays in a jail | `~/.pi/agent/npm` → `../../.pi-shared-npm` | laid, from the `shared_directory` hook, recognized by its exact target and never descended through. A laid link with the wrong target is the hook's to report, not the map's |
 | A laid link that dangles by design | agy's OAuth-token link before the first login, and claude's `.credentials.json` seen from the host side | laid, so not a finding even while dangling. [P3](#1-the-verdict-and-the-principles-it-rests-on) keeps the host-side view out anyway |
 | yolo's residue at a vendor name | the 0-byte, `0700` `APPEND_SYSTEM.md` in this workspace | yours, because the map classes by name. The map view prints its size. **This is an accepted limit**: residue at a declared name looks the same as the user's file |
 | A legacy layout the vendor migrates | pi's `tools/`, `commands/`, `oauth.json.migrated` | declared with the class of what it holds, plus `note: legacy — pi migrates it` |
@@ -308,13 +334,13 @@ rule: an unselected pack is treated as if it does not exist.
 
 | Verb | What it does with the map | Never |
 | :--- | :--- | :--- |
-| `yolo check` (host, and in-jail) | One section per root. Every finding is a WARN row: broken links, wrong types, shadows, relocations and **every** unexplained entry. A header line gives counts by class. Findings also appear in the JSON report | changes the exit code for a finding. Prints file contents |
-| `yolo host apply` | Renders what it renders today. After the verdict block it adds one group, *"In your agent directories"*, itemizing broken links, shadows and relocations, and **new** unexplained entries up to 5 per root, then *"and N more — `yolo check`"*. Its remedy is stated once, and the same findings appear in the `--format json` document | changes the verdict token or the exit code for a map finding. Map findings are not tier-3 blockers ([the tiers](../reference/report-tiers.md#the-tiers)) |
-| `yolo host -- <agent>` preflight | Evaluates only the roots of the pack whose program is `<agent>`, plus entries other selected packs add under them. It prints structural findings and new unexplained entries (capped as above) to stderr and the launch log, **before** the launch gate, so a broken link it names can explain a refusal the gate goes on to make. It never depends on the gate's result. Budget: **250 ms**. On overrun it prints one line naming the skip ([AM-D11](#AM-D11)) | refuses, blocks, prompts, or sits inside the `host_apply_on_launch` gate's refusal path ([the gate](../reference/host-apply-staleness.md#the-launch-gate)) |
-| Jail launch (host side) | **One new line, independent of the map:** a `readsHost` or `after: host:` source that is a broken link is named, saying the jail composes without it | walks the host's agent directories: the jail uses nothing else from them |
+| `yolo check` (host, and in-jail) | One section per root. Every finding is a WARN row: dangling links, wrong types, shadows, relocations and **every** unexplained entry. A header line gives counts by class. Findings also appear in the JSON report | changes the exit code for a finding. Prints file contents |
+| `yolo host apply` | Renders what it renders today. After the verdict block it adds one group, *"In your agent directories"*, itemizing dangling links, shadows and relocations, and **new** unexplained entries up to 5 per root, then *"and N more — `yolo check`"*. Its remedy is stated once, and the same findings appear in the `--format json` document | changes the verdict token or the exit code for a map finding. Map findings are not tier-3 blockers ([the tiers](../reference/report-tiers.md#the-tiers)) |
+| `yolo host -- <agent>` preflight | Evaluates only the roots of the pack whose program is `<agent>`, plus entries other selected packs add under them. It prints structural findings and new unexplained entries (capped as above) to stderr and the launch log, **before** the launch gate, so a dangling link it names can explain a refusal the gate goes on to make. It never depends on the gate's result. Budget: **250 ms**. On overrun it prints one line naming the skip ([AM-D11](#AM-D11)) | refuses, blocks, prompts, or sits inside the `host_apply_on_launch` gate's refusal path ([the gate](../reference/host-apply-staleness.md#the-launch-gate)) |
+| Jail launch (host side) | **One new line, independent of the map:** a `readsHost` or `after: host:` source that is a dangling link is named, saying the jail composes without it | walks the host's agent directories: the jail uses nothing else from them |
 | Jail boot | nothing new ([OQ-AM6](#OQ-AM6)) | runs the walk as a `genStep`, which would turn a finding into a refused boot |
 | `yolo pack map <pack>` (new, read-only) | The full evaluated map at this notch. Every present entry is listed with its class, marks, derived status and size, and the root ends with a **wipe answer** ([§4.4](#44-the-wipe-answer)). It also says which notch it evaluated ([AM-D9](#AM-D9)) | opens a file. Offers to delete anything |
-| `yolo config ls` | Unchanged per row, since it lists surfaces, which are all composed. A surface whose destination is shadowed says so. One footer line appears when the map has findings: *"~/.pi: 1 broken link, 1 unexplained — `yolo pack map pi`"* | lists non-surface paths |
+| `yolo config ls` | Unchanged per row, since it lists surfaces, which are all composed. A surface whose destination is shadowed says so. One footer line appears when the map has findings: *"~/.pi: 1 dangling link, 1 unexplained — `yolo pack map pi`"* | lists non-surface paths |
 | `yolo config reset` | Unchanged: it resets one surface's captured edits | touches a path of any declared class |
 | A wipe or reset of a whole root | **No verb exists, and this design builds none** ([OQ-AM5](#OQ-AM5)). The wipe answer is a report, and the user runs `rm` | — |
 | `yolo prune` | Unchanged in the pi slice ([OQ-AM7](#OQ-AM7)) | — |
@@ -324,8 +350,8 @@ rule: an unselected pack is treated as if it does not exist.
 | | check / apply / preflight | map view | wipe answer |
 | :--- | :--- | :--- | :--- |
 | **composed** | counted | the owning surface or kind, and its mode | the mode's answer ([§3.2](#32-derived-statuses-what-yolo-does-to-the-path-at-this-notch)) |
-| **laid** | silent, except a visible recorded placeholder, which is yolo's leftover | the declaration that lays it, and "never follow it" when it points outside the root | regenerates at the next launch. A laid link **must not be followed** by whoever wipes: deleting through `npm/` in a jail empties the machine store every workspace uses |
-| **retired** | a present retired name is a disclosure line in check and the map view (*"yolo deletes this at every boot"*) | the surface that retires it | nothing, because yolo deletes it anyway |
+| **laid** | silent | the declaration that lays it, and "never follow it" when it points outside the root | regenerates at the next launch. A laid link **must not be followed** by whoever wipes: deleting through `npm/` in a jail empties the machine store every workspace uses |
+| **retired** | a present retired name is a disclosure line in check and the map view (*"yolo deletes this at every boot"*). Only a `computed` or `rmw` surface's names are ever retired when the map runs ([§3.2](#32-derived-statuses-what-yolo-does-to-the-path-at-this-notch)) | the surface that retires it | nothing, because yolo deletes it anyway |
 | **state** | counted | listed, marks included | **lost**. A `credential` entry is named as a logout |
 | **cache** | counted | listed | regenerates, at the named cost (a network reinstall, a re-clone) |
 | **yours** | counted | listed | **lost** |
@@ -353,17 +379,24 @@ consequences are stated. In a jail, captured edits in `<ws>/.yolo/prism` apply a
 
 ### 4.5 Print-when-new
 
-An unexplained entry is **new** until a verb has printed it on this home. The record is keyed by root,
-relative path and finding kind. It lives beside the existing host records at the host, and under
-`<workspace>/.yolo` for an in-jail check. This is the same device as
-[ST-N2](synced-skill-trees.md#ST-N2)'s `host-reserved-trees.json`.
+An unexplained entry is **new** until a verb that prints-when-new has printed it on this home. The
+**seen record** *(coined here)* is keyed by root, relative path and finding kind, and it lives beside
+the existing host records. This is the same device as [ST-N2](synced-skill-trees.md#ST-N2)'s
+`host-reserved-trees.json`.
 
-- **First run on a home** (no record yet): one summary line per root with counts and the pointer.
-  Every present entry is then marked seen. Broken links, shadows and relocations are always
-  itemized in full ([P5](#1-the-verdict-and-the-principles-it-rests-on)).
+- **Two verbs read and write it, and only two**: `yolo host apply` and the `yolo host --`
+  preflight. They share one record per home, so an entry printed by either is seen by both.
+- **`yolo check` (host or in-jail) and `yolo pack map` neither read nor write it.** They always list
+  everything, and running one never marks anything seen. So [§6.5](#65-what-done-looks-like)
+  item 6 holds with a `yolo check` in between.
+- **There is no in-jail record.** No in-jail verb prints-when-new: the boot adds nothing and in-jail
+  `yolo check` lists everything ([OQ-AM6](#OQ-AM6)).
+- **First run on a home** (no record yet): the first of the two writing verbs prints one summary
+  line per root with counts and the pointer, and marks every present entry seen. Dangling links,
+  shadows and relocations are always itemized in full
+  ([P5](#1-the-verdict-and-the-principles-it-rests-on)).
 - **An unreadable or corrupt record** means every entry is new. The verb never fails on it.
 - **Two verbs at once**: the last writer wins, and a lost update only means a line prints again.
-- **`yolo check` and the map view ignore the record** and always list everything.
 
 ---
 
@@ -385,17 +418,47 @@ The new kind **grants nothing**. It reads no host file contents, mounts nothing 
 its footprint line is never review-worthy. At the host it lists directory entries the agent already
 owns. Its combine rule is **exclusive per root, merge per entry** ([§5.4](#54-more-than-one-pack-under-one-root)).
 
+**The evaluator is not `basehome.Decls`, but it reads what `Decls` reads.** `Decls` already
+derives credential files, surface paths, content destinations and redirects from pack declarations
+([`decls.go`](../../internal/basehome/decls.go)). It cannot be the map's evaluator, for three reasons:
+
+- it classifies a base home for migration over the **shipped** pack union, while the map evaluates
+  the **selected** packs ([`OQ-BH14`](base-home-legacy-state.md#OQ-BH14));
+- it reads surfaces in one posture and carries no notch field set, while composed is per notch;
+- it matches a credential **by basename anywhere**, which [§8](#8-degenerate-inputs-failure-paths-and-forbidden-behavior)
+  forbids the map.
+
+So the evaluator and `basehome` share **one projection** of the pack declarations (hook `from`
+paths, content destinations, surface paths, redirects), with the pack set and the notch as inputs.
+Neither keeps a second reader of the same manifests. How the projection is factored is the
+implementer's.
+
 ### 5.2 What the map derives, and from where
 
-**Nothing below is written in a map, and a map that tries is refused at load** ("declared twice"):
+**Nothing below is written in a map.** The class set is closed ([§3.1](#31-declared-classes-what-the-vendors-path-is),
+[§5.5](#55-validation-and-the-footprint)), so a map cannot spell composed, laid or retired at all.
+Plain validation refuses them as unknown class values, and its error says they are derived.
+**An entry at a composed, laid or retired path is expected and never refused.**
+[P1](#1-the-verdict-and-the-principles-it-rests-on) requires it, because the entry carries the class
+the path has when yolo does not render it. The shipped pi map has such entries at
+`agent/settings.json`, `models.json`, `mcp-adapter.json`, `AGENTS.md`, `skills/` and `npm/`.
 
-| Derived status | Its one source |
+| Derived fact | Its one source |
 | :--- | :--- |
 | composed | `config` surfaces (with `path`), `files.into`, `skills.into`, `briefing.into`, over the selected packs, per the notch's kind field set |
 | excluded from composed | `skills.reserved` |
-| laid | `hook` declarations (`shared_credentials` and `shared_directory` give a relative `from`→`at` link; `per_jail_history` gives an absolute link into its history dir); the macos-user layout and overlay installer; core's home-file redirects; the mountpoint manifest; the `.yolo-` bookkeeping prefix |
-| retired | `retireOnFirstRender`, and the `unshare_directory` hook's old link |
+| laid | `hook` declarations (`shared_credentials` and `shared_directory` give a relative `from`→`at` link; `per_jail_history` gives an absolute link into its history dir); the macos-user layout and overlay installer; core's home-file redirects; the `.yolo-` bookkeeping prefix |
+| retired | `retireOnFirstRender` per the surface's mode ([§3.2](#32-derived-statuses-what-yolo-does-to-the-path-at-this-notch)), and the `unshare_directory` hook's old link |
+| the `credential` mark | a `shared_credentials` hook's `from`, matched by **exact path**, never by basename ([AM-D14](#AM-D14)). The claude pack's `.claude/.credentials.json` and agy's OAuth token are credentials this way |
 | merged (disclosure only) | the pack's prelaunch declaration naming the file its credential writer merges into |
+
+**The one restatement a map can make is refused at load ("declared twice").** A mark is not a
+class, so an entry *can* say `credential: true` at a path that a `shared_credentials` hook already
+makes a credential. When the entry and the hook are in the **same pack**, that is refused at load:
+it is the pack author's own second source for one fact. Both declarations sit in one manifest, so
+the check needs nothing outside it. From **another pack**, such as the local pack, the mark is
+accepted and changes nothing, because a mark only adds. No other input is refused as declared
+twice.
 
 ### 5.3 The shape, at altitude
 
@@ -433,7 +496,8 @@ The behavior is fixed here:
   skipped with a warning ([AM-D8](#AM-D8)).
 - **A root may be a single file** (`~/.claude.json`). It then has a class and no entries.
 - **A root that is a link is resolved** and walked at its target. This covers macos-user's layout
-  and a dotfiles manager linking the whole directory. Links **below** a root are never followed.
+  and a dotfiles manager linking the whole directory. A link **below** a root is classified from
+  its chain ([P2](#1-the-verdict-and-the-principles-it-rests-on)) and never descended through.
 - **A root may not be** the home itself, a core-owned directory whole (`.config`, `.local`,
   `.cache`, `.yolo`), or a path under another pack's root. A subdirectory of `.config` is fine, and
   that is opencode's case.
@@ -500,7 +564,7 @@ Measured from pi 0.87.1's `dist/` and the live directory in this jail on 2026-09
 | `agent/yolo-openai-codex-models.json` | cache | composed (`computed`) | composed | composed under `assert` (`{}`) | nothing |
 | `agent/mcp-adapter.json` | yours | composed (`computed`) | composed | composed (`rmw` under `assert`) | jail: nothing. Host: your MCP table |
 | `agent/mcp.json` | yours; `note`: legacy MCP config that pi-mcp-adapter migrates and pi-subagents still reads | **retired**: deleted at every boot | retired | — | your legacy MCP config |
-| `agent/yolo-host-synced-settings.json` | — | retired (first `stateful` render) | retired | — (unexplained if present) | nothing |
+| `agent/yolo-host-synced-settings.json` | — | retired only by the boot that migrates the `stateful` surface. A copy present when the map runs is not deleted, so it is unexplained | same | — (unexplained if present) | nothing |
 | `agent/AGENTS.md` | yours | composed (briefing, `:ro`, with the host file prepended) | composed (a copy, write-denied) | composed (wholesale; prose already adopted into the local pack) | nothing |
 | `agent/AGENTS.override.md` | yours; `shadows: agent/AGENTS.md` | shadow finding | shadow finding | shadow finding | your override |
 | `agent/{AGENTS.MD,CLAUDE.md,CLAUDE.MD}` | yours; `note`: pi reads only the first of `AGENTS.override.md`, `AGENTS.md`, `AGENTS.MD`, `CLAUDE.md`, `CLAUDE.MD`, so these are inert while yolo composes `AGENTS.md` | — | — | — | your prompts |
@@ -526,8 +590,9 @@ Measured from pi 0.87.1's `dist/` and the live directory in this jail on 2026-09
 | `{settings.json,extensions/,skills/,prompts/,themes/,SYSTEM.md,APPEND_SYSTEM.md}` | yours; `note`: pi's project scope when run from `$HOME` | — | — | — | your project config |
 | `{npm/,git/}` | cache (the same project scope) | — | — | — | a reinstall |
 
-**What pi's package ecosystem writes.** These are declared by whichever pack adds the package
-([OQ-AM1](#OQ-AM1)); for the maintainer, that is the personal content pack:
+**What pi's package ecosystem writes.** Measured from the installed packages in
+`~/.pi-shared-npm` (pi-mcp-adapter 3.1.0, pi-subagents 0.35.1). These are declared by whichever pack
+adds the package ([OQ-AM1](#OQ-AM1)); for the maintainer, that is the personal content pack:
 
 | Entry | Declared | Package |
 | :--- | :--- | :--- |
@@ -539,6 +604,10 @@ Measured from pi 0.87.1's `dist/` and the live directory in this jail on 2026-09
 | `agent/extensions/pi-automode/` | walked with default yours; `logs/` cache | pi-automode (host, guarded posture only) |
 | `{workflows/,agents/}` | yours | pi-dynamic-workflows, legacy pi-subagents |
 | `agent/*.tmp` | cache, `transient` | pi-mcp-adapter's atomic writes |
+| `agent/mcp-project-approvals.json` | state (per-project MCP server trust decisions, written `0600`) | pi-mcp-adapter |
+| `agent/mcp-onboarding.json` | state (whether setup finished and the hint was shown; losing it only re-runs onboarding) | pi-mcp-adapter |
+| `agent/agent-memory/` | state, opaque (each subagent's own `MEMORY.md`, written by the subagent) | pi-subagents |
+| `agent/subagent-tool-description.md` | yours (read only: the user's replacement tool description) | pi-subagents |
 
 ### 6.3 What the map finds today
 
@@ -548,7 +617,7 @@ Measured from pi 0.87.1's `dist/` and the live directory in this jail on 2026-09
   although it is yolo's own crun placeholder, which is the accepted limit in
   [§3.6](#36-the-hard-cases). `npm` is laid, all ten `extensions/` children are composed, and
   `themes/` is composed.
-- **On the maintainer's host**, as reported and not measured here: three **broken links**
+- **On the maintainer's host**, as reported and not measured here: three **dangling links**
   (`settings.json`, `models-store.json`, `npm/`), printed at every `yolo host -- pi`, `yolo check`
   and `yolo host apply` until they are removed.
 - **Invisible to the map, and said so**: `settings.sessionDir` can relocate sessions from a
@@ -557,23 +626,25 @@ Measured from pi 0.87.1's `dist/` and the live directory in this jail on 2026-09
 
 ### 6.4 Exactly what ships in the pi slice
 
-1. **The `directory` kind**: declaration, validation, the footprint line, the load-time refusal of
-   a derived status declared twice, and cross-pack entry merge
+1. **The `directory` kind**: declaration, validation (which refuses `composed`, `laid` and
+   `retired` as unknown classes), the footprint line, the same-pack `credential` refusal
+   ([§5.2](#52-what-the-map-derives-and-from-where)), and cross-pack entry merge
    ([§5](#5-the-declaration)).
-2. **The evaluator**: the walk, the derived statuses from every source in
+2. **The evaluator**: the walk, the derived facts from every source in
    [§5.2](#52-what-the-map-derives-and-from-where), the structural findings, and the precedence in
-   [§3.4](#34-precedence). The broken-link predicate is `FindBrokenLink`'s, called and not
-   reimplemented.
+   [§3.4](#34-precedence). The dangling-link predicate is the map's own
+   ([§3.3](#33-unexplained-and-the-structural-findings)), and it shares one link-chain walker with
+   `FindBrokenLink` rather than a second one ([AM-D5](#AM-D5)).
 3. **Reporting** at every verb in [§4.2](#42-each-verb): `yolo check` (host and in-jail), the host
    apply group, the `yolo host -- pi` preflight, `yolo pack map`, and the `config ls` footer, plus
    the print-when-new record.
 4. **Pi's map** exactly as in [§6.2](#62-the-map), and the ecosystem entries in the maintainer's
    personal content pack. That pack lives outside this repository, and adding its entries is the
    maintainer's step.
-5. **The jail-launch line** for a broken `readsHost` or `after: host:` source. It is independent of
+5. **The jail-launch line** for a dangling `readsHost` or `after: host:` source. It is independent of
    the map, but it is the incident's jail half, so it ships here.
 6. **Tests**: a fixture tree recorded from the measured layout, including the incident's three
-   links. And a test that **fails if a call site is deleted** (the preflight, check, apply), per
+   links, and the partial move: `npm -> dot/npm` with `dot/` present and `dot/npm` absent. And a test that **fails if a call site is deleted** (the preflight, check, apply), per
    [AGENTS.md's rule](../../AGENTS.md#testing) that pinning the callee alone is not a test.
 
 **Not in the slice**: any other agent's map, any verb that deletes, `prune` integration, `basehome`
@@ -585,16 +656,19 @@ reading `credential` marks, the claude-only attributes ([§7.2](#72-claude)), an
    deleted `~/.dotfiles/pi`, `yolo host -- pi` prints three lines, each naming the link and its
    target, and then **launches pi** when `host_apply_on_launch` is unset. With it set, the gate
    decides exactly as it does today, and the three lines have already been printed before it
-   does. `yolo check` shows the same three as WARN rows and exits as it did before.
+   does. `yolo check` shows the same three as WARN rows and exits as it did before. With
+   `~/.dotfiles/pi` restored as an empty directory, `npm` and `models-store.json` are still named
+   as dangling links. `settings.json` is not while host apply composes it, because apply creates it
+   through the link.
 2. A jail launch on that host prints one line saying the host's pi settings were not read because
-   the source is a broken link. The jail still starts.
+   the source is a dangling link. The jail still starts.
 3. `yolo pack map pi` on the host lists every present entry with its class, and ends with a wipe
    answer that names `auth.json` as a logout and `npm/` as a reinstall.
 4. In this jail, in-jail `yolo check` names `agent/mantle/` as unexplained and names nothing else.
 5. Creating `~/.pi/agent/AGENTS.override.md` makes every verb print that it shadows the composed
    `AGENTS.md`, every time.
 6. Dropping an unknown file into `~/.pi/agent` prints once at the next `yolo host -- pi` and not at
-   the one after. `yolo check` keeps listing it.
+   the one after, even when a `yolo check` ran first. `yolo check` keeps listing it.
 7. No map finding changes any exit code or refuses anything.
 
 ---
@@ -657,7 +731,9 @@ this doc's survey ([Appendix A](#appendix-a-evidence)).
   sync-owned prefixes make `.trash` and `.staging` **siblings** of `synced`, while
   [`synced-skill-trees.md` §2.3](synced-skill-trees.md#23-reserved-siblings) says they are **inside**
   it. Measure which before the slice. `.trash` holds recoverable skills, so it is state.
-- **Credentials in four places**, and one of them has no path: `.credentials.json` (laid in a jail),
+- **Credentials in four places**, and one of them has no path: `.credentials.json` (laid in a jail,
+  and a credential by derivation from the claude pack's `shared_credentials` hook, so the claude map
+  does not mark it; [§5.2](#52-what-the-map-derives-and-from-where)),
   `.device-keys.json`, `~/.config/anthropic/credentials/`, and the **macOS Keychain**. The wipe
   answer must say that on a Mac, wiping `~/.claude` does not log you out.
 - **`projects/` is the most precious state** (transcripts and auto-memory). The cwd slug is
@@ -683,12 +759,18 @@ this doc's survey ([Appendix A](#appendix-a-evidence)).
   `<state>/host-agents/codex`. There `config.toml` is rebuilt from `~/.codex/config.toml` at every
   launch, which drops codex's own edits, and the `AGENTS.md` and `skills` links go stale when their
   sources go ([`host.go`](../../internal/openaiauthhost/host.go)). Nothing in `stores`, `prune` or
-  `check` knows that directory exists. The codex slice maps both homes.
+  `check` knows that directory exists. Because **yolo's own launch** sets `CODEX_HOME`, that is not
+  a relocated finding. The managed home is a **derived root**, found from that launch and evaluated
+  with the codex pack's entries, and `~/.codex` is still walked, since yolo reads its `config.toml`
+  ([AM-D6](#AM-D6), [AM-D13](#AM-D13)). The managed home is outside `$HOME`, which only a derived root
+  may be. How its wipe answer reads, given that yolo rebuilds part of it every launch, is the codex
+  slice's to settle.
 - **Schema numbers in file names** (`state_5.sqlite`, `logs_2.sqlite`), plus `-wal` and `-shm`, need
   globbed families. An old schema file is unexplained once, which is correct.
 - **`skills/.system/`** is vendor cache inside a composed directory. Today it survives only because
   adoption skips dot-names by accident. It should become `reserved: [".system"]`.
-- `AGENTS.override.md` shadows. `CODEX_HOME`, `CODEX_SQLITE_HOME` and `log_dir` relocate. The
+- `AGENTS.override.md` shadows. `CODEX_HOME`, `CODEX_SQLITE_HOME` and `log_dir` relocate when the
+  user sets them. The
   app-server daemon outlives the TUI, so its pid and lock files are `transient`. `shell_snapshots/`
   is cache that can hold exported secrets, so it gets `credential`.
 
@@ -717,7 +799,8 @@ this doc's survey ([Appendix A](#appendix-a-evidence)).
 - **A removed agent's credential sits in agy's jail state.** gemini-cli's `oauth_creds.json` and
   friends remain from yolo's removed gemini agent. They are unexplained, not agy's.
 - agy replaces its declared `mcp_config.json` path with an **absolute link** into `~/.gemini/config`.
-  The laid credential link dangles by design until the first login. `cache/onboarding.json` is
+  The laid credential link dangles by design until the first login, and its `credential` mark is
+  derived from agy's `shared_credentials` hook, never restated in the map. `cache/onboarding.json` is
   composed inside a directory named `cache`. At the host the token may live in a keyring, with no
   file at all.
 
@@ -739,7 +822,8 @@ this doc's survey ([Appendix A](#appendix-a-evidence)).
 | Input | Behavior |
 | :--- | :--- |
 | Root absent | nothing. The map view says "absent" |
-| Root is a broken link | one broken-link finding, and nothing else under it |
+| Root is a dangling link | one dangling-link finding, and nothing else under it |
+| An entry is a link that resolves to the wrong type (`npm/` → a regular file) | one wrong-type finding ([§3.3](#33-unexplained-and-the-structural-findings)) |
 | Root is a file where a directory is declared, or the reverse | one wrong-type finding |
 | Root empty | nothing |
 | A directory cannot be read (`EACCES`) | one line, "could not read", and never a failure |
@@ -748,7 +832,8 @@ this doc's survey ([Appendix A](#appendix-a-evidence)).
 | A contribution that adds entries to another pack's root | its entries merge under the owner's root. With no owner selected they are inert and reported, like an ownerless overlay |
 | Two packs claim one root | that root is not evaluated, and a warning names both. Never fatal |
 | An entry conflicts across packs | skipped and reported ([§5.4](#54-more-than-one-pack-under-one-root)) |
-| A relocating variable is set | a relocated finding. The entry, or the root, is not walked |
+| A relocating variable is set by the user | a relocated finding. The entry, or the root, is not walked |
+| A relocating variable is set by yolo's own launch | no finding. The directory it names is a derived root, walked with the same entries ([AM-D13](#AM-D13)) |
 | The preflight overruns 250 ms | one line naming the skip, then the launch continues |
 | The seen record is unreadable | every entry is new ([§4.5](#45-print-when-new)) |
 
@@ -756,7 +841,9 @@ this doc's survey ([Appendix A](#appendix-a-evidence)).
 
 - opening, parsing or hashing a file under a root. Pi's `auth.json` can hold `!command` values, and
   reading them is the first step to running them;
-- following a link below a root, or following a laid link out of it;
+- descending through a link below a root, or through a laid link out of it. Reading a link's chain
+  (`Readlink`) and `Stat`ing where it ends, to classify that one link, is not descending
+  ([P2](#1-the-verdict-and-the-principles-it-rests-on));
 - writing, moving, deleting or `chmod`ing anything under a root;
 - walking into an opaque or composed directory;
 - walking a container jail's sidecar from the host ([P3](#1-the-verdict-and-the-principles-it-rests-on));
@@ -781,7 +868,7 @@ this doc's survey ([Appendix A](#appendix-a-evidence)).
 | **Performance on big directories** | Claude's `projects/`, pi's `sessions/`, npm's `node_modules` and codex's releases hold tens of thousands of entries | Those are opaque: one `Lstat` each. The walk lists only the root and walked directories, which is tens of entries for pi. The preflight has a 250 ms budget, and `yolo check` has none |
 | **Blast radius** | One agent's finding refuses a different agent's launch, which the incident already produced once through the launch gate | Warnings only ([P4](#1-the-verdict-and-the-principles-it-rests-on)). The preflight evaluates only the launching agent's roots and sits outside the gate |
 | **Noise teaches users to skip yolo's output** | A line every launch about a file nobody cares about | Only harm repeats ([P5](#1-the-verdict-and-the-principles-it-rests-on)). A first run prints a summary, not a flood |
-| **yolo is its own first finding** | Most of the unexplained entries the surveys found are yolo's own residue | That is the correct outcome. Where the placeholder record proves an entry is yolo's, the line says "yolo's leftover" rather than unexplained ([§3.3](#33-unexplained-and-the-structural-findings)) |
+| **yolo is its own first finding** | Most of the unexplained entries the surveys found are yolo's own residue | That is the correct outcome, and each one prints once, as unexplained. No record today proves an entry is yolo's: an unclaimed `files` placeholder is removed and its record dropped before every launch, and briefing and skills placeholders are never recorded ([§3.2](#32-derived-statuses-what-yolo-does-to-the-path-at-this-notch)). Neither residue found here (`mantle/`, the 0-byte `APPEND_SYSTEM.md`) was ever recorded. A "yolo's leftover" line would need a record that outlives retirement, and none is proposed |
 | **Planted executable code** | In a jail the agent can write a new `*.js` into pi's `extensions/`, and it runs at every later launch in that workspace | `executes` gives an unexplained entry there its own line ([OQ-AM2](#OQ-AM2)) |
 
 ---
@@ -796,9 +883,9 @@ this doc's survey ([Appendix A](#appendix-a-evidence)).
 | **An observed baseline**: snapshot after the first boot and report drift from it | **Rejected.** It baselines the rot, so the incident's links would have been recorded as normal on day one, and it never says what anything is |
 | **A field on `state`** | **Rejected** ([§5.1](#51-a-new-kind-not-an-extension-of-state)) |
 | **The proposal's four declared classes**, with composed written in the map | **Rejected.** It makes a second source for what a surface already says, and the two go out of step the first time a destination moves. Composed is derived ([P1](#1-the-verdict-and-the-principles-it-rests-on)) |
-| **Flag every foreign link** | **Rejected.** Every rcm or stow user's whole directory becomes a finding, while all three of the incident's links were **broken**, which is already a finding ([AM-D4](#AM-D4)) |
+| **Flag every foreign link** | **Rejected.** Every rcm or stow user's whole directory becomes a finding, while all three of the incident's links were **dangling**, which is already a finding ([AM-D4](#AM-D4)) |
 | **Unknown files default to yours**, so nothing is ever unexplained | **Rejected as the default**, because it gives up the signal that found `mantle/`. It is available per subtree as a walked directory's default class ([§5.3](#53-the-shape-at-altitude)) |
-| **Refuse a launch on a broken link** | **Rejected by default** ([OQ-AM4](#OQ-AM4)) |
+| **Refuse a launch on a dangling link** | **Rejected by default** ([OQ-AM4](#OQ-AM4)) |
 
 ---
 
@@ -876,14 +963,14 @@ this doc's survey ([Appendix A](#appendix-a-evidence)).
    **Answer:**
    > _(empty — fill in when decided)_
 
-4. 💬 **OQ-AM4: Is any finding ever refused?** Pi crashed on the broken `npm` link, so refusing
+4. 💬 **OQ-AM4: Is any finding ever refused?** Pi crashed on the dangling `npm` link, so refusing
    `yolo host -- pi` would have been truthful. This decides whether the map can ever stop a launch.
 
    - **A: Never, at any verb.** Every finding is a warning.
-   - **B: A broken link under the launching agent's root refuses that launch**, with a hatch. This
+   - **B: A dangling link under the launching agent's root refuses that launch**, with a hatch. This
      meets the hatch criterion, since it is broken user config, but it refuses launches where the
      link is harmless.
-   - **C: Never refused, but `yolo check` exits non-zero on a broken link.**
+   - **C: Never refused, but `yolo check` exits non-zero on a dangling link.**
 
    <!-- vantage: oq id=OQ-AM4 leaning="A — never refused anywhere; the agent's own failure is louder than any refusal yolo could add, and a vendor file must never break a launch." -->
 
@@ -1004,16 +1091,19 @@ this doc's survey ([Appendix A](#appendix-a-evidence)).
 | ID | Decision | Date | Settled in | Built |
 | :--- | :--- | :--- | :--- | :--- |
 | <a id="AM-D1"></a>AM-D1 | The map is a new `directory` kind, not a field on `state`, a surface, `reserved` or `traps` | 2026-09-28 | [§5.1](#51-a-new-kind-not-an-extension-of-state) | — |
-| <a id="AM-D2"></a>AM-D2 | Composed, laid and retired are derived, and a map declaring one is refused at load. An entry carries the vendor's class even where yolo renders the path | 2026-09-28 | [§3.2](#32-derived-statuses-what-yolo-does-to-the-path-at-this-notch), [§5.2](#52-what-the-map-derives-and-from-where) | — |
-| <a id="AM-D3"></a>AM-D3 | The evaluator uses `Lstat` and `ReadDir` only: it never opens a file, never follows a link below a root, and never writes under one | 2026-09-28 | [§8](#8-degenerate-inputs-failure-paths-and-forbidden-behavior) | — |
-| <a id="AM-D4"></a>AM-D4 | A foreign link that resolves is classified by its name and is not a finding. Only a broken link is, plus a link at a `no_link` entry from the claude slice on. This refines the proposal's "foreign symlink" | 2026-09-28 | [§3.3](#33-unexplained-and-the-structural-findings) | — |
-| <a id="AM-D5"></a>AM-D5 | The broken-link predicate is `FindBrokenLink`'s, called and not reimplemented | 2026-09-28 | [§3.3](#33-unexplained-and-the-structural-findings) | — |
-| <a id="AM-D6"></a>AM-D6 | A vendor relocation variable is named, not followed. The entry is not walked, and the finding says yolo still writes the literal path | 2026-09-28 | [§3.5](#35-marks-and-attributes-on-an-entry) | — |
+| <a id="AM-D2"></a>AM-D2 | Composed, laid and retired are derived. The closed class set cannot spell them, so plain validation refuses them as unknown classes; an entry at a composed, laid or retired path is expected and never refused, and carries the vendor's class there. The one "declared twice" refusal is a `credential` mark that the same pack's `shared_credentials` hook already derives | 2026-09-28 | [§3.2](#32-derived-statuses-what-yolo-does-to-the-path-at-this-notch), [§5.2](#52-what-the-map-derives-and-from-where) | — |
+| <a id="AM-D3"></a>AM-D3 | The evaluator uses `ReadDir` and `Lstat`, plus `Readlink` and `Stat` along one link's chain to classify that link. It never opens a file, never descends through a link below a root, and never writes under one | 2026-09-28 | [§8](#8-degenerate-inputs-failure-paths-and-forbidden-behavior) | — |
+| <a id="AM-D4"></a>AM-D4 | A foreign link that resolves is classified by its name and is not a finding. Only a dangling link is, plus a link at a `no_link` entry from the claude slice on. This refines the proposal's "foreign symlink" | 2026-09-28 | [§3.3](#33-unexplained-and-the-structural-findings) | — |
+| <a id="AM-D5"></a>AM-D5 | The map's finding is the **dangling link**, not `FindBrokenLink`'s broken link reused unchanged: that predicate's exemption for a link whose target's directory exists holds only for a composed file at the host notch, which host apply creates through the link ([HC-D4](host-computed-layer.md#HC-D4)), and never for a directory entry. Wrong type compares the declared shape against the link's resolved type. The link-chain walk is one shared implementation, not a second copy | 2026-09-28 | [§3.3](#33-unexplained-and-the-structural-findings) | — |
+| <a id="AM-D6"></a>AM-D6 | A vendor relocation variable **the user sets** is named, not followed. The entry is not walked, and the finding says yolo still writes the literal path. One that **yolo's own launch sets** is never a finding: the directory it names is a derived root ([AM-D13](#AM-D13)) | 2026-09-28 | [§3.5](#35-marks-and-attributes-on-an-entry) | — |
 | <a id="AM-D7"></a>AM-D7 | The map runs at every `host_management` value, `none` included | 2026-09-28 | [§4.1](#41-where-the-map-is-evaluated) | — |
 | <a id="AM-D8"></a>AM-D8 | The most specific entry wins. An equal-specificity conflict is skipped with a warning and is never fatal | 2026-09-28 | [§5.3](#53-the-shape-at-altitude) | — |
 | <a id="AM-D9"></a>AM-D9 | The full evaluated view is `yolo pack map <pack>`. `yolo check` carries the findings | 2026-09-28 | [§4.2](#42-each-verb) | — |
-| <a id="AM-D10"></a>AM-D10 | Broken links, shadows and relocations print every time. An unexplained entry prints once, recorded per home | 2026-09-28 | [§4.5](#45-print-when-new) | — |
+| <a id="AM-D10"></a>AM-D10 | Dangling links, shadows and relocations print every time. An unexplained entry prints once, in a seen record per home that only host apply and the `yolo host --` preflight read and write. `yolo check` and `yolo pack map` never touch it, and there is no in-jail record | 2026-09-28 | [§4.5](#45-print-when-new) | — |
 | <a id="AM-D11"></a>AM-D11 | The `yolo host --` preflight runs before the launch gate and independently of it, with a 250 ms budget. An overrun prints one line and the launch continues | 2026-09-28 | [§4.2](#42-each-verb) | — |
+| <a id="AM-D12"></a>AM-D12 | A `retireOnFirstRender` name is retired at every boot only for a `computed` or `rmw` surface. For a `stateful` surface it is retired only by the migrating boot, so a copy present when the map runs is not retired and falls through to its declared class or unexplained | 2026-09-28 | [§3.2](#32-derived-statuses-what-yolo-does-to-the-path-at-this-notch) | — |
+| <a id="AM-D13"></a>AM-D13 | A directory yolo's own launch names through an agent's relocation variable is a **derived root**: never declared, found from the launch, evaluated with the entries of the root the variable relocates, and the only root that may lie outside `$HOME`. A declared root is always home-relative | 2026-09-28 | [§7.3](#73-codex) | — |
+| <a id="AM-D14"></a>AM-D14 | The `credential` mark is derived from a `shared_credentials` hook's `from` by exact path, never by basename. The evaluator and `basehome` share one projection of the pack declarations, but not `basehome`'s shipped pack set or its basename match | 2026-09-28 | [§5.1](#51-a-new-kind-not-an-extension-of-state), [§5.2](#52-what-the-map-derives-and-from-where) | — |
 
 ---
 
@@ -1021,7 +1111,7 @@ this doc's survey ([Appendix A](#appendix-a-evidence)).
 
 **Code**, read at `daac6eb4`, 2026-09-28:
 
-- A broken host source is skipped silently at a jail launch. `hostFileArgs` skips any source for
+- A dangling host source is skipped silently at a jail launch. `hostFileArgs` skips any source for
   which `isFile` is false, and `isFile` is an `os.Stat` ([`packhostgrants.go`](../../internal/cli/run/packhostgrants.go),
   [`probes.go`](../../internal/cli/run/probes.go)). `PrependHostBriefing` returns the jail content
   on any read error ([`briefing.go`](../../internal/jailcontent/briefing.go)).
@@ -1030,7 +1120,23 @@ this doc's survey ([Appendix A](#appendix-a-evidence)).
   and it deletes pi's `mcp.json` at every boot. Its docstring says the file is "already unread", but
   pi-subagents 0.35.1 reads `agentDir/mcp.json`
   (`src/runs/shared/mcp-direct-tool-allowlist.ts`, `getConfigPaths`, read in this jail's shared npm
-  store).
+  store). A `stateful` surface retires its sidecars only on the write that migrates it
+  (`pl.mechanism != manifest.ModeStateful || w.firstMigration`, same file).
+- `FindBrokenLink` returns nil for a link at the destination itself whenever `dirExists` holds for
+  the directory of the chain's end ([`hostbrokenlink.go`](../../internal/entrypoint/hostbrokenlink.go)).
+  Pi 0.87.1's `ensureNpmProject` (`dist/core/package-manager.js`) calls `mkdirSync(installRoot,
+  { recursive: true })` when `existsSync` is false, then writes `package.json`: through a dangling
+  link whose target's parent exists, both fail `ENOENT`.
+- `retirePackFileMountpoints` ([`packfiles.go`](../../internal/cli/run/packfiles.go)) runs before
+  every launch, removes each recorded `files` mountpoint that is no longer claimed and unchanged,
+  and deletes its record either way.
+- `yolo host --` sets `CODEX_HOME` to the managed home itself (`launch.vars["CODEX_HOME"]` in
+  [`host.go`](../../internal/openaiauthhost/host.go)). No other relocation variable a surveyed
+  pack names (`PI_CODING_AGENT_DIR`, `CLAUDE_CONFIG_DIR`, `OPENCODE_CONFIG_DIR`) is set by yolo.
+- `basehome.DeclsFromPacks` derives `CredentialFiles` from the `shared_credentials` hooks' `from`
+  paths over the shipped set, and matches them by basename too
+  ([`decls.go`](../../internal/basehome/decls.go), [`classify.go`](../../internal/basehome/classify.go)).
+  `packs/claude` and `packs/agy` each declare one such hook; `packs/pi` declares none.
 - `WritePiAuth` breaks `auth.json.lock` after 10 s (`piLockStale` in [`pi.go`](../../internal/openauthclient/pi.go)),
   while pi's `acquireLockAsync` uses a 30 s stale window (pi 0.87.1 `dist/core/auth-storage.js`).
 - The host refuses hooks (`fieldset.go`'s `KindHook` reason), and the launcher prunes only

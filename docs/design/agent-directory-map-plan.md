@@ -37,9 +37,14 @@ them**, because an `implementation-plan` pass owns turning this into a hand-off.
   `yours`), the closed marks (*blocked on [OQ-AM2](agent-directory-map.md#OQ-AM2)*), one-segment
   globs only, the existing traversal guard for path-bearing fields, and refusal of a root that is
   `.`, `.config`, `.local`, `.cache` or `.yolo` whole.
-- **"Declared twice"** needs the surfaces, so it cannot run in `packdecl`, which has zero internal
-  imports by design. It belongs where `packload` assembles a pack, like the other cross-declaration
-  checks.
+- **"Declared twice"** is one check: an entry's `credential: true` at a path the **same pack's**
+  `shared_credentials` hook names in `from` (the design's
+  [§5.2](agent-directory-map.md#52-what-the-map-derives-and-from-where)). Both sit in one manifest,
+  so it runs in `packdecl`'s manifest-level validation (`Manifest.Validate` in `packdecl.go`, which
+  sees every contribution; `validateContribution` sees one) and needs no surfaces. `composed`, `laid`
+  and `retired` need no check of their own: the closed class set already refuses them, and the
+  error text should say they are derived. An entry **at** a surface, content or hook path is
+  expected; never compare entry paths against those.
 - The tolerant decode (`DecodeTolerant`) must skip an unknown **field** of the new kind and report
   it, which is not only about an unknown kind. Check that the tolerant path handles per-field skew
   for a kind it knows.
@@ -49,6 +54,12 @@ them**, because an `implementation-plan` pass owns turning this into a hand-off.
 - **Candidate home**: a new package beside `internal/basehome`. It takes its declarations **as a
   value**, the way `basehome.Decls` does, so the classification table is testable against a
   fixture that states what it assumes. One constructor reads the real selected packs.
+- **Share `DeclsFromPacks`' projection, not its result** (the design's
+  [AM-D14](agent-directory-map.md#AM-D14)). `internal/basehome/decls.go` already walks
+  `HookContributions()` (with the load-bearing `shared_credentials` name filter), the content
+  `into` values and `Surfaces()` paths. Factor that loop so it takes the pack set as an argument;
+  `basehome` keeps passing the shipped set, the map passes the selected set and filters by the
+  notch's field set. Do not reuse `CredentialFiles`' basename match.
 - **The derived-status inputs**, each with the symbol that owns it today:
 
   | Status | Read from |
@@ -58,19 +69,26 @@ them**, because an `implementation-plan` pass owns turning this into a hand-off.
   | laid: hooks | `packdecl.KnownHooks` and the hook `from`/`at` fields. Recognize by the **exact** link string the hook writes: relative for `shared_*`, absolute for `per_jail_history`. `unshareDirectory` in `internal/entrypoint/packhooks.go` already matches a link by its target |
   | laid: macos-user | `entrypoint.DeriveDarwinHomeLayout` (links and mirrors), and `darwinoverlay.go`'s `overlayStagedSuffix` and `overlayAsideSuffix` |
   | laid: redirects | `paths.HomeFileRedirects` |
-  | laid: placeholders | the mountpoint manifest (`packFilesMountpointManifestName` in `internal/cli/run/packfiles.go`). It records `files` targets only today, so briefing and skills mountpoints are not recorded |
   | laid: bookkeeping | `packdecl.StoreBookkeepingPrefix` |
-  | retired | `manifest.Surface.RetireOnFirstRender`, jail notch only. The `unshare_directory` hook's `at` link |
+  | retired | `manifest.Surface.RetireOnFirstRender`, jail notch only, and only for a surface whose mode is not `stateful` (a stateful surface retires only on its migrating write, `packsurfaces.go`). The `unshare_directory` hook's `at` link |
+  | credential mark | the `shared_credentials` hooks' `from`, exact path |
   | merged | the profile-gated `env` pair naming the prelaunch credential path (`YOLO_AUTH_PRELAUNCH_*_PATH` in `packs/pi/pack.json`). Check whether a structured declaration exists before parsing an env value |
 
-- **Broken links.** `FindBrokenLink` lives in `internal/entrypoint`. Calling it from a host-CLI
-  package may create an import cycle. If so, move it to a leaf package, and keep **one** copy
-  ([AM-D5](agent-directory-map.md#AM-D5)).
+- **Dangling links.** The map's predicate is **not** `FindBrokenLink` as-is: its
+  destination-itself exemption (`dirExists(filepath.Dir(end))`) applies only to a composed file at
+  the host notch ([AM-D5](agent-directory-map.md#AM-D5)). Share the chain walk (`linkChainEnd`,
+  `firstHop` in `internal/entrypoint/hostbrokenlink.go`) rather than copying it; it lives in
+  `internal/entrypoint`, so calling it from a host-CLI package may create an import cycle. If so,
+  move the walker to a leaf package and keep **one** copy. Wrong type needs an `os.Stat` at the
+  chain's end.
 - **Root resolution** follows a link at the root only. On darwin `t.TempDir()` is itself behind a
   symlink, so test fixtures must be minted with `EvalSymlinks`, and the suite should be run under
   `TMPDIR=/tmp/link` as [AGENTS.md](../../AGENTS.md#testing) describes.
 - **Relocation** checks the environment the **agent** will see. At `yolo host --` that is the
-  composed launch environment, not the caller's. See how `host.go` builds it.
+  composed launch environment, not the caller's. See how `host.go` builds it. A variable the launch
+  itself set (`launch.vars["CODEX_HOME"]` in `internal/openaiauthhost/host.go`) is not a finding:
+  its value is a derived root ([AM-D13](agent-directory-map.md#AM-D13)), so the evaluator needs to
+  know which variables yolo set, not only the final environment.
 
 ## 3. Reporting
 
@@ -86,16 +104,17 @@ them**, because an `implementation-plan` pass owns turning this into a hand-off.
   must never run in the gate's refusal path.
 - **`yolo pack map`**: a new verb in `packMain` (`internal/cli/pack.go`), plus `subhelp.go`.
 - **`yolo config ls` footer**: `configls.go`.
-- **The seen record**: at the host, a file beside `host-reserved-trees.json`, which is
-  [ST-N2](synced-skill-trees.md#ST-N2)'s record and the pattern to copy. In-jail it goes under
-  `<workspace>/.yolo`. Its write must go beneath an `os.Root`
-  ([host code in jail-writable state](../reference/jail-home.md#host-code-in-jail-writable-state)).
+- **The seen record**: at the host only, a file beside `host-reserved-trees.json`, which is
+  [ST-N2](synced-skill-trees.md#ST-N2)'s record and the pattern to copy. Only host apply and the
+  `yolo host --` preflight read or write it; `yolo check` and `yolo pack map` must not
+  ([§4.5](agent-directory-map.md#45-print-when-new)). There is no in-jail record.
 
 ## 4. The jail-launch line (independent of the map)
 
-- `hostFileArgs` in `internal/cli/run/packhostgrants.go`: when `isFile` is false, ask
-  `FindBrokenLink`. If a link is broken, emit one launch line (a run fact with a remedy) naming the
-  link and its target. The skip itself stays.
+- `hostFileArgs` in `internal/cli/run/packhostgrants.go`: when `isFile` is false, ask whether the
+  source is a dangling link (the map's predicate, not `FindBrokenLink`'s: a read through a dangling
+  link fails whether or not the target's directory exists). If it is, emit one launch line (a run
+  fact with a remedy) naming the link and its target. The skip itself stays.
 - The briefing's `after: host:` goes through `briefingHostOverlay` (`prepare.go`) and then
   `jailcontent.PrependHostBriefing`, which swallows any read error. It needs the same check at the
   caller.
@@ -113,11 +132,15 @@ them**, because an `implementation-plan` pass owns turning this into a hand-off.
 
 ## 6. Tests
 
-- **A fixture tree** recorded from the measured layout: the incident's three broken links,
+- **A fixture tree** recorded from the measured layout: the incident's three dangling links, the
+  partial move (`npm -> dot/npm` with `dot/` present), a link at `npm/` that ends at a regular file,
   `mantle/`, a 0-byte `APPEND_SYSTEM.md`, the laid `npm` link, and lock directories.
 - **Call-site tests** that fail when the preflight, check or apply call is deleted, not only unit
   tests of the evaluator ([AGENTS.md](../../AGENTS.md#testing)).
-- The "declared twice" refusal. A cross-pack conflict that is skipped, not fatal. A root collision.
+- The "declared twice" refusal (a same-pack `credential` restating a `shared_credentials` hook),
+  and that the shipped pi map, whose entries sit at composed and laid paths, loads clean. A
+  cross-pack conflict that is skipped, not fatal. A root collision.
+- The seen record: a `yolo check` between two preflights marks nothing seen.
 - The preflight budget, tested the way `TestHostApplyGateExecsWhenTheBudgetExpires` avoids a racy
   nanosecond budget (read that test's comment first).
 - In-jail `yolo check` needs a nested-jail verification (`cd /tmp/yolo-nested`, per AGENTS.md), and
@@ -127,7 +150,7 @@ them**, because an `implementation-plan` pass owns turning this into a hand-off.
 
 - [`pack-system.md`](../reference/pack-system.md#the-per-kind-rules-worth-knowing) gets a
   `directory` subsection. [`report-tiers.md`](../reference/report-tiers.md) gets the new group.
-- A `CHANGELOG.md` line: users can now see broken links and unknown files in their agent
+- A `CHANGELOG.md` line: users can now see dangling links and unknown files in their agent
   directories, and ask what deleting one would lose.
 - [`pack-declared-file-diagnostics.md`](pack-declared-file-diagnostics.md) is superseded if
   [OQ-AM8](agent-directory-map.md#OQ-AM8) rules A.
