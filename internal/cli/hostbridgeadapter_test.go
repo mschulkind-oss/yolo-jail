@@ -85,6 +85,8 @@ func TestHostRemedyNeverNamesTheBridgedProfileForClaude(t *testing.T) {
 // closure's additions, then the conventional local pack). A configured pack precedes every
 // addition, so its pair is the one kept; the conventional local pack, last since OQ-NC4, would
 // yield the pair to wire-bridge (docs/plans/notch-convergence.md NC-D57).
+
+// yield the pair to wire-bridge (docs/plans/notch-convergence.md NC-D59).
 func TestHostStillComposesAnAdapterNoPackServiceServes(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "proxy")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
