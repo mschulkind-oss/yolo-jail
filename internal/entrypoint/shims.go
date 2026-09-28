@@ -913,33 +913,52 @@ _yolo_receipt() {
 // with a binary, a client output flag, and a home-relative destination. Keeping the
 // output format declarative lets Pi and Codex share the lifecycle without naming either
 // tool in this generator.
+//
+// A pack whose agent reads no OpenAI auth file, but whose route still draws on the login,
+// opts in with YOLO_AUTH_PRELAUNCH_<BIN>_LOGIN=1 instead (ES-D28): claude on its codex
+// profile, whose requests the wire bridge serves with an access view it asks the credential
+// service for on each request. The same token call is made with no view flag, so it proves the
+// login and writes nothing, and a failure takes the same login path.
 const agentAuthPrelaunchShellFn = `# --- agent authentication -----------------------------------------------------------
 # An agent pack can opt its native launcher into a broker-backed authentication view by
-# naming the launcher binary and the home-relative file to materialize. The hook keys on
-# declarative environment values rather than a hardcoded agent name, so another native
-# agent can adopt the same lifecycle without changing this generator.
+# naming the launcher binary and the home-relative file to materialize, or, with
+# YOLO_AUTH_PRELAUNCH_<BIN>_LOGIN=1, into the login alone, with no file written. The hook
+# keys on declarative environment values rather than a hardcoded agent name, so another
+# native agent can adopt the same lifecycle without changing this generator.
 _refresh_agent_auth() {
-    local auth_suffix auth_flag_var auth_path_var auth_flag auth_path
+    local auth_suffix auth_flag_var auth_path_var auth_login_var auth_flag auth_path auth_login
     auth_suffix=$(printf '%s' "$BIN" | tr '[:lower:]' '[:upper:]' | tr -c 'A-Z0-9_' '_')
     auth_flag_var="YOLO_AUTH_PRELAUNCH_${auth_suffix}_FLAG"
     auth_path_var="YOLO_AUTH_PRELAUNCH_${auth_suffix}_PATH"
+    auth_login_var="YOLO_AUTH_PRELAUNCH_${auth_suffix}_LOGIN"
     auth_flag="${!auth_flag_var:-}"
     auth_path="${!auth_path_var:-}"
-    [ -n "$auth_flag" ] || return 0
+    auth_login="${!auth_login_var:-}"
+    [ -n "$auth_flag" ] || [ -n "$auth_login" ] || return 0
     if ! command -v yolo >/dev/null 2>&1; then
         echo "  ⚠ $BIN: yolo is unavailable; cannot prepare authentication." >&2
         return 1
     fi
-    if [ -z "$auth_path" ]; then
-        echo "  ⚠ $BIN: $auth_path_var is empty." >&2
-        return 1
+    if [ -n "$auth_flag" ]; then
+        if [ -z "$auth_path" ]; then
+            echo "  ⚠ $BIN: $auth_path_var is empty." >&2
+            return 1
+        fi
+        case "$auth_path" in
+            /*) ;;
+            *) auth_path="$HOME/$auth_path" ;;
+        esac
     fi
-    case "$auth_path" in
-        /*) ;;
-        *) auth_path="$HOME/$auth_path" ;;
-    esac
-    if YOLO_BYPASS_SHIMS=1 yolo internal openai-auth-client token \
-        "$auth_flag=$auth_path" >/dev/null; then
+    # One token request: with a view flag it writes that view, and without one it asks for
+    # the access view and discards it, which proves the login exists and can be refreshed.
+    _agent_auth_token() {
+        if [ -n "$auth_flag" ]; then
+            YOLO_BYPASS_SHIMS=1 yolo internal openai-auth-client token "$auth_flag=$auth_path" >/dev/null
+        else
+            YOLO_BYPASS_SHIMS=1 yolo internal openai-auth-client token >/dev/null
+        fi
+    }
+    if _agent_auth_token; then
         return 0
     fi
     # A login is a BROWSER flow: it prints a URL and waits for the callback. With no
@@ -960,8 +979,7 @@ _refresh_agent_auth() {
     fi
     echo "  $BIN: OpenAI login is required." >&2
     YOLO_BYPASS_SHIMS=1 yolo internal openai-auth-client login >/dev/null
-    YOLO_BYPASS_SHIMS=1 yolo internal openai-auth-client token \
-        "$auth_flag=$auth_path" >/dev/null
+    _agent_auth_token
 }
 
 _refresh_agent_auth

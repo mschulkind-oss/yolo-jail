@@ -573,7 +573,12 @@ receives a token that is good only against this launch's bridge.
   for notches where the file may not exist, and a file that exists but cannot be read is reported
   rather than silently skipped. The Codex route reads no key at all: it asks the OpenAI credential
   service for an access-only token view per request, and a 401 gets exactly one fresh view before
-  the refusal is relayed.
+  the refusal is relayed. So the route needs the machine's OpenAI login to exist before claude's
+  first request, and claude's launcher ensures it: the claude pack gates
+  `YOLO_AUTH_PRELAUNCH_CLAUDE_LOGIN=1` on its `codex` profile, and the launcher then asks the
+  credential service for that token view before claude starts, writing no file, and starts the
+  OpenAI login at a terminal when there is none, as the codex and pi launchers do
+  ([ES-D28](../design/credential-sources-separation.md#10-decision-ledger)).
 - **Shutdown.** The daemon stops on `SIGINT`/`SIGTERM` (the supervisor's stop signal) and, when it
   was serving, removes its endpoint file, because a file that outlives its listener points the
   next reader at a closed port. A healthy idle waits on the same signal.

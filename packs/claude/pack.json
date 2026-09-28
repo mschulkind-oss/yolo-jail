@@ -161,6 +161,13 @@
       }
     },
     {
+      "kind": "env",
+      "profile": "codex",
+      "vars": {
+        "YOLO_AUTH_PRELAUNCH_CLAUDE_LOGIN": "1"
+      }
+    },
+    {
       "config": {
         "managed": {
           "env": {
