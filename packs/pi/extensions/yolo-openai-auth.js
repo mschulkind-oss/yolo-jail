@@ -1,7 +1,45 @@
 import { execFile } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+
+// The two routes `yolo internal openai-auth-client` has to the machine's OpenAI login: a jail's
+// endpoint file, and the host broker's private socket, which only `yolo host --` sets
+// (internal/openauthclient's EndpointEnv and HostSocketEnv). With neither, the client can only
+// fail, naming the jail's variable.
+const BROKER_ENDPOINT_ENV = "YOLO_SERVICE_OPENAI_AUTH_BROKER_ENDPOINT";
+const HOST_SOCKET_ENV = "YOLO_OPENAI_AUTH_HOST_SOCKET";
+
+// inJail says whether this pi runs inside a yolo jail. It must never answer "no" in one, since
+// a "no" is what turns the failure into advice to launch through `yolo host`, so it asks two
+// witnesses and either suffices: YOLO_VERSION, which every jail launcher sets and which yolo's
+// own code reads for the same question (internal/banner's jailEnv), and ~/.yolo/bin, the
+// generated script dir every jail home carries on every backend and a real home never does (a
+// home may not hold a `.yolo`, paths.WorkspaceScopeBreach). The second is for an environment an
+// agent or wrapper scrubbed before starting pi. A host where both are false gets the advice; a
+// host where one is true only keeps the client's own message, which is the safe direction.
+function inJail() {
+	if (process.env.YOLO_VERSION) return true;
+	try {
+		return statSync(join(homedir(), ".yolo", "bin")).isDirectory();
+	} catch {
+		return false;
+	}
+}
+
+// brokerFailure is the error a failed client call reports. The one case it rewrites is the
+// one the client cannot word for a person: no route at all, outside a jail. That is pi started
+// directly or from an IDE on the host, and the fix is the launch, not the variable
+// (docs/design/host-computed-layer.md §8.1 item 3). The client's own words stay in parentheses.
+function brokerFailure(detail) {
+	if (!process.env[BROKER_ENDPOINT_ENV] && !process.env[HOST_SOCKET_ENV] && !inJail()) {
+		return new Error(
+			"OpenAI credential service: pi was not started through `yolo host`, so it has no " +
+				`route to yolo's shared OpenAI login. Launch it with \`yolo host -- pi\` (${detail}).`,
+		);
+	}
+	return new Error(`OpenAI credential service: ${detail}`);
+}
 
 function brokerCommand(action, signal, showStderr = false) {
 	return new Promise((resolve, reject) => {
@@ -11,8 +49,7 @@ function brokerCommand(action, signal, showStderr = false) {
 			{ encoding: "utf8", signal },
 			(error, stdout, stderr) => {
 				if (error) {
-					const detail = stderr.trim();
-					reject(new Error(detail ? `OpenAI credential service: ${detail}` : `OpenAI credential service: ${error.message}`));
+					reject(brokerFailure(stderr.trim() || error.message));
 					return;
 				}
 

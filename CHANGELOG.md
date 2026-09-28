@@ -138,6 +138,9 @@ apply it, and the launch says that too. See
 - The models you scoped inside pi were reset to yolo's list at every launch.
 - Every pi launch printed `Failed to load theme "system"`.
 - With the kilo pack and no profile naming a kilo model, pi rejected its whole `models.json`.
+- When pi on your host could not reach yolo's ChatGPT sign-in because it was started directly or
+  from an editor rather than through `yolo host`, its error named a setting only jails have. It
+  now says to start pi with `yolo host -- pi`.
 - Host pi printed `models.json error` at every start once `yolo host apply --assert` had created
   its `~/.pi/agent/models.json`, which it wrote empty. The next `yolo host apply --assert`
   repairs a file an earlier one left that way.
