@@ -1,80 +1,67 @@
 # Storage
 
-See what yolo keeps on disk for your agents, such as logins, caches and per-project homes;
-what survives a restart; and how to move a cache to other storage.
+yolo keeps state on your host for your jails: logins, installed tools, caches and one home folder
+per project. This page covers what survives a restart, how to see and reclaim disk, and how to move
+a large cache to another disk.
 
-## Storage & Persistence
+## What persists across restarts
 
-### Seeing what is on disk — `yolo stores`
+A jail's own files are thrown away when it stops, except for these, which are kept on your host:
+
+| What | Where on the host | Shared by |
+|---|---|---|
+| Claude and Antigravity (`agy`) logins | `~/.local/share/yolo-jail/home/` | Every project on the machine |
+| The ChatGPT login for Codex and pi | Held by yolo's login service; see [Logins](authentication.md) | Every project on the machine |
+| `gh`, `copilot`, `opencode` and `omp` logins | `<project>/.yolo/home/` | One project |
+| Tools you install yourself (`npm -g`, `go install`, `uv tool`) | `<project>/.yolo/home/` | One project |
+| Agent sessions and history, shell history, SSH keys you create | `<project>/.yolo/home/` | One project |
+| mise tools and runtimes | `~/.local/share/yolo-jail/mise/` on Linux; a volume inside the VM on a Mac | Every project |
+| Download and build caches (`~/.cache` in the jail) | `~/.local/share/yolo-jail/cache/` | Every project |
+
+Everything under `<project>/.yolo/` belongs to that project's jail; `yolo init` adds it to
+`.gitignore`. The mise store is yolo's own: your host's mise installation is never mounted, so
+neither side can break the other's tools.
+
+The rest of the jail's home is rebuilt at every start from your config and packs: agent settings
+files, skills, house rules, blocked-tool scripts and the shell profile. Edits to those do not
+survive unless they are recorded; see [Settings Across Agents](agent-settings.md).
+
+A folder the jail should keep that is not listed here, such as `~/.bun`, can be made writable and
+kept per project with `writable_home_dirs`.
+
+## See and reclaim disk
 
 ```bash
-yolo stores            # the inventory: every store, its size, who reclaims it, and what nothing does
-yolo stores --no-record  # ...without appending a dated sample
+yolo stores          # every store yolo keeps: its size, how fast it grows, and what reclaims it
+yolo prune           # what yolo would reclaim: old images, stale jails, heavy caches; deletes nothing
+yolo prune --apply   # reclaim it
 ```
 
-It **deletes, moves and mutates nothing** — the one exception is a bounded sample ledger (one dated
-line per store per run, last 30 kept) so that a second run can report a growth RATE rather than just
-a size. `--no-record` opts out of that.
+`yolo stores` never deletes anything. Its last column says who reclaims each store: `yolo` means
+yolo does, `human` means you decide, and `not yolo's` means the bytes are another tool's. Container
+images that have lost their name are always yours to remove, with `podman image prune`, because yolo
+cannot tell they were ever its own.
 
-The column worth reading is the last one. `yolo` means yolo has a reclaimer and a trigger for that
-store; `human` means it does not and you decide; `not yolo's` means it is somebody else's bytes.
-Untagged container images are the standing `human` row: once an image loses its repository name,
-yolo has no evidence it was ever yolo's, so it never removes one — `podman image prune` is yours to
-run if you want them gone.
+yolo also reclaims most stores by itself, at most once a day each, after a jail starts. That work
+never prints to your terminal, which by then belongs to the jail; it is logged in
+`<project>/.yolo/housekeeping.log`. Set `YOLO_NO_AUTO_IMAGE_REAP=1` to turn it off. The shared build
+cache is the one store yolo will not reclaim without asking: a launch in a terminal offers it once
+there is at least a gigabyte of it older than 30 days, and answering "never" stops the asking.
 
-Reclaiming is `yolo prune` (dry-run by default, `--apply` to act). Most classes are also reclaimed
-automatically after a jail starts, at most once a day each; `YOLO_NO_AUTO_IMAGE_REAP=1` turns that
-off. **That automatic work never prints to your terminal** — by the time it runs, the terminal
-belongs to whatever is running in the jail, and a line there would land on top of it. It is
-recorded in `<workspace>/.yolo/housekeeping.log` instead, beside `boot.log`:
+On Apple Container, `yolo prune` does not see stopped jails; list them with `container ls --all`
+and remove one with `container rm <name>`.
 
-```bash
-tail ~/code/myproject/.yolo/housekeeping.log
-```
+## Timezone
 
-The one class yolo will not reclaim without asking is the shared build-tool cache, because
-re-fetching it is unbounded — you will be offered it on a TTY launch when there is at least a
-gigabyte of it older than 30 days, and answering "never" stops the asking for good.
+The jail uses your host's timezone, so `date` and log timestamps match. yolo takes it from `$TZ` if
+you set one, then from `/etc/timezone`, then from where `/etc/localtime` points, and falls back to
+UTC. To override it for one launch, export `TZ` before running `yolo`.
 
-All paths below use the same layout on Linux and macOS (`~/.local/share/yolo-jail/` resolves to `/home/$USER/.local/share/yolo-jail/` on Linux and `/Users/$USER/.local/share/yolo-jail/` on macOS). On macOS with Podman Machine, make sure `$HOME` is in the VM's shared folders list.
+## Relocating a Cache Subdir to Other Storage
 
-### Timezone
-
-The host's timezone is passed into the jail via the `TZ` env var, so `date`, log timestamps, cron expressions, and file mtimes inside the jail report the same wall-clock time as the host. Detection order:
-
-1. `$TZ` on the host (if you've explicitly set one, it wins)
-2. `/etc/timezone` plain-text zone name (Debian, Ubuntu, Arch)
-3. `/etc/localtime` symlink target suffix (Fedora, macOS — `/var/db/timezone/zoneinfo/<zone>`)
-
-If none of these resolve, the jail falls back to UTC. Override per-jail by exporting `TZ` in the shell you use to launch `yolo`, or by setting it in `env` inside `yolo-jail.jsonc`.
-
-### What Persists Across Restarts
-
-| Data | Location (Host) | Shared? |
-|------|-----------------|---------|
-| Claude and Antigravity (`agy`) logins | `~/.local/share/yolo-jail/home/.claude-shared-credentials/`, `.gemini-shared-credentials/` | All jails on the machine |
-| `gh`, `copilot`, `opencode` and `omp` logins | `<workspace>/.yolo/home/` | Per workspace |
-| Installed tools (npm, go) | `~/.local/share/yolo-jail/home/` | All jails |
-| Mise tools & runtimes | `~/.local/share/yolo-jail/mise/` on Linux (bind-mounted at `/mise` inside the jail); podman named volume `yolo-mise-data-v2` on macOS and Apple Container, also mounted at `/mise` | All jails |
-| Bash history | `<workspace>/.yolo/home/bash_history` | Per workspace |
-| Claude sessions | `<workspace>/.yolo/home/claude/projects/` | Per workspace |
-| Copilot sessions | `<workspace>/.yolo/home/copilot/session-state/` | Per workspace |
-| SSH keys | `<workspace>/.yolo/home/ssh/` | Per workspace |
-
-**Mise storage is jail-land only:** the host's `~/.local/share/mise/` is never mounted — jails and the host maintain fully independent mise installations, so neither side can break the other's tool installs and host↔jail mise version skew doesn't matter. Every jail sees the same store at the same path, `/mise`; only the backing differs per platform (a yolo-owned host directory on Linux, the `yolo-mise-data-v2` named volume on macOS and Apple Container). In-jail behavior is identical everywhere, and the store persists across jail restarts.
-
-### What Gets Regenerated
-
-On every jail start, the entrypoint regenerates:
-- `.bashrc` — prompt, aliases, PATH, mise integration
-- Shim scripts — blocked tool interceptors
-- MCP config — `mcp-config.json` / `settings.json`
-- LSP config — `lsp-config.json`
-- Bootstrap script — tool installation (idempotent)
-
-### Relocating a Cache Subdir to Other Storage
-
-Every jail shares one cache directory, `~/.local/share/yolo-jail/cache`, bind-mounted read-write at `~/.cache` inside the container. One exception, and it needs no configuration: if this machine has a **content-addressed** cache yolo recognises — `~/.cache/pants/lmdb_store` today — a jail mounts *your own* copy of it, writable, in place of keeping a second one, so up to ~27 GB stops existing twice. The launch says so on stderr when it happens, `yolo stores` lists it in its own section as bytes yolo will never reclaim, and the jail's now-unused private copy is left for the ordinary 30-day cache purge. It is skipped entirely on macOS, on Apple Container, and whenever the host store is missing, unwritable, or empty while the jail's copy is warm — in every one of those cases the jail simply keeps its own copy, exactly as before. It sits on whatever filesystem `$HOME` is on, and some of its subdirs get very large. `cache_relocations` lets one subdir come from a different disk instead:
+Every jail shares one cache folder, `~/.local/share/yolo-jail/cache`, mounted read-write at `~/.cache`
+inside the jail. It lives on the same disk as your home, and some of its subfolders, such as model
+downloads, get very large. `cache_relocations` puts one subfolder on a different disk instead:
 
 ```jsonc
 // ~/.config/yolo-jail/config.jsonc — user scope ONLY, never yolo-jail.jsonc
@@ -90,12 +77,14 @@ That mounts the target read-write at `/home/agent/.cache/huggingface`, nested in
 
 Two constraints worth knowing before you plan a move:
 
-- **User scope only.** The key is read straight from `~/.config/yolo-jail/config.jsonc` and never from the merged config. `/workspace` is bind-mounted read-write into the jail, so a workspace config is agent-editable — it must not be able to hand out read-write host mounts. `yolo check` errors if the key shows up in `yolo-jail.jsonc`.
-- **Podman only.** Apple Container (`runtime: "container"`) warns and skips the relocation. The `macos-user` backend has no container and no bind mounts, and since 2026-08-24 it warns too. **There is no workaround there** — an earlier version of this line suggested a plain host symlink, which does not work: that backend's sandbox profile denies writes outside your workspace, its own home, `/tmp` and `/var/folders`, and denies reads under `/Volumes`, so a symlink into other storage resolves to a path the agent cannot use.
+- **User config only.** A project config is editable from inside the jail, so it must not be able to
+  hand out a writable host folder. `yolo check` refuses the key in `yolo-jail.jsonc`.
+- **Podman only.** Apple Container and `macos-user` skip the relocation with a warning, and a symlink
+  is no workaround on either.
 
-The target's **parent** must already exist; only the last path component is created for you. That asymmetry is deliberate — auto-creating the whole path turns a typo like `/data/relcoated/…` into a silently-wrong empty directory back on the root filesystem, which is the exact failure the feature exists to prevent.
+The target's **parent** must already exist; yolo creates only the last folder. That way a typo such as `/data/relcoated/…` fails instead of quietly creating an empty folder on your main disk.
 
-#### When it's worth it
+### When it's worth it
 
 Relocate caches that are **large, cold, and write-once/read-sequential** — nothing about them wants to be on NVMe:
 
@@ -105,13 +94,13 @@ Relocate caches that are **large, cold, and write-once/read-sequential** — not
 | `ms-playwright` | **Yes** | Browser bundles, ~400 MiB apiece, written on install and never again |
 | `uv`, `pip`, `go-build` | **No** | Touched on every build and latency-sensitive — moving them to a slow disk makes every build slower |
 
-The concrete case that motivated the feature: a 948 GiB root filesystem at **100% full**, with 241 GiB of it the yolo cache — and 185 GiB of *that* a single `cache/huggingface` holding about fifteen diffusers model repos (FLUX.1-schnell 32G, FLUX.1-Kontext-dev 32G, SDXL-base 20G, …). An 11 TB HDD on the same machine sat at 53%. One subdir, one line of config. `yolo prune` prints a `cache/ top 5` panel if you want to find your own equivalent.
+`yolo prune` prints a `cache/ top 5` panel to help you find your largest cache subfolders.
 
-#### Migrating an existing cache
+### Migrating an existing cache
 
 Setting the key on a fresh machine needs nothing else. Moving a cache that already has bytes in it is a manual copy for now — do it in this order:
 
-1. **Stop every jail first.** `yolo ps` lists what's running; exit each session (or `podman stop <name>`). This is not just about a torn copy from a download racing your `rsync`. Podman bind mounts are `rprivate`: a container's mounts are fixed when it starts, so a jail that was already up keeps the *old* host directory mounted at `~/.cache/huggingface` no matter what you change afterwards. Step 3 only copies, so nothing looks wrong yet — but once step 7 deletes that old directory, the agent inside a still-running jail sees its cache vanish mid-session, even though the bytes are safely at the new target. It reads exactly like cache corruption, and the only fix is the restart you skipped.
+1. **Stop every jail first.** `yolo ps` lists what is running; exit each session, or run `yolo stop` in each project. A running jail keeps the old folder mounted whatever you change, so once step 7 deletes it, the agent inside would see its cache vanish mid-session.
 
 2. **Create the target's parent** (yolo creates the final component itself):
 
@@ -144,26 +133,11 @@ Setting the key on a fresh machine needs nothing else. Moving a cache that alrea
 
 7. **Reclaim the space.** Only now delete the original: `rm -rf ~/.local/share/yolo-jail/cache/huggingface`. yolo recreates it as an empty stub mountpoint on the next start.
 
-#### Symlinking a cache subdir does not work
+### Symlinking a cache subdir does not work
 
 It is tempting to skip all of the above and just `ln -s /data/… ~/.local/share/yolo-jail/cache/huggingface`. It does not work, and it fails confusingly.
 
 The whole cache directory is bind-mounted into the container as one unit, and podman resolves the **source path** of that mount — not the symlinks inside it. The container therefore gets a symlink pointing at `/data/…`, a path that does not exist in the container's mount namespace. Every in-jail download then fails on a dangling path, while the same symlink resolves perfectly when you `ls` it on the host.
 
-The one exception is `cache/images`, which holds jail image tarballs. Those are only ever read host-side, before any container exists, so symlinking that subdir is safe. Nothing else in the cache is. (Nothing WRITES a tarball there any more — the image is copied layer by layer since layer-aware delivery landed — so what is left is a backlog `yolo prune` reclaims.)
+The one exception is `cache/images`, which only the host reads, so symlinking it is safe. Nothing else in the cache is.
 
----
-
-## Container Reuse
-
-By default, `yolo` reuses an existing container for the same workspace:
-
-```bash
-yolo             # Creates container yolo-<hash>
-yolo             # Reuses yolo-<hash> via exec
-yolo stop       # Stops this workspace's jail (the next launch is fresh)
-```
-
-Containers are named deterministically based on the workspace path. Use `yolo ps` to see running containers.
-
----
