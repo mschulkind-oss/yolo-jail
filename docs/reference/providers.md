@@ -902,7 +902,7 @@ nor the user's `profiles` declares refuses the launch, naming what is declared. 
 name used to be a silent no-op; it is a diagnosable error instead. At `yolo host --`, a pack
 whose manifest has problems refuses the launch before the selected profile's declaration is
 checked, naming that pack and its problems, as a jail launch refuses the same config
-([NC-D42](../plans/notch-convergence.md#NC-D42), which revised
+([NC-D32](../plans/notch-convergence.md#NC-D32), which revised
 [NS-D18](../design/notch-scoped-config-contributions.md#10-decision-ledger)).
 
 The selection itself is a table keyed by **CLI name** — the bin a pack installs — mapping each
