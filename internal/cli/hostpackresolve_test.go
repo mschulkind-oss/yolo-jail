@@ -52,11 +52,11 @@ func TestHostApplyDeliversNoSkillItsEntryExcludes(t *testing.T) {
 		"the skill the filter keeps")
 }
 
-// EVERY HOST READ IS OF THE STAGED COPY: resolveConfiguredPack hands back a pack whose Root is in
-// this process's pack tree, never the source, and whose SourcePath maps back to the source for a
-// message. Fails if the resolver goes back to reading a local pack in place.
-func TestHostResolverStagesALocalPackIntoTheProcessTree(t *testing.T) {
-	filteredPackHome(t, cleanFltManifest, nil, "", "")
+// A FILTERED ENTRY IS READ FROM THE STAGED COPY: resolveConfiguredPack hands back a pack whose Root
+// is in this process's pack tree, never the source, and whose SourcePath maps back to the source for
+// a message. Fails if the resolver goes back to reading a filtered local pack in place.
+func TestHostResolverStagesAFilteredLocalPackIntoTheProcessTree(t *testing.T) {
+	filteredPackHome(t, cleanFltManifest, map[string]string{"README.md": "r\n"}, `,"exclude":["README.md"]`, "")
 	entries, err := config.LoadPacks(nil)
 	if err != nil {
 		t.Fatal(err)
@@ -130,5 +130,82 @@ func TestPackExplainExplainsAnEmbeddedEntrysFilters(t *testing.T) {
 	if !strings.Contains(got, "filtered out 1 file") || !strings.Contains(got, "README.md") ||
 		!strings.Contains(got, "pack.json") {
 		t.Errorf("explain must list what stages and what the filter dropped:\n%s", got)
+	}
+}
+
+// firstEntryNamed is the configured entry of this name.
+func firstEntryNamed(t *testing.T, name string) config.PackEntry {
+	t.Helper()
+	entries, err := config.LoadPacks(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range entries {
+		if e.Name == name {
+			return e
+		}
+	}
+	t.Fatalf("no configured pack named %s in %v", name, entries)
+	return config.PackEntry{}
+}
+
+// escapingSkill links the flt fixture's skill to a file outside the pack, the shape a dotfile
+// manager deploys.
+func escapingSkill(t *testing.T, e config.PackEntry) {
+	t.Helper()
+	skill := filepath.Join(strings.TrimPrefix(e.Source, "file://"), "skills", "fltskill", "SKILL.md")
+	outside := filepath.Join(t.TempDir(), "SKILL.md")
+	writeFile(t, outside, "---\nname: fltskill\ndescription: d\n---\nOutside.\n")
+	if err := os.Remove(skill); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, skill); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// A FILTERED LOCAL PACK'S ESCAPING SYMLINK REFUSES IT AT THE HOST, as it refuses the launch. The host
+// staged a filtered entry through packstage.Stage before there was one resolver, so this is the case
+// where the notches already agreed; only an UNFILTERED local pack, which the host read in place, is
+// followed pending OQ-NC9 (TestApplyHostConvergesOverASymlinkedPack pins that half).
+func TestHostResolverRefusesAFilteredLocalPacksEscapingSymlink(t *testing.T) {
+	filteredPackHome(t, cleanFltManifest, map[string]string{"README.md": "r\n"}, `,"exclude":["README.md"]`, "")
+	flt := firstEntryNamed(t, "flt")
+	escapingSkill(t, flt)
+	if _, err := resolveConfiguredPack(flt); err == nil || !strings.Contains(err.Error(), "outside the pack") {
+		t.Fatalf("resolveConfiguredPack = %v, want the launch's no-escape refusal", err)
+	}
+	flt.Exclude = nil
+	if _, err := resolveConfiguredPack(flt); err != nil {
+		t.Errorf("control: the same pack unfiltered is followed at the host: %v", err)
+	}
+}
+
+// AN UNFILTERED PACK IS READ IN PLACE AT THE HOST, as it was before there was one resolver: an
+// embedded one from the one materialization, a local one from its directory. A copy of either is a
+// copy of nothing to filter, paid on every host verb and every `yolo host --` launch.
+func TestHostResolverReadsAnUnfilteredPackInPlace(t *testing.T) {
+	filteredPackHome(t, cleanFltManifest, nil, "", "")
+	flt := firstEntryNamed(t, "flt")
+	p, err := resolveConfiguredPack(flt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if src := strings.TrimPrefix(flt.Source, "file://"); p.Root != src {
+		t.Errorf("an unfiltered local pack was read at %s, want its own directory %s", p.Root, src)
+	}
+	var want string
+	for _, e := range packload.Embedded() {
+		if e.Name == "claude" {
+			want = e.Root
+		}
+	}
+	c, err := resolveConfiguredPack(firstEntryNamed(t, "claude"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want == "" || c.Root != want {
+		t.Errorf("the unfiltered embedded claude pack was read at %s, want the one materialization %s",
+			c.Root, want)
 	}
 }

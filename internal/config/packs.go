@@ -629,7 +629,9 @@ func UseProfileCLINames() ([]string, bool) {
 		// bins of the tree its filters leave — the tree the launch stages. nil Getenv: the store
 		// falls back to the real environment, which is what a resolver running behind a read-only
 		// surface wants (the staged-tree fallback is how a nested launch's local packs resolve).
-		res, err := ResolvePack(entry, ResolvePackSpec{})
+		// FollowLocalSymlinks: this read a local pack in place before there was one resolver, as
+		// the host verbs still do (OQ-NC9), so a dotfile-deployed pack does not make it step aside.
+		res, err := ResolvePack(entry, ResolvePackSpec{FollowLocalSymlinks: true})
 		if err != nil || res.Pack == nil || len(res.Problems) > 0 {
 			return nil, false
 		}

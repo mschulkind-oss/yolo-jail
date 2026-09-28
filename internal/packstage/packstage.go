@@ -61,9 +61,9 @@ type Spec struct {
 	Exclude []string
 	// FollowSymlinks follows every symlink wherever it points — a linked directory is walked
 	// as if it were one — instead of refusing one that leaves Root (rule 1). It exists for ONE
-	// caller: the host notch reading a LOCAL pack (config.ResolvePackSpec.FollowLocalSymlinks),
-	// which read such a pack in place before it staged it, and so delivered a dotfile manager's
-	// symlinked tree as content. Whether a jail should do the same, or the host should refuse as
+	// kind of caller: a host-side reader of an UNFILTERED LOCAL pack
+	// (config.ResolvePackSpec.FollowLocalSymlinks), which read such a pack in place before there
+	// was one resolver, and so delivered a dotfile manager's symlinked tree as content. Whether a jail should do the same, or the host should refuse as
 	// the jail does, is docs/plans/notch-convergence.md OQ-NC9; until it is ruled this keeps each
 	// notch's shipped behavior. A dangling link and a link loop are refused either way.
 	FollowSymlinks bool

@@ -16,12 +16,13 @@ package config
 //   - STAGE (Spec.Dest set): the pack is staged into Dest through packstage.Stage — its
 //     filters and its no-escape rule — and loaded from that copy, so Pack.Root names the staged
 //     tree and every file a caller reads is one the filters kept. The launch passes its jail's
-//     tree; a host verb passes a directory of the process pack tree
-//     (packload.ProcessPackDir), which lives for the verb.
+//     tree; a host verb reading a FILTERED entry passes a directory of the process pack tree
+//     (packload.ProcessPackDir), which lives for the verb (ResolvePackForProcess).
 //   - DECLARATION (no Dest): only the pack's declaration is read. A filtered entry is staged into
 //     a temp dir removed before this returns, because the filters can drop the manifest itself;
 //     an unfiltered one is read in place after packstage.Check applies the same no-escape rule
-//     without a copy. Pack.Root is then not for reading files.
+//     without a copy. A filtered entry's Pack.Root is then not for reading files; an unfiltered
+//     one's is the pack's own tree, which is how ResolvePackForProcess reads it.
 //
 // FILTERS ALWAYS APPLY, embedded packs included: `{"source": "claude", "exclude": [...]}` used
 // to be accepted and ignored at every notch.
@@ -58,14 +59,19 @@ type ResolvePackSpec struct {
 	// nothing into the pack store, instead of Store.Resolve, which may check a commit out of the
 	// local mirror.
 	ReadOnlyStore bool
-	// FollowLocalSymlinks stages a LOCAL pack with packstage.Spec.FollowSymlinks: every symlink
-	// followed wherever it points, instead of refusing one that leaves the pack. The host notch
-	// sets it, because it read a local pack in place before it staged one, and a dotfile
-	// manager's symlinked pack (rcm, stow, chezmoi) is the shape a user's own pack most often has
-	// there. A launch does not: its staging has always refused an escaping symlink, whatever the
-	// origin. Which answer both notches should give is docs/plans/notch-convergence.md OQ-NC9;
-	// this input keeps each notch's shipped behavior until it is ruled, and it never reaches a
-	// fetched or embedded pack, whose escaping symlink every notch refuses.
+	// FollowLocalSymlinks resolves an UNFILTERED LOCAL pack with packstage.Spec.FollowSymlinks:
+	// every symlink followed wherever it points, instead of refusing one that leaves the pack.
+	//
+	// It is set by exactly the callers that read such a pack IN PLACE before there was one
+	// resolver, and so followed any link it held: the host verbs and the footer, config
+	// validation (resolveSelectedPacks), UseProfileCLINames and the lazy loophole resolver. A
+	// dotfile manager's symlinked pack (rcm, stow, chezmoi) is the shape a user's own pack most
+	// often has at the host. The callers that STAGED a pack — the launch, `yolo check`, `yolo pack
+	// explain` — refused an escaping link and still do, and so did every caller reading a
+	// FILTERED entry, which was staged everywhere: so the input is ignored for a filtered entry,
+	// and never reaches a fetched or embedded pack, whose escaping symlink every notch refuses.
+	// Which answer both notches should give is docs/plans/notch-convergence.md OQ-NC9; this input
+	// keeps each caller's shipped behavior until it is ruled.
 	FollowLocalSymlinks bool
 	// Getenv is threaded to the pack store, whose staged-tree fallback reads YOLO_PACK_ROOT (how
 	// a nested launch resolves the local packs its outer launch delivered). Nil reads the real
@@ -138,7 +144,7 @@ func ResolvePack(entry PackEntry, spec ResolvePackSpec) (ResolvedPack, error) {
 	}
 
 	stage := packstage.Spec{Root: root, Only: entry.Only, Exclude: entry.Exclude,
-		FollowSymlinks: spec.FollowLocalSymlinks && entry.IsLocal()}
+		FollowSymlinks: spec.FollowLocalSymlinks && entry.IsLocal() && !filtered}
 	loadFrom := root
 	var err error
 	switch {
@@ -172,12 +178,25 @@ func ResolvePack(entry PackEntry, spec ResolvePackSpec) (ResolvedPack, error) {
 	return out, nil
 }
 
-// ResolvePackForProcess is ResolvePack in STAGE mode for a caller with no tree of its own: the
-// host verbs and the lazy read-only resolvers. The destination is a new directory of this
-// process's pack tree (packload.ProcessPackDir), so the returned Pack.Root stays readable until
-// the process releases its packs (packload.ReleaseEmbedded) and every file a caller reads from it
-// is one the entry's filters kept and packstage's no-escape rule passed. spec.Dest is ignored.
+// ResolvePackForProcess resolves an entry for a caller with no tree of its own — the host verbs
+// and the lazy read-only resolvers — into a Pack whose Root the caller may READ FILES from, every
+// one of them a file the entry's filters kept and packstage's no-escape rule passed. spec.Dest is
+// ignored.
+//
+// ONLY A FILTERED ENTRY IS COPIED, into a new directory of this process's pack tree
+// (packload.ProcessPackDir), readable until the process releases its packs
+// (packload.ReleaseEmbedded). An UNFILTERED one is read in place, in DECLARATION mode — the
+// embedded packs' one materialization, a local pack's own directory, the pack store's checkout —
+// after packstage.Check applied the no-escape rule, because a copy of it holds exactly the same
+// files. That is what the host read before there was one resolver, and it matters beyond the copy's
+// cost (paid on every host verb and every `yolo host --` launch): a loophole module's directory is
+// where a host-scope daemon spawned by `yolo host-daemon start` resolves {loophole_dir}, and that
+// daemon outlives the verb whose process tree would hold the copy.
 func ResolvePackForProcess(entry PackEntry, spec ResolvePackSpec) (ResolvedPack, error) {
+	spec.Dest = ""
+	if len(entry.Only) == 0 && len(entry.Exclude) == 0 {
+		return ResolvePack(entry, spec)
+	}
 	dir, err := packload.ProcessPackDir(entry.Slug())
 	if err != nil {
 		return ResolvedPack{}, &PackResolveError{Name: entry.Name, Err: err}

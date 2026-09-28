@@ -63,7 +63,10 @@ func resolveSelectedPacks() (packs []*packload.Pack, complete bool) {
 		// staged set) then drops the entry the pack's dir covers, and the next validation, with the
 		// tree in place, refuses it. nil Getenv: the store falls back to the real environment,
 		// which is how a nested launch's local packs resolve through the staged-tree fallback.
-		res, err := ResolvePack(entry, ResolvePackSpec{ReadOnlyStore: true})
+		// FollowLocalSymlinks: this read an unfiltered local pack in place before there was one
+		// resolver, so it followed its links, as the host verbs still do (OQ-NC9); refusing here
+		// left such a pack out of the reservations while `yolo host apply` delivered it.
+		res, err := ResolvePack(entry, ResolvePackSpec{ReadOnlyStore: true, FollowLocalSymlinks: true})
 		if err != nil || res.Pack == nil || len(res.Problems) > 0 {
 			complete = false
 			continue

@@ -251,16 +251,17 @@ func describeUnresolved(list []unresolvedPack) string {
 // fetches), a local one from its path, an embedded one from the build's one materialization, with
 // the same staged-tree fallback a nested launch relies on.
 //
-// EVERY PACK IS STAGED, into this process's pack tree (config.ResolvePackForProcess), and the
-// returned Pack.Root is that copy. The host notch used to read a pack's files IN PLACE, staging
-// only a fetched or filtered pack and then pointing Root back at the source, so an entry's
-// `exclude` removed a skill from every jail and still delivered it to the real home (rows B3 and
-// B6). Now every file a host verb reads — skills, briefings, `files`, plugins — is one the entry's
-// filters kept, and a FETCHED pack's escaping symlink refuses it exactly as it fails the launch.
-// A LOCAL pack's symlinks are followed (hostPackResolveSpec): the one difference left between the
-// notches here, kept on purpose until OQ-NC9 rules it. The copy lives until the process releases
-// its packs (packload.ReleaseEmbedded); a message naming a file in it names the source instead
-// (packload.Pack.SourcePath).
+// A FILTERED PACK IS STAGED, into this process's pack tree (config.ResolvePackForProcess), and the
+// returned Pack.Root is that copy. The host notch used to read the declaration from a filtered copy
+// and then point Root back at the source, so an entry's `exclude` removed a skill from every jail
+// and still delivered it to the real home (rows B3 and B6). Now every file a host verb reads —
+// skills, briefings, `files`, plugins — is one the entry's filters kept. An UNFILTERED pack is read
+// in place, after packstage.Check, since a copy would hold the same files. A FETCHED pack's
+// escaping symlink refuses it exactly as it fails the launch, and so does a FILTERED local pack's.
+// An unfiltered LOCAL pack's symlinks are followed (hostPackResolveSpec): the one difference left
+// between the notches here, kept on purpose until OQ-NC9 rules it. A copy lives until the process
+// releases its packs (packload.ReleaseEmbedded); a message naming a file in it names the source
+// instead (packload.Pack.SourcePath).
 //
 // A MANIFEST WITH PROBLEMS MAKES THE PACK UNRESOLVABLE (manifestProblemsError), as it fails the
 // launch, and the problems are the FILTERED tree's (NS-D15): a file the entry excludes is no
@@ -285,11 +286,14 @@ func resolveConfiguredPack(e config.PackEntry) (*packload.Pack, error) {
 	return resolvedOrProblems(e, res)
 }
 
-// hostPackResolveSpec is how every host verb asks the one resolver for a pack: following a LOCAL
-// pack's symlinks, which the host read in place before it staged (config.ResolvePackSpec.
-// FollowLocalSymlinks, pending OQ-NC9), and writing nothing into the pack store when readOnly.
-// One constructor so the footer's declaration read and the verbs' staging cannot disagree about
-// which packs resolve.
+// hostPackResolveSpec is how every host verb asks the one resolver for a pack: following an
+// unfiltered LOCAL pack's symlinks, which the host read in place before there was one resolver
+// (config.ResolvePackSpec.FollowLocalSymlinks, pending OQ-NC9), and writing nothing into the pack
+// store when readOnly. One constructor so the footer's declaration read and the verbs' reads cannot
+// disagree about which packs resolve. The other callers that read a local pack in place before
+// then — config validation, UseProfileCLINames and the lazy loophole resolver — set the same input
+// themselves, so every host-side reader gives one answer; the launch, `yolo check` and `yolo pack
+// explain` never did and do not.
 func hostPackResolveSpec(readOnly bool) config.ResolvePackSpec {
 	return config.ResolvePackSpec{FollowLocalSymlinks: true, ReadOnlyStore: readOnly}
 }

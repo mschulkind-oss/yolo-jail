@@ -11,7 +11,9 @@ package packload
 // and rendered by `yolo host apply` (docs/plans/notch-convergence.md rows B3 and B6). Staging at
 // the host needs somewhere a Pack.Root can keep naming for as long as the verb reads it, with no
 // owner to hand a cleanup func to — exactly the embedded tree's problem, so it takes the
-// embedded tree's answer:
+// embedded tree's answer. Only a FILTERED entry is staged here (config.ResolvePackForProcess): an
+// unfiltered one is read in place, since its copy would hold the same files and would die with a
+// process that a host-scope daemon spawned from it outlives.
 //
 //   - It is released with the embedded packs (ReleaseEmbedded), at the exits that already
 //     release those — cli.Main's defer, `yolo host`'s exec, every ttyproxy signal arm — so

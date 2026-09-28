@@ -100,3 +100,39 @@ func TestStagePacksReadsTheOneEmbeddedMaterialization(t *testing.T) {
 		t.Fatalf("a broken embedded materialization must refuse the launch as a yolo bug: %v", err)
 	}
 }
+
+// THE LAZY LOOPHOLE RESOLVER READS AN UNFILTERED LOCAL PACK IN PLACE AND FOLLOWS ITS LINKS, as it
+// did before there was one resolver. In place because a loophole module it hands out is where a
+// host-scope daemon spawned by `yolo host-daemon start` resolves {loophole_dir}, and that daemon
+// outlives the verb, whose process pack tree is deleted when it exits. Following because the host
+// verbs deliver such a pack (OQ-NC9 decides whether they should), and `yolo loopholes list` must not
+// then leave out a loophole it ships.
+func TestResolveConfiguredPacksReadsAnUnfilteredLocalPackInPlace(t *testing.T) {
+	home := packHome(t)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+	t.Setenv("YOLO_PACK_ROOT", "")
+	p := writePackManifest(t, "stow", `{"name":"stow"}`)
+	outside := filepath.Join(t.TempDir(), "SKILL.md")
+	if err := os.WriteFile(outside, []byte("---\nname: s\ndescription: d\n---\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(p.Root, "skills", "s"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(p.Root, "skills", "s", "SKILL.md")); err != nil {
+		t.Fatal(err)
+	}
+	writeUserPacks(t, home, `["file://`+p.Root+`"]`)
+	var got *packload.Pack
+	for _, r := range resolveConfiguredPacks() {
+		if r.Name == "stow" {
+			got = r
+		}
+	}
+	if got == nil {
+		t.Fatal("the lazy resolver left out a local pack the host verbs deliver")
+	}
+	if got.Root != p.Root {
+		t.Errorf("the lazy resolver read pack stow at %s, want its own directory %s", got.Root, p.Root)
+	}
+}

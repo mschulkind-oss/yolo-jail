@@ -789,11 +789,15 @@ func resolveConfiguredPacks() []*packload.Pack {
 	var out []*packload.Pack
 	embedded := embeddedPacksByName()
 	for _, entry := range entries {
-		// THROUGH THE ONE RESOLVER, staged into this process's pack tree (config.
-		// ResolvePackForProcess), because this set is READ FOR FILES and not only for
-		// declarations: a loophole module is a directory the loophole loader goes on to read.
-		// So an entry's `exclude` drops a loophole here exactly as it drops it from the launch's
-		// tree, and a pack the launch refuses (an escaping symlink) contributes nothing.
+		// THROUGH THE ONE RESOLVER (config.ResolvePackForProcess), because this set is READ FOR
+		// FILES and not only for declarations: a loophole module is a directory the loophole
+		// loader goes on to read. So an entry's `exclude` drops a loophole here exactly as it
+		// drops it from the launch's tree (a filtered entry is staged into this process's pack
+		// tree), and an unfiltered pack is read in place, where a host-scope daemon spawned from
+		// one of its modules can keep reading it after this process exits. A fetched pack's
+		// escaping symlink makes it contribute nothing, as it refuses the launch; a local pack's
+		// is followed, as this resolver did when it read every local pack in place and as the
+		// host verbs do (FollowLocalSymlinks, pending OQ-NC9).
 		//
 		// AN EMBEDDED PACK CAN SHIP A LOOPHOLE (the official `audio` pack, OQ-LP11, was the
 		// first). This branch used to skip embedded entries, and the omission was measured: with
@@ -807,7 +811,7 @@ func resolveConfiguredPacks() []*packload.Pack {
 		// staged tree it looks for is the one this process is running against. An unresolvable
 		// pack (never fetched, moved remote, offline) is not a deactivation signal: it
 		// contributes nothing.
-		res, err := config.ResolvePackForProcess(entry, config.ResolvePackSpec{})
+		res, err := config.ResolvePackForProcess(entry, config.ResolvePackSpec{FollowLocalSymlinks: true})
 		if err != nil || res.Pack == nil || len(res.Problems) > 0 {
 			continue
 		}
