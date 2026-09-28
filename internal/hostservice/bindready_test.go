@@ -15,8 +15,14 @@ import (
 // is never refused. Before the staged bind, a stat-then-dial loop against a plain
 // net.ListenUnix was refused 113 times in 3000 on Linux, and the same gap failed
 // check-macos on f937d0fd. The loop here is that measurement, run through bindUnixSocket.
+//
+// 500 rounds, because at the measured base rate a regression cannot survive them: a
+// refusal chance of 113/3000 per round leaves (1 - 113/3000)^500 ≈ 5e-9 of a broken
+// bind passing, and the same loop against an in-place bind, re-measured on 2026-09-28,
+// was refused 793 to 1240 times in 3000 (≤ 1e-60 at 500). It was 2000, paying 4× the
+// wall time for a miss chance already past anything a run can observe.
 func TestASocketPathThatExistsAccepts(t *testing.T) {
-	const rounds = 2000
+	const rounds = 500
 	refused := 0
 	for i := 0; i < rounds; i++ {
 		p := filepath.Join(shortDir(t), "d.sock")
