@@ -58,9 +58,9 @@ func TestFrontDoorRoutesWithCredentialsToTheRunRefusal(t *testing.T) {
 		}
 	}
 	// `--at host` is the systematic spelling of the host verb, and carries the flag there.
-	got := RewriteArgv([]string{"--at", "host", "--with-credentials", "all", "--", "bash"})
-	if want := []string{"host", "--with-credentials", "all", "--", "bash"}; !slices.Equal(got, want) {
-		t.Errorf("RewriteArgv(--at host --with-credentials all -- bash) = %q, want %q", got, want)
+	sub, got, _ := routeArgv([]string{"--at", "host", "--with-credentials", "all", "--", "bash"})
+	if want := []string{"host", "--with-credentials", "all", "--", "bash"}; sub != "host" || !slices.Equal(got, want) {
+		t.Errorf("routeArgv(--at host --with-credentials all -- bash) = %q %q, want host %q", sub, got, want)
 	}
 }
 

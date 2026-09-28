@@ -4,6 +4,9 @@ import (
 	"fmt"
 	"os"
 	"strings"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/cli/run"
+	"github.com/mschulkind-oss/yolo-jail/internal/config"
 )
 
 // registry is the single source of truth for the `yolo` CLI surface: it maps
@@ -97,18 +100,6 @@ func RewriteArgv(args []string) []string {
 	if firstPositional(args[:dashIdx]) != "" {
 		return args
 	}
-	// `yolo --at host -- <cmd>` is the systematic spelling of `yolo host -- <cmd>`
-	// (host-agent-environment.md OQ-2): --at names the notch on every other verb, so it
-	// has to name it here too. The notch tokens are CONSUMED rather than passed along,
-	// because what follows is the host exec verb's own flag grammar and `--at` is not
-	// part of it.
-	if rest, isHost := stripHostNotch(args[:dashIdx]); isHost {
-		out := make([]string, 0, len(args)+1)
-		out = append(out, "host")
-		out = append(out, rest...)
-		out = append(out, args[dashIdx:]...)
-		return out
-	}
 	// "run" goes FIRST, never at the `--`. Inserted at the separator, it sat where a value
 	// flag's value sits: `yolo -p -- claude` became [-p run -- claude], which reads exactly like
 	// `yolo run -p run -- claude`, so the run parser took the injected token as a profile named
@@ -117,31 +108,71 @@ func RewriteArgv(args []string) []string {
 	return append([]string{"run"}, args...)
 }
 
-// stripHostNotch removes an `--at host` / `--at=host` pair from pre-`--` args and reports
-// whether it found one. A different notch (`--at jail`) is left alone: only the host has
-// an exec verb of its own to redirect to.
-func stripHostNotch(pre []string) ([]string, bool) {
-	found := false
-	out := make([]string, 0, len(pre))
-	for i := 0; i < len(pre); i++ {
-		a := pre[i]
-		if a == "--at" && i+1 < len(pre) {
-			if pre[i+1] == "host" {
-				found = true
-				i++
-				continue
-			}
-			out = append(out, a, pre[i+1])
-			i++
-			continue
+// routeArgv is THE FRONT DOOR'S ONE DECISION: which subcommand runs args (argv[1:], after the
+// global flags are consumed) and with what argv. sub is "" for an unknown command, which Main
+// refuses naming firstPositional; implicit reports a launch no token asked for by name (a bare
+// `yolo`, or `yolo <flags>`), which routeDecision tells apart.
+//
+// THE NOTCH IS DECIDED HERE, ONCE, WHEREVER `--at` SITS (docs/plans/notch-convergence.md item
+// 10, row A3). `--at host` on a launch is the systematic spelling of the host exec verb
+// (host-agent-environment.md OQ-2), so every launch spelling carrying it routes to `yolo host`:
+// `yolo --at host -- c`, `yolo run --at host -- c`, `yolo --at host run -- c`, `yolo run --at
+// host c` and a bare `yolo --at host`. Only the first used to; the rest reached the jail
+// launcher and were refused there as "the host notch … a launch cannot honor it". The config
+// key `confinement: host` is NOT an `--at` spelling and keeps that refusal (OQ-DP3).
+func routeArgv(args []string) (sub string, routed []string, implicit bool) {
+	args = RewriteArgv(args)
+	sub = Subcommand(args)
+	if sub == "" {
+		if hasLeadingPositional(args) {
+			return "", args, false
 		}
-		if a == "--at=host" {
-			found = true
-			continue
-		}
-		out = append(out, a)
+		sub, args, implicit = "run", append([]string{"run"}, args...), true
 	}
-	return out, found
+	if sub == "run" {
+		if host, ok := hostNotchArgv(args); ok {
+			return "host", host, false
+		}
+	}
+	return sub, args, implicit
+}
+
+// hostNotchArgv reports whether a launch argv (it carries the "run" token) asks for the host
+// notch with `--at host`, and if so the `yolo host` argv that launch means: yolo's own tokens
+// with the run token and the `--at host` pair consumed, then `--` and the command. The launch
+// is read by parseRunArgs, the parser that runs it, so the notch and the command boundary are
+// the ones a jail launch of the same argv would have seen: `--at` is the last one typed, and
+// `yolo run --at host claude --resume` hands `claude --resume` to the host verb whole.
+//
+// Every other token is carried over as typed, so the host parser judges it: a run flag with
+// no host meaning is refused there by name (parseHostExecFlags), never dropped here.
+func hostNotchArgv(args []string) ([]string, bool) {
+	var opts run.Options
+	parsed := parseRunArgs(args, &opts)
+	if opts.Notch != string(config.ConfinementHost) {
+		return nil, false
+	}
+	out := []string{"host"}
+	sawRun := false
+	for i := 0; i < parsed.boundary; i++ {
+		if f, ok := readAnyLaunchValueFlag(args, i); ok {
+			if f.name != "--at" || f.value != string(config.ConfinementHost) {
+				out = append(out, args[i:f.last+1]...)
+			}
+			i = f.last
+			continue
+		}
+		if args[i] == "run" && !sawRun {
+			sawRun = true
+			continue
+		}
+		out = append(out, args[i])
+	}
+	rest := args[parsed.boundary:]
+	if len(rest) > 0 && rest[0] != "--" {
+		out = append(out, "--")
+	}
+	return append(out, rest...), true
 }
 
 // Subcommand returns the leading subcommand: the FIRST positional (non-flag)

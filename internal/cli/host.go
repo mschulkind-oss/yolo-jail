@@ -72,6 +72,11 @@ Exec flags (yolo host -- ...):
                                 Nothing else implies it: not -p, not use_profiles, not
                                 any YOLO_ALLOW_* variable, and no config key. HOST ONLY:
                                 a jail launch refuses it.
+  --at host                     Accepted and changes nothing: this verb is the host notch.
+                                ` + "`yolo --at host -- <cmd>`" + ` and ` + "`yolo run --at host -- <cmd>`" + `
+                                are this verb, wherever --at sits. Another notch is
+                                refused, as is a jail-launch flag with no meaning here
+                                (--timing, --dry-run, --network, --accept-config-changes).
   --help, -h                    Show this help.
 
 With ` + "`host_apply_on_launch`" + ` enabled (defaulting to on when ` + "`host_wrappers: true`" + `),
@@ -204,6 +209,47 @@ type hostExecFlags struct {
 	// grant is the --with-credentials request, nil when the flag was not given: the only
 	// spelling that makes one (credential-sources-separation.md OQ-ES5, ruled for the host).
 	grant *hostGrantRequest
+	// help is a --help/-h among the exec flags: parseHostExecFlags stops there, and hostExec
+	// prints the usage and exits 0.
+	help bool
+}
+
+// jailOnlyRunFlags are the launch flags `yolo run` takes and `yolo host --` has no meaning for:
+// runFlags less the two the host shares (the profile, and `--at`, a no-op here). Derived, so a
+// run flag added later is named here as a jail-launch flag rather than called unknown.
+//
+// `--accept-config-changes` is among them, although notch-convergence.md row A4 asks for the
+// host to take it: since host-apply-staleness.md's zero-prompt auto-apply the host launch asks
+// nothing the flag could answer, so accepting it would be a flag that does nothing. What it
+// should grant there is OQ-NC10's; until that is ruled it keeps the refusal it always had, now
+// worded.
+func jailOnlyRunFlags() []string {
+	var out []string
+	for _, f := range runFlags {
+		if f != "--profile" && f != "--at" {
+			out = append(out, f)
+		}
+	}
+	return out
+}
+
+// refuseHostNotchContradiction is `yolo host --at <notch>` for a notch other than the host:
+// the verb and the flag name two notches, and neither silently wins.
+func refuseHostNotchContradiction(notch string, errw io.Writer) {
+	known := false
+	for _, k := range config.KnownConfinements {
+		if config.Confinement(notch) == k {
+			known = true
+		}
+	}
+	if !known {
+		// The jail launcher's words for the same typo (run.refuseUnbuiltNotch).
+		fmt.Fprintf(errw, "yolo host: --at %q is not a confinement level (jail|guest|host)\n", notch)
+		return
+	}
+	fmt.Fprintf(errw, "yolo host: --at %s names the %s notch, and `yolo host` runs at the host "+
+		"notch.\n  Drop one of them: `yolo --at %s -- <command>` for that notch, or "+
+		"`yolo host -- <command>` for this one.\n", notch, notch, notch)
 }
 
 // hostGrantRequest is a --with-credentials request as typed: provider names and `all`, from
@@ -271,7 +317,39 @@ func parseHostExecFlags(args []string, errw io.Writer) (hostExecFlags, bool) {
 			}
 			continue
 		}
+		// THE NOTCH, which is this verb's own. `--at host` is a no-op, so the front door's
+		// spellings and this one agree (routeArgv hands `yolo --at host host -- c` here with the
+		// pair intact); any other notch contradicts the verb and is refused by name rather than
+		// silently overruled, in either direction.
+		if fl, ok := readValueFlag(args, i, "--at"); ok {
+			i = fl.last
+			v, ok := value(fl)
+			if !ok {
+				return f, false
+			}
+			if v != string(config.ConfinementHost) {
+				refuseHostNotchContradiction(v, errw)
+				return f, false
+			}
+			continue
+		}
 		a := args[i]
+		// `yolo host --help -- c`, and the front door's `yolo run --at host --help`: help, as
+		// `yolo run --help -- c` answers run's.
+		if a == "--help" || a == "-h" {
+			f.help = true
+			return f, false
+		}
+		// A LAUNCH FLAG WITH NO HOST MEANING is named as one. It reaches here from
+		// `yolo --at host --timing -- c` as readily as from `yolo host --timing -- c`, and an
+		// "unknown flag" would hide that the flag exists and where it does mean something.
+		if name, _, _ := strings.Cut(a, "="); slices.Contains(jailOnlyRunFlags(), name) {
+			fmt.Fprintf(errw, "yolo host: %s is a jail-launch flag, and the host notch has no "+
+				"meaning for it, so it is refused rather than ignored.\n"+
+				"  Drop it, or launch in this workspace's jail instead (`yolo run --help` "+
+				"lists it).\n", name)
+			return f, false
+		}
 		// A mistyped flag is refused in refuseUnknownFlags' words, the jail's, so one typo reads
 		// the same at both notches; a stray positional keeps its own sentence, since it is not a
 		// flag at all.
@@ -331,6 +409,10 @@ func hostProfileFor(v, agent string, envVerb bool) (string, error) {
 // dynamic loopback credential adapter must be closed when the agent exits.
 func hostExec(flagArgs, cmd []string, out, errw io.Writer, stdin io.Reader) int {
 	flags, ok := parseHostExecFlags(flagArgs, errw)
+	if flags.help {
+		fmt.Fprintln(out, hostUsage)
+		return 0
+	}
 	if !ok {
 		return 2
 	}

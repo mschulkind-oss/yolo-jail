@@ -60,9 +60,10 @@ type Options struct {
 	// cli.parseRunArgs had no `--at` case at all, so the token fell to its
 	// default arm and STARTED THE COMMAND: `yolo --at guest -- claude` launched a
 	// jail and then failed inside it with `--at: command not found` (DP-B22).
-	// `--at host` never reaches here — cli.RewriteArgv turns it into the `host`
-	// subcommand — except in the explicit `yolo run --at host -- …` spelling,
-	// which this field carries to the same refusal.
+	// `--at host` never reaches here from the CLI: the front door (cli.routeArgv)
+	// routes every launch spelling carrying it to the `host` subcommand
+	// (docs/plans/notch-convergence.md item 10). A caller setting it directly still
+	// gets refuseUnbuiltNotch's host refusal, as `confinement: host` does.
 	Notch string
 	// NeverAttach skips the attach-to-running-container branch entirely. NOT a
 	// CLI flag (the old --new was removed 2026-09-06): it is the capture jail's

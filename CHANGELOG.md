@@ -154,6 +154,11 @@ apply it, and the launch says that too. See
   with the same message in a jail and on the host, and `yolo host -p=zai -- claude` works as it
   does in a jail. A mistyped flag before `yolo host`'s `--` is named the way a jail launch names
   it.
+- `yolo --at host -- <command>` ran the command on your machine, but `yolo run --at host --
+  <command>` and a bare `yolo --at host` were refused as a jail launch, and `yolo host --at host
+  -- <command>` was refused too. Every spelling now runs it at the host, wherever `--at` sits. A
+  flag that only means something to a jail launch, such as `--timing`, is refused by `yolo host`
+  by name instead of as an unexpected argument.
 - Quitting a podman jail could hold your terminal for half a minute after a long session, while
   podman deleted everything the jail had left in `/tmp` and its container dirs. You get the
   prompt back as soon as the jail exits, and the files are deleted in the background.

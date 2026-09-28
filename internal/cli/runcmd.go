@@ -47,10 +47,11 @@ two-stepped: 'yolo stop' (from the workspace), then an ordinary launch.
 Flags:
   --at <notch>       Run at this confinement notch (jail|guest|host), overriding
                      the config's 'confinement' key for this launch (also
-                     --at=<notch>). Only 'jail' launches: 'guest' is not built
-                     (env-manager plan Phase 7) and 'host' has its own verbs
-                     ('yolo host -- <cmd>'), so both are refused rather than
-                     silently downgraded to a jail.
+                     --at=<notch>). 'jail' launches the jail. 'host' runs the
+                     command at the host notch, exactly as 'yolo host -- <cmd>'
+                     does, wherever the flag sits ('yolo run --at host -- <cmd>'
+                     included). 'guest' is not built (env-manager plan Phase 7),
+                     so it is refused rather than silently downgraded to a jail.
   --network <mode>   Override the network mode for this launch
                      (also --network=<mode>).
   --profile <sel>   Select the active profile for this launch (also -p <sel>,

@@ -219,6 +219,15 @@ governs *where its ergonomics live*, and it earns a namespace for a reason no ot
 match: only the host has a user shell and a `PATH` to claim, so `yolo host env` and
 `yolo host wrappers status` have no `jail` or `guest` counterpart and nowhere else to go.
 
+**The exec half has the same two spellings**, and the front door decides between them once
+(`cli.routeArgv`): every launch carrying `--at host`, wherever the flag sits, is `yolo host`.
+`yolo --at host -- <cmd>`, `yolo run --at host -- <cmd>`, `yolo --at host run -- <cmd>` and a
+bare `yolo --at host` all route there. `yolo host` takes `--at host` as a no-op and refuses any
+other notch, and a jail-launch flag with no meaning at the host (`--timing`, `--dry-run`,
+`--network`, `--accept-config-changes`) is refused by name rather than ignored. The config key
+`confinement: host` is not an `--at` spelling and still refuses a launch
+([OQ-DP3](../design/declaration-parity.md#decision-ledger)).
+
 **`--` is parsed before any verb**, and that ordering is the whole grammar: the exec half takes
 flags before the separator (`yolo host -p bedrock -- claude`), so the first argument is routinely
 a flag rather than a verb, and a verb switch running first would have to re-implement flag

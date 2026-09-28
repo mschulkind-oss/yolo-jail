@@ -95,21 +95,15 @@ func Main(argv []string) int {
 	// side effects.
 	args = applyVerboseFlag(args)
 
-	args = RewriteArgv(args)
-	sub := Subcommand(args)
-
-	// No recognized subcommand. Two sub-cases:
-	//   - bare `yolo` or `yolo <flags>` (no leading positional token) → open an
-	//     interactive jail shell via `run` (Python's invoke_without_command).
-	//   - a leading positional that isn't a subcommand (e.g. a typo'd `yolo
-	//     chekc`) → error, so typos don't silently run in the jail. The intended
-	//     way to run an arbitrary command is `yolo -- <cmd>`.
+	// The front door's one decision (routeArgv): the verb, the notch a launch's `--at` names,
+	// and the argv. A bare `yolo` or `yolo <flags>` (no leading positional) opens an
+	// interactive jail shell via `run` (Python's invoke_without_command); a leading positional
+	// that isn't a subcommand (a typo'd `yolo chekc`) is an error, so typos don't silently
+	// run in the jail. The intended way to run an arbitrary command is `yolo -- <cmd>`.
+	sub, args, _ := routeArgv(args)
 	if sub == "" {
-		if hasLeadingPositional(args) {
-			fmt.Fprintf(os.Stderr, "yolo: unknown command %q\n", firstPositional(args))
-			return 1
-		}
-		return dispatchNative("run", append([]string{"run"}, args...))
+		fmt.Fprintf(os.Stderr, "yolo: unknown command %q\n", firstPositional(args))
+		return 1
 	}
 
 	if !IsNative(sub) {
@@ -156,12 +150,11 @@ func routeDecision(args []string) string {
 	if wantsTopLevelHelp(args) {
 		return "help"
 	}
-	rewritten := RewriteArgv(args)
-	sub := Subcommand(rewritten)
+	sub, _, implicit := routeArgv(args)
 	if sub == "" {
-		if hasLeadingPositional(rewritten) {
-			return "unknown"
-		}
+		return "unknown"
+	}
+	if implicit {
 		return "run"
 	}
 	if !IsNative(sub) {

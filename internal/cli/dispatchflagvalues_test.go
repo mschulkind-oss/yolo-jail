@@ -3,6 +3,7 @@ package cli
 import (
 	"reflect"
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -123,47 +124,53 @@ func TestValueTakingFlagsCoverRunHelpSkips(t *testing.T) {
 	}
 }
 
-// TestRewriteArgvHostNotchAlias covers OQ-2's alias: --at names the notch on every other
-// verb, so `yolo --at host -- claude` has to mean what `yolo host -- claude` means. The
-// notch tokens are consumed, because what follows is the host exec verb's own flag
-// grammar and `--at` is not part of it.
-func TestRewriteArgvHostNotchAlias(t *testing.T) {
+// TestFrontDoorRoutesEveryHostNotchSpelling covers OQ-2's alias, decided once at the front door
+// (routeArgv, docs/plans/notch-convergence.md item 10, row A3): --at names the notch on every
+// other verb, so every launch spelling carrying `--at host` means what `yolo host` means,
+// wherever the flag sits. The notch tokens and the run token are consumed, because what follows
+// is the host exec verb's own flag grammar. Before, only `yolo --at host -- c` routed; the
+// explicit-run and bare spellings reached the jail launcher and were refused there.
+func TestFrontDoorRoutesEveryHostNotchSpelling(t *testing.T) {
 	cases := []struct {
-		name string
-		in   []string
-		want []string
+		name    string
+		in      string
+		wantSub string
+		want    string
 	}{
-		{
-			name: "--at host becomes the host subcommand",
-			in:   []string{"--at", "host", "--", "claude"},
-			want: []string{"host", "--", "claude"},
-		},
-		{
-			name: "--at=host too",
-			in:   []string{"--at=host", "--", "claude"},
-			want: []string{"host", "--", "claude"},
-		},
-		{
-			name: "the exec half's own flags survive the rewrite",
-			in:   []string{"--at", "host", "-p", "bedrock", "--", "claude"},
-			want: []string{"host", "-p", "bedrock", "--", "claude"},
-		},
-		{
-			name: "another notch is left alone and still runs a jail",
-			in:   []string{"--at", "jail", "--", "claude"},
-			want: []string{"run", "--at", "jail", "--", "claude"},
-		},
-		{
-			name: "a dangling --at is not a host notch",
-			in:   []string{"--at", "--", "claude"},
-			want: []string{"run", "--at", "--", "claude"},
-		},
+		{"--at host becomes the host subcommand", "--at host -- claude", "host", "host -- claude"},
+		{"--at=host too", "--at=host -- claude", "host", "host -- claude"},
+		{"the exec half's own flags survive the rewrite", "--at host -p bedrock -- claude",
+			"host", "host -p bedrock -- claude"},
+		{"after the flags", "-p bedrock --at host -- claude", "host", "host -p bedrock -- claude"},
+		{"the explicit run verb", "run --at host -- claude", "host", "host -- claude"},
+		{"--at before an explicit run", "--at host run -- claude", "host", "host -- claude"},
+		{"an implicit command start", "run --at host claude --resume", "host", "host -- claude --resume"},
+		{"a bare --at host is `yolo host`", "--at host", "host", "host"},
+		{"a jail-launch flag is carried for the host parser to name", "--at host --timing -- claude",
+			"host", "host --timing -- claude"},
+		{"a profile named host is not the notch", "-p host --at jail -- claude", "run",
+			"run -p host --at jail -- claude"},
+		{"another notch is left alone and still runs a jail", "--at jail -- claude", "run",
+			"run --at jail -- claude"},
+		{"the last --at wins, as the launcher reads it", "--at host --at jail -- claude", "run",
+			"run --at host --at jail -- claude"},
+		{"a dangling --at is not a host notch", "--at -- claude", "run", "run --at -- claude"},
+		{"--network host is a network mode, never the notch", "--network host -- bash", "run",
+			"run --network host -- bash"},
+		{"the host verb keeps --at for its own parser", "host --at host -- claude", "host",
+			"host --at host -- claude"},
+		{"another verb's --at is its own", "apply --at host", "apply", "apply --at host"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := RewriteArgv(slices.Clone(tc.in)); !reflect.DeepEqual(got, tc.want) {
-				t.Errorf("RewriteArgv(%q) = %q, want %q", tc.in, got, tc.want)
+			sub, got, _ := routeArgv(strings.Fields(tc.in))
+			if sub != tc.wantSub || strings.Join(got, " ") != tc.want {
+				t.Errorf("routeArgv(%q) = %s %q, want %s %q", tc.in, sub, got, tc.wantSub, tc.want)
 			}
 		})
+	}
+	// Main dispatches what routeArgv decided (routeDecision reads the same function).
+	if got := routeDecision(strings.Fields("run --at host -- claude")); got != "dispatch:host" {
+		t.Errorf("routeDecision(run --at host -- claude) = %q, want dispatch:host", got)
 	}
 }
