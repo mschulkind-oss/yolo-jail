@@ -49,7 +49,8 @@ func applyHostFiles(pr richtext.Printer, errw io.Writer, p *packload.Pack, home,
 		Stamp:       stamp,
 	}, !write)
 	if rerr != nil {
-		pr.Printf("  [red]files      failed[/red] — %v", rerr)
+		// The pack's failure, stated once by its group above the verdict (hostapplyfailures.go).
+		survey.noteRenderFailure(p.Name, "files: "+rerr.Error())
 		return 1
 	}
 	for _, r := range results {

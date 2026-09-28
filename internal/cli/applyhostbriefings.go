@@ -241,6 +241,12 @@ func applyHostBriefings(pr richtext.Printer, out io.Writer, stdin io.Reader,
 
 	bres, berr := entrypoint.RenderHostBriefings(loaded, home, req, !write)
 	for _, r := range bres {
+		// The broken-link rule's report half, as for a config surface (apply.go): a blocker
+		// stated once by its group, attributed to the packs that DECLARE this destination.
+		if r.BrokenLink != nil {
+			survey.noteBrokenLink(briefingDestinationPacks(loaded, home, r.Path), *r.BrokenLink)
+			continue
+		}
 		survey.note(tierRun, string(packdecl.KindBriefing), r.Surface, r.Path, r.WouldChange)
 		// A settled destination is DETAIL (§4.5): the verdict counts briefing destinations,
 		// and a reader who wants each one by name asks for it. A destination that WOULD

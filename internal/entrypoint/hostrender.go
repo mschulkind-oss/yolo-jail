@@ -63,6 +63,11 @@ type HostRenderResult struct {
 	Surface string // "agent/name"
 	Path    string // resolved real-home path
 	Action  string // "rendered" | "would render" | "refused: <reason>"
+	// BrokenLink is set when this destination was refused because a symlink on its path leads
+	// into a directory that does not exist (hostbrokenlink.go). A BLOCKER the user has to act
+	// on, unlike the policy refusals `Action` also carries, so the report itemizes it and the
+	// verdict names it; nil for every other result.
+	BrokenLink *BrokenLink
 	// Overwrites lists the dotted managed keys whose EXISTING value in the real file
 	// differs from what this render writes — the reviewer's "always warn on overwrite"
 	// for the host notch (§4.2 / env-manager plan Phase 9). Empty when the render only
@@ -369,6 +374,15 @@ func RenderHostPack(p *packload.Pack, homeDir string, ownership render.HostOwner
 		// observe's job is to say so BEFORE an --assert reaches the file. Probing here rather
 		// than only at the write is what makes `--dry-run` an honest preview of a refusal
 		// instead of promising a render that will not happen.
+		// THE BROKEN-LINK RULE (hostbrokenlink.go), ahead of every probe that reads the file and
+		// in both postures: a destination linked into a directory that no longer exists is
+		// refused BY NAME, per surface, so the rest of the pack still renders. It used to reach
+		// the writer, whose ENOENT failed the whole pack.
+		if b := FindBrokenLink(path); b != nil {
+			out = append(out, HostRenderResult{Surface: id, Path: path, Pruned: pruned,
+				Action: "refused: " + b.Reason(), BrokenLink: b})
+			continue
+		}
 		if refusal := hostMechanismRefusal(mechanism, s, path); refusal != nil {
 			out = append(out, HostRenderResult{Surface: id, Path: path, Pruned: pruned,
 				Action: "refused: " + refusal.Reason()})

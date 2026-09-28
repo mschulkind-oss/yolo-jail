@@ -169,7 +169,7 @@ disagree about the outcome they report.
 | Token | The run found |
 | :--- | :--- |
 | `no_packs` | no packs are configured. Distinct from `nothing_to_do`, and the difference is the next action: one is *your config names nothing*, the other *your home already matches what it names* |
-| `incomplete` | a pack failed to render, so the counts are missing its surfaces |
+| `incomplete` | a pack failed to render, or a destination could not be written because it is a [broken link](#broken-links), so the counts are missing those surfaces. The verdict names whose config is missing; the failure itself is stated once, with its fix, in its group |
 | `blocked` | a declared dependency is missing. **Dry run only** — an `--assert` with one is refused by the gate before it reaches a verdict at all |
 | `nothing_to_do` | this home already matches what the packs declare |
 | `applied` | an `--assert` wrote what it planned |
@@ -233,6 +233,20 @@ the config key, the local-pack path, the missing binary, or "none" — never by 
 | first apply would replace a value yolo never asserted | the home | the `[y/N]` prompt on `--assert` (`confirmHostLosses`); in a dry run, the flag in the verdict | — |
 | **blocker:** a declared dependency is missing | the binary, across packs | the remedy `depcheck` resolves for the detected manager, plus the package-manager alternative when the primary is the tool's own installer | *this host* |
 | **blocker:** the apply refuses | as today — these already meet P2 | — | — |
+| **blocker:** a pack failed to render | the pack | the error, stated once in the group rather than on stderr between report lines, and *fix what it names, then `yolo host apply --assert`* | *this pack* |
+| **blocker:** a destination is a [broken link](#broken-links) | the link | `rm <link>`, or recreate the target's directory, then `yolo host apply --assert` | *this destination* |
+
+### Broken links
+
+A **broken link** *(coined here)* is a symlink on a destination's path — the destination itself or
+a directory above it — whose chain ends in a directory that does not exist. A dotfiles manager
+leaves one when the directory it linked into is moved or deleted. The render refuses that
+destination by name (`entrypoint.FindBrokenLink`), leaves the link as it is, creates nothing at its
+target, and renders the rest of the pack. The report states it once, in its group, and never also
+as the surface's own line; an `--assert` that met one exits 1, and a dry run exits 0. A link whose
+target is missing but whose target's *directory* exists is not broken: it is written through, as a
+dotfiles checkout that has not created the file yet expects. Measured on the maintainer's host
+2026-09-28, where a link into a deleted `~/.dotfiles/pi` used to fail the whole pi pack.
 
 ## Detail on demand
 

@@ -226,6 +226,10 @@ apply it, and the launch says that too. See
 - `yolo init` wrote a workspace config saying grep and find are blocked by default, and both it and
   `yolo init-user-config` wrote a config offering no `macos-user` runtime.
 - The links on yolo-jail's PyPI page led nowhere. They now open that release's files on GitHub.
+- `yolo host apply` stopped rendering a whole pack when one of its files was a link into a folder
+  that no longer exists, such as a dotfiles link left after the dotfiles moved, and printed only
+  `no such file or directory` between its report lines. It now names the link and its target,
+  says to remove the link or recreate the folder, and applies everything else.
 
 ### Security
 

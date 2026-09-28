@@ -98,6 +98,7 @@ func hostApplyRemedyGroups(s *hostApplySurvey, home string, write bool) []remedy
 	}
 	var out []remedyGroup
 	out = append(out, unresolvedPackGroups(s.UnresolvedPacks())...)
+	out = append(out, failureGroups(s, home)...)
 	out = append(out, missingDepGroups(s)...)
 	if g, ok := droppedEntryGroup(s, home, write); ok {
 		out = append(out, g)
@@ -396,6 +397,12 @@ const (
 	// remedyClassUnresolvedPack — a configured pack could not be resolved, so an --assert
 	// refuses the whole apply. A blocker.
 	remedyClassUnresolvedPack = "unresolved_pack"
+	// remedyClassRenderFailed — a pack's render errored, so its surfaces are missing from the
+	// run. A blocker.
+	remedyClassRenderFailed = "render_failed"
+	// remedyClassBrokenLink — a destination is a symlink into a directory that does not
+	// exist, so it was not written. A blocker.
+	remedyClassBrokenLink = "broken_link"
 	// remedyClassDependency — a declared dependency is missing on this host. A blocker.
 	remedyClassDependency = "missing_dependency"
 	// remedyClassEntryDropped — a named table entry of the user's (an MCP server) goes.

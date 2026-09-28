@@ -90,7 +90,7 @@ func hostApplyOutcome(s *hostApplySurvey, write bool) string {
 		// FIRST AMONG THE BLOCKERS: an --assert over an incomplete pack set writes nothing at all
 		// (no half states), so no count below describes anything it would do.
 		return outcomeRefused
-	case len(s.FailedPacks()) > 0:
+	case len(s.Failures()) > 0:
 		return outcomeIncomplete
 	case !write && len(s.MissingDeps()) > 0:
 		return outcomeBlocked
@@ -163,13 +163,25 @@ func hostApplyVerdict(s *hostApplySurvey, write bool) string {
 			"(%s), and an incomplete pack set is never applied — nothing would be written.",
 			len(names), plural(len(names), "pack", "packs"), strings.Join(names, ", "))
 	case outcomeIncomplete:
-		failed := s.FailedPacks()
-		if write {
-			return fmt.Sprintf("Incomplete — %d pack(s) failed to render (%s); see stderr.",
-				len(failed), strings.Join(failed, ", "))
+		// The PACKS, and the rest of the run in the same sentence: the failures themselves are
+		// stated once, with their fixes, in the group above, and what the reader still needs
+		// from the last line is whose config is missing and whether anything else happened.
+		who := "some config"
+		if names := failurePacks(s.Failures()); len(names) > 0 {
+			owned := make([]string, len(names))
+			for i, n := range names {
+				owned[i] = n + "'s"
+			}
+			who = "some of " + joinWords(owned, "and") + " config"
 		}
-		return fmt.Sprintf("An --assert would be incomplete — %d pack(s) failed to render "+
-			"(%s); see stderr.", len(failed), strings.Join(failed, ", "))
+		if write {
+			rest := "nothing else needed changing"
+			if work := hostApplyWork(s, true); work != "nothing" {
+				rest = "applied the rest: " + work
+			}
+			return fmt.Sprintf("Incomplete — %s was not written (above); %s.", who, rest)
+		}
+		return fmt.Sprintf("An --assert would be incomplete — %s cannot be written (above).", who)
 	case outcomeBlocked:
 		// the dependency rule: in the DRY RUN a missing declared dependency is a tier-3 blocker that
 		// decides the verdict and changes nothing else — exit 0, nothing written, nothing installed.

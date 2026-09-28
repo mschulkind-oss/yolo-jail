@@ -511,9 +511,11 @@ func applyHostSurveyed(out, errw io.Writer, color bool, write bool, stdin io.Rea
 		return 1
 	}
 	loaded, destinations := packload.ResolveDestinations(loaded)
+	survey.noteLoaded(loaded)
 	for _, d := range destinations {
 		if drc := reportInferredDestinations(pr, d); drc != 0 {
 			rc = drc
+			survey.noteUnattributedFailure()
 		}
 	}
 	// REFUSE a doubly-declared config surface before writing anything into a real home
@@ -560,6 +562,7 @@ func applyHostSurveyed(out, errw io.Writer, color bool, write bool, stdin io.Rea
 	for _, prob := range overlays.Problems {
 		pr.Printf("  [red]%s refused[/red] — %s", collectProblemKind(prob), prob)
 		rc = 1
+		survey.noteUnattributedFailure()
 	}
 	for _, orphan := range overlays.Orphans {
 		// R2: inert, and named. Not an error — a pack the user did not select is not a
@@ -661,21 +664,30 @@ func applyHostSurveyed(out, errw io.Writer, color bool, write bool, stdin io.Rea
 			detail(pr, "%s", packDeps.depLine(c))
 		}
 		if frc := applyHostFiles(pr, errw, p, home, stamp, write, survey); frc != 0 {
-			rc = frc
+			rc = frc // attributed to p by applyHostFiles itself
 		}
 		// THE DECLARED CONTRACT, read once per invocation and passed down: it is what selects
 		// the mechanism each surface renders through (render.HostOwnership).
 		results, rerr := entrypoint.RenderHostPack(p, home, hostOwnership(), !write, overlays)
 		if rerr != nil {
-			fmt.Fprintf(errw, "yolo host apply: %s: %v\n", p.Name, rerr)
 			// A tier-3 BLOCKER, and it has to reach the verdict: this pack's surfaces are
 			// absent from every count below, so a verdict built from those counts alone
-			// would claim a completed apply out of a traversal that lost a pack.
-			survey.noteRenderFailure(p.Name)
+			// would claim a completed apply out of a traversal that lost a pack. Stated ONCE,
+			// with its fix, by the failure group above the verdict (hostapplyfailures.go) —
+			// never as a stderr line interleaved with the report and a verdict saying "see
+			// stderr".
+			survey.noteRenderFailure(p.Name, rerr.Error())
 			rc = 1
 			continue
 		}
 		for _, r := range results {
+			// THE BROKEN-LINK RULE's report half: a blocker, stated once in its group with the
+			// fix, and never also as this surface's own line. An --assert that could not write
+			// it did not complete, so it exits non-zero (OQ-RO5); the rest of the pack did.
+			if r.BrokenLink != nil {
+				survey.noteBrokenLink([]string{p.Name}, *r.BrokenLink)
+				continue
+			}
 			// ONE call, carrying the predicate, the report tier and every loss the verdict
 			// counts: they are facts about the same render, and splitting them at the call
 			// site is how one of them comes to be forgotten at the next one.
@@ -814,10 +826,12 @@ func applyHostSurveyed(out, errw io.Writer, color bool, write bool, stdin io.Rea
 	if src := applyHostSkills(pr, out, stdin, loaded, candidates, active, configured, resolvedAll,
 		home, stamp, write, reloadPacks, survey); src != 0 {
 		rc = src
+		survey.noteUnattributedFailure()
 	}
 	if brc := applyHostBriefings(pr, out, stdin, loaded, candidates, active, resolvedAll,
 		home, stamp, write, reloadPacks, survey); brc != 0 {
 		rc = brc
+		survey.noteUnattributedFailure()
 	}
 
 	// Retire the SKILLS, FILES, and CONFIG-OVERLAY KEYS a dropped pack left in the home. After
@@ -834,6 +848,7 @@ func applyHostSurveyed(out, errw io.Writer, color bool, write bool, stdin io.Rea
 	if prc := pruneDroppedPackOutput(
 		pr, out, stdin, candidates, configured, home, stamp, write, keys, survey); prc != 0 {
 		rc = prc
+		survey.noteUnattributedFailure()
 	}
 
 	// Launch wrappers, last: they are the only stage that writes OUTSIDE the composed
@@ -841,6 +856,19 @@ func applyHostSurveyed(out, errw io.Writer, color bool, write bool, stdin io.Rea
 	// a pack whose own apply just failed. Silent unless opted in (§5.5).
 	if wrc := applyHostWrappers(pr, errw, home, loaded, write, survey); wrc != 0 {
 		rc = wrc
+		survey.noteUnattributedFailure()
+	}
+
+	// A destination refused under the broken-link rule was not written, so an --assert that met
+	// one did not complete and says so in its exit code (OQ-RO5). The dry run stays 0: its
+	// output is the finding.
+	if write {
+		for _, f := range survey.Failures() {
+			if f.Link != nil {
+				rc = 1
+				break
+			}
+		}
 	}
 
 	// THE TIER-3 GROUPS (report-tiers.md's remedy contract): every loss and blocker this run

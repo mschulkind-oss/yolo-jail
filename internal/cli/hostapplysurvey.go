@@ -29,6 +29,7 @@ import (
 	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
+	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 )
 
 // reportTier is docs/reference/report-tiers.md's REPORT TIER: the class of fact a line
@@ -151,6 +152,12 @@ type hostApplySurvey struct {
 	installedDeps []string
 	firstApply    bool
 	failedPacks   []string
+	// failures is everything this apply could not write, attributed to its packs, and
+	// unattributedFailure whether some stage failed where no pack can be named; loaded is the
+	// resolved pack set. See hostapplyfailures.go for the three readers.
+	failures            []hostFailure
+	unattributedFailure bool
+	loaded              []*packload.Pack
 	// unresolvedPacks are the configured packs this run could not resolve, with the resolver's
 	// reason. A BLOCKER that outranks every other: an --assert over them is refused before the
 	// first write (no half states), so the verdict of a dry run that found one is "would refuse".
@@ -450,16 +457,6 @@ func (s *hostApplySurvey) InstalledDeps() []string {
 		return nil
 	}
 	return s.installedDeps
-}
-
-// noteRenderFailure records a pack whose render errored. It is a the tiers blocker: its
-// surfaces are absent from every count above, so a verdict that did not name it would be
-// claiming a completed apply out of counts that silently lost a pack.
-func (s *hostApplySurvey) noteRenderFailure(pack string) {
-	if s == nil {
-		return
-	}
-	s.failedPacks = append(s.failedPacks, pack)
 }
 
 // noteUnresolved records a configured pack that could not be resolved, and why.

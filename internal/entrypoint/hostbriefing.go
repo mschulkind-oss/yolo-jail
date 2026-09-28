@@ -644,6 +644,13 @@ func RenderHostBriefings(packs []*packload.Pack, homeDir string, req HostBriefin
 				Action: "skipped: no pack contributes briefing prose here"})
 			continue
 		}
+		// The broken-link rule (hostbrokenlink.go): refused by name, in both postures, and the
+		// remaining destinations still compose. It used to return here and stop every one after.
+		if b := FindBrokenLink(d.Path); b != nil {
+			out = append(out, HostRenderResult{Surface: id, Path: d.Path,
+				Action: "refused: " + b.Reason(), BrokenLink: b})
+			continue
+		}
 		existing, err := readHostBriefingFile(d.Path)
 		if err != nil {
 			return out, fmt.Errorf("%s: %w", id, err)
