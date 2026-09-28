@@ -131,6 +131,9 @@ func runSuite(m *testing.M) int {
 		log.Fatalf("integration: building yolo CLI under test: %v\n%s", err, out)
 	}
 
+	// Before the warmup, which is the run's first launch: it seeds its home through
+	// seedPackHome like every test does, and so lands in the run's own store too.
+	setUpRunStore()
 	logMachineLock()
 	releaseSetupLock := holdMachineLockForSetup()
 	ensureJailImage()
@@ -138,6 +141,7 @@ func runSuite(m *testing.M) int {
 	releaseSetupLock()
 
 	code := m.Run()
+	tearDownRunStore()
 	os.RemoveAll(binDir)
 	return code
 }

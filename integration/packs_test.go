@@ -200,7 +200,10 @@ func TestPackFilesCollisionFailsPreflight(t *testing.T) {
 //   - yolo's own store, because paths.GlobalStorage() is $HOME/.local/share/yolo-jail:
 //     redirecting it moves the podman IMAGE CACHE and its last-load sentinel, so a pack
 //     test would build and load into a throwaway store and the next test needing a
-//     freshly-built image (the lib-farm `packages:` tests) would reuse a stale one.
+//     freshly-built image (the lib-farm `packages:` tests) would reuse a stale one. For the
+//     machine's own home this link goes to the RUN's store instead (sharedStoreTarget,
+//     runstore_test.go), which links those shared parts back and keeps the rest — the
+//     loophole state an overlapping run would otherwise retire — to this run.
 //
 //   - ROOTLESS PODMAN's own store, whose graphroot is
 //     $HOME/.local/share/containers/storage. Redirecting THAT makes the child re-load
@@ -442,7 +445,9 @@ func seedPackHome(home, realHome, userConfig string) error {
 	}
 	for _, store := range packHomeSharedStores {
 		rel := filepath.FromSlash(store)
-		target := filepath.Join(realHome, rel)
+		// yolo's own store goes to this RUN's store when realHome is the machine's
+		// (runstore_test.go), so an overlapping run cannot retire state out from under it.
+		target := sharedStoreTarget(realHome, rel)
 		if err := os.MkdirAll(target, 0o755); err != nil {
 			return fmt.Errorf("creating host store %s (a symlink to a missing dir is dangling, "+
 				"and MkdirAll rejects that as %q): %w", target, "file exists", err)
