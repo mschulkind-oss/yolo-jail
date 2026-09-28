@@ -900,9 +900,10 @@ it.
 **Declaration is mandatory** ([OQ-CS6](#oq-cs6)): a selected name that neither a selected pack
 nor the user's `profiles` declares refuses the launch, naming what is declared. An undeclared
 name used to be a silent no-op; it is a diagnosable error instead. At `yolo host --`, a pack
-whose manifest has problems contributes nothing, so a profile only it declares refuses there
-too, and the refusal names that pack and its problems rather than calling the name undeclared
-([NS-D18](../design/notch-scoped-config-contributions.md#10-decision-ledger)).
+whose manifest has problems refuses the launch before the selected profile's declaration is
+checked, naming that pack and its problems, as a jail launch refuses the same config
+([NC-D42](../plans/notch-convergence.md#NC-D42), which revised
+[NS-D18](../design/notch-scoped-config-contributions.md#10-decision-ledger)).
 
 The selection itself is a table keyed by **CLI name** — the bin a pack installs — mapping each
 CLI to the profile it runs: `use_profiles` in user config, then `-p` on the command line
