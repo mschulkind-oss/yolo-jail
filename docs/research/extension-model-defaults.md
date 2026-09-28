@@ -17,7 +17,7 @@ extensions to support?
 extensions and of pi 0.87.1, read from the published packages (versions in
 [Appendix A](#appendix-a-evidence)). **UNMEASURED:** no extension was run; no agent was started.
 
-**Needs your ruling:** [OQ-XM1](#OQ-XM1) (the core helper), [OQ-XM3](#OQ-XM3) (the `subagents` block yolo already ships). Ruled 2026-09-28: [OQ-XM2](#OQ-XM2) (add `frontier`), [OQ-XM4](#OQ-XM4) (no env convention yet), [OQ-XM5](#OQ-XM5) (no upstream proposal).
+**Rulings (all 2026-09-28, in review):** [OQ-XM1](#OQ-XM1) (build the core helper), [OQ-XM2](#OQ-XM2) (add `frontier`), [OQ-XM3](#OQ-XM3) (the `subagents` block, for every provider, never crossing providers), [OQ-XM4](#OQ-XM4) (no env convention yet), [OQ-XM5](#OQ-XM5) (no upstream proposal). Nothing here awaits a ruling.
 
 **Reads with:** [`model-lists-and-pickers.md` §6](../design/model-lists-and-pickers.md#6-tier-aliases-default-fast-balanced)
 (the tier aliases this reuses), [`pi-model-selection-ux.md`](pi-model-selection-ux.md) ([OQ-PM1](pi-model-selection-ux.md#OQ-PM1),
@@ -144,7 +144,7 @@ in-jail edit is the user's. That's the intended behavior, not a gap.
 
 ## 6. Open questions
 
-1. 💬 <a id="OQ-XM1"></a>**[OQ-XM1](#OQ-XM1): Does core expose tier resolution to pack derives?**
+1. ✅ <a id="OQ-XM1"></a>**[OQ-XM1](#OQ-XM1): Does core expose tier resolution to pack derives?**
    A helper, for example `yolo.model_for("fast")`, returning the selected provider's aliased
    model as `provider/id`, or nil. Stakes: without it every adapter re-implements the alias
    fallback rules claude's derive encodes, and they drift.
@@ -152,10 +152,10 @@ in-jail edit is the user's. That's the intended behavior, not a gap.
    _Leaning:_ yes. It's the one core change, it names no extension, and claude's and opencode's
    derives can adopt it to lose their hand-written copies.
 
-   <!-- vantage: oq id=OQ-XM1 leaning="Yes: a derive helper resolving a tier alias for the selected provider to provider/id. The one core change; names no extension; claude's and opencode's derives can adopt it." -->
-
-   **Answer:**
-   > _(empty — fill in when decided)_
+      **Answer:**
+   > **Ruled in review 2026-09-28, as leaned:** yes. A derive helper resolves a tier alias for the
+   > selected provider to `provider/id`. It is the one core change, it names no extension, and
+   > claude's and opencode's derives can adopt it in place of their hand-written copies.
 
 2. ✅ <a id="OQ-XM2"></a>**[OQ-XM2](#OQ-XM2): Which role names does yolo publish?** yolo's
    aliases are `default`, `fast` and `balanced`. The ecosystem uses `small`/`medium`/`big`
@@ -171,7 +171,7 @@ in-jail edit is the user's. That's the intended behavior, not a gap.
    > `frontier` as a fourth conventional alias under the same warn-don't-refuse rule. Each
    > adapter maps yolo's names onto its extension's; core maps none.
 
-3. 💬 <a id="OQ-XM3"></a>**[OQ-XM3](#OQ-XM3): What happens to the `subagents` block pi's derive
+3. ✅ <a id="OQ-XM3"></a>**[OQ-XM3](#OQ-XM3): What happens to the `subagents` block pi's derive
    writes today?** It's yolo's one adapter, embedded in the agent's pack.
    - **(a)** Move it to an optional adapter pack yolo ships but never selects by default.
    - **(b)** Move it to the maintainer's own pack, out of yolo entirely.
@@ -198,10 +198,21 @@ in-jail edit is the user's. That's the intended behavior, not a gap.
    _Leaning:_ (a), and it answers [OQ-PM1](pi-model-selection-ux.md#OQ-PM1) the same way: the adapter writes `defaultModel` from the
    profile's `default` alias and `modelScope` from the provider's models, for every provider.
 
-   <!-- vantage: oq id=OQ-XM3 leaning="(a): move it to an optional adapter pack yolo ships but never selects by default; the adapter writes defaultModel from the profile's default alias and modelScope from the provider's models, for every provider, which also answers OQ-PM1." -->
-
-   **Answer:**
-   > _(empty — fill in when decided)_
+      **Answer:**
+   > **Ruled in review 2026-09-28, amending the options:** the rule is not about codex. *"I want
+   > always the default to switch to the default. If it's not otherwise specified, it should
+   > switch to the default of that provider or whatever config … unless there's like some very
+   > clear exception stated. And regardless, it shouldn't be able to cross providers once we
+   > separate the providers per launch."* So the block stays in the pi pack, where every launch
+   > gets it without selecting an extra pack (none of (a), (b) or (c) as written), and it is
+   > written for every provider rather than `openai-codex` alone:
+   > - `subagents.defaultModel` is the active profile's default model for the selected provider,
+   >   so a child that names no model starts there;
+   > - `subagents.modelScope` is strict and enforced over the selected provider's configured
+   >   models, so a child may name another model of that provider (the stated exception) and can
+   >   never cross to another provider.
+   >
+   > This also answers [OQ-PM1](pi-model-selection-ux.md#OQ-PM1) with its leaning.
 
 4. ✅ <a id="OQ-XM4"></a>**[OQ-XM4](#OQ-XM4): Does yolo also publish role env vars?** Stakes: an
    env var reaches extensions with no adapter, but a jail-wide one is wrong when claude and pi run

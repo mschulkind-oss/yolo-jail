@@ -30,7 +30,7 @@ both escape it. A hard allowlist can only live at the wire bridge, which is
 pi's extension registers exactly, so pi's view of `openai-codex` is already that list and a
 scope could only restate it. The scope for every other provider is unchanged.
 
-**Needs your ruling:** [OQ-PM1](#OQ-PM1).
+**Ruled 2026-09-28:** [OQ-PM1](#OQ-PM1), through [OQ-XM3](extension-model-defaults.md#OQ-XM3).
 
 > [!IMPORTANT]
 > For an active yolo provider profile, use Pi's native model scope. A Codex
@@ -112,22 +112,23 @@ This is a reproducible code-path gap, but **the claimed OpenRouter launch was no
 
 ### Open question
 
-1. 💬 <a id="OQ-PM1"></a>**[OQ-PM1](#OQ-PM1): under a non-Codex profile, which models may pi's child agents use?**
+1. ✅ <a id="OQ-PM1"></a>**[OQ-PM1](#OQ-PM1): under a non-Codex profile, which models may pi's child agents use?**
    Three candidates: the profile's exact model, its provider's configured model set, or a
    separate explicit budget/policy set. Today pi's settings derive emits no `subagents` for any
    provider but `openai-codex`, so children inherit the parent model and nothing rejects an
    out-of-provider per-run model. The stakes: reusing the Codex allow-list would
    block valid models on another provider or allow the wrong one, so the build waits on this.
 
-   <!-- vantage: oq id=OQ-PM1 leaning="The provider's configured model set, as a strict scope with the profile's model as the default. It is the set the user already curated for that provider, it matches what enabledModels already holds, and it needs no new config key; a separate budget set is a new surface nobody has asked for yet." -->
-
-   _Leaning:_ **The provider's configured model set**, strict, with the profile's model as the
+      _Leaning:_ **The provider's configured model set**, strict, with the profile's model as the
    default. It is the set the user already curated, it matches what `enabledModels` already
    holds, and it needs no new config key; a separate budget set is a new surface nobody has
    asked for yet.
 
    **Answer:**
-   > _(empty — fill in when decided)_
+   > **Ruled 2026-09-28, as leaned**, through
+   > [OQ-XM3](extension-model-defaults.md#OQ-XM3)'s ruling: the provider's configured model set,
+   > strict, with the profile's default model as the default, for every provider. A child agent
+   > can never cross to another provider.
 
 ## 3. Existing extension solutions
 
