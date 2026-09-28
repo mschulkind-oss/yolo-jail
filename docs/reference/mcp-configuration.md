@@ -211,7 +211,53 @@ projection has to get right:
 - One tool's MCP goes in a *different file* from its permissions, so its projection writes two
   surfaces.
 - Pi projects the canonical table into `~/.pi/agent/mcp-adapter.json` (`mcpServers`), where adapter
-  extensions like `pi-mcp-adapter` or `pi-mcp-extension` read it.
+  extensions like `pi-mcp-adapter` or `pi-mcp-extension` read it. See
+  [Pi's MCP files](#pis-mcp-files) for the second file it writes and the one it retires.
+
+### Pi's MCP files
+
+Pi's MCP servers are read by two of its extensions, from different files, so the pi pack writes
+up to two and cleans up a third. Each rule below is a surface field in
+[`packs/pi/pack.json`](../../packs/pi/pack.json), documented on `manifest.Surface` in
+[`manifest.go`](../../internal/agentcfg/manifest/manifest.go); the rulings are
+[AM-R1 and AM-R2](../design/agent-directory-map.md#13-decision-ledger).
+
+| File | Read by | What yolo does |
+| :--- | :--- | :--- |
+| `~/.pi/agent/mcp-adapter.json` | pi-mcp-adapter (its global override) | writes the full server table at every boot (`computed`, `pi/mcp`) |
+| `~/.config/mcp/mcp.json` | pi-subagents, for an agent's `mcp:` tools; also pi-mcp-adapter, as its shared global file | writes the same servers while pi-subagents is in pi's `packages`, and nothing otherwise (`pi/subagents-mcp`) |
+| `~/.pi/agent/mcp.json` | pi-subagents; pi-mcp-adapter only to show a migration notice | never writes it; deletes it only while it holds exactly what `mcp-adapter.json` now holds, which is the copy yolo 0.10.0 wrote there |
+
+**pi-subagents' file.** pi-subagents 0.35.1 resolves `mcp:` tools from
+`~/.config/mcp/mcp.json`, `~/.pi/agent/mcp.json`, the project's `.mcp.json` and `.pi/mcp.json`,
+and never from `mcp-adapter.json` (`getConfigPaths` in its `mcp-direct-tool-allowlist.ts`). yolo
+writes the first, the one both extensions read:
+
+- **Selected** means an entry of pi/settings' `packages` whose name is `pi-subagents`: `npm:`
+  with or without a version, a git or URL source ending in `/pi-subagents` (a fork counts), or a
+  package-filter object whose `source` is one of those. The list is read from the settings file
+  as the same boot rendered it, so a pack's `config-list`, the host's settings and an in-jail
+  `pi install` all count (`whenListed`).
+- **A file already there is merged into.** The surface is `stateful`, so its first render adopts
+  the servers and settings it finds as the user's, and a server added to it later, such as by
+  pi-mcp-adapter's "Add globally", survives the next boot. A server yolo stops configuring still
+  leaves, because the capture record knows it was yolo's.
+- **Deselecting** writes nothing, and removes the file only while it is still exactly yolo's last
+  render with no edit captured in it.
+- **At the host**, `yolo host apply` skips it with a stated reason, under every
+  `host_management` value (`notAtHost`). Host apply renders no MCP servers
+  ([`host-computed-layer.md`](../design/host-computed-layer.md)), so it could only re-encode the
+  cross-tool file you keep there.
+- **pi-mcp-adapter sees each server twice**, once here and once in `mcp-adapter.json`, with
+  identical definitions. It merges them by name, the adapter file winning, and its setup panel
+  counts each as a same-name conflict.
+
+**The retired copy.** 0.11.0 moved the render from `mcp.json` to `mcp-adapter.json`. A
+`mcp.json` holding exactly what `mcp-adapter.json` holds after the boot's write is yolo's own
+leftover and is deleted (`retireIfMatchesRender`). The comparison is on the decoded JSON, so key
+order and indentation do not decide it. A file with one more key, one different value or a
+server yolo no longer configures is kept, which also keeps a 0.10.0 copy written from MCP
+settings that have since changed.
 
 **Convergence — how a dropped server disappears** — is the composition engine's job, not a
 per-tool one:

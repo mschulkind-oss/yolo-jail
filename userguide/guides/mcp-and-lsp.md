@@ -19,7 +19,7 @@ project's `yolo-jail.jsonc`, and a change reaches the agents at the jail's next 
 | Copilot | Yes | Yes |
 | Codex | Yes | No: Codex has no language-server support |
 | opencode | Yes | Not yet |
-| pi | Yes, once you install an MCP adapter extension in pi, such as `pi-mcp-adapter` | Not yet |
+| pi | Yes, once you install an MCP adapter extension in pi, such as `pi-mcp-adapter`. With the `pi-subagents` extension installed, pi's subagents get them too | Not yet |
 | agy | Yes | No: agy has no language-server support |
 
 ## MCP Presets

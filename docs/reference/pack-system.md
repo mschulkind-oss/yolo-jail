@@ -1455,7 +1455,13 @@ validated by the config engine and its fields are documented in `internal/agentc
 — `codec` is the decode/encode round-trip, `defaults` is yolo's freely-overridable base
 layer, `managed` is the keys yolo asserts and always wins, `retireOnFirstRender` names stale
 sidecars to clean up, and `readsHost` declares that the user's own copy of this same file,
-from their real home, is composed as the `host` layer.
+from their real home, is composed as the `host` layer. Three fields decide whether and beside
+what the file is written: `retireIfMatchesRender` names a sibling to delete only while it holds
+exactly this surface's render, the one way to retire a file name an agent or a user also
+writes; `whenListed` renders the surface only while a list in an earlier surface of the same
+pack holds a matching entry, which is how a file for one extension follows the agent's own
+record of it; and `notAtHost` gives the reason `yolo host apply` skips the surface. The pi
+pack's MCP files use all three ([Pi's MCP files](mcp-configuration.md#pis-mcp-files)).
 
 The engine composes a surface by folding layers with RFC-7386 merge semantics, lowest to
 highest precedence, and then applies [the managed floor](#the-managed-floor):
@@ -1618,7 +1624,8 @@ alongside a `config` on one identity is the supported shape, not a clash.
 ### Overlay rules
 
 - **An overlay body may set ONLY `managed`.** Every field that would redefine the *surface*
-  (`agent`, `name`, `path`, `codec`, `mode`, `defaults`, `retireOnFirstRender`, `readsHost`)
+  (`agent`, `name`, `path`, `codec`, `mode`, `defaults`, `retireOnFirstRender`, `readsHost`,
+  `retireIfMatchesRender`, `whenListed`, `notAtHost`)
   is refused BY NAME at decode, with the rule in the message rather than a generic
   unknown-field error — each of those keys is real, it is just not a contributor's to set.
   That refusal is what makes "the contributor cannot change the file's mode, path or codec"
