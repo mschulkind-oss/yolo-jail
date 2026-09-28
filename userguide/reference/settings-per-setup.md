@@ -50,7 +50,7 @@ yet* means they have not. The subsections below, and
 
 | You want to… | `podman` / Linux | `podman` / macOS | `container` / macOS | `macos-user` / macOS |
 |---|---|---|---|---|
-| **Start a jail** | Yes. The first launch builds the jail image and takes a few minutes; later launches take seconds. | Yes, once the Podman Machine VM is running and your project is in a folder it shares. The first launch is slow.[^cap-first-mac] | Yes, and it is the Mac default. `yolo stop` cannot see these jails; use `container stop` (not planned yet).[^cap-ac-stop] | Yes, after a one-time `yolo macos-setup`. Projects must be outside every home folder; `/Users/Shared/yolo` is set up for you.[^cap-mu-start] |
+| **Start a jail** | Yes. The first launch builds the jail image and takes a few minutes; later launches take seconds. | Yes, once the Podman Machine VM is running and shares the folders yolo needs ([setup](../getting-started.md#macos-podman)). The first launch is slow.[^cap-first-mac] | Yes, and it is the Mac default. `yolo stop` cannot see these jails; use `container stop` (not planned yet).[^cap-ac-stop] | Yes, after a one-time `yolo macos-setup`. Projects must be outside every home folder; `/Users/Shared/yolo` is set up for you.[^cap-mu-start] |
 | **Open a second session** | Yes. `yolo` in the same project joins the running jail; another project gets its own jail. | Yes, the same. | Yes, the same, but jails for two different projects can log each other out of `claude`.[^refresh-ac] | Yes, but each `yolo` is its own sandbox, and two `claude` sessions at once can log each other out. |
 | **Install an agent** | Yes. Add its pack to your user config; it installs the first time you type its name and keeps itself up to date. | Yes. `omp` is not available on Apple silicon.[^cap-omp] | Yes, except `omp`, which is not available on Apple silicon, the only kind of Mac Apple Container runs on.[^cap-omp] | Yes for `claude` and `codex`. `agy`, `copilot`, `opencode`, `pi` and (on Apple silicon only) `omp` should work. |
 | **Run an agent without permission prompts** | Yes, automatically, for every agent except `omp`.[^cap-yolo-mode] | Yes, the same. | Yes, the same. | Yes, the same. |
@@ -91,7 +91,7 @@ yet* means they have not. The subsections below, and
 
 [^cap-mu-keys]: The keys are kept in a file that only the sandbox can read, and yolo deletes it when the session ends. If you end a session by closing its window or with `kill`, that file can be left behind in yolo's state folder. One more gap: `claude` with `cerebras` or `kilo` does not work here, because the in-jail helper they need does not run on `macos-user` (planned).
 
-[^cap-pkg-mac]: The jail is Linux, so every package is built for Linux. When the nix binary cache does not have one, yolo starts a temporary Linux builder container for you; that needs the runtime running and your user trusted by the nix daemon (see [Building the image on macOS](../getting-started.md#building-the-image-on-macos-no-builder-to-set-up)).
+[^cap-pkg-mac]: The jail is Linux, so every package is built for Linux. When the nix binary cache does not have one, yolo starts a temporary Linux builder container for you; that needs the runtime running and your user trusted by the nix daemon (see [Let yolo use its binary cache](../getting-started.md#let-yolo-use-its-binary-cache)).
 
 [^cap-pkg-mu]: Packages are built on top of a built-in set of common tools (`git`, `node`, `python`, `go`, `mise`, `ripgrep`, `jq`, `uv`, `gh`, `neovim` and more), which does not include GNU `sed`, `grep`, `find` or `tar`. Mark a Linux-only package `{"name": "strace", "platforms": ["linux"]}` to skip it here.
 
@@ -108,7 +108,7 @@ yet* means they have not. The subsections below, and
 A few pointers for the rows above:
 
 - **Choose a backend on a Mac:** set `YOLO_RUNTIME` (or the `runtime` key) to `podman`, `container` or
-  `macos-user`. See [A container runtime, started](../getting-started.md#a-container-runtime-started).
+  `macos-user`. See [Which runtime yolo picks](../getting-started.md#which-runtime-yolo-picks).
 - **Install an agent:** put `"packs": ["claude"]` in `~/.config/yolo-jail/config.jsonc`, then type
   `claude` in the jail. A project's `yolo-jail.jsonc` cannot set `packs`. See
   [Packs, and the host services they bring](#packs-and-the-host-services-they-bring).
@@ -281,7 +281,7 @@ This block is what the jail can see of your machine's filesystem, and what it ma
 
 [^acro]: Apple Container honours read-only binds from version 1.1.0 (measured on macOS 26.5, Apple silicon). Check yours: `container --version`. Below that floor yolo refuses to bind a `mounts` entry rather than binding it writable, and prints one skip line per entry. `workspace_readonly` is the exception: those paths sit inside the writable workspace and cannot be skipped, so they arrive writable behind a loud warning that names every declared entry — but never the `yolo-jail.jsonc` lock. All of these lines are printed while the launch builds the container, so re-entering a running jail never shows them.
 
-[^vm-share]: `podman` on macOS runs a Linux VM, and a bind source must be a path that VM shares — `$HOME` and `/private` by default. List yours: `podman machine inspect --format '{{range .Mounts}}{{.Source}} {{end}}'`; add one with `podman machine init -v <path>`. yolo does not probe this set, so a source outside it passes the host-side existence check and then fails inside the VM — an empty directory, or `statfs …: no such file or directory` at container start. For `cache_relocations` a target under `$HOME` is expected to work and one on `/Volumes` is expected to fail the launch outright; nobody has confirmed either on hardware.
+[^vm-share]: `podman` on macOS runs a Linux VM, and a bind source must be a path that VM shares — `/Users`, `/private` and `/var/folders` by default. List yours: `podman machine inspect --format '{{range .Mounts}}{{.Source}} {{end}}'`. Folders are added only when the machine is created, and `podman machine init -v <path>` replaces the defaults rather than adding to them, so repeat them in the same command ([Getting Started](../getting-started.md#macos-podman) shows the full list). yolo does not probe this set, so a source outside it passes the host-side existence check and then fails inside the VM — an empty directory, or `statfs …: no such file or directory` at container start. For `cache_relocations` a target under `$HOME` is expected to work and one on `/Volumes` is expected to fail the launch outright; nobody has confirmed either on hardware.
 
 [^mumounts]: Nothing binds `mounts` on `macos-user`, so no `/ctx` tree appears. The launch prints one line naming each entry it cannot deliver and suggests a container runtime. Copying an arbitrary host folder in is not planned.
 

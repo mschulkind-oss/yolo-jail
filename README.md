@@ -61,7 +61,7 @@ No builder is needed on macOS — the standard image builds entirely from the Ni
 
 Every channel below ships the same single `yolo` binary. Pick whichever fits — but read the note under each: a launch needs more than the binary.
 
-**Every launch also needs a *flake bundle*** — the copy of yolo's build inputs ([`flake.nix`](flake.nix), its lockfile, the prebuilt in-jail binaries) that yolo builds the jail from. Homebrew and the from-source install put one beside the binary for you; `go install` and pipx/uvx ship the binary alone, so they need a checkout named by `YOLO_REPO_ROOT`. yolo never consults your working directory to find it. Full table: [Getting Started](userguide/getting-started.md#an-install-that-includes-the-build-files).
+**Every launch also needs a *flake bundle*** — the copy of yolo's build inputs ([`flake.nix`](flake.nix), its lockfile, the prebuilt in-jail binaries) that yolo builds the jail from. Homebrew and the from-source install put one beside the binary for you; `go install` and pipx/uvx ship the binary alone, so they need a checkout named by `YOLO_REPO_ROOT`. yolo never consults your working directory to find it. Full table: [Getting Started](userguide/getting-started.md#other-ways-to-install).
 
 ### Homebrew (easiest, macOS and Linux)
 
