@@ -1240,7 +1240,7 @@ Verified at `7ad8358c`, except the deselection rows for the boot log and the id-
 surfaces with a host layer, verified at `38814ba4`, and the rows the `openai-codex` model list
 touched (the clear's log line, codex's `openai-codex` default, the list and pi's copy of it),
 verified at `2a34a176`, except the host half of pi's copy, verified at `f3da48dc`, and the
-tier-alias and pi-subagents rows, verified at `0a187175`. The prose
+tier-alias and pi-subagents rows, verified at `58fc65ce`. The prose
 above explains what each is for; this table is the only place the exact spellings are stated.
 
 | Value | Setting | Defined in |
