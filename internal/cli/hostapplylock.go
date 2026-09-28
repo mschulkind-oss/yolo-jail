@@ -52,12 +52,18 @@ type hostApplyLock struct {
 
 // Close releases the flock and closes the fd. Idempotent, and nil-safe so the caller can
 // defer it on a path where the lock was never taken.
+//
+// The unlock is explicit because a flock belongs to the open file description: a child
+// forked while the lock is held keeps a duplicate descriptor until its exec, so a
+// close-only release leaves the lock held by that child. The same flaw kept a gone jail's
+// skeleton behind (run.workspaceLock.Close, CI run 36486674316).
 func (l *hostApplyLock) Close() {
 	if l == nil || l.closed {
 		return
 	}
 	l.closed = true
-	_ = l.f.Close() // closing the fd releases the flock
+	_ = syscall.Flock(int(l.f.Fd()), syscall.LOCK_UN)
+	_ = l.f.Close()
 }
 
 // hostApplyLockPath is the lock file for one resolved home.

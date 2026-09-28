@@ -168,3 +168,27 @@ func TestHostApplyLockSurvivesAnUnwritableStateDir(t *testing.T) {
 		t.Error("took a lock under a state dir that cannot exist")
 	}
 }
+
+// TestHostApplyLockCloseReleasesWhileADuplicateIsOpen: a flock belongs to the open file
+// description, so a child forked while the lock is held carries it until its exec. Close
+// must unlock explicitly, or a non-blocking take right after it fails while that child
+// lives. The duplicate below stands in for the forked child's copy.
+func TestHostApplyLockCloseReleasesWhileADuplicateIsOpen(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "locks", "host-apply.lock")
+	l := tryFlockAt(path)
+	if l == nil {
+		t.Fatal("setup: the first take failed")
+	}
+	dup, err := syscall.Dup(int(l.f.Fd()))
+	if err != nil {
+		t.Fatalf("dup: %v", err)
+	}
+	defer syscall.Close(dup)
+	l.Close()
+	again := tryFlockAt(path)
+	if again == nil {
+		t.Fatal("the lock is still held after Close while a duplicate descriptor is open; " +
+			"Close must LOCK_UN before closing, or a forked child keeps the lock")
+	}
+	again.Close()
+}
