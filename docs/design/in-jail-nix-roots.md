@@ -157,7 +157,7 @@ All of these were run 2026-09-28 from a podman jail on Linux: host daemon Nix 2.
 | M1 | `nix-store --add-root /tmp/…/link -r P` (a jail-only path) | **dead**; the next root query logged `removing stale link … to "/tmp/…/link"` |
 | M2 | held `P` open on an fd in a jail process | **alive**, listed as a `{censored}` runtime root |
 | M3 | a jail process with `P` only in an environment variable | **alive** (runtime root through `environ`) |
-| M4 | `AddTempRoot(P)` over a connection held open by a 40-line Python client | **alive** while connected, **dead** once closed |
+| M4 | `AddTempRoot(P)` over a connection held open by a 34-line Python client | **alive** while connected, **dead** once closed |
 | M5 | `nix build --out-link` at a path bound at the **host's spelling** (a nested user and mount namespace binding `/workspace` at `/home/matt/code/yolo-jail`) | **alive**, listed uncensored under the host path |
 | M6 | a symlink at `/workspace/.yolo/x`, then `AddIndirectRoot("$YOLO_HOST_DIR/.yolo/x")` from the same Python client | **alive**; after `rm` of the link, **dead** again |
 | M7 | `nix-store --add-root /tmp/lnk/p` where `/tmp/lnk → /workspace/.yolo` | the daemon recorded `/tmp/lnk/p` verbatim: the client does not resolve symlinks |
