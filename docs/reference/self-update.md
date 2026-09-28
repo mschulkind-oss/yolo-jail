@@ -76,6 +76,23 @@ there is no newer upstream commit. When that checkout has no usable upstream
 (or it cannot be reached), yolo deploys the named checkout as-is instead of
 making the recovery depend on a `git pull` that cannot succeed.
 
+### What a source check or update runs
+
+Both run `git` in the checkout with that checkout's own Git configuration and
+hooks. The check reaches the upstream with `git ls-remote` and `git fetch`; the
+update runs `git pull`, and `git stash` when you pass `--autostash`. The update
+then runs the checkout's `Justfile` through `just deploy`. All of it
+runs on the host, as you. yolo ends Git's options before the remote, refuses an
+upstream whose name starts with `-`, and never lets Git prompt, but a
+repository's configuration can still name programs Git runs, such as a hook or
+`remote.<name>.uploadpack`.
+
+When a jail uses the checkout as its workspace, the agent in it can write
+those files. List `.git/config`, `.git/hooks`, `.git/info` and `Justfile` in
+that checkout's `workspace_readonly` to make them read-only in the jail; see
+[locking the blind cell](host-execution-from-the-workspace.md#locking-the-blind-cell-workspace_readonly)
+for why the Git control plane has to be locked as a unit.
+
 ## State and controls
 
 The cached answer and background-check lock live under

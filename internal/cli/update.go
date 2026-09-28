@@ -48,6 +48,8 @@ was built from, and one with uncommitted changes unless --autostash. Its
 ` + "`just deploy`" + ` restarts the Claude OAuth broker, so any jail using that broker
 loses it briefly.
 
+` + sourceTrustHelp + `
+
 Options:
   --check             Only check, and report what an update would install.
                       Does not install; a source check may fetch commit objects
@@ -79,6 +81,20 @@ Examples:
   yolo update --check                 # check now; do not install
   yolo update                         # apply when this install is self-contained
   yolo update --autostash             # from source, with local edits set aside`
+
+// sourceTrustHelp says what a from-source check or update executes. The
+// checkout is an ordinary directory, and when a jail uses it as its workspace
+// the agent inside can write its git config, hooks and Justfile, all of which
+// run on the host as the user here.
+const sourceTrustHelp = `On a from-source install, both the check and the update run git in the
+checkout with that checkout's own git config and hooks, and the update also
+runs its Justfile. If a jail uses that checkout as its workspace, the agent in
+it can change what they run; listing .git/config, .git/hooks, .git/info and
+Justfile in the checkout's workspace_readonly makes them read-only in the jail.`
+
+// sourcePromptTrust is the launch prompt's shorter form of sourceTrustHelp.
+const sourcePromptTrust = "  The update runs git with this checkout's own git config and hooks, and runs its Justfile.\n" +
+	"  If a jail uses this checkout as its workspace, protect them with workspace_readonly (see `yolo update --help`)."
 
 // updateDeps are the update surface's side effects, injected for tests.
 type updateDeps struct {
@@ -216,6 +232,7 @@ func maybeNotifyUpdate(sub string, args []string, d updateDeps) (int, bool) {
 	// Say what "yes" costs before asking, not after.
 	if ch.Kind == selfupdate.KindSource {
 		fmt.Fprintf(d.stderr, "  Source checkout: %s\n", ch.SourceDir)
+		fmt.Fprintln(d.stderr, sourcePromptTrust)
 		fmt.Fprintln(d.stderr, "  `just deploy` restarts the Claude OAuth broker; any jail using it loses it briefly.")
 	}
 	fmt.Fprintln(d.stderr, "  "+selfupdate.RunningJailsNote(ch))

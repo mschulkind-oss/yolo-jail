@@ -398,6 +398,41 @@ func TestUpdateSaysWhatHappensToRunningJailsPerChannel(t *testing.T) {
 	}
 }
 
+// A from-source check or update runs the checkout's own git config, hooks and
+// Justfile on the host. `yolo update --help` and the source launch prompt say
+// so, and name workspace_readonly; a Homebrew prompt runs none of it and must
+// not claim to.
+func TestUpdateSaysASourceUpdateRunsTheCheckoutsGitConfigAndJustfile(t *testing.T) {
+	var help bytes.Buffer
+	if !answerHelp("update", []string{"update", "--help"}, &help) {
+		t.Fatal("`yolo update --help` printed no help")
+	}
+	for _, want := range []string{"own git config and hooks", "runs its Justfile", "workspace_readonly"} {
+		if !strings.Contains(help.String(), want) {
+			t.Errorf("`yolo update --help` does not say %q:\n%s", want, help.String())
+		}
+	}
+
+	h := newUpdateHarness(t, sourceTestChannel)
+	h.seed(t, sourceTestChannel, nil)
+	h.d.stdin = strings.NewReader("n\n")
+	h.notify("run")
+	out := h.stderr.String()
+	for _, want := range []string{"this checkout's own git config and hooks", "runs its Justfile", "workspace_readonly"} {
+		if !strings.Contains(out, want) || strings.Index(out, want) > strings.Index(out, "relaunch?") {
+			t.Errorf("the source launch prompt does not say %q before asking:\n%s", want, out)
+		}
+	}
+
+	h = newUpdateHarness(t, testChannel)
+	h.seed(t, testChannel, nil)
+	h.d.stdin = strings.NewReader("n\n")
+	h.notify("run")
+	if strings.Contains(h.stderr.String(), "workspace_readonly") {
+		t.Errorf("a Homebrew prompt runs no checkout code:\n%s", h.stderr.String())
+	}
+}
+
 func TestUpdatePromptFailedUpdateContinuesOnThisVersion(t *testing.T) {
 	h := newUpdateHarness(t, testChannel)
 	h.seed(t, testChannel, nil)
