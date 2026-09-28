@@ -179,6 +179,11 @@
     agent should see — "this jail has cerebras-mcp wired up, prefer it for X",
     project-specific quirks, links to the right runbook, etc.
 
+    It reaches your real home too: `yolo host apply` writes the USER-scope
+    value (~/.config/yolo-jail/config.jsonc) into every briefing file your
+    packs name, after the section saying the agent is on your real machine
+    and before your packs' prose.  A workspace value never leaves the jail.
+
     Pairs naturally with include_if_found: put it in a gitignored local
     overrides file so the note rides along with custom MCP servers.
 
