@@ -15,6 +15,19 @@ defaults changed.
 
 ### Added
 
+**`yolo update` keeps yolo current.** `yolo update --check` tells you whether a newer yolo is
+out, and `yolo update` installs it the way you installed yolo. A Homebrew install runs
+`brew upgrade yolo-jail` and keeps the previous version, so jails already running keep working
+until you restart them. A from-source install pulls the clone yolo was built from and runs
+`just deploy` there. A release archive gets the download link, and a `go install`, pipx or uvx
+install is told to update the binary and the clone `YOLO_REPO_ROOT` names together. yolo also
+checks GitHub for a new release once a day, tells you the first time before it checks, and prints
+one line when a release is waiting; a from-source install is checked only when you run
+`yolo update`, and `yolo check` shows the last answer. When a Homebrew or from-source update is
+waiting and you start a jail at a terminal, yolo offers to install it and start your command
+again. `"update_check": false` in your user config turns the daily check, the line and the offer
+off. See [Self-update](docs/reference/self-update.md). Contributed by Kurt Galiatsatos.
+
 **Bedrock from your SSO login.** The new `aws-auth` pack, which the claude pack brings along,
 turns a host `aws sso login` into a short-lived credential for an AWS role you name. The jail
 holds no key and no `~/.aws`. Enable `loopholes.aws-auth` in your user config with a `profile`
