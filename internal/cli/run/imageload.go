@@ -72,9 +72,12 @@ func (o *Options) autoLoadImage(cfg *jsonx.OrderedMap, rt, repoRoot string, sp s
 		// into corrupted command output rather than a message. Every other launch
 		// line ("Flake source:", "Jail binaries:") is already on stderr for this
 		// reason; Report is how the image half reaches the same place.
-		Report:  o.Stderr,
-		IsMacOS: o.IsMacOS,
-		Getpid:  o.Getpid,
+		Report: o.Stderr,
+		// The long steps' live progress (the nix builds, the layer copy, the archive
+		// load) is drawn on Report, in place when the launch stream is a terminal.
+		Progress: o.progressConfig(),
+		IsMacOS:  o.IsMacOS,
+		Getpid:   o.Getpid,
 		DiagnoseFailure: func(tail []string) (string, string) {
 			return nixdiag.DiagnoseNixBuildFailure(tail, o.IsMacOS, remedy)
 		},

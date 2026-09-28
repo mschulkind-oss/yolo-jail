@@ -167,7 +167,13 @@ func (o *Options) planStorePackages(cfg *jsonx.OrderedMap, rt, repoRoot string, 
 
 	out.print("[dim]Realizing `packages:` from the nix store (the image will not " +
 		"contain them)…[/dim]")
-	profile, skipped, err := o.materializeStorePackages()(repoRoot, pkgs)
+	var profile string
+	var skipped []string
+	var err error
+	o.withStderrProgress("Building `packages:` with nix", func() bool {
+		profile, skipped, err = o.materializeStorePackages()(repoRoot, pkgs)
+		return err == nil
+	})
 	if err != nil {
 		o.pr(o.Stderr).printf("[bold red]Could not realize `packages:` from the nix "+
 			"store:[/bold red] %s\n"+
@@ -207,7 +213,12 @@ func (o *Options) addImageExtras(plan storePackagesPlan, repoRoot string) (store
 	}
 	o.pr(o.Stderr).print("[dim]Realizing the image's bulk extras from the nix store " +
 		"(the image will be the lean variant)…[/dim]")
-	profile, err := o.buildImageExtras()(repoRoot)
+	var profile string
+	var err error
+	o.withStderrProgress("Building the image's bulk extras with nix", func() bool {
+		profile, err = o.buildImageExtras()(repoRoot)
+		return err == nil
+	})
 	if err != nil {
 		o.pr(o.Stderr).printf("[bold red]Could not realize the image's bulk extras from "+
 			"the nix store:[/bold red] %s\n"+

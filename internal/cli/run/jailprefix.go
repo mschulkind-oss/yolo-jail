@@ -158,7 +158,12 @@ func (o *Options) jailPrefixSource(root string) (jailPrefix, bool) {
 	// prefix — TestBuildNoticeGoesToStderr is the regression.
 	o.pr(o.Stderr).print("[dim]Building yolo's own binaries (.#installPrefix) — " +
 		"they are mounted into the jail, not baked into the image…[/dim]")
-	storePath, tail := o.BuildJailPrefix(root)
+	var storePath string
+	var tail []string
+	o.withStderrProgress("Building yolo's own binaries with nix", func() bool {
+		storePath, tail = o.BuildJailPrefix(root)
+		return storePath != ""
+	})
 	if storePath == "" {
 		o.pr(o.Stderr).print("[bold red]Cannot start jail: could not build yolo's own " +
 			"binaries (`nix build .#installPrefix`).[/bold red]\n" +

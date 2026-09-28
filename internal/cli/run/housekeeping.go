@@ -1,6 +1,7 @@
 package run
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -202,8 +203,10 @@ func fmtCachePurgeDetail(files int) string {
 // best-effort work on a debounce — if someone else holds the lock, the work is
 // already happening and skipping costs nothing. A launch cannot skip: it needs
 // the window closed or its `podman run` may fail on an image removed underneath
-// it. The wait is bounded by the other holder's pass, which is housekeeping and
-// short.
+// it. The wait is bounded by the other holder's pass — and that pass is NOT always
+// short: host-perf.log has housekeeping.slot at 62 s and 116 s on the maintainer's
+// host. So a launch that has to wait SAYS so, and shows for how long, rather than
+// sitting silent between the nix build and "Image load needed".
 //
 // nil in-jail: nothing inside a jail reaps the host's images, so there is
 // nothing to serialise against and the lock file is not even on a shared
@@ -221,9 +224,21 @@ func (o *Options) lockHousekeepingFn() func() func() {
 		if err != nil {
 			return func() {}
 		}
-		if ferr := syscall.Flock(int(f.Fd()), syscall.LOCK_EX); ferr != nil {
-			_ = f.Close()
-			return func() {}
+		fd := int(f.Fd())
+		if ferr := syscall.Flock(fd, syscall.LOCK_EX|syscall.LOCK_NB); ferr != nil {
+			if !errors.Is(ferr, syscall.EWOULDBLOCK) && !errors.Is(ferr, syscall.EAGAIN) {
+				_ = f.Close()
+				return func() {}
+			}
+			o.pr(o.Stderr).printf("[dim]Waiting for another launch's housekeeping pass "+
+				"to finish (lock %s)...[/dim]", filepath.Base(path))
+			waited := o.withStderrProgress("Waiting for the housekeeping lock", func() bool {
+				return syscall.Flock(fd, syscall.LOCK_EX) == nil
+			})
+			if !waited {
+				_ = f.Close()
+				return func() {}
+			}
 		}
 		return func() {
 			_ = syscall.Flock(int(f.Fd()), syscall.LOCK_UN)

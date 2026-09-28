@@ -32,6 +32,14 @@ import (
 // fetch the way a launch fetches. Read-only surfaces — `yolo check`, the agent footer,
 // config validation — must never call it.
 func RefreshConfiguredPacks(say, warn func(string)) {
+	refreshConfiguredPacks(say, warn, nil)
+}
+
+// refreshConfiguredPacks is RefreshConfiguredPacks with the git step bracketed by
+// during: called just before the refresh runs (it can fetch over the network, for
+// up to LaunchFetchTimeout per mirror) with the refresh's lock-wait notice, it
+// returns the function that closes the bracket. nil brackets nothing.
+func refreshConfiguredPacks(say, warn func(string), during func() (waiting func(string), end func())) {
 	if config.InJail() {
 		return
 	}
@@ -53,10 +61,15 @@ func RefreshConfiguredPacks(say, warn func(string)) {
 	if len(git) == 0 {
 		return
 	}
+	waiting, end := say, func() {}
+	if during != nil {
+		waiting, end = during()
+	}
 	outcomes, err := launchStore().Refresh(git, packsrc.RefreshOptions{
 		LockPath: packsrc.LockPath(paths.UserConfigPath()),
-		Waiting:  say,
+		Waiting:  waiting,
 	})
+	end()
 	for _, o := range outcomes {
 		if line := o.Disclosure(); line != "" {
 			say(line)
@@ -88,8 +101,15 @@ func (o *Options) refreshPacks() {
 	if o.DryRun {
 		return
 	}
-	RefreshConfiguredPacks(
+	refreshConfiguredPacks(
 		func(line string) { o.pr(o.Stdout).print(line) },
 		func(line string) { o.pr(o.Stdout).print("[yellow]Warning: " + line + "[/yellow]") },
+		// A fetch runs at most hourly per branch pack, but when it does it is a
+		// network round trip bounded at a minute, so it gets a progress line. The
+		// lock-wait notice goes THROUGH the line, so it cannot tear it.
+		func() (func(string), func()) {
+			line := o.progressConfig().Start(o.Stderr, "Checking fetched packs for updates")
+			return line.Println, func() { line.Done("") }
+		},
 	)
 }

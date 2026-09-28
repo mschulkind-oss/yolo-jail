@@ -1253,7 +1253,12 @@ func (o *Options) brokerEnsure() {
 	if broker.BrokerIsAlive(deps) {
 		return
 	}
-	broker.BrokerSpawn(deps)
+	// A spawn waits for the new broker's socket (seconds, bounded), and it happens
+	// once per boot of the host, on whichever launch comes first — so it says so.
+	o.withStderrProgress("Starting the Claude OAuth broker", func() bool {
+		broker.BrokerSpawn(deps)
+		return true
+	})
 }
 
 // hostServicesDirPrefix names the per-jail host-services dir:

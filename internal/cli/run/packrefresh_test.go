@@ -230,3 +230,26 @@ func TestLaunchRefreshRunsGitDetachedWithTheLaunchBudget(t *testing.T) {
 		}
 	}
 }
+
+// A launch's pack refresh can be a network fetch (bounded at LaunchFetchTimeout per
+// mirror), so it runs under a progress line on the launch stream. Through Run, so the
+// call site in refreshPacks is what is pinned.
+func TestTheLaunchPackRefreshIsNarrated(t *testing.T) {
+	home := hostRefreshEnv(t)
+	repo := refreshGitRepo(t)
+	writeUserPacks(t, home, `[{"name": "gp", "source": "git+file://`+repo+`?ref=main"}]`)
+	ws := t.TempDir()
+
+	var stdout, stderr bytes.Buffer
+	o := dispatchOptions(t, ws, "macos-user", &stdout, &stderr, nil)
+	o.Progress = immediate
+	o.MacosUserRun = func(_ *jsonx.OrderedMap, _ string, _, _ []string, _, _ string, _ macosuser.HomeOverlay, _ macosuser.HostContext, _ bool, _ *jsonx.OrderedMap, _ []packload.BlockedTool) int {
+		return 0
+	}
+	if rc := Run(*o); rc != 0 {
+		t.Fatalf("Run() = %d, want 0\nstdout:\n%s\nstderr:\n%s", rc, stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "Checking fetched packs for updates: done (") {
+		t.Errorf("the pack refresh was not narrated on the launch stream:\n%s", stderr.String())
+	}
+}

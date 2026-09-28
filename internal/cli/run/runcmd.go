@@ -25,6 +25,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/perf"
+	"github.com/mschulkind-oss/yolo-jail/internal/progress"
 	"github.com/mschulkind-oss/yolo-jail/internal/reporoot"
 	"github.com/mschulkind-oss/yolo-jail/internal/runtime"
 	"github.com/mschulkind-oss/yolo-jail/internal/tty"
@@ -308,6 +309,14 @@ type Options struct {
 	// prompt, the tty-proxy fallback). nil => real isatty.
 	IsTTYStdout func() bool
 	IsTTYStdin  func() bool
+	// IsTTYStderr reports whether the launch stream is a terminal, which is what
+	// decides whether a long step's progress redraws in place or is written as
+	// lines (progressConfig). nil => real isatty on os.Stderr.
+	IsTTYStderr func() bool
+	// Progress, when non-nil, replaces the rendering progressConfig derives from
+	// the stream — a test seam, so a call site can be shown to narrate a fake that
+	// returns in microseconds (progress.Config.Immediate). nil on every real launch.
+	Progress *progress.Config
 	// CapturesDir resolves the machine-wide install-capture store, which every
 	// launch binds :ro into the jail so a native launcher can MATERIALIZE an
 	// already-captured install instead of downloading it (program-delivery.md §6.3;
@@ -728,6 +737,9 @@ func fillDefaults(o *Options) {
 	}
 	if o.IsTTYStdin == nil {
 		o.IsTTYStdin = func() bool { return isTTY(os.Stdin) }
+	}
+	if o.IsTTYStderr == nil {
+		o.IsTTYStderr = func() bool { return isTTY(os.Stderr) }
 	}
 	if o.CapturesDir == nil {
 		o.CapturesDir = paths.CapturesDir

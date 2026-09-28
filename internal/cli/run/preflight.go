@@ -357,7 +357,19 @@ func (o *Options) isAppleContainer(path string) bool {
 }
 
 // runtimeIsConnectable reports whether the runtime answers and, if not, why.
-func (o *Options) runtimeIsConnectable(rt string) (bool, string) {
+//
+// Bounded at 5 s (Apple Container) and 10 s (podman), and a cold runtime — a podman
+// machine just started, a first `podman info` after a reboot — can spend most of
+// that, so the probe has a progress line (silent when it answers promptly).
+func (o *Options) runtimeIsConnectable(rt string) (ok bool, reason string) {
+	o.withStderrProgress("Checking that "+rt+" is running", func() bool {
+		ok, reason = o.probeRuntime(rt)
+		return ok
+	})
+	return ok, reason
+}
+
+func (o *Options) probeRuntime(rt string) (bool, string) {
 	if rt == "container" {
 		res := o.Exec([]string{"container", "system", "status"}, "", nil, 5*time.Second)
 		return res.Ran && !res.Timeout && res.RC == 0 &&

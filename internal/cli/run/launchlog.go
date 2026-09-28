@@ -234,4 +234,11 @@ func (t teeLog) Write(p []byte) (int, error) {
 // motion a subprocess digest happens to carry through.
 var ansiEscape = regexp.MustCompile("\x1b\\[[0-9;?]*[ -/]*[@-~]")
 
+// WriteTransient is the terminal half alone, for a live progress line's redraws
+// (internal/progress): a frame redrawn in place every second is not a line of the
+// launch, and a log holding them is carriage-return spam. The step's persistent
+// start and result lines still arrive through Write, so the log records every step
+// that was shown.
+func (t teeLog) WriteTransient(p []byte) (int, error) { return t.w.Write(p) }
+
 func stripANSI(p []byte) []byte { return ansiEscape.ReplaceAll(p, nil) }

@@ -595,5 +595,14 @@ func (o *Options) startLoopholesDisclosed(cname, rt string, cfg *jsonx.OrderedMa
 	// is what expires it. No backend branch is left at this call site, which is the other half
 	// of the fix — a report that treats every pack alike cannot acquire a second exemption.
 	o.notePackLoopholesInert(rt, packs, cfg)
-	return o.startLoopholes(cname, rt, cfg)
+	// Each daemon's readiness wait is bounded at seconds and they run one after
+	// another, so a slow host service can hold the launch for several of them: the
+	// start gets a progress line (silent when the services answer promptly, which
+	// is the measured 0.1 s case).
+	var started []loopholeDaemon
+	o.withStderrProgress("Starting host services", func() bool {
+		started = o.startLoopholes(cname, rt, cfg)
+		return true
+	})
+	return started
 }
