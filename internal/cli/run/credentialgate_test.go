@@ -466,9 +466,9 @@ func TestMacosUserLaunchCarriesOnlyTheLaunchedAgentsCredentials(t *testing.T) {
 			if !strings.Contains(errs, "Credential scope") {
 				t.Errorf("the macos-user launch must disclose the gate's scope:\n%s", errs)
 			}
-			if !tc.wantZai && !strings.Contains(errs, "per launch") {
-				t.Errorf("launching %s while pi holds values of its own must say this backend "+
-					"delivers per launch:\n%s", tc.launched, errs)
+			if !tc.wantZai && !strings.Contains(errs, "read theirs from their own env files") {
+				t.Errorf("launching %s while pi holds values of its own must say where pi's "+
+					"come from:\n%s", tc.launched, errs)
 			}
 		})
 	}

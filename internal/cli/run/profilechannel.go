@@ -346,13 +346,13 @@ func (c *packChannel) deliverySource(o *Options, argvPairs map[string]string,
 // that program's name (the basename of its argv[0]); a shell, or any name no profile
 // selects, receives the shared half only.
 //
-// PER LAUNCH, NOT PER AGENT, and the macos-user arm discloses it
+// PER LAUNCH for the session env, and the macos-user arm says so
 // (noteMacosUserCredentialScope): this backend runs one command per invocation under one
-// session env file, so there is no second launcher to carry a second agent's values. The
-// launched agent's own values reach every process of its session — as any agent's reach
-// its children on every backend — and another agent started inside the session receives
-// none of its own (OQ-CN6's "a vehicle that cannot express per-agent delivery stays per
-// launch and says so").
+// session env file. The launched agent's own values reach every process of its session — as
+// any agent's reach its children on every backend. Another agent started inside the session
+// gets its own values from its per-agent env file, which the arm writes with the container
+// vehicle's writer (writeMacosUserAgentEnvFiles, provider-credential-scope.md OQ-CN9); before
+// OQ-CN9 it received none of them.
 //
 // The order is the backend's own precedence, unchanged by the gate: the pack env fold
 // first (sorted — a map has no order and the environment it becomes must not reshuffle

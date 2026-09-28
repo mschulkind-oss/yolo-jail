@@ -69,6 +69,18 @@ func deliverChannel(wsState, rt string, channel *packChannel) {
 	writeAgentEnvFiles(wsState, agentEnvStateDir, channel)
 }
 
+// writeMacosUserAgentEnvFiles is the macos-user arm's delivery of the per-agent files (OQ-CN9):
+// writeAgentEnvFiles, the container vehicle's own writer, into <sidecar>/config/yolo-agent-env —
+// entrypoint.AgentEnvDirRel with its leading dot trimmed, the rule the bootstrap's home layout
+// links the sandbox's ~/.config by (entrypoint.DeriveDarwinHomeLayout: `.config` → `config`).
+// One writer, so the two backends' files cannot differ in grammar, mode or revocation.
+func writeMacosUserAgentEnvFiles(sidecar string, channel *packChannel) {
+	writeAgentEnvFiles(sidecar, macosUserAgentEnvDir, channel)
+}
+
+// macosUserAgentEnvDir is the per-agent env directory beneath the macos-user sidecar.
+var macosUserAgentEnvDir = strings.TrimPrefix(entrypoint.AgentEnvDirRel, ".")
+
 // writeAgentEnvFiles rewrites <wsState>/<dir> to hold exactly this entry's per-agent files:
 // one per profiled agent with anything of its own, and nothing else. REPLACE, NEVER MERGE —
 // an agent the previous entry scoped a credential to and this one does not must lose its

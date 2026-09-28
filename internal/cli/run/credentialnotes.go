@@ -53,10 +53,11 @@ func (o *Options) noteUnserved(channel *packChannel) {
 	}
 }
 
-// noteMacosUserCredentialScope says what this backend's per-LAUNCH delivery costs, when it
-// costs anything: another profiled agent has values of its own that this invocation, which
-// starts `launched`, cannot carry to it (launchEnv's doc — OQ-CN6's "a vehicle that cannot
-// express per-agent delivery stays per launch and says so as a disclosure").
+// noteMacosUserCredentialScope says how this backend delivers when another profiled agent has
+// values of its own: the session env carries the launched program's (launchEnv), and every
+// other agent reads its own from its env file when it is started inside the session — the
+// per-agent files the arm writes (writeMacosUserAgentEnvFiles, OQ-CN9). Before OQ-CN9 such an
+// agent received none of its values and this line said so; it now names where they come from.
 func (o *Options) noteMacosUserCredentialScope(channel *packChannel, launched string) {
 	if channel == nil || channel.scope == nil {
 		return
@@ -72,8 +73,8 @@ func (o *Options) noteMacosUserCredentialScope(channel *packChannel, launched st
 	}
 	sort.Strings(others)
 	out := o.pr(o.Stderr)
-	out.print("[yellow]Credential scope on macos-user is per launch:[/yellow] this invocation " +
-		"starts " + launched + ", so only its own scoped values ride the sandbox session, and " +
-		strings.Join(others, ", ") + " started inside it receive none of theirs. Launch each " +
-		"agent as its own `yolo -- <agent>` to give it its credentials.")
+	out.print("[dim]Credential scope on macos-user: this invocation starts " + launched +
+		", whose own scoped values ride the sandbox session; " + strings.Join(others, ", ") +
+		" started inside it read theirs from their own env files " +
+		"(provider-credential-scope.md OQ-CN9).[/dim]")
 }

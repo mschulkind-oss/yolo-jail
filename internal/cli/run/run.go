@@ -663,6 +663,14 @@ func Run(opts Options) (rc int) {
 		// channel, and the same fix: the arm prints its own.
 		o.notePackHostAccess(staged.packs, channel)
 		o.noteMacosUserHostByteGaps(ctxDelivery)
+		// EVERY PROFILED AGENT'S OWN ENV FILE, on this backend too (provider-credential-scope.md
+		// OQ-CN9, ruled 2026-09-28): the container vehicle's writer, into the sidecar directory
+		// the bootstrap's home layout links the sandbox's ~/.config to, so an agent started from
+		// a bare `yolo`'s login shell sources its profile's values the way its container twin
+		// does. Not on a dry run, which starts no agent to read them.
+		if !o.DryRun {
+			writeMacosUserAgentEnvFiles(paths.WorkspaceHomeState(o.Workspace), channel)
+		}
 		return o.MacosUserRun(cfg, o.Workspace, config.SelectedAgents(cfg), agentArgv,
 			repoRoot, staged.root, homeOverlay, ctxDelivery.ctx, o.DryRun,
 			launchEnv, packload.BlockedTools(staged.packs))
