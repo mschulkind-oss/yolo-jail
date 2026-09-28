@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
+	"github.com/mschulkind-oss/yolo-jail/internal/ioprio"
 	"github.com/mschulkind-oss/yolo-jail/internal/jailcontent"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
@@ -1607,6 +1608,11 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 	// starts. Printed any earlier it scrolls away behind the nix build.
 	o.warnIfNoPacks()
 
+	// Beside it, for the same reason: a declared disk I/O priority this backend cannot pass,
+	// or that the disk under the workspace ignores, is a declaration doing nothing, and this
+	// is where a user reads what the launch will not do (docs/design/io-priority.md §5.2).
+	o.noteIOPriority(rt, ioprio.FromResources(cfgMap(cfg, "resources")))
+
 	// Right behind that: what each loaded pack READS from the host this launch. A fetched
 	// pack CAN read the host now (with approval), so the effective host access must be
 	// visible every launch, not just recorded in a lockfile — the transparency half of the
@@ -2020,6 +2026,9 @@ func (o *Options) attachExisting(cname, rt, targetCmd string, cfg *jsonx.Ordered
 	// jail is up, attaching is how a user re-enters it, so a fresh-launch-only notice
 	// is one a user with a long-lived jail may never see.
 	o.warnIfNoPacks()
+	// The disk I/O priority line, for the same reason, graded against the value this attach's
+	// shell receives: the one the jail was launched with (attachIOPriority).
+	o.noteIOPriority(rt, o.attachIOPriority(rt, cfg, envLines))
 	// THE PER-ENTRY CHANNEL, delivered before the exec: the same write the fresh
 	// path performs, checked and disclosed the same way. This is the §4.3 half the
 	// attach branch never had — until it did, 'yolo -p <name> -- claude' against a

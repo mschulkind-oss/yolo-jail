@@ -405,6 +405,11 @@ type Options struct {
 	// The closure must be idempotent: BOTH arms call it, and which one runs is not
 	// this package's business.
 	RestoreTerminal func()
+
+	// ioSysRoot is the filesystem root the disk resolver reads the mount table and sysfs
+	// under (internal/ioprio.Resolve, for noteIOPriority): "" is the real root, and a test
+	// points it at a fake tree.
+	ioSysRoot string
 }
 
 // captureConfigOnTerminate runs the injected E3 capture for a jail that has just

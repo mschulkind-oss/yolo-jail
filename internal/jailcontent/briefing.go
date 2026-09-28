@@ -20,6 +20,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/ioprio"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/render"
 )
@@ -71,6 +72,11 @@ type BriefingInput struct {
 	Loopholes          []Loophole
 	Resources          map[string]any
 	ProvisioningFailed bool
+	// IOPriority is the disk I/O priority the launch PASSED to the entrypoint ("low" or
+	// "idle"), empty where it passed none. It is rendered on a line of its own, never inside
+	// the kernel-enforced limits line: any process can raise its own priority, and the disk
+	// under the workspace may ignore it (docs/design/io-priority.md §5.2).
+	IOPriority string
 	// Confinement is the notch this environment runs at ("jail"|"guest"|"host"),
 	// env-manager plan Phase 8. Empty is treated as "jail" (the default and today's
 	// behavior). The briefing states the notch so an agent at guest/host knows it is
@@ -455,6 +461,19 @@ func BriefingContent(in BriefingInput) string {
 		}
 	}
 
+	// Report what was emitted (backend-parity.md §6): the class the launch passed, in words
+	// that claim neither enforcement nor effect. The disk may ignore it, and the agent can
+	// raise it, so "kernel-enforced" or "in effect" would be two different false sentences.
+	var ioPriorityLine []string
+	if p := ioprio.Priority(in.IOPriority); p.Declared() {
+		ioPriorityLine = []string{
+			"- **Disk I/O priority**: `" + in.IOPriority + "` (" + p.ClassName() + "), set on every " +
+				"process at boot so builds yield the disk under contention. Advisory, not a limit: " +
+				"a process can raise its own, it does not reach buffered writeback, and disks " +
+				"whose scheduler is kyber or none ignore it.",
+		}
+	}
+
 	var provisioningFailed []string
 	if in.ProvisioningFailed {
 		provisioningFailed = []string{
@@ -538,6 +557,7 @@ func BriefingContent(in BriefingInput) string {
 	lines = append(lines, publishedPorts...)
 	lines = append(lines, forwardedPorts...)
 	lines = append(lines, resourceLine...)
+	lines = append(lines, ioPriorityLine...)
 	lines = append(lines,
 		"",
 		"⚠ rg is recursive by default — never pass grep-style `-r`/`-rn` flags",

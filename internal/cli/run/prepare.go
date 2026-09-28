@@ -155,6 +155,7 @@ func (o *Options) refreshJailBriefings(cname string, cfg *jsonx.OrderedMap, rt s
 		ForwardHostPorts:   forwardHostPorts,
 		Loopholes:          loops,
 		Resources:          resources,
+		IOPriority:         ioPriorityForBriefing(appliedIOPriority(rt, o.IsMacOS, cfgMap(cfg, "resources"))),
 		ProvisioningFailed: jailcontent.ReadProvisioningFailed(o.Workspace),
 		Confinement:        string(config.ResolveConfinement(cfg)),
 		// THE MECHANISM, which is the second axis of the header and was a boolean until

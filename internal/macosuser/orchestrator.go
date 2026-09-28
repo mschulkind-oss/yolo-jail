@@ -8,6 +8,7 @@ import (
 	"sync"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
+	"github.com/mschulkind-oss/yolo-jail/internal/ioprio"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/provision"
@@ -205,6 +206,28 @@ func MacosSandboxEnv(deps Deps, cfg *jsonx.OrderedMap) *jsonx.OrderedMap {
 // buildPlan starts from the sandbox env, layers the composed channel (PackEnv, which
 // carries the gate-narrowed env_sources last), layers the caller's sandbox_env, sets the
 // jail marker over all of them, then builds the plan.
+// unenforcedResourceKeys is every `resources` key the warning below names: all of them,
+// whatever their value, except an `io` that resolves to "normal" (that string, null or {}).
+// That one makes no call on any backend, so it is already honored here, and naming it would
+// report a declaration of nothing (docs/design/io-priority.md IO-D8). Any other `io` is named
+// until setiopolicy_np ships, build step 5.
+func unenforcedResourceKeys(res *jsonx.OrderedMap) []string {
+	if res == nil {
+		return nil
+	}
+	var keys []string
+	for _, k := range res.Keys() {
+		if k == "io" {
+			v, _ := res.Get(k)
+			if p, problems := ioprio.Parse(v, "resources.io"); len(problems) == 0 && !p.Declared() {
+				continue
+			}
+		}
+		keys = append(keys, k)
+	}
+	return keys
+}
+
 func buildPlan(deps Deps, opts Options, darwin *Darwin) RunPlan {
 	env := MacosSandboxEnv(deps, opts.Config)
 	// Trust the workspace's mise configs, for the same reason the container gets this on its
@@ -271,9 +294,9 @@ func buildPlan(deps Deps, opts Options, darwin *Darwin) RunPlan {
 	// RLIMIT_NPROC is per-USER, so it would collide across concurrent sessions on the
 	// shared _yolojail account. A cap a user believes in but that does not hold is worse
 	// than a documented absence, so this warns and will keep warning.
-	if res := cfgSection(opts.Config, "resources"); res != nil && len(res.Keys()) > 0 {
+	if keys := unenforcedResourceKeys(cfgSection(opts.Config, "resources")); len(keys) > 0 {
 		out.print("[yellow]Warning: resources are NOT enforced on macos-user[/yellow] — " +
-			"macOS has no cgroups and there is no VM to size, so " + strings.Join(res.Keys(), ", ") +
+			"macOS has no cgroups and there is no VM to size, so " + strings.Join(keys, ", ") +
 			" are read and ignored. The agent runs with your user's own limits.")
 	}
 	// cache_relocations: the container path nests a bind inside ~/.cache. There are no

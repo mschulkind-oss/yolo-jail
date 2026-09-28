@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/ioprio"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
@@ -310,6 +311,24 @@ func appliedResourceLimits(rt string, resCfg *jsonx.OrderedMap, acDefaultMemory 
 		out = append(out, resourceLimit{flag: "--pids-limit", key: "pids_limit", value: pids, source: pidsSrc})
 	}
 	return out
+}
+
+// appliedIOPriority is the disk I/O priority this launch passes to the entrypoint, which is
+// not always the one the config declares: only podman on a Linux host passes one, nested
+// jails included (docs/design/io-priority.md §5.2, IO-D2). Its two callers are the argv
+// (ioPriorityEnvArgs) and the briefing, so the agent is told a class exactly where one was
+// passed — the same argv/briefing pairing as appliedResourceLimits, and for the same reason.
+//
+// Apple Container and podman on a macOS host pass nothing: the jail runs in a VM and its
+// workspace reaches the Mac over VirtioFS, whose protocol has no priority field, so a class
+// set in the VM never reaches the Mac's disk for build output. noteIOPriority says so at
+// launch (Warned). macos-user never runs an entrypoint; its own line is the orchestrator's
+// (IO-D8), and its mechanism is build step 5.
+func appliedIOPriority(rt string, isMacOS bool, resCfg *jsonx.OrderedMap) ioprio.Priority {
+	if rt != "podman" || isMacOS { // parity: Warned — AC and podman on macOS cross VirtioFS, which carries no priority; noteIOPriority says so, and macos-user's line is the orchestrator's
+		return ioprio.Normal
+	}
+	return ioprio.FromResources(resCfg)
 }
 
 // appleContainerDefaultMemoryDesc is how the briefing names the memory cap Apple Container
