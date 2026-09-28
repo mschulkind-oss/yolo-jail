@@ -114,19 +114,34 @@ the new version**, in the same workspace, immediately after it succeeds. It is g
 native launcher and is called from both the update arm and the cold-install arm — "whoever installed
 the new one" is the trigger, so both qualify.
 
+**The version directory is the pack's to declare.** A `program`'s `versions_dir` names it, home
+relative, and absent it is `~/.local/share/<bin>/versions`, claude's layout. Codex declares
+`.codex/packages/standalone/releases`. Before the field existed the prune looked only in the default
+place and never saw a codex release, so superseded ones accumulated: three, 1.2 GiB, in one
+workspace ([`agent-directory-map.md`](../design/agent-directory-map.md#appendix-b-defects-the-surveys-found-that-the-map-does-not-fix)).
+
 It needs **no store, no oracle and no enumeration**, and that is a property of the tree rather than
-a policy: the referrer set for `~/.local/share/<bin>/versions/*` is one symlink,
+a policy: the referrer set for the version directory's entries is one symlink chain from
 `~/.local/bin/<bin>`, in the same per-workspace tree, so everything else there is unreferenced *by
 construction for that workspace* (P3). It needs no filesystem support either, so it behaves
 identically on ext4 and btrfs — which capture does not (P2).
 
-Two guards are load-bearing, and both were found by writing the tests before the code.
+Three guards are load-bearing. The first two were found by writing the tests before the code, and the
+third by codex's layout.
 
 > [!WARNING]
-> **The symlink is also the guard.** When `~/.local/bin/<bin>` is not a symlink *into* the versions
-> directory, the prune does nothing at all. The referrer set is then unknown, and a prune that
-> cannot name the live version has no business deleting anything. That is what makes the rule safe
-> to call for every native program, including the ones that keep no version directory.
+> **The symlink is also the guard.** When `~/.local/bin/<bin>` is not a symlink that resolves *into*
+> the versions directory, the prune does nothing at all. The referrer set is then unknown, and a
+> prune that cannot name the live version has no business deleting anything. That is what makes the
+> rule safe to call for every native program, including the ones that keep no version directory,
+> and it is why a wrong `versions_dir` prunes nothing rather than the wrong thing.
+
+> [!WARNING]
+> **The link is resolved through every hop, not read once.** `~/.local/bin/codex` names the
+> vendor's `current` selector (`~/.codex/packages/standalone/current/bin/codex`, with `current`
+> pointing at one release), so a single `readlink` never lands in the releases directory. The
+> launcher follows the chain and resolves the directory physically, and resolves the versions
+> directory the same way, so a symlinked home compares like with like.
 
 > [!WARNING]
 > **The live entry is the DIRECTORY ENTRY, not the symlink's target.** Conflating the two deletes

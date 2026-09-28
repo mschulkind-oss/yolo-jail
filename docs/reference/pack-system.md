@@ -570,6 +570,15 @@ therefore deliberately NOT a closed enum: the vendors disagree, and core hardcod
 how `yolo pack update` came to skip the installer class entirely. `update` is read on
 `program` alone and refused by name on every other kind.
 
+`versions_dir` is the home-relative directory where an installer-delivered program's vendor keeps
+**one entry per installed version**. After every successful install or update the native launcher
+keeps the newest two entries there, plus the one `~/.local/bin/<bin>` resolves into, and removes
+the rest ([the V-axis prune](agent-cli-copies.md#the-v-axis-prune)). Absent, it is
+`.local/share/<bin>/versions`, claude's layout. Codex declares
+`.codex/packages/standalone/releases`. It is read on a `program` with `via: "installer"` alone and
+refused by name everywhere else. `packdecl` refuses a path that is absolute, escapes the home, is
+unclean, or names the home itself.
+
 `refresh` is the program's **pre-launch refresh**, a term coined for this field (2026-09-25).
 It is an object: `argv`, the program's own argv with the bin omitted, and `lock`, a
 home-relative lock directory whose parent is the store the refresh writes. Pi declares

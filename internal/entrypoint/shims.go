@@ -589,6 +589,8 @@ func nativeAgentLauncher(inst *packdecl.Install, stampDir, receiptsPath, capture
 		// same treatment npmAgentLauncher gives `flags`. It lands inside `UPDATE_VERB=(…)`,
 		// which is a bare position: nothing here is inside quotes.
 		"__YOLO_UPDATE_VERB__", shquote.Join(inst.UpdateVerb),
+		// Where the version prune looks: the pack's declaration, or the default layout.
+		"__YOLO_VERSIONS_DIR__", shquote.Quote(inst.VersionsDirOrDefault()),
 		"__YOLO_RECEIPT_HEAD__", shquote.Quote(receiptPrefix("installer", binName, installerURL)),
 		// The BAKED server set (§3.5's transitive half). ENABLED is the "is there any
 		// yolo-installed server at all" bit, so a jail with none carries no refresh call.
@@ -1447,6 +1449,10 @@ STALE_LOCK=600
 # VERSIONS; it is NOT the capture store's K (OQ-PD17: machine-wide, 1), and neither is the N
 # this corpus uses for the workspace count.
 KEEP_VERSIONS=2
+# The home-relative directory the vendor keeps one entry per version in: the pack's
+# versions_dir, or .local/share/<bin>/versions when it declares none (packdecl
+# Install.VersionsDirOrDefault is the one spelling of that default).
+VERSIONS_DIR=__YOLO_VERSIONS_DIR__
 # 1 when this jail's agent_updates policy lets this pack move. BAKED, so a launcher
 # generated under a frozen policy carries no update branch at all.
 UPDATES_ENABLED=__YOLO_UPDATES_ENABLED__
@@ -1539,28 +1545,55 @@ _drop_lock() { rmdir "$LOCK_DIR" 2>/dev/null || true; }
 # vendor's own version directory, run by the act that created the new version, in this
 # workspace, immediately, on success.
 #
+# WHERE the versions live is the pack's to declare (VERSIONS_DIR): claude keeps them in
+# ~/.local/share/claude/versions, codex in ~/.codex/packages/standalone/releases. Before the
+# directory was declared the prune looked in the first shape only, so it never saw one codex
+# release (docs/design/agent-directory-map.md, Appendix B).
+#
 # IT NEEDS NO STORE, NO ORACLE AND NO ENUMERATION, and that is a property of the tree
-# rather than a policy: the referrer set for ~/.local/share/<bin>/versions/* is ONE symlink,
+# rather than a policy: the referrer set for $VERSIONS_DIR/* is ONE symlink chain from
 # ~/.local/bin/<bin>, in the same per-workspace tree, so everything else there is
 # unreferenced BY CONSTRUCTION for this workspace. Measured 2026-09-04 in this development
 # jail: five claude builds totalling 1223.4 MiB, of which 1018.6 MiB — 83.3 % — were
 # unreferenced. It needs no filesystem support either, so it behaves the same on ext4 and
 # btrfs, which capture does not.
 #
-# THE SYMLINK IS ALSO THE GUARD. When $REAL_BIN is not a symlink INTO that directory this
-# does nothing at all: the referrer set is then unknown, and a prune that cannot name the
-# live version has no business deleting anything. That is what makes it safe to call for
-# every native program, including the ones that keep no version directory.
+# THE SYMLINK IS ALSO THE GUARD. When $REAL_BIN is not a symlink that RESOLVES INTO that
+# directory this does nothing at all: the referrer set is then unknown, and a prune that
+# cannot name the live version has no business deleting anything. That is what makes it
+# safe to call for every native program, including the ones that keep no version directory.
+#
+# RESOLVED THROUGH EVERY LINK, not read once. Claude's link names its build directly, but
+# codex's names the vendor's "current" SELECTOR (~/.codex/packages/standalone/current/bin/codex,
+# with current -> releases/<version>), so a single readlink never lands in the releases
+# directory and the guard would find no live entry. _resolve_path follows the chain and then
+# resolves the directory physically; the versions directory is resolved the same way, so a
+# symlinked $HOME (a macOS temp dir, macos-user's links) compares like with like.
+_resolve_path() {
+    local p="$1" t hops=0 dir
+    while [ -L "$p" ]; do
+        hops=$((hops + 1))
+        [ "$hops" -le 40 ] || return 1
+        t=$(readlink "$p") || return 1
+        case "$t" in
+            /*) p="$t" ;;
+            *) p="${p%/*}/$t" ;;
+        esac
+    done
+    dir="${p%/*}"
+    [ -n "$dir" ] || dir=/
+    dir=$(CDPATH= cd -P -- "$dir" 2>/dev/null && pwd -P) || return 1
+    printf '%s/%s\n' "${dir%/}" "${p##*/}"
+}
+
 _prune_versions() {
-    local vdir="$HOME/.local/share/$BIN/versions"
+    local vdir="$HOME/$VERSIONS_DIR"
     [ -d "$vdir" ] || return 0
+    [ -L "$REAL_BIN" ] || return 0
+    vdir=$(CDPATH= cd -P -- "$vdir" 2>/dev/null && pwd -P) || return 0
     local live
-    live=$(readlink "$REAL_BIN" 2>/dev/null) || return 0
+    live=$(_resolve_path "$REAL_BIN") || return 0
     [ -n "$live" ] || return 0
-    case "$live" in
-        /*) ;;
-        *) live="${REAL_BIN%/*}/$live" ;;
-    esac
     case "$live" in "$vdir"/*) ;; *) return 0 ;; esac
     # THE LIVE ENTRY IS THE DIRECTORY ENTRY, NOT THE SYMLINK'S TARGET, and conflating the
     # two deletes the running version. claude's builds are single FILES directly under

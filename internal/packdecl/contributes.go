@@ -67,6 +67,26 @@ type Contribution struct {
 	// agent is (AGENTS.md, "Core does not know what an agent is"). The argv is the vendor's
 	// and the lock's location is the pack's store, so both facts are the pack's to state.
 	Refresh *Refresh `json:"refresh,omitempty"`
+	// VersionsDir is the home-relative directory where the program's own installer keeps ONE
+	// ENTRY PER INSTALLED VERSION: `".codex/packages/standalone/releases"` for codex. Read only
+	// on a `program` delivered `via: "installer"`, and refused everywhere else, because the
+	// native launcher is the only reader: its version prune (A7, docs/reference/agent-cli-copies.md,
+	// the V-axis prune) keeps the newest two entries there plus the one `~/.local/bin/<bin>`
+	// resolves into, and removes the rest after every successful install or update.
+	//
+	// ABSENT MEANS `.local/share/<bin>/versions`, the layout the prune was written against
+	// (claude's), so a pack whose vendor uses that layout declares nothing.
+	//
+	// DECLARED BY THE PACK, never keyed on a bin name in core, for `refresh`'s reason: the
+	// launcher template is shared by every program, and where a vendor keeps its releases is a
+	// fact about that vendor. Codex keeps them under its own home, and before this field
+	// existed the prune looked in `.local/share/codex/versions`, found nothing, and every
+	// superseded codex release stayed on disk (docs/design/agent-directory-map.md, Appendix B).
+	//
+	// The prune stays a no-op unless `~/.local/bin/<bin>` is a symlink that RESOLVES, through
+	// every link on the way (codex's goes through the vendor's `current` selector), to an entry
+	// of this directory — so a wrong declaration deletes nothing; it just prunes nothing.
+	VersionsDir string `json:"versions_dir,omitempty"`
 	// InstallHints maps a host package manager ("brew"|"apt"|"dnf"|"pacman"|"nix") to
 	// the package name that provides Bin on that manager (env-manager plan Phase 6). Read
 	// from a `program` AND from a `requires` contribution — a pack that only ASSERTS a
@@ -829,6 +849,9 @@ func (m *Manifest) InstallContributions() []Install {
 			in.Package = c.Package
 		case "installer":
 			in.InstallerURL = c.URL
+			// Inside the switch, unlike the verb: only the native launcher prunes, and
+			// validation refuses the field on every other via.
+			in.VersionsDir = c.VersionsDir
 		}
 		out = append(out, in)
 	}
@@ -2424,6 +2447,33 @@ func refreshProblems(field string, r *Refresh) []string {
 	return append(problems, dueOnChangeProblems(field+".due_on_change", r.DueOnChange)...)
 }
 
+// versionsDirProblems validates Contribution.VersionsDir. It is refused off a `program`
+// delivered `via: "installer"` for `update`'s reason — the native launcher's version prune is
+// its one reader, so anywhere else it would be a declaration that silently does nothing — and
+// it must be a clean home-relative directory below the home itself, because the prune removes
+// entries of it.
+func versionsDirProblems(label string, c Contribution) []string {
+	if c.VersionsDir == "" {
+		return nil
+	}
+	field := label + ".versions_dir"
+	if c.Kind != KindProgram || c.Via != "installer" {
+		return []string{fmt.Sprintf(
+			"%s: only a \"program\" with via \"installer\" takes \"versions_dir\" — the native "+
+				"launcher's version prune is its one reader, and nothing else would read it", field)}
+	}
+	problems := appendPathProblems(nil, field, c.VersionsDir)
+	if len(problems) > 0 {
+		return problems
+	}
+	if clean := path.Clean(c.VersionsDir); clean != c.VersionsDir || clean == "." {
+		problems = append(problems, fmt.Sprintf(
+			"%s: %q must be a clean home-relative directory path (no ./, //, or trailing /) "+
+				"naming a directory below the home", field, c.VersionsDir))
+	}
+	return problems
+}
+
 // dueOnChangeProblems validates Refresh.DueOnChange: each entry is a clean home-relative FILE
 // path the launcher hashes. A present-but-empty list is refused for platforms' reason: it
 // declares a trigger that can never fire, where omitting the key is the stated way to have
@@ -2789,6 +2839,7 @@ func validateContribution(label string, c Contribution) []string {
 	if c.Refresh != nil && c.Kind == KindProgram {
 		problems = append(problems, refreshProblems(label+".refresh", c.Refresh)...)
 	}
+	problems = append(problems, versionsDirProblems(label, c)...)
 	problems = append(problems, platformsProblems(label, c)...)
 	problems = append(problems, capabilitiesProblems(label, c)...)
 	problems = append(problems, protocolsProblems(label, c)...)

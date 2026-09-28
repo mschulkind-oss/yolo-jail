@@ -244,6 +244,11 @@ type Install struct {
 	// Refresh is the program's PRE-LAUNCH REFRESH, nil when it declares none. The
 	// Contribution field of the same name carries the reasoning; see Refresh for the shape.
 	Refresh *Refresh `json:"refresh,omitempty"`
+	// VersionsDir is the home-relative directory the program's installer keeps one entry per
+	// installed version in, "" meaning the default `.local/share/<bin>/versions`. The
+	// Contribution field of the same name carries the reasoning; read it through
+	// VersionsDirOrDefault, which is the one place the default is spelled.
+	VersionsDir string `json:"versions_dir,omitempty"`
 	// Platforms is WHERE THE VENDOR PUBLISHES A BUILD: `<goos>` or `<goos>/<goarch>`
 	// entries, absent meaning every platform. The Contribution field of the same name
 	// carries the grammar and the reasoning; this is its projection, and
@@ -392,6 +397,21 @@ func (in Install) PlatformsDeclared() []string {
 	out := append([]string(nil), in.Platforms...)
 	sort.Strings(out)
 	return out
+}
+
+// DefaultVersionsDirFor is the home-relative versions directory a program that declares none
+// is pruned in: `.local/share/<bin>/versions`, the layout the V-axis prune was written against.
+func DefaultVersionsDirFor(bin string) string {
+	return path.Join(".local", "share", bin, "versions")
+}
+
+// VersionsDirOrDefault returns the declared versions directory, or DefaultVersionsDirFor(Bin)
+// when the program declares none. Every reader goes through it, so the default has one spelling.
+func (in Install) VersionsDirOrDefault() string {
+	if in.VersionsDir != "" {
+		return in.VersionsDir
+	}
+	return DefaultVersionsDirFor(in.Bin)
 }
 
 // Mount stages one of the pack's own files or directories and mounts it read-only.
