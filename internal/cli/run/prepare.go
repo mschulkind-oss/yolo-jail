@@ -199,7 +199,7 @@ func (o *Options) refreshJailBriefings(cname string, cfg *jsonx.OrderedMap, rt s
 		// appears exactly where the jail's nix reaches the host daemon from another mount
 		// namespace (docs/design/in-jail-nix-roots.md). A native backend mounts nothing and
 		// shares the host's paths, so its roots are real whatever the predicate says.
-		HostNix: !slices.Contains(paths.NativeRuntimes, rt) && o.hostNixMounted(rt),
+		HostNix: !slices.Contains(paths.NativeRuntimes, rt) && o.hostNixMounted(rt), // parity: NotApplicable — a native backend shares the host's paths, so its nix roots are real
 	}
 	briefingBody := jailcontent.BriefingContent(in)
 	briefingBody = jailcontent.ComposeBriefing(briefingBody, cfgStr(cfg, "agents_md_extra"))
