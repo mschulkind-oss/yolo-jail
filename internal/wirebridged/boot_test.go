@@ -163,6 +163,21 @@ func TestResolveRouteBindsTheCodexAddressTheComposedEntryNames(t *testing.T) {
 	}
 }
 
+// The Codex upstream is the composed entry's `openai-responses` endpoint, as the listen address
+// is its `anthropic` one (ES-D29): a user-scope override of that URL moves where the route
+// dials, and the constant is only the default. It fails if the route reads the constant again.
+func TestResolveRouteDialsTheCodexUpstreamTheComposedEntryNames(t *testing.T) {
+	route, idle := codexRoute(t, `{"openai-codex":{"endpoints":{
+		"openai-responses":{"base_url":"http://127.0.0.1:18099/codex","wire_api":"openai-responses"},
+		"anthropic":{"base_url":"http://127.0.0.1:8215"}}}}`)
+	if idle != "" {
+		t.Fatalf("an overridden Codex upstream must still serve, got idle: %s", idle)
+	}
+	if route.UpstreamBaseURL != "http://127.0.0.1:18099/codex" || !route.CodexAccessToken {
+		t.Errorf("route = %+v, want the composed openai-responses base URL as the upstream", route)
+	}
+}
+
 // The declaration-as-default half: an entry that names no anthropic endpoint — the
 // launch whose packs never composed the adaptation — binds exactly what it bound
 // before the route read the table at all.

@@ -87,8 +87,10 @@ const ServiceName = "wire-bridge"
 // second writer of the port.
 const CodexResponsesListenAddr = "127.0.0.1:8215"
 
-// CodexResponsesBaseURL is the subscription Responses API base. The handler
-// appends /responses, just as the existing route appends /chat/completions.
+// CodexResponsesBaseURL is the subscription Responses API base, the DEFAULT for a composed
+// openai-codex entry that names no `openai-responses` endpoint (packs/openai-auth declares
+// this same URL). The handler appends /responses, just as the existing route appends
+// /chat/completions.
 const CodexResponsesBaseURL = "https://chatgpt.com/backend-api/codex"
 
 const entryChannelPollInterval = 200 * time.Millisecond
@@ -779,11 +781,22 @@ func routeFor(providers *jsonx.OrderedMap, useProfiles map[string]string,
 		// falling back to this constant there would be this same defect at a different
 		// address. The nil check is the empty composed table ComposeProviders encodes as
 		// a nil map (orderedOrNil), which WillServe's launcher call site hands over as-is.
+		//
+		// THE UPSTREAM COMES OFF THE COMPOSED ENTRY TOO, for the same reason: packs/openai-auth
+		// declares the subscription's Responses endpoint, and a constant here was a second
+		// writer of that fact (ES-D29). CodexResponsesBaseURL is its default, for an entry
+		// that names no `openai-responses` endpoint. A user may move it only at user scope,
+		// as every provider address (config.validateProviderAddressScope), and only there
+		// does the access view this route attaches go anywhere but the pack's declared URL.
 		if agent == "claude" && providerName == "openai-codex" {
 			listenAddr := CodexResponsesListenAddr
+			upstream := CodexResponsesBaseURL
 			if providers != nil {
 				v, _ := providers.Get(providerName)
 				if composed, isMap := v.(*jsonx.OrderedMap); isMap {
+					if declared := endpointBaseURL(composed, "openai-responses"); declared != "" {
+						upstream = declared
+					}
 					if anthropicURL := endpointBaseURL(composed, "anthropic"); anthropicURL != "" {
 						addr, jailLocal := loopbackListenAddr(anthropicURL)
 						if !jailLocal {
@@ -796,7 +809,7 @@ func routeFor(providers *jsonx.OrderedMap, useProfiles map[string]string,
 				}
 			}
 			return route{Agent: agent, ProviderName: providerName, ListenAddr: listenAddr,
-				UpstreamBaseURL: CodexResponsesBaseURL, CodexAccessToken: true}, ""
+				UpstreamBaseURL: upstream, CodexAccessToken: true}, ""
 		}
 
 		v, ok := providers.Get(providerName)

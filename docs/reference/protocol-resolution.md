@@ -423,7 +423,7 @@ place the values themselves are stated.
 | Shipped adaptations | `openai → anthropic`, `openai-responses → anthropic` | `packs/wire-bridge/pack.json` |
 | Shipped adapter addresses | `http://127.0.0.1:8214`, `http://127.0.0.1:8215` | `packs/wire-bridge/pack.json` |
 | The Codex route's bind address | `127.0.0.1:8215` — from the composed entry, like every other route; the constant is the default when the entry names no anthropic endpoint | `packs/wire-bridge/pack.json`, default in `wirebridged.CodexResponsesListenAddr` |
-| The Codex subscription upstream | `https://chatgpt.com/backend-api/codex` | `packs/openai-auth/pack.json`, `wirebridged.CodexResponsesBaseURL` |
+| The Codex subscription upstream | `https://chatgpt.com/backend-api/codex` — the composed entry's `openai-responses` endpoint, like the bind address; the constant is the default when the entry names none | `packs/openai-auth/pack.json`, default in `wirebridged.CodexResponsesBaseURL` |
 | Protocol vocabulary | OPEN — any `endpoints` key | `packdecl`'s `Contribution.Endpoints` |
 | Dialect (`wire_api`) vocabulary | CLOSED, three values | `packdecl.KnownWireAPIs` |
 | Agent protocol declarations | `program` surfaces in `packs/*/pack.json` | `packdecl`'s `Contribution.Protocols` |
