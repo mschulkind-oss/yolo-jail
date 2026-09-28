@@ -780,7 +780,14 @@ func forceRemoveContainer(dir string) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	_ = exec.CommandContext(ctx, rt, "rm", "-f", naming.FromWorkspace(dir)).Run()
+	argv := []string{"rm", "-f"}
+	if rt == "podman" {
+		// No grace period: this is teardown of a test that is over, and podman's default
+		// (`-t 10`) spends it in full on any PID 1 that ignores SIGTERM. Apple Container's
+		// `rm` has no such flag.
+		argv = append(argv, "-t", "0")
+	}
+	_ = exec.CommandContext(ctx, rt, append(argv, naming.FromWorkspace(dir))...).Run()
 }
 
 // writeProject creates a temp workspace containing yolo-jail.jsonc with the

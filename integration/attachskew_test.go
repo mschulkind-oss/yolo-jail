@@ -41,8 +41,15 @@ func startStandInOlderJail(t *testing.T) (dir, cname string) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), jailTimeout())
 	defer cancel()
+	// PID 1 is a shell that EXITS ON SIGTERM, not a bare `sleep`. A process that is PID 1 in its
+	// namespace gets no default signal disposition, so a bare sleep ignored every stop's SIGTERM
+	// and each one waited out its whole timeout before SIGKILL: the restart's `podman stop -t 5`
+	// in TestAttachRestartsAnOlderJailAtATerminal and the cleanup's `rm -f` (10s) here —
+	// measured ~15s of the two tests' ~29s. What an attach can see of the container is
+	// unchanged: its name, its frozen environment, its exec sessions.
 	if out, err := exec.CommandContext(ctx, rt, "run", "-d", "--rm", "--name", cname,
-		"--network=none", "-e", "YOLO_VERSION=0.10.0", "--entrypoint", "/bin/sleep", image, "600").CombinedOutput(); err != nil {
+		"--network=none", "-e", "YOLO_VERSION=0.10.0", "--entrypoint", "/bin/sh", image,
+		"-c", `trap "exit 0" TERM; sleep 600 & wait`).CombinedOutput(); err != nil {
 		t.Fatalf("starting the stand-in older jail: %v\n%s", err, out)
 	}
 	t.Cleanup(func() { forceRemoveContainer(dir) })
