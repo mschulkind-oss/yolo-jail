@@ -107,10 +107,12 @@ are retained across request and response translation, so a later tool result is
 associated with the original call.
 
 > [!WARNING]
-> The bridge ignores inbound authorization. Jail-local reachability is the
-> caller boundary; outbound authorization is constructed only from the restricted
-> broker view. Trusting an inbound bearer would permit an agent configuration to
-> replace subscription identity or quota ownership.
+> The bridge never uses an inbound credential upstream. What a caller sends is
+> checked against the launch's caller token and then dropped
+> ([caller authentication](wire-bridge.md#caller-authentication)); outbound
+> authorization is constructed only from the restricted broker view. Trusting an
+> inbound bearer upstream would permit an agent configuration to replace
+> subscription identity or quota ownership.
 
 ## OMP model catalog
 

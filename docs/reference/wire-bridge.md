@@ -426,7 +426,8 @@ declared `via_address`, under the path prefix `/agent/<agent>/`. The design and 
 - **The credential is per upstream.** A route reads its provider's `api_key_env_name` from the
   same key channel as the adapter route ([WB-D4](#wb-d4)). An upstream on an exact
   `bedrock-runtime.<region>.amazonaws.com` host is signed with SigV4 instead, through the same
-  chain as the adapter route. The agent's own `Authorization` header is never forwarded.
+  chain as the adapter route. The agent's own `Authorization` header, which carries the launch's
+  [caller token](#caller-authentication), is never forwarded.
 - **An upstream with no credential idles alone.** It answers 503 with an OpenAI-shaped error
   naming the variable (or, for Bedrock, the credential sources) it needs, and the other routes
   still serve. The daemon log states each route's upstream and credential source, or why it idles.
@@ -448,6 +449,83 @@ prints `+ wire-bridge (via of profile <name>, active for <agent>)`. So a pi-only
 daemon. As with `needs` ([WB-D9](#wb-d9)), a via may name only an embedded official pack, and that
 pack must declare a service with a `via_address`; either failure refuses the launch, naming the
 profile.
+
+## Caller authentication
+
+Every request to every listener the bridge binds must carry the launch's **caller token**, or it
+is refused `401` before any route sees it. The bridge forwards that token to no upstream.
+
+**Caller token** is a term this doc coins. It means a random secret of 256 bits, which the
+launcher mints for each launch that selects a pack service with a jail daemon. The bridge is the
+only such service today. The launcher hands the secret to that daemon and to every agent a pack
+derive points at the daemon's addresses, and the daemon demands it of every caller. It is carried
+in `YOLO_SERVICE_<SERVICE>_TOKEN`, which for the bridge is `YOLO_SERVICE_WIRE_BRIDGE_TOKEN`.
+
+### Why the jail is not the boundary
+
+[WB-D4](#wb-d4) ruled inbound auth out because the jail was the trust boundary. That holds only
+for a jail with its own loopback. A jail on `network.mode: host` shares the host's loopback, and
+so does a nested podman, which is forced onto `--net=host`. There the bridge's ports are reachable
+from every host process, and from every other jail on that loopback. Such a process could spend
+the user's provider keys and ChatGPT subscription through an unauthenticated bridge. A process
+that took a port before the bridge bound it received whatever each client sent there. For claude,
+that included its saved Claude login: with no `ANTHROPIC_AUTH_TOKEN` set, claude sends that
+login's OAuth bearer to whatever `ANTHROPIC_BASE_URL` names
+([`agent-auth-modes.md` §8.1](../design/agent-auth-modes.md#81-measured-2026-09-02-the-subscription-bearer-follows-anthropic_base_url)).
+The Codex route set no `ANTHROPIC_AUTH_TOKEN`, so claude on the Codex profile sent it. Copilot
+and claude on a bridged provider such as Cerebras sent the provider's own key.
+
+The maintainer's ruling, 2026-09-27, verbatim:
+
+> calling the jail the boundary here seems also just as bad for security because jails don't need
+> to be bridge type, they can be house type and then um it's identical. So uh if you think this is
+> an issue, we need to solve it in both places.
+
+"Both places" are this jail-side bridge and the host notch's bridge, which does not exist yet and
+will reuse this token. The ruling is [WB-D18](#wb-d18).
+
+### How the token travels
+
+- **Minted per launch, reused on attach.** A fresh launch mints a new token from `crypto/rand`.
+  An attach reads the running jail's token back from the live channel file that jail's launch
+  wrote, and delivers that one. The daemon read its token once at boot, so a new one would lock
+  every new entry's clients out.
+- **Only through the per-entry channel.** The token is a plain-form line in the `0600`
+  `yolo-user-env.sh` channel section, which the daemon's boot hydrates and every jail process
+  inherits. The credential gate also composes it into the derives that point an agent at the
+  bridge. It is never on the container argv, where `podman inspect` would print it. It is never in
+  a rendered config file, where each derive writes the variable's name instead. It is never in a
+  log.
+- **The address names its credential.** Core composes `api_key_env_name` onto every endpoint a
+  pack service serves, beside its `base_url`, and the launch hydrates it into that endpoint's
+  `api_key`. A via route's derive gets the variable as `ctx.via_api_key_env_name`.
+
+| Client | Route | What it sends |
+| :--- | :--- | :--- |
+| claude | an adapter route: a bridged provider, or the Codex profile | `ANTHROPIC_AUTH_TOKEN`, which overrides claude's saved login, sent as `Authorization: Bearer` |
+| copilot | an adapter route | `COPILOT_PROVIDER_API_KEY` |
+| pi | a via route | `apiKey: "${YOLO_SERVICE_WIRE_BRIDGE_TOKEN}"`, as a bearer |
+| oh-omp | a via route | `apiKey: YOLO_SERVICE_WIRE_BRIDGE_TOKEN`, a name OMP resolves from its environment, as a bearer |
+| opencode | a via route | `apiKey: "{env:YOLO_SERVICE_WIRE_BRIDGE_TOKEN}"`, as a bearer |
+| codex | a via route | `env_key = "YOLO_SERVICE_WIRE_BRIDGE_TOKEN"`, as a bearer |
+
+The bridge accepts the token as `Authorization: Bearer <token>` or as `x-api-key: <token>`, and
+compares it in constant time. A request with no token, or the wrong one, gets `401` with a body
+in the shape that listener's clients read. That is Anthropic's `authentication_error` on the
+adapter routes and OpenAI's error on the via address. The body says whether the token was missing
+or wrong and names the variable, and it never echoes a presented value. A daemon handed no token,
+or a malformed one, binds nothing and idles, naming the variable in its log. If the boot is
+waiting on it, it reports not-ready instead. `boot.log` records that the bridge requires caller
+auth, naming the variable and never the value.
+
+### What it does not defend against
+
+The token is not a secret from the jail's own processes, which are the bridge's intended callers.
+Nor is it a secret from a host process running as the user who owns the jail. That process can
+read `<workspace>/.yolo/home/yolo-user-env.sh`, but it can also read that user's credentials
+directly. What the token closes is every other caller on a shared loopback: another user's
+process, another jail, and a process that squats a port before the bridge binds it. A squatter now
+receives a token that is good only against this launch's bridge.
 
 ## Lifecycle and failure behavior
 
@@ -697,8 +775,9 @@ listeners. These are the facts that survive:
   address no host process serves. An adapter whose pack runs no service, such as a remote gateway
   or a proxy the user runs, still composes at the host
   ([`protocol-resolution.md`](protocol-resolution.md#the-three-declarations)).
-- **No inbound authentication scheme.** The jail is the trust boundary. If that ever stops being
-  true, the bridge grows auth before it grows anything else.
+- **No unauthenticated caller.** It stopped being true that the jail is the trust boundary, so the
+  bridge grew auth before it grew anything else: every request carries the launch's caller token
+  or is refused ([caller authentication](#caller-authentication), [WB-D18](#wb-d18)).
 - **No provider-side knob for the port.** The address is the *adapter's* own declaration, with
   exactly one user-scope override (`adapters.<from>-><to>.address`) and nothing else: a provider
   cannot move it, and a workspace config cannot set it at all. The override moves the bind and the
@@ -766,7 +845,7 @@ Rulings a future change would otherwise undo, with their original IDs.
 | <a id="wb-d1"></a>[**WB-D1**](#wb-d1) — one protocol pair AT A TIME | A second pair is a second cost case, and bundling them makes the first one unreviewable. ⚠ **This cell read “exactly one protocol pair” until 2026-09-18, and the doc has contradicted it since the Codex route landed** — its own second paragraph says *“Two routes exist”*, and [`packs/wire-bridge/pack.json`](../../packs/wire-bridge/pack.json) declares two `adapter` contributions. Re-read as a rule about how a pair is ADDED rather than how many may exist, which is the reason the cell gives and which the second pair honoured by arriving on its own review. If that reading is wrong the ruling needs restating rather than re-wording — the contradiction is recorded here rather than resolved silently. |
 | <a id="wb-d2"></a>[**WB-D2**](#wb-d2) — the URL reaches the agent as the provider's `endpoints.anthropic`, one writer owns it, and the agent's derive is untouched | The ruling holds; **the writer moved on 2026-09-18.** It used to be each consuming provider's manifest, which made the adapter's port a fact stated by every one of its N consumers; it is the adapter's own `address` now, composed into the provider entry by core ([`protocol-resolution.md`](protocol-resolution.md)). What the ruling protects is untouched: one writer for the address, and a derive that could see the bridge would make composition responsible for a fact selection already decides. |
 | <a id="wb-d3"></a>[**WB-D3**](#wb-d3) — the dependency is real manifest vocabulary, auto-included at selection and printed | The rejected shape expressed dependency as an *error message the user must act on* rather than a declaration the launcher acts on. A mechanism the manifest cannot state is the wrong mechanism. |
-| <a id="wb-d4"></a>[**WB-D4**](#wb-d4) — inbound auth: none; outbound: the `0600` env file read once at boot — a bearer key, or for a Bedrock upstream the SigV4 credential chain those variables name (amended 2026-09-25, [Part 1](../design/wire-bridge-gateway.md#2-part-1--the-bridge-signs-its-own-upstream-requests-ruled)) | The jail is the boundary, and a second inbound scheme would protect the jail from itself. The file stays the one place the bridge learns a credential; the signer only resolves, per request, what those variables point at, so an SSO session refreshes inside a running jail. |
+| <a id="wb-d4"></a>[**WB-D4**](#wb-d4) — inbound auth: the launch's caller token, never forwarded (amended 2026-09-28, [WB-D18](#wb-d18); it was "none"); outbound: the `0600` env file read once at boot — a bearer key, or for a Bedrock upstream the SigV4 credential chain those variables name (amended 2026-09-25, [Part 1](../design/wire-bridge-gateway.md#2-part-1--the-bridge-signs-its-own-upstream-requests-ruled)) | The inbound half's premise, that the jail is the boundary, fell to [WB-D18](#wb-d18). The outbound half holds: the file stays the one place the bridge learns an upstream credential, no inbound credential is ever one, and the signer only resolves, per request, what those variables point at, so an SSO session refreshes inside a running jail. |
 | <a id="wb-d5"></a>[**WB-D5**](#wb-d5) — upstream reasoning is dropped, and an unknown block type fails **closed** with a named 400 | A silently-mistranslated request is the failure mode that cannot be debugged; naming the block keeps drift visible at first request. |
 | <a id="wb-d6"></a>[**WB-D6**](#wb-d6) — strict mode is never sent upstream | Agent tool schemas contain what strict mode rejects. |
 | <a id="wb-d7"></a>[**WB-D7**](#wb-d7) — build in-repo, stdlib only | The hermetic build stays hermetic, and the surveyed off-the-shelf options were a framework where a shim was needed, or dormant, or solving a different problem. |
@@ -783,6 +862,7 @@ Rulings a future change would otherwise undo, with their original IDs.
 | <a id="oq-pc2"></a>[**OQ-PC2**](#oq-pc2) — an implicit provider forward is disclosed: one launch line per port naming the provider, and the briefing's Forwarded Host Ports section fed from the merged list | A forward is a hole into the host, and the user's own config cannot be grepped for a port they never wrote. The launch has no quiet mode ([`OQ-RO3`](report-tiers.md#why-its-this-way)), so the line is permanent, and that is right: it reports something yolo **did** (it bound a port in the jail and opened a socket on the host), not an absence. Do not gate it, and do not move it after the merge, where the declared and implicit ports can no longer be told apart. |
 | <a id="oq-pc3"></a>[**OQ-PC3**](#oq-pc3) — the orphan check keeps its detection and refuses, naming each orphan's PID; it never kills and never adopts | `SIGKILL` on an argv match acts irreversibly on an *inference* about ownership. A straight revert would lose the only guard against an in-container fault that prints the bridge's bind error. Adoption is rejected because an orphan's supervisor is gone, so the orphan holds no readiness pipe. Adopting it would treat a process as serving its endpoint on the strength of its argv, which is the same inference. |
 | <a id="wb-d17"></a>[**WB-D17**](#wb-d17) — more than one agent bin is a bridge consumer, and the serve predicate walks every active profile | Found while building: a derive that *prefers* an anthropic endpoint when a provider declares one makes that agent a consumer too, and a single-bin condition would have shipped those launches a dead URL with no bridge included. |
+| <a id="wb-d18"></a>[**WB-D18**](#wb-d18) — every request carries the launch's caller token or is refused `401`; the token is minted per launch, reused by an attach, delivered only through the per-entry channel, and never forwarded upstream (2026-09-28) | The maintainer, 2026-09-27: *"calling the jail the boundary here seems also just as bad for security because jails don't need to be bridge type, they can be house type and then um it's identical. So uh if you think this is an issue, we need to solve it in both places."* A jail on the host's loopback shares the bridge's ports with every host process, and a client sends its real credential to whatever holds the port. For claude, the Claude login went too ([§8.1](../design/agent-auth-modes.md#81-measured-2026-09-02-the-subscription-bearer-follows-anthropic_base_url)). The token is the one credential a bridged client may send there, so the address names it, and the host notch's bridge will reuse it. See [caller authentication](#caller-authentication). |
 
 ## Current values
 
@@ -797,6 +877,7 @@ only place the values themselves are stated.
 | Listen address, `openai-responses → anthropic` (the Codex route) | `http://127.0.0.1:8215` — the adapter's declared `address`, composed into `openai-codex`'s `endpoints.anthropic.base_url` and parsed back out by the daemon, exactly as the row above; `wirebridged.CodexResponsesListenAddr` is the DEFAULT when the entry names no anthropic endpoint, not a bypass of it | `packs/wire-bridge/pack.json`, read by `wirebridged.routeFor`; default in `wirebridged.CodexResponsesListenAddr` |
 | Listen address, via routes (added 2026-09-25, after the commit this table was verified at) | `http://127.0.0.1:8216` — the service's declared `via_address`; every via agent's base URL is this plus `/agent/<agent>` | `packs/wire-bridge/pack.json`, read by `packload.ViaServiceAddress`; served by `wirebridged.viaRoutesFor` |
 | Address override key | `adapters.<from>-><to>.address`, **user scope only** | `internal/config/adapters.go`, `yolo config-ref` |
+| Caller token (added 2026-09-28) | `YOLO_SERVICE_WIRE_BRIDGE_TOKEN`: 64 lowercase hex characters, 256 bits from `crypto/rand`, one per launch; accepted as `Authorization: Bearer` or `x-api-key`; anything else is `401` | `paths.ServiceCallerTokenEnv`, `run.launchCallerTokens`, `svcendpoint.NewToken`; checked in `wirebridged/auth.go` |
 | Restart policy | on failure | `packs/wire-bridge/pack.json` |
 | Served path | adapter routes: `POST /v1/messages` and nothing else; via routes: any canonical path under `/agent/<agent>/` (no `.`, `..` or empty segment, no encoded `?` or `#`; added 2026-09-26) | `internal/wirebridged/handler.go`; `wirebridged.viaMux`, `wirebridged.canonicalViaTail` |
 | Upstream path | the provider's `openai` base URL plus `/chat/completions`; on the Codex route, the subscription base plus `/responses`; on a via route, the provider's chat-completions or Responses base URL (the one the path names) plus the path after the prefix | `wirebridged.NewHandler`, `wirebridged.CodexResponsesBaseURL`, `wirebridged.viaUpstreams`, `wirebridged.passthroughHandler` |

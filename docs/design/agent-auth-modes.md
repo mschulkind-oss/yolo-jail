@@ -399,6 +399,16 @@ and **no** `x-api-key`, retrying through the 503s. Three consequences:
    doubt that `BASE_API_URL` might be hardcoded in prod bundles: the env var is honored — the
    requests landed on the listener.
 
+**Bridged claude no longer sends its login (2026-09-28).** The wire bridge is a loopback
+`ANTHROPIC_BASE_URL` of exactly this kind. Its Codex route set no `ANTHROPIC_AUTH_TOKEN`, so claude
+on the Codex profile sent this bearer to `127.0.0.1:8215`. On a jail that shares the host's
+loopback, whatever held that port received it. Every route that sends claude to the bridge now
+sets `ANTHROPIC_AUTH_TOKEN` to the launch's per-launch caller token, the same override
+consequence 1 credits to the zai pack. So the bridge's port receives that token, never the login
+and never the provider's key. The bridge refuses any caller without the token and forwards it to
+no upstream ([caller authentication](../reference/wire-bridge.md#caller-authentication),
+[WB-D18](../reference/wire-bridge.md#wb-d18)).
+
 ---
 
 ## 9. Traps and Failure Modes

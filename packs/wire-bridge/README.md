@@ -54,7 +54,11 @@ consumer. It used to be the other way round: every bridged provider hand-wrote
 the port into its own manifest, which worked for a pack author and left a
 user-declared provider unable to be bridged at all. `count_tokens` deliberately
 answers 404 so claude uses its own estimator instead of a fabricated count, and
-inbound requests carry no auth because the jail is the boundary. What the bridge
+every inbound request must carry the launch's caller token, a random per-launch
+secret, or is refused 401, because a jail sharing the host's loopback shares the
+bridge's ports with every host process
+([caller authentication](../../docs/reference/wire-bridge.md#caller-authentication)).
+The bridge forwards that token to no upstream. What the bridge
 never does: dial anything but the boot-selected upstream, listen off loopback,
 log a body or a key ([wire-bridge.md](../../docs/reference/wire-bridge.md)).
 

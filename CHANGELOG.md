@@ -250,6 +250,15 @@ apply it, and the launch says that too. See
 - On `macos-user`, a launch that refused to set up the per-workspace home over an older sandbox
   account still deleted that account's agent directory, transcripts included, right after telling
   you to move them out first.
+- The wire bridge now authenticates its callers. It accepted any request on its loopback ports,
+  and a jail on `network.mode: host`, like a nested jail, shares those ports with every process
+  on your machine. Such a process could spend your provider keys or ChatGPT subscription through
+  the bridge. A process that took a port first received what each agent sent there: Claude's
+  saved login on the Codex profile, and the provider's key for Claude and Copilot on a bridged
+  provider. Each launch now gives its agents a fresh secret for the bridge, and the bridge
+  refuses any request without it and passes it on to no provider. An agent sends only that
+  secret to the bridge
+  ([caller authentication](docs/reference/wire-bridge.md#caller-authentication)).
 
 ## 0.10.x
 
