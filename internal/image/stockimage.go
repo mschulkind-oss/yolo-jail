@@ -200,6 +200,13 @@ func RecordStockStorePath(buildDir, identity, storePath string) error {
 	if err != nil {
 		return err
 	}
+	// CreateTemp makes the file 0600; the record is no secret, and every other
+	// file under the build dir is world-readable.
+	if err := tmp.Chmod(0o644); err != nil {
+		_ = tmp.Close()
+		_ = os.Remove(tmp.Name())
+		return err
+	}
 	if _, err := tmp.WriteString(storePath + "\n"); err != nil {
 		_ = tmp.Close()
 		_ = os.Remove(tmp.Name())

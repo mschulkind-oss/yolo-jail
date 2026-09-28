@@ -195,6 +195,9 @@ func TestStockRecordRoundTripAndRejects(t *testing.T) {
 	if got, ok := RecordedStockStorePath(bd, hex); !ok || got != "/nix/store/abc-image.json" {
 		t.Errorf("round trip = (%q, %v)", got, ok)
 	}
+	if st, err := os.Stat(filepath.Join(StockStorePathsDir(bd), hex)); err != nil || st.Mode().Perm() != 0o644 {
+		t.Errorf("record mode = %v (%v), want 0644 like the rest of the build dir", st.Mode().Perm(), err)
+	}
 	// Not an identity, not an absolute path: nothing is written.
 	_ = RecordStockStorePath(bd, "ABSENT", "/nix/store/x")
 	_ = RecordStockStorePath(bd, otherIdentity, "relative/path")
