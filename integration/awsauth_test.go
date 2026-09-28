@@ -227,7 +227,11 @@ uri=${AWS_CONTAINER_CREDENTIALS_FULL_URI:-}
 if [ -z "$uri" ]; then echo "POINTER=unset"; exit 3; fi
 echo "POINTER=$uri"
 for i in $(seq 1 200); do (exec 3<>/dev/tcp/127.0.0.1/1461) 2>/dev/null && break; sleep 0.1; done
-code=$(curl -sS -o /workspace/awsauth-body.json -w '%{http_code}' "$uri")
+tokfile=${AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE:-}
+if [ -z "$tokfile" ] || [ ! -r "$tokfile" ]; then echo "TOKEN_FILE=missing"; exit 4; fi
+echo "TOKEN_FILE=present"
+echo "STRANGER_HTTP=$(curl -sS -o /dev/null -w '%{http_code}' "$uri")"
+code=$(curl -sS -o /workspace/awsauth-body.json -w '%{http_code}' -H "Authorization: $(cat "$tokfile")" "$uri")
 echo "HTTP=$code"
 true`
 
@@ -241,6 +245,16 @@ func runAWSAuthCurl(t *testing.T, fx awsAuthFixture) (string, []byte, result) {
 	if !strings.Contains(r.stdout, "POINTER=http://127.0.0.1:1461/credentials") {
 		t.Fatalf("the jail's AWS_CONTAINER_CREDENTIALS_FULL_URI is not the pack's pointer — the "+
 			"`bedrock`-gated env contribution was not delivered:\n%s", r.combined())
+	}
+	// CALLER AUTHENTICATION (docs/plans/notch-convergence.md §2.3): the SDK's token file is
+	// delivered beside the pointer, and a request that does not send it — what any other
+	// process on a shared loopback would send — is refused before the host is asked.
+	if !strings.Contains(r.stdout, "TOKEN_FILE=present") {
+		t.Fatalf("AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE is unset or unreadable in the jail, so "+
+			"no SDK can authenticate to the adapter:\n%s", r.combined())
+	}
+	if !strings.Contains(r.stdout, "STRANGER_HTTP=401") {
+		t.Errorf("a request without the caller token was not refused 401:\n%s", r.combined())
 	}
 	status := ""
 	for _, line := range strings.Split(r.stdout, "\n") {

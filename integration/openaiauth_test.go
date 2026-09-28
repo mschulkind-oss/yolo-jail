@@ -261,13 +261,26 @@ func openaiBrokerProbeScript() string {
 		// only "nothing is listening yet" keeps this loop going.
 		`  for _ in $(seq 1 150); do if curl -s -o /dev/null --max-time 2 "$url"; then ready=yes; break; fi; sleep 0.2; done`,
 		`  echo "ADAPTER_READY=$ready"`,
-		`  resp=$(curl -sS --max-time 30 -X POST -H 'Content-Type: application/json' ` +
+		// A STRANGER first: the plain generation marker carries no caller token, so the adapter
+		// refuses it before the broker is asked (docs/plans/notch-convergence.md §2.3).
+		`  stranger=$(curl -sS --max-time 30 -X POST -H 'Content-Type: application/json' ` +
 			`--data '{"client_id":"yolo-integration-probe","grant_type":"refresh_token","refresh_token":"yolo-broker:1"}' ` +
+			`-o /dev/null -w '%{http_code}' "$url")`,
+		`  echo "STRANGER_STATUS=$stranger"`,
+		// Then Codex's own marker, as its launcher's auth.json writer binds it: the broker's
+		// generation marker with this launch's caller token after a dot.
+		`  tok="${YOLO_SERVICE_OPENAI_AUTH_BROKER_TOKEN:-}"`,
+		`  echo "CALLER_TOKEN_SET=$([ -n "$tok" ] && echo yes || echo no)"`,
+		`  resp=$(curl -sS --max-time 30 -X POST -H 'Content-Type: application/json' ` +
+			`--data "{\"client_id\":\"yolo-integration-probe\",\"grant_type\":\"refresh_token\",\"refresh_token\":\"yolo-broker:1.$tok\"}" ` +
 			`-w '\n%{http_code}' "$url")`,
 		`  echo "HTTP_STATUS=$(printf '%s\n' "$resp" | tail -n 1)"`,
 		`  body=$(printf '%s\n' "$resp" | sed '$d')`,
 		`  echo "ACCESS_SHA256=$(printf '%s' "$body" | token_hash)"`,
-		`  echo "REFRESH_FIELD=$(printf '%s' "$body" | jq -r '.refresh_token // empty')"`,
+		`  refresh=$(printf '%s' "$body" | jq -r '.refresh_token // empty')`,
+		// Printed with the token cut off, so the log never holds it.
+		`  echo "REFRESH_FIELD=${refresh%%.*}"`,
+		`  echo "REFRESH_BOUND=$([ "$refresh" = "yolo-broker:1.$tok" ] && echo yes || echo no)"`,
 		`  echo "EXPIRES_IN=$(printf '%s' "$body" | jq -r '.expires_in // empty')"`,
 		`  echo "TOKEN_TYPE=$(printf '%s' "$body" | jq -r '.token_type // empty')"`,
 		`  echo "ERROR_FIELD=$(printf '%s' "$body" | jq -r '((.error // "") + " " + (.error_description // "")) | ltrimstr(" ")')"`,
@@ -410,6 +423,18 @@ func TestOpenAIAuthBrokerRoundTripsAnImportedToken(t *testing.T) {
 	if got := kvLine(r.stdout, "REFRESH_FIELD"); got != "yolo-broker:1" {
 		t.Errorf("refresh_token in the jail's view is %q, want the generation marker "+
 			"\"yolo-broker:1\" — no agent may receive the canonical refresh token", got)
+	}
+	// CALLER AUTHENTICATION (docs/plans/notch-convergence.md §2.3): the launch handed the jail
+	// a caller token, the adapter refused the plain marker a stranger would send, and it bound
+	// the token into the marker it answered with, so Codex's next refresh carries it too.
+	if got := kvLine(r.stdout, "CALLER_TOKEN_SET"); got != "yes" {
+		t.Errorf("the jail has no $YOLO_SERVICE_OPENAI_AUTH_BROKER_TOKEN, so the adapter serves nobody")
+	}
+	if got := kvLine(r.stdout, "STRANGER_STATUS"); got != "401" {
+		t.Errorf("a refresh without the caller token got HTTP %s, want 401", got)
+	}
+	if got := kvLine(r.stdout, "REFRESH_BOUND"); got != "yes" {
+		t.Errorf("the adapter's answer did not bind this launch's caller token into the marker")
 	}
 	if strings.Contains(r.combined(), forged.refresh) || strings.Contains(r.combined(), forged.access) {
 		t.Errorf("a forged token appeared verbatim in the launch output; this test prints hashes only")
