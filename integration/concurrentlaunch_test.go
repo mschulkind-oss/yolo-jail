@@ -176,6 +176,36 @@ func lockIsHeld(t *testing.T, lockPath string) bool {
 	return false
 }
 
+// awaitLaunchLockReleased blocks until the background launch first has released the
+// workspace's launch lock, so the next launch of dir attaches without waiting.
+//
+// A session's output is NOT that sync point. A fresh launch releases the lock from onStarted,
+// once `podman ps` shows its container running (awaitRunningContainer's poll), and the
+// container's command can print before that poll answers. A launch started on the session's
+// marker alone can therefore find the lock still held, wait for it, and attach through the
+// raced arm ("Attaching to jail started by another process"), so a test asserting "Attaching to
+// existing jail" fails by timing. Measured in two full-suite runs on 2026-09-28: both
+// TestAttachDeliversTheSelectedProfile and TestAnAttachKeepsThePackTreeTheJailBootedWith in the
+// first, the profile test again in the second, and each passing when run alone.
+func awaitLaunchLockReleased(t *testing.T, dir string, first *bgRun) {
+	t.Helper()
+	lockPath := filepath.Join(paths.GlobalStorage(), "locks", naming.FromWorkspace(dir)+".lock")
+	deadline := time.Now().Add(jailTimeout())
+	for lockIsHeld(t, lockPath) {
+		select {
+		case err := <-first.done:
+			t.Fatalf("first launch exited (%v) while still holding the workspace lock:\n%s",
+				err, first.combined())
+		default:
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("first launch still holds the workspace lock %s after %s:\n%s",
+				lockPath, jailTimeout(), first.combined())
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+}
+
 // TestConcurrentLaunchesInOneWorkspace: two launches, one workspace. The second must say
 // it is waiting, wait, and then attach to the container the first created.
 //

@@ -142,7 +142,7 @@ func assertEveryThreadIsLow(t *testing.T, session, out string) {
 
 // holdIOPrioJail launches a jail in the background that runs script, says so, and then stays
 // up until the test ends (or writes <dir>/<release>), so the test can attach into it. It
-// returns once the script has run.
+// returns once the script has run and the launch has released the workspace lock.
 func holdIOPrioJail(t *testing.T, dir, release, script string) *bgRun {
 	t.Helper()
 	first := startYoloBackground(t, "first", dir,
@@ -162,6 +162,7 @@ func holdIOPrioJail(t *testing.T, dir, release, script string) *bgRun {
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
+	awaitLaunchLockReleased(t, dir, first)
 	return first
 }
 

@@ -60,6 +60,7 @@ func TestAnAttachKeepsThePackTreeTheJailBootedWith(t *testing.T) {
 		t.Fatalf("the first session's /ctx/packs does not hold zai (%q), so this test cannot tell a "+
 			"kept tree from a re-staged one:\n%s", got, first.combined())
 	}
+	awaitLaunchLockReleased(t, dir, first)
 
 	// The config drops zai. `packs` is user scope, so the user config is what changes.
 	userConfig := filepath.Join(os.Getenv("HOME"), ".config", "yolo-jail", "config.jsonc")

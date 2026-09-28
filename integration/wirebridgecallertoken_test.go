@@ -80,6 +80,7 @@ func TestAnAttachKeepsTheBridgesCallerTokenAndALaunchRotatesIt(t *testing.T) {
 		time.Sleep(50 * time.Millisecond)
 	}
 	firstTok := tokensIn(first.combined(), "FIRST")[0]
+	awaitLaunchLockReleased(t, dir, first)
 
 	// The attach: a new entry into the RUNNING jail, whose bridge read firstTok at boot.
 	script := `set -u

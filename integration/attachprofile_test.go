@@ -79,6 +79,7 @@ func TestAttachDeliversTheSelectedProfile(t *testing.T) {
 		t.Errorf("the UNPROFILED first session must carry no provider pair "+
 			"(the frozen env this test needs to be empty):\n%s", up)
 	}
+	awaitLaunchLockReleased(t, dir, first)
 
 	// The attach: same workspace, same running jail, one profile on the flag. Since the
 	// credential gate (docs/reference/providers.md#the-credential-gate, OQ-BR4) the pair
