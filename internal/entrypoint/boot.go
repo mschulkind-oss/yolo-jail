@@ -711,7 +711,13 @@ func Main(args []string) error {
 	// boot reports every problem. See reachability.go — it is the only check here
 	// that can only be answered from INSIDE the jail, because `yolo check` runs
 	// host-side and substitutes 127.0.0.1 for the advertised host.
+	//
+	// A healthy probe answers in milliseconds, but a blackholed service costs a
+	// dial of up to 30 s plus retries, so the probe runs under a progress line —
+	// line-oriented (boot.log is half of e.Stderr) and silent when it is quick.
+	reach := e.progress("Checking that the jail can reach its host services")
 	ProbeServiceReachability(e)
+	reach.Done("")
 	p.mark("probe_service_reachability")
 
 	// NOTE: We intentionally do NOT call `mise hook-env` here (flock deadlock).

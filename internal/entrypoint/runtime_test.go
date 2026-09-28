@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	"github.com/mschulkind-oss/yolo-jail/internal/progress"
 )
 
 // writeSupervisor creates the smallest possible yolo-jaild stand-in. The
@@ -208,5 +209,38 @@ func TestNoOrphansIsNotARefusal(t *testing.T) {
 	}
 	if stderr.String() != "" {
 		t.Errorf("no orphans must say nothing, got:\n%s", stderr.String())
+	}
+}
+
+// The readiness wait has no bound of its own, so it runs under a progress line that
+// counts the services as they report and closes with the verdict. Immediate shows it
+// although the fake supervisor answers at once.
+func TestJailDaemonReadinessWaitIsNarrated(t *testing.T) {
+	for _, tc := range []struct {
+		name, body, want string
+	}{
+		{"ready", `printf 'ready wire-bridge\n' >&3`, "Waiting for in-jail services: done — 1 of 1 ready ("},
+		{"failed", `printf 'failed wire-bridge no-route\n' >&3`, "Waiting for in-jail services: failed — 0 of 1 ready ("},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			bin := writeSupervisor(t, tc.body)
+			t.Setenv("PATH", filepath.Dir(bin))
+			oldPIDFile := supervisorPIDFile
+			supervisorPIDFile = filepath.Join(t.TempDir(), "yolo-jaild.pid")
+			t.Cleanup(func() { supervisorPIDFile = oldPIDFile })
+
+			var stderr bytes.Buffer
+			e := NewEnv(map[string]string{
+				"YOLO_JAIL_DAEMONS":           "present",
+				paths.JailDaemonReadyNamesEnv: "wire-bridge",
+			})
+			e.Stderr = &stderr
+			e.progressCfg = progress.Config{Immediate: true}
+			_ = startJailDaemonSupervisor(e)
+			if !strings.Contains(stderr.String(), "Waiting for in-jail services…\n") ||
+				!strings.Contains(stderr.String(), tc.want) {
+				t.Errorf("want the wait narrated and closed with %q, got:\n%s", tc.want, stderr.String())
+			}
+		})
 	}
 }

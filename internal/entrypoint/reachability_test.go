@@ -1564,3 +1564,21 @@ func TestReachabilityProbeCoversAPlainService(t *testing.T) {
 		t.Errorf("a dead plain listener is an unreachable fault, not an unpublished file:\n%s", got)
 	}
 }
+
+// The witness runs under a progress line (a blackholed service costs a 30 s dial
+// plus retries) that is opened before it and closed after it. Source-pinned for the
+// reason the ordering test above is: Main is not drivable from a unit test.
+func TestTheWitnessRunsUnderAProgressLine(t *testing.T) {
+	src, err := os.ReadFile(filepath.Join(repoRoot(t), "internal", "entrypoint", "boot.go"))
+	if err != nil {
+		t.Fatalf("reading boot.go: %v", err)
+	}
+	got := string(src)
+	open := strings.Index(got, `reach := e.progress("Checking that the jail can reach its host services")`)
+	probe := strings.Index(got, "ProbeServiceReachability(e)")
+	closeAt := strings.Index(got, `reach.Done("")`)
+	if open < 0 || probe < open || closeAt < probe {
+		t.Errorf("want the progress line opened before the witness and closed after it "+
+			"(open=%d, probe=%d, close=%d)", open, probe, closeAt)
+	}
+}

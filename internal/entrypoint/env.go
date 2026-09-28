@@ -6,6 +6,7 @@
 package entrypoint
 
 import (
+	"github.com/mschulkind-oss/yolo-jail/internal/progress"
 	"io"
 	"os"
 	"path/filepath"
@@ -116,6 +117,10 @@ type Env struct {
 	// cmd.Wait() reapers in runtime.go / system_boot.go and the reachability probes, and
 	// probeService takes a serviceEndpoint and a deadline, touching no Env at all.
 	warnedOnce map[string]struct{}
+	// progressCfg is the rendering of the boot's slow steps (Env.progress). The zero
+	// value is the line-oriented one with the default timings; a test sets
+	// Immediate to see a step that finishes at once.
+	progressCfg progress.Config
 }
 
 // genFailure records a fatal config-generator failure (A12). Collected rather
@@ -137,6 +142,14 @@ func (e *Env) warn(msg string) {
 	if e.Stderr != nil {
 		_, _ = io.WriteString(e.Stderr, msg+"\n")
 	}
+}
+
+// progress starts one slow boot step's progress line on e.Stderr (internal/progress).
+// Always the line-oriented rendering: e.Stderr is a MultiWriter over the terminal AND
+// boot.log, and a live redraw would land in the log. A step that ends within
+// progress.DefaultGrace prints nothing. nil (a no-op line) when there is no stderr.
+func (e *Env) progress(label string) *progress.Line {
+	return e.progressCfg.Start(e.Stderr, label)
 }
 
 // warnOnce writes a line the way warn does, but at most once per Env for any given text.

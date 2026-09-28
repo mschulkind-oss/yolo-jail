@@ -331,8 +331,15 @@ func startJailDaemonSupervisor(e *Env) error {
 		logPaths = append(logPaths, filepath.Join(e.Home, ".local", "state", "yolo-jail-daemons", name+".log"))
 	}
 	e.warn("  Daemon diagnostics: " + strings.Join(logPaths, ", "))
+	// The wait has no bound of its own (a daemon reports ready or failed, or the
+	// supervisor exits), so it shows how long it has waited and how many are ready.
+	wait := e.progress("Waiting for in-jail services")
+	result := "failed"
+	defer func() { wait.Done(result) }()
+	total := len(ready)
 	scanner := bufio.NewScanner(readyRead)
 	for len(ready) > 0 {
+		wait.Set(fmt.Sprintf("%d of %d ready", total-len(ready), total))
 		if !scanner.Scan() {
 			if err := scanner.Err(); err != nil {
 				return fmt.Errorf("wait for jail-daemon readiness: %w", err)
@@ -355,6 +362,8 @@ func startJailDaemonSupervisor(e *Env) error {
 		}
 		delete(ready, fields[1])
 	}
+	wait.Set(fmt.Sprintf("%d of %d ready", total, total))
+	result = "done"
 	return nil
 }
 
