@@ -94,6 +94,18 @@ with the launch naming each part that cannot come along. A tree an agent pack re
 the claude.ai skills Claude Code syncs, is never copied into a jail's skills directory, and the
 launch says when it held one back. See [the collision rule](docs/reference/pack-system.md#skills-collision).
 
+**Packs now take precedence in the order your config lists them, in a jail and at the host
+alike.** Where two packs set the same setting, the later one wins, and "later" now means one
+thing everywhere: the order of your `packs` list, then the packs another pack pulls in through
+its `needs`, then your personal pack in `~/.config/yolo-jail/local`, always last. Before, a jail
+put the packs yolo ships ahead of all others, so your own pack beat a shipped one wherever you
+listed it, while `yolo host apply` followed your list and a jail's startup read the packs in
+alphabetical order. **If your pack overrides a shipped one, list it after that pack**, as in
+`"packs": ["claude", "~/dotfiles/packs/mine"]`; listed before it, the shipped pack's values now
+win. One exception to your personal pack coming last: an adapter it declares for a conversion
+that a pack pulled in through `needs` also declares now yields to that pack, so declare such an
+adapter in a pack you list in `packs`. `yolo config-ref` describes the order under `packs`.
+
 ### Fixed
 
 - A value you set on the command line beats a profile's value again. `ANTHROPIC_MODEL=x claude`,
@@ -130,6 +142,11 @@ launch says when it held one back. See [the collision rule](docs/reference/pack-
   more than the repository holds. One launch now copies at most 32 MiB and 4096 files and
   directories of a repository's skills. A skill that would go past that is left out and named at
   launch, and the skills copied before it still reach your agents.
+- A pack of your own that a dotfile manager (rcm, stow, chezmoi) deploys as symlinks into your
+  dotfiles now works in a jail, as it already did with `yolo host apply`. A jail refused to start
+  over a link pointing out of the pack; it now follows the links and gets the files they point to,
+  whether or not the pack's entry filters it with `only` or `exclude`. A pack fetched from git
+  that holds such a link is still refused, in a jail and at the host.
 
 ## [0.11.0] - 2026-09-28
 

@@ -1547,8 +1547,9 @@ defaults < host < workspace < config-overlay < config-list < capture-overlay < l
   that no backend emits `unsupported` unconditionally any more. What that backend still does not
   emit is the render LABEL, so a managed home's host file composes there as a layer.
 - **`config-overlay`** carries the keys OTHER packs contribute to a surface this one owns, in
-  `packs`-list order (later wins). Below `managed`, so the owner still wins a genuine
-  conflict.
+  the one pack order (later wins): `packs`-list order, then the packs a `needs` pulled in, then
+  the local pack, at every notch ([OQ-NC4](../plans/notch-convergence.md#OQ-NC4)). Below
+  `managed`, so the owner still wins a genuine conflict.
 - **`config-list`** is not a merge-patch layer. It appends entries to one array each, after
   every `config-overlay` ([below](#adding-entries-to-an-array-config-list)).
 - **`capture-overlay`** carries a user's in-jail edits across regeneration, for `stateful`
@@ -2528,12 +2529,12 @@ execution.**
 embedded, local or fetched, any entry with an `only` or `exclude` — into a directory of the
 process's own leased tree, which it reads for as long as the verb runs
 ([notch convergence](../plans/notch-convergence.md), item 5). An unfiltered pack is read in
-place, after the same no-escaping-symlink check, because a copy would hold the same files. So an
-entry's `only`/`exclude` decides what reaches the real home exactly as it decides what reaches a
-jail, an embedded entry's included, and a fetched pack with an escaping symlink is refused as the
-launch refuses it, as is a filtered local pack with one. An UNFILTERED LOCAL pack's symlinks are
-followed wherever they point, which the launch does not do; that difference is kept on purpose
-until [OQ-NC9](../plans/notch-convergence.md#OQ-NC9) rules it. **An incomplete set is refused whole**: if any configured
+place, after the same symlink check the launch's staging applies, because a copy would hold the
+same files. So an entry's `only`/`exclude` decides what reaches the real home exactly as it
+decides what reaches a jail, an embedded entry's included. A fetched pack with a symlink pointing
+out of the pack is refused, as the launch refuses it. A local pack's symlinks, filtered or not,
+are followed wherever they point, as the launch follows them
+([OQ-NC9](../plans/notch-convergence.md#OQ-NC9)). **An incomplete set is refused whole**: if any configured
 pack cannot be resolved, `--assert` writes nothing and exits 1, naming each pack and its
 reason. The dry run says it would refuse. A pack whose manifest has problems, the ones
 `yolo check` and every launch refuse, counts as unresolvable here: it is named with each

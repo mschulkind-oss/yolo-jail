@@ -1183,7 +1183,16 @@
     fixed before anything is fetched, which is why the pack's own manifest cannot supply
     it.  Set "name" when the directory is unhelpful, and note that two entries may not
     share one:  { "source": "/tmp/build/002", "name": "house" }
-    Host access = a reads-host file, a `mount` of a host dir, an installer program, or
+    [bold]Order is precedence, in a jail and at the host alike:[/bold] where two packs set one
+    key, the later wins.  Later means the order this list names them in (a shipped pack included, so list
+    your own pack AFTER a shipped one it overrides), then the packs another pack pulled in
+    through its `needs`, then ~/.config/yolo-jail/local, which is always last.
+    A pack named by a PATH may be a tree of symlinks, the shape a dotfile manager (rcm,
+    stow, chezmoi) deploys: its links are followed wherever they point and the targets
+    delivered as files, in a jail and at the host alike.  A git pack's symlink pointing
+    out of the pack is refused, because a repository you do not control must not be able
+    to deliver a file from your machine.
+    Host access =a reads-host file, a `mount` of a host dir, an installer program, or
     a host-prepending briefing.  EVERY pack's declared claims are honored, whatever its
     origin — embedded, local (file://) or fetched (git).  There is no approval prompt:
     selecting the pack in your config is the consent, `yolo pack footprint <ref>` is
