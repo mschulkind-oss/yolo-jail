@@ -118,11 +118,17 @@ the shell you run `yolo` from never reaches the jail, so it is not refused, and 
 grant such as `~/.aws/` counts only on a backend that delivers it: podman, and Apple
 Container from 1.1.0. macos-user never copies one.
 
-**No authorization token, deliberately.** An SDK sends `Authorization` only when
-`AWS_CONTAINER_AUTHORIZATION_TOKEN` is set, and setting it here would buy nothing:
-an environment variable is inherited by every process the agent spawns, so everything
-that could read the token can already reach the port. The boundary is the `0600`
-endpoint file on the hop the adapter makes, not a header on the hop it serves.
+**Every request carries this launch's caller token.** Loopback is not the jail: a jail on
+`network.mode: "host"` puts the adapter's port on your host's loopback, and a nested jail
+shares its parent's, so without a check any local process could `GET` the credential. Each
+launch mints a new token for the adapter. The jail's boot writes it to the `0600` file
+`/run/yolo/caller-tokens/YOLO_SERVICE_AWS_AUTH_TOKEN`, and this pack points
+`AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE` at that file beside the credentials URI. Your
+agent's AWS SDK reads the file and sends its contents as `Authorization`. A request without
+the token gets `401` with a message naming yolo
+([notch convergence §2.3](../../docs/plans/notch-convergence.md#23-the-fix-every-service-authenticates-its-caller-at-every-notch)).
+Inside the jail every process can read the file, so the narrowing above is still the only
+defence there.
 
 ## Properties worth knowing before you are surprised by them
 

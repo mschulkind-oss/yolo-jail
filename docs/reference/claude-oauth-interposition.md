@@ -144,20 +144,20 @@ isRefresh := isToken && IsRefreshGrant(body)
 for a JSON **object** whose `grant_type` is exactly `"refresh_token"`; its docstring names the excluded
 cases — *"Anything else (authorization_code from /login, unparseable, empty) is proxied untouched."*
 
-**The refresh branch forwards nothing.** `Refresh` sends one frame and no body:
-
-```go
-// internal/oauthterminator/handler.go:107-108
-func Refresh(endpointPath string) ProxyResult {
-    resp, err := AskHostBroker(endpointPath, singleton("action", "refresh"))
-```
-
-The discard is visible at the call site: `body` is read once (`oauthterminatorcmd.go:106`) and passed
-**only** on the non-refresh branch (`:124`). Host-side, `DoRefresh(credsPath)`
-([`refresh.go:48`](../../internal/oauthbroker/refresh.go)) takes only a path and reads the refresh
-token out of the shared file itself (`refresh.go:72`), under an exclusive `flock`
-(`refresh.go:17-39`, taken at `:54`). So the refresh token Claude presents never leaves the jail edge,
-and a jail cannot spend a stale one — the token it presents is not an input to anything.
+**The refresh branch forwards one field, and spends nothing the caller sent.** Since 2026-09-28
+`Refresh` sends one frame carrying the refresh token Claude presented, and nothing else of the body
+(`PresentedRefreshToken`, `Refresh` in
+[`handler.go`](../../internal/oauthterminator/handler.go)). The broker uses that token only to
+**authenticate the caller** (`DoRefreshAsCaller`, [`refresh.go`](../../internal/oauthbroker/refresh.go)):
+under the refresh `flock` it must be the shared file's current refresh token, or one of the last few
+the broker replaced, or the caller gets `401 caller_unauthenticated`. The refresh itself is still made
+from the shared file (`doRefreshLocked` reads the token out of it), so a jail still cannot spend a stale
+one — the token it presents is compared, never sent upstream. The check exists because the terminator's
+`127.0.0.1:443` is reachable from outside the jail wherever the jail shares a loopback
+([notch convergence §2.3](../plans/notch-convergence.md#23-the-fix-every-service-authenticates-its-caller-at-every-notch)).
+A frame with no presented-token field comes from a terminator older than the check, in a jail still
+running the binaries it booted with, and is served as before, so a host upgrade logs no running jail
+out.
 
 **The proxy branch makes no outbound connection from the jail.** `ProxyUpstream`
 (`handler.go:45-103`) builds a `{action:"proxy", method, path, headers, body_b64}` frame and hands it
@@ -501,14 +501,19 @@ The path test is a **prefix** and not an equality (`oauthterminatorcmd.go:109`),
 match on the endpoint.
 
 > [!WARNING]
-> **The refresh endpoint authenticates nothing.** The presented token is discarded and no caller check
-> exists (`oauthterminatorcmd.go:104-130` reads the body and dispatches; nothing inspects identity), so
-> any process in the jail can POST `{"grant_type":"refresh_token"}` to
-> `https://localhost/v1/oauth/token` and receive the machine-wide `access_token` **and**
-> `refresh_token` in the 200 body. In the default configuration this grants nothing new — the agent
-> runs as UID 0 and `~/.claude/.credentials.json` is a live symlink to the shared file — but it is a
-> second, **file-independent** read of the credential that would survive un-mounting the file. "The
-> file is the only channel" is a fact about the **vendor**, not about yolo's own surface.
+> **The refresh endpoint authenticates by refresh-token match, and the proxy endpoint not at all.**
+> Until 2026-09-28 the presented token was discarded and any process that reached `127.0.0.1:443` —
+> in the jail, or on the host itself wherever the jail shares its loopback — could POST
+> `{"grant_type":"refresh_token"}` and receive the machine-wide `access_token` **and**
+> `refresh_token`. Now a refresh is answered only for a caller presenting the shared file's current
+> refresh token or one the broker just replaced, so a caller must already be able to read the file.
+> Inside the jail that is no barrier (the agent runs as UID 0 and `~/.claude/.credentials.json` is a
+> live symlink to the shared file); outside it, it is the whole difference. **The proxy branch is
+> still unauthenticated**: Claude's `/login` exchange carries no secret the jail holds and a stranger
+> does not, so a caller that reaches the port can complete its own login and have the proxy mirror
+> write it to the shared file. That residual is recorded against
+> [OQ-NC2](../plans/notch-convergence.md#OQ-NC2), the terminator on a shared namespace, which is the
+> only place a stranger reaches the port.
 
 ## Why there is a file on disk at all
 
@@ -787,9 +792,9 @@ Three beliefs about the broker were measured false.
 precision each one needed.
 
 - **It is not what stops a jail spending a stale token — and the reason is structural, not
-  defensive.** The terminator does that, independently: `Refresh` sends one frame with no body, so the
-  presented refresh token is **not an input to anything**. This would hold with zero serialization and
-  no flock at all.
+  defensive.** The terminator and the broker do that, independently of serialization: the presented
+  refresh token is only **compared** (to authenticate the caller) and never sent upstream, so it is
+  not an input to the refresh. This would hold with zero serialization and no flock at all.
 - **It does not need to be a singleton**, per the trace above: the flock derives from `$HOME`, every
   broker-side write is inside it, and the loser re-reads disk. Two source comments overstate the
   derivation; the conclusion is unaffected.

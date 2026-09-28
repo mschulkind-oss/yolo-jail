@@ -409,13 +409,23 @@ AWS_CONTAINER_CREDENTIALS_FULL_URI=http://127.0.0.1:<port>/credentials
 AWS_REGION=<from the provider entry's region field, as today>
 ```
 
-**No authorization token, deliberately.** The SDK sends `Authorization` only when
+~~**No authorization token, deliberately.** The SDK sends `Authorization` only when
 `AWS_CONTAINER_AUTHORIZATION_TOKEN` is set, and setting it here would buy nothing: an
 environment variable is inherited by every process the agent spawns, which is the reason
 [`agent-credentials.md`](../reference/agent-credentials.md) gives for the broker hop having
 no token variable at all. Everything that could read the token can already reach the port.
 The boundary is the `0600` endpoint file on the hop the adapter makes, not a header on the
-hop it serves.
+hop it serves.~~
+
+> [!NOTE]
+> **Superseded 2026-09-28** by [notch convergence](../plans/notch-convergence.md#23-the-fix-every-service-authenticates-its-caller-at-every-notch)
+> (NC-D2, NC-D14). "Everything that could read the token can already reach the port" holds only
+> inside a private network namespace. A jail on `network.mode: "host"` puts the port on the host's
+> loopback, where host processes can reach it and cannot read the jail's files. So each launch
+> now mints a caller token for the adapter, the boot writes it to the `0600` in-jail file
+> `/run/yolo/caller-tokens/YOLO_SERVICE_AWS_AUTH_TOKEN`, the pack sets
+> `AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE` to that path, and the adapter refuses a request without
+> it. The positional warning above still describes the inside of the jail.
 
 > [!WARNING]
 > **A nested jail shares this port.** Podman-in-podman forces `--net=host`, so a nested

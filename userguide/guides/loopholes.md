@@ -77,7 +77,8 @@ pack unchanged. See
   },
   "jail_daemon": {                // optional; supervised INSIDE the jail by yolo-jaild
     "cmd": ["{jail_loophole_dir}/my-agent"],
-    "restart": "on-failure"       // or "always" / "no"; default "on-failure"
+    "restart": "on-failure",      // or "always" / "no"; default "on-failure"
+    "caller_token": true          // optional; default false. See below
   },
   "host_bind_mounts": [           // optional; host paths mounted into the jail
     {"host": "{loophole_dir}/assets", "container": "/opt/thing", "readonly": true}
@@ -122,6 +123,19 @@ a tool can read what a manifest declares without dragging the runtime along.
 `internal/loopholes` keeps everything the schema cannot decide on its own
 (resolving `{loophole_dir}`/`{state}` against real paths, evaluating `requires`,
 discovery order, the container argv).
+
+**`jail_daemon.caller_token` is for a daemon that listens on the jail's loopback.**
+Loopback is not the jail: a jail on `network.mode: "host"` shares the host's
+loopback, and a nested jail shares its parent's, so any local process can reach
+the port. Declare `true` and each launch mints a random caller token for the
+daemon, a new one per launch, and hands it to the daemon and to every process in
+the jail as `YOLO_SERVICE_<NAME>_TOKEN`. The boot also writes it to the `0600`
+file `/run/yolo/caller-tokens/YOLO_SERVICE_<NAME>_TOKEN`, for a client that reads
+a credential from a file. Your daemon then refuses every request that does not
+carry it. The shipped OpenAI and AWS credential adapters declare it. The Claude
+OAuth terminator does not, because Claude cannot send one. It checks instead that
+the refresh token Claude presents is the machine's current login
+([notch convergence §2.3](https://github.com/mschulkind-oss/yolo-jail/blob/main/docs/plans/notch-convergence.md#23-the-fix-every-service-authenticates-its-caller-at-every-notch)).
 
 **A key the schema does not know is reported, not dropped.** Two strictnesses,
 deliberately: an authoring read (`loopholedecl.Decode`) refuses an unknown key,

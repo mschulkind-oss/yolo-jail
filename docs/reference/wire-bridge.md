@@ -460,6 +460,9 @@ launcher mints for each launch that selects a pack service with a jail daemon. T
 only such service today. The launcher hands the secret to that daemon and to every agent a pack
 derive points at the daemon's addresses, and the daemon demands it of every caller. It is carried
 in `YOLO_SERVICE_<SERVICE>_TOKEN`, which for the bridge is `YOLO_SERVICE_WIRE_BRIDGE_TOKEN`.
+A loophole's jail daemon gets one too when its manifest declares `jail_daemon.caller_token`, as
+the OpenAI and AWS credential adapters do
+([notch convergence §2.3](../plans/notch-convergence.md#23-the-fix-every-service-authenticates-its-caller-at-every-notch)).
 
 ### Why the jail is not the boundary
 

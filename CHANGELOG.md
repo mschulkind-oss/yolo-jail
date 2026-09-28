@@ -24,7 +24,9 @@ host `aws sso login` into a short-lived credential for a role you name. The jail
 no `~/.aws`. Enable `loopholes.aws-auth` in your user config with a `profile` and `role_arn`, as
 [the pack's README](packs/aws-auth/README.md) shows, then run `yolo -p bedrock -- claude`.
 Changing those settings takes effect at your next launch, which restarts the shared service and
-says so, and `yolo check` tells you when the running service still has the old ones.
+says so, and `yolo check` tells you when the running service still has the old ones. The
+credential is served only to the agents of the launch that asked, even in a jail that shares
+your host's network.
 
 **An agent footer.** Every agent with a status-line hook shows its billing route and whether it
 runs in a jail or on the host, unless you set your own `statusLine`. Claude's also shows its
@@ -135,6 +137,11 @@ apply it, and the launch says that too. See
 
 ### Fixed
 
+- Yolo's Codex sign-in service and its Claude login refresh answered any process that could
+  reach them. In a jail using your host's network (`network.mode: "host"`), and for codex
+  started with `yolo host`, that was every process on your machine, which could read your
+  ChatGPT tokens or get a fresh Claude login. Each now answers only the agents its own launch
+  started.
 - Quitting a podman jail could hold your terminal for half a minute after a long session, while
   podman deleted everything the jail had left in `/tmp` and its container dirs. You get the
   prompt back as soon as the jail exits, and the files are deleted in the background.
