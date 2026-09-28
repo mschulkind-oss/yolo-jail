@@ -591,7 +591,7 @@ Four things are still one-per-machine, and each is deliberate or named.
 - **The overlay copy was agent-writable where a bind is `:ro`**, and said so on every launch, until
   2026-09-27. It is write-protected by the profile now
   ([above](#the-staged-skills-and-briefings-are-write-protected-at-the-path-the-kernel-sees)), and the
-  line is retired. What survives is narrower and unmeasured: whether the kernel honors the rule, and
+  line is retired. The kernel honors the rule (MEASURED 2026-09-28 on a Mac, [run 36437881715](https://github.com/mschulkind-oss/yolo-jail/actions/runs/36437881715)); what survives is
   the hard-link question that warning lists.
 
 > [!CAUTION]
@@ -638,7 +638,7 @@ more than usual.
 | The staged skills and briefings are write-protected at the physical path, the chain above them is anchored, and every shipped pack's state directories are not denied | Linux unit gates on the rendered SBPL: `internal/macosuser/homereadonly_test.go` (including a symlinked base), and `TestEveryShippedDestinationIsWriteProtectedAndNothingElse`, which enumerates the shipped packs' declarations |
 | A link the layout did not lay, at each position in the sidecar and in the account home, is refused or replaced and never followed, and every file a launch delivers lands under a path its profile denies | Linux unit gates driving the real bootstrap: `internal/entrypoint/darwinoverlaylinks_test.go`, and `TestTheBootstrapDeliversOnlyWhereTheHostsRulesPoint` in `internal/macosuser`, which checks the delivery against `ResolveHomeReadonly`'s own output; the install-level cases, a link at and above a listed destination, in `internal/entrypoint/darwinoverlay_test.go` |
 | The profile protects exactly the destinations the install replaces | `TestHomeOverlayReturnsTheDestinationsItWrote` reads the written list file back against `Dests`, and `TestWorkspaceSkillsReachTheMacosUserHome` requires a mirrored workspace skill's destination in both |
-| The kernel REFUSES writes, renames, deletes and a planted skill, and allows the agent's own state | **Not measured.** `TestMacosUserSeatbeltProfileEnforcesItsRules` (`home_content_*`) and `TestMacosUserStagedContentIsWriteProtected` are written and have not run on a Mac. Their scripts' bare halves are exercised on Linux (`TestMacosUserSeatbeltContentControlsRunUnsandboxed`, `TestMacosUserContentProbeReadsARealLayout`) |
+| The kernel REFUSES writes, renames, deletes and a planted skill, and allows the agent's own state | **MEASURED 2026-09-28 on a Mac** ([run 36437881715](https://github.com/mschulkind-oss/yolo-jail/actions/runs/36437881715), commit `650e84b0`): every `home_content_*` case of `TestMacosUserSeatbeltProfileEnforcesItsRules` passed (write, rename, delete, planted skill, briefing write and anchor replace refused; the state dir and the agent's own state usable), and so did the real launch, `TestMacosUserStagedContentIsWriteProtected`. Their scripts' bare halves are also exercised on Linux (`TestMacosUserSeatbeltContentControlsRunUnsandboxed`, `TestMacosUserContentProbeReadsARealLayout`) |
 | An occupied ACCOUNT-HOME path refuses | Linux only (`TestDarwinHomeLayoutRefusesToReplaceRealDirectories`); not separately exercised on hardware |
 | A concurrent second workspace leaves the first session pointing at a denied directory | **Not measured** — reasoned from the one-link-set fact plus target evaluation |
 | The pack-load poisoning route | **Not measured, deliberately, and must stay that way** (see the caution above) |
