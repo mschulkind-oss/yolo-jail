@@ -23,7 +23,7 @@ On Linux, pass host devices (USB, serial, etc.) into the jail:
 - **Raw device path** (changes on replug): `"/dev/bus/usb/001/004"`
 - **Cgroup rule** (broad access): `{"cgroup_rule": "c 189:* rwm"}`
 
-Missing devices produce a warning but don't prevent the jail from starting. Device changes are subject to [config safety](../reference/configuration.md#config-safety) approval.
+Missing devices produce a warning but don't prevent the jail from starting. Device changes are subject to [config approval](../reference/configuration.md#approving-config-changes) approval.
 
 ---
 

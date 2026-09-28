@@ -115,7 +115,7 @@ A few pointers for the rows above:
 - **Use an API key or another provider:** list a dotenv file in `env_sources`, add the provider's pack,
   and pick it with `yolo -p <profile> -- <agent>`. The key reaches only the agent whose profile
   selects that provider, never another agent or a plain shell. See
-  [Gateway providers and curated models](configuration.md#gateway-providers-and-curated-models).
+  [Providers and Models](../guides/providers-and-models.md).
 - **Push from the jail:** create a key inside with `ssh-keygen` and add it to the repository as a deploy
   key, or put a `GH_TOKEN` in an `env_sources` file.
 - **Share more of your machine:** `"mounts": ["~/notes"]` for a read-only folder, and `host_files` in
@@ -128,7 +128,7 @@ A few pointers for the rows above:
 - **Use a GPU:** `"gpu": {"enabled": true, "vendor": "nvidia"}`. See
   [GPU Passthrough](../guides/devices-and-gpus.md#gpu-passthrough-nvidia).
 - **Pick up a config edit:** `yolo stop`, then `yolo` again. See
-  [After you edit your config](configuration.md#after-you-edit-your-config).
+  [When a change takes effect](configuration.md#when-a-change-takes-effect).
 
 ### Common questions
 

@@ -1,140 +1,93 @@
 # Configuration
 
-## Configuration
+You describe an agent's environment in JSONC files: JSON that allows `// comments` and trailing
+commas. This page covers where those files live, which settings go in which file, and how a change
+reaches a jail. `yolo config-ref` is the complete reference for every key.
 
-You describe your agent's environment (its packs and agents, packages, MCP and LSP servers, network, and which runtime confines it) in JSONC (JSON with comments) files:
+## The config files
 
-| File | Scope | Purpose |
-|------|-------|---------|
-| `yolo-jail.jsonc` | Workspace | Per-project settings |
-| `yolo-jail.local.jsonc` | Workspace (untracked) | Per-machine overrides, auto-merged over `yolo-jail.jsonc` when present — gitignore it (a global gitignore entry works well) |
-| `~/.config/yolo-jail/config.jsonc` | User | Global defaults for all projects |
+| File | Scope | Create it with |
+|---|---|---|
+| `~/.config/yolo-jail/config.jsonc` | **User**: your defaults for every project | `yolo init-user-config` |
+| `yolo-jail.jsonc` | **Workspace**: one project's settings, committed with it | `yolo init` |
+| `yolo-jail.local.jsonc` | Workspace, this machine only; keep it out of git | by hand |
 
-**Merge rules:** Workspace config merges over user defaults, and `yolo-jail.local.jsonc` merges over the workspace config. Lists are merged and deduplicated; scalars and objects in later layers override earlier values.
+The **workspace** is the folder you run `yolo` in, exactly: there is no search upward for a config
+file, and launching from a subfolder makes that subfolder its own workspace with its own jail.
+Inside the jail it appears at `/workspace`, as the same live files, not a copy.
 
-### Minimal Example
+The files merge in the order above, later files winning. Lists are combined without duplicates;
+single values and objects in a later file replace earlier ones. Any file can also pull in other
+files with `include_if_found`, which skips a file that is missing, handy for a gitignored overrides
+file.
+
+After **every** edit to any of these files, run:
+
+```bash
+yolo check
+```
+
+## Which settings go where
+
+Most keys work in either file. Put personal defaults in your user config and what the project needs
+in `yolo-jail.jsonc`: its `packages`, `mise_tools`, MCP and language servers, `resources`, ports,
+devices, and read-only `mounts`.
+
+Some keys work **only in your user config**. The project folder is writable from inside the jail,
+so a key that could grant an agent more (new skills, a program on your host, a different model
+endpoint, a writable host folder) must not be settable there. `yolo check` refuses these in a
+project config and names the file to move them to:
+
+- `packs`
+- `profiles`, `use_profiles`, `adapters`, and a provider's address (`endpoints.<protocol>.base_url`)
+- `agent_updates` and `programs`
+- `cache_relocations`
+- `host_management`, `host_wrappers`, `host_apply_on_launch` and `promotion_target`
+- `perf_logging`
+- a `host_files` entry that names a `source` file on your host
+- a host service's `command`, `env` and `doctor_cmd`, and any loophole setting its pack marks as
+  user-only
+
+## A starting point
+
+A typical user config:
 
 ```jsonc
+// ~/.config/yolo-jail/config.jsonc
 {
-  "runtime": "podman",
-  "packages": ["postgresql", "redis"],
-  "mcp_presets": ["chrome-devtools"]
+  "packs": ["claude", "guardrails"],
+  "env_sources": ["~/.config/yolo-jail/secrets.env"]   // API keys; see Providers and Models
 }
 ```
 
-### Full Example
+A typical project config:
 
 ```jsonc
+// yolo-jail.jsonc
 {
-  // Packs. Nothing is active by default, so without this key the jail
-  // starts with no coding agent in it and the launch says so.
-  "packs": ["claude"],
-
-  // Runtime: "podman", "container" (Apple Container), or "macos-user"
-  // (a sandboxed native macOS process — no container, and never auto-selected)
-  "runtime": "podman",
-
-  // Extra nix packages baked into the image
-  "packages": ["postgresql", "htop", "strace"],
-
-  // Network configuration
+  "packages": ["postgresql", "strace"],          // Nix packages built into the jail
+  "mise_tools": { "node": "22", "python": "3.13" },
+  "mcp_presets": ["chrome-devtools"],
   "network": {
-    "mode": "bridge",
-    "ports": ["8000:8000", "3000:3000"],
-    "forward_host_ports": [5432, 6379]
+    "ports": ["3000:3000"],                      // open the dev server from your host
+    "forward_host_ports": [5432]                 // reach the host's Postgres from the jail
   },
-
-  // Security settings
-  "security": {
-    "blocked_tools": [
-      {"name": "grep", "message": "Use rg", "suggestion": "rg <pattern>"},
-      {"name": "find", "message": "Use fd"},
-      "curl"
-    ]
-  },
-
-  // Extra read-only mounts
-  "mounts": ["~/code/shared-lib"],
-
-  // MCP presets (opt-in)
-  "mcp_presets": ["chrome-devtools", "sequential-thinking"],
-
-  // Custom MCP servers
-  "mcp_servers": {
-    "my-custom": {
-      "command": "/workspace/scripts/my-mcp-server.py",
-      "args": []
-    }
-  },
-
-  // Extra tools via mise
-  "mise_tools": {"neovim": "stable", "typst": "latest"},
-
-  // Additional LSP servers
-  "lsp_servers": {
-    "rust": {
-      "command": "rust-analyzer",
-      "args": [],
-      "fileExtensions": {".rs": "rust"}
-    }
-  }
+  "mounts": ["~/code/shared-lib"],               // read-only, under /ctx in the jail
+  "resources": { "memory": "8g", "cpus": 4 }
 }
 ```
 
-Run `yolo config-ref` for the complete field reference.
+Not every key works on every setup; `forward_host_ports`, for example, stops a launch on Apple
+Container. [Settings per setup](settings-per-setup.md) has the per-key detail.
 
-### Gateway providers and curated models
+To see the result of the merge, run `yolo describe --json`.
 
-OpenRouter and Kilo are opt-in packs. They declare one endpoint and credential
-variable each, but deliberately ship no model list: gateway catalogs change too
-quickly for yolo to choose models for you. Put a finite alias-to-model-id map in
-your **user** config, then have profiles select the aliases you want as defaults:
+## Approving config changes
 
-```jsonc
-{
-  "packs": ["openrouter", "kilo"],
-  "providers": {
-    "openrouter": {
-      "models": {
-        "coding": "~anthropic/claude-sonnet-latest",
-        "reasoning": "~openai/gpt-latest"
-      }
-    },
-    "kilo": {
-      "models": { "economy": "kilo-auto/efficient" }
-    }
-  },
-  "profiles": {
-    "router-coding": { "provider": "openrouter", "model": "coding" },
-    "kilo-economy": { "provider": "kilo", "model": "economy" }
-  },
-  "use_profiles": {
-    "claude": "router-coding",
-    "pi": "kilo-economy"
-  }
-}
-```
+When a project's config changes, the next launch that starts a jail shows you the difference and
+waits for your answer:
 
-Put `OPENROUTER_API_KEY` and `KILO_API_KEY` in an existing `env_sources` file; never
-put a key value in the JSONC file. Each key reaches only the agents whose profile
-selects its provider: here `OPENROUTER_API_KEY` reaches Claude and `KILO_API_KEY`
-reaches Pi, and a plain shell in the jail sees neither. The launch lists which keys
-went where, and which it kept from every agent because no profile selected their
-provider. A key exported only in the shell you launch from is not listed, and reaches
-only an agent whose pack builds its provider settings from it, such as Claude's
-token. OpenRouter
-works directly with Claude, Codex, Pi, OpenCode, and Copilot. Kilo works with
-Claude and Copilot through yolo's local wire bridge, and directly with Pi and
-OpenCode; it is not offered to Codex because Kilo documents Chat Completions,
-not the Responses API Codex requires.
-
----
-
-## Config Safety
-
-When `yolo-jail.jsonc` changes between jail startups, the CLI shows a normalized diff and asks for confirmation:
-
-```
+```text
 Config has changed since last confirmed session.
 Diff:
   + "packages": ["postgresql"]
@@ -142,66 +95,44 @@ Diff:
 Accept this config? [y/N]:
 ```
 
-This prevents agents from silently adding packages, mounts, or devices. The human must approve every change.
+This is what stops an agent from quietly adding packages, mounts or devices by editing
+`yolo-jail.jsonc`: you approve every change. A project's first launch with a non-empty config asks
+too. The record of what you approved is kept on your host, under `~/.local/share/yolo-jail/approvals/`,
+where the jail cannot rewrite it. A project copied or moved to a new folder asks once more.
 
-**The record of what you approved lives on the host**, at
-`~/.local/share/yolo-jail/approvals/<container-name>.json`. It is deliberately *not* in the
-workspace: `/workspace` is bind-mounted read-write, so anything that can edit `yolo-jail.jsonc`
-could also have rewritten a baseline kept in there, and the next launch would have had nothing to
-show you. A workspace copied or moved to a new path loses its baseline and re-prompts once.
+Edits to your user config do not ask, because only you can make them.
 
-**A launch with no terminal (CI, `yolo … < /dev/null`, a script) is REFUSED when the config
-changed** — it is not auto-accepted. The refusal prints the diff and tells you the flag:
+**Scripts, CI and editor tasks cannot answer.** A launch with no terminal to ask on stops instead,
+printing the difference and the files involved. Pass `--accept-config-changes` to approve it for
+that one launch; it is a flag rather than an environment variable, so an approval never carries
+over to a later launch or a child process. yolo asks only when its input is a terminal, so
+`yolo | tee log` still asks and `yolo < /dev/null` stops.
 
-```console
-$ yolo --accept-config-changes -- ./ci-task.sh
+## When a change takes effect
+
+**A running jail keeps the config it started with.** Running `yolo` in a project whose jail is
+already running joins that jail, and joining neither asks about changes nor applies them. Stop the
+jail and launch again:
+
+```bash
+yolo stop        # from the project folder
+yolo -- claude
 ```
 
-That approves the change for **that launch only** and records it exactly as answering `y` does. It
-is a flag rather than an environment variable on purpose: `YOLO_ALLOW_*` variables suppress a
-*diagnosis*, this one grants an *approval*, and an approval must not be inherited by every child
-process or linger in a shell for the rest of a session.
+On Apple Container, `yolo stop` cannot see the jail yet; use `container ls` and
+`container stop <name>`. On `macos-user` every launch starts fresh, so there is nothing to stop.
 
-### Workflow for Config Changes
+A few things do reach a running jail when you run `yolo` in it again, such as a new API key or a
+`-p` profile choice. [Settings per setup](settings-per-setup.md#what-a-running-jail-picks-up-when-you-run-yolo-again)
+lists exactly which.
 
-**From outside the jail (handoff to agent):**
-1. Edit `yolo-jail.jsonc`
-2. Run `yolo check` to validate
-3. Fix any errors
-4. Run `yolo` to start the jail (will see diff and prompt for approval)
+**When an agent edits the config from inside the jail**, the workflow is:
 
-**From inside the jail (agent edits mid-session):**
-1. Agent edits `yolo-jail.jsonc`
-2. Agent runs `yolo check --no-build` for fast validation
-3. Agent fixes any reported problems
-4. Agent asks human to restart: _"I've updated the config. Please restart the jail."_
-5. Human exits and runs `yolo` again (sees diff, approves)
+1. The agent edits `yolo-jail.jsonc` and runs `yolo check --no-build`, the fast check, to validate
+   it.
+2. The agent asks you to restart the jail.
+3. You exit, then run `yolo` again, review the difference and approve it.
 
-An agent can confirm at any point whether a restart is actually needed with
-`yolo config drift`: it compares the workspace config on disk against the one the
-running jail was started with, and exits `0` if they match, `3` if they differ
-(printing the diff), or `4` if it cannot tell (no baseline). Because the config the
-jail is *running under* is fixed until a restart, this is how an agent knows its
-edit has not yet taken effect. To see the full effective config the jail is running
-under — the merged, canonicalized form — use `yolo config dump`.
-
-See [../reference/config-safety.md](https://github.com/mschulkind-oss/yolo-jail/blob/main/docs/reference/config-safety.md) for the full workflow.
-
----
-
-### After you edit your config
-
-When your config has changed since the last launch — `yolo-jail.jsonc`, `yolo-jail.local.jsonc`, or a
-file either one includes — the next launch shows the diff and asks y/N before using it. A workspace's
-first launch with a non-empty config counts as a change.
-
-**Scripts, CI, cron jobs and editor tasks cannot answer that question.** With no terminal to ask on,
-the launch stops instead, printing the diff and the files involved. Pass `--accept-config-changes` to
-approve it for that one launch; it is a flag rather than an environment variable, so an approval never
-carries over to a later launch. Launching once in a terminal after each edit avoids the problem. yolo
-asks only when its input is a terminal, so `yolo | tee log` still asks and `yolo < /dev/null` stops.
-
-**A running jail does not pick up your edits.** Running `yolo` in a workspace whose jail is already
-running joins that jail, and joining does not ask, and does not apply your edit. Resources, mounts and
-network settings are fixed when a jail starts, so stop the jail and launch again. `macos-user` has no
-running jail to join — every launch starts a fresh sandbox and reads the config again.
+`yolo config drift`, run inside a jail, tells an agent whether the project config on disk differs
+from the one the jail started with: it exits `0` when they match, `3` when they differ (printing the
+difference) and `4` when it cannot tell.
