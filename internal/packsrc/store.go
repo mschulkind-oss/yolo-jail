@@ -249,15 +249,28 @@ func (s *Store) gitCmd(ctx context.Context, dir string, args ...string) *exec.Cm
 	cmd.Env = append(CleanGitEnv(env),
 		"GIT_TERMINAL_PROMPT=0", "GIT_ASKPASS=", "SSH_ASKPASS=")
 	if s.Detached {
-		cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
-		cmd.Cancel = func() error {
-			// Setsid made git a process-group leader, so -pid is git and every helper
-			// it started.
-			return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
-		}
+		DetachGit(cmd)
 	}
 	cmd.WaitDelay = gitWaitDelay
 	return cmd
+}
+
+// DetachGit gives a git command built with exec.CommandContext the hygiene a
+// Detached store's runs have (see Store.Detached for the measurements behind
+// each part): a NEW SESSION with no controlling terminal, so ssh cannot stop
+// at a prompt on /dev/tty; a Cancel that kills git's whole process group when
+// the context ends, so a transport helper holding the output pipe dies with
+// it; and a WaitDelay backstop on pipes something else still holds. Exported
+// so every caller that runs git against a remote uses this one implementation
+// (internal/selfupdate's source check is the other).
+func DetachGit(cmd *exec.Cmd) {
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	cmd.Cancel = func() error {
+		// Setsid made git a process-group leader, so -pid is git and every helper
+		// it started.
+		return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+	}
+	cmd.WaitDelay = gitWaitDelay
 }
 
 // run executes git with a budget of the store's own timeout, returning combined output on

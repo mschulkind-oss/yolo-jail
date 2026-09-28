@@ -3,11 +3,14 @@ package selfupdate
 import (
 	"context"
 	"errors"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 	"unicode"
 )
 
@@ -143,6 +146,76 @@ func TestCheckSourceWithRealGitCountsUpstreamCommits(t *testing.T) {
 	}
 	if got := gitIn(t, down, "rev-parse", "origin/main"); got != built {
 		t.Errorf("the check moved origin/main to %s", got)
+	}
+}
+
+// The command runGit runs is in its own session, with a process-group Cancel
+// and a bounded wait: removing packsrc.DetachGit from gitCommand fails this.
+func TestGitCommandIsDetachedAndBounded(t *testing.T) {
+	cmd := gitCommand(t.Context(), "/src/yolo-jail", "ls-remote")
+	if cmd.SysProcAttr == nil || !cmd.SysProcAttr.Setsid {
+		t.Error("git does not run in a new session, so ssh can prompt on the terminal")
+	}
+	if cmd.Cancel == nil {
+		t.Error("no process-group Cancel: a timeout kills git but not its transport helper")
+	}
+	if cmd.WaitDelay <= 0 {
+		t.Error("no WaitDelay: a helper holding the output pipe blocks Wait forever")
+	}
+}
+
+// A remote that accepts the connection and never answers must not hang a
+// source check past its deadline.
+func TestCheckSourceEndsAtItsDeadlineAgainstAStalledRemote(t *testing.T) {
+	requireGit(t)
+	isolateGitConfig(t)
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Skipf("no loopback listener: %v", err)
+	}
+	var mu sync.Mutex
+	var conns []net.Conn
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for {
+			c, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			mu.Lock()
+			conns = append(conns, c) // held open, never answered
+			mu.Unlock()
+		}
+	}()
+	t.Cleanup(func() {
+		ln.Close()
+		<-done
+		mu.Lock()
+		defer mu.Unlock()
+		for _, c := range conns {
+			c.Close()
+		}
+	})
+
+	dir := t.TempDir()
+	gitIn(t, dir, "init", "-q", "-b", "main")
+	gitIn(t, dir, "commit", "-q", "--allow-empty", "-m", "one")
+	gitIn(t, dir, "remote", "add", "origin", "http://"+ln.Addr().String()+"/acme/yolo-jail.git")
+	gitIn(t, dir, "config", "branch.main.remote", "origin")
+	gitIn(t, dir, "config", "branch.main.merge", "refs/heads/main")
+	ch := Channel{Kind: KindSource, SourceDir: dir, Branch: "main", Version: gitIn(t, dir, "rev-parse", "HEAD")}
+
+	const deadline = 2 * time.Second
+	ctx, cancel := context.WithTimeout(context.Background(), deadline)
+	defer cancel()
+	start := time.Now()
+	st := Check(ctx, ch, State{}, CheckDeps{Git: runGit, Now: fixedNow})
+	if took := time.Since(start); took > deadline+1500*time.Millisecond {
+		t.Errorf("the check took %s against a stalled remote (deadline %s)", took, deadline)
+	}
+	if st.Available || !strings.Contains(st.Error, "ls-remote") {
+		t.Errorf("got %+v, want an ls-remote failure", st)
 	}
 }
 

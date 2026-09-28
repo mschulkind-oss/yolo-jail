@@ -199,13 +199,10 @@ func latestRelease(ctx context.Context, client *http.Client, url string) (string
 func runGit(ctx context.Context, dir string, args ...string) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, 60*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, "git", append([]string{
-		"-C", dir,
-		"-c", "credential.interactive=false",
-		"-c", "core.askPass=",
-	}, args...)...)
-	cmd.Env = unattendedGitEnv(packsrc.CleanGitEnv(os.Environ()))
-	out, err := cmd.Output()
+	out, err := gitCommand(ctx, dir, args...).Output()
+	if ctx.Err() != nil {
+		return "", fmt.Errorf("git %s in %s: %w", firstArg(args), dir, ctx.Err())
+	}
 	if err != nil {
 		if ee, ok := err.(*exec.ExitError); ok && len(ee.Stderr) > 0 {
 			return "", fmt.Errorf("%w: %s", err, strings.TrimSpace(string(ee.Stderr)))
@@ -213,6 +210,30 @@ func runGit(ctx context.Context, dir string, args ...string) (string, error) {
 		return "", err
 	}
 	return strings.TrimSpace(string(out)), nil
+}
+
+// gitCommand builds the command runGit runs, split out so its hygiene is
+// testable as a property of the command. packsrc.DetachGit runs it in a new
+// session whose whole process group dies with ctx, with a bounded wait on the
+// output pipe: without it a remote that accepts the connection and never
+// answers hangs `yolo update --check` past its timeout, because git's
+// transport helper keeps the pipe open after git itself is killed.
+func gitCommand(ctx context.Context, dir string, args ...string) *exec.Cmd {
+	cmd := exec.CommandContext(ctx, "git", append([]string{
+		"-C", dir,
+		"-c", "credential.interactive=false",
+		"-c", "core.askPass=",
+	}, args...)...)
+	cmd.Env = unattendedGitEnv(packsrc.CleanGitEnv(os.Environ()))
+	packsrc.DetachGit(cmd)
+	return cmd
+}
+
+func firstArg(args []string) string {
+	if len(args) == 0 {
+		return ""
+	}
+	return args[0]
 }
 
 // unattendedGitEnv strips and sets what it takes for git to FAIL rather than
