@@ -222,7 +222,10 @@ match: only the host has a user shell and a `PATH` to claim, so `yolo host env` 
 **The exec half has the same two spellings**, and the front door decides between them once
 (`cli.routeArgv`): every launch carrying `--at host`, wherever the flag sits, is `yolo host`.
 `yolo --at host -- <cmd>`, `yolo run --at host -- <cmd>`, `yolo --at host run -- <cmd>` and a
-bare `yolo --at host` all route there. `yolo host` takes `--at host` as a no-op and refuses any
+bare `yolo --at host` all route there; the bare one runs nothing and prints `yolo host`'s usage.
+The last `--at` typed wins in either order, and every `--at` is consumed on the way, so
+`yolo --at jail --at host -- <cmd>` runs at the host as `yolo --at host --at jail -- <cmd>` runs
+in the jail. `yolo host` takes `--at host` as a no-op and refuses any
 other notch, and a jail-launch flag with no meaning at the host (`--timing`, `--dry-run`,
 `--network`, `--accept-config-changes`) is refused by name rather than ignored. The config key
 `confinement: host` is not an `--at` spelling and still refuses a launch
@@ -231,7 +234,10 @@ other notch, and a jail-launch flag with no meaning at the host (`--timing`, `--
 **`--` is parsed before any verb**, and that ordering is the whole grammar: the exec half takes
 flags before the separator (`yolo host -p bedrock -- claude`), so the first argument is routinely
 a flag rather than a verb, and a verb switch running first would have to re-implement flag
-parsing to discover whether a verb was present at all.
+parsing to discover whether a verb was present at all. With no `--`, a first argument that is a flag
+(other than `--help`) is still an exec flag, since no verb starts with a dash: `yolo host -p zai`
+and `yolo --at host --profile=` get the exec half's refusals, exit 2, and flags that parse are
+refused for naming no command, the host verb having no default one.
 
 ### Execution flow
 
