@@ -344,7 +344,15 @@ func surveyNeedsPrompt(survey *hostApplySurvey) bool {
 }
 
 func hostApplyGateApplyInteractive(errw io.Writer, stdin io.Reader, bin string) bool {
-	if rc := applyHost(errw, errw, false, true, stdin); rc != 0 {
+	wrote := &hostApplySurvey{}
+	if rc := applyHostSurveyed(errw, errw, false, true, stdin, wrote); rc != 0 {
+		// [OQ-HS17] here too: the report above already stated each failure with its fix, so an
+		// unrelated one only needs the launch to say it is going ahead.
+		if _, unrelated, blocking := splitLaunchFailures(wrote, bin); !blocking && len(unrelated) > 0 {
+			fmt.Fprintf(errw, "yolo host: %s reads none of what was not written — launching %s.\n",
+				bin, bin)
+			return true
+		}
 		fmt.Fprintf(errw, "yolo host: the host apply did not complete (rc=%d, see above) — %s "+
 			"was not launched.\n"+
 			"  Fix what it reported and run `yolo host apply --assert`, then launch again.\n",

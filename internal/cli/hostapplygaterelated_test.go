@@ -127,3 +127,22 @@ func TestLaunchRelatedPacksIsTheProgramsOwnConfiguration(t *testing.T) {
 		t.Errorf("a program no pack installs has related packs: %v", got)
 	}
 }
+
+// THE INTERACTIVE FIRST APPLY takes the same rule: on a TTY, a first apply that would drop a
+// hand-added MCP server asks, the user says yes, and an unrelated broken link does not then stop
+// claude.
+func TestTheInteractiveFirstApplyLetsAnUnrelatedFailureThrough(t *testing.T) {
+	home := relatedGateFixture(t)
+	setGateTTY(t, true)
+	writeFile(t, filepath.Join(home, ".claude.json"),
+		`{"mcpServers":{"tavily":{"type":"http","url":"https://x"}}}`)
+	var errw bytes.Buffer
+	if !hostApplyGate(&errw, strings.NewReader("y\n"), "claude") {
+		t.Fatalf("claude was refused over pi's broken link after the user answered y:\n%s",
+			errw.String())
+	}
+	if !strings.Contains(errw.String(), "~/.pi/agent/settings.json is a symlink") ||
+		!strings.Contains(errw.String(), "launching claude") {
+		t.Errorf("the launch did not name the unrelated failure and go ahead:\n%s", errw.String())
+	}
+}
