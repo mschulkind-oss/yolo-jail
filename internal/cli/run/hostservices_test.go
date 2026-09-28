@@ -153,13 +153,22 @@ func TestEmittedAddressIsAStablePath(t *testing.T) {
 // leave the script with an empty $1 and every one of these tests would pass
 // vacuously. TestExternalServiceAcceptsCompleteEndpoint is the control that catches
 // exactly that.
-func startExternalServiceHarness(t *testing.T, socketsDir, script, transport string) (loopholeDaemon, bool) {
+//
+// readyTimeout is the readiness deadline (Options.ServiceReadyTimeout); 0 keeps the
+// production default. A POSITIVE test passes 0: it returns the moment the daemon is
+// ready, so the deadline costs nothing unless the test is failing, and a generous one
+// keeps a loaded machine from reading as a regression. A NEGATIVE test waits out the
+// whole deadline by construction, so it passes a short one — and must then show that
+// what it is refusing actually happened inside that window (see
+// TestExternalServiceWaitsForCompleteEndpoint), or a short deadline makes it vacuous.
+func startExternalServiceHarness(t *testing.T, socketsDir, script, transport string, readyTimeout time.Duration) (loopholeDaemon, bool) {
 	t.Helper()
 	spec := jsonx.NewOrderedMap()
 	spec.Set("command", []any{"sh", "-c", script, "fake-svc", "{endpoint}"})
 	o := &Options{}
 	fillDefaults(o)
 	o.Stdout = io.Discard
+	o.ServiceReadyTimeout = readyTimeout
 	return o.startExternalService("fake-svc", spec, socketsDir, transport, "127.0.0.1", nil)
 }
 
@@ -174,17 +183,34 @@ func TestExternalServiceWaitsForCompleteEndpoint(t *testing.T) {
 		t.Skip("spawns a host process")
 	}
 	socketsDir := t.TempDir()
-	// Two fields: the format an older publisher wrote, and also what a torn write
-	// looks like. It must NOT satisfy the wait.
-	h, ok := startExternalServiceHarness(t, socketsDir,
-		`test -n "$1" || exit 9; printf '127.0.0.1:1 Y29zdA==\n' > "$1"; sleep 30`,
-		loopholes.TransportLoopbackTLS)
-	if ok {
-		if h.stop != nil {
-			h.stop()
+	// The deadline is short so this negative does not wait out the production 5s, and
+	// the marker is what keeps a short deadline honest: the daemon touches it right
+	// after publishing, so its mtime says WHEN the 2-field file appeared. Only a
+	// publication in the first half of the window — many 50ms polls before the kill —
+	// proves a lax predicate would have been given the chance to accept it. A later
+	// one (a loaded machine starting sh slowly) retries at the production deadline
+	// rather than passing vacuously.
+	marker := filepath.Join(t.TempDir(), "published")
+	for _, timeout := range []time.Duration{time.Second, serviceReadyTimeoutDefault} {
+		_ = os.Remove(marker)
+		start := time.Now()
+		// Two fields: the format an older publisher wrote, and also what a torn write
+		// looks like. It must NOT satisfy the wait.
+		h, ok := startExternalServiceHarness(t, socketsDir,
+			`test -n "$1" || exit 9; printf '127.0.0.1:1 Y29zdA==\n' > "$1"; : > `+marker+`; sleep 30`,
+			loopholes.TransportLoopbackTLS, timeout)
+		if ok {
+			if h.stop != nil {
+				h.stop()
+			}
+			t.Fatal("a 2-field endpoint file satisfied the wait; want the daemon killed and no handle")
 		}
-		t.Fatal("a 2-field endpoint file satisfied the wait; want the daemon killed and no handle")
+		if fi, err := os.Stat(marker); err == nil && fi.ModTime().Sub(start) <= timeout/2 {
+			return
+		}
 	}
+	t.Fatal("the fake daemon never published its 2-field endpoint early in the readiness " +
+		"window, so the refusal above was never exercised")
 }
 
 // TestExternalServiceAcceptsCompleteEndpoint is the control for the test above: the
@@ -206,7 +232,7 @@ func TestExternalServiceAcceptsCompleteEndpoint(t *testing.T) {
 	}
 	defer ln.Close()
 	h, ok := startExternalServiceHarness(t, socketsDir,
-		`test -n "$1" || exit 9; cp `+seed+` "$1"; sleep 30`, loopholes.TransportLoopbackTLS)
+		`test -n "$1" || exit 9; cp `+seed+` "$1"; sleep 30`, loopholes.TransportLoopbackTLS, 0)
 	if !ok {
 		t.Fatal("a complete endpoint file did not satisfy the wait")
 	}
@@ -257,7 +283,12 @@ func TestExternalServiceRemovesStaleEndpoint(t *testing.T) {
 	}
 	// The fake daemon publishes NOTHING. If the stale file survived the spawn, the
 	// wait would be satisfied by it and we would get a handle.
-	h, ok := startExternalServiceHarness(t, socketsDir, `sleep 30`, loopholes.TransportLoopbackTLS)
+	//
+	// The deadline's magnitude cannot matter here: the stale file is removed (or not)
+	// synchronously BEFORE the spawn, so a survivor is on disk for the wait's first
+	// poll, and the Stat below checks the removal directly. Short, like its siblings.
+	h, ok := startExternalServiceHarness(t, socketsDir, `sleep 30`, loopholes.TransportLoopbackTLS,
+		300*time.Millisecond)
 	if ok {
 		if h.stop != nil {
 			h.stop()
@@ -1019,7 +1050,7 @@ func TestExternalServiceTeardownKillsProcessGroup(t *testing.T) {
 	// The daemon FORKS a sleeper, records its pid, publishes, and keeps running.
 	h, ok := startExternalServiceHarness(t, socketsDir,
 		`sleep 300 & echo $! > `+pidFile+`; cp `+seed+` "$1"; exec sleep 300`,
-		loopholes.TransportLoopbackTLS)
+		loopholes.TransportLoopbackTLS, 0)
 	if !ok {
 		t.Fatal("the harness daemon never became ready")
 	}
@@ -1236,7 +1267,7 @@ func TestExternalServiceAcceptsADaemonizingWrapper(t *testing.T) {
 	// The wrapper publishes from a BACKGROUND child, then exits 0 immediately —
 	// so the exited channel closes well before the endpoint appears.
 	h, ok := startExternalServiceHarness(t, socketsDir,
-		`( sleep 0.4; cp `+seed+` "$1" ) & exit 0`, loopholes.TransportLoopbackTLS)
+		`( sleep 0.4; cp `+seed+` "$1" ) & exit 0`, loopholes.TransportLoopbackTLS, 0)
 	if !ok {
 		t.Fatal("a wrapper that exits 0 after backgrounding its publisher must still " +
 			"reach readiness; the clean exit is not a failure")
