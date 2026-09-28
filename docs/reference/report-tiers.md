@@ -228,7 +228,8 @@ the config key, the local-pack path, the missing binary, or "none" — never by 
 | :--- | :--- | :--- | :--- |
 | table entry dropped (an MCP server, or an LSP server in Copilot's config) | the local pack's `pack.json`, one group across agents; its items are the entry names | a `config-overlay` in that file for each surface that lost an entry, under the table key its loss line names. `mcp_servers` and `lsp_servers` reach jails only, never a file host apply writes | *per surface* |
 | skill adopted (moved, unioned, archived) | the skill name, across dirs | remove it from the agent dir before applying, to opt one out; otherwise the move is the remedy | *all N dirs* |
-| your value replaced by a managed key | the surface | **none exists** at this notch: the line states *managed by the `<pack>` pack* and stops, with no `⚠` | — |
+| your value replaced by the owning pack's managed key | the winner | **none exists** at this notch — that layer outranks every declaration — so the group states it and stops, with no `⚠` | — |
+| your value replaced by a pack's `config-overlay` | the winner, one group per pack | remove the key from that pack's `config-overlay` for the surface, naming its `pack.json`; a shipped pack's overlay is not the user's to edit, so its group says to drop the pack instead | *this pack's overlay* |
 | comment dropped above a changed key | the surface | none possible; stated as a fact under the surface | — |
 | first apply would replace a value yolo never asserted | the home | the `[y/N]` prompt on `--assert` (`confirmHostLosses`); in a dry run, the flag in the verdict | — |
 | **blocker:** a declared dependency is missing | the binary, across packs | the remedy `depcheck` resolves for the detected manager, plus the package-manager alternative when the primary is the tool's own installer | *this host* |
@@ -279,7 +280,8 @@ instead of re-reading a paragraph per contribution.
 | **skipped** | yolo did not touch it, and it stays the user's | something yolo declined for its own reasons |
 | **does not apply** | this kind has no meaning at this notch | anything that stops the apply |
 | **refused** | the apply stopped; nothing was rendered | a notch fact |
-| **replaces** | a value of the user's is overwritten by a managed key | a key yolo already owned |
+| **replaces** | a value of the user's is overwritten by a managed key or a pack's `config-overlay`, measured against the file the write produces | a key yolo already owned, or one the write leaves as the file has it |
+| **kept** | under `host_management: own`, the user's captured edit outranks a pack's `config-overlay`, so the pack's value is not in effect. Not a loss: stated on its own line with how to take the pack's value (set it in the file and apply again) or drop every captured edit (`yolo config reset <surface> --at host`) | a replaced value |
 | **drops** | an entry of the user's is removed | a replaced value |
 | **moves** | a file of the user's becomes yolo-managed in the local pack | a copy — the original does not stay |
 | **archives** | content is retired into this run's archive generation | a delete; nothing is deleted |

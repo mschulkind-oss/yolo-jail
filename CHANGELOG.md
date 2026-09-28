@@ -230,6 +230,11 @@ apply it, and the launch says that too. See
   that no longer exists, such as a dotfiles link left after the dotfiles moved, and printed only
   `no such file or directory` between its report lines. It now names the link and its target,
   says to remove the link or recreate the folder, and applies everything else.
+- With `host_management: own`, `yolo host apply` said on every run that a pack's `config-overlay`
+  had overwritten one of your values, when your own edit was the value it kept, and that nothing
+  could keep your value. It now says your edit is kept over that pack's overlay and how to take
+  the pack's value instead. When an overlay does replace your value, it names the pack and says
+  to remove the key from that pack's overlay.
 
 ### Security
 

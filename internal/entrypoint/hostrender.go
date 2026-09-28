@@ -76,6 +76,14 @@ type HostRenderResult struct {
 	// A key coming from a config-overlay is labelled with the contributing pack, since
 	// the remedy there is a different pack than the surface's owner.
 	Overwrites []string
+	// Kept lists the dotted config-overlay keys whose declared value differs from the file and
+	// which the write nevertheless LEFT AS THE FILE HAS THEM, each labelled with the declaring
+	// pack — "hooks.Notification (config-overlay from matt)". Only `host_management: own`
+	// produces one: its fold ranks a captured edit above every config-overlay, so the user's
+	// value wins and the overlay's never lands. Not a loss (nothing of the user's changes); a
+	// declaration of theirs that is not in effect, which the report names with the way to take
+	// the pack's value instead. Mutually exclusive with Overwrites per key.
+	Kept []string
 	// Overlays names the packs contributing config-overlay keys to this surface, in fold
 	// order (later wins). It is the host-side half of ruling R3: an override folds in
 	// below the owner's managed layer, so it is invisible in the resulting file, and
@@ -413,6 +421,18 @@ func RenderHostPack(p *packload.Pack, homeDir string, ownership render.HostOwner
 		// never gets to write (see overlayOverwrites).
 		overwrites = append(overwrites,
 			overlayOverwrites(e, s, path, surfaceOverlays, outrankedKeys)...)
+		// UNDER `own`, MEASURED AGAINST THE WRITE. The two lists above read each layer's
+		// declaration against the file, which is the write under `assert` (rmw asserts every
+		// managed and overlay key). The `stateful` fold is not: a captured edit outranks every
+		// config-overlay, so a declared key can differ from the file and still leave it exactly as
+		// it is. Reported as an overwrite, that was the inverse of what happened, on every apply
+		// (hostcaptureoutranksoverlay_test.go). So under `own` an overwrite is a key whose value
+		// the composed file changes, and an overlay key the user's edit kept is named as KEPT.
+		var kept []string
+		if mechanism == manifest.ModeStateful {
+			overwrites, kept = hostStatefulOverwrites(e, s, path, tableLayer, contribs,
+				surfaceOverlays, outrankedKeys, overwrites)
+		}
 		// What the table write costs, per entry, PER MECHANISM (HC-D5): the loss list is
 		// computed by the mechanism that writes, like the change predicate below. Kept SEPARATE
 		// from Overwrites — see HostRenderResult.EntryLosses for why the distinction is what
@@ -443,7 +463,7 @@ func RenderHostPack(p *packload.Pack, homeDir string, ownership render.HostOwner
 				action = "unchanged"
 			}
 			out = append(out, HostRenderResult{Surface: id, Path: path, Action: action,
-				Overwrites: overwrites, Overlays: overlayPackNames(surfaceOverlays),
+				Overwrites: overwrites, Kept: kept, Overlays: overlayPackNames(surfaceOverlays),
 				Lists:     contribs.listPacks(),
 				Outranked: outranked, Pruned: pruned, EntryLosses: losses,
 				FirstApply: firstApply, Formatting: formatting, WouldChange: wouldChange,
@@ -524,8 +544,20 @@ func RenderHostPack(p *packload.Pack, homeDir string, ownership render.HostOwner
 			}
 			return out, fmt.Errorf("%s: %w", id, werr)
 		}
-		out = append(out, HostRenderResult{Surface: id, Path: path, Action: "rendered",
-			Overwrites: overwrites, Overlays: overlayPackNames(surfaceOverlays),
+		// `unchanged` when the write reproduced the file, in this posture as in the dry run: the
+		// line and the verdict's counts read the same predicate, so they cannot disagree about
+		// whether this surface changed.
+		// An adoption that reproduced the bytes says so: it wrote nothing new, and it took the
+		// one-way archive the line under it names.
+		action := "rendered"
+		switch {
+		case !wouldChange && archived != "":
+			action = "adopted"
+		case !wouldChange:
+			action = "unchanged"
+		}
+		out = append(out, HostRenderResult{Surface: id, Path: path, Action: action,
+			Overwrites: overwrites, Kept: kept, Overlays: overlayPackNames(surfaceOverlays),
 			Lists:     contribs.listPacks(),
 			Outranked: outranked, Pruned: pruned, EntryLosses: losses,
 			FirstApply: firstApply, Formatting: formatting, WouldChange: wouldChange,
@@ -1488,11 +1520,24 @@ func existingSurfaceObject(s manifest.Surface, path string) *jsonx.OrderedMap {
 // object managed value recurses (so a sibling the user owns under the same parent is not
 // reported); a missing existing key is an add, not an overwrite.
 func collectOverwrites(existing *jsonx.OrderedMap, managed map[string]any, prefix string, out *[]string) {
-	for _, k := range sortedKeys(managed) {
-		key := k
+	var paths [][]string
+	collectOverwritePaths(existing, managed, nil, &paths)
+	for _, p := range paths {
+		key := strings.Join(p, ".")
 		if prefix != "" {
-			key = prefix + "." + k
+			key = prefix + "." + key
 		}
+		*out = append(*out, key)
+	}
+}
+
+// collectOverwritePaths is collectOverwrites keeping each key as its SEGMENTS, so a caller can
+// look the same key up in another document — a key may itself contain a dot (pi's
+// "archimedes.sessionName"), which a dotted string cannot round-trip.
+func collectOverwritePaths(existing *jsonx.OrderedMap, managed map[string]any, prefix []string,
+	out *[][]string) {
+	for _, k := range sortedKeys(managed) {
+		key := append(append([]string(nil), prefix...), k)
 		mv := managed[k]
 		cur, present := existing.Get(k)
 		if !present {
@@ -1500,7 +1545,7 @@ func collectOverwrites(existing *jsonx.OrderedMap, managed map[string]any, prefi
 		}
 		if sub, isMap := mv.(map[string]any); isMap {
 			if curMap, ok := cur.(*jsonx.OrderedMap); ok {
-				collectOverwrites(curMap, sub, key, out)
+				collectOverwritePaths(curMap, sub, key, out)
 				continue
 			}
 			// managed wants an object where the user has a scalar/array — a real overwrite.
@@ -1511,6 +1556,80 @@ func collectOverwrites(existing *jsonx.OrderedMap, managed map[string]any, prefi
 			*out = append(*out, key)
 		}
 	}
+}
+
+// hostStatefulOverwrites re-measures the overwrite report against the file the `own` write
+// PRODUCES (see the call site). It composes the surface exactly as the writer does — the same
+// composeStatefulSurface call the change predicate makes, writing nothing — and keeps an
+// overwrite only where the composed value differs from the file's; an overlay key whose composed
+// value is still the file's is returned as kept. When the render cannot be composed (the refusal
+// probes have already reported why) the declaration-based list is returned unchanged.
+func hostStatefulOverwrites(e *Env, s manifest.Surface, path string, computed map[string]any,
+	contribs *surfaceContribs, overlays []agentcfg.Overlay, outranked map[string]bool,
+	declared []string) (overwrites, kept []string) {
+	r, err := composeStatefulSurface(e, s, nil, computed, hostTableInFull(computed), contribs)
+	if err != nil || r == nil || r.out == nil || r.out.Result == nil {
+		return declared, nil
+	}
+	composed, ok := r.out.Result.Config.(map[string]any)
+	if !ok {
+		return declared, nil
+	}
+	existing := existingSurfaceObject(r.surface, path)
+	changes := func(p []string) bool {
+		cur, _ := valueAtPath(jsonx.Plain(existing), p)
+		next, _ := valueAtPath(composed, p)
+		return !sameJSON(cur, next)
+	}
+	if managed, isMap := r.surface.Managed.(map[string]any); isMap {
+		var paths [][]string
+		collectOverwritePaths(existing, managed, nil, &paths)
+		for _, p := range paths {
+			if changes(p) {
+				overwrites = append(overwrites, strings.Join(p, "."))
+			}
+		}
+		sort.Strings(overwrites)
+	}
+	for _, ov := range overlays {
+		layer, isMap := ov.Data.(map[string]any)
+		if !isMap || len(layer) == 0 {
+			continue
+		}
+		var paths [][]string
+		collectOverwritePaths(existing, layer, nil, &paths)
+		sort.Slice(paths, func(i, j int) bool {
+			return strings.Join(paths[i], ".") < strings.Join(paths[j], ".")
+		})
+		for _, p := range paths {
+			key := strings.Join(p, ".")
+			if outranked[key] {
+				continue
+			}
+			label := key + " (config-overlay from " + ov.Pack + ")"
+			if changes(p) {
+				overwrites = append(overwrites, label)
+			} else {
+				kept = append(kept, label)
+			}
+		}
+	}
+	return overwrites, kept
+}
+
+// valueAtPath looks a key up by its segments in a plain decoded document.
+func valueAtPath(doc any, p []string) (any, bool) {
+	cur := doc
+	for _, seg := range p {
+		m, ok := cur.(map[string]any)
+		if !ok {
+			return nil, false
+		}
+		if cur, ok = m[seg]; !ok {
+			return nil, false
+		}
+	}
+	return cur, true
 }
 
 // sameJSON reports whether two decoded values are equal by their JSON serialization —

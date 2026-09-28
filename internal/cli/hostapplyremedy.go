@@ -24,10 +24,11 @@ package cli
 // docs/design/host-computed-layer.md §7); what keeps it one group is that every such overlay
 // goes in one file.
 //
-// A GROUP WITH NO REMEDY SAYS SO (P2). A replaced scalar has no fix at this notch — a
-// config overlay folds BELOW the owner's managed layer, which still wins — and a dropped
-// comment has none possible. Both state the fact and stop, rather than wearing a `⚠` that
-// implies a fix the reader will go looking for.
+// A GROUP WITH NO REMEDY SAYS SO (P2). A value replaced by the owning pack's MANAGED layer has
+// no fix at this notch — that layer outranks every declaration — and a dropped comment has none
+// possible. Both state the fact and stop, rather than wearing a `⚠` that implies a fix the reader
+// will go looking for. A value replaced by a pack's CONFIG-OVERLAY does have one when the pack is
+// the user's: edit the overlay (replacedValueGroups).
 //
 // EVERY GROUP IS REPRESENTED IN THE VERDICT (the verdict block). Grouping compresses the LINES,
 // never the SET: each group carries the term the verdict block must contain for its class,
@@ -106,9 +107,7 @@ func hostApplyRemedyGroups(s *hostApplySurvey, home string, write bool) []remedy
 	if g, ok := adoptedSkillGroup(s, home, write); ok {
 		out = append(out, g)
 	}
-	if g, ok := replacedValueGroup(s, write); ok {
-		out = append(out, g)
-	}
+	out = append(out, replacedValueGroups(s, home, write)...)
 	if g, ok := droppedCommentGroup(s, write); ok {
 		out = append(out, g)
 	}
@@ -305,34 +304,103 @@ func adoptedSkillGroup(s *hostApplySurvey, home string, write bool) (remedyGroup
 	return g, true
 }
 
-// replacedValueGroup is the remedy contract's no-remedy class, and the one P2 singles out: a
-// managed key overwriting a value of the user's has no fix at this notch, so the group says
-// which pack owns the keys and stops.
+// replacedValueGroups is the replaced-value class, ONE GROUP PER WINNER, because the remedy is
+// the winner's:
 //
-// No `⚠`. A config overlay folds BELOW the owner's managed layer, which still wins a conflict,
-// so the user cannot re-declare their value — the remedy is
-// config-ownership-and-promotion.md's to build, and until it ships a warning glyph here points
-// at nothing.
-func replacedValueGroup(s *hostApplySurvey, write bool) (remedyGroup, bool) {
-	keys, files := s.ReplacedValues()
+//   - A pack's CONFIG-OVERLAY wrote it. The overlay is a declaration in a pack, so keeping the
+//     user's value is an edit to that pack: remove or change the key in its `config-overlay`. When
+//     the pack is the user's own — the matt pack, the local pack — that is the whole fix, and the
+//     old text ("a config-overlay folds BELOW the managed layer, which still wins — so there is no
+//     way to keep your value") was false twice over: the overlay was the winner, and editing it is
+//     the way. A SHIPPED pack's overlay is not the user's to edit, so that group says so and stops.
+//   - The surface's OWN managed layer wrote it. That layer outranks everything but computed, so no
+//     declaration keeps the user's value at this notch, and the group says so with no `⚠` (P2).
+//
+// Each item names its file, so the group is the one place the loss is stated (the per-surface
+// `⚠ overwrote …` line that repeated it is gone).
+func replacedValueGroups(s *hostApplySurvey, home string, write bool) []remedyGroup {
+	keys, _ := s.ReplacedValues()
 	if keys == 0 {
-		return remedyGroup{}, false
+		return nil
 	}
-	verb := "would be replaced"
-	if write {
-		verb = "were replaced"
+	verbFor := func(n int) string {
+		if write {
+			return plural(n, "was replaced", "were replaced")
+		}
+		return "would be replaced"
 	}
-	return remedyGroup{
-		Class: remedyClassValueReplaced,
-		Key:   "",
-		Headline: fmt.Sprintf("%d of your values %s in %d %s", keys, verb, files,
-			plural(files, "file", "files")),
-		Items: s.ReplacedKeyNames(),
-		NoRemedy: "these keys are managed by the packs that declare them, and a " +
-			"config-overlay folds BELOW the managed layer, which still wins — so there is no " +
-			"way to keep your value at this notch yet",
-		VerdictTerm: "value",
-	}, true
+	byWinner := map[string][]replacedValue{}
+	var winners []string
+	for _, r := range s.replaced {
+		if _, seen := byWinner[r.Winner]; !seen {
+			winners = append(winners, r.Winner)
+		}
+		byWinner[r.Winner] = append(byWinner[r.Winner], r)
+	}
+	sort.Strings(winners)
+	var out []remedyGroup
+	for _, w := range winners {
+		vals := byWinner[w]
+		files := map[string]bool{}
+		items := make([]string, 0, len(vals))
+		surfaces := map[string]bool{}
+		for _, v := range vals {
+			files[v.Path] = true
+			surfaces[v.Surface] = true
+			items = append(items, v.Key+" in "+prettyHomePath(home, v.Path))
+		}
+		sort.Strings(items)
+		g := remedyGroup{Class: remedyClassValueReplaced, Items: items, VerdictTerm: "value"}
+		if w == "" {
+			g.Headline = fmt.Sprintf("%d %s of yours %s by keys the owning pack manages",
+				len(vals), plural(len(vals), "value", "values"), verbFor(len(vals)))
+			g.NoRemedy = "a pack's managed keys outrank every declaration at this notch"
+			out = append(out, g)
+			continue
+		}
+		g.Key = "pack:" + w
+		g.Headline = fmt.Sprintf("%d %s of yours %s by %s's config-overlay", len(vals),
+			plural(len(vals), "value", "values"), verbFor(len(vals)), w)
+		if manifest, ok := editablePackManifest(s, w); ok {
+			g.Remedy = fmt.Sprintf("to keep yours, remove %s from the `config-overlay` for %s in "+
+				"%s, then apply again", plural(len(vals), "that key", "those keys"),
+				joinWords(sortedKeysOf(surfaces), "and"), prettyHomePath(home, manifest))
+			g.Warn = true
+		} else {
+			g.NoRemedy = fmt.Sprintf("%s is a shipped pack, so its overlay is not yours to edit; "+
+				"drop it from `packs` to keep your value", w)
+		}
+		out = append(out, g)
+	}
+	return out
+}
+
+// editablePackManifest is the pack.json of a configured pack the user can edit — any pack this
+// run loaded that is not one yolo ships from its own embedded tree.
+func editablePackManifest(s *hostApplySurvey, name string) (string, bool) {
+	if s == nil {
+		return "", false
+	}
+	embedded := paths.EmbeddedPacksDir()
+	for _, p := range s.loaded {
+		if p.Name != name || p.Root == "" {
+			continue
+		}
+		if rel, err := filepath.Rel(embedded, p.Root); err == nil && !strings.HasPrefix(rel, "..") {
+			return "", false
+		}
+		return filepath.Join(p.Root, "pack.json"), true
+	}
+	return "", false
+}
+
+func sortedKeysOf(m map[string]bool) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
 }
 
 // droppedCommentGroup is the other no-remedy class: a canonical re-emit cannot keep a comment
@@ -409,7 +477,8 @@ const (
 	remedyClassEntryDropped = "entry_dropped"
 	// remedyClassSkillAdopted — a skill of the user's moves into their local pack.
 	remedyClassSkillAdopted = "skill_adopted"
-	// remedyClassValueReplaced — a managed key replaces a value of the user's. No remedy.
+	// remedyClassValueReplaced — a managed key or a pack's config-overlay replaces a value of the
+	// user's. A remedy only when the overlay's pack is the user's to edit.
 	remedyClassValueReplaced = "value_replaced"
 	// remedyClassCommentDropped — a comment above a changed key does not come back. No remedy.
 	remedyClassCommentDropped = "comment_dropped"

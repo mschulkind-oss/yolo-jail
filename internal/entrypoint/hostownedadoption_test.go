@@ -74,8 +74,10 @@ func TestSwitchingToOwnKeepsACanonicalFileByteIdentical(t *testing.T) {
 	if err != nil {
 		t.Fatalf("first `own` apply: %v", err)
 	}
-	if len(results) != 1 || results[0].Action != "rendered" {
-		t.Fatalf("the owned render did not render: %+v", results)
+	// `adopted`: the render composed the file out of what it held, archived it first, and
+	// reproduced it byte for byte, so it is not a change and says what it did instead.
+	if len(results) != 1 || results[0].Action != "adopted" {
+		t.Fatalf("the owned render did not adopt: %+v", results)
 	}
 
 	after, err := os.ReadFile(path)

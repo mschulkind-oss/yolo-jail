@@ -729,13 +729,21 @@ func applyHostSurveyed(out, errw io.Writer, color bool, write bool, stdin io.Rea
 			// Warn on every managed key that overwrites a DIFFERING existing value — the
 			// host-notch "always warn" (§4.2 / Phase 9). Shown in observe too, so the
 			// preview is not path-only (finding D2): you see the collision before writing.
-			if len(r.Overwrites) > 0 {
-				verb := "would overwrite"
-				if write {
-					verb = "overwrote"
-				}
-				pr.Printf("    [yellow]⚠ %s your existing value for: %s[/yellow]",
-					verb, strings.Join(r.Overwrites, ", "))
+			// The REPLACED values are not repeated here: their group (hostapplyremedy.go's
+			// replacedValueGroups) names each key with its file and the remedy its winner
+			// allows, once. This line used to say it a second time, per surface.
+			//
+			// A KEPT value is this surface's own fact, with no group: under `own` the user's
+			// captured edit outranks a config-overlay, so the pack's value is not in effect.
+			// Self-contained, because the surface's own line above is usually hidden (nothing
+			// changed): it names the surface and the file itself.
+			for _, k := range r.Kept {
+				key, pack := splitOverwriteLabel(k)
+				pr.Printf("  [cyan]%-20s[/cyan] %s: your own edit is kept over %s's config-overlay",
+					r.Surface, key, pack)
+				pr.Printf("    [dim]→ to take %s's value, set %s in %s to it and apply again; "+
+					"`yolo config reset %s --at host` drops every edit yolo captured there[/dim]",
+					pack, key, prettyHomePath(home, r.Path), r.Surface)
 			}
 			// Named-ENTRY casualties: a server whose record comes out merged or gone. Louder
 			// than an overwrite because nothing in the resulting file says what it used to be

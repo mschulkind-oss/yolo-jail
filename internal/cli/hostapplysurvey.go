@@ -155,6 +155,9 @@ type hostApplySurvey struct {
 	// failures is everything this apply could not write, attributed to its packs, and
 	// unattributedFailure whether some stage failed where no pack can be named; loaded is the
 	// resolved pack set. See hostapplyfailures.go for the three readers.
+	// replaced is every value of the user's this run replaces, with WHO replaced it — the
+	// remedy differs by winner (hostapplyremedy.go's replacedValueGroups).
+	replaced            []replacedValue
 	failures            []hostFailure
 	unattributedFailure bool
 	loaded              []*packload.Pack
@@ -275,6 +278,9 @@ func (s *hostApplySurvey) noteConfig(r entrypoint.HostRenderResult) {
 	for _, k := range r.Overwrites {
 		s.mark(&s.replacedKeys, k)
 		s.mark(&s.replacedFiles, r.Path)
+		key, winner := splitOverwriteLabel(k)
+		s.replaced = append(s.replaced, replacedValue{Key: key, Winner: winner,
+			Surface: r.Surface, Path: r.Path})
 	}
 	for _, e := range r.EntryLosses {
 		s.mark(&s.droppedEntries, entryLossName(e))
@@ -337,6 +343,23 @@ func configResultTier(r entrypoint.HostRenderResult) reportTier {
 		return tierLoss
 	}
 	return tierRun
+}
+
+// replacedValue is one value of the user's a render replaces: the key, the surface and file it
+// sits in, and the WINNER — the pack whose config-overlay wrote it, or "" for a managed key of
+// the surface's own pack.
+type replacedValue struct {
+	Key, Winner, Surface, Path string
+}
+
+// splitOverwriteLabel splits one HostRenderResult.Overwrites entry, "<key>" or
+// "<key> (config-overlay from <pack>)", into the key and the overlay's pack.
+func splitOverwriteLabel(label string) (key, overlayPack string) {
+	const mark = " (config-overlay from "
+	if i := strings.LastIndex(label, mark); i >= 0 && strings.HasSuffix(label, ")") {
+		return label[:i], label[i+len(mark) : len(label)-1]
+	}
+	return label, ""
 }
 
 // entryLossName reduces one HostRenderResult.EntryLosses string to the NAME of the entry it is
