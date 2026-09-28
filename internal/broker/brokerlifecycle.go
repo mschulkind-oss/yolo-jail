@@ -178,6 +178,12 @@ type Deps struct {
 	// across the entire transition.
 	PrepareLocked func() (afterStop func() error, err error)
 
+	// SettingsPath is the settings file the daemon's argv hands it (the manifest's
+	// `{settings}` token), or "" when it is handed none. The spawn RECORDS what that file
+	// held, and the ensure restarts a live daemon whose record differs from what the file
+	// holds now (settingsrecord.go). SingletonDeps derives it from the name and the argv.
+	SettingsPath string
+
 	// Argv is the singleton's spawn argv, already fully substituted (the running
 	// yolo's own path at argv[0] where the manifest wrote the bare `yolo` token,
 	// and SocketPath in place of `{socket}`).
@@ -223,6 +229,9 @@ func SingletonDeps(name string, argv []string) Deps {
 		LockPath:    paths.HostSingletonLock(name),
 		LogPath:     SingletonLogPath(name),
 		Argv:        argv,
+		// Derived, never passed: the settings file is a function of the loophole NAME, and
+		// the argv decides only whether this daemon is handed it at all.
+		SettingsPath: settingsPathIn(name, argv),
 
 		Now:        time.Now,
 		Sleep:      time.Sleep,
@@ -344,6 +353,7 @@ func BrokerKill(deps Deps, sig syscall.Signal, timeout time.Duration) bool {
 	removeIgnoreMissing(deps.PIDFilePath)
 	removeIgnoreMissing(deps.SocketPath)
 	removeIgnoreMissing(singletonStampPath(deps))
+	removeIgnoreMissing(settingsRecordPath(deps))
 	return true
 }
 
@@ -374,7 +384,37 @@ func BrokerSpawnArgv(launcher []string, socketPath string) []string {
 // resolve the launcher, spawn the daemon detached, write the PID file, and wait
 // for the socket to bind. Returns the socket path regardless of outcome (Python
 // leaves the PID file for `yolo broker status` when the bind fails).
-func BrokerSpawn(deps Deps) string {
+//
+// It is EnsureSingleton for the callers that need only the path.
+func BrokerSpawn(deps Deps) string { return EnsureSingleton(deps).Socket }
+
+// Ensured is what EnsureSingleton leaves behind.
+type Ensured struct {
+	// Socket is the daemon's socket path, whatever the outcome.
+	Socket string
+	// Stale is non-nil when a LIVE daemon is serving settings other than the ones its
+	// settings file now holds and this ensure could NOT replace it — the one outcome a
+	// caller must not paper over by fronting the daemon anyway. It names changed keys only.
+	Stale *SettingsDrift
+}
+
+// EnsureSingleton is BrokerSpawn with the outcome a caller can act on.
+//
+// A LIVE DAEMON IS REUSED ONLY WHILE IT RUNS THE CURRENT SETTINGS. Inside the flock, a live
+// daemon whose settings record differs from the file its argv names — or that has no record
+// at all — is stopped (the `yolo host-daemon restart` sequence: SIGTERM, a drain of in-flight
+// requests, SIGKILL after BrokerKillTimeout) and respawned, with one line naming the changed
+// KEYS (docs/design/host-daemon-ownership.md HD-D2). Under the flock, so two launches with
+// the same new settings restart it once: the second finds the first's record matching.
+//
+// Why a restart is safe for the OTHER jails sharing it: each jail's front owns its own
+// certificate and bearer token and dials the daemon's socket afresh for every connection
+// (svcendpoint's splice), so a respawned daemon at the same path serves every existing front
+// from its next request, and nothing inside a jail changes. What a restart costs them is the
+// requests in flight past the drain grace, and the connections refused in the gap before the
+// new daemon binds.
+func EnsureSingleton(deps Deps) Ensured {
+	done := Ensured{Socket: deps.SocketPath}
 	_ = os.MkdirAll(filepath.Dir(deps.LockPath), 0o755)
 	lockF, err := os.OpenFile(deps.LockPath, os.O_CREATE|os.O_WRONLY, 0o644)
 	if err != nil {
@@ -384,7 +424,8 @@ func BrokerSpawn(deps Deps) string {
 		// reachability witness to fail later naming the socket (host-daemon-ownership.md
 		// OQ-HD8).
 		reportLockFailure(deps, "open", err)
-		return deps.SocketPath
+		done.Stale = staleUnreplaceable(deps)
+		return done
 	}
 	defer lockF.Close()
 	if err := syscall.Flock(int(lockF.Fd()), syscall.LOCK_EX); err != nil {
@@ -392,7 +433,8 @@ func BrokerSpawn(deps Deps) string {
 		// LOCK_EX on a descriptor just opened fails for an interrupted wait (EINTR) or a
 		// kernel out of lock records (ENOLCK), and a unit test can arrange neither.
 		reportLockFailure(deps, "lock", err)
-		return deps.SocketPath
+		done.Stale = staleUnreplaceable(deps)
+		return done
 	}
 	if deps.PrepareLocked != nil {
 		afterStop, prepErr := deps.PrepareLocked()
@@ -402,7 +444,7 @@ func BrokerSpawn(deps Deps) string {
 					"[yellow]Warning: could not prepare host-wide daemon '" + deps.Name +
 						"': " + prepErr.Error() + "[/yellow]")
 			}
-			return deps.SocketPath
+			return done
 		} else if afterStop != nil {
 			BrokerKill(deps, syscall.SIGTERM, BrokerKillTimeout)
 			if err := afterStop(); err != nil {
@@ -411,13 +453,18 @@ func BrokerSpawn(deps Deps) string {
 						"[yellow]Warning: could not migrate state for host-wide daemon '" + deps.Name +
 							"': " + err.Error() + "[/yellow]")
 				}
-				return deps.SocketPath
+				return done
 			}
 		}
 	}
 
 	if BrokerIsAlive(deps) {
-		return deps.SocketPath
+		drift, judged := RunningSettingsDrift(deps)
+		if !judged || !drift.Stale() {
+			return done
+		}
+		reportSettingsRestart(deps, drift)
+		BrokerKill(deps, syscall.SIGTERM, BrokerKillTimeout)
 	}
 
 	// A Deps with no argv cannot spawn anything, and saying so beats handing an
@@ -430,7 +477,7 @@ func BrokerSpawn(deps Deps) string {
 				"[yellow]Warning: the host-wide daemon at " + deps.SocketPath +
 					" has no spawn argv; nothing was started.[/yellow]")
 		}
-		return deps.SocketPath
+		return done
 	}
 
 	// Clean any stale socket left by a crashed prior broker; a second bind(2)
@@ -442,21 +489,39 @@ func BrokerSpawn(deps Deps) string {
 	// `yolo internal daemon claude-oauth-broker` re-execs THIS process rather than
 	// resolving "yolo" on PATH (RealDeps and the run pipeline's record-driven
 	// SingletonDeps both apply execx.SelfExecArgv before they get here).
+	// Read BEFORE the spawn, as close as yolo can get to the read the daemon makes at its
+	// own startup; recorded only once there is a PID for the record to describe.
+	spawnSettings := readSpawnSettings(deps)
 	pid, exited, err := deps.Spawn(deps.Argv, deps.LogPath)
 	if err != nil {
 		// Return the socket path anyway: the caller's liveness re-check is
 		// what reports a daemon that never started.
-		return deps.SocketPath
+		return done
 	}
 	_ = os.WriteFile(deps.PIDFilePath, []byte(strconv.Itoa(pid)+"\n"), 0o644)
 	// Stamp the singleton as one THIS build started, so a later launch can tell a
 	// compatible daemon from one predating the fronted conversion. See
 	// SingletonSpeaksPreamble.
 	_ = os.WriteFile(singletonStampPath(deps), []byte(singletonStamp+"\n"), 0o644)
+	writeSettingsRecord(deps, spawnSettings)
 	if !brokerWaitForSocket(deps, deps.SocketPath, BrokerSpawnTimeout, exited) {
 		reportFailedSpawn(deps, exited)
 	}
-	return deps.SocketPath
+	return done
+}
+
+// staleUnreplaceable is the drift an ensure that could not take the spawn lock leaves
+// standing: a live daemon whose record names CHANGED keys. Unrecorded is not reported here —
+// it is "cannot tell", not "known stale", and the lock failure is already on the screen.
+func staleUnreplaceable(deps Deps) *SettingsDrift {
+	if !BrokerIsAlive(deps) {
+		return nil
+	}
+	drift, judged := RunningSettingsDrift(deps)
+	if !judged || len(drift.Changed) == 0 {
+		return nil
+	}
+	return &drift
 }
 
 // reportFailedSpawn writes the line brokerWaitForSocket's return value exists

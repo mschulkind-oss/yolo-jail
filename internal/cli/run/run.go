@@ -2060,6 +2060,9 @@ func (o *Options) attachExisting(cname, rt, targetCmd string, cfg *jsonx.Ordered
 	// What this attach did NOT deliver: the configured packs, when they differ from the ones
 	// the jail booted with (OQ-PK2 (c)'s notice).
 	o.noteBootedPackSetDiffers(rt, cname, view)
+	// And what it did not APPLY: a host-wide daemon's settings the config has changed since it
+	// started. Reported, never restarted, from an attach (noteSingletonSettingsDrift).
+	o.noteSingletonSettingsDrift(cfg)
 	// Attach gets the notice too, and that is not symmetry for its own sake: once a
 	// jail is up, attaching is how a user re-enters it, so a fresh-launch-only notice
 	// is one a user with a long-lived jail may never see.

@@ -879,10 +879,26 @@ func (o *Options) startHostSingleton(
 	if name == openaiauth.LoopholeName {
 		deps.PrepareLocked = prepareLegacyOpenAIAuthState(o.Workspace, deps)
 	}
-	// Always enter BrokerSpawn: it owns the singleton flock and returns quickly
+	// Always enter the ensure: it owns the singleton flock and returns quickly
 	// for a healthy daemon, while one-time state migrations must run under that
 	// lock even when the old daemon is still alive.
-	broker.BrokerSpawn(deps)
+	//
+	// It is also where a live daemon running settings this launch just replaced is
+	// RESTARTED rather than reused (broker.EnsureSingleton, host-daemon-ownership.md
+	// HD-D2). The file writeLoopholeSettings wrote above is what it compares against.
+	ensured := broker.EnsureSingleton(deps)
+	if ensured.Stale != nil {
+		// THE ONE OUTCOME THAT REFUSES THE FRONT: a daemon known to be serving other
+		// settings, which the ensure could not replace (it could not take the spawn lock,
+		// and killing a singleton without it races another launch's spawn). Fronting it
+		// anyway would hand this jail the settings its config no longer says, silently —
+		// the defect HD-D2 exists to end. Keys only, never values.
+		o.pr(o.Stdout).print("[red]Refusing to use the host-wide daemon for '" + name +
+			"': it is running with settings other than the configured ones (" +
+			strings.Join(ensured.Stale.Changed, ", ") + ") and yolo could not restart it. " +
+			"Clear the lock problem above, then run: " + broker.CycleCommand(name) + "[/red]")
+		return loopholeDaemon{}, false
+	}
 	if broker.BrokerIsAlive(deps) && !broker.SingletonSpeaksPreamble(deps) {
 		// ALIVE BUT INCOMPATIBLE — the one state every other surface calls healthy.
 		// A daemon started before this loophole moved behind a front is still

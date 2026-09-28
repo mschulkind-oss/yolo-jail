@@ -12,6 +12,12 @@ import (
 // machine-wide /tmp/yolo-<name>.* and stops the ones its tests started
 // (testsupport.IsolateHostSingletons says why).
 func TestMain(m *testing.M) {
+	// `<test-binary> -settings-sleeper-child <socket> <settings>` is a fake host-wide daemon
+	// for singletonsettings_test.go: it binds its socket and accepts until killed. The
+	// settings path is in its argv only so the spawn records what it was handed.
+	if len(os.Args) >= 4 && os.Args[1] == "-settings-sleeper-child" {
+		os.Exit(settingsSleeperChildMain(os.Args[2]))
+	}
 	release := testsupport.IsolateHostSingletons()
 	code := m.Run()
 	release()

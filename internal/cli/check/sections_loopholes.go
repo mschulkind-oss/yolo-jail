@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/broker"
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
@@ -167,6 +168,9 @@ func (o *Options) checkLoopholes(r *reporter) {
 			r.ok("loophole " + lp.Name + ": inactive (" + reason + ")")
 			continue
 		}
+		// BEFORE the doctor_cmd gate, so a host-wide daemon that declares no self-check is
+		// still graded on whether it runs the configured settings (HD-D2).
+		reportSingletonSettings(r, lp, userSwitches)
 		if len(lp.DoctorCmd) == 0 {
 			r.ok("loophole " + lp.Name + ": no self-check declared")
 			continue
@@ -215,6 +219,55 @@ func (o *Options) checkLoopholes(r *reporter) {
 			o.reportBrokerDaemon(r)
 		}
 	}
+}
+
+// reportSingletonSettings grades a RUNNING host-wide daemon against the settings the merged
+// config resolves to (docs/design/host-daemon-ownership.md HD-D2): a [WARN] naming the keys
+// that differ — never a value, since a setting can be a credential — or a pass. Silent for a
+// loophole with no running host-wide daemon that is handed settings: nothing to compare.
+//
+// `yolo check` only REPORTS. The remedy it names is a fresh launch, which restarts the
+// daemon after the config-change approval; `yolo host-daemon restart` would not do, because
+// it respawns from the settings file the LAST launch wrote, which predates this config.
+func reportSingletonSettings(r *reporter, lp *loopholes.Loophole, loopCfg *jsonx.OrderedMap) {
+	drift, applicable := broker.ConfiguredSettingsDrift(lp, loopholeSettingsBlock(loopCfg, lp.Name))
+	switch {
+	case !applicable:
+	case drift.Unrecorded:
+		r.warn("loophole "+lp.Name+": running daemon's settings are unknown",
+			"It was started by a yolo that did not record the settings a host-wide daemon is "+
+				"handed, so check cannot tell whether it runs the configured ones. The next "+
+				"launch restarts it with them; it is shared, so every jail using it gets them.")
+	case len(drift.Changed) > 0:
+		r.warn("loophole "+lp.Name+": running daemon's settings differ from config ("+
+			strings.Join(drift.Changed, ", ")+")",
+			"It was started with other values for these keys (values are never shown: a "+
+				"setting can be a credential). The next launch restarts it with the configured "+
+				"ones; it is shared, so every jail using it gets them.")
+	default:
+		r.ok("loophole " + lp.Name + ": running daemon's settings match config")
+	}
+}
+
+// loopholeSettingsBlock returns `<name>.settings` from a merged `loopholes` block, or nil.
+func loopholeSettingsBlock(loopCfg *jsonx.OrderedMap, name string) *jsonx.OrderedMap {
+	if loopCfg == nil {
+		return nil
+	}
+	entryV, ok := loopCfg.Get(name)
+	if !ok {
+		return nil
+	}
+	entry, isMap := entryV.(*jsonx.OrderedMap)
+	if !isMap {
+		return nil
+	}
+	settingsV, ok := entry.Get("settings")
+	if !ok {
+		return nil
+	}
+	settings, _ := settingsV.(*jsonx.OrderedMap)
+	return settings
 }
 
 // inertReason reports why a loophole whose switch is ON still does nothing here, or

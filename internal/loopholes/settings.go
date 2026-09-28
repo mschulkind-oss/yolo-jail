@@ -140,8 +140,7 @@ func WriteSettings(lp *Loophole, supplied *jsonx.OrderedMap) (string, []string, 
 	if lp == nil || len(lp.Settings) == 0 {
 		return "", nil, nil
 	}
-	values, problems := ResolveSettings(lp, supplied)
-	payload, err := jsonx.DumpsCompact(values)
+	payload, problems, err := SettingsPayload(lp, supplied)
 	if err != nil {
 		return "", problems, err
 	}
@@ -177,6 +176,16 @@ func WriteSettings(lp *Loophole, supplied *jsonx.OrderedMap) (string, []string, 
 		return "", problems, err
 	}
 	return path, problems, nil
+}
+
+// SettingsPayload is the exact JSON object WriteSettings writes for these supplied values,
+// without writing it — so a reader that must compare a config against what a daemon was
+// handed (`yolo check`, an attach) resolves through the same function and encoding the
+// launch writes with, rather than a second rendering that could disagree.
+func SettingsPayload(lp *Loophole, supplied *jsonx.OrderedMap) (string, []string, error) {
+	values, problems := ResolveSettings(lp, supplied)
+	payload, err := jsonx.DumpsCompact(values)
+	return payload, problems, err
 }
 
 // settingKeyList renders the declared keys for an error message.
