@@ -14,360 +14,338 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-Agents can use Bedrock through your SSO login, every agent shows a footer naming its billing route,
-and a launch refuses an agent that cannot speak its provider's protocol.
+Claude can use Bedrock through your AWS SSO login, and a repository's skills now reach every
+agent in the jail. Each agent shows a footer naming where it runs and who is billed. A
+provider's key now reaches only the agent that selected it. Read the first items under Changed
+before you upgrade from 0.10.0: some commands and config shapes are now refused, and a few
+defaults changed.
 
 ### Added
 
-**Bedrock from your SSO login.** The `aws-auth` pack, which the claude pack brings along, turns a
-host `aws sso login` into a short-lived credential for a role you name. The jail holds no key and
-no `~/.aws`. Enable `loopholes.aws-auth` in your user config with a `profile` and `role_arn`, as
-[the pack's README](packs/aws-auth/README.md) shows, then run `yolo -p bedrock -- claude`.
-Changing those settings takes effect at your next launch, which restarts the shared service and
-says so, and `yolo check` tells you when the running service still has the old ones. The
-credential is served only to the agents of the launch that asked, even in a jail that shares
-your host's network. Where the service does not run (macos-user, `yolo host`, or a jail that has
-not enabled it) the launch leaves the Bedrock settings out and says so.
+**Bedrock from your SSO login.** The new `aws-auth` pack, which the claude pack brings along,
+turns a host `aws sso login` into a short-lived credential for an AWS role you name. The jail
+holds no key and no `~/.aws`. Enable `loopholes.aws-auth` in your user config with a `profile`
+and a `role_arn`, as [the pack's README](packs/aws-auth/README.md) shows, then run
+`yolo -p bedrock -- claude`. Changing those settings takes effect at your next launch, which
+restarts the shared service and says so, and `yolo check` tells you when the running service
+still has the old ones. The credential is served only to the agents of the launch that asked,
+even in a jail that shares your host's network. Where the service does not run (macos-user,
+`yolo host`, or a jail that has not enabled it), the launch leaves the Bedrock settings out and
+says so.
 
-**An agent footer.** Every agent with a status-line hook shows its billing route and whether it
-runs in a jail or on the host, unless you set your own `statusLine`. Claude's also shows its
-thinking level.
+**A repository's skills reach every agent in the jail.** Skills a repository commits for one
+agent, such as `.claude/skills/`, `.agents/skills/` or `.github/skills/`, now also reach the
+agents that do not read that directory, in containers and on macos-user. An agent that reads the
+directory itself gets no second copy. A repository skill never replaces yolo's own skills or a
+pack's, and the launch names each one it held back. It also names any symbolic link that points
+outside the repository and never reads through one. A path too deep to deliver, or a file that
+cannot be copied, is named and skipped rather than stopping the launch, and nothing is written
+into the repository. See [the workspace layer](docs/reference/agent-briefings.md#the-workspace-layer).
+
+**An agent footer.** Every agent that has a status line shows who is billed for it (your
+subscription, or the provider its profile selected) and whether it runs in a jail or on your
+host, unless you set your own `statusLine`. Claude's footer also shows its thinking level.
 
 **Agents and providers are checked against each other.** A launch whose agent cannot speak any
-protocol its provider serves is refused, naming any shipped pack that translates between them.
-`yolo check` predicts it. On your own machine, `yolo host` refuses a profile its agent could
-reach only through the jail's wire bridge, which runs only in a container jail (podman or Apple
-Container, not macos-user), and names the jail launch that works. A macos-user launch refuses it
-the same way, where it used to start the agent against an address nothing served. It no longer starts the agent
-pointed at an address nothing serves, and it no longer tells you to add `wire-bridge` to
-`packs`, which changes nothing there. A profile whose provider the launch does not have, such as
-one a `null` in your `providers` removes, is refused naming why when yolo would configure the
-agent from that provider, in a jail and on the host; the agent used to start without any of its
-settings. See
-[Providers](docs/reference/providers.md).
+protocol its provider serves is refused, and the refusal names any shipped pack that translates
+between them. `yolo check` predicts the refusal. On your own machine, `yolo host` refuses a
+profile its agent could reach only through the jail's wire bridge (the in-jail service that
+translates between Claude's protocol and OpenAI-style providers), and names the jail launch that
+works. A macos-user launch refuses the same profile, where it used to start the agent pointed at
+an address nothing served. A profile whose provider the launch does not have, such as one a
+`null` in your `providers` removes, is refused with the reason, where the agent used to start
+without any of its settings. See [Providers](docs/reference/providers.md).
 
-**Host-only entries from a pack.** A pack's `autonomy` postures can carry `lists`: entries added
-to another pack's config array only at that posture. A `guarded` list reaches your host through
-`yolo host apply` and no jail, so a pack can give host pi a permission-gate extension that would
-only cost tokens and prompts in a jail. See [posture lists](docs/reference/pack-system.md#autonomy).
-
-**A repository's skills reach every agent in the jail.** Skills a repo commits for one agent,
-such as `.claude/skills/`, `.agents/skills/` or `.github/skills/`, now also reach the agents
-that do not read that directory, in containers and on macos-user. An agent that reads the
-directory itself gets no second copy, and no other skill of the same name from elsewhere in the
-repo. A repo skill never replaces yolo's own skills or a pack's in what yolo gives an agent, and
-the launch names every one it held back; when an agent reads the repo's copy of such a skill by
-itself, the launch says that too. It also names any symlink that points outside the repository,
-and never reads through one. A repository cannot stop a launch this way: a path too deep for
-every agent to be given, or a file that cannot be copied, is named and skipped. Nothing is
-written into the repository. See
-[the workspace layer](docs/reference/agent-briefings.md#the-workspace-layer).
+**Commands for yolo's host services.** `yolo host-daemon status` lists every machine-wide service
+yolo runs and whether each is healthy, and `yolo host-daemon stop|restart|logs <name>` manages
+one. `yolo broker` still works and means the Claude login service. `yolo openai-auth status`,
+`import` and `logout` manage the one ChatGPT login every workspace and jail on the machine
+shares. It was hidden under `yolo internal openai-auth`, which still works and tells you the new
+name.
 
 **A jail's builds can yield the disk.** Set `"resources": {"io": "low"}`, or `"idle"`, and every
 process in a podman jail on Linux runs at a lower disk priority, so a build stops stalling your
-desktop when both want the disk. Disks whose scheduler is bfq honor both values and mq-deadline
-honors `"idle"`; kyber and none, the usual NVMe default, ignore it. The launch says so when the
-disk under your workspace is one of those, and `yolo check` grades that disk and names the host
-change. The priority is advisory rather than a limit, and it does not reach buffered writes or
-a `nix build`, which runs in the host's nix daemon. Apple Container and podman on macOS cannot
-apply it, and the launch says that too. See
+desktop when both want the disk. Disks whose I/O scheduler is bfq honor both values and
+mq-deadline honors `"idle"`. kyber and none, the usual NVMe default, ignore it: the launch says so
+when the disk under your workspace is one of those, and `yolo check` names the host change that
+fixes it. The priority does not reach buffered writes or a `nix build`, which runs in the host's
+Nix daemon. Apple Container and podman on macOS cannot apply it, and the launch says that too. See
 [resources per setup](userguide/reference/settings-per-setup.md#resources-devices-and-networking).
 
-- `yolo host-daemon status|stop|restart|logs` manages the machine-wide daemons.
-- `nix shell` and `nix build` work in a jail with no extra flags.
+**Slow launch steps show their progress.** Loading the image after `podman image prune` or an
+upgrade shows a live line with how many layers and gigabytes it has copied, as it did before
+0.10.0. The image build, the first build of yolo's image copier, loading the image on Apple
+Container and podman on macOS, a wait behind another launch, a pack update, the macOS native build
+and a first-boot `mise install` show one too. A step that finishes within two seconds prints
+nothing new.
+
+**Nix on macos-user.** The sandbox finds your host's `nix` on its PATH, talking to the host's Nix
+daemon, with `nix-command` and flakes enabled. A single-user Nix install has no daemon to talk to,
+so the sandbox gets no `nix` and the launch says why. In a container jail, `nix shell` and
+`nix build` now work with no extra flags.
+
+**Route an agent through the wire bridge.** A profile can name `"via": "wire-bridge"` to send pi,
+omp, opencode or codex traffic through the bridge, which adds the provider's key itself, so
+the agent holds only a per-launch secret for the bridge. Selecting such a profile brings the
+bridge pack into the jail, and the launch refuses a route the bridge cannot serve. See
+[routing a profile through the bridge](docs/reference/providers.md#routing-a-profile-through-the-bridge-via).
+
+**Pack authors can add to another pack's config.** A `config-list` contribution adds entries to
+an array in a config file another pack owns, without copying the file. An `autonomy` posture can
+carry the same `lists`, added only at that posture: a `guarded` list reaches your host through
+`yolo host apply` and no jail, so a pack can give host pi a permission-prompt extension that would
+only cost tokens in a jail. See
+[adding entries to an array](docs/reference/pack-system.md#adding-entries-to-an-array-config-list)
+and [posture lists](docs/reference/pack-system.md#autonomy).
+
+**A user guide.** Installing, configuring and troubleshooting yolo is written up as a guide,
+published at [docs.yolo-jail.mschulkind.dev](https://docs.yolo-jail.mschulkind.dev).
+
+- yolo honors `NO_COLOR`, and a jail launched with it set shows no color either.
+- `yolo config reset` on your host discards the config edits an agent made inside a jail that is
+  no longer running. While that jail runs, it refuses and names the command to run inside it.
+- `yolo check` warns when a program your packs install has no host wrapper, or when another
+  program of the same name comes earlier on your PATH, and names the fix.
 
 ### Changed
 
-- **Ctrl-C reaches the jail**, interrupting what runs there, such as a Claude reply, instead of
-  ending your session.
-- **Re-entering a jail an older yolo started asks before going on** when that jail cannot take
-  the profile you selected. At a terminal, `Restart jail now? [Y/n]` says how many sessions a
-  restart ends. Elsewhere, yolo stops and tells you to run `yolo stop` first (`container stop`
-  on Apple Container). It used to warn and start the session without the profile.
-  `YOLO_ALLOW_ATTACH_SKEW=1` re-enters anyway.
+The first items here need your attention when you upgrade from 0.10.0.
+
+- **A provider's key reaches only the agent that selected it.** An `env_sources` value that a
+  provider claims as its key, and the settings a profile composes, used to reach every process in
+  the jail, so pi could use Bedrock because Claude's profile had the keys. Now only the agent whose
+  profile selected that provider gets them, and a plain shell sees only the `env_sources` values no
+  provider claims. opencode's menu offers only the provider its profile selected. A variable you
+  set on an agent's command line no longer overrides what its profile composes. If a script needs
+  a provider's key, run it on your host with
+  `yolo host --with-credentials <provider>,<provider> -- <command>` (or `all`), which hands that
+  one run just those keys without switching any profile;
+  `eval "$(yolo host env --with-credentials all)"` puts them in your shell, and
+  `yolo host -p <profile> -- <command>` hands any command one profile's keys. A jail launch
+  refuses `--with-credentials`. See [the credential gate](docs/reference/providers.md#the-credential-gate).
+- **A launch through a host wrapper syncs your host config without asking.** When you run an
+  agent through the wrapper yolo put on your PATH and your packs have changed, yolo now updates the
+  agent's config files, prints `yolo host: synchronized host configuration`, and starts the agent.
+  In 0.10.0 it showed the change and waited, and only when `host_apply_on_launch` was on. That key
+  now defaults to on whenever wrappers are on, and wrappers are on whenever `host_management` is
+  `"own"`. yolo still asks before a first apply that would overwrite settings it does not manage.
+  Set `"host_apply_on_launch": false` in your user config to turn the check off, or
+  `"host_wrappers": false` to go without wrappers.
+- **Pack briefings come only from a pack's `briefing/` directory.** An instructions file at a
+  pack's root, such as `<pack>/AGENTS.md` or `<pack>/CLAUDE.md`, is no longer delivered to any
+  agent. Move that prose into `briefing/<pack>.md`. `yolo host apply` moves your local pack's
+  `local/AGENTS.md` there for you, and `yolo pack lint` names any pack that still has one. Pack prose is also no longer
+  labeled with the name of the pack it came from.
+- **Refused config and commands.** Each refusal names what replaces it.
+  - A provider's bare `base_url`, which agents read as different protocols. Write
+    `endpoints.<protocol>.base_url`.
+  - The `claude_plugins` pack hook.
+  - `yolo host wrappers enable` and `disable`. `host_management: "own"` turns wrappers on, and
+    `"host_wrappers": false` in your user config turns them off.
+  - `yolo host apply --shell-init`. It prints the PATH line for you to add to your shell rc
+    yourself. A line it appended earlier stays in your rc, under the comment
+    `# yolo-jail host launch wrappers`.
+  - An unknown flag, on every command. It exits 2 instead of being ignored.
+  - Two writers for one `host_files` destination. The last one used to win.
+- **`lsp_servers` installs nothing.** It only configures the agents, so install each language
+  server through `mise_tools` or `packages`. Servers an earlier yolo installed stay where they are:
+  `yolo programs ls` lists them and `yolo programs remove` clears them. Run `yolo programs ls`
+  before you set `programs.autoprune: true`, which deletes those copies and all of `~/go/bin`.
+- **Git packs are fetched at launch**, and a pack pinned to `?ref=<branch>` follows its branch
+  within the hour. Pin a tag or a commit for any pack that runs code on your machine.
 - **A running jail keeps the packs it started with.** Re-entering it after you change `packs`, or
   after upgrading yolo, no longer swaps its packs underneath it, which could stop a jail an older
-  yolo started from booting. yolo says which packs differ and that `yolo stop`, then a new
-  launch, picks them up. A profile only a newly added pack provides, or a jail whose packs this
-  yolo cannot read, such as one an earlier release started with the claude pack, gets the same
-  restart question.
-- **Git packs are fetched at launch**, and a `?ref=<branch>` pack follows its branch within the
-  hour. Pin a tag or commit for any pack that runs code on your machine.
-- **`lsp_servers` installs nothing.** Install servers through `mise_tools` or `packages`. Run
-  `yolo programs ls` before `programs.autoprune: true`, which deletes the old copies and all of
-  `~/go/bin`.
+  yolo started from booting. yolo says which packs differ, and `yolo stop` then a new launch picks
+  them up. When the running jail cannot serve the profile you selected, such as a jail 0.10.0
+  started, yolo asks at a terminal whether to restart it, saying how many sessions a restart ends.
+  Elsewhere it stops and tells you to run `yolo stop` first (`container stop` on Apple Container).
+  It used to warn and start the session without the profile. `YOLO_ALLOW_ATTACH_SKEW=1` re-enters
+  anyway.
+- **The `codex` profiles offer the GPT-6 models**, each with a 1M-context option, in Claude, pi and
+  codex alike, and codex starts on the same default. The GPT-5 models are no longer offered: add
+  one under `providers.openai-codex.models` in your config and it appears in every agent
+  ([the `openai-codex` model list](docs/reference/providers.md#the-openai-codex-model-list)). If pi
+  does not know a model you add, it warns once and offers it without thinking levels or image
+  input. pi no longer keeps a separate scoped list for these models, and its sub-agents may use
+  only them. A list you scoped inside pi is kept. In a pi launched without `-p codex` and with no
+  model chosen yet, signing in to ChatGPT no longer picks a GPT-5 model for you: choose one with
+  `/model`.
 - **A new podman workspace copies only your Claude account and onboarding state** from the
   machine-wide home, so a login kept only there asks you to sign in once.
-- **Pack briefings come only from a pack's `briefing/` directory**, not the instructions file at
-  its root.
-- **Dropping a profile clears the provider and model yolo wrote for it** into pi, opencode or
-  codex, and keeps a model you picked inside the agent.
-- **pi and Claude offer the same models on their `codex` profiles**: the GPT-6 models, each with
-  a 1M-context option, and codex starts on the same default. pi has no separate "scoped" list
-  for them any more, and its sub-agents may use only those models. The older GPT-5 models are
-  no longer offered; add one under `providers.openai-codex.models` in your config and it
-  appears in every agent ([the `openai-codex` model list](docs/reference/providers.md#the-openai-codex-model-list)).
-  If pi does not know a model you add, it warns you once and offers it without thinking levels
-  or image input. A list you scoped inside pi is kept. In a pi launched without `-p codex` that has no model
-  chosen yet, signing in to ChatGPT no longer picks one for you, because pi's own pick is a GPT-5
-  model: choose one with `/model`.
-- `writable_home_dirs` and `host_files` refuse the paths of the packs you select, including packs
-  yolo does not ship, and no others. A claude-only workspace may now name `.codex` or
-  `~/.codex/config.toml`.
+- **Ctrl-C reaches the jail**, interrupting what runs there, such as a Claude reply, instead of
+  ending your session.
+- Dropping a profile clears the provider and model yolo wrote for it into pi, opencode or codex,
+  and keeps a model you picked inside the agent.
 - pi updates its extensions before it starts, at most hourly and whenever its settings change.
   `agent_updates: false` turns that off.
-- An unknown flag exits 2 instead of being ignored.
-- `yolo check` reports one finding, not two or three, when no container runtime answers, whether
-  none is installed or one is installed but not started, and one finding for a Claude OAuth
-  broker whose certificates were never generated. It no longer says no runtime is on `PATH` when
-  a stopped one is. A running jail whose host-services directory is gone is one failure naming
-  that directory, not one per loophole with different advice each.
+- pi's MCP servers are written to `~/.pi/agent/mcp-adapter.json`, and the `mcp.json` yolo wrote
+  before is removed.
+- On podman on macOS and on Apple Container, a changed image is sent to the runtime without the
+  layers it already holds, so a one-package change no longer re-sends the whole image. If that
+  load fails, yolo retries once with the full image and says so.
+- On macos-user, an agent can no longer read the command line or environment of processes outside
+  its sandbox, `ioctl` calls are allowed only on terminals, and the system keychains are no longer
+  readable.
+- `writable_home_dirs` and `host_files` refuse the directories of the packs you select, including
+  packs yolo does not ship, and no others. A claude-only workspace may now name `.codex` or
+  `~/.codex/config.toml`.
 - `yolo host -p` takes the jail's spelling too: `yolo host -p claude=zai -- claude` is
   `yolo host -p zai -- claude`. A pair naming a command other than the one being run is refused.
-- Two writers for one `host_files` destination refuse the launch; the last one used to win.
-
-### Removed
-
-- A provider's bare `base_url`, which agents read as different protocols. Write
-  `endpoints.<protocol>.base_url`.
-- The `claude_plugins` pack hook. Its refusal names the replacements.
-- `yolo host wrappers enable` and `disable`. Wrappers are on by default when `host_management` is
-  `"own"`, and `"host_wrappers": false` in your user config turns them off.
-- `yolo host apply --shell-init`. It now refuses and prints the PATH line for you to add to your
-  shell rc yourself. A line it appended earlier stays in your rc, under the comment
-  `# yolo-jail host launch wrappers`.
+- `yolo check` reports one finding, not two or three, when no container runtime answers, whether
+  none is installed or one is installed but stopped, and one when the Claude login service's
+  certificates were never generated. A running jail whose host-services directory is gone is one
+  failure naming that directory, not one per loophole.
 
 ### Fixed
 
-- Yolo's Codex sign-in service and its Claude login refresh answered any process that could
-  reach them. In a jail using your host's network (`network.mode: "host"`), and for codex
-  started with `yolo host`, that was every process on your machine, which could read your
-  ChatGPT tokens or get a fresh Claude login. The Codex sign-in service now answers only a
-  codex yolo started. The Claude login refresh now answers only a caller that already holds this
-  machine's Claude login, so a process that cannot read your credentials gets nothing.
-- On macos-user, and in the environment `yolo host env` prints, codex was pointed at a ChatGPT
-  sign-in refresh address nothing served. It is now set only where yolo serves it, and the
-  launch names what it left out.
-- `yolo --profile= -- claude` ran `--profile=` as a command inside the jail, `yolo -p -- claude`
-  selected a profile named `run`, and `yolo host --profile= -- claude` quietly selected none. A
-  `-p`, `--profile`, `--at`, `--network` or `--with-credentials` with no value is now refused
-  with the same message in a jail and on the host, and `yolo host -p=zai -- claude` works as it
-  does in a jail. A mistyped flag before `yolo host`'s `--` is named the way a jail launch names
-  it.
-- `yolo --at host -- <command>` ran the command on your machine, but `yolo run --at host --
-  <command>` was refused as a jail launch, and `yolo host --at host -- <command>` was refused
-  too. Every spelling now runs it at the host, wherever `--at` sits, and the last `--at` you type
-  wins. A bare `yolo --at host` prints `yolo host`'s usage instead of a refusal. A flag that only
-  means something to a jail launch, such as `--timing`, is refused by `yolo host` by name instead
-  of as an unexpected argument, and host flags typed with no `--` and no command
-  (`yolo host -p zai`, `yolo --at host --profile=`) are read as flags rather than as an unknown
-  verb.
-- `yolo host -- <command>` stopped a launch whose provider key was missing without saying it was
-  refusing the launch. It now prints the refusal a jail launch prints, word for word.
-- Quitting a podman jail could hold your terminal for half a minute after a long session, while
-  podman deleted everything the jail had left in `/tmp` and its container dirs. You get the
-  prompt back as soon as the jail exits, and the files are deleted in the background.
-  `yolo stores` lists any a crash left behind, and the next launch or `yolo prune --apply`
-  removes them.
-- A launch that had to load its image again, after `podman image prune` or a yolo upgrade,
-  showed nothing while the image was copied. It now shows how many layers and gigabytes it
-  has copied and for how long. The other slow launch steps show their progress too: the
-  image build, the first-time copier build, loading the image on Apple Container and podman
-  on macOS, a wait behind another launch, a pack update, the macOS native build, and a cold
-  first-boot `mise install`. Steps that finish within two seconds print nothing new.
-- Every jail start spent two seconds rebuilding the font cache.
-- `yolo prune --nix-gc` refused to run while any jail you had started normally was running.
+- **Security:** yolo's ChatGPT sign-in service and its Claude login refresh answered any process
+  that could reach them. In a jail using your host's network (`network.mode: "host"`), and for
+  codex started with `yolo host`, that was every process on your machine, which could read your
+  ChatGPT tokens or get a fresh Claude login. The sign-in service now answers only a codex yolo
+  started, and the login refresh only a caller that already holds this machine's Claude login.
+- **Security:** the wire bridge accepted any request on its loopback ports, and a jail on
+  `network.mode: "host"`, or on macos-user, shares those ports with every process on your machine.
+  Such a process could spend your provider keys or ChatGPT subscription through the bridge, and one
+  that took a port first received what each agent sent there, including Claude's saved login on
+  the `codex` profile. Each launch now gives its agents a fresh secret, and the bridge refuses any
+  request without it and passes it on to no provider
+  ([caller authentication](docs/reference/wire-bridge.md#caller-authentication)).
+- **Security:** host-side yolo followed symbolic links in a workspace's `.yolo` state, so an agent
+  could make the next launch or `yolo prune` write to a host path as you.
+- **Security:** on macos-user, an agent could edit, rename or delete the skills and briefing yolo
+  delivers, which are copied into the sandbox home rather than mounted read-only, and a symbolic
+  link it left in its home could make the next launch rewrite them in another folder the sandbox
+  account can write, such as another project's. The sandbox now denies those writes, and a launch
+  writes them only inside the sandbox home and the project's own `.yolo` folder.
+- **Security:** a provider key could be sent to `api.anthropic.com` when the provider named no
+  Anthropic address.
+- **Security:** a new workspace's Claude login copy carried other workspaces' `projects` and
+  `mcpServers`.
+- **Security:** on Apple Container older than 1.1.0, a `host_files` directory source was bound
+  writable. It is now skipped, with the same message other read-only binds print there.
+- On macos-user, every launch with the pi, omp, agy or opencode pack deleted the whole folder
+  holding that agent's skills (`~/.pi/agent`, `~/.oh-omp/agent`, `~/.gemini/config`,
+  `~/.config/opencode`) and put back only the skills and briefing. That cost pi's settings, models,
+  MCP config, sign-in and sessions, omp's `models.yml`, opencode's `opencode.json`, and anything
+  else the agent kept there. A launch now replaces only the skills and the briefing. What was
+  deleted can be recovered only from your own backup of `<workspace>/.yolo/home`.
+- On macos-user, a launch that refused to set up the per-workspace home over an older sandbox
+  account still deleted that account's agent directory, transcripts included, right after telling
+  you to move them out first.
 - On Linux, a jail running for more than a week could have its tools deleted by
-  `nix-collect-garbage`, because `yolo prune` removed the GC root of the image it was running on.
-  `yolo prune` now keeps that root for as long as a container uses the image.
-- A launch flag a pack declares in its `guarded` posture never reached any launch. `yolo host --`
-  now adds it, and says so the way a jail launch does, naming the pack and showing the command
-  before and after. The `autonomous` posture's flags still never reach your host.
-- An agent on your own machine was never told it was there: `yolo host apply` wrote only your
-  packs' prose into its briefing, and dropped `agents_md_extra`. Every briefing file your packs
-  name now opens with a short section saying the agent runs on your real machine with permission
-  prompts on, followed by your user config's `agents_md_extra` and your packs' prose, and yolo
-  writes that file even when no pack adds prose. A file you wrote yourself is moved into your
-  local pack first, after a confirmation, as before.
-- `yolo config render --at host`, and a bare `yolo config render` run outside any workspace,
-  showed the file a jail gets, including permission-bypass settings `yolo host apply` never
-  writes. It now prints exactly the file `yolo host apply --assert` would write into your home
-  from the packs you configured, as your pack store holds them, and `--explain` shows the
-  per-key record that apply keeps. The preview never fetches: `yolo host apply` fetches a git
-  pack first and refreshes a branch-following one, so an upstream change since the last fetch
-  is not in the preview, and a pack not yet fetched is named as missing from it.
-- The Claude OAuth broker could return the token a jail already held, and Claude Code stopped
+  `nix-collect-garbage`, because `yolo prune` removed the GC root of the image it ran on. The root
+  is now kept for as long as a container uses the image.
+- Quitting a podman jail after a long session could hold your terminal while podman deleted what
+  the jail had left in `/tmp`. You get the prompt back as soon as the jail exits and the files are
+  deleted in the background; `yolo stores` lists any a crash left behind, and the next launch or
+  `yolo prune --apply` removes them.
+- Every jail start paused while it forced a rebuild of the font cache.
+- Two jails on your host's network, or two nested jails, running at once contended for the same
+  ports for the wire bridge and the ChatGPT and AWS sign-in services, and the second launch was
+  refused. Such a jail now runs each of them on a port picked for that launch.
+- Two launches of one workspace at once could fail with `directory not empty`, or start with part
+  of a pack missing. The second now waits for the first.
+- On macos-user, closing one of two sessions in the same project cut the other off from Claude's
+  sign-in renewal and every other host service it used.
+- The wire bridge crashed and restarted in a loop when it had nothing to serve, such as when a
+  provider's key was unset.
+- The Claude login service could return the token a jail already held, and Claude Code stopped
   with `api_request_oauth_refresh_exhausted`.
-- Claude on its `codex` profile showed `did not translate` in place of ChatGPT's own errors.
+- Claude on its `codex` profile showed `did not translate` in place of ChatGPT's own errors, and
+  on a machine not yet signed in to ChatGPT its first request failed. It now signs you in before
+  Claude starts, as codex and pi do.
 - Claude over the wire bridge reported zero input tokens. A provider that rejects the usage
   request needs `"supports_usage_in_streaming": "false"` in its `options`
-  ([Streamed usage](docs/reference/wire-bridge.md#streamed-usage)).
-- `yolo -p` stopped changing pi's model once your host's pi settings named one.
-- The models you scoped inside pi were reset to yolo's list at every launch.
+  ([streamed usage](docs/reference/wire-bridge.md#streamed-usage)).
+- Codex could not renew its ChatGPT sign-in through the `openai-auth` pack.
+- On macos-user, and in the environment `yolo host env` prints, codex was pointed at a ChatGPT
+  sign-in address nothing served. It is now set only where yolo serves it.
+- On macos-user, a profile chosen with `-p` reached the agent's environment but not the settings
+  yolo writes from it, so codex's `config.toml` named no provider or model.
+- On macos-user, the files a pack puts in the agent's home, such as pi's extensions, were never
+  delivered, and a launch never reported installed programs whose version differs from what yolo
+  recorded.
+- `yolo -p` stopped changing pi's model once your host's pi settings named one, and the models you
+  scoped inside pi were reset to yolo's list at every launch.
 - Every pi launch printed `Failed to load theme "system"`.
 - With the kilo pack and no profile naming a kilo model, pi rejected its whole `models.json`.
-- When pi on your host could not reach yolo's ChatGPT sign-in because it was started directly or
-  from an editor rather than through `yolo host`, its error named a setting only jails have. It
-  now says to start pi with `yolo host -- pi`.
-- Host pi printed `models.json error` at every start once `yolo host apply --assert` had created
-  its `~/.pi/agent/models.json`, which it wrote empty. The next `yolo host apply --assert`
-  repairs a file an earlier one left that way, and `yolo host apply --revert --assert` keeps the
-  empty `providers` pi needs, naming it, rather than emptying the file again.
-- Claude's LSP plugins that you enabled on the host were off in the jail unless `lsp_servers`
-  named their language.
-- Codex could not renew its ChatGPT sign-in through the `openai-auth` pack.
-- Claude on its `codex` profile never asked you to sign in to ChatGPT, so on a machine not yet
-  signed in its first request failed. It now signs you in before Claude starts, as codex and pi
-  do.
+- A workspace pinning an older Node, such as 20, left pi unable to start.
+- The zai pack's GLM-5.3-Flash model now accepts images.
+- Claude's LSP plugins that you enabled on the host were off in the jail unless `lsp_servers` named
+  their language.
+- A workspace's `.vscode/mcp.json` was hidden from agents and showed as modified in git.
+- `yolo -p <profile> -- <command>` refused any command that was not an agent.
+- A `-p`, `--profile`, `--at`, `--network` or `--with-credentials` with no value is now refused.
+  `yolo --profile= -- claude` used to run `--profile=` as a command, `yolo -p -- claude` selected a
+  profile named `run`, and `yolo host --profile= -- claude` quietly selected none.
+  `yolo host -p=zai -- claude` now works as it does in a jail.
+- `yolo run --at host -- <command>` and `yolo host --at host -- <command>` were refused. Every
+  spelling now runs the command on your host, wherever `--at` sits, and the last `--at` wins. A bare
+  `yolo --at host` prints `yolo host`'s usage.
+- `yolo host -- <command>` stopped a launch whose provider key was missing without saying it was
+  refusing. It now prints the refusal a jail launch prints.
+- A wrapped launch such as `yolo host -- claude` refused to start when another agent's config could
+  not be written. It now names that failure and launches, and refuses only when the program being
+  launched is the one whose config failed.
+- A launch flag a pack declares for its `guarded` posture never reached any launch. `yolo host --`
+  now adds it and says so, naming the pack.
+- An agent on your own machine was never told it was there, and `yolo host apply` dropped
+  `agents_md_extra` from its briefing. Every briefing file your packs name now opens with a short
+  section saying the agent runs on your real machine with permission prompts on, followed by your
+  `agents_md_extra` and your packs' prose.
+- `yolo config render --at host`, and a bare `yolo config render` outside any workspace, showed the
+  file a jail gets, including permission-bypass settings `yolo host apply` never writes. It now
+  prints exactly what `yolo host apply --assert` would write. The preview never fetches, so a git
+  pack not yet fetched is named as missing from it.
 - `yolo host apply --assert` replaced the `env` block of your host `~/.claude/settings.json`,
   dropping your own variables.
 - A settings file `yolo host apply --assert` had written came back into your jails as your own
-  settings, on every backend, so a value a pack later dropped stayed in them. Jails now leave
-  that file out entirely, your own settings in it included, so a setting you add to it by hand
-  afterwards stays on the host. `yolo host apply --revert --assert` takes yolo back out of the
-  file, and jails read it again.
+  settings, so a value a pack later dropped stayed in them. Jails now leave that file out, and
+  `yolo host apply --revert --assert` takes yolo back out of it.
+- Host pi printed `models.json error` at every start once `yolo host apply --assert` had created
+  that file empty. The next apply repairs it.
 - `yolo host apply` skipped every git pack, even an installed one.
-- `yolo host apply` listed a config file it was about to create as unchanged, and `--assert`
-  counted it among the files already in sync. That includes a file behind a link whose target
-  did not exist yet, as a dotfiles checkout can leave.
-- `yolo config-ref` said no file `yolo host apply` writes holds provider settings. Some do, such
-  as pi's `models.json` and codex's `config.toml`, and host apply writes them without your
-  providers. It now says so and names each one.
+- `yolo host apply` adopted `~/.claude/skills/synced/`, the skills Claude Code syncs from your
+  claude.ai account, and the next sync lost new and edited skills. It now leaves that folder alone
+  and says so in one line when the folder is new or has changed.
+- `yolo host apply` wrote the rest of a pack whose `pack.json` has problems into your home. It now
+  writes nothing for that pack and names each problem, and `yolo config promote` no longer writes
+  into such a pack.
+- A pack's `only` and `exclude` filters were ignored for packs yolo ships, and `yolo host apply`
+  delivered what they leave out for every pack. They now apply in jails and on your host, and
+  `yolo pack explain` shows what they keep.
+- `yolo host apply` stopped rendering a whole pack when one of its files was a link to a folder that
+  no longer exists. It now names the link and its target and applies everything else.
+- `yolo host apply` listed a config file it was about to create as unchanged.
 - When `yolo host apply` would drop an MCP server you had added to an agent's own config, or an
   LSP server you had added to Copilot's, it told you to declare it under `mcp_servers`, which
-  reaches jails and none of the files that command writes, so the server was dropped anyway. It
-  now tells you to add a `config-overlay` to your local pack for each config that would lose an
-  entry, naming that config and the key it keeps them under, which keeps it.
-- A jail start or `yolo host apply --assert` kept some of the MCP servers you had added to an
-  agent's own config, or LSP servers to Copilot's, while saying it dropped them all. Every one it
-  names is now dropped.
-- With `host_management: own`, `yolo host apply` warned that an MCP server you had added by hand
-  to codex's or opencode's config would be dropped, when the apply kept it. The note at the top
-  of `~/.codex/config.toml` also said the file was composed at jail start; it now names
-  `yolo host apply`.
-- `yolo host apply --assert` wrote the rest of a pack whose `pack.json` has problems, the ones
-  `yolo pack lint` and every launch refuse, into your home. It now writes nothing and names each
-  problem, and the other host commands leave such a pack out and say so. `yolo config promote`
-  no longer writes into such a pack and reports success. Host commands also skip a `pack.json`
-  that the pack's `only` or `exclude` filters out, as jails always did.
-- `yolo host apply` delivered the skills, briefings and files a pack's `only` or `exclude` leaves
-  out, which no jail received. The `only` and `exclude` of a pack yolo ships were ignored
-  everywhere; they now apply in jails and on your host, and `yolo pack explain` shows what they
-  keep for a shipped or fetched pack as well as a local one.
+  does not reach the files that command writes. It now names the `config-overlay` to add to your
+  local pack, which does. It also stopped keeping some of the servers it said it dropped, and, with
+  `host_management: "own"`, stopped warning about servers in codex's or opencode's config that it
+  keeps.
+- With `host_management: "own"`, `yolo host apply` said on every run that a pack's
+  `config-overlay` had overwritten one of your values when your edit was the one kept. It now says
+  which value won and how to take the other.
+- `yolo host apply` listed every file it left unchanged. It now lists only what changed, what
+  failed and what it replaced, and ends on its verdict; `--verbose` still lists everything.
 - `yolo host apply` and `yolo check-deps` offered to install a program on a machine its vendor
-  publishes no build for, and counted it missing. They now say there is no build for this
-  machine and offer nothing, as a jail does.
-- `yolo host apply` adopted `~/.claude/skills/synced/`, and the next claude.ai sync lost new and
-  edited skills.
-- A workspace pinning an older Node, such as 20, left pi unable to start.
-- A workspace's `.vscode/mcp.json` was hidden from agents and showed as modified in git.
-- `yolo -p <profile> -- <command>` refused any command that was not an agent.
+  publishes no build for. They now say there is no build for this machine.
+- `yolo config-ref` said no file `yolo host apply` writes holds provider settings. It now names the
+  ones that do, such as pi's `models.json` and codex's `config.toml`.
+- `yolo prune --nix-gc` refused to run while any jail you had started normally was running.
 - Every yolo process left a copy of the shipped packs in `/tmp`, which `yolo prune` now removes.
-- Two launches of one workspace at once could fail with `directory not empty`, or start with
-  part of a pack missing; the second now waits for the first. Attaching to a running jail no
-  longer empties and re-copies the pack files it has mounted.
-- On `macos-user`, closing one of two sessions in the same project cut the other off from
-  Claude's sign-in renewal and every other host service it was using.
-- On `macos-user`, every launch with the pi, omp, agy or opencode pack deleted the whole folder
-  holding that agent's skills (`~/.pi/agent`, `~/.oh-omp/agent`, `~/.gemini/config`,
-  `~/.config/opencode`) and put back only the skills and briefing. In 0.9.0 that cost pi's
-  `settings.json` and `models.json`, and in 0.10.0 its `mcp.json` too; in both, omp's
-  `models.yml`, opencode's `opencode.json`, pi's sign-in (`auth.json`) and sessions, and anything
-  else the agent kept in those folders. A launch now replaces only the skills and the briefing.
-  What was deleted can be recovered only from your own backup of `<workspace>/.yolo/home`.
-- On `macos-user`, a profile chosen with `-p` reached the agent's environment but not the
-  settings yolo writes from the profile's provider, so Codex's `config.toml` named no provider
-  or model for it. Those settings are now written as they are in a container jail.
-- On `macos-user`, a launch never reported the installed programs whose version differs from
-  what yolo recorded installing. It now reports them, as a container launch does.
-- On `macos-user`, the files a pack puts in the agent's home, such as pi's extensions, were never
-  delivered. They are now copied in at every launch and protected from the agent's writes, as
-  the skills and instructions yolo delivers there are.
+- A terminal attached to a jail that died under it could be left sending a burst of symbols for
+  every key you pressed, until you ran `reset`.
+- A nested jail put the outer jail's briefing in front of its own.
 - `yolo init` wrote a workspace config saying grep and find are blocked by default, and both it and
   `yolo init-user-config` wrote a config offering no `macos-user` runtime.
-- The links on yolo-jail's PyPI page led nowhere. They now open that release's files on GitHub.
-- `yolo host apply` stopped rendering a whole pack when one of its files was a link into a folder
-  that no longer exists, such as a dotfiles link left after the dotfiles moved, and printed only
-  `no such file or directory` between its report lines. It now names the link and its target,
-  says to remove the link or recreate the folder, and applies everything else.
-- With `host_management: own`, `yolo host apply` said on every run that a pack's `config-overlay`
-  had overwritten one of your values, when your own edit was the value it kept, and that nothing
-  could keep your value. It now says your edit is kept over that pack's overlay and how to take
-  the pack's value instead. When an overlay does replace your value, it names the pack and says
-  to remove the key from that pack's overlay.
-- A wrapped launch such as `yolo host -- claude` refused to start when another agent's config
-  could not be written, such as pi's. It now names that failure with its fix and launches, and
-  refuses only when the program being launched is the one whose config failed.
-- `yolo host apply` printed a long paragraph about `~/.claude/skills/synced` on every run and
-  pointed at `claude plugin list`, which does not show that folder. It now says in one line that
-  it holds the skills Claude Code syncs from your claude.ai account and that yolo leaves it alone,
-  and only when the folder is new or has changed.
-- `yolo host apply` listed every file it left unchanged, spent three lines on settings that never
-  apply on your own machine, and ended an `--assert` by explaining what `--assert` means. It now
-  lists only what changed, what failed and what it replaced; puts the settings that do not apply
-  on one line; and ends on its verdict. `--verbose` still lists everything.
 - On a Mac with the official Nix installer, `yolo check` reported `Nix daemon: connection failed`
-  and stopped, although Nix worked. It now turns on the Nix commands it needs for its own checks,
-  so you no longer have to enable them in your Nix config first.
+  and stopped, although Nix worked.
 - On a Mac with Apple Container, `yolo check` warned `No OCI conversion tool for Apple Container`
-  and suggested installing skopeo, which yolo never uses: it builds its own image copier. The
-  warning is gone.
-- `yolo macos-setup --help` pointed you to a `backend` config key that does not exist. It now
-  names `runtime`, the key that selects the macos-user backend.
-
-### Security
-
-- A provider credential, and the settings a profile composes, reached every process in the jail
-  whichever agent selected the profile, so pi could use Bedrock because Claude had the keys. Each
-  now reaches only the agent that selected it
-  ([the credential gate](docs/reference/providers.md#the-credential-gate)). A plain shell sees
-  only `env_sources` values no provider claims, and `yolo host env` prints one agent's slice.
-  On your own machine, `yolo host -p <profile> -- <command>` hands any command, not only an
-  agent, the credentials that profile claims from `env_sources` for one run, and each withheld
-  credential's line names a command that delivers it. For a command that needs several
-  providers' keys at once, such as a usage bar, `yolo host --with-credentials zai,cerebras --
-  <command>` (or `all`) hands it just those keys for one run, without switching any profile, and
-  names what it handed over; `eval "$(yolo host env --with-credentials all)"` puts them in your
-  shell. A jail launch refuses the flag. An SSO-backed Bedrock profile's credential endpoint
-  still reaches only an agent.
-  On macos-user only the program the invocation starts gets its profile's values, so an agent
-  started from the sandbox's login shell gets none. A variable you set on an agent's command
-  line no longer overrides what its profile composes.
-- Host-side yolo followed symbolic links in a workspace's `.yolo` state, so an agent could have
-  the next launch or `yolo prune` write to a host path as you.
-- On `macos-user`, a symbolic link an agent left in its home could make the next launch delete
-  and rewrite the skills and briefing in another folder the sandbox account can write, such as
-  another project's. A launch now writes them only inside the sandbox home and the project's own
-  `.yolo` folder, even while another session's agent is running.
-- A provider key could be sent to `api.anthropic.com` when the provider named no Anthropic
-  address.
-- A new workspace's Claude login seed carried other workspaces' `projects` and `mcpServers`.
-- On Apple Container older than 1.1.0, a `host_files` directory source was bound writable.
-- On `macos-user`, an agent could edit, rename or delete the skills and briefing yolo delivers,
-  because they are copied into the sandbox home instead of mounted read-only. The sandbox profile
-  now denies those writes, as the read-only mount does on every other backend, and leaves the
-  agent's own state beside them writable. A symbolic link
-  an earlier session left in the workspace can no longer send the copies somewhere the profile does
-  not cover: the launch replaces the link, or refuses and names it.
-- On `macos-user`, a launch that refused to set up the per-workspace home over an older sandbox
-  account still deleted that account's agent directory, transcripts included, right after telling
-  you to move them out first.
-- The wire bridge now authenticates its callers. It accepted any request on its loopback ports,
-  and a jail on `network.mode: host`, or on `macos-user`, shares those ports with every process
-  on your machine. Such a process could spend your provider keys or ChatGPT subscription through
-  the bridge. A process that took a port first received what each agent sent there: Claude's
-  saved login on the Codex profile, and the provider's key for Claude and Copilot on a bridged
-  provider. Each launch now gives its agents a fresh secret for the bridge, and the bridge
-  refuses any request without it and passes it on to no provider. An agent sends only that
-  secret to the bridge
-  ([caller authentication](docs/reference/wire-bridge.md#caller-authentication)).
-- Two jails on your machine's own network (`network.mode: "host"`), or two nested jails, running
-  at once contended for the same ports for the wire bridge and the Codex and AWS sign-in
-  services: the second jail's bridge could not start, and the launch was refused. A jail that
-  shares its host's network now runs each of them on a port picked for that launch, its agents
-  are pointed there, and attaching to it again reuses the same ports. A jail with its own network
-  keeps the usual ports
-  ([notch convergence §2.4](docs/plans/notch-convergence.md#24-the-addresses-those-secrets-protect-are-composed-not-literal)).
+  and suggested installing skopeo, which yolo never uses.
+- `yolo macos-setup --help` named a `backend` config key that does not exist. It now names
+  `runtime`.
+- The links on yolo-jail's PyPI page led nowhere. They now open that release's files on GitHub.
 
 ## 0.10.x
 
