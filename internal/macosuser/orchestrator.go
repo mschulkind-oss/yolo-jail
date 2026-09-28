@@ -2,6 +2,7 @@ package macosuser
 
 import (
 	"fmt"
+	"github.com/mschulkind-oss/yolo-jail/internal/progress"
 	"io"
 	"os"
 	"strings"
@@ -89,6 +90,11 @@ type Deps struct {
 	// Out receives the human output. Rich markup is rendered to ANSI when
 	// Color is set, else stripped to plain text.
 	Out io.Writer
+	// Progress is the rendering of the launch's slow steps on Out (the native nix
+	// build). The zero value — line-oriented, silent for its first 2 s — is the
+	// only one a real launch uses: the build streams nix's own stderr to the
+	// terminal beside it, and a live redraw would tear on every line of that.
+	Progress progress.Config
 	// Color is the resolved color decision, made through the one gate (tty.Color:
 	// requested, stdout a real terminal, no NO_COLOR veto). When false the printer
 	// strips rich markup. It is forced OFF for the dry-run plan render (see
@@ -483,7 +489,17 @@ func RunMacosUser(deps Deps, opts Options) int {
 	var darwin *Darwin
 	pkgs := config.EffectivePackages(opts.Config, config.PlatformDarwin)
 	// The nix build runs from the repo ROOT (the flake dir).
+	//
+	// A flake eval (the skip list) and a build of the whole floor: seconds warm,
+	// up to half an hour cold, and the eval prints nothing while it runs — so the
+	// step has a progress line.
+	build := deps.Progress.Start(deps.Out, "Building the sandbox's tools with nix")
 	d, ok, err := deps.MaterializeDarwin(opts.RepoRoot, pkgs)
+	if ok {
+		build.Done("done")
+	} else {
+		build.Done("failed")
+	}
 	if !ok {
 		out.printf("[bold red]Could not materialize packages natively:[/bold red] %s\n"+
 			"[dim]Fix the package, or use the Apple Container runtime "+

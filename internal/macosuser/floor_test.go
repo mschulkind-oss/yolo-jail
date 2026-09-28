@@ -7,6 +7,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/progress"
 )
 
 // floor_test.go pins half one of docs/design/macos-user-provisioning.md at the
@@ -144,5 +145,22 @@ func TestARefusalWhenTheNativeBuildContributesNothing(t *testing.T) {
 				t.Errorf("the refusal never mentions the floor:\n%s", buf.String())
 			}
 		})
+	}
+}
+
+// The native build is the slow step of a macos-user launch — a flake eval that
+// prints nothing, then a build of the floor — so it runs under a progress line on
+// the launch writer. Immediate shows it although the mock returns at once.
+func TestTheNativeBuildIsNarrated(t *testing.T) {
+	var buf bytes.Buffer
+	d := mockDeps(nil)
+	d.Out = &buf
+	d.Progress = progress.Config{Immediate: true}
+	if rc := RunMacosUser(d, newOpts("/Users/Shared/yolo/proj")); rc != 42 {
+		t.Fatalf("rc = %d, want 42\n%s", rc, buf.String())
+	}
+	if !strings.Contains(buf.String(), "Building the sandbox's tools with nix…\n") ||
+		!strings.Contains(buf.String(), "Building the sandbox's tools with nix: done (") {
+		t.Errorf("the native build was not narrated:\n%s", buf.String())
 	}
 }
