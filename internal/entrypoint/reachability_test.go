@@ -757,8 +757,10 @@ func TestReachabilityProbeIgnoresLookalikeVariables(t *testing.T) {
 // probe is a jail that never starts.
 func TestReachabilityProbeStaysWithinItsBudget(t *testing.T) {
 	shrinkReachabilityBudget(t)
-	reachabilityBudget = 750 * time.Millisecond
-	reachabilityDialTimeout = 750 * time.Millisecond
+	// The blackhole spends one whole dial timeout, so the test costs about this much.
+	// Unbounded retrying would cost a thousand of them, far past the 5s bound below.
+	reachabilityBudget = 250 * time.Millisecond
+	reachabilityDialTimeout = 250 * time.Millisecond
 	reachabilityRetries = 1000 // as if it would retry forever
 
 	// A listener that accepts and then says nothing: the TLS handshake hangs, so
