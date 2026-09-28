@@ -131,6 +131,14 @@ func (o *Options) resolveJailPrefix(root, rt string) (jailPrefix, bool) {
 		o.pr(o.Stderr).print(msg)
 		return jailPrefix{}, false
 	}
+	// The general form of the same question, against the machine's REAL share list:
+	// a Homebrew prefix under $(brew --prefix)/Cellar is refused here when the machine
+	// does not share it, and accepted when the user created the machine the way the
+	// guide says. Silent when the list cannot be read (machineshares.go).
+	if msg := o.unsharedBindSources(rt, []string{p.binDir, p.shareDir}); msg != "" {
+		o.pr(o.Stderr).print(msg)
+		return jailPrefix{}, false
+	}
 	return p, true
 }
 
@@ -269,9 +277,10 @@ func describeJailPrefix(p jailPrefix) string {
 // symlinks, so the sources are under $(brew --prefix)/Cellar (/opt/homebrew or
 // /usr/local), which is outside Podman Machine's default share set. The user
 // guide has the user share it at `podman machine init`
-// (userguide/getting-started.md#macos-podman). Nothing here checks that it did,
-// because whether the VM shares an arbitrary path is a fact about that machine's
-// mount list, not about the path.
+// (userguide/getting-started.md#macos-podman). This function does not check that
+// it did, because whether the VM shares an arbitrary path is a fact about that
+// machine's mount list, not about the path: unsharedBindSources (machineshares.go)
+// reads that list and asks, right after this returns "".
 //
 // IT REUSES YOLO_NIX_HOST_DAEMON RATHER THAN ADDING A DIAL, because that
 // variable already means precisely "my runtime VM does share /nix into the

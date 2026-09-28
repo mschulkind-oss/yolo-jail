@@ -1,11 +1,14 @@
 package check
 
 import (
+	"path/filepath"
+	goruntime "runtime"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/runtime"
 )
 
 // sectionMacOSPlatform runs the macOS Platform block (only runs on macOS).
@@ -19,7 +22,9 @@ func (o *Options) sectionMacOSPlatform(r *reporter, _ *jsonx.OrderedMap) {
 		res := o.Exec([]string{"podman", "machine", "info"}, "", nil, 5*time.Second)
 		if res.Ran && !res.Timeout && res.RC == 0 {
 			r.ok("Podman Machine: available")
-			o.checkPodmanMachineResources(r, o.loadWorkspaceConfigLoose())
+			cfg := o.loadWorkspaceConfigLoose()
+			o.checkPodmanMachineResources(r, cfg)
+			o.checkPodmanMachineShares(r, cfg)
 		} else if !res.Ran || res.Timeout {
 			r.warn("podman: probe failed", "")
 		} else {
@@ -81,6 +86,61 @@ func (o *Options) sectionMacOSPlatform(r *reporter, _ *jsonx.OrderedMap) {
 		r.fail("Nix store: /nix not found", "Reinstall Nix or check /etc/synthetic.conf")
 	}
 	r.blank()
+}
+
+// checkPodmanMachineShares is the `yolo check` row for the launch's macOS Podman
+// pre-flight (internal/cli/run/machineshares.go): it reads the active Podman Machine's
+// share list the same way (runtime.ReadMachineShares) and grades the folders a launch
+// from here would bind that `yolo check` can name without assembling one — the
+// workspace, and yolo's own binaries and flake bundle (the jail prefix).
+//
+// The prefix is named as the launch names it: a flake source that ships prebuilt
+// binaries is bound at its RESOLVED path, which for a Homebrew install is inside
+// $(brew --prefix)/Cellar; one that does not (a live checkout) has them built into
+// /nix/store. Only when Podman is the runtime a launch would use, and a [SKIP] — never a
+// pass — when the list cannot be read, because a check that did not look is not a pass.
+func (o *Options) checkPodmanMachineShares(r *reporter, cfg *jsonx.OrderedMap) {
+	if rt, _, _ := o.resolveRuntimeForCheck(cfg); rt != "podman" {
+		return
+	}
+	run := func(argv []string) (string, bool) {
+		res := o.Exec(argv, "", nil, runtime.MachineShareProbeTimeout)
+		return res.Stdout, res.Ran && !res.Timeout && res.RC == 0
+	}
+	shares, ok := runtime.ReadMachineShares(run, o.Getenv)
+	if !ok {
+		r.skip("Podman Machine shared folders: could not read the machine's share list",
+			"yolo checks a launch's folders against it only when it can read it.")
+		return
+	}
+	var sources []string
+	if o.Workspace != "" {
+		sources = append(sources, o.Workspace)
+	}
+	if rr, ok := o.RepoRoot(); ok && rr.Root != "" {
+		bin := filepath.Join(rr.Root, "bin", "linux-"+goruntime.GOARCH)
+		if fileExists(filepath.Join(bin, "yolo-entrypoint")) {
+			sources = append(sources, evalSymlinksOr(bin), evalSymlinksOr(rr.Root))
+		} else {
+			sources = append(sources, "/nix/store")
+		}
+	}
+	unreachable := shares.Unreachable(sources, runtime.ResolveThroughExisting)
+	if len(unreachable) == 0 {
+		r.ok("Podman Machine shares the folders a jail binds (" + strings.Join(sources, ", ") + ")")
+		return
+	}
+	r.fail("Podman Machine '"+shares.Machine+"' does not share: "+strings.Join(unreachable, ", "),
+		shares.UnsharedRefusal(unreachable))
+}
+
+// evalSymlinksOr is filepath.EvalSymlinks with the path itself as the fallback, as the
+// launch resolves its prefix sources (run.resolveSymlinks).
+func evalSymlinksOr(p string) string {
+	if r, err := filepath.EvalSymlinks(p); err == nil {
+		return r
+	}
+	return p
 }
 
 // checkAppleContainerNetwork runs the macOS 15 vmnet health probes. The

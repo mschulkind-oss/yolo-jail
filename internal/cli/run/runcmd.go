@@ -260,6 +260,9 @@ type Options struct {
 	// and nil-by-default so every hand-built Options in a test starts unprobed; see
 	// appleContainerVersion for why the answer must be shared rather than re-asked.
 	acVersion *acVersionProbe
+	// machineShares memoizes the macOS Podman Machine share-list read for this launch
+	// (machineshares.go), which both bind-source pre-flights consult. nil = not read yet.
+	machineShares *machineSharesProbe
 	// Stdout/Stderr receive the human output (console.print goes to stderr in
 	// rich by default for status; run() uses console (stdout) for most lines).
 	// nil => os.Stdout / os.Stderr.

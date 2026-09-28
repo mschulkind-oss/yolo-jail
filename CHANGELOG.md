@@ -223,6 +223,12 @@ The first items here need your attention when you upgrade from 0.10.0.
   `mcpServers`.
 - **Security:** on Apple Container older than 1.1.0, a `host_files` directory source was bound
   writable. It is now skipped, with the same message other read-only binds print there.
+- On a Mac with Podman, a jail that needed a folder the Podman Machine does not share failed to
+  start with podman's `statfs …: no such file or directory` and nothing from yolo. That included
+  every Homebrew install on a machine created without Homebrew's `Cellar` folder shared. yolo now
+  reads the machine's shared folders and stops first, naming the folder and the `podman machine
+  init` command that adds it, and `yolo check` reports it too. A machine created as
+  [Getting Started](userguide/getting-started.md#macos-podman) shows is unaffected.
 - On macos-user, every launch with the pi, omp, agy or opencode pack deleted the whole folder
   holding that agent's skills (`~/.pi/agent`, `~/.oh-omp/agent`, `~/.gemini/config`,
   `~/.config/opencode`) and put back only the skills and briefing. That cost pi's settings, models,

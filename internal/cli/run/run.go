@@ -1384,6 +1384,18 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 	runCmd := o.assembleRunCmd(in)
 	sp.End()
 
+	// Every bind source against the macOS Podman Machine's share list, now that the argv
+	// names them all: a workspace on /Volumes, a `mounts` entry or a `host_files` folder
+	// the VM cannot see would otherwise fail inside it as `statfs …` at rc 125. The
+	// prefix sources were already checked in resolveJailPrefix, on the same memoized
+	// read; silent off macOS Podman and when the list cannot be read (machineshares.go).
+	if msg := o.unsharedBindSources(rt, bindSources(runCmd, in.imageRef)); msg != "" {
+		o.pr(o.Stderr).print(msg)
+		discardUnheldSkeleton(cname, in.homeSkeleton)
+		lock.Close()
+		return 1
+	}
+
 	// THE SEVENTH bespoke pre-flight (docs/reference/providers.md#the-credential-preflight, #pv-oq-13), at the
 	// one point in the pipeline where the assembled launch environment exists to check it
 	// against: userEnv was hydrated above, and runCmd carries every -e pair the container
