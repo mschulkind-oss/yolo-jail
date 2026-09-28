@@ -676,8 +676,8 @@ func TestUpdateCommand(t *testing.T) {
 		if rc := updateMain([]string{"update"}, h.d); rc != 1 {
 			t.Errorf("exit %d, want 1", rc)
 		}
-		if !strings.Contains(h.stderr.String(), selfupdate.ReleasesPage) || !strings.Contains(h.stderr.String(), "--from") {
-			t.Errorf("want the releases page and --from: %q", h.stderr.String())
+		if !strings.Contains(h.stderr.String(), selfupdate.ReleasesPage) || strings.Contains(h.stderr.String(), "--from") {
+			t.Errorf("want the releases page and no --from, which is only for a binary built from source: %q", h.stderr.String())
 		}
 	})
 	t.Run("a moved checkout names --from", func(t *testing.T) {
@@ -761,6 +761,15 @@ func TestUpdateFrom(t *testing.T) {
 		}
 		if !strings.Contains(h.stdout.String(), "no pull will run") {
 			t.Errorf("the skip-pull behavior was not disclosed: %q", h.stdout.String())
+		}
+	})
+	t.Run("refused for an install nothing shows was built from source", func(t *testing.T) {
+		h := newUpdateHarness(t, selfupdate.Channel{Kind: selfupdate.KindUnknown, Exe: "/usr/local/bin/yolo"})
+		if rc := updateMain([]string{"update", "--from", good}, h.d); rc != 1 || h.applied != 0 {
+			t.Errorf("exit %d, applied %d; want 1, 0", rc, h.applied)
+		}
+		if !strings.Contains(h.stderr.String(), "nothing shows this yolo") {
+			t.Errorf("stderr %q", h.stderr.String())
 		}
 	})
 	t.Run("refused for a package-manager install", func(t *testing.T) {

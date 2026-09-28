@@ -422,7 +422,7 @@ func updateMain(args []string, d updateDeps) int {
 			return 1
 		}
 		fmt.Fprintf(d.stderr, "yolo update: cannot tell how this yolo (%s) was installed, so it cannot update itself.\n"+
-			"  From a checkout: yolo update --from <checkout>. Otherwise reinstall from %s\n", ch.Exe, selfupdate.ReleasesPage)
+			"  Reinstall it from %s\n", ch.Exe, selfupdate.ReleasesPage)
 		return 1
 	}
 	if opts.Autostash && ch.Kind != selfupdate.KindSource {
@@ -499,9 +499,15 @@ func updateMain(args []string, d updateDeps) int {
 // fromCheckout turns `--from <dir>` into the source channel to update through.
 // It is refused for a package-manager install, whose binary is that manager's
 // to replace: a source deploy "beside" it would write into the manager's tree.
+// An unidentified install is refused for the same reason unless its binary
+// records that it was built from source (MissingSourceDir): nothing else says
+// the directory it runs from is one a source deploy may write into.
 func fromCheckout(ch selfupdate.Channel, dir string) (selfupdate.Channel, error) {
-	switch ch.Kind {
-	case selfupdate.KindSource, selfupdate.KindUnknown:
+	switch {
+	case ch.Kind == selfupdate.KindSource:
+	case ch.Kind == selfupdate.KindUnknown && ch.MissingSourceDir != "":
+	case ch.Kind == selfupdate.KindUnknown:
+		return ch, fmt.Errorf("--from is for from-source installs, and nothing shows this yolo (%s) was built from source; reinstall it from %s", ch.Exe, selfupdate.ReleasesPage)
 	default:
 		return ch, fmt.Errorf("--from is for from-source installs; this yolo is managed by %s (see `yolo update --help` for that channel's safe update path)", ch.Kind)
 	}
