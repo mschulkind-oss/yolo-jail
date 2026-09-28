@@ -137,3 +137,23 @@ func TestSectionPacksPredictsAViaWithNoEffect(t *testing.T) {
 			r.failed, r.warned, out)
 	}
 }
+
+// TestSectionPacksPredictsNoViaRouteGateOnMacosUser: the profile
+// TestSectionPacksPredictsTheViaRouteRefusal FAILS on a container runtime is cleared on
+// macos-user, which serves no bridge (notch convergence item 2, NC-D16), so its agent keeps
+// its own client and the launch there asks the via-route gate nothing. check predicts that
+// launch: no FAIL. Deleting protocolPairingGap's ViaServedAt call fails this.
+func TestSectionPacksPredictsNoViaRouteGateOnMacosUser(t *testing.T) {
+	pack := viaAgentPack(t, `{"anthropic": {"base_url": "https://up.example"}}`)
+	packsFixture(t, `{"packs": ["file://`+pack+`"],
+	  "profiles": {"pv": {"provider": "upstream", "via": "wire-bridge"}}}`)
+	merged := useProfiles("someagent", "pv")
+	merged.Set("runtime", "macos-user")
+	var buf bytes.Buffer
+	r := &reporter{w: &buf}
+	(&Options{}).sectionPacks(r, merged)
+	out := buf.String()
+	if r.failed != 0 || strings.Contains(out, "declares no chat-completions or Responses endpoint") {
+		t.Fatalf("check predicted a via-route refusal on macos-user, which clears the via:\n%s", out)
+	}
+}

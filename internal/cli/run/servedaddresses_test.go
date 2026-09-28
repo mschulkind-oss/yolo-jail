@@ -12,6 +12,7 @@ package run
 import (
 	"bytes"
 	"errors"
+	"os"
 	"strings"
 	"testing"
 
@@ -62,6 +63,55 @@ func TestMacosUserWithholdsCodexsRefreshPointerAndSaysSo(t *testing.T) {
 	o.Stderr = &stderr
 	o.noteCredentialScope(macos)
 	for _, want := range []string{"Not set at this notch", "CODEX_REFRESH_TOKEN_URL_OVERRIDE", `"openai-auth-broker"`} {
+		if !strings.Contains(stderr.String(), want) {
+			t.Errorf("the launch does not name %s:\n%s", want, stderr.String())
+		}
+	}
+}
+
+// viaFixture is pi routed through the wire bridge by a user profile: pi, zai and the bridge
+// selected, `pz` = zai via wire-bridge, active for pi. userEnv carries zai's key.
+func viaFixture(t *testing.T) ([]*packload.Pack, *jsonx.OrderedMap, func(*Options, *jsonx.OrderedMap)) {
+	t.Helper()
+	packs := []*packload.Pack{officialPack(t, "pi"), officialPack(t, "zai"), officialPack(t, "wire-bridge")}
+	userEnv := jsonx.NewOrderedMap()
+	userEnv.Set("ZAI_API_KEY", "zai-test-key")
+	tune := func(o *Options, _ *jsonx.OrderedMap) {
+		writeUserConfig(t, os.Getenv("HOME"), `{"profiles": {"pz": {"provider": "zai", "via": "wire-bridge"}}}`)
+		o.UseProfiles = map[string]string{"pi": "pz"}
+	}
+	return packs, userEnv, tune
+}
+
+// ON MACOS-USER A VIA IS CLEARED AND NAMED (notch convergence item 2, NC-D16). A container
+// launch runs the wire bridge, so pi's `pz` keeps its via; macos-user runs no jail daemon, so
+// the channel clears the via, pi keeps its own client, and the launch names the profile. Through
+// the real composePackChannel, so deleting its ViaServedAt call fails this.
+func TestMacosUserClearsAnUnservedViaAndNamesTheProfile(t *testing.T) {
+	packs, userEnv, tune := viaFixture(t)
+	o, cfg, channel, _ := attachFixture(t, currentJailEnv, packs, userEnv, tune)
+	if channel.resolvedProfiles["pz"].ViaBase == "" {
+		t.Fatalf("the container launch lost pz's via, so this proves nothing: %+v", channel.resolvedProfiles)
+	}
+	if len(channel.unservedVias) != 0 {
+		t.Fatalf("the container launch serves the bridge but named %v unserved", channel.unservedVias)
+	}
+
+	o.runtime = "macos-user"
+	macos, err := o.composePackChannel(cfg, packs, userEnv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if base := macos.resolvedProfiles["pz"].ViaBase; base != "" {
+		t.Errorf("macos-user kept pz's via %q, a bridge no daemon of its serves", base)
+	}
+	if strings.Join(macos.unservedVias, ",") != "pz" {
+		t.Errorf("unservedVias = %v, want [pz]", macos.unservedVias)
+	}
+	var stderr bytes.Buffer
+	o.Stderr = &stderr
+	o.noteCredentialScope(macos)
+	for _, want := range []string{"Not set at this notch", "pz"} {
 		if !strings.Contains(stderr.String(), want) {
 			t.Errorf("the launch does not name %s:\n%s", want, stderr.String())
 		}

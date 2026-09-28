@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 )
 
 // viapack_test.go pins the `via` half of the selection closure (docs/design/
@@ -195,4 +196,37 @@ func TestAViaThatRepointsNothingStartsWithANotice(t *testing.T) {
 			t.Errorf("the notice must name %q:\n%s", want, got)
 		}
 	}
+}
+
+// TestMacosUserDoesNotGateAViaItClears is the via-route pre-flight at the notch that serves no
+// bridge (notch convergence item 2, NC-D16): the same profile TestAViaWithNoRouteForItsAgentIsRefused
+// refuses on a container launch is cleared on macos-user, where pi keeps its own client, so the
+// pre-flight asks nothing of a route no daemon would serve. checkViaRoutes composes as
+// composePackChannel does, served set included; deleting its ViaServedAt call fails this.
+func TestMacosUserDoesNotGateAViaItClears(t *testing.T) {
+	home := packHome(t)
+	writeUserConfig(t, home, `{"packs": ["pi"],
+	  "profiles": {"pa": {"provider": "anth", "via": "wire-bridge"}}}`)
+	o := &Options{Workspace: t.TempDir(), Stdout: discardBuf(), Stderr: discardBuf(),
+		UseProfiles: map[string]string{"pi": "pa"},
+		stagingCfg:  viaStagingCfg(t, "anth", `{"anthropic": {"base_url": "https://anth.example"}}`)}
+	_, loaded, _, err := o.stagePacks("yolo-test-via-macos-control")
+	if err == nil {
+		t.Fatal("the container control no longer refuses, so this proves nothing")
+	}
+	o.runtime = "macos-user"
+	if _, loaded, _, err = o.stagePacks("yolo-test-via-macos"); err != nil {
+		t.Fatalf("macos-user gated a via it clears: %v", err)
+	}
+	if !hasName(namesOf(loaded), "wire-bridge") {
+		t.Fatalf("the via did not bring the bridge, so the pre-flight had a via to ask about: %v", namesOf(loaded))
+	}
+}
+
+func namesOf(packs []*packload.Pack) []string {
+	var names []string
+	for _, p := range packs {
+		names = append(names, p.Name)
+	}
+	return names
 }
