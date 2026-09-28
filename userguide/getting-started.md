@@ -226,7 +226,8 @@ Each `-v` names a Mac folder the machine can see. The list replaces Podman's def
 adding to them, so it repeats them (`/Users`, `/private`, `/var/folders`) and adds Homebrew's
 `Cellar` folder, where a Homebrew install of yolo keeps the programs it hands to each jail. The list
 can be set only when the machine is created. If you did not install yolo with Homebrew, leave out the
-last `-v` and the last line. `yolo check` warns if the machine has less than 4096 MB of memory.
+last `-v` and the last line. `yolo check` warns if the machine has less than 4096 MB of memory, and
+fails if it does not share your project or yolo's own files.
 
 If yolo later says the runtime is not running, run `podman machine start`. If Apple Container is
 installed and running too, yolo picks it; set `YOLO_RUNTIME=podman` or `"runtime": "podman"` to use

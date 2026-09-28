@@ -51,6 +51,7 @@ it builds contains none of them.
 | Which flake is built, and from where | `internal/reporoot` (`Resolve`, `BundledSourceDirFrom`) |
 | The two-cadence skew gate | `internal/version` (`SourceSkew`, `ImageSourcePaths`); `internal/cli/run` (`refuseOnSourceSkew`) |
 | Prefix resolution and the two mounts | `internal/cli/run` (`resolveJailPrefix`, `jailPrefixMountArgs`, `prefixUnreachableFromVM`, `JailEntrypointPath`) |
+| The macOS Podman Machine share-list pre-flight | `internal/runtime` (`ReadMachineShares`, `MachineShares.Unreachable`); `internal/cli/run` (`unsharedBindSources`, `bindSources`); `internal/cli/check` (`checkPodmanMachineShares`) |
 | Store-delivered packages, host half | `internal/cli/run` (`planStorePackages`, `storePackagesEligible`, `addImageExtras`); `internal/darwinpkg` (`MaterializeAt`) |
 | Store-delivered packages, jail half | `internal/entrypoint` (`StoreProfilesEnv`, `StorePackagesRoot`, `imageProbePath`) |
 | The bundle an install stages | `scripts/stage-source-bundle.sh`, `scripts/build-go.sh` |
@@ -283,7 +284,22 @@ launch from an installed bundle, which stages prebuilt binaries under `$HOME` an
 in the store. The variable is reused rather than a new dial added because it already means
 precisely "my runtime VM shares `/nix`". The macOS nightly initialises its machine with
 `-v /nix:/nix` and sets the variable, so CI exercises the documented fix rather than routing
-around it. An installed bundle is unaffected, which is every Homebrew and `just install` user.
+around it. That refusal never fires for an installed bundle, which ships prebuilt binaries and
+builds nothing in the store.
+
+An installed bundle is not therefore always reachable. The launch binds the prefix at its
+*resolved* path, and a Homebrew install resolves into `$(brew --prefix)/Cellar`, which a default
+Podman Machine does not share. The user guide has Homebrew users add it at `podman machine init`.
+So a second pre-flight, `unsharedBindSources` (`internal/cli/run/machineshares.go`), reads the
+active machine's real share list and refuses any bind source outside it before `podman run`. It
+runs once on the two prefix sources, in `resolveJailPrefix` before the image load, and once on
+every `-v` source of the assembled argv. The list is not in `podman machine inspect`'s output,
+which has no `Mounts` field in podman 4, 5 or 6. `runtime.ReadMachineShares` finds the machine
+behind the default connection (`podman machine list`, then `podman system connection list` for a
+rootful machine's `<name>-root` connection) and reads `Mounts` from the config file whose
+location inspect reports. A list it cannot read refuses nothing. Apple Container and Linux are
+out of scope. `yolo check`'s macOS Platform section grades the same list against the workspace
+and the prefix.
 
 > [!CAUTION]
 > **Setting it no longer turns the nix-delegation mounts on, and the sentence claiming it did

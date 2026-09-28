@@ -107,7 +107,10 @@ macOS before 26. Install it and create the machine as in
 repeats them. A Homebrew install of yolo also needs Homebrew's `Cellar` folder shared, because the
 programs yolo hands to each jail live there. The list is fixed when the machine is created; to
 change it, run `podman machine rm` and create the machine again. Check a folder with
-`podman machine ssh -- test -d <folder> && echo shared`.
+`podman machine ssh -- test -d <folder> && echo shared`. yolo reads the machine's list too: a
+launch that would use a folder the machine does not share stops before the jail starts, and names
+the folder and the `podman machine init` command that adds it. `yolo check` reports whether your
+project and yolo's own files are shared.
 
 **The machine does not start by itself.** It keeps its settings across restarts; run
 `podman machine start` when yolo says the runtime is not running.
@@ -342,8 +345,10 @@ Then create and start it with the command in [Getting Started](../getting-starte
 
 ### Podman: `statfs …: no such file or directory` when a jail starts
 
-The Podman Machine does not share that folder. Recreate the machine with the shared-folder list in
-[Getting Started](../getting-started.md#macos-podman).
+The Podman Machine does not share that folder. yolo normally stops before this and names the
+folder; you see podman's own error only when yolo could not read the machine's list of shared
+folders. Recreate the machine with the shared-folder list in
+[Getting Started](../getting-started.md#macos-podman), adding the folder.
 
 ### Apple Container: "default kernel not configured for architecture arm64"
 
