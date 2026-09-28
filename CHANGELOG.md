@@ -142,8 +142,9 @@ apply it, and the launch says that too. See
 - Yolo's Codex sign-in service and its Claude login refresh answered any process that could
   reach them. In a jail using your host's network (`network.mode: "host"`), and for codex
   started with `yolo host`, that was every process on your machine, which could read your
-  ChatGPT tokens or get a fresh Claude login. Each now answers only the agents its own launch
-  started.
+  ChatGPT tokens or get a fresh Claude login. The Codex sign-in service now answers only a
+  codex yolo started. The Claude login refresh now answers only a caller that already holds this
+  machine's Claude login, so a process that cannot read your credentials gets nothing.
 - On macos-user, and in the environment `yolo host env` prints, codex was pointed at a ChatGPT
   sign-in refresh address nothing served. It is now set only where yolo serves it, and the
   launch names what it left out.
