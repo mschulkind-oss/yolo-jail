@@ -3,10 +3,12 @@ package journald
 import (
 	"bytes"
 	"encoding/binary"
+	"errors"
 	"io"
 	"net"
 	"os"
 	"path/filepath"
+	"syscall"
 	"testing"
 	"time"
 
@@ -130,15 +132,39 @@ func measureUnixSendBuffer(t *testing.T) int {
 	}
 	defer peer.Close()
 
-	conn.SetWriteDeadline(time.Now().Add(500 * time.Millisecond))
+	// Write until the kernel says the write WOULD block (EAGAIN on the non-blocking fd
+	// Go keeps under every net.Conn), rather than until a write deadline expires: the
+	// byte count is the same, and a preempted writer cannot stop the count early the
+	// way a timer can, so the payload is never sized off a short measurement. It also
+	// no longer waits out a fixed deadline.
+	raw, err := conn.SyscallConn()
+	if err != nil {
+		t.Fatal(err)
+	}
 	buf := make([]byte, 4096)
 	total := 0
-	for {
-		n, werr := conn.Write(buf)
-		total += n
-		if werr != nil {
-			break
+	var werr error
+	if err := raw.Write(func(fd uintptr) bool {
+		for {
+			n, err := syscall.Write(int(fd), buf)
+			if n > 0 {
+				total += n
+			}
+			switch {
+			case err == nil:
+			case errors.Is(err, syscall.EINTR):
+			case errors.Is(err, syscall.EAGAIN):
+				return true // full: done, and do not wait for it to drain
+			default:
+				werr = err
+				return true
+			}
 		}
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if werr != nil {
+		t.Fatalf("measuring the send buffer: %v", werr)
 	}
 	if total <= 0 {
 		t.Fatalf("measured send buffer = %d, want > 0", total)
