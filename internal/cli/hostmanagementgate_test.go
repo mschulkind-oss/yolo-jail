@@ -167,12 +167,16 @@ func TestHostManagementNoneRefusesBothSpellings(t *testing.T) {
 	}
 }
 
-// TestHostManagementNoneStopsShellInitToo is the ABOVE-EVERY-STAGE half, and it is a distinct
-// failure from the one above: a refusal placed inside the render would return non-zero, print
-// the key, leave the surface untouched — and still append a PATH line to the user's shell rc,
-// because `--shell-init` runs after the render in hostApply. That is a command that wrote
-// nothing editing a file it was not authorized to touch (P3), and it is exactly how
-// `--format json --assert --shell-init` failed before jsonRefusedForPosture moved up.
+// TestHostManagementNoneStopsShellInitToo was the ABOVE-EVERY-STAGE half: a refusal placed
+// inside the render would return non-zero, print the key, leave the surface untouched — and
+// still append a PATH line to the user's shell rc, because `--shell-init` ran after the render
+// in hostApply. That is a command that wrote nothing editing a file it was not authorized to
+// touch (P3), and it is exactly how `--format json --assert --shell-init` failed before
+// jsonRefusedForPosture moved up.
+//
+// `--shell-init` is removed now (HE-D1) and refuses in the parse, before this gate is reached,
+// so the exit code is the removal's 2 rather than the gate's 1. What the test protected is
+// unchanged and still asserted: under `none`, that argv edits no shell rc.
 func TestHostManagementNoneStopsShellInitToo(t *testing.T) {
 	home, _ := hostManagementFixture(t, "none")
 	rc := filepath.Join(home, ".bashrc")
@@ -180,8 +184,8 @@ func TestHostManagementNoneStopsShellInitToo(t *testing.T) {
 	t.Setenv("SHELL", "/bin/bash")
 
 	var out, errw bytes.Buffer
-	if got := hostMain([]string{"apply", "--assert", "--shell-init"}, &out, &errw, false, nil); got != 1 {
-		t.Fatalf("rc=%d, want 1\n%s%s", got, out.String(), errw.String())
+	if got := hostMain([]string{"apply", "--assert", "--shell-init"}, &out, &errw, false, nil); got != 2 {
+		t.Fatalf("rc=%d, want 2 (the removed flag refuses)\n%s%s", got, out.String(), errw.String())
 	}
 	data, err := os.ReadFile(rc)
 	if err != nil {

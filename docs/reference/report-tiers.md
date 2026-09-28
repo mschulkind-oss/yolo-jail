@@ -348,9 +348,10 @@ the flag rather than growing a second output mode. `yolo host apply` is an actin
 > **The refusal has to stop a COMMAND, not a render.** Reached only from inside the render path it
 > stopped the render and left every later stage running — `yolo host apply --assert --shell-init
 > --format json` exited 2 with empty stdout and **still appended the PATH line to the user's shell
-> rc**, silently, because the confirmation line goes through a sink JSON mode discards. That is why
+> rc**, silently, because the confirmation line went through a sink JSON mode discards. That is why
 > `jsonRefusedForPosture` is decided from argv alone and checked at the top of both entry points.
-> A refusal that edits a shell rc file is the write P3 forbids.
+> A refusal that edits a shell rc file is the write P3 forbids. The flag is removed since
+> ([HE-D1](host-agent-environment.md#he-d1)); the rule stays, for whatever stage comes next.
 
 ### Exit codes
 

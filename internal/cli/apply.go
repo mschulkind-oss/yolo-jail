@@ -252,9 +252,10 @@ func applyHostFormatted(out, errw io.Writer, color bool, write bool, stdin io.Re
 // It exists because the refusal has to stop a COMMAND, not a render. Reached only through
 // applyHostFormatted it stopped the render and left every later stage running: `yolo host
 // apply --assert --shell-init --format json` exited 2 with an empty stdout and STILL
-// appended the PATH line to the user's shell rc, silently — the confirmation line goes
+// appended the PATH line to the user's shell rc, silently — the confirmation line went
 // through outfmt.Sink, which JSON mode discards. A refusal that edits a shell rc file is
-// the write P3 forbids.
+// the write P3 forbids. That flag is removed now (hostapply.go, refuseShellInit), and the
+// rule it taught stays: a refusal decided from argv ends the command.
 func jsonRefusedForPosture(format string, write bool) bool {
 	return outfmt.IsJSON(format) && write
 }

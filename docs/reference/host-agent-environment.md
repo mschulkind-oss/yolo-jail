@@ -20,7 +20,9 @@ command (execution flow step 2, and the paragraph after it) is newer, from 2026-
 remedy's corrections in ES-D10 to ES-D12), and is pinned by unit tests through `hostMain`. So is
 the `--with-credentials` grant beside it, from the same day
 ([OQ-ES5](../design/credential-sources-separation.md#OQ-ES5)'s host half, ES-D13 to ES-D17), and
-the refusal of a profile the in-jail bridge would serve (ES-D18 to ES-D20).
+the refusal of a profile the in-jail bridge would serve (ES-D18 to ES-D20). The removal of
+`yolo host apply --shell-init` is newer still, ruled 2026-09-27 ([HE-D1](#he-d1)), and is pinned
+by unit tests through `hostMain`.
 
 Inside a jail, injecting environment is trivial: yolo controls the process spawn, so it passes
 `-e KEY=VAL` and PID 1 has the exact environment. On the host it controls nothing — the user
@@ -46,7 +48,8 @@ and why "just use wrappers for everything" does not collapse the problem.
 | The `yolo host` verb tree and the exec half | `internal/cli` (`hostMain`, `hostExec`, `hostEnv`, `hostWrappers`) |
 | Environment composition, and the resolution order | `internal/cli` (`host.go`: the pack env fold, `hostScopedEnvSources`) |
 | Wrapper generation, contents, and the plan | `internal/hostwrap` (`Body`, `Bins`, `Plan`, `OnPath`, `Precedence`) |
-| The apply stage that writes them, and `--shell-init` | `internal/cli` (`applyHostWrappers`, `runShellInit`, `setHostWrappers`) |
+| The apply stage that writes them | `internal/cli` (`applyHostWrappers`) |
+| The refusal left where `--shell-init` was | `internal/cli` (`refuseShellInit`) |
 | The every-run `PATH`, precedence and completeness observations | `internal/cli/check` (`section_hostwrappers.go`) |
 | Where the directory lives | `internal/paths` (`WrapDir`, `WrapDirUnder`, `GeneratedBinDir`) |
 
@@ -76,7 +79,7 @@ the confinement dial), [`pack-system.md`](pack-system.md) (the contribution mode
    export agent variables. Session-wide exports break tool isolation, leak secrets across
    unrelated commands, and make per-command profile switching impossible. A single `PATH` entry
    is a smaller and different claim — but it is still the user's file, so yolo prints the line
-   and writes it only when asked.
+   and never writes it ([HE-D1](#he-d1)).
 4. **P4 — One env-composition implementation, two front doors.** `yolo host -p <profile> --
    <agent>` is the mechanism. A generated wrapper is a three-line `exec` into it, never a second
    implementation to drift. That is what makes keeping wrappers affordable.
@@ -128,9 +131,9 @@ that placement:
 1. **Prepend, not append.** Appending puts the wrapper behind the real binary, where it never
    runs. Prepending means everything in that directory shadows the user's tools — a standing
    claim, which is why the directory holds only generated wrappers and is reset contents-only.
-2. **It is an rc edit, and P3 says yolo does not make it.** `apply` prints the line;
-   `yolo host apply --shell-init` appends it on explicit request. (It refuses to guess fish
-   syntax and prints the `fish_add_path` line instead.)
+2. **It is an rc edit, and P3 says yolo does not make it.** `apply` prints the line, `yolo check`
+   repeats it until it takes effect, and the user adds it. `yolo host apply --shell-init`, which
+   used to append it, is removed and refuses, printing the line ([HE-D1](#he-d1)).
 3. **It is one decision, not one per agent** — the `host_wrappers` config key, top level beside
    `host_files`. Not opted in means no directory, no wrappers, and no messages at all;
    `yolo host --` still works.
@@ -331,13 +334,14 @@ launch. It never tells the user to add `wire-bridge` to `packs`. An agent that a
 
 **The residual, named:** a user who enables `host_wrappers` and never pastes the line has a
 working `yolo host --` and inert wrappers — not silently (`apply` said the line once, `check`
-repeats it every run), but not working either. That is the cost of P3, and `--shell-init` is its
-exit.
+repeats it every run), but not working either. That is the cost of P3, and the only exit is the
+line, pasted by the user. yolo offers no writer for it ([HE-D1](#he-d1)).
 
 ## What this does not license
 
-- **Not a shell rc that exports agent variables.** One `PATH` entry, on request, is the entire
-  claim yolo makes on the user's shell (P3).
+- **Not a shell rc that exports agent variables.** One `PATH` entry, printed for the user to add,
+  is the entire claim yolo makes on the user's shell, and yolo never writes it (P3,
+  [HE-D1](#he-d1)).
 - **Not per-agent channel selection.** A pack does not choose config-vs-env; the payload does
   (P1).
 - **Not `mise` or `direnv` as the env channel.** Their coverage is a strict *subset* of the
@@ -369,10 +373,11 @@ exit.
 | <a id="oq-1"></a>[**OQ-1**](#oq-1) — copilot BYOK needs no per-agent advisory | Under P1 the need is a property of the provider, so copilot is the ordinary path rather than a special case; one statement covers every agent at once. |
 | <a id="oq-2"></a>[**OQ-2**](#oq-2) — `yolo host -- <cmd>`, with `yolo --at host -- <cmd>` as the alias | The exec half needs a spelling that reads as a launch, and the dial keeps every notch equal. |
 | <a id="oq-3"></a>[**OQ-3**](#oq-3) — `yolo host env` emits POSIX `export` by default, with JSON for tooling | Shell-specific emitters are not refused, just not built until asked for. |
-| <a id="oq-4"></a>[**OQ-4**](#oq-4) — `apply` reports actions, `check` reports state, and `--shell-init` writes on request | An observation `apply` cannot make reliably must not gate what it prints; the actions-vs-state split is what the two commands are for. |
+| <a id="oq-4"></a>[**OQ-4**](#oq-4) — `apply` reports actions, `check` reports state, and `--shell-init` writes on request | An observation `apply` cannot make reliably must not gate what it prints; the actions-vs-state split is what the two commands are for. The `--shell-init` half is withdrawn by [HE-D1](#he-d1). |
 | <a id="oq-5"></a>[**OQ-5**](#oq-5) — every host program a selected pack installs gets a wrapper, unconditionally | The wrap dir is an addressable launch surface; a path that exists on some machines and not others is not one. Overrules an earlier "only when the resolved env is non-empty" leaning. |
 | <a id="oq-6"></a>[**OQ-6**](#oq-6) — the wrap dir is hardcoded under the existing host state root, not `XDG_DATA_HOME` | This repo follows the XDG *layout* and honors no XDG *variable* anywhere, so honoring one for a single new directory would make it the only path in the tree that moves when the variable is set. A cache dir would be worse: an evicted `PATH` entry is a silently broken `claude`. |
 | <a id="oq-7"></a>[**OQ-7**](#oq-7) — `yolo apply --host` is REMOVED, not deprecated | Three spellings for one operation was the problem, and a deprecation message keeps the third spelling alive. Sweep prose with an allowlist, never with a blind substitution: docs that record what shipped *at the time* must keep the old spelling. |
+| <a id="he-d1"></a>[**HE-D1**](#he-d1) — `yolo host apply --shell-init` is REMOVED (2026-09-27, maintainer ruling) | The ruling, verbatim: *"this shell init command apperas to do nothing, and I don't th8ink it's ever safe so we shoud reove it."* Both halves were measured before the removal. It did nothing on the spelling every remedy printed: bare `--shell-init` is a dry run, so it printed a "would append" line below the report's closing sentence and wrote nothing. It was unsafe on the spelling that wrote: it chose the rc file by guessing from `$SHELL` (`~/.zshrc` for zsh, `~/.bashrc` for anything else, `/bin/sh` included), and under `--assert` it appended even after the apply had refused and printed "Nothing was written." The flag now refuses with exit 2, writes nothing and prints the line. It refuses by name rather than as an unknown flag, the way `yolo host wrappers enable` does, because the people who type it are the ones a shipped message told to. |
 
 ## Current values
 
@@ -391,4 +396,4 @@ explains what each of these is for; this table is the only place the values them
 | `yolo host` verbs | `apply`, `env`, `wrappers` (**`status` only** — `enable`/`disable` were deleted 2026-09-22 and now refuse), and the `--` exec half | `internal/cli` (`hostMain`) |
 | `yolo host env` formats | `export` (default), `json` | `internal/cli` (`hostEnv`) |
 | Profile flag | `--profile <name>` / `-p <name>`, keying the launched command by its basename, agent or not | `internal/cli` (`parseHostExecFlags`, `effectiveHostProfiles`) |
-| rc line writer | `yolo host apply --shell-init` | `internal/cli` (`runShellInit`) |
+| rc line writer | **none.** `yolo host apply --shell-init` was removed 2026-09-27 and refuses with exit 2, printing the line ([HE-D1](#he-d1)) | `internal/cli` (`refuseShellInit`) |

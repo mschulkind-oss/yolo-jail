@@ -3,8 +3,6 @@ package cli
 import (
 	"fmt"
 	"io"
-	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
@@ -16,8 +14,8 @@ import (
 )
 
 // hostApply is `yolo host apply` — the ergonomic spelling of `yolo apply --at host`.
-// Both remain; this one also owns --shell-init, which has no counterpart at any other
-// notch because no other notch has a user's shell.
+// Both remain. This one used to also own --shell-init, which is removed and now refuses
+// (refuseShellInit).
 func hostApply(args []string, out, errw io.Writer, color bool, stdin io.Reader) int {
 	// The format family is read FIRST, off the same argv, for the reason `ps` reads it
 	// before its probes: a rejected value is misuse, and a run that renders first and
@@ -26,7 +24,7 @@ func hostApply(args []string, out, errw io.Writer, color bool, stdin io.Reader) 
 	if !ok {
 		return 2
 	}
-	assert, dryRun, shellInit, revert := false, false, false, false
+	assert, dryRun, revert := false, false, false
 	for i := 0; i < len(args); i++ {
 		a := args[i]
 		// Tokens the format parse above already consumed. This parser REFUSES an
@@ -44,8 +42,10 @@ func hostApply(args []string, out, errw io.Writer, color bool, stdin io.Reader) 
 			assert = true
 		case a == "--dry-run":
 			dryRun = true
-		case a == "--shell-init":
-			shellInit = true
+		case a == "--shell-init" || strings.HasPrefix(a, "--shell-init="):
+			// Refused HERE, in the parse, so nothing below it runs: no pack refresh, no
+			// render, no wrapper generation, whatever else the argv asked for.
+			return refuseShellInit(errw)
 		case a == "--revert":
 			revert = true
 		default:
@@ -55,23 +55,18 @@ func hostApply(args []string, out, errw io.Writer, color bool, stdin io.Reader) 
 	}
 	write := assert && !dryRun
 	// ABOVE EVERY STAGE, not just above the render. [OQ-RO4]'s refusal is misuse decided
-	// from argv, so it ends the command here; asking applyHostFormatted to make it left
-	// --shell-init running behind it, with `write` still true, and the run exited 2 with an
-	// empty stdout while appending the PATH line to the user's rc file (jsonRefusedForPosture).
+	// from argv, so it ends the command here; asking applyHostFormatted to make it once left
+	// a later stage (the since-removed --shell-init) running behind it, with `write` still
+	// true, and the run exited 2 with an empty stdout while appending the PATH line to the
+	// user's rc file (jsonRefusedForPosture).
 	if jsonRefusedForPosture(format, write) {
 		return refuseJSONForActingApply(errw)
 	}
 	// --revert is a DIFFERENT OPERATION, not a modifier of the render, so it takes the whole
 	// command: it consumes the provenance record instead of writing one, has no document to
-	// emit and no wrappers to generate. The two flags it cannot share are refused by name
-	// rather than silently ignored (hostrevert.go).
+	// emit and no wrappers to generate. The flag it cannot share is refused by name rather
+	// than silently ignored (hostrevert.go).
 	if revert {
-		if shellInit {
-			fmt.Fprintf(errw, "yolo host apply: --revert and --shell-init are different "+
-				"operations — a revert withdraws yolo from your home and has no wrapper "+
-				"directory to put on your PATH.\n")
-			return 2
-		}
 		if outfmt.IsJSON(format) {
 			fmt.Fprintf(errw, "yolo host apply: --revert has no document to emit — it is a "+
 				"dry run by default, and its report IS the thing you read before asserting "+
@@ -84,27 +79,36 @@ func hostApply(args []string, out, errw io.Writer, color bool, stdin io.Reader) 
 		return hostRevert(out, errw, color, write)
 	}
 	// THE DECLARED OWNERSHIP CONTRACT, above every stage for the same reason the refusal
-	// above it is: `--shell-init` runs AFTER the render, so a refusal that only stopped the
-	// render would leave a command that wrote nothing appending a PATH line to the user's
-	// shell rc (hostmanagementgate.go).
+	// above it is: a refusal that only stopped the render would leave any later stage
+	// running inside a command that wrote nothing (hostmanagementgate.go).
 	if rc, refused := refuseHostManagement(errw); refused {
 		return rc
 	}
 	// Fetch-before-resolve, as a launch does (hostpackrefresh.go). To stderr, so a
 	// `--format json` stdout still carries one document and nothing else.
 	refreshHostPacks(errw)
-	rc := applyHostFormatted(out, errw, color, write, stdin, format)
-	if shellInit {
-		// THROUGH THE SINK, like the report above it: in JSON mode stdout carries one
-		// document and nothing else, and this stage's output is human prose about an rc
-		// file that the document has no field for. Its WRITING half is unreachable here —
-		// the refusal above returned before this stage — so nothing is silently skipped.
-		if src := runShellInit(richtext.Printer{W: outfmt.Sink(out, format), Color: color},
-			errw, write); src != 0 {
-			rc = src
-		}
-	}
-	return rc
+	return applyHostFormatted(out, errw, color, write, stdin, format)
+}
+
+// refuseShellInit is all that is left of `yolo host apply --shell-init`: a refusal that
+// writes nothing and hands over the line the flag used to append.
+//
+// REMOVED 2026-09-27 by the maintainer's ruling (docs/reference/host-agent-environment.md,
+// HE-D1): "this shell init command apperas to do nothing, and I don't th8ink it's ever safe
+// so we shoud reove it." It appended the PATH line to an rc file it GUESSED from $SHELL
+// (~/.zshrc for zsh, ~/.bashrc for anything else), and only under --assert, so the bare
+// spelling every remedy printed was a dry run that wrote nothing. Under --assert it also
+// appended after the apply it rode on had refused and said "Nothing was written."
+//
+// IT REFUSES rather than falling through to "unexpected argument", the way `yolo host
+// wrappers enable` does: the people who type it are the ones a shipped message told to, and
+// what they need is the line, not a usage dump.
+func refuseShellInit(errw io.Writer) int {
+	fmt.Fprintf(errw, "yolo host apply: --shell-init was removed — yolo does not edit your "+
+		"shell rc.\nAdd this line to it yourself, below any line that puts ~/.local/bin on "+
+		"PATH, then open a new shell:\n  %s\n`yolo check` says whether it took effect.\n",
+		hostwrap.PathLine(paths.WrapDir()))
+	return 2
 }
 
 // applyHostWrappers is the wrapper-generation stage of an apply.
@@ -177,7 +181,7 @@ func applyHostWrappers(pr richtext.Printer, errw io.Writer, home string, packs [
 	if plan.Changed() {
 		// The completion notice: "I just wrote these; here is what makes them take
 		// effect." Conditioned on this apply's own action, never on an observation.
-		pr.Printf("    [dim]add this to your shell rc to use them (or pass --shell-init):[/dim]")
+		pr.Printf("    [dim]add this to your shell rc to use them:[/dim]")
 		pr.Printf("    [bold]%s[/bold]", hostwrap.PathLine(dir))
 	}
 	return 0
@@ -215,69 +219,4 @@ func describeWrapperPlan(plan hostwrap.Plan, wrote bool) string {
 		verb = "wrote"
 	}
 	return fmt.Sprintf("%s %d wrapper(s) (%s)", verb, len(plan.Wrappers), strings.Join(parts, " "))
-}
-
-// runShellInit appends the PATH line to the user's shell rc, on explicit request only.
-//
-// P3 says yolo does not silently edit shell rc files, and this does not weaken that: it
-// runs only when the user typed --shell-init, it appends rather than rewriting, and it is
-// idempotent — a file that already contains the line is left alone rather than
-// accumulating a copy per apply.
-func runShellInit(pr richtext.Printer, errw io.Writer, write bool) int {
-	dir := paths.WrapDir()
-	line := hostwrap.PathLine(dir)
-	rc, err := shellRCPath()
-	if err != nil {
-		fmt.Fprintf(errw, "yolo host apply --shell-init: %v\n", err)
-		return 1
-	}
-	existing, err := os.ReadFile(rc)
-	if err != nil && !os.IsNotExist(err) {
-		fmt.Fprintf(errw, "yolo host apply --shell-init: reading %s: %v\n", rc, err)
-		return 1
-	}
-	if strings.Contains(string(existing), dir) {
-		pr.Printf("  [dim]%s already references the wrapper dir — left alone[/dim]", rc)
-		return 0
-	}
-	if !write {
-		pr.Printf("  [cyan]%-20s[/cyan] would append to %s", "--shell-init", rc)
-		pr.Printf("    [bold]%s[/bold]", line)
-		return 0
-	}
-	f, err := os.OpenFile(rc, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
-	if err != nil {
-		fmt.Fprintf(errw, "yolo host apply --shell-init: opening %s: %v\n", rc, err)
-		return 1
-	}
-	defer f.Close()
-	if _, err := fmt.Fprintf(f, "\n# yolo-jail host launch wrappers\n%s\n", line); err != nil {
-		fmt.Fprintf(errw, "yolo host apply --shell-init: writing %s: %v\n", rc, err)
-		return 1
-	}
-	pr.Printf("  [green]appended the PATH line to %s[/green] — open a new shell to pick it up", rc)
-	return 0
-}
-
-// shellRCPath picks the rc file to append to from $SHELL, defaulting to ~/.bashrc.
-//
-// Guessing is acceptable HERE and nowhere else in this design: the user asked for the
-// write, so a wrong guess is a visible file they can move a line out of, rather than the
-// silent misreport that reading rc files to INFER state would produce.
-func shellRCPath() (string, error) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", fmt.Errorf("cannot resolve your home: %w", err)
-	}
-	switch filepath.Base(os.Getenv("SHELL")) {
-	case "zsh":
-		return filepath.Join(home, ".zshrc"), nil
-	case "fish":
-		// fish cannot source a POSIX export line; say so rather than writing something
-		// that will not work.
-		return "", fmt.Errorf("--shell-init does not know fish syntax yet — add this to "+
-			"your fish config by hand:\n  fish_add_path %s", paths.WrapDir())
-	default:
-		return filepath.Join(home, ".bashrc"), nil
-	}
 }

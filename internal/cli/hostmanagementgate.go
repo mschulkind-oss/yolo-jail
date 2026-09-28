@@ -80,11 +80,11 @@ func hostManagementRefusal(mode config.HostManagement) string {
 // refusal and returning its exit code.
 //
 // IT MUST BE CALLED ABOVE EVERY STAGE, not just above the render — the same rule
-// jsonRefusedForPosture earned the hard way. `yolo host apply --revert --shell-init` under
-// `none` that refused the render and left `--shell-init` running would append a PATH line to
-// the user's shell rc as part of a command that wrote nothing, which is the write P3 forbids.
-// Hence the two call sites (hostApply, and applyMain's host notch) rather than one inside
-// applyHostSurveyed.
+// jsonRefusedForPosture earned the hard way. When `yolo host apply` still had a stage after
+// the render (the since-removed --shell-init, which appended a PATH line to the user's shell
+// rc), a refusal that stopped only the render left that stage writing inside a command that
+// wrote nothing, which is the write P3 forbids. Hence the two call sites (hostApply, and
+// applyMain's host notch) rather than one inside applyHostSurveyed.
 //
 // EXIT 1, not 2. Nothing about the argv is wrong: the command is well-formed and the user's
 // own configuration is what declined it.

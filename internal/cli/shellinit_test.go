@@ -11,213 +11,106 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
-// shellInitHome builds the minimal precondition for driving `yolo host apply --shell-init`
-// end to end: a throwaway HOME holding an opted-in user config, so applyHost runs its real
-// pipeline (creating the wrap dir whose PATH line is about to be appended) before
-// runShellInit touches the rc. t.Chdir keeps the repo's own yolo-jail.jsonc out of the
-// merged config, exactly as the other host apply tests do.
-func shellInitHome(t *testing.T) string {
+// `yolo host apply --shell-init` is REMOVED (HE-D1, docs/reference/host-agent-environment.md,
+// ruled 2026-09-27: "this shell init command apperas to do nothing, and I don't th8ink it's ever
+// safe so we shoud reove it"). What this file pins is what is left: the flag refuses, touches
+// nothing, and hands over the line; and no text yolo prints offers it any more.
+
+// shellInitHome builds a HOME in which an apply WOULD write, so a refusal that let the apply
+// run is visible on disk: an opted-in user config whose pack installs a program, the declared
+// binary stubbed so the dependency gate does not refuse first, and a user rc with content of
+// its own. t.Chdir keeps the repo's own yolo-jail.jsonc out of the merged config.
+func shellInitHome(t *testing.T) (home, rcPath string) {
 	t.Helper()
-	home := t.TempDir()
+	home = t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("YOLO_VERSION", "")
 	t.Chdir(t.TempDir())
 	userCfg(t, home, `{"packs": ["claude"], "host_wrappers": true}`)
-	// --shell-init runs after a WRITING apply, which the dependency gate refuses when the
-	// `claude` pack's declared binary is missing — true on CI, false in a development jail.
 	stubDeclaredBins(t)
-	return home
+	rcPath = filepath.Join(home, ".bashrc")
+	if err := os.WriteFile(rcPath, []byte("# my own aliases\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return home, rcPath
 }
 
-// hostApplyShellInit drives the real `yolo host apply` dispatch AND flag wiring. Calling
-// runShellInit directly would leave the wiring unpinned — a test that pins the callee
-// while the call site is unpinned is not a test, and deleting the `--shell-init` case
-// from hostApply must fail every test in this file.
-func hostApplyShellInit(args ...string) (stdout, stderr string, rc int) {
+// hostApplyArgs drives the real `yolo host` dispatch and flag parse. Calling refuseShellInit
+// directly would leave the parse unpinned: deleting its `--shell-init` case must turn the
+// refusal below into a bare "unexpected argument", which the first test tells apart.
+func hostApplyArgs(args ...string) (stdout, stderr string, rc int) {
 	var out, errw bytes.Buffer
 	rc = hostMain(append([]string{"apply"}, args...), &out, &errw, false, strings.NewReader(""))
 	return out.String(), errw.String(), rc
 }
 
-// TestHostApplyShellInitAppendsPathLineIdempotently pins the write contract end to end:
-// after one asserting run the rc contains the PATH line exactly once AND the user's own
-// content is still there (it appends, it never rewrites), and after a SECOND run the line
-// is STILL there exactly once. That second half is the interesting one: the idempotency
-// guard in runShellInit is the only thing standing between a user's .bashrc and one PATH
-// line per apply, and nothing in the suite re-ran the append before this test.
-func TestHostApplyShellInitAppendsPathLineIdempotently(t *testing.T) {
-	home := shellInitHome(t)
-	t.Setenv("SHELL", "/bin/bash")
-	rcPath := filepath.Join(home, ".bashrc")
-	if err := os.WriteFile(rcPath, []byte("# my own aliases\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	wrapLine := hostwrap.PathLine(paths.WrapDirUnder(home))
-
-	_, stderr, rc := hostApplyShellInit("--assert", "--shell-init")
-	if rc != 0 {
-		t.Fatalf("rc = %d, stderr = %q", rc, stderr)
-	}
-	body, err := os.ReadFile(rcPath)
-	if err != nil {
-		t.Fatalf("no rc written: %v", err)
-	}
-	if n := strings.Count(string(body), wrapLine); n != 1 {
-		t.Errorf("after one run the PATH line appears %d times, want exactly 1:\n%s", n, body)
-	}
-	if !strings.Contains(string(body), "# my own aliases") {
-		t.Errorf("--shell-init rewrote the rc instead of appending; user content lost:\n%s", body)
-	}
-	if !strings.Contains(string(body), "# yolo-jail host launch wrappers") {
-		t.Errorf("the appended block is not marked as yolo's:\n%s", body)
-	}
-
-	// The second run must take the already-references-it branch, not append a second copy.
-	stdout, stderr, rc := hostApplyShellInit("--assert", "--shell-init")
-	if rc != 0 {
-		t.Fatalf("second run rc = %d, stderr = %q", rc, stderr)
-	}
-	body, err = os.ReadFile(rcPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if n := strings.Count(string(body), wrapLine); n != 1 {
-		t.Errorf("after a second run the PATH line appears %d times, want still exactly 1 — "+
-			"the idempotency guard is not guarding:\n%s", n, body)
-	}
-	if !strings.Contains(stdout, "already references the wrapper dir") {
-		t.Errorf("the second run did not report leaving the rc alone:\n%s", stdout)
-	}
-}
-
-// TestHostApplyShellInitPicksRCFileFromShell pins the $SHELL → rc mapping as behaviour,
-// not help text: the run writes the line into exactly the file the code maps the shell to
-// and creates no other rc. zsh → ~/.zshrc; bash, sh, and an unset $SHELL all fall to the
-// ~/.bashrc default. Absolute SHELL paths exercise the filepath.Base dispatch.
-func TestHostApplyShellInitPicksRCFileFromShell(t *testing.T) {
-	for _, tc := range []struct {
-		shell, wantRC string
-	}{
-		{"/usr/bin/zsh", ".zshrc"},
-		{"/bin/bash", ".bashrc"},
-		{"/bin/sh", ".bashrc"},
-		{"", ".bashrc"}, // unset $SHELL defaults rather than refusing
-	} {
-		t.Run("shell="+tc.shell, func(t *testing.T) {
-			home := shellInitHome(t)
-			t.Setenv("SHELL", tc.shell)
-			_, stderr, rc := hostApplyShellInit("--assert", "--shell-init")
-			if rc != 0 {
-				t.Fatalf("rc = %d, stderr = %q", rc, stderr)
-			}
-			body, err := os.ReadFile(filepath.Join(home, tc.wantRC))
-			if err != nil {
-				t.Fatalf("%s not written: %v", tc.wantRC, err)
-			}
-			if !strings.Contains(string(body), hostwrap.PathLine(paths.WrapDirUnder(home))) {
-				t.Errorf("%s lacks the PATH line:\n%s", tc.wantRC, body)
-			}
-			for _, other := range []string{".zshrc", ".bashrc"} {
-				if other == tc.wantRC {
-					continue
-				}
-				if _, err := os.Stat(filepath.Join(home, other)); !os.IsNotExist(err) {
-					t.Errorf("--shell-init for SHELL=%q also wrote %s", tc.shell, other)
-				}
-			}
-		})
-	}
-}
-
-// TestHostApplyShellInitRefusesFish pins the refusal: fish cannot source a POSIX export
-// line, so --shell-init fails with the by-hand remedy — naming the REAL wrap dir — and
-// never falls through to the ~/.bashrc default, where the line would sit unread.
-func TestHostApplyShellInitRefusesFish(t *testing.T) {
-	home := shellInitHome(t)
-	t.Setenv("SHELL", "/usr/local/bin/fish")
-	_, stderr, rc := hostApplyShellInit("--assert", "--shell-init")
-	if rc != 1 {
-		t.Errorf("fish rc = %d, want 1 (a refusal, not a write in a syntax fish cannot read)", rc)
-	}
-	if !strings.Contains(stderr, "does not know fish syntax yet") {
-		t.Errorf("stderr does not say why fish is refused:\n%s", stderr)
-	}
-	dir := paths.WrapDirUnder(home)
-	if !strings.Contains(stderr, "fish_add_path "+dir) {
-		t.Errorf("the remedy does not name the real wrap dir %s:\n%s", dir, stderr)
-	}
-	for _, rcFile := range []string{".bashrc", ".zshrc"} {
-		if _, err := os.Stat(filepath.Join(home, rcFile)); !os.IsNotExist(err) {
-			t.Errorf("the fish refusal still wrote %s", rcFile)
-		}
-	}
-}
-
-// TestHostApplyShellInitObserveWritesNothing mirrors TestApplyHostWrappersObserveWritesNothing
-// for the rc half of the observe/write split: --shell-init without --assert — and with
-// --assert --dry-run, which forces observe — changes NOTHING, not even creating the rc
-// file, while still describing the append it would make.
-func TestHostApplyShellInitObserveWritesNothing(t *testing.T) {
+// TestHostApplyShellInitIsRemovedAndRefuses: every spelling that used to reach the rc write —
+// bare (a dry run), with --assert, alongside --revert and alongside a JSON format — now exits 2
+// with the removal named and the PATH line handed over, and writes NOTHING: the rc keeps its
+// bytes, no second rc appears for another shell, and the apply it rode on never runs (no
+// wrapper directory, no rendered settings file).
+//
+// The "was removed" assertion is what fails if the parse's `--shell-init` case is deleted: the
+// default branch refuses too, with exit 2, but says only "unexpected argument".
+func TestHostApplyShellInitIsRemovedAndRefuses(t *testing.T) {
 	for _, tc := range []struct {
 		name  string
+		shell string
 		args  []string
-		hasRC bool
 	}{
-		{"bare, no rc yet", []string{"--shell-init"}, false},
-		{"bare, existing rc", []string{"--shell-init"}, true},
-		{"dry-run beats --assert", []string{"--assert", "--dry-run", "--shell-init"}, true},
+		{"bare", "/bin/bash", []string{"--shell-init"}},
+		{"asserting", "/bin/bash", []string{"--assert", "--shell-init"}},
+		{"asserting under zsh", "/usr/bin/zsh", []string{"--assert", "--shell-init"}},
+		{"with a value", "/bin/bash", []string{"--assert", "--shell-init=zsh"}},
+		{"beside --revert", "/bin/bash", []string{"--revert", "--assert", "--shell-init"}},
+		{"beside --format json", "/bin/bash", []string{"--assert", "--shell-init", "--format", "json"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			home := shellInitHome(t)
-			t.Setenv("SHELL", "/bin/bash")
-			rcPath := filepath.Join(home, ".bashrc")
-			seed := "# leave me alone\n"
-			if tc.hasRC {
-				if err := os.WriteFile(rcPath, []byte(seed), 0o644); err != nil {
-					t.Fatal(err)
+			home, rcPath := shellInitHome(t)
+			t.Setenv("SHELL", tc.shell)
+
+			stdout, stderr, rc := hostApplyArgs(tc.args...)
+			if rc != 2 {
+				t.Fatalf("rc = %d, want 2 (misuse)\nstdout: %s\nstderr: %s", rc, stdout, stderr)
+			}
+			if !strings.Contains(stderr, "--shell-init was removed") {
+				t.Errorf("the refusal must name the removal, not just an unknown flag:\n%s", stderr)
+			}
+			if want := hostwrap.PathLine(paths.WrapDirUnder(home)); !strings.Contains(stderr, want) {
+				t.Errorf("the refusal must hand over the exact line %q:\n%s", want, stderr)
+			}
+			if stdout != "" {
+				t.Errorf("a refusal prints nothing on stdout; got:\n%s", stdout)
+			}
+			if body, err := os.ReadFile(rcPath); err != nil || string(body) != "# my own aliases\n" {
+				t.Errorf("the refusal changed the user's rc (err=%v):\n%q", err, body)
+			}
+			for _, other := range []string{".zshrc", ".profile", ".bash_profile"} {
+				if _, err := os.Stat(filepath.Join(home, other)); !os.IsNotExist(err) {
+					t.Errorf("the refusal created %s", other)
 				}
 			}
-			stdout, stderr, rc := hostApplyShellInit(tc.args...)
-			if rc != 0 {
-				t.Fatalf("rc = %d, stderr = %q", rc, stderr)
+			if _, err := os.Stat(paths.WrapDirUnder(home)); !os.IsNotExist(err) {
+				t.Errorf("the refusal ran the apply: %s exists", paths.WrapDirUnder(home))
 			}
-			if !tc.hasRC {
-				if _, err := os.Stat(rcPath); !os.IsNotExist(err) {
-					t.Error("an observing --shell-init created the rc file")
-				}
-			} else if body, err := os.ReadFile(rcPath); err != nil || string(body) != seed {
-				t.Errorf("an observing --shell-init changed the rc (err=%v):\n%q", err, body)
-			}
-			if !strings.Contains(stdout, "would append to") {
-				t.Errorf("observe did not describe the append it would make:\n%s", stdout)
+			if _, err := os.Stat(filepath.Join(home, ".claude", "settings.json")); !os.IsNotExist(err) {
+				t.Error("the refusal ran the apply: ~/.claude/settings.json was rendered")
 			}
 		})
 	}
 }
 
-// TestHostApplyShellInitIsNotReachedByARefusedFormat pins [OQ-RO4]'s refusal as
-// SIDE-EFFECT-FREE, which is the half of it that had no test.
-//
-// `--format json` at the acting posture is MISUSE, decided from argv before any work — so
-// it must end the COMMAND, not just the render. It ended only the render: applyHostFormatted
-// returned 2 and hostApply then ran --shell-init anyway, with `write` still true, so the run
-// exited 2 with an EMPTY stdout (the JSON sink swallows the confirmation line) and still
-// appended the PATH line to the user's shell rc. A refusal that edits a shell rc file is
-// exactly the silent write P3 forbids, and the file's own docstring claimed it could not
-// happen.
-//
-// The rc file is the instrument because it is the one durable thing the stage touches: an
-// assertion on stdout alone stays green with the write intact.
-func TestHostApplyShellInitIsNotReachedByARefusedFormat(t *testing.T) {
-	home := shellInitHome(t)
+// TestHostApplyRefusedFormatRunsNothing keeps what the removed flag's last regression test
+// pinned, now that the flag is gone: [OQ-RO4]'s refusal of `--format json` at the acting
+// posture is SIDE-EFFECT-FREE. It is misuse decided from argv, so it ends the COMMAND, not just
+// the render — it once ended only the render, and a later stage appended the PATH line to the
+// user's rc behind an exit 2 and an empty stdout (jsonRefusedForPosture). The wrapper directory
+// is the instrument: it is what any stage past the refusal would create first.
+func TestHostApplyRefusedFormatRunsNothing(t *testing.T) {
+	home, rcPath := shellInitHome(t)
 	t.Setenv("SHELL", "/bin/bash")
-	rcPath := filepath.Join(home, ".bashrc")
-	const own = "# my own aliases\n"
-	if err := os.WriteFile(rcPath, []byte(own), 0o644); err != nil {
-		t.Fatal(err)
-	}
 
-	stdout, stderr, rc := hostApplyShellInit("--assert", "--shell-init", "--format", "json")
+	stdout, stderr, rc := hostApplyArgs("--assert", "--format", "json")
 	if rc != 2 {
 		t.Fatalf("rc = %d, want 2 (misuse)\nstdout: %s\nstderr: %s", rc, stdout, stderr)
 	}
@@ -227,17 +120,38 @@ func TestHostApplyShellInitIsNotReachedByARefusedFormat(t *testing.T) {
 	if !strings.Contains(stderr, "--format json is the DRY RUN's") {
 		t.Errorf("the refusal must say why:\n%s", stderr)
 	}
-	body, err := os.ReadFile(rcPath)
-	if err != nil {
-		t.Fatal(err)
+	if body, err := os.ReadFile(rcPath); err != nil || string(body) != "# my own aliases\n" {
+		t.Errorf("the refusal changed the user's rc (err=%v):\n%q", err, body)
 	}
-	if string(body) != own {
-		t.Errorf("the refusal edited the user's shell rc — it must touch nothing:\nwant %q\ngot  %q",
-			own, string(body))
-	}
-	// And the wrapper dir the PATH line would point at was never created either: the
-	// refusal sits above the whole apply, not merely above the rc append.
 	if _, err := os.Stat(paths.WrapDirUnder(home)); !os.IsNotExist(err) {
 		t.Errorf("the refusal ran the apply: %s exists", paths.WrapDirUnder(home))
+	}
+}
+
+// TestNothingOffersShellInit: the flag is gone from every text that used to offer it — the
+// `yolo host` help, `yolo config-ref`, and the completion notice an apply prints when it
+// creates the wrapper directory. The apply is the real one (it writes), so the notice it
+// prints is the production line, and it must still carry the PATH line it hands over.
+func TestNothingOffersShellInit(t *testing.T) {
+	if strings.Contains(hostUsage, "--shell-init") {
+		t.Errorf("`yolo host --help` still lists --shell-init:\n%s", hostUsage)
+	}
+	if ref := Render(false); strings.Contains(ref, "--shell-init") {
+		t.Error("`yolo config-ref` still offers --shell-init")
+	}
+
+	home, rcPath := shellInitHome(t)
+	var out, errw bytes.Buffer
+	if rc := applyHost(&out, &errw, false, true, strings.NewReader("")); rc != 0 {
+		t.Fatalf("apply rc=%d\n%s%s", rc, out.String(), errw.String())
+	}
+	if strings.Contains(out.String()+errw.String(), "shell-init") {
+		t.Errorf("the apply's completion notice still offers --shell-init:\n%s", out.String())
+	}
+	if !strings.Contains(out.String(), hostwrap.PathLine(paths.WrapDirUnder(home))) {
+		t.Errorf("the apply that created the wrapper dir must print the PATH line:\n%s", out.String())
+	}
+	if body, err := os.ReadFile(rcPath); err != nil || string(body) != "# my own aliases\n" {
+		t.Errorf("an apply changed the user's rc (err=%v):\n%q", err, body)
 	}
 }

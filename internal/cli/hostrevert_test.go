@@ -337,9 +337,10 @@ func TestHostRevertFindsSurfacesAfterThePackIsDropped(t *testing.T) {
 }
 
 // TestHostRevertRefusesTheFlagsItCannotShare: --revert is a different OPERATION, not a
-// modifier of the render, so the two flags that belong to the render are refused by name
-// rather than silently ignored. --shell-init is the one that matters — it WRITES, after the
-// stage a revert replaces, so ignoring it would have a revert edit the user's shell rc.
+// modifier of the render, so a flag that belongs to the render is refused by name rather than
+// silently ignored. --shell-init used to be the one that mattered — it WROTE, after the stage a
+// revert replaces — and it is removed now (HE-D1), so it refuses on its own; the case stays so
+// that a revert beside it still edits no shell rc.
 func TestHostRevertRefusesTheFlagsItCannotShare(t *testing.T) {
 	home, _, _ := revertFixture(t, "assert")
 	rc := filepath.Join(home, ".bashrc")

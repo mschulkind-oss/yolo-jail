@@ -109,8 +109,7 @@ func (o *Options) sectionHostWrappers(r *reporter) {
 				"so a bare `"+names[0]+"` runs unwrapped with no composed environment.\n"+
 				"Add this line to your shell rc (it must PREPEND, ahead of ~/.local/bin):\n"+
 				"  "+hostwrap.PathLine(dir)+"\n"+
-				"`yolo host apply --shell-init` will append it for you. Either way "+
-				dir+"/"+names[0]+" works right now as an absolute path.")
+				"Until then "+dir+"/"+names[0]+" works right now as an absolute path.")
 		return
 	}
 

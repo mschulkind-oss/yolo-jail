@@ -140,16 +140,17 @@ func boolsSet(bs ...bool) int {
 	return n
 }
 
-// TestHostApplyJSONStdoutCarriesTheDocumentAndNothingElse: `--shell-init` is a second stage
-// with its own human output, and it runs AFTER the report — so stdout would carry a document
-// followed by prose, which parses as neither. Nothing may be printed beside the document, and
-// a whole-stream parse is the only assertion that says so.
+// TestHostApplyJSONStdoutCarriesTheDocumentAndNothingElse: nothing may be printed beside the
+// document, and a whole-stream parse is the only assertion that says so. It was written for
+// `--shell-init`, a second stage with its own human output that ran AFTER the report; that
+// flag is removed (HE-D1), and the whole-stream parse stays, because any stage added after the
+// report would break it the same way — and so would a pack refresh that wrote to stdout.
 func TestHostApplyJSONStdoutCarriesTheDocumentAndNothingElse(t *testing.T) {
 	shippedPacksFixture(t)
 	t.Setenv("SHELL", "/bin/bash")
 
 	var out, errw bytes.Buffer
-	if rc := hostApply([]string{"--json", "--shell-init"}, &out, &errw, false, nil); rc != 0 {
+	if rc := hostApply([]string{"--json"}, &out, &errw, false, nil); rc != 0 {
 		t.Fatalf("rc=%d\nstdout:\n%s\nstderr:\n%s", rc, out.String(), errw.String())
 	}
 	var doc hostApplyDoc

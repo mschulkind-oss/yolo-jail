@@ -117,6 +117,9 @@ apply it, and the launch says that too. See
 - The `claude_plugins` pack hook. Its refusal names the replacements.
 - `yolo host wrappers enable` and `disable`. Wrappers are on by default when `host_management` is
   `"own"`, and `"host_wrappers": false` in your user config turns them off.
+- `yolo host apply --shell-init`. It now refuses and prints the PATH line for you to add to your
+  shell rc yourself. A line it appended earlier stays in your rc, under the comment
+  `# yolo-jail host launch wrappers`.
 
 ### Fixed
 

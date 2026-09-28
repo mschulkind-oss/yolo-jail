@@ -668,9 +668,10 @@
 
     [bold]It must be PREPENDED[/bold], ahead of ~/.local/bin: a wrapper only works if
     it is found before the real binary, and claude's own installer writes
-    ~/.local/bin/claude.  yolo PRINTS the line and does not write it; pass
-    [bold]--shell-init[/bold] to `yolo host apply` if you would rather it wrote one for you.
+    ~/.local/bin/claude.  yolo PRINTS the line and never writes it: your shell rc is
+    yours, so add it there yourself, below any line that puts ~/.local/bin on PATH.
       export PATH="$HOME/.local/share/yolo-jail/bin/wrap:$PATH"
+    `yolo check` says whether it took effect.
 
     Wrappers are generated for [bold]every[/bold] program a selected pack installs, whether
     or not that program needs any environment today.  That is deliberate: the

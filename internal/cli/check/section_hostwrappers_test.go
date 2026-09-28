@@ -116,6 +116,10 @@ func TestHostWrappersWarnsWhenNotOnPath(t *testing.T) {
 	if !strings.Contains(out, "absolute path") {
 		t.Errorf("output does not mention the absolute-path escape hatch:\n%s", out)
 	}
+	// `yolo host apply --shell-init` is removed (HE-D1): the remedy is the line, pasted by hand.
+	if strings.Contains(out, "shell-init") {
+		t.Errorf("the remedy still offers the removed --shell-init:\n%s", out)
+	}
 }
 
 func TestHostWrappersPassesWhenOnPath(t *testing.T) {

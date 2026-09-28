@@ -83,8 +83,6 @@ apply flags:
   --dry-run       Force the dry run, even alongside --assert.
   --verbose, -v   List every destination the report otherwise counts: each settled
                   surface, every dependency probe, every skill by destination.
-  --shell-init    Append the PATH line for the wrapper dir to your shell rc.
-                  yolo otherwise only PRINTS that line — the rc is your file.
   --revert        Take yolo back OUT of this home: remove the keys it asserted, on
                   the authority of the provenance record it wrote, and delete that
                   record. A key you set yourself (recorded "host") is never touched.
