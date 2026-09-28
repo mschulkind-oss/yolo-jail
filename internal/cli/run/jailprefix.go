@@ -182,9 +182,10 @@ func (o *Options) jailPrefixSource(root string) (jailPrefix, bool) {
 	// a nix-collect-garbage, the daemon's min-free) that jail loses the binary
 	// under its own pid1.
 	//
-	// Its own directory, NOT build/roots: those reap on age now (OQ-LS1), which
-	// is exactly backwards here — the longer a jail runs, the more certainly its
-	// binaries would be reaped. See image.RegisterPrefixRoot.
+	// Its own directory, NOT build/roots: those reap on age (OQ-LS1) except for a
+	// running IMAGE's root (OQ-LS4), and no image ref names a prefix — so there
+	// the longer a jail runs, the more certainly its binaries would be reaped.
+	// See image.RegisterPrefixRoot.
 	//
 	// Host-only, gated exactly as the image root is (imageload.go's rootImageFn):
 	// in-jail the gcroots dir is unmounted and the host daemon prunes a

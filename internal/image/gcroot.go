@@ -66,10 +66,11 @@ func RegisterImageRoot(storePath string, out io.Writer) (string, error) {
 // failure with a named warning.
 //
 // Factored out with the DIRECTORY as a parameter and the two callers as separate
-// exported functions on purpose. The two roots have OPPOSITE retention policies
-// — images reap on age (OQ-LS1), prefixes are held by liveness (OQ-BF4) — so the
-// directory is the only thing that keeps them apart, and a caller choosing it
-// from a variable is how they would silently merge.
+// exported functions on purpose. The two roots have DIFFERENT retention policies
+// — images reap on age unless a container runs on the image (OQ-LS1, OQ-LS4),
+// prefixes are held by the liveness of the jail executing from them (OQ-BF4) —
+// so the directory is the only thing that keeps them apart, and a caller choosing
+// it from a variable is how they would silently merge.
 func registerGCRoot(rootsDir, link, storePath string, out io.Writer, failMsg string) (string, error) {
 	if err := os.MkdirAll(rootsDir, 0o755); err != nil {
 		fmt.Fprintln(out, "Warning: could not create GC-root dir: "+err.Error())

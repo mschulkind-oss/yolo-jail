@@ -742,21 +742,21 @@ func TestNixGCDeclinesOnUnknownLiveness(t *testing.T) {
 	}
 }
 
-// TestNixGCSkipsWhenImageUnrooted: liveness known, but a loaded image closure has
-// no durable §1 root → refuse the GC and name the offending path.
+// TestNixGCSkipsWhenImageUnrooted: liveness known, but a RUNNING image yolo
+// cannot confirm is rooted → refuse the GC, name the ref, and name a fix that is
+// true: a fresh host launch, not an attach and not `just load` (which registers
+// no build/roots/<sha16> at all).
 func TestNixGCSkipsWhenImageUnrooted(t *testing.T) {
 	o, gs := baseOpts(t)
 	o.NixGC = true
 	o.InJail = func() bool { return false }
 	buildDir := filepath.Join(gs, "build")
 	o.BuildDir = func() string { return buildDir }
-	// A sentinel records a loaded image, but no roots/<sha16> exists for it.
-	sp := "/nix/store/zzzz-stream-yolo-jail"
 	mustMkdir(t, buildDir)
-	mustWrite(t, filepath.Join(buildDir, "last-load-podman"), []byte(sp+"\n"))
-	// Runtime enumerates (empty is fine — live.Known=true).
+	ref := "localhost/yolo-jail:0123456789abcdef"
 	o.Exec = stubExec(map[string]string{
-		k("podman", "ps", "-a", "--format", "{{.Names}} {{.State}}"): "\n",
+		k("podman", "ps", "-a", "--format", "{{.Names}} {{.State}}"): "yolo-x running\n",
+		k("podman", "ps", "--format", "{{.Image}}"):                  ref + "\n",
 	}, nil)
 	called := false
 	o.NixStoreGC = func(int64, bool) StoreGCOutcome { called = true; return StoreGCOutcome{} }
@@ -764,19 +764,126 @@ func TestNixGCSkipsWhenImageUnrooted(t *testing.T) {
 	o.Out = &buf
 	Run(o)
 	if called {
-		t.Error("an unrooted loaded image must block the store GC")
+		t.Error("an unrooted running image must block the store GC")
 	}
-	if !hasLine(&buf, "    • "+sp) {
-		t.Errorf("expected the unrooted store path named:\n%s", buf.String())
+	if !hasLine(&buf, "    • "+ref+" (no durable GC root at build/roots/0123456789abcdef)") {
+		t.Errorf("expected the unrooted running ref named:\n%s", buf.String())
 	}
-	found := false
+	var explained, remedy bool
 	for _, l := range lines(&buf) {
-		if strings.Contains(l, "lack a durable GC root (storage §1)") {
-			found = true
+		explained = explained || strings.Contains(l, "lack a durable GC root yolo can confirm (storage §1)")
+		remedy = remedy || (strings.Contains(l, "relaunch its workspace on the host") &&
+			strings.Contains(l, "attaching to a running jail loads nothing"))
+		if strings.Contains(l, "just load") {
+			t.Errorf("the remedy names `just load`, which registers no build/roots/<sha16>: %q", l)
 		}
 	}
-	if !found {
-		t.Errorf("expected the §1-rooting skip explanation:\n%s", buf.String())
+	if !explained || !remedy {
+		t.Errorf("explained=%v remedy=%v:\n%s", explained, remedy, buf.String())
+	}
+}
+
+// TestNixGCProceedsWhileARootedStockJailRuns is the defect of 2026-09-28 end to
+// end through Run: a normally-launched jail runs `stock-<hex>`, and once its
+// load recorded the store path and rooted it, the GC must proceed. Before the
+// fix the guard looked for roots/stock-<hex> and refused while ANY such jail ran.
+func TestNixGCProceedsWhileARootedStockJailRuns(t *testing.T) {
+	o, gs := baseOpts(t)
+	o.NixGC = true
+	o.InJail = func() bool { return false }
+	buildDir := filepath.Join(gs, "build")
+	o.BuildDir = func() string { return buildDir }
+	mustMkdir(t, buildDir)
+	id := "sha256:816a3ee9bbc3b73bef97cdadb88702eadc4ee53bdcefd1c24e0d349b9304fb20"
+	sp := "/nix/store/aaaa-yolo-jail-image.json"
+	if err := image.RecordStockStorePath(buildDir, id, sp); err != nil {
+		t.Fatal(err)
+	}
+	rootFor(t, filepath.Join(buildDir, "roots"), sp)
+	o.Exec = stubExec(map[string]string{
+		k("podman", "ps", "-a", "--format", "{{.Names}} {{.State}}"): "yolo-x running\n",
+		k("podman", "ps", "--format", "{{.Image}}"):                  image.StockImageRef("podman", id) + "\n",
+	}, nil)
+	called := false
+	o.NixStoreGC = func(int64, bool) StoreGCOutcome { called = true; return StoreGCOutcome{Ran: true} }
+	var buf bytes.Buffer
+	o.Out = &buf
+	Run(o)
+	if !called {
+		t.Fatalf("a rooted stock jail still refuses the store GC:\n%s", buf.String())
+	}
+}
+
+// TestNixGCNoLongerRefusesForAnUnrootedRecentLoad is the half of the guard
+// OQ-LS4 deleted: a recently loaded closure no container runs, whose root the age
+// reaper gave up, is a cache — the GC may take it. This used to refuse.
+func TestNixGCNoLongerRefusesForAnUnrootedRecentLoad(t *testing.T) {
+	o, gs := baseOpts(t)
+	o.NixGC = true
+	o.InJail = func() bool { return false }
+	buildDir := filepath.Join(gs, "build")
+	o.BuildDir = func() string { return buildDir }
+	mustMkdir(t, buildDir)
+	mustWrite(t, filepath.Join(buildDir, "last-load-podman"), []byte("/nix/store/zzzz-stream-yolo-jail\n"))
+	o.Exec = stubExec(map[string]string{
+		k("podman", "ps", "-a", "--format", "{{.Names}} {{.State}}"): "\n",
+	}, nil)
+	called := false
+	o.NixStoreGC = func(int64, bool) StoreGCOutcome { called = true; return StoreGCOutcome{Ran: true} }
+	var buf bytes.Buffer
+	o.Out = &buf
+	Run(o)
+	if !called {
+		t.Fatalf("an unrooted closure no container runs still blocks the GC:\n%s", buf.String())
+	}
+}
+
+// TestRootReaperKeepsARunningImagesRootThroughRun drives OQ-LS4 through Run, so
+// the section's wiring is exercised and not only the function: two roots past
+// the horizon, one image running — only the other root goes; and with the
+// runtime unanswerable, nothing goes and the skip names why.
+func TestRootReaperKeepsARunningImagesRootThroughRun(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		runtime  bool
+		wantGone []string
+	}{
+		{"runtime answers", true, []string{"dddddddddddddddd"}},
+		{"runtime unanswerable", false, nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			o, gs := baseOpts(t)
+			o.Apply = true
+			buildDir := filepath.Join(gs, "build")
+			o.BuildDir = func() string { return buildDir }
+			roots := filepath.Join(buildDir, "roots")
+			target := filepath.Join(gs, "image.json")
+			mustWrite(t, target, []byte("{}"))
+			o.Now = time.Now
+			running := mkRoot(t, roots, "cccccccccccccccc", target, 8*24*time.Hour)
+			stopped := mkRoot(t, roots, "dddddddddddddddd", target, 8*24*time.Hour)
+			if tc.runtime {
+				o.Exec = stubExec(map[string]string{
+					k("podman", "ps", "--format", "{{.Image}}"): "localhost/yolo-jail:cccccccccccccccc\n",
+				}, nil)
+			} else {
+				o.Exec = func([]string, time.Duration) ProbeResult { return ProbeResult{Ran: false} }
+			}
+			var buf bytes.Buffer
+			o.Out = &buf
+			Run(o)
+			_, runErr := os.Lstat(running)
+			_, stopErr := os.Lstat(stopped)
+			if runErr != nil {
+				t.Errorf("the running image's root was reaped:\n%s", buf.String())
+			}
+			if gone := os.IsNotExist(stopErr); gone != (len(tc.wantGone) == 1) {
+				t.Errorf("stopped image's root gone=%v, want %v:\n%s", gone, len(tc.wantGone) == 1, buf.String())
+			}
+			if !tc.runtime && !hasLine(&buf, "  skipped — could not list running container images (podman); declining to reap image roots") {
+				t.Errorf("the unanswerable-runtime skip was not reported:\n%s", buf.String())
+			}
+		})
 	}
 }
 

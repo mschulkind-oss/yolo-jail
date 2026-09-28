@@ -174,7 +174,7 @@ Flags:
   --no-hardlink            Do not hardlink-dedup identical cache files.
   --dedup-global           Dedup across every workspace, not just this one.
   --nix-gc                 Run the bounded host nix store GC. Opt-in, host-only,
-                           and gated on every known image closure having a
+                           and gated on every running jail's image having a
                            durable GC root; it refuses inside a jail.
   --nix-gc-max <bytes>     Ceiling for that GC (default 50 GiB). A ceiling, not a
                            target: nix stops once it has freed this many bytes.

@@ -14,10 +14,11 @@ import (
 // (disk-levers-and-backfill.md OQ-BF4). Two reasons, and the second is the one
 // that bites:
 //
-//  1. build/roots/ is enumerated by prune.PruneOrphanImageRoots, which since
-//     OQ-LS1 reaps on AGE alone. That is right for an image closure — losing one
-//     costs a rebuild — and exactly wrong here: the longer a jail runs, the more
-//     certainly its own binaries would be reaped out from under it.
+//  1. build/roots/ is enumerated by prune.PruneOrphanImageRoots, which reaps on
+//     AGE (OQ-LS1) and holds by liveness only the root of an IMAGE a container
+//     runs on (OQ-LS4), mapped from the container's image ref. A prefix is not an
+//     image and no ref names it, so there it would be reaped on age — the longer
+//     a jail runs, the more certainly its own binaries reaped out from under it.
 //  2. A prefix root is held by LIVENESS, not by recency or age. The question is
 //     "is a container executing from this directory right now", and the runtime
 //     answers it directly.

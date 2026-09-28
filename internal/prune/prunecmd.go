@@ -66,7 +66,7 @@ type Options struct {
 	PurgeHeavyCaches bool // --purge-heavy-caches
 	// NixGC enables the bounded, rooting-aware host nix store GC (--nix-gc,
 	// default OFF; storage-lifecycle §3). It is opt-in, host-only, and gated on
-	// every known image closure having a durable §1 GC root — see nixgc.go.
+	// every running jail's image having a durable §1 GC root — see liveimageroots.go.
 	NixGC bool // --nix-gc
 	// NixGCMaxBytes caps an --apply store GC (0 => nixGCDefaultMaxBytes). A
 	// ceiling, not a target: nix stops once it has freed this many bytes.
@@ -786,26 +786,31 @@ func Run(opts Options) int {
 
 	// --- Orphaned image GC roots ---
 	// The durable per-image roots (build/roots/<sha16>, storage-lifecycle §1) that
-	// keep a `nix-collect-garbage` from deleting a running jail's closure. Reap the
-	// ones no live/recent image needs so a later nix GC can reclaim the store paths.
-	// Uses the SAME tri-state liveness as the agent-staging sweep: unknown → decline.
-	// Reports a COUNT, not bytes — removing a symlink frees ~0 directly (the closure
-	// bytes come back only on a subsequent nix GC), so it must not inflate the
-	// reclaimed-bytes total (nor the golden-pinned summary line).
+	// keep a `nix-collect-garbage` from deleting a jail's closure. Reap the ones
+	// unused for the retention horizon, so a later nix GC can reclaim the store
+	// paths — except the root of any image a container is running on, which is
+	// held by liveness (OQ-LS4, PruneOrphanImageRoots). Reports a COUNT, not
+	// bytes — removing a symlink frees ~0 directly (the closure bytes come back
+	// only on a subsequent nix GC), so it must not inflate the reclaimed-bytes
+	// total (nor the golden-pinned summary line).
 	if !opts.NoImageRoots {
 		p.line("")
 		p.line("[bold]Orphaned image GC roots[/bold]")
-		// NO LIVENESS GATE HERE, deliberately (OQ-LS1). This pass is an age
-		// policy over a cache, so it consults no authority and cannot be
-		// declined by one being unreachable — see PruneOrphanImageRoots. The
-		// `live` set above is still read by the passes that DO ask a liveness
-		// question; this one asking it was the defect.
+		// THE LIVENESS SET IS ASKED OF THE RUNTIME, and an unanswerable runtime
+		// or an unmappable running jail reaps nothing: reaping is the dangerous
+		// direction (liveimageroots.go). A dim skip naming the missing evidence,
+		// like the prefix-root sibling below, not a failed command.
+		liveKeys, keysKnown, why := LiveImageRootKeys(rt, opts.BuildDir(), opts.Exec)
 		reaped := PruneOrphanImageRoots(joinPath(opts.BuildDir(), "roots"),
-			ImageRootRetention, apply, opts.Now())
-		if len(reaped) > 0 {
-			p.line(fmt.Sprintf("  %s: %s root(s) unused for %s  [dim](nix store paths reclaimed by a later nix GC)[/dim]",
+			liveKeys, keysKnown, ImageRootRetention, apply, opts.Now())
+		switch {
+		case !keysKnown:
+			p.line(fmt.Sprintf("  [dim]skipped — %s; declining to reap image roots[/dim]", why))
+		case len(reaped) > 0:
+			p.line(fmt.Sprintf("  %s: %s root(s) unused for %s  [dim](nix store paths reclaimed by a later nix GC; "+
+				"roots of running images are kept)[/dim]",
 				verb(apply, "would remove", "removed"), fmtComma(len(reaped)), ImageRootRetention))
-		} else {
+		default:
 			p.line("  [dim]none[/dim]")
 		}
 	}
@@ -1019,31 +1024,37 @@ func Run(opts Options) int {
 		case !live.Known:
 			p.line(fmt.Sprintf("  [dim]skipped — could not enumerate running jails (%s); declining to GC the store[/dim]", rt))
 		default:
-			// TWO rooting confirmations, and the second is the authority.
+			// ONE rooting confirmation, and it is small on purpose (OQ-LS4).
 			//
-			// The sentinel-based one (below) covers the last ten loads. It cannot
-			// see a jail that has been up while other launches loaded other
-			// images — and since OQ-LS1 the ROOT reaper no longer spares that
-			// jail's root either, because unrooting costs a rebuild. DELETING the
-			// closure does not: a live jail's /bin/* resolve through the host
-			// store it has mounted :ro. So the runtime is asked directly which
-			// images have containers on them, and any of those whose closure is
-			// unrooted refuses the GC.
+			// Since the GC-root reaper holds the root of every running image by
+			// liveness, a running jail whose root EXISTS is pinned by
+			// construction, and the sentinel-based check that used to sit here —
+			// refusing the GC for any of the last ten loads without a root — was
+			// protecting closures no container runs, which is a cache the age
+			// reaper is entitled to give up. What liveness cannot give is refused
+			// here: a running image yolo cannot map to a root at all, and one
+			// whose root does not exist (UnrootedRunningImages).
 			runningRefs, refsKnown := RunningImageRefs(rt, opts.Exec)
 			if !refsKnown {
 				p.line(fmt.Sprintf("  [dim]skipped — could not list running container images (%s); "+
 					"declining to GC the store[/dim]", rt))
 				break
 			}
-			unrooted := UnrootedRunningImages(joinPath(opts.BuildDir(), "roots"), runningRefs)
-			unrooted = append(unrooted, UnrootedProtectedPaths(joinPath(opts.BuildDir(), "roots"), ProtectedImagePaths(opts.BuildDir()))...)
+			unrooted := UnrootedRunningImages(opts.BuildDir(), runningRefs)
 			if len(unrooted) > 0 {
-				p.line(fmt.Sprintf("  [yellow]skipped — %s image closure(s) in use or recently loaded lack a durable GC root "+
+				p.line(fmt.Sprintf("  [yellow]skipped — %s running image(s) lack a durable GC root yolo can confirm "+
 					"(storage §1); a store GC could delete a running jail's image[/yellow]", fmtComma(len(unrooted))))
 				for _, sp := range unrooted {
 					p.line("    • " + sp)
 				}
-				p.line("  [dim]run a host `just load` so the run path registers build/roots/<sha16>, then re-run.[/dim]")
+				// THE REMEDY IS A FRESH LAUNCH, NOT AN ATTACH: `yolo` in a workspace
+				// whose jail is up attaches and loads no image. A fresh host launch
+				// registers build/roots/<sha16> for the image it runs, and for a
+				// stock image records the store path the ref maps through.
+				p.line("  [dim]to fix: stop each listed jail and relaunch its workspace on the host — a fresh " +
+					"launch registers build/roots/<sha16> for the image it runs, a stock image included " +
+					"(attaching to a running jail loads nothing); stop any listed container yolo did not " +
+					"start for the duration of the GC. Then re-run.[/dim]")
 			} else {
 				maxBytes := opts.NixGCMaxBytes
 				if maxBytes <= 0 {

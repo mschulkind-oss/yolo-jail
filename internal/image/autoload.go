@@ -692,15 +692,13 @@ func AutoLoadImage(opts AutoLoadOptions) LoadResult {
 	// membership test on :latest** (docs/reference/image-staging-vs-baking.md, "The
 	// content-addressed image ref", WARNING block).
 	//
-	// The sentinel survives, demoted from authority to two jobs it is still the
-	// right instrument for: the human-readable diagnosis below (which path this
-	// machine used last, so "load needed" says WHY), and the store-GC REFUSAL —
-	// internal/prune/imageroots_probe.go's ProtectedImagePaths, read by
-	// prunecmd.go's UnrootedProtectedPaths, declines to collect the store while a
-	// recently-loaded closure lacks a durable root. It is NOT liveness evidence
-	// anywhere: PruneOrphanImageRoots lost its protected set to OQ-LS1 and image
-	// retention lost it to OQ-LS3
-	// (docs/reference/image-retention.md#why-its-this-way).
+	// The sentinel survives, demoted from authority to the one job it is still
+	// the right instrument for: the human-readable diagnosis below (which path
+	// this machine used last, so "load needed" says WHY). It is NOT liveness
+	// evidence anywhere: PruneOrphanImageRoots lost its protected set to OQ-LS1
+	// (and got real liveness from the runtime back under OQ-LS4), image retention
+	// lost it to OQ-LS3, and the store GC's sentinel-based refusal went with
+	// OQ-LS4 (docs/reference/image-retention.md#why-its-this-way).
 	//
 	// A launch that matched the stock tag above appends the store path this host
 	// recorded for that image; one with no valid record appends nothing, having no
@@ -983,11 +981,11 @@ func AutoLoadImage(opts AutoLoadOptions) LoadResult {
 	// loaded" implied the sentinel already named this path, so re-appending was a
 	// no-op. Now several images stay loaded at once and a launch can legitimately
 	// run image A while the sentinel's newest entry is B: leave the append on the
-	// load path and A ages out of the ten-entry LRU while a jail is running on it,
-	// and prune's ProtectedImagePaths stops protecting its closure from a
-	// `nix-collect-garbage` (storage-lifecycle §1). Appending on use also makes
-	// the LRU mean "recently used" rather than "recently built", which is the
-	// property a reaper actually wants.
+	// load path and A ages out of the ten-entry LRU while a jail is running on it
+	// — which, while the store GC read this list (until OQ-LS4), stopped
+	// protecting its closure from a `nix-collect-garbage` (storage-lifecycle §1).
+	// Appending on use also makes the LRU mean "recently used" rather than
+	// "recently built", which is what the load diagnosis reports.
 	_ = AddLoadedPath(sentinel, currentPath)
 
 	// Register a DURABLE GC root for the store path we are about to run against,

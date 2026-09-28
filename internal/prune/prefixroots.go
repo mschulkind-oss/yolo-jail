@@ -15,13 +15,16 @@ import (
 // prefixroots.go reaps durable GC roots for the INSTALL PREFIX — the directory
 // a jail's own yolo binaries, pid1 included, are bind-mounted from since C8.
 //
-// IT IS THE OPPOSITE POLICY TO ITS NEIGHBOUR, and that is the whole reason it is
-// a separate pass rather than a parameter on PruneOrphanImageRoots. OQ-LS1 made
-// image roots reap on AGE with no liveness evidence at all, on the grounds that
-// losing one costs a rebuild. A prefix root fails that test: a running jail is
-// EXECUTING from it, so losing it is not a rebuild, and age is precisely
-// backwards — the longer a jail runs, the more certainly it would be reaped
-// (disk-levers-and-backfill.md OQ-BF4).
+// IT WAS THE OPPOSITE POLICY TO ITS NEIGHBOUR, and is still a separate pass
+// rather than a parameter on PruneOrphanImageRoots. OQ-LS1 made image roots reap
+// on AGE with no liveness evidence at all, on the grounds that losing one costs a
+// rebuild. A prefix root fails that test: a running jail is EXECUTING from it, so
+// losing it is not a rebuild, and age is precisely backwards — the longer a jail
+// runs, the more certainly it would be reaped (disk-levers-and-backfill.md
+// OQ-BF4). OQ-LS4 (2026-09-28) found the same true of a running IMAGE's root on
+// podman/Linux and gave the image reaper this pass's rule for that one case; the
+// liveness evidence still differs (an image ref there, a bind-mount source here),
+// which is why the passes stay two.
 //
 // The one question that decides which policy a root gets: can losing it cost
 // only a rebuild?

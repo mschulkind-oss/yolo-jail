@@ -712,9 +712,9 @@ func TestAppleContainerIsNamedGoingIn(t *testing.T) {
 // TestSentinelIsRecordedOnEveryLaunchNotOnlyOnLoad pins a call site C2 had to
 // MOVE, and whose absence is silent.
 //
-// prune.ProtectedImagePaths reads this sentinel to decide which store closures a
-// `nix-collect-garbage` must not reap (guard #2 of PruneOrphanImageRoots' three).
-// Before C2 "already loaded" implied the sentinel already named the path, so
+// The store GC's refusal used to read this sentinel to decide which store
+// closures a `nix-collect-garbage` must not reap (that reader went with OQ-LS4;
+// the load diagnosis still reads it). Before C2 "already loaded" implied the sentinel already named the path, so
 // appending only on the load path was equivalent. It is not equivalent now: many
 // images stay loaded, a launch can run one whose load was many launches ago, and
 // leaving the append inside the load branch lets a LIVE jail's closure age out of

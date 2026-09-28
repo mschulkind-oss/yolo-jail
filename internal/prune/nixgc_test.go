@@ -12,7 +12,7 @@ import (
 )
 
 // rootFor creates BUILD_DIR/roots/<sha16> → storePath so the path counts as
-// durably §1-rooted for UnrootedProtectedPaths.
+// durably §1-rooted.
 func rootFor(t *testing.T, rootsDir, storePath string) {
 	t.Helper()
 	if err := os.MkdirAll(rootsDir, 0o755); err != nil {
@@ -21,48 +21,6 @@ func rootFor(t *testing.T, rootsDir, storePath string) {
 	link := filepath.Join(rootsDir, image.ImageStoreKey(storePath))
 	if err := os.Symlink(storePath, link); err != nil {
 		t.Fatal(err)
-	}
-}
-
-func TestUnrootedProtectedPaths(t *testing.T) {
-	rootsDir := filepath.Join(t.TempDir(), "roots")
-	rooted := "/nix/store/aaaa-stream-yolo-jail"
-	unrooted := "/nix/store/bbbb-stream-yolo-jail"
-	rootFor(t, rootsDir, rooted)
-
-	// A stale root pointing at the WRONG path must not count as protecting `wrong`.
-	wrong := "/nix/store/cccc-stream-yolo-jail"
-	staleLink := filepath.Join(rootsDir, image.ImageStoreKey(wrong))
-	if err := os.Symlink("/nix/store/dddd-other", staleLink); err != nil {
-		t.Fatal(err)
-	}
-
-	got := UnrootedProtectedPaths(rootsDir, map[string]struct{}{
-		rooted: {}, unrooted: {}, wrong: {},
-	})
-	want := []string{unrooted, wrong} // sorted; bbbb < cccc
-	if !reflect.DeepEqual(got, want) {
-		t.Errorf("unrooted = %v, want %v", got, want)
-	}
-}
-
-func TestUnrootedProtectedPathsAllRooted(t *testing.T) {
-	rootsDir := filepath.Join(t.TempDir(), "roots")
-	a := "/nix/store/aaaa-stream-yolo-jail"
-	b := "/nix/store/bbbb-stream-yolo-jail"
-	rootFor(t, rootsDir, a)
-	rootFor(t, rootsDir, b)
-	if got := UnrootedProtectedPaths(rootsDir, map[string]struct{}{a: {}, b: {}}); len(got) != 0 {
-		t.Errorf("all rooted → want empty, got %v", got)
-	}
-}
-
-func TestUnrootedProtectedPathsNoRootsDir(t *testing.T) {
-	// No roots dir at all → every protected path is unrooted (the pre-§1 state).
-	rootsDir := filepath.Join(t.TempDir(), "does-not-exist")
-	a := "/nix/store/aaaa-stream-yolo-jail"
-	if got := UnrootedProtectedPaths(rootsDir, map[string]struct{}{a: {}}); !reflect.DeepEqual(got, []string{a}) {
-		t.Errorf("no roots dir → want [%q], got %v", a, got)
 	}
 }
 
@@ -158,51 +116,135 @@ func TestParseHumanBytes(t *testing.T) {
 	}
 }
 
-// TestUnrootedRunningImagesSeesWhatTheSentinelCannot is the hole OQ-LS1 opens
-// and this gate closes, stated as the scenario rather than as a unit shape: a
-// jail that has been up for days is not in the load sentinel's LRU-10, and
-// since LS1 its GC root is reaped on age like any other — so before this gate,
-// `--nix-gc --apply` would delete the closure its /bin/* resolve through.
+// TestUnrootedRunningImagesSeesWhatTheSentinelCannot: the refusal asks the
+// runtime, not the load sentinel, so a jail that has been up for days (and aged
+// out of the sentinel's LRU) is still seen. Its root is gone — a registration
+// that failed, or one that aged out before OQ-LS4 held running roots — so the
+// GC must refuse: liveness can hold a root, never create one.
 func TestUnrootedRunningImagesSeesWhatTheSentinelCannot(t *testing.T) {
-	roots := t.TempDir()
-	// One root exists (a recently-used image); the long-running jail's does not.
+	bd := t.TempDir()
+	roots := filepath.Join(bd, "roots")
+	if err := os.MkdirAll(roots, 0o755); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.Symlink("/nix/store/still-rooted", filepath.Join(roots, "aaaaaaaaaaaaaaaa")); err != nil {
 		t.Fatal(err)
 	}
 
-	// The sentinel-based check is blind to the running jail: its path is not in
-	// the LRU, so `protected` is empty and it reports nothing wrong.
-	if got := UnrootedProtectedPaths(roots, map[string]struct{}{}); len(got) != 0 {
-		t.Fatalf("sentinel check reported %v for an empty LRU — the premise of this test is that it says nothing", got)
-	}
-
-	// The runtime-based check sees it, because the container is there to be asked.
 	refs := []string{"localhost/yolo-jail:bbbbbbbbbbbbbbbb"}
-	got := UnrootedRunningImages(roots, refs)
-	if len(got) != 1 || got[0] != refs[0] {
+	got := UnrootedRunningImages(bd, refs)
+	if len(got) != 1 || !strings.HasPrefix(got[0], refs[0]+" (no durable GC root") {
 		t.Fatalf("UnrootedRunningImages(%v) = %v, want exactly that ref — a running container "+
-			"whose closure has no root MUST refuse the store GC (LS1 removed the root reaper's "+
-			"liveness veto on the grounds that unrooting costs only a rebuild; DELETING the "+
-			"closure does not)", refs, got)
+			"whose closure has no root MUST refuse the store GC", refs, got)
+	}
+	if got := UnrootedRunningImages(bd, []string{"localhost/yolo-jail:aaaaaaaaaaaaaaaa"}); len(got) != 0 {
+		t.Errorf("a rooted running image reported %v, want none", got)
+	}
+}
+
+// testStockIdentity is a well-formed image identity for the stock-ref cases.
+const testStockIdentity = "sha256:816a3ee9bbc3b73bef97cdadb88702eadc4ee53bdcefd1c24e0d349b9304fb20"
+
+// TestUnrootedRunningImagesMapsAStockRefThroughItsRecord is the defect found
+// 2026-09-28: a normal launch runs `stock-<hex>`, the old guard looked for
+// roots/stock-<hex>, found nothing, and refused the GC while ANY normally
+// launched jail ran. The stock ref now maps through the record its load wrote.
+func TestUnrootedRunningImagesMapsAStockRefThroughItsRecord(t *testing.T) {
+	bd := t.TempDir()
+	sp := "/nix/store/aaaa-yolo-jail-image.json"
+	ref := image.StockImageRef("podman", testStockIdentity)
+
+	// No record: unmappable, refused, and the reason says so.
+	got := UnrootedRunningImages(bd, []string{ref})
+	if len(got) != 1 || !strings.Contains(got[0], "no build record") {
+		t.Fatalf("an unrecorded stock ref reported %v, want one refusal naming the missing record", got)
 	}
 
-	// A running image that IS rooted raises nothing.
-	if got := UnrootedRunningImages(roots, []string{"localhost/yolo-jail:aaaaaaaaaaaaaaaa"}); len(got) != 0 {
-		t.Errorf("a rooted running image reported %v, want none", got)
+	// Recorded but unrooted: refused.
+	if err := image.RecordStockStorePath(bd, testStockIdentity, sp); err != nil {
+		t.Fatal(err)
+	}
+	got = UnrootedRunningImages(bd, []string{ref})
+	if len(got) != 1 || !strings.Contains(got[0], "build/roots/"+image.ImageStoreKey(sp)) {
+		t.Fatalf("a recorded but unrooted stock ref reported %v, want one refusal naming its root", got)
+	}
+
+	// Recorded and rooted: accepted.
+	rootFor(t, filepath.Join(bd, "roots"), sp)
+	if got := UnrootedRunningImages(bd, []string{ref}); len(got) != 0 {
+		t.Fatalf("a rooted stock jail still refuses the GC: %v", got)
+	}
+
+	// A root pointing at a DIFFERENT path than the record names is not this
+	// image's root.
+	bd2 := t.TempDir()
+	if err := image.RecordStockStorePath(bd2, testStockIdentity, sp); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(bd2, "roots"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("/nix/store/zzzz-other", filepath.Join(bd2, "roots", image.ImageStoreKey(sp))); err != nil {
+		t.Fatal(err)
+	}
+	if got := UnrootedRunningImages(bd2, []string{ref}); len(got) != 1 {
+		t.Errorf("a root naming another store path was accepted: %v", got)
 	}
 }
 
 // TestUnrootedRunningImagesRefusesWhatItCannotMap: unknown is not permission.
 // A ref with no content tag — a bare ID, the legacy `latest`, an image loaded
 // outside yolo — maps to no closure, so it cannot be confirmed rooted and must
-// read as a reason to decline rather than as a pass.
+// read as a reason to decline rather than as a pass. This is the half of the
+// refusal OQ-LS4 kept.
 func TestUnrootedRunningImagesRefusesWhatItCannotMap(t *testing.T) {
-	roots := t.TempDir()
-	for _, ref := range []string{"localhost/yolo-jail:latest", "somerandomimage", "abc123def456"} {
-		if got := UnrootedRunningImages(roots, []string{ref}); len(got) != 1 {
+	bd := t.TempDir()
+	for _, ref := range []string{"localhost/yolo-jail:latest", "somerandomimage", "abc123def456",
+		"docker.io/library/postgres:16", "registry:5000/thing"} {
+		if got := UnrootedRunningImages(bd, []string{ref}); len(got) != 1 {
 			t.Errorf("ref %q reported %v, want one unmappable entry — treating an unmappable "+
 				"running container as rooted is the fail-open this gate exists to avoid", ref, got)
 		}
+	}
+}
+
+// TestLiveImageRootKeys is the liveness set the GC-root reaper spares: content
+// refs by their tag, stock refs through their record, foreign containers
+// ignored, and an unmappable JAIL or an unanswerable runtime reaping nothing.
+func TestLiveImageRootKeys(t *testing.T) {
+	bd := t.TempDir()
+	sp := "/nix/store/aaaa-yolo-jail-image.json"
+	if err := image.RecordStockStorePath(bd, testStockIdentity, sp); err != nil {
+		t.Fatal(err)
+	}
+	stock := image.StockImageRef("podman", testStockIdentity)
+	ps := func(stdout string, ran bool) RunFunc {
+		return func(argv []string, _ time.Duration) ProbeResult {
+			if strings.Join(argv, " ") != "podman ps --format {{.Image}}" {
+				t.Errorf("unexpected argv %q", argv)
+			}
+			return ProbeResult{Stdout: stdout, Ran: ran}
+		}
+	}
+
+	keys, known, why := LiveImageRootKeys("podman", bd,
+		ps("localhost/yolo-jail:0123456789abcdef\n"+stock+"\ndocker.io/library/postgres:16\n", true))
+	want := map[string]bool{"0123456789abcdef": true, image.ImageStoreKey(sp): true}
+	if !known || !reflect.DeepEqual(keys, want) {
+		t.Fatalf("keys=%v known=%v why=%q, want %v", keys, known, why, want)
+	}
+
+	for _, tc := range []struct{ name, stdout string }{
+		{"legacy latest", "localhost/yolo-jail:latest\n"},
+		{"unrecorded stock", image.StockImageRef("podman", "sha256:"+strings.Repeat("0", 64)) + "\n"},
+		{"bare id", "abc123def456\n"},
+	} {
+		if _, known, why := LiveImageRootKeys("podman", bd, ps(tc.stdout, true)); known || why == "" {
+			t.Errorf("%s: known=%v why=%q — a running jail yolo cannot map could be on any root", tc.name, known, why)
+		}
+	}
+	if _, known, why := LiveImageRootKeys("podman", bd, ps("", false)); known || !strings.Contains(why, "could not list") {
+		t.Errorf("unanswerable runtime: known=%v why=%q", known, why)
 	}
 }
 
@@ -220,13 +262,34 @@ func TestStoreGCConsultsTheRuntime(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read prunecmd.go: %v", err)
 	}
-	for _, want := range []string{"RunningImageRefs(", "UnrootedRunningImages("} {
+	for _, want := range []string{"RunningImageRefs(", "UnrootedRunningImages(opts.BuildDir(), runningRefs)"} {
 		if !strings.Contains(string(src), want) {
 			t.Fatalf("prunecmd.go no longer calls %s — the store GC is back to confirming rooting "+
 				"from the load sentinel alone, which cannot see a jail that has aged out of the "+
 				"LRU-10. Since OQ-LS1 that jail's root is also reaped on age, so the two gaps "+
 				"compose into deleting a live jail's closure. If the call moved, move this pin "+
 				"with it rather than deleting it.", want)
+		}
+	}
+}
+
+// TestTheRootReaperIsHandedTheRuntimesLivenessSet is the CALL-SITE pin for
+// OQ-LS4. The unit tests prove PruneOrphanImageRoots spares a running image's
+// root when it is TOLD which roots are live; nothing there fails if prunecmd.go
+// stops asking the runtime and passes an empty set, which silently reinstates
+// the age-only reaper that let a running jail's closure be collected.
+func TestTheRootReaperIsHandedTheRuntimesLivenessSet(t *testing.T) {
+	src, err := os.ReadFile("prunecmd.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"liveKeys, keysKnown, why := LiveImageRootKeys(rt, opts.BuildDir(), opts.Exec)",
+		"PruneOrphanImageRoots(joinPath(opts.BuildDir(), \"roots\"),\n\t\t\tliveKeys, keysKnown,",
+	} {
+		if !strings.Contains(string(src), want) {
+			t.Fatalf("prunecmd.go no longer contains %q — the GC-root reaper is no longer "+
+				"handed the runtime's liveness set (OQ-LS4). If the call moved, move this pin with it.", want)
 		}
 	}
 }
