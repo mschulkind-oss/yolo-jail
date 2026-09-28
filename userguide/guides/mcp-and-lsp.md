@@ -1,15 +1,37 @@
 # MCP and LSP
 
+Two kinds of server extend what an agent can do, and yolo writes both into the settings of every
+selected agent that supports them:
+
+- An **MCP server** gives an agent extra tools, such as driving a browser, through the
+  [Model Context Protocol](https://modelcontextprotocol.io/introduction).
+- A **language server** gives an agent code intelligence, such as go-to-definition and diagnostics,
+  through the [Language Server Protocol](https://microsoft.github.io/language-server-protocol/) (LSP).
+
+Both are configured explicitly; none is on by default. They go in either config file, usually the
+project's `yolo-jail.jsonc`, and a change reaches the agents at the jail's next fresh start.
+
+## Which agents receive them
+
+| Agent | MCP servers | Language servers |
+|---|---|---|
+| Claude Code | Yes | Yes, through a plugin yolo generates |
+| Copilot | Yes | Yes |
+| Codex | Yes | No: Codex has no language-server support |
+| opencode | Yes | Not yet |
+| pi | Yes, once you install an MCP adapter extension in pi, such as `pi-mcp-adapter` | Not yet |
+| agy | Yes | No: agy has no language-server support |
+
 ## MCP Presets
 
-MCP (Model Context Protocol) servers extend agent capabilities. YOLO Jail includes built-in presets that can be enabled by name — **none are enabled by default**.
+yolo ships two MCP servers you can turn on by name:
 
 ### Available Presets
 
 | Preset | Description |
 |--------|-------------|
-| `chrome-devtools` | Headless Chromium automation via Chrome DevTools Protocol |
-| `sequential-thinking` | Chain-of-thought reasoning MCP server |
+| `chrome-devtools` | Lets the agent drive a headless Chromium browser, which is built into the jail |
+| `sequential-thinking` | Gives the agent a step-by-step reasoning tool |
 
 ### Enable Presets
 
@@ -19,9 +41,12 @@ MCP (Model Context Protocol) servers extend agent capabilities. YOLO Jail includ
 }
 ```
 
+yolo installs a preset's server when the jail starts, and keeps it current
+along with the agent. On `macos-user`, presets are not delivered yet.
+
 ### Custom MCP Servers
 
-Add your own MCP servers alongside or instead of presets:
+Add your own MCP servers alongside or instead of presets. The `command` must exist inside the jail:
 
 ```jsonc
 {
@@ -51,11 +76,11 @@ Set a preset server to `null` in `mcp_servers` to disable it even when listed in
 
 ## LSP Servers
 
-YOLO Jail can hand LSP (Language Server Protocol) servers to the agents that read them. There are **no defaults**, and YOLO never installs a language server: you declare the server, and its binary has to be on `PATH` already.
+yolo hands the language servers you declare to the agents that read them. It never installs a
+language server itself: its program must already be on the jail's `PATH`, for example from
+`mise_tools` or `packages`.
 
 ### Adding Servers
-
-Add language servers via `lsp_servers` in your config. The binary must already be on `PATH` (install it with `mise_tools` or `packages`):
 
 ```jsonc
 {
@@ -69,15 +94,6 @@ Add language servers via `lsp_servers` in your config. The binary must already b
 }
 ```
 
-### Which agents read it
-
-| Agent | How it receives LSP |
-|-------|---------------------|
-| **Copilot** | natively, via `~/.copilot/lsp-config.json` — any server you declare |
-| **Claude Code** | via one plugin YOLO generates from your whole `lsp_servers` table — any server you declare |
-| **Codex, agy** | the agent has no LSP support |
-| **Pi, opencode** | not configured by YOLO today (both agents can take it — see [`mcp-configuration.md`](https://github.com/mschulkind-oss/yolo-jail/blob/main/docs/reference/mcp-configuration.md#lsp-claudes-route-is-a-generated-plugin)) |
-
-Servers are spawned on-demand when an agent analyzes matching file types.
+An agent starts a server when it opens a file with a matching extension.
 
 ---
