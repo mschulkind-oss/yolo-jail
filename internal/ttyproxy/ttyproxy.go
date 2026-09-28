@@ -45,6 +45,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"unsafe"
 
@@ -299,6 +300,12 @@ func RunWithProxyObserved(cmd []string, onStarted func(*os.Process), onTerminate
 	defer signal.Stop(sigCh)
 
 	var termOnce sync.Once
+	// terminating is set the moment the terminate arm begins. The arm kills the child
+	// before it exits the process, and that kill ends proxyLoop on the main goroutine, so
+	// without this the ordinary return path could run — and return an exit code, and let
+	// the caller tear down — before the arm's os.Exit. The arm owns the exit once it has
+	// begun; the main goroutine waits for it rather than racing it.
+	var terminating atomic.Bool
 	go func() {
 		for s := range sigCh {
 			switch s {
@@ -323,6 +330,7 @@ func RunWithProxyObserved(cmd []string, onStarted func(*os.Process), onTerminate
 				resyncWinsize(inFd, master, c)
 			case syscall.SIGINT, syscall.SIGHUP, syscall.SIGTERM:
 				termOnce.Do(func() {
+					terminating.Store(true)
 					// The terminate arm must reach os.Exit from the background too:
 					// that is where `kill %1` finds a job the user ^Z'd out of a
 					// lingering quit. Any tty write or read on the way out would
@@ -344,6 +352,9 @@ func RunWithProxyObserved(cmd []string, onStarted func(*os.Process), onTerminate
 					// waiting on it. An error means it already exited.
 					_ = c.Process.Kill()
 					n := int(s.(syscall.Signal))
+					if beforeTerminateExit != nil {
+						beforeTerminateExit()
+					}
 					os.Exit(128 + n)
 				})
 			}
@@ -351,6 +362,9 @@ func RunWithProxyObserved(cmd []string, onStarted func(*os.Process), onTerminate
 	}()
 
 	rc := proxyLoop(inFd, master, c, cooked, obs)
+	if terminating.Load() {
+		select {} // the terminate arm is exiting the process; never race it
+	}
 
 	restoreCooked()
 	callStage(hook, StageTermiosRestored)
@@ -358,6 +372,11 @@ func RunWithProxyObserved(cmd []string, onStarted func(*os.Process), onTerminate
 	unix.Close(master)
 	return rc, nil
 }
+
+// beforeTerminateExit is a test seam: it runs in the terminate arm between killing the
+// child and os.Exit, so a test can hold that window open and prove the main goroutine
+// waits for the arm instead of returning. Nil in production.
+var beforeTerminateExit func()
 
 func runPlain(cmd []string, onStarted func(*os.Process), hook StageHook) (int, error) {
 	c := exec.Command(cmd[0], cmd[1:]...)

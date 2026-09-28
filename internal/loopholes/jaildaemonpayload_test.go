@@ -216,7 +216,13 @@ func TestThePayloadResolvesTheListenToken(t *testing.T) {
 	if len(specs) != 1 || specs[0].Listen != "127.0.0.1:1460" {
 		t.Fatalf("specs = %+v, want the adapter at its declared 127.0.0.1:1460", specs)
 	}
-	for listen, want := range map[string]string{"": "127.0.0.1:1460", "127.0.0.1:41460": "127.0.0.1:41460"} {
+	// An ordered list, not a map: each case sets specs[0].Listen, so a random map order
+	// made the declared-port case run after the served one and fail (CI run 36443241222).
+	for _, c := range []struct{ listen, want string }{
+		{"", "127.0.0.1:1460"},
+		{"127.0.0.1:41460", "127.0.0.1:41460"},
+	} {
+		listen, want := c.listen, c.want
 		if listen != "" {
 			specs[0].Listen = listen
 		}
