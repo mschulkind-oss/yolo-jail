@@ -1707,8 +1707,10 @@ func (m *Manifest) EnvServedBy() map[string]string {
 }
 
 // EnvContributions returns every UNCONDITIONAL env contribution's vars merged into one
-// map, later contributions winning a key. Static values only — no interpolation, no
-// host reads — so this is never origin-gated. Returns nil when no pack sets env.
+// map, later contributions winning a key. Static values only — no host reads — so this is
+// never origin-gated. The one interpolation, loopholedecl.TokenListen beside `served_by`, is
+// returned UNRESOLVED here: the credential scope resolves it to the served address of the
+// daemon at launch (packload's servedFold). Returns nil when no pack sets env.
 //
 // A `profile`-gated env contribution is NOT in here, and that is the accessor's whole
 // contract: folding a gated declaration unconditionally would make the gate a

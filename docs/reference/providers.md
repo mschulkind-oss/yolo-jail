@@ -422,8 +422,9 @@ started by another agent inherits that agent's environment, as any child does.
 Two consequences to know:
 
 - **A loopback credential service is outside the gate.** The gate withholds `aws-auth`'s
-  pointer variable, not the adapter it names: that adapter listens on `127.0.0.1:1461` in
-  every jail that enables the loophole, and answers any process's `GET /credentials` with
+  pointer variable, not the adapter it names: that adapter listens on `127.0.0.1:1461` (a
+  port the launch picked, on a jail sharing its launcher's network namespace) in every jail
+  that enables the loophole, and answers any process's `GET /credentials` with
   the minted credential. The wire bridge's listeners likewise attach the served agent's key
   to whatever request reaches them, so another process can use the key without seeing it.
   Whether to narrow either is [`OQ-CN7`](../design/provider-credential-scope.md#OQ-CN7), open.

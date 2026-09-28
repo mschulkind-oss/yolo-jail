@@ -1086,8 +1086,17 @@ Both forms are dropped with a reason on that backend.
 
 #### `env`
 
-Static environment variables set in the jail. Values are **literal strings only** — no
-interpolation, no secrets, no host references — so `env` never reads the host. A key two
+Static environment variables set in the jail. Values are **literal strings** — no secrets,
+no host references — so `env` never reads the host. The one interpolation is **`{listen}`**,
+legal only in a contribution that declares **`served_by`**: it resolves to the address the
+named loophole jail daemon serves at in this launch. That is the daemon's declared
+`jail_daemon.listen` on a jail with its own network namespace, and a port the launch picked
+on one that shares its launcher's (`network.mode: "host"`, or a nested jail). So a pointer
+at a daemon writes the port once, in the daemon's manifest
+([notch convergence §2.4](../plans/notch-convergence.md#24-the-addresses-those-secrets-protect-are-composed-not-literal)).
+Decode refuses `{listen}` without `served_by`, and beside a `served_by` naming a service the
+same pack declares, since a pack service has no listen address. A pointer served by another
+pack's service is withheld at launch and named. A key two
 packs both set collides. For values that must reference a secret or a host path, the user
 config's `env_sources` is the channel, kept out of a distributable pack on purpose. `env` is
 shown on the launch banner anyway, because it changes what the agent inside the jail sees,
