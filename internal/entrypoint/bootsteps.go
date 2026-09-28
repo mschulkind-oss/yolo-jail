@@ -219,12 +219,17 @@ func bootSteps() []bootStep {
 			// provisioning, on purpose: what is on disk now is what the LAST launch installed,
 			// which is the only state in which "undeclared" means anything.
 			//
-			// BOTH BOOTS. It used to be left out of the macos-user bootstrap on the premise that
-			// that backend stages no pack tree to compare against; it has staged one, named by
-			// YOLO_PACK_ROOT, since the pack staging moved above the backend dispatch, and its
-			// install prefixes are per-workspace since the home-tier layout.
+			// NOT ON macos-user, for a reason about the REPORT rather than its input. The old
+			// premise (that backend stages no pack tree) is false: it stages one, named by
+			// YOLO_PACK_ROOT, so the declared set is there. What is missing is everywhere the
+			// report sends its reader, which is the whole of what the one-line compression
+			// promises (catalog.go, "THE SET IS NOT COMPRESSED").
 			name: "catalog_installed_orphans",
 			run:  func(b *bootRun) { CatalogInstalledOrphans(b.e) },
+			notDarwin: "its one line sends the reader to boot.log for the names, `yolo programs ls` " +
+				"and `programs.autoprune`, and none works here: this backend keeps no boot log " +
+				"(Env.LogOnly is nil, so every name would be discarded), `programs ls` answers " +
+				"wrongly from inside the sandbox, and the launch relays no YOLO_PROGRAMS_AUTOPRUNE",
 		},
 		{
 			// The catalog's other half, beside it for the same reasons and with the same

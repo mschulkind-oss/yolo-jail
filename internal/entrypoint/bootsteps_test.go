@@ -110,15 +110,16 @@ func TestTheContainerBootRunsItsStepsInOrder(t *testing.T) {
 	}
 }
 
-// The macos-user bootstrap's order: RunDarwinBootstrap's before the table, plus the orphan
-// catalog and the program reconcile, which it skipped on a premise that stopped being true
-// when this backend began staging a pack tree (plan row D10).
+// The macos-user bootstrap's order: RunDarwinBootstrap's before the table, plus the program
+// reconcile, which it skipped on a premise that stopped being true when this backend began
+// staging a pack tree (plan row D10). The orphan catalog stays out, for the reason on its step:
+// every pointer its one line gives is dead on this backend.
 func TestTheMacosUserBootRunsItsStepsInOrder(t *testing.T) {
 	want := []string{
 		"darwin_home_layout",
 		"generate_shims", "generate_agent_launchers", "generate_package_manager_launchers",
 		"deliver_launch_flags", "assert_required_bins",
-		"catalog_installed_orphans", "reconcile_installed_programs",
+		"reconcile_installed_programs",
 		"generate_bashrc", "generate_mise_config", "mcp_presets_declined", "configure_git",
 		"configure_pack_surfaces", "configure_host_files", "install_home_overlay",
 		"generate_darwin_bootstrap_script", "install_yolo_log", "write_login_rc",

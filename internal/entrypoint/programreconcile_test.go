@@ -726,10 +726,10 @@ func TestBootReconcilesBesideTheCatalog(t *testing.T) {
 		t.Error("the reconcile must be a run step, not a generator: a fatal there would mean " +
 			"a jail whose vendor CLI self-updated refuses to START")
 	}
-	for _, target := range []bootTarget{bootContainer, bootDarwin} {
-		assertStepBefore(t, target, "catalog_installed_orphans", "reconcile_installed_programs",
-			"\"nothing owns this\" is the coarser finding and comes first")
-	}
+	// The container boot only: the macos-user bootstrap runs no catalog to come after
+	// (TestTheDarwinBootstrapReconcilesButDoesNotCatalog).
+	assertStepBefore(t, bootContainer, "catalog_installed_orphans", "reconcile_installed_programs",
+		"\"nothing owns this\" is the coarser finding and comes first")
 	src, err := os.ReadFile(filepath.Join(repoRoot(t), "internal", "entrypoint", "bootsteps.go"))
 	if err != nil {
 		t.Fatal(err)
@@ -740,16 +740,20 @@ func TestBootReconcilesBesideTheCatalog(t *testing.T) {
 	}
 }
 
-// TestTheDarwinBootstrapReconcilesAndCatalogs: macos-user stages a pack tree and names it with
-// YOLO_PACK_ROOT, so the declared-set input both reports need is there, and the gate both share
-// (InstalledOrphans, ReconcileInstalled: nothing without YOLO_PACK_ROOT) still stands between a
-// launch that staged none and a report calling everything installed a divergence. The two were
-// left out of this bootstrap on the opposite premise (notch-convergence row D10).
-func TestTheDarwinBootstrapReconcilesAndCatalogs(t *testing.T) {
+// TestTheDarwinBootstrapReconcilesButDoesNotCatalog: macos-user stages a pack tree and names
+// it with YOLO_PACK_ROOT, so the declared-set input the reconcile needs is there, and the gate
+// it shares with the catalog (nothing without YOLO_PACK_ROOT) still stands between a launch
+// that staged none and a report calling everything installed a divergence. The reconcile's
+// findings are terminal warnings, which this backend delivers. The catalog is the one that
+// stays out: its line points at a boot log, `yolo programs ls` and `programs.autoprune`, none
+// of which works there (its notDarwin, and TestTheDarwinBootstrapDoesNotCatalogOrphans).
+func TestTheDarwinBootstrapReconcilesButDoesNotCatalog(t *testing.T) {
 	names := bootStepNames(bootDarwin)
-	for _, want := range []string{"catalog_installed_orphans", "reconcile_installed_programs"} {
-		if !slices.Contains(names, want) {
-			t.Errorf("the macos-user bootstrap does not run %s: %v", want, names)
-		}
+	if !slices.Contains(names, "reconcile_installed_programs") {
+		t.Errorf("the macos-user bootstrap does not run reconcile_installed_programs: %v", names)
+	}
+	if slices.Contains(names, "catalog_installed_orphans") {
+		t.Errorf("the macos-user bootstrap runs catalog_installed_orphans, whose every pointer "+
+			"is dead there: %v", names)
 	}
 }

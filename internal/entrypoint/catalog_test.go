@@ -503,26 +503,36 @@ func TestBootCatalogSaysHowManyAndLogsWhich(t *testing.T) {
 	}
 }
 
-// THE macos-user BOOTSTRAP CATALOGS TOO, driven through RunDarwinBootstrap itself: a sandbox
-// home holding an npm package no staged pack declares gets the same one line and the same
-// boot-log name a container boot gives it. Fails if the bootstrap stops running the table's
-// catalog step (notch-convergence row D10).
-func TestTheDarwinBootstrapCatalogsOrphans(t *testing.T) {
+// THE macos-user BOOTSTRAP DOES NOT CATALOG, driven through RunDarwinBootstrap with the Env
+// built the way the production caller builds it (internal/cli/internal.go: DarwinEnvFrom, then
+// Stderr and nothing else — no boot log, so no LogOnly sink). The catalog's one line points at
+// boot.log for the names, `yolo programs ls` for sizes and `programs.autoprune` for removal, and
+// on this backend there is no boot log (every name would be discarded), `programs ls` answers
+// wrongly and autoprune is not relayed. A count whose three pointers are all dead is not a
+// report, so the step is a declared exclusion there until they exist.
+//
+// The bashrc assertion is what keeps the absence meaningful: it proves the bootstrap ran the
+// table past the catalog's slot rather than stopping before it.
+//
+// MUTATION: delete the catalog step's notDarwin and this goes red on the terminal half.
+func TestTheDarwinBootstrapDoesNotCatalogOrphans(t *testing.T) {
 	home, packRoot := catalogHome(t)
 	seedNpm(t, home, "leftover-agent")
-	var term, logOnly strings.Builder
-	e := NewEnv(map[string]string{"JAIL_HOME": home, "YOLO_PACK_ROOT": packRoot})
-	e.Workspace = t.TempDir()
+	e := DarwinEnvFrom(map[string]string{
+		"JAIL_HOME": home, "YOLO_PACK_ROOT": packRoot, "YOLO_DARWIN_WORKSPACE": t.TempDir(),
+	}, home)
+	var term strings.Builder
 	e.Stderr = &term
-	e.LogOnly = &logOnly
 
 	_ = RunDarwinBootstrap(e, DarwinBootstrapOptions{MacosLog: "off"})
 
-	if !strings.Contains(term.String(), catalogPrefix+"1 installed program") {
-		t.Errorf("the macos-user bootstrap did not catalog the orphan:\n%s", term.String())
+	if strings.Contains(term.String(), catalogPrefix) {
+		t.Errorf("the macos-user bootstrap cataloged orphans it has no boot log to name:\n%s",
+			term.String())
 	}
-	if !strings.Contains(logOnly.String(), "leftover-agent") {
-		t.Errorf("the orphan's name is not in the boot log:\n%s", logOnly.String())
+	if _, err := os.Stat(filepath.Join(home, ".bashrc")); err != nil {
+		t.Fatalf("the bootstrap did not run the table past the catalog's slot (no ~/.bashrc): %v\n%s",
+			err, term.String())
 	}
 }
 
@@ -544,7 +554,7 @@ func TestBootCatalogIsSilentOnBothSinksWithNoOrphans(t *testing.T) {
 }
 
 // TestBootCatalogsOrphansBesideTheOtherInformationalSteps pins the catalog's place in the boot
-// step table (bootsteps.go), on BOTH boots:
+// step table (bootsteps.go), on the container boot:
 //
 //   - it is a `run` step, NOT a generator — an installed-but-undeclared package is not a
 //     broken generator, and running it through genStep would make a jail with an orphan
@@ -555,19 +565,16 @@ func TestBootCatalogIsSilentOnBothSinksWithNoOrphans(t *testing.T) {
 //     away (TestBothBootsRunTheTable), so it reads the PREVIOUS launch's state, the only state
 //     in which "undeclared" means anything.
 //
-// The macos-user bootstrap runs it too since the table: it had been left out on the premise
-// that that backend stages no pack tree, which stopped being true (notch-convergence row D10).
-// The step's body is located with callIndex, which skips a commented-out mention.
+// The macos-user bootstrap does not run it, for the reason declared on the step
+// (TestTheDarwinBootstrapDoesNotCatalogOrphans). The step's body is located with callIndex, which skips a commented-out mention.
 func TestBootCatalogsOrphansBesideTheOtherInformationalSteps(t *testing.T) {
 	s := mustBootStep(t, "catalog_installed_orphans")
 	if s.gen != nil || s.run == nil {
 		t.Error("the catalog must be a run step, not a generator: it generates nothing, and a " +
 			"fatal there would mean a jail with one orphaned package refuses to START")
 	}
-	for _, target := range []bootTarget{bootContainer, bootDarwin} {
-		assertStepBefore(t, target, "assert_required_bins", "catalog_installed_orphans",
-			"the two informational steps read the same declarations, and the missing-bin finding comes first")
-	}
+	assertStepBefore(t, bootContainer, "assert_required_bins", "catalog_installed_orphans",
+		"the two informational steps read the same declarations, and the missing-bin finding comes first")
 	src, err := os.ReadFile(filepath.Join(repoRoot(t), "internal", "entrypoint", "bootsteps.go"))
 	if err != nil {
 		t.Fatal(err)
