@@ -414,17 +414,54 @@ func TestUpdatePromptFailedUpdateContinuesOnThisVersion(t *testing.T) {
 	}
 }
 
-func TestUpdatePromptStopsWhenTheInstalledVersionCannotBeVerified(t *testing.T) {
+// A Homebrew upgrade that changed nothing (the tap has not published the
+// release yet) leaves the running binary installed, so the launch continues —
+// and remembers, so the next launch does not rerun the same no-op and ask again.
+func TestUpdatePromptContinuesWhenTheUpgradeChangedNothing(t *testing.T) {
 	h := newUpdateHarness(t, testChannel)
 	h.seed(t, testChannel, nil)
 	h.d.stdin = strings.NewReader("y\n")
-	h.version = "0.10.0"
+	h.version = testChannel.Version
 	rc, stop := h.notify("run")
-	if !stop || rc != 1 || h.execPath != "" {
-		t.Errorf("verification failure = (%d, %v), exec=%q; want stop before relaunch", rc, stop, h.execPath)
+	if stop || rc != 0 || h.execPath != "" {
+		t.Errorf("unchanged install = (%d, %v), exec=%q; want the launch to continue without a relaunch", rc, stop, h.execPath)
 	}
-	if !strings.Contains(h.stderr.String(), "Homebrew formula may not be published yet") {
-		t.Errorf("verification failure not actionable:\n%s", h.stderr.String())
+	if !strings.Contains(h.stderr.String(), "Homebrew formula may not be published yet") ||
+		!strings.Contains(h.stderr.String(), "Continuing with this version") {
+		t.Errorf("the no-op is not reported:\n%s", h.stderr.String())
+	}
+	if got := selfupdate.LoadState(h.d.statePath); got.DeclinedFor != "0.11.0" || !got.Available {
+		t.Errorf("state after a no-op = %+v; want DeclinedFor 0.11.0 and the notice kept", got)
+	}
+
+	h.stderr.Reset()
+	h.d.stdin = strings.NewReader("y\n")
+	h.notify("run")
+	if h.applied != 1 || strings.Contains(h.stderr.String(), "relaunch?") {
+		t.Errorf("the next launch re-offered the same release (applied %d):\n%s", h.applied, h.stderr.String())
+	}
+}
+
+// An upgrade that DID change the install, but not to the release expected,
+// still stops: continuing would run this binary against a different install.
+func TestUpdatePromptStopsWhenTheInstalledVersionCannotBeVerified(t *testing.T) {
+	for name, setup := range map[string]func(h *updateHarness){
+		"changed to something else": func(h *updateHarness) { h.version = "0.10.5" },
+		"probe failed":              func(h *updateHarness) { h.versionErr = errors.New("exec format error") },
+	} {
+		t.Run(name, func(t *testing.T) {
+			h := newUpdateHarness(t, testChannel)
+			h.seed(t, testChannel, nil)
+			h.d.stdin = strings.NewReader("y\n")
+			setup(h)
+			rc, stop := h.notify("run")
+			if !stop || rc != 1 || h.execPath != "" {
+				t.Errorf("verification failure = (%d, %v), exec=%q; want stop before relaunch", rc, stop, h.execPath)
+			}
+			if !strings.Contains(h.stderr.String(), "could not be verified") {
+				t.Errorf("verification failure not reported:\n%s", h.stderr.String())
+			}
+		})
 	}
 }
 

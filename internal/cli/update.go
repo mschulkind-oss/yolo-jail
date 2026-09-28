@@ -9,6 +9,7 @@ package cli
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -236,6 +237,17 @@ func maybeNotifyUpdate(sub string, args []string, d updateDeps) (int, bool) {
 		return 1, true
 	}
 	if err := verifyInstalledRelease(ch, st, path, d.versionAt); err != nil {
+		// The installed yolo is exactly the one running, so nothing changed
+		// under this process and the launch can go on. Recording the decline
+		// keeps every later launch from running the same no-op upgrade and
+		// asking again, until something newer than this release appears.
+		var same installUnchangedError
+		if errors.As(err, &same) {
+			st.DeclinedFor = st.Latest
+			_ = selfupdate.SaveState(d.statePath, st)
+			fmt.Fprintf(d.stderr, "⚠ %v\n  Continuing with this version; launches will not offer %s again, and `yolo update` installs it once it is published.\n", err, st.Latest)
+			return 0, false
+		}
 		fmt.Fprintf(d.stderr, "✗ update could not be verified: %v\n  Run your command again after resolving this.\n", err)
 		return 1, true
 	}
@@ -290,10 +302,20 @@ func verifyInstalledRelease(ch selfupdate.Channel, st selfupdate.State, path str
 		return fmt.Errorf("could not verify the updated yolo at %s: %w", path, err)
 	}
 	if !selfupdate.AtLeast(got, st.Latest) {
-		return fmt.Errorf("the update command completed, but %s is still %s (expected at least %s); the Homebrew formula may not be published yet", path, got, st.Latest)
+		if got == ch.Version {
+			return installUnchangedError{fmt.Sprintf("the update command completed, but %s is still %s (expected at least %s); the Homebrew formula may not be published yet", path, got, st.Latest)}
+		}
+		return fmt.Errorf("the update command completed, but %s is now %s (this yolo is %s; expected at least %s)", path, got, ch.Version, st.Latest)
 	}
 	return nil
 }
+
+// installUnchangedError is verifyInstalledRelease's answer when the upgrade
+// left the installed version exactly where it was: nothing changed, so a
+// caller may carry on with the running binary.
+type installUnchangedError struct{ msg string }
+
+func (e installUnchangedError) Error() string { return e.msg }
 
 func updateRootConflict(ch selfupdate.Channel, root string) error {
 	if root == "" {
