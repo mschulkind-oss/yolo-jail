@@ -40,23 +40,6 @@ type assembled struct {
 	in   *assembleInput
 }
 
-// channelFile delivers the channel exactly as the launch's lifecycle phase does
-// (deliverChannel) and returns everything it wrote: the shared yolo-user-env.sh, then each
-// agent's own env file in agent order. Since the credential gate (OQ-CN6) a profiled
-// agent's provider environment lands in ITS file, so "what did the launch deliver" is the
-// union; a test about WHICH process gets a value reads the files one by one
-// (deliveredFiles, agentenvfiles_test.go).
-func (a assembled) channelFile(t *testing.T) string {
-	t.Helper()
-	shared, agents := deliveredFiles(t, a.in.envChannel(a.o))
-	var b strings.Builder
-	b.WriteString(shared)
-	for _, agent := range sortedKeys(agents) {
-		b.WriteString(agents[agent])
-	}
-	return b.String()
-}
-
 // channelEnv is the file twin of envArgValues: the COMPOSED values for keys, in file order,
 // with the writer's '\” quoting unescaped — the shared file's plain-form channel lines, then
 // every line of each agent's own file as an agent started with no value of its own would take
