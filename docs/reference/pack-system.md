@@ -2420,14 +2420,16 @@ hour and announced when it lands. **A tag or commit pin is the shape for a pack 
 execution.**
 
 `yolo host apply` resolves through the launch's own resolver (`config.ResolvePack`, called by
-`cli.resolveConfiguredPack`) after the refresh has run, and **stages every configured pack** —
-embedded, local and fetched — into a directory of the process's own leased tree, which it reads
-for as long as the verb runs ([notch convergence](../plans/notch-convergence.md), item 5). So
-an entry's `only`/`exclude` decides what reaches the real home exactly as it decides what
-reaches a jail, an embedded entry's included, and a fetched pack with an escaping symlink is
-refused as the launch refuses it. A LOCAL pack's symlinks are followed wherever they point,
-which the launch does not do; that difference is kept on purpose until
-[OQ-NC9](../plans/notch-convergence.md#OQ-NC9) rules it. **An incomplete set is refused whole**: if any configured
+`cli.resolveConfiguredPack`) after the refresh has run, and **stages every filtered pack** —
+embedded, local or fetched, any entry with an `only` or `exclude` — into a directory of the
+process's own leased tree, which it reads for as long as the verb runs
+([notch convergence](../plans/notch-convergence.md), item 5). An unfiltered pack is read in
+place, after the same no-escaping-symlink check, because a copy would hold the same files. So an
+entry's `only`/`exclude` decides what reaches the real home exactly as it decides what reaches a
+jail, an embedded entry's included, and a fetched pack with an escaping symlink is refused as the
+launch refuses it, as is a filtered local pack with one. An UNFILTERED LOCAL pack's symlinks are
+followed wherever they point, which the launch does not do; that difference is kept on purpose
+until [OQ-NC9](../plans/notch-convergence.md#OQ-NC9) rules it. **An incomplete set is refused whole**: if any configured
 pack cannot be resolved, `--assert` writes nothing and exits 1, naming each pack and its
 reason. The dry run says it would refuse. A pack whose manifest has problems, the ones
 `yolo check` and every launch refuse, counts as unresolvable here: it is named with each
