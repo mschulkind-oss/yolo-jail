@@ -16,6 +16,7 @@ import (
 	"testing"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/hostskills"
+	"github.com/mschulkind-oss/yolo-jail/internal/jailcontent"
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 )
@@ -58,6 +59,12 @@ func briefingPackFrom(t *testing.T, name, into, from, file, prose string) *packl
 
 // briefingReq builds a request whose record, archive and local pack all live under `home`, so no
 // test can reach a real state dir or a real config dir.
+//
+// ITS BASE IS EMPTY, which no production caller asks for: `yolo host apply` always composes the
+// host base (hostBriefingReq). Empty composes the packs' sections alone, so a test of the section
+// mechanics — order, labels, `from`, the migration — can compare exact bytes without restating
+// the header. A test of what a destination with no prose does, or of what the prune retires,
+// must use hostBriefingReq: those are the answers the base changes.
 func briefingReq(t *testing.T, home string) (HostBriefingRequest, *hostskills.Manifest) {
 	t.Helper()
 	man := &hostskills.Manifest{Entries: map[string]string{}}
@@ -69,6 +76,15 @@ func briefingReq(t *testing.T, home string) (HostBriefingRequest, *hostskills.Ma
 		// The ordinary case: every configured pack resolved. The false path has its own test.
 		PackSetComplete: true,
 	}, man
+}
+
+// hostBriefingReq is briefingReq with the production base — the one `yolo host apply` composes
+// when the user sets no agents_md_extra (applyHostBriefings).
+func hostBriefingReq(t *testing.T, home string) (HostBriefingRequest, *hostskills.Manifest) {
+	t.Helper()
+	req, man := briefingReq(t, home)
+	req.Base = jailcontent.HostBriefingBase("", false)
+	return req, man
 }
 
 // localPackDir is the conventional local pack's root under a TEMP home.
@@ -447,35 +463,44 @@ func TestHostBriefingTwoPacksComposeOneFile(t *testing.T) {
 	}
 }
 
-// A DESTINATION WITH NO CONTRIBUTED PROSE IS LEFT ALONE, not emptied. The six shipped agent
-// packs are exactly this shape: their `briefing` names the destination and the content comes
-// from the user's own packs.
-func TestHostBriefingNoProseLeavesTheFileAlone(t *testing.T) {
+// A DESTINATION WITH NO CONTRIBUTED PROSE IS STILL YOLO'S. The shipped agent packs are this
+// shape: their `briefing` names the destination and ships no prose. With the host base every
+// such destination composes the base, so an absent file is created holding it, and a file the
+// user wrote there is an ADOPTION the CLI confirms and migrates first — never left alone, which
+// was the answer before the base existed and left a host agent unaware it was on a real machine.
+func TestHostBriefingNoProseDestinationComposesTheBase(t *testing.T) {
 	home := t.TempDir()
 	dest := filepath.Join(home, ".claude", "CLAUDE.md")
-	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	const mine = "# Mine\n\nUntouched.\n"
-	if err := os.WriteFile(dest, []byte(mine), 0o644); err != nil {
-		t.Fatal(err)
-	}
 	packs := []*packload.Pack{briefingPack(t, "claude", ".claude/CLAUDE.md", "")}
-	req, _ := briefingReq(t, home)
+	req, man := hostBriefingReq(t, home)
 
-	// No adoption either: there is nothing yolo would write, so nothing is at stake.
-	if got := HostBriefingAdoptions(packs, home, req.Manifest, "", false); len(got) != 0 {
-		t.Errorf("a pack that ships no prose must not prompt; got %+v", got)
-	}
 	results, err := RenderHostBriefings(packs, home, req, false)
 	if err != nil {
 		t.Fatalf("render: %v", err)
 	}
-	if len(results) != 1 || !strings.HasPrefix(results[0].Action, "skipped:") {
-		t.Fatalf("want a skip when no pack contributes prose; got %+v", results)
+	if len(results) != 1 || results[0].Action != "rendered" {
+		t.Fatalf("a prose-less destination must be rendered from the base; got %+v", results)
 	}
-	if got := readFile(t, dest); got != mine {
-		t.Errorf("a destination with no contributed prose must not be truncated:\n%s", got)
+	if got := readFile(t, dest); got != req.Base {
+		t.Errorf("the destination must hold the base alone:\n got %q\nwant %q", got, req.Base)
+	}
+	if owner, ok := man.Owner(dest); !ok || owner != HostBriefingOwner {
+		t.Error("the composed destination must be recorded as yolo's")
+	}
+
+	// The user's own file at the same path is what the adoption gate names.
+	fresh := t.TempDir()
+	mine := filepath.Join(fresh, ".claude", "CLAUDE.md")
+	if err := os.MkdirAll(filepath.Dir(mine), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(mine, []byte("# Mine\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	freshReq, _ := hostBriefingReq(t, fresh)
+	got := HostBriefingAdoptions(packs, fresh, freshReq.Manifest, freshReq.Base, false)
+	if len(got) != 1 || got[0].Path != mine || got[0].Existing != "# Mine\n" {
+		t.Errorf("the user's file under a prose-less destination must be an adoption; got %+v", got)
 	}
 }
 
@@ -601,14 +626,15 @@ func TestHostBriefingRetireSparesAFileYoloNeverWrote(t *testing.T) {
 	}
 }
 
-// A pack that stops shipping PROSE has its destination retired too — "the pack was dropped" and
-// "the pack stopped shipping a briefing" must not leave different residue. The old mechanism had
-// this in its empty-prose branch; wholesale composition gets it from the prune reading COMPOSED
-// content rather than declared destinations.
-func TestHostBriefingRetireArchivesADestinationWhoseProseWentAway(t *testing.T) {
+// A PACK THAT STOPS SHIPPING PROSE KEEPS ITS DESTINATION: the pack is still selected, the base
+// still composes there, so the destination is recomposed rather than archived. Only dropping the
+// pack retires it (TestHostBriefingRetireArchivesTheOrphanedDestination; the CLI half
+// is TestApplyHostBriefingDroppingThePackLeavesNoOrphan). Before the base, an empty composition
+// made "stopped shipping prose" retire the file, and a host agent lost its briefing with it.
+func TestHostBriefingPruneKeepsADestinationWhosePackStoppedShippingProse(t *testing.T) {
 	home := t.TempDir()
 	dest := filepath.Join(home, ".claude", "CLAUDE.md")
-	req, _ := briefingReq(t, home)
+	req, _ := hostBriefingReq(t, home)
 	if _, err := RenderHostBriefings(
 		[]*packload.Pack{briefingPack(t, "claude", ".claude/CLAUDE.md", "Prose.\n")},
 		home, req, false); err != nil {
@@ -620,11 +646,15 @@ func TestHostBriefingRetireArchivesADestinationWhoseProseWentAway(t *testing.T) 
 	if err != nil {
 		t.Fatalf("prune: %v", err)
 	}
-	if len(results) != 1 || !strings.HasPrefix(results[0].Action, "archived") {
-		t.Fatalf("want the destination retired when no prose composes into it; got %+v", results)
+	if len(results) != 0 {
+		t.Fatalf("a still-selected pack's destination must not be retired; got %+v", results)
 	}
-	if _, err := os.Lstat(dest); err == nil {
-		t.Error("a generated file with nothing left to generate it is an orphan")
+	if _, err := RenderHostBriefings(silent, home, req, false); err != nil {
+		t.Fatalf("re-render: %v", err)
+	}
+	if got := readFile(t, dest); got != req.Base {
+		t.Errorf("the destination must be recomposed from the base, the prose gone:\n got %q\nwant %q",
+			got, req.Base)
 	}
 }
 
@@ -720,7 +750,7 @@ func TestHostBriefingShippedClaudePack(t *testing.T) {
 		t.Fatalf("embedded claude: %v", err)
 	}
 	home := t.TempDir()
-	req, _ := briefingReq(t, home)
+	req, _ := hostBriefingReq(t, home)
 	results, err := RenderHostBriefings([]*packload.Pack{claude}, home, req, false)
 	if err != nil {
 		t.Fatalf("RenderHostBriefings: %v", err)
@@ -728,22 +758,13 @@ func TestHostBriefingShippedClaudePack(t *testing.T) {
 	if len(results) != 1 {
 		t.Fatalf("claude declares one briefing destination; got %+v", results)
 	}
-	// The shipped claude pack has no AGENTS.md of its own today, so the honest outcome is a
-	// skip — NOT a written file and not a silent absence. If a pack file is added, this flips
-	// to "rendered" and the assertion below documents which it was.
-	switch results[0].Action {
-	case "rendered":
-		if got := readFile(t, filepath.Join(home, ".claude", "CLAUDE.md")); !strings.Contains(
-			got, "<!-- from pack: claude -->") {
-			t.Errorf("the rendered file is missing claude's provenance header:\n%s", got)
-		}
-	default:
-		if !strings.HasPrefix(results[0].Action, "skipped:") {
-			t.Errorf("want rendered or skipped, got %q", results[0].Action)
-		}
-		if _, err := os.Stat(filepath.Join(home, ".claude", "CLAUDE.md")); !os.IsNotExist(err) {
-			t.Errorf("a pack with no prose must not create the user's briefing (stat err=%v)", err)
-		}
+	// With the production base, claude's destination is always written, prose or none, and
+	// opens with the host header telling the agent it is on the real machine.
+	if results[0].Action != "rendered" {
+		t.Fatalf("want claude's destination rendered, got %q", results[0].Action)
+	}
+	if got := readFile(t, filepath.Join(home, ".claude", "CLAUDE.md")); !strings.HasPrefix(got, req.Base) {
+		t.Errorf("claude's host briefing must open with the host base:\n%s", got)
 	}
 }
 
