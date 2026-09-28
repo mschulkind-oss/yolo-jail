@@ -3,8 +3,11 @@ package integration
 import (
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
+
+	naming "github.com/mschulkind-oss/yolo-jail/internal/runtime"
 )
 
 // Shim-behavior and host-CLI-surface tests. Every test drives the real `yolo`
@@ -116,16 +119,52 @@ func TestYoloInit(t *testing.T) {
 // TestYoloCheckValidConfig confirms host-side `yolo check --no-build` validates a
 // normal config and reports success (check.go's "Merged config is semantically
 // valid").
+//
+// THE VERDICT IT READS IS THIS WORKSPACE'S, and `yolo check`'s exit code is not only that.
+// The host-service liveness section (internal/cli/check/sections_loopholes.go,
+// checkHostServiceLiveness) probes EVERY running jail on the machine and grades each one's
+// loopholes as `loophole <name> @ <container>: …`. So on a machine where another run's jail
+// is mid-launch — its endpoint not published yet — this workspace's check exits 1 for a jail
+// this test never started: 6 of 16 overlapping full runs failed on 2026-09-27, this test
+// among the causes. A [FAIL] naming ANOTHER container is therefore logged and set aside; every
+// other [FAIL], and any non-zero exit a foreign row does not account for, still fails the test
+// exactly as before (foreignJailFails states the split).
 func TestYoloCheckValidConfig(t *testing.T) {
 	requireJail(t)
 	dir := tempProject(t)
 	r := runYoloCLI(t, dir, "check", "--no-build")
 	if r.rc != 0 {
-		t.Fatalf("expected rc 0, got %d\n%s", r.rc, r.combined())
+		own, foreign := foreignJailFails(r.stdout, naming.FromWorkspace(dir))
+		if r.rc != 1 || len(own) > 0 || len(foreign) == 0 {
+			t.Fatalf("expected rc 0, got %d\n%s", r.rc, r.combined())
+		}
+		t.Logf("`yolo check` exited 1 on %d [FAIL] row(s), every one about ANOTHER jail on this "+
+			"machine, which this workspace's verdict does not include:\n%s",
+			len(foreign), strings.Join(foreign, "\n"))
 	}
 	if !strings.Contains(r.combined(), "Merged config is semantically valid") {
 		t.Fatalf("expected semantic-valid message, got:\n%s", r.combined())
 	}
+}
+
+// foreignJailFailRe matches a per-jail [FAIL] row of the liveness section and captures the
+// container it is about: `  [FAIL] loophole <name> @ <container>: <what>`.
+var foreignJailFailRe = regexp.MustCompile(`^\s*\[FAIL\] loophole \S+ @ (\S+?):`)
+
+// foreignJailFails splits a `yolo check` report's [FAIL] rows into the ones about ownJail or
+// about no jail at all (own), and the ones naming some OTHER container (foreign).
+func foreignJailFails(report, ownJail string) (own, foreign []string) {
+	for _, line := range strings.Split(report, "\n") {
+		if !strings.Contains(line, "[FAIL]") {
+			continue
+		}
+		if m := foreignJailFailRe.FindStringSubmatch(line); m != nil && m[1] != ownJail {
+			foreign = append(foreign, strings.TrimSpace(line))
+			continue
+		}
+		own = append(own, strings.TrimSpace(line))
+	}
+	return own, foreign
 }
 
 // TestYoloCheckInvalidConfigFails confirms `yolo check --no-build` fails fast on a
@@ -190,5 +229,25 @@ func TestYoloCheckAvailableInsideJail(t *testing.T) {
 	}
 	if !strings.Contains(r.stdout, "YOLO Jail Check") {
 		t.Fatalf("expected 'YOLO Jail Check' banner in stdout, got:\n%s", r.stdout)
+	}
+}
+
+// TestForeignJailFailsSplitsByContainer pins TestYoloCheckValidConfig's split, under -short:
+// only a liveness row naming ANOTHER container is set aside.
+func TestForeignJailFailsSplitsByContainer(t *testing.T) {
+	report := strings.Join([]string{
+		"  [PASS] Merged config is semantically valid",
+		"  [FAIL] loophole claude-oauth-broker @ yolo-002-aaaa: broker endpoint missing",
+		"  [FAIL] loophole openai-auth-broker @ yolo-002-mine: no endpoint published",
+		"  [FAIL] loophole claude-oauth-broker: stale PID file, pid 7 not running",
+		"  [FAIL] config.network.mode: bad value",
+		"  [WARN] loophole x @ yolo-002-bbbb: something",
+	}, "\n")
+	own, foreign := foreignJailFails(report, "yolo-002-mine")
+	if len(foreign) != 1 || !strings.Contains(foreign[0], "yolo-002-aaaa") {
+		t.Errorf("foreign = %q, want only the other container's row", foreign)
+	}
+	if len(own) != 3 {
+		t.Errorf("own = %q, want this jail's row and both machine-level rows", own)
 	}
 }
