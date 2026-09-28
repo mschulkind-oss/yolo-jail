@@ -19,6 +19,7 @@ import (
 	"testing"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
+	"github.com/mschulkind-oss/yolo-jail/internal/ioprio"
 	"github.com/mschulkind-oss/yolo-jail/internal/jailcontent"
 	"github.com/mschulkind-oss/yolo-jail/internal/jailcontent/builtinskills"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
@@ -81,7 +82,7 @@ func stageWorkspaceSkills(t *testing.T, o *Options, rt string) string {
 		t.Fatalf("stagePacks: %v", err)
 	}
 	staging, err := o.refreshJailBriefings(wsSkillsCname, jsonx.NewOrderedMap(), rt,
-		stagedPacks{root: root, packs: packs, briefings: briefings})
+		stagedPacks{root: root, packs: packs, briefings: briefings}, ioprio.Normal)
 	if err != nil {
 		t.Fatalf("refreshJailBriefings: %v", err)
 	}
