@@ -41,11 +41,17 @@ func TestLaunchBannerQualifiesAGatedEnvVariable(t *testing.T) {
 	entry.Set("enabled", true)
 	block.Set("aws-auth", entry)
 	cfg.Set("loopholes", block)
-	o.notePackHostAccess(packs, &packChannel{served: o.servedDaemons(o.jailDaemonsFor(cfg, "podman", packs))})
+	// An agent whose profile selects what the adapter serves, or the payload leaves the adapter
+	// out (OQ-CN7 (b)); the banner reads aws-auth's declarations alone.
+	o.UseProfiles = map[string]string{"claude": "bedrock"}
+	withAgent := append([]*packload.Pack{officialPack(t, "claude")}, packs...)
+	o.notePackHostAccess(packs, &packChannel{served: o.servedDaemons(o.jailDaemonsFor(cfg, "podman", withAgent))})
 
+	// The caller token stays the TOKEN, never the value: the banner is a launch's stderr, teed
+	// to launch.log, and the value is a credential scoped to the selecting agents' files.
 	const want = "Pack environment this launch:\n" +
 		"  aws-auth: SETS an environment variable inside the jail: " +
-		"AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE=/run/yolo/caller-tokens/YOLO_SERVICE_AWS_AUTH_TOKEN " +
+		"AWS_CONTAINER_AUTHORIZATION_TOKEN={caller_token} " +
 		"when profile \"bedrock\" is active  [env]\n" +
 		"  aws-auth: SETS an environment variable inside the jail: " +
 		"AWS_CONTAINER_CREDENTIALS_FULL_URI=http://127.0.0.1:1461/credentials " +

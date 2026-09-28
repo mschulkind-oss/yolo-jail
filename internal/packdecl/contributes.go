@@ -3225,6 +3225,30 @@ func validateContribution(label string, c Contribution) []string {
 						"daemon the contribution is \"served_by\" — declare \"served_by\" or "+
 						"write the address literally", label, k, loopholedecl.TokenListen))
 			}
+			// {caller_token} scopes a daemon's caller token to the agents this contribution
+			// reaches (loopholedecl.TokenCallerToken), so it needs the daemon, the gate that
+			// makes the contribution per agent, and the whole value.
+			if strings.Contains(v, loopholedecl.TokenCallerToken) {
+				switch {
+				case c.ServedBy == "":
+					problems = append(problems, fmt.Sprintf(
+						"%s: env var %q names %q, which resolves to the caller token of the daemon "+
+							"the contribution is \"served_by\" — declare \"served_by\"",
+						label, k, loopholedecl.TokenCallerToken))
+				case c.Profile == "":
+					problems = append(problems, fmt.Sprintf(
+						"%s: env var %q names %q in a contribution with no \"profile\" gate, which "+
+							"every process of the jail receives — a caller token is delivered only "+
+							"to the agents whose profile selects it (provider-credential-scope.md "+
+							"OQ-CN7), so declare the \"profile\" it serves",
+						label, k, loopholedecl.TokenCallerToken))
+				case v != loopholedecl.TokenCallerToken:
+					problems = append(problems, fmt.Sprintf(
+						"%s: env var %q names %q inside a longer value — a client sends the token "+
+							"verbatim as its credential, so it must be the whole value",
+						label, k, loopholedecl.TokenCallerToken))
+				}
+			}
 		}
 	case KindHook:
 		if c.Hook == "" {

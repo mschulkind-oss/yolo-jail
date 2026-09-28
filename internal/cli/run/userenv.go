@@ -135,7 +135,23 @@ func writeUserEnvFile(userEnvFile string, userEnv *jsonx.OrderedMap, channel *pa
 		}
 		sort.Strings(tokenVars)
 		for _, k := range tokenVars {
+			// A SCOPED token (OQ-CN7 (c)) is exported only in the agent files its pointer
+			// reaches; here it is a record no reader exports (entrypoint.ScopedCallerTokenRecord).
+			if channel.scopedTokenVars[k] {
+				b.WriteString(entrypoint.ScopedCallerTokenRecord(k, channel.callerTokens[k]))
+				continue
+			}
 			b.WriteString(exportPlain(k, channel.callerTokens[k]))
+		}
+		carried := make([]string, 0, len(channel.carriedTokens))
+		for k := range channel.carriedTokens {
+			if _, own := channel.callerTokens[k]; !own {
+				carried = append(carried, k)
+			}
+		}
+		sort.Strings(carried)
+		for _, k := range carried {
+			b.WriteString(entrypoint.ScopedCallerTokenRecord(k, channel.carriedTokens[k]))
 		}
 		// The SERVED ADDRESSES this entry composed, when it moved any (servedaddresses.go):
 		// the jail's daemons bound them at boot, and the next attach reads them back from here

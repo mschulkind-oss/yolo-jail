@@ -35,6 +35,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
 // packChannel is everything a launch composes from its selected profiles and providers,
@@ -82,6 +83,17 @@ type packChannel struct {
 	// bridged client read them from the environment, and the credential gate composes them into
 	// the derives that point a client at the service. nil when no selected service runs.
 	callerTokens map[string]string
+	// scopedTokenVars are the callerTokens variables whose tokens are SCOPED
+	// (packload.ScopedCallerTokenDaemons, provider-credential-scope.md OQ-CN7 (c)): a selected
+	// pack names the daemon's token through `{caller_token}`, so the token is exported only in
+	// the agent files that pointer reaches, and the shared file carries it as a non-exported
+	// record (entrypoint.ScopedCallerTokenRecord) for the daemon and the next attach to read.
+	scopedTokenVars map[string]bool
+	// carriedTokens are the running jail's caller tokens an attach adopted that this entry's own
+	// composition needs none of — a profile-served daemon the jail's boot started and this entry
+	// does not select. Recorded, never exported, so a later entry that selects it again adopts
+	// the token that daemon still demands (rekeyChannelForAttach). nil on a fresh launch.
+	carriedTokens map[string]string
 	// unservedVias are the profiles whose via this notch does not serve (packload.ViaServedAt),
 	// sorted: their agents keep their own clients, and the launch names them (noteUnserved).
 	unservedVias []string
@@ -157,7 +169,17 @@ func (o *Options) composePackChannel(cfg *jsonx.OrderedMap, packs []*packload.Pa
 	if err != nil {
 		return nil, err
 	}
+	var scopedTokenVars map[string]bool
+	for daemon := range packload.ScopedCallerTokenDaemons(packs) {
+		if v := paths.ServiceCallerTokenEnv(daemon); v != "" {
+			if scopedTokenVars == nil {
+				scopedTokenVars = map[string]bool{}
+			}
+			scopedTokenVars[v] = true
+		}
+	}
 	c := &packChannel{
+		scopedTokenVars:             scopedTokenVars,
 		unservedVias:                unservedVias,
 		served:                      served,
 		servedAddresses:             o.movedServedAddresses(),

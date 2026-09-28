@@ -116,7 +116,7 @@ func TestHostLaunchAnnouncesThePacksTheClosureJoined(t *testing.T) {
 func TestNoHostLaunchOfClaudeExportsAnUnservedPointer(t *testing.T) {
 	// The shell this test runs in may itself be a jail's, carrying these; blank them so what the
 	// agent receives is what yolo composed.
-	for _, k := range []string{"AWS_CONTAINER_CREDENTIALS_FULL_URI", "AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE",
+	for _, k := range []string{"AWS_CONTAINER_CREDENTIALS_FULL_URI", "AWS_CONTAINER_AUTHORIZATION_TOKEN",
 		"CODEX_REFRESH_TOKEN_URL_OVERRIDE"} {
 		t.Setenv(k, "")
 	}

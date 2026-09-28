@@ -39,6 +39,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholedecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
 // ScopeInput is everything the gate reads, all of it already composed by the caller.
@@ -129,6 +130,10 @@ type CredentialScope struct {
 	// pack's service, which has none (packdecl refuses a pack's own) — keyed by variable,
 	// naming the daemon.
 	unlistenedEnv map[string]string
+	// untokenedEnv is every pack env variable withheld because its value names
+	// loopholedecl.TokenCallerToken and this launch minted no caller token for the daemon it
+	// is served by, keyed by variable, naming the daemon.
+	untokenedEnv map[string]string
 }
 
 // AgentDelivery is what one agent receives beyond the shared set.
@@ -256,6 +261,21 @@ func (s *CredentialScope) servedFold(fold []EnvFoldEntry) []EnvFoldEntry {
 				continue
 			}
 			e.Value = v
+			// The daemon's CALLER TOKEN, for a pointer that names it
+			// (loopholedecl.TokenCallerToken, OQ-CN7 (c)): this launch's, scoped to the agents
+			// this entry reaches. A daemon this launch minted none for gets no pointer, since a
+			// client sending no token (or a literal "{caller_token}") is refused anyway.
+			if strings.Contains(e.Value, loopholedecl.TokenCallerToken) {
+				tok := s.callerTokens[paths.ServiceCallerTokenEnv(e.ServedBy)]
+				if tok == "" {
+					if s.untokenedEnv == nil {
+						s.untokenedEnv = map[string]string{}
+					}
+					s.untokenedEnv[e.Key] = e.ServedBy
+					continue
+				}
+				e.Value = strings.ReplaceAll(e.Value, loopholedecl.TokenCallerToken, tok)
+			}
 		}
 		out = append(out, e)
 	}
@@ -285,7 +305,7 @@ func (s *CredentialScope) FoldFor(agent string) []EnvFoldEntry {
 // servedByLaunch leaves out a variable the launch sets itself from a server of its own
 // (UnservedLines); nil leaves out none.
 func (s *CredentialScope) UnservedEnvLines(servedByLaunch func(string) bool) []string {
-	if s == nil || (len(s.unservedEnv) == 0 && len(s.unlistenedEnv) == 0) {
+	if s == nil || (len(s.unservedEnv) == 0 && len(s.unlistenedEnv) == 0 && len(s.untokenedEnv) == 0) {
 		return nil
 	}
 	byDaemon := map[string][]string{}
@@ -328,6 +348,22 @@ func (s *CredentialScope) UnservedEnvLines(servedByLaunch func(string) bool) []s
 			", the listen address of the "+strconv.Quote(daemon)+" jail daemon, which serves "+
 			"at no declared address (a loophole declares one as jail_daemon.listen, and a pack "+
 			"service has none), so there is no address to compose")
+	}
+	untokened := map[string][]string{}
+	var tokenless []string
+	for k, daemon := range s.untokenedEnv {
+		if _, seen := untokened[daemon]; !seen {
+			tokenless = append(tokenless, daemon)
+		}
+		untokened[daemon] = append(untokened[daemon], k)
+	}
+	sort.Strings(tokenless)
+	for _, daemon := range tokenless {
+		vars := untokened[daemon]
+		sort.Strings(vars)
+		lines = append(lines, strings.Join(vars, ", ")+" — names "+loopholedecl.TokenCallerToken+
+			", the caller token of the "+strconv.Quote(daemon)+" jail daemon, and this launch minted "+
+			"none for it (its jail_daemon declares no caller_token), so there is no token to compose")
 	}
 	return lines
 }

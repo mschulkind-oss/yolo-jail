@@ -78,7 +78,7 @@ func TestTheHostWithholdsAPointerAtAJailDaemonAndNamesIt(t *testing.T) {
 		daemon                      string
 	}{
 		{"the bedrock pointer", `["claude", "aws-auth"]`, "claude", "bedrock",
-			[]string{"AWS_CONTAINER_CREDENTIALS_FULL_URI", "AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE"}, "aws-auth"},
+			[]string{"AWS_CONTAINER_CREDENTIALS_FULL_URI", "AWS_CONTAINER_AUTHORIZATION_TOKEN"}, "aws-auth"},
 		{"codex's refresh URL", `["codex"]`, "codex", "",
 			[]string{"CODEX_REFRESH_TOKEN_URL_OVERRIDE"}, "openai-auth-broker"},
 	} {

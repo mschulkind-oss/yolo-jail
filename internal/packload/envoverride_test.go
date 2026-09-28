@@ -447,9 +447,9 @@ func TestShippedAWSAuthFootprintGolden(t *testing.T) {
 		got = append(got, string(c.Kind)+" "+c.Target+" "+c.Detail)
 	}
 	// Two pointer variables: the URI and the caller-token file the SDK sends as Authorization.
-	const uri = "AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE, AWS_CONTAINER_CREDENTIALS_FULL_URI"
+	const uri = "AWS_CONTAINER_AUTHORIZATION_TOKEN, AWS_CONTAINER_CREDENTIALS_FULL_URI"
 	want := []string{
-		`env AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE =/run/yolo/caller-tokens/YOLO_SERVICE_AWS_AUTH_TOKEN when profile "bedrock" is active`,
+		`env AWS_CONTAINER_AUTHORIZATION_TOKEN ={caller_token} when profile "bedrock" is active`,
 		`env AWS_CONTAINER_CREDENTIALS_FULL_URI =http://{listen}/credentials when profile "bedrock" is active`,
 		`loophole aws-auth`,
 		`overridden-by ` + uri + ` launch refused beside AWS_BEARER_TOKEN_BEDROCK (when profile "bedrock" is active)`,

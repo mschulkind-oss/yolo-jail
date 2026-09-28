@@ -50,10 +50,12 @@ func ServiceCallerTokenEnv(serviceName string) string {
 
 // JailCallerTokenDir is where the entrypoint writes each caller token it was handed as a file
 // of its own, 0600, named by the token's variable (JailCallerTokenFile). It exists for a
-// client that reads a credential from a FILE and cannot be handed a secret any other way: the
-// AWS SDKs' container-credentials provider reads AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE and
-// sends its contents as `Authorization` (docs/plans/notch-convergence.md §2.3). On the /run
-// tmpfs, so it dies with the container, and in-jail only, so no host process can read it.
+// client that reads a credential from a FILE and cannot be handed a secret any other way, as
+// the AWS SDKs' container-credentials provider can (AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE;
+// docs/plans/notch-convergence.md §2.3). The aws-auth pack used it until its token was scoped
+// to the selecting agents' env files (docs/design/provider-credential-scope.md OQ-CN7 (c)); a
+// scoped token gets no file. On the /run tmpfs, so it dies with the container, and in-jail
+// only, so no host process can read it.
 const JailCallerTokenDir = "/run/yolo/caller-tokens"
 
 // JailCallerTokenFile is the in-jail file holding the caller token carried in tokenEnv — the

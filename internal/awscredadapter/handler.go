@@ -37,14 +37,20 @@
 // to read the jail agent's environment or files. The token is the whole difference there.
 //
 // So the launcher mints a caller token for this daemon (the loophole declares
-// `jail_daemon.caller_token`), the adapter reads it from YOLO_SERVICE_AWS_AUTH_TOKEN, and
-// the entrypoint writes it to a 0600 file (paths.JailCallerTokenFile) that the pack's
-// `env` contribution names as AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE beside the credentials
-// URI. That is the slot the AWS SDKs' container-credentials provider already has: it reads
-// the file and sends its contents as `Authorization` on every fetch. A request without the
-// token is refused 401 in the protocol's own {Code, Message} shape, before the host is
-// asked. What it proves: the caller could read that file, which inside the jail every
-// process can — the adapter's intended callers — and outside it no process can.
+// `jail_daemon.caller_token`), and the token is SCOPED to the agents that selected what this
+// adapter serves (docs/design/provider-credential-scope.md OQ-CN7 (c), ruled 2026-09-28): the
+// pack's `env` contribution names it as AWS_CONTAINER_AUTHORIZATION_TOKEN = `{caller_token}`
+// beside the credentials URI, gated on `bedrock`, so the launcher exports it only in the env
+// file of each agent whose profile is `bedrock`. That is the slot the AWS SDKs'
+// container-credentials provider already has: it sends the variable's value verbatim as
+// `Authorization` on every fetch (when no AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE is set, which
+// the SDKs would prefer). The adapter itself reads the token from YOLO_SERVICE_AWS_AUTH_TOKEN
+// when a launch exported it, and otherwise from the unexported record the launcher keeps in
+// the shared yolo-user-env.sh's channel section (callerTokenLookup). A request without the
+// token is refused 401 in the protocol's own {Code, Message} shape, before the host is asked.
+// What it proves: the caller's environment carries the selecting agent's token — no other
+// process's environment does, a bare shell's included — or the caller read a same-uid file
+// that holds it, which inside the jail any process can; outside it no process can.
 package awscredadapter
 
 import (
@@ -62,6 +68,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/svcendpoint"
 )
@@ -247,11 +254,32 @@ func callerRefusalMessage(reason string) string {
 		what = "carried a caller token that is not this launch's"
 	}
 	return "yolo aws-auth adapter: refused — this request " + what + ". The adapter serves " +
-		"only this launch's agents, whose AWS SDK sends the token in " +
-		"AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE beside AWS_CONTAINER_CREDENTIALS_FULL_URI; a " +
+		"only the agents whose profile selects it, whose AWS SDK sends the token in " +
+		"AWS_CONTAINER_AUTHORIZATION_TOKEN beside AWS_CONTAINER_CREDENTIALS_FULL_URI; a " +
 		"loopback shared with other processes makes this port reachable from outside the jail " +
 		"(docs/plans/notch-convergence.md §2.3). A client that gets this was started without the " +
 		"launch's environment, or by an older yolo: restart it from a fresh `yolo` entry"
+}
+
+// callerTokenLookup is getenv with this adapter's caller token answered from where the launcher
+// put it: its own environment when a launch exported the token there, and otherwise the scoped
+// record in the channel section of the jail home's yolo-user-env.sh
+// (entrypoint.ScopedCallerToken). The aws-auth pack SCOPES the token (its pointer names
+// `{caller_token}`, docs/design/provider-credential-scope.md OQ-CN7 (c)): the only exported
+// copy is AWS_CONTAINER_AUTHORIZATION_TOKEN in the env file of each agent whose profile selects
+// `bedrock`, so no other process's environment carries it, and the adapter reads the record the
+// shared file keeps for it instead.
+func callerTokenLookup(getenv func(string) string) func(string) string {
+	return func(key string) string {
+		if v := getenv(key); v != "" || key != CallerTokenEnv {
+			return v
+		}
+		home := getenv("HOME")
+		if home == "" {
+			return ""
+		}
+		return entrypoint.ScopedCallerToken(home, CallerTokenEnv)
+	}
 }
 
 // callerTokenFrom reads and checks the adapter's caller token, returning why it cannot
@@ -295,7 +323,7 @@ func Main(args []string) int {
 		fmt.Fprintf(os.Stderr, "aws-credential-adapter: unexpected arguments: %v\n", fs.Args())
 		return 2
 	}
-	callerToken, why := callerTokenFrom(os.Getenv)
+	callerToken, why := callerTokenFrom(callerTokenLookup(os.Getenv))
 	if why != "" {
 		fmt.Fprintln(os.Stderr, "aws-credential-adapter: idling, serving nothing:", why)
 		idleUntilStopped()

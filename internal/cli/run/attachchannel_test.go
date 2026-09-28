@@ -126,6 +126,11 @@ func TestAttachDeliversTheChannelFile(t *testing.T) {
 // per-agent env files among them.
 var currentJailEnv = "YOLO_VERSION=9.9.9-test\n" + entrypoint.ContractTagsEnv + "=" + launchContractTagsValue() + "\n"
 
+// awsAdapterJailEnv is currentJailEnv for a jail whose launch STARTED aws-auth's adapter — its
+// frozen YOLO_JAIL_DAEMONS names it, as a launch that selected `bedrock` froze it (OQ-CN7 (b)).
+var awsAdapterJailEnv = currentJailEnv +
+	`YOLO_JAIL_DAEMONS=[{"name":"aws-auth","cmd":["yolo-jaild","aws-credential-adapter"],"restart":"on-failure"}]` + "\n"
+
 // gateEraJailEnv is a jail launched by the credential gate's first build, before the contract
 // tags: it froze the legacy per-agent env marker (entrypoint.AgentEnvFilesEnv) instead, and
 // must still count as a jail whose launchers source the per-agent files.

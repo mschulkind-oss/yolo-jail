@@ -23,6 +23,8 @@ package run
 
 import (
 	"sort"
+	"strconv"
+	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
@@ -94,7 +96,8 @@ func serviceJailDaemons(packs []*packload.Pack) []loopholes.JailDaemonSpec {
 func (o *Options) jailDaemonsFor(cfg *jsonx.OrderedMap, rt string,
 	packs []*packload.Pack) []loopholes.JailDaemonSpec {
 	set := loopholes.NewHostSet(cfgMap(cfg, "loopholes"))
-	specs := set.JailDaemons(set.Enabled(), rt, serviceJailDaemons(packs))
+	specs := o.withoutUnselectedProfileDaemons(cfg, packs,
+		set.JailDaemons(set.Enabled(), rt, serviceJailDaemons(packs)))
 	// WHERE EACH DAEMON LISTENS (servedaddresses.go): its declared address, or on a jail that
 	// shares this process's network namespace a port picked for this launch, settled once so
 	// the payload and every client composition read one answer.
@@ -190,4 +193,55 @@ func useProfilesTable(m *jsonx.OrderedMap) map[string]string {
 		out[k] = s
 	}
 	return out
+}
+
+// withoutUnselectedProfileDaemons drops from specs every PROFILE-SERVED daemon (a jail daemon
+// whose only clients are the agents a profile-gated pointer reaches; packload's profileserved.go
+// coins the term) that no agent's selection this launch delivers a gate to — aws-auth's
+// credential adapter when no agent selected `bedrock` (docs/design/provider-credential-scope.md
+// OQ-CN7 (b), ruled 2026-09-28). Enabling the loophole no longer starts it: selecting the profile
+// does. The selection is the one the credential gate reads (effectiveUseProfiles → ProfileTable,
+// answered per agent by the gate's own gateFiresFor), so the daemon starts exactly when the
+// gate delivers its pointer to some agent, and a daemon left out gets no caller token and serves
+// no address (launchCallerTokens, servedDaemons read this payload).
+//
+// What was left out is recorded for noteUnstartedProfileDaemons, which says so: never silently.
+func (o *Options) withoutUnselectedProfileDaemons(cfg *jsonx.OrderedMap, packs []*packload.Pack,
+	specs []loopholes.JailDaemonSpec) []loopholes.JailDaemonSpec {
+	unselected := packload.UnselectedProfileServedDaemons(packs,
+		packload.ProfileTable(o.effectiveUseProfiles(cfg, packs)))
+	o.unstartedDaemons = nil
+	if len(unselected) == 0 {
+		return specs
+	}
+	drop := map[string]packload.ProfileServedDaemon{}
+	for _, d := range unselected {
+		drop[d.Name] = d
+	}
+	out := specs[:0:0]
+	for _, s := range specs {
+		if d, ok := drop[s.Name]; ok {
+			o.unstartedDaemons = append(o.unstartedDaemons, d)
+			continue
+		}
+		out = append(out, s)
+	}
+	return out
+}
+
+// noteUnstartedProfileDaemons is the disclosure for withoutUnselectedProfileDaemons: one line per
+// profile-served daemon this launch's payload left out, naming the profiles that would start it.
+// A disclosure, so no quiet switch (docs/reference/report-tiers.md, OQ-RO3). Silent when the
+// payload left nothing out.
+func (o *Options) noteUnstartedProfileDaemons() {
+	for _, d := range o.unstartedDaemons {
+		quoted := make([]string, len(d.Profiles))
+		for i, p := range d.Profiles {
+			quoted[i] = strconv.Quote(p)
+		}
+		o.pr(o.Stderr).print("[dim]Not started: the " + d.Name + " jail daemon, because no agent's " +
+			"selected profile is " + strings.Join(quoted, " or ") + ", the profile it serves; select " +
+			"one (`-p <agent>=" + d.Profiles[0] + "`) to start it " +
+			"(provider-credential-scope.md OQ-CN7).[/dim]")
+	}
 }

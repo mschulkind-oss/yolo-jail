@@ -12,6 +12,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
@@ -25,6 +26,8 @@ func TestTheCredentialAdaptersGetACallerTokenAndTheTerminatorDoesNot(t *testing.
 		officialPack(t, "openai-auth"), officialPack(t, "aws-auth"),
 	}
 	enableAWS := func(o *Options, cfg *jsonx.OrderedMap) {
+		// The adapter starts only when an agent's profile selects what it serves (OQ-CN7 (b)).
+		o.UseProfiles = map[string]string{"codex": "bedrock"}
 		loopholes.SetPackModules(packLoopholeModules(packs))
 		block, entry := jsonx.NewOrderedMap(), jsonx.NewOrderedMap()
 		entry.Set("enabled", true)
@@ -46,12 +49,44 @@ func TestTheCredentialAdaptersGetACallerTokenAndTheTerminatorDoesNot(t *testing.
 	if _, ok := channel.callerTokens[paths.ServiceCallerTokenEnv("claude-oauth-broker")]; ok {
 		t.Error("the Claude OAuth terminator was minted a caller token its client cannot send")
 	}
-	shared, _ := deliveredFiles(t, channel)
+	shared, agents := deliveredFiles(t, channel)
 	section := channelSection(t, shared)
-	for _, v := range []string{openai, aws} {
-		if !strings.Contains(section, "export "+v+"='"+channel.callerTokens[v]+"'\n") {
-			t.Errorf("the shared channel section does not carry %s:\n%s", v, section)
+	if !strings.Contains(section, "export "+openai+"='"+channel.callerTokens[openai]+"'\n") {
+		t.Errorf("the shared channel section does not carry %s:\n%s", openai, section)
+	}
+	// THE AWS TOKEN IS SCOPED (OQ-CN7 (c)): no export of it in the shared file, which every
+	// process inherits — only the record the adapter and the next attach read — and the one
+	// exported copy is AWS_CONTAINER_AUTHORIZATION_TOKEN in codex's own file.
+	awsTok := channel.callerTokens[aws]
+	if strings.Contains(shared, "export "+aws) || strings.Contains(shared, "export AWS_CONTAINER_AUTHORIZATION_TOKEN") {
+		t.Errorf("the shared file exports the aws-auth adapter's scoped caller token:\n%s", shared)
+	}
+	if !strings.Contains(section, entrypoint.ScopedCallerTokenRecord(aws, awsTok)) {
+		t.Errorf("the shared channel section does not record the scoped %s:\n%s", aws, section)
+	}
+	if got := entrypoint.ParseScopedCallerTokens([]byte(shared))[aws]; got != awsTok {
+		t.Errorf("the adapter's reader finds %q in the shared file, want this launch's token", got)
+	}
+	if !strings.Contains(agents["codex"], "AWS_CONTAINER_AUTHORIZATION_TOKEN") ||
+		!strings.Contains(agents["codex"], "'"+awsTok+"'") {
+		t.Errorf("codex selected bedrock and its file must carry the adapter's token as "+
+			"AWS_CONTAINER_AUTHORIZATION_TOKEN:\n%s", agents["codex"])
+	}
+	for agent, body := range agents {
+		if agent != "codex" && strings.Contains(body, awsTok) {
+			t.Errorf("%s, which did not select bedrock, received the adapter's token:\n%s", agent, body)
 		}
+	}
+
+	// ENABLED BUT UNSELECTED (OQ-CN7 (b)): the loophole on and no agent on bedrock starts no
+	// adapter, so it has no token to demand.
+	_, _, unselected, _ := attachFixture(t, currentJailEnv, packs, emptyEnv(),
+		func(o *Options, cfg *jsonx.OrderedMap) {
+			enableAWS(o, cfg)
+			o.UseProfiles = nil
+		})
+	if _, ok := unselected.callerTokens[aws]; ok {
+		t.Error("an aws-auth adapter no profile selects was minted a caller token")
 	}
 
 	// A loophole that is not in the payload — aws-auth left at its default, off — gets none.

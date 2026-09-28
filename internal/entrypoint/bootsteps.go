@@ -432,9 +432,10 @@ func bootSteps() []bootStep {
 			notDarwin: "no pack service runs on macos-user; the launch declines each by name (noteMacosUserJailDaemonDeclines)",
 		},
 		{
-			// Publish each caller token as an in-jail 0600 file, for a client that reads its
-			// credential from one (the AWS SDKs' AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE;
-			// paths.JailCallerTokenDir), before the supervisor starts the daemons demanding it.
+			// Publish each caller token the boot was handed as an in-jail 0600 file, for a
+			// client that reads its credential from one (paths.JailCallerTokenDir), before the
+			// supervisor starts the daemons demanding it. A SCOPED token is handed to no boot
+			// (provider-credential-scope.md OQ-CN7 (c)), so aws-auth's gets no file.
 			name:      "write_caller_token_files",
 			run:       func(b *bootRun) { writeCallerTokenFiles(b.e) },
 			noMark:    true,

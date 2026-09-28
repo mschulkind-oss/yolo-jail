@@ -543,7 +543,7 @@ func userEnvWith(vars map[string]string) *jsonx.OrderedMap {
 // refused attach had already put the bearer beside the pointer in the live jail.
 func TestAttachRefusesAnOverriddenContribution(t *testing.T) {
 	packs := []*packload.Pack{officialPack(t, "claude"), officialPack(t, "aws-auth")}
-	o, cfg, channel, stderr := attachFixture(t, currentJailEnv,
+	o, cfg, channel, stderr := attachFixture(t, awsAdapterJailEnv,
 		packs, userEnvWith(map[string]string{bearerVar: "sk-bedrock-frozen"}),
 		func(o *Options, cfg *jsonx.OrderedMap) {
 			o.Getenv = shellWith(nil)

@@ -498,6 +498,7 @@ func Run(opts Options) (rc int) {
 		// a --dry-run states it too — and stating it once here is what keeps the live path
 		// and the plan render from needing two printers that could disagree.
 		o.noteMacosUserJailDaemonDeclines(jailDaemons)
+		o.noteUnstartedProfileDaemons()
 		// THE OTHER TIER COLLAPSE — #39's mirror image — USED TO BE WARNED ABOUT HERE, and
 		// is fixed rather than reported: the bootstrap now symlinks every scope:workspace
 		// state dir into <workspace>/.yolo/home, the sidecar the container backends bind
@@ -1167,6 +1168,10 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 	userEnv := channel.userEnv
 	deliverChannel(wsState, rt, channel)
 	o.noteCredentialScope(channel)
+	// What this launch's jail-daemon payload left out because no profile selects it (OQ-CN7
+	// (b)). Here, on the fresh path, because only a fresh launch starts daemons: an attach's
+	// selection starts none, and settles a daemon it needs and the jail lacks as skew instead.
+	o.noteUnstartedProfileDaemons()
 
 	// Broker singleton + relay: ensure BEFORE building the argv (the sockets-dir
 	// mount + broker env are emitted by the assembler when the socket exists).
@@ -1950,6 +1955,24 @@ func (o *Options) attachExisting(cname, rt, targetCmd string, cfg *jsonx.Ordered
 		}
 	}
 	channel, targetCmd = view.channel, view.targetCmd
+	// A PROFILE-SERVED DAEMON this entry's selection needs and the running jail never started
+	// (OQ-CN7 (b)): its launch selected no profile it serves, and an attach starts no daemon, so
+	// the pointer this entry would deliver points at nothing. The attach-skew disposition, as
+	// for any jail that cannot take what an entry delivers: a restart, a refusal, or the hatch.
+	if deliver && !view.unreadable {
+		if missing := missingProfileServedDaemons(envLines,
+			o.jailDaemonsFor(cfg, rt, view.staged.packs), view.staged.packs); len(missing) > 0 {
+			switch o.settleAttachSkew(cname, rt, profileDaemonSkew(missing)) {
+			case skewRestarted:
+				return 0, true
+			case skewAcknowledged:
+				deliver = false
+			default:
+				releaseLock()
+				return 1, false
+			}
+		}
+	}
 	// THE RUNNING JAIL'S CALLER TOKENS (callertokens.go, WB-D18). This process minted fresh ones
 	// when it composed, and the jail's service daemon demands the ones its own launch minted: it
 	// read them once at boot. So the attach delivers those, recomposing when they differ, and a

@@ -70,7 +70,9 @@ func TestAPointerIsDeliveredOnlyWhereItsDaemonIsServed(t *testing.T) {
 	profiles := map[string]string{"codex": "bedrock"}
 	compose := func(served *ServedDaemons) *CredentialScope {
 		t.Helper()
-		s, err := ScopeCredentials(ScopeInput{Packs: packs, Profiles: profiles, NoDerives: true, Served: served})
+		s, err := ScopeCredentials(ScopeInput{Packs: packs, Profiles: profiles, NoDerives: true, Served: served,
+			// The token aws-auth's pointer names ({caller_token}, OQ-CN7 (c)), as a launch mints it.
+			CallerTokens: map[string]string{"YOLO_SERVICE_AWS_AUTH_TOKEN": strings.Repeat("ab", 32)}})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -85,7 +87,7 @@ func TestAPointerIsDeliveredOnlyWhereItsDaemonIsServed(t *testing.T) {
 		return false
 	}
 	const refresh, awsURI, awsToken = "CODEX_REFRESH_TOKEN_URL_OVERRIDE",
-		"AWS_CONTAINER_CREDENTIALS_FULL_URI", "AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE"
+		"AWS_CONTAINER_CREDENTIALS_FULL_URI", "AWS_CONTAINER_AUTHORIZATION_TOKEN"
 
 	container := ServedAtContainer([]string{"openai-auth-broker", "aws-auth"}).WithListen(declaredListen)
 	s := compose(&container)

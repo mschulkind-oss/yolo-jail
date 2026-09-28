@@ -205,19 +205,23 @@ func newAWSAuthFixture(t *testing.T, configure func(bin string) string) awsAuthF
 // channel fault. The pointer is claude's alone under the credential gate (the bedrock profile
 // claims AWS_CONTAINER_CREDENTIALS_FULL_URI; docs/reference/providers.md#the-credential-gate), so
 // the script reads it the way claude's launcher does, by sourcing claude's own env file: a bare
-// shell carries none of it.
+// shell carries none of it. The caller token is SCOPED the same way (OQ-CN7 (c)): claude's file
+// carries it as AWS_CONTAINER_AUTHORIZATION_TOKEN, which the SDK sends verbatim as
+// `Authorization`, and the bare shell the script starts in carries none — so its request is the
+// stranger's.
 const awsAuthCurlScript = `set -u
+[ -z "${AWS_CONTAINER_AUTHORIZATION_TOKEN:-}" ] && echo "SHELL_TOKEN=absent"
 . ~/.config/yolo-agent-env/claude.sh
 uri=${AWS_CONTAINER_CREDENTIALS_FULL_URI:-}
 if [ -z "$uri" ]; then echo "POINTER=unset"; exit 3; fi
 echo "POINTER=$uri"
 hostport=${uri#http://}; hostport=${hostport%%/*}
 for i in $(seq 1 200); do (exec 3<>/dev/tcp/127.0.0.1/${hostport##*:}) 2>/dev/null && break; sleep 0.1; done
-tokfile=${AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE:-}
-if [ -z "$tokfile" ] || [ ! -r "$tokfile" ]; then echo "TOKEN_FILE=missing"; exit 4; fi
-echo "TOKEN_FILE=present"
+tok=${AWS_CONTAINER_AUTHORIZATION_TOKEN:-}
+if [ -z "$tok" ]; then echo "TOKEN=missing"; exit 4; fi
+echo "TOKEN=present"
 echo "STRANGER_HTTP=$(curl -sS -o /dev/null -w '%{http_code}' "$uri")"
-code=$(curl -sS -o /workspace/awsauth-body.json -w '%{http_code}' -H "Authorization: $(cat "$tokfile")" "$uri")
+code=$(curl -sS -o /workspace/awsauth-body.json -w '%{http_code}' -H "Authorization: $tok" "$uri")
 echo "HTTP=$code"
 true`
 
@@ -232,12 +236,16 @@ func runAWSAuthCurl(t *testing.T, fx awsAuthFixture) (string, []byte, result) {
 		t.Fatalf("the jail's AWS_CONTAINER_CREDENTIALS_FULL_URI is %s — the `bedrock`-gated env "+
 			"contribution was not delivered, or not at the adapter's served address:\n%s", p, r.combined())
 	}
-	// CALLER AUTHENTICATION (docs/plans/notch-convergence.md §2.3): the SDK's token file is
-	// delivered beside the pointer, and a request that does not send it — what any other
-	// process on a shared loopback would send — is refused before the host is asked.
-	if !strings.Contains(r.stdout, "TOKEN_FILE=present") {
-		t.Fatalf("AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE is unset or unreadable in the jail, so "+
-			"no SDK can authenticate to the adapter:\n%s", r.combined())
+	// CALLER AUTHENTICATION (docs/plans/notch-convergence.md §2.3), SCOPED (OQ-CN7 (c)): the
+	// token is delivered beside the pointer in claude's own file and in no other process's
+	// environment, and a request that does not send it — a bare shell's, or any other process's
+	// on a shared loopback — is refused before the host is asked.
+	if !strings.Contains(r.stdout, "TOKEN=present") {
+		t.Fatalf("AWS_CONTAINER_AUTHORIZATION_TOKEN is not in claude's env file, so no SDK can "+
+			"authenticate to the adapter:\n%s", r.combined())
+	}
+	if !strings.Contains(r.stdout, "SHELL_TOKEN=absent") {
+		t.Errorf("the bare shell's environment carries the adapter's scoped token:\n%s", r.combined())
 	}
 	if !strings.Contains(r.stdout, "STRANGER_HTTP=401") {
 		t.Errorf("a request without the caller token was not refused 401:\n%s", r.combined())

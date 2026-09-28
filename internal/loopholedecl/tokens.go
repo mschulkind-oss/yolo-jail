@@ -33,6 +33,18 @@ const (
 // resolves it in a served pack env value.
 const TokenListen = "{listen}"
 
+// TokenCallerToken is a jail daemon's CALLER TOKEN token (paths.ServiceCallerTokenEnv), legal as
+// the WHOLE value of a variable in a `profile`-gated pack `env` contribution `served_by` that
+// daemon. It resolves to the per-launch token the launcher minted for the daemon, and a
+// contribution naming it SCOPES the token: the token reaches only the agents that contribution
+// is delivered to, in their own env files, and is never exported into the shared per-entry
+// channel every jail process inherits (docs/design/provider-credential-scope.md OQ-CN7 (c)).
+// Profile-gated because an ungated contribution is delivered to every process, which is the
+// exposure the scoping removes. Whole-value because a client sends the value verbatim as a
+// credential (the AWS SDKs send AWS_CONTAINER_AUTHORIZATION_TOKEN as `Authorization`), so a
+// token spliced into a longer string is one no daemon demands.
+const TokenCallerToken = "{caller_token}"
+
 // ListenAddressProblem returns why raw cannot be a jail daemon's `listen`, or "". It must be a
 // LOOPBACK IP literal and a port, `127.0.0.1:1460` or `[::1]:1460`: the address is bound inside
 // the jail and dialed by its clients over plain http, which the AWS SDK allows only to

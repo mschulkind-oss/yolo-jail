@@ -45,8 +45,10 @@ var callerTokenDir = paths.JailCallerTokenDir
 
 // writeCallerTokenFiles writes every well-formed caller token this launch was handed to its own
 // 0600 file under callerTokenDir (paths.JailCallerTokenFile), for a client that reads its
-// credential from a file: the AWS SDKs read AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE, which the
-// aws-auth pack names beside its credentials URI (docs/plans/notch-convergence.md §2.3). The
+// credential from a file (docs/plans/notch-convergence.md §2.3). The aws-auth pack named its
+// file as AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE until its token was SCOPED
+// (docs/design/provider-credential-scope.md OQ-CN7 (c)): that token is now recorded, never
+// exported, so it is not in e.Vars and gets no file, and no shipped pack names one today. The
 // bytes are the token alone, with no newline, because an SDK sends the file's contents verbatim.
 //
 // Re-run by every entry's boot, and an attach carries the running jail's token, so a rewrite
@@ -96,4 +98,61 @@ func writePrivateFileAtomic(path string, data []byte) error {
 		return err
 	}
 	return os.Rename(tmp.Name(), path)
+}
+
+// ScopedCallerTokenRecordPrefix opens a SCOPED CALLER TOKEN's record in yolo-user-env.sh's
+// channel section (docs/design/provider-credential-scope.md OQ-CN7 (c); the term is coined in
+// internal/packload's profileserved.go): the token of a daemon whose only clients are the agents
+// a profile-gated pointer reaches, which the launcher delivers EXPORTED only in those agents'
+// own env files. The shared file carries it as this COMMENT, never as an export, so no reader
+// that exports the file — the boot's hydration, .bashrc, execBash — puts it in a process's
+// environment. Two readers parse it: the daemon, which reads its token here at boot
+// (ScopedCallerToken), and the host launcher's attach, which adopts the running jail's tokens
+// (internal/cli/run's runningCallerTokens). What a record exposes is a same-uid file read, the
+// exposure the per-agent file already has and the ruling accepts.
+const ScopedCallerTokenRecordPrefix = "# yolo-scoped-caller-token: "
+
+// ScopedCallerTokenRecord renders one record line for the channel section.
+func ScopedCallerTokenRecord(tokenEnv, token string) string {
+	return ScopedCallerTokenRecordPrefix + tokenEnv + "=" + token + "\n"
+}
+
+// ParseScopedCallerTokens reads every well-formed scoped caller token record out of the channel
+// section of a yolo-user-env.sh body, keyed by the token's variable. A record outside the
+// section, naming no caller-token variable, or carrying no token this launcher mints is ignored:
+// the file is jail-writable on some backends, and a line the jail rewrote is either a token it
+// already held or nothing. nil for none.
+func ParseScopedCallerTokens(data []byte) map[string]string {
+	var out map[string]string
+	inChannel := false
+	for _, line := range splitLines(string(data)) {
+		if line == EntryChannelSectionHeader {
+			inChannel = true
+			continue
+		}
+		rest, ok := strings.CutPrefix(line, ScopedCallerTokenRecordPrefix)
+		if !inChannel || !ok {
+			continue
+		}
+		k, v, ok := strings.Cut(strings.TrimSpace(rest), "=")
+		if !ok || !paths.IsServiceCallerTokenEnv(k) || !svcendpoint.IsToken(v) {
+			continue
+		}
+		if out == nil {
+			out = map[string]string{}
+		}
+		out[k] = v
+	}
+	return out
+}
+
+// ScopedCallerToken is the scoped caller token carried in tokenEnv, read from the channel
+// section of home's yolo-user-env.sh — how a daemon whose token is scoped learns it, since its
+// token is in no process environment. "" when the file or the record is absent.
+func ScopedCallerToken(home, tokenEnv string) string {
+	data, err := os.ReadFile(filepath.Join(home, ".config", "yolo-user-env.sh"))
+	if err != nil {
+		return ""
+	}
+	return ParseScopedCallerTokens(data)[tokenEnv]
 }

@@ -2,8 +2,10 @@ package entrypoint
 
 // callertokenfiles_test.go pins the in-jail caller-token FILES (paths.JailCallerTokenDir;
 // docs/plans/notch-convergence.md §2.3): the boot writes each token it was handed to a 0600 file
-// of its own, and the aws-auth pack names that file as AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE,
-// the slot the AWS SDKs' container-credentials provider reads and sends as `Authorization`.
+// of its own. The aws-auth pack named that file as AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE until
+// its token was SCOPED (docs/design/provider-credential-scope.md OQ-CN7 (c)): its pointer now
+// names the token itself, delivered only in the selecting agent's env file, and the boot is
+// handed no aws-auth token to write a file for.
 
 import (
 	"os"
@@ -11,6 +13,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/loopholedecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
@@ -51,16 +54,20 @@ func TestTheBootWritesEachCallerTokenToAPrivateFile(t *testing.T) {
 	}
 }
 
-// The file the pack names IS the file the boot writes: one path, composed by paths on one side
-// and spelled literally in packs/aws-auth/pack.json on the other, so a drift fails here rather
-// than as an SDK sending an empty Authorization.
-func TestTheAWSPointerNamesTheBootsTokenFile(t *testing.T) {
+// THE AWS POINTER NAMES THE SCOPED TOKEN, NOT A FILE (OQ-CN7 (c)): the AWS SDKs send
+// AWS_CONTAINER_AUTHORIZATION_TOKEN as `Authorization` only when no
+// AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE is set, so the pointer must carry the first and never the
+// second, and the value is the `{caller_token}` the launch resolves per agent.
+func TestTheAWSPointerNamesTheScopedTokenNotAFile(t *testing.T) {
 	closure := testPacksForAgent(t, "claude", "aws-auth")
 	env := packload.EnvVarsFor(closure, map[string]string{"claude": "bedrock"}, "claude")
-	want := paths.JailCallerTokenFile(paths.ServiceCallerTokenEnv("aws-auth"))
-	if env["AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE"] != want {
-		t.Errorf("AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE = %q, want %q beside the credentials URI %q",
-			env["AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE"], want, env["AWS_CONTAINER_CREDENTIALS_FULL_URI"])
+	if env["AWS_CONTAINER_AUTHORIZATION_TOKEN"] != loopholedecl.TokenCallerToken {
+		t.Errorf("AWS_CONTAINER_AUTHORIZATION_TOKEN = %q, want %q beside the credentials URI %q",
+			env["AWS_CONTAINER_AUTHORIZATION_TOKEN"], loopholedecl.TokenCallerToken,
+			env["AWS_CONTAINER_CREDENTIALS_FULL_URI"])
+	}
+	if v, ok := env["AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE"]; ok {
+		t.Errorf("the pointer still names a token file (%q), which the SDK prefers over the token", v)
 	}
 	if env["AWS_CONTAINER_CREDENTIALS_FULL_URI"] == "" {
 		t.Error("the bedrock profile no longer delivers the credentials URI, so this test proves nothing")

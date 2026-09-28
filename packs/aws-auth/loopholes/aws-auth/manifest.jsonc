@@ -154,12 +154,16 @@
   // a jail on `network.mode: host` puts this port on the host's real loopback, and a
   // nested podman forced onto `--net=host` shares its parent jail's. So the adapter
   // demands this launch's caller token (`caller_token` below; the launcher mints
-  // YOLO_SERVICE_AWS_AUTH_TOKEN), which the entrypoint writes to a 0600 in-jail file
-  // and the pack's `env` contribution names as AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE
-  // beside the URI — the slot the SDK's container provider already reads
-  // (docs/plans/notch-convergence.md §2.3). INSIDE the jail that is still no boundary:
-  // every MCP server and every `curl` can read the file and GET the same credentials.
-  // That is why the narrowing above is not defence in depth but the only defence.
+  // YOLO_SERVICE_AWS_AUTH_TOKEN), which the pack's `env` contribution SCOPES as
+  // AWS_CONTAINER_AUTHORIZATION_TOKEN = {caller_token}: exported only in the env file of an
+  // agent whose profile selects `bedrock` (provider-credential-scope.md OQ-CN7 (c)), and
+  // the adapter reads it from the shared file's unexported record. It sits beside the
+  // URI, the slot the SDK's container provider already reads and sends as
+  // `Authorization` (docs/plans/notch-convergence.md §2.3). And the adapter STARTS only
+  // when some agent's profile selects `bedrock` (OQ-CN7 (b)). INSIDE the jail that is
+  // still no boundary against a same-uid file read: any process can read the agent's env
+  // file or the record and GET the same credentials. That is why the narrowing above is
+  // not defence in depth but the only defence.
   "jail_daemon": {
     "cmd": [
       "yolo-jaild", "aws-credential-adapter",

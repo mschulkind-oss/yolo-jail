@@ -107,6 +107,11 @@ func runningCallerTokens(wsState string) map[string]string {
 	if !ok {
 		return nil
 	}
+	// A SCOPED token is recorded rather than exported (OQ-CN7 (c)); the jail's daemon read it at
+	// boot all the same, so an attach adopts it like any other.
+	for k, v := range entrypoint.ParseScopedCallerTokens(data) {
+		values[k] = v
+	}
 	var out map[string]string
 	for k, v := range values {
 		if !paths.IsServiceCallerTokenEnv(k) || !svcendpoint.IsToken(v) {
@@ -162,10 +167,27 @@ func (c *packChannel) callerTokensAgree(settled map[string]string) bool {
 // is composed again. An attach never picks a port of its own.
 func (o *Options) rekeyChannelForAttach(wsState string, cfgPacks []*packload.Pack,
 	channel *packChannel, compose func([]*packload.Pack) (*packChannel, error)) (*packChannel, error) {
-	o.adoptRunningCallerTokens(runningCallerTokens(wsState))
+	running := runningCallerTokens(wsState)
+	o.adoptRunningCallerTokens(running)
 	o.adoptRunningServedAddresses(runningServedAddresses(wsState))
-	if channel.callerTokensAgree(o.callerTokens) && channel.servedAddressesAgree(o.served.moved) {
-		return channel, nil
+	if !channel.callerTokensAgree(o.callerTokens) || !channel.servedAddressesAgree(o.served.moved) {
+		var err error
+		if channel, err = compose(cfgPacks); err != nil {
+			return nil, err
+		}
 	}
-	return compose(cfgPacks)
+	// The running jail's tokens this entry composes no use for — a profile-served daemon its
+	// boot started that this entry does not select (OQ-CN7 (b)) — are CARRIED as records, so an
+	// entry that selects it again delivers the token that daemon still demands.
+	channel.carriedTokens = nil
+	for k, v := range running {
+		if _, own := channel.callerTokens[k]; own {
+			continue
+		}
+		if channel.carriedTokens == nil {
+			channel.carriedTokens = map[string]string{}
+		}
+		channel.carriedTokens[k] = v
+	}
+	return channel, nil
 }

@@ -134,7 +134,7 @@ func TestHostStillRunsClaudeOnBedrockWithClaudeAlone(t *testing.T) {
 	if env["CLAUDE_CODE_USE_BEDROCK"] != "1" {
 		t.Errorf("claude on bedrock must still compose its switch: %v\n%s", env, errs)
 	}
-	for _, k := range []string{"AWS_CONTAINER_CREDENTIALS_FULL_URI", "AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE"} {
+	for _, k := range []string{"AWS_CONTAINER_CREDENTIALS_FULL_URI", "AWS_CONTAINER_AUTHORIZATION_TOKEN"} {
 		if env[k] != "" {
 			t.Errorf("aws-auth's pointer at a daemon the host does not run must not be exported: %s=%q", k, env[k])
 		}

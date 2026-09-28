@@ -24,9 +24,9 @@ func TestPackFootprintAWSAuthGolden(t *testing.T) {
 	// The pointer is two variables: the credentials URI, and the in-jail file holding the
 	// adapter's caller token, which the SDK sends as Authorization
 	// (docs/plans/notch-convergence.md §2.3). The override lines name both.
-	const uri = "AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE, AWS_CONTAINER_CREDENTIALS_FULL_URI"
+	const uri = "AWS_CONTAINER_AUTHORIZATION_TOKEN, AWS_CONTAINER_CREDENTIALS_FULL_URI"
 	const want = "aws-auth\n" +
-		"  env            AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE  =/run/yolo/caller-tokens/YOLO_SERVICE_AWS_AUTH_TOKEN when profile \"bedrock\" is active\n" +
+		"  env            AWS_CONTAINER_AUTHORIZATION_TOKEN  ={caller_token} when profile \"bedrock\" is active\n" +
 		"  env            AWS_CONTAINER_CREDENTIALS_FULL_URI  =http://{listen}/credentials when profile \"bedrock\" is active\n" +
 		"  loophole       aws-auth  RUNS yolo internal daemon aws-auth --socket '{socket}' " +
 		"--state-file '{state}/credentials.json' --settings '{settings}' and yolo internal daemon " +
