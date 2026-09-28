@@ -59,6 +59,14 @@ type Spec struct {
 	// pack-relative path, applied in that order. Empty Only means "everything".
 	Only    []string
 	Exclude []string
+	// FollowSymlinks follows every symlink wherever it points — a linked directory is walked
+	// as if it were one — instead of refusing one that leaves Root (rule 1). It exists for ONE
+	// caller: the host notch reading a LOCAL pack (config.ResolvePackSpec.FollowLocalSymlinks),
+	// which read such a pack in place before it staged it, and so delivered a dotfile manager's
+	// symlinked tree as content. Whether a jail should do the same, or the host should refuse as
+	// the jail does, is docs/plans/notch-convergence.md OQ-NC9; until it is ruled this keeps each
+	// notch's shipped behavior. A dangling link and a link loop are refused either way.
+	FollowSymlinks bool
 }
 
 // Result reports what a Stage call did, for `yolo pack ls`/`lint` and for the
@@ -82,7 +90,22 @@ type Result struct {
 // refusal list above until a pack needed to ship a program; the embedded path cannot
 // follow (see packload.copyEmbeddedTree), so the two routes disagree about what a
 // pack can deliver.
-func Stage(spec Spec) (*Result, error) {
+func Stage(spec Spec) (*Result, error) { return walk(spec, true) }
+
+// Check applies Stage's rules to spec.Root — the no-escape refusal and the only/exclude
+// filters — and copies NOTHING: spec.Dest is ignored, and the Result names what Stage would
+// have staged and excluded.
+//
+// It exists for the reader that needs Stage's VERDICT without its copy: a caller loading only
+// a pack's declaration from an unfiltered tree (config.ResolvePack's declaration mode, which
+// the host footer calls on every status-line redraw). Such a caller reads the tree in place,
+// and without this it read a pack every launch refuses, because the launch's refusal of an
+// escaping symlink lives only in the copy. One walk serves both, so the two cannot disagree
+// about which file is refused.
+func Check(spec Spec) (*Result, error) { return walk(spec, false) }
+
+// walk is Stage and Check's one body; write says whether files land in spec.Dest.
+func walk(spec Spec, write bool) (*Result, error) {
 	rootAbs, err := filepath.Abs(spec.Root)
 	if err != nil {
 		return nil, err
@@ -94,26 +117,54 @@ func Stage(spec Spec) (*Result, error) {
 	if !info.IsDir() {
 		return nil, fmt.Errorf("pack root %s is not a directory", spec.Root)
 	}
-	if err := os.MkdirAll(spec.Dest, 0o755); err != nil {
-		return nil, err
-	}
-	if err := clearContents(spec.Dest); err != nil {
-		return nil, err
+	if write {
+		if err := os.MkdirAll(spec.Dest, 0o755); err != nil {
+			return nil, err
+		}
+		if err := clearContents(spec.Dest); err != nil {
+			return nil, err
+		}
 	}
 
 	res := &Result{}
-	walkErr := filepath.Walk(rootAbs, func(path string, fi os.FileInfo, err error) error {
+	w := walker{spec: spec, write: write, rootAbs: rootAbs, res: res,
+		following: map[string]bool{}}
+	walkErr := w.dir(rootAbs, "")
+	if walkErr != nil {
+		return nil, walkErr
+	}
+	sort.Strings(res.Staged)
+	sort.Strings(res.Excluded)
+	return res, nil
+}
+
+// walker is one walk's state: the spec, where it copies to, and — when spec.FollowSymlinks —
+// the real directories a followed link is currently inside, which is what stops a link loop.
+type walker struct {
+	spec      Spec
+	write     bool
+	rootAbs   string
+	res       *Result
+	following map[string]bool
+}
+
+// dir walks the directory at path, whose pack-relative name is prefix ("" for the root).
+func (w *walker) dir(path, prefix string) error {
+	return filepath.Walk(path, func(p string, fi os.FileInfo, err error) error {
 		if err != nil {
 			return err
 		}
-		rel, err := filepath.Rel(rootAbs, path)
+		sub, err := filepath.Rel(path, p)
 		if err != nil {
 			return err
 		}
-		if rel == "." {
+		if sub == "." {
 			return nil
 		}
-		rel = filepath.ToSlash(rel)
+		rel := filepath.ToSlash(sub)
+		if prefix != "" {
+			rel = prefix + "/" + rel
+		}
 
 		// Skip the pack's own VCS metadata: it is never content, and copying it
 		// would put a whole second .git tree inside the jail.
@@ -124,49 +175,82 @@ func Stage(spec Spec) (*Result, error) {
 			return nil // directories are created lazily, per staged file
 		}
 
-		// Rule 2: a symlink is inspected, never followed blindly.
 		if fi.Mode()&os.ModeSymlink != 0 {
-			ok, terr := targetInsideRoot(rootAbs, path)
-			if terr != nil {
-				return fmt.Errorf("pack file %s: %w", rel, terr)
-			}
-			if !ok {
-				return fmt.Errorf("pack file %s is a symlink pointing outside the pack "+
-					"(refusing: a pack comes from someone else's repo, so an escaping "+
-					"symlink could stage a host secret into the jail)", rel)
-			}
-			// An in-pack symlink is resolved so the staged tree is plain files —
-			// the jail must not depend on the pack's internal link layout.
-			resolved, rerr := os.Stat(path)
-			if rerr != nil {
-				return fmt.Errorf("pack file %s: %w", rel, rerr)
-			}
-			if resolved.IsDir() {
-				return nil
+			resolved, err := w.link(p, rel)
+			if err != nil || resolved == nil {
+				return err
 			}
 			fi = resolved
 		}
+		return w.file(p, rel, fi)
+	})
+}
 
-		if !matches(rel, spec.Only, spec.Exclude) {
-			res.Excluded = append(res.Excluded, rel)
-			return nil
+// link decides what a symlink at path stages as: the FileInfo of the file it names, or nil when
+// it names a directory (walked here when followed, skipped otherwise), or an error refusing it.
+func (w *walker) link(path, rel string) (os.FileInfo, error) {
+	if w.spec.FollowSymlinks {
+		// Followed wherever it points, and a linked directory is walked as if it were one: the
+		// tree a dotfile manager deploys (rcm, stow, chezmoi), which is what reading the pack in
+		// place gave the host notch before it staged (Spec.FollowSymlinks says who asks).
+		resolved, err := os.Stat(path)
+		if err != nil {
+			return nil, fmt.Errorf("pack file %s is a symlink that resolves to nothing: %w", rel, err)
 		}
-		// The exec bit rides through — copyFile below preserves it — and that IS the
-		// feature: a skill that tells an agent to run references/check.sh must be able to
-		// ship references/check.sh runnable. See the package doc for the gate this replaced
-		// and why it was the wrong instrument.
-		if err := copyFile(path, filepath.Join(spec.Dest, filepath.FromSlash(rel)), fi.Mode()); err != nil {
+		if !resolved.IsDir() {
+			return resolved, nil
+		}
+		real, err := filepath.EvalSymlinks(path)
+		if err != nil {
+			return nil, fmt.Errorf("pack file %s: %w", rel, err)
+		}
+		if w.following[real] {
+			return nil, fmt.Errorf("pack file %s is a symlink loop (it leads back into %s)", rel, real)
+		}
+		w.following[real] = true
+		defer delete(w.following, real)
+		return nil, w.dir(real, rel)
+	}
+	// Rule 1: a symlink is inspected, never followed blindly.
+	ok, terr := targetInsideRoot(w.rootAbs, path)
+	if terr != nil {
+		return nil, fmt.Errorf("pack file %s: %w", rel, terr)
+	}
+	if !ok {
+		return nil, fmt.Errorf("pack file %s is a symlink pointing outside the pack "+
+			"(refusing: a pack comes from someone else's repo, so an escaping "+
+			"symlink could stage a host secret into the jail)", rel)
+	}
+	// An in-pack symlink is resolved so the staged tree is plain files —
+	// the jail must not depend on the pack's internal link layout.
+	resolved, rerr := os.Stat(path)
+	if rerr != nil {
+		return nil, fmt.Errorf("pack file %s: %w", rel, rerr)
+	}
+	if resolved.IsDir() {
+		return nil, nil
+	}
+	return resolved, nil
+}
+
+// file stages one regular file (a followed link's target included) at rel, or records it
+// excluded.
+func (w *walker) file(path, rel string, fi os.FileInfo) error {
+	if !matches(rel, w.spec.Only, w.spec.Exclude) {
+		w.res.Excluded = append(w.res.Excluded, rel)
+		return nil
+	}
+	// The exec bit rides through — copyFile below preserves it — and that IS the
+	// feature: a skill that tells an agent to run references/check.sh must be able to
+	// ship references/check.sh runnable. See the package doc for the gate this replaced
+	// and why it was the wrong instrument.
+	if w.write {
+		if err := copyFile(path, filepath.Join(w.spec.Dest, filepath.FromSlash(rel)), fi.Mode()); err != nil {
 			return fmt.Errorf("staging %s: %w", rel, err)
 		}
-		res.Staged = append(res.Staged, rel)
-		return nil
-	})
-	if walkErr != nil {
-		return nil, walkErr
 	}
-	sort.Strings(res.Staged)
-	sort.Strings(res.Excluded)
-	return res, nil
+	w.res.Staged = append(w.res.Staged, rel)
+	return nil
 }
 
 // matches applies the only/exclude globs to a pack-relative path.

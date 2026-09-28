@@ -31,7 +31,6 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	_ "github.com/mschulkind-oss/yolo-jail/internal/packreg" // registers the embedded packs with packload
 	"github.com/mschulkind-oss/yolo-jail/internal/packsrc"
-	"github.com/mschulkind-oss/yolo-jail/internal/packstage"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
@@ -90,11 +89,6 @@ func (o *Options) sectionPacks(r *reporter, merged *jsonx.OrderedMap) {
 		r.fail("Lockfile: "+lockErr.Error(), "")
 		lock = &packsrc.Lock{Packs: map[string]packsrc.LockEntry{}}
 	}
-	// Getenv threaded into the store because Resolve consults YOLO_PACK_ROOT for its
-	// staged-tree fallback (see below), and check's tests drive this section with an
-	// injected environment rather than the process's.
-	store := &packsrc.Store{Dir: paths.PacksDir(), Getenv: o.getenv}
-
 	configured := map[string]string{}
 	for _, e := range entries {
 		configured[e.Name] = e.Source
@@ -112,96 +106,66 @@ func (o *Options) sectionPacks(r *reporter, merged *jsonx.OrderedMap) {
 		byName[p.Name] = p
 	}
 
+	// One throwaway tree for the section, removed when it returns: every entry is staged into
+	// <tree>/<slug>, the shape the launcher stages (stagePacks writes <staging root>/<Slug>), so
+	// a loaded pack's Root basename is the staged slug here too. That basename is
+	// packload.Pack.StagedSlug — the key the two halves mount a reads-host grant under.
+	tree, treeErr := os.MkdirTemp("", "yolo-check-pack-")
+	if treeErr == nil {
+		defer os.RemoveAll(tree)
+	}
 	for _, e := range entries {
-		// An EMBEDDED pack ships inside the binary, so there is nothing to fetch, resolve,
-		// or stage from a store — and its synthetic "embedded:<name>" source is not an
-		// address. Reporting it PASSING rather than skipping silently: a user who wrote
-		// `packs: ["claude"]` should see it acknowledged here, not wonder whether the key
-		// took effect.
-		if e.Embedded() {
-			r.ok(e.Name + ": ships with yolo")
-			if p := byName[e.Name]; p != nil {
-				loaded = append(loaded, p)
-			}
+		if treeErr != nil {
+			r.fail(e.Name+": "+treeErr.Error(), "")
 			continue
 		}
-		addr, err := packsrc.Parse(e.Source)
-		if err != nil {
-			r.fail(e.Name+": "+err.Error(), "")
-			continue
-		}
-		// ResolveExisting, not Resolve: check writes nothing and reaches no network, and
-		// Resolve CHECKS OUT a commit whose tree is missing — which, in the partial
-		// (--filter=blob:none) mirror, fetches that commit's blobs from the remote. The
-		// pack's slug is passed because resolution falls back to the DELIVERED tree under
-		// YOLO_PACK_ROOT when the address is not visible from here — a jail's inherited
-		// config names host paths, so that is every local pack, every time.
-		res, err := store.ResolveExisting(addr, e.Slug())
-		if err != nil {
-			switch o.launchWouldRepair(addr, err) {
-			case packsrc.ErrNotFetched:
-				r.skip(e.Name+": not in the pack store yet — the next launch fetches it, "+
-					"so its contents are not checked here",
-					"pack store: "+err.Error()+"\n"+
-						"run `yolo pack install` to fetch it now, then `yolo check` again")
-				continue
-			case packsrc.ErrNotCheckedOut:
-				r.skip(e.Name+": not checked out yet — the next launch checks it out, "+
-					"so its contents are not checked here",
-					"pack store: "+err.Error()+"\n"+
-						"run `yolo pack install` to check it out now, then `yolo check` again")
-				continue
-			}
-			r.fail(e.Name+": "+err.Error(), "")
-			continue
-		}
-		// A SOURCE THAT IS NOT VISIBLE FROM HERE IS NOT A BROKEN PACK — Resolve already
-		// found the staged copy, and StagedFrom is how it says so. The ruling and the
-		// reason the predicate is filesystem-keyed rather than "am I in a jail" live with
-		// the fallback, in packsrc.Store.Resolve; this branch is only the REPORTING half,
-		// which is check's alone (the launcher stages the same tree silently).
-		if res.StagedFrom != "" {
-			r.ok(e.Name + ": staged at " + res.StagedFrom)
-			r.note("  source " + res0Path(addr, e.Source) + " is host-side and not visible from in here")
-			if p := loadStagedPack(r, res.StagedFrom, e.Name); p != nil {
-				loaded = append(loaded, p)
-			}
-			continue
-		}
-		// Stage into a throwaway dir with the REAL executor, so the exec-bit and
-		// escaping-symlink refusals surface here instead of at boot.
-		dest, err := os.MkdirTemp("", "yolo-check-pack-")
-		if err != nil {
-			r.fail(e.Name+": "+err.Error(), "")
-			continue
-		}
-		defer os.RemoveAll(dest)
-		// Into <dest>/<slug>, the same shape the launcher stages (stagePacks writes
-		// <staging root>/<PackEntry.Slug>), so the loaded pack's Root basename is the
-		// staged slug here too. That basename is packload.Pack.StagedSlug — the key the
-		// two halves mount a reads-host grant under — and staging flat into the temp dir
-		// made it `yolo-check-pack-1234567`.
-		packDir := filepath.Join(dest, e.Slug())
-		staged, err := packstage.Stage(packstage.Spec{
-			Root: res.Root, Dest: packDir,
-			Only: e.Only, Exclude: e.Exclude,
+		// THE ONE RESOLVER, the launch's (config.ResolvePack): staged with the REAL executor, so
+		// the escaping-symlink refusal surfaces here instead of at boot, and loaded from the copy,
+		// so the declarations checked are the ones a jail would render — an embedded entry's
+		// `only`/`exclude` included. ReadOnlyStore: check writes nothing and reaches no network,
+		// and Resolve CHECKS OUT a commit whose tree is missing — which, in the partial
+		// (--filter=blob:none) mirror, fetches that commit's blobs from the remote. Getenv is
+		// threaded because resolution falls back to the DELIVERED tree under YOLO_PACK_ROOT when
+		// the address is not visible from here — a jail's inherited config names host paths, so
+		// that is every local pack, every time — and check's tests inject that environment.
+		res, err := config.ResolvePack(e, config.ResolvePackSpec{
+			Dest: filepath.Join(tree, e.Slug()), ReadOnlyStore: true, Getenv: o.getenv,
 		})
 		if err != nil {
-			r.fail(e.Name+": "+err.Error(), "")
+			o.reportUnresolvedPack(r, e, err)
 			continue
 		}
-		if len(staged.Staged) == 0 {
+		switch {
+		case e.Embedded():
+			// Reported PASSING rather than skipped silently: a user who wrote
+			// `packs: ["claude"]` should see it acknowledged here, not wonder whether the key
+			// took effect.
+			r.ok(e.Name + ": ships with yolo")
+		case res.StagedFrom != "":
+			// A SOURCE THAT IS NOT VISIBLE FROM HERE IS NOT A BROKEN PACK — Resolve already
+			// found the staged copy, and StagedFrom is how it says so. The ruling and the
+			// reason the predicate is filesystem-keyed rather than "am I in a jail" live with
+			// the fallback, in packsrc.Store.Resolve; this branch is only the REPORTING half,
+			// which is check's alone (the launcher stages the same tree silently).
+			r.ok(e.Name + ": staged at " + res.StagedFrom)
+			if addr, perr := packsrc.Parse(e.Source); perr == nil {
+				r.note("  source " + res0Path(addr, e.Source) + " is host-side and not visible from in here")
+			}
+		case len(res.Staged.Staged) == 0:
 			// Not a hard failure — a pack may legitimately be empty mid-authoring —
 			// but never silent, because it is nearly always a filter typo.
 			r.warn(e.Name+": stages 0 files", "check its only/exclude filters")
 			continue
+		default:
+			r.ok(fmt.Sprintf("%s: %d file(s) stage", e.Name, len(res.Staged.Staged)))
 		}
-		r.ok(fmt.Sprintf("%s: %d file(s) stage", e.Name, len(staged.Staged)))
-		// Load the STAGED tree, so the declarations checked are the ones a jail would
-		// render. There is nothing origin-dependent left to match: OQ-TP9 deleted the
-		// host-access gate, so `check` and the launch load a pack the same way.
-		if p := loadStagedPack(r, packDir, e.Name); p != nil {
-			loaded = append(loaded, p)
+		// There is nothing origin-dependent left to match: OQ-TP9 deleted the host-access gate,
+		// so `check` and the launch load a pack the same way.
+		for _, prob := range res.Problems {
+			r.fail(prob, "the launch refuses this pack until it is fixed")
+		}
+		if res.Pack != nil && len(res.Problems) == 0 {
+			loaded = append(loaded, res.Pack)
 		}
 	}
 
@@ -337,28 +301,36 @@ func (o *Options) sectionPacks(r *reporter, merged *jsonx.OrderedMap) {
 	}
 }
 
-// loadStagedPack loads one staged pack tree the way the launch does and FAILS on every
-// problem packload.LoadDir reports, returning nil when there was any.
-//
-// FAIL, not warn, and never silent, because the launch refuses the pack on the first of
-// these (run's stagePacks returns on any LoadDir problem): `yolo check` passing a pack the
-// launch then refuses is the one outcome this section exists to prevent. Both of this
-// section's load sites go through here. They used to keep a pack only when LoadDir returned
-// no problems and drop one that had problems without printing them, so a pack carrying
-// `briefing/AGENTS.md` (packload's reservedBriefingFiles) passed check and was refused at
-// launch (docs/reference/pack-system.md#briefing-governance).
-//
-// A pack with problems stays out of `loaded`, as it always has: the set-level checks below
-// would otherwise report collisions for a pack that can never be part of a launch.
-func loadStagedPack(r *reporter, dir, name string) *packload.Pack {
-	p, probs := packload.LoadDir(dir, name)
-	for _, prob := range probs {
-		r.fail(prob, "the launch refuses this pack until it is fixed")
+// reportUnresolvedPack reports an entry the resolver could not resolve. A store miss the next
+// HOST launch repairs is a SKIP (launchWouldRepair says which); everything else — a malformed
+// address, a subpath absent at the commit, an escaping symlink, a broken embedded
+// materialization — is a FAIL, with the resolver's reason and without its "packs: <name>: "
+// prefix, since the line already starts with the name.
+func (o *Options) reportUnresolvedPack(r *reporter, e config.PackEntry, err error) {
+	why := err
+	var rerr *config.PackResolveError
+	if errors.As(err, &rerr) {
+		why = rerr.Err
 	}
-	if len(probs) > 0 {
-		return nil
+	if !e.Embedded() {
+		if addr, perr := packsrc.Parse(e.Source); perr == nil {
+			switch o.launchWouldRepair(addr, why) {
+			case packsrc.ErrNotFetched:
+				r.skip(e.Name+": not in the pack store yet — the next launch fetches it, "+
+					"so its contents are not checked here",
+					"pack store: "+why.Error()+"\n"+
+						"run `yolo pack install` to fetch it now, then `yolo check` again")
+				return
+			case packsrc.ErrNotCheckedOut:
+				r.skip(e.Name+": not checked out yet — the next launch checks it out, "+
+					"so its contents are not checked here",
+					"pack store: "+why.Error()+"\n"+
+						"run `yolo pack install` to check it out now, then `yolo check` again")
+				return
+			}
+		}
 	}
-	return p
+	r.fail(e.Name+": "+why.Error(), "")
 }
 
 // launchWouldRepair reports which store miss a resolution failure is when the next HOST

@@ -18,12 +18,7 @@ package config
 // embedded set.
 
 import (
-	"os"
-
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
-	"github.com/mschulkind-oss/yolo-jail/internal/packsrc"
-	"github.com/mschulkind-oss/yolo-jail/internal/packstage"
-	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
 // resolveSelectedPacks returns the packs the user config selects, loaded, plus complete=false
@@ -43,12 +38,10 @@ import (
 // section. Refusing a config key over it would dress a broken install up as a bad
 // `writable_home_dirs` entry — the same reason UseProfileCLINames steps aside.
 //
-// A configured pack with an `only`/`exclude` filter is loaded from a FILTERED copy, staged
-// through packstage.Stage exactly as the launch stages it, because the filter can drop the
-// manifest itself: that pack then declares nothing in the jail, and reserving its dirs would
-// refuse the one writable_home_dirs entry that makes such a path writable. The copy is a temp
-// dir removed before this returns, so a returned pack's Root names nothing; callers read
-// only its declarations.
+// Every entry resolves through ResolvePack's DECLARATION mode, so a filtered one is loaded from a
+// FILTERED copy exactly as the launch stages it, because the filter can drop the manifest itself:
+// that pack then declares nothing in the jail, and reserving its dirs would refuse the one
+// writable_home_dirs entry that makes such a path writable. Callers read only declarations.
 func resolveSelectedPacks() (packs []*packload.Pack, complete bool) {
 	entries, err := LoadPacks(func(string) {})
 	if err != nil {
@@ -62,56 +55,20 @@ func resolveSelectedPacks() (packs []*packload.Pack, complete bool) {
 		byName[p.Name] = p
 	}
 	complete = true
-	// nil Getenv: the store falls back to the real environment, which is how a nested
-	// launch's local packs resolve through the staged-tree fallback (YOLO_PACK_ROOT).
-	store := &packsrc.Store{Dir: paths.PacksDir()}
 	for _, entry := range entries {
-		// The same split stagePacks makes: an embedded entry is the shipped pack of that
-		// name; anything else, including a configured pack that took a shipped name, comes
-		// from the store.
-		if p, ok := byName[entry.Name]; ok && entry.Embedded() {
-			packs = append(packs, p)
-			continue
-		}
-		addr, err := packsrc.Parse(entry.Source)
-		if err != nil {
+		// The one resolver (ResolvePack), in declaration mode, writing nothing into the store:
+		// validation (and so `yolo check`) must write nothing there. A fetched pack whose tree is
+		// not checked out yet is therefore unresolvable HERE and reserves nothing, although the
+		// launch's staging will check it out: that launch's own deriver (WritableHomeDirs over the
+		// staged set) then drops the entry the pack's dir covers, and the next validation, with the
+		// tree in place, refuses it. nil Getenv: the store falls back to the real environment,
+		// which is how a nested launch's local packs resolve through the staged-tree fallback.
+		res, err := ResolvePack(entry, ResolvePackSpec{ReadOnlyStore: true})
+		if err != nil || res.Pack == nil || len(res.Problems) > 0 {
 			complete = false
 			continue
 		}
-		// ResolveExisting, NOT Resolve: validation (and so `yolo check`) must write nothing
-		// into the pack store, and Resolve is the launch's resolver, which checks a missing
-		// tree out and RemoveAll's an incomplete one first. A fetched pack whose tree is not
-		// checked out yet is therefore unresolvable HERE and reserves nothing, although the
-		// launch's staging will check it out: that launch's own deriver
-		// (WritableHomeDirs over the staged set) then drops the entry the pack's dir covers,
-		// and the next validation, with the tree in place, refuses it.
-		res, err := store.ResolveExisting(addr, entry.Slug())
-		if err != nil {
-			complete = false
-			continue
-		}
-		root := res.Root
-		if len(entry.Only) > 0 || len(entry.Exclude) > 0 {
-			filtered, err := os.MkdirTemp("", "yolo-selected-pack-*")
-			if err != nil {
-				complete = false
-				continue
-			}
-			defer os.RemoveAll(filtered)
-			if _, err := packstage.Stage(packstage.Spec{
-				Root: res.Root, Dest: filtered, Only: entry.Only, Exclude: entry.Exclude,
-			}); err != nil {
-				complete = false
-				continue
-			}
-			root = filtered
-		}
-		p, problems := packload.LoadDir(root, entry.Name)
-		if len(problems) > 0 || p == nil {
-			complete = false
-			continue
-		}
-		packs = append(packs, p)
+		packs = append(packs, res.Pack)
 	}
 	// THE SELECTION CLOSURE: a pack a selected pack's live `needs` pulls in is selected too
 	// (docs/reference/wire-bridge.md §3.1), and so is a service pack an active profile's

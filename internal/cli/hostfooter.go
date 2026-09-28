@@ -5,8 +5,6 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/footer"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
-	"github.com/mschulkind-oss/yolo-jail/internal/packsrc"
-	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
 // hostFooterTables is the host notch's half of the agent footer's billing route
@@ -111,28 +109,17 @@ func footerHostPacks() []*packload.Pack {
 	}
 	var packs []*packload.Pack
 	for _, e := range entries {
-		if e.Embedded() {
-			for _, p := range packload.Embedded() {
-				if p.Name == e.Name {
-					packs = append(packs, p)
-				}
-			}
-			continue
-		}
-		addr, err := packsrc.Parse(e.Source)
+		// The one resolver (config.ResolvePack), in DECLARATION mode and writing nothing to the
+		// store: the declaration the host launch composes is the one the entry's filters leave,
+		// read in place when nothing filters it (a copy only for a filtered entry), and none from
+		// a pack with manifest problems or one packstage refuses, which the host launch's
+		// resolver skips too (resolveConfiguredPack, NS-D14). A profile only such a pack declares
+		// then reads as its bare name here, exactly as that launch composes it.
+		res, err := config.ResolvePack(e, hostPackResolveSpec(true))
 		if err != nil {
 			continue
 		}
-		res, err := (&packsrc.Store{Dir: paths.PacksDir()}).ResolveExisting(addr, e.Slug())
-		if err != nil {
-			continue
-		}
-		// The declaration the host launch composes: the one the entry's filters leave
-		// (loadAsStaged, unforced — a copy only for a filtered entry), and none from a pack
-		// with manifest problems, which loadedHostPacks' resolver skips for a host launch's env
-		// (resolveConfiguredPack, NS-D14). A profile only such a pack declares then reads as its
-		// bare name here, exactly as that launch composes it.
-		if p, probs, err := loadAsStaged(e, res.Root, false); err == nil && p != nil && len(probs) == 0 {
+		if p, err := resolvedOrProblems(e, res); err == nil {
 			packs = append(packs, p)
 		}
 	}

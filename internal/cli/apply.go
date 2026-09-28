@@ -411,7 +411,7 @@ func applyHostSurveyed(out, errw io.Writer, color bool, write bool, stdin io.Rea
 	// below cannot discover it. Two passes over `entries` is the price of the one thing the
 	// kind exists to do (docs/reference/pack-system.md §6).
 	//
-	// THE LAUNCH'S RESOLUTION (resolveConfiguredPack → run.PackRoot): embedded from the binary,
+	// THE LAUNCH'S RESOLUTION (resolveConfiguredPack → config.ResolvePack): embedded from the binary,
 	// local from its path, git from the pack store with no network HERE. The fetch already
 	// happened at the command's entry (refreshHostPacks, before applyHostFormatted), not in
 	// this render, which the launch gate's observe pass also runs inside a one-second budget.

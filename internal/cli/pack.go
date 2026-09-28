@@ -1184,22 +1184,13 @@ func packExplain(args []string, out, errw io.Writer, color bool) int {
 			"(see `yolo pack ls`)\n", name)
 		return 1
 	}
-	if entry.Embedded() {
-		// A builtin's tree lives in the binary, so there is no directory to stage from
-		// here and its content is fixed — `explain` answers "why isn't MY skill showing
-		// up", which is never about a shipped pack. Say so rather than staging from
-		// "embedded:<name>" as if it were a path (which would report an empty pack).
-		fmt.Fprintf(errw, "yolo pack explain: %s ships with yolo — its content is fixed, "+
-			"so there are no only/exclude filters to explain. See `yolo config ls` for the "+
-			"config files it renders.\n", name)
-		return 1
-	}
-	if !entry.IsLocal() {
-		fmt.Fprintf(errw, "yolo pack explain: %s is a git source, which this build "+
-			"cannot fetch yet\n", name)
-		return 1
-	}
-
+	// THROUGH THE ONE RESOLVER (config.ResolvePack), the launch's: whatever the entry's origin,
+	// staged by the launch's own rules into a throwaway tree, writing nothing to the pack store.
+	// This used to stage only a local pack, by trimming "file://" off its source, and refused an
+	// embedded one ("its content is fixed, so there are no only/exclude filters to explain") and a
+	// git one ("this build cannot fetch yet"). Both answers stopped being true: the resolver reads
+	// a fetched pack from the store the way a launch does, and it applies an embedded entry's
+	// filters, which every notch used to ignore.
 	tmp, err := os.MkdirTemp("", "yolo-pack-explain-")
 	if err != nil {
 		fmt.Fprintf(errw, "yolo pack explain: %v\n", err)
@@ -1207,16 +1198,14 @@ func packExplain(args []string, out, errw io.Writer, color bool) int {
 	}
 	defer os.RemoveAll(tmp)
 
-	res, err := packstage.Stage(packstage.Spec{
-		Root:    strings.TrimPrefix(entry.Source, "file://"),
-		Dest:    tmp,
-		Only:    entry.Only,
-		Exclude: entry.Exclude,
+	resolved, err := config.ResolvePack(*entry, config.ResolvePackSpec{
+		Dest: filepath.Join(tmp, entry.Slug()), ReadOnlyStore: true,
 	})
 	if err != nil {
 		fmt.Fprintf(errw, "yolo pack explain: %v\n", err)
 		return 1
 	}
+	res := resolved.Staged
 
 	pr := richtext.Printer{W: out, Color: color}
 	pr.Printf("[bold]%s[/bold] → %s", entry.Name, entry.Source)
@@ -1240,7 +1229,7 @@ func packExplain(args []string, out, errw io.Writer, color bool) int {
 // packs yolo ships. With an argument it reports ONE pack: an embedded name, or a
 // local path / file:// source — which is staged, loaded, and reported so an author
 // can see their own pack's claims (and any self-collision) before configuring it.
-// A git source is not fetched here (the same limit `pack explain` has).
+// A git source is not fetched here.
 //
 // The footprint is computed from each pack's contributes[] via
 // packload.FootprintOf, dispatching on contribution kind.

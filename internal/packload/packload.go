@@ -71,6 +71,11 @@ type Pack struct {
 	// Root is the directory its files live in. For an embedded pack this is the
 	// materialized copy, so every consumer sees a real path either way.
 	Root string
+	// SourceRoot is the directory Root was STAGED FROM, when Root is a staged copy
+	// (config.ResolvePack), and "" when the pack was loaded in place. Read by messages alone
+	// (SourcePath): a refusal a user fixes by editing a file must name the file they edit, not
+	// the throwaway copy the verb read.
+	SourceRoot string
 	// Decl is the parsed manifest. Never nil — a pack with no pack.json gets an empty
 	// one, because a skills-only pack must stay zero-ceremony.
 	Decl *packdecl.Manifest
@@ -478,6 +483,19 @@ func retiredSurfaceHostGrants(decl *packdecl.Manifest) []string {
 // manifest string.
 func (p *Pack) StagedSlug() string { return filepath.Base(p.Root) }
 
+// SourcePath maps a path under Root to the same path under SourceRoot, for a message naming a
+// file the user edits. A path outside Root, or a pack loaded in place, comes back unchanged.
+func (p *Pack) SourcePath(path string) string {
+	if p == nil || p.SourceRoot == "" {
+		return path
+	}
+	rel, err := filepath.Rel(p.Root, path)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return path
+	}
+	return filepath.Join(p.SourceRoot, rel)
+}
+
 // CtxPath is the in-jail /ctx path a granted host file is mounted at. THE one definition
 // both sides use: the CLI emits this mount destination, the entrypoint reads the host
 // layer from it.
@@ -823,7 +841,7 @@ func LoadDir(root, name string) (*Pack, []string) {
 //
 // HERE, and at no second site, because a LoadDir problem is already fatal at every launch site
 // (run's stagePacks), at `yolo pack lint` and at `yolo check`, whose Packs section fails on every
-// LoadDir problem (check/packs.go loadStagedPack). Check used to drop a pack with problems without
+// LoadDir problem (check/packs.go, over the tree config.ResolvePack staged). Check used to drop a pack with problems without
 // reporting them, so a pack carrying this file passed check and was refused at launch; that gap
 // was closed in check, where it was, rather than answered with a second site.
 // The message is packdecl's, so the manifest's refusal of `from: "AGENTS.md"` and this one spell

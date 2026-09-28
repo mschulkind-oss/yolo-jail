@@ -19,12 +19,10 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/mschulkind-oss/yolo-jail/internal/cli/run"
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/depcheck"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/packsrc"
-	"github.com/mschulkind-oss/yolo-jail/internal/packstage"
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
 )
 
@@ -240,112 +238,75 @@ func describeUnresolved(list []unresolvedPack) string {
 	return strings.Join(parts, "; ")
 }
 
-// resolveConfiguredPack loads one configured pack's declaration from wherever a LAUNCH would
-// find it, or says why it cannot.
+// resolveConfiguredPack loads one configured pack from wherever a LAUNCH would find it, staged
+// the way a launch stages it, or says why it cannot.
 //
-// ONE RESOLUTION RULE, THE LAUNCH'S. An embedded pack comes from the binary; every other one
-// goes through run.PackRoot — the function stagePacks calls — so a git pack resolves OFFLINE
-// from the pack store (a launch's pack refresh step, or `yolo pack install`, is what puts it
-// there; this function never fetches) and a local one from its path,
-// with the same staged-tree fallback a nested launch relies on. This loader used to return
-// nothing for every git pack without asking the store, so `yolo host apply` skipped a pack the
-// user HAD installed and told them to install it.
+// ONE RESOLVER, THE LAUNCH'S: config.ResolvePack, which the launch's staging calls too
+// (docs/plans/notch-convergence.md item 5). A git pack resolves OFFLINE from the pack store (a
+// launch's pack refresh step, or `yolo pack install`, is what puts it there; this function never
+// fetches), a local one from its path, an embedded one from the build's one materialization, with
+// the same staged-tree fallback a nested launch relies on.
 //
-// A FETCHED TREE IS CHECKED THE WAY A LAUNCH STAGES IT. The host notch reads a pack's files in
-// place rather than staging them, which is harmless for a local pack (a tree the user pointed at
-// themselves) and is not for a fetched one: packstage's NO-ESCAPE rule is what stops a third-
-// party repo's `ln -s ~/.ssh/id_ed25519 skills/x/SKILL.md` from delivering a secret, and at this
-// notch the content lands in the real home, where agents read it. So a fetched pack is staged
-// into a throwaway directory first — packstage.Stage, the launch's own rule, with the entry's
-// filters — and a refusal there makes the pack unresolvable, exactly as it would fail the launch.
-//
-// THE DECLARATION IS READ FROM THE FILTERED TREE, the one the launch loads (loadAsStaged): an
-// entry's `only`/`exclude` can drop the manifest itself, or a file whose presence is a problem,
-// and the launch, `yolo check` and config validation all load the tree those filters leave.
+// EVERY PACK IS STAGED, into this process's pack tree (config.ResolvePackForProcess), and the
+// returned Pack.Root is that copy. The host notch used to read a pack's files IN PLACE, staging
+// only a fetched or filtered pack and then pointing Root back at the source, so an entry's
+// `exclude` removed a skill from every jail and still delivered it to the real home (rows B3 and
+// B6). Now every file a host verb reads — skills, briefings, `files`, plugins — is one the entry's
+// filters kept, and a FETCHED pack's escaping symlink refuses it exactly as it fails the launch.
+// A LOCAL pack's symlinks are followed (hostPackResolveSpec): the one difference left between the
+// notches here, kept on purpose until OQ-NC9 rules it. The copy lives until the process releases
+// its packs (packload.ReleaseEmbedded); a message naming a file in it names the source instead
+// (packload.Pack.SourcePath).
 //
 // A MANIFEST WITH PROBLEMS MAKES THE PACK UNRESOLVABLE (manifestProblemsError), as it fails the
-// launch. They used to be discarded here whenever the pack still loaded, so every host verb read
-// whatever part of a malformed manifest decoded, and `yolo host apply --assert` applied it —
-// partially, at rc=0 — while `yolo pack lint`, `yolo check` and the launch refused the same pack
-// (NS-D14). Each caller keeps its own disposition for an unresolvable pack, which is where the
-// per-verb decision lives: `host apply --assert` refuses the whole set and writes nothing (its
-// dry run and the launch gate say so), `yolo host --`/`host env` compose without the pack and
-// warn, `--revert` leaves its keys recorded, capture does not search it, check-deps exits 1, the
-// read-only `config` verbs report it as not folded, and `config promote` refuses to write into it
-// as a destination. None reads a malformed manifest.
+// launch, and the problems are the FILTERED tree's (NS-D15): a file the entry excludes is no
+// problem, and a manifest it filters out is not read. They used to be discarded here whenever the
+// pack still loaded, so every host verb read whatever part of a malformed manifest decoded, and
+// `yolo host apply --assert` applied it — partially, at rc=0 — while `yolo pack lint`, `yolo check`
+// and the launch refused the same pack (NS-D14). Each caller keeps its own disposition for an
+// unresolvable pack, which is where the per-verb decision lives: `host apply --assert` refuses the
+// whole set and writes nothing (its dry run and the launch gate say so), `yolo host --`/`host env`
+// compose without the pack and warn, `--revert` leaves its keys recorded, capture does not search
+// it, check-deps exits 1, the read-only `config` verbs report it as not folded, and `config
+// promote` refuses to write into it as a destination. None reads a malformed manifest.
 // packload's host-notch containment guards stay, for a manifest no decoder checked.
 func resolveConfiguredPack(e config.PackEntry) (*packload.Pack, error) {
-	if e.Embedded() {
-		for _, p := range packload.Embedded() {
-			if p.Name == e.Name {
-				return p, nil
-			}
-		}
-		return nil, fmt.Errorf("packs: %s: this build of yolo ships no pack by that name", e.Name)
-	}
-	root, err := run.PackRoot(e, nil)
+	res, err := config.ResolvePackForProcess(e, hostPackResolveSpec(false))
 	if err != nil {
-		if errors.Is(err, packsrc.ErrNotFetched) && !e.IsLocal() {
+		if errors.Is(err, packsrc.ErrNotFetched) && !e.IsLocal() && !e.Embedded() {
 			return nil, storeMissError{err}
 		}
 		return nil, err
 	}
-	// A fetched tree is always staged (the no-escape check above); a local one only when its
-	// entry filters it, since only then does the launch load anything but the tree itself.
-	p, probs, err := loadAsStaged(e, root, !e.IsLocal())
-	if err != nil {
-		return nil, err
+	return resolvedOrProblems(e, res)
+}
+
+// hostPackResolveSpec is how every host verb asks the one resolver for a pack: following a LOCAL
+// pack's symlinks, which the host read in place before it staged (config.ResolvePackSpec.
+// FollowLocalSymlinks, pending OQ-NC9), and writing nothing into the pack store when readOnly.
+// One constructor so the footer's declaration read and the verbs' staging cannot disagree about
+// which packs resolve.
+func hostPackResolveSpec(readOnly bool) config.ResolvePackSpec {
+	return config.ResolvePackSpec{FollowLocalSymlinks: true, ReadOnlyStore: readOnly}
+}
+
+// resolvedOrProblems is a resolution's pack, or the error its manifest problems make it: an
+// error naming them when LoadDir loaded nothing, a manifestProblemsError when it loaded a pack
+// beside problems. Shared by the staging resolver above and the footer's declaration read, so
+// the two agree about which packs a host launch composes.
+func resolvedOrProblems(e config.PackEntry, res config.ResolvedPack) (*packload.Pack, error) {
+	if res.Pack == nil {
+		return nil, fmt.Errorf("packs: %s: %s", e.Name, strings.Join(res.Problems, "; "))
 	}
-	if p == nil {
-		return nil, fmt.Errorf("packs: %s: %s", e.Name, strings.Join(probs, "; "))
-	}
-	if len(probs) > 0 {
-		stated := make([]string, len(probs))
-		for i, prob := range probs {
+	if len(res.Problems) > 0 {
+		stated := make([]string, len(res.Problems))
+		for i, prob := range res.Problems {
 			stated[i] = strings.TrimPrefix(prob, "pack "+e.Name+": ")
 		}
 		return nil, manifestProblemsError{name: e.Name, problems: stated,
-			profiles: packload.DeclaredProfileNames([]*packload.Pack{p}, nil)}
+			profiles: packload.DeclaredProfileNames([]*packload.Pack{res.Pack}, nil)}
 	}
-	return p, nil
-}
-
-// loadAsStaged is packload.LoadDir over the tree a LAUNCH loads for this entry: root staged
-// through the entry's `only`/`exclude` filters into a throwaway directory by packstage.Stage —
-// the launch's own rule (run's stagePacks), which `yolo check` and config validation's
-// resolveSelectedPacks also load from. A staging refusal (an escaping symlink) is returned as
-// the error, as it fails the launch. Unfiltered and not forced, it reads root itself, which is
-// that same tree without a copy.
-//
-// THE DECLARATION AND ITS PROBLEMS ARE THE FILTERED TREE'S, and they are why this exists. Read
-// from root, a problem only in a file the entry excludes (briefing/CLAUDE.md) refused a pack every
-// launch stages clean, and a manifest the entry filters out was still read — its declarations
-// applied to the real home, or its decode failure refusing the pack — although no launch sees it.
-//
-// THE RETURNED PACK'S Root IS root, not the copy, which is deleted before this returns: the host
-// notch reads a pack's FILES in place, and a caller that reads one (skills, briefings, `files`)
-// needs a directory that still exists. That read does not apply the filters — a pre-existing gap
-// of the host notch, which this function does not close.
-func loadAsStaged(e config.PackEntry, root string, force bool) (*packload.Pack, []string, error) {
-	if !force && len(e.Only) == 0 && len(e.Exclude) == 0 {
-		p, probs := packload.LoadDir(root, e.Name)
-		return p, probs, nil
-	}
-	dest, err := os.MkdirTemp("", "yolo-host-pack-check-")
-	if err != nil {
-		return nil, nil, fmt.Errorf("packs: %s: %w", e.Name, err)
-	}
-	defer os.RemoveAll(dest)
-	if _, err := packstage.Stage(packstage.Spec{
-		Root: root, Dest: dest, Only: e.Only, Exclude: e.Exclude,
-	}); err != nil {
-		return nil, nil, fmt.Errorf("packs: %s: %w", e.Name, err)
-	}
-	p, probs := packload.LoadDir(dest, e.Name)
-	if p != nil {
-		p.Root = root
-	}
-	return p, probs, nil
+	return res.Pack, nil
 }
 
 // packForCheckDeps is resolveConfiguredPack for a caller that has nothing to say about a pack

@@ -24,12 +24,8 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
-	"github.com/mschulkind-oss/yolo-jail/internal/packsrc"
-	"github.com/mschulkind-oss/yolo-jail/internal/packstage"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
-	"github.com/mschulkind-oss/yolo-jail/internal/treesync"
 	"github.com/mschulkind-oss/yolo-jail/internal/wirebridged"
-	"github.com/mschulkind-oss/yolo-jail/packs"
 )
 
 // packCtxDir is where the staged pack trees are mounted in the jail. The entrypoint
@@ -156,8 +152,7 @@ func (o *Options) stagePacksInto(stagingRoot string, entries []config.PackEntry)
 	// "no packs are configured, so this jail has no coding agent" was a contradiction a
 	// user would only discover by looking in ~/.yolo/bin/block. An empty config now really does
 	// produce a jail with no agent.
-	// Materialize into a SCRATCH dir first, then copy only the selected packs into the
-	// mounted tree.
+	// Only the selected packs are copied into the mounted tree.
 	//
 	// The mount IS the filter, and it has to be: the entrypoint renders every pack it finds
 	// under YOLO_PACK_ROOT, so an unselected pack left in that tree gets its surfaces
@@ -169,19 +164,19 @@ func (o *Options) stagePacksInto(stagingRoot string, entries []config.PackEntry)
 	// DROPPED from config is simply absent from the next launch's tree, with no prune to get
 	// right (the shared tree needed two, and a leftover directory in it was a fully active
 	// pack — a deleted test pack kept regenerating a broken `fzf` shim across launches).
-	scratch, err := os.MkdirTemp("", "yolo-official-packs-")
-	if err != nil {
-		return nil, nil, err
-	}
-	defer os.RemoveAll(scratch)
-	available, problems := packload.MaterializeEmbedded(packs.FS, scratch)
-	for _, prob := range problems {
-		// A broken OFFICIAL pack is a yolo bug, not a user error, so it is fatal rather
-		// than a warning the user can do nothing about.
-		return nil, nil, fmt.Errorf("official packs: %s", prob)
+	//
+	// FROM THE ONE MATERIALIZATION, packload.Embedded(), which every notch reads
+	// (docs/plans/notch-convergence.md row B7). This launch used to materialize a scratch copy
+	// of its own out of packs.FS, so the jail and the host read the embedded packs through two
+	// materializations with two answers to a problem. A broken OFFICIAL pack is a yolo bug, not
+	// a user error, so it is fatal rather than a warning the user can do nothing about — and it
+	// is asked FIRST, because on a problem Embedded() answers with an empty set, which would
+	// otherwise read as "no pack by that name".
+	if problems := packload.EmbeddedProblems(); len(problems) > 0 {
+		return nil, nil, fmt.Errorf("official packs: %s", problems[0])
 	}
 	byName := map[string]*packload.Pack{}
-	for _, p := range available {
+	for _, p := range packload.Embedded() {
 		byName[p.Name] = p
 	}
 
@@ -189,20 +184,15 @@ func (o *Options) stagePacksInto(stagingRoot string, entries []config.PackEntry)
 	var loaded []*packload.Pack
 	var configured []config.PackEntry
 	for _, entry := range entries {
-		p, isEmbedded := byName[entry.Name]
-		if !isEmbedded || !entry.Embedded() {
+		if !entry.Embedded() {
 			configured = append(configured, entry)
 			continue
 		}
-		// Copied by treesync, whose mode rule is the one packstage applies to a configured
-		// pack; into an empty destination a sync is a copy.
-		dest := filepath.Join(officialRoot, p.Name)
-		if _, err := treesync.Sync(p.Root, dest); err != nil {
-			return nil, nil, fmt.Errorf("official pack %s: %w", p.Name, err)
-		}
-		selected, probs := packload.LoadDir(dest, p.Name)
-		for _, prob := range probs {
-			return nil, nil, fmt.Errorf("official pack %s: %s", p.Name, prob)
+		// Through the one resolver, into _official/<name>: packstage's rules, and the entry's
+		// own `only`/`exclude` — which an embedded entry's used to be accepted and ignored.
+		selected, err := o.stagePackEntry(entry, filepath.Join(officialRoot, entry.Name))
+		if err != nil {
+			return nil, nil, err
 		}
 		loaded = append(loaded, selected)
 	}
@@ -223,32 +213,10 @@ func (o *Options) stagePacksInto(stagingRoot string, entries []config.PackEntry)
 	// it is what a lockfile means everywhere else — but it is correctness-of-meaning, not a
 	// gate, and it is tracked as OQ-LP8 rather than smuggled back in here.
 	for _, entry := range configured {
-		root, err := PackRoot(entry, o.Getenv)
-		if err != nil {
-			return nil, nil, err
-		}
 		// Straight into this launch's own tree, which nothing binds yet: packstage's rules
 		// (no escaping symlink, the exec bit carried) run on the way in, and no later launch
 		// writes here again.
-		dest := filepath.Join(stagingRoot, entry.Slug())
-		res, err := packstage.Stage(packstage.Spec{
-			Root:    root,
-			Dest:    dest,
-			Only:    entry.Only,
-			Exclude: entry.Exclude,
-		})
-		if err != nil {
-			return nil, nil, fmt.Errorf("packs: %s: %w", entry.Name, err)
-		}
-		// NO SILENT CAPS: a pack that staged nothing is almost always an `only`/
-		// `exclude` typo, and the user would otherwise just see a pack that "does
-		// nothing". Say so, with the count that proves the tree was not empty.
-		if len(res.Staged) == 0 {
-			o.pr(o.Stdout).print(fmt.Sprintf(
-				"[yellow]Warning: pack %s staged 0 files (%d excluded by only/exclude) — "+
-					"check its filters[/yellow]", entry.Name, len(res.Excluded)))
-		}
-
+		//
 		// NO HOST-ACCESS GATE. A configured pack's declarations — its host files, mounts,
 		// installer URLs, host-prepended briefings, wrapped plugin hooks and shipped
 		// loopholes — are honored whoever shipped it, because naming the pack in `packs`
@@ -257,9 +225,9 @@ func (o *Options) stagePacksInto(stagingRoot string, entries []config.PackEntry)
 		// docs/design/trust-paths.md, 2026-09-04). What the user gets instead is
 		// DISCLOSURE: notePackHostAccess prints what each pack reads at every launch, and
 		// startLoopholesDisclosed prints host EXECUTION before it happens.
-		p, probs := packload.LoadDir(dest, entry.Name)
-		for _, prob := range probs {
-			return nil, nil, fmt.Errorf("packs: %s", prob)
+		p, err := o.stagePackEntry(entry, filepath.Join(stagingRoot, entry.Slug()))
+		if err != nil {
+			return nil, nil, err
 		}
 		loaded = append(loaded, p)
 
@@ -302,13 +270,12 @@ func (o *Options) stagePacksInto(stagingRoot string, entries []config.PackEntry)
 		o.pr(o.Stderr).print("[dim]" + cause + "[/dim]")
 	}
 	for _, p := range added {
-		dest := filepath.Join(officialRoot, p.Name)
-		if _, err := treesync.Sync(p.Root, dest); err != nil {
-			return nil, nil, fmt.Errorf("official pack %s: %w", p.Name, err)
-		}
-		joined, probs := packload.LoadDir(dest, p.Name)
-		for _, prob := range probs {
-			return nil, nil, fmt.Errorf("official pack %s: %s", p.Name, prob)
+		// An addition is an embedded pack no config line named, so it stages as the entry a
+		// bare name lowers to: the same resolver, with no filter to apply.
+		joined, err := o.stagePackEntry(config.EmbeddedPackEntry(p.Name),
+			filepath.Join(officialRoot, p.Name))
+		if err != nil {
+			return nil, nil, err
 		}
 		loaded = append(loaded, joined)
 		skillDirs = append(skillDirs, o.packSkillSourceDirs(joined)...)
@@ -822,43 +789,29 @@ func resolveConfiguredPacks() []*packload.Pack {
 	var out []*packload.Pack
 	embedded := embeddedPacksByName()
 	for _, entry := range entries {
-		if entry.Embedded() {
-			// AN EMBEDDED PACK CAN SHIP A LOOPHOLE, and this branch used to say it could
-			// not. The official `audio` pack (OQ-LP11) is the first, and
-			// the omission was measured rather than reasoned about: with `packs: ["audio"]`
-			// selected, a `loopholes.audio-alsa.enabled` entry warned "no loophole named
-			// 'audio-alsa' is installed on this machine" at EVERY launch — the same
-			// sentence a user gets when a pack genuinely failed to stage — and
-			// `yolo loopholes list` omitted it entirely. That is exactly the §5.2
-			// prerequisite this resolver exists to satisfy, failing for the one pack shape
-			// nobody had tried.
-			//
-			// The tree really does live only in the binary's embed.FS, which is what the
-			// old comment got right; the answer is that packload.Embedded() puts it on disk
-			// (the build's shared content-addressed tree, adopted once per process), so there
-			// IS a path to read. Selection-gated here
-			// unlike the reservation lists, because this answers "what is active on this
-			// machine" rather than "what could any pack ever claim".
-			p, isEmbedded := embedded[entry.Name]
-			if !isEmbedded {
-				continue // named an embedded pack that this build does not carry
-			}
-			out = append(out, p)
+		// THROUGH THE ONE RESOLVER, staged into this process's pack tree (config.
+		// ResolvePackForProcess), because this set is READ FOR FILES and not only for
+		// declarations: a loophole module is a directory the loophole loader goes on to read.
+		// So an entry's `exclude` drops a loophole here exactly as it drops it from the launch's
+		// tree, and a pack the launch refuses (an escaping symlink) contributes nothing.
+		//
+		// AN EMBEDDED PACK CAN SHIP A LOOPHOLE (the official `audio` pack, OQ-LP11, was the
+		// first). This branch used to skip embedded entries, and the omission was measured: with
+		// `packs: ["audio"]` selected, a `loopholes.audio-alsa.enabled` entry warned "no loophole
+		// named 'audio-alsa' is installed on this machine" at EVERY launch, and `yolo loopholes
+		// list` omitted it. Selection-gated here unlike the reservation lists, because this
+		// answers "what is active on this machine" rather than "what could any pack ever claim".
+		//
+		// nil getenv: these resolvers run behind read-only commands with no Options to thread
+		// one from, so the store reads the real environment — which is exactly right, since the
+		// staged tree it looks for is the one this process is running against. An unresolvable
+		// pack (never fetched, moved remote, offline) is not a deactivation signal: it
+		// contributes nothing.
+		res, err := config.ResolvePackForProcess(entry, config.ResolvePackSpec{})
+		if err != nil || res.Pack == nil || len(res.Problems) > 0 {
 			continue
 		}
-		// nil getenv: these resolvers run behind read-only commands with no Options to
-		// thread one from, so the store reads the real environment — which is exactly
-		// right, since the staged tree it looks for is the one this process is running
-		// against.
-		root, rootErr := PackRoot(entry, nil)
-		if rootErr != nil {
-			continue // never fetched, moved remote, offline — not a deactivation signal
-		}
-		p, probs := packload.LoadDir(root, entry.Name)
-		if len(probs) > 0 || p == nil {
-			continue
-		}
-		out = append(out, p)
+		out = append(out, res.Pack)
 	}
 	added, _, err := config.UserScopeSelection(func(name string) (*packload.Pack, bool) {
 		p, ok := embedded[name]
@@ -947,42 +900,31 @@ func (o *Options) packSkillSourceDirs(p *packload.Pack) []jailcontent.PackSkillS
 	return out
 }
 
-// PackRoot resolves a pack entry to a directory on disk.
+// stagePackEntry stages one entry into dest through the one pack resolver (config.ResolvePack,
+// STAGE mode) and returns the pack loaded from the copy. FAIL-CLOSED (A12): a resolution or
+// staging refusal, and any manifest problem, is the launch's error. A refused staging's partial
+// copy goes with the launch's tree (stagePacks discards it).
 //
-// IT DOES NOT FETCH. The launch's fetch is RefreshConfiguredPacks (packrefresh.go), which
-// Run calls before anything resolves a pack; PackRoot is the offline half that reads the
-// store that refresh left, and it is also what the read-only surfaces call, which must
-// never reach the network. A pack the refresh could not fetch is a clear error here that
-// names the fetch failure.
-//
-// It passes the entry's SLUG to Resolve, which is what makes a NESTED launch work: a
-// jail's inherited config names the host path a pack came from, so resolution from the
-// address fails for every local pack in here and Resolve falls back to the tree the
-// outer launcher delivered under YOLO_PACK_ROOT. That fallback used to exist only in
-// `yolo check`, so `yolo run` refused the launch and the nested verification AGENTS.md
-// mandates was impossible with a local pack selected (docs/reference/storage-and-config.md
-// §10). Deliberately silent here, unlike check: staging the delivered copy is the
-// NORMAL case for a nested launch, not a degradation worth a line of output.
-//
-// getenv is threaded for testability and may be nil (the store then reads the real
-// environment, which is what a launch wants).
-//
-// EXPORTED FOR THE HOST NOTCH, which must resolve a configured pack the way a launch does
-// rather than by a second rule: `yolo host apply`, `yolo check-deps` and the capture
-// target all read packs through internal/cli's resolveConfiguredPack, which calls this.
-// Before it did, that loader returned nothing for every git pack, so a pack the user had
-// installed was skipped at the host with advice to install it.
-func PackRoot(entry config.PackEntry, getenv func(string) string) (string, error) {
-	addr, err := packsrc.Parse(entry.Source)
+// NO SILENT CAPS: a pack that staged nothing is almost always an `only`/`exclude` typo, and the
+// user would otherwise just see a pack that "does nothing". Say so, with the count that proves
+// the tree was not empty.
+func (o *Options) stagePackEntry(entry config.PackEntry, dest string) (*packload.Pack, error) {
+	res, err := config.ResolvePack(entry, config.ResolvePackSpec{Dest: dest, Getenv: o.Getenv})
 	if err != nil {
-		return "", fmt.Errorf("packs: %s: %w", entry.Name, err)
+		return nil, err
 	}
-	store := &packsrc.Store{Dir: paths.PacksDir(), Getenv: getenv}
-	res, err := store.Resolve(addr, entry.Slug())
-	if err != nil {
-		return "", fmt.Errorf("packs: %s: %w", entry.Name, err)
+	if len(res.Staged.Staged) == 0 {
+		o.pr(o.Stdout).print(fmt.Sprintf(
+			"[yellow]Warning: pack %s staged 0 files (%d excluded by only/exclude) — "+
+				"check its filters[/yellow]", entry.Name, len(res.Staged.Excluded)))
 	}
-	return res.Root, nil
+	for _, prob := range res.Problems {
+		return nil, fmt.Errorf("packs: %s", prob)
+	}
+	if res.Pack == nil {
+		return nil, fmt.Errorf("packs: %s: could not be loaded", entry.Name)
+	}
+	return res.Pack, nil
 }
 
 // packBriefingProses is every briefing prose this pack delivers into a JAIL — one entry per

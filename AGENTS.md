@@ -97,8 +97,12 @@ Three things to know before debugging it:
   `execBash`. ⚠ **Any other death leaves the fallback tree behind**: SIGKILL, OOM, or a signal arriving where
   no handler is installed (Ctrl-C during a launch's nix build). Its lease dies with the process, so the next
   fallback's sweep or `yolo prune` reaps it once past the sweep's age floor; nothing reaps it sooner. A
-  second process-lifetime copy is still the bug to watch for. Call `MaterializeEmbedded` directly only when
-  you delete the dest yourself ([`packs.go`](internal/cli/run/packs.go) stages out of one).
+  second process-lifetime copy is still the bug to watch for: the launch and the host read this ONE
+  materialization, and a verb staging a configured pack for its own lifetime takes a directory of the
+  **process pack tree** — a term coined in [`processtree.go`](internal/packload/processtree.go) for one
+  leased directory per process, under the fallback's prefix, that `ReleaseEmbedded` deletes with the
+  embedded packs (`packload.ProcessPackDir`; [`config.ResolvePack`](internal/config/packresolve.go) is
+  the one pack resolver that fills it).
 
 `agentcfg.BuiltinManifest()` is core's own surfaces only (`mise/config`); callers wanting the full set merge
 pack surfaces via `ManifestWith`. `internal/jailcontent` (was `internal/agents` until the name outlived the

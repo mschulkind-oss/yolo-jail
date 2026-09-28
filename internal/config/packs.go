@@ -35,7 +35,6 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	_ "github.com/mschulkind-oss/yolo-jail/internal/packreg" // registers the embedded packs with packload
-	"github.com/mschulkind-oss/yolo-jail/internal/packsrc"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/pytext"
 )
@@ -499,7 +498,7 @@ func lowerPackSource(source, name, itemPath string) (PackEntry, string) {
 		// configured" was a contradiction the user would only discover by looking in
 		// ~/.yolo/bin/block.
 		if name, ok := embeddedPackName(source); ok {
-			return PackEntry{Source: embeddedSourceFor(name), Name: name, IsEmbedded: true}, ""
+			return EmbeddedPackEntry(name), ""
 		}
 		return PackEntry{}, itemPath + ".source: " + unknownEmbeddedMessage(source)
 	}
@@ -622,27 +621,19 @@ func UseProfileCLINames() ([]string, bool) {
 			seen[bin] = true
 		}
 	}
-	store := &packsrc.Store{Dir: paths.PacksDir()}
 	for _, entry := range entries {
 		if entry.Embedded() {
 			continue // already in the set above
 		}
-		// nil Getenv: the store falls back to the real environment, which is what a
-		// resolver running behind a read-only surface wants (the staged-tree fallback
-		// is how a nested launch's local packs resolve). See PackRoot on the run side.
-		addr, err := packsrc.Parse(entry.Source)
-		if err != nil {
+		// The one resolver (ResolvePack), declaration mode, so a filtered entry contributes the
+		// bins of the tree its filters leave — the tree the launch stages. nil Getenv: the store
+		// falls back to the real environment, which is what a resolver running behind a read-only
+		// surface wants (the staged-tree fallback is how a nested launch's local packs resolve).
+		res, err := ResolvePack(entry, ResolvePackSpec{})
+		if err != nil || res.Pack == nil || len(res.Problems) > 0 {
 			return nil, false
 		}
-		res, err := store.Resolve(addr, entry.Slug())
-		if err != nil {
-			return nil, false
-		}
-		p, problems := packload.LoadDir(res.Root, entry.Name)
-		if len(problems) > 0 || p == nil {
-			return nil, false
-		}
-		for _, bin := range p.InstallBins() {
+		for _, bin := range res.Pack.InstallBins() {
 			seen[bin] = true
 		}
 	}

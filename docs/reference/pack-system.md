@@ -290,8 +290,8 @@ alone; a `skills` or `files` `from` is not checked against the basenames.
 > [!NOTE]
 > **`yolo check` and the launch agree about a pack that does not load.** Every
 > `packload.LoadDir` problem is fatal at launch, and `check`'s Packs section fails on each one
-> with LoadDir's own message (`loadStagedPack` in `internal/cli/check/packs.go`, at both of its
-> load sites). It used to keep a pack only when LoadDir returned no problems and drop one that
+> with LoadDir's own message (`internal/cli/check/packs.go`, over the tree `config.ResolvePack`
+> staged). It used to keep a pack only when LoadDir returned no problems and drop one that
 > had problems without printing them, so a pack carrying `briefing/AGENTS.md` passed
 > `yolo check` and was then refused at launch
 > (`TestSectionPacksFailsOnALoadProblemTheLaunchRefuses`). The gap was closed in `check`,
@@ -2419,10 +2419,15 @@ say when it did. Following a branch is consent to its author's next push, picked
 hour and announced when it lands. **A tag or commit pin is the shape for a pack carrying host
 execution.**
 
-`yolo host apply` resolves through the launch's own resolver (`run.PackRoot`, called by
-`cli.resolveConfiguredPack`) after the refresh has run. It stages a fetched pack into a
-throwaway directory first, under the launch's no-escaping-symlink rule, because at the host
-the content lands in the real home. **An incomplete set is refused whole**: if any configured
+`yolo host apply` resolves through the launch's own resolver (`config.ResolvePack`, called by
+`cli.resolveConfiguredPack`) after the refresh has run, and **stages every configured pack** —
+embedded, local and fetched — into a directory of the process's own leased tree, which it reads
+for as long as the verb runs ([notch convergence](../plans/notch-convergence.md), item 5). So
+an entry's `only`/`exclude` decides what reaches the real home exactly as it decides what
+reaches a jail, an embedded entry's included, and a fetched pack with an escaping symlink is
+refused as the launch refuses it. A LOCAL pack's symlinks are followed wherever they point,
+which the launch does not do; that difference is kept on purpose until
+[OQ-NC9](../plans/notch-convergence.md#OQ-NC9) rules it. **An incomplete set is refused whole**: if any configured
 pack cannot be resolved, `--assert` writes nothing and exits 1, naming each pack and its
 reason. The dry run says it would refuse. A pack whose manifest has problems, the ones
 `yolo check` and every launch refuse, counts as unresolvable here: it is named with each
@@ -2432,7 +2437,7 @@ conventional local pack, which has no `packs` entry, the remedy names its direct
 problems, and the declaration every host verb reads, come from the tree the entry's
 `only`/`exclude` leave, as the launch loads it: a file the entry excludes is no problem, and a
 `pack.json` it filters out is not read ([NS-D15](../design/notch-scoped-config-contributions.md#10-decision-ledger)).
-The host notch still reads a pack's other files in place, without the filters. The other host
+The other host
 verbs leave such a pack out and say so: `yolo host --` and `yolo host env` compose without it
 (a profile only it declares refuses the launch, naming it), `--revert` keeps its keys recorded,
 `check-deps` exits 1, the read-only `config` verbs report it, and `config promote` refuses to

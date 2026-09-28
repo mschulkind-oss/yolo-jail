@@ -108,6 +108,18 @@ type Layer struct {
 	// so it must be left entirely alone rather than composed from the remaining layers. Composing
 	// anyway would retire every other pack's skills there because one pack's `from` was misspelled.
 	Unresolved bool
+	// SourceOf maps a path under Sources to the file the user edits, for a message: the host
+	// notch reads a STAGED copy of every pack (config.ResolvePack), and a collision naming the
+	// copy names nothing the user can rename. packload.Pack.SourcePath; nil means identity.
+	SourceOf func(path string) string
+}
+
+// source is SourceOf applied, identity when unset.
+func (l Layer) source(path string) string {
+	if l.SourceOf == nil {
+		return path
+	}
+	return l.SourceOf(path)
 }
 
 // Destination is one skills dir and every layer composing into it, in pack order.
@@ -230,7 +242,7 @@ func ComposeHostSkills(packs []*packload.Pack, homeDir string) []Destination {
 			// The tier comes off the PACK, so every layer this pack contributes carries the same
 			// one and its skills are called the same thing wherever they land (S2).
 			l := Layer{Pack: p.Name, Description: p.Decl.Description, Plugins: plugins,
-				Tier: PackTier(p.Decl.SkillsTier)}
+				Tier: PackTier(p.Decl.SkillsTier), SourceOf: p.SourcePath}
 			src, prob := p.SkillsSourceDir(c)
 			if prob != "" {
 				l.Problem, l.Unresolved = prob, true
@@ -363,7 +375,7 @@ func Collisions(dests []Destination) []Collision {
 					order = append(order, name)
 				}
 				byName[name] = append(byName[name],
-					Claim{Pack: l.Pack, Source: claimed[name], Namespaced: l.Tier == TierNamespaced})
+					Claim{Pack: l.Pack, Source: l.source(claimed[name]), Namespaced: l.Tier == TierNamespaced})
 			}
 		}
 		sort.Strings(order)

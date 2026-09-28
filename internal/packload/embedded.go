@@ -89,10 +89,13 @@ func SetEmbeddedFS(f fs.FS) {
 // a ~250 KB temp tree, and each exit path that skipped a defer (exec, a signal arm, a daemon
 // with no release at all) leaked one.
 //
-// Callers that want their OWN tree with their OWN lifetime call MaterializeEmbedded directly
-// and delete it themselves (internal/cli/run/packs.go stages out of one). What they must not
-// do is make a second process-lifetime copy: three call sites did, and each leaked its own
-// never-removed directory on every invocation of every command.
+// A caller that wants a COPY stages one out of this tree (config.ResolvePack does, for the
+// launch's jail tree and for a host verb's process pack tree, processtree.go) rather than calling
+// MaterializeEmbedded, whose only caller left is the fallback below. What a caller must not do
+// is make a second process-lifetime materialization: three call sites did, and each leaked its
+// own never-removed directory on every invocation of every command — and the launch's own
+// scratch copy gave a broken embedded pack two answers, fatal there and "no such pack" at the
+// host.
 func Embedded() []*Pack {
 	embeddedMu.Lock()
 	defer embeddedMu.Unlock()
@@ -155,6 +158,10 @@ func ReleaseEmbedded() {
 }
 
 func releaseEmbeddedLocked() {
+	// The process pack tree (processtree.go) goes with the embedded packs: it is released at
+	// the same exits, for the same reason, and a Pack staged into it is as dead as one
+	// loaded from a released fallback tree.
+	releaseProcessTreeLocked()
 	if embeddedFallback && embeddedRoot != "" {
 		_ = os.RemoveAll(embeddedRoot)
 	}
