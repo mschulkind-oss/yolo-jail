@@ -1112,6 +1112,17 @@ a `~/.aws` grant may
 ([`sso-backed-bedrock.md` OQ-SSO8](../design/sso-backed-bedrock.md#OQ-SSO8)). The schema and its
 rules are `packdecl.EnvOverride`'s doc comment.
 
+An `env` contribution whose variables point a client at a yolo jail daemon declares that daemon
+as **`served_by`**: the loophole's name for a loophole's `jail_daemon`, or the service's name. The
+variables are then delivered only where that daemon runs, which is a container launch whose
+payload includes it. They are left out, and the launch names them, at `yolo host` and on
+macos-user, which run no jail daemon, and in a container launch that does not run it, such as a
+loophole left disabled. An address nothing serves is a dead pointer, and on a shared loopback it
+hands the client's request to whoever binds the port first
+([notch convergence §2.4](../plans/notch-convergence.md#24-the-addresses-those-secrets-protect-are-composed-not-literal)).
+`packs/codex` declares it on `CODEX_REFRESH_TOKEN_URL_OVERRIDE`, and `packs/aws-auth` on its
+Bedrock pointer. `overridden_by` is not evaluated for a contribution the launch leaves out.
+
 #### `hook`
 
 A named request for a core-provided imperative behavior. The set is **closed**
