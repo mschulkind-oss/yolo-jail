@@ -160,10 +160,11 @@ apply it, and the launch says that too. See
 - `yolo config-ref` said no file `yolo host apply` writes holds provider settings. Some do, such
   as pi's `models.json` and codex's `config.toml`, and host apply writes them without your
   providers. It now says so and names each one.
-- When `yolo host apply` would drop an MCP server you had added to an agent's own config, it
-  told you to declare it under `mcp_servers`, which reaches jails and none of the files that
-  command writes, so the server was dropped anyway. It now tells you to add a `config-overlay`
-  for that agent's config to your local pack, which keeps it.
+- When `yolo host apply` would drop an MCP server you had added to an agent's own config, or an
+  LSP server you had added to Copilot's, it told you to declare it under `mcp_servers`, which
+  reaches jails and none of the files that command writes, so the server was dropped anyway. It
+  now tells you to add a `config-overlay` to your local pack for each config that would lose an
+  entry, naming that config and the key it keeps them under, which keeps it.
 - A jail start or `yolo host apply --assert` kept some of the MCP servers you had added to an
   agent's own config, or LSP servers to Copilot's, while saying it dropped them all. Every one it
   names is now dropped.

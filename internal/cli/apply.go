@@ -606,13 +606,17 @@ func applyHostSurveyed(out, errw io.Writer, color bool, write bool, stdin io.Rea
 	// confirmation. Maintainer ruling (2026-08-02): "let's just warn during the first apply
 	// that things will be lost and wait for confirm" — warn-and-confirm, not warn-and-refuse.
 	// See confirmHostLosses for the three properties that make it not-noise.
-	if write && !confirmHostLosses(pr, out, stdin, loaded, home, overlays) {
-		pr.Printf("[bold red]host apply: not confirmed — nothing was written.[/bold red]")
-		// ONE remedy string, read here and at the two other places this sentence used to be
-		// written out (the per-surface loss line and confirmHostLosses' own trailer). The
-		// three had drifted — see hostapplyremedy.go.
-		pr.Printf("[dim]Re-run and answer `y`, or keep them: %s.[/dim]", mcpEntryRemedy(home))
-		return 1
+	if write {
+		if confirmed, tables := confirmHostLosses(pr, out, stdin, loaded, home, overlays); !confirmed {
+			pr.Printf("[bold red]host apply: not confirmed — nothing was written.[/bold red]")
+			// ONE remedy string, read here and at the two other places this sentence used to
+			// be written out (the per-surface loss line and confirmHostLosses' own trailer).
+			// The three had drifted — see hostapplyremedy.go. Built from the tables the prompt
+			// listed, so both lines name the same surfaces and keys.
+			pr.Printf("[dim]Re-run and answer `y`, or keep them: %s.[/dim]",
+				mcpEntryRemedy(home, tables))
+			return 1
+		}
 	}
 
 	// THE TIER-1 FACTS, ONCE FOR THE WHOLE RUN (report-tiers.md's tiers). Which kinds
@@ -966,8 +970,11 @@ func reportHostPackages(pr richtext.Printer, errw io.Writer, home string) {
 // It runs a full OBSERVE pass first, which is deliberately a second render: observe writes
 // nothing and consumes no first-apply signal, so asking it "what would be lost?" is free and
 // cannot itself be the thing that closes the door.
+//
+// It returns the tables its prompt listed alongside the answer, so the caller's abort line
+// builds the same remedy the trailer printed.
 func confirmHostLosses(pr richtext.Printer, out io.Writer, stdin io.Reader,
-	loaded []*packload.Pack, home string, overlays *packoverlay.OverlaySet) bool {
+	loaded []*packload.Pack, home string, overlays *packoverlay.OverlaySet) (bool, []droppedTable) {
 	type loss struct {
 		surface, path string
 		keys          []string
@@ -994,7 +1001,7 @@ func confirmHostLosses(pr richtext.Printer, out io.Writer, stdin io.Reader,
 		}
 	}
 	if len(losses) == 0 {
-		return true // nothing would be lost — no prompt (see property 1)
+		return true, nil // nothing would be lost — no prompt (see property 1)
 	}
 	// "THESE SURFACES", not "this home". FirstApply is per SURFACE — hostProvenanceExists
 	// asks whether yolo has ever written THAT surface here — and a home yolo has applied
@@ -1012,10 +1019,15 @@ func confirmHostLosses(pr richtext.Printer, out io.Writer, stdin io.Reader,
 			pr.Printf("    [yellow]%s[/yellow]", k)
 		}
 	}
+	var tables []droppedTable
+	for _, l := range losses {
+		tables = append(tables, droppedTablesOf(l.surface, l.keys)...)
+	}
+	sortDroppedTables(tables)
 	pr.Printf("[dim]yolo regenerates the keys it manages wholesale, so anything above that "+
 		"is not in your config is dropped. To KEEP them: %s — then re-run.[/dim]",
-		mcpEntryRemedy(home))
-	return promptYesNo(out, stdin, "  Proceed and replace the values above? [y/N] ")
+		mcpEntryRemedy(home, tables))
+	return promptYesNo(out, stdin, "  Proceed and replace the values above? [y/N] "), tables
 }
 
 // reportInferredDestinations names what the zero-ceremony inference concluded for one pack, and

@@ -39,7 +39,7 @@ func TestHostApplyGroupsOneEntryLossAcrossAgentsUnderOneRemedy(t *testing.T) {
 		t.Fatalf("one server dropped from %d surfaces is ONE group keyed on the file that "+
 			"keeps it; got %d groups: %+v\n%s", surfaces, len(entryGroups), groups, report)
 	}
-	remedy := mcpEntryRemedy(home)
+	remedy := mcpEntryRemedy(home, survey.DroppedTables())
 	if n := strings.Count(report, remedy); n != 1 {
 		t.Errorf("the remedy is stated once for the group, not once per surface; it appears "+
 			"%d times:\n%s", n, report)
@@ -82,7 +82,8 @@ func TestHostApplyStatesTheMCPRemedyFromOnePlace(t *testing.T) {
 	// BOTH halves of the decline path — confirmHostLosses' own trailer and the abort message
 	// after it — read the one string, so the reader is told the same thing twice at most and
 	// never two different things. It used to be two sentences that had already diverged.
-	if n := strings.Count(declined, mcpEntryRemedy(fresh)); n < 2 {
+	if n := strings.Count(declined, mcpEntryRemedy(fresh,
+		[]droppedTable{{Surface: "claude/config", Table: "mcpServers"}})); n < 2 {
 		t.Errorf("the prompt trailer and the abort message must both carry the ONE remedy — "+
 			"three copies of this sentence had already drifted apart (P1); it appears %d "+
 			"time(s):\n%s", n, declined)

@@ -43,7 +43,7 @@ func TestTheHostMCPRemedyNamesWhatReachesTheHost(t *testing.T) {
 	if !strings.Contains(report, "handmade") {
 		t.Fatalf("fixture premise: the dry run does not report the hand-added entry:\n%s", report)
 	}
-	remedy := mcpEntryRemedy(home)
+	remedy := mcpEntryRemedy(home, survey.DroppedTables())
 	if n := strings.Count(report, remedy); n != 1 {
 		t.Errorf("the remedy is stated once for the group; it appears %d times:\n%s", n, report)
 	}

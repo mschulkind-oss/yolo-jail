@@ -122,6 +122,9 @@ type hostApplySurvey struct {
 	// go from. Nine raw losses in the measured home, three servers, three surfaces.
 	droppedEntries map[string]bool
 	droppedFrom    map[string]bool
+	// droppedTables are the (surface, table key) pairs those entries go from — what the
+	// remedy's example and key list are built from, so an LSP loss is not handed an MCP key.
+	droppedTables map[droppedTable]bool
 	// skills is every skill this run touches, keyed by NAME (see skillFate).
 	skills map[string]skillFate
 	// commentSurfaces are the surfaces whose comments a canonical re-emit would drop — the one the
@@ -270,6 +273,12 @@ func (s *hostApplySurvey) noteConfig(r entrypoint.HostRenderResult) {
 		s.mark(&s.droppedEntries, entryLossName(e))
 		s.mark(&s.droppedFrom, r.Surface)
 	}
+	for _, t := range droppedTablesOf(r.Surface, r.EntryLosses) {
+		if s.droppedTables == nil {
+			s.droppedTables = map[droppedTable]bool{}
+		}
+		s.droppedTables[t] = true
+	}
 	if len(r.Formatting) > 0 {
 		// The SURFACE is the unit the remedy contract groups comment loss by, and the strings are not
 		// recorded: a comment is the user's prose, and the remedy contract's first forbidden thing is
@@ -344,6 +353,17 @@ func entryLossName(loss string) string {
 		name = name[i+1:]
 	}
 	return name
+}
+
+// entryLossTable is the TABLE half of one loss string — the key the surface's file keeps the
+// table under — which is what a remedy has to name for that entry to be kept. The table is a
+// top-level key and never holds a dot, so the first dot ends it; empty for a string not in
+// tableLosses' form.
+func entryLossTable(loss string) string {
+	if i := strings.Index(loss, "."); i > 0 {
+		return loss[:i]
+	}
+	return ""
 }
 
 // noteSkill records what would become of one skill BY NAME. The bigger fate wins, so a skill
@@ -620,6 +640,20 @@ func (s *hostApplySurvey) ReplacedKeyNames() []string { return sortedSet(s, s.re
 // DroppedEntryNames lists the named-table entries that would be dropped, sorted and
 // deduplicated across agents (see entryLossName for why the raw strings cannot be the unit).
 func (s *hostApplySurvey) DroppedEntryNames() []string { return sortedSet(s, s.droppedEntries) }
+
+// DroppedTables lists the (surface, table key) pairs that would lose an entry, sorted by
+// surface and then key.
+func (s *hostApplySurvey) DroppedTables() []droppedTable {
+	if s == nil {
+		return nil
+	}
+	out := make([]droppedTable, 0, len(s.droppedTables))
+	for t := range s.droppedTables {
+		out = append(out, t)
+	}
+	sortDroppedTables(out)
+	return out
+}
 
 // DroppedComments is the remedy contract's comment class: how many surfaces would lose a
 // comment. A loss with no remedy possible, and the one the verdict had no term for.

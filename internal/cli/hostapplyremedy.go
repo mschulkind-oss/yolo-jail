@@ -39,6 +39,7 @@ package cli
 import (
 	"fmt"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
@@ -263,7 +264,7 @@ func droppedEntryGroup(s *hostApplySurvey, home string, write bool) (remedyGroup
 			plural(len(names), "entry", "entries"), verb, surfaces,
 			plural(surfaces, "agent surface", "agent surfaces")),
 		Items:       names,
-		Remedy:      mcpEntryRemedy(home),
+		Remedy:      mcpEntryRemedy(home, s.DroppedTables()),
 		VerdictTerm: "entr", // "entry"/"entries" — the verdict says one or the other
 		Warn:        true,
 	}, true
@@ -423,23 +424,89 @@ func mcpEntryRemedyKey(home string) string { return localPackManifestPathIn(home
 //
 // It names the FILE, the DECLARATION and the SCOPE, which is what P2 asks of a remedy. The
 // declaration is a `config-overlay` per agent surface (HC-D2), because at the host notch that
-// is the one thing that reaches an MCP table: an overlay folds into the surface's wholesale
-// table layer (entrypoint.hostTableLayer), while the user's `mcp_servers` feeds only a jail's
-// derive. So the scope is stated the other way round from the copy this replaced, which
-// promised "one entry there reaches every agent" — true in a jail, and here advice that left the
-// entry dropped (measured by the design's research pass). The example spells codex's table key;
-// the sentence names the other two, since each agent's file keeps its servers under its own.
+// is the one thing that reaches a yolo-owned table: an overlay folds into the surface's
+// wholesale table layer (entrypoint.hostTableLayer), while the user's `mcp_servers` and
+// `lsp_servers` feed only a jail's derive. So the scope is stated the other way round from the
+// copy this replaced, which promised "one entry there reaches every agent" — true in a jail,
+// and here advice that left the entry dropped (measured by the design's research pass).
+//
+// The example and the key list are built from `tables`, the surfaces and table keys that lost
+// an entry in THIS run, read off the loss lines. The group collects every yolo-owned table's
+// losses, Copilot's `lspServers` as much as any MCP table, and a fixed sentence naming codex's
+// `mcp_servers` sent an LSP loss, with codex not even selected, to an overlay that could not
+// keep it. The name says MCP for the class that motivated it; the remedy is any table's.
 //
 // It ends without a full stop: two callers embed it mid-sentence.
-func mcpEntryRemedy(home string) string {
+func mcpEntryRemedy(home string, tables []droppedTable) string {
+	example := droppedTable{Surface: "<agent>/<surface>", Table: "<table>"}
+	if len(tables) > 0 {
+		example = tables[0]
+	}
+	var surfaces, keys []string
+	seenSurface, seenKey := map[string]bool{}, map[string]bool{}
+	for _, t := range tables {
+		if !seenSurface[t.Surface] {
+			seenSurface[t.Surface] = true
+			surfaces = append(surfaces, t.Surface)
+		}
+		if !seenKey[t.Table] {
+			seenKey[t.Table] = true
+			keys = append(keys, "`"+t.Table+"`")
+		}
+	}
+	scope := " — one per surface, under the table key its loss line names"
+	if len(surfaces) > 0 {
+		scope = fmt.Sprintf(" — one for each of %s, under the table key its loss line names (%s)",
+			joinWords(surfaces, "and"), joinWords(keys, "or"))
+	}
 	return fmt.Sprintf("add a `config-overlay` for each agent surface to the `contributes` list "+
 		"in %s, for example "+
-		`{"kind": "config-overlay", "surface": "codex/config", "config": {"managed": `+
-		`{"mcp_servers": {"<name>": {…}}}}}`+
-		" — one per surface, under the key that surface's file keeps its servers in "+
-		"(`mcpServers`, `mcp_servers` or `mcp`). An `mcp_servers` entry in %s reaches jails "+
-		"only, not the files this command writes", localPackManifestPathIn(home),
+		`{"kind": "config-overlay", "surface": %q, "config": {"managed": `+
+		`{%q: {"<name>": {…}}}}}`+
+		"%s. Your `mcp_servers` and `lsp_servers` in %s reach jails only, not the files this "+
+		"command writes", localPackManifestPathIn(home), example.Surface, example.Table, scope,
 		userConfigPathIn(home))
+}
+
+// joinWords lists items the way a sentence does: "a", "a and b", "a, b and c".
+func joinWords(items []string, conj string) string {
+	switch len(items) {
+	case 0:
+		return ""
+	case 1:
+		return items[0]
+	}
+	return strings.Join(items[:len(items)-1], ", ") + " " + conj + " " + items[len(items)-1]
+}
+
+// droppedTable is one table that lost an entry in a run: the surface, and the key its file
+// keeps the table under, as the loss line spells it.
+type droppedTable struct{ Surface, Table string }
+
+// droppedTablesOf is every table one surface's loss lines name, in the order they name them.
+func droppedTablesOf(surface string, losses []string) []droppedTable {
+	var out []droppedTable
+	seen := map[string]bool{}
+	for _, l := range losses {
+		table := entryLossTable(l)
+		if table == "" || seen[table] {
+			continue
+		}
+		seen[table] = true
+		out = append(out, droppedTable{Surface: surface, Table: table})
+	}
+	return out
+}
+
+// sortDroppedTables orders tables by surface and then key, so a remedy built from them prints
+// the same sentence every run.
+func sortDroppedTables(tables []droppedTable) {
+	sort.Slice(tables, func(i, j int) bool {
+		if tables[i].Surface != tables[j].Surface {
+			return tables[i].Surface < tables[j].Surface
+		}
+		return tables[i].Table < tables[j].Table
+	})
 }
 
 // localPackManifestPathIn is the conventional local pack's pack.json inside the home THIS
