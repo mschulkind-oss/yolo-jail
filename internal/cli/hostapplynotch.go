@@ -83,6 +83,10 @@ type notchFacts struct {
 	// view folds that fact into the tier-1 line rather than printing describe's own line for it
 	// (reportHostPackages); 0 otherwise.
 	InertPackages int
+	// InertConfig names the config keys this notch leaves inert (OQ-NC8): `host_files` entries
+	// with a source, by destination, and `mise_tools` (hostUserFiles.inertNames). Both render in
+	// every jail, so at the host they are named, never silently skipped.
+	InertConfig []string
 }
 
 // surveyNotchFacts walks every contribution the resolved pack set declares and collects the
@@ -162,6 +166,7 @@ func printNotchFacts(pr richtext.Printer, f notchFacts) {
 		if f.InertPackages > 0 {
 			names = append(names, "packages")
 		}
+		names = append(names, f.InertConfig...)
 		for _, k := range f.Inapplicable {
 			names = append(names, string(k))
 		}
@@ -184,6 +189,11 @@ func printNotchFacts(pr richtext.Printer, f notchFacts) {
 		pr.Printf("  [dim]%d %s %s at the host notch: %s (`yolo config-ref` says why)[/dim]",
 			len(names), plural(len(names), "kind", "kinds"),
 			plural(len(names), "does not apply", "do not apply"), strings.Join(names, ", "))
+	}
+	if len(f.InertConfig) > 0 {
+		pr.Printf("  [dim]config that does not apply at the host notch: %s (each renders in a "+
+			"jail; a source-bearing entry mirrors a host file that is already yours here)[/dim]",
+			strings.Join(f.InertConfig, ", "))
 	}
 	if f.Autonomy {
 		where := "folded into the config surfaces below"

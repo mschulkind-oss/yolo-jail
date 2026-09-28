@@ -120,97 +120,115 @@ func RevertHostRender(candidates []*packload.Pack, homeDir string, observe bool)
 	e := &Env{Home: homeDir, Vars: map[string]string{}, hostTarget: true}
 
 	var out HostRevert
-	for _, s := range hostOverlaySurfaces(candidates, e.renderTarget().Profile()) {
-		recPath := prismProvenancePath(e, s.Agent, s.Name)
-		if recPath == "" {
-			continue
-		}
-		data, err := os.ReadFile(recPath)
-		if err != nil {
-			// No record: yolo has never asserted this surface in this home, so there is
-			// nothing of its here to withdraw. Absent-means-never-rendered is the same
-			// reading hostProvenanceExists depends on.
-			continue
-		}
-		path := expandHomePath(e, s.Path)
-		orig, obj, before, derr := readRMWSource(s, path)
-		if derr != nil {
-			// A file yolo cannot decode is left untouched AND keeps its record: deleting
-			// the record would strand keys yolo wrote with nothing left that remembers
-			// whose they are, which is the laundering RetiredLayer exists to prevent.
-			continue
-		}
-		id := s.Agent + "/" + s.Name
-		action := "removed"
-		if observe {
-			action = "would remove"
-		}
-		record := agentcfg.ParseProvenanceRecord(data)
-		// THE CONFIG-LIST ENTRIES YOLO INSERTED, first and per entry: a list path is never a
-		// whole key yolo owns (its `config-list` label is not asserted), so the key pass
-		// below cannot reach it, and removing the whole array would take the user's own
-		// entries with it. The insert record is the authority, exactly as the provenance
-		// record is for keys — only an entry yolo recorded inserting is removed.
-		listRec := e.renderTarget().ListRecordPath(s.Agent, s.Name)
-		listKeys, listChanged := revertListEntries(obj, readListRecord(e, s.Agent, s.Name), record)
-		for _, k := range listKeys {
-			out.Keys = append(out.Keys, HostRevertedKey{Surface: id, Path: path, Key: k,
-				Layer: agentcfg.LayerConfigList, Action: action})
-		}
-		if listRec != "" {
-			if _, err := os.Stat(listRec); err == nil {
-				out.Records = append(out.Records, listRec)
-			}
-		}
-		var removed []string
-		for _, k := range revertableKeys(record) {
-			v, present := obj.Get(k.key)
-			if !present {
-				continue
-			}
-			if keptShapeDefault(s, k, v) {
-				out.Kept = append(out.Kept, HostRevertedKey{Surface: id, Path: path, Key: k.key,
-					Layer: k.layer, Action: "kept"})
-				continue
-			}
-			removed = append(removed, k.key)
-			out.Keys = append(out.Keys, HostRevertedKey{Surface: id, Path: path, Key: k.key,
-				Layer: k.layer, Action: action})
-		}
-		out.Records = append(out.Records, recPath)
-		if observe {
-			continue
-		}
-		if len(removed) > 0 || listChanged {
-			for _, k := range removed {
-				obj.Delete(k)
-			}
-			// orig/before carry the file's comments into the re-emit: a revert removes named
-			// keys and must leave the rest — including the prose around it — as it found it.
-			text, eerr := encodeSurfaceObject(s, obj, orig, before)
-			if eerr != nil {
-				return out, fmt.Errorf("%s: %w", id, eerr)
-			}
-			if werr := writeInPlaceString(path, text); werr != nil {
-				return out, fmt.Errorf("%s: %w", id, werr)
-			}
-		}
-		// THE FILE IS NOT DELETED even when every key in it was yolo's and it is now empty.
-		// Deletion is the host notch's one legitimate asymmetry (§6.3), and an empty object
-		// is recoverable by hand while a deleted file is not — so a revert that emptied a
-		// surface leaves `{}` rather than guessing that yolo created the file. That is why an
-		// empty declared default stays (keptShapeDefault): the file left behind has to be one
-		// its agent still reads.
-		if rerr := os.Remove(recPath); rerr != nil && !os.IsNotExist(rerr) {
-			return out, fmt.Errorf("%s: removing the provenance record %s: %w", id, recPath, rerr)
-		}
-		if listRec != "" {
-			if rerr := os.Remove(listRec); rerr != nil && !os.IsNotExist(rerr) {
-				return out, fmt.Errorf("%s: removing the config-list record %s: %w", id, listRec, rerr)
-			}
+	// THE USER'S host_files SURFACES TOO (OQ-NC8): a source-less entry's render keeps the same
+	// record under the same directory, so the revert withdraws it by the same walk. They come
+	// from the records themselves rather than the config, since a withdrawing user may have
+	// emptied `host_files` already, exactly as they may have emptied `packs`.
+	surfaces := append(hostOverlaySurfaces(candidates, e.renderTarget().Profile()),
+		hostUserFileRecords(e)...)
+	for _, s := range surfaces {
+		if err := withdrawHostSurface(e, s, observe, &out); err != nil {
+			return out, err
 		}
 	}
 	return out, nil
+}
+
+// withdrawHostSurface is one surface of the revert walk: remove from its real file every key the
+// provenance record attributes to a layer yolo wrote, and delete the record (and the config-list
+// record beside it). It appends what it did, or would do under observe, to out. It is the ONE
+// withdrawal, run by `--revert` over every recorded surface and by a host apply over a dropped
+// host_files entry's (RetireHostUserFiles), so the two remove by one rule.
+func withdrawHostSurface(e *Env, s manifest.Surface, observe bool, out *HostRevert) error {
+	recPath := prismProvenancePath(e, s.Agent, s.Name)
+	if recPath == "" {
+		return nil
+	}
+	data, err := os.ReadFile(recPath)
+	if err != nil {
+		// No record: yolo has never asserted this surface in this home, so there is
+		// nothing of its here to withdraw. Absent-means-never-rendered is the same
+		// reading hostProvenanceExists depends on.
+		return nil
+	}
+	path := expandHomePath(e, s.Path)
+	orig, obj, before, derr := readRMWSource(s, path)
+	if derr != nil {
+		// A file yolo cannot decode is left untouched AND keeps its record: deleting
+		// the record would strand keys yolo wrote with nothing left that remembers
+		// whose they are, which is the laundering RetiredLayer exists to prevent.
+		return nil
+	}
+	id := s.Agent + "/" + s.Name
+	action := "removed"
+	if observe {
+		action = "would remove"
+	}
+	record := agentcfg.ParseProvenanceRecord(data)
+	// THE CONFIG-LIST ENTRIES YOLO INSERTED, first and per entry: a list path is never a
+	// whole key yolo owns (its `config-list` label is not asserted), so the key pass
+	// below cannot reach it, and removing the whole array would take the user's own
+	// entries with it. The insert record is the authority, exactly as the provenance
+	// record is for keys — only an entry yolo recorded inserting is removed.
+	listRec := e.renderTarget().ListRecordPath(s.Agent, s.Name)
+	listKeys, listChanged := revertListEntries(obj, readListRecord(e, s.Agent, s.Name), record)
+	for _, k := range listKeys {
+		out.Keys = append(out.Keys, HostRevertedKey{Surface: id, Path: path, Key: k,
+			Layer: agentcfg.LayerConfigList, Action: action})
+	}
+	if listRec != "" {
+		if _, err := os.Stat(listRec); err == nil {
+			out.Records = append(out.Records, listRec)
+		}
+	}
+	var removed []string
+	for _, k := range revertableKeys(record) {
+		v, present := obj.Get(k.key)
+		if !present {
+			continue
+		}
+		if keptShapeDefault(s, k, v) {
+			out.Kept = append(out.Kept, HostRevertedKey{Surface: id, Path: path, Key: k.key,
+				Layer: k.layer, Action: "kept"})
+			continue
+		}
+		removed = append(removed, k.key)
+		out.Keys = append(out.Keys, HostRevertedKey{Surface: id, Path: path, Key: k.key,
+			Layer: k.layer, Action: action})
+	}
+	out.Records = append(out.Records, recPath)
+	if observe {
+		return nil
+	}
+	if len(removed) > 0 || listChanged {
+		for _, k := range removed {
+			obj.Delete(k)
+		}
+		// orig/before carry the file's comments into the re-emit: a revert removes named
+		// keys and must leave the rest — including the prose around it — as it found it.
+		text, eerr := encodeSurfaceObject(s, obj, orig, before)
+		if eerr != nil {
+			return fmt.Errorf("%s: %w", id, eerr)
+		}
+		if werr := writeInPlaceString(path, text); werr != nil {
+			return fmt.Errorf("%s: %w", id, werr)
+		}
+	}
+	// THE FILE IS NOT DELETED even when every key in it was yolo's and it is now empty.
+	// Deletion is the host notch's one legitimate asymmetry (§6.3), and an empty object
+	// is recoverable by hand while a deleted file is not — so a revert that emptied a
+	// surface leaves `{}` rather than guessing that yolo created the file. That is why an
+	// empty declared default stays (keptShapeDefault): the file left behind has to be one
+	// its agent still reads.
+	if rerr := os.Remove(recPath); rerr != nil && !os.IsNotExist(rerr) {
+		return fmt.Errorf("%s: removing the provenance record %s: %w", id, recPath, rerr)
+	}
+	if listRec != "" {
+		if rerr := os.Remove(listRec); rerr != nil && !os.IsNotExist(rerr) {
+			return fmt.Errorf("%s: removing the config-list record %s: %w", id, listRec, rerr)
+		}
+	}
+	return nil
 }
 
 // revertedKey is one eligible provenance entry: the key and the attribution that makes it

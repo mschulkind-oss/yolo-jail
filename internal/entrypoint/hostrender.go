@@ -272,6 +272,12 @@ func hostMechanismPreview(e *Env, mechanism string, s manifest.Surface, l surfac
 	return r.text, prov
 }
 
+// hostRenderEnv is the Env every host render drives: render.Host, not render.Jail, over the
+// real home, with the host's wire tables (HostInputs.vars) for the jail's own readers of them.
+func hostRenderEnv(homeDir string, ownership render.HostOwnership, in *HostInputs) *Env {
+	return &Env{Home: homeDir, Vars: in.vars(), hostTarget: true, hostOwnership: ownership}
+}
+
 // RenderHostPack renders one pack's config surfaces into homeDir (the real $HOME), each
 // through the mechanism the declared `host_management` contract's census names, with the
 // computed layer the pack's derives produce over in (nil for the empty composition). When
@@ -306,7 +312,7 @@ func RenderHostPack(p *packload.Pack, homeDir string, ownership render.HostOwner
 	// Vars carries the host's wire tables (HostInputs.vars), so the jail's own readers of them
 	// (LoadProviders, LoadProfiles, LoadUseProfiles, mcpServersWith, LoadLSPServers) read the
 	// host composition exactly as they read a launch's — the "same handling" of OQ-HC1.
-	e := &Env{Home: homeDir, Vars: in.vars(), hostTarget: true, hostOwnership: ownership}
+	e := hostRenderEnv(homeDir, ownership, in)
 	// The §4.2 autonomy policy comes from the TARGET's confinement profile, not from a
 	// literal chosen here (plan §6c step 1). At the host notch that resolves to autonomy OFF
 	// — the guarded posture, so a pack's jail-bypass permission keys do NOT reach the real
@@ -327,7 +333,22 @@ func RenderHostPack(p *packload.Pack, homeDir string, ownership render.HostOwner
 	if len(problems) > 0 {
 		return nil, fmt.Errorf("pack %s: %s", p.Name, problems[0])
 	}
+	return renderHostPlans(e, p, plans, observe, in)
+}
 
+// renderHostPlans is THE HOST HALF OF THE ONE LOOP (surfaceloop.go): every planned surface
+// written through the census's mechanism into e's real home, with the probes, the change
+// predicate and the report fields each result carries. Its two callers differ only in where the
+// plans came from — a pack's declared surfaces (RenderHostPack, through planPackSurfaces) and the
+// user's own source-less `host_files` entries (RenderHostUserFiles, through
+// planHostFileSurfaces, OQ-NC8) — so both are rendered, refused and reported by one body.
+//
+// p is the plans' owner: its derive.lua supplies the computed layer, and the posture probes
+// read its declaration. The user's entries are owned by hostUserFilesOwner, which declares
+// nothing and has no derive.
+func renderHostPlans(e *Env, p *packload.Pack, plans []surfacePlan, observe bool,
+	in *HostInputs) ([]HostRenderResult, error) {
+	homeDir := e.Home
 	var out []HostRenderResult
 	modes := e.renderTarget().Modes()
 	sources := newHostSources(e, in)

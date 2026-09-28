@@ -83,7 +83,7 @@ func callersOf(t *testing.T, callees ...string) map[string][]string {
 }
 
 func TestEveryPackSurfaceWriterRunsTheOneLoop(t *testing.T) {
-	got := callersOf(t, "planPackSurfaces", "planSurface", "renderPackSet",
+	got := callersOf(t, "planPackSurfaces", "planSurface", "renderPackSet", "renderHostPlans",
 		"renderPlannedSurface", "writeSurfaceThrough", "SurfacesForReport",
 		"renderSurfaceRMWSurface", "renderSurfaceStatefulDetail")
 	for callee, want := range map[string][]string{
@@ -93,15 +93,18 @@ func TestEveryPackSurfaceWriterRunsTheOneLoop(t *testing.T) {
 		"SurfacesForReport": {"planPackSurfaces"},
 		// One surface's plan — its mechanism from the target's census — is decided in the
 		// head alone. A second planner beside it (renderDeclaredSurface, deleted) decides the
-		// same thing a second way.
-		"planSurface": {"planPackSurfaces"},
+		// same thing a second way. The user's host_files entries at the host (OQ-NC8) are
+		// planned by the same planner, not a copy of it.
+		"planSurface": {"planHostFileSurfaces", "planPackSurfaces"},
+		// The host half of the loop: a pack's surfaces and the user's host_files entries.
+		"renderHostPlans": {"RenderHostPack", "RenderHostUserFiles"},
 		// The jail walk: the boot and the check probe, which differ only in their failure
 		// disposition.
 		"renderPackSet": {"ConfigurePackSurfaces", "configureOnePack"},
 		// The jail tail is reached from the jail walk alone.
 		"renderPlannedSurface": {"renderPackSet"},
-		// The dispatch: the jail tail and the host apply.
-		"writeSurfaceThrough": {"RenderHostPack", "renderPlannedSurface"},
+		// The dispatch: the jail tail and the host apply's half of the loop.
+		"writeSurfaceThrough": {"renderHostPlans", "renderPlannedSurface"},
 		// The two pack writers are reached from the dispatch and the wrappers over it alone.
 		// renderSurfaceStatefulSurface is the wrapper the core surfaces and `host_files` use.
 		"renderSurfaceRMWSurface":     {"writeSurfaceThrough"},

@@ -187,6 +187,61 @@ func (e HostFileEntry) Slug() string {
 	return b.String()
 }
 
+// HostFilePathFromSlug inverts Slug: the home-relative destination a slug was escaped from,
+// and false for a string Slug cannot have produced. It exists because the escape is
+// reversible by construction (the single-role '_' sentinel above), and a host apply finds a
+// DROPPED entry's destination by its provenance record alone, whose file name carries the
+// slug and nothing else (OQ-NC8).
+func HostFilePathFromSlug(slug string) (string, bool) {
+	var b strings.Builder
+	for i := 0; i < len(slug); i++ {
+		c := slug[i]
+		switch {
+		case c == '_':
+			if i+2 >= len(slug) {
+				return "", false
+			}
+			var v byte
+			if _, err := fmt.Sscanf(slug[i+1:i+3], "%02x", &v); err != nil {
+				return "", false
+			}
+			b.WriteByte(v)
+			i += 2
+		case c == '.' || c == '-' ||
+			(c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9'):
+			b.WriteByte(c)
+		default:
+			return "", false
+		}
+	}
+	out := b.String()
+	if out == "" || (HostFileEntry{Path: out}).Slug() != slug {
+		return "", false
+	}
+	return out, true
+}
+
+// HostFileCodecFor is the codec an entry naming dest gets when it declares none — the
+// auto-detect, for a reader that has only the destination (a dropped entry's record, OQ-NC8).
+func HostFileCodecFor(dest string) string { return hostFileCodecFor(dest) }
+
+// HostFilesIn is every host_files entry of one config map, resolved as the loader resolves
+// them, with no filesystem probe and no scope split: the host notch reads the USER config
+// alone, where both halves are legal, and decides per entry itself (OQ-NC8). Entries the
+// shape check refuses are left out, as the loader leaves them out.
+func HostFilesIn(cfg *jsonx.OrderedMap) []HostFileEntry {
+	if cfg == nil {
+		return nil
+	}
+	v, present := cfg.Get(hostFilesKey)
+	if !present || v == nil {
+		return nil
+	}
+	entries, _ := checkHostFiles(v, "user", false)
+	sort.Slice(entries, func(i, j int) bool { return entries[i].Path < entries[j].Path })
+	return entries
+}
+
 // hostFileCodecByExt is the extension→codec auto-detect map. Everything not
 // listed — including no extension at all, .sh, .yaml, .yml, and .jsonc — is raw.
 //

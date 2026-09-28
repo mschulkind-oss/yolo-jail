@@ -313,6 +313,11 @@ func applyHostSurveyed(out, errw io.Writer, color bool, write bool, stdin io.Rea
 		// branch below would leave the one config that declares packages and no pack — which
 		// `describe` reports in full — as the one config this command is silent about.
 		reportHostPackages(pr, errw, home)
+		// host_files and mise_tools HERE TOO, for `packages:`' reason: they are config keys, not
+		// pack kinds, and a jail with no pack still renders them (OQ-NC8). The inert ones are
+		// named by the same notch printer the main branch uses; the rest render below.
+		userFiles := readHostUserFiles(config.UserScopeConfigOrEmpty())
+		printNotchFacts(pr, notchFacts{InertConfig: userFiles.inertNames()})
 		// The BRANCH, recorded: "no packs are configured" and "every configured pack changed
 		// nothing" are different results with different next actions, and both reach the
 		// survey as an empty changed set. Nothing can derive it downstream, so it is stated
@@ -332,8 +337,11 @@ func applyHostSurveyed(out, errw io.Writer, color bool, write bool, stdin io.Rea
 		// COMPLETE, since an empty config names nothing that could have failed to resolve.
 		// nil reload: with no pack configured there is nothing for a migration to compose back,
 		// so re-resolving would find the same empty set.
-		rc := applyHostBriefings(pr, out, stdin, nil, packload.Embedded(), empty, true,
-			home, stamp, write, nil, survey)
+		rc := applyHostUserFiles(pr, survey, userFiles, home, write)
+		if brc := applyHostBriefings(pr, out, stdin, nil, packload.Embedded(), empty, true,
+			home, stamp, write, nil, survey); brc != 0 {
+			rc = brc
+		}
 		if src := applyHostSkills(pr, out, stdin, nil, packload.Embedded(), empty, empty, true,
 			home, stamp, write, nil, survey); src != 0 {
 			rc = src
@@ -385,6 +393,9 @@ func applyHostSurveyed(out, errw io.Writer, color bool, write bool, stdin io.Rea
 	// "where do my tools come from here?" would never reach it. Inert, it is folded into the
 	// one tier-1 line below instead (reportHostPackages).
 	inertPackages := reportHostPackages(pr, errw, home)
+	// host_files and mise_tools, from user scope (OQ-NC8, applyhostuserfiles.go): the
+	// source-less entries render below, the rest are named in the notch line.
+	userFiles := readHostUserFiles(config.UserScopeConfigOrEmpty())
 
 	hostFields := render.HostFields()
 	rc := 0
@@ -541,6 +552,18 @@ func applyHostSurveyed(out, errw io.Writer, color bool, write bool, stdin io.Rea
 			"owner. Nothing was written.[/bold red]", len(cols))
 		return 1
 	}
+	// And a host_files destination a selected pack composes: the jail's two-writers refusal
+	// (OQ-LM6), now that the entry renders here too (OQ-NC8), in the same position and for the
+	// same reason — whichever wrote last would win, in a real home.
+	if cols := hostUserFileCollisions(userFiles, loaded); len(cols) > 0 {
+		for _, c := range cols {
+			pr.Printf("  [red]host_files refused[/red] — %s", c)
+		}
+		pr.Printf("[bold red]host apply: refused — %d host_files %s a surface a selected pack "+
+			"composes. Nothing was written.[/bold red]", len(cols),
+			plural(len(cols), "entry names", "entries name"))
+		return 1
+	}
 	// And REFUSE an agent NAME claimed by two packs, for the same reason and in the same
 	// position (docs/reference/agent-briefings.md#oq-ba6, #oq-ba7). It matters most at THIS notch: the render
 	// below routes an addressed contribution to "where <name> reads", so with two owners the
@@ -658,6 +681,7 @@ func applyHostSurveyed(out, errw io.Writer, color bool, write bool, stdin io.Rea
 	// comes next, and so a reader meets the notch before they meet this home.
 	notch := surveyNotchFacts(loaded, hostFields, overlays)
 	notch.InertPackages = inertPackages
+	notch.InertConfig = userFiles.inertNames()
 	survey.noteNotch(notch)
 	printNotchFacts(pr, notch)
 
@@ -708,150 +732,13 @@ func applyHostSurveyed(out, errw io.Writer, color bool, write bool, stdin io.Rea
 			continue
 		}
 		for _, r := range results {
-			// THE BROKEN-LINK RULE's report half: a blocker, stated once in its group with the
-			// fix, and never also as this surface's own line. An --assert that could not write
-			// it did not complete, so it exits non-zero (OQ-RO5); the rest of the pack did.
-			if r.BrokenLink != nil {
-				survey.noteBrokenLink([]string{p.Name}, *r.BrokenLink)
-				continue
-			}
-			// ONE call, carrying the predicate, the report tier and every loss the verdict
-			// counts: they are facts about the same render, and splitting them at the call
-			// site is how one of them comes to be forgotten at the next one.
-			survey.noteConfig(r)
-			// THE ONE TIER-2 LINE THE DEFAULT VIEW KEEPS (the tiers' tier-2 row): a config
-			// surface that would change is itemized — there are few of them and they are what
-			// the auditor came for — while one that is unchanged, skipped or refused is a
-			// settled run fact the verdict counts and `--verbose` lists.
-			reportDestination(pr, configResultTier(r), r.WouldChange,
-				"  [cyan]%-20s[/cyan] %s  [dim]%s[/dim]", r.Surface, r.Action, r.Path)
-			// Which packs contributed config-overlay keys to this surface (ruling R3). An
-			// overlay folds BELOW the owner's managed layer, so it leaves no trace in the
-			// resulting file — without this line the only answer to "which pack set that
-			// key?" is a sidecar the host render does not even write.
-			if len(r.Overlays) > 0 {
-				detail(pr, "    [magenta]config-overlay keys from: %s[/magenta] [dim](below this "+
-					"surface's own managed layer, which still wins a conflict)[/dim]",
-					strings.Join(r.Overlays, ", "))
-			}
-			// Which packs appended ENTRIES to one of this surface's arrays (config-list,
-			// pack-system.md#config-list-visibility).
-			// An assembled array reads in the file exactly like one the owner declared, so this
-			// line is the only place the run says whose entries they are. Detail, beside its
-			// overlay twin: the per-entry account is `yolo config ls`'s.
-			if len(r.Lists) > 0 {
-				detail(pr, "    [magenta]config-list entries from: %s[/magenta] [dim](appended "+
-					"to the owner's array; a managed or computed value there still replaces "+
-					"it)[/dim]", strings.Join(r.Lists, ", "))
-			}
-			// The overlay keys the owner OUTRANKED, by name and by cause (finding F4). The line
-			// above says a conflict would go the owner's way; this one says one DID, and which
-			// key. Without it the loss was worse than silent: the overlay was listed as
-			// contributing and the ⚠ below fired for the same key, so the report read as though
-			// the overlay had won. Its own line rather than folded into that ⚠ because nothing
-			// was overwritten BY THE OVERLAY here — the policy simply held.
-			for _, o := range r.Outranked {
-				pr.Printf("    [yellow]↳ %s[/yellow]", o)
-			}
-			// An input this surface's derive was not handed at the host — an MCP server whose
-			// requires_env this agent's composed environment lacks (HC-D6) — named on its own
-			// line, as a jail's boot names it, since the file shows no trace of it.
-			for _, skip := range r.InputSkips {
-				pr.Printf("  [cyan]%-20s[/cyan] [yellow]%s[/yellow]", r.Surface, skip)
-			}
-			// Warn on every managed key that overwrites a DIFFERING existing value — the
-			// host-notch "always warn" (§4.2 / Phase 9). Shown in observe too, so the
-			// preview is not path-only (finding D2): you see the collision before writing.
-			// The REPLACED values are not repeated here: their group (hostapplyremedy.go's
-			// replacedValueGroups) names each key with its file and the remedy its winner
-			// allows, once. This line used to say it a second time, per surface.
-			//
-			// A KEPT value is this surface's own fact, with no group: under `own` the user's
-			// captured edit outranks a config-overlay, so the pack's value is not in effect.
-			// Self-contained, because the surface's own line above is usually hidden (nothing
-			// changed): it names the surface and the file itself.
-			for _, k := range r.Kept {
-				key, pack := splitOverwriteLabel(k)
-				pr.Printf("  [cyan]%-20s[/cyan] %s: your own edit is kept over %s's config-overlay",
-					r.Surface, key, pack)
-				pr.Printf("    [dim]→ to take %s's value, set %s in %s to it and apply again; "+
-					"`yolo config reset %s --at host` drops every edit yolo captured there[/dim]",
-					pack, key, prettyHomePath(home, r.Path), r.Surface)
-			}
-			// Named-ENTRY casualties: a server whose record comes out merged or gone. Louder
-			// than an overwrite because nothing in the resulting file says what it used to be
-			// — and on a first apply this is the line the confirmation prompt is about.
-			if len(r.EntryLosses) > 0 {
-				verb := "would damage"
-				if write {
-					verb = "damaged"
-				}
-				// The REMEDY is not here any more: this line fires once per surface, and the
-				// same three servers dropped from three agents produced three copies of one
-				// fix (P1). The fix is stated once, for every entry that shares it, in the
-				// tier-3 group below (hostapplyremedy.go). What stays is the fact that is
-				// true of THIS surface — yolo owns this table, so an undeclared entry goes.
-				pr.Printf("    [bold yellow]⚠ %s your existing entry: %s[/bold yellow] "+
-					"[dim](yolo owns this table)[/dim]",
-					verb, strings.Join(r.EntryLosses, ", "))
-			}
-			// WHERE THE FILE YOLO ADOPTED WENT (OQ-CO7). Under `host_management: own` the
-			// first render composes the whole file out of what it already holds, and this is
-			// the copy of it taken beforehand — the net for the deep-merged leaf the ⚠ above
-			// cannot see, because EntryLosses is defined over named entries in a table and
-			// that loss is neither.
-			//
-			// NOT behind detail(). It is a disclosure, and by OQ-RO3 a disclosure is never
-			// suppressible: an archive the user cannot find is a deletion from where they
-			// stand. It fires at most once per surface per home, so the density argument that
-			// moved other lines behind --verbose does not reach it.
-			if r.Archived != "" {
-				pr.Printf("    [cyan]archived your file as yolo found it: %s[/cyan] "+
-					"[dim](once, before adopting it)[/dim]", r.Archived)
-			}
-			// A ONE-SHOT REPAIR OF YOLO'S OWN OUTPUT: a value yolo shipped as a default that
-			// the program reading this file cannot load, deleted so the current default fills
-			// the key again (entrypoint.HostRenderResult.Repaired). The sentence is built
-			// there, tense included, because the jail's boot notice says the same thing from
-			// the same builder.
-			//
-			// NOT behind detail(), for Archived's reason: yolo is editing a key in the user's
-			// own file, and by OQ-RO3 a disclosure is never suppressible. It fires at most
-			// once per surface per home — the second apply finds nothing to repair — so the
-			// density argument does not reach it either.
-			for _, rep := range r.Repaired {
-				pr.Printf("    [cyan]repaired %s[/cyan]", rep)
-			}
-			// The ${workspace}-keyed keys this render DROPPED, by name — a TIER-2 fact under
-			// its surface, so the --verbose view's since detail on demand ("every tier-2 destination
-			// itemized: the skipped surfaces and why").
-			//
-			// NOT the carve-out a refusal gets. This comment used to argue the opposite — "a line for
-			// the same reason a refusal does" — while the line below it was moved behind detail(), which
-			// is a written argument, in this file, for reverting the code or for generalising detail()
-			// onto a real refusal by the analogy. The two are different classes: a pruned key has
-			// another representation (the key is still in the pack that declared it, and `yolo
-			// config-ref` says why the host notch does not honor it), where a refused skill adoption has
-			// none — which is why THAT one is explicitly exempted from detail() (applyhostskills.go, the
-			// remedy contract). The no-silent-drop rule is unchanged: the key is still named, in the
-			// view that itemizes a destination's keys at all.
-			if len(r.Pruned) > 0 {
-				detail(pr, "    [dim]skipped ${workspace}-keyed (no host referent): %s[/dim]",
-					strings.Join(r.Pruned, ", "))
-			}
-			// What the canonical re-emit costs beyond values — a TOML file's comments. Not an
-			// overwrite and not an entry loss: nothing the user CONFIGURED changes, so it does
-			// not belong in either ⚠ above. It is still a loss they should see before the
-			// write, which is why it has a line of its own.
-			//
-			// E4 shipped the `rmw` half, so this line has narrowed rather than disappeared: a
-			// comment now survives whenever the value it sits above does, and what remains is
-			// the exceptions — a comment over a key this render CHANGES (dropped rather than
-			// left lying about a value that is gone), and one attached to no key at all.
-			for _, f := range r.Formatting {
-				pr.Printf("    [yellow]⚠ %s[/yellow]", f)
-			}
+			reportConfigResult(pr, survey, p.Name, r, home, write)
 		}
+	}
+	// THE USER'S OWN host_files ENTRIES, after the packs' surfaces and through the same loop and
+	// report (OQ-NC8): a config surface like theirs, owned by the user rather than a pack.
+	if urc := applyHostUserFiles(pr, survey, userFiles, home, write); urc != 0 {
+		rc = urc
 	}
 
 	// Compose the SKILLS and BRIEFING destinations, for the WHOLE pack set at once. After the
@@ -942,6 +829,157 @@ func applyHostSurveyed(out, errw io.Writer, color bool, write bool, stdin io.Rea
 	// with no summary at all, having just written into a real home.
 	printHostApplyVerdict(pr, survey, write)
 	return rc
+}
+
+// reportConfigResult is one config surface's part of the report: the survey's note, the
+// destination line and every line under it. ONE function for both writers of config rows, a
+// pack's surfaces and the user's own host_files entries (OQ-NC8), so a user surface is
+// reported exactly as a pack's is. owner is who the broken-link group attributes a blocker to.
+func reportConfigResult(pr richtext.Printer, survey *hostApplySurvey, owner string,
+	r entrypoint.HostRenderResult, home string, write bool) {
+	// THE BROKEN-LINK RULE's report half: a blocker, stated once in its group with the
+	// fix, and never also as this surface's own line. An --assert that could not write
+	// it did not complete, so it exits non-zero (OQ-RO5); the rest of the pack did.
+	if r.BrokenLink != nil {
+		survey.noteBrokenLink([]string{owner}, *r.BrokenLink)
+		return
+	}
+	// ONE call, carrying the predicate, the report tier and every loss the verdict
+	// counts: they are facts about the same render, and splitting them at the call
+	// site is how one of them comes to be forgotten at the next one.
+	survey.noteConfig(r)
+	// THE ONE TIER-2 LINE THE DEFAULT VIEW KEEPS (the tiers' tier-2 row): a config
+	// surface that would change is itemized — there are few of them and they are what
+	// the auditor came for — while one that is unchanged, skipped or refused is a
+	// settled run fact the verdict counts and `--verbose` lists.
+	reportDestination(pr, configResultTier(r), r.WouldChange,
+		"  [cyan]%-20s[/cyan] %s  [dim]%s[/dim]", r.Surface, r.Action, r.Path)
+	// Which packs contributed config-overlay keys to this surface (ruling R3). An
+	// overlay folds BELOW the owner's managed layer, so it leaves no trace in the
+	// resulting file — without this line the only answer to "which pack set that
+	// key?" is a sidecar the host render does not even write.
+	if len(r.Overlays) > 0 {
+		detail(pr, "    [magenta]config-overlay keys from: %s[/magenta] [dim](below this "+
+			"surface's own managed layer, which still wins a conflict)[/dim]",
+			strings.Join(r.Overlays, ", "))
+	}
+	// Which packs appended ENTRIES to one of this surface's arrays (config-list,
+	// pack-system.md#config-list-visibility).
+	// An assembled array reads in the file exactly like one the owner declared, so this
+	// line is the only place the run says whose entries they are. Detail, beside its
+	// overlay twin: the per-entry account is `yolo config ls`'s.
+	if len(r.Lists) > 0 {
+		detail(pr, "    [magenta]config-list entries from: %s[/magenta] [dim](appended "+
+			"to the owner's array; a managed or computed value there still replaces "+
+			"it)[/dim]", strings.Join(r.Lists, ", "))
+	}
+	// The overlay keys the owner OUTRANKED, by name and by cause (finding F4). The line
+	// above says a conflict would go the owner's way; this one says one DID, and which
+	// key. Without it the loss was worse than silent: the overlay was listed as
+	// contributing and the ⚠ below fired for the same key, so the report read as though
+	// the overlay had won. Its own line rather than folded into that ⚠ because nothing
+	// was overwritten BY THE OVERLAY here — the policy simply held.
+	for _, o := range r.Outranked {
+		pr.Printf("    [yellow]↳ %s[/yellow]", o)
+	}
+	// An input this surface's derive was not handed at the host — an MCP server whose
+	// requires_env this agent's composed environment lacks (HC-D6) — named on its own
+	// line, as a jail's boot names it, since the file shows no trace of it.
+	for _, skip := range r.InputSkips {
+		pr.Printf("  [cyan]%-20s[/cyan] [yellow]%s[/yellow]", r.Surface, skip)
+	}
+	// Warn on every managed key that overwrites a DIFFERING existing value — the
+	// host-notch "always warn" (§4.2 / Phase 9). Shown in observe too, so the
+	// preview is not path-only (finding D2): you see the collision before writing.
+	// The REPLACED values are not repeated here: their group (hostapplyremedy.go's
+	// replacedValueGroups) names each key with its file and the remedy its winner
+	// allows, once. This line used to say it a second time, per surface.
+	//
+	// A KEPT value is this surface's own fact, with no group: under `own` the user's
+	// captured edit outranks a config-overlay, so the pack's value is not in effect.
+	// Self-contained, because the surface's own line above is usually hidden (nothing
+	// changed): it names the surface and the file itself.
+	for _, k := range r.Kept {
+		key, pack := splitOverwriteLabel(k)
+		pr.Printf("  [cyan]%-20s[/cyan] %s: your own edit is kept over %s's config-overlay",
+			r.Surface, key, pack)
+		pr.Printf("    [dim]→ to take %s's value, set %s in %s to it and apply again; "+
+			"`yolo config reset %s --at host` drops every edit yolo captured there[/dim]",
+			pack, key, prettyHomePath(home, r.Path), r.Surface)
+	}
+	// Named-ENTRY casualties: a server whose record comes out merged or gone. Louder
+	// than an overwrite because nothing in the resulting file says what it used to be
+	// — and on a first apply this is the line the confirmation prompt is about.
+	if len(r.EntryLosses) > 0 {
+		verb := "would damage"
+		if write {
+			verb = "damaged"
+		}
+		// The REMEDY is not here any more: this line fires once per surface, and the
+		// same three servers dropped from three agents produced three copies of one
+		// fix (P1). The fix is stated once, for every entry that shares it, in the
+		// tier-3 group below (hostapplyremedy.go). What stays is the fact that is
+		// true of THIS surface — yolo owns this table, so an undeclared entry goes.
+		pr.Printf("    [bold yellow]⚠ %s your existing entry: %s[/bold yellow] "+
+			"[dim](yolo owns this table)[/dim]",
+			verb, strings.Join(r.EntryLosses, ", "))
+	}
+	// WHERE THE FILE YOLO ADOPTED WENT (OQ-CO7). Under `host_management: own` the
+	// first render composes the whole file out of what it already holds, and this is
+	// the copy of it taken beforehand — the net for the deep-merged leaf the ⚠ above
+	// cannot see, because EntryLosses is defined over named entries in a table and
+	// that loss is neither.
+	//
+	// NOT behind detail(). It is a disclosure, and by OQ-RO3 a disclosure is never
+	// suppressible: an archive the user cannot find is a deletion from where they
+	// stand. It fires at most once per surface per home, so the density argument that
+	// moved other lines behind --verbose does not reach it.
+	if r.Archived != "" {
+		pr.Printf("    [cyan]archived your file as yolo found it: %s[/cyan] "+
+			"[dim](once, before adopting it)[/dim]", r.Archived)
+	}
+	// A ONE-SHOT REPAIR OF YOLO'S OWN OUTPUT: a value yolo shipped as a default that
+	// the program reading this file cannot load, deleted so the current default fills
+	// the key again (entrypoint.HostRenderResult.Repaired). The sentence is built
+	// there, tense included, because the jail's boot notice says the same thing from
+	// the same builder.
+	//
+	// NOT behind detail(), for Archived's reason: yolo is editing a key in the user's
+	// own file, and by OQ-RO3 a disclosure is never suppressible. It fires at most
+	// once per surface per home — the second apply finds nothing to repair — so the
+	// density argument does not reach it either.
+	for _, rep := range r.Repaired {
+		pr.Printf("    [cyan]repaired %s[/cyan]", rep)
+	}
+	// The ${workspace}-keyed keys this render DROPPED, by name — a TIER-2 fact under
+	// its surface, so the --verbose view's since detail on demand ("every tier-2 destination
+	// itemized: the skipped surfaces and why").
+	//
+	// NOT the carve-out a refusal gets. This comment used to argue the opposite — "a line for
+	// the same reason a refusal does" — while the line below it was moved behind detail(), which
+	// is a written argument, in this file, for reverting the code or for generalising detail()
+	// onto a real refusal by the analogy. The two are different classes: a pruned key has
+	// another representation (the key is still in the pack that declared it, and `yolo
+	// config-ref` says why the host notch does not honor it), where a refused skill adoption has
+	// none — which is why THAT one is explicitly exempted from detail() (applyhostskills.go, the
+	// remedy contract). The no-silent-drop rule is unchanged: the key is still named, in the
+	// view that itemizes a destination's keys at all.
+	if len(r.Pruned) > 0 {
+		detail(pr, "    [dim]skipped ${workspace}-keyed (no host referent): %s[/dim]",
+			strings.Join(r.Pruned, ", "))
+	}
+	// What the canonical re-emit costs beyond values — a TOML file's comments. Not an
+	// overwrite and not an entry loss: nothing the user CONFIGURED changes, so it does
+	// not belong in either ⚠ above. It is still a loss they should see before the
+	// write, which is why it has a line of its own.
+	//
+	// E4 shipped the `rmw` half, so this line has narrowed rather than disappeared: a
+	// comment now survives whenever the value it sits above does, and what remains is
+	// the exceptions — a comment over a key this render CHANGES (dropped rather than
+	// left lying about a value that is gone), and one attached to no key at all.
+	for _, f := range r.Formatting {
+		pr.Printf("    [yellow]⚠ %s[/yellow]", f)
+	}
 }
 
 // reportHostPackages says what `yolo describe` says about `packages:`, at the host notch

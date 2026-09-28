@@ -115,6 +115,21 @@ func configRenderHost(agent, surface string, explain bool, out, errw io.Writer, 
 			matched = append(matched, r)
 		}
 	}
+	// THE USER'S host_files ENTRIES, which host apply renders after the packs' surfaces through
+	// the same loop (OQ-NC8), previewed the same way: agent "user", one surface per entry.
+	userResults, uerr := entrypoint.RenderHostUserFiles(
+		readHostUserFiles(config.UserScopeConfigOrEmpty()).render, home, ownership, true)
+	if uerr != nil {
+		fmt.Fprintf(errw, "yolo config render: %s: %v\n", hostUserFilesOwner, uerr)
+		rc = 1
+	}
+	for _, r := range userResults {
+		a, n, _ := strings.Cut(r.Surface, "/")
+		known[a] = true
+		if a == agent && (surface == "" || n == surface) {
+			matched = append(matched, r)
+		}
+	}
 	if len(matched) == 0 {
 		if !known[agent] {
 			names := make([]string, 0, len(known))
