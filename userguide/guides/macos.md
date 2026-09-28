@@ -1,25 +1,9 @@
 # macOS Setup Guide
 
-**Status:** REFERENCE — user-facing setup guide. **Backend-parity sweep 2026-08-24:**
-[Limitations](#limitations) now carries a disabled-feature table for **each** of the two
-macOS-native backends, so the choice between them can be made by reading rather than by
-launching. Those two tables cite `file → function` rather than `file:line`, on purpose:
-the previous revision's `assemble_parts.go:83` had drifted ~30 lines, and every row in a
-table that outlives a refactor will drift the same way. **Spot-verified 2026-08-23:**
-the three backends and their auto-detection order (`internal/cli/run/preflight.go:90-133`
-— macOS tries `container` then `podman`; `macos-user` is opt-in only,
-`internal/paths/paths.go:27`); the `macos-*` command family
-(`internal/cli/dispatch.go:31-34`); the container-builder offload with no `yolo
-builder` command (`internal/containerbuilder/`, `internal/image/builderoffload.go:23`);
-and the broker-relay deletion (`internal/brokerrelay` is gone; the front is a
-goroutine at `internal/cli/run/loopholesruntime.go:892`). **Three commands this
-guide told you to run do not exist** — corrected inline below. **Not verified:**
-any macOS-hardware behaviour (vmnet NAT, Podman Machine, Determinate daemon
-hang, Apple Container bind-mount limits) — nobody ran a Mac for this audit; the
-Nix/Homebrew instructions; the ASCII architecture diagrams.
-
-yolo works on macOS (Apple Silicon and Intel) as well as Linux. On a Mac the
-main choice is how the agent is confined, between two flavors of backend:
+yolo works on macOS as well as Linux. The install steps for every Mac setup are in
+[Getting Started](../getting-started.md#quick-install); this page explains the choices behind them and
+what each setup can and cannot do. On a Mac the main choice is how the agent is confined, between two
+flavors of backend:
 
 - **Linux container** (`podman`, `container`) — Podman Machine or Apple
   Container transparently runs a lightweight Linux VM, so the jail experience is
@@ -36,21 +20,20 @@ qemu, no Rosetta. The only time you hit emulation is pulling an **amd64-only
 image** (e.g. some database images); that's a property of that image, not of the
 backend.
 
-> `macos-user` was prototyped, briefly excised, then **revived** as a composed
-> product (native macos-user + Apple Container fallback) and is now verified on
-> hardware. See
-> [macos-no-vm-direction.md](https://github.com/mschulkind-oss/yolo-jail/blob/main/docs/reference/macos-no-vm-direction.md) for the standing
-> decision and
-> [macos-revival-and-distribution-plan.md](https://github.com/mschulkind-oss/yolo-jail/blob/main/docs/plans/macos-revival-and-distribution-plan.md)
-> for the current status.
+> [!NOTE]
+> **Today, use Apple Container.** `macos-user` is planned to become the main Mac setup, with Apple
+> Container as the fallback, but it is still in development: some agents have not been tried on it,
+> and several features are missing. Apple Container is the recommended setup until then, and Podman is
+> fully supported. The plan is in
+> [macos-no-vm-direction.md](https://github.com/mschulkind-oss/yolo-jail/blob/main/docs/reference/macos-no-vm-direction.md).
 
 ## Choosing a runtime
 
 | Runtime | What it is | Choose it for |
 |---------|------------|---------------|
-| **Podman** | Linux container in a Podman Machine VM | The portable default; Podman-in-Podman; **full feature parity with Linux hosts** — nothing in [Limitations](#limitations) is skipped for backend reasons |
-| **Apple Container** | Linux container, one lightweight VM per container | Per-container CPU/memory limits, native socket forwarding (macOS 15+). Drops every loophole but one — the OpenAI credential broker starts, and the jail cannot reach it; context mounts and read-only protection arrive from `container` 1.1.0 and are declined below it — see [what it does not do](#apple-container-runtime-container--what-it-does-not-do) |
-| **macos-user** | Native macOS user + Seatbelt, **no VM, no image** | Fastest startup; no container runtime to install; `packages:` via native darwin nix. Weaker isolation than a VM (Seatbelt, no cgroups) — see [Trade-offs](#macos-user-trade-offs) and [what it does not do](#macos-user-native-no-vm--what-it-does-not-do) |
+| **Apple Container** (recommended) | Linux container, one lightweight VM per container | The Mac default. Needs an Apple silicon Mac on macOS 26 (Tahoe) or later. Per-container CPU/memory limits and no VM to manage. Drops every loophole but one — the OpenAI credential broker starts, and the jail cannot reach it; context mounts and read-only protection arrive from `container` 1.1.0 and are declined below it — see [what it does not do](#apple-container-runtime-container--what-it-does-not-do) |
+| **Podman** | Linux container in a Podman Machine VM | Intel Macs, macOS before 26, and anything Apple Container lacks: Podman-in-Podman and **full feature parity with Linux hosts** — nothing in [Limitations](#limitations) is skipped for backend reasons |
+| **macos-user** (coming) | Native macOS user + Seatbelt, **no VM, no image** | Fastest startup; no container runtime to install; `packages:` via native darwin nix. Weaker isolation than a VM (Seatbelt, no cgroups) — see [Trade-offs](#macos-user-trade-offs) and [what it does not do](#macos-user-native-no-vm--what-it-does-not-do) |
 
 The container runtimes are native arm64 on Apple Silicon. Set the runtime with
 `YOLO_RUNTIME=podman`, `container`, or `macos-user` (or the `runtime` key in
@@ -81,38 +64,38 @@ directly as `aarch64-darwin` nix. What you give up:
 
 ## Prerequisites
 
-**Always required:**
+[Getting Started](../getting-started.md#step-1-install-nix) has the commands. What every Mac setup
+needs:
 
 | Tool | Install | Notes |
 |------|---------|-------|
-| **[Nix](https://nixos.org/download/)** | [Determinate Nix Installer](https://github.com/DeterminateSystems/nix-installer) recommended | Flakes must be enabled. Builds the jail image (container runtimes) or the native `aarch64-darwin` `packages:` (macos-user). Your user must be a **trusted** nix user — `yolo check` flags it if not. |
-
-`yolo` is the only binary you install (`go install ./cmd/yolo`, `brew`, or a
-release archive); everything else it provisions itself.
+| **[Nix](https://nixos.org/download/)** | [Determinate Nix installer](https://github.com/DeterminateSystems/nix-installer) on Apple silicon; the official installer on Intel | Builds the jail image (container runtimes) or the native `aarch64-darwin` `packages:` (macos-user). yolo turns on flakes for its own builds, but `yolo check` needs `nix-command` enabled, which the Determinate installer does for you. Your user must be a **trusted** Nix user — [the one-line setup](../getting-started.md#let-yolo-use-its-binary-cache); `yolo check` warns if it is missing. |
+| **yolo** | [Homebrew](../getting-started.md#homebrew) | The only yolo program you install on the Mac; everything else it provisions itself. |
 
 **Plus a runtime — pick ONE** (see [Choosing a runtime](#choosing-a-runtime)):
 
 | Runtime | Install | Notes |
 |---------|---------|-------|
-| **[Podman](https://podman.io/)** | `brew install podman` | The portable default; requires Podman Machine (setup below) |
-| **[Apple Container](https://github.com/apple/container)** | `brew install container` | Native per-container VM; macOS 15+ |
-| **macos-user** | *(nothing to install)* | Native, no VM. Needs only Nix + `yolo macos-setup` (see [The macos-user backend](#the-macos-user-backend)) |
+| **[Apple Container](https://github.com/apple/container)** | `brew install container` ([steps](../getting-started.md#macos-apple-container-recommended)) | Recommended. Apple silicon and macOS 26 or later only |
+| **[Podman](https://podman.io/)** | `brew install podman` on Apple silicon; the 5.8 installer package on Intel ([steps](../getting-started.md#macos-podman)) | Needs a Podman Machine, created with the folders yolo uses shared |
+| **macos-user** | *(nothing to install)* | Coming. Native, no VM. Needs only Nix + `yolo macos-setup` (see [The macos-user backend](#the-macos-user-backend)) |
 
 ### Podman Machine Setup
 
-Podman on macOS runs containers inside a Linux VM managed by `podman machine`.
-Initialise it once:
+Podman on macOS runs containers inside a Linux VM managed by `podman machine`. Create it once, with
+the command in [Getting Started](../getting-started.md#macos-podman).
 
-```bash
-# Create the VM (adjust resources to taste)
-podman machine init --cpus 4 --memory 8192 --disk-size 50
+The part that matters is the list of shared folders. A jail can only use a Mac folder the VM shares,
+and `-v` on `podman machine init` replaces Podman's default list (`/Users`, `/private`,
+`/var/folders`) rather than adding to it, so a machine created with one extra `-v` loses the defaults.
+The list is fixed when the machine is created; to change it, `podman machine rm` and create it again.
+A Homebrew install of yolo keeps the programs it mounts into each jail under Homebrew's `Cellar`
+folder (`/opt/homebrew/Cellar` on Apple silicon, `/usr/local/Cellar` on Intel), which is not a
+default, so that setup shares it too. Check a folder with
+`podman machine ssh -- test -d <folder> && echo shared`.
 
-# Start the VM
-podman machine start
-```
-
-The machine persists across reboots. Use `podman machine stop` / `podman machine start`
-to manage it.
+The machine keeps its settings across reboots but does not start by itself; run
+`podman machine start` when yolo says the runtime is not running.
 
 ### Apple Container (native macOS runtime)
 
@@ -123,18 +106,11 @@ Unix socket forwarding (`--publish-socket`). ⚠ yolo's use of that last one is
 broken today, and both port keys are worse than they look here — see
 [what Apple Container does not do](#apple-container-runtime-container--what-it-does-not-do) below.
 
-```bash
-brew install container
-
-# Start the container system daemon
-container system start
-
-# Verify it's working
-container system info
-
-# Install the recommended Linux kernel (required on first use)
-container system kernel set --recommended
-```
+It needs an Apple silicon Mac on macOS 26 (Tahoe) or later; Apple does not support older macOS. yolo
+needs `container` 1.1.0 or later for read-only folders, and its measurements so far are on 1.1.0.
+Install with `brew install container`, then `container system start`, which offers to install the
+recommended Linux kernel the first time; the full steps are in
+[Getting Started](../getting-started.md#macos-apple-container-recommended).
 
 **Key advantages:**
 - Native per-container CPU/memory limits (no cgroup delegation needed)
@@ -214,18 +190,18 @@ derivation locally, so those few must be built on Linux somehow.
 
 Two things make that a non-event:
 
-**Best — download the prebuilt image (no build at all).** When yolo-jail's
-Cachix cache is published, macOS users download the fully-built image and
-never compile anything. This is the intended happy path; see
-[docs/plans/handoff-cachix-cache.md](https://github.com/mschulkind-oss/yolo-jail/blob/main/docs/plans/handoff-cachix-cache.md) for its status. Once
-live, `yolo check` shows "every image path is served from the binary cache".
-CI pushes the **aarch64-linux** closure on every release (built natively on
-an arm runner), so Apple Silicon Macs pull the exact arm image they run — no
-cross-build, no builder needed.
+**Best — download the prebuilt image (no build at all).** yolo publishes its
+image to its own binary cache, `yolo-jail.cachix.org`, which the flake names, so
+a Mac downloads the built pieces instead of compiling them. CI pushes the image
+for each release, and the **aarch64-linux** one nightly, so Apple silicon Macs
+pull the arm image they run — no cross-build, no builder needed. Nix uses that
+cache only for a **trusted** user (below). `yolo check` shows "every image path
+is served from the binary cache" when nothing needs building. A `packages:` list
+of your own makes a different image, so its extra packages are built.
 
 **Otherwise — automatic offload to a container builder.** If a package must be
-built from source (before the cache is published, or because you added a custom
-package that isn't cached), a normal `yolo` run handles it **automatically**: it
+built from source (because you added a package that isn't cached, or the cache
+does not have this version yet), a normal `yolo` run handles it **automatically**: it
 starts a tiny nix+sshd Linux builder **container** on whichever runtime is
 already up (podman or Apple Container), offloads the build to it over `ssh-ng`,
 then tears it down. No VM to set up, no `sudo`, no `yolo builder` command, no
@@ -239,20 +215,12 @@ offending derivation) and reminds you to start the runtime.
 > macOS. You don't need it — the automatic container-builder offload handles
 > any from-source Linux build for you.
 
-**Your user must be trusted by the Nix daemon** (so it may offload builds to the
-builder container). Check, set, and restart:
-
-```bash
-# Is a custom.conf include present? (Determinate adds it; official NixOS
-# installer does not — on that one, edit nix.conf directly.)
-grep -qF 'include /etc/nix/nix.custom.conf' /etc/nix/nix.conf \
-  && echo 'trusted-users = root '"$(whoami)" | sudo tee -a /etc/nix/nix.custom.conf \
-  || echo 'trusted-users = root '"$(whoami)" | sudo tee -a /etc/nix/nix.conf
-
-# Restart the daemon (label depends on installer):
-sudo launchctl kickstart -k system/systems.determinate.nix-daemon  # Determinate
-# or: sudo launchctl kickstart -k system/org.nixos.nix-daemon       # official NixOS
-```
+**Your user must be trusted by the Nix daemon.** Both routes above need it: Nix
+uses a project's own binary cache, and hands a build to another machine, only for
+a trusted user. The setup is one line plus a daemon restart, in
+[Let yolo use its binary cache](../getting-started.md#let-yolo-use-its-binary-cache).
+The Determinate installer reads it from `/etc/nix/nix.custom.conf`; the official
+installer has no such file, so the line goes in `/etc/nix/nix.conf`.
 
 > **Escape hatch (advanced):** if you already run your OWN Linux builder — a
 > **nix-darwin** `linux-builder` (`nix.linux-builder.enable = true;`), or a
@@ -265,16 +233,21 @@ sudo launchctl kickstart -k system/systems.determinate.nix-daemon  # Determinate
 
 ### Known Issue: Determinate Nix Daemon Hang
 
-Some versions of `determinate-nixd` (notably v3.x) may hang on store
-operations for non-root users. If `nix store info` hangs indefinitely:
+Some versions of `determinate-nixd`, the Determinate Nix daemon, have hung on
+store operations for non-root users. `yolo check` detects it: the Nix daemon row
+fails with `store operation timed out`. Restart the daemon first:
 
 ```bash
-# Kill the determinate daemon and start the vanilla nix-daemon
+sudo launchctl kickstart -k system/systems.determinate.nix-daemon
+```
+
+If it keeps hanging, a temporary workaround is to replace it with the standard
+Nix daemon until the next reboot:
+
+```bash
 sudo pkill determinate-nixd
 sudo /nix/var/nix/profiles/default/bin/nix-daemon &
 ```
-
-This starts the standard Nix daemon which does not have the hang bug.
 
 ### Nested Nix builds inside the jail (advanced)
 
@@ -329,8 +302,11 @@ Linux. With only the first, it mounts neither and says so in one line.
 
 Since 2026-09-06 yolo's own binaries are **bind-mounted** into the jail rather
 than baked into the image ([`image-staging-vs-baking.md`](https://github.com/mschulkind-oss/yolo-jail/blob/main/docs/reference/image-staging-vs-baking.md#the-mounted-prefix)). An
-installed bundle — Homebrew, the release archive, `just install` — ships them
-prebuilt under `$HOME`, which the VM does share, so nothing changes for it. A
+installed bundle ships them prebuilt. `just install` puts its bundle under
+`$HOME`, which the VM shares by default, and so does a release archive unpacked
+there. A Homebrew bundle sits under Homebrew's `Cellar` folder, which the VM
+shares only if the machine was created with it
+([the share list](../getting-started.md#macos-podman)). A
 **live checkout** ships none, so they are built, and a built prefix lives in
 `/nix/store` — the one tree the VM does not share. Podman reports that as
 
@@ -367,38 +343,17 @@ what the 2026-09-13 nightly bought.
 
 ## Installation
 
-Two options. Homebrew is easiest; the source install is for hacking on the CLI
-or running an unreleased working tree. (`go install
-github.com/mschulkind-oss/yolo-jail/cmd/yolo@latest` also works identically on
-macOS.)
+Install yolo with Homebrew, `brew install mschulkind-oss/tap/yolo-jail`, on Apple
+silicon and Intel alike. [Getting Started](../getting-started.md#step-3-install-yolo)
+has it, the source install for working on yolo itself, and the release archive.
+`go install` and pipx ship the binary without its build files, so they need a
+clone named by `YOLO_REPO_ROOT`, and on Podman that clone is refused unless the
+machine shares `/nix` ([above](#the-same-rule-now-decides-whether-a-live-checkout-can-launch-at-all)).
 
 > [!NOTE]
-> **`yolo` is the only binary you install on the host.** `just install` runs
-> `go install ./cmd/yolo` and nothing else — `yolo-entrypoint`, `yolo-jaild`,
-> `yolo-ps`, `yolo-cglimit` and `yolo-journalctl` are image-side only and never
-> reach a macOS host.
-
-### Option A — Homebrew (recommended for users)
-
-```bash
-brew tap mschulkind-oss/tap
-brew install mschulkind-oss/tap/yolo-jail
-```
-
-The formula is generated on every tag by the release workflow and builds `yolo`
-from the tagged source. No source checkout, no `just`, auto-updates via `brew
-upgrade`. Works on Apple Silicon and Intel.
-
-### Option B — Install from source
-
-```bash
-git clone https://github.com/mschulkind-oss/yolo-jail.git
-cd yolo-jail
-just deploy          # builds + installs the yolo CLI
-
-# (Optional) Set user-level defaults
-yolo init-user-config
-```
+> **`yolo` is the only program you install on the Mac.** The Linux programs that
+> run inside the jail (`yolo-entrypoint`, `yolo-jaild` and the rest) ship with it,
+> in its build files, and never run on the Mac itself.
 
 > [!NOTE]
 > **There is no `yolo build` command.** The first `yolo` run builds the image with
@@ -411,14 +366,14 @@ Usage is identical to Linux:
 
 ```bash
 cd /path/to/your/project
-yolo run
+yolo -- claude
 ```
 
 Set the runtime explicitly if needed:
 
 ```bash
-export YOLO_RUNTIME=podman   # or container
-yolo run
+export YOLO_RUNTIME=podman   # or container, or macos-user
+yolo
 ```
 
 ## What Works on macOS
@@ -546,7 +501,7 @@ those you have to know about, because nothing tells you.
 | `network.mode: "bridge"` (the default) | **honored.** Apple Container gives each container its own `vmnet` namespace and yolo emits no `--net` — which is correct here | `run/assemble.go` → `assembleRunCmd` (network-mode block) |
 | `network.mode: "host"` | **not honored — and asking for it is worse than leaving it unset.** Warns | see the warning below |
 | `network.mode: "none"` (or any other value) | **not a legal value on any backend.** The key accepts `bridge` and `host` only; anything else is a config error that refuses the launch before a backend is even chosen | `config/validate.go` (the `network.mode` check) |
-| `network.ports` | **emitted and inert — measured 2026-09-16** on `container` 1.1.0 / macOS 25.5. `container inspect` records the mapping (`hostAddress: 0.0.0.0`) and the published address carries no data: the Mac's dial connects, the jail-side listener sees it arrive and reset, nothing crosses. The container's own vmnet IP answers normally, so the reachable address is not the one yolo publishes. Nothing warns | `run/assemble.go` → `assembleRunCmd` |
+| `network.ports` | **emitted and inert — measured 2026-09-16** on `container` 1.1.0 / macOS 26.5. `container inspect` records the mapping (`hostAddress: 0.0.0.0`) and the published address carries no data: the Mac's dial connects, the jail-side listener sees it arrive and reset, nothing crosses. The container's own vmnet IP answers normally, so the reachable address is not the one yolo publishes. Nothing warns | `run/assemble.go` → `assembleRunCmd` |
 | `network.forward_host_ports` | **breaks the launch — measured 2026-09-16.** yolo starts host-side `socat` before creating the container (`run.go`, "Start host-side port forwarding BEFORE the container") and AC refuses the flag naming that socket: `Error: host socket <path> already exists and may be in use`. The direction is inverted too — `--publish-socket host_path:container_path` creates the host socket and forwards a *host* connection inward to a container-side listener, which is the opposite of this key. A published socket does carry data both ways, so it is the material for a fix, not a dead end | `run/assemble_parts.go` → `forwardHostPortsArgs` |
 | Pack `state` at `scope: machine` (e.g. `~/.claude-shared-credentials`) | **honored as of 2026-08-24.** It was never mounted before that, so cross-jail credential sharing silently degraded to per-workspace — see the warning below | `run/assemble_parts.go` → `appleContainerBaseMounts` |
 | Any single-**file** read-only mount | **copied, not mounted** — by choice, not by necessity. This was attributed to [apple/container#1089](https://github.com/apple/container/issues/1089) ("cannot bind a single file"), which is **false on `container` 1.1.0** — measured 2026-09-14: a regular-file bind arrives, propagates writes and honors `:ro`. yolo keeps copying because a copy works on every version with no version floor to get wrong, and every consumer here reads its file at boot, so a snapshot is equivalent. yolo copies each one into the jail's home — your `yolo-user-env.sh`, pack briefings, pack `files`, your global gitignore, pack `reads-host` grants and `host_files` file sources. You should not notice; the files arrive with the same contents. **The one exception is a pack `mount` whose source is a file**, which is skipped rather than copied — see the row above for why | `run/helpers.go` → `acMaterialize` |
@@ -676,7 +631,7 @@ podman machine init --cpus 2 --memory 4096
 **Apple Container:** Native per-container resource limits work out of the box:
 
 ```bash
-YOLO_RUNTIME=container yolo run  # uses --cpus and --memory flags natively
+YOLO_RUNTIME=container yolo  # uses --cpus and --memory flags natively
 ```
 
 ### GPU Passthrough
@@ -832,19 +787,20 @@ container builder), and the Nix store APFS volume.
 
 ### Podman Machine won't start
 
-On headless Macs (EC2, CI), Podman Machine may fail because Apple's
-Hypervisor.framework requires a GUI session. On such hosts, consider using
-Apple Container instead (`YOLO_RUNTIME=container`) which uses
-Virtualization.framework per-container.
+A Mac that is itself a virtual machine (a cloud or CI Mac) needs nested
+virtualization for the Podman Machine, and not every host offers it.
 
-On desktop Macs, try resetting the machine:
+Otherwise, try recreating the machine. `podman machine rm` deletes it and every
+image in it, and the next `yolo` loads the jail image again:
 
 ```bash
 podman machine stop
 podman machine rm
-podman machine init --cpus 4 --memory 8192 --disk-size 50
-podman machine start
 ```
+
+Then create and start it again with the command in
+[Getting Started](../getting-started.md#macos-podman), which keeps the folders
+yolo needs shared.
 
 ### Nix build fails or hangs
 
@@ -858,7 +814,7 @@ podman machine start
 
 ### Container image not loading
 
-If `yolo run` fails to load the image, try manually (there is no `yolo build`
+If `yolo` fails to load the image, try manually (there is no `yolo build`
 subcommand — see the warning under *Install from source*):
 
 ```bash
@@ -889,10 +845,12 @@ Linux builder realized are copied back by `nix build` and tarred locally.
 ### Slow first build
 
 The first `nix build` downloads the nixpkgs tarball and all Linux packages
-from the binary cache. Subsequent builds are instant due to the Nix store
-cache. Because all packages are fetched from the NixOS binary cache (no local
-Linux build required), the bottleneck is download speed rather than
-compilation time.
+from the binary caches — Nix's public one and yolo's own. Subsequent builds are
+instant due to the Nix store cache. Because the packages are downloaded rather
+than built, the bottleneck is download speed rather than compilation time;
+copying the finished image into the runtime adds more minutes on a Mac. If
+`yolo check` says a package must be built from source, that one is built in a
+temporary container instead.
 
 ### File ownership issues
 
@@ -920,7 +878,9 @@ host service is a different backend.
 
 ### Apple Container: no outbound internet (macOS 15 vmnet limitation)
 
-Apple Container on Darwin 24.x (macOS 15) has a `vmnet` limitation that leaves
+Apple now supports Apple Container on macOS 26 only; this section is for an older
+install still running on macOS 15. There, Apple Container on Darwin 24.x has a
+`vmnet` limitation that leaves
 containers without outbound internet even though the bridge gateway is
 reachable. First-time setup stalls: `mise` times out resolving node/go/python
 version lists, `git`/`curl` can't reach `github.com` or `nodejs.org`.
@@ -963,7 +923,7 @@ This loads a NAT rule into a sub-anchor under the stock `nat-anchor
 ruleset without editing or flushing it. Verify from a fresh jail:
 
 ```bash
-yolo run -- curl -sS -o /dev/null -w '%{http_code}\n' https://github.com  # 200
+yolo -- curl -sS -o /dev/null -w '%{http_code}\n' https://github.com  # 200
 ```
 
 **Caveat: not persistent.** Both the `sysctl` and the pf anchor reset on reboot
@@ -1012,16 +972,12 @@ container system kernel set --recommended
 
 ### Apple Container: image load fails
 
-Apple Container only accepts OCI-layout image tars. YOLO Jail automatically
-converts via skopeo (preferred) or podman as fallback:
-
-```bash
-# Recommended: install skopeo (no daemon needed)
-brew install skopeo
-
-# Or use podman as fallback (needs running daemon)
-podman machine start
-```
+Apple Container only accepts OCI-layout images. yolo writes one with a `skopeo`
+its own flake builds, so nothing needs installing, and a `skopeo` or `podman` on
+your PATH is not used. If the load fails, check that the runtime is running
+(`container system status`) and that the disk has room, then run `yolo` again.
+`yolo check` may still warn `No OCI conversion tool for Apple Container`; that
+check is out of date, and `brew install skopeo` only silences it.
 
 ### `/tmp` bind mount failures
 
@@ -1062,25 +1018,25 @@ Podman's automatic read-only tmpfs support is active. YOLO Jail only sets
 parsing conflict); on macOS the flag is omitted so crun can set up the console
 correctly. No manual action is needed.
 
-### `yolo check` reports "Nix daemon: user is NOT trusted"
+### `yolo check` reports "Nix daemon: connected but user is NOT trusted"
 
-With Determinate Nix on macOS, non-trusted users can still build the image via
-binary cache substitution (no compilation needed). `yolo check` treats this as
-a **warning** rather than a failure. To silence it, add your user to
-`trusted-users` in `/etc/nix/nix.custom.conf` and restart the daemon:
+`yolo check` grades this as a warning, but fix it before the first launch: an
+untrusted user cannot use yolo's binary cache or the temporary builder
+container, so the parts of the image that are not in Nix's public cache cannot
+be built on a Mac. Add your user to `trusted-users` and restart the daemon, as
+in [Let yolo use its binary cache](../getting-started.md#let-yolo-use-its-binary-cache):
 
 ```bash
-# Add to /etc/nix/nix.custom.conf:
-echo 'trusted-users = root your-username' | sudo tee -a /etc/nix/nix.custom.conf
+echo "trusted-users = root $(whoami)" | sudo tee -a /etc/nix/nix.custom.conf
 sudo launchctl kickstart -k system/systems.determinate.nix-daemon
 ```
 
-<!-- changelog -->
-- [2026-09-18] Recorded that Apple Container now REPORTS the OpenAI credential service inert: the inert line was withheld for that one pack, which made the single service this backend starts the single one the launch said nothing about
-- [2026-09-18] Corrected the `macos-user` loopholes row, which still said "inert, with exactly one exception": every loophole's HOST daemon starts there through the ordinary spawn boundary (measured: a bare `["claude"]` publishes two endpoints), and the JAIL half — `jail_daemon` — runs for none of them and is now declined by name at launch. The Apple Container rows are unchanged and still measured
-- [4d54df64] Reworded intro to two approaches (Linux container by default vs native macos-user), dropping the "always a container" framing
-- [9f082ebf] Added a "Choosing a runtime" section that leads with why (performance + native arch) before the model details, and retitled the macos-user section around that
-- [78c23f1a] Replaced "never auto-detected" with "never selected automatically or by default — including when no container runtime is installed"
-- [8a7a2d41] Split Prerequisites into "always required" vs "pick ONE runtime" (Podman / Apple Container / macos-user), so the runtimes read as options not co-requirements
-- [2026-09-16] Corrected "no loophole host service runs on either macOS-native backend": exactly one does, on both — `openai-auth-broker`, which starts and cannot be dialled on Apple Container and genuinely works (refusing the launch if it fails to start) on `macos-user`
-- [2026-08-24] Restructured Limitations into platform-wide vs per-backend, added the Apple Container disabled-feature table (loopholes, `mounts`, `cache_relocations`, `ephemeral_storage`, `pids_limit`, `network.mode`, single-file mounts) and an at-a-glance parity table beside the existing `macos-user` one; recorded what each backend DOES honor so a working backend stops reading as broken
+With the official installer, the line goes in `/etc/nix/nix.conf` and the
+daemon is `system/org.nixos.nix-daemon`.
+
+### `yolo check` reports "Nix daemon: connection failed"
+
+The check runs `nix store info`, which needs the `nix-command` feature. The
+Determinate installer turns it on; the official installer does not. Add
+`experimental-features = nix-command flakes` to `/etc/nix/nix.conf` and restart
+the daemon, as in [Other ways to get Nix](../getting-started.md#other-ways-to-get-nix).
