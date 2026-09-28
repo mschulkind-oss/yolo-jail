@@ -1078,15 +1078,13 @@ func psRunCmd(argv []string) (string, bool) {
 	return string(out), true
 }
 
-// runRun parses the run flags (--network, --new, --profile, --timing, --dry-run)
-// and the post-`--` command from args (the rewritten argv[1:]) and runs the
-// container launch.
+// runRun parses the run flags and the post-`--` command from args (the rewritten
+// argv[1:]) with parseRunArgs, and runs the container launch.
 //
-// The front-door RewriteArgv inserts "run" at the `--` position, so flags that
-// preceded `--` end up BEFORE the "run" token (e.g. `yolo --new -- true` →
-// [--new, run, --, true]). We therefore scan the WHOLE args: skip the "run"
-// token wherever it appears, parse flags until `--`, and take everything after
-// `--` as the command (ctx.args).
+// The front-door RewriteArgv puts "run" FIRST (`yolo --timing -- true` →
+// [run, --timing, --, true]), the shape an explicit `yolo run …` has; parseRunArgs
+// still skips the first "run" wherever it sits, since an explicit subcommand may
+// follow global-looking flags (`yolo -p zai run -- claude`).
 func runRun(args []string) int {
 	// `--help`/`-h` is RUN'S OWN flag, and it is answered here — first, before any
 	// config load and before the remainder is treated as a command to execute.
