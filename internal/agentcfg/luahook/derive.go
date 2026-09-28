@@ -442,6 +442,25 @@ func (vm GopherLuaVM) DeriveRegistrations(script string) ([]DeriveRegistration, 
 	return out, nil
 }
 
+// EnvRegistrations reports which agents the script registers a `yolo.env(agent, fn)`
+// producer for, sorted: DeriveRegistrations' twin for the environment composition, which is
+// not a surface and so is not in that listing. The producers are not invoked, and an unknown
+// `yolo.<name>` is tolerated, for DeriveRegistrations' reasons.
+func (vm GopherLuaVM) EnvRegistrations(script string) ([]string, error) {
+	s, err := newDeriveSession(vm, script, &DeriveCtx{UnknownAPI: func(string) {}})
+	if err != nil {
+		return nil, err
+	}
+	defer s.close()
+
+	out := make([]string, 0, len(s.envs))
+	for agent := range s.envs {
+		out = append(out, agent)
+	}
+	sort.Strings(out)
+	return out, nil
+}
+
 // guardUnknownAPI installs the `yolo` table's __index, which decides what reading a
 // member this build never registered means. It is the ONLY thing standing between a
 // pack script written for a newer yolo and gopher-lua's "attempt to call a non-function

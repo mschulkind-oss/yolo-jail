@@ -101,9 +101,10 @@ func DerivedSurfaces(p *Pack) ([]manifest.SurfaceKey, error) {
 //
 // The producer is discovered by bin ownership: the one selected pack that installs the
 // agent's CLI. Nothing composes when the inputs are inert — no profile at this agent's
-// CLI name, no pack installing the bin, a pack whose derive.lua registers no yolo.env
-// for the agent, or a provider entry the table does not hold (the producer's own "no
-// selection" case) all return (nil, nil), the identity. A Lua error, or a producer that
+// CLI name, no pack installing the bin, or a pack whose derive.lua registers no yolo.env
+// for the agent all return (nil, nil), the identity. A selected provider the table does not
+// hold is NOT inert: the protocol gate refuses it, naming why (MissingProviderError), since
+// a profile composed into nothing is P1's silent no-op. A Lua error, or a producer that
 // sets a variable to something other than a string or ctx.tombstone, is a real error:
 // this composition IS the delivery, so a broken producer refuses the launch rather than
 // composing half an environment.
@@ -131,7 +132,7 @@ func AgentEnv(packs []*Pack, providers *jsonx.OrderedMap, useProfiles map[string
 	// the resolved selection in hand. Above DeriveScript on purpose — a pairing nothing can
 	// serve is broken whether or not the pack ships a producer, and a silent pass for a
 	// pack with no derive.lua would make the gate depend on a file's existence.
-	if err := refuseUnspeakableProvider(packs, owner, agent, selected, providers, cfg.unserved); err != nil {
+	if err := refuseUnspeakableProvider(packs, owner, agent, profile, selected, providers, cfg.unserved); err != nil {
 		return nil, err
 	}
 	script := DeriveScript(owner)

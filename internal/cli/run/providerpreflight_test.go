@@ -124,7 +124,11 @@ func TestCheckProviderCredentialsRefusesAnUnhydratedKey(t *testing.T) {
 //     (docs/reference/providers.md: packs: ["claude"] with providers: {"bedrock":
 //     null} came out as "…and the composed providers table has no entry by that name"),
 //     the user's own "no" read back as a fault. This fixture is that shape on the zai pack
-//     the rest of this file uses;
+//     the rest of this file uses, with NO agent selecting the dropped provider. With one
+//     selecting it the pre-flight still demands no key, but the SELECTION refuses at the
+//     protocol gate, naming the null (docs/design/credential-sources-separation.md ES-D25):
+//     a profile composed into nothing is the silent no-op declaration-parity.md P1 forbids,
+//     and the refusal is about the selection, never a missing credential;
 //   - the same pack with its entry cataloged still refuses, naming the provider and the
 //     variable — which is what keeps this a refusal test rather than a delete-the-check
 //     test. The ONLY thing that changed between the two halves is table membership;
@@ -139,9 +143,17 @@ func TestCheckProviderCredentialsFollowCatalogMembership(t *testing.T) {
 	cfg := newConfig("providers", dropped)
 	o := retireOptions(t, discardBuf())
 	packs := zaiSelectedByAcme(t, o)
+	o.UseProfiles = nil // nobody selects the dropped provider
 	if lines, refuse := o.checkProviderCredentials(cfg, packs, channelFor(t, o, cfg, packs, emptyEnv()), nil); len(lines) != 0 || refuse {
 		t.Errorf("a provider the user null-dropped left the catalog and must not be required "+
 			"(lines=%d refuse=%v):\n%s", len(lines), refuse, strings.Join(lines, "\n"))
+	}
+	// Selected AND dropped: the selection refuses, naming the null, and not as a credential.
+	o.UseProfiles = map[string]string{"acme": "zai"}
+	if _, err := o.composePackChannel(cfg, packs, emptyEnv()); err == nil ||
+		!strings.Contains(err.Error(), "a null `providers.zai` entry in your config removes it") ||
+		strings.Contains(err.Error(), "ZAI_API_KEY") {
+		t.Errorf("a selection of a provider the user dropped must refuse naming the null, not a key: %v", err)
 	}
 
 	o = retireOptions(t, discardBuf())

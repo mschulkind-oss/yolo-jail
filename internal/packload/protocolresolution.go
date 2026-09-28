@@ -37,6 +37,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg/luahook"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 )
 
@@ -148,6 +149,12 @@ type UnservedAdapterError struct {
 	// Selected reports whether the adaptation's pack is selected at this launch. When it is
 	// not, the pack is a shipped one outcome 3 would otherwise have offered.
 	Selected bool
+	// ProviderPack, when set, is a shipped pack this launch did not select that declares
+	// Provider: the composed table did not hold the provider at all, and this refusal is the
+	// gate's answer with that pack's declaration composed in (missingProvider). Selecting it
+	// would therefore not change the answer. NeededBy is a selected pack whose `needs` names
+	// ProviderPack, "" when none does.
+	ProviderPack, NeededBy string
 }
 
 func (e *UnservedAdapterError) Error() string {
@@ -156,10 +163,172 @@ func (e *UnservedAdapterError) Error() string {
 	if !e.Selected {
 		pointed = fmt.Sprintf("selecting pack %q would point %s at a dead address", a.Pack, e.Agent)
 	}
-	return fmt.Sprintf("provider %q would reach agent %q only through pack %q's %s → %s adapter at "+
+	msg := fmt.Sprintf("provider %q would reach agent %q only through pack %q's %s → %s adapter at "+
 		"%s, and that address is served by the pack's own %q service, a daemon that runs only "+
 		"in a container jail — nothing serves it here, so %s",
 		e.Provider, e.Agent, a.Pack, strconv.Quote(a.From), strconv.Quote(a.To), a.Address, a.Service, pointed)
+	if e.ProviderPack != "" {
+		msg += fmt.Sprintf("; provider %q is not in this launch's provider table either — pack %q "+
+			"ships it and is not selected%s, and selecting it would not change this answer",
+			e.Provider, e.ProviderPack, neededByClause(e.NeededBy))
+	}
+	return msg
+}
+
+// MissingProviderError is the gate's refusal for a selected profile whose provider the
+// composed table does not hold. docs/design/declaration-parity.md P1 names the one state that
+// is never legal, a declaration accepted and doing nothing, and this was it: the gate returned
+// nil, the agent's derive ran over a provider it could not see, and the agent launched with
+// nothing re-pointed. Measured at the host with `"packs": ["claude"]`: `yolo host -p codex --
+// claude` exited 0 and claude received three context-window constants and no address, so it
+// ran on its own Claude login (docs/design/credential-sources-separation.md ES-D25).
+type MissingProviderError struct {
+	// Agent, Profile and Provider are the selection that refused.
+	Agent, Profile, Provider string
+	// Dropped is the selected pack that ships Provider, when one does: the table lacks it
+	// because a null `providers.<name>` entry in the user's config removes it.
+	Dropped string
+	// Shipper is a shipped pack this launch did not select that declares Provider, "" when
+	// none does. NeededBy is a selected pack whose `needs` names Shipper, "" when none does.
+	Shipper, NeededBy string
+	// Then is the gate's refusal with Shipper's declaration composed in, when that refusal is
+	// not an *UnservedAdapterError (which is returned in this error's place): adding Shipper
+	// alone would not make the profile work.
+	Then error
+}
+
+func (e *MissingProviderError) Error() string {
+	head := fmt.Sprintf("profile %q selects provider %q for agent %q, and this launch's provider "+
+		"table does not hold it", e.Profile, e.Provider, e.Agent)
+	lost := fmt.Sprintf("so %s would launch with nothing re-pointed, on whatever login it already holds", e.Agent)
+	switch {
+	case e.Dropped != "":
+		return fmt.Sprintf("%s: pack %q ships it, and a null `providers.%s` entry in your config "+
+			"removes it — %s. Remove the null, or select a profile whose provider this launch holds",
+			head, e.Dropped, e.Provider, lost)
+	case e.Shipper != "" && e.Then != nil:
+		return fmt.Sprintf("%s: pack %q ships it and is not selected%s — %s. With %q added the "+
+			"profile still refuses: %v", head, e.Shipper, neededByClause(e.NeededBy), lost, e.Shipper, e.Then)
+	case e.Shipper != "":
+		return fmt.Sprintf("%s: pack %q ships it and is not selected%s — %s. Add %q to `packs` and "+
+			"this profile resolves", head, e.Shipper, neededByClause(e.NeededBy), lost, e.Shipper)
+	default:
+		return fmt.Sprintf("%s: no selected pack ships it, no pack yolo ships declares it, and your "+
+			"config's `providers` has no entry for it — %s. Declare it under `providers`, or select "+
+			"a profile whose provider this launch holds", head, lost)
+	}
+}
+
+// neededByClause is the clause both refusals add when a selected pack's `needs` names the
+// provider's pack: why a pack the manifests ask for is still not selected.
+func neededByClause(neededBy string) string {
+	if neededBy == "" {
+		return ""
+	}
+	return fmt.Sprintf(", though pack %q's `needs` names it (`yolo host` adds no pack a `needs` "+
+		"entry names, and a jail launch adds one only while the need's `when_bins` holds)", neededBy)
+}
+
+// missingProvider is refuseUnspeakableProvider's answer when the composed table does not hold
+// the selected provider. It refuses, naming why, in every case but one.
+//
+// THE ONE EXCUSE: a shipped pack this launch did not select declares the provider, the
+// pairing resolves with that declaration composed in, and the agent's pack runs no env
+// producer for it (readsProviderTable). Then the provider's row has no reader in this
+// agent's launch environment, so the launch composes the same environment with the row as
+// without it, and there is nothing silent to refuse. That is codex and pi on their `codex`
+// profile at the host, which applies no `needs` (ES-D24): neither registers a `yolo.env`,
+// and each reaches the subscription through the host's own managed OpenAI launch, keyed on
+// the command's name. The surfaces a jail renders read the table too, but a jail launch
+// holds every provider a shipped pack's profile names, since each such pack ships the
+// provider or names its pack in an unconditional `needs`; so at a jail the excuse admits
+// only a third-party pack whose profile names a provider it neither ships nor needs.
+//
+// Otherwise, with such a pack found, the gate is asked again with its declaration composed
+// the way this notch composes (WithoutServiceAdaptations where unserved is non-nil, which is
+// the notch that runs no pack service). An *UnservedAdapterError from that is returned
+// itself, annotated with the pack: it is the final answer at this notch, and naming the
+// provider's pack as the remedy would lead the user straight into it (ES-D19's two refusals
+// in a row). Any other refusal is carried in MissingProviderError.Then.
+func missingProvider(packs []*Pack, owner *Pack, agent, profile, selected string,
+	unserved []Adaptation) error {
+	e := &MissingProviderError{Agent: agent, Profile: profile, Provider: selected}
+	if p := providerShipper(packs, selected); p != nil {
+		e.Dropped = p.Name
+		return e
+	}
+	shipper := providerShipper(unselectedEmbedded(packs), selected)
+	if shipper == nil {
+		return e
+	}
+	e.Shipper = shipper.Name
+	e.NeededBy = packNeeding(packs, shipper.Name)
+	with := append(append([]*Pack{}, packs...), shipper)
+	var opts []ComposeOption
+	if unserved != nil {
+		opts = append(opts, WithoutServiceAdaptations())
+	}
+	table, err := ComposeProviders(nil, with, opts...)
+	if err != nil {
+		return e
+	}
+	if _, held := table.Get(selected); !held {
+		return e // unreachable: shipper declares it; kept so the question below cannot recurse
+	}
+	predicted := refuseUnspeakableProvider(with, owner, agent, profile, selected, table, unserved)
+	if predicted == nil {
+		if readsProviderTable(owner, agent) {
+			return e
+		}
+		return nil
+	}
+	var ue *UnservedAdapterError
+	if errors.As(predicted, &ue) {
+		ue.ProviderPack, ue.NeededBy = e.Shipper, e.NeededBy
+		return ue
+	}
+	e.Then = predicted
+	return e
+}
+
+// providerShipper returns the first of packs that declares a provider named name, or nil.
+func providerShipper(packs []*Pack, name string) *Pack {
+	for _, p := range packs {
+		for _, prov := range p.Decl.Providers() {
+			if prov.Name == name {
+				return p
+			}
+		}
+	}
+	return nil
+}
+
+// packNeeding returns the first of packs whose `needs` names target, live or not, or "".
+func packNeeding(packs []*Pack, target string) string {
+	for _, p := range packs {
+		for _, need := range p.Decl.DeclaredNeeds() {
+			if need.Pack == target {
+				return p.Name
+			}
+		}
+	}
+	return ""
+}
+
+// readsProviderTable reports whether owner's derive.lua registers a `yolo.env` producer for
+// agent: the one reader of the provider table in an agent's launch environment (AgentEnv). A
+// script whose registrations cannot be read counts as a reader, so missingProvider refuses
+// rather than excuses.
+func readsProviderTable(owner *Pack, agent string) bool {
+	script := DeriveScript(owner)
+	if script == "" {
+		return false
+	}
+	agents, err := (luahook.GopherLuaVM{}).EnvRegistrations(script)
+	if err != nil {
+		return true
+	}
+	return slices.Contains(agents, agent)
 }
 
 // WithAdapterAddresses supplies the user's adapter address overrides, keyed by AdapterKey
@@ -345,10 +514,12 @@ func missingAdapterFor(spoken []string, offered map[string]bool, elsewhere []Ada
 // provider, this agent's declared protocols, and the composed table — resolved, and
 // refused when nothing resolves.
 //
-// It is TOTAL over the ways there is nothing to ask: no provider selected (a launch with no
-// profile, or a profile that resolves to none), or a provider name the composed table does
-// not hold. Both are already the derives' own "no selection" case, and neither is this
-// gate's to report — ProviderFor returning "" is an ordinary launch, not a fault.
+// NO PROVIDER SELECTED is the one way there is nothing to ask (a launch with no profile, or
+// a profile that resolves to none): ProviderFor returning "" is an ordinary launch, not a
+// fault. A selected provider the composed table DOES NOT HOLD used to be treated the same
+// way, as the derives' own "no selection" case, and that was the silent no-op P1 forbids: a
+// profile the user named, accepted, and composed into nothing. It refuses now, naming why
+// (missingProvider, ES-D25). profile is the selected profile's name, for that refusal.
 //
 // owner is the pack that installs agent's CLI, found by bin ownership: the same identity
 // AgentEnv discovers a producer through, so the pack that speaks for an agent's environment
@@ -360,15 +531,21 @@ func missingAdapterFor(spoken []string, offered map[string]bool, elsewhere []Ada
 // such a pack there resolves nothing. A pairing one of them would have resolved then refuses
 // as *UnservedAdapterError. That replaces outcome 4, whose "nothing declares an adapter" is
 // false of it, and outcome 3, whose "Add it to `packs`" would lead to this same refusal.
-func refuseUnspeakableProvider(packs []*Pack, owner *Pack, agent, selected string,
+func refuseUnspeakableProvider(packs []*Pack, owner *Pack, agent, profile, selected string,
 	providers *jsonx.OrderedMap, unserved []Adaptation) error {
-	if selected == "" || providers == nil {
+	if selected == "" {
 		return nil
 	}
-	v, ok := providers.Get(selected)
-	if !ok {
-		return nil
+	var v any
+	held := false
+	if providers != nil {
+		v, held = providers.Get(selected)
 	}
+	if !held || v == nil {
+		return missingProvider(packs, owner, agent, profile, selected, unserved)
+	}
+	// A malformed entry (not an object) is the config validator's to report, as it always
+	// was: the question here is about a provider that is absent, not one that is misspelled.
 	entry, ok := v.(*jsonx.OrderedMap)
 	if !ok {
 		return nil
@@ -568,7 +745,7 @@ func PairingRefusals(packs []*Pack, providers *jsonx.OrderedMap,
 		if owner == nil {
 			continue
 		}
-		if err := refuseUnspeakableProvider(packs, owner, agent,
+		if err := refuseUnspeakableProvider(packs, owner, agent, profile,
 			ProviderFor(resolved, profile), providers, nil); err != nil {
 			out = append(out, err)
 		}

@@ -362,6 +362,32 @@ yolo.env("claude", function(ctx) return { c = "3" } end)`
 	}
 }
 
+// EnvRegistrations lists exactly the agents Derive finds an env producer for: the protocol
+// gate asks it whether an agent's environment reads the provider table at all
+// (packload.refuseUnspeakableProvider), so a listing that disagreed with the runner would
+// excuse or refuse the wrong launches.
+func TestEnvRegistrationsAndDeriveAgreeOnWhatRegistered(t *testing.T) {
+	script := `
+yolo.derive("pi", "models", function(ctx) return { a = 1 } end)
+yolo.env("claude", function(ctx) return { c = "3" } end)
+yolo.env("amp", function(ctx) return {} end)`
+
+	agents, err := GopherLuaVM{}.EnvRegistrations(script)
+	if err != nil {
+		t.Fatalf("EnvRegistrations: %v", err)
+	}
+	if want := []string{"amp", "claude"}; !reflect.DeepEqual(agents, want) {
+		t.Fatalf("EnvRegistrations = %v, want %v (sorted, surface producers excluded)", agents, want)
+	}
+	out, err := GopherLuaVM{}.Derive(script, &DeriveCtx{Agent: "pi", Env: true})
+	if err != nil || out != nil {
+		t.Errorf("pi registers a surface producer only, so its env composes nothing: %v, %v", out, err)
+	}
+	if none, err := (GopherLuaVM{}).EnvRegistrations("local x = 1"); err != nil || len(none) != 0 {
+		t.Errorf("a script registering nothing lists nothing: %v, %v", none, err)
+	}
+}
+
 // A script that registers nothing lists nothing — the identity, not an error. The reporting
 // caller reads this as "no surface of this pack has a computed layer", which is what a pack
 // shipping no derive.lua means (packload.DerivedSurfaces).

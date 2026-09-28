@@ -256,6 +256,13 @@ yolo.env("claude", function(ctx)
     local codexAnthropic = (type(p) == "table" and type(p.endpoints) == "table"
       and type(p.endpoints.anthropic) == "table" and p.endpoints.anthropic) or nil
     local codexEp = codexAnthropic and codexAnthropic.base_url or nil
+    -- NO ADDRESS, NOTHING COMPOSED. The constants below describe the Responses models, and
+    -- without ANTHROPIC_BASE_URL beside them claude runs on its own Claude login with a
+    -- context window no Claude model has. That was `yolo host -p codex -- claude` on a bare
+    -- `"packs": ["claude"]` (measured 2026-09-27: exit 0, three constants, no address). Core's
+    -- protocol gate refuses every shape of that launch it can see, naming why (ES-D25); this
+    -- is the producer's own half, so a route with no address is never half-composed here.
+    if not codexEp then return {} end
     local list = codexModelList(p)
     local first = list[1] or {}
     local model = codexDefault(list, ctx.profile)

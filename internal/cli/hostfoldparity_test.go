@@ -31,6 +31,11 @@ import (
 // CROSS, while the retired all-static-then-all-gated order answers "alpha's gated value" —
 // the two orders disagree on exactly this fixture, which is what makes it the fixture.
 //
+// alpha also SHIPS the provider `p` names, with no endpoint. The fixture used to select a
+// profile whose provider nothing declared, which the protocol gate now refuses by name
+// (docs/design/credential-sources-separation.md ES-D25); an endpoint-less provider has nothing
+// to pair, so the fold is still the only thing the selection changes.
+//
 // The removal half this fixture used to carry (a profile body nulling a key nothing
 // assigned over) is gone with the body (OQ-PT8): both `vars` maps are plain strings, so
 // the fold's operations are assignments only. env_sources nulls are the removals a host
@@ -41,6 +46,7 @@ func writeFoldParityPacks(t *testing.T, home string) {
 	manifests := map[string]string{
 		"alpha": `{"name":"alpha","contributes":[` +
 			`{"kind":"program","bin":"claude","via":"npm","package":"@acme/claude"},` +
+			`{"kind":"provider","name":"p"},` +
 			`{"kind":"profile","name":"p","provider":"p"},` +
 			`{"kind":"env","profile":"p","vars":{` +
 			`"CROSS":"alpha-gated",` +

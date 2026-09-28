@@ -177,9 +177,10 @@ func TestRefusalNamesBothProtocolsAndWhereTheyWereDeclared(t *testing.T) {
 	}
 }
 
-// NOTHING TO RESOLVE WITHOUT A SELECTION. A launch with no active profile, and a profile
-// that resolves to a provider the composed table does not hold, are both ordinary launches
-// — the derives' own "no selection" case — and neither is this gate's to report.
+// NOTHING TO RESOLVE WITHOUT A SELECTION. A launch with no active profile is an ordinary
+// launch — the derives' own "no selection" case — and not this gate's to report. A profile
+// that resolves to a provider the composed table does not hold used to be treated the same
+// way; it refuses now (missingprovider_test.go, ES-D25).
 func TestNoSelectionIsNotARefusal(t *testing.T) {
 	agent := protocolAgentPack(t, `,"protocols":["anthropic"]`)
 	vendor := providerPack(t, `,"endpoints":{"openai":{"base_url":"https://vendor.example/o"}}`)

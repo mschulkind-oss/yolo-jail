@@ -1209,6 +1209,18 @@ func hostAdapterAddresses() map[string]string {
 // agent would meet the same dead address. So the refusal names the container backends, says
 // macos-user is not one, and names the dial that picks one for a launch. It never says the
 // profile works "in a jail" unqualified.
+//
+// THE PROVIDER'S OWN PACK MAY BE MISSING TOO (ES-D25). With `"packs": ["claude"]` the host
+// holds no openai-codex provider at all, because only packs/openai-auth declares it and this
+// notch applies no `needs` (ES-D24). The gate then asks what the pairing would be with that
+// pack composed in, and this is the answer; e.ProviderPack names the pack, and the refusal says
+// that listing it changes nothing here either, so the user is not sent to add it and meet this
+// refusal again.
+//
+// THE JAIL SPELLING IS SAID TO BE A JAIL LAUNCH (ES-D26): `yolo -p claude=codex -- claude`
+// starts a container. Read as a host spelling it sent the user to `yolo host -p claude=codex
+// -- claude`, which refused as an undeclared profile named "claude=codex"; the host now parses
+// that pair (ES-D27) and refuses it with this same message.
 func unservedAdapterRefusal(e *packload.UnservedAdapterError, profile string) error {
 	a := e.Adaptation
 	agent, p := shquote.Quote(e.Agent), shquote.Quote(profile)
@@ -1216,16 +1228,28 @@ func unservedAdapterRefusal(e *packload.UnservedAdapterError, profile string) er
 	if !e.Selected {
 		listing = fmt.Sprintf("and adding %q to `packs` does not change that here", a.Pack)
 	}
+	providerPack := ""
+	if e.ProviderPack != "" {
+		needs := ""
+		if e.NeededBy != "" {
+			needs = fmt.Sprintf(" (pack %q's does)", e.NeededBy)
+		}
+		providerPack = fmt.Sprintf(" Provider %q is not in this launch's provider table either: "+
+			"pack %q ships it, and `yolo host` does not add a pack a selected pack's `needs` "+
+			"names%s, so adding %q to `packs` does not change the answer either.",
+			e.Provider, e.ProviderPack, needs, e.ProviderPack)
+	}
 	return fmt.Errorf("profile %q would point %s at %s, where pack %q adapts %q → %q for provider %q — "+
 		"and that address is served by the pack's own %q service, a daemon yolo runs only in a "+
-		"container jail. No host process serves it, so `yolo host` will not run %s pointed at it, %s.\n"+
+		"container jail. No host process serves it, so `yolo host` will not run %s pointed at it, %s.%s\n"+
 		"  The profile works in a container jail (podman or Apple Container), where that service "+
-		"runs: `yolo -p %s=%s -- %s`. The macos-user backend starts no jail daemons, so the service "+
+		"runs: `yolo -p %s=%s -- %s`, which is a jail launch, not a `yolo host` one. The macos-user "+
+		"backend starts no jail daemons, so the service "+
 		"does not run there either; `YOLO_RUNTIME=podman` or `YOLO_RUNTIME=container` picks a "+
 		"container backend for one launch.\n"+
 		"  At the host, choose a profile whose provider %s speaks to directly",
 		profile, agent, a.Address, a.Pack, a.From, a.To, e.Provider, a.Service, agent, listing,
-		agent, p, agent, agent)
+		providerPack, agent, p, agent, agent)
 }
 
 // hostScopedEnvSources returns cfg with any still-RELATIVE env_sources file entry
@@ -1312,6 +1336,14 @@ func undeclaredHostProfileError(profile, agent string, declared []string, unreso
 // the user asked to run an agent, not to reconcile their pack set — but it is RETURNED, so the
 // caller names it rather than dropping it in silence. Nothing is composed from a malformed
 // manifest: its env and providers are the declarations the launch would refuse.
+//
+// IT APPLIES NO `needs`, and that is measured rather than assumed
+// (docs/design/credential-sources-separation.md ES-D24). Running the jail's selection closure
+// here would add aws-auth to every claude launch, and aws-auth's bedrock-gated env points
+// AWS_CONTAINER_CREDENTIALS_FULL_URI at http://127.0.0.1:1461/credentials, an address only a
+// jail's side of the aws-auth loophole serves: `yolo host -p bedrock -- claude` would gain it.
+// So a profile whose provider only a needed pack declares refuses at the protocol gate instead,
+// naming the pack (packload.MissingProviderError), and never composes into nothing.
 func loadedHostPacks() ([]*packload.Pack, []unresolvedPack, error) {
 	entries, err := config.LoadPacks(nil)
 	if err != nil {
