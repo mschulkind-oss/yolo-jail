@@ -70,7 +70,7 @@ brew tap mschulkind-oss/tap
 brew install mschulkind-oss/tap/yolo-jail
 ```
 
-Works on macOS and Linuxbrew. Single command, auto-upgrades with `brew upgrade`. No source checkout, no `just` required.
+Works on macOS and Linuxbrew. Single command; in-place upgrades with `yolo update` or `brew upgrade`. No source checkout, no `just` required.
 
 ### Go
 
@@ -105,7 +105,17 @@ just setup             # pinned toolchain (mise) + Go module deps
 just deploy            # builds + installs the yolo CLI
 ```
 
-To upgrade later: `cd yolo-jail && git pull && just deploy`
+To upgrade later: `yolo update` (or by hand, `cd yolo-jail && git pull --ff-only && just deploy`).
+
+### Staying up to date
+
+`yolo update` safely applies updates for the two self-contained install channels: it runs `git pull --ff-only && just deploy` in the checkout a from-source binary was built from, or `brew upgrade yolo-jail` for Homebrew. A release archive gets a download link instead.
+
+`go install`, pipx, and uv install only the host binary, while their jail build comes from the separate checkout named by `YOLO_REPO_ROOT`. `yolo update` checks those channels but refuses to replace only one half; update the checkout and binary together, or move to Homebrew/from-source installation.
+
+Release-based installs check GitHub for a newer release in the background, normally once a day. The first automatic request waits for a terminal so yolo can disclose it before it happens. Source installs are checked only when you explicitly run `yolo update --check` or `yolo update`, because that check runs Git against the source checkout; it may fetch commit objects, but moves no refs and leaves `git status` unchanged. A cached update prints one line under the startup banner, and a safe, self-contained interactive launch can offer to update and relaunch. `yolo check` reports the last answer. Turn background checks, notices, and offers off with `"update_check": false` in `~/.config/yolo-jail/config.jsonc` (or `YOLO_NO_UPDATE_CHECK=1` for one shell). Explicit `yolo update` commands still work. None of the automatic behavior runs in a jail or in CI. See [Self-update](docs/reference/self-update.md).
+
+An explicit `YOLO_REPO_ROOT` overrides an installation's own bundle. `yolo update` therefore refuses an in-place update when that override names a different checkout: update both together, or unset the override to use the installed bundle.
 
 #### Upgrading from the Python version
 

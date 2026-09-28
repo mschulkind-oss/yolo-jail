@@ -15,7 +15,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 Agents can use Bedrock through your SSO login, every agent shows a footer naming its billing route,
-and a launch refuses an agent that cannot speak its provider's protocol.
+a launch refuses an agent that cannot speak its provider's protocol, and yolo can check and update
+its own host installation without putting network latency on command startup.
 
 ### Added
 
@@ -69,6 +70,12 @@ a `nix build`, which runs in the host's nix daemon. Apple Container and podman o
 apply it, and the launch says that too. See
 [resources per setup](userguide/reference/settings-per-setup.md#resources-devices-and-networking).
 
+- `yolo update` checks every install channel and safely applies complete Homebrew/from-source
+  updates. Binary-only installs get coordinated-update instructions instead of replacing the host
+  half alone. Release installs check in the background, normally daily after a one-time disclosure;
+  source checks are explicit because they run Git against the checkout. `yolo check` shows the
+  cached answer. `"update_check": false` in the user config turns automatic notices and offers off.
+  See [Self-update](docs/reference/self-update.md).
 - `yolo host-daemon status|stop|restart|logs` manages the machine-wide daemons.
 - `nix shell` and `nix build` work in a jail with no extra flags.
 

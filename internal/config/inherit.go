@@ -239,6 +239,10 @@ var inheritCensus = map[string]keyDisposition{
 	// have in here, over programs the jail runs through its own launchers instead. Neither
 	// half of the key has a referent in a container.
 	"host_wrappers": {reason: "enables wrappers on the host's PATH, which a jail has neither of"},
+	// `update_check`: gates a check of the HOST's yolo install, which no in-jail yolo runs
+	// (selfupdate.Enabled is false wherever YOLO_VERSION is set) and a nested launcher's
+	// binary is the image's, updated by rebuilding it rather than by any channel.
+	"update_check": {reason: "gates the host install's update check, which never runs in a jail"},
 	// `host_apply_on_launch`: the same class again, and the sharpest of the three. It gates a
 	// re-render of the invoking user's REAL home at `yolo host -- <bin>`, and in a jail
 	// paths.Home() is /home/agent — so the key's referent rebinds to the container's own

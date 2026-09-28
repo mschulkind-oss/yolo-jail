@@ -878,6 +878,18 @@ func StoreSamplesDir() string { return filepath.Join(GlobalStorage(), "stores") 
 // collision is structurally impossible.
 func FlakeBundleDir() string { return filepath.Join(GlobalStorage(), "flake-bundle") }
 
+// UpdateCheckDir returns $HOME/.local/share/yolo-jail/update-check: the cached
+// answer of the last update check and the lock a background check holds
+// (internal/selfupdate).
+//
+// A DEDICATED LEAF rather than a file under state/, because state/ is not a
+// general state dir: it is the loophole state root, keyed by loophole NAME
+// (loopholes.StateDirFor) and swept by loophole retirement, so anything else
+// placed there squats in that namespace. Never under cache/, which every jail
+// mounts read-write — a jail must not be able to write the notice the host
+// prints, nor the "declined" flag that decides whether the host prompts.
+func UpdateCheckDir() string { return filepath.Join(GlobalStorage(), "update-check") }
+
 // UserConfigPath returns $HOME/.config/yolo-jail/config.jsonc (or config.json if config.jsonc is absent).
 func UserConfigPath() string {
 	p := filepath.Join(home(), userConfigSuffix)

@@ -35,7 +35,7 @@ import (
 // rewrite semantics.
 func runInternal(args []string) int {
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "usage: yolo internal <capture-materialize|capture-run|config-dump|daemon|darwin-bootstrap|footer|migrate-host|node-floor-satisfied|openai-auth|openai-auth-client|refresh-servers|bundle-dir|scratch-rm> [args...]")
+		fmt.Fprintln(os.Stderr, "usage: yolo internal <capture-materialize|capture-run|config-dump|daemon|darwin-bootstrap|footer|migrate-host|node-floor-satisfied|openai-auth|openai-auth-client|refresh-servers|bundle-dir|scratch-rm|update-check> [args...]")
 		return 2
 	}
 	switch args[0] {
@@ -73,6 +73,10 @@ func runInternal(args []string) int {
 		return runDarwinBootstrap(args[1:])
 	case "migrate-host":
 		return runMigrateHost(args[1:])
+	case "update-check":
+		// The detached background check internal/selfupdate spawns when the
+		// cached answer is stale. Hidden because its caller is yolo itself.
+		return runInternalUpdateCheck(args[1:])
 	case "openai-auth":
 		// PROMOTED: this is `yolo openai-auth` now (dispatch.go's registry, help.go's
 		// list, subhelp.go's usage table), and the hidden spelling is a RETAINED ALIAS

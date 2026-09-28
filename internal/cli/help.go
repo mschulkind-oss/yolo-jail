@@ -29,6 +29,7 @@ var commandHelp = []struct{ name, blurb string }{
 	{"host", "Run agents on the HOST notch instead: 'host -- <cmd>', 'host apply'"},
 	{"stop", "Stop this workspace's running jail (idempotent; the next launch is fresh)"},
 	{"check", "Validate runtime, nix, config, image, and running jails (alias: doctor)"},
+	{"update", "Check for a newer yolo-jail and safely update self-contained installs"},
 	{"ps", "List running yolo-* jails and their workspaces"},
 	{"prune", "Reclaim disk: stale containers, images, caches (dry-run unless --apply)"},
 	// Sits beside prune because the two answer different questions about the same

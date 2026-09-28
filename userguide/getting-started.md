@@ -73,7 +73,7 @@ brew install mschulkind-oss/tap/yolo-jail
 | Pros | Cons |
 |---|---|
 | Single command | No claude-oauth-broker state init |
-| Auto-upgrades via `brew upgrade` | No source checkout available for hacking |
+| In-place upgrades via `yolo update` or `brew upgrade` | No source checkout available for hacking |
 | No `just`, no source, no build tools | |
 | Works on macOS and Linuxbrew identically | |
 
@@ -98,8 +98,22 @@ just deploy      # builds + installs yolo CLI + primes claude-oauth-broker state
 To upgrade later:
 
 ```bash
-cd yolo-jail && git pull && just deploy
+yolo update      # git pull --ff-only && just deploy, in the checkout yolo was built from
 ```
+
+`yolo update` applies a complete update for Homebrew and from-source installs. It checks release
+archives and the binary-only `go install`/pipx/uv channels too, but those need a manual coordinated
+update: the host binary and the `YOLO_REPO_ROOT` checkout must move together.
+
+Release-based installs check in the background, normally once a day, after yolo has disclosed the first
+request at a terminal. Source installs check only when you explicitly run `yolo update --check` or
+`yolo update`; the check may fetch commit objects but does not move a ref or change `git status`.
+A cached update prints a one-line terminal notice, and a safe interactive launch can offer to
+update and relaunch. `"update_check": false` in your user config turns automatic checks, notices,
+and offers off. With local edits in the checkout, use `yolo update --autostash`. If the checkout
+moved, `yolo update --from <checkout>` redeploys even when it is already current, recording the
+new path. If `YOLO_REPO_ROOT` overrides a different checkout, update that checkout and the host
+binary together or unset the override before using the installed bundle.
 
 ### Set Up User Defaults (Optional)
 
