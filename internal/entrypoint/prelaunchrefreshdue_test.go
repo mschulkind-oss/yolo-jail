@@ -40,6 +40,18 @@ func (p *prelaunchProbe) setWatched(t *testing.T, content string) {
 
 func (p *prelaunchProbe) seenDir() string { return filepath.Join(p.stamps, "refresh", "tool.seen") }
 
+// The wait loop's poll, as the launcher bakes it and as the two waiting cells shorten it.
+// The loop counts one unit of UPDATE_TIMEOUT per poll, so under the shortened poll a unit
+// is waitPoll rather than a second. The baked spelling pairs the one-second sleep with that
+// count, and bodyPatch refuses to run a cell whose literal is gone, so a loop that stopped
+// sleeping a second per counted unit still fails these cells, as the real-second waits
+// they used to spend did.
+const (
+	waitPollBaked = "\n        sleep 1\n        waited=$((waited + 1))\n"
+	waitPollFast  = "\n        sleep 0.1\n        waited=$((waited + 1))\n"
+	waitPoll      = 100 * time.Millisecond
+)
+
 // TestRefreshDueOnChangeFollowsContent: inside UPDATE_INTERVAL, a launch refreshes when and only
 // when the watched content is one no refresh has succeeded for — a rewrite with the same bytes
 // (what every boot does to a composed file) is not a change, new bytes are, and bytes already
@@ -116,14 +128,17 @@ func TestRefreshWaitsOutAHolderForNewContent(t *testing.T) {
 	if err := os.Mkdir(p.lockPath(), 0o755); err != nil {
 		t.Fatal(err)
 	}
+	// UPDATE_TIMEOUT stays 60, so the bound is 60 polls: six seconds against the holder's
+	// 800ms.
+	p.bodyPatch = map[string]string{waitPollBaked: waitPollFast}
 	go func() {
-		time.Sleep(1500 * time.Millisecond)
+		time.Sleep(800 * time.Millisecond)
 		_ = os.Remove(p.lockPath())
 	}()
 	start := time.Now()
 	stdout, stderr := p.run(t, "")
 	log := p.logLines(t)
-	if time.Since(start) < time.Second {
+	if time.Since(start) < 600*time.Millisecond {
 		t.Errorf("the launch did not wait for the holder")
 	}
 	if !strings.Contains(stderr, "waiting for it") {
@@ -164,10 +179,15 @@ func TestRefreshWaitIsBounded(t *testing.T) {
 	if err := os.Mkdir(p.lockPath(), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	p.bodyPatch = map[string]string{"\nUPDATE_TIMEOUT=60 ": "\nUPDATE_TIMEOUT=2 "}
+	// Five polls of waitPoll: more polls than the two one-second ones this cell used to wait,
+	// so a loop that gives up early still falls short of the bound.
+	p.bodyPatch = map[string]string{
+		"\nUPDATE_TIMEOUT=60 ": "\nUPDATE_TIMEOUT=5 ",
+		waitPollBaked:          waitPollFast,
+	}
 	start := time.Now()
 	stdout, stderr := p.run(t, "")
-	if el := time.Since(start); el < 2*time.Second || el > 20*time.Second {
+	if el := time.Since(start); el < 5*waitPoll || el > 20*time.Second {
 		t.Errorf("the wait must last about UPDATE_TIMEOUT, took %s", el)
 	}
 	log := p.logLines(t)
