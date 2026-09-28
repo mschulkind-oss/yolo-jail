@@ -40,15 +40,23 @@ import (
 //
 // It never writes to stderr: every loader is handed a nil (silent) warn, and a table that
 // cannot be composed is left empty, which the renderer reads as absent.
+//
+// A SELECTION THE HOST LAUNCH REFUSES IS LEFT OUT (docs/design/agent-footer.md FT-D1). The
+// footer names what the host composed, and for an agent whose selected profile the host's
+// protocol gate refuses it composes nothing: `yolo host -- claude` refuses claude's codex
+// profile (ES-D18, ES-D25), so a claude running on this host with that selection was started
+// some other way and runs on its own login. The footer used to say `codex (bridge) · host`
+// there, a bridge the host never runs. Only the pairing gate is asked (packload.PairingRefusal,
+// with the host's unservable adaptations), the one refusal that turns on the selection itself;
+// a selection whose table could not be composed at all is left as it was.
 func hostFooterTables() footer.Tables {
 	cfg := config.UserScopeConfigOrEmpty()
 	var t footer.Tables
-	if use := effectiveHostProfiles(cfg, "", ""); use.Len() > 0 {
-		t.UseProfiles = footerJSON(use)
-	}
-	if t.UseProfiles == "" {
+	use := effectiveHostProfiles(cfg, "", "")
+	if use.Len() == 0 {
 		return t // no selection: the footer names the login, and nothing else is needed
 	}
+	t.UseProfiles = footerJSON(use)
 	packs := footerHostPacks()
 	providers, err := composedHostProviders(cfg, packs)
 	if err != nil {
@@ -62,6 +70,20 @@ func hostFooterTables() footer.Tables {
 	resolved, err := packload.ResolveProfiles(packs, userProfiles, providers)
 	if err != nil {
 		return t
+	}
+	unservable := packload.UnservableAdaptations(packs, hostAdapterAddresses())
+	composed := jsonx.NewOrderedMap()
+	for _, agent := range use.Keys() {
+		v, _ := use.Get(agent)
+		if profile, _ := v.(string); packload.PairingRefusal(packs, providers, resolved, agent,
+			profile, unservable) != nil {
+			continue
+		}
+		composed.Set(agent, v)
+	}
+	t.UseProfiles = ""
+	if composed.Len() > 0 {
+		t.UseProfiles = footerJSON(composed)
 	}
 	// Inert via, as composeHostVars makes it (WG-I12): the host notch serves no via route, so
 	// its table carries no via address, whatever the pack set holds.

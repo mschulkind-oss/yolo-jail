@@ -737,18 +737,29 @@ func PairingRefusals(packs []*Pack, providers *jsonx.OrderedMap,
 
 	var out []error
 	for _, agent := range names {
-		profile := profiles[agent]
-		if agent == "" || profile == "" {
-			continue
-		}
-		owner := binOwner(packs, agent)
-		if owner == nil {
-			continue
-		}
-		if err := refuseUnspeakableProvider(packs, owner, agent, profile,
-			ProviderFor(resolved, profile), providers, nil); err != nil {
+		if err := PairingRefusal(packs, providers, resolved, agent, profiles[agent], nil); err != nil {
 			out = append(out, err)
 		}
 	}
 	return out
+}
+
+// PairingRefusal is the gate's answer for ONE agent on one profile, or nil — PairingRefusals'
+// body, with the notch's unservable adaptations (UnservableAdaptations at the host, nil where
+// the packs' services run). An agent with no profile, or one no selected pack installs, pairs
+// with nothing and gets nil, as AgentEnv composes nothing for it.
+//
+// The host footer asks it (internal/cli's hostFooterTables): a selection the host launch
+// refuses is one no host process runs on, so the footer must not name it.
+func PairingRefusal(packs []*Pack, providers *jsonx.OrderedMap, resolved map[string]ResolvedProfile,
+	agent, profile string, unserved []Adaptation) error {
+	if agent == "" || profile == "" {
+		return nil
+	}
+	owner := binOwner(packs, agent)
+	if owner == nil {
+		return nil
+	}
+	return refuseUnspeakableProvider(packs, owner, agent, profile,
+		ProviderFor(resolved, profile), providers, unserved)
 }

@@ -55,6 +55,7 @@ subscription failover [OQ-BR17](wire-bridge-gateway.md#OQ-BR17));
 |---|---|
 | [OQ-FT13](#OQ-FT13) What does a macos-user session's footer say, and what tells the renderer? | `jail`: macos-user sets the marker every container launch sets |
 | [OQ-FT14](#OQ-FT14) Does the footer name your plan ("Claude Team"), or only the login? | Only the login: `Claude subscription` |
+| <a id="FT-D1"></a>FT-D1 | *Implementation decision.* At the host, a `use_profiles` selection the host launch refuses is left out of the footer's table, so the footer names the login. With `use_profiles: {claude: codex}` the footer said `codex (bridge) · host` whether or not `openai-auth` was listed, though `yolo host -- claude` refuses that profile in both cases (ES-D18 and ES-D25 of [`credential-sources-separation.md`](credential-sources-separation.md#decision-ledger)) and no host process runs the bridge. `hostFooterTables` asks the host's pairing gate (`packload.PairingRefusal`, with the host's unservable adaptations) for each selected agent and keeps only those it composes; a claude running on the host with that selection was started some other way and runs on its own login. Only the pairing gate is asked, because it is the one refusal that turns on the selection itself. Chosen over a footer that names the refusal: the claude drawing it was never refused, since `yolo host` did not start it, and it runs on its own login | 2026-09-28 | [§4](#4-where-the-facts-come-from-and-how-fresh-they-are) | ✅ 2026-09-28 |
 
 ## Terms used throughout
 
@@ -420,7 +421,7 @@ MEASURED: [§2.1](#21-as-built)). A one-launch
 select a profile, a one-launch `-p` naming another is invisible too, and the footer names the config's:
 `yolo host -p zai -- claude` with `use_profiles: {claude: bedrock}` shows `Bedrock` while the process carries z.ai's
 base URL, because that launch exports no table and the renderer tests only the agent's own switches (found in review;
-MEASURED with a stub `claude` that runs its filled status-line command). Closing it means `yolo host --` exporting its agent's selection, which is not
+MEASURED with a stub `claude` that runs its filled status-line command). A selection the host launch refuses, such as claude's `codex` profile, is left out, so the footer names the login ([FT-D1](#FT-D1)). Closing it means `yolo host --` exporting its agent's selection, which is not
 built: a nested `yolo` the agent starts would read that variable as its launch env. How to export it is
 [OQ-FT15](#OQ-FT15).
 
