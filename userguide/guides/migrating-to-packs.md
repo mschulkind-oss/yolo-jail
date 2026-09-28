@@ -564,8 +564,18 @@ Two guardrails, since replacement is the sharper behavior:
   (they still report). With **no TTY** the confirmation is a **no**, so a scripted or CI
   `yolo host apply --assert` aborts rather than destroying a server unattended.
 
-To keep an entry, declare it under `mcp_servers` in your config — which reaches every agent,
-not just the one — and re-run.
+To keep an entry, declare it for that agent: add a `config-overlay` to the `contributes` list of
+your local pack, `~/.config/yolo-jail/local/pack.json`, one for each agent config that would lose
+it, under the key its loss line names (`mcpServers` here):
+
+```json
+{"contributes": [{"kind": "config-overlay", "surface": "claude/config",
+  "config": {"managed": {"mcpServers": {"handAdded": {"command": "/usr/local/bin/mine"}}}}}]}
+```
+
+Then re-run. The apply's own remedy line spells this out for the surfaces and keys that lost
+entries. An entry under `mcp_servers` or `lsp_servers` in your user config does not keep it: those
+reach jails only, not the files `yolo host apply` writes.
 
 > **⚠ `${VAR}` does not expand at the host.** `yolo host apply` resolves no variables: it renders
 > files and launches nothing, so no `env_sources` pass runs in the render — hydrating secrets is

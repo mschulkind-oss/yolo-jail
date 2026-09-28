@@ -225,7 +225,7 @@ the config key, the local-pack path, the missing binary, or "none" — never by 
 
 | Loss class | Group by | Remedy | Scope word |
 | :--- | :--- | :--- | :--- |
-| MCP entry dropped | the entry name, across agents | declare each under `mcp_servers` in the user config | *in every agent* |
+| table entry dropped (an MCP server, or an LSP server in Copilot's config) | the local pack's `pack.json`, one group across agents; its items are the entry names | a `config-overlay` in that file for each surface that lost an entry, under the table key its loss line names. `mcp_servers` and `lsp_servers` reach jails only, never a file host apply writes | *per surface* |
 | skill adopted (moved, unioned, archived) | the skill name, across dirs | remove it from the agent dir before applying, to opt one out; otherwise the move is the remedy | *all N dirs* |
 | your value replaced by a managed key | the surface | **none exists** at this notch: the line states *managed by the `<pack>` pack* and stops, with no `⚠` | — |
 | comment dropped above a changed key | the surface | none possible; stated as a fact under the surface | — |
