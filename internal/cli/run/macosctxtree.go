@@ -70,12 +70,11 @@ import (
 // this tree would scale to perfectly well, so naming it is the honest interim rather than the
 // answer. DP-D15 rules only the directory-shaped delivery out.
 //
-// The same shape one destination over, noted here because this is where a reader comes
-// looking: a pack `files` contribution lands in the HOME rather than /ctx, so it belongs to
-// the home overlay and not to this tree — and the overlay carries skills and briefings only
-// (macoshomeoverlay.go), while `files` has one non-test reader and it is container-side
-// (packfiles.go). packs/pi's `extensions/yolo-openai-auth.js`, the file that registers the
-// openai-codex provider, is the live victim.
+// One destination over, noted here because this is where a reader comes looking: a pack
+// `files` contribution lands in the HOME rather than /ctx, so it belongs to the home overlay
+// and not to this tree. The overlay copies each files tree beside the skills and briefings
+// (macoshomeoverlay.go, reading packFilesTargets), which is how packs/pi's
+// `extensions/yolo-openai-auth.js` reaches a macos-user home.
 
 // macosCtxTreeLeaf is the staging-dir subdir the tree is composed into. It sits beside
 // the home overlay's own leaf, in the same per-jail staging dir, because both are
