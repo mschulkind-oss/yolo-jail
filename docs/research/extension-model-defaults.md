@@ -17,7 +17,7 @@ extensions to support?
 extensions and of pi 0.87.1, read from the published packages (versions in
 [Appendix A](#appendix-a-evidence)). **UNMEASURED:** no extension was run; no agent was started.
 
-**Needs your ruling:** [OQ-XM1](#OQ-XM1) (the core helper), [OQ-XM2](#OQ-XM2) (the role vocabulary), [OQ-XM3](#OQ-XM3) (the `subagents` block yolo already ships), [OQ-XM4](#OQ-XM4) (an env convention, or not yet), [OQ-XM5](#OQ-XM5) (the upstream proposal).
+**Needs your ruling:** [OQ-XM1](#OQ-XM1) (the core helper), [OQ-XM3](#OQ-XM3) (the `subagents` block yolo already ships). Ruled 2026-09-28: [OQ-XM2](#OQ-XM2) (add `frontier`), [OQ-XM4](#OQ-XM4) (no env convention yet), [OQ-XM5](#OQ-XM5) (no upstream proposal).
 
 **Reads with:** [`model-lists-and-pickers.md` §6](../design/model-lists-and-pickers.md#6-tier-aliases-default-fast-balanced)
 (the tier aliases this reuses), [`pi-model-selection-ux.md`](pi-model-selection-ux.md) ([OQ-PM1](pi-model-selection-ux.md#OQ-PM1),
@@ -157,7 +157,7 @@ in-jail edit is the user's. That's the intended behavior, not a gap.
    **Answer:**
    > _(empty — fill in when decided)_
 
-2. 💬 <a id="OQ-XM2"></a>**[OQ-XM2](#OQ-XM2): Which role names does yolo publish?** yolo's
+2. ✅ <a id="OQ-XM2"></a>**[OQ-XM2](#OQ-XM2): Which role names does yolo publish?** yolo's
    aliases are `default`, `fast` and `balanced`. The ecosystem uses `small`/`medium`/`big`
    (pi-dynamic-workflows) and `fast`/`balanced`/`frontier`/`fav` (pi-task-models), and claude
    uses `opus`/`sonnet`/`haiku`. Stakes: an adapter maps yolo's names onto the extension's, and a
@@ -166,10 +166,10 @@ in-jail edit is the user's. That's the intended behavior, not a gap.
    _Leaning:_ keep yolo's three and add `frontier` as a fourth conventional alias, with the same
    warn-don't-refuse rule. Each adapter maps names; core does not.
 
-   <!-- vantage: oq id=OQ-XM2 leaning="Keep default, fast, balanced and add frontier as a fourth conventional alias under the same warn-don't-refuse rule; adapters map names, core does not." -->
-
    **Answer:**
-   > _(empty — fill in when decided)_
+   > **Ruled in review 2026-09-28, as leaned:** keep `default`, `fast` and `balanced`, and add
+   > `frontier` as a fourth conventional alias under the same warn-don't-refuse rule. Each
+   > adapter maps yolo's names onto its extension's; core maps none.
 
 3. 💬 <a id="OQ-XM3"></a>**[OQ-XM3](#OQ-XM3): What happens to the `subagents` block pi's derive
    writes today?** It's yolo's one adapter, embedded in the agent's pack.
@@ -177,8 +177,23 @@ in-jail edit is the user's. That's the intended behavior, not a gap.
    - **(b)** Move it to the maintainer's own pack, out of yolo entirely.
    - **(c)** Keep it where it is, as the one sanctioned case.
 
-   Stakes: under (a) or (b), a codex user without the pack loses the strict GPT-6 scope for child
-   agents. Their children still inherit the codex model, so only the enforcement goes.
+   What the block does today: only on the `codex` profile, pi's derive writes pi-subagents' own
+   settings. `subagents.defaultModel` is the profile's model, so a child agent with no model of
+   its own starts there. `subagents.modelScope` is `{enforce: true, strict: true, allow: [...]}`
+   with `allow` set to exactly the subscription's declared model list, so pi-subagents refuses to
+   start a child on any other model, including a model an agent file or a workflow names
+   explicitly. It was added on 2026-09-15 to stop workflows written for other providers from
+   pinning a model the ChatGPT subscription cannot serve. On every other profile the derive
+   writes no `subagents` block, and pi-subagents' own default applies: a child inherits its
+   parent's model and may name any model.
+
+   Stakes: under (a) or (b), a codex user who has not selected the adapter pack loses that
+   refusal. Their child agents still start on the codex model, because they inherit it from the
+   parent, so only a child that names another model changes: today it is refused, and without
+   the block pi-subagents starts it on that model, which works if that model's provider is
+   configured and fails if it is not. Under
+   (c) nothing changes for codex users, and every other provider keeps having no policy at all,
+   which is the gap [OQ-PM1](pi-model-selection-ux.md#OQ-PM1) asks about.
 
    _Leaning:_ (a), and it answers [OQ-PM1](pi-model-selection-ux.md#OQ-PM1) the same way: the adapter writes `defaultModel` from the
    profile's `default` alias and `modelScope` from the provider's models, for every provider.
@@ -188,19 +203,19 @@ in-jail edit is the user's. That's the intended behavior, not a gap.
    **Answer:**
    > _(empty — fill in when decided)_
 
-4. 💬 <a id="OQ-XM4"></a>**[OQ-XM4](#OQ-XM4): Does yolo also publish role env vars?** Stakes: an
+4. ✅ <a id="OQ-XM4"></a>**[OQ-XM4](#OQ-XM4): Does yolo also publish role env vars?** Stakes: an
    env var reaches extensions with no adapter, but a jail-wide one is wrong when claude and pi run
    different profiles.
 
    _Leaning:_ not until per-agent env exists ([OQ-CN6](../design/provider-credential-scope.md#OQ-CN6));
    then as `YOLO_MODEL_<ROLE>` per agent.
 
-   <!-- vantage: oq id=OQ-XM4 leaning="Not until per-agent env exists (OQ-CN6); then per-agent YOLO_MODEL_<ROLE>." -->
-
    **Answer:**
-   > _(empty — fill in when decided)_
+   > **Ruled in review 2026-09-28, as leaned:** not until per-agent environment exists
+   > ([OQ-CN6](../design/provider-credential-scope.md#OQ-CN6)); then as `YOLO_MODEL_<ROLE>`, set
+   > per agent.
 
-5. 💬 <a id="OQ-XM5"></a>**[OQ-XM5](#OQ-XM5): Propose a model-roles setting to pi upstream?**
+5. ✅ <a id="OQ-XM5"></a>**[OQ-XM5](#OQ-XM5): Propose a model-roles setting to pi upstream?**
    A `modelRoles` map in `settings.json` and `ctx.modelFor(role)` on the extension context, so
    extensions stop inventing vocabularies. Stakes: none for yolo's build; it's the maintainer's
    call whether to spend upstream capital.
@@ -208,10 +223,9 @@ in-jail edit is the user's. That's the intended behavior, not a gap.
    _Leaning:_ yes. It would let yolo's pi derive write one key and most adapters retire, and
    `@henryqw/pi-task-models` shows the demand.
 
-   <!-- vantage: oq id=OQ-XM5 leaning="Yes: a modelRoles settings map plus ctx.modelFor(role); yolo's pi derive then writes one key and most adapters retire; pi-task-models shows the demand." -->
-
    **Answer:**
-   > _(empty — fill in when decided)_
+   > **Ruled in review 2026-09-28, against the leaning:** no. yolo does not propose a model-roles
+   > setting to pi upstream; adapters stay the way yolo reaches each extension's own settings.
 
 ## Appendix A: evidence
 
