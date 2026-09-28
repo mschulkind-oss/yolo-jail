@@ -602,7 +602,7 @@ func TestHostApplyVerdictNamesAMissingDependency(t *testing.T) {
 	if got := survey.MissingDeps(); len(got) != 1 || got[0] != "yolo-absent-probe-bin" {
 		t.Fatalf("the survey must name the missing binary; got %v\n%s", got, report)
 	}
-	if _, missing, _ := survey.Deps(); missing != 1 {
+	if _, missing, _, _ := survey.Deps(); missing != 1 {
 		t.Errorf("want 1 missing dependency counted; got %d\n%s", missing, report)
 	}
 	for _, want := range []string{
@@ -626,7 +626,7 @@ func TestHostApplyVerdictNamesAMissingDependency(t *testing.T) {
 func TestHostApplySurveyCountsPresentDependencies(t *testing.T) {
 	shippedPacksFixture(t)
 	survey, report := surveyApply(t)
-	present, missing, _ := survey.Deps()
+	present, missing, _, _ := survey.Deps()
 	if present == 0 {
 		t.Fatalf("the shipped packs declare host programs and this jail has them — the survey "+
 			"saw none, so the dep probe's call site is not wired\n%s", report)

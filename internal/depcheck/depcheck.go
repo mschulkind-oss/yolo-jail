@@ -32,6 +32,12 @@ type Requirement struct {
 	// own first-party installer (`npm install -g <pkg>`, `curl -fsSL <url> | sh`). PREFERRED
 	// over a package-manager hint when present; see selfInstallFlavor for why.
 	SelfInstall string
+	// Unpublished is why the declaring program's vendor publishes NO BUILD for this host,
+	// "" when it does (packdecl.DepRequirement.UnpublishedReason, the one installable-program
+	// predicate a jail's launcher generation asks too). A binary with a reason is still probed
+	// — one the user built themselves is present — but a missing one gets no remedy, no
+	// Brewfile line and no place in Missing: nothing is missing that anything could install.
+	Unpublished string
 }
 
 // brewCaskHint is the hint key for a Homebrew CASK (an app bundle / prebuilt binary
@@ -115,6 +121,10 @@ type Result struct {
 	// recovering that from a command string would be a second, guessing implementation.
 	Fallback       string
 	FallbackFlavor string
+	// Unpublished is Requirement.Unpublished, carried onto a binary that is ABSENT, and ""
+	// for a present one. Such a result is not missing (Missing leaves it out) and has no
+	// remedy: the reason is the whole of what a report says about it.
+	Unpublished string
 }
 
 // LookPath is the probe seam — overridable in tests so a check does not depend on the
@@ -157,6 +167,11 @@ func Check(reqs []Requirement) []Result {
 		switch {
 		case presentAt(r.Bin, &res):
 			// probed present; nothing to remedy
+		case r.Unpublished != "":
+			// Absent, and no vendor build exists for this host: there is no remedy to offer,
+			// not a hint the pack forgot. Asked AFTER the probe, the jail's order — a binary
+			// the host already has is present whatever the vendor publishes.
+			res.Unpublished = r.Unpublished
 		case r.SelfInstall != "":
 			res.Remedy, res.Flavor = r.SelfInstall, selfInstallFlavor
 			if pkg, flavor, ok := hintFor(r.Hints, mgr); ok {
@@ -227,11 +242,13 @@ func installCmd(flavor, pkg string) string {
 	}
 }
 
-// Missing returns the results that are absent AND have a remedy — the actionable set.
+// Missing returns the results that are absent, remedy or not — every declared binary this host
+// lacks and could have. An absent binary whose vendor publishes no build here (Unpublished) is
+// not one: nothing is missing that anything could install.
 func Missing(results []Result) []Result {
 	var out []Result
 	for _, r := range results {
-		if !r.Present {
+		if !r.Present && r.Unpublished == "" {
 			out = append(out, r)
 		}
 	}

@@ -128,8 +128,9 @@ agent-editable and must never add a binary to the host.
 - Two packs declare the same `bin`: the pack system's existing combine rule for a `program`
   target decides which one counts. This doc adds no rule, and the floor holds one entry per name.
 - A program whose vendor publishes no build for this OS and architecture: its entry is reported
-  as **missing, unpublished here**, using the same `launcherUnpublished` predicate the jail uses,
-  and no install is ever attempted.
+  as **missing, unpublished here**, using the same predicate the jail uses
+  (`packdecl.Install.UnpublishedReason`, formerly the jail-only `launcherUnpublished`), and no
+  install is ever attempted.
 
 ## 3. The host prefix
 

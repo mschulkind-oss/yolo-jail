@@ -67,6 +67,10 @@ func checkDepsMain(args []string, out, errw io.Writer, color bool) int {
 		switch {
 		case r.Present:
 			pr.Printf("[green]✓[/green] %-16s %s", r.Bin, r.Path)
+		case r.Unpublished != "":
+			// Not missing, and not an exit-1: nothing could install it (depcheck.Missing
+			// leaves it out), so the line is the reason and no command.
+			pr.Printf("[yellow]–[/yellow] %-16s no build for this host — %s", r.Bin, r.Unpublished)
 		case r.Remedy != "":
 			pr.Printf("[red]✗[/red] %-16s MISSING → %s", r.Bin, r.Remedy)
 			// The package-manager alternative for a dep whose primary remedy is the tool's

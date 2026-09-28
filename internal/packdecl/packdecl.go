@@ -329,10 +329,37 @@ const StoreBookkeepingPrefix = ".yolo-"
 // schemas (internal/entrypoint, the consumer) — the mechanism packload's
 // TestCapabilityNameRulesAgree uses for the other rule this package may not import.
 func (in Install) SupportsPlatform(goos, goarch string) bool {
-	if len(in.Platforms) == 0 {
+	return publishedFor(in.Platforms, goos, goarch)
+}
+
+// UnpublishedReason reports WHY this program cannot be installed on goos/goarch, or "" when its
+// vendor publishes a build there (or the pack declared no `platforms`, which means everywhere).
+//
+// THE ONE INSTALLABLE-PROGRAM PREDICATE (docs/plans/notch-convergence.md item 7, row B5), and the
+// sentence that states its answer. A jail asks it before writing a lazy launcher
+// (entrypoint's GenerateAgentLaunchers); the host asks it before offering an install
+// (DepRequirement.UnpublishedReason, read by `yolo host apply` and `yolo check-deps` through
+// internal/depcheck). The host used to ignore `platforms` altogether, so host apply offered to
+// run a vendor installer for a build the vendor does not publish.
+//
+// The declared set is named beside this machine's platform, in one sentence, because that
+// pairing is what makes a MISSPELLED entry visible — this package may not import
+// loopholedecl's closed GOOS/GOARCH list, so the line stands in for it (`linux-x64` read next
+// to `linux/amd64`). The closing clause is loopholedecl's own wording, for its own reason: the
+// failure this field exists to end is a vendor's platform refusal misread as a missing
+// prerequisite, and the sentence has to say there is nothing to install or the reader spends
+// the afternoon proving it.
+func (in Install) UnpublishedReason(goos, goarch string) string {
+	return unpublishedReason(in.Platforms, goos, goarch)
+}
+
+// publishedFor is SupportsPlatform's body over a bare `platforms` list, shared with
+// DepRequirement so the two projections of one `program` contribution answer alike.
+func publishedFor(platforms []string, goos, goarch string) bool {
+	if len(platforms) == 0 {
 		return true
 	}
-	for _, entry := range in.Platforms {
+	for _, entry := range platforms {
 		want, wantArch, _ := strings.Cut(entry, "/")
 		if want != goos {
 			continue
@@ -342,6 +369,18 @@ func (in Install) SupportsPlatform(goos, goarch string) bool {
 		}
 	}
 	return false
+}
+
+// unpublishedReason is UnpublishedReason's body over a bare `platforms` list.
+func unpublishedReason(platforms []string, goos, goarch string) string {
+	if publishedFor(platforms, goos, goarch) {
+		return ""
+	}
+	declared := append([]string(nil), platforms...)
+	sort.Strings(declared)
+	return "the pack declares its vendor publishes for " + strings.Join(declared, ", ") +
+		" and this machine is " + goos + "/" + goarch + " — nothing is missing on this " +
+		"machine and nothing can be installed to fix it"
 }
 
 // PlatformsDeclared returns the declared platform strings, sorted, for a message that

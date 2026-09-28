@@ -29,8 +29,6 @@ package entrypoint
 import (
 	"path/filepath"
 	"strings"
-
-	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 )
 
 // imageProbeBase is the image's own bin dirs. A var only so a test that runs the boot path
@@ -127,10 +125,10 @@ func declaredMiseBins(e *Env) map[string]struct{} {
 	return out
 }
 
-// launcherUnpublished reports WHY a launcher for inst must not be written on the
-// goos/goarch this jail is running, or "" when the vendor publishes here (or the pack
-// declared no `platforms` at all, which means everywhere). Same contract as
-// launcherShadows: the string is a reason, phrased to be dropped into a warning.
+// A LAUNCHER FOR A PROGRAM ITS VENDOR DOES NOT PUBLISH HERE is declined too, by the one
+// installable-program predicate, packdecl.Install.UnpublishedReason (docs/plans/
+// notch-convergence.md item 7), which the host's dep probe asks as well. It lived here as
+// launcherUnpublished while only a jail asked it.
 //
 // NO LAUNCHER AND A LINE — not a launch refusal, and not silence. Three precedents already
 // in the tree decide this, and none of them is a refusal: launcherShadows declines one
@@ -146,23 +144,7 @@ func declaredMiseBins(e *Env) map[string]struct{} {
 // order is loopholeinert's ("BACKEND BEATS PLATFORM … the line the user needs is the one
 // they can act on"): if the image already provides the binary, "the image provides /bin/x"
 // is both true and useful, while "your vendor has no build" would alarm about a tool the
-// jail has.
-func launcherUnpublished(inst *packdecl.Install, goos, goarch string) string {
-	if inst.SupportsPlatform(goos, goarch) {
-		return ""
-	}
-	// The declared set beside this machine's platform, in one sentence, because that
-	// pairing is what makes a MISSPELLED entry visible — packdecl may not import
-	// loopholedecl's closed GOOS/GOARCH list, so this line is what stands in for it
-	// (`linux-x64` read next to `linux/amd64`). The closing clause is loopholedecl's own
-	// wording, for its own reason: the failure this field exists to end is a vendor's
-	// platform refusal misread as a missing prerequisite, and the sentence has to say
-	// there is nothing to install or the reader spends the afternoon proving it.
-	return "the pack declares its vendor publishes for " +
-		strings.Join(inst.PlatformsDeclared(), ", ") + " and this jail is " +
-		goos + "/" + goarch + " — nothing is missing on this machine and nothing can be " +
-		"installed to fix it"
-}
+// jail has. The host keeps the same order: a binary already on its PATH is reported present.
 
 // launcherShadows reports WHY a launcher for bin must not be written, or "" when it is
 // safe to write one. The string is a reason, phrased to be dropped into a warning.

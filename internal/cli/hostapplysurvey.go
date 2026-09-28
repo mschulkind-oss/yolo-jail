@@ -607,9 +607,13 @@ func (s *hostApplySurvey) SkillNames(fate skillFate) []string {
 // Deps is the verdict block's dependency count, three ways. "Not probed" is its own number and
 // never folds into missing: the dependency rule point 6 rules that yolo may not call an
 // environment unready on evidence it does not have.
-func (s *hostApplySurvey) Deps() (present, missing, notProbed int) {
+//
+// UNPUBLISHED is a fourth number rather than folded into any of those: a program whose vendor
+// publishes no build for this host is probed (so not "not probed"), absent (so not "present") and
+// uninstallable (so not "missing", which is a blocker).
+func (s *hostApplySurvey) Deps() (present, missing, notProbed, unpublished int) {
 	if s == nil {
-		return 0, 0, 0
+		return 0, 0, 0, 0
 	}
 	for _, f := range s.deps {
 		switch f.State {
@@ -617,11 +621,29 @@ func (s *hostApplySurvey) Deps() (present, missing, notProbed int) {
 			present++
 		case depMissing:
 			missing++
+		case depUnpublished:
+			unpublished++
 		default:
 			notProbed++
 		}
 	}
-	return present, missing, notProbed + s.depsNoBin
+	return present, missing, notProbed + s.depsNoBin, unpublished
+}
+
+// UnpublishedDeps names the absent binaries whose vendor publishes no build for this host,
+// sorted, for the verdict line that counts them.
+func (s *hostApplySurvey) UnpublishedDeps() []string {
+	if s == nil {
+		return nil
+	}
+	var out []string
+	for bin, f := range s.deps {
+		if f.State == depUnpublished {
+			out = append(out, bin)
+		}
+	}
+	sort.Strings(out)
+	return out
 }
 
 // MissingDeps names the binaries that are declared and absent, sorted. The verdict line names

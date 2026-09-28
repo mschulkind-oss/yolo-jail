@@ -109,6 +109,9 @@ type hostApplyDocCounts struct {
 	// DependenciesNotProbed is its own number and never folds into missing: yolo may not call
 	// an environment unready on evidence it does not have (the dependency rule, point 6).
 	DependenciesNotProbed int `json:"dependencies_not_probed"`
+	// DependenciesUnpublished counts the absent programs whose vendor publishes no build for this
+	// host: not missing (nothing could install them), so never a blocker.
+	DependenciesUnpublished int `json:"dependencies_unpublished"`
 }
 
 // hostApplyDocDestination is one destination an --assert would alter.
@@ -148,7 +151,7 @@ func buildHostApplyDoc(s *hostApplySurvey) hostApplyDoc {
 	home := s.Home()
 	replacedKeys, replacedFiles := s.ReplacedValues()
 	droppedEntries, droppedFrom := s.DroppedEntries()
-	present, missing, notProbed := s.Deps()
+	present, missing, notProbed, unpublished := s.Deps()
 
 	doc := hostApplyDoc{
 		Version:    version.Get(""),
@@ -175,6 +178,7 @@ func buildHostApplyDoc(s *hostApplySurvey) hostApplyDoc {
 			DependenciesPresent:        present,
 			DependenciesMissing:        missing,
 			DependenciesNotProbed:      notProbed,
+			DependenciesUnpublished:    unpublished,
 		},
 		// `[]`, never `null`, for every list: a consumer looping over one should not have to
 		// special-case the run that found nothing — which is the same rule that makes a

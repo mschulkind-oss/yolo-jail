@@ -351,7 +351,7 @@ func hostApplyCounts(s *hostApplySurvey, write bool) []string {
 		cost = append(cost, fmt.Sprintf("%d of your entries %s from %d %s", entries, verb,
 			surfaces, plural(surfaces, "surface", "surfaces")))
 	}
-	if present, missing, notProbed := s.Deps(); present+missing+notProbed > 0 {
+	if present, missing, notProbed, unpublished := s.Deps(); present+missing+notProbed+unpublished > 0 {
 		dep := fmt.Sprintf("%d declared %s present", present,
 			plural(present, "dependency", "dependencies"))
 		if missing > 0 {
@@ -359,6 +359,10 @@ func hostApplyCounts(s *hostApplySurvey, write bool) []string {
 		}
 		if notProbed > 0 {
 			dep += fmt.Sprintf(", %d not probed", notProbed)
+		}
+		if unpublished > 0 {
+			dep += fmt.Sprintf(", %d with no build for this host (%s)", unpublished,
+				strings.Join(s.UnpublishedDeps(), ", "))
 		}
 		cost = append(cost, dep)
 	}

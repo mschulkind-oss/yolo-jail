@@ -412,7 +412,7 @@ func GenerateAgentLaunchers(e *Env) error {
 			// agent was used, on a fact the manifest could have stated. runtime.GOOS/GOARCH
 			// is the jail's own platform because this binary IS the jail's — nothing here
 			// may take it from the environment, or a wrong answer becomes configurable.
-			if why := launcherUnpublished(inst, runtime.GOOS, runtime.GOARCH); why != "" {
+			if why := inst.UnpublishedReason(runtime.GOOS, runtime.GOARCH); why != "" {
 				e.warn("pack " + p.Name + ": no launcher for " + inst.Bin + " — " + why)
 				continue
 			}

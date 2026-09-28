@@ -29,6 +29,7 @@ package cli
 
 import (
 	"fmt"
+	"runtime"
 	"sort"
 	"strings"
 
@@ -56,6 +57,13 @@ type hostDepState int
 
 const (
 	depNotProbed hostDepState = iota
+	// depUnpublished is a `program` binary this host lacks whose vendor publishes NO BUILD for
+	// it (packdecl's one installable-program predicate, which a jail's launcher generation asks
+	// too). Not missing — nothing could install it — and so neither a blocker nor an install
+	// offer: a line naming the reason, as a jail declines the launcher with one. Ordered below
+	// depPresent and depMissing so a survey merging two packs' declarations of one binary keeps
+	// the answer that has something to act on.
+	depUnpublished
 	depPresent
 	depMissing
 )
@@ -74,6 +82,8 @@ func (h *hostDeps) state(c packdecl.Contribution) hostDepState {
 		return depNotProbed
 	case r.Present:
 		return depPresent
+	case r.Unpublished != "":
+		return depUnpublished
 	default:
 		return depMissing
 	}
@@ -200,6 +210,12 @@ func (pf hostDepPreflight) of(p *packload.Pack) *hostDeps {
 // commands feed the same probe through the same adapter: two adapters would be two answers
 // to "does a program with no install_hints count as a requirement", and the point of
 // depcheck is that there is one.
+//
+// THE PLATFORM IS ASKED HERE, of the one installable-program predicate a jail asks before it
+// writes a launcher (packdecl.DepRequirement.UnpublishedReason; notch-convergence item 7). The
+// host used to ignore a program's `platforms`, so `yolo host apply` offered, and `check-deps`
+// printed, a vendor install for a build the vendor does not publish. runtime.GOOS/GOARCH is this
+// host's platform because this binary runs on it, as the jail's generator reads its own.
 func packDepRequirements(p *packload.Pack) []depcheck.Requirement {
 	var reqs []depcheck.Requirement
 	for _, d := range p.Decl.DepRequirements() {
@@ -208,6 +224,7 @@ func packDepRequirements(p *packload.Pack) []depcheck.Requirement {
 			// The pack's OWN installer, derived from the program contribution it already
 			// declares. depcheck prefers it over a package-manager hint.
 			SelfInstall: d.SelfInstall,
+			Unpublished: d.UnpublishedReason(runtime.GOOS, runtime.GOARCH),
 		})
 	}
 	return reqs
@@ -245,6 +262,9 @@ type hostDepFinding struct {
 	// NoRemedy is why a missing binary has none, when Remedy is empty. Per the remedy contract: a
 	// loss with no remedy says so rather than borrowing a `⚠` it cannot cash.
 	NoRemedy string
+	// Unpublished is why an absent program has no vendor build for this host (depUnpublished),
+	// "" otherwise. The whole of what the report says about such a binary.
+	Unpublished string
 }
 
 // finding resolves one dep contribution into the struct above. It is the ONE place the probe's
@@ -252,6 +272,9 @@ type hostDepFinding struct {
 // three renderings of one fact rather than three readings of the probe.
 func (h *hostDeps) finding(c packdecl.Contribution) hostDepFinding {
 	f := hostDepFinding{State: h.state(c), Kind: c.Kind}
+	if f.State == depUnpublished {
+		f.Unpublished = h.byBin[c.Bin].Unpublished
+	}
 	if f.State != depMissing {
 		return f
 	}
@@ -296,6 +319,11 @@ func (h *hostDeps) depLine(c packdecl.Contribution) string {
 	case depPresent:
 		return fmt.Sprintf("  [dim]%-10s[/dim] [green]✓[/green] %-16s present at %s",
 			label, r.Bin, r.Path)
+	case depUnpublished:
+		// Not MISSING: nothing could install it, so the line states why and offers nothing —
+		// the host's copy of the line a jail prints when it declines the launcher.
+		return fmt.Sprintf("  [dim]%-10s[/dim] [yellow]–[/yellow] %-16s no build for this host — %s",
+			label, c.Bin, r.Unpublished)
 	}
 	// MISSING, and nothing else: the remedy is the tier-3 group's, stated once per binary.
 	return fmt.Sprintf("  [yellow]%-10s[/yellow] [red]✗[/red] %-16s MISSING", label, c.Bin)

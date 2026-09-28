@@ -22,8 +22,9 @@ holds settled detail the design doesn't need.
   outside a container (macos-user, `internal/entrypoint/darwin.go`). Check whether a host-shaped
   `Env` can point `LaunchDir`, `NpmBin` and the stamp dir at the prefix without a second template.
   A second copy of the launcher body is the drift to avoid.
-- **The collision and platform checks.** `launcherShadows` and `launcherUnpublished`
-  (`internal/entrypoint/launchercollision.go`). The shadow check's probe path at the host is the
+- **The collision and platform checks.** `launcherShadows`
+  (`internal/entrypoint/launchercollision.go`) and the platform predicate
+  `packdecl.Install.UnpublishedReason` (was `launcherUnpublished`). The shadow check's probe path at the host is the
   composed host PATH minus the prefix itself. Never add the prefix's own install dirs, for the
   reason `launchercollision.go` gives: that turns evergreen off after the first install.
 - **The Node floor resolution.** `internal/entrypoint/nodefloor.go` and `packdecl/nodefloor.go`

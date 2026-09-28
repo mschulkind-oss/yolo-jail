@@ -847,6 +847,17 @@ type DepRequirement struct {
 	// `⚠ review` in the footprint), and running one is env-manager Phase 4.3's
 	// confirm-gated territory.
 	SelfInstall string
+	// Platforms is a `program` contribution's `platforms` — where its vendor publishes a build
+	// — and empty for a `requires`, which installs nothing and so has no vendor to ask.
+	// UnpublishedReason is the only reader.
+	Platforms []string
+}
+
+// UnpublishedReason is Install.UnpublishedReason for this requirement: why its program cannot be
+// installed on goos/goarch, or "" when it can (or it is a `requires`). The one installable-
+// program predicate, asked of the host dep probe's projection of the same contribution.
+func (d DepRequirement) UnpublishedReason(goos, goarch string) string {
+	return unpublishedReason(d.Platforms, goos, goarch)
 }
 
 // selfInstallCommand derives the pack's OWN install command for a program contribution, or
@@ -890,9 +901,11 @@ func (m *Manifest) DepRequirements() []DepRequirement {
 		if c.Bin == "" {
 			continue
 		}
-		out = append(out, DepRequirement{
-			Bin: c.Bin, Hints: c.InstallHints, SelfInstall: selfInstallCommand(c),
-		})
+		d := DepRequirement{Bin: c.Bin, Hints: c.InstallHints, SelfInstall: selfInstallCommand(c)}
+		if c.Kind == KindProgram {
+			d.Platforms = c.Platforms
+		}
+		out = append(out, d)
 	}
 	return out
 }
