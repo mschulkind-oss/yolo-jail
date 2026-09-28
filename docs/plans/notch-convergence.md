@@ -42,7 +42,7 @@ premise is retired.
 **Start at [§2](#2-security-first-the-boundary-that-is-not-one)**, the only part that is urgent, then
 [§4](#4-the-ordered-build-list).
 
-**Needs your ruling:** [OQ-NC1](#OQ-NC1), [OQ-NC2](#OQ-NC2), [OQ-NC3](#OQ-NC3), [OQ-NC4](#OQ-NC4), [OQ-NC5](#OQ-NC5), [OQ-NC6](#OQ-NC6), [OQ-NC7](#OQ-NC7), [OQ-NC8](#OQ-NC8), [OQ-NC9](#OQ-NC9), [OQ-NC10](#OQ-NC10), [OQ-NC11](#OQ-NC11).
+**Needs your ruling:** [OQ-NC2](#OQ-NC2), [OQ-NC3](#OQ-NC3), [OQ-NC6](#OQ-NC6), [OQ-NC7](#OQ-NC7), [OQ-NC10](#OQ-NC10). Ruled 2026-09-28: [OQ-NC1](#OQ-NC1) (run services at every notch), and by parity [OQ-NC4](#OQ-NC4), [OQ-NC5](#OQ-NC5), [OQ-NC8](#OQ-NC8), [OQ-NC9](#OQ-NC9), [OQ-NC11](#OQ-NC11).
 
 **Reads with:** [`wire-bridge.md`](../reference/wire-bridge.md#wb-d4) (WB-D4, the premise
 [§2](#2-security-first-the-boundary-that-is-not-one) retires),
@@ -408,7 +408,7 @@ is reported verified only against a real rootless host or CI, with
 
 ## 6. Open questions
 
-1. 💬 <a id="OQ-NC1"></a>**OQ-NC1: Does every notch run the selected packs' services?** The host and
+1. ✅ <a id="OQ-NC1"></a>**OQ-NC1: Does every notch run the selected packs' services?** The host and
    macos-user run no `jail_daemon` and no `kind: "service"` process. So a `via` or adapter profile
    works in a container, refuses at the host, and on macos-user launches against dead addresses.
    This decides whether item 3 is built at all. It also answers
@@ -426,14 +426,18 @@ is reported verified only against a real rootless host or CI, with
      the profile needs the service. There are two behaviors for one declaration, but they are
      disclosed.
 
-   <!-- vantage: oq id=OQ-NC1 leaning="A, run them launch-owned: it is the openaiauthhost shape already shipped for host Codex, it makes one declaration mean one thing at every notch, and item 1 makes a host-loopback service no weaker than a jail's; OQ-OA6 then takes route (b)." -->
-
-   _Leaning:_ A. It is the shape already shipped for host Codex, and it is what "host is supposed to
+      _Leaning:_ A. It is the shape already shipped for host Codex, and it is what "host is supposed to
    act like everywhere else" asks for. After item 1, a service on the host's loopback is no weaker
    than one in a jail.
 
    **Answer:**
-   > _(empty — fill in when decided)_
+   > **Ruled in review 2026-09-28, as leaned:** A, run them launch-owned. It is the `openaiauthhost`
+   > shape already shipped for host Codex, it makes one declaration mean one thing at every notch,
+   > and item 1 makes a host-loopback service no weaker than a jail's.
+   > [`OQ-OA6`](../design/openai-auth-broker.md#OQ-OA6) takes route (b). The service lifetime and
+   > host-half declaration are [`host-notch-services.md`](../design/host-notch-services.md)'s
+   > [`OQ-HS3`](../design/host-notch-services.md#OQ-HS3) and
+   > [`OQ-HS4`](../design/host-notch-services.md#OQ-HS4).
 
 2. 💬 <a id="OQ-NC2"></a>**OQ-NC2: What does the Claude OAuth terminator do on a shared network
    namespace?** It must listen on `127.0.0.1:443`, because `--add-host` maps `platform.claude.com`
@@ -484,7 +488,7 @@ is reported verified only against a real rootless host or CI, with
    **Answer:**
    > _(empty — fill in when decided)_
 
-4. 💬 <a id="OQ-NC4"></a>**OQ-NC4: Which order does "later wins" follow?** The launcher, the boot and
+4. ✅ <a id="OQ-NC4"></a>**OQ-NC4: Which order does "later wins" follow?** The launcher, the boot and
    the host order packs three ways, so one key has three winners (row B2). This decides item 8.
 
    - **A — Config order as written, then closure additions, then the local pack last.** That is
@@ -494,14 +498,14 @@ is reported verified only against a real rootless host or CI, with
      today, so a user pack can override a shipped one wherever it is listed.
    - **C — Alphabetical,** which is what the boot does by accident.
 
-   <!-- vantage: oq id=OQ-NC4 leaning="A: config order, closure additions after the list, the local pack last — what the docs and localPackEntry already promise, and the only order a user can see by reading their own config." -->
-
-   _Leaning:_ A. It is the only order a user can predict from their own config.
+      _Leaning:_ A. It is the only order a user can predict from their own config.
 
    **Answer:**
-   > _(empty — fill in when decided)_
+   > **Ruled 2026-09-28 by parity, as leaned** (the maintainer, 2026-09-28: *"yes, NC as parity for
+   > sure"*; the host acts like every other notch, with the same handling): A. Config order as
+   > written, then closure additions, then the local pack last, at every notch.
 
-5. 💬 <a id="OQ-NC5"></a>**OQ-NC5: Who does a bare `-p <name>` reach?** In a jail it reaches every
+5. ✅ <a id="OQ-NC5"></a>**OQ-NC5: Who does a bare `-p <name>` reach?** In a jail it reaches every
    installed agent CLI and never the `--` command ([pv-oq-5](../reference/providers.md#pv-oq-5)). At
    the host it reaches whatever command runs, `bash` included (ES-D1, an implementation decision).
    This decides item 11 and the host help's `yolo host -p zai -- curl` example.
@@ -512,13 +516,14 @@ is reported verified only against a real rootless host or CI, with
    - **B — The host meaning everywhere.** A bare name also keys the launched `--` command, so a jail
      `yolo -p zai -- bash` hands bash `ZAI_API_KEY`. That reverses pv-oq-5's never-the-command half.
 
-   <!-- vantage: oq id=OQ-NC5 leaning="A: pv-oq-5 at every notch; the ruled --with-credentials grant is the one way to hand an arbitrary command a key, so ES-D1's any-basename meaning retires and the refusal names the grant." -->
-
-   _Leaning:_ A. The grant exists now and is ruled, so a second, implicit route for the same thing
+      _Leaning:_ A. The grant exists now and is ruled, so a second, implicit route for the same thing
    is the duplicate path this plan removes.
 
    **Answer:**
-   > _(empty — fill in when decided)_
+   > **Ruled 2026-09-28 by parity, as leaned** (the maintainer, 2026-09-28: *"yes, NC as parity for
+   > sure"*; the host acts like every other notch, with the same handling): A. A bare `-p` reaches
+   > agent CLIs only, at every notch; any other command gets keys only through `--with-credentials`.
+   > ES-D1 retires.
 
 6. 💬 <a id="OQ-NC6"></a>**OQ-NC6: Is `providers.*.api_key_env_name` user-scope only, as `base_url`
    is?** [`OQ-LM3`](../research/local-model-endpoints.md#oq-lm3) made addresses user-scope only. The
@@ -552,7 +557,7 @@ is reported verified only against a real rootless host or CI, with
    **Answer:**
    > _(empty — fill in when decided)_
 
-8. 💬 <a id="OQ-NC8"></a>**OQ-NC8: What do `host_files` and `mise_tools` do at the host?** Both
+8. ✅ <a id="OQ-NC8"></a>**OQ-NC8: What do `host_files` and `mise_tools` do at the host?** Both
    render in every jail and are silently inert at the host. That breaks P4 whichever way this is
    answered.
 
@@ -562,14 +567,15 @@ is reported verified only against a real rootless host or CI, with
      [`OQ-CO14`](../design/config-ownership-and-promotion.md#oq-co14) settles host ownership. Host
      tools belong to [`OQ-PS1`](../design/provisioner-sets.md#OQ-PS1).
 
-   <!-- vantage: oq id=OQ-NC8 leaning="B: name both inert in host apply's notch line now, so nothing is silent; render source-less host_files once OQ-CO14 settles host ownership, and leave host tools to OQ-PS1." -->
-
-   _Leaning:_ B. It ends the silence today without choosing an ownership model early.
+      _Leaning:_ B. It ends the silence today without choosing an ownership model early.
 
    **Answer:**
-   > _(empty — fill in when decided)_
+   > **Ruled 2026-09-28 by parity, against the leaning** (the maintainer, 2026-09-28: *"yes, NC as
+   > parity for sure"*; the host acts like every other notch, with the same handling): A.
+   > Source-less `host_files` entries render at the host through the same surface engine, under
+   > `host_management`; source-bearing entries and `mise_tools` are named as inert.
 
-9. 💬 <a id="OQ-NC9"></a>**OQ-NC9: May a local pack carry a symlink that points out of the pack?**
+9. ✅ <a id="OQ-NC9"></a>**OQ-NC9: May a local pack carry a symlink that points out of the pack?**
    Found while building item 5. The launch stages every configured pack through `packstage.Stage`,
    whose no-escape rule refuses such a link whatever the pack's origin. The host read a local pack
    in place, so it followed the link and delivered its target as content. A dotfile manager (rcm,
@@ -593,14 +599,14 @@ is reported verified only against a real rootless host or CI, with
      then fails `yolo host apply` the way it already fails a jail launch, and the user replaces
      the links with copies.
 
-   <!-- vantage: oq id=OQ-NC9 leaning="A: follow a local pack's escaping links at every notch; the no-escape rule guards against someone else's repository, a local pack is the user's own directory named in user config (OQ-TP9's trust), and B breaks the dotfile-manager shape host apply supports today." -->
-
-   _Leaning:_ A. It deletes the input rather than keeping it, which is this plan's rule. It fixes
+      _Leaning:_ A. It deletes the input rather than keeping it, which is this plan's rule. It fixes
    the jail refusing a pack the host accepts, and it keeps the no-escape rule for the case that
    motivated it.
 
    **Answer:**
-   > _(empty — fill in when decided)_
+   > **Ruled 2026-09-28 by parity, as leaned** (the maintainer, 2026-09-28: *"yes, NC as parity for
+   > sure"*; the host acts like every other notch, with the same handling): A. A local pack's links
+   > are followed at every notch; a fetched pack's escaping link stays refused at every notch.
 
 10. 💬 <a id="OQ-NC10"></a>**OQ-NC10: What does `--accept-config-changes` approve at the host?** Row A4
     says the host takes the approval as `YOLO_ACCEPT_CONFIG_CHANGES` and refuses the flag, so item 10
@@ -631,7 +637,7 @@ is reported verified only against a real rootless host or CI, with
     **Answer:**
     > _(empty — fill in when decided)_
 
-11. 💬 <a id="OQ-NC11"></a>**OQ-NC11: Does a skill-name collision refuse a jail launch, and does the
+11. ✅ <a id="OQ-NC11"></a>**OQ-NC11: Does a skill-name collision refuse a jail launch, and does the
     jail honor `skills_tier`?** Item 25 was filed as ruled by S1. The maintainer's words, 2026-08-05:
     *"I want unnamespaced by default with a fatal collision error if skills collide on name.
     Namespacing should be possible by the pack's choice, but it should be a positive choice."*
@@ -663,19 +669,23 @@ is reported verified only against a real rootless host or CI, with
       last-wins, and the host stays fatal.
     - **C — A `yolo check` failure only** (S5's option 2).
 
-    <!-- vantage: oq id=OQ-NC11 leaning="A: the refusal is a host-side launch pre-flight like AgentNameCollisions, not an A12 boot failure, so S5's stranding cost does not apply; and the jail must honor skills_tier for the collision message's own remedy to be true there." -->
-
-    _Leaning:_ A. The refusal would be a launch pre-flight on the host, like the agent-name one, not
+        _Leaning:_ A. The refusal would be a launch pre-flight on the host, like the agent-name one, not
     an A12 boot failure inside a running jail, so the stranding cost S5 weighs does not apply. The
     jail has to honor the tier, or the remedy the message offers does nothing there.
 
     **Answer:**
-    > _(empty — fill in when decided)_
+    > **Ruled 2026-09-28 by parity, as leaned** (the maintainer, 2026-09-28: *"yes, NC as parity for
+    > sure"*; the host acts like every other notch, with the same handling): A. A skill-name
+    > collision is fatal at the launch, host-side and before the container exists, and the jail
+    > honors `skills_tier`; the jail's fan-out stays as it is until
+    > [`OQ-S4`](BACKLOG.md#OQ-S4) is answered.
 
 ## 7. Decision Ledger
 
 | ID | Ruling / Decision | Date | Settled in | Built |
 | :--- | :--- | :--- | :--- | :--- |
+| OQ-NC1 | **Maintainer ruling**, as leaned: A, every notch runs the selected packs' services, launch-owned; the lifetime and host-half declaration are [`OQ-HS3`](../design/host-notch-services.md#OQ-HS3) and [`OQ-HS4`](../design/host-notch-services.md#OQ-HS4) | 2026-09-28 | [§6](#OQ-NC1) | pending |
+| OQ-NC4, NC5, NC8, NC9, NC11 | **Maintainer ruling by parity:** *"yes, NC as parity for sure"*. Each takes its A: one pack order, `-p` means agent CLIs everywhere, source-less `host_files` render at the host (NC8 against its leaning), local-pack links followed at every notch, a skill collision fatal before the jail starts and the jail honors `skills_tier` | 2026-09-28 | [§6](#OQ-NC4) | pending |
 | NC-D1 | **Maintainer ruling.** Merge the host and jail notches as far as possible: one description, one code path per concern, the notch as an input. "Parsing profiles should be the same", and "host is supposed to act like everywhere else" | 2026-09-27 | [§1](#1-the-thesis) | — |
 | NC-D2 | **Maintainer ruling.** A loopback service's safety never rests on the jail's network namespace ("jails … can be house type and then it's identical … solve it in both places"). This retires the premise of [WB-D4](../reference/wire-bridge.md#wb-d4) and the awscredadapter "no token" design | 2026-09-27 | [§2.2](#22-why-that-premise-is-false-in-a-jail-too) | ✅ `ea083e97`, `a5fd280f` |
 | NC-D3 | *Implementation decision.* The per-service mechanisms of [§2.3](#23-the-fix-every-service-authenticates-its-caller-at-every-notch): each client carries the secret in a slot it already has, so no agent changes, and the terminator authenticates by refresh-token match | 2026-09-28 | [§2.3](#23-the-fix-every-service-authenticates-its-caller-at-every-notch) | ✅ `ea083e97`, `a5fd280f` |
