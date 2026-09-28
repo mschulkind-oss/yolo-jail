@@ -74,9 +74,9 @@ func TestAWrappedProgramsWithCredentialsIsNotYolos(t *testing.T) {
 	} {
 		var opts run.Options
 		args := strings.Fields(argv)
-		n := parseRunArgs(args, &opts)
+		parsed := parseRunArgs(args, &opts)
 		var errw bytes.Buffer
-		if refuseHostOnlyFlags(args, n, &errw) {
+		if refuseHostOnlyFlags(parsed, &errw) {
 			t.Errorf("`yolo %s` refused the wrapped program's own flag: %s", argv, errw.String())
 		}
 	}

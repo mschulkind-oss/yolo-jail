@@ -1075,6 +1075,7 @@ that can be mistyped is checked against the right set, and each check is fatal:
 | a `use_profiles` **key** | the CLI names every **resolvable** pack installs — selected or not | config validation (`yolo check` and every launch); at the host notch, which never validates, the key selecting for the launched command (`yolo host --`, `yolo host env`), through the same rule and message (`config.UnknownUseProfileKey`) |
 | `-p <cli>=<name>` | the same namespace | launch preflight (`checkProfileTargets`) — a flag never reaches config validation |
 | a selected profile **name** | the declared set: selected packs' profiles plus the user's `profiles` | launch preflight, both notches |
+| a `-p`/`--profile` with **no value** (trailing, followed by `--`, or `--profile=`) | nothing: it is refused as "`-p` needs a value", exit 2 | the front door, both notches, through one value-flag reader that `--at`, `--network` and `--with-credentials` share |
 
 The key check answers against the **universe**, not the selection: whether a string names a real
 CLI is a fact about the packs this machine can resolve, while selection only decides whether a

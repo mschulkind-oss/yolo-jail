@@ -23,22 +23,22 @@ func TestRewriteArgvSkipsFlagValues(t *testing.T) {
 		{
 			name: "--network host is a flag value, not the host subcommand",
 			in:   []string{"--network", "host", "--", "bash"},
-			want: []string{"--network", "host", "run", "--", "bash"},
+			want: []string{"run", "--network", "host", "--", "bash"},
 		},
 		{
 			name: "-p naming a subcommand is still a profile",
 			in:   []string{"-p", "pack", "--", "bash"},
-			want: []string{"-p", "pack", "run", "--", "bash"},
+			want: []string{"run", "-p", "pack", "--", "bash"},
 		},
 		{
 			name: "--profile naming a subcommand is still a profile",
 			in:   []string{"--profile", "check", "--", "bash"},
-			want: []string{"--profile", "check", "run", "--", "bash"},
+			want: []string{"run", "--profile", "check", "--", "bash"},
 		},
 		{
 			name: "-p value",
 			in:   []string{"-p", "run", "--", "bash"},
-			want: []string{"-p", "run", "run", "--", "bash"},
+			want: []string{"run", "-p", "run", "--", "bash"},
 		},
 		{
 			name: "a real leading subcommand still suppresses the rewrite",
@@ -63,7 +63,7 @@ func TestRewriteArgvSkipsFlagValues(t *testing.T) {
 		{
 			name: "glued --flag=value needs no skip",
 			in:   []string{"--network=host", "--", "bash"},
-			want: []string{"--network=host", "run", "--", "bash"},
+			want: []string{"run", "--network=host", "--", "bash"},
 		},
 		{
 			name: "boolean flags do not swallow the next token",
@@ -151,12 +151,12 @@ func TestRewriteArgvHostNotchAlias(t *testing.T) {
 		{
 			name: "another notch is left alone and still runs a jail",
 			in:   []string{"--at", "jail", "--", "claude"},
-			want: []string{"--at", "jail", "run", "--", "claude"},
+			want: []string{"run", "--at", "jail", "--", "claude"},
 		},
 		{
 			name: "a dangling --at is not a host notch",
 			in:   []string{"--at", "--", "claude"},
-			want: []string{"--at", "run", "--", "claude"},
+			want: []string{"run", "--at", "--", "claude"},
 		},
 	}
 	for _, tc := range cases {

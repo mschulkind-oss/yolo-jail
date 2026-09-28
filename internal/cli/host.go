@@ -54,7 +54,9 @@ Exec flags (yolo host -- ...):
                                 one, or --with-credentials below. The jail's pair
                                 spelling works too: -p claude=zai -- claude is -p zai.
                                 A pair naming any other command is refused, since this
-                                runs one command.
+                                runs one command. Also -p=<name> and --profile=<name>;
+                                a value flag with no value is refused (exit 2), as in
+                                a jail.
   --with-credentials <provider[,provider...]|all>
                                 GRANT the wrapped command the named providers' claimed
                                 env_sources credentials, this launch only. KEYS ONLY: no
@@ -241,34 +243,44 @@ func parseHostExecFlags(args []string, errw io.Writer) (hostExecFlags, bool) {
 		}
 		return true
 	}
+	// Every value flag through the one reader the jail's parser uses (readValueFlag), so a
+	// spelling means the same at both notches: `-p=zai` works here as it does in a jail, and
+	// `--profile=` refuses here as it does there, instead of selecting nothing in silence.
+	value := func(fl valueFlag) (string, bool) {
+		if fl.err != nil {
+			fmt.Fprintf(errw, "yolo host: %v\n", fl.err)
+			return "", false
+		}
+		return fl.value, true
+	}
 	for i := 0; i < len(args); i++ {
-		switch a := args[i]; {
-		case a == "--profile" || a == "-p":
-			if i+1 >= len(args) {
-				fmt.Fprintf(errw, "yolo host: %s needs a value\n", a)
+		if fl, ok := readValueFlag(args, i, "--profile", "-p"); ok {
+			i = fl.last
+			v, ok := value(fl)
+			if !ok {
 				return f, false
 			}
-			i++
-			f.profile = args[i]
-		case strings.HasPrefix(a, "--profile="):
-			f.profile = a[len("--profile="):]
-		case a == withCredentialsFlag:
-			if i+1 >= len(args) {
-				fmt.Fprintf(errw, "yolo host: %s needs a value\n", a)
+			f.profile = v
+			continue
+		}
+		if fl, ok := readValueFlag(args, i, withCredentialsFlag); ok {
+			i = fl.last
+			v, ok := value(fl)
+			if !ok || !grant(v) {
 				return f, false
 			}
-			i++
-			if !grant(args[i]) {
-				return f, false
-			}
-		case strings.HasPrefix(a, withCredentialsFlag+"="):
-			if !grant(a[len(withCredentialsFlag+"="):]) {
-				return f, false
-			}
-		default:
-			fmt.Fprintf(errw, "yolo host: unexpected argument %q before `--`\n\n%s\n", a, hostUsage)
+			continue
+		}
+		a := args[i]
+		// A mistyped flag is refused in refuseUnknownFlags' words, the jail's, so one typo reads
+		// the same at both notches; a stray positional keeps its own sentence, since it is not a
+		// flag at all.
+		if len(a) > 1 && a[0] == '-' {
+			refuseUnknownFlags("host", []string{a}, nil, errw)
 			return f, false
 		}
+		fmt.Fprintf(errw, "yolo host: unexpected argument %q before `--`\n\n%s\n", a, hostUsage)
+		return f, false
 	}
 	return f, true
 }
@@ -1531,23 +1543,33 @@ func hostEnv(args []string, out, errw io.Writer) int {
 		return true
 	}
 	for i := 0; i < len(args); i++ {
+		// The launch value flags through the one reader both notches' launches use
+		// (readValueFlag), so `-p=zai` and `--profile=` read here as they do at `yolo host --`
+		// and in a jail.
+		if fl, ok := readValueFlag(args, i, "--profile", "-p"); ok {
+			i = fl.last
+			if fl.err != nil {
+				fmt.Fprintf(errw, "yolo host env: %v\n", fl.err)
+				return 2
+			}
+			profile = fl.value
+			continue
+		}
+		if fl, ok := readValueFlag(args, i, withCredentialsFlag); ok {
+			i = fl.last
+			if fl.err != nil {
+				fmt.Fprintf(errw, "yolo host env: %v\n", fl.err)
+				return 2
+			}
+			if !addGrant(fl.value) {
+				return 2
+			}
+			continue
+		}
 		switch a := args[i]; {
 		case isHelpToken(a):
 			fmt.Fprintln(out, hostUsage)
 			return 0
-		case a == withCredentialsFlag:
-			if i+1 >= len(args) {
-				fmt.Fprintf(errw, "yolo host env: %s needs a value\n", a)
-				return 2
-			}
-			i++
-			if !addGrant(args[i]) {
-				return 2
-			}
-		case strings.HasPrefix(a, withCredentialsFlag+"="):
-			if !addGrant(a[len(withCredentialsFlag+"="):]) {
-				return 2
-			}
 		case a == "--format":
 			if i+1 >= len(args) {
 				fmt.Fprintln(errw, "yolo host env: --format needs a value (export|json)")
@@ -1557,15 +1579,6 @@ func hostEnv(args []string, out, errw io.Writer) int {
 			format = args[i]
 		case strings.HasPrefix(a, "--format="):
 			format = a[len("--format="):]
-		case a == "--profile" || a == "-p":
-			if i+1 >= len(args) {
-				fmt.Fprintf(errw, "yolo host env: %s needs a value\n", a)
-				return 2
-			}
-			i++
-			profile = args[i]
-		case strings.HasPrefix(a, "--profile="):
-			profile = a[len("--profile="):]
 		case a == "--agent":
 			if i+1 >= len(args) {
 				fmt.Fprintln(errw, "yolo host env: --agent needs a value")
@@ -1575,6 +1588,10 @@ func hostEnv(args []string, out, errw io.Writer) int {
 			agent = args[i]
 		case strings.HasPrefix(a, "--agent="):
 			agent = a[len("--agent="):]
+		case len(a) > 1 && a[0] == '-':
+			// refuseUnknownFlags' words, the jail's, for a mistyped flag at every notch.
+			refuseUnknownFlags("host env", []string{a}, nil, errw)
+			return 2
 		default:
 			fmt.Fprintf(errw, "yolo host env: unexpected argument %q\n", a)
 			return 2

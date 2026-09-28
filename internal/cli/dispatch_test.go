@@ -14,7 +14,7 @@ func TestRewriteArgv(t *testing.T) {
 		{[]string{"--", "echo", "foo"}, []string{"run", "--", "echo", "foo"}},
 		{[]string{"run", "--", "echo"}, []string{"run", "--", "echo"}},
 		{[]string{"broker", "restart"}, []string{"broker", "restart"}},
-		{[]string{"-v", "--", "ls"}, []string{"-v", "run", "--", "ls"}},
+		{[]string{"-v", "--", "ls"}, []string{"run", "-v", "--", "ls"}},
 		{[]string{"check"}, []string{"check"}},
 		{[]string{"ps"}, []string{"ps"}},
 		{nil, nil},

@@ -161,7 +161,16 @@ func TestHostExecRejectsStrayFlagBeforeDashDash(t *testing.T) {
 	if rc := hostMain([]string{"--bogus", "--", "claude"}, &out, &errw, false, nil); rc != 2 {
 		t.Errorf("rc = %d, want 2", rc)
 	}
-	if !strings.Contains(errw.String(), "unexpected argument") {
+	// refuseUnknownFlags' words, the jail's for the same typo (notch-convergence.md row A2).
+	if want := "yolo host: unknown flag \"--bogus\"\nRun `yolo host --help`"; !strings.Contains(errw.String(), want) {
+		t.Errorf("stderr = %q, want it to contain %q", errw.String(), want)
+	}
+	// A stray positional is not a flag, and keeps its own sentence.
+	errw.Reset()
+	if rc := hostMain([]string{"stray", "--", "claude"}, &out, &errw, false, nil); rc != 2 {
+		t.Errorf("rc = %d, want 2", rc)
+	}
+	if !strings.Contains(errw.String(), "unexpected argument \"stray\"") {
 		t.Errorf("stderr = %q", errw.String())
 	}
 }

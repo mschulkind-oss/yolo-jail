@@ -59,7 +59,7 @@ func TestAnImplicitCommandsOwnFlagsAreNeverYolos(t *testing.T) {
 		var errw bytes.Buffer
 		var opts run.Options
 		args := strings.Fields(argv)
-		n := parseRunArgs(args, &opts)
+		n := parseRunArgs(args, &opts).boundary
 		if refuseUnknownFlags("run", args[:n], runKnownFlags(), &errw) {
 			t.Errorf("`yolo %s` refused the inner command's own flags: %s", argv, errw.String())
 		}
@@ -77,7 +77,7 @@ func TestATypoBeforeTheCommandIsStillRefused(t *testing.T) {
 		var errw bytes.Buffer
 		var opts run.Options
 		args := strings.Fields(argv)
-		n := parseRunArgs(args, &opts)
+		n := parseRunArgs(args, &opts).boundary
 		if !refuseUnknownFlags("run", args[:n], runKnownFlags(), &errw) {
 			t.Errorf("`yolo %s` carries a flag run does not define and was not refused", argv)
 		}

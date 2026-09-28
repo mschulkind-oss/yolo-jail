@@ -368,8 +368,10 @@ func TestParseRunArgsProfileTakesTheNextToken(t *testing.T) {
 		{"--profile=run -- true", "run"},
 		// What the deleted guard used to refuse, now read literally as names —
 		// the ruling's whole point is that there is no second reading to protect.
-		{"run -p -- claude", "--"},
+		// The one token never read as a value is the `--` separator
+		// (TestValueFlagWithNoValueIsRefused).
 		{"-p run -- claude", "run"},
+		{"run -p run -- claude", "run"},
 		{"run -p --new -- true", "--new"},
 		{"--profile --new -- true", "--new"},
 	}
@@ -393,10 +395,10 @@ func TestParseRunArgsProfileTakesTheNextToken(t *testing.T) {
 	}
 }
 
-// TestParseRunArgsBareProfileSelectsNothing pins the silent swallow a value flag
-// gets when its value is missing — the documented behavior --network and
-// --pack-profile already had, which --profile and -p now share instead of the old
-// timing fallback and the old parse error.
+// TestParseRunArgsBareProfileSelectsNothing: a value flag with no value selects nothing, sets
+// no other flag and starts no command. It is also a MISUSE now, which runRun refuses
+// (TestValueFlagWithNoValueIsRefused); the silent swallow this test used to pin was the jail
+// half of notch-convergence.md row A2.
 func TestParseRunArgsBareProfileSelectsNothing(t *testing.T) {
 	cases := []struct {
 		name string
@@ -406,11 +408,12 @@ func TestParseRunArgsBareProfileSelectsNothing(t *testing.T) {
 		{"a trailing bare --profile", "run --profile"},
 		{"a trailing bare -p, no subcommand", "-p"},
 		{"a trailing bare --profile, no subcommand", "--profile"},
+		{"a glued empty --profile=", "run --profile="},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			var opts run.Options
-			parseRunArgs(strings.Fields(tc.in), &opts)
+			parsed := parseRunArgs(strings.Fields(tc.in), &opts)
 			if opts.ProfileName != "" {
 				t.Errorf("parseRunArgs(%q).ProfileName = %q, want none", tc.in, opts.ProfileName)
 			}
@@ -420,6 +423,9 @@ func TestParseRunArgsBareProfileSelectsNothing(t *testing.T) {
 			}
 			if opts.Args != nil {
 				t.Errorf("parseRunArgs(%q).Args = %q, want nothing to start a command", tc.in, opts.Args)
+			}
+			if parsed.misuse == nil {
+				t.Errorf("parseRunArgs(%q) reported no misuse for a value flag with no value", tc.in)
 			}
 		})
 	}

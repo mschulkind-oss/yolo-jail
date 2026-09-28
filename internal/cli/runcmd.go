@@ -57,8 +57,9 @@ Flags:
                      --profile=<sel>, -p=<sel>). Two spellings of the value: a bare
                      NAME selects it for every pack this launch selects;
                      <cli>=<name> (e.g. claude=zai, comma-separated, repeatable)
-                     selects it for the named CLI only. A --profile or -p with no
-                     token after it selects nothing.
+                     selects it for the named CLI only.
+  A value flag with no value (a trailing -p, '-p --', '--profile=') is refused,
+  exit 2, as 'yolo host' refuses it.
   --timing           Report this launch's performance timings, start to shell return:
                      the host-side span table (probes, image load, teardown), the
                      child window (including podman's own post-exit cleanup), and
@@ -128,40 +129,29 @@ func runKnownFlags() []string {
 }
 
 // refuseHostOnlyFlags refuses a jail launch given a flag only `yolo host` takes, naming that it
-// is host-only and the host spelling that does take it. args is runRun's argv and boundary the
-// count of its leading tokens that are yolo's (parseRunArgs), so a wrapped program's own
-// `--with-credentials` is never read as yolo's.
+// is host-only and the host spelling that does take it. parsed is parseRunArgs' reading of the
+// launch, whose value-flag reader consumed the flag only among yolo's own tokens, so a wrapped
+// program's own `--with-credentials` is never read as yolo's.
 //
 // ONE SUCH FLAG TODAY, the grant (docs/design/credential-sources-separation.md OQ-ES5): it was
 // ruled for the host on 2026-09-27 and its jail half is still open, so a jail launch must not
 // quietly accept it, and an "unknown flag" refusal would hide that the flag exists and where.
 // It exits 2 like every other misuse refusal (refuseUnknownFlags).
-func refuseHostOnlyFlags(args []string, boundary int, errw io.Writer) bool {
-	for i := 0; i < boundary && i < len(args); i++ {
-		a := args[i]
-		value := ""
-		switch {
-		case a == withCredentialsFlag:
-			if i+1 < len(args) && args[i+1] != "--" && args[i+1] != "run" {
-				value = args[i+1]
-			}
-		case strings.HasPrefix(a, withCredentialsFlag+"="):
-			value = a[len(withCredentialsFlag+"="):]
-		default:
-			continue
-		}
-		if value == "" {
-			value = "<provider[,provider...]|all>"
-		}
-		fmt.Fprintf(errw, "yolo run: %s is HOST-ONLY: it grants providers' claimed env_sources "+
-			"credentials to the one command `yolo host` runs, and a jail launch does not take it "+
-			"(whether a jail shell gets a grant is still open, OQ-ES5).\n"+
-			"  At the host: `yolo host %s %s -- <command>`, or "+
-			"`eval \"$(yolo host env %s %s)\"` for a shell.\n",
-			withCredentialsFlag, withCredentialsFlag, value, withCredentialsFlag, value)
-		return true
+func refuseHostOnlyFlags(parsed runArgv, errw io.Writer) bool {
+	if parsed.grant == nil {
+		return false
 	}
-	return false
+	value := parsed.grant[0]
+	if value == "" {
+		value = "<provider[,provider...]|all>"
+	}
+	fmt.Fprintf(errw, "yolo run: %s is HOST-ONLY: it grants providers' claimed env_sources "+
+		"credentials to the one command `yolo host` runs, and a jail launch does not take it "+
+		"(whether a jail shell gets a grant is still open, OQ-ES5).\n"+
+		"  At the host: `yolo host %s %s -- <command>`, or "+
+		"`eval \"$(yolo host env %s %s)\"` for a shell.\n",
+		withCredentialsFlag, withCredentialsFlag, value, withCredentialsFlag, value)
+	return true
 }
 
 // applyProfileValue reads one -p/--profile value: "cli=name" (comma-separated,
@@ -234,8 +224,13 @@ func runHelpRequested(args []string) bool {
 			return true
 		case a == "run" && !sawRun:
 			sawRun = true // the injected/leading subcommand token
-		case a == "--network" || a == "--profile" || a == "-p" || a == "--at":
-			i++ // its value, whatever it looks like
+		case valueTakingFlags[a]:
+			// Its value, whatever it looks like — read by the one value-flag reader, so a
+			// value flag parseRunArgs learns is skipped here too. A flag followed by `--`
+			// has no value, and the `--` is still the separator.
+			if f, ok := readAnyLaunchValueFlag(args, i); ok {
+				i = f.last
+			}
 		case len(a) > 1 && a[0] == '-':
 			// Another flag (a run flag, or a stray one runRun ignores). Keep scanning:
 			// a flag never starts the implicit command.
@@ -257,77 +252,126 @@ func runHelp(args []string, out io.Writer) bool {
 	return true
 }
 
+// runArgv is what parseRunArgs read from a launch's argv beyond the Options it filled.
+type runArgv struct {
+	// boundary is the number of LEADING tokens that are yolo's own; see parseRunArgs.
+	boundary int
+	// misuse is the first value flag given no value ("<flag> needs a value",
+	// readValueFlag), nil when none was. runRun refuses it with exit 2, the host's code for
+	// the same typo.
+	misuse error
+	// grant is every --with-credentials value as typed, in order ("" for one given no
+	// value), nil when the flag was not given. HOST-ONLY: runRun refuses a jail launch that
+	// carries it (refuseHostOnlyFlags). It is read here, by the one value-flag reader, so its
+	// value is consumed like every other flag's and never read as the command.
+	grant []string
+}
+
 // parseRunArgs folds run's flags and its post-`--` command out of args (the
 // rewritten argv[1:]) into opts. Extracted from runRun as a PURE function so the
 // inner-command argv is directly assertable — `yolo -- cmd --help` must put
 // `--help` in opts.Args, and that half of the R2 invariant is otherwise only
 // observable by launching a container.
 //
-// The front-door RewriteArgv inserts "run" at the `--` position, so flags that
-// preceded `--` end up BEFORE the "run" token (e.g. `yolo --timing -- true` →
-// [--timing, run, --, true]). So it scans the WHOLE argv: skip the "run" token
-// wherever it appears, parse flags until `--`, and take everything after `--` as
-// the command.
+// The front door puts "run" FIRST (RewriteArgv: `yolo --timing -- true` →
+// [run, --timing, --, true]), the same shape an explicit `yolo run …` has. It still
+// skips the first "run" wherever it appears, because an explicit subcommand may follow
+// global-looking flags (`yolo -p zai run -- claude`).
 //
-// The fold makes NO refusal. Every value flag takes its value from the next token
-// when there is one and silently takes none when there is not, --network and the
-// profile flags alike. The value's GRAMMAR dispatches on itself (2026-09-03 ruling):
-// a token containing "=" is <cli>=<name> pair list (comma-separated, repeatable —
-// the old --pack-profile spelling, deleted 2026-09-03: it never shipped in a
-// release and -p/--profile carry both grammars); anything else is a bare profile
-// name. Profile names refuse "=" at declaration, so the two grammars cannot be
-// ambiguous. The bare name never keys on the command after "--" — a short option
-// whose meaning depends on a token further down the argv is the confusion the
-// ruling removed; name the CLI explicitly when the distinction matters.
+// THE FOLD REFUSES ONE THING: a value flag given no value. Every value flag is read by
+// readValueFlag (valueflags.go), the one reader `yolo host` reads the same flags with,
+// so `-p`, `--profile`, `--at`, `--network` and `--with-credentials` take the next token
+// or a glued `=value`, and a missing or empty one is returned as runArgv.misuse ("-p
+// needs a value"). It used to be swallowed, and the glued empty spellings (`--profile=`,
+// `--network=`) fell to the default arm and STARTED THE COMMAND: `yolo --profile= --
+// claude` ran `--profile=` inside the jail (rc 127) while the host refused nothing
+// (notch-convergence.md row A2). The parse continues past a misuse, so every other field
+// is still read; the caller decides.
 //
-// `yolo -p -- claude` reaches this as [-p, run, --, claude], so -p reads the
-// injected "run" as a profile name; mandatory declaration (OQ-CS6) refuses it at
-// launch, naming what IS declared.
+// The profile value's GRAMMAR dispatches on itself (2026-09-03 ruling; parseProfileValue,
+// shared with the host by ES-D27): a token containing "=" is a <cli>=<name> pair list
+// (comma-separated, repeatable); anything else is a bare profile name. Profile names refuse
+// "=" at declaration, so the two grammars cannot be ambiguous. The bare name never keys on
+// the command after "--".
 //
 // # The returned boundary, and why the parser owns it
 //
-// It returns the number of LEADING tokens that are yolo's own — everything before the `--`
-// separator or, when there is none, before the implicit command start. That is the only argv slice
-// an unknown-flag refusal may scan (runRun), and it is returned from HERE rather than re-derived
-// there because the boundary is defined by this switch: a caller recomputing it needs a second copy
-// of which flags take a value, and the copy that drifts refuses a launch. `yolo run claude
-// --resume` returns 1 — `--resume` is the inner command's, exactly as `yolo -- claude --resume`'s
-// is.
+// runArgv.boundary is the number of LEADING tokens that are yolo's own — everything before the
+// `--` separator or, when there is none, before the implicit command start. That is the only argv
+// slice an unknown-flag refusal may scan (runRun), and it is returned from HERE rather than
+// re-derived there because the boundary is defined by this switch: a caller recomputing it needs a
+// second copy of which flags take a value, and the copy that drifts refuses a launch. `yolo run
+// claude --resume` returns 1 — `--resume` is the inner command's, exactly as `yolo -- claude
+// --resume`'s is.
 //
 // A flag-shaped token this switch does not recognise counts as yolo's and lands INSIDE the
 // boundary, because a mistyped flag is the case the refusal exists for; see the default arm.
-func parseRunArgs(args []string, opts *run.Options) int {
+func parseRunArgs(args []string, opts *run.Options) runArgv {
+	var parsed runArgv
 	afterDashDash := false
 	sawRun := false
-	boundary := len(args)
+	parsed.boundary = len(args)
 	var cmdArgs []string
+	// value reads one value flag through the shared reader, keeping the first misuse.
+	value := func(f valueFlag) (string, bool) {
+		if f.err != nil {
+			if parsed.misuse == nil {
+				parsed.misuse = f.err
+			}
+			return "", false
+		}
+		return f.value, true
+	}
 	for i := 0; i < len(args); i++ {
 		a := args[i]
 		if afterDashDash {
 			cmdArgs = append(cmdArgs, a)
 			continue
 		}
+		if f, ok := readValueFlag(args, i, "--profile", "-p"); ok {
+			i = f.last
+			if v, ok := value(f); ok {
+				applyProfileValue(v, opts)
+			}
+			continue
+		}
+		// THE NOTCH, CONSUMED RATHER THAN SWALLOWED. Without it `--at` fell to the default
+		// arm below, which treats the first unrecognized bare token as the start of the
+		// command — so `yolo --at guest -- claude` handed the jail its own flag as argv and
+		// died inside it with `--at: command not found` (DP-B22).
+		//
+		// The VALUE is not validated here: run.refuseUnbuiltNotch is the one place a notch
+		// is judged, so `--at` and the config's `confinement` key cannot disagree about what
+		// is launchable (docs/design/declaration-parity.md DP-B16/DP-B22).
+		if f, ok := readValueFlag(args, i, "--at"); ok {
+			i = f.last
+			if v, ok := value(f); ok {
+				opts.Notch = v
+			}
+			continue
+		}
+		if f, ok := readValueFlag(args, i, "--network"); ok {
+			i = f.last
+			if v, ok := value(f); ok {
+				opts.Network = v
+			}
+			continue
+		}
+		// The host-only grant: consumed so its value is never the command, and recorded
+		// for runRun's host-only refusal, which names it even when no value was given.
+		if f, ok := readValueFlag(args, i, withCredentialsFlag); ok {
+			i = f.last
+			parsed.grant = append(parsed.grant, f.value)
+			continue
+		}
 		switch {
 		case a == "--":
 			afterDashDash = true
-			boundary = i
+			parsed.boundary = i
 		case a == "run" && !sawRun:
 			sawRun = true // the injected/leading subcommand token
 		case a == "--timing":
 			opts.Timing = true
-		// An ordinary value flag, in both spellings, glued or not. The value's
-		// grammar dispatches on itself: "cli=name" pairs (comma-separated) merge into
-		// the per-CLI table; a bare name is the selection for every selected pack.
-		// See the function comment for the ruling and the ambiguity guard.
-		case a == "--profile" || a == "-p":
-			if i+1 < len(args) {
-				i++
-				applyProfileValue(args[i], opts)
-			}
-		case len(a) > len("--profile=") && strings.HasPrefix(a, "--profile="):
-			applyProfileValue(strings.TrimPrefix(a, "--profile="), opts)
-		case len(a) > len("-p=") && strings.HasPrefix(a, "-p="):
-			applyProfileValue(strings.TrimPrefix(a, "-p="), opts)
 		case a == "--dry-run":
 			opts.DryRun = true
 		// Spelled as a LITERAL, not as config.AcceptConfigChangesFlag, even though
@@ -340,34 +384,6 @@ func parseRunArgs(args []string, opts *run.Options) int {
 		// is the flag this parser accepts.
 		case a == "--accept-config-changes":
 			opts.AcceptConfigChanges = true
-		// THE NOTCH, CONSUMED RATHER THAN SWALLOWED. Without this case `--at` fell to
-		// the default arm below, which treats the first unrecognized bare token as the
-		// start of the command — so `yolo --at guest -- claude` handed the jail
-		// ["--at", "guest", "run", "--", "claude"] as its argv and died inside it with
-		// `--at: command not found`. A flag the front door already knows about
-		// (cli.valueTakingFlags carries "--at") must not be argv to the inner command.
-		//
-		// The VALUE is not validated here: the fold makes no refusal, by the rule this
-		// function's header states. run.refuseUnbuiltNotch is the one place a notch is
-		// judged, so `--at` and the config's `confinement` key cannot disagree about
-		// what is launchable (docs/design/declaration-parity.md DP-B16/DP-B22).
-		case a == "--at":
-			if i+1 < len(args) {
-				i++
-				opts.Notch = args[i]
-			}
-		case len(a) > len("--at=") && strings.HasPrefix(a, "--at="):
-			opts.Notch = strings.TrimPrefix(a, "--at=")
-		case a == "--network":
-			if i+1 < len(args) {
-				i++
-				opts.Network = args[i]
-			}
-		// A NON-EMPTY value only, deliberately: a bare `--network=` falls through to
-		// the default branch and starts the command, which is what it did before the
-		// extraction. Preserved rather than "fixed" — this move is behavior-neutral.
-		case len(a) > len("--network=") && strings.HasPrefix(a, "--network="):
-			opts.Network = strings.TrimPrefix(a, "--network=")
 		default:
 			// An unrecognized bare token before `--` starts the command (typer
 			// would error, but the front door already classified this as run).
@@ -384,12 +400,12 @@ func parseRunArgs(args []string, opts *run.Options) int {
 			// here, which is why `--dry-runn` reached a real launch as a command name before
 			// there was a refusal to stop it.
 			if len(a) > 1 && a[0] == '-' {
-				boundary = i + 1
+				parsed.boundary = i + 1
 			} else {
-				boundary = i
+				parsed.boundary = i
 			}
 		}
 	}
 	opts.Args = cmdArgs
-	return boundary
+	return parsed
 }

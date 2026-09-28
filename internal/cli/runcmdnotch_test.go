@@ -74,12 +74,16 @@ func TestParseRunArgsTakesTheNotchValueWhateverItLooksLike(t *testing.T) {
 		t.Errorf("Args = %q, want [bash]", opts.Args)
 	}
 	// A dangling `--at` at the end takes no value and starts no command, the way every
-	// other value flag in this parser behaves.
+	// other value flag in this parser behaves — and it is a misuse runRun refuses
+	// (TestValueFlagWithNoValueIsRefused).
 	var dangling run.Options
-	parseRunArgs([]string{"run", "--at"}, &dangling)
+	parsed := parseRunArgs([]string{"run", "--at"}, &dangling)
 	if dangling.Notch != "" || len(dangling.Args) != 0 {
 		t.Errorf("a dangling --at should consume nothing: Notch=%q Args=%q",
 			dangling.Notch, dangling.Args)
+	}
+	if parsed.misuse == nil {
+		t.Error("a dangling --at reported no misuse")
 	}
 }
 

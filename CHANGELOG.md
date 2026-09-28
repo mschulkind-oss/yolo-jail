@@ -148,6 +148,12 @@ apply it, and the launch says that too. See
 - On macos-user, and in the environment `yolo host env` prints, codex was pointed at a ChatGPT
   sign-in refresh address nothing served. It is now set only where yolo serves it, and the
   launch names what it left out.
+- `yolo --profile= -- claude` ran `--profile=` as a command inside the jail, `yolo -p -- claude`
+  selected a profile named `run`, and `yolo host --profile= -- claude` quietly selected none. A
+  `-p`, `--profile`, `--at`, `--network` or `--with-credentials` with no value is now refused
+  with the same message in a jail and on the host, and `yolo host -p=zai -- claude` works as it
+  does in a jail. A mistyped flag before `yolo host`'s `--` is named the way a jail launch names
+  it.
 - Quitting a podman jail could hold your terminal for half a minute after a long session, while
   podman deleted everything the jail had left in `/tmp` and its container dirs. You get the
   prompt back as soon as the jail exits, and the files are deleted in the background.

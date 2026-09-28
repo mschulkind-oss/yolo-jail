@@ -61,23 +61,24 @@ var registry = map[string]func(args []string) int{
 // user-supplied text (`-p pack`, `--profile check`), so the collision is open-ended and
 // listing the flags is the only closed way to describe it.
 //
-// runHelpRequested (runcmd.go) carries the same skip for its own scan; the two lists are
-// pinned together by TestValueTakingFlagsCoverRunHelpSkips.
-var valueTakingFlags = map[string]bool{
-	"--at":      true,
-	"--network": true,
-	"--profile": true,
-	"-p":        true,
-	// Stripped by StripUserLayer before RewriteArgv sees argv, so this entry is
-	// defensive — it costs nothing and removes an ordering dependency.
-	"--user-layer": true,
-	// The host's grant (`yolo host --with-credentials <providers> -- <cmd>`). A jail launch
-	// REFUSES it (refuseHostOnlyFlags), and this skip is what lets it get there: without it
-	// `yolo --with-credentials zai -- bash` read "zai" as a command name and answered
-	// `unknown command "zai"`, a refusal that never said the flag is host-only. Its value
-	// is a provider name, user text like every other value here.
-	withCredentialsFlag: true,
-}
+// DERIVED from launchValueFlags (valueflags.go), the one list the launch parsers read their
+// value flags from, so a value flag those parsers learn is skipped here too without a second
+// edit. runHelpRequested derives its skip from the same list.
+var valueTakingFlags = func() map[string]bool {
+	m := map[string]bool{
+		// Stripped by StripUserLayer before RewriteArgv sees argv, so this entry is
+		// defensive — it costs nothing and removes an ordering dependency.
+		"--user-layer": true,
+	}
+	// `--with-credentials` is among them: a jail launch REFUSES it (refuseHostOnlyFlags), and
+	// this skip is what lets it get there. Without it `yolo --with-credentials zai -- bash`
+	// read "zai" as a command name and answered `unknown command "zai"`, a refusal that never
+	// said the flag is host-only.
+	for _, name := range launchValueFlagNames() {
+		m[name] = true
+	}
+	return m
+}()
 
 // namesSubcommand reports whether any token in args is a subcommand NAME, skipping the
 // values of value-taking flags. `--flag=value` forms need no skip: the value cannot be a
@@ -96,8 +97,8 @@ func namesSubcommand(args []string) bool {
 }
 
 // RewriteArgv applies the `yolo <args> -- cmd` → `yolo run <args> -- cmd`
-// rewrite: if `--` is present and nothing before it names a subcommand, insert
-// `run` before the `--`. args is argv[1:]; returns the (possibly) rewritten
+// rewrite: if `--` is present and nothing before it names a subcommand, prepend
+// `run`. args is argv[1:]; returns the (possibly) rewritten
 // argv[1:].
 func RewriteArgv(args []string) []string {
 	dashIdx := indexOf(args, "--")
@@ -119,11 +120,12 @@ func RewriteArgv(args []string) []string {
 		out = append(out, args[dashIdx:]...)
 		return out
 	}
-	out := make([]string, 0, len(args)+1)
-	out = append(out, args[:dashIdx]...)
-	out = append(out, "run")
-	out = append(out, args[dashIdx:]...)
-	return out
+	// "run" goes FIRST, never at the `--`. Inserted at the separator, it sat where a value
+	// flag's value sits: `yolo -p -- claude` became [-p run -- claude], which reads exactly like
+	// `yolo run -p run -- claude`, so the run parser took the injected token as a profile named
+	// "run" and could not tell the two apart (notch-convergence.md row A2). Leading, it is the
+	// same shape as an explicit `yolo run …`, which is what the rewrite means.
+	return append([]string{"run"}, args...)
 }
 
 // stripHostNotch removes an `--at host` / `--at=host` pair from pre-`--` args and reports
