@@ -7,6 +7,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+pi's subagents can now use your MCP servers. When the pi-subagents extension is in pi's
+packages, a jail also writes the MCP servers you configure to `~/.config/mcp/mcp.json`, the file
+pi-subagents reads when an agent lists `mcp:` tools; before, subagents could not see them. A file
+you already keep there is merged into rather than replaced, so its servers and settings stay, and
+so do the servers you add to it later. Without the extension, nothing is written there, and
+`yolo host apply` never writes it. See [MCP configuration](docs/reference/mcp-configuration.md).
+
 ### Fixed
 
 - `yolo check` reported a working Nix as "found but not working: probe failed" when
@@ -16,8 +25,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - A jail no longer deletes pi's `mcp.json` every time it starts. 0.11.0 removed it to clean up
   the copy older versions of yolo wrote there, and so also deleted the one you or a pi
   extension keep, such as the MCP servers a subagent's `mcp:` tools are looked up in. yolo's
-  own MCP servers stay in `mcp-adapter.json`. A `mcp.json` an older yolo wrote is now left in
-  place, so delete it yourself if you no longer want it.
+  own MCP servers stay in `mcp-adapter.json`. yolo still removes the copy an older version of
+  yolo wrote, but only while it holds exactly the MCP servers yolo writes today, and leaves any
+  other `mcp.json` as it is.
 - Starting pi on the `codex` profile while another pi session was refreshing its OpenAI login
   could lose the refreshed login: yolo broke pi's lock on its credential file after 10 seconds,
   and the two wrote at once. yolo now follows pi's own rule, treating the lock as abandoned only
