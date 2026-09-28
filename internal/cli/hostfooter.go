@@ -45,8 +45,9 @@ import (
 // footer names what the host composed, and for an agent whose selected profile the host's
 // protocol gate refuses it composes nothing: `yolo host -- claude` refuses claude's codex
 // profile (ES-D18, ES-D25), so a claude running on this host with that selection was started
-// some other way and runs on its own login. The footer used to say `codex (bridge) · host`
-// there, a bridge the host never runs. Only the pairing gate is asked (packload.PairingRefusal,
+// outside `yolo host`, or by `yolo host -p <other>`, whose one-launch selection this table
+// cannot see (OQ-FT15): that claude runs on the typed profile while the footer names the
+// login. The footer used to say `codex (bridge) · host` there, a bridge the host never runs. Only the pairing gate is asked (packload.PairingRefusal,
 // with the host's unservable adaptations), the one refusal that turns on the selection itself;
 // a selection whose table could not be composed at all is left as it was.
 func hostFooterTables() footer.Tables {
