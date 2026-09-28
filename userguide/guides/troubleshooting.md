@@ -1,125 +1,104 @@
 # Troubleshooting
 
-Start with `yolo check` — it validates your entire setup on both platforms: runtime (podman/container), nix, config, image, running containers, GPU (Linux only), macOS VM backend (macOS only), and the Claude OAuth broker loophole.
+Start with `yolo check`. It checks the runtime, Nix, your config, the jail image, running jails and,
+where they apply, GPUs, the Mac VM and the Claude login service, and each failing row names its fix:
 
 ```bash
-yolo check                    # full check including nix build
-yolo check --no-build         # fast — skip nix build
+yolo check              # the full check, including the image build
+yolo check --no-build   # the fast version
 ```
 
-## Common issues (both platforms)
+[Getting Started](../getting-started.md#check-the-setup) explains the rows a healthy new machine
+still shows. Mac-specific problems are in [macOS](macos.md#troubleshooting).
 
-**"Cannot find yolo-jail repo root"** — The CLI needs the source for nix image builds. A packaged install (Homebrew, release archive) ships a flake bundle beside the binary and resolves it automatically, and `just install` stages one for a from-source install. **The working directory is never consulted**, so standing in a checkout is not enough — name it with `YOLO_REPO_ROOT`:
+When you report a bug, include the first line every `yolo` command prints, such as
+`yolo-jail 0.10.0 | darwin/arm64 | host`: it names the version, the platform and whether you ran it
+inside a jail.
 
-```sh
-YOLO_REPO_ROOT=~/code/yolo-jail yolo
-```
+## Installing and launching
 
-Every launch prints the flake it resolved and what selected it, before the image build starts:
+**"Cannot find yolo-jail repo root".** yolo was installed without its build files, the Nix recipe it
+builds each jail from. Homebrew, a release archive and a from-source `just deploy` include them;
+`go install` and pipx do not. See [Other ways to install](../getting-started.md#other-ways-to-install).
+Every launch prints which copy of the build files it used on a `Flake source:` line.
 
-```
-Flake source: /Users/you/.local/share/yolo-jail/flake-bundle (flake bundle staged by `just install`)
-```
+**The image build fails.** The launch stops and shows Nix's own error; yolo never falls back to an
+older image.
 
-Set `YOLO_REPO_ROOT` in your shell profile if you always want a live checkout — building from a tree newer than the installed `yolo` is then refused with a message naming `just install`, rather than failing deep inside the boot.
+- Check that Nix is on your PATH: `nix --version`.
+- On a Mac, the Nix daemon must trust your user; see
+  [Let yolo use its binary cache](../getting-started.md#let-yolo-use-its-binary-cache). A package in
+  no binary cache is built in a temporary container, so keep your runtime running.
 
-> The old `repo_path` config key was retired (2026-07-23) — if it is still in your `~/.config/yolo-jail/config.jsonc`, `yolo` ignores it and warns; remove it.
+**The jail will not start.**
 
-**Image build fails**
+- On Linux, check that `podman info` works and prints `true` for
+  `podman info --format '{{.Host.Security.Rootless}}'`. Run Podman and yolo as your own user, never
+  with `sudo`.
+- On a Mac, check the runtime is up: `container system status`, or `podman machine list`.
+- Start a fresh jail: `yolo stop`, then launch again. `yolo ps` lists running jails.
 
-- Check that Nix is installed and on your PATH: `nix --version`. yolo turns on flakes for its own builds, so your Nix config does not need them for a launch.
-- A failed build stops the launch and prints Nix's own error; yolo never falls back to an older image.
-- On macOS: your user must be trusted by the Nix daemon, or the parts of the image that are not in Nix's public cache cannot be downloaded or built. See [Let yolo use its binary cache](../getting-started.md#let-yolo-use-its-binary-cache). An uncached package is built in a temporary container on your running runtime, so keep the runtime up. (Only if you configured your *own* remote Linux builder, verify it — `nix store info --store ssh-ng://nix-builder` should respond within a few seconds.)
-- Run `yolo check` for detailed diagnostics
+**"No packs are configured, so this jail has no coding agent".** Add an agent pack to your user
+config; see [Choose an agent](../getting-started.md#choose-an-agent).
 
-**Container won't start**
+## After a config change
 
-- Linux: check `podman info`, and that it reports rootless: `podman info --format '{{.Host.Security.Rootless}}'` prints `true`. Run Podman and yolo as your normal user, not with `sudo`
-- macOS with Podman, `statfs …: no such file or directory`: the Podman Machine does not share that folder. Recreate the machine with the folder list in [Getting Started](../getting-started.md#macos-podman)
-- macOS: check that your runtime's VM/daemon is up:
-  - Podman Machine: `podman machine list`
-  - Apple Container: `container system status`
-- Try replacing the jail: `yolo stop`, then launch again
-- Check for leftover containers: `yolo ps`
+**My edit did nothing.** Running `yolo` while the project's jail is running joins that jail, which
+keeps the config it started with. Run `yolo stop`, then `yolo` again. On Apple Container use
+`container stop <name>` instead; `container ls` shows the name.
 
-**MCP server not working**
+**A script or CI job stops with a config diff.** A launch with no terminal cannot ask you to
+approve a changed config. Pass `--accept-config-changes` for that one launch; see
+[Approving config changes](../reference/configuration.md#approving-config-changes).
 
-- Verify the preset is enabled in `mcp_presets`
-- Check logs (same paths on Linux and macOS): `~/.copilot/logs/` (Copilot), `~/.claude/logs/` (Claude)
-- Inside jail, view logs: `tail -100 ~/.copilot/logs/$(ls -1t ~/.copilot/logs | head -1)`
+**A tool I installed is missing after a restart.** Tools installed with `npm -g`, `go install` or
+`uv tool` are kept per project. An installer that writes its own home folder, such as `~/.bun`,
+fails with `Read-only file system` until you list that folder in `writable_home_dirs`. To refresh a
+mise tool's PATH in the current shell, run `eval "$(mise hook-env -s bash)"`.
 
-**LSP not responding**
+## Agents and logins
 
-- LSP servers are spawned on-demand, not as background services
-- Ensure the language server binary is installed (`mise ls`)
-- TypeScript LSP requires `tsconfig.json` or `jsconfig.json` in the workspace root
+**Claude keeps logging out across jails.** Claude's refresh token works only once, so two jails
+refreshing at the same moment can log each other out. On Podman, the Claude login service that comes
+with the `claude` pack prevents this: check it with `yolo broker status`, and restart it with
+`yolo broker restart`. On Apple Container and `macos-user` that service does not work yet, so log
+in again when it happens, or use Podman for several Claude jails at once.
+[Logins](authentication.md#when-a-login-keeps-failing) has more.
 
-**Tools missing after restart**
+**`codex` or `pi` says `OpenAI login is required.` on Apple Container.** The shared ChatGPT login
+cannot be reached from Apple Container yet. Use an API key, or Podman.
 
-- `eval "$(mise hook-env -s bash)"` to refresh PATH
-- Or restart the jail: `yolo stop`, then launch again
+**An MCP server does not appear.** Check it is listed in `mcp_presets` or `mcp_servers`, and that
+you restarted the jail after adding it. Agent logs are in `~/.claude/` and `~/.copilot/logs/` inside
+the jail, for example `tail -100 ~/.copilot/logs/$(ls -1t ~/.copilot/logs | head -1)`.
 
-**Permission errors on files**
+**A language server does not respond.** yolo installs none: the server's program must be on the
+jail's PATH, for example from `mise_tools`. Servers start when an agent opens a matching file. A
+TypeScript server also needs a `tsconfig.json` or `jsconfig.json` in the project.
 
+## Files and permissions
 
-- Linux + Podman: Rootless UID mapping handles ownership automatically
-- macOS (any runtime): File ownership is mediated by the VM's virtiofs layer; files inside `/workspace` appear as the jail user and on the host appear as you
-- If persistent, check `ls -la ~/.local/share/yolo-jail/home/`
+**Files the agent writes are owned by `root` on Linux.** Your Podman runs as root. Run Podman as
+your own user, and new files are yours.
 
-**Claude keeps logging out across jails**
+**On `macos-user`, files show as owned by `_yolojail`.** That is the sandbox account; you can still
+read and write them, and `git` may print ownership warnings.
 
-- Full triage walkthrough: [docs/research/claude-token-logouts.md](https://github.com/mschulkind-oss/yolo-jail/blob/main/docs/research/claude-token-logouts.md). It maps each `yolo doctor` symptom to a fix.
-- Background: Anthropic rotates refresh tokens single-use, so multiple jails refreshing simultaneously race each other. The `claude-oauth-broker` loophole serializes refreshes behind an `flock` on the host so jails can't race — eliminating the class entirely. **It is a contribution of the official `claude` pack** (since 2026-08-19) and on by default there, so **selecting `"packs": ["claude"]` is what installs it** — it is no longer keyed on `claude` merely being on your PATH, and there is no bundled channel any more.
-- Run `yolo check` and look at the Loopholes section for broker health. Common recoveries: `yolo internal daemon claude-oauth-broker --init-ca` if certs are missing, then restart your jail.
-- On Apple Container and `macos-user`, refreshes do not go through the broker yet, so jails running at the same time can still log each other out. Use Podman if you run several Claude jails at once.
+## Linux devices
 
-## Linux-specific issues
+**An NVIDIA GPU is not visible in the jail.** Check `nvidia-smi` works on the host,
+`nvidia-ctk --version` shows the NVIDIA Container Toolkit, and a CDI spec exists at
+`/etc/cdi/nvidia.yaml`. See [NVIDIA GPU passthrough](devices-and-gpus.md#gpu-passthrough-nvidia).
 
-**NVIDIA GPU not visible in jail**
+**Permission denied on `/dev/dri` or another device, on rootless Podman.** Your user needs the
+device's group on the host, such as `render` or `video` (`sudo usermod -aG render,video "$USER"`,
+then log in again). A rootful Podman can open more devices, but a jail on it cannot reach yolo's host
+services, so keep it to the jails that need the device.
 
-- Check `nvidia-smi` on the host works
-- Verify NVIDIA Container Toolkit: `nvidia-ctk --version`
-- For Podman, ensure the CDI spec exists: `/etc/cdi/nvidia.yaml`
-- See [GPU Passthrough](devices-and-gpus.md#gpu-passthrough-nvidia) for the full setup
+## Still stuck
 
-**Podman rootless permission denied on `/dev/dri` or devices**
-
-- Some device passthrough paths need `--cap-add` which Podman rootless may restrict
-- Run Podman rootful (`sudo podman`) for these workloads. On a rootful Podman, jails cannot reach yolo's host services, such as the shared-login helpers, so keep it to the jails that need the device
-
-## macOS-specific issues
-
-**Podman Machine won't start**
-
-- On a Mac that is itself a virtual machine (a cloud or CI Mac), the Podman Machine needs nested virtualization, which not every host offers
-- Otherwise, recreate it: `podman machine stop`, `podman machine rm`, then the `init` and `start` commands in [Getting Started](../getting-started.md#macos-podman)
-
-**Nix build hangs or times out**
-
-- Check `nix store info` responds within 2 seconds
-- If it hangs, restart the Nix daemon: `sudo launchctl kickstart -k system/systems.determinate.nix-daemon` (Determinate) or `system/org.nixos.nix-daemon` (official installer). If it still hangs, see [the Determinate daemon hang](macos.md#known-issue-determinate-nix-daemon-hang)
-- If `yolo check` says `Nix daemon: connection failed`, your Nix does not have the `nix-command` feature on. Add `experimental-features = nix-command flakes` to `/etc/nix/nix.conf` and restart the daemon, as in [Other ways to get Nix](../getting-started.md#other-ways-to-get-nix)
-- If you configured your own remote Linux builder as an escape hatch, verify it: `nix store info --store ssh-ng://nix-builder` (see [macOS guide](macos.md)). The default uncached-build path needs no manual builder — it offloads to a container on the running runtime.
-
-**Port forwarding not working**
-
-- Podman on macOS: YOLO Jail uses a TCP gateway (`host.containers.internal`) instead of Unix sockets because virtiofs rejects sockets. This is automatic.
-- Apple Container: uses native `--publish-socket` — no TCP gateway needed. ⚠ **Measured 2026-09-16: this path breaks the launch**, because the socket yolo hands it already exists and because AC's direction is host→container. See the `network.forward_host_ports` row in [Settings per setup](../reference/settings-per-setup.md#resources-devices-and-networking).
-- Ensure `socat` is in the container (it's in the default image)
-
-**Apple Container: "virtual machine failed to start"**
-
-- VZ.framework caps how many bind mounts a guest can take. YOLO Jail consolidates the workspace state into a single `/home/agent` mount to stay well under it, but many custom `mounts` entries can still reach it.
-- Try `YOLO_RUNTIME=podman` to sidestep the limit.
-
-**Apple Container: image load fails**
-
-- Apple Container requires OCI-format images. yolo writes one with a `skopeo` its own flake builds; nothing on your PATH is used, so there is nothing to install.
-- Check that the runtime is running (`container system status`) and that the disk has room, then run `yolo` again.
-- `yolo check` may warn `No OCI conversion tool for Apple Container`. That check is out of date; `brew install skopeo` only silences it.
-
-**`/tmp` bind mounts fail**
-
-- macOS `/tmp` → `/private/tmp` is a symlink. The CLI resolves this automatically when it builds a mount path.
-
-See [What works in each setup](../reference/settings-per-setup.md#what-works-in-each-setup) for the per-setup support reference, and [macOS guide](macos.md) for the full macOS-specific setup and the per-backend explanations behind those cells.
+- `yolo check` again, and read every `[FAIL]` and `[WARN]` note.
+- `<project>/.yolo/launch.log` holds everything the last launch printed, and `<project>/.yolo/boot.log`
+  what happened as the jail started.
+- [Settings per setup](../reference/settings-per-setup.md#what-works-in-each-setup) says whether a
+  feature works on your setup at all.
