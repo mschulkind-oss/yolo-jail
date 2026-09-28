@@ -349,3 +349,52 @@ for anything a translated root cannot cover, so it outlives this design. Its wor
 ## Decision Ledger
 
 None yet.
+
+## Appendix: reproducing M4 and M6
+
+The measurement client, verbatim. It speaks the worker-protocol handshake, sends one
+`AddTempRoot` (`temp`) or `AddIndirectRoot` (`indirect`), and holds the connection for the given
+seconds. Check the verdict with `nix-store --gc --print-dead | rg <hash>`, a dry run.
+
+```python
+# Minimal nix worker-protocol client: AddTempRoot / AddIndirectRoot on ONE connection, then hold it.
+import socket, struct, sys, time
+M1, M2, LAST = 0x6e697863, 0x6478696f, 0x616c7473
+def wu(s, n): s.sendall(struct.pack('<Q', n))
+def ru(s):
+    b = b''
+    while len(b) < 8:
+        c = s.recv(8 - len(b))
+        if not c: raise EOFError
+        b += c
+    return struct.unpack('<Q', b)[0]
+def rb(s, n):
+    b = b''
+    while len(b) < n: b += s.recv(n - len(b))
+    return b
+def ws(s, t):
+    t = t.encode(); wu(s, len(t)); s.sendall(t + b'\0' * ((8 - len(t) % 8) % 8))
+def rs(s):
+    n = ru(s); d = rb(s, n); rb(s, (8 - n % 8) % 8); return d.decode()
+def stderr(s):
+    while True:
+        m = ru(s)
+        if m == LAST: return
+        if m == 0x63787470: raise RuntimeError('daemon error (STDERR_ERROR)')
+        if m == 0x64617416: print('log:', rs(s)); continue  # STDERR_NEXT
+        raise RuntimeError('unhandled stderr msg %x' % m)
+s = socket.socket(socket.AF_UNIX); s.connect('/nix/var/nix/daemon-socket/socket')
+wu(s, M1); assert ru(s) == M2; dv = ru(s); print('daemon proto %d.%d' % (dv >> 8, dv & 0xff))
+wu(s, (1 << 8) | 37); wu(s, 0); wu(s, 0)
+print('daemon version', rs(s)); print('trusted', ru(s)); stderr(s)
+op, path = sys.argv[1], sys.argv[2]
+wu(s, {'temp': 11, 'indirect': 12}[op]); ws(s, path); stderr(s); print(op, 'root ->', ru(s))
+hold = int(sys.argv[3]) if len(sys.argv) > 3 else 0
+sys.stdout.flush(); time.sleep(hold)
+```
+
+```console
+$ python3 nixproto.py temp /nix/store/<hash>-probe 40 &      # M4: alive while held
+$ ln -s /nix/store/<hash>-probe /workspace/.yolo/x
+$ python3 nixproto.py indirect "$YOLO_HOST_DIR/.yolo/x"      # M6: alive until the link goes
+```
