@@ -128,14 +128,27 @@ func TestLaunchRelatedPacksIsTheProgramsOwnConfiguration(t *testing.T) {
 	}
 }
 
-// THE INTERACTIVE FIRST APPLY takes the same rule: on a TTY, a first apply that would drop a
+// THE INTERACTIVE FIRST APPLY takes the same rule: on a TTY, a first apply that would replace a
 // hand-added MCP server asks, the user says yes, and an unrelated broken link does not then stop
 // claude.
 func TestTheInteractiveFirstApplyLetsAnUnrelatedFailureThrough(t *testing.T) {
-	home := relatedGateFixture(t)
+	home := t.TempDir()
+	packDir := filepath.Join(home, "packs", "matt-mcp")
+	writeFile(t, filepath.Join(packDir, "pack.json"), mcpContributorPackJSON)
+	brokenLinkHomeAt(t, home, `"claude","pi",{"source":"file://`+packDir+`","name":"matt-mcp"}`,
+		`,"host_apply_on_launch":true`)
+	t.Setenv(acceptConfigChangesEnv, "")
 	setGateTTY(t, true)
 	writeFile(t, filepath.Join(home, ".claude.json"),
-		`{"mcpServers":{"tavily":{"type":"http","url":"https://x"}}}`)
+		`{"mcpServers":{"tavily":{"type":"http","url":"https://x?k=SECRET"}}}`)
+
+	var out, e bytes.Buffer
+	probe := &hostApplySurvey{}
+	applyHostSurveyed(&out, &e, false, false, nil, probe)
+	if !surveyNeedsPrompt(probe) {
+		t.Fatalf("fixture premise: this home must reach the interactive first-apply path:\n%s", out.String())
+	}
+
 	var errw bytes.Buffer
 	if !hostApplyGate(&errw, strings.NewReader("y\n"), "claude") {
 		t.Fatalf("claude was refused over pi's broken link after the user answered y:\n%s",

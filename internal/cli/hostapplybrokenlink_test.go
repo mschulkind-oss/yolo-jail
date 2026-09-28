@@ -21,8 +21,14 @@ import (
 func brokenLinkHome(t *testing.T, extra string) (string, string) {
 	t.Helper()
 	home := t.TempDir()
+	return home, brokenLinkHomeAt(t, home, `"claude","pi"`, extra)
+}
+
+// brokenLinkHomeAt is brokenLinkHome over a given home and pack list; returns the link's target.
+func brokenLinkHomeAt(t *testing.T, home, packs, extra string) string {
+	t.Helper()
 	writeFile(t, filepath.Join(home, ".config", "yolo-jail", "config.jsonc"),
-		`{"packs":["claude","pi"]`+extra+`}`)
+		`{"packs":[`+packs+`]`+extra+`}`)
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
 	t.Setenv("YOLO_VERSION", "")
@@ -35,7 +41,7 @@ func brokenLinkHome(t *testing.T, extra string) (string, string) {
 	if err := os.Symlink(target, link); err != nil {
 		t.Fatal(err)
 	}
-	return home, target
+	return target
 }
 
 func TestABrokenLinkIsReportedOnceWithItsFixAndTheRestApplies(t *testing.T) {
