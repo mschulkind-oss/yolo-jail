@@ -1,13 +1,18 @@
 # Packages and Tools
 
-Choose the tools your agent finds on its `PATH`: system packages from nix, per-project
-versions through mise, and any tools you block along with what to use instead.
+Choose the tools your agent finds on its `PATH`: system packages built with Nix, versioned
+development tools through mise, and any tools you block along with what to use instead. None of
+this installs anything on your own machine.
+
+Every jail already has a working set of tools, including `git`, `rg`, `fd`, `jq`, `node`, `python3`,
+`uv`, `go`, `gh` and `mise`, so add only what your project needs beyond that.
 
 ## Package Management
 
 ### Nix Packages (Image-Level)
 
-Add system packages via the `packages` config array. These are baked into the container image:
+Add system packages with the `packages` key, usually in the project's `yolo-jail.jsonc`. yolo builds
+them into the jail image with [Nix](https://nixos.org), a reproducible package builder:
 
 ```jsonc
 {
@@ -15,7 +20,18 @@ Add system packages via the `packages` config array. These are baked into the co
 }
 ```
 
-Package names must match [nixpkgs attributes](https://search.nixos.org/packages). The image only rebuilds when this list changes.
+Package names are [nixpkgs](https://search.nixos.org/packages) names. The image is rebuilt only when
+this list changes, and a rebuilt image reaches a jail at its next fresh start: `yolo check`, then
+`yolo stop` and launch again. A package that fails to build stops the launch with Nix's own error.
+
+**On a Mac** each different package list builds its own Linux image, so the first launch after a
+change is slower; a package missing from every binary cache is built in a temporary container on
+your runtime. On `macos-user`, packages are built as native Mac programs instead, and a package with
+no Mac build stops the launch. Mark a Linux-only package so other setups skip it:
+
+```jsonc
+{ "packages": [ { "name": "strace", "platforms": ["linux"] } ] }
+```
 
 **Non-default outputs (`.dev` for headers + `pkg-config`):** Nixpkgs splits many libraries into outputs — the default output ships only the runtime `.so`, while `.dev` carries headers and `.pc` files. For cgo / FFI builds, request the `.dev` output with a dotted shorthand or an explicit `outputs` array:
 
@@ -45,10 +61,14 @@ Common outputs: `out` (default), `dev` (headers + pkg-config), `bin`, `lib`, `ma
 ```
 
 Find nixpkgs commits for specific versions at [lazamar.co.uk/nix-versions](https://lazamar.co.uk/nix-versions/).
+An entry can also rebuild a package from a different upstream version with `version`, `url` and
+`hash`; `yolo config-ref` shows the form.
 
 ### Mise Tools (Runtime-Level)
 
-Add tools to your workspace's `mise.toml` for workspace-specific runtimes:
+[mise](https://mise.jdx.dev) is a tool-version manager: use it for a particular Node, Python, Rust
+or other tool version, or a tool nixpkgs does not have. A project's own `mise.toml` works as it does
+outside the jail:
 
 ```toml
 # mise.toml
@@ -57,9 +77,12 @@ typst = "latest"
 rust = "1.80"
 ```
 
-On jail startup, `mise install` fetches declared tools. They persist across restarts in the jail-land mise store mounted at `/mise` — shared by every jail, fully independent of the host's own mise installation.
+When the jail starts, `mise install` fetches the declared tools. They are kept in yolo's own mise
+store at `/mise`, shared by every jail and separate from any mise on your host, so a version is
+downloaded once.
 
-To inject tools into all jails globally, use `mise_tools` in your config:
+To add tools without a `mise.toml`, use `mise_tools`, in the project config for one project or in
+your user config for every jail:
 
 ```jsonc
 {
