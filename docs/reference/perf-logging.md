@@ -992,9 +992,19 @@ among them. The launcher waits on the client, and the shell waits on the launche
 rootful podman rather than `yolo` itself (podman 5.8.6, the nested store on btrfs).
 200,000 empty files in an anonymous `/tmp` held the client 8.8 s past its container's
 exit; in a named volume, 0.2 s. Removing that named volume with
-`podman volume rm` afterwards took 6.2 s. The nested jail cannot price the maintainer's
-host, for the reasons under [What has been measured](#what-has-been-measured). It does
-establish the mechanism, and that the fix removes it.
+`podman volume rm` afterwards took 6.2 s. Then through `yolo` itself, launching a
+nested jail from a throwaway workspace and writing the same 200,000 files into `/tmp`
+before the command ended:
+
+| Launcher | Jail command done → `yolo` returned | `shutdown.window_a.client_exit` |
+| :--- | ---: | ---: |
+| before the fix (`eb0af5ee`) | 16.1 s | 15.97 s |
+| after it | 0.085 s | 0.002 s |
+
+After the fix, the detached remover's `housekeeping.log` line read `removed 4 volume(s) in
+5.1s`: the same delete, off the critical path. The nested jail cannot price the
+maintainer's host, for the reasons under [What has been measured](#what-has-been-measured).
+It does establish the mechanism, and that the fix removes it.
 
 **The fix.** The scratch volumes are **named per launch** now, and `--rm` leaves named
 volumes alone. The client exits as soon as the container is removed. The teardown then
