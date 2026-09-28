@@ -11,8 +11,12 @@ package run
 
 import (
 	"bytes"
+	"go/ast"
+	"strings"
 	"testing"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 )
@@ -26,14 +30,25 @@ func TestLaunchBannerQualifiesAGatedEnvVariable(t *testing.T) {
 	o := goldenOptions("/ws", t.TempDir())
 	o.Stderr = &stderr
 	o.Stdout = discardBuf()
-	o.notePackHostAccess([]*packload.Pack{officialPack(t, "aws-auth")})
+	packs := []*packload.Pack{officialPack(t, "aws-auth")}
+	t.Cleanup(func() { loopholes.SetPackModules(nil) })
+	loopholes.SetPackModules(packLoopholeModules(packs))
+	// The served set a bridged podman launch composes (jailDaemonsFor, servedDaemons) with the
+	// loophole enabled, as a Bedrock launch enables it: the AWS adapter at its declared address,
+	// which is what the banner names for the pointer.
+	cfg := bareConfig()
+	block, entry := jsonx.NewOrderedMap(), jsonx.NewOrderedMap()
+	entry.Set("enabled", true)
+	block.Set("aws-auth", entry)
+	cfg.Set("loopholes", block)
+	o.notePackHostAccess(packs, &packChannel{served: o.servedDaemons(o.jailDaemonsFor(cfg, "podman", packs))})
 
 	const want = "Pack environment this launch:\n" +
 		"  aws-auth: SETS an environment variable inside the jail: " +
 		"AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE=/run/yolo/caller-tokens/YOLO_SERVICE_AWS_AUTH_TOKEN " +
 		"when profile \"bedrock\" is active  [env]\n" +
 		"  aws-auth: SETS an environment variable inside the jail: " +
-		"AWS_CONTAINER_CREDENTIALS_FULL_URI=http://{listen}/credentials " +
+		"AWS_CONTAINER_CREDENTIALS_FULL_URI=http://127.0.0.1:1461/credentials " +
 		"when profile \"bedrock\" is active  [env]\n"
 	if got := stderr.String(); got != want {
 		t.Errorf("the launch banner's env disclosure for aws-auth:\n--- got ---\n%s--- want ---\n%s",
@@ -52,7 +67,7 @@ func TestLaunchBannerKeepsAnUngatedEnvVariableBare(t *testing.T) {
 	o := goldenOptions("/ws", t.TempDir())
 	o.Stderr = &stderr
 	o.Stdout = discardBuf()
-	o.notePackHostAccess([]*packload.Pack{p})
+	o.notePackHostAccess([]*packload.Pack{p}, nil)
 
 	const want = "Pack environment this launch:\n" +
 		"  widget: SETS an environment variable inside the jail: WIDGET_PLAIN=1  [env]\n" +
@@ -71,4 +86,73 @@ func envDisclosureDecl(t *testing.T, body string) *packdecl.Manifest {
 		t.Fatalf("fixture manifest refused: %v", problems)
 	}
 	return m
+}
+
+// bannerOf is the launch banner's env disclosure for la, printed from the channel la's launch
+// composed, as both production call sites print it.
+func bannerOf(t *testing.T, la assembled) string {
+	t.Helper()
+	var stderr bytes.Buffer
+	la.o.Stderr, la.o.Stdout = &stderr, discardBuf()
+	la.o.notePackHostAccess(la.in.packs, la.in.envChannel(la.o))
+	return stderr.String()
+}
+
+// THE BANNER NAMES THE ADDRESS THE JAIL GETS, not the `{listen}` template (NC-D46). A launch
+// disclosure describes what is about to run on this machine, which is why it resolves {state}
+// too: on a bridged launch the pointer's line names the declared port, byte-identical to the
+// banner before served addresses, and on a shared network namespace it names the port the
+// launch picked, the one the adapter's argv binds.
+func TestLaunchBannerNamesThePointersServedAddress(t *testing.T) {
+	const pointer = "CODEX_REFRESH_TOKEN_URL_OVERRIDE="
+	bridged := bannerOf(t, servedPortLaunch(t, nil))
+	if !strings.Contains(bridged, pointer+"http://127.0.0.1:1460/oauth/token  [env]") {
+		t.Errorf("a bridged launch's banner does not name the declared address:\n%s", bridged)
+	}
+	la := servedPortLaunch(t, func(o *Options) { o.Network = "host" })
+	listen := adapterListen(t, la.argv)
+	shared := bannerOf(t, la)
+	if !strings.Contains(shared, pointer+"http://"+listen+"/oauth/token  [env]") {
+		t.Errorf("a shared-namespace launch's banner does not name the adapter's served address %s:\n%s",
+			listen, shared)
+	}
+	for name, out := range map[string]string{"bridged": bridged, "shared": shared} {
+		if strings.Contains(out, "{listen}") {
+			t.Errorf("the %s banner prints the unresolved template:\n%s", name, out)
+		}
+	}
+}
+
+// EVERY PRODUCTION CALL HANDS THE BANNER THE LAUNCH'S CHANNEL, whose served set is where the
+// pointers were composed. A call passing nil (or anything else) prints `{listen}` for a value
+// the jail receives resolved, and no fixture above reaches Run's two call sites.
+func TestEveryBannerCallSitePassesTheLaunchChannel(t *testing.T) {
+	calls := 0
+	for fn, decl := range map[string]*ast.FuncDecl{
+		"Run": funcDecl(t, "run.go", "Run"), "runContainer": methodDecl(t, "run.go", "runContainer"),
+	} {
+		ast.Inspect(decl, func(n ast.Node) bool {
+			call, ok := n.(*ast.CallExpr)
+			if !ok {
+				return true
+			}
+			sel, ok := call.Fun.(*ast.SelectorExpr)
+			if !ok || sel.Sel.Name != "notePackHostAccess" {
+				return true
+			}
+			calls++
+			if len(call.Args) != 2 {
+				t.Errorf("%s calls notePackHostAccess with %d arguments", fn, len(call.Args))
+				return true
+			}
+			if id, ok := call.Args[1].(*ast.Ident); !ok || id.Name != "channel" {
+				t.Errorf("%s hands notePackHostAccess something other than the launch's channel", fn)
+			}
+			return true
+		})
+	}
+	if calls != 2 {
+		t.Errorf("found %d notePackHostAccess calls in Run and runContainer, want 2 (the macos-user "+
+			"arm and the container arm)", calls)
+	}
 }

@@ -660,7 +660,7 @@ func Run(opts Options) (rc int) {
 		// not consent"). The container path prints this inside runContainer, below the
 		// return above — the same B-0 shape as pack staging, launch flags and the
 		// channel, and the same fix: the arm prints its own.
-		o.notePackHostAccess(staged.packs)
+		o.notePackHostAccess(staged.packs, channel)
 		o.noteMacosUserHostByteGaps(ctxDelivery)
 		return o.MacosUserRun(cfg, o.Workspace, config.SelectedAgents(cfg), agentArgv,
 			repoRoot, staged.root, homeOverlay, ctxDelivery.ctx, o.DryRun,
@@ -844,8 +844,17 @@ func (o *Options) warnIfNoPacks() {
 // Host EXECUTION does NOT print here. It prints at the spawn boundary, BEFORE
 // startLoopholes — see startLoopholesDisclosed. For a read, printing at the banner is
 // cosmetic; for an exec it would be a notification that something already happened.
-func (o *Options) notePackHostAccess(loadedPacks []*packload.Pack) {
-	lines := disclosedClaims(loadedPacks, disclosureRead)
+//
+// channel is the launch's composed channel, whose served set (packChannel.served) is where the
+// pack env pointers were composed: a pointer's `{listen}` prints as the served address the
+// jail receives, as {state} prints resolved, rather than as the template (NC-D46). nil resolves
+// nothing, which only a hand-built test passes.
+func (o *Options) notePackHostAccess(loadedPacks []*packload.Pack, channel *packChannel) {
+	served := packload.NothingServed()
+	if channel != nil {
+		served = channel.served
+	}
+	lines := disclosedClaimsServed(loadedPacks, disclosureRead, served)
 	if len(lines) == 0 {
 		return
 	}
@@ -1585,7 +1594,7 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 	// The READ half only. Host EXECUTION was disclosed above, before startLoopholes, and
 	// deliberately not repeated here: this point in the pipeline is after the spawn, where
 	// the same line would be a notification rather than a disclosure (§4.3 G4).
-	o.notePackHostAccess(loadedPacks)
+	o.notePackHostAccess(loadedPacks, channel)
 
 	// And beside it, for the same reason: a WRITABLE bind of the host user's own
 	// cache is host access, so L9's decision is disclosed at every launch that

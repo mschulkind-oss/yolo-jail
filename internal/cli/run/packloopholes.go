@@ -358,8 +358,18 @@ type disclosureLine struct{ pack, claim string }
 // footprint now answer the same question about the same set, and the footprint's asymmetry is
 // vestigial rather than load-bearing.
 func disclosedClaims(packs []*packload.Pack, class disclosureClass) []disclosureLine {
+	return disclosedClaimsServed(packs, class, packload.NothingServed())
+}
+
+// disclosedClaimsServed is disclosedClaims with each env claim's loopholedecl.TokenListen
+// resolved to the served address, in served, of the daemon its contribution is `served_by`:
+// the value the jail receives (NC-D46). A daemon served has no address there keeps the token,
+// and the launch names that pointer as withheld (CredentialScope.UnservedEnvLines).
+func disclosedClaimsServed(packs []*packload.Pack, class disclosureClass,
+	served packload.ServedDaemons) []disclosureLine {
 	var lines []disclosureLine
 	for _, p := range packs {
+		servedBy := envServedBy(p)
 		for _, c := range packload.FootprintOf(p).Claims {
 			if disclosureClassOfClaim(c) != class {
 				continue
@@ -382,11 +392,40 @@ func disclosedClaims(packs []*packload.Pack, class disclosureClass) []disclosure
 				sentence = strings.ReplaceAll(sentence, loopholedecl.TokenState,
 					loopholes.StateDirFor(c.Target))
 			}
+			// The same rule for a pointer's listen address: the served address of this launch
+			// (packload.ServedDaemons.Listen), which is what the credential scope composed.
+			if c.Kind == packdecl.KindEnv {
+				if addr := served.Listen(servedBy[c.Target]); addr != "" {
+					sentence = strings.ReplaceAll(sentence, loopholedecl.TokenListen, addr)
+				}
+			}
 			lines = append(lines, disclosureLine{
 				p.Name, sentence + "  [" + string(c.Kind) + "]"})
 		}
 	}
 	return lines
+}
+
+// envServedBy maps each variable p's env contributions declare to the daemon the contribution
+// is `served_by`, gated contributions included (the banner prints those too), the later
+// declaration winning a key as the fold does.
+func envServedBy(p *packload.Pack) map[string]string {
+	out := map[string]string{}
+	if p == nil || p.Decl == nil {
+		return out
+	}
+	for k, d := range p.Decl.EnvServedBy() {
+		out[k] = d
+	}
+	for _, g := range p.Decl.ProfiledEnvContributions() {
+		if g.ServedBy == "" {
+			continue
+		}
+		for k := range g.Vars {
+			out[k] = g.ServedBy
+		}
+	}
+	return out
 }
 
 // packHostExecClaims returns the host-EXECUTION claim lines for the loaded packs.
