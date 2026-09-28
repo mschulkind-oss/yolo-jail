@@ -157,6 +157,14 @@ type DeriveCtx struct {
 	// SURFACE — the jail's boot loop and `yolo check`'s dry run, which share
 	// deriveComputedLayer — tolerate and report it.
 	UnknownAPI func(name string)
+
+	// Warn receives the warn-don't-refuse notes a derive helper raises — today one kind,
+	// yolo.model_for's missing conventional tier alias (MissingTierAliasNote). Nil drops
+	// them, which is right for a reader that renders no warnings of its own because its boot
+	// twin reports the same derive (the via-pointer scan, the host env composition, the
+	// registration listings). The two paths that render a surface — the jail's boot loop and
+	// `yolo check`'s dry run, sharing entrypoint.deriveComputedLayer — set it.
+	Warn func(msg string)
 }
 
 // DeriveVM is the boundary for running a derive producer, mirroring LuaVM. The
@@ -324,6 +332,9 @@ func newDeriveSession(vm GopherLuaVM, script string, ctx *DeriveCtx) (*deriveSes
 		s.envs[agent] = fn
 		return 0
 	}))
+	// yolo.model_for(alias): the one HELPER beside the two registrations (modelfor.go,
+	// OQ-XM1). Installed before the guard, which reads the known members off the table.
+	installModelFor(L, yolo, ctx)
 	guardUnknownAPI(L, yolo, ctx.UnknownAPI)
 	L.SetGlobal("yolo", yolo)
 

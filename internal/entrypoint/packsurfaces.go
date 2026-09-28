@@ -289,6 +289,9 @@ func deriveComputedLayer(e *Env, surface manifest.Surface, deriveScript string, 
 		ViaAPIKeyEnvName:   sel.ViaAPIKeyEnvName,
 		Tables:             tables,
 		UnknownAPI:         func(name string) { e.warnOnce(unknownDeriveAPINote(surface.Agent, name)) },
+		// A helper's warn-don't-refuse note (yolo.model_for's missing tier alias), keyed by
+		// agent like the skew note above, so one finding prints once per boot.
+		Warn: func(msg string) { e.warnOnce("pack derive for " + surface.Agent + ": " + msg) },
 	})
 	if err != nil {
 		return nil, nil, fmt.Errorf("surface %s/%s: derive: %w", surface.Agent, surface.Name, err)
