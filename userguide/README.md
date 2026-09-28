@@ -8,14 +8,20 @@ YOLO Jail supports Linux and macOS. The setup differences matter: [Settings per 
 
 ## Quick Start
 
+yolo needs Nix and a container runtime on your machine first: Apple Container on a Mac, Podman on
+Linux. [Getting Started](getting-started.md#quick-install) has the copy-paste steps for both. Then:
+
 ```bash
-brew tap mschulkind-oss/tap
 brew install mschulkind-oss/tap/yolo-jail
+yolo init-user-config      # then add "packs": ["claude"] to ~/.config/yolo-jail/config.jsonc
 cd ~/code/my-project
-yolo
+yolo check
+yolo -- claude
 ```
 
-Choose which agent to install by listing its pack in your user config. [Getting Started](getting-started.md) covers runtimes, the first launch, and authentication.
+A **pack** is an add-on you list in your user config; the one above installs Claude Code in the
+jail. With no packs, a jail is a shell with no coding agent. [Getting Started](getting-started.md)
+covers each step, the first launch, and logging in.
 
 ## What's in This Guide
 
@@ -23,7 +29,7 @@ Choose which agent to install by listing its pack in your user config. [Getting 
 
 | Page | What it covers |
 |---|---|
-| [Getting Started](getting-started.md) | Installation, first launch, authentication |
+| [Getting Started](getting-started.md) | Installing Nix, a runtime and yolo on macOS and Linux; the first launch; logging in |
 | [Features](features.md) | A tour of what yolo sets up for an agent, and how confined it runs |
 | [Settings per setup](reference/settings-per-setup.md) | What works on each host and runtime |
 

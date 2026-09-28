@@ -32,67 +32,48 @@ How much the agent is confined is one setting of that declaration:
 - **Reproducible:** Defined entirely via Nix Flakes
 - **Container Reuse:** Same workspace reuses the same container via `exec`
 - **Runtime Flexible:** Works with podman (Linux/macOS), Apple Container (macOS native), or a sandboxed macOS user account with no VM
-- **Cross-Platform:** Full support for Linux and macOS (Apple Silicon and Intel)
+- **Cross-Platform:** Linux (x86_64 and arm64) and macOS (Apple silicon, and Intel for now)
 
 ## Prerequisites
 
-Core requirements (both platforms):
+Three things on the host, whichever way you install:
 
-- **[Nix](https://nixos.org/download/)** (with flakes enabled)
-- A container runtime — one of:
-  - **[Podman](https://podman.io/)** (preferred on Linux; Podman Machine on macOS)
-  - **[Apple Container](https://github.com/apple/container)** (native macOS, `brew install container`)
+- **[Nix](https://nixos.org/download/)**, a reproducible package builder, which builds the jail
+  image. yolo turns on flakes for its own builds. On a Mac, the Nix daemon must also trust your user,
+  so that it can download yolo's prebuilt image pieces and build anything uncached in a temporary
+  container.
+- **A container runtime**: [Apple Container](https://github.com/apple/container) on a Mac with Apple
+  silicon and macOS 26 or later (the Mac default), or [Podman](https://podman.io/) — rootless on
+  Linux, or with its Podman Machine VM on any Mac.
+- **yolo** itself, below.
 
-Additionally, to [install from source](#from-source):
+Platforms:
 
-- **[Go](https://go.dev/dl/)** (see [`go.mod`](go.mod) for the required version)
-- **[just](https://github.com/casey/just)**
-
-Platform specifics (in priority order):
-
-- **Linux / x86_64** — any modern distribution with Podman. No extra setup. The primary target.
-- **macOS / Apple Silicon** — via a native **arm64** Linux container (Apple Container or Podman Machine); no emulation. See [macOS guide](userguide/guides/macos.md).
-- **Linux / arm64 (aarch64-linux)** — supported and CI-tested (image built + integration-tested natively on `ubuntu-24.04-arm`); same nix image as x86_64, no arch switch.
-- **macOS / Intel** — also supported (x86_64 Linux container).
-
-No builder is needed on macOS — the standard image builds entirely from the NixOS binary cache. If you add a package that isn't cached, the from-source Linux build is offloaded automatically to a tiny throwaway container on whichever container runtime is already up (Podman or Apple Container); no VM, no `sudo`, no setup.
+- **Linux, x86_64 and arm64** — rootless Podman. Both are CI-tested, from one Nix image definition.
+- **macOS, Apple silicon** — Apple Container (recommended) or Podman Machine, running a native
+  **arm64** Linux container with no emulation. The `macos-user` sandbox, which needs no container
+  runtime, is coming. See the [macOS guide](userguide/guides/macos.md).
+- **macOS, Intel** — Podman Machine only, and ending: Apple Container, Podman 6 and the Determinate
+  Nix installer have dropped Intel Macs, and the Nix packages yolo uses there stop receiving fixes at
+  the end of 2026.
 
 ## Install
 
-Every channel below ships the same single `yolo` binary. Pick whichever fits — but read the note under each: a launch needs more than the binary.
-
-**Every launch also needs a *flake bundle*** — the copy of yolo's build inputs ([`flake.nix`](flake.nix), its lockfile, the prebuilt in-jail binaries) that yolo builds the jail from. Homebrew and the from-source install put one beside the binary for you; `go install` and pipx/uvx ship the binary alone, so they need a checkout named by `YOLO_REPO_ROOT`. yolo never consults your working directory to find it. Full table: [Getting Started](userguide/getting-started.md#other-ways-to-install).
-
-### Homebrew (easiest, macOS and Linux)
-
 ```bash
-brew tap mschulkind-oss/tap
 brew install mschulkind-oss/tap/yolo-jail
 ```
 
-Works on macOS and Linuxbrew. Single command, auto-upgrades with `brew upgrade`. No source checkout, no `just` required.
+[Homebrew](https://brew.sh/) works on macOS and Linux and installs yolo only, so install Nix and a
+runtime first. **[Getting Started](userguide/getting-started.md) has the copy-paste steps** for each
+Mac and Linux setup: the Nix installer and the one setting it needs, each runtime and how to check it,
+the other ways to install yolo, and the first launch.
 
-### Go
-
-```bash
-go install github.com/mschulkind-oss/yolo-jail/cmd/yolo@latest
-```
-
-Builds straight from the module. Needs Go on the host; puts `yolo` in `$GOBIN` (or `$(go env GOPATH)/bin`).
-
-The module holds no flake bundle, so this channel gets the binary and nothing else: the first `yolo` refuses with "Cannot find yolo-jail repo root" until you clone the repo and export `YOLO_REPO_ROOT=/path/to/checkout`. If you are going to have a checkout anyway, [from source](#from-source) is the channel that wants one.
-
-### pipx / uvx
-
-```bash
-pipx install yolo-jail
-# or, to run without installing:
-uvx yolo-jail
-```
-
-The PyPI distribution is per-platform wheels wrapping the same prebuilt Go binary — there is no Python code and no Python runtime dependency beyond the installer itself. It exists so the pre-Go audience keeps a working upgrade path.
-
-A wheel carries the binary alone, so like `go install` this channel needs `YOLO_REPO_ROOT` pointed at a checkout before the first launch will do anything.
+yolo builds each jail from its *flake bundle* — [`flake.nix`](flake.nix), its lockfile and the
+prebuilt in-jail binaries — which it finds beside its own binary, never in your working directory.
+Homebrew, a [release archive](https://github.com/mschulkind-oss/yolo-jail/releases) and the
+from-source install ship one. `go install` and `pipx install yolo-jail` (or
+`uvx --from yolo-jail yolo`) ship the binary alone, so they need a checkout named by
+`YOLO_REPO_ROOT`: [details](userguide/getting-started.md#other-ways-to-install).
 
 ### From source
 
@@ -113,31 +94,6 @@ yolo-jail used to ship as a Python package installed with `uv tool install`. `ju
 
 Nothing is deleted that cannot be positively identified as part of that old install. If something unrecognized is sitting at `$GOBIN/yolo`, the migration stops and asks you to look at it rather than guessing. `uv` itself is no longer a prerequisite.
 
-### Optional — User-level defaults
-
-```bash
-yolo init-user-config
-# Edit: ~/.config/yolo-jail/config.jsonc
-```
-
-**Platform-specific runtime setup** (one-time, needed whichever channel you installed from):
-
-```bash
-# Linux — Podman
-sudo pacman -S podman                   # or apt/dnf/pacman for your distro
-
-# macOS — Apple Container (native, recommended)
-brew install container skopeo
-container system start
-
-# macOS — Podman Machine
-brew install podman
-podman machine init --cpus 4 --memory 8192 --disk-size 50
-podman machine start
-```
-
-On macOS, image builds use the NixOS binary cache by default — no builder to set up. If you add packages that aren't in the cache (or build offline), the from-source Linux build is offloaded automatically to a throwaway container on the container runtime you already have running. See [macOS guide](userguide/guides/macos.md).
-
 For development, see [Contributing](#contributing).
 
 ## Quick Start
@@ -145,8 +101,14 @@ For development, see [Contributing](#contributing).
 Works identically on Linux and macOS:
 
 ```bash
+# Choose an agent: create your user config, then add "packs": ["claude"] to it
+yolo init-user-config    # writes ~/.config/yolo-jail/config.jsonc
+
 # Navigate to any repository
 cd ~/code/my-project
+
+# Check the setup (the first run also builds the jail image)
+yolo check
 
 # Start an interactive shell in the jail
 yolo
@@ -164,9 +126,6 @@ yolo --new -- bash
 # ALWAYS run this after every yolo-jail.jsonc edit, before restarting
 yolo check
 
-# Check your setup
-yolo doctor
-
 # List running jails
 yolo ps
 
@@ -174,14 +133,14 @@ yolo ps
 yolo config-ref
 ```
 
-On macOS, `yolo doctor` additionally checks the VM backend (Podman Machine or Apple Container `system status`) — confirming the runtime is up, so that an uncached build can offload to a throwaway container on it.
+On macOS, `yolo check` (also spelled `yolo doctor`) additionally checks the runtime and the Nix daemon, including whether it trusts your user.
 
 ### First Run
 
 On first run, YOLO Jail will:
-1. Build the Linux container image via `nix build` (takes a few minutes — both Linux and macOS download from the NixOS binary cache; on macOS, any non-cached package is built by offloading to an ephemeral container on the running runtime — no VM, no `sudo`, no first-boot)
+1. Build the Linux container image via `nix build` (it takes a while — the packages download from Nix's binary cache and yolo's own; on macOS, any non-cached package is built by offloading to an ephemeral container on the running runtime — no VM, no `sudo`, no first-boot)
 2. Load the image into your container runtime
-3. Install MCP servers, LSP servers, and utilities
+3. Install the agent, the MCP servers you enabled, and utilities (language servers are yours to bring)
 4. Start your command
 
 Subsequent runs are fast — tools are cached in persistent storage on both platforms.
