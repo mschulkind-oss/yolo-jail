@@ -32,7 +32,8 @@ install it through the same channel:
 
   from source (just deploy)   git pull --ff-only && just deploy, in the checkout
                               this binary was built from, installing beside it
-  Homebrew                    brew upgrade yolo-jail
+  Homebrew                    brew upgrade yolo-jail, keeping the old version
+                              installed for the jails already running it
   go install / pipx / uv      check only: these install the host binary without
                               the jail bundle, so update the binary and the
                               YOLO_REPO_ROOT checkout together
@@ -216,6 +217,7 @@ func maybeNotifyUpdate(sub string, args []string, d updateDeps) (int, bool) {
 		fmt.Fprintf(d.stderr, "  Source checkout: %s\n", ch.SourceDir)
 		fmt.Fprintln(d.stderr, "  `just deploy` restarts the Claude OAuth broker; any jail using it loses it briefly.")
 	}
+	fmt.Fprintln(d.stderr, "  "+selfupdate.RunningJailsNote(ch))
 	fmt.Fprintln(d.stderr, "  The relaunch rebuilds the jail image first if the update changed it.")
 	fmt.Fprint(d.stderr, "  Update now and relaunch? [y/N] ")
 	if answer := readAnswer(d.stdin); answer != "y" && answer != "yes" {
@@ -249,7 +251,7 @@ func maybeNotifyUpdate(sub string, args []string, d updateDeps) (int, bool) {
 
 // relaunchPath resolves the binary to re-exec the way the shell did: argv[0] as
 // typed when it holds a slash, else a PATH lookup. Not os.Executable: a
-// Homebrew upgrade removes the versioned Cellar path the old binary ran from.
+// Homebrew upgrade leaves the OLD version at the versioned Cellar path it ran from.
 func relaunchPath(argv0 string, lookPath func(string) (string, error)) (string, error) {
 	if strings.Contains(argv0, "/") {
 		return argv0, nil
@@ -451,7 +453,7 @@ func updateMain(args []string, d updateDeps) int {
 		}
 	}
 	_ = selfupdate.InvalidateState(d.statePath)
-	fmt.Fprintln(d.stdout, "✓ updated. Running jails keep their current binaries until they are restarted.")
+	fmt.Fprintln(d.stdout, "✓ updated. "+selfupdate.RunningJailsNote(ch))
 	return 0
 }
 

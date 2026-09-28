@@ -293,7 +293,7 @@ func TestUpdatePromptYesUpdatesAndRelaunchesTheSameCommand(t *testing.T) {
 		t.Error("the launch prompt must never autostash a checkout behind the user's back")
 	}
 	if h.execPath != "/opt/homebrew/bin/yolo" {
-		t.Errorf("relaunched %q, want the PATH lookup of argv[0] (the Cellar path is gone after an upgrade)", h.execPath)
+		t.Errorf("relaunched %q, want the PATH lookup of argv[0] (the Cellar path still holds the old version after an upgrade)", h.execPath)
 	}
 	if !slices.Equal(h.execArgv, []string{"yolo", "--", "claude"}) {
 		t.Errorf("relaunched with %v, want the original argv", h.execArgv)
@@ -362,6 +362,39 @@ func TestUpdatePromptSaysWhatASourceUpdateCosts(t *testing.T) {
 	h.notify("run")
 	if strings.Contains(h.stderr.String(), "OAuth broker") {
 		t.Errorf("a Homebrew update does not run just deploy:\n%s", h.stderr.String())
+	}
+}
+
+// What an update does to jails already running differs by channel, and both
+// the launch prompt and `yolo update`'s success line must say which.
+func TestUpdateSaysWhatHappensToRunningJailsPerChannel(t *testing.T) {
+	for _, c := range []struct {
+		ch   selfupdate.Channel
+		want string
+	}{
+		{testChannel, "The previous version stays installed, so running jails keep their binaries until you restart them; `brew cleanup yolo-jail` removes it after that."},
+		{sourceTestChannel, "`just deploy` installs a new bundle beside the one they use"},
+	} {
+		t.Run(string(c.ch.Kind), func(t *testing.T) {
+			h := newUpdateHarness(t, c.ch)
+			h.seed(t, c.ch, nil)
+			h.d.stdin = strings.NewReader("n\n")
+			h.notify("run")
+			if out := h.stderr.String(); !strings.Contains(out, c.want) || strings.Index(out, c.want) > strings.Index(out, "relaunch?") {
+				t.Errorf("the launch prompt must state %q before asking:\n%s", c.want, out)
+			}
+
+			h = newUpdateHarness(t, c.ch)
+			h.d.check = func(_ context.Context, ch selfupdate.Channel, _ selfupdate.State) selfupdate.State {
+				return selfupdate.State{Identity: ch.Identity(), Kind: ch.Kind, Current: ch.Version, Latest: "0.11.0", Behind: 1, Available: true}
+			}
+			if rc := updateMain([]string{"update"}, h.d); rc != 0 {
+				t.Fatalf("exit %d: %s", rc, h.stderr.String())
+			}
+			if !strings.Contains(h.stdout.String(), "✓ updated. ") || !strings.Contains(h.stdout.String(), c.want) {
+				t.Errorf("the success line must state %q:\n%s", c.want, h.stdout.String())
+			}
+		})
 	}
 }
 

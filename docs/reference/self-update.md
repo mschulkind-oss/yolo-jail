@@ -13,7 +13,7 @@ self-update; replacing only the host executable is not a complete update.
 | Channel | Check | Apply |
 |---|---|---|
 | From source (`just deploy`) | Explicit Git check | `git pull --ff-only`, then `just deploy` |
-| Homebrew | Background or explicit GitHub release check | `brew upgrade yolo-jail`, followed by version verification |
+| Homebrew | Background or explicit GitHub release check | `HOMEBREW_NO_INSTALL_CLEANUP=1 brew upgrade yolo-jail`, followed by version verification |
 | `go install` | Background or explicit GitHub release check | Refused: update the binary and `YOLO_REPO_ROOT` checkout together |
 | pipx / uv tool | Background or explicit GitHub release check | Refused for the same binary/bundle split |
 | Release archive | Background or explicit GitHub release check | Prints the release download link |
@@ -26,6 +26,15 @@ only the binary can pair a new launcher with an old entrypoint and is refused.
 For the same reason, a Homebrew or source update is not offered when an explicit
 `YOLO_REPO_ROOT` selects a different checkout. Update that checkout and binary
 together, or unset the override to use the installation's own bundle.
+
+Neither complete update deletes what running jails use. A launch bind-mounts
+its jail binaries and flake bundle from the installation it ran from: for
+Homebrew that is the versioned Cellar keg, which `brew upgrade` removes by
+default, so the update sets `HOMEBREW_NO_INSTALL_CLEANUP=1` and the old keg
+stays until a `brew cleanup` removes it. `just deploy` stages a new bundle
+generation beside the one running jails mount and reaps a generation only once
+no container uses it. Running jails keep the old binaries until they are
+restarted.
 
 ## Automatic checks
 

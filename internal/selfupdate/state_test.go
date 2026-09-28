@@ -119,7 +119,9 @@ func TestPlan(t *testing.T) {
 			"git pull --ff-only   (in /src/yolo-jail)",
 			"GOBIN=/home/u/.local/bin just deploy   (in /src/yolo-jail)",
 		}},
-		{Channel{Kind: KindHomebrew, Exe: "/opt/homebrew/Cellar/yolo-jail/0.10.0/bin/yolo"}, []string{"brew upgrade yolo-jail"}},
+		// Without HOMEBREW_NO_INSTALL_CLEANUP=1, brew deletes the old keg that
+		// running jails bind-mount their binaries from.
+		{Channel{Kind: KindHomebrew, Exe: "/opt/homebrew/Cellar/yolo-jail/0.10.0/bin/yolo"}, []string{"HOMEBREW_NO_INSTALL_CLEANUP=1 brew upgrade yolo-jail"}},
 	}
 	for _, c := range cases {
 		steps, err := Plan(c.ch)

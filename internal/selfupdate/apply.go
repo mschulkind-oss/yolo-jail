@@ -33,6 +33,27 @@ func (s Step) String() string {
 	return b.String()
 }
 
+// BrewKeepOldKegEnv keeps `brew upgrade` from deleting the version it replaces.
+// By default Homebrew removes the old Cellar keg right after an upgrade, and a
+// running jail bind-mounts its binaries and flake bundle from paths that
+// resolve into that keg (internal/cli/run/jailprefix.go), so
+// the upgrade would delete pid1 out from under every running jail. With it set,
+// the old keg stays until a `brew cleanup` removes it.
+const BrewKeepOldKegEnv = "HOMEBREW_NO_INSTALL_CLEANUP=1"
+
+// RunningJailsNote says what an update through ch does to jails that are
+// already running, for the channels `yolo update` installs. It is "" for the
+// rest.
+func RunningJailsNote(ch Channel) string {
+	switch ch.Kind {
+	case KindHomebrew:
+		return "The previous version stays installed, so running jails keep their binaries until you restart them; `brew cleanup yolo-jail` removes it after that."
+	case KindSource:
+		return "Running jails keep their binaries until you restart them: `just deploy` installs a new bundle beside the one they use."
+	}
+	return ""
+}
+
 // Plan returns the commands that update ch, in order.
 //
 // A from-source deploy is pinned to the directory the running binary is in.
@@ -48,7 +69,7 @@ func Plan(ch Channel) ([]Step, error) {
 			{Argv: []string{"just", "deploy"}, Dir: ch.SourceDir, Env: []string{gobin}},
 		}, nil
 	case KindHomebrew:
-		return []Step{{Argv: []string{"brew", "upgrade", "yolo-jail"}}}, nil
+		return []Step{{Argv: []string{"brew", "upgrade", "yolo-jail"}, Env: []string{BrewKeepOldKegEnv}}}, nil
 	case KindGoInstall:
 		return nil, binaryOnlyUpdateError(ch.Kind, "go install "+Module+"/cmd/yolo@latest")
 	case KindPipx:
