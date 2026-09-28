@@ -59,20 +59,26 @@ type surfacePlan struct {
 // patches (named, never fatal) — SurfacesForReport's, passed through for the caller to dispose.
 func planPackSurfaces(e *Env, p *packload.Pack, overlays *packoverlay.OverlaySet) ([]surfacePlan,
 	[]string, []packload.FoldNote) {
-	t := e.renderTarget()
-	surfaces, problems, notes := p.SurfacesForReport(t.Profile().AgentAutonomy)
-	modes := t.Modes()
+	surfaces, problems, notes := p.SurfacesForReport(e.renderTarget().Profile().AgentAutonomy)
 	plans := make([]surfacePlan, 0, len(surfaces))
 	for _, s := range surfaces {
-		pl := surfacePlan{pack: p, surface: s, contribs: contribsFor(overlays, s.Agent, s.Name)}
-		if s.ResolvedMode() == manifest.ModeUnrendered {
-			pl.unrendered = true
-		} else {
-			pl.mechanism, pl.decided = modes.Mechanism(s.ResolvedMode())
-		}
-		plans = append(plans, pl)
+		plans = append(plans, planSurface(e, p, s, contribsFor(overlays, s.Agent, s.Name)))
 	}
 	return plans, problems, notes
+}
+
+// planSurface is one surface's plan at the Env's render target: `unrendered` honored by
+// writing nothing, every other mode run through the mechanism the target's census names for
+// it. planPackSurfaces is its one caller, so no second planner decides a mechanism another
+// way (TestEveryPackSurfaceWriterRunsTheOneLoop).
+func planSurface(e *Env, p *packload.Pack, s manifest.Surface, contribs *surfaceContribs) surfacePlan {
+	pl := surfacePlan{pack: p, surface: s, contribs: contribs}
+	if s.ResolvedMode() == manifest.ModeUnrendered {
+		pl.unrendered = true
+	} else {
+		pl.mechanism, pl.decided = e.renderTarget().Modes().Mechanism(s.ResolvedMode())
+	}
+	return pl
 }
 
 // listRefusal is OQ-AL1 at every notch: a config-list contribution on a path whose mechanism

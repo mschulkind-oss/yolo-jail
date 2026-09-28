@@ -2,8 +2,8 @@ package entrypoint
 
 // computedinfull_test.go pins CO13 (docs/design/config-ownership-and-promotion.md#co13--how-a-derive-says-it-fills-a-computed-table-in-full--decided)
 // end to end, through the SHIPPED packs and the production call sites — the boot loop
-// (ConfigurePackByName → renderDeclaredSurface) and the host notch (RenderHostPack →
-// hostTableKeys). The engine-level halves are agentcfg's; these are the ones that fail if a
+// (ConfigurePackByName → renderPackSet → renderPlannedSurface) and the host notch
+// (RenderHostPack → hostTableKeys). The engine-level halves are agentcfg's; these are the ones that fail if a
 // call site stops passing the declaration along.
 //
 // The defect both notches shared: "an object-valued key a derive produces is a table yolo

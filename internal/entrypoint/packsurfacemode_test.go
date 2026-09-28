@@ -19,12 +19,19 @@ import (
 // against a hand-written list. They existed because of a premise stated in their own
 // docstring: "a builtin surface's posture is not declared in the manifest — it is implied
 // by which render helper boot.go calls." That premise is now false. Mode is declared on the
-// surface and ONE loop dispatches on it (renderDeclaredSurface), so there is no second
-// place to drift from, and there are no per-agent call sites left to grep for.
+// surface and ONE loop dispatches on it (planSurface → renderPlannedSurface), so there is no
+// second place to drift from, and there are no per-agent call sites left to grep for.
 //
 // What CAN still go wrong is different, so the tests are too: a mode could be declared and
 // dispatched to the wrong mechanism. That is behavioral, so it is checked behaviorally —
 // by rendering and looking at which artifacts appear.
+
+// renderOneSurface writes one hand-built surface through the jail loop's own plan and tail —
+// planSurface decides the mechanism from the jail's census, renderPlannedSurface writes it —
+// with no contributions and derive as the pack's projection Lua ("" for none).
+func renderOneSurface(e *Env, s manifest.Surface, derive string) error {
+	return renderPlannedSurface(e, planSurface(e, nil, s, nil), jailLayerSource{deriveScript: derive})
+}
 
 // modeEnv is a home + workspace with no host mounts, for observing what a render writes.
 func modeEnv(t *testing.T) *Env {
@@ -45,7 +52,7 @@ func TestStatefulModeWritesCaptureSidecars(t *testing.T) {
 		Agent: "example", Name: "stateful", Path: "~/.example/s.json", Codec: "json",
 		Defaults: map[string]any{"a": 1},
 	}
-	if err := renderDeclaredSurface(e, s, nil, "", surfaceSelection{}, nil); err != nil {
+	if err := renderOneSurface(e, s, ""); err != nil {
 		t.Fatal(err)
 	}
 	for _, p := range []string{
@@ -67,7 +74,7 @@ func TestComputedModeWritesNoSidecars(t *testing.T) {
 		Agent: "example", Name: "computed", Path: "~/.example/c.json", Codec: "json",
 		Defaults: map[string]any{"a": 1}, Mode: manifest.ModeComputed,
 	}
-	if err := renderDeclaredSurface(e, s, nil, "", surfaceSelection{}, nil); err != nil {
+	if err := renderOneSurface(e, s, ""); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(expandHomePath(e, s.Path)); err != nil {
@@ -94,7 +101,7 @@ func TestRMWModePreservesUnknownKeys(t *testing.T) {
 		Agent: "example", Name: "rmw", Path: "~/.example/r.json", Codec: "json",
 		Managed: map[string]any{"yolo": true}, Mode: manifest.ModeRMW,
 	}
-	if err := renderDeclaredSurface(e, s, nil, "", surfaceSelection{}, nil); err != nil {
+	if err := renderOneSurface(e, s, ""); err != nil {
 		t.Fatal(err)
 	}
 	data, err := os.ReadFile(path)
@@ -118,7 +125,7 @@ func TestUnrenderedModeWritesNothing(t *testing.T) {
 		Agent: "example", Name: "none", Path: "~/.example/u.json", Codec: "json",
 		Defaults: map[string]any{"a": 1}, Mode: manifest.ModeUnrendered,
 	}
-	if err := renderDeclaredSurface(e, s, nil, "", surfaceSelection{}, nil); err != nil {
+	if err := renderOneSurface(e, s, ""); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(expandHomePath(e, s.Path)); err == nil {

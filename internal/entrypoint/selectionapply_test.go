@@ -3,7 +3,8 @@ package entrypoint
 // selectionapply_test.go pins the boot-path half of the selection mechanism: that the
 // derive's reserved `selection` namespace is REACHED by the stateful render and decided
 // per key, through the same entries the boot path uses — ConfigurePackSurfaces over the
-// real embedded codex pack, and renderDeclaredSurface for the mode-specific halves.
+// real embedded codex pack, and renderOneSurface (planSurface → renderPlannedSurface) for
+// the mode-specific halves.
 //
 // agentcfg/selection_test.go owns the decision table; this file owns the wiring. The
 // distinction is the one AGENTS.md keeps drawing: a test that exercised ApplySelection
@@ -310,7 +311,7 @@ func TestReservedSelectionByMode(t *testing.T) {
 			e.Stderr = errw
 			s := manifest.Surface{Agent: "example", Name: "cfg", Path: "~/.example/c.json",
 				Codec: "json", Mode: tc.mode}
-			if err := renderDeclaredSurface(e, s, nil, selectionDerive, surfaceSelection{}, nil); err != nil {
+			if err := renderOneSurface(e, s, selectionDerive); err != nil {
 				t.Fatal(err)
 			}
 			raw, err := os.ReadFile(filepath.Join(e.Home, ".example", "c.json"))

@@ -402,22 +402,6 @@ type jailLayerSource struct {
 	sel surfaceSelection
 }
 
-// renderDeclaredSurface writes one declared surface at the Env's target: the one loop's head
-// for a single surface, then its jail tail. contribs are the config-overlay layers and
-// config-list entries other packs contribute to THIS surface, resolved cross-pack by the
-// caller; nil for every surface nobody contributes to — Compose folds nothing as a no-op, so
-// the boot output of a pack set with no contributions is byte-identical (pinned by
-// TestRenderFingerprintStable).
-func renderDeclaredSurface(e *Env, surface manifest.Surface, tables map[string]map[string]any, deriveScript string, sel surfaceSelection, contribs *surfaceContribs) error {
-	pl := surfacePlan{surface: surface, contribs: contribs}
-	if surface.ResolvedMode() == manifest.ModeUnrendered {
-		pl.unrendered = true
-	} else {
-		pl.mechanism, pl.decided = e.renderTarget().Modes().Mechanism(surface.ResolvedMode())
-	}
-	return renderPlannedSurface(e, pl, jailLayerSource{tables: tables, deriveScript: deriveScript, sel: sel})
-}
-
 // renderPlannedSurface is the JAIL tail of the one loop: one planned surface, written through
 // the mechanism the jail's census named (identical to its declared mode — render.JailModes runs
 // all four), with the jail's layers and the jail's disposition of what the writer says.

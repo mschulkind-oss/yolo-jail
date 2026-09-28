@@ -83,16 +83,23 @@ func callersOf(t *testing.T, callees ...string) map[string][]string {
 }
 
 func TestEveryPackSurfaceWriterRunsTheOneLoop(t *testing.T) {
-	got := callersOf(t, "planPackSurfaces", "renderPackSet", "writeSurfaceThrough",
-		"SurfacesForReport", "renderSurfaceRMWSurface", "renderSurfaceStatefulDetail")
+	got := callersOf(t, "planPackSurfaces", "planSurface", "renderPackSet",
+		"renderPlannedSurface", "writeSurfaceThrough", "SurfacesForReport",
+		"renderSurfaceRMWSurface", "renderSurfaceStatefulDetail")
 	for callee, want := range map[string][]string{
 		// The head: the jail's pack walk and the host apply, and nothing else folds a pack's
 		// posture into its surfaces for a render.
 		"planPackSurfaces":  {"RenderHostPack", "renderPackSet"},
 		"SurfacesForReport": {"planPackSurfaces"},
+		// One surface's plan — its mechanism from the target's census — is decided in the
+		// head alone. A second planner beside it (renderDeclaredSurface, deleted) decides the
+		// same thing a second way.
+		"planSurface": {"planPackSurfaces"},
 		// The jail walk: the boot and the check probe, which differ only in their failure
 		// disposition.
 		"renderPackSet": {"ConfigurePackSurfaces", "configureOnePack"},
+		// The jail tail is reached from the jail walk alone.
+		"renderPlannedSurface": {"renderPackSet"},
 		// The dispatch: the jail tail and the host apply.
 		"writeSurfaceThrough": {"RenderHostPack", "renderPlannedSurface"},
 		// The two pack writers are reached from the dispatch and the wrappers over it alone.

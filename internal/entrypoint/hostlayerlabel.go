@@ -61,7 +61,7 @@ import (
 // bytes there are yolo's own render. The surface composes WITHOUT a host layer, and the
 // copy stands as the baseline the jail can report divergence against.
 //
-// It never refuses, and that is the same judgement the `rmw` arm of renderDeclaredSurface
+// It never refuses, and that is the same judgement the `rmw` arm of renderPlannedSurface
 // makes: a refusal over bytes the render would discard is an over-refusal. What the
 // fail-closed read protects is a composition that would silently drop the user's own keys,
 // and a render composed from packs alone drops none of them — they are the CAPTURE, which

@@ -14,8 +14,8 @@ package entrypoint
 // diff says exactly which surface.
 //
 // It is deliberately in package entrypoint (not internal/render) so it exercises the SAME
-// entry the boot path uses (ConfigurePackByName → renderDeclaredSurface) regardless of where
-// the writers physically live.
+// loop the boot path uses (ConfigurePackByName → renderPackSet → renderPlannedSurface)
+// regardless of where the writers physically live.
 
 import (
 	"crypto/sha256"
