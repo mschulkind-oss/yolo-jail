@@ -516,6 +516,13 @@ func execBash(e *Env, command string) error {
 // subprocess side effects (mise uninstall, claude plugins). On success it never
 // returns (execs bash). It returns an error only if the final exec itself fails.
 func Main(args []string) error {
+	// THE DISK I/O PRIORITY, FIRST: before EnvFromOS (the second image removes its re-exec
+	// marker from the environment that call copies) and before attachBootLog (a re-exec
+	// after it would rotate boot.log twice). Nothing above this line may start a process
+	// or touch a file, because on the path that applies a priority the first image never
+	// gets past it (iopriority.go). What it found is reported once the log is open.
+	ioOutcome := applyIOPriority(os.Args)
+
 	command := "bash"
 	if len(args) > 0 {
 		command = strings.Join(args, " ")
@@ -534,6 +541,7 @@ func Main(args []string) error {
 	// the state OQ-R2's flip makes reachable, where there is no jail left to ask.
 	// Never fatal: any failure here yields plain stderr. See bootlog.go.
 	blog := attachBootLog(e, os.Stderr)
+	reportIOPriority(e, ioOutcome)
 
 	p := newPerfLog()
 	p.mark("start")
