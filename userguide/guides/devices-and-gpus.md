@@ -1,10 +1,15 @@
 # Devices and GPUs
 
-Give the agent hardware: USB and serial devices, and NVIDIA or AMD GPUs.
+Give the agent hardware: USB and serial devices, NVIDIA or AMD GPUs, and `/dev/kvm`.
+
+> [!NOTE]
+> **Everything on this page is Linux-only**, on Podman. On a Mac, a jail runs inside a Linux VM
+> that has no access to the Mac's USB devices or GPU; the settings are skipped with a warning and
+> the jail still starts. On `macos-user` the agent is an ordinary Mac program, so Mac GPU programs
+> using Metal should work as they do outside yolo. For a USB serial device on a Mac, the `serial`
+> loophole should work on Podman; see [Host Access and Loopholes](loopholes.md).
 
 ## Device Passthrough
-
-**Platform support:** Device passthrough (USB, serial, cgroup rules) is a **Linux-only** feature. It relies on the host kernel exposing `/dev/bus/usb/`, `/dev/tty*`, and `--device-cgroup-rule` — none of which exist on macOS where containers run inside a VM. On macOS, device entries in `yolo-jail.jsonc` are parsed, logged as skipped with a warning, and do not prevent the jail from starting.
 
 On Linux, pass host devices (USB, serial, etc.) into the jail:
 
@@ -23,15 +28,14 @@ On Linux, pass host devices (USB, serial, etc.) into the jail:
 - **Raw device path** (changes on replug): `"/dev/bus/usb/001/004"`
 - **Cgroup rule** (broad access): `{"cgroup_rule": "c 189:* rwm"}`
 
-Missing devices produce a warning but don't prevent the jail from starting. Device changes are subject to [config approval](../reference/configuration.md#approving-config-changes) approval.
+A missing device produces a warning but does not stop the jail. Adding a device is a config change you approve at the next launch; see [Approving config changes](../reference/configuration.md#approving-config-changes).
 
 ---
 
 ## GPU Passthrough (NVIDIA)
 
-**Platform support:** GPU passthrough is **Linux-only**. Apple Silicon Macs use Metal, not CUDA/OpenCL, and Apple's Virtualization.framework doesn't expose the GPU to the guest Linux kernel. If `"gpu": {"enabled": true}` appears in `yolo-jail.jsonc` on macOS, it is parsed, logged as skipped with a warning, and does not prevent the jail from starting. For GPU workflows on macOS, run on a Linux box (local or EC2 `g5`/`p3` instance) instead.
-
-On Linux, train deep learning models inside the jail using NVIDIA GPUs. Requires the NVIDIA Container Toolkit on the host.
+Run CUDA workloads, such as training models, inside the jail on an NVIDIA GPU. It needs the NVIDIA
+Container Toolkit on the host. For GPU work from a Mac, use a Linux machine, local or in the cloud.
 
 ### Host Setup
 
@@ -40,7 +44,8 @@ On Linux, train deep learning models inside the jail using NVIDIA GPUs. Requires
    nvidia-smi
    ```
 
-2. **Install the NVIDIA Container Toolkit:**
+2. **Install the NVIDIA Container Toolkit.** On Ubuntu or Debian, as below; for other distributions,
+   follow [NVIDIA's install guide](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html):
    ```bash
    curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey \
      | sudo gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg
@@ -50,11 +55,13 @@ On Linux, train deep learning models inside the jail using NVIDIA GPUs. Requires
    sudo apt-get update && sudo apt-get install -y nvidia-container-toolkit
    ```
 
-3. **Configure the container runtime:**
+3. **Describe the GPU for Podman** with a CDI spec, a file that tells container runtimes how to
+   attach it. Regenerate it after a driver update:
    ```bash
-   # Podman (CDI)
    sudo nvidia-ctk cdi generate --output=/etc/cdi/nvidia.yaml
    ```
+   yolo looks for a `.yaml` spec; a `nvidia.json` one is not found and the jail starts without the
+   GPU.
 
 4. **Validate:**
    ```bash
@@ -89,30 +96,20 @@ pip install torch torchvision
 python -c "import torch; print(torch.cuda.is_available(), torch.cuda.get_device_name(0))"
 ```
 
-### Runtime Details
+### Good to know
 
-| Runtime | Mechanism | Notes |
-|---------|-----------|-------|
-| **Podman** | `--device nvidia.com/gpu=all` (CDI) | Requires CDI spec at `/etc/cdi/nvidia.yaml` |
+- **Shared memory:** `/dev/shm` is 2 GB, enough for PyTorch's multi-process data loading.
+- **CUDA versions:** CUDA inside the jail can be newer than the host driver, but not older.
+- **Nested jails with a GPU** are not supported.
 
-- **Podman:** the NVIDIA branch passes identity uid/gid maps (`0:0:1` plus `1:1:65536`) and `--runtime runc`, because crun has CDI bugs. It also omits `/dev/fuse`, which the ordinary branch passes.
-- **Nested podman-in-podman with GPU is not supported, and is not currently *prevented*:** the nesting branch is chosen first, so a nested GPU launch gets the nesting flags while the CDI device flags are still emitted. Don't rely on it.
-- **Shared memory:** `/dev/shm` is a tmpfs sized 2 GB (`--tmpfs /dev/shm:size=2g`, not `--shm-size`) for PyTorch multi-process data loading. On Apple Container it is a tmpfs with no size argument, so the guest default applies.
-- **CUDA forward compatibility:** CUDA in the container can be newer than the host driver, but not the reverse.
+### Cloud GPUs
 
-### AWS EC2
-
-Use an AWS Deep Learning AMI (DLAMI) — drivers and toolkit come pre-installed.
-
-| Instance | GPU | VRAM | Use Case | $/hr (approx) |
-|----------|-----|------|----------|----------------|
-| g4dn.xlarge | 1× T4 | 16 GB | Inference, light training | ~$0.53 |
-| g5.xlarge | 1× A10G | 24 GB | Training + inference | ~$1.01 |
-| p3.2xlarge | 1× V100 | 16 GB | Training | ~$3.06 |
+On AWS, an Amazon Deep Learning AMI comes with the NVIDIA driver and Container Toolkit installed;
+then install Podman and yolo as on any Linux machine.
 
 ### Troubleshooting GPU
 
-- **`conmon bytes "": readObjectStart` error (Podman):** Caused by `crun` OCI runtime's CDI handling bug ([podman#27483](https://github.com/containers/podman/issues/27483)). The jail automatically uses `--runtime runc` when GPU is enabled to work around this. If you see this, update your `yolo-jail` installation.
+- **`conmon bytes "": readObjectStart` error:** a bug in Podman's default runtime, `crun`, with GPUs ([podman#27483](https://github.com/containers/podman/issues/27483)). yolo switches to `runc` whenever a GPU is enabled, so update yolo if you see it; `runc` must be installed.
 - **`nvidia-smi` not found inside jail:** The NVIDIA Container Toolkit injects driver libs at container start. Check the toolkit is installed and configured on the host.
 - **CUDA out of memory:** Reduce batch size, or limit which GPUs are exposed with `"devices": "0"`.
 
@@ -120,15 +117,18 @@ Use an AWS Deep Learning AMI (DLAMI) — drivers and toolkit come pre-installed.
 
 ## AMD GPU Passthrough (ROCm)
 
-**Platform support:** Like NVIDIA, AMD/ROCm passthrough is **Linux-only**. Apple Silicon Macs have no ROCm path, and Apple's Virtualization.framework doesn't expose the GPU to the guest. If `"gpu": {"enabled": true, "vendor": "amd"}` appears in `yolo-jail.jsonc` on macOS, it is parsed, logged as skipped with a warning, and does not prevent the jail from starting.
+Run ROCm compute workloads inside the jail on an AMD GPU. Unlike NVIDIA, the default path needs **no host container toolkit** — just the `amdgpu` kernel driver and the right group membership. ROCm passthrough works on both AMD Instinct and consumer Radeon hardware.
 
-On Linux, run ROCm compute workloads inside the jail using AMD GPUs. Unlike NVIDIA, the default path needs **no host container toolkit** — just the `amdgpu` kernel driver and the right group membership. ROCm passthrough works on both AMD Instinct and consumer Radeon hardware.
-
-> **Note:** ROCm userspace (HIP, rocm-smi, math libs) is **not** injected from the host. Unlike the NVIDIA toolkit, AMD's device-node and CDI paths inject **only kernel device nodes** (`/dev/kfd`, `/dev/dri/renderD*`). Your container image must ship its own ROCm userspace — use a `rocm/*` base image (see the PyTorch example below).
+> [!IMPORTANT]
+> **The ROCm libraries are not passed in from the host.** Unlike NVIDIA's toolkit, the AMD path
+> passes only the GPU's device files (`/dev/kfd`, `/dev/dri/renderD*`), and yolo's jail image
+> includes no ROCm libraries. Install them inside the jail: the ROCm build of PyTorch from pip
+> brings its own (see below), and nixpkgs packages ROCm under `rocmPackages` for `packages`.
 
 ### Host Setup
 
-> Verified end-to-end on real AMD hardware (Radeon 8060S / gfx1151, ROCm 7.2, rootless podman + crun) — both the default device-node mode and CDI mode run ROCm PyTorch inside the jail. Package names and exact group names still vary by distribution, so adapt the commands below to yours.
+Tested on real AMD hardware (Radeon 8060S, ROCm 7.2, rootless Podman), in both the default mode and
+CDI mode. Package and group names vary by distribution, so adapt the commands to yours.
 
 1. **Install the `amdgpu` kernel driver.** On Ubuntu, AMD ships `amdgpu-dkms` via the ROCm `amdgpu-install` tooling (other distros package it directly, e.g. Arch's `linux*-headers` + mainline `amdgpu`):
    ```bash
@@ -185,35 +185,45 @@ On Linux, run ROCm compute workloads inside the jail using AMD GPUs. Unlike NVID
 
 ### Installing PyTorch (ROCm)
 
-ROCm userspace ships in the image, so start from a `rocm/*` base image that already includes a ROCm-built PyTorch (for example a `rocm/pytorch` image), or install the ROCm wheels from AMD's index inside such an image (pick the `rocmX.Y` index matching the image's ROCm version):
+Install the ROCm build of PyTorch inside the jail, for example with `uv` in a virtual environment.
+Pick the `rocmX.Y` index that matches a ROCm release your GPU supports:
 
 ```bash
-# inside a rocm/* based jail image
-pip install torch --index-url https://download.pytorch.org/whl/rocm6.2
+uv venv && source .venv/bin/activate
+uv pip install torch --index-url https://download.pytorch.org/whl/rocm6.2
 python -c "import torch; print(torch.cuda.is_available(), torch.cuda.get_device_name(0))"
 # verified output on a Radeon 8060S (gfx1151): True Radeon 8060S Graphics
 ```
 
-ROCm exposes the AMD GPU through PyTorch's `torch.cuda` API, so `torch.cuda.is_available()` returning `True` means ROCm is working. A generic (non-ROCm) image will get working device nodes but **no working HIP/rocm-smi**.
+ROCm exposes the AMD GPU through PyTorch's `torch.cuda` API, so `torch.cuda.is_available()`
+returning `True` means ROCm is working.
 
-### Runtime Details
+### Good to know
 
-| Runtime | Mechanism | Notes |
-|---------|-----------|-------|
-| **Podman** | `--device /dev/kfd` + `--device /dev/dri/renderD*` (or `--device /dev/dri` for `all`) + `--group-add keep-groups` | Default `mode: "devices"`; no host toolkit required |
-| **Podman (CDI)** | `--device amd.com/gpu=all` + `--group-add keep-groups` | `mode: "cdi"`; requires `/etc/cdi/amd.json` from `amd-ctk` |
-
-- **Runtime:** AMD stays on the default **crun** runtime. `--group-add keep-groups` is crun-only — it preserves the host `render`/`video` GID so `/dev/kfd` is openable rootless. AMD does **not** use NVIDIA's `--runtime runc` workaround.
-- **`/dev/kfd` is shared:** the Kernel Fusion Driver node is a single interface shared by all GPUs and is always passed in. Per-GPU restriction comes from which `/dev/dri/renderD*` nodes you select via `devices`.
-- **Locked-memory limit:** whenever GPU passthrough is active, yolo lifts the container's locked-memory *soft* limit to the host's hard cap (`--ulimit memlock=<host-hard>:<host-hard>`, or `-1` if the host is already unlimited). A rootless container can't raise the *hard* cap above the host's, so this gives GPU runtimes the most they can pin. Current ROCm (verified on gfx1151 / ROCm 7.2) runs GPU compute fine at the common 8 MB rootless cap — no host change is needed. (Older ROCm builds pinned a larger queue ring buffer; see the troubleshooting note below if you ever hit `AMDKFD_IOC_CREATE_QUEUE EINVAL`.)
-- **In-container GPU selection:** for an explicit `devices` selection (e.g. `"0"` or `"0,1"`), yolo sets `ROCR_VISIBLE_DEVICES` and `HIP_VISIBLE_DEVICES` to that value. For the default `devices: "all"` it leaves them **unset** — unlike NVIDIA's `NVIDIA_VISIBLE_DEVICES`, the ROCr/HSA selector does **not** accept the literal `"all"` (it matches no device and hides every GPU), and ROCm's own default is "all GPUs visible". These env vars are **not a security boundary** — real isolation comes from which render nodes are passed in.
+- **No host toolkit in the default mode.** `mode: "devices"` passes the GPU's device files straight
+  in and keeps your host groups, so `/dev/kfd` opens in a rootless jail. `mode: "cdi"` uses the spec
+  `amd-ctk` generated instead.
+- **Choosing GPUs.** `/dev/kfd` is shared by every GPU and always passed in; `devices` chooses which
+  render devices come with it. For an explicit choice such as `"0,1"`, yolo sets
+  `ROCR_VISIBLE_DEVICES` and `HIP_VISIBLE_DEVICES` to it. For `"all"` it leaves them unset, because
+  ROCm reads the literal `all` as no GPU at all.
+- **Locked memory.** yolo raises the jail's locked-memory limit as far as the host allows, which
+  current ROCm needs no more than.
 
 ### Troubleshooting AMD GPU
 
 - **`Unable to open /dev/kfd read-write: Permission denied`:** The container process lacks the owning group. Make sure your host user is in the `render` group (`sudo usermod -aG render "$USER"`, then re-login) — `--group-add keep-groups` only preserves groups the host user already holds.
 - **GPU detected but ROCm errors out on a consumer Radeon:** Consumer/unsupported GPUs often need `HSA_OVERRIDE_GFX_VERSION` to be recognized as a supported gfx target (e.g. `"11.0.0"` for gfx1100, `"10.3.0"` for gfx1030, `"9.0.0"` for gfx900). Set it via `hsa_override_gfx_version` in the config. This is best-effort, same-architecture-family only, and unsupported by AMD.
-- **`rocminfo`/`rocm-smi` not found inside jail:** ROCm userspace is **not** injected from the host — it must ship inside the image. Use a `rocm/*` base image instead of a generic one.
-- **GPU enumerates and `hipMalloc` works, but any kernel launch segfaults (trace shows `AMDKFD_IOC_CREATE_QUEUE … EINVAL`):** an older ROCm userspace needs to pin a larger (~13 MB) queue ring buffer than the rootless default `RLIMIT_MEMLOCK` (often 8 MB) allows. Current ROCm (7.2+) does **not** hit this — first try a newer `rocm/*` image. If you're pinned to an older ROCm build, raise the **host's** memlock hard cap (a rootless jail can't exceed it): `limits.conf` `<user> hard memlock unlimited`, systemd `LimitMEMLOCK=infinity`, or podman `containers.conf` `default_ulimits = ["memlock=-1:-1"]`, then restart the jail.
+- **`rocminfo`/`rocm-smi` not found inside the jail:** the ROCm tools are not passed in from the host. Add them to `packages` from nixpkgs' `rocmPackages`.
+- **GPU enumerates and `hipMalloc` works, but any kernel launch segfaults (trace shows `AMDKFD_IOC_CREATE_QUEUE … EINVAL`):** an older ROCm needs more locked memory than a rootless container usually allows. ROCm 7.2 and later do **not** hit this, so first try a newer ROCm. If you're pinned to an older ROCm build, raise the **host's** memlock hard cap (a rootless jail can't exceed it): `limits.conf` `<user> hard memlock unlimited`, systemd `LimitMEMLOCK=infinity`, or podman `containers.conf` `default_ulimits = ["memlock=-1:-1"]`, then restart the jail.
 - **`torch.cuda.is_available()` is `False` / `rocminfo` shows only the CPU agent, but the device nodes are present:** if you set `ROCR_VISIBLE_DEVICES=all` (or `HIP_VISIBLE_DEVICES=all`) yourself, ROCm sees zero GPUs — the selector does not accept `"all"`. Leave it unset for all GPUs, or use explicit indices (`0`, `0,1`). yolo handles this for you (it omits the env vars when `devices: "all"`), so this only bites if you override them manually inside the container.
 
 ---
+
+## KVM
+
+Set `"kvm": true` to pass `/dev/kvm` into the jail, for hardware-accelerated virtual machines
+inside it: QEMU, Firecracker, the Android emulator or kernel development. It needs virtualization
+turned on in your computer's firmware, the `kvm` kernel module loaded, and your user in the `kvm`
+group; `yolo check` verifies all three when the key is on. Leave it off unless you need it, because
+it widens what the jail can reach in the host kernel.
