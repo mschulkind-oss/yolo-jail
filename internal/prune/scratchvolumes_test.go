@@ -116,13 +116,24 @@ func TestListScratchVolumesTriState(t *testing.T) {
 	}
 }
 
+// sharedClock pins whether the runtime reads as stamping volumes on the host's clock, so a
+// test means the same thing on a Linux and a darwin runner.
+func sharedClock(t *testing.T, shared bool) {
+	t.Helper()
+	old := runtimeSharesHostClock
+	runtimeSharesHostClock = func() bool { return shared }
+	t.Cleanup(func() { runtimeSharesHostClock = old })
+}
+
 func TestReapableScratchVolumes(t *testing.T) {
+	sharedClock(t, true)
 	now := time.Date(2026, 9, 28, 12, 0, 0, 0, time.UTC)
 	vols := []ScratchVolume{
 		{Name: "old-dangling", Dangling: true, Created: now.Add(-2 * time.Hour)},
 		{Name: "old-in-use", Dangling: false, Created: now.Add(-2 * time.Hour)},
 		{Name: "young-dangling", Dangling: true, Created: now.Add(-10 * time.Second)},
 		{Name: "unknown-age", Dangling: true},
+		{Name: "future", Dangling: true, Created: now.Add(10 * time.Minute)},
 	}
 	got := ReapableScratchVolumes(vols, now, ScratchVolumeGrace)
 	if len(got) != 1 || got[0].Name != "old-dangling" {
@@ -198,7 +209,116 @@ func TestRemoveScratchVolumeNeverForces(t *testing.T) {
 	}
 }
 
+// A PODMAN MACHINE's volumes are stamped by the VM's clock, and a VM running behind the host
+// made a volume created a moment ago read as minutes old against the host's clock. On the
+// remote arm the age is taken between two times the VM stamped, so no skew can make a volume
+// older than it is. The listing is what a macOS podman client prints: RFC 3339 with
+// nanoseconds, in the VM's UTC.
+func TestARemoteRuntimesSkewCannotAgeAVolume(t *testing.T) {
+	sharedClock(t, false)
+	host := time.Date(2026, 9, 28, 13, 43, 30, 0, time.UTC)
+	vm := host.Add(-5 * time.Minute) // the VM's clock, five minutes behind the host's
+	stamp := func(d time.Duration) string { return vm.Add(d).Format(time.RFC3339Nano) }
+	leftover := "yolo-scratchreap-1a2b3c4d.scratch.00000000deadbeef.var-lib-containers"
+	young := "yolo-scratchreap-1a2b3c4d.scratch.00000000cafef00d.tmp"
+	own := "yolo-scratchreap-1a2b3c4d.scratch.0123456789abcdef.tmp" // this launch's, in use
+	f := &scratchFake{answers: map[string]ProbeResult{
+		lsAll: {Ran: true, Stdout: volJSON(
+			[3]string{leftover, mp(leftover), stamp(-90 * time.Second)},
+			[3]string{young, mp(young), stamp(-20 * time.Second)},
+			[3]string{own, mp(own), stamp(-2 * time.Second)},
+		)},
+		lsDangling: {Ran: true, Stdout: leftover + "\n" + young + "\n"},
+	}}
+	vols, known := ListScratchVolumes("podman", f.run)
+	if !known {
+		t.Fatal("the listing answered")
+	}
+	var names []string
+	for _, v := range ReapableScratchVolumes(vols, host, ScratchVolumeGrace) {
+		names = append(names, v.Name)
+	}
+	if !slices.Equal(names, []string{leftover}) {
+		t.Errorf("reapable = %v, want only the leftover made a floor and more before the newest "+
+			"volume: the young one is 5 min old by the host's clock and 18 s old by the VM's", names)
+	}
+
+	// The same listing compared against the host's clock is the defect this arm exists for.
+	sharedClock(t, true)
+	var hostArm []string
+	for _, v := range ReapableScratchVolumes(vols, host, ScratchVolumeGrace) {
+		hostArm = append(hostArm, v.Name)
+	}
+	if !slices.Contains(hostArm, young) {
+		t.Fatalf("the fixture no longer shows the skew: the host-clock arm spared %s", young)
+	}
+}
+
+// On the remote arm a listing with nothing newer than the volume itself proves no age, and a
+// row with no RuntimeNewest proves none either.
+func TestARemoteRuntimeReapsNothingItCannotProveOld(t *testing.T) {
+	sharedClock(t, false)
+	now := time.Date(2026, 9, 28, 12, 0, 0, 0, time.UTC)
+	created := now.Add(-3 * time.Hour)
+	for _, v := range []ScratchVolume{
+		{Name: "alone", Dangling: true, Created: created, RuntimeNewest: created},
+		{Name: "no-newest", Dangling: true, Created: created},
+	} {
+		if got := ReapableScratchVolumes([]ScratchVolume{v}, now, ScratchVolumeGrace); len(got) != 0 {
+			t.Errorf("%s: reaped %+v with no evidence of its age on the runtime's clock", v.Name, got)
+		}
+	}
+}
+
+// Every creation time a client might print either parses to its instant or is unknown, and an
+// unknown one is never reapable. The two RFC 3339 shapes (a Linux podman prints its local
+// offset, a podman machine's VM prints Z) are one instant here; Go's default time.String form
+// and a zone-less time do not parse, so they read as young on both arms.
+func TestScratchCreationTimeShapes(t *testing.T) {
+	const newest = "2026-09-28T13:50:00Z"
+	for _, tc := range []struct {
+		createdAt string
+		parses    bool
+	}{
+		{"2026-09-28T13:43:21.612908636Z", true},
+		{"2026-09-28T09:43:21.612908636-04:00", true},
+		{"2026-09-28T13:43:21Z", true},
+		{"2026-09-28 13:43:21.612908636 +0000 UTC", false},
+		{"2026-09-28T13:43:21.612908636", false},
+		{"", false},
+	} {
+		f := &scratchFake{answers: map[string]ProbeResult{
+			lsAll: {Ran: true, Stdout: volJSON(
+				[3]string{scratchA, mp(scratchA), tc.createdAt},
+				[3]string{"userdata", mp("userdata"), newest},
+			)},
+			lsDangling: {Ran: true, Stdout: scratchA + "\n"},
+		}}
+		vols, known := ListScratchVolumes("podman", f.run)
+		if !known || len(vols) != 1 {
+			t.Fatalf("%q: listing = %+v %v", tc.createdAt, vols, known)
+		}
+		if got := !vols[0].Created.IsZero(); got != tc.parses {
+			t.Errorf("%q: parsed = %v, want %v", tc.createdAt, got, tc.parses)
+		}
+		if tc.parses && !vols[0].Created.Equal(time.Date(2026, 9, 28, 13, 43, 21, vols[0].Created.Nanosecond(), time.UTC)) {
+			t.Errorf("%q: parsed to %s, not the instant it names", tc.createdAt, vols[0].Created)
+		}
+		if want, _ := time.Parse(time.RFC3339, newest); !vols[0].RuntimeNewest.Equal(want) {
+			t.Errorf("%q: RuntimeNewest = %s, want the newest volume of ANY kind, %s", tc.createdAt, vols[0].RuntimeNewest, want)
+		}
+		for _, shared := range []bool{true, false} {
+			sharedClock(t, shared)
+			reaped := len(ReapableScratchVolumes(vols, time.Date(2026, 9, 28, 14, 0, 0, 0, time.UTC), ScratchVolumeGrace)) == 1
+			if reaped != tc.parses {
+				t.Errorf("%q (shared clock %v): reaped = %v, want %v", tc.createdAt, shared, reaped, tc.parses)
+			}
+		}
+	}
+}
+
 func TestPruneScratchVolumes(t *testing.T) {
+	sharedClock(t, true)
 	defer func(f func() int) { geteuid = f }(geteuid)
 	geteuid = func() int { return 1000 }
 	now := time.Date(2026, 9, 28, 12, 0, 0, 0, time.UTC)
@@ -243,6 +363,7 @@ func TestPruneScratchVolumes(t *testing.T) {
 // THE CALL SITE: `yolo prune` runs the section and names what it would remove. Delete the
 // section from Run and this fails.
 func TestPruneRunListsGoneJailsScratchVolumes(t *testing.T) {
+	sharedClock(t, true)
 	defer func(f func() int) { geteuid = f }(geteuid)
 	geteuid = func() int { return 1000 }
 	o, _ := baseOpts(t)

@@ -35,6 +35,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	goruntime "runtime"
 	"sort"
 	"strings"
 	"time"
@@ -99,6 +100,11 @@ type ScratchVolume struct {
 	Created    time.Time
 	// Dangling is podman's own answer: no container, running or stopped, references it.
 	Dangling bool
+	// RuntimeNewest is the newest creation time anywhere in the listing this row came from —
+	// every volume podman listed, scratch or not — on the RUNTIME's clock. That clock read at
+	// least this when it answered, so RuntimeNewest − Created is an age measured on ONE clock:
+	// what ReapableScratchVolumes uses where the host's clock may not be the runtime's.
+	RuntimeNewest time.Time
 }
 
 // podmanVolume is the subset of `podman volume ls --format json` read here. Measured on
@@ -143,6 +149,12 @@ func ListScratchVolumes(rt string, run RunFunc) ([]ScratchVolume, bool) {
 			dangling[n] = true
 		}
 	}
+	var newest time.Time
+	for _, v := range vols {
+		if created, err := time.Parse(time.RFC3339Nano, v.CreatedAt); err == nil && created.After(newest) {
+			newest = created
+		}
+	}
 	var out []ScratchVolume
 	for _, v := range vols {
 		cname, _, _, ok := ParseScratchVolumeName(v.Name)
@@ -151,32 +163,64 @@ func ListScratchVolumes(rt string, run RunFunc) ([]ScratchVolume, bool) {
 		}
 		created, _ := time.Parse(time.RFC3339Nano, v.CreatedAt)
 		out = append(out, ScratchVolume{
-			Name:       v.Name,
-			Cname:      cname,
-			Mountpoint: v.Mountpoint,
-			Created:    created,
-			Dangling:   dangling[v.Name],
+			Name:          v.Name,
+			Cname:         cname,
+			Mountpoint:    v.Mountpoint,
+			Created:       created,
+			Dangling:      dangling[v.Name],
+			RuntimeNewest: newest,
 		})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out, true
 }
 
-// ReapableScratchVolumes keeps the dangling volumes past the grace floor. A volume whose
-// creation time did not parse is kept back: the floor is the only guard on the creation
-// window, and an unknown age cannot clear it.
+// ReapableScratchVolumes keeps the dangling volumes past the grace floor. The floor is the
+// only guard on the creation window, so an age that is not KNOWN to clear it does not: a
+// creation time that did not parse, or one in the future, keeps the volume back.
+//
+// WHOSE CLOCK. Created is stamped by the runtime and now is the host's. On a local podman
+// they are one clock and now − Created is the age. On a podman REMOTE client — every podman
+// on macOS, which talks to a machine VM — Created is the VM's clock, and a VM clock running
+// behind the host's makes every volume look older than it is by the difference, so a volume
+// created a moment ago could clear the floor. There the age is RuntimeNewest − Created
+// instead: both ends on the VM's clock, and never more than the true age, because the
+// runtime's clock had reached RuntimeNewest by the time it listed. It is less than the true
+// age by however long ago the newest volume was made; in the housekeeping slot that is this
+// launch's own scratch volumes, made seconds earlier, so a leftover is reaped one floor after
+// it was made plus those seconds. A `yolo prune` on a machine with no newer volume reaps
+// nothing it cannot prove old, which is the tri-state rule every reaper here follows.
 func ReapableScratchVolumes(vols []ScratchVolume, now time.Time, grace time.Duration) []ScratchVolume {
+	shared := runtimeSharesHostClock()
 	var out []ScratchVolume
 	for _, v := range vols {
 		if !v.Dangling || v.Created.IsZero() {
 			continue
 		}
-		if now.Sub(v.Created) < grace {
+		age := now.Sub(v.Created)
+		if !shared {
+			age = v.RuntimeNewest.Sub(v.Created)
+			if v.RuntimeNewest.IsZero() {
+				age = 0
+			}
+		}
+		if age < grace {
 			continue
 		}
 		out = append(out, v)
 	}
 	return out
+}
+
+// runtimeSharesHostClock reports whether the podman this process talks to stamps volumes on
+// this host's clock: a Linux host with no remote connection named in the environment. A
+// seam, so the remote arm is testable on Linux.
+//
+// Not covered: a Linux podman made remote by containers.conf alone (`remote = true`, or an
+// active service connection) reads as local here, and would compare the two clocks directly.
+var runtimeSharesHostClock = func() bool {
+	return goruntime.GOOS == "linux" && os.Getenv("CONTAINER_HOST") == "" &&
+		os.Getenv("CONTAINER_CONNECTION") == ""
 }
 
 // scratchMountpointOK is the guard in front of the recursive delete: the path podman
