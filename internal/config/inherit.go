@@ -136,13 +136,14 @@ var inheritCensus = map[string]keyDisposition{
 	"mcp_servers": {preflight: true, nested: true, reason: "MCP processes run in the jail; the check dry-run renders their wrappers and a launcher passes them on"},
 	"mcp_presets": {preflight: true, nested: true, reason: "MCP presets the check dry-run resolves and an inner launcher passes on"},
 	"lsp_servers": {preflight: true, nested: true, reason: "LSP servers the jail's agents spawn; the check dry-run renders their config"},
-	// `providers` is merged-scope EXCEPT for its address half: `base_url` and
-	// `endpoints.<protocol>.base_url` are user-scope only (OQ-LM3,
-	// validate.go's validateProviderAddressScope). The distinction survives the crossing
-	// for free rather than by care — this file is a generated config an inner launcher
-	// reads as its own USER scope, the same property `packs` five entries up depends on —
-	// so an inherited address arrives at the scope it was written at, and the inner
-	// launch's own gate still refuses one the inner WORKSPACE adds.
+	// `providers` is merged-scope EXCEPT for its credential-routing half: `endpoints` in any
+	// form, `api_key_env_name`, and a null provider are user-scope only (OQ-LM3 for the
+	// address, notch-convergence OQ-NC6 for the rest; validate.go's
+	// validateProviderCredentialScope). The distinction survives the crossing for free rather
+	// than by care — this file is a generated config an inner launcher reads as its own USER
+	// scope, the same property `packs` five entries up depends on — so an inherited field
+	// arrives at the scope it was written at, and the inner launch's own gate still refuses
+	// one the inner WORKSPACE adds.
 	"providers": {preflight: true, nested: true, reason: "cloud provider declarations for agent configuration and nested launches"},
 	// `profiles` and `use_profiles` are user-scope-only (OQ-CS5 ruled BOTH keys), exactly
 	// like `packs` three entries up — so a workspace spelling can never reach the render

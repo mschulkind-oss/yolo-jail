@@ -1,7 +1,9 @@
 package config
 
 // providerscope_test.go pins OQ-LM3 (docs/research/local-model-endpoints.md): a provider
-// ADDRESS is user-scope only.
+// ADDRESS is user-scope only; and its widening by notch-convergence OQ-NC6 (ruled 2026-09-28,
+// NC-D63): every provider field that decides where a credential goes is user-scope only —
+// the endpoints map, api_key_env_name, and a null that removes a provider or the whole key.
 //
 // Every cell runs through ValidateConfig rather than validateProviderAddressScope, on
 // purpose: the check is worth nothing if the launch does not make it. Deleting the call
@@ -117,19 +119,79 @@ func TestWorkspaceLocalConfigProviderAddressIsRefusedToo(t *testing.T) {
 	}
 }
 
-// The line is at the ADDRESS, not at the key. A workspace that pins a model alias, an
-// option, a region or the NAME of a credential variable still merges — that is what the
-// key is ordinarily for, and none of it moves the endpoint. A null drops an entry or an
-// endpoint rather than steering it, so it passes too.
-func TestWorkspaceProviderNonAddressFieldsStillMerge(t *testing.T) {
+// The line is at CREDENTIAL ROUTING, not at the key (OQ-NC6). A workspace that pins a model
+// alias, an option, a region or a capability still merges — that is what the key is
+// ordinarily for, and none of it decides where a credential goes. A null there only lowers
+// the field.
+func TestWorkspaceProviderNonRoutingFieldsStillMerge(t *testing.T) {
 	errs := providerScopeErrors(t, `{"providers": {
 	  "llamacpp": {"models": {"default": "qwen"}, "options": {"context_window": "65536"},
-	               "api_key_env_name": "LLAMA_API_KEY", "region": "us-east-1"},
-	  "dropped": null,
-	  "half-dropped": {"endpoints": {"openai": null}}
+	               "region": "us-east-1", "capabilities": ["web_search"]},
+	  "other": {"models": null, "options": null, "region": null}
 	}}`, `{}`)
 	if len(errs) != 0 {
-		t.Errorf("workspace providers with no address were refused: %v", errs)
+		t.Errorf("workspace provider fields that route no credential were refused: %v", errs)
+	}
+}
+
+// OQ-NC6: every provider field that decides where a credential goes is refused at workspace
+// scope, each at its own path, naming the user config to move it to. api_key_env_name names
+// the variable a provider claims and sends upstream, so a repo file could claim GH_TOKEN for
+// z.ai; as null it would unclaim the key, which then reaches every process. The endpoints map
+// is where the key is sent: an added protocol with no address, a removed endpoint, or a
+// dialect all ride in it. A null provider (or a null `providers`) removes claims too.
+func TestWorkspaceProviderCredentialRoutingFieldsAreRefused(t *testing.T) {
+	for _, tc := range []struct {
+		name, ws, want string
+	}{
+		{"a claimed variable", `{"providers": {"zai": {"api_key_env_name": "GH_TOKEN"}}}`,
+			"config.providers.zai.api_key_env_name"},
+		{"a list of claimed variables", `{"providers": {"zai": {"api_key_env_name": ["A_KEY", "B_KEY"]}}}`,
+			"config.providers.zai.api_key_env_name"},
+		{"an unclaimed variable", `{"providers": {"zai": {"api_key_env_name": null}}}`,
+			"config.providers.zai.api_key_env_name"},
+		{"a removed endpoint map", `{"providers": {"zai": {"endpoints": null}}}`,
+			"config.providers.zai.endpoints"},
+		{"a removed endpoint", `{"providers": {"zai": {"endpoints": {"openai": null}}}}`,
+			"config.providers.zai.endpoints.openai"},
+		{"a protocol with no address", `{"providers": {"cerebras": {"endpoints": {"anthropic": {}}}}}`,
+			"config.providers.cerebras.endpoints.anthropic"},
+		{"a dialect", `{"providers": {"zai": {"endpoints": {"openai": {"wire_api": "responses"}}}}}`,
+			"config.providers.zai.endpoints.openai.wire_api"},
+		{"a removed address", `{"providers": {"zai": {"endpoints": {"anthropic": {"base_url": null}}}}}`,
+			"config.providers.zai.endpoints.anthropic.base_url"},
+		{"a removed provider", `{"providers": {"zai": null}}`, "config.providers.zai"},
+		{"every provider removed", `{"providers": null}`, "config.providers"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			errs := providerScopeErrors(t, tc.ws, `{}`)
+			found := ""
+			for _, e := range errs {
+				if strings.HasPrefix(e, tc.want+":") {
+					found = e
+				}
+			}
+			if found == "" {
+				t.Fatalf("no %s error — a file the jailed agent can rewrite just decided where "+
+					"a credential goes; got %v", tc.want, errs)
+			}
+			for _, want := range []string{"user-scope only", "move it to " + paths.UserConfigPath(), "credential"} {
+				if !strings.Contains(found, want) {
+					t.Errorf("error %q missing %q", found, want)
+				}
+			}
+		})
+	}
+}
+
+// The same fields written in the USER config are the supported spelling: api_key_env_name and
+// a null entry from user scope are accepted. The cell that fails if the check reads the merged
+// map instead of the workspace file.
+func TestUserScopeProviderCredentialRoutingIsAccepted(t *testing.T) {
+	errs := providerScopeErrors(t, `{"packages": ["ripgrep"]}`,
+		`{"providers": {"zai": {"api_key_env_name": "ZAI_KEY_2"}, "gone": null}}`)
+	if len(errs) != 0 {
+		t.Errorf("user-scope credential routing was refused: %v", errs)
 	}
 }
 

@@ -1153,7 +1153,7 @@ func validateProviders(config *jsonx.OrderedMap, workspace string, errs, warns *
 	// caller handing this a map that was filtered, snapshotted or hand-built would switch
 	// the refusal off without switching the feature off. Measured while writing the test
 	// that pins it, with an empty merged map.
-	validateProviderAddressScope(workspace, errs)
+	validateProviderCredentialScope(workspace, errs)
 	validateProviderEntries(config, errs, warns)
 }
 
@@ -1391,38 +1391,52 @@ func nonNegativeNumber(v any) bool {
 // providersKey is the top-level config key validateProviders reads.
 const providersKey = "providers"
 
-// validateProviderAddressScope refuses a provider ADDRESS written at workspace scope
-// (OQ-LM3, docs/research/local-model-endpoints.md): `base_url` and
-// `endpoints.<protocol>.base_url` in a workspace `yolo-jail.jsonc` are errors naming the
-// user config.
+// validateProviderCredentialScope refuses, at workspace scope, every provider field that
+// decides where a credential goes (docs/plans/notch-convergence.md OQ-NC6, ruled 2026-09-28,
+// the field list NC-D63). It began as OQ-LM3's address rule (docs/research/local-model-endpoints.md):
+// `endpoints.<protocol>.base_url` in a workspace `yolo-jail.jsonc` is an error naming the user
+// config. OQ-NC6 applied the same reason, that the blast radius is total, to the rest of the
+// routing:
 //
-// It is the same boundary `profiles`/`use_profiles` draw one step further in
-// (profiles.go's userScopeOnlyMessage, OQ-CS5), for a reason that is stronger here rather
-// than merely analogous: a profile decides WHICH declared provider an agent talks to, and
-// this field decides WHERE that provider is. The workspace file travels with the repo and
-// is writable by the agent running inside the jail, so an address that agent can rewrite
-// is the agent choosing the host that receives every prompt, every file it has read, and
-// every credential the derives hydrate for that provider — silently, because a local
-// model server and an attacker's proxy are the same shape from the inside.
+//   - `api_key_env_name` names the variable the provider CLAIMS (packload's credentialClaims),
+//     and the credential gate hands a claimed value only to the agents on that provider, which
+//     send it upstream. A workspace value re-points the claim — `"GH_TOKEN"` makes the user's
+//     GitHub token zai's, sent to z.ai — and a null unclaims the provider's own key, which then
+//     reaches every process in the launch.
+//   - `endpoints`, in ANY form. A URL decides where the key goes; so does a protocol key with no
+//     URL, which an agent pairs with and then sends the key to its own default service (claude's
+//     derive treats an entry naming no anthropic address as a first-party launch), and so does a
+//     null removing an endpoint or the map. `wire_api` rides inside the same object and goes with
+//     it: allowing a dialect while refusing its neighbours would make the rule depend on which
+//     protocols a pack ships, which validation does not resolve.
+//   - A null provider, or a null `providers`: removing a provider removes its claims, and the
+//     unclaimed values reach every process.
 //
-// THE REST OF THE ENTRY STILL MERGES, deliberately, and the line is drawn at the address
-// rather than at the key: `models`, `options`, `region`, `capabilities` and
-// `api_key_env_name` steer a request that still goes to the user's own endpoint, while a
-// URL steers the endpoint itself. Widening it to the whole `providers` key is a separate
-// ruling rather than an obvious tightening — it would refuse every workspace that pins a
-// model alias for its own repo, which is what the key is ordinarily for.
+// `models`, `options`, `region` and `capabilities` still merge, deliberately: they steer a
+// request that still goes to the provider the credential was issued for, and a workspace that
+// pins a model alias for its own repo is what the key is ordinarily for.
+//
+// It is the same boundary `profiles`/`use_profiles` draw one step further in (profiles.go's
+// userScopeOnlyMessage, OQ-CS5): a profile decides WHICH declared provider an agent talks to,
+// and these fields decide where that provider is and what it is handed. The workspace file
+// travels with the repo and is writable by the agent running inside the jail.
 //
 // It reads the WORKSPACE config directly rather than the merged map, for validatePacks'
 // reason: in the merged map an entry from either scope looks identical, and only the
-// workspace one is wrong. A `null` asserts no address — it drops the entry or the
-// endpoint — so it passes: this refuses steering, never removal.
-func validateProviderAddressScope(workspace string, errs *[]string) {
+// workspace one is wrong.
+func validateProviderCredentialScope(workspace string, errs *[]string) {
 	wsCfg, err := LoadWorkspaceConfig(workspace, false, func(string) {})
 	if err != nil || wsCfg == nil {
 		return
 	}
 	v, present := wsCfg.Get(providersKey)
-	if !present || v == nil {
+	if !present {
+		return
+	}
+	if v == nil {
+		add(errs, providerCredentialScopeMessage("config."+providersKey, "as null it removes "+
+			"every provider your user config declares, and with them their claims on their "+
+			"credential variables, whose values then reach every process in the launch."))
 		return
 	}
 	providers, ok := asMap(v)
@@ -1431,33 +1445,59 @@ func validateProviderAddressScope(workspace string, errs *[]string) {
 	}
 	for _, name := range providers.Keys() {
 		entryV, _ := providers.Get(name)
+		path := "config." + providersKey + "." + name
+		if entryV == nil {
+			add(errs, providerCredentialScopeMessage(path, "as null it removes the provider, "+
+				"and with it its claim on its credential variables, whose values then reach "+
+				"every process in the launch."))
+			continue
+		}
 		entry, ok := asMap(entryV)
 		if !ok {
 			continue
 		}
-		path := "config." + providersKey + "." + name
-		// The bare `base_url` SHORTHAND is deliberately not checked here any more: it is
-		// REMOVED (validateProviderShorthandRetired), and telling someone their deleted key
-		// is in the wrong scope is two contradictory instructions about one line — the same
-		// call validateHostProcessesRetired makes about its own type checks. The
-		// per-protocol spelling below is the live one, and it keeps the whole rule.
-		endpointsV, has := entry.Get("endpoints")
-		if !has || endpointsV == nil {
+		if _, has := entry.Get("api_key_env_name"); has {
+			add(errs, providerCredentialScopeMessage(path+".api_key_env_name", "it names the "+
+				"variable this provider claims, whose value only the agents on this provider "+
+				"receive and send upstream; a workspace value could claim another credential "+
+				"(GH_TOKEN, say) for this provider, or, as null, unclaim the provider's own key "+
+				"so that it reaches every process."))
+		}
+		// The bare `base_url` SHORTHAND is deliberately not checked here: it is REMOVED
+		// (validateProviderShorthandRetired), and telling someone their deleted key is in the
+		// wrong scope is two contradictory instructions about one line — the same call
+		// validateHostProcessesRetired makes about its own type checks.
+		if endpointsV, has := entry.Get("endpoints"); has {
+			validateEndpointsScope(path+".endpoints", endpointsV, errs)
+		}
+	}
+}
+
+// validateEndpointsScope is validateProviderCredentialScope for one workspace `endpoints`
+// value: every path under it is named, at the deepest level it was written, so a config fixed
+// one error at a time does not re-refuse on the next launch. A URL keeps OQ-LM3's own message.
+func validateEndpointsScope(path string, v any, errs *[]string) {
+	const why = "the endpoints map is where this provider's credential is sent: a URL, a " +
+		"protocol an agent pairs with (one with no URL leaves the agent sending this " +
+		"provider's key to its own default service), a dialect, or an endpoint removed."
+	endpoints, ok := asMap(v)
+	if !ok || endpoints.Len() == 0 {
+		add(errs, providerCredentialScopeMessage(path, why))
+		return
+	}
+	for _, proto := range endpoints.Keys() {
+		epV, _ := endpoints.Get(proto)
+		ep, ok := asMap(epV)
+		if !ok || ep.Len() == 0 {
+			add(errs, providerCredentialScopeMessage(path+"."+proto, why))
 			continue
 		}
-		endpoints, ok := asMap(endpointsV)
-		if !ok {
-			continue
-		}
-		for _, proto := range endpoints.Keys() {
-			epV, _ := endpoints.Get(proto)
-			ep, ok := asMap(epV)
-			if !ok {
+		for _, key := range ep.Keys() {
+			if key == "base_url" {
+				add(errs, providerAddressScopeMessage(path+"."+proto+".base_url"))
 				continue
 			}
-			if u, has := ep.Get("base_url"); has && u != nil {
-				add(errs, providerAddressScopeMessage(path+".endpoints."+proto+".base_url"))
-			}
+			add(errs, providerCredentialScopeMessage(path+"."+proto+"."+key, why))
 		}
 	}
 }
@@ -1521,9 +1561,22 @@ func providerAddressScopeMessage(path string) string {
 		". A workspace config travels with the repo and is agent-editable, and this is the " +
 		"field that decides WHERE an agent's inference goes: every prompt, every file the " +
 		"agent has read, and every credential hydrated for this provider are sent to this " +
-		"address. The rest of the entry — models, options, region, api_key_env_name — " +
-		"still merges from either scope."
+		"address. " + providerMergesSentence
 }
+
+// providerCredentialScopeMessage is the workspace-scope refusal of a provider field that
+// decides where a credential goes (OQ-NC6): the field's path, the file to move it to, and why
+// this one routes a credential.
+func providerCredentialScopeMessage(path, why string) string {
+	return path + ": user-scope only — move it to " + paths.UserConfigPath() +
+		". A workspace config travels with the repo and is agent-editable, and this field " +
+		"decides where a provider's credential goes: " + why + " " + providerMergesSentence
+}
+
+// providerMergesSentence is what a workspace may still write in a provider entry, the same
+// sentence at the end of every refusal above.
+const providerMergesSentence = "Only models, options, region and capabilities merge from a " +
+	"workspace config."
 
 // providerURLProblem returns what is wrong with a provider base_url, or "" when it is a
 // usable address: it must parse as an http or https URL and carry no userinfo.

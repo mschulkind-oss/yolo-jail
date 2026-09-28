@@ -1509,12 +1509,16 @@
     keeps every other field the pack shipped.  Each key is a provider NAME, and the name
     is sole-owned across packs and config together: two packs shipping one is a launch
     error.
-    ⚠ THE ADDRESS IS USER-SCOPE ONLY.  `endpoints.<protocol>.base_url` is REFUSED in a
-    workspace `yolo-jail.jsonc` or `yolo-jail.local.jsonc`; write it in your user config
-    instead.  The workspace file is agent-editable, and the address
-    decides where inference goes — an agent that can repoint its own model endpoint can
-    send everything it reads to a server you did not choose.  Every OTHER field in an
-    entry still merges from either scope.  Per entry:
+    ⚠ WHERE A CREDENTIAL GOES IS USER-SCOPE ONLY.  `endpoints` in any form (a URL, a
+    protocol, a dialect, or a null removing one), `api_key_env_name` (a value or a null),
+    and a null provider or null `providers` are REFUSED in a workspace `yolo-jail.jsonc`
+    or `yolo-jail.local.jsonc`, each naming the field; write them in your user config
+    instead.  The workspace file is agent-editable: an agent that can repoint its own
+    model endpoint can send everything it reads to a server you did not choose, and one
+    that can rename the variable a provider claims can send you a different credential
+    (GH_TOKEN, say) to that provider, or unclaim a key so every process receives it.
+    `models`, `options`, `region` and `capabilities` still merge from either scope.
+    Per entry:
       base_url       [bold yellow]REMOVED[/bold yellow] — an entry carrying it is REFUSED, naming the
                      explicit spelling.  The bare field said WHERE without saying WHICH
                      WIRE, so the same line meant different protocols to different

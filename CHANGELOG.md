@@ -115,6 +115,14 @@ provider's key to any other command. `eval "$(yolo host env --with-credentials z
 same for your shell, and the lines that tell you a key was withheld now suggest these spellings.
 See [the credential gate](docs/reference/providers.md#the-credential-gate).
 
+**A project's config can no longer change which variable a provider's key comes from.** A
+provider's `api_key_env_name` in a workspace `yolo-jail.jsonc` or `yolo-jail.local.jsonc` is now
+refused, as its address already was, and so is anything else there that decides where a
+provider's key goes: any change to its `endpoints`, and removing a provider with `null`. Each
+refusal names the field; move it to your user config. A project can still set a provider's
+`models`, `options`, `region` and `capabilities`. See
+[settings per setup](userguide/reference/settings-per-setup.md).
+
 ### Fixed
 
 - A value you set on the command line beats a profile's value again. `ANTHROPIC_MODEL=x claude`,
