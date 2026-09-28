@@ -340,13 +340,16 @@ func TestCodexPrismWritesGeneratedHeaderButNotIntoBaseline(t *testing.T) {
 // json surfaces must NOT get the banner — json has no comment syntax, so it would
 // make the file invalid.
 func TestJSONSurfaceGetsNoGeneratedHeader(t *testing.T) {
-	if h := generatedHeader(manifest.Surface{Codec: "json"}); h != "" {
-		t.Errorf("json header = %q, want empty (json has no comments)", h)
-	}
-	// raw/lines promise byte-exact round-trips; any inserted text corrupts them.
-	for _, c := range []string{"raw", "lines"} {
-		if h := generatedHeader(manifest.Surface{Codec: c}); h != "" {
-			t.Errorf("%s header = %q, want empty (round-trip contract)", c, h)
+	// At every notch: the wording is per notch, the TOML-only rule is not.
+	for _, e := range []*Env{{Home: t.TempDir()}, {Home: t.TempDir(), hostTarget: true}} {
+		if h := generatedHeader(e, manifest.Surface{Codec: "json"}); h != "" {
+			t.Errorf("json header = %q, want empty (json has no comments)", h)
+		}
+		// raw/lines promise byte-exact round-trips; any inserted text corrupts them.
+		for _, c := range []string{"raw", "lines"} {
+			if h := generatedHeader(e, manifest.Surface{Codec: c}); h != "" {
+				t.Errorf("%s header = %q, want empty (round-trip contract)", c, h)
+			}
 		}
 	}
 }

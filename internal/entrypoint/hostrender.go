@@ -42,7 +42,6 @@ package entrypoint
 //     workspace — so Workspace is empty and a ${workspace} surface is skipped.
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -114,6 +113,10 @@ type HostRenderResult struct {
 	// This is what the one-way-door gate reads, and why it is not "any overwrite": a
 	// confirmation that fires on every scalar flip trains people to hit `y` blind, which
 	// would cost more than it protects.
+	//
+	// It is computed by the mechanism that writes (hostMechanismTableLosses, HC-D5): under
+	// `own` it names only what the `stateful` write drops or replaces, which is not what the
+	// `assert` write's wholesale regeneration would drop.
 	EntryLosses []string
 	// FirstApply is true when this home has NO provenance record for this surface, i.e.
 	// yolo has never asserted it here. It is the other half of the one-way-door signal:
@@ -396,10 +399,11 @@ func RenderHostPack(p *packload.Pack, homeDir string, ownership render.HostOwner
 		// never gets to write (see overlayOverwrites).
 		overwrites = append(overwrites,
 			overlayOverwrites(e, s, path, surfaceOverlays, outrankedKeys)...)
-		// What the wholesale table write costs, per entry. Kept SEPARATE from Overwrites —
-		// see HostRenderResult.EntryLosses for why the distinction is what makes the
-		// confirmation gate usable rather than noise.
-		losses := tableLosses(s, tables, path, tableLayer)
+		// What the table write costs, per entry, PER MECHANISM (HC-D5): the loss list is
+		// computed by the mechanism that writes, like the change predicate below. Kept SEPARATE
+		// from Overwrites — see HostRenderResult.EntryLosses for why the distinction is what
+		// makes the confirmation gate usable rather than noise.
+		losses := hostMechanismTableLosses(e, mechanism, s, tables, path, tableLayer, contribs)
 		// Non-value losses from the canonical re-emit (a TOML file's comments). Computed in
 		// both postures for the same reason the overwrites are: the point is to see it before
 		// the write.
@@ -807,7 +811,7 @@ func hostFormattingLosses(e *Env, mechanism string, s manifest.Surface, path str
 		// owned home would sit at tierLoss permanently and the signal would stop meaning
 		// anything. The render reproduces the header exactly, so what is AT RISK is the
 		// comments beside it.
-		if !tomlHasComments(bytes.TrimPrefix(orig, []byte(generatedHeader(s)))) {
+		if !tomlHasComments(render.StripGeneratedHeader(orig)) {
 			return nil
 		}
 		return []string{"comments in this file are NOT preserved — `own` composes the whole " +
@@ -1042,7 +1046,72 @@ func tableLosses(s manifest.Surface, tables []string, path string, layer map[str
 	if len(tables) == 0 {
 		return nil
 	}
-	existing := existingSurfaceObject(s, path)
+	declared := func(key, name string) (any, bool) {
+		table, _ := layer[key].(map[string]any)
+		v, ok := table[name]
+		return v, ok
+	}
+	return entryLossLines(existingSurfaceObject(s, path), tables, declared)
+}
+
+// hostMechanismTableLosses is the loss list per mechanism, the dispatch the change predicate
+// has (hostMechanismWouldChange) and for the same reason: each mechanism writes a table its
+// own way, so the list has to be computed by the one that writes (HC-D5,
+// docs/design/host-computed-layer.md §7).
+//
+// tableLosses models the `rmw` write, which regenerates a table declared in full wholesale
+// (regenerateManagedTables), so every entry config does not declare goes. The `stateful`
+// write under `own` does not: its adoption claims an in-full table only when this render put
+// an entry in it (agentcfg's dropComputedTables), and its steady state captures an entry the
+// user added. So with no MCP server configured, a hand-added codex `mcp_servers` entry or
+// opencode `mcp` entry is KEPT by the owned write — measured by the design's scratch test,
+// where the report named both as dropped and the confirmation prompt then asked the user to
+// approve a loss that never happened.
+func hostMechanismTableLosses(e *Env, mechanism string, s manifest.Surface, tables []string,
+	path string, tableLayer map[string]any, contribs *surfaceContribs) []string {
+	if mechanism == manifest.ModeStateful {
+		return statefulTableLosses(e, s, tables, path, tableLayer, contribs)
+	}
+	return tableLosses(s, tables, path, tableLayer)
+}
+
+// statefulTableLosses is the `own` half of the loss list. It runs THE RENDER —
+// composeStatefulSurface with the writer's own in-full declaration, the call
+// hostStatefulWouldChange makes — decodes what it would write, and names each entry of the
+// user's file that the result drops or changes. No second model of adoption or capture: the
+// composition decides, and this reads its answer.
+//
+// Every failure answers "no loss", as the change predicate does: a surface this cannot compose
+// or decode is one the render refuses, and the refusal is reported on its own line.
+func statefulTableLosses(e *Env, s manifest.Surface, tables []string, path string,
+	tableLayer map[string]any, contribs *surfaceContribs) []string {
+	if len(tables) == 0 {
+		return nil
+	}
+	r, err := composeStatefulSurface(e, s, nil, tableLayer, hostTableInFull(tableLayer), contribs)
+	if err != nil || r.out == nil || r.out.Result == nil {
+		return nil
+	}
+	written, err := decodeSurfaceBytes(s, path, r.out.Result.Encoded)
+	if err != nil {
+		return nil
+	}
+	after := func(key, name string) (any, bool) {
+		table, isMap := written.Get(key)
+		m, _ := table.(*jsonx.OrderedMap)
+		if !isMap || m == nil {
+			return nil, false
+		}
+		return m.Get(name)
+	}
+	return entryLossLines(existingSurfaceObject(s, path), tables, after)
+}
+
+// entryLossLines names each entry of each table in the user's file that `incoming` does not
+// hold (dropped) or holds with a different value (replaced) — the one spelling both mechanisms
+// report in, so the survey's entryLossName reads either the same way.
+func entryLossLines(existing *jsonx.OrderedMap, tables []string,
+	incoming func(key, name string) (any, bool)) []string {
 	var out []string
 	for _, key := range tables {
 		cur, present := existing.Get(key)
@@ -1050,15 +1119,14 @@ func tableLosses(s manifest.Surface, tables []string, path string, layer map[str
 		if !present || !isMap {
 			continue // no such table in the user's file — every entry is an ADD
 		}
-		declared, _ := layer[key].(map[string]any)
 		for _, name := range curTable.Keys() {
 			prev, _ := curTable.Get(name)
-			incoming, isDeclared := declared[name]
-			if !isDeclared {
+			next, kept := incoming(key, name)
+			if !kept {
 				out = append(out, fmt.Sprintf("%s.%s (dropped — not in your config)", key, name))
 				continue
 			}
-			if !sameJSON(prev, incoming) {
+			if !sameJSON(prev, next) {
 				out = append(out, fmt.Sprintf("%s.%s (replaced — your version is not kept)",
 					key, name))
 			}

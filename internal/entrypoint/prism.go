@@ -408,12 +408,17 @@ type statefulRender struct {
 	// observe posture copies nothing, which is what lets `yolo host apply --dry-run` run
 	// the full render for free.
 	archived string
+	// header is the banner this target's write puts above the body
+	// (render.Target.GeneratedHeader), decided at compose time by the target that composed it,
+	// so text() and pureText() — and so the archive gate and the change predicate — read the
+	// words the write will carry at this notch rather than the jail's.
+	header string
 }
 
 // text is the exact file content this render produces — the same expression persist writes,
 // so a caller comparing it against r.current is comparing against what would land.
 func (r *statefulRender) text() string {
-	return generatedHeader(r.surface) + surfaceText(r.surface, r.out.Result.Encoded)
+	return r.header + surfaceText(r.surface, r.out.Result.Encoded)
 }
 
 // pureText is what this surface's LAYERS ALONE produce — the same expression text() builds,
@@ -427,7 +432,7 @@ func (r *statefulRender) pureText() string {
 	if r.out == nil || r.out.PureBytes == nil {
 		return ""
 	}
-	return generatedHeader(r.surface) + surfaceText(r.surface, r.out.PureBytes)
+	return r.header + surfaceText(r.surface, r.out.PureBytes)
 }
 
 // composeStatefulSurface is the PURE half of the stateful render: read the sidecars and the
@@ -555,7 +560,7 @@ func composeStatefulSurface(e *Env, surface manifest.Surface, hostBytes []byte, 
 	}
 
 	return &statefulRender{surface: surface, path: surfacePath, current: current,
-		out: out, selection: selectionRecord}, nil
+		out: out, selection: selectionRecord, header: t.GeneratedHeader(surface)}, nil
 }
 
 // persistStatefulSurface writes what composeStatefulSurface decided: the surface file, the
@@ -749,16 +754,16 @@ func surfaceText(surface manifest.Surface, encoded []byte) string {
 	return render.SurfaceText(surface, encoded)
 }
 
-// generatedHeader is render.GeneratedHeader under this package's name (A10 — the banner
-// telling an agent that hand-editing this file is the wrong move). See that function for
-// why it is TOML-only and why it is separate from surfaceText.
+// generatedHeader is render.Target.GeneratedHeader for this Env's target (A10 — the banner
+// telling an agent that hand-editing this file is the wrong move). See that method for why it
+// is TOML-only, why its wording is the notch's, and why it is separate from surfaceText.
 //
 // One probe result worth keeping where the boot path can see it: a leading TOML comment
 // yields an empty overlay ({}) rather than a captured change, because the §5 diff runs on
 // decoded values. So keeping the banner out of the last_render baseline is belt-and-braces
 // on top of that, plus it keeps the sidecar a faithful record of what the engine produced.
-func generatedHeader(surface manifest.Surface) string {
-	return render.GeneratedHeader(surface)
+func generatedHeader(e *Env, surface manifest.Surface) string {
+	return e.renderTarget().GeneratedHeader(surface)
 }
 
 // renderSurfaceStatelessSurface is the surface-taking core of the stateless
@@ -783,7 +788,7 @@ func renderSurfaceStatelessSurface(e *Env, surface manifest.Surface, hostBytes [
 	if err := os.MkdirAll(filepath.Dir(surfacePath), 0o755); err != nil {
 		return nil, err
 	}
-	if err := writeInPlaceString(surfacePath, render.FileText(surface, res.Encoded)); err != nil {
+	if err := writeInPlaceString(surfacePath, t.FileText(surface, res.Encoded)); err != nil {
 		return nil, err
 	}
 	return res, nil

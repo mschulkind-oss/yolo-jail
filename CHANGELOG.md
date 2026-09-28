@@ -154,6 +154,10 @@ apply it, and the launch says that too. See
 - `yolo host apply` skipped every git pack, even an installed one.
 - `yolo host apply` listed a config file it was about to create as unchanged, and `--assert`
   counted it among the files already in sync.
+- With `host_management: own`, `yolo host apply` warned that an MCP server you had added by hand
+  to codex's or opencode's config would be dropped, when the apply kept it. The note at the top
+  of `~/.codex/config.toml` also said the file was composed at jail start; it now names
+  `yolo host apply`.
 - `yolo host apply --assert` wrote the rest of a pack whose `pack.json` has problems, the ones
   `yolo pack lint` and every launch refuse, into your home. It now writes nothing and names each
   problem, and the other host commands leave such a pack out and say so. `yolo config promote`
