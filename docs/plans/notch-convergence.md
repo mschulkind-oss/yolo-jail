@@ -42,7 +42,7 @@ premise is retired.
 **Start at [§2](#2-security-first-the-boundary-that-is-not-one)**, the only part that is urgent, then
 [§4](#4-the-ordered-build-list).
 
-**Needs your ruling:** [OQ-NC1](#OQ-NC1), [OQ-NC2](#OQ-NC2), [OQ-NC3](#OQ-NC3), [OQ-NC4](#OQ-NC4), [OQ-NC5](#OQ-NC5), [OQ-NC6](#OQ-NC6), [OQ-NC7](#OQ-NC7), [OQ-NC8](#OQ-NC8), [OQ-NC9](#OQ-NC9), [OQ-NC10](#OQ-NC10).
+**Needs your ruling:** [OQ-NC1](#OQ-NC1), [OQ-NC2](#OQ-NC2), [OQ-NC3](#OQ-NC3), [OQ-NC4](#OQ-NC4), [OQ-NC5](#OQ-NC5), [OQ-NC6](#OQ-NC6), [OQ-NC7](#OQ-NC7), [OQ-NC8](#OQ-NC8), [OQ-NC9](#OQ-NC9), [OQ-NC10](#OQ-NC10), [OQ-NC11](#OQ-NC11).
 
 **Reads with:** [`wire-bridge.md`](../reference/wire-bridge.md#wb-d4) (WB-D4, the premise
 [§2](#2-security-first-the-boundary-that-is-not-one) retires),
@@ -358,13 +358,13 @@ after it, except where its **After** cell says otherwise.
 | # | Item | Closes | Kind | After | Done when |
 |---|---|---|---|---|---|
 | 19 | Relay `YOLO_PROFILES` on macos-user through one exported wire-table list | D2 | **pure merge** (a live defect; it may land at any time) | — | codex on macos-user renders its `model_provider`. ✅ **Built** `330cfe08` ([NC-D22](#7-decision-ledger)) |
-| 20 | `InjectLaunchFlags` takes the autonomy bit | D9 | **pure merge** | — | A `guarded.launch` entry reaches a host launch |
+| 20 | `InjectLaunchFlags` takes the autonomy bit | D9 | **pure merge** | — | A `guarded.launch` entry reaches a host launch. **Built** `2ef33c4b` ([NC-D27](#NC-D27)) |
 | 21 | `files` on macos-user; `ResolveDestinations` for addressed files everywhere | D8 | **pure merge** | — | pi's two extensions exist in a macos-user home. ✅ **Built** `7b12f1e1` ([NC-D23](#7-decision-ledger), [NC-D24](#7-decision-ledger)) |
 | 22 | One boot step table for Linux and macos-user | D10 | **pure merge** | — | An omission is a declared exclusion, never a missing line. ✅ **Built** `cd943328` ([NC-D25](#7-decision-ledger), amended by [NC-D26](#7-decision-ledger)) |
-| 23 | `config render --at host` previews what host apply writes | D5 | **pure merge** | — | The preview and the write agree byte for byte |
-| 24 | One render loop | D3 | **pure merge** (a refactor) | 23 | Four loops become one |
-| 25 | One skills composer | D6 | **behavior-changing, ruled** (S1, [§6a-2](../reference/pack-system.md#batch-6a)): a jail collision becomes fatal | 24 | The same collision refuses at both notches |
-| 26 | One briefing composer with a notch-aware base; `agents_md_extra` at the host | D7 | **behavior-changing, ruled** ([§6a](../reference/pack-system.md#batch-6a), Phase 8) | 24 | A host agent is told it is on the real machine |
+| 23 | `config render --at host` previews what host apply writes | D5 | **pure merge** | — | The preview and the write agree byte for byte. **Built** `8965b2a1` ([NC-D28](#NC-D28)) |
+| 24 | One render loop | D3 | **pure merge** (a refactor) | 23 | Four loops become one. **Built** `7e11c2fa`: the three writer loops are one, and the fourth's host half is the host apply's render since item 23 ([NC-D29](#NC-D29) keeps the jail preview a reader) |
+| 25 | One skills composer | D6 | **behavior-changing, gated** on [OQ-NC11](#OQ-NC11). Filed as ruled (S1, [§6a-2](../reference/pack-system.md#batch-6a)); building it found an open question on the same behavior ([S5](BACKLOG.md#S5)) and two changes S1 does not decide | 24 | The same collision refuses at both notches |
+| 26 | One briefing composer with a notch-aware base; `agents_md_extra` at the host | D7 | **behavior-changing, ruled** ([§6a](../reference/pack-system.md#batch-6a), Phase 8) | 24 | A host agent is told it is on the real machine. **Built** `b076cd09` ([NC-D30](#NC-D30)) |
 | 27 | The host profile table fed into render | D1 | **behavior-changing, gated** on [`OQ-HC3`](../design/host-computed-layer.md#OQ-HC3) | 11, 24 | — |
 | 28 | Derives at the host; one `rmw` rule | D4, D11 | **behavior-changing, gated** on [`OQ-HC1`](../design/host-computed-layer.md#OQ-HC1) and [`OQ-CO15`](../design/config-ownership-and-promotion.md#oq-co15) | 24 | — |
 | 29 | `host_files` and `mise_tools` at the host | D12 | **behavior-changing, gated** on [OQ-NC8](#OQ-NC8) | 24 | — |
@@ -590,6 +590,10 @@ is reported verified only against a real rootless host or CI, with
    _Leaning:_ A. It deletes the input rather than keeping it, which is this plan's rule. It fixes
    the jail refusing a pack the host accepts, and it keeps the no-escape rule for the case that
    motivated it.
+
+   **Answer:**
+   > _(empty — fill in when decided)_
+
 10. 💬 <a id="OQ-NC10"></a>**OQ-NC10: What does `--accept-config-changes` approve at the host?** Row A4
     says the host takes the approval as `YOLO_ACCEPT_CONFIG_CHANGES` and refuses the flag, so item 10
     was to accept the flag on the explicit `yolo host [flags] --` spelling. Building it found the
@@ -615,6 +619,47 @@ is reported verified only against a real rootless host or CI, with
     _Leaning:_ A. A one-way door that drops a user's servers should not open for a flag typed to
     get past a prompt that no longer exists. B re-creates a grant for the one question the gate
     deliberately keeps behind a terminal.
+
+    **Answer:**
+    > _(empty — fill in when decided)_
+
+11. 💬 <a id="OQ-NC11"></a>**OQ-NC11: Does a skill-name collision refuse a jail launch, and does the
+    jail honor `skills_tier`?** Item 25 was filed as ruled by S1. The maintainer's words, 2026-08-05:
+    *"I want unnamespaced by default with a fatal collision error if skills collide on name.
+    Namespacing should be possible by the pack's choice, but it should be a positive choice."*
+    [pack-system.md](../reference/pack-system.md#skills-collision) records that as "FATAL at apply
+    time", and [§6a-2](../reference/pack-system.md#batch-6a) rules the composition wholesale at every
+    notch. Three facts found while building it stop it:
+
+    - **An open question already asks this.** [S5](BACKLOG.md#S5) ("a jail resolves a skill-name
+      collision SILENTLY") is 💬 with a leaning of a launch *warning*, not a refusal, and says in so
+      many words that the jail half "is a decision rather than a port".
+    - **The jail does not honor `skills_tier`.** It copies every pack's `skills/` flat
+      (`jailcontent.copySkillSubdirs`), so a namespaced pack's skill is `/<skill>` in a jail and
+      `/<pack>:<skill>` at the host. The host's collision message offers namespacing as the remedy,
+      which would be false in a jail until the jail honors the tier. Honoring it renames every
+      namespaced pack's skills in every jail, which no ruling asked for. No shipped pack carries
+      skills today, so only user packs would move.
+    - **One composer would also narrow the jail's fan-out**, which is [OQ-S4](BACKLOG.md#OQ-S4),
+      open. The jail sends every pack's skills to every destination. The host sends a pack's skills
+      only to the destinations it names.
+
+    This decides item 25.
+
+    - **A — Fatal at the launch, host-side, and the jail honors the tier.** Put a pre-flight beside
+      `AgentNameCollisions` that runs before the container exists, and on an attach too. It uses
+      `hostskills.Collisions` over the jail's own destinations and prints the host's message. The
+      jail delivers through the hostskills layer plan, tiers and wrapped plugins included. Its
+      fan-out stays as it is until OQ-S4 is answered.
+    - **B — A launch warning naming both packs** (S5's option 1). The jail stays flat and
+      last-wins, and the host stays fatal.
+    - **C — A `yolo check` failure only** (S5's option 2).
+
+    <!-- vantage: oq id=OQ-NC11 leaning="A: the refusal is a host-side launch pre-flight like AgentNameCollisions, not an A12 boot failure, so S5's stranding cost does not apply; and the jail must honor skills_tier for the collision message's own remedy to be true there." -->
+
+    _Leaning:_ A. The refusal would be a launch pre-flight on the host, like the agent-name one, not
+    an A12 boot failure inside a running jail, so the stranding cost S5 weighs does not apply. The
+    jail has to honor the tier, or the remedy the message offers does nothing there.
 
     **Answer:**
     > _(empty — fill in when decided)_
@@ -649,3 +694,7 @@ is reported verified only against a real rootless host or CI, with
 | NC-D24 | *Implementation decision, item 21.* macos-user delivers `files` trees through the home overlay, beside skills and briefings: copied from the staged pack tree, listed for the overlay install, and write-denied by the Seatbelt profile, which is this backend's `:ro`. A tree whose source is missing is skipped with the jail's own warning | 2026-09-28 | [§3.4](#34-render) D8 | ✅ `7b12f1e1` |
 | NC-D25 | *Implementation decision, item 22.* One table, `internal/entrypoint/bootsteps.go`, run by `Main` and `RunDarwinBootstrap`. An exclusion is a field on the step holding its reason. Each boot runs what it ran before, in the same order and with the same perf and failure labels, except that the orphan catalog and the program reconcile now run on macos-user too, since their stated premise (no staged pack tree there) is false. Left as declared exclusions: the CA bundle, nvim config, the retired-mise cleanup and the stale-client cleanup, each stated as not ported or not established rather than impossible. Not built here: macos-user does not relay `programs.autoprune` (`YOLO_PROGRAMS_AUTOPRUNE`), so autoprune stays off there | 2026-09-28 | [§3.4](#34-render) D10 | ✅ `cd943328` |
 | NC-D26 | *Implementation decision, item 22, amending NC-D25.* The orphan catalog stays a declared exclusion on macos-user. Its input is there, but its one terminal line sends the reader to three places and none works on that backend: the boot log that holds the names (macos-user keeps none, so every name was discarded), `yolo programs ls` (it answers wrongly inside the sandbox) and `programs.autoprune` (not relayed). The step returns there once all three work on that backend. The program reconcile still runs on macos-user, since its findings are terminal warnings | 2026-09-28 | [§3.4](#34-render) D10 | ✅ `940ec0b0` |
+| <a id="NC-D27"></a>NC-D27 | *Implementation decision.* `InjectLaunchFlags` takes the posture bit as a parameter, the one `LaunchFlagsFor` and `packoverlay.Collect` already take. The jail launcher passes the jail notch's (`render.ProfileFor(KindJail)`), every in-jail carrier passes its render target's, and `yolo host --` passes the host notch's. The rewrite's wording moved to `packload.LaunchInjection.DisclosureLines`, so both notches print the same sentence | 2026-09-28 | [§4](#4-the-ordered-build-list), item 20 | ✅ `2ef33c4b` |
+| <a id="NC-D28"></a>NC-D28 | *Implementation decision.* `config render --at host` runs `entrypoint.RenderHostPack` in observe over host apply's own inputs. The byte-identical content comes from splitting the rmw writer into a compose half and a write half (`composeRMWSurface`), as the stateful writer already was. A bare `yolo config render` outside any workspace resolves the host notch, so it previews the host apply too | 2026-09-28 | [§4](#4-the-ordered-build-list), item 23 | ✅ `8965b2a1` |
+| <a id="NC-D29"></a>NC-D29 | *Implementation decision.* The one render loop is `planPackSurfaces` (the posture, the contributions and the census's mechanism), `writeSurfaceThrough` (the dispatch) and `renderPackSet` (the jail walk, which both the boot and `yolo check` run with their own failure handling). The jail's `yolo config render` preview stays outside it. It is a reader with no mechanism to ask: its scope leaves out the computed layer and the capture overlay, and it previews core surfaces such as `mise/config` that no pack declares | 2026-09-28 | [§3.4](#34-render), D3 | ✅ `7e11c2fa` |
+| <a id="NC-D30"></a>NC-D30 | *Implementation decision.* `BriefingContent` at the host notch is its confinement header alone, because every section after it describes a launch. `jailcontent.ComposeBriefingSections` assembles every destination at both notches. The host base is never empty, so yolo owns every briefing destination a selected pack declares, with or without prose, and retires one only once no selected pack declares it. That is §6a's "fully generated and controlled". `agents_md_extra` at the host is read from user scope only | 2026-09-28 | [§3.4](#34-render), D7 | ✅ `b076cd09` |

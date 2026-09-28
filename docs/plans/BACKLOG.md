@@ -447,6 +447,11 @@ is small. Against (3): A12 makes a generator failure halt the jail, so a boot re
 not "consistent with the host" in cost — the host user re-runs a command, the jail user loses
 a session.
 
+*(2026-09-28: notch-convergence item 25 raises this again as
+[OQ-NC11](notch-convergence.md#OQ-NC11). That entry adds that the jail ignores `skills_tier`, and
+leans toward a refusal at launch, run on the host before any container starts, rather than an A12
+boot failure. Answering either question answers both.)*
+
 **Answer:**
 > _(empty — fill in when decided)_
 
