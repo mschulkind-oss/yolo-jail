@@ -116,6 +116,15 @@ self-hosted server that speaks OpenAI's format:
 }
 ```
 
+`models` gives your models short names. Four names mean the same thing on every provider, so a
+pack can ask for a kind of model without knowing yours: `default`, `fast` for a cheap and quick
+one, `balanced` for the middle tier and `frontier` for the most capable. None is required. If a
+pack asks for one your provider does not name, the launch prints a warning and starts anyway.
+
+When you run pi with a profile and the pi-subagents extension, a child agent starts on the same
+model as pi and can use only that provider's models: the ones you list in `models`, or any of the
+provider's models when you list none.
+
 Provider addresses, `profiles` and `use_profiles` are read from your user config only. A project's
 `yolo-jail.jsonc` cannot set them, because an agent that can edit its project could otherwise send
 its requests to a server you did not choose. `yolo config-ref` documents every provider field.

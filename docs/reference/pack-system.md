@@ -2109,6 +2109,14 @@ The contract:
   Lua `nil` in a table just drops the entry, which cannot express "delete this key" — and
   `ctx.empty_array` is the sentinel for an intentional empty JSON array, which Lua cannot
   distinguish from an empty object.
+- `yolo.model_for(alias)` is the one helper beside the two registrations: it resolves a model
+  alias for the selected provider to `"<provider>/<id>", "<id>"`, or `nil`, and never reads
+  another provider's aliases. Asked for a [tier alias](providers.md#tier-aliases) the provider
+  lacks, it warns at boot and does not refuse. A pack that renders yolo's tiers into one
+  extension's own config file (an *adapter pack*, a term
+  [`extension-model-defaults.md`](../research/extension-model-defaults.md#defined-terms) coins)
+  uses it to map them onto that extension's names
+  ([OQ-XM1](../research/extension-model-defaults.md#OQ-XM1)).
 - `ctx.in_full(t)` declares that `t` — the value of a TOP-LEVEL key — is a table the derive
   regenerates in full: its entries track a live table, so an entry on disk this run did not
   produce is yolo's own stale output. A first migration's adoption takes such a table whole,
@@ -3102,6 +3110,7 @@ only place the values themselves are stated.
 | `state` scopes | `workspace` (default), `machine` (requires `because`) | `packdecl` |
 | `skills_tier` values | `""` / `flat` (default), `namespaced` | `packdecl.Manifest.SkillsTier` |
 | Derive registrations | `yolo.derive(agent, surface, fn)`, `yolo.env(agent, fn)` | `internal/agentcfg/luahook` |
+| Derive helpers | `yolo.model_for(alias)` → `"<provider>/<id>", "<id>"` or `nil`, for the selected provider only; warns for a missing `default`, `fast`, `balanced` or `frontier` | `luahook/modelfor.go` |
 | Derive ctx sentinels | `ctx.tombstone`, `ctx.empty_array`, `ctx.in_full(t)` | `luahook/derive.go` |
 | Derive ctx sources | live tables `ctx.mcp_servers`, `ctx.lsp_servers`, `ctx.providers`, `ctx.use_profiles`; scalars `ctx.agent`, `ctx.surface`, `ctx.selected_provider`, `ctx.profile_name`; `ctx.profile` | `luahook.DeriveCtx`, `knownDeriveSources` |
 | Loophole settings token | `{settings}` in a manifest `cmd` | `internal/loopholes/settings.go` |

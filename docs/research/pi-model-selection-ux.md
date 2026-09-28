@@ -31,6 +31,9 @@ pi's extension registers exactly, so pi's view of `openai-codex` is already that
 scope could only restate it. The scope for every other provider is unchanged.
 
 **Ruled 2026-09-28:** [OQ-PM1](#OQ-PM1), through [OQ-XM3](extension-model-defaults.md#OQ-XM3).
+**Built 2026-09-28:** pi's settings derive writes the `subagents` block for every provider
+([§2](#2-subagent-defaults-do-not-follow-non-codex-profiles)); the implementation decisions are
+[XM-D3](extension-model-defaults.md#XM-D3) through [XM-D6](extension-model-defaults.md#XM-D6).
 
 > [!IMPORTANT]
 > For an active yolo provider profile, use Pi's native model scope. A Codex
@@ -107,6 +110,17 @@ hide the cause.
 The installed `pi-subagents` documentation (`docs/models.md`, checked in this jail on 2026-09-23) says its precedence is per-run override → role override → agent frontmatter → `subagents.defaultModel` → **parent session model**. Therefore the absence of `subagents` is **not** an independent fixed package default: ordinary builtin agents inherit the parent model, while an agent declaring its own model can still use that. With no `modelScope`, no strict allow-list prevents a per-run or agent model outside the active provider. Scope is a rejection policy, not a model selector; it does not itself pin a default. The installed extension also says a project-level `modelScope` replaces the user-level one, so a generated user setting is not an absolute policy boundary.
 
 This is a reproducible code-path gap, but **the claimed OpenRouter launch was not independently inspected here**. The current jail's `~/.pi/agent/settings.json`, inspected on 2026-09-23, instead has `defaultProvider: zai`, `defaultModel: glm-5` and an explicit Codex `subagents` policy; those values can reflect the host settings layer or an earlier write. A missing computed key does not by itself prove the final rendered file lacks that key: host, capture, workspace and overlays can preserve it. Verify a specific launch with `yolo config render --explain pi/settings` or its rendered file and provenance, rather than inferring it solely from the derive branch.
+
+> [!NOTE]
+> **Built 2026-09-28**, as [OQ-PM1](#OQ-PM1) ruled. Every provider a pi profile selects now gets
+> the block: `defaultModel` is the model the chat selection starts on, as `provider/id`, and
+> `modelScope` is enforced and strict over the provider's configured ids, or `provider/*` when
+> it configures none ([XM-D4](extension-model-defaults.md#XM-D4)). When yolo can name no
+> default, it deletes `defaultModel` so a host value cannot start a child on another provider
+> ([XM-D5](extension-model-defaults.md#XM-D5)). A switch between codex and another provider,
+> in both directions, leaves only the new provider's block
+> ([XM-D6](extension-model-defaults.md#XM-D6)). The paragraphs above describe the tree before
+> the build.
 
 **Verdict:** fix the non-Codex policy gap only after [OQ-PM1](#OQ-PM1) decides whether child agents should be pinned to the profile's exact model, to its provider's configured model set, or to a separate explicit budget/policy set. Reusing the Codex allow-list on OpenRouter would either block valid models or allow the wrong provider. Cover both branches through the production rendering call site, including transition from Codex to a non-Codex profile and a provider without a resolvable model. Do not assert that simply moving the Codex block out of its branch is sufficient.
 

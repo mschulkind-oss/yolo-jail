@@ -1528,6 +1528,11 @@
                      The agent pack's own derive.lua decides which alias each of the
                      agent's keys reads; `default` is the alias used when a profile
                      states no option, and it is an ordinary name, not a keyword.
+                     Four names are CONVENTIONAL TIER ALIASES every provider is
+                     expected to declare: `default`, `fast` (cheap and quick),
+                     `balanced` (the middle tier) and `frontier` (the most capable).
+                     A convention, not a requirement: when a pack asks for one this
+                     provider does not name, the launch warns and proceeds.
       capabilities   the named jobs this provider performs for itself, e.g.
                      ["web_search"].  A launch that selects it OMITS every
                      `mcp_servers` entry whose "provides" names one of them — the

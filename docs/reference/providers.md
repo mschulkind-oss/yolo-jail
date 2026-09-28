@@ -479,7 +479,7 @@ list).
 ## Derives: the delivery mechanism
 
 A **derive** is the one place a pack runs Lua — a sandboxed producer of config values (base,
-table, string, math libraries only; no `os`, no `io`). Two registrations:
+table, string, math libraries only; no `os`, no `io`). Two registrations and one helper:
 
 - `yolo.derive(agent, surface, fn)` — the file half. Runs in-jail at boot for each declared
   surface, returning that surface's computed layer.
@@ -490,6 +490,12 @@ table, string, math libraries only; no `os`, no `io`). Two registrations:
   the bootstrap runs. One runner (`AgentEnv`) serves both notches — that shared
   implementation is what keeps `yolo -- claude` and `yolo host -- claude` composing the same
   environment. An in-jail env derive has no consumer and is never run.
+- `yolo.model_for(alias)` — not a registration but the one helper: it resolves a model alias
+  for the SELECTED provider and returns `"<provider>/<id>", "<id>"`, or `nil`. It never reads
+  another provider's aliases. A missing [tier alias](#tier-aliases) is a warning at boot, never
+  a refusal; any other missing name is `nil`, silently
+  ([OQ-XM1](../research/extension-model-defaults.md#OQ-XM1),
+  [XM-D1](../research/extension-model-defaults.md#XM-D1)).
 
 > [!WARNING]
 > **The env half is not a surface, and the host render's key probe is not its seam.** A
@@ -762,7 +768,7 @@ What each agent actually receives, from one composed table and one selection:
 | Agent | Catalog | Selection |
 | :--- | :--- | :--- |
 | codex | `~/.codex/config.toml` `[model_providers.<id>]` (TOML); never a row for `openai-codex` | top-level `model_provider` + `model`; `model` alone for `openai-codex` ([above](#selecting-openai-codex-for-codex)) |
-| pi | `~/.pi/agent/models.json` `providers.<id>` (JSON; credential as `apiKey: "${VAR}"` config-value syntax); never a row for `openai-codex`, whose models the extension registers from [the declared list](#the-openai-codex-model-list) | `~/.pi/agent/settings.json` `defaultProvider` + `defaultModel` (a pair of bare ids), and `enabledModels` (the scoped list, default first), which is not written for `openai-codex` |
+| pi | `~/.pi/agent/models.json` `providers.<id>` (JSON; credential as `apiKey: "${VAR}"` config-value syntax); never a row for `openai-codex`, whose models the extension registers from [the declared list](#the-openai-codex-model-list) | `~/.pi/agent/settings.json` `defaultProvider` + `defaultModel` (a pair of bare ids), and `enabledModels` (the scoped list, default first), which is not written for `openai-codex`. Also, for every provider, pi-subagents' `subagents` block: `defaultModel` as `<provider>/<id>` (the same model), and `modelScope` `{enforce, strict, allow}` over the provider's configured ids, or `<provider>/*` when it configures none, so a child agent never crosses providers ([XM-D3](../research/extension-model-defaults.md#XM-D3), [XM-D4](../research/extension-model-defaults.md#XM-D4)) |
 | opencode | `~/.config/opencode/opencode.json` `provider.<id>` — `baseURL`/`apiKey` live UNDER `options` | top-level `model = "<provider>/<model>"` |
 | omp | `~/.oh-omp/agent/models.yml` `providers.<id>` (YAML; credential as the provider's env-var NAME, which oh-omp resolves before treating it as a literal) | **none** — the derive writes a catalog and no selection key, so a selected profile makes the provider *available* and the user chooses it inside the agent |
 | copilot | no catalog (BYOK is env-var-only; no copilot config file has provider keys) | process env from the copilot pack's env derive: `COPILOT_PROVIDER_BASE_URL` (the sole activation gate), `COPILOT_PROVIDER_TYPE`, `COPILOT_PROVIDER_WIRE_API` (openai type only), `COPILOT_MODEL` (required — a provider with no resolvable alias composes nothing at all), `COPILOT_PROVIDER_API_KEY` (a placeholder for a keyless loopback endpoint), `COPILOT_PROVIDER_MAX_PROMPT_TOKENS` ← the provider's `context_window` option |
@@ -772,7 +778,25 @@ The spellings are facts about each agent, source-verified and carried as provena
 in the derives (pi 0.84.4's settings-manager keys and its ten-id api registry; opencode's
 first-slash model format and options nesting; codex's binary-verified `responses`-only). The
 model a selection names is resolved IN THE DERIVE — alias = the profile's `model` option or
-`default`, then the provider's `models` map; core resolves no model.
+`default`, then the provider's `models` map. Core decides no model: `yolo.model_for` only looks
+an alias up for the provider the derive was handed.
+
+### Tier aliases
+
+A provider's `models` map is open vocabulary, but four names are **conventional tier aliases**
+that every provider is expected to declare, so a pack can ask for a capability instead of a
+vendor's model name ([model-lists-and-pickers §6](../design/model-lists-and-pickers.md#6-tier-aliases-default-fast-balanced)):
+
+| Alias | Means |
+| :--- | :--- |
+| `default` | what you get when nothing is said, and every derive's fallback |
+| `fast` | cheap and quick |
+| `balanced` | the middle tier, where one exists |
+| `frontier` | the most capable tier ([OQ-XM2](../research/extension-model-defaults.md#OQ-XM2)) |
+
+It is a convention with a warning, not an enum: a derive asking `yolo.model_for` for one the
+selected provider lacks gets `nil`, and the launch prints one warning naming the provider and
+the alias and proceeds. The list is `luahook.ConventionalModelAliases`.
 Which ids yolo ships where an agent cannot default, a `models` kind for company packs, and how
 each picker renders the list are designed in [`model-lists-and-pickers.md`](../design/model-lists-and-pickers.md).
 
@@ -1215,7 +1239,8 @@ row says what replaced it.
 Verified at `7ad8358c`, except the deselection rows for the boot log and the id-writing
 surfaces with a host layer, verified at `38814ba4`, and the rows the `openai-codex` model list
 touched (the clear's log line, codex's `openai-codex` default, the list and pi's copy of it),
-verified at `2a34a176`, except the host half of pi's copy, verified at `f3da48dc`. The prose
+verified at `2a34a176`, except the host half of pi's copy, verified at `f3da48dc`, and the
+tier-alias and pi-subagents rows, verified at `0a187175`. The prose
 above explains what each is for; this table is the only place the exact spellings are stated.
 
 | Value | Setting | Defined in |
@@ -1238,6 +1263,8 @@ above explains what each is for; this table is the only place the exact spelling
 | Kinds that take the `profile` modifier | `env`, `config-overlay` — refused on every other kind | `packdecl` `validateContribution` |
 | Profile flag grammar | `-p` / `--profile`: a bare name, or `cli=name` (comma-separated, repeatable), on every notch; at `yolo host` / `yolo host env` a pair may name only the one command composed | `internal/cli` (`parseProfileValue`; `applyProfileValue` on the run path, `hostProfileFor` at the host) |
 | Profile disclosure line | `Profile <name>: declared: <packs or none>; received: <every selected pack>` | `run.noteUseProfiles` |
+| Conventional tier aliases | `default`, `fast`, `balanced`, `frontier`; a missing one warns at boot as `pack derive for <agent>: provider "<name>" declares no "<alias>" model alias …`, and only when a derive asks `yolo.model_for` for it | `luahook.ConventionalModelAliases`, `luahook.MissingTierAliasNote` |
+| pi-subagents' block | `subagents.defaultProvider`, `subagents.defaultModel` (`<provider>/<id>`, deleted when no default resolves), `subagents.modelScope` `{enforce: true, strict: true, allow}` (the configured ids, or `<provider>/*`), in `~/.pi/agent/settings.json` whenever a pi profile selects `openai-codex` or a provider pi can reach | `packs/pi/derive.lua` (`piSubagents`) |
 | zai model IDs | `glm-4.6`, `glm-5.3`, `glm-5.3-flash`; the default is `glm-5.3`. These are wire-true IDs; Claude alone appends `[1m]` when `context_window` ≥ 1000000. | `packs/zai/pack.json` |
 | zai Coding Plan OpenAI endpoint | `https://api.z.ai/api/coding/paas/v4` (`openai-chat-completions`) | `packs/zai/pack.json` |
 | zai provider options | `model: glm-5.3`, `context_window: 1000000`, `api_timeout_ms: 3000000` | `packs/zai/pack.json` |
