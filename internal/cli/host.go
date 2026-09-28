@@ -464,29 +464,16 @@ func hostExec(flagArgs, cmd []string, out, errw io.Writer, stdin io.Reader) int 
 	// It lives here and not inside the composition because `yolo host env` shares that
 	// composition and is an OBSERVE verb — a debugging front door that has to answer even
 	// when the answer is "this launch is missing a key".
-	if lines := launch.credentialGaps(os.Getenv); len(lines) > 0 {
-		held := os.Getenv(paths.AllowMissingProvidersEnv) != ""
-		if held {
-			// The override says what it is suppressing rather than going quiet — and does
-			// not re-offer the hatch it just honoured.
-			lines = append([]string{"Warning: " + paths.AllowMissingProvidersEnv +
-				" is set — CONTINUING, with a selected pack's provider credential still " +
-				"missing. Nothing was repaired: the agent's first request against that " +
-				"provider will still fail."}, lines...)
-		} else {
-			lines = append(lines, "  Put the variable in one of the consulted channels, or "+
-				"launch anyway with "+paths.AllowMissingProvidersEnv+"=1.")
-		}
-		for i, line := range lines {
-			if i == 0 {
-				fmt.Fprintf(errw, "yolo host: %s\n", line)
-				continue
-			}
-			fmt.Fprintln(errw, line)
-		}
-		if !held {
-			return 1
-		}
+	//
+	// ONE REFUSAL AT BOTH NOTCHES (packload.ProviderCredentialRefusal, notch-convergence.md
+	// item 14): the verdict, the facts, the remedy, or the override notice that says what it is
+	// suppressing without re-offering the hatch it just honored. Only the "yolo host: " prefix
+	// is this notch's.
+	lines, refuse := packload.ProviderCredentialRefusal(launch.credentialGaps(os.Getenv),
+		os.Getenv(paths.AllowMissingProvidersEnv) != "")
+	printHostLines(errw, lines)
+	if refuse {
+		return 1
 	}
 
 	// THE CREDENTIAL GATE'S DISCLOSURE (docs/design/provider-credential-scope.md §4, "no
@@ -498,7 +485,7 @@ func hostExec(flagArgs, cmd []string, out, errw io.Writer, stdin io.Reader) int 
 	// delivered, names only. Never suppressible (OQ-RO3), so it is printed unconditionally
 	// here rather than folded into a line a quieter path could skip.
 	for _, block := range [][]string{launch.credentialScopeLines(), launch.grantLines()} {
-		printHostBlock(errw, block)
+		printHostLines(errw, block)
 	}
 
 	target, err := resolveHostTarget(os.Getenv("PATH"), cmd[0])
@@ -518,7 +505,7 @@ func hostExec(flagArgs, cmd []string, out, errw io.Writer, stdin io.Reader) int 
 	// after the managed launch is prepared, because that launch serves one of them itself:
 	// `yolo host -- codex` runs its own refresh adapter and sets the URL the codex pack's
 	// pointer names, so that one is not missing and is not named.
-	printHostBlock(errw, launch.unservedLines(managedHostVars(managed)))
+	printHostLines(errw, launch.unservedLines(managedHostVars(managed)))
 	environ := launch.environ()
 	if managed != nil {
 		environ = managed.Environ(environ)
@@ -537,6 +524,19 @@ func hostExec(flagArgs, cmd []string, out, errw io.Writer, stdin io.Reader) int 
 		return 126
 	}
 	return 0 // unreachable: a successful Exec never returns
+}
+
+// printHostLines writes one pre-flight or disclosure block the way this notch names itself:
+// the first line after "yolo host: ", the rest as they are. The block's wording is packload's,
+// shared with the jail notch, so this prefix is the only part of it that is the host's.
+func printHostLines(errw io.Writer, lines []string) {
+	for i, line := range lines {
+		if i == 0 {
+			fmt.Fprintf(errw, "yolo host: %s\n", line)
+			continue
+		}
+		fmt.Fprintln(errw, line)
+	}
 }
 
 // hostSyscallExec is the exec `yolo host` replaces itself with; a var so a test can pin
@@ -762,18 +762,6 @@ func managedHostVars(managed managedOpenAIHostLaunch) func(string) bool {
 		}
 	}
 	return func(name string) bool { return set[name] }
-}
-
-// printHostBlock prints one disclosure block on stderr: the head line with the verb's prefix,
-// the indented detail lines under it as they are.
-func printHostBlock(errw io.Writer, block []string) {
-	for i, line := range block {
-		if i == 0 {
-			fmt.Fprintf(errw, "yolo host: %s\n", line)
-			continue
-		}
-		fmt.Fprintln(errw, line)
-	}
 }
 
 // processHolds answers, for this composition, whether and whence the process it composes holds
@@ -1221,8 +1209,10 @@ func composeHostVarsGranting(cfg *jsonx.OrderedMap, workspace, agent, profile st
 	// What this launch consulted for credentials, recorded as it is consulted: the
 	// env_sources entries that survived the scope filter, plus the shell this process
 	// inherited. The providers.md#the-credential-preflight pre-flight quotes the list verbatim, so a refusal says where it
-	// looked and not only that the key never arrived.
-	c.consulted = append(config.DescribeEnvSources(workspace, scoped), "the invoking shell's environment")
+	// looked and not only that the key never arrived. The inherited environment is named in
+	// the jail's words (packload.FromLaunchEnv), so one refusal reads the same at both notches
+	// (notch-convergence.md item 14).
+	c.consulted = append(config.DescribeEnvSources(workspace, scoped), packload.FromLaunchEnv)
 
 	// THE GRANT (docs/design/credential-sources-separation.md OQ-ES5, ruled for the host
 	// 2026-09-27): the named providers' claimed env_sources values, for this one process, keys

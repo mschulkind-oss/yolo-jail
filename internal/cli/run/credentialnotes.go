@@ -21,7 +21,9 @@ func (o *Options) noteCredentialScope(channel *packChannel) {
 		return
 	}
 	o.noteUnserved(channel)
-	lines := channel.scope.Disclosure()
+	// The one disclosure renderer, the host's too; the jail adds no notes (ES-D2 keeps its
+	// wording until OQ-ES5 decides whether a jail shell has a remedy).
+	lines := channel.scope.DisclosureWith(packload.DisclosureNotes{})
 	if len(lines) == 0 {
 		return
 	}

@@ -49,27 +49,15 @@ import (
 func (o *Options) checkProviderCredentials(cfg *jsonx.OrderedMap, packs []*packload.Pack,
 	channel *packChannel, argvPairs map[string]string) (lines []string, refuse bool) {
 	consulted := config.DescribeEnvSources(o.Workspace, cfg)
-	consulted = append(consulted, "the environment yolo was launched from")
+	consulted = append(consulted, packload.FromLaunchEnv)
 	// NARROWED WITH THE GATE (OQ-CN3): the providers some agent selected are the only ones
 	// whose key this launch delivers to anybody, so they are the only ones it may demand.
 	// The SAME scope the vehicles deliver from, so the check and the delivery cannot
 	// disagree about who gets a credential.
 	facts := packload.ProviderCredentialGaps(packs, channel.providers,
 		channel.scope.SelectedProviders(), channel.deliveryLookup(o, argvPairs), consulted)
-	if len(facts) == 0 {
-		return nil, false
-	}
-	if o.Getenv(paths.AllowMissingProvidersEnv) != "" {
-		return append([]string{"Warning: " + paths.AllowMissingProvidersEnv +
-			" is set — CONTINUING, with a selected pack's provider credential still missing. " +
-			"Nothing was repaired: the agent's first request against that provider will " +
-			"still fail."}, facts...), false
-	}
-	return append([]string{
-		"Refusing to launch: a selected pack needs a provider this launch cannot deliver.",
-	}, append(facts,
-		"  Put the variable in one of the consulted channels, or launch anyway with "+
-			paths.AllowMissingProvidersEnv+"=1.")...), true
+	// The refusal's wording is packload's, the host notch's too (notch-convergence.md item 14).
+	return packload.ProviderCredentialRefusal(facts, o.Getenv(paths.AllowMissingProvidersEnv) != "")
 }
 
 // printProviderRefusal renders a pre-flight's output: every VERDICT line in bold red, the

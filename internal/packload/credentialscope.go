@@ -589,16 +589,6 @@ func (d *AgentDelivery) Empty() bool {
 	return d.EnvSources.Len() == 0 && len(d.PackEnv) == 0 && len(d.Shape) == 0
 }
 
-// Disclosure words what the gate did with the credentials the user configured, names
-// only — never a value. §4's "no silent narrowing": a launch that withholds a credential
-// says so, and one that scopes it says to whom. Nil when env_sources hydrated no claimed
-// name, which is every launch that configured no provider credential.
-//
-// It is the jail notch's wording: DisclosureWith and no notes.
-func (s *CredentialScope) Disclosure() []string {
-	return s.DisclosureWith(DisclosureNotes{})
-}
-
 // DisclosureNotes is what one notch adds to the gate's disclosure, for facts the gate cannot
 // know: how a withheld credential can be received there, and what the launched process already
 // holds. The zero value adds nothing, and is the jail's wording, which
@@ -625,9 +615,18 @@ type DisclosureNotes struct {
 	Composed func(name string) bool
 }
 
-// DisclosureWith is Disclosure with a notch's notes applied. Names are grouped by claimant,
-// recipients and, under Inherited and Composed, whether and whence the process already holds
-// them, so each line tells one story.
+// DisclosureWith words what the gate did with the credentials the user configured, names
+// only — never a value, with a notch's notes applied. §4's "no silent narrowing": a launch
+// that withholds a credential says so, and one that scopes it says to whom. Nil when
+// env_sources hydrated no claimed name, which is every launch that configured no provider
+// credential.
+//
+// THE ONE DISCLOSURE RENDERER, at every notch (docs/plans/notch-convergence.md item 14, row
+// C7): the jail passes the zero DisclosureNotes, the host its own. A second, notes-less entry
+// point (`Disclosure`) was the jail's until it was deleted, so a notch's difference is always
+// a named note, never a second function. Names are grouped by claimant, recipients and, under
+// Inherited and Composed, whether and whence the process already holds them, so each line
+// tells one story.
 func (s *CredentialScope) DisclosureWith(notes DisclosureNotes) []string {
 	if s == nil {
 		return nil

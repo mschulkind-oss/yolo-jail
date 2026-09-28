@@ -582,9 +582,9 @@ type providerRequirement struct {
 // never arrived, not which channel was supposed to bring it.
 //
 // Returns the FACT lines, empty when every requirement is deliverable. No lead and no
-// remedy: the lead is the refusing notch's voice, and the remedy names the channels only
-// that notch knows — including the escape hatch (paths.AllowMissingProvidersEnv), which a
-// refusal must name and an override notice must not re-offer.
+// remedy: ProviderCredentialRefusal wraps them in both, the same at every notch, because
+// the escape hatch (paths.AllowMissingProvidersEnv) is one a refusal must name and an
+// override notice must not re-offer.
 //
 // NARROWED WITH THE CREDENTIAL GATE (OQ-CN3, ruled 2026-09-26;
 // docs/design/provider-credential-scope.md §3.2): selected is the set of providers some
@@ -629,6 +629,36 @@ func ProviderCredentialGaps(packs []*Pack, providers *jsonx.OrderedMap, selected
 		where = strings.Join(consulted, ", ")
 	}
 	return append(facts, "  consulted for credentials: "+where)
+}
+
+// ProviderCredentialRefusal is the credential pre-flight's whole message, at EVERY notch: the
+// verdict, ProviderCredentialGaps' facts under it, and the remedy — or, when held (the escape
+// hatch paths.AllowMissingProvidersEnv is set), the override notice over the same facts. It
+// reports whether the launch must stop, which lines alone cannot carry: the hatch turns a
+// refusal into a LOUD CONTINUATION, and a caller that only looked at len(lines) would exit on
+// the notice. Nil lines for no facts.
+//
+// ONE RENDERER, so the jail launcher and `yolo host --` print one refusal
+// (docs/plans/notch-convergence.md item 14, row C7). The host used to print the first fact as
+// its verdict and had no sentence saying what was refused; the two bodies now differ only in
+// how each notch names itself (the host prefixes "yolo host: ", the jail bolds the verdict).
+// The verdict is the only unindented line, which is what the jail's printProviderRefusal
+// renders bold.
+func ProviderCredentialRefusal(facts []string, held bool) (lines []string, refuse bool) {
+	if len(facts) == 0 {
+		return nil, false
+	}
+	if held {
+		return append([]string{"Warning: " + paths.AllowMissingProvidersEnv +
+			" is set — CONTINUING, with a selected pack's provider credential still missing. " +
+			"Nothing was repaired: the agent's first request against that provider will " +
+			"still fail."}, facts...), false
+	}
+	lines = append([]string{
+		"Refusing to launch: a selected pack needs a provider this launch cannot deliver.",
+	}, facts...)
+	return append(lines, "  Put the variable in one of the consulted channels, or launch anyway with "+
+		paths.AllowMissingProvidersEnv+"=1."), true
 }
 
 // providerEntry returns the entry m holds at key, or nil when m is nil, the key is

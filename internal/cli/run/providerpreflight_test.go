@@ -504,3 +504,38 @@ func TestPrintProviderRefusalBoldsEveryFindingsVerdict(t *testing.T) {
 		t.Errorf("want %d bold verdicts, got %d:\n%q", len(verdicts), boldVerdicts, stderr.String())
 	}
 }
+
+// credentialRefusalBody is the credential pre-flight's refusal for zaiSelectedByAcme's
+// declaration with no key anywhere, WORD FOR WORD. The host notch's test of the same
+// declaration (cli.TestHostCredentialRefusalIsTheJailsBody) carries the same literal behind
+// "yolo host: ", which is what "one refusal at both notches" means
+// (docs/plans/notch-convergence.md item 14, row C7).
+const credentialRefusalBody = `Refusing to launch: a selected pack needs a provider this launch cannot deliver.
+  • pack zai requires provider "zai", whose credential variable ZAI_API_KEY is not set in this launch's environment
+  consulted for credentials: the environment yolo was launched from
+  Put the variable in one of the consulted channels, or launch anyway with YOLO_ALLOW_MISSING_PROVIDERS=1.`
+
+// The jail's refusal is the shared renderer's (packload.ProviderCredentialRefusal), byte for
+// byte; with the hatch held it is the shared override notice over the same facts.
+func TestJailCredentialRefusalIsTheSharedBody(t *testing.T) {
+	home := retireHome(t)
+	writeUserPacks(t, home, `[]`)
+	o := retireOptions(t, discardBuf())
+	o.Getenv = func(string) string { return "" }
+	packs := zaiSelectedByAcme(t, o)
+	lines, refuse := o.checkProviderCredentials(newConfig(), packs, channelFor(t, o, newConfig(), packs, emptyEnv()), nil)
+	if got := strings.Join(lines, "\n"); !refuse || got != credentialRefusalBody {
+		t.Errorf("the jail's refusal (refuse=%v):\n%s\nwant:\n%s", refuse, got, credentialRefusalBody)
+	}
+	o.Getenv = func(name string) string {
+		if name == paths.AllowMissingProvidersEnv {
+			return "1"
+		}
+		return ""
+	}
+	lines, refuse = o.checkProviderCredentials(newConfig(), packs, channelFor(t, o, newConfig(), packs, emptyEnv()), nil)
+	if refuse || len(lines) != 3 || !strings.HasPrefix(lines[0], "Warning: "+paths.AllowMissingProvidersEnv+" is set") ||
+		strings.Join(lines[1:], "\n") != strings.Join(strings.Split(credentialRefusalBody, "\n")[1:3], "\n") {
+		t.Errorf("the held notice (refuse=%v):\n%s", refuse, strings.Join(lines, "\n"))
+	}
+}

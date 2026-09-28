@@ -222,7 +222,7 @@ func TestCredentialScopeDisclosureNamesOnly(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got := strings.Join(scope.Disclosure(), "\n")
+	got := strings.Join(scope.DisclosureWith(DisclosureNotes{}), "\n")
 	for _, want := range []string{"ZAI_API_KEY (provider zai): pi only",
 		"ROUTE_BEARER (provider routes): withheld"} {
 		if !strings.Contains(got, want) {
@@ -235,7 +235,7 @@ func TestCredentialScopeDisclosureNamesOnly(t *testing.T) {
 		}
 	}
 	quiet, _ := ScopeCredentials(ScopeInput{EnvSources: hydrated("GH_TOKEN", "g")})
-	if lines := quiet.Disclosure(); lines != nil {
+	if lines := quiet.DisclosureWith(DisclosureNotes{}); lines != nil {
 		t.Errorf("a launch that hydrated no claimed credential discloses nothing, got %v", lines)
 	}
 }
@@ -254,7 +254,7 @@ func TestCredentialScopeDisclosureRemedyReachesWithheldLinesOnly(t *testing.T) {
 		t.Fatal(err)
 	}
 	if got, want := strings.Join(scope.DisclosureWith(DisclosureNotes{}), "\n"),
-		strings.Join(scope.Disclosure(), "\n"); got != want {
+		strings.Join(scope.DisclosureWith(DisclosureNotes{}), "\n"); got != want {
 		t.Errorf("no notes must be the plain disclosure:\n%s\nwant:\n%s", got, want)
 	}
 	var asked [][]string

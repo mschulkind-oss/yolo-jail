@@ -48,7 +48,7 @@ func TestScopeCredentialsGrantDeliversClaimedKeysOnly(t *testing.T) {
 		t.Errorf("pi's derive lookup found the granted ROUTE_BEARER=%q", v)
 	}
 	// The disclosure names the grant's recipients as recipients.
-	got := strings.Join(scope.Disclosure(), "\n")
+	got := strings.Join(scope.DisclosureWith(DisclosureNotes{}), "\n")
 	for _, want := range []string{"CEREBRAS_API_KEY (provider cerebras): bash only",
 		"ROUTE_BEARER (provider routes): bash, pi only", "ZAI_API_KEY (provider zai): pi only"} {
 		if !strings.Contains(got, want) {
@@ -110,7 +110,7 @@ func TestDisclosureHeaderNamesTheGrantAsARecipientRule(t *testing.T) {
 		t.Fatal(err)
 	}
 	const selectsOnly = "Credential scope: a provider's credential reaches only the agents whose profile selects it."
-	if got := plain.Disclosure(); len(got) == 0 || got[0] != selectsOnly {
+	if got := plain.DisclosureWith(DisclosureNotes{}); len(got) == 0 || got[0] != selectsOnly {
 		t.Errorf("without a grant the rule line is unchanged: %q", got)
 	}
 	in.Grants = map[string][]string{"usage-bar": {"cerebras"}}
@@ -118,7 +118,7 @@ func TestDisclosureHeaderNamesTheGrantAsARecipientRule(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got := granted.Disclosure()
+	got := granted.DisclosureWith(DisclosureNotes{})
 	want := "Credential scope: a provider's credential reaches only the processes whose profile " +
 		"selects it or whose --with-credentials grant names it."
 	if len(got) == 0 || got[0] != want {

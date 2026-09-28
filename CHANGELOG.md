@@ -159,6 +159,8 @@ apply it, and the launch says that too. See
   -- <command>` was refused too. Every spelling now runs it at the host, wherever `--at` sits. A
   flag that only means something to a jail launch, such as `--timing`, is refused by `yolo host`
   by name instead of as an unexpected argument.
+- `yolo host -- <command>` stopped a launch whose provider key was missing without saying it was
+  refusing the launch. It now prints the refusal a jail launch prints, word for word.
 - Quitting a podman jail could hold your terminal for half a minute after a long session, while
   podman deleted everything the jail had left in `/tmp` and its container dirs. You get the
   prompt back as soon as the jail exits, and the files are deleted in the background.
