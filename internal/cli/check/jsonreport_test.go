@@ -54,7 +54,7 @@ func TestCheckJSONParsesAndAgreesWithTheText(t *testing.T) {
 	}
 
 	// The fixture has real state — this is not an empty-report pass. The
-	// no-runtime golden carries four FAILs and five WARNs.
+	// no-runtime golden carries three FAILs and five WARNs.
 	if len(rep.Findings) == 0 {
 		t.Fatal("no findings recorded; the fixture grades several sections, so an " +
 			"empty report means the recording is not wired to ok/fail/warn")

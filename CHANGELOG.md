@@ -108,9 +108,10 @@ apply it, and the launch says that too. See
 - pi updates its extensions before it starts, at most hourly and whenever its settings change.
   `agent_updates: false` turns that off.
 - An unknown flag exits 2 instead of being ignored.
-- `yolo check` reports one finding, not two, for a container runtime that is installed but not
-  started when no other runtime answers, and for a Claude OAuth broker whose certificates were
-  never generated.
+- `yolo check` reports one finding, not two or three, when no container runtime answers, whether
+  none is installed or one is installed but not started, and one finding for a Claude OAuth
+  broker whose certificates were never generated. It no longer says no runtime is on `PATH` when
+  a stopped one is.
 - Two writers for one `host_files` destination refuse the launch; the last one used to win.
 
 ### Removed

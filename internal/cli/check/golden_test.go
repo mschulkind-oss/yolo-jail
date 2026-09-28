@@ -38,9 +38,9 @@ Config Files
 
   [FAIL] Could not resolve the yolo-jail repo root
 Merged Configuration
-  [FAIL] No container runtime found on PATH
+  - No runtime available — see Container Runtime above
 
 Summary
-  4 failed, 5 warnings
+  3 failed, 5 warnings
 
 `

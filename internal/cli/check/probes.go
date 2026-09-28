@@ -16,6 +16,36 @@ import (
 // selection short-circuits before any which/probe. Only returns container
 // runtimes whose daemon is actually reachable.
 func (o *Options) runtimeForCheck(config *jsonx.OrderedMap) (string, string) {
+	rt, msg, _ := o.resolveRuntimeForCheck(config)
+	return rt, msg
+}
+
+// resolveRuntimeForCheck is runtimeForCheck plus the one fact Merged Configuration needs to
+// avoid counting a cause twice: unavailable is true when the error is that a CONTAINER
+// runtime is not on PATH or not connected, which the Container Runtime section has already
+// probed and graded. A native-runtime error (macos-user named on a non-Mac) is a config
+// finding that section never makes, so it is not "unavailable".
+func (o *Options) resolveRuntimeForCheck(config *jsonx.OrderedMap) (rt, msg string, unavailable bool) {
+	rt, msg = o.resolveRuntime(config)
+	if msg == "" {
+		return rt, "", false
+	}
+	return rt, msg, !inStrSlice(paths.NativeRuntimes, o.configuredRuntimeName(config))
+}
+
+// configuredRuntimeName is the runtime YOLO_RUNTIME or the config names, "" when neither
+// names a known one — the same precedence resolveRuntime applies.
+func (o *Options) configuredRuntimeName(config *jsonx.OrderedMap) string {
+	if env := o.Getenv("YOLO_RUNTIME"); env != "" && inStrSlice(paths.AllRuntimes, env) {
+		return env
+	}
+	if cfg := configRuntime(config); cfg != "" && inStrSlice(paths.AllRuntimes, cfg) {
+		return cfg
+	}
+	return ""
+}
+
+func (o *Options) resolveRuntime(config *jsonx.OrderedMap) (string, string) {
 	env := o.Getenv("YOLO_RUNTIME")
 	if env != "" && inStrSlice(paths.AllRuntimes, env) {
 		if rt, errMsg, native := o.nativeRuntimeCheck(env, "YOLO_RUNTIME"); native {
@@ -50,6 +80,7 @@ func (o *Options) runtimeForCheck(config *jsonx.OrderedMap) (string, string) {
 	} else {
 		candidates = []string{"podman"}
 	}
+	var stopped []string
 	for _, rt := range candidates {
 		path, ok := o.LookPath(rt)
 		if !ok {
@@ -59,9 +90,15 @@ func (o *Options) runtimeForCheck(config *jsonx.OrderedMap) (string, string) {
 			continue
 		}
 		if !o.runtimeIsConnectable(rt) {
+			stopped = append(stopped, rt)
 			continue
 		}
 		return rt, ""
+	}
+	// "Not on PATH" only when it is true: a runtime that is on PATH but does not answer is
+	// a different finding with a different fix (start it, not install it).
+	if len(stopped) > 0 {
+		return "", "Container runtime installed but not connected (" + strings.Join(stopped, ", ") + ")"
 	}
 	return "", "No container runtime found on PATH"
 }

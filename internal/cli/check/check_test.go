@@ -402,6 +402,113 @@ func TestRuntimeStoppedIsOneRow(t *testing.T) {
 	})
 }
 
+// sectionOf returns the text of one section of a rendered report: from its header line to
+// the next line that starts in column zero (the next header, or the Summary).
+func sectionOf(t *testing.T, report, header string) string {
+	t.Helper()
+	i := strings.Index(report, "\n"+header+"\n")
+	if i < 0 {
+		t.Fatalf("no %q section in the report:\n%s", header, report)
+	}
+	body := report[i+len(header)+2:]
+	for j, line := range strings.SplitAfter(body, "\n") {
+		if line != "" && line != "\n" && line[0] != ' ' {
+			return strings.Join(strings.SplitAfter(body, "\n")[:j], "")
+		}
+	}
+	return body
+}
+
+// TestStoppedRuntimeIsOneFailInTheWholeReport pins HE-D2 at the level the user reads: the
+// whole report, not the Container Runtime section alone. Merged Configuration resolves the
+// runtime a second time (runtimeForCheck) and used to add its own [FAIL] for the same stopped
+// podman, worded "No container runtime found on PATH" while podman was on PATH. So the report
+// counted one cause twice, and one of the two was false. The Container Runtime section is the
+// finding; Merged Configuration now prints a dim line pointing back at it.
+//
+// The no-runtime-installed case is the same shape ("No container runtime installed" and
+// "No container runtime found on PATH"), and the golden pins that one.
+func TestStoppedRuntimeIsOneFailInTheWholeReport(t *testing.T) {
+	stopped := ExecResult{Stdout: "", Stderr: "cannot connect", Ran: true, RC: 125}
+	for _, tc := range []struct{ name, yoloRuntime string }{
+		{"auto-detected", ""},
+		{"selected by YOLO_RUNTIME", "podman"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("HOME", t.TempDir())
+			var out bytes.Buffer
+			opts := baseOptions(t, &out)
+			opts.Getenv = func(k string) string {
+				if k == "YOLO_RUNTIME" {
+					return tc.yoloRuntime
+				}
+				return ""
+			}
+			opts.LookPath = func(name string) (string, bool) { return "/usr/bin/" + name, name == "podman" }
+			opts.Exec = fakeExec(map[string]ExecResult{
+				"podman --version": {Stdout: "podman version 5.8.6", Ran: true, RC: 0},
+				"podman info":      stopped,
+			})
+			if rc := Check(opts); rc != 1 {
+				t.Errorf("exit = %d, want 1 — a stopped runtime still fails the check", rc)
+			}
+			got := stripANSI(out.String())
+			merged := sectionOf(t, got, "Merged Configuration")
+			if strings.Contains(merged, "[FAIL]") {
+				t.Errorf("Merged Configuration must not FAIL a second time on the stopped runtime:\n%s", got)
+			}
+			if strings.Contains(got, "No container runtime found on PATH") {
+				t.Errorf("podman IS on PATH; the report must not say otherwise:\n%s", got)
+			}
+			if !strings.Contains(merged, "- No runtime available — see Container Runtime above") {
+				t.Errorf("Merged Configuration must point back at the finding:\n%s", got)
+			}
+			if c := strings.Count(got, "installed but not started"); c != 1 {
+				t.Errorf("the stopped runtime is named %d times as a finding, want 1:\n%s", c, got)
+			}
+		})
+	}
+}
+
+// TestNativeRuntimeErrorStillFailsMergedConfig: the pointer-back applies only to a container
+// runtime being unavailable. macos-user named on a non-Mac is a config finding the Container
+// Runtime section never makes, so it keeps its own [FAIL] even when that section failed too.
+func TestNativeRuntimeErrorStillFailsMergedConfig(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	var out bytes.Buffer
+	opts := baseOptions(t, &out)
+	opts.Getenv = func(k string) string {
+		if k == "YOLO_RUNTIME" {
+			return "macos-user"
+		}
+		return ""
+	}
+	Check(opts)
+	merged := sectionOf(t, stripANSI(out.String()), "Merged Configuration")
+	if !strings.Contains(merged, "[FAIL] Runtime 'macos-user' from YOLO_RUNTIME is macOS-only") {
+		t.Errorf("a native-runtime error is its own finding and must still FAIL:\n%s", out.String())
+	}
+}
+
+// TestRuntimeUnavailableMessageIsTrue: when Merged Configuration does report the runtime
+// itself (the Container Runtime section found one working that runtimeForCheck does not
+// accept), the message must not claim nothing is on PATH when something is.
+func TestRuntimeUnavailableMessageIsTrue(t *testing.T) {
+	var out bytes.Buffer
+	opts := baseOptions(t, &out)
+	opts.LookPath = func(name string) (string, bool) { return "/usr/bin/" + name, name == "podman" }
+	opts.Exec = fakeExec(map[string]ExecResult{
+		"podman info": {Ran: true, RC: 125},
+	})
+	_, msg, unavailable := opts.resolveRuntimeForCheck(jsonx.NewOrderedMap())
+	if !unavailable {
+		t.Errorf("a stopped podman is a runtime-availability error")
+	}
+	if msg != "Container runtime installed but not connected (podman)" {
+		t.Errorf("msg = %q", msg)
+	}
+}
+
 func must(t *testing.T, err error) {
 	t.Helper()
 	if err != nil {

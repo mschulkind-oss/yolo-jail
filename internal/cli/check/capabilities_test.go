@@ -119,7 +119,7 @@ func TestMergedConfigSectionReportsTheCapabilityGap(t *testing.T) {
 			Getenv:   func(string) string { return "" },
 			LookPath: func(string) (string, bool) { return "", false },
 		}
-		o.sectionMergedConfig(r, cfg, t.TempDir(), empty, empty)
+		o.sectionMergedConfig(r, cfg, t.TempDir(), empty, empty, false)
 		got := stripANSI(buf.String())
 		if !strings.Contains(got, "required_capabilities") || !strings.Contains(got, "[FAIL]") {
 			t.Errorf("the section must FAIL on a gap the launch would refuse:\n%s", got)
@@ -138,7 +138,7 @@ func TestMergedConfigSectionReportsTheCapabilityGap(t *testing.T) {
 			},
 			LookPath: func(string) (string, bool) { return "", false },
 		}
-		o.sectionMergedConfig(r, cfg, t.TempDir(), empty, empty)
+		o.sectionMergedConfig(r, cfg, t.TempDir(), empty, empty, false)
 		got := stripANSI(buf.String())
 		if !strings.Contains(got, "[WARN]") || !strings.Contains(got, "required_capabilities") {
 			t.Errorf("with the hatch set the gap must still be reported, as a WARN:\n%s", got)

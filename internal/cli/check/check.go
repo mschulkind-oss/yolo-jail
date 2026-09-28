@@ -81,7 +81,11 @@ func Check(opts Options) int {
 	r.blank()
 
 	// --- Container Runtime ---
+	failedBeforeRuntime := r.failed
 	detectedRuntime := o.sectionContainerRuntime(r)
+	// The Container Runtime section FAILed because nothing answers. Merged Configuration's
+	// own runtime resolution then reaches the same cause, and must not grade it again.
+	runtimeFailReported := detectedRuntime == "" && r.failed > failedBeforeRuntime
 
 	// --- Nix ---
 	o.sectionNix(r)
@@ -123,7 +127,7 @@ func Check(opts Options) int {
 	}
 
 	// --- Merged Configuration ---
-	if exit := o.sectionMergedConfig(r, merged, workspace, userConfig, workspaceConfig); exit {
+	if exit := o.sectionMergedConfig(r, merged, workspace, userConfig, workspaceConfig, runtimeFailReported); exit {
 		r.summaryFailWarn()
 		return finish(o.Stdout, os.Stderr, o.Format, r, 1)
 	}
@@ -467,12 +471,22 @@ func (o *Options) sectionConfigFiles(r *reporter, workspace string) (*jsonx.Orde
 
 // sectionMergedConfig runs the Merged Configuration block. Returns true when
 // there were validation errors (the caller early-exits with fail+warn summary).
-func (o *Options) sectionMergedConfig(r *reporter, merged *jsonx.OrderedMap, workspace string, userConfig, workspaceConfig *jsonx.OrderedMap) bool {
+//
+// runtimeFailReported says the Container Runtime section has already FAILed because no
+// container runtime answers. A container-runtime-unavailable error from the resolution here
+// is then that same cause, so it is a dim line pointing back rather than a second [FAIL]
+// (one cause, one row: HE-D2, docs/reference/host-agent-environment.md). It still stops the
+// section as the [FAIL] did, so what runs after is unchanged.
+func (o *Options) sectionMergedConfig(r *reporter, merged *jsonx.OrderedMap, workspace string, userConfig, workspaceConfig *jsonx.OrderedMap, runtimeFailReported bool) bool {
 	r.sectionHeader("Merged Configuration")
 	resolver := loopholes.NewResolver()
 	errors, warnings := config.ValidateConfig(merged, workspace, resolver)
-	runtimeSel, runtimeErr := o.runtimeForCheck(merged)
-	if runtimeErr != "" {
+	runtimeSel, runtimeErr, runtimeUnavailable := o.resolveRuntimeForCheck(merged)
+	runtimeBlocked := false
+	if runtimeErr != "" && runtimeUnavailable && runtimeFailReported {
+		r.dim("No runtime available — see Container Runtime above")
+		runtimeBlocked = true
+	} else if runtimeErr != "" {
 		errors = append(errors, runtimeErr)
 	} else if runtimeSel != "" {
 		r.ok("Runtime available: " + runtimeSel)
@@ -491,7 +505,7 @@ func (o *Options) sectionMergedConfig(r *reporter, merged *jsonx.OrderedMap, wor
 	for _, msg := range warnings {
 		r.warn(msg, "")
 	}
-	if len(errors) > 0 {
+	if len(errors) > 0 || runtimeBlocked {
 		for _, msg := range errors {
 			r.fail(msg, "")
 		}
