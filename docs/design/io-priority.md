@@ -37,8 +37,8 @@ which scheduler. The rest follows from it.
 
 **Needs your ruling:** [OQ-IO3](#OQ-IO3), [OQ-IO4](#OQ-IO4), [OQ-IO6](#OQ-IO6), [OQ-IO7](#OQ-IO7).
 
-**Reads with:** [`io-priority-plan.md`](io-priority-plan.md) (the implementation sketch, unstable
-while those four are open), [`backend-parity.md`](backend-parity.md) (the disposition words
+**Reads with:** [`io-priority-plan.md`](io-priority-plan.md) (the build plan for steps 1 to 4,
+completed against the tree; steps 5 and 6 stay blocked), [`backend-parity.md`](backend-parity.md) (the disposition words
 [§5.2](#52-the-launcher-one-decision-per-backend-and-the-disk-it-lands-on) uses),
 [`declaration-parity.md`](declaration-parity.md) (P1, which decides the failure paths, and P4,
 which bounds who may declare it at the host notch).
