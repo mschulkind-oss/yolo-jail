@@ -139,7 +139,7 @@ func sourceGit() *fakeGit {
 			"symbolic-ref --short -q HEAD":                               "main",
 			"config --get branch.main.remote":                            "origin",
 			"config --get branch.main.merge":                             "refs/heads/main",
-			"ls-remote --exit-code origin refs/heads/main":               testTip + "\trefs/heads/main",
+			"ls-remote --exit-code -- origin refs/heads/main":            testTip + "\trefs/heads/main",
 			"rev-list --count cfefa8bf.." + testTip + " -- " + testPaths: "12",
 			"rev-list --count HEAD.." + testTip + " -- " + testPaths:     "3",
 		},
@@ -157,7 +157,7 @@ func (f *fakeGit) ran(key string) bool {
 	return false
 }
 
-const quietFetch = "fetch --quiet --no-tags --no-write-fetch-head --refmap= origin refs/heads/main"
+const quietFetch = "fetch --quiet --no-tags --no-write-fetch-head --refmap= -- origin refs/heads/main"
 
 func TestCheckSource(t *testing.T) {
 	ch := Channel{Kind: KindSource, Exe: "/home/u/.local/bin/yolo", SourceDir: "/src/yolo-jail", Branch: "main", Version: "cfefa8bf"}
@@ -209,7 +209,7 @@ func TestCheckSource(t *testing.T) {
 		if st.Available || !strings.Contains(st.Error, `on "feat/x"`) {
 			t.Errorf("got %+v, want a branch refusal", st)
 		}
-		if g.ran("ls-remote --exit-code origin refs/heads/main") {
+		if g.ran("ls-remote --exit-code -- origin refs/heads/main") {
 			t.Error("a refused checkout must not touch the network")
 		}
 	})
@@ -240,7 +240,7 @@ func TestCheckSource(t *testing.T) {
 	})
 	t.Run("offline is transient", func(t *testing.T) {
 		g := sourceGit()
-		g.fail["ls-remote --exit-code origin refs/heads/main"] = true
+		g.fail["ls-remote --exit-code -- origin refs/heads/main"] = true
 		st := check(g, ch)
 		if st.Available || !strings.Contains(st.Error, "ls-remote") {
 			t.Errorf("got %+v, want a transient ls-remote error", st)

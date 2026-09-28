@@ -75,7 +75,7 @@ func Check(ctx context.Context, ch Channel, prev State, deps CheckDeps) State {
 	if err != nil {
 		st.Error = err.Error()
 	}
-	return st
+	return st.sanitized()
 }
 
 // SourceBranchMismatch is the refusal for a checkout that has left the branch
@@ -100,6 +100,14 @@ func sourceUpstream(ctx context.Context, git GitRunner, ch Channel) (branch, rem
 	if rerr != nil || merr != nil || remote == "" || mergeRef == "" {
 		return "", "", "", "", fmt.Errorf("the checkout at %s: branch %q has no upstream branch to update from", ch.SourceDir, branch)
 	}
+	// Both values come from the checkout's own git config, which whatever can
+	// write the checkout controls. The `--` before them in checkSource's git
+	// calls already stops git reading one as an option (`--upload-pack=<cmd>`
+	// runs <cmd>); refusing the spelling as well means no git command ever
+	// receives it.
+	if strings.HasPrefix(remote, "-") || strings.HasPrefix(mergeRef, "-") {
+		return "", "", "", "", fmt.Errorf("the checkout at %s: branch %q has an upstream that starts with \"-\" (remote %q, merge %q), which yolo refuses to pass to git", ch.SourceDir, branch, remote, mergeRef)
+	}
 	display = remote + "/" + strings.TrimPrefix(mergeRef, "refs/heads/")
 	return branch, remote, mergeRef, display, nil
 }
@@ -123,7 +131,7 @@ func checkSource(ctx context.Context, git GitRunner, ch Channel) (upstream, late
 	if err != nil {
 		return "", "", 0, err
 	}
-	out, err := git(ctx, ch.SourceDir, "ls-remote", "--exit-code", remote, mergeRef)
+	out, err := git(ctx, ch.SourceDir, "ls-remote", "--exit-code", "--", remote, mergeRef)
 	if err != nil {
 		return "", "", 0, fmt.Errorf("git ls-remote %s %s: %w", remote, mergeRef, err)
 	}
@@ -132,7 +140,7 @@ func checkSource(ctx context.Context, git GitRunner, ch Channel) (upstream, late
 		return "", "", 0, fmt.Errorf("git ls-remote %s %s: unexpected output %q", remote, mergeRef, out)
 	}
 	if _, err := git(ctx, ch.SourceDir, "cat-file", "-e", tip+"^{commit}"); err != nil {
-		if _, err := git(ctx, ch.SourceDir, "fetch", "--quiet", "--no-tags", "--no-write-fetch-head", "--refmap=", remote, mergeRef); err != nil {
+		if _, err := git(ctx, ch.SourceDir, "fetch", "--quiet", "--no-tags", "--no-write-fetch-head", "--refmap=", "--", remote, mergeRef); err != nil {
 			return "", "", 0, fmt.Errorf("git fetch %s %s: %w", remote, mergeRef, err)
 		}
 	}

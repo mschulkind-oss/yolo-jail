@@ -7,8 +7,10 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
+	"unicode"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
@@ -44,6 +46,31 @@ type State struct {
 	// DeclinedFor is the Latest the user said "no" to at the launch prompt. The
 	// notice still shows; the prompt waits for something newer than that.
 	DeclinedFor string `json:"declined_for,omitempty"`
+}
+
+// sanitized returns s with control characters removed from the fields that
+// carry text from outside yolo: the upstream's name and the tip or tag it
+// reported, and an error that may quote git's stderr or a server's reply. They
+// are printed to a terminal, where an escape sequence would be obeyed.
+func (s State) sanitized() State {
+	s.Upstream = StripControl(s.Upstream)
+	s.Latest = StripControl(s.Latest)
+	s.Error = StripControl(s.Error)
+	return s
+}
+
+// StripControl removes control characters from s, turning a newline, carriage
+// return or tab into a space so a multi-line message stays readable on one line.
+func StripControl(s string) string {
+	return strings.Map(func(r rune) rune {
+		switch {
+		case r == '\n' || r == '\r' || r == '\t':
+			return ' '
+		case unicode.IsControl(r):
+			return -1
+		}
+		return r
+	}, s)
 }
 
 // Fresh reports whether s still answers for ch at now: made for this same
@@ -82,11 +109,12 @@ func LoadState(path string) State {
 	if json.Unmarshal(data, &s) != nil {
 		return State{}
 	}
-	return s
+	return s.sanitized()
 }
 
 // SaveState writes s atomically, so a reader never sees half a file.
 func SaveState(path string, s State) error {
+	s = s.sanitized()
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
