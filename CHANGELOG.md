@@ -5,6 +5,15 @@ What changed in each release of YOLO Jail, newest first.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- `yolo check` reported a working Nix as "found but not working: probe failed" when
+  `nix --version` took longer than five seconds, as a first run inside a jail on a busy Mac can.
+  It now waits as long as its other Nix checks, and says whether Nix timed out, could not be
+  run or exited with an error.
+
 ## [0.11.0] - 2026-09-28
 
 Claude can use Bedrock through your AWS SSO login, and a repository's skills now reach every
