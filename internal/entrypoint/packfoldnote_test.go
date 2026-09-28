@@ -6,14 +6,11 @@ package entrypoint
 // render — and assert on what the user is told, which is what fails if the emission site is
 // deleted (the unpinned-callee class this review's finding #2 is about).
 //
-// TWO mechanisms report a patch that names nothing, and OQ-PT8 moved the border between
-// them. A posture patch naming no base surface is still a FOLD NOTE (packload's
-// foldPostureManaged, reported by the render that runs the fold — the host path below). A
-// profile's config half is no longer such a patch at all: since the kind shrank, it is a
-// `config-overlay` gated on the profile, and a dead target there is an ORPHAN in
-// packoverlay's own report, fired by reportOverlayResolution in the boot loop — the jail
-// path below. The two spellings look alike on stderr and are checked by different code,
-// which is exactly why both call sites are pinned.
+// ONE mechanism reports a patch that names nothing now: packoverlay's ORPHAN. OQ-PT8 moved a
+// profile's config half there (a `config-overlay` gated on the profile, reported by
+// reportOverlayResolution in the boot loop — the jail path below), and OQ-3 moved a posture's
+// patch on a surface its pack does not declare there too (a posture overlay — the host path
+// below). The fold note that used to report the second is gone.
 
 import (
 	"encoding/json"
@@ -22,6 +19,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
+	"github.com/mschulkind-oss/yolo-jail/internal/packoverlay"
 	"github.com/mschulkind-oss/yolo-jail/internal/render"
 )
 
@@ -106,37 +104,39 @@ func TestJailRenderSaysWhyTheGatedOverlayIsDead(t *testing.T) {
 	}
 }
 
-// THE HOST PATH: `yolo host apply` passes no profile table — a profile is a launch decision
-// — so the dead patch it CAN see is a posture's, and it reaches the user through the result
-// (the host Env has no Stderr; see tableLosses). A row that says nothing was written, for an
-// identity the pack does not declare.
-func TestHostRenderReportsPatchNamingNoSurface(t *testing.T) {
+// THE HOST PATH, since OQ-3: a guarded posture patch naming an identity its pack does not
+// declare is a POSTURE OVERLAY, so the collector the apply runs reports it — an `autonomy`
+// orphan that says to check the identity, which apply.go prints — and the host render writes
+// nothing for it and no longer adds a row of its own. A patch on the pack's own surface still
+// folds into that surface.
+func TestHostRenderLeavesAPatchNamingNoSurfaceToTheCollector(t *testing.T) {
 	for _, c := range []struct {
 		typo  bool
-		want  bool
 		label string
 	}{
-		{true, true, "a dead patch"},
-		{false, false, "a patch that folds"},
+		{true, "a dead patch"},
+		{false, "a patch that folds"},
 	} {
 		p := posturePatchPack(t, c.typo)
-		results, err := RenderHostPack(p, t.TempDir(), render.OwnershipAssert, true, nil)
+		set := packoverlay.Collect([]*packload.Pack{p}, false, nil)
+		orphaned := len(set.Orphans) == 1 && set.Orphans[0].KindName() == "autonomy" &&
+			set.Orphans[0].Target == "claude/setings" &&
+			strings.Contains(set.Orphans[0].Reason(), "check the identity")
+		if orphaned != c.typo {
+			t.Errorf("%s: want the collector's autonomy orphan=%v, got %+v", c.label, c.typo, set.Orphans)
+		}
+		home := t.TempDir()
+		results, err := RenderHostPack(p, home, render.OwnershipAssert, false, set)
 		if err != nil {
 			t.Fatalf("%s: RenderHostPack: %v", c.label, err)
 		}
-		var found bool
 		for _, r := range results {
-			if r.Surface != "claude/setings" {
-				continue
-			}
-			found = true
-			if !strings.HasPrefix(r.Action, "ignored:") {
-				t.Errorf("%s: the row must say nothing was written, got %q", c.label, r.Action)
+			if r.Surface == "claude/setings" {
+				t.Errorf("%s: the host render grew a row for the unmatchable identity: %+v", c.label, r)
 			}
 		}
-		if found != c.want {
-			t.Errorf("%s: want a result row for the unmatchable identity=%v, got %+v",
-				c.label, c.want, results)
+		if got := set.For("claude", "setings"); got != nil {
+			t.Errorf("%s: a patch on an identity nothing owns was placed: %+v", c.label, got)
 		}
 	}
 }

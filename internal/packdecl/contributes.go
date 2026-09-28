@@ -374,10 +374,11 @@ type Contribution struct {
 	// The confinement notch's AgentAutonomy policy selects which posture renders
 	// (autonomous at jail/guest, guarded at host). Each posture folds config-managed keys
 	// into the pack's OWN surfaces and merges launch flags — it is not a second config
-	// writer, it is a notch-gated patch of the managed layer. A posture may also carry
-	// POSTURE LISTS (AutonomyPosture.Lists): config-list bodies appended to any selected
-	// pack's surface only while the notch selects that posture — the one half of a posture
-	// that reaches beyond the pack's own surfaces, because an append cannot contend.
+	// writer, it is a notch-gated patch of the managed layer. Two halves of a posture reach
+	// beyond the pack's own surfaces, only while the notch selects that posture: POSTURE LISTS
+	// (AutonomyPosture.Lists), config-list bodies appended to any selected pack's surface, and
+	// POSTURE OVERLAYS, the `config` entries that name another pack's surface and contribute
+	// keys there as a config-overlay does (AutonomyPosture.Config, OQ-3).
 	//
 	// EITHER POSTURE MAY BE ABSENT, and both directions ship. pi is permissive by default,
 	// so its autonomous is empty and only guarded tightens it. copilot is the mirror: its
@@ -965,14 +966,38 @@ func (m *Manifest) RequiredBins() []DepRequirement {
 
 // AutonomyPosture is one side of an autonomy contribution (§4.2): the config-managed
 // keys and launch flags that express either the autonomous (no-prompts) or guarded
-// (prompts-on) posture for the pack's agent. Config patches fold into the managed layer
-// of a surface the SAME pack owns (keyed by "agent/name"); launch flags merge into the
+// (prompts-on) posture for the pack's agent. A config patch on a surface the SAME pack owns
+// folds into that surface's managed layer (keyed by "agent/name"), and one on a surface
+// another pack owns contributes keys as a config-overlay does; launch flags merge into the
 // binary's launch flags. It is not a second config writer — it is a notch-gated patch.
 type AutonomyPosture struct {
-	// Config patches the managed layer of the pack's own surfaces. Reuses the config
-	// surface schema (agent/name identify the target surface; managed carries the keys),
-	// kept as RawMessage for the same reason config's Raw is — packdecl stays free of the
-	// agentcfg engine dependency; the engine decodes it.
+	// Config patches config surfaces while the notch selects this posture. Reuses the config
+	// surface schema — agent/name identify the target surface, path and codec are required as
+	// for every surface entry, managed carries the keys — kept as RawMessage for the same
+	// reason config's Raw is: packdecl stays free of the agentcfg engine dependency, and the
+	// engine decodes it.
+	//
+	// AN ENTRY'S TARGET DECIDES WHICH OF TWO THINGS IT IS:
+	//
+	//   - On a surface THIS pack declares, it folds into that surface's MANAGED layer
+	//     (packload.SurfacesFor), above capture and host: the pack asserting its own
+	//     permission keys per notch (claude's bypass keys in a jail, its prompts at the host).
+	//   - On a surface ANOTHER pack declares, it is a POSTURE OVERLAY — a term coined by
+	//     docs/design/notch-scoped-config-contributions.md (OQ-3's build, NS-D19) for a
+	//     config-overlay body gated on the posture. It takes the config-overlay path
+	//     (packoverlay.Collect): the same owner check, the same fold slot BELOW the owner's
+	//     managed ("owner still wins"), the same later-wins order at the autonomy
+	//     contribution's position, the same `config-overlay:<pack>` provenance. It is how a
+	//     personal or company pack sets another pack's setting for one confinement only — a
+	//     scalar only the host gets (`guarded`), or only a jail (`autonomous`) — without editing
+	//     the owner or spelling a notch name. It contributes KEYS, so config-overlay's
+	//     refusals apply to it: `defaults`, `mode`, `retireOnFirstRender` and `readsHost` are
+	//     refused, `managed` must be non-empty, and its `path` and `codec` must be the owner's
+	//     (manifest.DecodePostureOverlay, packoverlay.Collect). An ownerless one is inert and
+	//     reported as an `autonomy` orphan at a notch that selects its posture.
+	//
+	// An older build reading a posture overlay folds it nowhere, which FAILS CLOSED: the key
+	// renders at no notch rather than at every one.
 	Config json.RawMessage `json:"config,omitempty"`
 	// Launch is the flags to inject for a binary in this posture (e.g.
 	// ["--dangerously-skip-permissions"] for autonomous, [] for guarded).
@@ -983,13 +1008,14 @@ type AutonomyPosture struct {
 	// notch selects this posture. `guarded.lists` therefore reach the host notch (and an
 	// unset target) and no jail; `autonomous.lists` reach every jail and not the host.
 	//
-	// UNLIKE Config, A POSTURE LIST MAY NAME ANOTHER PACK'S SURFACE. It is the same
-	// cross-pack join a `config-list` is (packoverlay.Collect places both through one pass,
-	// against one owner set), because an append cannot contend: the fold dedups by whole
-	// value, so two packs' lists on one array never collide the way two config writers would.
-	// That is what lets a personal pack give a surface another pack owns a host-only entry
-	// (pi-automode in pi's `packages`, the design's motivating case) without editing the
-	// owner, and without spelling a notch name in a manifest.
+	// A POSTURE LIST MAY NAME ANOTHER PACK'S SURFACE, as a posture overlay (Config) may. It is
+	// the same cross-pack join a `config-list` is (packoverlay.Collect places both through one
+	// pass, against one owner set): an append cannot contend, because the fold dedups by whole
+	// value, so two packs' lists on one array never collide. That is what lets a personal pack
+	// give a surface another pack owns a host-only entry (pi-automode in pi's `packages`, the
+	// design's motivating case) without editing the owner, and without spelling a notch name
+	// in a manifest. Use a list for an array entry and a posture overlay for a key: a key in
+	// `managed` REPLACES an array whole.
 	//
 	// Each entry is validated by config-list's own rules (configListBodyProblems). An older
 	// build reading a manifest that carries this field drops it (DecodeTolerant ignores an
@@ -1809,7 +1835,17 @@ type ConfigOverlay struct {
 	// Config is the raw `config` body — the keys this pack asserts onto the target.
 	// Decoded by internal/agentcfg/manifest (DecodeOverlay), kept as RawMessage for the
 	// same reason Contribution.Raw is: packdecl stays free of the engine dependency.
+	//
+	// For a POSTURE OVERLAY (Posture set) it is instead ONE ENTRY of the posture's `config`
+	// array, a surface DTO ({agent, name, path, codec, managed}), which the collector decodes
+	// with manifest.DecodePostureOverlay.
 	Config json.RawMessage
+	// Posture is "" for a `config-overlay` contribution, and the posture an autonomy `config`
+	// entry sits under for one OverlayContributions yields from an autonomy contribution — a
+	// POSTURE OVERLAY once the collector finds that the entry names a surface its own pack does
+	// not declare (AutonomyPosture.Config). OverlayContributions is the one projection that
+	// sets it; ConfigOverlayContributions never does.
+	Posture Posture
 }
 
 // ConfigOverlayContributions returns every config-overlay the pack declares, in
@@ -1818,11 +1854,75 @@ type ConfigOverlay struct {
 // gate: the gate is a LAUNCH fact (which profile is active), not a declaration fact, and
 // the readers that owe a per-launch answer — the collector that gates, the footprint that
 // claims — both decide it from their own inputs rather than from a filtered projection.
+//
+// `config-overlay` contributions ONLY: an autonomy posture's `config` entry is declared under
+// kind `autonomy`, and the readers that report by the kind the author wrote (the footprint's
+// config-overlay claims) must not see one here. OverlayContributions is the walk that
+// includes them.
 func (m *Manifest) ConfigOverlayContributions() []ConfigOverlay {
 	var out []ConfigOverlay
 	for _, c := range m.Contributions() {
 		if c.Kind == KindConfigOverlay {
 			out = append(out, ConfigOverlay{Surface: c.Surface, Profile: c.Profile, Config: c.Raw})
+		}
+	}
+	return out
+}
+
+// OverlayContributions returns every overlay CANDIDATE the pack declares — each
+// `config-overlay` contribution (Posture "") and each entry of its autonomy contribution's
+// posture `config` (Posture set) — in DECLARATION ORDER, which is the fold's later-wins order:
+// a posture's entries stand at the autonomy contribution's position in `contributes`, the
+// autonomous posture's before the guarded one's, each entry its own row with Surface spelled
+// "agent/name" from the entry.
+//
+// A CANDIDATE, because an autonomy entry is a POSTURE OVERLAY only when it names a surface its
+// own pack does not declare (OQ-3's ruling, notch-scoped-config-contributions.md NS-D19). One
+// that names the pack's own surface still folds into that surface's managed layer
+// (packload.SurfacesFor), and telling the two apart needs the pack's decoded surfaces, which
+// are the engine's. So every entry is yielded and the collector (packoverlay.Collect) skips
+// the pack's own.
+//
+// BOTH postures are returned, whatever the notch, for ListContributions' reason: the collector
+// decodes every body before it gates, so a malformed entry is reported at every notch. Only the
+// FIRST autonomy contribution counts, the one PostureFor reads. A posture `config` that is not
+// a JSON array of objects yields nothing: the engine's decode reports it (SurfacesForReport),
+// and splitting it here would be a second, looser reading of the same bytes.
+func (m *Manifest) OverlayContributions() []ConfigOverlay {
+	var out []ConfigOverlay
+	seenAutonomy := false
+	for _, c := range m.Contributions() {
+		switch c.Kind {
+		case KindConfigOverlay:
+			out = append(out, ConfigOverlay{Surface: c.Surface, Profile: c.Profile, Config: c.Raw})
+		case KindAutonomy:
+			if seenAutonomy {
+				continue
+			}
+			seenAutonomy = true
+			for _, half := range []struct {
+				posture Posture
+				decl    *AutonomyPosture
+			}{{PostureAutonomous, c.Autonomous}, {PostureGuarded, c.Guarded}} {
+				if half.decl == nil || len(half.decl.Config) == 0 {
+					continue
+				}
+				var entries []json.RawMessage
+				if err := json.Unmarshal(half.decl.Config, &entries); err != nil {
+					continue
+				}
+				for _, entry := range entries {
+					var id struct {
+						Agent string `json:"agent"`
+						Name  string `json:"name"`
+					}
+					if err := json.Unmarshal(entry, &id); err != nil {
+						continue
+					}
+					out = append(out, ConfigOverlay{Surface: id.Agent + "/" + id.Name,
+						Config: entry, Posture: half.posture})
+				}
+			}
 		}
 	}
 	return out

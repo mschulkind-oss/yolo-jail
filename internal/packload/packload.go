@@ -135,27 +135,26 @@ func (p *Pack) Surfaces() ([]manifest.Surface, []string) {
 // profile touched a surface, and it was unreachable for any pack that installs no CLI —
 // the defect the modifier form does not have.
 //
-// The notes a fold produces are dropped here. Callers that report them call
-// SurfacesForReport; this signature stays the one every reader of surfaces wants, because
-// most of them (the footprint, the overlay collector, the pruning pass) read identities and
-// would only be re-plumbing a third slice to `_`.
+// A posture patch naming a surface this pack does NOT declare is not this fold's: it is a
+// POSTURE OVERLAY, which packoverlay.Collect places on the owner's surface as a config-overlay
+// or reports as an orphan (OQ-3, docs/design/notch-scoped-config-contributions.md NS-D19).
 func (p *Pack) SurfacesFor(autonomy bool) ([]manifest.Surface, []string) {
 	surfaces, problems, _ := p.SurfacesForReport(autonomy)
 	return surfaces, problems
 }
 
-// SurfacesForReport is SurfacesFor with the fold's dead patches carried out as notes.
+// SurfacesForReport is SurfacesFor with a third result that is always empty since OQ-3.
 //
-// foldPostureManaged drops a patch that names no surface of this pack — it has nothing to
-// merge into — and until the notes existed that drop was SILENT, which is the OQ-Z5 shape:
-// a patch written for a claude surface and moved into a pack owning no claude surface reads,
-// to its author, exactly like a patch that folded. The report is the config-overlay orphan's
-// posture for a declaration with no effect (ruling R2), and deliberately NOT a problem: a
-// problem is fatal at every render path, and an inert patch breaks nothing — it writes
-// nothing. The disposition stays "ignored"; what changed is that "ignored" is now said.
+// It carried the fold's dead patches as notes: a posture patch naming no surface of this pack
+// merged into nothing, and the note said so (the OQ-Z5 shape, where a patch moved into a pack
+// owning no such surface read, to its author, exactly like one that folded). Since the ruling
+// such a patch is a posture overlay — packoverlay.Collect places it on the surface another
+// pack owns, or reports it as an orphan (R2) at a notch that selects its posture — so there is
+// nothing left for this fold to note, and a second report beside the collector's would be two
+// answers to one question.
 //
-// Only a posture folds here, so only a posture's note can be produced — a host render
-// included, which selects no profile anyway.
+// THE SIGNATURE STAYS, and that is a contract rather than inertia: packs/releasedecode_test.go
+// compiles against it inside the last release's tree (TestReleaseDecodeProbeAPIIsStable).
 func (p *Pack) SurfacesForReport(autonomy bool) ([]manifest.Surface, []string, []FoldNote) {
 	rawSurfaces := p.Decl.SurfaceContributions()
 	if len(rawSurfaces) == 0 {
@@ -206,83 +205,56 @@ func (p *Pack) SurfacesForReport(autonomy bool) ([]manifest.Surface, []string, [
 		}
 		claimed[surfaces[i].HostSource] = surfaces[i].Key()
 	}
-	var notes []FoldNote
-	// Fold the selected autonomy posture's config patch into the matching surfaces.
+	// Fold the selected autonomy posture's config patch into the matching surfaces. A patch
+	// naming no surface of this pack matches nothing here and is left to packoverlay.Collect,
+	// whose posture overlay it is.
 	if posture := p.Decl.PostureFor(autonomy); posture != nil && len(posture.Config) > 0 {
 		patches, probs := manifest.DecodeSurfaces(posture.Config)
 		for _, prob := range probs {
 			problems = append(problems, "pack "+p.Name+" (autonomy): "+prob)
 		}
-		var missed []manifest.SurfaceKey
-		surfaces, missed = foldPostureManaged(surfaces, patches)
-		notes = append(notes, foldNotes(p.Name, postureName(autonomy), missed, surfaces)...)
+		surfaces = foldPostureManaged(surfaces, patches)
 	}
-	return surfaces, problems, notes
+	return surfaces, problems, nil
 }
 
-// postureName is the label a note carries for the fold's autonomy half — which of the two
-// postures the dead patch rode, so a reader knows which half of the manifest to fix.
-func postureName(autonomy bool) string {
-	if autonomy {
-		return "autonomous posture"
+// PosturePatchesOwnSurface reports whether the posture autonomy selects carries a config patch
+// naming a surface THIS pack declares — the half of a posture's `config` that folds into the
+// pack's own managed layer, and so always lands in a surface below. A patch naming another
+// pack's surface is a posture overlay, and whether it lands is packoverlay.Collect's answer
+// (OverlaySet.PlacesPostureConfigFrom), not the manifest's: `yolo host apply`'s notch line
+// asks the two questions separately for that reason (surveyNotchFacts, NS-D24).
+func (p *Pack) PosturePatchesOwnSurface(autonomy bool) bool {
+	posture := p.Decl.PostureFor(autonomy)
+	if posture == nil || len(posture.Config) == 0 {
+		return false
 	}
-	return "guarded posture"
+	own, _ := manifest.DecodeSurfaces(p.Decl.SurfaceContributions())
+	patches, _ := manifest.DecodeSurfaces(posture.Config)
+	for _, patch := range patches {
+		for _, s := range own {
+			if s.Key() == patch.Key() {
+				return true
+			}
+		}
+	}
+	return false
 }
 
-// FoldNote is one config patch that merged into nothing: it named a surface identity its own
-// pack does not declare. A NOTE, never a problem and never a refusal — see
-// SurfacesForReport for why the disposition does not change.
+// FoldNote was one config patch that merged into nothing: a posture patch naming a surface its
+// own pack does not declare. No fold produces one since OQ-3 made that patch a posture overlay
+// (SurfacesForReport says why); the type stays because SurfacesForReport's signature is the
+// release probe's contract (TestReleaseDecodeProbeAPIIsStable), and its fields are kept so a
+// value the last release's tree builds still has a type to be.
 type FoldNote struct {
 	// Pack is the pack that declared the patch.
 	Pack string
-	// Source names the declaration the patch rode: "autonomous posture" or "guarded
-	// posture". A profile is not among them since OQ-PT8 shrank the kind — its config
-	// half is a gated config-overlay, whose dead target packoverlay reports, not this
-	// fold.
+	// Source names the declaration the patch rode: "autonomous posture" or "guarded posture".
 	Source string
 	// Target is the (agent, name) the patch named — the identity nothing matched.
 	Target manifest.SurfaceKey
-	// Declared lists the surface identities the pack DOES declare, so the fix is in the
-	// message rather than one manifest-open away. Never empty: a pack with no config
-	// contributions has no fold and so produces no note.
+	// Declared lists the surface identities the pack DOES declare.
 	Declared []string
-}
-
-// reason is the body both renderings share, so the two notches cannot disagree about what
-// happened to the patch.
-func (n FoldNote) reason() string {
-	return fmt.Sprintf("%s patches %s, which pack %s does not declare (declares: %s)",
-		n.Source, n.Target, n.Pack, strings.Join(n.Declared, ", "))
-}
-
-// String renders the note as the one line a render path warns with — shaped like the
-// config-overlay notice it is modelled on: a kind label, what has no effect, and the
-// declaration that went nowhere.
-func (n FoldNote) String() string {
-	return fmt.Sprintf("config patch  %s — folded nowhere", n.reason())
-}
-
-// Action renders the same finding the way a host render result line states it: what the
-// render did (nothing), since that notch's report is a row per surface, not a boot notice.
-func (n FoldNote) Action() string {
-	return "ignored: " + n.reason()
-}
-
-// foldNotes turns one fold's misses into notes, each naming the pack, the declaration the
-// patch rode, and every surface the pack actually declares.
-func foldNotes(pack, source string, missed []manifest.SurfaceKey, base []manifest.Surface) []FoldNote {
-	if len(missed) == 0 {
-		return nil
-	}
-	declared := make([]string, 0, len(base))
-	for _, s := range base {
-		declared = append(declared, s.Key().String())
-	}
-	out := make([]FoldNote, 0, len(missed))
-	for _, key := range missed {
-		out = append(out, FoldNote{Pack: pack, Source: source, Target: key, Declared: declared})
-	}
-	return out
 }
 
 // ProfileTable lowers a decoded profile table — YOLO_USE_PROFILES in the jail, the
@@ -312,31 +284,24 @@ func ProfileTable(m *jsonx.OrderedMap) map[string]string {
 }
 
 // foldPostureManaged deep-merges each patch surface's Managed map into the base surface
-// with the same (agent, name), the patch winning per key, and returns alongside the merged
-// set the identities that matched NOTHING. The caller reports those (foldNotes) — the loop
-// knows which patches missed, and discarding that knowledge here is what made a dead patch
-// indistinguishable from a live one. This is how an autonomy posture asserts its permission
-// keys onto the pack's OWN surface without being a second config writer.
-func foldPostureManaged(base, patches []manifest.Surface) ([]manifest.Surface, []manifest.SurfaceKey) {
-	var missed []manifest.SurfaceKey
+// with the same (agent, name), the patch winning per key. This is how an autonomy posture
+// asserts its permission keys onto the pack's OWN surface without being a second config
+// writer. A patch matching no base surface is skipped: it names another pack's surface, and
+// packoverlay.Collect places it there as a posture overlay (or reports it as an orphan).
+func foldPostureManaged(base, patches []manifest.Surface) []manifest.Surface {
 	for _, patch := range patches {
 		pm := patch.ManagedMap()
 		if pm == nil {
 			continue
 		}
-		matched := false
 		for i := range base {
 			if base[i].Agent != patch.Agent || base[i].Name != patch.Name {
 				continue
 			}
-			matched = true
 			base[i].Managed = mergeManagedMap(base[i].ManagedMap(), pm)
 		}
-		if !matched {
-			missed = append(missed, patch.Key())
-		}
 	}
-	return base, missed
+	return base
 }
 
 // mergeManagedMap deep-merges over into base (over wins), returning a new map. A nil base

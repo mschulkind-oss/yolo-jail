@@ -60,11 +60,13 @@ type surfacePlan struct {
 
 // planPackSurfaces is the loop's head: p's surfaces at the Env's render target, each with its
 // contributions and the mechanism the target's census runs it through. problems are malformed
-// declarations (fatal at every notch, in each notch's own way) and notes the inert posture
-// patches (named, never fatal) — SurfacesForReport's, passed through for the caller to dispose.
+// declarations (fatal at every notch, in each notch's own way). A posture patch naming a surface
+// p does not declare is not among them and is not dropped: it is a posture overlay, which the
+// caller's packoverlay.Collect placed in overlays (or reported as an orphan), so it reaches the
+// owner's plan through contribsFor like any config-overlay (OQ-3, NS-D22).
 func planPackSurfaces(e *Env, p *packload.Pack, overlays *packoverlay.OverlaySet) ([]surfacePlan,
-	[]string, []packload.FoldNote) {
-	surfaces, problems, notes := p.SurfacesForReport(e.renderTarget().Profile().AgentAutonomy)
+	[]string) {
+	surfaces, problems, _ := p.SurfacesForReport(e.renderTarget().Profile().AgentAutonomy)
 	plans := make([]surfacePlan, 0, len(surfaces))
 	byKey := make(map[manifest.SurfaceKey]int, len(surfaces))
 	for i, s := range surfaces {
@@ -78,7 +80,7 @@ func planPackSurfaces(e *Env, p *packload.Pack, overlays *packoverlay.OverlaySet
 		}
 		plans = append(plans, pl)
 	}
-	return plans, problems, notes
+	return plans, problems
 }
 
 // listUnmet is the `whenListed` gate at render time (manifest.Surface.WhenListed): "" when
@@ -216,7 +218,7 @@ func renderPackSet(e *Env, packs []*packload.Pack,
 	// (TestRenderFingerprintStable). planPackSurfaces folds the posture from the same target.
 	overlays := collect(e.renderTarget().Profile().AgentAutonomy, profiles)
 	for _, p := range packs {
-		plans, problems, notes := planPackSurfaces(e, p, overlays)
+		plans, problems := planPackSurfaces(e, p, overlays)
 		for _, prob := range problems {
 			// A malformed surface is fatal: rendering the rest and skipping this one yields a
 			// jail whose config is quietly incomplete.
@@ -224,16 +226,6 @@ func renderPackSet(e *Env, packs []*packload.Pack,
 			if err := step("pack_"+p.Name+"_surfaces", func() error { return fmt.Errorf("%s", prob) }); err != nil {
 				return err
 			}
-		}
-		// A config patch that named no surface of its own pack merged into nothing — the
-		// OQ-Z5 shape, where the author's patch reads, to them, exactly like one that folded.
-		// Named, never fatal: the render is complete, the patch is merely inert.
-		//
-		// warnOnce, not warn, for the reason LoadJailPacks gives: the note is a property of the
-		// staged manifest, not of the pass that noticed it, and more than one entry renders the
-		// same pack's surfaces, so an unchanged manifest would print the same line twice.
-		for _, n := range notes {
-			e.warnOnce(n.String())
 		}
 		// A pack's derive.lua (if any) produces every dynamic layer for its surfaces — the
 		// projection Lua (docs/reference/pack-system.md §7). Read once per pack.

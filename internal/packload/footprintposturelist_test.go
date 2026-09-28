@@ -53,6 +53,44 @@ func TestFootprintNamesAPostureListUnderItsPosture(t *testing.T) {
 	}
 }
 
+// A POSTURE OVERLAY IS DISCLOSED ON THE AUTONOMY CLAIM TOO (NS-D23): a posture's config patch
+// on a surface its pack does not declare contributes keys to another pack's config file, which
+// is the config-overlay claim's statement, so it is named with its posture and config-overlay's
+// precedence clause. A patch on the pack's OWN surface is not named: it tightens the pack's own
+// file, which the pack's config claim already covers.
+func TestFootprintNamesAPostureOverlayUnderItsPosture(t *testing.T) {
+	m, probs := packdecl.Decode([]byte(`{"name":"matt","contributes":[
+	  {"kind":"config","config":[{"agent":"matt","name":"notes","codec":"json",
+	     "path":"~/.matt/notes.json","managed":{"k":1}}]},
+	  {"kind":"autonomy",
+	   "autonomous":{"config":[{"agent":"matt","name":"notes","codec":"json",
+	     "path":"~/.matt/notes.json","managed":{"own":true}}]},
+	   "guarded":{"config":[{"agent":"pi","name":"settings","codec":"json",
+	     "path":"~/.pi/agent/settings.json","managed":{"hostOnly":true}}]}}]}`))
+	if len(probs) != 0 {
+		t.Fatalf("decoding the fixture: %v", probs)
+	}
+	var autonomy []string
+	for _, c := range packload.FootprintOf(&packload.Pack{Name: "matt", Decl: m}).Claims {
+		switch c.Kind {
+		case packdecl.KindAutonomy:
+			autonomy = append(autonomy, c.Detail)
+		case packdecl.KindConfigOverlay:
+			t.Errorf("a posture overlay was claimed as a config-overlay: %+v", c)
+		}
+	}
+	if len(autonomy) != 1 {
+		t.Fatalf("autonomy claims = %v, want one", autonomy)
+	}
+	if want := "guarded contributes keys to pi/settings (owner still wins)"; !strings.Contains(autonomy[0], want) {
+		t.Errorf("the autonomy claim does not name the guarded posture's overlay:\n got %q\nwant it to contain %q",
+			autonomy[0], want)
+	}
+	if strings.Contains(autonomy[0], "matt/notes") {
+		t.Errorf("the own-surface patch is named as a contribution to another pack's file: %q", autonomy[0])
+	}
+}
+
 // A SECOND AUTONOMY CONTRIBUTION, THROUGH THE LOADER (NS-D11). The footprint walks every
 // contribution while the posture readers take the first, so the two used to disagree: two
 // claims, one of them describing lists no notch rendered. On the host (strict) the pack is

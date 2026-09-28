@@ -129,6 +129,59 @@ func DecodeOverlay(target string, data []byte) (map[string]any, []string) {
 	return d.Managed, nil
 }
 
+// postureOverlaySchemaFields are the refused overlay fields a posture `config` entry must spell
+// anyway: `agent` and `name` are its identity, and `path` and `codec` are required of every
+// surface entry (SurfaceDTO.Surface). DecodePostureOverlay skips their refusals; the collector
+// checks `path` and `codec` against the owner's instead, since only it knows the owner.
+var postureOverlaySchemaFields = map[string]bool{"agent": true, "name": true, "path": true, "codec": true}
+
+// DecodePostureOverlay decodes one entry of an autonomy posture's `config` that names a surface
+// its own pack does not declare — a POSTURE OVERLAY, the term
+// docs/design/notch-scoped-config-contributions.md coins for OQ-3's build (NS-D19) — into the
+// patch it spells and the single layer map the compose engine folds (agentcfg.Overlay.Data).
+//
+// The entry keeps the posture `config` schema, a surface DTO, so an author writes a patch on
+// another pack's surface exactly as one on their own. What changes is what it may SAY: it
+// contributes keys, as a config-overlay body does, so every config-overlay refusal applies
+// except the four the schema itself requires (postureOverlaySchemaFields), and an empty
+// `managed` contributes nothing and is refused for DecodeOverlay's reason. One refusal table,
+// overlayRefusals, so the two kinds cannot come to disagree about what a contributor may set.
+//
+// wellFormed is false when the entry is not a well-formed surface entry at all (strict decode,
+// then SurfaceDTO.Surface), and problems then say why. The caller decides who reports that:
+// packload's posture fold also decodes the selected posture's whole `config`, for a pack that
+// declares a surface of its own, and the same complaint must not print twice.
+func DecodePostureOverlay(label string, entry []byte) (patch Surface, data map[string]any, wellFormed bool, problems []string) {
+	var d SurfaceDTO
+	dec := json.NewDecoder(bytes.NewReader(entry))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&d); err != nil {
+		return Surface{}, nil, false, []string{label + ": " + err.Error()}
+	}
+	s, probs := d.Surface()
+	if len(probs) > 0 {
+		for i, p := range probs {
+			probs[i] = label + ": " + p
+		}
+		return Surface{}, nil, false, probs
+	}
+	body := OverlayDTO{Managed: d.Managed, Defaults: d.Defaults, Mode: d.Mode,
+		Retire: d.Retire, ReadsHost: d.ReadsHost}
+	for _, r := range overlayRefusals {
+		if !postureOverlaySchemaFields[r.field] && r.set(body) {
+			problems = append(problems, fmt.Sprintf("%s: may not set %q — %s", label, r.field, r.reason))
+		}
+	}
+	if len(d.Managed) == 0 {
+		problems = append(problems, label+": contributes no keys (a posture's config patch on "+
+			"another pack's surface needs a non-empty \"managed\" object)")
+	}
+	if len(problems) > 0 {
+		return s, nil, true, problems
+	}
+	return s, d.Managed, true, nil
+}
+
 // ParseSurfaceID splits a `config-overlay` target ("agent/name") into a SurfaceKey.
 //
 // One definition, because both sides of the collection have to agree on it: the pack

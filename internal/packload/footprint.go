@@ -489,15 +489,25 @@ func FootprintOf(p *Pack) Footprint {
 			// is spelled in the detail of an unconditional claim. Unconditional here as well:
 			// the footprint reports what a pack wants, and which posture renders is a notch
 			// fact this report does not have.
+			//
+			// And a posture's config patches on ANOTHER pack's surface (posture overlays,
+			// NS-D23), for the same reason: they contribute keys to someone else's config file,
+			// the config-overlay claim's statement, so they carry that claim's precedence clause.
 			for _, half := range []struct {
-				name    string
+				name    packdecl.Posture
 				posture *packdecl.AutonomyPosture
-			}{{"autonomous", c.Autonomous}, {"guarded", c.Guarded}} {
+			}{{packdecl.PostureAutonomous, c.Autonomous}, {packdecl.PostureGuarded, c.Guarded}} {
 				if inj := postureInjects(half.posture); inj != "" {
-					detail += "; " + half.name + " injects " + inj
+					detail += "; " + string(half.name) + " injects " + inj
 				}
 				if lists := postureAppends(half.posture); lists != "" {
-					detail += "; " + half.name + " appends " + lists
+					detail += "; " + string(half.name) + " appends " + lists
+				}
+				if half.posture != nil {
+					if keys := postureContributesKeys(p, half.name); keys != "" {
+						detail += "; " + string(half.name) + " contributes keys to " + keys +
+							" (owner still wins)"
+					}
 				}
 			}
 			add(packdecl.KindAutonomy, p.Name, detail, false)
@@ -1441,6 +1451,30 @@ func postureAppends(p *packdecl.AutonomyPosture) string {
 		parts = append(parts, configListShown(l.Add)+" to "+l.Surface+"#"+l.Path)
 	}
 	return strings.Join(parts, " and ")
+}
+
+// postureContributesKeys renders the POSTURE OVERLAYS one autonomy posture declares — its
+// `config` patches on surfaces this pack does not declare (OQ-3, NS-D23) — as the identities
+// they contribute keys to, or "" when the posture declares none. A patch on the pack's OWN
+// surface is left out: it tightens the pack's own file, which its config claim covers, and
+// naming it here would read as a contribution to someone else's. The identities are read the
+// way packdecl.OverlayContributions spells them, so this and the collector name one target.
+func postureContributesKeys(p *Pack, posture packdecl.Posture) string {
+	own := map[string]bool{}
+	surfaces, _ := p.Surfaces()
+	for _, s := range surfaces {
+		own[s.Key().String()] = true
+	}
+	var targets []string
+	seen := map[string]bool{}
+	for _, ov := range p.Decl.OverlayContributions() {
+		if ov.Posture != posture || own[ov.Surface] || seen[ov.Surface] {
+			continue
+		}
+		seen[ov.Surface] = true
+		targets = append(targets, ov.Surface)
+	}
+	return strings.Join(targets, ", ")
 }
 
 // postureInjects renders the launch flags one autonomy posture injects, as

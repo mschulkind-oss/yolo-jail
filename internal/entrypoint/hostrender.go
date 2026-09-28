@@ -300,29 +300,17 @@ func RenderHostPack(p *packload.Pack, homeDir string, ownership render.HostOwner
 	//
 	// THE ONE LOOP's head (surfaceloop.go, planPackSurfaces): the posture fold, each surface's
 	// contributions and the census's mechanism, decided the way the jail boot decides them.
-	plans, problems, notes := planPackSurfaces(e, p, overlays)
+	//
+	// A posture patch naming a surface p does not declare gets no row of p's: it is a posture
+	// overlay, placed by the caller's packoverlay.Collect on the owner's surface — where it
+	// renders, and is attributed `config-overlay:<pack>`, in the OWNER's rows below — or reported
+	// by the caller as an orphan (apply.go), the way an ownerless config-overlay is (OQ-3).
+	plans, problems := planPackSurfaces(e, p, overlays)
 	if len(problems) > 0 {
 		return nil, fmt.Errorf("pack %s: %s", p.Name, problems[0])
 	}
 
 	var out []HostRenderResult
-	// A config patch that named no surface of its own pack merged into nothing. It has no
-	// surface row to hang on, so it becomes a row of its own: the identity it named, an
-	// Action saying nothing was written, and no path — there is no file it would have
-	// touched. Named rather than silent because a patch reading, to its author, exactly
-	// like one that folded is the OQ-Z5 shape, and inert is not the same as absent (the
-	// ruling that makes an ownerless config-overlay a line in the report rather than an
-	// error).
-	//
-	// Through the RESULT rather than e.Stderr, for the reason tableLosses records: the
-	// host Env carries no Stderr by design, so a notice here would fire only in assert —
-	// the posture where it is least useful.
-	//
-	// Only a posture's patch can miss here: the profile fold never runs at this notch (no
-	// table, above), so a dead VARIANT stays the jail render's note to give.
-	for _, n := range notes {
-		out = append(out, HostRenderResult{Surface: n.Target.String(), Action: n.Action()})
-	}
 	modes := e.renderTarget().Modes()
 	for _, pl := range plans {
 		s, contribs := pl.surface, pl.contribs

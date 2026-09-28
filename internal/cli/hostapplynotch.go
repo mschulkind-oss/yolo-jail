@@ -75,6 +75,9 @@ type notchFacts struct {
 	// a config surface here". PLACED, not declared (NS-D12): a list whose surface has no owner
 	// is an orphan reported "no effect" one line above, and lands in nothing below, so the
 	// answer is the collector's (OverlaySet.PlacesPostureListFrom) rather than the manifest's.
+	// The same holds for a POSTURE OVERLAY, a posture's config patch on another pack's surface
+	// (NS-D24, OverlaySet.PlacesPostureConfigFrom); only a patch on the pack's OWN surface
+	// counts by declaration (packload.Pack.PosturePatchesOwnSurface), since it always lands.
 	AutonomyFolds bool
 	// InertPackages is how many `packages:` entries this notch leaves inert, when the default
 	// view folds that fact into the tier-1 line rather than printing describe's own line for it
@@ -100,10 +103,12 @@ func surveyNotchFacts(loaded []*packload.Pack, fields render.FieldSet,
 	// the two come apart.
 	hostAutonomy := render.ProfileFor(render.KindHost).AgentAutonomy
 	for _, p := range loaded {
-		if posture := p.Decl.PostureFor(hostAutonomy); posture != nil && len(posture.Config) > 0 {
-			f.AutonomyFolds = true
-		}
-		if overlays.PlacesPostureListFrom(p.Name) {
+		// Three ways a posture folds into a surface below: a config patch on the pack's OWN
+		// surface (always lands, in its managed layer), and a posture list or a posture
+		// overlay the collector PLACED on another pack's (NS-D12, NS-D24). A declared cross-pack
+		// patch is not enough: an ownerless one is reported "no effect" above and lands nowhere.
+		if p.PosturePatchesOwnSurface(hostAutonomy) || overlays.PlacesPostureListFrom(p.Name) ||
+			overlays.PlacesPostureConfigFrom(p.Name) {
 			f.AutonomyFolds = true
 		}
 		for _, c := range p.Decl.Contributions() {

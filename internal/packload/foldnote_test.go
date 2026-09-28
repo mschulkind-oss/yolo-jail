@@ -1,21 +1,13 @@
 package packload
 
-// foldnote_test.go pins the one thing the fold used to do silently: drop a config patch
-// that names no surface its own pack declares.
-//
-// That drop is the OQ-Z5 shape (docs/reference/zai-plumbing.md): a patch written for a claude
-// surface, moved into a pack that owns no claude surface, merges into nothing and — before
-// the note existed — looked to its author exactly like a patch that had folded. The review
-// that found it verified the silence directly: a `setings` typo produced no problem, no
-// warning, and no key.
-//
-// What these pin is the DISPOSITION as much as the report: the fold still adds no surface
-// and raises no problem (an inert declaration is not a broken one), so a reader who sees a
-// note knows nothing was written and nothing refused — only that the declaration goes
-// nowhere.
+// foldnote_test.go pins what the posture fold does with a config patch that names no surface
+// its own pack declares: nothing. It used to drop such a patch silently (the OQ-Z5 shape,
+// docs/reference/zai-plumbing.md: a `setings` typo produced no problem, no warning and no
+// key), then to report it as a FoldNote. Since OQ-3 the patch is a POSTURE OVERLAY that
+// packoverlay.Collect places on another pack's surface or reports as an orphan, so the fold
+// only has to stay out of its way: no merge, no problem, no note.
 
 import (
-	"strings"
 	"testing"
 )
 
@@ -74,12 +66,14 @@ func TestProfilePatchIsNoLongerThisFold(t *testing.T) {
 	// that can reach both folds at once (packoverlay imports this one).
 }
 
-// The autonomy posture rides the same fold, so it gets the same note — and it is the ONLY
-// fold the host render can produce a miss from, because a host apply passes no profile
-// table (a profile is a launch decision). A posture naming a surface its own pack does not
-// declare is the same dead letter a profile's gated overlay is, and deadPatchFixture is
-// its shape.
-func TestDeadPosturePatchIsNamedToo(t *testing.T) {
+// A posture patch naming a surface its own pack does not declare is NOT this fold's any more
+// (OQ-3, notch-scoped-config-contributions.md NS-D22). It used to merge into nothing here and
+// come out as a FoldNote; since the ruling it is a POSTURE OVERLAY, packoverlay.Collect's to
+// place on the owner's surface or report as an orphan, so this fold neither merges it, nor
+// raises a problem, nor notes it. The typo'd identity is the OQ-Z5 case the note existed for;
+// packoverlay's TestAnOwnerlessPostureOverlayIsAnOrphanOnlyWhereItsPostureIsSelected pins that
+// it still reaches its author, as an orphan saying "check the identity".
+func TestAForeignPosturePatchIsNotThisFoldsNote(t *testing.T) {
 	p := deadPatchFixture(t)
 
 	for _, c := range []struct {
@@ -91,17 +85,40 @@ func TestDeadPosturePatchIsNamedToo(t *testing.T) {
 	} {
 		surfaces, problems, notes := p.SurfacesForReport(c.autonomy)
 		if len(problems) != 0 {
-			t.Fatalf("%s posture: a dead patch is not a problem: %v", c.posture, problems)
+			t.Fatalf("%s posture: a foreign patch is not a problem of this fold: %v", c.posture, problems)
 		}
 		if len(surfaces) != 1 || surfaces[0].Key().String() != "claude/settings" {
 			t.Fatalf("%s posture: the fold must not gain the patch's surface: %+v", c.posture, surfaces)
 		}
-		if len(notes) != 1 {
-			t.Fatalf("%s posture: want the dead patch named, got %+v", c.posture, notes)
+		if m := surfaces[0].ManagedMap(); m["profile"] != nil {
+			t.Errorf("%s posture: a foreign patch merged into the pack's own surface: %+v", c.posture, m)
 		}
-		if !strings.Contains(notes[0].String(), c.posture) {
-			t.Errorf("%s posture: the note must say which declaration the patch rode: %q",
-				c.posture, notes[0].String())
+		if len(notes) != 0 {
+			t.Errorf("%s posture: a foreign patch is packoverlay's to report, not a note here: %+v",
+				c.posture, notes)
 		}
+	}
+}
+
+// PosturePatchesOwnSurface is the notch line's question about the OWN-SURFACE half of a posture's
+// config (surveyNotchFacts): true only for a posture whose patch names a surface this pack
+// declares, which always folds. A foreign patch alone answers false — whether it folds is the
+// collector's answer (packoverlay.OverlaySet.PlacesPostureConfigFrom), not the manifest's.
+func TestPosturePatchesOwnSurfaceAsksOnlyAboutTheOwnHalf(t *testing.T) {
+	p := deadPatchFixture(t)
+	for _, autonomy := range []bool{true, false} {
+		if p.PosturePatchesOwnSurface(autonomy) {
+			t.Errorf("autonomy=%v: a posture whose only patch is foreign reads as folding into "+
+				"its own surface", autonomy)
+		}
+	}
+	own := &Pack{Name: "acme", Decl: declFrom(t, `{"contributes":[
+	  {"kind":"config","config":[{"agent":"claude","name":"settings","codec":"json",
+	     "path":"~/.claude/settings.json","managed":{"base":"surface"}}]},
+	  {"kind":"autonomy","guarded":{"config":[{"agent":"claude","name":"settings","codec":"json",
+	     "path":"~/.claude/settings.json","managed":{"k":"v"}}]}}]}`)}
+	if !own.PosturePatchesOwnSurface(false) || own.PosturePatchesOwnSurface(true) {
+		t.Errorf("the guarded own-surface patch: guarded=%v autonomous=%v, want true and false",
+			own.PosturePatchesOwnSurface(false), own.PosturePatchesOwnSurface(true))
 	}
 }

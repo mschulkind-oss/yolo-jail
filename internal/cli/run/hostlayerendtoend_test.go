@@ -53,11 +53,17 @@ const (
 // the packs the launch stages — one set, used by all three steps.
 func e2eHome(t *testing.T) (string, []*packload.Pack) {
 	t.Helper()
+	return e2eHomeWith(t, `{"kind":"autonomy","guarded":{"lists":[
+	    {"surface":"pi/settings","path":"/packages","add":["`+e2eAutomode+`"]}]}}`)
+}
+
+// e2eHomeWith is e2eHome with the personal pack's contributions spelled by the caller.
+func e2eHomeWith(t *testing.T, contributes string) (string, []*packload.Pack) {
+	t.Helper()
 	home := packHome(t)
 	personal := filepath.Join(t.TempDir(), "matt")
-	writeHostFileAt(t, filepath.Join(personal, "pack.json"), `{"name":"matt","contributes":[
-	  {"kind":"autonomy","guarded":{"lists":[
-	    {"surface":"pi/settings","path":"/packages","add":["`+e2eAutomode+`"]}]}}]}`, 0o644)
+	writeHostFileAt(t, filepath.Join(personal, "pack.json"),
+		`{"name":"matt","contributes":[`+contributes+`]}`, 0o644)
 	writeUserPacks(t, home, `["pi", "file://`+personal+`"]`)
 	writeHostFileAt(t, filepath.Join(home, ".pi", "agent", "settings.json"),
 		`{"packages":["`+e2eUsersOwn+`"]}`, 0o644)
@@ -100,6 +106,14 @@ func piPackages(t *testing.T, home string) []any {
 // e2eBoot is step 3: a jail boot handed the wire and the staged bytes a launcher produced.
 func e2eBoot(t *testing.T, loaded []*packload.Pack, ctxRoot, wire string) (packages []any, log string) {
 	t.Helper()
+	jailHome, log := e2eBootHome(t, loaded, ctxRoot, wire)
+	return piPackages(t, jailHome), log
+}
+
+// e2eBootHome is e2eBoot returning the jail home it rendered into, for a caller that reads
+// more of the file than `packages`.
+func e2eBootHome(t *testing.T, loaded []*packload.Pack, ctxRoot, wire string) (home, log string) {
+	t.Helper()
 	t.Setenv("YOLO_CTX_ROOT", ctxRoot)
 	var errw bytes.Buffer
 	e := &entrypoint.Env{Home: t.TempDir(), Workspace: t.TempDir(),
@@ -108,7 +122,7 @@ func e2eBoot(t *testing.T, loaded []*packload.Pack, ctxRoot, wire string) (packa
 	if fails := e.GenFailures(); len(fails) != 0 {
 		t.Fatalf("the boot failed: %v\n%s", fails, errw.String())
 	}
-	return piPackages(t, e.Home), errw.String()
+	return e.Home, errw.String()
 }
 
 // launcher is step 2 for one backend: the wire it emits and the root its staged bytes sit at.

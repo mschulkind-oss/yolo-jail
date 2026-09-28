@@ -15,8 +15,9 @@ import (
 //
 // THE FIRST IS THAT IT NEVER CHANGES SURFACE IDENTITIES OR OWNERSHIP. Collect's owner pass
 // reads only surface IDENTITIES, and the posture fold — packload.foldPostureManaged — merges
-// keys into the `Managed` layer of surfaces ALREADY present, ignoring any patch that names no
-// base surface. So both postures yield the same identity set by construction, and which
+// keys into the `Managed` layer of surfaces ALREADY present, leaving any patch that names no
+// base surface to the overlay pass as a posture overlay (OQ-3), which never owns a surface. So
+// both postures yield the same identity set by construction, and which
 // overlays and plain config-lists find an owner cannot depend on the bit. If a future change
 // makes the posture able to ADD or REMOVE a surface identity,
 // TestCollectAutonomyDoesNotChangeTheResolution fails — the correct alarm, because at that
@@ -95,8 +96,15 @@ func TestCollectAutonomyDoesNotChangeTheResolution(t *testing.T) {
 		for _, o := range c.set.Orphans {
 			targets = append(targets, o.KindName()+" "+o.Target)
 		}
-		// Sorted by target, then pack: hopeful's overlay before lister's list.
+		// Sorted by target, then pack: hopeful's overlay before lister's list. At the guarded
+		// posture the phantom patch itself is one more orphan, acme's own, sorting first: since
+		// OQ-3 a posture patch on a surface its pack does not declare is a POSTURE OVERLAY, and
+		// an ownerless one is reported where its posture is selected (postureoverlay_test.go).
+		// It is an orphan, not an owner, which is the identity half this test is for.
 		want := []string{"config-overlay acme/phantom", "config-list acme/phantom"}
+		if c.set == off {
+			want = append([]string{"autonomy acme/phantom"}, want...)
+		}
 		if !reflect.DeepEqual(targets, want) {
 			t.Errorf("%s: orphans = %v, want exactly %v", c.name, targets, want)
 		}
