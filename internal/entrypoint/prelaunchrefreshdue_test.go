@@ -187,7 +187,10 @@ func TestRefreshWaitIsBounded(t *testing.T) {
 	}
 	start := time.Now()
 	stdout, stderr := p.run(t, "")
-	if el := time.Since(start); el < 5*waitPoll || el > 20*time.Second {
+	// The upper bound is what pins UPDATE_TIMEOUT being honored: the unpatched 60 polls of
+	// waitPoll take about 6s, so 30 polls (3s) fails a loop that ignores the patched value
+	// while leaving the real 5-poll wait ample headroom under load.
+	if el := time.Since(start); el < 5*waitPoll || el > 30*waitPoll {
 		t.Errorf("the wait must last about UPDATE_TIMEOUT, took %s", el)
 	}
 	log := p.logLines(t)
