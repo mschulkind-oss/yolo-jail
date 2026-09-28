@@ -379,7 +379,7 @@ is reported verified only against a real rootless host or CI, with
 | The host codex no-op: a profile whose provider the launch does not hold refuses (`packload.MissingProviderError`, ES-D24 to ES-D26), and the host footer leaves out a selection the host refuses | **in flight**, branch `worktree-wf_392bd9fc-1fb-1` (`56d5996d`, `e36b9121`), not on main | B1's symptom, C1 |
 | The host reads `-p` in the run path's grammar (`parseProfileValue`, ES-D27). A pair naming another CLI refuses by name, and providers.md's "do not unify" warning is replaced | **in flight**, the same branch (`3830c102`) | A1 |
 | Per-launch caller auth for the wire bridge, amending [WB-D4](../reference/wire-bridge.md#wb-d4) | **in flight**, built in parallel; not on any branch visible here | E1, item 1 |
-| `docs/design/host-notch-services.md`: services at the host. Its HS-D1 runs the closure inside `loadedHostPacks` only, HS-D2 merges the `-p` grammar, and HS-P3 gives host halves a per-launch token | **draft, not in the tree.** An auditor saw it as an untracked file on 2026-09-27; it is absent now | B1, E2, item 3 |
+| [`host-notch-services.md`](../design/host-notch-services.md): the full shape of [OQ-NC1](#OQ-NC1)'s option A at the host. Its HS-D1 runs the closure through item 6's one selection function after item 2, HS-D2 is ES-D27, and its host halves take this plan's caller secret (NC-D2, NC-D3) | **in the tree**, in-review, with two questions of its own under option A ([`OQ-HS3`](../design/host-notch-services.md#OQ-HS3), [`OQ-HS4`](../design/host-notch-services.md#OQ-HS4)) | B1, E2, item 3 |
 | [`host-computed-layer.md`](../design/host-computed-layer.md): derives at the host | **on main**, in-review. The HC-D1 to HC-D5 follow-up fixes are in flight on `worktree-wf_ac5e8112-da7-1` | D4, D1 |
 
 > [!WARNING]
@@ -389,7 +389,8 @@ is reported verified only against a real rootless host or CI, with
 > [§2](#2-security-first-the-boundary-that-is-not-one) shows is an injection channel. That measurement
 > is right, and it is why item 6 comes after item 2, not a reason to leave the host off the closure.
 > Once item 2 drops unserved addresses, ES-D24's reason is gone. Scoping the closure to
-> `loadedHostPacks` alone, as HS-D1 drafts it, would leave six host verbs on a narrower pack set.
+> `loadedHostPacks` alone would leave six host verbs on a narrower pack set, which is why
+> [HS-D1](../design/host-notch-services.md#HS-D1) runs it through item 6's one selection function.
 
 ## 6. Open questions
 
@@ -397,7 +398,10 @@ is reported verified only against a real rootless host or CI, with
    macos-user run no `jail_daemon` and no `kind: "service"` process. So a `via` or adapter profile
    works in a container, refuses at the host, and on macos-user launches against dead addresses.
    This decides whether item 3 is built at all. It also answers
-   [`OQ-OA6`](../design/openai-auth-broker.md#OQ-OA6) for Codex on macos-user.
+   [`OQ-OA6`](../design/openai-auth-broker.md#OQ-OA6) for Codex on macos-user. Option A is drawn
+   in full, for the host and macos-user, in
+   [`host-notch-services.md`](../design/host-notch-services.md), which owns two narrower questions
+   under it.
 
    - **A — Run them, launch-owned.** The launch (host exec, macos-user launch) starts each selected
      service as a child for its own lifetime, on an ephemeral loopback port, authenticated by item 1.

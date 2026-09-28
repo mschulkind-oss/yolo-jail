@@ -3,46 +3,53 @@ title: "A pack's service runs wherever its agent runs"
 date: 2026-09-28
 status: in-review
 tags: [design, services, wire-bridge, host, notches, profiles, credentials, macos-user]
-summary: "yolo host applies no pack's needs and starts no pack service, so with packs [claude] `yolo host -p codex -- claude` exits 0 and runs claude on the Claude login (measured), and `yolo host -p claude=codex` is refused as an undeclared profile. The proposal: the host runs the jail's pack selection, and starts each needed service that declares a host half as a child of that one launch, on a per-launch loopback port, answering only callers that carry a per-launch token. Five questions owe a ruling; five implementation decisions are recorded, and two of them (the selection step and the -p grammar) wait on no ruling."
+summary: "The full shape of notch-convergence OQ-NC1's option A for the host: yolo host starts each needed service that declares a host half as a child of that one launch, on a per-launch loopback port, answering only callers that carry the per-launch caller secret NC-D2 rules for every notch. Whether the host runs services at all is OQ-NC1's; this doc owns two questions under its option A (lifetime, and how a pack declares its host half) and five implementation decisions, three of them built on a sibling branch or owned by notch-convergence items."
 vantage:
   status-chip: true
 ---
 
 # A pack's service runs wherever its agent runs
 
-**Status:** DESIGN, 2026-09-28. Nothing built. Evidence verified at `1baf1fd4`: MEASURED by
-running a freshly built `yolo` against throwaway homes with a fake `claude` that prints its
-environment ([Appendix A](#appendix-a--the-measured-runs)); code claims cite a symbol, not a line.
+**Status:** DESIGN, 2026-09-28. The host half is not built. Evidence verified at `1baf1fd4`
+(MEASURED, [Appendix A](#appendix-a--the-measured-runs)), then reconciled against `main` at
+`e5150a03` and against branch `worktree-wf_392bd9fc-1fb-1` at `bc08a408`, which builds three
+things this doc once listed as unbuilt (ES-D25, ES-D27 and ES-D28, and the Codex route's
+integration test). That branch is not on `main`.
 
 > **In short.** A service a selected pack needs is part of the environment description, not
-> part of the jail. So `yolo host -- <agent>` should run the same pack selection a jail runs,
-> `needs` included, and start each needed service that declares a host half as a child of that
-> one launch: on a port the launch picks, answering only callers that carry the launch's token,
-> and gone when the agent exits.
+> part of the jail. So if the host runs pack services at all
+> ([OQ-NC1](../plans/notch-convergence.md#OQ-NC1)), `yolo host -- <agent>` starts each needed
+> service that declares a host half as a child of that one launch: on a port the launch picks,
+> answering only callers that carry the launch's caller secret, and gone when the agent exits.
 
-**Why it matters.** Today `yolo host -p codex -- claude` exits 0 and runs claude on the Claude
-login while its status line says `codex (bridge) · host` ([§2](#2-what-the-host-does-today-measured)).
+**Why it matters.** At `1baf1fd4`, `yolo host -p codex -- claude` exits 0 and runs claude on the
+Claude login while its status line says `codex (bridge) · host` ([§2](#2-what-the-host-does-today-measured)).
+The sibling branch turns that into a refusal. This doc is what would make it work.
 
-**The shape.** The jail's selection step at the host, one **launch-owned service**
-([§1.2](#12-terms)) per bridged launch, and one address and token the launch hands to both.
+**The shape.** The jail's one selection function at the host, one **launch-owned service**
+([§1.2](#12-terms)) per bridged launch, and one address and caller secret the launch hands to both.
 
-**Cost.** A bridged host launch stays resident. The bridge grows inbound auth, which amends
-[WB-D4](../reference/wire-bridge.md#wb-d4). `yolo host env` and `yolo host apply` cannot carry a
-bridged profile.
+**Cost.** A bridged host launch stays resident. `yolo host env` and `yolo host apply` cannot carry
+a bridged profile.
 
 **Start at [§4](#4-the-proposed-shape)**, the shape. The questions fall out of it.
 
-**Needs your ruling:** [OQ-HS1](#OQ-HS1), [OQ-HS2](#OQ-HS2), [OQ-HS3](#OQ-HS3), [OQ-HS4](#OQ-HS4), [OQ-HS5](#OQ-HS5).
+**Needs your ruling:** [OQ-HS3](#OQ-HS3), [OQ-HS4](#OQ-HS4). Both matter only if
+[OQ-NC1](../plans/notch-convergence.md#OQ-NC1) takes its option A, and ruling that option as
+written rules [OQ-HS3](#OQ-HS3) too.
 
-**Reads with:** [§12](#12-the-neighbors) (seven sibling docs, one line each). No implementation
-sketch is open yet.
+**Reads with:** [`notch-convergence.md`](../plans/notch-convergence.md) (the plan this doc is
+item 3 of: it owns whether the host runs services, the caller-secret ruling, and the selection
+and served-address items this design sits on), and [§12](#12-the-neighbors) (the other siblings,
+one line each). No implementation sketch is open yet.
 
 ---
 
 ## 1. The verdict, and the words it uses
 
-**Run the services at the host.** Three principles carry the design, numbered so the questions
-can cite them:
+**Run the services at the host.** That is [OQ-NC1](../plans/notch-convergence.md#OQ-NC1)'s
+option A, which notch-convergence leans toward; this doc draws that option in full for the host
+notch. Three principles carry the design, numbered so the questions can cite them:
 
 - <a id="HS-P1"></a>**HS-P1. The notch changes how a declaration is delivered, never
   whether.** A selected pack's declarations are honored at every notch or refused there by
@@ -54,24 +61,28 @@ can cite them:
   [HD-R1](host-daemon-ownership.md#HD-R1), the maintainer's call of 2026-09-20 (*"A host-side
   daemon is spawned by the launch that wants it, serves that jail, and ends with it."*), read
   for a launch that has no jail.
-- <a id="HS-P3"></a>**HS-P3. A listener outside a jail answers only its own launch.** The
-  bridge's trust model is *"The jail is the trust boundary. If that ever stops being true, the
-  bridge grows auth before it grows anything else"*
-  ([`wire-bridge.md`](../reference/wire-bridge.md#what-this-does-not-license)). At the host it
-  stops being true.
+- <a id="HS-P3"></a>**HS-P3. A loopback listener answers only its own launch, at every notch.**
+  The bridge's trust model was *"The jail is the trust boundary. If that ever stops being true,
+  the bridge grows auth before it grows anything else"*
+  ([`wire-bridge.md`](../reference/wire-bridge.md#what-this-does-not-license)). The maintainer
+  ruled on 2026-09-27 that it is not true in a jail either
+  ([NC-D2](../plans/notch-convergence.md#7-decision-ledger)), so the auth is owed everywhere,
+  not only here.
 
 ### 1.1 Why now
 
-The maintainer, 2026-09-27: *"host is supposed to act like everywhere else."* And: *"1. we
-don't support wire bridge on the host? that seems wrong 2. we don't support one agent profile
-selection on the host? that seems wrong"*. I read the second as the per-CLI grammar,
-`-p <cli>=<name>` (row 6 of the table in [§2](#2-what-the-host-does-today-measured)).
+The maintainer, 2026-09-27, quoted as typed (line breaks dropped): *"1. we don't support wire
+bridge on the host? that seems wrong 2. we don't support one agent profile selection on the host?
+that seems wrong host is supposed to act like everywher [sic] else."* I read the second as the
+per-CLI grammar, `-p <cli>=<name>` (row 6 of the table in [§2](#2-what-the-host-does-today-measured)).
 
 The same question was asked once before, about env: *"I don't get it, why would we NOT support
 env on the host too?"* (2026-09-01, the withdrawal of [OQ-CS10](../reference/providers.md#oq-cs10),
 commit `368b798f`). The charter points the same way: *"Confinement is one attribute of that
 description"*, and *"Everything inside is the product"*, with host-capability bridges named in
-that product ([`what-yolo-is.md`](../reference/what-yolo-is.md)).
+that product ([`what-yolo-is.md`](../reference/what-yolo-is.md)). The same day the maintainer
+ruled the notches onto one code path per concern
+([NC-D1](../plans/notch-convergence.md#7-decision-ledger)).
 
 ### 1.2 Terms
 
@@ -86,7 +97,7 @@ that product ([`what-yolo-is.md`](../reference/what-yolo-is.md)).
 - **Launch-owned service** *(coined here; the adjective is [OQ-OA6](openai-auth-broker.md#OQ-OA6)'s
   "a launch-owned adapter")*: a service process that one launch starts as its own child, for the
   one agent that launch runs, on an address the launch chose, and stops when that agent exits.
-  It is not a singleton, since no other process is handed its address or token. It is not a jail
+  It is not a singleton, since no other process is handed its address or secret. It is not a jail
   daemon, since no supervisor restarts it. It is not a loophole, since it carries no grants.
 - **Bridged profile** *(coined here)*: a profile whose resolved pairing for the launched agent is
   an adaptation that a pack's own service serves. Claude on `openai-codex`, through wire-bridge's
@@ -94,29 +105,45 @@ that product ([`what-yolo-is.md`](../reference/what-yolo-is.md)).
   the host, [WG-I12](wire-bridge-gateway.md#WG-I12)), and not a profile whose adapter is a
   gateway or a proxy the user runs, which the host already composes
   ([`protocol-resolution.md`](../reference/protocol-resolution.md#the-three-declarations)).
+- **Caller secret**: notch-convergence's per-launch caller secret
+  ([§2.3 there](../plans/notch-convergence.md#23-the-fix-every-service-authenticates-its-caller-at-every-notch)),
+  256 random bits minted once per launch, which every loopback service requires on every request.
 
 ## 2. What the host does today, measured
 
 Every run used a fresh home whose only file was the config shown, a throwaway workspace, and a
 fake `claude` that prints the `ANTHROPIC_*`, `CLAUDE_CODE_*` and `AWS_*` variables it was given
-([Appendix A](#appendix-a--the-measured-runs) has the output).
+([Appendix A](#appendix-a--the-measured-runs) has the output). **Rows 1 to 4 and 6 to 8 describe
+`1baf1fd4`**, before the sibling branch's ES-D25 and ES-D27; the column on the right says what
+that branch changes. Row 9 and the codex row are unchanged there.
 
-| # | Command | `packs` | Exit | What claude got |
-| :--- | :--- | :--- | :--- | :--- |
-| 1 | `yolo host -p codex -- claude` | `["claude"]` | 0 | `CLAUDE_CODE_AUTO_COMPACT_WINDOW`, `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC`, `CLAUDE_CODE_MAX_CONTEXT_TOKENS`, and nothing else: no base URL, no model |
-| 2 | `yolo -p codex host -- claude`, and `yolo --at host -p codex -- claude` | `["claude"]` | 0 | the same three |
-| 3 | `yolo host -- claude` with `use_profiles: {claude: codex}` | `["claude"]` | 0 | the same three, while claude's own status line prints `Opus · yolo: codex (bridge) · host` |
-| 4 | `yolo host env --agent claude -p codex` | `["claude"]` | 0 | exports the same three |
-| 5 | `yolo host -- claude`, no profile | `["claude"]` | 0 | none of them: the three are the codex branch's |
-| 6 | `yolo host -p claude=codex -- claude` | `["claude"]` | 1 | `no profile named "claude=codex" is declared` |
-| 7 | `yolo host -p codex -- claude` | `["claude", "openai-auth"]` | 1 | ES-D18's refusal, whose remedy is the jail launch `yolo -p claude=codex -- claude` |
-| 8 | `yolo -p claude=codex host -- claude` | `["claude", "openai-auth"]` | 1 | row 6's refusal again, so following row 7's remedy to the host loops |
-| 9 | `yolo host -p bedrock -- claude` | `["claude", "aws-auth"]` | 0 | `CLAUDE_CODE_USE_BEDROCK=1` and `AWS_CONTAINER_CREDENTIALS_FULL_URI=http://127.0.0.1:1461/credentials`, an address only a jail daemon serves |
+| # | Command | `packs` | Exit at `1baf1fd4` | What claude got | On branch `worktree-wf_392bd9fc-1fb-1` |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| 1 | `yolo host -p codex -- claude` | `["claude"]` | 0 | `CLAUDE_CODE_AUTO_COMPACT_WINDOW`, `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC`, `CLAUDE_CODE_MAX_CONTEXT_TOKENS`, and nothing else: no base URL, no model | refuses: the provider is missing (ES-D25) |
+| 2 | `yolo -p codex host -- claude`, and `yolo --at host -p codex -- claude` | `["claude"]` | 0 | the same three | refuses (ES-D25) |
+| 3 | `yolo host -- claude` with `use_profiles: {claude: codex}` | `["claude"]` | 0 | the same three, while claude's own status line prints `Opus · yolo: codex (bridge) · host` | refuses (ES-D25) |
+| 4 | `yolo host env --agent claude -p codex` | `["claude"]` | 0 | exports the same three | refuses (ES-D25) |
+| 5 | `yolo host -- claude`, no profile | `["claude"]` | 0 | none of them: the three are the codex branch's | unchanged |
+| 6 | `yolo host -p claude=codex -- claude` | `["claude"]` | 1 | `no profile named "claude=codex" is declared` | the pair is parsed (ES-D27), then refuses as row 1 does |
+| 7 | `yolo host -p codex -- claude` | `["claude", "openai-auth"]` | 1 | ES-D18's refusal, whose remedy is the jail launch `yolo -p claude=codex -- claude` | the remedy says it is a jail launch (ES-D26) |
+| 8 | `yolo -p claude=codex host -- claude` | `["claude", "openai-auth"]` | 1 | row 6's refusal again, so following row 7's remedy to the host loops | row 7's refusal, so the loop is gone (ES-D26, ES-D27) |
+| 9 | `yolo host -p bedrock -- claude` | `["claude", "aws-auth"]` | 0 | `CLAUDE_CODE_USE_BEDROCK=1` and `AWS_CONTAINER_CREDENTIALS_FULL_URI=http://127.0.0.1:1461/credentials`, an address only a jail daemon serves | unchanged |
+
+A second jail-daemon pointer already reaches the host, and not through claude. With
+`"packs": ["codex"]`, `yolo host env --agent codex` exits 0 and exports
+`CODEX_REFRESH_TOKEN_URL_OVERRIDE='http://127.0.0.1:1460/oauth/token'` (MEASURED on `e5150a03`,
+[Appendix A](#appendix-a--the-measured-runs)). That port belongs to `openai-auth`'s jail daemon
+(`openai-auth-adapter`, declared in
+[`packs/openai-auth/loopholes/openai-auth-broker/manifest.jsonc`](../../packs/openai-auth/loopholes/openai-auth-broker/manifest.jsonc)),
+and the pointer is an ungated env var of the codex pack
+([`packs/codex/pack.json`](../../packs/codex/pack.json)). `yolo host -- codex` does not hand it
+on: `openaiauthhost.Prepare` replaces it with the address of the adapter it serves itself.
 
 With no base URL, claude runs on whatever login it holds. Rows 1 to 4 are
-[HS-P1](#HS-P1)'s forbidden state. Rows 6 to 8 are the maintainer's two questions. Row 9 is the
-trap in [HS-D1](#HS-D1): it is what every host claude launch on `bedrock` would get once the
-host applies `needs`, because claude needs `aws-auth` unconditionally.
+[HS-P1](#HS-P1)'s forbidden state. Rows 6 to 8 are the maintainer's two questions. Row 9 and the
+codex pointer are the trap in [HS-D1](#HS-D1): row 9 is what every host claude launch on
+`bedrock` would get once the host applies `needs`, because claude needs `aws-auth`
+unconditionally.
 
 ### 2.1 The five causes
 
@@ -132,23 +159,23 @@ host applies `needs`, because claude needs `aws-auth` unconditionally.
    ([`hostbridgeadapter_test.go`](../../internal/cli/hostbridgeadapter_test.go)). The one test
    that composes claude on `codex` at the host lists `openai-auth` by hand
    (`TestHostNeverTellsTheUserToListTheBridge`). The other host `-p codex` tests check the argv
-   parse only (`TestHostArgumentsAcceptLeadingProfile`).
-2. **The protocol gate is silent about a provider the table lacks.** `refuseUnspeakableProvider`
-   ([`protocolresolution.go`](../../internal/packload/protocolresolution.go)) is *"TOTAL over the
-   ways there is nothing to ask"*, *"a provider name the composed table does not hold"* among
-   them, since that is also an ordinary unprofiled launch. The profile itself is declared (the
-   claude pack declares `codex`), so the mandatory-declaration refusal
-   ([OQ-CS6](../reference/providers.md#oq-cs6)) passes too.
+   parse only (`TestHostArgumentsAcceptLeadingProfile`). The sibling branch keeps the host off
+   the closure on purpose (ES-D24, [ledger](credential-sources-separation.md#10-decision-ledger)),
+   because applying it adds row 9's pointer.
+2. **The protocol gate is silent about a provider the table lacks.** At `1baf1fd4`,
+   `refuseUnspeakableProvider` ([`protocolresolution.go`](../../internal/packload/protocolresolution.go))
+   is *"TOTAL over the ways there is nothing to ask"*, *"a provider name the composed table does
+   not hold"* among them. The sibling branch makes that case a refusal
+   (`packload.MissingProviderError`, ES-D25).
 3. **Claude's derive returns its constants anyway.** The `openai-codex` branch of
    [`packs/claude/derive.lua`](../../packs/claude/derive.lua) reads the base URL and the model
    list from the provider entry, finds neither, and still returns its three constants.
-4. **Host `-p` is name-only.** `parseHostExecFlags` in [`host.go`](../../internal/cli/host.go)
-   keeps the value whole. The run path splits `cli=name` in `applyProfileValue`
-   ([`runcmd.go`](../../internal/cli/runcmd.go)).
+4. **Host `-p` is name-only** at `1baf1fd4`: `parseHostExecFlags` in
+   [`host.go`](../../internal/cli/host.go) keeps the value whole. The sibling branch reads it in
+   the run path's grammar (ES-D27).
 5. **The refusal's remedy is a jail launch.** ES-D18 to ES-D20 name
-   `yolo -p <agent>=<profile> -- <agent>` on a container backend
-   ([ledger](credential-sources-separation.md#10-decision-ledger)). Adding `host` to it hits
-   cause 4.
+   `yolo -p <agent>=<profile> -- <agent>` on a container backend. Adding `host` to it hits
+   cause 4 at `1baf1fd4`; the sibling branch labels it a jail launch (ES-D26).
 
 ### 2.2 Where "no host-side bridge" and "name-only" came from
 
@@ -157,9 +184,8 @@ Neither is a ruling, so reopening them overturns nothing.
 | Claim | Source | What kind of source |
 | :--- | :--- | :--- |
 | No host-side bridge | `a7860398` (2026-09-04): *"`yolo host -- claude` gets no bridged routing in v1 (the notch can adopt it later by running the same subcommand — the code having no jail dependencies is what keeps that door open, not a promise to walk through it)"*. The graduation to [`wire-bridge.md`](../reference/wire-bridge.md#what-this-does-not-license) in `cba833c3` (2026-09-09) dropped "in v1" | a non-goal of a v1 design |
-| Host `-p` stays name-only | `582ae850`'s body: *"yolo host's own -p stays name-only: host launches one agent, so there is no command-dependence to remove there."* `ba1763ab` graduated the plan's trap, *"`internal/cli/host.go` has its own `-p`/`--profile` parse … with **no timing meaning** — already unambiguous. D5 touches the run path only; do not "unify" them."*, into [`providers.md`](../reference/providers.md)'s warning | an implementer's note. The trap was about the timing meaning of `-p`, not about the pair grammar. No maintainer quote |
+| Host `-p` stays name-only | `582ae850`'s body: *"yolo host's own -p stays name-only: host launches one agent, so there is no command-dependence to remove there."* `ba1763ab` graduated the plan's trap into [`providers.md`](../reference/providers.md)'s warning | an implementer's note, about the timing meaning of `-p`, not the pair grammar. ES-D27 deletes the warning on the sibling branch |
 | The host refuses a bridged profile | ES-D18, ES-D19, ES-D20 | *Implementation decision* rows |
-| `-p codex -- claude` refuses at the host | [`providers.md`](../reference/providers.md) | true only with `openai-auth` listed by hand (rows 1 and 7 of [§2](#2-what-the-host-does-today-measured)) |
 
 > [!WARNING]
 > **"The code has no jail dependencies" is no longer true of the bridge.** `internal/wirebridged`
@@ -176,7 +202,9 @@ no-op. Six facts, each from the tree:
 
 1. **The bridge authenticates no caller.** [WB-D4](../reference/wire-bridge.md#wb-d4): inbound
    auth none, because *"The jail is the boundary"*. The handler ignores the inbound
-   `Authorization` header ([`handler.go`](../../internal/wirebridged/handler.go)).
+   `Authorization` header ([`handler.go`](../../internal/wirebridged/handler.go)). NC-D2 retires
+   that premise, and the bridge's caller auth is in flight
+   ([notch-convergence §5](../plans/notch-convergence.md#5-already-merged-and-in-flight)).
 2. **Claude sends its subscription bearer to any base URL** when neither
    `ANTHROPIC_AUTH_TOKEN` nor `ANTHROPIC_API_KEY` is set (measured 2026-09-02,
    [`agent-auth-modes.md` §8.1](agent-auth-modes.md#81-measured-2026-09-02-the-subscription-bearer-follows-anthropic_base_url)).
@@ -198,23 +226,21 @@ no-op. Six facts, each from the tree:
    concurrent host launches would collide.
 6. **The precedent has half the answer.** The managed host Codex adapter binds `127.0.0.1:0` per
    launch and closes it when codex exits (`openaiauthhost.Prepare`, `Launch.Run` in
-   [`host.go`](../../internal/openaiauthhost/host.go)). It authenticates no caller:
-   `openaiauthadapter.Handler` passes any `refresh_token` to the broker, whose
-   `parseGenerationMarker` accepts any `yolo-broker:<n>` with `n ≥ 1`, and the adapter's own
-   comment says the caller token *"is used only for stale-caller detection by the broker"*. Read
-   from code, UNMEASURED.
+   [`host.go`](../../internal/openaiauthhost/host.go)). It authenticates no caller;
+   notch-convergence MEASURED a stranger getting both tokens from it on 2026-09-27
+   ([§2.1 there](../plans/notch-convergence.md#21-what-trusts-the-network-namespace-today)).
 
 So a host bridge on 8215 would hand the ChatGPT subscription to anything that reaches the host's
 loopback, and a process that bound 8215 first would receive claude's Claude login bearer.
 
-**The threat model, stated so the questions are decidable:**
+**The threat model, stated so the design is checkable:**
 
 | Who | Reaches the host loopback | Stopped today by | Under this design |
 | :--- | :--- | :--- | :--- |
-| A jail with loopback forwarding | yes | nothing of yolo's listening on 8214 or 8215 at the host | the per-launch token ([OQ-HS2](#OQ-HS2)) |
-| A `macos-user` sandbox | yes, same stack | as above | the per-launch token |
-| Another local account | yes | as above | the per-launch token |
-| A process that binds the port first | yes | nothing | a kernel-assigned port, and a token claude sends in place of its login |
+| A jail with loopback forwarding | yes | nothing of yolo's listening on 8214 or 8215 at the host | the caller secret |
+| A `macos-user` sandbox | yes, same stack | as above | the caller secret |
+| Another local account | yes | as above | the caller secret |
+| A process that binds the port first | yes | nothing | a kernel-assigned port, and a secret claude sends in place of its login |
 | A process of the same account on the host | yes | **out of scope**: it can already read claude's saved login and the broker's socket, whose *"filesystem mode is the authorization boundary"* (`openauthclient.RequestUnix`) | out of scope |
 
 > [!WARNING]
@@ -223,7 +249,8 @@ loopback, and a process that bound 8215 first would receive claude's Claude logi
 > the bridge's address, and a `macos-user` launch starts no jail daemon
 > ([`wire-bridge.md`](../reference/wire-bridge.md#no-macos-user-bridge)). Claude on `codex`
 > there is pointed at `127.0.0.1:8215` on the host's own loopback, where nothing of yolo's
-> listens, with no `ANTHROPIC_AUTH_TOKEN` (fact 3). [OQ-HS5](#OQ-HS5) is where that lands.
+> listens, with no `ANTHROPIC_AUTH_TOKEN` (fact 3). That backend is inside
+> [OQ-NC1](../plans/notch-convergence.md#OQ-NC1) too ([§4.7](#47-macos-user)).
 
 ## 4. The proposed shape
 
@@ -237,11 +264,11 @@ sequenceDiagram
     U->>L: yolo host -p codex -- claude
     L->>L: selection closure (needs), profile resolution
     L->>B: ensure the OpenAI login
-    L->>L: mint a token, bind 127.0.0.1:0
-    L->>S: start (address, token, provider table)
+    L->>L: mint the caller secret, bind 127.0.0.1:0
+    L->>S: start (address, secret, provider table)
     S-->>L: listening
-    L->>A: start (base URL = the address, AUTH_TOKEN = the token)
-    A->>S: POST /v1/messages, Bearer token
+    L->>A: start (base URL = the address, AUTH_TOKEN = the secret)
+    A->>S: POST /v1/messages, Bearer secret
     S->>B: access-token view
     S->>S: translate, forward upstream
     A-->>L: exits
@@ -251,19 +278,28 @@ sequenceDiagram
 
 ### 4.1 Selection: the jail's closure, at the host
 
-- The host runs `packload.Selection.Close` over the packs `loadedHostPacks` returns, with the
-  launched agent's selection table: its `use_profiles` entry, with a typed `-p` folded in.
-  Added packs print the cause lines a jail launch prints
-  ([WB-D12](../reference/wire-bridge.md#wb-d12)).
+- The host runs the one selection function notch-convergence's item 6 builds for every host
+  verb ([§4 there](../plans/notch-convergence.md#4-the-ordered-build-list)), with the launched
+  agent's selection table: its `use_profiles` entry, with a typed `-p` folded in. Added packs
+  print the cause lines a jail launch prints ([WB-D12](../reference/wire-bridge.md#wb-d12)).
+- **It lands after notch-convergence item 2**, which drops an address nothing serves at this
+  notch and names it ([NC-D4](../plans/notch-convergence.md#7-decision-ledger)). That is what
+  removes ES-D24's reason for keeping the host off the closure.
+- The addresses item 2 drops at the host are **every pointer at any jail daemon**, whichever pack
+  declares the pointer and whichever pack's daemon serves it. Two exist: `aws-auth`'s
+  `AWS_CONTAINER_CREDENTIALS_FULL_URI` at `1461` (row 9 of [§2](#2-what-the-host-does-today-measured)),
+  and the codex pack's `CODEX_REFRESH_TOKEN_URL_OVERRIDE` at `1460`, which `openai-auth`'s jail
+  daemon serves. The second reaches the host today with no closure at all, through
+  `yolo host env --agent codex`.
+- **A pointer the host itself serves is not dropped, and nothing is printed.** At
+  `yolo host -- codex` the managed adapter (`openaiauthhost.Prepare`) serves the refresh URL on
+  its own port and replaces the pointer, so every such launch goes on without a stderr notice.
+  `yolo host env --agent codex` starts no adapter, so there the pointer is dropped and named.
 - Via stays inert: `packload.ViaInert` still clears every via address
   ([WG-I12](wire-bridge-gateway.md#WG-I12)).
-- A contribution that points the agent at one of its pack's **jail daemons** is withheld at the
-  host and named on stderr, the way `packload.WithoutServiceAdaptations` withholds a
-  service-served adapter today. `aws-auth`'s `AWS_CONTAINER_CREDENTIALS_FULL_URI` is the case
-  that exists (row 9 of [§2](#2-what-the-host-does-today-measured)).
-- All three hold under any ruling of [OQ-HS1](#OQ-HS1) ([HS-D1](#HS-D1)). With
-  `"packs": ["claude"]`, `openai-auth` joins, and `-p codex -- claude` stops being a silent
-  no-op. Until a host half exists it refuses, in ES-D18's words.
+- With `"packs": ["claude"]`, `openai-auth` and `wire-bridge` join. Until a host half exists,
+  `-p codex -- claude` refuses in ES-D18's words, **with the joined pack worded as joined**
+  ([HS-D1](#HS-D1)).
 
 ### 4.2 The trigger
 
@@ -278,22 +314,26 @@ Nothing else starts one:
 
 One agent resolves one pairing, so a launch starts **zero or one** service.
 
-### 4.3 The address and the token
+### 4.3 The address and the caller secret
 
 - **The address is `127.0.0.1` on a kernel-assigned port, chosen per launch.** Never a fixed
   port, never a non-loopback address. At the host, neither the manifest's `address` nor a
   user's `adapters` override applies to a service-served adaptation ([OQ-HS4](#OQ-HS4)).
-- **The token is at least 128 bits from the OS random source, minted per launch.** The service
-  answers a request without it with `401`, in the Anthropic error shape, before reading the
-  body, using a constant-time compare. On the `anthropic` wire it accepts `Authorization:
-  Bearer` (what claude sends for `ANTHROPIC_AUTH_TOKEN`) and `x-api-key`.
-- **The agent gets the token as the address's credential**, through the same resolution that
+- **The secret is notch-convergence's caller secret, under its rules**
+  ([NC-D3](../plans/notch-convergence.md#7-decision-ledger)): 256 random bits minted once per
+  launch, held in a `0600` file and in the agent's own environment, never in a shared env file,
+  never logged, never in a briefing. This design adds only what the host needs: the secret is
+  never on an argv and never in `yolo host env`'s output. The service reads the file, and a
+  service that cannot read it does not start. Where the file lives is the implementer's choice.
+- **The service answers a request without the secret with `401`**, in the protocol's own error
+  shape with a body naming yolo, before reading the body, using a constant-time compare. On the
+  `anthropic` wire it accepts `Authorization: Bearer` (what claude sends for
+  `ANTHROPIC_AUTH_TOKEN`) and `x-api-key`.
+- **The agent gets the secret as the address's credential**, through the same resolution that
   hands it the address, so claude's derive puts it in `ANTHROPIC_AUTH_TOKEN` on the codex branch
   too. That also retires fact 3 of [§3](#3-the-constraint-the-bridge-trusts-every-caller):
-  claude sends the token, never its login.
-- **The token never appears** on an argv, in a log line, in a file the launch writes, or in
-  `yolo host env`'s output. How the launch hands it to the service (an inherited pipe, an
-  environment variable on the child only) is the implementer's choice.
+  claude sends the secret, never its login. This is the same slot notch-convergence's bridge row
+  uses in a jail, so the jail and the host share one derive.
 - **The upstream credential comes from the launch**, never from a jail path: a provider key from
   the credential gate's composition, and for `openai-codex` access-token views from the host
   broker's private socket ([HS-D3](#HS-D3)). The service never holds a refresh token
@@ -302,7 +342,7 @@ One agent resolves one pairing, so a launch starts **zero or one** service.
 ### 4.4 Lifetime
 
 The launch-owned service follows the managed Codex shape: `yolo host` stays resident as the
-parent of both processes (`Launch.Run`).
+parent of both processes (`Launch.Run`). This is [OQ-HS3](#OQ-HS3)'s leaning.
 
 1. **Order.** Pre-flights, then resolving the agent on `PATH`, then the service, then the agent.
    A missing agent exits 127 as it does today and never starts a service.
@@ -317,7 +357,7 @@ parent of both processes (`Launch.Run`).
    agent's base URL was fixed when it started, so a restart on another port could not reach it.
    The agent sees connection errors and applies its own retry, the bridge's stated policy
    (*"its retry loop IS the retry policy"*, [`handler.go`](../../internal/wirebridged/handler.go)).
-6. **Concurrency:** two host launches get two services, two ports and two tokens, and share
+6. **Concurrency:** two host launches get two services, two ports and two secrets, and share
    nothing but the OpenAI broker, which already serializes refreshes
    ([`openai-auth-broker.md`](openai-auth-broker.md)).
 
@@ -328,6 +368,7 @@ parent of both processes (`Launch.Run`).
 | Selection closure | a need names a non-embedded pack, or a cycle | refuse, with the closure's own message, as a jail launch does |
 | Admission | no host half declared, or [OQ-HS4](#OQ-HS4)'s gate refuses the pack | ES-D18's refusal, narrowed ([HS-D5](#HS-D5)) |
 | Start | spawn fails, or not listening within 5 s | refuse before the agent starts |
+| Secret | the service cannot read its secret file | the service does not start, so the start row applies |
 | Upstream key | the provider's key is missing | the existing credential pre-flight refusal |
 | OpenAI login | never logged in | log in first on a terminal, else say so and continue ([HS-D4](#HS-D4)) |
 | Mid-session | the service exits | one stderr line, no restart |
@@ -340,19 +381,35 @@ parent of both processes (`Launch.Run`).
 | the host wrappers (`exec yolo host -- <bin>`, [`hostwrap.go`](../../internal/hostwrap/hostwrap.go)) | the same front door, so the same result |
 | `yolo host env` | refuses a bridged profile, naming the `yolo host -p <p> -- <agent>` spelling: an env script cannot own a service's lifetime ([OQ-HS3](#OQ-HS3)) |
 | `yolo host apply` | renders no bridged address, since a per-launch address cannot sit in a file, and says a bridged `use_profiles` selection takes effect only through `yolo host --` or the wrappers ([OQ-HS3](#OQ-HS3), [OQ-HC3](host-computed-layer.md#OQ-HC3)) |
-| a direct launch (an IDE, cron, a shell with no wrappers) | gets only the rendered files, so it runs on the login. claude's host status line reads the config's selection ([OQ-FT6](agent-footer.md#OQ-FT6)), so it still says `codex (bridge) · host` there (row 3 of [§2](#2-what-the-host-does-today-measured)). That line is [`agent-footer.md`](agent-footer.md)'s to fix |
-| a container jail | unchanged, except for the token if [OQ-HS2](#OQ-HS2) takes it into the jail |
-| a `macos-user` jail | [OQ-HS5](#OQ-HS5) |
+| a direct launch (an IDE, cron, a shell with no wrappers) | gets only the rendered files, so it runs on the login. claude's host status line reads the config's selection ([OQ-FT6](agent-footer.md#OQ-FT6)). At `1baf1fd4` it says `codex (bridge) · host` there (row 3 of [§2](#2-what-the-host-does-today-measured)); the sibling branch leaves a selection the host refuses out of it (FT-D1), so it names the login. Once the host composes a bridged selection, the line would name the bridge again while a direct launch runs on its login. That is [`agent-footer.md`](agent-footer.md)'s to settle |
+| a container jail | the caller secret, by NC-D2 (the bridge part is in flight) |
+| a `macos-user` jail | [§4.7](#47-macos-user) |
+
+### 4.7 macos-user
+
+That backend starts no jail daemons and has no network namespace. Whether it runs services is
+[OQ-NC1](../plans/notch-convergence.md#OQ-NC1)'s, which also answers
+[OQ-OA6](openai-auth-broker.md#OQ-OA6) for the Codex refresh adapter. Under option A the
+`macos-user` launch starts the host half as a launch-owned child exactly as [§4.1](#41-selection-the-jails-closure-at-the-host) to [§4.5](#45-failure-paths) say,
+beside the host services in the session's own dir ([HD-D1](host-daemon-ownership.md#HD-D1)).
+Two facts go with that choice:
+
+- It takes the bridge out of [OQ-DP8](declaration-parity.md#OQ-DP8)'s argv question and
+  [OQ-DP9](declaration-parity.md#OQ-DP9)'s confinement question, since it runs outside Seatbelt
+  as a host half, and [OQ-HS4](#OQ-HS4)'s gate makes it yolo's own code.
+- Every workspace shares one account home there, so a concurrent session may read the secret
+  from the agent's environment (UNMEASURED). One service also gets two delivery mechanisms, a
+  jail daemon on containers and a host half here, which is the cost [OQ-OA6](openai-auth-broker.md#OQ-OA6) names.
 
 ## 5. Alternatives considered
 
 | Alternative | Verdict |
 | :--- | :--- |
-| Keep "no host-side bridge" and fix only the silence ([HS-D1](#HS-D1) alone) | **The floor, not the design.** It ships anyway, and it answers the maintainer's "that seems wrong" with "it refuses" |
-| A long-lived host bridge on the manifest's ports | **Rejected.** It is the singleton [HD-R1](host-daemon-ownership.md#HD-R1) retires, it collides across launches, and its token would have to live in a file ([OQ-HS3](#OQ-HS3)) |
+| Keep "no host-side bridge" and fix only the silence | **The floor, not the design.** It is [OQ-NC1](../plans/notch-convergence.md#OQ-NC1)'s option B, and ES-D25 on the sibling branch already builds the refusal half |
+| A long-lived host bridge on the manifest's ports | **Rejected.** It is the singleton [HD-R1](host-daemon-ownership.md#HD-R1) retires, it collides across launches, and its secret would have to outlive a launch ([OQ-HS3](#OQ-HS3)) |
 | Point a host agent at a running jail's bridge | **Rejected.** It needs a jail to be running, and it routes a host process's traffic through a jail |
 | Special-case the bridge in `yolo host`, the way `openaiauthhost.Prepare` special-cases `codex` and `pi` by name | **Rejected.** Core does not know what an agent is, and pack surfaces render with *"no switch on any tool name"* ([`AGENTS.md`](../../AGENTS.md)). The `host_daemon` slot already exists ([OQ-HS4](#OQ-HS4)) |
-| A per-launch port with no token | **Rejected.** A loopback port can be scanned, and forwarded jails reach it ([§3](#3-the-constraint-the-bridge-trusts-every-caller)) |
+| A per-launch port with no secret | **Rejected.** A loopback port can be scanned, forwarded jails reach it ([§3](#3-the-constraint-the-bridge-trusts-every-caller)), and NC-D2 rules the secret |
 | A Unix socket | **Rejected.** Every consumer is pointed at the bridge by an HTTP base URL |
 
 ## 6. Costs and risks
@@ -362,8 +419,6 @@ parent of both processes (`Launch.Run`).
 - A bridged `yolo host` launch is a resident parent, not an `exec`. The managed Codex path is
   the precedent.
 - A network listener runs on the host's loopback, outside every sandbox, as the user.
-- [WB-D4](../reference/wire-bridge.md#wb-d4) changes, and so does every consumer derive that
-  can be handed a bridge address, if [OQ-HS2](#OQ-HS2) takes the token into the jail.
 - `yolo host env` and `yolo host apply` cannot carry a bridged profile
   ([§4.6](#46-every-front-door)).
 - The bridge's inputs move off jail paths (the warning in
@@ -371,23 +426,26 @@ parent of both processes (`Launch.Run`).
 
 | Risk | Mitigation |
 | :--- | :--- |
-| The token leaks through the agent's environment | the same-account threat is out of scope ([§3](#3-the-constraint-the-bridge-trusts-every-caller)). On `macos-user` every workspace shares one account home, so a concurrent session may read it ([OQ-HS5](#OQ-HS5)) |
+| The secret leaks through the agent's environment | the same-account threat is out of scope ([§3](#3-the-constraint-the-bridge-trusts-every-caller)). On `macos-user` every workspace shares one account home ([§4.7](#47-macos-user)) |
 | A resident parent changes Ctrl-Z and signal behavior | the managed Codex path is the baseline. Its behavior with a bridged claude is UNMEASURED |
 | The service outlives a crashed launch | the 5-second bound in [§4.4](#44-lifetime) |
 | A fetched pack uses `host_daemon` to run code on the host at every launch | [OQ-HS4](#OQ-HS4)'s embedded-only gate |
-| Applying `needs` at the host changes launches that work today (row 9 of [§2](#2-what-the-host-does-today-measured)) | [HS-D1](#HS-D1) withholds every jail-daemon pointer by name |
-| The Codex route has no integration test; only the chat-completions route does (`TestWireBridgeTranslatesAnthropicToOpenai`) | step 5 of [§8](#8-what-i-would-build-in-order) |
+| Applying `needs` at the host changes launches that work today (row 9 of [§2](#2-what-the-host-does-today-measured)) | the closure lands after notch-convergence item 2, which drops every unserved jail-daemon pointer by name ([§4.1](#41-selection-the-jails-closure-at-the-host)) |
 
 ## 7. What this does not cover
 
+- **Whether the host and `macos-user` run services at all.** That is
+  [OQ-NC1](../plans/notch-convergence.md#OQ-NC1).
+- **The caller secret's mechanism for the other services** (both OpenAI adapter halves, the AWS
+  adapter, the Claude terminator). That is notch-convergence item 1, and it closes the managed
+  host Codex adapter's missing caller check (fact 6 of
+  [§3](#3-the-constraint-the-bridge-trusts-every-caller)).
 - **Via routes at the host.** They stay inert ([WG-I12](wire-bridge-gateway.md#WG-I12)). File
   derives consume them, and a per-launch address cannot reach a file.
 - **A launch-owned child for a loophole's jail daemon at the host** (the `aws-auth` adapter on
-  1461, the Codex refresh adapter on 1460). [HS-D1](#HS-D1) withholds their pointers; serving
-  them is the same shape, but it is [OQ-HS5](#OQ-HS5)'s generalization, not this design's.
-- **The managed host Codex adapter's missing caller check** (fact 6 of
-  [§3](#3-the-constraint-the-bridge-trusts-every-caller)). The token here would close it too,
-  but that is a separate change.
+  1461, the Codex refresh adapter on 1460). Notch-convergence item 2 drops their pointers where
+  nothing serves them ([§4.1](#41-selection-the-jails-closure-at-the-host)); serving them is the
+  same shape, and [OQ-NC1](../plans/notch-convergence.md#OQ-NC1)'s option A covers it.
 - **The host status line's truth for direct launches** ([`agent-footer.md`](agent-footer.md)).
 - **Loophole host daemons**, which are [HD-R1](host-daemon-ownership.md#HD-R1)'s own work.
 - **The `guest` notch**, which has no launch path yet.
@@ -396,15 +454,22 @@ parent of both processes (`Launch.Run`).
 
 ## 8. What I would build, in order
 
-1. **[HS-D1](#HS-D1), the selection step, with the jail-daemon withholding.** It needs no
-   ruling and turns the silent no-op into a refusal. Then [HS-D2](#HS-D2), the `-p` grammar,
-   which is independent of everything else here.
-2. **The token in the jail**, if [OQ-HS2](#OQ-HS2) rules that way. It is the smaller surface, and
-   the container suites can test it.
-3. **The host half**, once [OQ-HS1](#OQ-HS1), [OQ-HS3](#OQ-HS3) and [OQ-HS4](#OQ-HS4) are
-   ruled, with [HS-D3](#HS-D3), [HS-D4](#HS-D4) and [HS-D5](#HS-D5).
-4. **`macos-user`**, as [OQ-HS5](#OQ-HS5) rules.
-5. **An integration test of the Codex route**, which no test covers today.
+Already built on branch `worktree-wf_392bd9fc-1fb-1`, not yet on `main`: the `-p` grammar
+([HS-D2](#HS-D2), as ES-D27), the refusal for a provider the launch does not hold (ES-D25), the
+jail half of [HS-D4](#HS-D4) (ES-D28), and an integration test of the bridge's Codex route
+against a stub upstream (`TestWireBridgeTranslatesClaudeCodexToResponses`, ES-D29). Before it,
+unit tests covered that route (`TestResponsesNonStreamRoundTrip` in
+[`handler_test.go`](../../internal/wirebridged/handler_test.go)) and no integration test did.
+
+1. **The caller secret in the jail's bridge**, notch-convergence item 1. Ruled (NC-D2) and in
+   flight.
+2. **Served addresses**, notch-convergence item 2, so no notch hands on a pointer nothing serves.
+3. **[HS-D1](#HS-D1), the selection closure at the host**, notch-convergence item 6, after
+   step 2.
+4. **The host half**, once [OQ-NC1](../plans/notch-convergence.md#OQ-NC1) takes option A and
+   [OQ-HS3](#OQ-HS3) and [OQ-HS4](#OQ-HS4) are ruled, with [HS-D3](#HS-D3), the host half of
+   [HS-D4](#HS-D4), and [HS-D5](#HS-D5).
+5. **`macos-user`**, as [§4.7](#47-macos-user) says, under the same ruling.
 
 ## 9. What done looks like
 
@@ -413,88 +478,54 @@ parent of both processes (`Launch.Run`).
   variables. A bridge process exists while claude runs and is gone after it exits.
 - `yolo -p codex host -- claude`, `yolo --at host -p codex -- claude`, `use_profiles`, and
   `yolo host -p claude=codex -- claude` all do the same.
-- A request to that port without the token gets `401`. With it, the request is forwarded.
+- A request to that port without the secret gets `401`. With it, the request is forwarded.
 - On a machine never logged in to OpenAI, the launch runs the login before claude starts.
 - `yolo host env --agent claude -p codex` refuses and names the `yolo host -- claude` spelling.
 - Two concurrent `yolo host -p codex -- claude` launches both work.
 - `yolo host -p bedrock -- claude` with `"packs": ["claude"]` hands claude no
   `AWS_CONTAINER_CREDENTIALS_FULL_URI`, and says so on stderr.
+- `yolo host env --agent codex` with `"packs": ["codex"]` exports no
+  `CODEX_REFRESH_TOKEN_URL_OVERRIDE` and says so on stderr, while `yolo host -- codex` prints no
+  such line.
 
 ## 10. Open Questions
 
-1. 💬 <a id="OQ-HS1"></a>**[OQ-HS1](#OQ-HS1): Does the host notch run a selected pack's
-   services at all?** This decides whether a bridged profile ever works at the host or refuses
-   there for good, and whether `yolo host` stays a pure `exec` for every launch.
+Whether the host runs pack services at all, and what `macos-user` does, are
+[OQ-NC1](../plans/notch-convergence.md#OQ-NC1)'s. How a loopback service knows its caller is
+ruled ([NC-D2](../plans/notch-convergence.md#7-decision-ledger), 2026-09-27: *"solve it in both
+places"*), with notch-convergence's mechanism (NC-D3). The two questions below refine [OQ-NC1](../plans/notch-convergence.md#OQ-NC1)'s
+option A and are moot under its option B.
 
-   <!-- vantage: oq id=OQ-HS1 leaning="Yes. The charter makes confinement one attribute of the description with host-capability bridges inside it; declaration-parity P1 makes the measured silent no-op the one illegal state; the service kind declares a host half beside the jail half (WB-D16); the maintainer asked the same of env in OQ-CS10; and 'no host-side bridge' was a v1 non-goal whose 'in v1' was lost in graduation." -->
+1. 💬 <a id="OQ-HS3"></a>**[OQ-HS3](#OQ-HS3): Does a host service live for one launch, or
+   outlive it?** [OQ-NC1](../plans/notch-convergence.md#OQ-NC1)'s option A says a service runs *"as a child for its own lifetime"*, so
+   ruling that option as written answers this per launch. It is asked separately because the
+   answer decides whether `yolo host apply`, `yolo host env` and a direct IDE or cron launch can
+   ever carry a bridged profile.
 
-   _Leaning:_ **Yes.** The charter makes confinement one attribute of the description, with
-   host-capability bridges inside it ([§1.1](#11-why-now)). [HS-P1](#HS-P1) makes the measured
-   no-op the one illegal state. The service kind declares a host half beside the jail half
-   ([WB-D16](../reference/wire-bridge.md#wb-d16)). "No host-side bridge" was a v1 non-goal
-   ([§2.2](#22-where-no-host-side-bridge-and-name-only-came-from)). **Cost:** a resident parent
-   for a bridged launch, a listener outside every sandbox (bounded by [OQ-HS2](#OQ-HS2)), and
-   two front doors that cannot carry the profile ([OQ-HS3](#OQ-HS3)). **If no:**
-   [HS-D1](#HS-D1) and ES-D18 are the whole answer, and the maintainer's first question is
-   answered "it refuses, by design".
-
-   **Answer:**
-   > _(empty — fill in when decided)_
-
-2. 💬 <a id="OQ-HS2"></a>**[OQ-HS2](#OQ-HS2): How does a service on the host's shared loopback
-   know its caller is its own launch?** This decides whether a host bridge is safe at all
-   ([§3](#3-the-constraint-the-bridge-trusts-every-caller)), and whether the jail's bridge
-   changes with it.
-
-   - **A — A per-launch port and a per-launch token, host only.** The jail keeps WB-D4 as it
-     stands; two code paths for one service.
-   - **B — The same, in the jail too.** One code path, and claude stops sending its Claude login
-     to the jail's bridge. WB-D4 changes.
-   - **C — A per-launch port alone.** Nothing to hand the agent, and anything that reaches the
-     loopback can use it.
-
-   <!-- vantage: oq id=OQ-HS2 leaning="B: a per-launch kernel-assigned port plus a per-launch random token the service requires on every request, handed to the agent as the address's credential (ANTHROPIC_AUTH_TOKEN for claude), in the jail as well, amending WB-D4. It is the auth wire-bridge.md says the bridge grows 'before it grows anything else', it ends claude sending its Claude login to the bridge on the codex branch, and it keeps one code path for macos-user, whose jail loopback is the host's." -->
-
-   _Leaning:_ **B.** It is the auth the bridge was to grow *"before it grows anything else"*
-   ([`wire-bridge.md`](../reference/wire-bridge.md#what-this-does-not-license)) once the jail
-   stopped being the boundary ([§4.3](#43-the-address-and-the-token)). Taking it into the jail
-   keeps one code path, stops claude sending its Claude login to the jail's bridge (fact 3 of
-   [§3](#3-the-constraint-the-bridge-trusts-every-caller), read from code), and covers
-   `macos-user`, whose jail loopback is the host's. **Cost:** WB-D4 and the consumer derives
-   change, and a bare `curl` to the bridge from inside a jail gets `401`. The jail's via listener
-   is not covered, because codex's via row sends no `Authorization`
-   ([WG-I22](wire-bridge-gateway.md#WG-I22)). **Also rejected:** the caller's uid (a jail's
-   forwarded connection is likely dialed by the user's own rootless network helper, UNMEASURED),
-   and TLS client certificates (no consumer derive can emit one).
-
-   **Answer:**
-   > _(empty — fill in when decided)_
-
-3. 💬 <a id="OQ-HS3"></a>**[OQ-HS3](#OQ-HS3): Does a host service live for one launch, or
-   outlive it?** This decides whether `yolo host apply`, `yolo host env` and a direct IDE or cron
-   launch can ever carry a bridged profile.
-
-   <!-- vantage: oq id=OQ-HS3 leaning="Per launch. It is HD-R1's no-singleton ruling read for a host launch and the managed host Codex adapter's shipped shape, and it makes concurrency and version skew non-issues. So host apply renders no bridged address and says a bridged use_profiles selection needs yolo host -- or the host wrappers, yolo host env refuses one, and a direct launch runs on its login." -->
+   <!-- vantage: oq id=OQ-HS3 leaning="Per launch. It is HD-R1's no-singleton ruling read for a host launch, OQ-NC1 option A's own wording, and the managed host Codex adapter's shipped shape, and it makes concurrency and version skew non-issues. So host apply renders no bridged address and says a bridged use_profiles selection needs yolo host -- or the host wrappers, yolo host env refuses one, and a direct launch runs on its login." -->
 
    _Leaning:_ **Per launch.** It is [HD-R1](host-daemon-ownership.md#HD-R1) read for a host
-   launch, and the managed Codex adapter's shipped shape. Concurrency and version skew cannot
-   arise. **What follows:** `yolo host apply` renders no bridged address and says a bridged
-   `use_profiles` selection needs `yolo host --` or the wrappers. If
-   [OQ-HC3](host-computed-layer.md#OQ-HC3) renders the rest of that variant, such as the model
-   list, the address still stays out. `yolo host env` refuses a bridged profile. A direct launch
-   runs on its login. **Cost:** an IDE that starts claude itself cannot be bridged unless its
-   `PATH` carries the wrappers. **The alternative,** a long-lived host service, could be rendered
-   into files, but it brings back the singleton HD-R1 retired, needs a lifecycle owner
-   ([OQ-HD9](host-daemon-ownership.md#OQ-HD9)'s question), and puts a token in a file.
+   launch, [OQ-NC1](../plans/notch-convergence.md#OQ-NC1)'s option A as worded, and the managed Codex adapter's shipped shape.
+   Concurrency and version skew cannot arise. **What follows:** `yolo host apply` renders no
+   bridged address and says a bridged `use_profiles` selection needs `yolo host --` or the
+   wrappers. If [OQ-HC3](host-computed-layer.md#OQ-HC3) renders the rest of that variant, such as
+   the model list, the address still stays out. `yolo host env` refuses a bridged profile. A
+   direct launch runs on its login. **Cost:** an IDE that starts claude itself cannot be bridged
+   unless its `PATH` carries the wrappers. **The alternative,** a long-lived host service, could
+   be rendered into files, but it brings back the singleton HD-R1 retired, needs a lifecycle
+   owner ([OQ-HD9](host-daemon-ownership.md#OQ-HD9)'s question), and needs a caller secret that
+   outlives every launch, which NC-D3's per-launch secret is not.
 
    **Answer:**
    > _(empty — fill in when decided)_
 
-4. 💬 <a id="OQ-HS4"></a>**[OQ-HS4](#OQ-HS4): How does a pack declare a service's host half,
+2. 💬 <a id="OQ-HS4"></a>**[OQ-HS4](#OQ-HS4): How does a pack declare a service's host half,
    and whose host half runs?** This decides whether the host starts services through one generic
-   path or one per service, and what a fetched pack can make the host run.
+   path or one per service, and what a fetched pack can make the host run. [OQ-NC1](../plans/notch-convergence.md#OQ-NC1)'s option A
+   names the cost "a second supervisor beside `yolo-jaild supervise`, unless both call one"; this
+   is where that is decided.
 
-   <!-- vantage: oq id=OQ-HS4 leaning="The existing host_daemon slot (packdecl.ServiceHostDaemon, declared and carried, not executed), run generically by the host launch the way yolo-jaild supervise runs jail_daemon. Its cmd names yolo, since the host ships only yolo; the launch hands it the address and token, never on argv; the launch-chosen address overrides WB-D13's manifest-borne 8214 and 8215 and any adapters override at the host; and only an embedded official pack's host half runs, as WB-D9 limits needs, with a fetched pack's refused by name." -->
+   <!-- vantage: oq id=OQ-HS4 leaning="The existing host_daemon slot (packdecl.ServiceHostDaemon, declared and carried, not executed), run generically by the host launch the way yolo-jaild supervise runs jail_daemon. Its cmd names yolo, since the host ships only yolo; the launch hands it the address and the caller secret, never on argv; the launch-chosen address overrides WB-D13's manifest-borne 8214 and 8215 and any adapters override at the host; and only an embedded official pack's host half runs, as WB-D9 limits needs, with a fetched pack's refused by name." -->
 
    _Leaning:_ **The existing `host_daemon` slot, run generically, for embedded packs only.**
    `packdecl.ServiceHostDaemon` is *"declared and carried, NOT executed by this build"*, and its
@@ -503,7 +534,7 @@ parent of both processes (`Launch.Run`).
    footprint` already reports it as *"(declared, not yet executed)"*. The host launch runs it
    the way `yolo-jaild supervise` runs a `jail_daemon`. Its argv names `yolo`, because the host
    ships only `yolo` and host daemons are `yolo internal daemon <name>`. The launch hands it the
-   address and the token, never on argv. At the host the launch-chosen address overrides
+   address and the caller secret, never on argv. At the host the launch-chosen address overrides
    [WB-D13](../reference/wire-bridge.md#wb-d13)'s 8214 and 8215 and any `adapters` override.
    Only an embedded official pack's host half runs, as [WB-D9](../reference/wire-bridge.md#wb-d9)
    limits `needs`, and a fetched pack's is refused by name. `packs/wire-bridge` declares no
@@ -520,58 +551,30 @@ parent of both processes (`Launch.Run`).
    **Answer:**
    > _(empty — fill in when decided)_
 
-5. 💬 <a id="OQ-HS5"></a>**[OQ-HS5](#OQ-HS5): What does a `macos-user` jail do for a bridged
-   profile?** That backend starts no jail daemons and has no network namespace, and it points
-   claude on `codex` at an unserved port on the host's own loopback today (the warning in
-   [§3](#3-the-constraint-the-bridge-trusts-every-caller)). This decides whether its bridge is a
-   host half or waits for jail daemons there.
-
-   - **A — The same per-launch mechanism.** The `macos-user` launch starts the host half as a
-     launch-owned child, with a per-launch port and token. Works before the jail-daemon work.
-   - **B — Wait for jail daemons on `macos-user`.** One delivery mechanism per service, but no
-     bridge there until [OQ-DP8](declaration-parity.md#OQ-DP8) and
-     [OQ-DP9](declaration-parity.md#OQ-DP9) are ruled and built, and it still needs
-     [OQ-HS2](#OQ-HS2)'s token, because the loopback is shared either way.
-
-   <!-- vantage: oq id=OQ-HS5 leaning="A: the same per-launch mechanism, the macos-user launch starting the service's host half as a launch-owned child beside its host services, with a per-launch port and token. It is OQ-OA6's route (b) made general, so ruling it answers OQ-OA6 the same way for the Codex refresh adapter, and it takes the bridge out of OQ-DP8's and OQ-DP9's scope, since it runs as a host half rather than a confined jail daemon." -->
-
-   _Leaning:_ **A.** It is [OQ-OA6](openai-auth-broker.md#OQ-OA6)'s route (b) made general, and
-   ruling it answers [OQ-OA6](openai-auth-broker.md#OQ-OA6) the same way for the Codex refresh adapter. That adapter is a
-   loophole's jail daemon (`openai-auth-adapter` on `127.0.0.1:1460`), not a service, so the
-   launch-owned shape would reach loophole jail daemons too. The child sits beside the host
-   services in the session's own dir ([HD-D1](host-daemon-ownership.md#HD-D1)). It takes the
-   bridge out of [OQ-DP8](declaration-parity.md#OQ-DP8)'s argv question and
-   [OQ-DP9](declaration-parity.md#OQ-DP9)'s confinement question, since it runs outside Seatbelt
-   as a host half and [OQ-HS4](#OQ-HS4)'s gate makes it yolo's own code. **Cost:** every
-   workspace shares one account home there, so a concurrent session may read the token from the
-   agent's environment (UNMEASURED), and one service gets two delivery mechanisms, a jail daemon
-   on containers and a host half here, the cost [OQ-OA6](openai-auth-broker.md#OQ-OA6) names.
-
-   **Answer:**
-   > _(empty — fill in when decided)_
-
 ## 11. Decision Ledger
 
-No ruling has been made here. These are the mechanism choices under the questions, and none is
-built.
+No ruling has been made in this doc. The rulings it rests on are notch-convergence's
+([NC-D1 and NC-D2](../plans/notch-convergence.md#7-decision-ledger)). These are the mechanism
+choices under the design; two are built on branch `worktree-wf_392bd9fc-1fb-1`, not yet on `main`.
 
 | ID | Ruling / Decision | Date | Settled in | Built |
 | :--- | :--- | :--- | :--- | :--- |
-| <a id="HS-D1"></a>[`HS-D1`](#11-decision-ledger) | *Implementation decision.* The host runs the jail's pack-selection step: `packload.Selection.Close` over `loadedHostPacks`' set, with the launched agent's selection table (its `use_profiles` entry, a typed `-p` folded in). Cause lines print as a jail launch's do ([WB-D12](../reference/wire-bridge.md#wb-d12)), and via stays inert ([WG-I12](wire-bridge-gateway.md#WG-I12)). Every contribution that points the agent at one of its pack's jail daemons is withheld at the host and named on stderr, so `aws-auth` joining claude's host launches cannot hand claude the unserved `127.0.0.1:1461` (measured with `aws-auth` listed, row 9 of [§2](#2-what-the-host-does-today-measured)); how the host recognizes such a contribution is the implementer's choice. This revises [WG-I8](wire-bridge-gateway.md#WG-I8)'s *"`yolo host` runs neither closure"*. It holds under any ruling of [OQ-HS1](#OQ-HS1): with `"packs": ["claude"]`, `openai-auth` joins, so `-p codex -- claude` refuses in ES-D18's words instead of exiting 0 on the Claude login | 2026-09-28 | [§4.1](#41-selection-the-jails-closure-at-the-host) | — |
-| <a id="HS-D2"></a>[`HS-D2`](#11-decision-ledger) | *Implementation decision.* `yolo host` and `yolo host env` accept the run path's two `-p` grammars: a bare name, and `<cli>=<name>` pairs (comma-separated, repeatable), split the way `applyProfileValue` splits them. A pair naming the launched command selects its profile. A pair naming any other CLI refuses the launch, naming that CLI: a host launch composes one process, so the selection would do nothing (chosen over accepting it with a disclosure, because the flag is typed for this one launch). A bare name given beside pairs wins for the command, as it does in the jail (`run.Options.effectiveUseProfiles`). A typed pair keys a command no pack installs, as a typed bare `-p` does ([ES-D5](credential-sources-separation.md#10-decision-ledger)). This revises the "do not unify" warning in [`providers.md`](../reference/providers.md), whose source was about the timing meaning ([§2.2](#22-where-no-host-side-bridge-and-name-only-came-from)). Independent of [OQ-HS1](#OQ-HS1) | 2026-09-28 | [§2.1](#21-the-five-causes) | — |
-| <a id="HS-D3"></a>[`HS-D3`](#11-decision-ledger) | *Implementation decision.* A host half's OpenAI credential comes from the host broker's private socket, through `openauthclient.RequestUnix` on `openaiauthdaemon.HostSocketPath`, the path managed host Codex and pi already use (`openaiauthhost`), and never through a jail endpoint file. The service receives access-token views only, never a refresh token ([`openai-auth-broker.md` §2](openai-auth-broker.md#2-one-writer-and-two-views)). Contingent on [OQ-HS1](#OQ-HS1) | 2026-09-28 | [§4.3](#43-the-address-and-the-token) | — |
-| <a id="HS-D4"></a>[`HS-D4`](#11-decision-ledger) | *Implementation decision.* A launch whose agent's resolved route consumes the OpenAI subscription makes sure of the login before it starts the agent, at the host and in the jail: it asks the broker's status, then runs the browser login on a terminal; off a terminal it says the login is required and continues, as the jail's prelaunch shim does (`agentAuthPrelaunchShellFn`). Today only codex and pi declare the prelaunch variables (`YOLO_AUTH_PRELAUNCH_*` in their manifests), and only codex and pi pass `openaiauthhost.Prepare`'s name check. So a claude-only codex launch never triggers the login, and on a machine never logged in claude's first request fails at the bridge (read from code, UNMEASURED end to end) | 2026-09-28 | [§4.5](#45-failure-paths) | — |
-| <a id="HS-D5"></a>[`HS-D5`](#11-decision-ledger) | *Implementation decision.* ES-D18's refusal narrows to four cases: an adaptation whose service declares no host half, one whose pack [OQ-HS4](#OQ-HS4)'s gate refuses, a host half that fails to start, and `yolo host env`, which owns no lifetime. ES-D19's rule stands: never tell the user to list a pack when listing it resolves nothing. ES-D18 to ES-D20 are implementation decisions, so this revises no ruling. Contingent on [OQ-HS1](#OQ-HS1) | 2026-09-28 | [§4.5](#45-failure-paths) | — |
+| <a id="HS-D1"></a>[`HS-D1`](#11-decision-ledger) | *Implementation decision, on [NC-D4](../plans/notch-convergence.md#7-decision-ledger).* The host runs the jail's selection closure through notch-convergence item 6's one selection function, after item 2. That revises the sibling branch's ES-D24, whose reason item 2 removes, and [WG-I8](wire-bridge-gateway.md#WG-I8)'s *"`yolo host` runs neither closure"*. Two requirements on those items come from here. First, every pointer at **any** jail daemon is dropped at the host and named on stderr, whichever pack declares it: `aws-auth`'s `1461` and the codex pack's `1460`, which `openai-auth`'s daemon serves (MEASURED reaching `yolo host env --agent codex`), while a pointer the host itself serves, as `openaiauthhost.Prepare` serves `1460` at `yolo host -- codex`, is kept with no notice. Second, ES-D18's refusal words a pack that joined through `needs` as joined, for example *"wire-bridge, which claude needs"*, and never says it is in `packs`: today its `Selected` branch prints *"though %q is in `packs`"* for any selected pack (`unservedAdapterRefusal` in [`host.go`](../../internal/cli/host.go)), which a closure-added pack would make false | 2026-09-28 | [§4.1](#41-selection-the-jails-closure-at-the-host) | — |
+| <a id="HS-D2"></a>[`HS-D2`](#11-decision-ledger) | *Implementation decision.* `yolo host` and `yolo host env` read `-p` in the run path's grammar. This is ES-D27 ([ledger](credential-sources-separation.md#10-decision-ledger)) on the sibling branch, and that row is the authority: one parser (`parseProfileValue`), a pair naming the composed command means the bare name, a pair naming another CLI refuses by name, and `providers.md`'s "do not unify" warning is deleted | 2026-09-28 | [§2.1](#21-the-five-causes) | ✅ `3830c102`, branch `worktree-wf_392bd9fc-1fb-1` |
+| <a id="HS-D3"></a>[`HS-D3`](#11-decision-ledger) | *Implementation decision.* A host half's OpenAI credential comes from the host broker's private socket, through `openauthclient.RequestUnix` on `openaiauthdaemon.HostSocketPath`, the path managed host Codex and pi already use (`openaiauthhost`), and never through a jail endpoint file. The service receives access-token views only, never a refresh token ([`openai-auth-broker.md` §2](openai-auth-broker.md#2-one-writer-and-two-views)). Contingent on [OQ-NC1](../plans/notch-convergence.md#OQ-NC1)'s option A | 2026-09-28 | [§4.3](#43-the-address-and-the-caller-secret) | — |
+| <a id="HS-D4"></a>[`HS-D4`](#11-decision-ledger) | *Implementation decision,* in two halves. **The jail half needs no ruling and is built:** a claude jail on `codex` ensures the OpenAI login before claude starts (ES-D28, [ledger](credential-sources-separation.md#10-decision-ledger)). **The host half is contingent on [OQ-NC1](../plans/notch-convergence.md#OQ-NC1)'s option A**, since without a host bridge a bridged claude refuses before any login matters: a bridged host launch makes sure of the login before it starts the agent, through notch-convergence item 15's declarative prelaunch reading ES-D28's gate, logging in only at a terminal and otherwise saying the login is required and continuing | 2026-09-28 | [§4.5](#45-failure-paths) | jail half ✅ `d798101b`, branch `worktree-wf_392bd9fc-1fb-1`; host half — |
+| <a id="HS-D5"></a>[`HS-D5`](#11-decision-ledger) | *Implementation decision.* ES-D18's refusal narrows to four cases: an adaptation whose service declares no host half, one whose pack [OQ-HS4](#OQ-HS4)'s gate refuses, a host half that fails to start, and `yolo host env`, which owns no lifetime. ES-D19's rule stands: never tell the user to list a pack when listing it resolves nothing, and [HS-D1](#HS-D1) adds its converse. ES-D18 to ES-D20 are implementation decisions, so this revises no ruling. Contingent on [OQ-NC1](../plans/notch-convergence.md#OQ-NC1)'s option A | 2026-09-28 | [§4.5](#45-failure-paths) | — |
 
 ## 12. The neighbors
 
 | Doc | Why it reads with this one |
 | :--- | :--- |
+| [`notch-convergence.md`](../plans/notch-convergence.md) | the plan this is item 3 of: [OQ-NC1](../plans/notch-convergence.md#OQ-NC1), the NC-D2 caller-secret ruling, and items 1, 2, 6 and 15, which this design sits on |
 | [`wire-bridge.md`](../reference/wire-bridge.md#what-this-does-not-license) | the service this reopens: "No host-side bridge", [WB-D4](../reference/wire-bridge.md#wb-d4)'s inbound auth, [WB-D13](../reference/wire-bridge.md#wb-d13)'s ports |
-| [`credential-sources-separation.md`](credential-sources-separation.md#10-decision-ledger) | ES-D18 to ES-D20, the host refusal [HS-D5](#HS-D5) narrows |
+| [`credential-sources-separation.md`](credential-sources-separation.md#10-decision-ledger) | ES-D18 to ES-D20, the host refusal [HS-D5](#HS-D5) narrows, and on the sibling branch ES-D24 to ES-D29 |
 | [`host-daemon-ownership.md`](host-daemon-ownership.md#HD-R1) | [HD-R1](host-daemon-ownership.md#HD-R1), the no-singleton ruling [HS-P2](#HS-P2) reads for the host, and [HD-D1](host-daemon-ownership.md#HD-D1)'s per-session dir on `macos-user` |
-| [`openai-auth-broker.md`](openai-auth-broker.md#OQ-OA6) | [OQ-OA6](openai-auth-broker.md#OQ-OA6), which [OQ-HS5](#OQ-HS5)'s leaning answers with its route (b) |
-| [`declaration-parity.md`](declaration-parity.md#1-the-principle-and-what-it-does-not-say) | P1, which [HS-P1](#HS-P1) applies, and [OQ-DP8](declaration-parity.md#OQ-DP8) and [OQ-DP9](declaration-parity.md#OQ-DP9), which [OQ-HS5](#OQ-HS5) narrows |
+| [`openai-auth-broker.md`](openai-auth-broker.md#OQ-OA6) | [OQ-OA6](openai-auth-broker.md#OQ-OA6), which [OQ-NC1](../plans/notch-convergence.md#OQ-NC1)'s option A answers with its route (b) |
+| [`declaration-parity.md`](declaration-parity.md#1-the-principle-and-what-it-does-not-say) | P1, which [HS-P1](#HS-P1) applies, and [OQ-DP8](declaration-parity.md#OQ-DP8) and [OQ-DP9](declaration-parity.md#OQ-DP9), which [§4.7](#47-macos-user) narrows |
 | [`host-computed-layer.md`](host-computed-layer.md#OQ-HC3) | [OQ-HC3](host-computed-layer.md#OQ-HC3), what host apply renders for a `use_profiles` selection |
 | [`wire-bridge-gateway.md`](wire-bridge-gateway.md#WG-I8) | [WG-I8](wire-bridge-gateway.md#WG-I8), which [HS-D1](#HS-D1) revises, and [WG-I12](wire-bridge-gateway.md#WG-I12), which it keeps |
 
@@ -653,6 +656,18 @@ yolo-jail unknown | linux/x86_64 | host
 FAKE-CLAUDE args=
 AWS_CONTAINER_CREDENTIALS_FULL_URI=http://127.0.0.1:1461/credentials
 CLAUDE_CODE_USE_BEDROCK=1
+EXIT=0
+```
+
+Codex's refresh pointer, built from `e5150a03` the same way, with `{"packs": ["codex"]}`:
+
+```console
+$ yolo host env --agent codex
+yolo-jail unknown | linux/x86_64 | host
+export CODEX_NON_INTERACTIVE='1'
+export CODEX_REFRESH_TOKEN_URL_OVERRIDE='http://127.0.0.1:1460/oauth/token'
+export YOLO_AUTH_PRELAUNCH_CODEX_FLAG='--codex-auth'
+export YOLO_AUTH_PRELAUNCH_CODEX_PATH='.codex/auth.json'
 EXIT=0
 ```
 
