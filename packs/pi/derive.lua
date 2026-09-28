@@ -544,6 +544,57 @@ yolo.derive("pi", "models", function(ctx)
   return { providers = in_full(ctx, providers) }
 end)
 
+-- piSubagents is pi-subagents' `subagents` block for the launch's provider, the same shape
+-- for EVERY provider (docs/research/extension-model-defaults.md OQ-XM3, ruled 2026-09-28,
+-- which also answers docs/research/pi-model-selection-ux.md OQ-PM1). The maintainer: "always
+-- the default … unless there's some very clear exception stated. And regardless, it
+-- shouldn't be able to cross providers."
+--
+--   - defaultModel is `<provider>/<model>`, the model the chat selection below starts on, so
+--     a child agent that names no model starts where its parent does. When yolo can name no
+--     default (a provider with no model list whose profile names none, or a list with no
+--     alias the profile resolves to), the key is TOMBSTONED rather than omitted: a lower
+--     layer's value, such as a host settings.json holding a codex policy, would otherwise
+--     hand the child another provider's model, and pi-subagents only WARNS about an
+--     inherited model outside the scope (0.35.1 src/runs/shared/model-scope.ts,
+--     checkModelScope). With it deleted the child inherits the parent session's model,
+--     which is on this provider.
+--   - modelScope is enforced and strict over `ids`, the provider's configured models, EXACTLY
+--     (ML-D5: never a family glob written down a second time), so a child may name another
+--     model of this provider, the stated exception, and never one of another. pi-subagents'
+--     globToRegExp escapes `[` and `]` before it turns `*` into `.*`, so
+--     `openai-codex/<id>[1m]` matches literally.
+--   - NO CONFIGURED MODELS scopes the whole provider, `<provider>/*`, and never writes an
+--     empty allow: pi-subagents REFUSES the settings file over an empty `allow`
+--     (parseModelScopeConfig, "expected a non-empty array of patterns"), and an enforced
+--     scope with none would refuse every child anyway. `*` becomes `.*`, which crosses the
+--     slashes of an id such as kilo's `deepseek/deepseek-v4.1-flash`, and still never
+--     another provider's prefix. That is the recorded implementation decision
+--     (extension-model-defaults.md, Decision Ledger).
+--
+-- A computed key, not a selection one: the selection lifts scalars and arrays of scalars
+-- only (docs/reference/providers.md, Selection), and this is an object. So it is
+-- re-asserted every boot while a profile is active, and a switch to another provider
+-- replaces each leaf yolo names, the allow array whole. A deselect writes nothing, and the
+-- block goes with the rest of the computed layer.
+local function piSubagents(ctx, provider, model, ids)
+  local sub = { defaultProvider = provider }
+  if model then
+    sub.defaultModel = provider .. "/" .. model
+  else
+    sub.defaultModel = ctx.tombstone
+  end
+  local allow = {}
+  for _, id in ipairs(ids) do
+    table.insert(allow, provider .. "/" .. id)
+  end
+  if #allow == 0 then
+    allow = { provider .. "/*" }
+  end
+  sub.modelScope = { enforce = true, strict = true, allow = allow }
+  return sub
+end
+
 -- The selection — defaultProvider and defaultModel, pi's OWN selection keys, verified from
 -- the published package the launcher installs (pi 0.84.4, npm-extracted, the CLI never
 -- run): dist/core/settings-manager.d.ts:71-72 declares the pair, the ids match EXACTLY
@@ -610,30 +661,19 @@ yolo.derive("pi", "settings", function(ctx)
   -- the user or pi's save-as-default edited is kept.
   if ctx.selected_provider == "openai-codex" then
     local list = codexModelList(p)
+    -- The default is codexDefault's, the ONE rule every codex consumer shares, and not
+    -- yolo.model_for's: the declared list names its models by id and carries no `default`
+    -- alias, so the rule is "the profile's model, else the first declared id".
     local model = codexDefault(list, ctx.profile)
-    local allow = {}
+    local ids = {}
     for _, e in ipairs(list) do
-      table.insert(allow, "openai-codex/" .. e.id)
+      table.insert(ids, e.id)
     end
-    -- Pi-subagents has its own default, independent of Pi's chat selection.
-    -- Computed output is intentional here: selection can only lift scalar keys,
-    -- while this structured policy must reject legacy explicit workflow models.
-    --
-    -- The allow list is the declared ids, EXACTLY (docs/design/model-lists-and-pickers.md
-    -- ML-D5), not a family glob written down a third time. pi-subagents 0.35.1's
-    -- globToRegExp escapes `[` and `]` before it turns `*` into a wildcard
-    -- (src/runs/shared/model-scope.ts), so `openai-codex/<id>[1m]` matches literally. An
-    -- EMPTY list writes no modelScope at all: an enforced, strict, empty allow would refuse
-    -- every child model.
-    local subagents = { defaultProvider = "openai-codex" }
-    if model then
-      subagents.defaultModel = "openai-codex/" .. model
-    end
-    if #allow > 0 then
-      subagents.modelScope = { enforce = true, strict = true, allow = allow }
-    end
+    -- The pi-subagents policy (piSubagents above), rejecting the explicit models legacy
+    -- workflows name, which the subscription cannot serve. The allow list is every declared
+    -- id, the [1m] variants included.
     return {
-      subagents = subagents,
+      subagents = piSubagents(ctx, "openai-codex", model, ids),
       selection = { defaultProvider = "openai-codex", defaultModel = model },
     }
   end
@@ -643,11 +683,20 @@ yolo.derive("pi", "settings", function(ctx)
   local isKilo = (ctx.selected_provider == "kilo" or (type(p) == "table" and type(p.endpoints) == "table" and type(p.endpoints.openai) == "table" and isKiloEndpoint(p.endpoints.openai.base_url or "")))
   local alias = (ctx.profile and ctx.profile.model) or (type(p) == "table" and type(p.options) == "table" and p.options.model) or "default"
   local sel = { defaultProvider = ctx.selected_provider }
-  if type(p) == "table" and type(p.models) == "table" then
-    if p.models[alias] then
-      sel.defaultModel = p.models[alias]
-    elseif p.models["default"] then
-      sel.defaultModel = p.models["default"]
+  -- The alias resolves through yolo.model_for (OQ-XM1), the core helper every derive shares,
+  -- which answers for the selected provider only and WARNS, never refuses, when a
+  -- conventional tier alias (default, fast, balanced, frontier) is missing. Asked only of a
+  -- provider that declares a model list: one with none has no alias to miss, and a warning
+  -- there would say nothing the user can act on. A build older than the helper answers nil
+  -- here (the tolerant guard's stub), which writes no default, the degraded result a
+  -- missing alias already has.
+  if type(p) == "table" and type(p.models) == "table" and next(p.models) ~= nil then
+    local _, id = yolo.model_for(alias)
+    if not id and alias ~= "default" then
+      _, id = yolo.model_for("default")
+    end
+    if id then
+      sel.defaultModel = id
     else
       for _, modelId in pairs(p.models) do
         if modelId == alias then
@@ -664,6 +713,9 @@ yolo.derive("pi", "settings", function(ctx)
     sel.defaultModel = normalizeKiloModel(sel.defaultModel)
   end
   local enabled = {}
+  -- The provider's configured models, the set pi-subagents' scope allows (piSubagents);
+  -- empty when the provider declares no model list.
+  local configured = {}
   if type(p) == "table" and type(p.models) == "table" and next(p.models) ~= nil then
     local seen = {}
     local modelIds = {}
@@ -698,6 +750,7 @@ yolo.derive("pi", "settings", function(ctx)
     for _, modelId in ipairs(modelIds) do
       table.insert(enabled, ctx.selected_provider .. "/" .. modelId)
     end
+    configured = modelIds
   elseif sel.defaultModel then
     table.insert(enabled, ctx.selected_provider .. "/" .. sel.defaultModel)
   else
@@ -709,7 +762,13 @@ yolo.derive("pi", "settings", function(ctx)
   -- pair's rules: written on activation, a user edit kept, yolo's own list cleared on
   -- deselect (OQ-PSW2). An array is a leaf there, replaced whole.
   sel.enabledModels = enabled
-  return { selection = sel }
+  -- The scope is the CONFIGURED list, not `enabled`: a provider with no list whose profile
+  -- names a model enables that one model as pi's shortlist, but yolo does not know the
+  -- provider's models, so its children get the whole provider (piSubagents).
+  return {
+    subagents = piSubagents(ctx, ctx.selected_provider, sel.defaultModel, configured),
+    selection = sel,
+  }
 end)
 
 -- codex-models (~/.pi/agent/yolo-openai-codex-models.json): the openai-codex model list

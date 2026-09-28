@@ -25,6 +25,24 @@ names the keys beside the posture, and a setting the posture stops selecting lea
 any other pack's key does. Before, such a patch did nothing and yolo said it was folded nowhere.
 See [the `autonomy` kind](docs/reference/pack-system.md#autonomy).
 
+**`frontier` is a model alias name yolo recognizes**, beside `default`, `fast` and `balanced`:
+the provider's most capable model. Name it in a provider's `models` so that a pack reading it,
+or an adapter mapping yolo's tiers onto an extension's own, finds your top model. Like the other
+three it is a convention, never a requirement: when a pack asks for one your provider does not
+name, the launch prints a warning naming the provider and the alias, and starts anyway.
+
+### Changed
+
+**pi's subagents now start on your profile's default model and stay on your provider, for
+every provider.** Before, only the `codex` profile set this. On any other profile a child agent
+could name a model of any provider, and a pi-subagents default left over from elsewhere, such as
+your host's settings, could start it on another provider's model. Now every profile sets the
+pi-subagents extension's default model to the model pi itself starts on, and allows a child
+only the models you configured for that provider, or any of the provider's models when you
+configured none. A child can still ask for another model of the same provider. When your
+provider lists models but has no `default` alias and your profile names no model, the launch
+says so, and children start on their parent's model.
+
 ### Fixed
 
 - `yolo check` reported a working Nix as "found but not working: probe failed" when
