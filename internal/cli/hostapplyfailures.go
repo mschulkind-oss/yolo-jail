@@ -14,6 +14,7 @@ package cli
 
 import (
 	"fmt"
+	"io"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -158,6 +159,147 @@ func briefingDestinationPacks(loaded []*packload.Pack, home, path string) []stri
 				break
 			}
 		}
+	}
+	return out
+}
+
+// THE LAUNCH GATE'S RELATEDNESS TEST ([OQ-HS17], host-apply-staleness.md). `yolo host -- claude`
+// used to refuse because the pi pack had failed to render: a failure in a file claude never
+// reads stopped claude. A failure now stops a launch only when it is in the launched program's
+// own configuration; any other is reported, loudly and with its fix, and the program launches.
+
+// launchRelatedPacks is the set of packs whose failure stops a launch of bin:
+//
+//   - the packs that INSTALL it (an honored `program` install whose `bin` is bin);
+//   - every pack declaring a contribution or surface for one of THEIR agents (the `agent` their
+//     contributions and surfaces carry) — the files the program reads;
+//   - every pack whose `config-overlay` or `config-list` targets one of those agents' surfaces —
+//     the packs that CONFIGURE the program;
+//   - and the `needs` closure of all of them.
+//
+// A program no pack installs (`yolo host -- bash`) has no related pack: nothing yolo renders is
+// its configuration.
+func launchRelatedPacks(loaded []*packload.Pack, bin string) map[string]bool {
+	related := map[string]bool{}
+	agents := map[string]bool{}
+	for _, p := range loaded {
+		installs, _ := p.HonoredInstalls()
+		for _, in := range installs {
+			if in.Bin == bin {
+				related[p.Name] = true
+			}
+		}
+	}
+	for _, p := range loaded {
+		if !related[p.Name] {
+			continue
+		}
+		for _, c := range p.Decl.Contributions() {
+			if c.Agent != "" {
+				agents[c.Agent] = true
+			}
+		}
+		surfaces, _ := p.Surfaces()
+		for _, s := range surfaces {
+			if s.Agent != "" {
+				agents[s.Agent] = true
+			}
+		}
+	}
+	for _, p := range loaded {
+		for _, c := range p.Decl.Contributions() {
+			if c.Agent != "" && agents[c.Agent] {
+				related[p.Name] = true
+			}
+			if (c.Kind == packdecl.KindConfigOverlay || c.Kind == packdecl.KindConfigList) &&
+				c.Surface != "" && agents[strings.SplitN(c.Surface, "/", 2)[0]] {
+				related[p.Name] = true
+			}
+		}
+		surfaces, _ := p.Surfaces()
+		for _, s := range surfaces {
+			if agents[s.Agent] {
+				related[p.Name] = true
+			}
+		}
+	}
+	byName := map[string]*packload.Pack{}
+	for _, p := range loaded {
+		byName[p.Name] = p
+	}
+	for changed := true; changed; {
+		changed = false
+		for name := range related {
+			p := byName[name]
+			if p == nil {
+				continue
+			}
+			for _, n := range p.Decl.Needs {
+				if n.Pack != "" && !related[n.Pack] {
+					related[n.Pack] = true
+					changed = true
+				}
+			}
+		}
+	}
+	return related
+}
+
+// splitLaunchFailures divides this apply's failures by whether they touch bin. blocking is true
+// when any failure does — or when some stage failed where no pack can be named, which the gate
+// cannot call unrelated.
+func splitLaunchFailures(s *hostApplySurvey, bin string) (related, unrelated []hostFailure, blocking bool) {
+	if s == nil {
+		return nil, nil, false
+	}
+	rel := launchRelatedPacks(s.loaded, bin)
+	for _, f := range s.Failures() {
+		touches := len(f.Packs) == 0 // a failure no pack declares: not provably unrelated
+		for _, p := range f.Packs {
+			if rel[p] {
+				touches = true
+			}
+		}
+		if touches {
+			related = append(related, f)
+		} else {
+			unrelated = append(unrelated, f)
+		}
+	}
+	return related, unrelated, len(related) > 0 || s.unattributedFailure
+}
+
+// reportLaunchFailures prints failures on the launch's stderr, each once with its fix — the same
+// groups the apply's own report states them in, so a launch and `yolo host apply` say one thing.
+func reportLaunchFailures(errw io.Writer, home string, failures []hostFailure) {
+	s := &hostApplySurvey{failures: failures}
+	for _, g := range failureGroups(s, home) {
+		fmt.Fprintf(errw, "  ✗ %s\n", g.Headline)
+		if g.Remedy != "" {
+			fmt.Fprintf(errw, "    → %s\n", g.Remedy)
+		}
+	}
+}
+
+// reportUnrelatedLaunchFailures is the loud-and-launch half: what was not written, its fix, and
+// that the program being launched does not read it.
+func reportUnrelatedLaunchFailures(errw io.Writer, home, bin string, failures []hostFailure) {
+	if len(failures) == 0 {
+		return
+	}
+	fmt.Fprintf(errw, "yolo host: some of %s config was not written:\n",
+		joinWords(possessives(failurePacks(failures)), "and"))
+	reportLaunchFailures(errw, home, failures)
+	fmt.Fprintf(errw, "  %s reads none of it — launching %s.\n", bin, bin)
+}
+
+func possessives(names []string) []string {
+	out := make([]string, len(names))
+	for i, n := range names {
+		out[i] = n + "'s"
+	}
+	if len(out) == 0 {
+		return []string{"your"}
 	}
 	return out
 }

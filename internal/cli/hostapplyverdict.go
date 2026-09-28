@@ -166,14 +166,7 @@ func hostApplyVerdict(s *hostApplySurvey, write bool) string {
 		// The PACKS, and the rest of the run in the same sentence: the failures themselves are
 		// stated once, with their fixes, in the group above, and what the reader still needs
 		// from the last line is whose config is missing and whether anything else happened.
-		who := "some config"
-		if names := failurePacks(s.Failures()); len(names) > 0 {
-			owned := make([]string, len(names))
-			for i, n := range names {
-				owned[i] = n + "'s"
-			}
-			who = "some of " + joinWords(owned, "and") + " config"
-		}
+		who := "some of " + joinWords(possessives(failurePacks(s.Failures())), "and") + " config"
 		if write {
 			rest := "nothing else needed changing"
 			if work := hostApplyWork(s, true); work != "nothing" {

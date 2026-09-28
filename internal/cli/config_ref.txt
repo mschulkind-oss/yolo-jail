@@ -726,6 +726,11 @@
       first apply overwriting
       unmanaged keys, off-TTY   REFUSED, naming the commands that fix it — unless the
                                 approval is in the environment (below).
+      something cannot be       in the launched program's own configuration: REFUSED,
+      written (a pack failed    naming it and the fix.  Anywhere else: the rest is
+      to render, or a file is   applied, the failure is named with its fix, and the
+      a link into a missing     program launches — pi's broken settings.json never
+      directory)                stops claude.
       cannot tell               execs.  A malformed pack, an unreadable home or a
                                 concurrent apply is not something a launch may
                                 stop over.

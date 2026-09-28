@@ -235,6 +235,9 @@ apply it, and the launch says that too. See
   could keep your value. It now says your edit is kept over that pack's overlay and how to take
   the pack's value instead. When an overlay does replace your value, it names the pack and says
   to remove the key from that pack's overlay.
+- A wrapped launch such as `yolo host -- claude` refused to start when another agent's config
+  could not be written, such as pi's. It now names that failure with its fix and launches, and
+  refuses only when the program being launched is the one whose config failed.
 
 ### Security
 

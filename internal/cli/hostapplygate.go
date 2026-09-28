@@ -220,9 +220,22 @@ func hostApplyGate(errw io.Writer, stdin io.Reader, bin string) bool {
 			"(%s) — launching %s anyway.\n", why, bin)
 		return true
 	}
+	// WHAT CANNOT BE WRITTEN, split by whether this program reads it ([OQ-HS17]). The observe
+	// pass sees a broken link (a render ERROR is a write-time failure, and a dry run that meets
+	// one returns cannot-determine above). One in the launched program's own configuration
+	// refuses: launching it against a file yolo could not write is the half-applied home
+	// OQ-HS14 refuses. One anywhere else is reported and the program launches.
+	related, unrelated, _ := splitLaunchFailures(survey, bin)
+	if len(related) > 0 {
+		refuseLaunchOverFailures(errw, home, bin, related)
+		return false
+	}
 	if !survey.Changes() {
 		// The common case, and the one R3 is about: silence. A freshly-applied home must
-		// prompt not at all, ever, until something actually changes.
+		// prompt not at all, ever, until something actually changes. A standing failure in
+		// another program's configuration is the one thing said here, because nothing else
+		// will say it until the next explicit apply.
+		reportUnrelatedLaunchFailures(errw, home, bin, unrelated)
 		return true
 	}
 
@@ -264,6 +277,15 @@ func hostApplyGate(errw io.Writer, stdin io.Reader, bin string) bool {
 	// without prompting, emit a single stderr notice, and launch immediately. The user's stdin
 	// is NOT handed down: nothing above left a question for this apply to ask.
 	return hostApplyGateApply(errw, bin, home)
+}
+
+// refuseLaunchOverFailures is the refusal for a failure in the launched program's own
+// configuration: each failure once, with its fix, and nothing launched.
+func refuseLaunchOverFailures(errw io.Writer, home, bin string, failures []hostFailure) {
+	fmt.Fprintf(errw, "yolo host: refusing to launch %s — some of its configuration cannot be "+
+		"written:\n", bin)
+	reportLaunchFailures(errw, home, failures)
+	fmt.Fprintf(errw, "  Fix it, then launch again.\n")
 }
 
 // surveyOnlyNeedsLossPrompt reports whether the one pending decision is the first-apply MCP
@@ -344,7 +366,7 @@ func hostApplyGateApply(errw io.Writer, bin, home string) bool {
 	var buf bytes.Buffer
 	stdin := &noPromptStdin{}
 	wrote := &hostApplySurvey{}
-	rc := applyHostSurveyed(&buf, &buf, false, true, stdin, wrote)
+	rc := hostApplyGateWrite(&buf, &buf, false, true, stdin, wrote)
 	if stdin.asked {
 		// The pre-check missed a question: a bug, and reported as one rather than hidden.
 		io.Copy(errw, &buf)
@@ -354,6 +376,20 @@ func hostApplyGateApply(errw io.Writer, bin, home string) bool {
 		return true
 	}
 	if rc != 0 {
+		// A FAILURE THIS PROGRAM DOES NOT READ DOES NOT STOP IT ([OQ-HS17]). The apply did the
+		// rest of its work; what it could not write is another program's, so it is reported with
+		// its fix and the launch proceeds. Anything the gate cannot attribute to a pack, or that
+		// is in this program's own configuration, still refuses (OQ-HS14).
+		related, unrelated, blocking := splitLaunchFailures(wrote, bin)
+		if !blocking {
+			reportHostApplyGateSynchronized(errw, home, wrote)
+			reportUnrelatedLaunchFailures(errw, home, bin, unrelated)
+			return true
+		}
+		if len(related) > 0 && !wrote.unattributedFailure {
+			refuseLaunchOverFailures(errw, home, bin, related)
+			return false
+		}
 		io.Copy(errw, &buf)
 		fmt.Fprintf(errw, "yolo host: the host apply did not complete (rc=%d, see above) — %s "+
 			"was not launched.\n"+
@@ -364,6 +400,12 @@ func hostApplyGateApply(errw io.Writer, bin, home string) bool {
 	reportHostApplyGateSynchronized(errw, home, wrote)
 	return true
 }
+
+// hostApplyGateWrite is the gate's writing apply, behind a seam for hostApplyGateSurvey's
+// reason: a render ERROR (as opposed to a broken link, which a test can build) cannot be
+// provoked in a home a root-run test controls, so the relatedness rule's error half is driven
+// through a substitute. Production never reassigns it.
+var hostApplyGateWrite = applyHostSurveyed
 
 func prettyHomePath(home, abs string) string {
 	if rel, ok := strings.CutPrefix(abs, home+string(filepath.Separator)); ok {
