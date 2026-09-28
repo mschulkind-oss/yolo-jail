@@ -100,7 +100,10 @@ func TestScratchRemovalStartsOncePerLaunch(t *testing.T) {
 // An attach and a tmpfs launch mount no scratch volumes, and start no remover.
 func TestNoScratchVolumesNoRemover(t *testing.T) {
 	o := goldenOptions(t.TempDir(), t.TempDir())
-	o.StartDetached = func([]string, *os.File) error { t.Fatal("a launch with no scratch volumes started a remover"); return nil }
+	o.StartDetached = func([]string, *os.File) error {
+		t.Fatal("a launch with no scratch volumes started a remover")
+		return nil
+	}
 	o.startScratchRemoval("podman")
 	o.scratchVolumes = ScratchVolumeNames("tmpfs", testCname, testScratchID)
 	o.scratchRemovalOnce = &sync.Once{}
