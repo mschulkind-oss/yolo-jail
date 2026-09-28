@@ -13,6 +13,7 @@ covers:
   - internal/cli/applyhostdepgate.go
   - internal/cli/apply.go
   - internal/cli/run/launchlog.go
+  - internal/progress/
   - internal/entrypoint/catalog.go
   - internal/depcheck/
 tags: [cli, ux, host-apply, launch, reporting, tiers]
@@ -304,7 +305,7 @@ verdict block, and the report does not get a progress stream.
 | Line | Tier | Treatment |
 | :--- | :--- | :--- |
 | version banner, `Flake source:`, `Jail binaries:`, `Jail:` | provenance (a decision) | unchanged. Each answers a different question |
-| nix build, image delivery, provisioning, `⚡ Executing:` | progress | unchanged; a stream needs its progress |
+| nix build, image delivery, provisioning, `⚡ Executing:` | progress | unchanged; a stream needs its progress — see [Progress lines](#progress-lines) |
 | pack read/exec disclosures, the argv rewrite, cache alias, loopback verdict, passthrough | **disclosure** | unchanged, and un-gate-able by construction (P4) |
 | the config-change diff and prompt | disclosure (approval) | unchanged — [`config-safety.md`](config-safety.md)'s |
 | the boot catalog | notch fact with state | **one line**, naming how many installed programs no selected pack declares; the list lands in `boot.log` through the same tee (`CatalogInstalledOrphans`, `catalogSummary`) |
@@ -321,6 +322,28 @@ verdict block, and the report does not get a progress stream.
 > lines. `TestTheLaunchHasNoQuietFlag` is P4 as a gate: it fails if such a flag appears on
 > `runFlags`, the list an author would reach for. `YOLO_NO_BANNER` is the one hatch and it is
 > narrow on purpose (the version line, nothing else).
+
+### Progress lines
+
+A **progress line** *(coined here)* is how a launch step that can run for more than a couple of
+seconds says it is still running: the image build and copy, the copier build, the archive load
+on the macOS backends, the lock waits, the pack fetch, the host-service start, the in-jail
+readiness and reachability waits, and the macos-user native build. One renderer,
+`internal/progress`, draws all of them, and the rules are its:
+
+- **A step that ends within two seconds prints nothing**, so a warm launch prints what it
+  printed before progress lines existed.
+- **On a terminal the line redraws in place** with the step's detail and elapsed time
+  (`Copying the image into podman… layer 37 of 92 (1.2 of 3.2 GB) (8s)`). The launch.log tee
+  keeps those redraws on the terminal (`teeLog.WriteTransient`), so the log holds only
+  each shown step's start and result lines.
+- **Anywhere else it is lines**: a start line, a heartbeat every 15 seconds, a result line,
+  and never a carriage return. The in-jail boot always takes this form, because its stderr
+  is also `boot.log`.
+- **A shown step always closes with its result** (`…: done — 92 layer(s), 3.2 GB (12.8s)`, or
+  `failed`).
+
+A progress line is not a density control and hides nothing, so P4 and OQ-RO3 are untouched.
 
 **The launcher persists its half.** Everything the launcher prints is appended to
 `<workspace>/.yolo/launch.log` (`launchLog`, `LaunchLogName`), beside the entrypoint's `boot.log`,

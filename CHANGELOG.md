@@ -133,6 +133,13 @@ apply it, and the launch says that too. See
   prompt back as soon as the jail exits, and the files are deleted in the background.
   `yolo stores` lists any a crash left behind, and the next launch or `yolo prune --apply`
   removes them.
+- A launch that had to load its image again, after `podman image prune` or a yolo upgrade,
+  showed nothing while the image was copied. It now shows how many layers and gigabytes it
+  has copied and for how long. The other slow launch steps show their progress too: the
+  image build, the first-time copier build, loading the image on Apple Container and podman
+  on macOS, a wait behind another launch, a pack update, the macOS native build, and a cold
+  first-boot `mise install`. Steps that finish within two seconds print nothing new.
+- Every jail start spent two seconds rebuilding the font cache.
 - The Claude OAuth broker could return the token a jail already held, and Claude Code stopped
   with `api_request_oauth_refresh_exhausted`.
 - Claude on its `codex` profile showed `did not translate` in place of ChatGPT's own errors.
