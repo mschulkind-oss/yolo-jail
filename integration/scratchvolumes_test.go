@@ -29,6 +29,7 @@ import (
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/cli/run"
+	"github.com/mschulkind-oss/yolo-jail/internal/prune"
 	naming "github.com/mschulkind-oss/yolo-jail/internal/runtime"
 )
 
@@ -151,6 +152,7 @@ func TestTheSlotReapsLeftoverScratchVolumes(t *testing.T) {
 	// Past prune.ScratchVolumeGrace (1 min).
 	time.Sleep(65 * time.Second)
 	young := "yolo-scratchreap-1a2b3c4d.scratch.00000000cafef00d.tmp"
+	youngMade := time.Now()
 	mkvol(young)
 
 	dir := writeProject(t, `{}`)
@@ -167,10 +169,51 @@ func TestTheSlotReapsLeftoverScratchVolumes(t *testing.T) {
 		}
 		time.Sleep(time.Second)
 	}
-	if !exists(young) {
-		t.Errorf("a dangling scratch volume younger than the floor was reaped: %s", young)
-	}
 	if !exists(decoy) {
 		t.Errorf("a volume that is not a scratch volume was reaped: %s", decoy)
 	}
+	if !exists(young) {
+		checkYoungReapWasPastTheFloor(t, filepath.Join(dir, ".yolo", "housekeeping.log"), young, youngMade)
+	}
+}
+
+// checkYoungReapWasPastTheFloor decides whether the young volume's removal was a misjudged
+// age or a slot that simply reached the scratch class after the volume HAD cleared the floor.
+//
+// The young volume is made just before the launch, and the slot reaches the scratch class
+// only after the container is up and every class ahead of it has run. On Linux that is
+// seconds. On the 2026-09-28 macOS nightly (run 36425623325) this launch took at least 110 s,
+// and the test failed with "a dangling scratch volume younger than the floor was
+// reaped" without saying when. The slot's note names what it removed, stamped by the host's
+// clock to the second, so the removal is judged by that: a note less than a floor after the
+// volume was made is a reap of a volume that was provably young, and anything later proves
+// nothing about the floor.
+func checkYoungReapWasPastTheFloor(t *testing.T, logPath, young string, made time.Time) {
+	t.Helper()
+	log, _ := os.ReadFile(logPath)
+	var noted time.Time
+	for _, line := range strings.Split(string(log), "\n") {
+		if !strings.Contains(line, "scratch: removing") || !strings.Contains(line, young) {
+			continue
+		}
+		stamp, _, _ := strings.Cut(line, "  ")
+		if ts, err := time.Parse(time.RFC3339, stamp); err == nil {
+			noted = ts
+			break
+		}
+	}
+	if noted.IsZero() {
+		t.Errorf("the young volume %s is gone and no slot note names it: something other than the "+
+			"reaper removed it\nhousekeeping.log:\n%s", young, log)
+		return
+	}
+	// The stamp is truncated to the second, so the removal was decided before noted+1s.
+	if upper := noted.Add(time.Second).Sub(made); upper < prune.ScratchVolumeGrace {
+		t.Errorf("a dangling scratch volume younger than the floor was reaped: %s, removed at most "+
+			"%s after it was made (floor %s)\nhousekeeping.log:\n%s", young, upper, prune.ScratchVolumeGrace, log)
+		return
+	}
+	t.Logf("the slot reached the scratch class %s after the young volume was made, past the %s "+
+		"floor, so removing it was right and this launch could not test the floor; "+
+		"internal/prune's unit tests pin it", noted.Sub(made).Round(time.Second), prune.ScratchVolumeGrace)
 }
