@@ -82,30 +82,6 @@ func providerCarryingSurfaces(t *testing.T) []string {
 	return out
 }
 
-// kindRow returns one row of a config-ref kind list: its first line and every continuation line
-// indented deeper than the row's own name, up to the next row.
-func kindRow(t *testing.T, section, kind string) string {
-	t.Helper()
-	lines := strings.Split(section, "\n")
-	for i, line := range lines {
-		rest := strings.TrimLeft(line, " ")
-		if rest == line || !strings.HasPrefix(rest, kind) || !isKindColumnGap(rest[len(kind):]) {
-			continue
-		}
-		indent := len(line) - len(rest)
-		row := []string{line}
-		for _, next := range lines[i+1:] {
-			if len(next)-len(strings.TrimLeft(next, " ")) <= indent {
-				break
-			}
-			row = append(row, next)
-		}
-		return strings.Join(row, "\n")
-	}
-	t.Fatalf("config-ref's host-notch list has no %q row", kind)
-	return ""
-}
-
 // hostComputesParagraph is config-ref's "WHAT A HOST APPLY COMPUTES" paragraph, up to the next
 // paragraph of the host-notch block.
 func hostComputesParagraph(t *testing.T) string {
