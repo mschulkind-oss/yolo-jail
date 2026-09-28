@@ -728,7 +728,12 @@ func hostSurfaceWouldChange(e *Env, s manifest.Surface, path string, computed ma
 	// whether there is anything there, so it is asked of the filesystem rather than of the
 	// decode. It cannot make a gate prompt forever: the write creates the file, and the next
 	// pass compares content again.
-	if _, statErr := os.Lstat(path); os.IsNotExist(statErr) {
+	//
+	// Stat, not Lstat: the question is the one the read and the write ask, and both follow a
+	// link. A dangling one — a dotfiles link whose target is not created yet — reads as absent
+	// and is written through, so it is a file this render creates; asked of the link itself it
+	// read as present, and the dry run said `unchanged` while the --assert created the target.
+	if _, statErr := os.Stat(path); os.IsNotExist(statErr) {
 		return true
 	}
 	// The BASELINE, encoded before the fold: `before` is an independent decode of the same

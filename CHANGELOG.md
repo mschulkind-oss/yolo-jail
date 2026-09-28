@@ -156,7 +156,8 @@ apply it, and the launch says that too. See
   file, and jails read it again.
 - `yolo host apply` skipped every git pack, even an installed one.
 - `yolo host apply` listed a config file it was about to create as unchanged, and `--assert`
-  counted it among the files already in sync.
+  counted it among the files already in sync. That includes a file behind a link whose target
+  did not exist yet, as a dotfiles checkout can leave.
 - `yolo config-ref` said no file `yolo host apply` writes holds provider settings. Some do, such
   as pi's `models.json` and codex's `config.toml`, and host apply writes them without your
   providers. It now says so and names each one.

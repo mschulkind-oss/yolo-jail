@@ -69,3 +69,51 @@ func TestAHostApplyThatCreatesAFileReportsItAsAChange(t *testing.T) {
 			again.WouldChange)
 	}
 }
+
+// A DANGLING LINK IS A FILE THE APPLY CREATES. A dotfiles-managed home links a config path to a
+// target its repository has not created yet; the read follows the link, finds nothing, and
+// decodes {} on both sides, and the write follows it too and creates the target. So the
+// predicate has to ask the question the read and the write ask. Asked of the link itself
+// (Lstat), it found something there, and the dry run said `unchanged` while the --assert
+// counted the surface in sync and created the file.
+func TestAHostApplyThroughADanglingLinkReportsItAsAChange(t *testing.T) {
+	home := t.TempDir()
+	path := piCodexModelsPath(t, home)
+	target := filepath.Join(t.TempDir(), "dotfiles", "codex-models.json")
+	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(target, path); err != nil {
+		t.Fatal(err)
+	}
+
+	dry := hostRenderPiSurface(t, home, true, "pi/codex-models")
+	if _, err := os.Stat(target); !os.IsNotExist(err) {
+		t.Fatalf("the dry run created %s through the link (stat: %v)", target, err)
+	}
+	if !dry.WouldChange || dry.Action != "would render" {
+		t.Errorf("dry run through a dangling link: Action=%q WouldChange=%v; the --assert "+
+			"creates the link's target, so it must report `would render`", dry.Action, dry.WouldChange)
+	}
+
+	wrote := hostRenderPiSurface(t, home, false, "pi/codex-models")
+	if _, err := os.Stat(target); err != nil {
+		t.Fatalf("fixture premise: the --assert did not create the link's target %s: %v", target, err)
+	}
+	if !wrote.WouldChange {
+		t.Errorf("the --assert that created %s through the link reported WouldChange=false, so "+
+			"the apply counts it among the destinations already in sync", target)
+	}
+	if fi, err := os.Lstat(path); err != nil || fi.Mode()&os.ModeSymlink == 0 {
+		t.Errorf("the --assert replaced the link at %s instead of writing through it (%v)", path, err)
+	}
+
+	again := hostRenderPiSurface(t, home, true, "pi/codex-models")
+	if again.WouldChange || again.Action != "unchanged" {
+		t.Errorf("the dry run once the target exists: Action=%q WouldChange=%v, want unchanged",
+			again.Action, again.WouldChange)
+	}
+}
