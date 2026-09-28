@@ -287,12 +287,16 @@ func applyHostSurveyed(out, errw io.Writer, color bool, write bool, stdin io.Rea
 	// the machine document, and a fact resolved once and passed twice is a fact two readers
 	// can come to disagree about.
 	survey.noteHome(home)
-	entries, err := config.LoadPacks(nil)
+	// LoadPackEntries rather than LoadPacks: a malformed `packs` entry is a pack the config asks
+	// for and this run cannot resolve, which the selection below reports and --assert refuses
+	// (NC-D5). Dropped in silence, a list of only malformed entries read as an empty `packs`, and
+	// the branch below retired every pack's output from the home.
+	entries, entryProblems, err := config.LoadPackEntries()
 	if err != nil {
 		fmt.Fprintf(errw, "yolo host apply: %v\n", err)
 		return 1
 	}
-	if len(entries) == 0 {
+	if len(entries) == 0 && len(entryProblems) == 0 {
 		// "Nothing to apply" is not "nothing to clean up" — emptying `packs` is the MOST complete
 		// drop there is, and returning here left every pack's delivered output in the home with
 		// nothing that would ever ask about it again. So the retire pass still runs, against an empty
@@ -411,25 +415,33 @@ func applyHostSurveyed(out, errw io.Writer, color bool, write bool, stdin io.Rea
 	// below cannot discover it. Two passes over `entries` is the price of the one thing the
 	// kind exists to do (docs/reference/pack-system.md §6).
 	//
-	// THE LAUNCH'S RESOLUTION (resolveConfiguredPack → config.ResolvePack): embedded from the binary,
-	// local from its path, git from the pack store with no network HERE. The fetch already
-	// happened at the command's entry (refreshHostPacks, before applyHostFormatted), not in
-	// this render, which the launch gate's observe pass also runs inside a one-second budget.
+	// THE LAUNCH'S SELECTION (selectHostPacks, notch-convergence item 6): each entry through
+	// resolveConfiguredPack → config.ResolvePack (embedded from the binary, local from its path,
+	// git from the pack store with no network HERE), then every pack the selection closure joins,
+	// as a jail launch stages it. The fetch already happened at the command's entry
+	// (refreshHostPacks, before applyHostFormatted), not in this render, which the launch gate's
+	// observe pass also runs inside a one-second budget.
+	sel := selectHostPacksFrom(entries, entryProblems, resolveConfiguredPack, config.UserScopeSelection())
 	for _, e := range entries {
 		configured[e.Name] = true
-		p, rerr := resolveConfiguredPack(e)
-		if rerr != nil {
-			// LOUD, and not a skip. It used to be a dim "— skipped" line, and the rest of the set
-			// was applied without the pack: a half state in a real home, reported as a footnote.
-			u := newUnresolvedPack(e, rerr)
-			pr.Printf("  [bold red]pack       cannot be resolved[/bold red] — %s: %s", u.Name, u.Reason)
-			unresolved = append(unresolved, u)
-			survey.noteUnresolved(u)
-			resolvedAll = false
-			continue
-		}
+	}
+	for _, p := range sel.added {
+		configured[p.Name] = true
+	}
+	for _, p := range sel.packs {
 		active[p.Name] = true
-		loaded = append(loaded, p)
+	}
+	loaded = sel.packs
+	for _, cause := range sel.causes {
+		pr.Printf("[dim]  pack       joined — %s[/dim]", cause)
+	}
+	for _, u := range sel.problems() {
+		// LOUD, and not a skip. It used to be a dim "— skipped" line, and the rest of the set
+		// was applied without the pack: a half state in a real home, reported as a footnote.
+		pr.Printf("  [bold red]pack       cannot be resolved[/bold red] — %s: %s", u.Name, u.Reason)
+		unresolved = append(unresolved, u)
+		survey.noteUnresolved(u)
+		resolvedAll = false
 	}
 	// NO HALF STATES (maintainer ruling). An --assert renders the WHOLE configured set or
 	// nothing: one pack missing from the render means its skills, prose and config keys are
@@ -457,21 +469,13 @@ func applyHostSurveyed(out, errw io.Writer, color bool, write bool, stdin io.Rea
 	// until the move, that prose is in a file no reader reads.
 	// Found by asserting idempotency, not by reading the flow.
 	reloadPacks := func() []*packload.Pack {
-		fresh, ferr := config.LoadPacks(nil)
-		if ferr != nil {
-			return nil // keep the already-resolved set; the load error was reported above
+		fresh := selectConfiguredHostPacks()
+		if len(fresh.problems()) > 0 {
+			// ALL OR NOTHING here too: a set that resolved a moment ago and now does not is
+			// not one to compose a destination from, so keep the already-resolved set.
+			return nil
 		}
-		var out []*packload.Pack
-		for _, e := range fresh {
-			p, rerr := resolveConfiguredPack(e)
-			if rerr != nil {
-				// ALL OR NOTHING here too: a set that resolved a moment ago and now does not is
-				// not one to compose a destination from, so keep the already-resolved set.
-				return nil
-			}
-			out = append(out, p)
-		}
-		out, _ = packload.ResolveDestinations(out)
+		out, _ := packload.ResolveDestinations(fresh.packs)
 		return out
 	}
 	// ZERO CEREMONY, AT BOTH NOTCHES (finding F1). A pack with no pack.json — the layout

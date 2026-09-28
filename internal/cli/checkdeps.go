@@ -128,21 +128,17 @@ func depManifestDir() string {
 // `yolo host apply` needs the same projection one pack at a time; keeping one adapter is what
 // stops the two commands from disagreeing about what counts as a requirement.
 func configuredDepRequirements() ([]depcheck.Requirement, []unresolvedPack) {
-	entries, err := config.LoadPacks(nil)
-	if err != nil {
+	// The one selection function (selectHostPacks, notch-convergence item 6): a pack the
+	// selection closure joins is one a launch delivers, so its deps are probed too.
+	sel := selectConfiguredHostPacks()
+	if sel.loadErr != nil {
 		return nil, nil
 	}
 	var reqs []depcheck.Requirement
-	var unresolved []unresolvedPack
-	for _, e := range entries {
-		p, err := resolveConfiguredPack(e)
-		if err != nil {
-			unresolved = append(unresolved, newUnresolvedPack(e, err))
-			continue
-		}
+	for _, p := range sel.packs {
 		reqs = append(reqs, packDepRequirements(p)...)
 	}
-	return reqs, unresolved
+	return reqs, sel.problems()
 }
 
 // unresolvedPack is one configured pack that could not be resolved, and the resolver's own
@@ -168,11 +164,6 @@ type unresolvedPack struct {
 	// names, so a remedy may not offer "remove it from `packs`" for it. Not on the wire, as on
 	// the entry.
 	Implicit bool `json:"-"`
-	// declaredProfiles are the profile names the part of a manifest with problems that DID
-	// decode declares (manifestProblemsError.profiles), for one purpose: a refusal naming the
-	// pack that declares a profile this launch cannot compose (undeclaredHostProfileError).
-	// Never composed from. Empty for a manifest that did not decode, and for every other class.
-	declaredProfiles []string
 }
 
 // newUnresolvedPack records a resolution failure from resolveConfiguredPack for entry e. The
@@ -186,7 +177,6 @@ func newUnresolvedPack(e config.PackEntry, err error) unresolvedPack {
 		NeedsInstall: errors.As(err, &miss), Implicit: e.Implicit}
 	if errors.As(err, &malformed) {
 		u.ManifestProblems = append([]string(nil), malformed.problems...)
-		u.declaredProfiles = malformed.profiles
 	}
 	return u
 }
@@ -197,14 +187,9 @@ func newUnresolvedPack(e config.PackEntry, err error) unresolvedPack {
 // with whatever part of the manifest decoded. Reading that part is the defect this type ends:
 // `yolo host apply --assert` wrote a pack with two `autonomy` contributions into a real home at
 // rc=0 (notch-scoped-config-contributions.md NS-D14). problems carry no "pack <name>: " prefix.
-//
-// profiles are the profile names that decoded part declares, read for a MESSAGE only: a host
-// launch whose selected profile only this pack declares refuses it as undeclared, and names this
-// pack as the cause (undeclaredHostProfileError) rather than saying nothing declares it.
 type manifestProblemsError struct {
 	name     string
 	problems []string
-	profiles []string
 }
 
 func (e manifestProblemsError) Error() string {
@@ -268,12 +253,14 @@ func describeUnresolved(list []unresolvedPack) string {
 // problem, and a manifest it filters out is not read. They used to be discarded here whenever the
 // pack still loaded, so every host verb read whatever part of a malformed manifest decoded, and
 // `yolo host apply --assert` applied it — partially, at rc=0 — while `yolo pack lint`, `yolo check`
-// and the launch refused the same pack (NS-D14). Each caller keeps its own disposition for an
-// unresolvable pack, which is where the per-verb decision lives: `host apply --assert` refuses the
-// whole set and writes nothing (its dry run and the launch gate say so), `yolo host --`/`host env`
-// compose without the pack and warn, `--revert` leaves its keys recorded, capture does not search
-// it, check-deps exits 1, the read-only `config` verbs report it as not folded, and `config
-// promote` refuses to write into it as a destination. None reads a malformed manifest.
+// and the launch refused the same pack (NS-D14). Every host verb reads it through the one
+// selection function (selectHostPacks), and each keeps its own disposition for an unresolvable
+// pack, which is where the per-verb decision lives: `yolo host --` and `yolo host env` refuse, as
+// a jail launch does (NC-D5, which overrides NS-D14's "compose without it and warn" for them),
+// `host apply --assert` refuses the whole set and writes nothing (its dry run and the launch gate
+// say so), `--revert` leaves its keys recorded, capture does not search it, check-deps exits 1,
+// the read-only `config` verbs report it as not folded, and `config promote` refuses to write
+// into it as a destination. None reads a malformed manifest.
 // packload's host-notch containment guards stay, for a manifest no decoder checked.
 func resolveConfiguredPack(e config.PackEntry) (*packload.Pack, error) {
 	res, err := config.ResolvePackForProcess(e, hostPackResolveSpec(false))
@@ -311,8 +298,7 @@ func resolvedOrProblems(e config.PackEntry, res config.ResolvedPack) (*packload.
 		for i, prob := range res.Problems {
 			stated[i] = strings.TrimPrefix(prob, "pack "+e.Name+": ")
 		}
-		return nil, manifestProblemsError{name: e.Name, problems: stated,
-			profiles: packload.DeclaredProfileNames([]*packload.Pack{res.Pack}, nil)}
+		return nil, manifestProblemsError{name: e.Name, problems: stated}
 	}
 	return res.Pack, nil
 }

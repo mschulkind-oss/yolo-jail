@@ -352,9 +352,9 @@ Where each answer lands is the vehicle's:
     and that the named command can run on, or says to declare one under `profiles` when none
     does. The line is checked the way the launch it names would be, so it never names a launch
     that refuses. With `"packs": ["claude", "cerebras"]`, claude cannot run on the openai-only
-    cerebras profile here: this notch applies no pack's `needs`, so wire-bridge does not join
-    as it does in a jail. Listing wire-bridge in `packs` does not change that, since the host
-    composes none of the bridge's addresses (next bullet). The line names
+    cerebras profile here: wire-bridge joins through claude's `needs`, as it does in a jail, but
+    the host composes none of the bridge's addresses (next bullet), and listing it in `packs`
+    changes nothing. The line names
     `yolo host -p cerebras -- bash` instead, and says why. On an agent, the named `-p` replaces the agent's
     own profile, and the line says so ("run claude on the zai profile for one launch, replacing
     its bedrock profile"). At `yolo host env` the shell spelling is always
@@ -379,10 +379,12 @@ Where each answer lands is the vehicle's:
     and it never tells the user to add `wire-bridge` to `packs`, as the ordinary pairing refusal
     does in a jail. `-p codex -- claude` refuses the same way, through the bridge's
     `openai-responses` adapter at `http://127.0.0.1:8215`, whether or not `openai-auth` is in
-    `packs`. With it absent, as on a bare `"packs": ["claude"]`, the host holds no `openai-codex`
-    provider at all, since it applies no `needs`, and the refusal adds that the provider's pack
-    is missing too and that listing it changes nothing. Before 2026-09-27 that launch exited 0
-    and ran claude on its own Claude login ([ES-D25](../design/credential-sources-separation.md#10-decision-ledger)).
+    `packs`. On a bare `"packs": ["claude"]` both packs join through claude's `needs`, and the
+    refusal names the bridge as a pack that joined, with the line that says why
+    (`+ wire-bridge (needed by claude)`), never as one listed in `packs`
+    ([HS-D1](../design/host-notch-services.md#HS-D1)). Before 2026-09-27 that launch exited 0 and
+    ran claude on its own Claude login
+    ([ES-D25](../design/credential-sources-separation.md#10-decision-ledger)).
     The jail spelling the refusal names, `yolo -p claude=codex -- claude`, is a jail launch;
     `yolo host -p claude=codex -- claude` reads as `-p codex` and gets this same refusal
     ([ES-D27](../design/credential-sources-separation.md#10-decision-ledger)). A user's

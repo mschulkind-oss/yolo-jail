@@ -669,28 +669,18 @@ type promoteFold struct {
 // loadPromoteFold resolves the pack fold order the way a launch does, plus the names of any
 // configured pack it could not read.
 //
-// The SELECTION CLOSURE is included, and it is the whole reason this is not just
-// configuredPacksForInspection: `config/packs.go` appends the conventional local pack LAST,
-// which is what makes `--to local` outrank every other pack's overlay — with one exception,
-// a pack pulled in through `needs` or an active profile's `via`, which run/packs.go appends
-// AFTER the closure runs. It is the launch's resolver (packload.Selection.Close, WG-I11) with
-// the user-scope selection table, so the fold cannot omit a pack the launch stages. No
+// The SELECTION CLOSURE is included, as it is in every host verb's selection (selectHostPacks,
+// notch-convergence item 6): `config/packs.go` appends the conventional local pack LAST, which is
+// what makes `--to local` outrank every other pack's overlay — with one exception, a pack pulled
+// in through `needs` or an active profile's `via`, which the one selection function appends AFTER
+// the configured entries, at every notch. afterConfigured is that boundary, so the fold cannot
+// omit a pack the launch stages. No
 // shipped pack in that position declares a config-overlay today, so this changes no answer
 // yet; leaving it out would make the check silently wrong on the day one does.
 func loadPromoteFold() (promoteFold, []unresolvedPack) {
-	packs, unresolved := configuredPacksForInspection()
-	fold := promoteFold{order: map[string]int{}, afterConfigured: len(packs)}
-	byName := map[string]*packload.Pack{}
-	for _, p := range packload.Embedded() {
-		byName[p.Name] = p
-	}
-	added, _, err := config.UserScopeSelection(func(name string) (*packload.Pack, bool) {
-		p, ok := byName[name]
-		return p, ok
-	}).Close(packs)
-	if err == nil {
-		packs = append(packs, added...)
-	}
+	sel := selectConfiguredHostPacks()
+	packs, unresolved := sel.packs, sel.problems()
+	fold := promoteFold{order: map[string]int{}, afterConfigured: len(sel.configured)}
 	for i, p := range packs {
 		fold.order[p.Name] = i
 	}

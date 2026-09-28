@@ -16,8 +16,8 @@ import (
 	"testing"
 )
 
-// bridgeConfig lists wire-bridge explicitly: the one way it reaches the host notch, which runs
-// no pack's `needs`.
+// bridgeConfig lists wire-bridge explicitly, beside claude, whose `needs` would join it anyway
+// (notch-convergence item 6): the refusal then says it is in `packs`.
 const bridgeConfig = `{"packs": ["claude", "copilot", "cerebras", "wire-bridge"], ` +
 	`"env_sources": [{"CEREBRAS_API_KEY": "tok-c"}]}`
 
@@ -95,28 +95,33 @@ func TestHostStillComposesAnAdapterNoPackServiceServes(t *testing.T) {
 	}
 }
 
-// With wire-bridge NOT listed, the pairing refuses the same way, once: the ordinary pairing
-// refusal's remedy (outcome 3, "Add it to `packs` and this pairing resolves") is false here,
-// since listing it leads only to the refusal above. The chain is the same for `-p codex`
-// through the bridge's openai-responses adapter.
+// With wire-bridge NOT listed, it joins through claude's `needs` (the one selection function,
+// notch-convergence item 6), and the pairing refuses the same way, once, WORDING THE PACK AS JOINED
+// (HS-D1): "though "wire-bridge" is in `packs`" would send the user to a config line that does not
+// exist, and the ordinary pairing refusal's remedy (outcome 3, "Add it to `packs` and this pairing
+// resolves") is false here, since listing it leads only to the refusal above. The chain is the
+// same for `-p codex` through the bridge's openai-responses adapter, and for that profile the
+// provider's own pack, openai-auth, joins the same way.
 func TestHostNeverTellsTheUserToListTheBridge(t *testing.T) {
 	for _, tc := range []struct {
 		cfg, profile, address string
 	}{
 		{`{"packs": ["claude", "cerebras"], "env_sources": [{"CEREBRAS_API_KEY": "tok-c"}]}`, "cerebras",
 			"http://127.0.0.1:8214"},
-		{`{"packs": ["claude", "openai-auth"]}`, "codex", "http://127.0.0.1:8215"},
+		{`{"packs": ["claude"]}`, "codex", "http://127.0.0.1:8215"},
 	} {
 		rc, env, errs := hostGateRun(t, tc.cfg, wcShell(nil), []string{"-p", tc.profile}, "claude")
 		if rc == 0 || env != nil {
 			t.Fatalf("-p %s -- claude must refuse: rc = %d\n%s", tc.profile, rc, errs)
 		}
-		if strings.Contains(errs, "Add it to `packs`") {
-			t.Errorf("-p %s: at the host, listing wire-bridge resolves nothing, so the refusal must "+
-				"not say to:\n%s", tc.profile, errs)
+		for _, never := range []string{"Add it to `packs`", "is in `packs`", "not in this launch's provider table"} {
+			if strings.Contains(errs, never) {
+				t.Errorf("-p %s: the refusal must not say %q:\n%s", tc.profile, never, errs)
+			}
 		}
 		for _, want := range []string{`profile "` + tc.profile + `"`, tc.address, `"wire-bridge"`,
-			"No host process serves it", "adding \"wire-bridge\" to `packs` does not change that",
+			"No host process serves it",
+			`though "wire-bridge" joined this launch (+ wire-bridge (needed by claude))`,
 			"`yolo -p claude=" + tc.profile + " -- claude`"} {
 			if !strings.Contains(errs, want) {
 				t.Errorf("-p %s: the refusal must say %q:\n%s", tc.profile, want, errs)

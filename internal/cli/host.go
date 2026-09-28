@@ -84,9 +84,10 @@ With ` + "`host_apply_on_launch`" + ` enabled (defaulting to on when ` + "`host_
 and automatically synchronizes host configuration before launch — silently exec'ing when fresh.
 When first-time adoption would overwrite unmanaged host keys, it prompts for confirmation or
 reads approval from ` + "`YOLO_ACCEPT_CONFIG_CHANGES`" + ` (any non-empty value, this launch only).
-An apply that would ask anything else, or a configured pack that cannot be resolved or whose
-manifest has problems, renders NOTHING: the launch says what needs deciding or fixing, and the
-agent starts on the render already in place. See ` + "`yolo config-ref`" + `.
+An apply that would ask anything else renders NOTHING: the launch says what needs deciding, and
+the agent starts on the render already in place. A configured pack that cannot be resolved or
+whose manifest has problems, or a malformed ` + "`packs`" + ` entry, refuses the launch, as it refuses a
+jail launch. See ` + "`yolo config-ref`" + `.
 
 apply flags:
   --assert        Write. Without it apply is a DRY RUN and writes nothing.
@@ -481,6 +482,11 @@ func hostExec(flagArgs, cmd []string, out, errw io.Writer, stdin io.Reader) int 
 		fmt.Fprintf(errw, "yolo host: refusing to launch: %v\n", launch.err)
 		return 1
 	}
+	// THE PACKS THE SELECTION CLOSURE JOINED, before any line that may name one of them, as a
+	// jail launch prints them before its pre-flights (WB-D12).
+	for _, line := range launch.selectionLines() {
+		fmt.Fprintf(errw, "yolo host: %s\n", line)
+	}
 
 	// THE CREDENTIAL PRE-FLIGHT at the host notch (docs/reference/providers.md#the-credential-preflight,
 	// #pv-oq-13) — the same check the jail's launcher runs, on the environment THIS notch
@@ -660,6 +666,16 @@ type hostComposition struct {
 	// with its grant widened must spell again (grantRemedy). profile can instead come from
 	// use_profiles, which the re-run picks up by itself.
 	typedProfile string
+	// selection is the one selection function's answer this launch composed from: packs is its
+	// complete set, and its causes are the packs the closure joined (selectionLines).
+	selection hostPackSet
+}
+
+// selectionLines are the cause lines of every pack the selection closure joined to this launch,
+// one each, as a jail launch prints them (WB-D12: a pack no config line named never joins a
+// launch in silence).
+func (c *hostComposition) selectionLines() []string {
+	return append([]string(nil), c.selection.causes...)
 }
 
 // hostGrant is a --with-credentials request resolved against this launch's composed provider
@@ -1125,25 +1141,9 @@ func composeHostVarsGranting(cfg *jsonx.OrderedMap, workspace, agent, profile st
 	var vars []agentenv.Var
 	c := &hostComposition{agent: agent}
 
-	// The selected packs, read once for both the env they declare and the provider they
-	// ship. The config here is USER SCOPE ONLY (the boundary this function's doc records),
-	// so the composed provider table below is user entries over pack facts and never a
-	// workspace's. A pack set that cannot be resolved right now contributes nothing — an
-	// empty slice makes every fold below a no-op — which is loadedHostPacks' own contract,
-	// so the error needs no second handling here. A single pack that does not resolve is
-	// WARNED about by name: it is dropped from this launch's env, and silence would make
-	// its missing provider vars look like a credential problem.
-	packs, unresolved, _ := loadedHostPacks()
-	if warn != nil {
-		for _, u := range unresolved {
-			warn(fmt.Sprintf("pack %s could not be resolved, so it contributes nothing to "+
-				"this launch's environment: %s", u.Name, u.Reason))
-		}
-	}
-	c.packs = packs
 	// The profile this launch selects, resolved once: it gates (1) and feeds (3), and
 	// both must read the same selection or the env a host launch carries and the one its
-	// launch line describes would disagree.
+	// launch line describes would disagree. It is also the selection closure's table below.
 	effective := effectiveHostProfiles(cfg, agent, profile)
 	profileName := ""
 	if v, ok := effective.Get(agent); ok {
@@ -1151,6 +1151,25 @@ func composeHostVarsGranting(cfg *jsonx.OrderedMap, workspace, agent, profile st
 			profileName = s
 		}
 	}
+	// The selected packs, read once for both the env they declare and the provider they
+	// ship, through the one selection function every notch calls (notch-convergence item 6):
+	// the configured packs and every pack their `needs`, or this agent's profile's `via`,
+	// joins. The config here is USER SCOPE ONLY (the boundary this function's doc records),
+	// so the composed provider table below is user entries over pack facts and never a
+	// workspace's.
+	//
+	// A SELECTION THAT IS NOT THE ONE THE CONFIG ASKS FOR REFUSES (NC-D5): a malformed
+	// `packs` entry, a pack that does not resolve, or a closure the selection refuses. This
+	// launch used to compose without the pack and warn, so a typo refused every jail launch
+	// while `yolo host` ran the agent without the pack's env and providers.
+	sel := loadedHostPacks(agent, profileName)
+	if err := sel.launchRefusal(); err != nil {
+		c.err = err
+		return c
+	}
+	packs := sel.packs
+	c.packs = packs
+	c.selection = sel
 	// Scoped to the ONE agent this process is. A jail carries the whole CLI-keyed table
 	// because one container holds every agent; a host launch composes a single process, so
 	// only the profile selected at THIS agent's own CLI name may contribute env to it.
@@ -1189,14 +1208,10 @@ func composeHostVarsGranting(cfg *jsonx.OrderedMap, workspace, agent, profile st
 	// DECLARATION IS MANDATORY (OQ-CS6), so a selected name nothing declares refuses
 	// here exactly as the jail notch's channel refuses: a host launch that silently ran
 	// without the profile its operator named would be the same undetectable no-op the
-	// reversal was ruled to end. The declared set is the staged packs' kind:profile names
-	// plus the user's own entries — and this notch's known gap applies to it as it does
-	// to the provider table above: a pack that could not be resolved this launch
-	// contributes no declaration, so a profile only THAT pack declared refuses here
-	// rather than composing nothing — and the refusal names that pack when it is one whose
-	// manifest has problems (undeclaredHostProfileError), since that is the one class that
-	// can say what it declares. So a pack-set fault DOES stop a host launch in this one
-	// case: the profile the launch was asked for comes only from the pack it cannot use.
+	// reversal was ruled to end. The declared set is the selected packs' kind:profile names
+	// plus the user's own entries. A pack that could not be resolved never reaches here: the
+	// selection above refused it (NC-D5), so an undeclared profile is undeclared by the whole
+	// pack set the config asks for.
 	userProfiles, err := config.LoadProfiles(warn)
 	if err != nil {
 		c.err = err
@@ -1229,7 +1244,8 @@ func composeHostVarsGranting(cfg *jsonx.OrderedMap, workspace, agent, profile st
 	if profileName != "" {
 		declared := packload.DeclaredProfileNames(packs, userProfiles)
 		if i := sort.SearchStrings(declared, profileName); i >= len(declared) || declared[i] != profileName {
-			c.err = undeclaredHostProfileError(profileName, agent, declared, unresolved)
+			c.err = fmt.Errorf("packs: profile %q selected for %s: %s", profileName, agent,
+				packload.UndeclaredProfileMessage(profileName, declared))
 			return c
 		}
 	}
@@ -1287,7 +1303,7 @@ func composeHostVarsGranting(cfg *jsonx.OrderedMap, workspace, agent, profile st
 	// through too (OQ-CS8), so the two notches cannot disagree about what a resolved
 	// profile delivers. A GIT PACK CONTRIBUTES HERE TOO: loadedHostPacks resolves through
 	// resolveConfiguredPack, which reads a git pack from the pack store the way a launch
-	// does. One the store does not have is dropped and warned about above.
+	// does. One the store does not have refuses the launch above (NC-D5).
 	hostServed := packload.NothingServed()
 	c.scopeInput = packload.ScopeInput{
 		Packs:      packs,
@@ -1312,7 +1328,7 @@ func composeHostVarsGranting(cfg *jsonx.OrderedMap, workspace, agent, profile st
 	if err != nil {
 		var unserved *packload.UnservedAdapterError
 		if errors.As(err, &unserved) && unserved.Agent == agent {
-			err = unservedAdapterRefusal(unserved, profileName)
+			err = unservedAdapterRefusal(unserved, profileName, sel)
 		}
 		c.err = err
 		return c
@@ -1430,21 +1446,28 @@ func hostAdapterAddresses() map[string]string {
 // macos-user is not one, and names the dial that picks one for a launch. It never says the
 // profile works "in a jail" unqualified.
 //
-// THE PROVIDER'S OWN PACK MAY BE MISSING TOO (ES-D25). With `"packs": ["claude"]` the host
-// holds no openai-codex provider at all, because only packs/openai-auth declares it and this
-// notch applies no `needs` (ES-D24). The gate then asks what the pairing would be with that
-// pack composed in, and this is the answer; e.ProviderPack names the pack, and the refusal says
-// that listing it changes nothing here either, so the user is not sent to add it and meet this
-// refusal again.
+// A PACK THE SELECTION CLOSURE JOINED IS WORDED AS JOINED (HS-D1). With `"packs": ["claude"]`
+// the wire bridge joins through claude's `needs`, so "though "wire-bridge" is in `packs`" would
+// send the user to a config line that does not exist; the refusal quotes the cause line instead.
+//
+// THE PROVIDER'S OWN PACK MAY BE MISSING TOO (ES-D25): only a pack yolo ships declares the
+// provider, and nothing selects it. The gate then asks what the pairing would be with that pack
+// composed in, and this is the answer; e.ProviderPack names the pack, and the refusal says that
+// listing it changes nothing here either, so the user is not sent to add it and meet this refusal
+// again. Since the host applies `needs` (notch-convergence item 6), a selected pack whose `needs`
+// names the provider's pack only reaches this when the need's `when_bins` does not hold.
 //
 // THE JAIL SPELLING IS SAID TO BE A JAIL LAUNCH (ES-D26): `yolo -p claude=codex -- claude`
 // starts a container. Read as a host spelling it sent the user to `yolo host -p claude=codex
 // -- claude`, which refused as an undeclared profile named "claude=codex"; the host now parses
 // that pair (ES-D27) and refuses it with this same message.
-func unservedAdapterRefusal(e *packload.UnservedAdapterError, profile string) error {
+func unservedAdapterRefusal(e *packload.UnservedAdapterError, profile string, sel hostPackSet) error {
 	a := e.Adaptation
 	agent, p := shquote.Quote(e.Agent), shquote.Quote(profile)
 	listing := fmt.Sprintf("though %q is in `packs`", a.Pack)
+	if cause, joined := sel.joined(a.Pack); joined {
+		listing = fmt.Sprintf("though %q joined this launch (%s)", a.Pack, cause)
+	}
 	if !e.Selected {
 		listing = fmt.Sprintf("and adding %q to `packs` does not change that here", a.Pack)
 	}
@@ -1452,12 +1475,12 @@ func unservedAdapterRefusal(e *packload.UnservedAdapterError, profile string) er
 	if e.ProviderPack != "" {
 		needs := ""
 		if e.NeededBy != "" {
-			needs = fmt.Sprintf(" (pack %q's does)", e.NeededBy)
+			needs = fmt.Sprintf(" (pack %q's `needs` names it, under a `when_bins` this launch "+
+				"does not meet)", e.NeededBy)
 		}
 		providerPack = fmt.Sprintf(" Provider %q is not in this launch's provider table either: "+
-			"pack %q ships it, and `yolo host` does not add a pack a selected pack's `needs` "+
-			"names%s, so adding %q to `packs` does not change the answer either.",
-			e.Provider, e.ProviderPack, needs, e.ProviderPack)
+			"pack %q ships it and nothing selects it%s, so adding %q to `packs` does not change "+
+			"the answer either.", e.Provider, e.ProviderPack, needs, e.ProviderPack)
 	}
 	return fmt.Errorf("profile %q would point %s at %s, where pack %q adapts %q → %q for provider %q — "+
 		"and that address is served by the pack's own %q service, a daemon yolo runs only in a "+
@@ -1522,64 +1545,36 @@ func hostScopedEnvSources(cfg *jsonx.OrderedMap, warn func(string)) *jsonx.Order
 	return out
 }
 
-// undeclaredHostProfileError is OQ-CS6's refusal of a selected profile nothing this host launch
-// read declares, naming the likelier cause when there is one: a pack the launch could not use.
+// loadedHostPacks is the selection for one host launch of agent: the one selection function
+// (selectHostPacks) with the launch's resolver and, as the closure's table, the one profile this
+// launch selects for the one agent it runs (HS-D1). A host launch composes a single process, so
+// only that agent's profile can join a `via` service, and the host serves no via route anyway
+// (ViaServedAt, WG-I12).
 //
-// A PACK WITH MANIFEST PROBLEMS THAT DECLARES THE PROFILE is named as its declarer, with its
-// problems: loadedHostPacks composes without it, so its profile is undeclared HERE, and a jail
-// launch refuses the same config over the pack. Saying "no profile named … is declared — a profile
-// name must be declared by a selected pack's manifest" about a profile a selected pack's manifest
-// declares sent the user looking for a typo. Any OTHER unusable pack (a git pack the store does
-// not have, a manifest that did not decode) cannot say what it declares, so it is named beside
-// the plain message rather than as the declarer.
-func undeclaredHostProfileError(profile, agent string, declared []string, unresolved []unresolvedPack) error {
-	for _, u := range unresolved {
-		if slices.Contains(u.declaredProfiles, profile) {
-			return fmt.Errorf("packs: profile %q selected for %s is declared by pack %s, which "+
-				"this launch cannot use: %s — fix the pack (`yolo pack lint <its dir>` re-checks "+
-				"it; every launch refuses it too), or select another profile",
-				profile, agent, u.Name, u.Reason)
-		}
-	}
-	msg := packload.UndeclaredProfileMessage(profile, declared)
-	if len(unresolved) > 0 {
-		msg += fmt.Sprintf("; %s could not be resolved (%s), and a profile only %s declares "+
-			"is not declared at this launch", plural(len(unresolved), "a pack", "packs"),
-			describeUnresolved(unresolved), plural(len(unresolved), "it", "one of them"))
-	}
-	return fmt.Errorf("packs: profile %q selected for %s: %s", profile, agent, msg)
+// IT APPLIES `needs`, which ES-D24 once measured it must not: with `"packs": ["claude"]`, claude
+// needs aws-auth, and aws-auth's bedrock-gated env points AWS_CONTAINER_CREDENTIALS_FULL_URI at
+// http://127.0.0.1:1461/credentials, an address only a jail's side of the aws-auth loophole
+// serves. That pointer declares the daemon that serves it (`served_by`), and the credential gate
+// withholds it and names it where that daemon does not run (NC-D16), so `yolo host -p bedrock --
+// claude` exports no address nothing serves (NC-D4).
+func loadedHostPacks(agent, profile string) hostPackSet {
+	return selectHostPacks(resolveConfiguredPack, hostLaunchSelection(agent, profile))
 }
 
-// loadedHostPacks resolves the selected packs for a host launch, plus every one it could not
-// resolve. A pack that cannot be resolved (a git pack not in the store, or one whose manifest has
-// problems — resolveConfiguredPack, NS-D14) contributes nothing rather than failing the launch —
-// the user asked to run an agent, not to reconcile their pack set — but it is RETURNED, so the
-// caller names it rather than dropping it in silence. Nothing is composed from a malformed
-// manifest: its env and providers are the declarations the launch would refuse.
-//
-// IT APPLIES NO `needs`, and that is measured rather than assumed
-// (docs/design/credential-sources-separation.md ES-D24). Running the jail's selection closure
-// here would add aws-auth to every claude launch, and aws-auth's bedrock-gated env points
-// AWS_CONTAINER_CREDENTIALS_FULL_URI at http://127.0.0.1:1461/credentials, an address only a
-// jail's side of the aws-auth loophole serves: `yolo host -p bedrock -- claude` would gain it.
-// So a profile whose provider only a needed pack declares refuses at the protocol gate instead,
-// naming the pack (packload.MissingProviderError), and never composes into nothing.
-func loadedHostPacks() ([]*packload.Pack, []unresolvedPack, error) {
-	entries, err := config.LoadPacks(nil)
-	if err != nil {
-		return nil, nil, err
+// hostLaunchSelection is the closure's profile input for a host launch: agent's profile alone,
+// and the user's profile declarations from user scope.
+func hostLaunchSelection(agent, profile string) packload.Selection {
+	return packload.Selection{
+		UseProfiles: func([]*packload.Pack) map[string]string {
+			if profile == "" {
+				return nil
+			}
+			return map[string]string{agent: profile}
+		},
+		UserProfiles: func() (map[string]packload.UserProfile, error) {
+			return config.LoadProfiles(nil)
+		},
 	}
-	var packs []*packload.Pack
-	var unresolved []unresolvedPack
-	for _, e := range entries {
-		p, rerr := resolveConfiguredPack(e)
-		if rerr != nil {
-			unresolved = append(unresolved, newUnresolvedPack(e, rerr))
-			continue
-		}
-		packs = append(packs, p)
-	}
-	return packs, unresolved, nil
 }
 
 // effectiveHostProfiles returns the use_profiles map with a `-p` override applied to
@@ -1811,7 +1806,12 @@ func hostEnvDelta(agent, profile string, grant *hostGrantRequest, warn func(stri
 	if c.err != nil {
 		return nil, nil, c.err
 	}
-	return c.vars, append(append(c.credentialScopeLines(), c.unservedLines(nil)...), c.grantLines()...), nil
+	var disclosure []string
+	for _, block := range [][]string{c.selectionLines(), c.credentialScopeLines(), c.unservedLines(nil),
+		c.grantLines()} {
+		disclosure = append(disclosure, block...)
+	}
+	return c.vars, disclosure, nil
 }
 
 // hostEnvDefaultAgent is the agent `yolo host env` composes for when no --agent is given:

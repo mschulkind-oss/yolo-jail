@@ -200,14 +200,14 @@ func hostApplyGate(errw io.Writer, stdin io.Reader, bin string) bool {
 	// A pack whose manifest has problems is one of them (resolveConfiguredPack, NS-D14), named
 	// with its problems, rather than applied from whatever part of its manifest decoded.
 	//
-	// THE PROGRAM STILL LAUNCHES, which is this hook's contract for a problem found by the
-	// observe pass (a pack-authoring or pack-set fault is `yolo check`'s to report and never a
-	// reason to stop a launch, §4.4). Launching is not a half state: nothing is written, so the
-	// home holds exactly what the last apply that ran left in it — a consistent render of an
-	// older pack set, not a partial render of this one.
+	// THE LAUNCH REFUSES (docs/plans/notch-convergence.md NC-D5): a launch-shaped verb refuses a
+	// pack set it cannot complete at every notch, and a jail launch refuses this config too. The
+	// hook used to report the set and launch anyway, on §4.4's rule that a pack-set fault is never
+	// a reason to stop a launch; the composition behind this hook now refuses the same set, so
+	// "launching against your last apply" would have been followed by a refusal.
 	if survey != nil && len(survey.UnresolvedPacks()) > 0 {
 		reportHostApplyGateIncompleteSet(errw, bin, survey.UnresolvedPacks())
-		return true
+		return false
 	}
 	if survey == nil {
 		// CANNOT DETERMINE (§4.4): an observe pass that failed on its own terms (an inert pack,
@@ -307,7 +307,8 @@ func reportHostApplyGateIncompleteSet(errw io.Writer, bin string, unresolved []u
 	for _, g := range unresolvedPackGroups(unresolved) {
 		fmt.Fprintf(errw, "  → %s\n", g.Remedy)
 	}
-	fmt.Fprintf(errw, "  Launching %s against the configuration your last apply left in place.\n", bin)
+	fmt.Fprintf(errw, "  Refusing to launch %s: a launch never runs on part of the pack set your "+
+		"config asks for, at any notch.\n", bin)
 }
 
 // reportHostApplyGateDecisions is the hook's refusal to run an apply that would ask something:

@@ -136,24 +136,15 @@ func hostRevert(out, errw io.Writer, color bool, write bool) int {
 // half: a revert removes keys by the surfaces packs declare, and none is read from a manifest
 // every launch refuses.
 func hostRevertCandidates(errw io.Writer) []*packload.Pack {
-	var loaded []*packload.Pack
-	entries, err := config.LoadPacks(nil)
-	if err != nil {
-		// Reported, not fatal: the shipped set below still covers every surface yolo itself
-		// declares, which is where a revert's keys overwhelmingly are.
-		fmt.Fprintf(errw, "yolo host apply --revert: reading `packs`: %v\n", err)
+	// The one selection function (selectHostPacks, notch-convergence item 6). An unreadable
+	// config is reported, not fatal: the shipped set below still covers every surface yolo
+	// itself declares, which is where a revert's keys overwhelmingly are.
+	sel := selectConfiguredHostPacks()
+	for _, u := range sel.problems() {
+		// Named, not skipped: its keys keep their record (see above), and the user should know
+		// why this revert left them.
+		fmt.Fprintf(errw, "yolo host apply --revert: %s could not be resolved, so the keys only "+
+			"it declares stay recorded for the next revert: %s\n", u.Name, u.Reason)
 	}
-	for _, e := range entries {
-		p, rerr := resolveConfiguredPack(e)
-		if rerr != nil {
-			// Named, not skipped: its keys keep their record (see above), and the user should
-			// know why this revert left them.
-			fmt.Fprintf(errw, "yolo host apply --revert: pack %s could not be resolved, so the "+
-				"keys only it declares stay recorded for the next revert: %s\n", e.Name,
-				newUnresolvedPack(e, rerr).Reason)
-			continue
-		}
-		loaded = append(loaded, p)
-	}
-	return append(loaded, embeddedPacksForPrune()...)
+	return append(append([]*packload.Pack(nil), sel.packs...), embeddedPacksForPrune()...)
 }

@@ -301,21 +301,22 @@ func TestApplyHostJSONNamesTheUnresolvablePack(t *testing.T) {
 
 // THE LAUNCH HOOK, SAME RULE. With the opt-in on and a pack the store does not have, the hook
 // renders NOTHING — even though the resolvable part of the set is stale (a fresh home) — and
-// says so loudly, naming the pack and the remedy. It still launches: the observe pass found a
-// configuration problem, and the home holds whatever the last complete apply left, which is a
-// consistent state rather than a half one.
+// says so loudly, naming the pack and the remedy. And it REFUSES the launch: a launch-shaped verb
+// never runs on part of the pack set the config asks for, at any notch (NC-D5). It used to launch
+// anyway, against whatever the last complete apply left.
 func TestHostApplyGateRefusesToRenderAnIncompletePackSet(t *testing.T) {
 	home := hookHome(t, neverFetchedGitSource)
 	before := hashTree(t, home)
 
 	var errw bytes.Buffer
-	if !hostApplyGate(&errw, nil, "claude") {
-		t.Fatalf("the hook must still launch over an unresolvable pack:\n%s", errw.String())
+	if hostApplyGate(&errw, nil, "claude") {
+		t.Fatalf("the hook must refuse the launch over an unresolvable pack:\n%s", errw.String())
 	}
 	if after := hashTree(t, home); after != before {
 		t.Errorf("the hook rendered an incomplete pack set into the home:\n%s", errw.String())
 	}
-	for _, want := range []string{"gp", "never been fetched", "yolo pack install", "did not render"} {
+	for _, want := range []string{"gp", "never been fetched", "yolo pack install", "did not render",
+		"Refusing to launch claude"} {
 		if !strings.Contains(errw.String(), want) {
 			t.Errorf("the hook's refusal must contain %q:\n%s", want, errw.String())
 		}
@@ -323,16 +324,16 @@ func TestHostApplyGateRefusesToRenderAnIncompletePackSet(t *testing.T) {
 }
 
 // The hook's CALL SITE, through hostMain: the refusal reaches a wrapped launch, and the launch
-// proceeds to the PATH lookup (rc 127 for a binary that does not exist).
-func TestHostExecReportsAnIncompletePackSetAndLaunches(t *testing.T) {
+// stops there (rc 1), never reaching the PATH lookup (rc 127 for a binary that does not exist).
+func TestHostExecReportsAnIncompletePackSetAndRefuses(t *testing.T) {
 	home := hookHome(t, neverFetchedGitSource)
 	before := hashTree(t, home)
 
 	var out, errw bytes.Buffer
 	rc := hostMain([]string{"--", "no-such-agent-binary"}, &out, &errw, false, nil)
 	report := out.String() + errw.String()
-	if rc != 127 {
-		t.Fatalf("rc = %d, want 127 (past the hook, to the PATH lookup)\n%s", rc, report)
+	if rc != 1 {
+		t.Fatalf("rc = %d, want 1 (refused before the PATH lookup)\n%s", rc, report)
 	}
 	if !strings.Contains(report, "did not render") || !strings.Contains(report, "gp") {
 		t.Errorf("the wrapped launch did not report the refused render:\n%s", report)

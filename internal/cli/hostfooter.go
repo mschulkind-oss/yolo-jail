@@ -97,33 +97,27 @@ func hostFooterTables() footer.Tables {
 // status-line redraw would put the network on the footer's path, so a git pack no launch has
 // fetched yet is simply unresolved here. A fetched pack whose tree for the pinned commit is
 // not already checked out is skipped rather than checked out (packsrc.Store.ResolveExisting).
-// A pack that does not resolve, or whose manifest has problems, contributes nothing, as it
-// contributes nothing to a host launch's env, so a profile only it declares reads as its bare
-// name: an under-claim, never a wrong provider. The one lasting write a refresh can still cause
+// A pack that does not resolve, or whose manifest has problems, contributes nothing (the host
+// launch refuses over it), so a profile only it declares reads as its bare name: an
+// under-claim, never a wrong provider. The one lasting write a refresh can still cause
 // is packload.Embedded's tree, made once per build by the first host `yolo` of that build,
 // whatever the command; a filtered entry's temp copy is removed before this returns.
 func footerHostPacks() []*packload.Pack {
-	entries, err := config.LoadPacks(nil)
-	if err != nil {
-		return nil
-	}
-	var packs []*packload.Pack
-	for _, e := range entries {
-		// The one resolver (config.ResolvePack), in DECLARATION mode and writing nothing to the
-		// store: the declaration the host launch composes is the one the entry's filters leave,
-		// read in place when nothing filters it (a copy only for a filtered entry), and none from
-		// a pack with manifest problems or one packstage refuses, which the host launch's
-		// resolver skips too (resolveConfiguredPack, NS-D14). A profile only such a pack declares
-		// then reads as its bare name here, exactly as that launch composes it.
+	// The one selection function (selectHostPacks, notch-convergence item 6), closure included,
+	// so the footer describes the pack set a host launch composes. Its resolver is the one
+	// resolver (config.ResolvePack) in DECLARATION mode and writing nothing to the store: the
+	// declaration the host launch composes is the one the entry's filters leave, read in place
+	// when nothing filters it (a copy only for a filtered entry), and none from a pack with
+	// manifest problems or one packstage refuses, which the host launch refuses over (NC-D5). A
+	// profile only such a pack declares then reads as its bare name here: the footer is a status
+	// line with nowhere to put the refusal.
+	return selectHostPacks(func(e config.PackEntry) (*packload.Pack, error) {
 		res, err := config.ResolvePack(e, hostPackResolveSpec(true))
 		if err != nil {
-			continue
+			return nil, err
 		}
-		if p, err := resolvedOrProblems(e, res); err == nil {
-			packs = append(packs, p)
-		}
-	}
-	return packs
+		return resolvedOrProblems(e, res)
+	}, config.UserScopeSelection()).packs
 }
 
 // footerJSON is a table's wire text, or "" when it will not encode.

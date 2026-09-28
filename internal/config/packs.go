@@ -216,6 +216,29 @@ func LoadPacks(warn Warn) ([]PackEntry, error) {
 	if warn == nil {
 		warn = func(string) {}
 	}
+	entries, problems, err := loadPackEntries(warn)
+	for _, p := range problems {
+		warn(p + " — entry skipped")
+	}
+	return entries, err
+}
+
+// LoadPackEntries is LoadPacks returning the `packs` entries it could not lower instead of
+// handing them to a warning sink: one problem per malformed entry, in list order, each naming
+// the entry (`config.packs[1]: …`). The entries returned are the ones that lowered, the
+// conventional local pack appended last, exactly as LoadPacks returns them.
+//
+// It exists because a warning is a disposition, and the disposition belongs to the verb
+// (docs/plans/notch-convergence.md NC-D5): a launch-shaped verb refuses a malformed entry at
+// every notch, which it cannot do with a problem already printed and discarded. The jail's
+// launch refused it through config validation while `yolo host` dropped it with no word.
+func LoadPackEntries() ([]PackEntry, []string, error) {
+	return loadPackEntries(func(string) {})
+}
+
+// loadPackEntries is the read both spellings share; warn receives only the loader's own
+// warnings, never an entry problem.
+func loadPackEntries(warn Warn) ([]PackEntry, []string, error) {
 	userPath := paths.UserConfigPath()
 	// loadUserScopeConfig, not LoadJSONCWithIncludes: the same direct read of the user file
 	// (so workspace scope stays inexpressible — see the file header) PLUS any
@@ -223,15 +246,12 @@ func LoadPacks(warn Warn) ([]PackEntry, error) {
 	// from inside a jail means naming the pack that carries it.
 	userCfg, err := loadUserScopeConfig(userPath, userPath, true, warn)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	var entries []PackEntry
+	var problems []string
 	if v, present := userCfg.Get(packsKey); present && v != nil {
-		var problems []string
 		entries, problems = checkPacks(v)
-		for _, p := range problems {
-			warn(p + " — entry skipped")
-		}
 	}
 	// THE CONVENTIONAL LOCAL PACK, appended LAST. See localPackEntry for why it is here at
 	// all and why it composes last; it is appended after the configured entries — including
@@ -246,7 +266,7 @@ func LoadPacks(warn Warn) ([]PackEntry, error) {
 	if local, ok := localPackEntry(); ok && !hasPackNamed(entries, local.Name) {
 		entries = append(entries, local)
 	}
-	return entries, nil
+	return entries, problems, nil
 }
 
 // hasPackNamed reports whether any entry already carries this name.

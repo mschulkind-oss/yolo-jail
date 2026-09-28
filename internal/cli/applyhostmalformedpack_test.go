@@ -189,8 +189,8 @@ func TestApplyHostJSONCarriesAMalformedPacksProblems(t *testing.T) {
 }
 
 // THE LAUNCH GATE (`yolo host -- <bin>` with host management on) renders NOTHING over a
-// malformed pack and names it with its problem — the incomplete-set disposition — and still
-// launches (host-apply-staleness.md, the dispositions).
+// malformed pack and names it with its problem — the incomplete-set disposition — and refuses the
+// launch, as every launch-shaped verb does (NC-D5).
 func TestHostApplyGateRendersNothingOverAMalformedPack(t *testing.T) {
 	for _, malformed := range []bool{true, false} {
 		home, _ := malformedPackHome(t, "", malformed, `,"host_apply_on_launch":true`)
@@ -202,8 +202,9 @@ func TestHostApplyGateRendersNothingOverAMalformedPack(t *testing.T) {
 		}
 		before := hashTree(t, home)
 		var errw bytes.Buffer
-		if !hostApplyGate(&errw, nil, "claude") {
-			t.Fatalf("malformed=%v: the gate must still launch:\n%s", malformed, errw.String())
+		launched := hostApplyGate(&errw, nil, "claude")
+		if launched != !malformed {
+			t.Fatalf("malformed=%v: the gate launched = %v:\n%s", malformed, launched, errw.String())
 		}
 		wrote := hashTree(t, home) != before
 		if !malformed {
@@ -223,31 +224,30 @@ func TestHostApplyGateRendersNothingOverAMalformedPack(t *testing.T) {
 	}
 }
 
-// `yolo host env` (and `yolo host --`, which composes through the same composeHostVars) takes
-// NOTHING from a malformed pack and warns by name, as it does for any unresolvable pack: the
-// host launch does not stop over a pack-set fault (§4.4) — unless the profile it selects is one
-// only that pack declares (hostmalformedprofile_test.go) — and never composes from one either.
-func TestHostEnvComposesNothingFromAMalformedPack(t *testing.T) {
+// `yolo host env` (and `yolo host --`, which composes through the same composeHostVars) REFUSES
+// over a malformed pack, naming it and its problem, and prints nothing for a shell to eval: a
+// launch-shaped verb refuses a pack set it cannot complete at every notch (NC-D5), as a jail launch
+// refuses this config. It used to compose without the pack and warn, which read as the pack's
+// env simply being missing.
+func TestHostEnvRefusesAMalformedPack(t *testing.T) {
 	const envContrib = `{"kind":"env","vars":{"BAD_PACK_VAR":"from-bad"}},`
 	for _, malformed := range []bool{true, false} {
 		malformedPackHome(t, envContrib, malformed, "")
 		var out, errw bytes.Buffer
-		if rc := hostMain([]string{"env", "--agent", "bash"}, &out, &errw, false, nil); rc != 0 {
-			t.Fatalf("malformed=%v: yolo host env rc=%d\n%s%s", malformed, rc, out.String(), errw.String())
-		}
-		has := strings.Contains(out.String(), "BAD_PACK_VAR")
+		rc := hostMain([]string{"env", "--agent", "bash"}, &out, &errw, false, nil)
 		if !malformed {
-			if !has {
-				t.Fatalf("fixture control: a clean pack's env did not compose:\n%s", out.String())
+			if rc != 0 || !strings.Contains(out.String(), "BAD_PACK_VAR") {
+				t.Fatalf("fixture control: a clean pack's env did not compose: rc=%d\n%s%s",
+					rc, out.String(), errw.String())
 			}
 			continue
 		}
-		if has {
-			t.Errorf("yolo host env composed a malformed pack's env:\n%s", out.String())
+		if rc == 0 || out.Len() != 0 {
+			t.Errorf("yolo host env composed over a malformed pack: rc=%d\n%s", rc, out.String())
 		}
-		for _, want := range []string{"bad", "contributes nothing", malformedProblem} {
+		for _, want := range []string{"bad", malformedProblem, "yolo pack lint", "a jail launch refuses"} {
 			if !strings.Contains(errw.String(), want) {
-				t.Errorf("the warning must contain %q:\n%s", want, errw.String())
+				t.Errorf("the refusal must contain %q:\n%s", want, errw.String())
 			}
 		}
 	}
@@ -261,7 +261,7 @@ func TestHostRevertNamesAMalformedPack(t *testing.T) {
 	if rc := hostRevert(&out, &errw, false, false); rc != 0 {
 		t.Fatalf("rc=%d\n%s%s", rc, out.String(), errw.String())
 	}
-	for _, want := range []string{"pack bad could not be resolved", "stay recorded", malformedProblem} {
+	for _, want := range []string{"bad could not be resolved", "stay recorded", malformedProblem} {
 		if !strings.Contains(errw.String(), want) {
 			t.Errorf("the revert must say %q:\n%s", want, errw.String())
 		}
@@ -349,7 +349,7 @@ func TestCheckDepsNamesAMalformedPackAndProbesNothingFromIt(t *testing.T) {
 		if rc == 0 {
 			t.Errorf("check-deps exited 0 with a pack it could not read:\n%s", out.String())
 		}
-		for _, want := range []string{"pack bad could not be resolved", malformedProblem} {
+		for _, want := range []string{"bad could not be resolved", malformedProblem} {
 			if !strings.Contains(out.String(), want) {
 				t.Errorf("check-deps must say %q:\n%s", want, out.String())
 			}

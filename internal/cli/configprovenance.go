@@ -33,8 +33,6 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/mschulkind-oss/yolo-jail/internal/config"
-
 	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg"
 	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg/manifest"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
@@ -532,8 +530,11 @@ func readProvenance(f captureFile) map[string]string {
 // configuredPacksForInspection loads the packs this workspace's config selects, for the
 // read-only inspection commands, plus every one that could not be resolved and why.
 //
-// It resolves the way a launch does (resolveConfiguredPack): embedded, local, and a git pack
-// from the pack store, offline. One the store does not have is returned for the caller to
+// It selects the way a launch does, through the one selection function (selectHostPacks,
+// notch-convergence item 6): each entry resolved by resolveConfiguredPack (embedded, local, and a
+// git pack from the pack store, offline), then the packs the selection closure joins. A malformed
+// `packs` entry and a refused closure are returned beside the unresolvable packs (NC-D5: the
+// read-only verbs report them). One the store does not have is returned for the caller to
 // report — a `config diff` that failed over it would be worse than one that names what it
 // could not read. A pack whose manifest has problems is returned the same way, with them
 // (NS-D14), and no caller folds a manifest no render would read — the launch refuses it, and so
@@ -542,21 +543,8 @@ func readProvenance(f captureFile) map[string]string {
 // read-only: it writes a manifest, so it refuses to write into a destination that is one of these
 // packs (promotePlan.destManifestProblems) and reports every other one as not inspected.
 func configuredPacksForInspection() ([]*packload.Pack, []unresolvedPack) {
-	entries, err := config.LoadPacks(nil)
-	if err != nil {
-		return nil, nil
-	}
-	var packs []*packload.Pack
-	var unresolved []unresolvedPack
-	for _, e := range entries {
-		p, rerr := resolveConfiguredPack(e)
-		if rerr != nil {
-			unresolved = append(unresolved, newUnresolvedPack(e, rerr))
-			continue
-		}
-		packs = append(packs, p)
-	}
-	return packs, unresolved
+	sel := selectConfiguredHostPacks()
+	return sel.packs, sel.problems()
 }
 
 // sortedStrings returns a string-keyed map's keys sorted, for deterministic output.

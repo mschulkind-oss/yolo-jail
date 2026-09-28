@@ -18,6 +18,8 @@ package config
 // embedded set.
 
 import (
+	"errors"
+
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 )
 
@@ -50,39 +52,37 @@ func resolveSelectedPacks() (packs []*packload.Pack, complete bool) {
 	if len(entries) == 0 {
 		return nil, true
 	}
-	byName := map[string]*packload.Pack{}
-	for _, p := range packload.Embedded() {
-		byName[p.Name] = p
-	}
-	complete = true
-	for _, entry := range entries {
-		// The one resolver (ResolvePack), in declaration mode, writing nothing into the store:
-		// validation (and so `yolo check`) must write nothing there. A fetched pack whose tree is
-		// not checked out yet is therefore unresolvable HERE and reserves nothing, although the
-		// launch's staging will check it out: that launch's own deriver (WritableHomeDirs over the
-		// staged set) then drops the entry the pack's dir covers, and the next validation, with the
-		// tree in place, refuses it. nil Getenv: the store falls back to the real environment,
-		// which is how a nested launch's local packs resolve through the staged-tree fallback.
-		// FollowLocalSymlinks: this read an unfiltered local pack in place before there was one
-		// resolver, so it followed its links, as the host verbs still do (OQ-NC9); refusing here
-		// left such a pack out of the reservations while `yolo host apply` delivered it.
-		res, err := ResolvePack(entry, ResolvePackSpec{ReadOnlyStore: true, FollowLocalSymlinks: true})
-		if err != nil || res.Pack == nil || len(res.Problems) > 0 {
-			complete = false
-			continue
-		}
-		packs = append(packs, res.Pack)
-	}
-	// THE SELECTION CLOSURE: a pack a selected pack's live `needs` pulls in is selected too
-	// (docs/reference/wire-bridge.md §3.1), and so is a service pack an active profile's
-	// `via` names (docs/design/wire-bridge-gateway.md WG-I11) — the one resolver stagePacks
-	// extends its loaded set with.
-	added, _, err := UserScopeSelection(func(name string) (*packload.Pack, bool) {
-		p, ok := byName[name]
-		return p, ok
-	}).Close(packs)
-	if err != nil {
-		return packs, false
-	}
-	return append(packs, added...), complete
+	// The one resolver (ResolvePack), in declaration mode, writing nothing into the store:
+	// validation (and so `yolo check`) must write nothing there. A fetched pack whose tree is not
+	// checked out yet is therefore unresolvable HERE and reserves nothing, although the launch's
+	// staging will check it out: that launch's own deriver (WritableHomeDirs over the staged set)
+	// then drops the entry the pack's dir covers, and the next validation, with the tree in place,
+	// refuses it. nil Getenv: the store falls back to the real environment, which is how a nested
+	// launch's local packs resolve through the staged-tree fallback. FollowLocalSymlinks: this read
+	// an unfiltered local pack in place before there was one resolver, so it followed its links,
+	// as the host verbs still do (OQ-NC9); refusing here left such a pack out of the reservations
+	// while `yolo host apply` delivered it.
+	//
+	// THE SELECTION CLOSURE through the one selection function (SelectPacks, notch-convergence
+	// item 6): a pack a selected pack's live `needs` pulls in is selected too
+	// (docs/reference/wire-bridge.md §3.1), and so is a service pack an active profile's `via`
+	// names (docs/design/wire-bridge-gateway.md WG-I11), exactly as the launch stages them.
+	sel, _ := SelectPacks(entries, PackSelectSpec{
+		Resolve: func(entry PackEntry) (*packload.Pack, error) {
+			res, err := ResolvePack(entry, ResolvePackSpec{ReadOnlyStore: true, FollowLocalSymlinks: true})
+			if err != nil {
+				return nil, err
+			}
+			if res.Pack == nil || len(res.Problems) > 0 {
+				return nil, errPackHasProblems
+			}
+			return res.Pack, nil
+		},
+		Selection: UserScopeSelection(),
+	})
+	return sel.Packs(), sel.Complete()
 }
+
+// errPackHasProblems marks an entry resolveSelectedPacks cannot reserve for: its manifest has
+// problems, which validation reports elsewhere, louder.
+var errPackHasProblems = errors.New("pack manifest has problems")

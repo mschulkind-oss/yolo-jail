@@ -156,7 +156,8 @@ func TestApplyHostAppliesNoDeclarationFromAManifestTheFiltersDrop(t *testing.T) 
 }
 
 // `yolo host env` (and `yolo host --`, one composeHostVars) composes a filtered pack's env: the
-// resolver no longer drops, as malformed, a pack whose problem its entry excludes.
+// resolver no longer refuses, as malformed, a pack whose problem its entry excludes. Unexcluded,
+// the same problem refuses the launch (NC-D5), as it refuses a jail's.
 func TestHostEnvComposesAPackWhoseOnlyProblemIsAnExcludedFile(t *testing.T) {
 	manifest := `{"name":"flt","description":"d","contributes":[
   {"kind":"env","vars":{"FLT_PACK_VAR":"from-flt"}}]}`
@@ -167,15 +168,17 @@ func TestHostEnvComposesAPackWhoseOnlyProblemIsAnExcludedFile(t *testing.T) {
 		}
 		filteredPackHome(t, manifest, reservedBriefing, filter, "")
 		var out, errw bytes.Buffer
-		if rc := hostMain([]string{"env", "--agent", "bash"}, &out, &errw, false, nil); rc != 0 {
-			t.Fatalf("filtered=%v: yolo host env rc=%d\n%s%s", filtered, rc, out.String(), errw.String())
-		}
+		rc := hostMain([]string{"env", "--agent", "bash"}, &out, &errw, false, nil)
 		has := strings.Contains(out.String(), "FLT_PACK_VAR")
 		if !filtered {
-			if has {
-				t.Fatalf("fixture control: an unexcluded reserved file must drop the pack:\n%s", out.String())
+			if rc == 0 || has || !strings.Contains(errw.String(), "flt") {
+				t.Fatalf("fixture control: an unexcluded reserved file must refuse the launch, "+
+					"naming the pack: rc=%d\n%s%s", rc, out.String(), errw.String())
 			}
 			continue
+		}
+		if rc != 0 {
+			t.Fatalf("yolo host env rc=%d\n%s%s", rc, out.String(), errw.String())
 		}
 		if !has {
 			t.Errorf("yolo host env dropped a pack whose only problem its entry excludes:\n%s%s",

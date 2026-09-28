@@ -175,111 +175,101 @@ func (o *Options) stagePacksInto(stagingRoot string, entries []config.PackEntry)
 	if problems := packload.EmbeddedProblems(); len(problems) > 0 {
 		return nil, nil, fmt.Errorf("official packs: %s", problems[0])
 	}
-	byName := map[string]*packload.Pack{}
-	for _, p := range packload.Embedded() {
-		byName[p.Name] = p
-	}
-
 	officialRoot := filepath.Join(stagingRoot, officialStagingDir)
-	var loaded []*packload.Pack
-	var configured []config.PackEntry
+	// EMBEDDED ENTRIES FIRST, then the configured ones, so a user pack can override a shipped
+	// one: later wins. That order is this caller's input to the one selection function, not a
+	// rule of it; which order every notch should follow is OQ-NC4's
+	// (docs/plans/notch-convergence.md row B2).
+	var ordered []config.PackEntry
+	for _, entry := range entries {
+		if entry.Embedded() {
+			ordered = append(ordered, entry)
+		}
+	}
 	for _, entry := range entries {
 		if !entry.Embedded() {
-			configured = append(configured, entry)
-			continue
+			ordered = append(ordered, entry)
 		}
-		// Through the one resolver, into _official/<name>: packstage's rules, and the entry's
-		// own `only`/`exclude` — which an embedded entry's used to be accepted and ignored.
-		selected, err := o.stagePackEntry(entry, filepath.Join(officialRoot, entry.Name))
-		if err != nil {
-			return nil, nil, err
-		}
-		loaded = append(loaded, selected)
 	}
 
+	// THE ONE SELECTION FUNCTION (config.SelectPacks, docs/plans/notch-convergence.md item 6),
+	// which every host verb, `yolo check`, config validation and the lazy loophole resolvers call
+	// too, so none of them can describe a narrower or wider pack set than this launch stages
+	// (WG-I11, row B1). This launch's inputs to it:
+	//
+	//   - STAGING. An embedded entry stages through the one resolver into _official/<name>:
+	//     packstage's rules, and the entry's own `only`/`exclude`, which an embedded entry's used
+	//     to be accepted and ignored. A configured entry stages straight into this launch's own
+	//     tree, which nothing binds yet: packstage's rules (no escaping symlink, the exec bit
+	//     carried) run on the way in, and no later launch writes here again.
+	//
+	//     NO HOST-ACCESS GATE. A configured pack's declarations — its host files, mounts,
+	//     installer URLs, host-prepended briefings, wrapped plugin hooks and shipped loopholes —
+	//     are honored whoever shipped it, because naming the pack in `packs` means editing
+	//     ~/.config/yolo-jail/config.jsonc as the host user, which already grants strictly more
+	//     than any gate here could withhold (OQ-TP9, docs/design/trust-paths.md, 2026-09-04).
+	//     What the user gets instead is DISCLOSURE: notePackHostAccess prints what each pack reads
+	//     at every launch, and startLoopholesDisclosed prints host EXECUTION before it happens.
+	//
+	//     THE LOCKFILE IS NOT READ HERE (OQ-TP9). Its one launch-time READ was the host-access
+	//     approval gate, which is deleted: a launch resolves a fetched pack from the local mirror
+	//     at the config's ref. The launch does WRITE it — RefreshConfiguredPacks, above config
+	//     validation in Run, records what each git pack resolved to — and `pack status` reads it.
+	//     Making resolution read the lock's COMMIT instead of the mirror's ref is worth doing, but
+	//     it is correctness-of-meaning, not a gate, and it is tracked as OQ-LP8.
+	//
+	//   - FAIL-CLOSED (A12): the first pack that cannot be staged, or a closure the selection
+	//     refuses, is the launch's error.
+	//
+	//   - THE CLOSURE'S TABLE is this launch's effective use_profiles (launchSelection: config
+	//     plus `-p`, a bare `-p` folded over every bin the set installs). The closure extends the
+	//     set with every pack a live `needs` entry pulls in, transitively, and with every service
+	//     pack a selected profile's `via` names, so the agent a via re-points at the service's
+	//     route finds a daemon there (docs/reference/wire-bridge.md §3.1, WB-D10; OQ-WG6/WG7 (c)).
+	//     It runs after every entry is staged, because a configured pack's bins can be what a
+	//     when_bins condition keys on (and a configured manifest can declare needs of its own),
+	//     and before every pre-flight below, because "this is where the pack set becomes
+	//     complete" has to mean complete: a closure-added pack is ordinary selection from here on
+	//     (§3.1 step 5), so the exclusivity checks must see it exactly as the launch delivers it.
+	//
+	//   - EVERY ADDITION PRINTS, before its staging (WB-D12: a pack nobody typed joining a launch
+	//     silently is the one forbidden behavior of the closure). Stderr, beside the other
+	//     launch-time disclosure lines.
+	//
+	//   - AN ADDITION STAGES through the _official path, as the entry a bare name lowers to: the
+	//     same resolver, with no filter to apply. An added pack is always EMBEDDED (needs and via
+	//     may name only the embedded official set; the closure refuses anything wider, WB-D9 and
+	//     WG-I7). Staging it rather than trusting the load is the mount-is-the-filter rule: the
+	//     entrypoint renders every pack under YOLO_PACK_ROOT, so an added pack whose tree never
+	//     lands is an added pack that does nothing.
+	sel, err := config.SelectPacks(ordered, config.PackSelectSpec{
+		Resolve: func(entry config.PackEntry) (*packload.Pack, error) {
+			if entry.Embedded() {
+				return o.stagePackEntry(entry, filepath.Join(officialRoot, entry.Name))
+			}
+			return o.stagePackEntry(entry, filepath.Join(stagingRoot, entry.Slug()))
+		},
+		FailFast:  true,
+		Selection: o.launchSelection(),
+		Announce: func(cause string) {
+			o.pr(o.Stderr).print("[dim]" + cause + "[/dim]")
+		},
+		Join: func(p *packload.Pack) (*packload.Pack, error) {
+			return o.stagePackEntry(config.EmbeddedPackEntry(p.Name), filepath.Join(officialRoot, p.Name))
+		},
+	})
+	if sel.ClosureErr != nil {
+		return nil, nil, fmt.Errorf("packs: %w", sel.ClosureErr)
+	}
+	if err != nil {
+		return nil, nil, err
+	}
+	loaded := sel.Packs()
 	var skillDirs []jailcontent.PackSkillSource
 	var briefings []jailcontent.PackBriefing
 	for _, p := range loaded {
 		skillDirs = append(skillDirs, o.packSkillSourceDirs(p)...)
 		briefings = append(briefings, o.packBriefingProses(p.Name, p)...)
-	}
-
-	// THE LOCKFILE IS NOT READ HERE (OQ-TP9, docs/design/trust-paths.md, 2026-09-04). Its
-	// one launch-time READ was the host-access approval gate, which is deleted: a launch
-	// resolves a fetched pack from the local mirror at the config's ref. The launch does
-	// WRITE it — RefreshConfiguredPacks, above config validation in Run, records what each
-	// git pack resolved to — and `pack status` reads it.
-	// Making resolution read the lock's COMMIT instead of the mirror's ref is worth doing —
-	// it is what a lockfile means everywhere else — but it is correctness-of-meaning, not a
-	// gate, and it is tracked as OQ-LP8 rather than smuggled back in here.
-	for _, entry := range configured {
-		// Straight into this launch's own tree, which nothing binds yet: packstage's rules
-		// (no escaping symlink, the exec bit carried) run on the way in, and no later launch
-		// writes here again.
-		//
-		// NO HOST-ACCESS GATE. A configured pack's declarations — its host files, mounts,
-		// installer URLs, host-prepended briefings, wrapped plugin hooks and shipped
-		// loopholes — are honored whoever shipped it, because naming the pack in `packs`
-		// means editing ~/.config/yolo-jail/config.jsonc as the host user, which already
-		// grants strictly more than any gate here could withhold (OQ-TP9,
-		// docs/design/trust-paths.md, 2026-09-04). What the user gets instead is
-		// DISCLOSURE: notePackHostAccess prints what each pack reads at every launch, and
-		// startLoopholesDisclosed prints host EXECUTION before it happens.
-		p, err := o.stagePackEntry(entry, filepath.Join(stagingRoot, entry.Slug()))
-		if err != nil {
-			return nil, nil, err
-		}
-		loaded = append(loaded, p)
-
-		skillDirs = append(skillDirs, o.packSkillSourceDirs(p)...)
-		briefings = append(briefings, o.packBriefingProses(entry.Name, p)...)
-	}
-	// THE SELECTION CLOSURE (docs/reference/wire-bridge.md §3.1, WB-D10; OQ-WG6/WG7 (c)):
-	// extend the selected set with every pack a live `needs` entry pulls in, transitively,
-	// and with every service pack a selected profile's `via` names, so the agent a via
-	// re-points at the service's route finds a daemon there. One resolver
-	// (packload.Selection.Close) that `yolo check`, config validation and `config promote`
-	// call too, so none of them can describe a narrower pack set than this launch stages
-	// (WG-I11).
-	//
-	// Here — after both staging loops, because a configured pack's bins can be
-	// what a when_bins condition keys on (and a configured manifest can declare
-	// needs of its own), and before every pre-flight below, because "this is where
-	// the pack set becomes complete" has to mean complete: a closure-added pack is
-	// ordinary selection from here on (§3.1 step 5), so the exclusivity checks
-	// must see it exactly as the launch will deliver it.
-	//
-	// The additions stage through the _official path — an added pack is always
-	// EMBEDDED (needs and via may name only the embedded official set; the closure
-	// refuses anything wider, WB-D9 and WG-I7). Staging
-	// here rather than trusting the load is the mount-is-the-filter rule: the
-	// entrypoint renders every pack under YOLO_PACK_ROOT, so an added pack whose
-	// tree never lands is an added pack that does nothing.
-	//
-	// EVERY addition prints, before its staging (WB-D12: a pack nobody typed
-	// joining a launch silently is the one forbidden behavior of the closure).
-	// Stderr, beside the other launch-time disclosure lines.
-	added, causes, err := o.launchSelection(func(name string) (*packload.Pack, bool) {
-		p, ok := byName[name]
-		return p, ok
-	}).Close(loaded)
-	if err != nil {
-		return nil, nil, fmt.Errorf("packs: %w", err)
-	}
-	for _, cause := range causes {
-		o.pr(o.Stderr).print("[dim]" + cause + "[/dim]")
-	}
-	for _, p := range added {
-		// An addition is an embedded pack no config line named, so it stages as the entry a
-		// bare name lowers to: the same resolver, with no filter to apply.
-		joined, err := o.stagePackEntry(config.EmbeddedPackEntry(p.Name),
-			filepath.Join(officialRoot, p.Name))
-		if err != nil {
-			return nil, nil, err
-		}
-		loaded = append(loaded, joined)
-		skillDirs = append(skillDirs, o.packSkillSourceDirs(joined)...)
-		briefings = append(briefings, o.packBriefingProses(joined.Name, joined)...)
 	}
 	// THERE USED TO BE A CONSENT PRE-FLIGHT HERE, ahead of the mechanical ones below: every
 	// claim a pack made that yolo understood and declined, folded into one fatal
@@ -768,7 +758,7 @@ func resolvePackLoopholeModules() []loopholes.PackModule {
 
 // resolveConfiguredPacks is the pack set the lazy resolvers read: every configured pack
 // that resolves OFFLINE, extended by the same selection closure stagePacks computes (the
-// `needs` and `via` halves, packload.Selection.Close — WG-I11), so a read-only surface
+// `needs` and `via` halves, through config.SelectPacks — WG-I11), so a read-only surface
 // describes the pack set the launch would deliver.
 //
 // THE CLOSURE IS NOT OPTIONAL, and its absence was measured: with `"packs": ["claude"]`,
@@ -786,45 +776,42 @@ func resolveConfiguredPacks() []*packload.Pack {
 	if err != nil {
 		return nil
 	}
-	var out []*packload.Pack
-	embedded := embeddedPacksByName()
-	for _, entry := range entries {
-		// THROUGH THE ONE RESOLVER (config.ResolvePackForProcess), because this set is READ FOR
-		// FILES and not only for declarations: a loophole module is a directory the loophole
-		// loader goes on to read. So an entry's `exclude` drops a loophole here exactly as it
-		// drops it from the launch's tree (a filtered entry is staged into this process's pack
-		// tree), and an unfiltered pack is read in place, where a host-scope daemon spawned from
-		// one of its modules can keep reading it after this process exits. A fetched pack's
-		// escaping symlink makes it contribute nothing, as it refuses the launch; a local pack's
-		// is followed, as this resolver did when it read every local pack in place and as the
-		// host verbs do (FollowLocalSymlinks, pending OQ-NC9).
-		//
-		// AN EMBEDDED PACK CAN SHIP A LOOPHOLE (the official `audio` pack, OQ-LP11, was the
-		// first). This branch used to skip embedded entries, and the omission was measured: with
-		// `packs: ["audio"]` selected, a `loopholes.audio-alsa.enabled` entry warned "no loophole
-		// named 'audio-alsa' is installed on this machine" at EVERY launch, and `yolo loopholes
-		// list` omitted it. Selection-gated here unlike the reservation lists, because this
-		// answers "what is active on this machine" rather than "what could any pack ever claim".
-		//
-		// nil getenv: these resolvers run behind read-only commands with no Options to thread
-		// one from, so the store reads the real environment — which is exactly right, since the
-		// staged tree it looks for is the one this process is running against. An unresolvable
-		// pack (never fetched, moved remote, offline) is not a deactivation signal: it
-		// contributes nothing.
-		res, err := config.ResolvePackForProcess(entry, config.ResolvePackSpec{FollowLocalSymlinks: true})
-		if err != nil || res.Pack == nil || len(res.Problems) > 0 {
-			continue
-		}
-		out = append(out, res.Pack)
-	}
-	added, _, err := config.UserScopeSelection(func(name string) (*packload.Pack, bool) {
-		p, ok := embedded[name]
-		return p, ok
-	}).Close(out)
-	if err != nil {
-		return out
-	}
-	return append(out, added...)
+	// The one selection function (config.SelectPacks, notch-convergence item 6), with the
+	// user-scope table: the closure the launch runs, over what resolves offline.
+	//
+	// THROUGH THE ONE RESOLVER (config.ResolvePackForProcess), because this set is READ FOR
+	// FILES and not only for declarations: a loophole module is a directory the loophole
+	// loader goes on to read. So an entry's `exclude` drops a loophole here exactly as it
+	// drops it from the launch's tree (a filtered entry is staged into this process's pack
+	// tree), and an unfiltered pack is read in place, where a host-scope daemon spawned from
+	// one of its modules can keep reading it after this process exits. A fetched pack's
+	// escaping symlink makes it contribute nothing, as it refuses the launch; a local pack's
+	// is followed, as this resolver did when it read every local pack in place and as the
+	// host verbs do (FollowLocalSymlinks, pending OQ-NC9).
+	//
+	// AN EMBEDDED PACK CAN SHIP A LOOPHOLE (the official `audio` pack, OQ-LP11, was the
+	// first). This branch used to skip embedded entries, and the omission was measured: with
+	// `packs: ["audio"]` selected, a `loopholes.audio-alsa.enabled` entry warned "no loophole
+	// named 'audio-alsa' is installed on this machine" at EVERY launch, and `yolo loopholes
+	// list` omitted it. Selection-gated here unlike the reservation lists, because this
+	// answers "what is active on this machine" rather than "what could any pack ever claim".
+	//
+	// nil getenv: these resolvers run behind read-only commands with no Options to thread
+	// one from, so the store reads the real environment — which is exactly right, since the
+	// staged tree it looks for is the one this process is running against. An unresolvable
+	// pack (never fetched, moved remote, offline) is not a deactivation signal: it
+	// contributes nothing.
+	sel, _ := config.SelectPacks(entries, config.PackSelectSpec{
+		Resolve: func(entry config.PackEntry) (*packload.Pack, error) {
+			res, err := config.ResolvePackForProcess(entry, config.ResolvePackSpec{FollowLocalSymlinks: true})
+			if err != nil || res.Pack == nil || len(res.Problems) > 0 {
+				return nil, nil // contributes nothing: see above
+			}
+			return res.Pack, nil
+		},
+		Selection: config.UserScopeSelection(),
+	})
+	return sel.Packs()
 }
 
 // embeddedPacksByName indexes the EMBEDDED packs by name, materialized out of the binary.
@@ -1070,13 +1057,14 @@ func packProviderNameConflicts(loaded []*packload.Pack) []string {
 // `-p`, a bare `-p` folded over every bin that set installs), and the user's profile
 // declarations. The config arrives through o.stagingCfg (WG-I9); an empty one computes the
 // same table a launch with no config would.
-func (o *Options) launchSelection(embedded func(name string) (*packload.Pack, bool)) packload.Selection {
+//
+// Embedded is left unset: config.SelectPacks fills it from the process's one materialization.
+func (o *Options) launchSelection() packload.Selection {
 	cfg := o.stagingCfg
 	if cfg == nil {
 		cfg = jsonx.NewOrderedMap()
 	}
 	return packload.Selection{
-		Embedded: embedded,
 		UseProfiles: func(set []*packload.Pack) map[string]string {
 			return packload.ProfileTable(o.effectiveUseProfiles(cfg, set))
 		},

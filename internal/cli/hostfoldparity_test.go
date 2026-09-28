@@ -96,10 +96,11 @@ func TestHostFoldMatchesTheJailFoldWinner(t *testing.T) {
 	t.Chdir(t.TempDir())
 	writeFoldParityPacks(t, home)
 
-	packs, _, err := loadedHostPacks()
-	if err != nil {
+	sel := loadedHostPacks("claude", "p")
+	if err := sel.launchRefusal(); err != nil {
 		t.Fatal(err)
 	}
+	packs := sel.packs
 	if len(packs) != 2 {
 		t.Fatalf("loadedHostPacks = %d packs, want the fixture's two; the fixture only means "+
 			"anything if both packs are in the delivery order the config declared", len(packs))
@@ -144,10 +145,11 @@ func TestHostFoldParityWithoutAProfile(t *testing.T) {
 	t.Chdir(t.TempDir())
 	writeFoldParityPacks(t, home)
 
-	packs, _, err := loadedHostPacks()
-	if err != nil {
+	sel := loadedHostPacks("pi", "")
+	if err := sel.launchRefusal(); err != nil {
 		t.Fatal(err)
 	}
+	packs := sel.packs
 	jail := packload.EnvVarsFor(packs, nil, "pi")
 	host := hostEnvMap(t, "pi", "")
 	if jail["CROSS"] != "beta-static" || host["CROSS"] != jail["CROSS"] {

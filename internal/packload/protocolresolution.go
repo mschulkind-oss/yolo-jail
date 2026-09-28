@@ -194,8 +194,8 @@ func neededByClause(neededBy string) string {
 	if neededBy == "" {
 		return ""
 	}
-	return fmt.Sprintf(", though pack %q's `needs` names it (`yolo host` adds no pack a `needs` "+
-		"entry names, and a jail launch adds one only while the need's `when_bins` holds)", neededBy)
+	return fmt.Sprintf(", though pack %q's `needs` names it (a launch adds a needed pack only "+
+		"while the need's `when_bins` holds)", neededBy)
 }
 
 // missingProvider is refuseUnspeakableProvider's answer when the composed table does not hold
@@ -207,9 +207,10 @@ func neededByClause(neededBy string) string {
 // the row as without it, and there is nothing silent to refuse. What counts as a reader
 // depends on the notch. The host (unserved non-nil) composes only the agent's environment,
 // so the reader is its pack's `yolo.env` producer. That excuses codex and pi on their `codex`
-// profile at the host, which applies no `needs` (ES-D24): neither registers a `yolo.env`,
-// and each reaches the subscription through the host's own managed OpenAI launch, keyed on
-// the command's name. A jail also renders each agent's config surfaces, whose derives read
+// profile at the host when nothing selects the provider's pack (a user pack named `codex` with
+// no `needs`, say): neither registers a `yolo.env`, and each reaches the subscription through
+// the host's own managed OpenAI launch. The shipped codex and pi packs `need` openai-auth, which
+// every notch now joins (notch-convergence item 6). A jail also renders each agent's config surfaces, whose derives read
 // the table: pi's, codex's and opencode's each write nothing for a provider the table lacks,
 // so a user-declared profile naming a provider no selected pack ships would start the agent
 // on its own default. At a jail a `yolo.derive` for the agent in any selected pack is a

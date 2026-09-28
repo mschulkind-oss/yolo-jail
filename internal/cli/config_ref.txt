@@ -717,8 +717,8 @@
       be resolved, or its       remedy (for a git pack, the fetch this launch already
       manifest has problems     tried; `yolo pack install` retries it; for a manifest,
                                 the problems, which `yolo pack lint` re-checks), and
-                                the agent launches on the render already in place:
-                                an incomplete pack set is never applied.
+                                REFUSES the launch: an incomplete pack set is never
+                                applied, and no launch runs on one, at any notch.
       an apply would ask        renders NOTHING, prints each question (a skills or
       something                 briefing adoption, a dropped pack's retire, a missing
                                 declared dependency) and `yolo host apply --assert`

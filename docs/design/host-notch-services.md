@@ -161,7 +161,10 @@ unconditionally.
    (`TestHostNeverTellsTheUserToListTheBridge`). The other host `-p codex` tests check the argv
    parse only (`TestHostArgumentsAcceptLeadingProfile`). The sibling branch keeps the host off
    the closure on purpose (ES-D24, [ledger](credential-sources-separation.md#10-decision-ledger)),
-   because applying it adds row 9's pointer.
+   because applying it adds row 9's pointer. **Closed 2026-09-28** by
+   [notch convergence item 6](../plans/notch-convergence.md#tier-2--one-selection-p1-p2) as
+   [HS-D1](#HS-D1) specifies: every host verb selects through the one selection function, closure
+   included, and row 9's pointer is withheld and named because its daemon does not run at the host.
 2. **The protocol gate is silent about a provider the table lacks.** At `1baf1fd4`,
    `refuseUnspeakableProvider` ([`protocolresolution.go`](../../internal/packload/protocolresolution.go))
    is *"TOTAL over the ways there is nothing to ask"*, *"a provider name the composed table does

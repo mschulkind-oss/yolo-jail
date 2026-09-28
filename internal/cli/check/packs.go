@@ -94,18 +94,13 @@ func (o *Options) sectionPacks(r *reporter, merged *jsonx.OrderedMap) {
 		configured[e.Name] = e.Source
 	}
 
-	// The loaded SELECTED set, accumulated as the loop below resolves each entry. It feeds
-	// the config-surface exclusivity check after the loop, which is the one footprint rule
-	// the Embedded()-only check at the bottom of this function cannot answer: a user's own
-	// pack declaring a surface a shipped pack owns is invisible to a check that only ever
-	// looks at what yolo ships, and that is the single most likely instance of the clash
+	// The loaded SELECTED set, resolved entry by entry below. It feeds the config-surface
+	// exclusivity check after the selection, which is the one footprint rule the
+	// Embedded()-only check at the bottom of this function cannot answer: a user's own pack
+	// declaring a surface a shipped pack owns is invisible to a check that only ever looks at
+	// what yolo ships, and that is the single most likely instance of the clash
 	// (docs/reference/pack-system.md R1).
-	var loaded []*packload.Pack
-	byName := map[string]*packload.Pack{}
-	for _, p := range packload.Embedded() {
-		byName[p.Name] = p
-	}
-
+	//
 	// One throwaway tree for the section, removed when it returns: every entry is staged into
 	// <tree>/<slug>, the shape the launcher stages (stagePacks writes <staging root>/<Slug>), so
 	// a loaded pack's Root basename is the staged slug here too. That basename is
@@ -114,78 +109,15 @@ func (o *Options) sectionPacks(r *reporter, merged *jsonx.OrderedMap) {
 	if treeErr == nil {
 		defer os.RemoveAll(tree)
 	}
-	for _, e := range entries {
-		if treeErr != nil {
-			r.fail(e.Name+": "+treeErr.Error(), "")
-			continue
-		}
-		// THE ONE RESOLVER, the launch's (config.ResolvePack): staged with the REAL executor, so
-		// the escaping-symlink refusal surfaces here instead of at boot, and loaded from the copy,
-		// so the declarations checked are the ones a jail would render — an embedded entry's
-		// `only`/`exclude` included. ReadOnlyStore: check writes nothing and reaches no network,
-		// and Resolve CHECKS OUT a commit whose tree is missing — which, in the partial
-		// (--filter=blob:none) mirror, fetches that commit's blobs from the remote. Getenv is
-		// threaded because resolution falls back to the DELIVERED tree under YOLO_PACK_ROOT when
-		// the address is not visible from here — a jail's inherited config names host paths, so
-		// that is every local pack, every time — and check's tests inject that environment.
-		res, err := config.ResolvePack(e, config.ResolvePackSpec{
-			Dest: filepath.Join(tree, e.Slug()), ReadOnlyStore: true, Getenv: o.getenv,
-		})
-		if err != nil {
-			o.reportUnresolvedPack(r, e, err)
-			continue
-		}
-		switch {
-		case e.Embedded():
-			// Reported PASSING rather than skipped silently: a user who wrote
-			// `packs: ["claude"]` should see it acknowledged here, not wonder whether the key
-			// took effect.
-			r.ok(e.Name + ": ships with yolo")
-		case res.StagedFrom != "":
-			// A SOURCE THAT IS NOT VISIBLE FROM HERE IS NOT A BROKEN PACK — Resolve already
-			// found the staged copy, and StagedFrom is how it says so. The ruling and the
-			// reason the predicate is filesystem-keyed rather than "am I in a jail" live with
-			// the fallback, in packsrc.Store.Resolve; this branch is only the REPORTING half,
-			// which is check's alone (the launcher stages the same tree silently).
-			r.ok(e.Name + ": staged at " + res.StagedFrom)
-			if addr, perr := packsrc.Parse(e.Source); perr == nil {
-				r.note("  source " + res0Path(addr, e.Source) + " is host-side and not visible from in here")
-			}
-		case len(res.Staged.Staged) == 0:
-			// Not a hard failure — a pack may legitimately be empty mid-authoring —
-			// but never silent, because it is nearly always a filter typo.
-			r.warn(e.Name+": stages 0 files", "check its only/exclude filters")
-			continue
-		default:
-			r.ok(fmt.Sprintf("%s: %d file(s) stage", e.Name, len(res.Staged.Staged)))
-		}
-		// There is nothing origin-dependent left to match: OQ-TP9 deleted the host-access gate,
-		// so `check` and the launch load a pack the same way.
-		for _, prob := range res.Problems {
-			r.fail(prob, "the launch refuses this pack until it is fixed")
-		}
-		if res.Pack != nil && len(res.Problems) == 0 {
-			loaded = append(loaded, res.Pack)
-		}
-	}
-
-	// Handed forward to the host-wrappers section BEFORE the needs closure, because that
-	// section predicts what `yolo host apply --assert` would generate and the host apply
-	// wraps the programs of the packs it resolves from config — it runs no needs closure.
-	// Including a needs-added pack's program here would be a "run apply" remedy apply
-	// cannot satisfy, repeated every run. (No needs-reachable pack installs a program
-	// today; this states which set is meant, for the day one does.)
-	o.selectedPacks = append([]*packload.Pack(nil), loaded...)
-	o.selectedPacksKnown = true
-
 	// The SELECTION CLOSURE (docs/reference/wire-bridge.md §3.1, WB-D10; the `via` half,
 	// docs/design/wire-bridge-gateway.md WG-I11), beside the pack list and before the
 	// exclusivity checks below, for the reason those checks give: the launch runs them
 	// over the COMPLETE set — the closure runs inside staging, before every pre-flight —
 	// so check running them over anything narrower could pass a config the launch
-	// refuses. It is the launch's own resolver (packload.Selection.Close); what differs is
-	// only the selection table, the merged config's `use_profiles` (the table the
-	// protocol-pairing prediction reads, and it cannot see `-p` either). A closure refusal
+	// refuses. It is the launch's own selection function (config.SelectPacks); what differs is
+	// how an entry resolves (staged here, each entry reported as it resolves) and the
+	// selection table, the merged config's `use_profiles` (the table the protocol-pairing
+	// prediction reads, and it cannot see `-p` either). A closure refusal
 	// (a need or a via naming a pack outside the embedded official set, a via naming a
 	// pack that serves no via route, a needs cycle) is a FAIL here, not a warning, for the
 	// same reason: `yolo check` passing on a config that cannot start a jail is the one
@@ -201,24 +133,84 @@ func (o *Options) sectionPacks(r *reporter, merged *jsonx.OrderedMap) {
 	userProfiles := sync.OnceValues(func() (map[string]packload.UserProfile, error) {
 		return config.LoadProfiles(r.configWarn)
 	})
-	added, causes, err := packload.Selection{
-		Embedded: func(name string) (*packload.Pack, bool) {
-			p, ok := byName[name]
-			return p, ok
+	sel, _ := config.SelectPacks(entries, config.PackSelectSpec{
+		Resolve: func(e config.PackEntry) (*packload.Pack, error) {
+			if treeErr != nil {
+				r.fail(e.Name+": "+treeErr.Error(), "")
+				return nil, nil
+			}
+			// THE ONE RESOLVER, the launch's (config.ResolvePack): staged with the REAL executor, so
+			// the escaping-symlink refusal surfaces here instead of at boot, and loaded from the copy,
+			// so the declarations checked are the ones a jail would render — an embedded entry's
+			// `only`/`exclude` included. ReadOnlyStore: check writes nothing and reaches no network,
+			// and Resolve CHECKS OUT a commit whose tree is missing — which, in the partial
+			// (--filter=blob:none) mirror, fetches that commit's blobs from the remote. Getenv is
+			// threaded because resolution falls back to the DELIVERED tree under YOLO_PACK_ROOT when
+			// the address is not visible from here — a jail's inherited config names host paths, so
+			// that is every local pack, every time — and check's tests inject that environment.
+			res, err := config.ResolvePack(e, config.ResolvePackSpec{
+				Dest: filepath.Join(tree, e.Slug()), ReadOnlyStore: true, Getenv: o.getenv,
+			})
+			if err != nil {
+				o.reportUnresolvedPack(r, e, err)
+				return nil, nil
+			}
+			switch {
+			case e.Embedded():
+				// Reported PASSING rather than skipped silently: a user who wrote
+				// `packs: ["claude"]` should see it acknowledged here, not wonder whether the key
+				// took effect.
+				r.ok(e.Name + ": ships with yolo")
+			case res.StagedFrom != "":
+				// A SOURCE THAT IS NOT VISIBLE FROM HERE IS NOT A BROKEN PACK — Resolve already
+				// found the staged copy, and StagedFrom is how it says so. The ruling and the
+				// reason the predicate is filesystem-keyed rather than "am I in a jail" live with
+				// the fallback, in packsrc.Store.Resolve; this branch is only the REPORTING half,
+				// which is check's alone (the launcher stages the same tree silently).
+				r.ok(e.Name + ": staged at " + res.StagedFrom)
+				if addr, perr := packsrc.Parse(e.Source); perr == nil {
+					r.note("  source " + res0Path(addr, e.Source) + " is host-side and not visible from in here")
+				}
+			case len(res.Staged.Staged) == 0:
+				// Not a hard failure — a pack may legitimately be empty mid-authoring —
+				// but never silent, because it is nearly always a filter typo.
+				r.warn(e.Name+": stages 0 files", "check its only/exclude filters")
+				return nil, nil
+			default:
+				r.ok(fmt.Sprintf("%s: %d file(s) stage", e.Name, len(res.Staged.Staged)))
+			}
+			// There is nothing origin-dependent left to match: OQ-TP9 deleted the host-access gate,
+			// so `check` and the launch load a pack the same way.
+			for _, prob := range res.Problems {
+				r.fail(prob, "the launch refuses this pack until it is fixed")
+			}
+			if res.Pack != nil && len(res.Problems) == 0 {
+				return res.Pack, nil
+			}
+			return nil, nil
 		},
-		UseProfiles: func([]*packload.Pack) map[string]string {
-			return packload.ProfileTable(subMap(merged, "use_profiles"))
+		Selection: packload.Selection{
+			UseProfiles: func([]*packload.Pack) map[string]string {
+				return packload.ProfileTable(subMap(merged, "use_profiles"))
+			},
+			UserProfiles: userProfiles,
 		},
-		UserProfiles: userProfiles,
-	}.Close(loaded)
-	if err != nil {
-		r.fail("Pack selection: "+err.Error(), "")
+	})
+
+	loaded := sel.Configured
+	if sel.ClosureErr != nil {
+		r.fail("Pack selection: "+sel.ClosureErr.Error(), "")
 	} else {
-		loaded = append(loaded, added...)
-		for _, cause := range causes {
+		loaded = sel.Packs()
+		for _, cause := range sel.Causes {
 			r.dim(cause)
 		}
 	}
+	// Handed forward to the host-wrappers section, which predicts what `yolo host apply
+	// --assert` would generate: the host apply wraps the programs of the packs the same selection
+	// function hands it, the closure's additions included (notch-convergence item 6).
+	o.selectedPacks = append([]*packload.Pack(nil), loaded...)
+	o.selectedPacksKnown = true
 
 	// Config-surface exclusivity over the SELECTED set — the check that would otherwise be
 	// learned at launch. FATAL here for the same reason the footprint collision below is: the

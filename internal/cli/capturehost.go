@@ -11,7 +11,6 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/capture"
 	"github.com/mschulkind-oss/yolo-jail/internal/cli/run"
-	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/macosuser"
@@ -229,23 +228,20 @@ type captureTarget struct {
 // HonoredInstalls refuses nothing today and the refusals this function would attach to its
 // error are always empty. The plumbing that would attach them is still here.
 func resolveCaptureTarget(bin string) (*captureTarget, error) {
-	entries, err := config.LoadPacks(nil)
-	if err != nil {
-		return nil, err
+	// The one selection function (selectHostPacks, notch-convergence item 6), so a pack the
+	// selection closure joins is searched as a launch would deliver it.
+	sel := selectConfiguredHostPacks()
+	if sel.loadErr != nil {
+		return nil, sel.loadErr
 	}
 	var refusals, npmBins []string
-	var unresolved []unresolvedPack
-	for _, e := range entries {
-		p, rerr := resolveConfiguredPack(e)
-		if rerr != nil {
-			// A git pack the pack store does not have (never `yolo pack install`ed), a local
-			// one whose directory is gone, or one whose manifest has problems (NS-D14: no
-			// installer is captured from a manifest every launch refuses). Named with the
-			// reason rather than skipped: "no pack declares <bin>" would be a lie about a
-			// config that may well declare it.
-			unresolved = append(unresolved, newUnresolvedPack(e, rerr))
-			continue
-		}
+	// A git pack the pack store does not have (never `yolo pack install`ed), a local one whose
+	// directory is gone, one whose manifest has problems (NS-D14: no installer is captured from a
+	// manifest every launch refuses), a malformed entry or a refused closure. Named with the
+	// reason rather than skipped: "no pack declares <bin>" would be a lie about a config that may
+	// well declare it.
+	unresolved := sel.problems()
+	for _, p := range sel.packs {
 		granted, refused := p.HonoredInstalls()
 		refusals = append(refusals, refused...)
 		for _, in := range granted {

@@ -769,10 +769,14 @@ listeners. These are the facts that survive:
   What stays open is where a host bridge listens and how long it lives. The code has no jail dependencies, which
   is what keeps the door open for a host notch to run the same subcommand. <a id="at-the-host-notch"></a>**Until then `yolo host` composes none of
   its addresses** (2026-09-27, [ES-D18](../design/credential-sources-separation.md#10-decision-ledger)).
-  A user can still select the pack there, by listing `wire-bridge` in `packs`, because the host
-  notch applies no pack's `needs`
-  ([ES-D24](../design/credential-sources-separation.md#10-decision-ledger), measured: applying
-  them would add aws-auth's jail-only credential address to `yolo host -p bedrock -- claude`). The host composes its provider table with
+  The pack joins a host launch the way it joins a jail's: through a selected pack's `needs`
+  (claude's names it unconditionally) or a line in `packs`, since every host verb selects
+  through the one selection function
+  ([notch convergence item 6](../plans/notch-convergence.md#tier-2--one-selection-p1-p2)). That
+  revises [ES-D24](../design/credential-sources-separation.md#10-decision-ledger), which kept the
+  host off `needs` because it would add aws-auth's jail-only credential address to
+  `yolo host -p bedrock -- claude`; that address is now withheld and named where its daemon does
+  not run. The host composes its provider table with
   nothing served (`packload.ComposeProvidersAt` with `packload.NothingServed()`, the composition
   every notch calls): an adaptation whose own pack serves it with a `service` contributes no
   address, since nothing at the host listens on it. The via address is cleared the same way, by

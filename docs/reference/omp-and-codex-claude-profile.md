@@ -60,8 +60,10 @@ is selected; the bridge is selection-lazy, so it listens only when this profile
 is active. The extra packs are therefore present but healthy and idle on ordinary
 Claude launches. A jail on this profile also ensures the machine's OpenAI login
 before claude starts ([ES-D28](../design/credential-sources-separation.md#10-decision-ledger)).
-`yolo host` applies no `needs`, and refuses this profile for claude, since no host
-process serves the bridge ([`wire-bridge.md`](wire-bridge.md#at-the-host-notch)).
+`yolo host` adds the same packs, through the one selection function every notch
+calls ([notch convergence item 6](../plans/notch-convergence.md#tier-2--one-selection-p1-p2)),
+and refuses this profile for claude, since no host process serves the bridge
+([`wire-bridge.md`](wire-bridge.md#at-the-host-notch)).
 
 The OpenAI credential service remains the sole refresh-token owner. The bridge
 asks it for a new access-token view for each request, keeps that token in memory,

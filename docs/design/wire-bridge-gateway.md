@@ -362,7 +362,10 @@ the mechanism choices its build made, each the one answer that made the ruled be
    client. `ctx.via_url` is only ever read by file derives, which the host notch does not feed
    from `YOLO_PROFILES`. **Amended 2026-09-26 by [WG-I12](#WG-I12):** the service pack is present
    at the host when a user lists `wire-bridge` in `packs`, so the host now clears every via
-   address instead.
+   address instead. **Revised 2026-09-28 by
+   [notch-convergence item 6](../plans/notch-convergence.md#tier-2--one-selection-p1-p2):** the host
+   runs both closures through the one selection function every notch calls, so a selected pack's
+   `needs` joins the service pack there too; WG-I12's clearing is what keeps via inert.
 9. <a id="WG-I9"></a>**[WG-I9](#WG-I9)** — `stagePacks` reads the launch's config through a
    field on the run options (`stagingCfg`) rather than a new parameter, so its many test call
    sites stand; an empty config computes the same `use_profiles` defaults a launch would.
