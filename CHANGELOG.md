@@ -306,6 +306,9 @@ apply it, and the launch says that too. See
   apply on your own machine, and ended an `--assert` by explaining what `--assert` means. It now
   lists only what changed, what failed and what it replaced; puts the settings that do not apply
   on one line; and ends on its verdict. `--verbose` still lists everything.
+- On a Mac with the official Nix installer, `yolo check` reported `Nix daemon: connection failed`
+  and stopped, although Nix worked. It now turns on the Nix commands it needs for its own checks,
+  so you no longer have to enable them in your Nix config first.
 
 ### Security
 

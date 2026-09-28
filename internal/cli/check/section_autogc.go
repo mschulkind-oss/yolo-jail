@@ -26,8 +26,7 @@ func (o *Options) sectionAutoGC(r *reporter) {
 	if _, hasNix := o.LookPath("nix"); !hasNix {
 		return // no nix → the Nix section already failed; nothing to add here
 	}
-	res := o.Exec([]string{"nix", "--extra-experimental-features", "nix-command flakes",
-		"config", "show"}, "", nil, 10*time.Second)
+	res := o.Exec(nixCmdArgv("config", "show"), "", nil, 10*time.Second)
 	if !res.Ran || res.Timeout || res.RC != 0 {
 		return // couldn't read the daemon config — stay silent rather than guess
 	}

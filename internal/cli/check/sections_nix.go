@@ -53,12 +53,31 @@ func nixDryRunArgv() []string {
 		"--impure", "--dry-run")
 }
 
+// nixCmdArgv returns `nix <sub…>` for a nix subcommand that does NOT evaluate
+// the flake — `nix store info`, `nix config show` — with the experimental
+// features those subcommands live behind turned on for this one invocation.
+//
+// Every `nix <subcommand>` is gated behind the `nix-command` feature, and the
+// official installer (unlike Determinate's) leaves it OFF. Without the flag such
+// a host answers with "experimental Nix feature 'nix-command' is disabled" and
+// rc 1, which the daemon check read as "Nix daemon: connection failed" — a false
+// [FAIL] that stopped `yolo check` on a working Mac. `flakes` rides along so the
+// spelling matches every other nix invocation in the repo (image.NixFlakeFlags)
+// and a nix.conf naming flake settings does not add warnings to the output.
+//
+// It deliberately omits image.NixFlakeFlags' --accept-flake-config: these
+// commands are handed no flake ref, so there is no flake config to accept.
+// `nix --version` needs neither and does not come through here.
+func nixCmdArgv(sub ...string) []string {
+	return append([]string{"nix", "--extra-experimental-features", "nix-command flakes"}, sub...)
+}
+
 // hasLinuxBuilder reports whether a usable builder for THIS host's Linux system is
 // reachable per `nix config show` + @/etc/nix/machines. The system comes from
 // containerbuilder.BuilderSystem() — the same source the builder advertises with — so
 // the probe and the thing it probes can't disagree about which arch is wanted.
 func (o *Options) hasLinuxBuilder() bool {
-	res := o.Exec([]string{"nix", "config", "show"}, "", nil, 10*time.Second)
+	res := o.Exec(nixCmdArgv("config", "show"), "", nil, 10*time.Second)
 	cfg := ""
 	if res.Ran && !res.Timeout && res.RC == 0 {
 		cfg = res.Stdout

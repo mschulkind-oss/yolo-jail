@@ -2,6 +2,7 @@ package check
 
 import (
 	"bytes"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -19,16 +20,10 @@ func TestExtraPlatformsRemedyNamesThisHostsSystem(t *testing.T) {
 	o := &Options{
 		Stdout:      &out,
 		IsTTYStdout: func() bool { return false },
-		Exec: func(argv []string, _ string, _ []string, _ time.Duration) ExecResult {
-			if strings.Join(argv, " ") == "nix config show" {
-				return ExecResult{Ran: true, RC: 0, Stdout: "extra-platforms = x86_64-linux aarch64-linux\n"}
-			}
-			return ExecResult{Ran: false}
-		},
 	}
 	fillDefaults(o)
 	o.Exec = func(argv []string, _ string, _ []string, _ time.Duration) ExecResult {
-		if strings.Join(argv, " ") == "nix config show" {
+		if slices.Equal(argv, nixCmdArgv("config", "show")) {
 			return ExecResult{Ran: true, RC: 0, Stdout: "extra-platforms = x86_64-linux aarch64-linux\n"}
 		}
 		return ExecResult{Ran: false}
@@ -40,5 +35,92 @@ func TestExtraPlatformsRemedyNamesThisHostsSystem(t *testing.T) {
 	if !strings.Contains(out.String(), "Remove '"+want+"'") {
 		t.Errorf("the remedy must name THIS host's linux double (%q), or it asks the user to "+
 			"delete a line they do not have:\n%s", want, out.String())
+	}
+}
+
+// enablesNixCommand reports whether argv turns the `nix-command` experimental
+// feature on for itself.
+func enablesNixCommand(argv []string) bool {
+	i := slices.Index(argv, "--extra-experimental-features")
+	return i >= 0 && i+1 < len(argv) && slices.Contains(strings.Fields(argv[i+1]), "nix-command")
+}
+
+// officialInstallerNix is an Exec seam behaving like the nix the OFFICIAL
+// installer leaves on a Mac: `nix-command` is off, so any `nix <subcommand>`
+// that does not turn it on for itself fails with rc 1 and nix's own refusal,
+// while `nix --version` (no subcommand) still works. seen records every argv.
+func officialInstallerNix(seen *[][]string) func([]string, string, []string, time.Duration) ExecResult {
+	return func(argv []string, _ string, _ []string, _ time.Duration) ExecResult {
+		*seen = append(*seen, argv)
+		if len(argv) == 0 || argv[0] != "nix" {
+			return ExecResult{Ran: false}
+		}
+		if slices.Equal(argv, []string{"nix", "--version"}) {
+			return ExecResult{Ran: true, RC: 0, Stdout: "nix (Nix) 2.31.2\n"}
+		}
+		if !enablesNixCommand(argv) {
+			return ExecResult{Ran: true, RC: 1,
+				Stderr: "error: experimental Nix feature 'nix-command' is disabled; " +
+					"add '--extra-experimental-features nix-command' to enable it\n"}
+		}
+		switch {
+		case slices.Contains(argv, "store") && slices.Contains(argv, "info"):
+			return ExecResult{Ran: true, RC: 0,
+				Stdout: "Store URL: daemon\nVersion: 2.31.2\nTrusted: 1\n"}
+		case slices.Contains(argv, "config") && slices.Contains(argv, "show"):
+			return ExecResult{Ran: true, RC: 0, Stdout: "min-free = 1073741824\n"}
+		}
+		return ExecResult{Ran: false}
+	}
+}
+
+// TestNixSectionsWorkWithNixCommandOff: on a Mac with the official Nix
+// installer, where the `nix-command` feature is OFF by default, the Nix section
+// reported "Nix daemon: connection failed" — a false [FAIL] that stopped `yolo
+// check` on a working machine — because `nix store info` and `nix config show`
+// ran without enabling the feature they live behind.
+//
+// It drives the SECTIONS (sectionNix on macOS, which reaches the daemon check,
+// the extra-platforms probe and hasLinuxBuilder; and sectionAutoGC) through a
+// fake nix that refuses any subcommand missing the flag, so reverting any one
+// call site to a bare `nix store info` / `nix config show` fails it, as a FAIL
+// or as a recorded argv without the flag.
+func TestNixSectionsWorkWithNixCommandOff(t *testing.T) {
+	var out bytes.Buffer
+	var seen [][]string
+	o := &Options{IsMacOS: true, Stdout: &out, IsTTYStdout: func() bool { return false }}
+	fillDefaults(o)
+	o.LookPath = func(name string) (string, bool) { return "/usr/local/bin/" + name, name == "nix" }
+	o.Exec = officialInstallerNix(&seen)
+	r := newReporter(&out, false)
+	o.sectionNix(r)
+	o.sectionAutoGC(r)
+
+	if r.failed != 0 {
+		t.Errorf("a working nix with nix-command off must not FAIL; got %d:\n%s", r.failed, out.String())
+	}
+	if !strings.Contains(out.String(), "Nix daemon: connected, user is trusted") {
+		t.Errorf("the daemon check did not reach its PASS line:\n%s", out.String())
+	}
+	var storeInfo, configShow int
+	for _, argv := range seen {
+		if slices.Equal(argv, []string{"nix", "--version"}) {
+			continue
+		}
+		if !enablesNixCommand(argv) {
+			t.Errorf("nix subcommand run without enabling nix-command: %v", argv)
+		}
+		if slices.Contains(argv, "store") {
+			storeInfo++
+		}
+		if slices.Contains(argv, "config") {
+			configShow++
+		}
+	}
+	// Non-vacuous: the daemon check ran once, and `nix config show` ran for the
+	// extra-platforms probe, hasLinuxBuilder, and the auto-GC section.
+	if storeInfo != 1 || configShow != 3 {
+		t.Errorf("expected 1 `store info` and 3 `config show` probes, got %d and %d: %v",
+			storeInfo, configShow, seen)
 	}
 }

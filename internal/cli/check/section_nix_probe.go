@@ -35,7 +35,7 @@ func (o *Options) sectionNix(r *reporter) {
 
 // nixDaemonStoreCheck runs the `nix store info` daemon-connectivity block.
 func (o *Options) nixDaemonStoreCheck(r *reporter) {
-	res := o.Exec([]string{"nix", "store", "info"}, "", nil, 15*time.Second)
+	res := o.Exec(nixCmdArgv("store", "info"), "", nil, 15*time.Second)
 	if res.Timeout {
 		label, ok := storage.DetectNixDaemonLabel()
 		kickstart := "sudo launchctl kickstart -k system/<label>" +
@@ -86,7 +86,7 @@ func (o *Options) nixDaemonStoreCheck(r *reporter) {
 // nixExtraPlatformsAndBuilder runs the `nix config show` extra-platforms
 // warning + positive builder-present line.
 func (o *Options) nixExtraPlatformsAndBuilder(r *reporter) {
-	res := o.Exec([]string{"nix", "config", "show"}, "", nil, 10*time.Second)
+	res := o.Exec(nixCmdArgv("config", "show"), "", nil, 10*time.Second)
 	if res.Ran && !res.Timeout && res.RC == 0 {
 		for _, line := range strings.Split(res.Stdout, "\n") {
 			if strings.HasPrefix(line, "extra-platforms =") && strings.Contains(line, "linux") {
