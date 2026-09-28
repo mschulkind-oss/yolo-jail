@@ -359,7 +359,7 @@ never `yolo` alone.
 point yolo at the clone with `export YOLO_REPO_ROOT=/path/to/yolo-jail`, in your shell profile to keep
 it. Running `yolo` from inside the clone is not enough on its own. On a Mac with Podman, a clone named
 this way is also refused unless the Podman Machine was created sharing `/nix`; see
-[the live-checkout rule](guides/macos.md#the-same-rule-now-decides-whether-a-live-checkout-can-launch-at-all).
+[the live-checkout rule](guides/macos.md#running-a-live-checkout-on-podman).
 
 ## Step 4: First launch
 
