@@ -34,7 +34,7 @@ where a hand-added provider survives today.
 **Start at [§3](#3-why-the-computed-layer-is-jail-only--the-stated-reasons-and-which-hold)**, the
 reasons. Everything else falls out of which of them hold.
 
-**Needs your ruling:** [OQ-HC1](#OQ-HC1), then [OQ-HC2](#OQ-HC2) and [OQ-HC3](#OQ-HC3).
+**Rulings (2026-09-28, in review):** [OQ-HC1](#OQ-HC1), host parity with the same handling: the host runs the jail's derives over host-composed inputs; [OQ-HC2](#OQ-HC2) and [OQ-HC3](#OQ-HC3) follow from it, as leaned. Nothing here awaits a ruling; the build is the remaining work.
 
 **Reads with:** [`model-lists-and-pickers.md`](model-lists-and-pickers.md#OQ-ML3) (the ruling that
 asked for this doc), [`host-render-target.md`](host-render-target.md#33-what-each-target-supplies)
@@ -478,7 +478,7 @@ install and the classifier belong to
 
 ## 11. Open questions
 
-1. 💬 <a id="OQ-HC1"></a>**[OQ-HC1](#OQ-HC1): Does the host notch run derives for content, and at
+1. ✅ <a id="OQ-HC1"></a>**[OQ-HC1](#OQ-HC1): Does the host notch run derives for content, and at
    what grain?** This is the question [OQ-ML3](model-lists-and-pickers.md#OQ-ML3)'s ruling left for
    a doc of its own: *"basically option 1, but then make sure there's a design doc about the host
    option left."* It decides whether host pi gets yolo's `openai-codex` list, whether any host agent
@@ -486,9 +486,7 @@ install and the classifier belong to
    [§5](#5-the-options): **A**, keep ML-D8; **B1**, per registration; **B2**, per key; **B3**, every
    derive with a notch.
 
-   <!-- vantage: oq id=OQ-HC1 leaning="B1: a derive registration declares its surface host-derivable, and host apply runs only those derives over inputs composed at user scope (the ES-D18-stripped provider table, your own mcp_servers checked per agent with no presets and no pack mcp declaration, lsp_servers as written, no selection unless OQ-HC3), landing per key: in-full tables wholesale, other objects as leaves, tombstones dropped. It fails closed for an unaudited pack, and A expires when the assert retirement is built." -->
-
-   _Leaning:_ **B1.** The inputs, not the derives, were the obstacle, and B1 fixes the inputs while
+      _Leaning:_ **B1.** The inputs, not the derives, were the obstacle, and B1 fixes the inputs while
    failing closed for a pack nobody audited. Its output lands per key ([HC-D10](#HC-D10)), so no
    derive removes a key of yours. Its cost: a registration option; host apply composing the
    provider table; a per-key write the host's `rmw` arm does not have today; catalogs that become
@@ -496,9 +494,19 @@ install and the classifier belong to
    and host pi's picker losing pi-ai's GPT-5.x ids.
 
    **Answer:**
-   > _(empty — fill in when decided)_
+   > **Ruled in review 2026-09-28:** *"yes of course host apply and the auto one in a wrapper
+   > should generate this content. we're trying for host parity with the same handling."* The
+   > host runs the SAME derives the jail runs, through the same handling: `yolo host apply`, and
+   > the automatic apply a wrapper launch does (`host_apply_on_launch`), render every derived
+   > surface's computed layer over inputs composed at user scope ([§6.2](#62-the-host-inputs)).
+   > That is none of the options as written: not B1, because a surface does not opt in, so the
+   > handling is the jail's; not B3, because derives do not branch on the notch. The obstacle was
+   > the inputs, not the derives ([§3](#3-why-the-computed-layer-is-jail-only--the-stated-reasons-and-which-hold)),
+   > so the per-notch difference lives where the inputs are composed. B3's fail-open objection,
+   > a derive that spells a jail path, is answered by composing host inputs and by checking the
+   > host output for a jail path, an implementation decision for the build to ledger.
 
-2. 💬 <a id="OQ-HC2"></a>**[OQ-HC2](#OQ-HC2): Under `host_management: own`, does a `computed`
+2. ✅ <a id="OQ-HC2"></a>**[OQ-HC2](#OQ-HC2): Under `host_management: own`, does a `computed`
    surface render through `stateful`, or stay refused?** `render.HostOwnedModes` refuses it on
    [OQ-CO9](config-ownership-and-promotion.md#13-decision-ledger)'s reasoning, "until a real
    example argues otherwise", and that ruling itself covers only keyless surfaces. The real
@@ -509,9 +517,7 @@ install and the classifier belong to
    [§4.5](config-ownership-and-promotion.md#45-retiring-assert--the-two-value-key)'s obligations
    say that refusal "need[s] new text, not deletion", which assumes it stays.
 
-   <!-- vantage: oq id=OQ-HC2 leaning="Render through stateful. Capture-then-regenerate is exactly the adoption path the refusal says computed lacks, so the first owned render adopts the file instead of replacing it; and the retirement ruling's reason, one promote away from managed configs, cannot hold for a file own refuses." -->
-
-   _Leaning:_ **Through `stateful`.** Capture-then-regenerate is the adoption path the refusal says
+      _Leaning:_ **Through `stateful`.** Capture-then-regenerate is the adoption path the refusal says
    is missing, so the first owned render adopts the file rather than replacing it; and the
    retirement's reason, *"a single promote away from having their configs managed correctly"*,
    cannot hold for a file `own` refuses. Its cost: those files are composed whole, with a capture
@@ -519,18 +525,19 @@ install and the classifier belong to
    UNMEASURED.
 
    **Answer:**
-   > _(empty — fill in when decided)_
+   > **Ruled 2026-09-28, as leaned, by [OQ-HC1](#OQ-HC1)'s parity ruling:** under `own` a
+   > `computed` surface renders through `stateful`, the first owned render adopting the file
+   > rather than replacing it. Without it those files would have no host path once `assert`
+   > retires, which parity rules out.
 
-3. 💬 <a id="OQ-HC3"></a>**[OQ-HC3](#OQ-HC3): Does host apply render the variant `use_profiles`
+3. ✅ <a id="OQ-HC3"></a>**[OQ-HC3](#OQ-HC3): Does host apply render the variant `use_profiles`
    selects?** It selects none today, by a code comment and no ruling. `yolo host --` does honor
    `use_profiles`, but only for the environment, so for pi, which reads no yolo environment, the
    setting does nothing at the host ([§8.1](#81-measured) item 4). It decides whether a direct or
    IDE launch of pi starts on your chosen provider and model. It matters only if
    [OQ-HC1](#OQ-HC1) is not A, since the selection keys come from derives.
 
-   <!-- vantage: oq id=OQ-HC3 leaning="Yes, use_profiles only, never -p, with the jail's edge-triggered selection rule: yolo writes the selection when the chosen profile changes and clears only what it wrote (OQ-PSW2), so pi's own later /model choice stands." -->
-
-   _Leaning:_ **Yes, `use_profiles` only**, with the jail's edge-triggered rule: yolo writes the
+      _Leaning:_ **Yes, `use_profiles` only**, with the jail's edge-triggered rule: yolo writes the
    selection when the chosen profile changes, and the per-key deselect rule
    ([OQ-PSW2](../reference/providers.md#oq-psw2)) clears only what it wrote, so your own later
    `/model` pick stands. Its cost: a per-home selection record beside the provenance record, and
@@ -538,13 +545,19 @@ install and the classifier belong to
    `use_profiles` as not applied, so it stops doing nothing silently.
 
    **Answer:**
-   > _(empty — fill in when decided)_
+   > **Ruled 2026-09-28, as leaned, by [OQ-HC1](#OQ-HC1)'s parity ruling:** host apply writes
+   > the selection `use_profiles` picks, with the jail's own edge-triggered rule: yolo writes it
+   > when the chosen profile changes and clears only what it wrote
+   > ([OQ-PSW2](../reference/providers.md#oq-psw2)), so your own later `/model` pick stands.
 
 ## 12. Decision Ledger
 
 | ID | Ruling / Decision | Date | Settled in | Built |
 | :--- | :--- | :--- | :--- | :--- |
 | OQ-ML3 | *Inherited from [`model-lists-and-pickers.md`](model-lists-and-pickers.md#OQ-ML3).* **A, for now: `yolo host apply` renders no `openai-codex` list.** *"basically option 1, but then make sure there's a design doc about the host option left."* This doc is that design, and [OQ-HC1](#OQ-HC1) is the question it left | 2026-09-27 | [model-lists OQ-ML3](model-lists-and-pickers.md#OQ-ML3) | ✅ [ML-D8](model-lists-and-pickers.md#ML-D8) |
+| OQ-HC1 | **Maintainer ruling:** *"yes of course host apply and the auto one in a wrapper should generate this content. we're trying for host parity with the same handling."* The host runs the jail's derives over user-scope inputs, in host apply and in the wrapper's automatic apply; no per-surface opt-in and no notch branch. Supersedes [OQ-ML3](model-lists-and-pickers.md#OQ-ML3)'s "for now" A at the host | 2026-09-28 | [§11](#11-open-questions) | pending |
+| OQ-HC2 | **Maintainer ruling**, as leaned, by [OQ-HC1](#OQ-HC1)'s parity: under `own` a `computed` surface renders through `stateful`, adopting the file on the first owned render | 2026-09-28 | [§11](#11-open-questions) | pending |
+| OQ-HC3 | **Maintainer ruling**, as leaned, by [OQ-HC1](#OQ-HC1)'s parity: host apply writes the `use_profiles` selection with the jail's edge-triggered rule | 2026-09-28 | [§11](#11-open-questions) | pending |
 | <a id="HC-D1"></a>HC-D1 | *Implementation decision.* **`pi/models` declares `"defaults": {"providers": {}}`.** pi 0.87.1 rejects a `models.json` without `providers`, and both a host apply into a fresh home and a pi-only jail wrote `{}` before it ([§8.1](#81-measured) item 1). With the default, both render `{"providers": {}}`, and the `-short` suites of `internal/entrypoint`, `internal/cli`, `internal/packload` and `packs` still pass (MEASURED by the research pass in a scratch copy). A derive's rows replace it, since the catalog is declared in full; under `rmw` a default fills only an absent key, so an existing host file keeps its own `providers`. A regression test asserts the rendered file has an object-valued `providers` at both notches | 2026-09-27 | [§7](#7-fixes-that-do-not-wait-for-a-ruling) | ✅ `e273e4e1`; kept through `--revert` since `90c16cb6` ([HC-D12](#HC-D12)) |
 | <a id="HC-D2"></a>HC-D2 | *Implementation decision.* **Host apply's MCP remedy names a `config-overlay` per surface,** for example in the local pack, because that is the only declaration that reaches a host MCP table today ([§4](#4-what-the-empty-layer-costs) item 2). Once a host-derivable surface consumes `mcp_servers`, the remedy names `mcp_servers` for that surface again | 2026-09-27 | [§7](#7-fixes-that-do-not-wait-for-a-ruling) | ✅ `2055a268`; the example and keys from the tables that lost entries since `d4c7f0d9`; the user guide and the remedy contract since `2fa54eec` |
 | <a id="HC-D3"></a>HC-D3 | *Implementation decision.* **`config-ref`'s host-notch `provider` line says host-rendered files carry provider facts** and render without them because host apply composes no provider table; it changes again with [OQ-HC1](#OQ-HC1) | 2026-09-27 | [§7](#7-fixes-that-do-not-wait-for-a-ruling) | ✅ `5347bc19` |
