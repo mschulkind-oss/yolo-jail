@@ -37,6 +37,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/cli/run"
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	naming "github.com/mschulkind-oss/yolo-jail/internal/runtime"
 )
@@ -266,6 +267,11 @@ func warmJail() {
 	out, err := cmd.CombinedOutput()
 	elapsed := time.Since(start).Round(time.Second)
 	forceRemoveContainer(dir)
+	// Before the deferred RemoveAll: the launch's scratch remover logs into this workspace
+	// after yolo has exited (detachedwriters_test.go).
+	if werr := run.WaitForScratchRemovers(dir, detachedWriterWait); werr != nil {
+		degraded("warmup: %v", werr)
+	}
 
 	if err != nil {
 		degraded("warmup jail failed after %s (%v) — tests still run, but the first "+
@@ -705,6 +711,7 @@ func runCommand(t *testing.T, dir string, args []string, opts ...runOption) resu
 	ctx, cancel := context.WithTimeout(context.Background(), cfg.timeout)
 	defer cancel()
 
+	awaitDetachedWriters(t, dir)
 	cmd := exec.CommandContext(ctx, yoloBin, args...)
 	cmd.Dir = dir
 	cmd.Env = append(os.Environ(), "TERM=dumb")

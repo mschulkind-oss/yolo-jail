@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/cli/run"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
@@ -324,6 +325,11 @@ func hd10Launch(dir, script string, env []string) <-chan hd10Result {
 		cmd.Stdout, cmd.Stderr = &stdout, &stderr
 		err := cmd.Run()
 		r := hd10Result{stdout: stdout.String(), stderr: stderr.String()}
+		// No *testing.T on this goroutine, so the wait is inline (detachedwriters_test.go).
+		// A macos-user launch starts no scratch remover; this returns at once.
+		if werr := run.WaitForScratchRemovers(dir, detachedWriterWait); werr != nil {
+			r.stderr += "\n[HD10: " + werr.Error() + "]"
+		}
 		var ee *exec.ExitError
 		switch {
 		case err == nil:
