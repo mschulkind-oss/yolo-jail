@@ -81,6 +81,9 @@
         {
           "agent": "pi",
           "codec": "json",
+          "defaults": {
+            "providers": {}
+          },
           "mode": "computed",
           "name": "models",
           "path": "~/.pi/agent/models.json"

@@ -138,6 +138,9 @@ apply it, and the launch says that too. See
 - The models you scoped inside pi were reset to yolo's list at every launch.
 - Every pi launch printed `Failed to load theme "system"`.
 - With the kilo pack and no profile naming a kilo model, pi rejected its whole `models.json`.
+- Host pi printed `models.json error` at every start once `yolo host apply --assert` had created
+  its `~/.pi/agent/models.json`, which it wrote empty. The next `yolo host apply --assert`
+  repairs a file an earlier one left that way.
 - Claude's LSP plugins that you enabled on the host were off in the jail unless `lsp_servers`
   named their language.
 - Codex could not renew its ChatGPT sign-in through the `openai-auth` pack.

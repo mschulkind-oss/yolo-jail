@@ -383,6 +383,11 @@ local function codexDefault(list, profile)
   return list[1] and list[1].id
 end
 
+-- models: the catalog. Returning {} writes no row and leaves the surface's declared default,
+-- `{"providers": {}}` (packs/pi/pack.json; docs/design/host-computed-layer.md HC-D1), because
+-- pi 0.87.1's ModelsConfigSchema requires `providers` and reports a file without it as a
+-- "models.json error" at every start. A pi-only jail reaches this with a non-empty table:
+-- openai-codex is its only provider and is never catalogued, below.
 yolo.derive("pi", "models", function(ctx)
   if not ctx.providers or next(ctx.providers) == nil then
     return {}
