@@ -233,17 +233,18 @@ func neededByClause(neededBy string) string {
 // the selected provider. It refuses, naming why, in every case but one.
 //
 // THE ONE EXCUSE: a shipped pack this launch did not select declares the provider, the
-// pairing resolves with that declaration composed in, and the agent's pack runs no env
-// producer for it (readsProviderTable). Then the provider's row has no reader in this
-// agent's launch environment, so the launch composes the same environment with the row as
-// without it, and there is nothing silent to refuse. That is codex and pi on their `codex`
+// pairing resolves with that declaration composed in, and nothing this notch runs for the
+// agent reads the table (readsProviderTable). Then the launch composes the same agent with
+// the row as without it, and there is nothing silent to refuse. What counts as a reader
+// depends on the notch. The host (unserved non-nil) composes only the agent's environment,
+// so the reader is its pack's `yolo.env` producer. That excuses codex and pi on their `codex`
 // profile at the host, which applies no `needs` (ES-D24): neither registers a `yolo.env`,
 // and each reaches the subscription through the host's own managed OpenAI launch, keyed on
-// the command's name. The surfaces a jail renders read the table too, but a jail launch
-// holds every provider a shipped pack's profile names, since each such pack ships the
-// provider or names its pack in an unconditional `needs`; so at a jail the excuse admits
-// only a third-party pack whose profile names a provider it neither ships nor needs.
-//
+// the command's name. A jail also renders each agent's config surfaces, whose derives read
+// the table: pi's, codex's and opencode's each write nothing for a provider the table lacks,
+// so a user-declared profile naming a provider no selected pack ships would start the agent
+// on its own default. At a jail a `yolo.derive` for the agent in any selected pack is a
+// reader too, and the excuse is left to an agent nothing derives for at all.
 // Otherwise, with such a pack found, the gate is asked again with its declaration composed
 // the way this notch composes (WithoutServiceAdaptations where unserved is non-nil, which is
 // the notch that runs no pack service). An *UnservedAdapterError from that is returned
@@ -277,7 +278,7 @@ func missingProvider(packs []*Pack, owner *Pack, agent, profile, selected string
 	}
 	predicted := refuseUnspeakableProvider(with, owner, agent, profile, selected, table, unserved)
 	if predicted == nil {
-		if readsProviderTable(owner, agent) {
+		if readsProviderTable(packs, owner, agent, unserved == nil) {
 			return e
 		}
 		return nil
@@ -315,20 +316,37 @@ func packNeeding(packs []*Pack, target string) string {
 	return ""
 }
 
-// readsProviderTable reports whether owner's derive.lua registers a `yolo.env` producer for
-// agent: the one reader of the provider table in an agent's launch environment (AgentEnv). A
-// script whose registrations cannot be read counts as a reader, so missingProvider refuses
-// rather than excuses.
-func readsProviderTable(owner *Pack, agent string) bool {
-	script := DeriveScript(owner)
-	if script == "" {
+// readsProviderTable reports whether anything the notch runs for agent reads the provider
+// table: owner's `yolo.env` producer for it (AgentEnv), and, when surfaces is set (a jail,
+// which renders config surfaces), a `yolo.derive` for it in any of packs. A script whose
+// registrations cannot be read counts as a reader, so missingProvider refuses rather than
+// excuses.
+func readsProviderTable(packs []*Pack, owner *Pack, agent string, surfaces bool) bool {
+	if script := DeriveScript(owner); script != "" {
+		agents, err := (luahook.GopherLuaVM{}).EnvRegistrations(script)
+		if err != nil || slices.Contains(agents, agent) {
+			return true
+		}
+	}
+	if !surfaces {
 		return false
 	}
-	agents, err := (luahook.GopherLuaVM{}).EnvRegistrations(script)
-	if err != nil {
-		return true
+	for _, p := range packs {
+		script := DeriveScript(p)
+		if script == "" {
+			continue
+		}
+		regs, err := (luahook.GopherLuaVM{}).DeriveRegistrations(script)
+		if err != nil {
+			return true
+		}
+		for _, r := range regs {
+			if r.Agent == agent {
+				return true
+			}
+		}
 	}
-	return slices.Contains(agents, agent)
+	return false
 }
 
 // WithAdapterAddresses supplies the user's adapter address overrides, keyed by AdapterKey

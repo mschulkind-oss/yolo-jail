@@ -123,14 +123,53 @@ func TestAClaudeCodexSelectionWithoutItsProviderRefuses(t *testing.T) {
 // composes them. Neither registers a `yolo.env` producer, so the row has no reader in their
 // launch environment and the launch composes what it would with the row present. Refusing
 // them would stop `yolo host -p codex -- pi` (and a `use_profiles` of it), which reaches the
-// subscription through the host's managed OpenAI launch.
+// subscription through the host's managed OpenAI launch. The host is the only notch it holds
+// at: see TestAJailRefusesAUserProfileWhoseProviderItLacks.
 func TestCodexAndPiWithoutTheirProviderStillCompose(t *testing.T) {
 	for _, agent := range []string{"codex", "pi"} {
-		for _, n := range notches {
-			if _, err := agentEnvAt(t, n, embeddedNamed(t, agent), nil, nil, agent, "codex"); err != nil {
-				t.Errorf("%s: %s on codex without openai-auth must compose as before: %v", n.name, agent, err)
-			}
+		if _, err := agentEnvAt(t, notches[1], embeddedNamed(t, agent), nil, nil, agent, "codex"); err != nil {
+			t.Errorf("host: %s on codex without openai-auth must compose as before: %v", agent, err)
 		}
+	}
+}
+
+// THE EXCUSE STOPS AT THE HOST. A jail renders each agent's config surfaces, and those derives
+// read the provider table: pi's settings derive, opencode's config derive and codex's config
+// derive each write nothing for a provider the table lacks. So a jail whose profile selects a
+// provider no selected pack ships would start the agent on its own default, the silent no-op
+// ES-D25 ends, however the agent's env producers look. Measured before the fix: a user-declared
+// `profiles.myz = {provider: "zai"}` selected for pi, codex or opencode with `"packs": ["<agent>"]`
+// passed `yolo check` and the jail in silence, while claude and copilot refused.
+func TestAJailRefusesAUserProfileWhoseProviderItLacks(t *testing.T) {
+	user := map[string]UserProfile{"myz": {Provider: "zai"}}
+	for _, agent := range []string{"pi", "codex", "opencode"} {
+		_, err := agentEnvAt(t, notches[0], embeddedNamed(t, agent), nil, user, agent, "myz")
+		var mp *MissingProviderError
+		if !errors.As(err, &mp) || mp.Shipper != "zai" || mp.Then != nil {
+			t.Fatalf("jail/%s: err = %v, want the missing provider naming zai to add", agent, err)
+		}
+		if !strings.Contains(err.Error(), "Add \"zai\" to `packs` and this profile resolves") {
+			t.Errorf("jail/%s: the refusal must name the pack whose addition resolves it:\n%v", agent, err)
+		}
+		// With the pack selected the jail composes, so the refusal was about the row alone.
+		if _, err := agentEnvAt(t, notches[0], embeddedNamed(t, agent, "zai"), nil, user, agent, "myz"); err != nil {
+			t.Errorf("jail/%s: with zai selected the selection resolves: %v", agent, err)
+		}
+	}
+	// `yolo check` predicts the jail through PairingRefusals, so it reports the same refusal.
+	pi := embeddedNamed(t, "pi")
+	providers, err := ComposeProviders(nil, pi)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := ResolveProfiles(pi, user, providers)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var mp *MissingProviderError
+	if errs := PairingRefusals(pi, providers, resolved, map[string]string{"pi": "myz"}); len(errs) != 1 ||
+		!errors.As(errs[0], &mp) {
+		t.Fatalf("PairingRefusals = %v, want the one missing-provider refusal", errs)
 	}
 }
 
@@ -160,6 +199,39 @@ yolo.env("respy", function(ctx) return { RESPY_URL = "x" } end)`), 0o644); err !
 	with := append([]*Pack{agent}, embeddedNamed(t, "openai-auth")...)
 	if _, err := agentEnvAt(t, notches[1], with, nil, user, "respy", "sub"); err != nil {
 		t.Errorf("with openai-auth selected the selection resolves: %v", err)
+	}
+}
+
+// What reads the table is the notch's question. A third-party agent whose pack only DERIVES a
+// config surface for it (no `yolo.env`) refuses at a jail, which renders that surface, and is
+// excused at the host, which renders none. One its pack derives nothing for at all is excused
+// at both: no surface and no environment reads the row, so the launch is the same without it.
+func TestAJailCountsASurfaceDeriveAsAReader(t *testing.T) {
+	user := map[string]UserProfile{"sub": {Provider: "openai-codex"}}
+	mk := func(script string) *Pack {
+		root := t.TempDir()
+		if script != "" {
+			if err := os.WriteFile(filepath.Join(root, "derive.lua"), []byte(script), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return &Pack{Name: "respy", Root: root, Decl: declFrom(t, `{"contributes":[
+		  {"kind":"program","bin":"respy","via":"npm","package":"r","protocols":["openai-responses"]}]}`)}
+	}
+	deriving := mk(`yolo.derive("respy", "config", function(ctx) return {} end)`)
+	_, err := agentEnvAt(t, notches[0], []*Pack{deriving}, nil, user, "respy", "sub")
+	var mp *MissingProviderError
+	if !errors.As(err, &mp) || mp.Shipper != "openai-auth" {
+		t.Fatalf("jail: a surface derive reads the table, so err = %v must be the missing provider", err)
+	}
+	if _, err := agentEnvAt(t, notches[1], []*Pack{deriving}, nil, user, "respy", "sub"); err != nil {
+		t.Errorf("host: no surface is rendered here, so nothing reads the row: %v", err)
+	}
+	bare := mk("")
+	for _, n := range notches {
+		if _, err := agentEnvAt(t, n, []*Pack{bare}, nil, user, "respy", "sub"); err != nil {
+			t.Errorf("%s: nothing derives for respy, so nothing reads the row: %v", n.name, err)
+		}
 	}
 }
 
