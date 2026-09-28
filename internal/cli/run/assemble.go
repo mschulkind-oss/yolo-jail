@@ -67,6 +67,10 @@ type assembleInput struct {
 	// source; every construction that leaves it empty is a test.
 	jailPrefix jailPrefix
 	agentsPath string // AGENTS_DIR/<cname> (briefings + skills staging)
+	// scratchID is this launch's half of its scratch volumes' names (newScratchLaunchID,
+	// ScratchMountArgs). INPUT because the teardown must remove exactly the volumes the
+	// argv mounted: runContainer mints it once and hands the same value to both.
+	scratchID string
 	// packStaging is this launch's own pack tree (packtree.go: one per launch under
 	// AGENTS_DIR/<cname>/pack-trees, never edited afterwards) — the staged packs the
 	// entrypoint renders from, so it sees the same declarations the host read. Delivered :ro
@@ -369,7 +373,7 @@ func (o *Options) assembleRunCmd(in *assembleInput) []string {
 		runCmd = podmanBaseMounts(rt, runFlags, o.Workspace, in, o.IsMacOS)
 		runCmd = append(runCmd, jailPrefixMountArgs(in.jailPrefix)...)
 		// Ephemeral scratch dirs.
-		runCmd = append(runCmd, ScratchMountArgs(cfgStr(cfg, "ephemeral_storage"))...)
+		runCmd = append(runCmd, ScratchMountArgs(cfgStr(cfg, "ephemeral_storage"), in.cname, in.scratchID)...)
 		// PACK-DECLARED writable dirs, backed per-workspace. Core does not know these
 		// belong to an "agent" — a pack asked for a writable dir and got one.
 		for _, dir := range packload.WritableDirs(in.packs) {

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/awsauthdaemon"
+	"github.com/mschulkind-oss/yolo-jail/internal/cli/run"
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/flakebundle"
@@ -34,7 +35,7 @@ import (
 // rewrite semantics.
 func runInternal(args []string) int {
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "usage: yolo internal <capture-materialize|capture-run|config-dump|daemon|darwin-bootstrap|footer|migrate-host|node-floor-satisfied|openai-auth|openai-auth-client|refresh-servers|bundle-dir> [args...]")
+		fmt.Fprintln(os.Stderr, "usage: yolo internal <capture-materialize|capture-run|config-dump|daemon|darwin-bootstrap|footer|migrate-host|node-floor-satisfied|openai-auth|openai-auth-client|refresh-servers|bundle-dir|scratch-rm> [args...]")
 		return 2
 	}
 	switch args[0] {
@@ -61,6 +62,11 @@ func runInternal(args []string) int {
 		return runCaptureRun(args[1:])
 	case "config-dump":
 		return runConfigDump(args[1:])
+	case run.ScratchRemoverVerb:
+		// The detached remover a podman launch starts after its jail exits, to delete the
+		// scratch volumes --rm no longer deletes in the client that held the terminal
+		// (internal/cli/run/scratchremoval.go). Hidden: its caller is the launcher.
+		return run.ScratchRemoverMain(args[1:])
 	case "daemon":
 		return runInternalDaemon(args[1:])
 	case "darwin-bootstrap":

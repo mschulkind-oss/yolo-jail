@@ -143,7 +143,11 @@ const (
 	SectionCache  = "shared cache"
 	SectionAlias  = "host caches this jail aliases"
 	SectionImages = "container image store"
-	SectionNix    = "yolo's own /nix/store outputs"
+	// SectionVolumes is the podman scratch volumes (internal/prune/scratchvolumes.go):
+	// every jail's /tmp, /var/tmp and nested container store, which are disk-backed and
+	// outlive the jail by as long as their deletion takes.
+	SectionVolumes = "container scratch volumes"
+	SectionNix     = "yolo's own /nix/store outputs"
 )
 
 // Inventory measures every store and returns the report. It never mutates
@@ -169,6 +173,7 @@ func Inventory(o Options) Report {
 	rep.Stores = append(rep.Stores, cacheRows...)
 	rep.Stores = append(rep.Stores, aliasStores(o)...)
 	rep.Stores = append(rep.Stores, imageStores(o, rt)...)
+	rep.Stores = append(rep.Stores, scratchStores(o, rt)...)
 	rep.Stores = append(rep.Stores, nixStores(o)...)
 	return rep
 }
@@ -573,6 +578,91 @@ func imageStores(o Options, rt string) []Store {
 	rows[0].Reason = "sum of per-image sizes; layers shared between images are counted in each"
 	rows[1].Reason = rows[0].Reason
 	rows[2].Reason = rows[0].Reason
+	return rows
+}
+
+// scratchStores inventories the podman scratch volumes in two rows: those a jail still
+// holds, and those of jails that are gone — the leftovers a remover never reached.
+//
+// Sized by walking each volume's mountpoint under ONE budget per row, so a row of four
+// nested container stores costs what one store's walk may. A rootless store's volumes
+// hold files owned by subordinate ids the host user cannot read, which the walk counts
+// as unreadable subtrees and reports as a lower bound; a mountpoint that is not on this
+// machine at all (podman's VM, on macOS) makes the row unknown rather than zero.
+func scratchStores(o Options, rt string) []Store {
+	mk := func(key, name string) Store {
+		return Store{Key: key, Section: SectionVolumes, Name: name, Path: rt + " volumes",
+			Verdict: VerdictYolo, CountLabel: "volumes"}
+	}
+	live := mk("volumes.scratch.live", "live jails' scratch")
+	live.Reclaimer = Reclaimer{Func: "RemoveScratchVolume", Detail: "once the jail exits",
+		Trigger: "the launcher's detached remover"}
+	live.Note = "each running jail's /tmp, /var/tmp and nested container store; deleted in the background once its jail exits"
+	gone := mk("volumes.scratch.gone", "gone jails' scratch")
+	gone.Reclaimer = Reclaimer{Func: "PruneScratchVolumes", Detail: "dangling, past a 1m floor",
+		Trigger: "every launch's housekeeping slot + yolo prune --apply"}
+	gone.Note = "left by a launcher that died before its remover started, or by a removal cut short"
+	rows := []Store{live, gone}
+	setAll := func(sizing Sizing, reason string) []Store {
+		for i := range rows {
+			rows[i].Sizing, rows[i].Reason, rows[i].CountLabel = sizing, reason, ""
+		}
+		return rows
+	}
+	if !slices.Contains(paths.SupportedRuntimes, rt) {
+		return setAll(SizingAbsent, "no container runtime on this notch")
+	}
+	if rt != "podman" {
+		return setAll(SizingAbsent, "this runtime's scratch dirs are tmpfs")
+	}
+	vols, known := prune.ListScratchVolumes(rt, o.Exec)
+	if !known {
+		return setAll(SizingUnknown, "could not list volumes ("+rt+" unreachable or refused)")
+	}
+	var cutoff time.Time
+	if o.Age {
+		cutoff = o.Now().Add(-time.Duration(o.AgeDays * 24 * float64(time.Hour)))
+	}
+	for i := range rows {
+		rows[i].Sizing = SizingMeasured
+		if o.Age {
+			rows[i].Dead = &Dead{OlderThanDays: o.AgeDays}
+		}
+	}
+	deadline := [2]time.Time{o.Now().Add(o.Budget), o.Now().Add(o.Budget)}
+	for _, v := range vols {
+		i := 0
+		if v.Dangling {
+			i = 1
+		}
+		r := &rows[i]
+		r.Count++
+		if r.Sizing == SizingUnknown {
+			continue
+		}
+		left := deadline[i].Sub(o.Now())
+		if left <= 0 {
+			r.Sizing, r.Reason = SizingPartial, fmt.Sprintf("walk budget %s exhausted", o.Budget)
+			continue
+		}
+		res, err := o.Walk(v.Mountpoint, cutoff, left, o.Now)
+		if err != nil {
+			r.Sizing, r.Reason = SizingUnknown, "a volume's mountpoint is not readable here ("+err.Error()+")"
+			continue
+		}
+		r.Bytes += res.Bytes
+		r.Files += res.Files
+		r.Unreadable += res.Unreadable
+		if r.Dead != nil {
+			r.Dead.Bytes += res.DeadBytes
+			r.Dead.Files += res.DeadFiles
+		}
+		if res.Partial {
+			r.Sizing, r.Reason = SizingPartial, fmt.Sprintf("walk budget %s exhausted", o.Budget)
+		} else if res.Unreadable > 0 && r.Sizing == SizingMeasured {
+			r.Sizing, r.Reason = SizingPartial, fmt.Sprintf("%d unreadable subtree(s)", r.Unreadable)
+		}
+	}
 	return rows
 }
 

@@ -5,31 +5,44 @@ package run
 // dereference.
 
 import (
+	"crypto/rand"
+	"encoding/hex"
+	"fmt"
 	"os"
 	"path/filepath"
+	"time"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/prune"
 )
 
 // ScratchMountArgs builds the mount args for the read-only-rootfs scratch dirs.
 // --read-only on the rootfs means /tmp, /var/tmp, /var/lib/containers,
 // /var/cache/containers, /run, /dev/shm all need explicit writable mounts.
-// mode selects the backing for the first four: "volume" (default; anonymous
-// podman volumes, disk-backed, --rm-wiped) or "tmpfs" (RAM-backed). /run and
-// /dev/shm are always tmpfs. Any non-"volume"/"tmpfs" value (including a
-// non-string, modeled here as "") falls back to "volume". Frozen contract (argv
-// order must not drift).
-func ScratchMountArgs(mode string) []string {
+// mode selects the backing for the first four: "volume" (default; disk-backed podman
+// volumes) or "tmpfs" (RAM-backed). /run and /dev/shm are always tmpfs. Any
+// non-"volume"/"tmpfs" value (including a non-string, modeled here as "") falls back to
+// "volume". Frozen contract (argv order must not drift).
+//
+// THE VOLUMES ARE NAMED, PER LAUNCH (ScratchVolumeNames), and must never go back to
+// anonymous `-v /tmp`. Under `podman run --rm` the attached client deletes a container's
+// ANONYMOUS volumes itself before it exits, one unlinkat per file the jail ever wrote,
+// with the user's terminal held for the whole of it: 32 s on the maintainer's host after
+// a 59 h session, the "Window A" linger (docs/reference/perf-logging.md#the-linger-was-the-scratch-volumes).
+// --rm leaves a named volume alone, and the launcher deletes it after the terminal is
+// back (startScratchRemoval).
+func ScratchMountArgs(mode, cname, launchID string) []string {
 	if mode != "volume" && mode != "tmpfs" {
 		mode = "volume"
 	}
 	if mode == "volume" {
-		return []string{
-			"-v", "/tmp",
-			"-v", "/var/tmp",
-			"-v", "/var/lib/containers",
-			"-v", "/var/cache/containers",
+		var args []string
+		for _, s := range prune.ScratchSlots {
+			args = append(args, "-v", prune.ScratchVolumeName(cname, launchID, s.Name)+":"+s.Dest)
+		}
+		return append(args,
 			"--tmpfs", "/run",
 			"--tmpfs", "/dev/shm:size=2g",
-		}
+		)
 	}
 	return []string{
 		"--tmpfs", "/tmp:exec,mode=1777",
@@ -39,6 +52,34 @@ func ScratchMountArgs(mode string) []string {
 		"--tmpfs", "/run",
 		"--tmpfs", "/dev/shm:size=2g",
 	}
+}
+
+// ScratchVolumeNames is the set of volumes ScratchMountArgs mounts for the same inputs:
+// the four names in volume mode, none in tmpfs mode. The launcher hands it to the
+// remover, so the argv and the removal read one definition.
+func ScratchVolumeNames(mode, cname, launchID string) []string {
+	if mode == "tmpfs" {
+		return nil
+	}
+	names := make([]string, 0, len(prune.ScratchSlots))
+	for _, s := range prune.ScratchSlots {
+		names = append(names, prune.ScratchVolumeName(cname, launchID, s.Name))
+	}
+	return names
+}
+
+// newScratchLaunchID is the per-launch half of a scratch volume's name: 16 hex digits,
+// fresh on every launch. Never derived from the workspace — a relaunch while the last
+// session's volumes are still being deleted would otherwise be handed them, since podman
+// silently reuses a named volume that exists.
+func newScratchLaunchID() string {
+	var b [8]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		// crypto/rand does not fail on a supported platform; the clock is the fallback so
+		// a launch never refuses over a name.
+		return fmt.Sprintf("%016x", time.Now().UnixNano())
+	}
+	return hex.EncodeToString(b[:])
 }
 
 // BindMountTargets returns the set of paths that are themselves bind mountpoints

@@ -309,9 +309,11 @@ The remaining mounts are grouped by what they are for, and none of them touch
 `/home/agent` except where noted. The authority for the set is `assembleRunCmd`; this is
 orientation, not an inventory.
 
-- **Scratch** — the rootfs is read-only, so writable scratch is explicit: anonymous volumes
+- **Scratch** — the rootfs is read-only, so writable scratch is explicit: podman volumes
   or tmpfs for `/tmp`, `/var/tmp` and the two container dirs, plus tmpfs `/run` and
-  `/dev/shm`. Selected by `ephemeral_storage`. Anonymous volumes die with the container.
+  `/dev/shm`. Selected by `ephemeral_storage`. The volumes are named per launch, and a
+  detached remover deletes them after the jail exits, so quitting does not wait for the
+  delete ([why](perf-logging.md#the-linger-was-the-scratch-volumes)).
 - **The in-jail CLI and its flake bundle** — two `:ro` mounts making up the same install
   prefix a host install has, `bin/` beside `share/yolo-jail/`, so the in-jail CLI finds its
   repo root exactly the way a host install does with no `YOLO_REPO_ROOT` set. The image

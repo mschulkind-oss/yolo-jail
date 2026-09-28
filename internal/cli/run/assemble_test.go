@@ -95,6 +95,9 @@ func goldenOptions(workspace, home string) *Options {
 	o.IsTTYStdout = func() bool { return false }
 	o.IsTTYStdin = func() bool { return false }
 	o.PerfLoggingConfig = func() bool { return false }
+	// No fixture spawns a detached process: fillDefaults' real starter would self-exec
+	// the test binary as the scratch remover.
+	o.StartDetached = func([]string) error { return errTestBinarySelfExec }
 	return o
 }
 
@@ -474,8 +477,14 @@ func podmanLinuxGolden(home string) []string {
 	// that stopped emitting it would show up before a container failed to start.
 	add("-v", "/host/prefix/bin/linux-test:/opt/yolo-jail/bin:ro",
 		"-v", "/host/prefix:/opt/yolo-jail/share/yolo-jail:ro")
-	// scratch mounts (volume mode default).
-	add("-v", "/tmp", "-v", "/var/tmp", "-v", "/var/lib/containers", "-v", "/var/cache/containers",
+	// scratch mounts (volume mode default): NAMED volumes, <cname>.scratch.<launch id>.<slot>,
+	// never anonymous `-v /tmp` (runmount.go says why). The fixture's assembleInput leaves
+	// scratchID empty, as every hand-built input does, so the id segment is empty here;
+	// TestScratchMountArgs pins the shape with a real id, and runContainer always mints one.
+	add("-v", "yolo-ws-abcd1234.scratch..tmp:/tmp",
+		"-v", "yolo-ws-abcd1234.scratch..var-tmp:/var/tmp",
+		"-v", "yolo-ws-abcd1234.scratch..var-lib-containers:/var/lib/containers",
+		"-v", "yolo-ws-abcd1234.scratch..var-cache-containers:/var/cache/containers",
 		"--tmpfs", "/run", "--tmpfs", "/dev/shm:size=2g")
 	// per-agent overlay dirs (claude → .claude).
 	add("-v", wsState+"/claude:/home/agent/.claude")

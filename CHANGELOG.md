@@ -128,6 +128,11 @@ apply it, and the launch says that too. See
 
 ### Fixed
 
+- Quitting a podman jail could hold your terminal for half a minute after a long session, while
+  podman deleted everything the jail had left in `/tmp` and its container dirs. You get the
+  prompt back as soon as the jail exits, and the files are deleted in the background.
+  `yolo stores` lists any a crash left behind, and the next launch or `yolo prune --apply`
+  removes them.
 - The Claude OAuth broker could return the token a jail already held, and Claude Code stopped
   with `api_request_oauth_refresh_exhausted`.
 - Claude on its `codex` profile showed `did not translate` in place of ChatGPT's own errors.

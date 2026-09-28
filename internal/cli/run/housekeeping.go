@@ -132,6 +132,7 @@ func (o *Options) runHousekeeping(rt string, reclaimConsent bool, cname string) 
 		o.reapSmallAutomaticClasses(rt, cname)
 		o.reapImageTars(rt)
 		o.reapFlakeBundleGenerations(rt)
+		o.reapScratchVolumes(rt)
 	})
 }
 

@@ -226,6 +226,18 @@ type Options struct {
 	// with extra env entries ("KEY=VALUE", appended to the parent env). nil =>
 	// real. Used for git identity, lsusb, runtime version/liveness probes.
 	Exec func(argv []string, dir string, env []string, timeout time.Duration) ExecResult
+	// StartDetached starts argv in its own session with stdio on /dev/null and returns
+	// without waiting for it — the scratch remover's spawn (scratchremoval.go), which has
+	// to outlive the launcher and must never hold its exit. nil => startDetached.
+	StartDetached func(argv []string) error
+	// scratchVolumes are the named scratch volumes THIS launch's argv mounts
+	// (ScratchVolumeNames), set by the fresh podman path just before assembly and handed
+	// to the remover by whichever teardown arm runs (startScratchRemoval). Empty on an
+	// attach, which mounts nothing, and in tmpfs mode.
+	scratchVolumes []string
+	// scratchRemovalOnce makes the two teardown arms one remover spawn. A pointer for
+	// perfReportOnce's reason: Options is copied by value.
+	scratchRemovalOnce *sync.Once
 
 	// acVersion memoizes the `container --version` probe for this launch. Unexported
 	// and nil-by-default so every hand-built Options in a test starts unprobed; see
@@ -663,6 +675,9 @@ func fillDefaults(o *Options) {
 	}
 	if o.Exec == nil {
 		o.Exec = realExec
+	}
+	if o.StartDetached == nil {
+		o.StartDetached = startDetached
 	}
 	if o.Stdout == nil {
 		o.Stdout = os.Stdout

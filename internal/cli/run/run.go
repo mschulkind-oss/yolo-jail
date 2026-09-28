@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
@@ -1357,10 +1358,19 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 	}
 
 	// --- Assemble the ordered argv ---
+	// THE SCRATCH VOLUMES' NAMES, minted once for this launch and read by both the argv and
+	// the teardown (scratchremoval.go), so the remover deletes exactly what was mounted.
+	// Podman only: Apple Container's scratch dirs are always tmpfs.
+	scratchID := newScratchLaunchID()
+	if rt != "container" { // parity: NotApplicable — Apple Container's scratch dirs are always tmpfs (appleContainerBaseMounts), so it has no volumes to name or remove
+		o.scratchVolumes = ScratchVolumeNames(cfgStr(cfg, "ephemeral_storage"), cname, scratchID)
+		o.scratchRemovalOnce = &sync.Once{}
+	}
 	in := &assembleInput{
 		cfg:              cfg,
 		rt:               rt,
 		cname:            cname,
+		scratchID:        scratchID,
 		imageRef:         loadedImage.Ref,
 		jailPrefix:       jailPrefix,
 		packs:            loadedPacks,
@@ -1574,6 +1584,9 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 		sp = o.Perf.Span("terminate.clear_tracking")
 		o.forgetGoneContainer(cname, rt, in.homeSkeleton)
 		sp.End()
+		// The scratch volumes, to the detached remover, which waits for the container the
+		// stop above is ending to let go of them. Before anything below that can hang.
+		o.startScratchRemoval(rt)
 		// E3, after stopJail so the jail is not still writing the surfaces we read.
 		sp = o.Perf.Span("terminate.capture_config")
 		o.captureConfigOnTerminate(rt)
@@ -1682,6 +1695,11 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 // span below fails TestTeardownChainEmitsShutdownSpans.
 func (o *Options) teardownAfterExit(socatProcs []*exec.Cmd, portSocketDir string,
 	hostServices []loopholeDaemon, socketsDir, cname, rt, skeleton string, rc int) {
+	// FIRST: the scratch volumes' deletion, started detached and never awaited
+	// (scratchremoval.go). The proxy has returned, so the child is reaped and the termios
+	// restored; this spawn is what moved a 32 s delete out of the client that held the
+	// terminal, and starting it first gives it the most head start on a relaunch.
+	o.startScratchRemoval(rt)
 	sp := o.Perf.Span("shutdown.cleanup_port_forwarding")
 	cleanupPortForwarding(socatProcs, portSocketDir)
 	sp.End()

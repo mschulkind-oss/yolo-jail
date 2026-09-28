@@ -59,6 +59,9 @@ type Report struct {
 	// auditable — and so does this.
 	RemovedContainers []string `json:"removed_containers"`
 	RemovedImages     []string `json:"removed_images"`
+	// RemovedScratchVolumes names the gone jails' scratch volumes removed (or that would
+	// be). No bytes: a volume's size is not measured (prunecmd.go says why).
+	RemovedScratchVolumes []string `json:"removed_scratch_volumes"`
 	// Declined is true when a sweep could not run and said so, which is also
 	// what makes prune exit 1 (OQ-LS2). It is the field to check before
 	// believing TotalBytes is the whole answer.

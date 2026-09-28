@@ -464,6 +464,42 @@ func Run(opts Options) int {
 		}
 	}
 
+	// --- Scratch volumes of gone jails ---
+	// A podman jail's /tmp, /var/tmp and container dirs are NAMED volumes, deleted by a
+	// detached remover after the jail exits (scratchvolumes.go). This section removes what
+	// that remover never reached: dangling and past the age floor. After the stopped
+	// containers, whose removal just above is what leaves a stopped jail's volumes
+	// dangling. Unmeasured bytes: a volume's size is a walk of a tree the host user often
+	// cannot read (a rootless store's subordinate ids), so the section names, not sizes.
+	var removedScratch []string
+	p.line("")
+	p.line("[bold]Scratch volumes of gone jails[/bold]")
+	if rt != "podman" {
+		p.line("  [dim]not applicable — this runtime's scratch dirs are tmpfs[/dim]")
+	} else {
+		removed, failed, known := PruneScratchVolumes(rt, apply, opts.Now(), opts.Exec)
+		removedScratch = removed
+		switch {
+		case !known:
+			p.line(fmt.Sprintf("  [dim]skipped — could not list %s volumes; declining to sweep[/dim]", rt))
+		case len(removed) == 0 && len(failed) == 0:
+			p.line("  [dim]none[/dim]")
+		default:
+			if len(removed) > 0 {
+				p.line(fmt.Sprintf("  %s: %d volume(s)", verb(apply, "would remove", "removed"), len(removed)))
+				for _, n := range removed {
+					p.line("    • " + n)
+				}
+			}
+			if len(failed) > 0 {
+				p.line(fmt.Sprintf("  [yellow]could not remove %d volume(s):[/yellow]", len(failed)))
+				for _, n := range failed {
+					p.line("    • " + n)
+				}
+			}
+		}
+	}
+
 	// --- Orphaned broker relays ---
 	p.line("")
 	p.line("[bold]Orphaned broker relays[/bold]")
@@ -1075,9 +1111,10 @@ func Run(opts Options) int {
 				{Name: "caches", Bytes: cacheBytes, Count: cacheFiles, Unit: "files"},
 				{Name: "agent_logs", Bytes: agentLogBytes, Count: agentLogFiles, Unit: "files"},
 			},
-			RemovedContainers: nonNil(removedContainers),
-			RemovedImages:     nonNil(removedImages),
-			Declined:          declinedSweep,
+			RemovedContainers:     nonNil(removedContainers),
+			RemovedImages:         nonNil(removedImages),
+			RemovedScratchVolumes: nonNil(removedScratch),
+			Declined:              declinedSweep,
 		})
 	}
 	// The summary above still prints, because what DID get reclaimed is real and

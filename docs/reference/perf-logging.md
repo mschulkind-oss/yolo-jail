@@ -306,7 +306,8 @@ flowchart TD
     linger --> exited["child.exited (mark)"]
     exited --> drain["proxy drains the pty master<br/>child.drain_done (mark)"]
     drain --> termios["cooked termios restored<br/>child.termios_restored (mark)"]
-    termios --> ports["shutdown.cleanup_port_forwarding<br/>(per socat: SIGTERM, short wait, SIGKILL; serial)"]
+    termios --> scratch["the scratch volumes' remover started, detached, never awaited<br/>shutdown.scratch_volumes.rm_started (mark)"]
+    scratch --> ports["shutdown.cleanup_port_forwarding<br/>(per socat: SIGTERM, short wait, SIGKILL; serial)"]
     ports --> fronts["shutdown.stop_loopholes<br/>shutdown.stop_front.&lt;name&gt; per daemon<br/>(front close, then group SIGTERM, wait, SIGKILL; serial)"]
     fronts --> check["shutdown.container_check (mark)<br/>then the UNBOUNDED podman ps"]
     check --> capture["shutdown.capture_config"]
@@ -849,7 +850,7 @@ returns the native arm's result directly: nothing after it is spanned, no report
 prints, and the quiet line does not either. The proxy seam that arm uses carries a
 bare `Options` with no collector, deliberately, until the arm grows one.
 
-### The motivating symptom is narrowed to one arm, not yet attributed
+### The motivating symptom: narrowed to one arm, then attributed
 
 The post-exit wait that motivated this system is now **located** on the real
 host, and still **unpriced**. What the first real-host shutdown settled
@@ -886,8 +887,10 @@ a slow one names itself on stderr.
 [The split](#the-split-and-what-it-was-built-on) put 42 ms in podman's teardown
 and 12.6 s in the client after its container was removed. So the wait is the
 lingering client's. The probe exists so the next slow quit records *what the
-client was blocked in*, with no flag and no user action. The candidate causes,
-none established yet:
+client was blocked in*, with no flag and no user action. **The next slow quit did,
+on 2026-09-28, and the third candidate below was the cause**:
+[The linger was the scratch volumes](#the-linger-was-the-scratch-volumes). The
+candidates as they stood:
 
 - podman's client blocking on stdin (its attach copy) until a keystroke. The
   keystroke timing tests this directly.
@@ -963,6 +966,70 @@ stretch had never returned a number, for the reasons in the warning above. The
 111 ms is also the answer to "why are there two yolo lines and a pause between
 them": there is no pause between them. The pause is before both.
 
+### The linger was the scratch volumes
+
+**Attributed 2026-09-28**, from the probe's own samples on the maintainer's host
+(rootless podman 6.1.0 per the launch's `podman.facts` note, btrfs, a jail up 59
+hours). The quit took 32 s:
+
+| Event | Offset |
+| :--- | ---: |
+| `shutdown.window_a.exit_file_seen` — conmon's exit file | 0 |
+| podman's `remove` event | +0.04 s |
+| probe samples: one client thread `R unlinkat` or `D unlinkat [read_extent_buffer_pages]`, the rest parked | +1.0 s to +31.6 s |
+| `child.exited` | +31.97 s |
+
+The client was deleting files. A podman jail's rootfs is read-only, so `/tmp`,
+`/var/tmp`, `/var/lib/containers` and `/var/cache/containers` are writable mounts of
+their own: the **scratch volumes**, a term coined here for those four mounts in the
+default `ephemeral_storage: "volume"` mode. They were anonymous (`-v /tmp`), and
+`podman run --rm` makes the attached client delete a container's anonymous volumes
+itself, after the `remove` event and before it exits. That is one `unlinkat` per file
+the jail ever wrote there, and the nested podman store under `/var/lib/containers` is
+among them. The launcher waits on the client, and the shell waits on the launcher.
+
+**Reproduced** in a nested jail the same day, with bare `podman run` on the nested
+rootful podman rather than `yolo` itself (podman 5.8.6, the nested store on btrfs).
+200,000 empty files in an anonymous `/tmp` held the client 8.8 s past its container's
+exit; in a named volume, 0.2 s. Removing that named volume with
+`podman volume rm` afterwards took 6.2 s. The nested jail cannot price the maintainer's
+host, for the reasons under [What has been measured](#what-has-been-measured). It does
+establish the mechanism, and that the fix removes it.
+
+**The fix.** The scratch volumes are **named per launch** now, and `--rm` leaves named
+volumes alone. The client exits as soon as the container is removed. The teardown then
+starts one detached process that deletes them. It does not wait for that process, and
+marks `shutdown.scratch_volumes.rm_started`. The decisions:
+
+| | Decision | Why |
+| :--- | :--- | :--- |
+| SV-D1 | *Implementation decision.* A scratch volume is named `<cname>.scratch.<launch id>.<slot>`, where `<launch id>` is 16 random hex digits minted once per fresh launch, and `<slot>` is one of `tmp`, `var-tmp`, `var-lib-containers`, `var-cache-containers` | The name is the only ownership evidence, because `-v name:/tmp` creates the volume with no labels. It carries the container name so a human reading `podman volume ls` can tell whose it is. The id is per launch, never per workspace, because podman silently reuses a named volume that already exists: a relaunch while the last session's delete is still running would otherwise be handed that session's `/tmp`. A container name is `yolo-` plus `[a-z0-9-]`, so the dots make the parse exact |
+| SV-D2 | *Implementation decision.* The launcher deletes nothing itself. Both teardown arms start `yolo internal scratch-rm` in its own session, with stdio on `/dev/null`, and do not wait for it. On the normal arm this is the first step after the proxy returns, so it runs after `child.termios_restored` | Its own session, so closing the window does not SIGHUP it and the shell's job control never reaches it. Stdio on `/dev/null`, because an inherited stdout would hold open a pipe the launcher was writing to, and `yolo -- make \| tee log` would then wait on the remover. That would be the same linger by another route. A self-exec rather than a shell script, so the remover's logic is Go under unit tests |
+| SV-D3 | *Implementation decision.* The remover removes a volume only once podman's `dangling` filter says no container references it. It polls every 500 ms for up to a minute and never passes `--force` | `--force` also removes a container using the volume. On the normal arm the container is already gone, so the first listing answers. On the signal arm the stop is still running, and a minute covers `stop -t 5`. What is still in use after that is left for SV-D5, never forced |
+| SV-D4 | *Implementation decision.* Each volume is **emptied outside podman first**, then `podman volume rm`'d. The emptying runs `podman unshare rm -rf -- <mountpoint>` when rootless and a bare `rm -rf` when root. It runs only after a guard that the path is exactly `<root>/volumes/<name>/_data` | Measured on the nested podman: while `podman volume rm` deletes a 200,000-file volume, every `podman run` that mounts **any** volume blocks on a libpod lock until the delete finishes: 5.2 s for a `/bin/true`, where the same run with no volume took 0.44 s during the same kind of delete. Every jail mounts four volumes. So a plain background `volume rm` would only have moved the wait into the next launch, in this workspace or any other. Deleting the files outside podman blocked nothing (0.56 s for the same run), and the `volume rm` of the emptied volume took 0.08 s. `unshare` is needed because a rootless store holds files owned by subordinate ids the host user cannot delete, and rootful podman refuses it outright. On a remote client (macOS's podman machine) the emptying fails and `volume rm` does the whole job, slowly but correctly |
+| SV-D5 | *Implementation decision.* A reaper removes what no remover reached: dangling scratch volumes more than a minute old. It runs in every podman launch's housekeeping slot, starting the same detached remover, and in `yolo prune --apply` synchronously. It is tri-state: if either `podman volume ls` query does not answer, it reaps nothing | This covers a launcher SIGKILLed before its teardown, a host that went down mid-delete, and a `yolo prune` that removed a stopped jail. The minute of age covers the one window in which a live jail's volume is dangling: `podman run` creates the named volumes, then the container that references them. The reaper is not debounced like the slot's walking classes, because it is two listings and a leak can be a whole nested store. It honors `YOLO_NO_AUTO_IMAGE_REAP` as the slot's other reapers do |
+| SV-D6 | *Implementation decision.* `yolo stores` lists the scratch volumes as a section of their own, with a live-jails row and a gone-jails row, sized by walking each mountpoint under one budget per row. `yolo prune` names them but does not add their bytes to its total | A volume's size is not something podman reports without walking it. A rootless store's files are partly unreadable to the host user, so the walk is reported as a lower bound. A mountpoint inside podman's VM is reported as unknown, never zero |
+
+**What is unchanged.** The tmpfs mode mounts no volumes and starts no remover. An
+**attach** execs into the running jail, so it creates no volumes, and its exit removes
+none: the scratch volumes belong to the launch that created the container. **Two jails
+of one workspace** do not exist at once, because a second launch attaches. A relaunch
+after a quit gets a fresh launch id, so it never mounts the old volumes. Its
+housekeeping slot can find them dangling while the old remover is still deleting them,
+and start a second remover on them. The two race on each volume, and the loser's
+`volume rm` finds the volume gone, which counts as success. **Apple Container** has no scratch volumes: its scratch dirs are always tmpfs.
+**macos-user** starts no container at all.
+
+**What only a real host can confirm.** A nested jail's podman is rootful
+(`--userns=host`), so SV-D4's rootless arm, `podman unshare rm -rf`, is unexercised
+here. So is its cost on a rootless btrfs store, and whether podman 6.1.0 rootless
+takes the libpod lock SV-D4 avoids the way nested 5.8.6 rootful does. The confirmation is a quit on the
+maintainer's host with `perf_logging` on. `shutdown.window_a.client_exit` should be
+back under a second after a long session, `shutdown.scratch_volumes.rm_started` should
+follow `child.termios_restored`, and `<workspace>/.yolo/housekeeping.log` should gain a
+`scratch: removed 4 volume(s) in N.Ns` line. N is the delete that used to hold the
+terminal.
+
 ## Current values
 
 Verified at `16ef96cb`. The prose above says what each of these is for; this table
@@ -1000,6 +1067,10 @@ is the only place the exact values and spellings are stated.
 | Terminate-arm final sample budget | 200 ms | `run.finalSampleBudget` |
 | Forwarded-input notes (after the death only) | `child.input  bytes=<n>[ key=ctrl-c]`, at most 40; then `shutdown.window_a.input_to_exit` | `run.noteForwardedInput`, `run.maxInputNotes`, `run.recordInputGap` |
 | Suspend marks | `child.suspended`, `child.resumed` | `ttyproxy.StageSuspended`, `StageResumed` |
+| Scratch-volume marks (both teardown arms) | `shutdown.scratch_volumes.rm_started`, or `shutdown.scratch_volumes.rm_not_started` when the spawn failed | `run.startScratchRemoval` |
+| Scratch volume name | `<cname>.scratch.<16 hex>.<tmp\|var-tmp\|var-lib-containers\|var-cache-containers>` | `prune.ScratchVolumeName`, `prune.ScratchSlots`, `run.newScratchLaunchID` |
+| Scratch remover | `yolo internal scratch-rm --runtime <rt> --workspace <ws> --wait <d> -- <volume>…`; waits 1 min at exit, polls every 500 ms; one `scratch:` line in `<workspace>/.yolo/housekeeping.log` | `run.ScratchRemoverMain`, `run.scratchRemovalWait`, `run.scratchPollInterval` |
+| Scratch reaper age floor | 1 min | `prune.ScratchVolumeGrace` |
 | Lingering-client line | `yolo: podman stayed N.Ns after its container was removed, <dominant state>` (dim), when `client_exit` > the slow-span threshold | `run.noteLingeringClient` |
 | "Exited right after input" window | 250 ms | `run.quickExitAfterInput` |
 | podman facts note | `podman.facts  version=… database=… events=… rootless=… network=… cgroups=…` | `run.podmanFactsNote`, `run.hostLoopbackFactsFor` |
