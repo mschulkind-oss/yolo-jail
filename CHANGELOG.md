@@ -164,6 +164,9 @@ apply it, and the launch says that too. See
   told you to declare it under `mcp_servers`, which reaches jails and none of the files that
   command writes, so the server was dropped anyway. It now tells you to add a `config-overlay`
   for that agent's config to your local pack, which keeps it.
+- A jail start or `yolo host apply --assert` kept some of the MCP servers you had added to an
+  agent's own config, or LSP servers to Copilot's, while saying it dropped them all. Every one it
+  names is now dropped.
 - With `host_management: own`, `yolo host apply` warned that an MCP server you had added by hand
   to codex's or opencode's config would be dropped, when the apply kept it. The note at the top
   of `~/.codex/config.toml` also said the file was composed at jail start; it now names

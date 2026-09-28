@@ -25,6 +25,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"sort"
 	"strings"
 
@@ -1281,8 +1282,11 @@ func regenerateManagedTables(e *Env, surface manifest.Surface, obj *jsonx.Ordere
 		}
 		dest := setDefaultMap(obj, to)
 		noteDroppedManagedEntries(e, surface, to, dest, table)
-		// Clear the block and rewrite it from the derived layer, deterministically.
-		for _, existing := range dest.Keys() {
+		// Clear the block and rewrite it from the derived layer, deterministically. Over a
+		// COPY of the keys: Keys() is the map's own slice and Delete shifts it in place, so
+		// ranging over it directly steps over every other entry — with a, b, c in the file,
+		// b survived while the loss report named all three dropped.
+		for _, existing := range slices.Clone(dest.Keys()) {
 			dest.Delete(existing)
 		}
 		names := make([]string, 0, len(table))

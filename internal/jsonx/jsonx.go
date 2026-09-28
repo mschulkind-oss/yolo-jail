@@ -72,7 +72,9 @@ func (m *OrderedMap) Delete(key string) {
 	}
 }
 
-// Keys returns the keys in insertion order (do not mutate).
+// Keys returns the keys in insertion order (do not mutate). It is the map's own slice, and
+// Delete shifts it in place, so a loop that deletes while it ranges must range over a copy
+// (slices.Clone) or it steps over every other key.
 func (m *OrderedMap) Keys() []string { return m.keys }
 
 // Len returns the number of entries.
