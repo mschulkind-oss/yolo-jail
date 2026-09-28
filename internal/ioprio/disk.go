@@ -367,4 +367,4 @@ func DiskList(disks []Disk) string {
 }
 
 // IgnoresWhy is the one sentence both surfaces use for why a disk ignores the value.
-const IgnoresWhy = `kyber and none ignore I/O priority, and mq-deadline honors "idle" only; bfq honors both`
+const IgnoresWhy = `kyber and none ignore I/O priority; bfq honors "low" and "idle", mq-deadline only "idle"`

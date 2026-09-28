@@ -237,6 +237,9 @@ func Check(opts Options) int {
 	o.checkDiskUsage(r, merged)
 	r.blank()
 
+	// --- Disk I/O priority: the disk under the workspace (only when one is declared) ---
+	o.sectionIOPriority(r, merged, runtimeSel)
+
 	// --- Loopholes (config-inline daemons) ---
 	o.sectionInlineLoopholes(r, merged)
 
