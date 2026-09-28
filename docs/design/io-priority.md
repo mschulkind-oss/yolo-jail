@@ -3,16 +3,18 @@ title: "Yielding the disk: which kernel lever reaches a jail build's I/O, and on
 date: 2026-09-27
 status: in-review
 tags: [resources, io, cgroups, bfq, storage, latency, podman, performance]
-summary: "A jail build can saturate the host disk and stall the desktop. Process I/O priority is free to set and reaches every program the jail runs, but only their reads and synchronous writes, and only on BFQ or mq-deadline disks; buffered writeback answers to the cgroup io controller alone, which a stock rootless host neither delegates nor enables. The design sets a declared resources.io.priority on every thread of the jail and names, at launch and in yolo check, each place it does nothing. Of three filed questions, one is decided and two are answered from existing rulings; four stay open: the default, a per-command flag, the host notch, and whether any cgroup half ships."
+summary: "A jail build can saturate the host disk and stall the desktop. Process I/O priority is free to set and reaches every program the jail runs, but only their reads and synchronous writes, and only on BFQ or mq-deadline disks; buffered writeback answers to the cgroup io controller alone, which a stock rootless host neither delegates nor enables. The design sets a declared resources.io.priority on every thread of the jail and names, at launch and in yolo check, each place it does nothing, and that much is built. Of three filed questions, one is decided and two are answered from existing rulings; four stay open: the default, a per-command flag, the host notch, and whether any cgroup half ships."
 vantage:
   status-chip: true
 ---
 
 # Yielding the disk — which kernel lever reaches a jail build's I/O, and on which scheduler
 
-**Status:** DESIGN, 2026-09-27. Nothing built. Evidence verified at `b0460995`, kernel source read
-at v7.1, measured in a rootless podman jail on Linux 7.1.8. A claim that needs a rootless host,
-root or a Mac says it is unmeasured where it is made.
+**Status:** DESIGN, 2026-09-27. Build steps 1 to 4 are built; step 5 waits on a Mac, and step 6
+on [OQ-IO7](#OQ-IO7). MEASURED: in a jail nested in a rootless podman jail on Linux 7.1.8, every
+thread but PID 1 read `be/7` after a launch and after an attach, and both named the Kyber NVMe
+under LUKS. UNMEASURED: a BFQ disk's latency under load, and both macOS VM backends. Kernel
+source read at v7.1.
 
 > **In short.** Process I/O priority is free to set and reaches every program a jail runs, but only
 > their reads and synchronous writes on BFQ or mq-deadline disks; buffered writes answer to a cgroup
@@ -37,8 +39,8 @@ which scheduler. The rest follows from it.
 
 **Needs your ruling:** [OQ-IO3](#OQ-IO3), [OQ-IO4](#OQ-IO4), [OQ-IO6](#OQ-IO6), [OQ-IO7](#OQ-IO7).
 
-**Reads with:** [`io-priority-plan.md`](io-priority-plan.md) (the build plan for steps 1 to 4,
-completed against the tree; steps 5 and 6 stay blocked), [`backend-parity.md`](backend-parity.md) (the disposition words
+**Reads with:** [`io-priority-plan.md`](io-priority-plan.md) (the implementation sketch for steps
+5 and 6, both blocked), [`backend-parity.md`](backend-parity.md) (the disposition words
 [§5.2](#52-the-launcher-one-decision-per-backend-and-the-disk-it-lands-on) uses),
 [`declaration-parity.md`](declaration-parity.md) (P1, which decides the failure paths, and P4,
 which bounds who may declare it at the host notch).
@@ -241,9 +243,8 @@ nothing else. It never implies a cgroup setting the user did not write.
 - **Scope:** both user and workspace config may declare it. It grants nothing, so the workspace
   refusals do not apply. An inner launcher inherits it with the rest of `resources`
   ([`inherit.go`](../../internal/config/inherit.go)).
-- **State that exists:** today `resources.io` fails validation as an unknown key, because
-  `knownResourcesKeys` holds only `memory`, `cpus` and `pids_limit`. No config carries it, so
-  nothing migrates.
+- **State that exists:** no config written before the key existed carries it, because it was an
+  unknown-key error until then, so nothing migrates.
 
 ## 5. Behavior, layer by layer
 
@@ -274,7 +275,9 @@ nothing else. It never implies a cgroup setting the user did not write.
   effect at the next fresh launch.
 - **Report.** The outcome is reported right after the boot log is attached, so it lands in
   `<workspace>/.yolo/boot.log`: a success as a log-only note, a failure as one warning on the boot
-  stream naming `resources.io.priority`.
+  stream naming `resources.io.priority`. The re-executed image reads its own thread's priority
+  back, so the note names the value it read, and a value other than the declared one is the
+  warning ([IO-D9](#11-decision-ledger)).
 - **Forbidden.**
   - Never change the priority of any thread or process but the entrypoint's own pinned thread.
   - Never re-execute more than once per run. The re-executed image finds the marker, removes it
@@ -319,12 +322,17 @@ Every line in the table names the priority only when a priority other than `"nor
   launch and the check, so the two cannot disagree. A value that acts on reads only, as on BFQ
   under LUKS, has an effect and gets no launch line.
 - **An unresolvable disk prints nothing at launch.** A workspace on ZFS, NFS, tmpfs or an overlay
-  has no scheduler to read, and an unreadable sysfs proves nothing. yolo cannot tell whether the
+  has no scheduler to read, neither has a bio-based disk such as zram, and an unreadable sysfs
+  proves nothing. yolo cannot tell whether the
   value acts there, and `yolo check` says which case it is.
 - **An attach repeats the line**, graded against the value the jail was launched with, since that
   is the value its shell receives. A notice only the fresh launch prints is one a user of a
   long-lived jail may never see, which is why `warnIfNoPacks` runs on the attach path too
-  ([`run.go`](../../internal/cli/run/run.go)).
+  ([`run.go`](../../internal/cli/run/run.go)). On podman on Linux the attach reads that value
+  from the container's frozen environment, which `inspect` already returns for the attach's
+  contract gate. On the two VM backends no value is ever passed, so the attach prints the Warned
+  line for the current declaration, which is true of whatever the jail was launched with
+  ([IO-D10](#11-decision-ledger)).
 - **Warned is final for the workspace on the macOS VM backends.** Workspace I/O crosses VirtioFS,
   and the FUSE protocol it speaks has no priority field
   ([`include/uapi/linux/fuse.h`](https://github.com/torvalds/linux/blob/master/include/uapi/linux/fuse.h)),
@@ -410,6 +418,7 @@ already decide how it behaves ([OQ-IO2](#11-decision-ledger), [IO-D6](#11-decisi
   | a `virtiofs` mount (an Apple Container or podman-machine jail), or a macOS host with a VM backend | `[WARN]`: the priority is Warned there, because workspace I/O reaches the Mac over VirtioFS, which carries none ([§5.2](#52-the-launcher-one-decision-per-backend-and-the-disk-it-lands-on)) |
   | a macOS host with macos-user | `[WARN]` for the Warned disposition until [§5.5](#55-macos-user-the-second-step) ships |
   | a mount with no block device behind it (a ZFS dataset, NFS, tmpfs, an overlay) | `[SKIP]` naming the filesystem type: there is no scheduler to grade |
+  | a parent disk with no `queue/scheduler` file (a bio-based device such as zram), or a scheduler name outside the grading table | `[SKIP]` naming the disk and the missing file or the scheduler; the launch prints nothing for it ([IO-D11](#11-decision-ledger)) |
   | a block-backed mount whose sysfs entries cannot be read, in a podman jail | `hostFact`'s `[SKIP]`, saying to run `cat /sys/block/<disk>/queue/scheduler` on the host |
   | the same at a host | `[SKIP]` naming the path that could not be read |
 
@@ -532,7 +541,8 @@ Example output:
 5. **macos-user**, after a Mac shows the policy survives `sudo` and `sandbox-exec`.
 6. **A cgroup half**, only if [OQ-IO7](#OQ-IO7) ships one.
 
-Steps 1 to 4 wait on no open question. [OQ-IO3](#OQ-IO3) changes only what an unset key means.
+Steps 1 to 4 waited on no open question and are built. [OQ-IO3](#OQ-IO3) changes only what an
+unset key means.
 
 ## 10. Open Questions
 
@@ -620,14 +630,17 @@ severity) are answered from existing rulings.
 
 | ID | Ruling / Decision | Date | Settled in | Built |
 | :--- | :--- | :--- | :--- | :--- |
-| OQ-IO1 | *Implementation decision.* The whole jail or only the shell? The priority covers the whole jail: every thread and child of `yolo-entrypoint` holds it, so `ldconfig`, `mise`, `iptables`, the `socat` forwarders, the jail-daemon supervisor and its daemons, the shell and all descendants inherit it, and each attach does the same for its own entrypoint. With every thread covered no trade-off remains: daemon I/O is small and the setting is invisible to users. Its limits are the lever's, not the scope's: the agent can raise itself back, and writeback is not reached | 2026-09-27 | [§5.1](#51-the-entrypoint-one-pinned-thread-then-a-re-exec) | — |
+| OQ-IO1 | *Implementation decision.* The whole jail or only the shell? The priority covers the whole jail: every thread and child of `yolo-entrypoint` holds it, so `ldconfig`, `mise`, `iptables`, the `socat` forwarders, the jail-daemon supervisor and its daemons, the shell and all descendants inherit it, and each attach does the same for its own entrypoint. With every thread covered no trade-off remains: daemon I/O is small and the setting is invisible to users. Its limits are the lever's, not the scope's: the agent can raise itself back, and writeback is not reached | 2026-09-27 | [§5.1](#51-the-entrypoint-one-pinned-thread-then-a-re-exec) | ✅ |
 | OQ-IO2 | *Answered by existing rulings, not ruled.* Refuse or warn when `io` is not delegated? A declared cgroup setting the host does not delegate is dropped, and the launch goes ahead with one line naming the key and the host change; the briefing omits it. [OQ-R3](../reference/loopback-tls-reachability.md#oq-r3): *"a host yolo cannot fix degrades and launches"*. [OQ-DP5](declaration-parity.md#OQ-DP5) (a): a coded decline with one disclosure line that can never refuse a launch. [P1](declaration-parity.md#1-the-principle-and-what-it-does-not-say): never silence. The GPU precedent in [`assemble.go`](../../internal/cli/run/assemble.go) prints *"starting without GPU passthrough"*. [`backend-parity.md` §6](backend-parity.md#6-the-second-shared-fix-compose-the-briefing-from-what-was-applied): the briefing reports what was emitted. [OQ-R4](../reference/loopback-tls-reachability.md#oq-r4)'s refusal covers an enabled jail-facing service and does not apply | 2026-09-27 | [§5.3](#53-the-cgroup-half-if-one-ships) | — |
-| OQ-IO5 | *Answered by existing rulings, not ruled.* `[INFO]` or `[WARN]` for a disk that ignores the priority? `yolo check` has four levels, and [`reporter.go`](../../internal/cli/check/reporter.go) rules out another: *"a fifth level would be a vocabulary nobody could keep straight"*. `[WARN]` is *"the badge that means act on this"*, and a declared priority the disk ignores is a declaration doing nothing ([P1](declaration-parity.md#1-the-principle-and-what-it-does-not-say)). No row for an undeclared key ([OQ-DP5](declaration-parity.md#OQ-DP5)). A host fact a podman jail cannot see is `hostFact`'s `[SKIP]`. A `[WARN]` never changes the exit code | 2026-09-27 | [§5.4](#54-yolo-check-the-disk-under-the-workspace) | — |
-| IO-D1 | *Implementation decision.* [OQ-IO1](#11-decision-ledger)'s mechanism: the entrypoint pins its goroutine with `runtime.LockOSThread`, sets the class on that thread with `IOPRIO_WHO_PROCESS`, and re-executes itself with the same argv and environment plus a marker, which the new image removes and which stops a second re-exec. The new image starts with that one thread, and every later thread and child copies its class. Measured with Go 1.26 on a busy process: after the re-exec, every thread and 16 of 16 children started from other goroutines read `BE7`, in 5 of 5 runs. Chosen over a process-group call (`setpgid`, then `IOPRIO_WHO_PGRP`), which reaches other processes in a shared group and so needs a group of its own, a foreground-group guard, and an apply-nothing arm on an attach that cannot lead one; over walking `/proc/self/task`, which races thread creation; and over `LockOSThread` without the re-exec, which covers one thread | 2026-09-27 | [§5.1](#51-the-entrypoint-one-pinned-thread-then-a-re-exec) | — |
-| IO-D2 | *Implementation decision.* The launcher decides per backend and passes the value in the container environment; the entrypoint never reads the config for it. The same decision feeds the briefing, as `appliedResourceLimits` does. Apple Container and podman on a macOS host get no value and a Warned line. Where it passes a value, the launch grades the workspace's parent disks with [IO-D5](#11-decision-ledger)'s resolver and grading and prints one line naming the key, each disk and its scheduler wherever the value has no effect ([P1](declaration-parity.md#1-the-principle-and-what-it-does-not-say); [OQ-DP5](declaration-parity.md#OQ-DP5) (a)); an unresolvable disk prints nothing. An attach applies the value the jail was launched with and repeats the line for it | 2026-09-27 | [§5.2](#52-the-launcher-one-decision-per-backend-and-the-disk-it-lands-on) | — |
-| IO-D3 | *Implementation decision.* `"io": "<value>"` is shorthand for `{"priority": "<value>"}` alone. A shorthand that implied a weight would print a line on every undelegated host for a value the user never wrote, where [OQ-DP5](declaration-parity.md#OQ-DP5) wants no disclosure for what was not declared. `"normal"` makes no call, leaving whatever class the launcher's process tree holds | 2026-09-27 | [§4](#4-the-configuration-surface) | — |
-| IO-D4 | *Implementation decision.* A failed set skips the re-exec; a failed re-exec resets the pinned thread to unset. Either way the boot continues with every thread unset and prints one boot-stream warning, never fatal. Only one thread is ever touched, so no partial state can outlive a failure except a failed reset, which the warning names | 2026-09-27 | [§5.1](#51-the-entrypoint-one-pinned-thread-then-a-re-exec) | — |
-| IO-D5 | *Implementation decision.* One resolver and one grading serve the launch and the check. The resolver finds a path's mount by the longest mount-point prefix, never by device number, and follows its source name through device-mapper slaves and partitions to its parent disks; the grading is [§5.4](#54-yolo-check-the-disk-under-the-workspace)'s table. The check resolves the workspace and, at the host, podman's storage root; the launch resolves the workspace | 2026-09-27 | [§5.4](#54-yolo-check-the-disk-under-the-workspace) | — |
+| OQ-IO5 | *Answered by existing rulings, not ruled.* `[INFO]` or `[WARN]` for a disk that ignores the priority? `yolo check` has four levels, and [`reporter.go`](../../internal/cli/check/reporter.go) rules out another: *"a fifth level would be a vocabulary nobody could keep straight"*. `[WARN]` is *"the badge that means act on this"*, and a declared priority the disk ignores is a declaration doing nothing ([P1](declaration-parity.md#1-the-principle-and-what-it-does-not-say)). No row for an undeclared key ([OQ-DP5](declaration-parity.md#OQ-DP5)). A host fact a podman jail cannot see is `hostFact`'s `[SKIP]`. A `[WARN]` never changes the exit code | 2026-09-27 | [§5.4](#54-yolo-check-the-disk-under-the-workspace) | ✅ |
+| IO-D1 | *Implementation decision.* [OQ-IO1](#11-decision-ledger)'s mechanism: the entrypoint pins its goroutine with `runtime.LockOSThread`, sets the class on that thread with `IOPRIO_WHO_PROCESS`, and re-executes itself with the same argv and environment plus a marker, which the new image removes and which stops a second re-exec. The new image starts with that one thread, and every later thread and child copies its class. Measured with Go 1.26 on a busy process: after the re-exec, every thread and 16 of 16 children started from other goroutines read `BE7`, in 5 of 5 runs. Chosen over a process-group call (`setpgid`, then `IOPRIO_WHO_PGRP`), which reaches other processes in a shared group and so needs a group of its own, a foreground-group guard, and an apply-nothing arm on an attach that cannot lead one; over walking `/proc/self/task`, which races thread creation; and over `LockOSThread` without the re-exec, which covers one thread | 2026-09-27 | [§5.1](#51-the-entrypoint-one-pinned-thread-then-a-re-exec) | ✅ |
+| IO-D2 | *Implementation decision.* The launcher decides per backend and passes the value in the container environment; the entrypoint never reads the config for it. The same decision feeds the briefing, as `appliedResourceLimits` does. Apple Container and podman on a macOS host get no value and a Warned line. Where it passes a value, the launch grades the workspace's parent disks with [IO-D5](#11-decision-ledger)'s resolver and grading and prints one line naming the key, each disk and its scheduler wherever the value has no effect ([P1](declaration-parity.md#1-the-principle-and-what-it-does-not-say); [OQ-DP5](declaration-parity.md#OQ-DP5) (a)); an unresolvable disk prints nothing. An attach applies the value the jail was launched with and repeats the line for it | 2026-09-27 | [§5.2](#52-the-launcher-one-decision-per-backend-and-the-disk-it-lands-on) | ✅ |
+| IO-D3 | *Implementation decision.* `"io": "<value>"` is shorthand for `{"priority": "<value>"}` alone. A shorthand that implied a weight would print a line on every undelegated host for a value the user never wrote, where [OQ-DP5](declaration-parity.md#OQ-DP5) wants no disclosure for what was not declared. `"normal"` makes no call, leaving whatever class the launcher's process tree holds | 2026-09-27 | [§4](#4-the-configuration-surface) | ✅ |
+| IO-D4 | *Implementation decision.* A failed set skips the re-exec; a failed re-exec resets the pinned thread to unset. Either way the boot continues with every thread unset and prints one boot-stream warning, never fatal. Only one thread is ever touched, so no partial state can outlive a failure except a failed reset, which the warning names | 2026-09-27 | [§5.1](#51-the-entrypoint-one-pinned-thread-then-a-re-exec) | ✅ |
+| IO-D5 | *Implementation decision.* One resolver and one grading serve the launch and the check. The resolver finds a path's mount by the longest mount-point prefix, never by device number, and follows its source name through device-mapper slaves and partitions to its parent disks; the grading is [§5.4](#54-yolo-check-the-disk-under-the-workspace)'s table. The check resolves the workspace and, at the host, podman's storage root; the launch resolves the workspace | 2026-09-27 | [§5.4](#54-yolo-check-the-disk-under-the-workspace) | ✅ |
 | IO-D6 | *Implementation decision.* A cgroup half, should [OQ-IO7](#OQ-IO7) ship one, is gated on `io` in `podman info`'s `host.cgroupControllers`, from the launch's existing call. It is never gated on a slice path, which can report `io` the user manager lacks. It is emitted as `--blkio-weight` for a weight or `--cgroup-conf io.prio.class=idle` for a class, never as the nonexistent `--io-weight` | 2026-09-27 | [§5.3](#53-the-cgroup-half-if-one-ships) | — |
 | IO-D7 | *Implementation decision.* On macos-user, `"low"` is `IOPOL_UTILITY` and `"idle"` is `IOPOL_THROTTLE`, applied by the macos-user launcher. It ships only after a Mac shows the policy survives `sudo` and `sandbox-exec`. Until then the existing resources line keeps it Warned | 2026-09-27 | [§5.5](#55-macos-user-the-second-step) | — |
-| IO-D8 | *Implementation decision.* macos-user's existing resources line names every present `resources` key whatever its value ([`orchestrator.go`](../../internal/macosuser/orchestrator.go)). It leaves out an `io` that resolves to `"normal"` (that string, `null` or `{}`), which makes no call on every backend and so is honored there already. Any other value is named until [§5.5](#55-macos-user-the-second-step) ships | 2026-09-27 | [§5.2](#52-the-launcher-one-decision-per-backend-and-the-disk-it-lands-on) | — |
+| IO-D8 | *Implementation decision.* macos-user's existing resources line names every present `resources` key whatever its value ([`orchestrator.go`](../../internal/macosuser/orchestrator.go)). It leaves out an `io` that resolves to `"normal"` (that string, `null` or `{}`), which makes no call on every backend and so is honored there already. Any other value is named until [§5.5](#55-macos-user-the-second-step) ships | 2026-09-27 | [§5.2](#52-the-launcher-one-decision-per-backend-and-the-disk-it-lands-on) | ✅ |
+| IO-D9 | *Implementation decision.* The re-executed image reads its own thread's priority back with `ioprio_get`. The boot.log note names the value it read; a value other than the declared one is the boot-stream warning; a failed read is a note that says so, since the set before the exec succeeded | 2026-09-27 | [§5.1](#51-the-entrypoint-one-pinned-thread-then-a-re-exec) | ✅ |
+| IO-D10 | *Implementation decision.* An attach on podman on Linux grades the value in the container's frozen environment, read from the `inspect` the attach already runs, and a jail whose environment has none applies nothing and prints nothing. On Apple Container and podman on macOS, where no value is ever passed, the attach prints the Warned line for the current declaration | 2026-09-27 | [§5.2](#52-the-launcher-one-decision-per-backend-and-the-disk-it-lands-on) | ✅ |
+| IO-D11 | *Implementation decision.* A parent disk with no `queue/scheduler` file (a bio-based device such as zram) or a scheduler outside the grading table is ungraded: the launch prints nothing for it and `yolo check` prints a `[SKIP]` naming the disk and what is missing | 2026-09-27 | [§5.4](#54-yolo-check-the-disk-under-the-workspace) | ✅ |

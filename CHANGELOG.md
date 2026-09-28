@@ -54,6 +54,15 @@ every agent to be given, or a file that cannot be copied, is named and skipped. 
 written into the repository. See
 [the workspace layer](docs/reference/agent-briefings.md#the-workspace-layer).
 
+**A jail's builds can yield the disk.** Set `"resources": {"io": "low"}`, or `"idle"`, and every
+process in a podman jail on Linux runs at a lower disk priority, so a build stops stalling your
+desktop when both want the disk. Disks whose scheduler is bfq honor both values and mq-deadline
+honors `"idle"`; kyber and none, the usual NVMe default, ignore it. The launch says so when the
+disk under your workspace is one of those, and `yolo check` grades that disk and names the host
+change. The priority is advisory rather than a limit, and it does not reach buffered writes.
+Apple Container and podman on macOS cannot apply it, and the launch says that too. See
+[resources per setup](userguide/reference/settings-per-setup.md#resources-devices-and-networking).
+
 - `yolo host-daemon status|stop|restart|logs` manages the machine-wide daemons.
 - `nix shell` and `nix build` work in a jail with no extra flags.
 
