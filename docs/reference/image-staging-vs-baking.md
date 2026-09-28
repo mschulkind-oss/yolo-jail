@@ -311,7 +311,7 @@ The refusal is keyed on darwin, not on the runtime, so Apple Container gets it t
 backend's prefix mount has **not** been exercised on hardware; podman on Linux (including the
 nested jail this repo develops in) and macOS podman with `/nix` shared are the two measured
 arms. `macos-user` needed nothing: it runs no container, loads no image, and its `yolo` is the
-host's own binary. See [`../guides/macos.md`](../../userguide/guides/macos.md#the-same-rule-now-decides-whether-a-live-checkout-can-launch-at-all).
+host's own binary. See [`../guides/macos.md`](../../userguide/guides/macos.md#running-a-live-checkout-on-podman).
 
 ### Two halves, two cadences
 
