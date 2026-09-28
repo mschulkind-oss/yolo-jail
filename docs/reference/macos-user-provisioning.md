@@ -266,7 +266,7 @@ decisions with stated reasons:
 | Step | Container | macos-user | Why |
 | :--- | :--- | :--- | :--- |
 | prune dangling store symlinks | ✅ | ❌ | gated on `YOLO_STORE_PRUNE_OK`, which the container's launcher sets only after proving no other jail is live. Nothing here computes that proof, so the step would be permanently inert — a line that reads like a feature and is one only on the other backend. |
-| announce + `mise install --quiet` | ✅ | ✅ | the announce lines are steps, not decoration: a tee'd `startup.log` shows a reader the last thing that *started*. |
+| announce + `mise install` (verbose only when `mise ls --missing` lists a tool) | ✅ | ✅ | the announce lines are steps, not decoration: a tee'd `startup.log` shows a reader the last thing that *started*, and a cold install's own line-per-step progress follows them. |
 | announce + the generated bootstrap script | ✅ | ✅ | by **absolute path**, not `~/.yolo-bootstrap.sh` — see below |
 | `~/.yolo-venv-precreate.sh` | ✅ | ❌ | its body tests `/workspace/mise.toml` and shells out to `/bin/python3`, so on a Mac it would find neither and exit 0 on every launch — a step that reports success having never run. Nothing generates it here either. **A Mac workspace configuring `_.python.venv` gets no pre-created venv.** |
 
@@ -681,7 +681,7 @@ $ nix eval --json '.#yoloNoncontainerFloorNames.aarch64-darwin'
 | Declared-packages profile attr | `yoloNoncontainerPackages` | `internal/darwinpkg/darwinpkg.go` (`ProfileAttr`) |
 | Floor + declared profile attr | `yoloNoncontainerProfile` — what every macos-user launch builds | `internal/darwinpkg/darwinpkg.go` (`FloorProfileAttr`), `materialize.go` (`Materialize`) |
 | Floor profile GC root | `ProfileRootLink(home)`, the build's own `--out-link` | `internal/darwinpkg/gcroot.go` |
-| Stage step set | four of six: announce + `mise install --quiet`, announce + the generated script | `internal/macosuser/provision.go` (`ProvisionSetup`); the six in `internal/provision/provision.go` |
+| Stage step set | four of six: announce + `mise install`, announce + the generated script | `internal/macosuser/provision.go` (`ProvisionSetup`); the six in `internal/provision/provision.go` |
 | Stage skip rule | `mise_tools` non-empty | `internal/macosuser/provision.go` (`ProvisionNeeded`) |
 | Provisioning log | `<workspace>/.yolo/startup.log` | `internal/provision/provision.go` (`StartupLog`) |
 | Failure marker | `PROVISIONING FAILED` | `internal/provision/provision.go` (`FailedMarker`) |

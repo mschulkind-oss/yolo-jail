@@ -100,8 +100,19 @@ const (
 	// steps rather than decoration because they are also what a tee'd startup.log shows
 	// a reader as the last thing that started.
 	StepAnnounceMiseInstall = `echo "  ↳ mise install" >&2`
-	StepMiseInstall         = "mise install --quiet"
-	StepAnnounceBootstrap   = `echo "  ↳ bootstrap" >&2`
+	// StepMiseInstall shows mise's own progress exactly when there is something to
+	// install. `--quiet` silenced it unconditionally, so a first boot's toolchain
+	// downloads — minutes — ran under nothing but the announce line above; without
+	// `--quiet`, a warm launch would print "mise all tools are installed" every time.
+	// So the step asks first (`mise ls --missing`, ~16 ms measured warm) and installs
+	// verbosely only when a line comes back. mise's progress through the stage's pipe
+	// is line-oriented ("mise jq@1.7.1 [1/2] download …", "✓ installed"), so it reads
+	// the same in startup.log as on the terminal. The install's own status is the
+	// step's status on both branches; a `mise ls` that fails prints nothing and takes
+	// the quiet branch, which is the old step unchanged.
+	StepMiseInstall = "if mise ls --missing 2>/dev/null | read -r _; then " +
+		"mise install; else mise install --quiet; fi"
+	StepAnnounceBootstrap = `echo "  ↳ bootstrap" >&2`
 	// StepRunBootstrap execs the generated bootstrap script at the path the container
 	// BINDS it to. macos-user has no bind and names the real file instead — see
 	// StepRunBootstrapAt.

@@ -272,3 +272,54 @@ func TestTheConsoleLineHonorsColor(t *testing.T) {
 		t.Errorf("color=false left an escape in the script:\n%s", s)
 	}
 }
+
+// StepMiseInstall shows mise's progress only when there is something to install:
+// verbose when `mise ls --missing` lists a tool, the old quiet install otherwise, and
+// the install's own exit status is the step's on both branches. Run through
+// SetupBypassingShims, the container's `sh -c '…'` wrapping, so a quote in the step
+// that would break that wrapping fails here too.
+func TestMiseInstallIsVerboseOnlyWhenSomethingIsMissing(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		missing   bool
+		installRC int
+		wantArgs  string
+		wantRC    int
+	}{
+		{"warm: nothing missing", false, 0, "install --quiet", 0},
+		{"cold: a tool is missing", true, 0, "install", 0},
+		{"cold install fails", true, 1, "install", 1},
+		{"warm install fails", false, 1, "install --quiet", 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			log := filepath.Join(dir, "calls")
+			missing := ""
+			if tc.missing {
+				missing = `echo "jq  1.7.1 (missing)  /ws/mise.toml  1.7.1"`
+			}
+			fake := "#!/bin/sh\n" +
+				`if [ "$1" = ls ]; then ` + missing + "\nexit 0; fi\n" +
+				`echo "$*" >> ` + log + "\nexit " + strconv.Itoa(tc.installRC) + "\n"
+			if err := os.WriteFile(filepath.Join(dir, "mise"), []byte(fake), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			cmd := exec.Command("bash", "-c", SetupBypassingShims(StepMiseInstall))
+			cmd.Env = append(os.Environ(), "PATH="+dir+":"+os.Getenv("PATH"))
+			err := cmd.Run()
+			rc := 0
+			if ee, ok := err.(*exec.ExitError); ok {
+				rc = ee.ExitCode()
+			} else if err != nil {
+				t.Fatal(err)
+			}
+			if rc != tc.wantRC {
+				t.Errorf("step exit = %d, want %d", rc, tc.wantRC)
+			}
+			got, _ := os.ReadFile(log)
+			if strings.TrimSpace(string(got)) != tc.wantArgs {
+				t.Errorf("mise ran %q, want exactly one `mise %s`", strings.TrimSpace(string(got)), tc.wantArgs)
+			}
+		})
+	}
+}
