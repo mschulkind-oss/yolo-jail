@@ -75,6 +75,9 @@ jobs:
       # path GitHub already guarantees us.  Unpinned `latest` is deliberate: it
       # matches mise.toml's `just = "latest"`, and a CI pinned tighter than
       # local dev is exactly the gate-vs-hook drift this job exists to catch.
+      # The Justfile needs just >= 1.47 (`lint`'s `[env]`, `check-ci`'s
+      # `[parallel]`); `latest` is far past that, and an older just would refuse
+      # to parse the file rather than run a different gate.
       - name: Install just and staticcheck
         env:
           GH_TOKEN: ${{ github.token }}
