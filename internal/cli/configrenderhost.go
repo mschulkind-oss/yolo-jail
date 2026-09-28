@@ -15,7 +15,8 @@ import (
 )
 
 // configrenderhost.go is `yolo config render --at host`: the preview of what `yolo host
-// apply --assert` writes, byte for byte (docs/plans/notch-convergence.md item 23, row D5).
+// apply --assert` writes, byte for byte (docs/plans/notch-convergence.md item 23, row D5),
+// from the pack store as it stands: the preview never fetches (NC-D28).
 //
 // IT RUNS THE HOST APPLY'S OWN RENDER, in observe, rather than composing the surfaces a second
 // way. The preview used to go through the jail preview's loop — the EMBEDDED packs' surfaces at
@@ -38,12 +39,32 @@ func configRenderHost(agent, surface string, explain bool, out, errw io.Writer, 
 		return 1
 	}
 	packs, unresolved := configuredPacksForInspection()
-	if len(unresolved) > 0 {
+	// THE PREVIEW NEVER FETCHES, by the read-only rule refreshHostPacks states: `yolo host
+	// apply` fetches a never-fetched git pack and refreshes a branch-following one before it
+	// renders, and this verb reads the pack store as it stands. So "byte for byte" holds for
+	// the store's current copy; a pack the store lacks is the one case the two resolve
+	// differently, and the preview says so rather than predicting a refusal the apply would
+	// not make (NC-D28).
+	var unfetched, broken []unresolvedPack
+	for _, u := range unresolved {
+		if u.NeedsInstall {
+			unfetched = append(unfetched, u)
+		} else {
+			broken = append(broken, u)
+		}
+	}
+	if len(unfetched) > 0 {
+		fmt.Fprintf(errw, "yolo config render: not rendered — not fetched yet: %s. This "+
+			"preview never fetches; `yolo host apply` fetches a git pack first, so its "+
+			"render includes it.\n",
+			describeUnresolved(unfetched))
+	}
+	if len(broken) > 0 {
 		// Host apply refuses an --assert over an incomplete set; a preview shows what the
 		// resolvable part renders and says what it left out, like the jail preview.
 		fmt.Fprintf(errw, "yolo config render: not rendered — could not be resolved: %s. "+
 			"`yolo host apply --assert` refuses an incomplete pack set.\n",
-			describeUnresolved(unresolved))
+			describeUnresolved(broken))
 	}
 	packs, _ = packload.ResolveDestinations(packs)
 	if cols := packload.ConfigSurfaceCollisions(packs); len(cols) > 0 {

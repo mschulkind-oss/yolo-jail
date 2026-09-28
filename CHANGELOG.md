@@ -191,8 +191,11 @@ apply it, and the launch says that too. See
   local pack first, after a confirmation, as before.
 - `yolo config render --at host`, and a bare `yolo config render` run outside any workspace,
   showed the file a jail gets, including permission-bypass settings `yolo host apply` never
-  writes. It now prints exactly the file `yolo host apply --assert` would write into your home,
-  from the packs you configured, and `--explain` shows the per-key record that apply keeps.
+  writes. It now prints exactly the file `yolo host apply --assert` would write into your home
+  from the packs you configured, as your pack store holds them, and `--explain` shows the
+  per-key record that apply keeps. The preview never fetches: `yolo host apply` fetches a git
+  pack first and refreshes a branch-following one, so an upstream change since the last fetch
+  is not in the preview, and a pack not yet fetched is named as missing from it.
 - The Claude OAuth broker could return the token a jail already held, and Claude Code stopped
   with `api_request_oauth_refresh_exhausted`.
 - Claude on its `codex` profile showed `did not translate` in place of ChatGPT's own errors.

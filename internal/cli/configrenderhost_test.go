@@ -141,3 +141,27 @@ func TestConfigRenderAtJailStillPreviewsTheJailsPosture(t *testing.T) {
 		t.Errorf("the jail preview must still show the autonomous additionalDirectories:\n%s", out.String())
 	}
 }
+
+// THE PREVIEW NEVER FETCHES, and says so where that makes it differ from host apply. A git
+// pack nobody fetched yet is the one input the two resolve differently: `yolo host apply`
+// fetches it first (TestHostApplyFetchesANeverInstalledGitPack), the preview reads the store
+// as it stands. So the preview must neither fetch nor predict the apply's refusal of an
+// incomplete set — which it used to, for a pack the apply would simply fetch and render.
+func TestConfigRenderAtHostSaysHostApplyFetchesAPackTheStoreLacks(t *testing.T) {
+	neverInstalledGitPackHome(t, "")
+	rc, out, errs := runConfigVerb(t, "render", "claude/settings", "--at", "host")
+	if rc != 0 {
+		t.Fatalf("the resolvable packs still render: rc=%d\n%s%s", rc, out, errs)
+	}
+	if n := mirrorCount(t); n != 0 {
+		t.Errorf("a read-only preview fetched %d repositories", n)
+	}
+	if !strings.Contains(errs, "not fetched yet: gp (") ||
+		!strings.Contains(errs, "`yolo host apply` fetches a git pack first") {
+		t.Errorf("the preview must say host apply fetches the pack it could not show:\n%s", errs)
+	}
+	if strings.Contains(errs, "refuses an incomplete pack set") {
+		t.Errorf("host apply fetches this pack rather than refusing, so the preview must not "+
+			"predict a refusal:\n%s", errs)
+	}
+}
