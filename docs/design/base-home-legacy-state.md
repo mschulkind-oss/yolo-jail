@@ -678,6 +678,15 @@ a temp file renamed over the path. MEASURED as a unit test on both backends' pat
    > 2026-09-25** (`forgetGoneContainer`, `internal/cli/run/trackingcleanup.go`, handed
    > `in.homeSkeleton` by all three ends; `trackingcleanup_test.go`).
 
+   _Implementation decision, 2026-09-28 (no behavior change):_ the "lock was free" half was
+   false on a slow runner (CI run 36486674316, ubuntu-24.04-arm). The normal exit takes the
+   workspace lock in `stopLoopholes` and again in `forgetGoneContainer` right after, and a
+   child the launch forked in between (the housekeeping slot's podman calls) held a copy of
+   the first descriptor until its exec. Closing a descriptor does not release a flock another
+   copy still holds, so the second take failed and the skeleton stayed. `workspaceLock.Close`
+   now unlocks explicitly, which releases it for every copy. No wait was added: that would put
+   latency on the quit path to hide a lock this launch had already released.
+
 ## 10. Decision Ledger
 
 | ID | Ruling / Decision | Date | Settled in | Built |
