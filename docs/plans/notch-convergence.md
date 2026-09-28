@@ -42,7 +42,7 @@ premise is retired.
 **Start at [§2](#2-security-first-the-boundary-that-is-not-one)**, the only part that is urgent, then
 [§4](#4-the-ordered-build-list).
 
-**Needs your ruling:** [OQ-NC2](#OQ-NC2), [OQ-NC3](#OQ-NC3), [OQ-NC6](#OQ-NC6), [OQ-NC7](#OQ-NC7), [OQ-NC10](#OQ-NC10). Ruled 2026-09-28: [OQ-NC1](#OQ-NC1) (run services at every notch), and by parity [OQ-NC4](#OQ-NC4), [OQ-NC5](#OQ-NC5), [OQ-NC8](#OQ-NC8), [OQ-NC9](#OQ-NC9), [OQ-NC11](#OQ-NC11).
+**Needs your ruling:** [OQ-NC2](#OQ-NC2), [OQ-NC3](#OQ-NC3), [OQ-NC10](#OQ-NC10). Ruled 2026-09-28: [OQ-NC1](#OQ-NC1) (run services at every notch), [OQ-NC6](#OQ-NC6) (credential-routing provider fields are user-scope only), [OQ-NC7](#OQ-NC7) (host claude keeps its own login for now), and by parity [OQ-NC4](#OQ-NC4), [OQ-NC5](#OQ-NC5), [OQ-NC8](#OQ-NC8), [OQ-NC9](#OQ-NC9), [OQ-NC11](#OQ-NC11).
 
 **Reads with:** [`wire-bridge.md`](../reference/wire-bridge.md#wb-d4) (WB-D4, the premise
 [§2](#2-security-first-the-boundary-that-is-not-one) retires),
@@ -525,7 +525,7 @@ is reported verified only against a real rootless host or CI, with
    > agent CLIs only, at every notch; any other command gets keys only through `--with-credentials`.
    > ES-D1 retires.
 
-6. 💬 <a id="OQ-NC6"></a>**OQ-NC6: Is `providers.*.api_key_env_name` user-scope only, as `base_url`
+6. ✅ <a id="OQ-NC6"></a>**OQ-NC6: Is `providers.*.api_key_env_name` user-scope only, as `base_url`
    is?** [`OQ-LM3`](../research/local-model-endpoints.md#oq-lm3) made addresses user-scope only. The
    rest of a provider entry still merges in from the workspace, so a repo file can re-point which
    variable a provider claims and sends upstream. [`OQ-AS3`](../research/agent-safehouse.md#OQ-AS3)
@@ -534,14 +534,15 @@ is reported verified only against a real rootless host or CI, with
    - **A — User scope only**, refused at workspace scope like `base_url`.
    - **B — Merge, and disclose** a workspace value that changes a claim.
 
-   <!-- vantage: oq id=OQ-NC6 leaning="A: every provider field that decides where a credential goes is user-scope only; OQ-LM3's reason (the blast radius is total) applies unchanged." -->
-
-   _Leaning:_ A. [OQ-LM3](../research/local-model-endpoints.md#oq-lm3)'s reason applies unchanged: the blast radius is total.
+      _Leaning:_ A. [OQ-LM3](../research/local-model-endpoints.md#oq-lm3)'s reason applies unchanged: the blast radius is total.
 
    **Answer:**
-   > _(empty — fill in when decided)_
+   > **Ruled in review 2026-09-28, as leaned:** A. Every provider field that decides where a
+   > credential goes is user-scope only, `api_key_env_name` included, refused at workspace scope
+   > like `base_url`; [`OQ-LM3`](../research/local-model-endpoints.md#oq-lm3)'s reason, that the
+   > blast radius is total, applies unchanged.
 
-7. 💬 <a id="OQ-NC7"></a>**OQ-NC7: Does host claude join the jails' Claude login?** OpenAI has one
+7. ✅ <a id="OQ-NC7"></a>**OQ-NC7: Does host claude join the jails' Claude login?** OpenAI has one
    machine-wide login lineage for the host and the jails. Claude has two, because the host notch
    cannot emit the hosts entry that interception needs.
 
@@ -550,12 +551,12 @@ is reported verified only against a real rootless host or CI, with
    - **B — A managed config dir** that shares the machine store. Its refreshes then race the broker
      unless the host routes them through it, and there is no mechanism for that yet.
 
-   <!-- vantage: oq id=OQ-NC7 leaning="A: keep host claude on its own login until OQ-CI1 decides whether the credential is shared at all; a shared store without interception races the broker." -->
-
-   _Leaning:_ A. A shared store without interception is worse than two lineages.
+      _Leaning:_ A. A shared store without interception is worse than two lineages.
 
    **Answer:**
-   > _(empty — fill in when decided)_
+   > **Ruled in review 2026-09-28, as leaned:** A. Host claude keeps its own login until
+   > [`OQ-CI1`](../reference/claude-oauth-interposition.md#oq-ci1) decides whether the credential is
+   > shared at all; a shared store without interception races the broker.
 
 8. ✅ <a id="OQ-NC8"></a>**OQ-NC8: What do `host_files` and `mise_tools` do at the host?** Both
    render in every jail and are silently inert at the host. That breaks P4 whichever way this is
@@ -686,6 +687,8 @@ is reported verified only against a real rootless host or CI, with
 | :--- | :--- | :--- | :--- | :--- |
 | OQ-NC1 | **Maintainer ruling**, as leaned: A, every notch runs the selected packs' services, launch-owned; the lifetime and host-half declaration are [`OQ-HS3`](../design/host-notch-services.md#OQ-HS3) and [`OQ-HS4`](../design/host-notch-services.md#OQ-HS4) | 2026-09-28 | [OQ-NC1](#OQ-NC1) | pending |
 | [OQ-NC4](#OQ-NC4), [NC5](#OQ-NC5), [NC8](#OQ-NC8), [NC9](#OQ-NC9), [NC11](#OQ-NC11) | **Maintainer ruling by parity:** *"yes, NC as parity for sure"*. Each takes its A: one pack order, `-p` means agent CLIs everywhere, source-less `host_files` render at the host (NC8 against its leaning), local-pack links followed at every notch, a skill collision fatal before the jail starts and the jail honors `skills_tier` | 2026-09-28 | [§6](#6-open-questions) | pending |
+| [OQ-NC6](#OQ-NC6) | **Maintainer ruling**, as leaned: A, every provider field that decides where a credential goes is user-scope only | 2026-09-28 | [§6](#6-open-questions) | pending |
+| [OQ-NC7](#OQ-NC7) | **Maintainer ruling**, as leaned: A, host claude keeps its own login until [`OQ-CI1`](../reference/claude-oauth-interposition.md#oq-ci1) rules | 2026-09-28 | [§6](#6-open-questions) | ✅ nothing to build |
 | NC-D1 | **Maintainer ruling.** Merge the host and jail notches as far as possible: one description, one code path per concern, the notch as an input. "Parsing profiles should be the same", and "host is supposed to act like everywhere else" | 2026-09-27 | [§1](#1-the-thesis) | — |
 | NC-D2 | **Maintainer ruling.** A loopback service's safety never rests on the jail's network namespace ("jails … can be house type and then it's identical … solve it in both places"). This retires the premise of [WB-D4](../reference/wire-bridge.md#wb-d4) and the awscredadapter "no token" design | 2026-09-27 | [§2.2](#22-why-that-premise-is-false-in-a-jail-too) | ✅ `ea083e97`, `a5fd280f` |
 | NC-D3 | *Implementation decision.* The per-service mechanisms of [§2.3](#23-the-fix-every-service-authenticates-its-caller-at-every-notch): each client carries the secret in a slot it already has, so no agent changes, and the terminator authenticates by refresh-token match | 2026-09-28 | [§2.3](#23-the-fix-every-service-authenticates-its-caller-at-every-notch) | ✅ `ea083e97`, `a5fd280f` |
