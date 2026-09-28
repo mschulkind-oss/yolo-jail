@@ -82,7 +82,7 @@ func e2eHostAssert(t *testing.T, home string, loaded []*packload.Pack) {
 	target := render.Host(home, nil, render.OwnershipAssert)
 	set := packoverlay.Collect(loaded, target.Profile().AgentAutonomy, nil)
 	for _, p := range loaded {
-		if _, err := entrypoint.RenderHostPack(p, home, render.OwnershipAssert, false, set); err != nil {
+		if _, err := entrypoint.RenderHostPack(p, home, render.OwnershipAssert, false, set, nil); err != nil {
 			t.Fatalf("RenderHostPack(%s): %v", p.Name, err)
 		}
 	}

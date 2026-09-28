@@ -1,0 +1,231 @@
+package cli
+
+// hostinputs.go composes the HOST notch's derive inputs (docs/design/host-computed-layer.md
+// §6.2), once per invocation, for every host-target reader of that invocation (HC-D11): `yolo
+// host apply`'s dry run, --assert and --format json, the launch gate a wrapped `yolo host --`
+// runs, and `yolo config render --at host`. The render side is entrypoint.HostInputs.
+//
+// OQ-HC1 (2026-09-28): "host parity with the same handling". The host runs the jail's derives,
+// so what differs between the notches is composed HERE, from user scope alone:
+//
+//	providers     composedHostProviders — the table `yolo host --` already composes
+//	profiles      the user's `use_profiles`, resolved over that table, via addresses cleared
+//	              (nothing serves one here, WG-I12), and a selection the host launch refuses
+//	              left out and named
+//	mcp_servers   the user's own entries, less any that names a jail-only path (named)
+//	lsp_servers   the same
+//
+// and never an MCP preset (its command is a wrapper only a jail's boot writes), a pack's `mcp`
+// declaration (OQ-MP3), or a workspace's config (P2).
+
+import (
+	"fmt"
+	"os"
+	"sort"
+	"strings"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/config"
+	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
+	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/packload"
+)
+
+// hostInputComposition is one invocation's host derive inputs and what composing them left out.
+type hostInputComposition struct {
+	inputs *entrypoint.HostInputs
+	// omitted is one sentence per input the host does not carry, for the report: a preset, an
+	// entry naming a jail-only path, a selection the host refuses.
+	omitted []string
+	// providers and selection are what the composition DOES carry, named for the report's
+	// detail tier: the provider table's entry names, and "<cli> → <profile>" per selection.
+	// A `provider` or `profile` contribution renders invisibly — into the files of the
+	// surfaces its facts reach — so this line is where the run names them (the census rule:
+	// nothing a pack declares is silently absent).
+	providers, selection []string
+}
+
+// summary is the detail line naming what the composition carries.
+func (c hostInputComposition) summary() string {
+	providers, selection := "none", "none"
+	if len(c.providers) > 0 {
+		providers = strings.Join(c.providers, ", ")
+	}
+	if len(c.selection) > 0 {
+		selection = strings.Join(c.selection, ", ")
+	}
+	return "provider table composed for the derives: " + providers +
+		" · profile selection (use_profiles): " + selection
+}
+
+// composeHostInputs composes the derive inputs for a host render of packs into home, from the
+// user-scope config cfg. An error is a composition the apply must refuse before writing
+// anything (HC-D7): a provider table or a profile table that cannot be composed is an input
+// every surface shares, and `yolo host --` refuses on it too.
+func composeHostInputs(cfg *jsonx.OrderedMap, packs []*packload.Pack, home string) (hostInputComposition, error) {
+	var c hostInputComposition
+	vars := map[string]string{}
+
+	providers, unservable, err := composedHostProviders(cfg, packs)
+	if err != nil {
+		return c, fmt.Errorf("your provider table cannot be composed: %w", err)
+	}
+	vars[entrypoint.ProvidersWireEnv] = wireJSON(providers)
+	if providers != nil {
+		c.providers = append(c.providers, providers.Keys()...)
+	}
+
+	userProfiles, err := config.LoadProfiles(nil)
+	if err != nil {
+		return c, fmt.Errorf("your `profiles` cannot be read: %w", err)
+	}
+	resolved, err := packload.ResolveProfiles(packs, userProfiles, providers)
+	if err != nil {
+		return c, fmt.Errorf("your profiles cannot be resolved: %w", err)
+	}
+	// NO VIA ROUTE: a via address is a jail daemon's, and nothing at this notch serves one, so
+	// every agent keeps its own client (WG-I12) — as `yolo host --` and the host footer read it.
+	inert, _ := packload.ViaServedAt(resolved, packs, packload.NothingServed())
+	vars[entrypoint.ProfilesWireEnv] = wireJSON(packload.ProfilesWireTable(inert))
+
+	// THE SELECTION (OQ-HC3): the user-scope `use_profiles`, never a `-p` (host apply has
+	// none). A pairing the host launch refuses — a profile only a jail's service can serve —
+	// is left out and named, since a file selecting it would name a provider no host process
+	// of that agent can reach.
+	use := jsonx.NewOrderedMap()
+	selected := effectiveHostProfiles(cfg, "", "")
+	for _, agent := range selected.Keys() {
+		v, _ := selected.Get(agent)
+		profile, _ := v.(string)
+		if refusal := packload.PairingRefusal(packs, providers, resolved, agent, profile,
+			unservable); refusal != nil {
+			c.omitted = append(c.omitted, fmt.Sprintf("use_profiles %s → %s is not applied at "+
+				"the host: %s", agent, profile, firstLine(refusal.Error())))
+			continue
+		}
+		use.Set(agent, v)
+		c.selection = append(c.selection, agent+" → "+profile)
+	}
+	vars[entrypoint.UseProfilesWireEnv] = wireJSON(use)
+
+	servers, omitted := hostServerTable(cfg, "mcp_servers", home)
+	c.omitted = append(c.omitted, omitted...)
+	vars[entrypoint.MCPServersWireEnv] = wireJSON(servers)
+	lsp, omitted := hostServerTable(cfg, "lsp_servers", home)
+	c.omitted = append(c.omitted, omitted...)
+	vars[entrypoint.LSPServersWireEnv] = wireJSON(lsp)
+
+	// THE PRESETS NEVER EXPAND HERE (HC-D6): each command names the node wrapper a jail's boot
+	// writes and the jail's npm prefix, neither of which a real home has, and composing them
+	// for the host instead is what mcp-presets-removal.md retires them rather than do.
+	if v, ok := cfg.Get("mcp_presets"); ok {
+		if list, isList := v.([]any); isList {
+			for _, p := range list {
+				if name, isStr := p.(string); isStr && name != "" {
+					c.omitted = append(c.omitted, fmt.Sprintf("mcp_presets %s is not written at "+
+						"the host: its command is a wrapper only a jail writes — declare the "+
+						"server under `mcp_servers` with a command this machine has", name))
+				}
+			}
+		}
+	}
+
+	c.inputs = &entrypoint.HostInputs{Vars: vars, Packs: packs,
+		AgentLookup: hostAgentLookup(cfg)}
+	return c, nil
+}
+
+// hostServerTable is the user-scope `key` table (mcp_servers or lsp_servers) as the host
+// carries it: every entry but one that names a jail-only path (HC-D6), each such entry named.
+// A null entry is a jail-side removal of a preset, and there are no presets here, so it is
+// dropped. The predicate is the render's own output check (entrypoint.JailPathsIn, HC-D12).
+func hostServerTable(cfg *jsonx.OrderedMap, key, home string) (*jsonx.OrderedMap, []string) {
+	out := jsonx.NewOrderedMap()
+	v, ok := cfg.Get(key)
+	if !ok {
+		return out, nil
+	}
+	table, isMap := v.(*jsonx.OrderedMap)
+	if !isMap {
+		return out, nil
+	}
+	var omitted []string
+	for _, name := range table.Keys() {
+		entry, _ := table.Get(name)
+		if entry == nil {
+			continue
+		}
+		if bad := entrypoint.JailPathsIn(entry, home); len(bad) > 0 {
+			omitted = append(omitted, fmt.Sprintf("%s %s is not written at the host: it names "+
+				"a path that exists only inside a jail (%s)", key, name, strings.Join(bad, "; ")))
+			continue
+		}
+		out.Set(name, entry)
+	}
+	return out, omitted
+}
+
+// hostAgentLookup answers a server's requires_env for ONE agent, the way that agent's process
+// will see its environment when `yolo host` launches it: the invoking environment with the
+// agent's composition (composeHostVars, the body `yolo host env --agent` prints) applied over
+// it — so a provider credential that reaches only the agent that selected its provider
+// (OQ-CN6) gates the server for that agent alone (HC-D6). Composed lazily, once per agent, and
+// only for an agent a requires_env server asks about.
+func hostAgentLookup(cfg *jsonx.OrderedMap) func(agent string) func(string) (string, bool) {
+	cache := map[string]map[string]*string{}
+	workspace, err := os.Getwd()
+	if err != nil {
+		workspace = "."
+	}
+	return func(agent string) func(string) (string, bool) {
+		return func(key string) (string, bool) {
+			composed, ok := cache[agent]
+			if !ok {
+				composed = map[string]*string{}
+				c := composeHostVars(cfg, workspace, agent, "", nil)
+				if c.err == nil {
+					for _, v := range c.vars {
+						if v.Unset {
+							composed[v.Key] = nil
+							continue
+						}
+						val := v.Value
+						composed[v.Key] = &val
+					}
+				}
+				cache[agent] = composed
+			}
+			if v, set := composed[key]; set {
+				if v == nil {
+					return "", false
+				}
+				return *v, true
+			}
+			return os.LookupEnv(key)
+		}
+	}
+}
+
+// wireJSON is a table's wire text, "{}" when it has none or will not encode.
+func wireJSON(m *jsonx.OrderedMap) string {
+	if m == nil {
+		return "{}"
+	}
+	text, err := jsonx.DumpsCompact(m)
+	if err != nil {
+		return "{}"
+	}
+	return text
+}
+
+// firstLine is an error's first line, for a one-line report.
+func firstLine(s string) string {
+	line, _, _ := strings.Cut(s, "\n")
+	return line
+}
+
+// sortedOmitted is the report order: stable across runs.
+func sortedOmitted(lines []string) []string {
+	out := append([]string(nil), lines...)
+	sort.Strings(out)
+	return out
+}

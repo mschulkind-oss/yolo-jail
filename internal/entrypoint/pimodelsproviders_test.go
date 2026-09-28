@@ -102,8 +102,8 @@ func hostRenderPi(t *testing.T, home string, observe bool) HostRenderResult {
 	if err != nil {
 		t.Fatal(err)
 	}
-	results, err := RenderHostPack(pi, home, render.OwnershipAssert, observe,
-		packoverlay.Collect([]*packload.Pack{pi}, false, nil))
+	results, err := RenderHostPack(pi, home, render.OwnershipAssert, observe, packoverlay.Collect([]*packload.Pack{pi}, false, nil), nil)
+
 	if err != nil {
 		t.Fatalf("RenderHostPack(pi): %v", err)
 	}

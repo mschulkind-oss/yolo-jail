@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/packoverlay"
@@ -82,12 +83,24 @@ func configRenderHost(agent, surface string, explain bool, out, errw io.Writer, 
 		fmt.Fprintf(errw, "yolo config render: not folded — %s (`yolo host apply` refuses this)\n", prob)
 	}
 
+	// THE SAME COMPOSITION host apply renders from (HC-D11), so the preview is the write's
+	// bytes for a derived surface too: its computed layer over the host's inputs.
+	inputs, cerr := composeHostInputs(config.UserScopeConfigOrEmpty(), packs, home)
+	if cerr != nil {
+		fmt.Fprintf(errw, "yolo config render: not rendered — %v (`yolo host apply` refuses "+
+			"this too)\n", cerr)
+		return 1
+	}
+	for _, line := range sortedOmitted(inputs.omitted) {
+		fmt.Fprintf(errw, "yolo config render: %s\n", line)
+	}
+
 	rc := 0
 	known := map[string]bool{}
 	var matched []entrypoint.HostRenderResult
 	ownership := hostOwnership()
 	for _, p := range packs {
-		results, rerr := entrypoint.RenderHostPack(p, home, ownership, true, overlays)
+		results, rerr := entrypoint.RenderHostPack(p, home, ownership, true, overlays, inputs.inputs)
 		if rerr != nil {
 			fmt.Fprintf(errw, "yolo config render: %s: %v\n", p.Name, rerr)
 			rc = 1

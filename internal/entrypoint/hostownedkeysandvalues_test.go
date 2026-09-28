@@ -74,8 +74,7 @@ func criterionHome(t *testing.T, codecName, rel, seed string) (home, path string
 	if err := os.WriteFile(path, []byte(seed), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := RenderHostPack(criterionPack(t, codecName, "~/"+rel), home,
-		render.OwnershipAssert, false, nil); err != nil {
+	if _, err := RenderHostPack(criterionPack(t, codecName, "~/"+rel), home, render.OwnershipAssert, false, nil, nil); err != nil {
 		t.Fatalf("first --assert apply: %v", err)
 	}
 	asserted, err := os.ReadFile(path)
@@ -205,8 +204,8 @@ ask = ["Bash(rm:*)"]
 		t.Run(tc.name, func(t *testing.T) {
 			home, path, asserted := criterionHome(t, tc.codec, tc.rel, tc.seed)
 
-			results, err := RenderHostPack(criterionPack(t, tc.codec, "~/"+tc.rel), home,
-				render.OwnershipOwn, false, nil)
+			results, err := RenderHostPack(criterionPack(t, tc.codec, "~/"+tc.rel), home, render.OwnershipOwn, false, nil, nil)
+
 			if err != nil {
 				t.Fatalf("first `own` apply: %v", err)
 			}
@@ -239,8 +238,7 @@ ask = ["Bash(rm:*)"]
 			// overlay. If that re-read runs only on the adoption branch, THIS is what
 			// goes red — the first owned render puts the key back and the second, on the
 			// steady-state branch, drops it again.
-			if _, err := RenderHostPack(criterionPack(t, tc.codec, "~/"+tc.rel), home,
-				render.OwnershipOwn, false, nil); err != nil {
+			if _, err := RenderHostPack(criterionPack(t, tc.codec, "~/"+tc.rel), home, render.OwnershipOwn, false, nil, nil); err != nil {
 				t.Fatalf("second `own` apply: %v", err)
 			}
 			again, err := os.ReadFile(path)

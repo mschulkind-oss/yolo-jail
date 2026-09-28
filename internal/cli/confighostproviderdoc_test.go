@@ -1,16 +1,16 @@
 package cli
 
-// confighostproviderdoc_test.go pins HC-D3 (docs/design/host-computed-layer.md §7): config-ref's
-// host-notch `provider` row says what is true — the files `yolo host apply` writes include ones
-// that carry provider facts in a jail, and host apply composes no provider table, so they render
-// without them.
+// confighostproviderdoc_test.go pins config-ref's host-notch provider text to what host apply
+// does (docs/design/host-computed-layer.md §6.7 item 5): since OQ-HC1 `yolo host apply` composes
+// the providers table and runs the derives over it, so `provider` is no longer a kind that does
+// not apply at the host, and the paragraph saying what a host apply computes names every surface
+// that carries provider facts.
 //
-// The row used to say "nothing in those files is a provider, so there is no derive to feed",
-// which is false twice over: host apply runs every derive (for its key names), and five shipped
-// surfaces carry provider rows or a provider's model list. The test does not take that list
-// from the design doc. It MEASURES it, by running every shipped derive over the provider table
-// the shipped packs compose and over an empty one, and requires the row to name each surface
-// whose output differs — so a new provider-carrying surface fails here until the row names it.
+// HC-D3 first made the row say what was true then — host apply composed no provider table, so
+// those files rendered without provider facts. The test does not take the surface list from the
+// design doc. It MEASURES it, by running every shipped derive over the provider table the
+// shipped packs compose and over an empty one, and requires the paragraph to name each surface
+// whose output differs — so a new provider-carrying surface fails here until the text names it.
 
 import (
 	"encoding/json"
@@ -106,16 +106,31 @@ func kindRow(t *testing.T, section, kind string) string {
 	return ""
 }
 
-func TestConfigRefHostProviderRowSaysWhatHostApplyRenders(t *testing.T) {
-	row := kindRow(t, hostNotchDocSection(t, configRefContent), "provider")
-	flat := strings.Join(strings.Fields(row), " ")
-	if strings.Contains(flat, "nothing in those files is a provider") {
-		t.Errorf("the host-notch provider row still says no host-rendered file carries a "+
-			"provider, which five shipped surfaces contradict:\n%s", row)
+// hostComputesParagraph is config-ref's "WHAT A HOST APPLY COMPUTES" paragraph, up to the next
+// paragraph of the host-notch block.
+func hostComputesParagraph(t *testing.T) string {
+	t.Helper()
+	const marker = "WHAT A HOST APPLY COMPUTES"
+	start := strings.Index(configRefContent, marker)
+	if start < 0 {
+		t.Fatalf("config_ref.txt has no %q paragraph", marker)
 	}
-	if !strings.Contains(flat, "composes no provider") {
-		t.Errorf("the host-notch provider row does not say host apply composes no provider "+
-			"table, which is why those files render without provider facts:\n%s", row)
+	rest := configRefContent[start:]
+	if end := strings.Index(rest, "\n    NOTE"); end > 0 {
+		rest = rest[:end]
+	}
+	return strings.Join(strings.Fields(rest), " ")
+}
+
+func TestConfigRefSaysWhatAHostApplyComputesFromProviders(t *testing.T) {
+	section := hostNotchDocSection(t, configRefContent)
+	if hasKindListEntry(section, "provider") {
+		t.Errorf("config-ref still lists `provider` as a kind that does not apply at the host, "+
+			"but host apply composes the providers table since OQ-HC1:\n%s", section)
+	}
+	flat := hostComputesParagraph(t)
+	if strings.Contains(flat, "composes no provider") {
+		t.Errorf("the host-apply paragraph still says it composes no provider table:\n%s", flat)
 	}
 	carrying := providerCarryingSurfaces(t)
 	if len(carrying) == 0 {
@@ -123,9 +138,8 @@ func TestConfigRefHostProviderRowSaysWhatHostApplyRenders(t *testing.T) {
 	}
 	for _, id := range carrying {
 		if !strings.Contains(flat, "`"+id+"`") {
-			t.Errorf("the host-notch provider row does not name `%s`, a surface whose derive "+
-				"writes provider facts in a jail and none at the host (measured set: %v):\n%s",
-				id, carrying, row)
+			t.Errorf("the host-apply paragraph does not name `%s`, a surface whose derive "+
+				"writes provider facts at both notches (measured set: %v):\n%s", id, carrying, flat)
 		}
 	}
 }

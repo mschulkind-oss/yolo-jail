@@ -64,7 +64,7 @@ func formattingHome(t *testing.T, seed string) (home, path string) {
 	if err := os.WriteFile(path, []byte(seed), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := RenderHostPack(formattingPack(t), home, render.OwnershipAssert, false, nil); err != nil {
+	if _, err := RenderHostPack(formattingPack(t), home, render.OwnershipAssert, false, nil, nil); err != nil {
 		t.Fatalf("the `assert` apply: %v", err)
 	}
 	return home, path
@@ -74,7 +74,7 @@ func formattingHome(t *testing.T, seed string) (home, path string) {
 // this disclosure has to land, since after the write the comments are already gone.
 func observeOwn(t *testing.T, home string) HostRenderResult {
 	t.Helper()
-	res, err := RenderHostPack(formattingPack(t), home, render.OwnershipOwn, true, nil)
+	res, err := RenderHostPack(formattingPack(t), home, render.OwnershipOwn, true, nil, nil)
 	if err != nil {
 		t.Fatalf("observe: %v", err)
 	}
@@ -119,7 +119,7 @@ func TestSwitchingToOwnDisclosesThatCommentsWillNotSurvive(t *testing.T) {
 func TestASteadyStateOwnedTOMLFileReportsNoCommentLoss(t *testing.T) {
 	home, path := formattingHome(t, "# a note\napiKeyHelper = \"/x/y\"\n")
 
-	if _, err := RenderHostPack(formattingPack(t), home, render.OwnershipOwn, false, nil); err != nil {
+	if _, err := RenderHostPack(formattingPack(t), home, render.OwnershipOwn, false, nil, nil); err != nil {
 		t.Fatalf("the first `own` apply: %v", err)
 	}
 	written, err := os.ReadFile(path)

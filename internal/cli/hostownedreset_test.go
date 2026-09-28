@@ -285,7 +285,7 @@ func TestHostSideResetLeavesTheNextApplyNothingToAdopt(t *testing.T) {
 		t.Fatalf("reset under `own`: rc=%d\n%s%s", rc, out.String(), errw.String())
 	}
 	// The command reset's own trailer names, at the notch it named it for.
-	if _, err := entrypoint.RenderHostPack(claude, home, render.OwnershipOwn, false, nil); err != nil {
+	if _, err := entrypoint.RenderHostPack(claude, home, render.OwnershipOwn, false, nil, nil); err != nil {
 		t.Fatalf("the host apply reset told the user to run: %v", err)
 	}
 

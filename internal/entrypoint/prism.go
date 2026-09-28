@@ -255,6 +255,36 @@ func prismListCapturePath(e *Env, agent, name string) string {
 type surfaceContribs struct {
 	overlays []agentcfg.Overlay
 	lists    []agentcfg.ListContribution
+	// hostLeaves and hostClears are the HOST's computed-layer leaf assertions for an `rmw`
+	// write (HC-D10 rule 2, hostcomputed.go): every derived key that is not a table in full,
+	// written leaf by leaf after the tables, and the selection keys a deselect clears. Carried
+	// here, beside the other packs' contributions, because every rmw helper — the write, the
+	// preview, the change predicate, the loss and formatting probes — already takes this
+	// value, so the leaves reach each of them without a second parameter. A jail never sets
+	// them: its rmw arm regenerates what regenerateManagedTables is handed (OQ-CO15).
+	hostLeaves map[string]any
+	hostClears []string
+}
+
+// withHostLeaves is c with the host's leaf layer attached, as a new value (c is shared with
+// nothing, but a nil c is the common case).
+func (c *surfaceContribs) withHostLeaves(leaves map[string]any, clears []string) *surfaceContribs {
+	if len(leaves) == 0 && len(clears) == 0 {
+		return c
+	}
+	out := &surfaceContribs{hostLeaves: leaves, hostClears: clears}
+	if c != nil {
+		out.overlays, out.lists = c.overlays, c.lists
+	}
+	return out
+}
+
+// leafLayer is the host leaf half, nil for none.
+func (c *surfaceContribs) leafLayer() (map[string]any, []string) {
+	if c == nil {
+		return nil, nil
+	}
+	return c.hostLeaves, c.hostClears
 }
 
 // contribsFor is one surface's contributions out of the collected set.
@@ -535,6 +565,13 @@ func composeStatefulSurface(e *Env, surface manifest.Surface, hostBytes []byte, 
 			agentcfg.DecodeSurfaceObject(surface.Codec, hostBytes),
 			agentcfg.DecodeSurfaceObject(surface.Codec, lastRenderBytes),
 			readProvenanceRecord(e, surface.Agent, surface.Name))
+		// AT THE HOST the real file is what a jail's host layer carries, and there is no host
+		// layer beside it, so the same rule reads the record instead: a value the selection
+		// never wrote predates it (hostSelectionBaseline, HC-D16). The rmw arm asks the same
+		// function, so the two contracts apply one selection rule.
+		if e.hostTarget {
+			hostOwned = hostSelectionBaseline(fileObj, selectionRecord)
+		}
 	}
 	lift, next, cleared := agentcfg.ApplySelectionReport(selection, fileObj, selectionRecord, hostOwned)
 	if len(lift) > 0 {
@@ -912,6 +949,23 @@ type rmwRender struct {
 // (render.ModeSet.Records): which layer won each key. It reads the PREVIOUS record, so it
 // must be computed before the write replaces it.
 func (r *rmwRender) provenance(e *Env, computed map[string]any, contribs *surfaceContribs) map[string]string {
+	// The host's computed LEAVES are the computed layer's too: each top-level key one lands
+	// under reads `computed`, at the record's top-level grain, so a leaf yolo stops asserting
+	// is retired as `retired:computed` rather than laundered into the user's (HC-D10 rule 4).
+	// rmwProvenance labels an OBJECT-valued computed key, so each leaf key joins the map it
+	// reads as one — this copy is the record's, never the write's.
+	if leaves, _ := contribs.leafLayer(); len(leaves) > 0 {
+		withLeaves := make(map[string]any, len(computed)+len(leaves))
+		for k, v := range computed {
+			withLeaves[k] = v
+		}
+		for k := range leaves {
+			if _, set := withLeaves[k]; !set {
+				withLeaves[k] = map[string]any{}
+			}
+		}
+		computed = withLeaves
+	}
 	return rmwProvenance(r.surface, r.present, r.intact, computed, contribs.overlayLayers(), r.lists,
 		readProvenanceRecord(e, r.surface.Agent, r.surface.Name))
 }
@@ -1416,6 +1470,16 @@ func applyRMWLayers(e *Env, surface manifest.Surface, obj *jsonx.OrderedMap,
 	// Dynamic managed tables (MCP servers) FIRST, so a managed key nested under the
 	// same parent still wins the floor.
 	regenerateManagedTables(e, surface, obj, computed)
+	// The host's computed LEAVES (HC-D10 rule 2), at the computed layer's own position: above
+	// the overlays and the tables, below managed. Force-written leaf by leaf, so the rest of an
+	// object the derive only asserts a leaf of stays as the file holds it; then the selection
+	// keys a deselect cleared go (OQ-PSW2). Nothing here in a jail, which sets neither.
+	if leaves, clears := contribs.leafLayer(); len(leaves) > 0 || len(clears) > 0 {
+		applyRMWLayer(obj, leaves, true, deleteNulls)
+		for _, k := range clears {
+			obj.Delete(k)
+		}
+	}
 	// Managed: yolo owns these outright, so re-assert every boot.
 	if managed, isMap := surface.Managed.(map[string]any); isMap {
 		applyRMWLayer(obj, managed, true, deleteNulls)

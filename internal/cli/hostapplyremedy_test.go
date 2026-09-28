@@ -45,15 +45,18 @@ func TestHostApplyGroupsOneEntryLossAcrossAgentsUnderOneRemedy(t *testing.T) {
 			"%d times:\n%s", n, report)
 	}
 	// P2: the remedy names the FILE the declaration goes in and the SCOPE it covers. The
-	// per-surface copy this replaced had neither. The scope is per surface at this notch
-	// (HC-D2): one file to edit is what makes three problems one group, and the declaration is
-	// a config-overlay per surface, since `mcp_servers` reaches no host file.
-	if !strings.Contains(remedy, filepath.Join(home, ".config", "yolo-jail", "local", "pack.json")) {
-		t.Errorf("the remedy must name the file the declaration goes in: %q", remedy)
+	// per-surface copy this replaced had neither. One file to edit is what makes three problems
+	// one group: the user config, whose `mcp_servers` reaches every agent's host file since the
+	// host runs the jail's derives (OQ-HC1, HC-D19), with a per-surface config-overlay in the
+	// local pack as the one-agent alternative.
+	if !strings.Contains(remedy, filepath.Join(home, ".config", "yolo-jail", "config.jsonc")) ||
+		!strings.Contains(remedy, "`mcp_servers`") || !strings.Contains(remedy, "every agent") {
+		t.Errorf("the remedy must name the user config's `mcp_servers` and say it reaches every "+
+			"agent: %q", remedy)
 	}
-	if !strings.Contains(remedy, "config-overlay") || !strings.Contains(remedy, "each agent surface") {
-		t.Errorf("the remedy must name the declaration and its scope — a config-overlay for "+
-			"each agent surface: %q", remedy)
+	if !strings.Contains(remedy, filepath.Join(home, ".config", "yolo-jail", "local", "pack.json")) ||
+		!strings.Contains(remedy, "config-overlay") {
+		t.Errorf("the remedy must still name the per-surface config-overlay and its file: %q", remedy)
 	}
 	// the remedy contract: grouping compresses the LINES, never the SET.
 	for _, name := range survey.DroppedEntryNames() {

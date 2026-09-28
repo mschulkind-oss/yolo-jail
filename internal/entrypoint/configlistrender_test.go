@@ -345,7 +345,7 @@ func applyHostPacks(t *testing.T, home string, ownership render.HostOwnership, o
 	set := packoverlay.Collect(packs, false, nil)
 	var all []HostRenderResult
 	for _, p := range packs {
-		results, err := RenderHostPack(p, home, ownership, observe, set)
+		results, err := RenderHostPack(p, home, ownership, observe, set, nil)
 		if err != nil {
 			t.Fatalf("RenderHostPack(%s): %v", p.Name, err)
 		}

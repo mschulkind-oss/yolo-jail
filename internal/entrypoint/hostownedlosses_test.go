@@ -139,12 +139,12 @@ func runOwnedApply(t *testing.T, c ownedLossCase, home string, extra *packload.P
 	s := surfaceNamed(t, p, c.surface)
 	before = tableEntries(t, s, path, c.table)
 
-	obs, err := RenderHostPack(p, home, render.OwnershipOwn, true, overlays)
+	obs, err := RenderHostPack(p, home, render.OwnershipOwn, true, overlays, nil)
 	if err != nil {
 		t.Fatalf("observe RenderHostPack(%s): %v", c.pack, err)
 	}
 	observed = resultFor(t, obs, c.surface).EntryLosses
-	res, err := RenderHostPack(p, home, render.OwnershipOwn, false, overlays)
+	res, err := RenderHostPack(p, home, render.OwnershipOwn, false, overlays, nil)
 	if err != nil {
 		t.Fatalf("assert RenderHostPack(%s): %v", c.pack, err)
 	}

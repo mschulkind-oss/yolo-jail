@@ -46,7 +46,7 @@ func renderCodexHost(t *testing.T, home string, observe bool) HostRenderResult {
 	if err != nil {
 		t.Fatalf("embedded codex: %v", err)
 	}
-	results, rerr := RenderHostPack(codex, home, render.OwnershipAssert, observe, nil)
+	results, rerr := RenderHostPack(codex, home, render.OwnershipAssert, observe, nil, nil)
 	if rerr != nil {
 		t.Fatalf("RenderHostPack: %v", rerr)
 	}
@@ -377,7 +377,7 @@ func TestHostRenderJSONSurfaceNeverWarnsComments(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	results, rerr := RenderHostPack(claude, home, render.OwnershipAssert, true, nil)
+	results, rerr := RenderHostPack(claude, home, render.OwnershipAssert, true, nil, nil)
 	if rerr != nil {
 		t.Fatal(rerr)
 	}
@@ -406,7 +406,7 @@ func TestHostRenderRefusesUnparseableJSON(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	results, rerr := RenderHostPack(claude, home, render.OwnershipAssert, false, nil)
+	results, rerr := RenderHostPack(claude, home, render.OwnershipAssert, false, nil, nil)
 	if rerr != nil {
 		t.Fatal(rerr)
 	}
@@ -448,7 +448,7 @@ func TestHostRenderRefusalDoesNotAbortThePack(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	results, rerr := RenderHostPack(copilot, home, render.OwnershipAssert, false, nil)
+	results, rerr := RenderHostPack(copilot, home, render.OwnershipAssert, false, nil, nil)
 	if rerr != nil {
 		t.Fatalf("a refusal must not surface as a pack-level error: %v", rerr)
 	}

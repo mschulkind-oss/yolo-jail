@@ -87,7 +87,7 @@ func TestHostCensusIsWhatKeepsADroppedPacksKeyAttributable(t *testing.T) {
 	dropme := overlayContributorPack(t, "dropme", map[string]any{"fileSuggestion": "run-fzf"})
 
 	overlays := packoverlay.Collect([]*packload.Pack{owner, dropme}, false, nil)
-	if _, err := RenderHostPack(owner, home, render.OwnershipAssert, false, overlays); err != nil {
+	if _, err := RenderHostPack(owner, home, render.OwnershipAssert, false, overlays, nil); err != nil {
 		t.Fatalf("first apply: %v", err)
 	}
 	first, found := hostProvenance(t, home, "acme", "settings")

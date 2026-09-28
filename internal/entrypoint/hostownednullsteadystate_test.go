@@ -83,8 +83,7 @@ func TestANullTypedInAfterAnOwnedHostApplySurvivesTheLayerThatDeclaresIt(t *test
 
 	apply := func(what string) map[string]any {
 		t.Helper()
-		if _, err := RenderHostPack(steadyStatePack(t, rel), home,
-			render.OwnershipOwn, false, nil); err != nil {
+		if _, err := RenderHostPack(steadyStatePack(t, rel), home, render.OwnershipOwn, false, nil, nil); err != nil {
 			t.Fatalf("%s: %v", what, err)
 		}
 		b, err := os.ReadFile(path)

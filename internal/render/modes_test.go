@@ -270,11 +270,14 @@ func TestModesIsAFunctionOfTheNotchAlone(t *testing.T) {
 			manifest.ModeComputed:   manifest.ModeRMW,
 			manifest.ModeUnrendered: manifest.ModeUnrendered,
 		},
-		// `own` has TWO, so it coerces nothing: each declaration runs as itself, and
-		// `computed` — which has no adoption path — is refused rather than coerced (OQ-CO9).
+		// `own` has TWO, so its fallback coerces nothing: each declaration it runs runs as
+		// itself. `computed` is the one EXPLICIT coercion, onto `stateful` (OQ-HC2,
+		// docs/design/host-computed-layer.md): the capture overlay is the adoption path a
+		// wholesale `computed` render lacks, so the first owned render adopts the file.
 		OwnershipOwn: {
 			manifest.ModeStateful:   manifest.ModeStateful,
 			manifest.ModeRMW:        manifest.ModeRMW,
+			manifest.ModeComputed:   manifest.ModeStateful,
 			manifest.ModeUnrendered: manifest.ModeUnrendered,
 		},
 	}
@@ -360,6 +363,29 @@ func TestHostCaptureStoreIsOwnOnly(t *testing.T) {
 	}
 	if p := Host("/home/me", nil, OwnershipAssert).OverlayPath("acme", "settings"); p != "" {
 		t.Errorf("a contract with no store answered %q for a capture sidecar path", p)
+	}
+}
+
+// THE SELECTION RECORD HAS A HOME UNDER `assert` TOO (OQ-HC3, HC-D17 in
+// docs/design/host-computed-layer.md). Host apply writes the `use_profiles` selection with the
+// jail's edge-triggered rule under both contracts, and the rule needs a record of what yolo
+// wrote. `assert` keeps no capture store, so the record goes where the provenance record and the
+// config-list insert record already go; `none` and an unstated contract write nothing and so
+// keep none.
+func TestHostSelectionRecordLivesBesideTheProvenanceUnderAssert(t *testing.T) {
+	asserted := Host("/home/me", nil, OwnershipAssert)
+	want := asserted.ProvenanceDir() + "/acme-settings.selection.json"
+	if got := asserted.SelectionPath("acme", "settings"); got != want {
+		t.Errorf("assert-home selection record is %q, want %q", got, want)
+	}
+	owned := Host("/home/me", nil, OwnershipOwn)
+	if got := owned.SelectionPath("acme", "settings"); !strings.HasPrefix(got, owned.SidecarDir()+"/") {
+		t.Errorf("an owned home's selection record %q moved out of its capture store", got)
+	}
+	for _, o := range []HostOwnership{OwnershipUnstated, OwnershipNone} {
+		if got := Host("/home/me", nil, o).SelectionPath("acme", "settings"); got != "" {
+			t.Errorf("host under %q keeps a selection record at %q, but writes nothing", o, got)
+		}
 	}
 }
 

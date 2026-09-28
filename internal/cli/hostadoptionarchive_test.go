@@ -51,7 +51,7 @@ func adoptedHome(t *testing.T) (home, archive string) {
 	pack := &packload.Pack{Name: "acme", Decl: &packdecl.Manifest{
 		Contributes: []packdecl.Contribution{{Kind: packdecl.KindConfig, Raw: raw}},
 	}}
-	results, err := entrypoint.RenderHostPack(pack, home, render.OwnershipOwn, false, nil)
+	results, err := entrypoint.RenderHostPack(pack, home, render.OwnershipOwn, false, nil, nil)
 	if err != nil {
 		t.Fatalf("`own` apply: %v", err)
 	}

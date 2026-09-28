@@ -242,10 +242,10 @@ func TestPiSubagentsDeselectedRemovesOnlyYolosOwnCopy(t *testing.T) {
 
 // ── the host notch ─────────────────────────────────────────────────────────────────────────
 
-// `yolo host apply` renders no derive's content (docs/design/host-computed-layer.md), so at
-// the host this surface has none of yolo's servers to give, and the user's real
-// ~/.config/mcp/mcp.json must come through an apply exactly as it went in, under either
-// contract, with pi-subagents in the host's own pi settings.
+// pi/subagents-mcp is declared `notAtHost`, so even now that `yolo host apply` runs the derives
+// (docs/design/host-computed-layer.md OQ-HC1) this surface is never rendered there, and the
+// user's real ~/.config/mcp/mcp.json must come through an apply exactly as it went in, under
+// either contract, with pi-subagents in the host's own pi settings.
 func TestPiSubagentsHostApplyLeavesTheUsersSharedFileAlone(t *testing.T) {
 	for _, ownership := range []render.HostOwnership{render.OwnershipAssert, render.OwnershipOwn} {
 		t.Run(ownership.String(), func(t *testing.T) {

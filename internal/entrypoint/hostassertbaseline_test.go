@@ -87,7 +87,7 @@ func assertBaselineHome(t *testing.T) (home, path string) {
 	if err := os.WriteFile(path, []byte(seed), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := RenderHostPack(adoptionBaselinePack(t), home, render.OwnershipAssert, false, nil); err != nil {
+	if _, err := RenderHostPack(adoptionBaselinePack(t), home, render.OwnershipAssert, false, nil, nil); err != nil {
 		t.Fatalf("first --assert apply: %v", err)
 	}
 	return home, path
@@ -140,7 +140,7 @@ func TestHostAssertIsAFixedPoint(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read after first apply: %v", err)
 	}
-	if _, err := RenderHostPack(adoptionBaselinePack(t), home, render.OwnershipAssert, false, nil); err != nil {
+	if _, err := RenderHostPack(adoptionBaselinePack(t), home, render.OwnershipAssert, false, nil, nil); err != nil {
 		t.Fatalf("second --assert apply: %v", err)
 	}
 	second, err := os.ReadFile(path)

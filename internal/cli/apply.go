@@ -195,7 +195,7 @@ func applyMain(args []string, out, errw io.Writer, color bool, stdin io.Reader) 
 // applyHost renders the configured packs' config surfaces into the invoking user's REAL
 // home (env-manager plan Phase 4). Default posture is OBSERVE (dry-run): it prints what
 // would change and writes nothing; --assert (write=true) actually renders. Pure RMW, no
-// computed layer, user-scoped — the resolved OQ-2..4 model. (OQ-1's "no --revert" half was
+// computed layer over the host's own inputs since OQ-HC1, user-scoped — the resolved OQ-2..4 model. (OQ-1's "no --revert" half was
 // REVERSED on 2026-09-11 by docs/design/config-ownership-and-promotion.md §10 step 3, on
 // grounds that ruling did not have: it named the missing memory as the blocker, and the
 // provenance record is that memory. The verb is hostrevert.go; this render is untouched by
@@ -579,6 +579,25 @@ func applyHostSurveyed(out, errw io.Writer, color bool, write bool, stdin io.Rea
 			orphan.KindName(), orphan.Reason(), orphan.Pack)
 	}
 
+	// THE HOST'S DERIVE INPUTS, composed ONCE for this invocation (HC-D11) and handed to every
+	// render below — the loss pre-flight's observe pass and the render loop — so the prompt and
+	// the write derive from one composition (OQ-HC1: the host runs the jail's derives over
+	// inputs composed at user scope, docs/design/host-computed-layer.md §6.2). A composition
+	// that fails refuses the apply before anything is written, in both postures (HC-D7): it is
+	// an input every derived surface shares.
+	inputs, cerr := composeHostInputs(config.UserScopeConfigOrEmpty(), loaded, home)
+	if cerr != nil {
+		pr.Printf("[bold red]host apply: refused — %v. Nothing was written.[/bold red]", cerr)
+		survey.noteUnattributedFailure()
+		return 1
+	}
+	// What the composition left out, each once, so a config key the host does not honor is
+	// never silent (a preset, an entry naming a jail-only path, a selection the host refuses).
+	for _, line := range sortedOmitted(inputs.omitted) {
+		pr.Printf("  [yellow]input      %s[/yellow]", line)
+	}
+	detail(pr, "  [dim]input      %s[/dim]", inputs.summary())
+
 	// THE DEPENDENCY PRE-FLIGHT (report-tiers.md's dependency rule, point 1). Every configured
 	// pack's declared binaries, probed once, BEFORE anything is written — including before
 	// the one-way door below, which is the other thing that can stop this run.
@@ -615,7 +634,8 @@ func applyHostSurveyed(out, errw io.Writer, color bool, write bool, stdin io.Rea
 	// that things will be lost and wait for confirm" — warn-and-confirm, not warn-and-refuse.
 	// See confirmHostLosses for the three properties that make it not-noise.
 	if write {
-		if confirmed, tables := confirmHostLosses(pr, out, stdin, loaded, home, overlays); !confirmed {
+		if confirmed, tables := confirmHostLosses(pr, out, stdin, loaded, home, overlays,
+			inputs.inputs); !confirmed {
 			pr.Printf("[bold red]host apply: not confirmed — nothing was written.[/bold red]")
 			// ONE remedy string, read here and at the two other places this sentence used to
 			// be written out (the per-surface loss line and confirmHostLosses' own trailer).
@@ -674,7 +694,8 @@ func applyHostSurveyed(out, errw io.Writer, color bool, write bool, stdin io.Rea
 		}
 		// THE DECLARED CONTRACT, read once per invocation and passed down: it is what selects
 		// the mechanism each surface renders through (render.HostOwnership).
-		results, rerr := entrypoint.RenderHostPack(p, home, hostOwnership(), !write, overlays)
+		results, rerr := entrypoint.RenderHostPack(p, home, hostOwnership(), !write, overlays,
+			inputs.inputs)
 		if rerr != nil {
 			// A tier-3 BLOCKER, and it has to reach the verdict: this pack's surfaces are
 			// absent from every count below, so a verdict built from those counts alone
@@ -731,6 +752,12 @@ func applyHostSurveyed(out, errw io.Writer, color bool, write bool, stdin io.Rea
 			// was overwritten BY THE OVERLAY here — the policy simply held.
 			for _, o := range r.Outranked {
 				pr.Printf("    [yellow]↳ %s[/yellow]", o)
+			}
+			// An input this surface's derive was not handed at the host — an MCP server whose
+			// requires_env this agent's composed environment lacks (HC-D6) — named on its own
+			// line, as a jail's boot names it, since the file shows no trace of it.
+			for _, skip := range r.InputSkips {
+				pr.Printf("  [cyan]%-20s[/cyan] [yellow]%s[/yellow]", r.Surface, skip)
 			}
 			// Warn on every managed key that overwrites a DIFFERING existing value — the
 			// host-notch "always warn" (§4.2 / Phase 9). Shown in observe too, so the
@@ -1027,14 +1054,15 @@ func reportHostPackages(pr richtext.Printer, errw io.Writer, home string) (inert
 // It returns the tables its prompt listed alongside the answer, so the caller's abort line
 // builds the same remedy the trailer printed.
 func confirmHostLosses(pr richtext.Printer, out io.Writer, stdin io.Reader,
-	loaded []*packload.Pack, home string, overlays *packoverlay.OverlaySet) (bool, []droppedTable) {
+	loaded []*packload.Pack, home string, overlays *packoverlay.OverlaySet,
+	inputs *entrypoint.HostInputs) (bool, []droppedTable) {
 	type loss struct {
 		surface, path string
 		keys          []string
 	}
 	var losses []loss
 	for _, p := range loaded {
-		results, err := entrypoint.RenderHostPack(p, home, hostOwnership(), true, overlays)
+		results, err := entrypoint.RenderHostPack(p, home, hostOwnership(), true, overlays, inputs)
 		if err != nil {
 			// A preflight that cannot answer must not be read as "nothing to lose". The real
 			// render below will report the same error properly; here, fail closed by treating

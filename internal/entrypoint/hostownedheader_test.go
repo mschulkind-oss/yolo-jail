@@ -36,7 +36,7 @@ func mustEmbeddedPack(t *testing.T, name string) *packload.Pack {
 
 func TestAnOwnedHostRenderNamesTheHostApplyInItsBanner(t *testing.T) {
 	home, path := codexHostHome(t, "model = \"gpt-5\"\n")
-	if _, err := RenderHostPack(mustEmbeddedPack(t, "codex"), home, render.OwnershipOwn, false, nil); err != nil {
+	if _, err := RenderHostPack(mustEmbeddedPack(t, "codex"), home, render.OwnershipOwn, false, nil, nil); err != nil {
 		t.Fatalf("owned RenderHostPack(codex): %v", err)
 	}
 	written, err := os.ReadFile(path)
@@ -81,7 +81,7 @@ func TestAJailBootKeepsTheJailBanner(t *testing.T) {
 // home upgraded from such a yolo reports a loss it cannot have.
 func TestAnOwnedRenderDoesNotReportAnOlderBannerAsYourComments(t *testing.T) {
 	home, _ := codexHostHome(t, jailBanner(t)+"model = \"gpt-5\"\n")
-	res, err := RenderHostPack(mustEmbeddedPack(t, "codex"), home, render.OwnershipOwn, true, nil)
+	res, err := RenderHostPack(mustEmbeddedPack(t, "codex"), home, render.OwnershipOwn, true, nil, nil)
 	if err != nil {
 		t.Fatalf("owned observe RenderHostPack(codex): %v", err)
 	}

@@ -57,6 +57,12 @@ type ModeSet struct {
 	// undecided marks a notch whose mode policy nobody has stated yet — distinct from a notch
 	// that has stated an empty one. Read Undecided() for what a caller does with it.
 	undecided bool
+	// coerce is a STATED coercion: a declared mode this target does not run, mapped to the one
+	// it renders the surface through. Mechanism's derived fallback needs a SOLE composing
+	// mechanism, and a census running two has none, so a coercion there has to be written
+	// down rather than inferred. The one entry today is `own`'s `computed` → `stateful`
+	// (OQ-HC2).
+	coerce map[string]string
 }
 
 // Runs reports whether this target executes the named mechanism.
@@ -165,12 +171,17 @@ func HostAssertModes() ModeSet {
 //     it is not a licence to overrule the PACK's statement about what kind of file it is.
 //     So rmw runs here too, which also means this notch coerces nothing at all — Mechanism's
 //     fallback needs a SOLE composing mechanism, and this census has two.
-//   - It does NOT run `computed`. A computed surface keeps no capture overlay, so it has no
-//     adoption path: the first owned render would replace a real file the user has never had
-//     yolo touch, wholesale, with nothing to recover it from. That is the same class OQ-CO9
-//     refuses for a keyless surface, and the refusal is the fail-closed answer until a real
-//     example argues otherwise. Under `assert` such a surface renders through rmw and is
-//     untouched by this.
+//   - It does NOT run `computed` AS `computed`. A computed surface keeps no capture overlay, so
+//     run as itself it has no adoption path: the first owned render would replace a real file
+//     wholesale with nothing to recover it from. It was REFUSED here on OQ-CO9's reasoning
+//     "until a real example argues otherwise", and the real examples arrived — pi/models,
+//     pi/codex-models, pi/mcp, copilot/mcp, copilot/lsp, agy/mcp, oh-omp/models — with the
+//     `assert` retirement about to leave them no host path at all. OQ-HC2 (2026-09-28,
+//     docs/design/host-computed-layer.md) rules it rendered THROUGH `stateful`: the capture
+//     overlay is exactly the adoption path it lacked, so the first owned render adopts the
+//     file rather than replacing it. Stated as `coerce`, because this census has two composing
+//     mechanisms and Mechanism's fallback coerces only onto a sole one. A KEYLESS computed
+//     surface is still refused, by hostStatefulRefusal's OQ-CO9 carve-out, not by this table.
 //   - It does NOT stop recording `rmw`. The provenance record is the only per-home mark yolo
 //     leaves at this notch and `yolo host apply --revert` consumes it for every surface, so
 //     the recording duty here is the NOTCH's rather than one mode's — which is why a jail's
@@ -182,12 +193,12 @@ func HostOwnedModes() ModeSet {
 			manifest.ModeStateful: true, manifest.ModeRMW: true, manifest.ModeUnrendered: true,
 		},
 		records: map[string]bool{manifest.ModeStateful: true, manifest.ModeRMW: true},
+		coerce:  map[string]string{manifest.ModeComputed: manifest.ModeStateful},
 		excluded: map[string]string{
 			manifest.ModeComputed: "`computed` composes the whole file and keeps no capture " +
-				"overlay, so it has no adoption path: the first owned render would replace a real " +
-				"file wholesale with nothing to recover it from. `own` refuses it rather than " +
-				"running it, on OQ-CO9's reasoning — set `host_management: assert` to have this " +
-				"surface rendered through `rmw` instead",
+				"overlay, so under `host_management: own` a surface declaring it is rendered " +
+				"through `stateful` instead, whose first owned render adopts what the file " +
+				"already holds (OQ-HC2)",
 			manifest.ModeUnrendered: "yolo does not write the file at all, so there is no render " +
 				"to attribute a key to",
 		},
@@ -348,6 +359,11 @@ func (m ModeSet) Mechanism(declared string) (string, bool) {
 	}
 	if m.Runs(declared) {
 		return declared, true
+	}
+	// A STATED coercion outranks the derived fallback below: it is the census saying which of
+	// its several mechanisms a declaration it does not run goes through.
+	if to, ok := m.coerce[declared]; ok && m.Runs(to) {
+		return to, true
 	}
 	var sole string
 	for _, mode := range censusModes {

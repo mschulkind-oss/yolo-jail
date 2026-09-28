@@ -148,7 +148,7 @@ func TestHostOwnAdoptionStillRegeneratesADeclaredTable(t *testing.T) {
 		},
 	}}
 	overlays := packoverlay.Collect([]*packload.Pack{codex, contributor}, false, nil)
-	results, err := RenderHostPack(codex, home, render.OwnershipOwn, false, overlays)
+	results, err := RenderHostPack(codex, home, render.OwnershipOwn, false, overlays, nil)
 	if err != nil {
 		t.Fatalf("RenderHostPack: %v", err)
 	}
@@ -213,7 +213,7 @@ func TestHostOwnObserveAgreesWithAssertUnderADeclaredTable(t *testing.T) {
 	both := packoverlay.Collect([]*packload.Pack{codex, codexMCPContributor(t, map[string]any{
 		"tavily": tavily, "stale": map[string]any{"command": "/gone"},
 	})}, false, nil)
-	if _, err := RenderHostPack(codex, homeA, render.OwnershipOwn, false, both); err != nil {
+	if _, err := RenderHostPack(codex, homeA, render.OwnershipOwn, false, both, nil); err != nil {
 		t.Fatalf("phase one RenderHostPack: %v", err)
 	}
 	canonical, err := os.ReadFile(pathA)
@@ -230,7 +230,7 @@ func TestHostOwnObserveAgreesWithAssertUnderADeclaredTable(t *testing.T) {
 	only := packoverlay.Collect([]*packload.Pack{codex,
 		codexMCPContributor(t, map[string]any{"tavily": tavily})}, false, nil)
 
-	observed, err := RenderHostPack(codex, homeB, render.OwnershipOwn, true, only)
+	observed, err := RenderHostPack(codex, homeB, render.OwnershipOwn, true, only, nil)
 	if err != nil {
 		t.Fatalf("observe RenderHostPack: %v", err)
 	}
@@ -239,7 +239,7 @@ func TestHostOwnObserveAgreesWithAssertUnderADeclaredTable(t *testing.T) {
 		t.Fatalf("the observe posture wrote the file:\n%s", after)
 	}
 
-	if _, err := RenderHostPack(codex, homeB, render.OwnershipOwn, false, only); err != nil {
+	if _, err := RenderHostPack(codex, homeB, render.OwnershipOwn, false, only, nil); err != nil {
 		t.Fatalf("assert RenderHostPack: %v", err)
 	}
 	written, err := os.ReadFile(pathB)

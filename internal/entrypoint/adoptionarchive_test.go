@@ -76,7 +76,7 @@ func TestOwnAdoptionArchivesTheFileAsYoloFoundIt(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	results, err := RenderHostPack(adoptionBaselinePack(t), home, render.OwnershipOwn, false, nil)
+	results, err := RenderHostPack(adoptionBaselinePack(t), home, render.OwnershipOwn, false, nil, nil)
 	if err != nil {
 		t.Fatalf("`own` apply: %v", err)
 	}
@@ -135,7 +135,7 @@ func TestOwnAdoptionArchivesOnTheAssertToOwnSwitch(t *testing.T) {
 			"first:\n%s", before)
 	}
 
-	results, err := RenderHostPack(adoptionBaselinePack(t), home, render.OwnershipOwn, false, nil)
+	results, err := RenderHostPack(adoptionBaselinePack(t), home, render.OwnershipOwn, false, nil, nil)
 	if err != nil {
 		t.Fatalf("`own` apply: %v", err)
 	}
@@ -170,7 +170,7 @@ func TestOwnAdoptionArchivesOnlyTheFirstTime(t *testing.T) {
 		t.Fatal(err)
 	}
 	pack := adoptionBaselinePack(t)
-	if _, err := RenderHostPack(pack, home, render.OwnershipOwn, false, nil); err != nil {
+	if _, err := RenderHostPack(pack, home, render.OwnershipOwn, false, nil, nil); err != nil {
 		t.Fatalf("first `own` apply: %v", err)
 	}
 
@@ -183,7 +183,7 @@ func TestOwnAdoptionArchivesOnlyTheFirstTime(t *testing.T) {
 	if err := os.RemoveAll(render.Host(home, nil, render.OwnershipOwn).SidecarDir()); err != nil {
 		t.Fatal(err)
 	}
-	results, err := RenderHostPack(pack, home, render.OwnershipOwn, false, nil)
+	results, err := RenderHostPack(pack, home, render.OwnershipOwn, false, nil, nil)
 	if err != nil {
 		t.Fatalf("second `own` apply: %v", err)
 	}
@@ -262,7 +262,7 @@ func TestOwnAdoptionRefusesWhenTheArchiveCannotBeWritten(t *testing.T) {
 	if err := os.WriteFile(controlPath, []byte(seed), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := RenderHostPack(adoptionBaselinePack(t), control, render.OwnershipOwn, false, nil); err != nil {
+	if _, err := RenderHostPack(adoptionBaselinePack(t), control, render.OwnershipOwn, false, nil, nil); err != nil {
 		t.Fatalf("control `own` apply: %v", err)
 	}
 	rendered, err := os.ReadFile(controlPath)
@@ -295,7 +295,7 @@ func TestOwnAdoptionRefusesWhenTheArchiveCannotBeWritten(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	results, err := RenderHostPack(adoptionBaselinePack(t), home, render.OwnershipOwn, false, nil)
+	results, err := RenderHostPack(adoptionBaselinePack(t), home, render.OwnershipOwn, false, nil, nil)
 	if err != nil {
 		t.Fatalf("an archive failure must be a per-surface refusal, not a pack-level error: %v", err)
 	}
@@ -332,7 +332,7 @@ func TestOwnAdoptionRefusesWhenTheArchiveCannotBeWritten(t *testing.T) {
 // asking a question.
 func TestOwnObserveArchivesNothing(t *testing.T) {
 	home, _ := assertBaselineHome(t)
-	results, err := RenderHostPack(adoptionBaselinePack(t), home, render.OwnershipOwn, true, nil)
+	results, err := RenderHostPack(adoptionBaselinePack(t), home, render.OwnershipOwn, true, nil, nil)
 	if err != nil {
 		t.Fatalf("observe under `own`: %v", err)
 	}
@@ -352,7 +352,7 @@ func TestOwnObserveArchivesNothing(t *testing.T) {
 // snapshots, which the ruling explicitly is not.
 func TestAssertNotchArchivesNothing(t *testing.T) {
 	home, _ := assertBaselineHome(t) // this already ran one --assert apply
-	if _, err := RenderHostPack(adoptionBaselinePack(t), home, render.OwnershipAssert, false, nil); err != nil {
+	if _, err := RenderHostPack(adoptionBaselinePack(t), home, render.OwnershipAssert, false, nil, nil); err != nil {
 		t.Fatalf("second --assert apply: %v", err)
 	}
 	root := filepath.Join(home, ".local", "share", "yolo-jail", "archive")

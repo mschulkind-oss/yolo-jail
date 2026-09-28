@@ -38,7 +38,7 @@ func TestTheDroppedEntryRemedyNamesTheTableThatLostTheEntry(t *testing.T) {
 	}
 	groups := groupsWithKey(hostApplyRemedyGroups(survey, home, false), mcpEntryRemedyKey(home))
 	if len(groups) != 1 {
-		t.Fatalf("the dropped entry is not one group keyed on the local pack: %+v",
+		t.Fatalf("the dropped entry is not one group keyed on the file its remedy names: %+v",
 			hostApplyRemedyGroups(survey, home, false))
 	}
 	remedy := groups[0].Remedy

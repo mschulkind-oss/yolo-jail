@@ -145,16 +145,11 @@ var hostUnimplemented = map[packdecl.Kind]string{
 		"would mean editing your shell rc, a much larger claim than a pack's env " +
 		"contribution asks for. `yolo host -- <program>` delivers them at launch instead, " +
 		"to that process only",
-	// provider rides the same channel and so hits the same limit of the same COMMAND: its
-	// service facts compose into the providers table a launch carries into the derives.
-	// A host apply renders config files, and some of them carry provider facts in a jail
-	// (pi/models, codex/config's model_providers, …), but it composes no providers table, so
-	// it renders them without — the fact config-ref's host-notch `provider` row states
-	// (HC-D3, docs/design/host-computed-layer.md §7), and it changes with OQ-HC1.
-	packdecl.KindProvider: "a shipped provider's facts compose into the providers table a " +
-		"LAUNCH carries, and `yolo host apply` composes none, so the files that carry " +
-		"provider facts in a jail render without them here. `yolo host -- <program>` (or " +
-		"a jail launch) composes the providers table instead",
+	// `provider` WAS HERE, and is built (OQ-HC1, docs/design/host-computed-layer.md): `yolo
+	// host apply` composes the providers table at user scope and runs the derives over it, so
+	// a shipped provider's facts reach pi/models, pi/codex-models, codex/config,
+	// opencode/config and oh-omp/models at the host as in a jail. Like config-overlay it
+	// renders INVISIBLY — into the files of the surfaces that carry it.
 	// adapter rides provider's channel and hits the same limit of the same COMMAND: the
 	// address it declares is composed INTO the providers table, so it reaches an agent the
 	// moment one is launched and never through a config file. Same sentence, same verb
@@ -175,15 +170,10 @@ var hostUnimplemented = map[packdecl.Kind]string{
 	packdecl.KindHook: "hooks are jail provisioning steps (a credential or package-store " +
 		"symlink into the machine tier, per-jail history) — `yolo host apply` does not run " +
 		"them against your real home",
-	// profile is the same limit of the same command, arrived at from the selector rather
-	// than the verb: which variant of a pack applies is a LAUNCH decision (use_profiles /
-	// -p), and this command writes config without launching anything, so it has no variant
-	// to select and writes none — your base surfaces, unmodified. A jail launch (or a
-	// future `yolo host -- <program>`) is where a selection exists to be honored.
-	packdecl.KindProfile: "a profile is a VARIANT of this pack's own config, selected at " +
-		"launch — and `yolo host apply` selects none, so it writes the pack's base surfaces " +
-		"only. Launch a jail with `-p <name>` (or `-p <cli>=<name>`) to apply the " +
-		"variant",
+	// `profile` WAS HERE, and is built (OQ-HC3): `yolo host apply` applies the selection your
+	// user-scope `use_profiles` names, by the jail's edge-triggered rule, and gates each
+	// profile-gated config-overlay on the same table. A one-launch `-p` still has no meaning
+	// here, since this command launches nothing.
 }
 
 // HostUnimplemented returns the reason a kind is honored-but-unbuilt at a host target, and
@@ -263,11 +253,9 @@ func HostFields() FieldSet {
 		// implies an install nobody wanted.
 		packdecl.KindRequires: true,
 		packdecl.KindAutonomy: true, // honored: host renders the GUARDED posture (§4.2)
-		// provider is honored at this notch, and the reason is the channel rather than the
-		// census: a shipped provider's facts compose into the providers table the LAUNCH
-		// carries, exactly as a pack's `env` does — they are not a file this command writes.
-		// Honored-but-unbuilt below is that limit stated (hostUnimplemented), the same
-		// sentence env and launch get.
+		// provider is honored at this notch and BUILT: `yolo host apply` composes the
+		// providers table at user scope and runs each surface's derive over it (OQ-HC1), and
+		// `yolo host -- <program>` composes the same table into the launched process.
 		packdecl.KindProvider: true,
 		// adapter is provider's constant companion and gets provider's answer, for
 		// provider's reason: it declares an ADDRESS, and an address reaches an agent through

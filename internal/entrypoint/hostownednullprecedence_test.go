@@ -65,7 +65,7 @@ func seedAndAssert(t *testing.T, seed string) (home, path string, asserted []byt
 	if err := os.WriteFile(path, []byte(seed), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := RenderHostPack(nullPrecedencePack(t), home, render.OwnershipAssert, false, nil); err != nil {
+	if _, err := RenderHostPack(nullPrecedencePack(t), home, render.OwnershipAssert, false, nil, nil); err != nil {
 		t.Fatalf("the `assert` apply: %v", err)
 	}
 	b, err := os.ReadFile(path)
@@ -118,7 +118,7 @@ func TestSwitchingToOwnKeepsANullThatALowerLayerDeclares(t *testing.T) {
 	}
 
 	for _, pass := range []string{"first", "second"} {
-		if _, err := RenderHostPack(nullPrecedencePack(t), home, render.OwnershipOwn, false, nil); err != nil {
+		if _, err := RenderHostPack(nullPrecedencePack(t), home, render.OwnershipOwn, false, nil, nil); err != nil {
 			t.Fatalf("the %s `own` apply: %v", pass, err)
 		}
 		owned, err := os.ReadFile(path)

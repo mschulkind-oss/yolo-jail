@@ -31,7 +31,7 @@ func hostRenderPiSurface(t *testing.T, home string, observe bool, surface string
 	if err != nil {
 		t.Fatal(err)
 	}
-	results, err := RenderHostPack(pi, home, render.OwnershipAssert, observe, nil)
+	results, err := RenderHostPack(pi, home, render.OwnershipAssert, observe, nil, nil)
 	if err != nil {
 		t.Fatalf("RenderHostPack(pi): %v", err)
 	}

@@ -372,7 +372,7 @@ func TestJSONSurfaceGetsNoGeneratedHeader(t *testing.T) {
 	requireNoBanner(t, "jail copilot/mcp", filepath.Join(e.CopilotDir(), "mcp-config.json"))
 
 	home := t.TempDir()
-	res, err := RenderHostPack(mustEmbeddedPack(t, "opencode"), home, render.OwnershipOwn, false, nil)
+	res, err := RenderHostPack(mustEmbeddedPack(t, "opencode"), home, render.OwnershipOwn, false, nil, nil)
 	if err != nil {
 		t.Fatalf("owned RenderHostPack(opencode): %v", err)
 	}

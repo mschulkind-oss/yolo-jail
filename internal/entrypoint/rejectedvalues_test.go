@@ -39,7 +39,7 @@ func renderPiHost(t *testing.T, home string, observe bool) HostRenderResult {
 	if err != nil {
 		t.Fatalf("embedded pi: %v", err)
 	}
-	results, rerr := RenderHostPack(pi, home, render.OwnershipAssert, observe, nil)
+	results, rerr := RenderHostPack(pi, home, render.OwnershipAssert, observe, nil, nil)
 	if rerr != nil {
 		t.Fatalf("RenderHostPack: %v", rerr)
 	}

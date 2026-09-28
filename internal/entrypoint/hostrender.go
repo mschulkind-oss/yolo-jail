@@ -30,10 +30,16 @@ package entrypoint
 //     goes under the rendered home's STATE dir, not a workspace and not the user's config
 //     dir — see render.Target.ProvenanceDir. Assert only: recording a winner in observe
 //     posture would document a write that never happened.
-//   - NO JAIL-DERIVED computed layer, at either mechanism. The live MCP/LSP tables embed
-//     jail-absolute paths, so a host render passes only the wholesale table layer built from
-//     the pack's DECLARED content (hostTableLayer) — a ${workspace}-derived value has no
-//     referent off-container (OQ-2/§6.6) and such a branch is pruned, not bound.
+//   - THE JAIL'S DERIVES, OVER HOST INPUTS (OQ-HC1, 2026-09-28: "host parity with the same
+//     handling"). Every derived surface's computed layer is rendered here from the same
+//     derive.lua a jail runs, over the wire tables the caller composed at user scope
+//     (HostInputs, hostinputs.go): the provider table, the user's own mcp_servers and
+//     lsp_servers, and the use_profiles selection. It was empty here until then, on the stated
+//     reason that the live tables embed jail-absolute paths; only the MCP presets do, and they
+//     are never an input at this notch. The output lands per key (hostcomputed.go, HC-D10) and a
+//     surface whose output still names a jail-only path is refused, never written (HC-D12). A
+//     ${workspace}-derived value has no referent off-container (OQ-2/§6.6), and such a branch is
+//     pruned, not bound.
 //   - Config kinds only. The FieldSet census: only config surfaces are target-
 //     independent; mount/reads-host/state/files are refused by name upstream (the caller
 //     reports them). This entry renders the surfaces; the confinement gate is the
@@ -132,7 +138,9 @@ type HostRenderResult struct {
 	// `assert` write's wholesale regeneration would drop.
 	EntryLosses []string
 	// FirstApply is true when this home has NO provenance record for this surface, i.e.
-	// yolo has never asserted it here. It is the other half of the one-way-door signal:
+	// yolo has never asserted it here — or when an entry would be lost from a TABLE the
+	// record does not already attribute to a layer yolo asserts (HC-D8): the first apply
+	// that makes that table yolo's. It is the other half of the one-way-door signal:
 	// wholesale regeneration is correct policy ONCE THE USER HAS OPTED IN, so an
 	// EntryLoss in a home yolo has managed before is policy, and the same loss on the
 	// first-ever apply is data loss.
@@ -230,6 +238,10 @@ type HostRenderResult struct {
 	// OBSERVE ONLY, and empty for a skipped or refused surface: a render that will not happen
 	// has no content, and on --assert the file at Path is the answer.
 	Content string
+	// InputSkips names each input this surface's derive was not handed at the host, one
+	// sentence each: an MCP server whose requires_env this agent's composed environment does
+	// not hold (HC-D6). Empty for the common case.
+	InputSkips []string
 	// Provenance is the per-key record the write keeps (key → winning layer), computed the
 	// way the write computes it, for `yolo config render --at host --explain`. Observe only,
 	// like Content; nil where the notch's census keeps no record for the mechanism.
@@ -240,30 +252,36 @@ type HostRenderResult struct {
 // write for s: the writer's own compose, stopped before the write. Every failure answers
 // empty, as the change predicate does — the probes the caller ran first refuse what this
 // cannot compose, and a refusal has no content.
-func hostMechanismPreview(e *Env, mechanism string, s manifest.Surface, computed map[string]any,
+func hostMechanismPreview(e *Env, mechanism string, s manifest.Surface, l surfaceLayers,
 	contribs *surfaceContribs) (string, map[string]string) {
 	if mechanism == manifest.ModeStateful {
-		r, err := composeStatefulSurface(e, s, nil, computed, hostTableInFull(computed), contribs)
+		r, err := composeStatefulSurface(e, s, nil, l.computed, l.inFull, contribs)
 		if err != nil || r.out == nil || r.out.Result == nil {
 			return "", nil
 		}
 		return r.text(), r.out.Result.Provenance
 	}
-	r, err := composeRMWSurface(e, s, computed, contribs)
+	r, err := composeRMWSurface(e, s, l.computed, contribs)
 	if err != nil {
 		return "", nil
 	}
 	var prov map[string]string
 	if e.renderTarget().Modes().Records(manifest.ModeRMW) {
-		prov = r.provenance(e, computed, contribs)
+		prov = r.provenance(e, l.computed, contribs)
 	}
 	return r.text, prov
 }
 
-// RenderHostPack renders one pack's config surfaces into homeDir (the real $HOME), pure
-// RMW, no computed layer. When observe is true it computes what WOULD change and writes
-// nothing (the `yolo host apply --dry-run` / default `observe` posture). It returns one
-// result per surface and does not run hooks or touch any non-config kind.
+// RenderHostPack renders one pack's config surfaces into homeDir (the real $HOME), each
+// through the mechanism the declared `host_management` contract's census names, with the
+// computed layer the pack's derives produce over in (nil for the empty composition). When
+// observe is true it computes what WOULD change and writes nothing (the `yolo host apply
+// --dry-run` / default `observe` posture). It returns one result per surface and does not run
+// hooks or touch any non-config kind.
+//
+// in is the invocation's ONE host-input composition (HC-D11): the caller composes it once and
+// hands the same value to every call, so a preview, an --assert and the launch gate derive
+// from identical inputs.
 //
 // homeDir is the real home; the Env's Workspace is left empty so a ${workspace} surface
 // is refused rather than bound to some arbitrary dir.
@@ -274,7 +292,7 @@ func hostMechanismPreview(e *Env, mechanism string, s manifest.Surface, computed
 // a per-pack derivation would find none of the overlays the kind exists to carry. Pass nil
 // for a caller that has no other packs in view.
 func RenderHostPack(p *packload.Pack, homeDir string, ownership render.HostOwnership,
-	observe bool, overlays *packoverlay.OverlaySet) ([]HostRenderResult, error) {
+	observe bool, overlays *packoverlay.OverlaySet, in *HostInputs) ([]HostRenderResult, error) {
 	// hostTarget: this Env drives render.Host, not render.Jail. Load-bearing for every
 	// Target-keyed path the writers resolve — without it an empty Workspace reads as the
 	// container default "/workspace" (WorkspaceDir()), so a host apply would write its
@@ -285,18 +303,18 @@ func RenderHostPack(p *packload.Pack, homeDir string, ownership render.HostOwner
 	// package renders what it is told, and a test renders the contract it names rather than
 	// the invoking user's. An unresolved contract leaves the census undecided, so every
 	// surface is refused and nothing is written.
-	e := &Env{Home: homeDir, Vars: map[string]string{}, hostTarget: true, hostOwnership: ownership}
+	// Vars carries the host's wire tables (HostInputs.vars), so the jail's own readers of them
+	// (LoadProviders, LoadProfiles, LoadUseProfiles, mcpServersWith, LoadLSPServers) read the
+	// host composition exactly as they read a launch's — the "same handling" of OQ-HC1.
+	e := &Env{Home: homeDir, Vars: in.vars(), hostTarget: true, hostOwnership: ownership}
 	// The §4.2 autonomy policy comes from the TARGET's confinement profile, not from a
 	// literal chosen here (plan §6c step 1). At the host notch that resolves to autonomy OFF
 	// — the guarded posture, so a pack's jail-bypass permission keys do NOT reach the real
 	// home, which is the fix for the host apply bypass leak. Reading it from the profile is
 	// what makes that one statement rather than a boolean repeated in four files.
 	//
-	// And NO profile table. A host apply selects no variant — there is no launch here and
-	// no `-p`, so there is nothing a table could be read from — and folding one anyway
-	// would write a variant's keys into the real home under an intent nobody expressed.
-	// A pack's BASE surfaces render, its variants do not; render's hostUnimplemented says
-	// the same thing to the human.
+	// The SELECTION is the user-scope `use_profiles` table the caller composed (OQ-HC3), and
+	// nothing else: there is no `-p` here, so no one-launch variant is ever selected.
 	//
 	// THE ONE LOOP's head (surfaceloop.go, planPackSurfaces): the posture fold, each surface's
 	// contributions and the census's mechanism, decided the way the jail boot decides them.
@@ -312,6 +330,8 @@ func RenderHostPack(p *packload.Pack, homeDir string, ownership render.HostOwner
 
 	var out []HostRenderResult
 	modes := e.renderTarget().Modes()
+	sources := newHostSources(e, in)
+	script := packload.DeriveScript(p)
 	for _, pl := range plans {
 		s, contribs := pl.surface, pl.contribs
 		id := s.Agent + "/" + s.Name
@@ -348,8 +368,22 @@ func RenderHostPack(p *packload.Pack, homeDir string, ownership render.HostOwner
 		// survives — in the skip reason.
 		s, pruned := PruneWorkspaceKeyed(s)
 		surfaceOverlays := contribs.overlayLayers()
+		// THE COMPUTED LAYER (OQ-HC1): the pack's own derive, run over this agent's host tables
+		// with the host's resolved selection — the jail's call (deriveComputedLayer) with the
+		// host's inputs. Run before the skip below, because a surface whose declared content was
+		// all ${workspace}-keyed still renders whatever the derive computes for it (claude/config's
+		// mcpServers). A failure is this surface's refusal, reported past the census's own
+		// answer below (HC-D7).
+		agentSrc := sources.forAgent(s.Agent)
+		derived, derivedInFull, deriveErr := deriveComputedLayer(e, s, script,
+			sources.selectionFor(s), agentSrc.tables)
+		// Which keys are yolo's wholesale tables: the key-name probe's (hostTableKeys, so a table
+		// a derive omits when it has nothing to put in it is still regenerated empty) and every
+		// object this run's derive declared in full.
+		hl := buildHostLayer(s, derived, derivedInFull, hostTableKeys(p, s), surfaceOverlays)
 		if len(pruned) > 0 && layerIsEmpty(s.Managed) && layerIsEmpty(s.Defaults) &&
-			len(surfaceOverlays) == 0 && len(contribs.listContribs()) == 0 {
+			len(surfaceOverlays) == 0 && len(contribs.listContribs()) == 0 &&
+			deriveErr == nil && hl.empty() {
 			out = append(out, HostRenderResult{Surface: id, Path: path, Pruned: pruned,
 				Action: "skipped: only ${workspace}-keyed keys, which have no host referent"})
 			continue
@@ -397,24 +431,56 @@ func RenderHostPack(p *packload.Pack, homeDir string, ownership render.HostOwner
 				Lists: contribs.listPacks(), Action: "refused: " + refusal})
 			continue
 		}
+		// A DERIVE THAT FAILED refuses this surface only, and its file is left alone: the rest of
+		// the apply is independent of one pack's broken derive (HC-D7).
+		if deriveErr != nil {
+			out = append(out, HostRenderResult{Surface: id, Path: path, Pruned: pruned,
+				Action: "refused: its derive failed at the host (" + deriveErr.Error() +
+					") — the file is untouched"})
+			continue
+		}
+		// THE JAIL-PATH CHECK (HC-D12): B3's fail-open objection answered. The inputs a host
+		// composes are host-valid by construction, so a jail-only path in the output is a derive
+		// spelling one of its own — and it is refused BY NAME, per surface, and never written.
+		// The roots are the jail render target's (jailOnlyRoots), not a list kept here.
+		if bad := JailPathsIn(derived, homeDir); len(bad) > 0 {
+			out = append(out, HostRenderResult{Surface: id, Path: path, Pruned: pruned,
+				Action: "refused: its computed layer names a path that exists only inside a " +
+					"jail (" + strings.Join(bad, "; ") + "), and yolo never writes one into " +
+					"your real home — the file is untouched"})
+			continue
+		}
 		// DYNAMIC MANAGED TABLES at the host notch. yolo owns each of these keys wholesale, so
 		// they are written by replacement (regenerateManagedTables) rather than deep-merged —
 		// and stripped from the managed layer so nothing merges them back. Without this an
 		// http MCP entry and a stdio one declaring the same server name merged into a record
 		// carrying BOTH transports, which no client can use: a "nothing was lost" merge that
-		// silently breaks the server. Which keys are tables comes from the pack's own derive
-		// (hostTableKeys); the CONTENT comes from its declared layers, never from liveTables.
-		tables := hostTableKeys(p, s)
-		tableLayer := hostTableLayer(tables, s, surfaceOverlays)
+		// silently breaks the server. Each table holds the declared overlay entries, then the
+		// derive's, then managed's (buildHostLayer).
+		tables := hl.inFull()
 		// Which overlay keys this surface's own managed layer BEATS, computed BEFORE the strip
 		// because it reads that layer (finding F4). The mechanism is deliberate — §5 precedence
 		// plus whichever autonomy posture the surface was folded under — so this names the loss
 		// and its cause rather than changing what wins.
 		outranked, outrankedKeys := outrankedOverlayKeys(p, s, surfaceOverlays, tables)
 		s = stripTableKeys(s, tables)
+		// THE LAYERS EACH MECHANISM WRITES (HC-D10). `stateful` takes the whole computed layer in
+		// one map, its tables named in inFull, and applies the selection namespace itself.
+		// `rmw` takes the tables alone — its computed write clears and rewrites every object it is
+		// handed — while the leaves ride the contributions it already takes, with the selection's
+		// edge-triggered apply decided here over the file as it stands (OQ-HC3).
+		layers := surfaceLayers{computed: hl.statefulComputed(), inFull: tables}
+		var selectionNext map[string]any
+		selectionTouched := false
+		if mechanism == manifest.ModeRMW {
+			lift, clears, next, touched := hostRMWSelection(e, s, path, hl.selection)
+			contribs = contribs.withHostLeaves(mergeSurfaceRoot(hl.leaves, lift), clears)
+			layers = surfaceLayers{computed: hl.tables}
+			selectionNext, selectionTouched = next, touched
+		}
 		// The OVERLAYS are deliberately NOT stripped. They are applied before the table
 		// write, so regenerateManagedTables clears whatever they merged and rewrites the block
-		// from tableLayer — the merge is transient and the result identical. Leaving them
+		// from the table layer — the merge is transient and the result identical. Leaving them
 		// means rmwProvenance still sees which pack contributed the key, which is R3's
 		// "an override must stay legible".
 		//
@@ -442,7 +508,7 @@ func RenderHostPack(p *packload.Pack, homeDir string, ownership render.HostOwner
 		// too, and it is only discoverable by running the fold — so the probe runs the
 		// writer's own fold over a scratch copy, in both postures, for the reason the probe
 		// above runs at all.
-		if reason := hostListConflict(e, mechanism, s, path, tableLayer, contribs); reason != "" {
+		if reason := hostListConflict(e, mechanism, s, path, layers, contribs); reason != "" {
 			out = append(out, HostRenderResult{Surface: id, Path: path, Pruned: pruned,
 				Lists: contribs.listPacks(), Action: "refused: " + reason})
 			continue
@@ -452,6 +518,12 @@ func RenderHostPack(p *packload.Pack, homeDir string, ownership render.HostOwner
 		// asserted this surface here" means. Computed for both postures, because observe's
 		// job is to tell the user what an --assert would do.
 		firstApply := !hostProvenanceExists(e, s)
+		// ...OR a TABLE this render makes yolo's for the first time here (HC-D8): a catalog the
+		// provenance record does not already attribute to a layer yolo asserts, in a home where
+		// the surface itself was rendered before. Without it, the first host apply after the
+		// computed layer reached the host dropped a hand-added provider with a report and no
+		// prompt, because the prompt fires only on a first apply.
+		prevRecord := readProvenanceRecord(e, s.Agent, s.Name)
 		// Compute which managed keys would OVERWRITE a differing existing value, from the
 		// file as it stands now — before any write, so observe reports the same collisions
 		// assert would cause.
@@ -472,23 +544,26 @@ func RenderHostPack(p *packload.Pack, homeDir string, ownership render.HostOwner
 		// the composed file changes, and an overlay key the user's edit kept is named as KEPT.
 		var kept []string
 		if mechanism == manifest.ModeStateful {
-			overwrites, kept = hostStatefulOverwrites(e, s, path, tableLayer, contribs,
+			overwrites, kept = hostStatefulOverwrites(e, s, path, layers, contribs,
 				surfaceOverlays, outrankedKeys, overwrites)
 		}
 		// What the table write costs, per entry, PER MECHANISM (HC-D5): the loss list is
 		// computed by the mechanism that writes, like the change predicate below. Kept SEPARATE
 		// from Overwrites — see HostRenderResult.EntryLosses for why the distinction is what
 		// makes the confirmation gate usable rather than noise.
-		losses := hostMechanismTableLosses(e, mechanism, s, tables, path, tableLayer, contribs)
+		losses := hostMechanismTableLosses(e, mechanism, s, tables, path, layers, contribs)
+		if !firstApply && lossInNewTable(losses, prevRecord) {
+			firstApply = true
+		}
 		// Non-value losses from the canonical re-emit (a TOML file's comments). Computed in
 		// both postures for the same reason the overwrites are: the point is to see it before
 		// the write.
-		formatting := hostFormattingLosses(e, mechanism, s, path, tableLayer, contribs)
+		formatting := hostFormattingLosses(e, mechanism, s, path, layers.computed, contribs)
 		// THE CHANGE PREDICATE, computed before the write for both postures — see
 		// HostRenderResult.WouldChange for what it means, and the two functions below it for
 		// how each mechanism answers. Both run the WRITER'S OWN fold over a scratch copy, so
 		// neither is a second model of the write.
-		wouldChange := hostMechanismWouldChange(e, mechanism, s, path, tableLayer, contribs)
+		wouldChange := hostMechanismWouldChange(e, mechanism, s, path, layers, contribs)
 		// The one-shot repairs this render will make to yolo's own unloadable values, read
 		// from the file BEFORE the write like every probe above it, and in both postures for
 		// the same reason: the point of a dry run is to see it coming.
@@ -504,21 +579,21 @@ func RenderHostPack(p *packload.Pack, homeDir string, ownership render.HostOwner
 			if !wouldChange {
 				action = "unchanged"
 			}
-			content, provenance := hostMechanismPreview(e, mechanism, s, tableLayer, contribs)
+			content, provenance := hostMechanismPreview(e, mechanism, s, layers, contribs)
 			out = append(out, HostRenderResult{Surface: id, Path: path, Action: action,
 				Overwrites: overwrites, Kept: kept, Overlays: overlayPackNames(surfaceOverlays),
 				Lists:     contribs.listPacks(),
 				Outranked: outranked, Pruned: pruned, EntryLosses: losses,
 				FirstApply: firstApply, Formatting: formatting, WouldChange: wouldChange,
-				Repaired: repaired, Content: content, Provenance: provenance})
+				Repaired: repaired, Content: content, Provenance: provenance,
+				InputSkips: agentSrc.skippedNotes()})
 			continue
 		}
-		// INTO THE REAL HOME, through the mechanism the census named. The `computed` slot
-		// carries ONLY the wholesale table layer built from the pack's DECLARED content above —
-		// not a jail-derived one, whose values embed jail-absolute paths and have no host
-		// referent (OQ-4/§6.6). That distinction is the whole reason hostTableLayer exists, and
-		// it holds for both arms: under `own` the same layer is what makes `mcpServers` a table
-		// yolo regenerates rather than one adoption freezes at whatever the file held.
+		// INTO THE REAL HOME, through the mechanism the census named, with the layers decided
+		// above: the derive's computed layer over the host's inputs, landed per key (HC-D10). The
+		// tables hold the declared entries too, under both arms: under `own` that is what makes
+		// `mcpServers` a table yolo regenerates rather than one adoption freezes at whatever the
+		// file held.
 		//
 		// A REFUSAL here is a per-surface result, not a pack-level error. The probe above has
 		// already caught every refusal this render can predict; one arriving at the write is a
@@ -563,8 +638,7 @@ func RenderHostPack(p *packload.Pack, homeDir string, ownership render.HostOwner
 		// so a key the user owns and a pack also declares would flip to the pack's value.
 		// Only the stateful writer reads inFull (it is the one that adopts), and archived is
 		// set by it alone: rmw asserts individual keys and adopts nothing.
-		w, werr := writeSurfaceThrough(e, mechanism, s,
-			surfaceLayers{computed: tableLayer, inFull: hostTableInFull(tableLayer)}, contribs)
+		w, werr := writeSurfaceThrough(e, mechanism, s, layers, contribs)
 		archived := w.archived
 		if werr != nil {
 			if refusal, isRefusal := asRMWRefusal(werr); isRefusal {
@@ -573,6 +647,12 @@ func RenderHostPack(p *packload.Pack, homeDir string, ownership render.HostOwner
 				continue
 			}
 			return out, fmt.Errorf("%s: %w", id, werr)
+		}
+		// The rmw arm's SELECTION RECORD, after the write it describes and only then: a record
+		// naming a value the file never received would have the next apply read the user's
+		// value as one yolo wrote. The stateful arm persists its own (persistStatefulSurface).
+		if selectionTouched {
+			writeSelectionRecord(e, s.Agent, s.Name, selectionNext)
 		}
 		// `unchanged` when the write reproduced the file, in this posture as in the dry run: the
 		// line and the verdict's counts read the same predicate, so they cannot disagree about
@@ -591,7 +671,7 @@ func RenderHostPack(p *packload.Pack, homeDir string, ownership render.HostOwner
 			Lists:     contribs.listPacks(),
 			Outranked: outranked, Pruned: pruned, EntryLosses: losses,
 			FirstApply: firstApply, Formatting: formatting, WouldChange: wouldChange,
-			Archived: archived, Repaired: repaired})
+			Archived: archived, Repaired: repaired, InputSkips: agentSrc.skippedNotes()})
 	}
 	return out, nil
 }
@@ -648,11 +728,11 @@ func hostStatefulRefusal(s manifest.Surface, path string) *rmwRefusedError {
 // hostMechanismWouldChange is the change predicate, per mechanism. See
 // HostRenderResult.WouldChange for what the answer is used for.
 func hostMechanismWouldChange(e *Env, mechanism string, s manifest.Surface, path string,
-	computed map[string]any, contribs *surfaceContribs) bool {
+	l surfaceLayers, contribs *surfaceContribs) bool {
 	if mechanism == manifest.ModeStateful {
-		return hostStatefulWouldChange(e, s, computed, contribs)
+		return hostStatefulWouldChange(e, s, l, contribs)
 	}
-	return hostSurfaceWouldChange(e, s, path, computed, contribs)
+	return hostSurfaceWouldChange(e, s, path, l.computed, contribs)
 }
 
 // hostListConflict reports a config-list type conflict this surface's render would refuse
@@ -661,12 +741,13 @@ func hostMechanismWouldChange(e *Env, mechanism string, s manifest.Surface, path
 // and the --assert cannot disagree. Quiet for a surface no list targets: nothing about it
 // can conflict.
 func hostListConflict(e *Env, mechanism string, s manifest.Surface, path string,
-	computed map[string]any, contribs *surfaceContribs) string {
+	l surfaceLayers, contribs *surfaceContribs) string {
 	if len(contribs.listContribs()) == 0 {
 		return ""
 	}
+	computed := l.computed
 	if mechanism == manifest.ModeStateful {
-		if _, err := composeStatefulSurface(e, s, nil, computed, hostTableInFull(computed), contribs); err != nil {
+		if _, err := composeStatefulSurface(e, s, nil, computed, l.inFull, contribs); err != nil {
 			if refusal, isRefusal := asRMWRefusal(err); isRefusal {
 				return refusal.Reason()
 			}
@@ -715,9 +796,9 @@ func hostListConflict(e *Env, mechanism string, s manifest.Surface, path string,
 //
 // It writes nothing — not the sidecars, not the selection record — which is what makes it safe
 // to run in the observe posture and, for confirmHostLosses, twice.
-func hostStatefulWouldChange(e *Env, s manifest.Surface, computed map[string]any,
+func hostStatefulWouldChange(e *Env, s manifest.Surface, l surfaceLayers,
 	contribs *surfaceContribs) bool {
-	r, err := composeStatefulSurface(e, s, nil, computed, hostTableInFull(computed), contribs)
+	r, err := composeStatefulSurface(e, s, nil, l.computed, l.inFull, contribs)
 	if err != nil {
 		return false
 	}
@@ -938,10 +1019,10 @@ func hostProvenanceExists(e *Env, s manifest.Surface) bool {
 //
 //   - The KEY NAMES cross. Which keys a surface's derive produces is a property of the pack's
 //     declaration, identical at every target.
-//   - The CONTENT does not, and must not. A jail's derived MCP table embeds jail-absolute
-//     paths (the mcp-wrappers node shim), which is exactly why a host render passes no
-//     computed layer (OQ-4/§6.6). So the entries written at the host come from the pack's
-//     own declared layers, never from liveTables.
+//   - The CONTENT comes from the real derive, run over the host's own inputs (OQ-HC1,
+//     buildHostLayer), not from this probe. The probe keeps one job: a table a derive omits
+//     when its input is empty (codex's and opencode's `omitEmpty`) is still yolo's, so the
+//     last server's removal regenerates it empty instead of leaving it as the file held it.
 //
 // A KEY IS A TABLE ONLY IF THE DERIVE DECLARED IT IN FULL (ctx.in_full, CO13 —
 // docs/design/config-ownership-and-promotion.md). The rule used to be "every object-valued
@@ -1020,48 +1101,6 @@ func hostTableKeys(p *packload.Pack, s manifest.Surface) []string {
 	}
 	sort.Strings(keys)
 	return keys
-}
-
-// hostTableInFull is the in-full declaration (agentcfg.Inputs.ComputedInFull) for the host's
-// computed slot, which carries ONLY the wholesale table layer (hostTableLayer) — every key of
-// it a table hostTableKeys kept because its derive declared it in full. So the declaration is
-// that layer's own key set, and an `own` adoption takes each such table whole exactly as the
-// jail's adoption does, rather than freezing whatever the file held under it.
-func hostTableInFull(tableLayer map[string]any) []string {
-	if len(tableLayer) == 0 {
-		return nil
-	}
-	return sortedKeys(tableLayer)
-}
-
-// hostTableLayer builds the wholesale content for each of the surface's table keys from the
-// pack's DECLARED layers — the overlays a contributing pack asserts, then the owner's own
-// managed layer on top (the §5 precedence config-overlay < managed, which is the same order
-// renderSurfaceRMWSurface applies them in).
-//
-// Returned in the shape renderSurfaceRMWSurface's `computed` parameter takes, so the host
-// reuses regenerateManagedTables verbatim rather than growing a second wholesale-replace
-// implementation. A table key with no declared entries yields an EMPTY map, and that is
-// meaningful rather than a no-op: it says "yolo owns this table and config declares nothing",
-// which is what clears a stale block.
-func hostTableLayer(tables []string, s manifest.Surface, overlays []agentcfg.Overlay) map[string]any {
-	if len(tables) == 0 {
-		return nil
-	}
-	out := map[string]any{}
-	for _, key := range tables {
-		entries := map[string]any{}
-		for _, ov := range overlays {
-			if layer, isMap := ov.Data.(map[string]any); isMap {
-				mergeEntries(entries, layer[key])
-			}
-		}
-		if managed, isMap := s.Managed.(map[string]any); isMap {
-			mergeEntries(entries, managed[key])
-		}
-		out[key] = entries
-	}
-	return out
 }
 
 // mergeEntries copies v's named entries into dst when v is an object, later callers winning.
@@ -1149,11 +1188,11 @@ func tableLosses(s manifest.Surface, tables []string, path string, layer map[str
 // where the report named both as dropped and the confirmation prompt then asked the user to
 // approve a loss that never happened.
 func hostMechanismTableLosses(e *Env, mechanism string, s manifest.Surface, tables []string,
-	path string, tableLayer map[string]any, contribs *surfaceContribs) []string {
+	path string, l surfaceLayers, contribs *surfaceContribs) []string {
 	if mechanism == manifest.ModeStateful {
-		return statefulTableLosses(e, s, tables, path, tableLayer, contribs)
+		return statefulTableLosses(e, s, tables, path, l, contribs)
 	}
-	return tableLosses(s, tables, path, tableLayer)
+	return tableLosses(s, tables, path, l.computed)
 }
 
 // statefulTableLosses is the `own` half of the loss list. It runs THE RENDER —
@@ -1165,11 +1204,11 @@ func hostMechanismTableLosses(e *Env, mechanism string, s manifest.Surface, tabl
 // Every failure answers "no loss", as the change predicate does: a surface this cannot compose
 // or decode is one the render refuses, and the refusal is reported on its own line.
 func statefulTableLosses(e *Env, s manifest.Surface, tables []string, path string,
-	tableLayer map[string]any, contribs *surfaceContribs) []string {
+	l surfaceLayers, contribs *surfaceContribs) []string {
 	if len(tables) == 0 {
 		return nil
 	}
-	r, err := composeStatefulSurface(e, s, nil, tableLayer, hostTableInFull(tableLayer), contribs)
+	r, err := composeStatefulSurface(e, s, nil, l.computed, l.inFull, contribs)
 	if err != nil || r.out == nil || r.out.Result == nil {
 		return nil
 	}
@@ -1594,10 +1633,10 @@ func collectOverwritePaths(existing *jsonx.OrderedMap, managed map[string]any, p
 // overwrite only where the composed value differs from the file's; an overlay key whose composed
 // value is still the file's is returned as kept. When the render cannot be composed (the refusal
 // probes have already reported why) the declaration-based list is returned unchanged.
-func hostStatefulOverwrites(e *Env, s manifest.Surface, path string, computed map[string]any,
+func hostStatefulOverwrites(e *Env, s manifest.Surface, path string, l surfaceLayers,
 	contribs *surfaceContribs, overlays []agentcfg.Overlay, outranked map[string]bool,
 	declared []string) (overwrites, kept []string) {
-	r, err := composeStatefulSurface(e, s, nil, computed, hostTableInFull(computed), contribs)
+	r, err := composeStatefulSurface(e, s, nil, l.computed, l.inFull, contribs)
 	if err != nil || r == nil || r.out == nil || r.out.Result == nil {
 		return declared, nil
 	}

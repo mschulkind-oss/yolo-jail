@@ -38,7 +38,7 @@ func TestARevertKeepsPiModelsProviders(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := RenderHostPack(pi, home, render.OwnershipAssert, false, nil); err != nil {
+	if _, err := RenderHostPack(pi, home, render.OwnershipAssert, false, nil, nil); err != nil {
 		t.Fatalf("assert: %v", err)
 	}
 	requireObjectProviders(t, piModelsPath(home), "after the apply")
@@ -90,7 +90,7 @@ func shapeDefaultPack(t *testing.T) *packload.Pack {
 func TestARevertKeepsOnlyEmptyDefaultsStillAtTheirDeclaredValue(t *testing.T) {
 	p := shapeDefaultPack(t)
 	home := t.TempDir()
-	if _, err := RenderHostPack(p, home, render.OwnershipAssert, false, nil); err != nil {
+	if _, err := RenderHostPack(p, home, render.OwnershipAssert, false, nil, nil); err != nil {
 		t.Fatalf("assert: %v", err)
 	}
 	path := filepath.Join(home, ".shape", "cfg.json")
@@ -114,7 +114,7 @@ func TestARevertKeepsOnlyEmptyDefaultsStillAtTheirDeclaredValue(t *testing.T) {
 	// Filled since the apply: `table` holds the user's entry, so it is no longer the shape the
 	// pack declares, and the revert takes it as it takes any key yolo's record attributes.
 	home = t.TempDir()
-	if _, err := RenderHostPack(p, home, render.OwnershipAssert, false, nil); err != nil {
+	if _, err := RenderHostPack(p, home, render.OwnershipAssert, false, nil, nil); err != nil {
 		t.Fatalf("assert: %v", err)
 	}
 	path = filepath.Join(home, ".shape", "cfg.json")

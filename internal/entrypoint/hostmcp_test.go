@@ -75,7 +75,7 @@ func hostRenderClaude(t *testing.T, home string, observe bool, contributors ...*
 		t.Fatalf("embedded claude: %v", err)
 	}
 	overlays := packoverlay.Collect(append([]*packload.Pack{claude}, contributors...), false, nil)
-	results, err := RenderHostPack(claude, home, render.OwnershipAssert, observe, overlays)
+	results, err := RenderHostPack(claude, home, render.OwnershipAssert, observe, overlays, nil)
 	if err != nil {
 		t.Fatalf("RenderHostPack: %v", err)
 	}
@@ -164,15 +164,26 @@ func TestHostMCPPrunedKeysAreNamedAndAbsent(t *testing.T) {
 	}
 }
 
-// A surface whose layers are ENTIRELY ${workspace}-keyed is skipped — but with a reason that
-// names what was pruned, not a bare "uses ${workspace}". With no overlay contributing
-// anything, claude/config is exactly that surface, so this also pins that the fix did not
-// simply start writing per-jail trust flags into real homes.
+// A surface whose layers are ENTIRELY ${workspace}-keyed and that has NO computed layer is
+// skipped — with a reason that names what was pruned, not a bare "uses ${workspace}".
 func TestHostConfigSkippedWhenOnlyWorkspaceKeyed(t *testing.T) {
 	home := t.TempDir()
-	results := hostRenderClaude(t, home, false) // no contributors
-
-	r := resultFor(t, results, "claude/config")
+	raw, err := json.Marshal([]any{map[string]any{
+		"agent": "probe", "name": "cfg", "codec": "json", "path": "~/.probe.json", "mode": "rmw",
+		"managed": map[string]any{"projects": map[string]any{
+			"${workspace}": map[string]any{"trusted": true}}},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	probe := &packload.Pack{Name: "probe", Decl: &packdecl.Manifest{
+		Contributes: []packdecl.Contribution{{Kind: packdecl.KindConfig, Raw: raw}},
+	}}
+	results, err := RenderHostPack(probe, home, render.OwnershipAssert, false, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := resultFor(t, results, "probe/cfg")
 	if !strings.HasPrefix(r.Action, "skipped") {
 		t.Fatalf("with nothing but ${workspace} keys the surface must be SKIPPED, got %q", r.Action)
 	}
@@ -180,8 +191,39 @@ func TestHostConfigSkippedWhenOnlyWorkspaceKeyed(t *testing.T) {
 		t.Error("a skip must name the pruned keys — a bare \"uses ${workspace}\" is the " +
 			"message this change exists to remove")
 	}
-	if _, err := os.Stat(filepath.Join(home, ".claude.json")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(home, ".probe.json")); !os.IsNotExist(err) {
 		t.Errorf("a skipped surface must not create the file (err=%v)", err)
+	}
+}
+
+// claude/config's declared layers are all ${workspace}-keyed, and it USED to be skipped for it.
+// Since OQ-HC1 its derive's `mcpServers` is computed at the host too, so the surface renders
+// that table — and still writes none of the per-jail trust flags the prune removed, which it
+// still names.
+func TestHostConfigRendersItsComputedLayerPastTheWorkspacePrune(t *testing.T) {
+	home := t.TempDir()
+	results := hostRenderClaude(t, home, false) // no contributors, no host inputs
+	r := resultFor(t, results, "claude/config")
+	if r.Action != "rendered" {
+		t.Fatalf("claude/config at the host: %q, want rendered — its derive's mcpServers is "+
+			"computed there since OQ-HC1", r.Action)
+	}
+	if len(r.Pruned) == 0 {
+		t.Error("the pruned ${workspace} keys must still be named")
+	}
+	data, err := os.ReadFile(filepath.Join(home, ".claude.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatal(err)
+	}
+	if _, present := got["projects"]; present || strings.Contains(string(data), "${workspace}") {
+		t.Errorf("a per-jail trust flag reached the real home:\n%s", data)
+	}
+	if servers, isMap := got["mcpServers"].(map[string]any); !isMap || len(servers) != 0 {
+		t.Errorf("mcpServers must be the derive's (empty) table: %v", got["mcpServers"])
 	}
 }
 

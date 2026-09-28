@@ -104,8 +104,9 @@ async function brokerLogin(signal) {
 // packs/pi/derive.lua. claude's picker renders the same list, so the two cannot drift
 // (docs/design/model-lists-and-pickers.md ML-D1, ML-D3). The file sits beside extensions/,
 // outside pi's extension discovery and outside this file's own read-only delivery.
-// `yolo host apply` runs no derive for content, so on the host the file holds no list, this
-// extension registers no models, and pi keeps its own openai-codex catalog (ML-D8, OQ-ML3).
+// `yolo host apply` renders the same file into a real home from the provider table it composes
+// there (docs/design/host-computed-layer.md OQ-HC1, superseding ML-D8), so host pi registers
+// the same list.
 const CODEX_LIST_FILE = join(homedir(), ".pi", "agent", "yolo-openai-codex-models.json");
 
 // readCodexModelList returns the rendered entries, or [] when the file is missing, is not

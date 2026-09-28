@@ -39,7 +39,7 @@ func renderPiResults(t *testing.T, home string, observe bool, own render.HostOwn
 	if err != nil {
 		t.Fatal(err)
 	}
-	results, err := RenderHostPack(pi, home, own, observe, nil)
+	results, err := RenderHostPack(pi, home, own, observe, nil, nil)
 	if err != nil {
 		t.Fatalf("RenderHostPack(pi) failed the whole pack over one destination: %v", err)
 	}

@@ -61,7 +61,7 @@ func renderCopilotConfigHost(t *testing.T, home string) HostRenderResult {
 	if err != nil {
 		t.Fatalf("embedded copilot: %v", err)
 	}
-	results, rerr := RenderHostPack(copilot, home, render.OwnershipAssert, false, nil)
+	results, rerr := RenderHostPack(copilot, home, render.OwnershipAssert, false, nil, nil)
 	if rerr != nil {
 		t.Fatalf("RenderHostPack: %v", rerr)
 	}

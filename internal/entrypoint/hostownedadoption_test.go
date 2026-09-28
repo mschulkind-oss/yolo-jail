@@ -70,7 +70,7 @@ func TestSwitchingToOwnKeepsACanonicalFileByteIdentical(t *testing.T) {
 			"first:\n%s", before)
 	}
 
-	results, err := RenderHostPack(adoptionBaselinePack(t), home, render.OwnershipOwn, false, nil)
+	results, err := RenderHostPack(adoptionBaselinePack(t), home, render.OwnershipOwn, false, nil, nil)
 	if err != nil {
 		t.Fatalf("first `own` apply: %v", err)
 	}
@@ -107,14 +107,14 @@ func TestSwitchingToOwnKeepsACanonicalFileByteIdentical(t *testing.T) {
 func TestOwnedRenderIsAFixedPoint(t *testing.T) {
 	home, path := assertBaselineHome(t)
 	pack := adoptionBaselinePack(t)
-	if _, err := RenderHostPack(pack, home, render.OwnershipOwn, false, nil); err != nil {
+	if _, err := RenderHostPack(pack, home, render.OwnershipOwn, false, nil, nil); err != nil {
 		t.Fatalf("first `own` apply: %v", err)
 	}
 	first, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := RenderHostPack(pack, home, render.OwnershipOwn, false, nil); err != nil {
+	if _, err := RenderHostPack(pack, home, render.OwnershipOwn, false, nil, nil); err != nil {
 		t.Fatalf("second `own` apply: %v", err)
 	}
 	second, err := os.ReadFile(path)
@@ -140,7 +140,7 @@ func TestOwnedObserveReportsUnchangedAndWritesNothing(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	results, err := RenderHostPack(adoptionBaselinePack(t), home, render.OwnershipOwn, true, nil)
+	results, err := RenderHostPack(adoptionBaselinePack(t), home, render.OwnershipOwn, true, nil, nil)
 	if err != nil {
 		t.Fatalf("observe under `own`: %v", err)
 	}
@@ -173,7 +173,7 @@ func TestOwnedObserveReportsUnchangedAndWritesNothing(t *testing.T) {
 // one of the three that is written only on demand.
 func TestOwnedRenderWritesTheHostCaptureStore(t *testing.T) {
 	home, _ := assertBaselineHome(t)
-	if _, err := RenderHostPack(adoptionBaselinePack(t), home, render.OwnershipOwn, false, nil); err != nil {
+	if _, err := RenderHostPack(adoptionBaselinePack(t), home, render.OwnershipOwn, false, nil, nil); err != nil {
 		t.Fatalf("`own` apply: %v", err)
 	}
 
@@ -248,7 +248,7 @@ func TestOwnedHostRenderRunsTheMechanismTheCensusNames(t *testing.T) {
 			"decide what RenderHostPack should run now and add the arm for it at the mechanism "+
 			"switch in hostrender.go", mechanism, decided, manifest.ModeStateful)
 	}
-	if _, err := RenderHostPack(adoptionBaselinePack(t), home, render.OwnershipOwn, false, nil); err != nil {
+	if _, err := RenderHostPack(adoptionBaselinePack(t), home, render.OwnershipOwn, false, nil, nil); err != nil {
 		t.Fatalf("`own` apply: %v", err)
 	}
 	if _, err := os.Stat(render.Host(home, nil, render.OwnershipOwn).SidecarDir()); err != nil {
@@ -285,7 +285,7 @@ func TestOwnRefusesAKeylessSurface(t *testing.T) {
 		Contributes: []packdecl.Contribution{{Kind: packdecl.KindConfig, Raw: raw}},
 	}}
 
-	results, err := RenderHostPack(pack, home, render.OwnershipOwn, false, nil)
+	results, err := RenderHostPack(pack, home, render.OwnershipOwn, false, nil, nil)
 	if err != nil {
 		t.Fatalf("`own` apply: %v", err)
 	}

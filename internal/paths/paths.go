@@ -64,6 +64,13 @@ const (
 	// internal/svcendpoint and docs/reference/loophole-transport.md §3.2.
 	JailHostServicesDir = "/run/yolo-services"
 
+	// JailPrefixDir is where a launch mounts the install prefix inside a container jail
+	// (the binaries and the flake bundle, read-only). The launcher's own spelling is
+	// run.JailPrefixDir, which cannot be imported below internal/cli; this copy is for the
+	// host render's jail-path check (entrypoint.JailPathsIn), and a test in internal/cli pins
+	// the two equal.
+	JailPrefixDir = "/opt/yolo-jail"
+
 	// BuiltinCgroupLoopholeName is the cgroup-delegate service name.
 	//
 	// STILL A CONSTANT, AND NO LONGER A RESERVATION — the two used to be the same

@@ -484,33 +484,32 @@ const (
 	remedyClassCommentDropped = "comment_dropped"
 )
 
-// mcpEntryRemedyKey is the file whose declaration keeps a hand-added MCP server through a host
-// apply: the conventional local pack's manifest, in the home this apply renders into. It is the
-// GROUP KEY as well as the file the remedy names, which is the point of the remedy contract's
-// "group by remedy key": one file to edit is what makes three agents' worth of losses one group,
-// even though the edit is one contribution per surface.
+// mcpEntryRemedyKey is the file whose declaration keeps a hand-added table entry through a host
+// apply: the user config, in the home this apply renders into. It is the GROUP KEY as well as the
+// file the remedy names first, which is the point of the remedy contract's "group by remedy key":
+// one file to edit is what makes three agents' worth of losses one group.
 //
-// It was the `mcp_servers` config key until HC-D2 (docs/design/host-computed-layer.md §7):
-// that key reaches every agent in a JAIL, and no file at all at the host, where `yolo host
-// apply` runs no derive for content.
-func mcpEntryRemedyKey(home string) string { return localPackManifestPathIn(home) }
+// It was the local pack's manifest from HC-D2 until OQ-HC1 (docs/design/host-computed-layer.md):
+// while host apply ran no derive for content, a `config-overlay` there was the one declaration
+// that reached a host table. The host now runs the jail's derives over the user's own
+// `mcp_servers`, `lsp_servers` and `providers`, so the user config is that file again (HC-D19).
+func mcpEntryRemedyKey(home string) string { return userConfigPathIn(home) }
 
 // mcpEntryRemedy is THE remedy for a dropped named entry, in one place. Three copies of it used
 // to sit in apply.go and they had drifted (see the file header); every caller now reads this.
 //
 // It names the FILE, the DECLARATION and the SCOPE, which is what P2 asks of a remedy. The
-// declaration is a `config-overlay` per agent surface (HC-D2), because at the host notch that
-// is the one thing that reaches a yolo-owned table: an overlay folds into the surface's
-// wholesale table layer (entrypoint.hostTableLayer), while the user's `mcp_servers` and
-// `lsp_servers` feed only a jail's derive. So the scope is stated the other way round from the
-// copy this replaced, which promised "one entry there reaches every agent" — true in a jail,
-// and here advice that left the entry dropped (measured by the design's research pass).
+// declaration is the user config's own table — `mcp_servers` for an MCP server, `lsp_servers`
+// for an LSP server, `providers` for a provider — because since OQ-HC1 host apply runs each
+// agent's derive over those tables, so one entry reaches every agent's host file as it reaches a
+// jail's (HC-D19). The per-surface `config-overlay` stays named as the alternative for an entry
+// meant for one agent's file alone; it is what HC-D2 named while those tables reached no host
+// file.
 //
-// The example and the key list are built from `tables`, the surfaces and table keys that lost
-// an entry in THIS run, read off the loss lines. The group collects every yolo-owned table's
-// losses, Copilot's `lspServers` as much as any MCP table, and a fixed sentence naming codex's
-// `mcp_servers` sent an LSP loss, with codex not even selected, to an overlay that could not
-// keep it. The name says MCP for the class that motivated it; the remedy is any table's.
+// The overlay example and its key list are built from `tables`, the surfaces and table keys that
+// lost an entry in THIS run, read off the loss lines, so an LSP server dropped from Copilot's
+// `lspServers` is not handed codex's `mcp_servers`. The name says MCP for the class that
+// motivated it; the remedy is any table's.
 //
 // It ends without a full stop: two callers embed it mid-sentence.
 func mcpEntryRemedy(home string, tables []droppedTable) string {
@@ -535,13 +534,14 @@ func mcpEntryRemedy(home string, tables []droppedTable) string {
 		scope = fmt.Sprintf(" — one for each of %s, under the table key its loss line names (%s)",
 			joinWords(surfaces, "and"), joinWords(keys, "or"))
 	}
-	return fmt.Sprintf("add a `config-overlay` for each agent surface to the `contributes` list "+
-		"in %s, for example "+
+	return fmt.Sprintf("declare it in %s — an MCP server under `mcp_servers`, an LSP server "+
+		"under `lsp_servers`, a provider under `providers` — which reaches every agent's files "+
+		"here as it reaches a jail's; or, for one agent's file alone, add a `config-overlay` to "+
+		"the `contributes` list in %s, for example "+
 		`{"kind": "config-overlay", "surface": %q, "config": {"managed": `+
 		`{%q: {"<name>": {…}}}}}`+
-		"%s. Your `mcp_servers` and `lsp_servers` in %s reach jails only, not the files this "+
-		"command writes", localPackManifestPathIn(home), example.Surface, example.Table, scope,
-		userConfigPathIn(home))
+		"%s", userConfigPathIn(home), localPackManifestPathIn(home), example.Surface,
+		example.Table, scope)
 }
 
 // joinWords lists items the way a sentence does: "a", "a and b", "a, b and c".

@@ -531,54 +531,37 @@ func TestCodexModelListHelperIsIdenticalInEveryDerive(t *testing.T) {
 	}
 }
 
-// THE HOST NOTCH HAS NO LIST, and this pins that it says so rather than assuming it. `yolo host
-// apply` renders a pack's surfaces from its DECLARED layers only: a host render runs no derive
-// for content (hostrender.go, "NO JAIL-DERIVED computed layer"; host-render-target.md §3.3,
-// `Tables` empty at the host), and composes no provider table. So pi/codex-models, whose whole
-// content is the derive's expansion of the openai-codex declaration, renders as an empty object
-// under `assert` and is refused under `own`, which runs no `computed` surface. The extension,
-// which the host notch DOES deliver, then registers no models and pi keeps its built-in
-// openai-codex catalog (docs/design/model-lists-and-pickers.md ML-D8, OQ-ML3). A change that
-// renders the list at the host fails this, and must update ML-D8 and the pages it names.
-func TestTheHostNotchLeavesPiOnItsOwnCodexCatalog(t *testing.T) {
-	p := shippedPiPack(t)
+// THE HOST NOTCH GETS THE DECLARED LIST (OQ-HC1, docs/design/host-computed-layer.md, which
+// supersedes docs/design/model-lists-and-pickers.md ML-D8). `yolo host apply` runs pi's derive
+// over the provider table it composes at user scope, so pi/codex-models holds the openai-codex
+// declaration's expansion at the host too — rendered under `assert`, and under `own` through
+// `stateful` (OQ-HC2), where it used to be refused. The extension the host notch delivers then
+// registers that list, 1M variants included, in place of pi-ai's built-in catalog, as in a jail.
+// This used to pin the opposite (ML-D8: `{}` at the host, the extension registering nothing).
+func TestTheHostNotchGivesPiTheDeclaredCodexList(t *testing.T) {
 	rel := piCodexModelsRel(t)
-	for _, tc := range []struct {
-		ownership  render.HostOwnership
-		wantAction string
-	}{
-		{render.OwnershipAssert, "rendered"},
-		{render.OwnershipOwn, "refused: "},
-	} {
-		t.Run(tc.ownership.String(), func(t *testing.T) {
+	for _, ownership := range []render.HostOwnership{render.OwnershipAssert, render.OwnershipOwn} {
+		t.Run(ownership.String(), func(t *testing.T) {
+			t.Setenv("YOLO_CTX_ROOT", t.TempDir())
 			home := t.TempDir()
-			results, err := RenderHostPack(p, home, tc.ownership, false, nil)
-			if err != nil {
-				t.Fatal(err)
+			in := hostTestInputs(t, testPacksForAgent(t, "pi"), nil, nil, nil)
+			if r := hostRenderWith(t, home, ownership, in, "pi", "pi/codex-models"); r.Action != "rendered" {
+				t.Fatalf("pi/codex-models at the host under %s: %q, want rendered", ownership, r.Action)
 			}
-			var action string
-			for _, r := range results {
-				if r.Surface == "pi/codex-models" {
-					action = r.Action
-				}
-			}
-			if !strings.HasPrefix(action, tc.wantAction) {
-				t.Fatalf("pi/codex-models at the host under %s: %q, want %q…", tc.ownership, action, tc.wantAction)
-			}
+			p := shippedPiPack(t)
 			if _, err := RenderHostFiles(p, home, filesReq(t), false); err != nil {
 				t.Fatal(err)
 			}
-			if raw, err := os.ReadFile(filepath.Join(home, filepath.FromSlash(rel))); err == nil {
-				var file map[string]any
-				if err := json.Unmarshal(raw, &file); err != nil {
-					t.Fatalf("the host-rendered %s is not JSON: %v\n%s", rel, err, raw)
-				}
-				if models, present := file["models"]; present {
-					t.Fatalf("the host notch rendered an openai-codex list %v: update ML-D8 and the "+
-						"pages it names, then this test", models)
-				}
-			} else if !os.IsNotExist(err) {
+			raw, err := os.ReadFile(filepath.Join(home, filepath.FromSlash(rel)))
+			if err != nil {
 				t.Fatal(err)
+			}
+			var file map[string]any
+			if err := json.Unmarshal(raw, &file); err != nil {
+				t.Fatalf("the host-rendered %s is not JSON: %v\n%s", rel, err, raw)
+			}
+			if models, _ := file["models"].([]any); len(models) == 0 {
+				t.Fatalf("the host notch rendered no openai-codex list:\n%s", raw)
 			}
 			// The extension the host notch delivered, run from where it landed with that home.
 			harness := filepath.Join(t.TempDir(), "harness.mjs")
@@ -588,7 +571,7 @@ const { default: extension } = await import(process.env.EXT);
 let registration;
 await extension({ registerProvider(name, config) { registration = { name, config }; }, on() {} });
 if (!registration || registration.name !== "openai-codex") throw new Error("openai-codex was not registered");
-console.log(JSON.stringify("models" in registration.config));
+console.log(JSON.stringify((registration.config.models || []).map((m) => m.id)));
 `), 0o644); err != nil {
 				t.Fatal(err)
 			}
@@ -598,9 +581,21 @@ console.log(JSON.stringify("models" in registration.config));
 			if err != nil {
 				t.Fatalf("running the host-delivered extension: %v\n%s", err, out)
 			}
-			if strings.TrimSpace(string(out)) != "false" {
-				t.Errorf("the host-delivered extension registered models (%s); pi's built-in catalog "+
-					"is what the host notch leaves in place", out)
+			var ids []string
+			if err := json.Unmarshal(out, &ids); err != nil {
+				t.Fatalf("harness output: %v\n%s", err, out)
+			}
+			long := false
+			for _, id := range ids {
+				if strings.HasSuffix(id, "[1m]") {
+					long = true
+				}
+				if strings.HasPrefix(id, "gpt-5") {
+					t.Errorf("the host-delivered extension registered pi-ai's GPT-5.x id %q", id)
+				}
+			}
+			if !long {
+				t.Errorf("the host-delivered extension registered no 1M variant: %v", ids)
 			}
 		})
 	}

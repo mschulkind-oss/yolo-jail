@@ -99,7 +99,7 @@ func renderClaudeWithOverlay(t *testing.T, home string, own render.HostOwnership
 		t.Fatal(err)
 	}
 	overlays := packoverlay.Collect([]*packload.Pack{claude, notificationOverlayPack(t)}, false, nil)
-	results, err := RenderHostPack(claude, home, own, observe, overlays)
+	results, err := RenderHostPack(claude, home, own, observe, overlays, nil)
 	if err != nil {
 		t.Fatalf("RenderHostPack: %v", err)
 	}

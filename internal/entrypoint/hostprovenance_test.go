@@ -79,7 +79,7 @@ func TestHostRenderWritesProvenanceNamingTheContributingPack(t *testing.T) {
 	contributor := overlayContributorPack(t, "acme-fzf", map[string]any{"fileSuggestion": "run-fzf"})
 	overlays := packoverlay.Collect([]*packload.Pack{owner, contributor}, false, nil)
 
-	if _, err := RenderHostPack(owner, home, render.OwnershipAssert, false, overlays); err != nil {
+	if _, err := RenderHostPack(owner, home, render.OwnershipAssert, false, overlays, nil); err != nil {
 		t.Fatalf("RenderHostPack: %v", err)
 	}
 
@@ -111,7 +111,7 @@ func TestHostRenderProvenanceRecordsAGenuineOverlayLoss(t *testing.T) {
 	pushy := overlayContributorPack(t, "pushy", map[string]any{"telemetry": true, "theme": "dark"})
 	overlays := packoverlay.Collect([]*packload.Pack{owner, pushy}, false, nil)
 
-	if _, err := RenderHostPack(owner, home, render.OwnershipAssert, false, overlays); err != nil {
+	if _, err := RenderHostPack(owner, home, render.OwnershipAssert, false, overlays, nil); err != nil {
 		t.Fatalf("RenderHostPack: %v", err)
 	}
 	prov, found := hostProvenance(t, home, "acme", "settings")
@@ -145,7 +145,7 @@ func TestHostProvenanceLivesInTheStateDirNotTheConfigDir(t *testing.T) {
 
 	owner := overlayOwnerPack(t, "")
 	overlays := packoverlay.Collect([]*packload.Pack{owner}, false, nil)
-	if _, err := RenderHostPack(owner, home, render.OwnershipAssert, false, overlays); err != nil {
+	if _, err := RenderHostPack(owner, home, render.OwnershipAssert, false, overlays, nil); err != nil {
 		t.Fatalf("RenderHostPack: %v", err)
 	}
 
@@ -185,7 +185,7 @@ func TestHostRenderObserveWritesNoProvenance(t *testing.T) {
 	contributor := overlayContributorPack(t, "acme-fzf", map[string]any{"fileSuggestion": "run-fzf"})
 	overlays := packoverlay.Collect([]*packload.Pack{owner, contributor}, false, nil)
 
-	if _, err := RenderHostPack(owner, home, render.OwnershipAssert, true, overlays); err != nil {
+	if _, err := RenderHostPack(owner, home, render.OwnershipAssert, true, overlays, nil); err != nil {
 		t.Fatalf("RenderHostPack observe: %v", err)
 	}
 	if prov, found := hostProvenance(t, home, "acme", "settings"); found {
@@ -211,7 +211,7 @@ func TestHostProvenanceWriteFailureDoesNotFailTheApply(t *testing.T) {
 	}
 
 	owner := overlayOwnerPack(t, "")
-	results, err := RenderHostPack(owner, home, render.OwnershipAssert, false, nil)
+	results, err := RenderHostPack(owner, home, render.OwnershipAssert, false, nil, nil)
 	if err != nil {
 		t.Fatalf("a provenance write failure must NOT fail the apply: %v", err)
 	}
@@ -260,7 +260,7 @@ func TestHostProvenanceGranularityMatchesTheJail(t *testing.T) {
 	// The HOST path (rmw → rmwProvenance).
 	home := t.TempDir()
 	overlays := packoverlay.Collect([]*packload.Pack{owner, contributor}, false, nil)
-	if _, err := RenderHostPack(owner, home, render.OwnershipAssert, false, overlays); err != nil {
+	if _, err := RenderHostPack(owner, home, render.OwnershipAssert, false, overlays, nil); err != nil {
 		t.Fatalf("RenderHostPack: %v", err)
 	}
 	hostProv, found := hostProvenance(t, home, "acme", "settings")
@@ -286,7 +286,7 @@ func TestHostProvenanceEmptyRecordIsWrittenNotSkipped(t *testing.T) {
 	// A surface with NO layers at all: no defaults, no managed, no overlays, and an absent
 	// file — so there is nothing whatever to attribute.
 	bare := bareSurfacePack(t)
-	if _, err := RenderHostPack(bare, home, render.OwnershipAssert, false, nil); err != nil {
+	if _, err := RenderHostPack(bare, home, render.OwnershipAssert, false, nil, nil); err != nil {
 		t.Fatalf("RenderHostPack: %v", err)
 	}
 	path := render.Host(home, nil, render.OwnershipAssert).ProvenancePath("bare", "settings")

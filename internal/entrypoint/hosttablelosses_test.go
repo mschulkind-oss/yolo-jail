@@ -176,12 +176,12 @@ func runHostTableApply(t *testing.T, c hostTableSurface, home string, ownership 
 	id := c.surface.Agent + "/" + c.surface.Name
 	before = hostTableState(t, c.surface, path, c.tables)
 
-	obs, err := RenderHostPack(c.pack, home, ownership, true, overlays)
+	obs, err := RenderHostPack(c.pack, home, ownership, true, overlays, nil)
 	if err != nil {
 		t.Fatalf("observe RenderHostPack(%s): %v", c.pack.Name, err)
 	}
 	observed = resultFor(t, obs, id).EntryLosses
-	res, err := RenderHostPack(c.pack, home, ownership, false, overlays)
+	res, err := RenderHostPack(c.pack, home, ownership, false, overlays, nil)
 	if err != nil {
 		t.Fatalf("assert RenderHostPack(%s): %v", c.pack.Name, err)
 	}

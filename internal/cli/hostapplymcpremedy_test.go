@@ -3,15 +3,13 @@ package cli
 // hostapplymcpremedy_test.go pins HC-D2 (docs/design/host-computed-layer.md §7): the remedy a
 // host apply prints for a dropped MCP entry is one that KEEPS the entry at the host.
 //
-// It used to say: declare it under `mcp_servers` in your user config, "one entry there reaches
-// every agent". That is true of a jail and false here — host apply renders no derive for
-// content, so `mcp_servers` reaches no host file — and following it did nothing: measured by
-// the design's research pass, the dry run still warned and the --assert still dropped the
-// entry. The one declaration that reaches a host MCP table today is a `config-overlay` naming
-// the surface, for example in the conventional local pack.
+// HC-D2 first made it name a per-surface `config-overlay`, because `mcp_servers` reached no
+// host file while host apply ran no derive for content. OQ-HC1 (2026-09-28) made the host run
+// the jail's derives over the user's own `mcp_servers`, so the remedy names that key again —
+// one entry there reaches every agent's host file, as it reaches a jail — with the overlay kept
+// as the per-surface alternative (HC-D19).
 //
-// So the test FOLLOWS both pieces of advice, in the real apply: the old one leaves the loss in
-// place (the reason the remedy had to change), and the one the remedy now names removes it.
+// So the test FOLLOWS both pieces of advice, in the real apply, and each must keep the entry.
 
 import (
 	"os"
@@ -52,34 +50,41 @@ func TestTheHostMCPRemedyNamesWhatReachesTheHost(t *testing.T) {
 		t.Errorf("the dropped entry is not one group keyed on the file the remedy names (%s): %+v",
 			mcpEntryRemedyKey(home), hostApplyRemedyGroups(survey, home, false))
 	}
+	if !strings.Contains(remedy, "`mcp_servers`") {
+		t.Errorf("the remedy does not name `mcp_servers`, which reaches every host MCP "+
+			"surface since the host runs the jail's derives (OQ-HC1): %q", remedy)
+	}
+	if want := filepath.Join(home, ".config", "yolo-jail", "config.jsonc"); !strings.Contains(remedy, want) {
+		t.Errorf("the remedy does not name the user config the declaration goes in (%s): %q",
+			want, remedy)
+	}
 	if !strings.Contains(remedy, "config-overlay") {
-		t.Errorf("the remedy does not name a `config-overlay`, the one declaration that "+
-			"reaches a host MCP table: %q", remedy)
+		t.Errorf("the remedy dropped the per-surface `config-overlay` alternative: %q", remedy)
 	}
-	if want := filepath.Join(home, ".config", "yolo-jail", "local", "pack.json"); !strings.Contains(remedy, want) {
-		t.Errorf("the remedy does not name the file the declaration goes in (%s): %q", want, remedy)
-	}
-	if strings.Contains(remedy, "every agent") {
-		t.Errorf("the remedy promises that one entry reaches every agent, which is a jail's "+
-			"behavior and not this notch's: %q", remedy)
+	if strings.Contains(remedy, "reach jails only") {
+		t.Errorf("the remedy still says `mcp_servers` reaches jails only: %q", remedy)
 	}
 }
 
-// THE OLD ADVICE, followed: an identical `mcp_servers` entry in the user config changes
-// nothing at the host. This is the measured case and the reason for HC-D2 — if host apply ever
-// starts consuming `mcp_servers` (OQ-HC1), this fails, and the remedy should say so again.
-func TestAnMCPServersEntryDoesNotKeepAHostEntry(t *testing.T) {
+// THE `mcp_servers` ADVICE, followed: an identical entry in the user config keeps the host
+// entry — no loss line, no prompt — because host apply now runs codex's derive over the user's
+// `mcp_servers` (OQ-HC1; §6.7 item 1 of the design). Before the ruling this was the measured
+// case that forced HC-D2: the dry run warned and the --assert dropped the entry.
+func TestAnMCPServersEntryKeepsTheHostEntry(t *testing.T) {
 	_, config := codexHandmadeHome(t,
 		`{"packs":["codex"],"mcp_servers":{"handmade":{"command":"echo"}}}`)
-	if _, report := surveyApply(t); !strings.Contains(report, "handmade") {
-		t.Fatalf("with the entry under mcp_servers the dry run no longer reports it lost — host "+
-			"apply now consumes mcp_servers, so the remedy may name it again (HC-D2):\n%s", report)
+	// The entry exactly as codex's derive writes that server (it adds `args = []`), so the
+	// file holds what the user's config declares and nothing is replaced either.
+	writeFile(t, config, "[mcp_servers.handmade]\ncommand = \"echo\"\nargs = []\n")
+	if _, report := surveyApply(t); strings.Contains(report, "handmade (") {
+		t.Errorf("with the entry under mcp_servers the dry run still reports it lost:\n%s", report)
 	}
-	if rc, report := applyWith(t, true, strings.NewReader("y\n")); rc != 0 {
+	// No stdin: a first-apply loss confirmation would refuse, so rc 0 is the proof none fired.
+	if rc, report := applyWith(t, true, nil); rc != 0 {
 		t.Fatalf("assert rc=%d\n%s", rc, report)
 	}
-	if data, _ := os.ReadFile(config); strings.Contains(string(data), "handmade") {
-		t.Fatalf("the entry survived with only mcp_servers declaring it:\n%s", data)
+	if data, _ := os.ReadFile(config); !strings.Contains(string(data), "handmade") {
+		t.Fatalf("the entry mcp_servers declares was dropped from the host file:\n%s", data)
 	}
 }
 

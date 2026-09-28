@@ -1434,17 +1434,6 @@
                     state that no pack should perform unprompted (the directory one would
                     replace a real directory in your own home with a symlink), so this
                     command runs none of them.
-      profile       a profile is a NAMED SELECTION over a provider, made at launch (-p).
-                    This command selects none, so it writes your packs' base surfaces
-                    only.  Launch a jail with `-p <name>` to apply the variant.
-      provider      a shipped provider's facts compose into the providers table a LAUNCH
-                    carries, and the derives render them from it into `pi/models`,
-                    `pi/codex-models`, `codex/config`, `opencode/config` and
-                    `oh-omp/models`.  `yolo host apply` composes no providers table, so
-                    those files get none of those facts at the host: no catalog row, and
-                    pi keeps its own openai-codex model list.  A wrapped launch,
-                    `yolo host -- <program>`, composes the table too, but only into that
-                    one process's environment, never into a file.
       adapter       an adapter's address is composed into the providers table a LAUNCH
                     carries, so it reaches an agent the moment one starts and never
                     through a config file.  This command starts none, so nothing is
@@ -1456,6 +1445,22 @@
       service       a service is a daemon pair plus an endpoint file under the jail's
                     /run.  With no jail there is nothing to supervise the jail half and
                     nothing to read the endpoint.
+    WHAT A HOST APPLY COMPUTES, as a jail does: `yolo host apply`, and the automatic
+    apply a wrapped launch runs, run each pack's derives over inputs composed from
+    your USER config alone — the providers table (your `providers` over the selected
+    packs' provider facts), your `mcp_servers`, your `lsp_servers`, and the selection
+    your `use_profiles` names.  So the provider facts reach `pi/models`,
+    `pi/codex-models`, `codex/config`, `opencode/config` and `oh-omp/models` at the
+    host too, pi registers the declared openai-codex list, and every agent's MCP and
+    LSP files carry your servers.  Never an MCP preset (its command is a wrapper only
+    a jail writes), a pack's `mcp` declaration, a workspace's config, or a value naming
+    a path only a jail has: each is left out and named.  A table a derive declares in
+    full is yolo's there, as in a jail, so an entry you added by hand to one is
+    dropped — confirmed first, the first time — unless your config declares it.
+    `use_profiles` is applied edge-triggered: written when the chosen profile
+    changes, your own later /model pick kept, and only what yolo wrote cleared when
+    you deselect.  A one-launch `-p` has no meaning here, since this command launches
+    nothing.
     NOTE (shipped behavior): two packs declaring a skills `into` at the SAME path fail
     the jail at boot.  (This note also said a jail ignored `briefing.from` and read a
     root AGENTS.md regardless.  Both notches now resolve every pack through one
@@ -1611,6 +1616,12 @@
     indistinguishable from a working one.  A selected profile switches ON; deactivating
     it does not write the agent's surface back — whatever a selection wrote stays, and
     the agent's own choice stands.
+    AT THE HOST NOTCH `yolo host apply` (and a wrapped launch's automatic apply) writes
+    this selection into the agents' real files too — pi's defaultProvider and
+    defaultModel, codex's and opencode's model, claude's picker — when the chosen
+    profile changes; a later /model pick of yours stands, and deselecting clears only
+    what yolo wrote.  A selection the host cannot run (a profile only a jail's service
+    serves) is left out and named.
     Example: {"pi": "zai-fast", "codex": null}
 
   [bold]required_capabilities[/bold] (array of strings): Named capabilities this
@@ -1663,6 +1674,8 @@
       • Claude Code: the launcher renders ONE generated plugin, yolo-lsp, from the
         whole table into the skills tree Claude loads plugins from.
     yolo installs no language server itself, on any backend.
+    At the host notch `yolo host apply` writes the same translation into your real
+    home from your USER config, less any server naming a path only a jail has.
     Example: {"rust": {"command": "rust-analyzer", "args": [],
               "fileExtensions": {".rs": "rust"}}}
 
@@ -1671,6 +1684,8 @@
       • chrome-devtools: Headless Chromium automation via Chrome DevTools Protocol.
       • sequential-thinking: Chain-of-thought reasoning via MCP.
     Invalid: enabling a preset here and null-removing it in the same config file.
+    Jail only: a preset's command is a wrapper a jail's boot writes, so `yolo host
+    apply` writes no preset into your real home and names each one it leaves out.
     Example: ["chrome-devtools", "sequential-thinking"]
 
   [bold]mcp_servers[/bold] (object): Custom MCP servers for Copilot, Claude, and Codex.
@@ -1716,11 +1731,14 @@
       • opencode: written to ~/.config/opencode/opencode.json (mcp key, native schema).
       • codex: written to ~/.codex/config.toml (\\[mcp_servers.<name>] tables).
       • pi: no native MCP support (skipped).
-    AT THE HOST NOTCH none of this is written: `yolo host apply` renders no MCP
-    entry from this key.  To give a host agent a server, add a `config-overlay`
-    for that agent's surface to your local pack (~/.config/yolo-jail/local/pack.json),
-    under the key its file keeps servers in — `yolo host apply` names the file and
-    the form when it would drop one.
+    AT THE HOST NOTCH the same translation is written into your real home by
+    `yolo host apply` (and a wrapped launch's automatic apply), from this key in your
+    USER config: every selected agent's MCP file gets these servers, as in a jail.
+    A server whose command or arguments name a path only a jail has (/workspace,
+    /home/agent, /ctx, …) is left out and named, and `requires_env` is asked of the
+    environment `yolo host env --agent <agent>` composes for each agent.  To give one
+    host agent a server the others should not get, add a `config-overlay` for that
+    agent's surface to your local pack (~/.config/yolo-jail/local/pack.json).
     Example:
       {"cerebras-mcp": {
         "command": "npx", "args": ["-y", "cerebras-code-mcp"],
