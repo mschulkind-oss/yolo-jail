@@ -12,8 +12,9 @@ package jailcontent
 //
 // # P5: nothing outside the workspace is ever read, and that is structural here
 //
-// The copier every other layer uses (copySkillSubdirs) follows symlinks, correctly: its sources
-// are yolo's own trees and pack trees packstage already refused escaping links in. The workspace
+// The copier the pack layers go through (hostskills' copyTree, the host's own writer since
+// OQ-NC11) follows symlinks, correctly: its sources are pack trees packstage already refused
+// escaping links in, and yolo's built-ins are embedded. The workspace
 // is neither. It is populated by a `git clone` and editable by the agent inside the jail, and this
 // code runs ON THE HOST — so `.agents/skills/x/SKILL.md → ~/.ssh/id_ed25519`, committed or planted
 // between two attaches, would have been read by the host user and bound into the jail as a skill.
@@ -121,12 +122,16 @@ type WorkspaceSkillsReport struct {
 	// Refused is every entry skipped because reading it would have left the workspace, or
 	// could not be read or staged safely — named by its workspace-relative path.
 	Refused []WorkspaceSkillRefusal
+	// PackNotices are the PACK layers' lines, beside the workspace's because one composition
+	// produces both: what the host's writer refused to deliver, and every reserved child it
+	// withheld (skills.go), one per entry and reason.
+	PackNotices []PackSkillNotice
 }
 
 // Empty reports whether the report has nothing to say — the common case, which is silent.
 func (r *WorkspaceSkillsReport) Empty() bool {
 	return r == nil || len(r.Mirrored)+len(r.Shadowed)+len(r.Collisions)+len(r.HeldBack)+
-		len(r.Competing)+len(r.Refused) == 0
+		len(r.Competing)+len(r.Refused)+len(r.PackNotices) == 0
 }
 
 // WorkspaceSkillDelivery is what one source dir delivered, and to whom.
@@ -381,7 +386,7 @@ func stageWorkspaceLayer(ws *WorkspaceSkills) (l *workspaceLayer, err error) {
 			fi, err := tree.root.Lstat(childReal)
 			if err != nil || !fi.IsDir() {
 				// A top-level FILE is not a skill directory, for this layer exactly as for every
-				// other one (copySkillSubdirs skips it too).
+				// other one (the pack layers' reader, hostskills' collectSkills, skips it too).
 				continue
 			}
 			src.names[name] = true

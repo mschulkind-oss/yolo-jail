@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"syscall"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/jailcontent/builtinskills"
@@ -15,13 +16,20 @@ import (
 
 // writeBuiltinSkills copies the embedded built-in skill trees into dst, the private scratch
 // tree a destination's skills are composed in (prepareSkillTarget), which then syncs the result
-// into the bound staging dir.
-func writeBuiltinSkills(dst string) error {
+// into the bound staging dir — every one except those whose top-level name is in taken, which a
+// higher layer (a pack's skill of the same name, a reserved child) already holds.
+func writeBuiltinSkills(dst string, taken map[string]string) error {
 	return fs.WalkDir(builtinskills.FS, ".", func(p string, d fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
 		}
 		if p == "." {
+			return nil
+		}
+		if top, _, _ := strings.Cut(p, "/"); taken[top] != "" {
+			if d.IsDir() {
+				return fs.SkipDir
+			}
 			return nil
 		}
 		target := filepath.Join(dst, p)

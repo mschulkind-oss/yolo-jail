@@ -499,9 +499,7 @@ func adoptPackRecords(packs []*packload.Pack) {
 	var skills []jailcontent.PackSkillSource
 	for _, p := range packs {
 		sources, _ := p.SkillsSources()
-		for _, src := range sources {
-			skills = append(skills, jailcontent.PackSkillSource{Dir: src.Dir, Agents: src.Agents, Pack: p.Name})
-		}
+		skills = append(skills, jailSkillSources(p, sources)...)
 	}
 	jailcontent.SetPackSkillDirs(skills)
 	loopholes.SetPackModules(packLoopholeModules(packs))

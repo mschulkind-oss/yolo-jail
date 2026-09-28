@@ -107,8 +107,9 @@ func writeLSPPlugin(skillsDir string) error {
 		append(data, '\n'), 0o644)
 }
 
-// yoloPluginManagedBy mirrors hostskills' marker value. Duplicated rather than imported because
-// jailcontent must not depend on the host-skills composer; a drift test pins the two together.
+// yoloPluginManagedBy mirrors hostskills' marker value, which that package keeps unexported. It
+// was duplicated while jailcontent did not import hostskills; since OQ-NC11 it does (the pack
+// layers are composed by hostskills.ComposeInto), and the drift test still pins the two together.
 const yoloPluginManagedBy = "yolo-jail"
 
 // renderLSPServers translates yolo's `lsp_servers` into the plugin's `lspServers` shape.

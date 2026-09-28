@@ -375,14 +375,15 @@ func Discover(packRoot string) []*Plugin { return DiscoverIn(packRoot, nil) }
 // vendored inside a skill's test fixtures and deliver it — a surprise, and one that arrives
 // with hooks. Both supported layouts are legible from `ls`:
 //
-//	<pack>/<skills dir>/<plugin>/.claude-plugin/plugin.json   portable: the jail's flat skills
-//	                                                   merge lands it at the same path the
-//	                                                   host render writes, so one layout
-//	                                                   works at both notches
+//	<pack>/<skills dir>/<plugin>/.claude-plugin/plugin.json   portable: the plugin rides the
+//	                                                   skills source it sits in
 //	<pack>/.claude-plugin/plugin.json                  wrap-in-place: the pack root IS the
-//	                                                   plugin. Host-only — a jail delivers
-//	                                                   the pack's skills subtree, never its
-//	                                                   root, so the manifest never arrives.
+//	                                                   plugin, carried by every skills
+//	                                                   source of the pack
+//
+// Both notches deliver both through one writer, hostskills' (docs/plans/notch-convergence.md
+// #OQ-NC11): a jail used to copy a pack's skills subtree flat, so a wrap-in-place plugin never
+// reached it and a portable one arrived as a bare directory whatever the pack's tier.
 func DiscoverIn(packRoot string, skillsDirs []string) []*Plugin {
 	var out []*Plugin
 	if p, ok := Load(packRoot); ok {

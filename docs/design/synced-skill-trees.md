@@ -359,6 +359,13 @@ jail and every other agent's skills directory. **Code-read, not measured** — i
 copier, but no jail was launched to watch it. Those homes are the ones
 [§7](#7-homes-that-are-already-wrong) reports on, and the fence cannot reach back and undo them.
 
+> [!NOTE]
+> **Since [OQ-NC11](../plans/notch-convergence.md#OQ-NC11) (built 2026-09-28) the jail composes
+> through the host's layer writer and withholds a reserved child whichever layer ships it**, and
+> says so at launch. A reservation names children of the destination that declares it, so the
+> local pack's `synced/` is withheld from the jail's `~/.claude/skills` and still reaches a
+> destination that reserves nothing, such as `~/.codex/skills`.
+
 ## 4. The components — and the two this design no longer has
 
 > [!IMPORTANT]

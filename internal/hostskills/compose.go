@@ -17,10 +17,11 @@ package hostskills
 //
 // The decisions this encodes:
 //
-//   - THE JAIL'S COMPOSITION IS THE SPECIFICATION (jailcontent.PrepareSkills): packs in config order,
-//     later winning a same-named skill, with the LOCAL PACK last so a personal skill outranks a
-//     shared one. That ordering is already what config.LoadPacks produces, so the precedence is
-//     inherited from the pack order rather than restated here.
+//   - ONE COMPOSITION AT BOTH NOTCHES: packs in config order, with the LOCAL PACK last. That
+//     ordering is what config.LoadPacks produces, so it is inherited from the pack order rather
+//     than restated here. Since S1 a same-named skill from two packs is a refusal, not a win for
+//     the later one, and since OQ-NC11 the jail composes through this package too (ComposeInto),
+//     so the refusal and the tiers are the same in a jail.
 //   - BUILT-INS ARE STILL NOT WRITTEN TO A REAL HOME. The jail's layer 1 is yolo's own
 //     jail-oriented skills (configuring-the-jail, diagnosing-the-jail); on the host they describe an
 //     environment the user is not in. The difference is deliberate and predates this file.
@@ -227,7 +228,7 @@ func ComposeHostSkills(packs []*packload.Pack, homeDir string) []Destination {
 		// Per PACK, not per contribution: a wrapped plugin is carried BY the pack's skills
 		// contributions, so a pack declaring two destinations delivers its plugin to both — the
 		// behavior the per-pack delivery had.
-		plugins, _ := p.HonoredPlugins()
+		base := PackLayer(p)
 		for _, c := range p.Decl.Contributions() {
 			if c.Kind != packdecl.KindSkills || c.Into == "" {
 				continue
@@ -241,8 +242,7 @@ func ComposeHostSkills(packs []*packload.Pack, homeDir string) []Destination {
 			}
 			// The tier comes off the PACK, so every layer this pack contributes carries the same
 			// one and its skills are called the same thing wherever they land (S2).
-			l := Layer{Pack: p.Name, Description: p.Decl.Description, Plugins: plugins,
-				Tier: PackTier(p.Decl.SkillsTier), SourceOf: p.SourcePath}
+			l := base
 			src, prob := p.SkillsSourceDir(c)
 			if prob != "" {
 				l.Problem, l.Unresolved = prob, true
@@ -271,6 +271,26 @@ func ComposeHostSkills(packs []*packload.Pack, homeDir string) []Destination {
 		out = append(out, *byDir[dir])
 	}
 	return out
+}
+
+// PackLayer is the layer a pack contributes wherever its skills land, before any source is
+// resolved: its name, description, tier and wrapped plugins, and the map from its staged tree back
+// to the files the user edits. Sources, Problem and Unresolved are each destination's to fill.
+//
+// ONE CONSTRUCTOR FOR BOTH NOTCHES (docs/plans/notch-convergence.md#OQ-NC11): the host composition
+// above and the jail's layer plan (jailcontent.PackSkillSource, which the run pipeline fills from
+// this) read a pack's tier and plugins through it, so the two cannot disagree about what a pack's
+// skills are called.
+func PackLayer(p *packload.Pack) Layer {
+	if p == nil {
+		return Layer{}
+	}
+	plugins, _ := p.HonoredPlugins()
+	l := Layer{Pack: p.Name, Plugins: plugins, SourceOf: p.SourcePath}
+	if p.Decl != nil {
+		l.Description, l.Tier = p.Decl.Description, PackTier(p.Decl.SkillsTier)
+	}
+	return l
 }
 
 // Collision is one NAME two packs both want at one destination — the S1 refusal.

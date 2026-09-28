@@ -155,7 +155,7 @@ func TestLSPPluginSkipsAnEntryWithNoCommand(t *testing.T) {
 
 // TestPluginMarkerMatchesTheHostSkillsComposer pins the DUPLICATED constant.
 //
-// jailcontent must not import hostskills, so the ownership marker is spelled twice. If they drift,
+// The ownership marker is spelled twice (hostskills keeps its own unexported). If they drift,
 // nothing fails loudly — the host adoption walk simply stops recognising yolo's own plugin and
 // offers to migrate it into the user's local pack, which is the class of defect the sync-root fence
 // exists for. So the drift is what gets pinned, by reading the composer's source.

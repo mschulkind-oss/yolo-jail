@@ -94,15 +94,15 @@ func TestJailWithoutALocalPackStagesNothingExtra(t *testing.T) {
 	}
 }
 
-// ORDER IS LOAD-BEARING AND IT IS LAST. jailcontent.PrepareSkills copies packSkillDirs in this
-// order with later winning a same-named skill (copySkillSubdirs replaces the target), so the
-// local pack coming last is precisely what makes a PERSONAL skill outrank a shared pack's —
-// the precedence the jail already had when the user's own tree was a separate final layer.
+// THE LOCAL PACK IS LAST. It is the plan's last layer (jailcontent.SkillPlan keeps source order),
+// the order the host composes in too. It no longer lets a PERSONAL skill replace a shared pack's
+// of the same name: since OQ-NC11 that is a collision refusing the launch, the local pack
+// included, as at the host (skillcollision_test.go) — so the two packs here ship different names.
 func TestJailLocalPackSkillsSourceComesLast(t *testing.T) {
 	home := packHome(t)
-	localPackTree(t, home, "dup", "PERSONAL")
+	localPackTree(t, home, "mine", "PERSONAL")
 	shared := filepath.Join(t.TempDir(), "shared")
-	writeSkillTree(t, filepath.Join(shared, "skills"), "dup")
+	writeSkillTree(t, filepath.Join(shared, "skills"), "theirs")
 	writeUserPacks(t, home, `["claude",{"source":"file://`+shared+`","name":"shared"}]`)
 
 	dirs, warnings := stagedSkillDirs(t, &Options{Workspace: t.TempDir()})
@@ -111,8 +111,8 @@ func TestJailLocalPackSkillsSourceComesLast(t *testing.T) {
 	}
 	last := dirs[len(dirs)-1]
 	if last != stagedLocalPackDir(dirs) {
-		t.Errorf("the last skills source is %q, not the local pack's — a personal skill would "+
-			"lose to a shared pack's same-named one. Full order: %v", last, dirs)
+		t.Errorf("the last skills source is %q, not the local pack's — the jail's layer order "+
+			"no longer matches the host's. Full order: %v", last, dirs)
 	}
 }
 

@@ -674,9 +674,12 @@ func packSkillTargets(loadedPacks []*packload.Pack) []jailcontent.SkillTarget {
 			}
 			// ProjectDirs is the destination's SKIP RULE for the workspace layer: where its own
 			// agent already reads skills in a workspace (docs/design/workspace-skills.md §5).
+			// Reserved is the destination's fence (packs/claude reserves `synced`): the
+			// composition withholds that child whichever layer ships it (OQ-NC11).
 			out = append(out, jailcontent.SkillTarget{
 				Staging: jailcontent.SkillStagingName(p.Name), Dest: c.Into, Agent: c.Agent,
 				ProjectDirs: append([]string(nil), c.ProjectDirs...),
+				Reserved:    append([]string(nil), c.Reserved...), ReservedNotes: c.ReservedNotes,
 			})
 		}
 	}

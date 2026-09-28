@@ -132,6 +132,13 @@ func (o *Options) noteWorkspaceSkills(r *jailcontent.WorkspaceSkillsReport) {
 		return
 	}
 	out := o.pr(o.Stderr)
+	// The PACK layers' lines first: what the host's writer would not deliver, and each reserved
+	// child it withheld (OQ-NC11). A pack's own directory names the entry, so it is rendered as
+	// safely as a workspace's.
+	for _, n := range r.PackNotices {
+		out.print(fmt.Sprintf("[yellow]Skills: %s in %s: %s[/yellow]", quoteSafe(n.Name),
+			strings.Join(n.In, ", "), displaySafe(n.Detail)))
+	}
 	for _, f := range r.Refused {
 		out.print("[yellow]Workspace skills: refused " + displaySafe(f.Path) + " — " + displaySafe(f.Reason) + "[/yellow]")
 	}

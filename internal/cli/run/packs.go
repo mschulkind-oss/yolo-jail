@@ -397,6 +397,10 @@ func (o *Options) stagePacksInto(stagingRoot string, entries []config.PackEntry)
 		}
 		return nil, nil, fmt.Errorf("packs: %s", strings.Join(msgs, "\npacks: "))
 	}
+	// Beside it, a SKILL name two packs ship to one destination (OQ-NC11, jailskills.go).
+	if err := checkSkillCollisions(skillDirs, loaded); err != nil {
+		return nil, nil, err
+	}
 
 	// THE EIGHTH bespoke pre-flight, and the other half of the same namespace: an `agents`
 	// selector naming an agent this jail does not HAVE (docs/reference/agent-briefings.md#ba-p3, #oq-ba3).
@@ -864,14 +868,7 @@ func (o *Options) packSkillSourceDirs(p *packload.Pack) []jailcontent.PackSkillS
 	for _, prob := range problems {
 		o.pr(o.Stdout).print("[yellow]Warning: " + prob + "[/yellow]")
 	}
-	// Dir and Agents are packload's own fields on purpose (jailcontent.PackSkillSource says why
-	// the second type exists), so the conversion is a copy; Pack names the pack for the one
-	// sentence that must say who took a name a workspace skill wanted.
-	out := make([]jailcontent.PackSkillSource, 0, len(sources))
-	for _, src := range sources {
-		out = append(out, jailcontent.PackSkillSource{Dir: src.Dir, Agents: src.Agents, Pack: p.Name})
-	}
-	return out
+	return jailSkillSources(p, sources)
 }
 
 // stagePackEntry stages one entry into dest through the one pack resolver (config.ResolvePack,
