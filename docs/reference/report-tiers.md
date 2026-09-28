@@ -227,7 +227,7 @@ the config key, the local-pack path, the missing binary, or "none" — never by 
 
 | Loss class | Group by | Remedy | Scope word |
 | :--- | :--- | :--- | :--- |
-| table entry dropped (an MCP server, or an LSP server in Copilot's config) | the local pack's `pack.json`, one group across agents; its items are the entry names | a `config-overlay` in that file for each surface that lost an entry, under the table key its loss line names. `mcp_servers` and `lsp_servers` reach jails only, never a file host apply writes | *per surface* |
+| table entry dropped (an MCP server, an LSP server in Copilot's config, or a provider in pi's catalog) | the user config, one group across agents; its items are the entry names | declare it there under `mcp_servers`, `lsp_servers` or `providers`, which reaches every agent's host files as it reaches a jail's ([HC-D20](../design/host-computed-layer.md#HC-D20)); or, for one agent's file alone, a `config-overlay` in the local pack's `pack.json` under the table key its loss line names | *every agent*, or *per surface* |
 | skill adopted (moved, unioned, archived) | the skill name, across dirs | remove it from the agent dir before applying, to opt one out; otherwise the move is the remedy | *all N dirs* |
 | your value replaced by the owning pack's managed key | the winner | **none exists** at this notch — that layer outranks every declaration — so the group states it and stops, with no `⚠` | — |
 | your value replaced by a pack's `config-overlay` | the winner, one group per pack | remove the key from that pack's `config-overlay` for the surface, naming its `pack.json`; a shipped pack's overlay is not the user's to edit, so its group says to drop the pack instead | *this pack's overlay* |
@@ -360,7 +360,7 @@ readiness and reachability waits, and the macos-user native build. One renderer,
 - **A shown step always closes with its result** (`…: done — 92 layer(s), 3.2 GB (12.8s)`, or
   `failed`).
 
-A progress line is not a density control and hides nothing, so P4 and OQ-RO3 are untouched.
+A progress line is not a density control and hides nothing, so P4 and [`OQ-RO3`](#why-its-this-way) are untouched.
 
 **The launcher persists its half.** Everything the launcher prints is appended to
 `<workspace>/.yolo/launch.log` (`launchLog`, `LaunchLogName`), beside the entrypoint's `boot.log`,

@@ -492,7 +492,7 @@ const (
 // It was the local pack's manifest from HC-D2 until OQ-HC1 (docs/design/host-computed-layer.md):
 // while host apply ran no derive for content, a `config-overlay` there was the one declaration
 // that reached a host table. The host now runs the jail's derives over the user's own
-// `mcp_servers`, `lsp_servers` and `providers`, so the user config is that file again (HC-D19).
+// `mcp_servers`, `lsp_servers` and `providers`, so the user config is that file again (HC-D20).
 func mcpEntryRemedyKey(home string) string { return userConfigPathIn(home) }
 
 // mcpEntryRemedy is THE remedy for a dropped named entry, in one place. Three copies of it used
@@ -502,7 +502,7 @@ func mcpEntryRemedyKey(home string) string { return userConfigPathIn(home) }
 // declaration is the user config's own table — `mcp_servers` for an MCP server, `lsp_servers`
 // for an LSP server, `providers` for a provider — because since OQ-HC1 host apply runs each
 // agent's derive over those tables, so one entry reaches every agent's host file as it reaches a
-// jail's (HC-D19). The per-surface `config-overlay` stays named as the alternative for an entry
+// jail's (HC-D20). The per-surface `config-overlay` stays named as the alternative for an entry
 // meant for one agent's file alone; it is what HC-D2 named while those tables reached no host
 // file.
 //

@@ -141,7 +141,7 @@ func (t hostAgentTables) skippedNotes() []string {
 // prefix, the /run/yolo tree the boot writes (store packages, caller tokens) and the service
 // endpoint directory.
 //
-// A root the RENDERED home lies at or under is dropped (HC-D14): `yolo host apply` run inside a
+// A root the RENDERED home lies at or under is dropped (HC-D15): `yolo host apply` run inside a
 // jail renders into that jail's /home/agent, where /home/agent/... is the real home and not a
 // jail path, and a user whose account home happens to be /home/agent is the same case.
 func jailOnlyRoots(renderedHome string) []string {
@@ -179,7 +179,7 @@ func pathWithin(p, root string) bool {
 //
 // Exported for internal/cli, whose host input composition omits a user's `mcp_servers` or
 // `lsp_servers` entry that names one (HC-D6) with the same predicate this package's output
-// check uses (HC-D12), so the two cannot disagree about what a jail path is.
+// check uses (HC-D14), so the two cannot disagree about what a jail path is.
 func JailPathsIn(v any, renderedHome string) []string {
 	roots := jailOnlyRoots(renderedHome)
 	var out []string

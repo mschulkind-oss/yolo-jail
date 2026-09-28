@@ -366,7 +366,7 @@ func TestHostCaptureStoreIsOwnOnly(t *testing.T) {
 	}
 }
 
-// THE SELECTION RECORD HAS A HOME UNDER `assert` TOO (OQ-HC3, HC-D17 in
+// THE SELECTION RECORD HAS A HOME UNDER `assert` TOO (OQ-HC3, HC-D18 in
 // docs/design/host-computed-layer.md). Host apply writes the `use_profiles` selection with the
 // jail's edge-triggered rule under both contracts, and the rule needs a record of what yolo
 // wrote. `assert` keeps no capture store, so the record goes where the provenance record and the

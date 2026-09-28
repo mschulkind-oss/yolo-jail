@@ -229,7 +229,7 @@ func TestAHostComputedLayerKeepsYourKeysOutsideItsTables(t *testing.T) {
 	}
 }
 
-// THE JAIL-PATH REFUSAL (HC-D12): a surface whose computed layer names a path only a jail has
+// THE JAIL-PATH REFUSAL (HC-D14): a surface whose computed layer names a path only a jail has
 // is refused by name and never written. The inputs here bypass the CLI's own per-entry filter
 // (HC-D6) on purpose, which is the case the check is the backstop for: a derive — or an input a
 // caller composed wrong — spelling a jail path.
@@ -266,7 +266,7 @@ func TestTheHostNeverExpandsAnMCPPreset(t *testing.T) {
 }
 
 // JailPathsIn's token rule: a root counts only as a whole path token, and a root the rendered
-// home lies under is not a jail path there (HC-D14).
+// home lies under is not a jail path there (HC-D15).
 func TestJailPathsInMatchesWholePathTokensOnly(t *testing.T) {
 	for _, tc := range []struct {
 		value string
@@ -329,7 +329,7 @@ func TestHostApplyWritesTheUseProfilesSelectionOnTheEdge(t *testing.T) {
 			t.Setenv("YOLO_CTX_ROOT", t.TempDir())
 			home := t.TempDir()
 			settings := filepath.Join(home, ".pi", "agent", "settings.json")
-			// A value predating the selection, which the first activation outranks (HC-D16).
+			// A value predating the selection, which the first activation outranks (HC-D17).
 			writeTestFile(t, settings, `{"theme": "dark", "defaultModel": "before-yolo"}`)
 			packs := testPacksForAgent(t, "pi")
 			selected := hostTestInputs(t, packs, map[string]string{"pi": "codex"}, nil, nil)

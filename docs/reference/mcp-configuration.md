@@ -89,6 +89,27 @@ projection, and every LSP projection except Claude's, is the pack's, not core's.
 plugin is the exception, and it names no agent: core writes it into every skills
 destination rather than asking which one is Claude's.
 
+### At the host notch
+
+`yolo host apply`, and the automatic apply a wrapped launch runs, run the same pipeline from the
+derive boundary on, with the same derives
+([OQ-HC1](../design/host-computed-layer.md#OQ-HC1)). The tables come from the USER config alone,
+composed in `internal/cli`'s `composeHostInputs` and handed to the render as the same wire
+variables a launch exports ([HC-D13](../design/host-computed-layer.md#HC-D13)). Three things
+differ, each named in the report:
+
+- **No preset is expanded.** Its command is a wrapper only a jail's boot writes
+  ([HC-D16](../design/host-computed-layer.md#HC-D16)).
+- **An entry whose command or arguments name a jail-only path** (`/workspace`, the jail home,
+  `/ctx`, the install prefix, `/run/yolo`) is left out, and a surface whose derive output still
+  names one is refused rather than written
+  ([HC-D14](../design/host-computed-layer.md#HC-D14)).
+- **`requires_env` is asked of each agent's host composition**, the environment `yolo host env
+  --agent <agent>` prints, over the invoking shell's.
+
+Claude's `yolo-lsp` plugin stays jail-only (below); Claude at the host gets `ENABLE_LSP_TOOL`
+in its settings, and Copilot gets its native LSP file.
+
 ### The rules the one loader enforces
 
 Because every projection reads the same table, these apply **identically** to every
@@ -245,9 +266,9 @@ writes the first, the one both extensions read:
 - **Deselecting** writes nothing, and removes the file only while it is still exactly yolo's last
   render with no edit captured in it.
 - **At the host**, `yolo host apply` skips it with a stated reason, under every
-  `host_management` value (`notAtHost`). Host apply renders no MCP servers
-  ([`host-computed-layer.md`](../design/host-computed-layer.md)), so it could only re-encode the
-  cross-tool file you keep there.
+  `host_management` value (`notAtHost`). Host apply writes your `mcp_servers` into pi's own
+  `mcp-adapter.json` there ([`host-computed-layer.md`](../design/host-computed-layer.md#14-what-was-built)),
+  and this cross-tool file stays yours.
 - **pi-mcp-adapter sees each server twice**, once here and once in `mcp-adapter.json`, with
   identical definitions. It merges them by name, the adapter file winning, and its setup panel
   counts each as a same-name conflict.

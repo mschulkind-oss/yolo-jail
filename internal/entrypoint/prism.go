@@ -567,7 +567,7 @@ func composeStatefulSurface(e *Env, surface manifest.Surface, hostBytes []byte, 
 			readProvenanceRecord(e, surface.Agent, surface.Name))
 		// AT THE HOST the real file is what a jail's host layer carries, and there is no host
 		// layer beside it, so the same rule reads the record instead: a value the selection
-		// never wrote predates it (hostSelectionBaseline, HC-D16). The rmw arm asks the same
+		// never wrote predates it (hostSelectionBaseline, HC-D17). The rmw arm asks the same
 		// function, so the two contracts apply one selection rule.
 		if e.hostTarget {
 			hostOwned = hostSelectionBaseline(fileObj, selectionRecord)

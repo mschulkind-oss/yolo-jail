@@ -174,7 +174,7 @@ func pruneEmptyObjects(v any) any {
 // hostSelectionBaseline is the host's OQ-SW1 set for the edge-triggered selection apply: every
 // top-level key the file holds that the selection record does not. At the host the real file
 // is what a jail's host layer carries, so a value yolo's selection never wrote predates the
-// selection and the first activation outranks it — the jail's rule for a host value (HC-D16).
+// selection and the first activation outranks it — the jail's rule for a host value (HC-D17).
 // Once the record holds a key, a value differing from it is the user's own later pick, which
 // stands (OQ-PSW2): so a recorded key is never in this set.
 func hostSelectionBaseline(file, record map[string]any) map[string]bool {

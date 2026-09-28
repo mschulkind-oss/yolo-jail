@@ -7,7 +7,7 @@ package cli
 // host file while host apply ran no derive for content. OQ-HC1 (2026-09-28) made the host run
 // the jail's derives over the user's own `mcp_servers`, so the remedy names that key again —
 // one entry there reaches every agent's host file, as it reaches a jail — with the overlay kept
-// as the per-surface alternative (HC-D19).
+// as the per-surface alternative (HC-D20).
 //
 // So the test FOLLOWS both pieces of advice, in the real apply, and each must keep the entry.
 

@@ -119,7 +119,12 @@ for an interactive reader, the environment variable for a scripted one.
 - **One collector, both consumers.** `hostApplySurvey` is filled in by the apply itself. The gate
   does not re-derive the answer from a traversal of its own: it runs the ordinary `applyHost` in
   observe posture with the output captured, and reads the survey. A second traversal of the
-  written kinds would be a second thing to drift out of step with the apply it describes.
+  written kinds would be a second thing to drift out of step with the apply it describes. The
+  same pass composes the derive inputs the apply composes (your providers, `mcp_servers`,
+  `lsp_servers` and `use_profiles`), so the rows a wrapped launch's automatic apply writes are
+  the rows `yolo host apply --assert` writes, and a settled home reads as settled
+  ([OQ-HC1](../design/host-computed-layer.md#OQ-HC1),
+  [HC-D11](../design/host-computed-layer.md#HC-D11)).
 
 - **The gate adds a new MOMENT for the existing prompts, never a second mechanism.** An accepted
   prompt runs the ordinary writing `applyHost`, so `confirmHostLosses` and the skills and

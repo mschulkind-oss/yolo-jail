@@ -743,8 +743,9 @@ pack ships, and every agent that can use the provider renders that one list
   no model scope for it, and its sub-agents may use only the listed ids. A listed model pi's
   catalog does not know registers text-only, with no thinking levels, and pi warns once when
   that happens ([ML-D7](../design/model-lists-and-pickers.md#ML-D7)). On the host,
-  `yolo host apply` writes no list into that file, so pi keeps its own `openai-codex` models
-  there ([ML-D8](../design/model-lists-and-pickers.md#ML-D8)).
+  `yolo host apply` writes the same list into that file, from the provider table it composes at
+  user scope ([OQ-HC1](../design/host-computed-layer.md#OQ-HC1), which superseded
+  [ML-D8](../design/model-lists-and-pickers.md#ML-D8)).
 
 A declared model that has a 1M-context variant lists it right after itself, as `<id>[1m]`. The
 suffix is the clients' spelling for the long-context request, and each strips it before the

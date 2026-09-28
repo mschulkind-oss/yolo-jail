@@ -164,6 +164,14 @@ confined there, so yolo treats it as configuration management: it writes the set
 and house rules your packs declare into your real home, keeps your agents' permission prompts on,
 and warns before changing a value you set yourself.
 
+Your own config reaches those files too, as it reaches a jail's. The MCP servers under
+`mcp_servers`, the language servers under `lsp_servers`, the model providers your packs and
+`providers` declare, and the model `use_profiles` selects are written into each agent's settings on
+your machine. Pi, for example, gets the same `openai-codex` model list a jail's pi has. Three
+things stay behind, and the report names each one: an MCP preset, a server whose command is a path
+that exists only inside a jail (such as `/workspace/...`), and a profile that needs a jail's
+service, such as claude's `codex` profile.
+
 ### Step 1: preview
 
 `yolo host apply` is a dry run unless you add `--assert`. It prints what would change and writes
@@ -204,10 +212,16 @@ was. Run it again whenever you change a pack; it is safe to repeat.
 
 Two things to know:
 
-- **MCP server lists are replaced, not merged.** If yolo manages an agent's `mcpServers`, it writes
-  the whole list from your config, so a server you added through the agent itself, such as with
-  `claude mcp add`, is dropped. Each one is named, and the first apply into a home asks before
-  dropping anything. To keep one, declare it with a `config-overlay` in your local pack.
+- **Server and provider lists are replaced, not merged.** yolo writes an agent's MCP server list,
+  Copilot's LSP list and pi's provider list whole from your config, as it does in a jail. So a
+  server you added through the agent itself, such as with `claude mcp add`, is dropped. Each one
+  is named, and yolo asks before dropping anything the first time it writes a list. To keep one,
+  add it to your user config under `mcp_servers`, `lsp_servers` or `providers`. That reaches every
+  agent. To give it to one agent only, add a `config-overlay` in your local pack.
+- **Your selected model is written once, not forced.** When `use_profiles` picks a profile, yolo
+  writes that profile's provider and model into the agent's settings. If you then pick another
+  model in the agent, such as with `/model`, your pick stays. When you remove the selection, yolo
+  clears only the values it wrote.
 - **Variables are not expanded.** A `${TAVILY_API_KEY}` in pack content is written literally, and
   the apply warns about it, because writing a secret into a file yolo does not own would defeat
   `env_sources`. Use `yolo host -- <agent>` to hand an agent its keys (Step 4).

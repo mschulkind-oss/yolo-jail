@@ -137,7 +137,7 @@ func composeHostInputs(cfg *jsonx.OrderedMap, packs []*packload.Pack, home strin
 // hostServerTable is the user-scope `key` table (mcp_servers or lsp_servers) as the host
 // carries it: every entry but one that names a jail-only path (HC-D6), each such entry named.
 // A null entry is a jail-side removal of a preset, and there are no presets here, so it is
-// dropped. The predicate is the render's own output check (entrypoint.JailPathsIn, HC-D12).
+// dropped. The predicate is the render's own output check (entrypoint.JailPathsIn, HC-D14).
 func hostServerTable(cfg *jsonx.OrderedMap, key, home string) (*jsonx.OrderedMap, []string) {
 	out := jsonx.NewOrderedMap()
 	v, ok := cfg.Get(key)

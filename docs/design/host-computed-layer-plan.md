@@ -1,14 +1,18 @@
 # What a jail derives, the host leaves empty — implementation sketch
 
-**Status:** SKETCH, 2026-09-27 — incomplete, and unstable while [OQ-HC1](host-computed-layer.md#OQ-HC1),
-[OQ-HC2](host-computed-layer.md#OQ-HC2) and [OQ-HC3](host-computed-layer.md#OQ-HC3) are open.
-Evidence read at `97220184`. [§1](#1-fixes-that-wait-on-nothing) is built, each row at the commit
-its [ledger row](host-computed-layer.md#12-decision-ledger) names; nothing after it is.
+**Status:** BUILT, 2026-09-28 at `4ae25c1c`. [OQ-HC1](host-computed-layer.md#OQ-HC1) ruled
+host parity with no per-surface opt-in, so the registration option in
+[§2](#2-if-the-host-derives-by-b1) was not built ([HC-D9](host-computed-layer.md#HC-D9)); the
+rest of [§2](#2-if-the-host-derives-by-b1), and [§3](#3-if-own-renders-computed-through-stateful)
+and [§4](#4-if-host-apply-selects-the-use_profiles-variant), were built as sketched, with the
+decisions the build made recorded as HC-D13 to HC-D24 in the
+[design's ledger](host-computed-layer.md#12-decision-ledger) and the result in
+[its account of what was built](host-computed-layer.md#14-what-was-built). This file is kept as
+the record of the sketch. Evidence read at `97220184`.
 
 > **Precedence.** This is the implementation sketch beside
 > [`host-computed-layer.md`](host-computed-layer.md). The design wins on every behavior, and
-> nothing here makes a design decision. Do not build from this file while it is stamped SKETCH;
-> `implementation-plan` owns what it must become first.
+> nothing here makes a design decision.
 
 ---
 
@@ -28,7 +32,8 @@ Symbols, not lines. Each row is a decision recorded in the
 
 ## 2. If the host derives, by B1
 
-Blocked on [OQ-HC1](host-computed-layer.md#OQ-HC1).
+Ruled 2026-09-28 as parity rather than B1 ([OQ-HC1](host-computed-layer.md#OQ-HC1)): every
+derive runs, so the first bullet below was dropped and the rest were built.
 
 - **The registration option** ([HC-D9](host-computed-layer.md#HC-D9)).
   `GopherLuaVM.DeriveRegistrations` (`internal/agentcfg/luahook/derive.go`) records it;
@@ -88,7 +93,8 @@ Blocked on [OQ-HC1](host-computed-layer.md#OQ-HC1).
 
 ## 3. If `own` renders `computed` through `stateful`
 
-Blocked on [OQ-HC2](host-computed-layer.md#OQ-HC2). `render.HostOwnedModes` moves `computed` from
+Ruled as leaned ([OQ-HC2](host-computed-layer.md#OQ-HC2)) and built as a stated census coercion
+([HC-D24](host-computed-layer.md#HC-D24)). `render.HostOwnedModes` moves `computed` from
 `excluded` to a coercion onto `stateful`. The census's `Mechanism` fallback needs a sole composing
 mechanism and this census has two, so the coercion is explicit rather than the fallback. Re-check
 `hostStatefulRefusal` for the keyless carve-out [OQ-CO9](config-ownership-and-promotion.md#13-decision-ledger)
@@ -96,7 +102,8 @@ keeps.
 
 ## 4. If host apply selects the `use_profiles` variant
 
-Blocked on [OQ-HC3](host-computed-layer.md#OQ-HC3). `effectiveHostProfiles(cfg, "", "")` over the
+Ruled as leaned ([OQ-HC3](host-computed-layer.md#OQ-HC3)) and built
+([HC-D17](host-computed-layer.md#HC-D17), [HC-D18](host-computed-layer.md#HC-D18)). `effectiveHostProfiles(cfg, "", "")` over the
 user-scope config is the selection source. `ctx.via_url` comes from the resolved profiles, not
 from `composedHostProviders`, which clears no via: pass them through `packload.ViaServedAt` (nothing served) first, as
 `composeHostVarsGranting` and `hostFooterTables` do

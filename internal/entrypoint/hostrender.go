@@ -37,7 +37,7 @@ package entrypoint
 //     lsp_servers, and the use_profiles selection. It was empty here until then, on the stated
 //     reason that the live tables embed jail-absolute paths; only the MCP presets do, and they
 //     are never an input at this notch. The output lands per key (hostcomputed.go, HC-D10) and a
-//     surface whose output still names a jail-only path is refused, never written (HC-D12). A
+//     surface whose output still names a jail-only path is refused, never written (HC-D14). A
 //     ${workspace}-derived value has no referent off-container (OQ-2/§6.6), and such a branch is
 //     pruned, not bound.
 //   - Config kinds only. The FieldSet census: only config surfaces are target-
@@ -439,7 +439,7 @@ func RenderHostPack(p *packload.Pack, homeDir string, ownership render.HostOwner
 					") — the file is untouched"})
 			continue
 		}
-		// THE JAIL-PATH CHECK (HC-D12): B3's fail-open objection answered. The inputs a host
+		// THE JAIL-PATH CHECK (HC-D14): B3's fail-open objection answered. The inputs a host
 		// composes are host-valid by construction, so a jail-only path in the output is a derive
 		// spelling one of its own — and it is refused BY NAME, per surface, and never written.
 		// The roots are the jail render target's (jailOnlyRoots), not a list kept here.

@@ -47,7 +47,7 @@ func TestHostApplyGroupsOneEntryLossAcrossAgentsUnderOneRemedy(t *testing.T) {
 	// P2: the remedy names the FILE the declaration goes in and the SCOPE it covers. The
 	// per-surface copy this replaced had neither. One file to edit is what makes three problems
 	// one group: the user config, whose `mcp_servers` reaches every agent's host file since the
-	// host runs the jail's derives (OQ-HC1, HC-D19), with a per-surface config-overlay in the
+	// host runs the jail's derives (OQ-HC1, HC-D20), with a per-surface config-overlay in the
 	// local pack as the one-agent alternative.
 	if !strings.Contains(remedy, filepath.Join(home, ".config", "yolo-jail", "config.jsonc")) ||
 		!strings.Contains(remedy, "`mcp_servers`") || !strings.Contains(remedy, "every agent") {
