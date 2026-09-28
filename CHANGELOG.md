@@ -2,13 +2,6 @@
 
 What changed in each release of YOLO Jail, newest first.
 
-The next release is written under [Unreleased] as changes land. Cutting it renames that heading to
-the version, and `just release <version>` refuses to tag until the section reads as release notes.
-The section then becomes the GitHub release body word for word.
-
-Releases before this file existed are summarized one section per minor line — `0.9.x`, `0.8.x` —
-rather than one per patch release. The per-patch detail is in the commit log.
-
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
