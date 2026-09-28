@@ -36,3 +36,28 @@ func TestBriefingStatesThePassedIOPriorityOnItsOwnLine(t *testing.T) {
 		}
 	}
 }
+
+// TestTheBriefingNamesTheSchedulersThatIgnoreTheValue: the ignore clause follows the grading
+// the launch line and `yolo check` use (ioprio.Grade), so an agent on an mq-deadline host is
+// never told "low" makes its builds yield — mq-deadline keeps one queue per class and ignores
+// the level, and honors "idle" only.
+func TestTheBriefingNamesTheSchedulersThatIgnoreTheValue(t *testing.T) {
+	for _, tc := range []struct{ p, want, never string }{
+		{"low", "disks whose scheduler is mq-deadline, kyber or none ignore it", ""},
+		{"idle", "disks whose scheduler is kyber or none ignore it", "mq-deadline"},
+	} {
+		body := BriefingContent(BriefingInput{Workspace: "/w", IOPriority: tc.p})
+		var line string
+		for _, l := range strings.Split(body, "\n") {
+			if strings.HasPrefix(l, "- **Disk I/O priority**") {
+				line = l
+			}
+		}
+		if !strings.Contains(line, tc.want) {
+			t.Errorf("%s: the line is %q, want it to say %q", tc.p, line, tc.want)
+		}
+		if tc.never != "" && strings.Contains(line, tc.never) {
+			t.Errorf("%s: the line names %s, which honors it: %q", tc.p, tc.never, line)
+		}
+	}
+}

@@ -464,13 +464,15 @@ func BriefingContent(in BriefingInput) string {
 	// Report what was emitted (backend-parity.md §6): the class the launch passed, in words
 	// that claim neither enforcement nor effect. The disk may ignore it, and the agent can
 	// raise it, so "kernel-enforced" or "in effect" would be two different false sentences.
+	// The schedulers named as ignoring it are the grading's own (ioprio.IgnoredBy), so the
+	// briefing and the launch line cannot disagree about mq-deadline and "low".
 	var ioPriorityLine []string
 	if p := ioprio.Priority(in.IOPriority); p.Declared() {
 		ioPriorityLine = []string{
 			"- **Disk I/O priority**: `" + in.IOPriority + "` (" + p.ClassName() + "), set on every " +
 				"process at boot so builds yield the disk under contention. Advisory, not a limit: " +
 				"a process can raise its own, it does not reach buffered writeback, and disks " +
-				"whose scheduler is kyber or none ignore it.",
+				"whose scheduler is " + joinOr(ioprio.IgnoredBy(p)) + " ignore it.",
 		}
 	}
 
@@ -886,4 +888,15 @@ func addressesAgent(agents []string, agent string) bool {
 		}
 	}
 	return false
+}
+
+// joinOr renders names as a sentence alternative: "a", "a or b", "a, b or c".
+func joinOr(names []string) string {
+	switch len(names) {
+	case 0:
+		return ""
+	case 1:
+		return names[0]
+	}
+	return strings.Join(names[:len(names)-1], ", ") + " or " + names[len(names)-1]
 }

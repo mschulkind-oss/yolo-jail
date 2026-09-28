@@ -3,6 +3,7 @@ package ioprio_test
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/ioprio"
@@ -57,6 +58,24 @@ func TestResolveReadsEveryDiskOfAnLVMVolume(t *testing.T) {
 	bad := ioprio.NoEffect(ioprio.Low, res)
 	if len(bad) != 1 || bad[0].Name != "nvme0n1" || bad[0].Crypt {
 		t.Errorf("NoEffect(low) = %+v, want nvme0n1 alone", bad)
+	}
+}
+
+// TestIgnoredByFollowsGrade: the schedulers a surface names as ignoring a value, with no disk
+// in hand, are exactly the ones Grade says it has no effect on — so "low" names mq-deadline
+// and "idle" does not — and an undeclared value names none.
+func TestIgnoredByFollowsGrade(t *testing.T) {
+	for _, tc := range []struct {
+		p    ioprio.Priority
+		want string
+	}{
+		{ioprio.Low, "mq-deadline kyber none"},
+		{ioprio.Idle, "kyber none"},
+		{ioprio.Normal, ""},
+	} {
+		if got := strings.Join(ioprio.IgnoredBy(tc.p), " "); got != tc.want {
+			t.Errorf("IgnoredBy(%q) = %q, want %q", tc.p, got, tc.want)
+		}
 	}
 }
 

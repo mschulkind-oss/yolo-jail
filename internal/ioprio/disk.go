@@ -335,6 +335,26 @@ func Grade(p Priority, scheduler string) Effect {
 	return EffectUnknown
 }
 
+// gradedSchedulers is every scheduler Grade knows, in the order a surface names them.
+var gradedSchedulers = []string{"bfq", "mq-deadline", "kyber", "none"}
+
+// IgnoredBy is the schedulers Grade says p has no effect on, for a surface that names them
+// without a disk in hand: the briefing, which is written before any disk is graded. An
+// undeclared value names none. So "low" names mq-deadline and "idle" does not, and no
+// surface can say a class yields on a disk the launch line calls ignored.
+func IgnoredBy(p Priority) []string {
+	if !p.Declared() {
+		return nil
+	}
+	var out []string
+	for _, s := range gradedSchedulers {
+		if Grade(p, s) == EffectNone {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
 // NoEffect is the disks under res on which p does nothing: the launch prints its disclosure
 // line exactly when this is non-empty. An unresolved path yields none, because it proves
 // nothing about whether the value acts there.
