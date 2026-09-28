@@ -23,6 +23,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   and the two wrote at once. yolo now follows pi's own rule, treating the lock as abandoned only
   after 30 seconds without a refresh, and waits for pi to finish. If pi still holds the lock after
   about half a minute, yolo gives up and says that a running pi holds it.
+- Old Codex versions now get cleaned up the way the other agents' are. After Codex installs or
+  updates, yolo keeps the two newest versions and the one in use, and removes the rest. Before,
+  every old Codex version stayed on disk, so each update left a few hundred megabytes behind.
 
 ## [0.11.0] - 2026-09-28
 

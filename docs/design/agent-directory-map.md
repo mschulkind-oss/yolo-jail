@@ -181,7 +181,8 @@ seven surveys ([Appendix A](#appendix-a-evidence)) show how far that is from the
 - **yolo's own residue goes unreported.** Examples: a retired verification fixture in pi's
   directory (`mantle/mint-token.mjs`), a stale top-level copy of a moved script in claude's
   (`file-suggestion.sh`), a sidecar the claude pack never retires (`yolo-managed-mcp-servers.json`),
-  three codex releases (1.2 GiB) that the launcher's prune cannot see, and a removed agent's OAuth
+  three codex releases (1.2 GiB) that the launcher's prune could not see (since fixed, see
+  [Appendix B](#appendix-b-defects-the-surveys-found-that-the-map-does-not-fix)), and a removed agent's OAuth
   file in agy's `~/.gemini`.
 - **A proposal is already in flight for one symptom.**
   [`pack-declared-file-diagnostics.md`](pack-declared-file-diagnostics.md) wants a `traps` kind so
@@ -749,9 +750,12 @@ this doc's survey ([Appendix A](#appendix-a-evidence)).
 
 - **Program bytes inside the directory.** `packages/standalone/` is codex itself, and
   `~/.local/bin/codex` is an absolute link into it. The class is cache with a reinstall cost
-  ([OQ-AM2](#OQ-AM2)). The launcher's keep-two prune looks in `~/.local/share/codex/versions`, so it
-  never prunes codex. This workspace holds three releases, 1.2 GiB, one of them installed by this
-  doc's own survey ([`shims.go`](../../internal/entrypoint/shims.go), `_prune_versions`).
+  ([OQ-AM2](#OQ-AM2)). The launcher's keep-two prune looked in `~/.local/share/codex/versions`, so it
+  never pruned codex. This workspace held three releases, 1.2 GiB, one of them installed by this
+  doc's own survey. Fixed in `abe46f6a`: the codex pack declares
+  `versions_dir: ".codex/packages/standalone/releases"`, and the prune follows
+  `~/.local/bin/codex` through `current` to the live release
+  ([`shims.go`](../../internal/entrypoint/shims.go), `_prune_versions`).
 - **A credential whose meaning flips by notch.** `auth.json` is a broker view rewritten at every jail
   launch, and the user's only real login at the host. It is one class with two wipe answers
   ([§3.6](#36-the-hard-cases)).
@@ -1177,7 +1181,7 @@ The map makes each of these visible. Fixing them belongs elsewhere:
 | :--- | :--- |
 | yolo deletes pi's `mcp.json` at every jail boot, though pi-subagents reads it | ✅ **Fixed** in `66602a60`: the pi pack no longer retires `mcp.json`, and every shipped `retireOnFirstRender` name must carry a `yolo-` prefix (`TestShippedRetireNamesAreYolosOwn`), since the delete never reads the bytes. A copy yolo 0.10.0 wrote now stays until the user deletes it |
 | `WritePiAuth`'s 10 s lock break against pi's 30 s stale window can lose an OAuth rotation | **Fixed in `576c44d0`.** [`pi.go`](../../internal/openauthclient/pi.go) now uses pi's rule: it breaks `auth.json.lock` only after 30 s without an mtime refresh, and waits at most 32 s for a live holder |
-| The launcher's keep-two prune never sees codex's releases | [`shims.go`](../../internal/entrypoint/shims.go) `_prune_versions` |
+| ✅ **Fixed in `abe46f6a`.** The launcher's keep-two prune never saw codex's releases. It looked only in `~/.local/share/<bin>/versions`, and `~/.local/bin/codex` names the vendor's `current` selector, not a release. The codex pack now declares `versions_dir`, and the prune resolves the whole link chain | [`shims.go`](../../internal/entrypoint/shims.go) `_prune_versions`, [`packs/codex`](../../packs/codex/pack.json) `versions_dir` |
 | The managed codex home drops codex's `config.toml` edits and leaves stale links | [`openai-auth-broker.md`](openai-auth-broker.md) |
 | The claude pack does not retire `yolo-managed-mcp-servers.json`, though codex and opencode do | `packs/claude` `retireOnFirstRender` |
 | The `per_jail_history` hook is redundant now that `~/.claude` is per workspace, and leaves orphans | the claude slice ([§7.2](#72-claude)) |
