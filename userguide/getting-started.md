@@ -438,7 +438,7 @@ A healthy fresh machine still shows a few warnings. These are expected:
 | `nix min-free = 0 — the daemon's automatic GC is OFF` | Nix never cleans up its own store unless you set a floor | Optional: add the `min-free` and `max-free` lines the note shows, sized for your disk |
 | `loophole claude-oauth-broker: … not yet generated`, or `… does not exist — run Claude and /login first` | The helper that keeps a shared Claude login fresh has not run yet | Nothing: it sets itself up on your first launch and login |
 | `Skipped nix build (--no-build)` | You ran the fast check | Nothing |
-| On a Mac: `No OCI conversion tool for Apple Container` | An outdated check: yolo builds its own image copier and uses nothing on your PATH | Ignore it, or `brew install skopeo` to silence it |
+| On a Mac, with yolo 0.10.0: `No OCI conversion tool for Apple Container` | An outdated check, removed in the release after 0.10.0: yolo builds its own image copier and uses nothing on your PATH | Ignore it; you do not need skopeo |
 | On a Mac: `Podman Machine: not configured` | Podman is installed, but you use Apple Container | Ignore it |
 | On a Mac: `A package must be built from source …` | Part of the image is in no binary cache | Keep the runtime running: the launch builds it in a temporary container |
 

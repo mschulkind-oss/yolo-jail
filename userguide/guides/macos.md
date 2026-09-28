@@ -362,8 +362,9 @@ limit. Remove some, or use Podman.
 ### Apple Container: image load fails
 
 Check that the runtime is running (`container system status`) and that the disk has room, then run
-`yolo` again. `yolo check` may warn `No OCI conversion tool for Apple Container`; that check is out
-of date, since yolo builds its own image copier, and `brew install skopeo` only silences it.
+`yolo` again. yolo builds its own image copier and needs no image tool on your PATH, so a missing
+skopeo is never the cause. On yolo 0.10.0, `yolo check` still warns `No OCI conversion tool for
+Apple Container`; ignore it. Later releases no longer check for one.
 
 ### Apple Container: no outbound internet (macOS 15)
 

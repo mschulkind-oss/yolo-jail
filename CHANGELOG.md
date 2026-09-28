@@ -309,6 +309,9 @@ apply it, and the launch says that too. See
 - On a Mac with the official Nix installer, `yolo check` reported `Nix daemon: connection failed`
   and stopped, although Nix worked. It now turns on the Nix commands it needs for its own checks,
   so you no longer have to enable them in your Nix config first.
+- On a Mac with Apple Container, `yolo check` warned `No OCI conversion tool for Apple Container`
+  and suggested installing skopeo, which yolo never uses: it builds its own image copier. The
+  warning is gone.
 
 ### Security
 

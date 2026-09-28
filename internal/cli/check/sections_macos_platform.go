@@ -45,16 +45,14 @@ func (o *Options) sectionMacOSPlatform(r *reporter, _ *jsonx.OrderedMap) {
 		}
 	}
 
-	if hasContainer {
-		if _, ok := o.LookPath("skopeo"); ok {
-			r.ok("skopeo: available (OCI image conversion, no daemon needed)")
-		} else if _, ok := o.LookPath("podman"); ok {
-			r.ok("OCI conversion: via podman (skopeo recommended: brew install skopeo)")
-		} else {
-			r.warn("No OCI conversion tool for Apple Container",
-				"Install skopeo (recommended): brew install skopeo")
-		}
-	}
+	// There is deliberately NO host image-tool check here. It used to look for
+	// skopeo (or podman) on PATH and warn "No OCI conversion tool for Apple
+	// Container" without one, but since C9 delivery on both Mac backends needs
+	// nothing on the host's PATH: the copier is the flake's own `.#imageCopier`,
+	// run by store path and never looked up (image.ImageCopierBinary), and yolo
+	// tars the OCI layout itself (internal/image/deltaarchive.go) before handing
+	// it to `container image load -i` / `podman load -i`. A Homebrew skopeo is
+	// never run, so asking for one was advice that changed nothing.
 
 	// Nix store volume check.
 	if o.PathExists("/nix") {
