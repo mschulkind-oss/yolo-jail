@@ -36,7 +36,10 @@ protocol its provider serves is refused, naming any shipped pack that translates
 reach only through the jail's wire bridge, which runs only in a container jail (podman or Apple
 Container, not macos-user), and names the jail launch that works. It no longer starts the agent
 pointed at an address nothing serves, and it no longer tells you to add `wire-bridge` to
-`packs`, which changes nothing there. See
+`packs`, which changes nothing there. A profile whose provider the launch does not have, such as
+one a `null` in your `providers` removes, is refused naming why when yolo would configure the
+agent from that provider, in a jail and on the host; the agent used to start without any of its
+settings. See
 [Providers](docs/reference/providers.md).
 
 **Host-only entries from a pack.** A pack's `autonomy` postures can carry `lists`: entries added
@@ -115,6 +118,8 @@ apply it, and the launch says that too. See
   broker whose certificates were never generated. It no longer says no runtime is on `PATH` when
   a stopped one is. A running jail whose host-services directory is gone is one failure naming
   that directory, not one per loophole with different advice each.
+- `yolo host -p` takes the jail's spelling too: `yolo host -p claude=zai -- claude` is
+  `yolo host -p zai -- claude`. A pair naming a command other than the one being run is refused.
 - Two writers for one `host_files` destination refuse the launch; the last one used to win.
 
 ### Removed
@@ -162,6 +167,9 @@ apply it, and the launch says that too. See
 - Claude's LSP plugins that you enabled on the host were off in the jail unless `lsp_servers`
   named their language.
 - Codex could not renew its ChatGPT sign-in through the `openai-auth` pack.
+- Claude on its `codex` profile never asked you to sign in to ChatGPT, so on a machine not yet
+  signed in its first request failed. It now signs you in before Claude starts, as codex and pi
+  do.
 - `yolo host apply --assert` replaced the `env` block of your host `~/.claude/settings.json`,
   dropping your own variables.
 - A settings file `yolo host apply --assert` had written came back into your jails as your own

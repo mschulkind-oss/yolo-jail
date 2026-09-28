@@ -53,11 +53,15 @@ of provider credentials remain in yolo's normal launch environment. OMP's
 workspace state is distinct from every other agent's state.
 
 The Claude `codex` profile is a profile of the Claude pack. It does not create a
-global OpenAI provider record or change a default Claude endpoint. Selecting it
-adds the `openai-auth` and `wire-bridge` packs through Claude's declared needs;
-the bridge is selection-lazy, so it listens only when this profile is active.
-The extra packs can therefore be present but healthy and idle on ordinary Claude
-launches.
+global OpenAI provider record or change a default Claude endpoint. The Claude
+pack names `openai-auth` and `wire-bridge` in its `needs` unconditionally, so
+every jail launch that selects `claude` adds them, whether or not this profile
+is selected; the bridge is selection-lazy, so it listens only when this profile
+is active. The extra packs are therefore present but healthy and idle on ordinary
+Claude launches. A jail on this profile also ensures the machine's OpenAI login
+before claude starts ([ES-D28](../design/credential-sources-separation.md#10-decision-ledger)).
+`yolo host` applies no `needs`, and refuses this profile for claude, since no host
+process serves the bridge ([`wire-bridge.md`](wire-bridge.md#at-the-host-notch)).
 
 The OpenAI credential service remains the sole refresh-token owner. The bridge
 asks it for a new access-token view for each request, keeps that token in memory,

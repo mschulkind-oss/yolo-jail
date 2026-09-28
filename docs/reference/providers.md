@@ -377,8 +377,15 @@ Where each answer lands is the vehicle's:
     container backend. It never runs claude pointed at that address,
     and it never tells the user to add `wire-bridge` to `packs`, as the ordinary pairing refusal
     does in a jail. `-p codex -- claude` refuses the same way, through the bridge's
-    `openai-responses` adapter at `http://127.0.0.1:8215`. A user's `adapters` override moves the
-    address the refusal names. Copilot, which also speaks openai, runs on cerebras's own endpoint
+    `openai-responses` adapter at `http://127.0.0.1:8215`, whether or not `openai-auth` is in
+    `packs`. With it absent, as on a bare `"packs": ["claude"]`, the host holds no `openai-codex`
+    provider at all, since it applies no `needs`, and the refusal adds that the provider's pack
+    is missing too and that listing it changes nothing. Before 2026-09-27 that launch exited 0
+    and ran claude on its own Claude login ([ES-D25](../design/credential-sources-separation.md#10-decision-ledger)).
+    The jail spelling the refusal names, `yolo -p claude=codex -- claude`, is a jail launch;
+    `yolo host -p claude=codex -- claude` reads as `-p codex` and gets this same refusal
+    ([ES-D27](../design/credential-sources-separation.md#10-decision-ledger)). A user's
+    `adapters` override moves the address the refusal names. Copilot, which also speaks openai, runs on cerebras's own endpoint
     instead ([`wire-bridge.md`](wire-bridge.md#at-the-host-notch),
     [ES-D18 to ES-D20](../design/credential-sources-separation.md#10-decision-ledger)).
   - **`--with-credentials` grants keys by provider, for one run.**

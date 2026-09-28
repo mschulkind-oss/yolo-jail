@@ -752,12 +752,21 @@ listeners. These are the facts that survive:
   is a different document with its own cost case.
 - **No gateway features** — routing, failover, budgets, multi-provider fan-out, or model-name
   remapping beyond passthrough.
-- **No host-side bridge.** The bridge exists only in-jail. The code has no jail dependencies,
-  which is what keeps the door open for a host notch to run the same subcommand later — not a
-  promise to walk through it. <a id="at-the-host-notch"></a>**So `yolo host` composes none of
+- **No host-side bridge, as a v1 deferral.** The bridge exists only in-jail. The 2026-09-04
+  design scoped that to v1 ("`yolo host -- claude` gets no bridged routing in v1"), and the
+  words "in v1" were dropped when the text moved here; no ruling rules a host bridge out.
+  [`host-notch-services.md`](../design/host-notch-services.md) reopens it. Two facts it has to
+  answer: the bridge takes unauthenticated requests because the jail is its trust boundary
+  ([WB-D4](#wb-d4)), and claude sends its own Claude login token to any
+  `ANTHROPIC_BASE_URL` when no `ANTHROPIC_AUTH_TOKEN` is set
+  ([agent-auth-modes.md §8.1](../design/agent-auth-modes.md#81-measured-2026-09-02-the-subscription-bearer-follows-anthropic_base_url)), so a fixed port on the host's
+  shared loopback is not a safe address as it stands. The code has no jail dependencies, which
+  is what keeps the door open for a host notch to run the same subcommand. <a id="at-the-host-notch"></a>**Until then `yolo host` composes none of
   its addresses** (2026-09-27, [ES-D18](../design/credential-sources-separation.md#10-decision-ledger)).
   A user can still select the pack there, by listing `wire-bridge` in `packs`, because the host
-  notch applies no pack's `needs`. The host composes its provider table with
+  notch applies no pack's `needs`
+  ([ES-D24](../design/credential-sources-separation.md#10-decision-ledger), measured: applying
+  them would add aws-auth's jail-only credential address to `yolo host -p bedrock -- claude`). The host composes its provider table with
   `packload.WithoutServiceAdaptations`: an adaptation whose own pack serves it with a `service`
   contributes no address, since nothing at the host listens on it. The via address was already
   cleared the same way, by `packload.ViaInert` ([WG-I12](../design/wire-bridge-gateway.md#WG-I12)).
@@ -774,7 +783,7 @@ listeners. These are the facts that survive:
   ```console
   $ yolo host -p cerebras -- claude
   yolo host: refusing to launch: profile "cerebras" would point claude at http://127.0.0.1:8214, where pack "wire-bridge" adapts "openai" → "anthropic" for provider "cerebras" — and that address is served by the pack's own "wire-bridge" service, a daemon yolo runs only in a container jail. No host process serves it, so `yolo host` will not run claude pointed at it, though "wire-bridge" is in `packs`.
-    The profile works in a container jail (podman or Apple Container), where that service runs: `yolo -p claude=cerebras -- claude`. The macos-user backend starts no jail daemons, so the service does not run there either; `YOLO_RUNTIME=podman` or `YOLO_RUNTIME=container` picks a container backend for one launch.
+    The profile works in a container jail (podman or Apple Container), where that service runs: `yolo -p claude=cerebras -- claude`, which is a jail launch, not a `yolo host` one. The macos-user backend starts no jail daemons, so the service does not run there either; `YOLO_RUNTIME=podman` or `YOLO_RUNTIME=container` picks a container backend for one launch.
     At the host, choose a profile whose provider claude speaks to directly
   ```
 
