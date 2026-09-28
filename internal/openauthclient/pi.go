@@ -9,10 +9,7 @@ import (
 	"time"
 )
 
-const (
-	piProviderID = "openai-codex"
-	piLockStale  = 10 * time.Second
-)
+const piProviderID = "openai-codex"
 
 type piOAuthCredential struct {
 	Type      string `json:"type"`
@@ -24,7 +21,8 @@ type piOAuthCredential struct {
 
 // WritePiAuth merges a broker token view into Pi's native auth.json. Pi uses a
 // sibling auth.json.lock directory (proper-lockfile with realpath disabled), so
-// taking the same lock keeps this prelaunch writer from racing Pi itself.
+// taking the same lock, and judging it stale by pi's own rule (piAuthLockRule),
+// keeps this prelaunch writer from racing Pi itself.
 func WritePiAuth(path string, response json.RawMessage) error {
 	if path == "" {
 		return errors.New("pi auth path is required")
@@ -44,7 +42,7 @@ func WritePiAuth(path string, response json.RawMessage) error {
 	if err := os.Chmod(dir, 0o700); err != nil {
 		return fmt.Errorf("secure Pi auth directory: %w", err)
 	}
-	release, err := acquirePiAuthLock(path)
+	release, err := acquirePiAuthLock(path, piAuthLockRule)
 	if err != nil {
 		return err
 	}
@@ -74,19 +72,68 @@ func WritePiAuth(path string, response json.RawMessage) error {
 	return atomicWritePrivate(path, append(data, '\n'))
 }
 
-func acquirePiAuthLock(authPath string) (func(), error) {
+// piLockRule sets two limits for a pi auth.json.lock. stale is how long the lock may go without an
+// mtime refresh before it counts as abandoned. wait is how long yolo waits for a live holder.
+type piLockRule struct {
+	stale time.Duration
+	wait  time.Duration
+}
+
+// piAuthLockRule is pi's own rule. pi takes auth.json.lock through proper-lockfile 4.1.2. That
+// library calls a lock stale once its mtime is more than `stale` old, and a live holder refreshes
+// the mtime every stale/2. pi's async holder (token refresh and login) passes `stale: 30000`
+// (acquireLockAsync in dist/core/auth-storage.js, pi 0.87.1). Its sync holder uses the library's
+// 10 s default and holds only for one read and one write. So a live lock can be up to 30 s old, and
+// yolo breaks nothing younger. The wait runs 2 s past the stale window, because proper-lockfile
+// may round an mtime up to the next second. A lock that was already abandoned when yolo started is
+// then reclaimed before yolo gives up.
+var piAuthLockRule = piLockRule{stale: 30 * time.Second, wait: 32 * time.Second}
+
+func acquirePiAuthLock(authPath string, rule piLockRule) (func(), error) {
 	lockPath := authPath + ".lock"
-	for attempt := 0; attempt < 10; attempt++ {
-		if err := os.Mkdir(lockPath, 0o700); err == nil {
-			return func() { _ = os.Remove(lockPath) }, nil
-		} else if !os.IsExist(err) {
+	release := func() { _ = os.Remove(lockPath) }
+	tryLock := func() (bool, error) {
+		err := os.Mkdir(lockPath, 0o700)
+		if err == nil {
+			return true, nil
+		}
+		if os.IsExist(err) {
+			return false, nil
+		}
+		return false, fmt.Errorf("lock Pi auth.json: %w", err)
+	}
+	deadline := time.Now().Add(rule.wait)
+	delay := 10 * time.Millisecond
+	for {
+		if ok, err := tryLock(); ok || err != nil {
+			return release, err
+		}
+		info, err := os.Stat(lockPath)
+		if os.IsNotExist(err) {
+			continue // released between the mkdir and the stat
+		}
+		if err != nil {
 			return nil, fmt.Errorf("lock Pi auth.json: %w", err)
 		}
-		if info, err := os.Stat(lockPath); err == nil && time.Since(info.ModTime()) > piLockStale {
-			_ = os.Remove(lockPath)
-			continue
+		sinceRefresh := time.Since(info.ModTime())
+		if sinceRefresh > rule.stale {
+			// Abandoned by pi's own rule. Remove it as proper-lockfile does (rmdir, so only an
+			// empty directory goes), then retry. If another writer wins the retry, wait for it.
+			if err := os.Remove(lockPath); err != nil && !os.IsNotExist(err) {
+				return nil, fmt.Errorf("lock Pi auth.json: remove abandoned lock: %w", err)
+			}
+			if ok, err := tryLock(); ok || err != nil {
+				return release, err
+			}
 		}
-		time.Sleep(20 * time.Millisecond)
+		remaining := time.Until(deadline)
+		if remaining <= 0 {
+			return nil, fmt.Errorf("lock Pi auth.json: %s is held by a running pi (last refreshed %s ago); "+
+				"gave up after %s, since pi counts a lock as abandoned only after %s without a refresh. "+
+				"Let pi finish and try again",
+				lockPath, sinceRefresh.Round(time.Second), rule.wait, rule.stale)
+		}
+		time.Sleep(min(delay, remaining))
+		delay = min(2*delay, 500*time.Millisecond)
 	}
-	return nil, errors.New("lock Pi auth.json: credential store is busy")
 }
