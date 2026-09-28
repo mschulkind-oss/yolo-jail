@@ -102,6 +102,21 @@ LUKS ([§3.3](#33-what-that-means-on-real-hosts)), so the incident was not repro
    security-shim change, not this doc's.
 5. **Host-side watchers** (an indexer or IDE descending into a jail's build directory) are those
    tools' configuration.
+6. **No priority for work a host process does for the jail.** That work keeps its own priority:
+   - **`nix build`.** Wherever the host nix daemon is mounted, the jail runs with
+     `NIX_REMOTE=daemon` ([`assemble.go`](../../internal/cli/run/assemble.go)), so a build's
+     builders and store writes run in the daemon's processes on the host, which descend from the
+     daemon, not from the entrypoint. Only the client, which evaluates and asks the daemon to
+     build, runs in the jail.
+   - **The host loophole daemons**, which descend from the host `yolo` that started them.
+
+   Changing their priority is the act [§5.1](#51-the-entrypoint-one-pinned-thread-then-a-re-exec)
+   forbids, and the nix daemon belongs to another user (root, on a standard install), so it would
+   need `CAP_SYS_NICE` as well ([§3.1](#31-process-priority)). The lever for nix builds is a host
+   change a human makes, and it covers every build on the host, not only a jail's: on NixOS,
+   `nix.daemonIOSchedClass` and `nix.daemonIOSchedPriority` set the daemon unit's
+   `IOSchedulingClass=` and `IOSchedulingPriority=`, which its builds inherit. They default to
+   best effort, level 4 (read from the pinned nixpkgs source).
 
 ## 3. What each kernel lever reaches
 
@@ -259,7 +274,9 @@ nothing else. It never implies a cgroup setting the user did not write.
   `generateLdCache`), the `node --version` probes of launcher generation when a pack declares a
   Node floor, `mise uninstall` of retired tools, `iptables`, the `socat` port forwarders, the
   `yolo-jaild` supervisor and its daemons, the shell, and all their descendants
-  ([OQ-IO1](#11-decision-ledger)).
+  ([OQ-IO1](#11-decision-ledger)). Work a host process does for the jail is not covered: a
+  `nix build` through the host daemon, and the host loophole daemons, keep the host's priority
+  ([Non-Goal 6](#2-non-goals)).
 - **Trigger.** Once per entrypoint run, at the top of `Main`, before the boot log is attached
   ([`boot.go`](../../internal/entrypoint/boot.go)). Nothing before that point starts a process.
   Every attach runs the entrypoint again (`podman exec <container>
@@ -344,9 +361,24 @@ The **briefing** states the class wherever it was passed, beside the other appli
 [`backend-parity.md` §6](backend-parity.md#6-the-second-shared-fix-compose-the-briefing-from-what-was-applied)'s
 ruling is *report what is emitted*, and
 [DP-D16](declaration-parity.md#7-ruled-divergent-and-the-ones-i-would-re-open) is one instance of
-it. Where it was not passed, the briefing says nothing about it. It never calls the class
-kernel-enforced or effective, because the agent can raise it ([§3.1](#31-process-priority)) and
-the disk may ignore it. The wording is the implementer's.
+it. Where it was not passed, the briefing says nothing about it.
+
+- **An attach states the launched value.** An attach re-renders the briefing, and the class it
+  states is the one in the jail's frozen environment, never the current config's. On podman on
+  Linux that is the value the attach's line grades ([IO-D10](#11-decision-ledger)); the VM
+  backends never pass one, so their briefing states none. A config edit reaches the jail's
+  processes only at its next fresh launch
+  ([§5.1](#51-the-entrypoint-one-pinned-thread-then-a-re-exec)), so reading the config would name
+  a class no process holds, or leave out one they all hold ([IO-D12](#11-decision-ledger)).
+- **It claims neither enforcement nor effect.** It never calls the class kernel-enforced or
+  effective, because the agent can raise it ([§3.1](#31-process-priority)) and the disk may ignore
+  it.
+- **It names what ignores the value from the one grading.** The schedulers it names come from the
+  grading the launch line and `yolo check` use, so `"low"` names mq-deadline and `"idle"` does not.
+- **It is scoped to the jail.** It says that work a host process does for the jail, a `nix build`
+  through the host daemon, keeps the host's priority ([Non-Goal 6](#2-non-goals)).
+
+The rest of the wording is the implementer's.
 
 ### 5.3 The cgroup half, if one ships
 
@@ -523,8 +555,8 @@ Example output:
   2. Unset or `"normal"`, under a launcher with no class set: every thread reads `none/0`, as today.
   3. On a Kyber disk with `"low"`, the fresh launch and every attach print the disclosure line, and
      `yolo check` prints the `[WARN]`. On a BFQ disk neither says anything about it.
-  4. On Apple Container and podman under macOS, the launch prints the Warned line naming VirtioFS,
-     and the briefing does not mention the class.
+  4. On Apple Container and podman under macOS, the launch and every attach print the Warned line
+     naming VirtioFS, and the briefing does not mention the class.
   5. On a BFQ disk, under an `fio` random-read load from a jail at `"idle"`, a desktop process's
      read latency stays near its unloaded value. Nothing like it is expected on Kyber or `none`.
 
@@ -644,3 +676,4 @@ severity) are answered from existing rulings.
 | IO-D9 | *Implementation decision.* The re-executed image reads its own thread's priority back with `ioprio_get`. The boot.log note names the value it read; a value other than the declared one is the boot-stream warning; a failed read is a note that says so, since the set before the exec succeeded | 2026-09-27 | [§5.1](#51-the-entrypoint-one-pinned-thread-then-a-re-exec) | ✅ |
 | IO-D10 | *Implementation decision.* An attach on podman on Linux grades the value in the container's frozen environment, read from the `inspect` the attach already runs, and a jail whose environment has none applies nothing and prints nothing. On Apple Container and podman on macOS, where no value is ever passed, the attach prints the Warned line for the current declaration | 2026-09-27 | [§5.2](#52-the-launcher-one-decision-per-backend-and-the-disk-it-lands-on) | ✅ |
 | IO-D11 | *Implementation decision.* A parent disk with no `queue/scheduler` file (a bio-based device such as zram) or a scheduler outside the grading table is ungraded: the launch prints nothing for it and `yolo check` prints a `[SKIP]` naming the disk and what is missing | 2026-09-27 | [§5.4](#54-yolo-check-the-disk-under-the-workspace) | ✅ |
+| IO-D12 | *Implementation decision.* The briefing is handed the value the jail's environment carries and never derives one from the config: on a fresh launch the value the argv passes, and on an attach the one in the container's frozen environment on podman on Linux, or none on the VM backends, which never pass one. Its list of schedulers that ignore the value comes from [IO-D5](#11-decision-ledger)'s grading, and it says that work a host process does for the jail keeps the host's priority ([Non-Goal 6](#2-non-goals)) | 2026-09-27 | [§5.2](#52-the-launcher-one-decision-per-backend-and-the-disk-it-lands-on) | ✅ |

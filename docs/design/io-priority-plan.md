@@ -46,6 +46,10 @@ Blocked on [OQ-IO7](io-priority.md#OQ-IO7), which decides whether one ships and 
 
 - ⚠ The flag is `--blkio-weight` for a weight or `--cgroup-conf io.prio.class=idle` for a class.
   There is no `--io-weight`, and crun fails container creation on an io file the cgroup lacks.
+- ⚠ An attach briefs what the jail was launched with, never the current config
+  ([IO-D12](io-priority.md#11-decision-ledger)). `refreshJailBriefings` takes the priority from
+  its caller for that reason, and a cgroup half's briefing line needs the same treatment: on an
+  attach, what the container was created with, from its `inspect`.
 - Reuse: `noteIOPriority` (`internal/cli/run/iopriority.go`) is where a dropped flag's one launch
   line goes, and `sectionIOPriority` is where the delegation row goes, as a `hostFact` `[SKIP]`
   in a jail.
