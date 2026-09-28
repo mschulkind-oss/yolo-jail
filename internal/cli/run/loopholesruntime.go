@@ -121,6 +121,12 @@ func (o *Options) advertiseHostFor(rt string, cfg *jsonx.OrderedMap) string {
 // ordinary child of the launcher on the launcher's own stack, so the listener's loopback IS
 // the sandbox's, and a gateway name would be an address nothing is listening on.
 //
+// ⚠ A KNOWN BLIND SPOT: A MACOS PODMAN MACHINE. There `network.mode: "host"` joins the podman
+// machine VM's network namespace, not the Mac's, so the jail does NOT share this process's
+// loopback, yet this answers true. What the daemons advertise there, and the served-address
+// ports picked on it (servedaddresses.go, NC-D43), are therefore unverified on that setup.
+// Recorded rather than changed: nothing measured the right answer there.
+//
 // A DISPOSITION IT STILL CANNOT MOVE. assembleRunCmd's paths.HostLoopbackShared is written
 // in the assembler, several hundred lines below the macos-user return, so this backend
 // emits no disposition at all — which is why the widening cannot manufacture the refused

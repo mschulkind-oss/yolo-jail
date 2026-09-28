@@ -18,8 +18,13 @@ package run
 //
 // WHY THE LAUNCHER PICKS. A jail's clients are composed on the host before its daemons bind,
 // so the port has to be known before the container starts. The launcher binds port 0 on the
-// declared loopback host and releases it: on a shared namespace that loopback IS the jail's,
-// so the kernel's answer is a port free on the loopback the daemon will bind. The port is
+// declared loopback host and releases it: on a shared namespace that loopback is normally the
+// jail's, so the kernel's answer is a port free on the loopback the daemon will bind. ⚠ NOT on a
+// macOS podman machine, where `network.mode: host` joins the VM's namespace rather than the
+// Mac's: the port is picked on the Mac's loopback, which the daemon never binds. The pick still
+// keeps two such jails off each other's declared ports, but whether the port is free in the VM
+// is unproven there. sharesLauncherNetns classifies that setup as shared, which is the same
+// blind spot (NC-D43). The port is
 // free when picked, not reserved, so a process binding it in the moments before the daemon
 // does wins it. That fails closed: the daemon cannot bind, and its clients are refused by
 // whichever daemon holds the port, for the wrong caller token (NC-D43).

@@ -10,6 +10,10 @@ package integration
 // a nested run can see. The workspace below also declares `network.mode: "host"`, so on a
 // host-run suite (CI's rootless job) the same test runs the jail on the host's own stack. That
 // arm is verified only there, never by a nested run.
+//
+// LINUX PODMAN ONLY. On a macOS podman machine `network.mode: "host"` joins the VM's network
+// namespace, not the Mac's: the stub upstream this test binds on the Mac's 127.0.0.1 is not the
+// jail's 127.0.0.1, and neither is the loopback the launcher picked its ports on (NC-D43).
 
 import (
 	"encoding/json"
@@ -20,6 +24,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	goruntime "runtime"
 	"strconv"
 	"strings"
 	"testing"
@@ -80,6 +85,11 @@ func servedValues(out, who string) map[string]string {
 // jail's OpenAI adapter listens on a port of its own too.
 func TestTwoJailsOnOneLoopbackServeOnTheirOwnPorts(t *testing.T) {
 	requireJail(t)
+	if rt := detectRuntime(); rt != "podman" || goruntime.GOOS != "linux" {
+		t.Skipf("this test needs the launcher's loopback to be the host-mode jail's, which is "+
+			"true of podman on Linux and not of a macOS podman machine, whose host mode is the "+
+			"VM's namespace (see the file header); this is %q on %s", rt, goruntime.GOOS)
+	}
 
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
