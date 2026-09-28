@@ -184,6 +184,7 @@ func TestResolveRuntimeExplicitNotStarted(t *testing.T) {
 		LookPath: func(string) (string, bool) { return "/usr/bin/podman", true },
 		Exec:     fakeExec(map[string]ExecResult{"podman info": {Ran: true, RC: 1}}),
 		Stdout:   &buf,
+		IsMacOS:  true,
 	}
 	fillDefaults(&o)
 	o.Getenv = func(k string) string {
@@ -229,6 +230,30 @@ func TestResolveRuntimeExplicitNotInstalled(t *testing.T) {
 	}
 }
 
+func TestResolveRuntimeExplicitLinuxProbeFailure(t *testing.T) {
+	var buf bytes.Buffer
+	o := Options{
+		Getenv: func(k string) string {
+			if k == "YOLO_RUNTIME" {
+				return "podman"
+			}
+			return ""
+		},
+		LookPath: func(string) (string, bool) { return "/usr/bin/podman", true },
+		Exec:     fakeExec(map[string]ExecResult{"podman info": {Ran: true, RC: 125, Stderr: "lock busy"}}),
+		Stdout:   &buf,
+	}
+	fillDefaults(&o)
+	if rt, ok := o.resolveRuntime(nil); ok || rt != "" {
+		t.Fatalf("resolveRuntime = %q,%v; want '',false", rt, ok)
+	}
+	got := buf.String()
+	if !strings.Contains(got, "lock busy") || !strings.Contains(got, "exit 125") ||
+		strings.Contains(got, "podman machine start") || strings.Contains(got, "not started") {
+		t.Errorf("explicit Linux probe diagnostic lost its cause or suggested a VM: %q", got)
+	}
+}
+
 // A native runtime (macos-user) is never on PATH — its availability is a
 // downstream concern — so validation must let it pass through.
 func TestResolveRuntimeNativePassesThrough(t *testing.T) {
@@ -269,8 +294,43 @@ func TestResolveRuntimeNoneFound(t *testing.T) {
 	}
 }
 
-// Auto-detect (no explicit runtime) with podman installed but not started must
-// say so — not the misleading "install podman" (it IS installed).
+// A Linux podman info failure does not mean a machine is stopped. The actual
+// failure must survive the startup gate so a burst-only failure is diagnosable.
+func TestResolveRuntimeLinuxPodmanFailureDetails(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		res  ExecResult
+		want string
+	}{
+		{"nonzero", ExecResult{Ran: true, RC: 125, Stderr: "rootless storage lock busy"}, "rootless storage lock busy"},
+		{"timeout", ExecResult{Ran: true, Timeout: true, Stderr: "waiting on storage"}, "waiting on storage"},
+		{"not run", ExecResult{Ran: false}, "could not run"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var buf bytes.Buffer
+			o := Options{
+				Getenv:   func(string) string { return "" },
+				LookPath: func(string) (string, bool) { return "/usr/bin/podman", true },
+				Exec:     fakeExec(map[string]ExecResult{"podman info": tc.res}),
+				Stdout:   &buf,
+				IsMacOS:  false,
+			}
+			fillDefaults(&o)
+			if rt, ok := o.resolveRuntime(nil); ok || rt != "" {
+				t.Fatalf("resolveRuntime = %q,%v; want '',false", rt, ok)
+			}
+			got := buf.String()
+			if !strings.Contains(got, tc.want) || !strings.Contains(got, "podman info") ||
+				(tc.name == "timeout" && !strings.Contains(got, "timed out")) ||
+				strings.Contains(got, "podman machine start") || strings.Contains(got, "not started") {
+				t.Errorf("Linux probe diagnostic lost its cause or suggested a VM: %q", got)
+			}
+		})
+	}
+}
+
+// Auto-detect (no explicit runtime) with podman installed but unavailable must
+// identify the failed probe, not suggest a VM on Linux.
 func TestResolveRuntimeAutoDetectNotStarted(t *testing.T) {
 	var buf bytes.Buffer
 	o := Options{
@@ -286,9 +346,9 @@ func TestResolveRuntimeAutoDetectNotStarted(t *testing.T) {
 	if ok || rt != "" {
 		t.Errorf("resolveRuntime = %q,%v; want '',false", rt, ok)
 	}
-	if !strings.Contains(buf.String(), "installed but not started") ||
-		!strings.Contains(buf.String(), "podman machine start") {
-		t.Errorf("missing not-started message: %q", buf.String())
+	if !strings.Contains(buf.String(), "podman info") ||
+		strings.Contains(buf.String(), "podman machine start") {
+		t.Errorf("missing Linux probe diagnostic: %q", buf.String())
 	}
 }
 

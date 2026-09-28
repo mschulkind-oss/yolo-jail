@@ -3,6 +3,7 @@ package run
 import (
 	"bufio"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 
@@ -264,7 +265,8 @@ func (o *Options) resolveRuntime(cfg *jsonx.OrderedMap) (string, bool) {
 	} else {
 		candidates = []string{"podman"}
 	}
-	var offline []string // installed but daemon/VM not up
+	var offline []string
+	var failures []string
 	for _, rt := range candidates {
 		path, ok := o.LookPath(rt)
 		if !ok {
@@ -273,21 +275,27 @@ func (o *Options) resolveRuntime(cfg *jsonx.OrderedMap) (string, bool) {
 		if rt == "container" && !o.isAppleContainer(path) {
 			continue
 		}
-		if !o.runtimeIsConnectable(rt) {
+		if ok, reason := o.runtimeIsConnectable(rt); !ok {
 			offline = append(offline, rt)
+			failures = append(failures, reason)
 			continue
 		}
 		return rt, true
 	}
-	// A runtime that is installed but not started is a distinct, actionable case
-	// from nothing installed — mirror `yolo check` rather than the misleading
-	// "install podman" (it IS installed; it just needs starting).
+	// PATH presence does not tell us whether a VM is stopped: on Linux there
+	// is no VM, and a failed info probe may instead be a transient error.
 	if len(offline) > 0 {
 		out := o.pr(o.Stdout)
-		out.printf("[bold red]Container runtime installed but not started (%s).[/bold red]",
-			strings.Join(offline, ", "))
-		for _, rt := range offline {
-			out.printf("[dim]%s[/dim]", runtimeStartHint(rt))
+		if o.IsMacOS {
+			out.printf("[bold red]Container runtime installed but not started (%s).[/bold red]",
+				strings.Join(offline, ", "))
+		} else {
+			out.printf("[bold red]Cannot query container runtime (%s).[/bold red]",
+				strings.Join(offline, ", "))
+		}
+		for i, rt := range offline {
+			out.print(failures[i])
+			out.printf("[dim]%s[/dim]", runtimeStartHint(rt, o.IsMacOS))
 		}
 		return "", false
 	}
@@ -313,19 +321,26 @@ func (o *Options) validateExplicitRuntime(rt, source string) (string, bool) {
 		out.printf("[dim]Install it, or unset %s to auto-detect. Run `yolo check` to validate.[/dim]", source)
 		return "", false
 	}
-	if !o.runtimeIsConnectable(rt) {
-		out.printf("[bold red]Configured runtime '%s' (from %s) is installed but not started.[/bold red]", rt, source)
-		out.printf("[dim]%s[/dim]", runtimeStartHint(rt))
+	if ok, reason := o.runtimeIsConnectable(rt); !ok {
+		if o.IsMacOS {
+			out.printf("[bold red]Configured runtime '%s' (from %s) is installed but not started.[/bold red]", rt, source)
+		} else {
+			out.printf("[bold red]Cannot query configured runtime '%s' (from %s).[/bold red]", rt, source)
+		}
+		out.print(reason)
+		out.printf("[dim]%s[/dim]", runtimeStartHint(rt, o.IsMacOS))
 		return "", false
 	}
 	return rt, true
 }
 
-// runtimeStartHint is the "it's installed, just start it" one-liner for a
-// container runtime, kept in step with `yolo check`'s liveness hints.
-func runtimeStartHint(rt string) string {
+// runtimeStartHint gives a platform-specific next step for a failed probe.
+func runtimeStartHint(rt string, isMacOS bool) string {
 	if rt == "container" {
 		return "Start it: `container system start`"
+	}
+	if !isMacOS {
+		return "Run `podman info` to diagnose the failure."
 	}
 	return "Start it: `podman machine start` " +
 		"(first time: `podman machine init && podman machine start`)"
@@ -341,20 +356,33 @@ func (o *Options) isAppleContainer(path string) bool {
 	return strings.Contains(out, "Apple") || strings.Contains(out, "container CLI version")
 }
 
-// runtimeIsConnectable reports whether the runtime's daemon is reachable.
-func (o *Options) runtimeIsConnectable(rt string) bool {
+// runtimeIsConnectable reports whether the runtime answers and, if not, why.
+func (o *Options) runtimeIsConnectable(rt string) (bool, string) {
 	if rt == "container" {
 		res := o.Exec([]string{"container", "system", "status"}, "", nil, 5*time.Second)
-		if !res.Ran || res.Timeout {
-			return false
-		}
-		return res.RC == 0 && strings.Contains(strings.ToLower(res.Stdout), "running")
+		return res.Ran && !res.Timeout && res.RC == 0 &&
+			strings.Contains(strings.ToLower(res.Stdout), "running"), runtimeProbeFailure("container system status", res)
 	}
 	res := o.Exec([]string{rt, "info"}, "", nil, 10*time.Second)
-	if !res.Ran || res.Timeout {
-		return false
+	return res.Ran && !res.Timeout && res.RC == 0, runtimeProbeFailure(rt+" info", res)
+}
+
+func runtimeProbeFailure(command string, res ExecResult) string {
+	prefix := command + " "
+	switch {
+	case !res.Ran:
+		return prefix + "could not run."
+	case res.Timeout:
+		prefix += "timed out."
+	case res.RC != 0:
+		prefix += fmt.Sprintf("failed (exit %d).", res.RC)
+	default:
+		prefix += "did not report running."
 	}
-	return res.RC == 0
+	if detail := strings.TrimSpace(res.Stderr); detail != "" {
+		return prefix + " " + detail
+	}
+	return prefix
 }
 
 // checkConfigChanges delegates to config.CheckConfigChanges,
