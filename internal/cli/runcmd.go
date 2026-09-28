@@ -169,19 +169,38 @@ func refuseHostOnlyFlags(args []string, boundary int, errw io.Writer) bool {
 // profile name. Names refuse "=" at declaration (config profiles + the pack
 // manifest), so a value containing "=" is unambiguously the pair grammar and a
 // name can never collide with it.
+//
+// The grammar itself is parseProfileValue, which `yolo host` and `yolo host env` read too
+// (ES-D27), so the two notches cannot disagree about what a -p value says.
 func applyProfileValue(v string, opts *run.Options) {
-	if !strings.Contains(v, "=") {
-		opts.ProfileName = v
+	name, pairs := parseProfileValue(v)
+	if pairs == nil {
+		opts.ProfileName = name
 		return
 	}
 	if opts.UseProfiles == nil {
 		opts.UseProfiles = make(map[string]string)
 	}
+	for cli, profile := range pairs {
+		opts.UseProfiles[cli] = profile
+	}
+}
+
+// parseProfileValue is the -p grammar every notch reads: a value with no "=" is a bare
+// profile name (pairs nil), and one with "=" is comma-separated cli=name pairs (a non-nil
+// map, later pairs winning). An element with no "=" inside the pair grammar is dropped, as
+// the run path always dropped it.
+func parseProfileValue(v string) (name string, pairs map[string]string) {
+	if !strings.Contains(v, "=") {
+		return v, nil
+	}
+	pairs = make(map[string]string)
 	for _, pair := range strings.Split(v, ",") {
 		if parts := strings.SplitN(pair, "=", 2); len(parts) == 2 {
-			opts.UseProfiles[parts[0]] = parts[1]
+			pairs[parts[0]] = parts[1]
 		}
 	}
+	return "", pairs
 }
 
 // runHelpRequested reports whether args (the rewritten argv[1:], so it may carry

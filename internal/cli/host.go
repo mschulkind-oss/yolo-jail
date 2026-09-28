@@ -51,7 +51,10 @@ Exec flags (yolo host -- ...):
                                 claimed env_sources credentials, which are otherwise
                                 withheld from it. use_profiles cannot do this for a
                                 command no pack installs; only a typed flag can: this
-                                one, or --with-credentials below.
+                                one, or --with-credentials below. The jail's pair
+                                spelling works too: -p claude=zai -- claude is -p zai.
+                                A pair naming any other command is refused, since this
+                                runs one command.
   --with-credentials <provider[,provider...]|all>
                                 GRANT the wrapped command the named providers' claimed
                                 env_sources credentials, this launch only. KEYS ONLY: no
@@ -270,6 +273,46 @@ func parseHostExecFlags(args []string, errw io.Writer) (hostExecFlags, bool) {
 	return f, true
 }
 
+// hostProfileFor reads a host -p value in the run path's grammar (parseProfileValue, ES-D27)
+// for the one agent this notch composes. A bare name is that name. A cli=name pair naming the
+// agent means that bare name, so the jail's `-p claude=codex -- claude` spelling says the same
+// thing with `host` added. A pair naming any other CLI is refused by name: the host composes
+// one command's environment, and there is no second process for the pair to select for. A
+// grant of another provider's key to this process stays --with-credentials' alone, never a
+// pair's. envVerb says the value came from `yolo host env`, whose agent is --agent's, so the
+// refusal spells that verb's launch.
+func hostProfileFor(v, agent string, envVerb bool) (string, error) {
+	name, pairs := parseProfileValue(v)
+	if pairs == nil {
+		return name, nil
+	}
+	clis := make([]string, 0, len(pairs))
+	for cli := range pairs {
+		clis = append(clis, cli)
+	}
+	sort.Strings(clis)
+	for _, cli := range clis {
+		if cli == agent {
+			continue
+		}
+		chose, other := "the command after `--`", fmt.Sprintf("`yolo host -p %s -- %s`",
+			shquote.Quote(pairs[cli]), shquote.Quote(cli))
+		if envVerb {
+			chose, other = "--agent, claude by default", fmt.Sprintf("`yolo host env --agent %s -p %s`",
+				shquote.Quote(cli), shquote.Quote(pairs[cli]))
+		}
+		return "", fmt.Errorf("-p %s selects a profile for %q, but this composes the environment "+
+			"of %q alone (%s), so a cli=name pair may name only %q: `-p %s=<name>`, or the bare "+
+			"`-p <name>`. For %q on that profile, compose it instead: %s. To hand this process "+
+			"another provider's key, `%s <provider>` is the grant",
+			shquote.Quote(v), cli, agent, chose, agent, shquote.Quote(agent), cli, other, withCredentialsFlag)
+	}
+	if pairs[agent] == "" {
+		return "", fmt.Errorf("-p %s names no profile for %q", shquote.Quote(v), agent)
+	}
+	return pairs[agent], nil
+}
+
 // hostExec composes the environment and launches the target.
 //
 // Ordinary launches still use syscall.Exec. Managed Codex stays resident because its
@@ -283,6 +326,12 @@ func hostExec(flagArgs, cmd []string, out, errw io.Writer, stdin io.Reader) int 
 		fmt.Fprintf(errw, "yolo host: nothing to run after `--`\n\n%s\n", hostUsage)
 		return 2
 	}
+	profile, err := hostProfileFor(flags.profile, filepath.Base(cmd[0]), false)
+	if err != nil {
+		fmt.Fprintf(errw, "yolo host: %v\n", err)
+		return 2
+	}
+	flags.profile = profile
 	// THE HOST-RENDER GATE, before anything else this function does (hostapplygate.go, and
 	// docs/reference/host-apply-staleness.md §4.1). It is the host notch's answer to the jail's
 	// launch-time config approval, and it sits FIRST for the reason the credential pre-flight
@@ -1510,6 +1559,11 @@ func hostEnv(args []string, out, errw io.Writer) int {
 		// slice, and the grant only adds keys beside it. Flipping to bash there would drop the
 		// shape the -p asked for, which is not additive.
 		agent = hostEnvDefaultAgent(grant != nil, profile)
+	}
+	profile, err := hostProfileFor(profile, agent, true)
+	if err != nil {
+		fmt.Fprintf(errw, "yolo host env: %v\n", err)
+		return 2
 	}
 
 	// Only what yolo ADDS is printed, never the whole inherited environment: `yolo host

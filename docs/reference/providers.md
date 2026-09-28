@@ -844,16 +844,16 @@ declaration so the two grammars cannot be ambiguous, and neither flag means star
 timing — that is `--timing`. (The former third spelling `--pack-profile` is deleted —
 never in a release, and redundant once `-p` carried both grammars.)
 
-> [!WARNING]
-> **The flag is parsed per notch, and only the run path takes the pair grammar.**
-> `applyProfileValue` is where `cli=name` is understood; `yolo host` and `yolo host env` parse
-> the flag in their own bodies and accept a bare profile NAME only — the host notch runs one
-> command, and the name keys that command whether or not a pack installs it, so there is nothing
-> for a pair to key against. Neither host parser ever carried the timing
-> meaning, so [OQ-PT5](#oq-pt5)'s split touched the run path alone: do not "unify"
-> them, the grammars differ because the notches do. The run path's help scan mirrors its parse
-> flag for flag, which is the other half of the split — `-p` consumes the next token there
-> too, so `yolo -p -h` reads a profile named `-h` rather than answering help, deliberately.
+`yolo host` and `yolo host env` read the same grammar (`parseProfileValue`,
+[ES-D27](../design/credential-sources-separation.md#10-decision-ledger)), for the ONE command they
+compose: a bare name selects that profile for it, and a `cli=name` pair naming that command (the
+command after `--`, or `yolo host env`'s `--agent`) means the bare name, so
+`yolo host -p claude=zai -- claude` is `yolo host -p zai -- claude`. A pair naming any other CLI is
+refused by name, since there is no second process for it to select for; handing the command
+another provider's key stays `--with-credentials`' alone. Before, both host parsers took a bare name
+only and refused `claude=codex` as an undeclared profile of that name. The run path's help scan
+mirrors its parse flag for flag, so `-p` consumes the next token there too, and `yolo -p -h` reads a
+profile named `-h` rather than answering help, deliberately.
 
 ## Profiles and options
 
@@ -1214,7 +1214,7 @@ above explains what each is for; this table is the only place the exact spelling
 | Provider address scope | `endpoints.<protocol>.base_url` is **USER-SCOPE ONLY** since 2026-09-17: a workspace `yolo-jail.jsonc` or `yolo-jail.local.jsonc` carrying one is a fatal config error. The rest of a `providers` entry still merges from either scope. The reason is the workspace file is AGENT-EDITABLE, and the address decides where inference goes — [`OQ-LM3`](../research/local-model-endpoints.md#oq-lm3) calls it the one answer that cannot be revised later without a breaking config change. The entry-level `base_url` shorthand is refused at any scope | `internal/config/validate.go` |
 | Missing-provider hatch | `YOLO_ALLOW_MISSING_PROVIDERS=1` | `internal/paths` |
 | Kinds that take the `profile` modifier | `env`, `config-overlay` — refused on every other kind | `packdecl` `validateContribution` |
-| Profile flag grammar | `-p` / `--profile`: a bare name, or `cli=name` (comma-separated, repeatable) on the run path; a bare name only on `yolo host` / `yolo host env` | `internal/cli` (`applyProfileValue`) |
+| Profile flag grammar | `-p` / `--profile`: a bare name, or `cli=name` (comma-separated, repeatable), on every notch; at `yolo host` / `yolo host env` a pair may name only the one command composed | `internal/cli` (`parseProfileValue`; `applyProfileValue` on the run path, `hostProfileFor` at the host) |
 | Profile disclosure line | `Profile <name>: declared: <packs or none>; received: <every selected pack>` | `run.noteUseProfiles` |
 | zai model IDs | `glm-4.6`, `glm-5.3`, `glm-5.3-flash`; the default is `glm-5.3`. These are wire-true IDs; Claude alone appends `[1m]` when `context_window` ≥ 1000000. | `packs/zai/pack.json` |
 | zai Coding Plan OpenAI endpoint | `https://api.z.ai/api/coding/paas/v4` (`openai-chat-completions`) | `packs/zai/pack.json` |
