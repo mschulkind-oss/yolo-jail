@@ -1,35 +1,85 @@
 # Features
 
-yolo sets up everything an AI coding agent works with, from one declaration: the agent itself, its settings and house rules, its skills, its MCP and LSP servers, the packages it needs, and the credentials and host services it may reach. The same declaration runs at whatever confinement you choose, from a container jail to your own machine. The [per-setup matrix](reference/settings-per-setup.md) says where each feature works.
+Choose where agents run, package the setup they carry, connect only what matters, and keep the
+result observable and repeatable. Each entry links to the page that covers it.
 
-## Packs and Agents
+**Current status:**
 
-A **pack** is an add-on selected in your user config; it can install an agent, provide a login service, or configure tools. Nothing is active by default. Add a pack for the agent you want, then start it. [Getting Started](getting-started.md) explains the first launch; [Migrating to Packs](guides/migrating-to-packs.md) explains how to write your own setup down as a pack.
+- **Jail**: runs in an isolated container. Supported, and the default.
+- **Your own machine** (`yolo host`): configuration and launch are supported.
+- **Guest**, a separate user account on your machine: in development.
+- **`macos-user`**, the Mac sandbox with no container: works, but is still in development and not
+  yet the recommended Mac setup.
 
-## Agent Integrations
+## Where agents work
 
-Model Context Protocol (MCP) servers extend an agent with tools; Language Server Protocol (LSP) servers supply language-aware editor features. Both are configured explicitly. [MCP and LSP](guides/mcp-and-lsp.md) covers the available presets and server declarations.
+**One setup across your repositories.** Keep personal defaults, such as your agents, in your user
+config, and give each repository the tools and limits it needs in its own `yolo-jail.jsonc`. The
+agent works on the same files you do, at `/workspace`, with no copy to sync.
+[Configuration →](reference/configuration.md)
 
-## Packages and Tools
+**Choose the boundary.** Run agents in an isolated jail, configure them on your own machine, or try
+the Mac sandbox. [Where agents run →](guides/confinement.md)
 
-Add system packages to the image, or use mise for language runtimes. Tool blockers are opt-in rather than assumed. [Packages and Tools](guides/packages-and-tools.md) shows both paths.
+**Linux and Mac.** Podman on Linux; Apple Container or Podman on a Mac, running native ARM Linux on
+Apple silicon with no emulation. [Getting Started →](getting-started.md) ·
+[macOS →](guides/macos.md) · [What works on each setup →](reference/settings-per-setup.md)
 
-## Host Services
+## Shape the setup
 
-A **loophole** is a deliberate, mediated way for an agent to use a capability that stays on the host. Some packs provide login brokers and other services; you can also declare one of your own. See [Host Services](guides/host-services.md) for a configuration example and [Loopholes](guides/loopholes.md) for the broader system.
+**Bring the agents you want.** Claude Code, Codex, Copilot, opencode, pi, Antigravity and oh-omp,
+each through a pack. Nothing is selected for you, and each runs without permission prompts inside
+the jail. [Choose an agent pack →](guides/packs-and-skills.md#choose-your-packs)
 
-## Confinement
+**Make your setup shareable.** A pack bundles skills, house rules, settings and tools. Use the ones
+yolo ships, write your own, or share one from a git repository.
+[Write your own pack →](guides/migrating-to-packs.md)
 
-How much the agent is confined is one setting of the declaration:
+**Share skills without copy-paste.** One skill reaches every agent you selected, or only the ones
+you name, and a project can take only part of a pack.
+[Skills and house rules →](guides/packs-and-skills.md#skills-and-house-rules)
 
-- **A container jail** is the default. The agent gets a live, writable copy of your project, and your host's SSH keys, git credentials, and cloud tokens are not mounted into it. On Linux the jail uses Podman; on macOS, Apple Container or Podman Machine.
-- **A dedicated macOS user** (`macos-user`) runs the agent natively under Apple Seatbelt, with no VM. [macOS](guides/macos.md) covers the trade-offs.
-- **Your own machine**, with no confinement: `yolo host apply` renders the same config, skills and briefing into your real home, and `yolo host -- <agent>` runs an agent there. [Migrating to Packs](guides/migrating-to-packs.md#part-2--manage-your-host) walks through it.
+**Settings that follow you across agents.** MCP servers, language servers and model choices are
+written into each agent's own settings files, where that agent supports them.
+[Settings across agents →](guides/agent-settings.md) · [MCP and LSP →](guides/mcp-and-lsp.md)
 
-## Network and Devices
+**Stay in control of agent updates.** Agents keep themselves current when you start them, or stay
+frozen if you say so, for all of them or one at a time.
+[Agent updates →](guides/packs-and-skills.md#keep-agents-and-packs-up-to-date)
 
-Publish a server running in the jail to your host, or forward a host port into the jail. Linux can also pass USB devices and GPUs through. [Networking](guides/networking.md) and [Devices and GPUs](guides/devices-and-gpus.md) cover the settings and platform limits.
+## Connect what matters
 
-## Storage
+**Choose how agents log in.** Log in inside the jail once, hand an agent an API key on purpose, or
+let a host service keep one shared Claude or ChatGPT login fresh for every jail.
+[Logins →](guides/authentication.md)
 
-Installed tools and selected credentials survive a restart, while some state is specific to one workspace. Caches can be relocated to another disk. [Storage](guides/storage.md) explains what persists and what yolo reclaims.
+**Change providers without changing your workflow.** Pick a named profile at launch to point an
+agent at another model service; the in-jail wire bridge handles supported format mismatches.
+[Providers and models →](guides/providers-and-models.md)
+
+**Grant only the host access you need.** Your SSH keys, git credentials and cloud tokens stay out.
+Add read-only folders, host ports, devices or a loophole, one line at a time, and read a pack's
+footprint before you select it. [Host access and loopholes →](guides/loopholes.md)
+
+**Reach services and ports.** Open a jail's dev server from your browser, or reach a database on
+your host from the jail. [Networking →](guides/networking.md)
+
+**Hardware on Linux.** Pass USB and serial devices, NVIDIA or AMD GPUs, and `/dev/kvm` into the
+jail. [Devices and GPUs →](guides/devices-and-gpus.md)
+
+## Keep it dependable
+
+**Give every project the right tools.** Declare packages and tool versions per project; yolo builds
+a reusable environment instead of relying on whatever is installed.
+[Packages and tools →](guides/packages-and-tools.md)
+
+**Approve every change to the jail.** When a project's config changes, the next launch shows you
+the difference and waits for your yes, so an agent cannot quietly grant itself more.
+[Approving config changes →](reference/configuration.md#approving-config-changes)
+
+**See what changed and what is running.** Validate your setup, inspect the resolved configuration,
+list running jails, and reclaim disk with explicit, dry-run-first commands.
+[CLI reference →](reference/cli-reference.md) · [Storage →](guides/storage.md)
+
+**When something breaks.** `yolo check` names the fix for most problems.
+[Troubleshooting →](guides/troubleshooting.md)
