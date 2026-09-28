@@ -107,6 +107,16 @@ var flockSyscall = syscall.Flock
 
 // Close releases the flock and closes the fd. Idempotent (guarded here for the
 // multiple teardown paths).
+//
+// THE UNLOCK IS EXPLICIT, and closing the fd is not a substitute for it. A flock belongs
+// to the open file DESCRIPTION, and a child this process forks while the lock is held
+// carries a duplicate of the descriptor until its exec closes it (O_CLOEXEC acts only at
+// exec). The launch forks all the time on other goroutines — the housekeeping slot's podman
+// calls, onStarted's poll — so a close-only release left the lock held by a child for as
+// long as that child took to reach exec, and a non-blocking take right behind it failed.
+// That is how forgetGoneContainer, which takes this lock microseconds after stopLoopholes
+// releases it, left a gone jail's tracking file and skeleton behind on a slow CI runner
+// (run 36486674316). LOCK_UN on any duplicate releases the lock for all of them.
 func (l *workspaceLock) Close() {
 	if l == nil {
 		return
@@ -120,7 +130,10 @@ func (l *workspaceLock) Close() {
 	if l.path != "" {
 		heldLaunchLocks.forget(l.path, l)
 	}
-	_ = l.f.Close() // closing the fd releases the flock
+	// Discarded: an fd whose flock failed to take has nothing to release, and the close
+	// below is the fallback either way.
+	_ = syscall.Flock(int(l.f.Fd()), syscall.LOCK_UN)
+	_ = l.f.Close()
 }
 
 // AcquireWorkspaceLockFor is the exported front door: take the per-workspace launch lock

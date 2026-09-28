@@ -1,6 +1,7 @@
 package run
 
 import (
+	"os"
 	"path/filepath"
 	"strings"
 	"syscall"
@@ -161,5 +162,35 @@ func TestWorkspaceLockFlockErrorDegrades(t *testing.T) {
 	case msg := <-c.waits:
 		t.Errorf("a flock error must not be reported as waiting: %q", msg)
 	default:
+	}
+}
+
+// TestWorkspaceLockCloseReleasesWhileADuplicateIsOpen: a child forked while the lock is held
+// carries a duplicate of its descriptor until the child's exec, and a flock belongs to the open
+// file description, so closing the holder's descriptor alone released nothing while that copy
+// lived. The next non-blocking take then failed: that is how forgetGoneContainer, right behind
+// stopLoopholes' release, left a gone jail's skeleton behind (CI run 36486674316;
+// trackingcleanup_linux_test.go drives the whole chain). Close must unlock explicitly.
+func TestWorkspaceLockCloseReleasesWhileADuplicateIsOpen(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "ws.lock")
+	lock, err := acquireWorkspaceLock(path, "/ws", lockNotices{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	child, err := syscall.Dup(int(lock.f.Fd())) // what fork hands a child that has not exec'd
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer syscall.Close(child)
+
+	lock.Close()
+
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY, 0o644)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		t.Fatalf("the lock is still held after Close while a duplicate descriptor is open: %v", err)
 	}
 }
