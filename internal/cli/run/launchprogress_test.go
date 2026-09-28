@@ -77,6 +77,7 @@ func TestTheImageLoadIsHandedTheLaunchRendering(t *testing.T) {
 		IsTTYStdout: func() bool { return false },
 		IsTTYStderr: func() bool { return true },
 		Getpid:      os.Getpid,
+		PathExists:  func(string) bool { return false },
 		autoLoad: func(opts image.AutoLoadOptions) image.LoadResult {
 			seen = opts
 			return image.LoadResult{OK: true}
