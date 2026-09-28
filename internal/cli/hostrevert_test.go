@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -372,5 +373,54 @@ func TestApplyRevertIsTheHostNotchs(t *testing.T) {
 	}
 	if !strings.Contains(errw.String(), "host") {
 		t.Errorf("the refusal must name the notch the verb belongs to:\n%s", errw.String())
+	}
+}
+
+// A REVERT KEEPS PI'S `providers`, through the verb a user types. pi/models declares
+// `"providers": {}` because pi rejects a models.json without it (HC-D1), and a revert of a home
+// whose models.json the apply created used to leave `{}`, which pi reports at every start. The
+// dry run names the key as kept, the --assert leaves an object `providers`, and the count the
+// report closes on is still only what it removed.
+func TestHostRevertKeepsAnEmptyDefaultAndSaysSo(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+	t.Setenv("YOLO_VERSION", "")
+	writeFile(t, filepath.Join(home, ".config", "yolo-jail", "config.jsonc"),
+		`{"packs":["pi"],"host_management":"assert"}`)
+	stubDeclaredBins(t)
+	applyOnce(t)
+	models := filepath.Join(home, ".pi", "agent", "models.json")
+
+	var out, errw bytes.Buffer
+	if rc := hostMain([]string{"apply", "--revert"}, &out, &errw, false, nil); rc != 0 {
+		t.Fatalf("revert dry run rc=%d: %s%s", rc, out.String(), errw.String())
+	}
+	if !strings.Contains(out.String(), "keeps providers") {
+		t.Errorf("the dry run does not say it keeps pi/models' `providers`:\n%s", out.String())
+	}
+	if strings.Contains(out.String(), "would remove providers") {
+		t.Errorf("the dry run offers to remove `providers`:\n%s", out.String())
+	}
+
+	out.Reset()
+	errw.Reset()
+	if rc := hostMain([]string{"apply", "--revert", "--assert"}, &out, &errw, false, nil); rc != 0 {
+		t.Fatalf("revert --assert rc=%d: %s%s", rc, out.String(), errw.String())
+	}
+	data, err := os.ReadFile(models)
+	if err != nil {
+		t.Fatalf("the revert deleted models.json: %v", err)
+	}
+	var doc map[string]any
+	if err := json.Unmarshal(data, &doc); err != nil {
+		t.Fatalf("models.json after the revert: %v\n%s", err, data)
+	}
+	if _, isObj := doc["providers"].(map[string]any); !isObj {
+		t.Errorf("after the revert models.json has no object `providers`, which pi rejects at "+
+			"every start:\n%s", data)
+	}
+	if !strings.Contains(out.String(), "keeps providers") {
+		t.Errorf("the revert does not say it kept `providers`:\n%s", out.String())
 	}
 }

@@ -51,6 +51,7 @@ import (
 	"sort"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg"
+	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg/manifest"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonptr"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
@@ -79,7 +80,11 @@ type HostRevertedKey struct {
 // surface yolo rendered but whose keys the user has since deleted has a record and no keys,
 // and the record still has to go or the home keeps claiming a render that owns nothing.
 type HostRevert struct {
-	Keys    []HostRevertedKey
+	Keys []HostRevertedKey
+	// Kept are the keys yolo wrote that the revert LEAVES, each with Action "kept": an empty
+	// default still at its declared value (keptShapeDefault). Reported so the dry run names
+	// every key of yolo's the file will still hold, not only the ones it takes out.
+	Kept    []HostRevertedKey
 	Records []string
 }
 
@@ -159,7 +164,13 @@ func RevertHostRender(candidates []*packload.Pack, homeDir string, observe bool)
 		}
 		var removed []string
 		for _, k := range revertableKeys(record) {
-			if _, present := obj.Get(k.key); !present {
+			v, present := obj.Get(k.key)
+			if !present {
+				continue
+			}
+			if keptShapeDefault(s, k, v) {
+				out.Kept = append(out.Kept, HostRevertedKey{Surface: id, Path: path, Key: k.key,
+					Layer: k.layer, Action: "kept"})
 				continue
 			}
 			removed = append(removed, k.key)
@@ -187,7 +198,9 @@ func RevertHostRender(candidates []*packload.Pack, homeDir string, observe bool)
 		// THE FILE IS NOT DELETED even when every key in it was yolo's and it is now empty.
 		// Deletion is the host notch's one legitimate asymmetry (§6.3), and an empty object
 		// is recoverable by hand while a deleted file is not — so a revert that emptied a
-		// surface leaves `{}` rather than guessing that yolo created the file.
+		// surface leaves `{}` rather than guessing that yolo created the file. That is why an
+		// empty declared default stays (keptShapeDefault): the file left behind has to be one
+		// its agent still reads.
 		if rerr := os.Remove(recPath); rerr != nil && !os.IsNotExist(rerr) {
 			return out, fmt.Errorf("%s: removing the provenance record %s: %w", id, recPath, rerr)
 		}
@@ -246,6 +259,47 @@ func revertableKeys(record map[string]string) []revertedKey {
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].key < out[j].key })
 	return out
+}
+
+// keptShapeDefault reports whether a revert LEAVES one key yolo wrote: a `defaults` key whose
+// declared default is an empty object or array, still holding exactly that.
+//
+// Such a default holds nothing to withdraw, neither yolo's content nor the user's; it is the
+// SHAPE the pack declares its file needs. pi/models is why (HC-D1): pi 0.87.1 rejects a
+// models.json without `providers`, so the pack declares `"providers": {}`, and a revert that
+// removed it left `{}` in a file the apply had created — because a revert empties a file
+// rather than deleting it (see RevertHostRender) — and pi printed `models.json error` at every
+// start. Keeping the shape is the one answer that needs no guess: yolo does not record whether
+// it created a file, so deleting it would guess, and the declared default is the only statement
+// of what its consumer accepts that yolo has.
+//
+// NARROW ON PURPOSE. A non-empty default is content yolo wrote and still goes, and so does an
+// empty default the user has since filled, since it no longer holds the declared value.
+func keptShapeDefault(s manifest.Surface, k revertedKey, v any) bool {
+	layer := k.layer
+	if last, retired := agentcfg.RetiredOf(layer); retired {
+		layer = last
+	}
+	if layer != agentcfg.LayerDefaults {
+		return false
+	}
+	defaults, _ := s.Defaults.(map[string]any)
+	declared, ok := defaults[k.key]
+	if !ok || !emptyContainer(declared) {
+		return false
+	}
+	return emptyContainer(jsonx.Plain(v)) && sameJSON(v, declared)
+}
+
+// emptyContainer is an empty object or an empty array, in jsonx.Plain form.
+func emptyContainer(v any) bool {
+	switch c := v.(type) {
+	case map[string]any:
+		return len(c) == 0
+	case []any:
+		return len(c) == 0
+	}
+	return false
 }
 
 // revertableLayer is the predicate, built from agentcfg's own constructions rather than

@@ -143,7 +143,8 @@ apply it, and the launch says that too. See
   now says to start pi with `yolo host -- pi`.
 - Host pi printed `models.json error` at every start once `yolo host apply --assert` had created
   its `~/.pi/agent/models.json`, which it wrote empty. The next `yolo host apply --assert`
-  repairs a file an earlier one left that way.
+  repairs a file an earlier one left that way, and `yolo host apply --revert --assert` keeps the
+  empty `providers` pi needs, naming it, rather than emptying the file again.
 - Claude's LSP plugins that you enabled on the host were off in the jail unless `lsp_servers`
   named their language.
 - Codex could not renew its ChatGPT sign-in through the `openai-auth` pack.

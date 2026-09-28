@@ -92,6 +92,14 @@ func hostRevert(out, errw io.Writer, color bool, write bool) int {
 		pr.Printf("  [yellow]%-20s %s %s[/yellow] [dim](%s)  %s[/dim]",
 			k.Surface, k.Action, k.Key, k.Layer, k.Path)
 	}
+	// The keys of yolo's the revert LEAVES, named for the reason the removals are: after it
+	// the file still holds them, and a report listing only removals would read as if nothing
+	// of yolo's remained. An empty default is the shape the pack declares its file needs
+	// (entrypoint.keptShapeDefault), so taking it out would leave a file its agent rejects.
+	for _, k := range result.Kept {
+		pr.Printf("  [dim]%-20s keeps %s (%s: an empty default, the shape the pack declares "+
+			"this file needs)  %s[/dim]", k.Surface, k.Key, k.Layer, k.Path)
+	}
 	if rerr != nil {
 		fmt.Fprintf(errw, "yolo host apply --revert: %v\n", rerr)
 		return 1

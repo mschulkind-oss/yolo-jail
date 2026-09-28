@@ -89,9 +89,11 @@ apply flags:
                   A DRY RUN like every other posture here — it lists each key with
                   the attribution the removal rests on, and --assert performs it.
                   It REMOVES what yolo wrote; it does not restore what a key held
-                  before yolo wrote it, because nothing snapshots that. Needs
-                  host_management "assert" — refused at "none" (nothing was
-                  written) and at "own" (the file is derived; delete it instead).
+                  before yolo wrote it, because nothing snapshots that. It keeps an
+                  empty default, such as pi's "providers": {}, which the agent's
+                  file needs, and names each one. Needs host_management "assert" —
+                  refused at "none" (nothing was written) and at "own" (the file is
+                  derived; delete it instead).
   --format json   Emit the dry run as data instead of a report: destinations, losses,
                   blockers, the counts and the outcome. --json is the same flag.
                   Refused with --assert (exit 2): that posture acts, and an acting

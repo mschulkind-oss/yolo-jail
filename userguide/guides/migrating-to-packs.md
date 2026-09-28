@@ -502,7 +502,9 @@ What there IS, since 2026-09-11, is **`yolo host apply --revert`** — take yolo
 this home. It removes the keys yolo asserted, on the authority of the per-key provenance
 record yolo wrote beside them, and deletes that record; a key you set yourself (recorded
 `host`) is never touched. It is a dry run until you pass `--assert`, and it lists every key
-with the attribution the removal rests on. It needs `host_management: "assert"` — at `"none"`
+with the attribution the removal rests on. It leaves the files in place, so it keeps a default
+that is an empty object or list, such as pi's `"providers": {}`: that is the shape the agent
+needs its file to have, and the report names each one it keeps. It needs `host_management: "assert"` — at `"none"`
 yolo wrote nothing to withdraw, and at `"own"` the file is derived output you delete rather
 than retreat from key by key.
 
