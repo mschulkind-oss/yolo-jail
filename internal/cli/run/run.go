@@ -323,6 +323,9 @@ func Run(opts Options) (rc int) {
 	if len(injectedArgs) > 0 {
 		injectedArgs = o.injectLaunchFlagsDisclosed(staged.packs, injectedArgs)
 	}
+	// A SHARED NETWORK, SAID (OQ-NC3): above the dispatch for the launch flags' reason, so every
+	// arm and an attach print it from here (sharednetwork.go).
+	o.noteSharedNetwork(cfg, rt)
 
 	// THE JAIL-DAEMON PAYLOAD, composed once here — the fourth B-0 hoist, after the pack
 	// trees, the launch flags and the channel, and for the same reason as every one of

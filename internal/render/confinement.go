@@ -98,10 +98,58 @@ type Profile struct {
 	// AgentAutonomy is the §4.2 policy: true → render each pack's autonomous posture,
 	// false → its guarded posture. On at jail/guest (the agent is contained), off at host.
 	AgentAutonomy bool
+	// sharedNetwork is the NETWORK PRIMITIVE (OQ-NC3, docs/plans/notch-convergence.md, ruled
+	// 2026-09-28): whether this environment's network namespace is the host's own, so the
+	// host's loopback services are reachable from inside it exactly as from a host process.
+	//
+	// A FACT RECORDED BESIDE the enforcement primitives rather than one of them, and a field
+	// rather than a Primitive, for the reason AgentAutonomy is one: it enforces nothing, and
+	// PrimitiveOrder is the list `describe` and the briefing print under "Enforced by". It does
+	// not move the autonomy bit, by the ruling: autonomy rests on the filesystem boundary, which
+	// a shared network does not remove.
+	//
+	// The presets state what their mechanism gives BY CONSTRUCTION (the host is its own
+	// network; a Seatbelt profile yolo emits contains no network operation). The jail preset is
+	// private, because whether a container shares the launcher's namespace is a fact about the
+	// LAUNCH (`network.mode: "host"`, podman-in-podman), which the launch states through
+	// WithSharedNetwork.
+	sharedNetwork bool
 }
 
 // Has reports whether the profile composes a primitive.
 func (p Profile) Has(prim Primitive) bool { return p.prims[prim] }
+
+// SharesHostNetwork reports the network primitive: whether this environment's network
+// namespace is the host's, so the host's loopback services are reachable from it.
+func (p Profile) SharesHostNetwork() bool { return p.sharedNetwork }
+
+// WithSharedNetwork is p with the network primitive set: the launch's own answer, from the one
+// predicate the launcher decides the namespace by (run.sharesLauncherNetns). The primitives and
+// the autonomy bit are p's, unchanged. The primitive map is shared with p, which is safe
+// because nothing mutates a Profile's map after construction.
+func (p Profile) WithSharedNetwork(shared bool) Profile {
+	p.sharedNetwork = shared
+	return p
+}
+
+// SharedNetworkFact is the ONE sentence both readers of the network primitive print — the
+// launch line on the human's terminal and the briefing's line for the agent — so the two cannot
+// come to describe one launch differently. "" for a private namespace, where there is nothing
+// to say: the loopback is the environment's own.
+//
+// It names the consequence first (what is reachable) and then what did NOT change, because the
+// ruling kept autonomy on and a reader who learns the first fact asks about the second.
+func SharedNetworkFact(p Profile) string {
+	if !p.sharedNetwork {
+		return ""
+	}
+	s := "This jail shares the host's network, so the host's loopback services are reachable from it"
+	if p.AgentAutonomy {
+		s += "; agent autonomy stays on, because what confines the agent is the filesystem " +
+			"boundary, which a shared network does not remove"
+	}
+	return s + "."
+}
 
 // with returns a Profile composing exactly the given primitives. autonomy sets the
 // AgentAutonomy policy bit (§4.2) — the presets pass it explicitly so the default is
@@ -127,18 +175,28 @@ func JailProfile(useVM bool) Profile {
 
 // GuestProfileMacOS is macOS `guest`: a separate user (credential boundary) + Seatbelt
 // (confinement), a real home, no image. Autonomy ON: still confined.
-func GuestProfileMacOS() Profile { return with(true, PrimSeparateUser, PrimSeatbelt) }
+//
+// Its network is SHARED by construction: neither Seatbelt profile yolo emits contains a
+// `network*` operation, so the sandboxed process is on the launcher's own stack (DP-L2).
+func GuestProfileMacOS() Profile {
+	return with(true, PrimSeparateUser, PrimSeatbelt).WithSharedNetwork(true)
+}
 
 // GuestProfileLinux is Linux `guest`: bwrap namespaces + Landlock, a real home, NO
 // separate user (bwrap uses the same namespace primitive podman does) — the "weaker
 // container, not a second account" combination the primitive model exists to express as
-// a preset rather than a special case. Autonomy ON: still confined.
+// a preset rather than a special case. Autonomy ON: still confined. Its network is recorded
+// private, as the jail preset's is: the backend is not built (env-manager Phase 7), and whether
+// it unshares the network is that build's decision, to be stated here when it is made.
 func GuestProfileLinux() Profile { return with(true, PrimNamespaces, PrimLandlock) }
 
 // HostProfile is the weakest preset: no primitives at all — you, on your machine.
 // Autonomy OFF: nothing contains the agent, so the guarded posture (permission prompts on)
 // is what renders — the §4.2 fix for the `yolo host apply` bypass leak.
-func HostProfile() Profile { return Profile{prims: map[Primitive]bool{}, AgentAutonomy: false} }
+// Its network is the host's by definition.
+func HostProfile() Profile {
+	return Profile{prims: map[Primitive]bool{}, AgentAutonomy: false, sharedNetwork: true}
+}
 
 // ProfileFor is the notch → preset table: the ONE place that answers "what does this
 // confinement level imply?", so a render path reads the policy instead of choosing a

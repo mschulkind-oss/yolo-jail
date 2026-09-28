@@ -196,6 +196,31 @@ func ConfinementProfile(notch render.Kind, mechanism string, isMacOS bool) rende
 	}
 }
 
+// LaunchProfile is the profile one launch runs under: ConfinementProfile's vector and policy,
+// with the network primitive set from the launch's own answer to "does this jail share the
+// launcher's network namespace?" (OQ-NC3). The launch line and the briefing both read it, so the
+// fact each prints is one value.
+//
+// ONLY RAISES the primitive: a mechanism that shares the network by construction (macos-user,
+// GuestProfileMacOS) stays shared whatever the caller passes, because no launch can give a
+// Seatbelt sandbox a namespace of its own.
+func LaunchProfile(notch render.Kind, mechanism string, isMacOS, sharedNetwork bool) render.Profile {
+	prof := ConfinementProfile(notch, mechanism, isMacOS)
+	return prof.WithSharedNetwork(prof.SharesHostNetwork() || sharedNetwork)
+}
+
+// briefingProfile is LaunchProfile for a briefing: the notch as the config names it (empty is
+// the jail), and the network as the launch APPLIED it. An applied "host" mode is exactly the
+// launcher's shared-namespace predicate read as a mode (run.appliedNetMode), so the network
+// line above and this fact rest on one answer.
+func briefingProfile(in BriefingInput, netMode string) render.Profile {
+	notch, _ := render.KindForNotch(in.Confinement)
+	if in.Confinement == "" {
+		notch = render.KindJail // confinementHeader's reading of the default
+	}
+	return LaunchProfile(notch, in.Mechanism, in.IsMacOS, netMode == "host")
+}
+
 // MechanismHasNoContainer reports whether a runtime puts no container around the jail —
 // paths.NativeRuntimes, which is `macos-user` today.
 //
@@ -582,6 +607,13 @@ func BriefingContent(in BriefingInput) string {
 		)
 	}
 	lines = append(lines, append(envLines, networkLine)...)
+	// THE NETWORK PRIMITIVE'S FACT (OQ-NC3, docs/plans/notch-convergence.md, ruled 2026-09-28,
+	// A): a jail on a shared namespace keeps its autonomy, and is told so beside the network
+	// line it qualifies. The sentence is render's (SharedNetworkFact), the one the launch line
+	// prints, so the agent's copy and the human's cannot disagree.
+	if fact := render.SharedNetworkFact(briefingProfile(in, netMode)); fact != "" {
+		lines = append(lines, "- **Shared network**: "+fact)
+	}
 	lines = append(lines, publishedPorts...)
 	lines = append(lines, forwardedPorts...)
 	lines = append(lines, resourceLine...)

@@ -1,6 +1,9 @@
 package render
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 // The confinement presets set the §4.2 AgentAutonomy policy along the wall: a contained
 // notch (jail/guest) runs the agent without permission prompts; the uncontained host notch
@@ -109,5 +112,44 @@ func TestTargetProfileFollowsKind(t *testing.T) {
 	// An unconstructed Target cannot claim a notch, so it cannot claim autonomy either.
 	if (Target{Home: "/home/me", Workspace: "/workspace"}).Profile().AgentAutonomy {
 		t.Error("a Target with no constructor behind it must not resolve to an autonomous notch")
+	}
+}
+
+// OQ-NC3 (docs/plans/notch-convergence.md, ruled 2026-09-28, A): the network primitive. A
+// Profile records whether its network namespace is the host's, and nothing about autonomy
+// moves with it. The presets state the answer their mechanism gives by construction (the host
+// is its own network; a Seatbelt sandbox emits no network operation), and the jail preset is
+// private until a launch that shares the namespace says so.
+func TestProfileRecordsWhetherTheNetworkIsShared(t *testing.T) {
+	for _, c := range []struct {
+		name string
+		prof Profile
+		want bool
+	}{
+		{"jail-namespaces", JailProfile(false), false},
+		{"jail-vm", JailProfile(true), false},
+		{"guest-linux", GuestProfileLinux(), false},
+		{"guest-macos", GuestProfileMacOS(), true},
+		{"host", HostProfile(), true},
+		{"jail on a shared namespace", JailProfile(false).WithSharedNetwork(true), true},
+	} {
+		if got := c.prof.SharesHostNetwork(); got != c.want {
+			t.Errorf("%s: SharesHostNetwork() = %v, want %v", c.name, got, c.want)
+		}
+	}
+	shared := JailProfile(false).WithSharedNetwork(true)
+	if !shared.AgentAutonomy {
+		t.Error("a jail on a shared namespace must keep the autonomous posture (OQ-NC3 A)")
+	}
+	if !shared.Has(PrimNamespaces) || !shared.Has(PrimBakedImage) {
+		t.Error("WithSharedNetwork must keep every enforcement primitive the preset composed")
+	}
+	if SharedNetworkFact(JailProfile(false)) != "" {
+		t.Error("a private namespace states no shared-network fact")
+	}
+	if got := SharedNetworkFact(shared); !strings.Contains(got, "loopback services are reachable") ||
+		!strings.Contains(got, "autonomy stays on") {
+		t.Errorf("the shared-network fact must name the reachable loopback and the kept "+
+			"autonomy, got %q", got)
 	}
 }
