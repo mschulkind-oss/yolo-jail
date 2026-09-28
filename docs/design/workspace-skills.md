@@ -14,7 +14,7 @@ vantage:
 [OQ-WS1](#OQ-WS1)–[OQ-WS4](#OQ-WS4) ruled that day, with the same day's review fixes; every
 mechanism choice is a `WS-D` row in the [ledger](#12-decision-ledger), whose Built column names
 the commits. The host half ([OQ-WS5](#OQ-WS5), [OQ-WS6](#OQ-WS6)) is out of v1 and unbuilt, and
-one question is open: [OQ-WS7](#OQ-WS7), a bound on what the layer copies. How it works now:
+[OQ-WS7](#OQ-WS7) is ruled: a per-launch cap on what the layer copies, not built yet. How it works now:
 [the workspace layer](../reference/agent-briefings.md#the-workspace-layer). Earlier stamps: every current-behavior
 claim below was checked against the tree on 2026-09-17 and re-checked on 2026-09-24, and every
 claim about an agent's discovery paths against the bundle installed in this jail, version named
@@ -48,8 +48,8 @@ layer on purpose. The links variant writes into a repo yolo does not own.
 **Start at [§4.1](#41-mechanism-a--the-staged-mirror)** — the mirror, and the symlink rule
 that reshapes it. [§6](#6-both-notches-honestly) is where the host answer has to differ.
 
-**Needs your ruling:** [OQ-WS7](#OQ-WS7) — whether the layer's copy gets a byte budget. v1 ships
-without one.
+**Rulings:** [OQ-WS7](#OQ-WS7), ruled 2026-09-28 as leaned: a per-launch byte and entry cap on the
+scratch copy. Nothing here awaits a ruling; the cap is the remaining build.
 
 **Reads with:** [`workspace-skills-plan.md`](workspace-skills-plan.md) (the implementation
 sketch, superseded by the build);
@@ -691,7 +691,7 @@ is answered *by* two of them.
    > (*"and OQ6 is moot, right?"*). The links are the host half's mechanism, which v1 does not
    > build; the question returns, unchanged, when the host half is taken up.
 
-7. 💬 <a id="OQ-WS7"></a>**OQ-WS7: Does the layer's copy get a byte budget?** Decides whether a
+7. ✅ <a id="OQ-WS7"></a>**OQ-WS7: Does the layer's copy get a byte budget?** Decides whether a
    clone can make the host write far more than it holds ([R10](#8-risks)). Symlinks cost nothing
    to commit, and the reader copies a directory once per skill that links to it, so N skills
    linking one directory copy it N times into the scratch tree and again into every destination
@@ -706,12 +706,14 @@ is answered *by* two of them.
    number, and refuses two skills sharing one linked `shared/`, which is a repo doing nothing
    wrong.
 
-   <!-- vantage: oq id=OQ-WS7 leaning="(b): a per-launch byte and entry cap on the scratch copy, set where no real skill set meets it, with a skill that would cross it refused and named. The refusal is disclosed like every other, and (c)'s would land on repos doing nothing wrong." -->
-
-   _Leaning:_ **(b)**, with a cap no real skill set meets: the refusal is disclosed like every
+      _Leaning:_ **(b)**, with a cap no real skill set meets: the refusal is disclosed like every
    other, and (c)'s would land on legitimate repos.
 
    **Answer:**
+   > **Ruled in review 2026-09-28, as leaned:** (b). A per-launch byte and entry cap on the
+   > scratch copy, set where no real skill set meets it; a skill that would cross it is refused
+   > and named, disclosed like every other refusal. (c) is rejected because its refusal would land
+   > on repos doing nothing wrong.
 
 ## 12. Decision Ledger
 
@@ -723,7 +725,7 @@ is answered *by* two of them.
 | OQ-WS4 | **Mechanism A (the staged mirror) alone** in containers and on `macos-user`; B (in-workspace links) is a host-notch tool only; closes [OQ-ACP2](../plans/agent-config-packs.md#-oq-acp2--whether-opencodes-skills-gap-should-be-closed-by-writing-into-workspace) | 2026-09-27 | [OQ-WS4](#OQ-WS4) | ✅ `7df13e51` (A only; nothing is written into a workspace) |
 | OQ-WS5 | **The host notch is out of v1** | 2026-09-27 | [OQ-WS5](#OQ-WS5) | — (the host half is unbuilt; nothing at the host notch reads `project_dirs`) |
 | OQ-WS6 | **Deferred with [OQ-WS5](#OQ-WS5)** | 2026-09-27 | [OQ-WS6](#OQ-WS6) | — |
-| OQ-WS7 | **Open** — whether the layer's copy gets a byte budget ([R10](#8-risks)) | 2026-09-27 | [OQ-WS7](#OQ-WS7) | — (v1 has none) |
+| OQ-WS7 | **(b), a per-launch byte and entry cap on the scratch copy**, set where no real skill set meets it; a skill that would cross it is refused and named ([R10](#8-risks)) | 2026-09-28 | [OQ-WS7](#OQ-WS7) | pending |
 | WS-D1 | *Implementation decision.* The declaration is `project_dirs` on the agent pack's `skills` **destination** (`agent` + `into`), in the agent's own precedence order, read through one accessor (`Manifest.ProjectSkillDirs`). Entries must be clean, relative, inside the workspace and outside `.git`/`.yolo`, each once; the field is refused on any other kind and on a content entry. The in-jail decode tolerates it as it tolerates any newer field, so the strict-decoder trap the sketch warned of does not arise | 2026-09-27 | [§5](#5-the-pack-declares-what-its-agent-reads) | ✅ `bd79aed3` |
 | WS-D2 | *Implementation decision.* The source set is the **selected** packs' declarations in config order, then every **shipped** pack's by name, each path at its first appearance. The selected packs are read too so a configured agent pack yolo does not ship counts: its destination's skip rule already names its paths. This order is the collision rule (WS-D3) | 2026-09-27 | [OQ-WS3](#OQ-WS3) | ✅ `7df13e51` |
 | WS-D3 | *Implementation decision.* Two source dirs with a same-named skill: the **first** in WS-D2's order wins in every destination the mirror delivers to, the loser is never delivered, and one line names both. One real directory reached by two spellings (a committed link) is one skill, not a collision, and a source dir that is a link to another source is one source. *Amended by WS-D13:* a destination whose agent natively reads a losing copy is sent neither, and the line names it — this row first said the first wins "in every destination", which that agent made false | 2026-09-27 | [§4.1](#41-mechanism-a--the-staged-mirror) | ✅ `7df13e51`, `debb2d98` |
