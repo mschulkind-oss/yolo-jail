@@ -147,12 +147,14 @@ var hostUnimplemented = map[packdecl.Kind]string{
 		"to that process only",
 	// provider rides the same channel and so hits the same limit of the same COMMAND: its
 	// service facts compose into the providers table a launch carries into the derives.
-	// A host apply renders config files, and nothing in those files is a provider — an
-	// agent's provider catalog is derived at launch, from the table, not written here.
-	packdecl.KindProvider: "a shipped provider's facts feed the derives at LAUNCH, and " +
-		"`yolo host apply` only configures your tools — it never runs one, so there is no " +
-		"derive to feed. `yolo host -- <program>` (or a jail launch) composes the providers " +
-		"table instead",
+	// A host apply renders config files, and some of them carry provider facts in a jail
+	// (pi/models, codex/config's model_providers, …), but it composes no providers table, so
+	// it renders them without — the fact config-ref's host-notch `provider` row states
+	// (HC-D3, docs/design/host-computed-layer.md §7), and it changes with OQ-HC1.
+	packdecl.KindProvider: "a shipped provider's facts compose into the providers table a " +
+		"LAUNCH carries, and `yolo host apply` composes none, so the files that carry " +
+		"provider facts in a jail render without them here. `yolo host -- <program>` (or " +
+		"a jail launch) composes the providers table instead",
 	// adapter rides provider's channel and hits the same limit of the same COMMAND: the
 	// address it declares is composed INTO the providers table, so it reaches an agent the
 	// moment one is launched and never through a config file. Same sentence, same verb

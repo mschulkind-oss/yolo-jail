@@ -154,6 +154,9 @@ apply it, and the launch says that too. See
 - `yolo host apply` skipped every git pack, even an installed one.
 - `yolo host apply` listed a config file it was about to create as unchanged, and `--assert`
   counted it among the files already in sync.
+- `yolo config-ref` said no file `yolo host apply` writes holds provider settings. Five do, such
+  as pi's `models.json` and codex's `config.toml`, and host apply writes them without your
+  providers. It now says so and names them.
 - When `yolo host apply` would drop an MCP server you had added to an agent's own config, it
   told you to declare it under `mcp_servers`, which reaches jails and none of the files that
   command writes, so the server was dropped anyway. It now tells you to add a `config-overlay`

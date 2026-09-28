@@ -1396,9 +1396,14 @@
       profile       a profile is a NAMED SELECTION over a provider, made at launch (-p).
                     This command selects none, so it writes your packs' base surfaces
                     only.  Launch a jail with `-p <name>` to apply the variant.
-      provider      a shipped provider's facts feed the derives at LAUNCH.  A host apply
-                    renders config files and nothing in those files is a provider, so
-                    there is no derive to feed.
+      provider      a shipped provider's facts compose into the providers table a LAUNCH
+                    carries, and the derives render them from it into `pi/models`,
+                    `pi/codex-models`, `codex/config`, `opencode/config` and
+                    `oh-omp/models`.  `yolo host apply` composes no providers table, so
+                    those files get none of those facts at the host: no catalog row, and
+                    pi keeps its own openai-codex model list.  A wrapped launch,
+                    `yolo host -- <program>`, composes the table too, but only into that
+                    one process's environment, never into a file.
       adapter       an adapter's address is composed into the providers table a LAUNCH
                     carries, so it reaches an agent the moment one starts and never
                     through a config file.  This command starts none, so nothing is
