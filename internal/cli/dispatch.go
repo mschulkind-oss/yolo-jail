@@ -139,7 +139,7 @@ func routeArgv(args []string) (sub string, routed []string, implicit bool) {
 
 // hostNotchArgv reports whether a launch argv (it carries the "run" token) asks for the host
 // notch with `--at host`, and if so the `yolo host` argv that launch means: yolo's own tokens
-// with the run token and the `--at host` pair consumed, then `--` and the command. The launch
+// with the run token and every `--at` pair consumed, then `--` and the command. The launch
 // is read by parseRunArgs, the parser that runs it, so the notch and the command boundary are
 // the ones a jail launch of the same argv would have seen: `--at` is the last one typed, and
 // `yolo run --at host claude --resume` hands `claude --resume` to the host verb whole.
@@ -156,7 +156,10 @@ func hostNotchArgv(args []string) ([]string, bool) {
 	sawRun := false
 	for i := 0; i < parsed.boundary; i++ {
 		if f, ok := readAnyLaunchValueFlag(args, i); ok {
-			if f.name != "--at" || f.value != string(config.ConfinementHost) {
+			// EVERY `--at` is consumed, not only `--at host`: parseRunArgs already read the last
+			// one as the notch, so an earlier `--at jail` is overruled, as `--at host --at jail`
+			// is a jail launch. Carried over, the host verb refused the launch it was chosen for.
+			if f.name != "--at" {
 				out = append(out, args[i:f.last+1]...)
 			}
 			i = f.last

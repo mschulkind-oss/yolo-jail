@@ -187,6 +187,14 @@ func hostMain(args []string, out, errw io.Writer, color bool, stdin io.Reader) i
 		fmt.Fprintln(out, hostUsage)
 		return 0
 	}
+	// A LEADING FLAG WITH NO `--` IS AN EXEC FLAG, never a verb: no verb is spelled with a dash,
+	// and `yolo --at host -p zai` reaches here as [-p zai] exactly as `yolo host -p zai` does. So
+	// the exec half's parser judges it, and a missing value, a jail-only flag or a typo gets the
+	// refusal it gets before a `--` (exit 2) rather than `unknown verb "-p"` (exit 1). Help keeps
+	// the switch below.
+	if a := args[0]; len(a) > 1 && a[0] == '-' && a != "-h" && a != "--help" {
+		return hostExecWithoutCommand(args, out, errw)
+	}
 	switch args[0] {
 	case "apply":
 		return hostApply(args[1:], out, errw, color, stdin)
@@ -201,6 +209,25 @@ func hostMain(args []string, out, errw io.Writer, color bool, stdin io.Reader) i
 		fmt.Fprintf(errw, "yolo host: unknown verb %q\n\n%s\n", args[0], hostUsage)
 		return 1
 	}
+}
+
+// hostExecWithoutCommand is exec flags typed with no `--` and so no command: `yolo host -p zai`,
+// `yolo --at host --timing`. The flags are parsed as a `--` line's are, so each is refused as it
+// would be there; flags that parse are refused for naming nothing to run, since the host verb has
+// no default command (a jail's is its shell, and the host's shell is the one the user typed in).
+func hostExecWithoutCommand(flagArgs []string, out, errw io.Writer) int {
+	flags, ok := parseHostExecFlags(flagArgs, errw)
+	if flags.help {
+		fmt.Fprintln(out, hostUsage)
+		return 0
+	}
+	if !ok {
+		return 2
+	}
+	typed := strings.Join(flagArgs, " ")
+	fmt.Fprintf(errw, "yolo host: %s names no command to run: the command goes after `--`, as in "+
+		"`yolo host %s -- <command>`.\n", typed, typed)
+	return 2
 }
 
 // hostExecFlags is what the exec half accepts before `--`.

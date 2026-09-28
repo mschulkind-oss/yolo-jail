@@ -154,6 +154,8 @@ func TestFrontDoorRoutesEveryHostNotchSpelling(t *testing.T) {
 			"run --at jail -- claude"},
 		{"the last --at wins, as the launcher reads it", "--at host --at jail -- claude", "run",
 			"run --at host --at jail -- claude"},
+		{"the last --at wins in the other order too, every --at consumed", "--at jail --at host -- claude",
+			"host", "host -- claude"},
 		{"a dangling --at is not a host notch", "--at -- claude", "run", "run --at -- claude"},
 		{"--network host is a network mode, never the notch", "--network host -- bash", "run",
 			"run --network host -- bash"},

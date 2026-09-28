@@ -155,10 +155,13 @@ apply it, and the launch says that too. See
   does in a jail. A mistyped flag before `yolo host`'s `--` is named the way a jail launch names
   it.
 - `yolo --at host -- <command>` ran the command on your machine, but `yolo run --at host --
-  <command>` and a bare `yolo --at host` were refused as a jail launch, and `yolo host --at host
-  -- <command>` was refused too. Every spelling now runs it at the host, wherever `--at` sits. A
-  flag that only means something to a jail launch, such as `--timing`, is refused by `yolo host`
-  by name instead of as an unexpected argument.
+  <command>` was refused as a jail launch, and `yolo host --at host -- <command>` was refused
+  too. Every spelling now runs it at the host, wherever `--at` sits, and the last `--at` you type
+  wins. A bare `yolo --at host` prints `yolo host`'s usage instead of a refusal. A flag that only
+  means something to a jail launch, such as `--timing`, is refused by `yolo host` by name instead
+  of as an unexpected argument, and host flags typed with no `--` and no command
+  (`yolo host -p zai`, `yolo --at host --profile=`) are read as flags rather than as an unknown
+  verb.
 - `yolo host -- <command>` stopped a launch whose provider key was missing without saying it was
   refusing the launch. It now prints the refusal a jail launch prints, word for word.
 - Quitting a podman jail could hold your terminal for half a minute after a long session, while

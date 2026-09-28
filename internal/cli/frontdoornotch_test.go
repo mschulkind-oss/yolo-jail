@@ -48,6 +48,8 @@ func TestEveryAtHostSpellingLaunchesAtTheHost(t *testing.T) {
 		{"run", "--at", "host", "mytool", "x"},
 		{"host", "--at", "host", "--", "mytool", "x"},
 		{"host", "--at=host", "--", "mytool", "x"},
+		// The last --at wins, and the earlier one is not handed to the host to refuse.
+		{"--at", "jail", "--at", "host", "--", "mytool", "x"},
 	} {
 		rc, execed, errs := hostExecThroughMain(t, spelling...)
 		if rc != 0 || !slices.Equal(execed, []string{"mytool", "x"}) {
@@ -78,13 +80,26 @@ func TestHostVerbRefusesWhatItCannotHonorByName(t *testing.T) {
 		{[]string{"host", "--network=none", "--", "mytool"}, "--network is a jail-launch flag"},
 		{[]string{"host", "--accept-config-changes", "--", "mytool"},
 			"--accept-config-changes is a jail-launch flag"},
+		// WITH NO `--` the exec flags are still exec flags (notch-convergence.md items 9 and 10):
+		// these used to fall to hostMain's verb switch and exit 1 as `unknown verb "-p"`.
+		{[]string{"--at", "host", "--profile="}, "--profile needs a value"},
+		{[]string{"host", "--profile="}, "--profile needs a value"},
+		{[]string{"--at", "host", "-p"}, "-p needs a value"},
+		{[]string{"--at", "host", "--timing"}, "--timing is a jail-launch flag"},
+		{[]string{"host", "--timing"}, "--timing is a jail-launch flag"},
+		{[]string{"--at", "host", "--frob"}, `unknown flag "--frob"`},
+		{[]string{"--at", "host", "-p", "zai"}, "-p zai names no command to run"},
+		{[]string{"host", "--with-credentials", "all"}, "--with-credentials all names no command to run"},
 	} {
 		rc, execed, errs := hostExecThroughMain(t, tc.argv...)
 		if rc != 2 || execed != nil || !strings.Contains(errs, "yolo host: "+tc.want) {
 			t.Errorf("`yolo %s`: rc=%d exec=%q, want 2, no exec and %q\n%s",
 				strings.Join(tc.argv, " "), rc, execed, tc.want, errs)
 		}
-		if strings.Contains(errs, "unknown flag") {
+		if strings.Contains(errs, "unknown verb") {
+			t.Errorf("`yolo %s`: an exec flag is not a verb:\n%s", strings.Join(tc.argv, " "), errs)
+		}
+		if strings.Contains(errs, "unknown flag") && !strings.Contains(tc.want, "unknown flag") {
 			t.Errorf("`yolo %s`: a flag yolo defines is not an unknown one:\n%s", strings.Join(tc.argv, " "), errs)
 		}
 	}
@@ -103,5 +118,16 @@ func TestHostExecFlagsAnswerHelp(t *testing.T) {
 			t.Errorf("`yolo %s`: rc=%d, want 0 and the host usage\nstdout: %s\nstderr: %s",
 				strings.Join(argv, " "), rc, out, errs)
 		}
+	}
+}
+
+// THE LAST `--at` WINS IN BOTH ORDERS (NC-D20): `--at host --at jail` is a jail launch, never
+// the host exec, just as `--at jail --at host` is the host exec (TestEveryAtHostSpelling…).
+func TestLastAtWinsTowardTheJail(t *testing.T) {
+	valueFlagHome(t, "")
+	rc, execed, errs := hostExecThroughMain(t, "--at", "host", "--at", "jail", "--", "mytool", "x")
+	if execed != nil || rc == 0 || strings.Contains(errs, "yolo host:") {
+		t.Errorf("`yolo --at host --at jail -- mytool x`: rc=%d exec=%q, want the jail launcher, "+
+			"never the host\n%s", rc, execed, errs)
 	}
 }
