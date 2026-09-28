@@ -38,6 +38,10 @@ func stockOpts(t *testing.T, f *fakeRuntime, out *bytes.Buffer, identity string)
 		return identity, true
 	}
 	o.LookupEnv = func(string) (string, bool) { return "", false }
+	// Never the real `nix-store --check-validity`: every recorded path in this
+	// package's fixtures is a temp file, not a store path. Tests about validity
+	// override it.
+	o.StorePathValid = func(string) bool { return true }
 	return o
 }
 
@@ -82,8 +86,9 @@ func TestAStockImageInTheRuntimeSkipsTheBuild(t *testing.T) {
 		t.Errorf("ran %q, want the stock ref %q", res.Ref, stockRef)
 	}
 	if res.StorePath != "" {
-		t.Errorf("StorePath = %q; a launch that built nothing has no store path to "+
-			"name, and recordCurrentImage keys off exactly that emptiness", res.StorePath)
+		t.Errorf("StorePath = %q; this host recorded no store path for the image, so "+
+			"the launch has none to name, and recordCurrentImage keys off exactly that "+
+			"emptiness", res.StorePath)
 	}
 	if f.loads != 0 || len(f.copiedDests) != 0 {
 		t.Errorf("an already-present image was delivered again: %d loads, %d copies",

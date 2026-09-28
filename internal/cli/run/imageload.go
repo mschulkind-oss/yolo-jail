@@ -88,6 +88,11 @@ func (o *Options) autoLoadImage(cfg *jsonx.OrderedMap, rt, repoRoot string, sp s
 		// AutoLoadImage seam defaults to a no-op when left nil.
 		RegisterRoot:     o.rootImageFn(),
 		LockHousekeeping: o.lockHousekeepingFn(),
+		// The assembler's own predicate for mounting the host store, not a second
+		// reading of it: a jail that will resolve its /bin/* through the host
+		// store must not run a stock-tag match whose closure the store cannot be
+		// shown to hold (internal/image/stockimage.go).
+		JailReadsHostStore: o.hostNixMounted(rt),
 	})
 }
 

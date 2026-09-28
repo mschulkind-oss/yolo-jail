@@ -227,6 +227,22 @@ type AutoLoadOptions struct {
 	// a host whose nix does not are different behaviors, and the fall-back one
 	// is the one a wrong implementation would silently take forever.
 	EvalIdentity func(repoRoot string) (string, bool)
+	// StorePathValid reports whether a store path is VALID in the nix store —
+	// the proof a matched stock launch needs before it roots the path this host
+	// recorded for the image (stockimage.go). nil => `nix-store
+	// --check-validity`. false covers "cannot tell" too: an unproven path is
+	// never handed to RegisterRoot, whose `--realise` would otherwise try to
+	// substitute or build it.
+	StorePathValid func(storePath string) bool
+	// JailReadsHostStore says whether the jail this image is for will have the
+	// HOST's /nix/store bind-mounted over the image's own (the run path's
+	// hostNixMounted, internal/cli/run/hostprobes.go). When it will, a jail's
+	// /bin/* resolve through the host store, so an image whose closure the host
+	// store cannot be shown to hold is BUILT rather than run on a stock-tag match;
+	// when it will not, the jail runs on the image's own copy and the match
+	// stands. false (the zero value) is the second: the old behavior, for every
+	// caller that does not know.
+	JailReadsHostStore bool
 	// copier is the skopeo path BuildCopier resolved, cached for the duration of
 	// one AutoLoadImage call. It is not a seam: the seam is BuildCopier, and this
 	// is the one place its answer is remembered so the delivery does not build
@@ -360,6 +376,9 @@ func (o *AutoLoadOptions) fill() {
 	if o.EvalIdentity == nil {
 		o.EvalIdentity = EvalImageIdentity
 	}
+	if o.StorePathValid == nil {
+		o.StorePathValid = nixStorePathValid
+	}
 }
 
 // staleImageAllowed reports whether the operator has EXPLICITLY consented to
@@ -454,13 +473,43 @@ func AutoLoadImage(opts AutoLoadOptions) LoadResult {
 	// needs one when the image it wants is genuinely absent.
 	identity := o.stockIdentity()
 	if ref := o.stockImageLoaded(identity); ref != "" {
-		// A DISCLOSURE, not progress: this is the launch saying which image it is
-		// about to run and on what evidence, and the launch stream has no quiet
-		// mode (docs/reference/report-tiers.md, OQ-RO3).
-		fmt.Fprintln(o.reportWriter(out), "Image build skipped: "+ref+" already carries "+
-			"this source tree's identity ("+identity+").")
-		_ = os.Remove(outLink)
-		return LoadResult{OK: true, Ref: ref}
+		// THE MATCH ROOTS WHAT IT RUNS (stockimage.go, "what a match does not
+		// prove"). Until 2026-09-28 this returned with no store path, so a
+		// normally-launched jail registered no GC root and `yolo prune --nix-gc`
+		// could not map its `stock-<hex>` ref to one.
+		storePath, why := o.stockStorePath(identity)
+		// Every line here is a DISCLOSURE, not progress: the launch saying which
+		// image it is about to run and on what evidence, and the launch stream
+		// has no quiet mode (docs/reference/report-tiers.md, OQ-RO3).
+		switch {
+		case storePath != "":
+			fmt.Fprintln(o.reportWriter(out), "Image build skipped: "+ref+" already carries "+
+				"this source tree's identity ("+identity+").")
+			// The same two records every built launch leaves, for the same
+			// reasons (see the tail of this function): the sentinel is
+			// "recently used", and the root is what keeps a store GC off the
+			// closure this jail is about to execute from.
+			_ = AddLoadedPath(sentinel, storePath)
+			o.RegisterRoot(storePath)
+			_ = os.Remove(outLink)
+			return LoadResult{OK: true, Ref: ref, StorePath: storePath}
+		case o.JailReadsHostStore:
+			// A jail started now would resolve its /bin/* through a host store
+			// that cannot be shown to hold them. Building puts the closure back
+			// and roots it, and the tail of this function records the store path
+			// so the next match can root it without building.
+			fmt.Fprintln(o.reportWriter(out), "Image build not skipped: "+ref+" carries this "+
+				"source tree's identity, but "+why+". This jail reads its tools from the "+
+				"host's /nix/store, so the image is built to restore and root its closure.")
+		default:
+			fmt.Fprintln(o.reportWriter(out), "Image build skipped: "+ref+" already carries "+
+				"this source tree's identity ("+identity+").")
+			fmt.Fprintln(o.reportWriter(out), "  No GC root registered for it: "+why+
+				". This jail runs on the image's own copy of its store, so it is unaffected; "+
+				"`yolo prune` declines to reap image roots while it runs.")
+			_ = os.Remove(outLink)
+			return LoadResult{OK: true, Ref: ref}
+		}
 	}
 
 	var currentPath string
@@ -653,8 +702,9 @@ func AutoLoadImage(opts AutoLoadOptions) LoadResult {
 	// retention lost it to OQ-LS3
 	// (docs/reference/image-retention.md#why-its-this-way).
 	//
-	// It is also not written by every success any more: a launch that matched the
-	// stock tag above built nothing and has no path to append (stockimage.go).
+	// A launch that matched the stock tag above appends the store path this host
+	// recorded for that image; one with no valid record appends nothing, having no
+	// path to name (stockimage.go).
 	contentRef := JailImageRef(o.Runtime, currentPath)
 	// SERIALISED AGAINST THE REAPER (disk-levers-and-backfill.md OQ-BF5). The
 	// window this closes is narrow and real: this launch inspects, decides the
@@ -908,13 +958,21 @@ func AutoLoadImage(opts AutoLoadOptions) LoadResult {
 		// launch that skipped the copy is the cheapest possible place to fix that.
 		if o.Runtime != "container" {
 			o.pointLatestAt(contentRef)
-			// The SECOND name, and the one that lets the next launch skip the
-			// build entirely. identity is non-empty only when this launch's
-			// inputs were the stock ones (stockimage.go, stockIdentity), so a
-			// lean or extra-packages image can never acquire a stock tag.
-			o.tagStockImage(contentRef, identity)
 		}
 		fmt.Fprintln(out, "Done: loaded image")
+	}
+
+	// The SECOND name, and the one that lets the next launch skip the build
+	// entirely — together with the record of which store path it names, which is
+	// what lets that launch root the image instead of running it unrooted.
+	// identity is non-empty only when this launch's inputs were the stock ones
+	// (stockimage.go, stockIdentity), so a lean or extra-packages image can never
+	// acquire a stock tag. Outside the load branch on purpose: an image already
+	// present under its content ref gets the tag and the record too, which is how
+	// an image tagged before the record existed heals on the launch that finds it
+	// unrecorded. Apple Container has no tag argv (tagStockImage).
+	if identity != "" && o.Runtime != "container" {
+		o.tagStockImage(contentRef, currentPath, identity)
 	}
 
 	// Record this store path as the runtime's most-recently-USED image, on EVERY

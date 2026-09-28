@@ -3,9 +3,13 @@ package image
 import (
 	"context"
 	"io"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
 // stockimage.go is the answer to "must this launch build an image at all?".
@@ -69,18 +73,36 @@ import (
 // of its own checkout. A CI job that loaded an image from a different commit
 // would tag it with THAT commit's identity and the launch would not match it.
 //
-// # WHAT A MATCH DOES NOT PROVE, AND WHY THAT IS ENOUGH
+// # WHAT A MATCH DOES NOT PROVE, AND WHAT THE LAUNCH DOES ABOUT IT
 //
-// It does not prove the store holds the image's closure, so a matched launch
-// registers no GC root and appends no load-sentinel entry: it has no store path
-// to name (LoadResult.StorePath stays empty, exactly as on the degraded
-// branches). Both of those are CACHE bookkeeping — a lost root costs a rebuild,
-// never a running container, which is the one thing the sentinel may be cited for
-// (docs/reference/image-retention.md#the-load-sentinel-and-what-it-may-be-cited-for:
-// "recency answering a cache question") — and the workspace's current-image pointer, which
-// is retention EVIDENCE, keeps naming the store path the launch that first
-// loaded this image recorded, because an unchanged identity means an unchanged
-// store path on that host.
+// A tag match proves the RUNTIME holds the image. It does not prove the nix
+// STORE still holds the image's closure, and on podman/Linux that closure is what
+// a running jail executes: the host /nix/store is bind-mounted read-only over the
+// image's own (internal/cli/run/assemble.go), so every /bin/* resolves through
+// it. Until 2026-09-28 a matched launch registered no GC root and recorded no
+// store path, on the reasoning that it had no store path to name — which made
+// every normally-launched jail's closure invisible to `yolo prune --nix-gc`
+// (it could not map `stock-<hex>` to a root, so it refused while any such jail
+// ran) and left the root to age out under a jail still using it.
+//
+// So the load that WRITES the stock tag also records which store path it tagged
+// (RecordStockStorePath, BUILD_DIR/stock-images/<hex>), and a matched launch
+// reads that record back (stockStorePath). An unchanged identity means an
+// unchanged store path on the host that built it, so the record is exactly the
+// store path the match is about. With a record whose path is still valid in the
+// store, the matched launch does what every built launch does: roots the path,
+// appends it to the load sentinel and returns it as LoadResult.StorePath (so the
+// workspace's current-image pointer names it too).
+//
+// Without one — an image tagged by a yolo older than the record, one tagged by
+// the macOS nightly from an archive, or a recorded path a store GC has since
+// deleted — the launch says so, and what it does next depends on whether the
+// jail will read the host store (AutoLoadOptions.JailReadsHostStore): if it
+// will, the image is BUILT, because a jail started now would run with its tools
+// missing; if it will not, the jail runs on its own copy of the store and loses
+// nothing, so it starts and the missing root is disclosed. Never `nix-store
+// --add-root` a path that is not valid: `--realise` would try to substitute or
+// build it, which is the build this short-circuit exists to skip, disguised.
 
 // StockImageTagPrefix is the tag namespace for a stock image. The rest of the
 // tag is the identity's hex digest, verbatim — no second hash, so the shell in
@@ -129,6 +151,87 @@ func StockImageRef(runtime, identity string) string {
 	}
 	return JailImageRepository(runtime) + ":" + StockImageTagPrefix +
 		strings.TrimPrefix(id, identityAlgoPrefix)
+}
+
+// stockStorePathsDirName is BUILD_DIR's directory of stock-image records: one
+// file per identity, named by the identity's 64-char hex digest (the same string
+// the stock tag carries after StockImageTagPrefix), holding the store path the
+// load that wrote that tag built the image from.
+//
+// It is how a `stock-<hex>` ref — the one a matched launch runs, and so the one
+// `podman ps` reports — maps to its GC root: the root is keyed by
+// ImageStoreKey(storePath), and the tag carries the identity, not the store
+// path, so the mapping has to be written down by the one party that knows both.
+const stockStorePathsDirName = "stock-images"
+
+// StockStorePathsDir is that directory under an explicit build dir.
+func StockStorePathsDir(buildDir string) string {
+	return filepath.Join(buildDir, stockStorePathsDirName)
+}
+
+// StockTagHex returns the identity digest a stock TAG (the part of a ref after
+// the colon) names, or ok=false when tag is not a stock tag.
+func StockTagHex(tag string) (string, bool) {
+	hex, ok := strings.CutPrefix(tag, StockImageTagPrefix)
+	if !ok {
+		return "", false
+	}
+	if _, valid := ParseImageIdentity(identityAlgoPrefix + hex); !valid {
+		return "", false
+	}
+	return hex, true
+}
+
+// RecordStockStorePath records that the stock image of `identity` was built, on
+// this host, from storePath. Replacing is the whole mechanism: one identity names
+// one store path per host, and a later load of the same identity writes the same
+// value. Written through a temp file and a rename, so a reader never sees half a
+// path.
+func RecordStockStorePath(buildDir, identity, storePath string) error {
+	id, ok := ParseImageIdentity(identity)
+	if !ok || !filepath.IsAbs(storePath) {
+		return nil // nothing a reader could use; not worth a name
+	}
+	dir := StockStorePathsDir(buildDir)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	tmp, err := os.CreateTemp(dir, ".record-*")
+	if err != nil {
+		return err
+	}
+	if _, err := tmp.WriteString(storePath + "\n"); err != nil {
+		_ = tmp.Close()
+		_ = os.Remove(tmp.Name())
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		_ = os.Remove(tmp.Name())
+		return err
+	}
+	dest := filepath.Join(dir, strings.TrimPrefix(id, identityAlgoPrefix))
+	if err := os.Rename(tmp.Name(), dest); err != nil {
+		_ = os.Remove(tmp.Name())
+		return err
+	}
+	return nil
+}
+
+// RecordedStockStorePath reads the store path recorded for the identity digest
+// hex (StockTagHex's answer), or ok=false when there is no usable record.
+func RecordedStockStorePath(buildDir, hex string) (string, bool) {
+	if _, valid := ParseImageIdentity(identityAlgoPrefix + hex); !valid {
+		return "", false
+	}
+	data, err := os.ReadFile(filepath.Join(StockStorePathsDir(buildDir), hex))
+	if err != nil {
+		return "", false
+	}
+	p := strings.TrimSpace(string(data))
+	if !filepath.IsAbs(p) {
+		return "", false
+	}
+	return p, true
 }
 
 // imageIdentityEvalTimeout bounds the eval. The build it replaces had no
@@ -228,20 +331,28 @@ func (o *AutoLoadOptions) stockImageLoaded(identity string) string {
 	return ref
 }
 
-// tagStockImage gives an image this launch just delivered its stock name, so the
-// NEXT launch of an unchanged flake can skip the build.
+// tagStockImage gives the image this launch is about to run its stock name, so
+// the NEXT launch of an unchanged flake can skip the build, and records which
+// store path that name now stands for (RecordStockStorePath), so the next
+// launch can root it and `yolo prune` can map the name to its root.
 //
-// Best effort and non-fatal, exactly like pointLatestAt beside it: the ref this
-// launch runs was decided by the load. A failure costs one future build.
+// It runs whether this launch delivered the image or found it already present
+// under its content ref: the second case is the self-heal for an image tagged
+// before the record existed, which a matched launch sends here rather than
+// running it unrooted (stockimage.go, the section on what a match does not
+// prove).
+//
+// Best effort and non-fatal, exactly like pointLatestAt: the ref this launch
+// runs was decided by the load. A failure costs one future build. The record is
+// written only once the tag is — a record with no tag is never read, and one
+// written for a tag that failed would claim a name nothing answers to.
 //
 // Apple Container is skipped for the reason ImageTagCmd states — there is no
 // `container image tag` argv this repo can verify — so that backend keeps
 // building every launch, as it does today. It is skipped TWICE: the caller
-// declines to call this at all for that runtime, in the same
-// `o.Runtime != "container"` branch that skips pointLatestAt beside it — that
-// branch is pointLatestAt's ONLY guard, it carries none of its own — and the
-// guard below repeats the decision so a second caller cannot lose it.
-func (o *AutoLoadOptions) tagStockImage(contentRef, identity string) {
+// declines to call this at all for that runtime, and the guard below repeats the
+// decision so a second caller cannot lose it.
+func (o *AutoLoadOptions) tagStockImage(contentRef, storePath, identity string) {
 	if o.Runtime == "container" {
 		return
 	}
@@ -250,6 +361,11 @@ func (o *AutoLoadOptions) tagStockImage(contentRef, identity string) {
 		return
 	}
 	if rc, ran := o.Run(ImageTagCmd(o.Runtime, contentRef, ref)); ran && rc == 0 {
+		if err := RecordStockStorePath(paths.BuildDir(), identity, storePath); err != nil && o.Out != nil {
+			_, _ = o.Out.Write([]byte("Warning: could not record which store path " + ref +
+				" was built from (" + err.Error() + ") — this launch is unaffected; the next " +
+				"one cannot root the image without rebuilding it.\n"))
+		}
 		return
 	}
 	// Said out loud rather than swallowed: the cost lands on a LATER launch, so
@@ -259,6 +375,40 @@ func (o *AutoLoadOptions) tagStockImage(contentRef, identity string) {
 			" — this launch is unaffected; the next one will rebuild the image " +
 			"instead of finding it.\n"))
 	}
+}
+
+// stockStorePath is the store path a matched stock image was built from ON THIS
+// HOST, proven still valid in the nix store — or "" and the reason, in the
+// user's words, that it could not be.
+func (o *AutoLoadOptions) stockStorePath(identity string) (string, string) {
+	id, ok := ParseImageIdentity(identity)
+	if !ok {
+		return "", "its identity is malformed"
+	}
+	p, ok := RecordedStockStorePath(paths.BuildDir(), strings.TrimPrefix(id, identityAlgoPrefix))
+	if !ok {
+		return "", "this host has no record of the store path it was built from " +
+			"(it was tagged by an older yolo, or loaded here rather than built)"
+	}
+	if !o.StorePathValid(p) {
+		return "", "the store path this host recorded for it, " + p +
+			", is no longer valid in the nix store"
+	}
+	return p, ""
+}
+
+// storePathValidTimeout bounds the validity probe, which sits on every matched
+// launch. A wedged nix answers "not proven", which costs a build or a
+// disclosed missing root — never a launch.
+const storePathValidTimeout = 30 * time.Second
+
+// nixStorePathValid is the real StorePathValid: `nix-store --check-validity`,
+// which asks the store's database rather than the filesystem, so a path that is
+// half-deleted or was never registered reads as absent. It realises nothing.
+func nixStorePathValid(storePath string) bool {
+	ctx, cancel := context.WithTimeout(context.Background(), storePathValidTimeout)
+	defer cancel()
+	return exec.CommandContext(ctx, "nix-store", "--check-validity", storePath).Run() == nil
 }
 
 // reportWriter is where a launch-stream DISCLOSURE goes: Report when the caller

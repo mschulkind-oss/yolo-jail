@@ -51,3 +51,28 @@ func TestTheRunPathSendsImageDisclosuresToStderr(t *testing.T) {
 			"status lines on the COLD paths are expected there", got.Out, o.Stdout)
 	}
 }
+
+// TestTheRunPathTellsTheImageLoadWhetherTheJailReadsTheHostStore pins the one
+// input that decides what an unrecorded stock-tag match does
+// (internal/image/stockimage.go): a jail that will resolve its /bin/* through the
+// host /nix/store must build rather than run an image whose closure that store
+// cannot be shown to hold. The value must be the assembler's own mount
+// predicate, so both directions are asserted.
+func TestTheRunPathTellsTheImageLoadWhetherTheJailReadsTheHostStore(t *testing.T) {
+	for _, mounted := range []bool{false, true} {
+		var got image.AutoLoadOptions
+		o := goldenOptions(t.TempDir(), t.TempDir())
+		o.PathExists = func(p string) bool {
+			return mounted && (p == hostNixSocket || p == hostNixStore)
+		}
+		o.autoLoad = func(opts image.AutoLoadOptions) image.LoadResult {
+			got = opts
+			return image.LoadResult{OK: true}
+		}
+		o.autoLoadImage(jsonx.NewOrderedMap(), "podman", t.TempDir(), storePackagesPlan{})
+		if want := o.hostNixMounted("podman"); got.JailReadsHostStore != want || want != mounted {
+			t.Errorf("host store mounted=%v: JailReadsHostStore=%v, hostNixMounted=%v", mounted,
+				got.JailReadsHostStore, want)
+		}
+	}
+}

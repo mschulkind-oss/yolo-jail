@@ -226,6 +226,7 @@ func TestOptInLaunchBuildsTheStockImage(t *testing.T) {
 			Stdout:      os.Stdout,
 			Stderr:      os.Stderr,
 			Getenv:      func(string) string { return "" },
+			PathExists:  func(string) bool { return false },
 			IsTTYStdout: func() bool { return false },
 			Getpid:      os.Getpid,
 			autoLoad: func(opts image.AutoLoadOptions) image.LoadResult {
@@ -267,6 +268,7 @@ func TestOptInLaunchBuildsTheLeanImage(t *testing.T) {
 			Stdout:      os.Stdout,
 			Stderr:      os.Stderr,
 			Getenv:      func(string) string { return "" },
+			PathExists:  func(string) bool { return false },
 			IsTTYStdout: func() bool { return false },
 			Getpid:      os.Getpid,
 			autoLoad: func(opts image.AutoLoadOptions) image.LoadResult {
