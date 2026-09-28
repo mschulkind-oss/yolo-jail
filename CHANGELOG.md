@@ -45,7 +45,23 @@ or an adapter mapping yolo's tiers onto an extension's own, finds your top model
 three it is a convention, never a requirement: when a pack asks for one your provider does not
 name, the launch prints a warning naming the provider and the alias, and starts anyway.
 
+**`host_files` entries with inline content now reach your host config too.** An entry in your
+user config that gives its file's `content`, `defaults` or `managed` keys, rather than a
+`source`, is written into your own home by `yolo host apply`, under your `host_management`
+setting, as it is written into every jail. Keys you added to that file yourself stay. Remove the
+entry and the next apply takes back only the keys it wrote, naming each one, and
+`yolo host apply --revert` takes them back too. An entry with a `source` copies a file of yours
+into a jail, so at the host it does nothing, and the report says so, as it does for
+`mise_tools`.
+
 ### Changed
+
+**A jail that shares your host's network now says so, at launch and in its briefing.** With
+`network.mode: "host"`, in a jail started from inside another jail, and in every macos-user
+jail, services listening on your machine's loopback are reachable from inside the jail. The
+launch prints one line saying so and that the agent still runs without permission prompts,
+because what confines it is the filesystem boundary, and the agent's briefing states the same
+fact. Nothing about the jail's permissions changes.
 
 **pi's subagents now start on your profile's default model and stay on your provider, for
 every provider.** Before, only the `codex` profile set this. On any other profile a child agent
