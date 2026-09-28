@@ -617,7 +617,12 @@ line=$(tr -d ' \t' < "$f")
 line="${line#*\"version\":\"}"
 printf '%s\n' "${line%%\"*}"
 `
-	for name, body := range map[string]string{"npm": npm, "go": goFake, "jq": jq} {
+	// fc-cache: the bootstrap's font-cache step (shell.go) runs whatever `fc-cache` PATH
+	// finds, and the real one in /bin rebuilds the machine's font cache — about two seconds
+	// a run, for a step no test here asserts on. The fake does not log: toolLog means
+	// "npm or go ran", and fc-cache running is not an install.
+	fcCache := "#!/bin/sh\nexit 0\n"
+	for name, body := range map[string]string{"npm": npm, "go": goFake, "jq": jq, "fc-cache": fcCache} {
 		if err := os.WriteFile(filepath.Join(fakeBin, name), []byte(body), 0o755); err != nil {
 			t.Fatal(err)
 		}
