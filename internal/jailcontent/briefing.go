@@ -134,6 +134,15 @@ type BriefingInput struct {
 	// pointer once this briefing has been WRITTEN, so it appears on exactly one launch and
 	// a launch that carries it nowhere leaves it fresh.
 	Handoff string
+
+	// HostNix is true when the launch mounted the host's nix daemon socket and store, so
+	// `nix` here runs with NIX_REMOTE=daemon. It is the SAME predicate that emits those
+	// mounts (run.hostNixMounted), so the line it gates appears exactly where the hazard
+	// it states exists: every root the jail asks for is recorded under the jail's spelling
+	// of the out-link, which the host daemon resolves on the HOST filesystem and deletes
+	// as stale (docs/design/in-jail-nix-roots.md §2). macos-user shares the host's
+	// filesystem, so its roots are real and it never sets this.
+	HostNix bool
 }
 
 // BriefingContent renders the jail-managed briefing body (before any host-level
@@ -565,6 +574,14 @@ func BriefingContent(in BriefingInput) string {
 	lines = append(lines, forwardedPorts...)
 	lines = append(lines, resourceLine...)
 	lines = append(lines, ioPriorityLine...)
+	if in.HostNix {
+		lines = append(lines,
+			"- **Nix** uses the host's daemon and store (`NIX_REMOTE=daemon`). A `result`",
+			"  link, `--out-link`, `nix profile` or `.direnv` root made here is NOT a GC root",
+			"  the host honors, so a host garbage collection can delete its target between",
+			"  commands (a running process keeps what it uses). If a link dangles, rebuild it.",
+		)
+	}
 	lines = append(lines,
 		"",
 		"⚠ rg is recursive by default — never pass grep-style `-r`/`-rn` flags",

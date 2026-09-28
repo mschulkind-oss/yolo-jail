@@ -194,6 +194,12 @@ func (o *Options) refreshJailBriefings(cname string, cfg *jsonx.OrderedMap, rt s
 		// precondition did not execute.
 		BackendLimits: backendLimits(rt, staged.packs, cfg),
 		Handoff:       handoff,
+		// The predicate that emits the nix daemon + store mounts (assemble.go, a
+		// container-only path), so the briefing's "your nix links are not GC roots" line
+		// appears exactly where the jail's nix reaches the host daemon from another mount
+		// namespace (docs/design/in-jail-nix-roots.md). A native backend mounts nothing and
+		// shares the host's paths, so its roots are real whatever the predicate says.
+		HostNix: !slices.Contains(paths.NativeRuntimes, rt) && o.hostNixMounted(rt),
 	}
 	briefingBody := jailcontent.BriefingContent(in)
 	briefingBody = jailcontent.ComposeBriefing(briefingBody, cfgStr(cfg, "agents_md_extra"))

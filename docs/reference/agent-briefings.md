@@ -183,6 +183,12 @@ asked for. This is one rule with several call sites, and each was a real defect:
   `Honored` has no backend term, so on a backend that starts no host services the unfiltered
   list advertises daemons that do not exist. An agent reading a false capability list does
   not merely lack a feature — it plans around one it does not have.
+- **Nix** gets a line only where the launch mounts the host's nix daemon and store, decided by
+  the predicate that emits those mounts. There, every GC root the jail asks for is recorded
+  under the jail's spelling of the link, which the host daemon cannot resolve and deletes as
+  stale, so the agent is told its `result` links and profiles are not roots
+  ([`in-jail-nix-roots.md`](../design/in-jail-nix-roots.md)). `macos-user` shares the host's
+  paths, so its roots are real and it never gets the line.
 
 > [!WARNING]
 > **No host probe belongs in the composer.** The fuller truth about networking is one
