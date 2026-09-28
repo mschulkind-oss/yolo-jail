@@ -23,6 +23,8 @@ and a launch refuses an agent that cannot speak its provider's protocol.
 host `aws sso login` into a short-lived credential for a role you name. The jail holds no key and
 no `~/.aws`. Enable `loopholes.aws-auth` in your user config with a `profile` and `role_arn`, as
 [the pack's README](packs/aws-auth/README.md) shows, then run `yolo -p bedrock -- claude`.
+Changing those settings takes effect at your next launch, which restarts the shared service and
+says so, and `yolo check` tells you when the running service still has the old ones.
 
 **An agent footer.** Every agent with a status-line hook shows its billing route and whether it
 runs in a jail or on the host, unless you set your own `statusLine`. Claude's also shows its

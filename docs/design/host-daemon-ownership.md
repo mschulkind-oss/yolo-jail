@@ -26,9 +26,10 @@ taken for the ruling are dated 2026-09-20 and marked.
 > launch. Sections headed **Today** describe the built tree and stay true until somebody
 > builds this. Sections headed **Under the ruling** are a decision with no implementation
 > plan behind it. If you are here to find out what your machine does right now, read only
-> the **Today** halves. One fix this doc records IS built and is not the ruling: the
+> the **Today** halves. Two fixes this doc records ARE built and are not the ruling: the
 > macos-user teardown defect [OQ-HD10](#OQ-HD10)'s second run measured
-> ([`HD-D1`](#HD-D1)).
+> ([`HD-D1`](#HD-D1)), and the restart of a singleton whose settings changed since it
+> started ([`HD-D2`](#HD-D2), [mode 7](#mode-7-it-runs-settings-the-config-no-longer-says)).
 
 > **In short.** The scope rests on a premise that is false in the code. `ScopeHost`'s own
 > doc comment says the Claude OAuth broker "holds the flock that stops two jails burning
@@ -534,7 +535,8 @@ process.
 
 | Actor | Can start | Can stop | Which daemons | Notes |
 | :--- | :---: | :---: | :--- | :--- |
-| A launch, per host-scoped loophole (`startHostSingleton`) | yes | no | all enabled host-scoped ones | Enters the ensure unconditionally; the lock owns the concurrency |
+| A launch, per host-scoped loophole (`startHostSingleton`) | yes | yes, when its settings changed | all enabled host-scoped ones | Enters the ensure unconditionally; the lock owns the concurrency. Inside it, a live daemon whose recorded settings differ from its settings file is restarted ([`HD-D2`](#HD-D2)) |
+| An attach to a running jail | no | no | enabled host-scoped ones handed settings | Reports a running daemon's changed settings keys and restarts nothing: an attach runs above the config-change approval ([`HD-D2`](#HD-D2)) |
 | A launch, before the argv is built (`brokerEnsure`) | yes | no | Claude broker only | Runs early because the argv's endpoint promise depends on the socket existing |
 | `yolo host-daemon restart <name>` | yes | yes | any host-scoped one it can spawn | [§5.1](#51-the-management-surface-one-verb-over-the-host-scoped-set); refuses BEFORE the kill when it has no argv |
 | `yolo host-daemon stop <name>` | no | yes | any, declared or not | Needs only the name — every rendezvous path is derived from it. Next launch respawns a declared one |
@@ -545,7 +547,7 @@ process.
 | A jail ending (`stopLoopholes`) | no | **no** | — | Closes this jail's front; sweeps by jail hash, which cannot match a singleton's path |
 | `yolo stop` | no | no | — | `rt inspect` then `rt stop <container>`; touches no host process |
 | `yolo prune` | no | no | — | Its only `/tmp` sweep globs `yolo-broker-relay-*.pid`, a retired artifact |
-| `yolo check` | no | no | reports on the Claude broker only | PID liveness + connect probe, against path literals of its own |
+| `yolo check` | no | no | liveness: the Claude broker only. Settings: every running host-scoped one handed settings | PID liveness + connect probe, against path literals of its own; a [WARN] naming the settings keys a running daemon differs from config on ([`HD-D2`](#HD-D2)) |
 | `yolo loopholes status` | no | no | runs every loophole's `doctor_cmd` | Each is a fresh short-lived `--self-check` process reading state files; none touches the running daemon |
 | A host reboot | no | yes, incidentally | all | Clears `/tmp`; the liveness conjunction would have handled it anyway |
 | The in-jail `/proc` reclaimer | no | yes | **jail daemons only, never host** | [§7](#7-the-jail-side-has-a-supervisor-and-the-ruling-borrows-its-lifetime-but-not-its-owner) |
@@ -673,7 +675,8 @@ is built: each macos-user session publishes into a dir of its own ([`HD-D1`](#HD
 
 ## 6. The failure modes
 
-The five modes the maintainer named, plus the one the ruling creates. **"Today" is the
+The five modes the maintainer named, the one the ruling creates, and one hit since
+([mode 7](#mode-7-it-runs-settings-the-config-no-longer-says)). **"Today" is the
 built tree.**
 
 | # | Mode | Today | Under the ruling |
@@ -684,6 +687,7 @@ built tree.**
 | 4 | Two yolo versions on one host | The older daemon keeps serving; the newer yolo warns and continues | **DISSOLVES for processes**, survives as a state-format question: two builds' daemons still share one credentials file and one flock |
 | 5 | A daemon nobody is using | Runs forever | **DISSOLVES.** Nothing outlives its jail except a bounded straggler |
 | 6 | **NEW —** a detached straggler | not representable | A mid-flight refresh outliving its jail, bounded by the thirty-second upstream deadline, completing a write the next jail wants ([§1.3](#13-the-disposition-detach-do-not-drain-do-not-reap)) |
+| 7 | A daemon runs settings the config no longer says | Restarted by the next fresh launch, with one line naming the changed keys ([`HD-D2`](#HD-D2)) | **DISSOLVES.** Each jail's daemon is spawned with that launch's settings |
 
 ### Mode 1: it dies mid-session
 
@@ -790,6 +794,23 @@ than an orphan:
   refresh; a wedged singleton blocks every jail on the machine, permanently, and is owned by
   nobody. Per-jail does not make the class more likely — it makes each instance smaller and
   attributable.
+
+### Mode 7: it runs settings the config no longer says
+
+Hit by the maintainer on 2026-09-28. They corrected `loopholes.aws-auth.settings.profile`
+(`hssandbox-admin` to `hssandbox-Admin`) and relaunched, and every credential mint still
+failed with `ProfileNotFound: the AWS profile hssandbox-admin`. The launch had rewritten the
+settings file and then reused the running daemon, which reads that file once, at startup.
+Only `yolo host-daemon restart aws-auth` fixed it. In the maintainer's words: *"shouldn't
+this be automatically reloading its config somehow? this isn't a great design"*.
+
+**Today** the ensure restarts such a daemon. The spawn records what it was handed, and the
+next launch compares that record with the file it just wrote ([`HD-D2`](#HD-D2)).
+
+**Under the ruling this is not representable.** A per-jail daemon starts with its own
+launch's settings and ends with its jail, so no daemon outlives the config that started it.
+[`HD-D2`](#HD-D2) is the near-term fix for the singleton only, and [`HD-R1`](#HD-R1) retires
+it with the singleton.
 
 ---
 
@@ -1351,3 +1372,4 @@ where the ruling went past them — that record is the point.
 | <a id="HD-R1"></a>[`HD-R1`](#11-decision-ledger) | **NO SINGLETON — retire `host_daemon.scope: "host"`.** A host-side daemon is spawned by the launch that wants it and ends with that jail. The scope's stated justification is false in the code: each host-scoped daemon serializes on a flock keyed by a path (`oauthbroker.RefreshLockPath` under `BrokerDir()`, openai's `refresh.lock` beside its state file, `awsauth.LockFileName`), so N copies in one home take the same kernel lock — and `DoRefresh` re-reads the creds inside the lock and returns a cache hit. The credential-boundary story is false too: the shared creds file is bind-mounted `rw` and writable from in-jail, and the only thing keeping the jail off the real endpoint is an `/etc/hosts` name pin. What genuinely forces host-side is **lifetime** and that pin, and neither requires exactly one. Disposition: **detach, do not drain** (a mid-flight refresh finishes in the background after the jail is gone — its write is wanted), **do not reap** (a straggler is bounded by the thirty-second upstream deadline). Dissolves [OQ-HD1](#OQ-HD1), [OQ-HD3](#OQ-HD3), [OQ-HD6](#OQ-HD6), [OQ-HD7](#OQ-HD7) and most of [OQ-HD8](#OQ-HD8); leaves [OQ-HD4](#OQ-HD4) and [OQ-HD5](#OQ-HD5) live, and creates [OQ-HD9](#OQ-HD9) and [OQ-HD10](#OQ-HD10). ⚠ **Does NOT answer** the macos-user spawn-serialization objection — that is [OQ-HD10](#OQ-HD10), carried live rather than absorbed | 2026-09-20 | [§1](#1-the-ruling) | ❌ **not built** |
 | <a id="OQ-HD2"></a>[`OQ-HD2`](#11-decision-ledger) | **Generalize the management surface.** One verb — `yolo host-daemon {status,stop,restart,logs} [<name>]` — over the host-scoped set, derived from the `scope: "host"` declarations joined with the rendezvous files on disk, never from a list. `broker` is retained as an alias for `host-daemon <verb> claude-oauth-broker`, resolved from the broker's own constants so it survives an empty discovery. A bare invocation means the SET for `status` and is refused for the three verbs that act. Every message, including every failure path, names its daemon — which is what fixes the incompatible-daemon warning at its source. Deliberately not the endpoint-emission question ([§9](#9-what-this-doc-does-not-cover)). ⚠ **Reworked, not deleted, by [`HD-R1`](#HD-R1)**: it manages the singleton the ruling retires — see [§5.2](#52-what-the-ruling-deletes-from-that-table) | 2026-09-20 | [§5.1](#51-the-management-surface-one-verb-over-the-host-scoped-set) | ✅ |
 | <a id="HD-D1"></a>[`HD-D1`](#11-decision-ledger) | *Implementation decision.* **One host-services dir per macos-user SESSION** (one macos-user invocation: a sandbox and its host services, launch to teardown), fixing the teardown defect [OQ-HD10](#OQ-HD10)'s second run measured, and ruling nothing about the spawn question [OQ-HD10](#OQ-HD10) asks. Each session creates `yolo-host-services-<8hex>-<random>` in the host-services base with `os.MkdirTemp` (mode 0700, and a name no other account can take first), publishes every endpoint of its launch there, keys its fronted daemons' upstream sockets by a hash of that dir, and removes only that dir at its teardown. It holds an exclusive `flock` on `.session.lock` inside the dir for its whole life. The lock is created under a pending name, locked, and only then renamed into place, so a concurrent sweep never finds a live session's lock free; created under its own name, it would be free between the create and the flock, and a sweep could take the new session's dir in that gap. Each new session first collects every session dir, of any workspace, whose lock nobody holds, because the kernel drops a flock when its process dies. That is tri-state: a held lock, a missing lock file, or one that cannot be opened collects nothing. Chosen over a refcounted shared dir because an endpoint file names one front, and a front lives in one session's yolo process, so a shared file would still name a front that died with its session. It mirrors per-launch pack trees ([`OQ-PK2`](../reference/pack-system.md#oq-pk2)). The upstream-socket key is a hash of the path rather than `<8hex>-<random>` because a container teardown of the same name retires `yolo-front-<8hex>-*`. No session's teardown signals the host-wide broker, and container backends are unchanged. The host-asserted `jail_id` on macos-user now names the session's dir. A `--dry-run` names a placeholder dir, `…-<session>`, since it creates none. Code: [`servicessession.go`](../../internal/cli/run/servicessession.go) | 2026-09-27 | [OQ-HD10](#OQ-HD10) | ✅ `c6d638c8`, `8c6d543f` |
+| <a id="HD-D2"></a>[`HD-D2`](#11-decision-ledger) | *Implementation decision.* **A singleton whose settings changed since it started is restarted by the next fresh launch, not reused.** Prompted by [mode 7](#mode-7-it-runs-settings-the-config-no-longer-says), and the maintainer's *"shouldn't this be automatically reloading its config somehow? this isn't a great design"* (2026-09-28). (1) **The record.** At spawn, the ensure reads the settings file the daemon's argv names (the manifest's `{settings}` token) and records one salted SHA-256 digest per key in `<pid file>.settings`: mode 0600, a random salt per spawn, never a value, since a setting can be a credential. `BrokerKill` removes it with the PID file. (2) **The comparison.** Inside the spawn flock, a live daemon whose record differs from the file this launch just wrote is stopped and respawned. So is one with no record, because nothing shows what an older yolo's daemon is serving. The launch prints one line naming the changed keys. Two launches with the same new settings restart it once: the second finds the first's record matching. Nothing is named: the settings path is derived from the loophole name and applies only when the argv hands the daemon that file. The Claude and OpenAI brokers are handed none, so nothing here restarts them. (3) **Safe for the other jails, so it restarts rather than refuses.** Each jail's front owns its certificate and bearer token and dials the daemon's socket for every connection (`splice` in [`front.go`](../../internal/svcendpoint/front.go)). A respawned daemon at the same path therefore serves every existing front from its next request, with nothing to redo inside any jail. A test drives this with a real spawn: a front opened before the restart reaches the new daemon. What the other jails lose is what the manual remedy costs them too, because the sequence is the same: the requests in flight past the SIGTERM drain and the three-second grace, and connects refused in the gap before the new daemon binds. For `aws-auth`, the only shipped singleton with settings, a cut mint holds no durable state: the `aws` child is not signaled, and the new daemon's proactive minter runs as it starts. The latest launch's settings win for every jail sharing the daemon, and the restart line says so. (4) **The one refusal.** When the spawn lock cannot be taken, the ensure may not kill: that would race another launch's spawn. A live daemon whose record names changed keys is then not fronted for this jail. The launch prints the keys and `yolo host-daemon restart <name>` instead of serving stale settings. (5) **An attach reports and restarts nothing.** It runs above the config-change approval gate, and [OQ-K3](../reference/pack-system.md#why-its-this-way) puts a change to what a loophole may do behind that gate. `yolo check` grades a running daemon's settings against config with a [WARN] naming the keys. (6) **Out of scope, deliberately:** the yolo binary or version that spawned the daemon. [Modes 3 and 4](#modes-3-and-4-alive-but-wrong-and-two-yolo-versions) rule that version skew warns and does not kill. The two brokers' background refreshers are not drained on SIGTERM, so a version-driven restart could cut a single-use refresh mid-flight. `yolo host --` goes through the same ensure; the one singleton it starts is handed no settings. **[`HD-R1`](#HD-R1) retires all of this**: with no singleton, no daemon outlives its launch's settings. Code: [`settingsrecord.go`](../../internal/broker/settingsrecord.go), `EnsureSingleton` in [`brokerlifecycle.go`](../../internal/broker/brokerlifecycle.go) | 2026-09-28 | [mode 7](#mode-7-it-runs-settings-the-config-no-longer-says) | ✅ `c2c80ad0` |

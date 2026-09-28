@@ -265,6 +265,12 @@ someone else.
 > than killing the daemon (two yolo versions on one host would take turns restarting each
 > other's). When verifying transport work from inside a jail, restart the singleton first
 > or the verification measures the previous binary.
+>
+> **Stale SETTINGS are the exception: those are restarted, not warned about.** The spawn
+> records a salted digest of each settings key the daemon was handed, and a launch whose
+> settings file differs restarts the daemon, printing the changed keys and never a value.
+> Every jail's front reconnects on its next request
+> ([`HD-D2`](../design/host-daemon-ownership.md#HD-D2)).
 
 ## The connection preamble
 
