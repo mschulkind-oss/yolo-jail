@@ -223,11 +223,13 @@ live, so edits are visible on the host instantly — there is no sync step.
 ## Testing
 
 - `just test-fast` = `go test -short ./...` — unit tests plus the short-gated compile of `integration/`. No
-  containers. It is the `test-fast` half of `just check-ci` (= `lint-ci` + `test-fast`), the pre-commit
-  gate — the repo provides it at [`hooks/pre-commit`](hooks/pre-commit) and `just install-hooks` puts it
-  in `.git/hooks`, but git cannot track hooks, so installing is a per-clone step; see
-  [Workflow](#workflow) step 4. `just test` adds
+  containers. It is the `test-fast` half of `just check-ci` (= `lint-ci` + `test-fast`), the LANDING
+  gate ([Workflow](#workflow) step 4). There is no pre-commit hook, by ruling. `just test` adds
   `go test -count=1 -timeout 0 ./integration`. Run by CI.
+- **Run the slow suite once per landing, not once per agent.** The full integration suite takes minutes.
+  A builder or fixer runs the integration tests that read what it changed (`rg integration/` for the
+  symbol, flag, env var or message, then `go test -run '<those>' ./integration`). A reviewer runs only
+  what reproduces a finding. Whoever lands runs the full suite once, on the combined tree.
 - **`integration/` rules**: all files are package `integration`, gated by `requireJail(t)` (skipped under
   `testing.Short()`). Do **not** add `t.Parallel()` — the package runs serially by design (real containers;
   the session image load must not run per worker). That rule is about workers inside one job; the macOS
@@ -540,14 +542,16 @@ release is fixed by the next one. What the script cannot judge is who the sectio
    `host.containers.internal`) or **rootless-only path**? A nested jail cannot see those classes at all —
    read the two carve-outs under [Testing](#testing) before reporting it verified.
 3. `just format` (gofmt) before committing.
-4. Conventional commit messages. **Run `just check-ci` before every commit, or install the provided hook
-   once with `just install-hooks`** and let it run for you. Git cannot track `.git/hooks`, so the hook is
-   a versioned script ([`hooks/pre-commit`](hooks/pre-commit)) plus a per-clone installer — a clone does
-   not deliver it, which is the only reason it is not simply always on. CI runs the same `just check-ci`,
-   so a red commit cannot merge; the hook exists so it is caught locally first. A commit that landed is
-   not evidence that anything checked it. If the gate rejects, fix forward — never `--no-verify`, never
-   `--amend`. ⚠ It is a WHOLE-TREE gate, so during a fan-out it reports other agents' in-flight files as
-   your failure; that is why an orchestrator commits and agents do not.
+4. **Committing and landing are different steps.** Commit as often as the work has logical steps, with
+   conventional messages; a commit runs nothing. **Landing** — moving `main` to include the commits, or
+   handing them to the human to push — runs the gate once, on the final tree: `just check-ci`, the
+   integration tests the change reaches, and, for a launch-path change, the full integration suite. CI
+   runs `just check-ci` again on every push and is the backstop. There is **no pre-commit hook, by
+   ruling** (2026-09-27: *"if you land something in four commits, I don't want a pre-commit hook that
+   runs the tests each time. That's silly … We can have the agents run what they need when they need it.
+   And then the backstop is still the CI"*). If the landing gate rejects, fix forward with a new commit —
+   never `--amend` a landed commit. ⚠ `just check-ci` is a WHOLE-TREE gate, so during a fan-out it
+   reports other agents' in-flight files as your failure; land from a clean worktree.
 5. End of task: `git status` clean, `just done` green.
 6. **Doc change that makes a claim about the code** → check it before writing it. A number, a `file:line`, a
    commit SHA, or a negative ("X has no caller") is the exact place a reader stops checking, so a wrong one

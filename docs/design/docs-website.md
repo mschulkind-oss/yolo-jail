@@ -184,7 +184,7 @@ holds the command and must change in the same breath as a rename. **Both are cop
 
 ### 3.5 The gate
 
-`just check-ci` gains the site checks, so CI and the pre-commit hook run them:
+`just check-ci` gains the site checks, so CI and every landing run them:
 
 - `vantage-check` over `userguide/`, which checks links and anchors;
 - the closed-tree check from [§2.2](#22-the-closed-tree-rule);

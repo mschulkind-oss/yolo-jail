@@ -125,7 +125,7 @@ func TestLintRecipeRunsStaticcheckForEveryLintedGOOS(t *testing.T) {
 }
 
 // TestTheHookAndCIReachTheSameLintPasses pins the OTHER half of the call site. `check-go` in
-// ci.yml and the pre-commit hook both run `just check-ci` -> `lint-ci`, so a `lint-ci` that
+// ci.yml and a contributor's landing both run `just check-ci` -> `lint-ci`, so a `lint-ci` that
 // restates the commands instead of depending on `lint` is a second list to keep in step —
 // and a gate applied on one path and not the other is the failure mode this whole file is
 // about, one level up.
@@ -138,7 +138,7 @@ func TestTheHookAndCIReachTheSameLintPasses(t *testing.T) {
 	m := dep.FindSubmatch(body)
 	if m == nil {
 		t.Fatal("the Justfile no longer declares a `lint-ci` recipe — `just check-ci`, the " +
-			"pre-commit hook and ci.yml's check-go job all reach the lint passes through it")
+			"landing gate, and ci.yml's check-go job both reach the lint passes through it")
 	}
 	if !strings.Contains(string(m[1]), "lint") {
 		t.Errorf("`lint-ci` no longer depends on `lint` (its dependency line is %q), so the "+

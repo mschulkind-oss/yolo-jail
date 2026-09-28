@@ -31,7 +31,7 @@ package packs_test
 // back in the shape the release reads, and the probe runs again over a copy repaired that way,
 // until no decode stops: the rest of the manifest is checked like any other.
 //
-// WHERE IT RUNS. In the short suite, so the pre-commit gate and CI's check-go job both run it;
+// WHERE IT RUNS. In the short suite, so `just check-ci` and CI's check-go job both run it;
 // both CI checkouts fetch full history and tags (fetch-depth: 0). Outside CI, a clone without
 // tags or git skips it, saying so. Under GitHub Actions a missing tag is a failure, because a
 // silent skip there would retire the check with every run green.
@@ -423,7 +423,7 @@ func lastRelease(t *testing.T) (root, tag string) {
 		unavailable("no git on PATH to read the last release from")
 	}
 	// The MODULE root, found from this package's directory, which is where `go test` runs it —
-	// not `git rev-parse --show-toplevel`. Inside a git hook (the pre-commit gate runs this test)
+	// not `git rev-parse --show-toplevel`. Inside a git hook (a hook that runs this test)
 	// git exports GIT_DIR without GIT_WORK_TREE, and --show-toplevel then answers the current
 	// directory, packs/, so every pinnedBy lookup below searched packs/internal and found nothing.
 	wd, err := os.Getwd()

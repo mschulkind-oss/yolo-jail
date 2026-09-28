@@ -18,8 +18,8 @@ import (
 // These run under -short (no container). They cover the pure halves of the #10 probe in
 // applecontainerparity_test.go (TestAppleContainerExplicitHostModeKeepsPublishedPorts): how a
 // dial is classified and recorded, how the jail's phase is read, how the Mac's route is parsed,
-// and when the evidence names macOS Local Network privacy. A mistake there is then caught by the
-// pre-commit gate, not by the next run on the one Mac that can conduct the experiment. The
+// and when the evidence names macOS Local Network privacy. A mistake there is then caught by
+// `just check-ci`, not by the next run on the one Mac that can conduct the experiment. The
 // Mac-only call sites are pinned by reading the source (TestACPortProbeCallSites), the technique
 // TestRequireAppleContainerInstallsTheLateSkipGuard uses. None is named TestAppleContainer…, so
 // the Mac job's `-list '^TestAppleContainer'` selection does not pick them up.

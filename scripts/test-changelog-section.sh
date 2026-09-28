@@ -1,6 +1,6 @@
 #!/bin/sh
-# Tests for changelog-section.sh. Run by `just lint-ci` (and so by `just check-ci`
-# and the pre-commit hook): the script is a release gate that three callers share
+# Tests for changelog-section.sh. Run by `just lint-ci` (and so by `just check-ci`):
+# the script is a release gate that three callers share
 # — `just release`, release.yml and publish.yml — so its rules have to be pinned
 # somewhere a change to them shows up as a diff.
 #

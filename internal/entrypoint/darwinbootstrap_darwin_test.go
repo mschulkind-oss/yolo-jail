@@ -41,7 +41,7 @@ func bootstrapEnv(t *testing.T, home string, extra map[string]string) *Env {
 	// `generate_mise_config: mkdir /Users/Shared/yolo/proj: file exists`, because the profile
 	// re-allows reads for the WORKSPACE subpath and nothing else under /Users — so `Stat` on a
 	// sibling directory is denied, `MkdirAll` falls through to `mkdir`, and that returns EEXIST.
-	// `just test-fast` — the pre-commit gate — was therefore red inside a macos-user jail while
+	// `just test-fast` — part of the landing gate — was therefore red inside a macos-user jail while
 	// green on the same Mac outside one, which is the drift that stops this backend being usable
 	// for developing yolo itself. A tempdir is inside TMPDIR, which the profile grants.
 	//

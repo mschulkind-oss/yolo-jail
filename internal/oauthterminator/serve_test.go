@@ -86,7 +86,7 @@ func TestPinnedHTTP11(t *testing.T) {
 
 	// Client offering h2 must negotiate http/1.1 (or no ALPN), never h2.
 	//
-	// Bounded dial, not a bare tls.Dial: this test runs in the pre-commit hook,
+	// Bounded dial, not a bare tls.Dial: this test runs in `just check-ci`,
 	// and if ServeTLS ever fails to start the connection sits in the listener's
 	// accept backlog forever. A deadline turns that into a named failure instead
 	// of a package-timeout panic ten minutes later.

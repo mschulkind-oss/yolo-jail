@@ -110,7 +110,7 @@ func TestPruneWiresTheCaptureReceiptReaderAndReapsThroughIt(t *testing.T) {
 //
 // The embedded-tree sweep's TMPDIR scan and process table are confined too. Their defaults
 // are the machine's own os.TempDir() and /tmp and the live process table, so without these
-// two lines every `go test ./internal/cli` — the pre-commit hook — ran a real --apply sweep
+// two lines every `go test ./internal/cli` — `just check-ci` included — ran a real --apply sweep
 // of the developer's /tmp, deleting any legacy tree the fixture clock made look old.
 func pruneRunOnTemp(t *testing.T, opts prune.Options, gs string, out *bytes.Buffer) prune.Options {
 	t.Helper()

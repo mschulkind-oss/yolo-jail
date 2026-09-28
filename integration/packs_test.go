@@ -326,7 +326,7 @@ func packHome(t *testing.T, userConfig string) {
 // ⚠ IT SURVIVED EVERY LOCAL GATE, and that is the part worth stating. `just test-fast` is
 // `go test -short ./...`, and under `-short` this package only COMPILES — `requireJail`
 // skips every test in it. So a fixture holding a config the host now refuses is invisible
-// to the gate a contributor runs and to the pre-commit hook, and surfaces only in CI's
+// to the gate a contributor runs (`just check-ci`), and surfaces only in CI's
 // full `./integration` run, minutes into a container suite.
 //
 // The sibling guard in writeProject refuses a `base_url` in a WORKSPACE config on scope

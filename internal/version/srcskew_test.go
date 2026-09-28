@@ -27,7 +27,7 @@ func gitRepo(t *testing.T) (root string, commit func(relPath, content string) st
 		}, args...)
 		cmd := exec.Command("git", full...)
 		cmd.Dir = root
-		// CleanGitEnv: under the pre-commit hook git exports its own
+		// CleanGitEnv: under a git hook git exports its own
 		// (worktree-relative, ABSOLUTE from a linked worktree) state; without
 		// the strip this helper runs against the COMMITTER's repository.
 		cmd.Env = packsrc.CleanGitEnv(os.Environ())
@@ -190,7 +190,7 @@ func TestImageSourcePathsMatchTheFlake(t *testing.T) {
 }
 
 // TestSourceSkewIgnoresAnInheritedGitDir: SourceSkew asks git about the repo it is
-// POINTED at, whatever git state the process inherited. A pre-commit hook in a
+// POINTED at, whatever git state the process inherited. A git hook in a
 // linked worktree exports an absolute GIT_DIR (and GIT_INDEX_FILE), and a yolo run
 // from any git hook inherits the same; without the strip, git answers for the
 // hook's repository and the skew check silently reports nothing (measured

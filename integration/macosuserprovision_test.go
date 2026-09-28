@@ -327,8 +327,8 @@ func macosUserAnnounceText(step string) string {
 
 // The announce lines are what the startup log shows a reader as the last thing that
 // STARTED, so item 7 reads them to say how far the stage got. This pins the extraction
-// against the real constants: reword a step and this fails here, on Linux, in the
-// pre-commit gate — not on the Mac three weeks later.
+// against the real constants: reword a step and this fails here, on Linux, in
+// `just check-ci` — not on the Mac three weeks later.
 func TestMacosUserStageAnnounceTextIsWhatTheStageEchoes(t *testing.T) {
 	for _, tc := range []struct{ step, want string }{
 		{provision.StepAnnounceMiseInstall, "  ↳ mise install"},

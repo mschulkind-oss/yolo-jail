@@ -187,7 +187,7 @@ function:
 The last two rows are the ones worth knowing. A test that clears the gate and then skips for a
 reason of its own has not exercised the backend, and is not counted as if it had. And the guard
 is deletable, like anything else — so the deletion is caught on Linux, by the ordinary
-pre-commit gate, without waiting for a Mac.
+landing gate (`just check-ci`), without waiting for a Mac.
 
 ### 0.4 Reading a red job
 

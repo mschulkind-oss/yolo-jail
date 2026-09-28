@@ -7,7 +7,7 @@ import (
 
 // These run under -short (no container): they cover the image-skew check's pure
 // decision logic — the parts that decide whether the suite runs at all — so a
-// mistake there is caught by the pre-commit gate rather than by a confusing
+// mistake there is caught by `just check-ci` rather than by a confusing
 // integration run. The exec'ing halves (nix eval, the in-image `cat`) are
 // exercised by every real integration run.
 

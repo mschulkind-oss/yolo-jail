@@ -113,7 +113,7 @@ yolo's own and has no coverage question in it. The fix is attribution
 - **Every shipped pack that declares a program has a `packMatrix` row.**
   `TestPackMatrixCoversEveryShippedProgram` enumerates the embedded packs and fails for any that
   declares an install contribution without a row. It runs under `-short`, so a forgotten row fails
-  the pre-commit hook and the `check-go` job, where packs are added, and not only a container run.
+  `just check-ci` and the `check-go` job, where packs are added, and not only a container run.
   `.github/workflows/packs.yml`'s `pack:` list is a hand-maintained mirror of `packMatrix`. The
   test's failure message names that file, and nothing checks the mirror itself.
 - **A vendor that cannot publish for an arch is skipped by a field on its row, not removed from

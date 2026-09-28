@@ -359,9 +359,8 @@ architecture, the build and test traps, and the file that enforces each rule. Fr
 
 ```bash
 just setup           # the toolchain mise.toml pins, and the Go module deps
-just install-hooks   # a pre-commit hook that runs the same gate CI runs
-just check-ci        # that gate: go vet and staticcheck for linux and darwin, gofmt, the changelog
-                     # and user-guide checks, and the short test suite
+just check-ci        # the gate CI runs, before you land: go vet and staticcheck for linux and darwin,
+                     # gofmt, the changelog and user-guide checks, and the short test suite
 ```
 
 The gate also needs `python3` on your `PATH`, for the user-guide checks. Commit messages follow

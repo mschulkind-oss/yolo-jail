@@ -4,7 +4,7 @@ package config
 //
 // Until 2026-09-23 hostFileWritableRoots was a package-level map whose initializer called
 // packload.EmbeddedWritableDirs, so the embedded pack tree was written to disk at INIT by
-// every process that imported internal/config — every test binary (the pre-commit gate runs
+// every process that imported internal/config — every test binary (`just check-ci` runs
 // all of them), `yolo --version`, every in-jail daemon — and each exit path that skipped a
 // defer leaked it (measured 2026-09-23: 281 leaked trees in one jail's /tmp, +1 per test
 // package run).

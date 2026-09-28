@@ -232,7 +232,7 @@ func startServe(t *testing.T, sock, mode string) (chan struct{}, chan struct{}) 
 	// whole test invocation is under 2s — but at 5s it missed its budget once in
 	// ~85 runs on a loaded machine and reported "daemon socket never appeared"
 	// for a daemon that was merely descheduled. That was tolerable while the test
-	// ran nowhere; it is not, now that it runs in the pre-commit hook and on
+	// ran nowhere; it is not, now that it runs in `just check-ci` and on
 	// shared CI runners. A readiness poll exits the moment it is ready, so a
 	// longer ceiling costs nothing when things work and only buys headroom when
 	// they are slow.

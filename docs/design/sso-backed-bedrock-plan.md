@@ -563,7 +563,7 @@ repo can stand in for:
   [`boundary-broker.md`](boundary-broker.md)'s ([`OQ-SSO6`](sso-backed-bedrock.md#13-decision-ledger)).
 - **Verification environment:** the image bakes no `aws` CLI, so done-condition 5 (`aws s3 ls`
   denied from inside the jail) needs `packages: ["awscli2"]` in the verification workspace.
-- **Norms:** `just format` per commit; the pre-commit hook runs `just check-ci`;
+- **Norms:** `just format` per commit; `just check-ci` once before landing (there is no pre-commit hook);
   `uvx vantage-check` on every doc touched.
 
 ## Don't

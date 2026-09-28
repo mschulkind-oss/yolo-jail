@@ -299,10 +299,8 @@ test-fast:
 # a GOOS, not a Mac: `GOOS=darwin staticcheck ./...` reproduces issue #42 from
 # Linux. Putting it on the macOS runner would mean installing `just` and
 # staticcheck there to buy coverage this pass already has, and would leave the
-# pre-commit gate — `just check-ci`, the one a contributor runs first, before any
-# runner — still blind. (That gate is `hooks/pre-commit`, installed per clone by
-# `just install-hooks`; git cannot track `.git/hooks`, so an uninstalled clone runs
-# it by hand instead. Either way it is the same recipe.) ci.yml needs no change at
+# landing gate — `just check-ci`, the one a contributor runs first, before any
+# runner — still blind. ci.yml needs no change at
 # all: `check-go` runs `just check-ci`, so it inherits whatever this recipe grows.
 #
 # WHY THESE TWO GOOS VALUES AND NO MORE. They are the two this tree compiles
@@ -369,20 +367,9 @@ format:
 # Quality checks (interactive use)
 check: format lint test-fast
 
-# Pre-commit hook target (no formatting — just verify and test)
+# The landing gate CI also runs (no formatting — just verify and test). Run it once before landing,
+# not on every commit: there is no pre-commit hook, by ruling (AGENTS.md, Workflow step 4).
 check-ci: lint-ci test-fast
-
-# Install the versioned pre-commit hook into .git/hooks.
-#
-# Git cannot track hooks, so the script lives at hooks/pre-commit and this recipe copies it into
-# place — a clone does not deliver it, which is why installing is a per-clone step. The hook
-# runs the same `just check-ci` CI runs; install it so a red commit is caught locally instead
-# of in CI.
-install-hooks:
-    @mkdir -p .git/hooks
-    @cp hooks/pre-commit .git/hooks/pre-commit
-    @chmod +x .git/hooks/pre-commit
-    @echo "installed .git/hooks/pre-commit — it runs 'just check-ci'"
 
 # Full quality checks including container integration tests
 check-all: format lint test

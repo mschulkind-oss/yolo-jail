@@ -3,7 +3,7 @@ package integration
 // shorthandguard_test.go tests the fixture guard, because nothing else in this package can.
 //
 // Every test here is `requireJail`-gated and skips under `-short`, which is the only mode a
-// contributor's `just test-fast` and the pre-commit hook run. So a guard added to the
+// contributor's `just test-fast` and `just check-ci` run. So a guard added to the
 // harness would itself be unexercised by the gate that is supposed to catch things — the
 // same blind spot that let two fixtures carry a removed config key into CI. These run
 // unconditionally: they touch no jail.

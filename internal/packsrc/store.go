@@ -152,7 +152,7 @@ var gitStateEnv = []string{
 // cannot be redirected by state git set for another.
 //
 // Exported for the TEST helpers that shell out to git against scratch
-// repositories (internal/cli, internal/cli/run): a pre-commit hook runs the
+// repositories (internal/cli, internal/cli/run): a git hook may run the
 // test suite, git exports its own state to hooks, and from a LINKED WORKTREE
 // that state is ABSOLUTE (GIT_DIR, GIT_INDEX_FILE, GIT_WORK_TREE) — so a test
 // helper that inherits it would operate on the COMMITTER's worktree and index

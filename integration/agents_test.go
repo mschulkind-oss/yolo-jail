@@ -119,7 +119,7 @@ var packMatrix = []packCase{
 // packs declare a program. This test makes the mirror checkable, the same way
 // TestInheritCensusIsTotal does for config keys and TestEmbedMatchesTree does for the embed.
 //
-// It runs under -short (no container) ON PURPOSE: the pre-commit hook and the check-go CI
+// It runs under -short (no container) ON PURPOSE: `just check-ci` and the check-go CI
 // job are where a new pack is added, so that is where forgetting it must go red.
 func TestPackMatrixCoversEveryShippedProgram(t *testing.T) {
 	covered := map[string]bool{}

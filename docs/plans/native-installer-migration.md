@@ -242,7 +242,7 @@ edit, so each step's proof is its own CI cell on both arches.
   ("Today" column for copilot/codex); [`agent-install-in-ci.md`](../reference/agent-install-in-ci.md#two-install-mechanisms) (the eight-npm/one-
   native split, and the "nine installs" arithmetic); `integration/installmechanism_test.go`'s
   header comment.
-- **Norms:** `just format` then `just check-ci` before each commit (the pre-commit hook runs it);
+- **Norms:** `just format`, and `just check-ci` once before landing (there is no pre-commit hook);
   `just done` at the end. Never `--no-verify`, never `--amend`.
 - **Cheap and yours:** JSON key ordering in the manifests (they are gofmt-irrelevant and the loader
   is order-blind); whether `install_hints` stays (it should — it is unrelated to `via`).

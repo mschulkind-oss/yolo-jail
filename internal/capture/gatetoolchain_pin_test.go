@@ -9,8 +9,8 @@ import (
 	"github.com/BurntSushi/toml"
 )
 
-// gatetoolchain_pin_test.go pins the toolchain half of `just check-ci`, the gate the
-// pre-commit hook and CI's check-go job both run.
+// gatetoolchain_pin_test.go pins the toolchain half of `just check-ci`, the gate a
+// landing and CI's check-go job both run.
 //
 // A fresh clone gets its tools from `just setup`, which is `mise install` over mise.toml.
 // CI installs the same tools its own way (setup-go, setup-uv, a staticcheck `go install`),

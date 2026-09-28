@@ -111,7 +111,7 @@ func failIfImageBuildFailed(t *testing.T, args []string, r result) {
 // sides drifted apart — and a silently non-matching guard is indistinguishable
 // from no guard, which is the failure mode this whole file is about.
 //
-// No container, no nix: it runs under -short with the pre-commit gate.
+// No container, no nix: it runs under -short with `just check-ci`.
 func TestImageBuildFailureSectionMatchesWhatTheCLIPrints(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)

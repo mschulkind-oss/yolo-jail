@@ -1,7 +1,7 @@
 // Package integration holds yolo-jail's end-to-end tests: they drive the real
 // `yolo` CLI against a real container runtime. Every test that touches a
 // container calls requireJail(t) as its first line, which skips under
-// `go test -short` (pre-commit, `just test-fast`, the check-go CI job); the
+// `go test -short` (`just check-ci`, `just test-fast`, the check-go CI job); the
 // full suite runs under `just test` and the CI integration job.
 //
 // That same call ISOLATES HOME (isolateHome), so a container test's user-scope

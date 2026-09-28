@@ -36,7 +36,7 @@ func skewRepo(t *testing.T) string {
 		}, args...)
 		cmd := exec.Command("git", full...)
 		cmd.Dir = root
-		// CleanGitEnv: under the pre-commit hook git exports its own (worktree-
+		// CleanGitEnv: under a git hook git exports its own (worktree-
 		// relative, and ABSOLUTE from a linked worktree) state; without the strip
 		// this helper would commit into the COMMITTER's index, not this scratch
 		// repo (packsrc.CleanGitEnv's doc has the measurement).

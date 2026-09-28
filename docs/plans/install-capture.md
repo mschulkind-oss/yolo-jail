@@ -1013,7 +1013,7 @@ wrong one to sequence on.
   this is COW rather than link counting: the destination holds its own inode and its own extents, and
   MEASURED 2026-09-04 it survives the source's unlink byte-identical*), **P7** (safe at an arbitrary
   moment).
-- **Norms:** `just check-ci` before each commit (the pre-commit hook runs it); `just format`.
+- **Norms:** `just check-ci` once before landing (there is no pre-commit hook); `just format`.
 
 ## Don't
 
