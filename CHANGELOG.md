@@ -59,8 +59,9 @@ process in a podman jail on Linux runs at a lower disk priority, so a build stop
 desktop when both want the disk. Disks whose scheduler is bfq honor both values and mq-deadline
 honors `"idle"`; kyber and none, the usual NVMe default, ignore it. The launch says so when the
 disk under your workspace is one of those, and `yolo check` grades that disk and names the host
-change. The priority is advisory rather than a limit, and it does not reach buffered writes.
-Apple Container and podman on macOS cannot apply it, and the launch says that too. See
+change. The priority is advisory rather than a limit, and it does not reach buffered writes or
+a `nix build`, which runs in the host's nix daemon. Apple Container and podman on macOS cannot
+apply it, and the launch says that too. See
 [resources per setup](userguide/reference/settings-per-setup.md#resources-devices-and-networking).
 
 - `yolo host-daemon status|stop|restart|logs` manages the machine-wide daemons.

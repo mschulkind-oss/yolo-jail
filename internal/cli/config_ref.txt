@@ -1808,6 +1808,8 @@
       it, and mq-deadline honors "idle" only; kyber and none, the usual NVMe default,
       ignore it. The launch prints one line when the disk under the workspace ignores
       the value, and `yolo check` grades that disk and names the host change.
+      A `nix build` runs its builders in the host nix daemon, outside the jail, so it
+      keeps that daemon's priority.
       Applied on podman on Linux, nested jails included. Not applied on Apple
       Container or podman on macOS, where the workspace reaches the Mac over VirtioFS,
       which carries no priority, nor yet on macos-user; the launch says so on all

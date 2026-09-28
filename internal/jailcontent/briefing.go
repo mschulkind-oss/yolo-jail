@@ -465,14 +465,19 @@ func BriefingContent(in BriefingInput) string {
 	// that claim neither enforcement nor effect. The disk may ignore it, and the agent can
 	// raise it, so "kernel-enforced" or "in effect" would be two different false sentences.
 	// The schedulers named as ignoring it are the grading's own (ioprio.IgnoredBy), so the
-	// briefing and the launch line cannot disagree about mq-deadline and "low".
+	// briefing and the launch line cannot disagree about mq-deadline and "low". And it is
+	// scoped to the jail: wherever the host nix daemon is mounted the jail runs with
+	// NIX_REMOTE=daemon, so a `nix build` runs in the daemon's builders on the host, which
+	// no process here started (docs/design/io-priority.md §2, Non-Goal 6).
 	var ioPriorityLine []string
 	if p := ioprio.Priority(in.IOPriority); p.Declared() {
 		ioPriorityLine = []string{
 			"- **Disk I/O priority**: `" + in.IOPriority + "` (" + p.ClassName() + "), set on every " +
-				"process at boot so builds yield the disk under contention. Advisory, not a limit: " +
-				"a process can raise its own, it does not reach buffered writeback, and disks " +
-				"whose scheduler is " + joinOr(ioprio.IgnoredBy(p)) + " ignore it.",
+				"process in this jail at boot so builds here yield the disk under contention. " +
+				"Advisory, not a limit: a process can raise its own, it does not reach buffered " +
+				"writeback, disks whose scheduler is " + joinOr(ioprio.IgnoredBy(p)) + " ignore it, " +
+				"and work a host process does for the jail is outside it: a `nix build` through the " +
+				"host nix daemon keeps the host's priority.",
 		}
 	}
 

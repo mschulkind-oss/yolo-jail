@@ -61,3 +61,23 @@ func TestTheBriefingNamesTheSchedulersThatIgnoreTheValue(t *testing.T) {
 		}
 	}
 }
+
+// TestTheBriefingScopesTheIOPriorityToTheJail: the class reaches the jail's own processes and
+// nothing a host process does for it. Wherever the host nix daemon is mounted the jail runs
+// with NIX_REMOTE=daemon, so a `nix build` and its store writes run in the daemon's builders
+// on the host, at the host's priority; an agent told "builds yield" would count those in
+// (docs/design/io-priority.md §2, Non-Goal 6).
+func TestTheBriefingScopesTheIOPriorityToTheJail(t *testing.T) {
+	body := BriefingContent(BriefingInput{Workspace: "/w", IOPriority: "low"})
+	var line string
+	for _, l := range strings.Split(body, "\n") {
+		if strings.HasPrefix(l, "- **Disk I/O priority**") {
+			line = l
+		}
+	}
+	for _, want := range []string{"every process in this jail", "keeps the host's priority", "`nix build` through the host nix daemon"} {
+		if !strings.Contains(line, want) {
+			t.Errorf("the line is %q, want it to say %q", line, want)
+		}
+	}
+}
