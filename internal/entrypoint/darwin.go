@@ -151,7 +151,7 @@ func RunDarwinBootstrap(e *Env, opts DarwinBootstrapOptions) error {
 	// the only difference, and it is the one Apple Container already uses.
 	genStep(e, "configure_host_files", func() error { return ConfigureHostFiles(e) })
 
-	// CONTENT — skills and pack briefings — copied over the home from the staged
+	// CONTENT — skills, pack briefings and pack `files` trees — copied over the home from the staged
 	// overlay. This is the macos-user answer to the container's mounts: the host
 	// composed the same trees the container path composes, laid them out at their
 	// home-relative destinations, and staged the result root-owned; here it becomes
@@ -217,14 +217,14 @@ func InstallHomeOverlay(e *Env, packs []*packload.Pack) error {
 	}
 	layout, _ := darwinHomeLayoutFor(e, packs)
 	if linked := layout.linkedSidecarPaths(); len(linked) > 0 {
-		return fmt.Errorf("skills and briefings were not delivered: %w", &LinkedSidecarError{Links: linked})
+		return fmt.Errorf("skills, briefings and pack files were not delivered: %w", &LinkedSidecarError{Links: linked})
 	}
 	if _, err := os.Stat(src); err != nil {
 		if os.IsNotExist(err) {
 			// Staged tree missing is not a boot failure: the launch may have raced a
 			// teardown, and the agent is better off starting with no skills than not
 			// starting. The warning is the record.
-			e.warn("home overlay " + src + " is not present; skills and briefings were not delivered")
+			e.warn("home overlay " + src + " is not present; skills, briefings and pack files were not delivered")
 			return nil
 		}
 		return err

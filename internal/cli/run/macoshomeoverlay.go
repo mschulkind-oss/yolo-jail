@@ -11,8 +11,9 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 )
 
-// macoshomeoverlay.go builds the HOME OVERLAY: the staged skills and briefings laid
-// out at their home-relative destinations, ready to be copied over a jail home.
+// macoshomeoverlay.go builds the HOME OVERLAY: the staged skills, briefings and pack
+// `files` trees laid out at their home-relative destinations, ready to be copied over a
+// jail home.
 //
 // WHY A TREE AND NOT A MAPPING. On the container backends each staged dir is bind-
 // mounted at its destination, so the mapping "staging dir → home path" lives in the
@@ -40,14 +41,17 @@ import (
 // rest of the home alone — the same semantics a bind mount has. The read-only part is
 // the session's Seatbelt profile, which denies writes to every destination this returns.
 
-// buildMacosHomeOverlay lays the staged skills + briefings out under one root at the
-// home-relative paths they belong at, and returns that root with the destinations it
-// holds (a zero HomeOverlay when there is nothing to deliver).
+// buildMacosHomeOverlay lays the staged skills, briefings and pack `files` trees out under
+// one root at the home-relative paths they belong at, and returns that root with the
+// destinations it holds (a zero HomeOverlay when there is nothing to deliver).
 //
-// It reads the SAME two declaration lists the container path mounts from —
-// packSkillTargets and briefingDestinations — so a pack that declares a destination
-// gets it on both backends or on neither. A third list here would be the shape that
-// lets them disagree silently.
+// It reads the SAME three declaration lists the container path mounts from —
+// packSkillTargets, briefingDestinations and packFilesTargets — so a pack that declares a
+// destination gets it on both backends or on neither. A fourth list here would be the shape
+// that lets them disagree silently. `files` was the list this used to leave out, so pi's two
+// extensions and every agent footer script were absent on this backend and nothing said so
+// (docs/plans/notch-convergence.md row D8). A `files` tree whose source is missing is
+// skipped with the jail's own warning (packFilesSkipWarning), passed to warn.
 //
 // THE DESTINATIONS TRAVEL WITH THE TREE because the container's `:ro` is part of the
 // delivery, not an extra: the Seatbelt profile write-protects exactly what this wrote
@@ -59,15 +63,16 @@ import (
 // destination nothing was staged for is neither delivered nor protected. WorkspaceDirs is
 // the selection's scope:workspace state list, which is what decides where each
 // destination physically lands once the bootstrap lays the home-tier layout.
-func buildMacosHomeOverlay(staging string, packs []*packload.Pack) (macosuser.HomeOverlay, error) {
-	tree, dests, err := buildMacosHomeOverlayFor(staging, packSkillTargets(packs), briefingDestinations(packs))
+func buildMacosHomeOverlay(staging string, packs []*packload.Pack, warn func(string)) (macosuser.HomeOverlay, error) {
+	tree, dests, err := buildMacosHomeOverlayFor(staging, packSkillTargets(packs),
+		briefingDestinations(packs), packFilesTargets(packs), warn)
 	if err != nil || tree == "" {
 		return macosuser.HomeOverlay{}, err
 	}
 	return macosuser.HomeOverlay{Tree: tree, Dests: dests, WorkspaceDirs: packload.WritableDirs(packs)}, nil
 }
 
-// buildMacosHomeOverlayFor is the body, taking the two declaration lists directly, and
+// buildMacosHomeOverlayFor is the body, taking the three declaration lists directly, and
 // returning the tree and the destination list it wrote beside the tree
 // (entrypoint.WriteHomeOverlayManifest's result: cleaned, once each, sorted, with a
 // destination inside another dropped).
@@ -76,7 +81,7 @@ func buildMacosHomeOverlay(staging string, packs []*packload.Pack) (macosuser.Ho
 // packs that produce them: the property under test is "staged name → home path", and
 // routing it through pack parsing would test the parser instead.
 func buildMacosHomeOverlayFor(staging string, skills []jailcontent.SkillTarget,
-	briefings []briefingDest) (string, []string, error) {
+	briefings []briefingDest, files []packFilesTarget, warn func(string)) (string, []string, error) {
 	overlay := filepath.Join(staging, "home-overlay")
 	// Rebuilt from scratch every launch: a destination that LEAVES the config must
 	// stop being delivered, and an overlay that only ever accumulated would keep
@@ -123,8 +128,25 @@ func buildMacosHomeOverlayFor(staging string, skills []jailcontent.SkillTarget,
 		written = append(written, d.Into)
 	}
 
+	// PACK `files` TREES, from the staged pack tree, the same source the container binds
+	// read-only. A directory or a single file, copied at its destination; the Seatbelt
+	// profile then denies the agent writes to it, which is this backend's `:ro`.
+	for _, t := range files {
+		if !isDir(t.Src) && !isFile(t.Src) {
+			if warn != nil {
+				warn(packFilesSkipWarning(t))
+			}
+			continue
+		}
+		dst := filepath.Join(overlay, filepath.FromSlash(t.Dest))
+		if err := copyTree(t.Src, dst); err != nil {
+			return "", nil, fmt.Errorf("staging pack %s's files for %s: %w", t.Pack, t.Dest, err)
+		}
+		written = append(written, t.Dest)
+	}
+
 	if len(written) == 0 {
-		// Nothing to deliver — no packs, or none declaring skills or briefings.
+		// Nothing to deliver — no packs, or none declaring skills, briefings or files.
 		// Returning "" rather than an empty dir keeps the staging and the bootstrap
 		// step off the launch entirely, so a bare `yolo -- bash` pays nothing.
 		_ = os.RemoveAll(overlay)

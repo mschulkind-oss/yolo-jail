@@ -192,3 +192,42 @@ func TestTwoPacksAddressingOneSlotLandInTheirOwnSubdirectories(t *testing.T) {
 		t.Errorf("host paths for two contributors = %v, want %v", got, wantHost)
 	}
 }
+
+// TestAMissingAddressedSourceIsReportedAtBothNotches: an addressed tree whose `from` names
+// nothing in the pack reaches the render at both notches, and each one reports it — the jail's
+// mount emitter warns naming the `from`, host apply refuses the path as a missing source. The
+// host used to drop it silently, because destination borrowing answered "carries nothing" for
+// an absent source before any renderer saw it (docs/plans/notch-convergence.md row D8).
+func TestAMissingAddressedSourceIsReportedAtBothNotches(t *testing.T) {
+	owner, content := slotFixture(t, "matt")
+	if err := os.RemoveAll(filepath.Join(content.Root, "pi-extensions")); err != nil {
+		t.Fatal(err)
+	}
+	set := []*packload.Pack{owner, content}
+
+	targets := packFilesTargets(set)
+	if len(targets) != 1 || targets[0].Dest != slotFixtureRoot+"/matt" {
+		t.Fatalf("jail targets = %+v, want the one addressed tree at its slot", targets)
+	}
+	if w := packFilesSkipWarning(targets[0]); !strings.Contains(w, `"pi-extensions"`) {
+		t.Errorf("the jail warning does not name the missing `from`: %s", w)
+	}
+
+	home := t.TempDir()
+	resolved, _ := packload.ResolveDestinations(set)
+	var refused bool
+	for _, p := range resolved {
+		results, err := entrypoint.RenderHostFiles(p, home, entrypoint.HostFilesRequest{}, true)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, r := range results {
+			if strings.Contains(r.Action, "source is missing") {
+				refused = true
+			}
+		}
+	}
+	if !refused {
+		t.Error("host apply said nothing about the addressed tree whose source is missing")
+	}
+}

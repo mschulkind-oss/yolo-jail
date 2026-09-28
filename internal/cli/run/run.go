@@ -631,7 +631,9 @@ func Run(opts Options) (rc int) {
 			o.pr(o.Stderr).printf("[bold red]%s[/bold red]", err.Error())
 			return 1
 		}
-		homeOverlay, err = buildMacosHomeOverlay(staging, staged.packs)
+		homeOverlay, err = buildMacosHomeOverlay(staging, staged.packs, func(line string) {
+			o.pr(o.Stdout).print("[yellow]" + line + "[/yellow]")
+		})
 		if err != nil {
 			o.pr(o.Stderr).printf("[bold red]%s[/bold red]", err.Error())
 			return 1

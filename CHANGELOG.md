@@ -262,6 +262,9 @@ apply it, and the launch says that too. See
 - On `macos-user`, a profile chosen with `-p` reached the agent's environment but not the
   settings yolo writes from the profile's provider, so Codex's `config.toml` named no provider
   or model for it. Those settings are now written as they are in a container jail.
+- On `macos-user`, the files a pack puts in the agent's home, such as pi's extensions, were never
+  delivered. They are now copied in at every launch and protected from the agent's writes, as
+  the skills and instructions yolo delivers there are.
 - `yolo init` wrote a workspace config saying grep and find are blocked by default, and both it and
   `yolo init-user-config` wrote a config offering no `macos-user` runtime.
 - The links on yolo-jail's PyPI page led nowhere. They now open that release's files on GitHub.

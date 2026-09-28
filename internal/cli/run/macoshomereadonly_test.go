@@ -45,7 +45,7 @@ func TestHomeOverlayReturnsTheDestinationsItWrote(t *testing.T) {
 		{Staging: "skills-claude", Dest: ".claude/skills"},
 		{Staging: "skills-shared", Dest: ".claude/skills"}, // merged into the same destination
 		{Staging: "skills-absent", Dest: ".codex/skills"},  // declared, nothing staged
-	}, []briefingDest{{Into: ".claude/CLAUDE.md"}, {Into: ".codex/AGENTS.md"}})
+	}, []briefingDest{{Into: ".claude/CLAUDE.md"}, {Into: ".codex/AGENTS.md"}}, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -78,14 +78,14 @@ func TestHomeOverlayCarriesTheLayoutItLandsIn(t *testing.T) {
 	claude := officialPack(t, "claude")
 	staging := t.TempDir()
 
-	if got, err := buildMacosHomeOverlay(staging, []*packload.Pack{claude}); err != nil {
+	if got, err := buildMacosHomeOverlay(staging, []*packload.Pack{claude}, nil); err != nil {
 		t.Fatal(err)
 	} else if !reflect.DeepEqual(got, macosuser.HomeOverlay{}) {
 		t.Errorf("nothing staged, yet the overlay is %#v", got)
 	}
 
 	stageEveryDeclaredDest(t, staging, []*packload.Pack{claude})
-	got, err := buildMacosHomeOverlay(staging, []*packload.Pack{claude})
+	got, err := buildMacosHomeOverlay(staging, []*packload.Pack{claude}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -117,7 +117,7 @@ func TestEveryShippedDestinationIsWriteProtectedAndNothingElse(t *testing.T) {
 	if len(declared) == 0 {
 		t.Fatal("no shipped pack declares a skills or briefing destination — this test would pass vacuously")
 	}
-	overlay, err := buildMacosHomeOverlay(staging, packs)
+	overlay, err := buildMacosHomeOverlay(staging, packs, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -230,6 +230,13 @@ func stageEveryDeclaredDest(t *testing.T, staging string, packs []*packload.Pack
 			t.Fatal(err)
 		}
 		set[d.Into] = true
+	}
+	// `files` trees are not staged: they are copied from the pack tree itself, so every one
+	// whose source the pack ships is delivered (and so must be protected).
+	for _, tg := range packFilesTargets(packs) {
+		if isDir(tg.Src) || isFile(tg.Src) {
+			set[tg.Dest] = true
+		}
 	}
 	out := make([]string, 0, len(set))
 	for d := range set {

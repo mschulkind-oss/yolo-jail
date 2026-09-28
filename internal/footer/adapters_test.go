@@ -322,9 +322,10 @@ func TestCopilotAdapter(t *testing.T) {
 }
 
 // TestCopilotCommandIsSilentWithoutItsScript: the frozen command must not fail where the
-// script is absent. macos-user renders copilot's config but delivers no `files` contribution,
-// so its home has the command and not the script; a later backend or release may drop the
-// file too, and the value in the user's file can never be fixed after the first fill (§3).
+// script is absent. macos-user rendered copilot's config and delivered no `files` contribution
+// until notch convergence item 21, so its home had the command and not the script; a later
+// backend or release may drop the file too, and the value in the user's file can never be
+// fixed after the first fill (§3).
 // Copilot 1.0.88 treats a non-zero exit as a failure and warns "Status line command failed",
 // so the command has to exit 0 there, with nothing on either stream.
 func TestCopilotCommandIsSilentWithoutItsScript(t *testing.T) {

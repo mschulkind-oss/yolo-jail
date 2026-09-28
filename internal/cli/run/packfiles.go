@@ -65,26 +65,20 @@ type packFilesTarget struct {
 // packdecl.appendJailPathProblems, so a name on PATH comes from a `program` declaration or
 // from nowhere.
 func packFilesTargets(packs []*packload.Pack) []packFilesTarget {
-	// The SLOT table first: an agent pack's files DESTINATION (`agent` + `into`, no `from`) names
-	// where addressed content lands. Built in one pass so a contribution's POSITION cannot change
-	// which slot it resolves against.
+	// ADDRESSED contributions (`agents`, no `into`) are resolved by packload.ResolveDestinations,
+	// the one resolver `yolo host apply` renders through too (docs/plans/notch-convergence.md
+	// row D8). After it, each addressed tree is an ordinary `into` contribution on a copy of its
+	// pack, landing at the agent pack's slot joined with the CONTRIBUTING pack's name
+	// (packload.SlotLanding), so the loop below knows no addressed shape at all. This function
+	// used to resolve the slot itself from a table of its own, and the two resolvers were free
+	// to disagree about which slot a name meant.
 	//
-	// ONE destination per agent is the rule, not a property of this map (pi-pack-extensions.md §8
-	// invariant 1 / OQ-1), and it is enforced where a load error belongs: packdecl's
-	// validateFilesDestinations, which every HOST read runs. The map keeps the last declaration
-	// because that is all it can do — this notch decodes tolerantly (packload.TolerateSkew), so a
-	// pack staged by a newer host than the baked entrypoint can still reach it, and silently
-	// honoring one of two is strictly better here than refusing the boot.
-	aliasByAgent := map[string]string{}
-	for _, p := range packs {
-		for _, c := range p.Decl.Contributions() {
-			if c.Kind == packdecl.KindFiles && c.Agent != "" && c.Into != "" {
-				aliasByAgent[c.Agent] = c.Into
-			}
-		}
-	}
+	// An agent that declares no slot delivers nothing here, and the launch warns about it in
+	// reportUnmatchedAudiences (unmatchedaudience.go) when NO name the contribution lists has a
+	// slot, which is `yolo host apply`'s granularity too.
+	resolved, _ := packload.ResolveDestinations(packs)
 	var out []packFilesTarget
-	for _, p := range packs {
+	for _, p := range resolved {
 		for _, c := range p.Decl.Contributions() {
 			if c.Kind != packdecl.KindFiles {
 				continue
@@ -92,42 +86,13 @@ func packFilesTargets(packs []*packload.Pack) []packFilesTarget {
 			// A DESTINATION is a bare slot: it ships no content, so it makes no mount. That is
 			// what keeps the slot root itself raw — every tree lands UNDER it, namespaced by the
 			// contributing pack, the owner's own included (design §3).
-			if c.Agent != "" {
+			if c.Agent != "" || c.Into == "" {
 				continue
 			}
-			src := filepath.Join(p.Root, filepath.FromSlash(c.From))
-			switch {
-			case c.Into != "":
-				// A plain tree the pack owns, at the path it named.
-				out = append(out, packFilesTarget{
-					Pack: p.Name, Src: src, Dest: c.Into, Root: p.Root, From: c.From,
-				})
-			case len(c.Agents) > 0:
-				// ADDRESSED: the destination is the agent pack's slot, namespaced by the
-				// CONTRIBUTING pack so two packs shipping a same-named file cannot collide. The
-				// jail resolves it here rather than through packload.ResolveDestinations, because
-				// the jail never calls that — packload's borrowing is the HOST notch.
-				//
-				// THE LANDING PATH ITSELF comes from packload.SlotLanding, the one authority both
-				// notches read. Spelling the join here was how the two came to disagree: this side
-				// joined and the host side did not, so one pack.json delivered to two paths.
-				for _, a := range c.Agents {
-					alias, ok := aliasByAgent[a]
-					if !ok {
-						// The agent is enabled but declares no slot, so this name delivers
-						// nowhere. The launch warns about it in reportUnmatchedAudiences
-						// (unmatchedaudience.go) — but only when NO name the contribution
-						// lists has a slot: a miss beside a match is not reported, which is
-						// `yolo host apply`'s granularity too.
-						continue
-					}
-					out = append(out, packFilesTarget{
-						Pack: p.Name, Src: src,
-						Dest: packload.SlotLanding(c.Kind, alias, p.Name),
-						Root: p.Root, From: c.From,
-					})
-				}
-			}
+			out = append(out, packFilesTarget{
+				Pack: p.Name, Src: filepath.Join(p.Root, filepath.FromSlash(c.From)),
+				Dest: c.Into, Root: p.Root, From: c.From,
+			})
 		}
 	}
 	return out
@@ -265,7 +230,7 @@ func preparePackFiles(packs []*packload.Pack, wsState, rt string) []string {
 	manifestPath := filepath.Join(filepath.Dir(wsState), packFilesMountpointManifestName)
 	previous := loadPackFilesMountpointManifest(manifestPath)
 	current := map[string]packFilesTarget{}
-	if rt != "macos-user" { // parity: NotApplicable — macos-user does not deliver `files` contributions.
+	if rt != "macos-user" { // parity: NotApplicable — macos-user copies `files` trees through the home overlay (buildMacosHomeOverlay), which needs no mountpoint.
 		writable := packload.WritableDirs(packs)
 		for _, t := range packFilesTargets(packs) {
 			if rel, ok := packFilesWorkspaceRel(t.Dest, writable, rt); ok {
@@ -274,7 +239,7 @@ func preparePackFiles(packs []*packload.Pack, wsState, rt string) []string {
 		}
 	}
 	var archived []string
-	migrationApplicable := rt != "macos-user" && hasSingleFilePackTarget(current) // parity: NotApplicable — macos-user does not deliver `files` contributions.
+	migrationApplicable := rt != "macos-user" && hasSingleFilePackTarget(current) // parity: NotApplicable — macos-user copies `files` trees through the home overlay (buildMacosHomeOverlay), which needs no mountpoint.
 	if migrationApplicable && previous.Version < packFilesMountpointManifestVersion {
 		archived = archiveLegacyPackFileMountpoints(wsState, current)
 	}

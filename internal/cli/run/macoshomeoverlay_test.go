@@ -33,7 +33,7 @@ func TestHomeOverlayLaysContentOutByDestination(t *testing.T) {
 
 	overlay, _, err := buildMacosHomeOverlayFor(staging,
 		[]jailcontent.SkillTarget{{Staging: "skills-acme", Dest: ".claude/skills"}},
-		[]briefingDest{{Into: ".claude/CLAUDE.md"}})
+		[]briefingDest{{Into: ".claude/CLAUDE.md"}}, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -94,7 +94,7 @@ func TestHomeOverlayTheSandboxInstallReplacesOnlyTheListedDestinations(t *testin
 	writeFile(filepath.Join(staging, briefingStagingName(".pi/agent/AGENTS.md")), "the briefing")
 	overlay, _, err := buildMacosHomeOverlayFor(staging,
 		[]jailcontent.SkillTarget{{Staging: "skills-pi", Dest: ".pi/agent/skills"}},
-		[]briefingDest{{Into: ".pi/agent/AGENTS.md"}})
+		[]briefingDest{{Into: ".pi/agent/AGENTS.md"}}, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -146,7 +146,7 @@ func TestHomeOverlayIsRebuiltFromScratch(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	overlay, _, err := buildMacosHomeOverlayFor(staging, nil, nil)
+	overlay, _, err := buildMacosHomeOverlayFor(staging, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -161,7 +161,7 @@ func TestHomeOverlayIsRebuiltFromScratch(t *testing.T) {
 // Nothing declared → "" rather than an empty dir, so a bare `yolo -- bash` pays for no
 // staging step and no bootstrap step at all.
 func TestHomeOverlayEmptyWhenNothingDeclared(t *testing.T) {
-	overlay, _, err := buildMacosHomeOverlayFor(t.TempDir(), nil, nil)
+	overlay, _, err := buildMacosHomeOverlayFor(t.TempDir(), nil, nil, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

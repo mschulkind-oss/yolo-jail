@@ -239,9 +239,8 @@ Built 2026-09-25, and not yet seen under a live agent: a human confirms build it
     else with `/bin/sh` (MEASURED). `embed.FS` reports every embedded file as 0444 (`packs/embed.go`), so the value
     names `sh`.
   - Copilot counts a non-zero exit as a failure and warns *"Status line command failed; the status line will be
-    blank"* (MEASURED). macos-user renders copilot's config but delivers no `files` contribution
-    ([per setup](../../userguide/reference/settings-per-setup.md#what-a-pack-can-contribute-per-setup)), so there the value finds
-    no script. The `test` makes that case exit 0 with nothing printed.
+    blank"* (MEASURED). macos-user delivered no `files` contribution until notch convergence item 21, so there the value found
+    no script. The `test` makes a missing script exit 0 with nothing printed.
   - Copilot expands env references in the command before a shell sees it (MEASURED), so the value carries no `$`.
 
   The script sits in `~/.copilot/yolo/`, a directory only yolo uses. `preparePackFiles`' one-time migration of the
@@ -334,12 +333,13 @@ Three limits the rulings leave:
   and writes `~/.copilot/yolo/footer.sh`, the pi and omp extensions and opencode's plugin (MEASURED for claude, pi,
   omp and opencode in a scratch home). agy's fill includes `stack_with_default: true`. The frozen values name only
   stable paths and flags, so a later renderer fix reaches them.
-- **macos-user delivers no `files` contribution**
-  ([per setup](../../userguide/reference/settings-per-setup.md#what-a-pack-can-contribute-per-setup)). So there, copilot's item
-  stays empty (its command finds no script and exits 0), and pi and omp get no extension. opencode's plugin list
-  names a file that is not there, so opencode logs a `[tui.plugin]` line to its console, which its TUI keeps closed
-  on errors (`openConsoleOnError: false` in 1.18.32). Claude's and agy's footers need no file and say `jail`. All
-  UNVERIFIED on a Mac.
+- **macos-user delivers `files` contributions** through its home overlay, since
+  [notch convergence item 21](../plans/notch-convergence.md#tier-6--render)
+  ([per setup](../../userguide/reference/settings-per-setup.md#what-a-pack-can-contribute-per-setup)). So there,
+  copilot's script, the pi and omp extensions and opencode's plugin are in the sandbox home as they are in a
+  container. Before it, copilot's item stayed empty, pi and omp got no extension, and opencode logged a
+  `[tui.plugin]` line for a plugin file that was not there. Claude's and agy's footers need no file and say `jail`.
+  All UNVERIFIED on a Mac.
 
 ### 2.2 What macos-user's marker moves
 

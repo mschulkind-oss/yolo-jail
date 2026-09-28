@@ -524,14 +524,17 @@ func (p *Pack) carriesFor(c packdecl.Contribution) bool {
 		sources, _ := p.GovernedBriefingFor(c)
 		return len(sources) > 0
 	case packdecl.KindFiles:
-		// A `files` tree carries content when its declared source exists — the same question
-		// packFilesTargets asks at the jail notch. An empty `from` is the zero-ceremony shape
-		// this kind must never take, so it carries nothing.
-		if c.From == "" {
-			return false
-		}
-		_, err := os.Stat(filepath.Join(p.Root, filepath.FromSlash(c.From)))
-		return err == nil
+		// A `files` tree is routed whenever it DECLARES a source, present or not. An empty
+		// `from` is the zero-ceremony shape this kind must never take, so it carries nothing.
+		//
+		// A MISSING source is routed on purpose, so the render reports it: the jail's mount
+		// emitter warns naming the `from` (run.packFilesSkipWarning), host apply refuses the
+		// path with "source is missing" (entrypoint.RenderHostFiles), and the macos-user overlay
+		// warns like the jail. Answering "carries nothing" here instead dropped an addressed
+		// tree before any of them saw it, so a typo'd `from` delivered nothing and said nothing
+		// at the host, while the jail, which resolved the slot itself, did warn
+		// (docs/plans/notch-convergence.md row D8).
+		return c.From != ""
 	default:
 		return false
 	}
