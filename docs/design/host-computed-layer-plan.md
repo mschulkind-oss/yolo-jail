@@ -1,6 +1,6 @@
 # What a jail derives, the host leaves empty — implementation sketch
 
-**Status:** BUILT, 2026-09-28 at `4ae25c1c`. [OQ-HC1](host-computed-layer.md#OQ-HC1) ruled
+**Status:** BUILT, 2026-09-28 at `358f877d`. [OQ-HC1](host-computed-layer.md#OQ-HC1) ruled
 host parity with no per-surface opt-in, so the registration option in
 [§2](#2-if-the-host-derives-by-b1) was not built ([HC-D9](host-computed-layer.md#HC-D9)); the
 rest of [§2](#2-if-the-host-derives-by-b1), and [§3](#3-if-own-renders-computed-through-stateful)
