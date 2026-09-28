@@ -42,7 +42,7 @@ premise is retired.
 **Start at [§2](#2-security-first-the-boundary-that-is-not-one)**, the only part that is urgent, then
 [§4](#4-the-ordered-build-list).
 
-**Needs your ruling:** [OQ-NC2](#OQ-NC2), [OQ-NC3](#OQ-NC3), [OQ-NC10](#OQ-NC10). Ruled 2026-09-28: [OQ-NC1](#OQ-NC1) (run services at every notch), [OQ-NC6](#OQ-NC6) (credential-routing provider fields are user-scope only), [OQ-NC7](#OQ-NC7) (host claude keeps its own login for now), and by parity [OQ-NC4](#OQ-NC4), [OQ-NC5](#OQ-NC5), [OQ-NC8](#OQ-NC8), [OQ-NC9](#OQ-NC9), [OQ-NC11](#OQ-NC11).
+**Needs your ruling:** [OQ-NC2](#OQ-NC2), reopened for a fix without hosts-file interception. Also ruled 2026-09-28: [OQ-NC3](#OQ-NC3) (keep autonomy, disclosed) and [OQ-NC10](#OQ-NC10) (retire the unread variable). Ruled 2026-09-28: [OQ-NC1](#OQ-NC1) (run services at every notch), [OQ-NC6](#OQ-NC6) (credential-routing provider fields are user-scope only), [OQ-NC7](#OQ-NC7) (host claude keeps its own login for now), and by parity [OQ-NC4](#OQ-NC4), [OQ-NC5](#OQ-NC5), [OQ-NC8](#OQ-NC8), [OQ-NC9](#OQ-NC9), [OQ-NC11](#OQ-NC11).
 
 **Reads with:** [`wire-bridge.md`](../reference/wire-bridge.md#wb-d4) (WB-D4, the premise
 [§2](#2-security-first-the-boundary-that-is-not-one) retires),
@@ -467,9 +467,16 @@ is reported verified only against a real rootless host or CI, with
    today for a reason the user cannot act on.
 
    **Answer:**
-   > _(empty — fill in when decided)_
+   > **Not ruled; reopened 2026-09-28 for a real fix.** The maintainer rejects all three options:
+   > *"I want to fix this for real. I don't love any of these options … do we really need [the
+   > /etc/hosts entry]? Is there no option or environment we can pass to claude to handle this
+   > instead so we can redirect it somewhere better? If we involve the wire bridge here, does that
+   > make our options better? … This is just completely normal, like wanting to use your claude
+   > teams with host networking."* The question is now how Claude's login refresh reaches yolo's
+   > broker with no hosts-file interception at all, so that a shared network namespace needs no
+   > port-443 listener. Research is under way.
 
-3. 💬 <a id="OQ-NC3"></a>**OQ-NC3: Does a jail on a shared network namespace keep the autonomous
+3. ✅ <a id="OQ-NC3"></a>**OQ-NC3: Does a jail on a shared network namespace keep the autonomous
    posture?** `render.ProfileFor` keys autonomy on the notch alone
    ([env-manager's autonomy ruling](../design/yolo-as-environment-manager.md#42-agent-autonomy-is-a-confinement-policy-not-baked-pack-config)).
    A `network.mode: "host"` jail and every macos-user jail reach the host's loopback exactly as a
@@ -480,13 +487,13 @@ is reported verified only against a real rootless host or CI, with
    - **B — Guarded whenever the namespace is shared.** Cost: macos-user becomes guarded as a whole
      backend, which reverses the autonomy ruling for it.
 
-   <!-- vantage: oq id=OQ-NC3 leaning="A: keep autonomy and disclose it from a network primitive in render.Profile; autonomy rests on filesystem confinement, item 1 closes yolo's own listeners, and B would make a whole backend guarded." -->
-
-   _Leaning:_ A. Autonomy rests on filesystem confinement, which a shared network does not remove,
+      _Leaning:_ A. Autonomy rests on filesystem confinement, which a shared network does not remove,
    and item 1 closes yolo's own listeners.
 
    **Answer:**
-   > _(empty — fill in when decided)_
+   > **Ruled in review 2026-09-28, as leaned:** A. Keep autonomy, and disclose it from a network
+   > primitive in `render.Profile`: autonomy rests on filesystem confinement, which a shared network
+   > does not remove, item 1 closes yolo's own listeners, and B would make a whole backend guarded.
 
 4. ✅ <a id="OQ-NC4"></a>**OQ-NC4: Which order does "later wins" follow?** The launcher, the boot and
    the host order packs three ways, so one key has three winners (row B2). This decides item 8.
@@ -609,7 +616,7 @@ is reported verified only against a real rootless host or CI, with
    > sure"*; the host acts like every other notch, with the same handling): A. A local pack's links
    > are followed at every notch; a fetched pack's escaping link stays refused at every notch.
 
-10. 💬 <a id="OQ-NC10"></a>**OQ-NC10: What does `--accept-config-changes` approve at the host?** Row A4
+10. ✅ <a id="OQ-NC10"></a>**OQ-NC10: What does `--accept-config-changes` approve at the host?** Row A4
     says the host takes the approval as `YOLO_ACCEPT_CONFIG_CHANGES` and refuses the flag, so item 10
     was to accept the flag on the explicit `yolo host [flags] --` spelling. Building it found the
     premise stale. No code reads `YOLO_ACCEPT_CONFIG_CHANGES`: its last reader went with the
@@ -629,14 +636,14 @@ is reported verified only against a real rootless host or CI, with
       scripted first launch drop undeclared MCP servers, the one-way door host-apply-staleness
       keeps behind a terminal today.
 
-    <!-- vantage: oq id=OQ-NC10 leaning="A: the zero-prompt auto-apply left the host launch nothing to approve; retire the unread YOLO_ACCEPT_CONFIG_CHANGES and keep refusing the flag by name, leaving the first-apply MCP loss to yolo host apply --assert at a terminal." -->
-
-    _Leaning:_ A. A one-way door that drops a user's servers should not open for a flag typed to
+        _Leaning:_ A. A one-way door that drops a user's servers should not open for a flag typed to
     get past a prompt that no longer exists. B re-creates a grant for the one question the gate
     deliberately keeps behind a terminal.
 
     **Answer:**
-    > _(empty — fill in when decided)_
+    > **Ruled in review 2026-09-28, as leaned:** A. The zero-prompt auto-apply left the host launch
+    > nothing to approve: retire the unread `YOLO_ACCEPT_CONFIG_CHANGES`, keep refusing the flag by
+    > name, and leave the first-apply MCP loss to `yolo host apply --assert` at a terminal.
 
 11. ✅ <a id="OQ-NC11"></a>**OQ-NC11: Does a skill-name collision refuse a jail launch, and does the
     jail honor `skills_tier`?** Item 25 was filed as ruled by S1. The maintainer's words, 2026-08-05:
@@ -689,6 +696,8 @@ is reported verified only against a real rootless host or CI, with
 | [OQ-NC4](#OQ-NC4), [NC5](#OQ-NC5), [NC8](#OQ-NC8), [NC9](#OQ-NC9), [NC11](#OQ-NC11) | **Maintainer ruling by parity:** *"yes, NC as parity for sure"*. Each takes its A: one pack order, `-p` means agent CLIs everywhere, source-less `host_files` render at the host (NC8 against its leaning), local-pack links followed at every notch, a skill collision fatal before the jail starts and the jail honors `skills_tier` | 2026-09-28 | [§6](#6-open-questions) | pending |
 | [OQ-NC6](#OQ-NC6) | **Maintainer ruling**, as leaned: A, every provider field that decides where a credential goes is user-scope only | 2026-09-28 | [§6](#6-open-questions) | pending |
 | [OQ-NC7](#OQ-NC7) | **Maintainer ruling**, as leaned: A, host claude keeps its own login until [`OQ-CI1`](../reference/claude-oauth-interposition.md#oq-ci1) rules | 2026-09-28 | [§6](#6-open-questions) | ✅ nothing to build |
+| [OQ-NC3](#OQ-NC3) | **Maintainer ruling**, as leaned: A, a jail on a shared network keeps autonomy, disclosed from a network primitive in `render.Profile` | 2026-09-28 | [§6](#6-open-questions) | pending |
+| [OQ-NC10](#OQ-NC10) | **Maintainer ruling**, as leaned: A, retire `YOLO_ACCEPT_CONFIG_CHANGES` and keep refusing the flag by name | 2026-09-28 | [§6](#6-open-questions) | pending |
 | NC-D1 | **Maintainer ruling.** Merge the host and jail notches as far as possible: one description, one code path per concern, the notch as an input. "Parsing profiles should be the same", and "host is supposed to act like everywhere else" | 2026-09-27 | [§1](#1-the-thesis) | — |
 | NC-D2 | **Maintainer ruling.** A loopback service's safety never rests on the jail's network namespace ("jails … can be house type and then it's identical … solve it in both places"). This retires the premise of [WB-D4](../reference/wire-bridge.md#wb-d4) and the awscredadapter "no token" design | 2026-09-27 | [§2.2](#22-why-that-premise-is-false-in-a-jail-too) | ✅ `ea083e97`, `a5fd280f` |
 | NC-D3 | *Implementation decision.* The per-service mechanisms of [§2.3](#23-the-fix-every-service-authenticates-its-caller-at-every-notch): each client carries the secret in a slot it already has, so no agent changes, and the terminator authenticates by refresh-token match | 2026-09-28 | [§2.3](#23-the-fix-every-service-authenticates-its-caller-at-every-notch) | ✅ `ea083e97`, `a5fd280f` |
