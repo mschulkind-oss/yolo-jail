@@ -125,7 +125,7 @@ func TestNoPacksMeansNoDeclarations(t *testing.T) {
 		// nowhere — the injection reads the packs and nothing else, since the profile
 		// table it used to also fold died with the kind's body (OQ-PT8).
 		cmd := []string{"claude", "--print"}
-		if got, _ := packload.InjectLaunchFlags(empty, cmd); len(got) != len(cmd) {
+		if got, _ := packload.InjectLaunchFlags(empty, true, cmd); len(got) != len(cmd) {
 			t.Errorf("InjectLaunchFlags with no packs altered the command: %v", got)
 		}
 	}
@@ -223,18 +223,18 @@ func TestEveryShippedPacksHostFilesAreHonored(t *testing.T) {
 func TestCopilotFlagsInjectFromItsRealDeclaration(t *testing.T) {
 	packs := loadAll(t)
 
-	got, _ := packload.InjectLaunchFlags(packs, []string{"copilot", "sub"})
+	got, _ := packload.InjectLaunchFlags(packs, true, []string{"copilot", "sub"})
 	want := "copilot --yolo sub"
 	if strings.Join(got, " ") != want {
 		t.Errorf("got %q, want %q", strings.Join(got, " "), want)
 	}
 	// A binary no pack declares passes through.
-	if got, _ := packload.InjectLaunchFlags(packs, []string{"bash", "-c", "echo"}); len(got) != 3 {
+	if got, _ := packload.InjectLaunchFlags(packs, true, []string{"bash", "-c", "echo"}); len(got) != 3 {
 		t.Errorf("bash must be untouched: %v", got)
 	}
 	// The input slice is not mutated — the caller reuses it for the attach path.
 	in := []string{"copilot", "chat"}
-	_, _ = packload.InjectLaunchFlags(packs, in)
+	_, _ = packload.InjectLaunchFlags(packs, true, in)
 	if strings.Join(in, " ") != "copilot chat" {
 		t.Errorf("input mutated: %v", in)
 	}

@@ -522,7 +522,7 @@ func hostExec(flagArgs, cmd []string, out, errw io.Writer, stdin io.Reader) int 
 	}
 	// argv[0] stays the name the user typed, not the resolved path: agents branch on it
 	// (usage text, `$0`), and handing them an absolute path changes what they print.
-	argv := append([]string{cmd[0]}, cmd[1:]...)
+	argv := injectHostLaunchFlags(launch.packs, append([]string{cmd[0]}, cmd[1:]...), errw)
 	managed, err := prepareOpenAIAuthHost(cmd[0], errw)
 	if err != nil {
 		fmt.Fprintf(errw, "yolo host: prepare shared OpenAI authentication: %v\n", err)
@@ -564,6 +564,21 @@ func printHostLines(errw io.Writer, lines []string) {
 		}
 		fmt.Fprintln(errw, line)
 	}
+}
+
+// injectHostLaunchFlags is the host notch's argv rewrite: the SAME injector the jail launcher
+// and every in-jail carrier call (packload.InjectLaunchFlags), handed the host notch's posture
+// bit, so a pack's `guarded.launch` entry reaches `yolo host -- <bin>` and its `autonomous` one
+// never does (docs/plans/notch-convergence.md item 20, row D9). Before this the host exec'd the
+// argv as typed, and a guarded launch flag reached no notch at all.
+//
+// The rewrite is DISCLOSED in the jail's words (LaunchInjection.DisclosureLines), on stderr like
+// every other line this launch prints, and is never suppressible (OQ-RO3). Silent when nothing
+// was rewritten, which is every shipped pack today: none declares a guarded launch flag.
+func injectHostLaunchFlags(packs []*packload.Pack, argv []string, errw io.Writer) []string {
+	out, inj := packload.InjectLaunchFlags(packs, render.ProfileFor(render.KindHost).AgentAutonomy, argv)
+	printHostLines(errw, inj.DisclosureLines())
+	return out
 }
 
 // hostSyscallExec is the exec `yolo host` replaces itself with; a var so a test can pin

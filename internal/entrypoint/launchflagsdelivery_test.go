@@ -264,7 +264,7 @@ func TestTheGeneratedCarrierInjectsWhatTheInjectorWould(t *testing.T) {
 		}
 		got := logLines(t, logPath)
 
-		wantFull, _ := packload.InjectLaunchFlags(packs, append([]string{"target"}, argv...))
+		wantFull, _ := packload.InjectLaunchFlags(packs, true, append([]string{"target"}, argv...))
 		want := wantFull[1:]
 		if strings.Join(got, "\x00") != strings.Join(want, "\x00") {
 			t.Errorf("argv %v: the generated carrier and packload.InjectLaunchFlags disagree.\n"+

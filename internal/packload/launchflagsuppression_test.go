@@ -28,7 +28,7 @@ import (
 func TestTypingTheShortSpellingNoLongerSuppressesTheInjectedFlag(t *testing.T) {
 	packs := loadAll(t)
 
-	rewritten, _ := packload.InjectLaunchFlags(packs, []string{"copilot", "-y", "chat"})
+	rewritten, _ := packload.InjectLaunchFlags(packs, true, []string{"copilot", "-y", "chat"})
 	got := strings.Join(rewritten, " ")
 	if want := "copilot --yolo -y chat"; got != want {
 		t.Errorf("got %q, want %q — `-y` is no longer known to yolo as a spelling of `--yolo`, "+
@@ -38,7 +38,7 @@ func TestTypingTheShortSpellingNoLongerSuppressesTheInjectedFlag(t *testing.T) {
 	// The suppression that SURVIVES, against the same shipped declaration: the identical
 	// flag. That one needs no knowledge of copilot's grammar — it compares the flag yolo is
 	// about to add with the ones already there — which is the whole reason it stays.
-	rewritten, _ = packload.InjectLaunchFlags(packs, []string{"copilot", "--yolo", "chat"})
+	rewritten, _ = packload.InjectLaunchFlags(packs, true, []string{"copilot", "--yolo", "chat"})
 	got = strings.Join(rewritten, " ")
 	if want := "copilot --yolo chat"; got != want {
 		t.Errorf("got %q, want %q — a flag already in the argv must not be injected twice", got, want)

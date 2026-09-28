@@ -87,7 +87,7 @@ func TestConfigurePackSurfacesWithNoPacksWritesNothing(t *testing.T) {
 // disagreed with the launcher.
 //
 // It is also the interactive half of the notch pin: packAliases runs the injector at the
-// AUTONOMOUS posture (packload.InjectLaunchFlags, which hardcodes it), which is where
+// jail target's AUTONOMOUS posture (launchAutonomy, the render target's bit), which is where
 // copilot's `--yolo` now lives, so an
 // interactive shell in the jail gets the same permission bypass `yolo -- copilot` does. The
 // pack declares no other launch flag — `--no-auto-update` was dropped — so the whole alias is

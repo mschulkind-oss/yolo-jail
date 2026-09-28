@@ -1,9 +1,8 @@
 package run
 
 import (
-	"strings"
-
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
+	"github.com/mschulkind-oss/yolo-jail/internal/render"
 )
 
 // launchflagdisclosure.go is the disclosure for the one thing a launch does to the user's
@@ -63,7 +62,7 @@ import (
 // yet, on the attach path does not rewrite at all, and on macos-user writes into a shell rc
 // that backend's login zsh never reads. See docs/design/declaration-parity.md §5.6.
 func (o *Options) injectLaunchFlagsDisclosed(packs []*packload.Pack, argv []string) []string {
-	out, inj := packload.InjectLaunchFlags(packs, argv)
+	out, inj := packload.InjectLaunchFlags(packs, jailLaunchAutonomy(), argv)
 	o.noteLaunchFlagInjection(inj)
 	return out
 }
@@ -95,11 +94,22 @@ func (o *Options) noteLaunchFlagInjection(inj *packload.LaunchInjection) {
 		return
 	}
 	out := o.pr(o.Stderr)
-	out.print("[bold yellow]yolo CHANGED the command you asked for:[/bold yellow]")
-	out.print("[yellow]  you asked for: " + shquoteJoin(inj.Before) + "[/yellow]")
-	out.print("[yellow]  yolo will run: " + shquoteJoin(inj.After) + "[/yellow]")
-	out.print("[yellow]  added by pack " + inj.Pack + ": " + strings.Join(inj.Flags, " ") + "[/yellow]")
+	// The words are packload's (LaunchInjection.DisclosureLines), shared with `yolo host --`;
+	// only the color is this notch's.
+	for i, line := range inj.DisclosureLines() {
+		if i == 0 {
+			out.print("[bold yellow]" + line + "[/bold yellow]")
+			continue
+		}
+		out.print("[yellow]" + line + "[/yellow]")
+	}
 }
+
+// jailLaunchAutonomy is the posture bit a jail launch's argv rewrite reads: the jail notch's
+// policy, render.ProfileFor(render.KindJail), never a literal. The run pipeline launches only
+// the jail notch (refuseUnbuiltNotch turns every other --at away), so the notch is known here
+// and the bit is its answer (docs/plans/notch-convergence.md item 20).
+func jailLaunchAutonomy() bool { return render.ProfileFor(render.KindJail).AgentAutonomy }
 
 // injectLaunchFlagsForAttach is the injection for an attach into a jail whose packs differ from
 // the configured ones (OQ-PK2 (c): the jail keeps the packs it booted with, and its own launch
@@ -118,7 +128,7 @@ func (o *Options) injectLaunchFlagsForAttach(packs []*packload.Pack, argv []stri
 	if len(argv) == 0 {
 		return disclosed
 	}
-	out, inj := packload.InjectLaunchFlags(packs, argv)
+	out, inj := packload.InjectLaunchFlags(packs, jailLaunchAutonomy(), argv)
 	cmd := shquoteJoin(out)
 	if cmd == disclosed {
 		return cmd

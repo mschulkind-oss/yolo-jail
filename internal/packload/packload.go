@@ -27,6 +27,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg/manifest"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
+	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 )
 
 // Pack is a discovered pack: its declaration plus where its files are.
@@ -1124,6 +1125,15 @@ type LaunchInjection struct {
 // InjectLaunchFlags returns fullCommand with the flags declared for its leading binary
 // injected right after it, and the record of what it did (nil when it did nothing).
 //
+// autonomy is the TARGET's policy bit (render.Target.Profile().AgentAutonomy, or
+// render.ProfileFor(notch) where a caller has a notch and no target): true selects each
+// pack's autonomous posture, false its guarded one — exactly LaunchFlagsFor's parameter,
+// and the same bit packoverlay.Collect takes. It used to be hardcoded true here, which made
+// a `guarded.launch` entry unreachable at every notch: the jail callers wanted the
+// autonomous posture anyway, and the host never called this at all
+// (docs/plans/notch-convergence.md item 20, row D9). Every notch now calls this one
+// function and passes its own bit; the notch is an input, never a second fold.
+//
 // The direct `yolo -- <bin>` invocation and the interactive alias the entrypoint writes
 // are two spellings of one launch, and they agree BY CONSTRUCTION rather than by both
 // folding the same table: LaunchFlagsFor reads the selected autonomy posture and nothing
@@ -1149,11 +1159,11 @@ type LaunchInjection struct {
 // argv rather than being absorbed here by a table that only guessed. The launch prints
 // both argvs (run.noteLaunchFlagInjection), so the pair is something the user sees rather
 // than something they discover from copilot.
-func InjectLaunchFlags(packs []*Pack, fullCommand []string) ([]string, *LaunchInjection) {
+func InjectLaunchFlags(packs []*Pack, autonomy bool, fullCommand []string) ([]string, *LaunchInjection) {
 	if len(fullCommand) == 0 {
 		return fullCommand, nil
 	}
-	claim := launchFlagClaims(packs, true)[filepath.Base(fullCommand[0])]
+	claim := launchFlagClaims(packs, autonomy)[filepath.Base(fullCommand[0])]
 	if len(claim.flags) == 0 {
 		return fullCommand, nil
 	}
@@ -1175,6 +1185,26 @@ func InjectLaunchFlags(packs []*Pack, fullCommand []string) ([]string, *LaunchIn
 		Flags:  added,
 		Before: append([]string{}, fullCommand...),
 		After:  append([]string{}, out...),
+	}
+}
+
+// DisclosureLines is the one wording of an argv rewrite, for every notch that performs one:
+// the jail launcher (run.noteLaunchFlagInjection, which colors it) and `yolo host --`
+// (hostExec, which prefixes it). The first line is the verdict, the next two the before and
+// after argvs one above the other, quoted with shquote.Join so a line is copy-pasteable and
+// an argument containing a space cannot masquerade as two, and the last names the pack.
+//
+// Nil for a nil record, which is "nothing was rewritten": a disclosure printing nothing on
+// every launch is how a disclosure surface becomes wallpaper.
+func (inj *LaunchInjection) DisclosureLines() []string {
+	if inj == nil {
+		return nil
+	}
+	return []string{
+		"yolo CHANGED the command you asked for:",
+		"  you asked for: " + shquote.Join(inj.Before),
+		"  yolo will run: " + shquote.Join(inj.After),
+		"  added by pack " + inj.Pack + ": " + strings.Join(inj.Flags, " "),
 	}
 }
 

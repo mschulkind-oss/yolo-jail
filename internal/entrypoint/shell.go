@@ -63,7 +63,7 @@ func packAliases(e *Env) string {
 			// a bin another pack gives the flags to is still aliased here, and the record
 			// names THAT pack: the merge is "later pack wins", so the pack that installs a
 			// binary and the pack that claims its flags need not be the same one.
-			inj := launchFlagsFor(packs, inst.Bin)
+			inj := launchFlagsFor(e, packs, inst.Bin)
 			if inj == nil {
 				continue
 			}

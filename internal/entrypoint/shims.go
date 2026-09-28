@@ -428,10 +428,10 @@ func GenerateAgentLaunchers(e *Env) error {
 			switch inst.Kind {
 			case "npm":
 				launcher = npmAgentLauncher(inst, stampDir, receiptsFile(e),
-					agentUpdatesAllows(e, p.Name), servers, launchFlagsFor(packs, inst.Bin))
+					agentUpdatesAllows(e, p.Name), servers, launchFlagsFor(e, packs, inst.Bin))
 			case "native":
 				launcher = nativeAgentLauncher(inst, stampDir, receiptsFile(e), capturesDir(e),
-					agentUpdatesAllows(e, p.Name), servers, launchFlagsFor(packs, inst.Bin))
+					agentUpdatesAllows(e, p.Name), servers, launchFlagsFor(e, packs, inst.Bin))
 			default:
 				// UNREACHABLE from the boot path: LoadJailPacks reads manifests tolerantly,
 				// and DecodeTolerant drops a `program` whose `via` this build does not know
@@ -668,7 +668,7 @@ func GeneratePackageManagerLaunchers(e *Env) error {
 			continue // a pack already claimed this bin name
 		}
 		body := pkgManagerLauncher(pm.bin, pm.pkg, stampDir, receiptsFile(e),
-			launchFlagsFor(packs, pm.bin))
+			launchFlagsFor(e, packs, pm.bin))
 		if err := writeExecutable(launcherPath, body); err != nil {
 			return err
 		}

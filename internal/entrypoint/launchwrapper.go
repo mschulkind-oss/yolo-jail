@@ -78,8 +78,8 @@ func DeliverLaunchFlags(e *Env) error {
 
 	var delivered []*packload.LaunchInjection
 	var wrapped []string
-	for _, bin := range launchFlagBins(packs) {
-		inj := launchFlagsFor(packs, bin)
+	for _, bin := range launchFlagBins(e, packs) {
+		inj := launchFlagsFor(e, packs, bin)
 		if inj == nil {
 			// Unreachable: launchFlagBins lists the bins WITH flags. Kept because the two
 			// answers come from one injector and a future skip rule could disagree with

@@ -19,7 +19,7 @@ func TestTheInjectionRecordNamesWhatWasActuallyAdded(t *testing.T) {
 			`{"bin":"tool","flags":["--one","--two"]}]}}]}`)}
 	packs := []*Pack{p}
 
-	out, inj := InjectLaunchFlags(packs, []string{"tool", "sub"})
+	out, inj := InjectLaunchFlags(packs, true, []string{"tool", "sub"})
 	if inj == nil {
 		t.Fatal("a rewrite reported no injection record, so the launch discloses nothing")
 	}
@@ -38,7 +38,7 @@ func TestTheInjectionRecordNamesWhatWasActuallyAdded(t *testing.T) {
 	}
 
 	// One flag already typed: the record names the OTHER one only.
-	_, inj = InjectLaunchFlags(packs, []string{"tool", "--one"})
+	_, inj = InjectLaunchFlags(packs, true, []string{"tool", "--one"})
 	if inj == nil {
 		t.Fatal("a partial rewrite reported no injection record")
 	}
@@ -48,10 +48,10 @@ func TestTheInjectionRecordNamesWhatWasActuallyAdded(t *testing.T) {
 	}
 
 	// Every flag already typed: nothing changed, so there is nothing to disclose.
-	if _, inj := InjectLaunchFlags(packs, []string{"tool", "--one", "--two"}); inj != nil {
+	if _, inj := InjectLaunchFlags(packs, true, []string{"tool", "--one", "--two"}); inj != nil {
 		t.Errorf("an argv yolo did not change produced an injection record: %+v", inj)
 	}
-	if _, inj := InjectLaunchFlags(packs, []string{"other", "--one"}); inj != nil {
+	if _, inj := InjectLaunchFlags(packs, true, []string{"other", "--one"}); inj != nil {
 		t.Errorf("a binary no pack declares produced an injection record: %+v", inj)
 	}
 }

@@ -113,7 +113,7 @@ No declared channel could make the entry host-only at `8da7840d` (a posture list
 | `config-list` | No gate at all: Pass 3 places it at every notch, and `profile` is refused on the kind | `packoverlay.Collect`; `validateContribution` |
 | `config-overlay` + `profile` | Gates on a profile name, not the notch; and the patch replaces `packages` whole | `Collect` Pass 2 |
 | `autonomy`'s `config` half | Folds only into surfaces the declaring pack owns — a patch naming another pack's surface is inert plus a `FoldNote`, never refused. It lands in the MANAGED layer, which outranks capture and host, and replaces arrays, so even `pi` setting `packages` this way would clobber the user's own list on every render | `(*Pack).SurfacesForReport`, `foldPostureManaged`, `mergeManagedMap` |
-| `autonomy`'s `launch` half | Already cross-pack (`launchFlagClaims`), but `InjectLaunchFlags` asks for the autonomous posture only, so no guarded flag reaches a host launch; a flag would also miss IDE launches | `packload.InjectLaunchFlags` |
+| `autonomy`'s `launch` half | Already cross-pack (`launchFlagClaims`), but `InjectLaunchFlags` asked for the autonomous posture only, so no guarded flag reached a host launch (since 2026-09-28 it takes the target's posture and `yolo host --` calls it: [notch-convergence item 20](../plans/notch-convergence.md#tier-6--render)); a flag would also miss IDE launches, which still holds | `packload.InjectLaunchFlags` |
 | a derive | `luahook.DeriveCtx` carries no notch, and `computed` replaces arrays | `internal/agentcfg/luahook/derive.go` |
 | a host-only `packs` list | `packs` is one user-scope list for both notches; no `host_*` key selects packs | `internal/config` |
 
@@ -488,7 +488,7 @@ it leaks on `macos-user`, and it depends on the mark outliving the `assert` reti
 | **D. Mount the host's `list-record.json` and subtract** | **Moot.** The zero-mount signal it wanted already crosses as the launcher's `rendered` label ([`OQ-CR6`](../reference/config-target-resolution.md#oq-cr6)) |
 | **E. A Lua transform** | **Rejected.** Transforms were removed on 2026-09-11 (`2c5c84a1`, `e958ed96`); `luahook` is only the derive sandbox now, and [OQ-LT2](../reference/pack-system.md#oq-lt2) forbids a post-merge script slot |
 | **F. Sanitize the host bytes in the jail** (the first draft's second half) | **Rejected; moot on containers.** It filters bytes `hostSurfaceBytes` already discards under the label. In an unlabelled home it could only strip the user's own entry, against [`OQ-CR8`](../reference/config-target-resolution.md#oq-cr8). It is a second model of "which host bytes are yolo's" beside the mark, it knows only the selected packs' entries (so it misses a dropped pack's residue, which the mark covers), and it is a per-entry veto [the kind's limits](../reference/pack-system.md#config-list-limits) say does not exist |
-| **G. A guarded launch flag (`pi -e npm:…`)** | **Rejected.** `InjectLaunchFlags` asks for the autonomous posture only, and a flag misses IDE and direct launches |
+| **G. A guarded launch flag (`pi -e npm:…`)** | **Rejected.** `InjectLaunchFlags` asked for the autonomous posture only, and a flag misses IDE and direct launches. The first half is gone since 2026-09-28 ([notch-convergence item 20](../plans/notch-convergence.md#tier-6--render)); the second still rejects it |
 | **H. `host_management: own` plus `pi install` by hand** | **Not recommended.** Zero code, but the host capture stores `packages` as one whole array, which then shadows the contributing pack's own overlay from that day on |
 
 ---

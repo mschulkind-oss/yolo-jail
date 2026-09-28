@@ -180,6 +180,9 @@ apply it, and the launch says that too. See
 - On Linux, a jail running for more than a week could have its tools deleted by
   `nix-collect-garbage`, because `yolo prune` removed the GC root of the image it was running on.
   `yolo prune` now keeps that root for as long as a container uses the image.
+- A launch flag a pack declares in its `guarded` posture never reached any launch. `yolo host --`
+  now adds it, and says so the way a jail launch does, naming the pack and showing the command
+  before and after. The `autonomous` posture's flags still never reach your host.
 - The Claude OAuth broker could return the token a jail already held, and Claude Code stopped
   with `api_request_oauth_refresh_exhausted`.
 - Claude on its `codex` profile showed `did not translate` in place of ChatGPT's own errors.

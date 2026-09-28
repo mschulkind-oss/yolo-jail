@@ -60,10 +60,18 @@ const NoLaunchFlagsEnv = "YOLO_NO_LAUNCH_FLAGS"
 // real arguments do not exist until the script runs, and the skip rule they need is
 // re-stated in the shell by launchFlagsShellFn (pinned against this function by
 // TestTheGeneratedLauncherInjectsWhatTheInjectorWould).
-func launchFlagsFor(packs []*packload.Pack, bin string) *packload.LaunchInjection {
-	_, inj := packload.InjectLaunchFlags(packs, []string{bin})
+//
+// The posture is the RENDER TARGET's (launchAutonomy), the same bit the surface render hands
+// packoverlay.Collect, so the flags a carrier bakes and the config a surface renders always
+// come from one posture: autonomous in a jail, guarded for a host-targeted Env.
+func launchFlagsFor(e *Env, packs []*packload.Pack, bin string) *packload.LaunchInjection {
+	_, inj := packload.InjectLaunchFlags(packs, launchAutonomy(e), []string{bin})
 	return inj
 }
+
+// launchAutonomy is the posture bit every launch-flag fold in this package reads: the render
+// target's, never a literal (docs/plans/notch-convergence.md item 20).
+func launchAutonomy(e *Env) bool { return e.renderTarget().Profile().AgentAutonomy }
 
 // launchFlagBins lists every binary some pack declares launch flags for, in the order the
 // caller should walk them — sorted, so two boots of one jail write the same files and
@@ -73,9 +81,9 @@ func launchFlagsFor(packs []*packload.Pack, bin string) *packload.LaunchInjectio
 // it does not install (the image's, the workspace's, another pack's), and the host argv
 // rewrite has always honoured that. A carrier must exist for every one of them or the
 // in-jail spellings diverge from the host one on a fact the user cannot see.
-func launchFlagBins(packs []*packload.Pack) []string {
+func launchFlagBins(e *Env, packs []*packload.Pack) []string {
 	var out []string
-	for bin := range packload.LaunchFlagsFor(packs, true) {
+	for bin := range packload.LaunchFlagsFor(packs, launchAutonomy(e)) {
 		out = append(out, bin)
 	}
 	sort.Strings(out)

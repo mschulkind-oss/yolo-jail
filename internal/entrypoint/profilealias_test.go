@@ -102,7 +102,7 @@ func TestAliasAndDirectInvocationAgree(t *testing.T) {
 	}
 
 	// The direct path: what the host CLI injects into `yolo -- acme user-arg`.
-	direct, _ := packload.InjectLaunchFlags(packs, []string{"acme", "user-arg"})
+	direct, _ := packload.InjectLaunchFlags(packs, true, []string{"acme", "user-arg"})
 	if len(direct) != 3 || direct[0] != "acme" || direct[len(direct)-1] != "user-arg" {
 		t.Fatalf("injected argv %v — the direct path must keep the user's own arguments", direct)
 	}
