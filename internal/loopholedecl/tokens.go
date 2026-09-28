@@ -1,6 +1,10 @@
 package loopholedecl
 
-import "strings"
+import (
+	"net"
+	"strconv"
+	"strings"
+)
 
 // Module-dir tokens. {loophole_dir} resolves to the HOST-side absolute module
 // dir and is legal in host_daemon.cmd, doctor_cmd and host_bind_mounts[].host;
@@ -16,6 +20,64 @@ const (
 	TokenLoopholeDir     = "{loophole_dir}"
 	TokenJailLoopholeDir = "{jail_loophole_dir}"
 )
+
+// TokenListen is a jail daemon's LISTEN ADDRESS token, legal in `jail_daemon.cmd` and in the
+// values of a pack `env` contribution `served_by` that daemon. It resolves to the `host:port`
+// the daemon serves at in THIS launch: `jail_daemon.listen` as declared on a jail with a
+// network namespace of its own, and a port the launcher picked on one that shares the
+// launcher's (docs/plans/notch-convergence.md §2.4, NC-D41). One declaration, composed into
+// both the daemon's argv and its clients' pointer, so the port is written once.
+//
+// Spelled here because three packages read it: this schema refuses it where it cannot
+// resolve, internal/loopholes resolves it in the jail-daemon payload, and internal/packload
+// resolves it in a served pack env value.
+const TokenListen = "{listen}"
+
+// ListenAddressProblem returns why raw cannot be a jail daemon's `listen`, or "". It must be a
+// LOOPBACK IP literal and a port, `127.0.0.1:1460` or `[::1]:1460`: the address is bound inside
+// the jail and dialed by its clients over plain http, which the AWS SDK allows only to
+// loopback, and a hostname would be resolved by whoever reads it.
+func ListenAddressProblem(raw string) string {
+	host, port, err := net.SplitHostPort(raw)
+	if err != nil {
+		return "must be a loopback host:port, such as \"127.0.0.1:1460\""
+	}
+	ip := net.ParseIP(host)
+	if ip == nil || !ip.IsLoopback() {
+		return "must name a loopback IP literal (127.0.0.1 or [::1]), because the daemon " +
+			"binds it inside the jail and its clients dial it"
+	}
+	n, err := strconv.Atoi(port)
+	if err != nil || n < 1 || n > 65535 {
+		return "must carry a port between 1 and 65535"
+	}
+	return ""
+}
+
+// refuseListenTokenMismatch holds `jail_daemon.listen` and TokenListen in cmd together: a
+// declared address the argv never names is a port the launcher would move while the daemon
+// kept binding its own, and the token with no declaration resolves to nothing.
+func refuseListenTokenMismatch(manifestPath string, cmd []string, listen string) error {
+	named := false
+	for _, s := range cmd {
+		if strings.Contains(s, TokenListen) {
+			named = true
+			break
+		}
+	}
+	switch {
+	case named && listen == "":
+		return Errorf("%s: 'jail_daemon.cmd' names '%s', but 'jail_daemon.listen' is not "+
+			"declared — the token resolves to that address, so declare it (e.g. "+
+			"\"127.0.0.1:1460\") or drop the token", manifestPath, TokenListen)
+	case listen != "" && !named:
+		return Errorf("%s: 'jail_daemon.listen' is declared but 'jail_daemon.cmd' never "+
+			"names '%s' — the launcher moves the address on a shared network namespace, and a "+
+			"daemon binding a port of its own would not move with it; pass the token where "+
+			"the daemon takes its listen address", manifestPath, TokenListen)
+	}
+	return nil
+}
 
 // TokenState is the per-loophole STATE dir token, legal in `ca_cert`,
 // `host_daemon.cmd`, and `doctor_cmd`. It resolves
@@ -104,8 +166,17 @@ func JailLoopholeDir(name string) string {
 
 // refuseJailTokenInHostField rejects {jail_loophole_dir} in a field that runs
 // (or resolves) on the HOST.
+//
+// {listen} is refused here too: it is a jail daemon's own address, which only the jail
+// daemon's argv and its clients' pointer resolve.
 func refuseJailTokenInHostField(manifestPath, field string, args []string) error {
 	for _, s := range args {
+		if strings.Contains(s, TokenListen) {
+			return Errorf(
+				"%s: %s names '%s', a jail daemon's listen address — this field resolves"+
+					" on the HOST, where nothing substitutes it; only 'jail_daemon.cmd' takes it",
+				manifestPath, field, TokenListen)
+		}
 		if strings.Contains(s, TokenJailLoopholeDir) {
 			return Errorf(
 				"%s: %s names '%s', the module dir's CONTAINER mount point — this field"+

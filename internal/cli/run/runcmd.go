@@ -167,6 +167,10 @@ type Options struct {
 	// variable (callertokens.go, docs/reference/wire-bridge.md WB-D18): minted by the first
 	// composition that needed one, or adopted from the running jail by an attach. nil until then.
 	callerTokens map[string]string
+	// served is the SERVED ADDRESSES this process has settled on (servedaddresses.go,
+	// docs/plans/notch-convergence.md NC-D41): the ports picked for a jail sharing this
+	// process's network namespace, or the running jail's, adopted by an attach. Zero until then.
+	served servedAddressState
 	// runtime is the backend Run resolved (resolveRuntime), recorded for the compositions that
 	// run below it and must see the same one — the jail-daemon payload the caller tokens are
 	// minted from (profilechannel.go). "" until Run resolves it, which every hand-built test

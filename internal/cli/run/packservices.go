@@ -94,7 +94,12 @@ func serviceJailDaemons(packs []*packload.Pack) []loopholes.JailDaemonSpec {
 func (o *Options) jailDaemonsFor(cfg *jsonx.OrderedMap, rt string,
 	packs []*packload.Pack) []loopholes.JailDaemonSpec {
 	set := loopholes.NewHostSet(cfgMap(cfg, "loopholes"))
-	return set.JailDaemons(set.Enabled(), rt, serviceJailDaemons(packs))
+	specs := set.JailDaemons(set.Enabled(), rt, serviceJailDaemons(packs))
+	// WHERE EACH DAEMON LISTENS (servedaddresses.go): its declared address, or on a jail that
+	// shares this process's network namespace a port picked for this launch, settled once so
+	// the payload and every client composition read one answer.
+	o.settleServedAddresses(cfg, rt, specs, packs)
+	return o.withServedListen(specs)
 }
 
 // serviceEndpointEnvArgs emits the reachability witness's registration for a

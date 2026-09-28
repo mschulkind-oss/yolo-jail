@@ -155,10 +155,16 @@ func (c *packChannel) callerTokensAgree(settled map[string]string) bool {
 // composition run again over packs, the jail's own, with the running tokens adopted. Composed
 // again rather than patched, because the token reaches a derive's output (claude's
 // ANTHROPIC_AUTH_TOKEN) and only the derive knows where.
+//
+// The SERVED ADDRESSES are re-read the same way and for the same reason (servedaddresses.go):
+// the running jail's daemons bound their ports at its boot, so the attach adopts the map that
+// launch wrote, replacing whatever this process picked, and a channel composed for other ports
+// is composed again. An attach never picks a port of its own.
 func (o *Options) rekeyChannelForAttach(wsState string, cfgPacks []*packload.Pack,
 	channel *packChannel, compose func([]*packload.Pack) (*packChannel, error)) (*packChannel, error) {
 	o.adoptRunningCallerTokens(runningCallerTokens(wsState))
-	if channel.callerTokensAgree(o.callerTokens) {
+	o.adoptRunningServedAddresses(runningServedAddresses(wsState))
+	if channel.callerTokensAgree(o.callerTokens) && channel.servedAddressesAgree(o.served.moved) {
 		return channel, nil
 	}
 	return compose(cfgPacks)

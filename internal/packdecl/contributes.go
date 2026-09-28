@@ -21,6 +21,7 @@ import (
 	"unicode"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonptr"
+	"github.com/mschulkind-oss/yolo-jail/internal/loopholedecl"
 )
 
 // Contribution is one typed effect a pack declares. Exactly one kind per entry;
@@ -304,8 +305,13 @@ type Contribution struct {
 
 	// --- env ---
 	// Vars is a static map of environment variables the pack sets in the jail. Values
-	// are literal strings only — no interpolation, no secrets, no host references — so
-	// an env contribution never reads the host and is honored regardless of origin.
+	// are literal strings only — no secrets, no host references — so an env contribution
+	// never reads the host and is honored regardless of origin. The one interpolation is
+	// `{listen}` (loopholedecl.TokenListen) in a contribution `served_by` a jail daemon that
+	// declares `jail_daemon.listen`: core composes it to where that daemon serves at this
+	// launch, which is what makes the port a fact of the daemon rather than a second copy
+	// here (docs/plans/notch-convergence.md §2.4, NC-D41). It is refused without
+	// `served_by`.
 	Vars map[string]string `json:"vars,omitempty"`
 	// OverriddenBy names what, delivered into the same jail, makes a consumer IGNORE these
 	// vars: a launch that would carry both is refused, because the agent would silently use
@@ -3000,9 +3006,18 @@ func validateContribution(label string, c Contribution) []string {
 		if len(c.Vars) == 0 {
 			problems = append(problems, label+": env needs a non-empty \"vars\" map")
 		}
-		for k := range c.Vars {
+		for k, v := range c.Vars {
 			if k == "" {
 				problems = append(problems, label+": env has an empty variable name")
+			}
+			// {listen} is the one token an env value takes, and only beside `served_by`:
+			// it resolves to where the named daemon serves at this launch, so without a
+			// daemon it names nothing (docs/plans/notch-convergence.md §2.4, NC-D41).
+			if c.ServedBy == "" && strings.Contains(v, loopholedecl.TokenListen) {
+				problems = append(problems, fmt.Sprintf(
+					"%s: env var %q names %q, which resolves to the listen address of the "+
+						"daemon the contribution is \"served_by\" — declare \"served_by\" or "+
+						"write the address literally", label, k, loopholedecl.TokenListen))
 			}
 		}
 	case KindHook:

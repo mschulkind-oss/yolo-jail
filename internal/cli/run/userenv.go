@@ -7,6 +7,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
 // channelSectionHeader marks the per-entry channel inside yolo-user-env.sh. The
@@ -135,6 +136,12 @@ func writeUserEnvFile(userEnvFile string, userEnv *jsonx.OrderedMap, channel *pa
 		sort.Strings(tokenVars)
 		for _, k := range tokenVars {
 			b.WriteString(exportPlain(k, channel.callerTokens[k]))
+		}
+		// The SERVED ADDRESSES this entry composed, when it moved any (servedaddresses.go):
+		// the jail's daemons bound them at boot, and the next attach reads them back from here
+		// to compose its clients for the same ports.
+		if v := servedAddressesValue(channel.servedAddresses); v != "" {
+			b.WriteString(exportPlain(paths.ServedAddressesEnv, v))
 		}
 	}
 	_ = writeFileBeneathMode(dir, name, []byte(b.String()), userEnvFileMode)

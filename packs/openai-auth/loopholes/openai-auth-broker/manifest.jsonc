@@ -35,11 +35,18 @@
   // (YOLO_SERVICE_OPENAI_AUTH_BROKER_TOKEN), the Codex launcher's auth.json writer binds it into
   // the refresh marker Codex sends back, and the adapter refuses a refresh without it
   // (docs/plans/notch-convergence.md §2.3).
+  //
+  // `listen` is the one place the port is written. The argv takes it as `{listen}`, and so
+  // does packs/codex's CODEX_REFRESH_TOKEN_URL_OVERRIDE, so the launcher composes both from
+  // it: 1460 on a jail with a network namespace of its own, and a port it picked on one that
+  // shares the launcher's, where a second jail would otherwise find 1460 held
+  // (docs/plans/notch-convergence.md §2.4).
   "jail_daemon": {
     "cmd": [
       "yolo-jaild", "openai-auth-adapter",
-      "--listen", "127.0.0.1:1460"
+      "--listen", "{listen}"
     ],
+    "listen": "127.0.0.1:1460",
     "restart": "on-failure",
     "caller_token": true
   },

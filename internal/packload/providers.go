@@ -343,6 +343,11 @@ func adaptEndpoints(table *jsonx.OrderedMap, packs []*Pack, cfg composeOpts) {
 			address := a.Address
 			if override, ok := addresses[AdapterKey(a.From, a.To)]; ok && override != "" {
 				address = override
+			} else if a.Service != "" && cfg.servedSet {
+				// A service-served address answers at its SERVED address (ServedDaemons): the
+				// declared one on a private namespace, a port the launcher picked on a shared
+				// one. The user's override is not a declared address, so it never moves.
+				address = cfg.served.ServedURL(address)
 			}
 			addEndpoint(entry, a.To, address, serviceCredentialEnv(a))
 			offered[a.To] = true

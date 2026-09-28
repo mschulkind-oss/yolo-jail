@@ -37,6 +37,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/agentenv"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/loopholedecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 )
 
@@ -122,6 +123,11 @@ type CredentialScope struct {
 	// unservedEnv is every pack env variable withheld because its daemon is not served here,
 	// keyed by variable, naming the daemon (ScopeInput.Served).
 	unservedEnv map[string]string
+	// unlistenedEnv is every pack env variable withheld because its value names
+	// loopholedecl.TokenListen and the daemon it is served by has no served address — a pack
+	// pointing at a daemon that declares no `jail_daemon.listen` — keyed by variable, naming
+	// the daemon.
+	unlistenedEnv map[string]string
 }
 
 // AgentDelivery is what one agent receives beyond the shared set.
@@ -236,6 +242,20 @@ func (s *CredentialScope) servedFold(fold []EnvFoldEntry) []EnvFoldEntry {
 			s.unservedEnv[e.Key] = e.ServedBy
 			continue
 		}
+		// The pointer's address is COMPOSED from the daemon that serves it
+		// (loopholedecl.TokenListen, NC-D41): the served address of this launch, never a
+		// second literal in the pack that the daemon's port could drift away from.
+		if e.ServedBy != "" {
+			v, ok := s.served.resolveListen(e.ServedBy, e.Value)
+			if !ok {
+				if s.unlistenedEnv == nil {
+					s.unlistenedEnv = map[string]string{}
+				}
+				s.unlistenedEnv[e.Key] = e.ServedBy
+				continue
+			}
+			e.Value = v
+		}
 		out = append(out, e)
 	}
 	return out
@@ -264,7 +284,7 @@ func (s *CredentialScope) FoldFor(agent string) []EnvFoldEntry {
 // servedByLaunch leaves out a variable the launch sets itself from a server of its own
 // (UnservedLines); nil leaves out none.
 func (s *CredentialScope) UnservedEnvLines(servedByLaunch func(string) bool) []string {
-	if s == nil || len(s.unservedEnv) == 0 {
+	if s == nil || (len(s.unservedEnv) == 0 && len(s.unlistenedEnv) == 0) {
 		return nil
 	}
 	byDaemon := map[string][]string{}
@@ -290,6 +310,22 @@ func (s *CredentialScope) UnservedEnvLines(servedByLaunch func(string) bool) []s
 		sort.Strings(vars)
 		lines = append(lines, strings.Join(vars, ", ")+" — points at the "+
 			strconv.Quote(daemon)+" jail daemon, "+why+", so nothing would answer it")
+	}
+	unlistened := map[string][]string{}
+	var bare []string
+	for k, daemon := range s.unlistenedEnv {
+		if _, seen := unlistened[daemon]; !seen {
+			bare = append(bare, daemon)
+		}
+		unlistened[daemon] = append(unlistened[daemon], k)
+	}
+	sort.Strings(bare)
+	for _, daemon := range bare {
+		vars := unlistened[daemon]
+		sort.Strings(vars)
+		lines = append(lines, strings.Join(vars, ", ")+" — names "+loopholedecl.TokenListen+
+			", the listen address of the "+strconv.Quote(daemon)+" jail daemon, which declares "+
+			"none (jail_daemon.listen), so there is no address to compose")
 	}
 	return lines
 }

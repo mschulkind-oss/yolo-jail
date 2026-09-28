@@ -11,6 +11,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/execx"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/loopholedecl"
 )
 
 // warnSink/infof are the package's log sinks.
@@ -132,6 +133,20 @@ type JailDaemonSpec struct {
 	// input internal/cli/run's callerTokenVars mints from. NOT on the wire: the supervisor
 	// runs the argv and has no use for it, so JailDaemonPayload leaves it out.
 	CallerToken bool
+	// Listen is the address the daemon serves at in THIS launch, "" for a daemon that listens
+	// on no declared port. The composer copies the loophole's declared `jail_daemon.listen`;
+	// a launch whose jail shares its network namespace replaces it with a port it picked
+	// (internal/cli/run's served addresses, docs/plans/notch-convergence.md NC-D41).
+	// JailDaemonPayload resolves Cmd's loopholedecl.TokenListen to it, so the argv and the
+	// address the launch composes for the daemon's clients are one value.
+	Listen string
+}
+
+// ResolvedCmd is the argv this spec runs: Cmd with loopholedecl.TokenListen resolved to Listen.
+// The one resolution, read by the payload writer and by every report that prints the argv, so a
+// report never shows a port the daemon was not handed.
+func (sp JailDaemonSpec) ResolvedCmd() []string {
+	return substituteAll(sp.Cmd, loopholedecl.TokenListen, sp.Listen)
 }
 
 // JailDaemons composes THIS LAUNCH'S jail-daemon entries — every admitted record's own,
@@ -166,7 +181,7 @@ func JailDaemonPayload(specs []JailDaemonSpec) []any {
 	for _, sp := range specs {
 		spec := jsonx.NewOrderedMap()
 		spec.Set("name", sp.Name)
-		spec.Set("cmd", toAnySlice(sp.Cmd))
+		spec.Set("cmd", toAnySlice(sp.ResolvedCmd()))
 		spec.Set("restart", sp.Restart)
 		out = append(out, spec)
 	}
@@ -304,7 +319,7 @@ func jailDaemonSpecs(loopholes []*Loophole, runtime string, gate *Set,
 		}
 		specs = append(specs, JailDaemonSpec{
 			Name: m.Name, Cmd: m.JailDaemon.Cmd, Restart: m.JailDaemon.Restart,
-			CallerToken: m.JailDaemon.CallerToken,
+			CallerToken: m.JailDaemon.CallerToken, Listen: m.JailDaemon.Listen,
 		})
 	}
 	// Pack services' jail daemons join the loopholes' own entries, one list, one env

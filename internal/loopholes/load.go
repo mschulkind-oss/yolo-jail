@@ -248,6 +248,7 @@ func resolve(m *loopholedecl.Manifest, modulePath string) *Loophole {
 			Cmd:         substituteAll(m.JailDaemon.Cmd, loopholedecl.TokenJailLoopholeDir, JailLoopholeDir(m.Name)),
 			Restart:     m.JailDaemon.Restart,
 			CallerToken: m.JailDaemon.CallerToken,
+			Listen:      m.JailDaemon.Listen,
 		}
 	}
 

@@ -23,9 +23,14 @@ func (o *Options) predictedServed(merged *jsonx.OrderedMap, packs []*packload.Pa
 	}
 	set := loopholes.NewHostSet(subMap(merged, "loopholes"))
 	var names []string
+	listen := map[string]string{}
 	for _, spec := range set.JailDaemons(set.Enabled(), rt, nil) {
 		names = append(names, spec.Name)
+		listen[spec.Name] = spec.Listen
 	}
 	names = append(names, packload.ServiceJailDaemonNames(packs)...)
-	return packload.ServedAtRuntime(rt, names)
+	// Each daemon at its DECLARED listen address: a prediction binds nothing, so it has no
+	// port of a shared namespace's launch to know, and a pointer naming {listen} composes to
+	// the address a private namespace serves (docs/plans/notch-convergence.md NC-D41).
+	return packload.ServedAtRuntime(rt, names).WithListen(listen)
 }

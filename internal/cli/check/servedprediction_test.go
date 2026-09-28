@@ -39,3 +39,19 @@ func TestCheckPredictsTheBridgedPairingPerRuntime(t *testing.T) {
 		})
 	}
 }
+
+// THE PREDICTION CARRIES EACH DAEMON'S DECLARED LISTEN ADDRESS (docs/plans/notch-convergence.md
+// NC-D41): a pack env pointer naming {listen} composes from it, and a prediction binds nothing,
+// so it names the address a private namespace serves. Without it every such pointer reads as one
+// whose daemon declares no address and is withheld from the prediction's gate. Deleting
+// predictedServed's WithListen fails this.
+func TestCheckPredictsEachDaemonAtItsDeclaredListenAddress(t *testing.T) {
+	moduleRoot := isolatedModuleDir(t)
+	writeLoopholeManifest(t, moduleRoot, "acme-adapter",
+		`"name":"acme-adapter","description":"d","transport":"none","default_enabled":true,`+
+			`"jail_daemon":{"cmd":["yolo-jaild","acme","--listen","{listen}"],"listen":"127.0.0.1:1999"}`)
+	served := (&Options{}).predictedServed(useProfiles("claude", "cerebras"), nil)
+	if got := served.Listen("acme-adapter"); got != "127.0.0.1:1999" {
+		t.Errorf("predicted listen address = %q, want the declared 127.0.0.1:1999", got)
+	}
+}

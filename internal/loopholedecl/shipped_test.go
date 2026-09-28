@@ -698,9 +698,12 @@ func TestShippedAWSAuthFields(t *testing.T) {
 		t.Errorf("requires = %+v, want none — a loophole whose program is missing must fail "+
 			"loudly at spawn, not disappear from `yolo loopholes list`", m.Requires)
 	}
-	wantJail := []string{"yolo-jaild", "aws-credential-adapter", "--listen", "127.0.0.1:1461"}
-	if m.JailDaemon == nil || !reflect.DeepEqual(m.JailDaemon.Cmd, wantJail) {
-		t.Fatalf("jail_daemon = %+v, want cmd %v", m.JailDaemon, wantJail)
+	// The port is declared once, as `listen`, and the argv takes it as the token the launcher
+	// resolves (docs/plans/notch-convergence.md NC-D41).
+	wantJail := []string{"yolo-jaild", "aws-credential-adapter", "--listen", loopholedecl.TokenListen}
+	if m.JailDaemon == nil || !reflect.DeepEqual(m.JailDaemon.Cmd, wantJail) ||
+		m.JailDaemon.Listen != "127.0.0.1:1461" {
+		t.Fatalf("jail_daemon = %+v, want cmd %v listening at 127.0.0.1:1461", m.JailDaemon, wantJail)
 	}
 	if m.JailDaemon.Restart != "on-failure" {
 		t.Errorf("restart = %q, want on-failure", m.JailDaemon.Restart)

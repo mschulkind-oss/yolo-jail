@@ -58,6 +58,7 @@ const (
 	keyPreamble      = "preamble"
 	keyRestart       = "restart"
 	keyCallerToken   = "caller_token"
+	keyListen        = "listen"
 	keyHost          = "host"
 	keyContainer     = "container"
 	keyReadonly      = "readonly"
@@ -183,7 +184,7 @@ var (
 	// already shared across objects — and the word means the same thing in both
 	// places: what is this value shared across.
 	hostDaemonKeys    = []string{keyCmd, keyEnv, keyPublishes, keyRequestEnd, keyPreamble, keyScope}
-	jailDaemonKeys    = []string{keyCmd, keyRestart, keyCallerToken}
+	jailDaemonKeys    = []string{keyCmd, keyRestart, keyCallerToken, keyListen}
 	interceptKeys     = []string{keyHost}
 	hostBindMountKeys = []string{keyHost, keyContainer, keyReadonly}
 	requiresKeys      = []string{keyCommandOnPath, keyFileExists}

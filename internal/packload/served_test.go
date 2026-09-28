@@ -58,6 +58,13 @@ func TestServedAtRuntimeIsNothingOnMacosUser(t *testing.T) {
 // CODEX_REFRESH_TOKEN_URL_OVERRIDE pointed at :1460 at every notch. Now each is delivered where
 // its daemon runs and withheld, and named, everywhere else. Deleting `served_by` from either
 // pack, or the gate's filter, fails this.
+// declaredListen is the two shipped adapters' declared listen addresses, the served addresses a
+// private-namespace launch hands the served set.
+var declaredListen = map[string]string{
+	"openai-auth-broker": "127.0.0.1:1460",
+	"aws-auth":           "127.0.0.1:1461",
+}
+
 func TestAPointerIsDeliveredOnlyWhereItsDaemonIsServed(t *testing.T) {
 	packs := embeddedNamed(t, "codex", "openai-auth", "aws-auth")
 	profiles := map[string]string{"codex": "bedrock"}
@@ -80,7 +87,7 @@ func TestAPointerIsDeliveredOnlyWhereItsDaemonIsServed(t *testing.T) {
 	const refresh, awsURI, awsToken = "CODEX_REFRESH_TOKEN_URL_OVERRIDE",
 		"AWS_CONTAINER_CREDENTIALS_FULL_URI", "AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE"
 
-	container := ServedAtContainer([]string{"openai-auth-broker", "aws-auth"})
+	container := ServedAtContainer([]string{"openai-auth-broker", "aws-auth"}).WithListen(declaredListen)
 	s := compose(&container)
 	if _, ok := s.DeliveredPackEnv(refresh); !ok {
 		t.Errorf("a container launch serving the OpenAI adapter lost %s", refresh)
@@ -116,7 +123,7 @@ func TestAPointerIsDeliveredOnlyWhereItsDaemonIsServed(t *testing.T) {
 
 	// A container launch whose payload lacks the daemon (aws-auth left disabled) withholds its
 	// pointer too, saying why in that notch's terms.
-	partial := ServedAtContainer([]string{"openai-auth-broker"})
+	partial := ServedAtContainer([]string{"openai-auth-broker"}).WithListen(declaredListen)
 	s = compose(&partial)
 	if foldHas(s.FoldFor("codex"), awsURI) {
 		t.Error("a launch that does not run aws-auth delivered its pointer")

@@ -107,6 +107,15 @@ type JailDaemon struct {
 	// cannot carry a secret leaves it false and authenticates some other way, as the Claude
 	// OAuth terminator does (docs/plans/notch-convergence.md §2.3). Default false.
 	CallerToken bool
+	// Listen is `jail_daemon.listen`: the loopback `host:port` the daemon serves its callers at
+	// on a jail with a network namespace of its own, and the one place that port is written.
+	// Cmd spells it as TokenListen, and a pack `env` contribution `served_by` this loophole
+	// spells it the same way, so the launcher composes both from this value: the declared
+	// address on a private namespace, and on a SHARED one (`network.mode: host`, a nested
+	// podman forced onto `--net=host`) an ephemeral port it picked, so two jails on one
+	// loopback do not contend for it (docs/plans/notch-convergence.md §2.4, NC-D41). "" for a
+	// daemon that listens on no loopback port. Declared exactly when Cmd names the token.
+	Listen string
 }
 
 // HostDaemon is a process spawned on the HOST — the sharpest thing a manifest can
@@ -1010,7 +1019,22 @@ func parseJailDaemon(manifestPath string, raw any) (*JailDaemon, error) {
 		}
 		callerToken = b
 	}
-	return &JailDaemon{Cmd: cmd, Restart: restart, CallerToken: callerToken}, nil
+	listen := ""
+	if lv, ok := m.Get(keyListen); ok && lv != nil {
+		s, isStr := lv.(string)
+		if !isStr {
+			return nil, Errorf("%s: 'jail_daemon.listen' must be a string, not %s",
+				manifestPath, pytext.Repr(Str(lv)))
+		}
+		if why := ListenAddressProblem(s); why != "" {
+			return nil, Errorf("%s: 'jail_daemon.listen' %s %s", manifestPath, pytext.Repr(s), why)
+		}
+		listen = s
+	}
+	if err := refuseListenTokenMismatch(manifestPath, cmd, listen); err != nil {
+		return nil, err
+	}
+	return &JailDaemon{Cmd: cmd, Restart: restart, CallerToken: callerToken, Listen: listen}, nil
 }
 
 // parseEnvMap builds an insertion-ordered EnvMap from a JSON object, coercing

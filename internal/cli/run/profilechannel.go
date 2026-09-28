@@ -88,6 +88,11 @@ type packChannel struct {
 	// served is what this launch's notch serves (servedDaemons), for the checks that read
 	// the channel after it is composed (checkEnvOverrides).
 	served packload.ServedDaemons
+	// servedAddresses is the declared-to-served address map this entry was composed with
+	// (servedaddresses.go): the ports a fresh launch picked on a shared network namespace, or
+	// the running jail's on an attach. The writer records it in the channel section, which is
+	// where the next attach reads it back. nil when nothing moved.
+	servedAddresses map[string]string
 }
 
 // composePackChannel composes the channel from the config and the STAGED pack set.
@@ -155,6 +160,7 @@ func (o *Options) composePackChannel(cfg *jsonx.OrderedMap, packs []*packload.Pa
 	c := &packChannel{
 		unservedVias:                unservedVias,
 		served:                      served,
+		servedAddresses:             o.movedServedAddresses(),
 		callerTokens:                callerTokens,
 		profiles:                    profiles,
 		providers:                   providers,

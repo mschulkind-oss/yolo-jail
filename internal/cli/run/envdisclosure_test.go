@@ -33,7 +33,7 @@ func TestLaunchBannerQualifiesAGatedEnvVariable(t *testing.T) {
 		"AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE=/run/yolo/caller-tokens/YOLO_SERVICE_AWS_AUTH_TOKEN " +
 		"when profile \"bedrock\" is active  [env]\n" +
 		"  aws-auth: SETS an environment variable inside the jail: " +
-		"AWS_CONTAINER_CREDENTIALS_FULL_URI=http://127.0.0.1:1461/credentials " +
+		"AWS_CONTAINER_CREDENTIALS_FULL_URI=http://{listen}/credentials " +
 		"when profile \"bedrock\" is active  [env]\n"
 	if got := stderr.String(); got != want {
 		t.Errorf("the launch banner's env disclosure for aws-auth:\n--- got ---\n%s--- want ---\n%s",

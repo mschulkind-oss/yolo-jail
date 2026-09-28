@@ -18,14 +18,26 @@ package packload
 // serves is left out, and a pairing that needed it refuses by name (ES-D18, generalized).
 
 import (
+	"net/url"
 	"sort"
 	"strconv"
+	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/loopholedecl"
 )
 
-// ServedDaemons is the set of jail daemons served at one notch. The zero value serves nothing,
-// which is the host's and macos-user's answer.
+// ServedDaemons is the set of jail daemons served at one notch, and WHERE each serves. The zero
+// value serves nothing, which is the host's and macos-user's answer.
+//
+// A SERVED ADDRESS (coined here, docs/plans/notch-convergence.md NC-D41) is the loopback
+// `host:port` a served daemon, adaptation or via route answers at in THIS launch. It is the
+// declared one — a loophole's `jail_daemon.listen`, a service's adapter `address` or
+// `via_address` — on a jail with a network namespace of its own. On a jail that shares the
+// launcher's (`network.mode: host`, a nested podman forced onto `--net=host`) the launcher
+// picks an ephemeral port for each instead, because two jails on one loopback would otherwise
+// contend for one port. The launcher is the only writer; every composer reads it from here, so
+// a daemon's argv, its clients' pack env pointer and the provider table cannot disagree.
 type ServedDaemons struct {
 	// runs is whether this notch runs jail daemons at all. It is what separates "this daemon
 	// is not in the payload" (a container launch that did not enable it) from "no daemon
@@ -33,6 +45,76 @@ type ServedDaemons struct {
 	// another service pack serve its address.
 	runs  bool
 	names map[string]bool
+	// listen is each served daemon's served address, keyed by daemon name: what TokenListen
+	// resolves to in a pack env value `served_by` it. Absent for a daemon that declares none.
+	listen map[string]string
+	// rebind maps a declared loopback `host:port` a pack service serves at to its served
+	// address, for the declared addresses this launch moved. Empty on a private namespace.
+	rebind map[string]string
+}
+
+// WithListen returns s with each daemon's served address, keyed by daemon name (internal/cli/run
+// reads it off the composed payload's JailDaemonSpec.Listen). An empty address is skipped.
+func (s ServedDaemons) WithListen(listen map[string]string) ServedDaemons {
+	s.listen = nil
+	for name, addr := range listen {
+		if addr == "" {
+			continue
+		}
+		if s.listen == nil {
+			s.listen = map[string]string{}
+		}
+		s.listen[name] = addr
+	}
+	return s
+}
+
+// WithRebind returns s with the declared-to-served address map for a pack service's declared
+// adapter and via addresses (served address, above). nil moves nothing.
+func (s ServedDaemons) WithRebind(rebind map[string]string) ServedDaemons {
+	s.rebind = rebind
+	return s
+}
+
+// Listen is the served address of the daemon named name, "" when it is not served here or
+// declares no listen address.
+func (s ServedDaemons) Listen(name string) string {
+	if !s.Serves(name) {
+		return ""
+	}
+	return s.listen[name]
+}
+
+// ServedURL is declared, a pack service's declared base URL, with its `host:port` replaced by
+// the served address this launch moved it to; declared unchanged when the launch moved nothing
+// there, which is every private-namespace launch.
+func (s ServedDaemons) ServedURL(declared string) string {
+	if len(s.rebind) == 0 {
+		return declared
+	}
+	u, err := url.Parse(declared)
+	if err != nil || u.Host == "" {
+		return declared
+	}
+	to, ok := s.rebind[u.Host]
+	if !ok {
+		return declared
+	}
+	u.Host = to
+	return u.String()
+}
+
+// resolveListen is value with TokenListen resolved to the served address of daemon, and ok
+// false when value names the token and daemon has no served address to give it.
+func (s ServedDaemons) resolveListen(daemon, value string) (string, bool) {
+	if !strings.Contains(value, loopholedecl.TokenListen) {
+		return value, true
+	}
+	addr := s.Listen(daemon)
+	if addr == "" {
+		return "", false
+	}
+	return strings.ReplaceAll(value, loopholedecl.TokenListen, addr), true
 }
 
 // ServedAtContainer is the set a container runtime serves: every jail daemon its composed
@@ -149,8 +231,8 @@ func UnservedAdaptationsAt(selected []*Pack, addresses map[string]string, served
 }
 
 // ViaServedAt returns resolved with the via address cleared from every profile whose via
-// service is not served at this notch, Via itself kept, and the names of the profiles it
-// cleared, sorted. ViaURLFor, the one predicate both notches' derive paths ask "is this agent's
+// service is not served at this notch, and every other via address at its served address, Via
+// itself kept, and the names of the profiles it cleared, sorted. ViaURLFor, the one predicate both notches' derive paths ask "is this agent's
 // via live?", then answers "" for those, so each agent keeps its own client. Via stays stated,
 // so a reader of the table still sees which profiles route through a service, and the cleared
 // names are what a launch discloses (P4: what a notch cannot do, it says).
@@ -166,6 +248,9 @@ func ViaServedAt(resolved map[string]ResolvedProfile, packs []*Pack,
 			r.ViaBase = ""
 			cleared = append(cleared, name)
 		}
+		// A served via answers at its served address, which on a shared network namespace
+		// is a port the launcher picked rather than the declared one.
+		r.ViaBase = served.ServedURL(r.ViaBase)
 		out[name] = r
 	}
 	sort.Strings(cleared)

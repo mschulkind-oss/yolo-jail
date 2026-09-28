@@ -195,3 +195,35 @@ func TestAppleContainerInterceptSkipDropsTheJailDaemonToo(t *testing.T) {
 		}
 	}
 }
+
+// THE PAYLOAD RESOLVES {listen} TO THE SPEC'S LISTEN ADDRESS (docs/plans/notch-convergence.md
+// NC-D41): the composer copies the manifest's declared `jail_daemon.listen`, the launch may move
+// it, and the one writer puts whichever it holds on the argv, so the token never reaches the
+// supervisor. Deleting the substitution in JailDaemonPayload, or the composer's copy of Listen,
+// fails this.
+func TestThePayloadResolvesTheListenToken(t *testing.T) {
+	unsetJail(t)
+	md := modsDir(t)
+	adapter := mkdir(t, filepath.Join(md, "adapter"))
+	writeManifest(t, adapter, map[string]any{
+		"name": "adapter", "description": "adapter",
+		"jail_daemon": map[string]any{
+			"cmd": []any{"yolo-jaild", "adapter", "--listen", "{listen}"}, "listen": "127.0.0.1:1460",
+		},
+	})
+	set := approvedSetFrom(md)
+	specs := set.JailDaemons(set.Enabled(), "podman", nil)
+	if len(specs) != 1 || specs[0].Listen != "127.0.0.1:1460" {
+		t.Fatalf("specs = %+v, want the adapter at its declared 127.0.0.1:1460", specs)
+	}
+	for listen, want := range map[string]string{"": "127.0.0.1:1460", "127.0.0.1:41460": "127.0.0.1:41460"} {
+		if listen != "" {
+			specs[0].Listen = listen
+		}
+		args := jailDaemonEnvArgs(specs)
+		if len(args) != 2 || !strings.Contains(args[1], `"--listen", "`+want+`"`) ||
+			strings.Contains(args[1], "{listen}") {
+			t.Errorf("payload for Listen %q = %v, want --listen %s", specs[0].Listen, args, want)
+		}
+	}
+}

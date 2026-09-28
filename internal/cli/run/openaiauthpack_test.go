@@ -14,6 +14,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/loopholedecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/packstage"
@@ -149,9 +150,11 @@ func TestShippedOpenAIAuthPackOwnsOneHostSingletonAndAdapter(t *testing.T) {
 	if !filepath.IsAbs(stateFile) {
 		t.Fatalf("resolved broker state file = %q, want an absolute host path", stateFile)
 	}
-	wantJail := []string{"yolo-jaild", "openai-auth-adapter", "--listen", "127.0.0.1:1460"}
+	// The port is declared once, as `listen`, and the argv takes it as the token the payload
+	// resolves (docs/plans/notch-convergence.md NC-D41).
+	wantJail := []string{"yolo-jaild", "openai-auth-adapter", "--listen", loopholedecl.TokenListen}
 	if lp.JailDaemon == nil || !reflect.DeepEqual(lp.JailDaemon.Cmd, wantJail) ||
-		lp.JailDaemon.Restart != "on-failure" {
+		lp.JailDaemon.Restart != "on-failure" || lp.JailDaemon.Listen != "127.0.0.1:1460" {
 		t.Errorf("jail daemon = %+v, want adapter %v", lp.JailDaemon, wantJail)
 	}
 	if !reflect.DeepEqual(lp.StateFiles, []string{".mount-sentinel"}) {

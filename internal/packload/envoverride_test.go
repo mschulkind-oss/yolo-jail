@@ -450,7 +450,7 @@ func TestShippedAWSAuthFootprintGolden(t *testing.T) {
 	const uri = "AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE, AWS_CONTAINER_CREDENTIALS_FULL_URI"
 	want := []string{
 		`env AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE =/run/yolo/caller-tokens/YOLO_SERVICE_AWS_AUTH_TOKEN when profile "bedrock" is active`,
-		`env AWS_CONTAINER_CREDENTIALS_FULL_URI =http://127.0.0.1:1461/credentials when profile "bedrock" is active`,
+		`env AWS_CONTAINER_CREDENTIALS_FULL_URI =http://{listen}/credentials when profile "bedrock" is active`,
 		`loophole aws-auth`,
 		`overridden-by ` + uri + ` launch refused beside AWS_BEARER_TOKEN_BEDROCK (when profile "bedrock" is active)`,
 		`overridden-by ` + uri + ` launch refused beside AWS_ACCESS_KEY_ID + AWS_SECRET_ACCESS_KEY unless AWS_PROFILE is also delivered (when profile "bedrock" is active)`,

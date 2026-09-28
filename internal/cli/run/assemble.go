@@ -1007,12 +1007,22 @@ func composedProviders(cfg *jsonx.OrderedMap, packs []*packload.Pack,
 // payload is specs (jailDaemonsFor): a container runtime serves every daemon in it, and
 // macos-user, which has no in-jail supervisor and declines every one
 // (noteMacosUserJailDaemonDeclines), serves none (docs/plans/notch-convergence.md §4 item 2).
+//
+// It also carries WHERE each serves (servedaddresses.go): every daemon's served listen address,
+// read off the payload, and the declared-to-served map for the pack services' adapter and via
+// addresses, so the provider table, the via base and the pack env pointers compose the same
+// ports the payload hands the daemons.
 func (o *Options) servedDaemons(specs []loopholes.JailDaemonSpec) packload.ServedDaemons {
 	names := make([]string, 0, len(specs))
+	listen := map[string]string{}
 	for _, s := range specs {
 		names = append(names, s.Name)
+		if s.Listen != "" {
+			listen[s.Name] = s.Listen
+		}
 	}
-	return packload.ServedAtRuntime(o.runtime, names)
+	return packload.ServedAtRuntime(o.runtime, names).WithListen(listen).
+		WithRebind(o.movedServedAddresses())
 }
 
 // commonEnvBlock builds the big -e env block. Frozen contract (order and

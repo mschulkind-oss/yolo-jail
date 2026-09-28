@@ -65,7 +65,7 @@
       "kind": "env",
       "served_by": "openai-auth-broker",
       "vars": {
-        "CODEX_REFRESH_TOKEN_URL_OVERRIDE": "http://127.0.0.1:1460/oauth/token"
+        "CODEX_REFRESH_TOKEN_URL_OVERRIDE": "http://{listen}/oauth/token"
       }
     },
     {

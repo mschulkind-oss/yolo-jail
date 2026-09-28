@@ -58,16 +58,16 @@ import (
 // drift loopholeinert.go's "one mechanism means one selection, not just one rendering" is a
 // long note about.
 //
-// The argv is printed because the name alone does not tell a user what is missing: the payload
-// that named `yolo-jaild openai-auth-adapter --listen 127.0.0.1:1460` is the only place the
-// dead port a Codex refresh will dial is written down.
+// The argv is printed, resolved (JailDaemonSpec.ResolvedCmd), because the name alone does not
+// tell a user what is missing: `yolo-jaild openai-auth-adapter --listen 127.0.0.1:1460` says
+// which port nothing on this backend binds.
 func jailDaemonDeclineLines(specs []loopholes.JailDaemonSpec) []string {
 	if len(specs) == 0 {
 		return nil
 	}
 	lines := make([]string, 0, len(specs))
 	for _, s := range specs {
-		lines = append(lines, s.Name+": "+strings.Join(s.Cmd, " "))
+		lines = append(lines, s.Name+": "+strings.Join(s.ResolvedCmd(), " "))
 	}
 	return lines
 }

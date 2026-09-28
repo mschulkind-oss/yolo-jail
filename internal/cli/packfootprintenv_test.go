@@ -27,7 +27,7 @@ func TestPackFootprintAWSAuthGolden(t *testing.T) {
 	const uri = "AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE, AWS_CONTAINER_CREDENTIALS_FULL_URI"
 	const want = "aws-auth\n" +
 		"  env            AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE  =/run/yolo/caller-tokens/YOLO_SERVICE_AWS_AUTH_TOKEN when profile \"bedrock\" is active\n" +
-		"  env            AWS_CONTAINER_CREDENTIALS_FULL_URI  =http://127.0.0.1:1461/credentials when profile \"bedrock\" is active\n" +
+		"  env            AWS_CONTAINER_CREDENTIALS_FULL_URI  =http://{listen}/credentials when profile \"bedrock\" is active\n" +
 		"  loophole       aws-auth  RUNS yolo internal daemon aws-auth --socket '{socket}' " +
 		"--state-file '{state}/credentials.json' --settings '{settings}' and yolo internal daemon " +
 		"aws-auth --self-check --state-file '{state}/credentials.json' --settings '{settings}' " +

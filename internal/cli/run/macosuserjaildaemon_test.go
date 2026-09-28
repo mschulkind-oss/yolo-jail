@@ -46,16 +46,18 @@ func writeLocalPackJSON(t *testing.T, home, body string) {
 
 // A LOOPHOLE's jail_daemon is declined BY NAME, with its argv, and the launch still succeeds.
 //
-// The argv matters as much as the name: the payload is the only place the port a jail-side
-// process would have bound is written down (for the shipped openai-auth adapter that is
-// 127.0.0.1:1460, the one `packs/codex` already points CODEX_REFRESH_TOKEN_URL_OVERRIDE at),
-// so a decline that printed the name alone would not tell a user what is missing.
+// The argv matters as much as the name: it says which port a jail-side process would have
+// bound (for the shipped openai-auth adapter 127.0.0.1:1460), so a decline that printed the name
+// alone would not tell a user what is missing. It is printed RESOLVED: the manifest spells the
+// port once, as `jail_daemon.listen`, and its argv takes it as {listen}
+// (docs/plans/notch-convergence.md NC-D41), which the line must never show raw.
 func TestMacosUserDeclinesALoopholeJailDaemonByName(t *testing.T) {
 	home := packHome(t)
 	ws := t.TempDir()
 	writeLocalLoopholePack(t, home, "acme-proxy", `{"name": "acme-proxy",
 		"description": "acme proxy", "default_enabled": true, "transport": "loopback-tls",
-		"jail_daemon": {"cmd": ["yolo-jaild", "acme-adapter", "--listen", "127.0.0.1:1460"]}}`)
+		"jail_daemon": {"cmd": ["yolo-jaild", "acme-adapter", "--listen", "{listen}"],
+		"listen": "127.0.0.1:1460"}}`)
 	writeUserConfigJSON(t, home, `{"packs": []}`)
 
 	got := macosUserLaunch(t, ws)
