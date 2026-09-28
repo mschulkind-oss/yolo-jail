@@ -49,7 +49,8 @@ posture's `lists` in the `autonomy` kind (recommended), plus render-mark parity 
 **Start at [§3.2](#32-the-host-layer-is-already-a-baseline-on-container-backends)**, then
 [§5](#5-fastest-path-to-the-motivating-case) for the build order.
 
-**Needs your ruling:** [OQ-5](#OQ-5); [OQ-3](#OQ-3) is live and off the critical path.
+**Rulings:** [OQ-5](#OQ-5) held as leaned, and [OQ-3](#OQ-3) was ruled "do it now" (both
+2026-09-28, in review). Nothing here awaits a ruling; [OQ-3](#OQ-3)'s build is the remaining work.
 
 **Reads with:** [`notch-scoped-config-contributions-plan.md`](notch-scoped-config-contributions-plan.md)
 (the implementation sketch, incomplete while [OQ-5](#OQ-5) is open),
@@ -508,7 +509,8 @@ it leaks on `macos-user`, and it depends on the mark outliving the `assert` reti
 
 ## 8. What this does not propose
 
-- **No host-only scalar** in `pi/settings` or anywhere else ([OQ-3](#OQ-3)).
+- **A host-only scalar only through a posture's `config`**, by [OQ-3](#OQ-3)'s ruling: no
+  separate mechanism for it.
 - **No per-entry removal or veto** on a host-supplied array ([OQ-LT2](../reference/pack-system.md#oq-lt2)).
 - **No capability predicate** (host Docker, a keychain, notifications) until a real case exists.
 - **No change to which packs a notch selects**: `packs` stays one list.
@@ -518,22 +520,24 @@ it leaks on `macos-user`, and it depends on the mark outliving the `assert` reti
 
 ## 9. Open questions
 
-- 💬 <a id="OQ-3"></a>**OQ-3: Should posture-conditional content also reach `config-overlay`?**
+- ✅ <a id="OQ-3"></a>**OQ-3: Should posture-conditional content also reach `config-overlay`?**
    The draft asked for `notches` on both kinds. In the recommended shape the equivalent question
    is whether a posture's `config` may patch a surface another pack owns. That would activate
    patches that today only produce a "folded nowhere" `FoldNote`, and it decides whether a
    host-only scalar ever exists. The motivating case needs none: pi-automode keeps its own
    settings in `~/.pi/agent/extensions/pi-automode/config.json` (its README, as reported).
 
-   <!-- vantage: oq id=OQ-3 leaning="Defer until a real case. The motivating case needs no host-only pi/settings scalar, and letting a posture's config reach another pack's surface would activate patches that today only emit a folded-nowhere note, which deserves its own ruling." -->
-
    _Leaning:_ Defer until a real case arrives. Nothing in the motivating case needs it, and
    widening the posture's `config` reach is a ruling of its own.
 
    **Answer:**
-   > _(empty — fill in when decided)_
+   > **Ruled in review 2026-09-28, against the leaning:** *"do it now. extension point."* Build
+   > it now as an extension point, not on a motivating case: a posture's `config` may patch a
+   > surface another pack owns, the way posture lists already reach another pack's arrays, so
+   > the patches that today only produce a "folded nowhere" note take effect at the posture that
+   > selects them. That is also the way a host-only scalar exists.
 
-- 💬 <a id="OQ-5"></a>**OQ-5: Do the rulings that put confinement-conditional content in `autonomy` hold for a non-owning pack's host-only entry?**
+- ✅ <a id="OQ-5"></a>**OQ-5: Do the rulings that put confinement-conditional content in `autonomy` hold for a non-owning pack's host-only entry?**
    [PV-OQ-1](../reference/providers.md#pv-oq-1) (settled 2026-09-01) and env-manager
    [OQ-11](yolo-as-environment-manager.md#9-decision-ledger) (2026-08-01) put confinement-conditional
    content in `autonomy`. Since then the case has changed in two ways: the contributor does not
@@ -542,8 +546,6 @@ it leaks on `macos-user`, and it depends on the mark outliving the `assert` reti
    it builds [§4.2](#42-the-first-drafts-modifier-corrected), a `posture` modifier on
    `config-list` and `config-overlay`.
 
-   <!-- vantage: oq id=OQ-5 leaning="They hold: build posture lists inside autonomy. A permission gate is the content OQ-11 moved into autonomy, the shape needs no Collect signature change and no notch names in manifests, and an older in-jail reader drops a nested posture field where it would render a modifier-gated list unconditionally." -->
-
    _Leaning:_ They hold; build posture lists. A permission gate is exactly the content
    [OQ-11](yolo-as-environment-manager.md#9-decision-ledger) put
    in `autonomy`. The shape needs no `Collect` signature change and no notch names in manifests,
@@ -551,7 +553,12 @@ it leaks on `macos-user`, and it depends on the mark outliving the `assert` reti
    nested posture field, where it would render a modifier-gated list unconditionally.
 
    **Answer:**
-   > _(empty — fill in when decided)_
+   > **Ruled in review 2026-09-28, as leaned:** the rulings hold, and posture lists inside
+   > `autonomy` are the shape, as built in `bbe5c878`. A permission gate is the content
+   > [OQ-11](yolo-as-environment-manager.md#9-decision-ledger) moved into `autonomy`; the shape
+   > needs no `Collect` signature change and no notch names in manifests; and an older in-jail
+   > reader drops a nested posture field, where it would render a modifier-gated list
+   > unconditionally.
 
 ---
 
@@ -565,6 +572,8 @@ answer; `NS` is this file's name, notch-scoped.
 | OQ-1 | *Implementation decision*, under [§6c](../reference/pack-system.md#batch-6c) and [PV-OQ-1](../reference/providers.md#pv-oq-1). **The selector is the posture, not a notch name**, in one spelling (no `notch`/`notches` pair). `Collect` already receives the bit at every caller; a name would add a notch-name edge and a `packdecl`→`render` import cycle; at `KindUnset` the posture keeps a permission gate in where a `"host"` match drops it; and a custom confinement with prompts on gets the gate. Today posture and notch give the same answer at every shipped notch | 2026-09-27 | [§4.1](#41-recommended-posture-lists-inside-autonomy) | ✅ `bbe5c878` |
 | OQ-2 | *Answered — moot.* Filtering host-only entries out of a `readsHost` layer: the render mark already delivers a managed home's host file as a baseline, not a layer, on podman and Apple Container. The residual `macos-user` leak is NS-D3. The sanitizer and the host-record mount are rejected ([§6](#6-alternatives-considered), D and F) | 2026-09-27 | [§3.2](#32-the-host-layer-is-already-a-baseline-on-container-backends) | ✅ `369c6f63` (containers); `macos-user` by NS-D3 |
 | OQ-4 | *Answered — moot; the rest is NS-D1 and NS-D2.* `yolo config ls` and `yolo config render` already pass `render.ProfileFor(t.notch).AgentAutonomy`, so `--at host` and `--at jail` follow the gate with no change | 2026-09-27 | [§4.1](#41-recommended-posture-lists-inside-autonomy) | ✅ `bbe5c878`, pinned by `TestConfigRenderAndLsFollowAPostureListsNotch` with no change to either verb |
+| OQ-3 | **Maintainer ruling**, against the leaning: *"do it now. extension point."* A posture's `config` may patch a surface another pack owns, so a posture can carry a host-only scalar | 2026-09-28 | [§9](#9-open-questions) | pending |
+| OQ-5 | **Maintainer ruling**, as leaned: [PV-OQ-1](../reference/providers.md#pv-oq-1) and env-manager [OQ-11](yolo-as-environment-manager.md#9-decision-ledger) hold for a non-owning pack's host-only entry; posture lists inside `autonomy` | 2026-09-28 | [§9](#9-open-questions) | ✅ `bbe5c878` |
 | NS-D1 | *Implementation decision.* The gate sits after the list decode and before the owner check; an unselected contribution is a clean skip (no problem, no orphan, no applied row), as the `profile` gate is | 2026-09-27 | [§4.1](#41-recommended-posture-lists-inside-autonomy) | ✅ `bbe5c878` |
 | NS-D2 | *Implementation decision.* `yolo pack footprint` claims a gated list unconditionally and names the posture in the detail; `surveyNotchFacts.AutonomyFolds` counts posture lists | 2026-09-27 | [§4.1](#41-recommended-posture-lists-inside-autonomy) | ✅ `bbe5c878`; the claim is the `autonomy` one (NS-D4); the fold count narrowed to placed lists by NS-D12 (`2ab44527`) |
 | NS-D3 | *Implementation decision*, under [`OQ-CR6`](../reference/config-target-resolution.md#oq-cr6). `macos-user` computes `Rendered` with `hostLayerIsRender` in `buildMacosCtxTree` and emits `entrypoint.HostLayerWire` from `macosuser.hostLayerWire` | 2026-09-27 | [§4.3](#43-render-mark-parity-on-macos-user) | ✅ `499a332f`, unit-tested only |
