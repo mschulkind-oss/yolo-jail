@@ -60,3 +60,17 @@ func profileDaemonSkew(missing []string) attachSkew {
 			"pointer this entry would hand an agent would point at nothing."},
 	}
 }
+
+// envLinesMap is a container-inspect env listing as a map. nil for nil.
+func envLinesMap(envLines []string) map[string]string {
+	if envLines == nil {
+		return nil
+	}
+	out := make(map[string]string, len(envLines))
+	for _, l := range envLines {
+		if k, v, ok := strings.Cut(l, "="); ok {
+			out[k] = v
+		}
+	}
+	return out
+}

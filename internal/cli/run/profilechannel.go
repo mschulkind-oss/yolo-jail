@@ -94,6 +94,11 @@ type packChannel struct {
 	// does not select. Recorded, never exported, so a later entry that selects it again adopts
 	// the token that daemon still demands (rekeyChannelForAttach). nil on a fresh launch.
 	carriedTokens map[string]string
+	// bootEnv is the container's frozen environment, when the delivery knows it (an attach
+	// reads it off the running container): one of the places a value in an agent's incoming
+	// environment came from yolo rather than from the user (inheritedValues, OQ-CN8). nil on a
+	// fresh launch, whose argv carries none of the channel's names.
+	bootEnv map[string]string
 	// unservedVias are the profiles whose via this notch does not serve (packload.ViaServedAt),
 	// sorted: their agents keep their own clients, and the launch names them (noteUnserved).
 	unservedVias []string

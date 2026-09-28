@@ -246,7 +246,7 @@ func TestAnAttachComposesForTheRunningJailsServedAddresses(t *testing.T) {
 		t.Errorf("the attach composed for %v, want the running jail's %v", rekeyed.servedAddresses, running)
 	}
 	shared, agents := deliveredFiles(t, rekeyed)
-	if !strings.Contains(agents["claude"], "export ANTHROPIC_BASE_URL='http://127.0.0.1:48214'\n") {
+	if !strings.Contains(agents["claude"], "export ANTHROPIC_BASE_URL=${ANTHROPIC_BASE_URL:-'http://127.0.0.1:48214'}\n") {
 		t.Errorf("claude after the attach is not routed at the running bridge's port:\n%s", agents["claude"])
 	}
 	if !strings.Contains(shared, "CODEX_REFRESH_TOKEN_URL_OVERRIDE='http://127.0.0.1:41460/oauth/token'") {
@@ -269,7 +269,7 @@ func TestAnAttachComposesForTheRunningJailsServedAddresses(t *testing.T) {
 		t.Errorf("an attach to a jail that recorded no served addresses picked %v", rekeyed2.servedAddresses)
 	}
 	shared2, agents2 := deliveredFiles(t, rekeyed2)
-	if !strings.Contains(agents2["claude"], "export ANTHROPIC_BASE_URL='http://127.0.0.1:8214'\n") {
+	if !strings.Contains(agents2["claude"], "export ANTHROPIC_BASE_URL=${ANTHROPIC_BASE_URL:-'http://127.0.0.1:8214'}\n") {
 		t.Errorf("claude after the attach is not routed at the declared bridge port:\n%s", agents2["claude"])
 	}
 	if strings.Contains(shared2, paths.ServedAddressesEnv) {

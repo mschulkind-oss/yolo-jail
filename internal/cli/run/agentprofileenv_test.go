@@ -57,17 +57,20 @@ func (a assembled) channelFile(t *testing.T) string {
 	return b.String()
 }
 
-// channelEnv is the file twin of envArgValues: the plain-form `export K='v'` values
-// for keys, in file order, with the writer's '\” quoting unescaped. Def-form lines
-// (env_sources defaults) never match — the channel section is plain-form only.
+// channelEnv is the file twin of envArgValues: the COMPOSED values for keys, in file order,
+// with the writer's '\” quoting unescaped — the shared file's plain-form channel lines, then
+// every line of each agent's own file as an agent started with no value of its own would take
+// it (composedFileValue: plain, def-form, or OQ-CN8's `case` form). The shared file's def-form
+// env_sources defaults never match.
 func (a assembled) channelEnv(t *testing.T, keys ...string) []string {
 	t.Helper()
 	want := map[string]bool{}
 	for _, k := range keys {
 		want[k] = true
 	}
+	shared, agents := deliveredFiles(t, a.in.envChannel(a.o))
 	var out []string
-	for _, line := range strings.Split(a.channelFile(t), "\n") {
+	for _, line := range strings.Split(shared, "\n") {
 		rest, ok := strings.CutPrefix(line, "export ")
 		if !ok || strings.Contains(rest, "=${") {
 			continue // def-form or not an export
@@ -81,7 +84,44 @@ func (a assembled) channelEnv(t *testing.T, keys ...string) []string {
 			out = append(out, k+"="+strings.ReplaceAll(v, `'\''`, `'`))
 		}
 	}
+	for _, agent := range sortedKeys(agents) {
+		for _, line := range strings.Split(agents[agent], "\n") {
+			if k, v, ok := composedFileValue(line); ok && want[k] {
+				out = append(out, k+"="+v)
+			}
+		}
+	}
 	return out
+}
+
+// composedFileValue reads one per-agent env file line as an agent started with no value of
+// its own would take it: `export K='v'`, `export K=${K:-'v'}`, or the `case` form OQ-CN8
+// writes for a name yolo set elsewhere (`case "${K-}" in ”|… ) export K='v' ;; esac`). ok is
+// false for any other line.
+func composedFileValue(line string) (key, value string, ok bool) {
+	if rest, isCase := strings.CutPrefix(line, "case \"${"); isCase {
+		_, body, found := strings.Cut(rest, ") export ")
+		if !found {
+			return "", "", false
+		}
+		body = strings.TrimSuffix(body, " ;; esac")
+		line = "export " + body
+	}
+	rest, isExport := strings.CutPrefix(line, "export ")
+	if !isExport {
+		return "", "", false
+	}
+	k, v, found := strings.Cut(rest, "=")
+	if !found {
+		return "", "", false
+	}
+	if def, isDef := strings.CutPrefix(v, "${"+k+":-"); isDef {
+		v = strings.TrimSuffix(def, "}")
+	}
+	if len(v) < 2 || v[0] != '\'' || v[len(v)-1] != '\'' {
+		return "", "", false
+	}
+	return k, strings.ReplaceAll(v[1:len(v)-1], `'\''`, `'`), true
 }
 
 // bedrockConfig is a config whose claude agent is on the bedrock profile with a fully

@@ -9,6 +9,7 @@ package run
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -169,9 +170,10 @@ end)`
 	got := agentEnvFileContent(&packChannel{profiles: profiles, providers: providers, scope: scope}, "claude")
 	for _, want := range []string{
 		"export ZAI_API_KEY=${ZAI_API_KEY:-'k'}\n",
-		`export GATED='it'\''s'` + "\n",
-		"export SHAPE='s'\n",
-		"unset GONE\n",
+		// OQ-CN8: composed values defer to the incoming environment when nothing else yolo
+		// wrote sets the name, and a tombstone for a name yolo set nowhere is not written.
+		`export GATED=${GATED:-'it'\''s'}` + "\n",
+		"export SHAPE=${SHAPE:-'s'}\n",
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("claude's file lacks %q:\n%s", want, got)
@@ -179,6 +181,85 @@ end)`
 	}
 	if strings.Contains(got, "bad name") {
 		t.Errorf("a derive key that is not a variable name was spliced into bash source:\n%s", got)
+	}
+	if strings.Contains(got, "GONE") {
+		t.Errorf("a tombstone for a name no other yolo file sets must not be written:\n%s", got)
+	}
+}
+
+// OQ-CN8, RUN: the user's explicit value wins and an inherited one does not. claude's pack
+// sets GATED to "base" for every process (the shared file) and to "it's" for claude on zai;
+// env_sources hands every process GONE='stale', which claude's derive tombstones. The file is
+// sourced by bash exactly as the launcher sources it, against four incoming environments:
+// the shared file's own values (the profile must win), and per-command values of the user's
+// own (the user must win) — for the override and for the tombstone.
+func TestAgentEnvFileLetsTheUsersValueWinAndOverridesAnInheritedOne(t *testing.T) {
+	if _, err := exec.LookPath("bash"); err != nil {
+		t.Skip("bash not found")
+	}
+	claude := inlinePack(t, "claude", `{"name":"claude","contributes":[`+
+		`{"kind":"program","bin":"claude","via":"npm","package":"@acme/claude"},`+
+		`{"kind":"profile","name":"zai","provider":"zai"},`+
+		`{"kind":"env","vars":{"GATED":"base"}},`+
+		`{"kind":"env","profile":"zai","vars":{"GATED":"it's"}}]}`)
+	derive := `yolo.env("claude", function(ctx)
+  return { GONE = ctx.tombstone }
+end)`
+	if err := os.WriteFile(filepath.Join(claude.Root, "derive.lua"), []byte(derive), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	providers := jsonx.NewOrderedMap()
+	providers.Set("zai", jsonx.NewOrderedMap())
+	profiles := jsonx.NewOrderedMap()
+	profiles.Set("claude", "zai")
+	env := jsonx.NewOrderedMap()
+	env.Set("GONE", "stale")
+	scope, err := packload.ScopeCredentials(packload.ScopeInput{
+		Packs: []*packload.Pack{claude}, Providers: providers,
+		Profiles: packload.ProfileTable(profiles),
+		Resolved: map[string]packload.ResolvedProfile{"zai": {Provider: "zai"}}, EnvSources: env,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	channel := &packChannel{profiles: profiles, providers: providers, scope: scope}
+	shared, agents := deliveredFiles(t, channel)
+	dir := t.TempDir()
+	sharedPath, agentPath := filepath.Join(dir, "shared.sh"), filepath.Join(dir, "claude.sh")
+	if err := os.WriteFile(sharedPath, []byte(shared), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(agentPath, []byte(agents["claude"]), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	run := func(user string) (gated, gone string) {
+		t.Helper()
+		// The jail's order: the shared file (the boot, .bashrc), then the user's own command
+		// line, then the agent's file (its launcher).
+		script := `. "$1"; ` + user + ` . "$2"; printf '%s|%s' "${GATED-<unset>}" "${GONE-<unset>}"`
+		out, err := exec.Command("bash", "-c", script, "bash", sharedPath, agentPath).CombinedOutput()
+		if err != nil {
+			t.Fatalf("bash: %v\n%s", err, out)
+		}
+		g, o, _ := strings.Cut(string(out), "|")
+		return g, o
+	}
+	if gated, gone := run(""); gated != "it's" || gone != "<unset>" {
+		t.Errorf("inherited from the shared file: GATED=%q GONE=%q, want the profile's \"it's\" "+
+			"and GONE removed — a stale inherited value must not win\n%s", gated, gone, agents["claude"])
+	}
+	if gated, gone := run("export GATED=mine GONE=kept;"); gated != "mine" || gone != "kept" {
+		t.Errorf("the user's own values: GATED=%q GONE=%q, want mine and kept — the user's "+
+			"explicit value wins\n%s", gated, gone, agents["claude"])
+	}
+	if gated, _ := run("export GATED=;"); gated != "it's" {
+		t.Errorf("an empty GATED = %q, want the profile's value, as a def-form default gives", gated)
+	}
+	// The container's frozen environment is yolo's too (an attach reads it off the running
+	// container): a value it carries is overridden, like the shared file's.
+	channel.bootEnv = map[string]string{"GATED": "frozen"}
+	if got := agentEnvFileContent(channel, "claude"); !strings.Contains(got, "'frozen'") {
+		t.Errorf("a value the container froze is not among those the profile overrides:\n%s", got)
 	}
 }
 

@@ -49,7 +49,7 @@ func TestABridgedLaunchCarriesItsCallerTokenInTheChannelAndNoArgv(t *testing.T) 
 		t.Errorf("the shared channel section does not carry the token the daemon demands:\n%s", shared)
 	}
 	claude := agents["claude"]
-	if !strings.Contains(claude, "export ANTHROPIC_AUTH_TOKEN='"+tok+"'\n") {
+	if !strings.Contains(claude, "export ANTHROPIC_AUTH_TOKEN=${ANTHROPIC_AUTH_TOKEN:-'"+tok+"'}\n") {
 		t.Errorf("claude's env file does not send the bridge's caller token as ANTHROPIC_AUTH_TOKEN:\n%s", claude)
 	}
 	if strings.Contains(claude, "ANTHROPIC_AUTH_TOKEN='csk-test'") {
@@ -135,7 +135,7 @@ func TestAnAttachDeliversTheRunningJailsCallerToken(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(claude), "export ANTHROPIC_AUTH_TOKEN='"+running+"'\n") {
+	if !strings.Contains(string(claude), "export ANTHROPIC_AUTH_TOKEN=${ANTHROPIC_AUTH_TOKEN:-'"+running+"'}\n") {
 		t.Errorf("claude's env file after the attach does not carry the running jail's token:\n%s", claude)
 	}
 	for name, body := range map[string]string{"shared": string(shared), "claude": string(claude)} {

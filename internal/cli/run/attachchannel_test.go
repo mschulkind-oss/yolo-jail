@@ -105,8 +105,8 @@ func TestAttachDeliversTheChannelFile(t *testing.T) {
 		t.Fatalf("the attach never wrote claude's own env file: %v", err)
 	}
 	for _, want := range []string{
-		"export ANTHROPIC_BASE_URL='https://api.z.ai/api/anthropic'",
-		"export ANTHROPIC_AUTH_TOKEN='tok-9'",
+		"export ANTHROPIC_BASE_URL=${ANTHROPIC_BASE_URL:-'https://api.z.ai/api/anthropic'}",
+		"export ANTHROPIC_AUTH_TOKEN=${ANTHROPIC_AUTH_TOKEN:-'tok-9'}",
 	} {
 		if !strings.Contains(string(ab), want) {
 			t.Errorf("claude's env file missing %s:\n%s", want, ab)

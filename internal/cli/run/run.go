@@ -2069,6 +2069,11 @@ func (o *Options) attachExisting(cname, rt, targetCmd string, cfg *jsonx.Ordered
 	// running jail parsed and validated the selection, composed the channel, and
 	// dropped it, silently.
 	if deliver {
+		// What the container's frozen environment already carries is yolo's, not the user's
+		// (inheritedValues, OQ-CN8): the agent files override it rather than defer to it.
+		if channel != nil {
+			channel.bootEnv = envLinesMap(envLines)
+		}
 		if rc := o.deliverChannelOnAttach(cname, rt, cfg, view.staged, channel); rc != 0 {
 			return rc, false
 		}
