@@ -168,6 +168,21 @@ func TestPiOpenAIAuthInsideAJailKeepsTheClientsMessage(t *testing.T) {
 	}
 }
 
+// THE EXTENSION NAMES THE CLIENT'S TWO ROUTE VARIABLES, spelled as the client spells them: it
+// is JavaScript, so it cannot import the constants, and a renamed variable would otherwise
+// leave it testing for a route that no launch sets any more.
+func TestPiOpenAIAuthExtensionSpellsTheClientsRouteVariables(t *testing.T) {
+	source, err := os.ReadFile(filepath.Join(shippedPiPack(t).Root, "extensions", "yolo-openai-auth.js"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{openauthclient.EndpointEnv, openauthclient.HostSocketEnv} {
+		if !strings.Contains(string(source), `"`+name+`"`) {
+			t.Errorf("yolo-openai-auth.js does not spell %s, the variable the client reads", name)
+		}
+	}
+}
+
 // A `yolo host --` LAUNCH has a route, so a failure there is something else — here, a broker
 // socket that is not there — and the message is the client's, with no launch advice.
 func TestPiOpenAIAuthWithAHostRouteKeepsTheClientsMessage(t *testing.T) {
