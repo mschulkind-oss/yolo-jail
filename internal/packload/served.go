@@ -177,8 +177,12 @@ func ViaServedAt(resolved map[string]ResolvedProfile, packs []*Pack,
 // variable group the gate withheld (CredentialScope.UnservedEnvLines) and per profile whose via
 // ViaServedAt cleared. nil when nothing was withheld, which is every container launch whose
 // selected loopholes are enabled.
-func UnservedLines(scope *CredentialScope, unservedVias []string) []string {
-	details := scope.UnservedEnvLines()
+//
+// servedByLaunch reports a variable the launch sets itself from a server of its own, which is
+// therefore not missing: `yolo host -- codex` runs its own refresh adapter and sets
+// CODEX_REFRESH_TOKEN_URL_OVERRIDE to it (internal/openaiauthhost). nil for none.
+func UnservedLines(scope *CredentialScope, unservedVias []string, servedByLaunch func(string) bool) []string {
+	details := scope.UnservedEnvLines(servedByLaunch)
 	for _, profile := range unservedVias {
 		details = append(details, "profile "+strconv.Quote(profile)+"'s via — its service does "+
 			"not run here, so its agents keep their own clients rather than routing through it")

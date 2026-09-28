@@ -10,6 +10,8 @@ package cli
 // the gate's Served input or the host's FoldFor call fails it.
 
 import (
+	"bytes"
+	"io"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -25,6 +27,48 @@ func hostUnservedHome(t *testing.T, cfg string) {
 	t.Setenv("CODEX_REFRESH_TOKEN_URL_OVERRIDE", "")
 	t.Chdir(t.TempDir())
 	userCfg(t, home, cfg)
+}
+
+// setsVarManagedLaunch is a managed host launch that serves CODEX_REFRESH_TOKEN_URL_OVERRIDE
+// itself when serves is true, as openaiauthhost's Codex launch does, and refuses the exec.
+type setsVarManagedLaunch struct{ serves bool }
+
+func (f setsVarManagedLaunch) Environ(base []string) []string {
+	if f.serves {
+		return append(base, "CODEX_REFRESH_TOKEN_URL_OVERRIDE=http://127.0.0.1:5555/oauth/token")
+	}
+	return base
+}
+
+func (setsVarManagedLaunch) Run(string, []string, []string, io.Reader, io.Writer, io.Writer) (int, bool) {
+	return 23, true
+}
+
+// A LAUNCH THAT SERVES A POINTER ITSELF IS NOT TOLD IT IS MISSING. `yolo host -- codex` runs
+// its own refresh adapter (openaiauthhost) and sets the URL the codex pack's withheld pointer
+// names, so naming that pointer as unserved would be false there, while `yolo host env`, which
+// starts no adapter, names it. Through the real hostExec, so deleting managedHostVars at the
+// call site fails the first case.
+func TestAHostLaunchThatServesThePointerItselfDoesNotNameIt(t *testing.T) {
+	for _, serves := range []bool{true, false} {
+		hostUnservedHome(t, `{"packs": ["codex"]}`)
+		t.Setenv("YOLO_ACCEPT_CONFIG_CHANGES", "1")
+		original := prepareOpenAIAuthHost
+		prepareOpenAIAuthHost = func(string, io.Writer) (managedOpenAIHostLaunch, error) {
+			return setsVarManagedLaunch{serves: serves}, nil
+		}
+		var errw bytes.Buffer
+		rc := hostExec(nil, []string{"true"}, io.Discard, &errw, nil)
+		prepareOpenAIAuthHost = original
+		if rc != 23 {
+			t.Fatalf("serves=%v: hostExec = %d; the managed launch was not reached\n%s", serves, rc, errw.String())
+		}
+		named := strings.Contains(errw.String(), "CODEX_REFRESH_TOKEN_URL_OVERRIDE")
+		if named == serves {
+			t.Errorf("serves=%v: the launch named the withheld refresh URL = %v, want %v:\n%s",
+				serves, named, !serves, errw.String())
+		}
+	}
 }
 
 func TestTheHostWithholdsAPointerAtAJailDaemonAndNamesIt(t *testing.T) {

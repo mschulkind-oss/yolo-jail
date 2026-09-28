@@ -403,14 +403,8 @@ func hostExec(flagArgs, cmd []string, out, errw io.Writer, stdin io.Reader) int 
 	// THE GRANT'S DISCLOSURE (OQ-ES5) follows it: on every run the flag is given, whatever it
 	// delivered, names only. Never suppressible (OQ-RO3), so it is printed unconditionally
 	// here rather than folded into a line a quieter path could skip.
-	for _, block := range [][]string{launch.credentialScopeLines(), launch.unservedLines(), launch.grantLines()} {
-		for i, line := range block {
-			if i == 0 {
-				fmt.Fprintf(errw, "yolo host: %s\n", line)
-				continue
-			}
-			fmt.Fprintln(errw, line)
-		}
+	for _, block := range [][]string{launch.credentialScopeLines(), launch.grantLines()} {
+		printHostBlock(errw, block)
 	}
 
 	target, err := resolveHostTarget(os.Getenv("PATH"), cmd[0])
@@ -426,6 +420,11 @@ func hostExec(flagArgs, cmd []string, out, errw io.Writer, stdin io.Reader) int 
 		fmt.Fprintf(errw, "yolo host: prepare shared OpenAI authentication: %v\n", err)
 		return 1
 	}
+	// WHAT THIS NOTCH WITHHOLDS BECAUSE NOTHING HERE SERVES IT (notch convergence item 2),
+	// after the managed launch is prepared, because that launch serves one of them itself:
+	// `yolo host -- codex` runs its own refresh adapter and sets the URL the codex pack's
+	// pointer names, so that one is not missing and is not named.
+	printHostBlock(errw, launch.unservedLines(managedHostVars(managed)))
 	environ := launch.environ()
 	if managed != nil {
 		environ = managed.Environ(environ)
@@ -650,8 +649,37 @@ func (c *hostComposition) credentialScopeLines() []string {
 // unservedLines names what this notch withheld because nothing here serves it — a pack env
 // variable pointing at a jail daemon, a profile's via (P4, notch convergence item 2) — in the
 // words every notch prints (packload.UnservedLines). Header first, like the disclosure.
-func (c *hostComposition) unservedLines() []string {
-	return packload.UnservedLines(c.scope, c.unservedVias)
+//
+// servedByLaunch is what the launch serves itself (managedHostVars), nil for none.
+func (c *hostComposition) unservedLines(servedByLaunch func(string) bool) []string {
+	return packload.UnservedLines(c.scope, c.unservedVias, servedByLaunch)
+}
+
+// managedHostVars reports the variables a managed host launch sets from a server of its own
+// (openaiauthhost's Codex adapter), nil when there is no managed launch.
+func managedHostVars(managed managedOpenAIHostLaunch) func(string) bool {
+	if managed == nil {
+		return nil
+	}
+	set := map[string]bool{}
+	for _, kv := range managed.Environ(nil) {
+		if k, _, ok := strings.Cut(kv, "="); ok {
+			set[k] = true
+		}
+	}
+	return func(name string) bool { return set[name] }
+}
+
+// printHostBlock prints one disclosure block on stderr: the head line with the verb's prefix,
+// the indented detail lines under it as they are.
+func printHostBlock(errw io.Writer, block []string) {
+	for i, line := range block {
+		if i == 0 {
+			fmt.Fprintf(errw, "yolo host: %s\n", line)
+			continue
+		}
+		fmt.Fprintln(errw, line)
+	}
 }
 
 // processHolds answers, for this composition, whether and whence the process it composes holds
@@ -1652,7 +1680,7 @@ func hostEnvDelta(agent, profile string, grant *hostGrantRequest, warn func(stri
 	if c.err != nil {
 		return nil, nil, c.err
 	}
-	return c.vars, append(append(c.credentialScopeLines(), c.unservedLines()...), c.grantLines()...), nil
+	return c.vars, append(append(c.credentialScopeLines(), c.unservedLines(nil)...), c.grantLines()...), nil
 }
 
 // hostEnvDefaultAgent is the agent `yolo host env` composes for when no --agent is given:

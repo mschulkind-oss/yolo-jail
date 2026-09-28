@@ -40,7 +40,7 @@ func (o *Options) noteCredentialScope(channel *packChannel) {
 // no quiet switch (OQ-RO3). Called from noteCredentialScope, so every arm that delivers a
 // channel says it.
 func (o *Options) noteUnserved(channel *packChannel) {
-	lines := packload.UnservedLines(channel.scope, channel.unservedVias)
+	lines := packload.UnservedLines(channel.scope, channel.unservedVias, nil)
 	if len(lines) == 0 {
 		return
 	}

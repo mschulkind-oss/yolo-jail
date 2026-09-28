@@ -88,7 +88,7 @@ func TestAPointerIsDeliveredOnlyWhereItsDaemonIsServed(t *testing.T) {
 	if fold := s.FoldFor("codex"); !foldHas(fold, awsURI) || !foldHas(fold, awsToken) {
 		t.Errorf("a container launch serving aws-auth lost the bedrock pointer: %+v", fold)
 	}
-	if lines := UnservedLines(s, nil); lines != nil {
+	if lines := UnservedLines(s, nil, nil); lines != nil {
 		t.Errorf("a container launch serving both named something unserved: %v", lines)
 	}
 
@@ -106,7 +106,7 @@ func TestAPointerIsDeliveredOnlyWhereItsDaemonIsServed(t *testing.T) {
 	if !foldHas(fold, "CODEX_NON_INTERACTIVE") {
 		t.Error("a variable that points at no daemon was withheld too")
 	}
-	lines := strings.Join(UnservedLines(s, []string{"pz"}), "\n")
+	lines := strings.Join(UnservedLines(s, []string{"pz"}, nil), "\n")
 	for _, want := range []string{refresh, awsURI, awsToken, `"openai-auth-broker"`, `"aws-auth"`,
 		`profile "pz"'s via`, "never at the host or on macos-user"} {
 		if !strings.Contains(lines, want) {
@@ -121,7 +121,7 @@ func TestAPointerIsDeliveredOnlyWhereItsDaemonIsServed(t *testing.T) {
 	if foldHas(s.FoldFor("codex"), awsURI) {
 		t.Error("a launch that does not run aws-auth delivered its pointer")
 	}
-	if l := strings.Join(UnservedLines(s, nil), "\n"); !strings.Contains(l, "this launch does not run") {
+	if l := strings.Join(UnservedLines(s, nil, nil), "\n"); !strings.Contains(l, "this launch does not run") {
 		t.Errorf("the partial disclosure = %s", l)
 	}
 

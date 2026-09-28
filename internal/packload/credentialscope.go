@@ -260,13 +260,19 @@ func (s *CredentialScope) FoldFor(agent string) []EnvFoldEntry {
 // it points at is not served here, one line per daemon, sorted (P4: what a notch cannot do, it
 // says). nil when nothing was withheld. Names only: the value is an address, but the line is
 // about what is absent, and a reader acts on the variable.
-func (s *CredentialScope) UnservedEnvLines() []string {
+//
+// servedByLaunch leaves out a variable the launch sets itself from a server of its own
+// (UnservedLines); nil leaves out none.
+func (s *CredentialScope) UnservedEnvLines(servedByLaunch func(string) bool) []string {
 	if s == nil || len(s.unservedEnv) == 0 {
 		return nil
 	}
 	byDaemon := map[string][]string{}
 	var daemons []string
 	for k, daemon := range s.unservedEnv {
+		if servedByLaunch != nil && servedByLaunch(k) {
+			continue
+		}
 		if _, seen := byDaemon[daemon]; !seen {
 			daemons = append(daemons, daemon)
 		}
