@@ -335,6 +335,73 @@ func TestRuntimeStoppedHintIsActionable(t *testing.T) {
 	}
 }
 
+// TestRuntimeStoppedIsOneRow: with no runtime answering, one stopped podman is ONE finding. It
+// used to be two — a "[WARN] podman: … (not connected)" carrying the start hint, then the
+// "[FAIL] Container runtime installed but not started (podman)" carrying the same hint again —
+// one cause counted as a warning and a failure (HE-D2). The [FAIL] now names the version the
+// [WARN] named and leads its note with the fix.
+//
+// The second case is the one the [WARN] still exists for: another runtime works, and the
+// offline one is the runtime YOLO_RUNTIME selected, which is a finding of its own.
+func TestRuntimeStoppedIsOneRow(t *testing.T) {
+	stopped := ExecResult{Stdout: "", Stderr: "cannot connect", Ran: true, RC: 1}
+
+	t.Run("nothing answers", func(t *testing.T) {
+		var out bytes.Buffer
+		opts := baseOptions(t, &out)
+		opts.LookPath = func(name string) (string, bool) { return "/usr/bin/" + name, name == "podman" }
+		opts.Exec = fakeExec(map[string]ExecResult{
+			"podman --version": {Stdout: "podman version 5.0.0", Ran: true, RC: 0},
+			"podman info":      stopped,
+		})
+		r := newReporter(&out, false)
+		opts.sectionContainerRuntime(r)
+		got := stripANSI(out.String())
+		if r.failed != 1 || r.warned != 0 {
+			t.Errorf("failed=%d warned=%d, want 1/0 — one stopped runtime is one finding:\n%s",
+				r.failed, r.warned, got)
+		}
+		if !strings.Contains(got, "[FAIL] Container runtime installed but not started "+
+			"(podman: podman version 5.0.0)") {
+			t.Errorf("the FAIL must name the runtime and the version the WARN used to:\n%s", got)
+		}
+		if !strings.Contains(got, "-> podman: Run 'podman info' to diagnose") {
+			t.Errorf("the FAIL's note must lead with the fix:\n%s", got)
+		}
+		if strings.Count(got, "Run 'podman info' to diagnose") != 1 {
+			t.Errorf("the hint must be printed once:\n%s", got)
+		}
+	})
+
+	t.Run("another runtime answers and the selected one does not", func(t *testing.T) {
+		var out bytes.Buffer
+		opts := baseOptions(t, &out)
+		opts.Getenv = func(k string) string {
+			if k == "YOLO_RUNTIME" {
+				return "container"
+			}
+			return ""
+		}
+		opts.LookPath = func(name string) (string, bool) { return "/usr/bin/" + name, true }
+		opts.Exec = fakeExec(map[string]ExecResult{
+			"podman --version":        {Stdout: "podman version 5.0.0", Ran: true, RC: 0},
+			"podman info":             {Stdout: "host: {}", Ran: true, RC: 0},
+			"container --version":     {Stdout: "container CLI version 0.5.0", Ran: true, RC: 0},
+			"container system status": stopped,
+		})
+		r := newReporter(&out, false)
+		opts.sectionContainerRuntime(r)
+		got := stripANSI(out.String())
+		if r.failed != 0 || r.warned != 1 {
+			t.Errorf("failed=%d warned=%d, want 0/1 — the selected runtime being down is its "+
+				"own finding while podman works:\n%s", r.failed, r.warned, got)
+		}
+		if !strings.Contains(got, "[WARN] container: container CLI version 0.5.0 (not connected)") {
+			t.Errorf("the selected, offline runtime must still WARN:\n%s", got)
+		}
+	})
+}
+
 func must(t *testing.T, err error) {
 	t.Helper()
 	if err != nil {

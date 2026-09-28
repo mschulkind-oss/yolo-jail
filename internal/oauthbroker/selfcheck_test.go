@@ -242,3 +242,58 @@ func TestSelfCheckOutputSurvivesTheDoctorSeam(t *testing.T) {
 		}
 	})
 }
+
+// TestSelfCheckMissingCertsAreOneFinding: a never-initialized broker is missing BOTH ca.crt and
+// server.crt, and that is one cause with one fix — `--init-ca` mints the pair together. It was
+// two NOTE lines, which `yolo check` renders as two [WARN] rows with the same remedy, so a fresh
+// machine's report counted one never-run step twice (HE-D2). One missing half is still named on
+// its own, by its path, because then the other half is present and the pair is mixed.
+//
+// It drives the real SelfCheck and parses its stdout with the parser `yolo check` uses, so what
+// is asserted is the row count a user sees.
+func TestSelfCheckMissingCertsAreOneFinding(t *testing.T) {
+	now := time.Unix(1_700_000_000, 0).UTC()
+	pinBrokerClock(t, now)
+
+	for _, tc := range []struct {
+		name    string
+		present []string
+		want    string // the one cert NOTE's title
+	}{
+		{"neither", nil, "ca.crt and server.crt not yet generated in "},
+		{"no leaf", []string{"ca.crt"}, "server.crt not yet generated"},
+		{"no CA", []string{"server.crt"}, "ca.crt not yet generated"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			t.Setenv("YOLO_BROKER_STATE_DIR", dir)
+			for _, name := range tc.present {
+				if err := os.WriteFile(filepath.Join(dir, name), []byte("x"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			creds := writeCreds(t, t.TempDir(),
+				now.UnixMilli()+int64(5*time.Hour/time.Millisecond), 10*time.Minute, now)
+
+			out := captureSelfCheckStdout(t, func() { _ = SelfCheck(creds) })
+			var notes []nixdiag.GradedLine
+			for _, l := range nixdiag.SplitSelfCheckLines(out) {
+				if l.Grade == nixdiag.GradeNote {
+					notes = append(notes, l)
+				}
+			}
+			if len(notes) != 1 {
+				t.Fatalf("got %d NOTE lines, want 1 — one cause, one finding:\n%s", len(notes), out)
+			}
+			if !strings.Contains(notes[0].Title, tc.want) {
+				t.Errorf("title = %q, want it to contain %q", notes[0].Title, tc.want)
+			}
+			if !strings.Contains(notes[0].Title, "--init-ca") {
+				t.Errorf("the finding must keep its fix: %q", notes[0].Title)
+			}
+			if tc.present == nil && strings.Count(notes[0].Title, dir) != 1 {
+				t.Errorf("the state dir must be spelled once: %q", notes[0].Title)
+			}
+		})
+	}
+}

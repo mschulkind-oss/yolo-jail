@@ -48,10 +48,18 @@ func SelfCheck(credsPath string) int {
 	// cannot run. The grade is also no longer a function of the host's PATH, which
 	// is what made this check's exit code differ between two machines in the same
 	// state.
-	if !isFile(caCrt(dir)) {
+	//
+	// ONE LINE WHEN BOTH ARE MISSING, because that is one cause with one fix: `--init-ca`
+	// mints the CA and the leaf together, under one lock, and a mixed pair is the state it
+	// exists to rule out (EnsureCAAndLeaf). Each NOTE becomes its own [WARN] row in
+	// `yolo check`, and two rows with the same fix were how a fresh machine's report
+	// counted one never-run step twice (HE-D2, docs/reference/host-agent-environment.md).
+	switch caOK, leafOK := isFile(caCrt(dir)), isFile(serverCrt(dir)); {
+	case !caOK && !leafOK:
+		note("ca.crt and server.crt not yet generated in "+dir+" — run `--init-ca` or `just deploy`", "")
+	case !caOK:
 		note(caCrt(dir)+" not yet generated — run `--init-ca` or `just deploy`", "")
-	}
-	if !isFile(serverCrt(dir)) {
+	case !leafOK:
 		note(serverCrt(dir)+" not yet generated — run `--init-ca` or `just deploy`", "")
 	}
 

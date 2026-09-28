@@ -344,24 +344,32 @@ func (o *Options) sectionContainerRuntime(r *reporter) string {
 		}
 	}
 
-	for _, e := range offline {
-		if e.rt == selectedRuntime || detectedRuntime == "" {
-			r.warn(e.rt+": "+e.version+" (not connected)", e.hint)
-		} else {
-			r.dim(e.rt + ": " + e.version + " (not connected, not selected)")
+	// A per-runtime [WARN] only when some OTHER runtime works: then the offline one is a
+	// finding of its own (the one YOLO_RUNTIME selected, or a dim aside). When NOTHING works,
+	// the [FAIL] below is the finding and names every offline runtime, its version and its
+	// start command — so a [WARN] per runtime there was the same cause and the same hint
+	// printed twice, a [WARN] and a [FAIL] for one stopped podman (one cause, one row: HE-D2,
+	// docs/reference/host-agent-environment.md).
+	if detectedRuntime != "" {
+		for _, e := range offline {
+			if e.rt == selectedRuntime {
+				r.warn(e.rt+": "+e.version+" (not connected)", e.hint)
+			} else {
+				r.dim(e.rt + ": " + e.version + " (not connected, not selected)")
+			}
 		}
 	}
 
 	if detectedRuntime == "" {
 		if len(offline) > 0 {
-			var names []string
+			var found []string
 			var starts []string
 			for _, e := range offline {
-				names = append(names, e.rt)
+				found = append(found, e.rt+": "+e.version)
 				starts = append(starts, e.rt+": "+e.hint)
 			}
-			r.fail("Container runtime installed but not started ("+strings.Join(names, ", ")+")",
-				"It's installed — you just need to START it.\n"+strings.Join(starts, "; "))
+			r.fail("Container runtime installed but not started ("+strings.Join(found, "; ")+")",
+				strings.Join(starts, "\n")+"\nIt's installed — you just need to START it.")
 		} else {
 			r.fail("No container runtime installed",
 				"Install one:\n"+
