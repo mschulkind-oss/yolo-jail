@@ -120,6 +120,7 @@ func TestPiAndOpencodeSelectionFollowTheActiveProfile(t *testing.T) {
 		// selection had landed.
 		piModels := readPioencodeSurface(t, dir, "pi", "agent", "models.json")
 		requireCataloged(t, piModels.raw, "providers", "zai", "pi models.json")
+		requireZaiSubagents(t, piSettings.raw)
 
 		ocConfig := readPioencodeSurface(t, dir, "config", "opencode", "opencode.json")
 		if ocConfig.slashJoin != "zai/glm-5.3" {
@@ -143,6 +144,10 @@ func TestPiAndOpencodeSelectionFollowTheActiveProfile(t *testing.T) {
 		}
 
 		piSettings = readPioencodeSurface(t, dir, "pi", "agent", "settings.json")
+		if sub, present := piSettings.raw["subagents"]; present {
+			t.Errorf("after an unprofiled relaunch pi's subagents block = %v, want it gone "+
+				"with the profile that wrote it", sub)
+		}
 		if piSettings.provider != "" || piSettings.model != "" {
 			t.Errorf("after an unprofiled relaunch pi's pair = %q/%q, want both cleared — "+
 				"yolo wrote them and nobody edited them, so a deselect clears them "+
@@ -188,4 +193,30 @@ func TestPiAndOpencodeSelectionFollowTheActiveProfile(t *testing.T) {
 		requireCataloged(t, piModels.raw, "providers", "zai", "pi models.json")
 		requireCataloged(t, ocConfig.raw, "provider", "zai", "opencode.json")
 	})
+}
+
+// requireZaiSubagents asserts pi-subagents' block for the shipped zai profile
+// (docs/research/extension-model-defaults.md OQ-XM3): a child with no model of its own starts
+// on the profile's default, and may name only zai's declared models, the default first.
+func requireZaiSubagents(t *testing.T, settings map[string]any) {
+	t.Helper()
+	sub, _ := settings["subagents"].(map[string]any)
+	if sub["defaultProvider"] != "zai" || sub["defaultModel"] != "zai/glm-5.3" {
+		t.Errorf("pi subagents default = %v/%v, want zai and zai/glm-5.3 — a -p zai launch "+
+			"starts a child agent on the profile's default (OQ-XM3)",
+			sub["defaultProvider"], sub["defaultModel"])
+	}
+	scope, _ := sub["modelScope"].(map[string]any)
+	allow, _ := scope["allow"].([]any)
+	want := []any{"zai/glm-5.3", "zai/glm-4.6", "zai/glm-5.3-flash"}
+	if scope["enforce"] != true || scope["strict"] != true || len(allow) != len(want) {
+		t.Fatalf("pi subagents.modelScope = %v, want enforced and strict over %v", scope, want)
+	}
+	for i := range want {
+		if allow[i] != want[i] {
+			t.Errorf("pi subagents.modelScope.allow = %v, want %v — only zai's models, so a "+
+				"child can never cross providers", allow, want)
+			break
+		}
+	}
 }
