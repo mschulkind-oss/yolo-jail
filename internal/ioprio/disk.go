@@ -103,6 +103,11 @@ func Resolve(root, path string) Resolution {
 	}
 	name, err := blockName(root, m.source)
 	if err != nil {
+		if byDev, ok := blockNameByDev(root, m.dev); ok {
+			name, err = byDev, nil
+		}
+	}
+	if err != nil {
 		res.Kind, res.Unreadable = KindUnreadable, err.Error()
 		return res
 	}
@@ -117,6 +122,11 @@ func Resolve(root, path string) Resolution {
 
 type mount struct {
 	point, fstype, source string
+	// dev is mountinfo's major:minor field (field 3), the device the kernel mounted. It is
+	// the fallback when source names no /sys/class/block entry: `/dev/root` is a kernel
+	// alias for the boot root (GitHub's runners mount / from it), with no sysfs entry of that
+	// name. btrfs reports an anonymous 0:N here, so it is never trusted when the major is 0.
+	dev string
 }
 
 // longestMount picks the mount whose mount point is the longest prefix of path. Where two
@@ -158,7 +168,7 @@ func parseMountinfoLine(line string) (mount, bool) {
 	if len(pre) < 5 || len(post) < 2 {
 		return mount{}, false
 	}
-	return mount{point: unescapeMountinfo(pre[4]), fstype: post[0], source: unescapeMountinfo(post[1])}, true
+	return mount{point: unescapeMountinfo(pre[4]), fstype: post[0], source: unescapeMountinfo(post[1]), dev: pre[2]}, true
 }
 
 // unescapeMountinfo undoes the kernel's octal escapes (\040 for a space, \011, \012, \134).
@@ -217,6 +227,24 @@ func blockName(root, source string) (string, error) {
 		return "", fmt.Errorf("/sys/class/block/%s (%s)", name, why(err))
 	}
 	return name, nil
+}
+
+// blockNameByDev maps a mount's major:minor to its /sys/class/block entry through the
+// /sys/dev/block/<major>:<minor> link. A 0 major is an anonymous device (btrfs subvolumes,
+// overlay) that names no block device, so it answers nothing.
+func blockNameByDev(root, dev string) (string, bool) {
+	if dev == "" || strings.HasPrefix(dev, "0:") {
+		return "", false
+	}
+	target, err := os.Readlink(filepath.Join(root, "sys", "dev", "block", dev))
+	if err != nil {
+		return "", false
+	}
+	name := filepath.Base(target)
+	if _, err := os.Stat(filepath.Join(root, "sys", "class", "block", name)); err != nil {
+		return "", false
+	}
+	return name, true
 }
 
 // why is an error's cause without the path, which every message here already names.

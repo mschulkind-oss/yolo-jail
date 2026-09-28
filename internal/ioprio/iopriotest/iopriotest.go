@@ -37,6 +37,20 @@ func (s *Sys) Mount(point, fstype, source string) *Sys {
 	return s
 }
 
+// MountDev adds one mountinfo line whose major:minor field is dev, and links
+// /sys/dev/block/<dev> to the class/block entry name, as the kernel does.
+func (s *Sys) MountDev(point, fstype, source, dev, name string) *Sys {
+	s.t.Helper()
+	s.mount = append(s.mount, fmt.Sprintf("%d 1 %s / %s rw,relatime - %s %s rw",
+		len(s.mount)+100, dev, strings.ReplaceAll(point, " ", `\040`), fstype, source))
+	s.write("proc/self/mountinfo", strings.Join(s.mount, "\n")+"\n")
+	s.dir("sys/dev/block")
+	if err := os.Symlink("../../class/block/"+name, filepath.Join(s.Root, "sys", "dev", "block", dev)); err != nil {
+		s.t.Fatal(err)
+	}
+	return s
+}
+
 // Disk adds a whole disk with the given scheduler line ("none mq-deadline [kyber] bfq"),
 // or with no scheduler file when sched is "".
 func (s *Sys) Disk(name, sched string) *Sys {

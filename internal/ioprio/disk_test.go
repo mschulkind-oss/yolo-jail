@@ -199,3 +199,28 @@ func TestResolveEvaluatesSymlinksOnThePath(t *testing.T) {
 		t.Errorf("a symlinked path resolved to %+v, want the mount at %s", res, real)
 	}
 }
+
+// TestResolveFindsDevRootByItsDeviceNumber: GitHub's runners mount / from `/dev/root`, a
+// kernel alias with no /sys/class/block/root, so the source name resolves nothing and the
+// check skipped the disk. mountinfo's major:minor still names the device, through
+// /sys/dev/block/<major>:<minor>.
+func TestResolveFindsDevRootByItsDeviceNumber(t *testing.T) {
+	sys := iopriotest.New(t).
+		MountDev("/", "ext4", "/dev/root", "259:1", "nvme0n1p1").
+		Disk("nvme0n1", "[none] mq-deadline").Part("nvme0n1", "nvme0n1p1")
+	res := ioprio.Resolve(sys.Root, ws)
+	if res.Kind != ioprio.KindBlock || len(res.Disks) != 1 || res.Disks[0].Name != "nvme0n1" {
+		t.Fatalf("resolution %+v, want nvme0n1 found through its device number", res)
+	}
+}
+
+// TestResolveNeverTrustsAnAnonymousDeviceNumber: btrfs and overlay report 0:N, which
+// names no block device, so a source that resolves nothing stays unreadable.
+func TestResolveNeverTrustsAnAnonymousDeviceNumber(t *testing.T) {
+	sys := iopriotest.New(t).
+		MountDev("/", "btrfs", "/dev/root", "0:28", "sda1").
+		Disk("sda", "[bfq] none").Part("sda", "sda1")
+	if res := ioprio.Resolve(sys.Root, ws); res.Kind != ioprio.KindUnreadable {
+		t.Fatalf("resolution %+v, want unreadable: 0:28 is anonymous", res)
+	}
+}
