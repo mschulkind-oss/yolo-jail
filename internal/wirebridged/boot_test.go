@@ -83,7 +83,7 @@ const bridgedProviders = `{"cerebras":{
 		"openai":{"base_url":"https://api.cerebras.ai/v1","wire_api":"openai-chat-completions"}}}}`
 
 func routeEnv(providers, profiles, useProfiles string) *entrypoint.Env {
-	return entrypoint.NewEnv(map[string]string{
+	return tokenEnv(map[string]string{
 		"YOLO_PROVIDERS":    providers,
 		"YOLO_PROFILES":     profiles,
 		"YOLO_USE_PROFILES": useProfiles,

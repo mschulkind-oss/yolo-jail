@@ -162,6 +162,10 @@ type Options struct {
 	// this workspace to finish its window — so a jail found running afterwards is the one
 	// THAT launch started, and the attach says so.
 	launchLockWaited bool
+	// callerTokens are the pack-service caller tokens this process has settled on, keyed by
+	// variable (callertokens.go, docs/reference/wire-bridge.md WB-D18): minted by the first
+	// composition that needed one, or adopted from the running jail by an attach. nil until then.
+	callerTokens map[string]string
 	// Args is ctx.args — the command after `--` (empty → interactive bash).
 	Args []string
 

@@ -15,7 +15,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/sigv4"
@@ -184,7 +183,7 @@ func startPlan(t *testing.T, p plan, home string) {
 	t.Cleanup(func() { EndpointFile = old })
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan int, 1)
-	go func() { done <- servePlan(ctx, p, entrypoint.NewEnv(map[string]string{"JAIL_HOME": home})) }()
+	go func() { done <- servePlan(ctx, p, tokenEnv(map[string]string{"JAIL_HOME": home})) }()
 	t.Cleanup(func() { cancel(); <-done })
 	waitFor(t, func() bool {
 		b, err := os.ReadFile(endpointFile)
@@ -199,7 +198,7 @@ func postTo(t *testing.T, url, body string, header map[string]string) (*http.Res
 	for k, v := range header {
 		req.Header.Set(k, v)
 	}
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := bridgeClient.Do(req)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -232,7 +231,7 @@ func TestServePlanServesEveryViaRoute(t *testing.T) {
 	const piBody = `{"model":"glm-5.3","stream":false,"messages":[{"role":"user","content":"hi"}]}`
 	const ocBody = `{"model":"openai.gpt-oss-120b","messages":[{"role":"user","content":"yo"}]}`
 	if resp, b := postTo(t, "http://"+addr+"/agent/pi/chat/completions?x=1", piBody,
-		map[string]string{"Authorization": "Bearer agents-own-key"}); resp.StatusCode != 200 {
+		map[string]string{"Authorization": "Bearer " + testCallerToken}); resp.StatusCode != 200 {
 		t.Fatalf("pi: %d %s", resp.StatusCode, b)
 	}
 	if resp, b := postTo(t, "http://"+addr+"/agent/opencode/chat/completions", ocBody, nil); resp.StatusCode != 200 {
@@ -413,7 +412,7 @@ func TestViaAbortsAStreamItsUpstreamCutShort(t *testing.T) {
 	}()
 
 	req, _ := http.NewRequest(http.MethodPost, "http://"+addr+"/agent/pi/chat/completions", strings.NewReader(`{"stream":true}`))
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := bridgeClient.Do(req)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -446,7 +445,7 @@ func TestViaIsSilentWhenTheAgentClosesAStream(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, "http://"+addr+"/agent/codex/responses", strings.NewReader(codexResponsesBody))
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := bridgeClient.Do(req)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -488,7 +487,7 @@ func TestViaBoundsTheWaitForResponseHeaders(t *testing.T) {
 	t.Cleanup(func() { upstreamTransport = old })
 	addr := startResponsesPlan(t, map[string]string{"codex": "pr"})
 
-	client := &http.Client{Timeout: 5 * time.Second}
+	client := &http.Client{Timeout: 5 * time.Second, Transport: callerTokenTransport{}}
 	resp, err := client.Post("http://"+addr+"/agent/codex/responses", "application/json", strings.NewReader(codexResponsesBody))
 	if err != nil {
 		t.Fatalf("the route never answered an upstream that sends no headers: %v", err)
@@ -529,7 +528,7 @@ func TestViaLetsAStreamOutliveTheHeaderTimeout(t *testing.T) {
 	}()
 
 	req, _ := http.NewRequest(http.MethodPost, "http://"+addr+"/agent/codex/responses", strings.NewReader(codexResponsesBody))
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := bridgeClient.Do(req)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -607,7 +606,7 @@ func TestRunServesAViaRouteFromTheChannel(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan int, 1)
 	go func() {
-		done <- run(ctx, entrypoint.NewEnv(map[string]string{
+		done <- run(ctx, tokenEnv(map[string]string{
 			"JAIL_HOME":         home,
 			"YOLO_PROVIDERS":    viaProviders,
 			"YOLO_PROFILES":     profiles,
@@ -649,14 +648,15 @@ func TestViaRoutesSignOnlyExactBedrockHosts(t *testing.T) {
 // TestViaPassthroughForwardsWhatItIsGiven: the upstream path is the provider's base plus
 // whatever remainder the agent sent — not a hard-coded chat path — the body crosses byte
 // for byte (whitespace included), and on a route with NO credential of its own the
-// agent's Authorization is still not forwarded (WB-D4): nothing overwrites it there, so
-// this is the case that proves the header is dropped rather than replaced.
+// agent's Authorization — the launch's caller token — is still not forwarded (WB-D4's
+// outbound half, WB-D18): nothing overwrites it there, so this is the case that proves the
+// header is dropped rather than replaced.
 func TestViaPassthroughForwardsWhatItIsGiven(t *testing.T) {
 	up := withUpstream(t)
 	h := newPassthroughHandler("pi", "http://127.0.0.1:8080/v1", "", nil)
 	const body = "  {\"model\": \"qwen\"}\n"
 	req := httptest.NewRequest(http.MethodPost, "/embeddings?dims=8", strings.NewReader(body))
-	req.Header.Set("Authorization", "Bearer local")
+	req.Header.Set("Authorization", "Bearer "+testCallerToken)
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)

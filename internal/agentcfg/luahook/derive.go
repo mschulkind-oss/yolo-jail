@@ -90,6 +90,14 @@ type DeriveCtx struct {
 	// is jail-wide and `via` is one agent's choice.
 	ViaURL string
 
+	// ViaAPIKeyEnvName is the NAME of the variable holding the credential ViaURL demands,
+	// exposed as ctx.via_api_key_env_name; "" exactly when ViaURL is. It is the via
+	// service's caller token (packload.ViaAPIKeyEnvNameFor, docs/reference/wire-bridge.md
+	// WB-D18), never the provider's key: the service adds that upstream itself. A derive
+	// that writes ViaURL writes this name as that row's credential reference, in whatever
+	// spelling its agent expands (`${NAME}`, `{env:NAME}`, an env_key).
+	ViaAPIKeyEnvName string
+
 	// Tables are the live config tables a derive may read, keyed by source name
 	// (manifest.SourceMCPServers / SourceLSPServers). Exposed read-only as
 	// ctx.<name>. Absent source => an empty table (a jail with no MCP configured
@@ -508,6 +516,7 @@ func buildDeriveCtxTable(L *lua.LState, ctx *DeriveCtx, sentinel, emptyArr *lua.
 	L.SetField(t, "selected_provider", lua.LString(ctx.SelectedProvider))
 	L.SetField(t, "profile_name", lua.LString(ctx.ProfileName))
 	L.SetField(t, "via_url", lua.LString(ctx.ViaURL))
+	L.SetField(t, "via_api_key_env_name", lua.LString(ctx.ViaAPIKeyEnvName))
 	// ctx.profile, always a table. Keys are sorted because a Go map has no order and a
 	// derive that iterates it must not see a different order between runs.
 	profile := L.NewTable()

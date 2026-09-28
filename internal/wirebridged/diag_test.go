@@ -30,7 +30,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/wirebridge"
 )
@@ -97,7 +96,7 @@ func TestServeReportsTheAddressTheErrnoAndThePortHolderOnABindConflict(t *testin
 		ProviderName:    "cerebras",
 		ListenAddr:      addr,
 		UpstreamBaseURL: "https://upstream.example/v1",
-	}, entrypoint.NewEnv(map[string]string{}))
+	}, tokenEnv(map[string]string{}))
 	if rc != 1 {
 		t.Errorf("a bind conflict is a boot FAILURE, not an idle: rc = %d, want 1", rc)
 	}
@@ -137,7 +136,7 @@ func TestBindConflictDetailReachesTheReadinessPipeOnOneLine(t *testing.T) {
 
 	captureDiag(t)
 	if rc := serve(context.Background(), route{ProviderName: "cerebras", ListenAddr: addr,
-		UpstreamBaseURL: "https://upstream.example/v1"}, entrypoint.NewEnv(map[string]string{})); rc != 1 {
+		UpstreamBaseURL: "https://upstream.example/v1"}, tokenEnv(map[string]string{})); rc != 1 {
 		t.Fatalf("rc = %d, want 1", rc)
 	}
 	buf := make([]byte, 4096)
@@ -185,7 +184,7 @@ func TestPublishFailureNamesTheFileAndReleasesTheListener(t *testing.T) {
 
 	logged := captureDiag(t)
 	if rc := serve(context.Background(), route{ProviderName: "cerebras", ListenAddr: addr,
-		UpstreamBaseURL: "https://upstream.example/v1"}, entrypoint.NewEnv(map[string]string{})); rc != 1 {
+		UpstreamBaseURL: "https://upstream.example/v1"}, tokenEnv(map[string]string{})); rc != 1 {
 		t.Errorf("an unpublishable endpoint is a boot failure: rc = %d, want 1", rc)
 	}
 	wantLines(t, logged(), "cannot publish", EndpointFile, addr)
@@ -214,7 +213,7 @@ func TestServingLineNamesTheRouteAndTheCredentialSource(t *testing.T) {
 	go func() {
 		done <- serve(ctx, route{ProviderName: "cerebras", ListenAddr: "127.0.0.1:0",
 			UpstreamBaseURL: "https://upstream.example/v1", KeyEnvName: "WIREBRIDGE_DIAG_KEY"},
-			entrypoint.NewEnv(map[string]string{"JAIL_HOME": home}))
+			tokenEnv(map[string]string{"JAIL_HOME": home}))
 	}()
 	waitFor(t, func() bool { return strings.Contains(logged(), "serving provider") })
 	cancel()

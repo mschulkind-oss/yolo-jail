@@ -517,7 +517,16 @@ yolo.derive("pi", "models", function(ctx)
       -- models.json uses it), and pi expands it at read time, so yolo writes the reference
       -- verbatim and the consumer resolves it. For an unkeyed local provider, pi filters out
       -- models without a credential unless a dummy apiKey is provided (docs/research/local-model-endpoints.md).
-      if prov.api_key_env_name then
+      --
+      -- A VIA ROW SENDS THE VIA SERVICE'S CALLER TOKEN, never the provider's key: the service
+      -- adds that upstream itself, and demands this launch's token of every caller
+      -- (docs/reference/wire-bridge.md WB-D18). ctx.via_api_key_env_name names the variable;
+      -- an entrypoint older than the field hands nil, and the row then keeps the provider's
+      -- reference as it did before.
+      local viaKey = viaRow and ctx.via_api_key_env_name or nil
+      if viaKey ~= nil and viaKey ~= "" then
+        entry.apiKey = "${" .. viaKey .. "}"
+      elseif prov.api_key_env_name then
         entry.apiKey = "${" .. prov.api_key_env_name .. "}"
       elseif prov.api_key then
         entry.apiKey = prov.api_key

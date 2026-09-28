@@ -215,6 +215,20 @@ yolo.derive("claude", "settings", function(ctx)
   return out
 end)
 
+-- routedAuthToken is ANTHROPIC_AUTH_TOKEN for a routed anthropic endpoint that names its own
+-- credential (`endpoints.anthropic.api_key_env_name`, which core composes onto an address a
+-- pack service serves — the wire bridge's): the value the launch hydrated into that
+-- endpoint's `api_key`, or the "local" dummy when it hydrated none. Never the provider's key,
+-- and never absent: with no ANTHROPIC_AUTH_TOKEN claude sends its saved login's OAuth bearer
+-- to the base URL (docs/design/agent-auth-modes.md §8.1), and the dummy at least draws a
+-- clear 401 from the bridge instead.
+local function routedAuthToken(ep)
+  if type(ep) == "table" and type(ep.api_key) == "string" and ep.api_key ~= "" then
+    return ep.api_key
+  end
+  return "local"
+end
+
 -- env: the provider environment claude's own process launches with. The variable NAMES
 -- are Claude Code's facts, not any provider's, so the binding lives HERE — in the agent
 -- pack, where a rename of what claude reads is one edit — rather than in a manifest
@@ -239,13 +253,21 @@ yolo.env("claude", function(ctx)
     -- subscription actually serves, and the adapter that fronts it declares its own
     -- address, so core composes the pairing into this provider's entry exactly as it does
     -- for every other bridged provider (protocol-resolution.md, outcome 2).
-    local codexEp = (type(p) == "table" and type(p.endpoints) == "table"
-      and type(p.endpoints.anthropic) == "table" and p.endpoints.anthropic.base_url) or nil
+    local codexAnthropic = (type(p) == "table" and type(p.endpoints) == "table"
+      and type(p.endpoints.anthropic) == "table" and p.endpoints.anthropic) or nil
+    local codexEp = codexAnthropic and codexAnthropic.base_url or nil
     local list = codexModelList(p)
     local first = list[1] or {}
     local model = codexDefault(list, ctx.profile)
     return {
       ANTHROPIC_BASE_URL = codexEp,
+      -- THE TOKEN THAT STOPS THE LOGIN LEAKING. With no ANTHROPIC_AUTH_TOKEN, claude sends its
+      -- saved Claude login's OAuth bearer to whatever ANTHROPIC_BASE_URL names
+      -- (docs/design/agent-auth-modes.md §8.1, measured), and this route's base URL is the wire
+      -- bridge on loopback, a port anything sharing that loopback can reach or squat. Setting
+      -- the variable overrides the login, so claude sends this instead: the bridge's per-launch
+      -- caller token, which the composed endpoint names as its credential (routedAuthToken).
+      ANTHROPIC_AUTH_TOKEN = codexEp and routedAuthToken(codexAnthropic),
       -- Pin a fresh Codex-profile chat and every unassigned subagent to the
       -- profile's model, else the declared default. The picker above remains
       -- available for an intentional per-session choice.
@@ -300,7 +322,16 @@ yolo.env("claude", function(ctx)
   --
   -- The inverse stays below — `elseif routed` substitutes a dummy so a routed launch is
   -- never keyless.
-  if p.api_key then
+  --
+  -- AN ENDPOINT THAT NAMES ITS OWN CREDENTIAL TAKES THAT ONE (routedAuthToken): the wire
+  -- bridge's address carries its per-launch caller token, because the bridge holds the
+  -- provider's key itself and demands proof the caller is this launch's claude
+  -- (docs/reference/wire-bridge.md WB-D18). Sending the provider's key there would hand it
+  -- to whatever holds the bridge's port.
+  local anthropicEp = p.endpoints and p.endpoints.anthropic
+  if routed and type(anthropicEp) == "table" and anthropicEp.api_key_env_name then
+    out.ANTHROPIC_AUTH_TOKEN = routedAuthToken(anthropicEp)
+  elseif p.api_key then
     out.ANTHROPIC_AUTH_TOKEN = p.api_key
   elseif routed then
     -- Routed/local endpoint with no explicit API key needs a dummy token so Claude

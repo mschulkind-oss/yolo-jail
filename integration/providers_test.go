@@ -320,13 +320,23 @@ func TestProvidersRenderInTheAgentsOwnVocabulary(t *testing.T) {
 		packHome(t, `{"packs": ["copilot", "cerebras"], "use_profiles": {"copilot": "cerebras"},
 			"env_sources": [{"CEREBRAS_API_KEY": "integration-probe-not-a-real-key"}]}`)
 		// Copilot's own env file, as its launcher sources it (the credential gate).
+		// The key copilot sends the bridge is the launch's caller token, never the cerebras
+		// key, which the bridge adds upstream itself (wire-bridge.md WB-D18). The token is
+		// per launch, so the expectation reads it from the same session.
 		r := runYolo(t, dir,
-			`. ~/.config/yolo-agent-env/copilot.sh && env | grep -E '^COPILOT_(MODEL|PROVIDER_API_KEY|PROVIDER_BASE_URL|PROVIDER_TYPE|PROVIDER_WIRE_API)=' | sort`)
+			`. ~/.config/yolo-agent-env/copilot.sh && env | grep -E '^COPILOT_(MODEL|PROVIDER_API_KEY|PROVIDER_BASE_URL|PROVIDER_TYPE|PROVIDER_WIRE_API)=' | sort; `+
+				`echo "CALLER_TOKEN=$YOLO_SERVICE_WIRE_BRIDGE_TOKEN"`)
 		if r.rc != 0 {
 			t.Fatalf("profiled copilot launch failed: rc %d\n%s", r.rc, r.combined())
 		}
+		before, tokenLine, _ := strings.Cut(r.stdout, "CALLER_TOKEN=")
+		token := strings.TrimSpace(tokenLine)
+		if len(token) != 64 {
+			t.Fatalf("the bridged launch carried no caller token: %q\n%s", token, r.stdout)
+		}
+		r.stdout = before
 		want := "COPILOT_MODEL=qwen-3.8-27b\n" +
-			"COPILOT_PROVIDER_API_KEY=integration-probe-not-a-real-key\n" +
+			"COPILOT_PROVIDER_API_KEY=" + token + "\n" +
 			"COPILOT_PROVIDER_BASE_URL=http://127.0.0.1:8214\n" +
 			"COPILOT_PROVIDER_TYPE=anthropic\n"
 		if got := r.stdout; got != want {

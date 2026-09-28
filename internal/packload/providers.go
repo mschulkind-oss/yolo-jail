@@ -21,6 +21,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
 // ComposeProviders returns the providers table for a launch: every selected pack's
@@ -343,18 +344,42 @@ func adaptEndpoints(table *jsonx.OrderedMap, packs []*Pack, cfg composeOpts) {
 			if override, ok := addresses[AdapterKey(a.From, a.To)]; ok && override != "" {
 				address = override
 			}
-			addEndpoint(entry, a.To, address)
+			addEndpoint(entry, a.To, address, serviceCredentialEnv(a))
 			offered[a.To] = true
 		}
 	}
 }
 
+// serviceCredentialEnv is the credential an agent sends to adaptation a's address: the
+// caller token of the service that serves it (paths.ServiceCallerTokenEnv), "" for an
+// adapter whose pack runs no service — a remote gateway or a proxy the user runs, whose
+// credential is whatever the provider's own is.
+//
+// A SERVICE-SERVED ADDRESS TAKES THE SERVICE'S CREDENTIAL, NEVER THE PROVIDER'S. The service
+// holds the provider's key itself (the wire bridge reads it from the served agent's env file)
+// and needs none from the agent, and what it DOES need is proof that the caller is one of this
+// launch's agents: on a jail sharing the host's loopback (`network.mode: host`, macos-user, a
+// nested podman) the address is reachable from every host process (wire-bridge.md WB-D18). So
+// the pointer is composed WITH the address, by the same pass, and a derive that reads the
+// endpoint's credential sends the right one without knowing that a service exists (WB-D2).
+func serviceCredentialEnv(a Adaptation) string {
+	if a.Service == "" {
+		return ""
+	}
+	return paths.ServiceCallerTokenEnv(a.Service)
+}
+
 // addEndpoint writes endpoints.<protocol>.base_url on a composed entry, creating the
-// `endpoints` map when the provider had none of its own. It writes ONLY the base_url: a
-// `wire_api` here would be the adapter asserting which dialect it speaks, and what the
+// `endpoints` map when the provider had none of its own. It writes the base_url and, when
+// credentialEnv is set, `api_key_env_name` beside it: the NAME of the variable holding the
+// credential this endpoint takes, which a derive's hydrated table resolves into the
+// endpoint's own `api_key` (hydrateProviders) and which wins over the provider's for an agent
+// sent to this address. A name, never a value, so the relayed table stays secret-free (D8).
+//
+// No `wire_api`: that would be the adapter asserting which dialect it speaks, and what the
 // adapter serves is the protocol it declared — the same shape a provider entry that names
 // a protocol and leaves the dialect to the consumer's default already has.
-func addEndpoint(entry *jsonx.OrderedMap, protocol, address string) {
+func addEndpoint(entry *jsonx.OrderedMap, protocol, address, credentialEnv string) {
 	v, ok := entry.Get("endpoints")
 	endpoints, isMap := v.(*jsonx.OrderedMap)
 	if !ok || !isMap {
@@ -363,6 +388,9 @@ func addEndpoint(entry *jsonx.OrderedMap, protocol, address string) {
 	}
 	ep := jsonx.NewOrderedMap()
 	ep.Set("base_url", address)
+	if credentialEnv != "" {
+		ep.Set("api_key_env_name", credentialEnv)
+	}
 	endpoints.Set(protocol, ep)
 }
 

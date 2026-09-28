@@ -140,7 +140,7 @@ func TestComposingTwiceCannotCorruptAPacksDeclaration(t *testing.T) {
 	}
 	e := asOrdered(t, entry)
 	e.Set("region", "tampered")
-	addEndpoint(e, "anthropic", "http://127.0.0.1:1")
+	addEndpoint(e, "anthropic", "http://127.0.0.1:1", "")
 
 	second, err := ComposeProviders(userLocalProvider(t), packs)
 	if err != nil {

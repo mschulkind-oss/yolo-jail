@@ -63,20 +63,27 @@ func copilotLaunchAssembled(t *testing.T, provider string, tune func(*Options)) 
 // launch arms the full BYOK block — and since cerebras now declares an
 // anthropic endpoint (the wire bridge's loopback URL, wire-bridge.md §3.3),
 // D-3 routes copilot there: the anthropic type, no WIRE_API, the one model
-// alias, the hydrated key. This is the flip the bridge shipped: copilot's
+// alias, and as the key the bridge's per-launch caller token, never the
+// cerebras key, which the bridge adds upstream itself (WB-D18). copilot's
 // derive reads every endpoint the composed table carries and prefers the
 // anthropic one, so the bridge is as much copilot's route as claude's — which
-// is why cerebras's `needs` entry names the copilot bin too. The derive is
-// UNCHANGED; only the table grew an endpoint.
+// is why cerebras's `needs` entry names the copilot bin too.
 func TestCopilotByokComposesCerebrasThroughTheBridge(t *testing.T) {
 	la := copilotLaunchAssembled(t, "cerebras", func(o *Options) { o.ProfileName = "cerebras" })
 
 	got := la.channelEnv(t,
 		"COPILOT_PROVIDER_BASE_URL", "COPILOT_PROVIDER_TYPE", "COPILOT_PROVIDER_WIRE_API",
 		"COPILOT_MODEL", "COPILOT_PROVIDER_API_KEY")
+	// The key copilot sends to the bridge is the bridge's per-launch caller token, never
+	// the cerebras key: the bridge adds that upstream itself (WB-D18), and a loopback port
+	// is no place to send a provider's credential.
+	token := la.o.callerTokens["YOLO_SERVICE_WIRE_BRIDGE_TOKEN"]
+	if len(token) != 64 {
+		t.Fatalf("the launch minted no wire-bridge caller token: %q", la.o.callerTokens)
+	}
 	want := []string{
 		"COPILOT_MODEL=qwen-3.8-27b",
-		"COPILOT_PROVIDER_API_KEY=csk-test",
+		"COPILOT_PROVIDER_API_KEY=" + token,
 		"COPILOT_PROVIDER_BASE_URL=http://127.0.0.1:8214",
 		"COPILOT_PROVIDER_TYPE=anthropic",
 	}

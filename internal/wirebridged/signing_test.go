@@ -327,7 +327,7 @@ func TestServeSignsABedrockRoute(t *testing.T) {
 	go func() {
 		done <- serve(ctx, route{ProviderName: "b", ListenAddr: "127.0.0.1:0",
 			UpstreamBaseURL: bedrockBase, SignRegion: "us-east-1"},
-			entrypoint.NewEnv(map[string]string{"JAIL_HOME": home}))
+			tokenEnv(map[string]string{"JAIL_HOME": home}))
 	}()
 	defer func() { cancel(); <-done }()
 	var addr string
@@ -336,7 +336,7 @@ func TestServeSignsABedrockRoute(t *testing.T) {
 		addr = strings.TrimSpace(string(b))
 		return err == nil && addr != ""
 	})
-	resp, err := http.Post("http://"+addr+"/v1/messages", "application/json",
+	resp, err := bridgeClient.Post("http://"+addr+"/v1/messages", "application/json",
 		strings.NewReader(`{"model":"m","max_tokens":8,"messages":[{"role":"user","content":"hi"}]}`))
 	if err != nil {
 		t.Fatal(err)
@@ -372,7 +372,7 @@ func TestServeIdlesABedrockRouteWithNoCredentialSource(t *testing.T) {
 	go func() {
 		done <- serve(ctx, route{ProviderName: "b", ListenAddr: "127.0.0.1:0",
 			UpstreamBaseURL: bedrockBase, SignRegion: "us-east-1"},
-			entrypoint.NewEnv(map[string]string{"JAIL_HOME": t.TempDir()}))
+			tokenEnv(map[string]string{"JAIL_HOME": t.TempDir()}))
 	}()
 	waitFor(t, func() bool { return strings.Contains(read(), "idling") })
 	cancel()

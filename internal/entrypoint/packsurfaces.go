@@ -268,6 +268,10 @@ type surfaceSelection struct {
 	// names (OQ-WG7 (d)) — ctx.via_url; "" when the profile is not a via profile, or its
 	// service is not in the launch (the host notch).
 	ViaURL string
+	// ViaAPIKeyEnvName is the variable holding the credential ViaURL demands, the via
+	// service's caller token (packload.ViaAPIKeyEnvNameFor) — ctx.via_api_key_env_name; ""
+	// exactly when ViaURL is.
+	ViaAPIKeyEnvName string
 }
 
 // surfaceSelectionFor resolves one surface's selection: packload.ProviderFor — the ONE
@@ -292,6 +296,7 @@ func surfaceSelectionFor(packs []*packload.Pack, resolved map[string]packload.Re
 		Provider:           packload.ProviderFor(resolved, profiles[s.Agent]),
 		NativeCapabilities: packload.NativeCapabilities(packs, s.Agent),
 		ViaURL:             packload.ViaURLFor(resolved[profiles[s.Agent]], s.Agent),
+		ViaAPIKeyEnvName:   packload.ViaAPIKeyEnvNameFor(packs, resolved[profiles[s.Agent]], s.Agent),
 	}
 }
 
@@ -332,6 +337,7 @@ func deriveComputedLayer(e *Env, surface manifest.Surface, deriveScript string, 
 		Profile:            activeProfileOptions(e, sel.Profile),
 		NativeCapabilities: sel.NativeCapabilities,
 		ViaURL:             sel.ViaURL,
+		ViaAPIKeyEnvName:   sel.ViaAPIKeyEnvName,
 		Tables:             tables,
 		UnknownAPI:         func(name string) { e.warnOnce(unknownDeriveAPINote(surface.Agent, name)) },
 	})

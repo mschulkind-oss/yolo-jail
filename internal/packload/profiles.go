@@ -31,6 +31,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
 // UserProfile is one user-declared profile entry: the provider it selects and the
@@ -83,6 +84,33 @@ func ViaURLFor(r ResolvedProfile, agent string) string {
 		return ""
 	}
 	return strings.TrimRight(r.ViaBase, "/") + ViaAgentPrefix(agent)
+}
+
+// ViaAPIKeyEnvNameFor is the variable an agent on a via route sends as its credential there
+// (derive input ctx.via_api_key_env_name): the caller token of the service that serves the
+// via address (paths.ServiceCallerTokenEnv, docs/reference/wire-bridge.md WB-D18). "" exactly
+// when ViaURLFor is "" — no via, or its service is not in the launch — or when the named pack
+// serves no via address among packs.
+//
+// A NAME, and the service's, never the provider's. The via service holds the provider's key
+// and adds it upstream itself; what it demands of the caller is this launch's token. A derive
+// splices the name into the config it renders (`${NAME}`, `{env:NAME}`, an env_key), so the
+// file stays secret-free and the agent reads the value from its own environment.
+func ViaAPIKeyEnvNameFor(packs []*Pack, r ResolvedProfile, agent string) string {
+	if ViaURLFor(r, agent) == "" {
+		return ""
+	}
+	for _, p := range packs {
+		if p == nil || p.Name != r.Via || p.Decl == nil {
+			continue
+		}
+		for _, svc := range p.Decl.Services() {
+			if svc.ViaAddress != "" {
+				return paths.ServiceCallerTokenEnv(svc.Name)
+			}
+		}
+	}
+	return ""
 }
 
 // ViaAgentPrefix is the path prefix one agent's via route is served under.

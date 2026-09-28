@@ -20,7 +20,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/openauthclient"
 	"github.com/mschulkind-oss/yolo-jail/internal/wirebridge"
 )
@@ -523,7 +522,7 @@ func TestServeCarriesTheRoutesStreamUsageFactToTheUpstream(t *testing.T) {
 			go func() {
 				done <- serve(ctx, route{ProviderName: "p", ListenAddr: "127.0.0.1:0",
 					UpstreamBaseURL: upSrv.URL, OmitStreamUsage: tc.omit},
-					entrypoint.NewEnv(map[string]string{"JAIL_HOME": t.TempDir()}))
+					tokenEnv(map[string]string{"JAIL_HOME": t.TempDir()}))
 			}()
 			defer func() { cancel(); <-done }()
 			var addr string
@@ -533,7 +532,7 @@ func TestServeCarriesTheRoutesStreamUsageFactToTheUpstream(t *testing.T) {
 				return err == nil && addr != ""
 			})
 
-			resp, err := http.Post("http://"+addr+"/v1/messages", "application/json",
+			resp, err := bridgeClient.Post("http://"+addr+"/v1/messages", "application/json",
 				strings.NewReader(`{"model":"m","max_tokens":8,"stream":true,"messages":[{"role":"user","content":"hi"}]}`))
 			if err != nil {
 				t.Fatal(err)
@@ -671,9 +670,11 @@ func TestUnknownBlockFailsClosedWith400(t *testing.T) {
 	}
 }
 
-// WB-D4: the inbound Authorization header is ignored — a bogus token is served
-// exactly like the real one, because the jail is the boundary and the bridge
-// authenticates nothing.
+// WB-D4's outbound half: the HANDLER reads no inbound credential — a bogus token
+// is served exactly like the real one and never reaches the upstream. Who may call
+// at all is decided before this handler runs, by the caller-token check servePlan
+// wraps every listener in (auth.go, WB-D18; TestTheBridgeRefusesEveryCallerWithout
+// ThisLaunchsToken).
 func TestInboundAuthorizationIgnored(t *testing.T) {
 	up := &stubUpstream{t: t, status: 200, contentType: "application/json", body: openaiResp}
 	upSrv := httptest.NewServer(up.handler())

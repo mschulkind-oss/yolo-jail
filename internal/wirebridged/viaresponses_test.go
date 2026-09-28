@@ -82,7 +82,7 @@ func TestViaServesCodexResponsesUnderItsPrefix(t *testing.T) {
 	addr := startResponsesPlan(t, map[string]string{"codex": "pr"})
 
 	resp, body := postTo(t, "http://"+addr+"/agent/codex/responses", codexResponsesBody,
-		map[string]string{"Authorization": "Bearer agents-own-key", "Accept": "text/event-stream"})
+		map[string]string{"Authorization": "Bearer " + testCallerToken, "Accept": "text/event-stream"})
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("codex: %d %s", resp.StatusCode, body)
 	}
@@ -128,7 +128,7 @@ func TestViaResponsesToBedrockIsSigned(t *testing.T) {
 	addr := startResponsesPlan(t, map[string]string{"codex": "pbr"})
 
 	if resp, body := postTo(t, "http://"+addr+"/agent/codex/responses", codexResponsesBody,
-		map[string]string{"Authorization": "Bearer agents-own-key"}); resp.StatusCode != http.StatusOK {
+		map[string]string{"Authorization": "Bearer " + testCallerToken}); resp.StatusCode != http.StatusOK {
 		t.Fatalf("codex: %d %s", resp.StatusCode, body)
 	}
 	if up.calls() != 1 {
@@ -190,7 +190,7 @@ func TestViaResponsesStreamIsFlushedThroughTheListener(t *testing.T) {
 	go func() {
 		req, _ := http.NewRequest(http.MethodPost, "http://"+addr+"/agent/codex/responses", strings.NewReader(codexResponsesBody))
 		req.Header.Set("Content-Type", "application/json")
-		resp, err := http.DefaultClient.Do(req)
+		resp, err := bridgeClient.Do(req)
 		if err != nil {
 			done <- result{err: err}
 			return
@@ -252,7 +252,7 @@ func TestViaSendsEachWireToItsOwnUpstream(t *testing.T) {
 	} {
 		before := up.calls()
 		req, _ := http.NewRequest(c.method, "http://"+addr+c.path, strings.NewReader(`{}`))
-		resp, err := http.DefaultClient.Do(req)
+		resp, err := bridgeClient.Do(req)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -342,7 +342,7 @@ func TestViaRefusesAPathItWouldClassifyAsOneWireAndServeAsAnother(t *testing.T) 
 		"/agent/pi/../codex/responses",             // one agent's prefix reaching another's
 	} {
 		req, _ := http.NewRequest(http.MethodPost, "http://"+addr+p, strings.NewReader(`{}`))
-		resp, err := http.DefaultClient.Do(req)
+		resp, err := bridgeClient.Do(req)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -377,7 +377,7 @@ func TestViaForwardsTheEscapedPathItClassified(t *testing.T) {
 	} {
 		before := up.calls()
 		req, _ := http.NewRequest(http.MethodPost, "http://"+addr+c.path, strings.NewReader(`{}`))
-		resp, err := http.DefaultClient.Do(req)
+		resp, err := bridgeClient.Do(req)
 		if err != nil {
 			t.Fatal(err)
 		}

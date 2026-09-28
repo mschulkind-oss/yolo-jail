@@ -75,6 +75,12 @@ type packChannel struct {
 	// localProviderForwardSources is the same set WITH provider attribution, for the
 	// launch disclosure (OQ-PC2). Same walker, two projections — see providerlocal.go.
 	localProviderForwardSources []providerForward
+	// callerTokens are this entry's pack-service caller tokens, keyed by the variable carrying
+	// each (callertokens.go, WB-D18): minted for a fresh launch, the running jail's own on an
+	// attach. The writer puts them in the shared channel section, because the daemon and every
+	// bridged client read them from the environment, and the credential gate composes them into
+	// the derives that point a client at the service. nil when no selected service runs.
+	callerTokens map[string]string
 }
 
 // composePackChannel composes the channel from the config and the STAGED pack set.
@@ -123,7 +129,12 @@ func (o *Options) composePackChannel(cfg *jsonx.OrderedMap, packs []*packload.Pa
 	if err != nil {
 		return nil, err
 	}
+	callerTokens, err := o.launchCallerTokens(packs)
+	if err != nil {
+		return nil, err
+	}
 	c := &packChannel{
+		callerTokens:                callerTokens,
 		profiles:                    profiles,
 		providers:                   providers,
 		userEnv:                     userEnv,
@@ -144,6 +155,10 @@ func (o *Options) composePackChannel(cfg *jsonx.OrderedMap, packs []*packload.Pa
 		Profiles:   packload.ProfileTable(profiles),
 		Resolved:   resolved,
 		EnvSources: userEnv,
+		// THE SERVICE CALLER TOKENS, answering first in every agent's lookup (WB-D18): an
+		// address a pack service serves names its token as its credential, and the derive of
+		// any agent sent there must read the value that service demands.
+		CallerTokens: callerTokens,
 		Fallback: func(name string) (string, bool) {
 			v := o.Getenv(name)
 			return v, v != ""

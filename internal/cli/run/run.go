@@ -1980,6 +1980,22 @@ func (o *Options) attachExisting(cname, rt, targetCmd string, cfg *jsonx.Ordered
 		}
 	}
 	channel, targetCmd = view.channel, view.targetCmd
+	// THE RUNNING JAIL'S CALLER TOKENS (callertokens.go, WB-D18). This process minted fresh ones
+	// when it composed, and the jail's service daemon demands the ones its own launch minted: it
+	// read them once at boot. So the attach delivers those, recomposing when they differ, and a
+	// jail launched before caller tokens keeps delivering none it could check.
+	if deliver && channel != nil {
+		rekeyed, err := o.rekeyChannelForAttach(paths.WorkspaceHomeState(o.Workspace),
+			view.staged.packs, channel, func(packs []*packload.Pack) (*packChannel, error) {
+				return o.composePackChannel(cfg, packs, channel.userEnv)
+			})
+		if err != nil {
+			o.printProviderRefusal([]string{"Refusing to attach: " + err.Error()})
+			releaseLock()
+			return 1, false
+		}
+		channel = rekeyed
+	}
 	// THE CONTRACT GATE (contracttags.go). What this entry would deliver decides the tags it
 	// needs; a tag the jail lacks means the jail's binaries cannot receive it, and the attach
 	// never proceeds on its own then: the acknowledgment, a restart, or a refusal. An entry

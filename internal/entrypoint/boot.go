@@ -127,6 +127,22 @@ func HydrateEntryChannel(e *Env) bool {
 	if err != nil {
 		return false
 	}
+	values, ok := ParseEntryChannel(data)
+	if !ok {
+		return false
+	}
+	for key, value := range values {
+		e.Vars[key] = value
+	}
+	return true
+}
+
+// ParseEntryChannel reads the per-entry channel section out of a yolo-user-env.sh body: every
+// plain-form export below EntryChannelSectionHeader, unescaped. ok is false when the section is
+// absent or incomplete (any of the three wire tables missing), which is also what a file caught
+// mid-rewrite looks like. The host launcher reads a running jail's caller tokens back through it
+// (internal/cli/run's runningCallerTokens), so the two sides share one grammar.
+func ParseEntryChannel(data []byte) (map[string]string, bool) {
 	values := map[string]string{}
 	inChannel := false
 	for _, line := range splitLines(string(data)) {
@@ -155,13 +171,10 @@ func HydrateEntryChannel(e *Env) bool {
 	}
 	for _, key := range []string{"YOLO_PROVIDERS", "YOLO_PROFILES", "YOLO_USE_PROFILES"} {
 		if _, ok := values[key]; !ok {
-			return false
+			return nil, false
 		}
 	}
-	for key, value := range values {
-		e.Vars[key] = value
-	}
-	return true
+	return values, true
 }
 
 // ~/.config/yolo-user-env.sh exports into the process env AND e.Vars so the
@@ -690,6 +703,9 @@ func Main(args []string) error {
 	startContainerPortForwarding(e)
 	p.mark("port_forwarding")
 
+	// Record, in boot.log only, which pack services this launch armed with a caller token: the
+	// daemons below demand it of every request (docs/reference/wire-bridge.md WB-D18).
+	noteServiceCallerAuth(e)
 	// Start the jail-daemon supervisor (child of PID 1; kernel-reaped on exit).
 	genStep(e, "start_jail_daemon_supervisor", func() error { return startJailDaemonSupervisor(e) })
 	p.mark("jail_daemon_supervisor")

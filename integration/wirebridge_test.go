@@ -31,9 +31,11 @@ type upstreamBody struct {
 // and the banner line says so) with claude profiled at cerebras — proves the
 // whole chain in a single jail:
 //
-//	a claude-shaped curl to $ANTHROPIC_BASE_URL/v1/messages   → an openai-shaped
-//	  request at the stub upstream (bearer sentinel attached) and an
-//	  anthropic-shaped answer back;
+//	a request with no caller token, or a wrong one            → 401 (WB-D18);
+//	a claude-shaped curl to $ANTHROPIC_BASE_URL/v1/messages,
+//	  bearing claude's own ANTHROPIC_AUTH_TOKEN               → an openai-shaped
+//	  request at the stub upstream (bearer sentinel attached, the caller token
+//	  never) and an anthropic-shaped answer back;
 //	count_tokens                                              → 404 (WB-D14);
 //	YOLO_SERVICE_WIRE_BRIDGE_ENDPOINT                          → registered, so the
 //	  reachability witness covered the listener before this command ever ran.
@@ -128,16 +130,29 @@ func TestWireBridgeTranslatesAnthropicToOpenai(t *testing.T) {
 # The implicit forward for the provider's port is set up before this command runs;
 # wait for it rather than assuming, so a slow forwarder cannot read as a bridge fault.
 for i in $(seq 1 50); do (exec 3<>/dev/tcp/127.0.0.1/` + strconv.Itoa(stubPort) + `) 2>/dev/null && break; sleep 0.1; done
+body='{"model":"qwen-3.8-27b","max_tokens":32,"messages":[{"role":"user","content":"say bridge"}]}'
+# WB-D18: no token and a wrong one are refused before any upstream is dialed.
+none=$(curl -sS -o /workspace/wirebridge-none.json -w '%{http_code}' \
+  "$ANTHROPIC_BASE_URL/v1/messages" -H 'content-type: application/json' -d "$body")
+wrong=$(curl -sS -o /dev/null -w '%{http_code}' \
+  "$ANTHROPIC_BASE_URL/v1/messages" -H 'content-type: application/json' \
+  -H 'x-api-key: 0000000000000000000000000000000000000000000000000000000000000000' -d "$body")
+# claude's own credential for the bridge: the launch's caller token, which its env file
+# carries as ANTHROPIC_AUTH_TOKEN and claude sends as a bearer.
 msg=$(curl -sS -o /workspace/wirebridge-resp.json -w '%{http_code}' \
   "$ANTHROPIC_BASE_URL/v1/messages" \
   -H 'content-type: application/json' \
-  -H 'x-api-key: ignored-inbound-auth' \
-  -d '{"model":"qwen-3.8-27b","max_tokens":32,"messages":[{"role":"user","content":"say bridge"}]}')
+  -H "authorization: Bearer $ANTHROPIC_AUTH_TOKEN" \
+  -d "$body")
 count=$(curl -sS -o /dev/null -w '%{http_code}' \
   "$ANTHROPIC_BASE_URL/v1/messages/count_tokens" \
   -H 'content-type: application/json' \
+  -H "x-api-key: $ANTHROPIC_AUTH_TOKEN" \
   -d '{"model":"qwen-3.8-27b","messages":[]}')
-echo "MSGS=$msg COUNT=$count"
+echo "NONE=$none WRONG=$wrong MSGS=$msg COUNT=$count"
+[ "$ANTHROPIC_AUTH_TOKEN" = "$YOLO_SERVICE_WIRE_BRIDGE_TOKEN" ] && echo "TOKEN=matches-channel"
+echo "TOKENLEN=${#YOLO_SERVICE_WIRE_BRIDGE_TOKEN}"
+echo "CALLER_TOKEN=$YOLO_SERVICE_WIRE_BRIDGE_TOKEN"
 env | grep -E '^YOLO_SERVICE_WIRE_BRIDGE_ENDPOINT='
 true`
 	r := runYolo(t, dir, script)
@@ -169,8 +184,23 @@ true`
 	if !strings.Contains(r.stdout, "YOLO_SERVICE_WIRE_BRIDGE_ENDPOINT=/run/yolo-services/wire-bridge.endpoint") {
 		t.Errorf("the jail env must carry the witness registration:\n%s", r.stdout)
 	}
-	if !strings.Contains(r.stdout, "MSGS=200 COUNT=404") {
-		t.Errorf("the messages round-trip must be 200 and count_tokens must refuse 404:\n%s", r.stdout)
+	if !strings.Contains(r.stdout, "NONE=401 WRONG=401 MSGS=200 COUNT=404") {
+		t.Errorf("the bridge must refuse no token and a wrong one 401 (WB-D18), serve the "+
+			"launch's token 200, and refuse count_tokens 404:\n%s", r.stdout)
+	}
+	if !strings.Contains(r.stdout, "TOKEN=matches-channel") || !strings.Contains(r.stdout, "TOKENLEN=64") {
+		t.Errorf("claude's ANTHROPIC_AUTH_TOKEN must be the launch's 64-hex caller token from "+
+			"the channel:\n%s", r.stdout)
+	}
+	callerToken := ""
+	for _, line := range strings.Split(r.stdout, "\n") {
+		if v, ok := strings.CutPrefix(strings.TrimSpace(line), "CALLER_TOKEN="); ok {
+			callerToken = v
+		}
+	}
+	if none, err := os.ReadFile(filepath.Join(dir, "wirebridge-none.json")); err != nil ||
+		!strings.Contains(string(none), "YOLO_SERVICE_WIRE_BRIDGE_TOKEN") {
+		t.Errorf("the 401 body must name the variable the token is in: %q (%v)", none, err)
 	}
 
 	// What the UPSTREAM received: an openai-shaped request, the provider's key
@@ -188,6 +218,10 @@ true`
 	if upstream.Authorization != "Bearer "+sentinel {
 		t.Errorf("upstream Authorization = %q, want the sentinel borne as a bearer "+
 			"from the 0600 key file", upstream.Authorization)
+	}
+	if callerToken == "" || strings.Contains(upstream.Authorization, callerToken) {
+		t.Errorf("the caller token (%q) must stop at the bridge; upstream Authorization = %q",
+			callerToken, upstream.Authorization)
 	}
 	if upstream.Body.Model != "qwen-3.8-27b" || upstream.Body.MaxTokens != 32 {
 		t.Errorf("upstream body model/max_tokens = %q/%d, want the passthrough pair",

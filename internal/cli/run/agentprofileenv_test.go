@@ -290,7 +290,15 @@ func TestAssembleEmitsCodexBridgeProfileEnv(t *testing.T) {
 		"CLAUDE_CODE_SUBAGENT_MODEL", "CLAUDE_CODE_MAX_CONTEXT_TOKENS",
 		"CLAUDE_CODE_AUTO_COMPACT_WINDOW", "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC",
 		"ANTHROPIC_AUTH_TOKEN")
+	// ANTHROPIC_AUTH_TOKEN is the wire bridge's per-launch caller token (WB-D18): without it
+	// claude sends its saved Claude login's OAuth bearer to this loopback address
+	// (agent-auth-modes.md §8.1), and the bridge refuses a caller that does not carry it.
+	token := la.o.callerTokens["YOLO_SERVICE_WIRE_BRIDGE_TOKEN"]
+	if len(token) != 64 {
+		t.Fatalf("the launch minted no wire-bridge caller token: %q", la.o.callerTokens)
+	}
 	want := []string{
+		"ANTHROPIC_AUTH_TOKEN=" + token,
 		"ANTHROPIC_BASE_URL=http://127.0.0.1:8215",
 		"ANTHROPIC_DEFAULT_OPUS_MODEL=gpt-6-sol",
 		"ANTHROPIC_DEFAULT_OPUS_MODEL_DESCRIPTION=Balanced (default)",

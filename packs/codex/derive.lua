@@ -251,12 +251,21 @@ yolo.derive("codex", "config", function(ctx)
             base_url = baseUrl,
             wire_api = api,
           }
-          -- A via row names no env_key: the service holds the provider's credential and
-          -- drops an inbound Authorization (WG-I5), so codex needs no key for it. With
-          -- neither env_key nor requires_openai_auth, codex sends no Authorization at all
-          -- (codex 0.157.0, model-provider/src/auth.rs resolve_provider_auth), and it no
-          -- longer refuses to start when the variable is absent from its environment.
-          if prov.api_key_env_name and not viaRow then
+          -- A via row's env_key is the via service's CALLER TOKEN, never the provider's key:
+          -- the service holds the provider's credential and adds it upstream itself, and it
+          -- demands this launch's token of every caller (docs/reference/wire-bridge.md
+          -- WB-D18), which codex sends as its bearer. The variable is in every jail process's
+          -- environment (the per-entry channel), so codex's refusal to start without it
+          -- cannot fire. An entrypoint older than ctx.via_api_key_env_name hands nil, and the
+          -- row then names no env_key, as it did before: with neither env_key nor
+          -- requires_openai_auth, codex sends no Authorization at all (codex 0.157.0,
+          -- model-provider/src/auth.rs resolve_provider_auth).
+          if viaRow then
+            local viaKey = ctx.via_api_key_env_name
+            if viaKey ~= nil and viaKey ~= "" then
+              entry.env_key = viaKey
+            end
+          elseif prov.api_key_env_name then
             entry.env_key = prov.api_key_env_name
           end
           provOut[name] = entry

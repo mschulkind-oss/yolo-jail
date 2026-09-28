@@ -104,7 +104,14 @@ yolo.derive("opencode", "config", function(ctx)
           models = models,
         }
         entry.options = { baseURL = baseUrl }
-        if prov.api_key_env_name then
+        -- A VIA ROW SENDS THE VIA SERVICE'S CALLER TOKEN, never the provider's key: the
+        -- service adds that upstream itself, and demands this launch's token of every caller
+        -- (docs/reference/wire-bridge.md WB-D18). An entrypoint older than
+        -- ctx.via_api_key_env_name hands nil, and the row keeps the provider's reference.
+        local viaKey = viaRow and ctx.via_api_key_env_name or nil
+        if viaKey ~= nil and viaKey ~= "" then
+          entry.options.apiKey = "{env:" .. viaKey .. "}"
+        elseif prov.api_key_env_name then
           entry.options.apiKey = "{env:" .. prov.api_key_env_name .. "}"
         elseif prov.api_key then
           entry.options.apiKey = prov.api_key

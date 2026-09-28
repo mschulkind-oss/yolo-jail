@@ -78,6 +78,15 @@ type ScopeInput struct {
 	// resolve refuses as *UnservedAdapterError, saying why, and outcome 3 never offers one. Nil
 	// at the jail notch, which runs its packs' services and composes their addresses.
 	UnservedAdaptations []Adaptation
+	// CallerTokens are this entry's pack-service caller tokens, keyed by the variable that
+	// carries each (paths.ServiceCallerTokenEnv): what the launch minted, or the running
+	// jail's own on an attach (docs/reference/wire-bridge.md, WB-D18). They are no provider's
+	// credential, so no claim withholds them, and they answer FIRST in every agent's lookup:
+	// the address a service serves names its token as its credential (serviceCredentialEnv),
+	// and the derive of any agent sent there must read the value the service will demand,
+	// never a same-named env_sources entry or a variable in the launching shell. Nil at the
+	// host notch, which runs no pack service.
+	CallerTokens map[string]string
 }
 
 // CredentialScope is the gate's answer for one launch. Its accessors answer on a nil
@@ -89,6 +98,8 @@ type CredentialScope struct {
 	claims     map[string][]string
 	envSources *jsonx.OrderedMap
 	fallback   func(string) (string, bool)
+	// callerTokens is ScopeInput.CallerTokens.
+	callerTokens map[string]string
 	// sharedEnvSources is every env_sources entry no provider claims, in hydration order.
 	sharedEnvSources *jsonx.OrderedMap
 	// sharedPackEnv is the pack env fold with no gate satisfied: every selected pack's
@@ -127,6 +138,7 @@ func ScopeCredentials(in ScopeInput) (*CredentialScope, error) {
 		claims:           credentialClaims(in.Providers),
 		envSources:       in.EnvSources,
 		fallback:         in.Fallback,
+		callerTokens:     in.CallerTokens,
 		sharedEnvSources: jsonx.NewOrderedMap(),
 		sharedPackEnv:    EnvVarsFor(in.Packs, in.Profiles, ""),
 		agents:           map[string]*AgentDelivery{},
@@ -320,8 +332,9 @@ func (s *CredentialScope) delivers(d *AgentDelivery, name string) bool {
 	return false
 }
 
-// LookupFor is the credential lookup agent's env derive composes through: the hydrated
-// env_sources, then the fallback, and neither for a name another provider claims. It is
+// LookupFor is the credential lookup agent's env derive composes through: a pack service's
+// caller token first (ScopeInput.CallerTokens), then the hydrated env_sources, then the
+// fallback, and neither of the last two for a name another provider claims. It is
 // what makes hydrateProviders write only the agent's own provider's api_key into the
 // derive's copy of the table (OQ-CN2's rendered-config half). A grant does not widen it: a
 // granted key reaches the process's environment and never its derive, so no derive can
@@ -332,6 +345,9 @@ func (s *CredentialScope) LookupFor(agent string) func(string) (string, bool) {
 		provider = d.Provider
 	}
 	return func(name string) (string, bool) {
+		if v, ok := s.callerTokens[name]; ok && v != "" {
+			return v, true
+		}
 		if !s.receives(provider, name) {
 			return "", false
 		}

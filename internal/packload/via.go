@@ -185,6 +185,7 @@ func DerivedViaPointers(packs []*Pack, providers *jsonx.OrderedMap, useProfiles 
 		Profile:            options,
 		NativeCapabilities: NativeCapabilities(packs, agent),
 		ViaURL:             url,
+		ViaAPIKeyEnvName:   ViaAPIKeyEnvNameFor(packs, resolved[profile], agent),
 		UnknownAPI:         func(string) {},
 	}
 	tables := func() map[string]map[string]any {

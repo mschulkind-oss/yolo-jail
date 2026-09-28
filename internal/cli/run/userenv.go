@@ -49,7 +49,8 @@ const channelSectionHeader = entrypoint.EntryChannelSectionHeader
 // running jail, which is how an attach delivers (write, then `podman exec`; the
 // exec'd entrypoint re-runs the boot and hydrates the fresh file). The line
 // order is frozen to match the argv spelling this replaced: tables (in wire
-// order), then the shared pack env fold (sorted).
+// order), then the shared pack env fold (sorted), then the pack services' caller
+// tokens (sorted; callertokens.go), which no argv ever carried.
 // The three tables are written even when empty — `{}` crosses "none" and
 // revokes what a previous entry selected.
 //
@@ -123,6 +124,18 @@ func writeUserEnvFile(userEnvFile string, userEnv *jsonx.OrderedMap, channel *pa
 		sort.Strings(keys)
 		for _, k := range keys {
 			b.WriteString(exportPlain(k, shared[k]))
+		}
+		// The pack services' CALLER TOKENS, last, so no pack env of the same name can shadow
+		// what the daemon demands (callertokens.go, WB-D18). Here, in the 0600 channel, and on
+		// no argv: the daemon's boot hydrates this section, every jail process inherits it,
+		// and a bridged client's rendered config names the variable rather than the value.
+		tokenVars := make([]string, 0, len(channel.callerTokens))
+		for k := range channel.callerTokens {
+			tokenVars = append(tokenVars, k)
+		}
+		sort.Strings(tokenVars)
+		for _, k := range tokenVars {
+			b.WriteString(exportPlain(k, channel.callerTokens[k]))
 		}
 	}
 	_ = writeFileBeneathMode(dir, name, []byte(b.String()), userEnvFileMode)

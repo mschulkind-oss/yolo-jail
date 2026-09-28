@@ -2,7 +2,6 @@ package run
 
 import (
 	"os"
-	"regexp"
 	"runtime"
 	"strconv"
 	"strings"
@@ -55,12 +54,11 @@ func mkdirHostServicesDir(dir string) {
 	_ = os.MkdirAll(dir, 0o700)
 }
 
-var nonAlnumRe = regexp.MustCompile(`[^A-Za-z0-9]+`)
-
-// serviceEnvSlug sanitizes a service name into the middle of its env var name.
+// serviceEnvSlug sanitizes a service name into the middle of its env var name. The fold is
+// paths.ServiceEnvSlug's, so the _ENDPOINT variable this package emits and the _TOKEN one
+// every binary spells through paths.ServiceCallerTokenEnv cannot fold one name two ways.
 func serviceEnvSlug(serviceName string) string {
-	s := nonAlnumRe.ReplaceAllString(serviceName, "_")
-	return strings.ToUpper(strings.Trim(s, "_"))
+	return paths.ServiceEnvSlug(serviceName)
 }
 
 // hostServiceEnvVar returns YOLO_SERVICE_<SANITIZED>_ENDPOINT — the variable a

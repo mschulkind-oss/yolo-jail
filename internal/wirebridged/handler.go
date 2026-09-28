@@ -14,8 +14,9 @@ package wirebridged
 //     (claude renders it and decides — its retry loop IS the retry policy);
 //   - an upstream 5xx, timeout or unreachable dial is a 502 in the same
 //     shape; the bridge adds no retries of its own;
-//   - the inbound Authorization header is ignored (WB-D4 — the jail is the
-//     boundary), and the outbound key is never logged;
+//   - the inbound credential is never read for the upstream and never
+//     forwarded: the caller token it carries was checked before this handler
+//     runs (auth.go, WB-D18), and the outbound key is never logged;
 //   - one stderr line per request — method, path, status, duration — and
 //     never a body.
 
@@ -194,9 +195,10 @@ func (h *bridgeHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				"claude uses its own estimator (wire-bridge.md WB-D14)")
 		return
 	}
-	// The inbound Authorization header is IGNORED (WB-D4): r.Header is never
-	// read for credentials. Whatever token claude's derive emits rides along
-	// and is dropped here.
+	// The inbound credential stops HERE: the caller token was verified before this
+	// handler ran (requireAnthropicCaller, WB-D18), and r.Header is never read for
+	// the upstream's credential — doUpstream builds a fresh request, so the token
+	// claude sends can never reach the provider.
 
 	body, err := io.ReadAll(r.Body)
 	if err != nil {

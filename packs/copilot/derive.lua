@@ -77,12 +77,17 @@ yolo.env("copilot", function(ctx)
   local p = ctx.providers[ctx.selected_provider]
   if not p then return {} end
   local base, ptype, wire
+  -- ep is the endpoint copilot is sent to, when it came from `endpoints`: the one whose own
+  -- credential, if it names one, is the one copilot sends (below).
+  local ep
   if p.endpoints and p.endpoints.anthropic and p.endpoints.anthropic.base_url then
     -- zai is the worked example: its anthropic route is the richer surface (claude's
     -- own channel), and `anthropic` is copilot's first-class spelling for it (D-3).
-    base = p.endpoints.anthropic.base_url
+    ep = p.endpoints.anthropic
+    base = ep.base_url
     ptype = "anthropic"
   elseif p.endpoints and p.endpoints.openai and p.endpoints.openai.base_url then
+    ep = p.endpoints.openai
     base = p.endpoints.openai.base_url
     ptype = "openai"
     wire = "completions"
@@ -125,7 +130,18 @@ yolo.env("copilot", function(ctx)
   if cw then
     out.COPILOT_PROVIDER_MAX_PROMPT_TOKENS = tostring(cw)
   end
-  if p.api_key then
+  -- AN ENDPOINT THAT NAMES ITS OWN CREDENTIAL TAKES THAT ONE, over the provider's key: core
+  -- composes it onto an address a pack service serves (the wire bridge's), whose service holds
+  -- the provider's key itself and demands this launch's caller token of every caller
+  -- (docs/reference/wire-bridge.md WB-D18). An unhydrated one sends the "local" dummy, which
+  -- the service refuses with a clear 401, rather than the provider's key to a loopback port.
+  if type(ep) == "table" and ep.api_key_env_name then
+    if type(ep.api_key) == "string" and ep.api_key ~= "" then
+      out.COPILOT_PROVIDER_API_KEY = ep.api_key
+    else
+      out.COPILOT_PROVIDER_API_KEY = "local"
+    end
+  elseif p.api_key then
     out.COPILOT_PROVIDER_API_KEY = p.api_key
   elseif type(p.options) == "table" and p.options.api_key then
     out.COPILOT_PROVIDER_API_KEY = p.options.api_key

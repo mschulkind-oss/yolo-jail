@@ -438,8 +438,9 @@ func (h *passthroughHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 // do builds and sends one upstream request: the agent's method, path remainder, query
-// and body, with only the credential added. Inbound Authorization is never forwarded
-// (WB-D4): the agent's key, if it sent one, is not the upstream's. The target is the
+// and body, with only the credential added. Inbound Authorization and x-api-key are never
+// forwarded (WB-D4's outbound half): what the agent sent is this launch's caller token,
+// checked before this handler ran (WB-D18), and never the upstream's. The target is the
 // base URL joined with the path's ESCAPED form (WG-I23), so a byte the route decoded is
 // re-encoded rather than read a second time: an encoded '?' can never become a query
 // separator, nor an encoded '%' a second escape. The wait for response headers is bounded

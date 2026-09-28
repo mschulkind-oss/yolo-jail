@@ -57,13 +57,22 @@ yolo.derive("oh-omp", "models", function(ctx)
     -- VIA (docs/design/wire-bridge-gateway.md OQ-WG6/WG7): the selected provider's row points
     -- at this agent's route on the service its profile names, speaking chat-completions, the
     -- protocol the via route passes through to the provider's own `openai` endpoint. The
-    -- service holds the upstream credential and ignores inbound auth (WB-D4).
+    -- service holds the upstream credential, and demands this launch's caller token of every
+    -- caller (docs/reference/wire-bridge.md WB-D18), so the row's key is that token's variable
+    -- (ctx.via_api_key_env_name), never the provider's. An entrypoint older than the field
+    -- hands nil, and the row keeps the provider's name as it did before.
+    local viaKey = nil
     if not native and ctx.via_url ~= nil and ctx.via_url ~= "" and name == ctx.selected_provider then
       baseUrl, api = ctx.via_url, "openai-completions"
+      if ctx.via_api_key_env_name ~= nil and ctx.via_api_key_env_name ~= "" then
+        viaKey = ctx.via_api_key_env_name
+      end
     end
     if baseUrl and api then
       local entry = { baseUrl = baseUrl, api = api, authHeader = true }
-      if prov.api_key_env_name then
+      if viaKey then
+        entry.apiKey = viaKey
+      elseif prov.api_key_env_name then
         -- OMP resolves apiKey as an environment name before treating it as a
         -- literal. The environment value is delivered by yolo's normal provider
         -- path, so this generated file remains secret-free.

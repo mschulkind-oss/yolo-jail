@@ -3,7 +3,8 @@
 // is the translation library and is deliberately I/O-free; everything with a
 // socket, a file, a clock or a key in it lives here — the loopback listener, the
 // upstream dial, the SSE line framing, the status codes, the outbound
-// Authorization header (WB-D4), and the boot-time read of the composed provider
+// Authorization header (WB-D4), the inbound caller-token check (auth.go, WB-D18),
+// and the boot-time read of the composed provider
 // table that decides whether there is anything to serve at all.
 //
 // The daemon is SELECTION-LAZY, not config-lazy (§3.4): at boot it reads
@@ -28,9 +29,11 @@
 // Frozen contracts: the listen port lives ONLY in the provider's
 // `endpoints.anthropic.base_url` (WB-D2/D13 — one writer, no second knob), the
 // bind happens BEFORE the endpoint file is published (§5 — the file appearing
-// means the listener exists), count_tokens refuses 404 (WB-D14), inbound
-// Authorization is ignored (WB-D4), and nothing but the boot-selected upstream
-// is ever dialed, no body and no key ever logged (§5's forbidden list).
+// means the listener exists), count_tokens refuses 404 (WB-D14), every inbound
+// request must carry the launch's caller token and is refused 401 without it
+// (auth.go, WB-D18), that inbound credential is never forwarded upstream (WB-D4's
+// outbound half), and nothing but the boot-selected upstream is ever dialed, no
+// body and no key ever logged (§5's forbidden list).
 package wirebridged
 
 import (
@@ -310,6 +313,22 @@ type listener struct {
 // via routes on the via address, one listener each. A route that cannot serve (no
 // credential) is dropped while another serves; a plan left with nothing to serve idles.
 func servePlan(ctx context.Context, p plan, e *entrypoint.Env) int {
+	// THE CALLER TOKEN FIRST (auth.go, WB-D18): without it no route may serve, because a route
+	// that serves unauthenticated is one every process sharing this loopback can spend the
+	// user's credentials through. Read from the env that selected the plan — the boot's, or
+	// the attach channel's that woke an idle bridge — exactly as the tables were.
+	token, why := callerToken(e.Getenv)
+	if why != "" {
+		logf("idling: %s", why)
+		// A boot waiting on this daemon's readiness learns why it will not serve, exactly as it
+		// does for a plan that selects nothing (waitForActivePlan); a bridge nobody waits on
+		// idles healthy rather than crash-looping under `restart: on-failure`.
+		if readinessRequested() {
+			signalNotReady(ServiceName, "no caller token: "+why)
+			return 0
+		}
+		return idleUntilStopped(ctx)
+	}
 	var ls []*listener
 	var serving []string
 	if p.adapter != nil {
@@ -330,15 +349,17 @@ func servePlan(ctx context.Context, p plan, e *entrypoint.Env) int {
 			logf("the adapter route for provider %q does not serve: %s — the via routes still do",
 				route.ProviderName, why)
 		default:
-			ls = append(ls, &listener{addr: route.ListenAddr, handler: handler,
-				what: fmt.Sprintf("provider %q (from its anthropic base_url)", route.ProviderName)})
+			what := fmt.Sprintf("provider %q (from its anthropic base_url)", route.ProviderName)
+			ls = append(ls, &listener{addr: route.ListenAddr, what: what,
+				handler: requireAnthropicCaller(token, "the adapter route for "+what, handler)})
 			serving = append(serving, fmt.Sprintf("provider %q: anthropic on {addr} → openai %s (endpoint {endpoint}, credential %s)",
 				route.ProviderName, route.UpstreamBaseURL, credentialDescription(route, keySource)))
 		}
 	}
 	if len(p.via.Routes) > 0 {
 		handler, lines := viaHandlerFor(p.via, e.Home)
-		ls = append(ls, &listener{addr: p.via.ListenAddr, handler: handler, what: "via routes"})
+		ls = append(ls, &listener{addr: p.via.ListenAddr, what: "via routes",
+			handler: requireOpenAICaller(token, "the via address", handler)})
 		serving = append(serving, "via routes on {addr} (endpoint {endpoint}): "+strings.Join(lines, "; "))
 		for _, skip := range p.via.Skipped {
 			logf("a via profile is not served: %s", skip)
@@ -401,6 +422,9 @@ func servePlan(ctx context.Context, p plan, e *entrypoint.Env) int {
 		line = strings.ReplaceAll(line, "{addr}", ls[i].ln.Addr().String())
 		logf("serving %s", strings.ReplaceAll(line, "{endpoint}", EndpointFile))
 	}
+	logf("every listener requires this launch's caller token ($%s) on each request, as "+
+		"Authorization: Bearer or x-api-key, and refuses anything else 401 (wire-bridge.md WB-D18)",
+		CallerTokenEnv)
 
 	servers := make([]*http.Server, len(ls))
 	errCh := make(chan error, len(ls))

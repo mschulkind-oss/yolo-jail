@@ -8,10 +8,12 @@ package wirebridged
 // loopback-TLS transport's credential triple — host:port, pinned certificate,
 // per-jail bearer token — and the bridge serves PLAIN HTTP to its own jail by
 // design: claude dials the provider's declared `http://` base URL verbatim
-// (WB-D2), and WB-D4 rules inbound auth out because the jail IS the boundary.
-// A TLS-format file here would carry a cert and a token that authorize and pin
-// nothing, and the first svcendpoint.Dial against it would fail a handshake the
-// listener was never going to speak. What survives the borrowing is the write
+// (WB-D2). Its callers authenticate IN HTTP instead, with the launch's caller
+// token in the header each already sends a key in (auth.go, WB-D18), which
+// reaches them through the per-entry channel rather than this file. A TLS-format
+// file here would carry a cert and a token that pin and authorize nothing, and
+// the first svcendpoint.Dial against it would fail a handshake the listener was
+// never going to speak. What survives the borrowing is the write
 // discipline the credential file earned: a 0700 directory, a temp file renamed
 // into place (a client re-reading the path mid-write must never see a torn
 // line), and a 0600 file.

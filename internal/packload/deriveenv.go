@@ -145,6 +145,7 @@ func AgentEnv(packs []*Pack, providers *jsonx.OrderedMap, useProfiles map[string
 		SelectedProvider: selected,
 		Profile:          cfg.profileOptions(profile),
 		ViaURL:           ViaURLFor(cfg.resolved[profile], agent),
+		ViaAPIKeyEnvName: ViaAPIKeyEnvNameFor(packs, cfg.resolved[profile], agent),
 		// The built-in source's capabilities, resolved the same way the surface path
 		// resolves them (surfaceSelectionFor) — `owner` is by construction the pack bin
 		// ownership would find. It changes nothing HERE, because this ctx carries no
@@ -263,15 +264,32 @@ func hydrateProviders(providers *jsonx.OrderedMap, lookup func(string) (string, 
 		if !ok {
 			continue
 		}
-		keyName, _ := entry["api_key_env_name"].(string)
-		if keyName == "" {
-			continue
-		}
-		if val, ok := lookup(keyName); ok && val != "" {
-			entry["api_key"] = val
+		hydrateCredential(entry, lookup)
+		// AN ENDPOINT MAY NAME ITS OWN CREDENTIAL, and it is resolved the same way into the
+		// endpoint's own `api_key`. The adapter pass is the writer today: an address a pack
+		// service serves takes that service's caller token rather than the provider's key
+		// (serviceCredentialEnv). A derive sending an agent to that endpoint sends its
+		// api_key, so the credential travels with the address it belongs to.
+		endpoints, _ := entry["endpoints"].(map[string]any)
+		for _, ev := range endpoints {
+			if ep, isMap := ev.(map[string]any); isMap {
+				hydrateCredential(ep, lookup)
+			}
 		}
 	}
 	return root
+}
+
+// hydrateCredential resolves one table's api_key_env_name, when it names a single variable
+// the lookup finds, into api_key on that same table.
+func hydrateCredential(entry map[string]any, lookup func(string) (string, bool)) {
+	keyName, _ := entry["api_key_env_name"].(string)
+	if keyName == "" {
+		return
+	}
+	if val, ok := lookup(keyName); ok && val != "" {
+		entry["api_key"] = val
+	}
 }
 
 // plainValue lowers one composed value into the plain model a derive ctx table holds:
