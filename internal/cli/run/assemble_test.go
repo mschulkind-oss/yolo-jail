@@ -97,7 +97,7 @@ func goldenOptions(workspace, home string) *Options {
 	o.PerfLoggingConfig = func() bool { return false }
 	// No fixture spawns a detached process: fillDefaults' real starter would self-exec
 	// the test binary as the scratch remover.
-	o.StartDetached = func([]string) error { return errTestBinarySelfExec }
+	o.StartDetached = func([]string, *os.File) error { return errTestBinarySelfExec }
 	return o
 }
 

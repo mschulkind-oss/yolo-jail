@@ -3,6 +3,7 @@ package run
 import (
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -55,15 +56,25 @@ import (
 // Best-effort: a launch must never fail because housekeeping could not write a
 // note about itself.
 func (o *Options) housekeepingNote(format string, args ...any) {
-	// Beneath a root on `.yolo` (paths.OpenWorkspaceStateFile), never by path: the directory
-	// is jail-writable, and a link left at the name would take the note to the file it names.
-	f, err := paths.OpenWorkspaceStateFile(o.Workspace, "housekeeping.log",
-		os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	writeHousekeepingNote(paths.OpenWorkspaceStateFile, o.Workspace, o.Now(), fmt.Sprintf(format, args...))
+}
+
+// housekeepingLogName is the note file directly under <workspace>/.yolo.
+const housekeepingLogName = "housekeeping.log"
+
+// writeHousekeepingNote appends one timestamped line to workspace's housekeeping.log,
+// opened through open: paths.OpenWorkspaceStateFile for a writer that belongs to a live
+// launch, paths.OpenExistingWorkspaceStateFile for one that may outlive the workspace (the
+// scratch remover). Beneath a root on `.yolo` either way, never by path: the directory is
+// jail-writable, and a link left at the name would take the note to the file it names.
+func writeHousekeepingNote(open func(workspace, name string, flag int, perm fs.FileMode) (*os.File, error),
+	workspace string, now time.Time, line string) {
+	f, err := open(workspace, housekeepingLogName, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
 	if err != nil {
 		return
 	}
 	defer f.Close()
-	_, _ = fmt.Fprintf(f, "%s  %s\n", o.Now().UTC().Format(time.RFC3339), fmt.Sprintf(format, args...))
+	_, _ = fmt.Fprintf(f, "%s  %s\n", now.UTC().Format(time.RFC3339), line)
 }
 
 // housekeepingLockName is the machine-wide lock every housekeeping pass and

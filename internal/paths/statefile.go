@@ -161,6 +161,27 @@ func OpenWorkspaceStateFile(workspace, name string, flag int, perm fs.FileMode) 
 	return openRegularBeneath(r, name, flag, perm)
 }
 
+// OpenExistingWorkspaceStateFile is OpenWorkspaceStateFile for a writer that must NEVER
+// CREATE the state directory, or the workspace above it: a process that outlives the launch
+// it belongs to, whose workspace the user may have deleted since. A missing
+// <workspace>/.yolo is an fs.ErrNotExist and nothing is made. The directory is held open as
+// a root for the whole open, so a `.yolo` deleted after the check is not resurrected either:
+// creating a name in a removed directory fails. name's terms are OpenWorkspaceStateFile's.
+func OpenExistingWorkspaceStateFile(workspace, name string, flag int, perm fs.FileMode) (*os.File, error) {
+	if name == "" || filepath.Base(name) != name || name == "." || name == ".." {
+		return nil, &fs.PathError{Op: "open", Path: name, Err: fs.ErrInvalid}
+	}
+	if breach := WorkspaceScopeBreach(workspace); breach != nil {
+		return nil, breach
+	}
+	r, err := OpenStateDirRoot(WorkspaceStateDir(workspace))
+	if err != nil {
+		return nil, err
+	}
+	defer r.Close()
+	return openRegularBeneath(r, name, flag, perm)
+}
+
 // WriteWorkspaceStateFile is os.WriteFile of name directly under <workspace>/.yolo, on
 // OpenWorkspaceStateFile's terms: a regular file already there is truncated and rewritten in
 // place, and anything else there is replaced.

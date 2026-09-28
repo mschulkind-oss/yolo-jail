@@ -152,3 +152,56 @@ func TestOpenStateDirRootRefusesALinkAndANonDirectory(t *testing.T) {
 	}
 	r.Close()
 }
+
+// OpenExistingWorkspaceStateFile never makes the directory it writes beneath: not a missing
+// workspace, and not a missing `.yolo` in a workspace that is still there. An existing one is
+// written as usual.
+func TestOpenExistingWorkspaceStateFileNeverCreatesTheStateDir(t *testing.T) {
+	t.Run("a deleted workspace", func(t *testing.T) {
+		ws := filepath.Join(scopeHome(t), "code", "gone")
+		f, err := OpenExistingWorkspaceStateFile(ws, "housekeeping.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+		if err == nil {
+			f.Close()
+			t.Fatal("opened a state file in a workspace that does not exist")
+		}
+		if !errors.Is(err, os.ErrNotExist) {
+			t.Errorf("err = %v, want fs.ErrNotExist", err)
+		}
+		if _, err := os.Lstat(ws); !errors.Is(err, os.ErrNotExist) {
+			t.Errorf("the deleted workspace was recreated (%v)", err)
+		}
+	})
+	t.Run("a workspace whose .yolo was deleted", func(t *testing.T) {
+		ws := filepath.Join(scopeHome(t), "code", "project")
+		if err := os.MkdirAll(ws, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if f, err := OpenExistingWorkspaceStateFile(ws, "housekeeping.log", os.O_CREATE|os.O_WRONLY, 0o644); err == nil {
+			f.Close()
+			t.Fatal("opened a state file beneath a .yolo that does not exist")
+		}
+		if _, err := os.Lstat(WorkspaceStateDir(ws)); !errors.Is(err, os.ErrNotExist) {
+			t.Errorf(".yolo was recreated (%v)", err)
+		}
+	})
+	t.Run("an existing .yolo", func(t *testing.T) {
+		ws := stateFileWorkspace(t)
+		f, err := OpenExistingWorkspaceStateFile(ws, "housekeeping.log", os.O_CREATE|os.O_WRONLY, 0o644)
+		if err != nil {
+			t.Fatal(err)
+		}
+		f.Close()
+		if _, err := os.Stat(filepath.Join(WorkspaceStateDir(ws), "housekeeping.log")); err != nil {
+			t.Errorf("the file was not created beneath an existing .yolo: %v", err)
+		}
+	})
+	t.Run("one name, one component", func(t *testing.T) {
+		ws := stateFileWorkspace(t)
+		for _, name := range []string{"", ".", "..", "home/x", "../x"} {
+			if f, err := OpenExistingWorkspaceStateFile(ws, name, os.O_RDWR|os.O_CREATE, 0o644); err == nil {
+				f.Close()
+				t.Errorf("accepted %q", name)
+			}
+		}
+	})
+}

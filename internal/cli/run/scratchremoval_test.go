@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 
@@ -34,8 +35,9 @@ func TestTeardownStartsTheScratchRemovalFirst(t *testing.T) {
 	o.scratchVolumes = ScratchVolumeNames("volume", testCname, testScratchID)
 	o.scratchRemovalOnce = &sync.Once{}
 	var got [][]string
-	o.StartDetached = func(argv []string) error {
+	o.StartDetached = func(argv []string, inherit *os.File) error {
 		got = append(got, argv)
+		assertScratchLockHeld(t, ws, inherit)
 		return nil
 	}
 
@@ -45,7 +47,7 @@ func TestTeardownStartsTheScratchRemovalFirst(t *testing.T) {
 		t.Fatalf("remover spawned %d times, want once", len(got))
 	}
 	want := append([]string{"internal", ScratchRemoverVerb, "--runtime", "podman", "--workspace", ws,
-		"--wait", scratchRemovalWait.String(), "--"}, o.scratchVolumes...)
+		"--wait", scratchRemovalWait.String(), "--lock-fd", "3", "--"}, o.scratchVolumes...)
 	if !slices.Equal(got[0][1:], want) {
 		t.Errorf("remover argv = %v\nwant <yolo> %v", got[0], want)
 	}
@@ -57,13 +59,37 @@ func TestTeardownStartsTheScratchRemovalFirst(t *testing.T) {
 	}
 }
 
+// assertScratchLockHeld fails unless inherit is <ws>/.yolo/scratch-rm.lock with a lock on it
+// at the moment of the spawn — what the child inherits as fd 3, and what a waiter
+// (WaitForScratchRemovers) sees until the child exits.
+func assertScratchLockHeld(t *testing.T, ws string, inherit *os.File) {
+	t.Helper()
+	if inherit == nil {
+		t.Fatal("the remover was spawned without the in-flight lock")
+	}
+	lockPath := filepath.Join(ws, ".yolo", ScratchRemoverLockName)
+	a, errA := os.Stat(lockPath)
+	b, errB := inherit.Stat()
+	if errA != nil || errB != nil || !os.SameFile(a, b) {
+		t.Fatalf("the inherited file is not %s (%v, %v)", lockPath, errA, errB)
+	}
+	other, err := os.Open(lockPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer other.Close()
+	if err := syscall.Flock(int(other.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err == nil {
+		t.Error("the in-flight lock is not held at the spawn: a waiter would not wait")
+	}
+}
+
 // Both arms reach startScratchRemoval on the signal path; the remover starts once.
 func TestScratchRemovalStartsOncePerLaunch(t *testing.T) {
 	o := goldenOptions(t.TempDir(), t.TempDir())
 	o.scratchVolumes = ScratchVolumeNames("volume", testCname, testScratchID)
 	o.scratchRemovalOnce = &sync.Once{}
 	n := 0
-	o.StartDetached = func([]string) error { n++; return nil }
+	o.StartDetached = func([]string, *os.File) error { n++; return nil }
 	o.startScratchRemoval("podman")
 	o.startScratchRemoval("podman")
 	if n != 1 {
@@ -74,7 +100,7 @@ func TestScratchRemovalStartsOncePerLaunch(t *testing.T) {
 // An attach and a tmpfs launch mount no scratch volumes, and start no remover.
 func TestNoScratchVolumesNoRemover(t *testing.T) {
 	o := goldenOptions(t.TempDir(), t.TempDir())
-	o.StartDetached = func([]string) error { t.Fatal("a launch with no scratch volumes started a remover"); return nil }
+	o.StartDetached = func([]string, *os.File) error { t.Fatal("a launch with no scratch volumes started a remover"); return nil }
 	o.startScratchRemoval("podman")
 	o.scratchVolumes = ScratchVolumeNames("tmpfs", testCname, testScratchID)
 	o.scratchRemovalOnce = &sync.Once{}
@@ -92,7 +118,7 @@ func TestScratchRemovalSpawnFailureIsRecorded(t *testing.T) {
 	o.initPerf(testCname)
 	o.scratchVolumes = ScratchVolumeNames("volume", testCname, testScratchID)
 	o.scratchRemovalOnce = &sync.Once{}
-	o.StartDetached = func([]string) error { return errors.New("no fork for you") }
+	o.StartDetached = func([]string, *os.File) error { return errors.New("no fork for you") }
 	o.startScratchRemoval("podman")
 	if !strings.Contains(scratchPerfLog(t, ws), "mark   shutdown.scratch_volumes.rm_not_started") {
 		t.Error("a failed spawn left no mark")
@@ -235,7 +261,11 @@ func TestSlotReapsOnlyProvenLeftovers(t *testing.T) {
 			return ExecResult{}
 		}
 		var spawned [][]string
-		o.StartDetached = func(argv []string) error { spawned = append(spawned, argv); return nil }
+		o.StartDetached = func(argv []string, inherit *os.File) error {
+			spawned = append(spawned, argv)
+			assertScratchLockHeld(t, o.Workspace, inherit)
+			return nil
+		}
 		return o, &spawned
 	}
 
@@ -247,6 +277,9 @@ func TestSlotReapsOnlyProvenLeftovers(t *testing.T) {
 	argv := (*spawned)[0]
 	if tail := argv[len(argv)-2:]; !slices.Equal(tail, []string{"--", gone}) {
 		t.Errorf("reaper handed %v; only the old dangling volume is proven gone", argv)
+	}
+	if !slices.Contains(argv, "--lock-fd") {
+		t.Errorf("the slot's remover was spawned without the in-flight lock: %v", argv)
 	}
 
 	for _, tc := range []struct {
@@ -297,4 +330,77 @@ func scratchPerfLog(t *testing.T, ws string) string {
 	t.Helper()
 	b, _ := os.ReadFile(filepath.Join(ws, ".yolo", HostPerfLogName))
 	return string(b)
+}
+
+// THE REMOVER NEVER RESURRECTS A WORKSPACE. It logs up to a minute after the jail exited,
+// and a user may delete the workspace — or just its `.yolo` — the moment they quit; its
+// note must then go nowhere rather than recreate the directory (CI run 36383731749 caught
+// it recreating `<ws>/.yolo/housekeeping.log` under a t.TempDir mid-cleanup). The runtime
+// is a path that does not exist, so no listing answers and the run is all "pending": the
+// note is still written when there is somewhere to write it (the positive control).
+func TestTheRemoverNeverRecreatesAMissingWorkspace(t *testing.T) {
+	noRuntime := filepath.Join(t.TempDir(), "no-such-podman")
+	vol := testCname + ".scratch." + testScratchID + ".tmp"
+	remove := func(ws string) int {
+		return ScratchRemoverMain([]string{"--runtime", noRuntime, "--workspace", ws, "--wait", "0s", "--", vol})
+	}
+
+	t.Run("the workspace was deleted", func(t *testing.T) {
+		ws := filepath.Join(t.TempDir(), "deleted-workspace")
+		if rc := remove(ws); rc != 1 {
+			t.Errorf("rc = %d, want 1 (the volume was left pending)", rc)
+		}
+		if _, err := os.Lstat(ws); !errors.Is(err, os.ErrNotExist) {
+			t.Errorf("the remover recreated the deleted workspace %s (%v)", ws, err)
+		}
+	})
+	t.Run("the workspace's .yolo was deleted", func(t *testing.T) {
+		ws := t.TempDir()
+		remove(ws)
+		if _, err := os.Lstat(filepath.Join(ws, ".yolo")); !errors.Is(err, os.ErrNotExist) {
+			t.Errorf("the remover recreated .yolo (%v)", err)
+		}
+	})
+	t.Run("a live workspace gets the note", func(t *testing.T) {
+		ws := t.TempDir()
+		if err := os.Mkdir(filepath.Join(ws, ".yolo"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		remove(ws)
+		b, _ := os.ReadFile(filepath.Join(ws, ".yolo", "housekeeping.log"))
+		if !strings.Contains(string(b), "scratch: removed 0 volume(s)") || !strings.Contains(string(b), vol) {
+			t.Errorf("housekeeping.log = %q", b)
+		}
+	})
+}
+
+// A --lock-fd the remover cannot use is a usage error, not a silently unlocked run.
+func TestTheRemoverRefusesABadLockFD(t *testing.T) {
+	for _, v := range []string{"x", "2", "-1"} {
+		if rc := ScratchRemoverMain([]string{"--runtime", "podman", "--lock-fd", v, "--", "v"}); rc != 2 {
+			t.Errorf("--lock-fd %s: rc = %d, want 2", v, rc)
+		}
+	}
+}
+
+// With no remover ever started for a workspace there is nothing to wait for, and the wait
+// creates nothing — the suite calls it on every workspace a launch ran in, including ones
+// whose launch never reached a jail.
+func TestWaitForScratchRemoversWithNoneStarted(t *testing.T) {
+	ws := t.TempDir()
+	if err := WaitForScratchRemovers(ws, 0); err != nil {
+		t.Errorf("no .yolo: %v", err)
+	}
+	if _, err := os.Lstat(filepath.Join(ws, ".yolo")); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("the wait created .yolo (%v)", err)
+	}
+	if err := os.Mkdir(filepath.Join(ws, ".yolo"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := WaitForScratchRemovers(ws, 0); err != nil {
+		t.Errorf("no lock file: %v", err)
+	}
+	if err := WaitForScratchRemovers(filepath.Join(ws, "gone"), 0); err != nil {
+		t.Errorf("no workspace: %v", err)
+	}
 }

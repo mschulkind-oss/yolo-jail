@@ -20,7 +20,7 @@ func TestStartDetachedDoesNotWaitAndDetaches(t *testing.T) {
 	script := `sleep 2; s=$(cut -d' ' -f6 /proc/$$/stat); a=$(readlink /proc/$$/fd/0); b=$(readlink /proc/$$/fd/1); c=$(readlink /proc/$$/fd/2); ` +
 		`printf '%s\n' "$s" "$a" "$b" "$c" > ` + out + `.tmp && mv ` + out + `.tmp ` + out
 	start := time.Now()
-	if err := startDetached([]string{"sh", "-c", script}); err != nil {
+	if err := startDetached([]string{"sh", "-c", script}, nil); err != nil {
 		t.Fatal(err)
 	}
 	if took := time.Since(start); took > time.Second {
@@ -61,7 +61,34 @@ func TestStartDetachedDoesNotWaitAndDetaches(t *testing.T) {
 // A test binary never self-execs as the remover.
 func TestStartDetachedRefusesToSelfExecATestBinary(t *testing.T) {
 	exe, _ := os.Executable()
-	if err := startDetached([]string{exe, "internal", ScratchRemoverVerb}); err != errTestBinarySelfExec {
+	if err := startDetached([]string{exe, "internal", ScratchRemoverVerb}, nil); err != errTestBinarySelfExec {
 		t.Fatalf("err = %v", err)
+	}
+}
+
+// THE IN-FLIGHT LOCK OUTLIVES THE LAUNCHER'S DESCRIPTOR AND DIES WITH THE CHILD. The spawn
+// takes the lock, hands it to the child as fd 3 and closes its own copy — so the moment
+// the launcher returns, a waiter already sees the remover, with no window before the child
+// has run far enough to lock anything itself; and the wait ends when the child exits.
+// The child is `sh`, standing in for the remover: holding the lock is keeping fd 3 open.
+func TestWaitForScratchRemoversWaitsForTheSpawnedChild(t *testing.T) {
+	ws := t.TempDir()
+	o := &Options{Workspace: ws}
+	o.StartDetached = func(argv []string, inherit *os.File) error {
+		return startDetached([]string{"sh", "-c", "sleep 1.5"}, inherit)
+	}
+	start := time.Now()
+	if err := o.spawnScratchRemover("podman", 0, []string{"v"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := WaitForScratchRemovers(ws, 100*time.Millisecond); err == nil {
+		t.Fatal("the wait returned while the child still held the lock: the launcher's " +
+			"closed copy was the only holder")
+	}
+	if err := WaitForScratchRemovers(ws, 20*time.Second); err != nil {
+		t.Fatal(err)
+	}
+	if took := time.Since(start); took < 1400*time.Millisecond {
+		t.Errorf("the wait returned after %s, before the 1.5s child could have exited", took)
 	}
 }

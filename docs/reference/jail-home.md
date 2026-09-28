@@ -765,7 +765,11 @@ file name that is not a regular file, and check that what they opened is one. Th
 `attachLaunchLog`'s `launch.log`, whose tee appended every launch line (they quote the
 jail-writable workspace config) to whatever host file a link named; the host perf log
 (`hostPerfFileSink`, through `perf.FileSinkTo`); `housekeeping.log`; and the config snapshots
-`config-assembled.json` and `config-boot.json` (`writeWorkspaceSnapshot`). The two logs' trim
+`config-assembled.json` and `config-boot.json` (`writeWorkspaceSnapshot`); and the scratch
+remover's in-flight lock, `scratch-rm.lock`. The one writer that may outlive its workspace, the
+detached scratch remover, writes its `housekeeping.log` line through
+`OpenExistingWorkspaceStateFile` instead, which never creates `.yolo` or the workspace above it
+([SV-D7](perf-logging.md#the-linger-was-the-scratch-volumes)). The two logs' trim
 runs through the open descriptor (`perf.TrimRunsInOpenFile`), never a second open by path.
 `EnsureWorkspaceStateDir`'s own `.gitignore` is created `O_EXCL` beneath the same root and is
 skipped under a linked `.yolo`. The handoff rename (`consumeHandoff`), the pack `files` ownership

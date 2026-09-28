@@ -233,8 +233,10 @@ type Options struct {
 	Exec func(argv []string, dir string, env []string, timeout time.Duration) ExecResult
 	// StartDetached starts argv in its own session with stdio on /dev/null and returns
 	// without waiting for it — the scratch remover's spawn (scratchremoval.go), which has
-	// to outlive the launcher and must never hold its exit. nil => startDetached.
-	StartDetached func(argv []string) error
+	// to outlive the launcher and must never hold its exit. A non-nil inherit becomes
+	// the child's fd 3 (the remover's in-flight lock, scratchRemoverLock). nil =>
+	// startDetached.
+	StartDetached func(argv []string, inherit *os.File) error
 	// scratchVolumes are the named scratch volumes THIS launch's argv mounts
 	// (ScratchVolumeNames), set by the fresh podman path just before assembly and handed
 	// to the remover by whichever teardown arm runs (startScratchRemoval). Empty on an
