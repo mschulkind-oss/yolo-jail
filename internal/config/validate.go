@@ -110,6 +110,7 @@ func ValidateConfig(config *jsonx.OrderedMap, workspace string, resolver Loophol
 	validateHostManagement(config, workspace, errs)
 	validateAgentUpdates(config, workspace, errs)
 	validatePerfLogging(config, workspace, errs)
+	validateUpdateCheck(config, workspace, errs)
 	validatePromotionTarget(config, workspace, errs)
 	validatePacks(workspace, errs)
 	validatePrograms(config, workspace, errs)
@@ -632,6 +633,31 @@ func validateAgentUpdates(config *jsonx.OrderedMap, workspace string, errs *[]st
 			"whatever runs in the jail, so a workspace value would let an agent freeze its "+
 			"own updates. It is read from "+paths.UserConfigPath()+" and a workspace value "+
 			"has no effect. Move it there, or remove it.")
+	}
+}
+
+// validateUpdateCheck type-checks `update_check` and refuses the workspace
+// spelling, which UpdateCheckEnabled never reads (see its doc for why).
+func validateUpdateCheck(config *jsonx.OrderedMap, workspace string, errs *[]string) {
+	v, present := config.Get(updateCheckKey)
+	if !present {
+		return
+	}
+	if v != nil {
+		if prob := updateCheckProblem(v); prob != "" {
+			add(errs, "config."+updateCheckKey+": "+prob)
+		}
+	}
+	wsCfg, err := LoadWorkspaceConfig(workspace, false, func(string) {})
+	if err != nil || wsCfg == nil {
+		return
+	}
+	if wsValue, atWorkspace := wsCfg.Get(updateCheckKey); atWorkspace && wsValue != nil {
+		add(errs, "config."+updateCheckKey+": user-scope only — it is read on every host "+
+			"command, before any workspace config is loaded, and /workspace is writable from "+
+			"inside a jail, so a workspace value is never consulted. It is read from "+
+			paths.UserConfigPath()+". Move it there, or remove it. (Per-shell instead: "+
+			"YOLO_NO_UPDATE_CHECK=1.)")
 	}
 }
 

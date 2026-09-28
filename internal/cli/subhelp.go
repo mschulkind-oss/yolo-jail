@@ -101,6 +101,7 @@ var subcommandUsage = map[string]subUsage{
 	// The text lives with the command, in internal/cli/stores, because that package
 	// owns the flags it documents; this table stays the one complete inventory.
 	"stores":      {text: stores.Usage},
+	"update":      {text: updateUsage, valueFlags: []string{"--from"}},
 	"loopholes":   {text: loopholesUsage, valueFlags: []string{"--format"}},
 	"host-daemon": {text: hostDaemonUsage, valueFlags: []string{"-n", "--lines", "--format"}},
 	"broker":      {text: brokerUsage, valueFlags: []string{"-n", "--lines", "--format"}},
@@ -159,9 +160,20 @@ func answerHelp(sub string, args []string, out io.Writer) bool {
 	if !ok {
 		return false
 	}
-	if !helpRequested(args, spec.valueFlags...) {
+	if !subcommandHelpRequested(sub, args) {
 		return false
 	}
 	io.WriteString(out, spec.text+"\n")
 	return true
+}
+
+// subcommandHelpRequested reports whether this invocation asks for the
+// subcommand's own help. Run has a stricter scanner because `--help` after the
+// inner command starts belongs to that command.
+func subcommandHelpRequested(sub string, args []string) bool {
+	if sub == "run" {
+		return runHelpRequested(args)
+	}
+	spec, ok := subcommandUsage[sub]
+	return ok && helpRequested(args, spec.valueFlags...)
 }

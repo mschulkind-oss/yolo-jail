@@ -31,9 +31,11 @@ import (
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/banner"
+	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/reporoot"
+	"github.com/mschulkind-oss/yolo-jail/internal/selfupdate"
 	"github.com/mschulkind-oss/yolo-jail/internal/tty"
 )
 
@@ -57,8 +59,8 @@ type Options struct {
 	Build bool
 	// AcceptConfigChanges pre-approves workspace config and writes the approval snapshot host-side (OQ-S2).
 	AcceptConfigChanges bool
-	// Now is the clock seam for the broker creds-freshness check (the only
-	// time-dependent output). nil => time.Now.
+	// Now is the clock seam for time-dependent output: broker credential
+	// freshness and the age of the cached update answer. nil => time.Now.
 	Now func() time.Time
 	// Version overrides the reported version string (the "Version: …" line).
 	// "" => version.Get(repoRoot). Injected so goldens don't depend on the
@@ -67,6 +69,12 @@ type Options struct {
 	// Getenv reads environment variables (YOLO_VERSION, YOLO_RUNTIME, …).
 	// nil => os.Getenv.
 	Getenv func(string) string
+	// UpdateChannel, UpdateStatePath and UpdateCheckEnabled feed the Updates
+	// section, which reads the cached update check and never the network. nil /
+	// "" => selfupdate.Current, selfupdate.StatePath(), config.UpdateCheckEnabled.
+	UpdateChannel      func() selfupdate.Channel
+	UpdateStatePath    string
+	UpdateCheckEnabled func() bool
 	// LookPath resolves an executable on PATH. nil => real.
 	LookPath func(string) (string, bool)
 	// MiseNode returns the path to a mise-installed node binary (for the nix-ld
@@ -162,6 +170,15 @@ func fillDefaults(o *Options) {
 	}
 	if o.Getenv == nil {
 		o.Getenv = os.Getenv
+	}
+	if o.UpdateChannel == nil {
+		o.UpdateChannel = selfupdate.Current
+	}
+	if o.UpdateStatePath == "" {
+		o.UpdateStatePath = selfupdate.StatePath()
+	}
+	if o.UpdateCheckEnabled == nil {
+		o.UpdateCheckEnabled = config.UpdateCheckEnabled
 	}
 	if o.LookPath == nil {
 		o.LookPath = func(name string) (string, bool) {

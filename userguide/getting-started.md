@@ -539,17 +539,33 @@ covers Mac-specific problems.
 
 ## Upgrade
 
-Exit your running jails first: an upgrade replaces the programs a running jail was started from.
-
 ```bash
-brew upgrade yolo-jail            # Homebrew
-cd yolo-jail && git pull && just deploy   # from source
-yolo host-daemon status           # restart any it reports unhealthy: yolo host-daemon restart <name>
+yolo update --check     # is a newer yolo out?
+yolo update             # install it the same way yolo was installed
+yolo host-daemon status # restart any it reports unhealthy: yolo host-daemon restart <name>
 ```
 
-On yolo 0.10.0, which has no `yolo host-daemon`, run `yolo broker restart` instead.
+`yolo update` runs `brew upgrade yolo-jail` for a Homebrew install. For a from-source install it
+pulls the clone yolo was built from and runs `just deploy` there. For a release archive it prints the
+download link: unpack the new archive over the old folder, after exiting your running jails, because
+that replaces the programs they were started from. With `go install`, pipx or uvx, update the binary
+and the clone `YOLO_REPO_ROOT` names together.
 
-For a release archive, unpack the new one over the old folder.
+From source, `yolo update --autostash` sets aside changes you have not committed and puts them back
+afterwards. If you moved or re-cloned the repository, `yolo update --from <clone>` updates from the
+new place. Both work only for a from-source install.
+
+A jail that is already running keeps working through a Homebrew or from-source update, and uses the
+new version once you exit it and start it again. From source, `just deploy` restarts the shared
+Claude login service, so a running jail loses it for a moment.
+
+yolo checks for a new release once a day and prints one line when there is one, and it tells you the
+first time, before it checks. A from-source install is checked only when you run `yolo update`. When
+an update is waiting and you start a jail, yolo offers to install it and start again. To turn the
+check, the line and the offer off, add `"update_check": false` to `~/.config/yolo-jail/config.jsonc`.
+
+On yolo 0.10.0, which has neither `yolo update` nor `yolo host-daemon`, run `brew upgrade yolo-jail`,
+or `git pull && just deploy` in your clone, and then `yolo broker restart`.
 
 ## Uninstall
 

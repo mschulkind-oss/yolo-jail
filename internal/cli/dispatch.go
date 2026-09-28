@@ -50,6 +50,7 @@ var registry = map[string]func(args []string) int{
 	"macos-teardown":        runMacosTeardown,
 	"macos-unshare":         runMacosUnshare,
 	"macos-fix-permissions": runMacosFixPermissions,
+	"update":                runUpdate,
 }
 
 // valueTakingFlags are the flags whose value is the NEXT argv token rather than being
@@ -219,6 +220,11 @@ func IsNative(sub string) bool {
 // stderr.
 func dispatchNative(sub string, args []string) int {
 	emitStartupBanner(os.Stderr, os.Getenv)
+	// Right under the banner, for the banner's reason: every registered command
+	// gets the update notice with no per-command edit (update.go).
+	if rc, stop := updateHook(sub, args); stop {
+		return rc
+	}
 	if fn, ok := registry[sub]; ok {
 		return fn(args)
 	}

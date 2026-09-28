@@ -82,7 +82,7 @@ just setup             # pinned toolchain (mise) + Go module deps
 just deploy            # builds + installs the yolo CLI
 ```
 
-To upgrade later: `cd yolo-jail && git pull && just deploy`
+To upgrade later, run `yolo update`; [Upgrade](userguide/getting-started.md#upgrade) covers each way of installing.
 
 #### Upgrading from the Python version
 

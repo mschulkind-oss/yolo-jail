@@ -920,6 +920,35 @@
     Example (~/.config/yolo-jail/config.jsonc):
       "perf_logging": true
 
+  [bold]update_check[/bold] (boolean): Enable update checks and notices.  Default TRUE.
+    Every ordinary host command reads the cached answer.  For a release-based install,
+    normally once a day it starts a detached request to GitHub's releases API;
+    the first automatic request waits for a terminal so its disclosure is
+    printed before the network is touched.  Source installs are checked only
+    by an explicit `yolo update --check` / `yolo update`, because that operation
+    runs Git against the source checkout.  It may fetch commit objects, but
+    moves no ref and changes nothing `git status` shows.
+
+    When an update exists, one line under the startup banner says so -- only on
+    a terminal -- and a safe, self-contained interactive launch offers to
+    update and relaunch.  Homebrew and from-source installs are self-contained.
+    `go install`, pipx and uv install only the host binary while the jail build
+    comes from YOLO_REPO_ROOT, so `yolo update` refuses to replace just one half
+    and explains the coordinated manual update.  A release archive gets a
+    download link.  A YOLO_REPO_ROOT override that differs from a
+    self-contained install's own source is the same split and suppresses the
+    launch offer.
+
+    `false` turns off the background check, the notice and the offer; explicit
+    `yolo update` commands still work.  YOLO_NO_UPDATE_CHECK=1 is the per-shell
+    spelling.  Automatic behavior never runs in a jail or in CI.
+
+    USER SCOPE ONLY.  It is read on every host command, before any workspace
+    config is loaded, and /workspace is writable by whatever runs in the jail.
+    A workspace value is a `yolo check` error.
+    Example (~/.config/yolo-jail/config.jsonc):
+      "update_check": false
+
   [bold]workspace_readonly[/bold] (array of strings): Workspace sub-paths to overlay as read-only.
     Each entry is a relative path inside the workspace (no leading /, no ..).
     Mounted on top of the writable /workspace volume so agents cannot modify

@@ -53,7 +53,24 @@ install:
 
     VERSION="$(git describe --tags --always --dirty 2>/dev/null || echo unknown)"
     COMMIT="$(git rev-parse --short HEAD 2>/dev/null || echo unknown)"
+    # SourceDir records THIS checkout so `yolo update` knows what to pull and
+    # redeploy (internal/selfupdate). Only this recipe stamps it: a release
+    # build's checkout path means nothing on the machine the binary lands on.
+    # A path with whitespace cannot ride an unquoted -X, so it goes unstamped and
+    # `yolo update` reports the install as one it cannot update.
+    SOURCE_DIR="$(pwd -P)"
     LDFLAGS="-X github.com/mschulkind-oss/yolo-jail/internal/version.buildVersion=${VERSION} -X github.com/mschulkind-oss/yolo-jail/internal/version.GitCommit=${COMMIT}"
+    case "$SOURCE_DIR" in
+        *[[:space:]]*) echo "⚠ checkout path has whitespace — 'yolo update' will not be able to find it" >&2 ;;
+        *) LDFLAGS="$LDFLAGS -X github.com/mschulkind-oss/yolo-jail/internal/version.SourceDir=${SOURCE_DIR}" ;;
+    esac
+    # The branch, so `yolo update` can refuse a checkout that has since switched
+    # branches instead of deploying that one. Empty on a detached HEAD.
+    SOURCE_BRANCH="$(git symbolic-ref --short -q HEAD 2>/dev/null || true)"
+    case "$SOURCE_BRANCH" in
+        ""|*[[:space:]]*) ;;
+        *) LDFLAGS="$LDFLAGS -X github.com/mschulkind-oss/yolo-jail/internal/version.SourceBranch=${SOURCE_BRANCH}" ;;
+    esac
 
     # --- Retire the pre-Go (Python) install ---
     # Upgrading from the uv-installed Python distribution leaves console-script

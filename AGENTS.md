@@ -486,6 +486,7 @@ live, so edits are visible on the host instantly — there is no sync step.
 | Storage paths and state separation | [`storage-and-config.md`](docs/reference/storage-and-config.md) |
 | What the image bakes vs. what a launch delivers; the mounted prefix; the rebuild/reload cost model | [`image-staging-vs-baking.md`](docs/reference/image-staging-vs-baking.md) |
 | Image and GC-root retention, the reapers | [`image-retention.md`](docs/reference/image-retention.md) |
+| Host self-update channels, checks, state and trust boundary | [`self-update.md`](docs/reference/self-update.md) |
 | Loopback-TLS reachability, the witness, its severity rule | [`loopback-tls-reachability.md`](docs/reference/loopback-tls-reachability.md) |
 | Report tiers, the launch stream, why there is no quiet mode | [`report-tiers.md`](docs/reference/report-tiers.md) |
 | Terminal color: rich markup, the color gate, the terminal probe, `NO_COLOR` | [`cli-color.md`](docs/reference/cli-color.md) |

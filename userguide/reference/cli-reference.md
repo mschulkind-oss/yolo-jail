@@ -36,9 +36,12 @@ yolo init                    # create this project's yolo-jail.jsonc, and gitign
 yolo check                   # check Nix, the runtime, your config, and build the image
 yolo check --no-build        # the fast version; the one to run inside a jail
 yolo config-ref              # every config key, with types, defaults and examples
+yolo update --check          # is a newer yolo out? installs nothing
+yolo update                  # install it the same way yolo was installed
 ```
 
 `yolo doctor` is another name for `yolo check`. Run `yolo check` after every config edit.
+[Upgrade](../getting-started.md#upgrade) covers `yolo update` for each way of installing yolo.
 
 ## Inspect what yolo builds
 

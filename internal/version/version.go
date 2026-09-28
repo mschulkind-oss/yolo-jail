@@ -27,6 +27,30 @@ var buildVersion = ""
 // for release forensics until the post-cutover CLI surface pass surfaces it.
 var GitCommit = ""
 
+// SourceDir is the absolute path of the checkout a from-source `just install`
+// built this binary from, stamped via -ldflags -X by that recipe and by nothing
+// else — the release channels (goreleaser, the homebrew formula, the PyPI
+// wheels, scripts/build-go.sh) leave it empty on purpose, since a path on the
+// build machine means nothing on the machine the binary lands on. It is what
+// lets `yolo update` find the checkout to pull and redeploy (internal/selfupdate).
+var SourceDir = ""
+
+// SourceBranch is the branch that checkout had checked out at build time,
+// stamped alongside SourceDir; empty for a detached HEAD. `yolo update` refuses
+// a checkout that has since switched branches rather than deploy that branch.
+var SourceBranch = ""
+
+// Baked returns the -ldflags-stamped version, normalized, or "" for an
+// unstamped `go build`/`go install` binary. Unlike Get it never consults
+// YOLO_VERSION or git: it answers what THIS binary was built as, which is the
+// question an update check asks.
+func Baked() string {
+	if buildVersion == "" || buildVersion == "unknown" {
+		return ""
+	}
+	return Normalize(buildVersion)
+}
+
 // Normalize converts a raw git-describe/env version string to the canonical
 //
 //	git format: 0.1.0-3-gabcdef1-dirty -> 0.1.0+3.gabcdef1.dirty
