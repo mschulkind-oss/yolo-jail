@@ -170,7 +170,7 @@ func (b Broker) Fetch(ctx context.Context, caller string) (Result, error) {
 			return err
 		}
 		state.Credentials[b.Config.Profile] = cred
-		if err := writeStateIn(b.StatePath, state, !b.NoCreateDir); err != nil {
+		if err := writeState(b.StatePath, state, !b.NoCreateDir); err != nil {
 			return err
 		}
 		result = Result{Credential: cred, Decision: DecisionMinted}

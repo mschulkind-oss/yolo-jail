@@ -74,12 +74,10 @@ func loadState(path string) (State, error) {
 // writeState atomically replaces the cache with a mode-0600 file in a mode-0700
 // directory. The rename means a lock-free reader — the warm-cache serve path — sees
 // the old complete generation or the new complete one, never a torn file.
-func writeState(path string, state State) error { return writeStateIn(path, state, true) }
-
-// writeStateIn is writeState with the directory's creation decided by the caller: a Broker
-// with NoCreateDir set passes false, and a missing directory is then an error rather than
-// something to bring back.
-func writeStateIn(path string, state State, create bool) error {
+//
+// create decides whether a missing directory is made: a Broker with NoCreateDir set passes
+// false, and a missing directory is then an error rather than something to bring back.
+func writeState(path string, state State, create bool) error {
 	if state.Version == 0 {
 		state.Version = stateVersion
 	}
