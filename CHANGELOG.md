@@ -251,7 +251,7 @@ apply it, and the launch says that too. See
   account still deleted that account's agent directory, transcripts included, right after telling
   you to move them out first.
 - The wire bridge now authenticates its callers. It accepted any request on its loopback ports,
-  and a jail on `network.mode: host`, like a nested jail, shares those ports with every process
+  and a jail on `network.mode: host`, or on `macos-user`, shares those ports with every process
   on your machine. Such a process could spend your provider keys or ChatGPT subscription through
   the bridge. A process that took a port first received what each agent sent there: Claude's
   saved login on the Codex profile, and the provider's key for Claude and Copilot on a bridged

@@ -464,15 +464,25 @@ in `YOLO_SERVICE_<SERVICE>_TOKEN`, which for the bridge is `YOLO_SERVICE_WIRE_BR
 ### Why the jail is not the boundary
 
 [WB-D4](#wb-d4) ruled inbound auth out because the jail was the trust boundary. That holds only
-for a jail with its own loopback. A jail on `network.mode: host` shares the host's loopback, and
-so does a nested podman, which is forced onto `--net=host`. There the bridge's ports are reachable
-from every host process, and from every other jail on that loopback. Such a process could spend
-the user's provider keys and ChatGPT subscription through an unauthenticated bridge. A process
-that took a port before the bridge bound it received whatever each client sent there. For claude,
+for a jail with its own loopback. Three setups break it:
+
+- **A jail on `network.mode: host`** shares the host's loopback.
+- **A nested jail** shares its parent jail's loopback, because a nested podman is forced onto
+  `--net=host`. That is the host's loopback only when the parent jail is itself on host mode.
+- **A `macos-user` launch** has no loopback of its own: its sandbox runs on the host. That backend
+  does not start the bridge's jail daemon yet, but the launch still points claude at the
+  bridge's addresses. So those are host ports that nothing of yolo's ever binds, and any local
+  user can take one first.
+
+There the bridge's ports are reachable from every process on that loopback, other jails
+included. Such a process could spend the user's provider keys and ChatGPT subscription through
+an unauthenticated bridge. A process that took a port before the bridge bound it, or on
+`macos-user` at any time, received whatever each client sent there. For claude,
 that included its saved Claude login: with no `ANTHROPIC_AUTH_TOKEN` set, claude sends that
 login's OAuth bearer to whatever `ANTHROPIC_BASE_URL` names
 ([`agent-auth-modes.md` §8.1](../design/agent-auth-modes.md#81-measured-2026-09-02-the-subscription-bearer-follows-anthropic_base_url)).
-The Codex route set no `ANTHROPIC_AUTH_TOKEN`, so claude on the Codex profile sent it. Copilot
+The Codex route set no `ANTHROPIC_AUTH_TOKEN`, so claude on the Codex profile sent it, and on
+`macos-user`, where the bridge never binds, that was the default setup. Copilot
 and claude on a bridged provider such as Cerebras sent the provider's own key.
 
 The maintainer's ruling, 2026-09-27, verbatim:

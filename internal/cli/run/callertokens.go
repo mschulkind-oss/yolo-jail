@@ -6,9 +6,9 @@ package run
 // daemon, and that the daemon then demands of every caller.
 //
 // WHY. WB-D4 once ruled the bridge's inbound auth out because "the jail is the trust boundary".
-// It is not, on loopback: a jail on `network.mode: host`, a macos-user sandbox and a nested
-// podman forced onto `--net=host` all share the host's loopback, so the bridge's port is one any
-// host process can reach, or take first. The maintainer's ruling of 2026-09-27 is quoted in the
+// It is not, on loopback: a jail on `network.mode: host` and a macos-user sandbox share the
+// host's loopback, and a nested podman forced onto `--net=host` shares its parent jail's, so the
+// bridge's port is one any process on that loopback can reach, or take first. The maintainer's ruling of 2026-09-27 is quoted in the
 // decision row.
 //
 // WHERE IT TRAVELS. Only through the per-entry channel: an unconditional line in the 0600

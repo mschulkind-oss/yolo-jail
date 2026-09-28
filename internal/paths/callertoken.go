@@ -10,10 +10,10 @@ import (
 // a random secret the launcher mints for every selected service that runs a jail daemon,
 // hands to that daemon and to every agent a derive points at the service, and that the
 // daemon then demands on every request. It exists because "the jail is the boundary" is not
-// true of a service on loopback: a jail on `network.mode: host`, a macos-user sandbox and a
-// nested podman forced onto `--net=host` all share the host's loopback, so a port the
-// service listens on is one every host process can reach, and a port it does not yet hold is
-// one a host process can take first.
+// true of a service on loopback: a jail on `network.mode: host` and a macos-user sandbox
+// share the host's loopback, and a nested podman forced onto `--net=host` shares its parent
+// jail's, so a port the service listens on is one every process on that loopback can reach,
+// and a port it does not yet hold is one such a process can take first.
 //
 // The value is a credential, which is why it travels only through the 0600 per-entry
 // channel (yolo-user-env.sh) and the 0600 per-agent env files, and never on an argv, in a

@@ -7,11 +7,12 @@ package wirebridged
 // WHY A JAIL-LOCAL DAEMON NEEDS IT. WB-D4 ruled inbound auth out because "the jail is the
 // boundary". The maintainer's ruling of 2026-09-27 answers that premise: "calling the jail the
 // boundary here seems also just as bad for security because jails don't need to be bridge type,
-// they can be house type and then um it's identical." A jail on `network.mode: host`, a
-// macos-user sandbox and a nested podman forced onto `--net=host` all share the host's loopback.
-// There the bridge's port is one every host process can reach, so an unauthenticated bridge
-// spends the user's provider keys and ChatGPT subscription for anyone; and a port the bridge does
-// not hold yet is one a host process can take first, so a client that sends its real credential
+// they can be house type and then um it's identical." A jail on `network.mode: host` and a
+// macos-user sandbox share the host's loopback, and a nested podman forced onto `--net=host`
+// shares its parent jail's. There the bridge's port is one every process on that loopback can
+// reach, so an unauthenticated bridge spends the user's provider keys and ChatGPT subscription
+// for anyone; and a port the bridge does not hold yet is one such a process can take first, so
+// a client that sends its real credential
 // there hands it over. Claude sends its saved login's OAuth bearer to whatever
 // ANTHROPIC_BASE_URL names when no ANTHROPIC_AUTH_TOKEN is set (agent-auth-modes.md §8.1).
 //
