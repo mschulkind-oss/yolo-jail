@@ -152,6 +152,8 @@ apply it, and the launch says that too. See
   afterwards stays on the host. `yolo host apply --revert --assert` takes yolo back out of the
   file, and jails read it again.
 - `yolo host apply` skipped every git pack, even an installed one.
+- `yolo host apply` listed a config file it was about to create as unchanged, and `--assert`
+  counted it among the files already in sync.
 - `yolo host apply --assert` wrote the rest of a pack whose `pack.json` has problems, the ones
   `yolo pack lint` and every launch refuse, into your home. It now writes nothing and names each
   problem, and the other host commands leave such a pack out and say so. `yolo config promote`

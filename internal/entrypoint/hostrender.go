@@ -715,6 +715,18 @@ func hostSurfaceWouldChange(e *Env, s manifest.Surface, path string, computed ma
 	if err != nil {
 		return false
 	}
+	// A FILE THE RENDER CREATES IS A CHANGE (HC-D4, docs/design/host-computed-layer.md §7), and
+	// the comparison below cannot see it: an absent file decodes to {} on both sides, so a
+	// surface whose layers add nothing folds to the baseline, while renderSurfaceRMWSurface
+	// writes the file regardless. Measured on host pi: the dry run said `unchanged`, the
+	// --assert counted the surface among the destinations already in sync, and the file was
+	// created. Absence is the one state where the bytes on disk and the decode disagree about
+	// whether there is anything there, so it is asked of the filesystem rather than of the
+	// decode. It cannot make a gate prompt forever: the write creates the file, and the next
+	// pass compares content again.
+	if _, statErr := os.Lstat(path); os.IsNotExist(statErr) {
+		return true
+	}
 	// The BASELINE, encoded before the fold: `before` is an independent decode of the same
 	// bytes (readRMWSource decodes twice precisely so this one shares nothing with `obj`), and
 	// passing it as its own before-snapshot means the trivia keeper sees no changed value and
