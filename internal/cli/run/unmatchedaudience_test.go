@@ -179,7 +179,7 @@ func TestUnmatchedBriefingAudienceAgreesWithComposition(t *testing.T) {
 
 // AGREEMENT WITH DELIVERY, files: the report says "unmatched" exactly when packFilesTargets —
 // the function the mount half emits from — yields no target for the addressed contribution.
-// filesSlotAgents restates packFilesTargets' slot rule, and this is what keeps the two one rule.
+// Both read packload.ResolveDestinations, and this is what keeps them reading it the same way.
 func TestUnmatchedFilesAudienceAgreesWithPackFilesTargets(t *testing.T) {
 	for _, tc := range []struct {
 		name, slot string

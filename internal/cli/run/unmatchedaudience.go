@@ -15,8 +15,8 @@ package run
 // warning at exit status 0 (reportInferredDestinations in internal/cli); this is the line the
 // jail launch used to lack.
 //
-// IT READS THE JAIL'S OWN DESTINATION ENUMERATIONS, NOT packload.ResolveDestinations. The jail
-// never calls ResolveDestinations — it composes each destination out of the whole pack set,
+// IT READS THE JAIL'S OWN DESTINATION ENUMERATIONS. For briefings and skills that is NOT
+// packload.ResolveDestinations: the jail composes each of those out of the whole pack set,
 // filtering by the destination's declared identity (jailbriefingaudience_test.go's header has
 // why the two notches' mechanisms differ) — so an answer computed the host's way could say
 // "delivered" about content the jail composes into nothing, or the reverse. Each kind is asked
@@ -28,8 +28,11 @@ package run
 //   - `skills`: packSkillTargets — the targets jailcontent.PrepareSkills stages into, pinned
 //     against the stager itself (its per-target audience filter included) by
 //     TestUnmatchedSkillsAudienceAgreesWithSkillStaging.
-//   - `files`: the slot rule packFilesTargets applies (an `agent` + `into` `files` contribution),
-//     pinned against that function by TestUnmatchedFilesAudienceAgreesWithPackFilesTargets.
+//   - `files`: packload.ResolveDestinations' own answer, its AddressedDelivery with no `Into`.
+//     The jail's files half DOES resolve through it (packFilesTargets, since notch-convergence
+//     item 21), so for this kind the host's resolver is the jail's enumeration, and asking it is
+//     what keeps the report from being a second copy of its slot rule. Pinned against
+//     packFilesTargets by TestUnmatchedFilesAudienceAgreesWithPackFilesTargets.
 //
 // The sources are packload.GovernedSources for the two kinds that have a convention, the ONE
 // governance reader (pack-system.md#one-governance-reader), so a file this report names is a
@@ -65,7 +68,6 @@ func unmatchedAudiences(packs []*packload.Pack) []string {
 	dests := map[packdecl.Kind]map[string]bool{
 		packdecl.KindBriefing: {},
 		packdecl.KindSkills:   {},
-		packdecl.KindFiles:    {},
 	}
 	for _, d := range briefingDestinations(packs) {
 		if d.Agent != "" {
@@ -76,9 +78,6 @@ func unmatchedAudiences(packs []*packload.Pack) []string {
 		if t.Agent != "" {
 			dests[packdecl.KindSkills][t.Agent] = true
 		}
-	}
-	for agent := range filesSlotAgents(packs) {
-		dests[packdecl.KindFiles][agent] = true
 	}
 
 	var lines []string
@@ -116,35 +115,14 @@ func unmatchedAudiences(packs []*packload.Pack) []string {
 				lines = append(lines, unmatchedAudienceLine(p.Name, kind, g.rels, g.agents))
 			}
 		}
-		for _, c := range p.Decl.Contributions() {
-			if c.Kind != packdecl.KindFiles || c.Agent != "" || c.Into != "" || len(c.Agents) == 0 {
+		for _, a := range p.ResolveDestinations(packs).Addressed {
+			if a.Kind != packdecl.KindFiles || len(a.Into) > 0 {
 				continue
 			}
-			if reachesAny(c.Agents, dests[packdecl.KindFiles]) {
-				continue
-			}
-			lines = append(lines, unmatchedAudienceLine(p.Name, c.Kind, []string{c.From}, c.Agents))
+			lines = append(lines, unmatchedAudienceLine(p.Name, a.Kind, []string{a.From}, a.Agents))
 		}
 	}
 	return lines
-}
-
-// filesSlotAgents is the set of agents that declare a `files` DESTINATION — the slot an
-// addressed `files` contribution lands under — by the rule packFilesTargets' alias table
-// applies: a `files` contribution carrying both `agent` and `into`.
-func filesSlotAgents(packs []*packload.Pack) map[string]bool {
-	out := map[string]bool{}
-	for _, p := range packs {
-		if p == nil || p.Decl == nil {
-			continue
-		}
-		for _, c := range p.Decl.Contributions() {
-			if c.Kind == packdecl.KindFiles && c.Agent != "" && c.Into != "" {
-				out[c.Agent] = true
-			}
-		}
-	}
-	return out
 }
 
 // reachesAny reports whether any name in the audience owns a destination in dests.
