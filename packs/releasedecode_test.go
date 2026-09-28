@@ -103,6 +103,27 @@ func firstOfList(key string) func(any) any {
 	return walk
 }
 
+// dropKey is a repair: every object member named key is removed, the shape of a release that
+// never had the field. For a surface field that release's strict decoder refuses by name.
+func dropKey(key string) func(any) any {
+	var walk func(any) any
+	walk = func(v any) any {
+		switch x := v.(type) {
+		case map[string]any:
+			delete(x, key)
+			for k, e := range x {
+				x[k] = walk(e)
+			}
+		case []any:
+			for i, e := range x {
+				x[i] = walk(e)
+			}
+		}
+		return v
+	}
+	return walk
+}
+
 // guardNoRestageOnAttach is the guard for every pack-contract break an old jail could meet:
 // OQ-PK2's per-launch pack trees (docs/reference/pack-system.md#oq-pk2), built. Every launch
 // stages a tree of its own and an attach writes into none, so a jail keeps the tree it booted
@@ -133,6 +154,18 @@ var knownReleaseBreaks = []knownReleaseBreak{
 		guard: guardNoRestageOnAttach, pinnedBy: pinAttachLeavesAnOlderJailsTree},
 	{release: "v0.10.0", pack: "pi", problem: `unknown hook "unshare_directory"`,
 		guard: guardNoRestageOnAttach, pinnedBy: pinAttachLeavesAnOlderJailsTree},
+	// Measured against v0.11.0 on 2026-09-28: pi's surfaces carry the three surface fields of
+	// the maintainer's two MCP rulings (docs/design/agent-directory-map.md AM-R1, AM-R2), which
+	// v0.11.0's strict surface decoder refuses by name, one per decode.
+	{release: "v0.11.0", pack: "pi", problem: `unknown field "retireIfMatchesRender"`,
+		guard: guardNoRestageOnAttach, pinnedBy: pinAttachLeavesAnOlderJailsTree,
+		repair: dropKey("retireIfMatchesRender")},
+	{release: "v0.11.0", pack: "pi", problem: `unknown field "notAtHost"`,
+		guard: guardNoRestageOnAttach, pinnedBy: pinAttachLeavesAnOlderJailsTree,
+		repair: dropKey("notAtHost")},
+	{release: "v0.11.0", pack: "pi", problem: `unknown field "whenListed"`,
+		guard: guardNoRestageOnAttach, pinnedBy: pinAttachLeavesAnOlderJailsTree,
+		repair: dropKey("whenListed")},
 }
 
 // releaseDecodeProbe is the program compiled INSIDE the last release's tree: that release's

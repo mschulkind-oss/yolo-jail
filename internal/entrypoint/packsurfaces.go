@@ -420,6 +420,15 @@ func renderPlannedSurface(e *Env, pl surfacePlan, src jailLayerSource) error {
 		}
 		return nil
 	}
+	// THE `whenListed` GATE (manifest.Surface.WhenListed): a surface for one extension of an
+	// agent renders only while the agent's own list names it, and writes nothing otherwise,
+	// beyond removing its own unedited previous render so a deselect leaves no stale copy.
+	// A note and not a warning: an unselected extension is the ordinary state of most jails.
+	if reason := pl.listUnmet(e); reason != "" {
+		e.note(reason)
+		retireUnselectedRender(e, surface)
+		return nil
+	}
 	if !pl.decided {
 		// Unreachable in a jail, whose census runs every mode; the fail-closed answer for a
 		// target that states no policy, which writes nothing.
@@ -501,6 +510,9 @@ func renderPlannedSurface(e *Env, pl surfacePlan, src jailLayerSource) error {
 	if pl.mechanism != manifest.ModeStateful || w.firstMigration {
 		retireOrphanSidecars(e, surface)
 	}
+	// The old copies of a render that moved, which may carry a name someone else also writes,
+	// so each goes only while it holds exactly what this write just produced.
+	retireMatchingCopies(e, surface)
 	return nil
 }
 

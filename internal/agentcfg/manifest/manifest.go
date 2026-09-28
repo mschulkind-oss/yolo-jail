@@ -52,9 +52,11 @@ package manifest
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg/codec"
+	"github.com/mschulkind-oss/yolo-jail/internal/jsonptr"
 )
 
 // Surface declares one generated-config file and the layer data yolo composes
@@ -173,8 +175,141 @@ type Surface struct {
 	// computed or rmw surface runs it after every write, so a vendor name is a file the
 	// agent, an extension or the user loses at every boot. pi's `mcp.json` was one until
 	// the pi pack stopped retiring it (pi-subagents reads it); every shipped name carries a
-	// `yolo-` prefix, which packload.TestShippedRetireNamesAreYolosOwn pins.
+	// `yolo-` prefix, which packload.TestShippedRetireNamesAreYolosOwn pins. A vendor name
+	// belongs in RetireIfMatchesRender instead, which reads the bytes first.
 	RetireOnFirstRender []string
+
+	// RetireIfMatchesRender are files to DELETE after a jail boot renders this surface, but
+	// ONLY while a file holds exactly what that render just wrote: the old location of a
+	// render that moved, which yolo recognizes as its own copy by its content alone.
+	//
+	// Paths are relative to the surface file's own directory, like RetireOnFirstRender, and
+	// each is a bare file name. "Exactly" is the decoded value, compared with this surface's
+	// codec: key order, indentation and a trailing newline are formatting, not ownership, so
+	// they do not decide it. Everything else does. A file that fails to decode, holds one
+	// more key or one different value, or is not an object is left untouched, and so is
+	// every file while this surface's own write failed.
+	//
+	// THIS IS THE FORM A VENDOR FILE NAME TAKES, and the only one it may take in a shipped
+	// pack (packload.TestShippedRetireNamesAreYolosOwn). The match is what makes it safe to
+	// name a file an agent, an extension or the user can also write: none of them can lose
+	// anything to it, because a file that holds only yolo's render holds nothing of theirs.
+	// The limit is the converse, stated rather than hidden: an old copy written from inputs
+	// that have since changed no longer matches, and stays until the user removes it.
+	//
+	// It runs after every write, whatever the mode, since a delete that needs a match cannot
+	// take anything a later boot would want. Shipped use: the pi pack's `mcp` surface, whose
+	// render moved from `~/.pi/agent/mcp.json` to `mcp-adapter.json` in 0.11.0
+	// (docs/design/agent-directory-map.md, AM-R1).
+	RetireIfMatchesRender []string
+
+	// WhenListed, when set, renders this surface ONLY while a list in another surface of the
+	// same pack holds a matching entry, and writes nothing otherwise. It is how a surface
+	// that exists for one extension of an agent follows that extension's selection, which
+	// the agent itself records as a list (pi's `packages` in settings.json) rather than as
+	// anything yolo selects. See ListCondition for the match.
+	//
+	// The list is read from the named surface's file as THIS render left it, at every notch
+	// that writes surfaces, so it answers with what the agent will load: a pack's
+	// config-list entry, the host layer's and an in-jail install all count. That needs the
+	// named surface rendered first, so it must be declared EARLIER in the same pack
+	// (packload refuses anything else).
+	//
+	// Unselected, a jail boot also removes this surface's own previous render when it is
+	// still exactly that render with no captured edit in it (a `stateful` surface is the one
+	// that keeps the record that can say so), so no stale copy outlives the selection. A
+	// file carrying anyone else's edit is left as it is.
+	WhenListed *ListCondition
+
+	// NotAtHost, when non-empty, is the reason `yolo host apply` never renders this surface,
+	// printed as that surface's `skipped:` row. The jail boot and `yolo check` are unaffected.
+	//
+	// For a surface whose whole content is a derive's, at a path the user also keeps outside
+	// any jail. Host apply renders no derive's content (docs/design/host-computed-layer.md),
+	// so there such a surface could only create an empty file in the user's home or re-encode
+	// the one they keep. Shipped use: pi's `subagents-mcp`, whose file,
+	// `~/.config/mcp/mcp.json`, is a cross-tool location (AM-R2).
+	NotAtHost string
+}
+
+// ListCondition is WhenListed's test: does the array at Path in Surface hold an entry that
+// Matches?
+//
+// An entry is tested as a string. A string entry is itself; an object entry is its Member's
+// value when Member is set and that value is a string; any other entry matches nothing, and
+// so does a missing file, a missing path or a value there that is not an array. Matches is a
+// Go regular expression (RE2 syntax), unanchored unless it anchors itself, because package
+// sources come in several spellings (a registry name, a git URL, a local path) that one
+// expression can cover and no fixed string can.
+type ListCondition struct {
+	// Surface is the "agent/name" identity of the surface holding the list.
+	Surface string
+	// Path is the RFC 6901 JSON Pointer of the array inside that surface. Never the root.
+	Path string
+	// Member names the string member an object entry is tested by, or "" for strings only.
+	Member string
+	// Matches is the regular expression's source; re is it compiled, set by the decoder.
+	Matches string
+	re      *regexp.Regexp
+}
+
+// NewListCondition validates and compiles one condition, so a Surface literal built in Go is
+// checked the way a decoded one is.
+func NewListCondition(surface, path, member, matches string) (*ListCondition, error) {
+	agent, name, ok := strings.Cut(surface, "/")
+	if !ok || agent == "" || name == "" || strings.Contains(name, "/") {
+		return nil, fmt.Errorf("\"surface\" must be an \"agent/name\" surface identity, not %q", surface)
+	}
+	if tokens, err := jsonptr.Parse(path); err != nil {
+		return nil, fmt.Errorf("\"path\": %v", err)
+	} else if len(tokens) == 0 {
+		return nil, fmt.Errorf("\"path\" must name an array inside the surface, not the whole document")
+	}
+	if matches == "" {
+		return nil, fmt.Errorf("missing \"matches\"")
+	}
+	re, err := regexp.Compile(matches)
+	if err != nil {
+		return nil, fmt.Errorf("\"matches\" is not a regular expression: %v", err)
+	}
+	return &ListCondition{Surface: surface, Path: path, Member: member, Matches: matches, re: re}, nil
+}
+
+// Key is the identity of the surface the condition reads.
+func (c *ListCondition) Key() SurfaceKey {
+	agent, name, _ := strings.Cut(c.Surface, "/")
+	return SurfaceKey{Agent: agent, Name: name}
+}
+
+// Holds reports whether doc, the named surface's decoded content, satisfies the condition,
+// and the first entry that did.
+func (c *ListCondition) Holds(doc map[string]any) (any, bool) {
+	tokens, err := jsonptr.Parse(c.Path)
+	if err != nil || c.re == nil {
+		return nil, false
+	}
+	var at any = doc
+	for _, tok := range tokens {
+		m, isMap := at.(map[string]any)
+		if !isMap {
+			return nil, false
+		}
+		at = m[tok]
+	}
+	list, isList := at.([]any)
+	if !isList {
+		return nil, false
+	}
+	for _, entry := range list {
+		s, isString := entry.(string)
+		if obj, isObj := entry.(map[string]any); isObj && c.Member != "" {
+			s, isString = obj[c.Member].(string)
+		}
+		if isString && c.re.MatchString(s) {
+			return entry, true
+		}
+	}
+	return nil, false
 }
 
 // The closed set of engine mechanisms. See Surface.Mode.

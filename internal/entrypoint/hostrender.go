@@ -340,6 +340,20 @@ func RenderHostPack(p *packload.Pack, homeDir string, ownership render.HostOwner
 			}
 			continue
 		}
+		// A surface its pack declares `notAtHost` is never rendered here, whatever the
+		// contract, and the row carries the pack's own reason (manifest.Surface.NotAtHost).
+		if s.NotAtHost != "" {
+			out = append(out, HostRenderResult{Surface: id, Path: path,
+				Action: "skipped: " + s.NotAtHost})
+			continue
+		}
+		// THE `whenListed` GATE, as in a jail: the list is read from the real home's copy of
+		// the named surface as this apply left it (under observe, as it stands).
+		if reason := pl.listUnmet(e); reason != "" {
+			out = append(out, HostRenderResult{Surface: id, Path: path,
+				Action: "skipped: " + reason})
+			continue
+		}
 		// PRUNE the ${workspace}-keyed branches rather than refusing the surface (see
 		// PruneWorkspaceKeyed). What remains is target-independent and renders; what was
 		// dropped is named, either in the surface's own result line or — when nothing

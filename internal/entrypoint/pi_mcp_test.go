@@ -18,7 +18,10 @@ import (
 // 0.35.1 reads agentDir/mcp.json (`src/runs/shared/mcp-direct-tool-allowlist.ts`,
 // `getConfigPaths`) to resolve its `mcp:` direct tools, pi-mcp-adapter 3.1.0 reserves it for
 // pi's own built-in MCP, and the user may have written it. yolo cannot tell its own leftover
-// from theirs by name (docs/design/agent-directory-map.md, Appendix B), so it deletes neither.
+// from theirs by name (docs/design/agent-directory-map.md, Appendix B), so the name alone
+// deletes neither. What does delete yolo's leftover is its content: the pi/mcp surface retires
+// an mcp.json that holds exactly its render (AM-R1, pi_subagents_mcp_test.go), and this one,
+// a different server set with a `settings` key, is not that.
 func TestPiMcpSurfaceRendersConfiguredServers(t *testing.T) {
 	home := t.TempDir()
 	piAgentDir := filepath.Join(home, ".pi", "agent")

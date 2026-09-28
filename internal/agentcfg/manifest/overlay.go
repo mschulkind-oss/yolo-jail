@@ -50,6 +50,11 @@ type OverlayDTO struct {
 	// by a pack that does not own the surface and disclosed under that pack's name. The
 	// owner's manifest is the only place that may say it.
 	ReadsHost bool `json:"readsHost,omitempty"`
+	// The three below decide WHETHER and WHERE the owner's file is written, and what is
+	// deleted beside it, so they are the owner's alone like mode and path.
+	RetireIfMatches []string          `json:"retireIfMatchesRender,omitempty"`
+	WhenListed      *ListConditionDTO `json:"whenListed,omitempty"`
+	NotAtHost       string            `json:"notAtHost,omitempty"`
 }
 
 // overlayRefusals is the reason each non-contributable field is refused, so the
@@ -79,6 +84,12 @@ var overlayRefusals = []struct {
 		"surface's OWNER may declare that its file is read out of the host home, because " +
 		"the owner is who the launch discloses it under",
 		func(d OverlayDTO) bool { return d.ReadsHost }},
+	{"retireIfMatchesRender", "sidecar cleanup belongs to the surface's owner",
+		func(d OverlayDTO) bool { return len(d.RetireIfMatches) > 0 }},
+	{"whenListed", "whether the file is written at all is the surface's OWNER's decision",
+		func(d OverlayDTO) bool { return d.WhenListed != nil }},
+	{"notAtHost", "whether the file is written at the host is the surface's OWNER's decision",
+		func(d OverlayDTO) bool { return d.NotAtHost != "" }},
 }
 
 // DecodeOverlay decodes a config-overlay body into the single layer map the compose

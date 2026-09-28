@@ -46,12 +46,13 @@ func TestEmbeddedPackSurfacesDecode(t *testing.T) {
 		}
 		total += len(surfaces)
 	}
-	// The official packs carry 16 surfaces across the agents (opencode's tui is the agent
+	// The official packs carry 17 surfaces across the agents (opencode's tui is the agent
 	// footer's plugin list: docs/design/agent-footer.md; pi's codex-models is the data file
-	// its openai-codex extension registers: docs/design/model-lists-and-pickers.md ML-D3).
+	// its openai-codex extension registers: docs/design/model-lists-and-pickers.md ML-D3;
+	// pi's subagents-mcp is the MCP file pi-subagents reads: agent-directory-map.md AM-R2).
 	// A drop here means a pack lost a surface in translation.
-	if total != 16 {
-		t.Errorf("official packs declare %d surfaces, want 16", total)
+	if total != 17 {
+		t.Errorf("official packs declare %d surfaces, want 17", total)
 	}
 }
 

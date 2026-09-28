@@ -120,3 +120,62 @@ func TestMergeValidatesOverrides(t *testing.T) {
 		t.Error("an override with a bad codec must fail validation")
 	}
 }
+
+// The three fields a surface's OWNER uses to decide whether, where and beside what its file is
+// written (AM-R1, AM-R2) decode into the Surface, and each malformed spelling is refused by
+// name rather than decoded into a surface that behaves as if it were absent.
+func TestDecodeSurfacesReadsTheGatingAndRetireFields(t *testing.T) {
+	surfaces, problems := DecodeSurfaces([]byte(`[{"agent":"a","name":"n","path":"~/.a/new.json",
+	  "codec":"json","retireIfMatchesRender":["old.json"],"notAtHost":"a reason",
+	  "whenListed":{"surface":"a/settings","path":"/packages","member":"source","matches":"(^npm:|/)ext$"}}]`))
+	if len(problems) != 0 {
+		t.Fatalf("problems = %v", problems)
+	}
+	s := surfaces[0]
+	if len(s.RetireIfMatchesRender) != 1 || s.RetireIfMatchesRender[0] != "old.json" {
+		t.Errorf("RetireIfMatchesRender = %v", s.RetireIfMatchesRender)
+	}
+	if s.NotAtHost != "a reason" {
+		t.Errorf("NotAtHost = %q", s.NotAtHost)
+	}
+	c := s.WhenListed
+	if c == nil || c.Key() != (SurfaceKey{Agent: "a", Name: "settings"}) {
+		t.Fatalf("WhenListed = %+v", c)
+	}
+	for _, tc := range []struct {
+		doc  map[string]any
+		want bool
+	}{
+		{map[string]any{"packages": []any{"npm:ext"}}, true},
+		{map[string]any{"packages": []any{"git:host/owner/ext"}}, true},
+		{map[string]any{"packages": []any{map[string]any{"source": "npm:ext"}}}, true},
+		{map[string]any{"packages": []any{map[string]any{"name": "npm:ext"}}}, false},
+		{map[string]any{"packages": []any{"npm:ext-more"}}, false},
+		{map[string]any{"packages": "npm:ext"}, false},
+		{nil, false},
+	} {
+		if _, got := c.Holds(tc.doc); got != tc.want {
+			t.Errorf("Holds(%v) = %v, want %v", tc.doc, got, tc.want)
+		}
+	}
+
+	for name, body := range map[string]string{
+		"retire path":        `"retireIfMatchesRender":["../x.json"]`,
+		"retire own file":    `"retireIfMatchesRender":["new.json"]`,
+		"blank reason":       `"notAtHost":"  "`,
+		"bad regexp":         `"whenListed":{"surface":"a/s","path":"/p","matches":"("}`,
+		"root pointer":       `"whenListed":{"surface":"a/s","path":"","matches":"x"}`,
+		"bare surface":       `"whenListed":{"surface":"settings","path":"/p","matches":"x"}`,
+		"itself":             `"whenListed":{"surface":"a/n","path":"/p","matches":"x"}`,
+		"no matches":         `"whenListed":{"surface":"a/s","path":"/p"}`,
+		"unknown cond field": `"whenListed":{"surface":"a/s","path":"/p","matches":"x","mach":"y"}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, probs := DecodeSurfaces([]byte(`[{"agent":"a","name":"n","path":"~/.a/new.json",` +
+				`"codec":"json",` + body + `}]`))
+			if len(probs) == 0 {
+				t.Fatalf("%s was accepted", body)
+			}
+		})
+	}
+}

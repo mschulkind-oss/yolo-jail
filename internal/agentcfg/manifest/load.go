@@ -19,6 +19,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"path"
 	"sort"
 	"strings"
 )
@@ -36,6 +37,20 @@ type SurfaceDTO struct {
 	// ReadsHost declares the `host` layer — see Surface.ReadsHost. A bare boolean on the
 	// surface, not a path on a separate contribution, since 2026-09-12.
 	ReadsHost bool `json:"readsHost,omitempty"`
+	// RetireIfMatches is Surface.RetireIfMatchesRender: a delete that needs a content match.
+	RetireIfMatches []string `json:"retireIfMatchesRender,omitempty"`
+	// WhenListed is Surface.WhenListed's wire form.
+	WhenListed *ListConditionDTO `json:"whenListed,omitempty"`
+	// NotAtHost is Surface.NotAtHost: the reason host apply skips this surface.
+	NotAtHost string `json:"notAtHost,omitempty"`
+}
+
+// ListConditionDTO is the wire form of a ListCondition. Strict like the surface around it.
+type ListConditionDTO struct {
+	Surface string `json:"surface"`
+	Path    string `json:"path"`
+	Member  string `json:"member,omitempty"`
+	Matches string `json:"matches"`
 }
 
 // knownModes is the closed set a DTO may name. A mode outside it is an error rather
@@ -76,9 +91,39 @@ func (d SurfaceDTO) Surface() (Surface, []string) {
 			"\"path\" (this one is %q) — the host layer is this same file in the user's own "+
 			"home, and ~ is the only part of it that differs", label, d.Path))
 	}
+	// A match-guarded retire names a SIBLING of the surface file by bare name, and never the
+	// surface file itself, which always matches its own render.
+	for _, name := range d.RetireIfMatches {
+		if name == "" || name == "." || name == ".." || strings.ContainsAny(name, `/\`) {
+			problems = append(problems, fmt.Sprintf("%s: \"retireIfMatchesRender\" entry %q "+
+				"must be a bare file name beside the surface file", label, name))
+		} else if name == path.Base(d.Path) {
+			problems = append(problems, fmt.Sprintf("%s: \"retireIfMatchesRender\" names the "+
+				"surface's own file %q, which always matches its own render", label, name))
+		}
+	}
+	var when *ListCondition
+	if d.WhenListed != nil {
+		c, err := NewListCondition(d.WhenListed.Surface, d.WhenListed.Path,
+			d.WhenListed.Member, d.WhenListed.Matches)
+		switch {
+		case err != nil:
+			problems = append(problems, fmt.Sprintf("%s: \"whenListed\": %v", label, err))
+		case c.Key() == (SurfaceKey{Agent: d.Agent, Name: d.Name}):
+			problems = append(problems, fmt.Sprintf("%s: \"whenListed\" names the surface "+
+				"itself, whose file cannot exist until the condition lets it render", label))
+		default:
+			when = c
+		}
+	}
+	if d.NotAtHost != "" && strings.TrimSpace(d.NotAtHost) == "" {
+		problems = append(problems, fmt.Sprintf("%s: \"notAtHost\" is the reason host "+
+			"apply prints, and it is blank", label))
+	}
 	s := Surface{
 		Agent: d.Agent, Name: d.Name, Path: d.Path, Codec: d.Codec,
 		Mode: d.Mode, RetireOnFirstRender: d.Retire, ReadsHost: d.ReadsHost,
+		RetireIfMatchesRender: d.RetireIfMatches, WhenListed: when, NotAtHost: d.NotAtHost,
 	}
 	// Assign layers only when non-nil. An empty map is NOT the same as absent: on a
 	// keyless surface an empty-map layer hard-errors, and on an object surface it

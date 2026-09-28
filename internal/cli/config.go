@@ -483,6 +483,12 @@ func renderSurface(t configTarget, s manifest.Surface, contribs *packoverlay.Ove
 			pr.Printf("  [dim](this surface also has a `computed` layer, not shown: it is " +
 				"built per-boot from jail paths — see `yolo config ls`)[/dim]")
 		}
+		// A gated surface is previewed as if its condition held, and says so: the boot writes
+		// nothing at all while it does not (manifest.Surface.WhenListed).
+		if c := s.WhenListed; c != nil {
+			pr.Printf("  [dim](written only while %s %s has an entry matching %q; this "+
+				"preview shows it as if one did)[/dim]", c.Surface, c.Path, c.Matches)
+		}
 		// ProvenanceLines is sorted "key\tlayer"; color the key cyan and the
 		// layer by its distinct hue.
 		//

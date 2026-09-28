@@ -2,6 +2,7 @@ package entrypoint
 
 import (
 	"fmt"
+	"os"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg"
 	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg/manifest"
@@ -51,6 +52,10 @@ type surfacePlan struct {
 	// Both are zero for an unrendered surface.
 	mechanism string
 	decided   bool
+	// listedIn is the surface whose list the declaration's `whenListed` reads, resolved from
+	// the same pack (packload refuses a name it does not declare earlier), or nil when the
+	// surface renders unconditionally.
+	listedIn *manifest.Surface
 }
 
 // planPackSurfaces is the loop's head: p's surfaces at the Env's render target, each with its
@@ -61,10 +66,44 @@ func planPackSurfaces(e *Env, p *packload.Pack, overlays *packoverlay.OverlaySet
 	[]string, []packload.FoldNote) {
 	surfaces, problems, notes := p.SurfacesForReport(e.renderTarget().Profile().AgentAutonomy)
 	plans := make([]surfacePlan, 0, len(surfaces))
-	for _, s := range surfaces {
-		plans = append(plans, planSurface(e, p, s, contribsFor(overlays, s.Agent, s.Name)))
+	byKey := make(map[manifest.SurfaceKey]int, len(surfaces))
+	for i, s := range surfaces {
+		byKey[s.Key()] = i
+		pl := planSurface(e, p, s, contribsFor(overlays, s.Agent, s.Name))
+		if c := s.WhenListed; c != nil {
+			if j, ok := byKey[c.Key()]; ok && j < i {
+				named := surfaces[j]
+				pl.listedIn = &named
+			}
+		}
+		plans = append(plans, pl)
 	}
 	return plans, problems, notes
+}
+
+// listUnmet is the `whenListed` gate at render time (manifest.Surface.WhenListed): "" when
+// the surface renders, otherwise why it does not. It reads the named surface's file as this
+// render left it — the loop renders a pack's surfaces in declaration order, and packload
+// requires the named one to come first — with that surface's own codec. Every way of not
+// finding a matching entry (no file, no list, a file that does not decode) is the same
+// answer, unselected: the condition exists to stay silent until the agent loads the thing it
+// names.
+//
+// A condition whose surface did not resolve cannot reach here from a packload-read pack; it
+// answers unselected too, rather than rendering a file nothing asked for.
+func (pl surfacePlan) listUnmet(e *Env) string {
+	c := pl.surface.WhenListed
+	if c == nil {
+		return ""
+	}
+	if pl.listedIn != nil {
+		data, _ := os.ReadFile(expandHomePath(e, pl.listedIn.Path))
+		if _, held := c.Holds(agentcfg.DecodeSurfaceObject(pl.listedIn.Codec, data)); held {
+			return ""
+		}
+	}
+	return fmt.Sprintf("%s/%s not rendered: no entry of %s %s matches %q", pl.surface.Agent,
+		pl.surface.Name, c.Surface, c.Path, c.Matches)
 }
 
 // planSurface is one surface's plan at the Env's render target: `unrendered` honored by

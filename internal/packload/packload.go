@@ -177,6 +177,20 @@ func (p *Pack) SurfacesForReport(autonomy bool) ([]manifest.Surface, []string, [
 	// way (both surfaces bound to whichever grant matched first, silently); it is a
 	// refusal now. Nothing shipped is anywhere near it, and a pack that gets here has
 	// asked two surfaces to read one host file.
+	// A `whenListed` condition reads a list another surface of THIS pack renders, from that
+	// surface's file as this render left it, so the named surface has to render first: it
+	// must be declared earlier in the same pack. A later one would be read as the PREVIOUS
+	// boot left it, one boot stale; another pack's has no order relative to this one at all.
+	declared := map[manifest.SurfaceKey]bool{}
+	for _, s := range surfaces {
+		if c := s.WhenListed; c != nil && !declared[c.Key()] {
+			problems = append(problems, fmt.Sprintf("pack %s: surface %s: \"whenListed\" names "+
+				"%s, which is not a surface this pack declares before it — the list is read "+
+				"from that surface's file as this render leaves it, so it must render first",
+				p.Name, s.Key(), c.Surface))
+		}
+		declared[s.Key()] = true
+	}
 	claimed := map[string]manifest.SurfaceKey{}
 	for i := range surfaces {
 		surfaces[i].HostSource = p.surfaceHostSource(surfaces[i])

@@ -744,3 +744,19 @@ end)
 yolo.derive("pi", "mcp", function(ctx)
   return { mcpServers = in_full(ctx, ctx.mcp_servers) }
 end)
+
+-- subagents-mcp (~/.config/mcp/mcp.json): the same servers again, for pi-subagents, which
+-- resolves an agent's `mcp:` direct tools from ~/.config/mcp/mcp.json, agentDir/mcp.json and
+-- the project's .mcp.json and .pi/mcp.json, and never from mcp-adapter.json (pi-subagents
+-- 0.35.1, src/runs/shared/mcp-direct-tool-allowlist.ts, getConfigPaths). The surface renders
+-- only while pi-subagents is in pi's packages (its `whenListed`), and never at the host (its
+-- `notAtHost`); docs/design/agent-directory-map.md AM-R2 records why this path.
+--
+-- NOT declared in full, unlike the mcp surface above, and on purpose: the file is a
+-- cross-tool location a user may already keep (pi-mcp-adapter's own setup writes it), so the
+-- stateful render's first boot must adopt the servers already there as the user's rather than
+-- claim the whole table as yolo's previous output (CO13). A server yolo stops configuring
+-- still leaves, because the capture baseline knows it was yolo's.
+yolo.derive("pi", "subagents-mcp", function(ctx)
+  return { mcpServers = ctx.mcp_servers }
+end)

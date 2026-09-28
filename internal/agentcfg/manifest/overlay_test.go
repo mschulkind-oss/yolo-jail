@@ -33,6 +33,10 @@ func TestDecodeOverlayRefusesSurfaceRedefinition(t *testing.T) {
 		// A GRANT, not a description: an overlay that could set it would carry a file out
 		// of the user's real home under someone else's surface (OQ-CO10).
 		"readsHost": `{"readsHost":true,"managed":{"k":1}}`,
+		// Whether, where and beside what the owner's file is written (AM-R1, AM-R2).
+		"retireIfMatchesRender": `{"retireIfMatchesRender":["x"],"managed":{"k":1}}`,
+		"whenListed":            `{"whenListed":{"surface":"a/b","path":"/l","matches":"x"},"managed":{"k":1}}`,
+		"notAtHost":             `{"notAtHost":"because","managed":{"k":1}}`,
 	}
 	for field, body := range cases {
 		t.Run(field, func(t *testing.T) {

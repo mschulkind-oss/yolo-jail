@@ -145,9 +145,14 @@ func TestConfigRenderExplainNamesTheComputedLayerItOmits(t *testing.T) {
 		t.Fatalf("rc != 0: %s", errw.String())
 	}
 	got := out.String()
-	// One note per rendered pi surface: all four register a derive (packs/pi/derive.lua).
-	if n := strings.Count(got, "also has a `computed` layer"); n != 4 {
-		t.Errorf("counted %d computed-layer notes, want 4 (pi/settings, pi/models, "+
-			"pi/codex-models and pi/mcp all register a derive):\n%s", n, got)
+	// One note per rendered pi surface: all five register a derive (packs/pi/derive.lua).
+	if n := strings.Count(got, "also has a `computed` layer"); n != 5 {
+		t.Errorf("counted %d computed-layer notes, want 5 (pi/settings, pi/models, "+
+			"pi/codex-models, pi/mcp and pi/subagents-mcp all register a derive):\n%s", n, got)
+	}
+	// pi/subagents-mcp is written only while pi-subagents is in pi's packages (AM-R2), and
+	// the preview shows it unconditionally, so it must say which condition it assumed.
+	if !strings.Contains(got, "written only while pi/settings /packages has an entry matching") {
+		t.Errorf("the preview of pi/subagents-mcp does not name its whenListed condition:\n%s", got)
 	}
 }
