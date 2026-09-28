@@ -90,6 +90,9 @@ yolo loopholes list          # the loopholes your config selects, and whether ea
 yolo loopholes status        # on the host: run each loophole's self-check
 ```
 
+`yolo openai-auth` and `yolo host-daemon` arrive in the release after 0.10.0. On 0.10.0 the first is
+`yolo internal openai-auth`, and the second has no equivalent beyond `yolo broker`.
+
 See [Logins](../guides/authentication.md) and [Host Access and Loopholes](../guides/loopholes.md).
 
 ## Disk

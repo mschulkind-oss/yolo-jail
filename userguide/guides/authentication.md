@@ -70,7 +70,8 @@ yolo openai-auth import --from /abs/path/auth.json   # reuse a login `codex logi
 yolo openai-auth logout                     # remove it, for every project and jail at once
 ```
 
-These run on your host only, not inside a jail.
+These run on your host only, not inside a jail. On yolo 0.10.0 they are spelled
+`yolo internal openai-auth status`, and so on; `yolo openai-auth` arrives in the next release.
 
 > [!IMPORTANT]
 > **Apple Container cannot reach this service yet**, so `codex` and `pi` print
@@ -93,7 +94,8 @@ If your host has no git name or email set, the agent's first commit fails with
 ## When a login keeps failing
 
 - Run `yolo check`: it includes a self-check of the Claude broker.
-- `yolo host-daemon status` lists every host service yolo runs and whether each is healthy.
+- `yolo host-daemon status` lists every host service yolo runs and whether each is healthy. On yolo
+  0.10.0, which lacks it, `yolo broker status` checks the Claude login service.
 - If the shared Claude login was revoked or expired, a fresh login inside a jail can be replaced by
   the dead one at your next launch. yolo records each time this happens in
   `~/.yolo-shared-creds.log` inside the jail; read it if a login keeps not sticking.

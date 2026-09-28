@@ -295,6 +295,12 @@ The formula comes from yolo's own
 yolo from source, so the install can take a few minutes. It installs yolo only: Nix and the runtime come
 from steps 1 and 2.
 
+> [!NOTE]
+> Homebrew and the release archives install yolo's latest release. Two commands this guide uses,
+> `yolo host-daemon` and `yolo openai-auth`, arrive in the release after 0.10.0. If `yolo --version`
+> says 0.10.0, use `yolo broker status`, `stop` and `restart` for the shared Claude login service,
+> and `yolo internal openai-auth` in place of `yolo openai-auth`.
+
 **Homebrew on a Mac:** install it from [brew.sh](https://brew.sh/), then follow the "Next steps" it
 prints to add `brew` to your PATH.
 
@@ -514,12 +520,15 @@ cd yolo-jail && git pull && just deploy   # from source
 yolo host-daemon status           # restart any it reports unhealthy: yolo host-daemon restart <name>
 ```
 
+On yolo 0.10.0, which has no `yolo host-daemon`, run `yolo broker restart` instead.
+
 For a release archive, unpack the new one over the old folder.
 
 ## Uninstall
 
 1. **Exit every jail**, then stop yolo's host services: `yolo host-daemon status` lists them, and
-   `yolo host-daemon stop <name>` stops one. If you set up `macos-user`, run `yolo macos-teardown`.
+   `yolo host-daemon stop <name>` stops one (on yolo 0.10.0, `yolo broker stop`). If you set up
+   `macos-user`, run `yolo macos-teardown`.
 2. **Remove yolo:** `brew uninstall yolo-jail`, or delete the release archive's folder, or remove
    `yolo` from Go's bin directory.
 3. **Remove what yolo stored:** `rm -rf ~/.local/share/yolo-jail ~/.config/yolo-jail`. This deletes

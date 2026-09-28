@@ -81,6 +81,9 @@ yolo host-daemon status  # the host services shared by every jail, and whether e
 yolo pack footprint serial   # what a pack's loophole touches, before you select it
 ```
 
+`yolo host-daemon` arrives in the release after 0.10.0; on 0.10.0, `yolo broker status` checks the
+Claude login service.
+
 Every launch also prints what each pack reads from your machine, and names each host service just
 before it starts it.
 
