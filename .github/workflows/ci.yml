@@ -220,13 +220,30 @@ jobs:
     # A red arm cell in the agent-install matrix means an agent CLI lacks a
     # linux-arm64 upstream build; gate that agent out of the arm matrix rather
     # than patching the test.
+    #
+    # SHARDED, two runners per arch, because the suite is serial by design (no
+    # t.Parallel(); see AGENTS.md) and one runner running all of it had become the
+    # longest job in the workflow. More runners is the only way to divide a serial
+    # suite. Each shard pays the setup steps and the image load again; the tests
+    # divide. The partition is COMPUTED, never written down — see "Select this
+    # shard's tests" — and `integration-complete` below checks that the shards of
+    # each arch ran every listed test exactly once.
+    #
+    # INTEGRATION_SHARDS must equal the length of `matrix.shard`. The two cannot
+    # share one spelling (a matrix may not read `env`), so a mismatch is caught
+    # instead: too few shards leaves tests unrun and too many runs one twice, and
+    # `integration-complete` fails on either.
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, ubuntu-24.04-arm]
+        shard: [1, 2]
+    name: integration (${{ matrix.os }}, shard ${{ matrix.shard }})
     runs-on: ${{ matrix.os }}
     needs: build-image
     timeout-minutes: 120
+    env:
+      INTEGRATION_SHARDS: 2
     steps:
       - uses: actions/checkout@v7
         with:
@@ -270,8 +287,9 @@ jobs:
             experimental-features = nix-command flakes
             accept-flake-config = true
 
-      - name: Install Podman and socat
-        run: sudo apt-get update && sudo apt-get install -y podman socat
+      # jq renders the `go test -json` stream the test step records (below).
+      - name: Install Podman, socat and jq
+        run: sudo apt-get update && sudo apt-get install -y podman socat jq
 
       # The facts a red TestInJailServiceReachability needs, captured while the
       # runner still exists.  That test's own failure message tells the reader to
@@ -323,6 +341,35 @@ jobs:
       - name: Load jail image
         run: podman load < /tmp/jail-image.tar
 
+      # THE PARTITION IS COMPUTED, NOT WRITTEN DOWN, the same way nightly-macos.yml
+      # computes its shards: a hand-kept regex per shard rots the first time
+      # somebody adds a test, and it rots SILENTLY, the unassigned test never
+      # running and every shard staying green. So each shard takes its bucket from
+      # `go test -list`, round-robin over the sorted names. A listing runs no
+      # setup (TestMain's listingOnly), so it needs no image. Round-robin is not
+      # time-balanced: a shard that collects more of the slow tests runs longer.
+      - name: Select this shard's tests
+        id: shard
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/shard
+          go test -list '.*' ./integration | grep -E '^Test' | sort > /tmp/shard/all-tests
+          total="$INTEGRATION_SHARDS"
+          idx=${{ matrix.shard }}
+          echo "$total" > /tmp/shard/total
+          awk -v t="$total" -v i="$idx" 'NR % t == (i - 1) % t' /tmp/shard/all-tests > /tmp/shard/my-tests
+          count=$(wc -l < /tmp/shard/my-tests | tr -d ' ')
+          echo "shard $idx/$total selected $count of $(wc -l < /tmp/shard/all-tests | tr -d ' ') tests"
+          # A SHARD THAT RUNS NOTHING MUST NOT BE GREEN: an empty bucket would
+          # pass having tested nothing. (A shard index past INTEGRATION_SHARDS
+          # does not land here: it wraps onto another shard's bucket, and
+          # integration-complete reports the duplicate.)
+          if [ "$count" -eq 0 ]; then
+            echo "::error::shard $idx selected 0 tests — the partition is broken, refusing to pass vacuously"
+            exit 1
+          fi
+          echo "pattern=^($(paste -sd'|' /tmp/shard/my-tests))$" >> "$GITHUB_OUTPUT"
+
       - name: Integration tests
         # Serial by construction: the `integration` package uses no
         # t.Parallel(), so container tests run one at a time (real
@@ -331,8 +378,99 @@ jobs:
         # -timeout 0 disables Go's global deadline (per-command
         # deadlines come from YOLO_TEST_JAIL_TIMEOUT; the job-level
         # timeout-minutes backstops a hang).
-        run: go test -count=1 -timeout 0 -v ./integration
+        #
+        # -json, so the shard can report WHICH tests ran (integration-complete
+        # reads it); jq prints each event's Output field, which is the same text
+        # -v prints, so the log reads as it did. A line that is not JSON is
+        # printed as it came. pipefail makes the step's status go test's.
+        run: |
+          set -euo pipefail
+          go test -count=1 -timeout 0 -json -run "$PATTERN" ./integration \
+            | tee /tmp/shard/integration.json \
+            | jq -Rj --unbuffered '. as $line | (try fromjson catch null) as $e
+                | if ($e | type) == "object" then ($e.Output // empty) else $line + "\n" end'
         env:
           YOLO_RUNTIME: podman
+          PATTERN: ${{ steps.shard.outputs.pattern }}
+
+      # Top-level tests only: a subtest runs wherever its parent does.
+      - name: Record which tests this shard ran
+        run: |
+          set -euo pipefail
+          jq -Rr 'fromjson? | select(type == "object" and .Test != null and (.Test | contains("/") | not)
+              and (.Action == "pass" or .Action == "fail" or .Action == "skip")) | .Test' \
+            /tmp/shard/integration.json | sort -u > /tmp/shard/ran-tests
+          echo "ran $(wc -l < /tmp/shard/ran-tests | tr -d ' ') tests"
+
+      - name: Upload this shard's test record
+        uses: actions/upload-artifact@v7
+        with:
+          name: integration-shard-${{ matrix.os }}-${{ matrix.shard }}
+          path: |
+            /tmp/shard/all-tests
+            /tmp/shard/my-tests
+            /tmp/shard/ran-tests
+            /tmp/shard/total
+          retention-days: 1
+
+  # THE CHECK THAT A COMPUTED PARTITION STILL NEEDS. Every shard's bucket comes
+  # from one deterministic listing, so the union is exhaustive by construction —
+  # as long as INTEGRATION_SHARDS matches the matrix and every shard's listing
+  # agrees. This job checks what the shards actually RAN rather than what they
+  # meant to: per arch, each listed test ran in exactly one shard, every shard
+  # declared the same total, and that total is the number of shards that
+  # reported. It runs only when every shard is green (a red shard has already
+  # failed the run), which is exactly the case a silently dropped test hides in.
+  integration-complete:
+    runs-on: ubuntu-latest
+    needs: integration
+    steps:
+      - name: Download every shard's test record
+        uses: actions/download-artifact@v8
+        with:
+          pattern: integration-shard-*
+          path: /tmp/shards
+
+      - name: Each arch's shards ran every listed test exactly once
+        run: |
+          set -euo pipefail
+          cd /tmp/shards
+          fail=0
+          # Artifact names are integration-shard-<os>-<n>; an arch's group is the
+          # name without its shard number.
+          groups=$(printf '%s\n' integration-shard-* | sed -E 's/-[0-9]+$//' | sort -u)
+          [ -d "$(printf '%s\n' integration-shard-* | head -1)" ] \
+            || { echo "::error::no shard records were downloaded"; exit 1; }
+          for g in $groups; do
+            dirs=("$g"-[0-9]*)
+            n=${#dirs[@]}
+            first=${dirs[0]}
+            for d in "${dirs[@]}"; do
+              if [ "$(cat "$d/total")" != "$n" ]; then
+                echo "::error::$d declared $(cat "$d/total") shards but $n reported for ${g#integration-shard-} — INTEGRATION_SHARDS and matrix.shard disagree"
+                fail=1
+              fi
+              if ! cmp -s "$first/all-tests" "$d/all-tests"; then
+                echo "::error::$d listed different tests from $first — the partition is only exhaustive over one listing"
+                fail=1
+              fi
+            done
+            dup=$(cat "${dirs[@]/%//ran-tests}" | sort | uniq -d)
+            cat "${dirs[@]/%//ran-tests}" | sort -u > /tmp/union
+            missing=$(comm -23 "$first/all-tests" /tmp/union)
+            extra=$(comm -13 "$first/all-tests" /tmp/union)
+            if [ -n "$dup" ]; then
+              echo "::error::${g#integration-shard-}: tests ran in more than one shard:"; echo "$dup"; fail=1
+            fi
+            if [ -n "$missing" ]; then
+              echo "::error::${g#integration-shard-}: listed tests that no shard ran:"; echo "$missing"; fail=1
+            fi
+            if [ -n "$extra" ]; then
+              echo "::error::${g#integration-shard-}: tests ran that the listing does not name:"; echo "$extra"; fail=1
+            fi
+            echo "${g#integration-shard-}: $n shards ran $(wc -l < /tmp/union | tr -d ' ') of $(wc -l < "$first/all-tests" | tr -d ' ') listed tests" \
+              | tee -a "$GITHUB_STEP_SUMMARY"
+          done
+          exit "$fail"
 
 
