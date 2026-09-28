@@ -261,9 +261,17 @@ func describeJailPrefix(p jailPrefix) string {
 // without asking anyone, at ~66 MB per build plus a lifecycle to reap — a second
 // delivery mechanism for the binaries, in a file whose whole subject is that
 // there is exactly one. The population that hits this is a macOS developer
-// pointed at a live checkout (an INSTALLED bundle stages under $HOME and is
-// already fine, which is every Homebrew and `just install` user), and for them
-// one line of machine setup is cheaper than a mechanism.
+// pointed at a live checkout, and for them one line of machine setup is cheaper
+// than a mechanism. An INSTALLED bundle ships prebuilt binaries, so it is never
+// in /nix/store and this refusal never fires for it, but that does not make every
+// installed bundle reachable. A `just install` bundle stages under $HOME, which
+// the VM shares by default. A Homebrew bundle does NOT: jailPrefixSource resolves
+// symlinks, so the sources are under $(brew --prefix)/Cellar (/opt/homebrew or
+// /usr/local), which is outside Podman Machine's default share set. The user
+// guide has the user share it at `podman machine init`
+// (userguide/getting-started.md#macos-podman). Nothing here checks that it did,
+// because whether the VM shares an arbitrary path is a fact about that machine's
+// mount list, not about the path.
 //
 // IT REUSES YOLO_NIX_HOST_DAEMON RATHER THAN ADDING A DIAL, because that
 // variable already means precisely "my runtime VM does share /nix into the
