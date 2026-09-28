@@ -39,7 +39,6 @@ package run
 import (
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -59,38 +58,22 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
-// packTreeRecordName is the tree's own record: which directory holds which pack, in the order
-// the launch loaded them. At the tree's top level, where the jail's loader skips every
-// non-directory (entrypoint.LoadJailPacks), so it renders as nothing.
+// packTreeRecordName is the tree's own record (packload.PackTreeRecordName): which directory
+// holds which pack, in the one precedence order the launch loaded them in (OQ-NC4). At the
+// tree's top level, where the jail's fallback walk skips every non-directory, so it renders as
+// nothing.
 //
-// It exists for the attach, which must rebuild the pack set a running jail's launch composed
-// from: the NAMES (a configured pack's directory is its slug, and a briefing's section label,
-// a retirement record and the profile disclosure all use the pack's name) and the ORDER (later
-// wins for skills and briefing prose, and the closure's additions come last). Neither can be
-// recovered from the directories alone.
-//
-// A NAME NO PACK SLUG CAN TAKE, for officialStagingDir's reason: a slug spells every byte outside
-// [A-Za-z0-9.-] as "_" plus two hex digits, so a slug starting "_pa" cannot exist. A dot-name
-// could: a pack name may be any string without "/", "\" or ":", and `.yolo-pack-tree.json` was
-// one, whose staged directory then took the record's place and refused the launch.
-const packTreeRecordName = "_pack-tree.json"
+// It exists for the two readers that rebuild the pack set a launch composed: the jail's boot
+// (entrypoint.LoadJailPacks), which takes its ORDER, and the attach, which takes the order and
+// the NAMES (a configured pack's directory is its slug, and a briefing's section label, a
+// retirement record and the profile disclosure all use the pack's name). Neither can be
+// recovered from the directories alone. `.yolo-pack-tree.json` was its name once, and a pack of
+// that name took the record's place and refused the launch; packload says why this one cannot.
+const packTreeRecordName = packload.PackTreeRecordName
 
 // packTreeTimeLayout prefixes each tree's directory name, so a human listing the root can tell
 // the launches apart. os.MkdirTemp's random suffix is what makes the name unique.
 const packTreeTimeLayout = "20060102T150405Z"
-
-// packTreeEntry is one pack in a tree's record.
-type packTreeEntry struct {
-	// Name is the pack's name, as the launch loaded it.
-	Name string `json:"name"`
-	// Dir is the pack's directory, relative to the tree, slash-separated.
-	Dir string `json:"dir"`
-}
-
-// packTreeRecord is a tree's record.
-type packTreeRecord struct {
-	Packs []packTreeEntry `json:"packs"`
-}
 
 // newPackTree creates a NEW, empty pack tree for this launch under paths.PackTreeRoot(cname).
 func newPackTree(cname string) (string, error) {
@@ -111,21 +94,10 @@ func newPackTree(cname string) (string, error) {
 	return dir, nil
 }
 
-// writePackTreeRecord writes root's record from the packs a launch loaded out of it, in order.
+// writePackTreeRecord writes root's record from the packs a launch loaded out of it, in the
+// precedence order they were loaded in (config.PackSelection.Packs).
 func writePackTreeRecord(root string, packs []*packload.Pack) error {
-	rec := packTreeRecord{Packs: []packTreeEntry{}}
-	for _, p := range packs {
-		rel, err := filepath.Rel(root, p.Root)
-		if err != nil || !filepath.IsLocal(rel) {
-			return fmt.Errorf("packs: pack %s was loaded from %s, outside its tree %s", p.Name, p.Root, root)
-		}
-		rec.Packs = append(rec.Packs, packTreeEntry{Name: p.Name, Dir: filepath.ToSlash(rel)})
-	}
-	data, err := json.MarshalIndent(rec, "", "  ")
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(filepath.Join(root, packTreeRecordName), append(data, '\n'), 0o644)
+	return packload.WritePackTreeRecord(root, packs)
 }
 
 // discardPackTree removes a pack tree no container holds: one this launch staged and then
@@ -198,25 +170,16 @@ func runningJailPackTree(cname, rt string) (dir, unfound string) {
 // directory sorted), with a configured pack named by the config entry whose slug its directory
 // carries when there is one.
 func loadPackTree(root string) ([]*packload.Pack, error) {
-	raw, err := os.ReadFile(filepath.Join(root, packTreeRecordName))
-	if errors.Is(err, fs.ErrNotExist) {
-		return loadUnrecordedPackTree(root)
-	}
+	rec, recorded, err := packload.ReadPackTreeRecord(root)
 	if err != nil {
 		return nil, err
 	}
-	var rec packTreeRecord
-	if err := json.Unmarshal(raw, &rec); err != nil {
-		return nil, fmt.Errorf("the record %s: %w", filepath.Join(root, packTreeRecordName), err)
+	if !recorded {
+		return loadUnrecordedPackTree(root)
 	}
 	var out []*packload.Pack
-	for _, e := range rec.Packs {
-		rel := filepath.FromSlash(e.Dir)
-		if e.Name == "" || !filepath.IsLocal(rel) {
-			return nil, fmt.Errorf("the record %s names %q at %q, which is not a pack inside the tree",
-				filepath.Join(root, packTreeRecordName), e.Name, e.Dir)
-		}
-		p, problems := packload.LoadDir(filepath.Join(root, rel), e.Name)
+	for _, e := range rec {
+		p, problems := packload.LoadDir(filepath.Join(root, filepath.FromSlash(e.Dir)), e.Name)
 		if len(problems) > 0 {
 			return nil, errors.New(problems[0]) // LoadDir's problems already name the pack
 		}

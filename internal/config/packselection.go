@@ -14,8 +14,9 @@ package config
 //
 // What differs between callers is an INPUT here, never a second loop: how an entry resolves (a
 // launch stages it into its own tree, a host verb resolves it for its process, a read-only
-// reader writes nothing to the pack store), which order the entries arrive in, whether the
-// first failure stops the selection, and which profile table the closure's `via` half reads.
+// reader writes nothing to the pack store), whether the first failure stops the selection, and
+// which profile table the closure's `via` half reads. The ORDER is not an input:
+// PackSelection.Packs is the one precedence order at every notch (OQ-NC4).
 
 import (
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
@@ -54,7 +55,8 @@ type UnresolvedPackEntry struct {
 
 // PackSelection is SelectPacks' answer.
 type PackSelection struct {
-	// Configured are the packs the entries resolved to, in the order the entries arrived.
+	// Configured are the packs the entries resolved to, in the order the entries arrived, the
+	// conventional local pack included. Packs, not this, is the precedence order.
 	Configured []*packload.Pack
 	// Added are the packs the selection closure joined (`needs`, then `via`), in the order they
 	// joined, each resolved through Join.
@@ -67,11 +69,35 @@ type PackSelection struct {
 	// via naming a pack that serves none, a needs cycle. Under FailFast it is also the error
 	// SelectPacks returns, so a caller can tell it from a resolution failure.
 	ClosureErr error
+	// implicit marks the Configured packs an Implicit entry resolved to (the conventional local
+	// pack), which Packs places last.
+	implicit map[*packload.Pack]bool
 }
 
-// Packs is the complete selection: the configured packs, then the closure's additions.
+// Packs is the complete selection IN PRECEDENCE ORDER, the one order "later wins" follows at
+// every notch (docs/plans/notch-convergence.md OQ-NC4, ruled A, 2026-09-28): the configured
+// packs in the order the user config lists them, then the packs the closure joined (`needs`, then
+// `via`) in joining order, then the conventional local pack (an Implicit entry, localPackEntry)
+// last, so the user's personal pack outranks everything, a pack the closure pulled in included.
+//
+// It is THE order, not one caller's. The jail launch stages it and records it in the pack tree
+// (packload.WritePackTreeRecord), which the boot and an attach read back, and every host verb,
+// `yolo check` and the lazy resolvers read it from here, so one key has one winner wherever it is
+// composed. Before it, the launch put embedded entries first, the boot read its tree
+// alphabetically, and the host put the local pack ahead of the closure's additions: three
+// winners for one key (row B2).
 func (s PackSelection) Packs() []*packload.Pack {
-	return append(append([]*packload.Pack(nil), s.Configured...), s.Added...)
+	out := make([]*packload.Pack, 0, len(s.Configured)+len(s.Added))
+	var last []*packload.Pack
+	for _, p := range s.Configured {
+		if s.implicit[p] {
+			last = append(last, p)
+			continue
+		}
+		out = append(out, p)
+	}
+	out = append(out, s.Added...)
+	return append(out, last...)
 }
 
 // Complete reports whether the selection is the whole of what the config asks for: every entry
@@ -81,7 +107,8 @@ func (s PackSelection) Complete() bool {
 }
 
 // SelectPacks resolves entries in the order given and extends them by the selection closure
-// (packload.Selection.Close). The closure runs over what resolved, so under !FailFast a pack
+// (packload.Selection.Close); PackSelection.Packs orders the result. A caller passes the entries
+// as config.LoadPacks returns them and never reorders them: the order is Packs', not the caller's. The closure runs over what resolved, so under !FailFast a pack
 // that did not resolve cannot contribute a need; the selection is then incomplete, which the
 // result says.
 func SelectPacks(entries []PackEntry, spec PackSelectSpec) (PackSelection, error) {
@@ -97,6 +124,12 @@ func SelectPacks(entries []PackEntry, spec PackSelectSpec) (PackSelection, error
 		}
 		if p != nil {
 			sel.Configured = append(sel.Configured, p)
+			if e.Implicit {
+				if sel.implicit == nil {
+					sel.implicit = map[*packload.Pack]bool{}
+				}
+				sel.implicit[p] = true
+			}
 		}
 	}
 	closure := spec.Selection

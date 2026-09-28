@@ -82,10 +82,36 @@ func LoadJailPacks(e *Env) ([]*packload.Pack, error) {
 		// on that backend means the same thing it means everywhere else — no packs.
 		return nil, nil
 	}
+	// THE ORDER IS THE LAUNCH'S, read from the tree's record (packload.ReadPackTreeRecord): the
+	// one precedence order every notch composes in (docs/plans/notch-convergence.md OQ-NC4, ruled
+	// A), config order, then the closure's additions, then the local pack last. Later wins for a
+	// key two packs set, so the order is what decides it. This loader used to walk the tree with
+	// os.ReadDir, embedded packs first and each level alphabetical, which gave one key a winner
+	// neither the launch nor the host picked (row B2).
+	//
+	// A pack is still NAMED by its directory, as the walk below names it: the jail has always
+	// named a configured pack by its staged slug (Pack.StagedSlug), and the host keys what it
+	// hands the jail on that too, so only the order comes from the record.
+	rec, recorded, err := packload.ReadPackTreeRecord(root)
+	if err != nil {
+		return nil, fmt.Errorf("pack root %s: %w", root, err)
+	}
+	if recorded {
+		var packs []*packload.Pack
+		for _, entry := range rec {
+			dir := filepath.Join(root, filepath.FromSlash(entry.Dir))
+			p, err := loadJailPack(e, dir, filepath.Base(dir))
+			if err != nil {
+				return nil, err
+			}
+			packs = append(packs, p)
+		}
+		return packs, nil
+	}
+	// NO RECORD: a tree a launcher before the record staged, or one a test built by hand. Two
+	// levels: <root>/_official/<name> for the embedded packs, <root>/<slug> for configured
+	// ones, each in directory order. Walking both keeps the jail ignorant of which is which.
 	var packs []*packload.Pack
-	// Two levels: <root>/_official/<name> for the embedded packs, <root>/<slug> for
-	// configured ones. Walking both keeps the jail ignorant of which is which — the
-	// distinction only ever mattered for the host-side origin gate.
 	for _, dir := range []string{filepath.Join(root, "_official"), root} {
 		entries, err := os.ReadDir(dir)
 		if err != nil {
@@ -105,28 +131,37 @@ func LoadJailPacks(e *Env) ([]*packload.Pack, error) {
 			if !ent.IsDir() || ent.Name() == "_official" {
 				continue
 			}
-			p, problems := packload.LoadDir(filepath.Join(dir, ent.Name()), ent.Name())
-			if len(problems) > 0 {
-				return nil, fmt.Errorf("pack %s: %s", ent.Name(), problems[0])
-			}
-			// A contribution whose KIND this build does not know was skipped, not
-			// fatal (docs/reference/loophole-system.md#strict-and-tolerant-and-why-both):
-			// a jail must boot under version skew.
-			// Warn each skip by name so the degradation is visible, never silent.
-			//
-			// warnOnce, not warn: LoadJailPacks is called five times in one boot (pack
-			// surfaces, requires, the agent launchers, the bootstrap, the orphan catalog)
-			// and re-derives the same notes on every pass, so a single skipped
-			// contribution printed five identical lines. The note is a property of the
-			// staged manifest, not of the reader that noticed it, and a reader added
-			// tomorrow must not make it six.
-			for _, note := range p.SkewNotes {
-				e.warnOnce(note)
+			p, err := loadJailPack(e, filepath.Join(dir, ent.Name()), ent.Name())
+			if err != nil {
+				return nil, err
 			}
 			packs = append(packs, p)
 		}
 	}
 	return packs, nil
+}
+
+// loadJailPack loads one staged pack directory under name, refusing a manifest problem (A12).
+func loadJailPack(e *Env, dir, name string) (*packload.Pack, error) {
+	p, problems := packload.LoadDir(dir, name)
+	if len(problems) > 0 {
+		return nil, fmt.Errorf("pack %s: %s", name, problems[0])
+	}
+	// A contribution whose KIND this build does not know was skipped, not
+	// fatal (docs/reference/loophole-system.md#strict-and-tolerant-and-why-both):
+	// a jail must boot under version skew.
+	// Warn each skip by name so the degradation is visible, never silent.
+	//
+	// warnOnce, not warn: LoadJailPacks is called five times in one boot (pack
+	// surfaces, requires, the agent launchers, the bootstrap, the orphan catalog)
+	// and re-derives the same notes on every pass, so a single skipped
+	// contribution printed five identical lines. The note is a property of the
+	// staged manifest, not of the reader that noticed it, and a reader added
+	// tomorrow must not make it six.
+	for _, note := range p.SkewNotes {
+		e.warnOnce(note)
+	}
+	return p, nil
 }
 
 // ConfigurePackSurfaces renders every surface every loaded pack declares.

@@ -28,8 +28,8 @@ import (
 
 // hostPackSet is the one selection function's answer at a host verb.
 type hostPackSet struct {
-	// packs is the complete selection: configured packs in config order, then the closure's
-	// additions.
+	// packs is the complete selection in the one precedence order (config.PackSelection.Packs):
+	// configured packs in config order, then the closure's additions, then the local pack.
 	packs []*packload.Pack
 	// configured are the packs the `packs` entries resolved to; added are the closure's
 	// additions, and causes their cause lines (WB-D12), in joining order.

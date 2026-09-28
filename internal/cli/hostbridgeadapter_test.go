@@ -78,16 +78,23 @@ func TestHostRemedyNeverNamesTheBridgedProfileForClaude(t *testing.T) {
 // An adapter whose pack runs NO service is one the user serves themselves (a proxy on the host,
 // a remote gateway — protocol-resolution.md's other two shapes), so the host still composes it:
 // only an adaptation the pack's own service daemon serves is left out.
+//
+// The user's pack is LISTED in `packs`. wire-bridge, which claude's `needs` joins, declares the
+// same openai → anthropic pair, and a pair is sole-owned: where nothing refuses the duplicate,
+// Adaptations keeps the first in the one precedence order (OQ-NC4: config order, then the
+// closure's additions, then the conventional local pack). A configured pack precedes every
+// addition, so its pair is the one kept; the conventional local pack, last since OQ-NC4, would
+// yield the pair to wire-bridge (docs/plans/notch-convergence.md NC-D57).
 func TestHostStillComposesAnAdapterNoPackServiceServes(t *testing.T) {
-	home := hostGateHome(t, `{"packs": ["claude", "cerebras"], "env_sources": [{"CEREBRAS_API_KEY": "tok-c"}]}`, wcShell(nil))
-	dir := filepath.Join(home, ".config", "yolo-jail", "local")
+	dir := filepath.Join(t.TempDir(), "proxy")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "pack.json"), []byte(`{"name":"local","contributes":[`+
+	if err := os.WriteFile(filepath.Join(dir, "pack.json"), []byte(`{"name":"proxy","contributes":[`+
 		`{"kind":"adapter","adapts":{"from":"openai","to":"anthropic"},"address":"http://127.0.0.1:9999"}]}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	hostGateHome(t, `{"packs": ["claude", "cerebras", "file://`+dir+`"], "env_sources": [{"CEREBRAS_API_KEY": "tok-c"}]}`, wcShell(nil))
 	rc, _, env, errs := runRemedy(t, []string{"-p", "cerebras", "--", "claude"})
 	if rc != 0 || env["ANTHROPIC_BASE_URL"] != "http://127.0.0.1:9999" {
 		t.Errorf("a user-served adapter still pairs claude with cerebras at the host: rc = %d, "+

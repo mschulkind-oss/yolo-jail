@@ -108,8 +108,9 @@ func touchAgentStagingDir(cname string) {
 // Now the tree a jail boots from is the tree it keeps: an attach stages a tree of its own, which
 // nothing binds, compares it with the jail's and discards it (runningJailPackView).
 //
-// Embedded packs come FIRST so a user pack can override one: later wins, the same rule
-// packs already use for same-named skills.
+// The packs come back IN THE ONE PRECEDENCE ORDER (config.PackSelection.Packs, OQ-NC4): config
+// order, then the closure's additions, then the conventional local pack. Later wins, at every
+// notch, and the tree records that order for the boot and an attach.
 //
 // FAIL-CLOSED (A12): a pack that cannot be staged is an error. A jail that comes up
 // silently missing a pack the user asked for is the failure mode this whole cluster of
@@ -176,21 +177,12 @@ func (o *Options) stagePacksInto(stagingRoot string, entries []config.PackEntry)
 		return nil, nil, fmt.Errorf("official packs: %s", problems[0])
 	}
 	officialRoot := filepath.Join(stagingRoot, officialStagingDir)
-	// EMBEDDED ENTRIES FIRST, then the configured ones, so a user pack can override a shipped
-	// one: later wins. That order is this caller's input to the one selection function, not a
-	// rule of it; which order every notch should follow is OQ-NC4's
-	// (docs/plans/notch-convergence.md row B2).
-	var ordered []config.PackEntry
-	for _, entry := range entries {
-		if entry.Embedded() {
-			ordered = append(ordered, entry)
-		}
-	}
-	for _, entry := range entries {
-		if !entry.Embedded() {
-			ordered = append(ordered, entry)
-		}
-	}
+	// THE ENTRIES IN CONFIG ORDER, as LoadPacks returned them. The precedence order is the one
+	// selection function's (config.PackSelection.Packs, OQ-NC4 ruled A): config order, then the
+	// closure's additions, then the conventional local pack last, at every notch. This launch
+	// used to move the embedded entries first, so a shipped pack listed after a user's pack still
+	// lost to it here and won at the host (docs/plans/notch-convergence.md row B2). The order is
+	// recorded in the tree (writePackTreeRecord) for the boot and an attach to read back.
 
 	// THE ONE SELECTION FUNCTION (config.SelectPacks, docs/plans/notch-convergence.md item 6),
 	// which every host verb, `yolo check`, config validation and the lazy loophole resolvers call
@@ -242,7 +234,7 @@ func (o *Options) stagePacksInto(stagingRoot string, entries []config.PackEntry)
 	//     WG-I7). Staging it rather than trusting the load is the mount-is-the-filter rule: the
 	//     entrypoint renders every pack under YOLO_PACK_ROOT, so an added pack whose tree never
 	//     lands is an added pack that does nothing.
-	sel, err := config.SelectPacks(ordered, config.PackSelectSpec{
+	sel, err := config.SelectPacks(entries, config.PackSelectSpec{
 		Resolve: func(entry config.PackEntry) (*packload.Pack, error) {
 			if entry.Embedded() {
 				return o.stagePackEntry(entry, filepath.Join(officialRoot, entry.Name))

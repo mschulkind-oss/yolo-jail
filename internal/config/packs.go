@@ -292,12 +292,13 @@ const LocalPackName = "local"
 // there is no such directory.
 //
 // ORDER IS LOAD-BEARING, AND IT IS LAST. The caller appends this after every configured
-// entry, which puts it last in the delivery order at both notches — the jail merges pack
-// skills dirs in this order (jailcontent.PrepareSkills' packSkillDirs loop, later wins a
-// same-named skill) and the host renders `loaded` in this order. Last therefore means a
-// PERSONAL skill outranks a shared pack's, which preserves the precedence the jail already
-// had when the user's tree was a separate layer written after the packs: the user's own copy
-// wins. Moving it earlier would silently invert that.
+// entry, and PackSelection.Packs, the one precedence order (OQ-NC4), places it after the
+// selection closure's additions too, so it is last in the delivery order at every notch — the
+// jail merges pack skills dirs in this order (jailcontent.PrepareSkills' packSkillDirs loop,
+// later wins a same-named skill) and the host renders `loaded` in this order. Last therefore
+// means a PERSONAL skill outranks a shared pack's, which preserves the precedence the jail
+// already had when the user's tree was a separate layer written after the packs: the user's
+// own copy wins. Moving it earlier would silently invert that.
 //
 // TRUST: the local pack MAY read the host, exactly like every other pack since OQ-TP9
 // (docs/design/trust-paths.md, 2026-09-04) — but it was the one origin nobody ever argued
