@@ -623,7 +623,8 @@ func Run(opts Options) (rc int) {
 		// is everything above: the pack tree is this launch's own (packtree.go), so its
 		// staging and the host daemons started from it above cannot race another launch's.
 		o.holdLaunchLock(cname)
-		staging, err := o.refreshJailBriefings(cname, cfg, rt, staged)
+		staging, err := o.refreshJailBriefings(cname, cfg, rt, staged,
+			appliedIOPriority(rt, o.IsMacOS, cfgMap(cfg, "resources")))
 		if err != nil {
 			o.pr(o.Stderr).printf("[bold red]%s[/bold red]", err.Error())
 			return 1
@@ -1108,7 +1109,8 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 	// attach refreshes from the running jail's tree instead, inside attachExisting, so this
 	// runs only once no attach site has taken the launch.
 	sp = o.Perf.Span("launch.refresh_jail_briefings")
-	agentsPath, err := o.refreshJailBriefings(cname, cfg, rt, staged)
+	agentsPath, err := o.refreshJailBriefings(cname, cfg, rt, staged,
+		appliedIOPriority(rt, o.IsMacOS, cfgMap(cfg, "resources")))
 	sp.End()
 	if err != nil {
 		out.printf("[bold red]%s[/bold red]", err.Error())
@@ -2004,7 +2006,9 @@ func (o *Options) attachExisting(cname, rt, targetCmd string, cfg *jsonx.Ordered
 	var refreshErr error
 	if !view.unreadable {
 		sp := o.Perf.Span("launch.refresh_jail_briefings")
-		_, refreshErr = o.refreshJailBriefings(cname, cfg, rt, view.staged)
+		// The briefing's I/O priority is the one this jail's processes hold, from its frozen
+		// environment, never the current config's (refreshJailBriefings says why).
+		_, refreshErr = o.refreshJailBriefings(cname, cfg, rt, view.staged, o.launchedIOPriority(rt, envLines))
 		sp.End()
 	}
 	discardPackTree(cname, o.packTree)

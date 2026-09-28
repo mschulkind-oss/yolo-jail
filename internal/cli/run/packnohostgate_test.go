@@ -34,6 +34,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/ioprio"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
@@ -242,7 +243,7 @@ func TestFetchedPackBriefingOverlayPrependsTheUsersOwnFile(t *testing.T) {
 
 	o := goldenOptions(t.TempDir(), home)
 	staging, err := o.refreshJailBriefings("yolo-ws-tp9", newConfig(), "podman",
-		stagedPacks{packs: []*packload.Pack{p}})
+		stagedPacks{packs: []*packload.Pack{p}}, ioprio.Normal)
 	if err != nil {
 		t.Fatalf("refreshJailBriefings: %v", err)
 	}
@@ -277,7 +278,7 @@ func TestFetchedPackBriefingOverlayPrependsTheUsersOwnFile(t *testing.T) {
 		t.Fatalf("control fixture: %v", probs)
 	}
 	staging2, err := o.refreshJailBriefings("yolo-ws-tp9b", newConfig(), "podman",
-		stagedPacks{packs: []*packload.Pack{plain}})
+		stagedPacks{packs: []*packload.Pack{plain}}, ioprio.Normal)
 	if err != nil {
 		t.Fatalf("refreshJailBriefings (control): %v", err)
 	}

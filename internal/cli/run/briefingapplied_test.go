@@ -52,7 +52,7 @@ func appliedOptions(t *testing.T, ws, home string, nested bool) *Options {
 func appliedBriefing(t *testing.T, o *Options, rt string, cfg *jsonx.OrderedMap) string {
 	t.Helper()
 	staging, err := o.refreshJailBriefings("yolo-ws-abcd1234", cfg, rt,
-		stagedPacks{packs: claudePackFixture(t)})
+		stagedPacks{packs: claudePackFixture(t)}, appliedIOPriority(rt, o.IsMacOS, cfgMap(cfg, "resources")))
 	if err != nil {
 		t.Fatalf("refreshJailBriefings: %v", err)
 	}

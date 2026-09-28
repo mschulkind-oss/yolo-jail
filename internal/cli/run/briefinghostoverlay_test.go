@@ -8,6 +8,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/hostskills"
+	"github.com/mschulkind-oss/yolo-jail/internal/ioprio"
 )
 
 // THE JAIL MUST NOT READ YOLO'S OWN HOST COMPOSITION BACK IN. This is the briefing half of
@@ -106,7 +107,7 @@ func briefingWithHostFileAt(t *testing.T, inJail bool, hostContent string, gener
 
 	o := goldenOptions(ws, home)
 	staging, err := o.refreshJailBriefings("yolo-ws-abcd1234", newConfig(), "podman",
-		stagedPacks{packs: claudePackFixture(t)})
+		stagedPacks{packs: claudePackFixture(t)}, ioprio.Normal)
 	if err != nil {
 		t.Fatalf("refreshJailBriefings: %v", err)
 	}

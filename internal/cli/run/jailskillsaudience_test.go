@@ -20,6 +20,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/ioprio"
 	"github.com/mschulkind-oss/yolo-jail/internal/jailcontent"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 )
@@ -85,7 +86,7 @@ func stagedSkillsFor(t *testing.T, o *Options) map[string][]string {
 		t.Fatalf("stagePacks: %v", err)
 	}
 	staging, err := o.refreshJailBriefings("yolo-test-skillsaudience", jsonx.NewOrderedMap(),
-		"podman", stagedPacks{root: root, packs: packs, briefings: briefings})
+		"podman", stagedPacks{root: root, packs: packs, briefings: briefings}, ioprio.Normal)
 	if err != nil {
 		t.Fatalf("refreshJailBriefings: %v", err)
 	}

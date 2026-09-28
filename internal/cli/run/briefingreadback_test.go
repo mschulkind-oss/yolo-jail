@@ -15,6 +15,7 @@ import (
 	"testing"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
+	"github.com/mschulkind-oss/yolo-jail/internal/ioprio"
 	"github.com/mschulkind-oss/yolo-jail/internal/jailcontent"
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
@@ -110,7 +111,7 @@ func briefingsWithHostFiles(t *testing.T, inJail bool, hostFiles map[string]stri
 	o := goldenOptions(ws, home)
 	o.Stdout = discardBuf()
 	staging, err := o.refreshJailBriefings("yolo-ws-abcd1234", newConfig(), "podman",
-		stagedPacks{packs: packs})
+		stagedPacks{packs: packs}, ioprio.Normal)
 	if err != nil {
 		t.Fatalf("refreshJailBriefings: %v", err)
 	}

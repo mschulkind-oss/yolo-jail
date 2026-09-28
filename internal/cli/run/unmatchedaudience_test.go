@@ -16,6 +16,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/ioprio"
 	"github.com/mschulkind-oss/yolo-jail/internal/jailcontent"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 )
@@ -248,7 +249,7 @@ func TestUnmatchedSkillsAudienceAgreesWithSkillStaging(t *testing.T) {
 			g := goldenOptions(o.Workspace, os.Getenv("HOME"))
 			g.Stdout = discardBuf()
 			staging, err := g.refreshJailBriefings(cname, jsonx.NewOrderedMap(), "podman",
-				stagedPacks{root: root, packs: loaded, briefings: proses})
+				stagedPacks{root: root, packs: loaded, briefings: proses}, ioprio.Normal)
 			if err != nil {
 				t.Fatalf("refreshJailBriefings: %v", err)
 			}

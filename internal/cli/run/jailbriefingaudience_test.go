@@ -23,6 +23,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/ioprio"
 	"github.com/mschulkind-oss/yolo-jail/internal/jailcontent"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
@@ -77,7 +78,7 @@ func jailBriefingsWith(t *testing.T, cfg *jsonx.OrderedMap, packs []*packload.Pa
 	o := goldenOptions(ws, home)
 	o.Stdout = discardBuf()
 	staging, err := o.refreshJailBriefings("yolo-ws-abcd1234", cfg, "podman",
-		stagedPacks{packs: packs, briefings: proses})
+		stagedPacks{packs: packs, briefings: proses}, ioprio.Normal)
 	if err != nil {
 		t.Fatalf("refreshJailBriefings: %v", err)
 	}
@@ -343,7 +344,7 @@ func TestJailBriefingStagingNameAgreesWithTheMount(t *testing.T) {
 	o := goldenOptions(ws, home)
 	o.Stdout = discardBuf()
 	staging, err := o.refreshJailBriefings("yolo-ws-abcd1234", jsonx.NewOrderedMap(), "podman",
-		stagedPacks{packs: packs})
+		stagedPacks{packs: packs}, ioprio.Normal)
 	if err != nil {
 		t.Fatalf("refreshJailBriefings: %v", err)
 	}

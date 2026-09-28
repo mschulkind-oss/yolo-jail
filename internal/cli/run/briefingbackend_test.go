@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/ioprio"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 )
 
@@ -70,7 +71,7 @@ func briefingBodyFor(t *testing.T, rt string) string {
 
 	o := goldenOptions(ws, home)
 	staging, err := o.refreshJailBriefings("yolo-ws-abcd1234", newConfig("loopholes", lp), rt,
-		stagedPacks{packs: claudePackFixture(t)})
+		stagedPacks{packs: claudePackFixture(t)}, ioprio.Normal)
 	if err != nil {
 		t.Fatalf("refreshJailBriefings: %v", err)
 	}

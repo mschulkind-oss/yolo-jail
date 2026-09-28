@@ -36,6 +36,7 @@ import (
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
+	"github.com/mschulkind-oss/yolo-jail/internal/ioprio"
 	"github.com/mschulkind-oss/yolo-jail/internal/jailcontent"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
@@ -311,7 +312,7 @@ func attachStagingFixture(t *testing.T) (home, ws, tree, local string) {
 	if !ok {
 		t.Fatalf("the fresh launch's staging failed:\n%s", out.String())
 	}
-	if _, err := o.refreshJailBriefings(cname, cfg, "podman", staged); err != nil {
+	if _, err := o.refreshJailBriefings(cname, cfg, "podman", staged, ioprio.Normal); err != nil {
 		t.Fatalf("refreshJailBriefings: %v", err)
 	}
 	if err := writeLivePackTree(cname, staged.root); err != nil {

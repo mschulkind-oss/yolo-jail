@@ -12,6 +12,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/ioprio"
 	"github.com/mschulkind-oss/yolo-jail/internal/ioprio/iopriotest"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
 // ioPriorityEnv returns the value of every `-e YOLO_IO_PRIORITY=` pair in argv.
@@ -165,26 +166,44 @@ func TestNoteIOPriorityWarnsOnTheVirtiofsBackends(t *testing.T) {
 	}
 }
 
-// TestTheFreshLaunchNotesTheIOPriority pins the fresh-launch call site, which a unit fixture
-// cannot reach (runContainer runs the whole launch): runContainer must call noteIOPriority,
-// after the launch banner, so the line is on screen when the container takes the terminal.
+// argCallee is the name of the function argument i of call calls, or "" when that
+// argument is not a call.
+func argCallee(call *ast.CallExpr, i int) string {
+	if i < 0 || i >= len(call.Args) {
+		return ""
+	}
+	if c, ok := call.Args[i].(*ast.CallExpr); ok {
+		return skelCallee(c)
+	}
+	return ""
+}
+
+// TestTheFreshLaunchNotesTheIOPriority pins the fresh-launch call sites, which a unit fixture
+// cannot reach (runContainer runs the whole launch):
+//
+//   - runContainer calls noteIOPriority after the launch banner, so the line is on screen when
+//     the container takes the terminal.
+//   - every fresh refreshJailBriefings call — runContainer's and the macos-user arm's in Run —
+//     briefs appliedIOPriority, the value the argv passes. appliedBriefing, which the argv and
+//     briefing table drives, passes the same expression; this is what ties it to run.go.
 func TestTheFreshLaunchNotesTheIOPriority(t *testing.T) {
 	fn := methodDecl(t, "run.go", "runContainer")
 	var banner, note int
+	var refreshArgs []string
 	ast.Inspect(fn, func(n ast.Node) bool {
 		call, ok := n.(*ast.CallExpr)
 		if !ok {
 			return true
 		}
-		if sel, ok := call.Fun.(*ast.SelectorExpr); ok {
-			switch sel.Sel.Name {
-			case "emitLaunchBanner":
-				if banner == 0 {
-					banner = int(call.Pos())
-				}
-			case "noteIOPriority":
-				note = int(call.Pos())
+		switch skelCallee(call) {
+		case "emitLaunchBanner":
+			if banner == 0 {
+				banner = int(call.Pos())
 			}
+		case "noteIOPriority":
+			note = int(call.Pos())
+		case "refreshJailBriefings":
+			refreshArgs = append(refreshArgs, argCallee(call, 4))
 		}
 		return true
 	})
@@ -195,16 +214,39 @@ func TestTheFreshLaunchNotesTheIOPriority(t *testing.T) {
 	if banner == 0 || note < banner {
 		t.Error("noteIOPriority must follow the launch banner, beside warnIfNoPacks")
 	}
+	fd := funcDecl(t, "run.go", "Run")
+	ast.Inspect(fd, func(n ast.Node) bool {
+		if call, ok := n.(*ast.CallExpr); ok && skelCallee(call) == "refreshJailBriefings" {
+			refreshArgs = append(refreshArgs, argCallee(call, 4))
+		}
+		return true
+	})
+	if len(refreshArgs) != 2 {
+		t.Fatalf("found %d fresh refreshJailBriefings calls in runContainer and Run, want 2; re-anchor this pin", len(refreshArgs))
+	}
+	for _, a := range refreshArgs {
+		if a != "appliedIOPriority" {
+			t.Errorf("a fresh refreshJailBriefings briefs %q, want appliedIOPriority, the value the argv passes", a)
+		}
+	}
+}
+
+// ioAttached is what one driven attach left behind: its stderr, and the briefing line it
+// staged for the claude pack's destination ("" when the briefing states no priority).
+type ioAttached struct {
+	stderr, briefing string
 }
 
 // ioAttach drives the real attachExisting to its exec, as attachExecArgv does, over a
-// running jail whose frozen environment is frozenEnv, with this invocation's config cfg and
-// the workspace's disk described by kyber. It returns what the attach printed to stderr.
-func ioAttach(t *testing.T, cfg *jsonx.OrderedMap, frozenEnv string) string {
+// running jail on runtime rt whose frozen environment is frozenEnv, with this invocation's
+// config cfg and the workspace's disk described by kyber. The staged packs are the claude
+// pack, so the attach's briefing refresh writes the file an agent in the jail reads.
+func ioAttach(t *testing.T, rt string, macOS bool, cfg *jsonx.OrderedMap, frozenEnv string) ioAttached {
 	t.Helper()
 	home := packHome(t)
 	emptyLoopholeDirs(t)
 	o := goldenOptions(t.TempDir(), home)
+	o.IsMacOS, o.IsLinux = macOS, !macOS
 	// The fake mount table names the RESOLVED workspace, because Resolve evaluates
 	// symlinks on the path (a TMPDIR behind a link, as on macOS).
 	ws, err := filepath.EvalSymlinks(o.Workspace)
@@ -223,15 +265,28 @@ func ioAttach(t *testing.T, cfg *jsonx.OrderedMap, frozenEnv string) string {
 	}
 	bin := t.TempDir()
 	script := "#!/bin/sh\nexit 0\n"
-	if err := os.WriteFile(filepath.Join(bin, "podman"), []byte(script), 0o755); err != nil {
+	if err := os.WriteFile(filepath.Join(bin, rt), []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", bin)
-	channel := channelFor(t, o, cfg, nil, nil)
-	if rc, _ := o.attachExisting("yolo-attach-ioprio", "podman", "true", cfg, stagedPacks{}, channel, false, nil); rc != 0 {
+	const cname = "yolo-attach-ioprio"
+	packs := claudePackFixture(t)
+	channel := channelFor(t, o, cfg, packs, nil)
+	if rc, _ := o.attachExisting(cname, rt, "true", cfg, stagedPacks{packs: packs}, channel, false, nil); rc != 0 {
 		t.Fatalf("the attach did not run through to its exec (rc=%d):\n%s", rc, &stderr)
 	}
-	return stderr.String()
+	body, err := os.ReadFile(filepath.Join(paths.AgentsDir(), cname, briefingStagingName(claudeBriefingDest)))
+	if err != nil {
+		t.Fatalf("the attach staged no briefing for the claude pack: %v\n%s", err, &stderr)
+	}
+	return ioAttached{stderr: stderr.String(), briefing: ioPriorityBriefingLine(string(body))}
+}
+
+// ioDeclared is a config declaring resources.io = v.
+func ioDeclared(v string) *jsonx.OrderedMap {
+	res := jsonx.NewOrderedMap()
+	res.Set("io", v)
+	return newConfig("resources", res)
 }
 
 // TestAnAttachRepeatsTheIOPriorityLineForTheLaunchedValue: an attach grades the value the
@@ -241,14 +296,36 @@ func ioAttach(t *testing.T, cfg *jsonx.OrderedMap, frozenEnv string) string {
 // nothing even when the config now declares it (the edit waits for a fresh launch).
 func TestAnAttachRepeatsTheIOPriorityLineForTheLaunchedValue(t *testing.T) {
 	const line = `resources.io.priority "low" has no effect on nvme0n1 (scheduler kyber)`
-	res := jsonx.NewOrderedMap()
-	res.Set("io", "low")
-	declared := newConfig("resources", res)
-
-	if got := ioAttach(t, newConfig(), "YOLO_VERSION=9.9.9-test\n"+ioprio.EnvVar+"=low\n"); !strings.Contains(got, line) {
-		t.Errorf("an attach to a jail launched with low did not repeat the line:\n%s", got)
+	if got := ioAttach(t, "podman", false, newConfig(), "YOLO_VERSION=9.9.9-test\n"+ioprio.EnvVar+"=low\n"); !strings.Contains(got.stderr, line) {
+		t.Errorf("an attach to a jail launched with low did not repeat the line:\n%s", got.stderr)
 	}
-	if got := ioAttach(t, declared, "YOLO_VERSION=9.9.9-test\n"); strings.Contains(got, "resources.io.priority") {
-		t.Errorf("an attach to a jail launched WITHOUT the variable graded the edited config:\n%s", got)
+	if got := ioAttach(t, "podman", false, ioDeclared("low"), "YOLO_VERSION=9.9.9-test\n"); strings.Contains(got.stderr, "resources.io.priority") {
+		t.Errorf("an attach to a jail launched WITHOUT the variable graded the edited config:\n%s", got.stderr)
+	}
+}
+
+// TestAnAttachBriefsTheIOPriorityTheJailWasLaunchedWith: the briefing an attach re-renders
+// states the class the jail's processes hold, which is the one in its frozen environment —
+// never the current config's (IO-D2, §5.2: "where it was not passed, the briefing says
+// nothing about it"). The attach's stderr line and its briefing must agree.
+func TestAnAttachBriefsTheIOPriorityTheJailWasLaunchedWith(t *testing.T) {
+	for _, tc := range []struct {
+		name, frozen string
+		cfg          *jsonx.OrderedMap
+		want         string // "" = no briefing line
+	}{
+		{"launched without, config now idle", "YOLO_VERSION=9.9.9-test\n", ioDeclared("idle"), ""},
+		{"launched low, key since removed", "YOLO_VERSION=9.9.9-test\n" + ioprio.EnvVar + "=low\n", newConfig(), "`low`"},
+		{"launched low, config now idle", "YOLO_VERSION=9.9.9-test\n" + ioprio.EnvVar + "=low\n", ioDeclared("idle"), "`low`"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := ioAttach(t, "podman", false, tc.cfg, tc.frozen)
+			if tc.want == "" && got.briefing != "" {
+				t.Errorf("the attach briefed a class no process in the jail holds: %q", got.briefing)
+			}
+			if tc.want != "" && !strings.Contains(got.briefing, tc.want) {
+				t.Errorf("the attach briefed %q, want the launched value %s", got.briefing, tc.want)
+			}
+		})
 	}
 }

@@ -34,6 +34,7 @@ import (
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
+	"github.com/mschulkind-oss/yolo-jail/internal/ioprio"
 	"github.com/mschulkind-oss/yolo-jail/internal/jailcontent"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
@@ -963,7 +964,7 @@ func TestAttachLeavesTheSkeletonByteIdentical(t *testing.T) {
 	if !ok {
 		t.Fatal("stageRunPacks failed")
 	}
-	if _, err := o.refreshJailBriefings(cname, cfg, "podman", staged); err != nil {
+	if _, err := o.refreshJailBriefings(cname, cfg, "podman", staged, ioprio.Normal); err != nil {
 		t.Fatalf("refreshJailBriefings: %v", err)
 	}
 	buildSkeletonForTest(t, cname, staged.packs, cfg, nil)
@@ -978,7 +979,7 @@ func TestAttachLeavesTheSkeletonByteIdentical(t *testing.T) {
 	if !ok {
 		t.Fatal("stageRunPacks failed on the attach")
 	}
-	if _, err := o.refreshJailBriefings(cname, changed, "podman", staged); err != nil {
+	if _, err := o.refreshJailBriefings(cname, changed, "podman", staged, ioprio.Normal); err != nil {
 		t.Fatalf("refreshJailBriefings on the attach: %v", err)
 	}
 	// The attach arm, against a jail `inspect` reports as running.
@@ -1140,7 +1141,7 @@ func TestAFreshLaunchLeavesTheMachineStoreByteIdentical(t *testing.T) {
 	if !ok {
 		t.Fatal("stageRunPacks failed")
 	}
-	agentsPath, err := o.refreshJailBriefings(cname, cfg, "podman", staged)
+	agentsPath, err := o.refreshJailBriefings(cname, cfg, "podman", staged, ioprio.Normal)
 	if err != nil {
 		t.Fatalf("refreshJailBriefings: %v", err)
 	}

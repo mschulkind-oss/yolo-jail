@@ -315,9 +315,10 @@ func appliedResourceLimits(rt string, resCfg *jsonx.OrderedMap, acDefaultMemory 
 
 // appliedIOPriority is the disk I/O priority this launch passes to the entrypoint, which is
 // not always the one the config declares: only podman on a Linux host passes one, nested
-// jails included (docs/design/io-priority.md §5.2, IO-D2). Its two callers are the argv
-// (ioPriorityEnvArgs) and the briefing, so the agent is told a class exactly where one was
-// passed — the same argv/briefing pairing as appliedResourceLimits, and for the same reason.
+// jails included (docs/design/io-priority.md §5.2, IO-D2). It feeds the argv
+// (ioPriorityEnvArgs) and the fresh launch's briefing, so the agent is told a class exactly
+// where one was passed — the same argv/briefing pairing as appliedResourceLimits, and for the
+// same reason. An attach briefs launchedIOPriority instead: its config is the current one.
 //
 // Apple Container and podman on a macOS host pass nothing: the jail runs in a VM and its
 // workspace reaches the Mac over VirtioFS, whose protocol has no priority field, so a class

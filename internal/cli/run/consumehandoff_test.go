@@ -19,6 +19,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/ioprio"
 	"github.com/mschulkind-oss/yolo-jail/internal/jailcontent"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 )
@@ -78,7 +79,7 @@ func runRefreshWithHandoff(t *testing.T, handoff string, withBriefingPack bool) 
 		t.Fatalf("stagePacks: %v", err)
 	}
 	staging, err := o.refreshJailBriefings(cname, jsonx.NewOrderedMap(), "podman",
-		stagedPacks{root: root, packs: packs, briefings: briefings})
+		stagedPacks{root: root, packs: packs, briefings: briefings}, ioprio.Normal)
 	if err != nil {
 		t.Fatalf("refreshJailBriefings: %v", err)
 	}

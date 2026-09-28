@@ -8,6 +8,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
+	"github.com/mschulkind-oss/yolo-jail/internal/ioprio"
 	"github.com/mschulkind-oss/yolo-jail/internal/jailcontent"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
@@ -29,7 +30,15 @@ import (
 // that backend came to render zero pack surfaces (B-0). What stays here is the part that
 // genuinely is per-jail staging — skills layering and briefing composition — which reads
 // the staged set through the `staged` argument.
-func (o *Options) refreshJailBriefings(cname string, cfg *jsonx.OrderedMap, rt string, staged stagedPacks) (string, error) {
+//
+// `io` is the disk I/O priority the jail's environment CARRIES, decided by the caller and
+// never re-derived here from cfg: on a fresh launch it is the value the argv passes
+// (appliedIOPriority), and on an attach the one the jail was launched with
+// (launchedIOPriority), because an attach's cfg is the CURRENT config, and a config edit
+// reaches a jail's processes only at its next fresh launch (docs/design/io-priority.md
+// §5.1). Deriving it here told an attached agent a class no process in its jail held.
+func (o *Options) refreshJailBriefings(cname string, cfg *jsonx.OrderedMap, rt string, staged stagedPacks,
+	io ioprio.Priority) (string, error) {
 	netSec := cfgMap(cfg, "network")
 	netMode := o.resolveNetMode(cfg)
 
@@ -155,7 +164,7 @@ func (o *Options) refreshJailBriefings(cname string, cfg *jsonx.OrderedMap, rt s
 		ForwardHostPorts:   forwardHostPorts,
 		Loopholes:          loops,
 		Resources:          resources,
-		IOPriority:         ioPriorityForBriefing(appliedIOPriority(rt, o.IsMacOS, cfgMap(cfg, "resources"))),
+		IOPriority:         ioPriorityForBriefing(io),
 		ProvisioningFailed: jailcontent.ReadProvisioningFailed(o.Workspace),
 		Confinement:        string(config.ResolveConfinement(cfg)),
 		// THE MECHANISM, which is the second axis of the header and was a boolean until

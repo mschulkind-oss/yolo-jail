@@ -74,22 +74,32 @@ func ioPriorityWarnedLine(p ioprio.Priority, backend string) string {
 		"which carries no I/O priority."
 }
 
-// attachIOPriority is the value an attach grades, which is the value its shell receives.
+// launchedIOPriority is the value a RUNNING jail was launched with, which is the value an
+// attach's entrypoint applies and the one its briefing states.
 //
-// On podman on Linux that is the one the jail was LAUNCHED with, read from the container's
-// frozen environment, because an attach's entrypoint reads YOLO_IO_PRIORITY from there and
-// never from the config (a config edit takes effect at the next fresh launch). A jail
-// launched before the key existed has no such variable and applies nothing, so nothing is
-// graded. Elsewhere no value is ever passed, so the current declaration is what the Warned
-// line is about.
+// On podman on Linux it is read from the container's frozen environment, because an attach's
+// entrypoint reads YOLO_IO_PRIORITY from there and never from the config (a config edit takes
+// effect at the next fresh launch). A jail launched before the key existed has no such
+// variable and applies nothing. Elsewhere no value is ever passed, so nothing was applied.
+func (o *Options) launchedIOPriority(rt string, envLines []string) ioprio.Priority {
+	if rt != "podman" || o.IsMacOS { // parity: Warned — AC and podman on macOS never pass the value, so no jail of theirs holds one
+		return ioprio.Normal
+	}
+	for _, line := range envLines {
+		if v, ok := strings.CutPrefix(strings.TrimSpace(line), ioprio.EnvVar+"="); ok {
+			return ioprio.Priority(v)
+		}
+	}
+	return ioprio.Normal
+}
+
+// attachIOPriority is the value an attach's line is about. On podman on Linux that is the
+// value its shell receives (launchedIOPriority), so an edited config is not graded. On the two
+// VM backends no value is ever passed, so the Warned line is about the current declaration,
+// which is true of whatever the jail was launched with.
 func (o *Options) attachIOPriority(rt string, cfg *jsonx.OrderedMap, envLines []string) ioprio.Priority {
 	if rt == "podman" && !o.IsMacOS { // parity: Honored — only podman on Linux passes the value, so only its frozen env holds one
-		for _, line := range envLines {
-			if v, ok := strings.CutPrefix(strings.TrimSpace(line), ioprio.EnvVar+"="); ok {
-				return ioprio.Priority(v)
-			}
-		}
-		return ioprio.Normal
+		return o.launchedIOPriority(rt, envLines)
 	}
 	return ioprio.FromResources(cfgMap(cfg, "resources"))
 }
