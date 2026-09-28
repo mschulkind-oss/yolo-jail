@@ -34,19 +34,14 @@ nothing is refused.
 
 **Start at [§3](#3-the-classes)**, the classes. Everything else falls out of them.
 
-**Needs your ruling:** [OQ-AM1](#OQ-AM1), [OQ-AM2](#OQ-AM2), [OQ-AM3](#OQ-AM3), [OQ-AM4](#OQ-AM4),
-[OQ-AM5](#OQ-AM5), [OQ-AM6](#OQ-AM6), [OQ-AM7](#OQ-AM7), [OQ-AM8](#OQ-AM8), [OQ-AM9](#OQ-AM9),
-[OQ-AM10](#OQ-AM10).
+**Needs your ruling:** [OQ-AM1](#OQ-AM1), [OQ-AM2](#OQ-AM2), [OQ-AM3](#OQ-AM3), [OQ-AM4](#OQ-AM4), [OQ-AM5](#OQ-AM5), [OQ-AM6](#OQ-AM6), [OQ-AM7](#OQ-AM7), [OQ-AM8](#OQ-AM8), [OQ-AM9](#OQ-AM9), [OQ-AM10](#OQ-AM10).
 
 **Reads with:** [`agent-directory-map-plan.md`](agent-directory-map-plan.md) (the implementation
-sketch, which is incomplete while any question here is open),
-[`pack-declared-file-diagnostics.md`](pack-declared-file-diagnostics.md) (the `traps` proposal that
-[OQ-AM8](#OQ-AM8) would absorb),
-[`synced-skill-trees.md`](synced-skill-trees.md#41-the-fence--the-part-that-is-not-optional) (the
-`reserved` fence, which is the existing precedent for a pack fencing part of a directory),
+sketch, incomplete while any question is open),
+[`pack-declared-file-diagnostics.md`](pack-declared-file-diagnostics.md) (the `traps` proposal
+[OQ-AM8](#OQ-AM8) would absorb), and
 [`../reference/composed-file-permissions.md`](../reference/composed-file-permissions.md) (the
-Derived/Shared/State postures, which this doc reuses and does not restate),
-[`../reference/jail-home.md`](../reference/jail-home.md) (where each directory lives at each backend).
+Derived/Shared/State postures this doc reuses).
 
 ---
 
@@ -115,12 +110,14 @@ The principles, numbered so later sections can cite them:
   launch. The one existing refusal, the host-apply rule for a destination behind a broken link,
   refuses a **write** yolo was about to make and stays exactly as it is.
 - **P5. Only harm repeats.** A broken link, or a file that shadows a composed one, is printed every
-  time, because the agent breaks or ignores yolo because of it. An unexplained entry is printed once,
+  time, because each one makes the agent fail or ignore yolo's file. An unexplained entry is printed once,
   when it first appears. This is [ST-N2](synced-skill-trees.md#ST-N2)'s "new or changed" rule
   applied to a whole directory.
 - **P6. Core knows no agent.** Every vendor name comes from a pack: a path, a credential file, the
-  variable that relocates a root. That is the rule [`OQ-ST2`](synced-skill-trees.md#OQ-ST2) applied
-  to `reserved` ([pack-system principles](../reference/pack-system.md#principles)).
+  variable that relocates a root. [`OQ-ST2`](synced-skill-trees.md#OQ-ST2) set that rule for the
+  `reserved` fence ([the precedent](synced-skill-trees.md#41-the-fence--the-part-that-is-not-optional)),
+  and the map extends it to the whole directory
+  ([pack-system principles](../reference/pack-system.md#principles)).
 
 ---
 
@@ -136,10 +133,13 @@ Checked against `daac6eb4`:
 | `files`, `skills`, `briefing` destinations | `:ro` binds, whose mountpoints are recorded only for `files` ([`packfiles.go`](../../internal/cli/run/packfiles.go)) | copies, listed in the overlay manifest | written where an ownership record shows they are yolo's |
 | Hook paths (`shared_credentials`, `shared_directory`, `unshare_directory`, `per_jail_history`) | acted on at every boot | acted on at every boot | **refused**: hooks are jail provisioning ([`fieldset.go`](../../internal/render/fieldset.go)) |
 | Host files a jail reads (a surface's `readsHost`, a briefing's `after: host:`) | an absent **or broken** source is skipped **silently** (`isFile` in [`probes.go`](../../internal/cli/run/probes.go); `PrependHostBriefing` in [`briefing.go`](../../internal/jailcontent/briefing.go)) | same | — |
-| **Every other path** | **nothing** | **nothing** | **nothing** |
+| Credential writers before a launch | pi's and codex's `auth.json` under the `codex` profile ([`pi.go`](../../internal/openauthclient/pi.go)); the Claude login seed synced into the workspace's `claude.json` | same | codex's managed home only ([§7.3](#73-codex)) |
+| Reclaimers | `yolo prune` age-purges `copilot/logs` and `gemini/tmp` in each workspace sidecar, from a hand-written list ([`agentlogs.go`](../../internal/prune/agentlogs.go)); the launcher keeps two versions under `~/.local/share/<bin>/versions` | same | the launcher's version prune |
+| **Every other path** | **nothing reads, checks or reports it** | **nothing** | **nothing** |
 | Legacy per-workspace state | — | — | the base home only, detection-only, in `yolo check` ([`basehome`](../../internal/basehome/classify.go)) |
 
-The rest of the home is either the agent's business or nobody's.
+Each row names a path because something writes it. Nothing looks at a path merely because it is in
+the agent's directory.
 
 ### 2.2 The incident, path by path
 
@@ -171,8 +171,8 @@ seven surveys ([Appendix A](#appendix-a-evidence)) show how far that is from the
 - **yolo's own residue goes unreported.** Examples: a retired verification fixture in pi's
   directory (`mantle/mint-token.mjs`), a stale top-level copy of a moved script in claude's
   (`file-suggestion.sh`), a sidecar the claude pack never retires (`yolo-managed-mcp-servers.json`),
-  1.2 GiB of codex releases the launcher's prune cannot see, and a removed agent's OAuth file in
-  agy's `~/.gemini`.
+  three codex releases (1.2 GiB) that the launcher's prune cannot see, and a removed agent's OAuth
+  file in agy's `~/.gemini`.
 - **A proposal is already in flight for one symptom.**
   [`pack-declared-file-diagnostics.md`](pack-declared-file-diagnostics.md) wants a `traps` kind so
   that a host `APPEND_SYSTEM.md` the jail never sees gets named. That is one entry of a map, argued
@@ -236,6 +236,7 @@ exist:
 | **wrong type** | the entry is declared a directory and is a file, or the other way round | every time |
 | **shadow** | an entry declared `shadows: <path>` is present, so the agent loads it **instead of** a composed file | every time |
 | **relocated** | a variable the entry names as relocating it is set in the agent's environment, so the agent reads somewhere else while yolo still writes the literal path | every time, once per variable |
+| **yolo's leftover** | a placeholder yolo recorded is visible, which in the agent's own view means nothing is delivered over it any more | once, when new |
 | **unexplained** | [above](#33-unexplained-and-the-structural-findings) | once, when new ([§4.5](#45-print-when-new)) |
 
 ### 3.4 Precedence
@@ -309,7 +310,7 @@ rule: an unselected pack is treated as if it does not exist.
 | :--- | :--- | :--- |
 | `yolo check` (host, and in-jail) | One section per root. Every finding is a WARN row: broken links, wrong types, shadows, relocations and **every** unexplained entry. A header line gives counts by class. Findings also appear in the JSON report | changes the exit code for a finding. Prints file contents |
 | `yolo host apply` | Renders what it renders today. After the verdict block it adds one group, *"In your agent directories"*, itemizing broken links, shadows and relocations, and **new** unexplained entries up to 5 per root, then *"and N more — `yolo check`"*. Its remedy is stated once, and the same findings appear in the `--format json` document | changes the verdict token or the exit code for a map finding. Map findings are not tier-3 blockers ([the tiers](../reference/report-tiers.md#the-tiers)) |
-| `yolo host -- <agent>` preflight | Evaluates only the roots of the pack whose program is `<agent>`, plus entries other selected packs add under them. It prints structural findings and new unexplained entries (capped as above) to stderr and the launch log, **after** the launch gate and before exec. Budget: **250 ms**. On overrun it prints one line naming the skip ([AM-D11](#AM-D11)) | refuses, blocks, prompts, or sits inside the `host_apply_on_launch` gate's refusal path ([the gate](../reference/host-apply-staleness.md#the-launch-gate)) |
+| `yolo host -- <agent>` preflight | Evaluates only the roots of the pack whose program is `<agent>`, plus entries other selected packs add under them. It prints structural findings and new unexplained entries (capped as above) to stderr and the launch log, **before** the launch gate, so a broken link it names can explain a refusal the gate goes on to make. It never depends on the gate's result. Budget: **250 ms**. On overrun it prints one line naming the skip ([AM-D11](#AM-D11)) | refuses, blocks, prompts, or sits inside the `host_apply_on_launch` gate's refusal path ([the gate](../reference/host-apply-staleness.md#the-launch-gate)) |
 | Jail launch (host side) | **One new line, independent of the map:** a `readsHost` or `after: host:` source that is a broken link is named, saying the jail composes without it | walks the host's agent directories: the jail uses nothing else from them |
 | Jail boot | nothing new ([OQ-AM6](#OQ-AM6)) | runs the walk as a `genStep`, which would turn a finding into a refused boot |
 | `yolo pack map <pack>` (new, read-only) | The full evaluated map at this notch. Every present entry is listed with its class, marks, derived status and size, and the root ends with a **wipe answer** ([§4.4](#44-the-wipe-answer)). It also says which notch it evaluated ([AM-D9](#AM-D9)) | opens a file. Offers to delete anything |
@@ -323,7 +324,7 @@ rule: an unselected pack is treated as if it does not exist.
 | | check / apply / preflight | map view | wipe answer |
 | :--- | :--- | :--- | :--- |
 | **composed** | counted | the owning surface or kind, and its mode | the mode's answer ([§3.2](#32-derived-statuses-what-yolo-does-to-the-path-at-this-notch)) |
-| **laid** | silent | the declaration that lays it, and "never follow it" when it points outside the root | regenerates at the next launch. A laid link **must not be followed** by whoever wipes: deleting through `npm/` in a jail empties the machine store every workspace uses |
+| **laid** | silent, except a visible recorded placeholder, which is yolo's leftover | the declaration that lays it, and "never follow it" when it points outside the root | regenerates at the next launch. A laid link **must not be followed** by whoever wipes: deleting through `npm/` in a jail empties the machine store every workspace uses |
 | **retired** | a present retired name is a disclosure line in check and the map view (*"yolo deletes this at every boot"*) | the surface that retires it | nothing, because yolo deletes it anyway |
 | **state** | counted | listed, marks included | **lost**. A `credential` entry is named as a logout |
 | **cache** | counted | listed | regenerates, at the named cost (a network reinstall, a re-clone) |
@@ -335,16 +336,18 @@ rule: an unselected pack is treated as if it does not exist.
 Each root ends with one block, computed from the classes and the derived statuses at this notch:
 
 ```text
-Wiping ~/.pi (host) loses:
+Wiping ~/.pi (host, host_management: assert) loses:
   state      auth.json [credential: every provider's login], sessions/, trust.json
-  yours      keybindings.json, prompts/, extensions/my-tool.ts
-  unknown    mantle/ — nothing explains it; look before deleting
-Regenerates: settings.json (composed, rmw: your keys are lost), models-store.json, npm/ (reinstall), git/ (re-clone)
+  yours      settings.json (yolo's keys come back, yours do not), keybindings.json, prompts/,
+             extensions/my-tool.ts
+  unknown    old-backup/ — nothing explains it; look before deleting
+Regenerates: models-store.json, npm/ (a reinstall), git/ (a re-clone)
 Stop pi first: lock directories and temp files are live while it runs.
 ```
 
 The wording and the layout are the implementer's. The content is fixed: every present entry falls
-into **loses**, **regenerates** or **unknown**. A credential is named as one. Notch-specific
+into **loses**, **regenerates** or **unknown**, and an `rmw` file falls into **loses**, since only
+yolo's keys come back. A credential is named as one. Notch-specific
 consequences are stated. In a jail, captured edits in `<ws>/.yolo/prism` apply again, and
 `yolo config reset` is the verb for that half. A laid link is flagged as one not to follow.
 
@@ -439,7 +442,9 @@ The behavior is fixed here:
 
 The agent pack **owns** the root. Any other selected pack may add entries under it, and that is how a
 content pack that adds pi-subagents to pi's `packages` declares what pi-subagents writes
-([OQ-AM1](#OQ-AM1)). The rules:
+([OQ-AM1](#OQ-AM1)). **A contribution that adds entries says so, and names the root it adds to**,
+the way a `config-overlay` names the surface it overlays. Without that, a contribution naming a root
+is a claim to own it. The rules:
 
 - Entries **merge** by path. The same path with the same class from two packs is fine.
 - A **different class** for one path is a conflict that names both packs. The entry is skipped and
@@ -498,7 +503,8 @@ Measured from pi 0.87.1's `dist/` and the live directory in this jail on 2026-09
 | `agent/yolo-host-synced-settings.json` | — | retired (first `stateful` render) | retired | — (unexplained if present) | nothing |
 | `agent/AGENTS.md` | yours | composed (briefing, `:ro`, with the host file prepended) | composed (a copy, write-denied) | composed (wholesale; prose already adopted into the local pack) | nothing |
 | `agent/AGENTS.override.md` | yours; `shadows: agent/AGENTS.md` | shadow finding | shadow finding | shadow finding | your override |
-| `agent/{AGENTS.MD,CLAUDE.md,CLAUDE.MD,SYSTEM.md,APPEND_SYSTEM.md}` | yours | — | — | — | your prompts |
+| `agent/{AGENTS.MD,CLAUDE.md,CLAUDE.MD}` | yours; `note`: pi reads only the first of `AGENTS.override.md`, `AGENTS.md`, `AGENTS.MD`, `CLAUDE.md`, `CLAUDE.MD`, so these are inert while yolo composes `AGENTS.md` | — | — | — | your prompts |
+| `agent/{SYSTEM.md,APPEND_SYSTEM.md}` | yours | — | — | — | your system-prompt replacement or addition |
 | `agent/auth.json` | state, `credential` | merged: `openai-codex` under the `codex` profile | merged (lands in the sidecar) | — (pi itself persists the broker's view that yolo's extension returns) | **every provider's login and API key** |
 | `agent/{oauth.json,oauth.json.migrated}` | state, `credential`; `note`: legacy, pi migrates it | — | — | — | a legacy login |
 | `agent/models-store.json` | cache (despite sharing `auth.json`'s `0600` mode and lock) | — | — | — | a catalog refresh |
@@ -577,8 +583,9 @@ reading `credential` marks, the claude-only attributes ([§7.2](#72-claude)), an
 
 1. On a host where `~/.pi/agent/settings.json`, `models-store.json` and `npm` are links into a
    deleted `~/.dotfiles/pi`, `yolo host -- pi` prints three lines, each naming the link and its
-   target, and then **launches pi**. `yolo check` shows the same three as WARN rows and exits as it
-   did before.
+   target, and then **launches pi** when `host_apply_on_launch` is unset. With it set, the gate
+   decides exactly as it does today, and the three lines have already been printed before it
+   does. `yolo check` shows the same three as WARN rows and exits as it did before.
 2. A jail launch on that host prints one line saying the host's pi settings were not read because
    the source is a broken link. The jail still starts.
 3. `yolo pack map pi` on the host lists every present entry with its class, and ends with a wipe
@@ -637,8 +644,8 @@ this doc's survey ([Appendix A](#appendix-a-evidence)).
   legacy `~/.claude/.config.json` that wins when present.
 - **`~/.claude.json` is composed `rmw` over state**, which is its existing posture. On podman and
   macos-user it is a laid redirect into `.claude/claude.json`, and on Apple Container it is a real
-  file. At the host, a `.claude/claude.json` file is
-  unexplained, because it is a jail's layout copied onto a real home.
+  file. At the host, a `.claude/claude.json` file is unexplained, because it is a jail's layout
+  copied onto a real home.
 - **Links need a per-path rule.** Claude writes `~/.claude.json` through a link on purpose, but
   **refuses** to write `settings.json` through one. So an rcm-linked `settings.json` reads fine and
   breaks every settings write Claude makes. The claude slice adds a `no_link` attribute: a link
@@ -667,7 +674,8 @@ this doc's survey ([Appendix A](#appendix-a-evidence)).
 - **Program bytes inside the directory.** `packages/standalone/` is codex itself, and
   `~/.local/bin/codex` is an absolute link into it. The class is cache with a reinstall cost
   ([OQ-AM2](#OQ-AM2)). The launcher's keep-two prune looks in `~/.local/share/codex/versions`, so it
-  never prunes codex, which has left 1.2 GiB in this workspace ([`shims.go`](../../internal/entrypoint/shims.go), `_prune_versions`).
+  never prunes codex. This workspace holds three releases, 1.2 GiB, one of them installed by this
+  doc's own survey ([`shims.go`](../../internal/entrypoint/shims.go), `_prune_versions`).
 - **A credential whose meaning flips by notch.** `auth.json` is a broker view rewritten at every jail
   launch, and the user's only real login at the host. It is one class with two wipe answers
   ([§3.6](#36-the-hard-cases)).
@@ -737,7 +745,7 @@ this doc's survey ([Appendix A](#appendix-a-evidence)).
 | A directory cannot be read (`EACCES`) | one line, "could not read", and never a failure |
 | An entry vanishes between `ReadDir` and `Lstat` | skipped silently. The agent is running |
 | Thousands of unexplained entries | capped at 5 per root in apply and the preflight, then a count and the pointer. `yolo check` lists every one, which the walk bounds, since only walked directories are listed |
-| A pack with a `directory` and no agent program (a content pack adding entries) | its entries merge under the owner's root. With no owner selected they are inert and reported, like an ownerless overlay |
+| A contribution that adds entries to another pack's root | its entries merge under the owner's root. With no owner selected they are inert and reported, like an ownerless overlay |
 | Two packs claim one root | that root is not evaluated, and a warning names both. Never fatal |
 | An entry conflicts across packs | skipped and reported ([§5.4](#54-more-than-one-pack-under-one-root)) |
 | A relocating variable is set | a relocated finding. The entry, or the root, is not walked |
@@ -773,7 +781,7 @@ this doc's survey ([Appendix A](#appendix-a-evidence)).
 | **Performance on big directories** | Claude's `projects/`, pi's `sessions/`, npm's `node_modules` and codex's releases hold tens of thousands of entries | Those are opaque: one `Lstat` each. The walk lists only the root and walked directories, which is tens of entries for pi. The preflight has a 250 ms budget, and `yolo check` has none |
 | **Blast radius** | One agent's finding refuses a different agent's launch, which the incident already produced once through the launch gate | Warnings only ([P4](#1-the-verdict-and-the-principles-it-rests-on)). The preflight evaluates only the launching agent's roots and sits outside the gate |
 | **Noise teaches users to skip yolo's output** | A line every launch about a file nobody cares about | Only harm repeats ([P5](#1-the-verdict-and-the-principles-it-rests-on)). A first run prints a summary, not a flood |
-| **yolo is its own first finding** | Most unexplained entries in real homes today are yolo's residue | That is the correct outcome. Where the placeholder record proves an entry is yolo's, the line says "yolo's leftover" rather than unexplained |
+| **yolo is its own first finding** | Most of the unexplained entries the surveys found are yolo's own residue | That is the correct outcome. Where the placeholder record proves an entry is yolo's, the line says "yolo's leftover" rather than unexplained ([§3.3](#33-unexplained-and-the-structural-findings)) |
 | **Planted executable code** | In a jail the agent can write a new `*.js` into pi's `extensions/`, and it runs at every later launch in that workspace | `executes` gives an unexplained entry there its own line ([OQ-AM2](#OQ-AM2)) |
 
 ---
@@ -1005,7 +1013,7 @@ this doc's survey ([Appendix A](#appendix-a-evidence)).
 | <a id="AM-D8"></a>AM-D8 | The most specific entry wins. An equal-specificity conflict is skipped with a warning and is never fatal | 2026-09-28 | [§5.3](#53-the-shape-at-altitude) | — |
 | <a id="AM-D9"></a>AM-D9 | The full evaluated view is `yolo pack map <pack>`. `yolo check` carries the findings | 2026-09-28 | [§4.2](#42-each-verb) | — |
 | <a id="AM-D10"></a>AM-D10 | Broken links, shadows and relocations print every time. An unexplained entry prints once, recorded per home | 2026-09-28 | [§4.5](#45-print-when-new) | — |
-| <a id="AM-D11"></a>AM-D11 | The `yolo host --` preflight has a 250 ms budget, and an overrun prints one line and launches | 2026-09-28 | [§4.2](#42-each-verb) | — |
+| <a id="AM-D11"></a>AM-D11 | The `yolo host --` preflight runs before the launch gate and independently of it, with a 250 ms budget. An overrun prints one line and the launch continues | 2026-09-28 | [§4.2](#42-each-verb) | — |
 
 ---
 

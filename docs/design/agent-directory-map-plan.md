@@ -25,8 +25,9 @@ them**, because an `implementation-plan` pass owns turning this into a hand-off.
 - The kind lands in `internal/packdecl`: add `directory` to the `footprints` map in `kinds.go`, which
   is the authority `KnownKinds()` derives from, and add its fields to `Contribution` in
   `contributes.go`. Candidate spellings are `at` (the root, reusing the `state` field),
-  `entries` (a map from a root-relative path to a class string or an object), and
-  `measured_against`.
+  `entries` (a map from a root-relative path to a class string or an object), `measured_against`,
+  and `adds_to` for a contribution that adds entries under another pack's root instead of owning
+  one (the design's [§5.4](agent-directory-map.md#54-more-than-one-pack-under-one-root)).
 - **Combine rule.** Nothing in the existing `Combine` enum means "exclusive per root, merged per
   entry". Either add a value, or model the root and the entries as two claim targets. Check how
   `internal/packload/footprint.go`'s collision loop groups on `(kind, target)` before choosing.
@@ -80,9 +81,9 @@ them**, because an `implementation-plan` pass owns turning this into a hand-off.
   [`report-tiers.md`](../reference/report-tiers.md#the-tiers), because a map finding renders like
   tier 3 and is excluded from the verdict. The candidate code is `hostapplyverdict.go` and
   `hostapplydetail.go`.
-- **`yolo host --` preflight**: runs after the launch gate (`hostapplygate.go`) and before exec.
-  Its budget is a package var, as `hostApplyGateBudget` is, and it must never run in the gate's
-  refusal path.
+- **`yolo host --` preflight**: runs before the launch gate (`hostapplygate.go`), and nothing it
+  finds is an input to the gate. Its budget is a package var, as `hostApplyGateBudget` is, and it
+  must never run in the gate's refusal path.
 - **`yolo pack map`**: a new verb in `packMain` (`internal/cli/pack.go`), plus `subhelp.go`.
 - **`yolo config ls` footer**: `configls.go`.
 - **The seen record**: at the host, a file beside `host-reserved-trees.json`, which is
