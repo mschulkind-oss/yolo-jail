@@ -34,6 +34,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -48,20 +49,30 @@ import (
 // against the host's own node — the generator is rendering content for a jail, and the host's version
 // is not the jail's.
 //
-// The image publishes its node version nowhere: /etc/yolo-jail-image-identity holds a content hash
-// only, and nothing bakes the version into the env. So a bounded exec is the available answer, and
-// the precedent is established — the entrypoint already execs ldconfig, iptables, socat, supervise
-// and `mise uninstall`.
+// The image publishes its node version nowhere but in the NAME of the store path /bin/node links
+// into (/nix/store/<hash>-nodejs-slim-24.20.0/bin/node), so nodeVersionAt reads that first and execs
+// only when the name says nothing.
 var imageNodeVersion = func() string {
-	// Bounded on purpose: this runs during launcher generation, on the boot path, and a hung probe
-	// would hold up the launch for a value the resolution can do without.
 	return nodeVersionAt(imageNodePath)
 }
 
-// nodeVersionAt runs `<bin> --version` and returns the version without its `v`, or "" when it
-// cannot be read. Shared by the image's node and the package floor's (packageFloorNodes), so both
-// candidates are probed the same bounded way.
+// nodeVersionAt returns bin's version without its `v`, or "" when it cannot be read. Shared by the
+// image's node and the package floor's (packageFloorNodes), so both candidates are read the same way.
+//
+// THE STORE NAME FIRST, and the exec only when the name says nothing (storeNameNodeVersion). The
+// exec is bounded at 2 s, because this runs during launcher generation on the boot path, and the
+// bound made the answer depend on how busy the machine was: a probe that overran it read as "no
+// node here", and with nothing else meeting the floor the launcher was rendered with no interpreter
+// at all — `exec "$REAL_BIN"`, which runs the program under the workspace's pin, the one outcome
+// this file exists to prevent. The bootstrap's floor check, run later on a quieter machine, then
+// found the same node and did not refuse, so nothing said so. Seen on the 2026-09-28 macOS nightly
+// (run 36425623325, a podman machine on an Intel runner): a pi launcher baked no interpreter in an
+// image whose /bin/node is 24, with only the workspace's Node 20 in the mise store. Reading the name
+// makes the common case a readlink rather than an exec, and makes it independent of load.
 func nodeVersionAt(bin string) string {
+	if v := storeNameNodeVersion(bin); v != "" {
+		return v
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	out, err := exec.CommandContext(ctx, bin, "--version").Output()
@@ -75,7 +86,42 @@ func nodeVersionAt(bin string) string {
 
 // imageNodePath is the image's baked node. Not $PATH: the whole point is to bypass the mise shims
 // that PATH resolution would hit first — reading the workspace's pin is the defect, not the fix.
-const imageNodePath = "/bin/node"
+//
+// A variable only so a test can point the real imageNodeVersion at a fixture; production never sets it.
+var imageNodePath = "/bin/node"
+
+// nixStoreDir is the store a node's resolved path must sit directly under before its name is read
+// as its version. A variable only so a test can build a fixture store; production never sets it.
+var nixStoreDir = "/nix/store"
+
+// nixNodeStoreName is a nixpkgs node's store-path name: the 32-character hash, the pname (`nodejs`,
+// or `nodejs-slim`, which is what the image bakes) and a full x.y.z version. Nothing looser: a name
+// is trusted as a version only when it is nixpkgs' own node, so a package some overlay named
+// `mynode-99.0.0` is asked by exec instead.
+var nixNodeStoreName = regexp.MustCompile(`^[0-9a-z]{32}-nodejs(?:-slim)?-([0-9]+\.[0-9]+\.[0-9]+)$`)
+
+// storeNameNodeVersion reads a node's version from the nix store path it resolves to, or "" when it
+// does not resolve to <nixStoreDir>/<hash>-nodejs[-slim]-<x.y.z>/bin/node with that file runnable.
+//
+// A nix store path's name is `<pname>-<version>` and the store is immutable, so for nixpkgs' node the
+// name IS the version the binary prints — the same argument newestSatisfyingMiseNode makes for the
+// mise store's directory names — and reading it runs nothing.
+func storeNameNodeVersion(bin string) string {
+	real, err := filepath.EvalSymlinks(bin)
+	if err != nil || filepath.Base(real) != "node" || !runnableNode(real) {
+		return ""
+	}
+	binDir := filepath.Dir(real)
+	pkg := filepath.Dir(binDir)
+	if filepath.Base(binDir) != "bin" || filepath.Dir(pkg) != nixStoreDir {
+		return ""
+	}
+	m := nixNodeStoreName.FindStringSubmatch(filepath.Base(pkg))
+	if m == nil {
+		return ""
+	}
+	return m[1]
+}
 
 // miseNodeStore, when set, is the mise node store to read instead of the derived one — a test
 // points it at a fixture tree. Empty in production, where miseNodeStoreDir derives it.

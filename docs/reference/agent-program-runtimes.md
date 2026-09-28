@@ -124,7 +124,7 @@ candidates in this order and takes the first that satisfies:
 
 | # | Candidate | Why it is here |
 | :--- | :--- | :--- |
-| 1 | **The image's node**, at `/bin/node`, read by a bounded `--version` exec. On macos-user, which has no image, the stand-in is the **package floor's node**: each `node` in an entry of the sandbox's real `PATH` that does not lie under `$HOME`, in `PATH` order (`packageFloorNodes`) | Self-contained, always present, no install, and the node the MCP wrappers already target. It is read at an absolute path, never through `PATH`, because `PATH` would hit the mise shims first. On macos-user, dropping every entry under the home drops the sandbox's own prefixes, above all the mise shims, whose node *is* the workspace pin. `imageProbePath` in `internal/entrypoint` applies the same rule when it asks what the launch provides on that backend |
+| 1 | **The image's node**, at `/bin/node`, whose version is read from the name of the nix store path it links into (`<hash>-nodejs-slim-24.20.0`), and by a bounded `--version` exec only when that name is not a nixpkgs node's. On macos-user, which has no image, the stand-in is the **package floor's node**: each `node` in an entry of the sandbox's real `PATH` that does not lie under `$HOME`, in `PATH` order (`packageFloorNodes`) | Self-contained, always present, no install, and the node the MCP wrappers already target. It is read at an absolute path, never through `PATH`, because `PATH` would hit the mise shims first. On macos-user, dropping every entry under the home drops the sandbox's own prefixes, above all the mise shims, whose node *is* the workspace pin. `imageProbePath` in `internal/entrypoint` applies the same rule when it asks what the launch provides on that backend |
 | 2 | **The newest satisfying node in the mise store**, `$MISE_DATA_DIR/installs/node/*` | Already-installed toolchains, resolved offline by path. The store's directory names are versions, so nothing is executed and nothing is fetched |
 | 3 | **An interpreter the provisioning stage installs** for this floor. ⚠ It reaches the floor *check* on the launch that installs it, and the *launcher* only from the next boot on ([below](#a-stage-installed-interpreter-reaches-the-launcher-one-boot-late)) | An interpreter is environment, and the environment is provisioned before the agent runs, never on first use ([`OQ-AR2`](#oq-ar2)) |
 | 4 | Nothing satisfies it | **The launch refuses** ([The refusal](#the-refusal)) |
@@ -194,10 +194,14 @@ target command and is the one place that already installs over the network.
 > workspace layer anyway.
 
 > [!NOTE]
-> **The image's node is only knowable by running it.** The image identity file holds a content
-> hash, and nothing bakes the node version into the image environment, so candidate 1 is a
-> bounded `--version` exec. The probe is a package-level variable (`imageNodeVersion`) that tests
-> stub. The host-side dry run under `yolo check` does **not** stub it: there the probe reads the
+> **The image's node is read from its store path's name, not by running it.** The image identity
+> file holds a content hash, and nothing bakes the node version into the image environment, but
+> `/bin/node` links to `/nix/store/<hash>-nodejs-slim-<x.y.z>/bin/node`, and a nix store name is
+> `<pname>-<version>`. The bounded (2 s) `--version` exec is only the fallback for a node whose
+> path is not that shape. It used to be the only read, and on a loaded machine a probe that overran
+> its bound read as "no node": the 2026-09-28 macOS nightly rendered a pi launcher with no
+> interpreter that way, and the bootstrap's later floor check found the same node and did not
+> refuse. The probe is a package-level variable (`imageNodeVersion`) that tests stub. The host-side dry run under `yolo check` does **not** stub it: there the probe reads the
 > host's `/bin/node` if it has one, and the store falls back to the container's fixed path. So a
 > dry-run launcher reflects the host, not the jail. That is harmless to content validation, and it
 > is also why the dry run is not a report of what a floor would resolve to in the jail (that

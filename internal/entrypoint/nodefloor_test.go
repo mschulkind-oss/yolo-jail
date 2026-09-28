@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/provision"
@@ -367,5 +368,104 @@ func TestMacosUserNoneNamesTheLoginPath(t *testing.T) {
 		", and no node in " + store + ")"
 	if got := DescribeAvailableNodes(); got != want {
 		t.Errorf("DescribeAvailableNodes = %q, want %q", got, want)
+	}
+}
+
+// fakeNixNode builds <store>/<hash>-<name>/bin/node as a script that sleeps for delay before it
+// prints v<printed>, links <tmp>/bin/node at it, points nixStoreDir at the store, and returns the
+// link. The store is minted through EvalSymlinks: on macOS t.TempDir() is under /var, a link to
+// /private/var, and the resolution compares against the resolved path.
+func fakeNixNode(t *testing.T, name, printed string, delay int) string {
+	t.Helper()
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := filepath.Join(root, "nix", "store")
+	bin := filepath.Join(store, name, "bin")
+	if err := os.MkdirAll(bin, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	script := fmt.Sprintf("#!/bin/sh\nsleep %d\necho v%s\n", delay, printed)
+	if err := os.WriteFile(filepath.Join(bin, "node"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(root, "bin", "node")
+	if err := os.MkdirAll(filepath.Dir(link), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(bin, "node"), link); err != nil {
+		t.Fatal(err)
+	}
+	old := nixStoreDir
+	nixStoreDir = store
+	t.Cleanup(func() { nixStoreDir = old })
+	return link
+}
+
+const fakeStoreHash = "z5piarlh57mjwr4c9w318ay97sxr6c9m"
+
+// THE 2026-09-28 macOS NIGHTLY'S DEFECT (run 36425623325): the image's node answered its bounded
+// `--version` probe too slowly, the probe read that as "no node", only the workspace's Node 20 was in
+// the mise store, and pi's launcher was rendered with no interpreter. The image's node is a nix store
+// path whose name carries its version, so a slow node — here one that takes longer than the probe's
+// bound — must still resolve, through the REAL imageNodeVersion and ResolveNodeForFloor.
+func TestASlowImageNodeStillResolvesByItsStoreName(t *testing.T) {
+	link := fakeNixNode(t, fakeStoreHash+"-nodejs-slim-24.20.0", "24.20.0", 5)
+	oldPath := imageNodePath
+	imageNodePath = link
+	t.Cleanup(func() { imageNodePath = oldPath })
+	t.Setenv(DarwinLoginPathEnv, "")
+	fakeMiseStore(t, "20.20.2") // the workspace's pin, and nothing meeting the floor
+
+	start := time.Now()
+	got := ResolveNodeForFloor("22.19")
+	if got != link {
+		t.Errorf("ResolveNodeForFloor = %q, want the image's node %q: a node too slow to answer "+
+			"--version must not be read as absent", got, link)
+	}
+	if el := time.Since(start); el > time.Second {
+		t.Errorf("resolution took %s: it executed the node instead of reading its store name", el)
+	}
+	if avail := AvailableNodes(); len(avail) == 0 || avail[0] != "24.20.0 at "+link {
+		t.Errorf("AvailableNodes = %q, want the image's node first, read the same way", avail)
+	}
+}
+
+// Both nixpkgs pnames are read, and only a full x.y.z.
+func TestStoreNameNodeVersionReadsNixpkgsNodeNames(t *testing.T) {
+	for name, want := range map[string]string{
+		fakeStoreHash + "-nodejs-24.20.0":      "24.20.0",
+		fakeStoreHash + "-nodejs-slim-22.19.1": "22.19.1",
+		fakeStoreHash + "-nodejs-24":           "",
+		fakeStoreHash + "-mynode-99.0.0":       "",
+		fakeStoreHash + "-nodejs-24.20.0-dev":  "",
+		"short-nodejs-24.20.0":                 "",
+	} {
+		t.Run(name, func(t *testing.T) {
+			link := fakeNixNode(t, name, "1.0.0", 0)
+			if got := storeNameNodeVersion(link); got != want {
+				t.Errorf("storeNameNodeVersion(%s) = %q, want %q", name, got, want)
+			}
+		})
+	}
+}
+
+// A name that says nothing falls back to asking the binary, so a node outside the store (or one some
+// overlay named differently) is still read — by exec, as before.
+func TestANodeWhoseNameSaysNothingIsAskedByExec(t *testing.T) {
+	link := fakeNixNode(t, fakeStoreHash+"-mynode-99.0.0", "24.20.0", 0)
+	if got := nodeVersionAt(link); got != "24.20.0" {
+		t.Errorf("nodeVersionAt = %q, want the exec's 24.20.0", got)
+	}
+}
+
+// A store-shaped name OUTSIDE the store is not trusted: the path must sit directly under
+// nixStoreDir, so the version is exec'd.
+func TestAStoreShapedNameOutsideTheStoreIsNotTrusted(t *testing.T) {
+	link := fakeNixNode(t, fakeStoreHash+"-nodejs-24.20.0", "20.1.0", 0)
+	nixStoreDir = "/nix/store" // the fixture is no longer under it; fakeNixNode's cleanup restores
+	if got := nodeVersionAt(link); got != "20.1.0" {
+		t.Errorf("nodeVersionAt = %q, want the exec's 20.1.0 for a path outside the store", got)
 	}
 }
