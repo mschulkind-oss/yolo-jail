@@ -186,10 +186,14 @@ type wrapperState struct {
 
 	// launchOn is host_apply_on_launch, read once so every row agrees on it.
 	launchOn bool
+	// managementNone is host_management "none", under which the launch gate returns before it
+	// looks at anything (hostapplygate.go), so host_apply_on_launch can never fire.
+	managementNone bool
 }
 
 func (o *Options) observeWrappers(dir string) wrapperState {
-	st := wrapperState{dir: dir, launchOn: config.HostApplyOnLaunchEnabled()}
+	st := wrapperState{dir: dir, launchOn: config.HostApplyOnLaunchEnabled(),
+		managementNone: config.HostManagementMode() == config.HostManagementNone}
 	st.names, st.dirErr = wrapperNames(dir)
 	if o.selectedPacksKnown {
 		st.binsKnown = true
@@ -215,9 +219,13 @@ func (st wrapperState) programsClause() string {
 	return " (" + joinNames(st.bins) + ")"
 }
 
-// The four reasons no launch can reach the host-apply gate. Each is the CAUSE of exactly one
-// row in this section, which is the row that says the sync cannot fire (gateClause).
+// The five reasons no launch can reach the host-apply gate, or reaches it to no effect. Each is
+// the CAUSE of exactly one row in this section, which is the row that says the sync cannot fire
+// (gateClause).
 const (
+	// gateNone comes first: under host_management "none" the gate is a no-op, so no PATH or
+	// wrapper fix makes the key fire, and the host_management row is the one that says so.
+	gateNone        = `host_management is "none"`
 	gateNoWrapper   = "no wrapper exists"
 	gateUnreadable  = "the wrapper directory cannot be read"
 	gateOffPath     = "the wrapper directory is not on PATH"
@@ -226,9 +234,13 @@ const (
 
 // gateUnreachable says why no launch can reach the host-apply gate, or "" when at least one
 // wrapper wins on PATH. The gate runs inside `yolo host -- <bin>`, and only a generated
-// wrapper execs that, so "no wrapper wins" and "the gate never fires" are one fact.
+// wrapper execs that, so "no wrapper wins" and "the gate never fires" are one fact. Under
+// host_management "none" the gate does nothing even when reached, and that is the reason
+// whatever the wrappers' state, because fixing them would not make it fire.
 func (st wrapperState) gateUnreachable() string {
 	switch {
+	case st.managementNone:
+		return gateNone
 	case st.dirErr != nil && os.IsNotExist(st.dirErr), st.dirErr == nil && len(st.names) == 0:
 		return gateNoWrapper
 	case st.dirErr != nil:
@@ -252,6 +264,10 @@ func (st wrapperState) gateUnreachable() string {
 func (st wrapperState) gateClause(reason string) string {
 	if !st.launchOn || st.gateUnreachable() != reason {
 		return ""
+	}
+	if reason == gateNone {
+		return `host_apply_on_launch is on but does nothing under "none": there is no render ` +
+			"for a launch to re-check."
 	}
 	return "host_apply_on_launch is on but cannot fire, so no launch re-checks this host's render."
 }
@@ -311,13 +327,14 @@ func hostManagementRow(r *reporter, st wrapperState) (absorbedGeneration bool) {
 				"is generated"+forClause,
 				joinLines("Set host_management to \"assert\" in "+paths.UserConfigPath()+
 					" and run `yolo host apply --assert`, or turn host_wrappers off.",
-					why, st.gateClause(gateNoWrapper)))
+					why, st.gateClause(gateNone)))
 			return true
 		}
 		r.warn("host_management is \"none\" — `yolo host apply` refuses, so these wrappers "+
 			"are never regenerated",
 			joinLines("Set host_management to \"assert\" in "+paths.UserConfigPath()+" to have "+
-				"yolo own the keys your packs declare, or turn host_wrappers off.", why))
+				"yolo own the keys your packs declare, or turn host_wrappers off.", why,
+				st.gateClause(gateNone)))
 	case config.HostManagementOwn:
 		r.ok("host_management is \"own\" — yolo composes these files whole and captures your " +
 			"edits, so they are derived output: delete one and the next apply reproduces it")
@@ -351,7 +368,8 @@ func hostManagementRow(r *reporter, st wrapperState) (absorbedGeneration bool) {
 // `yolo host -- <bin>`, which only a wrapper execs, so with no wrapper generated, the directory
 // off PATH, or every wrapper shadowed by a real binary ahead of it, no launch ever reaches the
 // gate — and a PASS promising automatic synchronization was reassurance about a mechanism that
-// cannot run. In that case THIS row prints nothing: the row naming the cause says the key is on
+// cannot run. Under host_management "none" the gate is a no-op even when reached, which is the
+// same reassurance about the same nothing. In either case THIS row prints nothing: the row naming the cause says the key is on
 // and cannot fire (wrapperState.gateClause), beside the fix that makes it fire. It used to be a
 // [WARN] of its own pointing at "the rows below", which counted one cause twice (HE-D2).
 func hostApplyOnLaunchRow(r *reporter, st wrapperState) {

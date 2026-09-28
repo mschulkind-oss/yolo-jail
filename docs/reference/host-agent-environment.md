@@ -316,10 +316,13 @@ launch. It never tells the user to add `wire-bridge` to `packs`. An agent that a
     [launch gate](host-apply-staleness.md#the-launch-gate) (the re-check `yolo host --` runs
     before exec'ing), so it is the one launch that never brings the host up to date by itself.
   - **The launch gate's reachability.** `host_apply_on_launch` being on is reported as working
-    only when at least one wrapper wins on `PATH`. With no wrapper, the directory off `PATH`, or
-    every wrapper shadowed, no launch can reach the re-check, so the row that names that cause
-    also says the key is on and cannot fire, rather than anything promising an automatic sync
-    that cannot happen.
+    only when at least one wrapper wins on `PATH` and `host_management` is not `"none"`. With no
+    wrapper, the directory off `PATH`, or every wrapper shadowed, no launch can reach the
+    re-check, so the row that names that cause also says the key is on and cannot fire, rather
+    than anything promising an automatic sync that cannot happen. Under `"none"` the gate does
+    nothing even when a launch reaches it, since there is no render to re-check, so fixing
+    `PATH` would not make the key fire. The `host_management` row says that, and no `PATH` row
+    does.
 
   **One cause, one row** *(coined here, for [HE-D2](#he-d2))*: each warning in that section is
   one cause. Its headline names the cause, its note leads with the fix, and it then says what the

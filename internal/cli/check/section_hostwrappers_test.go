@@ -313,8 +313,8 @@ func TestHostManagementRowWarnsWhenTheApplyCannotRun(t *testing.T) {
 	if !strings.Contains(out, `host_management is "`+mode+`"`) {
 		t.Errorf("the section never names the declared ownership contract:\n%s", out)
 	}
-	// TWO warns, one per cause: this row, and the not-on-PATH one (which also carries the
-	// sync that cannot fire). The count is the assertion that the row is summary-COUNTED
+	// TWO warns, one per cause: this row (which also says host_apply_on_launch does nothing
+	// under none), and the not-on-PATH one. The count is the assertion that the row is summary-COUNTED
 	// rather than prose nobody tallies.
 	if r.warned != 2 {
 		t.Errorf("warned = %d, want 2 (host_management + not-on-PATH):\n%s", r.warned, out)
@@ -663,27 +663,44 @@ func TestHostWrappersSymlinkedPathSpellingWins(t *testing.T) {
 // ONE WARN, ON THE CAUSE'S ROW (HE-D2). The first fix gave the gate a [WARN] of its own that
 // pointed at "the rows below", so every one of these states counted its one cause twice. Now
 // exactly one row is a [WARN], its headline is the cause, and it is that row which says the key
-// is on and cannot fire — so deleting any cause row's gateClause call fails its case here.
+// is on and cannot fire — so deleting any cause row's gateClause call fails its case here. All
+// six call sites have a case: the four states above, the wrapper path being unreadable, and the
+// selected packs installing nothing (both added after a review found their calls deletable with
+// this test green).
 func TestHostApplyOnLaunchRowWarnsWhenNoWrapperCanReachTheGate(t *testing.T) {
 	cases := []struct {
-		name     string
-		wrappers []string
-		shadow   bool
-		onPath   bool
-		headline string // the cause row's headline, which must carry the gate sentence
+		name       string
+		wrappers   []string
+		shadow     bool
+		onPath     bool
+		unreadable bool   // the wrap path is a regular file, so it cannot be listed
+		noPrograms bool   // run the Packs section over a config selecting no pack
+		headline   string // the cause row's headline, which must carry the gate sentence
 	}{
-		{"no wrapper directory", nil, false, false,
+		{"no wrapper directory", nil, false, false, false, false,
 			"[WARN] host_wrappers is on but no wrapper directory exists yet"},
-		{"empty wrapper directory", []string{}, false, true,
+		{"empty wrapper directory", []string{}, false, true, false, false,
 			"[WARN] host_wrappers is on but no wrappers are generated"},
-		{"directory off PATH", []string{"claude"}, false, false,
+		{"directory off PATH", []string{"claude"}, false, false, false, false,
 			"[WARN] wrapper directory is not on PATH"},
-		{"every wrapper shadowed", []string{"claude"}, true, true,
+		{"every wrapper shadowed", []string{"claude"}, true, true, false, false,
 			"[WARN] 1 wrapper(s) are shadowed by an earlier PATH entry: claude"},
+		{"wrapper path unreadable", nil, false, true, true, false,
+			"[WARN] cannot read the wrapper directory"},
+		{"selected packs install nothing", nil, false, false, false, true,
+			"[WARN] host_wrappers is on but no selected pack installs a program"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			o, _, _ := hostManagementFixture(t, `{"host_wrappers": true}`, tc.wrappers, "")
+			if tc.unreadable {
+				if err := os.MkdirAll(filepath.Dir(wrapDirIn(t)), 0o755); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(wrapDirIn(t), []byte("not a directory\n"), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
 			pathEnv := t.TempDir()
 			if tc.shadow {
 				pathEnv = fakeProgram(t, "claude")
@@ -692,10 +709,16 @@ func TestHostApplyOnLaunchRowWarnsWhenNoWrapperCanReachTheGate(t *testing.T) {
 				pathEnv += string(os.PathListSeparator) + wrapDirIn(t)
 			}
 			setPath(o, pathEnv)
-			var buf bytes.Buffer
-			r := newReporter(&buf, false)
-			o.sectionHostWrappers(r)
-			out := buf.String()
+			var out string
+			var r *reporter
+			if tc.noPrograms {
+				r, out = runPacksThenWrappers(t, o)
+			} else {
+				var buf bytes.Buffer
+				r = newReporter(&buf, false)
+				o.sectionHostWrappers(r)
+				out = buf.String()
+			}
 			if r.warned != 1 {
 				t.Errorf("warned = %d, want 1 — one cause, one row:\n%s", r.warned, out)
 			}
@@ -755,8 +778,8 @@ func TestHostManagementNoneAbsorbsTheGenerationRows(t *testing.T) {
 		if strings.Contains(out, "no wrapper directory exists yet") {
 			t.Errorf("a generation row offered the apply that refuses:\n%s", out)
 		}
-		if !strings.Contains(out, "host_apply_on_launch is on but cannot fire") {
-			t.Errorf("the none row must carry the sync that cannot fire:\n%s", out)
+		if note := strings.Join(noteLinesAfter(t, out, `[WARN] host_management is "none"`), "\n"); !strings.Contains(note, noneGateSentence) {
+			t.Errorf("the none row must say the key does nothing under none:\n%s", out)
 		}
 	})
 	t.Run("a program added since", func(t *testing.T) {
@@ -773,11 +796,65 @@ func TestHostManagementNoneAbsorbsTheGenerationRows(t *testing.T) {
 		if strings.Contains(out, "have no wrapper: pi") {
 			t.Errorf("a completeness row offered the apply that refuses:\n%s", out)
 		}
-		// claude's wrapper wins, so the sync can fire, and nothing may say otherwise.
-		if strings.Contains(out, "cannot fire") {
-			t.Errorf("a reachable gate must not be reported as unable to fire:\n%s", out)
+		// claude's wrapper wins, but under none the launch gate is a no-op
+		// (hostapplygate.go), so the key does nothing, and the none row is where that is said.
+		if strings.Contains(out, "synchronizes host configuration automatically") {
+			t.Errorf("under none no launch synchronizes anything; the PASS must not print:\n%s", out)
+		}
+		if note := strings.Join(noteLinesAfter(t, out, `[WARN] host_management is "none"`), "\n"); !strings.Contains(note, noneGateSentence) {
+			t.Errorf("the none row must say the key does nothing under none:\n%s", out)
 		}
 	})
+}
+
+// noneGateSentence is what the host_management "none" row says about host_apply_on_launch.
+const noneGateSentence = `host_apply_on_launch is on but does nothing under "none": there is no render for a launch to re-check.`
+
+// TestHostManagementNoneIsWhyTheSyncCannotFire is review finding F3. Under "none" the launch
+// gate returns before it looks at anything (hostapplygate.go), so host_apply_on_launch can
+// never fire, whatever PATH says. The section used to PASS "synchronizes host configuration
+// automatically" with the wrappers on PATH, and with them off PATH it put "cannot fire" on the
+// not-on-PATH row, blaming PATH for what "none" causes. Fixing PATH fixes neither. The none
+// row is the cause, so it carries the sentence, and no PATH row does.
+func TestHostManagementNoneIsWhyTheSyncCannotFire(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		onPath bool
+		warned int
+	}{
+		{"wrappers on PATH", true, 1},
+		{"wrappers off PATH", false, 2}, // none, and the not-on-PATH row: two causes
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			o, _, _ := hostManagementFixture(t,
+				`{"host_wrappers": true, "host_management": "none"}`, []string{"claude"}, "")
+			pathEnv := t.TempDir()
+			if tc.onPath {
+				pathEnv = wrapDirIn(t) + string(os.PathListSeparator) + pathEnv
+			}
+			setPath(o, pathEnv)
+			var buf bytes.Buffer
+			r := newReporter(&buf, false)
+			o.sectionHostWrappers(r)
+			out := buf.String()
+			if r.warned != tc.warned {
+				t.Errorf("warned = %d, want %d:\n%s", r.warned, tc.warned, out)
+			}
+			if strings.Contains(out, "synchronizes host configuration automatically") {
+				t.Errorf("under none no launch synchronizes anything:\n%s", out)
+			}
+			note := strings.Join(noteLinesAfter(t, out, `[WARN] host_management is "none"`), "\n")
+			if !strings.Contains(note, noneGateSentence) {
+				t.Errorf("the none row must carry the key's state:\n%s", out)
+			}
+			if strings.Count(out, "host_apply_on_launch") != 1 {
+				t.Errorf("host_apply_on_launch must be named once, on the none row:\n%s", out)
+			}
+			if strings.Contains(out, "cannot fire") {
+				t.Errorf("no PATH row may blame PATH for what none causes:\n%s", out)
+			}
+		})
+	}
 }
 
 // noteLinesAfter returns the note lines ("-> …" and their continuations) printed under the
