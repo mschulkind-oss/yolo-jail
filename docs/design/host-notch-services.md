@@ -415,7 +415,7 @@ Two facts go with that choice:
 | Keep "no host-side bridge" and fix only the silence | **The floor, not the design.** It is [OQ-NC1](../plans/notch-convergence.md#OQ-NC1)'s option B, and ES-D25 on the sibling branch already builds the refusal half |
 | A long-lived host bridge on the manifest's ports | **Rejected.** It is the singleton [HD-R1](host-daemon-ownership.md#HD-R1) retires, it collides across launches, and its secret would have to outlive a launch ([OQ-HS3](#OQ-HS3)) |
 | Point a host agent at a running jail's bridge | **Rejected.** It needs a jail to be running, and it routes a host process's traffic through a jail |
-| Special-case the bridge in `yolo host`, the way `openaiauthhost.Prepare` special-cases `codex` and `pi` by name | **Rejected.** Core does not know what an agent is, and pack surfaces render with *"no switch on any tool name"* ([`AGENTS.md`](../../AGENTS.md)). The `host_daemon` slot already exists ([OQ-HS4](#OQ-HS4)) |
+| Special-case the bridge in `yolo host`, the way `openaiauthhost.Prepare` special-cased `codex` and `pi` by name until notch-convergence item 15 made it read the pack's declared prelaunch | **Rejected.** Core does not know what an agent is, and pack surfaces render with *"no switch on any tool name"* ([`AGENTS.md`](../../AGENTS.md)). The `host_daemon` slot already exists ([OQ-HS4](#OQ-HS4)) |
 | A per-launch port with no secret | **Rejected.** A loopback port can be scanned, forwarded jails reach it ([§3](#3-the-constraint-the-bridge-trusts-every-caller)), and NC-D2 rules the secret |
 | A Unix socket | **Rejected.** Every consumer is pointed at the bridge by an HTTP base URL |
 

@@ -603,6 +603,9 @@ type EnvFoldEntry struct {
 	// when it points at none. The credential gate withholds an entry whose daemon is not
 	// served at the notch it composes for (ScopeInput.Served).
 	ServedBy string
+	// Pack is the pack whose contribution the entry is, so a reader of the fold can say which
+	// pack declared a value: the host's OpenAI prelaunch keys its managed home on it.
+	Pack string
 }
 
 // EnvFold is the pack env fold ONE AGENT receives, as the ORDERED OPERATION SEQUENCE both
@@ -638,14 +641,14 @@ func EnvFold(packs []*Pack, profiles map[string]string, agent string) []EnvFoldE
 		static := p.Decl.EnvContributions()
 		servedBy := p.Decl.EnvServedBy()
 		for _, k := range sortedMapKeys(static) {
-			out = append(out, EnvFoldEntry{Key: k, Value: static[k], ServedBy: servedBy[k]})
+			out = append(out, EnvFoldEntry{Key: k, Value: static[k], ServedBy: servedBy[k], Pack: p.Name})
 		}
 		for _, gated := range p.Decl.ProfiledEnvContributions() {
 			if !gateFiresFor(packs, p, gated.Profile, profiles, agent) {
 				continue
 			}
 			for _, k := range sortedMapKeys(gated.Vars) {
-				out = append(out, EnvFoldEntry{Key: k, Value: gated.Vars[k], ServedBy: gated.ServedBy})
+				out = append(out, EnvFoldEntry{Key: k, Value: gated.Vars[k], ServedBy: gated.ServedBy, Pack: p.Name})
 			}
 		}
 	}

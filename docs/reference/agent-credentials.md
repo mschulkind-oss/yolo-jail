@@ -469,10 +469,16 @@ the canonical grant with a marker nothing can redeem. It does **not** refuse a l
 token: the thing being imported is the refresh token, and the broker refreshes a generation that
 is already due. Logout deletes the canonical state under the same lock and is idempotent.
 
-Managed host launches share the service too. `yolo host -- pi` gives Pi's provider extension the
-private host Unix socket. `yolo host -- codex` writes the native credential view under
-`<global storage>/host-agents/codex`, sets `CODEX_HOME` to that directory, and starts a dynamic
-loopback refresh adapter. Yolo supervises Codex and closes the adapter when Codex exits. The
+Managed host launches share the service too, on the same trigger a jail's launcher reads: the
+`YOLO_AUTH_PRELAUNCH_<BIN>_*` values the launched command's pack declares in its `env`, as the
+launch composes them ([notch convergence item 15](../plans/notch-convergence.md#tier-4--the-host-runs-the-jails-checks-p1-p4)).
+So `yolo host -p codex -- pi` gives Pi's provider extension the private host Unix socket, and a
+`yolo host -- pi` or `yolo host -p zai -- pi` does nothing of the kind, since pi's pack declares
+its view on the `codex` profile only. `yolo host -- codex` writes the native credential view under
+`<global storage>/host-agents/<the declaring pack>` (`codex` for the shipped pack), sets
+`CODEX_HOME` to that directory, and starts a dynamic loopback refresh adapter. With no login, the
+browser login starts only at a terminal; off one the launch says a login is required and runs
+without the credential, as a jail's launcher does. Yolo supervises Codex and closes the adapter when Codex exits. The
 generated Codex wrapper delegates to the same command. The managed home links `config.toml`,
 `AGENTS.md`, and `skills` from the ordinary host Codex home when present; its `auth.json`, session
 state, and cache stay separate. A direct `codex` launch and `~/.codex/auth.json` are untouched.

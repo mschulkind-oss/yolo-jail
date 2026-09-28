@@ -27,7 +27,7 @@ func TestPreparePiUsesHostSocketWithoutStartingAdapter(t *testing.T) {
 			return json.RawMessage(`{"logged_in":true}`), nil
 		},
 	}
-	launch, err := prepare(d, "pi", io.Discard)
+	launch, err := prepare(d, piPrelaunch, io.Discard)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -65,7 +65,7 @@ func TestManagedCodexHomeLeavesOrdinaryAuthUntouchedAndAdapterFollowsAgent(t *te
 		workspace: func() (string, error) { return filepath.Join(root, "work", "repo"), nil },
 		newToken:  func() (string, error) { return strings.Repeat("5a", 32), nil },
 	}
-	launch, err := prepare(d, "codex", io.Discard)
+	launch, err := prepare(d, codexPrelaunch, io.Discard)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -122,7 +122,7 @@ func TestPrepareStartsBrowserLoginOnlyWhenStatusRequiresIt(t *testing.T) {
 			return json.RawMessage(`{"ok":true}`), nil
 		},
 	}
-	if _, err := prepare(d, "pi", io.Discard); err != nil {
+	if _, err := prepare(d, piPrelaunch, io.Discard); err != nil {
 		t.Fatal(err)
 	}
 	if strings.Join(actions, ",") != "status,login" {
@@ -187,7 +187,7 @@ func TestTheHostCodexAdapterServesOnlyTheMarkerItWrote(t *testing.T) {
 		workspace: func() (string, error) { return filepath.Join(root, "work"), nil },
 		newToken:  func() (string, error) { return token, nil },
 	}
-	launch, err := prepare(d, "codex", io.Discard)
+	launch, err := prepare(d, codexPrelaunch, io.Discard)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -273,11 +273,11 @@ func TestConcurrentHostCodexLaunchesBothRefreshThroughTheSharedAuthFile(t *testi
 			return minted[mints-1], nil
 		},
 	}
-	first, err := prepare(d, "codex", io.Discard)
+	first, err := prepare(d, codexPrelaunch, io.Discard)
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, err := prepare(d, "codex", io.Discard)
+	second, err := prepare(d, codexPrelaunch, io.Discard)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -331,7 +331,7 @@ func TestConcurrentHostCodexLaunchesBothRefreshThroughTheSharedAuthFile(t *testi
 	}
 	// Once no session of the home is live, the next launch mints afresh: the token is shared by
 	// CONCURRENT launches, not kept forever.
-	third, err := prepare(d, "codex", io.Discard)
+	third, err := prepare(d, codexPrelaunch, io.Discard)
 	if err != nil {
 		t.Fatal(err)
 	}

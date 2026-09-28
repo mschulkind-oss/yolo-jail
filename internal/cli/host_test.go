@@ -1066,7 +1066,7 @@ func hostExecFallbackSetup(t *testing.T, scratch string) string {
 	t.Setenv("YOLO_ACCEPT_CONFIG_CHANGES", "1")
 	t.Chdir(mk("cwd"))
 	orig := prepareOpenAIAuthHost
-	prepareOpenAIAuthHost = func(string, io.Writer) (managedOpenAIHostLaunch, error) { return nil, nil }
+	prepareOpenAIAuthHost = func(hostPrelaunch, io.Writer) (managedOpenAIHostLaunch, error) { return nil, nil }
 	t.Cleanup(func() { prepareOpenAIAuthHost = orig })
 	t.Cleanup(packload.OverrideEmbeddedCacheDir(""))
 	if len(packload.Embedded()) == 0 {

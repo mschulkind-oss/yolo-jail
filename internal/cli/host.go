@@ -15,6 +15,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/hostwrap"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/openaiauthhost"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/render"
@@ -547,7 +548,10 @@ func hostExec(flagArgs, cmd []string, out, errw io.Writer, stdin io.Reader) int 
 	// argv[0] stays the name the user typed, not the resolved path: agents branch on it
 	// (usage text, `$0`), and handing them an absolute path changes what they print.
 	argv := injectHostLaunchFlags(launch.packs, append([]string{cmd[0]}, cmd[1:]...), errw)
-	managed, err := prepareOpenAIAuthHost(cmd[0], errw)
+	// THE DECLARATIVE OPENAI PRELAUNCH (notch-convergence item 15): what the launched command's
+	// pack declares, from the composition, logging in only where a human can answer the browser
+	// login. It used to switch on the command's name and log in regardless of profile or terminal.
+	managed, err := prepareOpenAIAuthHost(launch.prelaunch(hostGateCanPrompt()), errw)
 	if err != nil {
 		fmt.Fprintf(errw, "yolo host: prepare shared OpenAI authentication: %v\n", err)
 		return 1
@@ -689,8 +693,38 @@ type hostComposition struct {
 	selection hostPackSet
 	// origins is, index for index with vars, the delivery channel each var came from (the
 	// packload.From* phrases, fromRemoval for an unset), for the env-override check's lookup
-	// (envOverrideFindings), which names where a delivered variable came from.
-	origins []string
+	// (envOverrideFindings), which names where a delivered variable came from. originPacks is,
+	// index for index, the pack whose `env` contribution the var is, "" for any other source.
+	origins, originPacks []string
+}
+
+// prelaunch is the declarative OpenAI prelaunch this launch's composition carries for its
+// command (docs/plans/notch-convergence.md item 15, row C6): the YOLO_AUTH_PRELAUNCH_<BIN>_*
+// values a jail's launcher reads, read here from the same composed variables the agent is
+// handed, so the prelaunch fires exactly when the pack's `env` delivers it. pi's pack gates its
+// view on the codex profile, so `yolo host -p zai -- pi` declares none and starts no login.
+// Pack is the pack whose contribution set the view flag (or the login), which keys the managed
+// home. interactive is whether a human can answer a login.
+func (c *hostComposition) prelaunch(interactive bool) openaiauthhost.Prelaunch {
+	p := openaiauthhost.Prelaunch{Bin: c.agent, Interactive: interactive}
+	flagVar := openaiauthhost.PrelaunchVar(c.agent, "FLAG")
+	loginVar := openaiauthhost.PrelaunchVar(c.agent, "LOGIN")
+	for i, v := range c.vars {
+		value := v.Value
+		if v.Unset {
+			value = ""
+		}
+		switch v.Key {
+		case flagVar:
+			p.Flag, p.Pack = value, c.originPacks[i]
+		case loginVar:
+			p.Login = value != ""
+			if p.Flag == "" {
+				p.Pack = c.originPacks[i]
+			}
+		}
+	}
+	return p
 }
 
 // fromRemoval marks a var in hostComposition.origins that UNSETS its name: an env_sources null.
@@ -1469,6 +1503,7 @@ func composeHostVarsGranting(cfg *jsonx.OrderedMap, workspace, agent, profile st
 	for _, e := range scope.FoldFor(agent) {
 		vars = append(vars, agentenv.Var{Key: e.Key, Value: e.Value})
 		c.origins = append(c.origins, packload.FromPackEnv)
+		c.originPacks = append(c.originPacks, e.Pack)
 	}
 
 	// (2) the secret channel, as the gate delivers it to this agent: every unclaimed entry
@@ -1479,6 +1514,7 @@ func composeHostVarsGranting(cfg *jsonx.OrderedMap, workspace, agent, profile st
 		if s, ok := v.(string); ok {
 			vars = append(vars, agentenv.Var{Key: k, Value: s})
 			c.origins = append(c.origins, packload.FromEnvSources)
+			c.originPacks = append(c.originPacks, "")
 		}
 	}
 
@@ -1487,6 +1523,7 @@ func composeHostVarsGranting(cfg *jsonx.OrderedMap, workspace, agent, profile st
 		vars = append(vars, delivery.Shape...)
 		for range delivery.Shape {
 			c.origins = append(c.origins, packload.FromProfileEnv)
+			c.originPacks = append(c.originPacks, "")
 		}
 	}
 
@@ -1499,6 +1536,7 @@ func composeHostVarsGranting(cfg *jsonx.OrderedMap, workspace, agent, profile st
 	for _, k := range removals {
 		vars = append(vars, agentenv.Var{Key: k, Unset: true})
 		c.origins = append(c.origins, fromRemoval)
+		c.originPacks = append(c.originPacks, "")
 	}
 	c.vars = vars
 	return c

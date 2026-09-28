@@ -35,7 +35,7 @@ func (f *fakeManagedHostLaunch) Run(_ string, _ []string, env []string, _ io.Rea
 func TestHostExecUsesManagedOpenAIAuthLaunch(t *testing.T) {
 	original := prepareOpenAIAuthHost
 	fake := &fakeManagedHostLaunch{}
-	prepareOpenAIAuthHost = func(string, io.Writer) (managedOpenAIHostLaunch, error) { return fake, nil }
+	prepareOpenAIAuthHost = func(hostPrelaunch, io.Writer) (managedOpenAIHostLaunch, error) { return fake, nil }
 	t.Cleanup(func() { prepareOpenAIAuthHost = original })
 	t.Setenv("YOLO_ACCEPT_CONFIG_CHANGES", "1")
 	// `true` resolves before preparation, while the fake Run prevents syscall.Exec.

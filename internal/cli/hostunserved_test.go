@@ -54,7 +54,7 @@ func TestAHostLaunchThatServesThePointerItselfDoesNotNameIt(t *testing.T) {
 		hostUnservedHome(t, `{"packs": ["codex"]}`)
 		t.Setenv("YOLO_ACCEPT_CONFIG_CHANGES", "1")
 		original := prepareOpenAIAuthHost
-		prepareOpenAIAuthHost = func(string, io.Writer) (managedOpenAIHostLaunch, error) {
+		prepareOpenAIAuthHost = func(hostPrelaunch, io.Writer) (managedOpenAIHostLaunch, error) {
 			return setsVarManagedLaunch{serves: serves}, nil
 		}
 		var errw bytes.Buffer

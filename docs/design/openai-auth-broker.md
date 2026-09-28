@@ -57,7 +57,10 @@ One successful login becomes available to Codex and Pi in every workspace on
 that machine. Logout is explicit and machine-wide, and the command must say that
 before deleting the grant. A new login replaces the old grant atomically.
 
-Host sharing is automatic for `yolo host -- codex` and generated host wrappers.
+Host sharing is automatic for `yolo host -- codex` and generated host wrappers, on
+the prelaunch the command's pack declares, the one a jail's launcher reads
+([notch convergence item 15](../plans/notch-convergence.md#tier-4--the-host-runs-the-jails-checks-p1-p4));
+the host starts the browser login only at a terminal.
 That environment selects a yolo-managed Codex home, links the ordinary host
 configuration and skills into it, and routes refresh through the same service.
 Yolo never rewrites the user's ordinary `~/.codex/auth.json` or silently changes

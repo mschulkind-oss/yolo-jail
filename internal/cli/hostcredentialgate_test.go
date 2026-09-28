@@ -106,7 +106,7 @@ func hostGateHome(t *testing.T, cfg string, shell map[string]string) string {
 	t.Chdir(t.TempDir())
 	userCfg(t, home, cfg)
 	orig := prepareOpenAIAuthHost
-	prepareOpenAIAuthHost = func(string, io.Writer) (managedOpenAIHostLaunch, error) { return nil, nil }
+	prepareOpenAIAuthHost = func(hostPrelaunch, io.Writer) (managedOpenAIHostLaunch, error) { return nil, nil }
 	t.Cleanup(func() { prepareOpenAIAuthHost = orig })
 	return home
 }
