@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg/manifest"
 	"github.com/mschulkind-oss/yolo-jail/internal/render"
 )
 
@@ -117,6 +118,10 @@ type Env struct {
 	// cmd.Wait() reapers in runtime.go / system_boot.go and the reachability probes, and
 	// probeService takes a serviceEndpoint and a deadline, touching no Env at all.
 	warnedOnce map[string]struct{}
+	// listSkipped records each surface the render loop's `whenListed` gate left unwritten
+	// this render, so `yolo check`'s read-back (EmbeddedPackSurfaces) asks the loop what it
+	// did instead of deciding the condition a second way. Sequential, like warnedOnce.
+	listSkipped map[manifest.SurfaceKey]bool
 	// progressCfg is the rendering of the boot's slow steps (Env.progress). The zero
 	// value is the line-oriented one with the default timings; a test sets
 	// Immediate to see a step that finishes at once.

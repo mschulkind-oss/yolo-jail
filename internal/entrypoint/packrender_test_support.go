@@ -121,7 +121,9 @@ func EmbeddedPackNames() []string {
 }
 
 // ProbeSurface is one declared surface reduced to what a dry-run validator needs: where
-// the file is, how to parse it, and whether yolo writes it at all.
+// the file is, how to parse it, and whether yolo writes it at all. Unrendered covers both a
+// surface declared `unrendered` and one the render loop's `whenListed` gate skipped on this
+// Env (Env.listSkipped), so it is meaningful only after the render ran on e.
 type ProbeSurface struct {
 	Label      string
 	Path       string
@@ -148,7 +150,7 @@ func EmbeddedPackSurfaces(e *Env) []ProbeSurface {
 				Label:      s.Agent + "/" + s.Name,
 				Path:       expandHomePath(e, s.Path),
 				Codec:      s.Codec,
-				Unrendered: s.ResolvedMode() == manifest.ModeUnrendered,
+				Unrendered: s.ResolvedMode() == manifest.ModeUnrendered || e.listSkipped[s.Key()],
 			})
 		}
 	}

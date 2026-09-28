@@ -426,6 +426,10 @@ func renderPlannedSurface(e *Env, pl surfacePlan, src jailLayerSource) error {
 	// A note and not a warning: an unselected extension is the ordinary state of most jails.
 	if reason := pl.listUnmet(e); reason != "" {
 		e.note(reason)
+		if e.listSkipped == nil {
+			e.listSkipped = map[manifest.SurfaceKey]bool{}
+		}
+		e.listSkipped[surface.Key()] = true
 		retireUnselectedRender(e, surface)
 		return nil
 	}
