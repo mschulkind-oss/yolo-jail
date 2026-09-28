@@ -335,9 +335,15 @@ func TestProvidersRenderInTheAgentsOwnVocabulary(t *testing.T) {
 			t.Fatalf("the bridged launch carried no caller token: %q\n%s", token, r.stdout)
 		}
 		r.stdout = before
+		// The bridge's adapter answers at its served address: the declared 8214 on a bridged
+		// jail, a picked port on a nested one (servedURLProblem), read from the same session.
+		base := kvLine(r.stdout, "COPILOT_PROVIDER_BASE_URL")
+		if p := servedURLProblem(base, "127.0.0.1:8214", "", inContainer()); p != "" {
+			t.Errorf("COPILOT_PROVIDER_BASE_URL is %s", p)
+		}
 		want := "COPILOT_MODEL=qwen-3.8-27b\n" +
 			"COPILOT_PROVIDER_API_KEY=" + token + "\n" +
-			"COPILOT_PROVIDER_BASE_URL=http://127.0.0.1:8214\n" +
+			"COPILOT_PROVIDER_BASE_URL=" + base + "\n" +
 			"COPILOT_PROVIDER_TYPE=anthropic\n"
 		if got := r.stdout; got != want {
 			t.Errorf("copilot's BYOK env =\n%s\nwant exactly the composed block (the "+

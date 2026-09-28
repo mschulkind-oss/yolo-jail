@@ -8,7 +8,8 @@ package integration
 // its own half and none of them together:
 //
 //	a claude-shaped curl to $ANTHROPIC_BASE_URL/v1/messages (in the jail)
-//	  → wire-bridge's openai-responses route on 127.0.0.1:8215 (in the jail)
+//	  → wire-bridge's openai-responses route at its served address (in the jail): the declared
+//	    127.0.0.1:8215 on a bridged jail, a picked port on a nested one
 //	  → the OpenAI credential service's loopback-TLS front (host) for an access view
 //	  → a Responses request at the stub upstream (host), bearing that view
 //	  → an Anthropic-shaped answer back.
@@ -36,7 +37,6 @@ import (
 	"strings"
 	"sync"
 	"testing"
-	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
 	"github.com/mschulkind-oss/yolo-jail/internal/openaiauth"
@@ -59,18 +59,10 @@ func TestWireBridgeTranslatesClaudeCodexToResponses(t *testing.T) {
 			rt, goruntime.GOOS)
 	}
 	// A nested jail shares the launching jail's loopback (podman-in-podman forces --net=host),
-	// so a bridge already on the Codex adapter's port there would answer instead of the nested
-	// one's. Codex's own refresh adapter on 1460, which TestOpenAIAuthBrokerRoundTripsAnImportedToken
-	// skips for, is not on this route: the bridge asks the launch's published credential front
-	// directly, and the forged token arriving at the stub proves which broker answered.
-	if inContainer() {
-		if c, err := net.DialTimeout("tcp", "127.0.0.1:8215", time.Second); err == nil {
-			_ = c.Close()
-			t.Skip("127.0.0.1:8215 already answers on this loopback, and a nested jail shares it: " +
-				"the launching jail's own bridge would answer instead of the nested one's. ci.yml's " +
-				"integration job runs this test (AGENTS.md's first carve-out)")
-		}
-	}
+	// where a bridge may already hold the Codex adapter's declared 8215. This test used to skip
+	// there. Since served addresses (docs/plans/notch-convergence.md NC-D41) a shared-namespace
+	// launch serves the route on a port it picked and composes claude's ANTHROPIC_BASE_URL from
+	// it, so the nested run reaches its own bridge, asserted below (servedURLProblem).
 
 	// The host-side upstream, bound before the launch so the implicit forward has something
 	// behind it.
@@ -153,8 +145,8 @@ true`
 	if got := kvLine(r.stdout, "TOKEN"); got != "matches-channel" {
 		t.Errorf("claude's ANTHROPIC_AUTH_TOKEN is not the launch's caller token (TOKEN=%q)", got)
 	}
-	if got := kvLine(r.stdout, "BASE_URL"); got != "http://127.0.0.1:8215" {
-		t.Errorf("claude's ANTHROPIC_BASE_URL = %q, want the Codex adapter's address", got)
+	if p := servedURLProblem(kvLine(r.stdout, "BASE_URL"), "127.0.0.1:8215", "", inContainer()); p != "" {
+		t.Errorf("claude's ANTHROPIC_BASE_URL is %s, want the Codex adapter's served address", p)
 	}
 	respRaw, _ := os.ReadFile(filepath.Join(dir, "wirebridge-codex-resp.json"))
 	if got := kvLine(r.stdout, "MSGS"); got != "200" {
