@@ -532,6 +532,15 @@ func TestConcurrentJailsRefreshTheSharedStoreOnce(t *testing.T) {
 	}
 }
 
+// probeBeat is the heartbeat interval the two heartbeat cells bake in place of
+// REFRESH_HEARTBEAT's minute, and probeBeatSeconds is the same interval spelled for sleep(1),
+// which takes a fractional operand on GNU coreutils and on macOS alike. The cells wait in
+// multiples of it, so each wait still spans a fixed number of beats however short a beat is.
+const (
+	probeBeat        = 200 * time.Millisecond
+	probeBeatSeconds = "0.2"
+)
+
 // TestALiveRefreshKeepsItsLockFresh: the stale break reads only the lock's age, so a LIVE
 // refresh that runs longer than STALE_LOCK must keep its lock young, or a second launcher
 // breaks it and two refreshes write one store. On the container backends `timeout 60` keeps
@@ -541,7 +550,7 @@ func TestConcurrentJailsRefreshTheSharedStoreOnce(t *testing.T) {
 // minutes; the heartbeat must bring it back, and B must then see it HELD, not stale.
 func TestALiveRefreshKeepsItsLockFresh(t *testing.T) {
 	a, b := newSharedStorePair(t)
-	a.heartbeat, b.heartbeat = "1", "1"
+	a.heartbeat, b.heartbeat = probeBeatSeconds, probeBeatSeconds
 	held := startHeldRefresh(t, a)
 
 	backdatePath(t, a.lockPath(), 11*time.Minute)
@@ -565,7 +574,8 @@ func TestALiveRefreshKeepsItsLockFresh(t *testing.T) {
 	// The heartbeat stops with the refresh. It must not outlive the release and touch the
 	// lock path afterwards: a plain `touch` there would CREATE a file, and a file at the
 	// lock path reads as "cannot take the lock" to every launch from then on.
-	time.Sleep(2 * time.Second)
+	// Five beats, in each of which a heartbeat that outlived the release would touch it.
+	time.Sleep(5 * probeBeat)
 	if _, err := os.Lstat(a.lockPath()); !os.IsNotExist(err) {
 		t.Errorf("something recreated the lock path after its release (err=%v)", err)
 	}
@@ -578,7 +588,7 @@ func TestALiveRefreshKeepsItsLockFresh(t *testing.T) {
 // can orphan its child, and the lock belongs to the launcher, not to the child.
 func TestADeadLaunchersLockStillAges(t *testing.T) {
 	a := newPrelaunchProbe(t, false)
-	a.heartbeat = "1"
+	a.heartbeat = probeBeatSeconds
 	held := startHeldRefresh(t, a)
 	if err := held.cmd.Process.Kill(); err != nil {
 		t.Fatal(err)
@@ -589,11 +599,11 @@ func TestADeadLaunchersLockStillAges(t *testing.T) {
 	if _, err := held.cmd.Process.Wait(); err != nil {
 		t.Fatal(err)
 	}
-	// Two beats for the heartbeat to notice its launcher is gone, then age the lock and
-	// give it two more beats in which it must NOT be touched.
-	time.Sleep(2 * time.Second)
+	// Five beats for the heartbeat to notice its launcher is gone, then age the lock and
+	// give it five more beats in which it must NOT be touched.
+	time.Sleep(5 * probeBeat)
 	backdatePath(t, a.lockPath(), 11*time.Minute)
-	time.Sleep(2 * time.Second)
+	time.Sleep(5 * probeBeat)
 	if age := lockAge(t, a.lockPath()); age < 10*time.Minute {
 		t.Errorf("a dead launcher's lock was kept fresh (age %s), so it can never go stale", age)
 	}
