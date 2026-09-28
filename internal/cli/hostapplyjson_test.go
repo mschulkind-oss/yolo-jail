@@ -116,9 +116,9 @@ func TestHostApplyJSONCarriesEveryLossWithItsClassAndRemedy(t *testing.T) {
 	if !slices.Contains(dropped.Items, "tavily") {
 		t.Errorf("the group does not NAME the entry that would go: %+v", dropped.Items)
 	}
-	if dropped.Key != mcpEntryRemedyKey {
-		t.Errorf("group key = %q, want the config key the losses share (%q)",
-			dropped.Key, mcpEntryRemedyKey)
+	if dropped.Key != mcpEntryRemedyKey(home) {
+		t.Errorf("group key = %q, want the file the losses share a fix in (%q)",
+			dropped.Key, mcpEntryRemedyKey(home))
 	}
 	if doc.Counts.EntriesDropped != 1 {
 		t.Errorf("entries_dropped = %d, want 1", doc.Counts.EntriesDropped)

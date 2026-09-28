@@ -34,10 +34,10 @@ func TestHostApplyGroupsOneEntryLossAcrossAgentsUnderOneRemedy(t *testing.T) {
 		t.Fatalf("fixture bug: %d per-surface loss lines, want %d\n%s", got, surfaces, report)
 	}
 	groups := hostApplyRemedyGroups(survey, home, false)
-	entryGroups := groupsWithKey(groups, mcpEntryRemedyKey)
+	entryGroups := groupsWithKey(groups, mcpEntryRemedyKey(home))
 	if len(entryGroups) != 1 {
-		t.Fatalf("one server dropped from %d surfaces is ONE group keyed on the config key "+
-			"that keeps it; got %d groups: %+v\n%s", surfaces, len(entryGroups), groups, report)
+		t.Fatalf("one server dropped from %d surfaces is ONE group keyed on the file that "+
+			"keeps it; got %d groups: %+v\n%s", surfaces, len(entryGroups), groups, report)
 	}
 	remedy := mcpEntryRemedy(home)
 	if n := strings.Count(report, remedy); n != 1 {
@@ -45,14 +45,15 @@ func TestHostApplyGroupsOneEntryLossAcrossAgentsUnderOneRemedy(t *testing.T) {
 			"%d times:\n%s", n, report)
 	}
 	// P2: the remedy names the FILE the declaration goes in and the SCOPE it covers. The
-	// per-surface copy this replaced had neither, and the scope is the half that turns three
-	// problems into one.
-	if !strings.Contains(remedy, filepath.Join(home, ".config", "yolo-jail", "config.jsonc")) {
+	// per-surface copy this replaced had neither. The scope is per surface at this notch
+	// (HC-D2): one file to edit is what makes three problems one group, and the declaration is
+	// a config-overlay per surface, since `mcp_servers` reaches no host file.
+	if !strings.Contains(remedy, filepath.Join(home, ".config", "yolo-jail", "local", "pack.json")) {
 		t.Errorf("the remedy must name the file the declaration goes in: %q", remedy)
 	}
-	if !strings.Contains(remedy, "every agent") {
-		t.Errorf("the remedy must name the scope it covers — one entry reaching every agent "+
-			"is why this is one group: %q", remedy)
+	if !strings.Contains(remedy, "config-overlay") || !strings.Contains(remedy, "each agent surface") {
+		t.Errorf("the remedy must name the declaration and its scope — a config-overlay for "+
+			"each agent surface: %q", remedy)
 	}
 	// the remedy contract: grouping compresses the LINES, never the SET.
 	for _, name := range survey.DroppedEntryNames() {

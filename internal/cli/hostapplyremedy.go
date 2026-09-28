@@ -16,10 +16,13 @@ package cli
 // THE MCP REMEDY HAD THREE COPIES, not two, and the third is the reason a "unify the two" fix
 // would have left the defect standing: the per-surface `⚠` (apply.go), the not-confirmed abort
 // message (apply.go), and confirmHostLosses' own trailer. The three had drifted — the
-// per-surface copy omitted *"reaching every agent"*, which is the two words that turn three
-// fixes into one — so mcpEntryRemedy is now the one string all three read, and it names the
-// FILE the declaration goes in as well as the scope it covers (P2: copy-paste form, and the
-// scope the remedy covers).
+// per-surface copy omitted *"reaching every agent"* — so mcpEntryRemedy is now the one string
+// all three read, and it names the FILE the declaration goes in as well as the scope it covers
+// (P2: copy-paste form, and the scope the remedy covers). That scope was itself wrong at this
+// notch: "one `mcp_servers` entry reaches every agent" is a jail's behavior, and here it left
+// the entry dropped. The remedy names a `config-overlay` per surface instead (HC-D2,
+// docs/design/host-computed-layer.md §7); what keeps it one group is that every such overlay
+// goes in one file.
 //
 // A GROUP WITH NO REMEDY SAYS SO (P2). A replaced scalar has no fix at this notch — a
 // config overlay folds BELOW the owner's managed layer, which still wins — and a dropped
@@ -255,7 +258,7 @@ func droppedEntryGroup(s *hostApplySurvey, home string, write bool) (remedyGroup
 	}
 	return remedyGroup{
 		Class: remedyClassEntryDropped,
-		Key:   mcpEntryRemedyKey,
+		Key:   mcpEntryRemedyKey(home),
 		Headline: fmt.Sprintf("%d of your %s %s from %d %s", len(names),
 			plural(len(names), "entry", "entries"), verb, surfaces,
 			plural(surfaces, "agent surface", "agent surfaces")),
@@ -404,23 +407,50 @@ const (
 	remedyClassCommentDropped = "comment_dropped"
 )
 
-// mcpEntryRemedyKey is the config key that keeps a hand-added MCP server through a wholesale
-// table regeneration. It is the GROUP KEY as well as the text, which is the point of the remedy
-// contract's "group by remedy key": the key is what makes three agents' worth of losses one
-// fix.
-const mcpEntryRemedyKey = "mcp_servers"
+// mcpEntryRemedyKey is the file whose declaration keeps a hand-added MCP server through a host
+// apply: the conventional local pack's manifest, in the home this apply renders into. It is the
+// GROUP KEY as well as the file the remedy names, which is the point of the remedy contract's
+// "group by remedy key": one file to edit is what makes three agents' worth of losses one group,
+// even though the edit is one contribution per surface.
+//
+// It was the `mcp_servers` config key until HC-D2 (docs/design/host-computed-layer.md §7):
+// that key reaches every agent in a JAIL, and no file at all at the host, where `yolo host
+// apply` runs no derive for content.
+func mcpEntryRemedyKey(home string) string { return localPackManifestPathIn(home) }
 
 // mcpEntryRemedy is THE remedy for a dropped named entry, in one place. Three copies of it used
 // to sit in apply.go and they had drifted (see the file header); every caller now reads this.
 //
-// It names the FILE and the SCOPE, which is what P2 asks of a remedy and what the per-surface
-// copy did not have: "declare the entry under `mcp_servers`" left the reader to find out where
-// that goes and whether they would have to repeat it per agent. The answer to the second is the
-// whole reason this is one group — one declaration reaches every agent — and it is the half the
-// drifted copy had dropped.
+// It names the FILE, the DECLARATION and the SCOPE, which is what P2 asks of a remedy. The
+// declaration is a `config-overlay` per agent surface (HC-D2), because at the host notch that
+// is the one thing that reaches an MCP table: an overlay folds into the surface's wholesale
+// table layer (entrypoint.hostTableLayer), while the user's `mcp_servers` feeds only a jail's
+// derive. So the scope is stated the other way round from the copy this replaced, which
+// promised "one entry there reaches every agent" — true in a jail, and here advice that left the
+// entry dropped (measured by the design's research pass). The example spells codex's table key;
+// the sentence names the other two, since each agent's file keeps its servers under its own.
+//
+// It ends without a full stop: two callers embed it mid-sentence.
 func mcpEntryRemedy(home string) string {
-	return fmt.Sprintf("declare them under `%s` in %s — one entry there reaches every agent",
-		mcpEntryRemedyKey, userConfigPathIn(home))
+	return fmt.Sprintf("add a `config-overlay` for each agent surface to the `contributes` list "+
+		"in %s, for example "+
+		`{"kind": "config-overlay", "surface": "codex/config", "config": {"managed": `+
+		`{"mcp_servers": {"<name>": {…}}}}}`+
+		" — one per surface, under the key that surface's file keeps its servers in "+
+		"(`mcpServers`, `mcp_servers` or `mcp`). An `mcp_servers` entry in %s reaches jails "+
+		"only, not the files this command writes", localPackManifestPathIn(home),
+		userConfigPathIn(home))
+}
+
+// localPackManifestPathIn is the conventional local pack's pack.json inside the home THIS
+// APPLY is rendering into, for userConfigPathIn's reason: paths.LocalPackDir reads $HOME, and a
+// report about a home it was handed must name a path in that home.
+func localPackManifestPathIn(home string) string {
+	rel, err := filepath.Rel(paths.Home(), paths.LocalPackDir())
+	if err != nil || rel == "" || rel == "." || strings.HasPrefix(rel, "..") {
+		return filepath.Join(home, ".config", "yolo-jail", "local", "pack.json")
+	}
+	return filepath.Join(home, rel, "pack.json")
 }
 
 // userConfigPathIn is the user config file inside the home THIS APPLY is rendering into.

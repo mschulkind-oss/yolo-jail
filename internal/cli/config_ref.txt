@@ -1665,6 +1665,11 @@
       • opencode: written to ~/.config/opencode/opencode.json (mcp key, native schema).
       • codex: written to ~/.codex/config.toml (\\[mcp_servers.<name>] tables).
       • pi: no native MCP support (skipped).
+    AT THE HOST NOTCH none of this is written: `yolo host apply` renders no MCP
+    entry from this key.  To give a host agent a server, add a `config-overlay`
+    for that agent's surface to your local pack (~/.config/yolo-jail/local/pack.json),
+    under the key its file keeps servers in — `yolo host apply` names the file and
+    the form when it would drop one.
     Example:
       {"cerebras-mcp": {
         "command": "npx", "args": ["-y", "cerebras-code-mcp"],
