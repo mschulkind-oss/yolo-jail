@@ -46,6 +46,14 @@ package jailcontent
 // written, are refused like one that could not be read. The only error this layer returns is a
 // failure to create its scratch root, and nothing it made outlives the call that made it.
 //
+// # The cap: what one launch copies is bounded, whatever the links multiply
+//
+// Links cost nothing to commit, and a directory is copied once per skill that links it, so the
+// scratch copy has a per-launch cap in bytes and in entries (maxWorkspaceSkillBytes and
+// maxWorkspaceSkillEntries, OQ-WS7). Every write is charged before it is made. A skill whose
+// copy would pass either is refused whole and named; the skills copied before it stay. Every
+// destination copies from scratch, so the cap bounds what each of them receives too.
+//
 // # What else is never read
 //
 // A path that resolves under `.git` (never content) or `.yolo` (yolo's own state, and reading it
@@ -187,14 +195,44 @@ type WorkspaceSkillRefusal struct {
 // leaves every such prefix room on both systems; a skill deeper than that is not a skill.
 const maxSkillPath = 512
 
+// The per-launch cap on the workspace layer's scratch copy (OQ-WS7, ruled 2026-09-28, WS-D18):
+// what the layer writes into scratch, kept or discarded, across every skill of one launch.
+// Symlinks cost nothing to commit, so without it a clone whose skills each link one directory
+// makes the host copy that directory once per skill, and again into every destination (R10).
+//
+// Set where no real skill set meets it. Measured 2026-09-28, regular-file bytes with links
+// followed and entries counted as files plus directories: yolo's built-in skills 21,770 bytes
+// in 5 entries; two personal skill packs 217,524/29 and 199,410/22; one user's composed
+// ~/.claude/skills 437,859/55; the largest one plugin's skills dir in Claude's official
+// marketplace (plugin-dev) 488,003/76; and all eighteen of that marketplace's plugin skills
+// dirs taken as ONE set, which no repo carries, 1,389,298 bytes in 210 entries. The caps sit
+// about 24× and 19× above that last figure, leaving room for a vendored tool of a few megabytes.
+const (
+	maxWorkspaceSkillBytes   = 32 << 20 // 32 MiB
+	maxWorkspaceSkillEntries = 4096     // files and directories
+)
+
+// workspaceSkillCaps is one launch's cap, in bytes and entries.
+type workspaceSkillCaps struct{ bytes, entries int64 }
+
+// workspaceCaps is the cap stageWorkspaceLayer enforces: the constants above. A variable only
+// so a test can cross it without writing tens of megabytes.
+var workspaceCaps = workspaceSkillCaps{bytes: maxWorkspaceSkillBytes, entries: maxWorkspaceSkillEntries}
+
 // workspaceLayer is the workspace's skills, copied ONCE per launch out of the confined tree into
 // a private scratch tree, and then handed to each destination from there. Once, so a refusal is
 // reported once and every destination receives the same bytes even if the workspace changes
 // mid-launch; from scratch, because scratch is yolo's own tree and holds no links at all.
 type workspaceLayer struct {
-	tree    *confinedTree
-	dir     string // the scratch tree; "" when nothing was staged
-	staged  int    // skills copied into it so far, each into a directory named by its number
+	tree   *confinedTree
+	dir    string // the scratch tree; "" when nothing was staged
+	staged int    // skills copied into it so far, each into a directory named by its number
+	// caps is this launch's cap, and spent what the layer has written into scratch against it:
+	// every file's bytes and every file and directory made, kept or discarded. It only grows:
+	// a skill refused for crossing the cap keeps what it had copied charged, so a clone of many
+	// skills each just past the cap cannot make the host write the cap once per skill.
+	caps    workspaceSkillCaps
+	spent   workspaceSkillCaps
 	sources []*wsSource
 	skills  []*wsSkill // the winners, in source order then name order
 	// resolved caches resolveQuiet by workspace-relative path.
@@ -269,6 +307,7 @@ func stageWorkspaceLayer(ws *WorkspaceSkills) (l *workspaceLayer, err error) {
 		heldBack:   map[string]*WorkspaceSkillHeldBack{},
 		competing:  map[string]*WorkspaceSkillCompeting{},
 		delivered:  map[*wsSource]*deliveryAcc{},
+		caps:       workspaceCaps,
 	}
 	if ws == nil || ws.Root == "" || len(ws.Dirs) == 0 {
 		return l, nil
@@ -366,7 +405,19 @@ func stageWorkspaceLayer(ws *WorkspaceSkills) (l *workspaceLayer, err error) {
 // of it could be staged — every entry refused, or none there — so there is no skill to deliver
 // and the mirror line must not claim one. The refusals were already named; a later source's
 // skill of this name may still win.
+//
+// STAGED, THEN COMMITTED, against the layer's cap (OQ-WS7): the skill is copied into a directory
+// of its own and becomes part of the layer only once the whole of it is there. When the next
+// write would pass the cap, the walk stops there, the partial copy is deleted and the skill is
+// refused by name, so a skill is delivered whole or not at all and the skills before it stay.
 func (l *workspaceLayer) stageSkill(src *wsSource, name, real, entry, display string) *wsSkill {
+	start := l.spent
+	walk := &skillWalk{tree: l.tree, layer: l, linked: map[string]bool{},
+		skillPrefix: len(src.rel) + 1}
+	if !walk.charge(1, 0) {
+		l.refuse(display, l.capReason(walk.crossed, start))
+		return nil
+	}
 	l.staged++
 	stored := filepath.Join(l.dir, fmt.Sprint(l.staged))
 	if err := os.Mkdir(stored, 0o755); err != nil {
@@ -382,13 +433,16 @@ func (l *workspaceLayer) stageSkill(src *wsSource, name, real, entry, display st
 		_ = os.RemoveAll(stored)
 		return nil
 	}
-	walk := &skillWalk{tree: l.tree, layer: l, linked: map[string]bool{},
-		skillPrefix: len(src.rel) + 1}
 	if real != entry {
 		walk.linked[real] = true
 	}
 	walk.copyDir(fd, real, display, stored)
 	_ = unix.Close(fd)
+	if walk.crossed != nil {
+		_ = os.RemoveAll(stored)
+		l.refuse(display, l.capReason(walk.crossed, start))
+		return nil
+	}
 	if !holdsAFile(stored) {
 		_ = os.RemoveAll(stored)
 		return nil
@@ -673,18 +727,86 @@ func sortedSet(m map[string]bool) []string {
 // is refused, which is what keeps a tree of links fanning into one directory from copying it
 // exponentially many times. That bounds a skill's copy by (its links) × (the largest tree one of
 // them reaches), not by the workspace's size: N skills each linking one directory copy it N
-// times, and every destination that receives them gets that again. No byte budget bounds it
-// (docs/design/workspace-skills.md, OQ-WS7).
+// times, and every destination that receives them gets that again. What bounds THAT is the
+// layer's per-launch cap (OQ-WS7): every write is charged first, and the walk stops at the one
+// that would pass it.
 type skillWalk struct {
 	tree   *confinedTree
 	layer  *workspaceLayer
 	linked map[string]bool
+	// crossed is the write that would have passed the layer's cap; once set, nothing more of
+	// this skill is read or written, and stageSkill refuses the skill whole.
+	crossed *capCrossing
 	// stack is the real directories on the current path, however each was reached: a link to
 	// one of them, or to anything containing one, is a cycle.
 	stack []string
 	// skillPrefix is the length of "<source dir>/" in a display path, so what follows it is the
 	// entry's path inside its skill — the part every destination has to hold.
 	skillPrefix int
+}
+
+// capCrossing is the write that would have passed the cap: which of the two, and what that
+// write alone would have added to it.
+type capCrossing struct {
+	entries bool  // the entry cap; otherwise the byte cap
+	pending int64 // the entries or bytes of the write that would have crossed
+}
+
+// charge spends entries and bytes of the layer's cap on one write this walk is about to make,
+// and reports whether it may. When it may not, nothing is spent, the walk records the crossing
+// and every later charge of the walk fails too.
+func (w *skillWalk) charge(entries, bytes int64) bool {
+	if w.crossed != nil {
+		return false
+	}
+	l := w.layer
+	switch {
+	case l.spent.entries+entries > l.caps.entries:
+		w.crossed = &capCrossing{entries: true, pending: entries}
+		return false
+	case l.spent.bytes+bytes > l.caps.bytes:
+		w.crossed = &capCrossing{pending: bytes}
+		return false
+	}
+	l.spent.entries += entries
+	l.spent.bytes += bytes
+	return true
+}
+
+// capReason is the refusal of a skill whose copy crossed the cap, start being what the layer had
+// spent before the skill began. What the skill "adds" is what it had copied when the walk
+// stopped plus the write that would have crossed, a lower bound: the walk stops there on purpose,
+// so the refusal never costs what the cap exists to prevent.
+func (l *workspaceLayer) capReason(c *capCrossing, start workspaceSkillCaps) string {
+	if c.entries {
+		added := l.spent.entries - start.entries + c.pending
+		return fmt.Sprintf("copying it would pass this launch's cap of %d files and directories "+
+			"on workspace skills: it adds at least %d to the %d already copied, so none of it is "+
+			"delivered", l.caps.entries, added, start.entries)
+	}
+	added := l.spent.bytes - start.bytes + c.pending
+	return fmt.Sprintf("copying it would pass this launch's cap of %s on workspace skills: it "+
+		"adds at least %s to the %s already copied, so none of it is delivered",
+		byteSize(l.caps.bytes), byteSize(added), byteSize(start.bytes))
+}
+
+// byteSize is n in the largest binary unit it fills, "32 MiB" or "1.5 KiB" — exact for a whole
+// number of units, so a cap reads as the constant that set it.
+func byteSize(n int64) string {
+	const unit = 1024
+	if n < unit {
+		return fmt.Sprintf("%d bytes", n)
+	}
+	div, exp := int64(unit), 0
+	for m := n / unit; m >= unit; m /= unit {
+		div *= unit
+		exp++
+	}
+	suffix := []string{"KiB", "MiB", "GiB", "TiB", "PiB", "EiB"}[exp]
+	if n%div == 0 {
+		return fmt.Sprintf("%d %s", n/div, suffix)
+	}
+	return fmt.Sprintf("%.1f %s", float64(n)/float64(div), suffix)
 }
 
 // closesACycle reports whether a link to dir would re-enter the current path.
@@ -726,6 +848,9 @@ func (w *skillWalk) copyDir(fd int, real, display, dst string) {
 		return
 	}
 	for _, name := range names {
+		if w.crossed != nil {
+			return // the cap was reached: the skill is refused whole, so reading on is waste
+		}
 		if name == ".git" {
 			continue // a vendored checkout's metadata, never content
 		}
@@ -799,6 +924,9 @@ func (w *skillWalk) copyEntry(parent int, base, real, display, target string, vi
 			return
 		}
 		defer unix.Close(sub)
+		if !w.charge(1, 0) {
+			return
+		}
 		if err := os.Mkdir(target, 0o755); err != nil {
 			w.layer.refuse(display, stageFailure(err))
 			return
@@ -808,7 +936,7 @@ func (w *skillWalk) copyEntry(parent int, base, real, display, target string, vi
 		if testHookBeforeRead != nil {
 			testHookBeforeRead(real)
 		}
-		if reason := copyFileAt(parent, base, target); reason != "" {
+		if reason := copyFileAt(parent, base, target, w.charge); reason != "" {
 			w.layer.refuse(display, reason)
 		}
 	case unix.S_IFLNK:
@@ -1113,13 +1241,18 @@ func (t *confinedTree) copyReal(real, dst string) string {
 		return readFailure(err)
 	}
 	defer unix.Close(parent)
-	return copyFileAt(parent, path.Base(real), dst)
+	return copyFileAt(parent, path.Base(real), dst, func(int64, int64) bool { return true })
 }
 
 // copyFileAt copies the regular file base, under the directory open at parent, into dst,
 // carrying its execute bit. A non-empty reason is a refusal of this file: it could not be read,
 // is not a regular file, or its copy could not be written — and then no partial copy remains.
-func copyFileAt(parent int, base, dst string) string {
+//
+// charge is asked for one entry and the file's size once the file is known to be regular and
+// before a byte of it is read; when it declines, nothing is written and the reason is "", the
+// caller having recorded why. A file that grows past the size it was charged for is refused as
+// changed while it was being read, so no copy is ever larger than its charge.
+func copyFileAt(parent int, base, dst string, charge func(entries, bytes int64) bool) string {
 	fd, err := openat(parent, base, fileOpenFlags)
 	if err != nil {
 		return readFailure(err)
@@ -1133,7 +1266,10 @@ func copyFileAt(parent int, base, dst string) string {
 	if !fi.Mode().IsRegular() {
 		return "not a regular file or directory"
 	}
-	readErr, writeErr := writeCopy(in, dst, fi.Mode())
+	if !charge(1, fi.Size()) {
+		return ""
+	}
+	readErr, writeErr := writeCopy(&boundedReader{r: in, left: fi.Size()}, dst, fi.Mode())
 	switch {
 	case readErr != nil:
 		return readFailure(readErr)
@@ -1216,6 +1352,28 @@ func copyPlainTree(src, dst string) error {
 		}
 	}
 	return nil
+}
+
+// boundedReader reads at most left bytes of r and fails with errChanged if r holds more: a file
+// that grew after it was charged for its size.
+type boundedReader struct {
+	r    io.Reader
+	left int64
+}
+
+func (b *boundedReader) Read(p []byte) (int, error) {
+	if b.left < 0 {
+		return 0, errChanged
+	}
+	if int64(len(p)) > b.left+1 {
+		p = p[:b.left+1] // one byte past the bound, to see whether there is one
+	}
+	n, err := b.r.Read(p)
+	b.left -= int64(n)
+	if b.left < 0 {
+		return n, errChanged
+	}
+	return n, err
 }
 
 // trackedReader remembers the reader's own failure, so a copy can tell a failed read from a
