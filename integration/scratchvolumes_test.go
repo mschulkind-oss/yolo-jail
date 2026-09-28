@@ -28,6 +28,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/cli/run"
 	naming "github.com/mschulkind-oss/yolo-jail/internal/runtime"
 )
 
@@ -113,6 +114,11 @@ echo "EXIT_AT=$(date +%s.%N)"`
 			t.Fatalf("scratch volumes still present 2 min after the quit: %v\nhousekeeping.log:\n%s", left, log)
 		}
 		time.Sleep(time.Second)
+	}
+	// The volumes going is not the remover being done: its log line follows the last
+	// `volume rm`. Wait for the remover itself (its in-flight lock) before reading it.
+	if err := run.WaitForScratchRemovers(dir, detachedWriterWait); err != nil {
+		t.Fatal(err)
 	}
 	log, _ := os.ReadFile(filepath.Join(dir, ".yolo", "housekeeping.log"))
 	if !strings.Contains(string(log), "scratch: removed 4 volume(s)") {
