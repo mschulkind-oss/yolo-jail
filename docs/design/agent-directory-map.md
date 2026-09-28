@@ -1139,6 +1139,7 @@ this doc's survey ([Appendix A](#appendix-a-evidence)).
   `packs/claude` and `packs/agy` each declare one such hook; `packs/pi` declares none.
 - `WritePiAuth` breaks `auth.json.lock` after 10 s (`piLockStale` in [`pi.go`](../../internal/openauthclient/pi.go)),
   while pi's `acquireLockAsync` uses a 30 s stale window (pi 0.87.1 `dist/core/auth-storage.js`).
+  `576c44d0` fixed this after the survey ([Appendix B](#appendix-b-defects-the-surveys-found-that-the-map-does-not-fix)).
 - The host refuses hooks (`fieldset.go`'s `KindHook` reason), and the launcher prunes only
   `~/.local/share/$BIN/versions` (`_prune_versions` in [`shims.go`](../../internal/entrypoint/shims.go)).
   The managed codex home is `<state>/host-agents/<key>` (`prepare`, `prepareCodexHome` and
@@ -1175,7 +1176,7 @@ The map makes each of these visible. Fixing them belongs elsewhere:
 | Found | Where it belongs |
 | :--- | :--- |
 | yolo deletes pi's `mcp.json` at every jail boot, though pi-subagents reads it | ✅ **Fixed** in `66602a60`: the pi pack no longer retires `mcp.json`, and every shipped `retireOnFirstRender` name must carry a `yolo-` prefix (`TestShippedRetireNamesAreYolosOwn`), since the delete never reads the bytes. A copy yolo 0.10.0 wrote now stays until the user deletes it |
-| `WritePiAuth`'s 10 s lock break against pi's 30 s stale window can lose an OAuth rotation | a fix in [`pi.go`](../../internal/openauthclient/pi.go), before pi's map reads that neighborhood |
+| `WritePiAuth`'s 10 s lock break against pi's 30 s stale window can lose an OAuth rotation | **Fixed in `576c44d0`.** [`pi.go`](../../internal/openauthclient/pi.go) now uses pi's rule: it breaks `auth.json.lock` only after 30 s without an mtime refresh, and waits at most 32 s for a live holder |
 | The launcher's keep-two prune never sees codex's releases | [`shims.go`](../../internal/entrypoint/shims.go) `_prune_versions` |
 | The managed codex home drops codex's `config.toml` edits and leaves stale links | [`openai-auth-broker.md`](openai-auth-broker.md) |
 | The claude pack does not retire `yolo-managed-mcp-servers.json`, though codex and opencode do | `packs/claude` `retireOnFirstRender` |

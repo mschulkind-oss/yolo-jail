@@ -18,6 +18,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   extension keep, such as the MCP servers a subagent's `mcp:` tools are looked up in. yolo's
   own MCP servers stay in `mcp-adapter.json`. A `mcp.json` an older yolo wrote is now left in
   place, so delete it yourself if you no longer want it.
+- Starting pi on the `codex` profile while another pi session was refreshing its OpenAI login
+  could lose the refreshed login: yolo broke pi's lock on its credential file after 10 seconds,
+  and the two wrote at once. yolo now follows pi's own rule, treating the lock as abandoned only
+  after 30 seconds without a refresh, and waits for pi to finish. If pi still holds the lock after
+  about half a minute, yolo gives up and says that a running pi holds it.
 
 ## [0.11.0] - 2026-09-28
 
