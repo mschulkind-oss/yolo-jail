@@ -755,11 +755,13 @@ listeners. These are the facts that survive:
 - **No host-side bridge, as a v1 deferral.** The bridge exists only in-jail. The 2026-09-04
   design scoped that to v1 ("`yolo host -- claude` gets no bridged routing in v1"), and the
   words "in v1" were dropped when the text moved here; no ruling rules a host bridge out.
-  Two facts a design reopening it has to answer: the bridge takes unauthenticated requests because the jail is its trust boundary
-  ([WB-D4](#wb-d4)), and claude sends its own Claude login token to any
-  `ANTHROPIC_BASE_URL` when no `ANTHROPIC_AUTH_TOKEN` is set
-  ([agent-auth-modes.md §8.1](../design/agent-auth-modes.md#81-measured-2026-09-02-the-subscription-bearer-follows-anthropic_base_url)), so a fixed port on the host's
-  shared loopback is not a safe address as it stands. The code has no jail dependencies, which
+  [`host-notch-services.md`](../design/host-notch-services.md) reopens it. Of the two facts that
+  design has to answer, caller authentication ([WB-D18](#wb-d18)) now settles the first — every
+  caller carries a per-launch token, so the bridge no longer trusts whatever reaches its port —
+  and it settles the second for every bridged client, since each one is handed that token as its
+  auth (for claude, `ANTHROPIC_AUTH_TOKEN`) and so no longer sends its own login to the bridge
+  ([agent-auth-modes.md §8.1](../design/agent-auth-modes.md#81-measured-2026-09-02-the-subscription-bearer-follows-anthropic_base_url)).
+  What stays open is where a host bridge listens and how long it lives. The code has no jail dependencies, which
   is what keeps the door open for a host notch to run the same subcommand. <a id="at-the-host-notch"></a>**Until then `yolo host` composes none of
   its addresses** (2026-09-27, [ES-D18](../design/credential-sources-separation.md#10-decision-ledger)).
   A user can still select the pack there, by listing `wire-bridge` in `packs`, because the host
