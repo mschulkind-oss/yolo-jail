@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/ioprio"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholedecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
@@ -1974,6 +1975,15 @@ func validateResources(config *jsonx.OrderedMap, errs *[]string) {
 			}
 		} else {
 			add(errs, "config.resources.pids_limit: expected a positive integer")
+		}
+	}
+	// The disk I/O priority, through the SAME reader the launcher, the briefing, the
+	// macos-user line and `yolo check` use, so the shorthand cannot be accepted here and
+	// read differently there (docs/design/io-priority.md §4, IO-D3).
+	if ioV, _ := resources.Get("io"); ioV != nil {
+		_, problems := ioprio.Parse(ioV, "config.resources.io")
+		for _, p := range problems {
+			add(errs, p)
 		}
 	}
 }

@@ -219,7 +219,9 @@ var (
 	// snake; the consuming derive translates to its agent's spelling (pi's cacheRead/...).
 	knownModelCostKeys = set("input", "output", "cache_read", "cache_write")
 	knownDeviceKeys    = set("usb", "description", "cgroup_rule")
-	knownResourcesKeys = set("memory", "cpus", "pids_limit")
+	// `io` is the disk I/O priority, read by internal/ioprio's Parse in validation and by
+	// every reader after it (docs/design/io-priority.md §4).
+	knownResourcesKeys = set("memory", "cpus", "pids_limit", "io")
 	// knownHostServiceKeys is the INLINE loophole entry's key census. It must
 	// cover every key the loader reads: `description` and `doctor_cmd` are read
 	// by discover.go's synthesizeConfigLoopholes, and `jail_endpoint` is the

@@ -1784,7 +1784,8 @@
 
   [bold]resources[/bold] (object): Container resource limits.
     Sets hard cgroup constraints on the jail container via podman flags.
-    These limits are enforced by the kernel — the jail cannot exceed them.
+    memory, cpus and pids_limit are enforced by the kernel — the jail cannot exceed them.
+    io is not a limit, and is described on its own below.
     • [bold]memory[/bold] (string): Maximum memory. Format: number + suffix (b/k/m/g).
       Examples: "8g" (8 GB), "512m" (512 MB), "2g".
       Maps to --memory flag. OOM-killed if exceeded.
@@ -1794,6 +1795,23 @@
     • [bold]pids_limit[/bold] (integer): Maximum number of processes. Default: 32768 (Podman's built-in default of 2048 is too low for agent workloads).
       Prevents fork bombs and runaway process creation.
       Maps to --pids-limit flag.
+    • [bold]io[/bold] (string|object): Disk I/O priority for every process in the jail, so a
+      build yields the disk to your desktop when both want it. Default: "normal".
+      "low" is best effort, level 7; "idle" is the idle class; "normal" sets nothing and
+      keeps the priority the launching process has. "io": "low" is shorthand for
+      "io": {"priority": "low"}, and priority is the only key the object takes.
+      Examples: "io": "low" (the one to start with), "io": "idle" (a build can crawl
+      while your desktop reads the disk).
+      ADVISORY, NOT A LIMIT: any process can raise its own priority again, and the
+      priority reaches reads and synchronous writes but not buffered writeback, which
+      is most of a build's output. Only the bfq and mq-deadline disk schedulers honor
+      it, and mq-deadline honors "idle" only; kyber and none, the usual NVMe default,
+      ignore it. The launch prints one line when the disk under the workspace ignores
+      the value, and `yolo check` grades that disk and names the host change.
+      Applied on podman on Linux, nested jails included. Not applied on Apple
+      Container or podman on macOS, where the workspace reaches the Mac over VirtioFS,
+      which carries no priority, nor yet on macos-user; the launch says so on all
+      three. Frozen at the fresh launch, like every resources key.
 
     [bold]In-jail sub-process limits (cgroup v2 delegation)[/bold]:
     A host-side cgroup delegate runs alongside the container and performs all

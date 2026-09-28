@@ -195,7 +195,7 @@ var inheritCensus = map[string]keyDisposition{
 	// inner launcher BAKES them. So they are the nested file's core and are absent from
 	// preflight, where they would only invite a judgement about a host image.
 	"packages":  {nested: true, reason: "baked into the image an inner launcher builds"},
-	"resources": {nested: true, reason: "memory/cpu limits an inner launcher applies to its container"},
+	"resources": {nested: true, reason: "memory/cpu limits and the disk I/O priority an inner launcher applies to its container"},
 	// `perf_logging` is the persistent form of --timing (docs/reference/perf-logging.md).
 	// NESTED, because an inner launcher IS a launcher: the preference is "time the
 	// launches I make", and a nested launch is one of them — which is also how the
