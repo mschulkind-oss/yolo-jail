@@ -331,7 +331,21 @@ test-fast:
 # on one day, and the next reader would have no way to tell a stale number from a
 # regression.
 #
+# WHY GOFLAGS=-trimpath, AND WHY ONLY HERE. Without it the checkout's absolute path
+# is part of every local and vendored package's build-cache key, so a checkout at a
+# NEW path — every agent worktree, every fresh clone — re-type-checks the whole tree
+# for all four passes even when the same content was linted a minute earlier from
+# another path. With it the key is the content alone and a new path reuses that
+# work. The diagnostics are unchanged: vet and staticcheck both print positions
+# relative to the working directory either way (checked by planting one finding of
+# each and diffing the two outputs). It is set on THIS recipe only, through `[env]`,
+# because `go test -trimpath` breaks tests that locate the repo through their own
+# source path (runtime.Caller), so it must never reach `test-fast`. `[env]` REPLACES
+# any GOFLAGS the caller exported, for these four passes only. `[env]` needs just >= 1.47
+# (an older just refuses to parse this file, loudly); ci.yml installs the latest release.
+#
 # Run linter (Go: vet + staticcheck), once per GOOS this tree targets.
+[env("GOFLAGS", "-trimpath")]
 lint:
     GOOS=linux go vet ./...
     GOOS=linux staticcheck ./...
@@ -367,8 +381,18 @@ format:
 # Quality checks (interactive use)
 check: format lint test-fast
 
-# The landing gate CI also runs (no formatting — just verify and test). Run it once before landing,
-# not on every commit: there is no pre-commit hook, by ruling (AGENTS.md, Workflow step 4).
+# `[parallel]` runs the two dependencies at once: neither writes anything the other reads, so
+# the gate takes as long as the slower of them instead of their sum. A failure in either still
+# fails the recipe with that dependency's exit code. Their output interleaves; each line is
+# still whole, and the failing command is named in just's own `error: recipe ... failed` line.
+# `check` stays serial on purpose: its `format` rewrites the files `lint` and `test-fast` read.
+# `[parallel]` needs just >= 1.42, below the 1.47 floor `lint`'s `[env]` already sets.
+#
+# Run it once before landing, not on every commit: there is no pre-commit hook, by ruling
+# (AGENTS.md, Workflow step 4).
+#
+# The landing gate CI also runs (no formatting — just verify and test).
+[parallel]
 check-ci: lint-ci test-fast
 
 # Full quality checks including container integration tests
