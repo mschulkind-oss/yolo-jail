@@ -246,8 +246,13 @@ whole repository moved to a different absolute path, which is what the host sees
 default (SOURCED [git-worktree](https://git-scm.com/docs/git-worktree), git-config). The branch's
 commits live in the main repository's refs and survive a pruned registration; the worktree's
 uncommitted files survive on disk but lose their index and `HEAD` (INFERRED).
-`--relative-paths` sets `extensions.relativeWorktrees` (MEASURED), and a git older than 2.48
-refuses a repository carrying that extension (SOURCED). On macos-user and at the host notch the
+`--relative-paths` sets `extensions.relativeWorktrees` and raises `core.repositoryformatversion`
+from 0 to 1, and git 2.47.2 then refuses `status`, `log` and even the `git config --unset` that
+would undo it, on *"unknown repository extension found: relativeworktrees"*. Removing the
+worktree leaves the extension set, and `worktree.useRelativePaths=true` sets it on the next plain
+`git worktree add` (all MEASURED, [Appendix A](#appendix-a--the-measured-runs)). Made from a
+container jail, that config is the user's own `.git/config`, reached through the live workspace
+bind. On macos-user and at the host notch the
 workspace is at its real path, so this whole class of fault does not arise there (INFERRED from
 [§2.2](#22-apple-container-and-macos-user-sourced)).
 
@@ -466,7 +471,10 @@ tools that do not read `.gitignore`:
 
 - `git clean -x` and `-X` delete ignored files: `git clean -fdx` removes `.yolo/home` and every
   absolute-path durable worktree the host cannot resolve ([§2.6](#26-a-worktree-records-absolute-paths-measured)).
-  This is true of `.yolo/home` today.
+  This is true of `.yolo/home` today. Only a clean that also descends into untracked directories
+  (`-d`) reaches `.yolo`: `git clean -nx` and `-nX` listed nothing there, and `-ndx` and `-ndX`
+  listed `.yolo/` (MEASURED, [Appendix A](#appendix-a--the-measured-runs)). So the briefing and
+  `yolo check` name `git clean -fdx` (or `-fdX`) ([DS-D31](#DS-D31)).
 - a walk told to ignore nothing: `fd -HI`, `rg -uu`, `find`, `du`;
 - file watchers and indexers that use their own exclude lists rather than `.gitignore` (an
   inotify watcher, an IDE's file watcher), and backup or sync tools (`rsync`, Time Machine)
@@ -481,15 +489,20 @@ file (MEASURED in the scratch repository); a no-ignore walk still descends it.
 - A hand-made worktree goes to `$YOLO_DURABLE_DIR/worktrees/<task>`, where `<task>` names the
   work (`land`, `fix-footer`), not a timestamp, made with **`git worktree add --lock`**
   ([DS-D10](#DS-D10)). The lock keeps a host-side `git worktree prune` or `git gc` from dropping
-  a registration whose `/workspace/…` path the host cannot resolve. Removing a locked worktree
+  a registration whose `/workspace/…` path the host cannot resolve, and on the container
+  backends the briefing says so beside the command; on macos-user, where the host and the jail
+  spell the workspace alike, it asks for the lock without that reason ([DS-D31](#DS-D31)).
+  Removing a locked worktree
   takes `git worktree unlock` first, then `git worktree remove`, which still refuses a tree with
   uncommitted changes. `git worktree remove -f -f` overrides the lock and that refusal both, so
   the briefing names it only as the form that discards changes ([DS-D28](#DS-D28)).
-- **`--relative-paths` is the user's opt-in, never yolo's default.** It fixes both links and
-  `git clean` as well ([§2.6](#26-a-worktree-records-absolute-paths-measured)), but it sets a
-  repository extension that makes a git older than 2.48 refuse the whole repository, and a Mac's
-  bundled git can be older. The briefing names it as the choice for a repository whose every git
-  is 2.48 or newer.
+- **`--relative-paths` is the user's opt-in, never yolo's default, and the briefing does not
+  name it** ([DS-D31](#DS-D31)). It fixes both links and `git clean` as well
+  ([§2.6](#26-a-worktree-records-absolute-paths-measured)), but it sets a repository extension
+  that makes a git older than 2.48 refuse the whole repository, and a Mac's bundled git can be
+  older. An agent in a jail cannot see which gits the user runs on the host, the extension lands
+  in the user's own `.git/config`, removing the worktree does not clear it, and the older git's
+  own `git config --unset` is refused too, so no wording makes it safe to offer an agent.
 - A tool that already has a durable default keeps it: `.claude/worktrees/`, `~/.codex/worktrees`,
   `.pi/worktrees`, `~/.local/share/opencode/worktree` ([DS-D5](#DS-D5)). The briefing does not
   offer any of them as the pattern for hand-made worktrees.
@@ -692,10 +705,10 @@ beside it."*
 
 **Built on 2026-09-29:** steps 3 and 4 whole, step 5's pi extension, and step 6's host
 sentence and macos-user wording ([DS-D18](#DS-D18) to [DS-D23](#DS-D23)), then the review's
-fixes the same day ([DS-D24](#DS-D24) to [DS-D30](#DS-D30)). The section now leads with the
-durable dir. What remains is step 5's claude and pi pack prose and step 6's
-Apple Container wording, which today is the podman section with the whole home in the
-per-workspace class and the per-launch set in RAM.
+fixes the same day ([DS-D24](#DS-D24) to [DS-D30](#DS-D30)) and a wording pass after three
+fresh readers ([DS-D31](#DS-D31)). The section now leads with the durable dir. What remains is
+step 5's claude and pi pack prose and step 6's Apple Container wording, which today is the
+podman section with the whole home in the per-workspace class and the per-launch set in RAM.
 
 What I would build, in order, each step shippable alone.
 
@@ -804,6 +817,7 @@ found only the per-launch scratch volumes. All three questions were ruled in rev
 | <a id="DS-D28"></a>[`DS-D28`](#12-decision-ledger) | *Implementation decision,* [DS-D10](#DS-D10), from review. The briefing and the check tell a reader to remove a durable worktree with `git worktree unlock <path> && git worktree remove <path>`, which refuses while it holds uncommitted changes, and name `git worktree remove -f -f <path>` only as the form that discards them: the doubled `-f` overrides the dirty-tree refusal as well as the lock | 2026-09-29 | [§5.3](#53-the-worktree-convention) | `05884466` |
 | <a id="DS-D29"></a>[`DS-D29`](#12-decision-ledger) | *Implementation decision,* amending [DS-D18](#DS-D18)'s wording after an agent chose `/tmp` because its harness named it, and three fresh readers asked for layouts and cache guidance. The lead says **your work goes in** the dir, allows any layout with worktrees in `worktrees/<task>`, says yolo never deletes anything there, who ignores it (yolo's own `.yolo/.gitignore`) and that the user sees it on the host; one sentence says a harness's `/tmp` instruction does not outrank it; `git -C` carries its reason. The per-workspace bullet calls the dir the one place for work and the home dirs never for it, and says the class is lost only with `.yolo` (`git clean -x`); the machine bullet says tool caches, pip's for one, belong in `~/.cache` | 2026-09-29 | [§5.1](#51-the-storage-class-map-and-the-briefing-section) | `05884466` |
 | <a id="DS-D30"></a>[`DS-D30`](#12-decision-ledger) | *Implementation decision,* [§5.6](#56-failure-paths), from review. An attach to a jail started without a durable dir names a cause still present (a covering `workspace_readonly` entry, a link at `.yolo`) through `durable.Check`, which makes nothing, else says neutrally that a fresh launch tries again. macos-user's `--dry-run` makes no directory: it checks, and describes the path a real launch would export | 2026-09-29 | [§5.6](#56-failure-paths) | `05884466` |
+| <a id="DS-D31"></a>[`DS-D31`](#12-decision-ledger) | *Implementation decision,* amending [DS-D29](#DS-D29)'s wording and [DS-D10](#DS-D10)'s `--relative-paths` clause, after three fresh readers found the durable dir's lifetime said three ways (*"yolo never deletes anything there"*, *"lost only if the workspace's `.yolo` is deleted"*, and *"survives everything"* for the workspace around it). The lead says it once: the dir survives restarts and yolo never deletes it; it lives in `.yolo`, hidden from git and seen by the user, so a `git clean -fdx` (or `-fdX`) in the workspace deletes it, and the agent never runs one there. `-fdx`, not the `-x` first proposed: without `-d` a clean does not reach `.yolo` ([§5.2](#52-the-durable-dir), MEASURED). The per-workspace bullet drops its lifetime clause, the workspace bullet says it outlives every jail, and `yolo check`'s footer says what deletes the dir, the check's reader being the one at the host's terminal. The harness sentence and the no-durable-dir line say *"survive a restart"*, not *"outlive this session"* or *"next session"*: a new session in the same launch still sees `/tmp`. `--lock` says why, *"git on the host sees this tree at another path"*, only where the jail and the host spell the workspace differently, so not on macos-user. The briefing names no `--relative-paths` ([§5.3](#53-the-worktree-convention), MEASURED [§2.6](#26-a-worktree-records-absolute-paths-measured)) | 2026-09-29 | [§5.1](#51-the-storage-class-map-and-the-briefing-section), [§5.3](#53-the-worktree-convention) | `b5352e6f` |
 
 ## 13. The neighbors
 
@@ -848,10 +862,28 @@ In this podman jail, 2026-09-28; the mount table at `06f194b3`, the rest at `c8f
   printed its branch and inside `abs` printed *"fatal: not a git repository"*; `git clean -ndx`
   printed *"Would skip repository"* for `rel` and *"Would remove"* for `abs`, `locked`,
   `.yolo/home` and `.yolo/.gitignore`.
+- **The extension run** ([§2.6](#26-a-worktree-records-absolute-paths-measured)), 2026-09-29, in
+  this podman jail with git 2.55.0 and nixpkgs 24.11's `gitMinimal` 2.47.2, in a scratch
+  repository. Before, `git config --list --local` showed `core.repositoryformatversion=0` and no
+  extension; after `git worktree add --relative-paths`, `core.repositoryformatversion=1` and
+  `extensions.relativeworktrees=true`. Both stayed after `git worktree remove` and
+  `git worktree prune`. In a second repository, `git config worktree.useRelativePaths true`
+  alone changed neither, and a plain `git worktree add` then set both. In the first repository,
+  its worktree already removed, git 2.47.2's `status` and `log` exited 128 with *"fatal: unknown repository extension found:
+  relativeworktrees"*, and `config --local --unset extensions.relativeworktrees` exited 128 with
+  the same text as a warning and *"fatal: --local can only be used inside a git repository"*; in
+  the second, `status` exited 128 as the first's did. (git 2.47.2 had to run with
+  `LD_LIBRARY_PATH` unset; with the jail's value it crashed before reading the repository.)
+- **The clean run** ([§5.2](#52-the-durable-dir)), the same day, git 2.55.0: a scratch
+  repository with `.yolo/.gitignore` holding `*` and a file at `.yolo/durable/notes/n.md`.
+  `git clean -nx`, `-nX` and `-nd` printed nothing; `-ndx` and `-ndX` printed
+  *"Would remove .yolo/"*.
 - **The walk run** ([§5.2](#52-the-durable-dir)): a scratch repository with a file under
   `.yolo/durable/worktrees/land/src/` and one under `src/`. `rg -l`, `rg -l -g '!*_test.go'`,
   `rg -l --hidden`, `rg -l -g '*.go'`, `fd` and `fd -H` listed only `src/a.go`; `fd -HI` listed
   both; `git status --porcelain --ignored` printed `!! .yolo/`.
 - **Not measured here**: macos-user's `/tmp` cleanup, Apple Container, the host notch, codex's
-  and opencode's worktree paths in source, any copilot, agy or omp worktree tool, and each IDE
-  watcher's and backup tool's treatment of `.gitignore`.
+  and opencode's worktree paths in source, any copilot, agy or omp worktree tool, each IDE
+  watcher's and backup tool's treatment of `.gitignore`, a Mac's bundled git against
+  `extensions.relativeWorktrees`, and how git implementations other than git itself (libgit2,
+  go-git, JGit) treat that extension.
