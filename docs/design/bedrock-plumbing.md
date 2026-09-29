@@ -20,8 +20,13 @@ agent can read it.
   Converse client and a bridge route ([OQ-BR5](#OQ-BR5)). A launch refuses when no region is
   visible ([OQ-BR6](#OQ-BR6)).
 - BUILT: the D1 fix (`f7b14308`, 2026-09-15): the codex derive now writes codex's own
-  credential field, `env_key`. The no-region refusal, [OQ-BR6](#OQ-BR6) (`ba8bd3f2`,
-  2026-09-29), at every notch. Nothing else of this design. The credential half,
+  credential field, `env_key`. The no-region refusal, [OQ-BR6](#OQ-BR6) (`360da999`,
+  2026-09-29, with the review's fixes `3a355d2a`, `e61d73dc`, `b8ceec6d` and `0e9032e7`), at
+  every notch, keyed on the provider's platform and asked of each agent. Build step 2's marker
+  ([OQ-BR2](providers-and-profiles-redesign.md#OQ-BR2), `aa372392`): packs/claude's `bedrock`
+  declares `"platform": "aws-bedrock"`. Step 6's D5 half
+  ([OQ-BR8](providers-and-profiles-redesign.md#OQ-BR8), `80cd8459`): claude's switch and
+  aws-auth's pointer key on that platform. Nothing else of this design. The credential half,
   [`sso-backed-bedrock.md`](sso-backed-bedrock.md), is built.
 - MEASURED: yolo's code at `f491d192` and `5e8e64f6` (2026-09-24). The codex, opencode and pi
   Bedrock clients were read statically from their shipped artifacts and never run
@@ -29,9 +34,13 @@ agent can read it.
 - UNMEASURED: no request has reached Bedrock from any agent, through the bridge, or with any of
   the three credentials.
 
-**Needs your ruling:** none. [OQ-BR9](#OQ-BR9) and [OQ-BR1](#OQ-BR1) were ruled 2026-09-29: one
-`bedrock` pack pulls in every model family, and `-p bedrock` uses each agent's own Bedrock client,
-with `bedrock-bridge` forcing the wire bridge.
+**Needs your ruling:** one re-ask. [OQ-BR6](#OQ-BR6)'s premise called an `~/.aws/config` region
+"unproven"; a review found Claude Code's own resolver reads it (confirmed statically from 2.1.285).
+So at `yolo host`, where that file is claude's own, should yolo count the region of the effective
+`AWS_PROFILE` there? Until you rule, the refusal says "yolo does not read it" and the hatch is the
+way through ([BR-D5](#BR-D5)). [OQ-BR9](#OQ-BR9) and [OQ-BR1](#OQ-BR1) were ruled 2026-09-29:
+one `bedrock` pack pulls in every model family, and `-p bedrock` uses each agent's own Bedrock
+client, with `bedrock-bridge` forcing the wire bridge.
 
 ## The Bedrock and provider design set
 
@@ -43,9 +52,9 @@ names what is open there.
 | Order | Doc | Its one question | Ruled |
 | :--- | :--- | :--- | :--- |
 | 1 | [`providers.md`](../reference/providers.md#deselection-clear-what-yolo-wrote-keep-what-the-user-wrote) | what happens to the model id yolo wrote when you drop a profile ([OQ-PSW2](../reference/providers.md#oq-psw2), [OQ-PSW4](../reference/providers.md#oq-psw4)) | 2026-09-25 |
-| 2 | this doc | one Bedrock provider, and what you type ([OQ-BR9](#OQ-BR9) with [OQ-BR1](#OQ-BR1)) | — |
+| 2 | this doc | one Bedrock provider, and what you type ([OQ-BR9](#OQ-BR9) with [OQ-BR1](#OQ-BR1)) | 2026-09-29 |
 | 3 | [`provider-credential-scope.md`](provider-credential-scope.md) | which credentials and env a profile lets through to which agent ([OQ-CN6](provider-credential-scope.md#OQ-CN6) with [OQ-CN2](provider-credential-scope.md#OQ-CN2) first) | 2026-09-26 |
-| 4 | [`providers-and-profiles-redesign.md`](providers-and-profiles-redesign.md) | what a provider and a profile should mean ([OQ-BR2](providers-and-profiles-redesign.md#OQ-BR2), then [OQ-BR8](providers-and-profiles-redesign.md#OQ-BR8), then the PP questions) | — |
+| 4 | [`providers-and-profiles-redesign.md`](providers-and-profiles-redesign.md) | what a provider and a profile should mean ([OQ-BR2](providers-and-profiles-redesign.md#OQ-BR2), then [OQ-BR8](providers-and-profiles-redesign.md#OQ-BR8), then the PP questions) | [OQ-BR2](providers-and-profiles-redesign.md#OQ-BR2), [OQ-BR8](providers-and-profiles-redesign.md#OQ-BR8): 2026-09-29, built; the PP questions open |
 | 5 | [`model-lists-and-pickers.md`](model-lists-and-pickers.md) | which models each picker shows, and which yolo picks ([OQ-ML2](model-lists-and-pickers.md#OQ-ML2) first) | — |
 | 6 | [`wire-bridge-gateway.md`](wire-bridge-gateway.md) | how the bridge signs, and sending all traffic through it ([OQ-WG1](wire-bridge-gateway.md#OQ-WG1) first) | 2026-09-25 |
 | 7 | [`bedrock-web-search.md`](bedrock-web-search.md) | web search on Bedrock profiles | — |
@@ -195,15 +204,18 @@ SOURCED from AWS's documentation on 2026-09-04, with some rows re-read 2026-09-2
 Only the parts of the built provider system that Bedrock lands on. MEASURED at `f491d192` and
 `5e8e64f6`.
 
-- **One `bedrock` provider exists, and it is claude's.** `packs/claude/pack.json` ships four
-  contributions as a set: a provider `bedrock` (no endpoints, no `api_key_env_name`, no models); a
-  profile `bedrock` selecting it; a profile-gated `env` setting `CLAUDE_CODE_USE_BEDROCK=1`; and a
-  profile-gated `config-overlay` writing the same key into `claude/settings`. It is
+- **One `bedrock` provider exists, and it is claude's.** `packs/claude/pack.json` ships a
+  provider `bedrock` (no endpoints, no models, the six AWS credential names under
+  `api_key_env_name`) and a profile `bedrock` selecting it. It is
   [the worked example](../reference/providers.md#two-channels-split-by-payload-type) in
-  `providers.md`. `packs/aws-auth` gates its credential pointer on the profile name `bedrock`;
-  [`provider-credential-scope.md`](provider-credential-scope.md) has why that leaks. Since
-  2026-09-29 the provider also declares `region_env_name`, the refusal's opt-in
-  ([OQ-BR6](#OQ-BR6), [BR-D1](#BR-D1)).
+  `providers.md`. ⚠ **Changed 2026-09-29**, after the measurements above: the provider declares
+  `"platform": "aws-bedrock"` ([OQ-BR2](providers-and-profiles-redesign.md#OQ-BR2)) and
+  `region_env_name`, the region refusal's variables ([OQ-BR6](#OQ-BR6), [BR-D1](#BR-D1)).
+  `CLAUDE_CODE_USE_BEDROCK`, which a profile-gated `env` and `config-overlay` pair set, is now
+  set by claude's own derive, in env and in `claude/settings`, whenever claude's provider
+  declares that platform and routes through no via service; `packs/aws-auth` gates its
+  credential pointer on the platform, not on the profile name `bedrock`
+  ([OQ-BR8](providers-and-profiles-redesign.md#OQ-BR8), [PP-D2 to PP-D4](providers-and-profiles-redesign.md#PP-D2)).
 - **Only the claude derive reads `region`**, mapping `p.region` to `AWS_REGION`. The `Region`
   field's comment in `internal/packdecl/contributes.go` reads *"Region is the region a regional
   provider is reached through — Bedrock's address half"*.
@@ -324,25 +336,30 @@ the "models it can call" half of [the per-agent table](#where-the-split-ended-up
 An entry with no vendor, such as a user's string-form entry, is offered to every agent, as today.
 The shipped entries come from a built-in pack, ruled 2026-09-25
 ([OQ-BR3](model-lists-and-pickers.md#OQ-BR3)). How a pack carries object-form entries with a
-`vendor` is [`model-lists-and-pickers.md`](model-lists-and-pickers.md)'s. How a derive recognizes
-the provider as Bedrock without matching its name is
-[OQ-BR2](providers-and-profiles-redesign.md#OQ-BR2), and **the native derives are built after that
-rules**.
+`vendor` is [`model-lists-and-pickers.md`](model-lists-and-pickers.md)'s. A derive recognizes
+the provider as Bedrock without matching its name by its `platform`
+([OQ-BR2](providers-and-profiles-redesign.md#OQ-BR2), ruled and built 2026-09-29: the derive reads
+`ctx.selected_platform`), so the native derives are unblocked.
 
 ```jsonc
 // packs/bedrock/pack.json under option A: the shape, not the file
 { "name": "bedrock", "contributes": [
-    { "kind": "provider", "name": "bedrock",       // the Bedrock marker is OQ-BR2's
-      "region": "us-east-1",
+    { "kind": "provider", "name": "bedrock",
+      "platform": "aws-bedrock",                    // OQ-BR2's marker, built
       "region_env_name": ["AWS_REGION", "AWS_DEFAULT_REGION"],   // OQ-BR6, built (BR-D1)
       "options": { "model": "default", "aws_profile": null } },   // entries: model-lists doc
     { "kind": "profile", "name": "bedrock", "provider": "bedrock" } ] }
 ```
 
 There is no endpoint-family field ([OQ-BR7](#OQ-BR7)): consumers compose runtime's host from
-`region`, and a mantle recipe carries its own URL. No entry declares `api_key_env_name`, so it
-points at no credential, and one entry serves all three
-([§6.4](#64-the-credential-three-are-supported)).
+`region`, and a mantle recipe carries its own URL. **No region ships**
+([OQ-BR9](#OQ-BR9)'s ruling, [OQ-BR6](#OQ-BR6)): the user sets one, or the launch is refused
+(a shipped region would make the refusal unreachable, since the composed entry would always carry
+one). The provider keeps the six AWS credential names packs/claude's `bedrock` claims under
+`api_key_env_name` ([CN-D2](provider-credential-scope.md#7-decision-ledger)), which the
+credential gate withholds by; a list of several points an agent at none of them, so one entry
+still serves all three credentials ([§6.4](#64-the-credential-three-are-supported)). The
+snippet was corrected on 2026-09-29, when it paired a shipped region with the refusal's field.
 
 **What ships if [OQ-BR9](#OQ-BR9) goes B.** claude's `bedrock` stays in packs/claude with
 Anthropic ids. A new `bedrock` pack ships a provider `bedrock-openai` with
@@ -560,9 +577,12 @@ Written for the implementer. Anything not here and not an open question is their
   `us-east-1`, a region nobody chose. Whether yolo should count an `~/.aws/config` region at
   `yolo host`, where that file is claude's own, goes back to the maintainer
   ([OQ-BR6](#OQ-BR6)). As built
-  ([BR-D1](#BR-D1) to [BR-D3](#BR-D3)): a provider opts in by declaring `region_env_name`, and
-  the refusal is the provider pre-flight's second half, at the fresh container launch, the
-  attach, every `macos-user` invocation and `yolo host --`
+  ([BR-D1](#BR-D1) to [BR-D5](#BR-D5)): the requirement keys on the provider's `platform`, whose
+  region variables a pack declares with `region_env_name` (packs/claude, for `aws-bedrock`), so a
+  provider a user declares with that platform is refused the same way; each agent on such a
+  provider is asked about the region that reaches IT; and the refusal is the provider
+  pre-flight's second half, at the fresh container launch, the attach, every `macos-user`
+  invocation and `yolo host --`
   ([`providers.md`](../reference/providers.md#the-region-preflight)). ⚠ One gap the ruling
   leaves: it counts `AWS_DEFAULT_REGION` alone as a region, and opencode 1.18.32 reads only
   `options.region` and `AWS_REGION` ([§14](#14-evidence-and-how-to-re-check-it)). So with only
@@ -591,8 +611,10 @@ Written for the implementer. Anything not here and not an open question is their
   does not support region …"*. yolo carries no region allowlist, since one would rot within a
   quarter.
 
-**Defaults.** The endpoint family is not a setting. `region` is `"us-east-1"`, shipped and
-user-overridable. `aws_profile` is `null`, meaning use the chain. The model alias is the profile's
+**Defaults.** The endpoint family is not a setting. No `region` ships ([OQ-BR9](#OQ-BR9)'s
+ruling and [OQ-BR6](#OQ-BR6)): the user sets one, or the launch is refused, naming both ways to
+set it. This line said `"us-east-1"`, shipped, until 2026-09-29, which would have made the
+refusal unreachable. `aws_profile` is `null`, meaning use the chain. The model alias is the profile's
 `model` option, else `default` ([OQ-CS3](../reference/providers.md#oq-cs3)). The native bindings add no
 timeouts or retries.
 
@@ -681,18 +703,22 @@ R6 to R11 moved with the bridge, model-list and search designs.
 ## 12. What I would build, in order
 
 1. ~~Fix D1~~: done 2026-09-15.
-2. **Rule [OQ-BR2](providers-and-profiles-redesign.md#OQ-BR2)**, whose marker the native derives key
-   on.
+2. ~~**Rule [OQ-BR2](providers-and-profiles-redesign.md#OQ-BR2)**, whose marker the native derives
+   key on~~: ruled and built 2026-09-29 (`aa372392`), the provider field `platform`, which a derive
+   reads as `ctx.selected_platform`.
 3. **The `bedrock` pack**: the runtime provider, its profile, and a README on why runtime is the
    one family. It changes nothing observable until step 4. Its entries follow the built-in pack
-   ([OQ-BR3](model-lists-and-pickers.md#OQ-BR3)). Its provider declares `region_env_name`, or the
-   region refusal does not follow the provider into the new pack ([BR-D1](#BR-D1)).
+   ([OQ-BR3](model-lists-and-pickers.md#OQ-BR3)). Its provider declares `"platform":
+   "aws-bedrock"` and `region_env_name`, or neither claude's switch, aws-auth's pointer nor the
+   region refusal follows the provider into the new pack ([BR-D1](#BR-D1),
+   [PP-D2](providers-and-profiles-redesign.md#PP-D2)).
 4. **The codex binding**: the pin, `aws.region` and the selection, which `codex doctor` verifies
    cheaply.
 5. **The opencode and pi native bindings**, each with a provenance comment naming the version read.
 6. **Close the gate leaks**, per [`provider-credential-scope.md`](provider-credential-scope.md) and
    [`providers-and-profiles-redesign.md`](providers-and-profiles-redesign.md). The D2 half is
-   BUILT (2026-09-26, the credential gate); the D5 half is the redesign's.
+   BUILT (2026-09-26, the credential gate); the D5 half is BUILT too (2026-09-29, `80cd8459`,
+   [OQ-BR8](providers-and-profiles-redesign.md#OQ-BR8)).
 7. **The hand-written API-key provider and mantle recipes** in the user guide, with P1 stated where users hit it.
 8. **The direction**, once [OQ-BR9](#OQ-BR9) rules:
    1. the signer ([`wire-bridge-gateway.md`](wire-bridge-gateway.md));
@@ -798,17 +824,31 @@ R6 to R11 moved with the bridge, model-list and search designs.
 4. ✅ <a id="OQ-BR6"></a>[**OQ-BR6**](#OQ-BR6) (ruled 2026-09-25, as its leaning): **Refuse the
    launch when no region is resolvable?** Only when yolo can see none; the rule is in
    [§8](#8-behaviour-this-design-fixes). Its premise: codex refuses and names the sources, while
-   opencode 1.18.32 and pi-ai 0.87.1 fall silently to `us-east-1` (read, not run). **Built
-   2026-09-29**; the three implementation decisions are [BR-D1](#BR-D1) to [BR-D3](#BR-D3).
+   opencode 1.18.32 and pi-ai 0.87.1 fall silently to `us-east-1` (read, not run), and so does
+   Claude Code 2.1.285 (read statically 2026-09-29). **Built 2026-09-29**; the implementation
+   decisions are [BR-D1](#BR-D1) to [BR-D5](#BR-D5).
+
+   > [!IMPORTANT]
+   > **A re-ask, for the host notch only.** The ruling's "an `~/.aws/config` region is unproven"
+   > does not hold for claude: its resolver reads the shared-config region of the active
+   > `AWS_PROFILE` before falling back to `us-east-1` (the evidence is [BR-D5](#BR-D5)). In a jail
+   > that file is absent unless a `host_files` grant brings it, so nothing changes there. At
+   > `yolo host` it is claude's own, so a user whose profile names a region there, with no
+   > `AWS_REGION`, is refused although claude would find one. Should yolo read `~/.aws/config`
+   > for the effective profile at the host notch and count its region? _Leaning:_ none recorded;
+   > the build words the refusal truthfully and leaves the hatch as the way through until you
+   > rule.
 5. ✅ <a id="OQ-BR7"></a>[**OQ-BR7**](#OQ-BR7) (answered 2026-09-25 by [DIR-BR3](#DIR-BR3)): **Is
    `endpoint_family` its own field?** No; with one family there is nothing to name. The fact it
    protected now shows as the mantle recipe being its own provider.
 6. ✅ <a id="OQ-BR11"></a>[**OQ-BR11**](#OQ-BR11) (ruled 2026-09-24): **How does claude use native
    Bedrock for Anthropic ids and the bridge for the rest?** Both profiles, with the everything
    profile routing by model id; [`wire-bridge-gateway.md`](wire-bridge-gateway.md) owns the routing
-   mechanism. It still touches [OQ-BR8](providers-and-profiles-redesign.md#OQ-BR8): the everything
-   profile must not set the name-gated `CLAUDE_CODE_USE_BEDROCK`, yet the credential pointer must
-   reach the bridge.
+   mechanism. It touched [OQ-BR8](providers-and-profiles-redesign.md#OQ-BR8): the everything
+   profile must not set claude's `CLAUDE_CODE_USE_BEDROCK`, yet the credential pointer must reach
+   the bridge. Built 2026-09-29 as a transport check
+   ([PP-D4](providers-and-profiles-redesign.md#PP-D4)): claude's derive sets the switch only for a
+   profile that routes through no via service, and aws-auth's pointer keys on the platform alone.
 
 ### Decision Ledger
 
@@ -822,10 +862,12 @@ R6 to R11 moved with the bridge, model-list and search designs.
 | <a id="DIR-BR3"></a>DIR-BR3 | **yolo ships `bedrock-runtime` only; mantle is a documented manual recipe.** *"let's skip mantle"*. The reasons are in [§5](#5-one-endpoint-family--runtime-ships-and-why-not-mantle). It is revisited when a model or feature only mantle serves is needed. `-p bedrock-gpt-mantle` and every mantle provider are gone. A direction, so no question id | 2026-09-25 | [§5](#5-one-endpoint-family--runtime-ships-and-why-not-mantle) | — |
 | [OQ-BR7](#OQ-BR7) | **Moot under DIR-BR3**: one family, so no `endpoint_family` field. The leaning (its own field) had nothing left to decide | 2026-09-25 | [§6.1](#61-the-provider-shape-one-bedrock-provider-or-two) | — |
 | [OQ-BR5](#OQ-BR5) | **Both: pi's native Converse, and a bridge version.** *"native converse is just basically the pi agent's native which we're supplying for all the others and then also there will be the bridge version because I'm sure there will be some different features we can offer and we're just going to want to support both as fully as possible."* | 2026-09-25 | [§6.2](#62-what-each-derive-emits) (native); [`wire-bridge-gateway.md`](wire-bridge-gateway.md) (bridge). Design consequence, not part of the ruling: no canonical Converse `wire_api` is coined, and the bridge version speaks OpenAI chat-completions ([§9](#9-non-goals)) | — |
-| [OQ-BR6](#OQ-BR6) | **As its leaning:** *"Refuse only when the provider declares no region AND no AWS_REGION / AWS_DEFAULT_REGION is in the composed jail environment — both of which yolo can see at launch. Anything beyond that (an ~/.aws/config region) is unproven, and unproven emits nothing."* | 2026-09-25 | [§8](#8-behaviour-this-design-fixes) | `ba8bd3f2`, 2026-09-29: `packload.ProviderRegionGaps` and `ProviderRegionRefusal`, called at every notch |
-| <a id="BR-D1"></a>BR-D1 | *Implementation decision.* **A provider opts in with a pack field, `region_env_name`**: the variables an agent reads its region from, whose presence makes a region a launch requirement. packs/claude declares `AWS_REGION` and `AWS_DEFAULT_REGION` on `bedrock`. Core names no provider and no AWS variable, because matching the name is rejected and the marker is [OQ-BR2](providers-and-profiles-redesign.md#OQ-BR2)'s open question. The field says a region is required and where to look, not what the service is, so it survives whatever OQ-BR2 rules. A user's own `providers` entry cannot declare it, so a provider only the user declares carries no requirement | 2026-09-29 | [§8](#8-behaviour-this-design-fixes) | `ba8bd3f2` |
-| <a id="BR-D2"></a>BR-D2 | *Implementation decision.* **"The composed jail environment" is what reaches the agent.** In a jail that is env_sources, a selected pack's env, the profile's provider environment and, on a container, the argv's `-e` pairs, and never the shell yolo was launched from, which no backend forwards and nothing relays a region out of. A region found only in that shell is named in the refusal as not delivered. At `yolo host` the exec'd environment includes that shell, so it counts there, and an env_sources `null` removing `AWS_REGION` removes it | 2026-09-29 | [§8](#8-behaviour-this-design-fixes) | `ba8bd3f2` |
-| <a id="BR-D3"></a>BR-D3 | *Implementation decision.* **The refusal is the provider pre-flight's second half and honors its hatch**, `YOLO_ALLOW_MISSING_PROVIDERS=1`, as a loud continuation. It runs wherever the credential half runs, so no arm can ask one question without the other. The one launch that may need the hatch is an agent that does read a region the refusal cannot count, such as an `~/.aws/config` one | 2026-09-29 | [§8](#8-behaviour-this-design-fixes) | `ba8bd3f2` |
+| [OQ-BR6](#OQ-BR6) | **As its leaning:** *"Refuse only when the provider declares no region AND no AWS_REGION / AWS_DEFAULT_REGION is in the composed jail environment — both of which yolo can see at launch. Anything beyond that (an ~/.aws/config region) is unproven, and unproven emits nothing."* | 2026-09-25 | [§8](#8-behaviour-this-design-fixes) | ✅ `360da999`, 2026-09-29: `packload.ProviderRegionGaps` and `ProviderRegionRefusal`, called at every notch; the review's fixes `3a355d2a` (BR-D1), `e61d73dc` (BR-D4), `b8ceec6d` (BR-D5), `0e9032e7` (config-ref) |
+| <a id="BR-D1"></a>BR-D1 | *Implementation decision, revised 2026-09-29 by the review.* **The requirement keys on the provider's `platform`; a pack declares the platform's region variables with `region_env_name`.** Every selected provider whose composed entry declares a platform some selected pack declares variables for (on a provider of that platform, which packdecl refuses without a `platform` beside it) requires a region from those variables. packs/claude declares `AWS_REGION` and `AWS_DEFAULT_REGION` for `aws-bedrock`, so a user's own `providers.bedrock-eu` with `"platform": "aws-bedrock"` is required a region without restating them. Core names no provider, no platform and no AWS variable. The first build made the field a per-provider opt-in on the premise that the marker was [OQ-BR2](providers-and-profiles-redesign.md#OQ-BR2)'s open question; [OQ-BR2](providers-and-profiles-redesign.md#OQ-BR2) was ruled the same day, so a user's Bedrock provider got the credential and derive behavior and never the refusal, and the review found it. A user's `providers` entry declares a platform, not its variables, so a user provider whose platform no selected pack declares variables for carries none | 2026-09-29 | [§8](#8-behaviour-this-design-fixes) | ✅ `360da999`; re-keyed `3a355d2a` |
+| <a id="BR-D2"></a>BR-D2 | *Implementation decision.* **"The composed jail environment" is what reaches the agent.** In a jail that is env_sources, a selected pack's env, the profile's provider environment and, on a container, the argv's `-e` pairs, and never the shell yolo was launched from, which no backend forwards and nothing relays a region out of. A region found only in that shell is named in the refusal as not delivered. At `yolo host` the exec'd environment includes that shell, so it counts there, and an env_sources `null` removing `AWS_REGION` removes it | 2026-09-29 | [§8](#8-behaviour-this-design-fixes) | ✅ `360da999`; per agent since `e61d73dc` ([BR-D4](#BR-D4)) |
+| <a id="BR-D3"></a>BR-D3 | *Implementation decision.* **The refusal is the provider pre-flight's second half and honors its hatch**, `YOLO_ALLOW_MISSING_PROVIDERS=1`, as a loud continuation. It runs wherever the credential half runs, so no arm can ask one question without the other. The one launch that may need the hatch is an agent that does read a region the refusal cannot count, such as an `~/.aws/config` one | 2026-09-29 | [§8](#8-behaviour-this-design-fixes) | ✅ `360da999` |
+| <a id="BR-D4"></a>BR-D4 | *Implementation decision, from the review.* **The region is asked of each agent on the provider.** The first build answered "is a region delivered" through the launch-wide lookup, which counts a value reaching any process; since the credential gate, delivery is per agent, so claude on `bedrock` and codex on a profile whose gated env gives codex alone `AWS_REGION` passed, and claude started with none. `ProviderRegionGaps` takes one ask per agent whose profile selects a provider, each answered from what reaches that agent (the env_sources the gate delivers to it, the shared pack env, its own gated env and shape vars, `CredentialScope.DeliveredTo`, and on a container the argv's `-e` pairs), and the refusal names the agents that receive none | 2026-09-29 | [§8](#8-behaviour-this-design-fixes) | ✅ `e61d73dc` |
+| <a id="BR-D5"></a>BR-D5 | *Implementation decision, from the review.* **The refusal says an `~/.aws/config` region is not counted because yolo does not read it**, not that an agent reading it is "unproven": Claude Code's resolver reads `AWS_REGION`, then `AWS_DEFAULT_REGION`, then the shared-config region for the active `AWS_PROFILE` (through the AWS SDK's `loadConfig` with `NODE_REGION_CONFIG_FILE_OPTIONS`), then falls back to `"us-east-1"`. The reviewer read it in 2.1.284; re-read statically in 2.1.285 on 2026-09-29 (`grep -a readAwsSharedConfigRegion` on the installed binary), never run. The premise is corrected to name claude beside opencode and pi. Whether the host notch should count that region is put back to the maintainer ([OQ-BR6](#OQ-BR6)); until then the hatch covers it | 2026-09-29 | [§8](#8-behaviour-this-design-fixes) | ✅ `b8ceec6d` |
 | [OQ-BR10](#OQ-BR10) | Moved to [`wire-bridge-gateway.md`](wire-bridge-gateway.md#OQ-BR10): the bridge signs its own requests | 2026-09-24 | there | — |
 | [OQ-BR16](#OQ-BR16) | Moved to [`wire-bridge-gateway.md`](wire-bridge-gateway.md#OQ-BR16): the everything profile carries the subscription | 2026-09-24 | there | — |
 | [OQ-BR17](#OQ-BR17) | Moved to [`wire-bridge-gateway.md`](wire-bridge-gateway.md#OQ-BR17): opt-in per-model failover | 2026-09-24 | there | — |
@@ -841,7 +883,7 @@ links.
 
 | Moved | Home | Notes |
 | :--- | :--- | :--- |
-| <a id="OQ-BR2"></a>[OQ-BR2](providers-and-profiles-redesign.md#OQ-BR2), the Bedrock marker (the `service` field), and the former section 6.2 | [`providers-and-profiles-redesign.md`](providers-and-profiles-redesign.md) | not ruled; it seeds the redesign |
+| <a id="OQ-BR2"></a>[OQ-BR2](providers-and-profiles-redesign.md#OQ-BR2), the Bedrock marker (the `service` field), and the former section 6.2 | [`providers-and-profiles-redesign.md`](providers-and-profiles-redesign.md) | ruled 2026-09-29 as the field `platform`, and built |
 | <a id="OQ-BR8"></a>[OQ-BR8](providers-and-profiles-redesign.md#OQ-BR8), does a gate key on the name or the provider, and trap D5 | [`providers-and-profiles-redesign.md`](providers-and-profiles-redesign.md) | [OQ-BR4](provider-credential-scope.md#OQ-BR4)'s other direction |
 | <a id="OQ-BR4"></a>[OQ-BR4](provider-credential-scope.md#OQ-BR4), the wide env gate, trap D2 and done-condition 3 | [`provider-credential-scope.md`](provider-credential-scope.md) | ruled 2026-09-25: no leak, *"as specific as possible"*; the all-traffic direction it spawned is [DIR-WG1](wire-bridge-gateway.md#DIR-WG1) |
 | <a id="OQ-BR3"></a>[OQ-BR3](model-lists-and-pickers.md#OQ-BR3), <a id="OQ-BR12"></a>[OQ-BR12](model-lists-and-pickers.md#OQ-BR12), <a id="OQ-BR13"></a>[OQ-BR13](model-lists-and-pickers.md#OQ-BR13), <a id="OQ-BR14"></a>[OQ-BR14](model-lists-and-pickers.md#OQ-BR14), <a id="OQ-BR15"></a>[OQ-BR15](model-lists-and-pickers.md#OQ-BR15); parts 5 to 8 of the former section 6.6; done-conditions 8 to 10; R8 and R9; the "no model catalog" non-goal | [`model-lists-and-pickers.md`](model-lists-and-pickers.md) | [OQ-BR3](model-lists-and-pickers.md#OQ-BR3) ruled 2026-09-25: a built-in pack picks the models |

@@ -5,6 +5,9 @@ verified_commit: 7ad8358c
 covers:
   - internal/packdecl/contributes.go
   - internal/packdecl/envnames.go
+  - internal/packdecl/platform.go
+  - internal/packload/regionpreflight.go
+  - internal/packload/platformswitch.go
   - internal/packload/credentialscope.go
   - internal/cli/run/agentenvfiles.go
   - internal/entrypoint/agentenv.go
@@ -69,6 +72,17 @@ the host as in a jail, `--with-credentials` being an ad-hoc command's one grant
 MEASURED: pinned through `hostMain` by unit tests in `internal/cli`. UNMEASURED: no real host has
 run it.
 
+**The platform and the provider-keyed gates are newest** (2026-09-29): a provider says what
+service it is ([the platform](#the-platform-what-service-a-provider-is),
+[`OQ-BR2`](../design/providers-and-profiles-redesign.md#OQ-BR2)), every shipped provider fact keys
+on the provider rather than on a profile's name
+([`OQ-BR8`](../design/providers-and-profiles-redesign.md#OQ-BR8)), the region preflight keys on
+the platform and asks each agent ([the region preflight](#the-region-preflight)), and a Bedrock
+switch in the user's own Claude settings that no Bedrock provider serves is named at launch
+([a switch in the agent's own config](#a-switch-in-the-agents-own-config)). MEASURED BY TESTS
+ONLY: each is pinned through the credential gate and the shipped derives, and each launch arm's
+call site through the code a launch runs. UNMEASURED: no launch was run and no agent started.
+
 A **provider** is a declaration of a service's facts — where its endpoints are, which wire
 protocol each speaks, which model aliases it offers, which environment variable holds its
 credential, and which knobs ("options") a profile may tune. Providers compose into ONE table
@@ -90,7 +104,8 @@ presence, selection is an explicit act.
 | Selection namespace: edge-triggered apply | `internal/agentcfg` (`SelectionKey`, `ApplySelection`) |
 | Surface render + selection lift | `internal/entrypoint` (`ConfigurePackSurfaces`, prism stateful render) |
 | User config: `providers`, `profiles`, `use_profiles` | `internal/config` (`profiles.go`, `UseProfileCLINames`) |
-| The `profile` modifier's two gates | `internal/packload` (`EnvFold`) for `env`; `internal/packoverlay` (`Collect`) for `config-overlay` |
+| The `profile` modifier's two gates, and `env`'s `platform` gate | `internal/packload` (`EnvFold` over a `GateSelection`) for `env`; `internal/packoverlay` (`Collect`) for `config-overlay` |
+| A provider's platform, and the platform switch an agent pack declares | `internal/packdecl` (`Contribution.Platform`, `PlatformSwitch`); `internal/packload` (`SelectionOf`, `PlatformSwitchConflicts`) |
 | Launch-side profile checks, the disclosure line, the credential preflight | `internal/cli/run` (`checkProfileTargets`, `checkProfileDeclarations`, `noteUseProfiles`, `checkProviderCredentials`) |
 | Host-notch composition of the same | `internal/cli` (`composeHostLaunch`, `overlayGateProfiles`) |
 | The agent derives that consume the table, and the provider packs that fill it | `packs/*/derive.lua`; every pack declaring a `provider` contribution |
@@ -187,6 +202,39 @@ Two refusals guard the output:
 What a composed entry is required to bring — its credential — is
 [the credential preflight](#the-credential-preflight)'s question, and, for a provider reached
 through a region, its region is [the region preflight](#the-region-preflight)'s.
+
+### The platform: what service a provider is
+
+A provider declares what service it is in `platform`, an open vocabulary: `"aws-bedrock"` for
+Amazon Bedrock, the one value anything reads today
+([`OQ-BR2`](../design/providers-and-profiles-redesign.md#OQ-BR2), ruled 2026-09-29). A pack sets
+it on its `kind: "provider"` contribution, and a user sets it on a `providers.<name>` entry,
+their own or a pack's, from user scope only: the platform decides which agents receive a pack's
+credential pointer, so a workspace file carrying it is refused. Only its shape is checked (one
+token, no whitespace), and a value nothing reads changes nothing.
+
+It is how a derive recognizes a service without matching a provider's NAME, so a provider you
+declare gets the behavior the shipped one does. It composes into the entry as a field like any
+other, and a derive reads the selected provider's as `ctx.selected_platform`. Three readers key
+on `aws-bedrock` today:
+
+- **claude's derive** turns on Claude Code's own Bedrock client (`CLAUDE_CODE_USE_BEDROCK=1`, in
+  its env and in `claude/settings`) when claude's selected provider declares it and its profile
+  routes through no via service ([the worked example](#two-channels-split-by-payload-type));
+- **aws-auth's credentials pointer** is an `env` contribution with a `platform` gate
+  ([the `profile` modifier](#the-profile-modifier)), so it reaches each agent on a Bedrock
+  provider, whatever its profile is named;
+- **the region preflight** requires a region of every provider of a platform some pack declares
+  region variables for ([the region preflight](#the-region-preflight)).
+
+So `"providers": {"bedrock-eu": {"platform": "aws-bedrock", "region": "eu-west-1"}}` with a profile
+over it, or a profile `bedrock-sso` over the shipped `bedrock`, gets all three, as `-p bedrock`
+does. What the platform does NOT carry is a provider's credential claims: the shipped `bedrock`
+claims six AWS variables in its `api_key_env_name`, which the credential gate delivers only to
+agents on it, and a provider of your own claims only what its own `api_key_env_name` lists, so
+without that list an `env_sources` AWS key reaches every process
+([PP-D9](../design/providers-and-profiles-redesign.md#PP-D9)). ⚠ `platform` is not `platforms` (on `program` and `service`), which lists the host OS/arch
+pairs a build exists for.
 
 ## The credential preflight
 
@@ -289,7 +337,7 @@ The same section carries the SHARED pack env fold (every pack's unconditional `k
 as plain-form `export K='v'` lines, which the boot's hydrate applies OVER the environment —
 the def-form `export K=${K:-'v'}` lines above them (the env_sources no provider claims) keep
 the opposite precedence. What the credential gate scopes to ONE agent — its provider's claimed
-env_sources, the profile-gated env its selection satisfies, and its env derive's shape vars
+env_sources, the gated env its selection satisfies, and its env derive's shape vars
 (the `ANTHROPIC_*` / `COPILOT_*` blocks, credential included) — is not in this file at all;
 it crosses in that agent's own env file ([the credential gate](#the-credential-gate)). These
 files, not the `podman run` argv, are the channel's only container-side crossing: an argv `-e`
@@ -348,7 +396,7 @@ A profile's credentials and gated env reach **only the agent that selected it**
 | :--- | :--- |
 | An `env_sources` value whose name a composed provider **claims** (lists in its `api_key_env_name`) | each agent whose selected profile resolves to a claiming provider; no other process, a bare shell included |
 | An `env_sources` value no provider claims (`GH_TOKEN`, anything else) | every process, as before |
-| A `profile`-gated `kind: "env"` contribution | the pack's own agent when it selected that profile; for a pack that installs no CLI (`aws-auth`, `llamacpp`), every agent that selected it |
+| A gated `kind: "env"` contribution | the pack's own agent when its selection satisfies the gate; for a pack that installs no CLI (`aws-auth`), every agent whose selection does. A `platform` gate is satisfied by the selected provider's platform, a `profile` gate by the profile's name ([the `profile` modifier](#the-profile-modifier)) |
 | An env derive's output (the shape vars) | its own agent, and the derive's copy of the table carries the `api_key` of that agent's provider only |
 
 `packs/claude`'s `bedrock` provider claims `AWS_BEARER_TOKEN_BEDROCK`, `AWS_ACCESS_KEY_ID`,
@@ -463,8 +511,10 @@ Two consequences to know:
 
 - **The loopback credential services follow the selection** ([`OQ-CN7`](../design/provider-credential-scope.md#OQ-CN7),
   built). `aws-auth`'s adapter (`127.0.0.1:1461`, or a port the launch picked on a jail
-  sharing its launcher's network namespace) starts only when some agent's selected profile is
-  `bedrock`; a fresh launch that leaves it out says so. Its caller token is scoped: the only
+  sharing its launcher's network namespace) starts only when some agent's selected provider
+  declares the platform `aws-bedrock` (`-p bedrock`, a profile of your own over it, or a
+  Bedrock provider of your own); a fresh launch that leaves it out says so, naming a profile
+  that would start it. Its caller token is scoped: the only
   exported copy is `AWS_CONTAINER_AUTHORIZATION_TOKEN` in each selecting agent's env file,
   which the AWS SDK sends as `Authorization`, and the adapter refuses a request without it, so
   a bare shell or another agent is refused. The token is still a same-uid file read away:
@@ -554,7 +604,9 @@ table, string, math libraries only; no `os`, no `io`). Two registrations and one
 
 The derive context (`DeriveCtx`) carries: the live tables (`mcp_servers`, `lsp_servers`,
 `providers`, `use_profiles`), `agent` and `surface`, `profile_name` (the profile active at this
-agent's CLI name), `selected_provider` (the provider it resolves to), `profile` (that profile's
+agent's CLI name), `selected_provider` (the provider it resolves to), `selected_platform` (that
+provider's [`platform`](#the-platform-what-service-a-provider-is), read off its row in the table,
+"" when it declares none), `profile` (that profile's
 resolved options — always a table, empty when no profile is active), and `tombstone`, the one
 spelling of a removal (a Lua `nil` omits a key; it does not remove one). `mcp_servers` is the
 one table filtered before a derive sees it: a server whose job the active authentication source
@@ -938,10 +990,12 @@ profile named `-h` rather than answering help, deliberately.
 ## Profiles and options
 
 A **profile** is a named selection over one provider, and the name is what the user types. It is
-also the whole of the `profile` kind: whatever a pack does differently while a profile is active
-lives on other contributions, gated by name ([the `profile` modifier](#the-profile-modifier)).
-Whether a gate should key on the profile name or the provider, and what `-p <name>` should name
-at all, is open in [`providers-and-profiles-redesign.md`](../design/providers-and-profiles-redesign.md).
+also the whole of the `profile` kind. A fact of the PROVIDER keys on the provider, in the agent's
+own derive or on a `platform` gate, never on the profile's name
+([`OQ-BR8`](../design/providers-and-profiles-redesign.md#OQ-BR8), ruled 2026-09-29), so a second
+profile over one provider gets what the first gets; a variant that really is a name may still be
+gated by name ([the `profile` modifier](#the-profile-modifier)). What `-p <name>` should name at
+all is open in [`providers-and-profiles-redesign.md`](../design/providers-and-profiles-redesign.md).
 
 ### Declaring and selecting a profile
 
@@ -1065,13 +1119,20 @@ host clears every via address before any derive reads one
 ### The `profile` modifier
 
 Two kinds take `profile: "<name>"`, and each asks a different holder of the name whether it is
-active. An inactive gate is a **clean skip** — no error, no orphan report — because selection is
-the optionality.
+active; `env` also takes the provider-keyed gate, `platform: "<platform>"`. An inactive gate is a
+**clean skip** — no error, no orphan report — because selection is the optionality.
 
-| Kind | Active when | Why that key |
+| Gate | Active when | Why that key |
 | :--- | :--- | :--- |
-| `config-overlay` | the name is the profile active for the **target surface's owning agent** (the `agent` half of `agent/name`) | the surface names an agent, so the surface is what the gate asks |
-| `env` | per AGENT: the name is the profile that agent selected, and the pack is either the one installing that agent's CLI or a pack installing no CLI at all | an env has no surface to name an agent, so the delivery names one: the agent's own env file ([the credential gate](#the-credential-gate)). The CLI-less arm is what keeps a CLI-less pack's gated env reachable (`packs/aws-auth` and `packs/llamacpp` ship this case), for each agent that selected it |
+| `profile` on `config-overlay` | the name is the profile active for the **target surface's owning agent** (the `agent` half of `agent/name`) | the surface names an agent, so the surface is what the gate asks |
+| `profile` on `env` | per AGENT: the name is the profile that agent selected, and the pack is either the one installing that agent's CLI or a pack installing no CLI at all | an env has no surface to name an agent, so the delivery names one: the agent's own env file ([the credential gate](#the-credential-gate)) |
+| `platform` on `env` | per AGENT: the provider that agent's profile resolves to declares that [`platform`](#the-platform-what-service-a-provider-is), and the pack is the agent's own or installs no CLI | a provider fact must reach every profile over the provider and every provider of the service, which a name gate misses (trap [D5](../design/providers-and-profiles-redesign.md#D5), [`OQ-BR8`](../design/providers-and-profiles-redesign.md#OQ-BR8)). `packs/aws-auth` ships the CLI-less case: its pointer gates on `aws-bedrock` |
+
+A contribution carries one gate at most. **No shipped pack uses the `profile` gate** since
+2026-09-29: every use was a provider fact a second profile over the same provider lost, and each
+moved onto the provider ([PP-D2](../design/providers-and-profiles-redesign.md#PP-D2)). It stays
+for a pack of your own whose variant really is a name, and
+`TestNoShippedPackKeysAFactOnAProfileName` keeps the shipped packs off it.
 
 Every other kind **refuses** the field, because a modifier nothing reads is an
 accepted-and-ignored declaration. That includes the kinds that cross the boundary — `mount`,
@@ -1082,7 +1143,7 @@ claims its pack already made.
 The env half folds **per agent and per pack, in delivery order**: the pack's unconditional
 `env` keys, then its gated ones satisfied for that agent, so a pack's variant overrides its own
 default without a load error ([OQ-8](#pv-oq-8)), while a *later* pack's unconditional value
-still beats an *earlier* pack's gated one. `packload.EnvFold(packs, profiles, agent)` is the one
+still beats an *earlier* pack's gated one. `packload.EnvFold(packs, selection, agent)` is the one
 definition of that order, agent `""` being the shared fold every process receives, and both
 notches reduce the same sequence. Provider variables from the agent's env derive are layered
 after the fold, as the more specific intent. Env values are literal strings; a removal has no
@@ -1123,14 +1184,20 @@ through the env derive or a gated `env`, and reaches only a process yolo launche
 
 `packs/claude`'s `bedrock` is the worked example, and it uses both channels ([D8](#pv-d8)). The
 profile names the `bedrock` provider, which the pack ships with no endpoint, so it is never a
-credential requirement, and with a `region_env_name`, so a region is
-([the region preflight](#the-region-preflight)). Its region and model ids come from the user's
-`providers.bedrock` entry. A gated `config-overlay` puts `CLAUDE_CODE_USE_BEDROCK` into the
-`env` block of `claude/settings`, so a bare `claude` outside yolo still runs in Bedrock mode; a
-gated `env` sets the same variable for a yolo-launched process; the claude env derive composes
-`AWS_REGION` and the model ids from the provider entry; and `packs/aws-auth` contributes its
-credentials pointer under the same gate. Claude Code honors the settings file's `env` block
-before its first API call ([OQ-4](#pv-oq-4)).
+credential requirement, with `"platform": "aws-bedrock"`, and with a `region_env_name`, so a
+region is ([the region preflight](#the-region-preflight)). Its region and model ids come from the
+user's `providers.bedrock` entry. claude's settings derive puts `CLAUDE_CODE_USE_BEDROCK` into the
+`env` block of `claude/settings`, so a bare `claude` outside yolo still runs in Bedrock mode;
+claude's env derive sets the same variable for a yolo-launched process, beside `AWS_REGION` and
+the model ids it composes from the provider entry; and `packs/aws-auth` contributes its
+credentials pointer on a `platform` gate. All three key on the provider's platform, not on the
+profile's name, so a profile of your own over `bedrock`, or a Bedrock provider of your own, gets
+the same ([`OQ-BR8`](../design/providers-and-profiles-redesign.md#OQ-BR8)). The switch also needs
+claude's own transport: a profile over the same provider that routes through the wire bridge
+(`via`) gets the pointer, for the bridge to sign with, and not the switch
+([PP-D4](../design/providers-and-profiles-redesign.md#PP-D4)). Until 2026-09-29 the switch rode a
+`profile: "bedrock"` gated `env` and `config-overlay` pair. Claude Code honors the settings file's
+`env` block before its first API call ([OQ-4](#pv-oq-4)).
 
 > [!NOTE]
 > **UNMEASURED: Bedrock mode itself.** [OQ-4](#pv-oq-4) was measured with `ANTHROPIC_BASE_URL`
@@ -1175,6 +1242,36 @@ refusing. The one input that differs is the invoking shell, which the agent `yol
 inherits, so a variable exported there counts as delivered at the host and never in a jail. A
 pointer the host withholds because nothing there serves it has nothing to override, so a Bedrock
 bearer beside aws-auth's pointer refuses no host launch.
+
+### A switch in the agent's own config
+
+An agent can be switched onto a provider platform by its own settings, whatever yolo selects:
+Claude Code reads `CLAUDE_CODE_USE_BEDROCK` from the `env` block of `~/.claude/settings.json`,
+which reaches a jail as `claude/settings`' host layer and is claude's own file at `yolo host`.
+yolo obeys a switch you wrote and deletes nothing it did not write. When the switch is on (JSON
+`true`, `1`, or `1`/`true`/`yes`/`on` in any case) and claude's selected provider is not of that
+platform, the credential gate sends claude none of that platform's credentials, so the launch
+prints one line naming the conflict and both fixes
+([PP-D1](../design/providers-and-profiles-redesign.md#PP-D1), ruled 2026-09-29):
+
+```text
+claude: ~/.claude/settings.json sets CLAUDE_CODE_USE_BEDROCK, which puts claude on its own "aws-bedrock" client, but no "aws-bedrock" provider is selected for claude, so yolo delivers it none of that platform's credentials: select one (-p bedrock), or remove CLAUDE_CODE_USE_BEDROCK from ~/.claude/settings.json (yolo leaves it alone).
+```
+
+The `-p` it offers is a declared profile over a provider of that platform that routes through no
+via service; with none declared it says to select a provider of that platform. It is a disclosure,
+never a refusal: every jail arm prints it beside the provider preflight (the fresh container
+launch, the attach and every macos-user invocation) and `yolo host --` before its preflights, so a
+launch they then refuse still says it. At `yolo host` your own credentials may still serve claude,
+which is why the line says what yolo delivers rather than that the launch will fail. `yolo host
+env` and `yolo host apply` launch nothing and print nothing.
+
+Core knows no agent's file or variable: the switch is the agent pack's declaration, a `program`
+contribution's `platform_switches` (`{platform, surface, pointer}`; packs/claude declares
+`aws-bedrock` at `/env/CLAUDE_CODE_USE_BEDROCK` in `claude/settings`, a `readsHost` surface), and
+`packload.PlatformSwitchConflicts` reads it from your own copy of that file. Not read: a switch
+captured from an in-jail edit of the jail's settings file, and one exported in the process
+environment.
 
 ## What this does not license
 
@@ -1286,7 +1383,7 @@ Verified at `7ad8358c`, except the deselection rows for the boot log and the id-
 surfaces with a host layer, verified at `38814ba4`, and the rows the `openai-codex` model list
 touched (the clear's log line, codex's `openai-codex` default, the list and pi's copy of it),
 verified at `2a34a176`, except the host half of pi's copy, verified at `f3da48dc`, and the
-tier-alias and pi-subagents rows, verified at `58fc65ce`. The prose
+tier-alias and pi-subagents rows, verified at `58fc65ce`, and the rows the provider-keyed gates added (the platform, the shipped Bedrock provider, the region requirement, both gates, the platform switches and llamacpp's attribution header), verified at `2a4ba170`. The prose
 above explains what each is for; this table is the only place the exact spellings are stated.
 
 | Value | Setting | Defined in |
@@ -1304,10 +1401,14 @@ above explains what each is for; this table is the only place the exact spelling
 | The `openai-codex` model list | ids `gpt-6.1-sol`, `gpt-6-astra`, `gpt-6-luna` in that order, each with a `[1m]` variant at 1,000,000 tokens after it; declared as `models` (alias = id) plus `model_options` facts `order`, `name`, `description`, `context_window`, `long_context_window` | `packs/openai-auth/pack.json` |
 | pi's copy of that list | `~/.pi/agent/yolo-openai-codex-models.json`, the computed surface `pi/codex-models`: `{"models": [{"id", "base", "name", "contextWindow"}, …]}`, read by the openai-auth extension at load. At the host notch it is `{}` under `host_management: assert` and refused under `own` | `packs/pi/pack.json`, `packs/pi/extensions/yolo-openai-auth.js` |
 | User config keys | `providers` (merged-scope — **except the ADDRESS**), `profiles` / `use_profiles` (user-scope-only); `agent_profiles` refused by name as the old spelling of `use_profiles` | `internal/config` |
-| Provider credential-routing scope | Every provider field that decides where a credential goes is **USER-SCOPE ONLY**: a workspace `yolo-jail.jsonc` or `yolo-jail.local.jsonc` carrying one is a fatal config error naming the field and the user config. The address, `endpoints.<protocol>.base_url`, since 2026-09-17 ([`OQ-LM3`](../research/local-model-endpoints.md#oq-lm3)). Since 2026-09-28 ([OQ-NC6](../plans/notch-convergence.md#OQ-NC6), the field list [NC-D63](../plans/notch-convergence.md#NC-D63)) also the rest of `endpoints` in any form (a protocol with no URL, a `wire_api`, a null removing an endpoint or the map), `api_key_env_name` (a value re-points the claim, a null unclaims the key so every process receives it), and a null provider or null `providers`, which remove claims. `models`, `options`, `region` and `capabilities` still merge from either scope. The reason is the workspace file is AGENT-EDITABLE, and these fields decide where a credential and the inference behind it go. The entry-level `base_url` shorthand is refused at any scope | `internal/config/validate.go` (`validateProviderCredentialScope`) |
+| Provider credential-routing scope | Every provider field that decides where a credential goes is **USER-SCOPE ONLY**: a workspace `yolo-jail.jsonc` or `yolo-jail.local.jsonc` carrying one is a fatal config error naming the field and the user config. The address, `endpoints.<protocol>.base_url`, since 2026-09-17 ([`OQ-LM3`](../research/local-model-endpoints.md#oq-lm3)). Since 2026-09-28 ([OQ-NC6](../plans/notch-convergence.md#OQ-NC6), the field list [NC-D63](../plans/notch-convergence.md#NC-D63)) also the rest of `endpoints` in any form (a protocol with no URL, a `wire_api`, a null removing an endpoint or the map), `api_key_env_name` (a value re-points the claim, a null unclaims the key so every process receives it), and a null provider or null `providers`, which remove claims. Since 2026-09-29 also `platform`, which decides which agents a pack's credential pointer reaches ([PP-D7](../design/providers-and-profiles-redesign.md#PP-D7)). `models`, `options`, `region` and `capabilities` still merge from either scope. The reason is the workspace file is AGENT-EDITABLE, and these fields decide where a credential and the inference behind it go. The entry-level `base_url` shorthand is refused at any scope | `internal/config/validate.go` (`validateProviderCredentialScope`) |
 | Missing-provider hatch | `YOLO_ALLOW_MISSING_PROVIDERS=1`, for the credential and the region preflights | `internal/paths` |
-| Region requirement | a provider's `region_env_name` (pack manifests only); the claude pack's `bedrock` declares `AWS_REGION`, `AWS_DEFAULT_REGION` | `packs/claude/pack.json`, `packload.ProviderRegionGaps` |
-| Kinds that take the `profile` modifier | `env`, `config-overlay` — refused on every other kind | `packdecl` `validateContribution` |
+| Provider platform | `platform`, one token, open vocabulary; `aws-bedrock` is the one value read today (claude's derive, aws-auth's gate, the region preflight); a derive reads the selected provider's as `ctx.selected_platform` | `packdecl.PlatformProblem`, `luahook` (`selectedPlatform`) |
+| The shipped Bedrock provider | `bedrock` in the claude pack: `"platform": "aws-bedrock"`, no endpoints, no models, no region, the six AWS credential names under `api_key_env_name` | `packs/claude/pack.json` |
+| Region requirement | a provider's `region_env_name` beside its `platform` (pack manifests only), a requirement of every provider of that platform; the claude pack's `bedrock` declares `AWS_REGION`, `AWS_DEFAULT_REGION` for `aws-bedrock` | `packs/claude/pack.json`, `packload.ProviderRegionGaps` |
+| Kinds that take the `profile` modifier | `env`, `config-overlay` — refused on every other kind; no shipped pack uses it | `packdecl` `validateContribution` |
+| Kinds that take the `platform` gate | `env` — one gate per contribution, `profile` or `platform`; `platform` on `provider` is the declaration | `packdecl` `validateContribution` |
+| Platform switches | a `program`'s `platform_switches` `[{platform, surface, pointer}]`; claude's: `aws-bedrock`, `claude/settings`, `/env/CLAUDE_CODE_USE_BEDROCK`; on when `true`, `1`, `yes` or `on` | `packs/claude/pack.json`, `packload.PlatformSwitchConflicts` |
 | Profile flag grammar | `-p` / `--profile`: a bare name, or `cli=name` (comma-separated, repeatable), on every notch; at `yolo host` / `yolo host env` a pair may name only the one command composed | `internal/cli` (`parseProfileValue`; `applyProfileValue` on the run path, `hostProfileFor` at the host) |
 | Profile disclosure line | `Profile <name>: declared: <packs or none>; received: <every selected pack>` | `run.noteUseProfiles` |
 | Conventional tier aliases | `default`, `fast`, `balanced`, `frontier`; a missing one warns at boot as `pack derive for <agent>: provider "<name>" declares no "<alias>" model alias …`, and only when a derive asks `yolo.model_for` for it | `luahook.ConventionalModelAliases`, `luahook.MissingTierAliasNote` |
@@ -1317,6 +1418,7 @@ above explains what each is for; this table is the only place the exact spelling
 | zai provider options | `model: glm-5.3`, `context_window: 1000000`, `api_timeout_ms: 3000000` | `packs/zai/pack.json` |
 | zai credential variable | `ZAI_API_KEY` | `packs/zai/pack.json` |
 | llamacpp endpoints | `anthropic`: `http://localhost:8080`; `openai`: `http://localhost:8080/v1` (`openai-chat-completions`) — a LOCAL inference server (llama.cpp `llama-server`), reached through `network.forward_host_ports` | `packs/llamacpp/pack.json` |
+| llamacpp attribution header | the provider option `attribution_header: "false"`, which claude's derive turns into `CLAUDE_CODE_ATTRIBUTION_HEADER=0` (a profile may set `"true"`); only claude receives it | `packs/llamacpp/pack.json`, `packs/claude/derive.lua` |
 | llamacpp credential | **none.** The provider declares no `api_key_env_name`, so the credential pre-flight requires nothing; each agent's derive supplies its own dummy, which every agent here accepts against a loopback server | `packs/llamacpp/pack.json` |
 | llamacpp model id | `llama` — the `--alias` the recipe tells the server to publish, so one id is true across all agents | `packs/llamacpp/pack.json`, `packs/llamacpp/README.md` |
 | `needs` vocabulary | top-level manifest key — `needs: [{pack, when_bins}]`, conditional pack dependency resolved as a transitive closure at selection (the added pack prints its cause line on the banner); manifests only, never user config | `internal/packdecl/needs.go`, `internal/packload/needs.go` |

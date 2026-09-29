@@ -76,6 +76,24 @@ sandbox profile as the agent and as the sandbox's own user; the launch says it s
 it confirms it. Homebrew and the release archives ship what those need for both Apple Silicon and
 Intel Macs; nothing new lands on your own `PATH`. See [macOS](userguide/guides/macos.md).
 
+**A profile or provider of your own now gets everything the shipped one does.** The extras a
+shipped profile carried used to be tied to its name, so a profile of your own over `bedrock`
+started Claude Code without its Bedrock mode or the jail's AWS credentials, and one over
+`llamacpp` lost the setting that keeps llama.cpp's prompt cache working. They follow the provider
+now: `"profiles": {"bedrock-sso": {"provider": "bedrock"}}` works like `-p bedrock`, and so does a
+Bedrock provider you declare yourself by adding `"platform": "aws-bedrock"` to it in your user
+config. A profile of your own over the ChatGPT subscription (`openai-codex`) signs pi and Claude
+Code in the way `-p codex` does. A profile that routes Claude Code through the wire bridge to
+Bedrock gets the AWS credentials for the bridge and leaves Claude Code's own Bedrock client off.
+See [what service a provider is](docs/reference/providers.md#the-platform-what-service-a-provider-is).
+
+**A launch now tells you when your own Claude settings turn Bedrock on but no Bedrock provider is
+selected.** With `"env": {"CLAUDE_CODE_USE_BEDROCK": "1"}` in `~/.claude/settings.json`, Claude
+Code runs in Bedrock mode whatever yolo selects, and yolo then hands it no AWS credentials. The
+launch prints one line naming the setting and both fixes, `-p bedrock` or removing the key, in a
+jail and at `yolo host`. yolo leaves your settings alone. See
+[a switch in the agent's own config](docs/reference/providers.md#a-switch-in-the-agents-own-config).
+
 pi's subagents can now use your MCP servers. When the pi-subagents extension is in pi's
 packages, a jail also writes the MCP servers you configure to `~/.config/mcp/mcp.json`, the file
 pi-subagents reads when an agent lists `mcp:` tools; before, subagents could not see them. A file

@@ -382,8 +382,8 @@ Measure both before the preset ships (build step 9.1).
    3. the preset and its Bedrock gate ([OQ-BR22](#OQ-BR22)), with a boot-render test that fails when
       the gate's call site is deleted, and that covers `-p bedrock-bridge` (the shipped profile that forces the wire bridge,
       [OQ-BR1](bedrock-plumbing.md#OQ-BR1)) as well as `-p bedrock`.
-      This step alone waits on two unbuilt pieces: [OQ-BR2](providers-and-profiles-redesign.md#OQ-BR2)'s
-      `platform` field and the `mcp` kind;
+      [OQ-BR2](providers-and-profiles-redesign.md#OQ-BR2)'s spelling is ruled and built (the
+      provider's `platform`, 2026-09-29), so this step waits only on the `mcp` kind being built;
    4. the `aws-auth` README's policy gaining `bedrock-agentcore:InvokeGateway`
       ([D6](#d6-live-in-docs-the-aws-auth-example-policy-denies-search)), and a README section on
       the three AWS calls that create the gateway.

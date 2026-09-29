@@ -1119,11 +1119,14 @@ config's `env_sources` is the channel, kept out of a distributable pack on purpo
 shown on the launch banner anyway, because it changes what the agent inside the jail sees,
 which is the other thing a user checks a launch for.
 
-An unconditional `env` reaches every process of the jail. A **`profile:`-gated** one reaches
-only the agents whose selected profile satisfies it — the pack's own agent, or, for a pack
-that installs no CLI, every agent that selected that profile — through each agent's own env
-file, and no shell or other agent sees it
-([`providers.md`, the credential gate](providers.md#the-credential-gate)).
+An unconditional `env` reaches every process of the jail. A **gated** one reaches only the
+agents whose selection satisfies its gate — the pack's own agent, or, for a pack that installs no
+CLI, every agent whose selection does — through each agent's own env file, and no shell or other
+agent sees it ([`providers.md`, the credential gate](providers.md#the-credential-gate)). The gate
+is **`platform:`**, satisfied when the agent's selected provider declares that platform (what
+`packs/aws-auth`'s pointer uses, for `aws-bedrock`), or **`profile:`**, satisfied by the profile's
+name; one per contribution. A fact of the provider belongs on `platform:`, so a second profile
+over the same provider gets it ([`providers.md`, the `profile` modifier](providers.md#the-profile-modifier)).
 
 An `env` contribution may also declare **`overridden_by`**: what, delivered into the same jail,
 makes a consumer ignore its variables — other variables (all of them delivered, unless one of an
@@ -1455,10 +1458,12 @@ order as it does for every overlay, and a list only appends.
 A `provider` declares a service's facts — endpoints by protocol, wire protocol, model
 aliases, the *name* of the environment variable holding the credential (or a list of names,
 for a credential that arrives in several variables; the credential gate delivers each only to
-an agent that selected the provider), and the options a profile may tune. A `profile` is a selection and nothing else: `{name, provider}`.
-Everything a profile used to carry as a body is now an ordinary contribution gated by the
-`profile:` modifier, which is accepted on `env` and `config-overlay` and refused by name on
-every other kind.
+an agent that selected the provider), and the options a profile may tune, and what service it is (`platform`, open vocabulary). A
+`profile` is a selection and nothing else: `{name, provider}`. Everything a profile used to carry
+as a body is now an ordinary contribution: in an agent's own derive keyed on the provider, on
+`env` gated by `platform:`, or gated by the `profile:` modifier, which is accepted on `env` and
+`config-overlay` and refused by name on every other kind. A `program` may declare
+`platform_switches`, the settings in its own config that put it on a platform by themselves.
 
 [`providers.md`](providers.md) is the authority for all of it: the canonical `wire_api`
 vocabulary, the composition of the provider table, the credential pre-flight, selection, and

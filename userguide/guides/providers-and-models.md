@@ -65,14 +65,34 @@ Two more come with the agent packs, with no extra pack to add:
 
 - **`bedrock`**, in the `claude` pack: Claude Code on AWS Bedrock. With the `aws-auth` loophole on,
   it uses your host's `aws sso login`, narrowed to one role before it reaches the jail. The
-  credential service inside the jail runs only when an agent's profile is `bedrock`, and only that
-  agent can use it. See [Host Access and Loopholes](loopholes.md#the-loopholes-yolo-ships).
+  credential service inside the jail runs only when an agent is on a Bedrock provider, and only
+  that agent can use it. See [Host Access and Loopholes](loopholes.md#the-loopholes-yolo-ships).
   Name the AWS region, either as `"providers": {"bedrock": {"region": "us-east-1"}}` in your
   config or as `AWS_REGION` in an `env_sources` entry. A `bedrock` launch with neither is refused
   and names both. A region in `~/.aws/config` does not count, because yolo does not read that
   file, and in a jail neither does an `AWS_REGION` exported in your own shell, which does not
   reach the jail. Each agent on Bedrock needs its own: a region only another agent receives does
   not count for it.
+
+  A profile of your own over `bedrock`, or a Bedrock provider of your own, works exactly like
+  `-p bedrock`: say the provider is Bedrock with `"platform": "aws-bedrock"`.
+
+  ```jsonc
+  // ~/.config/yolo-jail/config.jsonc
+  "providers": { "bedrock-eu": { "platform": "aws-bedrock", "region": "eu-west-1" } },
+  "profiles": { "eu": { "provider": "bedrock-eu" } }
+  ```
+
+  `yolo -p eu -- claude` then runs Claude Code on its own Bedrock client in `eu-west-1`, with the
+  `aws-auth` credentials when that loophole is on. `platform` belongs in your user config; a
+  workspace `yolo-jail.jsonc` carrying it is refused. One thing does not carry over: `bedrock`
+  keeps the AWS key variables (`AWS_ACCESS_KEY_ID` and the rest) to the agents on it, and a
+  provider of your own does so only for the variables you list in its `api_key_env_name`, so an
+  AWS key in `env_sources` reaches every process otherwise. A profile of your own over `bedrock`
+  keeps everything. If your own `~/.claude/settings.json` turns
+  Bedrock on (`"env": {"CLAUDE_CODE_USE_BEDROCK": "1"}`) while claude's profile is not a
+  Bedrock one, the launch says so in one line, naming the `-p` that fixes it; yolo leaves the key
+  alone.
 - **`codex`**, in the `claude`, `codex` and `pi` packs: your ChatGPT subscription, through yolo's
   shared OpenAI login. `codex` and `pi` use this login by default; `yolo -p codex -- claude` runs
   Claude Code against it. See [Logins](authentication.md#a-shared-chatgpt-login-for-codex-and-pi).
