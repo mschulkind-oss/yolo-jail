@@ -319,6 +319,19 @@ func set(items ...string) map[string]struct{} {
 	return m
 }
 
+// KnownProviderKeys is the closed key set a user's `providers.<name>` entry may carry, sorted:
+// the list `yolo config-ref`'s `providers` section documents entry by entry, which
+// internal/cli's drift gate holds it to (a key this accepts and the reference never names is
+// one a user can only discover by reading the source).
+func KnownProviderKeys() []string {
+	out := make([]string, 0, len(knownProviderKeys))
+	for k := range knownProviderKeys {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
+}
+
 // asMap returns v as *jsonx.OrderedMap and true, for a JSON-object value.
 func asMap(v any) (*jsonx.OrderedMap, bool) {
 	m, ok := v.(*jsonx.OrderedMap)

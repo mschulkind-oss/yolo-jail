@@ -1211,6 +1211,14 @@
                     tell a provider this agent can use from one it cannot.  Omit it to
                     leave the agent UNCONSTRAINED: every provider then resolves directly,
                     which is what every pack did before the key existed.
+                    Also takes `platform_switches`: [{platform, surface:"agent/name",
+                    pointer:"/json/pointer"}] — settings in this program's OWN config
+                    (a readsHost surface of this pack) that put the agent on a provider
+                    platform by themselves, such as claude's
+                    `/env/CLAUDE_CODE_USE_BEDROCK` in claude/settings for "aws-bedrock".
+                    yolo never removes one; when the user's copy turns it on (true, 1,
+                    yes, on) and the agent's selected provider is not of that platform,
+                    the launch prints one line naming the key and both fixes.
       blocked-tool  {bin, message, suggestion, replacement, flags} — refuse a tool
                     inside the jail and print an alternative.  `flags` limits the block
                     to matching argv (absent = always); `replacement` names the binary
@@ -1318,13 +1326,16 @@
       state         {at (~ dir), scope:"workspace"|"machine", because} — persists
       reads-host    {host (~-relative file), into (/ctx dest)} — one file, :ro [gated]
       mount         {host (~-relative DIR or file), into (/ctx dest)} — :ro    [gated]
-      env           {vars:{KEY:"value"}, profile} — STATIC strings only; no
+      env           {vars:{KEY:"value"}, platform|profile} — STATIC strings only; no
                     interpolation, no host reads, so it is honored for any origin.
-                    `profile` GATES the whole contribution: it applies only while that
-                    profile is active at launch, and it is keyed on a bin the pack
-                    installs first, else on ANY bin — the second pass is what lets a
-                    pack that installs no CLI (a provider pack) still deliver a
-                    profile's environment.
+                    A GATE limits the whole contribution to the agents whose selection
+                    satisfies it — the pack's own agent, or for a pack that installs no
+                    CLI every agent: `platform` to those whose selected provider
+                    declares that platform, whatever the profile is named (aws-auth's
+                    credential pointer, for "aws-bedrock"), and `profile` to those that
+                    selected that profile by name.  One gate at most.  A provider fact
+                    belongs on `platform`: a second profile over the same provider gets
+                    it, which a name gate misses.
       hook          {hook:"shared_credentials"|"shared_directory"|"unshare_directory"|
                     "per_jail_history", from (~-relative path the hook acts on), at (a
                     machine-scope state dir THIS pack declares; the two shared_* hooks
@@ -1354,16 +1365,27 @@
                     Whatever ELSE a launch under that profile should deliver (env
                     vars, config keys) is declared by the gated contributions of the
                     kinds that own those channels: `env` and `config-overlay` both take
-                    a `profile` field naming the profile that activates them.  A
+                    a `profile` field naming the profile that activates them, and `env`
+                    a `platform` naming the provider service instead, which a fact of
+                    the provider (not of the profile's name) should use.  A
                     profile name is sole-owned WITHIN the pack only: two packs may both
                     declare `bedrock` and stay unrelated.  A profile no launch selects
                     does nothing.
-      provider      {name, endpoints:{protocol:{base_url, wire_api}}, api_key_env_name,
-                    region, models:{alias: id}, options:{option: default|null}} —
-                    the SERVICE facts of a named provider: the endpoints that speak each
-                    wire protocol, the region a regional provider is reached through,
-                    the model ids an alias names, and the OPTION names a profile may
-                    set (`options`; see [bold]providers[/bold] below).  Composed UNDER your
+      provider      {name, platform, endpoints:{protocol:{base_url, wire_api}},
+                    api_key_env_name, region, region_env_name:[NAME...],
+                    models:{alias: id}, model_options, capabilities,
+                    options:{option: default|null}} —
+                    the SERVICE facts of a named provider: what service it is
+                    (`platform`, open vocabulary, "aws-bedrock" for Bedrock; an agent's
+                    derive and a `platform` env gate recognize the service by it), the
+                    endpoints that speak each wire protocol, the region a regional
+                    provider is reached through, the model ids an alias names, and the
+                    OPTION names a profile may set (`options`; see [bold]providers[/bold]
+                    below).  `region_env_name` makes a region a LAUNCH REQUIREMENT for
+                    every provider of this one's `platform` (which it needs beside it):
+                    the variables an agent there reads its region from, so a launch
+                    whose agent is on such a provider with no `region` and none of them
+                    delivered to it is refused, naming both ways to set one.  Composed UNDER your
                     `providers` entries per field, so overriding one model alias, one
                     region or one URL keeps everything else the pack shipped.  The
                     credential is NEVER
@@ -1518,12 +1540,14 @@
     error.
     ⚠ WHERE A CREDENTIAL GOES IS USER-SCOPE ONLY.  `endpoints` in any form (a URL, a
     protocol, a dialect, or a null removing one), `api_key_env_name` (a value or a null),
-    and a null provider or null `providers` are REFUSED in a workspace `yolo-jail.jsonc`
-    or `yolo-jail.local.jsonc`, each naming the field; write them in your user config
-    instead.  The workspace file is agent-editable: an agent that can repoint its own
-    model endpoint can send everything it reads to a server you did not choose, and one
-    that can rename the variable a provider claims can send you a different credential
-    (GH_TOKEN, say) to that provider, or unclaim a key so every process receives it.
+    `platform`, and a null provider or null `providers` are REFUSED in a workspace
+    `yolo-jail.jsonc` or `yolo-jail.local.jsonc`, each naming the field; write them in
+    your user config instead.  The workspace file is agent-editable: an agent that can
+    repoint its own model endpoint can send everything it reads to a server you did not
+    choose, one that can rename the variable a provider claims can send you a different
+    credential (GH_TOKEN, say) to that provider, or unclaim a key so every process
+    receives it, and one that can relabel a provider's platform can hand its agents a
+    credential pointer meant for another service.
     `models`, `options`, `region` and `capabilities` still merge from either scope.
     Per entry:
       base_url       [bold yellow]REMOVED[/bold yellow] — an entry carrying it is REFUSED, naming the
@@ -1548,7 +1572,21 @@
                      config.  A named variable reaches only the agents whose profile
                      selects this provider, and the launch pre-flight refuses a provider
                      some agent selected whose variable is empty.
-      region         the region a regional provider is reached through.
+      platform       what service this provider is, one token in an open vocabulary
+                     ("aws-bedrock" for Amazon Bedrock).  Yours gets exactly the behavior
+                     a shipped provider of the same platform gets: a Bedrock provider of
+                     your own, `{"platform": "aws-bedrock", "region": "eu-west-1"}` with a
+                     profile over it, switches claude to its Bedrock client, receives the
+                     aws-auth credential pointer and is required a region.  A value no
+                     pack knows changes nothing.
+      region         the region a regional provider is reached through.  For a provider
+                     whose platform a selected pack declares region variables for
+                     (`bedrock`, and any provider of yours with "platform":
+                     "aws-bedrock"), a launch with no `region` here and neither
+                     AWS_REGION nor AWS_DEFAULT_REGION delivered to the agent is REFUSED,
+                     naming both ways to set one; a region in ~/.aws/config is not
+                     counted, since yolo does not read it.
+                     YOLO_ALLOW_MISSING_PROVIDERS=1 launches anyway.
       models         {alias: model id} — the aliases a profile's `model` option names.
                      The agent pack's own derive.lua decides which alias each of the
                      agent's keys reads; `default` is the alias used when a profile
