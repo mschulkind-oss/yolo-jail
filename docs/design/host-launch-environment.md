@@ -9,7 +9,10 @@ summary: "`yolo host` resolves its target, probes pack dependencies and runs ins
 # A host launch that does not depend on who launched it — composing `yolo host`'s PATH
 
 **Status:** DESIGN, 2026-09-25 — a proposal; nothing built. Evidence read against the working tree
-on that date.
+on that date. Two questions were narrowed on 2026-09-29 by principle
+[HP-DIR3](host-tool-provisioning.md#HP-DIR3) (at the host, yolo manages the agent's environment and
+never provisions or activates the workspace's runtime): [OQ-HE1](#oq-he1) may no longer default to
+mise's directories, and [OQ-HE10](#oq-he10)'s option (a) is ruled out. Both still need a ruling.
 
 > **In short.** `yolo host` should make every decision against the environment it composes, not
 > the one it inherited. PATH is the input where that fails today. Composing it from a fixed
@@ -156,6 +159,14 @@ still read only the composed value. Everything yolo resolved still resolves the 
 child, because the composed entries come first. The ambient tail adds the user's own tools and
 never outranks what yolo checked. What that tail supplies still varies with the launcher, and no
 design can guarantee it.
+
+*Narrowed 2026-09-29 by principle [HP-DIR3](host-tool-provisioning.md#HP-DIR3): the rule as first
+written, where the composed value is the child's whole PATH, is ruled out. The commands a host agent
+runs see the user's own shell environment ([OQ-HP7](host-tool-provisioning.md#OQ-HP7)), so the
+caller's PATH has to reach the child. Which comes first, and the leaning (now ambient first), are in
+[OQ-HE10](#oq-he10). [§3](#3-one-authority--the-seam)'s "Child PATH" row and
+[§5](#5-tests-that-would-pin-it)'s test 1 still describe the rule as first written, and change with
+that ruling.*
 
 How the criterion classifies the rest of [§1.2](#12-ambient-values-yolo-reads-to-decide-something):
 
@@ -436,16 +447,68 @@ Each test is chosen by the repo's question: **does it fail if I delete the call 
 
 ### <a id="oq-he1"></a>💬 [`OQ-HE1`](#oq-he1) — what does an unset `host_path` resolve to once enforced? — **OPEN**
 
-**Strict:** the baseline alone.
+**Narrowed 2026-09-29 by principle [HP-DIR3](host-tool-provisioning.md#HP-DIR3): no default may
+include mise's shims or install directories.** HP-DIR3 says that at the host yolo manages the
+agent's environment and never the workspace's runtime; in the maintainer's words, *"we don't
+maintain the host development environment, the workspace's runtime."* The generous form as first
+written added the [hint locations](#42-the-diagnostic-for-a-miss) to every host launch whose user
+never configured `host_path`, and those include the shims and installs under mise's default data
+dir.
 
-**Generous:** the baseline plus the hint locations, existence-filtered. This is as deterministic as
-strict, because it depends on no launch environment, but it has the shape of the "opportunistic"
-append the ruling superseded.
+- A mise shim picks a version from the cwd's mise config, which is the workspace's runtime.
+  Depending on mise's settings, it can also install that version at run time
+  ([§2.3](#23-tool-managers--mise-and-the-shim-is-not-installed-problem)).
+- mise documents putting the shims directory on PATH as a way of activating mise: `mise activate
+  --shims` is its shorthand for exactly that entry ([Appendix A](#appendix-a--evidence)). HP-DIR3
+  and [OQ-HP6](host-tool-provisioning.md#OQ-HP6) forbid yolo activating mise, or installing through
+  it, at the host.
+- The composed host PATH also reaches the agent's children under both [OQ-HE10](#oq-he10) options
+  still open, so a default mise entry would activate mise for the workspace's commands even when
+  the user's own PATH lacks it.
+- It is also the opportunistic mise-shims append that [OQ-HE0](#oq-he0) superseded.
 
-**Leaning: strict**, with stage 1's notices as the migration path. The ruling's objection to
-opportunism reads as an objection to yolo guessing, and a fixed guess is still a guess.
+[HP-DIR2](host-tool-provisioning.md#HP-DIR2) item 1's "mise shims included" does not cut the other
+way. Read next to [OQ-HP7](host-tool-provisioning.md#OQ-HP7)'s "the user's own shell environment,
+mise included", it means the user's own activation passes through, not that yolo adds mise. A user
+may still name mise's shims in `host_path` themselves, which is the user's act rather than yolo's;
+how they name it is [OQ-HE3](#oq-he3), which stays open. The mise locations stay in the miss
+diagnostic ([§4.2](#42-the-diagnostic-for-a-miss)), because a hint location only changes a
+message's text and never resolves anything.
 
-<!-- vantage: oq id=OQ-HE1 leaning="Strict: an unset host_path resolves to the baseline alone once enforced, with stage 1's notices as the migration path. The ruling's objection to opportunism reads as an objection to yolo guessing, and the generous form's fixed guess (the baseline plus existence-filtered hint locations) is still a guess." -->
+**The remaining question.** Once the composed host PATH is enforced and `host_path` is unset, is the
+default the baseline alone, or the baseline plus the non-mise hint locations that exist? The
+baseline is the per-OS list of system directories in
+[§2.2](#22-how-the-composed-host-path-is-built). The non-mise hint locations are `~/.local/bin`,
+`~/.npm-global/bin`, `~/go/bin`, `~/.cargo/bin`, `~/.nix-profile/bin`, `/opt/homebrew/bin` and
+`/home/linuxbrew/.linuxbrew/bin`.
+
+**Setup.** A user has `claude` installed by its own installer in `~/.local/bin`, and the claude pack
+selected. They also have a hand-installed `rg` in `~/.cargo/bin` that a pack lists under
+`requires`. With `host_path` unset, a Waybar widget whose PATH is `/usr/bin:/bin` runs
+`yolo host -- claude`.
+
+**Strict:** the baseline alone. yolo sees neither directory. It runs the
+[host agent floor](host-tool-provisioning.md#defined-terms)'s `claude` (the floor is the selected
+packs' programs, which yolo installs into its own prefix, on by default since
+[OQ-HP1](host-tool-provisioning.md#OQ-HP1)). The `rg` dependency reads as missing, with a
+diagnostic naming `~/.cargo/bin` for `host_path`.
+
+**Generous without mise:** the baseline plus the non-mise hint locations, existence-filtered. yolo
+finds the user's own `claude` and `rg`, the same as from a terminal, but by a guess compiled into
+yolo. It is as deterministic as strict, because it depends on no launch environment, but it has
+the shape of the "opportunistic" append the ruling superseded.
+
+**Leaning: strict**, with [stage 1](#41-stages)'s notices as the migration path. The ruling's
+objection to opportunism reads as an objection to yolo guessing, and a fixed guess is still a
+guess. The floor now covers what strict used to break, the selected packs' own agents, so the
+generous list mainly saves tools outside any pack a one-line `host_path` entry.
+
+**Flag for the maintainer.** HP-DIR2 item 1 (`yolo host -- <cmd>` composes "the user's PATH …
+with the floor as a FALLBACK after it") puts the user's own copy ahead of the floor. Strict puts
+the floor's copy ahead for yolo's decisions. Whether HP-DIR2 changes what "enforced" means for
+`yolo host` needs a ruling of its own.
+
+<!-- vantage: oq id=OQ-HE1 leaning="Strict: an unset host_path resolves to the baseline alone once enforced, with stage 1's notices as the migration path. HP-DIR3 (2026-09-29) already ruled out any default that includes mise's shims or install dirs. The generous form without mise (the baseline plus the existence-filtered non-mise hint locations) is still a guess compiled into yolo, and the host agent floor now covers the selected packs' own agents that strict used to break. Open flag: whether HP-DIR2 item 1 (the user's PATH first, the floor as a fallback) changes what enforced means for yolo host." -->
 
 > **Answer:**
 
@@ -551,26 +614,55 @@ Raised by the maintainer in review, 2026-09-25. yolo can't require a particular 
 at all, and what it provides has to be there whoever launched it. Yet a tool the user put on PATH in
 their shell rc should reach a host agent "just the same as it is outside".
 
-**(a) Whole.** The child gets the composed value only ([§2.1](#21-the-criterion--decision-inputs-versus-carried-variables)
-as first written). It is fully predictable, but a user tool outside `host_path` disappears from the
-agent's subprocesses, and stage 3 breaks tools yolo can't enumerate ([§4.1](#41-stages)).
+**Narrowed 2026-09-29 by principle [HP-DIR3](host-tool-provisioning.md#HP-DIR3): option (a) is
+ruled out, so the composed value cannot be the child's whole PATH.** (a) was the child getting the
+composed value only, as [§2.1](#21-the-criterion--decision-inputs-versus-carried-variables) was
+first written. Under HP-DIR3, as [OQ-HP7](host-tool-provisioning.md#OQ-HP7) applied it, the
+commands a host agent runs see the user's own shell environment, mise included, exactly as the user
+would run them. [HP-DIR2](host-tool-provisioning.md#HP-DIR2) item 1 says the same for any
+`yolo host -- <cmd>`: the user's PATH, with the floor as a fallback. A child PATH built only from
+the baseline plus `host_path` would have yolo choosing the workspace's runtime. For example, it
+would drop the user's mise-selected `node` from the `npm test` the agent runs. So the caller's PATH
+has to reach the child. What yolo decides (which binary to exec, whether a dependency is present)
+can still read only the composed value, so [OQ-HE0](#oq-he0) is untouched.
 
-**(b) Prefix.** The child's PATH is the composed value followed by the ambient PATH, with
-duplicates removed and the first occurrence kept. Every decision still reads only the composed
-value, so [OQ-HE0](#oq-he0) holds. The ambient tail is a *carried* use of PATH, not a decision
-input. Stage 3 then breaks only what yolo itself resolves, and the [§4.1](#41-stages) row "the tools the child
-spawns" leaves the migration's risk list.
+**The remaining question.** Once the composed host PATH is enforced, which comes first in the
+child's PATH: yolo's composed entries, or the caller's own PATH? Terms:
 
-**(c) Ambient first.** The composed value is appended after the ambient PATH. Rejected: an ambient
-entry could then shadow a binary yolo checked. The target is exec'd by absolute path, but its own
-subprocesses (`node` under an npm CLI) would resolve against the caller's PATH again. That is the
-incident, one process down.
+- The *composed value* is the [composed host PATH](#0-the-governing-ruling): the per-OS baseline
+  of system directories plus `host_path` ([§2.2](#22-how-the-composed-host-path-is-built)).
+- The *ambient PATH* is the PATH yolo received from whoever started it, part of the
+  [ambient environment](#0-the-governing-ruling).
+- The *floor* is the [host agent floor](host-tool-provisioning.md#defined-terms): the selected
+  packs' programs, installed into yolo's own prefix.
 
-**Leaning: (b).** It is the distinction the review drew: yolo guarantees a floor, and it inherits
-everything else without depending on it. [OQ-HE5](#oq-he5)'s `{"inherit": "PATH"}` then narrows to
-*decisions only*. Under (b) it is an off-ramp almost nobody needs.
+**Setup.** After [stage 3](#41-stages), with `host_path` unset, a user's terminal PATH is
+`~/.local/share/mise/shims:/usr/local/bin:/usr/bin:/bin`. The workspace's `mise.toml` pins node 22,
+and `/usr/bin/node` is 18. From that terminal they run `yolo host -- opencode`, and opencode runs
+`npm test`.
 
-<!-- vantage: oq id=OQ-HE10 leaning="(b): the child's PATH is the composed value followed by the ambient PATH, deduplicated first-wins; decisions read only the composed value, so OQ-HE0 holds, and stage 3 breaks only what yolo itself resolves." -->
+**(b) Composed first.** The child's PATH is the composed value followed by the ambient PATH, with
+duplicates removed and the first occurrence kept. Here it starts with `/usr/local/bin:/usr/bin:/bin`,
+so `npm test` runs on `/usr/bin/node` 18, which is not what the same command gets in the user's
+terminal. This was the doc's leaning, and it matches how the 2026-09-25 review was summarized: the
+composed PATH first, the caller's shell after it, for the agent.
+
+**(c) Ambient first.** The child's PATH is the ambient PATH followed by the composed value, with
+duplicates removed. `npm test` finds the mise shim and node 22, exactly as in the terminal, and the
+baseline fills in for a launcher whose PATH lacks it (Waybar). This doc first rejected (c) because
+an npm CLI's own `node` would resolve against the caller's PATH, which is the incident one process
+down. HP-DIR2 item 2 now answers that for a delivered agent (one yolo runs from the floor): it
+starts on the floor's own node, by absolute path, with mise stripped. A target the user installed
+resolves its interpreter the way it does outside yolo.
+
+**Leaning: (c).** [OQ-HP7](host-tool-provisioning.md#OQ-HP7)'s *"exactly as the user would run them"* and HP-DIR2's order (the user's
+PATH first, the floor as a fallback) both describe it, and HP-DIR2 item 2 removes the reason this
+doc rejected it.
+
+**Still to decide:** does [OQ-HE5](#oq-he5)'s `{"inherit": "PATH"}` keep any use under (c) beyond
+decisions? And does HP-DIR2 item 1 already mean the maintainer ruled (c)?
+
+<!-- vantage: oq id=OQ-HE10 leaning="(c): the child's PATH is the ambient PATH followed by the composed host PATH, duplicates removed; decisions still read only the composed value, so OQ-HE0 holds. HP-DIR3 (2026-09-29) already ruled out (a), the composed value as the child's whole PATH. OQ-HP7's 'exactly as the user would run them' and HP-DIR2's order (the user's PATH first, the floor as a fallback) both describe (c), and HP-DIR2 item 2 (a delivered agent starts on the floor's node by absolute path, mise stripped) removes this doc's reason for rejecting it." -->
 
 > **Answer:**
 
@@ -627,3 +719,7 @@ working tree on 2026-09-25. They are cited by function, not by line.
 - **mise behavior** (shim location, link-to-binary shims, cwd-based version selection, `mise
   which`, `mise bin-paths`): from mise's documentation. **Not measured in this jail.** Measure it
   before building option B's confirmation step.
+  - Checked against mise's documentation on 2026-09-29, for [OQ-HE1](#oq-he1): its Shims page
+    lists `mise activate --shims` among the ways to load mise's context and calls it "a shorthand
+    for adding the shims directory to PATH", and its settings name a shim's missing-version
+    auto-install (`not_found_auto_install`).

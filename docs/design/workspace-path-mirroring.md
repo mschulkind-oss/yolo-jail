@@ -11,7 +11,9 @@ summary: "Two questions, one verdict. Mirroring just the workspace is a good ide
 **Status:** DESIGN, 2026-09-23 — sketched 2026-09-04 and **reopened and extended the same day** (see
 the postscript); nine questions owe a ruling. [`OQ-WP12`](#OQ-WP12) was answered by another design's ruling,
 and [`OQ-WP5`](#OQ-WP5) by measurement on 2026-09-25 ([Decision Ledger](#decision-ledger)). [`OQ-WP9`](#OQ-WP9)'s candidate
-oracle was measured on 2026-09-25: it is cheap, and it cannot tell the sides apart. No mirroring is built, and my recommendation is
+oracle was measured on 2026-09-25: it is cheap, and it cannot tell the sides apart. [`OQ-WP10`](#OQ-WP10)'s host half was
+settled on 2026-09-29 by principle [HP-DIR3](host-tool-provisioning.md#HP-DIR3) (at the host, yolo never provisions the
+workspace's runtime); what the want was stays open. No mirroring is built, and my recommendation is
 still that none should be, but the reason has changed completely. The one piece that was worth
 doing regardless, `-trimpath` in `scripts/build-go.sh`, shipped 2026-09-09 (`6bfcfe7b`,
 [`OQ-WP2`](#decision-ledger)). This doc exists to make the *no* checkable rather than
@@ -858,6 +860,10 @@ by events on 2026-09-02 (*"the host notch is a place agents run"*, `yolo host --
 shipped 2026-08-30). This is a much larger programme than mirroring and I am not proposing it
 here; I am naming it as the place the maintainer's underlying goal actually lives, so that a
 "no" to mirroring is not read as a "no" to that goal. See [`OQ-WP10`](#open-questions).
+*Narrowed 2026-09-29 by principle [HP-DIR3](host-tool-provisioning.md#HP-DIR3): at the host,
+yolo never provisions the workspace's runtime, so G's host-to-jail half is not a goal. Only
+agreement among the confined notches is left, and [`OQ-WP10`](#OQ-WP10) asks whether even that
+was the want.*
 
 ---
 
@@ -1491,11 +1497,61 @@ and it already has a home in the tree.
     Worth knowing whether that is the want, because a no to mirroring should not read as a no
     to it.
 
-    _Leaning:_ I suspect yes, and that mirroring was a plausible-looking route to it. But I am
-    genuinely unsure whether the goal is portability or simply "paths that make sense to a
-    human", which is a different and smaller want that [§3.3](#33-confirmed-workspace-paths-written-in-jail-are-dead-on-the-host) addresses.
+    **The host half is settled by principle
+    [HP-DIR3](host-tool-provisioning.md#HP-DIR3) (ruled 2026-09-29): not at the host notch.**
+    (The host notch is yolo running an agent directly on the user's machine, with no
+    confinement.) G asks the host and the jail to run one nix-provided userland, so that a
+    workspace artifact such as a venv or a built binary means the same thing on both sides. Its
+    lever, `yoloNoncontainerPackages` in `flake.nix`, is the declared `packages:` closure, and
+    that closure is the project's own toolchain. Doing G at the host would mean yolo provisioning
+    the workspace's runtime there. HP-DIR3 rules that out: at the host yolo manages the agent's
+    environment and never the workspace's runtime. In the maintainer's words, *"we don't maintain
+    the host development environment, the workspace's runtime."*
+    [OQ-HP6](host-tool-provisioning.md#OQ-HP6) rules it out too (no `mise install`, `mise env` or
+    direnv at the host). [OQ-HP7](host-tool-provisioning.md#OQ-HP7) says the commands a host
+    agent runs see the user's own shell environment.
+    [`host-tool-provisioning.md` §2](host-tool-provisioning.md#2-the-floor-what-it-contains-and-what-it-doesnt)
+    and [§9](host-tool-provisioning.md#9-non-goals) already said that `packages` and `mise_tools`
+    at the host belong to the user. So the host-to-jail half of G is not a goal, and that is the
+    half [§12.4](#124-the-new-central-objection-you-can-mirror-a-name-but-not-its-content)'s ABI
+    hazard is about (an Arch host against a NixOS jail). The host side of a workspace's runtime
+    stays the user's by design. The host's agent floor (a yolo-owned prefix holding the selected
+    packs' programs) is not part of this question. It is the agent's environment, not the
+    workspace's, and [OQ-HP3](host-tool-provisioning.md#OQ-HP3) and
+    [OQ-HP4](host-tool-provisioning.md#OQ-HP4) already ruled what goes in it.
 
-    <!-- vantage: oq id=OQ-WP10 leaning="I suspect the underlying goal is cross-notch portability and mirroring looked like a route to it, in which case the lever is userland unification (yoloNoncontainerPackages, the nix resolver section of provisioner-evidence.md) rather than the mount table. But the want might instead be the smaller one of human-legible paths, which is section 3.3. Worth asking which." -->
+    **What is left.** HP-DIR3 already rules the host out. What remains of G is two narrower things:
+
+    - **Agreement among the confined notches.** On one Mac, a podman jail and the `macos-user`
+      backend can share a workspace. But one side runs Linux ELF binaries and the other Mach-O,
+      so their contents can never agree. On Linux, the podman jail and the unbuilt `guest` notch
+      would take the declared `packages:` from the same flake: the jail from its image, `guest`
+      from `yoloNoncontainerProfile` (that closure plus the base tools an image would bake). `guest` is the middle
+      confinement level (a real home on the real filesystem, no image), due in env-manager
+      Phase 7 ([§12.7](#127-the-notch-model--no-statement-anywhere-names-paths-as-the-obstacle)).
+      So those tools already agree by construction.
+    - **The want may never have been portability.** It may only have been paths a human can
+      use. A `/workspace/...` path an agent writes in the jail is dead when you paste it into a
+      host terminal
+      ([§3.3](#33-confirmed-workspace-paths-written-in-jail-are-dead-on-the-host)).
+
+    **Question:** what was the want?
+
+    - **(a)** G is the goal, but for the confined notches only. Record it as the direction for
+      the Linux `guest` notch (env-manager Phase 7). No new work now.
+    - **(b)** The want was human-legible paths. The lever is
+      [§3.3](#33-confirmed-workspace-paths-written-in-jail-are-dead-on-the-host)'s targeted fixes:
+      the briefing already tells every agent the workspace is `/workspace`, not the host's path,
+      and output could translate paths. G is dropped as a stated goal.
+    - **(c)** Neither. Close this question together with [OQ-WP8](#OQ-WP8)'s no to mirroring.
+
+    _Leaning (revised 2026-09-29):_ **(b).** In this doc the host half was G's main case:
+    [§10](#10-alternatives-each-with-a-verdict) cites *"the host notch is a place agents run"*
+    for it. HP-DIR3 has closed that half. What remains is either impossible (ELF against Mach-O)
+    or already true (the Linux `guest` notch uses the same closure). The leaning as filed,
+    *"I suspect yes"*, predates HP-DIR3.
+
+    <!-- vantage: oq id=OQ-WP10 leaning="(b): the want was human-legible paths, so section 3.3's targeted fixes are the lever and alternative G is dropped as a stated goal. HP-DIR3 (2026-09-29) already ruled out the host half, which was G's main case here: at the host yolo never provisions the workspace's runtime. What remains of G is either impossible (a podman jail and macos-user are ELF against Mach-O) or already true (the Linux guest notch takes the same nix packages closure as the jail)." -->
 
     **Answer:**
     > _(empty — fill in when decided)_
@@ -1550,6 +1606,7 @@ silently re-litigated:
 | OQ-WP12 | **Answered by reference to [`OQ-HT4`](../reference/macos-user-home-tiers.md#oq-ht4).** The shared home was reopened in the macos-user home-tier design and both tiers were restored: `HOME` stays `/Users/_yolojail` (machine tier), the workspace tier is symlinks into `<workspace>/.yolo/home`, and the cross-workspace transcript leak is closed by that layout | 2026-09-11 | [`../reference/macos-user-home-tiers.md`](../reference/macos-user-home-tiers.md) |
 | OQ-MP1 | Same-path workspace mount ("option A") rejected; superseded by the state-separation bundle | 2026-07-03 | [`../research/mise-host-jail-path-mismatch.md`](../research/mise-host-jail-path-mismatch.md) · this doc [§2.3](#23-the-prior-art-and-why-it-is-not-the-answer) re-examines it, because two of its three reasons have expired |
 | [`OQ-2`](#decision-ledger) (env-manager) | Host management is user-scoped; the workspace contributes nothing, so `${workspace}` surfaces are refused at the host notch | 2026-08-01 | `docs/plans/environment-manager-plan.md` · [§12.7](#127-the-notch-model--no-statement-anywhere-names-paths-as-the-obstacle) relies on it: mirroring cannot supply a referent the design says must not exist |
+| [`HP-DIR3`](host-tool-provisioning.md#HP-DIR3) (host-tool-provisioning) | At the host, yolo manages the agent's environment and never the workspace's runtime; in a jail it does provision the workspace's runtime | 2026-09-29 | [`host-tool-provisioning.md`](host-tool-provisioning.md#decision-ledger) · [`OQ-WP10`](#OQ-WP10) relies on it: alternative G's host-to-jail half is not a goal |
 | — (`29b00697`) | `macos-user` shares only neutral ground, never the host home — because a foreign uid reaching a leaf inside `~` needs traversal on `/Users/<you>`, *"exactly where a stray grant silently exposes `~/.ssh`"* | 2026-07-13 | [§12.8](#128-macos-users-neutral-ground-is-it-a-constraint-or-a-choice) · the reason is grant **routing**, independent of whether paths match |
 
 **Withdrawn by the 2026-09-04 reopening**, recorded so they are not re-cited: **P1** (only the
