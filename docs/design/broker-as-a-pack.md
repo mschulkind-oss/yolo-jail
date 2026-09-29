@@ -702,7 +702,7 @@ Both belong to the **pack-shipped binary capability** ([§3.1](#31-what-is-actua
 on a baked daemon, which an official pack may do. Neither blocks anything in the tree today; both
 block the first pack that wants to ship a binary of its own.
 
-1. 💬 **[OQ-BP5](#OQ-BP5) — download-with-digest only, or also a declared build step?**
+1. 💬 <a id="OQ-BP5"></a>**[OQ-BP5](#OQ-BP5) — download-with-digest only, or also a declared build step?**
 
    The review asks for both as candidates ([§3.1](#31-what-is-actually-unresolved-here)). They are not symmetric: a download can be pinned by `sha256` and therefore satisfies **P4** (a pinned pack pins everything that runs); a build step generally cannot, because builds are not bit-reproducible, so what runs is decided at install time by whatever toolchain the machine happens to have. A build step is also the same risk class as `packdecl.Install.InstallerURL`, which the schema calls *"the sharpest thing a manifest can name"* and which a fetched pack could not introduce until [`OQ-TP9`](trust-paths.md#decision-ledger) deleted the origin rule on 2026-09-04.
 
@@ -715,7 +715,7 @@ block the first pack that wants to ship a binary of its own.
    **Answer:**
    > _(empty — fill in when decided)_
 
-2. 💬 **[OQ-BP6](#OQ-BP6) — may a *fetched* pack ship a host-side daemon binary?**
+2. 💬 <a id="OQ-BP6"></a>**[OQ-BP6](#OQ-BP6) — may a *fetched* pack ship a host-side daemon binary?**
 
    [§3.1](#31-what-is-actually-unresolved-here)'s two-gate split says a jail-side binary is roughly as sharp as what a pack can already do, while a host-side one is a host-execution grant. This asks whether the second is available to a fetched pack at all, or whether — like `InstallerURL` and `host_files` — it is refused by origin regardless of what the user would approve. Not needed for the broker, which is official; needed before anyone else ships one.
 

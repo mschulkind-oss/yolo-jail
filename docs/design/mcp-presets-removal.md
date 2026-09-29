@@ -530,7 +530,7 @@ Observable outcomes a human can check, not test names:
 
 ## 15. Open Questions
 
-1. ✅ **OQ-MP3: The contribution shape.** A new `kind: "mcp"`, a `config-overlay` per agent
+1. ✅ <a id="OQ-MP3"></a> **OQ-MP3: The contribution shape.** A new `kind: "mcp"`, a `config-overlay` per agent
    surface, or an `mcp` block on `kind: "program"`? This is the doc's closure question: every
    other answer here is downstream of it, and it is the one that adds a twentieth entry to a
    deliberately closed registry.
@@ -587,7 +587,7 @@ Observable outcomes a human can check, not test names:
    an argument.
 
 
-3. ✅ **OQ-MP5: How the pack names an executable it did not install.** `/usr/bin/chromium` is
+3. ✅ <a id="OQ-MP5"></a> **OQ-MP5: How the pack names an executable it did not install.** `/usr/bin/chromium` is
    already wrong on a lean launch and absent on macOS. Options: the pack declares
    `kind: "requires"` and its wrapper resolves at run time; or the manifest carries a candidate
    list core resolves at boot; or the entry names a bare binary and something else guarantees
@@ -605,7 +605,7 @@ Observable outcomes a human can check, not test names:
    > removes. A bare binary name loses to environment sanitization, so the wrapper resolves at
    > run time and hands back an absolute path.
 
-4. ✅ **OQ-MP6: What `mcp_presets` does on the day this ships.** Full retirement — host error,
+4. ✅ <a id="OQ-MP6"></a> **OQ-MP6: What `mcp_presets` does on the day this ships.** Full retirement — host error,
    in-jail warning, per the `retiredTopLevelConfigKeys` precedent — or one release of
    warn-and-ignore on both notches? This decides whether an unmigrated user's next launch fails
    or degrades.
@@ -668,7 +668,7 @@ Observable outcomes a human can check, not test names:
    in the same sitting rather than separately, because two docs deciding one boundary from
    opposite sides is how this corpus grew its asymmetries in the first place.
 
-6. ✅ **OQ-MP8: One script or two — and does the browser outlive the MCP server?** Today two
+6. ✅ <a id="OQ-MP8"></a> **OQ-MP8: One script or two — and does the browser outlive the MCP server?** Today two
    shapes exist and only the thin one is wired: `--executablePath` (the MCP server launches its
    own chromium, one per spawn) versus `--browser-url` (a chromium already running on the jail's
    loopback, shared across spawns and surviving a server restart). The second is what the orphan

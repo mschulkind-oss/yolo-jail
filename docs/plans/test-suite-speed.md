@@ -233,7 +233,7 @@ two depend on how a particular day's agents were scheduled.
 
 ## Open Questions
 
-1. 💬 **OQ-TS1: Should a machine-wide lock let only one full integration suite run at
+1. 💬 <a id="OQ-TS1"></a>**OQ-TS1: Should a machine-wide lock let only one full integration suite run at
    a time?** A lock would stop overlapping runs from failing, and it would do that without fixing each
    test. It would also make every other agent that reaches its landing wait for the current run to
    finish.
@@ -247,7 +247,7 @@ two depend on how a particular day's agents were scheduled.
    **Answer:**
    > _(empty — fill in when decided)_
 
-2. 💬 **OQ-TS2: Should `ci.yml` set `concurrency: cancel-in-progress`?** Today
+2. 💬 <a id="OQ-TS2"></a>**OQ-TS2: Should `ci.yml` set `concurrency: cancel-in-progress`?** Today
    `ci.yml` has no `concurrency` block, so each push to a pull request runs the whole workflow again
    while the earlier run keeps going. At 1085 s for the x64 integration job, that adds up.
 
@@ -260,7 +260,7 @@ two depend on how a particular day's agents were scheduled.
    **Answer:**
    > _(empty — fill in when decided)_
 
-3. 💬 **OQ-TS3: Should the integration tests that change the shared image store be
+3. 💬 <a id="OQ-TS3"></a>**OQ-TS3: Should the integration tests that change the shared image store be
    skipped unless a variable turns them on, for runs that are not a landing?** Tests such as the
    image-copy lock and archive-delta tests are among the slowest in the suite, and they touch state
    that other runs share. The repository already uses this pattern once: `YOLO_TEST_REAL_PACK_INSTALLS`
@@ -275,7 +275,7 @@ two depend on how a particular day's agents were scheduled.
    **Answer:**
    > _(empty — fill in when decided)_
 
-4. 💬 **OQ-TS4: Should the darwin lint pass run in CI only, and not in the local
+4. 💬 <a id="OQ-TS4"></a>**OQ-TS4: Should the darwin lint pass run in CI only, and not in the local
    `just check-ci`?** That pass has cost 43 s since 09-13. Taking it out of the local gate would cut
    that time for everyone, but a darwin-only finding would then first appear after a push.
 

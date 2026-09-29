@@ -280,7 +280,7 @@ a fact declared twice and drifting, which is the same disease `exposes` is presc
 
 ## 6. Open questions
 
-1. ✅ **OQ-D1: Is a slot a second axis (`exposes`) or its own kind?**
+1. ✅ <a id="OQ-D1"></a> **OQ-D1: Is a slot a second axis (`exposes`) or its own kind?**
 
    <!-- vantage: oq id=OQ-D1 leaning="A second axis. A kind names a contribution; a slot is not one, and making it a kind would put the receiving role inside the supplying vocabulary." -->
 
@@ -289,7 +289,7 @@ a fact declared twice and drifting, which is the same disease `exposes` is presc
    > would put the receiving role inside the supplying vocabulary — the conflation this doc
    > exists to delete, one level up.
 
-2. ✅ **OQ-D2: Is the slot address `(agent, name)` keyed on the `bin` name, or on the pack?**
+2. ✅ <a id="OQ-D2"></a> **OQ-D2: Is the slot address `(agent, name)` keyed on the `bin` name, or on the pack?**
 
    <!-- vantage: oq id=OQ-D2 leaning="The agent/bin name — so content survives swapping which pack supplies that agent." -->
 
@@ -305,7 +305,7 @@ a fact declared twice and drifting, which is the same disease `exposes` is presc
    not a new design; it is the existing one, unnamed. Only `files` lacks it. That reframes
    [OQ-D3](#OQ-D3) and is why its leaning changed.
 
-3. ✅ **OQ-D3: Does the split reach `briefing` and `skills`, or only `files`?**
+3. ✅ <a id="OQ-D3"></a> **OQ-D3: Does the split reach `briefing` and `skills`, or only `files`?**
 
    <!-- vantage: oq id=OQ-D3 leaning="All three. The conflation is identical, and fixing files alone leaves two kinds with the flag this doc exists to delete." -->
 
@@ -425,7 +425,7 @@ a fact declared twice and drifting, which is the same disease `exposes` is presc
    **The cost, stated:** a pack supplying two agents becomes two packs. Nothing ships that shape,
    so the constraint is free today and is a real restriction tomorrow.
 
-5. ✅ **OQ-D4: Are the field names `exposes` / `to` / `accepts` right?**
+5. ✅ <a id="OQ-D4"></a> **OQ-D4: Are the field names `exposes` / `to` / `accepts` right?**
 
    <!-- vantage: oq id=OQ-D4 leaning="Provisional. 'exposes'/'accepts' read as the receiving end; 'to' is the shortest thing that is not 'into'." -->
 

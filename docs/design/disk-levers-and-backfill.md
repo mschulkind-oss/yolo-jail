@@ -789,7 +789,7 @@ Kept rather than compacted away: [OQ-BF2](#OQ-BF2)'s self-trimming measurement,
 [OQ-BF10](#OQ-BF10)'s CAS boundary are each worth more than the verdict they support, and a ledger
 row cannot carry them.
 
-1. ✅ **[OQ-BF1](#OQ-BF1) — RULED 2026-09-08: is the two-tier disposition right — automatic where P3
+1. ✅ <a id="OQ-BF1"></a>**[OQ-BF1](#OQ-BF1) — RULED 2026-09-08: is the two-tier disposition right — automatic where P3
    holds, offered where P4 does — or does "offer to clean up" mean every backfill is offered?** This is the closure
    question for the whole doc: it decides whether the first pass over the podman backlog and the
    dead tars runs on its own (as [OQ-DF3](minimal-disk-footprint.md#OQ-DF3) already lets the steady state do) or
@@ -831,7 +831,7 @@ row cannot carry them.
    > **is the bug report** — a prompt that comes back for dead tars on a podman host says the writer
    > or the reaper is broken, which is strictly better than the silence that let 404 GiB accrue.
 
-2. ✅ **[OQ-BF2](#OQ-BF2) — RULED 2026-09-08: does the cache age-purge get a launch-path trigger at all?** It is the largest
+2. ✅ <a id="OQ-BF2"></a>**[OQ-BF2](#OQ-BF2) — RULED 2026-09-08: does the cache age-purge get a launch-path trigger at all?** It is the largest
    measured backfill (49.34 GiB) and the same trigger defect as the tars — a 30-day rule that
    has never run — but its regeneration cost is the one this doc cannot bound, and the bytes are a
    third-party build cache yolo pools ([§2.5](#25-does-anything-ever-read-it-back--reuse-per-store) Class C). The answer decides
@@ -875,7 +875,7 @@ row cannot carry them.
    > that do are exactly the ones this purge cannot help.** The 49.34 GiB the offer is about is
    > almost entirely pants — a cache whose own tool ships no reclaimer that has run here.
 
-3. ✅ **[OQ-BF3](#OQ-BF3) — RULED 2026-09-08 (the maintainer's words, verbatim): may yolo delete its
+3. ✅ <a id="OQ-BF3"></a>**[OQ-BF3](#OQ-BF3) — RULED 2026-09-08 (the maintainer's words, verbatim): may yolo delete its
    own superseded `/nix/store` outputs by name, automatically, on the host launch path?** This is the C8 finding's remedy ([§2.3](#23-yolos-own-store-outputs-are-never-collected--the-c8-finding)):
    ≥ 28.8 GB today, +0.43 GB/day, no collector. `nix store delete <path>` refuses a live path, so
    nix's own liveness is a second veto — but it is narrower than the bounded GC of
@@ -904,7 +904,7 @@ row cannot carry them.
    > prefix a running jail's pid1 came from ([§2.3](#23-yolos-own-store-outputs-are-never-collected--the-c8-finding)),
    > which is why "offer until then" is part of the ruling and not a hedge.
 
-4. ✅ **[OQ-BF4](#OQ-BF4) — RULED 2026-09-08, and it needed no maintainer judgment: does a running
+4. ✅ <a id="OQ-BF4"></a>**[OQ-BF4](#OQ-BF4) — RULED 2026-09-08, and it needed no maintainer judgment: does a running
    jail's binaries get protected from deletion?**
 
    > [!NOTE]
@@ -963,7 +963,7 @@ row cannot carry them.
    > is. That is what "registered at launch, gated on `!inJail`" has to mean, and why prefix roots
    > must not live in `build/roots`, whose reaper deletes any root that is not a loaded image.
 
-5. ✅ **[OQ-BF5](#OQ-BF5) — RULED 2026-09-08 (the maintainer's words, verbatim): does the shipped
+5. ✅ <a id="OQ-BF5"></a>**[OQ-BF5](#OQ-BF5) — RULED 2026-09-08 (the maintainer's words, verbatim): does the shipped
    image reap move from before the container starts to the housekeeping slot?** It is the difference between a first pass that holds the launch for
    fourteen `rmi -f` (NOT MEASURED; the deletes were out of bounds) and one the user never
    notices. The property that placed it — this launch's image is already in the sentinel — holds
@@ -989,7 +989,7 @@ row cannot carry them.
    > moment moves — and it is why that ruling's ledger row records the placement as revised rather
    > than reversed.
 
-6. ✅ **[OQ-BF6](#OQ-BF6) — RULED 2026-09-08 (the maintainer's words, verbatim): does `ImageCacheKeep` default to 0 where the runtime streams?** ~20.6 GB on this
+6. ✅ <a id="OQ-BF6"></a>**[OQ-BF6](#OQ-BF6) — RULED 2026-09-08 (the maintainer's words, verbatim): does `ImageCacheKeep` default to 0 where the runtime streams?** ~20.6 GB on this
    machine (host and nested) is kept by a `3` that predates C3; [OQ-DF1](minimal-disk-footprint.md#112-open-questions)
    ruled "keep zero" for the *writer* and left the *reaper's* default alone. The knob is
    [`minimal-disk-footprint.md`](minimal-disk-footprint.md)'s and the component that runs it is
@@ -1017,7 +1017,7 @@ row cannot carry them.
 
 ---
 
-7. ✅ **[OQ-BF7](#OQ-BF7) — RETIRED FROM THIS LIST 2026-09-08: it was never a question for the
+7. ✅ <a id="OQ-BF7"></a>**[OQ-BF7](#OQ-BF7) — RETIRED FROM THIS LIST 2026-09-08: it was never a question for the
    maintainer, and the outage half is fixed. On macOS, where does the mounted prefix come from — or
    does that backend keep baking it?**
 
@@ -1108,7 +1108,7 @@ row cannot carry them.
    > The refusal covers it — it is keyed on darwin, not on the runtime — so that backend now fails
    > with a sentence rather than `statfs`, which is the most that can be claimed from here.
 
-8. ✅ **[OQ-BF8](#OQ-BF8) — DISSOLVED 2026-09-08 by a sibling doc: is the load sentinel's LRU of 10
+8. ✅ <a id="OQ-BF8"></a>**[OQ-BF8](#OQ-BF8) — DISSOLVED 2026-09-08 by a sibling doc: is the load sentinel's LRU of 10
    the right size, now that it is the floor?**
    [§2.2](#22-the-image-reap-priced-against-this-store) measured that the LRU, not `--keep-images`, decides what survives a reap — all ten
    entries mapped to images in the store, so `keep=2` protected nothing extra. `AddLoadedPath`
@@ -1157,7 +1157,7 @@ row cannot carry them.
    > [OQ-BF4](#OQ-BF4)'s prefix roots must not be protected by the sentinel — see that entry's
    > correction, which is this same mistake in a new place.
 
-9. ✅ **[OQ-BF9](#OQ-BF9) — RULED 2026-09-08, BUILT 2026-09-08 (`internal/cli/stores`; the maintainer's words, verbatim): may `yolo stores` write a sample ledger, so growth is measurable at all?** A
+9. ✅ <a id="OQ-BF9"></a>**[OQ-BF9](#OQ-BF9) — RULED 2026-09-08, BUILT 2026-09-08 (`internal/cli/stores`; the maintainer's words, verbatim): may `yolo stores` write a sample ledger, so growth is measurable at all?** A
    growth rate needs two dated samples, and a read-only command cannot produce the first one.
    Almost every "growth" cell in [§2.1](#21-every-store-one-table) reads NOT MEASURED for exactly this reason — there
    was no second sample — so the inventory would ship able to say how big a store is and unable to
@@ -1190,7 +1190,7 @@ row cannot carry them.
    > needs two dated samples and nothing had ever taken the first. This ledger is that instrument.
    > **Rule this before DF4**, in that order.
 
-10. ✅ **[OQ-BF10](#OQ-BF10) — RULED 2026-09-08: should yolo ALIAS a host cache rather than pool a
+10. ✅ <a id="OQ-BF10"></a>**[OQ-BF10](#OQ-BF10) — RULED 2026-09-08: should yolo ALIAS a host cache rather than pool a
     second copy of it — and for which caches?** This is a third disposition the rest of the doc does not have. Backfill deletes
     what accumulated; retention bounds what accumulates; aliasing makes the store **not exist
     twice**. For pants' content-addressed half that is up to 27 G on this machine, and the same

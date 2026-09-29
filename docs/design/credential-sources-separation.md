@@ -472,7 +472,7 @@ works:
 
 ## 9. Open Questions
 
-1. 💬 **OQ-ES1: Should credentials move out of `env_sources` into a key of their own?**
+1. 💬 <a id="OQ-ES1"></a>**OQ-ES1: Should credentials move out of `env_sources` into a key of their own?**
 
    <!-- vantage: oq id=OQ-ES1 leaning="No. OQ-CN1 and CN-D6 hold: routing a credential needs the provider's claim on its name whichever key holds it, so a second key adds a file and a migration without removing that classification, and it cannot route a name no provider claims. Keep one env_sources channel and make the existing remedy findable with ES-D1 to ES-D4." -->
 
@@ -521,7 +521,7 @@ works:
    _Leaning, should it open:_ User scope only, for the reason in
    [§8](#8-what-this-does-not-license).
 
-5. 💬 **OQ-ES5: An explicit grant for a command `-p` cannot reach?** — **the host half RULED
+5. 💬 <a id="OQ-ES5"></a>**OQ-ES5: An explicit grant for a command `-p` cannot reach?** — **the host half RULED
    2026-09-27; the jail half open**
 
    <!-- vantage: oq id=OQ-ES5 leaning="Host half ruled 2026-09-27: yolo host --with-credentials <provider[,provider...]|all> -- <cmd>, keys only, disclosed on every run, implied by nothing else. Open: the jail half (a jail or macos-user shell) — the same flag at every notch, or the hand-sourced per-agent file as the fallback." -->
@@ -582,7 +582,7 @@ works:
    > whether it is this flag, is not ruled. The `--all-credentials` rejection above is overtaken
    > for the host by `all` as a value of the one explicit flag ([§7](#7-alternatives-considered)).
 
-6. 💬 **OQ-ES6: May a user share a claimed generic name, such as `AWS_PROFILE`, with every process?**
+6. 💬 <a id="OQ-ES6"></a>**OQ-ES6: May a user share a claimed generic name, such as `AWS_PROFILE`, with every process?**
 
    <!-- vantage: oq id=OQ-ES6 leaning="Yes, by a user-scope, per-name acknowledgment that shares that one claimed name with every process and is disclosed on every launch: a deliberate user exception to OQ-BR4 that only the user file can express, since a workspace config is agent-editable." -->
 
@@ -608,7 +608,7 @@ works:
    **Answer:**
    > _(empty — fill in when decided)_
 
-7. 💬 **OQ-ES7: Does a typed host `-p` hand an ad-hoc command a CLI-less pack's gated env?**
+7. 💬 <a id="OQ-ES7"></a>**OQ-ES7: Does a typed host `-p` hand an ad-hoc command a CLI-less pack's gated env?**
 
    <!-- vantage: oq id=OQ-ES7 leaning="Yes, for a typed host -p only: the named command receives that profile's CLI-less gated env (aws-auth's pointer) as an agent that selected it would, so an SSO-backed Bedrock profile is not half-delivered; nothing else receives it, so OQ-BR4 holds. Restate CN-D4 and gateFiresFor's comment for that case." -->
 

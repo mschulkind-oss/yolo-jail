@@ -524,7 +524,7 @@ a temp file renamed over the path. MEASURED as a unit test on both backends' pat
 
 ## 9. Open Questions
 
-1. ✅ **OQ-BH9: Where does the skeleton live?** Decides who can reach it and what reaps it.
+1. ✅ <a id="OQ-BH9"></a>**OQ-BH9: Where does the skeleton live?** Decides who can reach it and what reaps it.
    Options: (a) under `paths.AgentsDir()/<cname>/`; (b) a new `<state>/skeletons/<cname>` with
    its own reaper. `wsState` is ruled out ([§2.2](#22-where-it-lives-host-only-never-in-wsstate)).
 
@@ -557,7 +557,7 @@ a temp file renamed over the path. MEASURED as a unit test on both backends' pat
    > fresh launch, never modified afterwards; old ones go with the jail's AgentsDir entry through
    > PruneOrphanAgentStaging, which already declines when liveness is unknown."*
 
-3. ✅ **OQ-BH12: How is the Apple Container seed fixed?** Every new Apple Container workspace
+3. ✅ <a id="OQ-BH12"></a>**OQ-BH12: How is the Apple Container seed fixed?** Every new Apple Container workspace
    starts without the login seed ([§3](#3-the-apple-container-seed-defect)). Options: (a)
    runtime-aware paths in `prepareWsState`; (b) bind that backend's pack dirs the podman way,
    adding mounts where mount count is the constraint.
@@ -570,7 +570,7 @@ a temp file renamed over the path. MEASURED as a unit test on both backends' pat
    > (a), decided by the build and verified on a Mac, landing separately from the podman
    > change. The maintainer delegated it: *"Also an implementation detail for you."*
 
-4. ✅ **OQ-BH13: What happens to the launch refusal and `yolo check`'s report?** The refusal
+4. ✅ <a id="OQ-BH13"></a>**OQ-BH13: What happens to the launch refusal and `yolo check`'s report?** The refusal
    (`noteLegacyBaseHome`, `internal/cli/run/basehomedisclosure.go`, hatch
    `YOLO_ALLOW_LEGACY_BASE_HOME`) shipped 2026-09-21 on reasons this design removes, printing an
    `mv` rather than offering a verb ([DIR-BH0](#10-decision-ledger)). Options: (a) delete the
@@ -588,7 +588,7 @@ a temp file renamed over the path. MEASURED as a unit test on both backends' pat
    > in the same change that stops the mount and deletes `seedAgentDir`; keep `yolo check`'s
    > detection-only report, reworded, with the printed `mv` as optional cleanup.
 
-5. ✅ **OQ-BH14: Does name reservation stay over every shipped pack?** Today a `host_files` or
+5. ✅ <a id="OQ-BH14"></a>**OQ-BH14: Does name reservation stay over every shipped pack?** Today a `host_files` or
    `writable_home_dirs` entry may not claim any shipped pack's directory, selected or not
    ([§2.8](#28-reservation-is-a-rule-about-config-names-not-about-directories)), which is an
    unselected pack's effect under [DIR-BH1](#10-decision-ledger). Options: (a) keep it, as

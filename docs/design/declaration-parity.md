@@ -1355,7 +1355,7 @@ approval, not a decision — see [§3](#3-the-four-dispositions-and-how-to-walk-
    > read (NC-D2, the caller tokens), which on macos-user is the sandbox account's file
    > ownership.
 
-3. ✅ **OQ-DP5: When a site cannot honor a declaration, what does it SAY?**
+3. ✅ <a id="OQ-DP5"></a>**OQ-DP5: When a site cannot honor a declaration, what does it SAY?**
    A warning is the obvious answer, and the tree has already ruled against it:
    [OQ-BP-3](backend-parity.md#OQ-BP-3) is live and says *"a warning people learn to skip
    is worse than none."* Every "add a line" in [§6](#6-alignable-with-the-mechanism-and-its-cost)
@@ -1405,7 +1405,7 @@ approval, not a decision — see [§3](#3-the-four-dispositions-and-how-to-walk-
    > `internal/config/inherit.go`'s shape — a per-key classification table with a drift test.
    > Until that lands, [DP-L16](#6-alignable-with-the-mechanism-and-its-cost) is not expressible.
 
-4. ✅ **OQ-DP7: Should the generated launcher inject the flags too, closing the third spelling?**
+4. ✅ <a id="OQ-DP7"></a>**OQ-DP7: Should the generated launcher inject the flags too, closing the third spelling?**
    [DP-B44](#562-the-rows) is the one spelling of a launch that carries no pack-declared flags
    at all: a NON-INTERACTIVE shell inside the jail — an agent's own `bash -c claude`, a build
    script, anything not typed at the prompt. It expands no alias and passes through no host

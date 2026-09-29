@@ -232,7 +232,7 @@ Dhall (total, typed).
 
 ## 7. Open questions
 
-1. 💬 **OQ-M1: Do the syntax-free model change first?**
+1. 💬 <a id="OQ-M1"></a>**OQ-M1: Do the syntax-free model change first?**
 
    <!-- vantage: oq id=OQ-M1 leaning="Yes. Grouping by kind and stating the pack's identity once are syntax-independent and are the two largest sources of redundancy." -->
 
@@ -246,7 +246,7 @@ Dhall (total, typed).
    **Answer:**
    > _(empty — fill in when decided)_
 
-2. 💬 **OQ-M2: Which syntax — JSON restructured, data-only Lua, or Starlark?**
+2. 💬 <a id="OQ-M2"></a>**OQ-M2: Which syntax — JSON restructured, data-only Lua, or Starlark?**
 
    <!-- vantage: oq id=OQ-M2 leaning="JSON restructured if it reads well; else data-only Lua (already vendored); Starlark only if we accept a new dependency for a purpose-built hermetic language." -->
 
@@ -287,7 +287,7 @@ Dhall (total, typed).
    **Answer:**
    > _(empty — fill in when decided)_
 
-3. 💬 **OQ-M3: May a manifest be pure code that RETURNS data — executed to be read?**
+3. 💬 <a id="OQ-M3"></a>**OQ-M3: May a manifest be pure code that RETURNS data — executed to be read?**
 
    <!-- vantage: oq id=OQ-M3 leaning="Yes, if the sandbox is pure and the RESULT is validated and footprinted, so the total-claim rule survives by construction rather than by trust." -->
 
@@ -299,7 +299,7 @@ Dhall (total, typed).
    **Answer:**
    > _(empty — fill in when decided)_
 
-4. 💬 **OQ-M4: Does the user/workspace config (`yolo-jail.jsonc`) share the language?**
+4. 💬 <a id="OQ-M4"></a>**OQ-M4: Does the user/workspace config (`yolo-jail.jsonc`) share the language?**
 
    <!-- vantage: oq id=OQ-M4 leaning="Not necessarily. The user config is settings, not declarations; it may keep a syntax that is read-only-data even if the manifest moves." -->
 

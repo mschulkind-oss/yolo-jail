@@ -439,7 +439,7 @@ left — steps 4 and 5 — waits on [`OQ-RM2`](#OQ-RM2) and [`OQ-RM3`](#OQ-RM3).
 
 ## 9. Open Questions
 
-1. 💬 **OQ-RM1: Does `yolo check` refuse, or only report, the LAUNCH-ONLY checks?** The
+1. 💬 <a id="OQ-RM1"></a>**OQ-RM1: Does `yolo check` refuse, or only report, the LAUNCH-ONLY checks?** The
    parse-time half is no longer a question: steps 2–3 shipped as `[FAIL]` rows, and `Check()`
    short-circuits on a merged-config failure and exits non-zero, so a bad enum or a credential in
    a URL already refuses. What is left is the checks `check` cannot decide from a declaration
@@ -459,7 +459,7 @@ left — steps 4 and 5 — waits on [`OQ-RM2`](#OQ-RM2) and [`OQ-RM3`](#OQ-RM3).
    **Answer:**
    > _(empty — fill in when decided)_
 
-2. 💬 **OQ-RM2: When a supersession matches nothing, do we refuse the launch or refuse the pack?**
+2. 💬 <a id="OQ-RM2"></a>**OQ-RM2: When a supersession matches nothing, do we refuse the launch or refuse the pack?**
    Two dispositions with very different feels. **(a)** Refuse the launch: nothing starts until the
    claim is fixed. **(b)** Refuse the *pack*: it does not load, its other contributions do not
    render, the launch proceeds without it — which is
@@ -479,7 +479,7 @@ left — steps 4 and 5 — waits on [`OQ-RM2`](#OQ-RM2) and [`OQ-RM3`](#OQ-RM3).
    **Answer:**
    > _(empty — fill in when decided)_
 
-3. 💬 **OQ-RM3: How does the skew message get its two hashes?** [§4.6](#46-skew-your-image-is-older-than-your-tree) wants to say *"image
+3. 💬 <a id="OQ-RM3"></a>**OQ-RM3: How does the skew message get its two hashes?** [§4.6](#46-skew-your-image-is-older-than-your-tree) wants to say *"image
    `<hash-a>`, tree `<hash-b>`"*. `ensureJailImage` does this with an eval, never a build — written
    as `nix eval .#installPrefix.outPath` against `readlink /bin/yolo-entrypoint`; since 2026-09-12 it
    is `nix eval --raw .#imageIdentity` against the loaded image's `/etc/yolo-jail-image-identity`.
@@ -497,7 +497,7 @@ left — steps 4 and 5 — waits on [`OQ-RM2`](#OQ-RM2) and [`OQ-RM3`](#OQ-RM3).
    **Answer:**
    > _(empty — fill in when decided)_
 
-4. 💬 🤷 **OQ-RM4: Is there an escape hatch, and what is it called?** Every other fatal in this repo
+4. 💬 🤷 <a id="OQ-RM4"></a>**OQ-RM4: Is there an escape hatch, and what is it called?** Every other fatal in this repo
    has one — `YOLO_ALLOW_STALE_IMAGE`, `YOLO_ALLOW_UNREACHABLE_SERVICES`, `YOLO_NO_HOST_LOOPBACK` —
    each loud, each naming itself in the refusal.
 

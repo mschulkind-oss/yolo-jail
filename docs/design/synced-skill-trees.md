@@ -933,7 +933,7 @@ once the signal exists.
 
    ⚠ It gates nothing either way — [§12](#12-what-i-would-build-in-order) step 1 ships without it.
 
-2. 💬 **OQ-ST5: When yolo regenerates a table, what happens to the keys inside it that yolo did not write?**
+2. 💬 <a id="OQ-ST5"></a> **OQ-ST5: When yolo regenerates a table, what happens to the keys inside it that yolo did not write?**
 
    *Rewritten 2026-09-20 to stand alone. It had accreted three corrections and read as a diff
    against its own earlier self.*

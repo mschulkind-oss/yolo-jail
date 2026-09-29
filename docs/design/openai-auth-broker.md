@@ -216,7 +216,7 @@ bodies, authorization codes, PKCE verifiers, or callback query strings.
 
 ## 9. Open questions
 
-1. 💬 **OQ-OA6: On `macos-user`, does Codex's refresh adapter come from a launch-owned listener, or wait for native jail daemons?**
+1. 💬 <a id="OQ-OA6"></a>**OQ-OA6: On `macos-user`, does Codex's refresh adapter come from a launch-owned listener, or wait for native jail daemons?**
    [§4](#4-backend-transport) says this backend uses the same adapters and does not run the
    container-only in-jail daemon, but the shipped Codex adapter IS that daemon
    (`yolo-jaild openai-auth-adapter`, declared as the manifest's `jail_daemon`), and

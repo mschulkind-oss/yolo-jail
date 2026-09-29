@@ -252,7 +252,7 @@ Update `noncontainerResolved` in `flake.nix` to use `pkgs.lib.hasAttrByPath` and
 
 ## 8. Open Questions
 
-1. 💬 **OQ-1: Namespace collision between collection members and derivation outputs.** If package
+1. 💬 <a id="OQ-1"></a>**OQ-1: Namespace collision between collection members and derivation outputs.** If package
    `foo` has an output named `bar` AND nixpkgs has an attrset `foo.bar` containing package `baz`, how
    should `foo.bar` resolve — to the `bar` *output* of the `foo` derivation, or to the `bar` *member*
    of the `foo` collection?

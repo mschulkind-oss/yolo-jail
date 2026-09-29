@@ -1296,7 +1296,7 @@ and it already has a home in the tree.
 
 ## Open Questions
 
-1. 💬 **OQ-WP1: Accept the verdict, or is there a fourth problem I did not find?**
+1. 💬 <a id="OQ-WP1"></a>**OQ-WP1: Accept the verdict, or is there a fourth problem I did not find?**
    The recommendation rests on the sweep in [§3](#3-the-absolute-path-problems-measured) being close to complete — three confirmed
    cases, seven candidates disproved. A single additional confirmed case with a real payload,
    especially in the machine-shared cache, changes the arithmetic materially. **Scoped to the
@@ -1312,7 +1312,7 @@ and it already has a home in the tree.
    **Answer:**
    > _(empty — fill in when decided)_
 
-3. 💬 **OQ-WP3: Leave the `~/.cache/claude-cli-nodejs/-workspace` collision alone?**
+3. 💬 <a id="OQ-WP3"></a>**OQ-WP3: Leave the `~/.cache/claude-cli-nodejs/-workspace` collision alone?**
    Every jail on the machine writes into that one key ([§3.2](#32-confirmed-one-machine-shared-cache-directory-is-keyed-by-the-collapsed-name)). Today it holds MCP logs.
    Fixing it means binding a per-workspace directory over one vendor-specific path — a
    mount added for one tool's cache layout, which is the shape yolo usually refuses.
@@ -1326,7 +1326,7 @@ and it already has a home in the tree.
    **Answer:**
    > _(empty — fill in when decided)_
 
-4. 💬 **OQ-WP4: Should workspace-scope `mounts` get a scope rule, separately from this?**
+4. 💬 <a id="OQ-WP4"></a>**OQ-WP4: Should workspace-scope `mounts` get a scope rule, separately from this?**
    [§4.4](#44-trust-one-undocumented-fail-safe-and-nothing-else) found that a `mounts` entry naming a workspace path is inert today only because the
    path does not resolve host-side — an undocumented fail-safe. That is a question about
    [`trust-paths.md`](trust-paths.md)'s scope model, which currently lists workspace `mounts`
@@ -1371,7 +1371,7 @@ and it already has a home in the tree.
    > Apple Container blocks a mirrored workspace destination. This settles a fact, not the
    > design: mirroring is still the no of [`OQ-WP8`](#OQ-WP8).
 
-6. 💬 **OQ-WP6: Is the interesting proposal actually "mirror all three path spaces"?**
+6. 💬 <a id="OQ-WP6"></a>**OQ-WP6: Is the interesting proposal actually "mirror all three path spaces"?**
    P1 says mirroring the workspace alone cannot make the two sides agree, because home and
    the toolchain store do not move. The coherent version of the idea moves all three — and
    collides head-on with two shipped designs ([`jail-home.md`](../reference/jail-home.md),
@@ -1394,7 +1394,7 @@ and it already has a home in the tree.
    **Answer:**
    > _(empty — fill in when decided)_
 
-7. 💬 🤷 **OQ-WP7: Should this doc survive a `no`?**
+7. 💬 🤷 <a id="OQ-WP7"></a>**OQ-WP7: Should this doc survive a `no`?**
    A rejected proposal's doc earns its place only if the next person would otherwise re-ask
    it. This one was re-asked once already (July → September), so my instinct is yes — but
    it is the maintainer's call how much of the planning tree is archaeology.
@@ -1409,7 +1409,7 @@ and it already has a home in the tree.
    **Answer:**
    > _(empty — fill in when decided)_
 
-8. 💬 **OQ-WP8: Accept the verdict on MAXIMAL mirroring, and its reason?** This is the closure
+8. 💬 <a id="OQ-WP8"></a>**OQ-WP8: Accept the verdict on MAXIMAL mirroring, and its reason?** This is the closure
    question for the doc. [§12](#12-follow-up-maximal-mirroring) says no on grounds that do not
    use churn, do not assume only the workspace moves, and do not lean on a revisitable backend
    decision: **you can mirror a path's name but not its content** ([§12.4](#124-the-new-central-objection-you-can-mirror-a-name-but-not-its-content)), the credential
@@ -1426,7 +1426,7 @@ and it already has a home in the tree.
    **Answer:**
    > _(empty — fill in when decided)_
 
-9. 💬 **OQ-WP9: Harden `retireJailMadeVenv` regardless of the verdict?**
+9. 💬 <a id="OQ-WP9"></a>**OQ-WP9: Harden `retireJailMadeVenv` regardless of the verdict?**
    `internal/cli/run/retire.go` decides whether to delete a workspace venv by testing a
    **path prefix** plus an existence check. [§12.4](#124-the-new-central-objection-you-can-mirror-a-name-but-not-its-content) uses its degradation under mirroring as
    evidence, but the guard is already thin: it misses any jail-made venv whose recorded
@@ -1482,7 +1482,7 @@ and it already has a home in the tree.
    **Answer:**
    > _(empty — fill in when decided)_
 
-10. 💬 **OQ-WP10: Is the real goal alternative G — one userland at several notches?** [§12.7](#127-the-notch-model--no-statement-anywhere-names-paths-as-the-obstacle)
+10. 💬 <a id="OQ-WP10"></a>**OQ-WP10: Is the real goal alternative G — one userland at several notches?** [§12.7](#127-the-notch-model--no-statement-anywhere-names-paths-as-the-obstacle)
     found that nothing in the env-manager corpus names paths as the obstacle to notch
     portability, and [§12.4](#124-the-new-central-objection-you-can-mirror-a-name-but-not-its-content) found that content, not naming, is what blocks an artifact from
     crossing. If the underlying want is "the same environment at different confinement
@@ -1500,7 +1500,7 @@ and it already has a home in the tree.
     **Answer:**
     > _(empty — fill in when decided)_
 
-11. 💬 **OQ-WP11: Record the inverted capture finding in `install-capture.md`?** The hoped-for
+11. 💬 <a id="OQ-WP11"></a>**OQ-WP11: Record the inverted capture finding in `install-capture.md`?** The hoped-for
     result was that mirroring makes slice 6 (relocation) deletable. [§12.6](#126-capture-relocation--chased-hard-it-cuts-the-other-way) finds the opposite:
     relocation is a `macos-user`-only need created by capture's own staging isolation, and on
     the container backends it is unnecessary *because* `/home/agent` is a machine-independent

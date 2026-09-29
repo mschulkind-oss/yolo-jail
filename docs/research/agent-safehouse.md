@@ -855,7 +855,7 @@ Re-check these before quoting them; everything here moved within the last six mo
 
 ## 12. Open questions
 
-1. 💬 **OQ-AS1: How far should `macos-user`'s Seatbelt profile move toward deny-default?**
+1. <a id="OQ-AS1"></a>💬 **OQ-AS1: How far should `macos-user`'s Seatbelt profile move toward deny-default?**
 
    <!-- vantage: oq id=OQ-AS1 leaning="Take the incremental denies now, and only consider the full inversion once a policy-assertion suite exists to catch what it breaks." -->
 
@@ -878,7 +878,7 @@ Re-check these before quoting them; everything here moved within the last six mo
    **Answer:**
    > _(empty — fill in when decided)_
 
-2. 💬 **OQ-AS2: Does yolo want a published per-agent investigation series at all?**
+2. <a id="OQ-AS2"></a>💬 **OQ-AS2: Does yolo want a published per-agent investigation series at all?**
 
    <!-- vantage: oq id=OQ-AS2 leaning="No series; instead give the existing measured tables one home in docs/research/ and adopt their provenance header, so the format is available without committing to thirteen documents." -->
 

@@ -280,7 +280,7 @@ for anything a translated root cannot cover, so it outlives this design. Its wor
 
 ## Open Questions
 
-1. 💬 **OQ-NR1: What triggers a translated root?** This decides whether in-jail nix is protected
+1. 💬 <a id="OQ-NR1"></a>**OQ-NR1: What triggers a translated root?** This decides whether in-jail nix is protected
    by default or on request, and how much new surface ships. The options are compared in the
    [§5](#5-what-registers-the-translated-root) table.
 
@@ -301,7 +301,7 @@ for anything a translated root cannot cover, so it outlives this design. Its wor
    **Answer:**
    > _(empty — fill in when decided)_
 
-2. 💬 **OQ-NR2: May the host's `/nix/var/nix/gcroots/auto` be bound read-only into a jail?** This
+2. 💬 <a id="OQ-NR2"></a>**OQ-NR2: May the host's `/nix/var/nix/gcroots/auto` be bound read-only into a jail?** This
    gates option C. The jail would see the names of every host user's indirect-root links (the
    entries are hashes; their targets are host paths). An untrusted jail can already read most of
    that through the daemon's `FindRoots`, which returned host paths such as
@@ -316,7 +316,7 @@ for anything a translated root cannot cover, so it outlives this design. Its wor
    **Answer:**
    > _(empty — fill in when decided)_
 
-3. 💬 **OQ-NR3: Do the anonymous `/tmp` and `/var/tmp` volumes translate?** The host launcher can
+3. 💬 <a id="OQ-NR3"></a>**OQ-NR3: Do the anonymous `/tmp` and `/var/tmp` volumes translate?** The host launcher can
    learn their host paths from `podman volume inspect`, but a nested launcher cannot, and the
    documented nested-jail workspace is `/tmp/yolo-nested`. Translating them would root builds made
    under nested workspaces; leaving them out keeps the map to binds the launcher itself wrote.
@@ -329,7 +329,7 @@ for anything a translated root cannot cover, so it outlives this design. Its wor
    **Answer:**
    > _(empty — fill in when decided)_
 
-4. 💬 **OQ-NR4: Should yolo's own in-jail roots use translated roots?** A nested launch skips
+4. 💬 <a id="OQ-NR4"></a>**OQ-NR4: Should yolo's own in-jail roots use translated roots?** A nested launch skips
    `image.RegisterImageRoot` and `image.RegisterPrefixRoot` in-jail
    ([`imageload.go`](../../internal/cli/run/imageload.go) `rootImageFn`,
    [`jailprefix.go`](../../internal/cli/run/jailprefix.go)), because such a root was dead. Those

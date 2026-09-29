@@ -997,7 +997,7 @@ plus the retired doc's under an `NX` prefix ([the id map](#question-id-map-old-s
 that is what the carve was for — with stakes and a leaning; the leaning is mine and is not a
 recommendation the doc rests on.
 
-1. 💬 **OQ-PS1: Should the host notch use the user's nix when `/nix` is present?** The premise of
+1. 💬 <a id="OQ-PS1"></a>**OQ-PS1: Should the host notch use the user's nix when `/nix` is present?** The premise of
    the retired doc, which treated [the absence of nix](provisioner-evidence.md#38-what-if-the-user-has-no-nix) as terminal, and whose mechanism has two
    consumers and no host caller (F1). **This asks one thing and nothing
    else**: does the already-built `yoloNoncontainerPackages` attribute get a third caller. What it
@@ -1018,7 +1018,7 @@ recommendation the doc rests on.
    **Answer:**
    > _(empty — fill in when decided)_
 
-2. 💬 **OQ-PS5: Does the kind get renamed to `package`?** **Narrowed by
+2. 💬 <a id="OQ-PS5"></a>**OQ-PS5: Does the kind get renamed to `package`?** **Narrowed by
    [`OQ-PS3`](#decision-ledger)'s ruling**, which removed one of the two answers this question used
    to carry: with the pack declaring a need plus recipes, `via` is no longer a selector, so
    *"rename while `via` still selects"* — [§10](#10-alternatives-each-with-a-verdict) alternative B,
@@ -1040,7 +1040,7 @@ recommendation the doc rests on.
    **Answer:**
    > _(empty — fill in when decided)_
 
-3. 💬 **OQ-PS6: What is the shipped default precedence order, per environment?** Opened by the
+3. 💬 <a id="OQ-PS6"></a>**OQ-PS6: What is the shipped default precedence order, per environment?** Opened by the
    [§8.2](#82-the-ruling-a-shipped-default-order-the-user-config-overrides) ruling, which settled
    that there **is** a default order and left its content open. **Absorbs the retired doc's
    [`OQ-7`](#decision-ledger)** (*should the jail get its agent CLIs from nix too?*), which is
@@ -1071,7 +1071,7 @@ recommendation the doc rests on.
    **Answer:**
    > _(empty — fill in when decided)_
 
-4. 💬 **OQ-PS7: Is the override per-package, or per-environment only?** *"Claude from brew"* is
+4. 💬 <a id="OQ-PS7"></a>**OQ-PS7: Is the override per-package, or per-environment only?** *"Claude from brew"* is
    the maintainer's own example and needs **per-package** grain; *"we don't want to overwhelm the
    user with package choices"* pushes toward **per-environment only**. Both sentences are his and
    they pull apart, which is the whole of this question. Its former second half — how much
@@ -1091,7 +1091,7 @@ recommendation the doc rests on.
    **Answer:**
    > _(empty — fill in when decided)_
 
-5. 💬 **OQ-PS8: How is a vendor installer made non-interactive — core detaches the tty, or a
+5. 💬 <a id="OQ-PS8"></a>**OQ-PS8: How is a vendor installer made non-interactive — core detaches the tty, or a
    recipe names the variable?** Opened by a MEASUREMENT, not a review: codex's installer prompts
    `Start Codex now? [y/N]` on `/dev/tty` and a human answered `N` mid-`--version`-probe
    ([what a vendor installer does to the generated home](../plans/runbooks/mac-provisioner-measurements.md#what-a-vendor-installer-does-to-the-generated-home)). It honors
@@ -1131,7 +1131,7 @@ recommendation the doc rests on.
    **Answer:**
    > _(empty — fill in when decided)_
 
-6. 💬 **OQ-PS9: Should yolo help the user install nix?** Carved from the old compound
+6. 💬 <a id="OQ-PS9"></a>**OQ-PS9: Should yolo help the user install nix?** Carved from the old compound
    [`OQ-PS1`](#OQ-PS1) on 2026-09-11, and **reframed by the maintainer in the same review**: the
    leaning was a flat *no*, and he moved — *"If we can help the user install nix, that sounds like a
    good idea. Not sure how tough that is, and not a huge blocker right now."* So this is **not
@@ -1195,7 +1195,7 @@ recommendation the doc rests on.
    **Answer:**
    > _(empty — fill in when decided)_
 
-7. 💬 **OQ-PS10: Does the host's nix provisioner leave anything behind?** Carved from the old
+7. 💬 <a id="OQ-PS10"></a>**OQ-PS10: Does the host's nix provisioner leave anything behind?** Carved from the old
    compound [`OQ-PS1`](#OQ-PS1)(c) and **rewritten**, because the question as posed could not be
    read: it asked *"which nix mechanism"* and hid the stakes inside a conditional on `--sealed`'s
    semantics. Asked in terms of what a user gets, it is two answers:
@@ -1244,7 +1244,7 @@ recommendation the doc rests on.
    **Answer:**
    > _(empty — fill in when decided)_
 
-8. 💬 **OQ-PS11: Do `program` and `requires` collapse into one kind?** Carved from the old
+8. 💬 <a id="OQ-PS11"></a>**OQ-PS11: Do `program` and `requires` collapse into one kind?** Carved from the old
    compound [`OQ-PS5`](#OQ-PS5) on 2026-09-11, and **sharpened by
    [`OQ-PS3`](#decision-ledger)'s ruling**, which settled the *semantics* and left the *vocabulary*:
    under the ruling a `requires` already **is** a need whose recipe list is empty — the same
@@ -1268,7 +1268,7 @@ recommendation the doc rests on.
    **Answer:**
    > _(empty — fill in when decided)_
 
-9. 💬 **OQ-PS12: May a user's override name a recipe no pack ships?** Carved from the old compound
+9. 💬 <a id="OQ-PS12"></a>**OQ-PS12: May a user's override name a recipe no pack ships?** Carved from the old compound
    [`OQ-PS7`](#OQ-PS7) on 2026-09-11 — the *how much machinery* half, which
    [§8.3](#83-what-the-ruling-does-not-settle) was already listing as its own row. **Narrowed by
    [`OQ-PS3`](#decision-ledger)'s ruling**: each `install_hints` entry is now a recipe, so an
@@ -1291,7 +1291,7 @@ recommendation the doc rests on.
    **Answer:**
    > _(empty — fill in when decided)_
 
-10. 💬 **OQ-NX4: Does the environment need to carry *variables*, not just PATH?** (The retired
+10. 💬 <a id="OQ-NX4"></a>**OQ-NX4: Does the environment need to carry *variables*, not just PATH?** (The retired
     doc's [`OQ-4`](#decision-ledger).) A `buildEnv` cannot; a devShell can, and that is the *only*
     real argument for one ([the four mechanisms, compared](provisioner-evidence.md#32-the-four-nix-mechanisms-compared-and-why-never-a-devshell)).
     Verified 2026-08-23: the Go whitelist is still exactly one variable, `PKG_CONFIG_PATH`, and only
@@ -1310,7 +1310,7 @@ recommendation the doc rests on.
     **Answer:**
     > _(empty — fill in when decided)_
 
-11. 💬 **OQ-NX5: Is "no PATH pollution" the right claim for a `buildEnv`, or should it be "no
+11. 💬 <a id="OQ-NX5"></a>**OQ-NX5: Is "no PATH pollution" the right claim for a `buildEnv`, or should it be "no
     *undeclared* pollution"?** (The retired doc's [`OQ-5`](#decision-ledger).) A `buildEnv`
     containing `gnugrep` still shadows `/usr/bin/grep` when prepended — the difference from a
     devShell is legibility, not effect, and on a Mac host that is the BSD-vs-GNU hazard arriving by
@@ -1330,7 +1330,7 @@ recommendation the doc rests on.
     **Answer:**
     > _(empty — fill in when decided)_
 
-12. 💬 **OQ-NX8: Should the `packages:` key report at all below `jail`, and which command says
+12. 💬 <a id="OQ-NX8"></a>**OQ-NX8: Should the `packages:` key report at all below `jail`, and which command says
     so?** (The retired doc's [`OQ-8`](#decision-ledger).) `packages` is not a pack kind, so the
     `FieldSet` census never sees it and `yolo host apply` prints nothing about it, while
     `macos-user` honours it natively. The env-manager design promises `check --at host` will print
@@ -1354,7 +1354,7 @@ recommendation the doc rests on.
     **Answer:**
     > _(empty — fill in when decided)_
 
-13. 💬 **OQ-NX9: Do non-macOS `yolo check` runs need the nix probes and the profile report?** (The
+13. 💬 <a id="OQ-NX9"></a>**OQ-NX9: Do non-macOS `yolo check` runs need the nix probes and the profile report?** (The
     retired doc's [`OQ-9`](#decision-ledger) — **note the collision this prefix resolves**:
     env-manager's own [`OQ-9`](../plans/environment-manager-plan.md#open-questions-to-resolve-before-their-phase)
     is cited several times in this doc and is a different question.) Re-verified 2026-08-23:

@@ -1793,7 +1793,7 @@ ruling it surfaced [OQ-PD18](#decision-ledger)). Their deliberation scaffolding 
 survives is in the body sections each ledger row names, and the headings of the three questions
 sibling docs link to are kept at the end of this section as anchors.
 
-### 💬 [`OQ-PD19`](#-oq-pd19--do-steps-three-and-five-still-have-a-subject-after-the-agentproject-split) — do steps three and five still have a subject, after the agent/project split?
+### <a id="oq-pd19"></a>💬 [`OQ-PD19`](#-oq-pd19--do-steps-three-and-five-still-have-a-subject-after-the-agentproject-split) — do steps three and five still have a subject, after the agent/project split?
 
 Opened 2026-09-04, while checking what remained unbuilt in [§10](#10-what-i-would-build-in-order).
 **This is a question about whether to build, not how.**

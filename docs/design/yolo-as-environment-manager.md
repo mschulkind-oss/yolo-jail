@@ -933,7 +933,7 @@ org (**Q5**), the exposure view (**Q6**), Linux `guest` (**Q7**) — live in
 [environment-manager-user-stories.md](environment-manager-user-stories.md), which
 [`../plans/roadmap.md`](../plans/roadmap.md) routes by id. They are **not** duplicated here.
 
-1. 💬 **OQ-EM1: `program` below `jail` — is the elevation-class batching still owed?** [§4.1](#41-the-escape-valve-which-is-the-actual-user-story) and [§5](#5-packs-are-the-batteries-and-the-batteries-are-data) of this doc
+1. 💬 <a id="OQ-EM1"></a>**OQ-EM1: `program` below `jail` — is the elevation-class batching still owed?** [§4.1](#41-the-escape-valve-which-is-the-actual-user-story) and [§5](#5-packs-are-the-batteries-and-the-batteries-are-data) of this doc
    revised the original rule from *"`install` is never honored below `jail`, refused by name"* to
    *"confirm-gated, TTY-only, command shown, permission-bounded"*, and [§8](#8-what-this-costs) flagged it as needing a
    threat-model pass before shipping.

@@ -452,7 +452,7 @@ We enforce mutual exclusion using YOLO's standard non-blocking directory lock al
 
 ## 6. Open Questions
 
-1. ✅ **OQ-1: Storage tier for Pi extensions.**
+1. ✅ <a id="OQ-1"></a>**OQ-1: Storage tier for Pi extensions.**
    Should `~/.pi/agent/npm` live in machine-scoped storage (`paths.GlobalHome()`, mounted across
    all workspaces) or remain workspace-scoped with independent downloads?
 
@@ -464,7 +464,7 @@ We enforce mutual exclusion using YOLO's standard non-blocking directory lock al
    > drift** — the second is the load-bearing half, because disk is cheap and a jail silently
    > running a different extension version from its neighbour is not.
 
-2. ✅ **OQ-2: Update execution mechanism.**
+2. ✅ <a id="OQ-2"></a>**OQ-2: Update execution mechanism.**
    Three candidates: (a) run `pi update --extensions` inside the generated launcher
    (`/home/agent/.yolo/bin/launch/pi`); (b) a dedicated Go entrypoint subcommand
    (`yolo internal refresh-pi-extensions`) like `refresh-servers`; or (c) **YOLO resolves and
@@ -514,7 +514,7 @@ We enforce mutual exclusion using YOLO's standard non-blocking directory lock al
    and launch past. A further static reading of pi 0.87.1, not a measurement, suggests an offline
    refresh exits 1; see the as-built note in [§3.2](#32-execution-tier-pre-launch-auto-refresh).)
 
-3. ✅ **OQ-3: Handling Pi's in-app update notification check.**
+3. ✅ <a id="OQ-3"></a>**OQ-3: Handling Pi's in-app update notification check.**
    Pi's interactive TUI unconditionally runs `checkForPackageUpdates()` on startup if not offline,
    warning the user if npm has a newer version. When pre-launch update succeeds or is throttled within
    1 hour, npm will be up-to-date in the happy path. But when an update check fails or is throttled,

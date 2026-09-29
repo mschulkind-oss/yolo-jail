@@ -917,7 +917,7 @@ this doc's survey ([Appendix A](#appendix-a-evidence)).
 
 ## 12. Open questions
 
-1. 💬 **OQ-AM1: What "yours" means, and who declares it.** Pi's own layout is the pi pack's to
+1. 💬 <a id="OQ-AM1"></a>**OQ-AM1: What "yours" means, and who declares it.** Pi's own layout is the pi pack's to
    declare. Pi's package ecosystem writes into the same directory, and the pi pack cannot know which
    packages a user installs. The answer decides whether the unknown-file signal survives
    extensions.
@@ -937,7 +937,7 @@ this doc's survey ([Appendix A](#appendix-a-evidence)).
    **Answer:**
    > _(empty — fill in when decided)_
 
-2. 💬 **OQ-AM2: The class set.** The surveys asked for credential, transient, retired, legacy,
+2. 💬 <a id="OQ-AM2"></a>**OQ-AM2: The class set.** The surveys asked for credential, transient, retired, legacy,
    program and view as classes of their own. This decides what every map entry can say, and what
    every later verb has to handle.
 
@@ -957,7 +957,7 @@ this doc's survey ([Appendix A](#appendix-a-evidence)).
    **Answer:**
    > _(empty — fill in when decided)_
 
-3. 💬 **OQ-AM3: How strict the map is when a vendor adds files.** Claude and codex add names every
+3. 💬 <a id="OQ-AM3"></a>**OQ-AM3: How strict the map is when a vendor adds files.** Claude and codex add names every
    release. This decides how much a user hears on an upgrade.
 
    - **A: Strict at every walked level, printed when new.** One line per new name, once.
@@ -973,7 +973,7 @@ this doc's survey ([Appendix A](#appendix-a-evidence)).
    **Answer:**
    > _(empty — fill in when decided)_
 
-4. 💬 **OQ-AM4: Is any finding ever refused?** Pi crashed on the dangling `npm` link, so refusing
+4. 💬 <a id="OQ-AM4"></a>**OQ-AM4: Is any finding ever refused?** Pi crashed on the dangling `npm` link, so refusing
    `yolo host -- pi` would have been truthful. This decides whether the map can ever stop a launch.
 
    - **A: Never, at any verb.** Every finding is a warning.
@@ -989,7 +989,7 @@ this doc's survey ([Appendix A](#appendix-a-evidence)).
    **Answer:**
    > _(empty — fill in when decided)_
 
-5. 💬 **OQ-AM5: Is there ever a wipe or reset verb, and may it touch state?** This decides whether
+5. 💬 <a id="OQ-AM5"></a>**OQ-AM5: Is there ever a wipe or reset verb, and may it touch state?** This decides whether
    the map is only ever a report, or also the authority for a deletion.
 
    - **A: Report only, permanently.** The wipe answer is printed, and the user runs `rm`.
@@ -1006,7 +1006,7 @@ this doc's survey ([Appendix A](#appendix-a-evidence)).
    **Answer:**
    > _(empty — fill in when decided)_
 
-6. 💬 **OQ-AM6: Does the map govern the jail's per-workspace copy?** yolo's own residue lives there
+6. 💬 <a id="OQ-AM6"></a>**OQ-AM6: Does the map govern the jail's per-workspace copy?** yolo's own residue lives there
    (`mantle/`), but a host-side view of it is wrong by construction
    ([P3](#1-the-verdict-and-the-principles-it-rests-on)).
 
@@ -1023,7 +1023,7 @@ this doc's survey ([Appendix A](#appendix-a-evidence)).
    **Answer:**
    > _(empty — fill in when decided)_
 
-7. 💬 **OQ-AM7: Does `yolo prune` reclaim the map's caches?** Prune keeps hand-written per-agent
+7. 💬 <a id="OQ-AM7"></a>**OQ-AM7: Does `yolo prune` reclaim the map's caches?** Prune keeps hand-written per-agent
    lists today (`copilot/logs`, `gemini/tmp`), and those are exactly what a map replaces
    ([`agentlogs.go`](../../internal/prune/agentlogs.go)).
 
@@ -1040,7 +1040,7 @@ this doc's survey ([Appendix A](#appendix-a-evidence)).
    **Answer:**
    > _(empty — fill in when decided)_
 
-8. 💬 **OQ-AM8: Does the map absorb [`pack-declared-file-diagnostics.md`](pack-declared-file-diagnostics.md)'s `traps`?**
+8. 💬 <a id="OQ-AM8"></a>**OQ-AM8: Does the map absorb [`pack-declared-file-diagnostics.md`](pack-declared-file-diagnostics.md)'s `traps`?**
    Its three questions ([`OQ-1`](pack-declared-file-diagnostics.md#oq-1),
    [`OQ-2`](pack-declared-file-diagnostics.md#oq-2), [`OQ-3`](pack-declared-file-diagnostics.md#oq-3))
    ask for a declarative kind, where it runs, and which home it scans. This doc answers all three:
@@ -1058,7 +1058,7 @@ this doc's survey ([Appendix A](#appendix-a-evidence)).
    **Answer:**
    > _(empty — fill in when decided)_
 
-9. 💬 **OQ-AM9: Where pi's map is rooted.** `~/.pi` is the declared state directory, and
+9. 💬 <a id="OQ-AM9"></a>**OQ-AM9: Where pi's map is rooted.** `~/.pi` is the declared state directory, and
    `~/.pi/agent` is pi's `agentDir`. This decides whether the project-scope and extension files
    directly under `~/.pi` are seen at all.
 
@@ -1075,7 +1075,7 @@ this doc's survey ([Appendix A](#appendix-a-evidence)).
    **Answer:**
    > _(empty — fill in when decided)_
 
-10. 💬 **OQ-AM10: The rollout order after pi.** This decides which agent's hard parts are faced
+10. 💬 <a id="OQ-AM10"></a>**OQ-AM10: The rollout order after pi.** This decides which agent's hard parts are faced
     second, and whether claude's churn is met before or after the handling has been exercised on
     smaller maps.
 
