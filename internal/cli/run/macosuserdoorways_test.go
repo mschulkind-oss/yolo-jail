@@ -20,6 +20,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"strings"
 	"testing"
@@ -273,5 +274,7 @@ func postRefresh(t *testing.T, url, refreshToken string) int {
 		return 0
 	}
 	defer resp.Body.Close()
+	answer, _ := io.ReadAll(resp.Body)
+	t.Logf("POST %s → %d %s", url, resp.StatusCode, answer)
 	return resp.StatusCode
 }
