@@ -81,6 +81,12 @@ func TestMacosUserServesTheBedrockPointerThroughALaunchOwnedDoorway(t *testing.T
 		t.Errorf("the launch does not decline the AWS adapter's jail daemon with the doorway's reason:\n%s",
 			stderr.String())
 	}
+	// The doorway is host code of a pack yolo ships, so the launch's host-execution disclosure
+	// names it: the staged pack keeps its official mark, which packload's claim reads.
+	if !strings.Contains(stderr.String(), "and yolo internal daemon aws-credential-adapter --listen '{listen}' on your machine") {
+		t.Errorf("the launch does not disclose the AWS doorway's host argv as running on your machine:\n%s",
+			stderr.String())
+	}
 }
 
 // WITHOUT `bedrock` NO AWS DOORWAY OPENS: the adapter starts only when some agent's profile

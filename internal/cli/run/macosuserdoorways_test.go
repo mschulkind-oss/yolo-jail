@@ -223,6 +223,11 @@ func TestMacosUserRunsARefusedDoorwayInTheGuest(t *testing.T) {
 		!strings.Contains(got.out, "its pack is not one yolo ships") {
 		t.Errorf("the launch does not say why the doorway runs in the guest:\n%s", got.out)
 	}
+	// And the host-execution disclosure does not name the argv it refused: that is code that runs
+	// nowhere (packload's moduleClaims claims host_cmd only for a pack yolo ships).
+	if strings.Contains(got.out, "RUNS yolo internal daemon acme-adapter") {
+		t.Errorf("the launch discloses a refused host argv as running on your machine:\n%s", got.out)
+	}
 }
 
 // A REFUSED DOORWAY WHOSE JAIL DAEMON THE GUEST DECLINES TOO IS SAID TO RUN NOWHERE, not in the

@@ -176,9 +176,12 @@ func TestDaemonClaimSpellsOutHostExecution(t *testing.T) {
 
 // A DOORWAY'S HOST ARGV is host execution too (`jail_daemon.host_cmd`, host-notch-services.md
 // HS-D15): a launch whose agent shares the host's loopback runs it outside its sandbox, as the
-// user. It joins the base claim, raw, with its {listen} token. Deleting host_cmd from
-// moduleClaims' runs fails this.
-func TestADoorwayHostArgvJoinsTheHostExecutionClaim(t *testing.T) {
+// user. For a pack yolo ships it joins the base claim, raw, with its {listen} token. For any
+// other pack the launch refuses that argv (launchservice.AdmitDoorway), so it runs nowhere, and a
+// claim naming it would disclose execution that never happens: the claim leaves it out and keeps
+// the host daemon. Deleting host_cmd from moduleClaims' runs fails the first half; dropping the
+// origin check fails the second.
+func TestADoorwayHostArgvJoinsTheHostExecutionClaimOnlyForAPackYoloShips(t *testing.T) {
 	root := writeLoopholePack(t, map[string]string{"acme-door": `{
 	  "name": "acme-door",
 	  "host_daemon": {"cmd": ["yolo", "internal", "daemon", "acme", "--socket", "{socket}"],
@@ -187,9 +190,20 @@ func TestADoorwayHostArgvJoinsTheHostExecutionClaim(t *testing.T) {
 	                  "listen": "127.0.0.1:1999", "caller_token": true,
 	                  "host_cmd": ["yolo", "internal", "daemon", "acme-adapter", "--listen", "{listen}"]}
 	}`})
-	claims := disclosedCrossings(loadPack(t, root))
-	if !hasClaimContaining(claims, "RUNS", "yolo internal daemon acme-adapter --listen '{listen}'", "on your machine") {
-		t.Errorf("no host-execution claim names the doorway's host argv: %v", claims)
+	const doorway = "yolo internal daemon acme-adapter --listen '{listen}'"
+	official := loadPack(t, root)
+	official.Official = true
+	if claims := disclosedCrossings(official); !hasClaimContaining(claims, "RUNS", doorway, "on your machine") {
+		t.Errorf("an official pack's host-execution claim does not name the doorway's host argv: %v", claims)
+	}
+	local := loadPack(t, root)
+	claims := disclosedCrossings(local)
+	if hasClaimContaining(claims, doorway) {
+		t.Errorf("a pack yolo does not ship claims to run its doorway's host argv, which the launch "+
+			"refuses: %v", claims)
+	}
+	if !hasClaimContaining(claims, "RUNS", "yolo internal daemon acme --socket '{socket}'", "on your machine") {
+		t.Errorf("leaving the doorway out dropped the host daemon's claim too: %v", claims)
 	}
 }
 
