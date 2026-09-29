@@ -722,6 +722,12 @@ func shippedProviderEntry(prov packdecl.ProviderContribution) *jsonx.OrderedMap 
 		}
 		entry.Set("api_key_env_name", names)
 	}
+	// What service the provider is (OQ-BR2), under the key a user's own entry spells it, so a
+	// user override of a shipped provider's platform is one field with one merge rule, and a
+	// derive reads it off the entry it is handed (ctx.selected_platform).
+	if prov.Platform != "" {
+		entry.Set("platform", prov.Platform)
+	}
 	if prov.Region != "" {
 		entry.Set("region", prov.Region)
 	}

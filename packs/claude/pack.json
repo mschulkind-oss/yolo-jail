@@ -143,6 +143,7 @@
       ],
       "kind": "provider",
       "name": "bedrock",
+      "platform": "aws-bedrock",
       "region_env_name": [
         "AWS_REGION",
         "AWS_DEFAULT_REGION"

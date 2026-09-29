@@ -440,6 +440,32 @@ type Contribution struct {
 	// delivers only to an agent that selected this provider. See EnvNames for why one name
 	// stays a string and why several point an agent at none of them.
 	APIKeyEnvName EnvNames `json:"api_key_env_name,omitempty"`
+	// Platform is WHAT SERVICE this provider is — "aws-bedrock" for Amazon Bedrock — so a
+	// derive can recognize the service without matching the provider's NAME
+	// (docs/design/providers-and-profiles-redesign.md OQ-BR2, ruled 2026-09-29). It is the
+	// one fact a provider with no endpoint can offer about itself: Bedrock's clients compose
+	// their own URL from a region, so there is no URL to recognize it by either.
+	//
+	// OPEN VOCABULARY, UNKNOWN VALUES INERT. Core keeps no list of platforms and interprets
+	// none: a value is a string a derive compares against, exposed to it as
+	// ctx.selected_platform, and a value no derive asks about changes nothing. That is the
+	// version-skew rule the open `endpoints` key set already follows — a newer pack naming a
+	// platform an older consumer has never heard of must not refuse its boot. Only the SHAPE
+	// is checked: one token, no whitespace.
+	//
+	// It is spelled for what the service IS, not how an agent reaches it: not `service`,
+	// which is already a contribution kind, and not `native`, which would be a transport. The
+	// user's own `providers.<name>.platform` sets it for a provider only the user declares,
+	// and overrides a pack's (config.knownProviderKeys), so a provider a user defines gets
+	// the behavior the shipped one does.
+	//
+	// ⚠ NOT `platforms` (plural, on `program` and `service`), which lists the host OS/arch
+	// pairs a build exists for. The two share a word and nothing else.
+	//
+	// On an `env` contribution the same field is a GATE rather than a declaration: the
+	// contribution reaches each agent whose selected provider declares this platform (the
+	// `profile` modifier's provider-keyed counterpart; see EnvContribution.Platform).
+	Platform string `json:"platform,omitempty"`
 	// Region is the region a regional provider is reached through — Bedrock's address
 	// half, where "where is this service" is a region plus a well-known host rather than
 	// a base URL. It is a service fact for the same reason an endpoint is: it says where
@@ -1267,7 +1293,10 @@ type ProviderContribution struct {
 	Name          string
 	Endpoints     map[string]ProviderEndpoint
 	APIKeyEnvName EnvNames
-	Region        string
+	// Platform is what service this provider is (OQ-BR2); see the field's own comment on
+	// Contribution.
+	Platform string
+	Region   string
 	// RegionEnvName makes a region this provider's launch requirement; see the field's own
 	// comment on Contribution.
 	RegionEnvName []string
@@ -1301,6 +1330,7 @@ func (m *Manifest) Providers() []ProviderContribution {
 			Name:          c.Name,
 			Endpoints:     c.Endpoints,
 			APIKeyEnvName: c.APIKeyEnvName,
+			Platform:      c.Platform,
 			Region:        c.Region,
 			RegionEnvName: c.RegionEnvName,
 			Models:        c.Models,
@@ -2905,6 +2935,18 @@ func validateContribution(label string, c Contribution) []string {
 		problems = append(problems, fmt.Sprintf(
 			"%s: \"served_by\" %q has surrounding whitespace, so it could never name a daemon",
 			label, c.ServedBy))
+	}
+	// `platform` is provider's DECLARATION (OQ-BR2), refused in `profile`'s position and for
+	// its reason: on any other kind no consumer reads it.
+	if c.Platform != "" && c.Kind != KindProvider {
+		problems = append(problems, fmt.Sprintf(
+			"%s: kind %q does not take \"platform\" — it says what service a PROVIDER is, so "+
+				"only \"provider\" has a service to name", label, c.Kind))
+	}
+	if c.Platform != "" {
+		if prob := PlatformProblem(label+": \"platform\"", c.Platform); prob != "" {
+			problems = append(problems, prob)
+		}
 	}
 	if c.NodeFloor != "" && c.Kind != KindProgram {
 		problems = append(problems, fmt.Sprintf(

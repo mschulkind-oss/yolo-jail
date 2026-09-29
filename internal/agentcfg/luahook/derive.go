@@ -544,6 +544,13 @@ func buildDeriveCtxTable(L *lua.LState, ctx *DeriveCtx, sentinel, emptyArr *lua.
 	L.SetField(t, "agent", lua.LString(ctx.Agent))
 	L.SetField(t, "surface", lua.LString(ctx.Surface))
 	L.SetField(t, "selected_provider", lua.LString(ctx.SelectedProvider))
+	// ctx.selected_platform: what service the selected provider IS (OQ-BR2, ruled 2026-09-29),
+	// the `platform` its composed row carries — "" when no provider is selected, when the
+	// table holds no row for it, or when the row declares none. READ OFF THE ROW, never a
+	// field of its own, for the reason sourceCapabilities reads capabilities there: the row is
+	// the one statement of the provider (pack default under user override), so the derive
+	// cannot be told a platform the table it also holds contradicts.
+	L.SetField(t, "selected_platform", lua.LString(selectedPlatform(ctx)))
 	L.SetField(t, "profile_name", lua.LString(ctx.ProfileName))
 	L.SetField(t, "via_url", lua.LString(ctx.ViaURL))
 	L.SetField(t, "via_api_key_env_name", lua.LString(ctx.ViaAPIKeyEnvName))
@@ -570,6 +577,21 @@ func buildDeriveCtxTable(L *lua.LState, ctx *DeriveCtx, sentinel, emptyArr *lua.
 		L.SetField(t, src, lv)
 	}
 	return t, nil
+}
+
+// selectedPlatform is the `platform` of the selected provider's row in ctx's providers table,
+// "" when there is no selection, no row, or no platform on it (a non-string value included:
+// the config validator refuses one, and a derive must not be handed a value it cannot compare).
+func selectedPlatform(ctx *DeriveCtx) string {
+	if ctx.SelectedProvider == "" {
+		return ""
+	}
+	row, ok := ctx.Tables[sourceProviders][ctx.SelectedProvider].(map[string]any)
+	if !ok {
+		return ""
+	}
+	s, _ := row["platform"].(string)
+	return s
 }
 
 // sourceCapabilities resolves the ACTIVE authentication source's capability set —

@@ -1222,6 +1222,17 @@ func validateProviderEntries(config *jsonx.OrderedMap, errs, warns *[]string) {
 				add(errs, path+".region: expected a string")
 			}
 		}
+		// What service the provider is (OQ-BR2, docs/design/providers-and-profiles-redesign.md):
+		// the shape rule is packdecl's, so a user's own provider and a pack's cannot accept
+		// different spellings of one field of one composed table. The vocabulary is open, and
+		// an unknown value is inert, which is why nothing here checks it against a list.
+		if pl, ok := cfg.Get("platform"); ok && pl != nil {
+			if s, isString := asStr(pl); !isString {
+				add(errs, path+".platform: expected a string")
+			} else if prob := packdecl.PlatformProblem(path+".platform", s); prob != "" {
+				add(errs, prob)
+			}
+		}
 		if a, ok := cfg.Get("api_key_env_name"); ok && a != nil {
 			// One variable name, or a list of them (OQ-CN1,
 			// docs/design/provider-credential-scope.md). The rule is packdecl's, so a pack
@@ -1415,6 +1426,10 @@ const providersKey = "providers"
 //     protocols a pack ships, which validation does not resolve.
 //   - A null provider, or a null `providers`: removing a provider removes its claims, and the
 //     unclaimed values reach every process.
+//   - `platform` (OQ-BR2), which an `env` contribution's platform gate keys on, so it decides
+//     which agents receive a pack's credential pointer (aws-auth's, for "aws-bedrock"): a
+//     workspace value relabelling a provider an agent already selects would hand that agent
+//     the pointer.
 //
 // `models`, `options`, `region` and `capabilities` still merge, deliberately: they steer a
 // request that still goes to the provider the credential was issued for, and a workspace that
@@ -1459,6 +1474,17 @@ func validateProviderCredentialScope(workspace string, errs *[]string) {
 		entry, ok := asMap(entryV)
 		if !ok {
 			continue
+		}
+		// `platform` decides who receives a credential too: a provider's platform is what an
+		// `env` contribution's platform gate keys on, so aws-auth's credentials pointer reaches
+		// every agent whose selected provider says it is Bedrock (OQ-BR8). A workspace value
+		// could relabel a provider an agent already selects and hand that agent the pointer.
+		if _, has := entry.Get("platform"); has {
+			add(errs, providerCredentialScopeMessage(path+".platform", "it says what service "+
+				"this provider is, and a pack's credential pointer for a platform (aws-auth's, for "+
+				"aws-bedrock) reaches every agent whose selected provider declares it; a workspace "+
+				"value could relabel a provider so that its agents receive a credential they were "+
+				"never given, or, as null, withhold one."))
 		}
 		if _, has := entry.Get("api_key_env_name"); has {
 			add(errs, providerCredentialScopeMessage(path+".api_key_env_name", "it names the "+

@@ -206,7 +206,7 @@ var (
 	// key earns. `wire_api` is still live but only INSIDE an `endpoints` entry; at the top
 	// level it was the shorthand's partner, and it stays listed for the same reason.
 	knownProviderKeys = set("base_url", "endpoints", "wire_api", "api_key_env_name",
-		"models", "region", "capabilities", "options")
+		"platform", "models", "region", "capabilities", "options")
 	// knownModelKeys is the closed field set an object-form `models.<alias>` may carry: the
 	// wire id every consumer needs, plus the model-capability facts a derive projects. It is
 	// CLOSED (an unknown key is refused), because an accepted-but-unread field is the exact
