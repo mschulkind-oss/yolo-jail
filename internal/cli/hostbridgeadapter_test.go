@@ -79,15 +79,6 @@ func TestHostRemedyNeverNamesTheBridgedProfileForClaude(t *testing.T) {
 // a remote gateway — protocol-resolution.md's other two shapes), so the host still composes it:
 // only an adaptation the pack's own service daemon serves is left out.
 //
-// The user's pack is LISTED in `packs`. wire-bridge, which claude's `needs` joins, declares the
-// same openai → anthropic pair, and a pair is sole-owned: where nothing refuses the duplicate,
-// Adaptations keeps the first in the one precedence order (OQ-NC4: config order, then the
-// closure's additions, then the conventional local pack). A configured pack precedes every
-// addition, so its pair is the one kept; the conventional local pack, last since OQ-NC4, would
-// yield the pair to wire-bridge (docs/plans/notch-convergence.md NC-D57).
-
-// yield the pair to wire-bridge (docs/plans/notch-convergence.md NC-D59).
-
 // The adapter is the conventional local pack's. wire-bridge, which claude's `needs` joins,
 // declares the same openai → anthropic pair; a duplicated sole-owned claim is held by the LATER
 // pack in the one precedence order (OQ-NC4: config order, then the closure's additions, then the
