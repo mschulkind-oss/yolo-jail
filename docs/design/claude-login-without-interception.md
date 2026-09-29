@@ -10,10 +10,14 @@ vantage:
 
 # Claude login without interception: share the grant, not the file
 
-**Status:** DESIGN, 2026-09-28. Nothing here is built. Vendor facts are read from the Claude Code
-**2.1.284** binary installed in this jail (`claude --version` prints `2.1.284 (Claude Code)`). No
-experiment ran Claude, so every statement about what Claude *does* is INFERRED from its code and
-is listed in [§7](#7-what-must-be-measured-before-building) as a measurement owed.
+**Status:** BUILT BEHIND A SWITCH, 2026-09-29: [§10](#10-what-i-would-build-in-order)'s steps 2 to 4
+are built, off by default on podman and `macos-user` and on by default on Apple Container
+([CL-D10](#CL-D10), [CL-D11](#CL-D11)); step 1's measures are written as a
+[runbook](../plans/runbooks/claude-credential-view-measures.md) and have not run; step 5, the
+deletion, waits on them. Vendor facts are read from the Claude Code **2.1.284** binary installed
+in this jail (`claude --version` prints `2.1.284 (Claude Code)`). No experiment ran Claude, so
+every statement about what Claude *does* is INFERRED from its code and is listed in
+[§7](#7-what-must-be-measured-before-building) as a measurement owed.
 
 > **In short.** No, the `/etc/hosts` entry is not needed, if [§7](#7-what-must-be-measured-before-building)'s
 > measures confirm what Claude's code says. yolo intercepts
@@ -36,8 +40,7 @@ host networking."*
 **Start at [§3](#3-the-measured-facts)**, the facts that close most doors, then read
 [§4](#4-the-options-that-remove-the-hosts-entry)'s table.
 
-**Rulings:** [OQ-CL1](#OQ-CL1) and [OQ-CL2](#OQ-CL2), both ruled 2026-09-28 as leaned. Nothing here awaits a ruling; the build and its measures are the remaining work.
-run) and [OQ-CL2](#OQ-CL2) (what `/login` and `/logout` in a jail mean).
+**Rulings:** [OQ-CL1](#OQ-CL1) and [OQ-CL2](#OQ-CL2), both ruled 2026-09-28 as leaned. Nothing here awaits a ruling; the measures and the deletion are the remaining work.
 
 ---
 
@@ -275,7 +278,9 @@ and F trade features or ergonomics away.
 1. **The canonical credential moves into the broker's host state directory**, which no launch
    mounts ([CL-D2](#CL-D2)). The broker already reads and writes it under `refresh.lock`, and its
    background refresher already exists. It now refreshes with a lead of thirty minutes rather
-   than five ([CL-D5](#CL-D5)), so a view never nears expiry while the broker runs.
+   than five ([CL-D5](#CL-D5), [CL-D18](#CL-D18)). Because a refresh appears to revoke the token it
+   replaces ([§6](#6-costs-and-risks)), a view is good until the broker's next refresh rather than
+   until its expiry, so the views are written first after every refresh ([CL-D12](#CL-D12)).
 2. **Each Claude workspace gets a view** at `~/.claude/.credentials.json`, a regular file and no
    longer a symlink. It carries `accessToken`, `expiresAt`, `scopes`, `subscriptionType` and
    `rateLimitTier` from the canonical credential, and **no `refreshToken` key**
@@ -284,7 +289,8 @@ and F trade features or ergonomics away.
    ([F6](#F6)).
 3. **The broker rewrites every live view on each new access token**, with a temp file and a
    rename inside the view's directory, confined so that a jail cannot aim the write elsewhere
-   ([CL-D3](#CL-D3)). Claude stats the file before each refresh check and adopts the change, and
+   ([CL-D3](#CL-D3)). The write replaces `claudeAiOauth` only and keeps the rest of the file, under
+   Claude's own write lock ([CL-D13](#CL-D13)). Claude stats the file before each refresh check and adopts the change, and
    a 401 on the old token also adopts it ([F5](#F5)).
 4. **The interception is deleted**: the `intercepts` entry, `broker_ip`, `ca_cert`,
    `state_files`, the terminator's jail daemon, the CA trio's mounts, and the CA's entry in the
@@ -346,6 +352,32 @@ records today:
   its argv and the symlink in its home until it restarts. The first launch after the change
   migrates the canonical credential ([CL-D2](#CL-D2)). A jail still running on the symlink keeps
   working, because the broker keeps writing that file too until no running container holds it.
+- **A refresh appears to revoke the access token it replaces, at once.** SOURCED, third-party
+  measured: a multi-account switcher found superseded tokens answering
+  `401 OAuth access token has been revoked` hours before their expiry
+  ([claude-swap#381](https://github.com/realiti4/claude-swap/issues/381)), and a container on a
+  single-file bind mount failed 24 seconds after its host rewrote the file
+  ([hive-mind#2296](https://github.com/link-assistant/hive-mind/issues/2296)). So a view is good
+  until the broker's next refresh, not until its `expiresAt`, and every view is an outage from the
+  upstream refresh until its rename lands. The broker writes every view immediately after the
+  canonical ([CL-D12](#CL-D12)), and Claude's 401 recovery ([F5](#F5)) is a main path rather than a
+  fallback: measures M7 and M8.
+- **The credentials file is not only the login.** SOURCED: Claude keeps its MCP servers' OAuth
+  (`mcpOAuth`) in the same file, and a stale MCP save has written the file back without a valid
+  `claudeAiOauth` ([claude-code#45551](https://github.com/anthropics/claude-code/issues/45551)).
+  A whole-file view write would delete a jail's MCP logins, and a Claude read-modify-write racing a
+  rewrite could put back a revoked token. The view write replaces `claudeAiOauth` only, under
+  Claude's own write lock ([CL-D13](#CL-D13)): measure M9.
+- **Anthropic's usage text on intermediating claude.ai credentials, flagged for the maintainer and
+  Legal Counsel.** Quoted without interpretation from
+  [legal-and-compliance](https://code.claude.com/docs/en/legal-and-compliance): *"Developers building
+  products or services … should use API key authentication … Anthropic does not permit third-party
+  developers to offer Claude.ai login into their own applications, or to route requests through
+  Free, Pro, or Max plan credentials on behalf of their users. Moreover, developers may not collect,
+  store, or intermediate Claude.ai credentials or session tokens — sign-in to a Claude account must
+  complete through Anthropic's own flow."* The same section says it does not prevent *"an end user
+  from signing in to the unmodified Claude Code binary with their own Claude subscription"*. This
+  doc makes no judgment on whether or how it applies; that question is for Legal Counsel.
 - **The "login expires in three days" warning moves.** Claude keeps `refreshTokenExpiresAt` in
   the stored credential (offset 200774422), and the warning presumably reads it (INFERRED). A view
   does not carry it. The broker discards that field today
@@ -365,6 +397,17 @@ witness for any request to the token endpoint. None needs a new login.
 | M4 | Revoke nothing, but put a wrong access token in the view, then correct it | the 401 recovers from the file ([F5](#F5)) |
 | M5 | `/login` in a jail whose view has no refresh token | Claude writes a view that does carry one, which is what [CL-D4](#CL-D4) adopts |
 | M6 | `/status` and `/usage` on a view | both show the subscription, since `scopes` and `subscriptionType` are present |
+| M7 | Refresh with the view rewrite held back 0, 2 and 10 s, under an idle and a mid-stream session | the session recovers on its own: no "Login expired", no blanked view ([CL-D12](#CL-D12)) |
+| M8 | Refresh while a response is streaming | recorded, not graded: whether an open stream survives its bearer's revocation |
+| M9 | An MCP server's OAuth login in a view jail, then a rewrite | `mcpOAuth` survives, the new token is there, and the workspace is not read as logged out ([CL-D13](#CL-D13)) |
+| M10 | A background (`--bg`) session, then a rewrite | the background session's next task runs, though its supervisor hands workers a credential snapshot |
+| M11 | The view on `macos-user` | the sandbox's Claude reads the file rather than the Keychain; this is what turns the backend's default on ([CL-D11](#CL-D11)) |
+
+M1 to M6 run in an ordinary interception jail against a view made by hand, with the terminator's
+log as the witness; M3 and M7 to M10 run with the switch on, against the broker's own rewrites.
+Every step is in the
+[measures runbook](../plans/runbooks/claude-credential-view-measures.md), with the host verb
+`yolo claude-auth` as its instrument ([CL-D15](#CL-D15)).
 
 ## 8. What this does not cover
 
@@ -437,32 +480,53 @@ The mechanism is decided in [§11](#11-decision-ledger). These two change what a
 
 ## 10. What I would build, in order
 
-1. The measures, M1 to M6 ([§7](#7-what-must-be-measured-before-building)). If any fails, stop:
+1. The measures, M1 to M11 ([§7](#7-what-must-be-measured-before-building)). If any fails, stop:
    this design is wrong and [§4](#4-the-options-that-remove-the-hosts-entry) should be re-read
-   with the failure in hand.
-2. The canonical move and its migration ([CL-D2](#CL-D2)), with the broker writing both the old
-   shared file and the new store while any container that binds the old one runs.
-3. The view writer and its registrations ([CL-D1](#CL-D1), [CL-D3](#CL-D3), [CL-D5](#CL-D5)), and
-   the pack change that stops linking `.credentials.json`.
-4. Enrollment adoption ([CL-D4](#CL-D4)) and the nested relay ([CL-D6](#CL-D6)).
-5. After [OQ-CL1](#OQ-CL1), the deletion ([CL-D7](#CL-D7)), which also closes
+   with the failure in hand. **Written, not run:** the
+   [runbook](../plans/runbooks/claude-credential-view-measures.md) needs a real Claude on a real
+   login, which no automated test may start.
+2. ✅ **Built.** The canonical move and its migration ([CL-D2](#CL-D2), [CL-D9](#CL-D9)), with the
+   broker writing both the old shared file and the new store.
+3. ✅ **Built, behind the switch** ([CL-D10](#CL-D10)). The view writer and its registrations
+   ([CL-D1](#CL-D1), [CL-D3](#CL-D3), [CL-D5](#CL-D5), [CL-D12](#CL-D12), [CL-D13](#CL-D13),
+   [CL-D16](#CL-D16)), and the hook change that stops linking `.credentials.json` on a view
+   launch.
+4. ✅ **Built.** Enrollment adoption ([CL-D4](#CL-D4), [CL-D17](#CL-D17)), the per-workspace
+   `/logout` ([CL-D14](#CL-D14)), `yolo claude-auth logout` ([CL-D15](#CL-D15)) and the nested
+   relay ([CL-D6](#CL-D6), [CL-D21](#CL-D21)).
+5. After the measures and a day on a real rootless host, the deletion ([CL-D7](#CL-D7)), with the
+   switch and every reader of it ([CL-D10](#CL-D10)), which also closes
    [OQ-NC2](../plans/notch-convergence.md#OQ-NC2) and
    [notch convergence item 4](../plans/notch-convergence.md#tier-1--the-loopback-services-p3).
 
 ## 11. Decision Ledger
 
-No ruling has been made in this doc. These are implementation decisions under the design.
+The rulings are [OQ-CL1](#OQ-CL1) and [OQ-CL2](#OQ-CL2) ([§9](#9-open-questions)). Every row here is an
+implementation decision under them.
 
 | ID | Ruling / Decision | Date | Settled in | Built |
 | :--- | :--- | :--- | :--- | :--- |
-| <a id="CL-D1"></a>[`CL-D1`](#11-decision-ledger) | *Implementation decision.* A view is Claude's own `{"claudeAiOauth": {…}}` shape with `accessToken`, `expiresAt`, `scopes`, `subscriptionType` and `rateLimitTier` copied from the canonical credential, and **no `refreshToken` key**. It carries no marker, unlike Pi's view: Claude posts whatever refresh token it holds to the real token endpoint ([F4](#F4)), so a marker would be spent upstream as an `invalid_grant`. Its `expiresAt` is the real expiry and never a far-future value, so `/status` and the vendor's own expiry messages stay true | 2026-09-28 | [§5.1](#51-one-writer-one-view-per-workspace) | — |
-| <a id="CL-D2"></a>[`CL-D2`](#11-decision-ledger) | *Implementation decision.* The canonical credential lives in the broker's state directory (`BrokerDir()`), which no launch mounts. The first broker start after the change adopts the current shared file under `refresh.lock` as the first canonical generation, then keeps writing that file too while any container that binds it runs, found by the same tri-state liveness check the pack trees use. The machine-scope `.claude-shared-credentials` directory and the claude pack's `shared_credentials` hook then go. On `macos-user` the state directory is on the one real filesystem, so "never crosses" there means only that nothing points Claude at it | 2026-09-28 | [§5.1](#51-one-writer-one-view-per-workspace) | — |
-| <a id="CL-D3"></a>[`CL-D3`](#11-decision-ledger) | *Implementation decision.* A launch that selects the claude pack registers its workspace's `.claude` directory with the broker, and the broker writes every registered view on each new access token and at registration. The write opens the directory with `os.Root` and refuses when `.claude` or the view is a symlink, writes a temp file and renames it inside that root, and never follows a link a jail could have planted. A registration is dropped only once its container is known gone, never when liveness cannot be asked | 2026-09-28 | [§5.1](#51-one-writer-one-view-per-workspace) | — |
-| <a id="CL-D4"></a>[`CL-D4`](#11-decision-ledger) | *Implementation decision, under [OQ-CL2](#OQ-CL2)'s leaning.* A registered view that carries a `refreshToken` is an enrollment. Under `refresh.lock`, the broker checks the same gates the proxy mirror checks today (Claude Code's client id and inference scope), redeems the token once so the jail's copy is spent, installs the result as the next canonical generation, and rewrites every view. A refresh token the broker has already replaced is ignored | 2026-09-28 | [§9](#9-open-questions) | — |
-| <a id="CL-D5"></a>[`CL-D5`](#11-decision-ledger) | *Implementation decision.* The background refresher's lead becomes thirty minutes. The old lead matched Claude's five-minute due threshold because Claude refreshed too, and a view's Claude never does, so the lead now only has to beat real expiry with room for a sleeping machine to wake and rewrite. The refresh path's cache floor, which existed to answer the terminator, goes with the terminator | 2026-09-28 | [§5.1](#51-one-writer-one-view-per-workspace) | — |
-| <a id="CL-D6"></a>[`CL-D6`](#11-decision-ledger) | *Implementation decision.* A broker whose store holds no refresh token relays: it copies its own view into the views registered with it and refreshes nothing. That is the nested case, since an outer jail's own view carries no refresh token. The condition is the store's content, not nesting, so [OQ-2](../reference/claude-oauth-interposition.md#oq-2)'s "nesting earns affordances, not exemptions" holds: the nested launcher runs its own broker, as today | 2026-09-28 | [§5.2](#52-what-each-setup-gets) | — |
-| <a id="CL-D7"></a>[`CL-D7`](#11-decision-ledger) | *Implementation decision, gated on [OQ-CL1](#OQ-CL1).* The deletion removes the manifest's `intercepts`, `broker_ip`, `ca_cert` and `state_files`, the `oauth-terminator` jail daemon, `EnsureCAAndLeaf` and its CA trio, and the CA path from `NODE_EXTRA_CA_CERTS` and the jail trust bundle. No switch keeps the old path: a hatch is for broken user configuration, never for a second yolo mechanism | 2026-09-28 | [§5.1](#51-one-writer-one-view-per-workspace) | — |
-| <a id="CL-D8"></a>[`CL-D8`](#11-decision-ledger) | *Implementation decision.* No Claude environment changes: no `CLAUDE_CODE_OAUTH_TOKEN`, which vetoes adopting the file ([F8](#F8)); no `ANTHROPIC_BASE_URL`, which costs account features ([F11](#F11)); no `HTTPS_PROXY`; no `CLAUDE_CONFIG_DIR`. The view sits where Claude already looks | 2026-09-28 | [§4](#4-the-options-that-remove-the-hosts-entry) | — |
+| <a id="CL-D1"></a>[`CL-D1`](#11-decision-ledger) | *Implementation decision.* A view is Claude's own `{"claudeAiOauth": {…}}` shape with `accessToken`, `expiresAt`, `scopes`, `subscriptionType` and `rateLimitTier` copied from the canonical credential, and **no `refreshToken` key**. It carries no marker, unlike Pi's view: Claude posts whatever refresh token it holds to the real token endpoint ([F4](#F4)), so a marker would be spent upstream as an `invalid_grant`. Its `expiresAt` is the real expiry and never a far-future value, so `/status` and the vendor's own expiry messages stay true | 2026-09-28 | [§5.1](#51-one-writer-one-view-per-workspace) | ✅ 2026-09-29, with [CL-D13](#CL-D13) |
+| <a id="CL-D2"></a>[`CL-D2`](#11-decision-ledger) | *Implementation decision.* The canonical credential lives in the broker's state directory (`BrokerDir()`), which no launch mounts. The first broker start after the change adopts the current shared file under `refresh.lock` as the first canonical generation, then keeps writing that file too while any container that binds it runs, found by the same tri-state liveness check the pack trees use. The machine-scope `.claude-shared-credentials` directory and the claude pack's `shared_credentials` hook then go. On `macos-user` the state directory is on the one real filesystem, so "never crosses" there means only that nothing points Claude at it | 2026-09-28 | [§5.1](#51-one-writer-one-view-per-workspace) | ✅ 2026-09-29, the adoption and the dual write; the shared directory and hook go with [CL-D7](#CL-D7) |
+| <a id="CL-D3"></a>[`CL-D3`](#11-decision-ledger) | *Implementation decision.* A launch that selects the claude pack registers its workspace's `.claude` directory with the broker, and the broker writes every registered view on each new access token and at registration. The write opens the directory with `os.Root` and refuses when `.claude` or the view is a symlink, writes a temp file and renames it inside that root, and never follows a link a jail could have planted. A registration is dropped only once its container is known gone, never when liveness cannot be asked | 2026-09-28 | [§5.1](#51-one-writer-one-view-per-workspace) | ✅ 2026-09-29, refined by [CL-D16](#CL-D16) |
+| <a id="CL-D4"></a>[`CL-D4`](#11-decision-ledger) | *Implementation decision, under [OQ-CL2](#OQ-CL2)'s leaning.* A registered view that carries a `refreshToken` is an enrollment. Under `refresh.lock`, the broker checks the same gates the proxy mirror checks today (Claude Code's client id and inference scope), redeems the token once so the jail's copy is spent, installs the result as the next canonical generation, and rewrites every view. A refresh token the broker has already replaced is ignored | 2026-09-28 | [§9](#9-open-questions) | ✅ 2026-09-29, with [CL-D17](#CL-D17) |
+| <a id="CL-D5"></a>[`CL-D5`](#11-decision-ledger) | *Implementation decision.* The background refresher's lead becomes thirty minutes. The old lead matched Claude's five-minute due threshold because Claude refreshed too, and a view's Claude never does, so the lead now only has to beat real expiry with room for a sleeping machine to wake and rewrite. The refresh path's cache floor, which existed to answer the terminator, goes with the terminator | 2026-09-28 | [§5.1](#51-one-writer-one-view-per-workspace) | ✅ 2026-09-29, with [CL-D18](#CL-D18) |
+| <a id="CL-D6"></a>[`CL-D6`](#11-decision-ledger) | *Implementation decision.* A broker whose store holds no refresh token relays: it copies its own view into the views registered with it and refreshes nothing. That is the nested case, since an outer jail's own view carries no refresh token. The condition is the store's content, not nesting, so [OQ-2](../reference/claude-oauth-interposition.md#oq-2)'s "nesting earns affordances, not exemptions" holds: the nested launcher runs its own broker, as today | 2026-09-28 | [§5.2](#52-what-each-setup-gets) | ✅ 2026-09-29, with [CL-D21](#CL-D21) |
+| <a id="CL-D7"></a>[`CL-D7`](#11-decision-ledger) | *Implementation decision, gated on [OQ-CL1](#OQ-CL1).* The deletion removes the manifest's `intercepts`, `broker_ip`, `ca_cert` and `state_files`, the `oauth-terminator` jail daemon, `EnsureCAAndLeaf` and its CA trio, and the CA path from `NODE_EXTRA_CA_CERTS` and the jail trust bundle. No switch keeps the old path: a hatch is for broken user configuration, never for a second yolo mechanism. The measuring switch, `YOLO_CLAUDE_CREDENTIAL_VIEW` ([CL-D10](#CL-D10)), and every reader of it are removed in the same change | 2026-09-28 | [§5.1](#51-one-writer-one-view-per-workspace) | — |
+| <a id="CL-D8"></a>[`CL-D8`](#11-decision-ledger) | *Implementation decision.* No Claude environment changes: no `CLAUDE_CODE_OAUTH_TOKEN`, which vetoes adopting the file ([F8](#F8)); no `ANTHROPIC_BASE_URL`, which costs account features ([F11](#F11)); no `HTTPS_PROXY`; no `CLAUDE_CONFIG_DIR`. The view sits where Claude already looks | 2026-09-28 | [§4](#4-the-options-that-remove-the-hosts-entry) | ✅ 2026-09-29 |
+| <a id="CL-D9"></a>[`CL-D9`](#11-decision-ledger) | *Implementation decision, refining [CL-D2](#CL-D2).* The canonical (`<BrokerDir>/claude-credentials.json`) is adopted from the shared file on the first locked operation of any process that configured the store, the launch's registration included, so neither the launcher nor the daemon has to go first. While the interception exists the shared file is written in full after every canonical generation, and a shared file that is NEWER than the canonical and holds a different login is adopted as the canonical, a signed-out one included: that is an interception jail's own enrollment or `/logout`, and following it keeps the default path's behavior what it was when the shared file was the only record. The liveness-gated retirement of the shared file belongs to the deletion, because until then an interception launch binds it by default | 2026-09-29 | [`store.go`](../../internal/oauthbroker/store.go) | ✅ 2026-09-29 |
+| <a id="CL-D10"></a>[`CL-D10`](#11-decision-ledger) | *Implementation decision, under [OQ-CL1](#OQ-CL1)'s ordered deletion.* The switch is the environment dial `YOLO_CLAUDE_CREDENTIAL_VIEW`, read by the host launcher and documented where it is enforced (`internal/claudeview`). An environment dial rather than a pack option because the switch is temporary and per launch: it lets one throwaway workspace run the measures while every other launch stays on the proven path, and a pack option would be manifest schema, validation and `yolo config-ref` text for a thing that is deleted in the same release as the interception. The launcher resolves it once and hands the jail the resolved `=1`; it applies only when the claude-oauth-broker loophole is on; and one predicate feeds every reader (the argv, the jail-daemon payload, the Apple Container allow list, the jail environment, the registration). A view launch drops every record declaring `intercepts` from the jail's side effects (no hosts entry, CA, state mounts or terminator) and keeps its host daemon, which writes the views. **It is the ONE second path this concern is allowed, and it is deleted with the interception ([CL-D7](#CL-D7)), with every reader of it** | 2026-09-29 | [`claudeview.go`](../../internal/claudeview/claudeview.go), [`claudecredentialview.go`](../../internal/cli/run/claudecredentialview.go) | ✅ 2026-09-29 |
+| <a id="CL-D11"></a>[`CL-D11`](#11-decision-ledger) | *Implementation decision.* Defaults per backend: **podman off** (the interception is the proven path until the measures pass); **Apple Container on** (the interception never ran there, the jail reads the same Linux plaintext file from the same machine-scope shared file the broker migrates from, so turning it on costs no login and ends a race that is live today; the broker singleton now starts on that backend to write the view, and its endpoint stays unpublished to a jail that dials nothing); **`macos-user` off** until measure M11 (Claude on macOS keeps its login in the Keychain first, and which store a sandbox account's Claude reads is unmeasured; the sandbox's machine-tier shared file is in the sandbox account's home, not the host user's store the broker migrates from; and the backend's launch path has never run on hardware). `=0` and `=1` override each default | 2026-09-29 | [`claudeview.go`](../../internal/claudeview/claudeview.go) (`DefaultOn`) | ✅ 2026-09-29 |
+| <a id="CL-D12"></a>[`CL-D12`](#11-decision-ledger) | *Implementation decision, from the revocation finding in [§6](#6-costs-and-risks).* After a refresh the broker writes the canonical (it alone holds the new refresh token), then EVERY registered view, one after another, and only then the shared file and the registrations' bookkeeping. [CL-D5](#CL-D5)'s thirty-minute lead is reread accordingly: a view is good until the broker's next refresh, not until its `expiresAt`, so the lead only sets when the outage window falls, and the window's length is the rewrite. Claude's 401 recovery ([F5](#F5)) is therefore a main path: measures M7 and M8. `yolo claude-auth refresh --view-delay` holds the view writes back under the lock, so M7 can widen the window on purpose | 2026-09-29 | [`store.go`](../../internal/oauthbroker/store.go) (`saveLocked`) | ✅ 2026-09-29 |
+| <a id="CL-D13"></a>[`CL-D13`](#11-decision-ledger) | *Implementation decision, amending [CL-D1](#CL-D1).* A view write is a read-modify-write that replaces `claudeAiOauth` only and keeps every other top-level key (`mcpOAuth` among them). It runs under Claude's own credential write lock: MEASURED in 2.1.284 (search `.storage-write`), every Claude read-modify-write takes proper-lockfile's `lock(join(configDir, ".storage-write"), {realpath: false, stale: 15000})`, whose lock is the directory `.storage-write.lock`. The broker makes that directory, breaks one older than the same 15 s, waits at most 2 s and then writes without it, since a view left stale after a refresh is an outage. **Prevention and detection of a revoked token put back by Claude:** the shared lock keeps a Claude save from interleaving with the rewrite (INFERRED: Claude reads inside its lock); a view whose `claudeAiOauth` differs from the canonical's projection is rewritten on the next tick (every 60 s); and a refresh token a stale save writes back is one the broker has replaced or refused, so it is stripped and never redeemed twice. The lock protocol's other half, and whether an MCP save can drop `claudeAiOauth` and so read as a `/logout` ([CL-D14](#CL-D14)), is measure M9 | 2026-09-29 | [`claudeview.go`](../../internal/claudeview/claudeview.go) (`Update`), [`views.go`](../../internal/oauthbroker/views.go) | ✅ 2026-09-29 |
+| <a id="CL-D14"></a>[`CL-D14`](#11-decision-ledger) | *Implementation decision, under [OQ-CL2](#OQ-CL2).* A jail's `/logout` is recognized as a view that is a JSON object with no `claudeAiOauth` key AFTER the broker has written that registration a login (its `written` mark). The broker then writes that workspace nothing until a launch registers it again, and that launch prints that it signed the workspace back in. A view that is missing, not JSON, or never written by the broker is filled rather than read as a logout, and a machine sign-out resets every `written` mark so its own emptied views are not misread | 2026-09-29 | [`views.go`](../../internal/oauthbroker/views.go) (`maintainViewLocked`) | ✅ 2026-09-29 |
+| <a id="CL-D15"></a>[`CL-D15`](#11-decision-ledger) | *Implementation decision, under [OQ-CL2](#OQ-CL2).* `yolo claude-auth logout` deletes the canonical, empties the shared file (so interception jails are signed out too) and removes the login from every view, other keys kept. It revokes nothing upstream, as `yolo openai-auth logout` revokes nothing: the grant leaves this machine, and a user who wants it dead at Anthropic revokes it from the account. It acts on the store directly under `refresh.lock` rather than through the daemon's socket, because the store is files the daemon re-reads before every decision. It refuses inside a jail, where it would reach only a nested broker. The same verb carries the measures' instruments, `status`, `inspect` and `refresh`, which print field names, expiries and fingerprints and never a token | 2026-09-29 | [`claudeauth.go`](../../internal/cli/claudeauth.go), [`hostverbs.go`](../../internal/oauthbroker/hostverbs.go) | ✅ 2026-09-29 |
+| <a id="CL-D16"></a>[`CL-D16`](#11-decision-ledger) | *Implementation decision, refining [CL-D3](#CL-D3).* A registration is a file under `<BrokerDir>/claude-views/`, named by a digest of the workspace and its overlay subdirectory (`claude` on podman and `macos-user`, `.claude` on Apple Container). The launch registers after the host services start, since the singleton's ensure creates the state directory, and it creates the view's directory first, since on `macos-user` the bootstrap would otherwise make it only later. It removes the `shared_credentials` link an interception launch left at the view only when the link's target is exactly the one that hook writes. Every directory from `<workspace>/.yolo` down is opened refusing a link. A registration is dropped when its workspace's overlay directory no longer exists, rather than when its container is known gone: a stopped workspace's view is kept current, at the cost of one small write per refresh, and its next launch starts on a live token | 2026-09-29 | [`views.go`](../../internal/oauthbroker/views.go) (`RegisterView`), [`claudeview.go`](../../internal/claudeview/claudeview.go) | ✅ 2026-09-29 |
+| <a id="CL-D17"></a>[`CL-D17`](#11-decision-ledger) | *Implementation decision, detailing [CL-D4](#CL-D4).* The proxy mirror's client-id gate has no input in a view, so the redemption is the check in its place: it is made with Claude Code's client id and fails for a token issued to any other. Its scope gate applies when the view lists scopes. An upstream refusal (HTTP 4xx) is remembered by digest in memory and the view's refresh token removed, so one bad view costs one request; a transient failure leaves the view as it is and the next tick retries. Adoption runs on the broker's 60 s tick and at registration | 2026-09-29 | [`views.go`](../../internal/oauthbroker/views.go) (`adoptEnrollmentLocked`) | ✅ 2026-09-29 |
+| <a id="CL-D18"></a>[`CL-D18`](#11-decision-ledger) | *Implementation decision, completing [CL-D5](#CL-D5).* The background refresher refreshes with a cache floor equal to its lead. Left at the refresh path's six-minute floor, which answers an interception jail's Claude, a tick that found the login due at thirty minutes would be answered from the cache and refresh nothing until six minutes were left. The floor is still re-checked inside the lock, so a second broker's refresh is seen and nothing is spent twice | 2026-09-29 | [`refresh.go`](../../internal/oauthbroker/refresh.go) (`doBackgroundRefresh`) | ✅ 2026-09-29 |
+| <a id="CL-D19"></a>[`CL-D19`](#11-decision-ledger) | *Implementation decision.* A view is never bind-mounted as a single file. The broker replaces it by rename, and a single-file bind pins the old inode, so that jail would read its first view forever (hive-mind#2296). Podman binds `~/.claude` as a directory, Apple Container binds the whole home, and `macos-user` links `~/.claude` to its overlay directory; a test pins the first two | 2026-09-29 | [`claudecredentialview_test.go`](../../internal/cli/run/claudecredentialview_test.go) | ✅ 2026-09-29 |
+| <a id="CL-D20"></a>[`CL-D20`](#11-decision-ledger) | *Implementation decision, stated so it is not mistaken for the end state.* Under the switch the machine-scope `.claude-shared-credentials` directory is still bound into the jail: Claude no longer reads it, but a process that looks can still read the refresh token there. Removing it is [CL-D2](#CL-D2)'s last step and goes with the deletion ([CL-D7](#CL-D7)), because the switch is the measuring path, not the security end state | 2026-09-29 | [§5.1](#51-one-writer-one-view-per-workspace) | ✅ 2026-09-29 |
+| <a id="CL-D21"></a>[`CL-D21`](#11-decision-ledger) | *Implementation decision, detailing [CL-D6](#CL-D6).* The relay source is this user's own `~/.claude/.credentials.json`, which in a jail is that jail's view. It is relayed only while the canonical holds no login and only when the source carries NO refresh token, so a host user's own login (which has one) is never copied into a jail. A link there is refused, and the relay writes views only, never the canonical | 2026-09-29 | [`views.go`](../../internal/oauthbroker/views.go) (`relaySource`) | ✅ 2026-09-29 |
 
 ## 12. The neighbors
 

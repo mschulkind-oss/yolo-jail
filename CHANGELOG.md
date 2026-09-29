@@ -76,7 +76,22 @@ entry and the next apply takes back only the keys it wrote, naming each one, and
 into a jail, so at the host it does nothing, and the report says so, as it does for
 `mise_tools`.
 
+**`yolo claude-auth` manages this machine's Claude login, as `yolo openai-auth` does for OpenAI.**
+`yolo claude-auth logout` signs the whole machine out: every workspace and every jail lose the
+login until someone runs `/login` in a jail again. `yolo claude-auth status` shows the machine's
+login and each workspace's copy of it, and `yolo claude-auth inspect <file>` describes one
+credentials file; both show field names, expiry times and short fingerprints, never a token.
+`yolo claude-auth refresh` renews the login now.
+
 ### Changed
+
+**On Apple Container, jails now share one Claude login without signing each other out.** yolo's
+host broker is now the only thing that renews the machine's Claude login there, and it writes each
+workspace a copy that Claude reads but cannot renew, so two jails no longer spend the same login
+and log each other out. `/login` in any jail still signs every workspace in. `/logout` in a jail
+now signs out only that workspace, until you next launch it, and the launch says so; to sign the
+whole machine out, use `yolo claude-auth logout`. Set `YOLO_CLAUDE_CREDENTIAL_VIEW=0` to go back
+to the old behavior. See [Claude login without interception](docs/design/claude-login-without-interception.md).
 
 **A jail that shares your host's network now says so, at launch and in its briefing.** With
 `network.mode: "host"`, in a jail started from inside another jail, and in every macos-user
