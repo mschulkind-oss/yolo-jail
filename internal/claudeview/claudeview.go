@@ -337,9 +337,54 @@ func (l Location) Update(mutate func(current []byte) ([]byte, error)) (wrote, lo
 		return false, false, err
 	}
 	defer r.Close()
+	return updateBeneath(r, ViewFile, l.readIn, mutate)
+}
+
+// UpdateSharedFile is Update for the machine store's shared credentials file, name in dir, which
+// CL-D22's bridge makes Claude's own store file: Claude reads it and writes it there, under the
+// same `.storage-write.lock` beside it, so a host writer takes that lock too and replaces only
+// what it owns (the broker, CL-D13's reasons applied to this file). Two differences from a view,
+// both the whole-file write's behavior kept: a symbolic link at name is neither read nor
+// followed but REPLACED by the rename (the jail can plant one, and the rename never writes
+// through it), and nothing else in dir is touched. dir itself is opened refusing a link
+// (paths.OpenStateDirRoot); a missing dir is an fs.ErrNotExist.
+func UpdateSharedFile(dir, name string, mutate func(current []byte) ([]byte, error)) (wrote, locked bool, err error) {
+	if name == "" || filepath.Base(name) != name || name == "." || name == ".." {
+		return false, false, &fs.PathError{Op: "open", Path: name, Err: fs.ErrInvalid}
+	}
+	r, err := paths.OpenStateDirRoot(dir)
+	if err != nil {
+		return false, false, err
+	}
+	defer r.Close()
+	read := func(r *os.Root) ([]byte, error) {
+		if fi, err := r.Lstat(name); err == nil && !fi.Mode().IsRegular() {
+			return nil, fs.ErrNotExist
+		}
+		f, err := paths.OpenRegularFileBeneath(r, name)
+		if err != nil {
+			return nil, err
+		}
+		defer f.Close()
+		data, err := io.ReadAll(io.LimitReader(f, maxViewBytes+1))
+		if err != nil {
+			return nil, err
+		}
+		if len(data) > maxViewBytes {
+			return nil, fmt.Errorf("%s: larger than %d bytes, not read", filepath.Join(dir, name), maxViewBytes)
+		}
+		return data, nil
+	}
+	return updateBeneath(r, name, read, mutate)
+}
+
+// updateBeneath is the body Update and UpdateSharedFile share: Claude's storage lock beneath r,
+// read, mutate, and an O_EXCL temp file renamed over name.
+func updateBeneath(r *os.Root, name string, read func(*os.Root) ([]byte, error),
+	mutate func(current []byte) ([]byte, error)) (wrote, locked bool, err error) {
 	release, locked := acquireStorageLock(r)
 	defer release()
-	current, err := l.readIn(r)
+	current, err := read(r)
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return false, locked, err
 	}
@@ -351,7 +396,7 @@ func (l Location) Update(mutate func(current []byte) ([]byte, error)) (wrote, lo
 	if _, err := rand.Read(suffix[:]); err != nil {
 		return false, locked, err
 	}
-	tmp := ViewFile + ".tmp." + hex.EncodeToString(suffix[:])
+	tmp := name + ".tmp." + hex.EncodeToString(suffix[:])
 	f, err := r.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 	if err != nil {
 		return false, locked, err
@@ -365,7 +410,7 @@ func (l Location) Update(mutate func(current []byte) ([]byte, error)) (wrote, lo
 		_ = r.Remove(tmp)
 		return false, locked, err
 	}
-	if err := r.Rename(tmp, ViewFile); err != nil {
+	if err := r.Rename(tmp, name); err != nil {
 		_ = r.Remove(tmp)
 		return false, locked, err
 	}
