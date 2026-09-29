@@ -42,7 +42,10 @@ var registry = map[string]func(args []string) int{
 	// the reason runOpenAIAuth gives — the registry row is what makes this address
 	// exist at all, and without it the handler is unreachable and four of this
 	// package's tests cannot see it.
-	"openai-auth":           runOpenAIAuth,
+	"openai-auth": runOpenAIAuth,
+	// The host operator's verbs for the machine's Claude login, openai-auth's twin
+	// (claudeauth.go; docs/design/claude-login-without-interception.md, OQ-CL2).
+	"claude-auth":           runClaudeAuth,
 	"prune":                 runPrune,
 	"stores":                runStores,
 	"programs":              runPrograms,

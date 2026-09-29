@@ -110,7 +110,10 @@ var subcommandUsage = map[string]subUsage{
 	// help request — the rule init's -m follows. `--host-socket` is parsed by the
 	// delegated client and is deliberately absent from the help text: this verb
 	// RESOLVES the socket for you, which is the reason it exists.
-	"openai-auth":           {text: openaiAuthUsage, valueFlags: []string{"--from", "--host-socket"}},
+	"openai-auth": {text: openaiAuthUsage, valueFlags: []string{"--from", "--host-socket"}},
+	// `--view-delay` consumes the next token, so `yolo claude-auth refresh --view-delay --help`
+	// names a duration called "--help" (and is refused as one) rather than asking for help.
+	"claude-auth":           {text: claudeAuthUsage, valueFlags: []string{"--view-delay"}},
 	"init":                  {text: initUsage, valueFlags: []string{"--mount", "-m"}},
 	"init-user-config":      {text: initUserConfigUsage},
 	"config-ref":            {text: configRefUsage},

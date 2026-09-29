@@ -50,6 +50,9 @@ var commandHelp = []struct{ name, blurb string }{
 	// `yolo internal openai-auth` until 2026-09-20 — a hidden address for an operation
 	// that deletes one credential out of every workspace and every jail at once.
 	{"openai-auth", "Manage the machine-wide OpenAI login: 'status', 'import --from', 'logout'"},
+	// Its Claude twin, directly below for the same reason (OQ-CL2): a jail's /logout signs out
+	// only that workspace now, so signing the MACHINE out is this verb's.
+	{"claude-auth", "Manage the machine-wide Claude login: 'status', 'inspect', 'refresh', 'logout'"},
 	{"loopholes", "List and self-check host-capability loopholes"},
 	{"init", "Scaffold yolo-jail.jsonc in the current workspace"},
 	{"init-user-config", "Write user-level defaults at ~/.config/yolo-jail/config.jsonc"},
