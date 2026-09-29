@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -14,6 +15,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/brokeraudit"
 	"github.com/mschulkind-oss/yolo-jail/internal/brokerscope"
+	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/hostservice"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
@@ -48,12 +50,14 @@ type Request struct {
 
 // Broker answers one jail's calls.
 type Broker struct {
-	runner    *Runner // nil when the host has no gh
-	scope     Scope
-	workspace string
-	audit     *brokeraudit.Log
-	log       io.Writer
-	now       func() time.Time
+	runner *Runner // nil when the host has no gh, or one the broker will not run
+	// unavailable is what a call is told when runner is nil; "" means the host has no gh.
+	unavailable string
+	scope       Scope
+	workspace   string
+	audit       *brokeraudit.Log
+	log         io.Writer
+	now         func() time.Time
 }
 
 // Main is `yolo internal daemon github-broker`.
@@ -80,7 +84,14 @@ func Main(argv []string) int {
 		fmt.Fprintln(os.Stderr, "github-broker: refusing to start:", err)
 		return 1
 	}
-	b, cleanup := newBroker(sf, os.Stderr)
+	// The launch spawns this daemon from the workspace. Leave it for a directory the broker
+	// owns, so nothing this process does later resolves a relative path in the agent's tree;
+	// the workspace is still what the host gh's placement is checked against.
+	spawnCwd, _ := os.Getwd()
+	if dir := paths.BrokerSourceDir(Source); os.MkdirAll(dir, 0o700) == nil {
+		_ = os.Chdir(dir)
+	}
+	b, cleanup := newBroker(sf, spawnCwd, os.Stderr)
 	defer cleanup()
 	stop := make(chan struct{})
 	if err := hostservice.ServeFrontedUnix(b.Handle, *socket, stop); err != nil {
@@ -91,7 +102,8 @@ func Main(argv []string) int {
 }
 
 // newBroker builds a broker for one launch's scope file, logging what it starts with.
-func newBroker(sf brokerscope.File, log io.Writer) (*Broker, func()) {
+// spawnCwd is the directory the launch spawned it from, the workspace.
+func newBroker(sf brokerscope.File, spawnCwd string, log io.Writer) (*Broker, func()) {
 	startID, _ := brokerscope.NewLaunchID()
 	runDir := filepath.Join(paths.BrokerSourceDir(Source), "run", startID)
 	b := &Broker{
@@ -104,14 +116,51 @@ func newBroker(sf brokerscope.File, log io.Writer) (*Broker, func()) {
 		now: time.Now,
 	}
 	fmt.Fprintf(log, "github-broker: scope for %s: %s\n", sf.Workspace, b.scope.describe())
-	r, err := NewRunner(RunnerOptions{RunDir: runDir, Getenv: os.Getenv})
+	r, err := NewRunner(RunnerOptions{RunDir: runDir, Getenv: os.Getenv,
+		Refuse: placementRefusal(sf.Workspace, spawnCwd)})
 	if err != nil {
-		fmt.Fprintln(log, "github-broker: no host gh:", err, "— every call answers 69")
+		var refused *RefusedGHError
+		if errors.As(err, &refused) {
+			b.unavailable = refused.Why
+		}
+		fmt.Fprintln(log, "github-broker: no host gh it will run:", err, "— every call answers 69")
 		return b, func() { _ = os.RemoveAll(runDir) }
 	}
 	b.runner = r
 	fmt.Fprintln(log, "github-broker:", r.Describe())
 	return b, r.Close
+}
+
+// placementRefusal is the loophole placement rule (config.LoopholePlacementProblems,
+// docs/reference/loophole-system.md#the-placement-rule) applied to the host gh: a gh inside
+// the workspace or the jail home tree is a program an agent can rewrite, and the broker runs
+// it on the host as the user, so it refuses it by name. Each workspace is checked as given
+// and with its symlinks resolved, because NewRunner asks about the gh both ways. A directory
+// no launch may use as a workspace (the home, or one holding it: paths.WorkspaceScopeBreach)
+// is skipped, since `yolo check` run from the home would otherwise read every host gh under
+// it as the agent's.
+func placementRefusal(workspaces ...string) func(gh string) string {
+	var trees []string
+	for _, ws := range workspaces {
+		if ws == "" || paths.WorkspaceScopeBreach(ws) != nil {
+			continue
+		}
+		trees = append(trees, ws)
+		if real, err := filepath.EvalSymlinks(ws); err == nil && real != ws {
+			trees = append(trees, real)
+		}
+	}
+	if len(trees) == 0 {
+		trees = []string{""} // the jail home tree alone
+	}
+	return func(gh string) string {
+		for _, ws := range trees {
+			if probs := config.LoopholePlacementProblems("gh", []string{gh}, ws); len(probs) > 0 {
+				return "the broker will not run the host gh: " + strings.TrimPrefix(probs[0], "gh[0]: ")
+			}
+		}
+		return ""
+	}
 }
 
 // SelfCheck is `doctor_cmd`: it reports the host gh the broker would run, and fails only
@@ -122,9 +171,17 @@ func SelfCheck(w io.Writer) int {
 		fmt.Fprintln(w, "github-broker: cannot make a scratch dir:", err)
 		return 1
 	}
-	r, err := NewRunner(RunnerOptions{RunDir: dir, Getenv: os.Getenv})
+	// `yolo check` runs this from the workspace, as a launch spawns the daemon, so the cwd is
+	// checked as the workspace.
+	cwd, _ := os.Getwd()
+	r, err := NewRunner(RunnerOptions{RunDir: dir, Getenv: os.Getenv, Refuse: placementRefusal(cwd)})
 	if err != nil {
 		_ = os.RemoveAll(dir)
+		var refused *RefusedGHError
+		if errors.As(err, &refused) {
+			fmt.Fprintln(w, "github-broker: "+refused.Why)
+			return 1
+		}
 		fmt.Fprintln(w, "github-broker: no gh on the host's PATH; install the GitHub CLI and run `gh auth login`")
 		return 1
 	}
@@ -224,7 +281,11 @@ func (b *Broker) Serve(req Request, jail string, stdout, stderr func([]byte)) in
 	ev.Set = d.Set
 	if b.runner == nil {
 		ev.Outcome, ev.Reason = "unavailable", "no gh on the host"
-		say("the host has no gh on its PATH; install the GitHub CLI on the host and run `gh auth login` there")
+		msg := "the host has no gh on its PATH; install the GitHub CLI on the host and run `gh auth login` there"
+		if b.unavailable != "" {
+			ev.Reason, msg = "host gh refused", b.unavailable
+		}
+		say(msg)
 		return finish(ExitUnavailable)
 	}
 	if !b.runner.Tested {

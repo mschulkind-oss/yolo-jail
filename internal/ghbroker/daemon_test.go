@@ -276,7 +276,7 @@ func TestNewBrokerTakesTheScopeFromTheFile(t *testing.T) {
 	t.Setenv("HOME", resolvedDir(t))
 	t.Setenv("PATH", resolvedDir(t)) // no gh: the broker still starts and answers 69
 	var log bytes.Buffer
-	b, cleanup := newBroker(brokerscope.File{Workspace: "/w", Repos: []string{"o/r"}, Widened: []string{"x/y"}}, &log)
+	b, cleanup := newBroker(brokerscope.File{Workspace: "/w", Repos: []string{"o/r"}, Widened: []string{"x/y"}}, "/w", &log)
 	defer cleanup()
 	if got := b.scope.Repos(); strings.Join(got, ",") != "o/r,x/y" {
 		t.Fatalf("scope %v", got)

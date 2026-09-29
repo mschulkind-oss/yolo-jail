@@ -84,11 +84,20 @@ type RunnerOptions struct {
 	// and the session bus the OS keyring is reached through. Nothing the jail sent reaches
 	// here.
 	Getenv func(string) string
-	// LookPath resolves gh; nil means exec.LookPath over Getenv("PATH").
+	// LookPath resolves gh; nil means lookPathIn over Getenv("PATH").
 	LookPath func(string) (string, error)
-	Timeout  time.Duration
-	OutCap   int64
+	// Refuse is asked about the resolved gh, once as found and once with its symlinks
+	// resolved; a non-empty answer is why the broker will not run it, and NewRunner fails
+	// with a *RefusedGHError carrying it. nil asks nothing.
+	Refuse  func(gh string) string
+	Timeout time.Duration
+	OutCap  int64
 }
+
+// RefusedGHError is a host gh the broker found and will not run.
+type RefusedGHError struct{ Path, Why string }
+
+func (e *RefusedGHError) Error() string { return e.Why }
 
 var versionRE = regexp.MustCompile(`\b(\d+)\.(\d+)\.(\d+)\b`)
 
@@ -114,6 +123,17 @@ func NewRunner(o RunnerOptions) (*Runner, error) {
 	}
 	if abs, aerr := filepath.Abs(gh); aerr == nil {
 		gh = abs
+	}
+	if o.Refuse != nil {
+		candidates := []string{gh}
+		if real, rerr := filepath.EvalSymlinks(gh); rerr == nil && real != gh {
+			candidates = append(candidates, real)
+		}
+		for _, c := range candidates {
+			if why := o.Refuse(c); why != "" {
+				return nil, &RefusedGHError{Path: gh, Why: why}
+			}
+		}
 	}
 	r := &Runner{GhPath: gh, runDir: o.RunDir, timeout: o.Timeout, outCap: o.OutCap}
 	for _, d := range []string{"config", "xdg-config", "data", "cache", "state", "cwd", "tmp"} {
@@ -335,9 +355,15 @@ func exitCode(err error) int {
 
 // lookPathIn is exec.LookPath over an explicit PATH, so the broker resolves gh on the
 // PATH its launch handed it rather than on whatever this process inherited later.
+//
+// A RELATIVE PATH ENTRY IS SKIPPED, never resolved. The launch spawns the broker from the
+// workspace, so `./bin`, `node_modules/.bin` or `.` on the user's PATH names a directory
+// the agent writes, and a `gh` planted there would run on the host as the user before any
+// call arrived (`gh --version`, then `gh auth token`). exec.LookPath refuses a relative
+// result for the same reason (exec.ErrDot); the broker never runs one at all.
 func lookPathIn(pathList, name string) (string, error) {
 	for _, dir := range filepath.SplitList(pathList) {
-		if dir == "" {
+		if dir == "" || !filepath.IsAbs(dir) {
 			continue
 		}
 		p := filepath.Join(dir, name)
