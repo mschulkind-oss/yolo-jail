@@ -1,11 +1,11 @@
 # Backlog — the one implementable list
 
 **Status:** CURRENT — the single entry point for *what to build next* on the composed-config /
-packs cluster, and **seven questions are live** in its stages. Created 2026-07-26; **restamped
+packs cluster, and **six questions are live** in its stages. Created 2026-07-26; **restamped
 2026-08-23** (header + Stage E + Stage G); **re-checked 2026-09-24** against the tree and the
 designs it points at (E5's trigger fired, `file:line` anchors replaced by symbols).
 
-**Needs your ruling:** [E1](#E1), [E2](#E2), [E5](#E5), [S5](#S5), [OQ-CO](#OQ-CO), [OQ-S4](#OQ-S4), [OQ-E4](#OQ-E4).
+**Needs your ruling:** [E1](#E1), [E2](#E2), [E5](#E5), [OQ-CO](#OQ-CO), [OQ-S4](#OQ-S4), [OQ-E4](#OQ-E4).
 
 **Why this exists.** The design work produced 8 docs / ~4,800 lines, and the actionable items
 ended up spread across three of them. This file is the only place that answers *"what do I
@@ -255,7 +255,7 @@ restating them. **This section is their doc.**
 > not an E-series backlog ID, and re-spelling it would silently orphan those references.
 
 **Index.** The 💬 glyph lives on the section heading below, once per question, so
-`rg -n '^### 💬' docs/plans/BACKLOG.md` counts this stage exactly — **seven open**. This table
+`rg -n '^### 💬' docs/plans/BACKLOG.md` counts this stage exactly — **six open**. This table
 carries none, deliberately.
 
 | ID | Question | State |
@@ -265,7 +265,7 @@ carries none, deliberately.
 | ✅ E3 | Capture timing | **SHIPPED 2026-08-15** — both halves. See below |
 | ✅ E4 | Comment preservation on `json`/`toml` surfaces | **mostly shipped 2026-08-12**; the one live residue is [`OQ-E4`](#OQ-E4) |
 | **E5** | `managed`/`defaults` array-append pinning | **open** — speculative; the named trigger has not fired |
-| **S5** | A jail resolves a skill-name collision silently | **open** — live gap, the only place the S1 silent loss survives |
+| ✅ S5 | A jail resolves a skill-name collision silently | **ANSWERED 2026-09-28 by [OQ-NC11](notch-convergence.md#OQ-NC11)** — a launch refusal, built. See below |
 | **OQ-CO** | Two packs writing one `config-overlay` key | **open** — nothing blocked; no shipped pack collides |
 | **OQ-S4** | Should the jail narrow its skills fan-out to match the host? | **open** — a product call about what `into` promises |
 | **OQ-E4** | Do `stateful` surfaces get comment preservation too? | **open** — `rmw` shipped, `computed`/`json` ruled out |
@@ -410,7 +410,7 @@ left of E5 is narrower: **does any surface need a `managed` or `defaults` array 
 **Answer:**
 > _(empty — fill in when decided)_
 
-### <a id="S5"></a>💬 **S5 — a jail resolves a skill-name collision SILENTLY**
+### <a id="S5"></a>✅ **S5 — a jail resolves a skill-name collision SILENTLY**
 
 **Context for a reader who has never seen the roadmap.** Two selected packs can each ship a
 skill directory with the same name aimed at the same destination (`~/.claude/skills/review`
@@ -420,7 +420,8 @@ from both). The two notches answer that differently, and only one of them says a
   `hostskills.RenderHostSkills` calls `Collisions(dests)` first and returns `CollisionError`
   with every collision named, so one run tells the user every rename to make
   (`internal/hostskills/compose.go`). This is the S1 ruling.
-- **Jail — silent last-one-wins.** `jailcontent.PrepareSkills` loops `packSkillDirs` in config
+- **Jail — silent last-one-wins** (the state this entry was filed against, until 2026-09-28; the
+  Answer below records what replaced it). `jailcontent.PrepareSkills` looped `packSkillDirs` in config
   order and `copySkillSubdirs` does `os.RemoveAll(target)` then copy
   (`internal/jailcontent/skills.go`). There is no collision concept on any jail path: every
   caller of `hostskills.Collisions` is host-side — `RenderHostSkills`, and
@@ -453,7 +454,15 @@ leans toward a refusal at launch, run on the host before any container starts, r
 boot failure. Answering either question answers both.)*
 
 **Answer:**
-> _(empty — fill in when decided)_
+> **Answered 2026-09-28 by [OQ-NC11](notch-convergence.md#OQ-NC11)** (the maintainer, ruling
+> by parity: *"yes, NC as parity for sure"*), which takes neither option (1) nor option (3) as
+> written: a skill-name collision is **fatal at the launch, host-side, before the container
+> exists**, and on an attach too. It is a launch pre-flight beside the agent-name one, not an A12
+> boot failure, so the cost this entry weighed against (3) does not apply: the user re-runs a
+> command, as at the host. The warning in option (1) is superseded. The jail also composes
+> through the host's layer plan now, so `skills_tier` is honored and the message's namespacing
+> remedy works in a jail. **Built** ([NC-D52](notch-convergence.md#NC-D52) to
+> [NC-D56](notch-convergence.md#NC-D56)).
 
 ### <a id="OQ-CO"></a>💬 **OQ-CO — two packs writing one `config-overlay` key is silent last-one-wins**
 

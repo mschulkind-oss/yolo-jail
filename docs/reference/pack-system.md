@@ -685,9 +685,9 @@ which is what lets a content-only pack carry a remedy.
 
 A skills tree merged into an agent's skills dir. Layer order is the workspace < built-in < pack
 < the local pack (`~/.config/yolo-jail/local`, appended last); the workspace layer exists in a
-jail only and never shadows ([below](#project_dirs)). In a jail a later pack layer wins a
-same-named skill silently; at the host, two packs claiming one unnamespaced name at one destination is
-fatal, the local pack included ([the collision warning](#skills-collision)). `from` defaults
+jail only and never shadows ([below](#project_dirs)). Two packs claiming one unnamespaced name at
+one destination is fatal at every notch, the local pack included
+([the collision warning](#skills-collision)). `from` defaults
 to `skills/`, and is honored at both
 notches and by wrapped-plugin discovery through one resolver (`packload.SkillsSourceDir`).
 
@@ -766,14 +766,22 @@ the message, rather than failing on the strict decoder's bare unknown-field erro
 <a id="skills-collision"></a>
 
 > [!WARNING]
-> **A skills name collision between two packs is FATAL at apply time**, naming both packs,
-> both source paths, and both remedies (rename, or opt one pack into namespacing). At flat
-> tier one pack's skill silently won and the loser produced no output line at all. The error
-> costs the deliberate flat-tier override, and that is the trade: an intentional override
-> and an accidental clash are the same declaration, so yolo cannot tell them apart and the
-> user should. **Adoption preserves, declaration refuses** — migrating a user's pre-existing
-> tree keeps both copies (`mine`, `mine-from-codex`), because those are two different
-> situations.
+> **A skills name collision between two packs is FATAL at `yolo host apply` and at a jail
+> launch**, naming both packs, both source paths, and both remedies (rename, or opt one pack
+> into namespacing). At flat tier one pack's skill silently won and the loser produced no output
+> line at all. The error costs the deliberate flat-tier override, and that is the trade: an
+> intentional override and an accidental clash are the same declaration, so yolo cannot tell
+> them apart and the user should. **Adoption preserves, declaration refuses** — migrating a
+> user's pre-existing tree keeps both copies (`mine`, `mine-from-codex`), because those are two
+> different situations.
+>
+> **The jail half is [`OQ-NC11`](../plans/notch-convergence.md#OQ-NC11)** (ruled 2026-09-28 by
+> parity). It is a launch pre-flight beside the agent-name one, so it refuses host-side before
+> any container exists, on an attach too, with the host's message; it is not a boot failure
+> inside a running jail. The jail composes through the host's layer plan and writer, so the
+> remedy holds there: a namespaced pack's skills invoke as `/<pack>:<skill>` in a jail as at the
+> host, and a wrapped plugin is delivered as the host delivers it. The destinations each pack's
+> skills reach still differ between the notches ([below](#skills-fanout-s4)).
 
 <a id="skills-fanout-s4"></a>
 
@@ -1948,9 +1956,8 @@ reporting the divergence. One copy cannot diverge.
   replaced asked "did THIS PACK write it?", which refused any pack overwriting another's
   recorded name whatever the order; composition asks only "is this yolo's?", so the refusal is
   unrepresentable rather than handled ([§6a-5 (pack batch)](#batch-6a-5)). Order is not a
-  licence to shadow a name: at the host notch two packs claiming one unnamespaced skill at one
-  destination is [a fatal collision](#skills-collision), the local pack included. The jail still lets the
-  later layer win silently.
+  licence to shadow a name: at every notch two packs claiming one unnamespaced skill at one
+  destination is [a fatal collision](#skills-collision), the local pack included.
 - **Migration collisions are resolved by CONTENT, not by name.** Byte-identical copies of one
   name union silently. DIFFERING content is a real conflict — both survive as `<name>` and
   `<name>-from-<agent>`, warned about ONCE, at the migration, naming both sources. Losing one

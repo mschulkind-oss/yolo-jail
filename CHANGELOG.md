@@ -81,6 +81,19 @@ the agents on `bedrock`: another agent, or a plain shell, is refused. Attaching 
 than hand the agent an address nothing answers. See
 [the `aws-auth` pack](packs/aws-auth/README.md).
 
+**Two packs shipping a skill of the same name now stop a jail launch with a message, as they do
+at the host.** Before, a jail came up with whichever pack came last and said nothing, so one
+pack's skill was silently missing; your own local pack's copy of a shared pack's skill is now
+the same conflict. The message names the agent's skills directory, both packs and where each
+copy lives, and the two ways out: rename one, or give one pack `"skills_tier": "namespaced"`.
+It appears before the jail starts, and when you enter a running one too. **A namespaced pack's
+skills keep their `pack:` prefix in jails too**, invoked as `/<pack>:<skill>` as they are on
+your host, where a jail used to drop the prefix. A pack that wraps an agent plugin reaches a
+jail as it reaches your host: whole when the pack is namespaced, and otherwise its skills only,
+with the launch naming each part that cannot come along. A tree an agent pack reserves, such as
+the claude.ai skills Claude Code syncs, is never copied into a jail's skills directory, and the
+launch says when it held one back. See [the collision rule](docs/reference/pack-system.md#skills-collision).
+
 ### Fixed
 
 - A value you set on the command line beats a profile's value again. `ANTHROPIC_MODEL=x claude`,

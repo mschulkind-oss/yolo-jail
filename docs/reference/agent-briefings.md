@@ -42,7 +42,7 @@ here too.
 | Composition of the jail-managed body | `internal/jailcontent` (`BriefingContent`, `BriefingInput`, `confinementHeader`, `enforcementLines`) |
 | The three composition steps around it | `internal/jailcontent` (`ComposeBriefing`, `ComposePackBriefings`, `PrependHostBriefing`) |
 | The inode-preserving write | `internal/jailcontent` (`WriteBriefing`) |
-| Skills staging and its layering | `internal/jailcontent` (`PrepareSkills`, `SetPackSkillDirs`, `SetPackSkillTargets`, `SkillStagingName`, `PackSkillSource`, `SkillTarget`) |
+| Skills staging and its layering | `internal/jailcontent` (`PrepareSkills`, `SkillPlan`, `SetPackSkillDirs`, `SetPackSkillTargets`, `SkillStagingName`, `PackSkillSource`, `SkillTarget`); the pack layers' writer is `hostskills.ComposeInto`, and the launch's collision pre-flight is `internal/cli/run/jailskills.go` |
 | The per-invocation refresh, and what it feeds the composer | `internal/cli/run` (`refreshJailBriefings`, `briefingPortsFor`, `briefedResourceLimits`, `briefingLoopholes`) |
 | The one enumeration of destinations and staging names | `internal/cli/run` (`briefingDestinations`, `briefingStagingName`, `briefingDest`) |
 | A pack's prose entries | `internal/cli/run` (`packBriefingProses`) |
@@ -559,9 +559,36 @@ clearing contents *inside* each directory.
 **Three layers, lowest first:** the **workspace**, the built-in skill suite, then every
 selected pack's skills in config order. On an attach the pack layer comes from the packs the
 running jail booted with, not the configured ones, since a running jail keeps its pack tree
-([`OQ-PK2`](pack-system.md#oq-pk2)). A pack may therefore override a built-in — a legitimate reason to ship one — and
-because the conventional local pack is appended last among packs, a personal skill still
-outranks every shared pack's.
+([`OQ-PK2`](pack-system.md#oq-pk2)). A pack may therefore override a built-in — a legitimate
+reason to ship one — and the conventional local pack is appended last among packs.
+
+**The pack layers are the host's.** Since
+[`OQ-NC11`](../plans/notch-convergence.md#OQ-NC11) the jail builds the host's layer plan for
+each destination (`jailcontent.SkillPlan`: every source whose audience admits the destination,
+one layer per pack) and writes it with the host render's own writer
+(`hostskills.ComposeInto`) into an empty scratch directory. Three things follow, each the host's
+behavior:
+
+- **Two packs shipping one skill name to one destination refuse the launch**, the local pack
+  included. The refusal is a pre-flight beside the agent-name one
+  (`run.checkSkillCollisions`), so it runs host-side before any container exists and on an attach
+  too, and it prints the host's message (`hostskills.CollisionError`): the destination as the
+  agent reads it (`~/.claude/skills`), both packs, the source path the user edits, and the two
+  remedies. `PrepareSkillsWith` checks the whole plan again before it writes any destination.
+  A personal skill therefore no longer silently replaces a shared pack's of the same name.
+- **`skills_tier` is honored.** A namespaced pack's skills land in a subtree of their own with
+  yolo's plugin manifest and invoke as `/<pack>:<skill>`, as at the host.
+- **Wrapped plugins are delivered as at the host**: verbatim, with yolo's marker, from a
+  namespaced pack; at the flat default only the plugin's skills, with every other component
+  named as refused.
+
+The built-in suite and the workspace fill only the names the packs left free, so the order is
+unchanged. A **reserved child** a destination declares (`packs/claude` reserves `synced`) is
+withheld whichever layer ships it, and no lower layer fills it. What the writer refused or
+withheld prints on stderr at every invocation, as `Skills: …` lines beside the workspace ones.
+The **fan-out stays the jail's**: every selected pack's skills reach every destination their
+audience admits, where the host narrows a content `into`
+([`OQ-S4`](../plans/BACKLOG.md#OQ-S4), open).
 
 ### The workspace layer
 
@@ -634,9 +661,10 @@ copied into another agent's tree with nothing able to stop it.
 > right while the destination held loose user files and became circular the moment
 > `yolo host apply` **composed** it: the jail read yolo's own generated output back in as the
 > user's tree, and since the local pack is an ordinary pack entry, its content arrived twice by
-> two routes. Invisible only because a flat copy is last-writer-wins. The slot it described
-> already has a home — the conventional local pack is the last pack layer — so a personal skill
-> reaches the same precedence by the same route every other pack's content takes.
+> two routes. Invisible only because a flat copy was last-writer-wins, and since
+> [`OQ-NC11`](../plans/notch-convergence.md#OQ-NC11) it would be a collision refusing the launch.
+> The slot it described already has a home — the conventional local pack is the last pack layer —
+> so a personal skill arrives by the same route every other pack's content takes.
 
 `PrepareSkills` still takes a home directory and an agent-name list; both are vestigial, kept
 because its callers pass them and churning those would be a bigger diff than the fix with no
@@ -748,6 +776,7 @@ only place the values themselves are stated.
 | Shipped agent identities | each equals the pack's `program` bin; for `omp` that is `oh-omp`, not the pack name | `packs/*/pack.json` |
 | Unknown-name gate | fatal at the launch pre-flight and at `yolo host apply`; not in `yolo pack lint` or `yolo check` | `packload.AgentAudienceProblems` |
 | One-owner gate | fatal at the launch pre-flight, `yolo host apply` and `yolo check` | `packload.AgentNameCollisions` |
+| Skill-name collision gate | fatal at the launch pre-flight (an attach included) and at `yolo host apply`; one message at both | `hostskills.Collisions`, `hostskills.CollisionError`, `run.checkSkillCollisions` |
 | Unmatched-audience report | a `no effect` warning at exit status 0, from `yolo host apply` only | `cli.reportInferredDestinations`, `packload.Destinations` |
 | Footprint target of an addressed or broadcast contribution | `→ <agents>`, or `→ every agent` | `packload.audienceTarget` |
 | Provisioning-failure marker | a known string in `<workspace>/.yolo/startup.log` | `jailcontent.ReadProvisioningFailed` |
