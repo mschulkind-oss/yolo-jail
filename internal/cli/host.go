@@ -544,6 +544,16 @@ func hostExec(flagArgs, cmd []string, out, errw io.Writer, stdin io.Reader) int 
 	// item 14): the verdict, the facts, the remedy, or the override notice that says what it is
 	// suppressing without re-offering the hatch it just honored. Only the "yolo host: " prefix
 	// is this notch's.
+	// PP-D1 (docs/design/providers-and-profiles-redesign.md, ruled 2026-09-29), before the
+	// pre-flights as the jail's arms print it: the launched agent's own config switching it onto
+	// a platform its selection does not serve — CLAUDE_CODE_USE_BEDROCK in the real
+	// ~/.claude/settings.json while claude's provider is not Bedrock — is named in one line with
+	// both fixes. yolo deletes nothing it did not write; the agent may still reach the platform
+	// on credentials of the user's own that this shell passes through, which is why the line says
+	// what yolo delivers rather than that the launch will fail.
+	for _, c := range launch.platformSwitchConflicts() {
+		printHostLines(errw, []string{c.Line()})
+	}
 	held := os.Getenv(paths.AllowMissingProvidersEnv) != ""
 	lines, refuse := packload.ProviderCredentialRefusal(launch.credentialGaps(os.Getenv), held)
 	printHostLines(errw, lines)
@@ -1320,6 +1330,16 @@ func (c *hostComposition) credentialGaps(getenv func(string) string) []string {
 		}
 		return "", false
 	}, consulted)
+}
+
+// platformSwitchConflicts is PP-D1 for this launch's one agent, read from the real home, the
+// file the agent `yolo host` execs reads itself (packload.PlatformSwitchConflicts).
+func (c *hostComposition) platformSwitchConflicts() []packload.PlatformSwitchConflict {
+	if c.scope == nil || c.agent == "" {
+		return nil
+	}
+	return packload.PlatformSwitchConflicts(c.packs, c.scope.Selection(), c.resolved, c.providers,
+		paths.Home(), c.agent)
 }
 
 // regionGaps is the region pre-flight (packload.ProviderRegionGaps, OQ-BR6) for this launch,

@@ -581,6 +581,19 @@ type Contribution struct {
 	// rather be given. `copilot` is the shipped case — it prefers `anthropic` and falls
 	// back to `openai`, which is what its derive already does by hand.
 	Protocols []string `json:"protocols,omitempty"`
+	// PlatformSwitches are the settings in this agent's OWN config that put it on a provider
+	// platform by themselves, whatever yolo selects — packs/claude declares
+	// CLAUDE_CODE_USE_BEDROCK in ~/.claude/settings.json's `env` block, which turns Claude Code
+	// onto its own Bedrock client. yolo obeys a switch the USER wrote and deletes nothing it did
+	// not write; when the switch is on and the agent's selected provider is not of that
+	// platform, the credential gate sends the agent none of that platform's credentials, and the
+	// launch says so in one line naming both fixes (a `-p` over a provider of the platform, or
+	// removing the key; docs/design/providers-and-profiles-redesign.md PP-D1). See PlatformSwitch.
+	//
+	// A PACK FACT because core knows no agent's settings file or variable (OQ-CS8): the pack
+	// says where its agent's switch lives, and core reads it there. ON `program` ALONE: the
+	// switch is a fact about that binary's own configuration.
+	PlatformSwitches []PlatformSwitch `json:"platform_switches,omitempty"`
 
 	// --- adapter (docs/reference/protocol-resolution.md#the-three-declarations, OQ-PR1) ---
 	// Adapts is the protocol PAIR this contribution converts, and Address is where the
@@ -3052,6 +3065,7 @@ func validateContribution(label string, c Contribution) []string {
 	problems = append(problems, platformsProblems(label, c)...)
 	problems = append(problems, capabilitiesProblems(label, c)...)
 	problems = append(problems, protocolsProblems(label, c)...)
+	problems = append(problems, platformSwitchProblems(label, c)...)
 	problems = append(problems, envOverrideProblems(label, c)...)
 	// `adapts` and `address` are the adapter's whole body, refused elsewhere in `profile`'s
 	// position and for its reason: on any other kind they are read by no consumer, so

@@ -82,6 +82,39 @@ func TestAnEnvContributionTakesOneGate(t *testing.T) {
 	}
 }
 
+// A PLATFORM SWITCH (PP-D1) is a program's: it decodes onto the program and names its key, and
+// each malformed spelling is refused, as is the list on a kind with no config of its own.
+func TestAProgramMayDeclareItsPlatformSwitches(t *testing.T) {
+	m, problems := Decode([]byte(`{"contributes":[
+	  {"kind":"program","bin":"claude","via":"npm","package":"x","platform_switches":[
+	    {"platform":"aws-bedrock","surface":"claude/settings","pointer":"/env/CLAUDE_CODE_USE_BEDROCK"}]}]}`))
+	if len(problems) != 0 {
+		t.Fatalf("a platform switch on a program is legal: %v", problems)
+	}
+	sw := m.PlatformSwitches("claude")
+	if len(sw) != 1 || sw[0].Platform != "aws-bedrock" || sw[0].Key() != "CLAUDE_CODE_USE_BEDROCK" {
+		t.Errorf("PlatformSwitches(claude) = %+v, want the one switch, keyed CLAUDE_CODE_USE_BEDROCK", sw)
+	}
+	for want, body := range map[string]string{
+		`needs the "platform"`:             `{"surface":"claude/settings","pointer":"/env/X"}`,
+		`must be "<agent>/<name>"`:         `{"platform":"p","surface":"settings","pointer":"/env/X"}`,
+		`is agent "codex"'s`:               `{"platform":"p","surface":"codex/config","pointer":"/env/X"}`,
+		`must be an RFC 6901 pointer`:      `{"platform":"p","surface":"claude/settings","pointer":""}`,
+		`"aws bedrock" carries whitespace`: `{"platform":"aws bedrock","surface":"claude/settings","pointer":"/a"}`,
+	} {
+		_, problems := Decode([]byte(`{"contributes":[{"kind":"program","bin":"claude","via":"npm",` +
+			`"package":"x","platform_switches":[` + body + `]}]}`))
+		if got := strings.Join(problems, "\n"); !strings.Contains(got, want) {
+			t.Errorf("%s must be refused with %q, got:\n%s", body, want, got)
+		}
+	}
+	_, problems = Decode([]byte(`{"contributes":[{"kind":"env","vars":{"A":"1"},"platform_switches":[
+	  {"platform":"p","surface":"claude/settings","pointer":"/a"}]}]}`))
+	if got := strings.Join(problems, "\n"); !strings.Contains(got, `does not take "platform_switches"`) {
+		t.Errorf("platform_switches on env must be refused, got %v", problems)
+	}
+}
+
 // A platform on a kind that has no service to name is refused, as `profile` is on a kind no
 // consumer reads it on.
 func TestPlatformIsRefusedOnAKindWithNoServiceToName(t *testing.T) {

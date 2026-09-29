@@ -58,7 +58,18 @@ func hostGateLaunchWith(t *testing.T, cfg string, shell map[string]string, flags
 func hostGateRun(t *testing.T, cfg string, shell map[string]string, flags []string,
 	agent string) (int, map[string]string, string) {
 	t.Helper()
-	hostGateHome(t, cfg, shell)
+	return hostGateRunIn(t, cfg, shell, flags, agent, nil)
+}
+
+// hostGateRunIn is hostGateRun with a hook that prepares the temp HOME (writes a file into it)
+// after it is made and before the launch runs.
+func hostGateRunIn(t *testing.T, cfg string, shell map[string]string, flags []string,
+	agent string, prepare func(home string)) (int, map[string]string, string) {
+	t.Helper()
+	home := hostGateHome(t, cfg, shell)
+	if prepare != nil {
+		prepare(home)
+	}
 
 	bin := filepath.Join(t.TempDir(), "bin")
 	if err := os.MkdirAll(bin, 0o755); err != nil {

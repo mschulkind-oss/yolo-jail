@@ -115,6 +115,29 @@ func (o *Options) checkProviderRegions(cfg *jsonx.OrderedMap, packs []*packload.
 	return packload.ProviderRegionRefusal(facts, held)
 }
 
+// notePlatformSwitchConflicts is PP-D1 at the jail notch (docs/design/providers-and-profiles-
+// redesign.md, ruled 2026-09-29): one line per agent whose own config switches it onto a provider
+// platform its selection does not serve — CLAUDE_CODE_USE_BEDROCK in the user's own
+// ~/.claude/settings.json, which reaches the jail as claude/settings' host layer, while claude's
+// selected provider is not Bedrock — naming the conflict and both fixes. yolo deletes nothing it
+// did not write, so the key reaches the jail as the user wrote it, and the credential gate, which
+// is yolo's, sends claude no Bedrock credential: the failure is yolo's to name
+// (packload.PlatformSwitchConflicts). A disclosure, not a refusal, so no quiet switch
+// (docs/reference/report-tiers.md, OQ-RO3).
+//
+// Called beside the provider pre-flight at each of its three call sites — the fresh container
+// launch, the attach delivery and every macos-user invocation — before it, so a launch that
+// pre-flight then refuses still says so.
+func (o *Options) notePlatformSwitchConflicts(packs []*packload.Pack, channel *packChannel) {
+	if channel == nil {
+		return
+	}
+	for _, c := range packload.PlatformSwitchConflicts(packs, channel.scope.Selection(),
+		channel.resolvedProfiles, channel.providers, paths.Home(), "") {
+		o.pr(o.Stderr).print("[yellow]" + c.Line() + "[/yellow]")
+	}
+}
+
 // printProviderRefusal renders a pre-flight's output: every VERDICT line in bold red, the
 // facts under it plain. One renderer for both arms, so the same refusal reads the same way
 // on a container and on a native sandbox.

@@ -9,6 +9,13 @@
         "brew-cask": "claude-code"
       },
       "kind": "program",
+      "platform_switches": [
+        {
+          "platform": "aws-bedrock",
+          "pointer": "/env/CLAUDE_CODE_USE_BEDROCK",
+          "surface": "claude/settings"
+        }
+      ],
       "protocols": [
         "anthropic"
       ],

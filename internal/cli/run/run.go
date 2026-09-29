@@ -632,6 +632,7 @@ func Run(opts Options) (rc int) {
 			o.printProviderRefusal(lines)
 			return 1
 		}
+		o.notePlatformSwitchConflicts(staged.packs, channel)
 		if lines, refuse := o.checkProviderCredentials(cfg, staged.packs, channel, nil); len(lines) > 0 {
 			o.printProviderRefusal(lines)
 			if refuse {
@@ -1542,6 +1543,7 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 		lock.Close()
 		return 1
 	}
+	o.notePlatformSwitchConflicts(loadedPacks, channel)
 	if lines, refuse := o.checkProviderCredentials(cfg, loadedPacks, channel, envPairs(runCmd)); len(lines) > 0 {
 		o.printProviderRefusal(lines)
 		lock.Close()
@@ -2305,6 +2307,7 @@ func (o *Options) deliverChannelOnAttach(cname, rt string, cfg *jsonx.OrderedMap
 		o.printProviderRefusal(lines)
 		return 1
 	}
+	o.notePlatformSwitchConflicts(staged.packs, channel)
 	if lines, refuse := o.checkProviderCredentials(cfg, staged.packs, channel, nil); len(lines) > 0 {
 		o.printProviderRefusal(lines)
 		if refuse {
