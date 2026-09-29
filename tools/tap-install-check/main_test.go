@@ -83,9 +83,13 @@ case "$1 $2" in
 *) echo "stub brew: $*" >&2; exit 1 ;;
 esac
 `, 0o755)
+	// The stub's --version honors YOLO_VERSION the way the real binary does
+	// (internal/version: the variable beats the linker stamp), so a YOLO_VERSION that
+	// reached it would show in what it prints.
 	writeFile(t, filepath.Join(m.keg, "bin", "yolo"), `#!/bin/sh
 case "$*" in
-"--version") echo '`+m.version+`' ;;
+"--version")
+  if [ -n "${YOLO_VERSION:-}" ]; then echo "yolo-jail $YOLO_VERSION"; else echo '`+m.version+`'; fi ;;
 "check --no-build --format json")
   pwd -P > '`+filepath.Join(m.log, "pwd")+`'
   ls -A > '`+filepath.Join(m.log, "ls")+`'
@@ -145,8 +149,11 @@ func withoutFlakeLine(t *testing.T, report []byte) []byte {
 func TestRunPassesAGoodInstall(t *testing.T) {
 	m := newStubMachine(t)
 	m.install(t)
-	// A developer's (or a jail's) YOLO_* must not reach the binary under test.
+	// A developer's (or a jail's) YOLO_* must not reach the binary under test: not
+	// YOLO_REPO_ROOT on the check, and not YOLO_VERSION on --version, which the real
+	// binary prints verbatim in place of its stamp.
 	t.Setenv("YOLO_REPO_ROOT", m.root)
+	t.Setenv("YOLO_VERSION", "0.0.0-from-the-environment")
 
 	rc, out := runChecker(t, "-formula", testFormula, "-expect-version", "v0.11.0")
 	if rc != 0 {
@@ -210,6 +217,33 @@ func TestRunFailsEachBrokenInstall(t *testing.T) {
 			name:   "`yolo --version` names another build",
 			before: func(t *testing.T, m *stubMachine) { m.version = "yolo-jail 0.11.0+3.gabc1234" },
 			want:   "`yolo --version` printed \"yolo-jail 0.11.0+3.gabc1234\"",
+		},
+		{
+			// The real binary prints YOLO_VERSION verbatim in place of its stamp, so a
+			// runner (or a jail) carrying the right value would hide a wrong stamp.
+			name:   "`yolo --version` names another build, and YOLO_VERSION would hide it",
+			before: func(t *testing.T, m *stubMachine) { m.version = "yolo-jail 0.11.0+3.gabc1234" },
+			after:  func(t *testing.T, m *stubMachine) { t.Setenv("YOLO_VERSION", "0.11.0") },
+			want:   "`yolo --version` printed \"yolo-jail 0.11.0+3.gabc1234\"",
+		},
+		{
+			// A stale opt/ link: brew answers a prefix that is not the keg brew info
+			// says is linked.
+			name: "`brew --prefix` resolves to another keg",
+			after: func(t *testing.T, m *stubMachine) {
+				other := filepath.Join(m.root, "prefix", "Cellar", "yolo-jail", "0.10.0")
+				if err := os.MkdirAll(filepath.Join(other, "bin"), 0o755); err != nil {
+					t.Fatal(err)
+				}
+				opt := filepath.Join(m.root, "prefix", "opt", "yolo-jail")
+				if err := os.Remove(opt); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Symlink("../Cellar/yolo-jail/0.10.0", opt); err != nil {
+					t.Fatal(err)
+				}
+			},
+			want: filepath.Join("prefix", "Cellar", "yolo-jail", "0.10.0") + ", not the linked keg 0.11.0",
 		},
 		{
 			name:   "`yolo check` does not find the bundle",
@@ -277,18 +311,44 @@ func TestRunReadsTheExpectationFromTheEvent(t *testing.T) {
 	}
 }
 
+// TestRunRefusesAMalformedInvocation requires each refusal to be the one its case is
+// about, so a case cannot pass on another guard's refusal: the exclusivity case runs
+// under a valid GitHub event, where only the exclusivity check stands between the
+// flags and a run. PATH names an empty directory, so a refusal that went missing
+// reaches no real brew.
 func TestRunRefusesAMalformedInvocation(t *testing.T) {
-	t.Setenv("GITHUB_EVENT_NAME", "")
-	t.Setenv("GITHUB_EVENT_PATH", "")
-	for _, args := range [][]string{
-		{},                                 // no formula
-		{"-formula", testFormula, "extra"}, // a stray positional
-		{"-formula", testFormula, "-expect-version", "latest"},
-		{"-formula", testFormula, "-expect-version", "0.11.0", "-expect-from-github-event"},
-		{"-formula", testFormula, "-expect-from-github-event"}, // outside GitHub Actions
+	t.Setenv("PATH", resolvedTempDir(t))
+	payload := filepath.Join(resolvedTempDir(t), "event.json")
+	writeFile(t, payload, `{"inputs":{"version":"0.11.0"}}`, 0o644)
+	validEvent := func(t *testing.T) {
+		t.Setenv("GITHUB_EVENT_NAME", "workflow_dispatch")
+		t.Setenv("GITHUB_EVENT_PATH", payload)
+	}
+	noEvent := func(t *testing.T) {
+		t.Setenv("GITHUB_EVENT_NAME", "")
+		t.Setenv("GITHUB_EVENT_PATH", "")
+	}
+	for _, tc := range []struct {
+		name string
+		env  func(t *testing.T)
+		args []string
+		want string
+	}{
+		{"no formula", noEvent, nil, "usage: tap-install-check"},
+		{"a stray positional", noEvent, []string{"-formula", testFormula, "extra"}, "usage: tap-install-check"},
+		{"a version that is not one", noEvent, []string{"-formula", testFormula, "-expect-version", "latest"}, `"latest" is not a release version`},
+		{"both expectations, under a valid event", validEvent,
+			[]string{"-formula", testFormula, "-expect-version", "0.11.0", "-expect-from-github-event"},
+			"-expect-version and -expect-from-github-event are exclusive"},
+		{"the event's expectation outside GitHub Actions", noEvent,
+			[]string{"-formula", testFormula, "-expect-from-github-event"}, "only a GitHub Actions run sets"},
 	} {
-		if rc, out := runChecker(t, args...); rc != 2 {
-			t.Errorf("run(%q) = %d, want 2:\n%s", args, rc, out)
-		}
+		t.Run(tc.name, func(t *testing.T) {
+			tc.env(t)
+			rc, out := runChecker(t, tc.args...)
+			if rc != 2 || !strings.Contains(out, tc.want) {
+				t.Errorf("run(%q) = %d, want 2 saying %q:\n%s", tc.args, rc, tc.want, out)
+			}
+		})
 	}
 }

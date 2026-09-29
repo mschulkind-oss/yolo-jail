@@ -163,7 +163,11 @@ func TestTheJudgeRefusesTheCheckReportsThatMeanABrokenInstall(t *testing.T) {
 		want    string
 	}{
 		{"the report is not JSON", []byte("YOLO Jail Check\n  [FAIL] …"), rc, "0.11.0", "did not print a JSON report"},
-		{"the command crashed", real, 2, "0.11.0", "exited 2"},
+		// Both crash cases name the crash, not only the exit code: the disagreement
+		// check also prints "exited 2", and without the crash guard a report that
+		// says nothing failed would be accepted from a command that exited 2.
+		{"the command crashed", real, 2, "0.11.0", "so this is a crash or a usage error"},
+		{"the command crashed after reporting no failures", edit(func(d map[string]any) { d["failed"] = 0.0 }), 2, "0.11.0", "so this is a crash or a usage error"},
 		{"exit 0 over failed findings", real, 0, "0.11.0", "disagree"},
 		{"exit 1 over no failed findings", edit(func(d map[string]any) { d["failed"] = 0.0 }), 1, "0.11.0", "disagree"},
 		{"another version answered", real, rc, "0.12.0", `reports version "0.11.0", want "0.12.0"`},
@@ -183,6 +187,11 @@ func TestTheJudgeRefusesTheCheckReportsThatMeanABrokenInstall(t *testing.T) {
 		{"the flake is outside the keg", edit(mapFlake(func(f finding) {
 			f["message"] = "flake.nix found: " + filepath.Join(elsewhere, "flake.nix") + " (via " + besideBinary + ")"
 		})), rc, "0.11.0", "is not this install's"},
+		// Inside the keg, so only the name check stands between it and a bundle
+		// directory one level too high.
+		{"the flake finding names the bundle directory, not its flake.nix", edit(mapFlake(func(f finding) {
+			f["message"] = "flake.nix found: " + bundle + " (via " + besideBinary + ")"
+		})), rc, "0.11.0", "which is not a flake.nix"},
 		{"a fresh Mac fails storage", edit(addFail("Global Storage", "Cannot create /Users/runner/.local/share/yolo-jail")), rc, "0.11.0", `unexpected FAIL in "Global Storage"`},
 		{"a macOS Platform fail that is not the Nix volume", edit(addFail("macOS Platform", "Podman Machine: broken")), rc, "0.11.0", `unexpected FAIL in "macOS Platform"`},
 	} {
