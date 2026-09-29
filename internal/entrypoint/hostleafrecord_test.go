@@ -120,11 +120,32 @@ func TestTheHostLeafRecordNamesTheSwitchYoloWrote(t *testing.T) {
 	}
 }
 
-// EVERY COMPUTED LEAF, not the switch alone: the codex profile's picker keys in claude/settings
-// (availableModels, enforceAvailableModels, modelPicker) are ordinary computed keys that "leave
-// with the profile" in a jail (providers.md, the deselection note on claude). At the host they
-// used to stay in the real file, so a bare `claude` kept a picker locked to the ChatGPT
-// subscription's models after the user moved claude off it.
+// THE LSP SWITCH, the leaf rule 4 used to name as the one that stays: with the last LSP server
+// gone, the apply removes the ENABLE_LSP_TOOL it wrote, and the user's own variable stays.
+func TestHostApplyClearsTheLSPSwitchWithTheLastServer(t *testing.T) {
+	t.Setenv("YOLO_CTX_ROOT", t.TempDir())
+	home := t.TempDir()
+	settings := filepath.Join(home, ".claude", "settings.json")
+	writeTestFile(t, settings, `{"env": {"MY_VAR": "x"}}`)
+	packs := testPacksForAgent(t, "claude")
+	for _, lsp := range []map[string]any{{"gopls": map[string]any{"command": "gopls"}}, nil} {
+		in := hostTestInputs(t, packs, nil, nil, lsp)
+		if r := hostRenderWith(t, home, render.OwnershipAssert, in, "claude", "claude/settings"); strings.HasPrefix(r.Action, "refused") {
+			t.Fatalf("claude/settings: %q", r.Action)
+		}
+	}
+	env, _ := decodeJSONFile(t, settings)["env"].(map[string]any)
+	if _, set := env["ENABLE_LSP_TOOL"]; set || env["MY_VAR"] != "x" {
+		t.Errorf("with no LSP server left, ENABLE_LSP_TOOL must go and MY_VAR stay: %v", env)
+	}
+}
+
+// EVERY COMPUTED LEAF, not the switch alone, and every shape of one: the codex profile's picker
+// keys in claude/settings are a scalar (enforceAvailableModels), an array (availableModels) and an
+// object the derive does not declare in full (modelPicker), which "leave with the profile" in a
+// jail (providers.md, the deselection note on claude). The render entry clears each the same way.
+// (The CLI's host composition leaves claude's codex profile out, since it needs the wire bridge;
+// this pins the render rule over the richest leaves claude's derive returns, not a CLI path.)
 func TestHostApplyClearsTheCodexPickerWhenClaudeLeavesCodex(t *testing.T) {
 	for _, ownership := range []render.HostOwnership{render.OwnershipAssert, render.OwnershipOwn} {
 		t.Run(ownership.String(), func(t *testing.T) {
