@@ -141,20 +141,58 @@ func Admit(packs []*packload.Pack, service string) (Declared, error) {
 			return Declared{}, &AdmissionError{Service: service, Pack: h.Pack,
 				Why: "it declares no host half (`host_daemon`), so nothing runs it outside a container jail"}
 		}
-		if !packOfficial(packs, h.Pack) {
-			return Declared{}, &AdmissionError{Service: service, Pack: h.Pack,
-				Why: "its pack is not one yolo ships (a fetched or local pack), and only an official " +
-					"pack's host half runs on your machine (docs/design/host-notch-services.md OQ-HS4)"}
-		}
-		if h.Service.HostDaemon.Cmd[0] != "yolo" {
-			return Declared{}, &AdmissionError{Service: service, Pack: h.Pack,
-				Why: fmt.Sprintf("its host_daemon argv starts %q, and a host half must name `yolo`, the "+
-					"one binary the host ships", h.Service.HostDaemon.Cmd[0])}
+		if why := admitHostArgv(packs, h.Pack, h.Service.HostDaemon.Cmd, "its host_daemon argv",
+			"a host half", "only an official pack's host half runs on your machine "+
+				"(docs/design/host-notch-services.md OQ-HS4)"); why != "" {
+			return Declared{}, &AdmissionError{Service: service, Pack: h.Pack, Why: why}
 		}
 		return Declared{Service: service, Pack: h.Pack,
 			Cmd: append([]string(nil), h.Service.HostDaemon.Cmd...)}, nil
 	}
 	return Declared{}, &AdmissionError{Service: service, Why: "no selected pack declares it"}
+}
+
+// AdmitDoorway is Admit's gate for a loophole's DOORWAY opened outside a sandbox
+// (docs/design/host-notch-services.md HS-D15; the loophole's `jail_daemon.host_cmd`): the same
+// rule, read for a declaration that is not a service's. pack is the pack that ships the
+// loophole ("" when none of packs does), and it must be one yolo ships; cmd, the resolved host
+// argv, must name `yolo`. The Declared it returns carries the loophole's name as its Service,
+// the name the readiness line, the input file and the caller token variable all use.
+func AdmitDoorway(packs []*packload.Pack, pack, loophole string, cmd []string) (Declared, error) {
+	if pack == "" {
+		return Declared{}, &AdmissionError{Service: loophole,
+			Why: "no selected pack ships the loophole, so there is no pack whose origin could admit its host argv"}
+	}
+	if len(cmd) == 0 {
+		return Declared{}, &AdmissionError{Service: loophole, Pack: pack,
+			Why: "it declares no host argv (`jail_daemon.host_cmd`)"}
+	}
+	if why := admitHostArgv(packs, pack, cmd, "its jail_daemon.host_cmd", "a doorway outside the sandbox",
+		"only an official pack's doorway runs on your machine outside the sandbox "+
+			"(docs/design/host-notch-services.md OQ-HS4, HS-D15)"); why != "" {
+		return Declared{}, &AdmissionError{Service: loophole, Pack: pack, Why: why}
+	}
+	return Declared{Service: loophole, Pack: pack, Cmd: append([]string(nil), cmd...)}, nil
+}
+
+// admitHostArgv is the one admission rule both gates apply to host code a launch would run as
+// its child (HS-D12): the pack must be official (packOfficial), and the argv must name `yolo`,
+// which the launch resolves to its own binary. It returns why not, "" when admitted; field and
+// what name the declaration in the refusal, and official is its sentence for a pack yolo does
+// not ship.
+func admitHostArgv(packs []*packload.Pack, pack string, cmd []string, field, what, official string) string {
+	if !packOfficial(packs, pack) {
+		return "its pack is not one yolo ships (a fetched or local pack), and " + official
+	}
+	if len(cmd) == 0 || cmd[0] != "yolo" {
+		first := ""
+		if len(cmd) > 0 {
+			first = cmd[0]
+		}
+		return fmt.Sprintf("%s starts %q, and %s must name `yolo`, the one binary the host ships",
+			field, first, what)
+	}
+	return ""
 }
 
 func packOfficial(packs []*packload.Pack, name string) bool {
@@ -210,6 +248,16 @@ func NewPlan(packs []*packload.Pack, d Declared) (*Plan, error) {
 	}
 	return &Plan{Declared: d, TokenEnv: paths.ServiceCallerTokenEnv(d.Service), Token: token,
 		Moved: moved}, nil
+}
+
+// PlanAt is the plan for an admitted host argv whose one address and caller token the launch
+// already settled, a DOORWAY's (HS-D15): its served listen address and the token the launch
+// minted for the loophole (internal/cli/run's served addresses and caller tokens), so the
+// doorway answers exactly where and to whom its clients were composed. d.Cmd must already carry
+// the address. Moved maps the address to itself: nothing a plan made here serves was declared
+// somewhere else first.
+func PlanAt(d Declared, address, tokenEnv, token string) *Plan {
+	return &Plan{Declared: d, TokenEnv: tokenEnv, Token: token, Moved: map[string]string{address: address}}
 }
 
 // WithoutOverrides is addresses without the user's `adapters` override of any conversion one of

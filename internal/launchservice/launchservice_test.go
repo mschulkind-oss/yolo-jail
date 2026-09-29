@@ -25,6 +25,8 @@ func TestMain(m *testing.M) {
 		os.Exit(m.Run())
 	case strings.HasPrefix(mode, "agent:"):
 		os.Exit(fakeAgent(strings.TrimPrefix(mode, "agent:")))
+	case strings.HasPrefix(mode, "doorway:"):
+		os.Exit(fakeDoorway(strings.TrimPrefix(mode, "doorway:")))
 	default:
 		os.Exit(fakeHostHalf(mode))
 	}

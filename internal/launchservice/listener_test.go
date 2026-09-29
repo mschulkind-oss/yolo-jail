@@ -1,0 +1,145 @@
+package launchservice
+
+// listener_test.go pins a credential DOORWAY's two halves in this package
+// (docs/design/host-notch-services.md HS-D15): its admission (AdmitDoorway, the rule every host
+// half passes), its plan at the launch's own address and token (PlanAt), and its daemon side
+// (ServeListener), run as this test binary under Start exactly as a launch runs
+// `yolo internal daemon <adapter>`.
+
+import (
+	"errors"
+	"fmt"
+	"io"
+	"net"
+	"net/http"
+	"os"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/packload"
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+)
+
+// fakeDoorway is a doorway in miniature, on ServeListener: its listen address is its argv's last
+// word, it answers a request carrying its caller token with the input's UPSTREAM value, and one
+// without it with 401. mode "fail" refuses in its prepare, before anything is bound.
+func fakeDoorway(mode string) int {
+	listen := os.Args[len(os.Args)-1]
+	return ServeListener("door", listen, func(getenv func(string) string) (func(net.Listener) error, error) {
+		if mode == "fail" {
+			return nil, errors.New("the input lacks its upstream\nsecond line")
+		}
+		token, upstream := getenv(paths.ServiceCallerTokenEnv("door")), getenv("UPSTREAM")
+		return func(l net.Listener) error {
+			return http.Serve(l, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Header.Get("Authorization") != token {
+					w.WriteHeader(http.StatusUnauthorized)
+					return
+				}
+				fmt.Fprint(w, upstream)
+			}))
+		}, nil
+	})
+}
+
+func doorwayPlan(t *testing.T) (*Plan, string) {
+	t.Helper()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	addr := ln.Addr().String()
+	_ = ln.Close()
+	return PlanAt(Declared{Service: "door", Pack: "p", Cmd: []string{"yolo", "doorway", addr}},
+		addr, paths.ServiceCallerTokenEnv("door"), strings.Repeat("cd", 32)), addr
+}
+
+func get(t *testing.T, addr, auth string) (int, string) {
+	t.Helper()
+	req, _ := http.NewRequest(http.MethodGet, "http://"+addr+"/", nil)
+	if auth != "" {
+		req.Header.Set("Authorization", auth)
+	}
+	resp, err := (&http.Client{Timeout: 2 * time.Second}).Do(req)
+	if err != nil {
+		t.Fatalf("GET %s: %v", addr, err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	return resp.StatusCode, string(body)
+}
+
+// A DOORWAY STARTS, SERVES ITS INPUT BEHIND ITS TOKEN, AND STOPS: Start returns once ServeListener
+// has bound the plan's address and answered `ready`, the input file's variables reach its serve,
+// only the plan's token gets past it, and Stop leaves nothing listening.
+func TestADoorwayServesBehindItsPlansTokenUntilStopped(t *testing.T) {
+	selfAsHostHalf(t)
+	t.Setenv(helperEnv, "doorway:ok")
+	plan, addr := doorwayPlan(t)
+	if got := plan.Addresses(); len(got) != 1 || got[0] != addr {
+		t.Fatalf("PlanAt's addresses = %v, want the one address it was handed", got)
+	}
+	r, err := Start(plan, map[string]string{"UPSTREAM": "from-the-launch"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if code, _ := get(t, addr, ""); code != http.StatusUnauthorized {
+		t.Errorf("a request without the token got %d, want 401", code)
+	}
+	if code, body := get(t, addr, plan.Token); code != http.StatusOK || body != "from-the-launch" {
+		t.Errorf("a request with the token got %d %q, want 200 and the input's value", code, body)
+	}
+	r.Stop()
+	waitGone(t, r, 3*time.Second)
+	if dials(addr) {
+		t.Error("the doorway still listens after Stop")
+	}
+}
+
+// A DOORWAY THAT CANNOT PREPARE REFUSES THE START, with its reason on one line, before it binds.
+func TestADoorwayThatCannotPrepareRefusesTheStart(t *testing.T) {
+	selfAsHostHalf(t)
+	t.Setenv(helperEnv, "doorway:fail")
+	plan, addr := doorwayPlan(t)
+	_, err := Start(plan, nil)
+	if err == nil || !strings.Contains(err.Error(), "the input lacks its upstream second line") {
+		t.Fatalf("Start = %v, want the doorway's own reason, flattened", err)
+	}
+	if dials(addr) {
+		t.Error("a doorway that refused still bound its address")
+	}
+}
+
+// A DOORWAY IS ADMITTED BY THE SAME RULE AS A HOST HALF: a pack yolo ships, an argv naming `yolo`.
+// A fetched or local pack's is refused by name, and so is a loophole no selected pack ships.
+func TestAdmitDoorwayAppliesTheHostHalfRule(t *testing.T) {
+	const manifest = `{"name": "creds", "contributes": [{"kind": "loophole", "from": "loopholes/creds"}]}`
+	official := packFrom(t, "creds", manifest, true)
+	fetched := packFrom(t, "creds", manifest, false)
+	cmd := []string{"yolo", "internal", "daemon", "creds-adapter", "--listen", "127.0.0.1:1"}
+	d, err := AdmitDoorway([]*packload.Pack{official}, "creds", "creds", cmd)
+	if err != nil || d.Service != "creds" || d.Pack != "creds" || strings.Join(d.Cmd, " ") != strings.Join(cmd, " ") {
+		t.Fatalf("AdmitDoorway(official) = %+v, %v", d, err)
+	}
+	for name, tc := range map[string]struct {
+		packs []*packload.Pack
+		pack  string
+		cmd   []string
+		want  string
+	}{
+		"a fetched pack":  {[]*packload.Pack{fetched}, "creds", cmd, "its pack is not one yolo ships"},
+		"a later fetched": {[]*packload.Pack{official, fetched}, "creds", cmd, "its pack is not one yolo ships"},
+		"not yolo":        {[]*packload.Pack{official}, "creds", []string{"python3", "x"}, "must name `yolo`"},
+		"no pack":         {[]*packload.Pack{official}, "", cmd, "no selected pack ships the loophole"},
+		"no argv":         {[]*packload.Pack{official}, "creds", nil, "declares no host argv"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := AdmitDoorway(tc.packs, tc.pack, "creds", tc.cmd)
+			var adm *AdmissionError
+			if !errors.As(err, &adm) || !strings.Contains(adm.Why, tc.want) {
+				t.Errorf("AdmitDoorway = %v, want an AdmissionError saying %q", err, tc.want)
+			}
+		})
+	}
+}
