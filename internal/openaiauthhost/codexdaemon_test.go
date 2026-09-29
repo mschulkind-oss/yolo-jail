@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -350,7 +351,8 @@ func (f *fakePS) procs() *daemonProcs {
 			}
 			return "Mon Jan  1 00:00:00 2024", "/usr/bin/something-else", nil
 		},
-		pgid: real.pgid,
+		identity: real.identity,
+		pgid:     real.pgid,
 		signal: func(pid int, sig syscall.Signal) error {
 			f.mu.Lock()
 			f.signals = append(f.signals, pid)
@@ -493,6 +495,92 @@ func TestALiveAppServerWhoseStartTimeDiffersKeepsItsCopy(t *testing.T) {
 	}
 	if strings.Contains(errw.String(), "removed Codex's background-server copy") {
 		t.Errorf("the launch said it removed the copy:\n%s", errw.String())
+	}
+}
+
+// linuxIdentityOf reads pid's boot id and start ticks straight from /proc, as Codex records them
+// in processIdentity on Linux (backend/pid_identity.rs, rust-v0.159.0), independently of the code
+// under test.
+func linuxIdentityOf(t *testing.T, pid int) (string, uint64) {
+	t.Helper()
+	if runtime.GOOS != "linux" {
+		t.Skip("Codex records a native process identity yolo can read only on Linux")
+	}
+	boot, err := os.ReadFile("/proc/sys/kernel/random/boot_id")
+	if err != nil {
+		t.Skipf("no Linux boot id here: %v", err)
+	}
+	stat, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/stat")
+	if err != nil {
+		t.Fatal(err)
+	}
+	fields := strings.Fields(string(stat[bytes.LastIndexByte(stat, ')')+1:]))
+	ticks, err := strconv.ParseUint(fields[19], 10, 64)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return strings.TrimSpace(string(boot)), ticks
+}
+
+// writeIdentityRecord writes a pid record the way Codex 0.159 does on Linux: the legacy start
+// time beside the native identity (backend/pid.rs PidRecord, pid_start.rs).
+func writeIdentityRecord(t *testing.T, codexHome, name string, pid int, start, boot string, ticks uint64) {
+	t.Helper()
+	dir := filepath.Join(codexHome, daemonStateDir)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	body := `{"pid":` + strconv.Itoa(pid) + `,"processStartTime":"` + start +
+		`","processIdentity":{"bootId":"` + boot + `","startTicks":` + strconv.FormatUint(ticks, 10) + `}}`
+	if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// CODEX'S NATIVE PROCESS IDENTITY DECIDES WHERE IT IS RECORDED, as it does for Codex: on Linux a
+// 0.159 record carries the boot id and the kernel's start ticks, which no time zone, locale or
+// clock step changes (backend/pid_identity.rs). So a server whose `ps` start time is four hours off
+// its record, but whose identity matches, is Codex's and is stopped; and a process whose start
+// time matches but whose identity does not is a different one, never signalled, and its copy goes.
+func TestCodexsProcessIdentityDecidesWhichRecordedProcessIsTheDaemon(t *testing.T) {
+	root := t.TempDir()
+	home := managedCodexHome(root)
+	server := startFakeDaemon(t)
+	boot, ticks := linuxIdentityOf(t, server.pid())
+	ps := newFakePS()
+	ps.known[server.pid()] = [2]string{"Tue Sep 29 22:13:01 2026", "codex app-server --listen unix:// --managed-daemon"}
+	writeIdentityRecord(t, home, "daemon.pid", server.pid(), recordedStart, boot, ticks)
+	var errw bytes.Buffer
+	launch, err := prepare(managedDaemonDeps(root, ps.procs()), codexPrelaunch, &errw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	endLaunch(t, launch)
+	if !server.ended() || len(ps.signals) != 1 || ps.signals[0] != server.pid() {
+		t.Fatalf("a server whose identity matches its record was not stopped: %v\n%s", ps.signals, errw.String())
+	}
+
+	other := t.TempDir()
+	otherHome := managedCodexHome(other)
+	reused := startFakeDaemon(t)
+	boot, ticks = linuxIdentityOf(t, reused.pid())
+	ps = newFakePS()
+	ps.known[reused.pid()] = [2]string{recordedStart, "codex app-server --listen unix:// --managed-daemon"}
+	writeIdentityRecord(t, otherHome, "daemon.pid", reused.pid(), recordedStart, boot, ticks+1)
+	if err := os.MkdirAll(filepath.Join(otherHome, daemonPackagesDir, "releases"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	errw.Reset()
+	launch, err = prepare(managedDaemonDeps(other, ps.procs()), codexPrelaunch, &errw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	endLaunch(t, launch)
+	if len(ps.signals) != 0 || !reused.running() {
+		t.Fatalf("a process whose identity is not the record's was signalled: %v\n%s", ps.signals, errw.String())
+	}
+	if _, err := os.Stat(filepath.Join(otherHome, daemonPackagesDir)); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("a record whose process is provably gone kept the copy: %v\n%s", err, errw.String())
 	}
 }
 

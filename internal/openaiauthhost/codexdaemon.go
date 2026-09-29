@@ -177,6 +177,10 @@ type daemonProcs struct {
 	// which is what Codex records as processStartTime (backend/pid.rs, read_process_details), and
 	// its command line.
 	facts func(pid int) (start, command string, err error)
+	// identity returns pid's native process identity as Codex records it on Linux — the boot id
+	// and the kernel's start ticks (backend/pid_identity.rs) — and whether it could read one: never
+	// off Linux (processIdentity, codexdaemon_linux.go and codexdaemon_other.go).
+	identity func(pid int) (bootID string, startTicks uint64, zombie, ok bool)
 	// pgid is pid's process group.
 	pgid func(pid int) (int, error)
 	// signal delivers sig to pid, or to process group -pid.
@@ -201,8 +205,9 @@ func realDaemonProcs() daemonProcs {
 			command, err := ps("command")
 			return start, command, err
 		},
-		pgid:   syscall.Getpgid,
-		signal: syscall.Kill,
+		identity: processIdentity,
+		pgid:     syscall.Getpgid,
+		signal:   syscall.Kill,
 	}
 }
 
@@ -211,10 +216,11 @@ type recordState int
 
 const (
 	// recordStale: no process has the pid, or the one that has it is not Codex's app server
-	// (its command line says so). Nothing to stop, and nothing running from the package copy.
+	// (its command line says so) or not the recorded process (Codex's native identity says so).
+	// Nothing to stop, and nothing running from the package copy.
 	recordStale recordState = iota
-	// recordRunning: the recorded daemon process is running: an app server, started at the
-	// recorded time.
+	// recordRunning: the recorded daemon process is running: an app server whose native
+	// identity, or failing one its start time, is the recorded one.
 	recordRunning
 	// recordUnknown: a process has the pid and yolo cannot tell whether it is the recorded one —
 	// ps could not describe it, or it is an app server whose start time is not the recorded one.
@@ -232,20 +238,47 @@ const (
 // "cannot verify … PID record retained" there rather than calling the record stale
 // (backend/pid.rs, process_matches_record, rust-v0.159.0). Calling it stale removed the package
 // copy from under a server still running from it.
+//
+// WHERE THE RECORD CARRIES CODEX'S NATIVE IDENTITY, IT DECIDES, as it does for Codex: a 0.159
+// record on Linux holds the boot id and the kernel's start ticks beside the legacy time
+// (processIdentity, under that name or the older `linuxProcessIdentity`), which no time zone,
+// locale or clock step changes. A different boot or start is a different process, stale; a
+// match is the recorded one, whatever `ps` prints for its start. The command line must still be
+// an app server's before anything is signalled.
 func checkRecord(path string, procs daemonProcs) (int, recordState, string) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return 0, recordStale, ""
 	}
+	type linuxIdentity struct {
+		BootID     string  `json:"bootId"`
+		StartTicks *uint64 `json:"startTicks"`
+	}
 	var rec struct {
-		PID              int    `json:"pid"`
-		ProcessStartTime string `json:"processStartTime"`
+		PID              int            `json:"pid"`
+		ProcessStartTime string         `json:"processStartTime"`
+		Identity         *linuxIdentity `json:"processIdentity"`
+		LegacyIdentity   *linuxIdentity `json:"linuxProcessIdentity"`
 	}
 	if json.Unmarshal(data, &rec) != nil || rec.PID <= 1 || strings.TrimSpace(rec.ProcessStartTime) == "" {
 		return 0, recordStale, ""
 	}
 	if !procs.alive(rec.PID) {
 		return rec.PID, recordStale, ""
+	}
+	identified := false
+	if id := rec.Identity; id != nil || rec.LegacyIdentity != nil {
+		if id == nil {
+			id = rec.LegacyIdentity
+		}
+		if id.BootID != "" && id.StartTicks != nil && procs.identity != nil {
+			if boot, ticks, zombie, ok := procs.identity(rec.PID); ok {
+				if zombie || boot != id.BootID || ticks != *id.StartTicks {
+					return rec.PID, recordStale, ""
+				}
+				identified = true
+			}
+		}
 	}
 	start, command, err := procs.facts(rec.PID)
 	if err != nil {
@@ -254,7 +287,7 @@ func checkRecord(path string, procs daemonProcs) (int, recordState, string) {
 	if !strings.Contains(command, "app-server") {
 		return rec.PID, recordStale, ""
 	}
-	if start != strings.TrimSpace(rec.ProcessStartTime) {
+	if !identified && start != strings.TrimSpace(rec.ProcessStartTime) {
 		return rec.PID, recordUnknown, "it is an app server whose start time is not the recorded one, " +
 			"which a different time zone, locale or clock can cause as well as a reused pid"
 	}
