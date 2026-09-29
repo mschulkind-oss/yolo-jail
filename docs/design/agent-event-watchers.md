@@ -281,9 +281,26 @@ joins a container already running for the workspace.
 | **`yolo host env`, `yolo host apply`, an agent started without yolo** | Runs no sidecar. The same rule [OQ-HS3](host-notch-services.md#OQ-HS3) ruled for host services: an agent launched outside yolo lacks the feature, and that is accepted | Same |
 | **macos-user** | Waits on how a `jail_daemon` runs there ([OQ-DP8](declaration-parity.md#OQ-DP8)); until then it is not started, and the launch line says it does not run on macos-user yet ([§12.5](#125-what-the-launch-says)). The launch is not refused | A child of the launch, as at the host, with the same one-instance rule ([EW-D19](#EW-D19)), since macos-user has no attach |
 
-If [OQ-JL1](jail-lifetime-last-session-wins.md#OQ-JL1) moves a shared jail's host services out of
-the first launcher, host-side sidecars move with them: they are host processes that live as long
-as the launch that wanted them ([HD-R1](host-daemon-ownership.md#HD-R1)).
+The container row changes with
+[`jail-lifetime-last-session-wins.md`](jail-lifetime-last-session-wins.md), whose
+[OQ-JL1](jail-lifetime-last-session-wins.md#OQ-JL1) the maintainer directed on 2026-09-29. A
+shared jail's host services move out of the first launcher into a **keeper**: one small
+background process per running container jail, spawned by the fresh launch before any host
+service or the container exists, that ends itself with the jail
+([its §9](jail-lifetime-last-session-wins.md#9-the-keeper-design-2026-09-29)). Host-side sidecars
+move with those services and become the keeper's
+([its §9.2](jail-lifetime-last-session-wins.md#92-what-it-owns)), so a host-side sidecar at a
+container backend is stopped when the jail ends, not when the launch that created the container
+does. That is [HD-R1](host-daemon-ownership.md#HD-R1)'s unit: a host daemon *"ends with that
+jail"*. Neither is built.
+
+Whether `yolo host` and macos-user get a keeper too is
+[OQ-JL5](jail-lifetime-last-session-wins.md#OQ-JL5), still open, and [EW-D19](#EW-D19) is the
+trap that question names. At those notches EW-D19's lock hands one sidecar from launch to launch,
+which is sharing, and is the handoff shape
+[JL-D14](jail-lifetime-last-session-wins.md#JL-D14) rejected for container jails. Under
+[OQ-JL5](jail-lifetime-last-session-wins.md#OQ-JL5)'s leaning, EW-D19 would be brought under the same
+ownership rule rather than given a second one.
 
 Common to both sides:
 
@@ -1390,7 +1407,7 @@ recorded so an implementer does not reopen them.
 | [`workspace-config-trust.md`](workspace-config-trust.md) | The iced `yolo trust` design: a host-side record keyed on workspace and content, and a refusal that names the verb, which the acknowledgement follows |
 | [`boundary-broker.md`](boundary-broker.md#BB-D30) | [BB-D30](boundary-broker.md#BB-D30)'s second part of the approval record, and [BB-D19](boundary-broker.md#BB-D19)'s rule that the host reads a workspace's git state as text |
 | [`loophole-system.md`](../reference/loophole-system.md#the-placement-rule) | The placement rule host-side sidecars obey, and R5, which sidecars' `enabled` deliberately does not follow |
-| [`jail-lifetime-last-session-wins.md`](jail-lifetime-last-session-wins.md) | Several sessions in one jail, which [OQ-EW9](#OQ-EW9) is about, and [OQ-JL1](jail-lifetime-last-session-wins.md#OQ-JL1)'s owner of a shared jail's host services, which host-side sidecars follow |
+| [`jail-lifetime-last-session-wins.md`](jail-lifetime-last-session-wins.md) | Several sessions in one jail, which [OQ-EW9](#OQ-EW9) is about; the keeper that [OQ-JL1](jail-lifetime-last-session-wins.md#OQ-JL1)'s direction made the owner of a shared jail's host services, which host-side sidecars follow ([§3.2](#32-lifecycle-per-side-and-per-notch)); and [OQ-JL5](jail-lifetime-last-session-wins.md#OQ-JL5), whose trap is [EW-D19](#EW-D19) |
 
 ## Appendix A — the evidence per agent
 

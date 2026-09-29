@@ -48,7 +48,7 @@ is what it takes over, and [§5](#5-how-terrible-is-it) answers "how terrible is
 - [OQ-JL8](#OQ-JL8): does closing a pane end that pane's agent, or leave it running.
 
 **Reads with:** [`jail-lifetime-last-session-wins-plan.md`](jail-lifetime-last-session-wins-plan.md)
-(the implementation sketch, still written for the rejected holding launcher in places),
+(the implementation sketch, written for the keeper),
 [`herdr-integration.md` §3.4](../research/herdr-integration.md#34-closing-a-pane-is-a-kill)
 (what closing a pane does), and
 [`central-yolo-watcher.md`](../research/central-yolo-watcher.md) (the sibling exploration of a

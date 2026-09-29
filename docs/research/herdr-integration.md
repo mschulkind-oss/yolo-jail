@@ -122,9 +122,12 @@ channel, and the slice passes nothing of herdr's into the jail.
 - Closing a herdr pane, or restarting herdr, SIGKILLs the launcher half a second after hanging
   it up, and podman forwards the same hangup into the jail. The launcher is probably still in its
   teardown when the kill lands. That is INFERRED, not measured
-  ([§3.4](#34-closing-a-pane-is-a-kill)). It is evidence for
-  [OQ-JL1](../design/jail-lifetime-last-session-wins.md#OQ-JL1), not something a herdr integration
-  can fix.
+  ([§3.4](#34-closing-a-pane-is-a-kill)). It was evidence for
+  [OQ-JL1](../design/jail-lifetime-last-session-wins.md#OQ-JL1), now directed to a keeper: one
+  background process per running container jail, owning its host services, that no pane close
+  reaches
+  ([its §9.7](../design/jail-lifetime-last-session-wins.md#97-signal-handling-sig-proxy-and-a-pane-close)),
+  and not something a herdr integration can fix.
 - After a herdr restart, jail panes come back as empty shells ([OQ-HR2](#OQ-HR2)).
 - herdr's worktrees break git inside a container jail ([OQ-HR3](#OQ-HR3)).
 
@@ -633,40 +636,58 @@ client, so the launcher keeps running. SOURCED
 ([`session-state.mdx`](https://github.com/herdrdev/herdr/blob/v0.9.3/docs/next/website/src/content/docs/session-state.mdx#L8-L15)).
 
 > [!IMPORTANT]
-> **This is new evidence for [OQ-JL1](../design/jail-lifetime-last-session-wins.md#OQ-JL1).**
+> **This was evidence for
+> [OQ-JL1](../design/jail-lifetime-last-session-wins.md#OQ-JL1), which the
+> maintainer directed on 2026-09-29.** That doc carries it as its
+> [§3.1](../design/jail-lifetime-last-session-wins.md#31-what-a-pane-close-does-measured)
+> ([HR-D6](#HR-D6)), and its answer is a **keeper**
+> ([§9](../design/jail-lifetime-last-session-wins.md#9-the-keeper-design-2026-09-29)):
+> one small background process per running container jail, spawned by the fresh launch before any
+> host service or the container exists, that owns the jail's host services while any session is
+> open and ends itself. Nothing of it is built. What this section's evidence says about it:
 >
-> - **The leaning.** [OQ-JL1](../design/jail-lifetime-last-session-wins.md#OQ-JL1) leans to D:
->   after its own agent quits, the first launcher holds the jail for the others, and it survives
->   a window-close hangup the way `nohup` does.
-> - **Why herdr defeats the hangup half.** Inside herdr, the hangup is followed by SIGKILL within
->   0.5 s. A launcher started from a shell leads its own process group, so it cannot leave the
->   pane's session afterwards: [setsid(2)](https://man7.org/linux/man-pages/man2/setsid.2.html)
->   fails with `EPERM` for a group leader. Under D, then, the launcher itself cannot outlive a
->   pane close.
-> - **The forwarded hangup reaches pid 1 too.** Under D, pid 1 is a hold that *"blocks until it
->   is signalled"*. If the first launcher keeps today's attached `podman run` client for it,
->   podman forwards a pane close's HUP and TERM to that hold (the HUP was MEASURED for today's
->   `podman run`, above), and pid 1's exit ends every session. The same applies to an ordinary window close,
->   not only herdr. So under D the jail must run with `--sig-proxy=false`, or detached, or the hold
->   must ignore forwarded signals. INFERRED.
-> - **What survives.** Any process outside herdr's list survives a pane close. herdr takes that
->   list once, before the first signal (`shutdown_pane_processes` calls `session_processes` once,
->   [`pane.rs`](https://github.com/herdrdev/herdr/blob/v0.9.3/src/pane.rs#L1616-L1660)). Two kinds
->   qualify:
->   - option A's keeper, started with `setsid` at launch;
->   - a detached process the launcher spawns on the hangup. The EPERM applies only to the group
->     leader, so a child can call `setsid`, which also takes it out of the kernel's own hangup
->     of the terminal. So B's successor, or a D-plus-successor hybrid, survives too.
->
->   **The timing budget** is the time from the SIGHUP to the SIGKILL: about 500 ms, or about
->   250 ms if the launcher lets SIGTERM end it. B's launcher, as written, waits 1 to 2 s for the
->   successor's ready signal before exiting, which is longer than the budget, so under herdr the
->   successor would have to finish the handoff with no launcher left to wait for it. INFERRED.
-> - **Why this does not overturn D.** Keeping a pane open costs a herdr user very little. The
->   pane-close case is the one D's "survive the hangup" half does not cover, and a successor
->   spawned on the hangup could cover it.
->
-> This doc does not edit that one. Carrying the evidence there is a follow-up ([HR-D6](#HR-D6)).
+> - **It told against a launcher that holds the jail.**
+>   [OQ-JL1](../design/jail-lifetime-last-session-wins.md#OQ-JL1) leaned to D:
+>   after its own agent quits, the first launcher holds the jail for the others, and survives a
+>   window-close hangup the way `nohup` does. Inside herdr the hangup is followed by SIGKILL within
+>   0.5 s, and a launcher
+>   started from a shell leads its own process group, so it cannot leave the pane's session:
+>   [setsid(2)](https://man7.org/linux/man-pages/man2/setsid.2.html) fails with `EPERM` for a
+>   group leader. The maintainer rejected D in his own terms, *"I don't want a solution where the
+>   first terminal waits"*, and under the keeper no launcher has to outlive its pane.
+> - **What survives a pane close is a process outside herdr's list.** herdr takes that list once,
+>   before the first signal (`shutdown_pane_processes` calls `session_processes` once,
+>   [`pane.rs`](https://github.com/herdrdev/herdr/blob/v0.9.3/src/pane.rs#L1616-L1660)). The
+>   keeper is spawned with `setsid`, which a child may call because the `EPERM` applies only to a
+>   group leader, so it is in a session of its own and outside the list. That doc's
+>   [§3.1](../design/jail-lifetime-last-session-wins.md#31-what-a-pane-close-does-measured)
+>   measured a setsid'd child surviving the pane-close sequence.
+> - **No runtime client sits in a pane, so no hangup is forwarded to pid 1.** Today's attached
+>   `podman run` client forwards a pane close's HUP and TERM into the container's main process
+>   (the HUP was MEASURED above), and an ordinary window close does the same. Under the keeper,
+>   pid 1 is a hold, a process that only keeps the container running. The keeper keeps pid 1's
+>   runtime client itself, attached with no tty and `--sig-proxy=false`, and the hold ignores
+>   SIGHUP and SIGINT and ends only on SIGTERM
+>   ([JL-D15](../design/jail-lifetime-last-session-wins.md#JL-D15)). That doc's
+>   [§3.1](../design/jail-lifetime-last-session-wins.md#31-what-a-pane-close-does-measured)
+>   measured pid 1 untouched by a pane close both with the container started outside the pane
+>   and with an attached client under `--sig-proxy=false`.
+> - **A pane close ends only that pane's session.** Each session's launcher still dies with its
+>   pane, and its signal arm never stops the jail
+>   ([JL-D4](../design/jail-lifetime-last-session-wins.md#JL-D4)). Whether it also
+>   hangs up its own agent in the jail, which otherwise runs on headless, is
+>   [OQ-JL8](../design/jail-lifetime-last-session-wins.md#OQ-JL8), which leans to
+>   ending the agent with its pane. The arm has about 500 ms before the SIGKILL, and one exec round
+>   trip took 56 to 71 ms in that doc's measurement, so the hangup fits. INFERRED.
+> - **The timing budget told against a successor.** B's successor, spawned only when the first
+>   launcher quits, would have had to finish its handoff inside that 0.5 s with no launcher left
+>   to wait for it. That is one of the reasons
+>   [JL-D14](../design/jail-lifetime-last-session-wins.md#JL-D14) chose a keeper
+>   started with the jail.
+> - **A herdr server restart ends the jail.** Every pane's launcher is signalled at once, so no
+>   session is left, and the keeper tears the jail down
+>   ([§4.4](../design/jail-lifetime-last-session-wins.md#44-failure-paths)). What a
+>   jail pane does when herdr brings it back is [OQ-HR2](#OQ-HR2).
 
 ### 3.5 herdr's worktrees
 
@@ -994,7 +1015,7 @@ Each of these has one sensible answer, so none is asked.
 | <a id="HR-D3"></a>HR-D3 | *Implementation decision.* **The agent hint goes on the runtime client only.** It is never passed with `-e`, and never set on the launcher's own starting environment. Its value is the command's base name, and herdr decides whether that is an agent | [§4.3](#43-option-2-the-launcher-tells-herdr-what-is-inside) |
 | <a id="HR-D4"></a>HR-D4 | *Implementation decision.* **`yolo notify` never delivers through `herdr agent prompt`.** herdr's notifications remain the human's signal, beside `yolo notify` | [EW-P3](../design/agent-event-watchers.md#EW-P3) |
 | <a id="HR-D5"></a>HR-D5 | *Implementation decision.* **The kitty indicator stands down when `TERM_PROGRAM=herdr`,** and the herdr label takes its place | [§3.1](#31-a-container-jail) |
-| <a id="HR-D6"></a>HR-D6 | *Implementation decision.* **The pane-close kill is [OQ-JL1](../design/jail-lifetime-last-session-wins.md#OQ-JL1)'s input, not a herdr-specific fix.** The evidence of [§3.4](#34-closing-a-pane-is-a-kill) is carried into that doc, and no herdr-only teardown path is built. What is carried: (1) podman forwards a pane close's HUP (MEASURED) and TERM (its default proxies every received signal) into the container, so under D the hold at pid 1 needs `--sig-proxy=false`, a detached start, or to ignore forwarded signals, and this holds for an ordinary window close too; (2) what survives a pane close is any process outside herdr's one-time process list: A's keeper, or a detached process the launcher spawns on the hangup, within about 500 ms (250 ms if SIGTERM ends the launcher). So B's successor, or a D-plus-successor hybrid, survives too | [§3.4](#34-closing-a-pane-is-a-kill) |
+| <a id="HR-D6"></a>HR-D6 | *Implementation decision.* **The pane-close kill is [OQ-JL1](../design/jail-lifetime-last-session-wins.md#OQ-JL1)'s input, not a herdr-specific fix.** The evidence of [§3.4](#34-closing-a-pane-is-a-kill) is carried into that doc, and no herdr-only teardown path is built. What is carried: (1) podman forwards a pane close's HUP (MEASURED) and TERM (its default proxies every received signal) into the container, so under D the hold at pid 1 needs `--sig-proxy=false`, a detached start, or to ignore forwarded signals, and this holds for an ordinary window close too; (2) what survives a pane close is any process outside herdr's one-time process list: A's keeper, or a detached process the launcher spawns on the hangup, within about 500 ms (250 ms if SIGTERM ends the launcher). So B's successor, or a D-plus-successor hybrid, survives too. *Carried 2026-09-29:* that doc's [§3.1](../design/jail-lifetime-last-session-wins.md#31-what-a-pane-close-does-measured) holds the evidence, and [OQ-JL1](../design/jail-lifetime-last-session-wins.md#OQ-JL1) was directed to A's keeper, so the conditionals on D and B no longer apply. The keeper design takes both halves: pid 1's runtime client runs with `--sig-proxy=false` and the hold ignores SIGHUP ([JL-D15](../design/jail-lifetime-last-session-wins.md#JL-D15)), and the keeper is spawned with `setsid` ([§9.1](../design/jail-lifetime-last-session-wins.md#91-what-starts-it)) | [§3.4](#34-closing-a-pane-is-a-kill) |
 | <a id="HR-D7"></a>HR-D7 | *Implementation decision.* **If yolo reports a resume command, the host builds it.** The jail supplies at most a session id, checked against a strict character set. herdr types whatever it stores into a host shell | [§2.4](#24-hooks-self-reports-and-resume-commands), MEASURED |
 | <a id="HR-D8"></a>HR-D8 | *Implementation decision.* **The pane label carries the `--agent` guard and is cleared at exit,** so a killed launcher does not leave a stale jail title. **Scope:** herdr shows a guarded label only while the pane's detected agent matches it, so the label appears only for agents herdr recognizes. A jail running bare `yolo`, `yolo -- bash` or an unrecognized command gets no herdr marker. The non-agent case is a follow-up, with one candidate: an unguarded label with `--ttl-ms`, refreshed by the launcher, so a killed launcher's label expires | [§4.3](#43-option-2-the-launcher-tells-herdr-what-is-inside) |
 | <a id="HR-D9"></a>HR-D9 | *Implementation decision.* **herdr's host `SessionStart` hook reaching jail Claude is a follow-up for the claude pack's host-layer composition, not part of the herdr slice.** It crosses today through the `readsHost` settings layer, which folds host keys with no filter ([§3.6](#36-two-writers-on-one-agent-config-file)). First measure what the user sees ([§6](#6-what-is-unmeasured) item 5). Then either drop, and disclose, a host-layer hook command whose absolute host path does not exist in the jail, or accept the failing hook and document it. The choice covers every host hook, not only herdr's, so it belongs with the pack's composition rules | [§3.6](#36-two-writers-on-one-agent-config-file) |
