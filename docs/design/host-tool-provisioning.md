@@ -37,7 +37,7 @@ jail's reach. On macOS, the three installer-recipe agents stay uncovered until
 **Start at [§3](#3-the-host-prefix).** The prefix's two rules, *only floor names on PATH* and *never
 jail-reachable*, are what make putting it first safe.
 
-**Needs your ruling:** [OQ-HP5](#OQ-HP5), [OQ-HP6](#OQ-HP6). Ruled 2026-09-29: [OQ-HP1](#OQ-HP1) (on by default), [OQ-HP2](#OQ-HP2) (moot: on no user PATH), [OQ-HP3](#OQ-HP3) (captures, and a host capture on macOS), [OQ-HP4](#OQ-HP4) (the official Node tarball).
+**Needs your ruling:** [OQ-HP6](#OQ-HP6). Ruled 2026-09-29: [OQ-HP1](#OQ-HP1) (on by default), [OQ-HP2](#OQ-HP2) (moot: on no user PATH), [OQ-HP3](#OQ-HP3) (captures, and a host capture on macOS), [OQ-HP4](#OQ-HP4) (the official Node tarball), [OQ-HP5](#OQ-HP5) (no consent prompt: the pack selection is the consent).
 
 **Reads with:**
 - [`host-tool-provisioning-plan.md`](host-tool-provisioning-plan.md): the implementation sketch.
@@ -382,7 +382,7 @@ installs nothing.
       > version yolo ships raised to the highest selected `node_floor`. The maintainer: *"Using the
       > official node tarball sounds good."*
 
-5. 💬 <a id="OQ-HP5"></a>**[OQ-HP5](#OQ-HP5): Does one consent cover the evergreen refresh?**
+5. ✅ <a id="OQ-HP5"></a>**[OQ-HP5](#OQ-HP5): Does one consent cover the evergreen refresh?**
    **Stakes:** [`provisioner-sets.md` §8.5](provisioner-sets.md#85-the-ruling-yolo-drives-the-winner-behind-the-confirm-and-last)
    says driving is *"a per-launch offer, never a background action."* It was ruled about
    system-manager commands. **(a)** Yes: the first consent covers the throttled refresh of the
@@ -394,10 +394,15 @@ installs nothing.
    The refresh runs at the agent's own invocation rather than in the background, and a changed
    recipe prompts again ([§4](#4-when-provisioning-runs)).
 
-   <!-- vantage: oq id=OQ-HP5 leaning="(a) one consent per program covers the throttled refresh of the same recipe, as the jail's launchers do; a changed recipe prompts again, and the refresh runs at the agent's own invocation, not in the background." -->
-
-   **Answer:**
-   > _(empty — fill in when decided)_
+      **Answer:**
+      > **Ruled 2026-09-29, past both options: no consent prompt at all.** The maintainer: *"why is
+      > yolo even asking if you want to install this? If pi is going to be available, it's because
+      > you've already configured that pack in your config file. You've acknowledged this already.
+      > We don't have to ask again … certainly not the second time."* Selecting the pack in user
+      > config IS the consent. The floor installs and keeps current what the selected packs declare,
+      > the same way a jail's launchers do (throttled, at the agent's own invocation); no install or
+      > update prompt. This also retires the consent clause of [OQ-HP1](#OQ-HP1)'s answer and §4's
+      > consent design ([HP-D3](#HP-D3)).
 
 6. 💬 <a id="OQ-HP6"></a>**[OQ-HP6](#OQ-HP6): Does yolo run `mise install` on the stale-shim verdict?**
    **Stakes:** the maintainer's *"by default when you run on the host we should probably run
@@ -425,3 +430,5 @@ installs nothing.
 | [OQ-HP3](#OQ-HP3) | **Maintainer ruling:** installer agents are in the floor, from the jail's `yolo capture` where the host matches, and from a host capture where it does not (macOS) | 2026-09-29 |
 | <a id="HP-D2"></a>HP-D2 | *Implementation decision under HP3:* the host capture runs the vendor installer confined (on macOS, Seatbelt with a throwaway `$HOME`, the capture jail's recipe, no network beyond the vendor's), and writes the capture store's existing shape, so the floor has one materialization path for both; it is measured on a Mac before it ships | 2026-09-29 |
 | [OQ-HP4](#OQ-HP4) | **Maintainer ruling:** the prefix's Node is the official tarball, checksum-verified, at yolo's version raised to the highest selected `node_floor` | 2026-09-29 |
+| [OQ-HP5](#OQ-HP5) | **Maintainer ruling:** no consent prompt; selecting the pack is the consent, and the floor installs and updates like a jail's launchers | 2026-09-29 |
+| <a id="HP-D3"></a>HP-D3 | *Consequence of HP5:* §4's consent step and HP1's "installs still need consent" are withdrawn; a launch with no terminal installs too, disclosed on its launch line | 2026-09-29 |
