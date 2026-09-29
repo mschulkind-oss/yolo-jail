@@ -343,7 +343,7 @@ configuration file.
 | Provider declares no endpoints and no key | Direct; the agent uses whatever credential it already holds, such as a subscription OAuth |
 | Provider declares two protocols, one of which the agent speaks | Direct on that one. An adapter is never preferred over a native endpoint |
 | Provider's entry carries only the removed shorthand | Offers nothing, so it resolves as the nothing-to-settle case rather than as a refusal |
-| Two selected packs declare the same pair | A launch error naming both, from the generic sole-ownership loop. The resolver itself keeps the first, so a caller that skipped the pre-flight degrades to a stable table |
+| Two selected packs declare the same pair | No launch refuses it: the pair is sole-owned, and `yolo pack footprint` reports the duplicate from the generic sole-ownership loop. The resolver holds the pair for the LATER pack in the one pack order (config order, then packs a `needs` pulled in, then the local pack), the "later wins" every other key follows ([NC-D59](../plans/notch-convergence.md#NC-D59)) |
 | Agent declares more than one protocol | Resolved against each in declaration order; the first that resolves wins |
 | Agent pack declares no protocols | Direct, always. The compatibility shape |
 | No profile selected for this agent, or a profile resolving to no provider | Nothing to ask. Not this gate's to report |

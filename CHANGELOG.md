@@ -102,9 +102,11 @@ put the packs yolo ships ahead of all others, so your own pack beat a shipped on
 listed it, while `yolo host apply` followed your list and a jail's startup read the packs in
 alphabetical order. **If your pack overrides a shipped one, list it after that pack**, as in
 `"packs": ["claude", "~/dotfiles/packs/mine"]`; listed before it, the shipped pack's values now
-win. One exception to your personal pack coming last: an adapter it declares for a conversion
-that a pack pulled in through `needs` also declares now yields to that pack, so declare such an
-adapter in a pack you list in `packs`. `yolo config-ref` describes the order under `packs`.
+win. The same order decides a claim only one pack may hold, such as an adapter for one
+conversion, a provider name, a profile name or a service name: when two packs declare it, the
+later one's is used, where yolo used to keep the first. So an adapter your personal pack declares
+now beats one a pack pulled in through `needs` declares for the same conversion. `yolo
+config-ref` describes the order under `packs`.
 
 ### Fixed
 
