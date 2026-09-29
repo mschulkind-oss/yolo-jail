@@ -46,7 +46,7 @@ current.
   Those two carried the old prefix `PS`, as `PS1` and `PS3`, until later that day, when that doc's series was
   renamed `OQ-PSW` because [`provisioner-sets.md`](provisioner-sets.md) also uses `OQ-PS`.
 
-**Needs your ruling:** [OQ-ML2](#OQ-ML2) first, because it decides how many ids the other questions are about; then [OQ-ML1](#OQ-ML1), [OQ-BR12](#OQ-BR12), [OQ-BR13](#OQ-BR13), [OQ-BR14](#OQ-BR14), [OQ-PSW1](#OQ-PSW1) and [OQ-BR15](#OQ-BR15).
+**Needs your ruling:** [OQ-ML2](#OQ-ML2) first, because it decides how many ids the other questions are about; then [OQ-ML1](#OQ-ML1), [OQ-BR12](#OQ-BR12), [OQ-BR13](#OQ-BR13), [OQ-BR14](#OQ-BR14), [OQ-PSW1](#OQ-PSW1) and [OQ-BR15](#OQ-BR15). Ruled 2026-09-29: [OQ-ML1](#OQ-ML1) and [OQ-ML2](#OQ-ML2).
 
 - [OQ-ML1](#OQ-ML1): the shape of the built-in picks pack. Leaning: one yolo-shipped pack that
   adds `models` entries to other packs' providers, joined through `needs`, and yielding to any
@@ -571,7 +571,7 @@ through each provider's own pack ([OQ-ML1](#OQ-ML1) option (b)).
 
 ## 14. Open Questions
 
-1. 💬 <a id="OQ-ML1"></a>**[OQ-ML1](#OQ-ML1): What shape is the built-in picks pack, and how
+1. ✅ <a id="OQ-ML1"></a>**[OQ-ML1](#OQ-ML1): What shape is the built-in picks pack, and how
    does it join a launch without breaking "nothing is active by default"?**
    Options: **(a)** one yolo-shipped pack (`packs/default-models`, say) that adds `models`
    entries ([OQ-BR12](#OQ-BR12)'s kind) to other packs' providers, joined by those provider
@@ -582,17 +582,19 @@ through each provider's own pack ([OQ-ML1](#OQ-ML1) option (b)).
    company's list replaces yolo's or trails it, and whether "nothing is active by default" gains
    an exception.
 
-   <!-- vantage: oq id=OQ-ML1 leaning="(a): one yolo-shipped picks pack of models entries on other packs' providers, joined through the provider packs' needs and printed at launch. Every shipped opinion lives in one dated, replaceable file, OQ-BR12 becomes its prerequisite, and -p bedrock gets defaults with no new always-on rule. And picks yield: they apply only when no other pack or user wrote a list for that provider." -->
-
-   _Leaning:_ (a), with picks that yield. Every shipped opinion lives in one dated, replaceable
+      _Leaning:_ (a), with picks that yield. Every shipped opinion lives in one dated, replaceable
    file. [OQ-BR12](#OQ-BR12) becomes its prerequisite, a company pack replaces it just by
    shipping a list, and `-p bedrock` gets defaults with no new always-on rule. The cost: (b)
    could ship this week and (a) waits on a new kind.
 
    **Answer:**
-   > _(empty — fill in when decided)_
+   > **Ruled 2026-09-29: neither a separate picks pack nor always-on.** Each provider declares
+   > its own default in its pack, the way everything else is declared, and the default layers
+   > like all config: a company or user pack, or user config, overrides it. One simple default
+   > per provider, which the user changes; yolo does not chase the newest model. Multiple active
+   > providers per agent is split into its own design doc.
 
-2. 💬 <a id="OQ-ML2"></a>**[OQ-ML2](#OQ-ML2): Which provider × agent cases count as "we can't
+2. ✅ <a id="OQ-ML2"></a>**[OQ-ML2](#OQ-ML2): Which provider × agent cases count as "we can't
    just fall to the default", and so get a yolo pick?** The candidates are
    [§4](#4-where-yolo-picks-the-cannot-default-cases)'s table: Bedrock runtime for codex, pi and
    opencode; claude's everything profile; copilot through the bridge; the already-shipped
@@ -601,15 +603,24 @@ through each provider's own pack ([OQ-ML1](#OQ-ML1) option (b)).
    the newest model. Stakes: how many ids yolo keeps current, and whether provider-switching's
    same-tier-word goal survives for claude.
 
-   <!-- vantage: oq id=OQ-ML2 leaning="Exactly the cases where the agent would otherwise start on a wrong-family id or on none: Bedrock runtime for codex, pi and opencode (opencode until its own default is measured), claude's everything profile, copilot through the bridge, and the openai-codex lists. Not claude's native bedrock profile or the first-party anthropic provider, where claude defaults to the right family. Each id is dated in the pack README and covered by OQ-BR14's warning." -->
-
-   _Leaning:_ Exactly the cases where the agent would otherwise start on a wrong-family id or on
+      _Leaning:_ Exactly the cases where the agent would otherwise start on a wrong-family id or on
    none. That excludes claude's native profile and the `anthropic` provider, which drops
    provider-switching's same-tier-word done-condition unless ruled otherwise. Each id is dated in
    the pack README and covered by [OQ-BR14](#OQ-BR14)'s warning.
 
    **Answer:**
-   > _(empty — fill in when decided)_
+   > **Ruled 2026-09-29, narrower than the leaning** (the maintainer: *"YOLO by default should
+   > never pick a default model … whenever you start up a session, we always want to make sure
+   > that we have picked one of those models. You just want a valid configuration … We will not
+   > otherwise steer if it's some sort of valid yet non-default configuration. Unless, of course,
+   > the configuration specifically says like an opt-in … If you have a provider pack, it's going
+   > to have to pick a default … follow upstream default if defaults exist … pick something
+   > simple for default, let users change it."*) yolo picks a model only to make a session VALID:
+   > when the model the agent would start on is not one of the active provider's models (a
+   > wrong-family id, or none). A valid non-default choice, the user's or the agent's own, is
+   > never steered, unless the config opts in. The pick is the provider's default: the agent's
+   > upstream default when it is one of that provider's models, otherwise the provider's declared
+   > default, otherwise the first model it lists.
 
 3. ✅ <a id="OQ-BR3"></a>**[OQ-BR3](#OQ-BR3): Does yolo ship model aliases at all?** (moved
    from [`bedrock-plumbing.md`](bedrock-plumbing.md) on 2026-09-25, id kept.) **Ruled
