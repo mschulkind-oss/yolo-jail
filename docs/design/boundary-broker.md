@@ -46,7 +46,7 @@ ping box, which is designed and not built.
 
 **Start at [§3](#3-the-flow)**, the flow. Everything else is what one step of it needs.
 
-**Needs your ruling:** [OQ-BB9](#OQ-BB9). [OQ-BB3](#OQ-BB3), [OQ-BB4](#OQ-BB4), [OQ-BB6](#OQ-BB6),
+**Needs your ruling:** none. [OQ-BB9](#OQ-BB9) was ruled 2026-09-29, as were [OQ-BB3](#OQ-BB3), [OQ-BB4](#OQ-BB4), [OQ-BB6](#OQ-BB6),
 [OQ-BB7](#OQ-BB7), [OQ-BB8](#OQ-BB8) and OQ-C were ruled 2026-09-29.
 
 **Reads with:** [`agent-event-watchers.md`](agent-event-watchers.md) (the `yolo notify` doorbell
@@ -1710,7 +1710,7 @@ covered:
    > another CLI the same way. `/bin/gh` and `YOLO_BYPASS_SHIMS=1` still reach the real `gh`,
    > which holds no credential in the jail.
 
-8. 💬 <a id="OQ-BB9"></a>**[OQ-BB9](#OQ-BB9): What may a workspace's widening entry admit?**
+8. ✅ <a id="OQ-BB9"></a>**[OQ-BB9](#OQ-BB9): What may a workspace's widening entry admit?**
    Raised by [OQ-BB6](#OQ-BB6)'s ruling, which chose a user-scope entry keyed by workspace
    ([§5.6](#56-the-repository-scope)) but not what the entry holds. The option's example listed
    repositories to read (`{"read": ["org/lib"]}`). In the ruled design, though, the scope bounds
@@ -1732,15 +1732,17 @@ covered:
      a dimension the model does not have today: the scope says where and the sets say what, and
      nothing says "this set, only here".
 
-   <!-- vantage: oq id=OQ-BB9 leaning="A: whole repositories that join the workspace's scope for every set, with account-wide commands still refused everywhere." -->
-
    _Leaning:_ **A.** It is the smallest shape that does what the ruling asks, widening that
    workspace alone. It keeps the sets about what and the scope about where ([BB-P8](#BB-P8)). And
    starting narrow needs no migration later, the argument [OQ-BB1](#OQ-BB1)'s leaning made. B and
    C each fit on top of A later without changing an entry written for A.
 
    **Answer:**
-   > _(empty — fill in when decided)_
+   > **Ruled 2026-09-29, as leaned: A.** A repository a workspace's widening entry lists joins
+   > that workspace's scope for every set, exactly like one read from its remotes: its reads are
+   > free, its writes ring, and a read-write grant covers it for the grant's window, which the
+   > notification names. Account-wide commands stay refused everywhere. B and C can layer on
+   > later without changing an entry written for A.
 
 9. ✅ <a id="OQ-B1b"></a>**[OQ-B1b](#OQ-B1b): Vendor unYOLO's policy engine, or re-derive it?**
    `authorization/policy` + `authorization/budget` + `internal/copyx` are MIT, stdlib-only, about
@@ -1829,6 +1831,7 @@ covered:
 | [OQ-BB6](#OQ-BB6) | **Maintainer ruling:** (a), a user-scope entry keyed by workspace; (e) not adopted, so an out-of-scope read refuses | 2026-09-29 | [§14](#14-open-questions) | pending |
 | [OQ-BB7](#OQ-BB7) | **Maintainer ruling:** the scope is re-read at each fresh launch and is part of the config-change gate's approval record (a second file beside the snapshot, [BB-D30](#BB-D30)); a changed scope takes effect only once approved in that launch's diff | 2026-09-29 | [§14](#14-open-questions) | pending |
 | [OQ-BB8](#OQ-BB8) | **Maintainer ruling:** A, a generic pack contribution that intercepts a command name and routes it to a pack-declared forwarder; core names no tool | 2026-09-29 | [§4.3](#43-the-jail-side) | pending |
+| [OQ-BB9](#OQ-BB9) | **Maintainer ruling:** A; a widened repository joins the scope for every set, account-wide commands stay refused | 2026-09-29 | [§5.6](#56-the-repository-scope) | pending |
 
 ## Appendix A — prior art: unYOLO, re-analyzed from source (2026-08-12)
 
