@@ -37,7 +37,7 @@ jail's reach. On macOS, the three installer-recipe agents stay uncovered until
 **Start at [§3](#3-the-host-prefix).** The prefix's two rules, *only floor names on PATH* and *never
 jail-reachable*, are what make putting it first safe.
 
-**Needs your ruling:** [OQ-HP3](#OQ-HP3), [OQ-HP4](#OQ-HP4), [OQ-HP5](#OQ-HP5), [OQ-HP6](#OQ-HP6). Ruled 2026-09-29: [OQ-HP1](#OQ-HP1) (on by default), [OQ-HP2](#OQ-HP2) (moot: on no user PATH).
+**Needs your ruling:** [OQ-HP5](#OQ-HP5), [OQ-HP6](#OQ-HP6). Ruled 2026-09-29: [OQ-HP1](#OQ-HP1) (on by default), [OQ-HP2](#OQ-HP2) (moot: on no user PATH), [OQ-HP3](#OQ-HP3) (captures, and a host capture on macOS), [OQ-HP4](#OQ-HP4) (the official Node tarball).
 
 **Reads with:**
 - [`host-tool-provisioning-plan.md`](host-tool-provisioning-plan.md): the implementation sketch.
@@ -338,7 +338,7 @@ installs nothing.
       > the agent carries the prefix first, so an agent that starts another agent gets the floor's
       > copy ([HP-D1](#HP-D1)); that is within the launch yolo owns, not the user's environment.
 
-3. 💬 <a id="OQ-HP3"></a>**[OQ-HP3](#OQ-HP3): How do the installer-recipe agents (`claude`, `codex`, `agy`) reach the prefix?**
+3. ✅ <a id="OQ-HP3"></a>**[OQ-HP3](#OQ-HP3): How do the installer-recipe agents (`claude`, `codex`, `agy`) reach the prefix?**
    **Stakes:** the three most-used agents. **(a)** Materialize a `yolo capture` of the
    installer into the prefix, where the host's OS and architecture match the capture jail's
    (Linux), and leave them hint-only on macOS. The capture store is `:ro` in every jail
@@ -354,12 +354,20 @@ installs nothing.
    _Leaning:_ **(a), with (c) on macOS**, pending a measurement that a captured `claude` runs on
    a Linux host. It is the only option that keeps the standing ruling.
 
-   <!-- vantage: oq id=OQ-HP3 leaning="(a) materialize a yolo capture into the prefix where host OS/arch match the capture jail, and (c) hint-only on macOS, pending a measurement that a captured claude runs on a Linux host; the only option that keeps the not-a-bash-script ruling." -->
+      **Answer:**
+      > **Ruled 2026-09-29: (a), and on macOS a host capture instead of hint-only.** The maintainer:
+      > *"I want to reuse the yolo capture. Like, that would be great if we just have one package
+      > inside and outside the jail that is captured in this way. Otherwise, can we do like a host
+      > capture … if it's not possible, like on a Mac, can we just do it again in a way that is
+      > possible? I want it to be part of the floor, for sure."* Installer agents (claude, codex,
+      > agy) are in the floor. Where the host matches the capture jail (Linux, same arch) the floor
+      > materializes the same `yolo capture` the jails use, one package inside and outside. Where it
+      > cannot (macOS), yolo runs an equivalent **host capture**: the vendor installer in a
+      > throwaway, confined environment with a private `$HOME`, its result stored in the same
+      > read-only capture-store shape and then materialized into the prefix ([HP-D2](#HP-D2)). Both
+      > need their measurement before they ship: a captured binary running on the host.
 
-   **Answer:**
-   > _(empty — fill in when decided)_
-
-4. 💬 <a id="OQ-HP4"></a>**[OQ-HP4](#OQ-HP4): Where does the prefix's Node come from?**
+4. ✅ <a id="OQ-HP4"></a>**[OQ-HP4](#OQ-HP4): Where does the prefix's Node come from?**
    **Stakes:** the four npm agents can't install or run without an interpreter, and the floor
    may not assume one on the ambient PATH. **(a)** The official Node tarball for the platform,
    verified against the release's published checksums, at a version yolo ships. It is raised to
@@ -369,10 +377,10 @@ installs nothing.
    _Leaning:_ **(a)**, with (b) and (c) left to [OQ-PS6](provisioner-sets.md#OQ-PS6)'s ranking
    later. It is the only source present on every host, and it lives entirely inside the prefix.
 
-   <!-- vantage: oq id=OQ-HP4 leaning="(a) the official Node tarball, checksum-verified, at a version yolo ships raised to the highest selected node_floor; nix and mise can rank above it later under OQ-PS6." -->
-
-   **Answer:**
-   > _(empty — fill in when decided)_
+      **Answer:**
+      > **Ruled 2026-09-29, as leaned: (a).** The official Node tarball, checksum-verified, at a
+      > version yolo ships raised to the highest selected `node_floor`. The maintainer: *"Using the
+      > official node tarball sounds good."*
 
 5. 💬 <a id="OQ-HP5"></a>**[OQ-HP5](#OQ-HP5): Does one consent cover the evergreen refresh?**
    **Stakes:** [`provisioner-sets.md` §8.5](provisioner-sets.md#85-the-ruling-yolo-drives-the-winner-behind-the-confirm-and-last)
@@ -414,3 +422,6 @@ installs nothing.
 | [OQ-HP1](#OQ-HP1) | **Maintainer ruling:** the floor is on by default: the programs of the user-scope selected packs, configurable down to empty, installed with consent | 2026-09-29 |
 | [OQ-HP2](#OQ-HP2) | **Maintainer ruling:** moot; the prefix is on no user PATH, and only `yolo host` and the wrappers use it | 2026-09-29 |
 | <a id="HP-D1"></a>HP-D1 | *Implementation decision under HP2:* a yolo host launch execs the floor's program by path and puts the prefix first on the composed PATH it hands the agent, so a child agent resolves the floor's copy; the user's shell is untouched | 2026-09-29 |
+| [OQ-HP3](#OQ-HP3) | **Maintainer ruling:** installer agents are in the floor, from the jail's `yolo capture` where the host matches, and from a host capture where it does not (macOS) | 2026-09-29 |
+| <a id="HP-D2"></a>HP-D2 | *Implementation decision under HP3:* the host capture runs the vendor installer confined (on macOS, Seatbelt with a throwaway `$HOME`, the capture jail's recipe, no network beyond the vendor's), and writes the capture store's existing shape, so the floor has one materialization path for both; it is measured on a Mac before it ships | 2026-09-29 |
+| [OQ-HP4](#OQ-HP4) | **Maintainer ruling:** the prefix's Node is the official tarball, checksum-verified, at yolo's version raised to the highest selected `node_floor` | 2026-09-29 |
