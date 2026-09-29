@@ -702,6 +702,29 @@ loophole-specific and belong here.
 > old three-valued `off | user | full` was two questions wearing one key: the declared key is a
 > boolean and `off` is `enabled: false`.
 
+## A brokered loophole's repository scope
+
+A loophole whose host daemon runs a host credential's commands for the jail declares a
+**`brokered`** block (`internal/loopholedecl/brokered.go`): the `source` its approved list is
+kept under, the forge `remote_host` whose git remotes make up the list, and the
+`credential_paths` where the credential lives on the host. Core reads repositories, remotes and a
+hostname from it and knows no tool; `packs/github`'s `github-broker` is the first
+([`boundary-broker.md` §5.6](../design/boundary-broker.md#56-the-repository-scope)).
+
+- **At every fresh launch that starts it**, by the one predicate the spawn applies
+  (`loopholes.Set.BrokeredToStart`), core reads the workspace's remotes on `remote_host` as text
+  and puts them through the config-change gate as the approval record's scope part
+  ([`config-safety.md`](config-safety.md#the-repository-scope-the-records-second-part)).
+- **At the spawn**, core writes the approved list to that launch's scope file under
+  `~/.local/share/yolo-jail/broker/<source>/scope/` and substitutes its path for the
+  `{repository_scope}` token in `host_daemon.cmd`. The token and the block are held together at
+  load, a brokered daemon may not be `scope: "host"`, and the file goes with the daemon.
+- **With the pack selected**, a workspace `mounts` entry reaching yolo's broker directory or a
+  `credential_paths` entry is refused, and one from the user config is disclosed
+  (`config/brokerfence.go`).
+- An unknown key in the block is refused by both decoders: it is a fence, and a fence key a build
+  does not read is a fence that does not exist.
+
 ## Retirement: what happens when a pack goes away
 
 **Selection controls ACTIVATION, not REVOCATION.** Deselecting a pack stops the *next* launch

@@ -465,7 +465,7 @@ the semantic axis, and it is short:
 
 | Combine | Meaning | Kinds that use it |
 | :--- | :--- | :--- |
-| **Exclusive** | one owner per target; a second claim is an error | `program` (by bin) · `files` (by path) · `config` (by surface identity) · `autonomy` · `loophole` (by loophole name) · `service` (by service name) · `provider` (by provider name) · `adapter` (by `from → to` pair) · `blocked-tool` (by bin) · `profile` (by pack + name) |
+| **Exclusive** | one owner per target; a second claim is an error | `program` (by bin) · `files` (by path) · `config` (by surface identity) · `autonomy` · `loophole` (by loophole name) · `service` (by service name) · `provider` (by provider name) · `adapter` (by `from → to` pair) · `blocked-tool` (by bin) · `intercept` (by bin) · `profile` (by pack + name) |
 | **Shared** | many independent claimants are the ordinary case | `requires` · `reads-host` · `mount` |
 | **Merge** | many inputs into one target is the feature | `skills` · `env` (a key claimed twice collides) |
 | **Concat** | ordered concatenation | `briefing` |
@@ -1318,6 +1318,21 @@ position — the two generated script dirs are adjacent at the head of PATH, and
 relative to each other is what carries the meaning. They share one bind-mount anchor at
 `~/.yolo/bin`, so both are cleared contents-only. **Nothing may put that shared parent on
 PATH**, or a launcher would be reachable from the blockers' position.
+
+#### `intercept`
+
+Routes a command NAME in the jail to a forwarder the pack declares:
+`{"kind": "intercept", "bin": "gh", "forward": ["yolo", "gh", "--"]}` writes
+`~/.yolo/bin/block/gh` as `exec yolo gh -- "$@"`. It is how a pack layers permissions over an
+existing CLI ([`boundary-broker.md` OQ-BB8](../design/boundary-broker.md#OQ-BB8)); `packs/github`
+is the first user. It lives in the BLOCK dir because that is the directory whose job is to
+intercept a name ahead of everything installed, including a program the image bakes at `/bin`,
+for which `launchercollision.go` writes no launcher. `forward[0]` is a bare program name on the
+jail's PATH and never `bin` itself. `YOLO_BYPASS_SHIMS=1` makes the shim exec the program the
+name resolves to behind the block dir. Exclusive by bin, for `blocked-tool`'s reason, and a
+blocked-tool entry for the same name wins, with a warning at boot, since a refusal is the more
+specific statement. Not review-worthy: the shim is in the jail, and what the forwarder reaches is
+reviewed where it is declared. It does not apply at the host notch.
 
 #### `autonomy`
 
