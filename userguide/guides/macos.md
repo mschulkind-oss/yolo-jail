@@ -208,8 +208,6 @@ What you give up:
 - **Host services only partly work.** The services start on the Mac, but the half that must run
   inside the sandbox does not, so the shared Claude login is not coordinated between sessions and
   only the ChatGPT login service is usable, partly.
-- **No wire bridge**, so a provider profile that needs it, such as `-p cerebras -- claude`, is
-  refused with the reason.
 - **No `mounts`** and no folder sources in `host_files`; single files in `host_files` work.
 - **No `per_side_paths`**: a `.venv` or `node_modules` in the project is shared between your Mac and
   the sandbox.

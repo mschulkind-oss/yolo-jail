@@ -28,8 +28,9 @@ which do. [How settings are applied →](guides/agent-settings.md)
 
 **Models.** Point an agent at a different model service, such as z.ai, OpenRouter, AWS Bedrock or a
 model you run yourself, by choosing a **profile** when you launch. When an agent and a provider
-speak different request formats, the **wire bridge**, a small translator that runs inside the jail,
-connects them. It does not open any access to your host.
+speak different request formats, the **wire bridge**, a small translator that runs beside the
+agent, connects them: inside the jail, or on your own machine for the one `yolo host` command that
+needs it. It does not open any access to your host.
 [Providers and models →](guides/providers-and-models.md)
 
 **Logins.** You log in to each tool inside the jail, once, and the login is kept. For Claude and for

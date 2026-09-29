@@ -42,6 +42,12 @@ live. Two things reach a host agent, split by what they carry:
 Both always apply. A config file cannot deliver a secret — api_key_env_name carries a
 variable's NAME, not its value — so the environment channel is not a fallback.
 
+A profile that runs through a pack's service (claude on codex or cerebras, through the
+wire bridge) starts that service for the one command: ` + "`yolo host -- <agent>`" + ` runs it
+beside the agent on a port it picked, answering only that agent, and stops it when the
+agent exits. ` + "`yolo host env`" + ` refuses such a profile and ` + "`yolo host apply`" + ` writes
+no address for it, so an agent started without yolo runs without it.
+
 Usage:
   yolo host [flags] -- <command> [args...]   run a command with the composed environment
   yolo host apply [flags]                    render config surfaces into your real home
@@ -143,6 +149,7 @@ env flags:
 Examples:
   yolo host -- claude                 # bare claude, with the composed environment
   yolo host -p bedrock -- claude      # ... on the bedrock profile, this launch only
+  yolo host -p codex -- claude        # claude on your ChatGPT subscription, bridged
   yolo -p bedrock host -- claude      # the same launch, with -p before host
   yolo host --with-credentials zai -- curl ...   # any command, handed zai's key
   yolo host --with-credentials all -- usage-bar   # every provider's key, keys only

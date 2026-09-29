@@ -54,7 +54,8 @@ let a host service keep one shared Claude or ChatGPT login fresh for every jail.
 [Logins →](guides/authentication.md)
 
 **Change providers without changing your workflow.** Pick a named profile at launch to point an
-agent at another model service; the in-jail wire bridge handles supported format mismatches.
+agent at another model service; the wire bridge handles supported format mismatches, in a jail and
+for a `yolo host` command alike.
 [Providers and models →](guides/providers-and-models.md)
 
 **Grant only the host access you need.** Your SSH keys, git credentials and cloud tokens stay out.

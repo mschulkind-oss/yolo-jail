@@ -1408,9 +1408,12 @@
                     binds the jail's own loopback, reads no host state, mounts nothing,
                     and so is never a claim.  The name
                     is sole-owned (the daemon log and the endpoint file are both
-                    name-keyed).  In this build the jail daemon runs under the existing
-                    supervisor and the host_daemon half is declared and carried, not yet
-                    executed (wire-bridge.md §2.1; the wire bridge is the first service).
+                    name-keyed).  The jail daemon runs under the existing supervisor.
+                    The host_daemon half (argv `yolo internal daemon <name>`) runs at
+                    `yolo host --` and on macos-user, as a child of the one launch whose
+                    agent is paired through the service, and stops when that agent exits;
+                    only a pack yolo ships may declare one that runs, and a fetched or
+                    local pack's is refused by name (host-notch-services.md OQ-HS4).
     AT THE HOST NOTCH (`yolo host apply`) THE KINDS BELOW DO NOT APPLY, and this is
     where the reason lives.  The report names them in one line and stops, because a
     reason is for the person changing a rule and not the person meeting it; what
@@ -1575,8 +1578,10 @@
     what address — so a provider that offers only `openai` reaches an anthropic-speaking
     agent with nothing in your config naming a port.  You need this key only when that
     port collides with something: harmless inside a container, where 127.0.0.1 is the
-    jail's own private loopback, and real on `macos-user`, where there is no network
-    namespace and the adapter's ports are HOST ports.
+    jail's own private loopback.  At `yolo host --` and on `macos-user` an adapter whose
+    own pack's service serves it (the wire bridge's) answers on a port that one launch
+    picks for the service it starts, and this override does not apply to it there; it
+    still moves an adapter no pack service serves (a gateway or a proxy you run).
     Each key is the CONVERSION, spelled "<from>-><to>" — the same pair the declaring pack
     claims, which is sole-owned.  The only field is `address`, an http/https URL; a key
     naming a conversion nothing declares is inert, and a null drops the override.
@@ -1627,8 +1632,12 @@
     this selection into the agents' real files too — pi's defaultProvider and
     defaultModel, codex's and opencode's model, claude's picker — when the chosen
     profile changes; a later /model pick of yours stands, and deselecting clears only
-    what yolo wrote.  A selection the host cannot run (a profile only a jail's service
-    serves) is left out and named.
+    what yolo wrote.  A selection the host cannot run is left out and named.  A
+    selection whose pairing runs through a pack service (claude on `codex` or
+    `cerebras`, through the wire bridge) writes no address anywhere: the service lives
+    only for the command that starts it, so the selection takes effect through
+    `yolo host -- <agent>` or the host wrappers, which start it, and `yolo host env`
+    refuses it.  An agent started any other way runs without it.
     Example: {"pi": "zai-fast", "codex": null}
 
   [bold]required_capabilities[/bold] (array of strings): Named capabilities this

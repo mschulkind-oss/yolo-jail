@@ -97,8 +97,14 @@ bridge** is a small service that runs inside the jail and translates between the
 like `yolo -p cerebras -- claude` still works. It comes in automatically with the packs that need
 it, and it is not a loophole: it runs entirely inside the jail and gives no access to your host.
 
-The wire bridge does not run on `macos-user` yet, so a profile that needs it is refused there, with
-the reason.
+On your own machine the bridge runs for one command. `yolo host -p codex -- claude` runs Claude
+Code on your ChatGPT subscription: yolo starts the bridge beside `claude`, lets only that `claude`
+use it, and stops it when `claude` exits. A `use_profiles` selection works the same way through
+`yolo host -- claude` and the host wrappers. `yolo host env` cannot start the bridge, so it refuses
+such a profile and names the command that works. `yolo host apply` writes no bridge address into
+your files, so a `claude` you start some other way, such as from an IDE that runs the program
+directly, runs on its own login instead. The `macos-user` backend works like the host: each launch
+that needs the bridge starts it outside the sandbox and stops it when the launch ends.
 
 ## Your own provider
 
