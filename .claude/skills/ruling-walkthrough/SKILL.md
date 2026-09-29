@@ -1,6 +1,6 @@
 ---
 name: ruling-walkthrough
-description: Use when the maintainer wants to go through open design questions (OQs) quickly in chat instead of reading the docs — pre-draft them, present two at a time in plain words, record each ruling in its doc, and keep builds moving in parallel.
+description: Use when the maintainer wants to go through open design questions (OQs) quickly in chat instead of reading the docs — pre-draft them, present four at a time in plain words, record each ruling in its doc, and keep builds moving in parallel.
 ---
 
 # Ruling walkthrough
@@ -21,7 +21,7 @@ live conversation, with low latency: the maintainer answers in chat, the agent r
    `<a id="OQ-…">` cannot be linked or ruled cleanly; sweep for them (a script over `docs/`) and
    add them in each doc's existing format before starting.
 3. **Order:** live defects first, then questions that release a build, then questions that only
-   close a doc. Pair questions that decide one thing together.
+   close a doc. Group questions that decide one thing into the same set.
 
 ## Presenting a pair
 
@@ -29,9 +29,10 @@ live conversation, with low latency: the maintainer answers in chat, the agent r
   sentences a newcomer can picture ("a repo's `mise.toml` pins node 22.4; you have 20 installed;
   you run `yolo host -- pi` there…"), BEFORE the options. A question stated only in the doc's own
   terms ("the stale-shim verdict", "one consent covers the refresh") gets "I don't get this".
-- **Two questions at a time**, in plain words, each with the leaning and what choosing it
-  changes for the user. No doc jargon without a one-phrase definition. Say "rule both as leaned,
-  or adjust?"
+- **Four questions at a time** (a "set"), in plain words, each with the leaning and what choosing
+  it changes for the user. No doc jargon without a one-phrase definition. Say "rule all four as
+  leaned, or adjust?" A question the maintainer asks to set aside is PARKED in a named group in the
+  queue file ("git from inside the jail"), not dropped, and the set is refilled from the queue.
 - **Every turn ends with the walkthrough panel**, emulating a UI, and nothing after it:
   1. **Answers:** every question or musing of the maintainer's that bears on an open pair goes
      INSIDE the panel, not above it — anything above scrolls by. It STAYS in every later panel
@@ -41,10 +42,10 @@ live conversation, with low latency: the maintainer answers in chat, the agent r
      was added to the queue.
   3. **Docs in play:** one line per doc touched this round — its state (reviewing, ruled,
      building, landed) and what is running on it.
-  4. **The current pair**, last.
-- **The pair is the LAST thing in the turn.** Status updates, landings and notifications come
-  first; the two questions close the message, so they are what the maintainer sees when the
-  turn ends. Never let a pair scroll by above later output.
+  4. **The current set**, last.
+- **The set is the LAST thing in the turn.** Status updates, landings and notifications come
+  first; the questions close the message, so they are what the maintainer sees when the
+  turn ends. Never let a set scroll by above later output.
 - **When the maintainer asks "what is this / why", answer the premise, not the options.** A
   "why X at all?" usually targets the assumption under the options table; say what problem it
   arises from, then re-present the pair.
@@ -121,3 +122,5 @@ edit this file in the same turn and commit it. Recorded adjustments:
   run as workflows, not single agents.
 - 2026-09-29: check why a thing sits where it does before calling an option an exception to a
   principle (the Mac credential adapters were in-jail only because a container has its own loopback).
+- 2026-09-29: four questions at a time instead of two; a question set aside is parked in a named
+  group, not dropped.
