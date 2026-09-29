@@ -239,7 +239,7 @@ func TestForeignJailFailsSplitsByContainer(t *testing.T) {
 		"  [PASS] Merged config is semantically valid",
 		"  [FAIL] loophole claude-oauth-broker @ yolo-002-aaaa: broker endpoint missing",
 		"  [FAIL] loophole openai-auth-broker @ yolo-002-mine: no endpoint published",
-		"  [FAIL] loophole claude-oauth-broker: stale PID file, pid 7 not running",
+		"  [FAIL] loophole claude-oauth-broker: daemon unreachable (pid=7, socket missing, not accepting)",
 		"  [FAIL] config.network.mode: bad value",
 		"  [WARN] loophole x @ yolo-002-bbbb: something",
 	}, "\n")
