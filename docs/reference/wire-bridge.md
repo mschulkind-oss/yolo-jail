@@ -8,11 +8,13 @@ covers:
   - internal/packload/needs.go
   - internal/packdecl/needs.go
   - internal/cli/run/packservices.go
+  - internal/cli/run/macosuserservices.go
+  - internal/launchservice/
   - internal/cli/run/providerlocal.go
   - internal/cli/run/hostports.go
   - packs/wire-bridge/
 tags: [packs, providers, services, claude, translation, needs, networking, diagnosis]
-summary: "An in-jail translating reverse proxy that manufactures an Anthropic-Messages endpoint on the jail's loopback for OpenAI chat-completions providers and Claude's Codex Responses profile, and passes a via agent's own OpenAI chat-completions or Responses traffic through to its provider — plus the `service` contribution kind and `needs`, a pack dependency resolved at selection."
+summary: "A translating reverse proxy, in a jail or run for one host or macos-user launch, that manufactures an Anthropic-Messages endpoint on the jail's loopback for OpenAI chat-completions providers and Claude's Codex Responses profile, and passes a via agent's own OpenAI chat-completions or Responses traffic through to its provider — plus the `service` contribution kind and `needs`, a pack dependency resolved at selection."
 ---
 
 # The wire bridge — an Anthropic endpoint on the jail's loopback
@@ -24,11 +26,14 @@ in-process reproduction, and no launch there has been observed succeeding
 ([what can hold the listen port](#what-can-hold-the-listen-port-before-the-bridge-does)).
 [The via route](#the-via-route--one-route-per-agent-under-agentname) was added 2026-09-25, and its
 Responses wire 2026-09-26. It is MEASURED in-process only, against a stubbed upstream; no agent has
-sent a request through it. [What the host notch does with the bridge's addresses](#at-the-host-notch)
-is newer still (2026-09-27), and is MEASURED through `hostMain` by unit tests in `internal/cli`.
+sent a request through it. [The host half](#at-the-host-notch) is newer still (2026-09-28): it is
+MEASURED through `hostMain` in `internal/cli`'s unit tests, a real host half serving a fake agent
+against a stubbed upstream and a fake host broker, and the macos-user arm by unit tests with the
+start stubbed. No agent CLI and no Mac have run it.
 
-A **wire bridge** *(coined here)* is an in-jail daemon that manufactures, on the jail's own
-loopback, a wire protocol a provider does not natively serve, by translating to one it does.
+A **wire bridge** *(coined here)* is a daemon that manufactures, on the agent's loopback, a wire
+protocol a provider does not natively serve, by translating to one it does. It runs in the jail,
+or, at the host and on macos-user, for one launch ([the host half](#at-the-host-notch)).
 Two translating routes exist: **Anthropic Messages → OpenAI chat-completions** for declared
 providers, and the Claude Codex-profile route to OpenAI Responses described in
 [`omp-and-codex-claude-profile.md`](omp-and-codex-claude-profile.md). A third kind translates
@@ -110,7 +115,9 @@ a namespace — a jail daemon, a host daemon, or both — plus its endpoint file
 and its reachability witness. **No grants, no boundary, no host state.**
 
 One kind carries both halves because they share the lifecycle, the endpoint and the witness, and
-differ only in which namespace the daemon lands in.
+differ only in which namespace the daemon lands in. Both run: a container launch runs the jail
+daemon, and a host or macos-user launch runs the host half for its own command
+([the host half](#at-the-host-notch)).
 
 The decomposition that makes this coherent, and the map for re-forming the existing loopholes
 around it:
@@ -456,7 +463,8 @@ Every request to every listener the bridge binds must carry the launch's **calle
 is refused `401` before any route sees it. The bridge forwards that token to no upstream.
 
 **Caller token** is a term this doc coins. It means a random secret of 256 bits, which the
-launcher mints for each launch that selects a pack service with a jail daemon. The bridge is the
+launcher mints for each launch that selects a pack service with a jail daemon, and for each host
+or macos-user launch that starts a service's [host half](#at-the-host-notch). The bridge is the
 only such service today. The launcher hands the secret to that daemon and to every agent a pack
 derive points at the daemon's addresses, and the daemon demands it of every caller. It is carried
 in `YOLO_SERVICE_<SERVICE>_TOKEN`, which for the bridge is `YOLO_SERVICE_WIRE_BRIDGE_TOKEN`.
@@ -473,11 +481,10 @@ for a jail with its own loopback. Three setups break it:
 - **A nested jail** shares its parent jail's loopback, because a nested podman is forced onto
   `--net=host`. That is the host's loopback only when the parent jail is itself on host mode.
 - **A `macos-user` launch** has no loopback of its own: its sandbox runs on the host. That backend
-  does not start the bridge's jail daemon yet, and until 2026-09-28 the launch still pointed
-  claude at the bridge's addresses. Those were host ports that nothing of yolo's ever binds, and
-  any local user could take one first. It now composes no address it does not serve, and a
-  profile that needs one is refused
-  ([notch convergence item 2](../plans/notch-convergence.md#tier-1--the-loopback-services-p3)).
+  starts no jail daemon, so it runs the bridge's [host half](#at-the-host-notch) instead, on a
+  port the launch picked and behind this token. Until 2026-09-28 the launch pointed claude at
+  the bridge's declared host ports, which nothing of yolo's ever bound and any local user could
+  take first.
 
 There the bridge's ports are reachable from every process on that loopback, other jails
 included. Such a process could spend the user's provider keys and ChatGPT subscription through
@@ -496,8 +503,8 @@ The maintainer's ruling, 2026-09-27, verbatim:
 > to be bridge type, they can be house type and then um it's identical. So uh if you think this is
 > an issue, we need to solve it in both places.
 
-"Both places" are this jail-side bridge and the host notch's bridge, which does not exist yet and
-will reuse this token. The ruling is [WB-D18](#wb-d18).
+"Both places" are this jail-side bridge and the host notch's bridge, which carries the same
+check ([the host half](#at-the-host-notch)). The ruling is [WB-D18](#wb-d18).
 
 ### How the token travels
 
@@ -751,67 +758,81 @@ listeners. These are the facts that survive:
 > disposition is per launch and names no service. Neither line means the bridge was given a
 > forward.
 
+## <a id="at-the-host-notch"></a>The host half — a bridge for one launch
+
+The host and `macos-user` run no jail daemon, so there the bridge runs as its service's **host
+half**: `packs/wire-bridge` declares `host_daemon` with the argv `yolo internal daemon
+wire-bridge`, and the launch runs it as a **launch-owned service** (a term
+[`host-notch-services.md`](../design/host-notch-services.md#12-terms) coins: a child of one
+launch, for the one agent it runs, stopped when that agent exits). The mechanism is
+`internal/launchservice`, which `yolo host --` and the macos-user arm share
+([OQ-NC1](../plans/notch-convergence.md#OQ-NC1) ruled A, [OQ-HS4](../design/host-notch-services.md#OQ-HS4)).
+
+- **The trigger is the gate's own refusal.** The launch composes with nothing served first. A
+  pairing only the bridge's adaptation resolves refuses at the protocol gate as
+  `UnservedAdapterError`, and a launch that owns its command then admits the service, plans it
+  and composes again with it served. So `yolo host -p codex -- claude` and `-p cerebras --
+  claude` start it, and copilot on cerebras, which speaks the provider's own wire, starts
+  nothing. On macos-user every profiled agent's pairing counts, since that arm writes every
+  profiled agent's env file.
+- **Only a pack yolo ships.** `launchservice.Admit` runs a host half only for a pack the
+  embedded set supplied (`packload.Pack.Official`) and only when its argv names `yolo`. A
+  fetched or local pack's host half is refused by name, and the refusal names the container jail
+  where the profile works.
+- **The address is the launch's.** Each of the bridge's adapter addresses moves to a loopback
+  port the launch picked, and a user's `adapters` override of those conversions does not apply
+  ([WB-D13](#wb-d13) at a jail only). The port is picked by binding port 0 and releasing it, so a
+  process that takes it first makes the bridge's own bind fail, and the launch refuses before the
+  agent starts.
+- **The inputs come from the launch, never from a jail path.** A 0600 file in a 0700 directory
+  of its own, named by `YOLO_HOST_SERVICE_INPUT` and removed by the bridge once read, carries the
+  three wire tables, the caller token, the host broker's private socket, and the `env_sources`
+  the credential gate delivers to the agent for its provider. Nothing is on the argv. The Codex
+  route takes its access-token view from the host socket (`openauthclient.RequestAccessTokenUnix`),
+  a key comes from that input or the bridge's own environment and never a key file, and no
+  endpoint file is published: the launch reads the readiness line instead. A via stays inert
+  outside a jail ([WG-I12](../design/wire-bridge-gateway.md#WG-I12)), so the host half serves
+  the adapter route alone, and a plan with nothing to serve fails its readiness and exits.
+- **Its life is the launch's.** The launch starts it after the agent resolves on `PATH` and
+  after the OpenAI prelaunch, waits at most 5 seconds for `ready wire-bridge` on the readiness
+  pipe, and refuses otherwise, naming the service, its argv and its log. It then runs the agent
+  as its own child: SIGTERM and SIGHUP are forwarded to the agent, and a terminal's SIGINT
+  reaches the agent alone, since the bridge runs in its own process group. When the agent exits,
+  by any route, the bridge gets SIGTERM and, 2 seconds later, SIGKILL. If the launch dies without
+  cleanup, the bridge sees its lifeline pipe close and exits at once. A bridge that dies
+  mid-session is named on stderr once and not restarted.
+- **It is said.** Every start prints one line naming the service, its pack, its pid, its
+  address and its log. `yolo host env` refuses a bridged profile, naming the `yolo host --`
+  spelling, and `yolo host apply` writes no bridged address and says a bridged `use_profiles`
+  selection takes effect only through `yolo host --` or the wrappers.
+
+```console
+$ yolo host -p codex -- claude
+yolo host: + aws-auth (needed by claude)
+yolo host: + openai-auth (needed by claude)
+yolo host: + wire-bridge (needed by claude)
+yolo host: Profile codex: declared: claude; received: aws-auth, claude, openai-auth, wire-bridge
+yolo host: started the "wire-bridge" service (pack "wire-bridge", pid 96868) for claude on 127.0.0.1:36501; it answers only this launch's caller token and stops when claude exits. Its log: ~/.local/share/yolo-jail/logs/launch-service-wire-bridge.log
+```
+
+That is the stderr of `TestHostCodexClaudeRunsThroughALaunchOwnedBridge`'s launch, with the log
+path shortened; the pid and port are the kernel's, the cause lines are [WB-D12](#wb-d12)'s, and a
+machine never logged in to OpenAI prints the prelaunch's login lines before the service line. <a id="no-macos-user-bridge"></a>On **macos-user** the same host half runs
+outside Seatbelt, started after the launch's host services and stopped when the sandboxed command
+returns. The jail-daemon decline names the bridge's jail daemon with "(its host half runs for this
+launch instead)". A dry run says what it would start. The host socket and the sandbox's reach to
+the picked port have not run on a Mac: the macos-user arm is pinned by unit tests only.
+
 ## What this does not license
 
 - **No second protocol family.** A bridge for a different wire (and therefore a different agent)
   is a different document with its own cost case.
 - **No gateway features** — routing, failover, budgets, multi-provider fan-out, or model-name
   remapping beyond passthrough.
-- **No host-side bridge, as a v1 deferral.** The bridge exists only in-jail. The 2026-09-04
-  design scoped that to v1 ("`yolo host -- claude` gets no bridged routing in v1"), and the
-  words "in v1" were dropped when the text moved here; no ruling rules a host bridge out.
-  [`host-notch-services.md`](../design/host-notch-services.md) reopens it. Of the two facts that
-  design has to answer, caller authentication ([WB-D18](#wb-d18)) now settles the first — every
-  caller carries a per-launch token, so the bridge no longer trusts whatever reaches its port —
-  and it settles the second for every bridged client, since each one is handed that token as its
-  auth (for claude, `ANTHROPIC_AUTH_TOKEN`) and so no longer sends its own login to the bridge
-  ([agent-auth-modes.md §8.1](../design/agent-auth-modes.md#81-measured-2026-09-02-the-subscription-bearer-follows-anthropic_base_url)).
-  What stays open is where a host bridge listens and how long it lives. The code has no jail dependencies, which
-  is what keeps the door open for a host notch to run the same subcommand. <a id="at-the-host-notch"></a>**Until then `yolo host` composes none of
-  its addresses** (2026-09-27, [ES-D18](../design/credential-sources-separation.md#10-decision-ledger)).
-  The pack joins a host launch the way it joins a jail's: through a selected pack's `needs`
-  (claude's names it unconditionally) or a line in `packs`, since every host verb selects
-  through the one selection function
-  ([notch convergence item 6](../plans/notch-convergence.md#tier-2--one-selection-p1-p2)). That
-  revises [ES-D24](../design/credential-sources-separation.md#10-decision-ledger), which kept the
-  host off `needs` because it would add aws-auth's jail-only credential address to
-  `yolo host -p bedrock -- claude`; that address is now withheld and named where its daemon does
-  not run. The host composes its provider table with
-  nothing served (`packload.ComposeProvidersAt` with `packload.NothingServed()`, the composition
-  every notch calls): an adaptation whose own pack serves it with a `service` contributes no
-  address, since nothing at the host listens on it. The via address is cleared the same way, by
-  `packload.ViaServedAt` ([WG-I12](../design/wire-bridge-gateway.md#WG-I12)). Since 2026-09-28
-  macos-user composes the same way, since it runs no jail daemon either
-  ([notch convergence item 2](../plans/notch-convergence.md#tier-1--the-loopback-services-p3)).
-  Two outcomes follow. An agent that also speaks the provider's own wire runs on that endpoint:
-  copilot on cerebras goes to cerebras's openai endpoint, as it does with wire-bridge unlisted.
-  An agent that does not REFUSES, before anything is exec'd, and so does `yolo host env`. The
-  refusal names the profile, the address and the service that serves it in a container jail, and
-  the jail spelling where the profile works. That spelling is for podman or Apple Container. Under
-  macos-user the bridge does not run either ([below](#no-macos-user-bridge)), so the refusal says
-  so and names `YOLO_RUNTIME` as the dial that picks a container backend for one launch
-  ([ES-D20](../design/credential-sources-separation.md#10-decision-ledger)). With `wire-bridge`
-  listed:
-
-  ```console
-  $ yolo host -p cerebras -- claude
-  yolo host: refusing to launch: profile "cerebras" would point claude at http://127.0.0.1:8214, where pack "wire-bridge" adapts "openai" → "anthropic" for provider "cerebras" — and that address is served by the pack's own "wire-bridge" service, a daemon yolo runs only in a container jail. No host process serves it, so `yolo host` will not run claude pointed at it, though "wire-bridge" is in `packs`.
-    The profile works in a container jail (podman or Apple Container), where that service runs: `yolo -p claude=cerebras -- claude`, which is a jail launch, not a `yolo host` one. The macos-user backend starts no jail daemons, so the service does not run there either; `YOLO_RUNTIME=podman` or `YOLO_RUNTIME=container` picks a container backend for one launch.
-    At the host, choose a profile whose provider claude speaks to directly
-  ```
-
-  With it unlisted, the refusal is the same one, ending
-  ``and adding "wire-bridge" to `packs` does not change that here`` ([ES-D19](../design/credential-sources-separation.md#10-decision-ledger)).
-  The ordinary pairing refusal would say instead to add the pack to `packs` and the pairing
-  resolves, which is true in a jail and false here, so the host never says it. The gate is
-  handed every adaptation this notch can never serve, the unselected shipped packs' included
-  (`packload.UnservedAdaptationsAt`). A pairing only one of them resolves then refuses as
-  `UnservedAdapterError`, never as that remedy.
-
-  Before this, that launch ran claude with `ANTHROPIC_BASE_URL=http://127.0.0.1:8214`, an
-  address no host process serves. An adapter whose pack runs no service, such as a remote gateway
-  or a proxy the user runs, still composes at the host
-  ([`protocol-resolution.md`](protocol-resolution.md#the-three-declarations)).
+- **No long-lived host bridge.** A host bridge lives only for the launch that starts it
+  ([OQ-HS3](../design/host-notch-services.md#OQ-HS3), ruled 2026-09-28), so nothing at the host
+  listens between launches and no file names its address. An agent started without yolo runs
+  without the bridge, which the ruling accepts.
 - **No unauthenticated caller.** It stopped being true that the jail is the trust boundary, so the
   bridge grew auth before it grew anything else: every request carries the launch's caller token
   or is refused ([caller authentication](#caller-authentication), [WB-D18](#wb-d18)).
@@ -819,13 +840,6 @@ listeners. These are the facts that survive:
   exactly one user-scope override (`adapters.<from>-><to>.address`) and nothing else: a provider
   cannot move it, and a workspace config cannot set it at all. The override moves the bind and the
   agent's URL together, on both routes — see [the listen address](#the-listen-address).
-- <a id="no-macos-user-bridge"></a>**No `macos-user` bridge.** That backend starts no jail
-  daemons: a launch there names each declared one, the bridge included, as not running, and does
-  not fail. It composes none of the bridge's addresses either: a profile that needs one is
-  refused as at the host, and a via is left out and named (since 2026-09-28). It also has no network
-  namespace, so an adapter's port there would be a host port, and nothing in
-  [what can hold the listen port](#what-can-hold-the-listen-port-before-the-bridge-does) has been
-  worked through for that blast radius.
 
 ## Open questions
 
@@ -900,6 +914,7 @@ Rulings a future change would otherwise undo, with their original IDs.
 | <a id="oq-pc2"></a>[**OQ-PC2**](#oq-pc2) — an implicit provider forward is disclosed: one launch line per port naming the provider, and the briefing's Forwarded Host Ports section fed from the merged list | A forward is a hole into the host, and the user's own config cannot be grepped for a port they never wrote. The launch has no quiet mode ([`OQ-RO3`](report-tiers.md#why-its-this-way)), so the line is permanent, and that is right: it reports something yolo **did** (it bound a port in the jail and opened a socket on the host), not an absence. Do not gate it, and do not move it after the merge, where the declared and implicit ports can no longer be told apart. |
 | <a id="oq-pc3"></a>[**OQ-PC3**](#oq-pc3) — the orphan check keeps its detection and refuses, naming each orphan's PID; it never kills and never adopts | `SIGKILL` on an argv match acts irreversibly on an *inference* about ownership. A straight revert would lose the only guard against an in-container fault that prints the bridge's bind error. Adoption is rejected because an orphan's supervisor is gone, so the orphan holds no readiness pipe. Adopting it would treat a process as serving its endpoint on the strength of its argv, which is the same inference. |
 | <a id="wb-d17"></a>[**WB-D17**](#wb-d17) — more than one agent bin is a bridge consumer, and the serve predicate walks every active profile | Found while building: a derive that *prefers* an anthropic endpoint when a provider declares one makes that agent a consumer too, and a single-bin condition would have shipped those launches a dead URL with no bridge included. |
+| <a id="wb-d19"></a>[**WB-D19**](#wb-d19) — at the host and on macos-user the bridge runs as its service's host half, a launch-owned child for one launch's agent, on ports that launch picked, fed by a 0600 input file, stopped with the agent; only an official pack's host half runs (2026-09-28) | The maintainer ruled every notch runs the selected packs' services ([OQ-NC1](../plans/notch-convergence.md#OQ-NC1), A) and that a host service lives per launch ([OQ-HS3](../design/host-notch-services.md#OQ-HS3)). The mechanism and its decisions are [`host-notch-services.md`](../design/host-notch-services.md)'s HS-D rows; see [the host half](#at-the-host-notch). |
 | <a id="wb-d18"></a>[**WB-D18**](#wb-d18) — every request carries the launch's caller token or is refused `401`; the token is minted per launch, reused by an attach, delivered only through the per-entry channel, and never forwarded upstream (2026-09-28) | The maintainer, 2026-09-27: *"calling the jail the boundary here seems also just as bad for security because jails don't need to be bridge type, they can be house type and then um it's identical. So uh if you think this is an issue, we need to solve it in both places."* A jail on the host's loopback shares the bridge's ports with every host process, and a client sends its real credential to whatever holds the port. For claude, the Claude login went too ([§8.1](../design/agent-auth-modes.md#81-measured-2026-09-02-the-subscription-bearer-follows-anthropic_base_url)). The token is the one credential a bridged client may send there, so the address names it, and the host notch's bridge will reuse it. See [caller authentication](#caller-authentication). |
 
 ## Current values
@@ -930,6 +945,11 @@ only place the values themselves are stated.
 | Host forward log | `~/.local/share/yolo-jail/logs/<cname>-socat.log`, created only when a launch forwards a port | `internal/cli/run/network.go` |
 | In-jail forward log | `~/.yolo-socat.log` | `entrypoint.startContainerPortForwarding` |
 | Hold a refused boot open | `YOLO_HOLD_ON_REFUSAL=1` | `paths.HoldOnRefusalEnv` |
+| Host half argv (added 2026-09-28) | `yolo internal daemon wire-bridge`, resolved to the launch's own binary | `packs/wire-bridge/pack.json`; `wirebridged.HostMain`; `launchservice.SelfExec` |
+| Host half input file | named by `YOLO_HOST_SERVICE_INPUT`, `0600` in a `0700` temp dir, removed once read | `launchservice.InputEnv`, `launchservice.Input` |
+| Host half lifeline | descriptor 4, named by `YOLO_HOST_SERVICE_LIFELINE_FD`; EOF ends the bridge | `launchservice.LifelineFDEnv`, `launchservice.Lifeline` |
+| Host half readiness wait, stop grace | 5 seconds; SIGTERM then SIGKILL after 2 seconds | `launchservice.ReadyTimeout`, `launchservice.StopGrace` |
+| Host half log | `~/.local/share/yolo-jail/logs/launch-service-wire-bridge.log`, appended by every launch | `launchservice.LogPath` |
 | Selection inputs the daemon re-reads | the composed providers, use-profiles and resolved-profiles tables | `wirebridged.routeFor` |
 | `needs` entry fields | the pack name, and the bin condition | `internal/packdecl/needs.go` |
 | Manifest top-level keys | see [`pack-system.md`](pack-system.md)'s Current values | `packdecl.Manifest` |

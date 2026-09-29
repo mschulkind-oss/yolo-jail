@@ -302,17 +302,17 @@ refuses, naming the known ones. Only the typed flag grants, and a jail launch gi
 ([OQ-ES5](../design/credential-sources-separation.md#OQ-ES5), ruled for the host;
 [ES-D13 to ES-D17](../design/credential-sources-separation.md#10-decision-ledger)).
 
-**A profile that would point the agent at the in-jail bridge refuses.** No host process serves
-the wire bridge, so the host's provider table carries none of the adapter addresses a pack's own
-`service` serves. `yolo host -p cerebras -- claude` and `yolo host env --agent claude -p cerebras`
-refuse, whether `wire-bridge` is in `packs` or not. The refusal names the address, which the
-bridge serves only in a container jail, says listing the pack changes nothing here, and gives
-`yolo -p claude=cerebras -- claude` as the launch where the profile works, on podman or Apple
-Container. The macos-user backend starts no jail daemons, so the refusal says the bridge does not
-run there either and names `YOLO_RUNTIME` as the dial that picks a container backend for one
-launch. It never tells the user to add `wire-bridge` to `packs`. An agent that also speaks the provider's own wire runs on it directly
+**A profile the wire bridge serves starts the bridge for that launch.** `yolo host -p cerebras --
+claude` and `yolo host -p codex -- claude` start the bridge's host half as the launch's own
+child, on a loopback port it picked, answering only that launch's caller token, which claude gets
+as `ANTHROPIC_AUTH_TOKEN`; the launch stays resident and stops the bridge when claude exits,
+by any route. `yolo host env` refuses such a profile, naming the `yolo host --` spelling, and
+`yolo host apply` renders no address for a bridged `use_profiles` selection and says so. A
+bridge the launch cannot start refuses, naming why and `yolo -p claude=<profile> -- claude` as
+the container launch where the profile works. An agent that also speaks the provider's own wire
+runs on it directly
 ([`wire-bridge.md`](wire-bridge.md#at-the-host-notch),
-[ES-D18 to ES-D20](../design/credential-sources-separation.md#10-decision-ledger)).
+[`host-notch-services.md`](../design/host-notch-services.md)).
 
 ## apply reports actions, check reports state
 

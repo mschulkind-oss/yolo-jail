@@ -9,6 +9,17 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+**`yolo host -p codex -- claude` now runs Claude Code on your ChatGPT subscription, as it does in
+a jail.** yolo starts the wire bridge for that one command, lets only that `claude` use it, and
+stops it when `claude` exits. The same goes for other profiles that need the bridge, such as
+`-p cerebras -- claude`, and for a `use_profiles` selection through `yolo host -- claude` and the
+host wrappers. The `macos-user` backend now runs the bridge the same way for each launch that
+needs it, so those profiles work there too instead of being refused. Because the bridge runs only
+for the command that starts it, `yolo host env` refuses such a profile and names the command that
+works, and `yolo host apply` writes no bridge address into your files and says so; a `claude` you
+start some other way runs on its own login. See
+[the wire bridge](userguide/guides/providers-and-models.md#the-wire-bridge).
+
 pi's subagents can now use your MCP servers. When the pi-subagents extension is in pi's
 packages, a jail also writes the MCP servers you configure to `~/.config/mcp/mcp.json`, the file
 pi-subagents reads when an agent lists `mcp:` tools; before, subagents could not see them. A file

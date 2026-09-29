@@ -1,20 +1,22 @@
 ---
 title: "A pack's service runs wherever its agent runs"
 date: 2026-09-28
-status: in-review
+status: accepted
 tags: [design, services, wire-bridge, host, notches, profiles, credentials, macos-user]
-summary: "The full shape of notch-convergence OQ-NC1's option A for the host: yolo host starts each needed service that declares a host half as a child of that one launch, on a per-launch loopback port, answering only callers that carry the per-launch caller secret NC-D2 rules for every notch. Whether the host runs services at all is OQ-NC1's; this doc owns two questions under its option A (lifetime, and how a pack declares its host half) and five implementation decisions, three of them built on a sibling branch or owned by notch-convergence items."
+summary: "Built 2026-09-28: yolo host and the macos-user launch start each needed pack service's host half as a child of that one launch, on a loopback port it picked, answering only that launch's caller token, and stop it when the agent exits (OQ-NC1 ruled A, OQ-HS3 per launch, OQ-HS4 as leaned). This doc holds the shape, the two rulings under OQ-NC1's option A, and the implementation decisions HS-D1 to HS-D14."
 vantage:
   status-chip: true
 ---
 
 # A pack's service runs wherever its agent runs
 
-**Status:** DESIGN, 2026-09-28. The host half is not built. Evidence verified at `1baf1fd4`
-(MEASURED, [Appendix A](#appendix-a--the-measured-runs)), then reconciled against `main` at
-`e5150a03` and against branch `worktree-wf_392bd9fc-1fb-1` at `bc08a408`, which builds three
-things this doc once listed as unbuilt (ES-D25, ES-D27 and ES-D28, and the Codex route's
-integration test). That branch is not on `main`.
+**Status:** BUILT 2026-09-28: the mechanism `f8a99ed2`, the host launch `c36fe7d0`, macos-user
+`5a626c94`, and the disclosure's address list `86dcd480`
+([§11](#11-decision-ledger), HS-D6 to HS-D14). MEASURED by unit tests through `hostMain` and
+through the macos-user arm of `run.Run`: a real host half, run by the test binary standing in
+for `yolo`, serves a fake agent against a stubbed upstream and a fake host broker. No agent CLI
+has run it, and the macos-user arm has not run on a Mac. The pre-build evidence was verified at
+`1baf1fd4` ([Appendix A](#appendix-a--the-measured-runs)).
 
 > **In short.** A service a selected pack needs is part of the environment description, not
 > part of the jail. So if the host runs pack services at all
@@ -22,9 +24,10 @@ integration test). That branch is not on `main`.
 > service that declares a host half as a child of that one launch: on a port the launch picks,
 > answering only callers that carry the launch's caller secret, and gone when the agent exits.
 
-**Why it matters.** At `1baf1fd4`, `yolo host -p codex -- claude` exits 0 and runs claude on the
-Claude login while its status line says `codex (bridge) · host` ([§2](#2-what-the-host-does-today-measured)).
-The sibling branch turns that into a refusal. This doc is what would make it work.
+**Why it matters.** At `1baf1fd4`, `yolo host -p codex -- claude` exited 0 and ran claude on the
+Claude login while its status line said `codex (bridge) · host` ([§2](#2-what-the-host-does-today-measured)).
+Then it refused. It now runs claude on the ChatGPT subscription through a bridge that lives for
+that one command.
 
 **The shape.** The jail's one selection function at the host, one **launch-owned service**
 ([§1.2](#12-terms)) per bridged launch, and one address and caller secret the launch hands to both.
@@ -34,12 +37,14 @@ a bridged profile.
 
 **Start at [§4](#4-the-proposed-shape)**, the shape. The questions fall out of it.
 
-**Rulings:** [OQ-HS3](#OQ-HS3), per launch (the maintainer, 2026-09-28), and [OQ-HS4](#OQ-HS4), decided as leaned. Nothing here awaits a ruling; the build is the remaining work.
+**Rulings:** [OQ-HS3](#OQ-HS3), per launch (the maintainer, 2026-09-28), and [OQ-HS4](#OQ-HS4), decided as leaned. Both are built. Nothing here awaits a ruling.
 
 **Reads with:** [`notch-convergence.md`](../plans/notch-convergence.md) (the plan this doc is
 item 3 of: it owns whether the host runs services, the caller-secret ruling, and the selection
 and served-address items this design sits on), and [§12](#12-the-neighbors) (the other siblings,
-one line each). No implementation sketch is open yet.
+one line each). The code is `internal/launchservice` (admission, plan, start, stop, the agent's run),
+`internal/wirebridged/hosthalf.go` (the bridge's host half), `internal/cli/host.go` (the host
+launch) and `internal/cli/run/macosuserservices.go` (the macos-user arm).
 
 ---
 
@@ -188,7 +193,10 @@ Neither is a ruling, so reopening them overturns nothing.
 | Host `-p` stays name-only | `582ae850`'s body: *"yolo host's own -p stays name-only: host launches one agent, so there is no command-dependence to remove there."* `ba1763ab` graduated the plan's trap into [`providers.md`](../reference/providers.md)'s warning | an implementer's note, about the timing meaning of `-p`, not the pair grammar. ES-D27 deletes the warning on the sibling branch |
 | The host refuses a bridged profile | ES-D18, ES-D19, ES-D20 | *Implementation decision* rows |
 
-> [!WARNING]
+> [!NOTE]
+> **Resolved 2026-09-28 by [HS-D7](#HS-D7).** The warning below held until the host half was
+> built: the host half now takes every input from the launch's input file.
+>
 > **"The code has no jail dependencies" is no longer true of the bridge.** `internal/wirebridged`
 > publishes `EndpointFile` under `paths.JailHostServicesDir`, reads its upstream key from the
 > jail's env files (`entrypoint.AgentEnvFile`), and reaches the OpenAI broker through the jail's
@@ -347,7 +355,8 @@ One agent resolves one pairing, so a launch starts **zero or one** service.
 ### 4.4 Lifetime
 
 The launch-owned service follows the managed Codex shape: `yolo host` stays resident as the
-parent of both processes (`Launch.Run`). This is [OQ-HS3](#OQ-HS3)'s leaning.
+parent of both processes (`launchservice.RunAgent`). This is [OQ-HS3](#OQ-HS3)'s ruling, and
+[HS-D11](#HS-D11) records how each step below is met.
 
 1. **Order.** Pre-flights, then resolving the agent on `PATH`, then the service, then the agent.
    A missing agent exits 127 as it does today and never starts a service.
@@ -457,7 +466,7 @@ Two facts go with that choice:
 - **A service that serves no adaptation** (a pure worker). No trigger in
   [§4.2](#42-the-trigger) starts one.
 
-## 8. What I would build, in order
+## 8. What was built, in order
 
 Already built on branch `worktree-wf_392bd9fc-1fb-1`, not yet on `main`: the `-p` grammar
 ([HS-D2](#HS-D2), as ES-D27), the refusal for a provider the launch does not hold (ES-D25), the
@@ -471,22 +480,31 @@ unit tests covered that route (`TestResponsesNonStreamRoundTrip` in
 2. **Served addresses**, notch-convergence item 2, so no notch hands on a pointer nothing serves.
 3. **[HS-D1](#HS-D1), the selection closure at the host**, notch-convergence item 6, after
    step 2.
-4. **The host half**, once [OQ-NC1](../plans/notch-convergence.md#OQ-NC1) takes option A and
-   [OQ-HS3](#OQ-HS3) and [OQ-HS4](#OQ-HS4) are ruled, with [HS-D3](#HS-D3), the host half of
-   [HS-D4](#HS-D4), and [HS-D5](#HS-D5).
-5. **`macos-user`**, as [§4.7](#47-macos-user) says, under the same ruling.
+4. **The host half**, with [HS-D3](#HS-D3), the host half of [HS-D4](#HS-D4), and
+   [HS-D5](#HS-D5). ✅ `f8a99ed2`, `c36fe7d0`.
+5. **`macos-user`**, as [§4.7](#47-macos-user) says. ✅ `5a626c94`.
 
 ## 9. What done looks like
 
-- With `"packs": ["claude"]`, `yolo host -p codex -- claude` hands claude
+Each item is pinned by a named test, in-process, with a fake agent (none is an agent CLI), except
+where the item says otherwise.
+
+- ✅ With `"packs": ["claude"]`, `yolo host -p codex -- claude` hands claude
   `ANTHROPIC_BASE_URL=http://127.0.0.1:<port>`, an `ANTHROPIC_AUTH_TOKEN`, and the codex model
-  variables. A bridge process exists while claude runs and is gone after it exits.
-- `yolo -p codex host -- claude`, `yolo --at host -p codex -- claude`, `use_profiles`, and
-  `yolo host -p claude=codex -- claude` all do the same.
-- A request to that port without the secret gets `401`. With it, the request is forwarded.
-- On a machine never logged in to OpenAI, the launch runs the login before claude starts.
-- `yolo host env --agent claude -p codex` refuses and names the `yolo host -- claude` spelling.
-- Two concurrent `yolo host -p codex -- claude` launches both work.
+  variables. A bridge process exists while claude runs and is gone after it exits
+  (`TestHostCodexClaudeRunsThroughALaunchOwnedBridge`; the signal route,
+  `TestHostServiceStopsWhenTheAgentDiesOfASignal`).
+- ✅ `yolo -p codex host -- claude`, `yolo --at host -p codex -- claude`, `use_profiles`, and
+  `yolo host -p claude=codex -- claude` all do the same
+  (`TestEveryHostSpellingOfClaudeOnCodexStartsTheBridge`, `TestHostPairStartsTheBridgeInBothOrders`).
+- ✅ A request to that port without the secret gets `401`. With it, the request is forwarded.
+- ✅ On a machine never logged in to OpenAI, the launch runs the login before claude starts: the
+  claude pack's `codex` profile declares the login prelaunch, which runs before the service
+  starts ([HS-D4](#HS-D4)). Pinned by the prelaunch's own tests, not by this launch's, which stub it.
+- ✅ `yolo host env --agent claude -p codex` refuses and names the `yolo host -p codex -- claude`
+  spelling (`TestHostEnvRefusesABridgedProfile`).
+- Two concurrent `yolo host -p codex -- claude` launches both work. By construction (two plans,
+  two picked ports, two tokens, [HS-D9](#HS-D9)); UNMEASURED end to end.
 - `yolo host -p bedrock -- claude` with `"packs": ["claude"]` hands claude no
   `AWS_CONTAINER_CREDENTIALS_FULL_URI`, and says so on stderr.
 - `yolo host env --agent codex` with `"packs": ["codex"]` exports no
@@ -568,19 +586,28 @@ option A and are moot under its option B.
 
 ## 11. Decision Ledger
 
-No ruling has been made in this doc. The rulings it rests on are notch-convergence's
-([NC-D1 and NC-D2](../plans/notch-convergence.md#7-decision-ledger)). These are the mechanism
-choices under the design; two are built on branch `worktree-wf_392bd9fc-1fb-1`, not yet on `main`.
+The rulings are the maintainer's [OQ-HS3](#OQ-HS3) and notch-convergence's
+([NC-D1, NC-D2](../plans/notch-convergence.md#7-decision-ledger), [OQ-NC1](../plans/notch-convergence.md#OQ-NC1)).
+The rest are mechanism choices under the design. HS-D6 to HS-D14 were made while building it.
 
 | ID | Ruling / Decision | Date | Settled in | Built |
 | :--- | :--- | :--- | :--- | :--- |
-| [OQ-HS3](#OQ-HS3) | **Maintainer ruling:** a host service lives for one launch; an agent launched without yolo lacking the bridged feature is accepted | 2026-09-28 | [§10](#10-open-questions) | pending |
-| [OQ-HS4](#OQ-HS4) | *Implementation decision under HS3*, as leaned: the `host_daemon` slot run generically by the launch; embedded official packs only, a fetched pack's host half refused by name | 2026-09-28 | [§10](#10-open-questions) | pending |
-| <a id="HS-D1"></a>[`HS-D1`](#11-decision-ledger) | *Implementation decision, on [NC-D4](../plans/notch-convergence.md#7-decision-ledger).* The host runs the jail's selection closure through notch-convergence item 6's one selection function, after item 2. That revises the sibling branch's ES-D24, whose reason item 2 removes, and [WG-I8](wire-bridge-gateway.md#WG-I8)'s *"`yolo host` runs neither closure"*. Two requirements on those items come from here. First, every pointer at **any** jail daemon is dropped at the host and named on stderr, whichever pack declares it: `aws-auth`'s `1461` and the codex pack's `1460`, which `openai-auth`'s daemon serves (MEASURED reaching `yolo host env --agent codex`), while a pointer the host itself serves, as `openaiauthhost.Prepare` serves `1460` at `yolo host -- codex`, is kept with no notice. Second, ES-D18's refusal words a pack that joined through `needs` as joined, for example *"wire-bridge, which claude needs"*, and never says it is in `packs`: today its `Selected` branch prints *"though %q is in `packs`"* for any selected pack (`unservedAdapterRefusal` in [`host.go`](../../internal/cli/host.go)), which a closure-added pack would make false | 2026-09-28 | [§4.1](#41-selection-the-jails-closure-at-the-host) | — |
+| [OQ-HS3](#OQ-HS3) | **Maintainer ruling:** a host service lives for one launch; an agent launched without yolo lacking the bridged feature is accepted | 2026-09-28 | [§10](#10-open-questions) | ✅ `c36fe7d0` |
+| [OQ-HS4](#OQ-HS4) | *Implementation decision under HS3*, as leaned: the `host_daemon` slot run generically by the launch; embedded official packs only, a fetched pack's host half refused by name | 2026-09-28 | [§10](#10-open-questions) | ✅ `f8a99ed2` |
+| <a id="HS-D1"></a>[`HS-D1`](#11-decision-ledger) | *Implementation decision, on [NC-D4](../plans/notch-convergence.md#7-decision-ledger).* The host runs the jail's selection closure through notch-convergence item 6's one selection function, after item 2. That revises the sibling branch's ES-D24, whose reason item 2 removes, and [WG-I8](wire-bridge-gateway.md#WG-I8)'s *"`yolo host` runs neither closure"*. Two requirements on those items come from here. First, every pointer at **any** jail daemon is dropped at the host and named on stderr, whichever pack declares it: `aws-auth`'s `1461` and the codex pack's `1460`, which `openai-auth`'s daemon serves (MEASURED reaching `yolo host env --agent codex`), while a pointer the host itself serves, as `openaiauthhost.Prepare` serves `1460` at `yolo host -- codex`, is kept with no notice. Second, ES-D18's refusal words a pack that joined through `needs` as joined, for example *"wire-bridge, which claude needs"*, and never says it is in `packs`: today its `Selected` branch prints *"though %q is in `packs`"* for any selected pack (`unservedAdapterRefusal` in [`host.go`](../../internal/cli/host.go)), which a closure-added pack would make false | 2026-09-28 | [§4.1](#41-selection-the-jails-closure-at-the-host) | ✅ `a4119e13` (notch-convergence item 6) |
 | <a id="HS-D2"></a>[`HS-D2`](#11-decision-ledger) | *Implementation decision.* `yolo host` and `yolo host env` read `-p` in the run path's grammar. This is ES-D27 ([ledger](credential-sources-separation.md#10-decision-ledger)) on the sibling branch, and that row is the authority: one parser (`parseProfileValue`), a pair naming the composed command means the bare name, a pair naming another CLI refuses by name, and `providers.md`'s "do not unify" warning is deleted | 2026-09-28 | [§2.1](#21-the-five-causes) | ✅ `3830c102`, branch `worktree-wf_392bd9fc-1fb-1` |
-| <a id="HS-D3"></a>[`HS-D3`](#11-decision-ledger) | *Implementation decision.* A host half's OpenAI credential comes from the host broker's private socket, through `openauthclient.RequestUnix` on `openaiauthdaemon.HostSocketPath`, the path managed host Codex and pi already use (`openaiauthhost`), and never through a jail endpoint file. The service receives access-token views only, never a refresh token ([`openai-auth-broker.md` §2](openai-auth-broker.md#2-one-writer-and-two-views)). Contingent on [OQ-NC1](../plans/notch-convergence.md#OQ-NC1)'s option A | 2026-09-28 | [§4.3](#43-the-address-and-the-caller-secret) | — |
-| <a id="HS-D4"></a>[`HS-D4`](#11-decision-ledger) | *Implementation decision,* in two halves. **The jail half needs no ruling and is built:** a claude jail on `codex` ensures the OpenAI login before claude starts (ES-D28, [ledger](credential-sources-separation.md#10-decision-ledger)). **The host half is contingent on [OQ-NC1](../plans/notch-convergence.md#OQ-NC1)'s option A**, since without a host bridge a bridged claude refuses before any login matters: a bridged host launch makes sure of the login before it starts the agent, through notch-convergence item 15's declarative prelaunch reading ES-D28's gate, logging in only at a terminal and otherwise saying the login is required and continuing | 2026-09-28 | [§4.5](#45-failure-paths) | jail half ✅ `d798101b`, branch `worktree-wf_392bd9fc-1fb-1`; host half — |
-| <a id="HS-D5"></a>[`HS-D5`](#11-decision-ledger) | *Implementation decision.* ES-D18's refusal narrows to four cases: an adaptation whose service declares no host half, one whose pack [OQ-HS4](#OQ-HS4)'s gate refuses, a host half that fails to start, and `yolo host env`, which owns no lifetime. ES-D19's rule stands: never tell the user to list a pack when listing it resolves nothing, and [HS-D1](#HS-D1) adds its converse. ES-D18 to ES-D20 are implementation decisions, so this revises no ruling. Contingent on [OQ-NC1](../plans/notch-convergence.md#OQ-NC1)'s option A | 2026-09-28 | [§4.5](#45-failure-paths) | — |
+| <a id="HS-D3"></a>[`HS-D3`](#11-decision-ledger) | *Implementation decision.* A host half's OpenAI credential comes from the host broker's private socket, through `openauthclient.RequestUnix` on `openaiauthdaemon.HostSocketPath`, the path managed host Codex and pi already use (`openaiauthhost`), and never through a jail endpoint file. The service receives access-token views only, never a refresh token ([`openai-auth-broker.md` §2](openai-auth-broker.md#2-one-writer-and-two-views)). Contingent on [OQ-NC1](../plans/notch-convergence.md#OQ-NC1)'s option A, ruled | 2026-09-28 | [§4.3](#43-the-address-and-the-caller-secret) | ✅ `f8a99ed2` |
+| <a id="HS-D4"></a>[`HS-D4`](#11-decision-ledger) | *Implementation decision,* in two halves. **The jail half needs no ruling and is built:** a claude jail on `codex` ensures the OpenAI login before claude starts (ES-D28, [ledger](credential-sources-separation.md#10-decision-ledger)). **The host half is contingent on [OQ-NC1](../plans/notch-convergence.md#OQ-NC1)'s option A**, since without a host bridge a bridged claude refuses before any login matters: a bridged host launch makes sure of the login before it starts the agent, through notch-convergence item 15's declarative prelaunch reading ES-D28's gate, logging in only at a terminal and otherwise saying the login is required and continuing | 2026-09-28 | [§4.5](#45-failure-paths) | jail half ✅ `d798101b`; host half ✅ `c36fe7d0`: the prelaunch (item 15, `6ec38ccf`) runs before the service starts |
+| <a id="HS-D5"></a>[`HS-D5`](#11-decision-ledger) | *Implementation decision.* ES-D18's refusal narrows to four cases: an adaptation whose service declares no host half, one whose pack [OQ-HS4](#OQ-HS4)'s gate refuses, a host half that fails to start, and `yolo host env`, which owns no lifetime. ES-D19's rule stands: never tell the user to list a pack when listing it resolves nothing, and [HS-D1](#HS-D1) adds its converse. ES-D18 to ES-D20 are implementation decisions, so this revises no ruling. Contingent on [OQ-NC1](../plans/notch-convergence.md#OQ-NC1)'s option A, ruled | 2026-09-28 | [§4.5](#45-failure-paths) | ✅ `c36fe7d0`, `5a626c94` |
+| <a id="HS-D6"></a>[`HS-D6`](#11-decision-ledger) | *Implementation decision.* **The trigger is the credential gate's own refusal**, not a second predicate. A launch composes with nothing served; a pairing only a service's adaptation resolves refuses as `packload.UnservedAdapterError`; a launch that owns its command then admits the service (`launchservice.Admit`), plans it and composes again with it served (`launchservice.Served`, `packload.ServedByLaunch`). The retry is bounded by the selected packs. A pairing through an unselected pack or a provider no selected pack ships keeps its refusal. Chosen over asking the bridge's `WillServe` at the host, which is one service's predicate where the launch must know none | 2026-09-28 | [§4.2](#42-the-trigger) | ✅ `c36fe7d0` |
+| <a id="HS-D7"></a>[`HS-D7`](#11-decision-ledger) | *Implementation decision.* **One input contract for every host half** (`launchservice.Input`): a JSON file, `0600` in a `0700` temp dir, named by `YOLO_HOST_SERVICE_INPUT`, read once and removed by the service. It carries the three wire tables for the agents it serves, its caller token, the host broker's private socket, and the `env_sources` the credential gate delivers to those agents for their providers (`AgentDelivery.EnvSources`), so a service reaches exactly the credential of the provider it serves. The service also inherits the launch's own environment, the fallback for a key the user's shell holds. `launchservice.HalfEnv` marks the host half, which then reads no jail key file, publishes no endpoint file and dials the broker over `openauthclient.RequestAccessTokenUnix` | 2026-09-28 | [§4.3](#43-the-address-and-the-caller-secret) | ✅ `f8a99ed2` |
+| <a id="HS-D8"></a>[`HS-D8`](#11-decision-ledger) | *Implementation decision.* **Not the jail's supervisor.** `yolo-jaild supervise` restarts under a policy, inherits its readiness pipe from the entrypoint and logs under the jail home; a launch-owned service is never restarted ([§4.4](#44-lifetime) item 5), its launch owns the readiness pipe, and it must die with a launch killed without cleanup. What the two share is the daemon's side: the readiness line on `paths.JailDaemonReadyFDEnv`, which the bridge writes identically under both. One launch-side runner serves the host and macos-user (`internal/launchservice`), so there is one host supervisor, not one per notch | 2026-09-28 | [§4.4](#44-lifetime) | ✅ `f8a99ed2` |
+| <a id="HS-D9"></a>[`HS-D9`](#11-decision-ledger) | *Implementation decision.* **Ports are picked by the launch**: every adapter address the service's adaptations declare moves to a port the launch got by binding `127.0.0.1:0` and releasing it (`launchservice.NewPlan`), and a user's `adapters` override of those conversions is dropped for that launch (`launchservice.WithoutOverrides`). A process that binds the port in between makes the service's own bind fail, which refuses the launch before the agent starts: it fails closed, the jail's [NC-D43](../plans/notch-convergence.md#NC-D43) trade. Chosen over handing the service a bound descriptor, which would need every host half to accept one | 2026-09-28 | [§4.3](#43-the-address-and-the-caller-secret) | ✅ `f8a99ed2` |
+| <a id="HS-D10"></a>[`HS-D10`](#11-decision-ledger) | *Implementation decision.* **The host footer names a bridged selection** a host launch serves: `hostFooterTables` keeps claude on `codex` and composes the table with the service at its declared addresses, since a footer has no launch and reads only the route. This revises [FT-D1](agent-footer.md) for this one case, which it made on the premise that the host refuses the selection. A direct launch's footer now names the bridge while that claude runs on its login, the case [§4.6](#46-every-front-door) leaves to [`agent-footer.md`](agent-footer.md) | 2026-09-28 | [§4.6](#46-every-front-door) | ✅ `c36fe7d0` |
+| <a id="HS-D11"></a>[`HS-D11`](#11-decision-ledger) | *Implementation decision,* [§4.4](#44-lifetime)'s steps. The service starts after the agent resolves on `PATH` and after the prelaunch; the launch waits 5 seconds for its readiness line (`launchservice.ReadyTimeout`). It runs in its own process group, so a terminal's SIGINT reaches the agent alone. The launch absorbs SIGINT and SIGQUIT and forwards SIGTERM and SIGHUP to the agent (`launchservice.RunAgent`). When the agent exits, the service gets SIGTERM, then SIGKILL after 2 seconds (`StopGrace`). A launch killed without cleanup closes the service's **lifeline**, a pipe whose read end is its descriptor 4 (`YOLO_HOST_SERVICE_LIFELINE_FD`), and the service exits at once, the same way on Linux and macOS. A service that dies mid-session is named on stderr once (`WatchDeath`) | 2026-09-28 | [§4.4](#44-lifetime) | ✅ `f8a99ed2` |
+| <a id="HS-D12"></a>[`HS-D12`](#11-decision-ledger) | *Implementation decision,* [OQ-HS4](#OQ-HS4)'s gate. "Official" is the pack's origin, `packload.Pack.Official`: set by the embedded loader and by `config.ResolvePack` for an embedded entry, staged copies included, and never for a fetched or local pack whatever its name. The pack holding the service under the later-wins rule decides. The argv must start with `yolo`, which the launch resolves to its own binary (`execx.SelfExecArgv`). Validation does not refuse another argv, since a fetched pack's is refused at the launch by name either way | 2026-09-28 | [§10](#10-open-questions) | ✅ `f8a99ed2` |
+| <a id="HS-D13"></a>[`HS-D13`](#11-decision-ledger) | *Implementation decision.* **The host half serves its adapter route only**: a via stays inert outside a jail ([WG-I12](wire-bridge-gateway.md#WG-I12)), so `wirebridged.runHostHalf` drops the via plan, and a plan with nothing to serve answers `failed` on the readiness pipe and exits rather than idling, since a launch that started it asked for a route | 2026-09-28 | [§4.2](#42-the-trigger) | ✅ `f8a99ed2` |
+| <a id="HS-D14"></a>[`HS-D14`](#11-decision-ledger) | *Implementation decision,* [§4.7](#47-macos-user). On macos-user **every profiled agent's pairing counts**, not only the launched command's: that arm writes each profiled agent's env file for a shell that starts one later. The service starts after the host services and before the sandboxed command, and stops when the command returns. The jail-daemon decline names the bridge's jail daemon with "(its host half runs for this launch instead)", and a dry run says what it would start. The macos-user arm is pinned by unit tests with the start stubbed, and has not run on a Mac | 2026-09-28 | [§4.7](#47-macos-user) | ✅ `5a626c94` |
 
 ## 12. The neighbors
 

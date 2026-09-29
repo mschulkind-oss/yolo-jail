@@ -137,20 +137,20 @@ running service is the common case, not the definition. The presence of a siblin
 contribution is the only thing that tells the three apart.
 
 **That fact decides the host notch too** (2026-09-27,
-[ES-D18](../design/credential-sources-separation.md#10-decision-ledger)). `yolo host` runs no pack's
-`service`, so it composes its table with nothing served (`ComposeProvidersAt` with
-`NothingServed()`, the one composition every notch calls with its own served set;
-[notch convergence item 2](../plans/notch-convergence.md#tier-1--the-loopback-services-p3)). The
-first shape's address is left out there, because nothing at the host listens on it, and the same
-holds on macos-user, which runs no jail daemon. The other two compose as they do
-in a jail. A pairing only a left-out adaptation would resolve refuses at the gate as
-`UnservedAdapterError`, naming the pack's service and saying the address is served only in a
-container jail, instead of outcome 4's "nothing declares an adapter"
-([`wire-bridge.md`](wire-bridge.md#at-the-host-notch)). An UNSELECTED shipped pack of that
-shape is no outcome 3 there either, since selecting it composes no address: the host hands the
-gate those adaptations too (`UnservedAdaptationsAt`), and the pairing refuses as
-`UnservedAdapterError` rather than as "Add it to `packs` and this pairing resolves"
-([ES-D19](../design/credential-sources-separation.md#10-decision-ledger)).
+[ES-D18](../design/credential-sources-separation.md#10-decision-ledger), narrowed 2026-09-28 by
+[HS-D5](../design/host-notch-services.md#HS-D5)). The host and macos-user run no jail daemon, so
+they first compose their table with nothing served (`ComposeProvidersAt` with `NothingServed()`,
+the one composition every notch calls with its own served set;
+[notch convergence item 2](../plans/notch-convergence.md#tier-1--the-loopback-services-p3)). A
+pairing only the first shape resolves then refuses at the gate as `UnservedAdapterError`, and
+that refusal is the trigger for a
+[launch-owned service](../design/host-notch-services.md#12-terms): a launch that owns its command
+(`yolo host --`, a macos-user launch) admits the service's host half, picks its port, and
+composes again with that service served (`launchservice.Served`), so the agent is paired through
+the adaptation at that port ([`wire-bridge.md`](wire-bridge.md#at-the-host-notch)). A service
+that cannot run there (no host half, or a pack yolo does not ship), and `yolo host env`, keep the
+refusal. The other two shapes compose as they do in a jail. An agent that also speaks the
+provider's own wire resolves to it directly and starts nothing.
 
 **The adapter set is every SELECTED pack that declares an adaptation** — no registry, no built-in
 list, and `wire-bridge` in it by the same route as anyone else's pack (P6). An `adapter`

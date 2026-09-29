@@ -375,32 +375,18 @@ Where each answer lands is the vehicle's:
     is disclosed as not delivered from `env_sources`, the process holding that source's value.
     Neither line calls the name withheld, because the command holds it anyway
     ([ES-D10 to ES-D12](../design/credential-sources-separation.md#10-decision-ledger)).
-  - **A profile the in-jail bridge would serve refuses here.** The host runs no pack's
-    `service`, so it composes no adapter address a pack's own service serves
-    (`packload.ComposeProvidersAt` with `packload.NothingServed()`, the composition every notch
-    calls, macos-user included). So `yolo host -p cerebras -- claude` refuses before
-    the exec, as does `yolo host env`, whether `wire-bridge` is listed in `packs` or not. The
-    refusal names `http://127.0.0.1:8214` and the `wire-bridge` service that serves it only in
-    a container jail. It says that listing the pack changes nothing here, and gives the jail
-    spelling, `yolo -p claude=cerebras -- claude`, for podman or Apple Container. The macos-user
-    backend starts no jail daemons, so the refusal says the bridge does not run there either and
-    names `YOLO_RUNTIME=podman` or `YOLO_RUNTIME=container` as the one-launch dial that picks a
-    container backend. It never runs claude pointed at that address,
-    and it never tells the user to add `wire-bridge` to `packs`, as the ordinary pairing refusal
-    does in a jail. `-p codex -- claude` refuses the same way, through the bridge's
-    `openai-responses` adapter at `http://127.0.0.1:8215`, whether or not `openai-auth` is in
-    `packs`. On a bare `"packs": ["claude"]` both packs join through claude's `needs`, and the
-    refusal names the bridge as a pack that joined, with the line that says why
-    (`+ wire-bridge (needed by claude)`), never as one listed in `packs`
-    ([HS-D1](../design/host-notch-services.md#HS-D1)). Before 2026-09-27 that launch exited 0 and
-    ran claude on its own Claude login
-    ([ES-D25](../design/credential-sources-separation.md#10-decision-ledger)).
-    The jail spelling the refusal names, `yolo -p claude=codex -- claude`, is a jail launch;
-    `yolo host -p claude=codex -- claude` reads as `-p codex` and gets this same refusal
-    ([ES-D27](../design/credential-sources-separation.md#10-decision-ledger)). A user's
-    `adapters` override moves the address the refusal names. Copilot, which also speaks openai, runs on cerebras's own endpoint
-    instead ([`wire-bridge.md`](wire-bridge.md#at-the-host-notch),
-    [ES-D18 to ES-D20](../design/credential-sources-separation.md#10-decision-ledger)).
+  - **A profile the wire bridge serves starts the bridge for its one command.** `yolo host
+    -p cerebras -- claude`, and `-p codex -- claude` on a bare `"packs": ["claude"]`, start
+    the bridge's host half as a child of that launch, on a loopback port it picked, and point
+    claude at it with the launch's caller token as `ANTHROPIC_AUTH_TOKEN`; the bridge stops when
+    claude exits ([`wire-bridge.md`](wire-bridge.md#at-the-host-notch),
+    [`host-notch-services.md`](../design/host-notch-services.md)). The launch-chosen port
+    overrides the manifest's and a user's `adapters` override. `yolo host env` refuses such a
+    profile, naming the `yolo host --` spelling, because an environment script owns no process
+    for the bridge to live beside ([OQ-HS3](../design/host-notch-services.md#OQ-HS3)). A
+    bridge this launch cannot start refuses, naming why and the container jail where the profile
+    works ([HS-D5](../design/host-notch-services.md#HS-D5)). Copilot, which also speaks openai,
+    still runs on cerebras's own endpoint, and starts no bridge.
   - **`--with-credentials` grants keys by provider, for one run.**
     `yolo host --with-credentials zai,cerebras -- <cmd>` hands the command those providers'
     claimed `env_sources` values, and `all` names every composed provider that claims a value
