@@ -42,8 +42,8 @@ dependency. The write path depends on the `yolo notify` ping box, which is desig
 
 **Start at [§3](#3-the-flow)**, the flow. Everything else is what one step of it needs.
 
-**Needs your ruling:** [OQ-BB3](#OQ-BB3), [OQ-BB4](#OQ-BB4), [OQ-BB6](#OQ-BB6), [OQ-BB7](#OQ-BB7),
-[OQ-BB8](#OQ-BB8).
+**Needs your ruling:** [OQ-BB8](#OQ-BB8). [OQ-BB3](#OQ-BB3), [OQ-BB4](#OQ-BB4), [OQ-BB6](#OQ-BB6)
+and [OQ-BB7](#OQ-BB7) were ruled 2026-09-29.
 
 **Reads with:** [`agent-event-watchers.md`](agent-event-watchers.md) (the `yolo notify` doorbell
 the answer rides back on), [`loophole-system.md`](../reference/loophole-system.md) and
@@ -1238,7 +1238,7 @@ covered:
    > the set model generalizes to more sets per source, and a source's sets and windows are
    > configurable.
 
-3. 💬 <a id="OQ-BB3"></a>**[OQ-BB3](#OQ-BB3): Which three buttons?** GNOME shows three and drops
+3. ✅ <a id="OQ-BB3"></a>**[OQ-BB3](#OQ-BB3): Which three buttons?** GNOME shows three and drops
    the rest, so the notification carries three choices and `yolo approve` the others. This decides
    what one press most often grants. *Restated 2026-09-29 for [OQ-BB2](#OQ-BB2)'s permission sets.
    The duration button now hands over the request's whole set, `read-write` by default, so it is
@@ -1250,17 +1250,16 @@ covered:
    - **B — Allow read-write 15 min · 1 hour · This session**, dismissal meaning Deny. Three
      durations, but every press hands over the whole set, with no one-shot yes and no visible no.
 
-   <!-- vantage: oq id=OQ-BB3 leaning="A: Allow once, Allow read-write 15 min, Deny; dismissing also denies, and longer grants go through yolo approve." -->
-
    _Leaning:_ **A.** "Allow once" is the answer that most often fits a single comment. The
    permission-set ruling makes it matter more: without it, the only yes to one comment hands over
    `read-write` whole for 15 minutes. A visible Deny is clearer than a dismissal that means no on
    some desktops and "later" to the human, and the brief's own example is 15 minutes.
 
    **Answer:**
-   > _(empty — fill in when decided)_
+   > **Ruled 2026-09-29, as leaned: A.** Allow once · Allow read-write 15 min · Deny; dismissing
+   > also denies, and 1 hour or session grants go through `yolo approve`.
 
-4. 💬 <a id="OQ-BB4"></a>**[OQ-BB4](#OQ-BB4): What shows the notification on macOS?** A bare
+4. ✅ <a id="OQ-BB4"></a>**[OQ-BB4](#OQ-BB4): What shows the notification on macOS?** A bare
    binary cannot post an actionable notification there. This decides step 3's dependency and
    whether yolo's macOS distribution gains an app bundle.
 
@@ -1271,17 +1270,24 @@ covered:
      Developer ID signed and notarized in a downloaded release. Ours to maintain; no install step.
    - **C — `osascript` `display dialog`.** Nothing to install, but a modal window, not a toast.
 
-   <!-- vantage: oq id=OQ-BB4 leaning="A now, B later: use terminal-notifier 3.x when present, since it is the same UserNotifications API and Homebrew installs it unquarantined; ship yolo's own helper once the macOS release has a signing step. Never a modal dialog." -->
-
    _Leaning:_ **A now, B once yolo's macOS release has a signing step.** terminal-notifier 3.x is
    the same UserNotifications API a helper would call, Homebrew installs it unquarantined (a
    bottle on Apple silicon), and it costs yolo nothing to try. A modal dialog is not what the
    brief asked for.
 
    **Answer:**
-   > _(empty — fill in when decided)_
+   > **Ruled 2026-09-29 by delegation: A now, made the default path, and B later.** The
+   > maintainer: *"what things are used on a Mac? Give me a suggestion. Take your best shot.
+   > Happy path, as always … we want it to be easy for the user and like the default direction."*
+   > So the Homebrew formula yolo publishes depends on `terminal-notifier` on Apple silicon,
+   > where Homebrew pours a bottle, and a user who installs yolo from the tap gets the notifier
+   > with no second step. On Intel it stays optional, because there Homebrew builds it from
+   > source with full Xcode, and `yolo check` names the install. With no notifier, a request
+   > waits for `yolo approve`. The first notification says to set its style to Alerts, which only
+   > the user can do. B, yolo's own signed helper app, replaces the dependency once the macOS
+   > release has a signing step. Never a modal dialog.
 
-5. 💬 <a id="OQ-BB6"></a>**[OQ-BB6](#OQ-BB6): How does a user widen one workspace's reach without every workspace getting it?**
+5. ✅ <a id="OQ-BB6"></a>**[OQ-BB6](#OQ-BB6): How does a user widen one workspace's reach without every workspace getting it?**
    Raised by [OQ-BB1](#OQ-BB1)'s ruling. A workspace's own config may never widen its own
    permission, since the agent can edit it; a plain user-scope repository list would widen every
    workspace at once. The stakes: whether "this project may also read org/other-repo" is
@@ -1322,12 +1328,16 @@ covered:
    agent can ring. Either way the launch discloses what a workspace was widened to, and the same
    mechanism serves any source's permission sets, not only GitHub's.
 
-   <!-- vantage: oq id=OQ-BB6 leaning="(a) without (e): a user-scope map keyed by workspace, which only the host user writes and which needs no new trust record; out-of-scope reads keep refusing rather than ringing; disclosed at launch." -->
-
    **Answer:**
-   > _(empty — fill in when decided)_
+   > **Ruled 2026-09-29: (a), and (e) not adopted.** The maintainer: *"A is really the only true
+   > answer here. Unless we're going to start doing some trust thing, which I'm not sure we're
+   > ready for. Let's start with A and then see how it goes."* A user-scope entry keyed by
+   > workspace widens that workspace alone; only the host user writes it, and the launch
+   > discloses what the workspace was widened to. An out-of-scope read keeps refusing rather than
+   > ringing, so the notification never becomes a widening channel. A trust record, (b) or (c),
+   > waits until one is needed.
 
-6. 💬 <a id="OQ-BB7"></a>**[OQ-BB7](#OQ-BB7): Is a workspace's scope pinned once, or read from its
+6. ✅ <a id="OQ-BB7"></a>**[OQ-BB7](#OQ-BB7): Is a workspace's scope pinned once, or read from its
    remotes at each launch?** The remotes live in the workspace, which the agent can edit. This
    decides whether a `git remote add` changes the next launch's scope, and whether a user who adds
    an `upstream` remote needs [OQ-BB6](#OQ-BB6) to admit it.
@@ -1341,14 +1351,24 @@ covered:
      agent cannot widen the next session. A remote the user adds waits for [OQ-BB6](#OQ-BB6), and the first
      launch trusts whatever remotes the workspace had then.
 
-   <!-- vantage: oq id=OQ-BB7 leaning="B: pin once at the first broker launch, so one session's agent cannot widen the next; later remotes are disclosed and wait for OQ-BB6." -->
-
    _Leaning:_ **B.** It is the only option under which [BB-P9](#BB-P9) holds across sessions, which
    is the maintainer's *"we can't allow it to be widened in the workspace"*. It departs from the
    ruled option's wording, which is why it is put here rather than decided.
 
    **Answer:**
-   > _(empty — fill in when decided)_
+   > **Ruled 2026-09-29: read at each launch, and approved as part of the launch's config-change
+   > bundle.** The maintainer: *"you need to be able not to just like change your remote and then
+   > get access to a new one. So, this does have to be fixed somewhere. So perhaps this is set in
+   > a way that is like part of the launch configuration where we confirm config changes. It's
+   > just part of that bundle. And that also argues for re-reading on every launch."* The scope
+   > is derived from the remotes at every fresh launch and recorded in the host-side approval
+   > snapshot the config-change gate already keeps
+   > ([`config-safety.md`](../reference/config-safety.md)). A scope that differs from the
+   > approved one appears in that launch's diff and takes effect only once the human answers y; N
+   > aborts the launch as for any config change, and with no terminal the launch refuses unless
+   > `--accept-config-changes` is given. So an agent that adds a remote widens nothing by itself,
+   > and a user who adds one approves it at the next launch. Neither of the doc's options as
+   > written: A's re-read with B's approval.
 
 7. 💬 <a id="OQ-BB8"></a>**[OQ-BB8](#OQ-BB8): How does the jail's `gh` forwarder outrank the
    image's own `gh`?** The image bakes `gh` at `/bin/gh`, `launchercollision.go` writes no pack
@@ -1451,6 +1471,10 @@ covered:
 | <a id="BB-D27"></a>[`BB-D27`](#15-decision-ledger) | *Implementation decision.* Every grant carries the broker's start id, a random value drawn when that broker starts, and a broker honors only grants carrying its own. The preamble's jail id is per workspace and survives restarts, so cleanup at exit alone would let a grant left by a killed broker match the next launch | 2026-09-29 | [§7](#7-grants-and-the-request-store) | — |
 | <a id="BB-D28"></a>[`BB-D28`](#15-decision-ledger) | *Implementation decision.* A positional argument that names a host file (`release upload`, `release create` assets, `repo deploy-key add`, `ssh-key add`, `gpg-key add`, and every other command whose usage takes a file, pattern or directory argument in the tested range) is refused, or taken from the forwarder's stdin where the command reads `-` | 2026-09-29 | [§5.4](#54-never-brokered) | — |
 | <a id="BB-D29"></a>[`BB-D29`](#15-decision-ledger) | *A reading, to be confirmed.* Every windowed set declares a ceiling, `max_window`, and no front-end grants past it; `read-write` defaults to `session` (the jail's life, capped at 12 hours). This keeps `yolo approve --for 1h` and `--for session` a narrowing under [OQ-B](#15-decision-ledger)'s policy ceiling ≥ request ≥ grant, where a set with a window alone would make them a widening | 2026-09-29 | [§5.7](#57-permission-sets), [§7](#7-grants-and-the-request-store) | — |
+| [OQ-BB3](#OQ-BB3) | **Maintainer ruling:** A; Allow once · Allow read-write 15 min · Deny, dismissal denies | 2026-09-29 | [§14](#14-open-questions) | pending |
+| [OQ-BB4](#OQ-BB4) | **Maintainer ruling, delegated:** terminal-notifier as a dependency of the published Homebrew formula on Apple silicon, optional on Intel, `yolo approve` without it; yolo's own signed helper once the release signs | 2026-09-29 | [§14](#14-open-questions) | pending |
+| [OQ-BB6](#OQ-BB6) | **Maintainer ruling:** (a), a user-scope entry keyed by workspace; (e) not adopted, so an out-of-scope read refuses | 2026-09-29 | [§14](#14-open-questions) | pending |
+| [OQ-BB7](#OQ-BB7) | **Maintainer ruling:** the scope is re-read at each fresh launch and is part of the config-change approval snapshot; a changed scope takes effect only once approved in that launch's diff | 2026-09-29 | [§14](#14-open-questions) | pending |
 
 ## Appendix A — prior art: unYOLO, re-analyzed from source (2026-08-12)
 
