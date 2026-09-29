@@ -25,6 +25,10 @@ live conversation, with low latency: the maintainer answers in chat, the agent r
 
 ## Presenting a pair
 
+- **Lead each question with its setup**: the concrete situation that raises it, in two or three
+  sentences a newcomer can picture ("a repo's `mise.toml` pins node 22.4; you have 20 installed;
+  you run `yolo host -- pi` there…"), BEFORE the options. A question stated only in the doc's own
+  terms ("the stale-shim verdict", "one consent covers the refresh") gets "I don't get this".
 - **Two questions at a time**, in plain words, each with the leaning and what choosing it
   changes for the user. No doc jargon without a one-phrase definition. Say "rule both as leaned,
   or adjust?"
@@ -88,5 +92,7 @@ edit this file in the same turn and commit it. Recorded adjustments:
 - 2026-09-29: a ruling that is none of the options is recorded in his words.
 - 2026-09-29: a ruling that raises a follow-on question files it as a new OQ with a leaning
   (BB1 → BB6) and queues it, rather than leaving the gap in prose.
+- 2026-09-29: every question opens with its concrete setup (the maintainer could not answer
+  HP5/HP6 as first stated).
 - 2026-09-29: with ultracode on, review/improve passes on arriving docs and doc reconciliation
   run as workflows, not single agents.
