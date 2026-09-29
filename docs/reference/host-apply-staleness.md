@@ -74,8 +74,8 @@ what the `KindHost` notch refuses), [`composed-file-permissions.md`](composed-fi
 (what a composed surface's posture is once written), [`host-launch-environment.md`](../design/host-launch-environment.md) (which PATH the gate's survey
 probes against).
 
-For the `host_apply_on_launch` key — its default, its scope, the user-facing disposition table,
-the environment variable's spelling and the two-step remedy — run `yolo config-ref`. That is the
+For the `host_apply_on_launch` key — its default, its scope, the user-facing disposition table
+and the two-step remedy — run `yolo config-ref`. That is the
 authority for everything a user needs; this doc is the mechanism behind it.
 
 ---
@@ -99,15 +99,18 @@ false-positive rate plus a state file to keep. An observe render answers the que
 in the low tens of milliseconds against a warm home, which is three orders of magnitude inside
 the gate's own budget. There is no stored state on the render side.
 
-**P4. The approval is granted per launch, in the strongest spelling the launch channel allows.**
-A flag where a flag can be passed; an environment variable on the wrapper path, where none can.
-Never a config key — that is the one spelling that is genuinely standing consent, and it stays
-refused.
+**P4. An approval is granted per launch, and the host launch takes none.** The jail takes a flag,
+`--accept-config-changes`. The host launch's one remaining question, a first apply dropping MCP
+servers yolo does not declare, is a one-way door asked only at a terminal: the environment
+variable [OQ-HS10](#why-its-this-way) designed for the wrapper path was retired unread
+([OQ-NC10](../plans/notch-convergence.md#OQ-NC10), ruled 2026-09-28), and `yolo host` refuses the
+flag by name. Never a config key — that is the one spelling that is genuinely standing consent,
+and it stays refused.
 
 **P5. A refusal must be actionable at the surface the user typed.** This gate's refusals reach
 someone who typed `claude`, not `yolo`, so an unexplained failure reads as "claude is broken."
-Every refusal names its remedy in the spelling its reader can actually use: the two-step apply
-for an interactive reader, the environment variable for a scripted one.
+Every refusal names its remedy in the spelling its reader can actually use: the two-step apply,
+`yolo host apply --assert` at a terminal and then the launch.
 
 ## Invariants
 
@@ -270,11 +273,9 @@ flowchart TD
     M -->|no| S["auto-apply silently, notice to stderr, then exec"]
     M -->|yes| D{TTY on stdin?}
     D -->|yes| E[show change list, prompt]
-    D -->|no| F{approval in<br/>the environment?}
+    D -->|no| I["refuse, naming the two<br/>commands that fix it"]
     E -->|accept| S
     E -->|decline| H[abort — as a jail launch does]
-    F -->|yes| S
-    F -->|no| I["refuse, naming the two<br/>commands that fix it"]
 ```
 
 ### The opt-in key
@@ -314,8 +315,7 @@ every user who declared nothing.
 | An `--assert` would ask something: a skills or briefing adoption, a dropped pack's retire, a missing declared dependency (its install offer or refusal), or a briefing composition the dry run cannot preview | **Render nothing**, print each question and `yolo host apply --assert` (which asks them where they can be answered), and exec. The auto-apply's report is buffered, so a question asked there is one the user cannot see: measured, that was a launch hanging after the banner on a TTY, a silent "no" off one followed by a `synchronized` notice for work that did not happen, and a declined install of *another* pack's missing binary refusing this program's launch. |
 | Safe managed changes | **Auto-apply silently**, emit a single stderr notice (`yolo host: synchronized host configuration (<targets>)`), and exec immediately. Under `assert` or `own`, updating managed keys is idempotent policy synchronization, not data loss. The apply never reads stdin, and the notice names what the apply itself changed, never what the observe pass predicted. |
 | First apply overwriting unmanaged keys (`FirstApply && EntryLosses`), TTY | Show the change list, prompt, apply on accept. A **decline aborts the launch**, as it does in the jail: launching anyway would make the question a formality, and applying anyway would make "no" mean nothing. |
-| First apply overwriting unmanaged keys, no TTY, no approval | **Refuse**, and apply nothing. Consistency with `yolo run` beats a host special case, and the prompt is the guard that makes an irreversible config-surface loss safe. |
-| First apply overwriting unmanaged keys, no TTY, approval present | Apply, then exec. |
+| First apply overwriting unmanaged keys, no TTY | **Refuse**, and apply nothing, naming `yolo host apply --assert`. The prompt is the guard that makes an irreversible config-surface loss safe, and no flag or variable stands in for it ([OQ-NC10](../plans/notch-convergence.md#OQ-NC10)). |
 | Something cannot be written: a pack's render errored, or a destination is a [broken link](report-tiers.md#broken-links) | **Judged by whose it is** ([OQ-HS17](#oq-hs17)). In the launched program's own configuration: **refuse**, naming each failure and its fix. Anywhere else: the rest of the home is synchronized, each failure is named with its fix, and the program **launches**. A standing one is named on every launch until it is fixed, since nothing else says it between explicit applies. |
 | Cannot determine | **Exec**, with at most one line to stderr. See [below](#cannot-determine-versus-determined). |
 
@@ -327,46 +327,26 @@ The gate shows a **change list, not a unified diff**, and names `yolo host apply
 per-key detail. A second diff renderer at a surface that interrupts someone starting an agent is
 both duplication and too long to read.
 
-### Why the approval is an environment variable here
+### Why the host launch takes no approval
 
-When first-time adoption needs approval, the wrapper body is fixed — `exec yolo host -- <program> "$@"` — and
-`hostMain` splits on the first `--`, handing everything after it to the program. A user typing `claude --print foo`
-therefore has **no slot for a yolo-level flag**. There is a pre-`--` slot, but the generator emits
-nothing into it and the user cannot reach it, so a flag here is not merely inconvenient — it is
-unreachable. The choice is env-var-vs-nothing, and "nothing" means a scripted agent launch can
-never proceed.
-
-Four properties, each with its reason:
-
-- **Scoped to this path.** Honored by the wrapped launch and nowhere else — never by `yolo run`,
-  never by `yolo host apply`. Both of those take the flag, so honoring the variable there would
-  buy nothing and would let one shell-rc line pre-approve every jail launch on the machine.
-- **Named to match the flag it stands in for**, so the two read as one grant in two spellings and
-  a refusal can offer whichever channel its reader can reach.
-- **The spelling is a named constant beside the refusal that names it**, following the jail
-  snapshot's rule for exactly this: the spelling a user is told to set and the spelling the code
-  reads cannot drift apart. Its reader is by construction someone who could not be prompted.
-- **Presence, not truth-parsing.** Any non-empty value grants, matching
-  `YOLO_ALLOW_STALE_IMAGE`'s consent probe — consent is about intent, not about the token. A
-  variable set to `0` by someone expecting "off" is the one plausible objection, and the house
-  precedent goes the other way.
-
-> [!IMPORTANT]
-> **This does not contradict the jail's flag-not-an-env-var ruling; it answers a different
-> question.** That ruling holds in every word: an env var is inherited by every child process and
-> survives in a shell for the rest of a session, precisely the property a per-launch approval must
-> not have. But for `yolo run` the choice is flag-vs-env-var, and there the variable is pure cost.
-> On a fixed wrapper there is no flag channel at all, so the choice is env-var-vs-nothing. The
-> jail ruling says *prefer a flag when you have one*; this path has none, and takes what the
-> principle leaves. The cost is accepted knowingly: exported in a shell profile the variable
-> becomes de facto standing consent for every wrapped launch in that shell, and the two
-> containments — honored here and nowhere else, and never baked into a wrapper — are what make
-> that tolerable rather than a hole.
+The wrapper body is fixed — `exec yolo host -- <program> "$@"` — and `hostMain` splits on the
+first `--`, handing everything after it to the program, so a user typing `claude --print foo` has
+**no slot for a yolo-level flag**. [OQ-HS10](#why-its-this-way) answered that with an environment
+variable, `YOLO_ACCEPT_CONFIG_CHANGES`, honored on this path only. The zero-prompt auto-apply
+([OQ-2](#why-its-this-way)) then left it nothing to approve: a stale home is re-rendered without
+asking, and its last reader went with that change. The one question the gate still asks is the
+first-apply loss of undeclared MCP servers, a one-way door the gate keeps behind a terminal, and
+off one it refused without consulting the variable. So
+[OQ-NC10](../plans/notch-convergence.md#OQ-NC10) retired the variable rather than giving it that
+door: a scripted launch that meets the question answers it once, at a terminal, with
+`yolo host apply --assert`, and `yolo host --accept-config-changes` is refused by name, its
+refusal saying the host launch has nothing to approve.
 
 > [!WARNING]
-> **Do not bake the grant into the wrapper body** when a config key says so. It is the obvious
-> next step and it is refused: it converts a per-shell act into a permanent one, which is the
-> standing consent P4 forbids. The variable is tolerable *because* someone has to type it.
+> **Do not re-create a host approval for the first-apply loss.** A flag or variable that let a
+> scripted first launch drop the user's MCP servers is the one-way door this gate keeps behind a
+> terminal; one typed to get past a prompt that no longer exists would open it
+> ([OQ-NC10](../plans/notch-convergence.md#OQ-NC10)'s option B, not taken).
 
 > [!WARNING]
 > **Do not teach `yolo host apply` an `--accept-config-changes` flag** so the refusal can name a
@@ -529,7 +509,7 @@ from code comments, and this appendix is where they resolve.
 | **[OQ-HS5](#why-its-this-way)** — declining aborts the launch | Launching anyway makes the question a formality. |
 | **[OQ-HS6](#why-its-this-way)** — non-TTY first-apply loss refuses, applying nothing | When FirstApply with EntryLosses has no terminal, the launch refuses to prevent irreversible loss. Safe updates auto-apply without requiring a TTY (amended by [`OQ-2`](#why-its-this-way)). |
 | **[OQ-HS9](#why-its-this-way)** — the gate compares the render, not the config | A config-approval snapshot is cheaper and needs no predicate, and is blind to a hand-edited destination. The jail's two readings coincide only because it re-renders unconditionally afterwards. |
-| **[OQ-HS10](#why-its-this-way)** — the non-TTY approval is an environment variable, on this path only | On a fixed wrapper the choice is env-var-vs-nothing; no flag can reach the process. Scoping it here is what stops a shell-rc line pre-approving every jail launch on the machine. |
+| **[OQ-HS10](#why-its-this-way)** — the non-TTY approval is an environment variable, on this path only. *Retired 2026-09-28 by [OQ-NC10](../plans/notch-convergence.md#OQ-NC10):* there is no host launch approval | On a fixed wrapper the choice was env-var-vs-nothing; no flag can reach the process. The zero-prompt auto-apply left the variable nothing to approve and no reader, and the one question left, the first-apply MCP loss, stays `yolo host apply --assert`'s at a terminal. |
 | **[OQ-HS11](#why-its-this-way)** — both sides normalize through the same codec | A literal raw-byte comparison reports a change forever for canonical-TOML reordering and non-2-space JSON, with no loss recorded — `R3` by the back door. This makes the formatting carve-out structural instead of checked. |
 | **[OQ-HS12](#why-its-this-way)** — the wrapper dir is a fifth surveyed destination | A pack added since the last apply has no wrapper, and nothing else in the survey would say so. |
 | **[OQ-HS13](#why-its-this-way)** — "TTY" means stdin | A redirected stdout with a live terminal is a launch that can be asked. |
@@ -548,7 +528,7 @@ place the values themselves are stated.
 | Opt-in key | `host_apply_on_launch`, boolean, default matches `host_wrappers` (true when enabled), **user scope only** | `config.HostApplyOnLaunchEnabled`; `yolo config-ref` is the user-facing authority |
 | `host_wrappers` default | unset ⇒ on exactly when `host_management` is declared `"own"` | `config.hostWrappersValue` |
 | Pack update coupling | `yolo pack update` runs `host apply --assert` under `assert`/`own` on host — the 2026-09-20 ruling narrows the condition to `own` and leaves the flag alone (unbuilt) | `cli.packUpdate`, `cli.hostApplyFromPackUpdate` |
-| Non-TTY approval | `YOLO_ACCEPT_CONFIG_CHANGES` (any non-empty value) | `cli.acceptConfigChangesEnv` |
+| Non-TTY approval | none: the first-apply loss refuses off a terminal, naming `yolo host apply --assert`; `yolo host` refuses `--accept-config-changes` by name ([OQ-NC10](../plans/notch-convergence.md#OQ-NC10)) | `cli.hostApplyGate`, `cli.acceptConfigChangesAtHost` |
 | Observe budget | 1s, then cannot-determine | `cli.hostApplyGateBudget` |
 | Per-home lock | a flock under the global storage lock dir, keyed by the resolved home | `cli.hostApplyLockPath`, `cli.tryHostApplyLock` |
 | Host provenance record | `<home>/.local/share/yolo-jail/host-provenance/<agent>-<name>.provenance` | `internal/render` target layout |

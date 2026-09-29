@@ -729,8 +729,8 @@
       first apply overwriting
       unmanaged keys, terminal  shows what would change and prompts for confirmation.
       first apply overwriting
-      unmanaged keys, off-TTY   REFUSED, naming the commands that fix it — unless the
-                                approval is in the environment (below).
+      unmanaged keys, off-TTY   REFUSED, naming the commands that fix it.  No flag or
+                                variable approves it (below).
       something cannot be       in the launched program's own configuration: REFUSED,
       written (a pack failed    naming it and the fix.  Anywhere else: the rest is
       to render, or a file is   applied, the failure is named with its fix, and the
@@ -740,17 +740,10 @@
                                 concurrent apply is not something a launch may
                                 stop over.
 
-    A scripted launch has no slot for a flag: the wrapper is a fixed
-    `exec yolo host -- <program> "$@"`, and everything after `--` belongs to the
-    program.  So when first-time adoption needs approval, it may come from the
-    environment:
-      YOLO_ACCEPT_CONFIG_CHANGES=1 claude --print ...
-    Any non-empty value grants it, for this process.  It is honored by the wrapped
-    launch and NOWHERE else — never by `yolo`, which takes the flag, and never by
-    `yolo host apply`, which needs no approval of its own: applying is what you
-    asked it to do.  Exported in a shell rc the variable becomes standing consent
-    for every wrapped launch in that shell, so the two-step remedy is the better
-    habit — it leaves nothing behind:
+    A host launch takes no approval: `yolo host` refuses --accept-config-changes,
+    and no environment variable grants one.  Dropping MCP servers yolo does not
+    declare, on a first apply, is a one-way door kept behind a terminal, so a
+    scripted launch that meets it answers it once, where a terminal can:
       yolo host apply --assert
       claude --print ...
 

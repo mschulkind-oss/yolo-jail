@@ -20,7 +20,6 @@ import (
 func relatedGateFixture(t *testing.T) string {
 	t.Helper()
 	home, _ := brokenLinkHome(t, `,"host_apply_on_launch":true`)
-	t.Setenv(acceptConfigChangesEnv, "")
 	setGateTTY(t, false)
 	return home
 }
@@ -137,7 +136,6 @@ func TestTheInteractiveFirstApplyLetsAnUnrelatedFailureThrough(t *testing.T) {
 	writeFile(t, filepath.Join(packDir, "pack.json"), mcpContributorPackJSON)
 	brokenLinkHomeAt(t, home, `"claude","pi",{"source":"file://`+packDir+`","name":"matt-mcp"}`,
 		`,"host_apply_on_launch":true`)
-	t.Setenv(acceptConfigChangesEnv, "")
 	setGateTTY(t, true)
 	writeFile(t, filepath.Join(home, ".claude.json"),
 		`{"mcpServers":{"tavily":{"type":"http","url":"https://x?k=SECRET"}}}`)

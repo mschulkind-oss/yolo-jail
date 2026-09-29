@@ -82,8 +82,9 @@ Exec flags (yolo host -- ...):
 With ` + "`host_apply_on_launch`" + ` enabled (defaulting to on when ` + "`host_wrappers: true`" + `),
 ` + "`yolo host -- <agent>`" + ` checks whether ` + "`yolo host apply`" + ` would change anything,
 and automatically synchronizes host configuration before launch — silently exec'ing when fresh.
-When first-time adoption would overwrite unmanaged host keys, it prompts for confirmation or
-reads approval from ` + "`YOLO_ACCEPT_CONFIG_CHANGES`" + ` (any non-empty value, this launch only).
+When a first apply would drop MCP servers yolo does not declare, it asks at a terminal; off a
+terminal the launch is refused, naming ` + "`yolo host apply --assert`" + `, which asks the same
+question where you can answer it. No flag or variable approves it for a launch.
 An apply that would ask anything else renders NOTHING: the launch says what needs deciding, and
 the agent starts on the render already in place. A configured pack that cannot be resolved or
 whose manifest has problems, or a malformed ` + "`packs`" + ` entry, refuses the launch, as it refuses a
@@ -246,11 +247,11 @@ type hostExecFlags struct {
 // runFlags less the two the host shares (the profile, and `--at`, a no-op here). Derived, so a
 // run flag added later is named here as a jail-launch flag rather than called unknown.
 //
-// `--accept-config-changes` is among them, although notch-convergence.md row A4 asks for the
-// host to take it: since host-apply-staleness.md's zero-prompt auto-apply the host launch asks
-// nothing the flag could answer, so accepting it would be a flag that does nothing. What it
-// should grant there is OQ-NC10's; until that is ruled it keeps the refusal it always had, now
-// worded.
+// `--accept-config-changes` is among them, by the maintainer's ruling (notch-convergence.md
+// OQ-NC10, 2026-09-28): since host-apply-staleness.md's zero-prompt auto-apply the host launch
+// asks nothing the flag could answer, so accepting it would be a flag that does nothing, and the
+// one question the launch gate keeps, the first-apply MCP loss, stays `yolo host apply
+// --assert`'s at a terminal. Its refusal says so (acceptConfigChangesAtHost).
 func jailOnlyRunFlags() []string {
 	var out []string
 	for _, f := range runFlags {
@@ -260,6 +261,13 @@ func jailOnlyRunFlags() []string {
 	}
 	return out
 }
+
+// acceptConfigChangesAtHost is the line the refusal of `--accept-config-changes` adds at the host
+// (OQ-NC10): what the flag would approve there, which is nothing, and where the one question the
+// host launch keeps is asked.
+const acceptConfigChangesAtHost = "  A host launch has nothing to approve: it re-renders a stale " +
+	"home without asking. The one question it keeps, a first apply dropping MCP servers yolo " +
+	"does not declare, is asked at a terminal; `yolo host apply --assert` asks it.\n"
 
 // refuseHostNotchContradiction is `yolo host --at <notch>` for a notch other than the host:
 // the verb and the flag name two notches, and neither silently wins.
@@ -373,9 +381,12 @@ func parseHostExecFlags(args []string, errw io.Writer) (hostExecFlags, bool) {
 		// "unknown flag" would hide that the flag exists and where it does mean something.
 		if name, _, _ := strings.Cut(a, "="); slices.Contains(jailOnlyRunFlags(), name) {
 			fmt.Fprintf(errw, "yolo host: %s is a jail-launch flag, and the host notch has no "+
-				"meaning for it, so it is refused rather than ignored.\n"+
-				"  Drop it, or launch in this workspace's jail instead (`yolo run --help` "+
-				"lists it).\n", name)
+				"meaning for it, so it is refused rather than ignored.\n", name)
+			if name == config.AcceptConfigChangesFlag {
+				fmt.Fprint(errw, acceptConfigChangesAtHost)
+			}
+			fmt.Fprint(errw, "  Drop it, or launch in this workspace's jail instead (`yolo run "+
+				"--help` lists it).\n")
 			return f, false
 		}
 		// A mistyped flag is refused in refuseUnknownFlags' words, the jail's, so one typo reads

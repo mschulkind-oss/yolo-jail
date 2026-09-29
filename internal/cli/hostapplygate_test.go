@@ -37,7 +37,6 @@ func gateFixture(t *testing.T, keyOn bool) string {
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
 	t.Setenv("YOLO_VERSION", "")
-	t.Setenv(acceptConfigChangesEnv, "")
 	setGateTTY(t, false)
 	// The gate drives a WRITING apply, and `claude` declares `program claude`: without the
 	// stub these tests assert the launch gate on a machine that has the agent CLIs and assert
@@ -178,7 +177,6 @@ func TestHostApplyGateFirstApplyWithEntryLossesPromptsOnTTY(t *testing.T) {
 	}
 	cfg := strings.Replace(string(cfgData), `"packs":`, `"host_apply_on_launch":true,"packs":`, 1)
 	writeFile(t, cfgPath, cfg)
-	t.Setenv(acceptConfigChangesEnv, "")
 	setGateTTY(t, true)
 
 	path := filepath.Join(home, ".claude.json")
@@ -224,7 +222,6 @@ func TestHostApplyGateFirstApplyWithEntryLossesRefusesWithoutTerminal(t *testing
 	}
 	cfg := strings.Replace(string(cfgData), `"packs":`, `"host_apply_on_launch":true,"packs":`, 1)
 	writeFile(t, cfgPath, cfg)
-	t.Setenv(acceptConfigChangesEnv, "")
 	setGateTTY(t, false)
 
 	path := filepath.Join(home, ".claude.json")
@@ -247,31 +244,79 @@ func TestHostApplyGateFirstApplyWithEntryLossesRefusesWithoutTerminal(t *testing
 	}
 }
 
-// TestHostApplyGateAppliesWithTheApprovalInTheEnvironment is §4.3 row 4 (OQ-HS10), including
-// the PRESENCE-not-truth-parsing rule: `0` grants, matching YOLO_ALLOW_STALE_IMAGE's probe.
-func TestHostApplyGateAppliesWithTheApprovalInTheEnvironment(t *testing.T) {
+// retiredAcceptVariable is the environment approval the host launch used to document and no
+// code read after the zero-prompt auto-apply (docs/plans/notch-convergence.md OQ-NC10, ruled
+// 2026-09-28: retired). Spelled here only, so the cells below can set it and prove it grants
+// nothing.
+const retiredAcceptVariable = "YOLO_ACCEPT_CONFIG_CHANGES"
+
+// OQ-NC10: THE HOST LAUNCH HAS NO APPROVAL. The one question its gate still asks is the
+// first-apply loss of undeclared MCP servers, and off a terminal it refuses whatever the retired
+// variable holds, naming `yolo host apply --assert`, the verb that asks it at a terminal. The
+// user's servers are untouched and nothing names the variable as a way through.
+func TestHostApplyGateRetiredApprovalVariableGrantsNothing(t *testing.T) {
 	for _, value := range []string{"1", "0", "anything"} {
 		t.Run("value="+value, func(t *testing.T) {
-			home := gateFixture(t, true)
-			if rc, report := applyWith(t, true, nil); rc != 0 {
-				t.Fatalf("assert apply rc=%d\n%s", rc, report)
-			}
-			settings := driftTheHome(t, home)
-			t.Setenv(acceptConfigChangesEnv, value)
-
-			var errw bytes.Buffer
-			if !hostApplyGate(&errw, nil, "claude") {
-				t.Fatalf("%s=%q must let a non-interactive launch proceed:\n%s",
-					acceptConfigChangesEnv, value, errw.String())
-			}
-			data, err := os.ReadFile(settings)
+			home := hostMCPFixture(t, mcpContributorPackJSON)
+			t.Setenv("YOLO_VERSION", "")
+			cfgPath := filepath.Join(home, ".config", "yolo-jail", "config.jsonc")
+			cfgData, err := os.ReadFile(cfgPath)
 			if err != nil {
 				t.Fatal(err)
 			}
-			if strings.Contains(string(data), `"enabled"`) {
-				t.Errorf("the approved launch did not apply:\n%s", data)
+			writeFile(t, cfgPath, strings.Replace(string(cfgData), `"packs":`,
+				`"host_apply_on_launch":true,"packs":`, 1))
+			t.Setenv(retiredAcceptVariable, value)
+			setGateTTY(t, false)
+			path := filepath.Join(home, ".claude.json")
+			original := `{"mcpServers":{"tavily":{"type":"http","url":"https://x?k=SECRET"}}}`
+			writeFile(t, path, original)
+
+			var errw bytes.Buffer
+			if hostApplyGate(&errw, nil, "claude") {
+				t.Fatalf("%s=%q let a first apply drop undeclared MCP servers off a terminal:\n%s",
+					retiredAcceptVariable, value, errw.String())
+			}
+			if after, _ := os.ReadFile(path); string(after) != original {
+				t.Errorf("the refused launch changed the user's servers:\n%s", after)
+			}
+			if !strings.Contains(errw.String(), "yolo host apply --assert") ||
+				strings.Contains(errw.String(), retiredAcceptVariable) {
+				t.Errorf("the refusal must name `yolo host apply --assert` and not the retired "+
+					"variable:\n%s", errw.String())
 			}
 		})
+	}
+}
+
+// OQ-NC10 in the documentation a user reads: `yolo host --help` and `yolo config-ref` no longer
+// describe the retired variable as a grant, and the host launch keeps refusing
+// --accept-config-changes by name, saying what it has nothing to approve and where the one
+// question is asked.
+func TestHostDocumentsNoConfigChangeApproval(t *testing.T) {
+	var out, errw bytes.Buffer
+	if rc := hostMain([]string{"--help"}, &out, &errw, false, nil); rc != 0 {
+		t.Fatalf("yolo host --help: rc = %d\n%s", rc, errw.String())
+	}
+	for name, text := range map[string]string{"yolo host --help": out.String(), "yolo config-ref": configRefContent} {
+		if strings.Contains(text, retiredAcceptVariable) {
+			t.Errorf("%s still documents the retired %s", name, retiredAcceptVariable)
+		}
+	}
+	if !strings.Contains(out.String(), "yolo host apply --assert") {
+		t.Errorf("yolo host --help must name `yolo host apply --assert` for the first-apply question:\n%s", out.String())
+	}
+
+	valueFlagHome(t, "")
+	rc, execed, errs := hostExecThroughMain(t, "host", "--accept-config-changes", "--", "mytool")
+	if rc != 2 || execed != nil {
+		t.Fatalf("yolo host --accept-config-changes -- mytool: rc=%d exec=%q, want 2 and no exec\n%s", rc, execed, errs)
+	}
+	for _, want := range []string{"--accept-config-changes is a jail-launch flag", "nothing to approve",
+		"`yolo host apply --assert`"} {
+		if !strings.Contains(errs, want) {
+			t.Errorf("the refusal must say %q:\n%s", want, errs)
+		}
 	}
 }
 
@@ -356,7 +401,6 @@ func TestHostApplyGateExecsWhenTheApplyItselfCannotAnswer(t *testing.T) {
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
 	t.Setenv("YOLO_VERSION", "")
-	t.Setenv(acceptConfigChangesEnv, "")
 	setGateTTY(t, false)
 
 	// The fault is real: the same apply, run explicitly, refuses.
@@ -374,17 +418,16 @@ func TestHostApplyGateExecsWhenTheApplyItselfCannotAnswer(t *testing.T) {
 	}
 }
 
-// TestAcceptConfigChangesEnvIsScopedToTheWrapperPath is OQ-HS10's containment, asserted as
-// BEHAVIOR rather than as a claim in a comment.
+// TestRetiredAcceptVariableDoesNotApproveAnApply is OQ-HS10's containment, kept after OQ-NC10
+// retired the variable, asserted as BEHAVIOR rather than as a claim in a comment.
 //
 // If `yolo host apply` honored the variable, one line in a shell rc would pre-approve the
-// destruction of a hand-added MCP server on every apply that machine ever runs — and the same
-// leniency extended to `yolo run` would hand that rc line every jail launch too, which is the
-// blast radius config.AcceptConfigChangesFlag was written to prevent. So: the variable set, no
-// stdin, a first apply that would destroy something — and the apply must still fail closed.
-func TestAcceptConfigChangesEnvIsScopedToTheWrapperPath(t *testing.T) {
+// destruction of a hand-added MCP server on every apply that machine ever runs. So: the
+// variable set, no stdin, a first apply that would destroy something — and the apply must
+// still fail closed.
+func TestRetiredAcceptVariableDoesNotApproveAnApply(t *testing.T) {
 	home := hostMCPFixture(t, mcpContributorPackJSON)
-	t.Setenv(acceptConfigChangesEnv, "1")
+	t.Setenv(retiredAcceptVariable, "1")
 	path := filepath.Join(home, ".claude.json")
 	original := `{"mcpServers":{"tavily":{"type":"http","url":"https://x?k=SECRET"}}}`
 	writeFile(t, path, original)
@@ -392,8 +435,8 @@ func TestAcceptConfigChangesEnvIsScopedToTheWrapperPath(t *testing.T) {
 	var out, errw bytes.Buffer
 	if rc := applyHost(&out, &errw, false, true, nil); rc == 0 {
 		t.Fatalf("%s made `yolo host apply --assert` skip its own confirmation — that variable "+
-			"is honored on the wrapped-launch path and nowhere else (OQ-HS10)\n%s%s",
-			acceptConfigChangesEnv, out.String(), errw.String())
+			"is retired and approves nothing (OQ-NC10)\n%s%s",
+			retiredAcceptVariable, out.String(), errw.String())
 	}
 	after, err := os.ReadFile(path)
 	if err != nil {

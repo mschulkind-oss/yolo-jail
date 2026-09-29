@@ -370,7 +370,7 @@ func TestAttachSkewAcknowledgedProceedsWithoutDelivery(t *testing.T) {
 
 // yoloEnvSpellings is every YOLO_* variable the tree's non-test Go source spells, read fresh so an
 // override added tomorrow is in the set without an edit here. Every one, not only the YOLO_ALLOW_*
-// hatches: an override need not be spelled like one (YOLO_ACCEPT_CONFIG_CHANGES,
+// hatches: an override need not be spelled like one (YOLO_NO_BANNER,
 // YOLO_BYPASS_SHIMS, YOLO_NO_HOST_LOOPBACK).
 func yoloEnvSpellings(t *testing.T) []string {
 	t.Helper()
@@ -418,7 +418,7 @@ var overrideOptionBool = regexp.MustCompile(`^(Accept|Allow|Assume|Bypass|Force|
 func TestNoOtherHatchAcknowledgesAttachSkew(t *testing.T) {
 	spellings := yoloEnvSpellings(t)
 	for _, must := range []string{AllowAttachSkewEnv, "YOLO_ALLOW_SOURCE_SKEW", "YOLO_ALLOW_MISSING_PROVIDERS",
-		"YOLO_ALLOW_STALE_IMAGE", "YOLO_ALLOW_UNREACHABLE_SERVICES", "YOLO_ACCEPT_CONFIG_CHANGES",
+		"YOLO_ALLOW_STALE_IMAGE", "YOLO_ALLOW_UNREACHABLE_SERVICES",
 		"YOLO_BYPASS_SHIMS", "YOLO_NO_HOST_LOOPBACK"} {
 		if !slices.Contains(spellings, must) {
 			t.Fatalf("the census found no %s, so it is not reading the tree: %v", must, spellings)

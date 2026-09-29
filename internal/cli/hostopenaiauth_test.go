@@ -37,7 +37,6 @@ func TestHostExecUsesManagedOpenAIAuthLaunch(t *testing.T) {
 	fake := &fakeManagedHostLaunch{}
 	prepareOpenAIAuthHost = func(hostPrelaunch, io.Writer) (managedOpenAIHostLaunch, error) { return fake, nil }
 	t.Cleanup(func() { prepareOpenAIAuthHost = original })
-	t.Setenv("YOLO_ACCEPT_CONFIG_CHANGES", "1")
 	// `true` resolves before preparation, while the fake Run prevents syscall.Exec.
 	rc := hostExec(nil, []string{"true"}, io.Discard, io.Discard, nil)
 	if rc != 23 || !fake.ran {

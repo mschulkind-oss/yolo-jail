@@ -107,7 +107,7 @@ complete ambient environment, with the composed variables overlaid on top.
 | `HOME` | `paths.Home()` (`$HOME`, then the passwd entry, then `/`), and `os.UserHomeDir` in `hostApplyGate` | Which config, state and home are used |
 | cwd | `os.Getwd()` in `composeHostLaunch` and `hostEnv` | The workspace `env_sources` resolve against. `hostScopedEnvSources` drops relative entries |
 | stdin TTY | `hostGateCanPrompt` | Whether the gate may prompt |
-| `YOLO_*` | e.g. `paths.AllowMissingProvidersEnv`, `YOLO_ACCEPT_CONFIG_CHANGES`, `config.InJail` via `YOLO_VERSION` | Named dials. The ruling allows these |
+| `YOLO_*` | e.g. `paths.AllowMissingProvidersEnv`, `config.InJail` via `YOLO_VERSION` | Named dials. The ruling allows these |
 
 ### 1.3 How the incident happened
 

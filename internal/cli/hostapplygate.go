@@ -33,9 +33,9 @@ package cli
 //     nothing is rendered, the same no-half-states rule `yolo host apply --assert` refuses by.
 //   - It does not run in a jail, at all. `render.Host` targets the invoking user's real home
 //     and paths.Home() in a jail is /home/agent, so there is no host home in here to be stale.
-//   - It does not touch `yolo run` or `yolo host apply`. Both take
-//     `--accept-config-changes`; honoring the environment variable there would buy nothing and
-//     would let one shell-rc line pre-approve every jail launch on the machine (§1 P4).
+//   - It does not touch `yolo run` or `yolo host apply`, and it takes no approval of its own:
+//     no flag and no environment variable answers the first-apply question off a terminal
+//     (OQ-NC10).
 
 import (
 	"bytes"
@@ -49,33 +49,14 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 )
 
-// acceptConfigChangesEnv grants the config-change approval for ONE wrapped host launch.
-//
-// AN ENVIRONMENT VARIABLE, on this path and this path only, and it is not a contradiction of
-// `config.AcceptConfigChangesFlag`'s ruling that a per-launch approval must be a flag — it is
-// the answer to a different question (OQ-HS10). For `yolo run` the choice is flag-vs-env-var
-// and there the variable is pure cost. Here the wrapper body is fixed —
-// `exec yolo host -- claude "$@"` (internal/hostwrap.Body) — and hostMain hands everything
-// after `--` to the program, so a user typing `claude --print foo` has NO SLOT for a
-// yolo-level flag. The choice is env-var-vs-nothing, and "nothing" means a scripted agent
-// launch can never proceed.
-//
-// The cost is real and accepted knowingly (maintainer ruling 2026-09-03): exported in a shell
-// profile, this becomes de facto standing consent for every wrapped launch in that shell. Two
-// containments make that tolerable rather than a hole, and both are load-bearing:
-//
-//  1. IT IS HONORED HERE AND NOWHERE ELSE. Not by `yolo run`, not by `yolo host apply` — see
-//     the file header.
-//  2. THE WRAPPER MUST NOT BAKE IT IN. A generator that wrote the grant into the wrapper body
-//     when a config key said so is the obvious next step and is REFUSED: it converts a
-//     per-shell act into a permanent one, which is the standing consent §1's retraction
-//     forbids. The variable is tolerable *because* someone has to type it.
-//
-// Named to match the flag it stands in for, so the two read as one grant in two spellings and
-// a refusal can offer whichever channel its reader can reach. The constant lives beside the
-// refusal that names it, following snapshot.go's rule for exactly this: the spelling a user is
-// told to set and the spelling the code reads cannot drift apart.
-const acceptConfigChangesEnv = "YOLO_ACCEPT_CONFIG_CHANGES"
+// THERE IS NO HOST LAUNCH APPROVAL (docs/plans/notch-convergence.md OQ-NC10, ruled 2026-09-28).
+// OQ-HS10 designed one, an environment variable for the wrapper path, whose fixed body
+// (`exec yolo host -- claude "$@"`) has no slot for a flag. Its last reader went with the
+// zero-prompt auto-apply, which re-renders a stale home without asking, and the one question
+// this gate still asks — a first apply dropping MCP servers yolo does not declare — is a one-way
+// door kept behind a terminal: off one the launch refuses and names `yolo host apply --assert`,
+// which asks it where it can be answered. So the variable was retired rather than given that
+// door, and `--accept-config-changes` stays refused at the host by name (jailOnlyRunFlags).
 
 // hostApplyGateBudget bounds the observe pass (§4.4).
 //

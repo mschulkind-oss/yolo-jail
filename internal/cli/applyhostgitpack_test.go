@@ -111,7 +111,6 @@ func hookHome(t *testing.T, src string) string {
 	t.Helper()
 	home := gitPackHome(t, src, `,"host_apply_on_launch":true`)
 	t.Setenv("YOLO_VERSION", "")
-	t.Setenv(acceptConfigChangesEnv, "")
 	setGateTTY(t, false)
 	if lock := tryHostApplyLock(home); lock != nil {
 		lock.Close()

@@ -195,7 +195,6 @@ func TestHostApplyGateRendersNothingOverAMalformedPack(t *testing.T) {
 	for _, malformed := range []bool{true, false} {
 		home, _ := malformedPackHome(t, "", malformed, `,"host_apply_on_launch":true`)
 		t.Setenv("YOLO_VERSION", "")
-		t.Setenv(acceptConfigChangesEnv, "")
 		setGateTTY(t, false)
 		if lock := tryHostApplyLock(home); lock != nil {
 			lock.Close()
