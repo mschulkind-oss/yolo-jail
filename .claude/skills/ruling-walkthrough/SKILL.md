@@ -32,6 +32,14 @@ live conversation, with low latency: the maintainer answers in chat, the agent r
 - **Two questions at a time**, in plain words, each with the leaning and what choosing it
   changes for the user. No doc jargon without a one-phrase definition. Say "rule both as leaned,
   or adjust?"
+- **Every turn ends with the walkthrough panel**, emulating a UI, and nothing after it:
+  1. **Answers:** if the maintainer asked something this turn (a clarification, a "why", a
+     discussion), the answer goes INSIDE the panel, not above it — anything above scrolls by.
+  2. **Round progress:** pairs done / remaining in this round, what was ruled this turn, what
+     was added to the queue.
+  3. **Docs in play:** one line per doc touched this round — its state (reviewing, ruled,
+     building, landed) and what is running on it.
+  4. **The current pair**, last.
 - **The pair is the LAST thing in the turn.** Status updates, landings and notifications come
   first; the two questions close the message, so they are what the maintainer sees when the
   turn ends. Never let a pair scroll by above later output.
@@ -98,6 +106,8 @@ edit this file in the same turn and commit it. Recorded adjustments:
   (BB1 → BB6) and queues it, rather than leaving the gap in prose.
 - 2026-09-29: every question opens with its concrete setup (the maintainer could not answer
   HP5/HP6 as first stated).
+- 2026-09-29: every turn ends with the panel (answers inside it, round progress, docs in play,
+  then the pair), because anything above the panel scrolls by.
 - 2026-09-29: check each question against the session's principles first (HP5 and HP6 part 2
   dissolved under them).
 - 2026-09-29: with ultracode on, review/improve passes on arriving docs and doc reconciliation
