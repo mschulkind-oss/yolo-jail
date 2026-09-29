@@ -46,8 +46,8 @@ ping box, which is designed and not built.
 
 **Start at [§3](#3-the-flow)**, the flow. Everything else is what one step of it needs.
 
-**Needs your ruling:** [OQ-BB8](#OQ-BB8) and [OQ-BB9](#OQ-BB9). [OQ-BB3](#OQ-BB3),
-[OQ-BB4](#OQ-BB4), [OQ-BB6](#OQ-BB6) and [OQ-BB7](#OQ-BB7) were ruled 2026-09-29.
+**Needs your ruling:** [OQ-BB9](#OQ-BB9). [OQ-BB3](#OQ-BB3), [OQ-BB4](#OQ-BB4), [OQ-BB6](#OQ-BB6),
+[OQ-BB7](#OQ-BB7), [OQ-BB8](#OQ-BB8) and OQ-C were ruled 2026-09-29.
 
 **Reads with:** [`agent-event-watchers.md`](agent-event-watchers.md) (the `yolo notify` doorbell
 the answer rides back on), [`loophole-system.md`](../reference/loophole-system.md) and
@@ -1350,7 +1350,7 @@ of unYOLO's ideas behind triggers. The asynchronous ruling fires three of them:
    head of the config-change diff, recorded by host `yolo check --accept-config-changes` too where
    the check would start the broker, and handed to the broker in the launch's scope file
    ([§5.6](#56-the-repository-scope), [BB-D30](#BB-D30) to [BB-D32](#BB-D32)); the audit log,
-   `yolo audit`, and the mount fence ([BB-D26](#BB-D26)). The forwarder's placement waits on [OQ-BB8](#OQ-BB8).
+   `yolo audit`, and the mount fence ([BB-D26](#BB-D26)). The forwarder is placed by [OQ-BB8](#OQ-BB8)'s generic interception contribution.
    Every read-write command returns exit 77 with *"writes need approval, which this version cannot
    ask for"*, audited. Useful on day one: the agent reads PRs, runs and issues with no token in the jail.
 2. **Writes on Linux.** The `read-write` set and set grants, user-scope set configuration
@@ -1677,7 +1677,7 @@ covered:
    > and a user who adds one approves it at the next launch. Neither of the doc's options as
    > written: A's re-read with B's approval.
 
-7. 💬 <a id="OQ-BB8"></a>**[OQ-BB8](#OQ-BB8): How does the jail's `gh` forwarder outrank the
+7. ✅ <a id="OQ-BB8"></a>**[OQ-BB8](#OQ-BB8): How does the jail's `gh` forwarder outrank the
    image's own `gh`?** The image bakes `gh` at `/bin/gh`, `launchercollision.go` writes no pack
    launcher for a name the image provides, and the one earlier `PATH` directory holds blockers
    ([§4.3](#43-the-jail-side)). This decides what an agent's bare `gh` runs in every jail with
@@ -1695,13 +1695,20 @@ covered:
      the pack system. Cost: agents type `gh` from habit, get the real one with no login and exit
      4, and the briefing must teach the new name.
 
-   <!-- vantage: oq id=OQ-BB8 leaning="A: a new interception contribution in ~/.yolo/bin/block, so a bare gh reaches the broker while /bin/gh stays for anyone who asks for it." -->
-
    _Leaning:_ **A.** Agents keep typing `gh`, the image does not move, and interception is what the
    first `PATH` directory already means.
 
    **Answer:**
-   > _(empty — fill in when decided)_
+   > **Ruled 2026-09-29, as leaned: A, and the kind is generic.** The maintainer: *"take your
+   > leaning of A where we're putting a shim in there. Although this is like a little weird,
+   > we're diving so far into the GitHub utility, but I think that's okay as long as this stays
+   > in a built-in pack configuration that other people could conceivably build for other
+   > utilities, because this is a very interesting shape to be able to layer permissions over an
+   > existing interface."* So the new contribution kind intercepts a command NAME and routes it
+   > to a pack-declared forwarder; it is rendered into `~/.yolo/bin/block`; core names no tool,
+   > and the GitHub broker is the first pack to use it. Any pack may layer permissions over
+   > another CLI the same way. `/bin/gh` and `YOLO_BYPASS_SHIMS=1` still reach the real `gh`,
+   > which holds no credential in the jail.
 
 8. 💬 <a id="OQ-BB9"></a>**[OQ-BB9](#OQ-BB9): What may a workspace's widening entry admit?**
    Raised by [OQ-BB6](#OQ-BB6)'s ruling, which chose a user-scope entry keyed by workspace
@@ -1778,7 +1785,7 @@ covered:
 | [OQ-BB2](#OQ-BB2) | **Maintainer ruling:** grants are per-source named permission sets; GitHub's default two are read-only (always) and read-write (granted whole for a window, 15 min by default); no always-ask list by default | 2026-09-29 | [§14](#14-open-questions) | pending |
 | OQ-A | **Ruled by the brief: the synchronous version is not enough.** A request outlives its connection; the jail waits at most 30 seconds, and the answer comes back later as a ping | 2026-09-28 | [§3](#3-the-flow) | — |
 | OQ-E | **Ruled by the brief: the human answers in a persistent desktop notification on Linux and macOS,** with Allow, Deny and a duration. `yolo approve` is the fallback front-end. Its security half, settled 2026-08-12, stands: authority stays with host processes, never an HTTP port | 2026-09-28 | [§6](#6-the-doorbell-a-persistent-desktop-notification) | — |
-| OQ-C | **Settled by the brief, by my reading, not ruled by name:** stdout, stderr and the exit code of a brokered command cross verbatim, since running read-only commands means seeing their output. No credential crosses because no credential-printing command is brokered | 2026-09-28 | [§4.2](#42-what-crosses-back) | — |
+| OQ-C | **Maintainer ruling (2026-09-29), confirming the reading:** stdout, stderr and the exit code of a brokered command cross verbatim. With the rule that bounds it: *"If that access is somehow dangerous this command that we're wrapping just isn't a candidate for this"* — a command whose output would hand the agent something it must not have is refused, never brokered with a filtered result | 2026-09-29 | [§4.2](#42-what-crosses-back) | pending |
 | OQ-B | Approvals are **per action by default**; a reusable grant is bounded by duration **and** use count; the human may only **narrow**: policy ceiling ≥ request ≥ grant. Held: an earlier draft had the human widening a grant, which unYOLO's `validApprovalConstraints` rejects and which would decay a grant into an allowlist. **Partly superseded 2026-09-29 by [OQ-BB2](#OQ-BB2):** the default grant is now a whole windowed set, not per action. The narrowing-only half stands, with the set's ceiling as the policy ([BB-D29](#BB-D29)), and so does the use count ([BB-D21](#BB-D21)) | 2026-08-12 · partly superseded 2026-09-29 | [§7](#7-grants-and-the-request-store) | — |
 | OQ-D | **A pointer, not a question:** delegated to [`agent-auth-modes.md`](agent-auth-modes.md) [OQ-1](agent-auth-modes.md#12-decision-ledger), ruled there 2026-08-29 (launch-time selection, failover deferred), so this broker holds no auth-mode state | 2026-08-12 · delegate ruled 2026-08-29 | [§13](#13-what-this-does-not-cover-and-the-other-two-tiers) | — |
 | <a id="BB-D1"></a>[`BB-D1`](#15-decision-ledger) | *Implementation decision.* The broker is a loophole host daemon, one per jail, in a new `github` pack, off until enabled; the jail reaches it over the loopback-TLS transport, and every grant and request is keyed on the preamble's host-asserted jail id, never on a request field | 2026-09-28 | [§4.4](#44-per-notch-and-backend) | — |
@@ -1821,6 +1828,7 @@ covered:
 | [OQ-BB4](#OQ-BB4) | **Maintainer ruling, delegated:** terminal-notifier as a dependency of the published Homebrew formula on Apple silicon (carried out as macOS 14 or later, where the bottle is, [BB-D35](#BB-D35)), optional on Intel and older macOS, `yolo approve` without it; yolo's own signed helper once the release signs | 2026-09-29 | [§14](#14-open-questions) | pending |
 | [OQ-BB6](#OQ-BB6) | **Maintainer ruling:** (a), a user-scope entry keyed by workspace; (e) not adopted, so an out-of-scope read refuses | 2026-09-29 | [§14](#14-open-questions) | pending |
 | [OQ-BB7](#OQ-BB7) | **Maintainer ruling:** the scope is re-read at each fresh launch and is part of the config-change gate's approval record (a second file beside the snapshot, [BB-D30](#BB-D30)); a changed scope takes effect only once approved in that launch's diff | 2026-09-29 | [§14](#14-open-questions) | pending |
+| [OQ-BB8](#OQ-BB8) | **Maintainer ruling:** A, a generic pack contribution that intercepts a command name and routes it to a pack-declared forwarder; core names no tool | 2026-09-29 | [§4.3](#43-the-jail-side) | pending |
 
 ## Appendix A — prior art: unYOLO, re-analyzed from source (2026-08-12)
 
