@@ -3,7 +3,8 @@ package check
 // servedprediction_test.go pins `yolo check` predicting PER RUNTIME what is served at the
 // launch's notch (docs/plans/notch-convergence.md §4 item 2): a bridged profile passes the
 // pairing gate on a container runtime, where the wire bridge runs, and is predicted REFUSED on
-// macos-user, which runs no jail daemon — the refusal that launch now makes. Through
+// macos-user, whose guest declines a pack service's jail daemon — the refusal that launch makes
+// before it plans the service's host half (which a prediction does not). Through
 // sectionPacks, so deleting predictedServed's use there fails it.
 
 import (

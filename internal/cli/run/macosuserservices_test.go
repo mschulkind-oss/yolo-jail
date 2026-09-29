@@ -1,8 +1,9 @@
 package run
 
 // macosuserservices_test.go pins the macos-user launch's LAUNCH-OWNED SERVICES
-// (macosuserservices.go; docs/design/host-notch-services.md §4.7, OQ-NC1 ruled A). That backend
-// runs no jail daemon, so claude on a bridged profile there is composed against the wire bridge's
+// (macosuserservices.go; docs/design/host-notch-services.md §4.7, OQ-NC1 ruled A). That backend's
+// guest declines a pack service's jail daemon, so claude on a bridged profile there is composed
+// against the wire bridge's
 // host half, which the launch starts as its child and stops when the sandboxed command exits.
 // Unit-level: the start is observed through its seam and the sandbox through MacosUserRun's, so
 // no service and no agent runs.

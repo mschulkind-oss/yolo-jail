@@ -3,9 +3,9 @@ package run
 // servedaddresses_test.go pins the jail notches' half of served-address composition
 // (docs/plans/notch-convergence.md §4 item 2): the channel composes only what this launch's
 // notch serves. A container launch composes the bridge's adapter address and delivers codex's
-// refresh URL; macos-user, which runs no jail daemon, composes neither at a jail daemon's address:
-// a bridged pairing runs through the service's host half (macosuserservices_test.go) or refuses
-// naming why, and the pointer is withheld and named. MEASURED
+// refresh URL. macos-user declines the bridge's jail daemon, so a bridged pairing runs through the
+// service's host half (macosuserservices_test.go) or refuses naming why; and since OQ-DP8/DP9 its
+// guest runs the OpenAI adapter, so codex's refresh URL is delivered there too, at a picked port. MEASURED
 // before this (plan §3.3 C1): macos-user composed claude on cerebras against 127.0.0.1:8214,
 // which nothing on it serves. Through the real composePackChannel with the runtime Run
 // resolved, so deleting servedDaemons' use there fails it.
@@ -111,8 +111,8 @@ func viaFixture(t *testing.T) ([]*packload.Pack, *jsonx.OrderedMap, func(*Option
 }
 
 // ON MACOS-USER A VIA IS CLEARED AND NAMED (notch convergence item 2, NC-D16). A container
-// launch runs the wire bridge, so pi's `pz` keeps its via; macos-user runs no jail daemon, so
-// the channel clears the via, pi keeps its own client, and the launch names the profile. Through
+// launch runs the wire bridge, so pi's `pz` keeps its via; macos-user's guest declines the
+// bridge's jail daemon, so the channel clears the via, pi keeps its own client, and the launch names the profile. Through
 // the real composePackChannel, so deleting its ViaServedAt call fails this.
 func TestMacosUserClearsAnUnservedViaAndNamesTheProfile(t *testing.T) {
 	packs, userEnv, tune := viaFixture(t)

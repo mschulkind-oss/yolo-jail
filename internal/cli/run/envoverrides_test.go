@@ -178,11 +178,11 @@ func TestEnvOverrideRefusesTheMacosUserLaunch(t *testing.T) {
 	}
 }
 
-// TestMacosUserWithholdsTheBedrockPointerSoNothingOverridesIt is aws-auth on macos-user
-// (docs/plans/notch-convergence.md §4 item 2): that backend runs no jail daemon, so the
-// adapter behind AWS_CONTAINER_CREDENTIALS_FULL_URI never starts and the pointer is a port
-// nothing serves (packs/aws-auth/README.md: "macos-user runs no jail-side daemon at all").
-// The launch withholds the pointer and says so. With no pointer, a bearer, a static pair or a
+// TestMacosUserWithholdsTheBedrockPointerSoNothingOverridesIt is aws-auth on macos-user with
+// its loophole left at its default, OFF (docs/plans/notch-convergence.md §4 item 2): the adapter
+// behind AWS_CONTAINER_CREDENTIALS_FULL_URI is then in no payload, so the pointer is a port
+// nothing serves, although macos-user's guest runs the adapter when the loophole is on
+// (macosuserguestdaemons_test.go). The launch withholds the pointer and says so. With no pointer, a bearer, a static pair or a
 // ~/.aws grant beside it overrides nothing, so none of them refuses or warns — before this, a
 // macos-user launch refused a working bearer over a pointer that could never answer.
 func TestMacosUserWithholdsTheBedrockPointerSoNothingOverridesIt(t *testing.T) {

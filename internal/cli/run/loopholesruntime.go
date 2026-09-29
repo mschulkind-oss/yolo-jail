@@ -134,8 +134,8 @@ func (o *Options) advertiseHostFor(rt string, cfg *jsonx.OrderedMap) string {
 //
 // WHAT THE ARM STILL PRINTS ITSELF is the inert report on its `--dry-run` path (a plan
 // render crosses no spawn boundary, so it reaches no wrapper) and the JAIL-DAEMON DECLINE on
-// both paths: every host daemon starts here and not one jail daemon does, because there is
-// no in-jail supervisor on this backend at all (jaildaemondecline.go).
+// both paths: every host daemon starts here, the jail daemons its Seatbelt guest can run start
+// under the guest's supervisor, and the rest are declined by name (jaildaemondecline.go).
 func sharesLauncherNetns(rt, netMode string, inContainer bool) bool {
 	if rt == "container" {
 		return false

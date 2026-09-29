@@ -150,8 +150,9 @@ no other process, a bare shell included. In a container jail it crosses in that 
 env file, sourced by its launcher. The processes an agent spawns inherit it, as they inherit
 anything in the agent's environment. **It crosses only where the adapter runs.** The pointer
 names this loophole's jail daemon (`served_by: "aws-auth"`), so a launch that does not run it
-leaves the pointer out and says so: macos-user and `yolo host`, which run no jail daemon, and a
-container launch that has not enabled the loophole
+leaves the pointer out and says so: `yolo host`, which runs no jail daemon, and a jail launch
+that has not enabled the loophole. macos-user runs the adapter inside its sandbox, confined like
+the agent, so it delivers the pointer, at a port the launch picks
 ([notch convergence §2.4](../../docs/plans/notch-convergence.md#24-the-addresses-those-secrets-protect-are-composed-not-literal)). **Do not "fix" the gate by narrowing it to the pack's own bins**: that
 would break this pack outright, because CLI-less is the case the gate's CLI-less arm exists
 for.
@@ -267,8 +268,8 @@ says so and exits, and the launch reports it.
 > sets `YOLO_SERVICE_AWS_AUTH_ENDPOINT` whenever this loophole is enabled. The pack
 > has not yet been run against a live `aws sso login`.
 
-**A podman backend.** Two others are inert and both say so at launch. `macos-user` runs
-no jail-side daemon at all, so the adapter never starts. Apple Container
+**A podman backend, or macos-user.** On `macos-user` the adapter runs inside the sandbox, under
+its Seatbelt profile, as the sandbox's own user (not yet run on a Mac). Apple Container
 (`runtime: "container"`) carries no container→host connection — measured on 1.1.0: the
 handshake completes and nothing crosses — so no loopback-TLS loophole is reachable
 there. That skip is expected to expire with an upstream release rather than stand
