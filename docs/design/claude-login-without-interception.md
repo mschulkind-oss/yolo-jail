@@ -402,7 +402,7 @@ The mechanism is decided in [§11](#11-decision-ledger). These two change what a
    **Answer:**
    > _(empty — fill in when decided)_
 
-2. 💬 <a id="OQ-CL2"></a>**[OQ-CL2](#OQ-CL2): What do `/login` and `/logout` in a jail mean?**
+2. ✅ <a id="OQ-CL2"></a>**[OQ-CL2](#OQ-CL2): What do `/login` and `/logout` in a jail mean?**
    Today a jail's `/login` exchange is proxied, and the proxy mirror makes it the machine's login
    ([`claude-oauth-interposition.md`](../reference/claude-oauth-interposition.md#the-login-flow-is-not-terminated--it-is-the-enrollment-path)).
    A jail's `/logout` revokes the stored refresh token (`${TOKEN_URL}/revoke`, which the proxy
@@ -412,9 +412,7 @@ The mechanism is decided in [§11](#11-decision-ledger). These two change what a
    JE(…)`, offset 217147433), and it rewrites the view without its `claudeAiOauth` entry. This
    decides what the broker does with each.
 
-   <!-- vantage: oq id=OQ-CL2 leaning="/login in any jail still enrolls the machine: the broker adopts a view that carries a refresh token, redeems it once under its lock and rewrites the view without it (CL-D4). /logout in a jail signs that workspace out: the broker stops writing its view until the next launch and says so. Machine-wide logout becomes a host verb, yolo claude-auth logout, as OpenAI's is, because a jail process changing every workspace's login is the trust problem openai-auth-broker already ruled out." -->
-
-   _Leaning:_ **`/login` in any jail still enrolls the machine; `/logout` in a jail signs out that
+      _Leaning:_ **`/login` in any jail still enrolls the machine; `/logout` in a jail signs out that
    workspace; machine-wide logout is a host verb.** The broker adopts a view that carries a
    refresh token, redeems it once under its lock, and rewrites the view without it
    ([CL-D4](#CL-D4)). So the enrollment users know keeps working. A jail's `/logout` stops the
@@ -428,7 +426,11 @@ The mechanism is decided in [§11](#11-decision-ledger). These two change what a
    vendor can change.
 
    **Answer:**
-   > _(empty — fill in when decided)_
+   > **Ruled 2026-09-28, as leaned** (the maintainer: *"all of that sounds right"*): `/login` in
+   > any jail still enrolls the machine — the broker adopts the view's refresh token, redeems it
+   > once under its lock and rewrites the view without it; `/logout` in a jail signs out only
+   > that workspace until its next launch, which says so; `yolo claude-auth logout` on the host
+   > signs the machine out, as `yolo openai-auth logout` does.
 
 ## 10. What I would build, in order
 
