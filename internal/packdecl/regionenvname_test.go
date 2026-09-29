@@ -14,7 +14,7 @@ import (
 // and never reached ProviderContribution would declare a requirement nothing enforces.
 func TestAProviderMayDeclareItsRegionVariables(t *testing.T) {
 	m, problems := Decode([]byte(`{"contributes":[
-	  {"kind":"provider","name":"regional","region_env_name":["AWS_REGION","AWS_DEFAULT_REGION"]},
+	  {"kind":"provider","name":"regional","platform":"cloud","region_env_name":["AWS_REGION","AWS_DEFAULT_REGION"]},
 	  {"kind":"provider","name":"plain"}]}`))
 	if len(problems) != 0 {
 		t.Fatalf("a region_env_name list is legal: %v", problems)
@@ -37,7 +37,7 @@ func TestARegionVariableListIsValidated(t *testing.T) {
 		"a duplicate":   `["DUP","DUP"]`,
 	} {
 		t.Run(name, func(t *testing.T) {
-			_, problems := Decode([]byte(`{"contributes":[{"kind":"provider","name":"p",` +
+			_, problems := Decode([]byte(`{"contributes":[{"kind":"provider","name":"p","platform":"cloud",` +
 				`"region_env_name":` + body + `}]}`))
 			if len(problems) == 0 {
 				t.Fatalf("region_env_name: %s must be refused", body)
@@ -50,10 +50,26 @@ func TestARegionVariableListIsValidated(t *testing.T) {
 	}
 }
 
+// THE VARIABLES ARE A PLATFORM'S (OQ-BR2's marker keys the requirement): a list declared on a
+// provider with no platform would attach to nothing, so it is refused, naming the field it
+// needs — the shape BR-D1 first shipped, before the marker was ruled.
+func TestRegionVariablesNeedAPlatform(t *testing.T) {
+	_, problems := Decode([]byte(`{"contributes":[{"kind":"provider","name":"p",` +
+		`"region_env_name":["AWS_REGION"]}]}`))
+	if got := strings.Join(problems, "\n"); !strings.Contains(got, `"region_env_name"`) ||
+		!strings.Contains(got, `needs the "platform"`) {
+		t.Errorf("region_env_name with no platform must be refused, naming platform:\n%s", got)
+	}
+	if _, problems := Decode([]byte(`{"contributes":[{"kind":"provider","name":"p",` +
+		`"platform":"cloud","region_env_name":["AWS_REGION"]}]}`)); len(problems) != 0 {
+		t.Errorf("control: the same list beside a platform is legal: %v", problems)
+	}
+}
+
 // A string is not the field's spelling: unlike api_key_env_name it never had a one-variable
 // form to stay compatible with, so a bare string is the decoder's refusal.
 func TestARegionVariableMustBeAList(t *testing.T) {
-	if _, problems := Decode([]byte(`{"contributes":[{"kind":"provider","name":"p",` +
+	if _, problems := Decode([]byte(`{"contributes":[{"kind":"provider","name":"p","platform":"cloud",` +
 		`"region_env_name":"AWS_REGION"}]}`)); len(problems) == 0 {
 		t.Error(`region_env_name: "AWS_REGION" (a string) must be refused`)
 	}

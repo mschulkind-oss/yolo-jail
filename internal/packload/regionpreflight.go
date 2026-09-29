@@ -7,12 +7,18 @@ package packload
 // us-east-1, a region nobody chose (the ruling's premise, read from their shipped clients and
 // never run).
 //
-// WHICH PROVIDERS. One whose pack declares `region_env_name` (packdecl.Contribution), and only
-// one: that field is the whole requirement. Core names no provider and no variable here —
-// matching "bedrock" by name is the candidate providers-and-profiles-redesign.md §4 rejects, the
-// provider marker is OQ-BR2's open question, and which AWS variable carries a region is the
-// pack's fact for the reason envoverride.go gives for the credential variables. packs/claude
-// declares AWS_REGION and AWS_DEFAULT_REGION on its `bedrock` provider.
+// WHICH PROVIDERS: every one whose composed entry declares a PLATFORM some selected pack says is
+// reached through a region — OQ-BR2's marker (docs/design/providers-and-profiles-redesign.md,
+// ruled 2026-09-29): a provider is recognized by what it says it is, never by its name. A pack
+// says so by declaring `region_env_name` beside `platform` on a provider it ships
+// (packdecl.Contribution): the variables an agent on that platform reads its region from.
+// packs/claude declares AWS_REGION and AWS_DEFAULT_REGION on its `bedrock`, whose platform is
+// "aws-bedrock", so a provider a USER declares with "platform": "aws-bedrock" carries the same
+// requirement, naming the same variables — the ruling's "a provider a user defines gets the same
+// behavior as the shipped one". A user provider whose platform no selected pack declares
+// variables for carries none: core names no provider, no platform and no variable here, since
+// which AWS variable carries a region is the pack's fact, for the reason envoverride.go gives
+// for the credential variables.
 //
 // WHAT COUNTS AS A REGION is exactly what the ruling names, both of which yolo can see at
 // launch: the composed entry's `region` (the pack's fact under the user's `providers` entry,
@@ -26,35 +32,58 @@ package packload
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
-// regionRequirement is one provider's region requirement: the pack whose declaration the
-// composed entry carries, and the variables that declaration names.
+// regionRequirement is one PLATFORM's region requirement: the pack whose provider declared the
+// platform's region variables, and those variables.
 type regionRequirement struct {
 	pack string
 	vars []string
 }
 
-// regionRequirements maps each provider the selected packs ship to its region requirement,
-// attributed to the LAST shipper as requiredProviders attributes a credential (a provider name
-// is sole-owned across packs, so in a launch that loaded there is one). A provider whose
-// shipper declares no `region_env_name` has no entry.
+// regionRequirements maps each platform a selected pack says is reached through a region to its
+// requirement. Every provider declaration carrying `region_env_name` (which packdecl refuses
+// without a `platform` beside it) adds its variables to its platform's list, in declaration
+// order and without repeats, and the requirement is attributed to the last pack that declared
+// one. A platform no pack declares variables for has no entry, and neither has a provider with
+// no platform at all.
 func regionRequirements(packs []*Pack) map[string]regionRequirement {
 	out := map[string]regionRequirement{}
 	for _, p := range packs {
+		if p == nil || p.Decl == nil {
+			continue
+		}
 		for _, prov := range p.Decl.Providers() {
-			if len(prov.RegionEnvName) == 0 {
-				delete(out, prov.Name)
+			if len(prov.RegionEnvName) == 0 || prov.Platform == "" {
 				continue
 			}
-			out[prov.Name] = regionRequirement{pack: p.Name, vars: prov.RegionEnvName}
+			req := out[prov.Platform]
+			for _, v := range prov.RegionEnvName {
+				if !slices.Contains(req.vars, v) {
+					req.vars = append(req.vars, v)
+				}
+			}
+			req.pack = p.Name
+			out[prov.Platform] = req
 		}
 	}
 	return out
+}
+
+// entryString is one string field of a composed provider entry, "" when it is absent or not a
+// string (the config validator refuses a non-string `region` or `platform`).
+func entryString(entry *jsonx.OrderedMap, key string) string {
+	if entry == nil {
+		return ""
+	}
+	v, _ := entry.Get(key)
+	s, _ := v.(string)
+	return s
 }
 
 // ProviderRegionGaps returns the FACT lines of the region pre-flight, empty when every selected
@@ -81,25 +110,26 @@ func ProviderRegionGaps(packs []*Pack, providers *jsonx.OrderedMap, selected []s
 	reqs := regionRequirements(packs)
 	var facts []string
 	for _, name := range providers.Keys() {
-		req, ok := reqs[name]
-		if !ok || !isSelected[name] {
+		if !isSelected[name] {
 			continue
 		}
 		entry := providerEntry(providers, name)
 		if entry == nil {
 			continue // the user's null dropped it: nobody's requirement
 		}
-		if r, _ := entry.Get("region"); r != nil {
-			if s, _ := r.(string); s != "" {
-				continue
-			}
+		// THE PLATFORM, off the composed entry: pack default under user override, so a user
+		// provider that says it is "aws-bedrock" meets the requirement the shipped one does.
+		platform := entryString(entry, "platform")
+		req, ok := reqs[platform]
+		if !ok || entryString(entry, "region") != "" {
+			continue
 		}
 		if anySet(req.vars, lookup) {
 			continue
 		}
 		facts = append(facts, "  • pack "+req.pack+" requires a region for provider "+quoted(name)+
-			": its composed entry sets no \"region\", and "+noneSetPhrase(req.vars)+
-			" in this launch's environment")
+			" (platform "+quoted(platform)+"): its composed entry sets no \"region\", and "+
+			noneSetPhrase(req.vars)+" in this launch's environment")
 		for _, v := range req.vars {
 			if stranded != nil && stranded(v) {
 				facts = append(facts, "    "+v+" is set in the environment yolo was launched from, "+

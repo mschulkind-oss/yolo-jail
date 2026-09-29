@@ -472,27 +472,28 @@ type Contribution struct {
 	// the provider lives, never who is calling, and the user's own `providers` entry
 	// overrides it like any other field.
 	Region string `json:"region,omitempty"`
-	// RegionEnvName makes a region a LAUNCH REQUIREMENT, and names the variables an agent
-	// on this provider reads its region from when the entry carries no `region` — for
-	// Bedrock, AWS_REGION and AWS_DEFAULT_REGION. The `_name` suffix is the value's type read
-	// out loud, as on api_key_env_name: these are variable NAMES, and the pack never ships
-	// a value. A launch that selects this provider refuses when the composed entry has no
-	// `region` and none of these variables is set in what the launch delivers
-	// (packload.ProviderRegionGaps; docs/design/bedrock-plumbing.md, OQ-BR6).
+	// RegionEnvName makes a region a LAUNCH REQUIREMENT for every provider of this one's
+	// PLATFORM, and names the variables an agent on that platform reads its region from when
+	// the entry carries no `region` — for Bedrock, AWS_REGION and AWS_DEFAULT_REGION. The
+	// `_name` suffix is the value's type read out loud, as on api_key_env_name: these are
+	// variable NAMES, and the pack never ships a value. A launch in which an agent's profile
+	// selects a provider of that platform refuses when the composed entry has no `region` and
+	// none of these variables reaches that agent (packload.ProviderRegionGaps;
+	// docs/design/bedrock-plumbing.md, OQ-BR6).
 	//
-	// WHY A FIELD, and why this one. The ruling refuses a launch of "the selected Bedrock
-	// provider" with no region, and core may not know which provider that is: matching the
-	// name is rejected, the provider marker is OQ-BR2's open question
-	// (docs/design/providers-and-profiles-redesign.md), and core names no AWS variable (the
-	// OQ-SSO8 rule envoverride.go states). This field says neither what the service is nor
-	// how it is reached; it says a region is required and where an agent looks for one,
-	// which is exactly what the refusal needs and nothing more. It survives whatever OQ-BR2
-	// rules.
+	// A FACT ABOUT THE PLATFORM, declared on a provider of it, so it REQUIRES `platform` beside
+	// it. The ruling refuses a launch of "the selected Bedrock provider" with no region, and
+	// OQ-BR2 (ruled 2026-09-29) says how core recognizes one: by the provider's `platform`,
+	// never by its name, so that a provider a user defines gets the same behavior as the
+	// shipped one. So the requirement keys on the platform: packs/claude's `bedrock` declares
+	// these variables for "aws-bedrock", and a user's own `providers.bedrock-eu` with
+	// "platform": "aws-bedrock" is required a region from the same variables without
+	// restating them. Core names no AWS variable (the OQ-SSO8 rule envoverride.go states), which
+	// is why the variables are the pack's to declare at all.
 	//
-	// A PACK FIELD ONLY. A user's own `providers` entry cannot declare it
-	// (config.knownProviderKeys stays closed), so a provider only the user's config declares
-	// carries no region requirement. Overriding a pack's provider keeps the pack's
-	// requirement, and the user's `region` satisfies it.
+	// A PACK FIELD ONLY. A user's own `providers` entry declares its platform, not the
+	// platform's variables (config.knownProviderKeys), so a user provider whose platform no
+	// selected pack declares variables for carries no region requirement.
 	RegionEnvName []string `json:"region_env_name,omitempty"`
 	// Models maps a model ALIAS an agent asks for to the provider's model ID —
 	// "default"/"fast" → "glm-5.3[1m]". Alias names are open vocabulary: which aliases a
@@ -1297,7 +1298,7 @@ type ProviderContribution struct {
 	// Contribution.
 	Platform string
 	Region   string
-	// RegionEnvName makes a region this provider's launch requirement; see the field's own
+	// RegionEnvName makes a region its platform's launch requirement; see the field's own
 	// comment on Contribution.
 	RegionEnvName []string
 	Models        map[string]string
@@ -3380,6 +3381,13 @@ func validateContribution(label string, c Contribution) []string {
 		problems = append(problems, validateProviderEndpoints(label, c.Endpoints)...)
 		problems = append(problems, c.APIKeyEnvName.Problems(label)...)
 		problems = append(problems, regionEnvNameProblems(label, c.RegionEnvName)...)
+		// The variables are a fact about a PLATFORM (the requirement keys on it, OQ-BR2), so a
+		// list with no platform to attach it to requires nothing of anybody.
+		if len(c.RegionEnvName) > 0 && c.Platform == "" {
+			problems = append(problems, label+": \"region_env_name\" names the variables a "+
+				"platform's agents read their region from, so it needs the \"platform\" it is a fact "+
+				"about — declare one (such as \"aws-bedrock\") beside it")
+		}
 		for alias, facts := range c.ModelOptions {
 			if _, exists := c.Models[alias]; !exists {
 				problems = append(problems, fmt.Sprintf("%s: model_options.%s needs a matching models alias", label, alias))

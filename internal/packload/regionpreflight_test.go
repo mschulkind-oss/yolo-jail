@@ -19,7 +19,7 @@ import (
 // shape packs/claude ships for bedrock.
 func regionalPack(t *testing.T) *Pack {
 	return &Pack{Name: "cloudy", Decl: declFrom(t, `{"contributes":[
-	  {"kind":"provider","name":"regional","region_env_name":["AWS_REGION","AWS_DEFAULT_REGION"]}]}`)}
+	  {"kind":"provider","name":"regional","platform":"cloud","region_env_name":["AWS_REGION","AWS_DEFAULT_REGION"]}]}`)}
 }
 
 // lookupOf answers from a fixed map, as a notch's delivery lookup answers from its channels.
@@ -60,7 +60,7 @@ func TestProviderRegionGapsRefuseOnlyWhenNoRegionIsVisible(t *testing.T) {
 	}
 	// A region the PACK ships satisfies it too.
 	shipped := &Pack{Name: "cloudy", Decl: declFrom(t, `{"contributes":[
-	  {"kind":"provider","name":"regional","region":"ap-south-1","region_env_name":["AWS_REGION"]}]}`)}
+	  {"kind":"provider","name":"regional","platform":"cloud","region":"ap-south-1","region_env_name":["AWS_REGION"]}]}`)}
 	if facts := ProviderRegionGaps([]*Pack{shipped}, compose(t, nil, []*Pack{shipped}), []string{"regional"}, none, nil, nil); facts != nil {
 		t.Errorf("a region the pack ships satisfies the requirement:\n%s", strings.Join(facts, "\n"))
 	}
@@ -192,5 +192,55 @@ func TestTheShippedBedrockProviderRequiresARegion(t *testing.T) {
 	if got := strings.Join(facts, "\n"); !strings.Contains(got, `pack claude requires a region for provider "bedrock"`) ||
 		!strings.Contains(got, "neither AWS_REGION nor AWS_DEFAULT_REGION") {
 		t.Errorf("the shipped bedrock provider must require a region from AWS_REGION or AWS_DEFAULT_REGION:\n%s", got)
+	}
+}
+
+// KEYED ON THE PLATFORM, not the provider's name (OQ-BR2, ruled 2026-09-29, and the review
+// finding that BR-D1 predated it): a provider a USER declares with the platform a pack says is
+// reached through a region is required one, from the variables that pack names, without
+// restating them. A provider with no platform, or one the user relabels, requires nothing.
+func TestTheRegionRequirementKeysOnThePlatform(t *testing.T) {
+	packs := []*Pack{regionalPack(t)}
+	none := lookupOf(nil)
+
+	user := userProviders(t, `{"mine":{"platform":"cloud"}}`)
+	got := strings.Join(ProviderRegionGaps(packs, compose(t, user, packs), []string{"mine"}, none, nil, nil), "\n")
+	for _, want := range []string{`pack cloudy requires a region for provider "mine" (platform "cloud")`,
+		"neither AWS_REGION nor AWS_DEFAULT_REGION is set", `"providers": {"mine": {"region": "<region>"}}`} {
+		if !strings.Contains(got, want) {
+			t.Errorf("a user provider of the platform must be required a region, saying %q:\n%s", want, got)
+		}
+	}
+	satisfied := userProviders(t, `{"mine":{"platform":"cloud","region":"eu-west-9"}}`)
+	if facts := ProviderRegionGaps(packs, compose(t, satisfied, packs), []string{"mine"}, none, nil, nil); facts != nil {
+		t.Errorf("its own region satisfies it:\n%s", strings.Join(facts, "\n"))
+	}
+	for name, body := range map[string]string{
+		"a user provider with no platform":              `{"mine":{"region":""}}`,
+		"a user provider of a platform nobody declares": `{"mine":{"platform":"elsewhere"}}`,
+		"the pack's provider relabelled by the user":    `{"regional":{"platform":"elsewhere"}}`,
+	} {
+		selected := "mine"
+		if strings.Contains(body, "regional") {
+			selected = "regional"
+		}
+		if facts := ProviderRegionGaps(packs, compose(t, userProviders(t, body), packs),
+			[]string{selected}, none, nil, nil); facts != nil {
+			t.Errorf("%s requires no region:\n%s", name, strings.Join(facts, "\n"))
+		}
+	}
+}
+
+// D5'S USER PROVIDER, over the embedded claude pack: `providers.bedrock-eu` with
+// "platform": "aws-bedrock" and no region is refused exactly as the shipped `bedrock` is.
+func TestAUserBedrockProviderIsRequiredARegionLikeTheShippedOne(t *testing.T) {
+	claude := shippedPack(t, "claude")
+	user := userProviders(t, `{"bedrock-eu":{"platform":"aws-bedrock"}}`)
+	facts := ProviderRegionGaps([]*Pack{claude}, compose(t, user, []*Pack{claude}), []string{"bedrock-eu"},
+		lookupOf(nil), nil, nil)
+	if got := strings.Join(facts, "\n"); !strings.Contains(got,
+		`pack claude requires a region for provider "bedrock-eu" (platform "aws-bedrock")`) ||
+		!strings.Contains(got, "neither AWS_REGION nor AWS_DEFAULT_REGION") {
+		t.Errorf("a user Bedrock provider must be required a region from claude's variables:\n%s", got)
 	}
 }
