@@ -385,7 +385,7 @@ func Run(opts Options) (rc int) {
 		// change to approve, and refusing a plan render would only hide the diff a user
 		// is asking to inspect.
 		wsCfg, _ := config.LoadWorkspaceConfig(o.Workspace, false, func(string) {})
-		if !o.DryRun && !o.checkConfigChanges(wsCfg) {
+		if !o.DryRun && !o.checkConfigChanges(wsCfg, cfg, rt) {
 			return 1
 		}
 		// Same notice as the container paths: a brand-new macos-user user has no packs
@@ -1064,7 +1064,7 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 
 	// --- Fresh launch: config-change approval ---
 	wsCfg, _ := config.LoadWorkspaceConfig(o.Workspace, false, func(string) {})
-	if !o.checkConfigChanges(wsCfg) {
+	if !o.checkConfigChanges(wsCfg, cfg, rt) {
 		return 1
 	}
 

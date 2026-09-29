@@ -199,6 +199,13 @@ type Options struct {
 	// docs/plans/notch-convergence.md NC-D41): the ports picked for a jail sharing this
 	// process's network namespace, or the running jail's, adopted by an attach. Zero until then.
 	served servedAddressState
+	// approvedScopes is the repository scope this fresh launch's config-change gate approved,
+	// per brokered loophole name (brokeredscope.go, docs/design/boundary-broker.md BB-D30).
+	// Set only by a gate that passed; the spawn writes each one to the launch's scope file.
+	approvedScopes map[string][]string
+	// scopeFiles are the scope files this launch wrote, per brokered loophole name, which
+	// {repository_scope} resolves to at the spawn and the loophole's stop removes (BB-D32).
+	scopeFiles map[string]string
 	// runtime is the backend Run resolved (resolveRuntime), recorded for the compositions that
 	// run below it and must see the same one — the jail-daemon payload the caller tokens are
 	// minted from (profilechannel.go). "" until Run resolves it, which every hand-built test

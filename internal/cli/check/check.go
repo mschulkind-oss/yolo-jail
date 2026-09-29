@@ -525,12 +525,17 @@ func (o *Options) sectionMergedConfig(r *reporter, merged *jsonx.OrderedMap, wor
 		} else {
 			wsCfg, err := config.LoadWorkspaceConfig(workspace, false, func(string) {})
 			if err == nil {
-				snapJSON, snapErr := config.SnapshotJSON(wsCfg)
-				if snapErr == nil {
-					_ = os.MkdirAll(paths.ApprovalsDir(), 0o755)
-					if writeErr := os.WriteFile(config.ApprovalSnapshotPath(workspace), []byte(snapJSON+"\n"), 0o644); writeErr == nil {
-						r.ok("Approved workspace config recorded to host approval snapshot")
+				// The approval record's scope part too, where a launch would start a
+				// brokered loophole: the check reads the remotes as the launch would, and
+				// both parts land together (docs/design/boundary-broker.md BB-D30).
+				scope := brokeredScopeForCheck(workspace, merged, runtimeSel)
+				if writeErr := config.RecordApproval(workspace, wsCfg, scope); writeErr == nil {
+					r.ok("Approved workspace config recorded to host approval snapshot")
+					for _, s := range scopeSourcesOf(scope) {
+						r.ok("Approved " + s.Label + " repository scope recorded: " + describeRepos(s.Read.Repos()))
 					}
+				} else {
+					r.fail("Could not record the approval", writeErr.Error())
 				}
 			}
 		}

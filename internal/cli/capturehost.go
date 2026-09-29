@@ -417,6 +417,9 @@ func cleanupCaptureWorkspace(workspace, cname string) {
 	runtime.CleanupContainerTracking(cname)
 	_ = os.RemoveAll(filepath.Join(paths.AgentsDir(), cname))
 	_ = os.Remove(filepath.Join(paths.ApprovalsDir(), cname+".json"))
+	// And the record's scope part with it (docs/design/boundary-broker.md BB-D30): a path
+	// that deletes the record deletes both, and deleting either alone fails safe.
+	_ = os.Remove(filepath.Join(paths.ApprovalsDir(), cname+".scope.json"))
 }
 
 // captureLockPath is the per-program capture lock, beside the launch locks — the

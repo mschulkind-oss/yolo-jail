@@ -10,6 +10,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
 )
 
 // loadAndValidateConfig is run()'s config gate: load
@@ -397,11 +398,21 @@ func runtimeProbeFailure(command string, res ExecResult) string {
 	return prefix
 }
 
-// checkConfigChanges delegates to config.CheckConfigChanges,
-// wiring the diff-printing prompter. Returns true to proceed, false to abort.
-func (o *Options) checkConfigChanges(cfg *jsonx.OrderedMap) bool {
+// checkConfigChanges delegates to config.CheckConfigAndScopeChanges, wiring the
+// diff-printing prompter. Returns true to proceed, false to abort.
+//
+// wsCfg is the workspace config the approval record's config part holds; merged and rt
+// decide whether a brokered loophole's repository scope is in play — the approval record's
+// second part (docs/design/boundary-broker.md BB-D30) — by the same predicate the spawn
+// applies. The scope is READ HERE, at every fresh launch that starts such a loophole, and
+// only here: an attach never reaches this function.
+func (o *Options) checkConfigChanges(wsCfg, merged *jsonx.OrderedMap, rt string) bool {
 	pr := &changePrompter{o: o}
-	ok, err := config.CheckConfigChanges(o.Workspace, cfg, o.IsTTYStdin(), o.AcceptConfigChanges, pr)
+	scope := o.brokeredScopeCheck(rt, merged)
+	ok, err := config.CheckConfigAndScopeChanges(o.Workspace, wsCfg, scope, o.IsTTYStdin(), o.AcceptConfigChanges, pr)
+	if ok && err == nil {
+		o.recordApprovedScopes(scope)
+	}
 	if err != nil {
 		// The OQ-D2 refusal gets rendered rather than dumped: same diff, same
 		// colours as the interactive prompt, so the two paths show the reader the
@@ -424,9 +435,32 @@ func (o *Options) checkConfigChanges(cfg *jsonx.OrderedMap) bool {
 func (o *Options) printChangeRefusal(e *config.ChangedNonInteractiveError) {
 	out := o.pr(o.Stdout)
 	out.printf("\n[bold red]⚠  %s[/bold red]\n", e.Headline())
+	printScopeBlock(out, e.ScopeBlock)
 	printConfigDiff(out, e.DiffLines)
 	out.print("")
 	out.print(e.Advice())
+}
+
+// printScopeBlock renders the labeled repository-scope block (BB-D31) in the launcher's
+// colours: a repository added in green, one removed in red. It is printed FIRST, above the
+// config diff, because it is the part a routine package change could otherwise carry past
+// a reader.
+func printScopeBlock(out printer, block []string) {
+	for _, line := range block {
+		switch {
+		case strings.HasPrefix(line, "  + "):
+			out.printf("[bold green]%s[/bold green]", richtext.Escape(line))
+		case strings.HasPrefix(line, "  - "):
+			out.printf("[bold red]%s[/bold red]", richtext.Escape(line))
+		case !strings.HasPrefix(line, "  "):
+			out.printf("[bold]%s[/bold]", richtext.Escape(line))
+		default:
+			out.print(richtext.Escape(line))
+		}
+	}
+	if len(block) > 0 {
+		out.print("")
+	}
 }
 
 // writeLaunchConfigArtifacts writes the two workspace-side config files a fresh
@@ -483,11 +517,29 @@ func printConfigDiff(out printer, diffLines []string) {
 type changePrompter struct{ o *Options }
 
 func (p *changePrompter) Prompt(diffLines []string) bool {
+	return p.PromptReport(config.ChangeReport{ConfigChanged: true, DiffLines: diffLines})
+}
+
+// PromptReport shows the whole change and asks once (BB-D31): the header and the question
+// name the repository scope whenever it changed, and only the scope when the config did
+// not, and the scope block comes first. One y approves the whole bundle, as ruled.
+func (p *changePrompter) PromptReport(r config.ChangeReport) bool {
 	out := p.o.pr(p.o.Stdout)
-	out.print("\n[bold yellow]⚠  Workspace config changed since last run:[/bold yellow]\n")
-	printConfigDiff(out, diffLines)
+	header, question := "Workspace config changed since last run:",
+		"Accept these workspace config changes? [y/N] "
+	switch {
+	case r.ScopeChanged && r.ConfigChanged:
+		header, question = "Workspace config and repository scope changed since last run:",
+			"Accept these workspace config and repository scope changes? [y/N] "
+	case r.ScopeChanged:
+		header, question = "Repository scope changed since last run:",
+			"Accept these repository scope changes? [y/N] "
+	}
+	out.print("\n[bold yellow]⚠  " + header + "[/bold yellow]\n")
+	printScopeBlock(out, r.ScopeBlock)
+	printConfigDiff(out, r.DiffLines)
 	out.print("")
-	if _, err := p.o.Stdout.Write([]byte("Accept these workspace config changes? [y/N] ")); err != nil {
+	if _, err := p.o.Stdout.Write([]byte(question)); err != nil {
 		return false
 	}
 	scanner := bufio.NewScanner(p.o.Stdin)

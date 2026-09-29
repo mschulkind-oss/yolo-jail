@@ -137,6 +137,9 @@ func refuseRepositoryScopeTokenMismatch(manifestPath string, b *Brokered, hd *Ho
 		}
 	}
 	switch {
+	case b != nil && hd != nil && hd.Scope == ScopeHost:
+		return Errorf("%s: a 'brokered' loophole's daemon is per jail — its scope file is one "+
+			"launch's approval — so 'host_daemon.scope' cannot be %q", manifestPath, ScopeHost)
 	case named && b == nil:
 		return Errorf("%s: 'host_daemon.cmd' names '%s', but the manifest declares no 'brokered' "+
 			"block — the token resolves to the scope file that block makes a launch write",

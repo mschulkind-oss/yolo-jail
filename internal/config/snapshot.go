@@ -116,10 +116,31 @@ type ChangedNonInteractiveError struct {
 	SnapshotPath string
 	// DiffLines is the unified diff, previous approved config → current.
 	DiffLines []string
+
+	// ConfigChanged and ScopeChanged say which part of the approval record changed
+	// (docs/design/boundary-broker.md BB-D31). Both false reads as the config-only refusal
+	// this error always was, so a caller that predates the scope part is unchanged.
+	ConfigChanged, ScopeChanged bool
+	// ScopeBlock is the labeled scope block, printed before the diff; GitConfigs the files
+	// the scope was read from; ScopePath the scope part it was compared against.
+	ScopeBlock []string
+	GitConfigs []string
+	ScopePath  string
 }
 
-// Headline states what happened and why the launch stopped.
+// Headline states what happened and why the launch stopped. It names the repository scope
+// whenever the scope changed, and only the scope when the config did not: a headline
+// announcing a config change that did not happen, above the block meant to be read first,
+// is the trap the block exists to close (BB-D31).
 func (e *ChangedNonInteractiveError) Headline() string {
+	switch {
+	case e.ScopeChanged && e.ConfigChanged:
+		return "Workspace config and repository scope changed since the last approved launch, and " +
+			"this launch has no terminal to approve them on."
+	case e.ScopeChanged:
+		return "The repository scope read from this workspace's remotes changed since the last " +
+			"approved launch, and this launch has no terminal to approve it on."
+	}
 	return "Workspace config changed since the last approved launch, and this launch has no " +
 		"terminal to approve it on."
 }
@@ -133,20 +154,34 @@ func (e *ChangedNonInteractiveError) Advice() string {
 		files += "  workspace local:  " + e.WorkspaceLocalConfig + "  (merged OVER the above)\n"
 	}
 	files += "  approved config:  " + e.SnapshotPath + "\n"
-	return "A changed workspace config is never accepted without a human — an auto-accept here would " +
+	if e.ScopeChanged {
+		for _, g := range e.GitConfigs {
+			files += "  git config:       " + g + "  (the remotes the repository scope is read from)\n"
+		}
+		files += "  approved scope:   " + e.ScopePath + "\n"
+	}
+	what, recorded := "workspace config", "the new config"
+	if e.ScopeChanged {
+		what, recorded = "workspace config or repository scope", "the new config and repository scope"
+	}
+	return "A changed " + what + " is never accepted without a human — an auto-accept here would " +
 		"make the approval promise conditional on somebody happening to have a terminal " +
 		"attached, and a scripted launch is exactly where nobody is watching.\n\n" +
 		files +
 		"\nAny file those configs `include` counts as part of the merge too.\n\n" +
 		"Revert the change, or approve it for THIS LAUNCH ONLY by re-running with\n" +
 		"  " + AcceptConfigChangesFlag + "\n" +
-		"which records the new config as approved exactly as answering `y` would."
+		"which records " + recorded + " as approved exactly as answering `y` would."
 }
 
 func (e *ChangedNonInteractiveError) Error() string {
 	var b strings.Builder
 	b.WriteString(e.Headline())
 	b.WriteString("\n\n")
+	for _, line := range e.ScopeBlock {
+		b.WriteString(line)
+		b.WriteString("\n")
+	}
 	for _, line := range e.DiffLines {
 		b.WriteString(line)
 		b.WriteString("\n")
@@ -176,6 +211,38 @@ func (e *ChangedNonInteractiveError) Error() string {
 // compares to current (which has NO trailing "\n"). isTTY, acceptNonInteractive
 // and prompter are injected so every branch is testable without a real terminal.
 func CheckConfigChanges(workspace string, config *jsonx.OrderedMap, isTTY, acceptNonInteractive bool, prompter ChangePrompter) (bool, error) {
+	return CheckConfigAndScopeChanges(workspace, config, nil, isTTY, acceptNonInteractive, prompter)
+}
+
+// ChangeReport is everything one fresh launch is asked to approve: the workspace config's
+// diff and the repository scope's labeled block (BB-D31), each only when that part changed.
+type ChangeReport struct {
+	ConfigChanged bool
+	DiffLines     []string
+	ScopeChanged  bool
+	ScopeBlock    []string
+}
+
+// ReportPrompter is a ChangePrompter that can show the whole report, so the header and the
+// question can name the scope when it changed, and only the scope when the config did not.
+// A prompter without it is shown the scope block above the diff through Prompt.
+type ReportPrompter interface {
+	PromptReport(ChangeReport) bool
+}
+
+// CheckConfigAndScopeChanges is CheckConfigChanges with the approval record's scope part
+// in play (docs/design/boundary-broker.md BB-D30): scope is the repository scope a fresh
+// launch that starts a brokered loophole read from the workspace's remotes, or nil when no
+// broker starts, which makes this exactly CheckConfigChanges.
+//
+// One decision covers both parts. Unchanged → proceed. A part with no record yet and
+// nothing to approve (a `{}` config, an empty scope) is recorded silently. Any change —
+// a config diff, a repository added or removed — asks, with the scope block first; y, or
+// --accept-config-changes with no terminal, records BOTH parts; N or a refusal records
+// NEITHER, so the no-record `{}` branch no longer writes its config part before the scope
+// part is decided.
+func CheckConfigAndScopeChanges(workspace string, config *jsonx.OrderedMap, scope *ScopeCheck,
+	isTTY, acceptNonInteractive bool, prompter ChangePrompter) (bool, error) {
 	if config == nil {
 		config = jsonx.NewOrderedMap()
 	}
@@ -188,6 +255,7 @@ func CheckConfigChanges(workspace string, config *jsonx.OrderedMap, isTTY, accep
 	oldJSON := ""
 	fromLabel := "previous workspace config"
 	toLabel := "current workspace config"
+	configSilent := false
 
 	oldBytes, readErr := os.ReadFile(snapshotPath)
 	switch {
@@ -196,29 +264,70 @@ func CheckConfigChanges(workspace string, config *jsonx.OrderedMap, isTTY, accep
 	case !os.IsNotExist(readErr):
 		return false, readErr
 	default:
-		// First run / no host-side snapshot (OQ-S3).
-		// If workspace config is empty, accept and save with zero prompts.
+		// First run / no host-side snapshot (OQ-S3). An empty workspace config is recorded
+		// with zero prompts — once the scope part, if in play, is decided too.
 		if currentJSON == "{}" {
+			configSilent = true
+			oldJSON = currentJSON
+		} else {
+			// Fresh workspace with declared configuration: prompt to confirm initial workspace config.
+			fromLabel = "none (initial launch)"
+			toLabel = "workspace config"
+		}
+	}
+	configChanged := oldJSON != currentJSON
+
+	var sc scopeOutcome
+	scopePath := ApprovalScopePath(workspace)
+	oldScopeJSON := ""
+	if scope.inPlay() {
+		old, exists, err := readScopeRecord(scopePath)
+		if err != nil {
+			return false, err
+		}
+		if exists {
+			oldScopeJSON, _ = scopeRecordJSON(old)
+		}
+		sc = compareScope(scope, old)
+	}
+
+	recordBoth := func() error {
+		if scope.inPlay() {
+			if err := writeScopeRecord(workspace, sc.next); err != nil {
+				return err
+			}
+		}
+		return writeSnapshot(snapshotPath, currentJSON)
+	}
+
+	if !configChanged && !sc.changed {
+		// Nothing to ask. Record whatever part had no record yet — silently, and both
+		// together, which is the only branch that writes without a human.
+		if configSilent {
 			if err := writeSnapshot(snapshotPath, currentJSON); err != nil {
 				return false, err
 			}
-			return true, nil
 		}
-		// Fresh workspace with declared configuration: prompt to confirm initial workspace config.
-		fromLabel = "none (initial launch)"
-		toLabel = "workspace config"
-	}
-
-	if oldJSON == currentJSON {
+		if scope.inPlay() {
+			if nextJSON, err := scopeRecordJSON(sc.next); err == nil && nextJSON != oldScopeJSON {
+				if err := writeScopeRecord(workspace, sc.next); err != nil {
+					return false, err
+				}
+			}
+		}
 		return true, nil
 	}
 
 	var diffLines []string
-	if oldJSON == "" && fromLabel == "none (initial launch)" {
-		diffLines = unifiedDiff(nil, splitLines(currentJSON), fromLabel, toLabel)
-	} else {
-		diffLines = unifiedDiff(splitLines(oldJSON), splitLines(currentJSON), fromLabel, toLabel)
+	if configChanged {
+		if oldJSON == "" && fromLabel == "none (initial launch)" {
+			diffLines = unifiedDiff(nil, splitLines(currentJSON), fromLabel, toLabel)
+		} else {
+			diffLines = unifiedDiff(splitLines(oldJSON), splitLines(currentJSON), fromLabel, toLabel)
+		}
 	}
+	report := ChangeReport{ConfigChanged: configChanged, DiffLines: diffLines,
+		ScopeChanged: sc.changed, ScopeBlock: sc.block}
 
 	if !isTTY {
 		if !acceptNonInteractive {
@@ -227,26 +336,42 @@ func CheckConfigChanges(workspace string, config *jsonx.OrderedMap, isTTY, accep
 				localPath = ""
 			}
 			wsPath, _ := resolveWorkspaceConfigPath(workspaceOrCwd(workspace), WorkspaceConfigName)
-			return false, &ChangedNonInteractiveError{
+			e := &ChangedNonInteractiveError{
 				WorkspaceConfig:      wsPath,
 				WorkspaceLocalConfig: localPath,
 				SnapshotPath:         snapshotPath,
 				DiffLines:            diffLines,
+				ConfigChanged:        configChanged,
+				ScopeChanged:         sc.changed,
+				ScopeBlock:           sc.block,
+				GitConfigs:           sc.gitConfigs,
 			}
+			if sc.changed {
+				e.ScopePath = scopePath
+			}
+			return false, e
 		}
 		// Granted by the flag: record it exactly as a `y` does, or the next
 		// launch prompts (or refuses) over the same change all over again.
-		if err := writeSnapshot(snapshotPath, currentJSON); err != nil {
+		if err := recordBoth(); err != nil {
 			return false, err
 		}
 		return true, nil
 	}
 
-	if prompter == nil || !prompter.Prompt(diffLines) {
+	if prompter == nil {
 		return false, nil
 	}
-
-	if err := writeSnapshot(snapshotPath, currentJSON); err != nil {
+	accepted := false
+	if rp, ok := prompter.(ReportPrompter); ok {
+		accepted = rp.PromptReport(report)
+	} else {
+		accepted = prompter.Prompt(append(append([]string(nil), sc.block...), diffLines...))
+	}
+	if !accepted {
+		return false, nil
+	}
+	if err := recordBoth(); err != nil {
 		return false, err
 	}
 	return true, nil

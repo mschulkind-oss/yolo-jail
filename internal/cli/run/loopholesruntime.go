@@ -174,6 +174,13 @@ func (o *Options) inContainer() bool {
 // keeps its in-process start (see startCgroupDelegate for the SO_PEERCRED reason it
 // cannot be a spawned daemon at all) but is GATED on its record like everything else.
 func (o *Options) startLoopholes(cname, rt string, cfg *jsonx.OrderedMap) []loopholeDaemon {
+	return o.startLoopholesMatching(cname, rt, cfg, o.loopholeAllow(rt, cfg))
+}
+
+// loopholeAllow is the backend's filter on which loopholes a launch starts. It is its own
+// function so the config-change gate asks the SAME question the spawn does when it decides
+// whether a brokered loophole's repository scope is in play (brokeredscope.go).
+func (o *Options) loopholeAllow(rt string, cfg *jsonx.OrderedMap) func(string) bool {
 	allow := func(string) bool { return true }
 	if rt == "container" { // parity: HonoredBy — Apple Container starts only OpenAI authentication
 		allow = func(name string) bool { return name == openAIAuthBrokerName }
@@ -188,7 +195,7 @@ func (o *Options) startLoopholes(cname, rt string, cfg *jsonx.OrderedMap) []loop
 			}
 		}
 	}
-	return o.startLoopholesMatching(cname, rt, cfg, allow)
+	return allow
 }
 
 // startLoopholesMatching is the shared lifecycle for backends that can carry only a
@@ -254,6 +261,9 @@ func (o *Options) startLoopholesMatching(cname, rt string, cfg *jsonx.OrderedMap
 	// resolved to a real path at record-load time, so by the time this loop reaches
 	// exec.Command the file has to hold this launch's values (loopholesettings.go).
 	o.writeLoopholeSettings(discovered, cfg)
+	// And for the same reason, a brokered loophole's scope file: {repository_scope} names it
+	// in the argv, and it holds what this launch's gate approved (brokeredscope.go).
+	o.writeScopeFiles(cname, discovered)
 	manifestSpecs := set.ManifestHostDaemonSpecs(discovered)
 	// The TRANSPORT comes from the Loophole record, not from the config-shaped spec
 	// map, because it is the framework's decision and not a user-supplied key. A name
@@ -351,7 +361,20 @@ func (o *Options) startLoopholesMatching(cname, rt string, cfg *jsonx.OrderedMap
 			}
 			continue
 		}
-		if h, ok := o.startExternalService(name, external[name], socketsDir, transportOf[name], advertise, daemonOf[name]); ok {
+		h, ok := o.startExternalService(name, external[name], socketsDir, transportOf[name], advertise, daemonOf[name])
+		if _, brokered := o.scopeFiles[name]; brokered {
+			if !ok {
+				o.removeScopeFile(name)
+			} else {
+				// The scope file goes with the daemon it was written for (BB-D32).
+				stop := h.stop
+				h.stop = func() {
+					stop()
+					o.removeScopeFile(name)
+				}
+			}
+		}
+		if ok {
 			handles = append(handles, h)
 		}
 	}
@@ -807,7 +830,18 @@ func (o *Options) resolveDaemonArgv(name string, spec *jsonx.OrderedMap, daemonP
 		// fires for a config entry, whose daemon wants the socket path whichever
 		// spelling it used.)
 		s = strings.ReplaceAll(s, "{endpoint}", daemonPath)
-		cmdArgs = append(cmdArgs, strings.ReplaceAll(s, "{socket}", daemonPath))
+		s = strings.ReplaceAll(s, "{socket}", daemonPath)
+		// {repository_scope}: the scope file THIS launch wrote for a brokered loophole
+		// (brokeredscope.go). A per-launch fact, like {socket}, so it resolves here and not
+		// at load. With no file there is no approved scope to hand the daemon, and it does
+		// not start.
+		scoped, ok := o.scopeTokenArg(name, s)
+		if !ok {
+			o.pr(o.Stdout).print("[red]Host service '" + name + "' names its repository scope, and " +
+				"this launch wrote none for it; not starting it[/red]")
+			return nil, false
+		}
+		cmdArgs = append(cmdArgs, scoped)
 	}
 	// The PLACEMENT rule, applied to what is about to be EXECUTED: a daemon
 	// program living inside the workspace this launch mounts :rw (or inside the
