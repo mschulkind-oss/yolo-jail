@@ -11,10 +11,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
-	"github.com/mschulkind-oss/yolo-jail/internal/cli/check"
 	"github.com/mschulkind-oss/yolo-jail/internal/reporoot"
+	"github.com/mschulkind-oss/yolo-jail/tools/tap-install-check/baremac"
 )
 
 // resolvedTempDir is t.TempDir with its symlinks resolved where it is minted: on
@@ -49,88 +48,63 @@ func writeFile(t *testing.T, path, body string, mode os.FileMode) {
 	}
 }
 
-// bareMacCheck runs the REAL `yolo check --no-build --format json` body under the
-// conditions of a stock macOS runner after `brew install`: macOS, nothing on PATH (no
-// podman, no Apple Container, no nix), no /nix, no config anywhere, and the flake
-// resolved from the bundle beside the binary — reporoot's Homebrew answer.
+// bareMacCheck runs the REAL `yolo check --no-build --format json` body, this tree's,
+// under the conditions of a stock macOS runner after `brew install` (package baremac
+// defines them, once, for this tree and for the last release alike).
 func bareMacCheck(t *testing.T, version, bundle string) ([]byte, int) {
 	t.Helper()
 	t.Setenv("HOME", resolvedTempDir(t))
 	var out bytes.Buffer
-	rc := check.Check(check.Options{
-		Build:             false,
-		SkipEnsureStorage: true,
-		Version:           version,
-		Now:               func() time.Time { return time.Unix(1_700_000_000, 0).UTC() },
-		Getenv:            func(string) string { return "" },
-		LookPath:          func(string) (string, bool) { return "", false },
-		Exec: func([]string, string, []string, time.Duration) check.ExecResult {
-			return check.ExecResult{Ran: false}
-		},
-		Stdout:      &out,
-		IsTTYStdout: func() bool { return false },
-		IsMacOS:     true,
-		Machine:     "arm64",
-		Workspace:   resolvedTempDir(t),
-		RepoRoot: func() (reporoot.Resolution, bool) {
-			return reporoot.Resolution{Root: bundle, Source: reporoot.FromBesideBinary}, true
-		},
-		PathExists: func(p string) bool {
-			if p == "/nix" {
-				return false // the runner has no Nix volume
-			}
-			_, err := os.Stat(p)
-			return err == nil
-		},
-		Format: "json",
-	})
+	rc := baremac.Check(baremac.Inputs{Version: version, Bundle: bundle, Workspace: resolvedTempDir(t)}, &out)
 	return out.Bytes(), rc
 }
 
-// TestTheJudgeAcceptsWhatCheckReportsOnABareMac is the pin between this checker and
-// the code it reads: the real Check, under a bare Mac's conditions, must produce a
-// report the judge accepts — its "flake.nix found … (via flake bundle beside the
-// binary)" line, its JSON field names, and its FAIL set. It fails if check.go stops
-// grading the flake line, if reporoot renames the Homebrew source, or if a fresh Mac
-// starts failing a section the runner's missing runtime and Nix do not explain.
+// requireTheJudgeAccepts is the forward half of the pin between this checker and the
+// code it reads: a report the real Check produced under a bare Mac's conditions must be
+// one the judge accepts — its "flake.nix found … (via flake bundle beside the binary)"
+// line, its JSON field names, and its FAIL set.
+func requireTheJudgeAccepts(t *testing.T, whose string, out []byte, rc int, version, keg, bundle string) {
+	t.Helper()
+	got, errs := judgeCheck(out, rc, version, keg)
+	for _, err := range errs {
+		t.Errorf("the judge refused %s report: %v", whose, err)
+	}
+	if got != bundle {
+		t.Errorf("judgeCheck returned bundle %q from %s report, want %q", got, whose, bundle)
+	}
+	if rc != 1 {
+		t.Errorf("%s check exited %d on a bare Mac, want 1 (it has no runtime and no Nix)", whose, rc)
+	}
+	rep := decodeReport(t, out)
+	if len(rep.Findings) == 0 || rep.Failed == 0 {
+		t.Errorf("%s report graded %d findings with %d FAILs; the fixture no longer exercises the allowlist",
+			whose, len(rep.Findings), rep.Failed)
+	}
+}
+
+func decodeReport(t *testing.T, out []byte) checkReport {
+	t.Helper()
+	var rep checkReport
+	if err := json.Unmarshal(out, &rep); err != nil {
+		t.Fatalf("the report is not the document checkReport reads: %v\n%s", err, out)
+	}
+	return rep
+}
+
+// TestTheJudgeAcceptsWhatCheckReportsOnABareMac pins the judge to THIS tree's Check. It
+// fails if check.go stops grading the flake line, if reporoot renames the Homebrew
+// source, or if a fresh Mac starts failing a section the runner's missing runtime and
+// Nix do not explain.
 //
-// It also holds the allowlist to the code in the other direction: every entry of
-// bareMacFailures must be one this report actually produces, so a stale entry — one
-// that would excuse a failure nothing expected — is removed rather than kept.
+// It is only half the pin. The workflow runs the version the TAP carries, not this
+// tree, so TestTheJudgeAcceptsWhatTheLastReleaseReportsOnABareMac (release_test.go)
+// holds the judge to that release's Check as well, and is where the allowlist is held
+// to the code in the other direction: an entry is stale only once neither this tree
+// nor the release the tap carries prints it.
 func TestTheJudgeAcceptsWhatCheckReportsOnABareMac(t *testing.T) {
 	keg, bundle := fakeKeg(t)
 	out, rc := bareMacCheck(t, "0.11.0", bundle)
-
-	got, errs := judgeCheck(out, rc, "0.11.0", keg)
-	for _, err := range errs {
-		t.Errorf("the judge refused the real report: %v", err)
-	}
-	if got != bundle {
-		t.Errorf("judgeCheck returned bundle %q, want %q", got, bundle)
-	}
-	if rc != 1 {
-		t.Errorf("a bare Mac's check exited %d, want 1 (it has no runtime and no Nix)", rc)
-	}
-
-	var rep checkReport
-	if err := json.Unmarshal(out, &rep); err != nil {
-		t.Fatal(err)
-	}
-	for _, e := range bareMacFailures {
-		seen := false
-		for _, f := range rep.Findings {
-			if f.Status == "fail" && f.Section == e.section && strings.HasPrefix(f.Message, e.messagePrefix) {
-				seen = true
-			}
-		}
-		if !seen {
-			t.Errorf("bareMacFailures excuses %+v, but a bare Mac's report has no such FAIL; "+
-				"drop the entry, or keep it only while a published version still prints it", e)
-		}
-	}
-	if len(rep.Findings) == 0 || rep.Failed < len(bareMacFailures) {
-		t.Errorf("the fixture graded %d findings with %d FAILs; it no longer exercises the allowlist", len(rep.Findings), rep.Failed)
-	}
+	requireTheJudgeAccepts(t, "this tree's", out, rc, "0.11.0", keg, bundle)
 }
 
 // TestTheJudgeRefusesTheCheckReportsThatMeanABrokenInstall mutates the real report

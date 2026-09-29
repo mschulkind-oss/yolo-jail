@@ -182,10 +182,13 @@ type checkReport struct {
 // a launch would build from (internal/cli/check/check.go), and besideBinary the phrase
 // reporoot.FromBesideBinary.Describe() renders for a bundle shipped next to the
 // executable — the Homebrew layout. Both are pinned against the real code by
-// TestTheJudgeAcceptsWhatCheckReportsOnABareMac.
+// TestTheJudgeAcceptsWhatCheckReportsOnABareMac, for this tree, and by
+// TestTheJudgeAcceptsWhatTheLastReleaseReportsOnABareMac, for the release the tap
+// carries.
 //
 // ⚠ THIS JOB RUNS THE PUBLISHED VERSION, NOT THIS TREE. If the wording changes here,
 // keep accepting the old wording until no version the tap can still carry prints it.
+// The second pin is what fails if the old wording is dropped too soon.
 var flakeFinding = regexp.MustCompile(`^flake\.nix found: (.+) \(via (.+)\)$`)
 
 const besideBinary = "flake bundle beside the binary"
@@ -198,6 +201,10 @@ type expectedFailure struct{ section, messagePrefix string }
 // bareMacFailures is every FAIL `yolo check` may report on a stock macOS runner. A
 // FAIL anywhere else is a finding about the installed binary on a fresh Mac — its
 // storage, its config handling, its flake resolution — and fails the job.
+//
+// The same rule as flakeFinding's: when this tree rewords or downgrades one of these
+// FAILs, the entry stays while the release the tap carries still prints it, and goes
+// once neither prints it. release_test.go enforces both halves.
 var bareMacFailures = []expectedFailure{
 	{"Container Runtime", ""},        // no podman, no Apple Container
 	{"Nix", ""},                      // no nix on PATH

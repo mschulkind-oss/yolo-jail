@@ -25,7 +25,9 @@ name: Homebrew tap install
 #
 # ⚠ IT TESTS THE PUBLISHED FORMULA, NOT THIS TREE. The workflow file and the checker
 # come from the default branch; the binary under test is whatever version the tap
-# carries. A checker change must keep accepting what that version prints.
+# carries. A checker change must keep accepting what that version prints:
+# tools/tap-install-check/release_test.go runs the last release's `yolo check` through
+# the checker's judge in the short suite, and fails when it would not.
 
 on:
   # After every release. release.yml is the workflow that pushes the formula, and its
