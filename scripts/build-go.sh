@@ -33,6 +33,22 @@ for d in cmd/*/; do
     CMDS+=("$(basename "$d")")
 done
 
+# BUILD_GO_CMDS narrows the build to the named cmd/ binaries (space-separated).
+# stage-source-bundle.sh passes the macos-user GUEST set this way when it builds
+# bin/darwin-<arch>: the guest runs one binary, and compiling the other seven
+# for darwin would be a cold cross-compile of the module graph for nothing.
+if [ -n "${BUILD_GO_CMDS:-}" ]; then
+    # shellcheck disable=SC2206
+    WANT=(${BUILD_GO_CMDS})
+    for w in "${WANT[@]}"; do
+        if [ ! -d "cmd/$w" ]; then
+            echo "build-go: BUILD_GO_CMDS names $w, which is not a cmd/ binary" >&2
+            exit 1
+        fi
+    done
+    CMDS=("${WANT[@]}")
+fi
+
 if [ "${#CMDS[@]}" -eq 0 ]; then
     echo "build-go: no cmd/ binaries found" >&2
     exit 1

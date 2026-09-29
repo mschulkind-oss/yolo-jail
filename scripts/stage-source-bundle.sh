@@ -13,6 +13,17 @@
 #   flake.lock
 #   bin/linux-amd64/  — one file per name in SHIPPED_BINARIES below
 #   bin/linux-arm64/  — the same names, cross-compiled
+#   bin/darwin-amd64/ — the macos-user GUEST set, GUEST_BINARIES below
+#   bin/darwin-arm64/ — the same names, cross-compiled
+#
+# THE DARWIN DIRS ARE NOT A HOST INSTALL. They are what a macos-user launch
+# stages into the sandbox's root-owned prefix (/var/yolo-jail/bin), the guest's
+# counterpart of a container's /opt/yolo-jail/bin: an in-jail binary a declared
+# `jail_daemon.cmd` names runs there as declared (docs/design/declaration-parity.md
+# OQ-DP8, ruled 2026-09-28). They live under share/yolo-jail/bin, never beside
+# the host `yolo`, so the host ship set stays {yolo} and nothing puts them on a
+# host PATH. YOLO_BUNDLE_GUEST_OSES narrows them away (`just install` on Linux
+# passes it empty; a Linux host never launches macos-user).
 #
 # When the flake evaluates from this bundle (a `path:` flake), it hits its own
 # prebuilt short-circuit — `builtins.pathExists ./bin/linux-<arch>` in
@@ -104,6 +115,19 @@ fi
 # together by internal/entrypoint/shippedclients_test.go.
 SHIPPED_BINARIES=(yolo yolo-entrypoint yolo-jaild yolo-ps yolo-cglimit yolo-journalctl yolo-serial)
 
+# The macos-user GUEST's darwin in-jail binaries (flake.nix:guestBinaries, and
+# macosuser.GuestBinaries in Go). Only what a guest actually runs: yolo-jaild,
+# the supervisor and every in-jail daemon. Pinned to the other two spellings by
+# internal/macosuser/guestbundle_test.go.
+GUEST_BINARIES=(yolo-jaild)
+
+# The guest OSes to stage (space-separated; default darwin). Empty stages none.
+GUEST_OSES=(darwin)
+if [ -n "${YOLO_BUNDLE_GUEST_OSES+set}" ]; then
+  # shellcheck disable=SC2206
+  GUEST_OSES=(${YOLO_BUNDLE_GUEST_OSES})
+fi
+
 # Arches to build. Default is BOTH (the arch-agnostic shipped bundle); a local
 # install narrows this to the native arch via YOLO_BUNDLE_ARCHES to avoid a cold
 # cross-compile. Space-separated list.
@@ -140,6 +164,28 @@ for arch in "${ARCHES[@]}"; do
   done
 done
 
+# The guest dirs, one per OS x arch, holding GUEST_BINARIES and nothing else.
+# build-go.sh is narrowed to the guest set (BUILD_GO_CMDS), so a darwin build
+# compiles one binary rather than every cmd/.
+for gos in "${GUEST_OSES[@]}"; do
+  for arch in "${ARCHES[@]}"; do
+    echo "stage-source-bundle: cross-compiling the ${gos}/${arch} guest set (${GUEST_BINARIES[*]})"
+    BUILD_GO_CMDS="${GUEST_BINARIES[*]}" CGO_ENABLED=0 GOOS="$gos" GOARCH="$arch" \
+      "$REPO_ROOT/scripts/build-go.sh"
+    src_dir="$REPO_ROOT/dist-go/${gos}-${arch}"
+    dst_dir="$DEST/bin/${gos}-${arch}"
+    mkdir -p "$dst_dir"
+    for name in "${GUEST_BINARIES[@]}"; do
+      if [ ! -f "$src_dir/$name" ]; then
+        echo "stage-source-bundle: build-go.sh did not produce $src_dir/$name" >&2
+        exit 1
+      fi
+      cp "$src_dir/$name" "$dst_dir/$name"
+      chmod +x "$dst_dir/$name"
+    done
+  done
+done
+
 # Sanity: every required member is present, and goprobe leaked into neither arch.
 missing=0
 for p in flake.nix flake.lock; do
@@ -154,6 +200,23 @@ for arch in "${ARCHES[@]}"; do
     echo "stage-source-bundle: goprobe leaked into bin/linux-${arch} — ship set is ${SHIPPED_BINARIES[*]}" >&2
     missing=1
   fi
+done
+for gos in "${GUEST_OSES[@]}"; do
+  for arch in "${ARCHES[@]}"; do
+    for name in "${GUEST_BINARIES[@]}"; do
+      [ -e "$DEST/bin/${gos}-${arch}/$name" ] || {
+        echo "stage-source-bundle: missing bin/${gos}-${arch}/$name" >&2; missing=1; }
+    done
+    # Exactly the guest set: a host binary (yolo) or a dev tripwire here would be
+    # a second copy of something the guest must take from elsewhere.
+    for f in "$DEST/bin/${gos}-${arch}"/*; do
+      base="$(basename "$f")"
+      case " ${GUEST_BINARIES[*]} " in
+        *" $base "*) ;;
+        *) echo "stage-source-bundle: $base is not in GUEST_BINARIES but is in bin/${gos}-${arch}" >&2; missing=1 ;;
+      esac
+    done
+  done
 done
 [ "$missing" -eq 0 ] || exit 1
 

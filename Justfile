@@ -135,7 +135,13 @@ install:
     YOLO_BIN="$GOBIN_DIR/yolo"
     BUNDLE_GEN="$("$YOLO_BIN" internal bundle-dir --stage)"
     echo "Staging flake bundle (linux/$(go env GOARCH)) → $BUNDLE_GEN"
-    YOLO_BUNDLE_ARCHES="$(go env GOARCH)" ./scripts/stage-source-bundle.sh "$BUNDLE_GEN"
+    # The macos-user GUEST dir (bin/darwin-<arch>, the sandbox's in-jail binaries) only on a
+    # Mac: a Linux host never launches macos-user, so building it there is a darwin
+    # cross-compile for nothing. Staged into the bundle's share dir, never onto a PATH.
+    GUEST_OSES=""
+    if [ "$(go env GOOS)" = "darwin" ]; then GUEST_OSES="darwin"; fi
+    YOLO_BUNDLE_ARCHES="$(go env GOARCH)" YOLO_BUNDLE_GUEST_OSES="$GUEST_OSES" \
+        ./scripts/stage-source-bundle.sh "$BUNDLE_GEN"
     "$YOLO_BIN" internal bundle-dir --activate "$BUNDLE_GEN"
 
     # Warn if PATH resolves `yolo` to some other install (a Homebrew copy, say)

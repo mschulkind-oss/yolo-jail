@@ -1120,6 +1120,68 @@
           done
         '';
 
+        # ── The macos-user GUEST's in-jail binaries (OQ-DP8) ────────────────
+        # docs/design/declaration-parity.md OQ-DP8, ruled 2026-09-28: "if you
+        # would have run it in the jail container, you run it on the guest." A
+        # macos-user launch has no image, so the in-jail binaries a declared
+        # `jail_daemon.cmd` names are built for DARWIN and staged into the
+        # sandbox's root-owned prefix (internal/macosuser.GuestBinDir) beside the
+        # `yolo` that backend already stages for its bootstrap. They never reach
+        # a host PATH, so the host ship set stays {yolo}.
+        #
+        # guestBinaries IS THE GUEST SUBSET, and it is a subset of shippedBinaries
+        # on purpose: only what a guest actually RUNS. yolo-jaild (the supervisor
+        # and every in-jail daemon) is the whole of it. `yolo` is not here — the
+        # sandbox self-execs the host's own darwin yolo, staged by the backend —
+        # and neither is yolo-entrypoint (the guest bootstrap is `yolo internal
+        # darwin-bootstrap`) nor the four loophole clients, whose loopholes are
+        # Linux-only. Pinned against scripts/stage-source-bundle.sh's
+        # GUEST_BINARIES and macosuser.GuestBinaries by
+        # internal/macosuser/guestbundle_test.go.
+        #
+        # guestPrefix has the same prebuilt short-circuit as goBinaries: a bundle
+        # that ships ./bin/darwin-<arch> (stage-source-bundle.sh, Homebrew, the
+        # release archive) is copied, and a live checkout compiles the subset from
+        # goSrc with GOOS=darwin. The macos-user launch builds this only when it
+        # has a jail daemon to run and the resolved flake source ships no prebuilt
+        # dir (image.BuildGuestPrefix). goArch is the jail's arch, which the
+        # darwin→linux mapping above preserves, so it is also the Mac's.
+        guestBinaries = [ "yolo-jaild" ];
+        guestPrebuiltDir = ./. + "/bin/darwin-${goArch}";
+        guestPrefix =
+          if builtins.pathExists guestPrebuiltDir then
+            pkgs.runCommand "yolo-jail-guest-prebuilt" { } ''
+              mkdir -p $out/bin
+              for name in ${builtins.concatStringsSep " " guestBinaries}; do
+                cp ${guestPrebuiltDir}/$name $out/bin/$name
+                chmod +x $out/bin/$name
+              done
+            ''
+          else pkgs.stdenv.mkDerivation {
+            pname = "yolo-jail-guest";
+            version = "0-dev";
+            src = goSrc;
+            nativeBuildInputs = [ pkgs.go ];
+            buildPhase = ''
+              runHook preBuild
+              export HOME=$TMPDIR
+              export GOCACHE=$TMPDIR/go-cache
+              export GOFLAGS=''${GOFLAGS:-}
+              export CGO_ENABLED=0
+              export GOOS=darwin
+              export GOARCH=${goArch}
+              [ -d vendor ] && export GOFLAGS="-mod=vendor $GOFLAGS" || export GOPROXY=off
+              mkdir -p $out/bin
+              for name in ${builtins.concatStringsSep " " guestBinaries}; do
+                echo "go build $name -> $out/bin/$name (darwin/${goArch})"
+                go build -trimpath -o "$out/bin/$name" "./cmd/$name"
+              done
+              runHook postBuild
+            '';
+            dontInstall = true;
+            dontFixup = true;
+          };
+
         # ── What the IMAGE bakes for the mounted prefix: NAMES ONLY ────────
         # /bin/<name> → /opt/yolo-jail/bin/<name>, one symlink per shipped
         # binary. This derivation depends on the NAME LIST and nothing else, so
@@ -1823,6 +1885,10 @@
         # .#installPrefix`) whenever the resolved flake source ships no prebuilt
         # bin/linux-<arch> of its own — i.e. a live checkout.
         packages.installPrefix = installPrefix;
+        # The macos-user guest's darwin in-jail binaries (guestBinaries above), as
+        # $out/bin/<name>. Realized by image.BuildGuestPrefix only when the
+        # resolved flake source ships no prebuilt bin/darwin-<arch> of its own.
+        packages.guestPrefix = guestPrefix;
         # The /lib symlink farm alone — buildable in seconds, so tests and
         # humans can assert lib discovery (e.g. that a "foo.dev" package
         # spec still lands libfoo.so in /lib) without building an image.
