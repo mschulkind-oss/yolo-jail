@@ -12,8 +12,9 @@ vantage:
 
 **Status:** SKETCH, 2026-09-29, checked against `51620f7e`. The mechanism is
 decided ([PR-D1](podman-reboot-readiness.md#PR-D1)–[PR-D11](podman-reboot-readiness.md#PR-D11)).
-The budget constant waits on [OQ-PR1](podman-reboot-readiness.md#OQ-PR1), and the
-housekeeping and machine-wide-record steps wait on
+The budget is 60 s ([PR-D12](podman-reboot-readiness.md#PR-D12)); whether it
+applies only near a boot waits on [OQ-PR1](podman-reboot-readiness.md#OQ-PR1), and
+the housekeeping and machine-wide-record steps wait on
 [OQ-PR2](podman-reboot-readiness.md#OQ-PR2) and
 [OQ-PR3](podman-reboot-readiness.md#OQ-PR3). Code is cited by symbol.
 
@@ -76,9 +77,14 @@ design, which wins on behavior).
   not `flock.go`'s per-container-name `acquireWorkspaceLock`.
 - **Housekeeping** (only if [OQ-PR2](podman-reboot-readiness.md#OQ-PR2) is ruled
   B): `runHousekeeping` ([`housekeeping.go`](../../internal/cli/run/housekeeping.go))
-  takes the gate's attempt count and wait. When the gate was slow, it skips
-  `autoReapOldImages` and `reapScratchVolumes` without touching their debounce
-  stamps.
+  takes the gate's attempt count and wait. When the gate was slow, it returns
+  before `withHousekeepingLock`, so no class runs and the lock is not taken. Every
+  class keeps its debounce stamp, so the next launch runs it. Skipping only the
+  classes that call Podman would not do: `autoReapOldImages`,
+  `reapSupersededStoreOutputs`, `reapSmallAutomaticClasses`,
+  `reapFlakeBundleGenerations` and `reapScratchVolumes` all do, the middle three
+  through `prune.LiveYoloContainers` (and the store-output and flake-bundle reaps
+  also through `prune.LivePrefixSources`).
 
 ## Tests
 
@@ -117,4 +123,4 @@ All of these run under `go test -short` except the host check.
 - **The host check**: the three steps in the design's
   [testing section](podman-reboot-readiness.md#testing-and-the-real-host-check).
   Step 1, the forced refresh, runs **before** building, because it confirms the
-  mechanism and may move the [OQ-PR1](podman-reboot-readiness.md#OQ-PR1) constant.
+  mechanism and may move the [PR-D12](podman-reboot-readiness.md#PR-D12) constant.
