@@ -203,7 +203,9 @@ refusal names the field; move it to your user config. A project can still set a 
 - On `macos-user`, a project inside your home folder no longer sends you in a circle. The launch
   said to run `yolo macos-fix-permissions`, which refuses every folder in a home, so running it
   changed nothing. The launch now says first that the project has to move out of your home, and
-  prints the commands that move it under `/Users/Shared/yolo` and share it there.
+  prints the commands that move it under `/Users/Shared/yolo` and share it there. If you had
+  linked the project into `/Users/Shared/yolo` under the same name, the commands remove that
+  link first; if something else already has the name, they move the project to a free one.
 - `yolo check` on a Mac set up for `macos-user` now checks what a launch refuses to start
   without, and names the fix beside each: that you are not running as root, Seatbelt, the sandbox
   user and its home folder, that the project is outside your home, and that it is shared with the

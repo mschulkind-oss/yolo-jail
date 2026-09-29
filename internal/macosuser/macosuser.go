@@ -10,6 +10,7 @@
 package macosuser
 
 import (
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -428,11 +429,16 @@ func inHomeWorkspaceRefusal(workspace, home string) string {
 		return msg + "Run yolo from a project folder under [bold]" + SharedRootDefault() +
 			"[/bold] instead."
 	}
-	move, share := inHomeMoveCommands(workspace)
-	return msg + "Move the project under " + SharedRootDefault() + ", then share it, " +
-		"because a move carries no sharing with it:\n" +
-		"  [bold]" + move + "[/bold]\n" +
-		"  [bold]" + share + "[/bold]\n" +
+	plan := inHomeMovePlan(workspace)
+	msg += "Move the project under " + sharedRootForMove() + ", then share it, " +
+		"because a move carries no sharing with it:\n"
+	if plan.note != "" {
+		msg += plan.note + "\n"
+	}
+	for _, step := range plan.steps {
+		msg += "  [bold]" + step + "[/bold]\n"
+	}
+	return msg + "  [bold]" + plan.share + "[/bold]\n" +
 		"[dim]A copy or a fresh clone made there (cp -R, git clone) is shared as it is " +
 		"created, so\nit needs no `macos-fix-permissions`.[/dim]"
 }
@@ -443,19 +449,98 @@ func inHomeWorkspaceFix(workspace, home string) string {
 		return "Run yolo from a project folder under " + SharedRootDefault() + " instead; " +
 			"yolo macos-fix-permissions refuses every path in a home."
 	}
-	move, share := inHomeMoveCommands(workspace)
-	return "Move it under " + SharedRootDefault() + ", then share it; a move carries no " +
-		"sharing (a copy or a clone made there is shared already):\n" +
-		"  " + move + "\n" +
-		"  " + share
+	plan := inHomeMovePlan(workspace)
+	msg := "Move it under " + sharedRootForMove() + ", then share it; a move carries no " +
+		"sharing (a copy or a clone made there is shared already):\n"
+	if plan.note != "" {
+		msg += plan.note + "\n"
+	}
+	for _, step := range plan.steps {
+		msg += "  " + step + "\n"
+	}
+	return msg + "  " + plan.share
 }
 
-// inHomeMoveCommands is the pair both spellings of the remedy name: the move to neutral ground,
-// and the share of the DESTINATION.
-func inHomeMoveCommands(workspace string) (move, share string) {
-	dest := filepath.Join(SharedRootDefault(), filepath.Base(workspace))
-	return "mv " + shquote.Quote(workspace) + " " + shquote.Quote(dest),
-		"yolo macos-fix-permissions " + shquote.Quote(dest)
+// sharedRootForMove is where the in-home remedy moves a project: SharedRootDefault. A var only
+// so a test can point the destination check (inHomeMovePlan) at a tree it built and run the
+// printed commands there.
+var sharedRootForMove = SharedRootDefault
+
+// inHomeMove is the remedy both spellings of the in-home refusal print: the shell commands that
+// move the project to neutral ground, in order; the share of where it LANDS; and, when the
+// obvious destination is taken, the sentence that says why the commands are not the plain move.
+type inHomeMove struct {
+	steps []string
+	share string
+	note  string
+}
+
+// inHomeMovePlan decides the move by looking at the destination first, because a plain
+// `mv <project> <root>/<name>` is right only when nothing is there.
+//
+//   - A SYMBOLIC LINK TO THE PROJECT is what the natural workaround for the neutral-ground rule
+//     leaves (`ln -s ~/code/proj /Users/Shared/yolo/proj`, then launching from the link): the
+//     launch resolves the workspace to the home and refuses it, and mv follows a link to a
+//     directory, so it tried to move the project into itself and failed. The link is removed
+//     first — `rm` on a link removes the link, never what it points at — and the project moved
+//     to where it was.
+//   - ANYTHING ELSE THERE (a real directory, a file, a link to something else) would take the
+//     project INSIDE it, or fail, and the share would then name the wrong level. The move takes
+//     the first free `<name>-2`, `<name>-3`, … instead, and the note says so.
+//
+// The share always names where the project lands, the property the in-home remedy exists for:
+// a remedy that cannot reach the path it names is the loop this refusal replaced.
+func inHomeMovePlan(workspace string) inHomeMove {
+	root := sharedRootForMove()
+	name := filepath.Base(workspace)
+	dest := filepath.Join(root, name)
+	plan := func(to, note string, first ...string) inHomeMove {
+		return inHomeMove{
+			steps: append(first, "mv "+shquote.Quote(workspace)+" "+shquote.Quote(to)),
+			share: "yolo macos-fix-permissions " + shquote.Quote(to),
+			note:  note,
+		}
+	}
+	fi, err := os.Lstat(dest)
+	switch {
+	case os.IsNotExist(err):
+		return plan(dest, "")
+	case err != nil:
+		return plan(dest, "(Could not check whether "+dest+" already exists: "+err.Error()+
+			". If it does, move the project to a name that is free there instead.)")
+	case fi.Mode()&os.ModeSymlink != 0 && linksToWorkspace(dest, workspace):
+		return plan(dest, dest+" is a symbolic link to this project, and mv would follow it and "+
+			"try to move the project into itself.\nRemove the link first (rm removes the link, "+
+			"never the project):", "rm "+shquote.Quote(dest))
+	}
+	free := freeSharedName(root, name)
+	return plan(free, dest+" already exists, and mv would put the project inside it, so this "+
+		"moves it to "+free+" instead\n(or pick another free name there):")
+}
+
+// linksToWorkspace reports whether the link at dest resolves to the workspace, compared resolved
+// on both sides, as the launch resolves the workspace it judges.
+func linksToWorkspace(dest, workspace string) bool {
+	got, err := filepath.EvalSymlinks(dest)
+	if err != nil {
+		return false
+	}
+	if ws, err := filepath.EvalSymlinks(workspace); err == nil {
+		workspace = ws
+	}
+	return got == workspace
+}
+
+// freeSharedName returns the first of <root>/<name>-2, -3, … that does not exist, or a
+// placeholder the reader has to replace when a hundred are taken.
+func freeSharedName(root, name string) string {
+	for n := 2; n <= 100; n++ {
+		cand := filepath.Join(root, name+"-"+strconv.Itoa(n))
+		if _, err := os.Lstat(cand); os.IsNotExist(err) {
+			return cand
+		}
+	}
+	return filepath.Join(root, "NEW-NAME")
 }
 
 // ---------------------------------------------------------------------------
