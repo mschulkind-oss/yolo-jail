@@ -119,6 +119,32 @@ one case that passes silently — there is nothing in `{}` to approve. Deleting 
 therefore never smuggle a config past the human: with a declared config, no record means the
 whole thing is shown as a diff against nothing.
 
+### The repository scope, the record's second part
+
+A launch that starts a **brokered** loophole (one whose manifest declares `brokered`, such as
+`packs/github`'s `github-broker`) puts a second thing through the same decision: the
+**repository scope**, the `owner/repo` of each remote on the declared forge, read from the
+workspace's git config as text. The remotes are agent-editable workspace state, so they take
+this gate rather than a new one (design:
+[`boundary-broker.md` §5.6](../design/boundary-broker.md#56-the-repository-scope)).
+
+- The gate is `CheckConfigAndScopeChanges`, which is `CheckConfigChanges` when no brokered
+  loophole starts. Whether one starts is `loopholes.Set.BrokeredToStart` over the backend's
+  filter, the predicate the spawn applies, so a workspace whose launches never start a broker
+  never gains the scope part and is never asked about one.
+- The scope part is its own file beside the snapshot, so the snapshot's bytes stay frozen. A
+  repository added or removed is a change. With no record yet, a non-empty scope diffs against
+  none and an empty one records silently, as `{}` does.
+- A changed scope opens the prompt with a labeled block, before any config diff, naming each
+  repository added or removed and the remote it came from; the header, the question and the
+  refusal's headline name the scope when it changed, and only the scope when the config did
+  not. One `y` approves both parts. A `y`, `--accept-config-changes` or
+  `yolo check --accept-config-changes` records both parts together; an `N` or a refusal records
+  neither, so the `{}` branch now waits for the scope part before it writes.
+- After the gate passes, the spawn writes the approved list to that launch's scope file under
+  `broker/<source>/scope/` and hands it to the daemon; an attach reads nothing and writes
+  nothing.
+
 ### Where it runs, and where it deliberately does not
 
 The check is a **fresh-launch** gate. Attaching to a running container (`podman exec`) does
@@ -190,6 +216,7 @@ layer, so they cannot disagree about what changed.
 | `yolo-jail.jsonc` (+ `yolo-jail.local.jsonc`) | Workspace config — agent-editable, and the only thing the gate evaluates |
 | `~/.config/yolo-jail/config.jsonc` | User-level defaults — trusted on disk, never diffed |
 | `paths.ApprovalsDir()/<container-name>.json` | Last-approved canonical **workspace** config. Host-side, never mounted |
+| `paths.ApprovalsDir()/<container-name>.scope.json` | Last-approved repository scope per brokered source, written only where a brokered loophole starts. Host-side, never mounted |
 | `<workspace>/.yolo/config-assembled.json` | The merged config the host assembled for this launch, delivered into the jail |
 | `<workspace>/.yolo/config-boot.json` | Frozen workspace-only config the jail was built from (`yolo config drift`) |
 
