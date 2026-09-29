@@ -16,9 +16,10 @@ its storage section with it: worktrees, clones, drafts and measurements go there
 emptied when the jail exits and the directories in the home belong to the agents and tools
 themselves. It is ignored by git with the rest of `.yolo`, and yolo never deletes anything in it.
 Instead, each launch prints how many worktrees it holds, their total size and how long the oldest
-has been idle, and a second line when worktrees are registered at directories that no longer
-exist. `yolo check` lists each worktree with its size, idle time, branch, the commits that exist
-nowhere else and its changed files, and `yolo stores` shows each workspace's directory. pi's
+has been idle, and a second line when worktrees in the workspace or in the jail's `/tmp` are
+registered at directories that no longer exist. `yolo check` lists each worktree with its size,
+idle time, branch, the commits that exist nowhere else and its changed files, and `yolo stores`
+shows the directory of each workspace whose jail is running. pi's
 subagent worktrees now go there instead of `/tmp`. If the directory cannot be made, for example
 because `.yolo` is a symbolic link, the launch says why and goes on without it. Agents run with
 `yolo host` are told that the machine's `/tmp` may not survive a reboot. See
