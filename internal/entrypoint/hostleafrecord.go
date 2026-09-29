@@ -27,8 +27,11 @@ package entrypoint
 //	not asserted, file equals the record    yolo's, unedited: CLEAR it, forget it
 //	not asserted, file differs or lacks it  the user changed or removed it: forget it
 //
-// A clear removes the leaf alone. Its parent object stays, even when the clear empties it, since
-// the user may have written the parent themselves and an empty object is inert. The selection
+// A clear removes the leaf alone, from the file's own content BEFORE any layer writes
+// (applyRMWLayers), so a live layer still asserting the same path, another pack's config-overlay
+// say, sets it again and the clear takes back only yolo's stale write. Its parent object stays,
+// even when the clear empties it, since the user may have written the parent themselves and an
+// empty object is inert. The selection
 // namespace keeps its own record and its own edge (hostRMWSelection); this is the record of every
 // OTHER leaf.
 

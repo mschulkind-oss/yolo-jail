@@ -15,6 +15,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
+	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/render"
 )
 
@@ -117,6 +119,32 @@ func TestTheHostLeafRecordNamesTheSwitchYoloWrote(t *testing.T) {
 	}
 	if _, err := os.Stat(rec); !os.IsNotExist(err) {
 		t.Errorf("a revert must remove the computed-leaf record: %v", err)
+	}
+}
+
+// A LIVE LAYER STILL ASSERTING THE SAME PATH KEEPS IT: another pack's config-overlay setting the
+// same switch on claude/settings is not overruled by the clear, which takes back only yolo's stale
+// write from the file's own content before any layer writes.
+func TestHostApplyClearKeepsAPathAnOverlayStillAsserts(t *testing.T) {
+	t.Setenv("YOLO_CTX_ROOT", t.TempDir())
+	home := t.TempDir()
+	raw, err := json.Marshal(map[string]any{"managed": map[string]any{
+		"env": map[string]any{"CLAUDE_CODE_USE_BEDROCK": "1"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	overlay := &packload.Pack{Name: "house", Decl: &packdecl.Manifest{Contributes: []packdecl.Contribution{
+		{Kind: packdecl.KindConfigOverlay, Surface: "claude/settings", Raw: raw}}}}
+	packs := append(testPacksForAgent(t, "claude"), overlay)
+	for _, profile := range []string{"bedrock", "codex", "codex"} {
+		in := hostTestInputs(t, packs, map[string]string{"claude": profile}, nil, nil)
+		if r := hostRenderWith(t, home, render.OwnershipAssert, in, "claude", "claude/settings"); strings.HasPrefix(r.Action, "refused") {
+			t.Fatalf("claude/settings on %s: %q", profile, r.Action)
+		}
+		env, _ := decodeJSONFile(t, filepath.Join(home, ".claude", "settings.json"))["env"].(map[string]any)
+		if env["CLAUDE_CODE_USE_BEDROCK"] != "1" {
+			t.Errorf("claude on %s: the overlay still asserts the switch, so it must stay: %v", profile, env)
+		}
 	}
 }
 

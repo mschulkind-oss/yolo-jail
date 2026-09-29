@@ -1468,6 +1468,15 @@ func mergeSurfaceRoot(base, over map[string]any) map[string]any {
 func applyRMWLayers(e *Env, surface manifest.Surface, obj *jsonx.OrderedMap,
 	computed map[string]any, contribs *surfaceContribs) (rmwListOutcome, error) {
 	deleteNulls := surface.Codec == "toml"
+	// FIRST, each computed leaf yolo wrote on an earlier host apply that its derive no longer
+	// asserts, still holding yolo's value (HC-D25): removed from the file's own content, its
+	// parent kept, BEFORE any layer writes. A clear takes back yolo's stale write and nothing
+	// else, so every live layer below (a config-overlay, managed, a default) still asserts the
+	// same path over it, and the list snapshot sees the file as the user left it. Nothing here
+	// in a jail, which sets no clears.
+	for _, p := range contribs.leafClears() {
+		deleteLeaf(obj, p)
+	}
 	// The file's arrays at every config-list path, snapshotted BEFORE any layer writes:
 	// the record's "the user removed this entry" is a statement about the file as the user
 	// left it, and the overlays below may force-write the same array.
@@ -1491,11 +1500,6 @@ func applyRMWLayers(e *Env, surface manifest.Surface, obj *jsonx.OrderedMap,
 		for _, k := range clears {
 			obj.Delete(k)
 		}
-	}
-	// Then each computed leaf yolo wrote on an earlier apply and its derive no longer asserts,
-	// still holding yolo's value (HC-D25): removed, its parent kept.
-	for _, p := range contribs.leafClears() {
-		deleteLeaf(obj, p)
 	}
 	// Managed: yolo owns these outright, so re-assert every boot.
 	if managed, isMap := surface.Managed.(map[string]any); isMap {
