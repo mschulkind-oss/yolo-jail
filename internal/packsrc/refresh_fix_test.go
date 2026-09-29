@@ -150,10 +150,17 @@ func TestRefreshSharesOneBudgetAcrossCloneAndFetch(t *testing.T) {
 	}
 }
 
-// (k) FSCK ON EVERY RUN THAT RECEIVES OBJECTS: the clone, the fetch, and the checkout (whose
-// lazy blob fetch inherits `-c`), and the prompt hygiene reaches the child's environment.
+// (k) FSCK ON EVERY RUN THAT RECEIVES OBJECTS: the clone, the fetch, the one-request prefetch
+// of the files a checkout needs (prefetchBlobs), and the checkout (whose lazy blob fetch
+// inherits `-c`), and the prompt hygiene reaches the child's environment.
+//
+// The remote allows the blobless filter (uploadpack.allowFilter), as a real host does. Without
+// it git ignores --filter over file:// and sends every file with the clone, so the prefetch
+// finds nothing missing and never runs, and this test would not see the one run that now
+// receives every file a checkout reads.
 func TestRefreshChecksObjectsOnEveryNetworkRun(t *testing.T) {
 	f := newRefreshFixture(t)
+	gitIn(t, f.repo, "config", "uploadpack.allowFilter", "true")
 	log := filepath.Join(t.TempDir(), "argv")
 	f.store.Git = writeScript(t, "echo \"$GIT_TERMINAL_PROMPT|$*\" >> '"+log+"'\nexec git \"$@\"\n")
 	o := f.refresh(t, false, RefreshPack{Name: "p", Source: f.source("main")})[0]
@@ -161,14 +168,20 @@ func TestRefreshChecksObjectsOnEveryNetworkRun(t *testing.T) {
 		t.Fatal(o.Err)
 	}
 	data, _ := os.ReadFile(log)
+	const prefetch = "prefetch (fetch --stdin)"
+	runs := []string{"clone", "fetch", prefetch, "checkout"}
 	seen := map[string]bool{}
 	for _, line := range strings.Split(strings.TrimSpace(string(data)), "\n") {
 		prompt, argv, _ := strings.Cut(line, "|")
 		if prompt != "0" {
 			t.Errorf("git ran with GIT_TERMINAL_PROMPT=%q: %s", prompt, argv)
 		}
-		for _, sub := range []string{"clone", "fetch", "checkout"} {
-			if strings.Contains(" "+argv+" ", " "+sub+" ") {
+		for _, sub := range runs {
+			match := strings.Contains(" "+argv+" ", " "+sub+" ")
+			if sub == prefetch {
+				match = strings.Contains(" "+argv+" ", " fetch ") && strings.HasSuffix(argv, " --stdin")
+			}
+			if match {
 				seen[sub] = true
 				if !strings.Contains(argv, "transfer.fsckObjects=true") {
 					t.Errorf("%s ran without fsck: %s", sub, argv)
@@ -176,7 +189,7 @@ func TestRefreshChecksObjectsOnEveryNetworkRun(t *testing.T) {
 			}
 		}
 	}
-	for _, sub := range []string{"clone", "fetch", "checkout"} {
+	for _, sub := range runs {
 		if !seen[sub] {
 			t.Errorf("no %s ran: %s", sub, data)
 		}
