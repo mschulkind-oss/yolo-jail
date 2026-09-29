@@ -51,6 +51,10 @@ type RunPlan struct {
 	// JailDaemonNames is what its payload names, sorted.
 	JailDaemonArgv  []string
 	JailDaemonNames []string
+	// SupervisorLog is the file JailDaemonArgv sends the supervisor's own stdout and stderr
+	// to (SupervisorLogPath), and the one the launch reads its readiness line from. "" with
+	// no daemon.
+	SupervisorLog string
 	// GuestBinSource is where the darwin guest binaries are copied from ("" with no
 	// daemon), and StageCommands carries the copies into GuestBinDir.
 	GuestBinSource string
@@ -427,12 +431,13 @@ func BuildRunPlanWithDaemons(workspace string, cfg *jsonx.OrderedMap, agents, ag
 	// absent, not empty, on a launch that runs none.
 	var jailDaemonArgv []string
 	daemonNames := jailDaemons.Names()
-	guestSource, daemonEnvFile, daemonEnvContent := "", "", ""
+	guestSource, daemonEnvFile, daemonEnvContent, supervisorLog := "", "", "", ""
 	if len(daemonNames) > 0 {
 		guestSource = jailDaemons.GuestBinSource
 		daemonEnvFile = SandboxDaemonEnvFile(cname, "")
 		daemonEnvContent = SandboxEnvFileContent(jailDaemons.Env)
-		jailDaemonArgv = JailDaemonArgv(profilePath, daemonEnvFile, "", "", darwinPrefix)
+		supervisorLog = SupervisorLogPath(workspace)
+		jailDaemonArgv = JailDaemonArgv(profilePath, daemonEnvFile, supervisorLog, "", "", darwinPrefix)
 		// The binaries the supervisor and the payload's argvs name, beside the staged yolo.
 		stageCommands = append(stageCommands, StageGuestBinaryCommands(guestSource, "")...)
 		// Every endpoint the DAEMONS dial is granted too — the same grant the agent's
@@ -461,6 +466,7 @@ func BuildRunPlanWithDaemons(workspace string, cfg *jsonx.OrderedMap, agents, ag
 
 		JailDaemonArgv:          jailDaemonArgv,
 		JailDaemonNames:         daemonNames,
+		SupervisorLog:           supervisorLog,
 		GuestBinSource:          guestSource,
 		DaemonEnvFile:           daemonEnvFile,
 		DaemonEnvFileContent:    daemonEnvContent,
@@ -1231,6 +1237,29 @@ func jailDaemonInvariants(plan RunPlan) []string {
 	case jaildAt < confinedAt:
 		problems = append(problems, "the jail-daemon supervisor is started before "+
 			"sandbox-exec, outside the profile (OQ-DP9)")
+	}
+	// The supervisor's own stdout and stderr go to its log, from inside the profile and in front
+	// of everything that can fail after sandbox-exec: the one place a refusal of it is written
+	// down, and where the launch reads its readiness line (JD-8).
+	loggedAt := -1
+	for i := 0; i+4 < len(argv); i++ {
+		if argv[i] == sandboxEnvShell && argv[i+1] == "-c" && argv[i+2] == supervisorLogWrapper &&
+			argv[i+4] == plan.SupervisorLog {
+			loggedAt = i
+			break
+		}
+	}
+	switch {
+	case plan.SupervisorLog == "" || plan.SupervisorLog != SupervisorLogPath(plan.Workspace):
+		problems = append(problems, "the jail-daemon supervisor's log is \""+plan.SupervisorLog+
+			"\", not "+SupervisorLogPath(plan.Workspace)+" beside the daemons' own logs")
+	case loggedAt < 0:
+		problems = append(problems, "the jail-daemon supervisor's stdout and stderr do not go to "+
+			plan.SupervisorLog+"; a refusal of it would leave no trace, and the launch could not "+
+			"see it start")
+	case loggedAt < confinedAt || (jaildAt >= 0 && loggedAt > jaildAt):
+		problems = append(problems, "the jail-daemon supervisor's log redirect is not between "+
+			"sandbox-exec and "+JaildName+" supervise")
 	}
 	problems = append(problems, SandboxArgvEnvProblems("jail-daemon", argv)...)
 	if plan.DaemonEnvFile == "" || !SandboxArgvReadsEnvFile(plan.DaemonEnvFile, argv) {

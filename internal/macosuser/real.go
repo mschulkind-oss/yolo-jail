@@ -256,9 +256,14 @@ func isDigits(s string) bool {
 }
 
 // startBackgroundReal starts argv as the jail-daemon supervisor's launcher: no terminal
-// (stdin, stdout and stderr all /dev/null — the daemons log to their own files, and this runs
-// beside the agent's TTY proxy), in a PROCESS GROUP OF ITS OWN, so the stop can signal the
-// whole group, matching the container's teardown (jail-daemon-on-macos-user-plan.md step 4).
+// (stdin /dev/null; stdout and stderr one bounded in-memory capture, never the terminal, since
+// this runs beside the agent's TTY proxy), in a PROCESS GROUP OF ITS OWN, so the stop can signal
+// the whole group, matching the container's teardown (jail-daemon-on-macos-user-plan.md step 4).
+//
+// The capture holds only what is written BEFORE the guest takes stdout and stderr over — sudo's
+// own refusal, sandbox-exec's — because the supervisor's argv sends everything after that to
+// supervisor.log (supervisorLogWrapper, JD-8). Background.Output reads it; Background.Exited is
+// closed when the process has been reaped.
 //
 // The stop is SIGTERM to the group, then up to jailDaemonStopGrace for it to exit, then
 // SIGKILL. argv[0] is sudo, which this uid may signal (its real uid is ours) and which RELAYS
@@ -266,15 +271,22 @@ func isDigits(s string) bool {
 // SIGTERM and 5 s before SIGKILL, which is why the grace here is longer than that. A SIGKILL
 // is not relayed — it is the last resort for a sudo that did not exit, and what it would leave
 // behind is the one thing only a Mac can measure (the plan's verification split).
-func startBackgroundReal(argv []string) (func(), error) {
+func startBackgroundReal(argv []string) (Background, error) {
 	if len(argv) == 0 {
-		return nil, errors.New("empty argv")
+		return Background{}, errors.New("empty argv")
 	}
 	cmd := exec.Command(argv[0], argv[1:]...)
-	cmd.Stdin, cmd.Stdout, cmd.Stderr = nil, nil, nil
+	captured := &cappedBuffer{max: backgroundOutputCap}
+	// ONE writer for both, so exec.Cmd makes one pipe and the two streams keep their order.
+	cmd.Stdin, cmd.Stdout, cmd.Stderr = nil, captured, captured
+	// A writer that is not an *os.File makes Wait also wait for the pipe to close. Nothing in
+	// the guest keeps it open (the log wrapper points both streams elsewhere, so sudo holds the
+	// last copy), but if something did, Exited would never close and the stop would take its
+	// full grace. This bounds that to two seconds after the process exits.
+	cmd.WaitDelay = 2 * time.Second
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	if err := cmd.Start(); err != nil {
-		return nil, err
+		return Background{}, err
 	}
 	done := make(chan struct{})
 	go func() {
@@ -283,7 +295,7 @@ func startBackgroundReal(argv []string) (func(), error) {
 	}()
 	pgid := cmd.Process.Pid
 	var once sync.Once
-	return func() {
+	stop := func() {
 		once.Do(func() {
 			select {
 			case <-done:
@@ -301,7 +313,38 @@ func startBackgroundReal(argv []string) (func(), error) {
 				}
 			}
 		})
-	}, nil
+	}
+	return Background{Stop: stop, Exited: done, Output: captured.String}, nil
+}
+
+// backgroundOutputCap bounds startBackgroundReal's capture: a sudo or sandbox-exec refusal is a
+// line or two, and nothing else should reach it.
+const backgroundOutputCap = 8 << 10
+
+// cappedBuffer keeps the first max bytes written to it and discards the rest, safe for the
+// exec.Cmd copier to write while the launch reads.
+type cappedBuffer struct {
+	mu  sync.Mutex
+	b   []byte
+	max int
+}
+
+func (c *cappedBuffer) Write(p []byte) (int, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if room := c.max - len(c.b); room > 0 {
+		if len(p) < room {
+			room = len(p)
+		}
+		c.b = append(c.b, p[:room]...)
+	}
+	return len(p), nil
+}
+
+func (c *cappedBuffer) String() string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return string(c.b)
 }
 
 // jailDaemonStopGrace is how long the stop waits for the supervisor's own SIGTERM→5 s→SIGKILL

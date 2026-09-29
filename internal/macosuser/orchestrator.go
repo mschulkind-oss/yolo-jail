@@ -95,9 +95,10 @@ type Deps struct {
 	// nil refuses a launch that has a daemon to run, naming why.
 	GuestBinaries func(repoRoot string) (string, error)
 	// StartBackground starts argv in the background, in a process group of its own, with
-	// no terminal, and returns the stop that ends it (idempotent, never nil on success).
-	// The jail-daemon supervisor's one seam (startBackgroundReal).
-	StartBackground func(argv []string) (func(), error)
+	// no terminal, and returns its handle: the stop that ends it (idempotent, never nil on
+	// success), a channel closed when it exits, and what it wrote on its own stdout and
+	// stderr. The jail-daemon supervisor's one seam (startBackgroundReal).
+	StartBackground func(argv []string) (Background, error)
 	// Out receives the human output. Rich markup is rendered to ANSI when
 	// Color is set, else stripped to plain text.
 	Out io.Writer
@@ -866,6 +867,8 @@ func PrintPlan(w io.Writer, plan RunPlan, problems []string) {
 		p.printf("  guest bins: %s → %s", plan.GuestBinSource, GuestBinDir(plan.StagedDir))
 		p.printf("  env file:   %s [dim](0600, root-owned, read by %s only)[/dim]",
 			plan.DaemonEnvFile, SandboxUser)
+		p.printf("  log:        %s [dim](the supervisor's own stdout and stderr)[/dim]",
+			plan.SupervisorLog)
 		p.printf("  [dim]sets, values not shown:[/dim] %s",
 			strings.Join(SandboxEnvFileKeys(plan.DaemonEnvFileContent), ", "))
 	}

@@ -13,7 +13,10 @@ package macosuser
 // ⚠ NONE OF THIS HAS EXECUTED ON A MAC. What only a Mac can settle: that sandbox-exec admits
 // the supervisor and its children under the session profile, that a darwin yolo-jaild
 // cross-compiled on Linux is signed well enough to exec, that `sudo -n` relays the stop's
-// SIGTERM, and that the `user:` ACE really lets _yolojail read the 0600 file.
+// SIGTERM, that the `user:` ACE really lets _yolojail read the 0600 file, that the log wrapper
+// may create supervisor.log in the workspace overlay from inside the profile and the host user
+// can read it through the inherited group ACE, and how long the chain takes to reach the
+// supervisor's readiness line against supervisorReadyBound (JD-8).
 
 import (
 	"bytes"
@@ -147,10 +150,7 @@ func TestTheDaemonTokenFileIsRootOwned0600AndReadableByTheSandboxAccountOnly(t *
 		modes = append(modes, path+" "+mode)
 		return true
 	}
-	d.StartBackground = func(argv []string) (func(), error) {
-		rec = append(rec, "start:"+strings.Join(argv, " "))
-		return func() { rec = append(rec, "stop") }, nil
-	}
+	fakeSupervisor(&d, &rec, "/Users/Shared/yolo/proj", "", readyLine, "", false)
 	d.GuestBinaries = func(string) (string, error) { return "/opt/yolo/bin/darwin-arm64", nil }
 	var buf bytes.Buffer
 	d.Out = &buf
@@ -198,10 +198,7 @@ func TestTheDaemonTokenFileIsRootOwned0600AndReadableByTheSandboxAccountOnly(t *
 func TestTheOrchestratorStartsTheSupervisorBeforeTheAgentAndStopsItAfter(t *testing.T) {
 	var rec []string
 	d := mockDeps(&rec)
-	d.StartBackground = func(argv []string) (func(), error) {
-		rec = append(rec, "start:"+strings.Join(argv, " "))
-		return func() { rec = append(rec, "stop") }, nil
-	}
+	fakeSupervisor(&d, &rec, "/Users/Shared/yolo/proj", "", readyLine, "", false)
 	d.GuestBinaries = func(string) (string, error) { return "/opt/yolo/bin/darwin-arm64", nil }
 	var buf bytes.Buffer
 	d.Out = &buf
@@ -239,9 +236,9 @@ func TestAMissingGuestBinaryRefusesTheLaunch(t *testing.T) {
 	var rec []string
 	d := mockDeps(&rec)
 	d.GuestBinaries = func(string) (string, error) { return "", errFake("nix build .#guestPrefix failed") }
-	d.StartBackground = func([]string) (func(), error) {
+	d.StartBackground = func([]string) (Background, error) {
 		t.Error("the supervisor started without its binary")
-		return func() {}, nil
+		return Background{Stop: func() {}}, nil
 	}
 	var buf bytes.Buffer
 	d.Out = &buf
@@ -287,6 +284,19 @@ func TestPlanInvariantsCatchAnUnconfinedOrMissingSupervisor(t *testing.T) {
 			p.StageCommands = keep
 		},
 		"no payload in the file": func(p *RunPlan) { p.DaemonEnvFileContent = "export X='y'\n" },
+		"no log redirect": func(p *RunPlan) {
+			var out []string
+			for i := 0; i < len(p.JailDaemonArgv); i++ {
+				if p.JailDaemonArgv[i] == supervisorLogWrapper {
+					out = out[:len(out)-2] // drop /bin/sh -c
+					i += 2                 // and the wrapper, its $0 and the log path
+					continue
+				}
+				out = append(out, p.JailDaemonArgv[i])
+			}
+			p.JailDaemonArgv = out
+		},
+		"log elsewhere": func(p *RunPlan) { p.SupervisorLog = "/tmp/supervisor.log" },
 	} {
 		p := good
 		mutate(&p)

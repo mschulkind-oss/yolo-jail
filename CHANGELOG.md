@@ -28,8 +28,10 @@ narrowed AWS credentials there, and `codex` keeps its ChatGPT login through a lo
 instead of losing it at the first token refresh. Each helper listens on a port the launch picks,
 so two sandboxes running at once do not collide, and the launch says which helpers it started and
 names, with the reason, the ones it cannot run there, such as the one that shares one Claude login
-between sandboxes. Homebrew and the release archives ship the helpers for both Apple Silicon and
-Intel Macs; nothing new lands on your own `PATH`. See [macOS](userguide/guides/macos.md).
+between sandboxes. It says the helpers started only once they confirm it; if they fail to start,
+the launch stops and shows where their log is and its last lines. Homebrew and the release
+archives ship the helpers for both Apple Silicon and Intel Macs; nothing new lands on your own
+`PATH`. See [macOS](userguide/guides/macos.md).
 
 pi's subagents can now use your MCP servers. When the pi-subagents extension is in pi's
 packages, a jail also writes the MCP servers you configure to `~/.config/mcp/mcp.json`, the file

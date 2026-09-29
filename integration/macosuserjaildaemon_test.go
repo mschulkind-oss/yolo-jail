@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/macosuser"
+	"github.com/mschulkind-oss/yolo-jail/internal/supervisor"
 )
 
 // TestMacosUserJailDaemonRunsConfinedInTheGuest is steps 3 and 4 of
@@ -68,8 +69,8 @@ func TestMacosUserJailDaemonRunsConfinedInTheGuest(t *testing.T) {
 	logDir := filepath.Join(ws, ".yolo", "home", "local", "state", "yolo-jail-daemons")
 	diag := func() string {
 		return fmt.Sprintf("\n--- the supervisor's logs: %s (in the sandbox: ~/.local/state/yolo-jail-daemons; "+
-			"the supervisor's own stderr is /dev/null, so a sudo -n or sandbox-exec refusal "+
-			"leaves no line anywhere)\n%s"+
+			"supervisor.log is the supervisor's own stdout and stderr, and the launch quotes "+
+			"sudo's or sandbox-exec's refusal itself)\n%s"+
 			"\n--- the host's last listing of %s's processes and of any sudo naming %s:\n%s"+
 			"\n--- launch stdout:\n%s\n--- launch stderr:\n%s",
 			logDir, dumpDir(logDir), macosuser.SandboxUser, macosuser.JaildName, lastListing,
@@ -86,6 +87,13 @@ func TestMacosUserJailDaemonRunsConfinedInTheGuest(t *testing.T) {
 	}
 	if !strings.Contains(r.combined(), "Started openai-auth-broker inside the sandbox") {
 		t.Errorf("the launch did not disclose the guest's jail daemon%s", diag())
+	}
+	// JD-8: the guest wrote its own supervisor.log as the sandbox account, the host user can read
+	// it, and it carries the readiness line the launch waited for before saying "Started".
+	if b, err := os.ReadFile(macosuser.SupervisorLogPath(ws)); err != nil {
+		t.Errorf("the host cannot read the supervisor's log: %v%s", err, diag())
+	} else if !strings.Contains(string(b), supervisor.StartedLinePrefix+"openai-auth-broker") {
+		t.Errorf("the supervisor's log has no readiness line for the adapter:\n%s%s", b, diag())
 	}
 	if strings.Contains(probe.log, "spawn failed:") || !strings.Contains(probe.log, "serving on") {
 		t.Errorf("the OpenAI adapter did not start and serve in the guest (spawn failed, or no "+

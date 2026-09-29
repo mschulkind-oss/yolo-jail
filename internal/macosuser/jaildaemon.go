@@ -34,12 +34,15 @@ package macosuser
 // this runs cannot be two different selections.
 
 import (
+	"fmt"
 	"path/filepath"
 	goruntime "runtime"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/supervisor"
 )
 
@@ -161,9 +164,52 @@ func SandboxDaemonEnvFile(cname, sd string) string {
 	return sd + "/" + sandboxEnvLeaf + "/" + cname + ".daemons.env"
 }
 
+// SupervisorLogName is the supervisor's own log, beside the daemons' <name>.log files.
+const SupervisorLogName = "supervisor.log"
+
+// SupervisorLogPath is where the guest's supervisor sends its own stdout and stderr, as the
+// HOST sees it: <workspace>/.yolo/home/local/state/yolo-jail-daemons/supervisor.log. That is
+// the directory the daemons' own logs land in (supervisor.LogDir, ~/.local/state/
+// yolo-jail-daemons in the sandbox, whose ~/.local is the workspace overlay's `local` subtree —
+// paths.HomeSurfaces), spelled here from the workspace rather than through the sandbox home's
+// symlink so the file the guest writes and the file the launch reads are one path.
+//
+// Readable by the user on the ACL model the daemons' logs already use: the guest creates it as
+// the sandbox account, inside the workspace, whose inheriting `group:_yolojail` ACEs
+// (WorkspaceACLAces) are applied to whatever is created there whoever creates it — and the host
+// user is a member of that group. Nothing here grants anything.
+func SupervisorLogPath(workspace string) string {
+	return filepath.Join(paths.WorkspaceHomeState(workspace), "local", "state", "yolo-jail-daemons",
+		SupervisorLogName)
+}
+
+// supervisorLogWrapper is the shell body that sends everything after it to the supervisor's
+// log: make the log's directory, append stdout and stderr to $1, then exec the rest. Placed
+// INSIDE sandbox-exec and in front of the env-file reader, so it runs confined, as the sandbox
+// account, and the log catches the reader's failure, an exec failure and every line the
+// supervisor writes (its readiness line included). What fails BEFORE it — sudo's own refusal,
+// sandbox-exec's — is on the launcher's side of the pipe instead (Background.Output).
+//
+// APPEND, never truncate: the per-workspace launch lock is held across the supervisor's start,
+// so the launch reads the lines THIS start added from the size it saw before starting; and a
+// truncating open would put holes in a still-running earlier session's file. It grows by about
+// one line per launch, so it is not rotated.
+const supervisorLogWrapper = `/bin/mkdir -p "${1%/*}" && exec >>"$1" 2>&1 || exit 1; shift; exec "$@"`
+
+// supervisorLogWrapperName is $0 for the wrapper, what a `ps` line and a dry run show.
+const supervisorLogWrapperName = "yolo-supervisor-log"
+
+// WithSupervisorLog wraps argv so its stdout and stderr go to logPath (supervisorLogWrapper).
+func WithSupervisorLog(logPath string, argv []string) []string {
+	if logPath == "" || len(argv) == 0 {
+		return argv
+	}
+	return append([]string{sandboxEnvShell, "-c", supervisorLogWrapper, supervisorLogWrapperName, logPath}, argv...)
+}
+
 // JailDaemonArgv builds the supervisor's argv: `sudo -n --set-home --user=<sb> /usr/bin/env -i
-// <the closed identity list> /usr/bin/sandbox-exec -f <profile> -- <env-file reader>
-// <GuestBinDir>/yolo-jaild supervise`.
+// <the closed identity list> /usr/bin/sandbox-exec -f <profile> -- <the log wrapper> <logPath>
+// <env-file reader> <GuestBinDir>/yolo-jaild supervise`.
 //
 // LaunchArgv's shape, deliberately — the plan's Reuse note: sandboxEnvPairs for the closed
 // `env -i` list (so no composed value is on this argv either), ExecWithEnvFile for the
@@ -175,7 +221,7 @@ func SandboxDaemonEnvFile(cname, sd string) string {
 //
 // The supervisor is named by ABSOLUTE path, the one word of this argv yolo decides; the
 // daemons it starts are the payload's argvs verbatim, resolved on the PATH this argv sets.
-func JailDaemonArgv(profilePath, envFile, user, home string, pathPrefix []string) []string {
+func JailDaemonArgv(profilePath, envFile, logPath, user, home string, pathPrefix []string) []string {
 	if user == "" {
 		user = SandboxUser
 	}
@@ -192,7 +238,8 @@ func JailDaemonArgv(profilePath, envFile, user, home string, pathPrefix []string
 	}
 	out = append(out, sandboxEnvPairs(home, user, SandboxPath(home, pathPrefix), envFile)...)
 	out = append(out, "/usr/bin/sandbox-exec", "-f", profilePath, "--")
-	out = append(out, ExecWithEnvFile(envFile, []string{GuestBinaryPath(JaildName, ""), "supervise"})...)
+	out = append(out, WithSupervisorLog(logPath,
+		ExecWithEnvFile(envFile, []string{GuestBinaryPath(JaildName, ""), "supervise"}))...)
 	return out
 }
 
@@ -223,10 +270,121 @@ func (p RunPlan) daemonEnvFilePlan() daemonEnvPlan {
 	}
 }
 
+// Background is one process Deps.StartBackground started.
+type Background struct {
+	// Stop ends it (idempotent).
+	Stop func()
+	// Exited is closed once the process has exited. nil means the starter cannot tell, which
+	// reads as "still running".
+	Exited <-chan struct{}
+	// Output is what the process wrote on its OWN stdout and stderr, bounded: for the
+	// supervisor, only what happened before supervisorLogWrapper took them over — sudo's
+	// refusal, sandbox-exec's. nil means nothing was captured.
+	Output func() string
+}
+
+// supervisorReadyBound is the longest the launch waits for the supervisor's readiness line
+// before it stops waiting. The wait ends the moment the line appears or the process exits,
+// so this costs time only when the supervisor is still alive and has not spoken — a slow or
+// hung start — and never on the stop, which is untouched.
+//
+// WHY 1.5 s. The chain in front of the line is six execs, none of which does I/O worth the
+// name: a sudo whose credential cache the staging steps warmed a moment earlier, env,
+// sandbox-exec compiling a profile of a few dozen rules, two /bin/sh wrappers, and a Go binary
+// that parses one env var and writes the line before it starts anything. Every failure it is
+// meant to catch (a sudo -n refusal, a sandbox-exec denial, an exec or env-file failure) EXITS,
+// in milliseconds, and ends the wait through Exited rather than this bound. So the bound is
+// only the ceiling on a live-but-silent start, set well above that chain's cost (hundreds of
+// milliseconds at worst — each exec of the freshly staged binary is a new inode, so its code
+// signature is checked afresh) and low enough that a slow Mac costs a launch under two seconds
+// rather than a refusal. How long the chain really takes is a Mac measurement
+// (jail-daemon-on-macos-user-plan.md's verification split, JD-8).
+var supervisorReadyBound = 1500 * time.Millisecond
+
+// supervisorReadyPoll is how often the wait re-reads the log.
+const supervisorReadyPoll = 20 * time.Millisecond
+
+// supervisorLogTail is how many of the log's last lines a failure disclosure quotes.
+const supervisorLogTail = 10
+
+type supervisorOutcome int
+
+const (
+	supervisorStarted supervisorOutcome = iota
+	supervisorExited
+	supervisorUnconfirmed
+)
+
+// awaitSupervisor waits, bounded by supervisorReadyBound, for the supervisor's readiness line
+// (supervisor.StartedLinePrefix) to appear in the part of its log past offset, or for the
+// process to exit. It returns the outcome and that fresh part of the log.
+//
+// EXITED IS CHECKED FIRST: a supervisor that wrote its line and died at once is not running,
+// and "Started" would be the claim this function exists not to make.
+func awaitSupervisor(deps Deps, bg Background, logPath string, offset int) (supervisorOutcome, string) {
+	deadline := time.Now().Add(supervisorReadyBound)
+	for {
+		select {
+		case <-bg.Exited:
+			return supervisorExited, freshSupervisorLog(deps, logPath, offset)
+		default:
+		}
+		fresh := freshSupervisorLog(deps, logPath, offset)
+		for _, line := range strings.Split(fresh, "\n") {
+			if strings.HasPrefix(line, supervisor.StartedLinePrefix) {
+				return supervisorStarted, fresh
+			}
+		}
+		if !time.Now().Before(deadline) {
+			return supervisorUnconfirmed, fresh
+		}
+		select {
+		case <-bg.Exited:
+		case <-time.After(supervisorReadyPoll):
+		}
+	}
+}
+
+// freshSupervisorLog is the log's content past offset: what THIS start wrote. A file shorter
+// than offset was replaced, and is read whole.
+func freshSupervisorLog(deps Deps, logPath string, offset int) string {
+	if deps.ReadFile == nil || logPath == "" {
+		return ""
+	}
+	content, _ := deps.ReadFile(logPath)
+	if len(content) < offset {
+		return content
+	}
+	return content[offset:]
+}
+
+// quoteTail renders the last n non-empty lines of s, indented, or "" when there are none.
+func quoteTail(s string, n int) string {
+	var lines []string
+	for _, l := range strings.Split(s, "\n") {
+		if strings.TrimSpace(l) != "" {
+			lines = append(lines, l)
+		}
+	}
+	if len(lines) > n {
+		lines = lines[len(lines)-n:]
+	}
+	var b strings.Builder
+	for _, l := range lines {
+		b.WriteString("\n    " + l)
+	}
+	return b.String()
+}
+
 // startJailDaemons writes the daemon env file and starts the supervisor, returning the stop
 // that ends it and sweeps the file. Every failure REFUSES the launch (ok false), for
 // RunMacosUser's reason: the served set already pointed this launch's agents at these
 // daemons' addresses.
+//
+// "Started" is printed only once the supervisor's readiness line is in its log
+// (awaitSupervisor, JD-8). A supervisor that exits first is a refusal naming the log and its
+// last lines; one still running but silent past the bound is said to be unconfirmed, and the
+// launch goes on — a timer of ours is no reason to refuse a Mac that is merely slow.
 func startJailDaemons(deps Deps, out printer, plan RunPlan) (func(), bool) {
 	if deps.StartBackground == nil {
 		out.print("[bold red]This build cannot start the sandbox's jail daemons[/bold red] " +
@@ -241,20 +399,59 @@ func startJailDaemons(deps Deps, out printer, plan RunPlan) (func(), bool) {
 			_ = deps.Run(append([]string{"sudo"}, cmd...))
 		}
 	}
-	stop, err := deps.StartBackground(plan.JailDaemonArgv)
-	if err != nil || stop == nil {
+	names := strings.Join(plan.JailDaemonNames, ", ")
+	logPath := plan.SupervisorLog
+	// The size before the start, so the wait reads only what this start adds. Exact because the
+	// per-workspace launch lock is held across this call: no other launch of this workspace is
+	// starting a supervisor meanwhile.
+	offset := 0
+	if deps.ReadFile != nil && logPath != "" {
+		before, _ := deps.ReadFile(logPath)
+		offset = len(before)
+	}
+	bg, err := deps.StartBackground(plan.JailDaemonArgv)
+	if err != nil || bg.Stop == nil {
 		sweep()
 		out.printf("[bold red]Could not start the sandbox's jail daemons (%s):[/bold red] %s",
-			strings.Join(plan.JailDaemonNames, ", "), errStr(err))
+			names, errStr(err))
 		return nil, false
 	}
-	// A DISCLOSURE, not progress: pack-declared code is about to run for the whole session,
-	// so it is said on every launch (report-tiers.md, no quiet mode).
-	out.printf("Started %s inside the sandbox (confined by its Seatbelt profile, as %s) "+
-		"under %s supervise, until the command exits. Logs: ~/.local/state/yolo-jail-daemons.",
-		strings.Join(plan.JailDaemonNames, ", "), SandboxUser, JaildName)
+	outcome, fresh := awaitSupervisor(deps, bg, logPath, offset)
+	launcherSaw := ""
+	if bg.Output != nil {
+		launcherSaw = quoteTail(bg.Output(), supervisorLogTail)
+	}
+	switch outcome {
+	case supervisorExited:
+		bg.Stop()
+		sweep()
+		logLines := quoteTail(fresh, supervisorLogTail)
+		if logLines == "" {
+			logLines = "\n    (nothing — the supervisor never reached its log)"
+		}
+		msg := fmt.Sprintf("[bold red]The sandbox's jail-daemon supervisor exited before it started "+
+			"%s.[/bold red] Its log, %s, gained these lines:%s", names, logPath, logLines)
+		if launcherSaw != "" {
+			msg += "\n  Before that log took over, sudo and sandbox-exec printed:" + launcherSaw
+		}
+		out.print(msg + "\n  The launch stops here: its agents were already pointed at these " +
+			"daemons' addresses.")
+		return nil, false
+	case supervisorUnconfirmed:
+		out.printf("[yellow]The sandbox's jail-daemon supervisor for %s is running but has not said "+
+			"it is supervising after %s.[/yellow] The launch continues without that confirmation; "+
+			"if a daemon's client fails, read %s and the daemons' logs beside it.",
+			names, supervisorReadyBound, logPath)
+	default:
+		// A DISCLOSURE, not progress: pack-declared code is about to run for the whole session,
+		// so it is said on every launch (report-tiers.md, no quiet mode).
+		out.printf("Started %s inside the sandbox (confined by its Seatbelt profile, as %s) "+
+			"under %s supervise, until the command exits. Logs: %s "+
+			"(~/.local/state/yolo-jail-daemons in the sandbox).",
+			names, SandboxUser, JaildName, pathParent(logPath))
+	}
 	return func() {
-		stop()
+		bg.Stop()
 		sweep()
 	}, true
 }
