@@ -427,7 +427,7 @@ flowchart TD
     copier -->|"empty: refuse, naming the attr"| fatal
     copier -->|"path"| lock["take the machine-wide image-copy lock,<br/>then image inspect again"]
     lock -->|"a peer delivered it meanwhile"| alias
-    lock -->|"podman on Linux"| copy["podman info → Store write note;<br/>[podman unshare --] skopeo copy nix:image.json containers-storage:ref"]
+    lock -->|"podman on Linux"| copy["podman info → Store write note;<br/>[podman unshare --] skopeo copy nix:image.json containers-storage:[podman's store]ref"]
     lock -->|"Apple Container"| copyoci["present set from the delivery record; seed placeholders,<br/>skopeo copy nix:image.json oci:layout:ref, tar,<br/>container image load -i (a failed delta: once more, full), rm"]
     lock -->|"podman on macOS"| copydock["present set from podman images; seed placeholders,<br/>skopeo copy nix:image.json oci:layout:ref, tar,<br/>podman load -i (a failed delta: once more, full), rm"]
     copy -->|"failed twice, or once for a named permanent cause"| abandon["refuse — no image written"]
@@ -832,6 +832,7 @@ arms are untouched.
 Every podman/Linux delivery prints which namespace it chose, as a `Store write:` line — direct
 (rootful), inside `podman unshare` (rootless), or direct-because-unknown with a warning of what the
 copy may say next. The two failures this decision can produce are told apart by exactly that line.
+An `Image store:` line follows it, naming the store the copy writes ([below](#the-store-the-copy-writes)).
 
 **`yolo check` runs the namespace before any launch pays for it.** On podman off macOS, the
 Container Image section reads the same rootlessness and, on a rootless store, actually enters the
@@ -839,6 +840,49 @@ namespace (`podman unshare -- /bin/sh -c :`, a shell at a fixed path rather than
 A failure is a warning naming the subuid delegation and `podman unshare id`; a rootful store gets
 one ok line; an unknown answer prints nothing, because the missing or broken podman is already the
 runtime section's subject.
+
+#### The store the copy writes
+
+**The destination names the store podman reports**, so the copier never picks one for itself:
+`containers-storage:[<driver>@<graphRoot>+<runRoot>:<driver options>]<ref>`, every field read from
+`store` in the same `podman info --format json` the namespace decision already runs. That is one
+read per delivery, not two. It is done for rootless and rootful podman alike.
+
+> [!WARNING]
+> **The copier and podman can resolve different stores from the same storage.conf files.**
+> containers/storage v1.63.0 changed how a rootless process reads its config: from that version
+> on, `runroot` and `graphroot` come from the first storage.conf found, even when that file is a
+> system one naming the root store. The older loader, which podman 5.7.0 still carries, read only
+> the user's own file for a rootless user and built rootless paths otherwise. The copier is newer.
+> So on a host whose only storage.conf is a distro file with root paths (stock Ubuntu 26.04), the
+> copier inside `podman unshare` resolved `/run/containers/storage` while podman used the store
+> under the user's home. Every launch then failed with `Invalid destination name
+> containers-storage:…: mkdir /run/containers: permission denied` (issue #47). With both roots and
+> a driver named, the copier's storage library opens exactly those directories and takes no path
+> from any config file. That was measured on this flake's copier, run as root with the
+> environment markers `podman unshare` sets. Given a storage.conf naming a runroot it could not
+> create, the bare destination failed as `Invalid destination name containers-storage:…: mkdir …`,
+> the issue's shape, and the named store received the image. **The rootless path is verified only
+> by CI's rootless runners and by the reporter's host**; a nested jail cannot take it.
+
+**The driver options travel with the store.** Naming the store also stops the copier from reading
+the config's driver options, so the options podman reports (`store.graphOptions`) are carried in
+the `:options` suffix. `overlay.mount_program`, which podman renders as an object, is carried as its
+`Executable`. Two kinds of option cannot be spelled there, because the suffix is split on commas and
+ends at the first `]`: a value containing either character (a `mountopt` of `nodev,metacopy=on`),
+and a value that is not a string (the additional image stores). Those are dropped and named on the
+launch line. None of them decides where layers land.
+
+**A store that cannot be read is not guessed.** If `podman info` names no driver, graph root or
+run root, or names one the spec cannot express (a relative path, or a `:`, a `]`, or a `+` in the
+graph root, each a delimiter the transport cuts at), the destination is the bare
+`containers-storage:<ref>` it always was. The launch's `Image store:` line says the copier is
+choosing, and points at `~/.config/containers/storage.conf` as the way to make the two agree. The
+ref after the bracket is unchanged, so inspect, tagging, the reapers and the image-identity check
+are untouched. `yolo check` prints the same store line, as a warning when podman answered without
+a store, because the namespace probe passing says nothing about which store the copy writes.
+`just load` and the integration harness's own load name the store the same way, and `just load`
+does not carry driver options.
 
 > [!CAUTION]
 > **A nested jail is structurally blind to the wrapped path.** Podman-in-podman runs as root, so a
@@ -1063,7 +1107,7 @@ The rule throughout: **the launch refuses and names the remedy; it does not degr
 | :--- | :--- |
 | The copier cannot be built | The same report as any failed image build — classification plus nix's own stderr — naming the attribute, and no launch. The stale-image hatch still applies to an image already loaded. |
 | The copy exits nonzero | Retried **at most once**, immediately, no backoff: one recovery from a transient loss, never a loop that re-copies gigabytes. Layers the first attempt wrote are reused. A second failure abandons the launch. |
-| The copy fails for a cause **measured to be permanent** | **Not retried**, and the report says why and what to look at. Two causes are named — the copier unable to create its user namespace, and `podman unshare` refusing a rootful podman. It is a **denylist**: an unrecognised failure keeps the retry, because an allowlist of transient causes would silently drop it for every failure not yet seen. |
+| The copy fails for a cause **measured to be permanent** | **Not retried**, and the report says why and what to look at. Three causes are named — the copier unable to create its user namespace, `podman unshare` refusing a rootful podman, and the copier unable to create the store it resolved for itself (`Invalid destination name containers-storage:… permission denied`, reachable only when [no store was named](#the-store-the-copy-writes)). It is a **denylist**: an unrecognised failure keeps the retry, because an allowlist of transient causes would silently drop it for every failure not yet seen. |
 | A blob does not match its digest | skopeo and containers/storage both verify, so the copy fails naming the digest. It is **not** on the denylist (never measured here), so it is retried once and then abandons — the honest diagnosis is a corrupt nix store, with `nix store verify` as the remedy. |
 | The copy is killed, or the disk fills mid-copy | skopeo commits the image record **last**, so orphan blobs remain and no image exists under the ref. The next launch asks the same inspect, gets the same answer, and re-copies over the blobs already written. Nothing is left half-named or runnable. |
 | Another launch is copying | The image-copy lock serialises yolo's own launches; containers/storage's own locking covers anything else. **No timeout of ours** anywhere on the copy — a timeout would turn a slow neighbour into a failed launch. |
@@ -1318,7 +1362,7 @@ no image and nothing to substitute.
 
 | Backend | Image | yolo's binaries | `packages:` |
 | :--- | :--- | :--- | :--- |
-| podman on Linux | `skopeo copy nix:… containers-storage:…`, layer-negotiated, no archive; inside `podman unshare` on a rootless store | two `:ro` mounts; prebuilt or `nix build .#installPrefix` | baked, or store-delivered on opt-in |
+| podman on Linux | `skopeo copy nix:… containers-storage:[<podman's store>]…`, layer-negotiated, no archive; inside `podman unshare` on a rootless store | two `:ro` mounts; prebuilt or `nix build .#installPrefix` | baked, or store-delivered on opt-in |
 | podman on macOS | a [delta archive](#the-delta-archive) — `skopeo copy nix:… oci:…`, tarred, then `podman load -i`, then both are removed; the archive leaves out the layers podman already holds, because the store is inside the Podman Machine VM, which does not share `/nix`, so there is no local store to negotiate with; ⚠ [measured on Linux only](#archive-destinations). The nix build may offload to a builder container | same mounts; a built (store-path) prefix is refused unless the VM shares `/nix` and `YOLO_NIX_HOST_DAEMON` says so | baked (no shared store) |
 | Apple Container | a [delta archive](#the-delta-archive) — `skopeo copy nix:… oci:…`, tarred, then `container image load -i`, then both are removed; the present set is yolo's own delivery record; ⚠ [not run on a Mac](#archive-destinations) | same mounts, `:ro` ignored; not exercised on hardware | baked (cannot bind-mount the store) |
 | `macos-user` | none | the host's own binary | a `buildEnv` profile on PATH — [`nix-across-backends.md`](nix-across-backends.md) |
@@ -1398,6 +1442,7 @@ values themselves are stated.
 | The copier | `.#imageCopier` = nix2container's `skopeo-nix2container`, built against this flake's own nixpkgs | `packages.imageCopier` (`flake.nix`); `image.ImageCopierAttr` |
 | Copier out-link (its GC root) | `build/image-copier-<sha16 of repo root>` | `image.ImageCopierOutLink` |
 | Copy argv | `[<runtime> unshare --] <copier> --insecure-policy copy [--dest-oci-accept-uncompressed-layers] nix:<image.json> <dest>`, the flag on an `oci:` layout destination only | `copyArgv`, `StoreWritePrefix` |
+| podman/Linux destination | `containers-storage:[<driver>@<graphRoot>+<runRoot>[:<driver options>]]<ref>` from `podman info`'s `store`; bare `containers-storage:<ref>` when the store is not reported or not spellable | `ContainersStorageDestFor`, `ReadPodmanStoreFacts` |
 | Copy retries | at most 1, immediate; none for a denylisted cause; no timeout | `copyImageWithRetry`, `retryWouldHelp` |
 | Copier stderr kept for a failure report | last 12 lines | `copyTailLines` |
 | Transient archives and layouts | `~/.local/share/yolo-jail/image-delivery/<sha16>-<random>.delivery.tmp/`, mode 0700, one per attempt, holding `layout/` and `image.oci-archive`; both archive backends | `paths.ImageDeliveryDir`, `newDeliveryWorkDir`, `DeliveryWorkSuffix` |
@@ -1406,6 +1451,7 @@ values themselves are stated.
 | Image-copy lock | `~/.local/share/yolo-jail/locks/image-copy.lock` | `image.ImageCopyLockPath` |
 | Delivery spans | `image.copier_build`, `image.copy_lock`, `image.layer_copy` | `AutoLoadImage` |
 | `yolo check` namespace probe | `podman unshare -- /bin/sh -c :`, 10 s timeout per subprocess | `unshareProbeArgv`; `deliveryProbeTimeout` (`internal/cli/check`) |
+| `yolo check` store line | the store a launch will write, or a warning when podman answered without one | `StorePreflight` |
 | Nix flags on every flake evaluation | `--extra-experimental-features "nix-command flakes" --accept-flake-config`; builds add `--impure --out-link … --print-build-logs` | `image.NixFlakeFlags`, `flakeBuildArgv` |
 | Load sentinel | `~/.local/share/yolo-jail/build/last-load-<runtime>`, newest last, capped at 10 | `image.AddLoadedPath`, `paths.BuildDir` |
 | Image GC roots | `build/roots/<sha16>` | `image.ImageRootsDir` |

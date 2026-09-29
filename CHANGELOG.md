@@ -174,6 +174,12 @@ refusal names the field; move it to your user config. A project can still set a 
 
 ### Fixed
 
+- Rootless Podman with no storage.conf of your own, as on stock Ubuntu 26.04, no longer fails
+  every launch while delivering the image with `mkdir /run/containers: permission denied`. The
+  image now goes into the store Podman itself reports, whatever your storage.conf files say, and
+  the launch prints that store on its `Image store:` line. `yolo check` prints it too, and warns
+  when Podman does not report one. You no longer need a `~/.config/containers/storage.conf` to
+  work around this.
 - An agent's briefing no longer calls its home "persistent across sessions". In a podman jail
   most of the home is read-only, so agents that believed it wrote their worktrees to `/tmp`,
   which is deleted once the jail exits. The briefing now lists the jail's storage classes: what

@@ -48,11 +48,13 @@ design, which wins on behavior).
   `Options`. `hostLoopbackFactsFor`
   ([`hostloopback.go`](../../internal/cli/run/hostloopback.go)) reads it instead
   of running `podman info`, and emits the `podman.facts` note from it.
-  `AutoLoadOptions.Rootless` ([`image/autoload.go`](../../internal/image/autoload.go),
-  whose seam already exists) is set from it. So is `yolo check`'s
+  `AutoLoadOptions.StoreFacts` ([`image/autoload.go`](../../internal/image/autoload.go),
+  whose seam already exists, and which now carries the store as well as the
+  rootless answer) is set from it. So is `yolo check`'s
   image-delivery section ([`section_imagedelivery.go`](../../internal/cli/check/section_imagedelivery.go)).
-  `image.PodmanRootlessness`'s JSON field scan (`rootlessField`) stays the
-  parser for the rootless field, so missing and false remain distinct.
+  `image.ReadPodmanStoreFacts` ([`storespec.go`](../../internal/image/storespec.go))
+  stays the parser for both, decoding the rootless field as a pointer so
+  missing and false remain distinct.
 - **The attach decision.** `findRunningContainer`'s use in the fresh-or-attach
   branch of `Run` ([`run.go`](../../internal/cli/run/run.go)) becomes tri-state in
   the `probeExistingContainer` shape ([`lifecycle.go`](../../internal/cli/run/lifecycle.go)),
