@@ -116,8 +116,8 @@ same for your shell, and the lines that tell you a key was withheld now suggest 
 See [the credential gate](docs/reference/providers.md#the-credential-gate).
 
 **A project's config can no longer change which variable a provider's key comes from.** A
-provider's `api_key_env_name` in a workspace `yolo-jail.jsonc` or `yolo-jail.local.jsonc` is now
-refused, as its address already was, and so is anything else there that decides where a
+provider's `api_key_env_name` in a project's workspace config is now refused, as its address
+already was, and so is anything else there that decides where a
 provider's key goes: any change to its `endpoints`, and removing a provider with `null`. Each
 refusal names the field; move it to your user config. A project can still set a provider's
 `models`, `options`, `region` and `capabilities`. See
