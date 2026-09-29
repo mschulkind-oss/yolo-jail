@@ -1,11 +1,12 @@
 package run
 
-// macosuserguestdaemons_test.go pins the CREDENTIAL half of the macos-user guest's jail daemons
-// (macosuserguestdaemons.go; OQ-DP8/OQ-DP9): with the AWS credential adapter running in the
-// Seatbelt guest, a `bedrock` launch is SERVED its pointer, at the port the adapter binds, and
-// the adapter's SCOPED caller token reaches exactly two readers — the supervisor's own env file
-// and the bedrock agent's environment — never the shared one. Driven through Run(), so deleting
-// the guestJailDaemons argument, the served-set split or the settle fails it.
+// macosuserguestdaemons_test.go pins the CREDENTIAL half of the macos-user launch's served jail
+// daemons (macosuserguestdaemons.go, macosuserdoorways.go; OQ-DP8/OQ-DP9, then HS-D15's doorway
+// rule): with the AWS credential adapter opened OUTSIDE the Seatbelt guest as this launch's own
+// doorway, a `bedrock` launch is SERVED its pointer, at the port the doorway binds, and the
+// adapter's SCOPED caller token reaches exactly two readers — the doorway's input and the bedrock
+// agent's environment — never the shared one. Driven through Run(), so deleting the doorway
+// plan, the served-set split or the settle fails it.
 
 import (
 	"strings"
@@ -14,11 +15,11 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/svcendpoint"
 )
 
-// ONLY WHAT THE GUEST RUNS IS GIVEN A PORT. On macos-user the payload still names the wire
+// ONLY WHAT THE LAUNCH SERVES IS GIVEN A PORT. On macos-user the payload still names the wire
 // bridge's jail daemon (declined: its host half runs instead, with ports of its own from
 // internal/launchservice), so settling served addresses over the whole payload would pick a port
 // for the bridge's declared 8214 that nothing binds and record it in the channel. Deleting the
-// JailDaemonsRunIn narrowing in jailDaemonsFor fails this.
+// ServedJailDaemons narrowing in jailDaemonsFor fails this.
 func TestMacosUserPicksNoPortForADaemonItsGuestDeclines(t *testing.T) {
 	packs := bridgedPacks(t)
 	o, cfg, _, _ := attachFixture(t, currentJailEnv, packs, cerebrasKey(), selectCerebras)
@@ -33,41 +34,69 @@ func TestMacosUserPicksNoPortForADaemonItsGuestDeclines(t *testing.T) {
 	}
 }
 
-func TestMacosUserServesTheBedrockPointerThroughTheGuestAdapter(t *testing.T) {
+func TestMacosUserServesTheBedrockPointerThroughALaunchOwnedDoorway(t *testing.T) {
 	o, stderr, seen := overrideNativeLaunch(t,
 		awsAuthUserConfig(`, "loopholes": {"aws-auth": {"enabled": true}}`), shellWith(nil))
+	doors := observeDoorways(t)
 	if rc := Run(*o); rc != 0 {
 		t.Fatalf("Run() = %d\n%s", rc, stderr.String())
 	}
 	if !seen.reached {
 		t.Fatalf("the launch never reached the macos-user handler:\n%s", stderr.String())
 	}
-	var listen string
 	for _, s := range payloadOf(t, seen.jailDaemons) {
 		if s.Name == "aws-auth" {
-			if len(s.Cmd) != 4 || s.Cmd[0] != "yolo-jaild" || s.Cmd[1] != "aws-credential-adapter" {
-				t.Errorf("the adapter's argv is not the declared one: %v", s.Cmd)
-			}
-			listen = s.Cmd[len(s.Cmd)-1]
+			t.Errorf("the guest was handed the AWS adapter's jail daemon too: %v", s.Cmd)
 		}
 	}
-	if listen == "" || listen == "127.0.0.1:1461" {
-		t.Fatalf("the guest was not handed the AWS adapter at a picked port (listen %q); payload %+v\n%s",
-			listen, payloadOf(t, seen.jailDaemons), stderr.String())
+	plan, in := doors.only(t, "aws-auth")
+	listen := plan.Cmd[len(plan.Cmd)-1]
+	if strings.Join(plan.Cmd[:len(plan.Cmd)-1], " ") != "yolo internal daemon aws-credential-adapter --listen" {
+		t.Errorf("the doorway's argv is not the manifest's host_cmd: %v", plan.Cmd)
+	}
+	if !strings.HasPrefix(listen, "127.0.0.1:") || listen == "127.0.0.1:1461" || plan.Addresses()[0] != listen {
+		t.Fatalf("the doorway is not at a picked port (argv %v, addresses %v)", plan.Cmd, plan.Addresses())
 	}
 	uri, _ := seen.env.Get(pointerVar)
 	if uri != "http://"+listen+"/credentials" {
-		t.Errorf("the bedrock agent's %s = %v, want the adapter's http://%s/credentials", pointerVar, uri, listen)
+		t.Errorf("the bedrock agent's %s = %v, want the doorway's http://%s/credentials", pointerVar, uri, listen)
 	}
 	agentTok, _ := seen.env.Get("AWS_CONTAINER_AUTHORIZATION_TOKEN")
-	daemonTok, _ := seen.jailDaemons.Env.Get("YOLO_SERVICE_AWS_AUTH_TOKEN")
-	if s, _ := daemonTok.(string); !svcendpoint.IsToken(s) || agentTok != daemonTok {
-		t.Errorf("the adapter's caller token (%v) is not the one the agent presents (%v)", daemonTok, agentTok)
+	if !svcendpoint.IsToken(plan.Token) || agentTok != plan.Token ||
+		plan.TokenEnv != "YOLO_SERVICE_AWS_AUTH_TOKEN" {
+		t.Errorf("the doorway's caller token (%s=%q) is not the one the agent presents (%v)",
+			plan.TokenEnv, plan.Token, agentTok)
+	}
+	if _, ok := in["YOLO_SERVICE_AWS_AUTH_TOKEN"]; ok {
+		t.Errorf("the token rode the doorway's input map rather than launchservice.Start's own write")
 	}
 	if v, ok := seen.env.Get("YOLO_SERVICE_AWS_AUTH_TOKEN"); ok {
 		t.Errorf("the SCOPED aws-auth token is exported by name in the agent's shared env: %v", v)
 	}
 	if strings.Contains(stderr.String(), pointerVar+" — points at") {
 		t.Errorf("the launch still names the served pointer as withheld:\n%s", stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "aws-auth: yolo-jaild aws-credential-adapter --listen "+listen+
+		" — its doorway opens outside the sandbox") {
+		t.Errorf("the launch does not decline the AWS adapter's jail daemon with the doorway's reason:\n%s",
+			stderr.String())
+	}
+}
+
+// WITHOUT `bedrock` NO AWS DOORWAY OPENS: the adapter starts only when some agent's profile
+// selects the profile it serves (OQ-CN7 (b)), so a launch on no profile opens only the OpenAI
+// refresh doorway.
+func TestMacosUserOpensNoAWSDoorwayWithoutBedrock(t *testing.T) {
+	o, stderr, _ := overrideNativeLaunch(t,
+		awsAuthUserConfig(`, "loopholes": {"aws-auth": {"enabled": true}}`), shellWith(nil))
+	o.ProfileName = ""
+	doors := observeDoorways(t)
+	if rc := Run(*o); rc != 0 {
+		t.Fatalf("Run() = %d\n%s", rc, stderr.String())
+	}
+	for _, p := range doors.plans {
+		if p.Service == "aws-auth" {
+			t.Errorf("the AWS doorway opened with no agent on bedrock:\n%s", stderr.String())
+		}
 	}
 }

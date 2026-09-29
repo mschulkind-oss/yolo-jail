@@ -445,9 +445,14 @@ func Run(opts Options) (rc int) {
 		// is loopholes.JailDaemonsRunIn, the same one the served set composed the channel
 		// with, so what the agent was pointed at and what the supervisor starts are one set.
 		guestDaemons, declinedDaemons := loopholes.JailDaemonsRunIn(rt, jailDaemons)
+		// THE DOORWAYS OUTSIDE (HS-D15; macosuserdoorways.go): every credential doorway the
+		// payload declares a host argv for opens on the Mac's loopback as this launch's own
+		// listener, at the served address and caller token the channel composed its clients with.
+		doorways := o.planMacosUserDoorways(rt, jailDaemons, staged.packs, channel)
 		// A client that binds its daemon's caller token itself reads it from its own
-		// environment, as it does from a container's shared channel.
-		for k, v := range channel.guestSharedCallerTokens(guestDaemons) {
+		// environment, as it does from a container's shared channel: the Codex launcher's
+		// auth.json writer binds the refresh doorway's, wherever that doorway runs.
+		for k, v := range channel.guestSharedCallerTokens(loopholes.ServedJailDaemons(rt, jailDaemons)) {
 			launchEnv.Set(k, v)
 		}
 		o.noteCredentialScope(channel)
@@ -474,6 +479,11 @@ func Run(opts Options) (rc int) {
 				o.pr(o.Stderr).print(fmt.Sprintf("Would start the %q service (pack %q) on %v for "+
 					"this launch, outside the sandbox, until the command exits.", plan.Service,
 					plan.Pack, plan.Addresses()))
+			}
+			for _, plan := range doorways {
+				o.pr(o.Stderr).print(fmt.Sprintf("Would open the %q doorway (pack %q) on %v for "+
+					"this launch, outside the sandbox, until the command exits: %s", plan.Service,
+					plan.Pack, plan.Addresses(), strings.Join(plan.Cmd, " ")))
 			}
 			if openAIAuthLoopholeActive(cfg) {
 				launchEnv.Set(hostServiceEnvVar(openAIAuthBrokerName),
@@ -512,6 +522,15 @@ func Run(opts Options) (rc int) {
 				o.pr(o.Stderr).print("[bold red]OpenAI credential service did not start; refusing the macos-user launch.[/bold red]")
 				return 1
 			}
+			// THE DOORWAYS (macosuserdoorways.go), once the host services they forward to are up
+			// and their endpoint files are on launchEnv, and stopped when the command returns. One
+			// that does not start refuses the launch before the command runs.
+			stopDoorways, err := o.startMacosUserDoorways(doorways, launchEnv)
+			if err != nil {
+				o.pr(o.Stderr).printf("[bold red]Refusing the macos-user launch: %s[/bold red]", err.Error())
+				return 1
+			}
+			defer stopDoorways()
 			// THE LAUNCH-OWNED SERVICES (macosuserservices.go): the host half of every pack
 			// service a profiled agent's pairing needs, started after the credential service
 			// it may ask for a view, and stopped when the sandboxed command exits. One that does
@@ -532,6 +551,7 @@ func Run(opts Options) (rc int) {
 		// a --dry-run states it too — and stating it once here is what keeps the live path
 		// and the plan render from needing two printers that could disagree.
 		o.noteMacosUserJailDaemonDeclines(declinedDaemons)
+		o.noteRefusedDoorways()
 		o.noteUnstartedProfileDaemons()
 		o.noteShadowedServices()
 		// THE OTHER TIER COLLAPSE — #39's mirror image — USED TO BE WARNED ABOUT HERE, and

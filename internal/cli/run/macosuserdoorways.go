@@ -1,0 +1,190 @@
+package run
+
+// macosuserdoorways.go is the macos-user launch's LAUNCH-OWNED DOORWAYS
+// (docs/design/host-notch-services.md HS-D15, the doorway rule, ruled 2026-09-29; OQ-OA6's route
+// (b) in docs/design/openai-auth-broker.md). A DOORWAY is that ruling's word for the thin adapter
+// an agent's client talks to, which checks the launch's caller token and forwards to a
+// credential service's host daemon: the Codex refresh adapter (openai-auth) and the AWS
+// container-credentials adapter (aws-auth). The rule is that the host daemon is the same on every
+// backend and the doorway opens on whichever loopback the agent sees. A container has a loopback
+// of its own, so there the doorway is a jail daemon. This backend's sandbox shares the Mac's, so
+// the launch opens the doorway itself, outside Seatbelt, as a launch-owned listener
+// (internal/launchservice, the mechanism the wire bridge's host half uses here): on the port the
+// launch picked for the loophole's `listen`, answering only the caller token the launch minted
+// for it, and stopped when the sandboxed command exits. The guest's supervisor runs no copy.
+//
+// WHAT IS A DOORWAY is declared, never named here: a loophole whose `jail_daemon` declares
+// `host_cmd`, the argv that opens it outside (loopholes.DoorwaysOutside). What may run is the
+// launch-owned mechanism's admission rule (launchservice.AdmitDoorway: a pack yolo ships, an
+// argv naming `yolo`), applied once where the payload is composed (admitDoorways), so a refused
+// one runs as the jail daemon it also is, in the guest, and every reader of the payload agrees.
+//
+// WHERE AND TO WHOM IT ANSWERS was settled before this file runs: the served address is the one
+// jailDaemonsFor settled for the loophole (servedaddresses.go), and the token the one the channel
+// composed its clients with (callertokens.go). So packs/codex's CODEX_REFRESH_TOKEN_URL_OVERRIDE,
+// the refresh marker the Codex launcher binds $YOLO_SERVICE_OPENAI_AUTH_BROKER_TOKEN into, and
+// aws-auth's AWS_CONTAINER_CREDENTIALS_FULL_URI and scoped AWS_CONTAINER_AUTHORIZATION_TOKEN all
+// name the listener this file starts.
+//
+// ⚠ NEVER EXECUTED ON A MAC. The arm is pinned by unit tests with the start stubbed, and the
+// doorway processes by tests that run them on Linux; none of it has run under a real macos-user
+// launch.
+
+import (
+	"errors"
+	"fmt"
+	"strings"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/launchservice"
+	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
+	"github.com/mschulkind-oss/yolo-jail/internal/openaiauthhost"
+	"github.com/mschulkind-oss/yolo-jail/internal/openauthclient"
+	"github.com/mschulkind-oss/yolo-jail/internal/packload"
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+)
+
+// refusedDoorway is a doorway whose host argv this launch did not admit, and why.
+type refusedDoorway struct {
+	Name, Pack, Why string
+}
+
+// startMacosUserDoorway starts one launch-owned doorway and returns it and its log; a var so a
+// test can observe the start without spawning one.
+var startMacosUserDoorway = func(plan *launchservice.Plan, env map[string]string) (launchedService, string, error) {
+	r, err := launchservice.Start(plan, env)
+	if err != nil {
+		return nil, "", err
+	}
+	return r, r.Log, nil
+}
+
+// loopholePacks maps each loophole a selected pack ships to that pack's name (the later pack when
+// two declare one name, which PackLoopholeNameConflicts refuses before a launch gets here).
+func loopholePacks(packs []*packload.Pack) map[string]string {
+	out := map[string]string{}
+	for _, d := range packLoopholeDecls(packs) {
+		out[d.Name] = d.Pack
+	}
+	return out
+}
+
+// admitDoorways clears the host argv of every doorway in specs that the launch-owned mechanism
+// does not admit (launchservice.AdmitDoorway), recording why for noteRefusedDoorways, and returns
+// specs. A cleared one is an ordinary jail daemon again: the guest runs it, confined, where a
+// fetched or local pack's jail daemon runs (OQ-DP8, OQ-DP9). Called by jailDaemonsFor on every
+// runtime, since the answer is a fact about the pack and not the backend; only macos-user reads a
+// host argv at all.
+func (o *Options) admitDoorways(packs []*packload.Pack, specs []loopholes.JailDaemonSpec) []loopholes.JailDaemonSpec {
+	o.refusedDoorways = nil
+	var packOf map[string]string
+	for i := range specs {
+		if len(specs[i].HostCmd) == 0 || specs[i].Service {
+			continue
+		}
+		if packOf == nil {
+			packOf = loopholePacks(packs)
+		}
+		if _, err := launchservice.AdmitDoorway(packs, packOf[specs[i].Name], specs[i].Name,
+			specs[i].HostCmd); err != nil {
+			why := err.Error()
+			var adm *launchservice.AdmissionError
+			if errors.As(err, &adm) {
+				why = adm.Why
+			}
+			o.refusedDoorways = append(o.refusedDoorways,
+				refusedDoorway{Name: specs[i].Name, Pack: packOf[specs[i].Name], Why: why})
+			specs[i].HostCmd = nil
+		}
+	}
+	return specs
+}
+
+// planMacosUserDoorways is the plan of every doorway this launch opens outside its sandbox
+// (loopholes.DoorwaysOutside over the payload Run composed, specs): each one's admitted host
+// argv resolved to the address the launch settled for its `listen`, behind the caller token the
+// channel composed its clients with. Recorded on o for the decline, which says the doorway runs.
+func (o *Options) planMacosUserDoorways(rt string, specs []loopholes.JailDaemonSpec,
+	packs []*packload.Pack, channel *packChannel) []*launchservice.Plan {
+	o.launchDoorways = nil
+	packOf := loopholePacks(packs)
+	for _, s := range loopholes.DoorwaysOutside(rt, specs) {
+		d, err := launchservice.AdmitDoorway(packs, packOf[s.Name], s.Name, s.ResolvedHostCmd())
+		if err != nil {
+			continue // admitDoorways cleared every host argv it refuses; nothing to open
+		}
+		tokenEnv := paths.ServiceCallerTokenEnv(s.Name)
+		o.launchDoorways = append(o.launchDoorways,
+			launchservice.PlanAt(d, s.Listen, tokenEnv, channel.callerTokens[tokenEnv]))
+	}
+	return o.launchDoorways
+}
+
+// doorwayInput is what a macos-user launch hands each doorway (launchservice.Input): the two
+// routes a doorway outside reaches its host daemon by — the endpoint file of every host service
+// this session published (the front the guest's copy would have dialed, which is how aws-auth's
+// adapter forwards) and the OpenAI service's private socket (HS-D3's route, which the Codex
+// adapter `yolo host -- codex` serves takes). The caller token is added by launchservice.Start.
+func doorwayInput(launchEnv *jsonx.OrderedMap) map[string]string {
+	env := map[string]string{openauthclient.HostSocketEnv: openaiauthhost.HostSocketPath()}
+	if launchEnv != nil {
+		for _, k := range launchEnv.Keys() {
+			if isServiceEndpointEnv(k) {
+				if v, _ := launchEnv.Get(k); v != nil {
+					if s, ok := v.(string); ok {
+						env[k] = s
+					}
+				}
+			}
+		}
+	}
+	return env
+}
+
+// startMacosUserDoorways opens every planned doorway and says so, one line each, on every
+// launch: this is host code running outside Seatbelt, and a launch has no quiet mode. It returns
+// the stop for the arm to defer, or the refusal naming the doorway that did not start, which the
+// launch-owned mechanism's contract makes a refusal before the command runs (§4.5).
+func (o *Options) startMacosUserDoorways(plans []*launchservice.Plan, launchEnv *jsonx.OrderedMap) (func(), error) {
+	var running []launchedService
+	stop := func() {
+		for _, r := range running {
+			r.Stop()
+		}
+	}
+	for _, plan := range plans {
+		r, log, err := startMacosUserDoorway(plan, doorwayInput(launchEnv))
+		if err != nil {
+			stop()
+			return func() {}, err
+		}
+		running = append(running, r)
+		o.pr(o.Stderr).print(fmt.Sprintf("Opened the %q doorway (pack %q, pid %d) on %s for this "+
+			"launch, outside the sandbox: it answers only this launch's caller token, forwards to "+
+			"the host's %q service, and stops when the command exits. Its log: %s", plan.Service,
+			plan.Pack, r.PID(), strings.Join(plan.Addresses(), ", "), plan.Service, log))
+	}
+	return stop, nil
+}
+
+// launchDoorwayPlanned reports whether this launch opens the named loophole's doorway outside the
+// sandbox, for the jail-daemon decline, which must not read as the doorway running nowhere.
+func (o *Options) launchDoorwayPlanned(name string) bool {
+	for _, p := range o.launchDoorways {
+		if p.Service == name {
+			return true
+		}
+	}
+	return false
+}
+
+// noteRefusedDoorways is the disclosure for admitDoorways: one line per doorway whose host argv
+// this launch will not run, naming it, its pack and why, and saying where it runs instead. A
+// disclosure, so no quiet switch (docs/reference/report-tiers.md, OQ-RO3). Silent when none.
+func (o *Options) noteRefusedDoorways() {
+	for _, r := range o.refusedDoorways {
+		o.pr(o.Stderr).print(fmt.Sprintf("[yellow]Not opened outside the sandbox: the %q doorway's "+
+			"host argv (pack %q): %s. Its jail daemon runs in the sandbox instead.[/yellow]",
+			r.Name, r.Pack, r.Why))
+	}
+}

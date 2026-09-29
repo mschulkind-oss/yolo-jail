@@ -82,39 +82,54 @@ func TestMacosUserRunsALoopholeJailDaemonInTheGuestAsDeclared(t *testing.T) {
 	}
 }
 
-// THE BARE DEFAULT, `"packs": ["claude"]`, END TO END: the OpenAI refresh adapter runs in the
-// guest; the Claude OAuth terminator is declined (it needs a container's --add-host and :443);
-// the wire bridge is declined as a jail daemon (a pack service runs its host half here). And the
-// adapter's supervisor env carries its endpoint and token.
-func TestMacosUserBareClaudeRunsTheOpenAIAdapterAndDeclinesTheRestByName(t *testing.T) {
+// THE BARE DEFAULT, `"packs": ["claude"]`, END TO END, since HS-D15 (the doorway rule): the
+// OpenAI refresh doorway opens OUTSIDE the guest as this launch's own listener, so the guest's
+// supervisor is handed nothing at all; the Claude OAuth terminator is declined (it needs a
+// container's --add-host and :443); the wire bridge is declined as a jail daemon (a pack service
+// runs its host half here); and the refresh adapter's jail daemon is declined too, the line
+// saying its doorway runs for this launch. The doorway is handed its token and the host
+// service's endpoint and private socket.
+func TestMacosUserBareClaudeOpensTheOpenAIDoorwayOutsideAndDeclinesTheRestByName(t *testing.T) {
 	o, stderr, seen := overrideNativeLaunch(t, `{"packs": ["claude"]}`, shellWith(nil))
 	o.ProfileName = ""
+	doors := observeDoorways(t)
 	if rc := Run(*o); rc != 0 {
 		t.Fatalf("Run() = %d\n%s", rc, stderr.String())
 	}
-	var names []string
-	for _, s := range payloadOf(t, seen.jailDaemons) {
-		names = append(names, s.Name)
+	if specs := payloadOf(t, seen.jailDaemons); len(specs) != 0 || seen.jailDaemons.Env != nil {
+		t.Errorf("the guest was handed a supervisor for %+v; every shipped doorway opens outside it", specs)
 	}
-	if strings.Join(names, ",") != "openai-auth-broker" {
-		t.Errorf("the guest runs %v, want exactly the OpenAI refresh adapter", names)
+	plan, in := doors.only(t, "openai-auth-broker")
+	if strings.Join(plan.Cmd[:3], " ") != "yolo internal daemon" || plan.Cmd[3] != "openai-auth-adapter" {
+		t.Errorf("the doorway's argv is not the manifest's host_cmd: %v", plan.Cmd)
+	}
+	// AT A PICKED PORT, the one in its argv: the doorway binds the Mac's loopback, where a second
+	// launch would find the declared 1460 held. Deleting the doorways from the served set the
+	// launch settles ports for (loopholes.ServedJailDaemons) leaves it at 1460 and fails this.
+	if addr := plan.Addresses(); len(addr) != 1 || addr[0] == "127.0.0.1:1460" ||
+		!strings.HasPrefix(addr[0], "127.0.0.1:") || plan.Cmd[len(plan.Cmd)-1] != addr[0] {
+		t.Errorf("the doorway is not at a port picked for this launch: argv %v, addresses %v", plan.Cmd, addr)
 	}
 	out := stderr.String()
 	for _, want := range []string{
 		"Declined: these jail daemons do not run in the macos-user sandbox",
 		"claude-oauth-broker: yolo-jaild oauth-terminator — it terminates TLS for an intercepted hostname",
 		"wire-bridge: yolo-jaild wire-bridge — a pack service runs its host half on this backend",
+		"openai-auth-broker: yolo-jaild openai-auth-adapter --listen " + plan.Addresses()[0] +
+			" — its doorway opens outside the sandbox on this backend instead",
+		"(its doorway runs for this launch, outside the sandbox)",
+		`Opened the "openai-auth-broker" doorway (pack "openai-auth", pid 4242) on ` + plan.Addresses()[0],
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("the launch does not say %q:\n%s", want, out)
 		}
 	}
-	if strings.Contains(out, "openai-auth-broker: yolo-jaild") {
-		t.Errorf("the adapter the guest runs was declined:\n%s", out)
+	if tok, _ := seen.env.Get("YOLO_SERVICE_OPENAI_AUTH_BROKER_TOKEN"); tok != plan.Token || !svcendpoint.IsToken(plan.Token) {
+		t.Errorf("the agent's token for the Codex launcher's marker (%v) is not the doorway's (%q)", tok, plan.Token)
 	}
-	for _, k := range []string{"YOLO_SERVICE_OPENAI_AUTH_BROKER_ENDPOINT", "YOLO_SERVICE_OPENAI_AUTH_BROKER_TOKEN"} {
-		if v, _ := seen.jailDaemons.Env.Get(k); v == nil || v == "" {
-			t.Errorf("the supervisor's env lacks %s, which the adapter reads", k)
+	for _, k := range []string{"YOLO_SERVICE_OPENAI_AUTH_BROKER_ENDPOINT", "YOLO_OPENAI_AUTH_HOST_SOCKET"} {
+		if in[k] == "" {
+			t.Errorf("the doorway's input lacks %s, a route to its host service: %v", k, in)
 		}
 	}
 }

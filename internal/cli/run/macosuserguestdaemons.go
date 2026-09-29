@@ -92,7 +92,10 @@ func (c *packChannel) jailDaemonEnv(runs []loopholes.JailDaemonSpec, launchEnv *
 
 // guestSharedCallerTokens is the exported caller token of every daemon in runs that demands
 // one and whose token is not SCOPED (OQ-CN7 (c)): the ones a container's shared channel
-// exports to every process, which the agent's own env file carries on this backend.
+// exports to every process, which the agent's own env file carries on this backend. The arm
+// hands it every daemon the launch SERVES (loopholes.ServedJailDaemons), the doorways it opens
+// outside the sandbox included (macosuserdoorways.go): the Codex launcher binds the refresh
+// doorway's token into the marker that doorway checks, wherever it listens.
 func (c *packChannel) guestSharedCallerTokens(runs []loopholes.JailDaemonSpec) map[string]string {
 	out := map[string]string{}
 	for _, k := range callerTokenVars(runs) {

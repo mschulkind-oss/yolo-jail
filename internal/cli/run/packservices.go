@@ -108,13 +108,17 @@ func (o *Options) jailDaemonsFor(cfg *jsonx.OrderedMap, rt string,
 	_, o.shadowedServices = packload.HeldServices(packs)
 	specs := o.withoutUnselectedProfileDaemons(cfg, packs,
 		set.JailDaemons(set.Enabled(), rt, serviceJailDaemons(packs)))
+	// A DOORWAY'S HOST ARGV RUNS ONLY FROM A PACK YOLO SHIPS (macosuserdoorways.go): one this
+	// launch will not admit is cleared here, so every reader below (the served set, the settle,
+	// the split) sees a daemon that runs where it would have without one.
+	specs = o.admitDoorways(packs, specs)
 	// WHERE EACH DAEMON LISTENS (servedaddresses.go): its declared address, or on a jail that
 	// shares this process's network namespace a port picked for this launch, settled once so
-	// the payload and every client composition read one answer. Only the daemons this jail
-	// RUNS (loopholes.JailDaemonsRunIn): a daemon macos-user declines binds nothing, and a
-	// pack service's host half picks its own ports there (internal/launchservice).
-	runs, _ := loopholes.JailDaemonsRunIn(rt, specs)
-	o.settleServedAddresses(cfg, rt, runs, packs)
+	// the payload and every client composition read one answer. Only the daemons this launch
+	// SERVES (loopholes.ServedJailDaemons: the ones its jail runs, and on macos-user the doorways
+	// it opens outside): a daemon macos-user declines binds nothing, and a pack service's host
+	// half picks its own ports there (internal/launchservice).
+	o.settleServedAddresses(cfg, rt, loopholes.ServedJailDaemons(rt, specs), packs)
 	return o.withServedListen(specs)
 }
 

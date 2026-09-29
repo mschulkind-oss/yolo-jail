@@ -186,6 +186,15 @@ type Options struct {
 	// launchServiceAgents names, per service, the agents whose pairing needed it.
 	launchServices      []*launchservice.Plan
 	launchServiceAgents map[string][]string
+	// refusedDoorways are the doorways whose host argv (`jail_daemon.host_cmd`) the last
+	// jail-daemon payload this process composed did not admit (macosuserdoorways.go: a pack yolo
+	// does not ship, or an argv not naming `yolo`), so their jail daemons run where they would
+	// have. Read by the one disclosure that says so (noteRefusedDoorways). nil when none.
+	refusedDoorways []refusedDoorway
+	// launchDoorways are the DOORWAYS this macos-user launch opens outside its sandbox as
+	// launch-owned listeners (macosuserdoorways.go, docs/design/host-notch-services.md HS-D15),
+	// planned from the payload at the served addresses and caller tokens the channel composed.
+	launchDoorways []*launchservice.Plan
 	// served is the SERVED ADDRESSES this process has settled on (servedaddresses.go,
 	// docs/plans/notch-convergence.md NC-D41): the ports picked for a jail sharing this
 	// process's network namespace, or the running jail's, adopted by an attach. Zero until then.

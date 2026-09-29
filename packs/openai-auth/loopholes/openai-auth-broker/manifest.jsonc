@@ -41,6 +41,15 @@
   // it: 1460 on a jail with a network namespace of its own, and a port it picked on one that
   // shares the launcher's, where a second jail would otherwise find 1460 held
   // (docs/plans/notch-convergence.md §2.4).
+  //
+  // `host_cmd` is the same DOORWAY (the thin adapter Codex talks to, which checks the launch's
+  // caller token and forwards to the host service) opened on the HOST instead, for a launch
+  // whose agent shares the host's loopback rather than having one of its own
+  // (docs/design/host-notch-services.md HS-D15; OQ-OA6 route (b)). A macos-user launch runs it
+  // outside the Seatbelt sandbox as a listener it owns, on the port it picked for `listen`,
+  // answering only this launch's caller token, and stops it when the sandboxed command exits;
+  // that sandbox then runs no copy of the jail daemon above. It serves the adapter
+  // `yolo host -- codex` serves, forwarding each refresh to the host service's private socket.
   "jail_daemon": {
     "cmd": [
       "yolo-jaild", "openai-auth-adapter",
@@ -48,7 +57,11 @@
     ],
     "listen": "127.0.0.1:1460",
     "restart": "on-failure",
-    "caller_token": true
+    "caller_token": true,
+    "host_cmd": [
+      "yolo", "internal", "daemon", "openai-auth-adapter",
+      "--listen", "{listen}"
+    ]
   },
 
   // An absent or empty list mounts the entire host state directory read-only.

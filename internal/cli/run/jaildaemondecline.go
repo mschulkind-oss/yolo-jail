@@ -10,12 +10,14 @@ package run
 // Until 2026-09-28 this printed EVERY composed daemon, because no jail daemon ran on this
 // backend at all: `yolo-jaild` was not built for darwin and there was no supervisor to run one
 // under. Both rulings are built now — the guest gets darwin in-jail binaries in its own prefix
-// and a confined `yolo-jaild supervise` (internal/macosuser's jaildaemon.go) — so the loophole
-// adapters a bare `"packs": ["claude"]` selects (the OpenAI refresh adapter, and the AWS
-// credential adapter when a `bedrock` profile is selected) RUN, and the decline shrank to the
-// daemons the guest does not run, each for a reason that is a fact about the declaration:
-// the intercepting OAuth terminator, a pack service's daemon (its host half runs instead) and
-// an argv naming the container's loophole mount (internal/loopholes' guestrun.go states each).
+// and a confined `yolo-jaild supervise` (internal/macosuser's jaildaemon.go) — so a loophole's
+// jail daemon RUNS in the guest, and the decline shrank to the daemons the guest does not run,
+// each for a reason that is a fact about the declaration: the intercepting OAuth terminator, a
+// pack service's daemon (its host half runs instead), a credential DOORWAY that declares a host
+// argv (it opens outside the sandbox instead, HS-D15: the OpenAI refresh adapter a bare
+// `"packs": ["claude"]` selects, and the AWS credential adapter when a `bedrock` profile is
+// selected), and an argv naming the container's loophole mount (internal/loopholes' guestrun.go
+// states each).
 //
 // THE CLASSIFIER THIS FILE ONCE DECLINED TO WRITE now exists, in internal/loopholes, and for
 // the reason this file gave for not writing it: the verdict used to be one branch; it now
@@ -64,6 +66,11 @@ func (o *Options) noteMacosUserJailDaemonDeclines(declined []loopholes.DeclinedJ
 	for i, d := range declined {
 		if o.launchServiceRunning(d.Spec.Name) {
 			lines[i] += " (its host half runs for this launch)"
+		}
+		// And a DOORWAY this launch opens outside the sandbox (macosuserdoorways.go, HS-D15):
+		// declined only as a jail daemon, so the line says the doorway itself runs.
+		if o.launchDoorwayPlanned(d.Spec.Name) {
+			lines[i] += " (its doorway runs for this launch, outside the sandbox)"
 		}
 	}
 	out := o.pr(o.Stderr)
