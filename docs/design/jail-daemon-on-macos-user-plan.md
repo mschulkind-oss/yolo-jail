@@ -20,13 +20,16 @@ implementation decisions the build took are in the [Decision ledger](#decision-l
 > **In short.** Half of every loophole is a process that runs *inside* the jail. On
 > `macos-user` that half now runs in the sandbox: the bundle carries a darwin `yolo-jaild`, the
 > launch stages it into `/var/yolo-jail/bin` and starts `yolo-jaild supervise` under the session's
-> Seatbelt profile as `_yolojail`. Three shapes of daemon are still declined, each on one
-> `Declined:` line with its reason (see [Decision ledger](#decision-ledger), JD-3).
+> Seatbelt profile as `_yolojail`. Three shapes of daemon are still declined. The launch prints
+> one `Declined:` header and names each declined daemon on its own line under it, with its
+> reason (see [Decision ledger](#decision-ledger), JD-3).
 >
 > **Since 2026-09-29 the two shipped credential adapters no longer serve there.** The OpenAI
 > refresh adapter and the AWS credential adapter served in the guest until the doorway rule
 > ([HS-D15](host-notch-services.md#HS-D15)) moved them outside the sandbox, as listeners the
-> launch owns; the guest declines them on a fourth `Declined:` line. The supervisor stays for a
+> launch owns. A daemon that declares such a host argv is a fourth declined shape: each adapter
+> is named on its own line under the same `Declined:` header, marked as running outside the
+> sandbox for this launch. The supervisor stays for a
 > pack that declares a jail daemon without a host argv, which no shipped pack now does, and
 > `TestMacosUserJailDaemonRunsConfinedInTheGuest` measures it with a local pack.
 

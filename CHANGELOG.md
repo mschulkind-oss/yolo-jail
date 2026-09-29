@@ -42,9 +42,10 @@ used to run only inside a container, now run for each launch on your Mac, outsid
 the sandbox shares your Mac's network, so the agent reaches them there. So
 `yolo -p bedrock -- claude` gets its narrowed AWS credentials, and `codex` keeps its ChatGPT login
 through a long session instead of losing it at the first token refresh. Each helper listens on a
-port the launch picks, so two sandboxes running at once do not collide, answers only the agent of
-the launch that started it, and stops when the command exits; the AWS one starts only when an
-agent's profile is `bedrock`. The launch names each helper it starts, and names, with the reason,
+port the launch picks, so two sandboxes running at once do not collide, answers only requests
+that carry the token of the launch that started it, which any program in that launch's sandbox
+can read, and stops when the command exits; the AWS one starts only when an agent's profile is
+`bedrock`. The launch names each helper it starts, and names, with the reason,
 the ones it will not run, such as the one that shares one Claude login between sandboxes; if a
 helper fails to start, the launch stops and says where its log is. A helper that a pack of your
 own asks to run inside a container runs inside the macOS sandbox instead, confined by the same

@@ -10,7 +10,7 @@ summary: "A machine-wide OpenAI credential service owns refresh-token rotation a
 
 **Status:** DESIGN, 2026-09-24 — built, the last backend's refresh consumer on
 2026-09-29 ([OQ-OA6](#OQ-OA6): on `macos-user` the launch opens Codex's refresh doorway
-outside the sandbox, `80a9f1d0`); one sentence of
+outside the sandbox, `aec6c8cf`); one sentence of
 [§2](#2-one-writer-and-two-views) turned out unbuildable and owes another
 ([OQ-OA7](#OQ-OA7)). The canonical transaction, host service, container
 adapters, pack dependency, browser login, managed host launch, status and
@@ -218,7 +218,7 @@ bodies, authorization codes, PKCE verifiers, or callback query strings.
 | OQ-OA3 | `yolo host -- codex` shares the broker through a managed Codex home; direct host Codex remains untouched. | 2026-09-14 |
 | OQ-OA4 | Container browser callbacks use one temporary, state-routed host relay; `macos-user` uses its native loopback. | 2026-09-14 |
 | OQ-OA5 | All backends use authenticated loopback TLS and the same refresh algorithm; none intercepts `auth.openai.com`. | 2026-09-14 |
-| OQ-OA6 | Route (b): on `macos-user` the Codex refresh doorway is a launch-owned listener, by [HS-D15](host-notch-services.md#HS-D15)'s doorway rule. Built `80a9f1d0` ([HS-D16](host-notch-services.md#HS-D16) to [HS-D20](host-notch-services.md#HS-D20)). | 2026-09-29 |
+| OQ-OA6 | Route (b): on `macos-user` the Codex refresh doorway is a launch-owned listener, by [HS-D15](host-notch-services.md#HS-D15)'s doorway rule. Built `aec6c8cf` ([HS-D16](host-notch-services.md#HS-D16) to [HS-D20](host-notch-services.md#HS-D20)). | 2026-09-29 |
 
 ## 9. Open questions
 

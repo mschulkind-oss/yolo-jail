@@ -214,8 +214,9 @@ What you give up:
 
 - **The shared Claude login is not coordinated between sessions.** Host services start on the
   Mac, so the ChatGPT login service and Bedrock through `aws-auth` work: the small helpers the
-  agent talks to for them run for each launch on the Mac, outside the sandbox, answer only that
-  launch's agent, and stop when it exits. The Claude login's in-jail half needs a container, and
+  agent talks to for them run for each launch on the Mac, outside the sandbox, answer only
+  requests that carry that launch's token, which any program in its sandbox can read, and stop
+  when it exits. The Claude login's in-jail half needs a container, and
   the launch names it on one `Declined:` line.
 - **No `mounts`** and no folder sources in `host_files`; single files in `host_files` work.
 - **No `per_side_paths`**: a `.venv` or `node_modules` in the project is shared between your Mac and
