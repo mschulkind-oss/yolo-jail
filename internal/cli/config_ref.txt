@@ -1218,6 +1218,14 @@
                     binary is on the jail's PATH — so a jail without the alternative
                     keeps the original tool instead of losing both.  Core blocks
                     nothing by default; the `guardrails` pack ships grep/find.
+      intercept     {bin, forward} — route a command NAME in the jail to a forwarder
+                    the pack declares: ~/.yolo/bin/block/<bin> becomes
+                    `exec <forward…> "$@"`, first on PATH, so a bare `<bin>` runs the
+                    forwarder while the installed program stays at its own path
+                    (reachable by that path, or with YOLO_BYPASS_SHIMS=1).  It layers
+                    permissions over an existing CLI: the `github` pack routes `gh` to
+                    a host broker.  forward[0] is a bare program name on the jail's PATH
+                    and never <bin> itself.  A blocked-tool for the same name wins.
       requires      {bin} — a binary that must ALREADY exist.  Asserts presence and
                     installs nothing: no launcher, nothing on PATH, so it cannot shadow
                     anything.  In a jail an absent bin is reported by name at boot (a
@@ -1423,6 +1431,9 @@
       blocked-tool  a blocker is a shim at the head of a JAIL's PATH.  Off-container yolo
                     owns no PATH entry to put one in, and editing your shell rc to take
                     one over is a far larger claim than a pack's contribution makes.
+      intercept     an intercept is a forwarding shim at the head of a JAIL's PATH, for
+                    blocked-tool's reason: off-container yolo owns no PATH entry to put
+                    one in.
       state         state names a jail-writable home subtree — off-container the home
                     simply is writable, so there is nothing to declare.
       reads-host    reads-host carries a host file INTO a jail.  With no jail the file is

@@ -98,6 +98,10 @@ var refusalReasons = map[packdecl.Kind]string{
 	packdecl.KindBlockedTool: "a blocker is a shim at the head of a JAIL's PATH. " +
 		"Off-container yolo owns no PATH entry to put one in, and editing your shell rc " +
 		"to take one over is a far larger claim than a pack's contribution makes",
+	// The config_ref.txt row, word for word, for blocked-tool's reason: an intercept is the
+	// same file in the same directory, forwarding where a blocker refuses.
+	packdecl.KindIntercept: "an intercept is a forwarding shim at the head of a JAIL's PATH, " +
+		"for blocked-tool's reason: off-container yolo owns no PATH entry to put one in",
 	packdecl.KindService: "a service is a daemon pair plus an endpoint file under the " +
 		"jail's /run. With no jail there is nothing to supervise the jail half and " +
 		"nothing to read the endpoint",

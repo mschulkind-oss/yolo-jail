@@ -400,6 +400,12 @@ func FootprintOf(p *Pack) Footprint {
 				detail = "npm: " + c.Package
 			}
 			add(packdecl.KindProgram, c.Bin, detail, review)
+		case packdecl.KindIntercept:
+			// Exclusive by the intercepted NAME, so two packs routing one command collide in
+			// the generic loop. Not review-worthy: the shim lives in the jail; what the
+			// forwarder reaches is reviewed where it is declared. The Detail carries the argv
+			// so a reader sees what `<bin>` will run without opening the manifest.
+			add(packdecl.KindIntercept, c.Bin, "forwards to "+strings.Join(c.Forward, " "), false)
 		case packdecl.KindRequires:
 			// A claim, but never a collision (CombineShared): many packs may require one
 			// binary, and none owns a path for it. Not review-worthy either — asserting a

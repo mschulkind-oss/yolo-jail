@@ -46,7 +46,16 @@ func GenerateShims(e *Env) error {
 	if err := resetAnchorDir(e.BlockDir()); err != nil {
 		return err
 	}
+	if err := generateBlockers(e); err != nil {
+		return err
+	}
+	// The block dir's second writer, AFTER the blockers so a refusal for the same name is
+	// already on disk and wins (interceptshims.go).
+	return GenerateIntercepts(e)
+}
 
+// generateBlockers writes one blocking/filtering shim per YOLO_BLOCK_CONFIG entry.
+func generateBlockers(e *Env) error {
 	blockJSON := e.Getenv("YOLO_BLOCK_CONFIG")
 	if blockJSON == "" {
 		return nil

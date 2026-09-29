@@ -179,6 +179,10 @@ var disclosureClasses = map[packdecl.Kind]disclosureClass{
 	// the answer here is nothing. A blocked tool that the agent then discovers is blocked
 	// announces itself, by refusing, at the moment it matters.
 	packdecl.KindBlockedTool: disclosureSkip,
+	// intercept writes a forwarding shim INSIDE the jail, for blocked-tool's reason: it reads
+	// nothing on the host. What its forwarder reaches is disclosed where that is declared —
+	// the github pack's broker is a loophole, whose host execution prints before the spawn.
+	packdecl.KindIntercept: disclosureSkip,
 	// skills: a prose tree an agent reads, which is squarely what disclosureSkip is for —
 	// AT THE KIND LEVEL, which is the only level this table speaks at.
 	//

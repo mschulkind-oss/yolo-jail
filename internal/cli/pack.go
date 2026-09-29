@@ -82,6 +82,8 @@ one file's audience never stops another file from shipping:
   blocked-tool     refuse a tool in the jail, printing an alternative
                    (flags/allow_flags scope it; replacement gates it on the
                    alternative actually being present)
+  intercept        route a command name in the jail to a forwarder the pack declares
+                   ({bin, forward}), ahead of the installed tool on PATH
   requires         a tool that must already exist
   skills           merge a skills tree (optionally addressed: "agents")
   briefing         prose for the briefing (optionally addressed: "agents")

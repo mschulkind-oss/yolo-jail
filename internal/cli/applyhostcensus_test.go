@@ -154,6 +154,8 @@ func writeCensusPack(t *testing.T, dir string) {
 		packdecl.KindBlockedTool: `{"kind":"blocked-tool","bin":"censusblocked",` +
 			`"message":"blocked for the census","suggestion":"try censusalt",` +
 			`"replacement":"censusalt","flags":["-r"]}`,
+		packdecl.KindIntercept: `{"kind":"intercept","bin":"censusintercepted",` +
+			`"forward":["censusforwarder","--"]}`,
 		// profile is a SELECTION since OQ-PT8 — name plus provider, and the provider entry
 		// above ships that name. Its old config/launch/env body lives in gated
 		// contributions of the kinds that own those channels, so a minimal selection is

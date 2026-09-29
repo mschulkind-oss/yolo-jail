@@ -302,6 +302,29 @@ const (
 	// blocks a tool is the pack that can say what replaces it, and selecting it is the
 	// opt-in.
 	KindBlockedTool Kind = "blocked-tool"
+
+	// KindIntercept routes a command NAME inside the jail to a pack-declared forwarder:
+	//
+	//	{"kind": "intercept", "bin": "gh", "forward": ["yolo", "gh", "--"]}
+	//
+	// renders ~/.yolo/bin/block/gh as `exec yolo gh -- "$@"`, so a bare `gh` in the jail
+	// runs the forwarder while the program the image or a package installed stays at its
+	// own path, reachable by that path or with YOLO_BYPASS_SHIMS=1, which makes the shim
+	// exec it instead. It is how a pack LAYERS PERMISSIONS OVER AN EXISTING CLI: the
+	// github pack's forwarder sends each `gh` argv to a host broker that decides what runs
+	// (docs/design/boundary-broker.md, OQ-BB8, ruled 2026-09-29: "a built-in pack
+	// configuration that other people could conceivably build for other utilities").
+	//
+	// GENERIC BY CONSTRUCTION: core renders a name and an argv prefix and knows neither.
+	// `bin` is the name intercepted, a bare PATH segment (ValidBinName); `forward` is the
+	// argv the shim execs with the caller's arguments appended, whose first word is a
+	// bare program name resolved on the jail's PATH and never `bin` itself (the shim
+	// would exec itself). Rendered into the BLOCK dir because that is the directory whose
+	// job is to intercept a name before anything installed: it is first on PATH, ahead of
+	// the launchers and every install prefix, so no launcher-collision rule applies. A
+	// blocked-tool entry for the same name — a pack's or the user's own — wins, because a
+	// refusal is the more specific statement, and the boot says so.
+	KindIntercept Kind = "intercept"
 )
 
 // Combine names how two claims on the SAME target resolve — the conflict-rule
@@ -373,6 +396,15 @@ var footprints = map[Kind]Footprint{
 		// less useful; it cannot make it less contained.
 		Kind: KindBlockedTool, Combine: CombineExclusive,
 		Claims: "a refusing shim at ~/.yolo/bin/block/<bin>, ahead of the real tool on PATH",
+	},
+	KindIntercept: {
+		// EXCLUSIVE for blocked-tool's reason: the shim is ONE FILE at
+		// ~/.yolo/bin/block/<bin>, so two packs intercepting one name would fight over one
+		// path. NOT review-worthy: it writes a shim INSIDE the jail and reads nothing on the
+		// host. What the forwarder then reaches is its own declaration's question — for the
+		// github pack a loophole, which is reviewed as one.
+		Kind: KindIntercept, Combine: CombineExclusive,
+		Claims: "a forwarding shim at ~/.yolo/bin/block/<bin>, ahead of the real tool on PATH",
 	},
 	KindProgram: {
 		Kind: KindProgram, Combine: CombineExclusive, MayBeReviewWorthy: true,

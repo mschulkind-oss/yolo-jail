@@ -370,6 +370,12 @@ type Contribution struct {
 	Suggestion  string   `json:"suggestion,omitempty"`
 	Replacement string   `json:"replacement,omitempty"`
 
+	// intercept: the argv the shim at ~/.yolo/bin/block/<bin> execs, with the caller's
+	// arguments appended (kinds.go, KindIntercept). Its first word is a bare program name
+	// resolved on the jail's PATH, and never `bin` itself. `bin` names the command
+	// intercepted, the field `program` and `blocked-tool` use for the same shape.
+	Forward []string `json:"forward,omitempty"`
+
 	// --- autonomy (§4.2 / env-manager plan Phase 9) ---
 	// The confinement notch's AgentAutonomy policy selects which posture renders
 	// (autonomous at jail/guest, guarded at host). Each posture folds config-managed keys
@@ -3013,7 +3019,18 @@ func validateContribution(label string, c Contribution) []string {
 					"consumer reads either on this kind", label, c.Kind, f.name))
 		}
 	}
+	// `forward` is intercept's whole body, refused elsewhere in `profile`'s position and for
+	// its reason: on any other kind no shim execs it.
+	if len(c.Forward) > 0 && c.Kind != KindIntercept {
+		problems = append(problems, fmt.Sprintf(
+			"%s: kind %q does not take \"forward\" — it is the argv an \"intercept\" shim execs; "+
+				"no consumer reads it on this kind", label, c.Kind))
+	}
 	switch c.Kind {
+	case KindIntercept:
+		req("bin", c.Bin)
+		problems = binProblem(problems, label+".bin", c.Bin)
+		problems = append(problems, interceptProblems(label, c)...)
 	case KindProgram:
 		req("bin", c.Bin)
 		problems = binProblem(problems, label+".bin", c.Bin)
