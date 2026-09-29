@@ -306,7 +306,7 @@ and F trade features or ergonomics away.
 | podman, `network.mode: "host"` | the second jail finds `:443` taken, or binds the host's ([OQ-NC2](../plans/notch-convergence.md#OQ-NC2)) | serialized; nothing listens |
 | nested jail | its own broker and CA ([OQ-2](../reference/claude-oauth-interposition.md#oq-2)) | its own broker, relaying its own view ([CL-D6](#CL-D6)) |
 | `macos-user` | terminator declined by name; since [CL-D22](#CL-D22), Claude's own refresh lock in the shared directory every workspace uses (INFERRED) | serialized, if the host broker runs there (INFERRED) |
-| Apple Container | interception dropped whole; since [CL-D22](#CL-D22), Claude's own refresh lock in the one host directory every container binds (INFERRED) | serialized, if a host process writes the view (INFERRED; nothing dials in) |
+| Apple Container | interception dropped whole; since [CL-D22](#CL-D22), Claude's own refresh lock in the one host directory every container binds, which each VM reaches over virtiofs, so whether it holds across VMs is unmeasured | serialized, if a host process writes the view (INFERRED; nothing dials in) |
 | `yolo host -- claude` | host claude keeps its own login ([OQ-NC7](../plans/notch-convergence.md#OQ-NC7)) | unchanged |
 
 ### 5.3 What it removes along the way

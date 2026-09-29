@@ -238,36 +238,58 @@ real cross-process lock before every refresh (`acquireOAuthRefreshLock`), and on
 lock and the file it protects sit in one directory, which is why a host Claude never loses its
 login to a race no matter how many sessions run.
 
-**yolo splits that pair.** `packs/claude/pack.json` declares `.claude` as `scope: "workspace"` and
-`.claude-shared-credentials` as `scope: "machine"`, joined by a relative symlink — so the
-credentials file is shared by every jail while the config directory is per-jail. The vendor's lock
-is derived from the config directory, not the credentials path, and it disables symlink resolution
-outright:
+**Until [CL-D22](../design/claude-login-without-interception.md#CL-D22), yolo split that pair.**
+`packs/claude/pack.json` declares `.claude` as `scope: "workspace"` and `.claude-shared-credentials`
+as `scope: "machine"`, joined by a relative symlink, so the credentials file was shared by every
+jail while `~/.claude` stayed per-jail. The vendor's lock is derived from a directory, not from the
+credentials path:
 
 ```js
 // Claude Code 2.1.278, measured
 function Jar(e,n){return{lockfilePath:lE(e,".oauth_refresh.lock"),realpath:!1,stale:60000,update:5000,...}}
 ```
 
-`realpath:!1` is the load-bearing character. The lock lands at `<configDir>/.oauth_refresh.lock`
-— a **per-jail inode** — and is guaranteed never to follow the symlink through to the shared file.
-Two jails refreshing at once therefore contend on nothing. **We shared the file and not the lock,**
-and the broker is what puts serialization back.
+With nothing else set, that directory is `~/.claude`, so the lock landed at
+`~/.claude/.oauth_refresh.lock`, a **per-jail inode**, and two jails refreshing at once contended
+on nothing. **We shared the file and not the lock,** and the broker is what put serialization back.
+(The vendor takes a second lock, and `realpath:!1` is not what keeps either one off the shared
+file: [`claude-oauth-interposition.md`](claude-oauth-interposition.md#why-a-broker-exists) has
+both corrections.)
+
+**Since CL-D22 the pair is whole again, in the machine-scope directory.** The one directory Claude
+keeps its credential file, its refresh lock and its write lock in is
+`CLAUDE_SECURESTORAGE_CONFIG_DIR ?? CLAUDE_CONFIG_DIR ?? ~/.claude` (MEASURED, 2.1.284), and every
+jail launch but a credential-view launch now sets the first to `.claude-shared-credentials` under
+the jail home ([CL-D23](../design/claude-login-without-interception.md#CL-D23)). So the file, the
+refresh lock `.oauth_refresh.lock` and the write lock `.storage-write.lock` sit in one directory
+that every jail on the machine opens, and the broker takes that write lock for its own writes of
+the shared file ([CL-D25](../design/claude-login-without-interception.md#CL-D25)). Whether
+Claude's own lock then keeps two jails apart depends on how each backend reaches that directory:
+
+| Backend | How a jail reaches the machine-scope directory | Claude's own lock across jails |
+| :--- | :--- | :--- |
+| podman | one host directory, bound read-write into every jail | contends (INFERRED): the lock is a `mkdir`, answered by the one host kernel for every jail. The broker's interception serializes the refresh as well |
+| `macos-user` | one real directory in the sandbox account's home, no mount | contends (INFERRED): one kernel, one directory |
+| Apple Container | one host directory, reached from each jail's own VM over virtiofs | **unmeasured**: whether a `mkdir` in one VM is seen at once by another, and whether the lock's modification time, which its stale check reads, is current across VMs |
 
 > [!IMPORTANT]
-> **Do not "fix" this by machine-scoping the lock directory too.** It would work on podman, where
-> both sides are binds of one host inode — and only there. On `container` each jail is its own VM,
-> so a lock is guest kernel state over virtiofs and two VMs do not contend (architectural, marked
-> UNVERIFIED — nobody has run it). On `macos-user` there are no mounts at all. A shared-file lock
-> is therefore **backend-dependent**; a host-side mediator reached over a socket is not, and that
-> — not one-ness, and not a credential boundary — is the property the broker is bought for.
+> **Rejoining the pair did not retire the case for a host-side lock.** CL-D22 machine-scoped the
+> lock directory knowingly, as a bridge until the credential view replaces the interception. A
+> lock in a shared directory is still **backend-dependent**: it contends on podman and
+> `macos-user` by inference, and nobody has run it across two Apple Container VMs, where each
+> jail's kernel is its own. A host-side mediator reached over a socket is not backend-dependent,
+> and that, not one-ness and not a credential boundary, is the property the broker is bought for
+> and the view keeps
+> ([`claude-login-without-interception.md`](../design/claude-login-without-interception.md)).
 
 It bundles two jobs.
 
 1. **One shared credentials file per host.** On containers that is a shared-credentials bind plus
    an in-jail *relative* symlink from the agent's own credentials path into it
-   (`linkThroughShared`, applied through the pack's `shared_credentials` hook). One OAuth
-   identity, every jail.
+   (`linkThroughShared`, applied through the pack's `shared_credentials` hook), and since
+   [CL-D22](../design/claude-login-without-interception.md#CL-D22) Claude's credential store
+   pointed at that directory itself, so Claude opens the real file and reads nothing through the
+   link. One OAuth identity, every jail.
 2. **Serialize the refresh HTTP call.** A host-side daemon holds a flock
    (`oauthbroker.RefreshLockPath`) around every refresh, so concurrent jails cannot burn the
    token. What the job needs is that the lock be taken **host-side**, where every backend agrees
@@ -688,7 +710,7 @@ $ rg -n '"scope": "host"' packs/*/loopholes/*/manifest.jsonc
 | Broker liveness floor | **90s** — the `cached` action's floor, a different question and deliberately lower | `internal/oauthbroker/oauthbroker.go` (`LiveTokenFloorMS`, `CachedTokens`) |
 | Consumer due-threshold | **300s** — Claude Code's own `Date.now()+300000>=expiresAt`. A fact about the client, recorded so the floor above derives from it | `internal/oauthbroker/oauthbroker.go` (`ConsumerRefreshDueMS`); measured, 2.1.278 |
 | Background refresher | lead **1800s** (thirty minutes, since 2026-09-29; it was 300s, the value the threshold section above describes), refreshing with a cache floor equal to the lead; tick **60s**, fast retry **5s** × **12** ([CL-D5](../design/claude-login-without-interception.md#CL-D5), [CL-D18](../design/claude-login-without-interception.md#CL-D18)) | `internal/oauthbroker/oauthbroker.go` (`BackgroundRefresh*`), `internal/oauthbroker/refresh.go` (`doBackgroundRefresh`) |
-| Vendor refresh lock | `<configDir>/.oauth_refresh.lock`, `realpath:false`, stale `60000`, update `5000` — **per-jail**, never follows the shared-creds symlink | Claude Code bundle (`acquireOAuthRefreshLock`), measured |
+| Vendor refresh lock | `<storage dir>/.oauth_refresh.lock`, the storage dir being `CLAUDE_SECURESTORAGE_CONFIG_DIR ?? CLAUDE_CONFIG_DIR ?? ~/.claude`; `realpath:false`, stale `60000`, update `5000`. **Machine-scoped** since [CL-D22](../design/claude-login-without-interception.md#CL-D22), on every jail launch but a credential-view launch, whose lock stays in the workspace's `~/.claude`; one lock across Apple Container VMs is unmeasured ([above](#the-claude-oauth-broker)) | Claude Code bundle (`acquireOAuthRefreshLock`), measured; `internal/cli/run/claudesecurestorage.go` |
 | Broker credentials file | the shared-credentials dir under the global home | `internal/storage` (`ensure.go`), `internal/entrypoint/claude.go` |
 | Broker daemon | `yolo internal daemon claude-oauth-broker`, `scope: "host"` | `internal/broker`; `packs/claude/loopholes/claude-oauth-broker/manifest.jsonc` |
 | OpenAI canonical state | `<loophole state>/credentials.json`, mode `0600`; parent and lock are private | `internal/openaiauth`; `packs/openai-auth/loopholes/openai-auth-broker/manifest.jsonc` |

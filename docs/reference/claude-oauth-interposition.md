@@ -713,11 +713,12 @@ both locks stay per-workspace. The broker is what puts serialization back, host-
 > ([CL-D25](../design/claude-login-without-interception.md#CL-D25)).
 
 > [!IMPORTANT]
-> **Two corrections to [`agent-credentials.md`](agent-credentials.md)'s account of that lock**, both
-> about characterization rather than conclusion.
+> **Two corrections to what [`agent-credentials.md`](agent-credentials.md#the-claude-oauth-broker)
+> said of that lock before CL-D22**, both about characterization rather than conclusion; that
+> section now points here for both.
 >
-> First, `realpath:!1` is **not** the load-bearing character
-> ([`agent-credentials.md:245-246`](agent-credentials.md)). The bundled locker is proper-lockfile, and
+> First, `realpath:!1` is **not** the load-bearing character, as that section said. The bundled
+> locker is proper-lockfile, and
 > two of its functions settle it: `function ne(e,r){return r.lockfilePath||`${e}.lock`}` — an explicit
 > `lockfilePath` short-circuits, so the option cannot influence the lock path — and
 > `function Pe(e,r,n){if(!r.realpath)return n(null,bt.resolve(e));r.fs.realpath(e,n)}`, where
@@ -726,10 +727,10 @@ both locks stay per-workspace. The broker is what puts serialization back, host-
 > path is not an input to the lock path at all — yolo symlinks the leaf while the lock is a *sibling*
 > named `.oauth_refresh.lock`, so there is no symlink on the lock path to follow. What is load-bearing
 > is `lockfilePath: lE(e, ".oauth_refresh.lock")` — **the lock is derived from the config directory**,
-> which `agent-credentials.md:236-237` already says correctly one sentence earlier.
+> which that section said correctly one sentence earlier.
 >
-> Second, the vendor does **not** "disable symlink resolution outright"
-> ([`agent-credentials.md:237-238`](agent-credentials.md)). It takes **two** locks, and the second one
+> Second, the vendor does **not** "disable symlink resolution outright", as that section also said.
+> It takes **two** locks, and the second one
 > applies `realpath`: `y=`${await RTe(e).catch(()=>e)}.lock`` (offset 192117521), where `RTe` is
 > `fs/promises.realpath`. `ELOCKED` on that legacy lock throws after releasing the first, under
 > telemetry `tengu_oauth_refresh_legacy_lock_contended`. The conclusion is unaffected — it realpaths
@@ -787,9 +788,10 @@ targets a different directory.
 > not reliably coherent.
 
 **Backend dependence is what host-side buys, and it rests on one unverified backend.**
-[`agent-credentials.md:250-256`](agent-credentials.md) argues that machine-scoping the lock directory
-would work "on podman … and only there", citing Apple Container *and* `macos-user`. The `macos-user`
-half does not follow: that backend has **no bind mounts at all**
+[`agent-credentials.md`](agent-credentials.md#the-claude-oauth-broker) argued, before
+[CL-D22](../design/claude-login-without-interception.md#CL-D22) machine-scoped the lock directory
+as a bridge, that doing so would work "on podman … and only there", citing Apple Container *and*
+`macos-user`. The `macos-user` half did not follow: that backend has **no bind mounts at all**
 ([`macos.md:556`](../../userguide/guides/macos.md)), which means every sandbox writes the **real** host filesystem
 under the **host** kernel — `HOME` never moves, so the `scope: machine` directory never moves either
 and the hook's output is byte-identical there
@@ -800,7 +802,7 @@ in between; `macos.md:562` independently notes that reaching these needs no bind
 this backend can carry them at all"*. The Apple Container half stands — one lightweight VM per
 container ([`macos.md:52`](../../userguide/guides/macos.md)), so a lock is guest kernel state over virtiofs — and
 that doc already marks the cross-VM reasoning architectural and **UNVERIFIED**. So the conclusion
-survives with one backend behind it rather than two, and it should be stated that way.
+survives with one backend behind it rather than two, which is how that section now states it.
 
 ### Where the interposition exists at all
 
@@ -818,9 +820,12 @@ survives with one backend behind it rather than two, and it should be stated tha
   is 443 and its interception needs an `--add-host` this backend cannot emit, and `yolo-jaild` is not
   built for darwin at all ([`jaildaemondecline.go:36-43`](../../internal/cli/run/jaildaemondecline.go)).
 
-On both, the agent talks straight to `platform.claude.com` with its own file-based token and gets no
-serialization. `macos-user` does not need the file *sharing* — one real home means one real credentials
-file — but it does lose the *refresh serialization* across concurrent sessions.
+On both, the agent talks straight to `platform.claude.com` with the file-based token it shares with
+every other jail on the machine, and no broker serializes the refresh. Since
+[CL-D22](../design/claude-login-without-interception.md#CL-D22) Claude's own refresh lock sits in the
+same machine-scope directory as that file, which is one real directory on `macos-user`, so it
+contends there (INFERRED); across Apple Container VMs, which reach it over virtiofs, that is
+unmeasured ([`agent-credentials.md`](agent-credentials.md#the-claude-oauth-broker)).
 
 **With the credential view on**, both macOS backends do get serialization: the host broker is the
 only refresher, and every jail reads a view ([below](#the-credential-view-behind-a-switch)). It is
@@ -871,7 +876,7 @@ settles it.
 ## What it does not buy
 
 Three beliefs about the broker were measured false.
-[`agent-credentials.md:365-380`](agent-credentials.md) states them; what this doc adds is the
+[`agent-credentials.md`](agent-credentials.md#what-the-broker-does-not-buy) states them; what this doc adds is the
 precision each one needed.
 
 - **It is not what stops a jail spending a stale token — and the reason is structural, not
@@ -887,7 +892,8 @@ precision each one needed.
   jd(e.response.data).code==="invalid_grant" && ZEt(e.response.data)===null}` (offset 192054308), and
   it gates the clear at both call sites; the clear itself blanks `refreshToken`, `accessToken` and
   `expiresAt` in the file. Two refinements to how that has been described. It is **not** "by the
-  top-level `error` string, not the status code" ([`agent-credentials.md:375`](agent-credentials.md)):
+  top-level `error` string, not the status code"
+  ([`agent-credentials.md`](agent-credentials.md#what-the-broker-does-not-buy)):
   the status **is** checked — it must be 400 or 401 — and `ZEt(data)===null` is required too; the
   status is necessary but not sufficient. And `jd` accepts an **object** form as well
   (`error.type === "invalid_grant"` matches), so "the error string" understates the surface. yolo is
@@ -999,10 +1005,10 @@ offset for re-measurement.
 | Node/Bun trust var | `NODE_EXTRA_CA_CERTS`, one path — ⚠ joined as a list by yolo, read as a single filename by the consumer ([why that matters](#how-the-handshake-is-trusted)) | `internal/loopholes/runtime.go`; Claude Code 2.1.278 (`node:tls` compat, offset 22158845) |
 | OpenSSL-family trust vars | `SSL_CERT_FILE`, `REQUESTS_CA_BUNDLE`, `CURL_CA_BUNDLE`, `GIT_SSL_CAINFO` → `$HOME/.yolo-ca-bundle.crt` | `internal/entrypoint/system.go` (`GenerateCABundle`), `boot.go`, `shell.go`; bound from the workspace in `internal/cli/run/assemble_parts.go` |
 | Vendor credential path | `CLAUDE_SECURESTORAGE_CONFIG_DIR ?? CLAUDE_CONFIG_DIR ?? ~/.claude` + `.credentials.json`; yolo sets `CLAUDE_SECURESTORAGE_CONFIG_DIR` to the machine-scope directory on every jail launch but a view launch, and never `CLAUDE_CONFIG_DIR` | Claude Code 2.1.278 (`Wb()`, offset 191037919), 2.1.284 (`ev()`); `packs/claude/pack.json`, `internal/cli/run/claudesecurestorage.go` |
-| Shared-credentials join | relative symlink from `.claude/.credentials.json` into the `scope: machine` `.claude-shared-credentials` | `packs/claude/pack.json`; `internal/entrypoint/packhooks.go` (`linkSharedCredential`) |
-| Vendor refresh lock | `<configDir>/.oauth_refresh.lock`, `realpath:false`, stale `60000`, update `5000` — per-jail | Claude Code 2.1.278 (offset 192117058) |
-| Vendor **legacy** refresh lock | `realpath(<configDir>) + ".lock"` — a second lock, per-jail, taken after the first | Claude Code 2.1.278 (offset 192117521) |
-| Vendor credential **write** lock | `<configDir>/.storage-write`, `realpath:false`, 10 retries, stale `15000` — per-jail, and yolo takes no equivalent | Claude Code 2.1.278 (offset 191041435) |
+| Shared-credentials join | relative symlink from `.claude/.credentials.json` into the `scope: machine` `.claude-shared-credentials`; still written, and outside Claude's store path since [CL-D22](../design/claude-login-without-interception.md#CL-D22) ([CL-D24](../design/claude-login-without-interception.md#CL-D24)) | `packs/claude/pack.json`; `internal/entrypoint/packhooks.go` (`linkSharedCredential`) |
+| Vendor refresh lock | `<storage dir>/.oauth_refresh.lock`, the storage dir being the credential path's directory above; `realpath:false`, stale `60000`, update `5000`. **In the machine-scope directory** since CL-D22, on every jail launch but a view launch, whose lock stays in the workspace's `~/.claude`; whether it contends across Apple Container VMs is unmeasured | Claude Code 2.1.278 (offset 192117058), 2.1.284 (called with `ev()`) |
+| Vendor **legacy** refresh lock | `realpath(<storage dir>) + ".lock"` — a second lock, taken after the first, BESIDE the storage directory rather than in it, so CL-D22 does not move it into the machine tier: it lands in the jail home, which is read-only on podman. Any failure to take it but contention is logged and the refresh goes on under the first lock alone | Claude Code 2.1.278 (offset 192117521), 2.1.284 (search `legacy-lock acquire failed`) |
+| Vendor credential **write** lock | `<storage dir>/.storage-write`, a lock directory `.storage-write.lock`; `realpath:false`, 10 retries, stale `15000`. In the machine-scope directory since CL-D22, like the refresh lock. The broker takes the same lock for every view write ([CL-D13](../design/claude-login-without-interception.md#CL-D13)) and every write of the shared file ([CL-D25](../design/claude-login-without-interception.md#CL-D25)), waiting at most 2 s and breaking one older than 15 s | Claude Code 2.1.278 (offset 191041435), 2.1.284 (search `.storage-write`); `internal/claudeview/claudeview.go` (`acquireStorageLock`) |
 | Broker refresh lock | `refresh.lock` under `BrokerDir()`, which takes no name, socket or pid | `internal/oauthbroker/oauthbrokercmd.go`, `internal/oauthbroker/cert.go` (`BrokerDir`) |
 | Broker error codes | `creds_unreadable`, `no_refresh_token`, `upstream_http`, `upstream_bad_response`, `upstream_unreachable` — **never** `invalid_grant` | `internal/oauthbroker/refresh.go` (`DoRefresh`) |
 | Client id, beta header | `9d1c250a-e61b-44d9-88ed-5944d1962f5e`; `oauth-2025-04-20` — byte-identical to the vendor's | `internal/oauthbroker/oauthbroker.go` (`ClientID`, `OAuthBetaHeader`); Claude Code 2.1.278 (offset 189496381) |

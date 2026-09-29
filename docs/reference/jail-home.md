@@ -813,9 +813,20 @@ jail binds read-write, through `readCreds`: a root on the directory (`paths.Open
 a regular-file-only open, with a link at the name refused and named. Every read goes through it:
 the token answer (`oauthFromCreds`), the self-check (`gradeSharedCreds`, which reports a link as a
 FAIL naming it) and the log line (`describeCreds`). By plain path, a link to the host's own Claude
-credentials had the broker serve their access token to every jail that asked. The write
-(`WriteTokens`) needed no change: it renames a fresh `O_EXCL` temp file over the name, which
-replaces a link rather than following it. `internal/oauthbroker/credslink_test.go` covers both.
+credentials had the broker serve their access token to every jail that asked.
+`internal/oauthbroker/credslink_test.go` covers the reads. The write is a read-modify-write, because
+since [CL-D22](../design/claude-login-without-interception.md#CL-D22) the file is also Claude's own
+store ([CL-D25](../design/claude-login-without-interception.md#CL-D25)):
+`claudeview.UpdateSharedFile` opens a root on the directory refusing a link at it, takes Claude's
+lock there by making the directory `.storage-write.lock`, reads the current bytes as a regular file
+only (a link at the name reads as absent), and renames a fresh `O_EXCL` temp file over the name,
+which replaces a link rather than following it. The lock is jail-writable state the broker handles
+while it holds `refresh.lock`, so it is never followed, a stale one is broken by removing that one
+empty directory and nothing inside it, and every wait for it ends at `StorageLockWait`, after which
+the write goes ahead without it: a lock a jail made unremovable, or plants back each time it is
+broken, would otherwise hold every jail's refresh on the machine (`acquireStorageLock`).
+`internal/claudeview/sharedfile_test.go` and `internal/oauthbroker/sharedfilewrite_test.go` cover
+the write and the lock.
 
 **The pack `files` retirement.** `preparePackFiles` removes the mountpoints the ownership manifest
 records and the configured packs no longer claim (`retirePackFileMountpoints`). The manifest is in
