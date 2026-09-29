@@ -37,7 +37,7 @@ jail's reach. On macOS, the three installer-recipe agents stay uncovered until
 **Start at [§3](#3-the-host-prefix).** The prefix's two rules, *only floor names on PATH* and *never
 jail-reachable*, are what make putting it first safe.
 
-**Needs your ruling:** [OQ-HP6](#OQ-HP6). Ruled 2026-09-29: [OQ-HP1](#OQ-HP1) (on by default), [OQ-HP2](#OQ-HP2) (moot: on no user PATH), [OQ-HP3](#OQ-HP3) (captures, and a host capture on macOS), [OQ-HP4](#OQ-HP4) (the official Node tarball), [OQ-HP5](#OQ-HP5) (no consent prompt: the pack selection is the consent).
+**Needs your ruling:** none. Ruled 2026-09-29: [OQ-HP1](#OQ-HP1) (on by default), [OQ-HP2](#OQ-HP2) (moot: on no user PATH), [OQ-HP3](#OQ-HP3) (captures, and a host capture on macOS), [OQ-HP4](#OQ-HP4) (the official Node tarball), [OQ-HP5](#OQ-HP5) (no consent prompt: the pack selection is the consent), [OQ-HP6](#OQ-HP6) (never provision the workspace runtime at the host), [OQ-HP7](#OQ-HP7) (the agent's children see the user's own environment).
 
 **Reads with:**
 - [`host-tool-provisioning-plan.md`](host-tool-provisioning-plan.md): the implementation sketch.
@@ -404,7 +404,7 @@ installs nothing.
       > update prompt. This also retires the consent clause of [OQ-HP1](#OQ-HP1)'s answer and [§4](#4-when-provisioning-runs)'s
       > consent design ([HP-D3](#HP-D3)).
 
-6. 💬 <a id="OQ-HP6"></a>**[OQ-HP6](#OQ-HP6): Does yolo run `mise install` on the stale-shim verdict?**
+6. ✅ <a id="OQ-HP6"></a>**[OQ-HP6](#OQ-HP6): Does yolo run `mise install` on the stale-shim verdict?**
    **Stakes:** the maintainer's *"by default when you run on the host we should probably run
    the mise install."* **(a)** Yes, at a TTY, as [§5](#5-mise-the-stale-shim-verdict) scopes it:
    one tool, in the invocation's cwd, printed before it runs, with mise's own trust as the gate.
@@ -415,10 +415,27 @@ installs nothing.
    _Leaning:_ **(a).** It is what the user's own `mise.toml` asks for. mise's trust prompt
    already guards a cloned repository's config. A widget can't consent to a download.
 
-   <!-- vantage: oq id=OQ-HP6 leaning="(a) yes at a TTY: mise install for the one tool behind the stale shim, in the invocation's cwd, printed first, never bypassing mise's own config trust; no install on a non-TTY launch." -->
+      **Answer:**
+      > **Ruled 2026-09-29: never** ([HP-DIR3](#HP-DIR3)). The maintainer: *"when you're inside of
+      > the jail, you can't really truly manage all the things in the environment … it's the safer
+      > contained thing. So, that's okay to do there. But on the host, the host agent could run the
+      > mise whatever it needs to once it starts up … we don't maintain the host development
+      > environment, the workspace's runtime … and extend that ruling to whatever other questions it
+      > applies to."* At the host yolo does not provision the workspace's runtime: no `mise
+      > install`, no `mise env` or activation, no direnv. A missing project tool behaves as when the
+      > user types the command, and the host agent can run `mise install` itself if the work needs
+      > it.
+
+7. ✅ <a id="OQ-HP7"></a>**[OQ-HP7](#OQ-HP7): When a delivered agent runs project commands, which environment do they see?**
+   Raised in review 2026-09-29 by [HP-DIR2](#HP-DIR2): a delivered agent starts in a set
+   environment (the floor's node by absolute path, mise stripped). **(a)** Only the agent's own
+   startup is fixed; what it runs sees the user's own shell environment. **(b)** The set
+   environment all the way down, so `npm test` runs on the floor's node.
 
    **Answer:**
-   > _(empty — fill in when decided)_
+   > **Ruled 2026-09-29: (a)** ([HP-DIR3](#HP-DIR3)). Only a delivered agent's own startup runs in
+   > the set environment; the commands the agent runs see the user's own shell environment, mise
+   > included, exactly as the user would run them.
 
 ## Decision Ledger
 
@@ -433,3 +450,6 @@ installs nothing.
 | [OQ-HP5](#OQ-HP5) | **Maintainer ruling:** no consent prompt; selecting the pack is the consent, and the floor installs and updates like a jail's launchers | 2026-09-29 |
 | <a id="HP-D3"></a>HP-D3 | *Consequence of HP5:* [§4](#4-when-provisioning-runs)'s consent step and HP1's "installs still need consent" are withdrawn; a launch with no terminal installs too, disclosed on its launch line | 2026-09-29 |
 | <a id="HP-DIR2"></a>HP-DIR2 | **Maintainer direction (2026-09-29), the two environment layers:** *"we always want our own node … like a nix shell thing … make the predictable environment predictable … we construct an environment. We do not sniff the command line … yolo host will let it use the node from the project. It will have a fallback of the floor … And then when you run the agent's wrapper … that one will now strip out the mise because now it wants not just a floor, but a predictable environment."* (1) `yolo host -- <cmd>` composes an environment: the user's PATH, project tools and mise shims included, with the floor as a FALLBACK after it; yolo never inspects the command. (2) An agent yolo delivers from the floor runs in a set, predictable environment: the floor's own node by absolute path, mise stripped. Replaces [HP-D1](#HP-D1)'s "prefix first" | 2026-09-29 |
+| <a id="HP-DIR3"></a>HP-DIR3 | **Maintainer principle (2026-09-29): at the host, yolo manages the AGENT's environment, never the WORKSPACE's runtime.** In a jail yolo provisions the workspace's runtime (it is the contained room, and safe to provision); at the host the workspace is where the user works, and its toolchain is the user's, or the host agent's to install once running. Extended by the maintainer to every question it applies to | 2026-09-29 |
+| [OQ-HP6](#OQ-HP6) | **Maintainer ruling:** never; no `mise install`, `mise env` or direnv at the host | 2026-09-29 |
+| [OQ-HP7](#OQ-HP7) | **Maintainer ruling:** (a); the agent's own startup is fixed, its children see the user's environment | 2026-09-29 |
