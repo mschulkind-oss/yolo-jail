@@ -33,8 +33,10 @@ live conversation, with low latency: the maintainer answers in chat, the agent r
   changes for the user. No doc jargon without a one-phrase definition. Say "rule both as leaned,
   or adjust?"
 - **Every turn ends with the walkthrough panel**, emulating a UI, and nothing after it:
-  1. **Answers:** if the maintainer asked something this turn (a clarification, a "why", a
-     discussion), the answer goes INSIDE the panel, not above it — anything above scrolls by.
+  1. **Answers:** every question or musing of the maintainer's that bears on an open pair goes
+     INSIDE the panel, not above it — anything above scrolls by. It STAYS in every later panel
+     until the pair it bears on is ruled; a turn spent on something else (a landing, an issue)
+     still re-shows it. Answers to side questions ("nothing needed from you?") go in too.
   2. **Round progress:** pairs done / remaining in this round, what was ruled this turn, what
      was added to the queue.
   3. **Docs in play:** one line per doc touched this round — its state (reviewing, ruled,
@@ -106,6 +108,8 @@ edit this file in the same turn and commit it. Recorded adjustments:
   (BB1 → BB6) and queues it, rather than leaving the gap in prose.
 - 2026-09-29: every question opens with its concrete setup (the maintainer could not answer
   HP5/HP6 as first stated).
+- 2026-09-29: answers persist in the panel until their pair is ruled (a host-model answer
+  scrolled off after two unrelated turns).
 - 2026-09-29: every turn ends with the panel (answers inside it, round progress, docs in play,
   then the pair), because anything above the panel scrolls by.
 - 2026-09-29: check each question against the session's principles first (HP5 and HP6 part 2
