@@ -158,6 +158,40 @@ func TestTheMacosUserArmRefusesWhenADoorwayCannotStart(t *testing.T) {
 	}
 }
 
+// A LATER DOORWAY THAT CANNOT START STOPS THE ONES ALREADY OPEN: the refusal returns before the
+// arm defers any stop, so startMacosUserDoorways must stop what it started itself, or the first
+// doorway keeps answering on the Mac's loopback until its lifeline closes. A bedrock launch
+// opens two, the Codex refresh doorway and the AWS one; the first start succeeds and the second
+// fails. Deleting the stop() in startMacosUserDoorways' error branch fails this.
+func TestAMacosUserDoorwayThatCannotStartStopsTheOnesAlreadyOpen(t *testing.T) {
+	o, stderr, seen := overrideNativeLaunch(t,
+		awsAuthUserConfig(`, "loopholes": {"aws-auth": {"enabled": true}}`), shellWith(nil))
+	stopped, starts := 0, 0
+	var first string
+	orig := startMacosUserDoorway
+	startMacosUserDoorway = func(p *launchservice.Plan, _ map[string]string) (launchedService, string, error) {
+		starts++
+		if starts == 1 {
+			first = p.Service
+			return fakeLaunched{&stopped}, "/log/launch-service-" + p.Service + ".log", nil
+		}
+		return nil, "", errors.New(`the "` + p.Service + `" service did not start: boom`)
+	}
+	t.Cleanup(func() { startMacosUserDoorway = orig })
+	if rc := Run(*o); rc != 1 || seen.reached {
+		t.Fatalf("Run() = %d, reached = %v: a doorway that cannot start must refuse before the command\n%s",
+			rc, seen.reached, stderr.String())
+	}
+	if starts != 2 {
+		t.Fatalf("the launch tried %d doorway starts, want 2 (the Codex and the AWS doorway): the "+
+			"premise is gone\n%s", starts, stderr.String())
+	}
+	if stopped != 1 {
+		t.Errorf("the %q doorway that started was stopped %d times when the next one failed, want 1",
+			first, stopped)
+	}
+}
+
 // A PACK YOLO DOES NOT SHIP CANNOT RUN HOST CODE THROUGH host_cmd (the launch-owned mechanism's
 // admission rule): its doorway runs as the jail daemon it also is, in the guest, and the launch
 // says why. Deleting admitDoorways from jailDaemonsFor fails this.
