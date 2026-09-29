@@ -406,13 +406,13 @@ API). Every one of them is a fresh daemon copy wherever the updater loop runs.
 
 A **notch** is one place an agent can run, from a jail to the bare host
 ([`host-launch-environment.md` §0](../design/host-launch-environment.md#0-the-governing-ruling)).
-yolo's tree never mentions the daemon, `daemon_auto_start` or `--no-daemon` (MEASURED: search over
-`internal/` and `packs/`). The codex pack installs through OpenAI's script, updates with
-`codex update`, and passes only `--dangerously-bypass-approvals-and-sandbox` (MEASURED:
-[`packs/codex/pack.json`](../../packs/codex/pack.json#L14-L19),
-[`:86-92`](../../packs/codex/pack.json#L86-L92)). None of that skips the daemon
-([§2.2](#22-who-starts-it)), so **every interactive Codex yolo launches starts one** (INFERRED: no
-yolo launch was run).
+At `77f52ef1`, yolo's tree never mentioned the daemon, `daemon_auto_start` or `--no-daemon`
+(MEASURED: search over `internal/` and `packs/`; the build that followed the ruling changed this,
+as the note below the table says). The codex pack installs through OpenAI's script, updates with
+`codex update`, and passes only `--dangerously-bypass-approvals-and-sandbox` (MEASURED: the
+`program` and `autonomy` contributions of [`packs/codex/pack.json`](../../packs/codex/pack.json)).
+None of that skips the daemon ([§2.2](#22-who-starts-it)), so **every interactive Codex yolo
+launched started one** (INFERRED: no yolo launch was run).
 
 | Notch | Daemon starts? | Outlives the agent? | State it adds | Refresh doorway | What yolo would have to do |
 | :--- | :--- | :--- | :--- | :--- | :--- |
@@ -438,7 +438,7 @@ yolo launch was run).
   as long as the jail, which that design needs nothing extra for. Its one wrinkle there is that it
   serves every session with the first session's environment (INFERRED).
 - **It holds state in the per-workspace home.** The pack declares `~/.codex` as per-workspace state
-  ([`pack.json:116-120`](../../packs/codex/pack.json#L116-L120)), so the daemon package, pid files,
+  (the `state` contribution of [`pack.json`](../../packs/codex/pack.json)), so the daemon package, pid files,
   logs, settings and the socket's symlink land in the workspace's home overlay and persist across
   launches. This jail's `~/.codex` has no daemon state yet, and its standalone install's
   latest-channel record, `packages/standalone/auto-update-version`, names the current release,
