@@ -563,17 +563,10 @@ func ensureJailImage() {
 	// the harness's own load, and imageExists()/checkImageSkew look for a name in
 	// the jail repository, not for the store path this build happened to produce.
 	//
-	// THE LAUNCH'S ARGV, from the launch's own read of `podman info`: the namespace
-	// prefix and the store podman reports, named on the destination (issue #47 —
-	// a copier left to its own storage.conf lookup can resolve a different store
-	// from podman's). A store podman did not report falls back to the bare ref, as
-	// the launch does.
-	facts := image.ReadPodmanStoreFacts(rt, func(argv []string) (string, bool) {
+	argv := harnessCopyArgv(rt, func(argv []string) (string, bool) {
 		out, err := exec.Command(argv[0], argv[1:]...).Output()
 		return string(out), err == nil
-	})
-	argv := image.DeliveryCopyArgvFor(rt, facts, image.ImageCopierBinary(copier), manifest,
-		"localhost/"+jailImage)
+	}, copier, manifest)
 	log.Printf("[integration] image copy: %s", strings.Join(argv, " "))
 	copy := exec.Command(argv[0], argv[1:]...)
 	if out, err := copy.CombinedOutput(); err != nil {
@@ -593,6 +586,19 @@ func ensureJailImage() {
 	} else {
 		degraded("%s reported a successful load but no %s image is present", rt, jailImage)
 	}
+}
+
+// harnessCopyArgv is the harness's own image load, and it is THE LAUNCH'S ARGV,
+// from the launch's own read of `podman info`: the namespace prefix, and on a
+// rootless podman the store podman reports named on the destination (issue #47 —
+// a copier left to its own storage.conf lookup can resolve a different store from
+// podman's). A store podman did not report falls back to the bare ref, as the
+// launch does. copierOut is the `.#imageCopier` out-link target. Pinned under
+// -short by TestTheHarnessLoadsTheImageTheWayALaunchDoes.
+func harnessCopyArgv(rt string, capture func(argv []string) (string, bool), copierOut, manifest string) []string {
+	facts := image.ReadPodmanStoreFacts(rt, capture)
+	return image.DeliveryCopyArgvFor(rt, facts, image.ImageCopierBinary(copierOut), manifest,
+		"localhost/"+jailImage)
 }
 
 // defaultJailTimeoutSeconds is the per-invocation deadline for a single
