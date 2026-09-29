@@ -458,15 +458,51 @@ func (s *CredentialScope) GrantedTo(agent string) []GrantedProvider {
 	return out
 }
 
-// credentialClaims maps each credential variable to the composed providers listing it.
+// credentialClaims maps each credential variable to the composed providers claiming it: every
+// name a provider's own `api_key_env_name` lists, and, for a provider that lists none but
+// declares a `platform`, every name a provider of the same platform lists.
+//
+// THE CLAIMS FOLLOW THE PLATFORM (PP-D9, docs/design/providers-and-profiles-redesign.md). Which
+// variables carry a platform's credential is the platform's fact, like the region variables the
+// region pre-flight reads by platform (BR-D1): an AWS SDK reads AWS_PROFILE whichever provider
+// entry its agent was pointed at. Without this, a user's own `{"platform": "aws-bedrock"}`
+// provider claimed nothing, the shipped `bedrock` beside it in the table still claimed the six AWS
+// names, and the gate withheld every one of them from the agent on the user's provider, and from
+// every other process: claude started in Bedrock mode with no AWS credential and nothing said so.
+// Measured with the embedded packs; the maintainer's "you need to be able to define your own and
+// get the same behavior" (OQ-BR8) is the rule this keeps.
+//
+// A provider that lists names of its own keeps exactly those: a declaration is never widened.
+// The siblings are read off the COMPOSED table, as every claim is, so a user's override of the
+// shipped list moves what a same-platform provider co-claims, and a platform no provider lists
+// names for adds nothing. Co-claims are not transitive: only a provider's own list is inherited.
 func credentialClaims(providers *jsonx.OrderedMap) map[string][]string {
 	out := map[string][]string{}
 	if providers == nil {
 		return out
 	}
+	byPlatform := map[string][]string{}
+	var inheritors []string
 	for _, name := range providers.Keys() {
-		for _, v := range CredentialEnvNames(providerEntry(providers, name)) {
-			out[v] = append(out[v], name)
+		entry := providerEntry(providers, name)
+		platform := entryString(entry, "platform")
+		names := CredentialEnvNames(entry)
+		if len(names) == 0 {
+			if platform != "" {
+				inheritors = append(inheritors, name)
+			}
+			continue
+		}
+		for _, v := range names {
+			out[v] = appendUnique(out[v], name)
+			if platform != "" {
+				byPlatform[platform] = appendUnique(byPlatform[platform], v)
+			}
+		}
+	}
+	for _, name := range inheritors {
+		for _, v := range byPlatform[entryString(providerEntry(providers, name), "platform")] {
+			out[v] = appendUnique(out[v], name)
 		}
 	}
 	for k := range out {

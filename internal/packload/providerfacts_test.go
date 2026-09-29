@@ -194,3 +194,61 @@ func TestTheOpenAIPrelaunchFollowsTheSubscriptionProvider(t *testing.T) {
 		t.Error("pi on another provider must get no OpenAI prelaunch")
 	}
 }
+
+// THE CLAIMS FOLLOW THE PLATFORM (PP-D9): a Bedrock provider of the user's own, declaring the
+// platform and no `api_key_env_name`, co-claims the AWS names the shipped `bedrock` beside it
+// claims, so the agent on it receives the env_sources AWS credentials and every other process
+// still does not. Before, the shipped provider was their only claimant, so the gate withheld
+// them from claude on `bedrock-eu` and from the shared set alike: claude started in Bedrock
+// mode with no AWS credential, while the docs said such a key reached every process.
+func TestAUserBedrockProviderReceivesTheAWSCredentialsItsPlatformClaims(t *testing.T) {
+	packs := embeddedNamed(t, "claude", "pi", "aws-auth", "openai-auth", "wire-bridge")
+	awsNames := []string{"AWS_PROFILE", "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_BEARER_TOKEN_BEDROCK"}
+	sources := jsonx.NewOrderedMap()
+	for _, k := range awsNames {
+		sources.Set(k, "value-of-"+strings.ToLower(k))
+	}
+	sources.Set("UNRELATED", "shared")
+	user := userProviders(t, `{"bedrock":{"region":"us-west-2"},
+	  "bedrock-eu":{"platform":"aws-bedrock","region":"eu-west-1"},
+	  "bedrock-own":{"platform":"aws-bedrock","region":"eu-west-2","api_key_env_name":"AWS_BEARER_TOKEN_BEDROCK"}}`)
+	userProfiles := map[string]UserProfile{
+		"eu":  {Provider: "bedrock-eu"},
+		"own": {Provider: "bedrock-own"},
+	}
+	scope := func(profiles map[string]string) *CredentialScope {
+		t.Helper()
+		providers, resolved, _ := launchSelection(t, packs, user, userProfiles, profiles)
+		s, err := ScopeCredentials(ScopeInput{Packs: packs, Providers: providers, Profiles: profiles,
+			Resolved: resolved, EnvSources: sources, NoDerives: true})
+		if err != nil {
+			t.Fatalf("the gate refused: %v", err)
+		}
+		return s
+	}
+	has := func(m *jsonx.OrderedMap, k string) bool { _, ok := m.Get(k); return ok }
+
+	for _, profile := range []string{"eu", "bedrock"} {
+		s := scope(map[string]string{"claude": profile, "pi": "codex"})
+		for _, k := range awsNames {
+			if !has(s.EnvSourcesFor("claude"), k) {
+				t.Errorf("claude on %s must receive %s", profile, k)
+			}
+			if has(s.EnvSourcesFor("pi"), k) || has(s.EnvSourcesFor(""), k) {
+				t.Errorf("claude on %s: %s must still reach no other process", profile, k)
+			}
+		}
+		if !has(s.EnvSourcesFor(""), "UNRELATED") {
+			t.Error("a variable no provider claims still reaches every process")
+		}
+	}
+
+	// A provider that lists its own names keeps exactly those: a declaration is never widened.
+	s := scope(map[string]string{"claude": "own"})
+	if !has(s.EnvSourcesFor("claude"), "AWS_BEARER_TOKEN_BEDROCK") {
+		t.Error("claude on a provider listing AWS_BEARER_TOKEN_BEDROCK must receive it")
+	}
+	if has(s.EnvSourcesFor("claude"), "AWS_PROFILE") {
+		t.Error("a provider listing its own credential names must not inherit its platform's others")
+	}
+}
