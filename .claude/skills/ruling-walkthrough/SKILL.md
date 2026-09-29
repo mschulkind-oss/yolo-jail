@@ -38,6 +38,10 @@ live conversation, with low latency: the maintainer answers in chat, the agent r
 - **When the maintainer asks "what is this / why", answer the premise, not the options.** A
   "why X at all?" usually targets the assumption under the options table; say what problem it
   arises from, then re-present the pair.
+- **Before presenting a question, check it against the principles already ruled this session.**
+  A question that a standing principle answers ("we construct an environment; we do not sniff
+  the command line"; "selecting the pack is the consent") should be recorded as answered, not
+  asked. Ask what is left, and say which principle settled the rest.
 - **If the maintainer's answer is none of the options**, record his rule in his words as the
   answer ("ruled, narrower than the leaning" / "none of the options as written"), not the
   nearest option.
@@ -94,5 +98,7 @@ edit this file in the same turn and commit it. Recorded adjustments:
   (BB1 → BB6) and queues it, rather than leaving the gap in prose.
 - 2026-09-29: every question opens with its concrete setup (the maintainer could not answer
   HP5/HP6 as first stated).
+- 2026-09-29: check each question against the session's principles first (HP5 and HP6 part 2
+  dissolved under them).
 - 2026-09-29: with ultracode on, review/improve passes on arriving docs and doc reconciliation
   run as workflows, not single agents.
