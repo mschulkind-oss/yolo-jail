@@ -254,10 +254,14 @@ func TestHostCodexClaudeRunsThroughALaunchOwnedBridge(t *testing.T) {
 			t.Errorf("the caller token is on the service's argv: %q", l.started[0].Argv)
 		}
 	}
-	for _, want := range []string{`started the "wire-bridge" service (pack "wire-bridge"`, "stops when claude exits"} {
+	for _, want := range []string{`started the "wire-bridge" service (pack "wire-bridge"`, "stops when claude exits",
+		"for claude on " + u.Host + ";"} {
 		if !strings.Contains(l.errs, want) {
 			t.Errorf("the launch must disclose the service it runs (%q):\n%s", want, l.errs)
 		}
+	}
+	if unused := l.started[0].Plan.Moved["127.0.0.1:8214"]; unused == "" || strings.Contains(l.errs, unused) {
+		t.Errorf("the disclosure names %q, a route claude was not pointed at:\n%s", unused, l.errs)
 	}
 	assertServiceGone(t, l)
 }

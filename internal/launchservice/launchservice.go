@@ -284,6 +284,25 @@ func (p *Plan) Addresses() []string {
 	return out
 }
 
+// AddressesIn is the plan's addresses that some value of environ (KEY=VALUE entries) names: the
+// ones an agent was actually pointed at, for the disclosure, since the service binds only the
+// routes its agents use. Every address when none is named.
+func (p *Plan) AddressesIn(environ []string) []string {
+	var out []string
+	for _, a := range p.Addresses() {
+		for _, kv := range environ {
+			if strings.Contains(kv, a) {
+				out = append(out, a)
+				break
+			}
+		}
+	}
+	if len(out) == 0 {
+		return p.Addresses()
+	}
+	return out
+}
+
 func loopbackHostPort(raw string) string {
 	u, err := url.Parse(raw)
 	if err != nil || u.Host == "" {

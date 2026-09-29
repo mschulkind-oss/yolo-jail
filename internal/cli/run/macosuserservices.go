@@ -18,6 +18,7 @@ package run
 import (
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
@@ -138,9 +139,19 @@ func (o *Options) startMacosUserServices(channel *packChannel) (func(), error) {
 			return func() {}, err
 		}
 		running = append(running, r)
-		o.pr(o.Stderr).print(fmt.Sprintf("Started the %q service (pack %q, pid %d) on %v for this "+
+		// The addresses its agents were pointed at: it binds only the routes they use.
+		var shaped []string
+		for _, agent := range o.launchServiceAgents[plan.Service] {
+			if d := channel.scope.Agent(agent); d != nil {
+				for _, v := range d.Shape {
+					shaped = append(shaped, v.Key+"="+v.Value)
+				}
+			}
+		}
+		o.pr(o.Stderr).print(fmt.Sprintf("Started the %q service (pack %q, pid %d) on %s for this "+
 			"launch, outside the sandbox: it answers only this launch's caller token and stops "+
-			"when the command exits. Its log: %s", plan.Service, plan.Pack, r.PID(), plan.Addresses(), log))
+			"when the command exits. Its log: %s", plan.Service, plan.Pack, r.PID(),
+			strings.Join(plan.AddressesIn(shaped), ", "), log))
 	}
 	return stop, nil
 }

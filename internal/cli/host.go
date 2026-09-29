@@ -607,7 +607,7 @@ func hostExec(flagArgs, cmd []string, out, errw io.Writer, stdin io.Reader) int 
 			running = append(running, r)
 			fmt.Fprintf(errw, "yolo host: started the %q service (pack %q, pid %d) for %s on %s; "+
 				"it answers only this launch's caller token and stops when %s exits. Its log: %s\n",
-				plan.Service, plan.Pack, r.PID(), launch.agent, strings.Join(plan.Addresses(), ", "),
+				plan.Service, plan.Pack, r.PID(), launch.agent, strings.Join(plan.AddressesIn(environ), ", "),
 				launch.agent, r.Log)
 		}
 		return launchservice.RunAgent(target, argv, environ, stdin, out, errw, running,
