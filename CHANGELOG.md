@@ -182,6 +182,16 @@ refusal names the field; move it to your user config. A project can still set a 
   the launch prints that store on its `Image store:` line. `yolo check` prints it too, and warns
   when Podman does not report one. You no longer need a `~/.config/containers/storage.conf` to
   work around this.
+
+- A Claude login on a Mac or Apple Container no longer asks you to log in again after its first
+  refresh. Claude Code in every jail, on every backend, now keeps its login in the folder all your
+  workspaces share, instead of reaching it through a link: its first refresh replaced that link
+  with a private copy, the next launch threw the copy away, and the shared login it fell back to
+  had already been used up. A login you make inside a jail now sticks for every workspace. The
+  logins Claude Code keeps for your MCP servers live in the same folder, so they now last across
+  restarts and are shared by every workspace too. `yolo host` is unchanged: Claude Code run
+  outside a jail keeps its own login. A jail started before you upgrade works the old way until
+  it restarts, and a workspace already caught in the loop asks for one last login.
 - An agent's briefing no longer calls its home "persistent across sessions". In a podman jail
   most of the home is read-only, so agents that believed it wrote their worktrees to `/tmp`,
   which is deleted once the jail exits. The briefing now lists the jail's storage classes: what

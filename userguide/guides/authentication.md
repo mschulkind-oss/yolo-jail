@@ -103,9 +103,12 @@ If your host has no git name or email set, the agent's first commit fails with
 - Run `yolo check`: it includes a self-check of the Claude broker.
 - `yolo host-daemon status` lists every host service yolo runs and whether each is healthy. On yolo
   0.10.0, which lacks it, `yolo broker status` checks the Claude login service.
-- If the shared Claude login was revoked or expired, a fresh login inside a jail can be replaced by
-  the dead one at your next launch. yolo records each time this happens in
-  `~/.yolo-shared-creds.log` inside the jail; read it if a login keeps not sticking.
+- Claude Code in a jail keeps its login in the folder every workspace shares, so a fresh `/login`
+  inside a jail sticks, and a refresh no longer asks you to log in again at the next launch. A
+  jail started before you upgraded yolo still works the old way until you restart it: there, and
+  for `agy`, a fresh login can be replaced by a revoked or expired shared one at your next launch.
+  yolo records each time this happens in `~/.yolo-shared-creds.log` inside the jail; read it if a
+  login keeps not sticking.
 
 [Settings per setup](../reference/settings-per-setup.md#5-do-i-have-to-log-in-again-in-every-workspace-and-in-a-second-jail-at-the-same-time)
 has the full per-setup detail.

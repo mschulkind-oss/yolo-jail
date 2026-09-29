@@ -625,15 +625,31 @@ does not have.
 ### Where the file actually is, and how Claude finds it
 
 The canonical location is `CLAUDE_SECURESTORAGE_CONFIG_DIR ?? CLAUDE_CONFIG_DIR ?? ~/.claude`, joined
-with `.credentials.json` (`function Wb()`, offset 191037919). **yolo sets neither variable** and
-reaches the shared file by symlink instead: [`packs/claude/pack.json`](../../packs/claude/pack.json)
-declares `.claude` as `{"kind":"state","scope":"workspace"}` and `.claude-shared-credentials` as
-`scope: "machine"`, joined by the `shared_credentials` hook, which `linkSharedCredential` in
+with `.credentials.json` (`function Wb()`, offset 191037919; `ev()` in 2.1.284, found by searching
+`CLAUDE_SECURESTORAGE_CONFIG_DIR;`). An empty value falls back to `~/.claude`, and `~` is not
+expanded.
+
+**yolo sets `CLAUDE_SECURESTORAGE_CONFIG_DIR`, and only that one**
+([CL-D22](../design/claude-login-without-interception.md#CL-D22), built by
+[CL-D23](../design/claude-login-without-interception.md#CL-D23)). Every jail launch whose packs
+link Claude's credential into the machine-scope directory, the claude pack's, sets it to that
+directory under the jail home, on every backend: `/home/agent/.claude-shared-credentials` on podman
+and Apple Container, the sandbox account's `~/.claude-shared-credentials` on `macos-user`. So Claude
+opens the real shared file, and keeps both its locks beside it. A credential-view launch does not
+set it, since Claude must read its view instead, and `yolo host` never does, since host Claude keeps
+the user's own login. `CLAUDE_CONFIG_DIR` stays unset, so `~/.claude` is still Claude's config
+directory.
+
+The symlink is still there, and now nothing in Claude's store reads through it:
+[`packs/claude/pack.json`](../../packs/claude/pack.json) declares `.claude` as
+`{"kind":"state","scope":"workspace"}` and `.claude-shared-credentials` as `scope: "machine"`,
+joined by the `shared_credentials` hook, which `linkSharedCredential` in
 [`internal/entrypoint`](../../internal/entrypoint/packhooks.go) renders as a **relative** symlink
 (`filepath.Rel`, in the shared `linkIntoSharedDir`) into a directory the pack declared shared
-(`declaresSharedDir`). Live in this jail:
-`~/.claude/.credentials.json -> ../.claude-shared-credentials/.credentials.json`. The broker's own
-default target is the same file under the global home
+(`declaresSharedDir`):
+`~/.claude/.credentials.json -> ../.claude-shared-credentials/.credentials.json`. It keeps that old
+path naming the one file ([CL-D24](../design/claude-login-without-interception.md#CL-D24)). The
+broker's own default target is the same file under the global home
 ([`oauthbrokercmd.go:15-21`](../../internal/oauthbroker/oauthbrokercmd.go)).
 
 The re-read that makes an external write visible is an **mtime sentinel** that resolves symlinks:
@@ -655,19 +671,20 @@ under its old minified name; it survived into 2.1.278 unchanged in substance.
 > conclusion holds; its mechanism sentence no longer does.
 
 > [!WARNING]
-> **The standing risk: a symlink-refusing store is already shipped, just not constructed.** The live
-> backend reads the credential with a plain `readFileSync`, so yolo's symlink is safe today. But the
-> same binary contains a store that opens with `O_RDONLY|O_NOFOLLOW`, maps `ELOOP` to
-> `{kind:"refused-symlink"}`, and `lstat`s the path — returning `{state:"read-failed",code:"ELOOP"}`
-> for a symlink. It is unreachable only because nothing constructs it:
-> `function Qkn(){if(!F())return;return}` — exported as `tryCreateV5Backend` — returns `undefined`
-> unconditionally (offset 200212086), behind a server-side gate. **The day that returns a real
-> backend, a symlinked `.credentials.json` reads as absent and every jail sees "please run /login"**
-> — flipped by a vendor gate, not by a yolo change. The mitigation is already identified: point
-> `CLAUDE_SECURESTORAGE_CONFIG_DIR` at the machine-scope directory so the real file sits where Claude
-> opens it, with no symlink in the credential path. The trade is that it moves the whole
-> secure-storage directory rather than that one file, and the keychain service name is derived from
-> that directory too.
+> **A risk that stood until [CL-D22](../design/claude-login-without-interception.md#CL-D22): a
+> symlink-refusing store is already shipped, just not constructed.** The live backend reads the
+> credential with a plain `readFileSync`. But the same binary contains a store that opens with
+> `O_RDONLY|O_NOFOLLOW`, maps `ELOOP` to `{kind:"refused-symlink"}`, and `lstat`s the path —
+> returning `{state:"read-failed",code:"ELOOP"}` for a symlink. It is unreachable only because
+> nothing constructs it: `function Qkn(){if(!F())return;return}` — exported as
+> `tryCreateV5Backend` — returns `undefined` unconditionally (offset 200212086), behind a
+> server-side gate. The day that returns a real backend, a symlinked `.credentials.json` reads as
+> absent, flipped by a vendor gate rather than a yolo change. **Mitigated since CL-D22:** Claude's
+> store is pointed at the machine-scope directory itself, so the file it opens is a regular file
+> and no symlink sits in its credential path. The trade, taken knowingly, is that the variable moves
+> the whole secure-storage directory rather than that one file, and on macOS the Keychain service
+> name is derived from that directory too, so a login a Mac's Claude kept in a Keychain rather than
+> in the file would not be found under the new name.
 
 ## Why a broker exists
 
@@ -684,6 +701,16 @@ function Jar(e,n){return{lockfilePath:lE(e,".oauth_refresh.lock"),realpath:!1,st
 with the directory argument being `Wb()` — the config dir. yolo redirects only the **leaf** out of
 that directory, which is exactly what splits the pair: the credentials file becomes machine-scope while
 both locks stay per-workspace. The broker is what puts serialization back, host-side.
+
+> [!NOTE]
+> **Since [CL-D22](../design/claude-login-without-interception.md#CL-D22) the pair is whole again.**
+> `Wb()` is `CLAUDE_SECURESTORAGE_CONFIG_DIR` first, and yolo now sets it to the machine-scope
+> directory on every jail launch but a view launch, so the file and both locks sit together there,
+> and every workspace's Claude takes the same `.oauth_refresh.lock` and `.storage-write.lock`. The
+> rest of this section describes the split as it stood, which still holds for any jail launched
+> before the change. On podman the broker still runs, and it now also writes the shared file under
+> `.storage-write.lock`, replacing only `claudeAiOauth`
+> ([CL-D25](../design/claude-login-without-interception.md#CL-D25)).
 
 > [!IMPORTANT]
 > **Two corrections to [`agent-credentials.md`](agent-credentials.md)'s account of that lock**, both
@@ -971,7 +998,7 @@ offset for re-measurement.
 | Spawn deadline | 5s for a just-spawned singleton to bind its socket, then the failed-spawn warning | `internal/broker/brokerlifecycle.go` (`BrokerSpawnTimeout`) |
 | Node/Bun trust var | `NODE_EXTRA_CA_CERTS`, one path — ⚠ joined as a list by yolo, read as a single filename by the consumer ([why that matters](#how-the-handshake-is-trusted)) | `internal/loopholes/runtime.go`; Claude Code 2.1.278 (`node:tls` compat, offset 22158845) |
 | OpenSSL-family trust vars | `SSL_CERT_FILE`, `REQUESTS_CA_BUNDLE`, `CURL_CA_BUNDLE`, `GIT_SSL_CAINFO` → `$HOME/.yolo-ca-bundle.crt` | `internal/entrypoint/system.go` (`GenerateCABundle`), `boot.go`, `shell.go`; bound from the workspace in `internal/cli/run/assemble_parts.go` |
-| Vendor credential path | `CLAUDE_SECURESTORAGE_CONFIG_DIR ?? CLAUDE_CONFIG_DIR ?? ~/.claude` + `.credentials.json`; yolo sets **neither** variable | Claude Code 2.1.278 (`Wb()`, offset 191037919); `packs/claude/pack.json`, `internal/entrypoint/packhooks.go` |
+| Vendor credential path | `CLAUDE_SECURESTORAGE_CONFIG_DIR ?? CLAUDE_CONFIG_DIR ?? ~/.claude` + `.credentials.json`; yolo sets `CLAUDE_SECURESTORAGE_CONFIG_DIR` to the machine-scope directory on every jail launch but a view launch, and never `CLAUDE_CONFIG_DIR` | Claude Code 2.1.278 (`Wb()`, offset 191037919), 2.1.284 (`ev()`); `packs/claude/pack.json`, `internal/cli/run/claudesecurestorage.go` |
 | Shared-credentials join | relative symlink from `.claude/.credentials.json` into the `scope: machine` `.claude-shared-credentials` | `packs/claude/pack.json`; `internal/entrypoint/packhooks.go` (`linkSharedCredential`) |
 | Vendor refresh lock | `<configDir>/.oauth_refresh.lock`, `realpath:false`, stale `60000`, update `5000` — per-jail | Claude Code 2.1.278 (offset 192117058) |
 | Vendor **legacy** refresh lock | `realpath(<configDir>) + ".lock"` — a second lock, per-jail, taken after the first | Claude Code 2.1.278 (offset 192117521) |
