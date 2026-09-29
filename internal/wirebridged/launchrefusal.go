@@ -55,7 +55,10 @@ import (
 //     `use_profiles` entry may name an agent this launch does not carry);
 //   - an agent that is not a via agent (preferredViaWire: claude and copilot prefer
 //     `anthropic` and reach the bridge through its adapter routes, and an agent that
-//     declares no protocols, such as agy, names no wire the via route carries);
+//     declares no protocols, such as agy, names no wire the via route carries). It is never
+//     refused, and it is DISCLOSED (unroutedViaNotice) when it declares a protocol and its
+//     config does not point it at its via URL, since then the via carries none of its
+//     requests while its profile says it does;
 //   - an agent whose via URL is empty (packload.ViaURLFor): no via, or its service is not
 //     in this launch, which the host notch's inert table always gives. An agent that is not
 //     re-pointed cannot be refused at a prefix.
@@ -75,6 +78,9 @@ func ViaRouteGate(packs []*packload.Pack, providers *jsonx.OrderedMap,
 	for _, agent := range agents {
 		wire, protocol, viaAgent := preferredViaWire(packs, agent)
 		if !viaAgent {
+			if n := unroutedViaNotice(packs, providers, useProfiles, resolved, agent, protocol); n != "" {
+				notices = append(notices, n)
+			}
 			continue
 		}
 		profile := useProfiles[agent]
@@ -149,6 +155,63 @@ func ViaRouteGate(packs []*packload.Pack, providers *jsonx.OrderedMap,
 			agent, missing, protocol, missing, profile))
 	}
 	return refusals, notices
+}
+
+// unroutedViaNotice is the notice for an agent that is NOT a via agent, one whose first declared
+// protocol is a wire the via route does not carry (claude and copilot prefer `anthropic`), when
+// its active profile nonetheless routes it through this service and its config does not point it
+// at its via URL. Such a via carries none of the agent's requests, and nothing said so: a profile
+// over `bedrock` with "via": "wire-bridge" (the everything profile's shape, OQ-BR11) turns claude's
+// own Bedrock client off (PP-D4) while no via route serves claude, so claude started on its own
+// login with no word of it. When the installing pack declares a platform switch for the selected
+// provider's platform, the notice names it: the agent reaches that platform through its own client
+// alone. "" for anything else, which the gate stays silent on as before: an agent that declares no
+// protocols (nothing in its pack reads a via), no live via URL, a via that is not this service's,
+// a derive that cannot be run (the boot refuses over it), or a config the via does re-point.
+func unroutedViaNotice(packs []*packload.Pack, providers *jsonx.OrderedMap, useProfiles map[string]string,
+	resolved map[string]packload.ResolvedProfile, agent, protocol string) string {
+	if protocol == "" {
+		return ""
+	}
+	profile := useProfiles[agent]
+	r := resolved[profile]
+	url := packload.ViaURLFor(r, agent)
+	if url == "" {
+		return ""
+	}
+	if alone := viaRoutesFor(providers, map[string]string{agent: profile}, resolved); len(alone.Routes) == 0 &&
+		len(alone.Skipped) == 0 {
+		return "" // not a via route of this service at all
+	}
+	pointers, err := packload.DerivedViaPointers(packs, providers, useProfiles, resolved, agent)
+	if err != nil || len(pointers) > 0 {
+		return ""
+	}
+	msg := fmt.Sprintf("profile %q (active for %s) routes %s through %s (via: %q), but no via route "+
+		"carries %s: it speaks %q, a wire the via route does not pass, and its config does not point "+
+		"it at its via URL, %s, so the via sends none of %s's requests through %s.", profile, agent,
+		agent, ServiceName, r.Via, agent, protocol, url, agent, ServiceName)
+	var entry *jsonx.OrderedMap
+	if providers != nil {
+		if v, ok := providers.Get(r.Provider); ok {
+			entry, _ = v.(*jsonx.OrderedMap)
+		}
+	}
+	if platform := entryString(entry, "", "platform"); platform != "" {
+		for _, p := range packs {
+			if p == nil || p.Decl == nil {
+				continue
+			}
+			for _, sw := range p.Decl.PlatformSwitches(agent) {
+				if sw.Platform == platform {
+					msg += fmt.Sprintf(" %s reaches a provider of platform %q, such as %q, only through its own "+
+						"client, which %s in %s switches on.", agent, platform, r.Provider, sw.Key(), sw.Surface)
+					return msg + fmt.Sprintf(" Remove \"via\" from profile %q so %s uses that client", profile, agent)
+				}
+			}
+		}
+	}
+	return msg + fmt.Sprintf(" Remove \"via\" from profile %q", profile)
 }
 
 // preferredViaWire is the wire an agent's client sends through a via route, read off the

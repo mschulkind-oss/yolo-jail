@@ -300,6 +300,29 @@ func TestShippedSubscriptionViaRefusesOnlyTheAgentItRepoints(t *testing.T) {
 	wantNone(t, "native agents' notices", joined, "(active for opencode)")
 }
 
+// TestShippedClaudeOnABridgedBedrockProfileIsDisclosed: claude prefers `anthropic`, which no via
+// route carries, and its config never points it at its via URL, so a profile over `bedrock` with a
+// via (the everything profile's shape, OQ-BR11) carries none of claude's requests, while that via
+// turns claude's own Bedrock client off (PP-D4). The launch used to say nothing, and claude started
+// on its own login. It is disclosed now, naming claude's own Bedrock switch, and never refused.
+func TestShippedClaudeOnABridgedBedrockProfileIsDisclosed(t *testing.T) {
+	refusals, notices := shippedGate(t, "bedrock", "claude")
+	if len(refusals) != 0 || len(notices) != 1 {
+		t.Fatalf("refusals %v notices %v, want one notice", refusals, notices)
+	}
+	wantAll(t, "claude notice", notices[0], `profile "v" (active for claude)`,
+		"no via route carries claude", `it speaks "anthropic"`,
+		"does not point it at its via URL, http://127.0.0.1:8216/agent/claude",
+		"the via sends none of claude's requests through wire-bridge",
+		`claude reaches a provider of platform "aws-bedrock", such as "bedrock", only through its own client`,
+		"CLAUDE_CODE_USE_BEDROCK in claude/settings", `Remove "via" from profile "v"`)
+	// On a provider of no platform the notice names no switch.
+	_, notices = shippedGate(t, "zai", "claude")
+	if len(notices) != 1 || strings.Contains(notices[0], "switches on") {
+		t.Errorf("claude on a via over zai: one notice naming no switch, got %v", notices)
+	}
+}
+
 // TestShippedAgentsOutsideTheViaCheck: agy declares no protocols and nothing in its pack reads
 // ctx.via_url, so a via on its profile is neither refused nor disclosed.
 func TestShippedAgentsOutsideTheViaCheck(t *testing.T) {
