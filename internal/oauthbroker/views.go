@@ -19,6 +19,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 
@@ -145,12 +146,35 @@ func readView(r *viewRegistration) (viewState, error) {
 // claudeAiOauth replaced by the projection, or removed when projection is nil. Bytes that are
 // not a JSON object are replaced whole.
 func viewBytes(current []byte, projection *jsonx.OrderedMap) ([]byte, error) {
+	return storeBytes(current, []string{"claudeAiOauth"}, projection)
+}
+
+// accountKeys are the top-level keys of Claude's credential store that belong to the signed-in
+// account, which a machine sign-out removes from every Claude store the broker writes, the
+// shared file and each view (CL-D26, docs/design/claude-login-without-interception.md).
+// MEASURED in the 2.1.284 binary (search `re-login secure-storage prune`): Claude's own logout,
+// on the branch that keeps the store's other logins, deletes exactly these five and keeps
+// everything else (`mcpOAuth`, `pluginSecrets`, `coworkRemoteDevice` among it). Removing
+// claudeAiOauth alone left a Claude Design login, with its own refresh token, the
+// trusted-device token and the organization in a file every jail reads.
+var accountKeys = []string{"claudeAiOauth", "organizationUuid", "trustedDeviceToken",
+	"enterpriseGateway", "designOauth"}
+
+// signedOutBytes renders a signed-out store from the file's CURRENT bytes: accountKeys
+// removed, every other top-level key kept. Nothing is revoked upstream (CL-D15).
+func signedOutBytes(current []byte) ([]byte, error) {
+	return storeBytes(current, accountKeys, nil)
+}
+
+// storeBytes is the body viewBytes and signedOutBytes share: current's top-level keys but
+// drop, then claudeAiOauth set to projection when there is one.
+func storeBytes(current []byte, drop []string, projection *jsonx.OrderedMap) ([]byte, error) {
 	out := jsonx.NewOrderedMap()
 	if len(current) > 0 {
 		if decoded, err := jsonx.Decode(current); err == nil {
 			if root, ok := decoded.(*jsonx.OrderedMap); ok {
 				for _, k := range root.Keys() {
-					if k == "claudeAiOauth" {
+					if slices.Contains(drop, k) {
 						continue
 					}
 					v, _ := root.Get(k)
@@ -246,8 +270,9 @@ func publishViewsLocked(oauth *jsonx.OrderedMap) {
 	saveMarks(dirty)
 }
 
-// signOutViewsLocked removes the login from every registered view, for a machine sign-out, and
-// resets each registration so the signed-out view is not then read as its workspace's /logout.
+// signOutViewsLocked removes the login, and the account's other keys (accountKeys), from every
+// registered view, for a machine sign-out, and resets each registration so the signed-out view
+// is not then read as its workspace's /logout.
 func signOutViewsLocked() int {
 	n := 0
 	for _, r := range loadRegistrations() {
@@ -255,7 +280,7 @@ func signOutViewsLocked() int {
 			if current == nil {
 				return nil, nil
 			}
-			return viewBytes(current, nil)
+			return signedOutBytes(current)
 		})
 		if err != nil {
 			handleViewError(r, err)

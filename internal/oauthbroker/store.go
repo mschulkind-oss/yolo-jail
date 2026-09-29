@@ -237,9 +237,8 @@ func (s store) saveLocked(oauth *jsonx.OrderedMap) error {
 	return nil
 }
 
-// writeLegacy replaces the legacy shared file's claudeAiOauth with oauth, or removes it when
-// oauth is nil, keeping every other key, under Claude's own storage lock in that directory
-// (claudeview.UpdateSharedFile).
+// writeLegacy replaces the legacy shared file's claudeAiOauth with oauth, keeping every other
+// key, under Claude's own storage lock in that directory (rewriteLegacy).
 //
 // NOT A WHOLE-FILE WRITE ANY MORE, because the file is no longer only the broker's. CL-D22's
 // bridge points every interception jail's Claude credential store at this directory, so Claude
@@ -249,8 +248,14 @@ func (s store) saveLocked(oauth *jsonx.OrderedMap) error {
 // the tokens this refresh had just spent, which syncLocked would then adopt as a newer login.
 // Views already have both protections (CL-D13); this is the same two for the shared file.
 func writeLegacy(path string, oauth *jsonx.OrderedMap) error {
-	_, locked, err := claudeview.UpdateSharedFile(filepath.Dir(path), filepath.Base(path),
-		func(current []byte) ([]byte, error) { return viewBytes(current, oauth) })
+	return rewriteLegacy(path, func(current []byte) ([]byte, error) { return viewBytes(current, oauth) })
+}
+
+// rewriteLegacy read-modify-writes the legacy shared file with render under Claude's own
+// storage lock in that directory (claudeview.UpdateSharedFile): writeLegacy's refresh, and a
+// sign-out's signedOutBytes.
+func rewriteLegacy(path string, render func(current []byte) ([]byte, error)) error {
+	_, locked, err := claudeview.UpdateSharedFile(filepath.Dir(path), filepath.Base(path), render)
 	if err == nil && !locked {
 		logInfo("canonical: wrote %s without Claude's storage lock (held past the wait, or unusable)", path)
 	}
@@ -266,18 +271,18 @@ var viewDelay func()
 // file is: a test's window onto CL-D12's order, which modification times are too coarse to show.
 var onViewsPublished func()
 
-// signOutLocked signs the machine out: the canonical goes, the legacy file (when rewriteLegacy
-// and it exists) loses its claudeAiOauth entry, and every registered view loses its own, other
-// keys kept in both (writeLegacy). Each registration forgets that the broker wrote it, so the
-// signed-out view is not then read as that workspace's /logout (views.go). It returns how many
-// views it rewrote.
-func (s store) signOutLocked(rewriteLegacy bool) int {
+// signOutLocked signs the machine out: the canonical goes, and the legacy file (when
+// clearLegacy and it exists) and every registered view lose the account's keys, the login and
+// the four others Claude's own logout removes with it (accountKeys, CL-D26), every other key
+// kept. Each registration forgets that the broker wrote it, so the signed-out view is not then
+// read as that workspace's /logout (views.go). It returns how many views it rewrote.
+func (s store) signOutLocked(clearLegacy bool) int {
 	if err := os.Remove(s.canonical); err != nil && !errors.Is(err, fs.ErrNotExist) {
 		logWarn("sign-out: could not remove the canonical login: %s", err)
 	}
-	if rewriteLegacy && s.split() {
+	if clearLegacy && s.split() {
 		if _, err := os.Lstat(s.legacy); err == nil {
-			if err := writeLegacy(s.legacy, nil); err != nil {
+			if err := rewriteLegacy(s.legacy, signedOutBytes); err != nil {
 				logWarn("sign-out: could not clear the shared credentials file: %s", err)
 			}
 		}

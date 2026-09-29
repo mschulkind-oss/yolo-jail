@@ -43,7 +43,8 @@ type SignOutResult struct {
 
 // SignOut signs the machine out of Claude (`yolo claude-auth logout`): the canonical login is
 // deleted, and the shared credentials file interception jails read and every registered view
-// lose their login, other keys kept. Nothing is revoked upstream, as
+// lose the account's keys, the login and the four others Claude's own logout removes with it
+// (accountKeys, CL-D26), every other key kept. Nothing is revoked upstream, as
 // `yolo openai-auth logout` revokes nothing: the grant is removed from this machine, which is
 // what "sign the machine out" means, and a user who wants it dead at Anthropic too revokes it
 // from the account (CL-D15). Needs ConfigureStore. Signing out a signed-out machine succeeds.

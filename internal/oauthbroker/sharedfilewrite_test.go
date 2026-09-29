@@ -113,6 +113,59 @@ func TestASignOutKeepsClaudesOtherKeysInTheSharedFile(t *testing.T) {
 	}
 }
 
+// A machine sign-out removes what Claude's own logout removes as the account's, not only
+// claudeAiOauth: under the bridge the shared file is every jail's whole Claude store, so a Claude
+// Design login (designOauth, with its own refresh token), the trusted-device token, the
+// organization and an enterprise gateway login would otherwise outlive the sign-out in a file
+// every jail reads. What is not the account's (MCP servers' logins, plugin secrets, the device
+// identity) stays, as Claude's own account prune keeps it. A registered view is Claude's store
+// in a view jail, and is signed out the same way.
+func TestASignOutRemovesEveryAccountCredentialAndKeepsTheRest(t *testing.T) {
+	f := newViewFixture(t)
+	account := map[string]any{
+		"organizationUuid":   "org-1",
+		"trustedDeviceToken": "tdt-secret",
+		"enterpriseGateway":  map[string]any{"idpRefreshToken": "gw-secret"},
+		"designOauth":        map[string]any{"accessToken": "design-at", "refreshToken": "design-rt"},
+	}
+	kept := map[string]any{
+		"mcpOAuth":           mcpLogins(),
+		"pluginSecrets":      map[string]any{"plugin": map[string]any{"KEY": "v"}},
+		"coworkRemoteDevice": map[string]any{"dev": map[string]any{"privateKeyPkcs8B64": "k"}},
+	}
+	store := map[string]any{}
+	for k, v := range account {
+		store[k] = v
+	}
+	for k, v := range kept {
+		store[k] = v
+	}
+	writeLogin(t, CanonicalPath, "AT_machine", "RT_machine", nowMS()+7*3600_000, nil)
+	writeLogin(t, f.legacy, "AT_machine", "RT_machine", nowMS()+7*3600_000, store)
+	alpha := f.workspace(t, "alpha")
+	writeLogin(t, alpha.Path(), "AT_machine", "", nowMS()+7*3600_000, store)
+
+	if _, err := SignOut(); err != nil {
+		t.Fatalf("SignOut: %v", err)
+	}
+	for _, file := range []string{f.legacy, alpha.Path()} {
+		root := readRoot(t, file)
+		for k := range account {
+			if _, ok := root.Get(k); ok {
+				t.Errorf("%s: the sign-out left the account's %s behind", file, k)
+			}
+		}
+		if _, ok := root.Get("claudeAiOauth"); ok {
+			t.Errorf("%s: the sign-out left a Claude login behind", file)
+		}
+		for k := range kept {
+			if _, ok := root.Get(k); !ok {
+				t.Errorf("%s: the sign-out deleted %s, which is not the account's", file, k)
+			}
+		}
+	}
+}
+
 // Any process in any claude jail can make Claude's storage lock unremovable: a stale lock with
 // something inside it, which rmdir refuses. The broker writes the shared file holding
 // refresh.lock, so a lock wait with no bound there is every jail's refresh on the machine

@@ -96,9 +96,10 @@ into a jail, so at the host it does nothing, and the report says so, as it does 
 
 **`yolo claude-auth` manages this machine's Claude login, as `yolo openai-auth` does for OpenAI.**
 `yolo claude-auth logout` signs the whole machine out: every workspace and every jail lose the
-login until someone runs `/login` in a jail again. `yolo claude-auth status` shows the machine's
-login, and `yolo claude-auth inspect <file>` describes one credentials file; both show field
-names, expiry times and short fingerprints, never a token. `yolo claude-auth refresh` renews the
+login, and a Claude Design login kept with it, until someone runs `/login` in a jail again, while
+logins to MCP servers stay. `yolo claude-auth status` shows the machine's login, and
+`yolo claude-auth inspect <file>` describes one credentials file; both show field names, expiry
+times and short fingerprints, never a token. `yolo claude-auth refresh` renews the
 login now. A way for jails to share the login without intercepting its renewal is built but off
 until it has been measured; see
 [Claude login without interception](docs/design/claude-login-without-interception.md).
