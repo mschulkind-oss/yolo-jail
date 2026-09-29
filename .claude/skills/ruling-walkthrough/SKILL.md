@@ -47,7 +47,9 @@ live conversation, with low latency: the maintainer answers in chat, the agent r
   1. **Answers:** every question or musing of the maintainer's that bears on an open question goes
      INSIDE the panel, not above it — anything above scrolls by. It STAYS in every later panel
      until the question it bears on is ruled; a turn spent on something else (a landing, an issue)
-     still re-shows it. Answers to side questions ("nothing needed from you?") go in too.
+     still re-shows it. Answers to side questions ("nothing needed from you?", "do we need to
+     update X?") go in too, and a side answer STAYS in every panel until the set that was open
+     when it was asked is ruled; the maintainer should never have to ask twice.
   2. **Round progress:** sets done / remaining in this round, what was ruled this turn, what
      was added to the queue.
   3. **Docs in play:** one line per doc touched this round — its state (reviewing, ruled,
@@ -142,3 +144,5 @@ edit this file in the same turn and commit it. Recorded adjustments:
 
 - 2026-09-29: the setup is a story (who, what they run, what happens, why it is a question), on
   every showing; re-shown sets had been cut to their options and lost the context.
+- 2026-09-29: side-question answers persist until the set open when they were asked is ruled (the
+  GPT-6.1 Sol answer scrolled off and had to be asked for again).
