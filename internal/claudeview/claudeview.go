@@ -292,11 +292,22 @@ const storageLockStale = 15 * time.Second
 // once the refresh has revoked the old token, so the wait is short and the write goes ahead.
 var StorageLockWait = 2 * time.Second
 
+// onStaleLockBroken, when set, runs each time acquireStorageLock has removed a stale lock and
+// before it tries again: a test's window onto a jail planting the lock back in that gap.
+var onStaleLockBroken func()
+
 // acquireStorageLock takes Claude's storage lock beneath r, waiting up to StorageLockWait and
 // breaking a lock older than proper-lockfile's own stale limit, as proper-lockfile would. It
 // returns the release, and whether the lock was held: false means the write goes ahead
 // without it (the wait ran out, or something other than a directory sits at the name, which is
 // left alone).
+//
+// EVERY WAY ROUND THE LOOP ENDS AT THE DEADLINE, because the directory is jail-writable and the
+// broker calls this holding refresh.lock (every view write, and since CL-D25 the shared file's
+// on every podman refresh, store.go's writeLegacy): a wait with no bound is every jail on the
+// machine unable to refresh. So a stale lock that cannot be removed (the jail put something
+// inside it, and rmdir fails) is waited on like a held one, and one the jail plants again each
+// time it is broken is retried only until the deadline. Nothing inside a lock is ever removed.
 func acquireStorageLock(r *os.Root) (func(), bool) {
 	deadline := time.Now().Add(StorageLockWait)
 	for {
@@ -311,12 +322,14 @@ func acquireStorageLock(r *os.Root) (func(), bool) {
 		if lerr == nil && !fi.IsDir() {
 			return func() {}, false
 		}
-		if lerr == nil && time.Since(fi.ModTime()) > storageLockStale {
-			_ = r.Remove(StorageLockDir)
-			continue
-		}
 		if time.Now().After(deadline) {
 			return func() {}, false
+		}
+		if lerr == nil && time.Since(fi.ModTime()) > storageLockStale && r.Remove(StorageLockDir) == nil {
+			if onStaleLockBroken != nil {
+				onStaleLockBroken()
+			}
+			continue
 		}
 		time.Sleep(50 * time.Millisecond)
 	}

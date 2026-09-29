@@ -112,3 +112,40 @@ func TestASignOutKeepsClaudesOtherKeysInTheSharedFile(t *testing.T) {
 		t.Error("the sign-out deleted the shared file's mcpOAuth, which is not the machine's login")
 	}
 }
+
+// Any process in any claude jail can make Claude's storage lock unremovable: a stale lock with
+// something inside it, which rmdir refuses. The broker writes the shared file holding
+// refresh.lock, so a lock wait with no bound there is every jail's refresh on the machine
+// blocked. The tick must come back within the lock wait and write the file without the lock.
+func TestAnUnremovableStaleLockDoesNotHoldTheRefresh(t *testing.T) {
+	f := newViewFixture(t)
+	savedWait := claudeview.StorageLockWait
+	claudeview.StorageLockWait = 200 * time.Millisecond
+	t.Cleanup(func() { claudeview.StorageLockWait = savedWait })
+	writeLogin(t, CanonicalPath, "AT_old", "RT_old", nowMS()+20*60_000, nil)
+	writeLogin(t, f.legacy, "AT_old", "RT_old", nowMS()+20*60_000, nil)
+
+	lock := filepath.Join(filepath.Dir(f.legacy), claudeview.StorageLockDir)
+	if err := os.MkdirAll(filepath.Join(lock, "x"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	old := time.Now().Add(-time.Hour)
+	if err := os.Chtimes(lock, old, old); err != nil {
+		t.Fatal(err)
+	}
+
+	done := make(chan struct{})
+	go func() {
+		BackgroundRefreshTick(f.legacy, BackgroundRefreshLeadSeconds)
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(claudeview.StorageLockWait + 5*time.Second):
+		t.Fatal("the background tick was still inside the shared file's write, holding " +
+			"refresh.lock, long after the storage lock wait")
+	}
+	if got := str(oauthOf(t, f.legacy), "refreshToken"); got != "RT_1" {
+		t.Errorf("the shared file holds refresh token %q, want RT_1 written without the lock", got)
+	}
+}
