@@ -278,10 +278,46 @@ func TestNewBrokerTakesTheScopeFromTheFile(t *testing.T) {
 	var log bytes.Buffer
 	b, cleanup := newBroker(brokerscope.File{Workspace: "/w", Repos: []string{"o/r"}, Widened: []string{"x/y"}}, "/w", &log)
 	defer cleanup()
+	// A widened repository joins the scope for every set (OQ-BB9, ruled A).
 	if got := b.scope.Repos(); strings.Join(got, ",") != "o/r,x/y" {
 		t.Fatalf("scope %v", got)
 	}
-	if !strings.Contains(log.String(), "scope for /w: o/r, x/y") || !strings.Contains(log.String(), "no host gh") {
+	if !strings.Contains(log.String(), "no gh on the host's PATH") {
+		t.Fatalf("log %q", log.String())
+	}
+}
+
+// The daemon's log is one file per loophole name under logs/, shared by every jail on the
+// machine and commonly mounted into them, so it names no workspace, no repository and no
+// host path (newBroker).
+func TestTheBrokersLogNamesNoWorkspaceRepositoryOrHostPath(t *testing.T) {
+	root := resolvedDir(t)
+	gh := fakeGH(t, filepath.Join(root, "fake"), "2.101.0")
+	cfg := filepath.Join(root, "host-gh-config")
+	if err := os.MkdirAll(cfg, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cfg, "hosts.yml"), []byte("github.com:\n    user: me\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOME", resolvedDir(t))
+	t.Setenv("PATH", filepath.Dir(gh)+":/usr/bin:/bin")
+	t.Setenv("GH_CONFIG_DIR", cfg)
+	ws := filepath.Join(resolvedDir(t), "secret-client-project")
+	var log bytes.Buffer
+	b, cleanup := newBroker(brokerscope.File{Workspace: ws, Repos: []string{"acme/private-roadmap"},
+		Widened: []string{"acme/other-private"}}, ws, &log)
+	defer cleanup()
+	if b.runner == nil {
+		t.Fatalf("no runner: %s", log.String())
+	}
+	for _, leak := range []string{ws, "secret-client-project", "acme/private-roadmap", "acme/other-private",
+		gh, cfg} {
+		if strings.Contains(log.String(), leak) {
+			t.Errorf("the daemon's log names %q:\n%s", leak, log.String())
+		}
+	}
+	if !strings.Contains(log.String(), "host gh version 2.101.0") {
 		t.Fatalf("log %q", log.String())
 	}
 }

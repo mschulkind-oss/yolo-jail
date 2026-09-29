@@ -374,7 +374,22 @@ func lookPathIn(pathList, name string) (string, error) {
 	return "", exec.ErrNotFound
 }
 
-// Describe is the line the broker logs at start and `yolo check` prints.
+// Summary is the line the broker logs at start: Describe without the host paths, since the
+// daemon's log is shared by every jail on the machine (newBroker).
+func (r *Runner) Summary() string {
+	tested := "inside the tested range " + testedMinor + ".x"
+	if !r.Tested {
+		tested = "OUTSIDE the tested range " + testedMinor + ".x"
+	}
+	v := r.Version
+	if v == "" {
+		v = "unknown"
+	}
+	return "host gh version " + v + ", " + tested + "; hosts.yml copied: " +
+		strconv.FormatBool(r.HostsFile != "") + "; token held for redaction: " + strconv.FormatBool(r.TokenRead)
+}
+
+// Describe is the line `yolo check` prints, on the terminal that ran it.
 func (r *Runner) Describe() string {
 	tested := "inside the tested range " + testedMinor + ".x"
 	if !r.Tested {

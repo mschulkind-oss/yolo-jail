@@ -103,6 +103,13 @@ func Main(argv []string) int {
 
 // newBroker builds a broker for one launch's scope file, logging what it starts with.
 // spawnCwd is the directory the launch spawned it from, the workspace.
+//
+// THE LOG NAMES NO WORKSPACE, NO REPOSITORY AND NO HOST PATH. It is the daemon's stderr,
+// which the launch appends to one file per loophole name under logs/, shared by every jail
+// on the machine, and logs/ is the directory a `mounts` entry commonly exposes to a jail. So
+// one jail could read every other workspace's path and approved private repositories there.
+// The launch already discloses the scope on its own terminal (writeScopeFiles), the jail's
+// stderr names a refused gh, and the audit log, which yolo mounts into no jail, holds the rest.
 func newBroker(sf brokerscope.File, spawnCwd string, log io.Writer) (*Broker, func()) {
 	startID, _ := brokerscope.NewLaunchID()
 	runDir := filepath.Join(paths.BrokerSourceDir(Source), "run", startID)
@@ -115,19 +122,21 @@ func newBroker(sf brokerscope.File, spawnCwd string, log io.Writer) (*Broker, fu
 		log: log,
 		now: time.Now,
 	}
-	fmt.Fprintf(log, "github-broker: scope for %s: %s\n", sf.Workspace, b.scope.describe())
 	r, err := NewRunner(RunnerOptions{RunDir: runDir, Getenv: os.Getenv,
 		Refuse: placementRefusal(sf.Workspace, spawnCwd)})
 	if err != nil {
 		var refused *RefusedGHError
 		if errors.As(err, &refused) {
 			b.unavailable = refused.Why
+			fmt.Fprintln(log, "github-broker: the host gh on PATH is inside a tree an agent writes, so the "+
+				"broker will not run it; every call answers 69 and says why")
+		} else {
+			fmt.Fprintln(log, "github-broker: no gh on the host's PATH; every call answers 69")
 		}
-		fmt.Fprintln(log, "github-broker: no host gh it will run:", err, "— every call answers 69")
 		return b, func() { _ = os.RemoveAll(runDir) }
 	}
 	b.runner = r
-	fmt.Fprintln(log, "github-broker:", r.Describe())
+	fmt.Fprintln(log, "github-broker:", r.Summary())
 	return b, r.Close
 }
 
