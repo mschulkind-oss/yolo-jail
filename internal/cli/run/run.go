@@ -2102,7 +2102,7 @@ func (o *Options) attachExisting(cname, rt, targetCmd string, cfg *jsonx.Ordered
 		// The briefing's I/O priority is the one this jail's processes hold, from its frozen
 		// environment, never the current config's (refreshJailBriefings says why). So is its
 		// durable dir: the one its launch exported, which this attach inherits.
-		o.durable = durableDirFromLaunchEnv(envLines)
+		o.durable = durableDirFromLaunchEnv(envLines, cfg, o.Workspace)
 		_, refreshErr = o.refreshJailBriefings(cname, cfg, rt, view.staged, o.launchedIOPriority(rt, envLines))
 		sp.End()
 	}

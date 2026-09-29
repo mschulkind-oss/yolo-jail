@@ -29,9 +29,15 @@ import (
 func (o *Options) ensureDurableDir(rt string, cfg *jsonx.OrderedMap) *jailcontent.DurableDir {
 	d := &jailcontent.DurableDir{}
 	o.durable = d
-	if entry, covered := durableCoveredByReadonly(cfg, o.Workspace); covered {
-		d.Unavailable = "the `workspace_readonly` entry `" + entry + "` makes it read-only"
-	} else if _, err := durable.Ensure(o.Workspace); err != nil {
+	// A --dry-run (macos-user's) describes the launch and creates nothing in the workspace:
+	// it asks why the directory could not be made, and reports the path a real launch would.
+	ensure := func(ws string) error { _, err := durable.Ensure(ws); return err }
+	if o.DryRun {
+		ensure = durable.Check
+	}
+	if reason := durableReadonlyReason(cfg, o.Workspace); reason != "" {
+		d.Unavailable = reason
+	} else if err := ensure(o.Workspace); err != nil {
 		d.Unavailable = durable.Reason(err, o.Workspace)
 	} else if slices.Contains(paths.NativeRuntimes, rt) { // parity: HonoredBy — macos-user reaches the same directory at the workspace's real path, which is where its agent runs
 		d.Path = durable.HostPath(o.Workspace)
@@ -47,13 +53,32 @@ func (o *Options) ensureDurableDir(rt string, cfg *jsonx.OrderedMap) *jailconten
 }
 
 // durableDirFromLaunchEnv is an attach's answer: the variable the running jail's launch
-// exported, from its frozen environment. A jail started without one (a launcher older than
-// the durable dir, or a launch whose dir could not be made) has none this session.
-func durableDirFromLaunchEnv(envLines []string) *jailcontent.DurableDir {
+// exported, from its frozen environment. A jail started without one has none this session,
+// and the attach says why as precisely as it can WITHOUT creating anything: the causes a
+// fresh launch would still hit today (a covering `workspace_readonly` entry, a link or a
+// non-directory at `.yolo` or `durable`), else neutral words, since the launch may have been
+// older than the durable dir or have failed for a reason that is gone.
+func durableDirFromLaunchEnv(envLines []string, cfg *jsonx.OrderedMap, workspace string) *jailcontent.DurableDir {
 	if p := envLineValue(envLines, durable.EnvVar); p != "" {
 		return &jailcontent.DurableDir{Path: p}
 	}
-	return &jailcontent.DurableDir{Unavailable: "this jail was started without one; the next fresh launch makes it"}
+	if reason := durableReadonlyReason(cfg, workspace); reason != "" {
+		return &jailcontent.DurableDir{Unavailable: reason}
+	}
+	if err := durable.Check(workspace); err != nil {
+		return &jailcontent.DurableDir{Unavailable: durable.Reason(err, workspace)}
+	}
+	return &jailcontent.DurableDir{Unavailable: "this jail was started without one (by an older " +
+		"launcher, or a launch that could not make it); a fresh launch tries again"}
+}
+
+// durableReadonlyReason is the words for a `workspace_readonly` entry covering the durable
+// dir, or "" when none does.
+func durableReadonlyReason(cfg *jsonx.OrderedMap, workspace string) string {
+	if entry, covered := durableCoveredByReadonly(cfg, workspace); covered {
+		return "the `workspace_readonly` entry `" + entry + "` makes it read-only"
+	}
+	return ""
 }
 
 // durableJailPath is the value the launch exports, or "" for none.

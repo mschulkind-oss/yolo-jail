@@ -1,6 +1,7 @@
 package jailcontent
 
 import (
+	"slices"
 	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/durable"
@@ -68,16 +69,18 @@ func persistenceSection(m *PersistenceMap, d *DurableDir, workspace, home string
 		lines = append(lines, "- **Per launch** ("+backing+"): "+joinTilde(perLaunch, home)+". "+
 			"Shared by every terminal attached to this jail. Survives nothing: a restart is a new "+
 			"launch with new, empty ones, and yolo deletes these once the jail exits. A scratchpad "+
-			"a harness hands you under `/tmp` is in this class. Throwaway files only.")
+			"a harness hands you under `/tmp` is in this class. Throwaway files only, never a worktree.")
 	}
 
 	// What the per-workspace home dirs are FOR, because "survives restarts" alone read as an
 	// invitation: they hold the agents' and tools' own state and installs, and a worktree or
-	// draft put there sits among another program's files.
-	const toolsOwn = " (the agents' and tools' own state and installs, not for worktrees or drafts)"
+	// draft put there sits among another program's files. Said as a prohibition, and the
+	// durable dir named first and as the only place for work, because an agent corrected off
+	// /tmp chose `~/.local` from this same list.
+	const toolsOwn = " (the agents' and tools' own state and installs: never put your work there)"
 	var where []string
 	if hasDurable {
-		where = append(where, "`$"+durable.EnvVar+"`, for your work")
+		where = append(where, "`$"+durable.EnvVar+"`, the one place for your work")
 	}
 	var inHome, outside []string
 	for _, p := range m.Of(PathWorkspaceDurable) {
@@ -101,16 +104,21 @@ func persistenceSection(m *PersistenceMap, d *DurableDir, workspace, home string
 	}
 	if len(where) > 0 {
 		lines = append(lines, "- **Per workspace**: "+strings.Join(where, "; ")+". Survives "+
-			"restarts and every new launch of this workspace; another workspace has its own and "+
-			"never sees these. yolo never removes your work here; `yolo prune --apply` ages out "+
-			"only some agents' old log files.")
+			"restarts and every new launch of this workspace, and is lost only if the workspace's "+
+			"`.yolo` is deleted (a `git clean -x` does that). Another workspace has its own. yolo "+
+			"deletes nothing here but some agents' old log files (`yolo prune --apply`).")
 	}
 
 	if machine := m.Of(PathMachineDurable); len(machine) > 0 {
+		// Where a tool cache goes, said outright: agents asked had to infer it.
+		caches := "Caches only, never your work"
+		if slices.Contains(machine, home+"/.cache") {
+			caches = "Tool caches belong here (pip's `~/.cache/pip`, for one), never your work"
+		}
 		lines = append(lines, "- **Every workspace on this machine**: "+joinTilde(machine, home)+
 			". Survives restarts and workspace switches, and every jail on this machine shares "+
-			"them at the same time. yolo deletes only what can be fetched or built again here, "+
-			"such as old files in some tool caches under `~/.cache`.")
+			"them at the same time. "+caches+": yolo deletes what can be fetched or built again "+
+			"here, such as old files in some tool caches under `~/.cache`.")
 	}
 
 	if project := m.Of(PathProject); len(project) > 0 {
@@ -160,21 +168,28 @@ func durableLead(d *DurableDir, workspace string) []string {
 			"",
 		}
 	}
+	v := "`$" + durable.EnvVar + "`"
 	lead := []string{
-		"Worktrees, clones, drafts, measurements — anything that must survive a restart — go in " +
-			"`$" + durable.EnvVar + "` (`" + d.Path + "`).",
-		"It is inside the workspace but git-ignored and yolo's own; the rest of `" + workspace +
-			"` is the user's project.",
+		"**Your work goes in " + v + "** (`" + d.Path + "`): worktrees, clones, drafts, " +
+			"measurements, anything that must survive a restart. Use any layout under it; " +
+			"worktrees go in `worktrees/<task>`. yolo never deletes anything there.",
+		"It is inside the workspace, git-ignored by yolo's own `.yolo/.gitignore`, and the user " +
+			"sees the same files on the host; the rest of `" + workspace + "` is the user's project.",
 	}
 	if d.Caveat != "" {
 		lead = append(lead, "⚠ "+d.Caveat)
 	}
 	return append(lead,
 		"",
-		"Make a worktree there with `git worktree add --lock \"$"+durable.EnvVar+"/worktrees/<task>\"`, "+
-			"never under `/tmp`, and drive it with `git -C <path>`, not `cd <path> && …`. yolo "+
-			"never deletes one; remove yours with `git worktree remove -f -f <path>` (the lock "+
-			"makes it take two).",
+		// The harness sentence: an agent told by its harness or workflow to use /tmp followed
+		// that over the classes below, because the instruction was the more specific one.
+		"If a harness, workflow or tool tells you to put work under `/tmp`, put anything that "+
+			"must outlive this session in "+v+" instead; the harness cannot see this jail's "+
+			"storage classes.",
+		"",
+		"Make a worktree with `git worktree add --lock \"$"+durable.EnvVar+"/worktrees/<task>\"` "+
+			"and drive it with `git -C <path>`, not `cd <path> && …`, so a missing tree fails "+
+			"the command instead of running it in the workspace. "+durable.RemoveAdvice,
 		"",
 	)
 }

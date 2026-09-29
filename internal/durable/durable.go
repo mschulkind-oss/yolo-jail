@@ -19,6 +19,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"os"
 	"path/filepath"
 	"strings"
 	"syscall"
@@ -42,6 +43,13 @@ const (
 	// the jail see one relative geometry.
 	ContainerJailPath = "/workspace/.yolo/" + DirName
 )
+
+// RemoveAdvice is how the briefing and `yolo check` tell a reader to remove a durable
+// worktree, which the briefing has them make with `--lock`. Unlock, then a plain remove,
+// which still refuses a tree with uncommitted changes; the doubled `-f` that also overrides
+// the lock overrides that refusal too, so it is named only as the form that discards them.
+const RemoveAdvice = "Remove one with `git worktree unlock <path> && git worktree remove <path>`, " +
+	"which refuses while it holds uncommitted changes; `git worktree remove -f -f <path>` discards them."
 
 // HostPath is the durable dir of workspace, on the host's side. It creates nothing.
 func HostPath(workspace string) string {
@@ -98,6 +106,38 @@ func relToWorkspace(p, workspace string) string {
 		return rel
 	}
 	return p
+}
+
+// Open opens workspace's durable dir, at this frame's spelling, as an os.Root, refusing a
+// link at `.yolo` or at `durable` with a *paths.LinkedStateDirError. It is how EVERY reader
+// here reaches the directory: opening `<workspace>/.yolo/durable` by path would follow a
+// link the jail left at `.yolo` (the jail writes it through the workspace bind) onto a host
+// directory of its choosing, whose entry names and sizes host yolo would then print. It
+// creates nothing; a missing directory is an fs.ErrNotExist.
+func Open(workspace string) (*os.Root, error) {
+	return paths.OpenWorkspaceStateSubdir(workspace, DirName)
+}
+
+// Check is Ensure's refusal without Ensure's writes: nil when the durable dir exists as a
+// real directory or could be made, else the error Ensure would return for a link or a
+// non-directory at `.yolo` or `durable`. An attach and a dry run, which make nothing, ask it
+// why a launch has no durable dir.
+func Check(workspace string) error {
+	stateDir := paths.WorkspaceStateDir(workspace)
+	for _, p := range []string{stateDir, filepath.Join(stateDir, DirName)} {
+		fi, err := os.Lstat(p)
+		switch {
+		case errors.Is(err, fs.ErrNotExist):
+			return nil
+		case err != nil:
+			return err
+		case fi.Mode()&fs.ModeSymlink != 0:
+			return &paths.LinkedStateDirError{Path: p}
+		case !fi.IsDir():
+			return &fs.PathError{Op: "open", Path: p, Err: syscall.ENOTDIR}
+		}
+	}
+	return nil
 }
 
 // UnavailableLine is the launch line for a launch that has no durable dir (§5.4's fourth

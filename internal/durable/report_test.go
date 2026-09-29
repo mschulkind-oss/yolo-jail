@@ -32,7 +32,7 @@ func TestMeasureFollowsNoLinkAndStopsAtItsBudget(t *testing.T) {
 	must(os.Symlink(outside, filepath.Join(dir, "linkdir")))
 	must(os.Symlink(filepath.Join(outside, "big"), filepath.Join(dir, "linkfile")))
 
-	sz, err := Measure(dir, 0, nil)
+	sz, err := Measure(ws, 0, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -50,7 +50,7 @@ func TestMeasureFollowsNoLinkAndStopsAtItsBudget(t *testing.T) {
 		}
 		return base.Add(time.Hour)
 	}
-	sz, err = Measure(dir, time.Second, clock)
+	sz, err = Measure(ws, time.Second, clock)
 	if err != nil || !sz.Partial {
 		t.Errorf("a walk past its budget = %+v, %v; want partial", sz, err)
 	}
@@ -114,7 +114,7 @@ func TestScanDirCountsDurableWorktreesFromTheAdminFiles(t *testing.T) {
 	writeRegistration(t, ws, "tmpland", "/tmp/definitely-gone-"+filepath.Base(ws)+"/land/.git",
 		"ref: refs/heads/x", now, false)
 
-	sc := ScanDir(ScanOptions{Workspace: ws, Durable: dir, Aliases: map[string]string{"/workspace": ws}})
+	sc := ScanDir(ScanOptions{Workspace: ws, Aliases: map[string]string{"/workspace": ws}})
 	if sc.Err != nil || sc.NotGit {
 		t.Fatalf("scan: %+v", sc)
 	}
@@ -135,7 +135,7 @@ func TestScanDirCountsDurableWorktreesFromTheAdminFiles(t *testing.T) {
 		t.Errorf("the host frame checked registrations outside the durable dir: %v", sc.Prunable)
 	}
 
-	sc = ScanDir(ScanOptions{Workspace: ws, Durable: dir, Aliases: map[string]string{"/workspace": ws}, CheckGone: true})
+	sc = ScanDir(ScanOptions{Workspace: ws, Aliases: map[string]string{"/workspace": ws}, GoneRoots: []string{ws, "/tmp"}})
 	if len(sc.Prunable) != 1 || !strings.HasSuffix(sc.Prunable[0], "/land") || !strings.HasPrefix(sc.Prunable[0], "/tmp/") {
 		t.Errorf("prunable = %v, want the one /tmp registration", sc.Prunable)
 	}
@@ -162,13 +162,13 @@ func TestLaunchLinesDegenerateCases(t *testing.T) {
 		t.Fatal(err)
 	}
 	now := time.Now()
-	if lines := LaunchLines(ScanDir(ScanOptions{Workspace: ws, Durable: dir}), Size{}, nil, WalkBudget, now); len(lines) != 0 {
+	if lines := LaunchLines(ScanDir(ScanOptions{Workspace: ws}), Size{}, nil, WalkBudget, now); len(lines) != 0 {
 		t.Errorf("an empty durable dir printed %q", lines)
 	}
 	if err := os.MkdirAll(filepath.Join(dir, "worktrees", "a"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	sc := ScanDir(ScanOptions{Workspace: ws, Durable: dir})
+	sc := ScanDir(ScanOptions{Workspace: ws})
 	if !sc.NotGit || sc.WorktreeDirs != 1 {
 		t.Fatalf("no repository: %+v", sc)
 	}
@@ -201,7 +201,7 @@ func TestScanDirReadsWhatRealGitWrites(t *testing.T) {
 	git("init", "-q")
 	git("commit", "-q", "--allow-empty", "-m", "c")
 	git("worktree", "add", "-q", "--lock", "-b", "topic", filepath.Join(dir, "worktrees", "land"))
-	sc := ScanDir(ScanOptions{Workspace: ws, Durable: dir, CheckGone: true})
+	sc := ScanDir(ScanOptions{Workspace: ws, GoneRoots: []string{ws}})
 	if len(sc.Worktrees) != 1 {
 		t.Fatalf("scan: %+v", sc)
 	}
@@ -235,13 +235,13 @@ func TestMeasureRelRefusesALinkOnTheWay(t *testing.T) {
 	if err := os.Symlink(outside, filepath.Join(dir, "worktrees", "evil")); err != nil {
 		t.Fatal(err)
 	}
-	if sz, err := MeasureRel(dir, "worktrees/land", 0, nil); err != nil || sz.Bytes != 7 {
+	if sz, err := MeasureRel(ws, "worktrees/land", 0, nil); err != nil || sz.Bytes != 7 {
 		t.Errorf("MeasureRel(land) = %+v, %v", sz, err)
 	}
-	if sz, err := MeasureRel(dir, "worktrees/evil", 0, nil); err == nil {
+	if sz, err := MeasureRel(ws, "worktrees/evil", 0, nil); err == nil {
 		t.Errorf("MeasureRel followed a link out of the durable dir: %+v", sz)
 	}
-	if _, err := MeasureRel(dir, "../..", 0, nil); err == nil {
+	if _, err := MeasureRel(ws, "../..", 0, nil); err == nil {
 		t.Error("MeasureRel accepted a path out of the durable dir")
 	}
 }

@@ -4,7 +4,9 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
@@ -15,6 +17,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/durable"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/prune"
+	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
 )
 
 // Sizing says HOW a size figure was obtained. It is printed beside every number
@@ -829,6 +832,12 @@ const SectionDurable = "workspace durable dirs"
 // workspace with none gets no row: there are no bytes to account for, and "absent" rows for
 // every jail launched before the durable dir existed would only be noise.
 //
+// ⚠ THAT IS ONLY THE WORKSPACES WITH A CONTAINER THE RUNTIME STILL LISTS. Jails run with
+// `--rm`, so a workspace whose jail has exited has no row, and those are exactly the durable
+// dirs most likely to be forgotten. yolo keeps no durable list of workspaces to read instead
+// (DS-D22 records the limit); the launch line and `yolo check` in the workspace are the views
+// that never miss one, and each row's note says so.
+//
 // THE VERDICT IS HUMAN AND THE RECLAIMER NONE, by OQ-DS2's ruling: only the agent that made a
 // worktree knows whether it holds unlanded work, so yolo keeps the growth visible and deletes
 // nothing. The figures follow DS-D3 in every frame: an lstat walk beneath an os.Root and git's
@@ -840,10 +849,25 @@ func durableStores(o Options, rt string) []Store {
 	var out []Store
 	for _, ws := range prune.FindYoloWorkspaces(rt, o.Exec) {
 		dir := durable.HostPath(ws)
-		if fi, err := os.Lstat(dir); err != nil || !fi.IsDir() {
+		// Every read goes through durable.Open, which refuses a link at `.yolo` as well as
+		// at `durable`: the jail can point `.yolo` at any host directory, whose names and
+		// sizes a by-path read would print here.
+		root, err := durable.Open(ws)
+		if errors.Is(err, fs.ErrNotExist) {
 			continue
 		}
-		sc := durable.ScanDir(durable.ScanOptions{Workspace: ws, Durable: dir,
+		if err != nil {
+			out = append(out, Store{
+				Key: "durable." + shortHash(ws), Section: SectionDurable,
+				Name: filepath.Base(ws) + "/.yolo/durable", Path: dir,
+				Verdict: VerdictHuman, Sizing: SizingUnknown,
+				Reason:    durable.Printable(durable.Reason(err, ws)),
+				Reclaimer: Reclaimer{Detail: "the user's work; yolo never reclaims it — `git worktree remove`"},
+			})
+			continue
+		}
+		root.Close()
+		sc := durable.ScanDir(durable.ScanOptions{Workspace: ws,
 			Aliases: map[string]string{"/workspace": ws}})
 		s := Store{
 			Key:        "durable." + shortHash(ws),
@@ -855,7 +879,7 @@ func durableStores(o Options, rt string) []Store {
 			Verdict:    VerdictHuman,
 			Reclaimer:  Reclaimer{Detail: "the user's work; yolo never reclaims it — `git worktree remove`"},
 		}
-		sz, err := durable.Measure(dir, o.Budget, o.Now)
+		sz, err := durable.Measure(ws, o.Budget, o.Now)
 		switch {
 		case err != nil:
 			s.Sizing, s.Reason = SizingUnknown, err.Error()
@@ -866,13 +890,16 @@ func durableStores(o Options, rt string) []Store {
 		}
 		note := "workspace " + ws
 		if len(sc.Worktrees) > 0 && !sc.Worktrees[0].LastActive.IsZero() {
+			// The name is the jail's choice, and the note is rendered as rich markup, so it is
+			// escaped as well as Printable: a directory named `[/dim][bold red]` stays text.
 			note += fmt.Sprintf("; oldest idle %s (%s)",
-				durable.HumanIdle(o.Now().Sub(sc.Worktrees[0].LastActive)), sc.Worktrees[0].Name())
+				durable.HumanIdle(o.Now().Sub(sc.Worktrees[0].LastActive)), richtext.Escape(sc.Worktrees[0].Name()))
 		}
 		if len(sc.Others) > 0 {
 			note += fmt.Sprintf("; %d other entries", len(sc.Others))
 		}
-		s.Note = note + ". `yolo check` in that workspace lists each worktree."
+		s.Note = note + ". `yolo check` in that workspace lists each worktree. Only workspaces with a " +
+			"jail the runtime still lists get a row here."
 		out = append(out, s)
 	}
 	return out

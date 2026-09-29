@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
@@ -32,41 +33,28 @@ type Size struct {
 	Unreadable int
 }
 
-// Measure is the lstat total of every regular file beneath dir, following no link, stopping
-// once budget has elapsed (zero means no budget). It walks beneath an os.Root on dir, which
-// refuses dir itself as a link, and descends only into entries getdents reports as
-// directories, opening each as a root of its own, so no path it stats leaves the tree.
-// os.ErrNotExist means there is no durable dir.
-func Measure(dir string, budget time.Duration, now func() time.Time) (Size, error) {
-	if now == nil {
-		now = time.Now
-	}
-	r, err := paths.OpenStateDirRoot(dir)
-	if err != nil {
-		return Size{}, err
-	}
-	defer r.Close()
-	var deadline time.Time
-	if budget > 0 {
-		deadline = now().Add(budget)
-	}
-	var s Size
-	measureRoot(r, &s, deadline, now)
-	return s, nil
+// Measure is the lstat total of every regular file in workspace's durable dir, following no
+// link, stopping once budget has elapsed (zero means no budget). It opens the dir through
+// Open, which refuses a link at `.yolo` or `durable`, and descends only into entries getdents
+// reports as directories, each opened as a root of its own that refuses a link swapped in
+// meanwhile, so no path it stats leaves the tree. os.ErrNotExist means there is no durable
+// dir.
+func Measure(workspace string, budget time.Duration, now func() time.Time) (Size, error) {
+	return MeasureRel(workspace, "", budget, now)
 }
 
-// MeasureRel is Measure of rel, a directory below dir, reached one component at a time
-// beneath a root on dir, so a link the jail put at any component is refused rather than
-// followed — the per-worktree figure of the `yolo check` report.
-func MeasureRel(dir, rel string, budget time.Duration, now func() time.Time) (Size, error) {
+// MeasureRel is Measure of rel, a directory below the durable dir, reached one component at
+// a time, so a link the jail put at any component is refused rather than followed — the
+// per-worktree figure of the `yolo check` report.
+func MeasureRel(workspace, rel string, budget time.Duration, now func() time.Time) (Size, error) {
 	if now == nil {
 		now = time.Now
 	}
-	r, err := paths.OpenStateDirRoot(dir)
+	r, err := Open(workspace)
 	if err != nil {
 		return Size{}, err
 	}
-	full := dir
+	full := HostPath(workspace)
 	for _, part := range strings.Split(filepath.ToSlash(rel), "/") {
 		if part == "" || part == "." {
 			continue
@@ -93,42 +81,74 @@ func MeasureRel(dir, rel string, budget time.Duration, now func() time.Time) (Si
 	return s, nil
 }
 
+// readDirBatch is how many entries measureRoot reads at a time, so one huge directory is read
+// in slices with the deadline checked between them rather than listed whole first.
+const readDirBatch = 256
+
 func measureRoot(r *os.Root, s *Size, deadline time.Time, now func() time.Time) {
 	f, err := r.Open(".")
 	if err != nil {
 		s.Unreadable++
 		return
 	}
-	entries, err := f.ReadDir(-1)
-	f.Close()
-	if err != nil {
-		s.Unreadable++
-	}
-	for _, e := range entries {
-		if s.Partial {
+	defer f.Close()
+	for {
+		entries, err := f.ReadDir(readDirBatch)
+		for _, e := range entries {
+			if s.Partial {
+				return
+			}
+			if !deadline.IsZero() && now().After(deadline) {
+				s.Partial = true
+				return
+			}
+			switch t := e.Type(); {
+			case t&fs.ModeSymlink != 0:
+				// Counted as nothing: its target is not the durable dir's bytes.
+			case t.IsDir():
+				// Refuses a link swapped in since getdents said "directory", where r.OpenRoot
+				// would follow one that stays inside r.
+				sub, err := paths.OpenStateSubdirRoot(r, e.Name(), e.Name())
+				if err != nil {
+					s.Unreadable++
+					continue
+				}
+				measureRoot(sub, s, deadline, now)
+				sub.Close()
+			case t.IsRegular():
+				if fi, err := r.Lstat(e.Name()); err == nil && fi.Mode().IsRegular() {
+					s.Bytes += fi.Size()
+				}
+			}
+		}
+		if err != nil {
+			if !errors.Is(err, io.EOF) {
+				s.Unreadable++
+			}
 			return
 		}
 		if !deadline.IsZero() && now().After(deadline) {
 			s.Partial = true
 			return
 		}
-		switch t := e.Type(); {
-		case t&fs.ModeSymlink != 0:
-			// Counted as nothing: its target is not the durable dir's bytes.
-		case t.IsDir():
-			sub, err := r.OpenRoot(e.Name())
-			if err != nil {
-				s.Unreadable++
-				continue
-			}
-			measureRoot(sub, s, deadline, now)
-			sub.Close()
-		case t.IsRegular():
-			if fi, err := r.Lstat(e.Name()); err == nil && fi.Mode().IsRegular() {
-				s.Bytes += fi.Size()
-			}
-		}
 	}
+}
+
+// Printable is s with every control and bidi-format character removed, a newline, carriage
+// return or tab becoming a space. Every string this package hands out that the JAIL chose (an
+// entry name, a registration's path, its branch) passes through it before it is shown,
+// because host yolo prints them on the human's terminal, where an ESC or OSC sequence in a
+// directory name would otherwise be a terminal command.
+func Printable(s string) string {
+	return strings.Map(func(r rune) rune {
+		switch {
+		case r == '\n' || r == '\r' || r == '\t':
+			return ' '
+		case unicode.IsControl(r), unicode.Is(unicode.Bidi_Control, r):
+			return -1
+		}
+		return r
+	}, s)
 }
 
 // Worktree is one git worktree registration of the workspace's repository, read from its
@@ -151,54 +171,72 @@ type Worktree struct {
 	Locked bool
 }
 
-// Describe is the worktree's branch column: the branch, or "detached at <sha>".
+// Describe is the worktree's branch column: the branch, or "detached at <sha>", Printable.
 func (w Worktree) Describe() string {
 	switch {
 	case w.Branch != "":
-		return w.Branch
+		return Printable(w.Branch)
 	case w.Head != "":
-		return "detached at " + w.Head
+		return "detached at " + Printable(w.Head)
 	}
 	return "unknown HEAD"
 }
 
-// Name is how a report names the worktree: its path below the durable dir's worktrees/, or
-// below the durable dir, or its full path.
+// Name is how a report names the worktree, Printable: its path below the durable dir's
+// worktrees/, or below the durable dir, or its full path.
 func (w Worktree) Name() string {
 	if w.Rel == "" {
-		return w.Path
+		return Printable(w.Path)
 	}
-	return strings.TrimPrefix(w.Rel, WorktreesDir+"/")
+	return Printable(strings.TrimPrefix(w.Rel, WorktreesDir+"/"))
 }
+
+// RelName is Rel, Printable: the `yolo check` row's first column.
+func (w Worktree) RelName() string { return Printable(w.Rel) }
 
 // ScanOptions says whose durable dir to scan, at which frame's spelling.
 type ScanOptions struct {
 	// Workspace is the workspace's directory at this frame's spelling (`/workspace` in a
 	// container jail, the host path on the host and on macos-user).
+	// The durable dir scanned is this workspace's, opened through Open.
 	Workspace string
-	// Durable is the durable dir at this frame's spelling.
-	Durable string
 	// Aliases maps another frame's spelling of a directory to this frame's: a worktree made
 	// in a container jail records `/workspace/…`, which the host reads as its workspace, and
-	// one made on the host records the host path, which the jail reads as `/workspace`.
+	// one made on the host records the host path, which the jail reads as `/workspace`. The
+	// workspace's own resolved spelling is always added: git records a worktree's path with
+	// every link resolved, so a workspace reached through a symbolic link (darwin's /tmp and
+	// /var/folders) would otherwise have no worktree beneath its durable dir.
 	Aliases map[string]string
-	// CheckGone asks whether each registration's directory still exists, for the prunable
-	// count. Only an in-jail caller sets it for paths outside the durable dir: on the host a
-	// jail-written admin file would otherwise choose which host paths yolo stats.
-	CheckGone bool
+	// GoneRoots are the directories below which a registration OUTSIDE the durable dir is
+	// checked for a missing directory, for the prunable count: an in-jail caller passes the
+	// workspace and the per-launch set (prune.ScratchSlots' destinations), which is where the
+	// /tmp incident class lives. A registration elsewhere is never judged: from a container
+	// jail a worktree the host made beside the repository is invisible rather than gone, and
+	// on the host a jail-written admin file would otherwise choose which host paths yolo
+	// stats. Empty, as on the host, checks only beneath the durable dir. Each root is also
+	// tried with its links resolved (git records `/private/tmp/…` for darwin's `/tmp`).
+	GoneRoots []string
 }
+
+// maxRegistrations bounds how many `.git/worktrees` entries one scan reads, so a jail that
+// made a million of them costs the host a bounded walk; Scan.Capped says it was reached.
+const maxRegistrations = 1000
 
 // Scan is what the durable dir holds.
 type Scan struct {
 	// Worktrees are the registrations of the workspace's repository beneath the durable dir,
 	// the durable worktrees (§1.2), oldest activity first.
 	Worktrees []Worktree
-	// Others are the durable dir's top-level entries other than worktrees/, by name.
+	// Others are the durable dir's top-level entries other than worktrees/, by name, Printable.
 	Others []string
-	// Prunable are the registrations whose directory no longer exists: the /tmp incident
-	// class. One beneath the durable dir is always checked (beneath its root); one outside it
-	// only under ScanOptions.CheckGone. Never a locked one, which git itself does not prune.
+	// Prunable are the registrations whose directory no longer exists, Printable: the /tmp
+	// incident class. One beneath the durable dir is always checked (beneath its root); one
+	// outside it only below ScanOptions.GoneRoots. Never a locked one, which git itself does
+	// not prune.
 	Prunable []string
+	// Capped is set when the repository has more registrations than one scan reads
+	// (maxRegistrations); the figures then cover the first ones by name.
+	Capped bool
 	// NotGit is set when the workspace has no `.git` directory this package can read (not a
 	// repository, a linked worktree or submodule, or a `.git` the jail replaced with a link).
 	// WorktreeDirs then counts the directories beneath worktrees/ instead.
@@ -213,7 +251,7 @@ type Scan struct {
 // runs git, never reads a file beneath the durable dir, and follows no link.
 func ScanDir(o ScanOptions) Scan {
 	var sc Scan
-	dr, err := paths.OpenStateDirRoot(o.Durable)
+	dr, err := Open(o.Workspace)
 	if err != nil {
 		sc.Err = err
 		return sc
@@ -222,7 +260,7 @@ func ScanDir(o ScanOptions) Scan {
 	if entries, err := readDirNames(dr, "."); err == nil {
 		for _, name := range entries {
 			if name != WorktreesDir {
-				sc.Others = append(sc.Others, name)
+				sc.Others = append(sc.Others, Printable(name))
 			}
 		}
 	} else {
@@ -230,7 +268,26 @@ func ScanDir(o ScanOptions) Scan {
 		return sc
 	}
 
-	regs, ok := registrations(o)
+	durableDir := HostPath(o.Workspace)
+	aliases := make(map[string]string, len(o.Aliases)+1)
+	for k, v := range o.Aliases {
+		aliases[k] = v
+	}
+	// The workspace is not jail-writable ABOVE its own directory, so resolving its links is
+	// safe in every frame; `.yolo` and below are never resolved.
+	if real, err := filepath.EvalSymlinks(o.Workspace); err == nil && real != o.Workspace {
+		aliases[real] = o.Workspace
+	}
+	var goneRoots []string
+	for _, r := range o.GoneRoots {
+		goneRoots = append(goneRoots, r)
+		if real, err := filepath.EvalSymlinks(r); err == nil && real != r {
+			goneRoots = append(goneRoots, real)
+		}
+	}
+
+	regs, ok, capped := registrations(o.Workspace, aliases)
+	sc.Capped = capped
 	if !ok {
 		sc.NotGit = true
 		if names, err := readDirNames(dr, WorktreesDir); err == nil {
@@ -243,12 +300,12 @@ func ScanDir(o ScanOptions) Scan {
 		return sc
 	}
 	for _, w := range regs {
-		if rel, ok := beneath(o.Durable, w.Path); ok {
+		if rel, ok := beneath(durableDir, w.Path); ok {
 			// Beneath the root on the durable dir, so this stat is safe in every frame: a
 			// registration whose tree was deleted is not a durable worktree any more.
 			if _, err := dr.Lstat(filepath.Join(rel, ".git")); errors.Is(err, fs.ErrNotExist) {
 				if !w.Locked {
-					sc.Prunable = append(sc.Prunable, w.Path)
+					sc.Prunable = append(sc.Prunable, Printable(w.Path))
 				}
 				continue
 			}
@@ -256,10 +313,11 @@ func ScanDir(o ScanOptions) Scan {
 			sc.Worktrees = append(sc.Worktrees, w)
 			continue
 		}
-		if o.CheckGone && !w.Locked {
-			if _, err := os.Lstat(filepath.Join(w.Path, ".git")); errors.Is(err, fs.ErrNotExist) {
-				sc.Prunable = append(sc.Prunable, w.Path)
-			}
+		if w.Locked || !beneathAny(goneRoots, w.Path) {
+			continue
+		}
+		if _, err := os.Lstat(filepath.Join(w.Path, ".git")); errors.Is(err, fs.ErrNotExist) {
+			sc.Prunable = append(sc.Prunable, Printable(w.Path))
 		}
 	}
 	sort.SliceStable(sc.Worktrees, func(i, j int) bool {
@@ -269,39 +327,45 @@ func ScanDir(o ScanOptions) Scan {
 	return sc
 }
 
-// registrations reads every `.git/worktrees/<id>` of the workspace's repository. ok is false
-// when the workspace has no readable `.git` directory.
-func registrations(o ScanOptions) ([]Worktree, bool) {
-	gitDir := filepath.Join(o.Workspace, ".git")
+// registrations reads the `.git/worktrees/<id>` entries of the workspace's repository, at
+// most maxRegistrations of them (capped says more were there). ok is false when the
+// workspace has no readable `.git` directory.
+func registrations(workspace string, aliases map[string]string) (out []Worktree, ok, capped bool) {
+	gitDir := filepath.Join(workspace, ".git")
 	gr, err := paths.OpenStateDirRoot(gitDir)
 	if err != nil {
-		return nil, false
+		return nil, false, false
 	}
 	defer gr.Close()
 	wr, err := paths.OpenStateSubdirRoot(gr, "worktrees", filepath.Join(gitDir, "worktrees"))
 	if err != nil {
 		// A repository with no linked worktree has no worktrees/ directory at all.
-		return nil, errors.Is(err, fs.ErrNotExist)
+		return nil, errors.Is(err, fs.ErrNotExist), false
 	}
 	defer wr.Close()
-	ids, err := readDirNames(wr, ".")
+	f, err := wr.Open(".")
 	if err != nil {
-		return nil, true
+		return nil, true, false
 	}
-	var out []Worktree
+	ids, _ := f.Readdirnames(maxRegistrations + 1)
+	f.Close()
+	if len(ids) > maxRegistrations {
+		ids, capped = ids[:maxRegistrations], true
+	}
+	sort.Strings(ids)
 	for _, id := range ids {
 		admin := filepath.Join(gitDir, "worktrees", id)
 		ar, err := paths.OpenStateSubdirRoot(wr, id, admin)
 		if err != nil {
 			continue
 		}
-		w, ok := readRegistration(ar, id, admin, o.Aliases)
+		w, ok := readRegistration(ar, id, admin, aliases)
 		ar.Close()
 		if ok {
 			out = append(out, w)
 		}
 	}
-	return out, true
+	return out, true, capped
 }
 
 func readRegistration(ar *os.Root, id, admin string, aliases map[string]string) (Worktree, bool) {
@@ -376,6 +440,18 @@ func beneath(dir, p string) (string, bool) {
 		return "", false
 	}
 	return filepath.ToSlash(rel), true
+}
+
+func beneathAny(dirs []string, p string) bool {
+	for _, d := range dirs {
+		if d == p {
+			return true
+		}
+		if _, ok := beneath(d, p); ok {
+			return true
+		}
+	}
+	return false
 }
 
 func readDirNames(r *os.Root, name string) ([]string, error) {

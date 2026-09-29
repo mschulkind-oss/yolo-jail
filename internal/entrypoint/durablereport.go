@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/durable"
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
 // ReportDurableDir is the launch line for the durable dir (docs/design/durable-scratch-space.md
@@ -33,8 +34,12 @@ func reportDurableDir(e *Env, now func() time.Time) {
 	if host := e.Getenv("YOLO_HOST_DIR"); host != "" && host != ws {
 		aliases[host] = ws
 	}
-	sc := durable.ScanDir(durable.ScanOptions{Workspace: ws, Durable: dir, Aliases: aliases, CheckGone: true})
-	sz, err := durable.Measure(dir, durable.WalkBudget, now)
+	// A registration is judged gone only below the workspace or the per-launch set, which is
+	// where a restart deletes trees: one the host made beside the repository is merely
+	// invisible from a container jail, and calling it gone at every launch was a false alarm.
+	sc := durable.ScanDir(durable.ScanOptions{Workspace: ws, Aliases: aliases,
+		GoneRoots: append([]string{ws}, paths.ScratchDests()...)})
+	sz, err := durable.Measure(ws, durable.WalkBudget, now)
 	lines := durable.LaunchLines(sc, sz, err, durable.WalkBudget, now())
 	for _, l := range lines {
 		e.warn(l)

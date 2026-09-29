@@ -72,8 +72,15 @@ func TestTheDurableReportMapsTheHostSpellingAndFindsGoneRegistrations(t *testing
 		}
 	}
 	register("land", host+"/.yolo/durable/worktrees/land/.git")
-	gone := filepath.Join(t.TempDir(), "gone-land")
+	// Gone, and inside the workspace: judged. A tree under the jail's /tmp is judged the same
+	// way (prune's slots are the gone roots too); a fixture cannot rely on t.TempDir() being
+	// there, so the in-workspace case stands for both.
+	gone := filepath.Join(ws, ".claude", "worktrees", "gone-land")
 	register("gone", gone+"/.git")
+	// Gone from here, but beside the repository on the host, where a container jail cannot
+	// look: never called gone, which it was at every launch.
+	// (A literal path: the fixture's own temp dir is under /tmp, which IS a gone root.)
+	register("sib", "/home/someone/code/proj-wt/sib/.git")
 
 	var stderr bytes.Buffer
 	e := NewEnv(map[string]string{durable.EnvVar: dir, "YOLO_HOST_DIR": host})

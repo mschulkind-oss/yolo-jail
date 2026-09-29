@@ -90,6 +90,23 @@ func Strip(s string) string {
 	})
 }
 
+// wordJoiner is U+2060, a zero-width character that is not a letter, so a style tag with one
+// after its `[` no longer matches tagRe and prints as the text it was.
+const wordJoiner = "\u2060"
+
+// Escape makes s safe to embed in markup: every known style tag in it (the only tokens
+// Render touches) gets a zero-width word joiner after its `[`, so it renders as literal text
+// in both modes instead of restyling the line. For a string yolo did not write, such as a
+// directory name a jail chose.
+func Escape(s string) string {
+	return tagRe.ReplaceAllStringFunc(s, func(tag string) string {
+		if !isStyleTag(tag) {
+			return tag
+		}
+		return "[" + wordJoiner + tag[1:]
+	})
+}
+
 // Render applies ToANSI when color is set, else Strip.
 func Render(s string, color bool) string {
 	if color {

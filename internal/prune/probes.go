@@ -237,7 +237,9 @@ func InspectPrefixBinMount(rt, name string, run RunFunc) (string, bool) {
 }
 
 // FindYoloWorkspaces returns the deduplicated, resolved host workspace paths for
-// every yolo-* container the runtime knows about (running or stopped).
+// every yolo-* container the runtime knows about (running or stopped). A launch runs its
+// container with `--rm`, so in practice that is the workspaces with a RUNNING jail: one
+// whose jail has exited is not in the list.
 // `ps -a --format {{.Names}}` → keep yolo-* names → inspect each's /workspace
 // bind → resolve + dedup, preserving first-seen order. A missing/failed runtime
 // yields an empty list.

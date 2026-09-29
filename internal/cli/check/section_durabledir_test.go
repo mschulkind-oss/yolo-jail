@@ -101,7 +101,7 @@ func TestTheHostDurableSectionRunsNoGit(t *testing.T) {
 // IN THE JAIL every column is computed: unique commits by rev-list excluding the worktree's
 // own branch, changed files by `git status --porcelain`.
 func TestTheInJailDurableSectionComputesEveryColumn(t *testing.T) {
-	_, dir := durableCheckFixture(t)
+	ws, dir := durableCheckFixture(t)
 	env := map[string]string{"YOLO_VERSION": "9.9.9", durable.EnvVar: dir, "YOLO_HOST_DIR": "/host/ws"}
 	var ran []string
 	o := &Options{
@@ -123,7 +123,7 @@ func TestTheInJailDurableSectionComputesEveryColumn(t *testing.T) {
 			return ExecResult{}
 		},
 	}
-	out := runDurableSection(o, "/elsewhere")
+	out := runDurableSection(o, ws)
 	for _, want := range []string{
 		"  worktrees/fix-footer  1 kB measured  idle 41 days  fix-footer  3 unique commits  2 changed files\n",
 		"  worktrees/land  1 kB measured  idle 2 days  detached at 1a2b3c4d  0 unique commits  clean\n",

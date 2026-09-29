@@ -63,9 +63,8 @@ func TestAFreshLaunchMakesTheDurableDirAndBothBriefingAndArgvName(t *testing.T) 
 				t.Errorf("a successful launch printed %q", out.String())
 			}
 			_, sec := durableBriefing(t, o, rt)
-			lead := "Worktrees, clones, drafts, measurements — anything that must survive a restart — go in " +
-				"`$YOLO_DURABLE_DIR` (`/workspace/.yolo/durable`)."
-			if !strings.Contains(sec, "\n\n"+lead+"\n") {
+			lead := "**Your work goes in `$YOLO_DURABLE_DIR`** (`/workspace/.yolo/durable`): "
+			if !strings.Contains(sec, "\n\n"+lead) {
 				t.Errorf("the %s briefing does not lead with the durable dir:\n%s", rt, sec)
 			}
 
@@ -190,9 +189,10 @@ func TestAnAttachBriefsTheDurableDirTheJailWasStartedWith(t *testing.T) {
 		name, env, want string
 	}{
 		{"exported", currentJailEnv + durable.EnvVar + "=" + durable.ContainerJailPath + "\n",
-			"go in `$YOLO_DURABLE_DIR` (`/workspace/.yolo/durable`)."},
+			"**Your work goes in `$YOLO_DURABLE_DIR`** (`/workspace/.yolo/durable`)"},
 		{"started without one", currentJailEnv,
-			"**No durable directory this launch**: this jail was started without one"},
+			"**No durable directory this launch**: this jail was started without one (by an older " +
+				"launcher, or a launch that could not make it); a fresh launch tries again."},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			o, cfg, channel, stderr := attachFixture(t, tc.env, packs, nil, nil)
@@ -211,6 +211,40 @@ func TestAnAttachBriefsTheDurableDirTheJailWasStartedWith(t *testing.T) {
 				t.Errorf("the attach's briefing does not say %q:\n%s", tc.want, sec)
 			}
 		})
+	}
+}
+
+// AN ATTACH TO A JAIL STARTED WITHOUT ONE SAYS WHY, when the cause is still there: the words a
+// fresh launch would print for a covering `workspace_readonly` entry or a linked `.yolo`,
+// not a promise that the next launch makes it, which is false for both. It creates nothing.
+func TestAnAttachWithoutADurableDirNamesACauseThatPersists(t *testing.T) {
+	o, _ := durableOptions(t)
+	d := durableDirFromLaunchEnv(nil, newConfig("workspace_readonly", []any{".yolo"}), o.Workspace)
+	if d.Path != "" || d.Unavailable != "the `workspace_readonly` entry `.yolo` makes it read-only" {
+		t.Errorf("readonly: %+v", d)
+	}
+	if err := os.Symlink(t.TempDir(), filepath.Join(o.Workspace, ".yolo")); err != nil {
+		t.Fatal(err)
+	}
+	d = durableDirFromLaunchEnv(nil, newConfig(), o.Workspace)
+	if d.Path != "" || d.Unavailable != "`.yolo` is a symbolic link" {
+		t.Errorf("linked .yolo: %+v", d)
+	}
+	if strings.Contains(d.Unavailable, "next fresh launch makes it") {
+		t.Errorf("the attach promised a launch would make it: %q", d.Unavailable)
+	}
+}
+
+// A --dry-run (macos-user's) describes the launch and makes nothing in the workspace.
+func TestADryRunMakesNoDurableDir(t *testing.T) {
+	o, _ := durableOptions(t)
+	o.DryRun = true
+	d := o.ensureDurableDir("macos-user", newConfig())
+	if d.Path != durable.HostPath(o.Workspace) {
+		t.Errorf("a dry run described durable dir %q, want %q", d.Path, durable.HostPath(o.Workspace))
+	}
+	if _, err := os.Lstat(filepath.Join(o.Workspace, ".yolo")); !os.IsNotExist(err) {
+		t.Errorf("a dry run created the workspace's .yolo: %v", err)
 	}
 }
 

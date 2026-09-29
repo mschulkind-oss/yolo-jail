@@ -39,24 +39,19 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
 // ScratchSlot is one scratch mount: the name segment its volume carries and the
 // directory in the jail it backs.
-type ScratchSlot struct {
-	Name string
-	Dest string
-}
+type ScratchSlot = paths.ScratchSlot
 
 // ScratchSlots is the ordered set of disk-backed scratch mounts. The launcher's argv and
 // this file's parse both read it, so a slot cannot be mounted under a name the reaper
-// does not recognise.
-var ScratchSlots = []ScratchSlot{
-	{Name: "tmp", Dest: "/tmp"},
-	{Name: "var-tmp", Dest: "/var/tmp"},
-	{Name: "var-lib-containers", Dest: "/var/lib/containers"},
-	{Name: "var-cache-containers", Dest: "/var/cache/containers"},
-}
+// does not recognise. The list itself lives in paths, a leaf, so the in-jail durable-dir
+// report reads the same one without linking the reaper into yolo-entrypoint.
+var ScratchSlots = paths.ScratchSlots
 
 // scratchInfix separates the container name from the launch id and slot.
 const scratchInfix = ".scratch."

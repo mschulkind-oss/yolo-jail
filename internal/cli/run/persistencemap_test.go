@@ -148,15 +148,14 @@ func TestTheBriefingNamesEveryPathInThePersistenceMap(t *testing.T) {
 			// made, by its variable and its path, and the per-workspace bullet offers it as
 			// the place for work — above the home dirs, which are the agents' and tools' own.
 			lead := "## Storage classes: what survives a restart\n\n" +
-				"Worktrees, clones, drafts, measurements — anything that must survive a restart — go in " +
-				"`$" + durable.EnvVar + "` (`" + durable.ContainerJailPath + "`)."
+				"**Your work goes in `$" + durable.EnvVar + "`** (`" + durable.ContainerJailPath + "`): "
 			if !strings.HasPrefix(section, lead) {
 				t.Errorf("the %s section does not lead with the durable dir:\n%s", rt, section)
 			}
 			bullets := classBullets(section)
 			if b := bullets[jailcontent.PathWorkspaceDurable]; !strings.HasPrefix(b,
-				"- **Per workspace**: `$"+durable.EnvVar+"`, for your work; ") ||
-				!strings.Contains(b, "the agents' and tools' own state and installs, not for worktrees or drafts") {
+				"- **Per workspace**: `$"+durable.EnvVar+"`, the one place for your work; ") ||
+				!strings.Contains(b, "the agents' and tools' own state and installs: never put your work there") {
 				t.Errorf("the per-workspace bullet does not offer the durable dir first, or does not say "+
 					"what the home dirs are for:\n%s", b)
 			}
