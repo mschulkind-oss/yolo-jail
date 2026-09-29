@@ -3,6 +3,7 @@ package ghbroker
 import (
 	"fmt"
 	"regexp"
+	"strconv"
 	"strings"
 )
 
@@ -125,6 +126,8 @@ func Classify(argv []string, fieldRepo string, scope Scope) Decision {
 		sr = scopeResult{argv: append(strings.Fields(p.cmd.path), "--help")}
 	case p.cmd.path == "api":
 		sr = apiScope(p, fieldRepo)
+	case searchBacked[p.cmd.path] && queryWidens(p) != "":
+		sr = scopeResult{account: true, why: queryWidens(p)}
 	case strings.HasPrefix(p.cmd.path, "search "):
 		sr = searchScope(p)
 	case readOnly[p.cmd.path].scope == scopeNone && readOnly[p.cmd.path].accountFlags == nil &&
@@ -152,6 +155,10 @@ func Classify(argv []string, fieldRepo string, scope Scope) Decision {
 		d.Reason = "`gh " + p.cmd.path + "` names no repository the broker can check: it reads or " +
 			"writes across the account, which no scope admits. This jail's repository scope is " +
 			scope.describe() + "."
+		if sr.why != "" {
+			d.Reason = "`gh " + p.cmd.path + "`: " + sr.why + ". This jail's repository scope is " +
+				scope.describe() + "."
+		}
 		return d
 	}
 	for _, r := range sr.repos {
@@ -205,6 +212,9 @@ func isStandingRead(p *parsed, sr scopeResult) bool {
 type scopeResult struct {
 	repos   []string
 	account bool
+	// why replaces the account-wide reason for a command that names a repository but
+	// whose text could reach past it (queryWidens).
+	why     string
 	refused string
 	argv    []string
 	apiRead bool
@@ -319,21 +329,76 @@ func secondRepoPositional(p *parsed) string {
 	return ""
 }
 
-// qualifierRE finds a search qualifier that names repositories, owners or organizations in
-// a query's text. Several `repo:` qualifiers are ORed by GitHub, which is why the text is
-// checked as well as the flags (§5.2).
-var qualifierRE = regexp.MustCompile(`(?i)(^|[\s"'(-])(repo|org|user|owner):`)
+// searchBacked are the commands whose query text and filter values gh sends to GitHub's
+// search next to a repository qualifier of its own. MEASURED against gh 2.101.0 and a fake
+// API (BB-D46): `gh search issues x --repo o/r` sends `( x ) repo:o/r type:issue`, `gh pr
+// list -S x -R o/r` sends `( x ) repo:o/r state:open type:pr`, `gh search code x --repo o/r`
+// sends `x repo:o/r`, `gh discussion list -S x -R o/r` sends `repo:o/r is:open
+// sort:updated-desc x`, and a filter such as `--author` or `--label` becomes `author:"…"`
+// with a `"` inside it backslash-escaped. The jail's text sits beside the qualifier gh
+// added, not under it.
+var searchBacked = map[string]bool{
+	"pr list": true, "issue list": true, "discussion list": true,
+	"search code": true, "search commits": true, "search issues": true, "search prs": true,
+}
+
+var (
+	// scopeQualifierRE finds a qualifier that names repositories, owners or organizations.
+	// GitHub ORs several `repo:` qualifiers (§5.2), so one in the jail's text widens the
+	// search past the one gh added.
+	scopeQualifierRE = regexp.MustCompile(`(?i)(^|\W)(repo|org|user|owner):`)
+	// boolOperatorRE finds OR or NOT as a word. `x) OR (is:pr` closes gh's parenthesis and
+	// ORs the jail's term against the scoped part, and a trailing NOT in `search code`
+	// negates the `repo:` gh appends after it. Whether GitHub reads a lower-case `or` as the
+	// operator was not measured, so the match ignores case.
+	boolOperatorRE = regexp.MustCompile(`(?i)(^|\W)(OR|NOT)(\W|$)`)
+)
+
+// queryWidens returns why a search-backed command's text could reach past the repository
+// it names, or "". Every positional and every flag value is checked, not only `--search`:
+// the filters become quoted qualifiers, and a `"` in one ends gh's quotes if GitHub does
+// not honor the backslash, which was not measured. The rule refuses the three things that
+// can widen a search, a scope qualifier, a parenthesis and OR or NOT, rather than parse
+// GitHub's query grammar.
+func queryWidens(p *parsed) string {
+	check := func(what, v string) string {
+		var why string
+		switch {
+		case scopeQualifierRE.MatchString(v):
+			why = "a repo:, org:, user: or owner: qualifier"
+		case strings.ContainsAny(v, "()"):
+			why = "a parenthesis"
+		case boolOperatorRE.MatchString(v):
+			why = "an OR or a NOT"
+		default:
+			return ""
+		}
+		return what + " carries " + why + ", which GitHub's search can use to reach past the " +
+			"repository gh adds to the query; search with plain words and filter the --json " +
+			"output in the jail instead"
+	}
+	for _, a := range p.positionals {
+		if w := check("the query "+strconv.Quote(a), a); w != "" {
+			return w
+		}
+	}
+	for _, u := range p.flags {
+		if !u.hasValue {
+			continue
+		}
+		if w := check("--"+u.flag.long+" "+strconv.Quote(u.value), u.value); w != "" {
+			return w
+		}
+	}
+	return ""
+}
 
 // searchScope is §5.2's search rule: in scope only when the complete qualifier set, from
-// flags and query text together, names in-scope repositories alone.
+// flags and query text together, names in-scope repositories alone. queryWidens has
+// already checked the query text.
 func searchScope(p *parsed) scopeResult {
 	if p.has("owner") {
 		return scopeResult{account: true}
-	}
-	for _, a := range p.positionals {
-		if qualifierRE.MatchString(a) {
-			return scopeResult{account: true}
-		}
 	}
 	var repos []string
 	for _, v := range p.values("repo") {
