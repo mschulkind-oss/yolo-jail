@@ -37,6 +37,7 @@ var shippedManifestHome = map[string]string{
 	"serial":              "serial",
 	"openai-auth-broker":  "openai-auth",
 	"aws-auth":            "aws-auth",
+	"github-broker":       "github",
 	// A throwaway that exists to EXERCISE the pack-shipped jail-binary path rather than to
 	// serve a user (docs/design/broker-as-a-pack.md §10 step two). It belongs in this table
 	// for the table's own reason — every shipped loophole gets the decode bar and the field

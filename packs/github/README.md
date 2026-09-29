@@ -1,0 +1,51 @@
+# `github` — GitHub without a token in the jail
+
+The jail's `gh` runs your **host's own** `gh` login, through a broker on the host, against
+this workspace's own GitHub repositories. The jail holds no GitHub credential. Every call
+the broker is sent is recorded on the host, and `yolo audit` lists them.
+
+Design: [`boundary-broker.md`](../../docs/design/boundary-broker.md). This is step 1 of its
+§11: **read-only**. A write (`gh pr comment`, `gh issue edit`, `gh api -X POST …`) exits 77,
+"writes need approval, which this version cannot ask for".
+
+## Two contributions
+
+- **`loophole`** `github-broker`: the host daemon (`internal/ghbroker`), one per jail,
+  behind yolo's own loopback-TLS front.
+- **`intercept`** `gh` → `yolo gh --`: a shim at `~/.yolo/bin/block/gh`, first on the
+  jail's `PATH`, so a bare `gh` reaches the broker while the image's own `/bin/gh` stays
+  where it is (and `YOLO_BYPASS_SHIMS=1 gh …` runs it). That `gh` has no login in the jail.
+
+## Turning it on
+
+```jsonc
+// ~/.config/yolo-jail/config.jsonc — user scope
+{
+  "packs": ["claude", "github"],                           // 1. the forwarder
+  "loopholes": { "github-broker": { "enabled": true } }    // 2. the broker
+}
+```
+
+The host needs `gh` and a login: `gh auth login` on the host, once. The next fresh launch
+of a workspace with a GitHub remote asks once, in its config-change prompt, to approve the
+**repository scope**, the `owner/repo` of each `github.com` remote in the workspace's
+`.git/config`. With no terminal, pass `--accept-config-changes`, or run
+`yolo check --accept-config-changes` on the host first.
+
+## What runs
+
+| | |
+| :--- | :--- |
+| Runs | the read-only set, against an approved repository: `pr view/list/diff/status/checks`, `issue view/list/status`, `run view/list/watch`, `workflow view/list`, `repo view/read-file/read-dir`, `release view/list`, `label list`, `secret list`, `search` with an in-scope `--repo`, `api` GET under `repos/OWNER/REPO`, and more |
+| Exit 77 | every write: it needs an approval this version cannot ask for |
+| Exit 64 | anything that could print the credential or reach the host (`auth token`, `--jq`, `--web`, `api` to a URL, host-file arguments, …), and anything outside the workspace's repositories, including account-wide commands such as an unqualified `search` or any GraphQL call |
+| Exit 69 | no broker in this jail, or no `gh` or login on the host |
+
+stdout, stderr and the exit code of a command that runs cross verbatim. The repository is
+`-R OWNER/REPO`, or the workspace's `origin` remote.
+
+## What it is not
+
+- It does not stop an agent carrying out what a read returned: a read is a read.
+- It does not guard `git push`/`fetch`: those use the jail's own credential, or none.
+- It is not a control against a process running as you on the host.

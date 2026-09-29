@@ -1,0 +1,60 @@
+// The `github-broker` loophole, shipped by the OFFICIAL `github` pack: a host daemon that
+// runs the host's own `gh` login on one jail's behalf, only against the workspace's own
+// GitHub repositories (docs/design/boundary-broker.md; step 1 of its §11). The daemon is
+// internal/ghbroker, reached from the jail through `yolo gh`, which the pack's `intercept`
+// contribution puts in front of the image's own `gh`.
+//
+// THE CREDENTIAL NEVER CROSSES; THE COMMAND DOES (BB-P1). The jail sends an argv; the
+// daemon parses it against gh's measured flag grammar, refuses what could print the token or
+// reach the host, checks its repository against the scope the launch approved, and runs the
+// host gh with a canonical argv in an empty directory. Step 1 runs the read-only set and
+// answers every write with exit 77.
+{
+  "name": "github-broker",
+  "description": "Run the host's gh login for the jail against this workspace's own GitHub repositories: read-only commands run, writes wait for an approval step that is not built yet, and every call is audited on the host (yolo audit).",
+  "version": 1,
+
+  // OFF until enabled, as every loophole that ships in a pack is (loophole-system.md R2).
+  // Selecting the pack installs the `gh` forwarder; enabling this starts the broker. The
+  // switch is `"loopholes": {"github-broker": {"enabled": true}}`, at either scope.
+  "default_enabled": false,
+
+  "transport": "loopback-tls",
+  "lifecycle": "spawned",
+
+  // No `requires` on gh, deliberately and for journal's reason (R3): a host without gh is a
+  // real machine, and the honest report there is the broker answering every call with exit
+  // 69, "the host has no gh", rather than a loophole that vanishes from `yolo loopholes list`.
+
+  // THE REPOSITORY SCOPE (loopholedecl/brokered.go). Core reads the workspace's remotes on
+  // github.com at every fresh launch that starts this daemon, puts them in the config-change
+  // diff as a labeled block, writes what a human approved to that launch's scope file, and
+  // hands the file to the daemon through {repository_scope}. The credential paths are where
+  // the host gh keeps its login (gh's own precedence: $GH_CONFIG_DIR, then
+  // $XDG_CONFIG_HOME/gh, then ~/.config/gh); with this pack selected, a workspace `mounts`
+  // entry reaching one is refused (BB-D26).
+  "brokered": {
+    "source": "github",
+    "remote_host": "github.com",
+    "credential_paths": ["$GH_CONFIG_DIR", "$XDG_CONFIG_HOME/gh", "~/.config/gh"]
+  },
+
+  // One daemon per jail, behind yolo's front, with the connection preamble on: every grant
+  // and every audit line keys on the preamble's host-asserted jail id, never on a request
+  // field (BB-D1). `scope` stays at its default, `jail` — a brokered daemon's scope file is
+  // one launch's approval, so a host-wide one is refused at load.
+  "host_daemon": {
+    "cmd": [
+      "yolo", "internal", "daemon", "github-broker",
+      "--socket", "{socket}",
+      "--scope-file", "{repository_scope}"
+    ],
+    "publishes": "socket"
+  },
+
+  // `yolo check` asks the daemon which host gh it would run, its version against the tested
+  // range, and whether it can read a login.
+  "doctor_cmd": [
+    "yolo", "internal", "daemon", "github-broker", "--self-check"
+  ]
+}
