@@ -261,9 +261,37 @@ func (o *Options) startLoopholesMatching(cname, rt string, cfg *jsonx.OrderedMap
 	// resolved to a real path at record-load time, so by the time this loop reaches
 	// exec.Command the file has to hold this launch's values (loopholesettings.go).
 	o.writeLoopholeSettings(discovered, cfg)
+	// placementRefused: a loophole whose MANIFEST names host code living where an agent
+	// can rewrite it (the placement rule, landing item 1a's manifest faces). The
+	// config faces are refused earlier, at validation; a manifest's own host_daemon.cmd
+	// and doctor_cmd could not be, because two of the three targets are RUNTIME
+	// resolutions — the module dir after symlinks, the argv after {loophole_dir}
+	// substitution — and a resolved record is the first place they exist.
+	//
+	// Refused HERE rather than at discovery for the same reason discovery cannot refuse
+	// a name collision: Discover has no error channel by contract, and the spawn is the
+	// last moment before the code actually runs. A refused loophole keeps its non-exec
+	// declarations (they were already emitted into the argv) — this gate covers the one
+	// face that executes.
+	placementRefused := map[string]bool{}
+	for _, lp := range discovered {
+		for _, problem := range lp.PlacementProblems(o.Workspace) {
+			placementRefused[lp.Name] = true
+			o.pr(o.Stdout).print("[red]Refusing to start loophole " + lp.Name + ": " + problem + "[/red]")
+		}
+	}
 	// And for the same reason, a brokered loophole's scope file: {repository_scope} names it
-	// in the argv, and it holds what this launch's gate approved (brokeredscope.go).
-	o.writeScopeFiles(cname, discovered)
+	// in the argv, and it holds what this launch's gate approved (brokeredscope.go). Written
+	// for exactly the brokers that will start: BrokeredToStart, the predicate the gate asked
+	// with (the origin gate included), less the ones the placement rule just refused. A file
+	// written for a daemon that never spawns has no handle to remove it.
+	var brokered []*loopholes.Loophole
+	for _, lp := range set.BrokeredToStart(allow) {
+		if !placementRefused[lp.Name] {
+			brokered = append(brokered, lp)
+		}
+	}
+	o.writeScopeFiles(cname, brokered)
 	manifestSpecs := set.ManifestHostDaemonSpecs(discovered)
 	// The TRANSPORT comes from the Loophole record, not from the config-shaped spec
 	// map, because it is the framework's decision and not a user-supplied key. A name
@@ -306,25 +334,6 @@ func (o *Options) startLoopholesMatching(cname, rt string, cfg *jsonx.OrderedMap
 					order = append(order, name)
 				}
 			}
-		}
-	}
-	// placementRefused: a loophole whose MANIFEST names host code living where an agent
-	// can rewrite it (the placement rule, landing item 1a's manifest faces). The
-	// config faces are refused earlier, at validation; a manifest's own host_daemon.cmd
-	// and doctor_cmd could not be, because two of the three targets are RUNTIME
-	// resolutions — the module dir after symlinks, the argv after {loophole_dir}
-	// substitution — and a resolved record is the first place they exist.
-	//
-	// Refused HERE rather than at discovery for the same reason discovery cannot refuse
-	// a name collision: Discover has no error channel by contract, and the spawn is the
-	// last moment before the code actually runs. A refused loophole keeps its non-exec
-	// declarations (they were already emitted into the argv) — this gate covers the one
-	// face that executes.
-	placementRefused := map[string]bool{}
-	for _, lp := range discovered {
-		for _, problem := range lp.PlacementProblems(o.Workspace) {
-			placementRefused[lp.Name] = true
-			o.pr(o.Stdout).print("[red]Refusing to start loophole " + lp.Name + ": " + problem + "[/red]")
 		}
 	}
 	for _, name := range order {

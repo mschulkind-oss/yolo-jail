@@ -65,15 +65,16 @@ func (o *Options) recordApprovedScopes(check *config.ScopeCheck) {
 // spawn (BB-D32), BEFORE the spawn, since the daemon's argv names the file. It collects the
 // files of launches known gone first, never by age.
 //
+// brokered is the caller's decision, and the whole of it: the loopholes the spawn will
+// start (loopholes.Set.BrokeredToStart, less any the placement rule refused). This function
+// filters nothing, so it cannot drift from the predicate the gate asked with.
+//
 // FAIL CLOSED: a loophole whose gate did not record an approved scope — a spawn path that
 // skipped the gate — gets an EMPTY scope, so its broker runs only commands that name no
 // repository, and the launch says so.
-func (o *Options) writeScopeFiles(cname string, discovered []*loopholes.Loophole) {
+func (o *Options) writeScopeFiles(cname string, brokered []*loopholes.Loophole) {
 	out := o.pr(o.Stdout)
-	for _, lp := range discovered {
-		if lp.Brokered == nil || lp.HostDaemon == nil || !lp.Active() {
-			continue
-		}
+	for _, lp := range brokered {
 		brokerscope.Sweep(lp.Brokered.Source)
 		repos, approved := o.approvedScopes[lp.Name]
 		if !approved {

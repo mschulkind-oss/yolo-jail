@@ -20,6 +20,14 @@ import (
 // handed it; and a workspace whose .git/config names a GitHub remote.
 func brokeredFixture(t *testing.T) (o *Options, buf *strings.Builder, marker string) {
 	t.Helper()
+	return brokeredFixtureWith(t, true)
+}
+
+// brokeredFixtureWith is brokeredFixture with the pack module's host-exec approval chosen:
+// false is a fetched pack whose claim to run host code was never approved, so the origin
+// gate keeps its daemon from starting.
+func brokeredFixtureWith(t *testing.T, hostExecApproved bool) (o *Options, buf *strings.Builder, marker string) {
+	t.Helper()
 	isolatePackModules(t)
 	home, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
@@ -38,7 +46,7 @@ func brokeredFixture(t *testing.T) (o *Options, buf *strings.Builder, marker str
 	if err := os.WriteFile(filepath.Join(mod, "manifest.jsonc"), []byte(manifest), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	loopholes.SetPackModules([]loopholes.PackModule{{Dir: mod, HostExecApproved: true}})
+	loopholes.SetPackModules([]loopholes.PackModule{{Dir: mod, HostExecApproved: hostExecApproved}})
 
 	ws, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
@@ -224,6 +232,37 @@ func TestASpawnWithNoApprovedScopeFailsClosed(t *testing.T) {
 	_ = json.Unmarshal(data, &f)
 	if len(f.Repos) != 0 || !strings.Contains(buf.String(), "no repository scope was approved") {
 		t.Fatalf("scope %+v, output:\n%s", f, buf.String())
+	}
+}
+
+// The spawn writes a scope file for exactly the brokers the gate asked about. A pack
+// loophole whose origin gate is closed starts no daemon, so the gate asks nothing and the
+// spawn writes no file and prints no scope line: a file written for a daemon that never
+// runs has no handle to remove it, and a line about a scope nobody approved is noise.
+func TestTheSpawnWritesNoScopeFileForABrokerTheOriginGateStops(t *testing.T) {
+	o, buf, marker := brokeredFixtureWith(t, false)
+	o.AcceptConfigChanges = true
+	if !o.checkConfigChanges(jsonx.NewOrderedMap(), jsonx.NewOrderedMap(), "podman") {
+		t.Fatalf("the gate refused:\n%s", buf.String())
+	}
+	if _, err := os.Stat(config.ApprovalScopePath(o.Workspace)); !os.IsNotExist(err) {
+		t.Fatal("the gate recorded a scope for a broker the origin gate stops")
+	}
+	handles := o.startLoopholes("yolo-brokered-test3", "podman", jsonx.NewOrderedMap())
+	socketsDir := hostServiceSocketsDir("yolo-brokered-test3", false)
+	o.stopLoopholes(handles, socketsDir, "", "")
+	_ = os.RemoveAll(socketsDir)
+	if _, err := os.Stat(marker); !os.IsNotExist(err) {
+		t.Fatal("the daemon of an unapproved pack ran")
+	}
+	entries, _ := os.ReadDir(filepath.Dir(paths.BrokerScopeFile("gbsrc", "x")))
+	if len(entries) != 0 {
+		t.Fatalf("a scope file was written for a broker that never started: %v", entries)
+	}
+	for _, line := range []string{"no repository scope was approved", "repository scope is empty", "scope for this workspace"} {
+		if strings.Contains(buf.String(), line) {
+			t.Errorf("the launch printed %q for a broker that never started:\n%s", line, buf.String())
+		}
 	}
 }
 
