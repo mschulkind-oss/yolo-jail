@@ -136,6 +136,13 @@ refusal names the field; move it to your user config. A project can still set a 
 
 ### Fixed
 
+- An agent's briefing no longer calls its home "persistent across sessions". In a podman jail
+  most of the home is read-only, so agents that believed it wrote their worktrees to `/tmp`,
+  which is deleted once the jail exits. The briefing now lists the jail's storage classes: what
+  is gone at every restart, what lasts for this workspace, what every workspace on the machine
+  shares, and the workspace itself, with what each survives and what yolo cleans up. It tells
+  the agent to keep nothing it needs after a restart under `/tmp`. Apple Container jails get the
+  same section.
 - A value you set on the command line beats a profile's value again. `ANTHROPIC_MODEL=x claude`,
   or an `export` in the jail's shell, had been overridden by what the selected profile sets for
   that agent; your value now wins, and the profile's still replaces one yolo set itself.

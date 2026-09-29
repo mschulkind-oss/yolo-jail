@@ -128,10 +128,11 @@ conditional sections that appear only when their data exists. Emission order, fr
 4. **Environment** — workspace, home, OS, the network paragraph, the two port sections, and
    the resource limits the backend actually imposes.
 5. **The `rg --replace` trap** warning.
-6. **Durable vs ephemeral paths** — on a container backend, which paths survive a restart for
-   this workspace, which are shared by every workspace, which are read-only, which are gone
-   once the jail exits, and where worktrees go. Rendered from the launch's persistence map
-   (see below); absent on `macos-user` and at the host notch.
+6. **Storage classes** — on a container backend, the jail's storage classes (per launch, per
+   workspace, every workspace on the machine, the workspace itself), each with its paths, what
+   it survives, who shares it and what yolo cleans up, then the read-only rest of the home and
+   one line of guidance: nothing that must survive a restart goes under `/tmp`. Rendered from
+   the launch's persistence map (see below); absent on `macos-user` and at the host notch.
 7. **What this environment does NOT do for you** — conditional, the backend's own
    limitations. Placed **before** the capability sections deliberately: these are
    constraints that change how everything below them should be read, and a constraint
