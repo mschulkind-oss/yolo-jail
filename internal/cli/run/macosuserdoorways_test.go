@@ -190,6 +190,38 @@ func TestMacosUserRunsARefusedDoorwayInTheGuest(t *testing.T) {
 	}
 }
 
+// A PACK THAT DECLARES THE ADAPTER WITHOUT A HOST ARGV STILL RUNS IT IN THE GUEST: the doorway
+// rule moves only a doorway whose manifest declares `host_cmd`. This is the premise of the Mac
+// integration test that keeps the guest's supervisor measured (integration/'s
+// TestMacosUserJailDaemonRunsConfinedInTheGuest, whose local pack is this manifest).
+func TestALocalAdapterWithoutAHostArgvRunsInTheGuest(t *testing.T) {
+	home := packHome(t)
+	ws := t.TempDir()
+	writeLocalLoopholePack(t, home, "openai-auth-broker", `{"name": "openai-auth-broker",
+		"description": "the adapter as a guest jail daemon", "version": 1, "default_enabled": true,
+		"transport": "loopback-tls", "lifecycle": "spawned",
+		"host_daemon": {"cmd": ["yolo", "internal", "daemon", "openai-auth-broker",
+		  "--socket", "{socket}", "--state-file", "{state}/credentials.json"],
+		  "publishes": "socket", "scope": "host"},
+		"jail_daemon": {"cmd": ["yolo-jaild", "openai-auth-adapter", "--listen", "{listen}"],
+		  "listen": "127.0.0.1:1460", "restart": "on-failure", "caller_token": true},
+		"state_files": [".mount-sentinel"]}`)
+	writeUserConfigJSON(t, home, `{"packs": []}`)
+	doors := observeDoorways(t)
+
+	got := macosUserLaunch(t, ws)
+	if got.rc != 0 {
+		t.Fatalf("Run() = %d, want 0\n%s", got.rc, got.out)
+	}
+	if len(doors.plans) != 0 {
+		t.Errorf("a doorway opened for an adapter that declares no host argv: %v", doors.plans[0].Cmd)
+	}
+	specs := payloadOf(t, got.jailDaemons)
+	if len(specs) != 1 || specs[0].Name != "openai-auth-broker" || specs[0].Cmd[1] != "openai-auth-adapter" {
+		t.Errorf("the guest was not handed the adapter: %+v\n%s", specs, got.out)
+	}
+}
+
 // THE REAL DOORWAY, end to end on this machine's loopback: the start is not stubbed, so the
 // test binary runs `internal daemon openai-auth-adapter --listen <picked>` as the launch's
 // child, and while the command runs, the address codex was pointed at answers. A refresh

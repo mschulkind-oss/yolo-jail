@@ -181,10 +181,11 @@ func TestEnvOverrideRefusesTheMacosUserLaunch(t *testing.T) {
 // TestMacosUserWithholdsTheBedrockPointerSoNothingOverridesIt is aws-auth on macos-user with
 // its loophole left at its default, OFF (docs/plans/notch-convergence.md §4 item 2): the adapter
 // behind AWS_CONTAINER_CREDENTIALS_FULL_URI is then in no payload, so the pointer is a port
-// nothing serves, although macos-user's guest runs the adapter when the loophole is on
-// (macosuserguestdaemons_test.go). The launch withholds the pointer and says so. With no pointer, a bearer, a static pair or a
-// ~/.aws grant beside it overrides nothing, so none of them refuses or warns — before this, a
-// macos-user launch refused a working bearer over a pointer that could never answer.
+// nothing serves, although a macos-user launch opens the adapter as its own doorway, outside the
+// sandbox, when the loophole is on (macosuserguestdaemons_test.go, HS-D15). The launch withholds
+// the pointer and says so. With no pointer, a bearer, a static pair or a ~/.aws grant beside it
+// overrides nothing, so none of them refuses or warns — before this, a macos-user launch refused
+// a working bearer over a pointer that could never answer.
 func TestMacosUserWithholdsTheBedrockPointerSoNothingOverridesIt(t *testing.T) {
 	for _, tc := range []struct{ name, extra string }{
 		{"a bearer", inEnvSources(map[string]string{bearerVar: "sk-bedrock-frozen"})},

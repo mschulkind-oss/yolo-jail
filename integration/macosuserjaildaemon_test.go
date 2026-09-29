@@ -16,14 +16,21 @@ import (
 
 // TestMacosUserJailDaemonRunsConfinedInTheGuest is steps 3 and 4 of
 // docs/design/jail-daemon-on-macos-user-plan.md on the hardware, built on OQ-DP8 and OQ-DP9 of
-// docs/design/declaration-parity.md: a bare `"packs": ["claude"]` selects the OpenAI refresh
-// adapter, and the macos-user launch must stage a DARWIN yolo-jaild into the sandbox's own
-// prefix, start `yolo-jaild supervise` under the session's Seatbelt profile as the sandbox
-// account, and have the adapter bind — then leave no supervisor behind when the command exits.
+// docs/design/declaration-parity.md: a loophole's jail daemon, and the macos-user launch must
+// stage a DARWIN yolo-jaild into the sandbox's own prefix, start `yolo-jaild supervise` under the
+// session's Seatbelt profile as the sandbox account, and have the daemon bind — then leave no
+// supervisor behind when the command exits.
 //
-// The subject is the OpenAI adapter rather than the plan's hello-daemon: hello-daemon's argv
-// names the container's loophole mount, which the guest declines by name (loopholes'
-// guestrun.go), and an embedded pack's files are 0444 anyway (OQ-BP5).
+// THE SUBJECT IS A LOCAL PACK'S COPY OF THE OPENAI REFRESH ADAPTER. Until HS-D15
+// (docs/design/host-notch-services.md, the doorway rule, 2026-09-29) a bare `"packs":
+// ["claude"]` handed the guest the shipped adapter; since then the shipped manifest declares
+// `jail_daemon.host_cmd`, so the launch opens that doorway outside the sandbox and no shipped
+// pack hands the guest anything (TestMacosUserOpensTheCodexDoorwayOutsideTheSandbox covers the
+// doorway). A pack that declares the same loophole WITHOUT a host argv still runs its jail daemon
+// in the guest, which is what this test measures, so the conventional local pack declares one:
+// the shipped manifest, less `host_cmd`. Not the plan's hello-daemon: its argv names the
+// container's loophole mount, which the guest declines by name (loopholes' guestrun.go), and an
+// embedded pack's files are 0444 anyway (OQ-BP5).
 //
 // WHAT ONLY THIS TEST CAN SEE, every item of it unexecuted before: that the Go-built darwin
 // yolo-jaild is signed well enough for the kernel to exec from /var/yolo-jail/bin; that
@@ -56,7 +63,8 @@ import (
 // never contains a process listing.
 func TestMacosUserJailDaemonRunsConfinedInTheGuest(t *testing.T) {
 	requireMacosUser(t)
-	packHome(t, `{"packs": ["claude"]}`)
+	packHome(t, `{"packs": []}`)
+	writeLocalGuestAdapterPack(t)
 	ws := macosUserWorkspace(t, `{}`)
 	seen := filepath.Join(ws, ".yolo-it-jaild-seen")
 	uid := sandboxUID(t)
@@ -129,6 +137,50 @@ func TestMacosUserJailDaemonRunsConfinedInTheGuest(t *testing.T) {
 	// And the in-jail binary is the SANDBOX's, never on the host's PATH (OQ-DP8).
 	if p, err := exec.LookPath("yolo-jaild"); err == nil {
 		t.Errorf("yolo-jaild resolves on the HOST's PATH (%s); the host ship set is {yolo}", p)
+	}
+}
+
+// localGuestAdapterManifest is packs/openai-auth's loophole manifest less `jail_daemon.host_cmd`:
+// the host service and the refresh adapter as they were before HS-D15, so the adapter is a
+// jail daemon the macos-user guest runs.
+const localGuestAdapterManifest = `{
+  "name": "openai-auth-broker",
+  "description": "the OpenAI refresh adapter as a guest jail daemon (integration fixture)",
+  "version": 1,
+  "default_enabled": true,
+  "transport": "loopback-tls",
+  "lifecycle": "spawned",
+  "host_daemon": {
+    "cmd": ["yolo", "internal", "daemon", "openai-auth-broker",
+            "--socket", "{socket}", "--state-file", "{state}/credentials.json"],
+    "publishes": "socket",
+    "scope": "host"
+  },
+  "jail_daemon": {
+    "cmd": ["yolo-jaild", "openai-auth-adapter", "--listen", "{listen}"],
+    "listen": "127.0.0.1:1460",
+    "restart": "on-failure",
+    "caller_token": true
+  },
+  "state_files": [".mount-sentinel"]
+}`
+
+// writeLocalGuestAdapterPack writes the conventional local pack (~/.config/yolo-jail/local, which
+// every launch appends to its selection) shipping localGuestAdapterManifest, under the HOME
+// packHome set.
+func writeLocalGuestAdapterPack(t *testing.T) {
+	t.Helper()
+	local := filepath.Join(os.Getenv("HOME"), ".config", "yolo-jail", "local")
+	mod := filepath.Join(local, "loopholes", "openai-auth-broker")
+	if err := os.MkdirAll(mod, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(mod, "manifest.jsonc"), []byte(localGuestAdapterManifest), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	body := `{"contributes": [{"kind": "loophole", "from": "loopholes/openai-auth-broker"}]}`
+	if err := os.WriteFile(filepath.Join(local, "pack.json"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
 	}
 }
 
