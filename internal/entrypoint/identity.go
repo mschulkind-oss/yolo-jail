@@ -59,20 +59,32 @@ func configureGit(e *Env) {
 	trustWorkspace(e, git)
 }
 
-// gitForConfig is the git configureGit runs: the process's own, and when the process has
-// none, the agent's.
+// gitForConfig is the git configureGit runs: the first on the agent's PATH that lies OUTSIDE
+// the sandbox home, which leaves the floor's git in the nix store and the system's.
 //
-// THE SECOND HALF IS THE macos-user BOOTSTRAP'S WHOLE CASE. The launch runs it under
-// `env -i` and names no PATH (macosuser.DarwinBootstrapArgv), so exec.LookPath finds nothing
-// and this step used to note "no git on PATH" and return — on the one backend it runs on, it
-// wrote no identity and no safe.directory at all. The sandbox's real PATH rides in as
-// $YOLO_DARWIN_LOGIN_PATH, which agentPath reads, and the floor puts git on it. Which git
-// writes the file does not matter; that one is written does.
+// WHY THE AGENT'S PATH. The macos-user launch runs the bootstrap under `env -i` and names no
+// PATH (macosuser.DarwinBootstrapArgv), so exec.LookPath finds nothing, and this step used to
+// note "no git on PATH" and return — on the one backend it runs on, it wrote no identity and no
+// safe.directory at all. The sandbox's real PATH rides in as $YOLO_DARWIN_LOGIN_PATH instead,
+// and the floor puts git on it.
+//
+// ⚠ WHY NOT ALL OF IT. The bootstrap runs OUTSIDE Seatbelt, as the sandbox account, which is
+// tolerable only because it runs nothing the agent can change (P4 in
+// docs/reference/macos-user-provisioning.md). The login path's first entries are INSIDE the
+// sandbox home — ~/.yolo/bin/block, ~/.yolo/bin/launch, ~/.local/bin, ~/.npm-global/bin, the
+// mise shims and ~/go/bin (macosuser.SandboxPath) — and the profile lets the agent write the
+// whole home. A `git` the agent left in ~/.local/bin would run here unconfined at the next
+// launch, able to read and write every other workspace under the shared root; and since the
+// mise store is machine-wide, a shim one workspace's agent planted would run in another
+// workspace's bootstrap. So the lookup is imageProbePath's: the same login path with every
+// directory under the jail home removed, the filter the launcher-collision check already
+// applies for the same reason (what the launch provides, never what an install wrote there).
+// Without a login path — every backend but this one — that is the image's /bin:/usr/bin.
+//
+// The process's own PATH is not consulted at all: on this backend it is empty, and a lookup
+// there would be a second PATH that nothing filters.
 func gitForConfig(e *Env) string {
-	if p, err := exec.LookPath("git"); err == nil {
-		return p
-	}
-	return lookPathIn(agentPath(e), "git")
+	return lookPathIn(imageProbePath(e), "git")
 }
 
 // trustWorkspace adds the workspace to git's safe.directory list.

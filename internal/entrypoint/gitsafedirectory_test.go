@@ -12,6 +12,7 @@ package entrypoint
 // the config configureGit writes clears it.
 
 import (
+	"bytes"
 	"errors"
 	"os"
 	"os/exec"
@@ -41,6 +42,16 @@ func hermeticGit(t *testing.T) {
 		t.Setenv(k, "")
 		os.Unsetenv(k)
 	}
+}
+
+// gitEnv is a loud Env whose AGENT'S PATH holds the real git, as $YOLO_DARWIN_LOGIN_PATH
+// carries it on the one backend configureGit runs on. gitForConfig looks there and nowhere
+// else, so the fixture names the directory rather than relying on the image's /bin to hold one.
+func gitEnv(t *testing.T) (e *Env, stderr, logOnly *bytes.Buffer) {
+	t.Helper()
+	e, stderr, logOnly = loudEnv(t)
+	e.Vars[DarwinLoginPathEnv] = filepath.Dir(gitBin)
+	return e, stderr, logOnly
 }
 
 // gitRepo makes a real repository and returns its RESOLVED path (the darwin TMPDIR class:
@@ -99,7 +110,7 @@ func safeDirectories(t *testing.T, home string) []string {
 func TestConfigureGitTrustsAWorkspaceAnotherAccountOwns(t *testing.T) {
 	hermeticGit(t)
 	ws := gitRepo(t)
-	e := testEnv(t)
+	e, _, _ := gitEnv(t)
 	e.Workspace = ws
 
 	out, rc := gitAsAnotherOwner(e.Home, ws, "status")
@@ -129,7 +140,7 @@ func TestTheWorkspaceEntryDoesNotTrustANestedRepository(t *testing.T) {
 	if out, err := exec.Command(gitBin, "init", "-q", nested).CombinedOutput(); err != nil {
 		t.Fatalf("git init: %v\n%s", err, out)
 	}
-	e := testEnv(t)
+	e, _, _ := gitEnv(t)
 	e.Workspace = ws
 	configureGit(e)
 
@@ -147,7 +158,7 @@ func TestTheWorkspaceEntryDoesNotTrustANestedRepository(t *testing.T) {
 func TestTheSafeDirectoryEntryIsIdempotentAndKeepsTheUsersOwn(t *testing.T) {
 	hermeticGit(t)
 	ws := gitRepo(t)
-	e, stderr, _ := loudEnv(t)
+	e, stderr, _ := gitEnv(t)
 	e.Workspace = ws
 
 	configureGit(e)
@@ -178,7 +189,7 @@ func TestTheSafeDirectoryEntryIsTheResolvedWorkspace(t *testing.T) {
 	if err := os.Symlink(ws, link); err != nil {
 		t.Fatal(err)
 	}
-	e := testEnv(t)
+	e, _, _ := gitEnv(t)
 	e.Workspace = link
 	configureGit(e)
 
@@ -190,13 +201,61 @@ func TestTheSafeDirectoryEntryIsTheResolvedWorkspace(t *testing.T) {
 // A write that fails is said, naming the setting, the symptom and the command that fixes it:
 // the agent otherwise meets a bare exit 128 with nothing pointing back at the boot.
 func TestAFailedSafeDirectoryWriteIsReported(t *testing.T) {
-	fakeBin(t, "git", "exit 1")
+	failing := fakeBin(t, "git", "exit 1")
 	e, stderr, _ := loudEnv(t)
+	e.Vars[DarwinLoginPathEnv] = failing
 	e.Workspace = "/Users/Shared/yolo/proj"
 	configureGit(e)
 	mustContain(t, "a failed safe.directory write", stderr,
 		"safe.directory", "/Users/Shared/yolo/proj", "dubious ownership",
 		"git config --global --add safe.directory /Users/Shared/yolo/proj")
+}
+
+// plantGit writes a `git` into dir that records its argv in marker and exits 0 — what an
+// agent's planted binary would do to go unnoticed: answer every call with success.
+func plantGit(t *testing.T, dir, marker string) {
+	t.Helper()
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	script := "#!/bin/sh\necho \"$0 $*\" >> '" + marker + "'\nexit 0\n"
+	if err := os.WriteFile(filepath.Join(dir, "git"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// THE BOOTSTRAP RUNS OUTSIDE SEATBELT, so the git it runs must be one the agent cannot write.
+// The agent's PATH on macos-user opens with directories in the sandbox home, which the profile
+// lets it write: a `git` in ~/.local/bin, or a mise shim (the mise store is machine-wide, so
+// one workspace's agent can plant it for every other workspace's bootstrap), would otherwise
+// run here unconfined as the sandbox account at the next launch. Both are planted AHEAD of
+// the real git, the order the login path gives them.
+//
+// It fails if gitForConfig searches the whole agent's PATH (agentPath) rather than its part
+// outside the home, and if configureGit stops asking gitForConfig; the second assertion fails
+// if the filter drops the real git too.
+func TestConfigureGitNeverRunsAGitFromTheSandboxHome(t *testing.T) {
+	hermeticGit(t)
+	ws := gitRepo(t)
+	e, _, _ := loudEnv(t)
+	e.Workspace = ws
+	e.Vars["YOLO_GIT_EMAIL"] = "someone@example.com"
+	marker := filepath.Join(t.TempDir(), "planted-git-ran")
+	local := filepath.Join(e.Home, ".local", "bin")
+	shims := filepath.Join(e.Home, ".yolo", "mise", "shims")
+	plantGit(t, local, marker)
+	plantGit(t, shims, marker)
+	t.Setenv("PATH", "")
+	e.Vars[DarwinLoginPathEnv] = strings.Join([]string{local, shims, filepath.Dir(gitBin)}, ":")
+
+	configureGit(e)
+
+	if ran, err := os.ReadFile(marker); err == nil {
+		t.Fatalf("configureGit ran a git from the sandbox home, outside Seatbelt:\n%s", ran)
+	}
+	if got := safeDirectories(t, e.Home); !slices.Equal(got, []string{ws}) {
+		t.Errorf("safe.directory = %q, want [%q] written by the git outside the home", got, ws)
+	}
 }
 
 // THE CALL SITE, ON THE BACKEND THAT NEEDS IT: the real macos-user bootstrap, entered the way

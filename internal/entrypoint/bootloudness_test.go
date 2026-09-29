@@ -528,8 +528,9 @@ func TestTheFdDirFixtureRejectsADirectoryItCannotProve(t *testing.T) {
 // identity rather than as yolo having been unable to record it — and the usual cause is a
 // ~/.gitconfig mounted read-only, which no part of that message hints at.
 func TestAGitIdentityThatCouldNotBeRecordedIsReported(t *testing.T) {
-	fakeBin(t, "git", "exit 1")
+	failing := fakeBin(t, "git", "exit 1")
 	e, stderr, _ := loudEnv(t)
+	e.Vars[DarwinLoginPathEnv] = failing // where gitForConfig looks
 	e.Vars["YOLO_GIT_NAME"] = "Some One"
 	e.Vars["YOLO_GIT_EMAIL"] = "some@one.example"
 	configureGit(e)
@@ -540,9 +541,10 @@ func TestAGitIdentityThatCouldNotBeRecordedIsReported(t *testing.T) {
 // an empty case rather than a degradation — but it is still the answer to "why does this
 // jail have no git identity", so it belongs in the log.
 //
-// Absent from BOTH places configureGit looks: the process's PATH and the agent's
-// (gitForConfig). The agent's is pointed at an empty directory, since left alone it is the
-// container default, whose /bin holds a real git on the machine running this.
+// Absent from where configureGit looks (gitForConfig): the agent's PATH, which is pointed at
+// an empty directory, since left alone it is the image's /bin:/usr/bin, which holds a real git
+// on the machine running this. The process's PATH is emptied too, so a lookup that came back
+// to it would find nothing either way.
 func TestAnAbsentGitIsRecordedButNotWarned(t *testing.T) {
 	t.Setenv("PATH", t.TempDir())
 	e, stderr, logOnly := loudEnv(t)
