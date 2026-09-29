@@ -401,7 +401,7 @@ rootless host.**
    **Answer:**
    > _(empty — fill in when decided)_
 
-3. 💬 <a id="OQ-PR3"></a>**[OQ-PR3](#OQ-PR3): Should every launch leave one
+3. ✅ <a id="OQ-PR3"></a>**[OQ-PR3](#OQ-PR3): Should every launch leave one
    line in a machine-wide log, so one reboot's storm can be read in one place?**
    This investigation could not find the failing launch. Launch records live in
    each workspace's `.yolo/`. The storm was reconstructed only from the loophole
@@ -422,14 +422,18 @@ rootless host.**
      log directory then learns the names of the user's other projects.
    - **D. Only when timing is on.** Off exactly when an unplanned reboot happens.
 
-   <!-- vantage: oq id=OQ-PR3 leaning="B: one line per launch beside crossings.log, keyed by the jail short hash crossings.log already uses; it newly discloses every launch's time and outcome to a jail that mounts the logs directory, but no names." -->
-
    _Leaning:_ B. The host check needs this record to be read at all. What it adds
    for a jail that mounts the log directory is every other workspace's launch
    times and outcomes under stable hashes, never which project a hash is.
 
    **Answer:**
-   > _(empty — fill in when decided)_
+   > **Ruled 2026-09-29, as leaned: B.** One line per launch in `~/.local/share/yolo-jail/logs/`,
+   > refused or not, keyed by the short workspace code the helper log already uses. The
+   > maintainer: *"I don't see why we're worried about a jail getting access to that log. It's
+   > just like anything else on the host, it's outside of their view. So if there's something
+   > useful to write there, yes, write it there. It'll be an interesting place to sort of
+   > passively gather paths that we can use for researching the machine … and the future agents
+   > debugging things."*
 
 ## Decision Ledger
 
@@ -456,6 +460,7 @@ user config, never for a yolo bug
 | <a id="PR-D11"></a>PR-D11 | *Implementation decision.* The budget is a constant: no config key and no `YOLO_*` dial (the hatch rule) | 2026-09-29 | [The gate](#the-gate) | — |
 | <a id="PR-D12"></a>PR-D12 | *Implementation decision.* The budget is 60 s. It covers the inferred 22.5 s refresh with 2.5× margin, room for its retries, and the 44 s the whole restore storm took. Host-check step 1 re-measures the forced refresh before building, and this row changes if it runs longer. Whether the budget applies only near a boot is [OQ-PR1](#OQ-PR1) | 2026-09-29 | [The gate](#the-gate) | — |
 | [OQ-PR1](#OQ-PR1) | **Maintainer ruling:** the 60 s budget applies to every launch and `yolo check`, never keyed on a reboot; answers that cannot clear on their own fail at once | 2026-09-29 | — | pending |
+| [OQ-PR3](#OQ-PR3) | **Maintainer ruling:** B; one machine-wide line per launch, keyed by the workspace code | 2026-09-29 | — | pending |
 
 ## Appendix A: evidence
 
