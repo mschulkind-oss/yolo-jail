@@ -33,7 +33,7 @@ agent pack. `yolo host -- <agent>` has to stay resident whenever a sidecar is de
 
 **Start at [§3](#3-the-shape)**, the shape. The per-agent answer is [§2.2](#22-what-each-agent-can-hear).
 
-**Needs your ruling:** [OQ-EW1](#OQ-EW1), [OQ-EW2](#OQ-EW2), [OQ-EW3](#OQ-EW3), [OQ-EW4](#OQ-EW4).
+**Needs your ruling:** [OQ-EW2](#OQ-EW2) and [OQ-EW4](#OQ-EW4), being redesigned (the feature is held until enablement is an intentional per-machine act). [OQ-EW1](#OQ-EW1) and [OQ-EW3](#OQ-EW3) were ruled 2026-09-29.
 
 **Reads with:** [`host-notch-services.md`](host-notch-services.md#44-lifetime) (the resident
 host launch a host-side sidecar rides on), [`provider-credential-scope.md`](provider-credential-scope.md)
@@ -553,7 +553,7 @@ starts unasked.
 
 ## 12. Open Questions
 
-1. 💬 <a id="OQ-EW1"></a>**[OQ-EW1](#OQ-EW1): Who may declare a host-side sidecar?** A
+1. ✅ <a id="OQ-EW1"></a>**[OQ-EW1](#OQ-EW1): Who may declare a host-side sidecar?** A
    host-side sidecar runs its command on the host, outside every confinement, at every launch.
    This decides whether the token-keeping half of [EW-P4](#EW-P4) is available to the
    maintainer's own pack, and what a pack someone else wrote can make his host run.
@@ -568,15 +568,16 @@ starts unasked.
      matters later.
    - **C — Nobody, yet.** Agent side only in the first release; the token stays where it is.
 
-   <!-- vantage: oq id=OQ-EW1 leaning="A: the user's own config, their local pack, and packs their user-scope config selects by path; refused from workspace config and fetched packs; disclosed every launch." -->
-
    _Leaning:_ **A.** A command in his own config is his, as much as his shell's rc file is. A
    path-selected pack is one he named. A fetched pack stays refused until someone rules on trust
    for third-party host code, as [OQ-HS4](host-notch-services.md#OQ-HS4) left it. The boundary
    is disclosure, which [OQ-TP9](trust-paths.md#decision-ledger) chose over approval.
 
    **Answer:**
-   > _(empty — fill in when decided)_
+   > **Ruled 2026-09-29, as leaned: A.** Only the user's own word may declare a host-side
+   > sidecar: user-scope config, the local pack, and packs the user's config selects by path.
+   > Refused from workspace config and from fetched packs; disclosed at every launch. (Relayed
+   > from the conversational walkthrough: *"Yes A."*)
 
 2. 💬 <a id="OQ-EW2"></a>**[OQ-EW2](#OQ-EW2): Does a ping reach every agent session in the jail,
    or one?** An attach can put claude and pi in one container, both with deliverers. This
@@ -594,10 +595,22 @@ starts unasked.
    make the sidecar know about agents. Two agents in one jail is rare, and C can be added later as
    an optional `--to` without changing A's default.
 
+   **Directed 2026-09-29, back to the drawing board.** The maintainer, answering this question:
+   *"this is a much deeper question i think and i don't think we can actually release this feature
+   until we really nail this down ... normally i put these settings in my dot files i share them
+   across computers ... i may have two agents across different computers ... waiting ... on the same
+   project ... a distributed set of ci watchers and agents that are both going to try to act and
+   that's not going to be good for anyone ... this really just needs to be a very intentional act
+   to enable this ci watcher somewhere ... it can't be driven even from the user settings directly,
+   because then when my.file syncing setup, I'm going to get it in two places without even thinking
+   about it."* The feature is not released until enablement is an intentional, per-machine act that
+   a synced dotfile cannot trigger, and the cross-machine duplicate is designed for. A redesign is
+   in progress; this question is restated with it.
+
    **Answer:**
    > _(empty — fill in when decided)_
 
-3. 💬 <a id="OQ-EW3"></a>**[OQ-EW3](#OQ-EW3): May a repository's own `yolo-jail.jsonc` declare
+3. ✅ <a id="OQ-EW3"></a>**[OQ-EW3](#OQ-EW3): May a repository's own `yolo-jail.jsonc` declare
    an agent-side sidecar?** A cloned repo's config could then start a process at launch, and ring
    the agent with whatever it likes. This decides whether a project can ship its own watcher (a
    dev server's error tail, say) to everyone who opens it.
@@ -609,13 +622,19 @@ starts unasked.
    - **B — Never.** Sidecars are user-scope only, like the host-reaching keys
      [OQ-AS3](../research/agent-safehouse.md#OQ-AS3) asks about.
 
-   <!-- vantage: oq id=OQ-EW3 leaning="A: allowed where the agent is confined, since it adds no power the agent's shell lacks; refused by name at the host notch, and host side always refused from workspace scope." -->
-
    _Leaning:_ **A**, with a host-side declaration refused from workspace scope under every answer
    to [OQ-EW1](#OQ-EW1).
 
    **Answer:**
-   > _(empty — fill in when decided)_
+   > **Ruled 2026-09-29, none of the options as written: yes, but gated.** The maintainer: *"i
+   > think the answer is yes but again i'm not sure it should even be default on ... It would be
+   > weird to clone somebody else's repository and then start this up and get some background
+   > watcher running. I think we need an explicit acknowledgement step before it's default on
+   > anywhere. Yes, it starts it everywhere or whatever, it distributes it everywhere when you
+   > put it in the config, but that config needs to allow a gated set."* A repository's own
+   > config may declare an agent-side sidecar, but it does not run until the user has explicitly
+   > acknowledged it; the gated-configuration model is being designed with [OQ-EW2](#OQ-EW2)'s
+   > redesign.
 
 4. 💬 <a id="OQ-EW4"></a>**[OQ-EW4](#OQ-EW4): Is a pack's sidecar on when its pack is
    selected?** Loopholes that ship in packs are off until enabled
@@ -639,8 +658,8 @@ starts unasked.
 
 ## 13. Decision Ledger
 
-No ruling has been made in this doc. These are implementation decisions, taken where a question
-had one right answer, recorded so an implementer does not reopen them.
+Rulings (2026-09-29) and implementation decisions, taken where a question had one right answer,
+recorded so an implementer does not reopen them.
 
 | ID | Ruling / Decision | Date | Settled in | Built |
 | :--- | :--- | :--- | :--- | :--- |
@@ -656,6 +675,9 @@ had one right answer, recorded so an implementer does not reopen them.
 | <a id="EW-D10"></a>[`EW-D10`](#13-decision-ledger) | *Implementation decision.* Host-side sidecars belong to the launch that creates the container; an attach starts none. A sidecar declared at the host notch makes `yolo host` resident, in [`host-notch-services.md` §4.4](host-notch-services.md#44-lifetime)'s shape | 2026-09-28 | [§3.2](#32-lifecycle-per-side-and-per-notch) | — |
 | <a id="EW-D11"></a>[`EW-D11`](#13-decision-ledger) | *Implementation decision.* A sidecar never delays or refuses a launch by failing to start. It is retried with the supervisor's backoff and logged. A malformed declaration does refuse | 2026-09-28 | [§3.5](#35-failure-paths) | — |
 | <a id="EW-D12"></a>[`EW-D12`](#13-decision-ledger) | *Implementation decision.* Each agent pack declares its deliverer's tier, and the launch discloses per sidecar what its pings will do with the agent being launched. A tier is declared **wake** only after a human has measured it | 2026-09-28 | [§3.4](#34-deliverers-per-agent) | — |
+| [OQ-EW1](#OQ-EW1) | **Maintainer ruling:** A; only the user's own word declares a host-side sidecar | 2026-09-29 | [§12](#12-open-questions) | pending |
+| [OQ-EW3](#OQ-EW3) | **Maintainer ruling:** a repository may declare an agent-side sidecar, and it runs only after the user's explicit acknowledgement | 2026-09-29 | [§12](#12-open-questions) | pending |
+| <a id="EW-DIR1"></a>EW-DIR1 | **Maintainer direction:** the feature is held until enabling a sidecar is an intentional per-machine act that a synced dotfile cannot trigger, and two machines watching one project is designed for ([OQ-EW2](#OQ-EW2)) | 2026-09-29 | [§12](#12-open-questions) | — |
 
 ## 14. The neighbors
 
