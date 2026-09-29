@@ -3,9 +3,11 @@ package packload
 // regionpreflight.go is the REGION PRE-FLIGHT (docs/design/bedrock-plumbing.md §8, OQ-BR6,
 // ruled 2026-09-25): a launch whose profile selects a provider that is reached through a
 // region, and in which yolo can see no region for that provider, is refused before anything
-// starts. Without it codex fails at its first request, and opencode and pi silently use
-// us-east-1, a region nobody chose (the ruling's premise, read from their shipped clients and
-// never run).
+// starts. Without it codex fails at its first request, and claude, opencode and pi silently
+// use us-east-1, a region nobody chose (the ruling's premise, read from their shipped clients
+// and never run; claude's was added from Claude Code 2.1.285's binary on 2026-09-29, whose
+// resolver reads AWS_REGION, then AWS_DEFAULT_REGION, then the shared-config region, then
+// falls back to "us-east-1").
 //
 // WHICH PROVIDERS: every one whose composed entry declares a PLATFORM some selected pack says is
 // reached through a region — OQ-BR2's marker (docs/design/providers-and-profiles-redesign.md,
@@ -24,8 +26,13 @@ package packload
 // launch: the composed entry's `region` (the pack's fact under the user's `providers` entry,
 // which may set it from either config scope), and one of the declared variables set in what
 // the launch delivers to the agent. Nothing else — an `~/.aws/config` region in particular is
-// not counted, because whether an agent reads it is unproven, and "unproven emits nothing":
-// the refusal says it was not counted rather than guessing that it would be.
+// not counted, because yolo does not read that file, and the refusal says exactly that. It
+// used to say that an agent reading it was "unproven", which is false of claude: Claude Code's
+// resolver does read the shared-config region for the active AWS_PROFILE (read statically from
+// 2.1.285). So at `yolo host`, where the user's ~/.aws is claude's own, a user whose profile
+// names a region is refused although claude would find one; whether yolo should read that file
+// there is a question back to the maintainer (bedrock-plumbing.md, OQ-BR6), and until it is
+// answered the hatch is the way through.
 //
 // PER AGENT, because the credential gate made delivery per agent (OQ-CN6): a region one agent
 // receives through its own gated env or its own shape vars is not a region another agent on
@@ -211,7 +218,7 @@ func ProviderRegionRefusal(facts []string, held bool) (lines []string, refuse bo
 		"Refusing to launch: a selected provider is reached through a region, and this launch names none.",
 	}, facts...)
 	return append(lines,
-		"  A region in ~/.aws/config is not counted: that an agent reads it is unproven.",
+		"  A region in ~/.aws/config is not counted: yolo does not read it.",
 		"  Set a region as above, or launch anyway with "+paths.AllowMissingProvidersEnv+"=1."), true
 }
 

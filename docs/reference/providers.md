@@ -231,29 +231,41 @@ static key pair refuse, and a `~/.aws` grant warns
 
 ## The region preflight
 
-A launch refuses when a provider some agent's profile **selects** is reached through a region
-and the launch can see no region for it
+A launch refuses when an agent's profile **selects** a provider that is reached through a region
+and the launch can see no region reaching that agent
 ([`OQ-BR6`](../design/bedrock-plumbing.md#OQ-BR6), ruled 2026-09-25). Without it codex fails at
-its first Bedrock request, and opencode and pi silently use `us-east-1`.
+its first Bedrock request, and claude, opencode and pi silently use `us-east-1`.
 
-- **Which providers.** One whose pack declares `region_env_name`: the variables an agent on that
-  provider reads its region from. Declaring the field is the whole requirement, and core names no
-  provider and no variable ([BR-D1](../design/bedrock-plumbing.md#BR-D1)). The claude pack's
-  `bedrock` declares `AWS_REGION` and `AWS_DEFAULT_REGION`. A user's own `providers` entry cannot
-  declare the field, so a provider only the user's config declares carries no requirement.
+- **Which providers.** Every provider whose composed entry declares a `platform` that some
+  selected pack says is reached through a region
+  ([the platform](#the-platform-what-service-a-provider-is)). A pack says so by declaring
+  `region_env_name` beside `platform` on a provider it ships: the variables an agent on that
+  platform reads its region from. packdecl refuses the field without a `platform`. The claude
+  pack's `bedrock` declares `AWS_REGION` and `AWS_DEFAULT_REGION` for `aws-bedrock`, so a
+  provider you declare yourself with `"platform": "aws-bedrock"` is required a region from the
+  same two variables, with nothing restated ([BR-D1](../design/bedrock-plumbing.md#BR-D1)). A
+  provider with no platform, or one whose platform no selected pack declares variables for,
+  requires nothing. Core names no provider, platform or variable.
 - **What counts as a region.** The composed entry's `region`, which a user's `providers` entry
   sets from either scope (`"providers": {"bedrock": {"region": "eu-west-1"}}`), or one of the
-  declared variables, non-empty, in what the launch delivers to the agent. In a jail that is
-  `env_sources`, a selected pack's `kind: "env"`, the profile's provider environment and, on a
-  container, the argv's `-e` pairs. It is never the shell yolo was launched from, which no
-  backend forwards; a region found only there is named in the refusal as not delivered. At
-  `yolo host --` the exec'd environment includes that shell, so it counts
+  declared variables, non-empty, in what the launch delivers to **that agent**. In a jail that is
+  the `env_sources` the credential gate delivers to it, a selected pack's shared `kind: "env"`,
+  its own gated env and provider environment, and, on a container, the argv's `-e` pairs, which
+  every process inherits. A value only another agent receives does not count
+  ([BR-D4](../design/bedrock-plumbing.md#BR-D4)). It is never the shell yolo was launched from,
+  which no backend forwards; a region found only there is named in the refusal as not
+  delivered. At `yolo host --` the exec'd environment includes that shell, so it counts
   ([BR-D2](../design/bedrock-plumbing.md#BR-D2)). A region in `~/.aws/config` is not counted,
-  because no agent is proven to read it, and the refusal says so.
+  because yolo does not read it, and the refusal says so. ⚠ Claude Code does read it (its
+  resolver takes `AWS_REGION`, then `AWS_DEFAULT_REGION`, then the shared-config region, then
+  `us-east-1`; read from the 2.1.285 binary, never run), so at `yolo host`, where that file is
+  claude's own, a profile that names a region there is refused although claude would find it.
+  Whether to count it there is open with the maintainer; the hatch below is the way through.
 - **Scope.** As the credential preflight's: a provider nobody selects, and an entry a `null`
   dropped, demand nothing.
 
-The refusal names the pack, the provider, both ways to set a region and every channel consulted.
+The refusal names the pack, the provider and its platform, the agents on it that receive no
+region, both ways to set a region and every channel consulted.
 It honors the credential preflight's hatch, `YOLO_ALLOW_MISSING_PROVIDERS=1`
 ([BR-D3](../design/bedrock-plumbing.md#BR-D3)), and runs wherever that preflight runs: the jail
 launcher's `checkProviderCredentials` asks both, so the fresh launch, the attach and every

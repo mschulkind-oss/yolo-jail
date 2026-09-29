@@ -551,9 +551,15 @@ Written for the implementer. Anything not here and not an open question is their
 - **No region: refuse the launch** ([OQ-BR6](#OQ-BR6), ruled, **built 2026-09-29**). Refuse only
   when the selected Bedrock provider declares no `region` **and** the composed jail environment
   holds neither `AWS_REGION` nor `AWS_DEFAULT_REGION`, both of which yolo can see. The refusal
-  names the three places. An `~/.aws/config` region is unproven, and unproven emits nothing: it
-  is not counted, and the refusal says so. Without the refusal, codex fails at first request,
-  and opencode and pi silently use `us-east-1`, a region nobody chose. As built
+  names the three places. An `~/.aws/config` region is not counted, because yolo does not read
+  that file, and the refusal says so. ⚠ The ruling's premise called an agent reading it
+  "unproven"; that is false of claude, whose resolver reads `AWS_REGION`, then
+  `AWS_DEFAULT_REGION`, then the shared-config region for the active profile, then falls back
+  to `us-east-1` (read statically from Claude Code 2.1.285 on 2026-09-29, never run). Without
+  the refusal, codex fails at first request, and claude, opencode and pi silently use
+  `us-east-1`, a region nobody chose. Whether yolo should count an `~/.aws/config` region at
+  `yolo host`, where that file is claude's own, goes back to the maintainer
+  ([OQ-BR6](#OQ-BR6)). As built
   ([BR-D1](#BR-D1) to [BR-D3](#BR-D3)): a provider opts in by declaring `region_env_name`, and
   the refusal is the provider pre-flight's second half, at the fresh container launch, the
   attach, every `macos-user` invocation and `yolo host --`

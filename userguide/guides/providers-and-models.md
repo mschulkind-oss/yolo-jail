@@ -69,8 +69,10 @@ Two more come with the agent packs, with no extra pack to add:
   agent can use it. See [Host Access and Loopholes](loopholes.md#the-loopholes-yolo-ships).
   Name the AWS region, either as `"providers": {"bedrock": {"region": "us-east-1"}}` in your
   config or as `AWS_REGION` in an `env_sources` entry. A `bedrock` launch with neither is refused
-  and names both. A region in `~/.aws/config` does not count, and in a jail neither does an
-  `AWS_REGION` exported in your own shell, which does not reach the jail.
+  and names both. A region in `~/.aws/config` does not count, because yolo does not read that
+  file, and in a jail neither does an `AWS_REGION` exported in your own shell, which does not
+  reach the jail. Each agent on Bedrock needs its own: a region only another agent receives does
+  not count for it.
 - **`codex`**, in the `claude`, `codex` and `pi` packs: your ChatGPT subscription, through yolo's
   shared OpenAI login. `codex` and `pi` use this login by default; `yolo -p codex -- claude` runs
   Claude Code against it. See [Logins](authentication.md#a-shared-chatgpt-login-for-codex-and-pi).
