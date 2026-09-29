@@ -584,6 +584,9 @@ func TestComposeCodexConfigDefaultsApply(t *testing.T) {
 	}
 	want := map[string]any{
 		"approval_policy": "never",
+		// OQ-CDX1: Codex's background server is off in every jail
+		// (docs/research/codex-background-service.md), a key of the autonomous posture.
+		"features": map[string]any{"daemon_auto_start": false},
 		"projects": map[string]any{
 			WorkspacePlaceholder: map[string]any{"trust_level": "trusted"},
 		},

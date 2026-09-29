@@ -77,6 +77,9 @@
             "codec": "toml",
             "managed": {
               "approval_policy": "never",
+              "features": {
+                "daemon_auto_start": false
+              },
               "sandbox_mode": "danger-full-access"
             },
             "name": "config",
