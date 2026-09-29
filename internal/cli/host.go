@@ -1334,11 +1334,18 @@ func (c *hostComposition) regionGaps() []string {
 			idx[kv[:i]] = kv[i+1:]
 		}
 	}
-	return packload.ProviderRegionGaps(c.packs, c.providers, c.selectedProviders(),
-		func(name string) (string, bool) {
+	// ONE AGENT: this notch composes one process, so the one ask is its agent's, on the provider
+	// its profile resolves to.
+	d := c.scope.Agent(c.agent)
+	if d == nil || d.Provider == "" {
+		return nil
+	}
+	return packload.ProviderRegionGaps(c.packs, c.providers, []packload.RegionAsk{{
+		Agent: c.agent, Provider: d.Provider,
+		Lookup: func(name string) (string, bool) {
 			v, ok := idx[name]
 			return v, ok && v != ""
-		}, nil,
+		}}}, nil,
 		packload.RegionConsulted(c.envSources, packload.FromPackEnv, packload.FromProfileEnv,
 			packload.FromLaunchEnv))
 }

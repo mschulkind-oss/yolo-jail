@@ -234,3 +234,44 @@ func TestTheFreshPodmanLaunchRefusesABedrockProfileWithNoRegion(t *testing.T) {
 		}
 	}
 }
+
+// PER AGENT (the review's reproduction of the first build): claude on `bedrock` and codex on an
+// inline pack's `local` profile, whose gated env gives codex, and only codex, an AWS_REGION. The
+// launch-wide lookup counted codex's region for claude and let claude start with none; the
+// region is asked of each agent on the provider, so claude is refused, and its own region then
+// satisfies it.
+func TestTheRegionIsAskedOfEachAgentOnTheProvider(t *testing.T) {
+	home := retireHome(t)
+	writeUserPacks(t, home, `[]`)
+	o := retireOptions(t, discardBuf())
+	o.Getenv = shellWith(nil)
+	local := inlinePack(t, "local", `{"name":"local","contributes":[
+	  {"kind":"provider","name":"local"},
+	  {"kind":"profile","name":"local","provider":"local"},
+	  {"kind":"env","profile":"local","vars":{"AWS_REGION":"eu-west-9"}}]}`)
+	packs := []*packload.Pack{officialPack(t, "claude"), officialPack(t, "codex"),
+		officialPack(t, "openai-auth"), local}
+	o.UseProfiles = map[string]string{"claude": "bedrock", "codex": "local"}
+
+	channel := channelFor(t, o, newConfig(), packs, emptyEnv())
+	if v, _ := channel.scope.DeliveredTo("codex", "AWS_REGION"); v != "eu-west-9" {
+		t.Fatalf("fixture: codex's own gated env must deliver it AWS_REGION, got %q", v)
+	}
+	if v, ok := channel.scope.DeliveredTo("claude", "AWS_REGION"); ok {
+		t.Fatalf("fixture: claude must receive no AWS_REGION, got %q", v)
+	}
+	lines, refuse := o.checkProviderCredentials(newConfig(), packs, channel, nil)
+	got := strings.Join(lines, "\n")
+	if !refuse || !strings.Contains(got, `requires a region for provider "bedrock" (platform "aws-bedrock"), selected for claude`) {
+		t.Fatalf("a region only codex receives must not satisfy claude's bedrock (refuse=%v):\n%s", refuse, got)
+	}
+	if strings.Contains(got, "selected for claude and codex") {
+		t.Errorf("codex is not on bedrock and must not be named:\n%s", got)
+	}
+
+	cfg := newConfig()
+	withBedrockRegion(cfg)
+	if lines, refuse := o.checkProviderCredentials(cfg, packs, channelFor(t, o, cfg, packs, emptyEnv()), nil); refuse {
+		t.Errorf("control: a region on claude's provider satisfies it:\n%s", strings.Join(lines, "\n"))
+	}
+}

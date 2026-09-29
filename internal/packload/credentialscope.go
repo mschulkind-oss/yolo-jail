@@ -655,6 +655,36 @@ func (s *CredentialScope) DeliveredShape(name string) (string, bool) {
 	return "", false
 }
 
+// DeliveredTo answers what the gate delivers to ONE agent under name, non-empty, from the
+// channels it composes: the env_sources this agent receives (the shared ones and its own
+// provider's claimed ones), the shared pack env fold, this agent's own gated pack env, and its
+// env derive's shape vars, the more specific winning as the vehicles layer them. It is the
+// per-agent question the launch-wide DeliveredPackEnv and DeliveredShape cannot answer: a value
+// only another agent receives is not this agent's (the region pre-flight asks it, OQ-BR6).
+func (s *CredentialScope) DeliveredTo(agent, name string) (string, bool) {
+	if s == nil {
+		return "", false
+	}
+	value := ""
+	if v, ok := s.EnvSourcesFor(agent).Get(name); ok {
+		value, _ = v.(string)
+	}
+	if v, ok := s.sharedPackEnv[name]; ok && value == "" {
+		value = v
+	}
+	if d := s.agents[agent]; d != nil {
+		if v, ok := d.PackEnv[name]; ok && v != "" {
+			value = v
+		}
+		for _, v := range d.Shape {
+			if v.Key == name && !v.Unset && v.Value != "" {
+				value = v.Value
+			}
+		}
+	}
+	return value, value != ""
+}
+
 // Empty reports whether a delivery carries nothing beyond the shared set.
 func (d *AgentDelivery) Empty() bool {
 	if d == nil {

@@ -22,6 +22,16 @@ func regionalPack(t *testing.T) *Pack {
 	  {"kind":"provider","name":"regional","platform":"cloud","region_env_name":["AWS_REGION","AWS_DEFAULT_REGION"]}]}`)}
 }
 
+// asked is one ask per provider, all by one agent (claude) and answered by one lookup: the
+// shape of a launch whose one agent selects that provider.
+func asked(lookup func(string) (string, bool), providers ...string) []RegionAsk {
+	var out []RegionAsk
+	for _, p := range providers {
+		out = append(out, RegionAsk{Agent: "claude", Provider: p, Lookup: lookup})
+	}
+	return out
+}
+
 // lookupOf answers from a fixed map, as a notch's delivery lookup answers from its channels.
 func lookupOf(vars map[string]string) func(string) (string, bool) {
 	return func(name string) (string, bool) {
@@ -39,7 +49,7 @@ func TestProviderRegionGapsRefuseOnlyWhenNoRegionIsVisible(t *testing.T) {
 	packs := []*Pack{p}
 	none := lookupOf(nil)
 
-	facts := ProviderRegionGaps(packs, compose(t, nil, packs), []string{"regional"}, none, nil, nil)
+	facts := ProviderRegionGaps(packs, compose(t, nil, packs), asked(none, "regional"), nil, nil)
 	if len(facts) == 0 {
 		t.Fatal("control: a selected regional provider with no region anywhere must refuse")
 	}
@@ -55,25 +65,25 @@ func TestProviderRegionGapsRefuseOnlyWhenNoRegionIsVisible(t *testing.T) {
 
 	// The provider's region, from the user's `providers` entry over the pack's facts.
 	user := userProviders(t, `{"regional":{"region":"eu-west-1"}}`)
-	if facts := ProviderRegionGaps(packs, compose(t, user, packs), []string{"regional"}, none, nil, nil); facts != nil {
+	if facts := ProviderRegionGaps(packs, compose(t, user, packs), asked(none, "regional"), nil, nil); facts != nil {
 		t.Errorf("a region on the composed entry satisfies the requirement:\n%s", strings.Join(facts, "\n"))
 	}
 	// A region the PACK ships satisfies it too.
 	shipped := &Pack{Name: "cloudy", Decl: declFrom(t, `{"contributes":[
 	  {"kind":"provider","name":"regional","platform":"cloud","region":"ap-south-1","region_env_name":["AWS_REGION"]}]}`)}
-	if facts := ProviderRegionGaps([]*Pack{shipped}, compose(t, nil, []*Pack{shipped}), []string{"regional"}, none, nil, nil); facts != nil {
+	if facts := ProviderRegionGaps([]*Pack{shipped}, compose(t, nil, []*Pack{shipped}), asked(none, "regional"), nil, nil); facts != nil {
 		t.Errorf("a region the pack ships satisfies the requirement:\n%s", strings.Join(facts, "\n"))
 	}
 	// Either declared variable, delivered.
 	for _, v := range []string{"AWS_REGION", "AWS_DEFAULT_REGION"} {
-		if facts := ProviderRegionGaps(packs, compose(t, nil, packs), []string{"regional"},
-			lookupOf(map[string]string{v: "us-west-2"}), nil, nil); facts != nil {
+		if facts := ProviderRegionGaps(packs, compose(t, nil, packs),
+			asked(lookupOf(map[string]string{v: "us-west-2"}), "regional"), nil, nil); facts != nil {
 			t.Errorf("%s delivered satisfies the requirement:\n%s", v, strings.Join(facts, "\n"))
 		}
 	}
 	// An EMPTY value names no region, on the entry or in the environment.
 	if facts := ProviderRegionGaps(packs, compose(t, userProviders(t, `{"regional":{"region":""}}`), packs),
-		[]string{"regional"}, lookupOf(map[string]string{"AWS_REGION": ""}), nil, nil); len(facts) == 0 {
+		asked(lookupOf(map[string]string{"AWS_REGION": ""}), "regional"), nil, nil); len(facts) == 0 {
 		t.Error("an empty region and an empty AWS_REGION must not satisfy the requirement")
 	}
 }
@@ -86,18 +96,18 @@ func TestProviderRegionGapsDemandOnlyWhatASelectionRequires(t *testing.T) {
 	none := lookupOf(nil)
 	table := compose(t, nil, packs)
 
-	if facts := ProviderRegionGaps(packs, table, nil, none, nil, nil); facts != nil {
+	if facts := ProviderRegionGaps(packs, table, nil, nil, nil); facts != nil {
 		t.Errorf("a regional provider NO agent selected must demand nothing:\n%s", strings.Join(facts, "\n"))
 	}
-	if facts := ProviderRegionGaps(packs, table, []string{"other"}, none, nil, nil); facts != nil {
+	if facts := ProviderRegionGaps(packs, table, asked(none, "other"), nil, nil); facts != nil {
 		t.Errorf("selecting another provider must demand nothing of this one:\n%s", strings.Join(facts, "\n"))
 	}
 	plain := &Pack{Name: "plain", Decl: declFrom(t, `{"contributes":[{"kind":"provider","name":"regional"}]}`)}
-	if facts := ProviderRegionGaps([]*Pack{plain}, compose(t, nil, []*Pack{plain}), []string{"regional"}, none, nil, nil); facts != nil {
+	if facts := ProviderRegionGaps([]*Pack{plain}, compose(t, nil, []*Pack{plain}), asked(none, "regional"), nil, nil); facts != nil {
 		t.Errorf("a provider whose pack declares no region_env_name requires no region:\n%s", strings.Join(facts, "\n"))
 	}
 	dropped := compose(t, userProviders(t, `{"regional":null}`), packs)
-	if facts := ProviderRegionGaps(packs, dropped, []string{"regional"}, none, nil, nil); facts != nil {
+	if facts := ProviderRegionGaps(packs, dropped, asked(none, "regional"), nil, nil); facts != nil {
 		t.Errorf("a null-dropped provider is nobody's requirement:\n%s", strings.Join(facts, "\n"))
 	}
 }
@@ -109,7 +119,7 @@ func TestProviderRegionGapsNameAStrandedRegion(t *testing.T) {
 	packs := []*Pack{regionalPack(t)}
 	table := compose(t, nil, packs)
 	inShell := func(name string) bool { return name == "AWS_REGION" }
-	facts := ProviderRegionGaps(packs, table, []string{"regional"}, lookupOf(nil), inShell,
+	facts := ProviderRegionGaps(packs, table, asked(lookupOf(nil), "regional"), inShell,
 		RegionConsulted([]string{"/home/u/.env"}, FromPackEnv))
 	got := strings.Join(facts, "\n")
 	if !strings.Contains(got, "AWS_REGION is set in the environment yolo was launched from, which this launch does not deliver") {
@@ -122,7 +132,7 @@ func TestProviderRegionGapsNameAStrandedRegion(t *testing.T) {
 		FromEnvSources+": /home/u/.env, "+FromPackEnv) {
 		t.Errorf("the consulted line must quote the notch's channels in order:\n%s", got)
 	}
-	if got := strings.Join(ProviderRegionGaps(packs, table, []string{"regional"}, lookupOf(nil), nil, nil), "\n"); strings.Contains(got, "launched from") {
+	if got := strings.Join(ProviderRegionGaps(packs, table, asked(lookupOf(nil), "regional"), nil, nil), "\n"); strings.Contains(got, "launched from") {
 		t.Errorf("with no stranded reader nothing is named stranded:\n%s", got)
 	}
 }
@@ -188,7 +198,7 @@ func TestTheShippedBedrockProviderRequiresARegion(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	facts := ProviderRegionGaps([]*Pack{claude}, table, []string{"bedrock"}, lookupOf(nil), nil, nil)
+	facts := ProviderRegionGaps([]*Pack{claude}, table, asked(lookupOf(nil), "bedrock"), nil, nil)
 	if got := strings.Join(facts, "\n"); !strings.Contains(got, `pack claude requires a region for provider "bedrock"`) ||
 		!strings.Contains(got, "neither AWS_REGION nor AWS_DEFAULT_REGION") {
 		t.Errorf("the shipped bedrock provider must require a region from AWS_REGION or AWS_DEFAULT_REGION:\n%s", got)
@@ -204,7 +214,7 @@ func TestTheRegionRequirementKeysOnThePlatform(t *testing.T) {
 	none := lookupOf(nil)
 
 	user := userProviders(t, `{"mine":{"platform":"cloud"}}`)
-	got := strings.Join(ProviderRegionGaps(packs, compose(t, user, packs), []string{"mine"}, none, nil, nil), "\n")
+	got := strings.Join(ProviderRegionGaps(packs, compose(t, user, packs), asked(none, "mine"), nil, nil), "\n")
 	for _, want := range []string{`pack cloudy requires a region for provider "mine" (platform "cloud")`,
 		"neither AWS_REGION nor AWS_DEFAULT_REGION is set", `"providers": {"mine": {"region": "<region>"}}`} {
 		if !strings.Contains(got, want) {
@@ -212,7 +222,7 @@ func TestTheRegionRequirementKeysOnThePlatform(t *testing.T) {
 		}
 	}
 	satisfied := userProviders(t, `{"mine":{"platform":"cloud","region":"eu-west-9"}}`)
-	if facts := ProviderRegionGaps(packs, compose(t, satisfied, packs), []string{"mine"}, none, nil, nil); facts != nil {
+	if facts := ProviderRegionGaps(packs, compose(t, satisfied, packs), asked(none, "mine"), nil, nil); facts != nil {
 		t.Errorf("its own region satisfies it:\n%s", strings.Join(facts, "\n"))
 	}
 	for name, body := range map[string]string{
@@ -225,7 +235,7 @@ func TestTheRegionRequirementKeysOnThePlatform(t *testing.T) {
 			selected = "regional"
 		}
 		if facts := ProviderRegionGaps(packs, compose(t, userProviders(t, body), packs),
-			[]string{selected}, none, nil, nil); facts != nil {
+			asked(none, selected), nil, nil); facts != nil {
 			t.Errorf("%s requires no region:\n%s", name, strings.Join(facts, "\n"))
 		}
 	}
@@ -236,8 +246,8 @@ func TestTheRegionRequirementKeysOnThePlatform(t *testing.T) {
 func TestAUserBedrockProviderIsRequiredARegionLikeTheShippedOne(t *testing.T) {
 	claude := shippedPack(t, "claude")
 	user := userProviders(t, `{"bedrock-eu":{"platform":"aws-bedrock"}}`)
-	facts := ProviderRegionGaps([]*Pack{claude}, compose(t, user, []*Pack{claude}), []string{"bedrock-eu"},
-		lookupOf(nil), nil, nil)
+	facts := ProviderRegionGaps([]*Pack{claude}, compose(t, user, []*Pack{claude}),
+		asked(lookupOf(nil), "bedrock-eu"), nil, nil)
 	if got := strings.Join(facts, "\n"); !strings.Contains(got,
 		`pack claude requires a region for provider "bedrock-eu" (platform "aws-bedrock")`) ||
 		!strings.Contains(got, "neither AWS_REGION nor AWS_DEFAULT_REGION") {

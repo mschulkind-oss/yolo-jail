@@ -27,12 +27,20 @@ package packload
 // not counted, because whether an agent reads it is unproven, and "unproven emits nothing":
 // the refusal says it was not counted rather than guessing that it would be.
 //
+// PER AGENT, because the credential gate made delivery per agent (OQ-CN6): a region one agent
+// receives through its own gated env or its own shape vars is not a region another agent on
+// the same provider receives, and "delivered to some process of the launch" let exactly that
+// through (the review's two-agent case: codex's own AWS_REGION satisfied claude's bedrock). So
+// each notch hands one RegionAsk per agent whose profile selects a provider, with a lookup
+// answering for that agent alone, and the refusal names the agents that receive no region.
+//
 // SCOPED LIKE THE CREDENTIAL PRE-FLIGHT: a provider no agent's profile selects is no
 // requirement, and an entry the composed table does not hold (the user's `null`) is nobody's.
 
 import (
 	"fmt"
 	"slices"
+	"sort"
 	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
@@ -86,50 +94,69 @@ func entryString(entry *jsonx.OrderedMap, key string) string {
 	return s
 }
 
-// ProviderRegionGaps returns the FACT lines of the region pre-flight, empty when every selected
-// provider that needs a region has one. No verdict and no remedy: ProviderRegionRefusal wraps
-// them in both, the same at every notch.
+// RegionAsk is one agent the region pre-flight asks about: the provider its profile selects,
+// and a lookup answering whether the launch delivers a variable, non-empty, to THAT agent.
+type RegionAsk struct {
+	Agent    string
+	Provider string
+	Lookup   func(string) (string, bool)
+}
+
+// ProviderRegionGaps returns the FACT lines of the region pre-flight, empty when every agent on
+// a provider that needs a region receives one. No verdict and no remedy: ProviderRegionRefusal
+// wraps them in both, the same at every notch.
 //
-// selected is the providers some agent's profile selects (CredentialScope.SelectedProviders).
-// lookup answers "does the environment this launch delivers to the agent hold this variable",
-// which each notch answers for itself: the jail notch from what crosses into the jail, which
-// excludes the environment yolo was launched from, and the host notch from the environment it
-// is about to exec, which includes it. stranded reports whether a variable lookup did not find
-// is nonetheless set where yolo was launched — the one mistake worth naming, since the user can
-// see AWS_REGION in their own shell — and is nil where the lookup already covers that
-// environment. consulted names the channels the notch looked in, quoted verbatim.
-func ProviderRegionGaps(packs []*Pack, providers *jsonx.OrderedMap, selected []string,
-	lookup func(string) (string, bool), stranded func(string) bool, consulted []string) []string {
-	if providers == nil || len(selected) == 0 {
+// asks is one entry per agent whose profile selects a provider, each carrying that agent's own
+// lookup, which each notch answers for itself: the jail notch from what crosses into the jail
+// for that agent, which excludes the environment yolo was launched from, and the host notch
+// from the environment it is about to exec, which includes it. stranded reports whether a
+// variable no lookup found is nonetheless set where yolo was launched — the one mistake worth
+// naming, since the user can see AWS_REGION in their own shell — and is nil where the lookup
+// already covers that environment. consulted names the channels the notch looked in, quoted
+// verbatim.
+func ProviderRegionGaps(packs []*Pack, providers *jsonx.OrderedMap, asks []RegionAsk,
+	stranded func(string) bool, consulted []string) []string {
+	if providers == nil || len(asks) == 0 {
 		return nil
 	}
-	isSelected := make(map[string]bool, len(selected))
-	for _, name := range selected {
-		isSelected[name] = true
-	}
 	reqs := regionRequirements(packs)
-	var facts []string
-	for _, name := range providers.Keys() {
-		if !isSelected[name] {
-			continue
-		}
-		entry := providerEntry(providers, name)
+	// missing is, per provider, the agents on it that receive no region.
+	missing := map[string][]string{}
+	for _, ask := range asks {
+		entry := providerEntry(providers, ask.Provider)
 		if entry == nil {
-			continue // the user's null dropped it: nobody's requirement
+			continue // not in the table, or the user's null dropped it: nobody's requirement
 		}
 		// THE PLATFORM, off the composed entry: pack default under user override, so a user
 		// provider that says it is "aws-bedrock" meets the requirement the shipped one does.
-		platform := entryString(entry, "platform")
-		req, ok := reqs[platform]
+		req, ok := reqs[entryString(entry, "platform")]
 		if !ok || entryString(entry, "region") != "" {
 			continue
+		}
+		lookup := ask.Lookup
+		if lookup == nil {
+			lookup = func(string) (string, bool) { return "", false }
 		}
 		if anySet(req.vars, lookup) {
 			continue
 		}
+		if !slices.Contains(missing[ask.Provider], ask.Agent) {
+			missing[ask.Provider] = append(missing[ask.Provider], ask.Agent)
+		}
+	}
+	var facts []string
+	for _, name := range providers.Keys() {
+		agents := missing[name]
+		if len(agents) == 0 {
+			continue
+		}
+		sort.Strings(agents)
+		platform := entryString(providerEntry(providers, name), "platform")
+		req := reqs[platform]
 		facts = append(facts, "  • pack "+req.pack+" requires a region for provider "+quoted(name)+
-			" (platform "+quoted(platform)+"): its composed entry sets no \"region\", and "+
-			noneSetPhrase(req.vars)+" in this launch's environment")
+			" (platform "+quoted(platform)+"), selected for "+andList(agents)+": its composed "+
+			"entry sets no \"region\", and "+noneSetPhrase(req.vars)+" in what this launch "+
+			"delivers to "+andList(agents))
 		for _, v := range req.vars {
 			if stranded != nil && stranded(v) {
 				facts = append(facts, "    "+v+" is set in the environment yolo was launched from, "+
@@ -197,6 +224,18 @@ func anySet(names []string, lookup func(string) (string, bool)) bool {
 		}
 	}
 	return false
+}
+
+// andList joins names in English: "a", "a and b", "a, b and c".
+func andList(names []string) string {
+	switch len(names) {
+	case 0:
+		return ""
+	case 1:
+		return names[0]
+	default:
+		return strings.Join(names[:len(names)-1], ", ") + " and " + names[len(names)-1]
+	}
 }
 
 // noneSetPhrase says that none of names is set, in English: "X is not set", "neither X nor Y

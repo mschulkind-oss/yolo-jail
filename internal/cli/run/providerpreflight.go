@@ -76,28 +76,42 @@ func (o *Options) checkProviderCredentials(cfg *jsonx.OrderedMap, packs []*packl
 // is reached through a region, whose composed entry has no `region`, and none of whose region
 // variables reaches the jail, refuses the launch.
 //
-// "REACHES THE JAIL" IS jailOriginLookup's question, not deliveryLookup's: the credential half
-// counts the environment yolo was launched from, because a derive can relay a credential out of
-// it, but nothing relays a region — the claude derive composes AWS_REGION from the provider's
-// `region` only — and no backend forwards that environment under its own name. So a region
-// exported only in the invoking shell is not counted, and the refusal names it as stranded
-// there, which is the one form of this mistake a user can see from their own terminal.
+// PER AGENT (the review's finding on the first build): each agent whose profile selects a
+// provider is asked about what reaches IT — the env_sources the gate delivers to it, the shared
+// pack env, its own gated pack env and shape vars (CredentialScope.DeliveredTo), and on a
+// container the argv's `-e` pairs, which every process of the jail inherits. Asked through the
+// launch-wide deliverySource instead, a region only codex receives satisfied claude's bedrock,
+// and claude started with none.
+//
+// "REACHES THE AGENT" EXCLUDES THE ENVIRONMENT YOLO WAS LAUNCHED FROM: the credential half
+// counts it, because a derive can relay a credential out of it, but nothing relays a region —
+// the claude derive composes AWS_REGION from the provider's `region` only — and no backend
+// forwards that environment under its own name. So a region exported only in the invoking shell
+// is not counted, and the refusal names it as stranded there, which is the one form of this
+// mistake a user can see from their own terminal.
 func (o *Options) checkProviderRegions(cfg *jsonx.OrderedMap, packs []*packload.Pack,
 	channel *packChannel, argvPairs map[string]string, held bool) ([]string, bool) {
-	lookup := func(name string) (string, bool) {
-		v, origin, ok := channel.deliverySource(o, argvPairs, name)
-		if !ok || origin == packload.FromLaunchEnv {
-			return "", false
+	var asks []packload.RegionAsk
+	for _, agent := range channel.scope.Agents() {
+		d := channel.scope.Agent(agent)
+		if d == nil || d.Provider == "" {
+			continue // a grant-only process selects no provider
 		}
-		return v, true
+		asks = append(asks, packload.RegionAsk{Agent: agent, Provider: d.Provider,
+			Lookup: func(name string) (string, bool) {
+				if v, found := argvPairs[name]; found && v != "" {
+					return v, true
+				}
+				return channel.scope.DeliveredTo(agent, name)
+			}})
 	}
 	stranded := func(name string) bool { return o.Getenv(name) != "" }
 	channels := []string{packload.FromPackEnv, packload.FromProfileEnv}
 	if argvPairs != nil {
 		channels = append(channels, packload.FromContainerArgv)
 	}
-	facts := packload.ProviderRegionGaps(packs, channel.providers, channel.scope.SelectedProviders(),
-		lookup, stranded, packload.RegionConsulted(config.DescribeEnvSources(o.Workspace, cfg), channels...))
+	facts := packload.ProviderRegionGaps(packs, channel.providers, asks, stranded,
+		packload.RegionConsulted(config.DescribeEnvSources(o.Workspace, cfg), channels...))
 	return packload.ProviderRegionRefusal(facts, held)
 }
 
