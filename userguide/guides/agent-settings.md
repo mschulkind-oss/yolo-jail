@@ -49,20 +49,28 @@ list, and it installs updates to itself on its own schedule.
 
 yolo turns off Codex's background copy in the sessions it launches: in every jail, `macos-user`
 included, and in `yolo host -- codex`. Codex there works the way it did before 0.157, with the
-model list of the Codex yolo installed. `codex agents` and `codex queue` need the background copy,
-so they do not work in those sessions.
+model list of the Codex yolo installed.
+
+`codex agents` needs the background copy and starts it itself. Under `yolo host -- codex`, Codex
+refuses it. In a jail it still works, and it starts the background copy, which every later Codex
+session in that jail then uses until the jail stops. On `macos-user` it keeps running after the
+session ends, until you restart the Mac. `codex queue` only reaches a background copy that is
+already running.
 
 A Codex you run yourself is untouched: yolo never changes this in your own `~/.codex`, even when
 `yolo host apply` manages your other Codex settings.
 
-Two things stay behind from before yolo turned it off:
+Two things can stay behind:
 
-- On `macos-user`, a background copy that a session started before you upgraded keeps running
-  until you restart the Mac, and Codex in that project keeps using it until then.
+- On `macos-user`, a background copy that a session started, before you upgraded or with
+  `codex agents`, keeps running until you restart the Mac, and Codex in that project keeps using
+  it until then.
 - A project where Codex ran in a jail keeps the background copy's files, about 400 MiB for each
   Codex version it saw, in `.yolo/home/codex/packages/app-server-daemon` (`.yolo/home/.codex/…` on
-  Apple Container). Nothing uses them now; delete that folder to get the space back. For
-  `yolo host -- codex`, yolo removes its own copy for you.
+  Apple Container). Only `codex agents` still starts them, and it starts the copy kept there,
+  which can be an older Codex than yours. Delete that folder to get the space back; a later
+  `codex agents` copies the Codex you have now. For `yolo host -- codex`, yolo removes its own
+  copy for you.
 
 ## See what yolo wrote, and why
 

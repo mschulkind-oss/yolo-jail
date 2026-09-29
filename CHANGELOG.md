@@ -140,12 +140,14 @@ untouched.** Since version 0.157, Codex starts a second copy of itself in the ba
 `codex` you type talks to it. That copy did not follow the Codex yolo installed, so a jail could
 show an older model list, and it updated itself on its own schedule, outside `agent_updates`. It is
 now off in every jail, `macos-user` included, and in `yolo host -- codex`, which also runs Codex
-with `--no-daemon` and, once, stops the background copy and its updater an earlier
-`yolo host -- codex` left running, then removes its files. `codex agents` and `codex queue` need
-the background copy, so they do not work in those sessions. yolo never changes this in your own
-`~/.codex`, even when `yolo host apply` manages your other Codex settings. A background copy a
-`macos-user` session started before you upgraded keeps running until the Mac restarts, and each
-project where Codex ran in a jail keeps copies of it that you can delete. See
+with `--no-daemon`, keeps the background copy's own updates off, and, once, stops the background
+copy and its updater an earlier `yolo host -- codex` left running, then removes its files.
+`codex agents` needs the background copy and starts it itself: under `yolo host -- codex` Codex
+refuses it, and in a jail it still starts the copy, which later Codex sessions in that jail then
+use. yolo never changes this in your own `~/.codex`, even when `yolo host apply` manages your
+other Codex settings. A background copy a `macos-user` session started, before you upgraded or
+with `codex agents`, keeps running until the Mac restarts, and each project where Codex ran in a
+jail keeps copies of it that you can delete. See
 [Codex's background copy](userguide/guides/agent-settings.md#codexs-background-copy).
 
 **A jail that shares your host's network now says so, at launch and in its briefing.** With

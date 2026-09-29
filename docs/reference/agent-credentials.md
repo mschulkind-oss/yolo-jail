@@ -501,13 +501,17 @@ its view on the `codex` profile only. `yolo host -- codex` writes the native cre
 `CODEX_HOME` to that directory, and starts a dynamic loopback refresh adapter. With no login, the
 browser login starts only at a terminal; off one the launch says a login is required and runs
 without the credential, as a jail's launcher does. Yolo supervises Codex and closes the adapter when Codex exits. The
-generated Codex wrapper delegates to the same command. The managed home links `config.toml`,
-`AGENTS.md`, and `skills` from the ordinary host Codex home when present; its `auth.json`, session
-state, and cache stay separate. A direct `codex` launch and `~/.codex/auth.json` are untouched.
+generated Codex wrapper delegates to the same command. The managed home's `config.toml` is a
+COPY of the ordinary host one, rebuilt at every launch with this launch's workspace trusted and
+the daemon key below, so the ordinary `config.toml` is read and never written; `AGENTS.md` and
+`skills` are links to the ordinary host Codex home when present; the managed home's own
+`auth.json`, session state, and cache stay separate. A direct `codex` launch and `~/.codex/auth.json` are untouched.
 The managed launch also keeps Codex's background server off, since one would outlive the launch and
 keep posting refreshes to its closed adapter: the managed `config.toml` sets
-`features.daemon_auto_start = false`, the argv gains `--no-daemon` (disclosed; not beside `agents`,
-`queue` or `--remote`, which Codex refuses it with), and a server or updater an earlier launch left
+`features.daemon_auto_start = false`, the argv gains `--no-daemon` (disclosed; not beside `queue`
+or `--remote`, which Codex refuses it with and which start no server, and deliberately beside
+`agents`, which would start one and which Codex then refuses), the home's daemon settings turn
+Codex's own updater off from the first launch, and a server or updater an earlier launch left
 in that home is stopped once, when no other launch of it is live
 ([OQ-CDX1](../research/codex-background-service.md#OQ-CDX1), [CDX-D2](../research/codex-background-service.md#CDX-D2),
 [CDX-D3](../research/codex-background-service.md#CDX-D3)).

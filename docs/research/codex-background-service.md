@@ -3,14 +3,14 @@ title: "Codex's background service: what it is, why it hid GPT-6.1 Sol, and what
 date: 2026-09-29
 status: in-review
 tags: [research, codex, daemon, lifecycle, updates, models, credentials, host]
-summary: "Since Codex 0.157.0 every interactive `codex` starts, or connects to, a long-lived second copy of Codex that serves the model list, runs turns and refreshes the login. It runs from its own copied package, never follows a CLI upgrade on its own, and updates itself only when it was seeded from a plain release version (npm, Homebrew or the latest-channel standalone installer), never from a distro build such as Arch's or a pinned standalone release. A copy seeded from the Arch package never updates, which is one possible reason the maintainer's new CLI still showed an old model list; launch-day account rollout is the other, and a paired test tells them apart. Every yolo-launched Codex started one too: in a jail it went stale after each yolo update, and at `yolo host` it outlived the launch and kept that launch's refresh-doorway address. Ruled and built 2026-09-29: it is off wherever yolo launches Codex, and a Codex the user runs directly is never touched."
+summary: "Since Codex 0.157.0 every interactive `codex` starts, or connects to, a long-lived second copy of Codex that serves the model list, runs turns and refreshes the login. It runs from its own copied package, never follows a CLI upgrade on its own, and updates itself only when it was seeded from a plain release version (npm, Homebrew or the latest-channel standalone installer), never from a distro build such as Arch's or a pinned standalone release. A copy seeded from the Arch package never updates, which is one possible reason the maintainer's new CLI still showed an old model list; launch-day account rollout is the other, and a paired test tells them apart. Every yolo-launched Codex started one too: in a jail it went stale after each yolo update, and at `yolo host` it outlived the launch and kept that launch's refresh-doorway address. Ruled and built 2026-09-29: it is off wherever yolo launches Codex, and a Codex the user runs directly is never touched. `codex agents` still starts one in a jail and on macos-user, which OQ-CDX3 asks about."
 vantage:
   status-chip: true
 ---
 
 # Codex's background service: what it is, why it hid GPT-6.1 Sol, and what it means for yolo
 
-**Status:** RESEARCH, 2026-09-29; both questions ruled that day (the daemon is off wherever yolo launches Codex, and a Codex run directly is never touched), and built the same day ([ledger](#decision-ledger)). Codex evidence
+**Status:** RESEARCH, 2026-09-29; both questions ruled that day (the daemon is off wherever yolo launches Codex, and a Codex run directly is never touched), and built the same day ([ledger](#decision-ledger)). A review of the build found that `codex agents` starts the daemon whatever the config key says; the host now hands it `--no-daemon`, and what that leaves in jails and on macos-user is [OQ-CDX3](#OQ-CDX3), open. Codex evidence
 was read at tag `rust-v0.159.0` (commit `687a119f`, which the 0.159.0 binary embeds), yolo evidence
 at `77f52ef1`. No agent CLI was run: every Codex claim comes from source, from the binary's bytes, or
 from a published page.
@@ -27,7 +27,8 @@ settles whether it does ([§1](#1-the-short-answer)). Inside yolo it puts a stal
 every Codex update yolo installs, and at `yolo host` it keeps a refresh address after the launch
 that owned it has gone ([§3](#3-what-it-means-for-yolo-one-row-per-notch)).
 
-**Needs your ruling:** none; [OQ-CDX1](#OQ-CDX1) and [OQ-CDX2](#OQ-CDX2) were ruled 2026-09-29.
+**Needs your ruling:** [OQ-CDX3](#OQ-CDX3), what to do about `codex agents` in jails and on
+macos-user. [OQ-CDX1](#OQ-CDX1) and [OQ-CDX2](#OQ-CDX2) were ruled 2026-09-29.
 
 **Reads with:** [`openai-auth-broker.md`](../design/openai-auth-broker.md) (the refresh owner the
 daemon talks to), [`host-notch-services.md`](../design/host-notch-services.md#HS-D15) (the doorway
@@ -197,6 +198,15 @@ reason. A few of its parts are worth copying ([§4](#4-is-it-a-strategy-yolo-cou
   yet, whose setup wizard runs on the in-process server (MEASURED:
   [`startup_orchestration.rs:494-520`](https://github.com/openai/codex/blob/rust-v0.159.0/codex-rs/tui/src/startup_orchestration.rs#L494-L520)).
   `--dangerously-bypass-approvals-and-sandbox` is not on the list.
+- **`codex agents` starts it whatever the feature says.** Without `--remote`, the agents overview
+  calls the daemon's start itself, before the TUI opens, and reads no feature on the way; the
+  TUI's auto-start, the one reader of `daemon_auto_start`, leaves the overview out (MEASURED:
+  [`cli/src/main.rs:2418-2434`](https://github.com/openai/codex/blob/rust-v0.159.0/codex-rs/cli/src/main.rs#L2418-L2434),
+  [`startup_orchestration.rs:494-497`](https://github.com/openai/codex/blob/rust-v0.159.0/codex-rs/tui/src/startup_orchestration.rs#L494-L497)).
+  That start seeds the package and starts the updater loop like any other
+  ([`lib.rs:405-456`](https://github.com/openai/codex/blob/rust-v0.159.0/codex-rs/app-server-daemon/src/lib.rs#L405-L456)).
+  With `--no-daemon`, Codex refuses `codex agents` before starting anything (MEASURED:
+  [`:2383-2394`](https://github.com/openai/codex/blob/rust-v0.159.0/codex-rs/cli/src/main.rs#L2383-L2394)).
 - **Attaching is separate from starting.** Every exclusion `daemon_startup.rs` returns also blocks
   attaching, because the TUI probes the socket only when no exclusion applies, and `--remote`
   skips the probe too (MEASURED:
@@ -346,9 +356,10 @@ the crate, by search).
 - `codex --no-daemon` runs one launch with an in-process server, even when a daemon is running
   (MEASURED: [`tui/src/cli.rs:83-85`](https://github.com/openai/codex/blob/rust-v0.159.0/codex-rs/tui/src/cli.rs#L83-L85)).
   No environment variable does the same.
-- `features.daemon_auto_start = false`, in `config.toml` or as `-c`, stops new starts. It is on the
-  allow-list, so it does not itself force embedded mode, and it does **not** stop attaching to a
-  daemon already running ([§2.2](#22-who-starts-it)).
+- `features.daemon_auto_start = false`, in `config.toml` or as `-c`, stops the TUI's own start.
+  It is on the allow-list, so it does not itself force embedded mode, and it does **not** stop
+  attaching to a daemon already running, nor `codex agents` and the explicit
+  `codex app-server daemon` commands starting one ([§2.2](#22-who-starts-it)).
 - `{"updater": {"autoUpdateEnabled": false}}` in `settings.json` stops the updater loop. A running
   loop rereads the file at each wake and exits before installing, and the next `daemon start` or
   `restart` stops it at once (MEASURED:
@@ -422,11 +433,16 @@ launched started one** (INFERRED: no yolo launch was run).
 
 > [!NOTE]
 > **As built, 2026-09-29** ([OQ-CDX1](#OQ-CDX1)). The rows above describe yolo before the ruling.
-> No jail's Codex starts a daemon now, on any backend ([CDX-D1](#CDX-D1)). At `yolo host -- codex`
-> the managed home carries the key, the launch passes `--no-daemon`, and what an earlier launch's
-> daemon left there is shut down once ([CDX-D2](#CDX-D2), [CDX-D3](#CDX-D3)). What remains is a
-> daemon a `macos-user` session started before the change ([CDX-D4](#CDX-D4)), and the copies
-> already seeded in workspace homes ([CDX-D5](#CDX-D5)).
+> No jail's Codex TUI starts a daemon now, on any backend ([CDX-D1](#CDX-D1)). `codex agents`
+> still does, since it starts one whatever the key says ([§2.2](#22-who-starts-it)): in a jail it
+> runs from whatever copy the workspace home holds, nothing turns its updater off, and every
+> later `codex` there attaches to it until the container ends, or on `macos-user` until it is
+> stopped ([CDX-D4](#CDX-D4), [OQ-CDX3](#OQ-CDX3)). At `yolo host -- codex` the managed home carries the
+> key and the updater off, the launch passes `--no-daemon`, `codex agents` included, which Codex
+> then refuses, and what an earlier launch's daemon left there is shut down once
+> ([CDX-D2](#CDX-D2), [CDX-D3](#CDX-D3)). What else remains is a daemon a `macos-user` session
+> started before the change, and the copies already seeded in workspace homes
+> ([CDX-D5](#CDX-D5)).
 
 ### 3.1 A podman or Apple Container jail
 
@@ -687,7 +703,8 @@ What the comparison teaches:
    > strange feature for them to have that's going to cause a lot of annoyance."* In a jail the
    > codex pack's managed config sets `features.daemon_auto_start = false`; at `yolo host --
    > codex` the managed `CODEX_HOME` gets the same key, the launch passes `--no-daemon`, and the
-   > updater loop is shut down once. Building.
+   > updater loop is shut down once. Built; see the [ledger](#decision-ledger), and
+   > [OQ-CDX3](#OQ-CDX3) for what `codex agents` leaves in jails.
 
 2. ✅ <a id="OQ-CDX2"></a>**[OQ-CDX2](#OQ-CDX2): Does that choice reach the Codex you run by hand
    on the host?**
@@ -727,16 +744,64 @@ What the comparison teaches:
    > daemon. This follows the 2026-09-28 ruling that an agent started outside yolo may lack
    > features, and [OQ-OA3](../design/openai-auth-broker.md#8-decision-ledger)'s "remains untouched".
 
+3. ❓ <a id="OQ-CDX3"></a>**[OQ-CDX3](#OQ-CDX3): In a jail and on macos-user, `codex agents`
+   still starts Codex's daemon. Accept that, or hand every in-jail `codex` `--no-daemon`?**
+
+   **The setup.** You run `codex agents` in a jail to look at your sessions. The config key
+   [CDX-D1](#CDX-D1) writes does not stop it: the agents overview starts the daemon itself and
+   reads no feature ([§2.2](#22-who-starts-it)). On podman or Apple Container the daemon then
+   runs from whatever copy the workspace home holds, which can be one seeded before this change
+   ([CDX-D5](#CDX-D5)), nothing turns its updater off, and every later `codex` in that jail
+   attaches to it until the container ends. That brings back the stale model list OQ-CDX1 ended.
+   On `macos-user` it also outlives the sandboxed command, so later sessions of that workspace
+   attach to it with the first session's closed refresh doorway
+   ([§3.2](#32-a-macos-user-sandbox)); a daemon a session started before this change is in the
+   same state. At `yolo host -- codex` none of this happens: the launch hands `agents`
+   `--no-daemon`, which Codex refuses before starting anything ([CDX-D2](#CDX-D2)).
+   **Why it is a question:** each fix costs something the OQ-CDX1 ruling did not weigh, and
+   CDX-D4 had recorded the `macos-user` residue as an implementation decision when it is a
+   trade for you to make.
+
+   - **A — Accept it, and say so.** The user guide says `codex agents` in a jail starts the
+     background copy for the rest of that jail, or on `macos-user` until the Mac restarts.
+     **You see** `codex agents` working in a jail, and the stale list after it until the jail
+     stops. **You lose** nothing today; the `macos-user` doorway hazard stays open.
+   - **B — The codex pack declares `--no-daemon` as an autonomous launch flag.** All three
+     in-jail spellings carry it (the host argv, the `.bashrc` alias, the PATH launcher), so no
+     jail `codex` starts or attaches to a daemon, on any backend, short of Codex's explicit
+     `codex app-server daemon` commands; the launchers' own `codex update` calls do not pass
+     through it. **You see** jails behave as `yolo host -- codex` does: `codex agents` and
+     `codex queue` refused by Codex with its own message. **You lose** `--remote` in jails:
+     `codex --remote …`, and resume, fork, archive, unarchive and delete with `--remote`, are
+     refused too, because the pack channel's only suppression is an identical flag
+     (`packload.InjectLaunchFlags`). `YOLO_NO_LAUNCH_FLAGS=1 \codex …` in the jail runs one
+     invocation without it, and without the pack's other flag.
+   - **C — Give core the host's word rule.** The macos-user host argv and the generated
+     launcher apply the managed launch's rule (`openaiauthhost`'s `withoutDaemon`), so
+     `--remote` keeps working. **You pay** core naming one agent's subcommands, which the pack
+     system rules out ("Core does not know what an agent is", [AGENTS.md](../../AGENTS.md)), and
+     the parser-restating manifest vocabulary `InjectLaunchFlags` rejects if it moves into the
+     pack instead.
+
+   _Leaning:_ **B.** OQ-CDX1's ruling already gave `codex agents` and `codex queue` up, B makes
+   every notch agree with that, and it is one pack line. `--remote` from inside a jail, the one
+   loss beyond the ruling, has a one-invocation hatch. Choose A if `codex agents` in a jail
+   matters more than the stale list it can bring back.
+
+   **Answer:**
+   > *Open.*
+
 ## Decision ledger
 
 | ID | Ruling | Date | Built |
 | :--- | :--- | :--- | :--- |
-| [OQ-CDX1](#OQ-CDX1) | **Maintainer ruling:** A; Codex's daemon is off wherever yolo launches Codex (the config key in jails; the key, `--no-daemon` and a one-time updater shutdown at `yolo host`) | 2026-09-29 | ✅ 2026-09-29, as [CDX-D1](#CDX-D1) to [CDX-D5](#CDX-D5). Unit-tested, and one real podman jail launch (`TestAJailLaunchTurnsCodexsBackgroundServerOff`); no `yolo host -- codex`, Mac or Apple Container has run it ([§6](#6-what-is-unmeasured-and-how-to-measure-it)) |
+| [OQ-CDX1](#OQ-CDX1) | **Maintainer ruling:** A; Codex's daemon is off wherever yolo launches Codex (the config key in jails; the key, `--no-daemon` and a one-time updater shutdown at `yolo host`) | 2026-09-29 | ✅ 2026-09-29, as [CDX-D1](#CDX-D1) to [CDX-D5](#CDX-D5), with a review's fixes the same day; `codex agents` still starts a daemon in jails and on `macos-user` ([OQ-CDX3](#OQ-CDX3), open). Unit-tested, and one real podman jail launch (`TestAJailLaunchTurnsCodexsBackgroundServerOff`); no `yolo host -- codex`, Mac or Apple Container has run it ([§6](#6-what-is-unmeasured-and-how-to-measure-it)) |
 | [OQ-CDX2](#OQ-CDX2) | **Maintainer ruling:** yolo never changes a Codex started directly outside yolo, host management on or off | 2026-09-29 | ✅ 2026-09-29: the key is posture-scoped, so `yolo host apply` never writes it into `~/.codex` (`TestHostApplyNeverTurnsOffTheUsersOwnCodexBackgroundServer`), and the host arm reads and changes only the managed home (`TestAManagedLaunchNeverTouchesTheUsersOwnCodexDaemon`). No `yolo check` row reports on a direct Codex's daemon |
+| [OQ-CDX3](#OQ-CDX3) | *Open*, raised by the build's review: `codex agents` starts a daemon in jails and on `macos-user`; accept it (A) or give the codex pack `--no-daemon` as a jail launch flag (B, the leaning) | — | not built; A is the state today, and the user guide says so |
 | <a id="CDX-D1"></a>CDX-D1 | *Implementation decision*, building [OQ-CDX1](#OQ-CDX1) in jails and [OQ-CDX2](#OQ-CDX2). `features.daemon_auto_start = false` (Codex 0.159: the feature's key, [`features/src/lib.rs:943-948`](https://github.com/openai/codex/blob/rust-v0.159.0/codex-rs/features/src/lib.rs#L943-L948), read from `[features]` as one of `FeaturesToml`'s flattened boolean entries, [`:821-823`](https://github.com/openai/codex/blob/rust-v0.159.0/codex-rs/features/src/lib.rs#L821-L823)) is a key of the codex pack's **autonomous** posture, the existing notch-scoping mechanism ([P1](../design/notch-scoped-config-contributions.md#2-load-bearing-principles)). Every jail boot renders that posture on podman, Apple Container and `macos-user`, as does `yolo check`'s probe; `yolo host apply` renders the guarded one, so the key never reaches the user's own `~/.codex/config.toml`. No render code changed | 2026-09-29 | ✅ `TestEveryJailBootTurnsCodexsBackgroundServerOff`, `TestHostApplyNeverTurnsOffTheUsersOwnCodexBackgroundServer` |
-| <a id="CDX-D2"></a>CDX-D2 | *Implementation decision.* At `yolo host -- codex` the managed `config.toml` gets the key whatever the user's own config says, and `--no-daemon` is the **managed launch's own argv rewrite** (`openaiauthhost`'s `Launch.Argv`), not a pack launch flag. The pack channel's only suppression is an identical flag, by design (`packload.InjectLaunchFlags`), and Codex refuses a root `--no-daemon` beside some words, read from source: `codex agents` always ([`cli/src/main.rs:2383-2393`](https://github.com/openai/codex/blob/rust-v0.159.0/codex-rs/cli/src/main.rs#L2383-L2393)), `codex queue` without a remote ([`tui/src/session_queue_commands.rs:32-36`](https://github.com/openai/codex/blob/rust-v0.159.0/codex-rs/tui/src/session_queue_commands.rs#L32-L36)), and `--remote` with the interactive TUI, resume, fork, archive, unarchive or delete ([`startup_orchestration.rs:16-20`](https://github.com/openai/codex/blob/rust-v0.159.0/codex-rs/tui/src/startup_orchestration.rs#L16-L20), [`session_archive_commands.rs:231-233`](https://github.com/openai/codex/blob/rust-v0.159.0/codex-rs/tui/src/session_archive_commands.rs#L231-L233)). Every other subcommand accepts it as a root option, since the TUI's options are flattened into the root parser ([`cli/src/main.rs:125-140`](https://github.com/openai/codex/blob/rust-v0.159.0/codex-rs/cli/src/main.rs#L125-L140)). The rewrite puts it after `argv[0]`, skips an argv holding `agents`, `queue` or `--remote` anywhere (erring toward Codex's default, which the key already keeps from starting a daemon), and is disclosed in the jail's argv-rewrite wording | 2026-09-29 | ✅ `TestWithoutDaemonAddsTheFlagOnlyWhereCodexAcceptsIt`, `TestAManagedCodexLaunchRunsWithoutTheBackgroundServer`, `TestHostExecRunsTheManagedLaunchsArgvRewriteAndSaysSo` |
-| <a id="CDX-D3"></a>CDX-D3 | *Implementation decision.* The host's one-time shutdown, in the managed home only: merge `{"updater":{"autoUpdateEnabled":false}}` into `app-server-daemon/settings.json` (other keys kept; a file that is not a JSON object left as it is), then stop, with SIGTERM, a server **and** an updater the home's own pid records name, the updater by its process group as Codex's stop does. The server is stopped too, beyond the ruling's words, because an idle server still fetches models online every 4½ minutes, its refresh worker being started once per server rather than per client (MEASURED: [`models_refresh_worker.rs:10`](https://github.com/openai/codex/blob/rust-v0.159.0/codex-rs/app-server/src/models_refresh_worker.rs#L10), [`message_processor.rs:382`](https://github.com/openai/codex/blob/rust-v0.159.0/codex-rs/app-server/src/message_processor.rs#L382)), and so can go on refreshing through the closed doorway with whatever marker `auth.json` holds (INFERRED; [§3.3](#33-the-host-yolo-host----codex-and-the-host-agent-floor)). A record is trusted only when `ps` gives the recorded start time and an `app-server` command line; "could not ask" stops nothing. Processes are stopped, and the daemon's package copy removed, only when no other launch of the managed home is live, and the copy only at a launch where nothing recorded is running. Nothing refuses the launch | 2026-09-29 | ✅ `TestTheManagedHomesDaemonUpdaterIsTurnedOffKeepingItsOtherSettings`, `TestALeftoverDaemonInTheManagedHomeIsStoppedAndItsCopyReclaimed`, `TestADaemonRecordThatDoesNotMatchItsProcessIsNeverSignalled`, `TestAnotherLiveLaunchOfTheManagedHomeKeepsItsDaemonRunning` |
-| <a id="CDX-D4"></a>CDX-D4 | *Implementation decision.* `macos-user` gets the key and neither `--no-daemon` nor a stop. The key stops every new start there; what it leaves is a daemon a sandboxed session started before this change, which a later session of the same workspace can still attach to. `--no-daemon` has no carrier that knows Codex's refusals: the pack launch flags reach a jail by three spellings (the host argv, the `.bashrc` alias, the PATH launcher), none with a subcommand rule, and teaching the manifest one is the parser-restating shape `InjectLaunchFlags` rejects. A stop has no safe place: inside a new sandbox the profile denies another sandbox's `process-info-pidinfo` and `procargs` ([`seatbelt.go`](../../internal/macosuser/seatbelt.go)), which Codex's own stop and a command-line check both read (INFERRED; no Mac), and outside it the launcher is not the sandbox account. The residue ends when that daemon is stopped or the Mac restarts | 2026-09-29 | ✅ the key, by CDX-D1's tests; the residue is unmeasured |
+| <a id="CDX-D2"></a>CDX-D2 | *Implementation decision.* At `yolo host -- codex` the managed `config.toml` gets the key whatever the user's own config says, and `--no-daemon` is the **managed launch's own argv rewrite** (`openaiauthhost`'s `Launch.Argv`), not a pack launch flag. The pack channel's only suppression is an identical flag, by design (`packload.InjectLaunchFlags`), and Codex refuses a root `--no-daemon` beside some words, read from source: `codex agents` always ([`cli/src/main.rs:2383-2394`](https://github.com/openai/codex/blob/rust-v0.159.0/codex-rs/cli/src/main.rs#L2383-L2394)), `codex queue` without a remote ([`tui/src/session_queue_commands.rs:32-36`](https://github.com/openai/codex/blob/rust-v0.159.0/codex-rs/tui/src/session_queue_commands.rs#L32-L36)), and `--remote` with the interactive TUI, resume, fork, archive, unarchive or delete ([`startup_orchestration.rs:16-20`](https://github.com/openai/codex/blob/rust-v0.159.0/codex-rs/tui/src/startup_orchestration.rs#L16-L20), [`session_archive_commands.rs:231-233`](https://github.com/openai/codex/blob/rust-v0.159.0/codex-rs/tui/src/session_archive_commands.rs#L231-L233)). Every other subcommand accepts it as a root option, since the TUI's options are flattened into the root parser ([`cli/src/main.rs:125-140`](https://github.com/openai/codex/blob/rust-v0.159.0/codex-rs/cli/src/main.rs#L125-L140)). The rewrite puts it after `argv[0]`, skips an argv holding `queue` or `--remote` anywhere (erring toward Codex's default: neither starts a daemon, and the key keeps the TUI from starting one), and is disclosed in the jail's argv-rewrite wording. **It does not skip `agents`**, though Codex refuses the flag there: the agents overview starts a daemon whatever the key says ([§2.2](#22-who-starts-it)), so the build's first skip of it let `yolo host -- codex agents` leave one behind, and Codex's refusal, which starts nothing, is the outcome OQ-CDX1 ruled ("You lose … `codex agents`"). `codex agents --remote` keeps working, since `--remote` still skips the flag | 2026-09-29 | ✅ `TestWithoutDaemonAddsTheFlagOnlyWhereCodexAcceptsIt`, `TestAManagedCodexLaunchRunsWithoutTheBackgroundServer`, `TestHostExecRunsTheManagedLaunchsArgvRewriteAndSaysSo` |
+| <a id="CDX-D3"></a>CDX-D3 | *Implementation decision.* The host's one-time shutdown, in the managed home only: merge `{"updater":{"autoUpdateEnabled":false}}` into `app-server-daemon/settings.json` (other keys kept; a file that is not a JSON object left as it is), whether or not a daemon ever ran there, making the directory 0700 when it is missing, because an explicit start reads no feature and starts the updater unless this file says otherwise ([`lib.rs:869-874`](https://github.com/openai/codex/blob/rust-v0.159.0/codex-rs/app-server-daemon/src/lib.rs#L869-L874)); then stop, with SIGTERM, a server **and** an updater the home's own pid records name, the updater by its process group as Codex's stop does. The server is stopped too, beyond the ruling's words, because an idle server still fetches models online every 4½ minutes, its refresh worker being started once per server rather than per client (MEASURED: [`models_refresh_worker.rs:10`](https://github.com/openai/codex/blob/rust-v0.159.0/codex-rs/app-server/src/models_refresh_worker.rs#L10), [`message_processor.rs:382`](https://github.com/openai/codex/blob/rust-v0.159.0/codex-rs/app-server/src/message_processor.rs#L382)), and so can go on refreshing through the closed doorway with whatever marker `auth.json` holds (INFERRED; [§3.3](#33-the-host-yolo-host----codex-and-the-host-agent-floor)). A record is trusted only when `ps` gives the recorded start time and an `app-server` command line; "could not ask" stops nothing, and neither does a live app server at another start time, which also keeps the package copy in place: `ps` prints local time in the caller's locale, so a daemon started from another time zone or locale mismatches its own record, and Codex's own start-time check retains such a record rather than calling it stale ([`backend/pid.rs:586-596`](https://github.com/openai/codex/blob/rust-v0.159.0/codex-rs/app-server-daemon/src/backend/pid.rs#L586-L596)). Processes are stopped, and the daemon's package copy removed, only when no other launch of the managed home is live, and the copy only at a launch where nothing recorded is running. Nothing refuses the launch | 2026-09-29 | ✅ `TestTheManagedHomesDaemonUpdaterIsTurnedOffKeepingItsOtherSettings`, `TestAFreshManagedHomeGetsTheDaemonUpdaterOffBeforeAnyDaemonRuns`, `TestALeftoverDaemonInTheManagedHomeIsStoppedAndItsCopyReclaimed`, `TestADaemonRecordThatDoesNotMatchItsProcessIsNeverSignalled`, `TestALiveAppServerWhoseStartTimeDiffersKeepsItsCopy`, `TestAnotherLiveLaunchOfTheManagedHomeKeepsItsDaemonRunning` |
+| <a id="CDX-D4"></a>CDX-D4 | *What was built, pending [OQ-CDX3](#OQ-CDX3)*; first recorded as an implementation decision, which it is not, since what it leaves is a trade for the maintainer. `macos-user` gets the key and neither `--no-daemon` nor a stop. The key stops the TUI's own start there. What it leaves is a daemon a sandboxed session started, before this change or since with `codex agents`, which starts one whatever the key says ([§2.2](#22-who-starts-it)); a later session of the same workspace attaches to it with the first session's closed doorway. `--no-daemon` has no carrier that knows Codex's refusals: the pack launch flags reach a jail by three spellings (the host argv, the `.bashrc` alias, the PATH launcher), none with a subcommand rule, and teaching the manifest one is the parser-restating shape `InjectLaunchFlags` rejects. A stop has no safe place: inside a new sandbox the profile denies another sandbox's `process-info-pidinfo` and `procargs` ([`seatbelt.go`](../../internal/macosuser/seatbelt.go)), which Codex's own stop and a command-line check both read (INFERRED; no Mac), and outside it the launcher is not the sandbox account. The residue ends when that daemon is stopped or the Mac restarts. A carrier that accepts Codex's refusals instead of knowing them, the pack's own launch flag, would close it at the cost of `--remote` in jails: [OQ-CDX3](#OQ-CDX3)'s option B | 2026-09-29 | ✅ the key, by CDX-D1's tests; the residue is unmeasured |
 | <a id="CDX-D5"></a>CDX-D5 | *Implementation decision.* The daemon package copies already seeded in each workspace's `~/.codex/packages/app-server-daemon` are **not** reclaimed automatically. `yolo prune` never walks workspace homes. The codex pack's keep-two prune (`_prune_versions`) acts only on a directory the live `~/.local/bin/codex` chain resolves into, which is the guard that makes it safe, and this directory is not one. Anything else is new manifest vocabulary or Codex-named deletion in the jail's boot. The user guide names the folder to delete. The managed home's copy is reclaimed ([CDX-D3](#CDX-D3)) | 2026-09-29 | ✅ the user guide's note |
 
 ## 6. What is unmeasured, and how to measure it

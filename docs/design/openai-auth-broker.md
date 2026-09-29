@@ -62,8 +62,8 @@ Host sharing is automatic for `yolo host -- codex` and generated host wrappers, 
 the prelaunch the command's pack declares, the one a jail's launcher reads
 ([notch convergence item 15](../plans/notch-convergence.md#tier-4--the-host-runs-the-jails-checks-p1-p4));
 the host starts the browser login only at a terminal.
-That environment selects a yolo-managed Codex home, links the ordinary host
-configuration and skills into it, and routes refresh through the same service.
+That environment selects a yolo-managed Codex home, copies the ordinary host
+configuration into it and links the skills, and routes refresh through the same service.
 Yolo never rewrites the user's ordinary `~/.codex/auth.json` or silently changes
 a directly launched host Codex. An explicit import can seed the broker from that
 file once; after import the files are independent and the broker owns rotation.
