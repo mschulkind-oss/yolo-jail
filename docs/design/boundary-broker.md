@@ -46,8 +46,8 @@ ping box, which is designed and not built.
 
 **Start at [§3](#3-the-flow)**, the flow. Everything else is what one step of it needs.
 
-**Needs your ruling:** none. [OQ-BB9](#OQ-BB9) was ruled 2026-09-29, as were [OQ-BB3](#OQ-BB3), [OQ-BB4](#OQ-BB4), [OQ-BB6](#OQ-BB6),
-[OQ-BB7](#OQ-BB7), [OQ-BB8](#OQ-BB8) and OQ-C were ruled 2026-09-29.
+**Needs your ruling:** none. [OQ-BB3](#OQ-BB3), [OQ-BB4](#OQ-BB4), [OQ-BB6](#OQ-BB6),
+[OQ-BB7](#OQ-BB7), [OQ-BB8](#OQ-BB8), [OQ-BB9](#OQ-BB9) and OQ-C were ruled 2026-09-29.
 
 **Reads with:** [`agent-event-watchers.md`](agent-event-watchers.md) (the `yolo notify` doorbell
 the answer rides back on), [`loophole-system.md`](../reference/loophole-system.md) and
