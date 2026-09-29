@@ -4,12 +4,17 @@ package packload
 // 2, NC-D16) and the one provider-composition helper every notch calls with it.
 //
 // SERVED AT THIS NOTCH is a term this file coins. A jail daemon — a loophole's `jail_daemon` or a
-// pack service's — is served at a notch when that notch runs it: a container runtime runs every
-// daemon in its launch's composed payload (internal/cli/run's jailDaemonsFor); macos-user runs
-// them too since OQ-DP8/OQ-DP9 (docs/design/declaration-parity.md), confined in its Seatbelt
-// guest, except the ones it declines by name (internal/loopholes' JailDaemonsRunIn, the one
-// answer to which of a payload's daemons a runtime runs); and the host notch runs none. An
-// address such a daemon serves is SERVED exactly when the daemon is.
+// pack service's — is served at a notch when that notch runs it, in its jail or beside it: a
+// container runtime runs every daemon in its launch's composed payload (internal/cli/run's
+// jailDaemonsFor), in the jail; macos-user runs them too since OQ-DP8/OQ-DP9
+// (docs/design/declaration-parity.md), confined in its Seatbelt guest, except the ones the guest
+// declines by name (internal/loopholes' JailDaemonsRunIn), and it also serves the credential
+// DOORWAYS its launch opens outside the guest, whose jail-daemon form the guest declines
+// (docs/design/host-notch-services.md HS-D15; "doorway" is that ruling's word for the thin
+// adapter an agent's client talks to, which checks the launch's caller token and forwards to the
+// service's host daemon); and the host notch runs none. internal/loopholes' ServedJailDaemons is
+// the one answer to which of a payload's daemons a runtime serves. An address such a daemon
+// serves is SERVED exactly when the daemon is.
 //
 // WHY ONE PREDICATE. Each notch used to answer "does anything listen there?" its own way. The
 // host composed no adapter address (a WithoutServiceAdaptations option) and cleared every via
@@ -119,9 +124,10 @@ func (s ServedDaemons) resolveListen(daemon, value string) (string, bool) {
 	return strings.ReplaceAll(value, loopholedecl.TokenListen, addr), true
 }
 
-// ServedInJail is the set a jail serves: the jail daemons it runs, by name — on a container
-// runtime every one its composed payload names, and on macos-user the ones
-// loopholes.JailDaemonsRunIn keeps. The caller passes that split's names, so the launch and
+// ServedInJail is the set a jail launch serves: the jail daemons it runs, by name — on a
+// container runtime every one its composed payload names, and on macos-user the ones its guest
+// runs plus the doorways the launch opens outside it (loopholes.ServedJailDaemonNames, which
+// reads loopholes.ServedJailDaemons). The caller passes that split's names, so the launch and
 // `yolo check`'s prediction of it build the set from the one selection.
 func ServedInJail(names []string) ServedDaemons {
 	s := ServedDaemons{runs: true, names: map[string]bool{}}
