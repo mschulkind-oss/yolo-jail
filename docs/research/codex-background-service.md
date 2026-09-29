@@ -10,7 +10,7 @@ vantage:
 
 # Codex's background service: what it is, why it hid GPT-6.1 Sol, and what it means for yolo
 
-**Status:** RESEARCH, 2026-09-29. Nothing is built, and nothing here changes the tree. Codex evidence
+**Status:** RESEARCH, 2026-09-29; both questions ruled that day (the daemon is off wherever yolo launches Codex, and a Codex run directly is never touched), and the build is running. Codex evidence
 was read at tag `rust-v0.159.0` (commit `687a119f`, which the 0.159.0 binary embeds), yolo evidence
 at `77f52ef1`. No agent CLI was run: every Codex claim comes from source, from the binary's bytes, or
 from a published page. Two rulings are owed.
@@ -27,8 +27,7 @@ settles whether it does ([§1](#1-the-short-answer)). Inside yolo it puts a stal
 every Codex update yolo installs, and at `yolo host` it keeps a refresh address after the launch
 that owned it has gone ([§3](#3-what-it-means-for-yolo-one-row-per-notch)).
 
-**Needs your ruling:** [OQ-CDX1](#OQ-CDX1) (on or off where yolo launches Codex) and
-[OQ-CDX2](#OQ-CDX2) (whether that choice reaches the Codex you run by hand).
+**Needs your ruling:** none; [OQ-CDX1](#OQ-CDX1) and [OQ-CDX2](#OQ-CDX2) were ruled 2026-09-29.
 
 **Reads with:** [`openai-auth-broker.md`](../design/openai-auth-broker.md) (the refresh owner the
 daemon talks to), [`host-notch-services.md`](../design/host-notch-services.md#HS-D15) (the doorway
@@ -627,7 +626,7 @@ What the comparison teaches:
 
 ## 5. Open questions
 
-1. 💬 <a id="OQ-CDX1"></a>**[OQ-CDX1](#OQ-CDX1): Where yolo launches Codex, is Codex's daemon on
+1. ✅ <a id="OQ-CDX1"></a>**[OQ-CDX1](#OQ-CDX1): Where yolo launches Codex, is Codex's daemon on
    or off?**
 
    **The setup.** You run `yolo -- codex` in a workspace most days. Codex 0.160 ships, and the next
@@ -666,8 +665,6 @@ What the comparison teaches:
    - **C — Leave Codex's default, and only prune.** **You see** a stale daemon after every update in
      every workspace, the updater bypassing `agent_updates`, and the host doorway hazard left open.
 
-   <!-- vantage: oq id=OQ-CDX1 leaning="A: off wherever yolo launches Codex. The config key in jails, the key plus --no-daemon and a one-time updater shutdown at yolo host. Nothing the daemon is for applies in a jail, its updater bypasses agent_updates, and B stays reachable later with public commands when the wake route is designed." -->
-
    _Leaning:_ **A.** Nothing the daemon is for applies in a jail: desktop and mobile remote control
    and SSH-launched machines. Its updater runs outside `agent_updates` and yolo's update lock, and
    upstream marks its contract experimental. A is one config key, one flag and, at the host, a
@@ -679,9 +676,14 @@ What the comparison teaches:
    and a stop leaves the updater loop running, which is why A's host arm also shuts it down.
 
    **Answer:**
-   > _(empty — fill in when decided)_
+   > **Ruled 2026-09-29: A, off everywhere yolo launches Codex.** The maintainer: *"I think we
+   > have to turn this off. It just doesn't seem compatible with anything that we do, and it's a
+   > strange feature for them to have that's going to cause a lot of annoyance."* In a jail the
+   > codex pack's managed config sets `features.daemon_auto_start = false`; at `yolo host --
+   > codex` the managed `CODEX_HOME` gets the same key, the launch passes `--no-daemon`, and the
+   > updater loop is shut down once. Building.
 
-2. 💬 <a id="OQ-CDX2"></a>**[OQ-CDX2](#OQ-CDX2): Does that choice reach the Codex you run by hand
+2. ✅ <a id="OQ-CDX2"></a>**[OQ-CDX2](#OQ-CDX2): Does that choice reach the Codex you run by hand
    on the host?**
 
    **The setup.** Your incident happened in plain `codex` on the host, in `~/.codex`, outside any
@@ -706,14 +708,25 @@ What the comparison teaches:
      than the CLI and names `codex app-server daemon update`. **You see** a stale daemon like the
      one [§1](#1-the-short-answer) suspects reported, and yolo changes nothing in your tool.
 
-   <!-- vantage: oq id=OQ-CDX2 leaning="A: launches only. Keep OQ-OA3's promise that a Codex you run yourself stays untouched; choose C instead if you want yolo check to have caught this incident." -->
-
    _Leaning:_ **A**, which keeps [OQ-OA3](../design/openai-auth-broker.md#8-decision-ledger)'s promise.
    C is A plus a read-only diagnosis. Choose C if you want `yolo check` to have caught this
    incident, knowing it makes yolo report on a process it neither starts nor owns.
 
    **Answer:**
-   > _(empty — fill in when decided)_
+   > **Ruled 2026-09-29, none of the options as written, closest to A.** The maintainer: *"We
+   > decided that we don't care if you get to Codex not going through YOLO. If you have host
+   > management on, if you have host management off, then YOLO doesn't do anything to it."* yolo
+   > never changes a Codex the user starts directly from a terminal: `yolo host apply` does not
+   > write the daemon key into the user's own `~/.codex`, and no `yolo check` row reports on its
+   > daemon. This follows the 2026-09-28 ruling that an agent started outside yolo may lack
+   > features, and OQ-OA3's "remains untouched".
+
+## Decision ledger
+
+| ID | Ruling | Date | Built |
+| :--- | :--- | :--- | :--- |
+| [OQ-CDX1](#OQ-CDX1) | **Maintainer ruling:** A; Codex's daemon is off wherever yolo launches Codex (the config key in jails; the key, `--no-daemon` and a one-time updater shutdown at `yolo host`) | 2026-09-29 | pending |
+| [OQ-CDX2](#OQ-CDX2) | **Maintainer ruling:** yolo never changes a Codex started directly outside yolo, host management on or off | 2026-09-29 | — |
 
 ## 6. What is unmeasured, and how to measure it
 
