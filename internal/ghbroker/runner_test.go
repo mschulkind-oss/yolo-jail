@@ -207,6 +207,36 @@ func TestRunnerRunsGHUnderConditionsItOwns(t *testing.T) {
 	}
 }
 
+// A dotfile manager's symlinked hosts.yml is the user's own and is followed.
+func TestRunnerFollowsASymlinkedHostsFile(t *testing.T) {
+	root := resolvedDir(t)
+	gh := fakeGH(t, filepath.Join(root, "fake"), "2.101.0")
+	real := filepath.Join(root, "dotfiles", "hosts.yml")
+	if err := os.MkdirAll(filepath.Dir(real), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(real, []byte("github.com:\n    user: me\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg := filepath.Join(root, "cfg")
+	if err := os.MkdirAll(cfg, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(real, filepath.Join(cfg, "hosts.yml")); err != nil {
+		t.Fatal(err)
+	}
+	env := map[string]string{"PATH": filepath.Dir(gh) + ":/usr/bin:/bin", "HOME": root, "GH_CONFIG_DIR": cfg}
+	r, err := NewRunner(RunnerOptions{RunDir: filepath.Join(root, "run"), Getenv: func(k string) string { return env[k] }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+	got, err := os.ReadFile(filepath.Join(r.runDir, "config", "hosts.yml"))
+	if err != nil || string(got) != "github.com:\n    user: me\n" {
+		t.Fatalf("hosts.yml copy %q, %v", got, err)
+	}
+}
+
 func TestRunnerFeedsStdinOnlyWhenGiven(t *testing.T) {
 	f := newRunnerFixture(t, "2.101.0", nil)
 	var s sinks

@@ -184,9 +184,13 @@ func hostGHConfigDir(getenv func(string) string) string {
 // copyHostsFile copies the host's hosts.yml, and nothing else — no config.yml, so no
 // aliases and no browser, pager, editor or http_unix_socket keys — into the broker's
 // config dir, 0600. It returns the source, or "" when the host has none.
+//
+// A symlinked hosts.yml is followed: the host's gh config is the user's own, never
+// agent-writable, and dotfile managers link it. (The no-symlink rule is for the
+// workspace's git config, which the agent writes.)
 func copyHostsFile(getenv func(string) string, dst string) string {
 	src := filepath.Join(hostGHConfigDir(getenv), "hosts.yml")
-	fi, err := os.Lstat(src)
+	fi, err := os.Stat(src)
 	if err != nil || !fi.Mode().IsRegular() {
 		return ""
 	}
