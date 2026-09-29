@@ -401,7 +401,7 @@ The mechanism is decided in [§11](#11-decision-ledger). These two change what a
    > **Ruled 2026-09-28, as leaned: everywhere, deleted rather than switched.** The maintainer:
    > *"we can just write the new one in there and it just picks it up. If that's the case, then
    > yes, we should do that."* The view replaces the hosts entry, the CA and the terminator at
-   > every notch, in the order §10 gives: build the view, pass the §7 measures (the first proving
+   > every notch, in the order [§10](#10-what-i-would-build-in-order) gives: build the view, pass the [§7](#7-what-must-be-measured-before-building) measures (the first proving
    > Claude adopts a rewritten file with no refresh token), a day on a real rootless host, then
    > delete the interception in the same release.
 
