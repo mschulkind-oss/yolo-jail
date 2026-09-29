@@ -194,12 +194,17 @@ func laterTagWithoutCheckout(t *testing.T, repo string) {
 		"fetch", "-q", "origin", "+refs/tags/*:refs/tags/*")
 }
 
-// assertNoTree fails when the store checked out repo's ref: `yolo check` writes nothing.
+// assertNoTree fails when the store checked out repo's ref: `yolo check` writes nothing. Any
+// tree of the commit counts, since a subdirectory pack's tree is trees/<sha>-<subdir key>
+// rather than trees/<sha>, and a check of the second name alone would pass whatever happened.
 func assertNoTree(t *testing.T, repo, ref string) {
 	t.Helper()
 	sha := strings.TrimSpace(gitAt(t, repo, "rev-parse", ref+"^{commit}"))
-	if _, err := os.Stat(filepath.Join(paths.PacksDir(), "trees", sha)); err == nil {
-		t.Errorf("`yolo check` checked %s out into the pack store", ref)
+	entries, _ := os.ReadDir(filepath.Join(paths.PacksDir(), "trees"))
+	for _, e := range entries {
+		if strings.HasPrefix(e.Name(), sha) {
+			t.Errorf("`yolo check` checked %s out into the pack store (%s)", ref, e.Name())
+		}
 	}
 }
 

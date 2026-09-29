@@ -16,14 +16,18 @@ package packsrc
 // Layout, and the mirror/tree split is load-bearing:
 //
 //	<PacksDir>/mirrors/<repo-slug>              a bare git mirror per repository
-//	<PacksDir>/trees/<sha>/                     a materialized checkout per resolved commit
+//	<PacksDir>/trees/<sha>/                     a checkout of a repository-root pack at one commit
+//	<PacksDir>/trees/<sha>-<subdir-key>/        a checkout of ONE subdirectory at one commit
 //	<PacksDir>/locks/<repo-slug>.lock           the per-mirror flock (fetch + checkout)
 //	<PacksDir>/locks/lockfile-<path-slug>.lock  the flock around a lockfile's rewrite
 //	<PacksDir>/stamps/<repo-slug>/<ref-slug>    when a branch last fetched successfully
 //
 // One mirror serves every ref and subpath of a repo, so N packs from one monorepo
 // cost one fetch. Trees are keyed by COMMIT, not by ref, so two packs pinned to the
-// same commit share a checkout and a ref moving does not corrupt an existing tree.
+// same commit and subdirectory share a checkout and a ref moving does not corrupt an
+// existing tree. A pack in a subdirectory gets a tree holding ONLY that subdirectory
+// (treeDir), so a pack in a large repository checks out, and fetches the file contents
+// of, its own directory rather than the whole repository.
 
 import (
 	"context"
@@ -142,10 +146,17 @@ func (s *Store) timeout() time.Duration {
 // `--work-tree` checkout try to write <tree>/.git/index.lock, which does not
 // exist, so every checkout fails. Strip them and let git re-derive its own
 // git-dir/work-tree/index from the arguments.
+//
+// The four *_PATHSPECS variables are the same hazard for a different argument: git
+// exports them to its subprocesses when it is run as `git --icase-pathspecs` (and so
+// on), and they change what a pathspec MATCHES. A pack's subdirectory is checked out by
+// a literal pathspec (literalPathspec), and GIT_ICASE_PATHSPECS=1 would widen it to
+// every case-variant of the name, while `ls-tree` refuses to run under it at all.
 var gitStateEnv = []string{
 	"GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_OBJECT_DIRECTORY",
 	"GIT_ALTERNATE_OBJECT_DIRECTORIES", "GIT_COMMON_DIR", "GIT_NAMESPACE",
 	"GIT_PREFIX", "GIT_CEILING_DIRECTORIES",
+	"GIT_LITERAL_PATHSPECS", "GIT_GLOB_PATHSPECS", "GIT_NOGLOB_PATHSPECS", "GIT_ICASE_PATHSPECS",
 }
 
 // CleanGitEnv drops gitStateEnv keys from env so a git run against one repo
@@ -283,7 +294,14 @@ func (s *Store) run(dir string, args ...string) (string, error) {
 
 // runIn is run inside a budget another run may already have spent part of.
 func (s *Store) runIn(b budget, dir string, args ...string) (string, error) {
-	out, err := s.gitCmd(b.ctx, dir, args...).CombinedOutput()
+	return s.runEnv(b, dir, nil, args...)
+}
+
+// runEnv is runIn with env appended to the run's environment, after gitCmd's hygiene.
+func (s *Store) runEnv(b budget, dir string, env []string, args ...string) (string, error) {
+	cmd := s.gitCmd(b.ctx, dir, args...)
+	cmd.Env = append(cmd.Env, env...)
+	out, err := cmd.CombinedOutput()
 	if b.ctx.Err() != nil {
 		return "", fmt.Errorf("git %s timed out after %s", gitLabel(args), b.d)
 	}
@@ -469,7 +487,7 @@ func (s *Store) Materialize(a Addr, commit string) (*Resolved, error) {
 	if commit == "" {
 		return nil, fmt.Errorf("no resolved commit for %s", a.Raw)
 	}
-	tree := filepath.Join(s.Dir, "trees", commit)
+	tree := s.treeDir(a, commit)
 	if _, err := os.Stat(filepath.Join(tree, treeCompleteMarker)); err == nil {
 		return treeResolved(a, tree, commit)
 	}
@@ -489,10 +507,22 @@ func (s *Store) Materialize(a Addr, commit string) (*Resolved, error) {
 // materialize is Materialize for a caller that already holds the mirror's lock, inside the
 // caller's budget: a checkout of the partial mirror may fetch blobs, so it is part of the
 // fetch the budget bounds.
+//
+// A REF CHANGE LEAVES NOTHING STALE, by construction rather than by cleanup: every tree is
+// keyed by the commit it holds (treeDir), is created empty, and is checked out through an
+// index of its own that starts empty (checkoutTree), so a file of an earlier commit has no
+// way into it. A tree already complete for this commit is never written again, because a
+// commit is immutable and another launch may be staging from it.
 func (s *Store) materialize(b budget, a Addr, commit string) (*Resolved, error) {
-	tree := filepath.Join(s.Dir, "trees", commit)
+	tree := s.treeDir(a, commit)
 	marker := filepath.Join(tree, treeCompleteMarker)
 	if _, err := os.Stat(marker); err != nil {
+		mirror := s.mirrorPath(a.Repo)
+		// Asked of the commit's trees before anything is written, so a mistyped
+		// subdirectory is named plainly instead of as git's "pathspec did not match".
+		if err := s.checkSubdir(b, mirror, a, commit); err != nil {
+			return nil, err
+		}
 		// Not present, or a previous attempt died partway. Start clean: a partial
 		// tree staged silently would be worse than a re-checkout.
 		if err := os.RemoveAll(tree); err != nil {
@@ -501,8 +531,7 @@ func (s *Store) materialize(b budget, a Addr, commit string) (*Resolved, error) 
 		if err := os.MkdirAll(tree, 0o755); err != nil {
 			return nil, err
 		}
-		mirror := s.mirrorPath(a.Repo)
-		if _, err := s.runIn(b, mirror, withFsck("--work-tree="+tree, "checkout", "--force", commit, "--", ".")...); err != nil {
+		if err := s.checkoutTree(b, mirror, tree, commit, a.Path); err != nil {
 			return nil, fmt.Errorf("checking out %s: %w", commit[:min(8, len(commit))], err)
 		}
 		// The completion marker is written LAST, so an interrupted checkout is
@@ -514,19 +543,122 @@ func (s *Store) materialize(b budget, a Addr, commit string) (*Resolved, error) 
 	return treeResolved(a, tree, commit)
 }
 
+// treeDir is where the checkout of commit for a lives. A pack at the repository root keeps
+// trees/<commit>, the layout it always had. A pack in a subdirectory gets a tree of its own,
+// trees/<commit>-<subdir key>, holding only that subdirectory at its path in the repository
+// (so the pack root is <tree>/<subdir>, as it was): one commit's subdirectories cannot share a
+// tree once no tree holds the whole commit. The key is a hash, like mirrorSlug's, because a
+// subdirectory may contain any character a path can; the commit comes first so a directory
+// listing still reads by commit.
+func (s *Store) treeDir(a Addr, commit string) string {
+	if a.Path == "" {
+		return filepath.Join(s.Dir, "trees", commit)
+	}
+	sum := sha256.Sum256([]byte(a.Path))
+	return filepath.Join(s.Dir, "trees", commit+"-"+hex.EncodeToString(sum[:6]))
+}
+
+// literalPathspec is the pathspec naming exactly the subdirectory sub, or the whole tree for
+// the repository root. `top` anchors it at the repository root whatever directory git runs
+// in; `literal` turns off every wildcard, so a directory named `p*` or `p[ab]` checks out that
+// directory and no sibling its name would match as a glob. A subdirectory name cannot reach
+// the magic either: it is parsed only at the start of the argument, which this prefix owns.
+func literalPathspec(sub string) string {
+	if sub == "" {
+		return "."
+	}
+	return ":(top,literal)" + sub
+}
+
+// checkoutTree checks sub of commit (the whole commit when sub is "") out of the mirror into
+// tree, which the caller has just created empty.
+//
+// THROUGH A PRIVATE, EMPTY INDEX. A bare mirror's own index is state shared by every checkout
+// the mirror has served: an earlier whole-repository checkout leaves every path of that
+// commit in it, and a later checkout would read and rewrite them all for one small
+// subdirectory. Starting each checkout from an empty index means the only entries it knows
+// are the ones this commit and this pathspec put there.
+func (s *Store) checkoutTree(b budget, mirror, tree, commit, sub string) error {
+	idx, err := os.MkdirTemp("", "yolo-pack-index-")
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(idx)
+	_, err = s.runEnv(b, mirror, []string{"GIT_INDEX_FILE=" + filepath.Join(idx, "index")},
+		withFsck("--work-tree="+tree, "checkout", "--force", commit, "--", literalPathspec(sub))...)
+	return err
+}
+
+// checkSubdir reports whether a's subdirectory is a DIRECTORY in commit, the one thing a pack
+// root can be, reading the mirror's trees alone: `git ls-tree` names an entry's mode without
+// reading its contents, so this fetches nothing even from the partial mirror, which holds
+// every tree. nil for a repository-root pack.
+//
+// A symlink is refused rather than followed. The checkout writes the link itself, not the
+// directory it names, so the pack would be empty or, through an absolute or `..` target, a
+// directory outside the store. A path THROUGH a symlink (a link `tools` and the address
+// `//tools/pack`) is simply not found: git's trees have no `tools/pack` entry.
+func (s *Store) checkSubdir(b budget, mirror string, a Addr, commit string) error {
+	if a.Path == "" {
+		return nil
+	}
+	out, err := s.runIn(b, mirror, "ls-tree", "-z", commit, "--", literalPathspec(a.Path))
+	if err != nil {
+		return fmt.Errorf("reading pack subdirectory %q in commit %s: %w", a.Path, shortCommit(commit), err)
+	}
+	for _, rec := range strings.Split(out, "\x00") {
+		meta, name, ok := strings.Cut(rec, "\t")
+		if !ok || name != a.Path {
+			continue
+		}
+		mode, _, _ := strings.Cut(meta, " ")
+		what := "a file"
+		switch mode {
+		case "040000":
+			return nil
+		case "120000":
+			what = "a symlink"
+		case "160000":
+			what = "a submodule, which a pack fetch does not follow"
+		}
+		return fmt.Errorf("pack subdirectory %q is %s in commit %s of %s, not a directory",
+			a.Path, what, shortCommit(commit), a.Repo)
+	}
+	return subdirNotFound(a, commit)
+}
+
+// subdirNotFound is the error for an address whose subdirectory the commit does not have.
+func subdirNotFound(a Addr, commit string) error {
+	return fmt.Errorf("pack subdirectory %q not found at %s in commit %s", a.Path, a.Repo, shortCommit(commit))
+}
+
 // treeCompleteMarker is the file Materialize writes LAST into a checked-out tree, so a tree
 // without it is one an interrupted checkout left behind.
 const treeCompleteMarker = ".yolo-pack-complete"
 
 // treeResolved is the pack root inside a complete tree: the tree itself, or the address's
 // subdirectory of it. It only reads.
+//
+// EVERY COMPONENT OF THE SUBDIRECTORY MUST BE A REAL DIRECTORY, checked with Lstat: a symlink
+// anywhere on the way would make the pack root a directory the link names, which may be
+// outside the store. checkSubdir already refuses that before a checkout; this holds the same
+// line for whatever tree is on disk.
 func treeResolved(a Addr, tree, commit string) (*Resolved, error) {
 	root := tree
-	if a.Path != "" {
-		root = filepath.Join(tree, filepath.FromSlash(a.Path))
-		if fi, err := os.Stat(root); err != nil || !fi.IsDir() {
-			return nil, fmt.Errorf("pack subdirectory %q not found at %s in commit %s",
-				a.Path, a.Repo, commit[:min(8, len(commit))])
+	for _, seg := range strings.Split(a.Path, "/") {
+		if seg == "" {
+			continue
+		}
+		root = filepath.Join(root, seg)
+		fi, err := os.Lstat(root)
+		switch {
+		case err != nil:
+			return nil, subdirNotFound(a, commit)
+		case fi.Mode()&os.ModeSymlink != 0:
+			return nil, fmt.Errorf("pack subdirectory %q passes through a symlink (%s) in commit %s of %s",
+				a.Path, strings.TrimPrefix(root, tree+string(filepath.Separator)), shortCommit(commit), a.Repo)
+		case !fi.IsDir():
+			return nil, subdirNotFound(a, commit)
 		}
 	}
 	return &Resolved{Root: root, Commit: commit}, nil
@@ -620,9 +752,11 @@ func (s *Store) storeCommit(a Addr) (string, error) {
 // checkout Materialize would run. A local pack, and the staged-tree fallback, resolve as
 // Resolve resolves them, since neither writes.
 //
-// The one command it runs is `git rev-parse` in the mirror, which reads refs and objects only.
-// Resolution stays the launch's: the same mirror, the same ref, the same commit, so a pack this
-// answers for is the pack a launch would stage.
+// The commands it runs in the mirror read refs and objects only: `git rev-parse`, and, for a
+// subdirectory pack whose tree is not checked out, `git ls-tree` (checkSubdir), which reads
+// trees and so fetches nothing from the partial mirror. Resolution stays the launch's: the
+// same mirror, the same ref, the same commit, so a pack this answers for is the pack a launch
+// would stage.
 func (s *Store) ResolveExisting(a Addr, name string) (*Resolved, error) {
 	res, err := s.existingFromStore(a)
 	if err == nil {
@@ -643,8 +777,16 @@ func (s *Store) existingFromStore(a Addr) (*Resolved, error) {
 	if err != nil {
 		return nil, err
 	}
-	tree := filepath.Join(s.Dir, "trees", commit)
+	tree := s.treeDir(a, commit)
 	if _, err := os.Stat(filepath.Join(tree, treeCompleteMarker)); err != nil {
+		// A subdirectory the commit does not have is not a checkout the next launch
+		// makes: that launch fails on it, so say so rather than "not checked out".
+		// ls-tree reads trees only, which the partial mirror holds.
+		b, cancel := s.newBudget()
+		defer cancel()
+		if serr := s.checkSubdir(b, s.mirrorPath(a.Repo), a, commit); serr != nil {
+			return nil, serr
+		}
 		return nil, &storeMiss{kind: ErrNotCheckedOut, msg: fmt.Sprintf("pack %s: commit %s is "+
 			"not checked out in the pack store; the next host launch or `yolo pack install` "+
 			"checks it out", a.Repo, commit[:min(8, len(commit))])}

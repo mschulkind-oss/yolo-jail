@@ -24,6 +24,7 @@ package packsrc
 import (
 	"fmt"
 	"net/url"
+	"path"
 	"strings"
 )
 
@@ -132,6 +133,15 @@ func parseGit(raw, transport, rest string) (Addr, error) {
 	}
 	if err := checkNoDotDot(subPath, "subdirectory"); err != nil {
 		return Addr{}, fmt.Errorf("pack address %q: %w", raw, err)
+	}
+	// One spelling per directory: `tools//pack`, `./tools/pack` and `tools/pack` name one
+	// subdirectory, and the store hands this value to git as a literal pathspec and hashes
+	// it into a tree's name (Store.treeDir), neither of which normalizes it. `//.` is the
+	// repository root. Safe to clean because `..` was refused above.
+	if subPath != "" {
+		if subPath = path.Clean(subPath); subPath == "." {
+			subPath = ""
+		}
 	}
 
 	ref, err := refFromQuery(raw, query)

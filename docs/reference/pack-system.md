@@ -2486,8 +2486,21 @@ a key that does nothing must not be accepted quietly.
   stop the launch at a prompt. On a timeout it kills git's whole process group, transport
   helper included. `install` and `update` keep the terminal, so you can answer an ssh prompt
   there. A git pack is cloned into a content-addressed
-  store: a bare mirror per repository and a checkout per commit. Because trees are keyed by
-  commit, a moving ref never corrupts an existing checkout.
+  store: a bare mirror per repository and a checkout per commit. The mirror is a partial
+  (`--filter=blob:none`) clone: it holds every commit and directory listing of the
+  repository's branches and tags, and a file's contents only once a checkout needs them. A
+  remote that does not support partial clone ignores the filter and sends everything.
+- **A pack in a subdirectory checks out that subdirectory and nothing else**, so a pack living
+  in a large repository downloads the contents of its own files, not the repository's. The
+  subdirectory is matched literally: a directory named `p*` checks out that directory and no
+  sibling the name would match as a pattern. Each commit and subdirectory gets a checkout of
+  its own, created empty, so moving a pack to a new commit leaves no file of the old one
+  behind, and a moving ref never corrupts an existing checkout. A pack at the repository root
+  checks out the whole commit. A subdirectory that is a symlink is refused, and so is a path
+  through one, which the commit does not have as a directory. A symlink inside the pack that
+  points out of it, to a sibling directory or an absolute path, refuses the pack
+  ([its content rules](#what-a-pack-is-on-disk)); the sibling is not checked out, so such a
+  link points at nothing in the store.
 
 **What never fetches.** Every read-only surface resolves from what the store already holds and
 stays offline: `yolo check`, `yolo check-deps`, config validation, and the agent footer's profile

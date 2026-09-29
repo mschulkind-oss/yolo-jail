@@ -54,6 +54,31 @@ func TestParseNormalizesRepo(t *testing.T) {
 	}
 }
 
+// A subdirectory has one spelling. The store hands it to git as a literal pathspec and
+// hashes it into a tree's name, and neither normalizes, so `tools//pack` would otherwise be
+// a different tree from `tools/pack`, and a lockfile would call them different content.
+func TestParseNormalizesSubdirectory(t *testing.T) {
+	for raw, want := range map[string]string{
+		"git+https://h/o/r//tools//pack?ref=main":   "tools/pack",
+		"git+https://h/o/r//./tools/pack?ref=main":  "tools/pack",
+		"git+https://h/o/r//tools/./pack/?ref=main": "tools/pack",
+		"git+https://h/o/r//tools/pack?ref=main":    "tools/pack",
+		"git+https://h/o/r//.?ref=main":             "",
+		"git+https://h/o/r?ref=main":                "",
+		"git+https://h/o/r//p*/[ab]?ref=main":       "p*/[ab]",
+		"git+https://h/o/r//:(glob)x?ref=main":      ":(glob)x",
+	} {
+		a, err := Parse(raw)
+		if err != nil {
+			t.Errorf("Parse(%q): %v", raw, err)
+			continue
+		}
+		if a.Path != want {
+			t.Errorf("Parse(%q).Path = %q, want %q", raw, a.Path, want)
+		}
+	}
+}
+
 // ref is MANDATORY for git. An unpinned source silently changes under you, which is
 // the top-ranked anti-pattern in the precedent survey — following a branch has to be
 // asked for by name, not acquired by omission.

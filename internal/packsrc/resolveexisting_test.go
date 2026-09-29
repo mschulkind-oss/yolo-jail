@@ -63,7 +63,7 @@ func TestResolveExistingChecksNothingOut(t *testing.T) {
 	}
 
 	// An interrupted checkout: content present, marker missing. Left alone, not re-done.
-	tree := filepath.Join(store.Dir, "trees", commit)
+	tree := store.treeDir(a, commit)
 	if err := os.Remove(filepath.Join(tree, treeCompleteMarker)); err != nil {
 		t.Fatal(err)
 	}
