@@ -52,6 +52,9 @@ live conversation, with low latency: the maintainer answers in chat, the agent r
   A question that a standing principle answers ("we construct an environment; we do not sniff
   the command line"; "selecting the pack is the consent") should be recorded as answered, not
   asked. Ask what is left, and say which principle settled the rest.
+- **Before calling an option "an exception to" a ruled principle, check why the thing sits where it
+  does today.** A placement a mechanism forced (a container's own loopback, a missing mount) is not a
+  principle, and framing it as one makes the maintainer argue with a premise nobody ruled.
 - **If the maintainer's answer is none of the options**, record his rule in his words as the
   answer ("ruled, narrower than the leaning" / "none of the options as written"), not the
   nearest option.
@@ -116,3 +119,5 @@ edit this file in the same turn and commit it. Recorded adjustments:
   dissolved under them).
 - 2026-09-29: with ultracode on, review/improve passes on arriving docs and doc reconciliation
   run as workflows, not single agents.
+- 2026-09-29: check why a thing sits where it does before calling an option an exception to a
+  principle (the Mac credential adapters were in-jail only because a container has its own loopback).
