@@ -53,6 +53,9 @@ live conversation, with low latency: the maintainer answers in chat, the agent r
   A question that a standing principle answers ("we construct an environment; we do not sniff
   the command line"; "selecting the pack is the consent") should be recorded as answered, not
   asked. Ask what is left, and say which principle settled the rest.
+- **Use as few coined terms as the question needs**, and none in the options. When the maintainer
+  says "I can't follow your terms", restate in plain words (what the user types, what happens) and
+  drop every term the choice does not turn on.
 - **Before calling an option "an exception to" a ruled principle, check why the thing sits where it
   does today.** A placement a mechanism forced (a container's own loopback, a missing mount) is not a
   principle, and framing it as one makes the maintainer argue with a premise nobody ruled.
@@ -124,3 +127,5 @@ edit this file in the same turn and commit it. Recorded adjustments:
   principle (the Mac credential adapters were in-jail only because a container has its own loopback).
 - 2026-09-29: four questions at a time instead of two; a question set aside is parked in a named
   group, not dropped.
+- 2026-09-29: fewer coined terms per question (BR1's "native client / transport / via" could not be
+  followed).
