@@ -10,8 +10,9 @@ summary: "What the machine-wide OpenAI credential service still needs: the macos
 
 **Status:** DECIDED, 2026-09-24 — steps 1–8 are built or partial, steps 10 and 11 shipped
 2026-09-18 (`36c47baa`, `4de78ac0`; step 10's endpoint-withholding half was declined there, with
-its reason), step 9 waits on [OQ-OA6](openai-auth-broker.md#OQ-OA6), step 4's last clause waits
-on [OQ-OA7](openai-auth-broker.md#OQ-OA7), and step 12 is the checks nothing automated reaches.
+its reason), step 9 waits on [OQ-OA6](openai-auth-broker.md#OQ-OA6), step 4 is done now that the
+design dropped the clause no extension could build (2026-09-29,
+[OQ-OA7](openai-auth-broker.md#OQ-OA7)), and step 12 is the checks nothing automated reaches.
 Step 12's first automated check, `TestOpenAIAuthBrokerRoundTripsAnImportedToken`, was written
 2026-09-25 and **has not run yet**.
 
@@ -43,7 +44,8 @@ Step 12's first automated check, `TestOpenAIAuthBrokerRoundTripsAnImportedToken`
 > the same headers, so a retry there can never present a new token. Every 401→refresh in the bundle
 > belongs to a vendored third-party SDK acting on its own cache. So
 > `packs/pi/extensions/yolo-openai-auth.js` having no retry is **correct, not partial** — the
-> extension API exposes no status to hook.
+> extension API exposes no status to hook. The ruling half is settled: the design dropped the
+> clause on 2026-09-29 ([OQ-OA7](openai-auth-broker.md#OQ-OA7)).
 >
 > **What these static reads cannot show:** no exit codes, no network failure paths, and nothing about
 > whether a refreshed token is actually accepted upstream.
@@ -74,7 +76,7 @@ dead `127.0.0.1:1460` override as one of its four measured cases, and is blocked
 | 1 | Credential transaction | **done, differs** | `openaiauth.Broker`: `withLock` (`syscall.Flock`), reload under lock, `DecisionStale` on a caller-generation mismatch, `writeState`'s 0600-in-0700 atomic rename, `TokenFingerprint`, `context.WithoutCancel` around redemption. `TestConcurrentCallersRedeemExactlyOnce` is the race. **Differs:** a NEW package, not a generalization of `internal/oauthbroker`, whose `withRefreshLock` is still a second flock transaction — see Blockers. |
 | 2 | Host service transport | **done, differs** | **Differs:** the service ships from `packs/openai-auth`, not from the Codex pack. `packs/codex/pack.json` and `packs/pi/pack.json` each carry an unconditional `needs` on it. `TestStagePacksJoinsOpenAIAuthForCodex` and `TestStageRunPacksPreservesNeededOpenAIAuthState` exercise the real selection call site. |
 | 3 | Codex adapter | **done** | `internal/openaiauthadapter` serves the native token-endpoint shape, JSON and form bodies both (`readTokenRequest`, fixed 2026-09-22); the manifest's `jail_daemon` binds `127.0.0.1:1460`; `packs/codex/pack.json` sets `CODEX_REFRESH_TOKEN_URL_OVERRIDE` at that URL. The version floor is **measured** (0.56.0, the warning above), so a launch-time refusal would be dead code. The floor is **recorded** (2026-09-25) in [`../research/openai-subscription-auth.md`](../research/openai-subscription-auth.md) [§1.2](../research/openai-subscription-auth.md#12-codex-refresh-is-careful-inside-one-process-not-across-processes), beside its 0.154.0 provenance line. |
-| 4 | Pi adapter | **done, one clause owed a ruling** | `packs/pi/extensions/yolo-openai-auth.js` registers the `openai-codex` provider (`login`/`refreshToken`/`getApiKey`), shells to `yolo internal openai-auth-client`, and puts `yolo-broker:<generation>` in Pi's `refresh` field — never the canonical token. The design's ask-once-more-after-unauthorized ([§2](openai-auth-broker.md#2-one-writer-and-two-views)) is **measured unbuildable** (the warning above): pi has no 401 refresh path and the extension API exposes no status. Whether the design drops it is [OQ-OA7](openai-auth-broker.md#OQ-OA7). |
+| 4 | Pi adapter | **done** | `packs/pi/extensions/yolo-openai-auth.js` registers the `openai-codex` provider (`login`/`refreshToken`/`getApiKey`), shells to `yolo internal openai-auth-client`, and puts `yolo-broker:<generation>` in Pi's `refresh` field — never the canonical token. It refreshes before expiry only, which is now all the design asks. The design's former ask-once-more after an unauthorized response was **measured unbuildable** (the warning above): pi has no 401 refresh path and the extension API exposes no status. The design dropped it 2026-09-29 ([OQ-OA7](openai-auth-broker.md#OQ-OA7)); re-open if pi adds a status hook, meaning a way for an extension to see a response's HTTP status. |
 | 5 | Callback relay and login | **partial, differs** | `openaiauthdaemon.StartLogin`: PKCE, exact-path `/auth/callback`, state compared before the code is taken, a second callback refused 409, `listenLoginPort` binding 1455 then 1457 with the redirect URI naming the port it got. **Differs:** no state registry and no routing to a jail — the host daemon owns the whole flow and the jail's `login` action only streams the URL back, which makes the design's relay unnecessary rather than unbuilt. **Missing:** a third concurrent login has no port. |
 | 6 | Backend transport | **partial** | Podman: `hostServicesMountArgs` emits the services-dir bind plus `YOLO_SERVICE_OPENAI_AUTH_BROKER_ENDPOINT`, and the adapter joins `YOLO_JAIL_DAEMONS` through `runtimeArgsFor`. `macos-user`: the arm calls `startLoopholesDisclosed` with the whole pack set, refuses the launch when this service did not start, sets the variable to the **host** path, and `macosuser.EndpointGrantCommands` ACL-grants it (`PlanInvariants` refuses a plan that carries an endpoint without a grant). Apple Container reports the loophole inert (step 10). **Missing:** step 9. |
 | 7 | Managed host use | **partial** | `openaiauthhost.Prepare`, reached from `internal/cli/host.go` through `prepareOpenAIAuthHost` (`TestHostExecUsesManagedOpenAIAuthLaunch` pins that call site): a managed `CODEX_HOME`, the ordinary config copied with this workspace marked trusted, `AGENTS.md`/`skills` symlinked, a dynamic adapter on `127.0.0.1:0` closed when Codex exits. `hostwrap.Body("codex")` routes through it. The one-shot import shipped as step 11. |

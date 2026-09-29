@@ -10,11 +10,11 @@ summary: "A machine-wide OpenAI credential service owns refresh-token rotation a
 
 **Status:** DESIGN, 2026-09-24 — built, the last backend's refresh consumer on
 2026-09-29 ([OQ-OA6](#OQ-OA6): on `macos-user` the launch opens Codex's refresh doorway
-outside the sandbox, `fea3b6c7`); one sentence of
-[§2](#2-one-writer-and-two-views) turned out unbuildable and owes another
-([OQ-OA7](#OQ-OA7)). The canonical transaction, host service, container
-adapters, pack dependency, browser login, managed host launch, status and
-self-check are implemented, and so are host-only import and logout
+outside the sandbox, `fea3b6c7`). The one sentence of
+[§2](#2-one-writer-and-two-views) that turned out unbuildable, Pi asking again after an
+unauthorized response, was dropped the same day ([OQ-OA7](#OQ-OA7)). The canonical
+transaction, host service, container adapters, pack dependency, browser login,
+managed host launch, status and self-check are implemented, and so are host-only import and logout
 (`4de78ac0`, 2026-09-18; the public `yolo openai-auth` verb since `fafb7493`,
 2026-09-20) and Apple Container reporting the service inert
 (`36c47baa`, 2026-09-18). **Unmeasured:** the [§7](#7-completion-criteria)
@@ -37,7 +37,8 @@ host Codex keeps its existing home and, if logged in there, an independent grant
 
 **Start at [§2](#2-one-writer-and-two-views)** — the ownership rule.
 
-**Needs your ruling:** [OQ-OA7](#OQ-OA7). [OQ-OA6](#OQ-OA6) was ruled 2026-09-29.
+**Needs your ruling:** none. [OQ-OA6](#OQ-OA6) was ruled 2026-09-29, and
+[OQ-OA7](#OQ-OA7) was decided the same day as an implementation decision.
 
 **Reads with:** [`openai-auth-broker-plan.md`](openai-auth-broker-plan.md) (the
 implementation hand-off), [`../research/openai-subscription-auth.md`](../research/openai-subscription-auth.md)
@@ -96,16 +97,24 @@ refresh window invokes the yolo provider adapter, which asks the broker for the
 current generation and rewrites that workspace's provider record. Concurrent
 workspaces can all take their own Pi file locks and ask; the broker returns a
 cached generation or performs exactly one upstream refresh under its machine
-lock. After an unauthorized response, the adapter asks once more before failing.
-Pi's other provider credentials remain in its workspace `auth.json`.
+lock. The adapter refreshes before expiry only. It does not ask again after an
+unauthorized response, because pi gives an extension no way to see one
+([OQ-OA7](#OQ-OA7)). Pi's other provider credentials remain in its workspace
+`auth.json`.
 
-> [!WARNING]
-> **The ask-once-more sentence above is unbuildable as written — MEASURED 2026-09-22 against
-> pi 0.87.0** ([the plan's warning](openai-auth-broker-plan.md)). Both of pi's call sites of the
-> composed `oauth.refresh(...)` are expiry-gated, 401 is in none of its retry classifiers, and
-> the extension API exposes no response status to hook. So
-> `packs/pi/extensions/yolo-openai-auth.js` refreshing on expiry only is the whole of what pi
-> allows. Whether the design drops the clause is [OQ-OA7](#OQ-OA7).
+> [!NOTE]
+> **Why Pi has no ask-once-more after an unauthorized response ([OQ-OA7](#OQ-OA7), decided
+> 2026-09-29).** An earlier draft of this section said the adapter asks the broker once more
+> after an unauthorized (HTTP 401) response. **Measured 2026-09-22 against pi 0.87.0, that
+> cannot be built** ([the plan's warning](openai-auth-broker-plan.md)). Pi builds its
+> `oauth.refresh(...)` from the extension's `refreshToken`, and both places pi calls it check
+> expiry first. 401 is in none of pi's retry classifiers (the checks that decide which failed
+> requests pi retries). And the extension API exposes no response status to hook. Both call
+> sites still check expiry first in pi 0.99.1, re-read 2026-09-29. The broker's proactive refresh
+> (next paragraph) covers what the clause was for: by the time a Pi view reaches its five-minute
+> window, the broker already holds a current token. Nothing covers a token OpenAI rejects
+> before its recorded expiry: pi reports that request as failed. Re-open this if pi adds a
+> status hook, meaning a way for an extension to see a response's HTTP status.
 
 The broker also refreshes proactively when the canonical access token enters
 the five-minute window. This is the same availability measure as the Claude
@@ -182,8 +191,9 @@ delegate to these same host launch paths.
 - A service restart reloads persisted state and pending callbacks disappear;
   the CLI prints a fresh login URL on retry.
 - A stale Codex view repairs itself on its next brokered refresh. Pi refreshes
-  its workspace view through the broker before expiry; the "once after an
-  unauthorized response" half is [OQ-OA7](#OQ-OA7)'s.
+  its workspace view through the broker before expiry and at no other time. An
+  unauthorized response is not retried, because pi does not show an extension
+  the response status ([OQ-OA7](#OQ-OA7)).
 
 ## 6. Security and observability
 
@@ -219,6 +229,7 @@ bodies, authorization codes, PKCE verifiers, or callback query strings.
 | OQ-OA4 | Container browser callbacks use one temporary, state-routed host relay; `macos-user` uses its native loopback. | 2026-09-14 |
 | OQ-OA5 | All backends use authenticated loopback TLS and the same refresh algorithm; none intercepts `auth.openai.com`. | 2026-09-14 |
 | OQ-OA6 | Route (b): on `macos-user` the Codex refresh doorway is a launch-owned listener, by [HS-D15](host-notch-services.md#HS-D15)'s doorway rule. Built `fea3b6c7` ([HS-D16](host-notch-services.md#HS-D16) to [HS-D20](host-notch-services.md#HS-D20)). | 2026-09-29 |
+| OQ-OA7 | Implementation decision: the Pi adapter refreshes before expiry only, with no ask-once-more after an unauthorized response. Measured against pi 0.87.0, no extension can build that step, and the broker's proactive refresh covers the expiry case. Re-open if pi adds a status hook. | 2026-09-29 |
 
 ## 9. Open questions
 
@@ -258,7 +269,7 @@ bodies, authorization codes, PKCE verifiers, or callback query strings.
    > placement was never a principle: *"the host doesn't have to run [in the jail] anyway, so the
    > host can access it."* The same rule covers aws-auth's credential adapter (port 1461).
 
-2. 💬 <a id="OQ-OA7"></a>**[OQ-OA7](#OQ-OA7): does [§2](#2-one-writer-and-two-views) drop "after an unauthorized response, the adapter asks once more"?**
+2. ✅ <a id="OQ-OA7"></a>**[OQ-OA7](#OQ-OA7): does [§2](#2-one-writer-and-two-views) drop "after an unauthorized response, the adapter asks once more"?**
    Measured against pi 0.87.0 (2026-09-22): pi never calls a provider's `refreshToken` on a
    401 — both call sites are expiry-gated — and the extension API exposes no status, so the
    Pi adapter cannot see an unauthorized response to react to. The other consumers are
@@ -268,12 +279,18 @@ bodies, authorization codes, PKCE verifiers, or callback query strings.
    the design states only what pi allows (refresh before expiry), or keeps a requirement that
    waits on an upstream pi hook.
 
-   <!-- vantage: oq id=OQ-OA7 leaning="Drop the clause for Pi and say why. Pi's expiry-gated refresh plus the broker's proactive refresh inside the five-minute window already covers the case the clause was for, and a requirement no extension can meet reads as a missing feature forever. Re-open only if pi grows a status hook." -->
-
    _Leaning:_ **Drop it for Pi, and say why.** The expiry-gated refresh plus the broker's
    proactive refresh inside the five-minute window already covers what the clause was for; a
    requirement no extension can meet reads as a missing feature forever. Re-open if pi grows a
    status hook.
 
    **Answer:**
-   > _(empty — fill in when decided)_
+   > **Decided 2026-09-29 (implementation decision, no ruling needed):** drop the clause for Pi,
+   > as leaned. [§2](#2-one-writer-and-two-views) now says the adapter refreshes before expiry only,
+   > and its note gives the reason. Measured against pi 0.87.0, the clause cannot be built: both
+   > of pi's refresh call sites check expiry first, 401 is in none of its retry classifiers, and
+   > the extension API exposes no response status. Both call sites still check expiry first in pi
+   > 0.99.1 (re-read 2026-09-29). The broker's proactive refresh inside the five-minute window
+   > covers the case the clause was for. The one gap left is a token OpenAI rejects before its
+   > recorded expiry. Re-open if pi adds a status hook, meaning a way for an extension to see a
+   > response's HTTP status.

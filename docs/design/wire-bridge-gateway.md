@@ -20,7 +20,8 @@ day, carrying its bridge questions with their ids unchanged. **Part 1 (signing) 
 region-composed upstream URL. **Part 3 (the sign-only route) and Part 5's selection are BUILT,
 2026-09-25** ([§4.1](#41-how-it-is-built)): a profile's `via` puts its agent on a per-agent route of
 the bridge. Parts 2 and 4, and Part 5's allowlist, are DECIDED and unbuilt; Part 5's four questions
-were ruled in review on 2026-09-25. **MEASURED:** what the bridge does today
+were ruled in review on 2026-09-25. **Part 2 was released for build on 2026-09-29**
+([WG-I25](#WG-I25)): every ruling its done-condition waited on is in. **MEASURED:** what the bridge does today
 ([§1](#1-what-the-bridge-does-today)), from the code at `5e8e64f6`, symbols re-checked at
 `ee8154f2`; the signer against AWS's published SigV4 test suite (31 cases) and through the real
 bridge handler with the network stubbed. **UNMEASURED:** no request has reached real Bedrock
@@ -44,7 +45,9 @@ from their installed client sources, and oh-omp's from its published package
 
 [OQ-WG1](#OQ-WG1)–[OQ-WG7](#OQ-WG7) are settled ([Decision Ledger](#decision-ledger)); WG6 and WG7 are built.
 [OQ-WG1](#OQ-WG1) carries a follow-up that waits on [OQ-BR2](providers-and-profiles-redesign.md#OQ-BR2):
-re-key the signer on the provider's Bedrock marker.
+re-key the signer on the provider's Bedrock marker. Part 2, which passes Claude models through
+untranslated so prompt caching survives, needs no ruling: it is
+[OQ-BR11](bedrock-plumbing.md#OQ-BR11)'s, and it is released for build ([WG-I25](#WG-I25)).
 
 **Where the provider split ended up**, in plain words, because every part below leans on it.
 Each agent reaches Bedrock in one of two ways. It either uses **its own native Bedrock client**
@@ -237,7 +240,9 @@ route has two upstreams under one provider, chosen per request.
 
 **UNMEASURED, and the first thing to measure.** AWS's endpoints page lists the Messages API on
 `bedrock-runtime` (read 2026-09-25). Nobody has read that route's path, or whether it streams
-Anthropic SSE or AWS's binary event-stream. If the latter, the bridge must re-frame it.
+Anthropic SSE or AWS's binary event-stream. If the latter, the bridge must re-frame it. This is
+the builder's first measurement, not a choice left to rule: either answer is built, and only the
+amount of framing code differs.
 
 **Risk R7.** Translation loses something a non-Anthropic model needs: tool-call fidelity,
 reasoning, or a vendor's streaming quirk. The bridge already fails closed on an unknown block
@@ -245,8 +250,10 @@ type ([WB-D5](../reference/wire-bridge.md#wb-d5)). Measure one turn per vendor i
 before shipping that vendor in a company pack.
 
 **Done-condition** (carried from [`bedrock-plumbing.md`](bedrock-plumbing.md)'s done-condition
-6), once [OQ-BR9](bedrock-plumbing.md#OQ-BR9), [OQ-BR12](model-lists-and-pickers.md#OQ-BR12) and
-[OQ-BR13](model-lists-and-pickers.md#OQ-BR13) rule. Claude's everything profile completes one
+6). It waited on [OQ-BR9](bedrock-plumbing.md#OQ-BR9) and
+[OQ-BR12](model-lists-and-pickers.md#OQ-BR12), both ruled 2026-09-29, and on
+[OQ-BR13](model-lists-and-pickers.md#OQ-BR13), directed the same day, so nothing it waits on is
+open ([WG-I25](#WG-I25)). Claude's everything profile completes one
 turn against a non-Anthropic model on runtime (a DeepSeek or Qwen id), once under each of the
 three credentials, and copilot does the same. Under the SSO credential the turn still succeeds
 after the first credential set expires, with no relaunch. It is a manual runbook on a real host;
@@ -734,6 +741,18 @@ Three earlier non-licenses are reopened here by name:
    ([OQ-WG1](#OQ-WG1)); the marker re-key waits on [OQ-BR2](providers-and-profiles-redesign.md#OQ-BR2). (Build step 8.1 in the source.)
 2. **Routing by model id**, measuring runtime's Messages route first
    ([§3](#3-part-2--routing-by-model-id-for-claudes-everything-profile-ruled)). (Build step 8.3.)
+   <a id="WG-I25"></a>**[WG-I25](#WG-I25): released for build, 2026-09-29.** An implementation
+   decision, numbered in the series [§4.1](#41-how-it-is-built)'s via build began; no ruling is
+   needed. The behavior is [OQ-BR11](bedrock-plumbing.md#OQ-BR11)'s ruling (2026-09-24), and every ruling
+   [§3](#3-part-2--routing-by-model-id-for-claudes-everything-profile-ruled)'s done-condition
+   waited on is in. Build it with, or right after, the `bedrock-bridge` profile: the one shipped
+   profile that forces the bridge, which for claude is the everything profile
+   ([OQ-BR1](bedrock-plumbing.md#OQ-BR1), ruled 2026-09-29). Until this step lands, a Claude
+   model picked under `-p bedrock-bridge` goes through translation to chat-completions, which
+   strips `cache_control` (so no prompt is cached) and omits `thinking`
+   ([WB-D15](../reference/wire-bridge.md#wb-d15)), and `count_tokens` stays refused
+   ([WB-D14](../reference/wire-bridge.md#wb-d14)). The step starts with [§3](#3-part-2--routing-by-model-id-for-claudes-everything-profile-ruled)'s one measurement,
+   SSE or binary event-stream.
 3. **The sign-only route**
    ([§4](#4-part-3--the-sign-only-openai-chat-completions-route-ruled)), for oh-omp and pi.
    **BUILT 2026-09-25** as the via route, with Part 5's selection ([§4.1](#41-how-it-is-built)).
@@ -1057,6 +1076,7 @@ Three earlier non-licenses are reopened here by name:
 | WG-I15 | **The via checks run the agent's own derives to see whether the via re-points it; a via that re-points nothing is disclosed as having no effect, never refused.** An implementation decision | 2026-09-26 | [WG-I15](#WG-I15) | 2026-09-26: `packload.DerivedViaPointers`, `wirebridged.ViaRouteGate` |
 | WG-I23 | **A via route forwards only a canonical path (no `.`, `..` or empty segment, no decoded `?` or `#`), and forwards it escaped; any other gets a 404.** An implementation decision, closing a bypass of WG-I20 | 2026-09-26 | [WG-I23](#WG-I23) | 2026-09-26: `wirebridged.canonicalViaTail`, `passthroughHandler.do` |
 | WG-I24 | **A stream the upstream cuts short aborts the agent's connection and is logged; only the wait for response headers is bounded.** An implementation decision | 2026-09-26 | [WG-I24](#WG-I24) | 2026-09-26: `passthroughHandler.ServeHTTP`, `wirebridged.viaHeaderTimeout` |
+| WG-I25 | **Part 2, routing by model id, is released for build: pass Anthropic ids untranslated to runtime's Messages route, built with or right after the `bedrock-bridge` profile.** Until then a Claude model on that profile is translated, losing `cache_control` and `thinking`. Whether runtime streams Anthropic SSE or AWS's binary event-stream is the builder's first measurement, not a choice. An implementation decision: the behavior is [OQ-BR11](bedrock-plumbing.md#OQ-BR11)'s, and [OQ-BR9](bedrock-plumbing.md#OQ-BR9), [OQ-BR12](model-lists-and-pickers.md#OQ-BR12) and [OQ-BR13](model-lists-and-pickers.md#OQ-BR13) have ruled or been directed | 2026-09-29 | [§8](#8-build-order) step 2 | — |
 | OQ-WG2 | **All-traffic mode is a property of the profile**, opt-in and off by default; one active profile per agent decides how it reaches the world | 2026-09-25 | [§6](#6-part-5--all-traffic-through-the-bridge-new-direction-design) | — |
 | OQ-WG3 | **One list** (the picker's effective list after an `only`), **and a separate enforcement switch** on the profile, **default on**; off means the list only shapes pickers | 2026-09-25 | [§6](#6-part-5--all-traffic-through-the-bridge-new-direction-design) | — |
 | OQ-WG4 | **A path prefix per agent on the one listen port**, written by each derive; an unknown prefix is refused; a port per agent only for an agent measured to drop a base URL's path (delegated, decided in review) | 2026-09-25 | [§6](#6-part-5--all-traffic-through-the-bridge-new-direction-design) | — |
