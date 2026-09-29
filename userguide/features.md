@@ -62,6 +62,10 @@ for a `yolo host` command alike.
 Add read-only folders, host ports, devices or a loophole, one line at a time, and read a pack's
 footprint before you select it. [Host access and loopholes →](guides/loopholes.md)
 
+**Use GitHub without a token in the jail.** The `github` pack runs the jail's `gh` commands with
+your own host login, only against the project's own repositories, and records every call. It is
+read-only for now. [GitHub →](guides/github.md)
+
 **Reach services and ports.** Open a jail's dev server from your browser, or reach a database on
 your host from the jail. [Networking →](guides/networking.md)
 

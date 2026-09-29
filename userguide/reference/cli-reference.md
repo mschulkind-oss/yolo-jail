@@ -91,7 +91,12 @@ yolo openai-auth status      # the shared ChatGPT login; also import --from, log
 yolo host-daemon status      # every host service shared by all jails
 yolo loopholes list          # the loopholes your config selects, and whether each is on
 yolo loopholes status        # on the host: run each loophole's self-check
+yolo audit                   # on the host: every brokered call, such as the jail's gh commands
 ```
+
+`yolo audit` takes `--since 1h`, `--jail <id>`, `--workspace <path>`, `--set <name>` and `--json`.
+Inside a jail, `yolo gh -- <args>` is what a bare `gh` runs when the `github` pack is selected; see
+[GitHub](../guides/github.md).
 
 `yolo openai-auth` and `yolo host-daemon` arrive in the release after 0.10.0. On 0.10.0 the first is
 `yolo internal openai-auth`, and the second has no equivalent beyond `yolo broker`.

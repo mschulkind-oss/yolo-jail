@@ -165,8 +165,30 @@ another in the jail, so there is a placeholder for each:
 | `{state}` | this loophole's state folder on the host | `ca_cert` |
 | `{listen}` | the jail address from `jail_daemon.listen` | `jail_daemon.cmd`, and `env` values |
 | `{settings}` | a file holding the user's settings for this loophole | `host_daemon.cmd`, `doctor_cmd` |
+| `{repository_scope}` | a file holding the repositories this launch approved, for a `brokered` loophole | `host_daemon.cmd` |
 
 Each is refused where it would mean the wrong thing, such as a host path in the jail's command.
+
+### A program that runs a host login's commands for the jail
+
+A loophole whose host program runs commands with a login of yours, such as the `github` pack's
+`github-broker`, declares a **`brokered`** block, so it only ever touches the project's own
+repositories:
+
+```jsonc
+"brokered": {
+  "source": "github",                 // the name the approved list is kept under
+  "remote_host": "github.com",        // whose git remotes make up the list
+  "credential_paths": ["~/.config/gh", "$GH_CONFIG_DIR"]  // where the login lives on the host
+}
+```
+
+At every fresh launch that starts the program, yolo reads the project's git remotes on
+`remote_host` as text, asks the user to approve the list in the config-change prompt, and hands
+the approved list to the program in the file `{repository_scope}` names. Your `host_daemon.cmd`
+must name that placeholder, and the program must refuse anything outside the list. With your pack
+selected, a project's `mounts` entry that reaches a `credential_paths` entry, or yolo's own broker
+folder, is refused.
 
 ### A program on the host
 

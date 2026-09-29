@@ -46,8 +46,10 @@ at it with `yolo -p <name> -- <agent>`: `zai`, `openrouter`, `kilo`, `cerebras` 
 [Providers and Models](providers-and-models.md) explains them.
 
 **Host connections.** Each ships a **loophole**, a named connection from the jail to one capability
-on your host: `aws-auth`, `serial`, `journal`, `host-processes`, `audio` and `cgroup-delegate`. Most
-also need turning on by name. [Host Access and Loopholes](loopholes.md) lists what each does.
+on your host: `aws-auth`, `github`, `serial`, `journal`, `host-processes`, `audio` and
+`cgroup-delegate`. Most also need turning on by name. [Host Access and Loopholes](loopholes.md) lists
+what each does, and [GitHub](github.md) covers the `github` pack, which runs the jail's `gh` with
+your host's login.
 
 **Habits.** `guardrails` makes recursive `grep` and `find` refuse and point at `rg` and `fd`.
 [Packages and Tools](packages-and-tools.md#blocked-tools) covers blocking tools.

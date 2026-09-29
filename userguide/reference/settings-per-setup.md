@@ -224,6 +224,7 @@ selects.
 | `claude-oauth-broker` (`claude`) | Lets several jails share one Claude login without logging each other out | Yes | Yes[^lh-rootful] | Should work[^lh-mac] | No[^lh-ac] | No; not planned yet[^musrefresh] |
 | `openai-auth-broker` (`openai-auth`, brought in by `claude`, `codex` and `pi`) | One OpenAI subscription login for `codex` and `pi` in every jail | Yes | Yes | Should work[^lh-mac] | No[^lh-ac] | Yes[^login-mu] |
 | `aws-auth` (`aws-auth`) | Bedrock with credentials from your host's `aws sso login`, narrowed to a role before they reach the jail | No | Yes[^lh-aws] | Should work[^lh-mac] | No[^lh-ac] | Yes[^login-mu] |
+| `github-broker` (`github`) | `gh` in the jail, run by your host's GitHub login against the project's own repositories; read-only for now | No | Yes[^lh-gh] | Should work[^lh-mac] | No[^lh-ac] | Starts; not yet run on a Mac |
 | `serial` (`serial`) | A USB serial device on the host, through an allowlist (`yolo-serial`) | No | Yes | Should work[^lh-mac] | No[^lh-ac] | No: `yolo-serial` is not installed there. Not planned yet. |
 | `journal` (`journal`) | The host's systemd journal (`yolo-journalctl`) | No | Yes | No: needs a Linux host[^lh-linux] | No: needs a Linux host[^lh-linux] | No; `macos_log` instead[^maclog] |
 | `host-processes` (`host-processes`) | A filtered list of host processes (`yolo-ps`); nothing shows until you list names | No | Yes | No: needs a Linux host[^lh-linux] | No: needs a Linux host[^lh-linux] | No[^muprocs] |
@@ -235,6 +236,7 @@ selects.
 [^lh-mac]: The jail reaches your Mac's services through the Podman Machine VM at `host.containers.internal`, and that connection is tested nightly. The services themselves have not yet been run end to end on a Mac. If a service cannot be reached, the launch warns but still starts.
 [^lh-ac]: Apple Container carries no traffic from a container back to the Mac (measured on Apple Container 1.1.0), so no host service can be used, and the launch lists each one it had to skip. This can change only with an Apple Container release.
 [^lh-aws]: Turn it on in your user config with the SSO profile and the role to narrow to, then use the `bedrock` profile: `yolo -p bedrock -- claude`. The credential service inside the jail runs only when an agent's profile is `bedrock`, and only that agent can use it. See [the `aws-auth` pack](https://github.com/mschulkind-oss/yolo-jail/blob/main/packs/aws-auth/README.md). Not yet tested against a real AWS SSO login.
+[^lh-gh]: Needs `gh` logged in on the host. The first launch of a project with a GitHub remote asks you to approve its repositories, and every call is recorded for `yolo audit`. Tested against a stand-in for `gh`, never a real GitHub login. See [GitHub](../guides/github.md).
 [^lh-linux]: These need Linux on the host. On a Mac, turning one on does nothing, and the launch says so in one line naming the loophole. The `audio` pack still sets `PULSE_SERVER`, though (see [^audiomac]).
 [^cgv2]: Needs cgroup v2 on the host: `test -e /sys/fs/cgroup/cgroup.controllers && echo v2`.
 [^maclog]: `macos-user` offers Apple's unified log instead, behind its own `macos_log` key (`off` / `user` / `full`) and a `yolo-log` helper. It is a convenience, not a boundary: the sandbox can run `/usr/bin/log` directly, so `off` is advisory.
@@ -480,7 +482,7 @@ Re-running `yolo` in a workspace whose jail is still running does **not** start 
 
 ## What a pack can contribute, per setup
 
-Every contribution kind is delivered on all four setups — config files and their overlays, autonomy postures, hooks, blocked-tool shims, skills trees, workspace and machine-scope state dirs, read-only host-file grants, providers, `requires` assertions, briefings, and `program` launchers[^capture] — **except these**:
+Every contribution kind is delivered on all four setups — config files and their overlays, autonomy postures, hooks, blocked-tool and intercept shims, skills trees, workspace and machine-scope state dirs, read-only host-file grants, providers, `requires` assertions, briefings, and `program` launchers[^capture] — **except these**:
 
 | Contribution | podman/Linux | podman/macOS | container/macOS | macos-user/macOS |
 |---|---|---|---|---|

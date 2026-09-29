@@ -9,6 +9,27 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+**Agents can use `gh` in a jail with your own GitHub login, and the jail never holds a GitHub
+token.** Select the new `github` pack and turn its `github-broker` loophole on, and a bare `gh`
+in the jail is sent to a service on your machine that runs your own `gh` for it, only against the
+project's own GitHub repositories, and passes back exactly what it printed and its exit code.
+This first version is read-only: pull requests, issues, workflow runs, releases, repository files
+and `gh api` reads run, while every command that would change something on GitHub stops with exit
+77, since the approval step for writes is not built yet. Commands that could print the token or
+reach your machine, such as `gh auth token`, `--jq`, `--web` or `gh api` to a full URL, never run,
+and neither does anything outside the project's repositories. Which repositories those are comes
+from the project's git remotes, and yolo asks you to approve that list in the launch's usual
+config-change prompt, shown first and labeled, whenever it changes; `yolo check
+--accept-config-changes` approves it ahead of time. Every command a jail sends is recorded on
+your machine, and the new `yolo audit` lists them. With the pack selected, a project may not mount
+the service's directory or your `gh` login into the jail. See
+[GitHub without a token in the jail](userguide/guides/github.md).
+
+A pack can now put its own program in front of a command in the jail. An `intercept` entry in a
+pack's `contributes`, `{"kind": "intercept", "bin": "<name>", "forward": [...]}`, makes a bare
+`<name>` run the pack's forwarder, while the installed program stays at its own path and
+`YOLO_BYPASS_SHIMS=1` still runs it. The `github` pack uses it for `gh`. See `yolo pack --help`.
+
 **Every jail now has a place for work that survives a restart: `$YOLO_DURABLE_DIR`.** Each launch
 makes a directory inside the workspace's own `.yolo` folder and tells every process in the jail
 where it is, on podman, Apple Container and macos-user alike, and every agent's briefing now opens

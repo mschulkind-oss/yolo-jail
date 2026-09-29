@@ -5,7 +5,7 @@ this workspace's own GitHub repositories. The jail holds no GitHub credential. E
 the broker is sent is recorded on the host, and `yolo audit` lists them.
 
 Design: [`boundary-broker.md`](../../docs/design/boundary-broker.md). This is step 1 of its
-§11: **read-only**. A write (`gh pr comment`, `gh issue edit`, `gh api -X POST …`) exits 77,
+[§11](../../docs/design/boundary-broker.md#11-recommendation-and-the-first-build-slice): **read-only**. A write (`gh pr comment`, `gh issue edit`, `gh api -X POST …`) exits 77,
 "writes need approval, which this version cannot ask for".
 
 ## Two contributions
