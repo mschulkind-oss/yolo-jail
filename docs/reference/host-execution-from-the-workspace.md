@@ -254,7 +254,9 @@ is anywhere else.
 > git's `safe.directory` check looks for and which the container case defeats. Whether that
 > accidentally restores the guardrail depends on which paths git ownership-checks versus which
 > ones the sandbox user ends up owning. It would be good news and it is **unverified** — every
-> measurement behind this document was made in a Linux container jail.
+> measurement behind this document was made in a Linux container jail. The question is about
+> *your* git only: the sandbox's own git lists the workspace, by its exact path, as a
+> `safe.directory` (the bootstrap writes it), so the check never refuses the agent there.
 
 ## Move the watcher in, and shadow the derived directories
 

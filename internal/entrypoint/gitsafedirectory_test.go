@@ -1,0 +1,218 @@
+package entrypoint
+
+// gitsafedirectory_test.go pins the workspace's safe.directory entry against REAL git, never
+// against the argv configureGit builds: the question is whether git in the sandbox accepts
+// the workspace, and only git can answer it.
+//
+// THE OWNERSHIP MISMATCH IS SIMULATED WITH git's OWN SWITCH. On macos-user the agent runs as
+// the sandbox account and the workspace belongs to the human, and no test here can make two
+// accounts. GIT_TEST_ASSUME_DIFFERENT_OWNER=1 makes git treat every repository as owned by
+// someone else — the switch git's own t0033-safe-directory.sh drives this check with — so the
+// test reproduces the refusal the agent meets (exit 128, "dubious ownership") and then shows
+// the config configureGit writes clears it.
+
+import (
+	"errors"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"slices"
+	"strings"
+	"testing"
+)
+
+// hermeticGit points git at nothing of the invoking machine's: no system config (a distro
+// that ships `safe.directory = *` would pass every case below vacuously), no inherited
+// global override, no XDG tree.
+func hermeticGit(t *testing.T) {
+	t.Helper()
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git is not on PATH")
+	}
+	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	for _, k := range []string{"GIT_CONFIG_GLOBAL", "GIT_DIR", "GIT_WORK_TREE", "GIT_TEST_ASSUME_DIFFERENT_OWNER"} {
+		t.Setenv(k, "")
+		os.Unsetenv(k)
+	}
+}
+
+// gitRepo makes a real repository and returns its RESOLVED path (the darwin TMPDIR class:
+// on a Mac t.TempDir() is under the /var -> /private/var link, and git compares physical
+// paths).
+func gitRepo(t *testing.T) string {
+	t.Helper()
+	base, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	ws := filepath.Join(base, "proj")
+	if err := os.Mkdir(ws, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := exec.Command("git", "init", "-q", ws).CombinedOutput(); err != nil {
+		t.Fatalf("git init: %v\n%s", err, out)
+	}
+	return ws
+}
+
+// gitAsAnotherOwner runs `git -C dir <args>` the way the sandbox account meets the
+// workspace: as a user who does not own it, with home's global config.
+func gitAsAnotherOwner(home, dir string, args ...string) (string, int) {
+	cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
+	cmd.Env = append(os.Environ(),
+		"HOME="+home,
+		"GIT_CONFIG_GLOBAL="+filepath.Join(home, ".gitconfig"),
+		"GIT_TEST_ASSUME_DIFFERENT_OWNER=1")
+	out, err := cmd.CombinedOutput()
+	var exit *exec.ExitError
+	if errors.As(err, &exit) {
+		return string(out), exit.ExitCode()
+	}
+	if err != nil {
+		return string(out) + err.Error(), -1
+	}
+	return string(out), 0
+}
+
+// safeDirectories is the global config's safe.directory list, in file order.
+func safeDirectories(t *testing.T, home string) []string {
+	t.Helper()
+	cmd := exec.Command("git", "config", "--global", "--get-all", "safe.directory")
+	cmd.Env = append(os.Environ(), "HOME="+home, "GIT_CONFIG_GLOBAL="+filepath.Join(home, ".gitconfig"))
+	out, err := cmd.Output()
+	if err != nil {
+		return nil // exit 1: no entry at all
+	}
+	return strings.Fields(strings.TrimSpace(string(out)))
+}
+
+// TestConfigureGitTrustsAWorkspaceAnotherAccountOwns is the day-one failure and its fix: the
+// first command fails exactly as the agent's does, and the same command passes once
+// configureGit has run. Delete trustWorkspace's call and the second status fails.
+func TestConfigureGitTrustsAWorkspaceAnotherAccountOwns(t *testing.T) {
+	hermeticGit(t)
+	ws := gitRepo(t)
+	e := testEnv(t)
+	e.Workspace = ws
+
+	out, rc := gitAsAnotherOwner(e.Home, ws, "status")
+	if rc != 128 || !strings.Contains(out, "dubious ownership") {
+		t.Fatalf("the fixture does not reproduce the refusal (rc %d, want 128 naming dubious "+
+			"ownership), so the pass below would prove nothing:\n%s", rc, out)
+	}
+
+	configureGit(e)
+
+	if out, rc := gitAsAnotherOwner(e.Home, ws, "status"); rc != 0 {
+		t.Fatalf("git still refuses the workspace after configureGit (rc %d):\n%s", rc, out)
+	}
+	// EXACTLY the workspace: `*` would also make the status above pass, and trust every
+	// repository on the machine.
+	if got := safeDirectories(t, e.Home); !slices.Equal(got, []string{ws}) {
+		t.Errorf("safe.directory = %q, want exactly [%q]", got, ws)
+	}
+}
+
+// A repository NESTED under the workspace is not trusted by the entry: the exact-path form is
+// the ruling, and a `<ws>/*` or `*` that crept in would pass the test above too.
+func TestTheWorkspaceEntryDoesNotTrustANestedRepository(t *testing.T) {
+	hermeticGit(t)
+	ws := gitRepo(t)
+	nested := filepath.Join(ws, "vendor", "other")
+	if out, err := exec.Command("git", "init", "-q", nested).CombinedOutput(); err != nil {
+		t.Fatalf("git init: %v\n%s", err, out)
+	}
+	e := testEnv(t)
+	e.Workspace = ws
+	configureGit(e)
+
+	if out, rc := gitAsAnotherOwner(e.Home, nested, "status"); rc != 128 {
+		t.Errorf("a repository nested in the workspace is trusted too (rc %d), so the entry is "+
+			"wider than the workspace:\n%s", rc, out)
+	}
+}
+
+// Every launch runs configureGit into a global config that persists per workspace, and the
+// user may keep entries of their own there. So a second run adds no duplicate, and an entry
+// the user added survives — a plain `git config safe.directory X` refuses outright once two
+// entries exist ("cannot overwrite multiple values"), which would have cost the workspace its
+// entry at the second launch after the user added one.
+func TestTheSafeDirectoryEntryIsIdempotentAndKeepsTheUsersOwn(t *testing.T) {
+	hermeticGit(t)
+	ws := gitRepo(t)
+	e, stderr, _ := loudEnv(t)
+	e.Workspace = ws
+
+	configureGit(e)
+	add := exec.Command("git", "config", "--global", "--add", "safe.directory", "/Users/Shared/yolo/elsewhere")
+	add.Env = append(os.Environ(), "HOME="+e.Home, "GIT_CONFIG_GLOBAL="+filepath.Join(e.Home, ".gitconfig"))
+	if out, err := add.CombinedOutput(); err != nil {
+		t.Fatalf("git config --add: %v\n%s", err, out)
+	}
+	configureGit(e)
+	configureGit(e)
+
+	want := []string{ws, "/Users/Shared/yolo/elsewhere"}
+	if got := safeDirectories(t, e.Home); !slices.Equal(got, want) {
+		t.Errorf("after three runs and one entry of the user's, safe.directory = %q, want %q", got, want)
+	}
+	if strings.Contains(stderr.String(), "safe.directory") {
+		t.Errorf("a repeated run reported a failure:\n%s", stderr.String())
+	}
+}
+
+// git compares the entry against the repository's PHYSICAL path — older gits, Apple's among
+// them, without resolving the entry — so a workspace named through a link must be written
+// resolved. The darwin TMPDIR class in miniature: /tmp is /private/tmp on a Mac.
+func TestTheSafeDirectoryEntryIsTheResolvedWorkspace(t *testing.T) {
+	hermeticGit(t)
+	ws := gitRepo(t)
+	link := filepath.Join(t.TempDir(), "link")
+	if err := os.Symlink(ws, link); err != nil {
+		t.Fatal(err)
+	}
+	e := testEnv(t)
+	e.Workspace = link
+	configureGit(e)
+
+	if got := safeDirectories(t, e.Home); !slices.Equal(got, []string{ws}) {
+		t.Errorf("safe.directory = %q, want the resolved workspace [%q], not the link %q", got, ws, link)
+	}
+}
+
+// A write that fails is said, naming the setting, the symptom and the command that fixes it:
+// the agent otherwise meets a bare exit 128 with nothing pointing back at the boot.
+func TestAFailedSafeDirectoryWriteIsReported(t *testing.T) {
+	fakeBin(t, "git", "exit 1")
+	e, stderr, _ := loudEnv(t)
+	e.Workspace = "/Users/Shared/yolo/proj"
+	configureGit(e)
+	mustContain(t, "a failed safe.directory write", stderr,
+		"safe.directory", "/Users/Shared/yolo/proj", "dubious ownership",
+		"git config --global --add safe.directory /Users/Shared/yolo/proj")
+}
+
+// THE CALL SITE, ON THE BACKEND THAT NEEDS IT: the real macos-user bootstrap, entered the way
+// `yolo internal darwin-bootstrap` enters it (DarwinEnvFrom, then RunDarwinBootstrap), leaves
+// a home whose git accepts the workspace the launch named. It fails if the configure_git step
+// stops running on the darwin boot, if the step stops calling configureGit, or if the
+// bootstrap's Env stops carrying YOLO_DARWIN_WORKSPACE — each of which leaves the entry naming
+// some other path, or none.
+func TestTheMacosUserBootstrapLeavesAHomeWhoseGitAcceptsTheWorkspace(t *testing.T) {
+	hermeticGit(t)
+	ws := gitRepo(t)
+	home := t.TempDir()
+	e := DarwinEnvFrom(map[string]string{
+		"JAIL_HOME":             home,
+		"YOLO_DARWIN_WORKSPACE": ws,
+	}, home)
+	e.Stderr = &strings.Builder{}
+
+	_ = RunDarwinBootstrap(e, DarwinBootstrapOptions{MacosLog: "off"})
+
+	if out, rc := gitAsAnotherOwner(home, ws, "status"); rc != 0 {
+		t.Fatalf("after the macos-user bootstrap, git as another account still refuses the "+
+			"workspace (rc %d):\n%s\nbootstrap said:\n%s", rc, out, e.Stderr)
+	}
+}

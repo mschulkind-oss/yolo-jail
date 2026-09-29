@@ -337,9 +337,10 @@ func bootSteps() []bootStep {
 			notDarwin: "skills reach the sandbox home in install_home_overlay, below",
 		},
 		{
-			name:         "configure_git",
-			run:          func(b *bootRun) { configureGit(b.e) },
-			notContainer: "git identity is host-composed and mounted read-only by the launcher (gitIdentityMountArgs)",
+			name: "configure_git",
+			run:  func(b *bootRun) { configureGit(b.e) },
+			notContainer: "git identity is host-composed and mounted read-only by the launcher (gitIdentityMountArgs), " +
+				"and the jail's uid 0 owns the workspace there, so git needs no safe.directory entry",
 		},
 		{
 			// Render every PACK-DECLARED surface. One loop over declarations — no switch on

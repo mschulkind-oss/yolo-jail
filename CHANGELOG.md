@@ -195,6 +195,10 @@ refusal names the field; move it to your user config. A project can still set a 
 - On `macos-user`, an agent you start from the sandbox's shell, after a bare `yolo`, gets its
   profile's settings and keys. It used to start with none of them and reach its default
   provider.
+- On `macos-user`, git inside the sandbox works on your project. The agent runs as the
+  sandbox's own user, which does not own your project folder, so git refused it with
+  "detected dubious ownership" and the agent's first git command failed. The sandbox's git now
+  trusts that one folder, and no other.
 - `yolo check` reported a working Nix as "found but not working: probe failed" when
   `nix --version` took longer than five seconds, as a first run inside a jail on a busy Mac can.
   It now waits as long as its other Nix checks, and says whether Nix timed out, could not be
