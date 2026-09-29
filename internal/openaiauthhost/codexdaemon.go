@@ -14,14 +14,16 @@ package openaiauthhost
 // directly is never touched):
 //
 //  1. the managed config.toml carries `features.daemon_auto_start = false` (writeManagedCodexConfig),
-//     which stops new starts;
+//     which stops the TUI's own start;
 //  2. the launch passes `--no-daemon` (Launch.Argv), because that key does NOT stop the TUI
 //     attaching to a daemon an earlier launch left running (tui/src/startup_orchestration.rs:
-//     the socket is probed whenever no exclusion applies, whatever the feature says);
-//  3. the leftovers an earlier launch started are shut down once (retireManagedDaemon): the
-//     updater loop is turned off in the home's daemon settings, which a running loop rereads at
-//     its next wake, and a running server or updater the home's own records name is stopped
-//     now, then the daemon's package copy is removed once nothing it records is running.
+//     the socket is probed whenever no exclusion applies, whatever the feature says), and does
+//     not stop `codex agents` starting one (noDaemonRefusers says why that gets the flag too);
+//  3. the updater is turned off in the home's daemon settings, which a running loop rereads at
+//     its next wake and an explicit start reads before starting one, and the leftovers an
+//     earlier launch started are shut down once (retireManagedDaemon): a running server or
+//     updater the home's own records name is stopped now, then the daemon's package copy is
+//     removed once nothing it records is running.
 //
 // Every Codex fact here was read from Codex's source at rust-v0.159.0, unchanged in 0.159.1; no
 // Codex was run.
@@ -54,27 +56,37 @@ const (
 	daemonAutoStartFeature = "daemon_auto_start"
 )
 
-// noDaemonRefusers are the argv words with which Codex REFUSES a root `--no-daemon`, read from
-// codex-rs at rust-v0.159.0: `codex agents` always ("--no-daemon cannot be used with codex
-// agents", cli/src/main.rs run_interactive_tui), `codex queue` without a remote
-// (tui/src/session_queue_commands.rs), and `--remote`, with the interactive TUI, resume and fork
-// (tui/src/startup_orchestration.rs) and with archive, unarchive and delete
-// (tui/src/session_archive_commands.rs). Every other subcommand either honors the flag (resume,
-// fork, archive, unarchive, delete) or never reads it (exec, review, login, mcp, app-server, …),
-// and clap accepts a root option before any of them.
+// noDaemonRefusers are the argv words with which Codex REFUSES a root `--no-daemon` and which
+// withoutDaemon therefore leaves it off, read from codex-rs at rust-v0.159.0: `codex queue`
+// without a remote (tui/src/session_queue_commands.rs), and `--remote` (noDaemonRemoteFlag),
+// with the interactive TUI, resume and fork (tui/src/startup_orchestration.rs) and with archive,
+// unarchive and delete (tui/src/session_archive_commands.rs). Neither STARTS a background server:
+// queue only attaches to one already running, and --remote names another. Every other subcommand
+// either honors the flag (resume, fork, archive, unarchive, delete) or never reads it (exec,
+// review, login, mcp, app-server, …), and clap accepts a root option before any of them.
+//
+// `codex agents` IS NOT HERE, though Codex refuses the flag with it too ("--no-daemon cannot be
+// used with codex agents", cli/src/main.rs run_interactive_tui). Without a remote, the agents
+// overview starts the background server itself, calling the daemon's start directly, and no
+// feature is read on that path — the TUI's auto-start, the one reader of daemon_auto_start,
+// excludes the overview (tui/src/startup_orchestration.rs). Leaving the flag off it would start a
+// server in the managed home that outlives the launch with this launch's refresh address, which
+// is what OQ-CDX1 rules out ("You lose codex queue, codex agents"). So the managed launch hands it
+// the flag and Codex's own refusal, which starts nothing, says the overview needs a shared
+// server. `codex agents --remote …` starts no local server, and --remote keeps it unchanged.
 //
 // The match is on ANY word of the argv, not on the parsed subcommand, so a prompt that is
-// exactly "agents" or "queue" also goes without the flag. That errs toward Codex's own
-// default for that one launch, which the managed config's key already keeps from starting a
-// daemon; the other direction would be an error the user never asked for.
-var noDaemonRefusers = []string{"agents", "queue"}
+// exactly "queue" also goes without the flag. That errs toward Codex's own default for that one
+// launch, which the managed config's key already keeps from starting a daemon; the other
+// direction would be an error the user never asked for.
+var noDaemonRefusers = []string{"queue"}
 
 // noDaemonRemoteFlag is Codex's flag naming another app server; with it `--no-daemon` is refused.
 const noDaemonRemoteFlag = "--remote"
 
 // withoutDaemon is argv with `--no-daemon` added after argv[0], and whether it added it: not when
 // the flag is already there (as `--no-daemon` or `--no-daemon=…`, packload.hasFlag's rule), and
-// not when Codex would refuse it (noDaemonRefusers).
+// not beside a word Codex refuses it with that starts no server (noDaemonRefusers).
 func withoutDaemon(argv []string) ([]string, bool) {
 	if len(argv) == 0 {
 		return argv, false
@@ -257,16 +269,20 @@ func checkRecord(path string, procs daemonProcs) (int, recordState, string) {
 // stopped, and the package copy removed, only then, so an older yolo's session still attached to
 // its daemon is never cut off mid-turn. The settings write needs no such guard: it touches only
 // the updater, and a later launch that is alone does the rest.
+//
+// The settings are written whether or not a daemon ever ran here, making the directory when it is
+// missing: the config key and --no-daemon stop only the TUI, and an explicit start —
+// `codex app-server daemon start`, which reads no feature — seeds the daemon and then starts its
+// updater unless these settings say otherwise (app-server-daemon/src/lib.rs, start and
+// ensure_managed_updater). Written first, they keep that updater from ever starting.
 func retireManagedDaemon(home string, alone bool, procs daemonProcs, stderr io.Writer) {
 	state := filepath.Join(home, daemonStateDir)
-	if info, err := os.Stat(state); err == nil && info.IsDir() {
-		settings := filepath.Join(state, daemonSettingsFile)
-		switch changed, err := turnUpdaterOff(settings); {
-		case err != nil:
-			fmt.Fprintf(stderr, "yolo host: could not turn Codex's background updater off in %s: %v\n", settings, err)
-		case changed:
-			fmt.Fprintf(stderr, "yolo host: turned Codex's background updater off in yolo's managed Codex home (%s)\n", settings)
-		}
+	settings := filepath.Join(state, daemonSettingsFile)
+	switch changed, err := turnUpdaterOff(settings); {
+	case err != nil:
+		fmt.Fprintf(stderr, "yolo host: could not turn Codex's background updater off in %s: %v\n", settings, err)
+	case changed:
+		fmt.Fprintf(stderr, "yolo host: turned Codex's background updater off in yolo's managed Codex home (%s)\n", settings)
 	}
 	if !alone {
 		return
@@ -320,9 +336,10 @@ func retireManagedDaemon(home string, alone bool, procs daemonProcs, stderr io.W
 
 // turnUpdaterOff merges {"updater":{"autoUpdateEnabled":false}} into the daemon's settings file,
 // keeping every other key, and reports whether it wrote. Codex's updater loop rereads this file
-// at each wake and exits before installing, and Codex's own settings writer keeps a key it does
-// not manage (codex-rs/app-server-daemon/src/settings.rs, update_loop.rs). A file that is not a
-// JSON object, or whose `updater` is not one, is left exactly as it is.
+// at each wake and exits before installing, a start reads it before starting the loop, and
+// Codex's own settings writer keeps a key it does not manage (codex-rs/app-server-daemon/src/
+// settings.rs, update_loop.rs, lib.rs). A file that is not a JSON object, or whose `updater` is
+// not one, is left exactly as it is. A missing directory is made 0700, like the managed home.
 func turnUpdaterOff(path string) (bool, error) {
 	root := map[string]any{}
 	data, err := os.ReadFile(path)
@@ -357,6 +374,9 @@ func turnUpdaterOff(path string) (bool, error) {
 	root["updater"] = updater
 	out, err := json.MarshalIndent(root, "", "  ")
 	if err != nil {
+		return false, err
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return false, err
 	}
 	if err := atomicWritePrivate(path, append(out, '\n')); err != nil {

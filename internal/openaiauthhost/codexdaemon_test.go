@@ -70,8 +70,14 @@ func TestWithoutDaemonAddsTheFlagOnlyWhereCodexAcceptsIt(t *testing.T) {
 		{[]string{"codex", "fork", "--last"}, []string{"codex", "--no-daemon", "fork", "--last"}},
 		{[]string{"codex", "exec", "hi"}, []string{"codex", "--no-daemon", "exec", "hi"}},
 		{[]string{"codex", "login"}, []string{"codex", "--no-daemon", "login"}},
-		// Codex refuses the flag with these (codexdaemon.go names where).
-		{[]string{"codex", "agents"}, nil},
+		// `codex agents` STARTS the background server whatever the managed config says, so it
+		// gets the flag and Codex's own refusal (codexdaemon.go says why), as does a prompt that
+		// is the word.
+		{[]string{"codex", "agents"}, []string{"codex", "--no-daemon", "agents"}},
+		{[]string{"codex", "exec", "agents"}, []string{"codex", "--no-daemon", "exec", "agents"}},
+		// Codex refuses the flag with these, and none of them starts a server (codexdaemon.go
+		// names where).
+		{[]string{"codex", "agents", "--remote", "ws://127.0.0.1:4222"}, nil},
 		{[]string{"codex", "queue", "019a", "next"}, nil},
 		{[]string{"codex", "--remote", "ws://127.0.0.1:4222"}, nil},
 		{[]string{"codex", "--remote=ws://127.0.0.1:4222"}, nil},
@@ -112,8 +118,13 @@ func TestAManagedCodexLaunchRunsWithoutTheBackgroundServer(t *testing.T) {
 			t.Errorf("the rewrite's disclosure lacks %q:\n%s", want, text)
 		}
 	}
-	if argv, disclosure := launch.Argv([]string{"codex", "agents"}); strings.Join(argv, " ") != "codex agents" || disclosure != nil {
-		t.Errorf("`codex agents` refuses --no-daemon, yet the launch runs %q (disclosure %q)", argv, disclosure)
+	// `codex agents` starts the background server whatever the managed config says, so the
+	// managed launch hands it --no-daemon and Codex refuses it before starting anything.
+	if argv, disclosure := launch.Argv([]string{"codex", "agents"}); strings.Join(argv, " ") != "codex --no-daemon agents" || disclosure == nil {
+		t.Errorf("`codex agents` would start the background server, yet the launch runs %q (disclosure %q)", argv, disclosure)
+	}
+	if argv, disclosure := launch.Argv([]string{"codex", "queue", "019a", "next"}); strings.Join(argv, " ") != "codex queue 019a next" || disclosure != nil {
+		t.Errorf("`codex queue` refuses --no-daemon and starts no server, yet the launch runs %q (disclosure %q)", argv, disclosure)
 	}
 
 	pi, err := prepare(managedDaemonDeps(t.TempDir(), nil), piPrelaunch, io.Discard)
@@ -159,7 +170,7 @@ func TestTheManagedCodexConfigTurnsTheBackgroundServerOff(t *testing.T) {
 }
 
 // THE UPDATER IS TURNED OFF IN THE MANAGED HOME'S DAEMON SETTINGS, every other key kept, where a
-// daemon ever ran; a home no daemon ever ran in gets no daemon directory at all.
+// daemon ever ran.
 func TestTheManagedHomesDaemonUpdaterIsTurnedOffKeepingItsOtherSettings(t *testing.T) {
 	root := t.TempDir()
 	state := filepath.Join(managedCodexHome(root), daemonStateDir)
@@ -203,14 +214,39 @@ func TestTheManagedHomesDaemonUpdaterIsTurnedOffKeepingItsOtherSettings(t *testi
 		t.Errorf("a second launch rewrote the settings or spoke of them:\n%s\n%s", after, errw.String())
 	}
 
+}
+
+// A HOME NO DAEMON EVER RAN IN GETS THE UPDATER OFF TOO, before anything can start one. The config
+// key stops only the TUI's own start: an explicit start (`codex app-server daemon start`, and
+// `codex agents`, which a managed launch now lets Codex refuse) reads no feature, and seeds the
+// daemon and then starts its updater unless these settings say otherwise
+// (app-server-daemon/src/lib.rs, start and ensure_managed_updater, rust-v0.159.0). Waiting for the
+// directory to exist left a fresh home's first daemon running Codex's hourly installer on the
+// real host.
+func TestAFreshManagedHomeGetsTheDaemonUpdaterOffBeforeAnyDaemonRuns(t *testing.T) {
 	fresh := t.TempDir()
-	first, err := prepare(managedDaemonDeps(fresh, nil), codexPrelaunch, io.Discard)
+	var errw bytes.Buffer
+	first, err := prepare(managedDaemonDeps(fresh, nil), codexPrelaunch, &errw)
 	if err != nil {
 		t.Fatal(err)
 	}
 	endLaunch(t, first)
-	if _, err := os.Stat(filepath.Join(managedCodexHome(fresh), daemonStateDir)); !errors.Is(err, os.ErrNotExist) {
-		t.Errorf("a home no daemon ran in got a daemon directory: %v", err)
+	state := filepath.Join(managedCodexHome(fresh), daemonStateDir)
+	raw, err := os.ReadFile(filepath.Join(state, daemonSettingsFile))
+	if err != nil {
+		t.Fatalf("a fresh managed home got no daemon settings: %v\n%s", err, errw.String())
+	}
+	var got struct {
+		Updater map[string]any `json:"updater"`
+	}
+	if err := json.Unmarshal(raw, &got); err != nil || got.Updater["autoUpdateEnabled"] != false {
+		t.Errorf("a fresh managed home's daemon settings = %s (%v), want the updater off", raw, err)
+	}
+	if info, err := os.Stat(state); err != nil || info.Mode().Perm() != 0o700 {
+		t.Errorf("the daemon directory yolo made is %v (%v), want mode 0700 like the managed home", info.Mode(), err)
+	}
+	if _, err := os.Stat(filepath.Join(managedCodexHome(fresh), daemonPackagesDir)); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("the settings write made a package directory: %v", err)
 	}
 }
 
