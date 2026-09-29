@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"testing"
@@ -86,6 +87,11 @@ esac
 	// The stub's --version honors YOLO_VERSION the way the real binary does
 	// (internal/version: the variable beats the linker stamp), so a YOLO_VERSION that
 	// reached it would show in what it prints.
+	//
+	// /proc/$$/environ is the environment the stub was exec'd with. `env` is not: a POSIX
+	// shell replaces an inherited PWD that does not name its working directory before
+	// anything it runs can see it, so only the kernel's copy shows what run() passed.
+	// Linux only; TestRunPassesAGoodInstall requires it there.
 	writeFile(t, filepath.Join(m.keg, "bin", "yolo"), `#!/bin/sh
 case "$*" in
 "--version")
@@ -94,6 +100,7 @@ case "$*" in
   pwd -P > '`+filepath.Join(m.log, "pwd")+`'
   ls -A > '`+filepath.Join(m.log, "ls")+`'
   env > '`+filepath.Join(m.log, "env")+`'
+  if [ -r /proc/$$/environ ]; then cat /proc/$$/environ > '`+filepath.Join(m.log, "environ")+`'; fi
   echo 'yolo-jail 0.11.0 | darwin/arm64 | host' >&2
   cat '`+filepath.Join(m.root, "check.json")+`'
   exit `+strconv.Itoa(m.checkRC)+` ;;
@@ -154,6 +161,9 @@ func TestRunPassesAGoodInstall(t *testing.T) {
 	// binary prints verbatim in place of its stamp.
 	t.Setenv("YOLO_REPO_ROOT", m.root)
 	t.Setenv("YOLO_VERSION", "0.0.0-from-the-environment")
+	// The directory the checker was started in, standing in for the checkout: a PWD the
+	// check's own must not inherit.
+	t.Setenv("PWD", m.root)
 
 	rc, out := runChecker(t, "-formula", testFormula, "-expect-version", "v0.11.0")
 	if rc != 0 {
@@ -186,6 +196,17 @@ func TestRunPassesAGoodInstall(t *testing.T) {
 		if strings.HasPrefix(kv, "YOLO_") {
 			t.Errorf("the binary under test inherited %s", kv)
 		}
+	}
+	// And its PWD, as exec'd, names that directory or nothing — never the checker's own
+	// working directory, which os/exec leaves in place once an environment is given.
+	if runtime.GOOS == "linux" {
+		for _, kv := range strings.Split(m.logged(t, "environ"), "\x00") {
+			if pwd, ok := strings.CutPrefix(kv, "PWD="); ok && pwd != ws {
+				t.Errorf("`yolo check` ran in %s with PWD=%s", ws, pwd)
+			}
+		}
+	} else {
+		t.Logf("no /proc on %s: the PWD `yolo check` was exec'd with is not observable here", runtime.GOOS)
 	}
 	if left, _ := os.ReadDir(filepath.Join(m.root, "tmp")); len(left) != 0 {
 		t.Errorf("run left %v in TMPDIR", left)

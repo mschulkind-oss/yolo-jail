@@ -259,6 +259,17 @@ func cleanEnv() []string {
 	return env
 }
 
+// withoutVar is env with every entry for name removed.
+func withoutVar(env []string, name string) []string {
+	var out []string
+	for _, kv := range env {
+		if !strings.HasPrefix(kv, name+"=") {
+			out = append(out, kv)
+		}
+	}
+	return out
+}
+
 // capture runs argv and returns its stdout, treating any non-zero exit as an error.
 func capture(timeout time.Duration, dir string, env []string, argv ...string) ([]byte, []byte, error) {
 	out, errOut, rc, err := captureRC(timeout, dir, env, argv...)
@@ -276,6 +287,17 @@ func captureRC(timeout time.Duration, dir string, env []string, argv ...string) 
 	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
 	cmd.Dir = dir
 	cmd.Env = env
+	if dir != "" && env != nil {
+		// os/exec points PWD at Dir only when Env is nil. With an explicit environment
+		// that is this function's job, or the child inherits a PWD naming the directory
+		// the checker was started in — the checkout — while it runs somewhere else, and
+		// a binary that trusts PWD would read the checkout after all.
+		abs, err := filepath.Abs(dir)
+		if err != nil {
+			return nil, nil, 0, fmt.Errorf("running `%s` in %s: %w", strings.Join(argv, " "), dir, err)
+		}
+		cmd.Env = append(withoutVar(env, "PWD"), "PWD="+abs)
+	}
 	var out, errOut bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &out, &errOut
 	err := cmd.Run()
