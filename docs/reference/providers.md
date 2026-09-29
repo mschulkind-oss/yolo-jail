@@ -1209,8 +1209,8 @@ claude's own transport: a profile over the same provider that routes through the
 (`via`) gets the pointer and not the switch
 ([PP-D4](../design/providers-and-profiles-redesign.md#PP-D4)). ⚠ **Nothing routes claude to
 Bedrock through the bridge yet**: claude speaks `anthropic`, the via route passes only the OpenAI
-wires, and the bridge has no Bedrock upstream for claude. So such a profile leaves claude on its
-own login with a pointer nothing uses, and the launch says so
+wires, and the bridge has no Bedrock upstream for claude. So in a jail such a profile leaves
+claude on its own login with a pointer nothing uses, and the launch says so
 ([what the via does](#routing-a-profile-through-the-bridge-via)). Until 2026-09-29 the switch rode a
 `profile: "bedrock"` gated `env` and `config-overlay` pair. Claude Code honors the settings file's
 `env` block before its first API call ([OQ-4](#pv-oq-4)).

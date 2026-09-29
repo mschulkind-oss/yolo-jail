@@ -90,9 +90,10 @@ Two more come with the agent packs, with no extra pack to add:
   on `bedrock`, and no other process. If you list your own `api_key_env_name` on the provider,
   only those variables are kept for its agents.
 
-  Claude Code cannot reach Bedrock through the wire bridge yet. A profile that adds
+  Claude Code cannot reach Bedrock through the wire bridge yet. In a jail, a profile that adds
   `"via": "wire-bridge"` to a Bedrock provider turns Claude Code's own Bedrock client off, so
-  Claude Code runs on its own login; the launch warns when it sees one.
+  Claude Code runs on its own login, and the launch warns. At `yolo host`, which has no bridge,
+  the same profile uses Claude Code's own Bedrock client.
 
   If your own `~/.claude/settings.json` turns Bedrock on (`"env": {"CLAUDE_CODE_USE_BEDROCK":
   "1"}`) while claude's profile is not a Bedrock one, the launch says so in one line, naming the

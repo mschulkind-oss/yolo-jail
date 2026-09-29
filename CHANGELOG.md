@@ -85,7 +85,7 @@ Bedrock provider you declare yourself by adding `"platform": "aws-bedrock"` to i
 config. Either one runs Claude Code in Bedrock mode with the jail's AWS credentials, and hands the
 agents on it the AWS keys in your `env_sources`, as `bedrock` does. A profile of your own over the
 ChatGPT subscription (`openai-codex`) signs pi and Claude Code in the way `-p codex` does. Claude
-Code cannot reach Bedrock through the wire bridge yet, so a profile that adds `"via":
+Code cannot reach Bedrock through the wire bridge yet, so in a jail a profile that adds `"via":
 "wire-bridge"` to a Bedrock provider leaves Claude Code on its own login, and the launch now says
 so. See [what service a provider is](docs/reference/providers.md#the-platform-what-service-a-provider-is).
 
