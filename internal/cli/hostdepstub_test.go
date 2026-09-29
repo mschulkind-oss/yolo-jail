@@ -25,6 +25,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/internaldaemon"
 	"github.com/mschulkind-oss/yolo-jail/internal/launchservice"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/testsupport"
@@ -44,6 +45,16 @@ import (
 // ambient answers are the developer's own dotfiles and "yolo already rendered those"
 // (isolateTheStagedTree, confighostlayer_test.go, which carries the measurement).
 func TestMain(m *testing.M) {
+	// A SELF-EXEC'D DAEMON RUNS THE DAEMON, never this package's suite. execx.SelfExecArgv
+	// swaps a doctor_cmd's or a spawn's leading "yolo" for os.Executable(), which here is this
+	// test binary, so `yolo loopholes status` over the claude pack execs `<test binary>
+	// internal daemon claude-oauth-broker --self-check`. Without this line that child ran every
+	// test again, reached the same status path, and started self-checks in sessions of their own
+	// that outlived the package run (TestLoopholesStatusSelfChecksLeaveNothingRunning). The same
+	// dispatch as internal/cli/run's TestMain, through the one table the CLI uses.
+	if internaldaemon.IsDaemonArgv(os.Args) {
+		os.Exit(internaldaemon.Run(os.Args[3:]))
+	}
 	// THE TEST BINARY STANDS IN FOR `yolo` when a launch starts a launch-owned service
 	// (launchservice.SelfExec): a child spawned with testAsYoloArg is cli.Main, so a host launch
 	// under test runs the real host half (`yolo internal daemon wire-bridge`) and never this
