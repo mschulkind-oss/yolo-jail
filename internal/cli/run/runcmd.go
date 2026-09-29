@@ -21,6 +21,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/hostcas"
 	"github.com/mschulkind-oss/yolo-jail/internal/image"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/launchservice"
 	"github.com/mschulkind-oss/yolo-jail/internal/macosuser"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
@@ -177,6 +178,13 @@ type Options struct {
 	// (packload.HeldServices, notch-convergence NC-D59). Read by the one disclosure that says so
 	// (noteShadowedServices). nil when no service name is declared twice.
 	shadowedServices []packload.ShadowedService
+	// launchServices are the LAUNCH-OWNED SERVICES this macos-user launch planned
+	// (macosuserservices.go, docs/design/host-notch-services.md §4.7): pack services whose host
+	// half runs as this launch's child because a profiled agent's pairing needs one. Settled
+	// once per process, so the channel's compositions and the start share one port and token.
+	// launchServiceAgents names, per service, the agents whose pairing needed it.
+	launchServices      []*launchservice.Plan
+	launchServiceAgents map[string][]string
 	// served is the SERVED ADDRESSES this process has settled on (servedaddresses.go,
 	// docs/plans/notch-convergence.md NC-D41): the ports picked for a jail sharing this
 	// process's network namespace, or the running jail's, adopted by an attach. Zero until then.

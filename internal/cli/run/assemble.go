@@ -10,6 +10,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/hostcas"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/launchservice"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
@@ -1020,6 +1021,11 @@ func (o *Options) servedDaemons(specs []loopholes.JailDaemonSpec) packload.Serve
 		if s.Listen != "" {
 			listen[s.Name] = s.Listen
 		}
+	}
+	// A macos-user launch serves the launch-owned services it planned (macosuserservices.go) and
+	// no jail daemon: the host halves at the ports it picked.
+	if o.runtime == "macos-user" && len(o.launchServices) > 0 { // parity: NotApplicable — the macos-user arm's own launch-owned services; a container runs the jail daemon
+		return launchservice.Served(o.launchServices)
 	}
 	return packload.ServedAtRuntime(o.runtime, names).WithListen(listen).
 		WithRebind(o.movedServedAddresses())

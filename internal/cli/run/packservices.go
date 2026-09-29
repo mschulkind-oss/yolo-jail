@@ -12,14 +12,12 @@ package run
 // called above the backend dispatch, so a backend with no container argv can
 // still see what this launch declared (and say it will not run it).
 //
-// host_daemon is DELIBERATELY NOT composed anywhere in this build: no
-// host-daemon path exists for services yet (wire-bridge.md §2.1 rules one kind
-// carries both halves; executing the host half is the follow-up that re-forms
-// the loophole packs around services). The manifest validates the declaration
-// so it is stateable today; this file is where its composition will land, and
-// this comment is the standing record that ignoring it here is a decision, not
-// an oversight. The same is true of a service's `platforms`, `serves` and
-// `settings` — declared, carried, unread — with no consumer in the tree yet.
+// host_daemon is NOT composed here: a container launch runs a service's jail daemon, and the
+// host half runs only at a notch with no jail supervisor, as a launch-owned child of the one
+// launch whose agent's pairing needs it (internal/launchservice; macosuserservices.go for this
+// package's macos-user arm, internal/cli's host launch for `yolo host --`;
+// docs/design/host-notch-services.md). A service's `platforms`, `serves` and `settings` are
+// still declared, carried and unread, with no consumer in the tree yet.
 
 import (
 	"fmt"

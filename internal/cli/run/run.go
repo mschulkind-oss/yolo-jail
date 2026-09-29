@@ -460,6 +460,11 @@ func Run(opts Options) (rc int) {
 			// own that its spawn creates (servicessession.go), so a plan render, which creates
 			// nothing, cannot know its name; servicesSessionPlanDir names its shape.
 			o.notePackLoopholesInert(rt, staged.packs, cfg)
+			for _, plan := range o.launchServices {
+				o.pr(o.Stderr).print(fmt.Sprintf("Would start the %q service (pack %q) on %v for "+
+					"this launch, outside the sandbox, until the command exits.", plan.Service,
+					plan.Pack, plan.Addresses()))
+			}
 			if openAIAuthLoopholeActive(cfg) {
 				launchEnv.Set(hostServiceEnvVar(openAIAuthBrokerName),
 					filepath.Join(servicesSessionPlanDir(cname, o.IsMacOS),
@@ -489,6 +494,16 @@ func Run(opts Options) (rc int) {
 				o.pr(o.Stderr).print("[bold red]OpenAI credential service did not start; refusing the macos-user launch.[/bold red]")
 				return 1
 			}
+			// THE LAUNCH-OWNED SERVICES (macosuserservices.go): the host half of every pack
+			// service a profiled agent's pairing needs, started after the credential service
+			// it may ask for a view, and stopped when the sandboxed command exits. One that does
+			// not start refuses the launch before the command runs.
+			stopServices, err := o.startMacosUserServices(channel)
+			if err != nil {
+				o.pr(o.Stderr).printf("[bold red]Refusing the macos-user launch: %s[/bold red]", err.Error())
+				return 1
+			}
+			defer stopServices()
 		}
 		// AND THE OTHER HALF OF THAT LIFECYCLE, WHICH THIS BACKEND DOES NOT HAVE. Every
 		// host daemon above started; not one JAIL daemon will, because there is no in-jail

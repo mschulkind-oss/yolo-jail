@@ -93,6 +93,13 @@ func (o *Options) noteMacosUserJailDaemonDeclines(specs []loopholes.JailDaemonSp
 	if len(lines) == 0 {
 		return
 	}
+	// A pack service whose HOST HALF this launch runs (macosuserservices.go) is declined only as
+	// a jail daemon; the line says the service itself runs, so it is never read as off.
+	for i, s := range specs {
+		if o.launchServiceRunning(s.Name) {
+			lines[i] += " (its host half runs for this launch instead)"
+		}
+	}
 	out := o.pr(o.Stderr)
 	out.print("[yellow]Declined: no jail-side daemon runs on macos-user[/yellow] — this " +
 		"backend has no in-jail supervisor, so the daemons a selected pack declared are " +
@@ -107,7 +114,7 @@ func (o *Options) noteMacosUserJailDaemonDeclines(specs []loopholes.JailDaemonSp
 	// daemon is the whole of its implementation — packservices.go composes no host half for a
 	// service at all, so for `wire-bridge` there is nothing left running anywhere.
 	out.print("[dim]A loophole's own host daemon still starts and still publishes its " +
-		"endpoint; what is missing is the jail-side process that would dial it. For a pack " +
-		"service the jail daemon IS the implementation. A container runtime (podman, or " +
-		"runtime: \"container\") runs them.[/dim]")
+		"endpoint; what is missing is the jail-side process that would dial it. A pack " +
+		"service runs here only through its host half, when a profiled agent's pairing needs " +
+		"it. A container runtime (podman, or runtime: \"container\") runs the jail daemons.[/dim]")
 }

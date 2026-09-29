@@ -34,6 +34,8 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/launchservice"
+	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
@@ -156,8 +158,31 @@ func (o *Options) composePackChannel(cfg *jsonx.OrderedMap, packs []*packload.Pa
 	// Run resolved) decide both the caller tokens and what is SERVED AT THIS NOTCH
 	// (servedDaemons), and the provider table composes only the addresses served here.
 	specs := o.jailDaemonsFor(cfg, o.runtime, packs)
+	// ONE RETRY PER LAUNCH-OWNED SERVICE (macosuserservices.go): on macos-user a pairing through a
+	// pack service's adaptation refuses at the gate below until this launch plans that service's
+	// host half, and then composes again against it. Bounded by the services the packs declare.
+	for tries := 0; ; tries++ {
+		c, err := o.composePackChannelWith(cfg, packs, userEnv, profiles, userProfiles, specs)
+		if err == nil || o.runtime != "macos-user" || tries > len(packs) { // parity: HonoredBy — a container runs the service's jail daemon; macos-user its host half (macosuserservices.go)
+			return c, err
+		}
+		added, perr := o.planMacosUserService(err, packs)
+		if perr != nil {
+			return nil, perr
+		}
+		if !added {
+			return nil, err
+		}
+	}
+}
+
+// composePackChannelWith is one composition of the channel over the payload specs and whatever
+// launch-owned services this launch has planned so far (servedDaemons adds them).
+func (o *Options) composePackChannelWith(cfg *jsonx.OrderedMap, packs []*packload.Pack,
+	userEnv, profiles *jsonx.OrderedMap, userProfiles map[string]packload.UserProfile,
+	specs []loopholes.JailDaemonSpec) (*packChannel, error) {
 	served := o.servedDaemons(specs)
-	providers, unservedAdaptations, err := composedProviders(cfg, packs, served)
+	providers, unservedAdaptations, err := o.composedProvidersFor(cfg, packs, served)
 	if err != nil {
 		return nil, err
 	}
@@ -173,6 +198,13 @@ func (o *Options) composePackChannel(cfg *jsonx.OrderedMap, packs []*packload.Pa
 	callerTokens, err := o.launchCallerTokens(specs)
 	if err != nil {
 		return nil, err
+	}
+	// A launch-owned service's token beside the jail daemons' (macosuserservices.go).
+	for k, v := range launchservice.CallerTokens(o.launchServices) {
+		if callerTokens == nil {
+			callerTokens = map[string]string{}
+		}
+		callerTokens[k] = v
 	}
 	var scopedTokenVars map[string]bool
 	for daemon := range packload.ScopedCallerTokenDaemons(packs) {
