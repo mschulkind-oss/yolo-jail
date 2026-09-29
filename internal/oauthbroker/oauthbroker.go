@@ -48,7 +48,13 @@ const (
 // Background refresher cadence (seconds). Frozen contract (must not drift — the
 // refresh timing and transient-retry behavior depend on the exact values).
 const (
-	BackgroundRefreshLeadSeconds      = 300
+	// BackgroundRefreshLeadSeconds is thirty minutes (CL-D5,
+	// docs/design/claude-login-without-interception.md). It was 300, matching Claude's own
+	// five-minute due threshold, because Claude refreshed too. A jail reading a credential
+	// view never refreshes, so the broker's lead only has to beat the real expiry with room
+	// for a sleeping machine to wake and rewrite every view. An interception jail is
+	// unaffected: its Claude still asks at five minutes, and finds a fresher token.
+	BackgroundRefreshLeadSeconds      = 1800
 	BackgroundRefreshTickSeconds      = 60
 	BackgroundRefreshFastRetrySeconds = 5
 	BackgroundRefreshMaxFastRetries   = 12
@@ -234,7 +240,7 @@ func asInt64(v any) (int64, bool) {
 // LiveTokenFloorMS of life, else nil. This is the `cached` ACTION's question —
 // is there a usable token — and not the refresh path's; see cachedForRefresh.
 func CachedTokens(credsPath string) *jsonx.OrderedMap {
-	return cachedAbove(credsPath, LiveTokenFloorMS)
+	return cachedAbove(storeFor(credsPath).readPath(), LiveTokenFloorMS)
 }
 
 // cachedForRefresh is the floor DoRefresh serves from, and it is deliberately a

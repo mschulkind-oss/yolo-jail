@@ -56,7 +56,27 @@ func DoRefresh(credsPath string) RefreshResult {
 	// asked to refresh (the 2026-04-23 shared-identity drift was invisible for
 	// want of exactly this line).
 	logInfo("do_refresh: shared=%s", describeCreds(credsPath))
-	return withRefreshLock(func() RefreshResult { return doRefreshLocked(credsPath) })
+	return withRefreshLock(func() RefreshResult { return doRefreshLocked(credsPath, cachedForRefresh) })
+}
+
+// doBackgroundRefresh is the background refresher's refresh: DoRefresh with the cache floor
+// raised to the refresher's own lead.
+//
+// WHY A SECOND FLOOR. DoRefresh answers from the cache above RefreshCacheFloorMS (six minutes),
+// which is right for an interception jail's Claude asking at five. The background lead is
+// thirty minutes now (CL-D5), so a tick that found the login due and then called DoRefresh
+// would be answered from the cache and refresh nothing until six minutes were left. Raising
+// the floor to the lead makes "due" and "refreshed" the same decision, and it is still taken
+// inside the lock: a second broker that refreshed meanwhile is seen, and nothing is spent twice.
+func doBackgroundRefresh(credsPath string, leadSeconds int) RefreshResult {
+	logInfo("do_refresh: shared=%s (background, lead %ds)", describeCreds(credsPath), leadSeconds)
+	floor := int64(leadSeconds) * 1000
+	if floor < RefreshCacheFloorMS {
+		floor = RefreshCacheFloorMS
+	}
+	return withRefreshLock(func() RefreshResult {
+		return doRefreshLocked(credsPath, func(p string) *jsonx.OrderedMap { return cachedAbove(p, floor) })
+	})
 }
 
 // DoRefreshAsCaller is DoRefresh for a jail terminator's refresh, which must first prove that
@@ -84,7 +104,7 @@ func DoRefresh(credsPath string) RefreshResult {
 func DoRefreshAsCaller(credsPath, presented string) RefreshResult {
 	logInfo("do_refresh: shared=%s caller_rt=%s", describeCreds(credsPath), TokenFP(presented))
 	return withRefreshLock(func() RefreshResult {
-		current, err := oauthFromCreds(credsPath)
+		current, err := storeFor(credsPath).loadCanonicalLocked()
 		if err != nil {
 			logError("creds file unreadable: %s", err)
 			return errResult("error", "creds_unreadable", "message", err.Error())
@@ -101,7 +121,7 @@ func DoRefreshAsCaller(credsPath, presented string) RefreshResult {
 					"loopback shared with other processes makes it reachable from outside a jail "+
 					"(docs/plans/notch-convergence.md §2.3)")
 		}
-		return doRefreshLocked(credsPath)
+		return doRefreshLocked(credsPath, cachedForRefresh)
 	})
 }
 
@@ -165,16 +185,28 @@ func (r *replacedTokens) has(token string) bool {
 }
 
 // doRefreshLocked is DoRefresh's body, run under the refresh flock by both entry points.
-func doRefreshLocked(credsPath string) RefreshResult {
+//
+// It reads and writes the STORE (store.go): the canonical login, synced from the legacy shared
+// file first, and on success the canonical, the legacy file and every registered view. In
+// single-file mode that is the one file it always was.
+func doRefreshLocked(credsPath string, cached func(string) *jsonx.OrderedMap) RefreshResult {
+	s := storeFor(credsPath)
+	s.syncLocked()
+	credsPath = s.canonical
 	{
-		// cachedForRefresh, NOT CachedTokens: this is the refresh path, whose
-		// floor must exceed the requesting agent's own due-threshold.
-		if cached := cachedForRefresh(credsPath); cached != nil {
+		// cachedForRefresh (or the background refresher's higher floor), NOT CachedTokens:
+		// this is the refresh path, whose floor must exceed the requesting agent's own
+		// due-threshold.
+		if cached := cached(credsPath); cached != nil {
 			logInfo("cache hit: at=%s rt=%s exp=%s",
 				fpOf(cached, "accessToken"), fpOf(cached, "refreshToken"), expiresAtStr(cached))
 			return AsOAuthResponse(cached)
 		}
 		current, err := oauthFromCreds(credsPath)
+		if err != nil && s.split() && os.IsNotExist(err) {
+			// A split store with no canonical is a signed-out machine, not a broken file.
+			current, err = jsonx.NewOrderedMap(), nil
+		}
 		if err != nil {
 			// creds file unreadable / bad JSON — thread the real error text
 			// (e.g. "[Errno 2] ...", "Expecting value: ...") into the reply.
@@ -219,7 +251,7 @@ func doRefreshLocked(credsPath string) RefreshResult {
 			}
 		}
 		newOAuth := NormalizeOAuth(resp, current)
-		if err := WriteTokens(credsPath, newOAuth); err != nil {
+		if err := s.saveLocked(newOAuth); err != nil {
 			// Log a failed shared-creds write — it silently strands every jail
 			// on the stale token.
 			logError("creds write failed: %s", err)
@@ -242,7 +274,7 @@ func RefreshDue(credsPath string, leadSeconds int, now int64) bool {
 	if now == 0 {
 		now = nowMS()
 	}
-	oauth, err := oauthFromCreds(credsPath)
+	oauth, err := oauthFromCreds(storeFor(credsPath).readPath())
 	if err != nil {
 		return false
 	}
@@ -261,7 +293,19 @@ func RefreshDue(credsPath string, leadSeconds int, now int64) bool {
 // failed TRANSIENTLY (upstream_unreachable) while still due — the loop uses
 // this to fast-retry. Anything else (success, not due, non-transient error)
 // returns false.
+//
+// Each tick first keeps the store in step (store.go, views.go): the canonical synced from the
+// legacy shared file, then every registered credential view kept current, a /login in a view
+// adopted and a /logout honored. That runs whether or not a refresh is due, because it is how
+// a jail's /login reaches the machine within a tick.
 func BackgroundRefreshTick(credsPath string, leadSeconds int) bool {
+	if s := storeFor(credsPath); s.split() || ViewRegistryDir != "" {
+		withRefreshLock(func() RefreshResult {
+			s.syncLocked()
+			s.maintainViewsLocked()
+			return nil
+		})
+	}
 	if !RefreshDue(credsPath, leadSeconds, 0) {
 		// DEBUG because most ticks skip; logging skips at DEBUG keeps the log
 		// from becoming a wall of "not due" lines under normal INFO operation.
@@ -269,7 +313,7 @@ func BackgroundRefreshTick(credsPath string, leadSeconds int) bool {
 		return false
 	}
 	logInfo("bg_refresh: due (within %ds of expiry) shared=%s", leadSeconds, describeCreds(credsPath))
-	result := DoRefresh(credsPath)
+	result := doBackgroundRefresh(credsPath, leadSeconds)
 	if _, isErr := result.Get("error"); isErr {
 		errVal, _ := result.Get("error")
 		msg := ""

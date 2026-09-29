@@ -63,7 +63,9 @@ func SelfCheck(credsPath string) int {
 		note(serverCrt(dir)+" not yet generated — run `--init-ca` or `just deploy`", "")
 	}
 
-	lines = append(lines, gradeSharedCreds(credsPath, time.UnixMilli(nowMS()))...)
+	// The canonical login once there is one (store.go), and the shared file before the first
+	// migration made it.
+	lines = append(lines, gradeSharedCreds(storeFor(credsPath).readPath(), time.UnixMilli(nowMS()))...)
 
 	failed, warned := 0, 0
 	for _, want := range []string{"FAIL", "NOTE", "OK"} {

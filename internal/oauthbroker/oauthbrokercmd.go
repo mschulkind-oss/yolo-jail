@@ -51,6 +51,10 @@ func Main(argv []string) int {
 		SetUserAgent("yolo-jail-oauth-broker/" + v)
 	}
 
+	// The store before anything reads it: the canonical login, the view registrations and
+	// the relay source all live under BrokerDir (store.go). The self-check grades the
+	// canonical once one exists.
+	ConfigureStore()
 	if *selfCheck {
 		return SelfCheck(*credsFile)
 	}
@@ -83,6 +87,7 @@ func Main(argv []string) int {
 	// Startup snapshot of the shared creds file — lets tomorrow's debugger see
 	// the starting state and cross-reference it with do_refresh's drift lines.
 	LogStartup(*credsFile)
+	logInfo("startup: canonical=%s", describeCreds(CanonicalPath))
 
 	stop := make(chan struct{})
 	var stopOnce sync.Once

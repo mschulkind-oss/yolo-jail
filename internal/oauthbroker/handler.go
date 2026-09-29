@@ -266,12 +266,13 @@ func propagate(credsPath string, upstreamResp *jsonx.OrderedMap) {
 		return
 	}
 	withRefreshLock(func() RefreshResult {
-		previous, err := oauthFromCreds(credsPath)
+		s := storeFor(credsPath)
+		previous, err := s.loadCanonicalLocked()
 		if err != nil {
 			previous = jsonx.NewOrderedMap()
 		}
 		newOAuth := NormalizeOAuth(upstreamResp, previous)
-		if werr := WriteTokens(credsPath, newOAuth); werr != nil {
+		if werr := s.saveLocked(newOAuth); werr != nil {
 			logWarn("proxy mirror: could not write %s: %s", credsPath, werr)
 			return nil
 		}
