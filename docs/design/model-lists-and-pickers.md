@@ -592,7 +592,8 @@ through each provider's own pack ([OQ-ML1](#OQ-ML1) option (b)).
    > its own default in its pack, the way everything else is declared, and the default layers
    > like all config: a company or user pack, or user config, overrides it. One simple default
    > per provider, which the user changes; yolo does not chase the newest model. Multiple active
-   > providers per agent is split into its own design doc.
+   > providers per agent is split into its own design doc,
+   > [`active-provider-sets.md`](active-provider-sets.md).
 
 2. ✅ <a id="OQ-ML2"></a>**[OQ-ML2](#OQ-ML2): Which provider × agent cases count as "we can't
    just fall to the default", and so get a yolo pick?** The candidates are
@@ -621,6 +622,11 @@ through each provider's own pack ([OQ-ML1](#OQ-ML1) option (b)).
    > never steered, unless the config opts in. The pick is the provider's default: the agent's
    > upstream default when it is one of that provider's models, otherwise the provider's declared
    > default, otherwise the first model it lists.
+
+   **Several active providers.** When one agent runs on several providers at once, the rule reads
+   over their union: the start model is valid when it belongs to any of them, and the pick is
+   the first-listed provider's default. Designed in
+   [`active-provider-sets.md` §4.4](active-provider-sets.md#44-models-the-union-and-the-start-model).
 
 3. ✅ <a id="OQ-BR3"></a>**[OQ-BR3](#OQ-BR3): Does yolo ship model aliases at all?** (moved
    from [`bedrock-plumbing.md`](bedrock-plumbing.md) on 2026-09-25, id kept.) **Ruled
