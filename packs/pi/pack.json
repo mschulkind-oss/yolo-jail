@@ -64,6 +64,11 @@
       "kind": "files"
     },
     {
+      "from": "extensions/yolo-durable-worktrees.js",
+      "into": ".pi/agent/extensions/yolo-durable-worktrees.js",
+      "kind": "files"
+    },
+    {
       "config": [
         {
           "agent": "pi",
