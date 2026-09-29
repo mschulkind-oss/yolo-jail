@@ -8,6 +8,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 )
 
 // darwinhomelayout.go is the macos-user WORKSPACE TIER: the symlink layout that gives the
@@ -353,6 +354,97 @@ func (l DarwinHomeLayout) linkedSidecarPaths() []string {
 		}
 	}
 	return out
+}
+
+// homeFileThroughLayout returns the physical path a write to ~/<rel> lands at when it follows
+// only the links this layout lays, or an error naming the first link on the way that is not one
+// of them.
+//
+// WHY A WRITE BY ANOTHER PROGRAM NEEDS IT. The bootstrap runs outside Seatbelt as the sandbox
+// account, which can write every workspace under the shared root. Its own writes into the home
+// go through handles the overlay install opens beneath the home or the sidecar
+// (openOverlayInstallRoots), but a write made by another program — `git config --global` is the
+// one — takes a path, and follows every link it meets, the last component included (git's
+// lockfile resolves a symlinked config file before it locks it). The sidecar is in the
+// workspace, which the agent can write, so a link the agent planted anywhere below a layout
+// link's target would aim that write at a directory the agent itself cannot reach, such as
+// another workspace's .git. So the path is walked here first, one component at a time, and the
+// other program is handed the PHYSICAL path the walk arrived at, with no link left in it for
+// the program to follow.
+//
+// THE RULE IS overlayLinks.route's, applied to a file rather than to a delivered tree:
+//
+//   - A LAYOUT LINK (a directory Link or a FileRedirect) is the one way through, and only while
+//     it is the link this launch laid, to the target it laid. A layout path that is not yet that
+//     link — absent, a real file or directory the layout step refused to replace (OQ-HT2), or a
+//     stale link to another workspace — is refused rather than written: a real file written
+//     where the layout's link belongs is one the next launch then refuses forever.
+//   - ANY OTHER LINK is refused, in the account home and in the sidecar alike, the file itself
+//     included. The layout lays none there, so one is somebody else's.
+//   - An absent component below everything the layout lays ends the walk: nothing below it
+//     exists, so nothing below it is a link, and the writer creates what it needs.
+//
+// ⚠ WHAT A PATH CHECK CANNOT COVER is a component swapped for a link between this walk and the
+// other program's own resolution of the path. The sidecar belongs to one workspace, so only a
+// session of the SAME workspace running while this bootstrap does can make that swap; nothing
+// here closes it, because the writer takes a path and not a handle.
+func (l DarwinHomeLayout) homeFileThroughLayout(rel string) (string, error) {
+	if linked := l.linkedSidecarPaths(); len(linked) > 0 {
+		return "", &LinkedSidecarError{Links: linked}
+	}
+	laid := map[string]string{}
+	for _, ln := range l.Links {
+		laid[ln.Path] = ln.Target
+	}
+	redirects := map[string]string{}
+	for _, r := range l.FileRedirects {
+		redirects[r.Path] = r.Target
+	}
+	parts := strings.Split(filepath.ToSlash(filepath.Clean(rel)), "/")
+	cur := l.Home
+	for i := 0; i < len(parts); i++ {
+		next := filepath.Join(cur, parts[i])
+		want, isLink := laid[next]
+		redirect, isRedirect := redirects[next]
+		fi, err := os.Lstat(next)
+		if isLink || isRedirect {
+			if isRedirect {
+				want = redirect
+			}
+			got, rerr := os.Readlink(next)
+			if err != nil || rerr != nil || got != want {
+				return "", fmt.Errorf("~/%s was not written: %s is not this launch's layout link "+
+					"to %s (the darwin_home_layout step says why), and a path the layout owns is "+
+					"never written as anything else", rel, next, want)
+			}
+			if isRedirect {
+				// A redirect's target is relative to the directory holding it, and each is
+				// followed at most once: it is deleted before the walk restarts from there.
+				delete(redirects, next)
+				parts = append(strings.Split(filepath.ToSlash(redirect), "/"), parts[i+1:]...)
+				i = -1
+				continue
+			}
+			cur = want
+			continue
+		}
+		if err != nil {
+			if os.IsNotExist(err) {
+				return filepath.Join(append([]string{next}, parts[i+1:]...)...), nil
+			}
+			return "", err
+		}
+		if fi.Mode()&os.ModeSymlink != 0 {
+			target, _ := os.Readlink(next)
+			return "", fmt.Errorf("~/%s was not written: %s -> %s, on its way, is a symbolic link "+
+				"the layout did not lay, and this write runs outside the sandbox, so following "+
+				"it would land where the session's sandbox profile does not protect. Remove the "+
+				"link (what it points at is left alone):\n  sudo rm %s",
+				rel, next, target, shquote.Quote(next))
+		}
+		cur = next
+	}
+	return cur, nil
 }
 
 // LinkedSidecarError is the refusal of a symbolic link where the layout lays a directory of its

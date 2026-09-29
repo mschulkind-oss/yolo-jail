@@ -28,6 +28,12 @@ import (
 // (runDarwinBootstrap rebinds HOME before building the Env), so production is unchanged,
 // but a test booting a fake home wrote into the real one — and since safe.directory is
 // written unconditionally, every test that runs the native bootstrap would have.
+//
+// ⚠ ON macos-user THIS RUNS OUTSIDE SEATBELT, as the sandbox account, which can write every
+// workspace under the shared root while the agent can write only its own. So neither the git
+// it runs nor the file that git writes may be the agent's choice: the git is found outside the
+// sandbox home (gitForConfig), and the file is the one ~/.gitconfig reaches through the home
+// layout's own links and no other (gitGlobalConfigFile).
 func configureGit(e *Env) {
 	git := gitForConfig(e)
 	if git == "" {
@@ -37,8 +43,15 @@ func configureGit(e *Env) {
 		e.note("git identity: skipped, no git on PATH")
 		return
 	}
+	global, err := gitGlobalConfigFile(e)
+	if err != nil {
+		e.warn("Warning: no git identity and no safe.directory entry were written: " + err.Error() +
+			"\nUntil they are, git in this jail refuses to commit, and refuses the workspace with " +
+			"\"detected dubious ownership\" (exit 128).")
+		return
+	}
 	set := func(key, val string) {
-		if err := runGitConfig(e, git, "--global", key, val); err != nil {
+		if err := runGitConfig(e, git, global, "--global", key, val); err != nil {
 			e.warn("Warning: could not set git " + key + ": " + err.Error() +
 				"; this jail has no " + key + " and git will refuse to commit until one " +
 				"is set (~/.gitconfig is mounted read-only on the container backends)")
@@ -56,7 +69,7 @@ func configureGit(e *Env) {
 			set("core.excludesFile", gitignore)
 		}
 	}
-	trustWorkspace(e, git)
+	trustWorkspace(e, git, global)
 }
 
 // gitForConfig is the git configureGit runs: the first on the agent's PATH that lies OUTSIDE
@@ -87,7 +100,34 @@ func gitForConfig(e *Env) string {
 	return lookPathIn(imageProbePath(e), "git")
 }
 
-// trustWorkspace adds the workspace to git's safe.directory list.
+// gitGlobalConfigFile is the file every `git config --global` write here lands in: ~/.gitconfig
+// followed through the home layout's own links to its PHYSICAL path
+// (DarwinHomeLayout.homeFileThroughLayout), or an error naming the link that is not the
+// layout's.
+//
+// WHY. On macos-user ~/.gitconfig is the layout's redirect to .config/git/config, and ~/.config
+// is its link into the workspace sidecar, which the agent can write. git follows every link it
+// meets on the way to the config file, the file itself included, so a link the agent planted at
+// <sidecar>/config/git had this unconfined write land in another workspace's .git/config: its
+// [user] and [safe] sections were rewritten (reproduced; the content is yolo's, but the place is
+// the agent's choice). Handing git the checked physical path leaves nothing on the way for it to
+// follow.
+//
+// THE LAYOUT IS DERIVED WITHOUT THE PACKS, because nothing on this path is a pack's: the
+// ~/.gitconfig redirect and the ~/.config link it resolves through are core, laid for every
+// launch whatever it selects (DeriveDarwinHomeLayout). A pack-declared link elsewhere — a
+// planted link at <sidecar>/claude, say — is the layout step's to refuse and does not stop this
+// write, which cannot reach it.
+//
+// Where the launch named no sidecar — an install capture's staging home, and every test Env —
+// the layout has no links, so the rule is only that nothing on the way to ~/.gitconfig is one.
+func gitGlobalConfigFile(e *Env) (string, error) {
+	layout, _ := darwinHomeLayoutFor(e, nil)
+	return layout.homeFileThroughLayout(".gitconfig")
+}
+
+// trustWorkspace adds the workspace to git's safe.directory list, in the global config file
+// `global` (gitGlobalConfigFile).
 //
 // WHY. On macos-user the agent runs as the sandbox account and the workspace belongs to
 // the human who launched it, which is exactly the case git's ownership check (CVE-2022-24765)
@@ -120,12 +160,12 @@ func gitForConfig(e *Env) string {
 // (bootsteps.go: its global config is composed on the host and mounted read-only), and in a
 // rootless podman jail the jail's uid 0 IS the workspace's owner through the user
 // namespace, so git passes the ownership check there with no entry at all.
-func trustWorkspace(e *Env, git string) {
+func trustWorkspace(e *Env, git, global string) {
 	ws := e.WorkspaceDir()
 	if resolved, err := filepath.EvalSymlinks(ws); err == nil {
 		ws = resolved
 	}
-	if err := runGitConfig(e, git, "--global", "--replace-all", "--fixed-value", "safe.directory", ws, ws); err != nil {
+	if err := runGitConfig(e, git, global, "--global", "--replace-all", "--fixed-value", "safe.directory", ws, ws); err != nil {
 		e.warn("Warning: could not mark " + ws + " as a git safe.directory: " + err.Error() +
 			"; the workspace belongs to another account, so git here will refuse it with " +
 			"\"detected dubious ownership\" (exit 128) until it is set: " +
@@ -133,23 +173,22 @@ func trustWorkspace(e *Env, git string) {
 	}
 }
 
-// runGitConfig runs `git config <args>` against e.Home's global config, with stdout and
-// stderr discarded, and RETURNS the error: whether a failure is worth a line is the
+// runGitConfig runs `git config <args>` against the global config file `global`, with stdout
+// and stderr discarded, and RETURNS the error: whether a failure is worth a line is the
 // caller's decision. (It replaced runQuiet, which once swallowed the error and so made
 // every caller's "best-effort" indistinguishable from "did not happen".)
 //
-// HOME is the Env's, and so is GIT_CONFIG_GLOBAL: with HOME alone, a caller whose
-// XDG_CONFIG_HOME names another tree would still have git write THAT tree's git/config
-// whenever <home>/.gitconfig does not exist yet. On macos-user <home>/.gitconfig is the home
-// layout's link into the workspace sidecar (paths.HomeFileRedirects), which git writes
-// through, so naming it changes nothing there.
-func runGitConfig(e *Env, git string, args ...string) error {
+// HOME is the Env's, and GIT_CONFIG_GLOBAL names the file outright: with HOME alone, a caller
+// whose XDG_CONFIG_HOME names another tree would still have git write THAT tree's git/config
+// whenever <home>/.gitconfig does not exist yet, and on macos-user git would resolve
+// <home>/.gitconfig through the sidecar's links again, after gitGlobalConfigFile checked them.
+func runGitConfig(e *Env, git, global string, args ...string) error {
 	cmd := exec.Command(git, append([]string{"config"}, args...)...)
 	// Appended last, so they win over any inherited value (os/exec keeps the LAST
 	// duplicate of a key).
 	cmd.Env = append(os.Environ(),
 		"HOME="+e.Home,
-		"GIT_CONFIG_GLOBAL="+filepath.Join(e.Home, ".gitconfig"))
+		"GIT_CONFIG_GLOBAL="+global)
 	cmd.Stdout = nil
 	cmd.Stderr = nil
 	return cmd.Run()
