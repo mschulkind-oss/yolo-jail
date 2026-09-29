@@ -21,14 +21,20 @@ import (
 	"testing"
 )
 
+// gitBin is the real git every helper below runs, BY PATH: the bootstrap test takes git off
+// the process PATH, as the macos-user launch does, and the helpers must still reach it.
+var gitBin string
+
 // hermeticGit points git at nothing of the invoking machine's: no system config (a distro
 // that ships `safe.directory = *` would pass every case below vacuously), no inherited
 // global override, no XDG tree.
 func hermeticGit(t *testing.T) {
 	t.Helper()
-	if _, err := exec.LookPath("git"); err != nil {
+	p, err := exec.LookPath("git")
+	if err != nil {
 		t.Skip("git is not on PATH")
 	}
+	gitBin = p
 	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	for _, k := range []string{"GIT_CONFIG_GLOBAL", "GIT_DIR", "GIT_WORK_TREE", "GIT_TEST_ASSUME_DIFFERENT_OWNER"} {
@@ -50,7 +56,7 @@ func gitRepo(t *testing.T) string {
 	if err := os.Mkdir(ws, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if out, err := exec.Command("git", "init", "-q", ws).CombinedOutput(); err != nil {
+	if out, err := exec.Command(gitBin, "init", "-q", ws).CombinedOutput(); err != nil {
 		t.Fatalf("git init: %v\n%s", err, out)
 	}
 	return ws
@@ -59,7 +65,7 @@ func gitRepo(t *testing.T) string {
 // gitAsAnotherOwner runs `git -C dir <args>` the way the sandbox account meets the
 // workspace: as a user who does not own it, with home's global config.
 func gitAsAnotherOwner(home, dir string, args ...string) (string, int) {
-	cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
+	cmd := exec.Command(gitBin, append([]string{"-C", dir}, args...)...)
 	cmd.Env = append(os.Environ(),
 		"HOME="+home,
 		"GIT_CONFIG_GLOBAL="+filepath.Join(home, ".gitconfig"),
@@ -78,7 +84,7 @@ func gitAsAnotherOwner(home, dir string, args ...string) (string, int) {
 // safeDirectories is the global config's safe.directory list, in file order.
 func safeDirectories(t *testing.T, home string) []string {
 	t.Helper()
-	cmd := exec.Command("git", "config", "--global", "--get-all", "safe.directory")
+	cmd := exec.Command(gitBin, "config", "--global", "--get-all", "safe.directory")
 	cmd.Env = append(os.Environ(), "HOME="+home, "GIT_CONFIG_GLOBAL="+filepath.Join(home, ".gitconfig"))
 	out, err := cmd.Output()
 	if err != nil {
@@ -120,7 +126,7 @@ func TestTheWorkspaceEntryDoesNotTrustANestedRepository(t *testing.T) {
 	hermeticGit(t)
 	ws := gitRepo(t)
 	nested := filepath.Join(ws, "vendor", "other")
-	if out, err := exec.Command("git", "init", "-q", nested).CombinedOutput(); err != nil {
+	if out, err := exec.Command(gitBin, "init", "-q", nested).CombinedOutput(); err != nil {
 		t.Fatalf("git init: %v\n%s", err, out)
 	}
 	e := testEnv(t)
@@ -145,7 +151,7 @@ func TestTheSafeDirectoryEntryIsIdempotentAndKeepsTheUsersOwn(t *testing.T) {
 	e.Workspace = ws
 
 	configureGit(e)
-	add := exec.Command("git", "config", "--global", "--add", "safe.directory", "/Users/Shared/yolo/elsewhere")
+	add := exec.Command(gitBin, "config", "--global", "--add", "safe.directory", "/Users/Shared/yolo/elsewhere")
 	add.Env = append(os.Environ(), "HOME="+e.Home, "GIT_CONFIG_GLOBAL="+filepath.Join(e.Home, ".gitconfig"))
 	if out, err := add.CombinedOutput(); err != nil {
 		t.Fatalf("git config --add: %v\n%s", err, out)
@@ -199,13 +205,21 @@ func TestAFailedSafeDirectoryWriteIsReported(t *testing.T) {
 // stops running on the darwin boot, if the step stops calling configureGit, or if the
 // bootstrap's Env stops carrying YOLO_DARWIN_WORKSPACE — each of which leaves the entry naming
 // some other path, or none.
+//
+// THE PROCESS HAS NO PATH, as on a Mac: the launch runs the bootstrap under `env -i` and names
+// no PATH (DarwinBootstrapArgv), so exec.LookPath finds nothing there. The agent's PATH arrives
+// as YOLO_DARWIN_LOGIN_PATH instead. Until configureGit looked there, it noted "no git on PATH"
+// and wrote nothing at all on this backend — no safe.directory, and no identity either.
 func TestTheMacosUserBootstrapLeavesAHomeWhoseGitAcceptsTheWorkspace(t *testing.T) {
 	hermeticGit(t)
 	ws := gitRepo(t)
 	home := t.TempDir()
+	t.Setenv("PATH", "")
 	e := DarwinEnvFrom(map[string]string{
 		"JAIL_HOME":             home,
 		"YOLO_DARWIN_WORKSPACE": ws,
+		"YOLO_GIT_EMAIL":        "someone@example.com",
+		DarwinLoginPathEnv:      filepath.Dir(gitBin),
 	}, home)
 	e.Stderr = &strings.Builder{}
 
@@ -214,5 +228,11 @@ func TestTheMacosUserBootstrapLeavesAHomeWhoseGitAcceptsTheWorkspace(t *testing.
 	if out, rc := gitAsAnotherOwner(home, ws, "status"); rc != 0 {
 		t.Fatalf("after the macos-user bootstrap, git as another account still refuses the "+
 			"workspace (rc %d):\n%s\nbootstrap said:\n%s", rc, out, e.Stderr)
+	}
+	// The identity rides the same lookup, so it was missing on this backend for the same reason.
+	if out, rc := gitAsAnotherOwner(home, ws, "config", "--global", "user.email"); rc != 0 ||
+		strings.TrimSpace(out) != "someone@example.com" {
+		t.Errorf("after the macos-user bootstrap, user.email = %q (rc %d), want the forwarded "+
+			"identity\nbootstrap said:\n%s", out, rc, e.Stderr)
 	}
 }

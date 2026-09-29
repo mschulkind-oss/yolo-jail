@@ -539,10 +539,15 @@ func TestAGitIdentityThatCouldNotBeRecordedIsReported(t *testing.T) {
 // TestAnAbsentGitIsRecordedButNotWarned: no git means there is no identity to set, which is
 // an empty case rather than a degradation — but it is still the answer to "why does this
 // jail have no git identity", so it belongs in the log.
+//
+// Absent from BOTH places configureGit looks: the process's PATH and the agent's
+// (gitForConfig). The agent's is pointed at an empty directory, since left alone it is the
+// container default, whose /bin holds a real git on the machine running this.
 func TestAnAbsentGitIsRecordedButNotWarned(t *testing.T) {
 	t.Setenv("PATH", t.TempDir())
 	e, stderr, logOnly := loudEnv(t)
 	e.Vars["YOLO_GIT_NAME"] = "Some One"
+	e.Vars[DarwinLoginPathEnv] = t.TempDir()
 	configureGit(e)
 	if stderr.Len() != 0 {
 		t.Errorf("an absent git is not a degradation: %q", stderr.String())

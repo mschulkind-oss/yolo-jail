@@ -29,7 +29,8 @@ import (
 // but a test booting a fake home wrote into the real one — and since safe.directory is
 // written unconditionally, every test that runs the native bootstrap would have.
 func configureGit(e *Env) {
-	if _, err := exec.LookPath("git"); err != nil {
+	git := gitForConfig(e)
+	if git == "" {
 		// A genuinely absent tool, not a failure — there is no identity to set if
 		// there is no git. Recorded so "the jail has no git identity" is answerable
 		// from the log without guessing which of the two causes it was.
@@ -37,7 +38,7 @@ func configureGit(e *Env) {
 		return
 	}
 	set := func(key, val string) {
-		if err := runGitConfig(e, "--global", key, val); err != nil {
+		if err := runGitConfig(e, git, "--global", key, val); err != nil {
 			e.warn("Warning: could not set git " + key + ": " + err.Error() +
 				"; this jail has no " + key + " and git will refuse to commit until one " +
 				"is set (~/.gitconfig is mounted read-only on the container backends)")
@@ -55,7 +56,23 @@ func configureGit(e *Env) {
 			set("core.excludesFile", gitignore)
 		}
 	}
-	trustWorkspace(e)
+	trustWorkspace(e, git)
+}
+
+// gitForConfig is the git configureGit runs: the process's own, and when the process has
+// none, the agent's.
+//
+// THE SECOND HALF IS THE macos-user BOOTSTRAP'S WHOLE CASE. The launch runs it under
+// `env -i` and names no PATH (macosuser.DarwinBootstrapArgv), so exec.LookPath finds nothing
+// and this step used to note "no git on PATH" and return — on the one backend it runs on, it
+// wrote no identity and no safe.directory at all. The sandbox's real PATH rides in as
+// $YOLO_DARWIN_LOGIN_PATH, which agentPath reads, and the floor puts git on it. Which git
+// writes the file does not matter; that one is written does.
+func gitForConfig(e *Env) string {
+	if p, err := exec.LookPath("git"); err == nil {
+		return p
+	}
+	return lookPathIn(agentPath(e), "git")
 }
 
 // trustWorkspace adds the workspace to git's safe.directory list.
@@ -91,12 +108,12 @@ func configureGit(e *Env) {
 // (bootsteps.go: its global config is composed on the host and mounted read-only), and in a
 // rootless podman jail the jail's uid 0 IS the workspace's owner through the user
 // namespace, so git passes the ownership check there with no entry at all.
-func trustWorkspace(e *Env) {
+func trustWorkspace(e *Env, git string) {
 	ws := e.WorkspaceDir()
 	if resolved, err := filepath.EvalSymlinks(ws); err == nil {
 		ws = resolved
 	}
-	if err := runGitConfig(e, "--global", "--replace-all", "--fixed-value", "safe.directory", ws, ws); err != nil {
+	if err := runGitConfig(e, git, "--global", "--replace-all", "--fixed-value", "safe.directory", ws, ws); err != nil {
 		e.warn("Warning: could not mark " + ws + " as a git safe.directory: " + err.Error() +
 			"; the workspace belongs to another account, so git here will refuse it with " +
 			"\"detected dubious ownership\" (exit 128) until it is set: " +
@@ -114,8 +131,8 @@ func trustWorkspace(e *Env) {
 // whenever <home>/.gitconfig does not exist yet. On macos-user <home>/.gitconfig is the home
 // layout's link into the workspace sidecar (paths.HomeFileRedirects), which git writes
 // through, so naming it changes nothing there.
-func runGitConfig(e *Env, args ...string) error {
-	cmd := exec.Command("git", append([]string{"config"}, args...)...)
+func runGitConfig(e *Env, git string, args ...string) error {
+	cmd := exec.Command(git, append([]string{"config"}, args...)...)
 	// Appended last, so they win over any inherited value (os/exec keeps the LAST
 	// duplicate of a key).
 	cmd.Env = append(os.Environ(),

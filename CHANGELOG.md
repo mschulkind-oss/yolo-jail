@@ -198,7 +198,8 @@ refusal names the field; move it to your user config. A project can still set a 
 - On `macos-user`, git inside the sandbox works on your project. The agent runs as the
   sandbox's own user, which does not own your project folder, so git refused it with
   "detected dubious ownership" and the agent's first git command failed. The sandbox's git now
-  trusts that one folder, and no other.
+  trusts that one folder, and no other. The sandbox also records your git name and email, which
+  it had not been doing, so commits made there carry them.
 - On `macos-user`, a project inside your home folder no longer sends you in a circle. The launch
   said to run `yolo macos-fix-permissions`, which refuses every folder in a home, so running it
   changed nothing. The launch now says first that the project has to move out of your home, and
