@@ -132,19 +132,23 @@ func TestTheRegionRefusalHonorsTheProviderHatch(t *testing.T) {
 }
 
 // bedrockNativeLaunch drives Run() to the macos-user arm with the shipped claude pack and
-// `-p bedrock`, over userConfig, and reports whether the handler ran and what it was handed.
-func bedrockNativeLaunch(t *testing.T, userConfig string, shell map[string]string) (int, *nativeLaunch, string) {
+// `-p bedrock`, over userConfig and an empty invoking shell, and reports whether the handler
+// ran and what it was handed.
+func bedrockNativeLaunch(t *testing.T, userConfig string) (int, *nativeLaunch, string) {
 	t.Helper()
-	o, stderr, seen := overrideNativeLaunch(t, userConfig, shellWith(shell))
+	o, stderr, seen := overrideNativeLaunch(t, userConfig, shellWith(nil))
 	rc := Run(*o)
 	return rc, seen, stderr.String()
 }
 
-// THE macos-user ARM refuses before the backend is dispatched, and launches once a region is
-// visible — the provider's, which reaches the sandbox as claude's AWS_REGION, or env_sources'.
-// A region only in the invoking shell is refused, since the sandbox starts under `env -i`.
+// THE macos-user ARM refuses before the backend is dispatched, and launches once the provider
+// names a region, which reaches the sandbox as claude's AWS_REGION. Two launches only: each
+// starts the machine's host services, so the other region sources (env_sources, the invoking
+// shell) are pinned on the shared entry point above rather than by more launches here, and the
+// unprofiled control is TestUnprofiledNativeLaunchStillCarriesTheEmptyWireTables, whose claude
+// launch selects no bedrock and must not be refused.
 func TestTheMacosUserLaunchRefusesABedrockProfileWithNoRegion(t *testing.T) {
-	rc, seen, errs := bedrockNativeLaunch(t, `{"packs": ["claude"]}`, nil)
+	rc, seen, errs := bedrockNativeLaunch(t, `{"packs": ["claude"]}`)
 	if rc != 1 || seen.reached {
 		t.Fatalf("claude on bedrock with no region must refuse the macos-user launch before the "+
 			"backend runs: rc=%d reached=%v\n%s", rc, seen.reached, errs)
@@ -153,37 +157,12 @@ func TestTheMacosUserLaunchRefusesABedrockProfileWithNoRegion(t *testing.T) {
 		t.Errorf("the refusal must be the region pre-flight's:\n%s", errs)
 	}
 
-	rc, seen, errs = bedrockNativeLaunch(t, `{"packs": ["claude"]`+bedrockRegionMember+`}`, nil)
+	rc, seen, errs = bedrockNativeLaunch(t, `{"packs": ["claude"]`+bedrockRegionMember+`}`)
 	if rc != 0 || !seen.reached {
 		t.Fatalf("with the provider's region set the launch must run: rc=%d reached=%v\n%s", rc, seen.reached, errs)
 	}
 	if got := envAt(seen.env, "AWS_REGION"); got != testBedrockRegion {
 		t.Errorf("claude's launch env AWS_REGION = %q, want the provider's %q", got, testBedrockRegion)
-	}
-
-	rc, seen, errs = bedrockNativeLaunch(t, `{"packs": ["claude"], "env_sources": [{"AWS_REGION": "eu-west-1"}]}`, nil)
-	if rc != 0 || !seen.reached || envAt(seen.env, "AWS_REGION") != "eu-west-1" {
-		t.Fatalf("AWS_REGION from env_sources must satisfy the pre-flight and reach the sandbox: "+
-			"rc=%d reached=%v\n%s", rc, seen.reached, errs)
-	}
-
-	rc, seen, errs = bedrockNativeLaunch(t, `{"packs": ["claude"]}`, map[string]string{"AWS_REGION": "us-west-2"})
-	if rc != 1 || seen.reached || !strings.Contains(errs, "AWS_REGION is set in the environment yolo was launched from") {
-		t.Errorf("a region only in the invoking shell reaches no sandbox, so it must refuse and be named: "+
-			"rc=%d reached=%v\n%s", rc, seen.reached, errs)
-	}
-}
-
-// AN UNPROFILED LAUNCH OWES NO REGION: selecting the claude pack is not selecting bedrock. The
-// control that keeps the pre-flight from refusing every claude launch on every machine.
-func TestAnUnprofiledMacosUserLaunchOwesNoRegion(t *testing.T) {
-	o, stderr, seen := overrideNativeLaunch(t, `{"packs": ["claude"]}`, shellWith(nil))
-	o.ProfileName = ""
-	if rc := Run(*o); rc != 0 || !seen.reached {
-		t.Fatalf("an unprofiled claude launch must not be refused for a region: rc=%d\n%s", rc, stderr.String())
-	}
-	if strings.Contains(stderr.String(), regionVerdict) {
-		t.Errorf("an unprofiled launch printed the region refusal:\n%s", stderr.String())
 	}
 }
 
