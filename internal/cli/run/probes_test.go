@@ -2,6 +2,7 @@ package run
 
 import (
 	"bytes"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -9,6 +10,7 @@ import (
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/reporoot"
+	yoloruntime "github.com/mschulkind-oss/yolo-jail/internal/runtime"
 )
 
 // fakeExec builds an Exec seam matching on the joined argv, with canned results;
@@ -159,10 +161,10 @@ func TestResolveRuntimeEnvWins(t *testing.T) {
 	o := Options{
 		Getenv:   func(k string) string { return map[string]string{"YOLO_RUNTIME": "podman"}[k] },
 		LookPath: func(string) (string, bool) { return "/usr/bin/podman", true },
-		Exec:     fakeExec(map[string]ExecResult{"podman info": {Ran: true, RC: 0}}),
 		Stdout:   discardBuf(),
 	}
 	fillDefaults(&o)
+	answeringPodman(&o, minimalPodmanInfo)
 	o.Getenv = func(k string) string {
 		if k == "YOLO_RUNTIME" {
 			return "podman"
@@ -240,10 +242,13 @@ func TestResolveRuntimeExplicitLinuxProbeFailure(t *testing.T) {
 			return ""
 		},
 		LookPath: func(string) (string, bool) { return "/usr/bin/podman", true },
-		Exec:     fakeExec(map[string]ExecResult{"podman info": {Ran: true, RC: 125, Stderr: "lock busy"}}),
 		Stdout:   &buf,
+		Stderr:   discardBuf(),
 	}
 	fillDefaults(&o)
+	// An error the readiness gate does not recognize: retried to the end of the budget
+	// (on the fake clock), then refused with podman's own words.
+	scriptedPodman(&o, yoloruntime.Attempt{Exited: true, RC: 125, Stderr: "lock busy"})
 	if rt, ok := o.resolveRuntime(nil); ok || rt != "" {
 		t.Fatalf("resolveRuntime = %q,%v; want '',false", rt, ok)
 	}
@@ -299,29 +304,29 @@ func TestResolveRuntimeNoneFound(t *testing.T) {
 func TestResolveRuntimeLinuxPodmanFailureDetails(t *testing.T) {
 	for _, tc := range []struct {
 		name string
-		res  ExecResult
+		a    yoloruntime.Attempt
 		want string
 	}{
-		{"nonzero", ExecResult{Ran: true, RC: 125, Stderr: "rootless storage lock busy"}, "rootless storage lock busy"},
-		{"timeout", ExecResult{Ran: true, Timeout: true, Stderr: "waiting on storage"}, "waiting on storage"},
-		{"not run", ExecResult{Ran: false}, "could not run"},
+		{"nonzero", yoloruntime.Attempt{Exited: true, RC: 125, Stderr: "rootless storage lock busy"}, "rootless storage lock busy"},
+		{"still running", yoloruntime.Attempt{Pid: 31337}, "podman (pid 31337) is still running; yolo left it to finish"},
+		{"not run", yoloruntime.Attempt{StartErr: errors.New("exec: no such file")}, "could not run"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var buf bytes.Buffer
 			o := Options{
 				Getenv:   func(string) string { return "" },
 				LookPath: func(string) (string, bool) { return "/usr/bin/podman", true },
-				Exec:     fakeExec(map[string]ExecResult{"podman info": tc.res}),
 				Stdout:   &buf,
+				Stderr:   discardBuf(),
 				IsMacOS:  false,
 			}
 			fillDefaults(&o)
+			scriptedPodman(&o, tc.a)
 			if rt, ok := o.resolveRuntime(nil); ok || rt != "" {
 				t.Fatalf("resolveRuntime = %q,%v; want '',false", rt, ok)
 			}
 			got := buf.String()
 			if !strings.Contains(got, tc.want) || !strings.Contains(got, "podman info") ||
-				(tc.name == "timeout" && !strings.Contains(got, "timed out")) ||
 				strings.Contains(got, "podman machine start") || strings.Contains(got, "not started") {
 				t.Errorf("Linux probe diagnostic lost its cause or suggested a VM: %q", got)
 			}
@@ -336,12 +341,13 @@ func TestResolveRuntimeAutoDetectNotStarted(t *testing.T) {
 	o := Options{
 		Getenv:   func(string) string { return "" },
 		LookPath: func(string) (string, bool) { return "/usr/bin/podman", true },
-		Exec:     fakeExec(map[string]ExecResult{"podman info": {Ran: true, RC: 1}}),
 		Stdout:   &buf,
 		IsMacOS:  false,
 	}
 	fillDefaults(&o)
 	o.Stdout = &buf
+	o.Stderr = discardBuf()
+	scriptedPodman(&o, yoloruntime.Attempt{Exited: true, RC: 1})
 	rt, ok := o.resolveRuntime(nil)
 	if ok || rt != "" {
 		t.Errorf("resolveRuntime = %q,%v; want '',false", rt, ok)

@@ -39,9 +39,12 @@ func freshLaunch(t *testing.T, path, started, psAnswer string) (ws, cname, stdou
 	}
 	o.Exec = func(argv []string, _ string, _ []string, _ time.Duration) ExecResult {
 		switch {
-		case len(argv) >= 2 && argv[1] == "info":
-			return ExecResult{Ran: true, RC: 0, Stdout: "host: {}"}
 		case len(argv) >= 2 && argv[1] == "ps" && strings.Contains(strings.Join(argv, " "), "--format"):
+			return ExecResult{Ran: true, RC: 0}
+		case started == "" && len(argv) >= 3 && argv[1] == "ps" && argv[2] == "-q":
+			// The attach decision's question is answered — nothing is running — because a
+			// runtime that could not say refuses the launch there (probeRunningContainer),
+			// and this helper is for reaching the runtime's own start.
 			return ExecResult{Ran: true, RC: 0}
 		case started == "":
 			return ExecResult{Ran: false}

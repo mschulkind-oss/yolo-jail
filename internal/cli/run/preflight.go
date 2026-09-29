@@ -359,10 +359,17 @@ func (o *Options) isAppleContainer(path string) bool {
 
 // runtimeIsConnectable reports whether the runtime answers and, if not, why.
 //
-// Bounded at 5 s (Apple Container) and 10 s (podman), and a cold runtime — a podman
-// machine just started, a first `podman info` after a reboot — can spend most of
-// that, so the probe has a progress line (silent when it answers promptly).
+// Podman on Linux goes through the READINESS GATE (podmanready.go): up to a minute for
+// `podman info` to answer, never killing a probe that may be doing podman's post-boot
+// cleanup, and refusing at once only on an answer that cannot clear on its own
+// (docs/design/podman-reboot-readiness.md). Everything else keeps the one-shot probe,
+// bounded at 5 s (Apple Container) and 10 s (podman on macOS, where a stopped VM and a
+// starting one look alike to `podman info`); a cold runtime can spend most of that, so it
+// has a progress line too (silent when it answers promptly).
 func (o *Options) runtimeIsConnectable(rt string) (ok bool, reason string) {
+	if o.usesReadinessGate(rt) {
+		return o.waitForPodman(rt)
+	}
 	o.withStderrProgress("Checking that "+rt+" is running", func() bool {
 		ok, reason = o.probeRuntime(rt)
 		return ok

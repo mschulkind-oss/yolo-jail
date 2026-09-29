@@ -299,7 +299,7 @@ func TestAssembleRunCmdAdverseHostsKeepTodaysArgv(t *testing.T) {
 				p, ok := tc.lookPath[name]
 				return p, ok
 			}
-			o.Exec = fakeHostExec(tc.exec)
+			hostExec(o, tc.exec)
 			var stdout strings.Builder
 			o.Stdout = &stdout
 
@@ -504,13 +504,11 @@ func TestHostLoopbackOptOutNeedsNoSubprocessToBeHonoured(t *testing.T) {
 	}
 }
 
-// fixtureExecTimeouts guards the two subprocess budgets. They are on the launch path,
-// so a runtime that cannot answer must be abandoned rather than waited on: a jail that
-// takes a minute to start because podman is wedged is a jail nobody launches twice.
+// TestHostLoopbackProbeBudgetsAreBounded guards the one subprocess budget left here, the
+// backend's `--help`. It is on the launch path, so a helper that cannot answer must be
+// abandoned rather than waited on. (`podman info` is the readiness gate's, whose one budget
+// is runtime.PodmanReadyBudget.)
 func TestHostLoopbackProbeBudgetsAreBounded(t *testing.T) {
-	if podmanInfoTimeout <= 0 || podmanInfoTimeout > 30*time.Second {
-		t.Errorf("podmanInfoTimeout = %s; it bounds a subprocess on the launch path", podmanInfoTimeout)
-	}
 	if flagProbeTimeout <= 0 || flagProbeTimeout > 30*time.Second {
 		t.Errorf("flagProbeTimeout = %s; it bounds a subprocess on the launch path", flagProbeTimeout)
 	}

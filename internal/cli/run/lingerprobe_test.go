@@ -460,32 +460,40 @@ func TestInputBeforeTheDeathWritesNothing(t *testing.T) {
 	}
 }
 
-// The podman facts ride the `podman info` the loopback probe already runs.
-func TestPodmanFactsAreRecordedFromTheExistingInfoCall(t *testing.T) {
+// The podman facts ride the readiness gate's `podman info`, the launch's only one
+// (docs/design/podman-reboot-readiness.md PR-D5, PR-D10): noted when runtime selection
+// answers, and read from there by the host-loopback decision, which asks podman nothing.
+func TestPodmanFactsAreRecordedFromTheReadinessGatesAnswer(t *testing.T) {
 	o := quietRecordingOptions(t, t.TempDir(), t.TempDir())
 	o.Getenv = func(string) string { return "" }
 	o.LookPath = func(name string) (string, bool) { return "/usr/bin/" + name, name == "podman" }
 	info := strings.Replace(podmanInfoFixture, `"rootlessNetworkCmd": "pasta",`,
 		`"rootlessNetworkCmd": "pasta", "databaseBackend": "sqlite", "eventLogger": "journald", "cgroupManager": "systemd",`, 1)
 	info = strings.Replace(info, `"store":`, `"version": {"Version": "5.8.6"}, "store":`, 1)
-	infoCalls := 0
+	gate := answeringPodman(o, info)
+	execInfo := 0
 	o.Exec = func(argv []string, _ string, _ []string, _ time.Duration) ExecResult {
 		if len(argv) > 1 && argv[1] == "info" {
-			infoCalls++
-			return ExecResult{Ran: true, Stdout: info}
+			execInfo++
 		}
 		return ExecResult{Ran: true}
 	}
-	o.hostLoopbackFactsFor("podman", "bridge")
+	if rt, ok := o.resolveRuntime(nil); !ok || rt != "podman" {
+		t.Fatalf("resolveRuntime = %q, %v", rt, ok)
+	}
 	ev, ok := o.Perf.LastEvent("podman.facts")
 	if !ok {
-		t.Fatal("no podman.facts note")
+		t.Fatal("no podman.facts note from the gate's answer")
 	}
 	if want := "version=5.8.6 database=sqlite events=journald rootless=true network=pasta cgroups=systemd"; ev.Detail != want {
 		t.Errorf("facts = %q, want %q", ev.Detail, want)
 	}
-	if infoCalls != 1 {
-		t.Errorf("podman info ran %d times; the facts must come from the one call already made", infoCalls)
+	if f := o.hostLoopbackFactsFor("podman", "bridge"); f.backend != "pasta" || !f.rootless {
+		t.Errorf("the host-loopback decision did not read the gate's answer: %+v", f)
+	}
+	if gate.count() != 1 || execInfo != 0 {
+		t.Errorf("podman info ran %d times at the gate and %d times after it; the launch asks once",
+			gate.count(), execInfo)
 	}
 }
 

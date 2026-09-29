@@ -472,8 +472,6 @@ func TestAnAttachRefusesASelectionOnlyTheConfiguredPacksSatisfy(t *testing.T) {
 	o.ProfileName = "zai"
 	o.Exec = func(argv []string, _ string, _ []string, _ time.Duration) ExecResult {
 		switch {
-		case len(argv) >= 2 && argv[1] == "info":
-			return ExecResult{Ran: true, RC: 0, Stdout: "host: {}"}
 		case len(argv) >= 2 && argv[1] == "ps" && strings.Contains(strings.Join(argv, " "), "name=^/"+cname+"$"):
 			return ExecResult{Ran: true, RC: 0, Stdout: "abc123\n"}
 		case len(argv) >= 2 && argv[1] == "inspect":

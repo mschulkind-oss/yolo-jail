@@ -71,12 +71,10 @@ func dispatchOptions(t *testing.T, workspace, ytoRuntime string, stdout, stderr 
 		if execRec != nil {
 			*execRec = append(*execRec, argv)
 		}
-		// `<rt> info` → connectable, so resolveRuntime accepts the explicit choice.
-		if len(argv) >= 2 && argv[1] == "info" {
-			return ExecResult{Ran: true, RC: 0, Stdout: "host: {}"}
-		}
 		return ExecResult{Ran: false}
 	}
+	// podman answers the readiness gate at once, so resolveRuntime accepts the explicit choice.
+	answeringPodman(o, minimalPodmanInfo)
 	o.Getenv = func(k string) string {
 		if k == "YOLO_RUNTIME" {
 			return ytoRuntime

@@ -77,7 +77,13 @@ func (o *Options) autoLoadImage(cfg *jsonx.OrderedMap, rt, repoRoot string, sp s
 		// load) is drawn on Report, in place when the launch stream is a terminal.
 		Progress: o.progressConfig(),
 		IsMacOS:  o.IsMacOS,
-		Getpid:   o.Getpid,
+		// THE STORE FACTS COME FROM THE LAUNCH'S ONE `podman info` (PR-D5 of
+		// docs/design/podman-reboot-readiness.md): the readiness gate's answer, parsed by the
+		// same image.ParsePodmanStoreFacts the image package's own read uses. That read ran
+		// with no deadline at all, after a probe that had passed, and a failure there took
+		// the bare copy a rootless store refuses.
+		StoreFacts: o.storeFactsFromGate,
+		Getpid:     o.Getpid,
 		DiagnoseFailure: func(tail []string) (string, string) {
 			return nixdiag.DiagnoseNixBuildFailure(tail, o.IsMacOS, remedy)
 		},

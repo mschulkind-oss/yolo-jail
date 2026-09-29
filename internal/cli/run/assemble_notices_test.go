@@ -58,13 +58,15 @@ func TestAssembleNoticesGoToStderr(t *testing.T) {
 		`"version":{"Version":"4.9.3"}}`
 
 	cases := []struct {
-		name       string
-		rt         string
-		cfg        *jsonx.OrderedMap
-		lookPath   func(string) (string, bool)
-		exec       func([]string, string, []string, time.Duration) ExecResult
-		pathExists func(string) bool
-		wantNotice string
+		name     string
+		rt       string
+		cfg      *jsonx.OrderedMap
+		lookPath func(string) (string, bool)
+		// podmanFacts is the readiness gate's `podman info` answer, when the row has one.
+		podmanFacts string
+		exec        func([]string, string, []string, time.Duration) ExecResult
+		pathExists  func(string) bool
+		wantNotice  string
 	}{
 		{
 			// The CI breaker itself: the unnamed-backend note (hostloopback.go
@@ -81,10 +83,9 @@ func TestAssembleNoticesGoToStderr(t *testing.T) {
 				}
 				return "", false
 			},
+			podmanFacts: ghPodmanInfo,
 			exec: func(args []string, _ string, _ []string, _ time.Duration) ExecResult {
 				switch {
-				case strings.Join(args, " ") == "/usr/bin/podman info --format json":
-					return ExecResult{Ran: true, RC: 0, Stdout: ghPodmanInfo}
 				case strings.Join(args, " ") == "/usr/libexec/podman/slirp4netns --help":
 					// slirp4netnsHostLoopbackFlag is the literal probed for.
 					return ExecResult{Ran: true, RC: 0, Stdout: "  --disable-host-loopback\n"}
@@ -141,6 +142,9 @@ func TestAssembleNoticesGoToStderr(t *testing.T) {
 			}
 			if tc.exec != nil {
 				o.Exec = tc.exec
+			}
+			if tc.podmanFacts != "" {
+				o.acceptPodmanFacts(tc.podmanFacts)
 			}
 			if tc.pathExists != nil {
 				o.PathExists = tc.pathExists

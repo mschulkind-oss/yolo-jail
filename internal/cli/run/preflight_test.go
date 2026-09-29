@@ -61,12 +61,9 @@ func capabilityGateOptions(t *testing.T, ws string, env map[string]string,
 		}
 		return "", false
 	}
-	o.Exec = func(argv []string, _ string, _ []string, _ time.Duration) ExecResult {
-		if len(argv) >= 2 && argv[0] == "podman" && argv[1] == "info" {
-			return ExecResult{Ran: true, RC: 0, Stdout: "host: {}"}
-		}
-		return ExecResult{Ran: false}
-	}
+	o.Exec = func([]string, string, []string, time.Duration) ExecResult { return ExecResult{Ran: false} }
+	// podman answers the readiness gate at once (podmanready.go).
+	answeringPodman(o, minimalPodmanInfo)
 	o.Getenv = func(k string) string {
 		if k == "YOLO_RUNTIME" {
 			return "podman"

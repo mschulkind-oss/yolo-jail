@@ -1,6 +1,7 @@
 package run
 
 import (
+	"encoding/json"
 	"slices"
 	"strings"
 	"testing"
@@ -710,6 +711,33 @@ func fakeHostExec(cases map[string]ExecResult) func([]string, string, []string, 
 	}
 }
 
+// hostExec installs fakeHostExec on o, with the one difference the readiness gate made
+// (podmanready.go): a `podman info --format json` entry is the GATE'S answer, not a query
+// the facts gathering runs. A clean one becomes o's Podman facts through the production
+// acceptPodmanFacts; any other (did not run, non-zero, timed out, not a JSON object) is a
+// gate that did not answer, which leaves no facts. The fake Exec no longer answers `info`
+// at all, so a hostLoopbackFactsFor that asked podman again would read nothing.
+func hostExec(o *Options, cases map[string]ExecResult) {
+	o.Exec = fakeHostExec(gateAnswerFrom(o, cases))
+}
+
+// gateAnswerFrom seeds o's Podman facts from cases' `info` entry and returns cases without
+// it (hostExec says why).
+func gateAnswerFrom(o *Options, cases map[string]ExecResult) map[string]ExecResult {
+	rest := map[string]ExecResult{}
+	for argv, res := range cases {
+		if strings.HasSuffix(argv, " info --format json") {
+			var obj map[string]any
+			if res.Ran && !res.Timeout && res.RC == 0 && json.Unmarshal([]byte(res.Stdout), &obj) == nil && obj != nil {
+				o.acceptPodmanFacts(res.Stdout)
+			}
+			continue
+		}
+		rest[argv] = res
+	}
+	return rest
+}
+
 func TestProbeHostLoopbackSupport(t *testing.T) {
 	const helpWithFlag = "Usage: pasta [OPTION]...\n  --map-host-loopback ADDR\tTranslate ADDR to refer to host\n"
 	const helpWithout = "Usage: pasta [OPTION]...\n  --map-gw\tMap the gateway\n"
@@ -790,7 +818,7 @@ func TestProbeHostLoopbackSupport(t *testing.T) {
 				p, ok := tc.lookPath[name]
 				return p, ok
 			}
-			o.Exec = fakeHostExec(tc.exec)
+			hostExec(o, tc.exec)
 			got, cmd := o.probeHostLoopbackSupport(tc.exe, []string{"pasta", "passt"}, pastaMapHostLoopbackFlag)
 			if got != tc.want {
 				t.Errorf("support = %v, want %v", got, tc.want)
@@ -889,7 +917,7 @@ func TestHostLoopbackFactsForFailSafe(t *testing.T) {
 				p, ok := tc.lookPath[name]
 				return p, ok
 			}
-			o.Exec = fakeHostExec(tc.exec)
+			hostExec(o, tc.exec)
 
 			plan := decideHostLoopback(o.hostLoopbackFactsFor(tc.rt, "bridge"))
 			if len(plan.args) != 0 {
@@ -923,7 +951,7 @@ func TestHostLoopbackFactsForPasta(t *testing.T) {
 		}
 		return "", false
 	}
-	o.Exec = fakeHostExec(map[string]ExecResult{
+	hostExec(o, map[string]ExecResult{
 		"/usr/bin/podman info --format json": {Ran: true, RC: 0, Stdout: podmanInfoFixture},
 		pastaExe + " --help":                 {Ran: true, RC: 0, Stdout: "  --map-host-loopback ADDR\tTranslate ADDR to refer to host\n"},
 	})
@@ -961,13 +989,14 @@ const podmanInfoNoSlirpFixture = `{
 const slirpHelpWithFlag = "Usage: slirp4netns [OPTION]... PID|PATH|FD [TAPNAME]\n" +
 	"--disable-host-loopback  prohibit connecting to 127.0.0.1:* on the host namespace\n"
 
-// recordingHostExec is fakeHostExec that also appends every argv it was asked for,
+// recordingHostExec is hostExec that also appends every argv it was asked for,
 // so a test can assert a subprocess was NOT run as easily as that it was. Both
 // directions matter here: the fallback probe must not cost a healthy host a third
-// subprocess, and it must never reach a binary podman did not name.
-func recordingHostExec(cases map[string]ExecResult, ran *[]string) func([]string, string, []string, time.Duration) ExecResult {
-	inner := fakeHostExec(cases)
-	return func(argv []string, dir string, env []string, d time.Duration) ExecResult {
+// subprocess, and it must never reach a binary podman did not name. Like hostExec,
+// the `info` entry is the readiness gate's answer, never a run the recorder sees.
+func recordingHostExec(o *Options, cases map[string]ExecResult, ran *[]string) {
+	inner := fakeHostExec(gateAnswerFrom(o, cases))
+	o.Exec = func(argv []string, dir string, env []string, d time.Duration) ExecResult {
 		*ran = append(*ran, strings.Join(argv, " "))
 		return inner(argv, dir, env, d)
 	}
@@ -990,7 +1019,7 @@ func TestHostLoopbackFactsForSlirpFallback(t *testing.T) {
 		}
 		return "", false
 	}
-	o.Exec = recordingHostExec(map[string]ExecResult{
+	recordingHostExec(o, map[string]ExecResult{
 		"/usr/bin/podman info --format json": {Ran: true, RC: 0, Stdout: podmanInfoFixture},
 		pastaExe + " --help":                 {Ran: true, RC: 0, Stdout: "Usage: pasta\n  --map-gw\tMap the gateway\n"},
 		"/bin/slirp4netns --help":            {Ran: true, RC: 0, Stdout: slirpHelpWithFlag},
@@ -1038,7 +1067,7 @@ func TestHostLoopbackFactsForPodmanTooOldToNameItsStack(t *testing.T) {
 		// below that the probe ran podman's path is what would catch it.
 		return "/usr/bin/slirp4netns", true
 	}
-	o.Exec = recordingHostExec(map[string]ExecResult{
+	recordingHostExec(o, map[string]ExecResult{
 		"/usr/bin/podman info --format json": {Ran: true, RC: 0, Stdout: podmanInfoOldFixture},
 		"/bin/slirp4netns --help":            {Ran: true, RC: 0, Stdout: slirpHelpWithFlag},
 	}, &ran)
@@ -1096,7 +1125,7 @@ func TestHostLoopbackFactsForOldPodmanWithNoSlirp4netns(t *testing.T) {
 		}
 		return "", false
 	}
-	o.Exec = fakeHostExec(map[string]ExecResult{
+	hostExec(o, map[string]ExecResult{
 		"/usr/bin/podman info --format json": {Ran: true, RC: 0, Stdout: infoNoSlirp},
 	})
 
@@ -1132,7 +1161,7 @@ func TestHostLoopbackFactsForNoFallbackProbeOnAHealthyHost(t *testing.T) {
 		}
 		return "", false
 	}
-	o.Exec = recordingHostExec(map[string]ExecResult{
+	recordingHostExec(o, map[string]ExecResult{
 		"/usr/bin/podman info --format json": {Ran: true, RC: 0, Stdout: podmanInfoFixture},
 		pastaExe + " --help":                 {Ran: true, RC: 0, Stdout: "  --map-host-loopback ADDR\n"},
 		"/bin/slirp4netns --help":            {Ran: true, RC: 0, Stdout: slirpHelpWithFlag},
@@ -1198,7 +1227,7 @@ func TestHostLoopbackFactsForRootfulPodman(t *testing.T) {
 		}
 		return "", false
 	}
-	o.Exec = recordingHostExec(map[string]ExecResult{
+	recordingHostExec(o, map[string]ExecResult{
 		"/usr/bin/podman info --format json": {Ran: true, RC: 0, Stdout: podmanInfoRootfulFixture},
 	}, &ran)
 
@@ -1209,8 +1238,10 @@ func TestHostLoopbackFactsForRootfulPodman(t *testing.T) {
 	if f.podmanVersion != "5.8.6" {
 		t.Errorf("podmanVersion = %q, want 5.8.6 for the disclosure", f.podmanVersion)
 	}
-	if len(ran) != 1 {
-		t.Errorf("a rootful host settles the argv on its own; no helper should be asked, ran: %v", ran)
+	// Nothing at all: the podman answer is the readiness gate's, and a rootful host
+	// settles the argv on its own, so no helper is asked either.
+	if len(ran) != 0 {
+		t.Errorf("a rootful host settles the argv on its own; nothing should be run, ran: %v", ran)
 	}
 
 	plan := decideHostLoopback(f)
@@ -1308,7 +1339,7 @@ func TestHostLoopbackFactsForProbesOnlyWhereTheAnswerIsRead(t *testing.T) {
 				}
 				return "", false
 			}
-			o.Exec = recordingHostExec(map[string]ExecResult{
+			recordingHostExec(o, map[string]ExecResult{
 				"/usr/bin/podman info --format json": {Ran: true, RC: 0, Stdout: tc.info},
 				pastaExe + " --help":                 {Ran: true, RC: 0, Stdout: "  --map-host-loopback ADDR\n"},
 				"/bin/slirp4netns --help":            {Ran: true, RC: 0, Stdout: slirpHelpWithFlag},
@@ -1353,7 +1384,7 @@ func TestHostLoopbackFallbackTrustsOnlyPodmansOwnLookup(t *testing.T) {
 		}
 		return "", false
 	}
-	o.Exec = recordingHostExec(map[string]ExecResult{
+	recordingHostExec(o, map[string]ExecResult{
 		"/usr/bin/podman info --format json": {Ran: true, RC: 0, Stdout: podmanInfoNoSlirpFixture},
 		pastaExe + " --help":                 {Ran: true, RC: 0, Stdout: "Usage: pasta\n  --map-gw\n"},
 		"/usr/local/bin/slirp4netns --help":  {Ran: true, RC: 0, Stdout: slirpHelpWithFlag},
@@ -1388,7 +1419,7 @@ func TestHostLoopbackFactsForOptOut(t *testing.T) {
 		return ""
 	}
 	o.LookPath = func(string) (string, bool) { return "", false }
-	o.Exec = fakeHostExec(nil)
+	hostExec(o, nil)
 
 	if f := o.hostLoopbackFactsFor("podman", "bridge"); !f.optOut {
 		t.Errorf("optOut = false with %s=1", hostLoopbackOptOutEnv)

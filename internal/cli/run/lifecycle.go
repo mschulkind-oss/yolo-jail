@@ -73,6 +73,41 @@ func (o *Options) findRunningContainer(cname, rt string) string {
 	return strings.TrimSpace(res.Stdout)
 }
 
+// attachProbeTimeout bounds the attach decision's `ps` (probeRunningContainer). It runs after
+// the readiness gate has just heard podman answer, so it is not waiting out a post-boot
+// refresh; what it can still wait behind is another launch's container create, which takes
+// seconds, not half a minute.
+const attachProbeTimeout = 30 * time.Second
+
+// probeRunningContainer is findRunningContainer with the TRI-STATE kept, in
+// probeExistingContainer's shape (PR-D8 of docs/design/podman-reboot-readiness.md): known is
+// true only when the runtime answered — it ran, within timeout, and exited 0. So ("", true) is
+// "no container of this name is running" and ("", false) is "could not ask".
+//
+// Its one caller is the attach decision, which REFUSES on "could not ask". findRunningContainer
+// read a failed `ps` as "not running", so a runtime that could not answer sent the launch down
+// the fresh path, beside a jail that might be up.
+func (o *Options) probeRunningContainer(cname, rt string, timeout time.Duration) (string, bool) {
+	if rt == "container" { // parity: HonoredBy — `container ls` lists running containers only, the question `ps -q` answers on podman, with the same tri-state
+		res := o.Exec([]string{"container", "ls"}, "", nil, timeout)
+		if !res.Ran {
+			return "", false
+		}
+		for _, line := range tableBody(res.Stdout) {
+			parts := strings.Fields(line)
+			if len(parts) > 0 && parts[0] == cname {
+				return cname, true
+			}
+		}
+		return "", !res.Timeout && res.RC == 0
+	}
+	res := o.Exec([]string{rt, "ps", "-q", "--filter", "name=^/" + cname + "$"}, "", nil, timeout)
+	if !res.Ran || res.Timeout || res.RC != 0 {
+		return "", false
+	}
+	return strings.TrimSpace(res.Stdout), true
+}
+
 // awaitRunningContainer polls findRunningContainer until the container is
 // visible (or the bounded attempts run out) and returns what it printed — the
 // container's short id for podman, "" when it never appeared. onStarted's wait:

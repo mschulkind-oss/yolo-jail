@@ -272,6 +272,18 @@ type Options struct {
 	Getenv func(string) string
 	// LookPath resolves an executable on PATH (shutil.which). nil => real.
 	LookPath func(string) (string, bool)
+	// PodmanReadiness is the podman readiness gate's seams (podmanready.go,
+	// docs/design/podman-reboot-readiness.md): the attempt runner, its clock, its sleep and
+	// its interrupt. A zero field takes the real one; the attempt runner is never o.Exec,
+	// whose kill-at-timeout is exactly what the gate exists to avoid.
+	PodmanReadiness runtime.ReadySeams
+	// podmanFacts is the gate's answer, the launch's one `podman info --format json`; every
+	// later podman fact on the launch path reads it. nil until the gate answered, and on
+	// every backend the gate does not cover.
+	podmanFacts *podmanFacts
+	// readiness is the gate's whole result, success or not, for the refusal's exit code and
+	// the machine-wide launch line. nil when no gate ran.
+	readiness *runtime.ReadyResult
 	// Exec runs a short subprocess probe with a timeout in dir ("" = inherit)
 	// with extra env entries ("KEY=VALUE", appended to the parent env). nil =>
 	// real. Used for git identity, lsusb, runtime version/liveness probes.

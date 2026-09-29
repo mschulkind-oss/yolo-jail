@@ -156,6 +156,14 @@ func ReadPodmanStoreFacts(runtime string, capture func(argv []string) (string, b
 	if !ok {
 		return PodmanStoreFacts{Unknown: "`podman info` did not run cleanly"}
 	}
+	return ParsePodmanStoreFacts(out)
+}
+
+// ParsePodmanStoreFacts reads both answers from `podman info --format json` output someone
+// else already has — the launch's readiness gate (internal/cli/run/podmanready.go), whose one
+// answer every podman fact on the launch path reads. ReadPodmanStoreFacts is this plus the
+// asking.
+func ParsePodmanStoreFacts(out string) PodmanStoreFacts {
 	var info podmanInfoForStore
 	if err := json.Unmarshal([]byte(out), &info); err != nil {
 		return PodmanStoreFacts{Unknown: "`podman info` did not print JSON"}

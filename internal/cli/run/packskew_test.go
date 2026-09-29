@@ -51,9 +51,6 @@ func runPackSkew(t *testing.T, ws, env string, tty bool, stdin string, getenv ma
 	var stdout, stderr bytes.Buffer
 	o := dispatchOptions(t, ws, "podman", &stdout, &stderr, nil)
 	o.Exec = func(argv []string, dir string, e []string, d time.Duration) ExecResult {
-		if len(argv) >= 2 && argv[1] == "info" {
-			return ExecResult{Ran: true, RC: 0, Stdout: "host: {}"}
-		}
 		return r.rt.exec(argv, dir, e, d)
 	}
 	o.IsTTYStdin = func() bool { return tty }

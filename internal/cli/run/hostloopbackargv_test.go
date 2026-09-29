@@ -154,12 +154,14 @@ func podmanHostOptions(t *testing.T, ws, home string, containerenv bool, info, p
 		}
 		return "", false
 	}
+	// `podman info`'s answer is the readiness gate's (podmanready.go), handed to the
+	// assembler as the launch's Podman facts: the fake Exec below does not answer it, so an
+	// assembler that asked podman again would read nothing and fail these tests.
+	o.acceptPodmanFacts(info)
 	o.Exec = func(argv []string, _ string, _ []string, _ time.Duration) ExecResult {
 		joined := strings.Join(argv, " ")
 		ran = append(ran, joined)
 		switch joined {
-		case "/usr/bin/podman info --format json":
-			return ExecResult{Ran: true, RC: 0, Stdout: info}
 		case pastaFixtureExe + " --help":
 			return ExecResult{Ran: true, RC: 0, Stdout: pastaHelp}
 		case slirpFixtureExe + " --help":

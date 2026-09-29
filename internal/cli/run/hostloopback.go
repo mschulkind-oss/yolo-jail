@@ -259,12 +259,12 @@ const (
 	// YOLO_ALLOW_STALE_IMAGE convention) drops back to today's behaviour.
 	hostLoopbackOptOutEnv = "YOLO_NO_HOST_LOOPBACK"
 
-	// podmanInfoTimeout / flagProbeTimeout bound the two subprocesses. Both are
-	// on the launch path, so neither may hang a jail: a runtime that cannot
-	// answer in this window is treated as an unrecognised backend and emits
-	// nothing.
-	podmanInfoTimeout = 10 * time.Second
-	flagProbeTimeout  = 5 * time.Second
+	// flagProbeTimeout bounds the one subprocess this decision runs, `<backend>
+	// --help`. It is on the launch path, so it may not hang a jail: a helper that
+	// cannot answer in this window is treated as unrecognised and emits nothing.
+	// (`podman info` is not asked here at all: hostLoopbackFactsFor reads the
+	// readiness gate's answer.)
+	flagProbeTimeout = 5 * time.Second
 )
 
 // hostLoopbackSupport is the capability verdict for one backend. "absent" and
@@ -864,9 +864,16 @@ func firstLine(s string) string {
 	return strings.TrimSpace(s)
 }
 
-// hostLoopbackFactsFor gathers the facts for this launch. It runs at most two
-// short subprocesses (`podman info`, then `<backend> --help`) and every failure
-// path returns facts that decide to nothing.
+// hostLoopbackFactsFor gathers the facts for this launch. It asks podman nothing of its
+// own: the `podman info` it reads is the launch's PODMAN FACTS, the answer runtime
+// selection's readiness gate already got (podmanready.go, PR-D5 of
+// docs/design/podman-reboot-readiness.md). The only subprocess it may run is
+// `<backend> --help`, and every failure path returns facts that decide to nothing.
+//
+// That is the fix for a silent failure, not a saving. This used to run its own `podman
+// info` with a 10 s kill, and one that failed after the gate's probe had passed returned
+// empty facts: no --network option, no warning, and every loopback-TLS service unreachable
+// in a jail that launched anyway.
 //
 // rt/netMode come from the assembler. The caller has already handled the
 // podman-in-podman case (forced --net=host), so this is never reached there.
@@ -882,21 +889,12 @@ func (o *Options) hostLoopbackFactsFor(rt, netMode string) hostLoopbackFacts {
 	if rt != "podman" || o.IsMacOS {
 		return f
 	}
-	podman, ok := o.LookPath("podman")
-	if !ok {
+	// No answer to read: a launch the gate did not cover, or a caller that never ran it.
+	// Empty facts decide to nothing, the "could not ask" branch every field below keeps.
+	if o.podmanFacts == nil || !o.podmanFacts.parsed {
 		return f
 	}
-	res := o.Exec([]string{podman, "info", "--format", "json"}, "", nil, podmanInfoTimeout)
-	if !res.Ran || res.Timeout || res.RC != 0 {
-		return f
-	}
-	info, ok := parsePodmanInfo(res.Stdout)
-	if !ok {
-		return f
-	}
-	// Recorded from THIS answer, never a second `podman info`: the facts that
-	// decide how a jail's podman client exits, once per launch, in the timing log.
-	o.Perf.Note("podman.facts", podmanFactsNote(info))
+	info := o.podmanFacts.info
 	f.backend = info.Host.RootlessNetworkCmd
 	rootless := info.Host.Security.Rootless
 	f.rootless = rootless != nil && *rootless

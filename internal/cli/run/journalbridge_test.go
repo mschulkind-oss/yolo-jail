@@ -48,6 +48,12 @@ func TestMain(m *testing.M) {
 	if len(os.Args) >= 4 && os.Args[1] == "-settings-echo-child" {
 		os.Exit(settingsEchoChildMain(os.Args[2], os.Args[3]))
 	}
+	// THE PODMAN READINESS GATE REFUSES BY DEFAULT HERE (podmanready.go). Its real attempt
+	// runner starts `podman info` on whatever PATH the test process has, and a test that
+	// reached the gate without a fake would then pass or fail on the machine's podman. A
+	// test that goes through runtime selection says what podman answers
+	// (Options.PodmanReadiness, answeringPodman).
+	defaultPodmanAttempt = refusingPodmanAttempt
 	// Past every daemon dispatch above, so a re-exec'd child neither redirects nor stops
 	// anything: this package's launches spawn real host singletons, which get a private
 	// directory instead of the machine-wide /tmp/yolo-<name>.* (testsupport says why), and

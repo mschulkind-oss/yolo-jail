@@ -77,13 +77,14 @@ func TestTheRunPathTellsTheImageLoadWhetherTheJailReadsTheHostStore(t *testing.T
 	}
 }
 
-// TestTheRunPathLeavesTheStoreReadToTheImageLoad pins what makes `yolo capture`
-// and every ordinary launch take issue #47's fix: the run path hands AutoLoadImage
-// NO StoreFacts and NO LayerCopy, so fill() installs the real `podman info` read
-// and the real copy, and a rootless podman's store reaches the destination
-// (internal/image/storespec.go). A run-path seam that answered either itself would
-// bypass that read with every image-package test still green.
-func TestTheRunPathLeavesTheStoreReadToTheImageLoad(t *testing.T) {
+// TestTheRunPathHandsTheImageLoadTheGatesStoreFacts pins what makes `yolo capture` and
+// every ordinary launch take issue #47's fix WITHOUT a second `podman info`: the run path
+// hands AutoLoadImage the store facts parsed from the readiness gate's answer
+// (docs/design/podman-reboot-readiness.md PR-D5), so a rootless podman's store reaches the
+// destination, and it still hands NO LayerCopy, so the real copy writes where the image load
+// computed. The image package's own read ran with no deadline after a probe that had passed;
+// a StoreFacts left nil would bring it back with every image-package test still green.
+func TestTheRunPathHandsTheImageLoadTheGatesStoreFacts(t *testing.T) {
 	var got image.AutoLoadOptions
 	o := goldenOptions(t.TempDir(), t.TempDir())
 	o.Stdout, o.Stderr = &bytes.Buffer{}, &bytes.Buffer{}
@@ -91,15 +92,40 @@ func TestTheRunPathLeavesTheStoreReadToTheImageLoad(t *testing.T) {
 		got = opts
 		return image.LoadResult{OK: true}
 	}
+	o.LookPath = func(name string) (string, bool) { return "/usr/bin/" + name, name == "podman" }
+	const info = `{"host":{"security":{"rootless":true}},"store":{"configFile":"/u/.config/containers/storage.conf",` +
+		`"graphDriverName":"overlay","graphRoot":"/u/.local/share/containers/storage","runRoot":"/run/user/1000/containers"}}`
+	gate := answeringPodman(o, info)
+	if _, ok := o.resolveRuntime(nil); !ok {
+		t.Fatal("runtime selection refused an answering podman")
+	}
 
 	o.autoLoadImage(jsonx.NewOrderedMap(), "podman", t.TempDir(), storePackagesPlan{})
 
-	if got.StoreFacts != nil {
-		t.Error("the run path sets StoreFacts, so the launch's copy no longer reads podman's " +
-			"store from `podman info` itself")
+	if got.StoreFacts == nil {
+		t.Fatal("the run path left StoreFacts nil, so the image load asks podman again")
+	}
+	facts := got.StoreFacts()
+	if facts.Rootless != image.RootlessYes || !facts.StoreKnown ||
+		facts.Store.GraphRoot != "/u/.local/share/containers/storage" {
+		t.Errorf("store facts = %+v, want the gate's rootless store", facts)
+	}
+	if gate.count() != 1 {
+		t.Errorf("podman info ran %d times", gate.count())
 	}
 	if got.LayerCopy != nil {
 		t.Error("the run path sets LayerCopy, so the destination the image load computes is " +
 			"not the one that is copied to")
+	}
+}
+
+// With no gate answer (a launch the gate does not cover, which also never copies into a
+// store), the facts are the unknown answer — the bare copy, said out loud — and never a
+// second `podman info`.
+func TestWithNoGateAnswerTheStoreFactsAreUnknown(t *testing.T) {
+	o := goldenOptions(t.TempDir(), t.TempDir())
+	facts := o.storeFactsFromGate()
+	if facts.Rootless != image.RootlessUnknown || facts.StoreKnown || facts.Unknown == "" {
+		t.Errorf("facts = %+v, want unknown with a reason", facts)
 	}
 }

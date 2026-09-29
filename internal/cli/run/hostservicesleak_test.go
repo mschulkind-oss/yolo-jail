@@ -46,9 +46,6 @@ func TestARefusedFreshLaunchLeavesNoHostServicesDir(t *testing.T) {
 		return p == filepath.Join(prebuiltBinDir(repo.Root), "yolo-entrypoint")
 	}
 	o.Exec = func(argv []string, _ string, _ []string, _ time.Duration) ExecResult {
-		if len(argv) >= 2 && argv[1] == "info" {
-			return ExecResult{Ran: true, RC: 0, Stdout: "host: {}"}
-		}
 		// Every other runtime question answers "nothing here": no container of this name.
 		return ExecResult{Ran: true, RC: 0}
 	}

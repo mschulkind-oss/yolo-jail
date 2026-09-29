@@ -168,6 +168,9 @@ func Run(opts Options) (rc int) {
 	}
 	rt, ok := o.resolveRuntime(cfg)
 	if !ok {
+		if o.readinessInterrupted() {
+			return 130 // a Ctrl-C during the podman readiness wait (podmanready.go)
+		}
 		return 1
 	}
 	o.runtime = rt
@@ -1041,7 +1044,18 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 
 	existingCID := ""
 	if !o.NeverAttach {
-		existingCID = o.findRunningContainer(cname, rt)
+		// TRI-STATE (PR-D8 of docs/design/podman-reboot-readiness.md): a runtime that could
+		// not say whether this workspace's jail is running refuses the launch, rather than
+		// starting a fresh one beside a jail that may be up.
+		cid, known := o.probeRunningContainer(cname, rt, attachProbeTimeout)
+		if !known {
+			out.printf("[bold red]Refusing to launch: could not ask %s whether this workspace's "+
+				"jail (%s) is already running.[/bold red]", rt, cname)
+			out.printf("[dim]Launching fresh could start a second jail beside a running one. Run "+
+				"`%s ps` to diagnose, then launch again.[/dim]", rt)
+			return 1
+		}
+		existingCID = cid
 	}
 
 	if existingCID != "" {

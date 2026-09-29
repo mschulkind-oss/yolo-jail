@@ -135,8 +135,6 @@ func TestAnAttachReleasesTheLaunchLockBeforeItsSession(t *testing.T) {
 	inspected, decided := false, false
 	o.Exec = func(argv []string, _ string, _ []string, _ time.Duration) ExecResult {
 		switch {
-		case len(argv) >= 2 && argv[1] == "info":
-			return ExecResult{Ran: true, RC: 0, Stdout: "host: {}"}
 		case len(argv) >= 2 && argv[1] == "ps" && strings.Contains(strings.Join(argv, " "), "name=^/"+cname+"$"):
 			// THE ATTACH DECISION is made under the lock: with the pack tree per launch, the
 			// lock no longer opens at staging, and this is the first thing it must cover.

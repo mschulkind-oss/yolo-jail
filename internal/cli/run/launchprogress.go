@@ -37,18 +37,29 @@ func (o *Options) progressConfig() progress.Config {
 // prints there (nix's "Building …" summaries) then lands above the live line
 // instead of across it. step reports success, which closes the line.
 func (o *Options) withStderrProgress(label string, step func() bool) bool {
+	return o.withProgressLine(label, func(*progress.Line) (bool, string) {
+		if step() {
+			return true, "done"
+		}
+		return false, "failed"
+	})
+}
+
+// withProgressLine is withStderrProgress for a step that needs the line itself: to keep its
+// detail current (Line.Set) and to print a line above it (Line.Println), as the podman
+// readiness gate does (podmanready.go). step returns its success and the result the line
+// closes with ("done after 3 attempts"). The line is nil only when o.Stderr is, and every
+// method on a nil line is a no-op, so step may use it unconditionally.
+func (o *Options) withProgressLine(label string, step func(line *progress.Line) (bool, string)) bool {
 	line := o.progressConfig().Start(o.Stderr, label)
 	if line == nil {
-		return step()
+		ok, _ := step(nil)
+		return ok
 	}
 	prev := o.Stderr
 	o.Stderr = line
-	ok := step()
+	ok, result := step(line)
 	o.Stderr = prev
-	if ok {
-		line.Done("done")
-	} else {
-		line.Done("failed")
-	}
+	line.Done(result)
 	return ok
 }
