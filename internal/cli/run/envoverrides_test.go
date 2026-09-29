@@ -718,7 +718,9 @@ func TestEnvOverrideNamesThePackContributionAndTheSecretChannel(t *testing.T) {
 		"pack aws-auth",
 		pointerVar,
 		bearerVar + " is delivered by " + packload.FromEnvSources,
-		"`bedrock` profile",
+		// The gate the pointer rides, in the refusal's remedy: the provider's platform since
+		// OQ-BR8, not a profile name.
+		"selected provider's platform is `aws-bedrock`",
 	} {
 		if !strings.Contains(joined, want) {
 			t.Errorf("the refusal does not say %q:\n%s", want, joined)

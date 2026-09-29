@@ -40,9 +40,10 @@
 // `jail_daemon.caller_token`), and the token is SCOPED to the agents that selected what this
 // adapter serves (docs/design/provider-credential-scope.md OQ-CN7 (c), ruled 2026-09-28): the
 // pack's `env` contribution names it as AWS_CONTAINER_AUTHORIZATION_TOKEN = `{caller_token}`
-// beside the credentials URI, gated on `bedrock`, so the launcher exports it only in the env
-// file of each agent whose profile is `bedrock`. That is the slot the AWS SDKs'
-// container-credentials provider already has: it sends the variable's value verbatim as
+// beside the credentials URI, gated on the provider platform `aws-bedrock` (OQ-BR8), so the
+// launcher exports it only in the env file of each agent whose selected provider is Bedrock.
+// That is the slot the AWS SDKs' container-credentials provider already has: it sends the
+// variable's value verbatim as
 // `Authorization` on every fetch (when no AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE is set, which
 // the SDKs would prefer). The adapter itself reads the token from YOLO_SERVICE_AWS_AUTH_TOKEN
 // when a launch exported it, and otherwise from the unexported record the launcher keeps in

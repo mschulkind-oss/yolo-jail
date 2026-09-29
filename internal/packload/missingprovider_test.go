@@ -119,17 +119,27 @@ func TestAClaudeCodexSelectionWithoutItsProviderRefuses(t *testing.T) {
 	}
 }
 
-// THE EXCUSE: codex and pi on their own codex profile, with openai-auth unselected, as the host
-// composes them. Neither registers a `yolo.env` producer, so the row has no reader in their
-// launch environment and the launch composes what it would with the row present. Refusing
-// them would stop `yolo host -p codex -- pi` (and a `use_profiles` of it), which reaches the
+// THE EXCUSE: codex on its own codex profile, with openai-auth unselected, as the host composes
+// it. codex registers no `yolo.env` producer, so the row has no reader in its launch environment
+// and the launch composes what it would with the row present. Refusing it would stop
+// `yolo host -p codex -- codex` in a pack set that does not join openai-auth, which reaches the
 // subscription through the host's managed OpenAI launch. The host is the only notch it holds
 // at: see TestAJailRefusesAUserProfileWhoseProviderItLacks.
+//
+// pi LEFT THE EXCUSE with OQ-BR8: its OpenAI login prelaunch moved from a `profile: "codex"`
+// gated env into pi's own `yolo.env` producer, keyed on the provider, so pi now has a reader
+// and is refused like any agent whose producer reads the table, naming openai-auth. The
+// shipped pi pack `needs` openai-auth, which every notch joins, so only a hand-built pack set
+// without it meets this.
 func TestCodexAndPiWithoutTheirProviderStillCompose(t *testing.T) {
-	for _, agent := range []string{"codex", "pi"} {
-		if _, err := agentEnvAt(t, notches[1], embeddedNamed(t, agent), nil, nil, agent, "codex"); err != nil {
-			t.Errorf("host: %s on codex without openai-auth must compose as before: %v", agent, err)
-		}
+	if _, err := agentEnvAt(t, notches[1], embeddedNamed(t, "codex"), nil, nil, "codex", "codex"); err != nil {
+		t.Errorf("host: codex on codex without openai-auth must compose as before: %v", err)
+	}
+	var mp *MissingProviderError
+	if _, err := agentEnvAt(t, notches[1], embeddedNamed(t, "pi"), nil, nil, "pi", "codex"); !errors.As(err, &mp) ||
+		mp.Shipper != "openai-auth" {
+		t.Errorf("host: pi on codex without openai-auth now has a reader (its prelaunch producer), "+
+			"so it must be refused naming openai-auth, got %v", err)
 	}
 }
 

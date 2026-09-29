@@ -52,10 +52,10 @@ func TestLaunchBannerQualifiesAGatedEnvVariable(t *testing.T) {
 	const want = "Pack environment this launch:\n" +
 		"  aws-auth: SETS an environment variable inside the jail: " +
 		"AWS_CONTAINER_AUTHORIZATION_TOKEN={caller_token} " +
-		"when profile \"bedrock\" is active  [env]\n" +
+		"when the selected provider's platform is \"aws-bedrock\"  [env]\n" +
 		"  aws-auth: SETS an environment variable inside the jail: " +
 		"AWS_CONTAINER_CREDENTIALS_FULL_URI=http://127.0.0.1:1461/credentials " +
-		"when profile \"bedrock\" is active  [env]\n"
+		"when the selected provider's platform is \"aws-bedrock\"  [env]\n"
 	if got := stderr.String(); got != want {
 		t.Errorf("the launch banner's env disclosure for aws-auth:\n--- got ---\n%s--- want ---\n%s",
 			got, want)

@@ -187,7 +187,7 @@ func TestEnvContributionsSplitOnTheProfileGate(t *testing.T) {
 	if got := m.EnvContributions(); len(got) != 2 || got["STATIC"] != "1" || got["LATER"] != "2" {
 		t.Errorf("the unconditional map must hold the ungated entries only, got %+v", got)
 	}
-	gated := m.ProfiledEnvContributions()
+	gated := m.GatedEnvContributions()
 	if len(gated) != 2 || gated[0].Profile != "bedrock" || gated[1].Profile != "bedrock" {
 		t.Fatalf("the gated slice must keep both gated contributions in declaration order, got %+v", gated)
 	}
@@ -200,7 +200,7 @@ func TestEnvContributionsSplitOnTheProfileGate(t *testing.T) {
 	if got := empty.EnvContributions(); got != nil {
 		t.Errorf("no env declarations should give no map, got %+v", got)
 	}
-	if got := empty.ProfiledEnvContributions(); got != nil {
+	if got := empty.GatedEnvContributions(); got != nil {
 		t.Errorf("no env declarations should give no slice, got %+v", got)
 	}
 }

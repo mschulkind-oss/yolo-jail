@@ -27,19 +27,19 @@ func TestPackFootprintAWSAuthGolden(t *testing.T) {
 	// (docs/plans/notch-convergence.md §2.3). The override lines name both.
 	const uri = "AWS_CONTAINER_AUTHORIZATION_TOKEN, AWS_CONTAINER_CREDENTIALS_FULL_URI"
 	const want = "aws-auth\n" +
-		"  env            AWS_CONTAINER_AUTHORIZATION_TOKEN  ={caller_token} when profile \"bedrock\" is active\n" +
-		"  env            AWS_CONTAINER_CREDENTIALS_FULL_URI  =http://{listen}/credentials when profile \"bedrock\" is active\n" +
+		"  env            AWS_CONTAINER_AUTHORIZATION_TOKEN  ={caller_token} when the selected provider's platform is \"aws-bedrock\"\n" +
+		"  env            AWS_CONTAINER_CREDENTIALS_FULL_URI  =http://{listen}/credentials when the selected provider's platform is \"aws-bedrock\"\n" +
 		"  loophole       aws-auth  RUNS yolo internal daemon aws-auth --socket '{socket}' " +
 		"--state-file '{state}/credentials.json' --settings '{settings}' and yolo internal daemon " +
 		"aws-auth --self-check --state-file '{state}/credentials.json' --settings '{settings}' " +
 		"and yolo internal daemon aws-credential-adapter --listen '{listen}' " +
 		"on your machine ⚠ RUNS CODE ON YOUR MACHINE\n" +
 		"  overridden-by  " + uri + "  launch refused beside AWS_BEARER_TOKEN_BEDROCK " +
-		"(when profile \"bedrock\" is active)\n" +
+		"(when the selected provider's platform is \"aws-bedrock\")\n" +
 		"  overridden-by  " + uri + "  launch refused beside AWS_ACCESS_KEY_ID + " +
-		"AWS_SECRET_ACCESS_KEY unless AWS_PROFILE is also delivered (when profile \"bedrock\" is active)\n" +
+		"AWS_SECRET_ACCESS_KEY unless AWS_PROFILE is also delivered (when the selected provider's platform is \"aws-bedrock\")\n" +
 		"  overridden-by  " + uri + "  launch warned (may override) beside a host_files grant " +
-		"at ~/.aws (when profile \"bedrock\" is active)\n" +
+		"at ~/.aws (when the selected provider's platform is \"aws-bedrock\")\n" +
 		"\n" +
 		"1 claim(s) worth review: 1 RUNNING CODE ON YOUR MACHINE\n"
 	if got := out.String(); got != want {

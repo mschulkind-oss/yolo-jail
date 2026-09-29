@@ -214,27 +214,25 @@ func assembleWithConfigAssembled(t *testing.T, cfg *jsonx.OrderedMap, hooks ...f
 // failed a single test. This is that missing test: it asserts the assembled podman argv
 // actually carries the profile-derived environment.
 //
-// The five vars arrive by two routes, and both are this launch's own composition: the
-// env derive packs/claude ships composes AWS_REGION and the three model ids from the
-// user's providers.bedrock entry (the packload.AgentEnv loop), and the
-// CLAUDE_CODE_USE_BEDROCK literal rides the pack's PROFILE-GATED kind:env contribution,
-// folded by the same pass that composes the derive's vars — which sits LATER in the argv,
-// hence the order, and hence the two routes being pinned together here rather than in
-// either of their own packages.
+// The five vars arrive by ONE route since OQ-BR8: the env derive packs/claude ships composes
+// AWS_REGION and the three model ids from the user's providers.bedrock entry (the
+// packload.AgentEnv loop), and CLAUDE_CODE_USE_BEDROCK beside them, keyed on the provider's
+// platform. The switch used to ride a kind:env contribution gated on the profile NAME, which a
+// second profile over the same provider lost (trap D5); pinning it here, through the assembled
+// launch, is what fails if the derive stops emitting it.
 func TestAssembleEmitsProfileEnvForBedrock(t *testing.T) {
 	la := assembleWithConfigAssembled(t, bedrockConfig())
-	// File order: the pack env fold (CLAUDE_CODE_USE_BEDROCK) precedes the derive's
-	// shape vars, which the writer emits sorted within their section.
+	// File order: the derive's shape vars, which the writer emits sorted within their section.
 	got := la.channelEnv(t,
 		"CLAUDE_CODE_USE_BEDROCK", "AWS_REGION",
 		"ANTHROPIC_DEFAULT_OPUS_MODEL", "ANTHROPIC_DEFAULT_HAIKU_MODEL",
 		"ANTHROPIC_DEFAULT_SONNET_MODEL")
 	want := []string{
-		"CLAUDE_CODE_USE_BEDROCK=1",
 		"ANTHROPIC_DEFAULT_HAIKU_MODEL=us.anthropic.haiku",
 		"ANTHROPIC_DEFAULT_OPUS_MODEL=us.anthropic.opus",
 		"ANTHROPIC_DEFAULT_SONNET_MODEL=us.anthropic.sonnet",
 		"AWS_REGION=us-east-1",
+		"CLAUDE_CODE_USE_BEDROCK=1",
 	}
 	if len(got) != len(want) {
 		t.Fatalf("profile env = %q, want %q", got, want)

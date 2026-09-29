@@ -396,7 +396,7 @@ func TestEnvOverrideGapWordsItTheWayTheLaunchDoes(t *testing.T) {
 		t.Fatal(problems)
 	}
 	want := packload.EnvOverrideRefusal([]*packload.Pack{loaded},
-		map[string]string{"someagent": "gatedprofile"},
+		packload.ProfilesOnly(map[string]string{"someagent": "gatedprofile"}),
 		func(name string) (string, bool) {
 			if name == widgetToken {
 				return packload.FromEnvSources, true

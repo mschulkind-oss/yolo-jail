@@ -29,7 +29,7 @@
           "host_file": ".aws"
         }
       ],
-      "profile": "bedrock",
+      "platform": "aws-bedrock",
       "served_by": "aws-auth",
       "vars": {
         "AWS_CONTAINER_AUTHORIZATION_TOKEN": "{caller_token}",

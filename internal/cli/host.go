@@ -890,7 +890,10 @@ func (c *hostComposition) envOverrideFindings(getenv func(string) string) []pack
 		table[c.agent] = c.profile
 	}
 	served := packload.NothingServed()
-	return packload.EnvOverrideFindings(c.packs, table, lookup, nil, &served)
+	// The gate's view of this one-agent selection, platform included (OQ-BR8), built from the
+	// table and resolution the credential gate composed this launch against.
+	sel := packload.SelectionOf(table, c.resolved, c.providers)
+	return packload.EnvOverrideFindings(c.packs, sel, lookup, nil, &served)
 }
 
 // envOverrideLines splits envOverrideFindings into what refuses, as the lines of one refusal
@@ -1766,12 +1769,16 @@ func composeHostVarsWith(cfg *jsonx.OrderedMap, workspace, agent, command, profi
 		}
 	}
 
-	// (3) the profile's provider vars, the env derive's output the gate composed.
+	// (3) the profile's provider vars, the env derive's output the gate composed. Each is its
+	// agent's own pack's, the pack whose derive produced it, which is what a reader keyed on the
+	// declaring pack needs: pi's OpenAI prelaunch comes from its derive since OQ-BR8, and the
+	// prelaunch keys its managed home on the pack that declared it (prelaunch).
 	if delivery != nil {
 		vars = append(vars, delivery.Shape...)
+		owner := installingPack(packs, agent)
 		for range delivery.Shape {
 			c.origins = append(c.origins, packload.FromProfileEnv)
-			c.originPacks = append(c.originPacks, "")
+			c.originPacks = append(c.originPacks, owner)
 		}
 	}
 
@@ -1836,14 +1843,20 @@ func hostProfileProvider(packs []*packload.Pack, profile string) string {
 // which a use_profiles key for it is certainly one the validator accepts, so ES-D5's refusal
 // need not enumerate the whole namespace to know it.
 func selectedPackInstalls(packs []*packload.Pack, bin string) bool {
+	return installingPack(packs, bin) != ""
+}
+
+// installingPack is the name of the selected pack that installs bin, "" when none does. A
+// program is sole-owned by bin, so there is at most one in a launch that loaded.
+func installingPack(packs []*packload.Pack, bin string) string {
 	for _, p := range packs {
 		for _, b := range p.InstallBins() {
 			if b == bin {
-				return true
+				return p.Name
 			}
 		}
 	}
-	return false
+	return ""
 }
 
 // composedHostProviders is the host notch's ONE provider composition — the host spelling
@@ -2067,7 +2080,7 @@ func hostScopedEnvSources(cfg *jsonx.OrderedMap, warn func(string)) *jsonx.Order
 // (ViaServedAt, WG-I12).
 //
 // IT APPLIES `needs`, which ES-D24 once measured it must not: with `"packs": ["claude"]`, claude
-// needs aws-auth, and aws-auth's bedrock-gated env points AWS_CONTAINER_CREDENTIALS_FULL_URI at
+// needs aws-auth, and aws-auth's Bedrock-gated env points AWS_CONTAINER_CREDENTIALS_FULL_URI at
 // http://127.0.0.1:1461/credentials, an address only a jail's side of the aws-auth loophole
 // serves. That pointer declares the daemon that serves it (`served_by`), and the credential gate
 // withholds it and names it where that daemon does not run (NC-D16), so `yolo host -p bedrock --

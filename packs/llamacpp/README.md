@@ -81,15 +81,17 @@ launcher's loopback.
 | codex | **nothing — no entry and no selection**, deliberately. `wire_api = "chat"` was removed from codex; it speaks `responses` only, and this pack's openai endpoint declares `openai-chat-completions` because that is what the server serves best. llama-server *does* expose `/v1/responses`, but its Codex compatibility rides an unmerged upstream PR, so a `openai-responses` spelling here would be a config that boots green and fails at the first turn. |
 | agy | **nothing, ever** — closed transport enum, no base-URL hook |
 
-The pack also ships one **profile-gated** `kind: "env"` entry:
-`CLAUDE_CODE_ATTRIBUTION_HEADER=0`, set only while this profile is active. Claude Code
-prepends an attribution block to the system prompt; llama.cpp then fails prefix reuse
-and **reprocesses the entire prompt every turn**, which is the difference between a
-usable local agent and an unusable one. Verified in the shipped client rather than from
-the post that first reported it — claude 2.1.274 reads
-`process.env.CLAUDE_CODE_ATTRIBUTION_HEADER` and emits the empty block when it is set
-falsey. A pack's env fold is jail-global, so it is gated: nothing is set for a launch
-that did not ask for a local model.
+The provider also declares one option for Claude Code, **`attribution_header: "false"`**,
+which claude's derive turns into `CLAUDE_CODE_ATTRIBUTION_HEADER=0` for a claude whose
+selected provider is this one, under any profile name. Claude Code prepends an attribution
+block to the system prompt; llama.cpp then fails prefix reuse and **reprocesses the entire
+prompt every turn**, which is the difference between a usable local agent and an unusable
+one. Verified in the shipped client rather than from the post that first reported it —
+claude 2.1.274 reads `process.env.CLAUDE_CODE_ATTRIBUTION_HEADER` and emits the empty
+block when it is set falsey. It is an option rather than an env entry because it is a fact
+about the server: a profile of your own over `llamacpp` keeps it, a provider of your own can
+declare it, and a profile can turn the header back on with `"attribution_header": "true"`.
+Only claude receives the variable; the other agents do not read it.
 
 ## Credentials — normally none
 

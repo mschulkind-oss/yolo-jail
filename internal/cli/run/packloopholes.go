@@ -421,7 +421,7 @@ func envServedBy(p *packload.Pack) map[string]string {
 	for k, d := range p.Decl.EnvServedBy() {
 		out[k] = d
 	}
-	for _, g := range p.Decl.ProfiledEnvContributions() {
+	for _, g := range p.Decl.GatedEnvContributions() {
 		if g.ServedBy == "" {
 			continue
 		}

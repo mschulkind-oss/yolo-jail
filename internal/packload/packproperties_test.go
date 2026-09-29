@@ -4,11 +4,11 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"sort"
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg/manifest"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	officialpacks "github.com/mschulkind-oss/yolo-jail/packs"
 )
@@ -240,80 +240,39 @@ func TestCopilotFlagsInjectFromItsRealDeclaration(t *testing.T) {
 	}
 }
 
-// TestBedrockProfilePatchesItsOwnSettingsEnv ports the config-surface half of the payload
-// split (docs/reference/providers.md#pv-d8, #pv-oq-4) onto the declaration that ships
-// it: the NON-SECRET half of a profile routes into the pack's own config file as well as
-// the process env, because the settings env block is honored before the first API call
-// while process env needs yolo in the launch path — a bare `claude`, cron, or an IDE's
-// absolute path gets nothing from env alone.
-//
-// The bedrock profile is the shipped instance, and since OQ-PT8 its config half is a
-// `config-overlay` contribution gated on the profile rather than a fold inside
-// SurfacesForReport — so this pins the DECLARATION and its gate, while the end-to-end
-// delivery through the collector is pinned in profileequivalence_test.go. The declaration
-// is the half that can silently rot: the profile shipped config-only for its whole first
-// day because nothing asked the real manifest what it carried.
-func TestBedrockProfilePatchesItsOwnSettingsEnv(t *testing.T) {
-	var claude *packload.Pack
+// TestNoShippedPackKeysAFactOnAProfileName pins OQ-BR8 (docs/design/providers-and-profiles-
+// redesign.md, ruled 2026-09-29) on the manifests yolo ships: a provider fact keys on the
+// PROVIDER, in the agent's own derive or on a `platform` gate, never on a profile's NAME. The
+// `profile` modifier stays for a pack whose variant really is a name, but every shipped use of
+// it was a provider fact a second profile over the same provider lost (trap D5): claude's
+// CLAUDE_CODE_USE_BEDROCK in env and in claude/settings, its codex login prelaunch, pi's codex
+// prelaunch, llamacpp's attribution header and aws-auth's credentials pointer. A shipped
+// contribution that reintroduces one fails here, naming it.
+func TestNoShippedPackKeysAFactOnAProfileName(t *testing.T) {
 	for _, p := range loadAll(t) {
-		if p.Name == "claude" {
-			claude = p
+		for _, c := range p.Decl.GatedEnvContributions() {
+			if c.Profile != "" {
+				t.Errorf("pack %s ships an env contribution gated on the profile name %q (%v): key "+
+					"it on the provider — its agent's derive, or a `platform` gate", p.Name, c.Profile,
+					sortedKeysOf(c.Vars))
+			}
+		}
+		for _, ov := range p.Decl.ConfigOverlayContributions() {
+			if ov.Profile != "" {
+				t.Errorf("pack %s ships a config-overlay on %s gated on the profile name %q: key it "+
+					"on the provider in the surface owner's derive", p.Name, ov.Surface, ov.Profile)
+			}
 		}
 	}
-	if claude == nil {
-		t.Fatal("the claude pack did not materialize")
-	}
+}
 
-	ovs := claude.Decl.ConfigOverlayContributions()
-	if len(ovs) != 1 {
-		t.Fatalf("packs/claude ships exactly one config-overlay (bedrock's), got %+v", ovs)
+func sortedKeysOf(m map[string]string) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
 	}
-	if ovs[0].Profile != "bedrock" {
-		t.Errorf("the overlay must be gated on the profile it serves, got %+v", ovs[0])
-	}
-	if ovs[0].Surface != "claude/settings" {
-		t.Errorf("the overlay must target the surface packs/claude itself owns, got %+v", ovs[0])
-	}
-	data, probs := manifest.DecodeOverlay(ovs[0].Surface, ovs[0].Config)
-	if len(probs) != 0 {
-		t.Fatalf("the shipped overlay body does not decode: %v", probs)
-	}
-	m := data
-	env, ok := m["env"].(map[string]any)
-	if !ok || env["CLAUDE_CODE_USE_BEDROCK"] != "1" {
-		t.Errorf("the gated overlay must carry managed.env.CLAUDE_CODE_USE_BEDROCK=1 — the half "+
-			"that survives an invocation yolo did not launch: %+v", m)
-	}
-
-	// The payload split's other half: what composes from provider VALUES stays
-	// env-delivered. AWS_REGION and the ANTHROPIC_* model ids are the provider entry's own
-	// facts (the agent pack's env derive composes them at launch), and a literal here would
-	// be a second copy of a fact packs/claude's provider declaration already owns.
-	for _, k := range []string{
-		"AWS_REGION", "ANTHROPIC_DEFAULT_HAIKU_MODEL", "ANTHROPIC_DEFAULT_OPUS_MODEL",
-		"ANTHROPIC_DEFAULT_SONNET_MODEL",
-	} {
-		if _, present := env[k]; present {
-			t.Errorf("%s must stay env-delivered (composed from the provider at launch), not "+
-				"hand-copied into the settings patch: %+v", k, env)
-		}
-	}
-
-	// The discriminator: the pack's OWN surfaces carry no env block at all — the key rides
-	// the gated overlay and nothing else, so a user who never selects bedrock cannot get
-	// Bedrock switched on under them.
-	surfaces, fprobs := claude.SurfacesFor(true)
-	if len(fprobs) != 0 {
-		t.Fatalf("folding the pack's own surfaces raised problems: %v", fprobs)
-	}
-	for i := range surfaces {
-		if surfaces[i].Key().String() != "claude/settings" {
-			continue
-		}
-		if m := surfaces[i].ManagedMap(); m["env"] != nil {
-			t.Errorf("an unselected profile must contribute nothing to the managed env block: %+v", m["env"])
-		}
-	}
+	sort.Strings(out)
+	return out
 }
 
 // TestNativeInstallerURLsAreLive fetches every shipped installerUrl and asserts it still

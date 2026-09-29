@@ -145,7 +145,7 @@ func envOverrideGap(packs []*packload.Pack, merged *jsonx.OrderedMap, served pac
 		EnvSources: userEnv, NoDerives: true, Served: &served,
 	})
 
-	findings := packload.EnvOverrideFindings(packs, profiles, func(name string) (string, bool) {
+	findings := packload.EnvOverrideFindings(packs, scope.Selection(), func(name string) (string, bool) {
 		// The order is the launch's own (run/profilechannel.go's deliverySource, read through
 		// jailOriginLookup), minus the two channels named above. An EMPTY value is unset at
 		// every step, exactly as there: the launch drops an empty value rather than

@@ -69,7 +69,10 @@ func TestTheAWSAdapterStartsOnlyWhenAProfileSelectsWhatItServes(t *testing.T) {
 	if !unselected["openai-auth-broker"] {
 		t.Error("the OpenAI refresh adapter must still start: codex's pointer to it is ungated")
 	}
-	for _, want := range []string{"Not started", "aws-auth", `"bedrock"`, "OQ-CN7"} {
+	// Keyed on the provider's platform since OQ-BR8, and the remedy names a declared profile
+	// over a provider of it.
+	for _, want := range []string{"Not started", "aws-auth", `platform "aws-bedrock"`,
+		"`-p <agent>=bedrock`", "OQ-CN7"} {
 		if !strings.Contains(said, want) {
 			t.Errorf("the launch must say what it did not start and why (%q missing):\n%s", want, said)
 		}
@@ -87,6 +90,38 @@ func TestTheAWSAdapterStartsOnlyWhenAProfileSelectsWhatItServes(t *testing.T) {
 	cfgSelected, _ := awsPayloadNames(t, packs, func(o *Options) { o.ProfileName = "bedrock" })
 	if !cfgSelected["aws-auth"] {
 		t.Error("a bare -p bedrock selects bedrock for every agent and must start the adapter")
+	}
+}
+
+// KEYED ON THE PROVIDER'S PLATFORM (OQ-BR8): the adapter starts for a user's own profile over
+// the shipped `bedrock` provider (trap D5's `bedrock-sso`) and for a user's own provider that
+// declares "platform": "aws-bedrock", neither of which is named `bedrock`. The payload is decided
+// before the channel composes, so this pins that its selection (daemonSelection) resolves the
+// provider and its platform as the gate does; a profile-names-only selection starts neither.
+func TestTheAWSAdapterStartsForEveryBedrockSelection(t *testing.T) {
+	packs := []*packload.Pack{officialPack(t, "claude"), officialPack(t, "codex"),
+		officialPack(t, "openai-auth"), officialPack(t, "aws-auth")}
+	for _, profile := range []string{"bedrock-sso", "eu"} {
+		o := goldenOptions(t.TempDir(), packHome(t))
+		var stderr bytes.Buffer
+		o.Stderr = &stderr
+		writeUserConfig(t, os.Getenv("HOME"), `{"profiles": {"bedrock-sso": {"provider": "bedrock"},
+		  "eu": {"provider": "bedrock-eu"}}}`)
+		o.UseProfiles = map[string]string{"claude": profile}
+		cfg := awsAuthServedConfig(t, packs)
+		providers := jsonx.NewOrderedMap()
+		eu := jsonx.NewOrderedMap()
+		eu.Set("platform", "aws-bedrock")
+		eu.Set("region", "eu-west-1")
+		providers.Set("bedrock-eu", eu)
+		cfg.Set("providers", providers)
+		started := false
+		for _, s := range o.jailDaemonsFor(cfg, "podman", packs) {
+			started = started || s.Name == "aws-auth"
+		}
+		if !started {
+			t.Errorf("claude on %s (a Bedrock provider) must start the aws-auth adapter", profile)
+		}
 	}
 }
 

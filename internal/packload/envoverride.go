@@ -112,10 +112,10 @@ type EnvOverrideFinding struct {
 // lines of one refusal (the first the verdict), or nil when none is tripped. It is
 // EnvOverrideFindings narrowed to what refuses, for a caller that has nothing to do with a
 // warning; see there for when an entry is evaluated at all.
-func EnvOverrideRefusal(packs []*Pack, profiles map[string]string, look OriginLookup,
+func EnvOverrideRefusal(packs []*Pack, sel GateSelection, look OriginLookup,
 	renderedHostFiles []string) []string {
 	var out []string
-	for _, f := range EnvOverrideFindings(packs, profiles, look, renderedHostFiles, nil) {
+	for _, f := range EnvOverrideFindings(packs, sel, look, renderedHostFiles, nil) {
 		if f.Certain {
 			out = append(out, f.Lines...)
 		}
@@ -127,14 +127,14 @@ func EnvOverrideRefusal(packs []*Pack, profiles map[string]string, look OriginLo
 // uncertain alike, in pack and declaration order, or nil when none is tripped.
 //
 // A declaration is evaluated only when the contribution carrying it is DELIVERED — the pack
-// is in packs, and the contribution is unconditional or its `profile` gate fires for some
-// agent of the launch by the env fold's own per-agent rule (gateDelivered over
-// gateFiresFor). An undelivered contribution has
-// nothing to be overridden, and refusing over it is the false positive OQ-SSO8 forbids: a
-// user who selects packs/aws-auth without the `bedrock` profile has no pointer in the jail.
+// is in packs, and the contribution is unconditional or its gate (a `profile` name or a
+// `platform`) fires for some agent of the launch by the env fold's own per-agent rule
+// (gateDelivered over gateFiresFor). An undelivered contribution has nothing to be
+// overridden, and refusing over it is the false positive OQ-SSO8 forbids: a user who selects
+// packs/aws-auth with no agent on a Bedrock provider has no pointer in the jail.
 //
-// profiles is the launch's CLI-keyed profile table (ProfileTable of the effective
-// selection). look is the caller's delivery lookup. renderedHostFiles is the home-relative
+// sel is the gate's view of the launch's selection (CredentialScope.Selection, which the
+// notch's credential gate built). look is the caller's delivery lookup. renderedHostFiles is the home-relative
 // jail destinations the launch's `host_files` would actually render on its backend
 // (config.RenderedHostFilePaths); a caller that cannot tell passes nil, which only ever
 // costs a false negative.
@@ -143,7 +143,7 @@ func EnvOverrideRefusal(packs []*Pack, profiles map[string]string, look OriginLo
 // daemon this notch does not serve is not delivered here — the gate withholds it — so it has
 // nothing to be overridden either, and refusing over it would be the same false positive.
 // Nil evaluates every contribution as declared.
-func EnvOverrideFindings(packs []*Pack, profiles map[string]string, look OriginLookup,
+func EnvOverrideFindings(packs []*Pack, sel GateSelection, look OriginLookup,
 	renderedHostFiles []string, served *ServedDaemons) []EnvOverrideFinding {
 	if look == nil {
 		look = func(string) (string, bool) { return "", false }
@@ -157,7 +157,8 @@ func EnvOverrideFindings(packs []*Pack, profiles map[string]string, look OriginL
 			continue
 		}
 		for _, d := range p.Decl.EnvOverrideContributions() {
-			if d.Profile != "" && !gateDelivered(packs, p, d.Profile, profiles) {
+			if (d.Profile != "" || d.Platform != "") &&
+				!gateDelivered(packs, p, d.Profile, d.Platform, sel) {
 				continue
 			}
 			if served != nil && d.ServedBy != "" && !served.Serves(d.ServedBy) {
@@ -247,7 +248,12 @@ func overrideFindingLines(pack string, d packdecl.EnvOverrideDecl, o packdecl.En
 		drop = "Remove any one of: " + strings.Join(removals, "; ")
 	}
 	stop := "or deselect pack " + pack
-	if d.Profile != "" {
+	switch {
+	case d.Platform != "":
+		stop = "or stop delivering pack " + pack + "'s contribution — it is delivered only to an " +
+			"agent whose selected provider's platform is `" + d.Platform + "`, so select another " +
+			"provider for that agent or deselect the pack"
+	case d.Profile != "":
 		stop = "or stop delivering pack " + pack + "'s contribution — it is delivered only " +
 			"while the `" + d.Profile + "` profile is active, so deselect that profile or the pack"
 	}

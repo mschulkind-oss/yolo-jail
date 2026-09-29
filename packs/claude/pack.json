@@ -160,32 +160,6 @@
       "provider": "openai-codex"
     },
     {
-      "kind": "env",
-      "profile": "bedrock",
-      "vars": {
-        "CLAUDE_CODE_USE_BEDROCK": "1"
-      }
-    },
-    {
-      "kind": "env",
-      "profile": "codex",
-      "vars": {
-        "YOLO_AUTH_PRELAUNCH_CLAUDE_LOGIN": "1"
-      }
-    },
-    {
-      "config": {
-        "managed": {
-          "env": {
-            "CLAUDE_CODE_USE_BEDROCK": "1"
-          }
-        }
-      },
-      "kind": "config-overlay",
-      "profile": "bedrock",
-      "surface": "claude/settings"
-    },
-    {
       "at": ".claude",
       "kind": "state",
       "scope": "workspace"

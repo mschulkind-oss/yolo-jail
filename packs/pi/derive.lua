@@ -819,3 +819,22 @@ end)
 yolo.derive("pi", "subagents-mcp", function(ctx)
   return { mcpServers = ctx.mcp_servers }
 end)
+
+-- env: the environment pi's own process launches with, run host-side by the env runner
+-- (packload.AgentEnv) and delivered in pi's own env file. One fact today: THE OPENAI LOGIN
+-- PRELAUNCH. pi's launcher reads YOLO_AUTH_PRELAUNCH_PI_FLAG/_PATH before it execs pi and
+-- writes the shared OpenAI login's view into pi's auth file (the jail), or serves it from the
+-- host credential socket (`yolo host`), so pi's built-in openai-codex provider starts logged in.
+--
+-- Keyed on the PROVIDER, not the profile's name (docs/design/providers-and-profiles-redesign.md
+-- OQ-BR8, ruled 2026-09-29). It was a `profile: "codex"` env gate in pack.json, so a user's own
+-- profile over openai-codex launched pi with no login. openai-codex is recognized by name
+-- because it is pi's own built-in provider id, the same test the settings derive above makes
+-- (PP-D2).
+yolo.env("pi", function(ctx)
+  if ctx.selected_provider ~= "openai-codex" then return {} end
+  return {
+    YOLO_AUTH_PRELAUNCH_PI_FLAG = "--pi-auth",
+    YOLO_AUTH_PRELAUNCH_PI_PATH = ".pi/agent/auth.json",
+  }
+end)

@@ -206,11 +206,12 @@ func neededByClause(neededBy string) string {
 // agent reads the table (readsProviderTable). Then the launch composes the same agent with
 // the row as without it, and there is nothing silent to refuse. What counts as a reader
 // depends on the notch. The host (unserved non-nil) composes only the agent's environment,
-// so the reader is its pack's `yolo.env` producer. That excuses codex and pi on their `codex`
-// profile at the host when nothing selects the provider's pack (a user pack named `codex` with
-// no `needs`, say): neither registers a `yolo.env`, and each reaches the subscription through
-// the host's own managed OpenAI launch. The shipped codex and pi packs `need` openai-auth, which
-// every notch now joins (notch-convergence item 6). A jail also renders each agent's config surfaces, whose derives read
+// so the reader is its pack's `yolo.env` producer. That excuses codex on its `codex` profile at
+// the host when nothing selects the provider's pack (a user pack named `codex` with no `needs`,
+// say): it registers no `yolo.env`, and reaches the subscription through the host's own managed
+// OpenAI launch. pi was excused too until OQ-BR8 moved its OpenAI login prelaunch into a
+// `yolo.env` producer keyed on the provider; it has a reader now. The shipped codex and pi packs
+// `need` openai-auth, which every notch now joins (notch-convergence item 6). A jail also renders each agent's config surfaces, whose derives read
 // the table: pi's, codex's and opencode's each write nothing for a provider the table lacks,
 // so a user-declared profile naming a provider no selected pack ships would start the agent
 // on its own default. At a jail a `yolo.derive` for the agent in any selected pack is a

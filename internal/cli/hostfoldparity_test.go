@@ -109,7 +109,7 @@ func TestHostFoldMatchesTheJailFoldWinner(t *testing.T) {
 	// The jail notch's fold: EnvVarsFor over the launch's profile table — what the
 	// container argv's env block is built from.
 	table := map[string]string{"claude": "p"}
-	jail := packload.EnvVarsFor(packs, table, "claude")
+	jail := packload.EnvVarsFor(packs, packload.ProfilesOnly(table), "claude")
 	// The host notch's: the same packs, the same selection, the env `yolo host -- claude`
 	// would exec with.
 	host := hostEnvMap(t, "claude", "")
@@ -150,7 +150,7 @@ func TestHostFoldParityWithoutAProfile(t *testing.T) {
 		t.Fatal(err)
 	}
 	packs := sel.packs
-	jail := packload.EnvVarsFor(packs, nil, "pi")
+	jail := packload.EnvVarsFor(packs, packload.GateSelection{}, "pi")
 	host := hostEnvMap(t, "pi", "")
 	if jail["CROSS"] != "beta-static" || host["CROSS"] != jail["CROSS"] {
 		t.Errorf("CROSS: host = %q, jail = %q, want both beta-static", host["CROSS"], jail["CROSS"])

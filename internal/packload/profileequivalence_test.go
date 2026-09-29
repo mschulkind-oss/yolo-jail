@@ -16,9 +16,11 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/packoverlay"
 )
 
-// bedrockFixture is the shape packs/claude ships, reduced to the keys the pin checks: one
+// bedrockFixture is the shape packs/claude shipped until OQ-BR8 moved its Bedrock switch into
+// claude's derive (keyed on the provider's platform), reduced to the keys the pin checks: one
 // `kind: profile` selection, and the body the kind used to carry split across the two
-// contributions that own the two channels.
+// contributions that own the two channels. A pack of the user's own may still ship this shape,
+// so the name-gate mechanism it pins stays pinned.
 func bedrockFixture(t *testing.T) []*packload.Pack {
 	t.Helper()
 	m, probs := packdecl.Decode([]byte(`{"name":"claude","contributes":[
@@ -45,7 +47,7 @@ func TestShrunkenProfileDeliversBothChannelsTheOldBodyDid(t *testing.T) {
 	bedrock := map[string]string{"claude": "bedrock"}
 
 	// Channel 1: the pack env fold, as the jail notch consumes it.
-	env := packload.EnvVarsFor(packs, bedrock, "claude")
+	env := packload.EnvVarsFor(packs, packload.ProfilesOnly(bedrock), "claude")
 	if env["CLAUDE_CODE_USE_BEDROCK"] != "1" {
 		t.Errorf("channel 1 (pack env fold) must deliver CLAUDE_CODE_USE_BEDROCK=1, got %v", env)
 	}
@@ -72,13 +74,13 @@ func TestShrunkenProfileDeliversBothChannelsTheOldBodyDid(t *testing.T) {
 	}
 
 	// The gate is one selection for both channels: nothing selected, neither delivers.
-	if got := packload.EnvVarsFor(packs, nil, "claude"); got["CLAUDE_CODE_USE_BEDROCK"] != "" {
+	if got := packload.EnvVarsFor(packs, packload.GateSelection{}, "claude"); got["CLAUDE_CODE_USE_BEDROCK"] != "" {
 		t.Errorf("no profile selected: the env half must not deliver, got %v", got)
 	}
 	if got := packoverlay.Collect(packs, true, nil).For("claude", "settings"); len(got) != 0 {
 		t.Errorf("no profile selected: the overlay half must not be placed, got %+v", got)
 	}
-	if got := packload.EnvVarsFor(packs, map[string]string{"claude": "nobody"}, "claude"); got["CLAUDE_CODE_USE_BEDROCK"] != "" {
+	if got := packload.EnvVarsFor(packs, packload.ProfilesOnly(map[string]string{"claude": "nobody"}), "claude"); got["CLAUDE_CODE_USE_BEDROCK"] != "" {
 		t.Errorf("an undeclared profile selected: the env half must not deliver, got %v", got)
 	}
 	if got := packoverlay.Collect(packs, true, map[string]string{"claude": "nobody"}).

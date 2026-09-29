@@ -25,6 +25,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
@@ -198,21 +199,23 @@ func useProfilesTable(m *jsonx.OrderedMap) map[string]string {
 }
 
 // withoutUnselectedProfileDaemons drops from specs every PROFILE-SERVED daemon (a jail daemon
-// whose only clients are the agents a profile-gated pointer reaches; packload's profileserved.go
-// coins the term) that no agent's selection this launch delivers a gate to — aws-auth's
-// credential adapter when no agent selected `bedrock` (docs/design/provider-credential-scope.md
-// OQ-CN7 (b), ruled 2026-09-28). Enabling the loophole no longer starts it: selecting the profile
-// does. The selection is the one the credential gate reads (effectiveUseProfiles → ProfileTable,
-// answered per agent by the gate's own gateFiresFor), so the daemon starts exactly when the
-// gate delivers its pointer to some agent, and a daemon left out gets no caller token and serves
-// no address (launchCallerTokens, servedDaemons read this payload).
+// whose only clients are the agents a gated pointer reaches; packload's profileserved.go coins
+// the term) that no agent's selection this launch delivers a gate to — aws-auth's credential
+// adapter when no agent's selected provider is Bedrock (docs/design/provider-credential-scope.md
+// OQ-CN7 (b), ruled 2026-09-28; keyed on the provider's platform since OQ-BR8). Enabling the
+// loophole does not start it: selecting a provider it serves does. The selection is the one the
+// credential gate reads, answered per agent by the gate's own gateFiresFor over a selection built
+// the way the gate builds its own (daemonSelection), so the daemon starts exactly when the gate
+// delivers its pointer to some agent, and a daemon left out gets no caller token and serves no
+// address (launchCallerTokens, servedDaemons read this payload).
 //
 // What was left out is recorded for noteUnstartedProfileDaemons, which says so: never silently.
 func (o *Options) withoutUnselectedProfileDaemons(cfg *jsonx.OrderedMap, packs []*packload.Pack,
 	specs []loopholes.JailDaemonSpec) []loopholes.JailDaemonSpec {
-	unselected := packload.UnselectedProfileServedDaemons(packs,
-		packload.ProfileTable(o.effectiveUseProfiles(cfg, packs)))
+	sel, resolved, providers := o.daemonSelection(cfg, packs)
+	unselected := packload.UnselectedProfileServedDaemons(packs, sel)
 	o.unstartedDaemons = nil
+	o.unstartedDaemonProfiles = nil
 	if len(unselected) == 0 {
 		return specs
 	}
@@ -224,6 +227,16 @@ func (o *Options) withoutUnselectedProfileDaemons(cfg *jsonx.OrderedMap, packs [
 	for _, s := range specs {
 		if d, ok := drop[s.Name]; ok {
 			o.unstartedDaemons = append(o.unstartedDaemons, d)
+			// The `-p` names that WOULD start it: its name gates' profiles, and every declared
+			// profile over a provider of one of its platforms.
+			names := append([]string(nil), d.Profiles...)
+			for _, platform := range d.Platforms {
+				names = append(names, packload.ProfilesOnPlatform(resolved, providers, platform)...)
+			}
+			if o.unstartedDaemonProfiles == nil {
+				o.unstartedDaemonProfiles = map[string][]string{}
+			}
+			o.unstartedDaemonProfiles[d.Name] = names
 			continue
 		}
 		out = append(out, s)
@@ -231,19 +244,60 @@ func (o *Options) withoutUnselectedProfileDaemons(cfg *jsonx.OrderedMap, packs [
 	return out
 }
 
+// daemonSelection is the gate's view of the effective selection for the jail-daemon payload,
+// which is composed BEFORE the channel, because the payload decides what the channel serves. A
+// `platform` gate needs each agent's provider and that provider's platform, so this composes the
+// provider table and resolves the profiles here, as composePackChannel does, but without the
+// served addresses: a provider's platform does not depend on where any daemon listens. A table
+// that does not compose, or profiles that do not resolve, fall back to the profile names alone;
+// the channel composition then refuses that launch, saying why.
+func (o *Options) daemonSelection(cfg *jsonx.OrderedMap, packs []*packload.Pack) (
+	packload.GateSelection, map[string]packload.ResolvedProfile, *jsonx.OrderedMap) {
+	profiles := packload.ProfileTable(o.effectiveUseProfiles(cfg, packs))
+	providers, err := packload.ComposeProviders(cfgMap(cfg, "providers"), packs)
+	if err != nil {
+		return packload.ProfilesOnly(profiles), nil, nil
+	}
+	userProfiles, err := config.LoadProfiles(func(string) {})
+	if err != nil {
+		return packload.ProfilesOnly(profiles), nil, providers
+	}
+	resolved, err := packload.ResolveProfiles(packs, userProfiles, providers)
+	if err != nil {
+		return packload.ProfilesOnly(profiles), nil, providers
+	}
+	return packload.SelectionOf(profiles, resolved, providers), resolved, providers
+}
+
 // noteUnstartedProfileDaemons is the disclosure for withoutUnselectedProfileDaemons: one line per
-// profile-served daemon this launch's payload left out, naming the profiles that would start it.
-// A disclosure, so no quiet switch (docs/reference/report-tiers.md, OQ-RO3). Silent when the
+// profile-served daemon this launch's payload left out, naming what would start it: for a
+// platform gate, the platform and a declared profile over it; for a name gate, the profile. A
+// disclosure, so no quiet switch (docs/reference/report-tiers.md, OQ-RO3). Silent when the
 // payload left nothing out.
 func (o *Options) noteUnstartedProfileDaemons() {
 	for _, d := range o.unstartedDaemons {
-		quoted := make([]string, len(d.Profiles))
-		for i, p := range d.Profiles {
-			quoted[i] = strconv.Quote(p)
+		var why []string
+		if len(d.Platforms) > 0 {
+			quoted := make([]string, len(d.Platforms))
+			for i, p := range d.Platforms {
+				quoted[i] = strconv.Quote(p)
+			}
+			why = append(why, "no agent's selected provider is on platform "+
+				strings.Join(quoted, " or "))
 		}
-		o.pr(o.Stderr).print("[dim]Not started: the " + d.Name + " jail daemon, because no agent's " +
-			"selected profile is " + strings.Join(quoted, " or ") + ", the profile it serves; select " +
-			"one (`-p <agent>=" + d.Profiles[0] + "`) to start it " +
+		if len(d.Profiles) > 0 {
+			quoted := make([]string, len(d.Profiles))
+			for i, p := range d.Profiles {
+				quoted[i] = strconv.Quote(p)
+			}
+			why = append(why, "no agent's selected profile is "+strings.Join(quoted, " or "))
+		}
+		remedy := "select a provider it serves"
+		if names := o.unstartedDaemonProfiles[d.Name]; len(names) > 0 {
+			remedy = "select one (`-p <agent>=" + names[0] + "`)"
+		}
+		o.pr(o.Stderr).print("[dim]Not started: the " + d.Name + " jail daemon, because " +
+			strings.Join(why, ", and ") + ", which it serves; " + remedy + " to start it " +
 			"(provider-credential-scope.md OQ-CN7).[/dim]")
 	}
 }

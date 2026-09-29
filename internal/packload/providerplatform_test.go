@@ -42,6 +42,21 @@ func TestAProviderPlatformComposesPackUnderUser(t *testing.T) {
 	}
 }
 
+// launchSelection composes packs' provider table under user and resolves their profiles, as a
+// launch does, and returns the table, the resolution and the gate's view of profiles over them
+// (SelectionOf): what a test hands ScopeCredentials or EnvOverrideFindings so a `platform` gate
+// is answered by the same resolution a launch makes.
+func launchSelection(t *testing.T, packs []*Pack, user *jsonx.OrderedMap, userProfiles map[string]UserProfile,
+	profiles map[string]string) (*jsonx.OrderedMap, map[string]ResolvedProfile, GateSelection) {
+	t.Helper()
+	providers := compose(t, user, packs)
+	resolved, err := ResolveProfiles(packs, userProfiles, providers)
+	if err != nil {
+		t.Fatalf("resolving profiles: %v", err)
+	}
+	return providers, resolved, SelectionOf(profiles, resolved, providers)
+}
+
 // shippedPack is one embedded pack by name, as a launch loads it.
 func shippedPack(t *testing.T, name string) *Pack {
 	t.Helper()

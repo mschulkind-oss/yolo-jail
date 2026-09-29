@@ -86,11 +86,14 @@ func TestAViaAnswersAtItsServedAddress(t *testing.T) {
 // A POINTER NAMING {listen} IS COMPOSED FROM ITS DAEMON'S SERVED ADDRESS, and withheld, named,
 // where that daemon declares none.
 func TestAListenPointerComposesItsDaemonsServedAddress(t *testing.T) {
-	packs := embeddedNamed(t, "codex", "openai-auth", "aws-auth")
+	// claude's pack ships the `bedrock` provider whose platform the pointer's gate keys on.
+	packs := embeddedNamed(t, "codex", "openai-auth", "aws-auth", "claude")
 	profiles := map[string]string{"codex": "bedrock"}
+	providers, resolved, _ := launchSelection(t, packs, nil, nil, profiles)
 	scope := func(served ServedDaemons) *CredentialScope {
 		t.Helper()
-		s, err := ScopeCredentials(ScopeInput{Packs: packs, Profiles: profiles, NoDerives: true, Served: &served})
+		s, err := ScopeCredentials(ScopeInput{Packs: packs, Profiles: profiles, NoDerives: true, Served: &served,
+			Providers: providers, Resolved: resolved})
 		if err != nil {
 			t.Fatal(err)
 		}

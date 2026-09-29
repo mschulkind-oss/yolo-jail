@@ -123,6 +123,10 @@ func TestLlamacppDeclaresTheOptionsAProfileMayTune(t *testing.T) {
 		"supports_usage_in_streaming": {Defaulted: true, Value: "true"},
 		"supports_strict_mode":        {Defaulted: true, Value: "false"},
 		"max_tokens_field":            {Defaulted: true, Value: "max_tokens"},
+
+		// claude's attribution header, off for this server (OQ-BR8 moved it here from a
+		// profile-gated env): claude's derive reads it.
+		"attribution_header": {Defaulted: true, Value: "false"},
 	} {
 		got, ok := opts[name]
 		if !ok {
@@ -133,8 +137,8 @@ func TestLlamacppDeclaresTheOptionsAProfileMayTune(t *testing.T) {
 			t.Errorf("option %q = %+v, want %+v", name, got, want)
 		}
 	}
-	if len(opts) != 10 {
-		t.Errorf("options = %v, want only the ten a derive reads", opts)
+	if len(opts) != 11 {
+		t.Errorf("options = %v, want only the eleven a derive reads", opts)
 	}
 	// One alias, and `default` is the name every derive falls back to when a profile
 	// states no `model`. The id is what `llama-server --alias` must report.
@@ -144,32 +148,32 @@ func TestLlamacppDeclaresTheOptionsAProfileMayTune(t *testing.T) {
 }
 
 // The env half of the bundle (OQ-LM1: a mode is credential, env and model ids TOGETHER).
-// CLAUDE_CODE_ATTRIBUTION_HEADER=0 is the prompt-cache fix for this pairing specifically:
-// Claude Code prepends an attribution block to the system prompt, llama.cpp then fails
-// prefix reuse and reprocesses the whole prompt every turn. Verified in the SHIPPED
+// Turning claude's attribution header off is the prompt-cache fix for this pairing
+// specifically: Claude Code prepends an attribution block to the system prompt, llama.cpp then
+// fails prefix reuse and reprocesses the whole prompt every turn. Verified in the SHIPPED
 // implementation rather than from the blog post that first reported it — claude 2.1.274
 // reads `process.env.CLAUDE_CODE_ATTRIBUTION_HEADER` and returns the empty block when it
 // is set falsey.
 //
-// GATED ON THE PROFILE, and the unconditional map must stay empty: a pack env fold is
-// jail-global, so an ungated entry would strip the attribution block from every Claude
-// Code in the jail whether or not anyone asked for a local model.
-func TestLlamacppSetsTheAttributionHeaderOnlyUnderItsProfile(t *testing.T) {
+// A PROVIDER OPTION, since OQ-BR8 (docs/design/providers-and-profiles-redesign.md): the header
+// is a fact about the server, so the provider declares `attribution_header: "false"` and
+// claude's derive turns it into CLAUDE_CODE_ATTRIBUTION_HEADER=0 (pinned end to end in
+// internal/packload's providerfacts_test.go). It was an env gated on the profile's NAME, which
+// a second profile over llamacpp lost. The pack ships no env at all now: an ungated one would
+// reach every process in the jail, and a gated one would key on a name again.
+func TestLlamacppDeclaresTheAttributionHeaderAsAProviderOption(t *testing.T) {
 	m := llamacppManifest(t)
 	if got := m.EnvContributions(); len(got) != 0 {
 		t.Errorf("ungated env = %v, want none — a pack env fold reaches every process in "+
 			"the jail, selected profile or not", got)
 	}
-	gated := m.ProfiledEnvContributions()
-	if len(gated) != 1 {
-		t.Fatalf("profiled env contributions = %+v, want exactly one", gated)
+	if gated := m.GatedEnvContributions(); len(gated) != 0 {
+		t.Errorf("gated env = %+v, want none — the header is the provider's option", gated)
 	}
-	if gated[0].Profile != "llamacpp" {
-		t.Errorf("gate = %q, want the profile this pack ships", gated[0].Profile)
-	}
-	if got := gated[0].Vars["CLAUDE_CODE_ATTRIBUTION_HEADER"]; got != "0" {
-		t.Errorf("CLAUDE_CODE_ATTRIBUTION_HEADER = %q, want \"0\" — without it llama.cpp "+
-			"reprocesses the entire prompt on every turn", got)
+	opts := m.Providers()[0].Options
+	if d, ok := opts["attribution_header"]; !ok || !d.Defaulted || d.Value != "false" {
+		t.Errorf("options.attribution_header = %+v, want the declared default \"false\" — without "+
+			"it llama.cpp reprocesses the entire prompt on every turn", d)
 	}
 }
 

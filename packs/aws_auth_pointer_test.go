@@ -48,9 +48,9 @@ func awsAuthPack(t *testing.T) *packdecl.Manifest {
 func TestAWSAuthPointerAndAdapterAgreeOnThePort(t *testing.T) {
 	wantURI := "http://" + loopholedecl.TokenListen + awscredadapter.CredentialsPath
 
-	gated := awsAuthPack(t).ProfiledEnvContributions()
+	gated := awsAuthPack(t).GatedEnvContributions()
 	if len(gated) != 1 {
-		t.Fatalf("profiled env contributions = %+v, want exactly one", gated)
+		t.Fatalf("gated env contributions = %+v, want exactly one", gated)
 	}
 	if got := gated[0].Vars["AWS_CONTAINER_CREDENTIALS_FULL_URI"]; got != wantURI {
 		t.Errorf("AWS_CONTAINER_CREDENTIALS_FULL_URI = %q, want %q — the pointer composes the "+
@@ -126,7 +126,7 @@ func TestEveryShippedListenPointerNamesADaemonThatDeclaresOne(t *testing.T) {
 		for k, v := range m.EnvContributions() {
 			check(map[string]string{k: v}, servedBy[k])
 		}
-		for _, g := range m.ProfiledEnvContributions() {
+		for _, g := range m.GatedEnvContributions() {
 			check(g.Vars, g.ServedBy)
 		}
 	}
@@ -137,34 +137,31 @@ func TestEveryShippedListenPointerNamesADaemonThatDeclaresOne(t *testing.T) {
 	}
 }
 
-// TestAWSAuthPointerIsProfileGated: selecting this pack must change NOTHING observable
+// TestAWSAuthPointerIsPlatformGated: selecting this pack must change NOTHING observable
 // until an agent is actually pointed at Bedrock
 // ([sso-backed-bedrock.md §12](../docs/design/sso-backed-bedrock.md#12-what-i-would-build-in-order)
 // step 4).
 //
-// The gate is a profile NAME rather than a pack name, which is what lets one pointer
-// serve every consumer: `bedrock` is packs/claude's profile today, and the other three
-// agents' land with docs/design/bedrock-plumbing.md. An UNGATED contribution would set
-// the variable in every jail that selects this pack — including one whose loophole is
-// disabled for want of a profile — and an AWS SDK would then dial a port with nothing
-// behind it instead of falling through its chain.
-//
-// Neither half of that gate is final. Whether a gate keys on the profile NAME or on
-// the provider is still open, as
-// [`OQ-BR8`](../docs/design/providers-and-profiles-redesign.md#OQ-BR8). And the gate's
-// jail-wide reach — the variable lands for every agent in the jail once any one selects
-// `bedrock` — was ruled against on 2026-09-25
-// ([`OQ-BR4`](../docs/design/provider-credential-scope.md#7-decision-ledger): per-agent
-// delivery, not yet built). This test pins today's behavior until those land.
-func TestAWSAuthPointerIsProfileGated(t *testing.T) {
+// The gate is the PROVIDER'S PLATFORM, "aws-bedrock"
+// ([`OQ-BR8`](../docs/design/providers-and-profiles-redesign.md#OQ-BR8), ruled 2026-09-29,
+// with [`OQ-BR2`](../docs/design/providers-and-profiles-redesign.md#OQ-BR2)'s marker), which is
+// what lets one pointer serve every consumer and every name: `-p bedrock`, a user's own profile
+// over that provider, and a user's own provider declaring the platform. It was the profile NAME
+// `bedrock`, which a second profile over the same provider lost (trap D5). An UNGATED
+// contribution would set the variable in every jail that selects this pack — including one
+// whose loophole is disabled for want of a Bedrock selection — and an AWS SDK would then dial a
+// port with nothing behind it instead of falling through its chain. Per agent since the
+// credential gate ([`OQ-BR4`](../docs/design/provider-credential-scope.md#7-decision-ledger)).
+func TestAWSAuthPointerIsPlatformGated(t *testing.T) {
 	m := awsAuthPack(t)
 	if unconditional := m.EnvContributions(); len(unconditional) != 0 {
 		t.Errorf("ungated env contributions = %v, want none — selecting aws-auth must change "+
 			"nothing observable until an agent is pointed at Bedrock", unconditional)
 	}
-	gated := m.ProfiledEnvContributions()
-	if len(gated) != 1 || gated[0].Profile != "bedrock" {
-		t.Fatalf("profiled env = %+v, want exactly one gated on the `bedrock` profile", gated)
+	gated := m.GatedEnvContributions()
+	if len(gated) != 1 || gated[0].Platform != "aws-bedrock" || gated[0].Profile != "" {
+		t.Fatalf("gated env = %+v, want exactly one, gated on the platform `aws-bedrock` and on no "+
+			"profile name", gated)
 	}
 }
 
@@ -191,7 +188,7 @@ func TestAWSAuthPackCarriesNoCredentialVariable(t *testing.T) {
 	for k, v := range m.EnvContributions() {
 		vars[k] = v
 	}
-	for _, gated := range m.ProfiledEnvContributions() {
+	for _, gated := range m.GatedEnvContributions() {
 		for k, v := range gated.Vars {
 			vars[k] = v
 		}

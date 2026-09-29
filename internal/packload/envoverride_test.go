@@ -49,7 +49,7 @@ const tokenOverride = `[{"vars": ["WIDGET_TOKEN"], "because": "the widget client
 // refusal carries both origins, the pack's own reason, and the remedy.
 func TestEnvOverrideRefusesAMadeUpVariable(t *testing.T) {
 	packs := []*Pack{widgetPack(t, "", tokenOverride)}
-	lines := EnvOverrideRefusal(packs, nil, delivered(map[string]string{
+	lines := EnvOverrideRefusal(packs, GateSelection{}, delivered(map[string]string{
 		"WIDGET_TOKEN": FromEnvSources,
 	}), nil)
 	if len(lines) == 0 {
@@ -80,13 +80,13 @@ func TestEnvOverrideIsSilentWhenTheContributionIsNotDelivered(t *testing.T) {
 	packs := []*Pack{widgetPack(t, "gate", tokenOverride)}
 	look := delivered(map[string]string{"WIDGET_TOKEN": FromLaunchEnv})
 
-	if lines := EnvOverrideRefusal(packs, nil, look, nil); lines != nil {
+	if lines := EnvOverrideRefusal(packs, GateSelection{}, look, nil); lines != nil {
 		t.Errorf("refused over a contribution no profile delivers:\n%s", strings.Join(lines, "\n"))
 	}
-	if lines := EnvOverrideRefusal(packs, map[string]string{"widgetcli": "other"}, look, nil); lines != nil {
+	if lines := EnvOverrideRefusal(packs, ProfilesOnly(map[string]string{"widgetcli": "other"}), look, nil); lines != nil {
 		t.Errorf("refused under a different active profile:\n%s", strings.Join(lines, "\n"))
 	}
-	lines := EnvOverrideRefusal(packs, map[string]string{"widgetcli": "gate"}, look, nil)
+	lines := EnvOverrideRefusal(packs, ProfilesOnly(map[string]string{"widgetcli": "gate"}), look, nil)
 	if len(lines) == 0 {
 		t.Fatal("the gating profile is active and the override delivered, and nothing refused")
 	}
@@ -105,7 +105,7 @@ func TestEnvOverrideReachesACLILessPack(t *testing.T) {
 	   "overridden_by": `+tokenOverride+`}]}`)}
 	agent := &Pack{Name: "agent", Decl: declFrom(t, `{"contributes": [
 	  {"kind": "program", "bin": "widgetcli", "via": "npm", "package": "widgetcli"}]}`)}
-	lines := EnvOverrideRefusal([]*Pack{agent, cliLess}, map[string]string{"widgetcli": "gate"},
+	lines := EnvOverrideRefusal([]*Pack{agent, cliLess}, ProfilesOnly(map[string]string{"widgetcli": "gate"}),
 		delivered(map[string]string{"WIDGET_TOKEN": FromLaunchEnv}), nil)
 	if len(lines) == 0 {
 		t.Fatal("a CLI-less pack's gated contribution is delivered by the wide pass, and its " +
@@ -137,14 +137,14 @@ func TestEnvOverridePairNeedsBothHalvesAndNoException(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			lines := EnvOverrideRefusal(packs, nil, delivered(tc.env), nil)
+			lines := EnvOverrideRefusal(packs, GateSelection{}, delivered(tc.env), nil)
 			if (len(lines) > 0) != tc.refuse {
 				t.Errorf("refused=%v want %v:\n%s", len(lines) > 0, tc.refuse, strings.Join(lines, "\n"))
 			}
 		})
 	}
 
-	lines := EnvOverrideRefusal(packs, nil, delivered(map[string]string{
+	lines := EnvOverrideRefusal(packs, GateSelection{}, delivered(map[string]string{
 		"WIDGET_ID": FromEnvSources, "WIDGET_SECRET": FromLaunchEnv}), nil)
 	joined := strings.Join(lines, "\n")
 	for _, want := range []string{
@@ -166,10 +166,10 @@ func TestEnvOverrideHostFile(t *testing.T) {
 	  "because": "the widget config dir answers before the pointer"}]`)}
 	look := delivered(nil)
 
-	if lines := EnvOverrideRefusal(packs, nil, look, []string{".widgetfoo", ".config/widget"}); lines != nil {
+	if lines := EnvOverrideRefusal(packs, GateSelection{}, look, []string{".widgetfoo", ".config/widget"}); lines != nil {
 		t.Errorf("a sibling destination was refused as ~/.widget:\n%s", strings.Join(lines, "\n"))
 	}
-	lines := EnvOverrideRefusal(packs, nil, look, []string{".widget/config", ".ok"})
+	lines := EnvOverrideRefusal(packs, GateSelection{}, look, []string{".widget/config", ".ok"})
 	if len(lines) == 0 {
 		t.Fatal("a rendered ~/.widget/config beside the contribution was not refused")
 	}
@@ -212,7 +212,7 @@ func TestEnvOverrideCertaintyDecidesTheSeverity(t *testing.T) {
 		{"absent: neither is delivered", nil, []string{".widgetfoo"}, false, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			findings := EnvOverrideFindings(packs, nil, delivered(tc.env), tc.grants, nil)
+			findings := EnvOverrideFindings(packs, GateSelection{}, delivered(tc.env), tc.grants, nil)
 			var refused, warned bool
 			for _, f := range findings {
 				if len(f.Lines) == 0 {
@@ -228,7 +228,7 @@ func TestEnvOverrideCertaintyDecidesTheSeverity(t *testing.T) {
 				t.Errorf("refused=%v warned=%v, want refused=%v warned=%v: %+v",
 					refused, warned, tc.wantRefuse, tc.wantWarn, findings)
 			}
-			refusal := EnvOverrideRefusal(packs, nil, delivered(tc.env), tc.grants)
+			refusal := EnvOverrideRefusal(packs, GateSelection{}, delivered(tc.env), tc.grants)
 			if (len(refusal) > 0) != tc.wantRefuse {
 				t.Errorf("EnvOverrideRefusal returned %d lines, want a refusal=%v:\n%s",
 					len(refusal), tc.wantRefuse, strings.Join(refusal, "\n"))
@@ -247,7 +247,7 @@ func TestEnvOverrideCertaintyDecidesTheSeverity(t *testing.T) {
 func TestEnvOverrideWarningWording(t *testing.T) {
 	packs := []*Pack{widgetPack(t, "gate", `[{"host_file": ".widget", "certain": false,
 	  "because": "the widget config dir answers first when it holds a key"}]`)}
-	findings := EnvOverrideFindings(packs, map[string]string{"widgetcli": "gate"}, delivered(nil),
+	findings := EnvOverrideFindings(packs, ProfilesOnly(map[string]string{"widgetcli": "gate"}), delivered(nil),
 		[]string{".widget/config"}, nil)
 	if len(findings) != 1 || findings[0].Certain {
 		t.Fatalf("want one uncertain finding, got %+v", findings)
@@ -270,7 +270,7 @@ func TestEnvOverrideWarningWording(t *testing.T) {
 // TestEnvOverrideDescribesAnUnknownOrigin: a caller that knows a variable is delivered but
 // not from where still produces a readable sentence rather than "delivered by .".
 func TestEnvOverrideDescribesAnUnknownOrigin(t *testing.T) {
-	lines := EnvOverrideRefusal([]*Pack{widgetPack(t, "", tokenOverride)}, nil,
+	lines := EnvOverrideRefusal([]*Pack{widgetPack(t, "", tokenOverride)}, GateSelection{},
 		delivered(map[string]string{"WIDGET_TOKEN": "  "}), nil)
 	joined := strings.Join(lines, "\n")
 	if !strings.Contains(joined, "delivered by this launch's environment") {
@@ -282,7 +282,7 @@ func TestEnvOverrideDescribesAnUnknownOrigin(t *testing.T) {
 // "nothing delivered" and never panic.
 func TestEnvOverrideTakesNilInputs(t *testing.T) {
 	if lines := EnvOverrideRefusal([]*Pack{nil, {Name: "empty"}, widgetPack(t, "", tokenOverride)},
-		nil, nil, nil); lines != nil {
+		GateSelection{}, nil, nil); lines != nil {
 		t.Errorf("nil inputs produced a refusal: %v", lines)
 	}
 }
@@ -290,8 +290,8 @@ func TestEnvOverrideTakesNilInputs(t *testing.T) {
 // TestShippedAWSAuthDeclaresTheThreeOverrides pins packs/aws-auth's declaration — the
 // configuration OQ-SSO8 is about — through the evaluator rather than by reading the JSON,
 // so the test fails if the pack or the rule stops refusing. The pack's pointer is gated on
-// the `bedrock` profile, which claude's bin carries here; aws-auth installs no CLI, so this
-// also exercises the wide pass.
+// the PLATFORM "aws-bedrock" (OQ-BR8), which claude's selected provider declares here;
+// aws-auth installs no CLI, so this also exercises the CLI-less reach.
 //
 // THE ~/.aws GRANT WARNS AND DOES NOT REFUSE, since 2026-09-25. A ~/.aws holding no
 // credentials for the resolved profile — a region-only config, the nested stage's case —
@@ -310,7 +310,8 @@ func TestShippedAWSAuthDeclaresTheThreeOverrides(t *testing.T) {
 	agent := &Pack{Name: "agent", Decl: declFrom(t, `{"contributes": [
 	  {"kind": "program", "bin": "claude", "via": "npm", "package": "x"}]}`)}
 	packs := []*Pack{agent, aws}
-	on := map[string]string{"claude": "bedrock"}
+	on := GateSelection{Profiles: map[string]string{"claude": "bedrock"},
+		Platforms: map[string]string{"claude": "aws-bedrock"}}
 
 	cases := []struct {
 		name   string
@@ -352,9 +353,17 @@ func TestShippedAWSAuthDeclaresTheThreeOverrides(t *testing.T) {
 		})
 	}
 
-	// Without the `bedrock` profile the pointer is not delivered, so NOTHING refuses —
+	// KEYED ON THE PLATFORM, NOT THE NAME (OQ-BR8): a profile named `bedrock` whose provider
+	// is not Bedrock delivers no pointer, so a bearer beside it refuses nothing.
+	if lines := EnvOverrideRefusal(packs, ProfilesOnly(map[string]string{"claude": "bedrock"}),
+		delivered(map[string]string{"AWS_BEARER_TOKEN_BEDROCK": FromEnvSources}), nil); lines != nil {
+		t.Errorf("the pointer must key on the provider's platform, not the profile's name:\n%s",
+			strings.Join(lines, "\n"))
+	}
+
+	// Without a Bedrock selection the pointer is not delivered, so NOTHING refuses —
 	// selecting the pack alone must change nothing observable (design §12 step 4).
-	if lines := EnvOverrideRefusal(packs, nil, delivered(map[string]string{
+	if lines := EnvOverrideRefusal(packs, GateSelection{}, delivered(map[string]string{
 		"AWS_BEARER_TOKEN_BEDROCK": FromEnvSources}), []string{".aws"}); lines != nil {
 		t.Errorf("the pack refused a launch that does not deliver its pointer:\n%s",
 			strings.Join(lines, "\n"))
@@ -449,12 +458,12 @@ func TestShippedAWSAuthFootprintGolden(t *testing.T) {
 	// Two pointer variables: the URI and the caller-token file the SDK sends as Authorization.
 	const uri = "AWS_CONTAINER_AUTHORIZATION_TOKEN, AWS_CONTAINER_CREDENTIALS_FULL_URI"
 	want := []string{
-		`env AWS_CONTAINER_AUTHORIZATION_TOKEN ={caller_token} when profile "bedrock" is active`,
-		`env AWS_CONTAINER_CREDENTIALS_FULL_URI =http://{listen}/credentials when profile "bedrock" is active`,
+		`env AWS_CONTAINER_AUTHORIZATION_TOKEN ={caller_token} when the selected provider's platform is "aws-bedrock"`,
+		`env AWS_CONTAINER_CREDENTIALS_FULL_URI =http://{listen}/credentials when the selected provider's platform is "aws-bedrock"`,
 		`loophole aws-auth`,
-		`overridden-by ` + uri + ` launch refused beside AWS_BEARER_TOKEN_BEDROCK (when profile "bedrock" is active)`,
-		`overridden-by ` + uri + ` launch refused beside AWS_ACCESS_KEY_ID + AWS_SECRET_ACCESS_KEY unless AWS_PROFILE is also delivered (when profile "bedrock" is active)`,
-		`overridden-by ` + uri + ` launch warned (may override) beside a host_files grant at ~/.aws (when profile "bedrock" is active)`,
+		`overridden-by ` + uri + ` launch refused beside AWS_BEARER_TOKEN_BEDROCK (when the selected provider's platform is "aws-bedrock")`,
+		`overridden-by ` + uri + ` launch refused beside AWS_ACCESS_KEY_ID + AWS_SECRET_ACCESS_KEY unless AWS_PROFILE is also delivered (when the selected provider's platform is "aws-bedrock")`,
+		`overridden-by ` + uri + ` launch warned (may override) beside a host_files grant at ~/.aws (when the selected provider's platform is "aws-bedrock")`,
 	}
 	if strings.Join(got, "\n") != strings.Join(want, "\n") {
 		t.Errorf("aws-auth footprint:\n got:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))

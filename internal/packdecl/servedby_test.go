@@ -21,7 +21,7 @@ func TestServedByIsAnEnvDeclaration(t *testing.T) {
 	if servedBy["POINTER"] != "adapter-a" || servedBy["PLAIN"] != "" || servedBy["GATED"] != "" {
 		t.Errorf("EnvServedBy = %v, want only the unconditional POINTER, naming adapter-a", servedBy)
 	}
-	gated := m.ProfiledEnvContributions()
+	gated := m.GatedEnvContributions()
 	if len(gated) != 1 || gated[0].ServedBy != "adapter-b" {
 		t.Errorf("the gated contribution lost its served_by: %+v", gated)
 	}

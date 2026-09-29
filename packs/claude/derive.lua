@@ -103,6 +103,24 @@ local function codexDefault(list, profile)
   return list[1] and list[1].id
 end
 
+-- nativeBedrock: claude reaches the selected provider through its OWN Bedrock client, which
+-- CLAUDE_CODE_USE_BEDROCK switches on. Two facts decide it, and neither is a profile's name
+-- (docs/design/providers-and-profiles-redesign.md OQ-BR8, ruled 2026-09-29: "just because you
+-- have a differently named profile here doesn't mean that things should happen differently"):
+--
+--   - THE PROVIDER IS BEDROCK: its `platform` says so (ctx.selected_platform, OQ-BR2). So a
+--     user's own profile over `bedrock` (`bedrock-sso`, trap D5) and a user's own provider that
+--     declares "platform": "aws-bedrock" switch it on exactly as `-p bedrock` does. It was a
+--     `profile: "bedrock"` gate in pack.json, which matched the name and nothing else.
+--   - THE TRANSPORT IS CLAUDE'S OWN: its profile routes through no via service
+--     (ctx.via_url, the wire bridge). The everything profile reaches the same provider through
+--     the bridge (OQ-BR11, OQ-BR1's `bedrock-bridge`), so it must NOT turn claude's native client
+--     on; aws-auth's credential pointer still reaches it, keyed on the platform alone, for the
+--     bridge to sign with.
+local function nativeBedrock(ctx)
+  return ctx.selected_platform == "aws-bedrock" and (ctx.via_url or "") == ""
+end
+
 -- config (~/.claude.json, RMW): the mcpServers managed table — a passthrough of the
 -- servers this launch is eligible for.
 --
@@ -174,6 +192,11 @@ yolo.derive("claude", "settings", function(ctx)
   -- drops its whole interaction with agentcfg.dropComputedTables.
   local env = {}
   if next(ctx.lsp_servers) then env.ENABLE_LSP_TOOL = "1" end
+  -- CLAUDE_CODE_USE_BEDROCK in the settings file's `env` block, so a bare `claude` outside yolo
+  -- still runs in Bedrock mode (providers.md#pv-d8); the env producer below sets it for a process
+  -- yolo launches. Asserted, never tombstoned: a user's own switch here is theirs, and yolo
+  -- deletes nothing it did not write (PP-D1).
+  if nativeBedrock(ctx) then env.CLAUDE_CODE_USE_BEDROCK = "1" end
   local out = {
     mcpServers = ctx.tombstone,
     env = env,
@@ -247,6 +270,12 @@ yolo.env("claude", function(ctx)
   -- ones below come from the provider's one declared list (codexModelList), so the model
   -- this launch starts on is pi's and codex's by construction, not by a copy kept aligned.
   if ctx.selected_provider == "openai-codex" then
+    -- THE LOGIN PRELAUNCH (ES-D28): the launcher proves the shared OpenAI login before claude
+    -- starts. Keyed on the PROVIDER (OQ-BR8), not on the profile being named `codex`, so a
+    -- user's own profile over openai-codex gets it too. openai-codex is recognized by name
+    -- because it is every agent's built-in subscription provider id, which the derives match
+    -- this way throughout (PP-D2).
+    local login = "1"
     -- THE ADDRESS IS RESOLVED, NOT SPELLED. It used to be the literal 127.0.0.1:8215, a
     -- hand-copy of internal/wirebridged's CodexResponsesListenAddr that this file had no
     -- way to keep true. The openai-auth pack now declares the Responses endpoint the
@@ -262,11 +291,14 @@ yolo.env("claude", function(ctx)
     -- `"packs": ["claude"]` (measured 2026-09-27: exit 0, three constants, no address). Core's
     -- protocol gate refuses every shape of that launch it can see, naming why (ES-D25); this
     -- is the producer's own half, so a route with no address is never half-composed here.
+    -- Nor the login prelaunch: with no address nothing points claude at the subscription, so
+    -- proving the OpenAI login first would be a prompt for a credential this launch never uses.
     if not codexEp then return {} end
     local list = codexModelList(p)
     local first = list[1] or {}
     local model = codexDefault(list, ctx.profile)
     return {
+      YOLO_AUTH_PRELAUNCH_CLAUDE_LOGIN = login,
       ANTHROPIC_BASE_URL = codexEp,
       -- THE TOKEN THAT STOPS THE LOGIN LEAKING. With no ANTHROPIC_AUTH_TOKEN, claude sends its
       -- saved Claude login's OAuth bearer to whatever ANTHROPIC_BASE_URL names
@@ -348,6 +380,11 @@ yolo.env("claude", function(ctx)
   if p.region then
     out.AWS_REGION = p.region
   end
+  -- Claude Code's own Bedrock client, for the launched process (nativeBedrock above; the
+  -- settings derive writes the same switch into the file).
+  if nativeBedrock(ctx) then
+    out.CLAUDE_CODE_USE_BEDROCK = "1"
+  end
   -- Provider FACTS reach the derive as profile options (OQ-CS4: the provider declares
   -- the knobs, this derive decides what each one means for claude), so the values stay
   -- the provider's while the variable names stay claude's:
@@ -385,6 +422,19 @@ yolo.env("claude", function(ctx)
   if streamTimeout then
     out.CLAUDE_STREAM_IDLE_TIMEOUT_MS = tostring(streamTimeout)
   end
+  -- attribution_header -> CLAUDE_CODE_ATTRIBUTION_HEADER: whether claude sends its attribution
+  -- header, a provider option (OQ-BR8) because it is a fact about the server. packs/llamacpp
+  -- declares "false": with the attribution block prepended to the system prompt, llama.cpp
+  -- fails prefix reuse and reprocesses the whole prompt every turn (packs/llamacpp/README.md).
+  -- Any provider can declare it, and a profile can set it. It was a gated env
+  -- keyed on the profile's NAME, `llamacpp`, which a second profile over the same provider
+  -- lost, and which reached every agent on it although only claude reads the variable.
+  local attribution = profileOpts.attribution_header or provOpts.attribution_header
+  if attribution == "false" or attribution == "0" then
+    out.CLAUDE_CODE_ATTRIBUTION_HEADER = "0"
+  elseif attribution == "true" or attribution == "1" then
+    out.CLAUDE_CODE_ATTRIBUTION_HEADER = "1"
+  end
 
   -- The model ids the provider declares are WIRE-TRUE — every agent's catalog sends
   -- them verbatim, and z.ai's routes reject claude-only spellings (measured
@@ -401,7 +451,7 @@ yolo.env("claude", function(ctx)
     -- Z.AI's recommended Claude Code config disables claude's nonessential traffic
     -- (telemetry, update checks) on a routed launch: that traffic targets
     -- api.anthropic.com, which either fails or leaks through a third-party gateway.
-    -- First-party and Bedrock launches keep it (Bedrock's gated env owns that mode).
+    -- First-party and Bedrock launches keep it (nativeBedrock owns that mode).
     out.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC = "1"
   end
   local m = p.models or {}

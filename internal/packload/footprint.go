@@ -17,6 +17,7 @@ import (
 	"io/fs"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
@@ -285,10 +286,20 @@ func overrideClaimDetail(d packdecl.EnvOverrideDecl, o packdecl.EnvOverride) str
 	default:
 		detail = verb + "a host_files grant at ~/" + o.HostFile
 	}
-	if d.Profile != "" {
-		detail += " (when profile \"" + d.Profile + "\" is active)"
+	if d.Profile != "" || d.Platform != "" {
+		detail += " (" + envGateClause(d.Profile, d.Platform) + ")"
 	}
 	return detail
+}
+
+// envGateClause says when a gated env contribution is delivered, for a footprint line: `when
+// profile "bedrock" is active` for a name gate, and for a platform gate (OQ-BR8) `when the
+// selected provider's platform is "aws-bedrock"`.
+func envGateClause(profile, platform string) string {
+	if platform != "" {
+		return "when the selected provider's platform is " + strconv.Quote(platform)
+	}
+	return "when profile " + strconv.Quote(profile) + " is active"
 }
 
 // execClaimListCap bounds how many paths the executables claim names before it summarizes.
@@ -462,7 +473,7 @@ func FootprintOf(p *Pack) Footprint {
 			// variable twice in `pack footprint`, and the launch banner (which reads these
 			// claims) showed the copy with NO gate — a variable announced as set on a launch
 			// whose profile does not set it.
-			if c.Profile != "" {
+			if c.Profile != "" || c.Platform != "" {
 				continue
 			}
 			for _, k := range sortedMapKeys(c.Vars) {
@@ -710,10 +721,9 @@ func FootprintOf(p *Pack) Footprint {
 	// body — the shrink is what surfaced it, and a bedrock key a pack ships under a
 	// profile is exactly the line a reader of a footprint wants to find, with the
 	// condition spelled out beside it.
-	for _, gated := range p.Decl.ProfiledEnvContributions() {
+	for _, gated := range p.Decl.GatedEnvContributions() {
 		for _, k := range sortedMapKeys(gated.Vars) {
-			add(packdecl.KindEnv, k, "="+gated.Vars[k]+" when profile \""+
-				gated.Profile+"\" is active", false)
+			add(packdecl.KindEnv, k, "="+gated.Vars[k]+" "+envGateClause(gated.Profile, gated.Platform), false)
 		}
 	}
 

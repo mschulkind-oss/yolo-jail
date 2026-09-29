@@ -50,7 +50,7 @@ func (o *Options) checkEnvOverrides(cfg *jsonx.OrderedMap, rt string, packs []*p
 	if channel == nil {
 		return nil
 	}
-	findings := packload.EnvOverrideFindings(packs, packload.ProfileTable(channel.profiles),
+	findings := packload.EnvOverrideFindings(packs, channel.scope.Selection(),
 		channel.jailOriginLookup(o, argvPairs),
 		config.RenderedHostFilePaths(cfg, o.hostFileDirsDeliver(rt)), &channel.served)
 	var refusal []string

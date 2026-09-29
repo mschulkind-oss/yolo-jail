@@ -44,13 +44,18 @@ workspace `yolo-jail.jsonc` — see [Why every key is user-scope](#why-every-key
 Then `yolo -p bedrock -- claude`. `claude` brings this pack with it (the claude pack
 `needs` `aws-auth`, and the launch prints `+ aws-auth (needed by claude)`), so you never
 list it yourself. Having it selected changes nothing observable on its own: the
-credential pointer is gated on the `bedrock` profile, and the loophole is off until you
-enable it. Enabling it starts nothing either: the in-jail adapter starts only on a launch
-where some agent's profile is `bedrock`, and a launch that leaves it out says so:
+credential pointer is gated on the selected provider being Bedrock (its `platform` is
+`aws-bedrock`), and the loophole is off until you enable it. Enabling it starts nothing either:
+the in-jail adapter starts only on a launch where some agent's selected provider is Bedrock, and
+a launch that leaves it out says so:
 
 ```
-Not started: the aws-auth jail daemon, because no agent's selected profile is "bedrock", the profile it serves; …
+Not started: the aws-auth jail daemon, because no agent's selected provider is on platform "aws-bedrock", which it serves; select one (`-p <agent>=bedrock`) to start it …
 ```
+
+The gate is the provider, not the profile's name: a profile of your own over `bedrock`, and a
+provider of your own that declares `"platform": "aws-bedrock"`, get the pointer as `-p bedrock`
+does ([`OQ-BR8`](../../docs/design/providers-and-profiles-redesign.md#OQ-BR8)).
 
 | Setting | What it does |
 |---|---|
@@ -106,7 +111,7 @@ Rust SDK does not, so do not lean on that exception to keep both.
 
 **yolo refuses the bearer and the pair at launch, and warns about `~/.aws`.** The pointer's
 `env` contribution in [`pack.json`](pack.json) declares all three under `overridden_by`.
-Whenever the pointer is delivered (the `bedrock` profile is active), a launch that also
+Whenever the pointer is delivered (some agent's selected provider is Bedrock), a launch that also
 delivers the bearer or the pair stops before the jail starts, names both sides, and says to
 drop one. There is no escape hatch: proceeding would be proceeding into the wrong credential.
 A `host_files` entry that renders anything under `~/.aws` gets a warning instead, and the
@@ -128,7 +133,7 @@ Loopback is not the jail: a jail on `network.mode: "host"` puts the adapter's po
 host's loopback, and a nested jail shares its parent's, so without a check any local process
 could `GET` the credential. Each launch mints a new token for the adapter. This pack sets
 `AWS_CONTAINER_AUTHORIZATION_TOKEN` to it beside the credentials URI, in the env file of each
-agent whose profile is `bedrock` and in no other process's environment, a bare shell's
+agent whose selected provider is Bedrock and in no other process's environment, a bare shell's
 included ([`OQ-CN7`](../../docs/design/provider-credential-scope.md#OQ-CN7)). Your agent's AWS
 SDK sends the value as `Authorization`, as it does whenever
 `AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE` is unset, so do not set that variable yourself: the
@@ -141,11 +146,11 @@ only defence there.
 
 ## Properties worth knowing before you are surprised by them
 
-**The pointer reaches only the agents that selected `bedrock`.** An `env` contribution's
-`profile` gate is answered per agent (the credential gate,
+**The pointer reaches only the agents on a Bedrock provider.** An `env` contribution's
+`platform` gate is answered per agent (the credential gate,
 [`OQ-BR4`](../../docs/design/provider-credential-scope.md#OQ-BR4), built): `aws-auth`
-installs no CLI, so its gated pointer goes to every agent whose selected profile is
-`bedrock` — `yolo -p codex=bedrock` gives codex `AWS_CONTAINER_CREDENTIALS_FULL_URI` — and to
+installs no CLI, so its gated pointer goes to every agent whose selected provider's platform is
+`aws-bedrock` — `yolo -p codex=bedrock` gives codex `AWS_CONTAINER_CREDENTIALS_FULL_URI` — and to
 no other process, a bare shell included. In a container jail it crosses in that agent's own
 env file, sourced by its launcher. The processes an agent spawns inherit it, as they inherit
 anything in the agent's environment. **It crosses only where the adapter runs.** The pointer

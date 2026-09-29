@@ -174,6 +174,9 @@ type Options struct {
 	// left out because no agent's selection delivers a gate they serve. Read by the one disclosure
 	// that says so (noteUnstartedProfileDaemons). nil when none was left out.
 	unstartedDaemons []packload.ProfileServedDaemon
+	// unstartedDaemonProfiles is, per daemon in unstartedDaemons, the declared profiles whose
+	// selection would start it, for the disclosure's remedy.
+	unstartedDaemonProfiles map[string][]string
 	// shadowedServices are the pack `service` declarations the last jail-daemon payload this
 	// process composed set aside because a later pack declares the same name
 	// (packload.HeldServices, notch-convergence NC-D59). Read by the one disclosure that says so

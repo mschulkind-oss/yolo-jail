@@ -10,10 +10,12 @@ package packload
 //     `api_key_env_name`, OQ-CN1) reaches an agent only when that agent's selected
 //     profile resolves to a claiming provider. An unclaimed value reaches everything, as
 //     before: the gate scopes provider credentials, not the user's other variables;
-//   - a `profile`-gated `kind: "env"` contribution reaches the agents its gate fires FOR
-//     (gateFiresFor): an agent pack's own CLI when it selected the profile, and — for a
-//     pack that installs no CLI, aws-auth's case — every agent that selected it. The
-//     jail-wide "wide pass" (trap D2) is gone;
+//   - a gated `kind: "env"` contribution reaches the agents its gate fires FOR
+//     (gateFiresFor): an agent pack's own CLI when its selection satisfies the gate, and —
+//     for a pack that installs no CLI, aws-auth's case — every agent whose selection does.
+//     A `platform` gate is satisfied by the selected provider's platform (OQ-BR8), so
+//     aws-auth's pointer reaches every agent on a Bedrock provider, whatever its profile is
+//     named. The jail-wide "wide pass" (trap D2) is gone;
 //   - a shape variable (an agent pack's env derive's output) is its agent's by
 //     construction, and the derive's credential hydration reads through the same gated
 //     lookup (LookupFor), so the rendered-config path narrows with the environment
@@ -121,6 +123,8 @@ type CredentialScope struct {
 	packs    []*Pack
 	profiles map[string]string
 	served   *ServedDaemons
+	// sel is the gate's view of the selection (SelectionOf over the gate's own inputs).
+	sel GateSelection
 	// unservedEnv is every pack env variable withheld because its daemon is not served here,
 	// keyed by variable, naming the daemon (ScopeInput.Served).
 	unservedEnv map[string]string
@@ -171,8 +175,12 @@ func ScopeCredentials(in ScopeInput) (*CredentialScope, error) {
 		packs:            in.Packs,
 		profiles:         in.Profiles,
 		served:           in.Served,
+		// THE GATE'S VIEW OF THE SELECTION (OQ-BR8): each agent's profile and the platform of
+		// the provider it resolves to, over this launch's own table, so every fold below and
+		// every reader of Selection() answers a `platform` gate from one resolution.
+		sel: SelectionOf(in.Profiles, in.Resolved, in.Providers),
 	}
-	for _, e := range s.servedFold(EnvFold(in.Packs, in.Profiles, "")) {
+	for _, e := range s.servedFold(EnvFold(in.Packs, s.sel, "")) {
 		if s.sharedPackEnv == nil {
 			s.sharedPackEnv = map[string]string{}
 		}
@@ -196,7 +204,7 @@ func ScopeCredentials(in ScopeInput) (*CredentialScope, error) {
 			Granted:    sortedUnique(in.Grants[agent]),
 			EnvSources: jsonx.NewOrderedMap(),
 			PackEnv:    map[string]string{},
-			Fold:       s.servedFold(EnvFold(in.Packs, in.Profiles, agent)),
+			Fold:       s.servedFold(EnvFold(in.Packs, s.sel, agent)),
 		}
 		if profile != "" {
 			d.Provider = ProviderFor(in.Resolved, profile)
@@ -294,7 +302,7 @@ func (s *CredentialScope) FoldFor(agent string) []EnvFoldEntry {
 	if d := s.agents[agent]; d != nil {
 		return d.Fold
 	}
-	return s.servedFold(EnvFold(s.packs, s.profiles, agent))
+	return s.servedFold(EnvFold(s.packs, s.sel, agent))
 }
 
 // UnservedEnvLines names every pack env variable this notch withheld because the jail daemon
@@ -550,6 +558,17 @@ func (s *CredentialScope) SharedPackEnv() map[string]string {
 		return nil
 	}
 	return s.sharedPackEnv
+}
+
+// Selection is the gate's view of this launch's selection — each agent's profile and its
+// provider's platform (SelectionOf over the gate's own inputs) — for the readers that must ask a
+// contribution's gate the question the gate itself asked: the env-override pre-flight at both
+// notches and `yolo check`. The zero selection on a nil receiver.
+func (s *CredentialScope) Selection() GateSelection {
+	if s == nil {
+		return GateSelection{}
+	}
+	return s.sel
 }
 
 // Agents lists the agents with a delivery of their own, sorted.

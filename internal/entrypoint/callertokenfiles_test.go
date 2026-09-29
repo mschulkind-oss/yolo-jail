@@ -14,7 +14,6 @@ import (
 	"testing"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholedecl"
-	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
@@ -60,7 +59,7 @@ func TestTheBootWritesEachCallerTokenToAPrivateFile(t *testing.T) {
 // second, and the value is the `{caller_token}` the launch resolves per agent.
 func TestTheAWSPointerNamesTheScopedTokenNotAFile(t *testing.T) {
 	closure := testPacksForAgent(t, "claude", "aws-auth")
-	env := packload.EnvVarsFor(closure, map[string]string{"claude": "bedrock"}, "claude")
+	env := launchEnvFor(t, closure, map[string]string{"claude": "bedrock"}, "claude")
 	if env["AWS_CONTAINER_AUTHORIZATION_TOKEN"] != loopholedecl.TokenCallerToken {
 		t.Errorf("AWS_CONTAINER_AUTHORIZATION_TOKEN = %q, want %q beside the credentials URI %q",
 			env["AWS_CONTAINER_AUTHORIZATION_TOKEN"], loopholedecl.TokenCallerToken,

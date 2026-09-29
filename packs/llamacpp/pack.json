@@ -17,6 +17,7 @@
       "name": "llamacpp",
       "options": {
         "api_timeout_ms": null,
+        "attribution_header": "false",
         "context_window": "32768",
         "max_tokens": "8192",
         "max_tokens_field": "max_tokens",
@@ -32,13 +33,6 @@
       "kind": "profile",
       "name": "llamacpp",
       "provider": "llamacpp"
-    },
-    {
-      "kind": "env",
-      "profile": "llamacpp",
-      "vars": {
-        "CLAUDE_CODE_ATTRIBUTION_HEADER": "0"
-      }
     }
   ],
   "name": "llamacpp"

@@ -18,7 +18,7 @@ func TestTheCallerTokenTokenNeedsServedByAGateAndTheWholeValue(t *testing.T) {
 	}
 	for want, body := range map[string]string{
 		`declare "served_by"`:     `{"kind":"env","profile":"p","vars":{"ACME_TOKEN":"{caller_token}"}}`,
-		`no "profile" gate`:       `{"kind":"env","served_by":"acme","vars":{"ACME_TOKEN":"{caller_token}"}}`,
+		`with no gate`:            `{"kind":"env","served_by":"acme","vars":{"ACME_TOKEN":"{caller_token}"}}`,
 		"must be the whole value": `{"kind":"env","profile":"p","served_by":"acme","vars":{"ACME_TOKEN":"Bearer {caller_token}"}}`,
 	} {
 		_, probs := Decode([]byte(`{"name":"x","contributes":[` + body + `]}`))

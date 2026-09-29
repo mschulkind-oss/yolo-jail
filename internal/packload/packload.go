@@ -595,22 +595,75 @@ type EnvFoldEntry struct {
 	Pack string
 }
 
+// GateSelection is what a contribution's GATE asks about a launch's selection, per agent (CLI
+// name): the profile it selected, which a `profile` gate matches by name, and the platform of
+// the provider that profile resolves to, which a `platform` gate matches (OQ-BR8,
+// docs/design/providers-and-profiles-redesign.md, ruled 2026-09-29: a provider fact keys on the
+// provider, never on the profile's name). The zero value selects nothing, so no gate fires.
+//
+// ONE VALUE FOR EVERY GATE READER: the credential gate (ScopeCredentials) builds it from its own
+// inputs and hands it out (CredentialScope.Selection), so the env-override pre-flight and the
+// fold every vehicle delivers read one answer to "which gates fire for whom".
+type GateSelection struct {
+	// Profiles is the CLI-keyed effective selection (ProfileTable).
+	Profiles map[string]string
+	// Platforms maps each agent with a selected profile to the `platform` its provider's
+	// composed entry declares; an agent whose provider declares none has no entry.
+	Platforms map[string]string
+}
+
+// SelectionOf builds the gate's view of a selection: profiles as selected, and each agent's
+// platform read off the composed table the launch carries (pack default under user override)
+// through the resolved profile table (ProviderFor), so a user's own profile over a shipped
+// provider, and a user's own provider that declares a platform, are answered as the shipped
+// profile is. A nil table or resolution yields profiles only, which fires no platform gate.
+func SelectionOf(profiles map[string]string, resolved map[string]ResolvedProfile,
+	providers *jsonx.OrderedMap) GateSelection {
+	sel := GateSelection{Profiles: profiles}
+	for agent, profile := range profiles {
+		if profile == "" {
+			continue
+		}
+		platform := entryString(providerEntry(providers, ProviderFor(resolved, profile)), "platform")
+		if platform == "" {
+			continue
+		}
+		if sel.Platforms == nil {
+			sel.Platforms = map[string]string{}
+		}
+		sel.Platforms[agent] = platform
+	}
+	return sel
+}
+
+// ProfilesOnly is a selection carrying profile names and no platforms: all a caller that has
+// composed no provider table can say. It fires `profile` gates and never a `platform` one, so a
+// caller composing for a launch uses SelectionOf.
+func ProfilesOnly(profiles map[string]string) GateSelection {
+	return GateSelection{Profiles: profiles}
+}
+
 // EnvFold is the pack env fold ONE AGENT receives, as the ORDERED OPERATION SEQUENCE both
 // notches consume: for each pack in delivery order, its unconditional `kind: "env"` keys
-// sorted, then the keys of each `profile`-gated env contribution whose gate fires for
-// `agent`, that pack's in declaration order, each map sorted. agent "" is the SHARED fold —
-// what every process of the launch receives — and no gate fires for it.
+// sorted, then the keys of each gated env contribution whose gate fires for `agent`, that
+// pack's in declaration order, each map sorted. agent "" is the SHARED fold — what every
+// process of the launch receives — and no gate fires for it.
 //
 // THE GATE IS PER AGENT (OQ-BR4, ruled 2026-09-25; docs/design/provider-credential-scope.md
-// §2.6): a satisfied gate delivers its variables to each agent whose selected profile
-// satisfies it, and to no other. gateFiresFor is the rule. It REPLACED a launch-wide
-// answer whose second, "wide" pass fired when the profile was active for any bin at all:
-// that pass existed so a CLI-less pack's gated env could fire, and it made
-// `-p codex=bedrock` fire claude's gated CLAUDE_CODE_USE_BEDROCK jail-wide (trap D2). The
-// CLI-less reach survives, scoped: aws-auth's pointer goes to every agent that selected
-// `bedrock`, and only to them. An env still has no surface to name an agent, which is why
-// the caller names one — the vehicle that delivers per agent (OQ-CN6) is what gives the
-// config-overlay gate's `profiles[key.Agent]` (packoverlay.go) an env counterpart.
+// §2.6): a satisfied gate delivers its variables to each agent whose selection satisfies it,
+// and to no other. gateFiresFor is the rule. It REPLACED a launch-wide answer whose second,
+// "wide" pass fired when the profile was active for any bin at all: that pass existed so a
+// CLI-less pack's gated env could fire, and it made `-p codex=bedrock` fire claude's gated
+// CLAUDE_CODE_USE_BEDROCK jail-wide (trap D2). The CLI-less reach survives, scoped: aws-auth's
+// pointer goes to every agent whose selected provider is Bedrock, and only to them. An env
+// still has no surface to name an agent, which is why the caller names one — the vehicle that
+// delivers per agent (OQ-CN6) is what gives the config-overlay gate's `profiles[key.Agent]`
+// (packoverlay.go) an env counterpart.
+//
+// A GATE IS A PROFILE NAME OR A PROVIDER PLATFORM (OQ-BR8, ruled 2026-09-29). A shipped
+// provider fact keys on the platform, so a second profile over one provider (a user's
+// `bedrock-sso` over `bedrock`, trap D5) and a user's own provider declaring the platform get
+// what the shipped profile gets; the name gate stays for a variant that really is a name.
 //
 // It is the one definition of the OQ-8 order (providers.md#pv-oq-8), and the order is the
 // whole point: unconditional then gated PER PACK, so a later pack's unconditional value
@@ -622,7 +675,7 @@ type EnvFoldEntry struct {
 // Literal strings only, so this is not origin-gated. Which pack wins a key TWO packs write
 // is delivery order, not something this fold resolves; a collision is reported by the
 // footprint's env-key claims.
-func EnvFold(packs []*Pack, profiles map[string]string, agent string) []EnvFoldEntry {
+func EnvFold(packs []*Pack, sel GateSelection, agent string) []EnvFoldEntry {
 	var out []EnvFoldEntry
 	for _, p := range packs {
 		static := p.Decl.EnvContributions()
@@ -630,8 +683,8 @@ func EnvFold(packs []*Pack, profiles map[string]string, agent string) []EnvFoldE
 		for _, k := range sortedMapKeys(static) {
 			out = append(out, EnvFoldEntry{Key: k, Value: static[k], ServedBy: servedBy[k], Pack: p.Name})
 		}
-		for _, gated := range p.Decl.ProfiledEnvContributions() {
-			if !gateFiresFor(packs, p, gated.Profile, profiles, agent) {
+		for _, gated := range p.Decl.GatedEnvContributions() {
+			if !gateFiresFor(packs, p, gated.Profile, gated.Platform, sel, agent) {
 				continue
 			}
 			for _, k := range sortedMapKeys(gated.Vars) {
@@ -642,17 +695,29 @@ func EnvFold(packs []*Pack, profiles map[string]string, agent string) []EnvFoldE
 	return out
 }
 
-// gateFiresFor answers the env gate for ONE agent: `name` must be the profile agent
-// selected, and p must be either the pack that installs agent's CLI or a pack that
-// installs no CLI at all. The second arm is the CLI-less reach (aws-auth, zai, llamacpp:
-// a pack whose gated env serves whichever agent selected its profile); the first is what
-// keeps an agent pack's gated env on its own agent, so `-p codex=bedrock` gives codex
-// nothing of claude's. A table key naming a CLI no pack of the launch installs is no
-// activation for either arm — the rule the launch-wide gate this replaced also kept, and
-// the one the host notch leans on, since it keys its one-agent table by whatever basename
-// it was asked to run.
-func gateFiresFor(packs []*Pack, p *Pack, name string, profiles map[string]string, agent string) bool {
-	if name == "" || agent == "" || profiles[agent] != name {
+// gateFiresFor answers the env gate for ONE agent. The gate holds when `platform` is the
+// platform of the provider agent's profile resolves to, or, for a name gate, when `profile` is
+// the profile agent selected; and p must be either the pack that installs agent's CLI or a pack
+// that installs no CLI at all. The second arm is the CLI-less reach (aws-auth: a pack whose
+// gated env serves whichever agent's selection satisfies it); the first is what keeps an agent
+// pack's gated env on its own agent, so `-p codex=bedrock` gives codex nothing of claude's. A
+// table key naming a CLI no pack of the launch installs is no activation for either arm — the
+// rule the launch-wide gate this replaced also kept, and the one the host notch leans on,
+// since it keys its one-agent table by whatever basename it was asked to run.
+func gateFiresFor(packs []*Pack, p *Pack, profile, platform string, sel GateSelection, agent string) bool {
+	if agent == "" {
+		return false
+	}
+	switch {
+	case platform != "":
+		if sel.Platforms[agent] != platform {
+			return false
+		}
+	case profile != "":
+		if sel.Profiles[agent] != profile {
+			return false
+		}
+	default:
 		return false
 	}
 	bins := p.InstallBins()
@@ -674,12 +739,12 @@ func gateFiresFor(packs []*Pack, p *Pack, name string, profiles map[string]strin
 	return false
 }
 
-// gateDelivered reports whether p's gate on `name` fires for SOME agent of the launch —
-// whether the contribution reaches any process at all. The env-override pre-flight asks
-// it, because an override between two variables nobody receives overrides nothing.
-func gateDelivered(packs []*Pack, p *Pack, name string, profiles map[string]string) bool {
-	for agent := range profiles {
-		if gateFiresFor(packs, p, name, profiles, agent) {
+// gateDelivered reports whether p's gate fires for SOME agent of the launch — whether the
+// contribution reaches any process at all. The env-override pre-flight asks it, because an
+// override between two variables nobody receives overrides nothing.
+func gateDelivered(packs []*Pack, p *Pack, profile, platform string, sel GateSelection) bool {
+	for agent := range sel.Profiles {
+		if gateFiresFor(packs, p, profile, platform, sel, agent) {
 			return true
 		}
 	}
@@ -700,9 +765,9 @@ func gateDelivered(packs []*Pack, p *Pack, name string, profiles map[string]stri
 // THE REDUCTION, not a second fold: applied in order over a map, EnvFold's operations
 // yield exactly this result, which is why the jail and the host cannot disagree about who
 // wrote a key last.
-func EnvVarsFor(packs []*Pack, profiles map[string]string, agent string) map[string]string {
+func EnvVarsFor(packs []*Pack, sel GateSelection, agent string) map[string]string {
 	var out map[string]string
-	for _, e := range EnvFold(packs, profiles, agent) {
+	for _, e := range EnvFold(packs, sel, agent) {
 		if out == nil {
 			out = map[string]string{}
 		}

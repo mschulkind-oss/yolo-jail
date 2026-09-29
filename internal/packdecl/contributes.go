@@ -1779,16 +1779,40 @@ func (m *Manifest) HostMountContributions() []HostFile {
 }
 
 // EnvContribution is one `kind: "env"` declaration as the env fold consumes it: the
-// vars it sets and, when it is gated, the profile name that gates it.
+// vars it sets and, when it is gated, the one gate — a profile name or a provider platform.
 type EnvContribution struct {
 	Vars map[string]string
-	// Profile is the gate, "" when the contribution is unconditional. MANDATORY to be
+	// Profile is the NAME gate, "" when the contribution carries none. MANDATORY to be
 	// resolvable: the name is a reference into the declared profile set (§5.2 property
 	// 3), so an unmatched name is inert rather than an error — the same skip the
 	// config-overlay gate applies, for the same reason.
 	Profile string
+	// Platform is the PROVIDER gate (docs/design/providers-and-profiles-redesign.md OQ-BR8,
+	// ruled 2026-09-29), "" when the contribution carries none: the contribution reaches each
+	// agent whose selected profile resolves to a provider declaring this platform, whatever
+	// that profile is named and whoever declared the provider. It is how a pack's provider
+	// fact keys on the provider rather than on a profile name — aws-auth's credentials pointer
+	// reaches `-p bedrock`, a user's own `bedrock-sso` profile over the same provider, and a
+	// user's own provider with "platform": "aws-bedrock" alike. An unknown platform is inert.
+	// At most one of Profile and Platform is set (validateContribution).
+	Platform string
 	// ServedBy is the contribution's `served_by`, "" when it points at no yolo daemon.
 	ServedBy string
+}
+
+// Gated reports whether the contribution carries a gate at all.
+func (e EnvContribution) Gated() bool { return e.Profile != "" || e.Platform != "" }
+
+// GateLabel is the gate in words, for a line that says when the contribution is delivered:
+// `profile "bedrock"` or `platform "aws-bedrock"`, "" for an ungated one.
+func GateLabel(profile, platform string) string {
+	switch {
+	case platform != "":
+		return "platform " + strconv.Quote(platform)
+	case profile != "":
+		return "profile " + strconv.Quote(profile)
+	}
+	return ""
 }
 
 // EnvServedBy maps each variable an UNCONDITIONAL `env` contribution declares with
@@ -1798,7 +1822,7 @@ type EnvContribution struct {
 func (m *Manifest) EnvServedBy() map[string]string {
 	var out map[string]string
 	for _, c := range m.Contributions() {
-		if c.Kind != KindEnv || c.Profile != "" {
+		if c.Kind != KindEnv || c.Profile != "" || c.Platform != "" {
 			continue
 		}
 		for k := range c.Vars {
@@ -1823,15 +1847,14 @@ func (m *Manifest) EnvServedBy() map[string]string {
 // returned UNRESOLVED here: the credential scope resolves it to the served address of the
 // daemon at launch (packload's servedFold). Returns nil when no pack sets env.
 //
-// A `profile`-gated env contribution is NOT in here, and that is the accessor's whole
-// contract: folding a gated declaration unconditionally would make the gate a
-// decoration. Its entries come back from ProfiledEnvContributions, whose consumer
-// decides whether the profile is active — which is why no reader of this map has to
-// know the gate exists.
+// A gated env contribution — `profile` or `platform` — is NOT in here, and that is the
+// accessor's whole contract: folding a gated declaration unconditionally would make the gate
+// a decoration. Its entries come back from GatedEnvContributions, whose consumer decides
+// whether the gate holds — which is why no reader of this map has to know the gate exists.
 func (m *Manifest) EnvContributions() map[string]string {
 	var out map[string]string
 	for _, c := range m.Contributions() {
-		if c.Kind != KindEnv || c.Profile != "" {
+		if c.Kind != KindEnv || c.Profile != "" || c.Platform != "" {
 			continue
 		}
 		if out == nil {
@@ -1844,17 +1867,18 @@ func (m *Manifest) EnvContributions() map[string]string {
 	return out
 }
 
-// ProfiledEnvContributions returns the env contributions a `profile` gate holds, in
-// declaration order — the later-wins order the unconditional map above folds in. Each
-// entry carries its own gate; whether it is satisfied is the caller's question, because
-// the answer depends on the launch's profile table, which the manifest does not see.
-func (m *Manifest) ProfiledEnvContributions() []EnvContribution {
+// GatedEnvContributions returns the env contributions a gate holds — a `profile` name or a
+// provider `platform` — in declaration order, the later-wins order the unconditional map
+// above folds in. Each entry carries its own gate; whether it holds is the caller's question,
+// because the answer depends on the launch's selection, which the manifest does not see.
+func (m *Manifest) GatedEnvContributions() []EnvContribution {
 	var out []EnvContribution
 	for _, c := range m.Contributions() {
-		if c.Kind != KindEnv || c.Profile == "" {
+		if c.Kind != KindEnv || (c.Profile == "" && c.Platform == "") {
 			continue
 		}
-		out = append(out, EnvContribution{Vars: c.Vars, Profile: c.Profile, ServedBy: c.ServedBy})
+		out = append(out, EnvContribution{Vars: c.Vars, Profile: c.Profile, Platform: c.Platform,
+			ServedBy: c.ServedBy})
 	}
 	return out
 }
@@ -2937,12 +2961,23 @@ func validateContribution(label string, c Contribution) []string {
 			"%s: \"served_by\" %q has surrounding whitespace, so it could never name a daemon",
 			label, c.ServedBy))
 	}
-	// `platform` is provider's DECLARATION (OQ-BR2), refused in `profile`'s position and for
-	// its reason: on any other kind no consumer reads it.
-	if c.Platform != "" && c.Kind != KindProvider {
+	// `platform` is provider's DECLARATION (OQ-BR2) and env's GATE (OQ-BR8), refused in
+	// `profile`'s position and for its reason: on any other kind no consumer reads it.
+	if c.Platform != "" && c.Kind != KindProvider && c.Kind != KindEnv {
 		problems = append(problems, fmt.Sprintf(
-			"%s: kind %q does not take \"platform\" — it says what service a PROVIDER is, so "+
-				"only \"provider\" has a service to name", label, c.Kind))
+			"%s: kind %q does not take \"platform\" — it says what service a PROVIDER is, and on "+
+				"\"env\" gates the variables on the selected provider being that service; no "+
+				"consumer reads it on this kind", label, c.Kind))
+	}
+	// ONE GATE PER CONTRIBUTION. A `profile` gate names a profile and a `platform` gate the
+	// service a profile's provider is; with both, the contribution would need a rule for which
+	// one wins, and the answer "both must hold" is a profile name gate again, the D5 trap a
+	// second profile over one provider falls into (OQ-BR8).
+	if c.Kind == KindEnv && c.Platform != "" && c.Profile != "" {
+		problems = append(problems, fmt.Sprintf(
+			"%s: an \"env\" contribution takes one gate, \"profile\" or \"platform\", not both — "+
+				"a provider fact keys on the platform alone, so a second profile over the same "+
+				"provider gets it too", label))
 	}
 	if c.Platform != "" {
 		if prob := PlatformProblem(label+": \"platform\"", c.Platform); prob != "" {
@@ -3320,12 +3355,12 @@ func validateContribution(label string, c Contribution) []string {
 						"%s: env var %q names %q, which resolves to the caller token of the daemon "+
 							"the contribution is \"served_by\" — declare \"served_by\"",
 						label, k, loopholedecl.TokenCallerToken))
-				case c.Profile == "":
+				case c.Profile == "" && c.Platform == "":
 					problems = append(problems, fmt.Sprintf(
-						"%s: env var %q names %q in a contribution with no \"profile\" gate, which "+
-							"every process of the jail receives — a caller token is delivered only "+
-							"to the agents whose profile selects it (provider-credential-scope.md "+
-							"OQ-CN7), so declare the \"profile\" it serves",
+						"%s: env var %q names %q in a contribution with no gate, which every "+
+							"process of the jail receives — a caller token is delivered only to the "+
+							"agents whose selection reaches it (provider-credential-scope.md OQ-CN7), "+
+							"so declare the \"platform\" (or \"profile\") it serves",
 						label, k, loopholedecl.TokenCallerToken))
 				case v != loopholedecl.TokenCallerToken:
 					problems = append(problems, fmt.Sprintf(

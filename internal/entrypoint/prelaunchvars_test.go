@@ -29,32 +29,40 @@ func TestTheJailLauncherReadsTheHostsPrelaunchVariables(t *testing.T) {
 	}
 }
 
-// Every view flag a shipped pack declares is one the host serves, so no shipped prelaunch works
-// in a jail and refuses at `yolo host`.
+// Every view flag a shipped agent is launched with is one the host serves, so no shipped
+// prelaunch works in a jail and refuses at `yolo host`. Read off what each agent is LAUNCHED
+// with under each shipped profile (launchEnvFor, the gate's composition), not off the
+// manifests' env alone: since OQ-BR8 pi's view flag comes from its env derive, keyed on the
+// provider, and a manifest walk would never see it.
 func TestEveryShippedPrelaunchViewIsOneTheHostServes(t *testing.T) {
 	served := map[string]bool{openaiauthhost.CodexViewFlag: true, openaiauthhost.PiViewFlag: true}
+	packs := packload.Embedded()
 	seen := 0
-	for _, p := range packload.Embedded() {
-		vars := map[string]string{}
-		for k, v := range p.Decl.EnvContributions() {
-			vars[k] = v
-		}
-		for _, gated := range p.Decl.ProfiledEnvContributions() {
-			for k, v := range gated.Vars {
-				vars[k] = v
-			}
-		}
-		for k, v := range vars {
-			if !strings.HasPrefix(k, openaiauthhost.PrelaunchPrefix) || !strings.HasSuffix(k, "_FLAG") {
-				continue
-			}
-			seen++
-			if !served[v] {
-				t.Errorf("pack %s declares %s=%q, a view `yolo host` does not serve", p.Name, k, v)
+	for _, p := range packs {
+		for _, bin := range p.InstallBins() {
+			for _, profile := range append([]string{""}, packload.DeclaredProfileNames(packs, nil)...) {
+				profiles := map[string]string{}
+				if profile != "" {
+					profiles[bin] = profile
+				}
+				env, err := launchEnvOf(packs, profiles, bin)
+				if err != nil {
+					continue // a pairing the gate refuses launches nothing to check
+				}
+				for k, v := range env {
+					if !strings.HasPrefix(k, openaiauthhost.PrelaunchPrefix) || !strings.HasSuffix(k, "_FLAG") {
+						continue
+					}
+					seen++
+					if !served[v] {
+						t.Errorf("%s on profile %q is launched with %s=%q, a view `yolo host` does not serve",
+							bin, profile, k, v)
+					}
+				}
 			}
 		}
 	}
 	if seen == 0 {
-		t.Fatal("no shipped pack declares a prelaunch view; the fixture stopped exercising this")
+		t.Fatal("no shipped agent is launched with a prelaunch view; the fixture stopped exercising this")
 	}
 }

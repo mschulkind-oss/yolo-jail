@@ -141,10 +141,11 @@ type EnvOverrideDecl struct {
 	// Sets is the contribution's variable NAMES, sorted. Never its values: the evaluator's
 	// output is text a launch prints, and nothing in it needs a value.
 	Sets []string
-	// Profile is the contribution's `profile` gate, "" when it is unconditional. Whether
-	// it is satisfied is the evaluator's question — it depends on the launch's profile
-	// table, which the manifest does not see.
-	Profile string
+	// Profile and Platform are the contribution's gate, both "" when it is unconditional
+	// (at most one is set). Whether it holds is the evaluator's question — it depends on the
+	// launch's selection, which the manifest does not see.
+	Profile  string
+	Platform string
 	// ServedBy is the contribution's `served_by`, "" when it points at no yolo daemon.
 	ServedBy string
 	// Overrides are the declarations, in manifest order.
@@ -163,6 +164,7 @@ func (m *Manifest) EnvOverrideContributions() []EnvOverrideDecl {
 		out = append(out, EnvOverrideDecl{
 			Sets:      sortedKeys(c.Vars),
 			Profile:   c.Profile,
+			Platform:  c.Platform,
 			ServedBy:  c.ServedBy,
 			Overrides: append([]EnvOverride(nil), c.OverriddenBy...),
 		})

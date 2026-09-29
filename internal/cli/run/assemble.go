@@ -1162,10 +1162,10 @@ func (o *Options) commonEnvBlock(in *assembleInput, blockedConfigJSON, netMode s
 	// vars (ANTHROPIC_BASE_URL and its kin, credentials included) cross in the
 	// yolo-user-env.sh channel section, which every shell sources and every boot
 	// hydrates — and which a credential should prefer to a `ps`-visible argv line in any
-	// case. The macos-user arm still delivers the same list to its plan env. What
-	// neither spelling delivers is the variant's own literal env (claude's
-	// CLAUDE_CODE_USE_BEDROCK) — that rides the pack env fold, through the same profile
-	// table, into the env file of the one agent whose selection it gates.
+	// case. The macos-user arm still delivers the same list to its plan env, claude's
+	// CLAUDE_CODE_USE_BEDROCK among them since OQ-BR8 moved it into claude's env derive; a
+	// pack's gated env rides the pack env fold, through the same selection, into the env
+	// file of each agent whose selection it gates.
 	//
 	// No YOLO_REPO_ROOT: the in-jail CLI resolves its repo root the same way the
 	// host does — exe-relative to the baked /opt/yolo-jail bundle, or the

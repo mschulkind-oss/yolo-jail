@@ -70,6 +70,37 @@ func TestHostLaunchRefusesABedrockProfileWithNoRegion(t *testing.T) {
 	}
 }
 
+// OQ-BR8 AT THE HOST: a user's own profile over the shipped `bedrock` provider and a user's own
+// provider declaring "platform": "aws-bedrock" launch claude in its native Bedrock mode exactly
+// as `-p bedrock` does — CLAUDE_CODE_USE_BEDROCK from claude's derive, keyed on the provider —
+// and the user's provider with no region is refused like the shipped one (the region
+// requirement keys on the platform too). Through hostMain to the exec.
+func TestHostBedrockFactsFollowTheProviderNotTheProfileName(t *testing.T) {
+	const cfg = `{"packs": ["claude"],
+	  "providers": {"bedrock": {"region": "us-west-2"},
+	                "bedrock-eu": {"platform": "aws-bedrock", "region": "eu-west-1"},
+	                "bedrock-bare": {"platform": "aws-bedrock"}},
+	  "profiles": {"bedrock-sso": {"provider": "bedrock"}, "eu": {"provider": "bedrock-eu"},
+	               "bare": {"provider": "bedrock-bare"}}}`
+	noRegion := map[string]string{"AWS_REGION": "", "AWS_DEFAULT_REGION": ""}
+	for _, tc := range []struct{ profile, region string }{
+		{"bedrock", "us-west-2"}, {"bedrock-sso", "us-west-2"}, {"eu", "eu-west-1"},
+	} {
+		rc, env, errs := hostGateRun(t, cfg, noRegion, []string{"-p", tc.profile}, "claude")
+		if rc != 0 || env == nil {
+			t.Fatalf("yolo host -p %s -- claude must run: rc=%d\n%s", tc.profile, rc, errs)
+		}
+		if env["CLAUDE_CODE_USE_BEDROCK"] != "1" || env["AWS_REGION"] != tc.region {
+			t.Errorf("-p %s: claude must run in Bedrock mode in %s, got CLAUDE_CODE_USE_BEDROCK=%q AWS_REGION=%q",
+				tc.profile, tc.region, env["CLAUDE_CODE_USE_BEDROCK"], env["AWS_REGION"])
+		}
+	}
+	rc, env, errs := hostGateRun(t, cfg, noRegion, []string{"-p", "bare"}, "claude")
+	if rc != 1 || env != nil || !strings.Contains(errs, `requires a region for provider "bedrock-bare" (platform "aws-bedrock")`) {
+		t.Errorf("a user Bedrock provider with no region must be refused like the shipped one: rc=%d\n%s", rc, errs)
+	}
+}
+
 // THE HATCH lets the host launch through, loudly, as it does a jail's; and a launch that selects
 // no bedrock owes no region at all.
 func TestHostRegionRefusalHatchAndTheUnprofiledControl(t *testing.T) {

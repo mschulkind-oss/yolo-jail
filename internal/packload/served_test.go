@@ -77,11 +77,14 @@ var declaredListen = map[string]string{
 }
 
 func TestAPointerIsDeliveredOnlyWhereItsDaemonIsServed(t *testing.T) {
-	packs := embeddedNamed(t, "codex", "openai-auth", "aws-auth")
+	// claude's pack ships the `bedrock` provider whose platform the pointer's gate keys on.
+	packs := embeddedNamed(t, "codex", "openai-auth", "aws-auth", "claude")
 	profiles := map[string]string{"codex": "bedrock"}
+	providers, resolved, _ := launchSelection(t, packs, nil, nil, profiles)
 	compose := func(served *ServedDaemons) *CredentialScope {
 		t.Helper()
 		s, err := ScopeCredentials(ScopeInput{Packs: packs, Profiles: profiles, NoDerives: true, Served: served,
+			Providers: providers, Resolved: resolved,
 			// The token aws-auth's pointer names ({caller_token}, OQ-CN7 (c)), as a launch mints it.
 			CallerTokens: map[string]string{"YOLO_SERVICE_AWS_AUTH_TOKEN": strings.Repeat("ab", 32)}})
 		if err != nil {
@@ -163,12 +166,13 @@ func TestAnOverrideOfAnUnservedPointerIsNoFinding(t *testing.T) {
 		}
 		return "", false
 	}
+	_, _, sel := launchSelection(t, packs, nil, nil, profiles)
 	served := ServedInJail([]string{"aws-auth"})
-	if f := EnvOverrideFindings(packs, profiles, look, nil, &served); len(f) == 0 {
+	if f := EnvOverrideFindings(packs, sel, look, nil, &served); len(f) == 0 {
 		t.Fatal("a container launch serving aws-auth did not refuse the bearer beside its pointer")
 	}
 	nothing := NothingServed()
-	if f := EnvOverrideFindings(packs, profiles, look, nil, &nothing); len(f) != 0 {
+	if f := EnvOverrideFindings(packs, sel, look, nil, &nothing); len(f) != 0 {
 		t.Errorf("a notch that withholds the pointer refused over it: %+v", f)
 	}
 }

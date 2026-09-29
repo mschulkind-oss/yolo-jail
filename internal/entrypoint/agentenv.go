@@ -46,8 +46,9 @@ func AgentEnvFile(home, agent string) string {
 // agentEnvShellFn is spliced into the npm and native agent launchers immediately ahead of the
 // pre-launch authentication step and the exec, and into the wrapper ahead of its exec. Ahead
 // of the authentication step because that step reads its own switches from the environment,
-// and a profile-gated one (pi's YOLO_AUTH_PRELAUNCH_PI_FLAG, gated on `codex`) is exactly the
-// kind of value that now lives here rather than in the shared file. AFTER everything else the
+// and a per-agent one (pi's YOLO_AUTH_PRELAUNCH_PI_FLAG, which pi's env derive composes when its
+// provider is openai-codex) is exactly the kind of value that now lives here rather than in the
+// shared file. AFTER everything else the
 // launchers run — the install, the update, the MCP server refresh (`yolo internal
 // refresh-servers`, npm installs whose lifecycle scripts run) and the pre-launch refresh (pi's
 // `update --extensions`) — because none of those needs a credential and none should run

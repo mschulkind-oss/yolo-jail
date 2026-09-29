@@ -15,14 +15,13 @@ import (
 	"testing"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
-	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 )
 
 // The shipped claude pack's env for its codex profile opts claude's launcher into the login,
 // and no other selection does. It fails if the pack's gated contribution is deleted.
 func TestClaudeCodexProfileOptsIntoTheOpenAILogin(t *testing.T) {
 	closure := testPacksForAgent(t, "claude")
-	env := packload.EnvVarsFor(closure, map[string]string{"claude": "codex"}, "claude")
+	env := launchEnvFor(t, closure, map[string]string{"claude": "codex"}, "claude")
 	if env["YOLO_AUTH_PRELAUNCH_CLAUDE_LOGIN"] != "1" {
 		t.Fatalf("claude on codex: YOLO_AUTH_PRELAUNCH_CLAUDE_LOGIN = %q, want 1, so the launcher "+
 			"ensures the OpenAI login the bridge's Codex route draws on", env["YOLO_AUTH_PRELAUNCH_CLAUDE_LOGIN"])
@@ -32,7 +31,7 @@ func TestClaudeCodexProfileOptsIntoTheOpenAILogin(t *testing.T) {
 			env["YOLO_AUTH_PRELAUNCH_CLAUDE_FLAG"])
 	}
 	for _, profiles := range []map[string]string{nil, {"claude": "bedrock"}, {"pi": "codex"}} {
-		if got := packload.EnvVarsFor(closure, profiles, "claude")["YOLO_AUTH_PRELAUNCH_CLAUDE_LOGIN"]; got != "" {
+		if got := launchEnvFor(t, closure, profiles, "claude")["YOLO_AUTH_PRELAUNCH_CLAUDE_LOGIN"]; got != "" {
 			t.Errorf("profiles %v: claude's launcher opts into the OpenAI login (%q) with no Codex route", profiles, got)
 		}
 	}
@@ -94,7 +93,7 @@ func TestClaudeLauncherEnsuresTheOpenAILoginOnCodex(t *testing.T) {
 			cmd := exec.Command(launcherPath, "--version")
 			cmd.Env = append(launcherHermeticEnv(), "HOME="+home,
 				"PATH="+binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
-			for k, v := range packload.EnvVarsFor(closure, map[string]string{"claude": "codex"}, "claude") {
+			for k, v := range launchEnvFor(t, closure, map[string]string{"claude": "codex"}, "claude") {
 				cmd.Env = append(cmd.Env, k+"="+v)
 			}
 			out, err := cmd.CombinedOutput()
