@@ -1071,7 +1071,7 @@ recommendation the doc rests on.
    > capturing these in a way like the Arch AUR does it, it's actually desirable to use the
    > official installer, so there's no additional things layered on top of that and we can manage
    > that ourselves."* The floor's default source is each agent's official installer, captured as
-   > the floor already does (OQ-HP3); the user's nix serves an agent need only when the user's
+   > the floor already does ([OQ-HP3](host-tool-provisioning.md#OQ-HP3)); the user's nix serves an agent need only when the user's
    > config ranks it up ([`OQ-PS7`](#OQ-PS7)), never by default. The `packages:` half was already answered no
    > by HP-DIR3.
 
