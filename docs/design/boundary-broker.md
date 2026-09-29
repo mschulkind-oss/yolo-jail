@@ -1358,7 +1358,7 @@ of unYOLO's ideas behind triggers. The asynchronous ruling fires three of them:
    Every read-write command returns exit 77 with *"writes need approval, which this version cannot
    ask for"*, audited. Useful on day one: the agent reads PRs, runs and issues with no token in the jail.
 
-   **Built 2026-09-29**, in eight commits from `0dab786e` to `827b404b`, with its implementation
+   **Built 2026-09-29**, starting at `0dab786e`, with its implementation
    decisions recorded as [BB-D37](#BB-D37) to [BB-D45](#BB-D45). What step 1 did not build, and
    why: the launch line for a host `gh` outside the tested range, and the launch disclosure of a
    `GH_TOKEN` reaching the jail ([BB-D18](#BB-D18)), both wait on [OQ-BB10](#OQ-BB10) or a
