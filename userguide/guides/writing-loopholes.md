@@ -111,7 +111,8 @@ replacing the file. To remove the loophole, delete its folder and its two entrie
     "cmd": ["{jail_loophole_dir}/my-agent", "--listen", "{listen}"],
     "listen": "127.0.0.1:1470",   // optional; the jail address it serves at
     "restart": "on-failure",      // or "always" / "no"; default "on-failure"
-    "caller_token": true          // optional; default false
+    "caller_token": true,         // optional; default false
+    "host_cmd": ["yolo", "…", "--listen", "{listen}"]  // optional; yolo's own packs only, below
   },
   "host_bind_mounts": [           // optional; host paths mounted into the jail
     {"host": "{loophole_dir}/assets", "container": "/opt/thing", "readonly": true}
@@ -222,6 +223,13 @@ network is not private in every setup: a jail on `network.mode: "host"` shares y
 it set, each launch creates a new random token and gives it to your daemon and to the jail as
 `YOLO_SERVICE_<NAME>_TOKEN`, and also writes it to `/run/yolo/caller-tokens/YOLO_SERVICE_<NAME>_TOKEN`.
 Your daemon refuses any request without it.
+
+**`host_cmd`** runs the same helper on your machine instead of inside the jail, for a launch whose
+agent shares your machine's network, which on a Mac is the `macos-user` backend. The launch starts
+it outside the sandbox, on the port it picked for `listen`, hands it the caller token, and stops it
+when the agent exits. It needs `listen` and `caller_token`, and `{listen}` is the only placeholder
+it takes. Only yolo's own packs may use it: the Codex and AWS credential helpers do. In any other
+pack yolo does not run it, says so at launch, and runs the `jail_daemon` inside the sandbox as usual.
 
 ### Intercepting a website
 

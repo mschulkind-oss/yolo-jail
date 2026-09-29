@@ -213,9 +213,10 @@ What you give up:
 ### macos-user (native, no VM) — what it does not do
 
 - **The shared Claude login is not coordinated between sessions.** Host services start on the
-  Mac, and the helpers that must run inside the sandbox run there, confined like the agent, so the
-  ChatGPT login service and Bedrock through `aws-auth` work. The Claude login's in-jail half needs
-  a container, and the launch names it on one `Declined:` line.
+  Mac, so the ChatGPT login service and Bedrock through `aws-auth` work: the small helpers the
+  agent talks to for them run for each launch on the Mac, outside the sandbox, answer only that
+  launch's agent, and stop when it exits. The Claude login's in-jail half needs a container, and
+  the launch names it on one `Declined:` line.
 - **No `mounts`** and no folder sources in `host_files`; single files in `host_files` work.
 - **No `per_side_paths`**: a `.venv` or `node_modules` in the project is shared between your Mac and
   the sandbox.

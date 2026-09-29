@@ -8,17 +8,17 @@ summary: "A machine-wide OpenAI credential service owns refresh-token rotation a
 
 # One OpenAI refresh owner for Codex, Pi, hosts, and jails
 
-**Status:** DESIGN, 2026-09-24 — built except one backend's refresh consumer, whose
-shape was ruled 2026-09-29 ([OQ-OA6](#OQ-OA6): a launch-owned doorway); one sentence of
+**Status:** DESIGN, 2026-09-24 — built, the last backend's refresh consumer on
+2026-09-29 ([OQ-OA6](#OQ-OA6): on `macos-user` the launch opens Codex's refresh doorway
+outside the sandbox, `80a9f1d0`); one sentence of
 [§2](#2-one-writer-and-two-views) turned out unbuildable and owes another
 ([OQ-OA7](#OQ-OA7)). The canonical transaction, host service, container
 adapters, pack dependency, browser login, managed host launch, status and
 self-check are implemented, and so are host-only import and logout
 (`4de78ac0`, 2026-09-18; the public `yolo openai-auth` verb since `fafb7493`,
 2026-09-20) and Apple Container reporting the service inert
-(`36c47baa`, 2026-09-18). **Not built:** a Codex refresh consumer on
-`macos-user`, ruled in [OQ-OA6](#OQ-OA6) and building. **Unmeasured:** the
-[§7](#7-completion-criteria) criteria only real hardware reaches.
+(`36c47baa`, 2026-09-18). **Unmeasured:** the [§7](#7-completion-criteria)
+criteria only real hardware reaches, the `macos-user` doorway among them.
 
 > **In short.** A yolo host service owns one OpenAI subscription grant and is
 > the only component allowed to refresh it. Codex and Pi receive compatible
@@ -155,9 +155,14 @@ device login traffic still goes directly to OpenAI.
 `macos-user` starts the same host singleton before entering the Seatbelt sandbox.
 The sandboxed account reaches its authenticated loopback-TLS front directly on
 host loopback and reads its endpoint credential from the sandbox-visible yolo
-state prepared for that launch. It uses the same Codex and Pi adapters. It does
-not run the container-only in-jail daemon, install a CA into the system trust
-store, edit host DNS, or intercept all host traffic for `auth.openai.com`.
+state prepared for that launch. It uses the same Codex and Pi adapters, and
+the Codex one is the adapter `yolo host -- codex` serves: the launch runs it
+outside the sandbox as a launch-owned listener on a port it picked, answering
+only the caller token the Codex launcher binds into the refresh marker, and
+stops it when the command exits ([OQ-OA6](#OQ-OA6), by
+[HS-D15](host-notch-services.md#HS-D15)). It does not run the container-only
+in-jail daemon, install a CA into the system trust store, edit host DNS, or
+intercept all host traffic for `auth.openai.com`.
 
 `yolo host -- codex` uses the same host singleton through a private mode-`0600`
 Unix socket and starts a dynamic loopback adapter on `127.0.0.1:0`. Yolo remains
@@ -213,7 +218,7 @@ bodies, authorization codes, PKCE verifiers, or callback query strings.
 | OQ-OA3 | `yolo host -- codex` shares the broker through a managed Codex home; direct host Codex remains untouched. | 2026-09-14 |
 | OQ-OA4 | Container browser callbacks use one temporary, state-routed host relay; `macos-user` uses its native loopback. | 2026-09-14 |
 | OQ-OA5 | All backends use authenticated loopback TLS and the same refresh algorithm; none intercepts `auth.openai.com`. | 2026-09-14 |
-| OQ-OA6 | Route (b): on `macos-user` the Codex refresh doorway is a launch-owned listener, by [HS-D15](host-notch-services.md#HS-D15)'s doorway rule. | 2026-09-29 |
+| OQ-OA6 | Route (b): on `macos-user` the Codex refresh doorway is a launch-owned listener, by [HS-D15](host-notch-services.md#HS-D15)'s doorway rule. Built `80a9f1d0` ([HS-D16](host-notch-services.md#HS-D16) to [HS-D20](host-notch-services.md#HS-D20)). | 2026-09-29 |
 
 ## 9. Open questions
 

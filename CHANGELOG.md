@@ -37,17 +37,20 @@ start some other way runs on its own login. See
 [the wire bridge](userguide/guides/providers-and-models.md#the-wire-bridge).
 
 **On the `macos-user` backend, AWS Bedrock through `aws-auth` and the ChatGPT-subscription
-refresh service now work.** The small helpers these services need beside the agent, which used
-to run only inside a container, now run inside the macOS sandbox, confined by the same sandbox
-profile as the agent and as the sandbox's own user. So `yolo -p bedrock -- claude` gets its
-narrowed AWS credentials there, and `codex` keeps its ChatGPT login through a long session
-instead of losing it at the first token refresh. Each helper listens on a port the launch picks,
-so two sandboxes running at once do not collide, and the launch says which helpers it started and
-names, with the reason, the ones it cannot run there, such as the one that shares one Claude login
-between sandboxes. It says the helpers started only once they confirm it; if they fail to start,
-the launch stops and shows where their log is and its last lines. Homebrew and the release
-archives ship the helpers for both Apple Silicon and Intel Macs; nothing new lands on your own
-`PATH`. See [macOS](userguide/guides/macos.md).
+refresh service now work.** The two small helpers the agent talks to for these services, which
+used to run only inside a container, now run for each launch on your Mac, outside the sandbox:
+the sandbox shares your Mac's network, so the agent reaches them there. So
+`yolo -p bedrock -- claude` gets its narrowed AWS credentials, and `codex` keeps its ChatGPT login
+through a long session instead of losing it at the first token refresh. Each helper listens on a
+port the launch picks, so two sandboxes running at once do not collide, answers only the agent of
+the launch that started it, and stops when the command exits; the AWS one starts only when an
+agent's profile is `bedrock`. The launch names each helper it starts, and names, with the reason,
+the ones it will not run, such as the one that shares one Claude login between sandboxes; if a
+helper fails to start, the launch stops and says where its log is. A helper that a pack of your
+own asks to run inside a container runs inside the macOS sandbox instead, confined by the same
+sandbox profile as the agent and as the sandbox's own user; the launch says it started only once
+it confirms it. Homebrew and the release archives ship what those need for both Apple Silicon and
+Intel Macs; nothing new lands on your own `PATH`. See [macOS](userguide/guides/macos.md).
 
 pi's subagents can now use your MCP servers. When the pi-subagents extension is in pi's
 packages, a jail also writes the MCP servers you configure to `~/.config/mcp/mcp.json`, the file
