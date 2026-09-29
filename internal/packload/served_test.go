@@ -26,7 +26,7 @@ func TestViaServedAtClearsOnlyAViaThisNotchDoesNotServe(t *testing.T) {
 	if in["pz"].ViaBase == "" {
 		t.Error("ViaServedAt modified its input")
 	}
-	kept, none := ViaServedAt(in, packs, ServedAtContainer([]string{"wire-bridge"}))
+	kept, none := ViaServedAt(in, packs, ServedInJail([]string{"wire-bridge"}))
 	if kept["pz"].ViaBase == "" || len(none) != 0 {
 		t.Errorf("a container launch serving the bridge lost the via: %+v, cleared %v", kept["pz"], none)
 	}
@@ -35,16 +35,27 @@ func TestViaServedAtClearsOnlyAViaThisNotchDoesNotServe(t *testing.T) {
 	}
 }
 
-func TestServedAtRuntimeIsNothingOnMacosUser(t *testing.T) {
-	names := []string{"wire-bridge", "openai-auth-broker"}
-	for rt, want := range map[string]bool{"podman": true, "container": true, "": true, "macos-user": false} {
-		s := ServedAtRuntime(rt, names)
-		if s.Serves("wire-bridge") != want || s.RunsDaemons() != want {
-			t.Errorf("runtime %q: serves the bridge = %v, runs daemons = %v; want %v",
-				rt, s.Serves("wire-bridge"), s.RunsDaemons(), want)
-		}
+// A jail serves exactly the names it is handed (the caller's split, loopholes.JailDaemonsRunIn),
+// and macos-user's set is its guest's daemons Plus its launch-owned services: every name of
+// either, each listen address, both rebind maps.
+func TestServedInJailAndPlus(t *testing.T) {
+	guest := ServedInJail([]string{"openai-auth-broker"}).
+		WithListen(map[string]string{"openai-auth-broker": "127.0.0.1:50001"})
+	if !guest.Serves("openai-auth-broker") || guest.Serves("wire-bridge") || !guest.RunsDaemons() {
+		t.Errorf("ServedInJail served the wrong set: %v", guest.Names())
 	}
-	if NothingServed().Serves("wire-bridge") || ServedAtContainer(nil).Serves("") {
+	both := guest.Plus(ServedByLaunch([]string{"wire-bridge"}).
+		WithRebind(map[string]string{"127.0.0.1:8214": "127.0.0.1:50002"}))
+	if !both.Serves("openai-auth-broker") || !both.Serves("wire-bridge") {
+		t.Errorf("Plus lost a name: %v", both.Names())
+	}
+	if both.Listen("openai-auth-broker") != "127.0.0.1:50001" {
+		t.Errorf("Plus lost the guest daemon's listen address: %q", both.Listen("openai-auth-broker"))
+	}
+	if got := both.ServedURL("http://127.0.0.1:8214/v1"); got != "http://127.0.0.1:50002/v1" {
+		t.Errorf("Plus lost the launch service's rebind: %q", got)
+	}
+	if NothingServed().Serves("wire-bridge") || ServedInJail(nil).Serves("") {
 		t.Error("an empty set or an empty name was served")
 	}
 	if got := ServiceJailDaemonNames(embeddedNamed(t, "wire-bridge")); strings.Join(got, ",") != "wire-bridge" {
@@ -89,7 +100,7 @@ func TestAPointerIsDeliveredOnlyWhereItsDaemonIsServed(t *testing.T) {
 	const refresh, awsURI, awsToken = "CODEX_REFRESH_TOKEN_URL_OVERRIDE",
 		"AWS_CONTAINER_CREDENTIALS_FULL_URI", "AWS_CONTAINER_AUTHORIZATION_TOKEN"
 
-	container := ServedAtContainer([]string{"openai-auth-broker", "aws-auth"}).WithListen(declaredListen)
+	container := ServedInJail([]string{"openai-auth-broker", "aws-auth"}).WithListen(declaredListen)
 	s := compose(&container)
 	if _, ok := s.DeliveredPackEnv(refresh); !ok {
 		t.Errorf("a container launch serving the OpenAI adapter lost %s", refresh)
@@ -117,7 +128,7 @@ func TestAPointerIsDeliveredOnlyWhereItsDaemonIsServed(t *testing.T) {
 	}
 	lines := strings.Join(UnservedLines(s, []string{"pz"}, nil), "\n")
 	for _, want := range []string{refresh, awsURI, awsToken, `"openai-auth-broker"`, `"aws-auth"`,
-		`profile "pz"'s via`, "never at the host or on macos-user"} {
+		`profile "pz"'s via`, "never at the host"} {
 		if !strings.Contains(lines, want) {
 			t.Errorf("the unserved disclosure does not name %s:\n%s", want, lines)
 		}
@@ -125,7 +136,7 @@ func TestAPointerIsDeliveredOnlyWhereItsDaemonIsServed(t *testing.T) {
 
 	// A container launch whose payload lacks the daemon (aws-auth left disabled) withholds its
 	// pointer too, saying why in that notch's terms.
-	partial := ServedAtContainer([]string{"openai-auth-broker"}).WithListen(declaredListen)
+	partial := ServedInJail([]string{"openai-auth-broker"}).WithListen(declaredListen)
 	s = compose(&partial)
 	if foldHas(s.FoldFor("codex"), awsURI) {
 		t.Error("a launch that does not run aws-auth delivered its pointer")
@@ -152,7 +163,7 @@ func TestAnOverrideOfAnUnservedPointerIsNoFinding(t *testing.T) {
 		}
 		return "", false
 	}
-	served := ServedAtContainer([]string{"aws-auth"})
+	served := ServedInJail([]string{"aws-auth"})
 	if f := EnvOverrideFindings(packs, profiles, look, nil, &served); len(f) == 0 {
 		t.Fatal("a container launch serving aws-auth did not refuse the bearer beside its pointer")
 	}

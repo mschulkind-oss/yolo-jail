@@ -10,6 +10,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/image"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/macosuser"
 	"github.com/mschulkind-oss/yolo-jail/internal/reporoot"
 )
 
@@ -283,6 +284,23 @@ func TestFlakeAndLauncherAgreeOnThePrefixLayout(t *testing.T) {
 	if strings.Contains(flake, "corePackages = [ installPrefix ]") {
 		t.Error("installPrefix is back in the image's corePackages: goSrc is an image input " +
 			"again, so every cmd/ or internal/ commit costs an image rebuild and a load")
+	}
+
+	// THE macos-user GUEST'S HALF (OQ-DP8): the bundle's bin/darwin-<arch> is the same
+	// bundle-format spelling in three places — flake.nix's guestPrebuiltDir short-circuit,
+	// stage-source-bundle.sh's layout, and macosuser.PrebuiltGuestBinDir, which the launch's
+	// guest-binary resolver stats. A flake looking elsewhere would rebuild from goSrc (a
+	// bundle has none) and fail; a launcher looking elsewhere would build on every launch.
+	if !strings.Contains(flake, `guestPrebuiltDir = ./. + "/bin/darwin-${goArch}";`) {
+		t.Error("flake.nix no longer short-circuits the guest set to ./bin/darwin-<arch>, the " +
+			"directory macosuser.PrebuiltGuestBinDir and stage-source-bundle.sh name")
+	}
+	if got, want := macosuser.PrebuiltGuestBinDir("/b"), filepath.Join("/b", "bin", "darwin-"+goruntime.GOARCH); got != want {
+		t.Errorf("macosuser.PrebuiltGuestBinDir = %q, want %q", got, want)
+	}
+	if !strings.Contains(flake, "packages.guestPrefix = guestPrefix;") {
+		t.Error("flake.nix does not export .#guestPrefix, which image.BuildGuestPrefix builds for " +
+			"a flake source with no prebuilt guest dir")
 	}
 }
 

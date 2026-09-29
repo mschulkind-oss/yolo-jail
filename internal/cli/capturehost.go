@@ -377,10 +377,12 @@ func runCaptureJail(workspace, bin string, out, errw io.Writer, color bool) int 
 	// agent to read, and this jail runs one installer in a home it then deletes. See the
 	// "" argument in macosuser.BuildCapturePlan, which is where the reasoning lives.
 	// `blocked` is NOT dropped — the staging home must carry the same shims a launch
-	// would, and core contributes none of them by itself.
+	// would, and core contributes none of them by itself. The guest's jail daemons are
+	// DROPPED too: an installer run in a throwaway home is no client of any of them, and a
+	// supervisor started for it would bind the launch's ports for nothing.
 	opts.MacosUserRun = func(cfg *jsonx.OrderedMap, _ string, _, _ []string,
 		_, packRoot string, _ macosuser.HomeOverlay, _ macosuser.HostContext, dryRun bool,
-		packEnv *jsonx.OrderedMap, blocked []packload.BlockedTool) int {
+		packEnv *jsonx.OrderedMap, blocked []packload.BlockedTool, _ macosuser.JailDaemons) int {
 		deps := macosuser.RealDeps(nil, nil, color)
 		deps.Out = out
 		return macosuser.RunCaptureAct(deps, macosuser.CaptureOptions{

@@ -50,11 +50,9 @@ func TestWithServedComposesOnlyAServedAddress(t *testing.T) {
 	}{
 		{servicedAdapterPack(t), nil, "http://127.0.0.1:8214"},
 		{servicedAdapterPack(t), []ComposeOption{WithServed(NothingServed())}, ""},
-		{servicedAdapterPack(t), []ComposeOption{WithServed(ServedAtContainer([]string{"bridge-daemon"}))},
+		{servicedAdapterPack(t), []ComposeOption{WithServed(ServedInJail([]string{"bridge-daemon"}))},
 			"http://127.0.0.1:8214"},
-		{servicedAdapterPack(t), []ComposeOption{WithServed(ServedAtContainer(nil))}, ""},
-		{servicedAdapterPack(t), []ComposeOption{WithServed(ServedAtRuntime("macos-user",
-			[]string{"bridge-daemon"}))}, ""},
+		{servicedAdapterPack(t), []ComposeOption{WithServed(ServedInJail(nil))}, ""},
 		{adapterPack(t, "openai", "anthropic", "https://gw.example/a"), []ComposeOption{WithServed(NothingServed())},
 			"https://gw.example/a"},
 	} {

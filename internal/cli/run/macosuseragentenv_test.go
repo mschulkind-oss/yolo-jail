@@ -30,7 +30,7 @@ func TestMacosUserBareLaunchWritesEveryProfiledAgentsEnvFile(t *testing.T) {
 	o.UseProfiles = map[string]string{"pi": "zai"} // a bare `yolo`: no command, a login zsh
 	ran := false
 	o.MacosUserRun = func(_ *jsonx.OrderedMap, _ string, _, argv []string, _, _ string, _ macosuser.HomeOverlay,
-		_ macosuser.HostContext, _ bool, _ *jsonx.OrderedMap, _ []packload.BlockedTool) int {
+		_ macosuser.HostContext, _ bool, _ *jsonx.OrderedMap, _ []packload.BlockedTool, _ macosuser.JailDaemons) int {
 		ran = true
 		if filepath.Base(argv[0]) != "zsh" {
 			t.Errorf("a bare launch should start a login zsh, got %v", argv)

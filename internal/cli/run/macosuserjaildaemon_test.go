@@ -1,18 +1,19 @@
 package run
 
-// macosuserjaildaemon_test.go pins the macos-user arm's TRUTHFUL DECLINE: every jail daemon
-// this launch declared is named, and none is claimed to run
-// (docs/design/jail-daemon-on-macos-user-plan.md step 2).
+// macosuserjaildaemon_test.go pins the macos-user arm's half of the jail-daemon lifecycle since
+// OQ-DP8 and OQ-DP9 (docs/design/declaration-parity.md, ruled 2026-09-28; built as steps 3 and 4
+// of docs/design/jail-daemon-on-macos-user-plan.md): the daemons the Seatbelt guest RUNS are
+// handed to its supervisor (MacosUserRun's JailDaemons), with the declared argv verbatim, their
+// caller tokens and endpoints; and the ones it does not run are declined BY NAME, with a reason.
 //
-// THE TESTS DRIVE Run(), never the printer, for the reason macosuserloopholes_test.go states
-// at length: the defect these close survived because the only assertions about this arm called
-// the callee directly, and AGENTS.md has this repo shipping "a test that pins the CALLEE while
-// the CALL SITE is unpinned" five times. Delete the noteMacosUserJailDaemonDeclines call from
-// the macos-user arm, or the `jailDaemons` hoist above the dispatch, and every test here fails.
+// THE TESTS DRIVE Run(), never the printer or the composer, for the reason
+// macosuserloopholes_test.go states at length: AGENTS.md has this repo shipping "a test that
+// pins the CALLEE while the CALL SITE is unpinned" five times. Delete the guestJailDaemons
+// argument, the JailDaemonsRunIn split, or the noteMacosUserJailDaemonDeclines call from the
+// macos-user arm, and a test here fails.
 //
-// ⚠ NONE OF THIS HAS EXECUTED ON HARDWARE. What a Mac still has to settle is whether the line
-// appears on a real launch (and, later, whether any of these daemons can be made to run at
-// all: that is steps 3–4, blocked on two unfiled rulings).
+// ⚠ NONE OF THIS HAS EXECUTED ON HARDWARE. What a Mac still has to settle is that the
+// supervisor these tests hand over really starts under sandbox-exec and its daemons bind.
 
 import (
 	"bytes"
@@ -27,7 +28,175 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/macosuser"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
+	"github.com/mschulkind-oss/yolo-jail/internal/supervisor"
+	"github.com/mschulkind-oss/yolo-jail/internal/svcendpoint"
 )
+
+// payloadOf is the supervisor's parse of the YOLO_JAIL_DAEMONS the arm handed the guest.
+func payloadOf(t *testing.T, jd macosuser.JailDaemons) []supervisor.Spec {
+	t.Helper()
+	if jd.Env == nil {
+		return nil
+	}
+	v, _ := jd.Env.Get("YOLO_JAIL_DAEMONS")
+	s, _ := v.(string)
+	return supervisor.ParseEnv(s)
+}
+
+// A LOOPHOLE'S jail_daemon RUNS IN THE GUEST, AS DECLARED. The payload the supervisor reads
+// carries the manifest's argv word for word, with only {listen} resolved — to a port this launch
+// picked, because the sandbox shares the Mac's loopback — and no decline line names it.
+func TestMacosUserRunsALoopholeJailDaemonInTheGuestAsDeclared(t *testing.T) {
+	home := packHome(t)
+	ws := t.TempDir()
+	writeLocalLoopholePack(t, home, "acme-proxy", `{"name": "acme-proxy",
+		"description": "acme proxy", "default_enabled": true, "transport": "loopback-tls",
+		"jail_daemon": {"cmd": ["yolo-jaild", "acme-adapter", "--listen", "{listen}"],
+		"listen": "127.0.0.1:1460", "caller_token": true}}`)
+	writeUserConfigJSON(t, home, `{"packs": []}`)
+
+	got := macosUserLaunch(t, ws)
+	if got.rc != 0 {
+		t.Fatalf("Run() = %d, want 0\n%s", got.rc, got.out)
+	}
+	specs := payloadOf(t, got.jailDaemons)
+	if len(specs) != 1 || specs[0].Name != "acme-proxy" {
+		t.Fatalf("the guest was handed %+v, want the acme-proxy jail daemon\n%s", specs, got.out)
+	}
+	cmd := specs[0].Cmd
+	if len(cmd) != 4 || cmd[0] != "yolo-jaild" || cmd[1] != "acme-adapter" || cmd[2] != "--listen" ||
+		!strings.HasPrefix(cmd[3], "127.0.0.1:") || cmd[3] == "127.0.0.1:1460" {
+		t.Errorf("the declared argv did not reach the supervisor verbatim (only {listen} "+
+			"resolved, to a picked port): %v", cmd)
+	}
+	if strings.Contains(got.out, "acme-proxy: yolo-jaild") {
+		t.Errorf("a daemon the guest runs was declined:\n%s", got.out)
+	}
+	// Its caller token reaches the supervisor, and — unscoped — the agent too, as a
+	// container's shared channel exports it; never on an argv.
+	tokVar := "YOLO_SERVICE_ACME_PROXY_TOKEN"
+	dv, _ := got.jailDaemons.Env.Get(tokVar)
+	av, _ := got.env.Get(tokVar)
+	if tok, _ := dv.(string); !svcendpoint.IsToken(tok) || av != dv {
+		t.Errorf("the caller token is not handed to both the supervisor and the agent: daemon %v, agent %v", dv, av)
+	}
+}
+
+// THE BARE DEFAULT, `"packs": ["claude"]`, END TO END: the OpenAI refresh adapter runs in the
+// guest; the Claude OAuth terminator is declined (it needs a container's --add-host and :443);
+// the wire bridge is declined as a jail daemon (a pack service runs its host half here). And the
+// adapter's supervisor env carries its endpoint and token.
+func TestMacosUserBareClaudeRunsTheOpenAIAdapterAndDeclinesTheRestByName(t *testing.T) {
+	o, stderr, seen := overrideNativeLaunch(t, `{"packs": ["claude"]}`, shellWith(nil))
+	o.ProfileName = ""
+	if rc := Run(*o); rc != 0 {
+		t.Fatalf("Run() = %d\n%s", rc, stderr.String())
+	}
+	var names []string
+	for _, s := range payloadOf(t, seen.jailDaemons) {
+		names = append(names, s.Name)
+	}
+	if strings.Join(names, ",") != "openai-auth-broker" {
+		t.Errorf("the guest runs %v, want exactly the OpenAI refresh adapter", names)
+	}
+	out := stderr.String()
+	for _, want := range []string{
+		"Declined: these jail daemons do not run in the macos-user sandbox",
+		"claude-oauth-broker: yolo-jaild oauth-terminator — it terminates TLS for an intercepted hostname",
+		"wire-bridge: yolo-jaild wire-bridge — a pack service runs its host half on this backend",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("the launch does not say %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "openai-auth-broker: yolo-jaild") {
+		t.Errorf("the adapter the guest runs was declined:\n%s", out)
+	}
+	for _, k := range []string{"YOLO_SERVICE_OPENAI_AUTH_BROKER_ENDPOINT", "YOLO_SERVICE_OPENAI_AUTH_BROKER_TOKEN"} {
+		if v, _ := seen.jailDaemons.Env.Get(k); v == nil || v == "" {
+			t.Errorf("the supervisor's env lacks %s, which the adapter reads", k)
+		}
+	}
+}
+
+// A pack SERVICE's jail_daemon is declined by name, with the reason: on this backend a pack
+// service runs its host half (OQ-NC1 A), never its jail daemon.
+func TestMacosUserDeclinesAServiceJailDaemonByName(t *testing.T) {
+	home := packHome(t)
+	ws := t.TempDir()
+	writeLocalPackJSON(t, home, `{"contributes": [{"kind": "service", "name": "acme-bridge",
+		"jail_daemon": {"cmd": ["yolo-jaild", "acme-bridge"]},
+		"endpoint": "acme-bridge.endpoint"}]}`)
+	writeUserConfigJSON(t, home, `{"packs": []}`)
+
+	got := macosUserLaunch(t, ws)
+	if got.rc != 0 {
+		t.Fatalf("Run() = %d, want 0\n%s", got.rc, got.out)
+	}
+	if !strings.Contains(got.out, "acme-bridge: yolo-jaild acme-bridge — a pack service runs its host half") {
+		t.Errorf("a pack SERVICE's jail daemon is not declined by name with its reason:\n%s", got.out)
+	}
+	if len(payloadOf(t, got.jailDaemons)) != 0 {
+		t.Errorf("the guest was handed a pack service's jail daemon: %+v", payloadOf(t, got.jailDaemons))
+	}
+}
+
+// A launch whose selected packs declare NO jail daemon says nothing and hands the guest nothing:
+// a notice on every native launch is the one OQ-BP-3 says people learn to skip.
+func TestMacosUserWithNoJailDaemonDeclinesAndRunsNothing(t *testing.T) {
+	home := packHome(t)
+	ws := t.TempDir()
+	writeLocalLoopholePack(t, home, "acme-proxy", `{"name": "acme-proxy",
+		"description": "acme proxy", "default_enabled": true, "transport": "loopback-tls",
+		"host_daemon": {"publishes": "socket", "cmd": `+testHostDaemonCmdJSON("acme-no-jd")+`}}`)
+	writeUserConfigJSON(t, home, `{"packs": []}`)
+
+	got := macosUserLaunch(t, ws)
+	if got.rc != 0 {
+		t.Fatalf("Run() = %d, want 0\n%s", got.rc, got.out)
+	}
+	if strings.Contains(got.out, "Declined: these jail daemons") {
+		t.Errorf("a launch with no declared jail daemon printed a decline:\n%s", got.out)
+	}
+	if got.jailDaemons.Env != nil {
+		t.Errorf("a launch with no jail daemon handed the guest a supervisor env")
+	}
+}
+
+// A --dry-run hands the plan the same guest daemons and states the same declines: a plan must
+// describe the launch a user would really get.
+func TestMacosUserDryRunDescribesTheGuestDaemonsToo(t *testing.T) {
+	home := packHome(t)
+	ws := t.TempDir()
+	writeLocalLoopholePack(t, home, "acme-proxy", `{"name": "acme-proxy",
+		"description": "acme proxy", "default_enabled": true, "transport": "loopback-tls",
+		"jail_daemon": {"cmd": ["yolo-jaild", "acme-adapter"]}}`)
+	writeLocalPackJSON(t, home, `{"contributes": [
+		{"kind": "loophole", "from": "loopholes/acme-proxy"},
+		{"kind": "service", "name": "acme-bridge",
+		 "jail_daemon": {"cmd": ["yolo-jaild", "acme-bridge"]}}]}`)
+	writeUserConfigJSON(t, home, `{"packs": []}`)
+
+	var stdout, stderr bytes.Buffer
+	o := dispatchOptions(t, ws, "macos-user", &stdout, &stderr, nil)
+	o.DryRun = true
+	var handed macosuser.JailDaemons
+	o.MacosUserRun = func(_ *jsonx.OrderedMap, _ string, _, _ []string, _, _ string, _ macosuser.HomeOverlay,
+		_ macosuser.HostContext, _ bool, _ *jsonx.OrderedMap, _ []packload.BlockedTool, jd macosuser.JailDaemons) int {
+		handed = jd
+		return 0
+	}
+	if rc := Run(*o); rc != 0 {
+		t.Fatalf("Run(--dry-run) = %d, want 0\n%s%s", rc, stdout.String(), stderr.String())
+	}
+	out := stdout.String() + stderr.String()
+	if !strings.Contains(out, "acme-bridge: yolo-jaild acme-bridge — ") {
+		t.Errorf("the plan render does not state the decline:\n%s", out)
+	}
+	if specs := payloadOf(t, handed); len(specs) != 1 || specs[0].Name != "acme-proxy" {
+		t.Errorf("the plan render was handed %+v, want the acme-proxy guest daemon", specs)
+	}
+}
 
 // writeLocalPackJSON writes the CONVENTIONAL local pack's manifest (~/.config/yolo-jail/local),
 // which config.LoadPacks appends with no `packs` entry naming it — the cheapest way for a
@@ -41,144 +210,6 @@ func writeLocalPackJSON(t *testing.T, home, body string) {
 	}
 	if err := os.WriteFile(filepath.Join(dir, "pack.json"), []byte(body), 0o644); err != nil {
 		t.Fatal(err)
-	}
-}
-
-// A LOOPHOLE's jail_daemon is declined BY NAME, with its argv, and the launch still succeeds.
-//
-// The argv matters as much as the name: it says which port a jail-side process would have
-// bound (for the shipped openai-auth adapter 127.0.0.1:1460), so a decline that printed the name
-// alone would not tell a user what is missing. It is printed RESOLVED: the manifest spells the
-// port once, as `jail_daemon.listen`, and its argv takes it as {listen}
-// (docs/plans/notch-convergence.md NC-D41), which the line must never show raw.
-func TestMacosUserDeclinesALoopholeJailDaemonByName(t *testing.T) {
-	home := packHome(t)
-	ws := t.TempDir()
-	writeLocalLoopholePack(t, home, "acme-proxy", `{"name": "acme-proxy",
-		"description": "acme proxy", "default_enabled": true, "transport": "loopback-tls",
-		"jail_daemon": {"cmd": ["yolo-jaild", "acme-adapter", "--listen", "{listen}"],
-		"listen": "127.0.0.1:1460"}}`)
-	writeUserConfigJSON(t, home, `{"packs": []}`)
-
-	got := macosUserLaunch(t, ws)
-	if got.rc != 0 {
-		t.Fatalf("Run() = %d, want 0 — a declined jail daemon is not a launch failure\n%s",
-			got.rc, got.out)
-	}
-	if !strings.Contains(got.out, "no jail-side daemon runs on macos-user") {
-		t.Errorf("the launch declared a jail daemon on a backend that starts none and said "+
-			"nothing. The endpoint is published and ACL-granted with nothing listening, so "+
-			"silence here is the B-0 shape: a backend that looked provisioned and configured "+
-			"nothing.\n%s", got.out)
-	}
-	if !strings.Contains(got.out, "acme-proxy: yolo-jaild acme-adapter --listen 127.0.0.1:1460") {
-		t.Errorf("the decline does not name the daemon AND its argv, so a user cannot tell "+
-			"which declaration is inert or what it would have bound:\n%s", got.out)
-	}
-}
-
-// A pack SERVICE's jail_daemon is declined too — the half a report over loopholes alone would
-// miss, and the half the shipped default actually turns on (`packs/claude` `needs`
-// `wire-bridge` unconditionally, and its whole content is one `kind: "service"` daemon).
-func TestMacosUserDeclinesAServiceJailDaemonByName(t *testing.T) {
-	home := packHome(t)
-	ws := t.TempDir()
-	writeLocalPackJSON(t, home, `{"contributes": [{"kind": "service", "name": "acme-bridge",
-		"jail_daemon": {"cmd": ["yolo-jaild", "acme-bridge"]},
-		"endpoint": "acme-bridge.endpoint"}]}`)
-	writeUserConfigJSON(t, home, `{"packs": []}`)
-
-	got := macosUserLaunch(t, ws)
-	if got.rc != 0 {
-		t.Fatalf("Run() = %d, want 0\n%s", got.rc, got.out)
-	}
-	if !strings.Contains(got.out, "acme-bridge: yolo-jaild acme-bridge") {
-		t.Errorf("a pack SERVICE's jail daemon is in the same payload as a loophole's (one env "+
-			"contract, one writer) and must be declined in the same breath:\n%s", got.out)
-	}
-}
-
-// ONE LINE PER DAEMON, not one per launch: two declarations, two named lines.
-//
-// Asserted because the header alone would satisfy a report that said "some daemons will not
-// run" — and the whole complaint against the old silence was that the user could not tell
-// WHICH declarations were inert.
-func TestMacosUserDeclinesEveryDeclaredJailDaemon(t *testing.T) {
-	home := packHome(t)
-	ws := t.TempDir()
-	writeLocalLoopholePack(t, home, "acme-proxy", `{"name": "acme-proxy",
-		"description": "acme proxy", "default_enabled": true, "transport": "loopback-tls",
-		"jail_daemon": {"cmd": ["yolo-jaild", "acme-adapter"]}}`)
-	// The loophole contribution above plus a service one, in the one local pack.
-	writeLocalPackJSON(t, home, `{"contributes": [
-		{"kind": "loophole", "from": "loopholes/acme-proxy"},
-		{"kind": "service", "name": "acme-bridge",
-		 "jail_daemon": {"cmd": ["yolo-jaild", "acme-bridge"]}}]}`)
-	writeUserConfigJSON(t, home, `{"packs": []}`)
-
-	got := macosUserLaunch(t, ws)
-	if got.rc != 0 {
-		t.Fatalf("Run() = %d, want 0\n%s", got.rc, got.out)
-	}
-	for _, want := range []string{
-		"acme-proxy: yolo-jaild acme-adapter",
-		"acme-bridge: yolo-jaild acme-bridge",
-	} {
-		if !strings.Contains(got.out, want) {
-			t.Errorf("missing a per-daemon decline line for %q — the report must name each "+
-				"declaration, not the count:\n%s", want, got.out)
-		}
-	}
-}
-
-// A launch that declared NO jail daemon says nothing. The silence is the point: a notice that
-// printed on every native launch is the one OQ-BP-3 says people learn to skip, and this
-// backend's whole selected set can legitimately declare none.
-func TestMacosUserWithNoJailDaemonDeclinesNothing(t *testing.T) {
-	home := packHome(t)
-	ws := t.TempDir()
-	writeLocalLoopholePack(t, home, "acme-proxy", `{"name": "acme-proxy",
-		"description": "acme proxy", "default_enabled": true, "transport": "loopback-tls",
-		"host_daemon": {"publishes": "socket", "cmd": `+testHostDaemonCmdJSON("acme-no-jd")+`}}`)
-	writeUserConfigJSON(t, home, `{"packs": []}`)
-
-	got := macosUserLaunch(t, ws)
-	if got.rc != 0 {
-		t.Fatalf("Run() = %d, want 0\n%s", got.rc, got.out)
-	}
-	if strings.Contains(got.out, "no jail-side daemon runs on macos-user") {
-		t.Errorf("a launch with no declared jail daemon printed the decline anyway:\n%s", got.out)
-	}
-}
-
-// A --dry-run states the decline too, and that is the opposite of the exec disclosure's rule.
-//
-// Both rules come from the same principle: say what this invocation will really do. A plan
-// render starts nothing, so an exec line would overclaim (TestMacosUserDryRunStartsNoHostServices
-// is that half) — while "this daemon is declared and will not run" is exactly as true of the
-// plan as of the launch, and a `--dry-run` is the instrument people use to find out.
-func TestMacosUserDryRunStillDeclinesJailDaemons(t *testing.T) {
-	home := packHome(t)
-	ws := t.TempDir()
-	writeLocalLoopholePack(t, home, "acme-proxy", `{"name": "acme-proxy",
-		"description": "acme proxy", "default_enabled": true, "transport": "loopback-tls",
-		"jail_daemon": {"cmd": ["yolo-jaild", "acme-adapter"]}}`)
-	writeUserConfigJSON(t, home, `{"packs": []}`)
-
-	var stdout, stderr bytes.Buffer
-	o := dispatchOptions(t, ws, "macos-user", &stdout, &stderr, nil)
-	o.DryRun = true
-	o.MacosUserRun = func(_ *jsonx.OrderedMap, _ string, _, _ []string, _, _ string, _ macosuser.HomeOverlay,
-		_ macosuser.HostContext, _ bool, _ *jsonx.OrderedMap, _ []packload.BlockedTool) int {
-		return 0
-	}
-	if rc := Run(*o); rc != 0 {
-		t.Fatalf("Run(--dry-run) = %d, want 0\n%s%s", rc, stdout.String(), stderr.String())
-	}
-	out := stdout.String() + stderr.String()
-	if !strings.Contains(out, "acme-proxy: yolo-jaild acme-adapter") {
-		t.Errorf("a plan render must describe the launch a user would really get, and this "+
-			"declaration is inert in both:\n%s", out)
 	}
 }
 

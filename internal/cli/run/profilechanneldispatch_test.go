@@ -77,7 +77,7 @@ func TestProfileChannelReachesTheMacosUserBackend(t *testing.T) {
 
 	var got *jsonx.OrderedMap
 	o.MacosUserRun = func(_ *jsonx.OrderedMap, _ string, _, _ []string, _, _ string, _ macosuser.HomeOverlay, _ macosuser.HostContext, _ bool,
-		packEnv *jsonx.OrderedMap, _ []packload.BlockedTool) int {
+		packEnv *jsonx.OrderedMap, _ []packload.BlockedTool, _ macosuser.JailDaemons) int {
 		got = packEnv
 		return 0
 	}
@@ -119,7 +119,7 @@ func TestProfileChannelPreflightRefusesTheMacosUserLaunch(t *testing.T) {
 
 	reached := false
 	o.MacosUserRun = func(_ *jsonx.OrderedMap, _ string, _, _ []string, _, _ string, _ macosuser.HomeOverlay, _ macosuser.HostContext, _ bool,
-		_ *jsonx.OrderedMap, _ []packload.BlockedTool) int {
+		_ *jsonx.OrderedMap, _ []packload.BlockedTool, _ macosuser.JailDaemons) int {
 		reached = true
 		return 0
 	}
@@ -148,7 +148,7 @@ func TestProfileChannelPreflightRefusesTheMacosUserLaunch(t *testing.T) {
 		return ""
 	}
 	o.MacosUserRun = func(_ *jsonx.OrderedMap, _ string, _, _ []string, _, _ string, _ macosuser.HomeOverlay, _ macosuser.HostContext, _ bool,
-		_ *jsonx.OrderedMap, _ []packload.BlockedTool) int {
+		_ *jsonx.OrderedMap, _ []packload.BlockedTool, _ macosuser.JailDaemons) int {
 		return 0
 	}
 	if rc := Run(*o); rc != 0 {
@@ -169,7 +169,7 @@ func TestUnprofiledNativeLaunchStillCarriesTheEmptyWireTables(t *testing.T) {
 
 	var got *jsonx.OrderedMap
 	o.MacosUserRun = func(_ *jsonx.OrderedMap, _ string, _, _ []string, _, _ string, _ macosuser.HomeOverlay, _ macosuser.HostContext, _ bool,
-		packEnv *jsonx.OrderedMap, _ []packload.BlockedTool) int {
+		packEnv *jsonx.OrderedMap, _ []packload.BlockedTool, _ macosuser.JailDaemons) int {
 		got = packEnv
 		return 0
 	}
@@ -244,7 +244,7 @@ func TestRunRefusesAnUnresolvableProviderAddress(t *testing.T) {
 	}
 	reached := false
 	o.MacosUserRun = func(_ *jsonx.OrderedMap, _ string, _, _ []string, _, _ string, _ macosuser.HomeOverlay, _ macosuser.HostContext, _ bool,
-		_ *jsonx.OrderedMap, _ []packload.BlockedTool) int {
+		_ *jsonx.OrderedMap, _ []packload.BlockedTool, _ macosuser.JailDaemons) int {
 		reached = true
 		return 0
 	}

@@ -74,7 +74,7 @@ func sharedNetworkLaunch(t *testing.T, rt, network string, nested bool) string {
 		o.IsMacOS, o.IsLinux = true, false
 		o.MacosUserRun = func(*jsonx.OrderedMap, string, []string, []string, string, string,
 			macosuser.HomeOverlay, macosuser.HostContext, bool, *jsonx.OrderedMap,
-			[]packload.BlockedTool) int {
+			[]packload.BlockedTool, macosuser.JailDaemons) int {
 			return 0
 		}
 	}

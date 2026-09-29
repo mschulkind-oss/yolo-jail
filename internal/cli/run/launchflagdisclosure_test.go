@@ -34,7 +34,7 @@ func TestALaunchDisclosesTheArgvItRewrote(t *testing.T) {
 	o.Args = []string{"copilot", "chat"}
 	var gotArgv []string
 	o.MacosUserRun = func(_ *jsonx.OrderedMap, _ string, _ []string, agentArgv []string,
-		_, _ string, _ macosuser.HomeOverlay, _ macosuser.HostContext, _ bool, _ *jsonx.OrderedMap, _ []packload.BlockedTool) int {
+		_, _ string, _ macosuser.HomeOverlay, _ macosuser.HostContext, _ bool, _ *jsonx.OrderedMap, _ []packload.BlockedTool, _ macosuser.JailDaemons) int {
 		gotArgv = agentArgv
 		return 0
 	}

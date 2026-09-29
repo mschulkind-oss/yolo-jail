@@ -95,6 +95,8 @@ type macosUserLaunchResult struct {
 	sessionDirs []string
 	out         string
 	rc          int
+	// jailDaemons is what the arm handed the guest's supervisor (OQ-DP8/DP9).
+	jailDaemons macosuser.JailDaemons
 }
 
 // macosUserLaunch runs a real macos-user launch against a stub backend handler.
@@ -105,8 +107,9 @@ func macosUserLaunch(t *testing.T, ws string) macosUserLaunchResult {
 	cname := runtime.FromWorkspace(ws)
 	got := macosUserLaunchResult{}
 	o.MacosUserRun = func(_ *jsonx.OrderedMap, _ string, _, _ []string, _, _ string, _ macosuser.HomeOverlay,
-		_ macosuser.HostContext, _ bool, launchEnv *jsonx.OrderedMap, _ []packload.BlockedTool) int {
+		_ macosuser.HostContext, _ bool, launchEnv *jsonx.OrderedMap, _ []packload.BlockedTool, jd macosuser.JailDaemons) int {
 		got.env = launchEnv
+		got.jailDaemons = jd
 		got.sessionDirs = servicesSessionDirs(t, cname)
 		for _, dir := range got.sessionDirs {
 			entries, _ := os.ReadDir(dir)
@@ -235,7 +238,7 @@ func TestMacosUserDryRunStartsNoHostServices(t *testing.T) {
 	o := dispatchOptions(t, ws, "macos-user", &stdout, &stderr, nil)
 	o.DryRun = true
 	o.MacosUserRun = func(_ *jsonx.OrderedMap, _ string, _, _ []string, _, _ string, _ macosuser.HomeOverlay,
-		_ macosuser.HostContext, _ bool, _ *jsonx.OrderedMap, _ []packload.BlockedTool) int {
+		_ macosuser.HostContext, _ bool, _ *jsonx.OrderedMap, _ []packload.BlockedTool, _ macosuser.JailDaemons) int {
 		return 0
 	}
 	cname := runtime.FromWorkspace(ws)

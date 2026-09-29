@@ -90,3 +90,32 @@ func BuildJailPrefix(repoRoot string, out io.Writer) (string, []string) {
 // destination, which is what lets the same derivation serve as a host install
 // prefix and as the jail's mount source.
 const JailPrefixSubdir = "opt/yolo-jail"
+
+// GuestPrefixOutLink is BuildGuestPrefix's durable out-link, keyed by the source tree like
+// JailPrefixOutLink and for its reasons: one GC root per checkout, replaced in place.
+func GuestPrefixOutLink(repoRoot string) string {
+	return filepath.Join(paths.BuildDir(), "guest-prefix-"+keyFor(repoRoot))
+}
+
+// BuildGuestPrefix builds `.#guestPrefix` in repoRoot — the macos-user guest's darwin in-jail
+// binaries (docs/design/declaration-parity.md OQ-DP8) — and returns the store path of the
+// realized output (its binaries are under <storePath>/bin), plus nix's retained stderr tail.
+// "" means the build failed, and the caller refuses the launch: the sandbox's supervisor would
+// have no binary to exec. `out` receives nix's progress summaries only, for BuildJailPrefix's
+// reason.
+//
+// A DARWIN DERIVATION PRODUCING DARWIN BINARIES on the Mac that asks: the flake's `system` is
+// the host's, and guestPrefix cross-compiles with CGO off from the host Go toolchain, so no
+// Linux builder is involved.
+func BuildGuestPrefix(repoRoot string, out io.Writer) (string, []string) {
+	if out == nil {
+		out = io.Discard
+	}
+	outLink := GuestPrefixOutLink(repoRoot)
+	if err := os.MkdirAll(filepath.Dir(outLink), 0o755); err != nil {
+		return "", []string{"could not create build dir: " + err.Error()}
+	}
+	return runNixBuild(
+		flakeBuildArgv(guestPrefixAttr, outLink, nil),
+		repoRoot, os.Environ(), outLink, out)
+}

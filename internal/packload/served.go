@@ -5,9 +5,11 @@ package packload
 //
 // SERVED AT THIS NOTCH is a term this file coins. A jail daemon — a loophole's `jail_daemon` or a
 // pack service's — is served at a notch when that notch runs it: a container runtime runs every
-// daemon in its launch's composed payload (internal/cli/run's jailDaemonsFor), while macos-user,
-// which has no in-jail supervisor, and the host notch, which runs no jail daemon at all, run none.
-// An address such a daemon serves is SERVED exactly when the daemon is.
+// daemon in its launch's composed payload (internal/cli/run's jailDaemonsFor); macos-user runs
+// them too since OQ-DP8/OQ-DP9 (docs/design/declaration-parity.md), confined in its Seatbelt
+// guest, except the ones it declines by name (internal/loopholes' JailDaemonsRunIn, the one
+// answer to which of a payload's daemons a runtime runs); and the host notch runs none. An
+// address such a daemon serves is SERVED exactly when the daemon is.
 //
 // WHY ONE PREDICATE. Each notch used to answer "does anything listen there?" its own way. The
 // host composed no adapter address (a WithoutServiceAdaptations option) and cleared every via
@@ -28,7 +30,7 @@ import (
 )
 
 // ServedDaemons is the set of jail daemons served at one notch, and WHERE each serves. The zero
-// value serves nothing, which is the host's and macos-user's answer.
+// value serves nothing, which is the host's answer.
 //
 // A SERVED ADDRESS (coined here, docs/plans/notch-convergence.md NC-D41) is the loopback
 // `host:port` a served daemon, adaptation or via route answers at in THIS launch. It is the
@@ -40,9 +42,9 @@ import (
 // a daemon's argv, its clients' pack env pointer and the provider table cannot disagree.
 type ServedDaemons struct {
 	// runs is whether this notch runs jail daemons at all. It is what separates "this daemon
-	// is not in the payload" (a container launch that did not enable it) from "no daemon
-	// runs here" (the host, macos-user): only at a notch that runs them would selecting
-	// another service pack serve its address.
+	// is not in the payload" (a jail launch that did not enable it) from "no daemon runs
+	// here" (the host): only at a notch that runs them would selecting another service pack
+	// serve its address.
 	runs  bool
 	names map[string]bool
 	// listen is each served daemon's served address, keyed by daemon name: what TokenListen
@@ -117,9 +119,11 @@ func (s ServedDaemons) resolveListen(daemon, value string) (string, bool) {
 	return strings.ReplaceAll(value, loopholedecl.TokenListen, addr), true
 }
 
-// ServedAtContainer is the set a container runtime serves: every jail daemon its composed
-// payload names.
-func ServedAtContainer(names []string) ServedDaemons {
+// ServedInJail is the set a jail serves: the jail daemons it runs, by name — on a container
+// runtime every one its composed payload names, and on macos-user the ones
+// loopholes.JailDaemonsRunIn keeps. The caller passes that split's names, so the launch and
+// `yolo check`'s prediction of it build the set from the one selection.
+func ServedInJail(names []string) ServedDaemons {
 	s := ServedDaemons{runs: true, names: map[string]bool{}}
 	for _, n := range names {
 		s.names[n] = true
@@ -127,26 +131,42 @@ func ServedAtContainer(names []string) ServedDaemons {
 	return s
 }
 
-// NothingServed is the set a notch that runs no jail daemon serves: the host, and macos-user,
-// before either starts a launch-owned service.
+// NothingServed is the set a notch that runs no jail daemon serves: the host, before it starts
+// a launch-owned service.
 func NothingServed() ServedDaemons { return ServedDaemons{} }
 
 // ServedByLaunch is the set a host or macos-user launch serves once it has decided to start the
 // named pack services' host halves as launch-owned children (internal/launchservice,
-// docs/design/host-notch-services.md): those services, and no jail daemon, since that notch still
-// runs none. Their addresses come from WithRebind, the ports that launch picked.
-func ServedByLaunch(services []string) ServedDaemons { return ServedAtContainer(services) }
+// docs/design/host-notch-services.md). Their addresses come from WithRebind, the ports that
+// launch picked. A macos-user launch serves them beside the jail daemons its guest runs (Plus).
+func ServedByLaunch(services []string) ServedDaemons { return ServedInJail(services) }
 
-// ServedAtRuntime is the served set of a jail launch on runtime rt whose composed payload names
-// the daemons in names: every one of them on a container runtime, and none on macos-user,
-// which has no in-jail supervisor and declines every one. The one place the jail notches'
-// answer differs, so the launch (internal/cli/run) and `yolo check`'s prediction of it ask the
-// same function.
-func ServedAtRuntime(rt string, names []string) ServedDaemons {
-	if rt == "macos-user" {
-		return NothingServed()
+// Plus is s and o together: every name either serves, each one's listen address, and both
+// rebind maps (o's wins a collision, which no two sets built for one launch produce). It runs
+// daemons when either does. macos-user's served set is its guest's jail daemons Plus the
+// launch-owned services it planned.
+func (s ServedDaemons) Plus(o ServedDaemons) ServedDaemons {
+	out := ServedDaemons{runs: s.runs || o.runs, names: map[string]bool{}}
+	for _, part := range []ServedDaemons{s, o} {
+		for n, ok := range part.names {
+			if ok {
+				out.names[n] = true
+			}
+		}
+		for n, a := range part.listen {
+			if out.listen == nil {
+				out.listen = map[string]string{}
+			}
+			out.listen[n] = a
+		}
+		for k, v := range part.rebind {
+			if out.rebind == nil {
+				out.rebind = map[string]string{}
+			}
+			out.rebind[k] = v
+		}
 	}
-	return ServedAtContainer(names)
+	return out
 }
 
 // ServiceJailDaemonNames is the name of every selected pack service that declares a jail

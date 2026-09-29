@@ -15,7 +15,7 @@ import (
 // movedBridge is a container launch serving the wire bridge, with its three declared addresses
 // moved the way a shared-namespace launch moves them.
 func movedBridge() ServedDaemons {
-	return ServedAtContainer([]string{"wire-bridge"}).WithRebind(map[string]string{
+	return ServedInJail([]string{"wire-bridge"}).WithRebind(map[string]string{
 		"127.0.0.1:8214": "127.0.0.1:48214",
 		"127.0.0.1:8215": "127.0.0.1:48215",
 		"127.0.0.1:8216": "127.0.0.1:48216",
@@ -53,7 +53,7 @@ func TestTheProviderTableComposesAServiceAdaptationAtItsServedAddress(t *testing
 	if got := anthropicBase(t, moved, "cerebras"); got != "http://127.0.0.1:48214" {
 		t.Errorf("cerebras's bridged anthropic endpoint = %q, want the served 127.0.0.1:48214", got)
 	}
-	declared, _, err := ComposeProvidersAt(nil, packs, nil, ServedAtContainer([]string{"wire-bridge"}))
+	declared, _, err := ComposeProvidersAt(nil, packs, nil, ServedInJail([]string{"wire-bridge"}))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -96,7 +96,7 @@ func TestAListenPointerComposesItsDaemonsServedAddress(t *testing.T) {
 		}
 		return s
 	}
-	served := ServedAtContainer([]string{"openai-auth-broker", "aws-auth"}).WithListen(map[string]string{
+	served := ServedInJail([]string{"openai-auth-broker", "aws-auth"}).WithListen(map[string]string{
 		"openai-auth-broker": "127.0.0.1:41460", "aws-auth": "127.0.0.1:41461",
 	})
 	s := scope(served)
@@ -113,7 +113,7 @@ func TestAListenPointerComposesItsDaemonsServedAddress(t *testing.T) {
 		t.Errorf("the bedrock pointer = %q, want the AWS adapter's served address", uri)
 	}
 
-	bare := scope(ServedAtContainer([]string{"openai-auth-broker", "aws-auth"}))
+	bare := scope(ServedInJail([]string{"openai-auth-broker", "aws-auth"}))
 	if v, ok := bare.DeliveredPackEnv("CODEX_REFRESH_TOKEN_URL_OVERRIDE"); ok {
 		t.Errorf("a pointer whose daemon has no address was delivered as %q", v)
 	}

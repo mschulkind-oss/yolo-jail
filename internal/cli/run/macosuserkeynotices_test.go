@@ -43,7 +43,7 @@ func macosUserNoticeRun(t *testing.T, cfg string) string {
 	o := dispatchOptions(t, ws, "macos-user", &stdout, &stderr, nil)
 	o.DryRun = true
 	o.MacosUserRun = func(*jsonx.OrderedMap, string, []string, []string, string, string,
-		macosuser.HomeOverlay, macosuser.HostContext, bool, *jsonx.OrderedMap, []packload.BlockedTool) int {
+		macosuser.HomeOverlay, macosuser.HostContext, bool, *jsonx.OrderedMap, []packload.BlockedTool, macosuser.JailDaemons) int {
 		return 0
 	}
 	if rc := Run(*o); rc != 0 {

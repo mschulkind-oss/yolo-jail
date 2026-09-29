@@ -54,7 +54,7 @@ func TestMacosUserLaunchGatesOnConfigApproval(t *testing.T) {
 	o := dispatchOptions(t, ws, "macos-user", &stdout, &stderr, nil)
 	o.IsTTYStdin = func() bool { return false }
 	reached := false
-	o.MacosUserRun = func(*jsonx.OrderedMap, string, []string, []string, string, string, macosuser.HomeOverlay, macosuser.HostContext, bool, *jsonx.OrderedMap, []packload.BlockedTool) int {
+	o.MacosUserRun = func(*jsonx.OrderedMap, string, []string, []string, string, string, macosuser.HomeOverlay, macosuser.HostContext, bool, *jsonx.OrderedMap, []packload.BlockedTool, macosuser.JailDaemons) int {
 		reached = true
 		return 0
 	}
@@ -90,7 +90,7 @@ func TestMacosUserLaunchAcceptsWithTheFlagAndRecordsIt(t *testing.T) {
 	o.IsTTYStdin = func() bool { return false }
 	o.AcceptConfigChanges = true
 	reached := false
-	o.MacosUserRun = func(*jsonx.OrderedMap, string, []string, []string, string, string, macosuser.HomeOverlay, macosuser.HostContext, bool, *jsonx.OrderedMap, []packload.BlockedTool) int {
+	o.MacosUserRun = func(*jsonx.OrderedMap, string, []string, []string, string, string, macosuser.HomeOverlay, macosuser.HostContext, bool, *jsonx.OrderedMap, []packload.BlockedTool, macosuser.JailDaemons) int {
 		reached = true
 		return 0
 	}
@@ -120,7 +120,7 @@ func TestMacosUserDryRunIsExemptFromTheApprovalGate(t *testing.T) {
 	o.IsTTYStdin = func() bool { return false }
 	o.DryRun = true
 	reached := false
-	o.MacosUserRun = func(_ *jsonx.OrderedMap, _ string, _, _ []string, _, _ string, _ macosuser.HomeOverlay, _ macosuser.HostContext, dryRun bool, _ *jsonx.OrderedMap, _ []packload.BlockedTool) int {
+	o.MacosUserRun = func(_ *jsonx.OrderedMap, _ string, _, _ []string, _, _ string, _ macosuser.HomeOverlay, _ macosuser.HostContext, dryRun bool, _ *jsonx.OrderedMap, _ []packload.BlockedTool, _ macosuser.JailDaemons) int {
 		reached = true
 		if !dryRun {
 			t.Error("dry-run flag did not reach the handler")

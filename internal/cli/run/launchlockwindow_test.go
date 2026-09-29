@@ -64,7 +64,7 @@ func TestTheMacosUserBackendIsHandedTheLaunchLockStagingTook(t *testing.T) {
 
 	reached := false
 	o.MacosUserRun = func(_ *jsonx.OrderedMap, _ string, _, _ []string, _, _ string, _ macosuser.HomeOverlay,
-		_ macosuser.HostContext, _ bool, _ *jsonx.OrderedMap, _ []packload.BlockedTool) int {
+		_ macosuser.HostContext, _ bool, _ *jsonx.OrderedMap, _ []packload.BlockedTool, _ macosuser.JailDaemons) int {
 		reached = true
 		if !launchLockHeld(t, lockPath) {
 			t.Error("the macos-user backend was dispatched without the workspace launch lock " +

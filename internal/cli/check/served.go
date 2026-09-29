@@ -9,10 +9,12 @@ import (
 // predictedServed is what `yolo check` predicts the configured runtime's launch SERVES AT ITS
 // NOTCH (packload.ServedDaemons; docs/plans/notch-convergence.md §4 item 2): the jail daemons
 // that launch's payload would name — every enabled loophole's, through the loophole set's own
-// composer, and every selected pack service's — on the runtime YOLO_RUNTIME or the config
-// names, through the same packload.ServedAtRuntime the launch asks. So on macos-user the
-// prediction serves nothing, and every gate it predicts refuses or withholds what that launch
-// does.
+// composer, and every selected pack service's — narrowed to the ones a jail on the runtime
+// YOLO_RUNTIME or the config names actually RUNS, through the same
+// loopholes.JailDaemonNamesRunIn the launch's servedDaemons asks. So on macos-user the
+// prediction serves the daemons its sandbox runs (OQ-DP8/OQ-DP9) and declines the same ones
+// the launch declines by name, and every gate it predicts refuses or withholds what that
+// launch does.
 //
 // No runtime named predicts a container one, which is what a launch with none named resolves
 // to on every platform: macos-user is only ever chosen by name.
@@ -22,15 +24,15 @@ func (o *Options) predictedServed(merged *jsonx.OrderedMap, packs []*packload.Pa
 		rt = o.configuredRuntimeName(merged)
 	}
 	set := loopholes.NewHostSet(subMap(merged, "loopholes"))
-	var names []string
-	listen := map[string]string{}
-	for _, spec := range set.JailDaemons(set.Enabled(), rt, nil) {
-		names = append(names, spec.Name)
-		listen[spec.Name] = spec.Listen
+	// The pack services' daemons as specs of their own shape (Service), so the one split below
+	// declines them where the launch does rather than by a second rule here.
+	var services []loopholes.JailDaemonSpec
+	for _, name := range packload.ServiceJailDaemonNames(packs) {
+		services = append(services, loopholes.JailDaemonSpec{Name: name, Service: true})
 	}
-	names = append(names, packload.ServiceJailDaemonNames(packs)...)
 	// Each daemon at its DECLARED listen address: a prediction binds nothing, so it has no
 	// port of a shared namespace's launch to know, and a pointer naming {listen} composes to
 	// the address a private namespace serves (docs/plans/notch-convergence.md NC-D41).
-	return packload.ServedAtRuntime(rt, names).WithListen(listen)
+	names, listen := loopholes.JailDaemonNamesRunIn(rt, set.JailDaemons(set.Enabled(), rt, services))
+	return packload.ServedInJail(names).WithListen(listen)
 }

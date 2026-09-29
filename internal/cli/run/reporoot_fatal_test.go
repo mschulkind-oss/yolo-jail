@@ -135,7 +135,7 @@ func TestRunMacosUserGatedOnMissingRepoRootWithNoPackages(t *testing.T) {
 	o := runFatalOptions(t, ws, "macos-user", &stdout, &stderr)
 
 	reached := false
-	o.MacosUserRun = func(_ *jsonx.OrderedMap, _ string, _, _ []string, _, _ string, _ macosuser.HomeOverlay, _ macosuser.HostContext, _ bool, _ *jsonx.OrderedMap, _ []packload.BlockedTool) int {
+	o.MacosUserRun = func(_ *jsonx.OrderedMap, _ string, _, _ []string, _, _ string, _ macosuser.HomeOverlay, _ macosuser.HostContext, _ bool, _ *jsonx.OrderedMap, _ []packload.BlockedTool, _ macosuser.JailDaemons) int {
 		reached = true
 		return 0
 	}
@@ -184,7 +184,7 @@ func TestRunMacosUserGatedOnMissingRepoRootWithPackages(t *testing.T) {
 	o := runFatalOptions(t, ws, "macos-user", &stdout, &stderr)
 
 	reached := false
-	o.MacosUserRun = func(_ *jsonx.OrderedMap, _ string, _, _ []string, _, _ string, _ macosuser.HomeOverlay, _ macosuser.HostContext, _ bool, _ *jsonx.OrderedMap, _ []packload.BlockedTool) int {
+	o.MacosUserRun = func(_ *jsonx.OrderedMap, _ string, _, _ []string, _, _ string, _ macosuser.HomeOverlay, _ macosuser.HostContext, _ bool, _ *jsonx.OrderedMap, _ []packload.BlockedTool, _ macosuser.JailDaemons) int {
 		reached = true
 		return 0
 	}
@@ -224,7 +224,7 @@ func TestRunMacosUserDryRunNotGatedWithPackages(t *testing.T) {
 	o.DryRun = true
 
 	reached := false
-	o.MacosUserRun = func(_ *jsonx.OrderedMap, _ string, _, _ []string, _, _ string, _ macosuser.HomeOverlay, _ macosuser.HostContext, dryRun bool, _ *jsonx.OrderedMap, _ []packload.BlockedTool) int {
+	o.MacosUserRun = func(_ *jsonx.OrderedMap, _ string, _, _ []string, _, _ string, _ macosuser.HomeOverlay, _ macosuser.HostContext, dryRun bool, _ *jsonx.OrderedMap, _ []packload.BlockedTool, _ macosuser.JailDaemons) int {
 		reached = true
 		if !dryRun {
 			t.Errorf("MacosUserRun got dryRun=false, want true")

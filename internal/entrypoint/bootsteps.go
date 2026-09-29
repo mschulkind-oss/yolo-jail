@@ -429,7 +429,7 @@ func bootSteps() []bootStep {
 			name:      "note_service_caller_auth",
 			run:       func(b *bootRun) { noteServiceCallerAuth(b.e) },
 			noMark:    true,
-			notDarwin: "no pack service runs on macos-user; the launch declines each by name (noteMacosUserJailDaemonDeclines)",
+			notDarwin: "the macos-user launch hands its guest's supervisor its caller tokens in a root-owned env file of its own (macosuser.SandboxDaemonEnvFile), not through this bootstrap",
 		},
 		{
 			// Publish each caller token the boot was handed as an in-jail 0600 file, for a
@@ -439,14 +439,14 @@ func bootSteps() []bootStep {
 			name:      "write_caller_token_files",
 			run:       func(b *bootRun) { writeCallerTokenFiles(b.e) },
 			noMark:    true,
-			notDarwin: "no pack service runs on macos-user, so no caller token is handed to it (noteMacosUserJailDaemonDeclines)",
+			notDarwin: "the bootstrap is handed no caller token on macos-user: the guest's supervisor reads its tokens from its own root-owned env file, and the agent from its session env file",
 		},
 		{
 			// Start the jail-daemon supervisor (child of PID 1; kernel-reaped on exit).
 			name:      "start_jail_daemon_supervisor",
 			gen:       startJailDaemonSupervisor,
 			perf:      "jail_daemon_supervisor",
-			notDarwin: "jail daemons are declined on macos-user, by name, at launch (noteMacosUserJailDaemonDeclines)",
+			notDarwin: "the macos-user launch starts the guest's supervisor itself, confined by its Seatbelt profile, after this bootstrap exits (macosuser.JailDaemonArgv)",
 		},
 		{
 			// The in-jail reachability witness runs LAST, and both halves of that are

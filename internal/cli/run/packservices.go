@@ -73,6 +73,7 @@ func serviceJailDaemons(packs []*packload.Pack) []loopholes.JailDaemonSpec {
 		// daemon behind it demands one (wire-bridge.md WB-D18).
 		entries = append(entries, loopholes.JailDaemonSpec{
 			Name: s.Name, Cmd: s.JailDaemon.Cmd, Restart: restart, CallerToken: true,
+			Service: true,
 		})
 	}
 	sort.Slice(entries, func(i, j int) bool { return entries[i].Name < entries[j].Name })
@@ -107,8 +108,11 @@ func (o *Options) jailDaemonsFor(cfg *jsonx.OrderedMap, rt string,
 		set.JailDaemons(set.Enabled(), rt, serviceJailDaemons(packs)))
 	// WHERE EACH DAEMON LISTENS (servedaddresses.go): its declared address, or on a jail that
 	// shares this process's network namespace a port picked for this launch, settled once so
-	// the payload and every client composition read one answer.
-	o.settleServedAddresses(cfg, rt, specs, packs)
+	// the payload and every client composition read one answer. Only the daemons this jail
+	// RUNS (loopholes.JailDaemonsRunIn): a daemon macos-user declines binds nothing, and a
+	// pack service's host half picks its own ports there (internal/launchservice).
+	runs, _ := loopholes.JailDaemonsRunIn(rt, specs)
+	o.settleServedAddresses(cfg, rt, runs, packs)
 	return o.withServedListen(specs)
 }
 

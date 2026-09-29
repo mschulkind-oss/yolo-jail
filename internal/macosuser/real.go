@@ -1,12 +1,15 @@
 package macosuser
 
 import (
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
+	"syscall"
 	"time"
 )
 
@@ -251,3 +254,56 @@ func isDigits(s string) bool {
 	}
 	return true
 }
+
+// startBackgroundReal starts argv as the jail-daemon supervisor's launcher: no terminal
+// (stdin, stdout and stderr all /dev/null — the daemons log to their own files, and this runs
+// beside the agent's TTY proxy), in a PROCESS GROUP OF ITS OWN, so the stop can signal the
+// whole group, matching the container's teardown (jail-daemon-on-macos-user-plan.md step 4).
+//
+// The stop is SIGTERM to the group, then up to jailDaemonStopGrace for it to exit, then
+// SIGKILL. argv[0] is sudo, which this uid may signal (its real uid is ours) and which RELAYS
+// a SIGTERM to the command it runs; the supervisor's own teardown then gives each daemon
+// SIGTERM and 5 s before SIGKILL, which is why the grace here is longer than that. A SIGKILL
+// is not relayed — it is the last resort for a sudo that did not exit, and what it would leave
+// behind is the one thing only a Mac can measure (the plan's verification split).
+func startBackgroundReal(argv []string) (func(), error) {
+	if len(argv) == 0 {
+		return nil, errors.New("empty argv")
+	}
+	cmd := exec.Command(argv[0], argv[1:]...)
+	cmd.Stdin, cmd.Stdout, cmd.Stderr = nil, nil, nil
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	if err := cmd.Start(); err != nil {
+		return nil, err
+	}
+	done := make(chan struct{})
+	go func() {
+		_ = cmd.Wait()
+		close(done)
+	}()
+	pgid := cmd.Process.Pid
+	var once sync.Once
+	return func() {
+		once.Do(func() {
+			select {
+			case <-done:
+				return
+			default:
+			}
+			_ = syscall.Kill(-pgid, syscall.SIGTERM)
+			select {
+			case <-done:
+			case <-time.After(jailDaemonStopGrace):
+				_ = syscall.Kill(-pgid, syscall.SIGKILL)
+				select {
+				case <-done:
+				case <-time.After(2 * time.Second):
+				}
+			}
+		})
+	}, nil
+}
+
+// jailDaemonStopGrace is how long the stop waits for the supervisor's own SIGTERM→5 s→SIGKILL
+// teardown (internal/supervisor) before killing what is left.
+const jailDaemonStopGrace = 10 * time.Second

@@ -320,8 +320,8 @@ func (s *CredentialScope) UnservedEnvLines(servedByLaunch func(string) bool) []s
 		byDaemon[daemon] = append(byDaemon[daemon], k)
 	}
 	sort.Strings(daemons)
-	why := "which does not run here: jail daemons run only in a container jail (podman or " +
-		"Apple Container), never at the host or on macos-user"
+	why := "which does not run here: jail daemons run only in a jail (a container, or the " +
+		"macos-user sandbox), never at the host"
 	if s.served.RunsDaemons() {
 		why = "which this launch does not run (its loophole is disabled, or its pack is not selected)"
 	}

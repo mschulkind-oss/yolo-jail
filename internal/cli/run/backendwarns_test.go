@@ -76,7 +76,7 @@ func TestMacosUserNoLongerClaimsMachineWideWorkspaceState(t *testing.T) {
 
 	var stdout, stderr bytes.Buffer
 	o := dispatchOptions(t, ws, "macos-user", &stdout, &stderr, nil)
-	o.MacosUserRun = func(*jsonx.OrderedMap, string, []string, []string, string, string, macosuser.HomeOverlay, macosuser.HostContext, bool, *jsonx.OrderedMap, []packload.BlockedTool) int {
+	o.MacosUserRun = func(*jsonx.OrderedMap, string, []string, []string, string, string, macosuser.HomeOverlay, macosuser.HostContext, bool, *jsonx.OrderedMap, []packload.BlockedTool, macosuser.JailDaemons) int {
 		return 0
 	}
 	if rc := Run(*o); rc != 0 {
@@ -108,7 +108,7 @@ func TestMacosUserNoLongerClaimsItsContentIsUndeliveredOrWritable(t *testing.T) 
 
 	var stdout, stderr bytes.Buffer
 	o := dispatchOptions(t, ws, "macos-user", &stdout, &stderr, nil)
-	o.MacosUserRun = func(*jsonx.OrderedMap, string, []string, []string, string, string, macosuser.HomeOverlay, macosuser.HostContext, bool, *jsonx.OrderedMap, []packload.BlockedTool) int {
+	o.MacosUserRun = func(*jsonx.OrderedMap, string, []string, []string, string, string, macosuser.HomeOverlay, macosuser.HostContext, bool, *jsonx.OrderedMap, []packload.BlockedTool, macosuser.JailDaemons) int {
 		return 0
 	}
 	if rc := Run(*o); rc != 0 {
@@ -199,7 +199,7 @@ func TestMacosUserNoLongerWarnsThatToolsAreUninstallable(t *testing.T) {
 	o.AcceptConfigChanges = true
 	o.MacosUserRun = func(*jsonx.OrderedMap, string, []string, []string, string, string, macosuser.HomeOverlay,
 		macosuser.HostContext,
-		bool, *jsonx.OrderedMap, []packload.BlockedTool) int {
+		bool, *jsonx.OrderedMap, []packload.BlockedTool, macosuser.JailDaemons) int {
 		return 0
 	}
 	if rc := Run(*o); rc != 0 {

@@ -441,7 +441,7 @@ func TestMacosUserLaunchCarriesOnlyTheLaunchedAgentsCredentials(t *testing.T) {
 			o.UseProfiles = map[string]string{"pi": "zai"}
 			var got *jsonx.OrderedMap
 			o.MacosUserRun = func(_ *jsonx.OrderedMap, _ string, _, _ []string, _, _ string, _ macosuser.HomeOverlay,
-				_ macosuser.HostContext, _ bool, packEnv *jsonx.OrderedMap, _ []packload.BlockedTool) int {
+				_ macosuser.HostContext, _ bool, packEnv *jsonx.OrderedMap, _ []packload.BlockedTool, _ macosuser.JailDaemons) int {
 				got = packEnv
 				return 0
 			}
@@ -489,7 +489,7 @@ func TestMacosUserLaunchOmitsAnotherAgentsGatedEnv(t *testing.T) {
 	o.UseProfiles = map[string]string{"claude": "bedrock", "codex": "zai"}
 	var got *jsonx.OrderedMap
 	o.MacosUserRun = func(_ *jsonx.OrderedMap, _ string, _, _ []string, _, _ string, _ macosuser.HomeOverlay,
-		_ macosuser.HostContext, _ bool, packEnv *jsonx.OrderedMap, _ []packload.BlockedTool) int {
+		_ macosuser.HostContext, _ bool, packEnv *jsonx.OrderedMap, _ []packload.BlockedTool, _ macosuser.JailDaemons) int {
 		got = packEnv
 		return 0
 	}

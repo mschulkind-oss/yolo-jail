@@ -87,6 +87,17 @@ type Deps struct {
 	// or already absent). Used to clear the previous launch's startup log before
 	// the stage writes its own, so a stale marker cannot be read as this launch's.
 	RemoveFile func(string) bool
+	// GuestBinaries resolves the directory holding the darwin guest binaries
+	// (jaildaemon.go's GuestBinaries) for a flake source: the bundle's prebuilt
+	// bin/darwin-<arch>, else a `nix build .#guestPrefix`. Asked only when the launch has
+	// a jail daemon to run. A SEAM because the build lives in internal/image, which this
+	// package does not import; the front door wires it (internal/cli's guestBinariesSeam).
+	// nil refuses a launch that has a daemon to run, naming why.
+	GuestBinaries func(repoRoot string) (string, error)
+	// StartBackground starts argv in the background, in a process group of its own, with
+	// no terminal, and returns the stop that ends it (idempotent, never nil on success).
+	// The jail-daemon supervisor's one seam (startBackgroundReal).
+	StartBackground func(argv []string) (func(), error)
 	// Out receives the human output. Rich markup is rendered to ANSI when
 	// Color is set, else stripped to plain text.
 	Out io.Writer
@@ -165,6 +176,11 @@ type Options struct {
 	// (BuildRunPlan), because the native bootstrap renders pack surfaces and derives from
 	// them exactly as the container boot does.
 	PackEnv *jsonx.OrderedMap
+	// JailDaemons is what this launch runs in the guest: the supervisor's composed env,
+	// payload included (jaildaemon.go). The run pipeline composes it from the daemons the
+	// guest runs (internal/loopholes' JailDaemonsRunIn) and this package never selects.
+	// The zero value runs none. GuestBinSource is filled here, not by the caller.
+	JailDaemons JailDaemons
 	// SandboxEnv is an optional caller-supplied env layered last, under only the
 	// jail marker buildPlan sets over everything; nil is the common case.
 	SandboxEnv *jsonx.OrderedMap
@@ -350,9 +366,9 @@ func buildPlan(deps Deps, opts Options, darwin *Darwin) RunPlan {
 	if deps.SelfExe != nil {
 		selfExe = deps.SelfExe()
 	}
-	return BuildRunPlan(opts.Workspace, opts.Config, opts.Agents, opts.AgentArgv,
+	return BuildRunPlanWithDaemons(opts.Workspace, opts.Config, opts.Agents, opts.AgentArgv,
 		selfExe, opts.HostPackRoot, opts.HostHomeOverlay, opts.HostCtx, env, darwin,
-		opts.BlockedTools)
+		opts.BlockedTools, opts.JailDaemons)
 }
 
 // RunMacosUser launches agent_argv in the dedicated-user + Seatbelt sandbox.
@@ -383,6 +399,11 @@ func RunMacosUser(deps Deps, opts Options) int {
 	if opts.DryRun {
 		plainDeps := deps
 		plainDeps.Color = false
+		// A plan render builds nothing, so the guest binaries are named at the prebuilt
+		// spelling; a launch whose flake source ships none builds `.#guestPrefix` instead.
+		if len(opts.JailDaemons.Names()) > 0 && opts.JailDaemons.GuestBinSource == "" {
+			opts.JailDaemons.GuestBinSource = PrebuiltGuestBinDir(opts.RepoRoot)
+		}
 		plan := buildPlan(plainDeps, opts, nil)
 		problems := PlanInvariants(plan)
 		PrintPlan(deps.Out, plan, problems)
@@ -585,6 +606,28 @@ func RunMacosUser(deps Deps, opts Options) int {
 		}
 	}
 
+	// THE GUEST BINARIES (OQ-DP8), resolved only when there is a daemon to run, and FATAL
+	// when they cannot be: the launch has already told its agents these addresses are served
+	// (the served set composed them), so starting the agent without them hands it a pointer
+	// at a dead port — the state steps 3 and 4 exist to end. The same rule as a container
+	// launch that cannot build its prefix.
+	if len(opts.JailDaemons.Names()) > 0 && opts.JailDaemons.GuestBinSource == "" {
+		if deps.GuestBinaries == nil {
+			out.print("[bold red]This build cannot stage the sandbox's jail daemons[/bold red] " +
+				"(no guest-binary resolver is wired).")
+			return 1
+		}
+		src, err := deps.GuestBinaries(opts.RepoRoot)
+		if err != nil {
+			out.printf("[bold red]Could not provide the sandbox's in-jail binaries:[/bold red] %s\n"+
+				"[dim]The jail daemons this launch runs (%s) are started by %s inside the "+
+				"sandbox, and there is no copy of it to stage.[/dim]", errStr(err),
+				strings.Join(opts.JailDaemons.Names(), ", "), JaildName)
+			return 1
+		}
+		opts.JailDaemons.GuestBinSource = src
+	}
+
 	plan := buildPlan(deps, opts, darwin)
 	problems := PlanInvariants(plan)
 	if len(problems) > 0 {
@@ -674,6 +717,19 @@ func RunMacosUser(deps Deps, opts Options) int {
 	// config declares no tools, and then this costs nothing at all.
 	if len(plan.ProvisionArgv) > 0 && !runProvisionStage(deps, out, plan) {
 		return 1
+	}
+
+	// 3.6 THE JAIL DAEMONS (OQ-DP8/DP9, jaildaemon.go): the supervisor, confined, as the
+	// sandbox account, started after the provisioning stage — it runs nothing the stage
+	// installs, but a failed stage the human vetoed has already returned above — and before
+	// the agent, so an address the launch composed is being bound by the time a client asks.
+	// Stopped when the agent exits (LIFO: the supervisor first, then its env file swept).
+	if len(plan.JailDaemonArgv) > 0 {
+		stop, ok := startJailDaemons(deps, out, plan)
+		if !ok {
+			return 1
+		}
+		defer stop()
 	}
 
 	// 4. Launch under the TTY proxy — OUTSIDE the lock. Everything that writes the
@@ -799,6 +855,20 @@ func PrintPlan(w io.Writer, plan RunPlan, problems []string) {
 		p.printf("  [dim]sets, values not shown:[/dim] %s",
 			strings.Join(SandboxEnvFileKeys(plan.EnvFileContent), ", "))
 	}
+	// THE GUEST'S JAIL DAEMONS, named even when there are none, on the pack line's rule:
+	// "this launch runs no jail daemon" and "this backend runs none" were the same statement
+	// until OQ-DP8, and a dry run is how a user tells them apart.
+	if len(plan.JailDaemonNames) == 0 {
+		p.print("jail daemons: [dim]none run in the sandbox for this launch[/dim]")
+	} else {
+		p.printf("jail daemons: %s [dim](confined; %s supervise, as %s)[/dim]",
+			strings.Join(plan.JailDaemonNames, ", "), JaildName, SandboxUser)
+		p.printf("  guest bins: %s → %s", plan.GuestBinSource, GuestBinDir(plan.StagedDir))
+		p.printf("  env file:   %s [dim](0600, root-owned, read by %s only)[/dim]",
+			plan.DaemonEnvFile, SandboxUser)
+		p.printf("  [dim]sets, values not shown:[/dim] %s",
+			strings.Join(SandboxEnvFileKeys(plan.DaemonEnvFileContent), ", "))
+	}
 	if plan.DarwinMaterialized {
 		p.printf("darwin pkgs: %d store bin dir(s) on PATH", len(plan.DarwinPathPrefix))
 		if len(plan.DarwinSkipped) > 0 {
@@ -855,6 +925,11 @@ func PrintPlan(w io.Writer, plan RunPlan, problems []string) {
 		p.print("  " + strings.Join(plan.ProvisionArgv, " "))
 	}
 	p.print("")
+	if len(plan.JailDaemonArgv) > 0 {
+		p.print("[bold]── jail-daemon supervisor (confined, beside the agent) ──[/bold]")
+		p.print("  " + strings.Join(plan.JailDaemonArgv, " "))
+		p.print("")
+	}
 	p.print("[bold]── launch argv ──[/bold]")
 	p.print("  " + strings.Join(plan.LaunchArgv, " "))
 	p.print("")
@@ -985,6 +1060,7 @@ func RealDeps(runProxy func(argv []string) int, materialize func(repoRoot string
 		RunWithProxy:      runProxy,
 		InstallRootFile:   installRootFileReal,
 		MaterializeDarwin: materialize,
+		StartBackground:   startBackgroundReal,
 		HostNix:           hostNixReal,
 		TakenIDs:          takenIDsReal,
 		SetRandomPassword: func() bool { return setRandomPasswordReal(SandboxUser) },

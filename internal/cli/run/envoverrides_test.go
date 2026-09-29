@@ -94,6 +94,8 @@ type nativeLaunch struct {
 	reached bool
 	env     *jsonx.OrderedMap
 	hostCtx macosuser.HostContext
+	// jailDaemons is what the arm handed the guest's supervisor (OQ-DP8/DP9).
+	jailDaemons macosuser.JailDaemons
 }
 
 // overrideNativeLaunch drives Run() to the macos-user arm over the given user config with
@@ -118,9 +120,10 @@ func overrideNativeLaunch(t *testing.T, userConfig string, env func(string) stri
 	}
 	seen := &nativeLaunch{home: home}
 	o.MacosUserRun = func(_ *jsonx.OrderedMap, _ string, _, _ []string, _, _ string, _ macosuser.HomeOverlay, hostCtx macosuser.HostContext, _ bool,
-		launchEnv *jsonx.OrderedMap, _ []packload.BlockedTool) int {
+		launchEnv *jsonx.OrderedMap, _ []packload.BlockedTool, jd macosuser.JailDaemons) int {
 		seen.reached = true
 		seen.env = launchEnv
+		seen.jailDaemons = jd
 		seen.hostCtx = hostCtx
 		return 0
 	}
@@ -130,8 +133,9 @@ func overrideNativeLaunch(t *testing.T, userConfig string, env func(string) stri
 // writeWidgetLocalPack writes the conventional local pack (~/.config/yolo-jail/local, which
 // config.LoadPacks appends to every selection) with an env contribution gated on `bedrock` and
 // an `overridden_by` entry of its own — a pointer that points at no yolo daemon, so it is
-// delivered on EVERY backend, macos-user included. It is what call site 1 is pinned with now
-// that aws-auth's pointer is withheld on macos-user, where nothing serves it.
+// delivered on EVERY backend, macos-user included. It pins call site 1 with a pointer whose
+// delivery does not depend on any jail daemon being served, so the test measures the
+// pre-flight and nothing else.
 func writeWidgetLocalPack(t *testing.T, home string) {
 	t.Helper()
 	dir := filepath.Join(home, ".config", "yolo-jail", "local")

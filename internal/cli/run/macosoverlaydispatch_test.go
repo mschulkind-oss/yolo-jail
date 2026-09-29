@@ -32,7 +32,7 @@ func TestMacosUserLaunchComposesAndPassesTheHomeOverlay(t *testing.T) {
 	var gotOverlay macosuser.HomeOverlay
 	o.MacosUserRun = func(_ *jsonx.OrderedMap, _ string, _, _ []string, _, _ string,
 		overlay macosuser.HomeOverlay, _ macosuser.HostContext,
-		_ bool, _ *jsonx.OrderedMap, _ []packload.BlockedTool) int {
+		_ bool, _ *jsonx.OrderedMap, _ []packload.BlockedTool, _ macosuser.JailDaemons) int {
 		gotOverlay = overlay
 		return 0
 	}
@@ -80,7 +80,7 @@ func TestMacosUserDryRunStillComposesTheOverlay(t *testing.T) {
 	var gotDryRun bool
 	o.MacosUserRun = func(_ *jsonx.OrderedMap, _ string, _, _ []string, _, _ string,
 		overlay macosuser.HomeOverlay, _ macosuser.HostContext,
-		dryRun bool, _ *jsonx.OrderedMap, _ []packload.BlockedTool) int {
+		dryRun bool, _ *jsonx.OrderedMap, _ []packload.BlockedTool, _ macosuser.JailDaemons) int {
 		gotOverlay, gotDryRun = overlay, dryRun
 		return 0
 	}

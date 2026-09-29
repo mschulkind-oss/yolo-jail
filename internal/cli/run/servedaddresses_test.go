@@ -49,7 +49,13 @@ func TestMacosUserRefusesAPairingThroughAServiceItCannotStart(t *testing.T) {
 	}
 }
 
-func TestMacosUserWithholdsCodexsRefreshPointerAndSaysSo(t *testing.T) {
+// ON MACOS-USER CODEX'S REFRESH POINTER IS SERVED (OQ-DP8/DP9): the guest runs the OpenAI
+// refresh adapter, confined, so the channel delivers CODEX_REFRESH_TOKEN_URL_OVERRIDE — at a
+// port this launch PICKED, because the sandbox shares the Mac's loopback and a second launch
+// would otherwise find the declared 1460 held — and the payload hands the adapter that same
+// port. Until 2026-09-28 the pointer was withheld and named here (NC-D16). Through the real
+// composePackChannel and jailDaemonsFor, so deleting servedDaemons' split or the settle fails it.
+func TestMacosUserServesCodexsRefreshPointerAtThePortItsAdapterBinds(t *testing.T) {
 	packs := []*packload.Pack{officialPack(t, "codex"), officialPack(t, "openai-auth")}
 	withModules := func(o *Options, _ *jsonx.OrderedMap) {
 		loopholes.SetPackModules(packLoopholeModules(packs))
@@ -60,20 +66,33 @@ func TestMacosUserWithholdsCodexsRefreshPointerAndSaysSo(t *testing.T) {
 	}
 
 	o.runtime = "macos-user"
+	o.served = servedAddressState{}
 	macos, err := o.composePackChannel(cfg, packs, emptyEnv())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v, ok := macos.scope.DeliveredPackEnv("CODEX_REFRESH_TOKEN_URL_OVERRIDE"); ok {
-		t.Errorf("macos-user delivers CODEX_REFRESH_TOKEN_URL_OVERRIDE=%s, a port no daemon of its binds", v)
+	v, ok := macos.scope.DeliveredPackEnv("CODEX_REFRESH_TOKEN_URL_OVERRIDE")
+	if !ok {
+		t.Fatal("macos-user withholds CODEX_REFRESH_TOKEN_URL_OVERRIDE, though its guest runs the adapter")
+	}
+	var adapter string
+	for _, s := range o.jailDaemonsFor(cfg, "macos-user", packs) {
+		if s.Name == "openai-auth-broker" {
+			adapter = s.Listen
+		}
+	}
+	if adapter == "" || adapter == "127.0.0.1:1460" {
+		t.Fatalf("the adapter's listen address %q was not moved off the declared port on a "+
+			"shared loopback", adapter)
+	}
+	if !strings.Contains(v, "http://"+adapter+"/") {
+		t.Errorf("codex is pointed at %s, the adapter binds %s", v, adapter)
 	}
 	var stderr bytes.Buffer
 	o.Stderr = &stderr
 	o.noteCredentialScope(macos)
-	for _, want := range []string{"Not set at this notch", "CODEX_REFRESH_TOKEN_URL_OVERRIDE", `"openai-auth-broker"`} {
-		if !strings.Contains(stderr.String(), want) {
-			t.Errorf("the launch does not name %s:\n%s", want, stderr.String())
-		}
+	if strings.Contains(stderr.String(), "CODEX_REFRESH_TOKEN_URL_OVERRIDE") {
+		t.Errorf("the launch still names the served pointer as withheld:\n%s", stderr.String())
 	}
 }
 

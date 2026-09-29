@@ -340,11 +340,9 @@ func Run(opts Options) (rc int) {
 	// and `CODEX_REFRESH_TOKEN_URL_OVERRIDE` pointed at a dead port. Neither arm said so.
 	//
 	// BOTH ARMS CONSUME THIS VALUE: the container arm threads it onto the argv as
-	// `-e YOLO_JAIL_DAEMONS=` (assembleInput.jailDaemons), the native arm declines each
-	// entry BY NAME. What it does NOT do is start anything here — resolving argv[0] on a
-	// backend with no image, and whether such a child runs under the Seatbelt profile, are
-	// two unfiled rulings (that plan's §Blockers), and `yolo-jaild` is not built for
-	// darwin at all. So this hoist plus the decline is the whole of the honest half.
+	// `-e YOLO_JAIL_DAEMONS=` (assembleInput.jailDaemons), and the native arm splits it
+	// (loopholes.JailDaemonsRunIn) into the daemons its Seatbelt guest runs — handed to the
+	// guest's supervisor, OQ-DP8/OQ-DP9 — and the ones it declines BY NAME.
 	jailDaemons := o.jailDaemonsFor(cfg, rt, staged.packs)
 
 	// macos-user native branch: route to the injected handler,
@@ -440,6 +438,16 @@ func Run(opts Options) (rc int) {
 		// starts (launchEnv's doc; noteMacosUserCredentialScope says so on the terminal).
 		launched := filepath.Base(agentArgv[0])
 		launchEnv := channel.launchEnv(launched)
+		// THE GUEST'S HALF OF THE PAYLOAD (OQ-DP8, OQ-DP9; macosuserguestdaemons.go): the
+		// daemons this sandbox runs, confined, and the ones it declines by name. The split
+		// is loopholes.JailDaemonsRunIn, the same one the served set composed the channel
+		// with, so what the agent was pointed at and what the supervisor starts are one set.
+		guestDaemons, declinedDaemons := loopholes.JailDaemonsRunIn(rt, jailDaemons)
+		// A client that binds its daemon's caller token itself reads it from its own
+		// environment, as it does from a container's shared channel.
+		for k, v := range channel.guestSharedCallerTokens(guestDaemons) {
+			launchEnv.Set(k, v)
+		}
 		o.noteCredentialScope(channel)
 		o.noteMacosUserCredentialScope(channel, launched)
 		if o.DryRun {
@@ -505,17 +513,15 @@ func Run(opts Options) (rc int) {
 			}
 			defer stopServices()
 		}
-		// AND THE OTHER HALF OF THAT LIFECYCLE, WHICH THIS BACKEND DOES NOT HAVE. Every
-		// host daemon above started; not one JAIL daemon will, because there is no in-jail
-		// supervisor here and no `yolo-jaild` built for darwin. Said once per launch, one
-		// line per declared daemon, from the payload Run composed above the dispatch — so
-		// the decline names exactly the entries a container launch would have carried
-		// (jaildaemondecline.go has the measurement, and why there is no classifier).
+		// AND THE OTHER HALF OF THAT LIFECYCLE, WHICH THIS BACKEND NOW HAS: the guest's
+		// supervisor starts the daemons it runs (MacosUserRun's last argument), and the ones
+		// it declines are said once per launch, one line per daemon with its reason, from the
+		// payload Run composed above the dispatch (jaildaemondecline.go).
 		//
 		// BELOW the block above and outside both its branches: a decline is not a spawn, so
 		// a --dry-run states it too — and stating it once here is what keeps the live path
 		// and the plan render from needing two printers that could disagree.
-		o.noteMacosUserJailDaemonDeclines(jailDaemons)
+		o.noteMacosUserJailDaemonDeclines(declinedDaemons)
 		o.noteUnstartedProfileDaemons()
 		o.noteShadowedServices()
 		// THE OTHER TIER COLLAPSE — #39's mirror image — USED TO BE WARNED ABOUT HERE, and
@@ -690,9 +696,12 @@ func Run(opts Options) (rc int) {
 		if !o.DryRun {
 			writeMacosUserAgentEnvFiles(paths.WorkspaceHomeState(o.Workspace), channel)
 		}
+		// Composed LAST, after every endpoint variable has landed on launchEnv (the live
+		// path's handles, or a dry run's placeholder), since the daemons dial those files.
 		return o.MacosUserRun(cfg, o.Workspace, config.SelectedAgents(cfg), agentArgv,
 			repoRoot, staged.root, homeOverlay, ctxDelivery.ctx, o.DryRun,
-			launchEnv, packload.BlockedTools(staged.packs))
+			launchEnv, packload.BlockedTools(staged.packs),
+			channel.guestJailDaemons(guestDaemons, launchEnv))
 	}
 	// AUTO-CAPTURE, the last host-side act before the container arm starts anything
 	// (OQ-PD18, install-capture.md slice 7). Every selected pack's `via: "installer"`

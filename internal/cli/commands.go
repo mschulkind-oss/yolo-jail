@@ -1,10 +1,12 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -16,6 +18,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/cli/stores"
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/darwinpkg"
+	"github.com/mschulkind-oss/yolo-jail/internal/image"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
 	"github.com/mschulkind-oss/yolo-jail/internal/macosuser"
@@ -1142,9 +1145,9 @@ func runRun(args []string) int {
 	// dispatch and passes to whichever arm runs — forwarded verbatim.
 	opts.MacosUserRun = func(cfg *jsonx.OrderedMap, workspace string, agents, agentArgv []string,
 		repoRoot, packRoot string, homeOverlay macosuser.HomeOverlay, hostCtx macosuser.HostContext, dryRun bool,
-		packEnv *jsonx.OrderedMap, blocked []packload.BlockedTool) int {
+		packEnv *jsonx.OrderedMap, blocked []packload.BlockedTool, jailDaemons macosuser.JailDaemons) int {
 		return macosUserRun(cfg, workspace, agents, agentArgv, repoRoot, packRoot, homeOverlay,
-			hostCtx, dryRun, packEnv, blocked)
+			hostCtx, dryRun, packEnv, blocked, jailDaemons)
 	}
 	// Wire E3's capture-on-terminate. Same injection shape and same reason: the
 	// capture engine lives in THIS package, which imports run, so run cannot call it
@@ -1231,7 +1234,7 @@ var launchRunPipeline = run.Run
 // on Linux macosuser fails closed at its IsMacOS precondition (dry-run works anywhere).
 func macosUserRun(cfg *jsonx.OrderedMap, workspace string, agents, agentArgv []string,
 	repoRoot, packRoot string, homeOverlay macosuser.HomeOverlay, hostCtx macosuser.HostContext, dryRun bool,
-	packEnv *jsonx.OrderedMap, blocked []packload.BlockedTool) int {
+	packEnv *jsonx.OrderedMap, blocked []packload.BlockedTool, jailDaemons macosuser.JailDaemons) int {
 	runProxy := run.RunWithProxy
 	materialize := func(nixRoot string, packages []any) (*macosuser.Darwin, bool, error) {
 		// system "" → darwinpkg.NativeSystem(), the running platform. NOT a
@@ -1273,6 +1276,7 @@ func macosUserRun(cfg *jsonx.OrderedMap, workspace string, agents, agentArgv []s
 			HostCtx:         hostCtx,
 			BlockedTools:    blocked,
 			PackEnv:         packEnv,
+			JailDaemons:     jailDaemons,
 			DryRun:          dryRun,
 		})
 }
@@ -1322,7 +1326,41 @@ func macosLaunchDeps(runProxy func(argv []string) int,
 	materialize func(repoRoot string, packages []any) (*macosuser.Darwin, bool, error)) macosuser.Deps {
 	deps := macosuser.RealDeps(runProxy, materialize, colorForWriter(os.Stdout))
 	deps.LockWorkspace = workspaceLockSeam
+	deps.GuestBinaries = guestBinariesSeam
 	return deps
+}
+
+// guestBinariesSeam is the macos-user launch's Deps.GuestBinaries: the directory holding the
+// darwin in-jail binaries its guest runs (docs/design/declaration-parity.md OQ-DP8) for the
+// resolved flake source — the bundle's own bin/darwin-<arch> when it ships one (Homebrew, the
+// release archive, `just install` on a Mac), else a `nix build .#guestPrefix` of that source
+// (a checkout named by YOLO_REPO_ROOT). Named, not inline, for workspaceLockSeam's reason: a
+// test can invoke the wiring.
+//
+// The same two arms, and the same "yolo-jaild present, not merely the directory" check, as the
+// container's resolveJailPrefix: a half-staged directory must build rather than stage nothing.
+func guestBinariesSeam(repoRoot string) (string, error) {
+	return resolveGuestBinaries(repoRoot, image.BuildGuestPrefix, os.Stderr)
+}
+
+// resolveGuestBinaries is guestBinariesSeam over an injectable build.
+func resolveGuestBinaries(repoRoot string, build func(string, io.Writer) (string, []string),
+	stderr io.Writer) (string, error) {
+	prebuilt := macosuser.PrebuiltGuestBinDir(repoRoot)
+	if info, err := os.Stat(filepath.Join(prebuilt, macosuser.JaildName)); err == nil && info.Mode().IsRegular() {
+		return prebuilt, nil
+	}
+	fmt.Fprintln(stderr, "Building the sandbox's in-jail binaries (.#guestPrefix) — the flake "+
+		"source ships no "+filepath.Base(prebuilt)+" of its own…")
+	store, tail := build(repoRoot, stderr)
+	if store == "" {
+		msg := "`nix build .#guestPrefix` failed"
+		if len(tail) > 0 {
+			msg += ":\n  " + strings.Join(tail, "\n  ")
+		}
+		return "", errors.New(msg)
+	}
+	return filepath.Join(store, "bin"), nil
 }
 
 const checkUsage = `Usage: yolo check [flags]

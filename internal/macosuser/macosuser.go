@@ -180,11 +180,13 @@ func SharedRootProvisionCommands(root, hostUser string) [][]string {
 // StagedYoloPath returns where the running yolo binary is staged for the sandbox
 // user to self-exec (root-owned so the sandbox can't rewrite the launch binary;
 // world-readable+executable so it can run).
+//
+// IN GuestBinDir, beside the darwin in-jail binaries (jaildaemon.go), since OQ-DP8: the
+// guest's one prefix of yolo's own binaries, the counterpart of a container's
+// /opt/yolo-jail/bin. It sat at the state dir's root until then; the move changes no PATH
+// ORDER, because SandboxPath derives its one entry from this path's directory.
 func StagedYoloPath(sd string) string {
-	if sd == "" {
-		sd = stateDir
-	}
-	return filepath.Join(sd, "yolo")
+	return GuestBinaryPath("yolo", sd)
 }
 
 // StageBinaryCommands returns the sudo argv that stage the running yolo binary
@@ -206,7 +208,7 @@ func StageBinaryCommands(selfExe, sd string) [][]string {
 	dst := StagedYoloPath(sd)
 	tmp := dst + ".new"
 	return [][]string{
-		{mkdirBin, "-p", sd},
+		{mkdirBin, "-p", filepath.Dir(dst)},
 		{cpBin, "-f", selfExe, tmp},
 		{chmodBin, "a+rX", tmp},
 		{mvBin, "-f", tmp, dst}, // atomic rename → fresh inode, drops the cached-signature vnode

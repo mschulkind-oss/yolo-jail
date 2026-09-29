@@ -1005,30 +1005,26 @@ func composedProviders(cfg *jsonx.OrderedMap, packs []*packload.Pack,
 }
 
 // servedDaemons is the "served at this notch" set for a launch whose composed jail-daemon
-// payload is specs (jailDaemonsFor): a container runtime serves every daemon in it, and
-// macos-user, which has no in-jail supervisor and declines every one
-// (noteMacosUserJailDaemonDeclines), serves none (docs/plans/notch-convergence.md §4 item 2).
+// payload is specs (jailDaemonsFor): the daemons this launch's jail RUNS
+// (loopholes.JailDaemonNamesRunIn, the one split `yolo check` predicts with too) — on a
+// container runtime every one, and on macos-user the ones its Seatbelt guest runs since
+// OQ-DP8/OQ-DP9, the rest declined by name (noteMacosUserJailDaemonDeclines)
+// (docs/plans/notch-convergence.md §4 item 2).
 //
 // It also carries WHERE each serves (servedaddresses.go): every daemon's served listen address,
 // read off the payload, and the declared-to-served map for the pack services' adapter and via
 // addresses, so the provider table, the via base and the pack env pointers compose the same
 // ports the payload hands the daemons.
 func (o *Options) servedDaemons(specs []loopholes.JailDaemonSpec) packload.ServedDaemons {
-	names := make([]string, 0, len(specs))
-	listen := map[string]string{}
-	for _, s := range specs {
-		names = append(names, s.Name)
-		if s.Listen != "" {
-			listen[s.Name] = s.Listen
-		}
+	names, listen := loopholes.JailDaemonNamesRunIn(o.runtime, specs)
+	served := packload.ServedInJail(names).WithListen(listen).WithRebind(o.movedServedAddresses())
+	// A macos-user launch also serves the launch-owned services it planned (macosuserservices.go):
+	// a pack service's host half at the ports it picked, since its guest declines the service's
+	// jail daemon (loopholes.JailDaemonsRunIn).
+	if o.runtime == "macos-user" && len(o.launchServices) > 0 { // parity: NotApplicable — the macos-user arm's own launch-owned services; a container runs the service's jail daemon
+		return served.Plus(launchservice.Served(o.launchServices))
 	}
-	// A macos-user launch serves the launch-owned services it planned (macosuserservices.go) and
-	// no jail daemon: the host halves at the ports it picked.
-	if o.runtime == "macos-user" && len(o.launchServices) > 0 { // parity: NotApplicable — the macos-user arm's own launch-owned services; a container runs the jail daemon
-		return launchservice.Served(o.launchServices)
-	}
-	return packload.ServedAtRuntime(o.runtime, names).WithListen(listen).
-		WithRebind(o.movedServedAddresses())
+	return served
 }
 
 // commonEnvBlock builds the big -e env block. Frozen contract (order and

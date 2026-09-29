@@ -82,9 +82,9 @@ func TestTheMacosUserArmStartsTheServiceAndStopsItAfterTheCommand(t *testing.T) 
 	t.Cleanup(func() { startMacosUserService = orig })
 	run := o.MacosUserRun
 	o.MacosUserRun = func(cfg *jsonx.OrderedMap, ws string, a, b []string, c, d string, h macosuser.HomeOverlay,
-		ctx macosuser.HostContext, dry bool, env *jsonx.OrderedMap, bt []packload.BlockedTool) int {
+		ctx macosuser.HostContext, dry bool, env *jsonx.OrderedMap, bt []packload.BlockedTool, jd macosuser.JailDaemons) int {
 		stoppedBeforeRun = stopped
-		return run(cfg, ws, a, b, c, d, h, ctx, dry, env, bt)
+		return run(cfg, ws, a, b, c, d, h, ctx, dry, env, bt, jd)
 	}
 	if rc := Run(*o); rc != 0 {
 		t.Fatalf("Run() = %d\n%s", rc, stderr.String())
@@ -104,7 +104,8 @@ func TestTheMacosUserArmStartsTheServiceAndStopsItAfterTheCommand(t *testing.T) 
 		t.Errorf("the command's ANTHROPIC_AUTH_TOKEN is not the service's token")
 	}
 	for _, want := range []string{`Started the "wire-bridge" service (pack "wire-bridge", pid 4242)`,
-		"wire-bridge: yolo-jaild wire-bridge (its host half runs for this launch instead)"} {
+		"wire-bridge: yolo-jaild wire-bridge — a pack service runs its host half on this backend",
+		"(its host half runs for this launch)"} {
 		if !strings.Contains(stderr.String(), want) {
 			t.Errorf("the launch must say %q:\n%s", want, stderr.String())
 		}

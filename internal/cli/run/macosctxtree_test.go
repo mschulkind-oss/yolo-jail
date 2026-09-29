@@ -61,7 +61,7 @@ func runMacosUserCapturingCtx(t *testing.T, ws string, tweak func(*Options)) (ma
 	var got macosuser.HostContext
 	reached := false
 	o.MacosUserRun = func(_ *jsonx.OrderedMap, _ string, _, _ []string, _, _ string, _ macosuser.HomeOverlay,
-		hostCtx macosuser.HostContext, _ bool, _ *jsonx.OrderedMap, _ []packload.BlockedTool) int {
+		hostCtx macosuser.HostContext, _ bool, _ *jsonx.OrderedMap, _ []packload.BlockedTool, _ macosuser.JailDaemons) int {
 		got, reached = hostCtx, true
 		return 0
 	}

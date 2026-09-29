@@ -115,4 +115,8 @@ const (
 	// of the image derivation), so the run path realizes it separately whenever
 	// the resolved flake source ships no prebuilt binaries of its own.
 	installPrefixAttr = ".#installPrefix"
+	// guestPrefixAttr is the macos-user guest's darwin in-jail binaries (flake.nix
+	// guestBinaries), realized only when a macos-user launch has a jail daemon to run and the
+	// resolved flake source ships no prebuilt bin/darwin-<arch> (BuildGuestPrefix).
+	guestPrefixAttr = ".#guestPrefix"
 )

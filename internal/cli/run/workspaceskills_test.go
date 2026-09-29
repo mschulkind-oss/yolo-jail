@@ -283,7 +283,7 @@ func TestWorkspaceSkillsReachTheMacosUserHome(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	o := dispatchOptions(t, ws, "macos-user", &stdout, &stderr, nil)
 	reached := false
-	o.MacosUserRun = func(_ *jsonx.OrderedMap, _ string, _, _ []string, _, _ string, homeOverlay macosuser.HomeOverlay, _ macosuser.HostContext, _ bool, _ *jsonx.OrderedMap, _ []packload.BlockedTool) int {
+	o.MacosUserRun = func(_ *jsonx.OrderedMap, _ string, _, _ []string, _, _ string, homeOverlay macosuser.HomeOverlay, _ macosuser.HostContext, _ bool, _ *jsonx.OrderedMap, _ []packload.BlockedTool, _ macosuser.JailDaemons) int {
 		reached = true
 		if _, err := os.Stat(filepath.Join(homeOverlay.Tree, ".pi", "agent", "skills", "review", "SKILL.md")); err != nil {
 			t.Errorf("the workspace skill never reached the macos-user home overlay: %v", err)

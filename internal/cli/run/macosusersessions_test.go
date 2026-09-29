@@ -143,7 +143,7 @@ func TestAMacosUserSessionsExitLeavesAConcurrentSessionsEndpointsWorking(t *test
 
 	oB := dispatchOptions(t, ws, "macos-user", &outB, &errB, nil)
 	oB.MacosUserRun = func(_ *jsonx.OrderedMap, _ string, _, _ []string, _, _ string, _ macosuser.HomeOverlay,
-		_ macosuser.HostContext, _ bool, env *jsonx.OrderedMap, _ []packload.BlockedTool) int {
+		_ macosuser.HostContext, _ bool, env *jsonx.OrderedMap, _ []packload.BlockedTool, _ macosuser.JailDaemons) int {
 		b = endpointsIn(env, broker, proxy)
 		bDuring[0], bDuringErr[0] = frontReply(b.broker, "ping")
 		bDuring[1], bDuringErr[1] = frontReply(b.proxy, "ping")
@@ -151,7 +151,7 @@ func TestAMacosUserSessionsExitLeavesAConcurrentSessionsEndpointsWorking(t *test
 	}
 	oA := dispatchOptions(t, ws, "macos-user", &outA, &errA, nil)
 	oA.MacosUserRun = func(_ *jsonx.OrderedMap, _ string, _, _ []string, _, _ string, _ macosuser.HomeOverlay,
-		_ macosuser.HostContext, _ bool, env *jsonx.OrderedMap, _ []packload.BlockedTool) int {
+		_ macosuser.HostContext, _ bool, env *jsonx.OrderedMap, _ []packload.BlockedTool, _ macosuser.JailDaemons) int {
 		a = endpointsIn(env, broker, proxy)
 		// The real backend releases the launch lock it is handed before it starts the agent
 		// (AcquireWorkspaceLockFor returns this launch's own hold), so a second terminal's
@@ -282,7 +282,7 @@ func TestAMacosUserLaunchCollectsOnlySessionsKnownToBeGone(t *testing.T) {
 	o := dispatchOptions(t, ws, "macos-user", &stdout, &stderr, nil)
 	var during []string
 	o.MacosUserRun = func(_ *jsonx.OrderedMap, _ string, _, _ []string, _, _ string, _ macosuser.HomeOverlay,
-		_ macosuser.HostContext, _ bool, _ *jsonx.OrderedMap, _ []packload.BlockedTool) int {
+		_ macosuser.HostContext, _ bool, _ *jsonx.OrderedMap, _ []packload.BlockedTool, _ macosuser.JailDaemons) int {
 		during = servicesSessionDirs(t, cname)
 		return 0
 	}
@@ -407,7 +407,7 @@ func TestADryRunNamesTheSessionDirsShapeAndItsGrant(t *testing.T) {
 	o.DryRun = true
 	var env *jsonx.OrderedMap
 	o.MacosUserRun = func(_ *jsonx.OrderedMap, _ string, _, _ []string, _, _ string, _ macosuser.HomeOverlay,
-		_ macosuser.HostContext, _ bool, launchEnv *jsonx.OrderedMap, _ []packload.BlockedTool) int {
+		_ macosuser.HostContext, _ bool, launchEnv *jsonx.OrderedMap, _ []packload.BlockedTool, _ macosuser.JailDaemons) int {
 		env = launchEnv
 		return 0
 	}

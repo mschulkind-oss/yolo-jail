@@ -179,7 +179,7 @@ func TestMacosUserLaunchWriteProtectsWhatItDelivers(t *testing.T) {
 	var got macosuser.HomeOverlay
 	o.MacosUserRun = func(_ *jsonx.OrderedMap, _ string, _, _ []string, _, _ string,
 		overlay macosuser.HomeOverlay, _ macosuser.HostContext,
-		_ bool, _ *jsonx.OrderedMap, _ []packload.BlockedTool) int {
+		_ bool, _ *jsonx.OrderedMap, _ []packload.BlockedTool, _ macosuser.JailDaemons) int {
 		got = overlay
 		return 0
 	}

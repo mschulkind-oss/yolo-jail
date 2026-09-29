@@ -140,6 +140,12 @@ type JailDaemonSpec struct {
 	// JailDaemonPayload resolves Cmd's loopholedecl.TokenListen to it, so the argv and the
 	// address the launch composes for the daemon's clients are one value.
 	Listen string
+	// Intercepts says the daemon's loophole terminates TLS for an intercepted hostname
+	// (loopholedecl.Loophole.Intercepts), which only a container reaches: its `--add-host`
+	// pins the name to the jail's loopback. Service says the daemon is a pack SERVICE's
+	// rather than a loophole's. NOT on the wire either; JailDaemonsRunIn reads both.
+	Intercepts bool
+	Service    bool
 }
 
 // ResolvedCmd is the argv this spec runs: Cmd with loopholedecl.TokenListen resolved to Listen.
@@ -320,6 +326,7 @@ func jailDaemonSpecs(loopholes []*Loophole, runtime string, gate *Set,
 		specs = append(specs, JailDaemonSpec{
 			Name: m.Name, Cmd: m.JailDaemon.Cmd, Restart: m.JailDaemon.Restart,
 			CallerToken: m.JailDaemon.CallerToken, Listen: m.JailDaemon.Listen,
+			Intercepts: len(m.Intercepts) > 0,
 		})
 	}
 	// Pack services' jail daemons join the loopholes' own entries, one list, one env

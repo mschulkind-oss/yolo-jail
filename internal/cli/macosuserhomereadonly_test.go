@@ -46,7 +46,8 @@ func TestMacosUserFrontDoorWriteProtectsTheDeliveredContent(t *testing.T) {
 				Tree:          filepath.Join(home, "overlay"),
 				Dests:         []string{".claude/skills", ".claude/CLAUDE.md"},
 				WorkspaceDirs: []string{".claude"},
-			}, macosuser.HostContext{}, true /*dryRun*/, jsonx.NewOrderedMap(), nil)
+			}, macosuser.HostContext{}, true /*dryRun*/, jsonx.NewOrderedMap(), nil,
+			macosuser.JailDaemons{})
 	})
 
 	if !strings.Contains(stdout, "#seatbelt-test-id:home-content-write-deny#") {

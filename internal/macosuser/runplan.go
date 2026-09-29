@@ -44,6 +44,22 @@ type RunPlan struct {
 	ProvisionArgv       []string
 	ProvisionScriptPath string
 	LaunchArgv          []string
+	// JailDaemonArgv is the CONFINED supervisor (jaildaemon.go): `yolo-jaild supervise`
+	// under the session's Seatbelt profile, reading DaemonEnvFile. nil when the launch
+	// handed this backend no daemon to run, which is the common case and costs nothing.
+	// JailDaemonNames is what its payload names, sorted.
+	JailDaemonArgv  []string
+	JailDaemonNames []string
+	// GuestBinSource is where the darwin guest binaries are copied from ("" with no
+	// daemon), and StageCommands carries the copies into GuestBinDir.
+	GuestBinSource string
+	// DaemonEnvFile is the supervisor's own env file, beside EnvFile and delivered the same
+	// way (root-owned 0600 in the 0700 env dir, one `user:` read ACE for the sandbox
+	// account); DaemonEnvFileContent is what to write. Both "" with no daemon.
+	// DaemonEnvRemoveCommands sweep it when the session ends.
+	DaemonEnvFile           string
+	DaemonEnvFileContent    string
+	DaemonEnvRemoveCommands [][]string
 	// EnvFile is the per-session, root-owned 0600 file carrying everything this launch
 	// COMPOSED — git identity, TERM, the profile/provider channel, the hydrated
 	// env_sources. The three sandboxed argvs above name it and read it; none of them
@@ -235,6 +251,14 @@ func DarwinBootstrapArgv(stagedYolo, home string, bootstrapEnv *jsonx.OrderedMap
 // selected packs' own blocked-tool declarations, merged with the config's security
 // section (core blocks nothing by default). `darwin` may be nil.
 func BuildRunPlan(workspace string, cfg *jsonx.OrderedMap, agents, agentArgv []string, selfExe, hostPackRoot string, hostHomeOverlay HomeOverlay, hostCtx HostContext, sandboxEnv *jsonx.OrderedMap, darwin *Darwin, blockedTools []packload.BlockedTool) RunPlan {
+	return BuildRunPlanWithDaemons(workspace, cfg, agents, agentArgv, selfExe, hostPackRoot,
+		hostHomeOverlay, hostCtx, sandboxEnv, darwin, blockedTools, JailDaemons{})
+}
+
+// BuildRunPlanWithDaemons is BuildRunPlan plus the jail daemons this launch runs in the guest
+// (jaildaemon.go). The orchestrator's buildPlan calls this one; BuildRunPlan is the plan of a
+// launch that runs none.
+func BuildRunPlanWithDaemons(workspace string, cfg *jsonx.OrderedMap, agents, agentArgv []string, selfExe, hostPackRoot string, hostHomeOverlay HomeOverlay, hostCtx HostContext, sandboxEnv *jsonx.OrderedMap, darwin *Darwin, blockedTools []packload.BlockedTool, jailDaemons JailDaemons) RunPlan {
 	// SYMLINK-RESOLVED ONCE, HERE, BECAUSE THE KERNEL RESOLVES BEFORE THE POLICY IS CONSULTED.
 	// Measured on hardware 2026-09-13 (declaration-parity.md §6.1's probe 2): a profile denying
 	// `(subpath "/tmp")` does not stop `touch /tmp/canary`, while one denying
@@ -397,6 +421,25 @@ func BuildRunPlan(workspace string, cfg *jsonx.OrderedMap, agents, agentArgv []s
 	stageCommands = append(stageCommands, StageCtxCommands(hostCtx.Tree, cname, "")...)
 	stageCommands = append(stageCommands, endpointGrantCommands(sandboxEnv)...)
 
+	// THE GUEST'S JAIL DAEMONS (OQ-DP8, OQ-DP9; jaildaemon.go), composed only when the
+	// launch handed this backend a payload naming at least one — so every artifact below is
+	// absent, not empty, on a launch that runs none.
+	var jailDaemonArgv []string
+	daemonNames := jailDaemons.Names()
+	guestSource, daemonEnvFile, daemonEnvContent := "", "", ""
+	if len(daemonNames) > 0 {
+		guestSource = jailDaemons.GuestBinSource
+		daemonEnvFile = SandboxDaemonEnvFile(cname, "")
+		daemonEnvContent = SandboxEnvFileContent(jailDaemons.Env)
+		jailDaemonArgv = JailDaemonArgv(profilePath, daemonEnvFile, "", "", darwinPrefix)
+		// The binaries the supervisor and the payload's argvs name, beside the staged yolo.
+		stageCommands = append(stageCommands, StageGuestBinaryCommands(guestSource, "")...)
+		// Every endpoint the DAEMONS dial is granted too — the same grant the agent's
+		// endpoints get, read off the daemon env for endpointGrantCommands' reason (the env
+		// is the manifest), deduped against the ones already granted.
+		stageCommands = appendNewCommands(stageCommands, endpointGrantCommands(jailDaemons.Env))
+	}
+
 	return RunPlan{
 		Workspace:   workspace,
 		Cname:       cname,
@@ -414,6 +457,13 @@ func BuildRunPlan(workspace string, cfg *jsonx.OrderedMap, agents, agentArgv []s
 		ProvisionArgv:       provisionArgv,
 		ProvisionScriptPath: provisionScriptPath,
 		LaunchArgv:          LaunchArgv(agentArgv, profilePath, envFile, workspace, "", "", darwinPrefix),
+
+		JailDaemonArgv:          jailDaemonArgv,
+		JailDaemonNames:         daemonNames,
+		GuestBinSource:          guestSource,
+		DaemonEnvFile:           daemonEnvFile,
+		DaemonEnvFileContent:    daemonEnvContent,
+		DaemonEnvRemoveCommands: SandboxEnvRemoveCommands(daemonEnvFile),
 
 		EnvFile:               envFile,
 		EnvFileContent:        envFileContent,
@@ -1122,7 +1172,111 @@ func PlanInvariants(plan RunPlan) []string {
 				plan.StagedDir+"; the sandbox could rewrite the environment it is launched with")
 	}
 
+	problems = append(problems, jailDaemonInvariants(plan)...)
 	return problems
+}
+
+// jailDaemonInvariants is PlanInvariants' rule for the guest's jail daemons (jaildaemon.go),
+// the plan's "a plan carrying a payload must carry a daemon argv" in full: the supervisor
+// exists exactly when the payload names a daemon, it runs UNDER THE SESSION'S SEATBELT
+// PROFILE (OQ-DP9), it reads its own env file and carries no composed value on its argv, that
+// file sits in the root-owned state dir, and the binary it names is one this plan stages
+// there. Each half is a way a plan could look healthy and run a daemon unconfined, run none,
+// or run one out of a directory the sandbox can rewrite.
+func jailDaemonInvariants(plan RunPlan) []string {
+	var problems []string
+	if len(plan.JailDaemonNames) == 0 {
+		if len(plan.JailDaemonArgv) > 0 {
+			problems = append(problems, "the plan starts a jail-daemon supervisor with an "+
+				"empty payload; it would supervise nothing")
+		}
+		return problems
+	}
+	argv := plan.JailDaemonArgv
+	if len(argv) == 0 {
+		return append(problems, "the payload names jail daemons ("+
+			strings.Join(plan.JailDaemonNames, ", ")+") and the plan starts no supervisor; "+
+			"the launch would serve their addresses with nothing listening")
+	}
+	confinedAt := -1
+	for i := 0; i+2 < len(argv); i++ {
+		if argv[i] == "/usr/bin/sandbox-exec" && argv[i+1] == "-f" && argv[i+2] == plan.ProfilePath {
+			confinedAt = i
+			break
+		}
+	}
+	jaild := GuestBinaryPath(JaildName, plan.StagedDir)
+	jaildAt := -1
+	for i, a := range argv {
+		if a == jaild && i+1 < len(argv) && argv[i+1] == "supervise" {
+			jaildAt = i
+		}
+	}
+	switch {
+	case confinedAt < 0:
+		problems = append(problems, "the jail-daemon supervisor does not run under the "+
+			"session's Seatbelt profile ("+plan.ProfilePath+"); a pack-declared long-running "+
+			"process would sit outside the only confinement this backend has (OQ-DP9)")
+	case jaildAt < 0:
+		problems = append(problems, "the jail-daemon argv does not exec "+jaild+" supervise")
+	case jaildAt < confinedAt:
+		problems = append(problems, "the jail-daemon supervisor is started before "+
+			"sandbox-exec, outside the profile (OQ-DP9)")
+	}
+	problems = append(problems, SandboxArgvEnvProblems("jail-daemon", argv)...)
+	if plan.DaemonEnvFile == "" || !SandboxArgvReadsEnvFile(plan.DaemonEnvFile, argv) {
+		problems = append(problems, "the jail-daemon supervisor never reads its env file, so "+
+			"it has no payload and its daemons no caller tokens")
+	}
+	if plan.DaemonEnvFile != "" && !strings.HasPrefix(plan.DaemonEnvFile, plan.StagedDir+"/") {
+		problems = append(problems, "jail-daemon env file "+plan.DaemonEnvFile+" is not "+
+			"under the root-owned state dir "+plan.StagedDir)
+	}
+	if !SandboxEnvFileKeysInclude(plan.DaemonEnvFileContent, jailDaemonsEnv) {
+		problems = append(problems, "the jail-daemon env file does not set "+jailDaemonsEnv+
+			"; the supervisor would exit with nothing to supervise")
+	}
+	if !strings.HasPrefix(GuestBinDir(plan.StagedDir), plan.StagedDir+"/") {
+		problems = append(problems, "the guest bin dir is not under the root-owned state dir")
+	}
+	staged := false
+	for _, c := range plan.StageCommands {
+		if len(c) == 4 && c[0] == mvBin && c[3] == jaild {
+			staged = true
+		}
+	}
+	if !staged {
+		problems = append(problems, "the plan stages no "+JaildName+" into "+
+			GuestBinDir(plan.StagedDir)+"; the supervisor argv names a binary that would not "+
+			"exist (OQ-DP8)")
+	}
+	return problems
+}
+
+// SandboxEnvFileKeysInclude reports whether a rendered env file sets key.
+func SandboxEnvFileKeysInclude(content, key string) bool {
+	for _, k := range SandboxEnvFileKeys(content) {
+		if k == key {
+			return true
+		}
+	}
+	return false
+}
+
+// appendNewCommands appends each of more that cmds does not already hold, whole-argv equal.
+func appendNewCommands(cmds, more [][]string) [][]string {
+	seen := map[string]bool{}
+	for _, c := range cmds {
+		seen[strings.Join(c, "\x00")] = true
+	}
+	for _, c := range more {
+		k := strings.Join(c, "\x00")
+		if !seen[k] {
+			seen[k] = true
+			cmds = append(cmds, c)
+		}
+	}
+	return cmds
 }
 
 // argvMentions reports whether any argv element CONTAINS sub — the substring test the

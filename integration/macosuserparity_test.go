@@ -117,10 +117,22 @@ func TestMacosUserReportsOnlyPlatformInertLoopholes(t *testing.T) {
 			"handed to the sandbox, so the pack whose loophole is NOT reported inert is inert "+
 			"anyway.\n%s\nlaunch output:\n%s", brokerVar, env, out)
 	}
-	if !strings.Contains(out, "Declined: no jail-side daemon runs on macos-user") {
-		t.Errorf("the launch did not decline claude's jail daemons by name "+
-			"(noteMacosUserJailDaemonDeclines). The claude pack declares them, and this backend "+
-			"has no in-jail supervisor to start them.\n%s", out)
+	// Since OQ-DP8/OQ-DP9 the guest RUNS claude's OpenAI refresh adapter and declines only the
+	// daemons it cannot run as declared: the OAuth terminator (it needs a container's
+	// --add-host and :443) and the wire bridge's jail daemon (a pack service runs its host
+	// half here) — named with their reasons (noteMacosUserJailDaemonDeclines).
+	for _, want := range []string{
+		"Declined: these jail daemons do not run in the macos-user sandbox",
+		"claude-oauth-broker: yolo-jaild oauth-terminator — ",
+		"wire-bridge: yolo-jaild wire-bridge — ",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("the launch did not decline %q by name (noteMacosUserJailDaemonDeclines).\n%s",
+				want, out)
+		}
+	}
+	if strings.Contains(out, "openai-auth-broker: yolo-jaild openai-auth-adapter") {
+		t.Errorf("the launch declined the OpenAI refresh adapter, which the guest runs:\n%s", out)
 	}
 }
 

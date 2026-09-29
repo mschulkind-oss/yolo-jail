@@ -491,7 +491,8 @@ func TestCaptureWiresTheMacosUserBackend(t *testing.T) {
 	before := out.Len()
 	_ = seen.MacosUserRun(jsonx.NewOrderedMap(), "", nil, nil, "", "", macosuser.HomeOverlay{}, /*homeOverlay*/
 		macosuser.HostContext{} /*hostCtx*/, true, /*dryRun*/
-		jsonx.NewOrderedMap(), []packload.BlockedTool{{Name: "probeblocker", Suggestion: "use rg"}})
+		jsonx.NewOrderedMap(), []packload.BlockedTool{{Name: "probeblocker", Suggestion: "use rg"}},
+		macosuser.JailDaemons{})
 	plan := out.String()[before:]
 
 	// The macos-user capture act, and nothing else, prints this banner.

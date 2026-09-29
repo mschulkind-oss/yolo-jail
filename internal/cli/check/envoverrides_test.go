@@ -379,7 +379,7 @@ func TestEnvOverrideGapWordsItTheWayTheLaunchDoes(t *testing.T) {
 	pack := overriddenPack(t, "someagent", "gatedprofile")
 	packsFixture(t, `{"packs": ["file://`+pack+`"]}`)
 
-	errs, warns := envOverrideGap(nil, tokenDelivered(), packload.ServedAtContainer(nil), t.TempDir(), true, func(string) {}, noUserProfiles)
+	errs, warns := envOverrideGap(nil, tokenDelivered(), packload.ServedInJail(nil), t.TempDir(), true, func(string) {}, noUserProfiles)
 	if len(warns) != 0 {
 		t.Errorf("this gate has no escape hatch, so it has no warning arm: %v", warns)
 	}
