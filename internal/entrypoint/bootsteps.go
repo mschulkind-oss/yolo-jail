@@ -244,6 +244,13 @@ func bootSteps() []bootStep {
 			run:  func(b *bootRun) { ReconcileInstalledPrograms(b.e) },
 		},
 		{
+			// THE DURABLE DIR'S LAUNCH LINE (durablereport.go, OQ-DS2): informational, like the
+			// two reports above, and on BOTH boots, since both export the directory. Beside them
+			// because all three answer "what has accumulated that nothing will remove for you".
+			name: "report_durable_dir",
+			run:  func(b *bootRun) { ReportDurableDir(b.e) },
+		},
+		{
 			// Build the combined CA bundle BEFORE bashrc and before any child spawn, so the env
 			// vars exported here propagate to every child the entrypoint spawns.
 			name: "generate_ca_bundle",
