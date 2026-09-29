@@ -198,40 +198,55 @@ func realDaemonProcs() daemonProcs {
 type recordState int
 
 const (
-	// recordStale: no process has the pid, or the one that has it is not what was recorded — a
-	// different start time, or a command line that is not Codex's app server. Nothing to stop.
+	// recordStale: no process has the pid, or the one that has it is not Codex's app server
+	// (its command line says so). Nothing to stop, and nothing running from the package copy.
 	recordStale recordState = iota
-	// recordRunning: the recorded daemon process is running.
+	// recordRunning: the recorded daemon process is running: an app server, started at the
+	// recorded time.
 	recordRunning
-	// recordUnknown: a process has the pid and ps could not say what it is. Not stopped, and it
-	// holds the package copy in place: "unreferenced" and "could not ask" are not one answer.
+	// recordUnknown: a process has the pid and yolo cannot tell whether it is the recorded one —
+	// ps could not describe it, or it is an app server whose start time is not the recorded one.
+	// Not stopped, and it holds the package copy in place: "unreferenced" and "could not ask" are
+	// not one answer.
 	recordUnknown
 )
 
-// checkRecord reads one pid record and says what it names.
-func checkRecord(path string, procs daemonProcs) (int, recordState) {
+// checkRecord reads one pid record and says what it names, and for recordUnknown why.
+//
+// A start time that differs is recordUnknown, never recordStale, while the command line is an
+// app server's. `ps -o lstart=` prints local time in the caller's locale, and Codex recorded it
+// from the environment of whichever launch started the daemon, so a different time zone, locale
+// or clock step makes a live daemon's time differ from its record. Codex's own check says
+// "cannot verify … PID record retained" there rather than calling the record stale
+// (backend/pid.rs, process_matches_record, rust-v0.159.0). Calling it stale removed the package
+// copy from under a server still running from it.
+func checkRecord(path string, procs daemonProcs) (int, recordState, string) {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return 0, recordStale
+		return 0, recordStale, ""
 	}
 	var rec struct {
 		PID              int    `json:"pid"`
 		ProcessStartTime string `json:"processStartTime"`
 	}
 	if json.Unmarshal(data, &rec) != nil || rec.PID <= 1 || strings.TrimSpace(rec.ProcessStartTime) == "" {
-		return 0, recordStale
+		return 0, recordStale, ""
 	}
 	if !procs.alive(rec.PID) {
-		return rec.PID, recordStale
+		return rec.PID, recordStale, ""
 	}
 	start, command, err := procs.facts(rec.PID)
 	if err != nil {
-		return rec.PID, recordUnknown
+		return rec.PID, recordUnknown, "ps could not say whether it is still Codex's background server"
 	}
-	if start != strings.TrimSpace(rec.ProcessStartTime) || !strings.Contains(command, "app-server") {
-		return rec.PID, recordStale
+	if !strings.Contains(command, "app-server") {
+		return rec.PID, recordStale, ""
 	}
-	return rec.PID, recordRunning
+	if start != strings.TrimSpace(rec.ProcessStartTime) {
+		return rec.PID, recordUnknown, "it is an app server whose start time is not the recorded one, " +
+			"which a different time zone, locale or clock can cause as well as a reused pid"
+	}
+	return rec.PID, recordRunning, ""
 }
 
 // retireManagedDaemon shuts down, once, what Codex's daemon left in the managed CODEX_HOME
@@ -258,12 +273,12 @@ func retireManagedDaemon(home string, alone bool, procs daemonProcs, stderr io.W
 	}
 	holding := false
 	for _, r := range daemonRecords {
-		pid, st := checkRecord(filepath.Join(state, r.file), procs)
+		pid, st, why := checkRecord(filepath.Join(state, r.file), procs)
 		switch st {
 		case recordUnknown:
 			holding = true
-			fmt.Fprintf(stderr, "yolo host: left pid %d alone: %s in yolo's managed Codex home names it, and ps "+
-				"could not say whether it is still Codex's background server\n", pid, r.file)
+			fmt.Fprintf(stderr, "yolo host: left pid %d alone: %s in yolo's managed Codex home names it, and %s. "+
+				"If it is Codex's, `kill %d` stops it, and a later launch removes its copy\n", pid, r.file, why, pid)
 		case recordRunning:
 			holding = true
 			what := "background server"

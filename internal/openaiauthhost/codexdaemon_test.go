@@ -386,9 +386,10 @@ func TestALeftoverDaemonInTheManagedHomeIsStoppedAndItsCopyReclaimed(t *testing.
 	}
 }
 
-// A RECORD THAT DOES NOT NAME CODEX IS LEFT ALONE: a reused pid whose start time differs, or a
-// process that is not Codex's app server, is never signalled. A process ps cannot describe is not
-// signalled either, and it keeps the package copy in place.
+// A RECORD THAT DOES NOT PROVE ITS PROCESS IS LEFT ALONE: an app server whose start time differs
+// (a reused pid, or the same daemon read in another time zone), or a process that is not Codex's
+// app server, is never signalled. A process ps cannot describe is not signalled either, and it
+// keeps the package copy in place (so does the first; TestALiveAppServerWhoseStartTimeDiffersKeepsItsCopy).
 func TestADaemonRecordThatDoesNotMatchItsProcessIsNeverSignalled(t *testing.T) {
 	root := t.TempDir()
 	home := managedCodexHome(root)
@@ -417,6 +418,45 @@ func TestADaemonRecordThatDoesNotMatchItsProcessIsNeverSignalled(t *testing.T) {
 	}
 	if !strings.Contains(errw.String(), "left pid "+strconv.Itoa(opaque.pid())+" alone") {
 		t.Errorf("the undecidable record was not named:\n%s", errw.String())
+	}
+}
+
+// A LIVE APP SERVER WHOSE START TIME IS NOT THE RECORD'S IS LEFT RUNNING, AND SO IS ITS COPY. The
+// time `ps` prints is local time in the caller's locale, and Codex recorded it from the
+// environment of whichever launch started the daemon, so a different time zone, locale or clock
+// step gives a live daemon a start time that no longer matches. Codex's own check calls that
+// "cannot verify … PID record retained" (backend/pid.rs, process_matches_record), not stale. Taking
+// it for stale deleted the package copy from under a server still running from it, and said
+// "nothing yolo launches runs it". Here the record is the only one, so nothing else holds the copy.
+func TestALiveAppServerWhoseStartTimeDiffersKeepsItsCopy(t *testing.T) {
+	root := t.TempDir()
+	home := managedCodexHome(root)
+	server := startFakeDaemon(t)
+	ps := newFakePS()
+	ps.known[server.pid()] = [2]string{"Tue Sep 29 22:13:01 2026",
+		"/home/u/.codex/packages/app-server-daemon/current/bin/codex app-server --listen unix:// --managed-daemon"}
+	writeRecord(t, home, "daemon.pid", server.pid(), recordedStart)
+	if err := os.MkdirAll(filepath.Join(home, daemonPackagesDir, "releases"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	var errw bytes.Buffer
+	launch, err := prepare(managedDaemonDeps(root, ps.procs()), codexPrelaunch, &errw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	endLaunch(t, launch)
+	if len(ps.signals) != 0 || !server.running() {
+		t.Fatalf("a daemon whose record cannot be verified was signalled: %v\n%s", ps.signals, errw.String())
+	}
+	if _, err := os.Stat(filepath.Join(home, daemonPackagesDir)); err != nil {
+		t.Errorf("the package copy went while an app server its record may name is running: %v\n%s", err, errw.String())
+	}
+	if !strings.Contains(errw.String(), "left pid "+strconv.Itoa(server.pid())+" alone") ||
+		!strings.Contains(errw.String(), "start time") {
+		t.Errorf("the unverifiable record was not named with its reason:\n%s", errw.String())
+	}
+	if strings.Contains(errw.String(), "removed Codex's background-server copy") {
+		t.Errorf("the launch said it removed the copy:\n%s", errw.String())
 	}
 }
 
