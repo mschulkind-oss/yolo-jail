@@ -184,6 +184,15 @@ the agents on `bedrock`: another agent, or a plain shell, is refused. Attaching 
 than hand the agent an address nothing answers. See
 [the `aws-auth` pack](packs/aws-auth/README.md).
 
+**A `bedrock` launch with no AWS region is now refused before it starts, and says where to set
+one.** An agent needs a region to reach Bedrock, and yolo used to start it without one. Set
+`"providers": {"bedrock": {"region": "…"}}` in your config or `AWS_REGION` in an `env_sources`
+entry. In a jail, an `AWS_REGION` exported only in your own
+shell does not count, because it never reaches the jail, and the refusal says when it saw one
+there. `yolo host -p bedrock -- claude` counts your shell's value, since the agent inherits it.
+A region in `~/.aws/config` does not count anywhere. `YOLO_ALLOW_MISSING_PROVIDERS=1` launches
+anyway. See [the region preflight](docs/reference/providers.md#the-region-preflight).
+
 **Two packs shipping a skill of the same name now stop a jail launch with a message, as they do
 at the host.** Before, a jail came up with whichever pack came last and said nothing, so one
 pack's skill was silently missing; your own local pack's copy of a shared pack's skill is now

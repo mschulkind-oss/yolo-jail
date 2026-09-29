@@ -246,8 +246,9 @@ const (
 const AllowUnreachableServicesEnv = "YOLO_ALLOW_UNREACHABLE_SERVICES"
 
 // AllowMissingProvidersEnv is the escape hatch out of the selected-pack credential
-// pre-flight (docs/reference/providers.md#the-credential-preflight, #pv-oq-13): any non-empty
-// value keeps the launch going, loudly, and says what it is suppressing. The named-var
+// pre-flight (docs/reference/providers.md#the-credential-preflight, #pv-oq-13) and out of the
+// region pre-flight beside it (#the-region-preflight, OQ-BR6): any non-empty value keeps the
+// launch going, loudly, and says what it is suppressing. The named-var
 // const is the same convention AllowUnreachableServicesEnv is — the producer (this CLI)
 // and every consumer read one spelling, so a hatch cannot drift out of reach by a
 // re-typing. Both notches that refuse read it host-side (internal/cli/run and the

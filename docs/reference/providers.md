@@ -185,7 +185,8 @@ Two refusals guard the output:
   name).
 
 What a composed entry is required to bring — its credential — is
-[the credential preflight](#the-credential-preflight)'s question.
+[the credential preflight](#the-credential-preflight)'s question, and, for a provider reached
+through a region, its region is [the region preflight](#the-region-preflight)'s.
 
 ## The credential preflight
 
@@ -227,6 +228,37 @@ refused, with no hatch, or warned about and let through when the pack declares t
 there. `packs/aws-auth` declares the three for its credentials pointer: a Bedrock bearer and a
 static key pair refuse, and a `~/.aws` grant warns
 ([`sso-backed-bedrock.md` OQ-SSO8](../design/sso-backed-bedrock.md#OQ-SSO8)).
+
+## The region preflight
+
+A launch refuses when a provider some agent's profile **selects** is reached through a region
+and the launch can see no region for it
+([`OQ-BR6`](../design/bedrock-plumbing.md#OQ-BR6), ruled 2026-09-25). Without it codex fails at
+its first Bedrock request, and opencode and pi silently use `us-east-1`.
+
+- **Which providers.** One whose pack declares `region_env_name`: the variables an agent on that
+  provider reads its region from. Declaring the field is the whole requirement, and core names no
+  provider and no variable ([BR-D1](../design/bedrock-plumbing.md#BR-D1)). The claude pack's
+  `bedrock` declares `AWS_REGION` and `AWS_DEFAULT_REGION`. A user's own `providers` entry cannot
+  declare the field, so a provider only the user's config declares carries no requirement.
+- **What counts as a region.** The composed entry's `region`, which a user's `providers` entry
+  sets from either scope (`"providers": {"bedrock": {"region": "eu-west-1"}}`), or one of the
+  declared variables, non-empty, in what the launch delivers to the agent. In a jail that is
+  `env_sources`, a selected pack's `kind: "env"`, the profile's provider environment and, on a
+  container, the argv's `-e` pairs. It is never the shell yolo was launched from, which no
+  backend forwards; a region found only there is named in the refusal as not delivered. At
+  `yolo host --` the exec'd environment includes that shell, so it counts
+  ([BR-D2](../design/bedrock-plumbing.md#BR-D2)). A region in `~/.aws/config` is not counted,
+  because no agent is proven to read it, and the refusal says so.
+- **Scope.** As the credential preflight's: a provider nobody selects, and an entry a `null`
+  dropped, demand nothing.
+
+The refusal names the pack, the provider, both ways to set a region and every channel consulted.
+It honors the credential preflight's hatch, `YOLO_ALLOW_MISSING_PROVIDERS=1`
+([BR-D3](../design/bedrock-plumbing.md#BR-D3)), and runs wherever that preflight runs: the jail
+launcher's `checkProviderCredentials` asks both, so the fresh launch, the attach and every
+macos-user invocation do, and `yolo host --` asks it before resolving the target. The facts are
+`ProviderRegionGaps` in `internal/packload`, and the wording `ProviderRegionRefusal`.
 
 ## What crosses to the jail
 
@@ -1078,8 +1110,9 @@ through the env derive or a gated `env`, and reaches only a process yolo launche
 `yolo host --`, or the host wrapper.
 
 `packs/claude`'s `bedrock` is the worked example, and it uses both channels ([D8](#pv-d8)). The
-profile names the `bedrock` provider, which the pack ships as a bare name — no endpoint, so it
-is never a credential requirement — and whose region and model ids come from the user's
+profile names the `bedrock` provider, which the pack ships with no endpoint, so it is never a
+credential requirement, and with a `region_env_name`, so a region is
+([the region preflight](#the-region-preflight)). Its region and model ids come from the user's
 `providers.bedrock` entry. A gated `config-overlay` puts `CLAUDE_CODE_USE_BEDROCK` into the
 `env` block of `claude/settings`, so a bare `claude` outside yolo still runs in Bedrock mode; a
 gated `env` sets the same variable for a yolo-launched process; the claude env derive composes
@@ -1260,7 +1293,8 @@ above explains what each is for; this table is the only place the exact spelling
 | pi's copy of that list | `~/.pi/agent/yolo-openai-codex-models.json`, the computed surface `pi/codex-models`: `{"models": [{"id", "base", "name", "contextWindow"}, …]}`, read by the openai-auth extension at load. At the host notch it is `{}` under `host_management: assert` and refused under `own` | `packs/pi/pack.json`, `packs/pi/extensions/yolo-openai-auth.js` |
 | User config keys | `providers` (merged-scope — **except the ADDRESS**), `profiles` / `use_profiles` (user-scope-only); `agent_profiles` refused by name as the old spelling of `use_profiles` | `internal/config` |
 | Provider credential-routing scope | Every provider field that decides where a credential goes is **USER-SCOPE ONLY**: a workspace `yolo-jail.jsonc` or `yolo-jail.local.jsonc` carrying one is a fatal config error naming the field and the user config. The address, `endpoints.<protocol>.base_url`, since 2026-09-17 ([`OQ-LM3`](../research/local-model-endpoints.md#oq-lm3)). Since 2026-09-28 ([OQ-NC6](../plans/notch-convergence.md#OQ-NC6), the field list [NC-D63](../plans/notch-convergence.md#NC-D63)) also the rest of `endpoints` in any form (a protocol with no URL, a `wire_api`, a null removing an endpoint or the map), `api_key_env_name` (a value re-points the claim, a null unclaims the key so every process receives it), and a null provider or null `providers`, which remove claims. `models`, `options`, `region` and `capabilities` still merge from either scope. The reason is the workspace file is AGENT-EDITABLE, and these fields decide where a credential and the inference behind it go. The entry-level `base_url` shorthand is refused at any scope | `internal/config/validate.go` (`validateProviderCredentialScope`) |
-| Missing-provider hatch | `YOLO_ALLOW_MISSING_PROVIDERS=1` | `internal/paths` |
+| Missing-provider hatch | `YOLO_ALLOW_MISSING_PROVIDERS=1`, for the credential and the region preflights | `internal/paths` |
+| Region requirement | a provider's `region_env_name` (pack manifests only); the claude pack's `bedrock` declares `AWS_REGION`, `AWS_DEFAULT_REGION` | `packs/claude/pack.json`, `packload.ProviderRegionGaps` |
 | Kinds that take the `profile` modifier | `env`, `config-overlay` — refused on every other kind | `packdecl` `validateContribution` |
 | Profile flag grammar | `-p` / `--profile`: a bare name, or `cli=name` (comma-separated, repeatable), on every notch; at `yolo host` / `yolo host env` a pair may name only the one command composed | `internal/cli` (`parseProfileValue`; `applyProfileValue` on the run path, `hostProfileFor` at the host) |
 | Profile disclosure line | `Profile <name>: declared: <packs or none>; received: <every selected pack>` | `run.noteUseProfiles` |
