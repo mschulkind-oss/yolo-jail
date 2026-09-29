@@ -14,11 +14,13 @@ vantage:
 BUILT 2026-09-29** (the read path, the repository scope, the audit log, the mount fence), and
 steps 2 and 3 not started. Revised around the maintainer's brief of that day; first sketched
 2026-08-05. [OQ-BB1](#OQ-BB1), [OQ-BB2](#OQ-BB2), [OQ-BB3](#OQ-BB3), [OQ-BB4](#OQ-BB4),
-[OQ-BB6](#OQ-BB6) and [OQ-BB7](#OQ-BB7) were ruled on 2026-09-29, and the body now follows those
-rulings ([§1.2](#12-what-it-rules)). Step 1 lives in `internal/ghbroker` (the classifier, the
+[OQ-BB6](#OQ-BB6), [OQ-BB7](#OQ-BB7), [OQ-BB8](#OQ-BB8), [OQ-BB9](#OQ-BB9) and OQ-C were ruled on
+2026-09-29, and the body now follows those rulings ([§1.2](#12-what-it-rules)); only
+[OQ-BB10](#OQ-BB10) is open. Step 1 lives in `internal/ghbroker` (the classifier, the
 executor, the daemon and the `yolo gh` forwarder), `internal/brokerscope`, `internal/brokeraudit`,
 `packs/github` and the `intercept` contribution kind; its implementation decisions are
-[BB-D37](#BB-D37) to [BB-D45](#BB-D45). Still unbuilt: the request store, `yolo approve`, the
+[BB-D37](#BB-D37) to [BB-D45](#BB-D45), and the fixes a review of it found are
+[BB-D46](#BB-D46) to [BB-D51](#BB-D51). Still unbuilt: the request store, `yolo approve`, the
 notifiers, the ping, and every write. (`internal/broker` and the `yolo broker` verb mean the
 Claude OAuth singleton; see **broker** in [§1.3](#13-terms).) The research behind
 [§5](#5-which-set-the-classifier) and [§6](#6-the-doorbell-a-persistent-desktop-notification) is
