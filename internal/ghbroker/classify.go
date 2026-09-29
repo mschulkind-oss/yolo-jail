@@ -58,6 +58,11 @@ type Decision struct {
 // forwarder resolved in the jail, a convenience and never an authority (§4.3): it is used
 // only where the argv names none, and it is checked against scope like any other.
 func Classify(argv []string, fieldRepo string, scope Scope) Decision {
+	// `gh --version` alone is the one root-flag call an agent makes, to see whether gh is
+	// there at all. It reads nothing the login makes private, so it is a read in no repository.
+	if len(argv) == 1 && argv[0] == "--version" {
+		return Decision{Outcome: OutcomeStanding, Set: SetReadOnly, Path: "--version", Argv: []string{"--version"}}
+	}
 	p, err := parseArgv(argv)
 	if err != nil {
 		d := Decision{Outcome: OutcomeRefused, Reason: err.Error()}
