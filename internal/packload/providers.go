@@ -59,9 +59,9 @@ import (
 //
 // A provider NAME claimed by two packs is refused by the launch pre-flight (the kind is
 // sole-owned by name; the claim target is the bare name, so packload.Collisions' generic
-// exclusive loop reports it). This compose keeps the FIRST and never overwrites, so a
-// caller that skipped the pre-flight degrades to a stable table rather than to whichever
-// pack happened to sort last.
+// exclusive loop reports it). A caller that skipped the pre-flight (the host) gets the LATER
+// shipper's entry in packs' order, the one rule for a duplicated sole-owned claim (laterWins,
+// notch-convergence NC-D59); the entry stands at its holder's position.
 func ComposeProviders(user *jsonx.OrderedMap, packs []*Pack, opts ...ComposeOption) (*jsonx.OrderedMap, error) {
 	cfg := composeOpts{}
 	for _, opt := range opts {
@@ -69,14 +69,23 @@ func ComposeProviders(user *jsonx.OrderedMap, packs []*Pack, opts ...ComposeOpti
 	}
 	out := jsonx.NewOrderedMap()
 	shipper := map[string]string{}
+	type shipped struct {
+		pack string
+		prov packdecl.ProviderContribution
+	}
+	var all []shipped
 	for _, p := range packs {
 		for _, prov := range p.Decl.Providers() {
-			if _, seen := out.Get(prov.Name); seen {
-				continue
-			}
-			out.Set(prov.Name, shippedProviderEntry(prov))
-			shipper[prov.Name] = p.Name
+			all = append(all, shipped{pack: p.Name, prov: prov})
 		}
+	}
+	holds := laterWins(len(all), func(i int) string { return all[i].prov.Name })
+	for i, s := range all {
+		if !holds[i] {
+			continue
+		}
+		out.Set(s.prov.Name, shippedProviderEntry(s.prov))
+		shipper[s.prov.Name] = s.pack
 	}
 	if user == nil {
 		// The adapter pass runs on EVERY return, not only the one with a user layer: a
@@ -512,12 +521,12 @@ func NativeCapabilities(packs []*Pack, agent string) []string {
 // zai" says where the entry came from, which "provider zai is missing a credential" does
 // not; the user-config attribution covers an entry only the user's config put there.
 func requiredProviders(packs []*Pack, providers *jsonx.OrderedMap) []providerRequirement {
+	// Attributed to the pack whose entry the table holds: the LAST shipper (laterWins, as
+	// ComposeProviders keeps it).
 	shipper := map[string]string{}
 	for _, p := range packs {
 		for _, prov := range p.Decl.Providers() {
-			if _, seen := shipper[prov.Name]; !seen {
-				shipper[prov.Name] = p.Name
-			}
+			shipper[prov.Name] = p.Name
 		}
 	}
 	if providers == nil {

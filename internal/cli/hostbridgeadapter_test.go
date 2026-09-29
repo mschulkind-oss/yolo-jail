@@ -87,16 +87,21 @@ func TestHostRemedyNeverNamesTheBridgedProfileForClaude(t *testing.T) {
 // yield the pair to wire-bridge (docs/plans/notch-convergence.md NC-D57).
 
 // yield the pair to wire-bridge (docs/plans/notch-convergence.md NC-D59).
+
+// The adapter is the conventional local pack's. wire-bridge, which claude's `needs` joins,
+// declares the same openai → anthropic pair; a duplicated sole-owned claim is held by the LATER
+// pack in the one precedence order (OQ-NC4: config order, then the closure's additions, then the
+// local pack last), so the local pack's address wins (docs/plans/notch-convergence.md NC-D59).
 func TestHostStillComposesAnAdapterNoPackServiceServes(t *testing.T) {
-	dir := filepath.Join(t.TempDir(), "proxy")
+	home := hostGateHome(t, `{"packs": ["claude", "cerebras"], "env_sources": [{"CEREBRAS_API_KEY": "tok-c"}]}`, wcShell(nil))
+	dir := filepath.Join(home, ".config", "yolo-jail", "local")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "pack.json"), []byte(`{"name":"proxy","contributes":[`+
+	if err := os.WriteFile(filepath.Join(dir, "pack.json"), []byte(`{"name":"local","contributes":[`+
 		`{"kind":"adapter","adapts":{"from":"openai","to":"anthropic"},"address":"http://127.0.0.1:9999"}]}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	hostGateHome(t, `{"packs": ["claude", "cerebras", "file://`+dir+`"], "env_sources": [{"CEREBRAS_API_KEY": "tok-c"}]}`, wcShell(nil))
 	rc, _, env, errs := runRemedy(t, []string{"-p", "cerebras", "--", "claude"})
 	if rc != 0 || env["ANTHROPIC_BASE_URL"] != "http://127.0.0.1:9999" {
 		t.Errorf("a user-served adapter still pairs claude with cerebras at the host: rc = %d, "+

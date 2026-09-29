@@ -262,16 +262,17 @@ func missingProvider(packs []*Pack, owner *Pack, agent, profile, selected string
 	return e
 }
 
-// providerShipper returns the first of packs that declares a provider named name, or nil.
+// providerShipper returns the pack whose entry for a provider named name the composed table
+// holds, the LAST of packs to declare it (laterWins, as ComposeProviders keeps it), or nil.
 func providerShipper(packs []*Pack, name string) *Pack {
-	for _, p := range packs {
+	return lastDeclarer(packs, func(p *Pack) bool {
 		for _, prov := range p.Decl.Providers() {
 			if prov.Name == name {
-				return p
+				return true
 			}
 		}
-	}
-	return nil
+		return false
+	})
 }
 
 // packNeeding returns the first of packs whose `needs` names target, live or not, or "".
@@ -331,19 +332,18 @@ func WithAdapterAddresses(m map[string]string) ComposeOption {
 // Adaptations returns every conversion the given packs declare, in pack order then
 // declaration order.
 //
-// A PAIR DECLARED TWICE IS DROPPED, not merged and not refused here: the pair is
-// sole-owned, the claim target carries both halves, and packload.Collisions' generic
-// exclusive loop is the cross-pack check that REPORTS it. This keeps the FIRST, so a caller
-// that skipped the pre-flight degrades to a stable table rather than to whichever pack
-// happened to sort last — exactly the rule ComposeProviders follows for a duplicated
-// provider name, and for the same reason.
+// A PAIR DECLARED TWICE IS HELD BY THE LATER DECLARATION, not merged and not refused here:
+// the pair is sole-owned, the claim target carries both halves, and packload.Collisions'
+// generic exclusive loop is the check that REPORTS it. The later one in packs' order holds it
+// (laterWins, notch-convergence NC-D59), the rule ComposeProviders follows for a duplicated
+// provider name, so the local pack's adapter beats one a pack pulled in through `needs`
+// declares. The kept entry stands at the holder's position.
 //
 // An entry with an empty half is skipped: the schema refuses it at authoring time, so
 // reaching here means a manifest a newer host staged and this build read tolerantly, where
 // a half-declared conversion is nothing rather than a fault.
 func Adaptations(packs []*Pack) []Adaptation {
-	var out []Adaptation
-	seen := map[string]bool{}
+	var all []Adaptation
 	for _, p := range packs {
 		service := ""
 		if svcs := p.Decl.Services(); len(svcs) > 0 {
@@ -353,13 +353,15 @@ func Adaptations(packs []*Pack) []Adaptation {
 			if a.From == "" || a.To == "" || a.Address == "" {
 				continue
 			}
-			key := AdapterKey(a.From, a.To)
-			if seen[key] {
-				continue
-			}
-			seen[key] = true
-			out = append(out, Adaptation{Pack: p.Name, From: a.From, To: a.To, Address: a.Address,
+			all = append(all, Adaptation{Pack: p.Name, From: a.From, To: a.To, Address: a.Address,
 				Service: service})
+		}
+	}
+	holds := laterWins(len(all), func(i int) string { return AdapterKey(all[i].From, all[i].To) })
+	var out []Adaptation
+	for i, a := range all {
+		if holds[i] {
+			out = append(out, a)
 		}
 	}
 	return out

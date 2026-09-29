@@ -314,16 +314,18 @@ func TestComposeProvidersNilWhenNothingShipped(t *testing.T) {
 	}
 }
 
-// TestComposeProvidersKeepsFirstOnANameClash: the pre-flight refuses a name two packs
-// ship, so the compose never has to decide — but if a caller ever skips it, the result
-// must be a STABLE table (first wins) rather than whichever pack sorted last.
-func TestComposeProvidersKeepsFirstOnANameClash(t *testing.T) {
+// TestComposeProvidersKeepsTheLaterOnANameClash: the jail's pre-flight refuses a name two
+// packs ship, but a caller that skips it (the host) must still get a STABLE table, and the
+// pack order is now one well-defined precedence order, so the stable answer is the one every
+// other key gives: the later pack holds the name (notch-convergence NC-D59). It kept the first
+// until 2026-09-28.
+func TestComposeProvidersKeepsTheLaterOnANameClash(t *testing.T) {
 	a := &Pack{Name: "a", Decl: declFrom(t, `{"contributes":[
 	  {"kind":"provider","name":"zai","endpoints":{"openai":{"base_url":"https://a.example/v4"}}}]}`)}
 	b := &Pack{Name: "b", Decl: declFrom(t, `{"contributes":[
 	  {"kind":"provider","name":"zai","endpoints":{"openai":{"base_url":"https://b.example/v4"}}}]}`)}
-	if s := dump(t, compose(t, nil, []*Pack{a, b})); !strings.Contains(s, "https://a.example/v4") {
-		t.Errorf("first shipper should win an unrefused clash, got %s", s)
+	if s := dump(t, compose(t, nil, []*Pack{a, b})); !strings.Contains(s, "https://b.example/v4") {
+		t.Errorf("the later shipper should win an unrefused clash, got %s", s)
 	}
 }
 

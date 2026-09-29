@@ -28,7 +28,6 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
-	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/wirebridged"
@@ -144,26 +143,11 @@ func (o *Options) jailDaemonsFor(cfg *jsonx.OrderedMap, rt string,
 // file nothing writes and the witness says so loudly, which is the failure
 // mode a silent reconstruction would hide.
 func serviceEndpointEnvArgs(in *assembleInput, o *Options) []string {
-	var bridge *packdecl.ServiceContribution
-	for _, p := range in.packs {
-		if p.Decl == nil {
-			continue
-		}
-		for _, s := range p.Decl.Services() {
-			if s.Name != wirebridged.ServiceName {
-				continue
-			}
-			// The name is sole-owned across packs (a second contributor is a
-			// launch refusal, not a fold), so the first hit is THE service.
-			found := s
-			bridge = &found
-			break
-		}
-		if bridge != nil {
-			break
-		}
-	}
-	if bridge == nil || bridge.Endpoint == "" {
+	// The name is sole-owned across packs; a second declarer is not refused at launch, so it
+	// is held by the LATER one in the pack order, the one rule for a duplicated sole-owned
+	// claim (packload.ServiceNamed, notch-convergence NC-D59). This took the first hit.
+	bridge, ok := packload.ServiceNamed(in.packs, wirebridged.ServiceName)
+	if !ok || bridge.Endpoint == "" {
 		return nil
 	}
 	channel := in.envChannel(o)

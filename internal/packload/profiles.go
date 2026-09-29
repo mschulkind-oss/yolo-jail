@@ -279,18 +279,20 @@ func ProviderFor(resolved map[string]ResolvedProfile, profile string) string {
 }
 
 // packShippedProfiles returns every `kind: "profile"` the selected packs declare, keyed
-// by name, first pack in delivery order winning — the same convention ComposeProviders
-// applies to a provider name two packs ship. A name claimed across packs is not refused
-// here: the selector fold downstream already had to pick one, and refusing would move a
-// decision that has always been "first wins" into the one pass that can least afford to
-// invent a second rule for it.
+// by name, the LATER declaration in delivery order holding a name two packs ship — the one
+// rule for a duplicated sole-owned claim (laterWins, notch-convergence NC-D59), which
+// ComposeProviders applies to a provider name too. It was first wins until 2026-09-28. A name
+// claimed across packs is not refused here: the selector fold downstream already had to pick
+// one, and this pass is the one that can least afford a rule of its own.
 func packShippedProfiles(packs []*Pack) map[string]packdecl.ProfileContribution {
-	out := map[string]packdecl.ProfileContribution{}
+	var all []packdecl.ProfileContribution
 	for _, p := range packs {
-		for _, prof := range p.Decl.Profiles() {
-			if _, seen := out[prof.Name]; seen {
-				continue
-			}
+		all = append(all, p.Decl.Profiles()...)
+	}
+	holds := laterWins(len(all), func(i int) string { return all[i].Name })
+	out := map[string]packdecl.ProfileContribution{}
+	for i, prof := range all {
+		if holds[i] {
 			out[prof.Name] = prof
 		}
 	}
