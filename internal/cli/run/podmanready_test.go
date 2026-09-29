@@ -388,6 +388,10 @@ func TestALaunchAsksPodmanOnceAndEveryReaderTakesTheGatesAnswer(t *testing.T) {
 		t.Errorf("the container argv lacks the forwarding the gate's answer decides (%s, "+
 			"YOLO_HOST_LOOPBACK=requested):\n%s", pastaArg, argv)
 	}
+	// And the machine-wide launch line (launchrecord.go, OQ-PR3) records the wait: two
+	// backoffs, 1 s and 2 s on the gate's clock, and three tries, written when the
+	// container started.
+	assertOneLaunchLine(t, ws, "runtime=podman podman_wait=3.0s tries=3 outcome=started rc=-")
 }
 
 func containsLine(lines []string, want string) bool {

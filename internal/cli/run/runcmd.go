@@ -284,6 +284,9 @@ type Options struct {
 	// readiness is the gate's whole result, success or not, for the refusal's exit code and
 	// the machine-wide launch line. nil when no gate ran.
 	readiness *runtime.ReadyResult
+	// launchRecord is this launch's machine-wide launch line (launchrecord.go), armed by Run
+	// and written once. nil in a caller that never ran Run's top, which records nothing.
+	launchRecord *launchRecord
 	// Exec runs a short subprocess probe with a timeout in dir ("" = inherit)
 	// with extra env entries ("KEY=VALUE", appended to the parent env). nil =>
 	// real. Used for git identity, lsusb, runtime version/liveness probes.

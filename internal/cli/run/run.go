@@ -98,6 +98,13 @@ func Run(opts Options) (rc int) {
 	launchLog := attachLaunchLog(o)
 	defer func() { launchLog.finish(rc) }()
 
+	// THE MACHINE-WIDE LAUNCH LINE (launchrecord.go, OQ-PR3): one line per launch in
+	// GLOBAL_STORAGE/logs/launches.log, written when the container starts or the attach
+	// begins — or here, at return, for a launch that did neither. Armed in the same window as
+	// the launch log, for the same reason: the guards above refuse before any side effect.
+	o.armLaunchRecord()
+	defer func() { o.recordLaunchExit(rc) }()
+
 	// THIS LAUNCH'S PACK RECORDS ARE ITS OWN. stagePacks records the pack-shipped
 	// loophole modules, the `supersedes` claims and the pack skills sources
 	// process-wide — the convergence point that stopped seven discovery surfaces
@@ -744,6 +751,11 @@ func Run(opts Options) (rc int) {
 		// does. Not on a dry run, which starts no agent to read them.
 		if !o.DryRun {
 			writeMacosUserAgentEnvFiles(paths.WorkspaceHomeState(o.Workspace), channel)
+		}
+		// The launch's fate is known: this backend runs it from here (launchrecord.go). A dry
+		// run starts nothing, and Run's deferred record says so.
+		if !o.DryRun {
+			o.recordLaunchOutcome(launchStarted, -1)
 		}
 		// Composed LAST, after every endpoint variable has landed on launchEnv (the live
 		// path's handles, or a dry run's placeholder), since the daemons dial those files.
@@ -1632,6 +1644,9 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 	// Launch under the TTY proxy. on_started releases the lock once the
 	// container is visible; on_terminate is the Ctrl-C/window-close/SIGTERM teardown.
 	onStarted := func(proc *os.Process) {
+		// The launch's fate is known: its runtime is spawned (launchrecord.go). First, before
+		// the wait below, which can take seconds.
+		o.recordLaunchOutcome(launchStarted, -1)
 		ctrID := o.awaitRunningContainer(cname, rt)
 		lock.Close()
 		// The Window A probe, armed with the id that wait learned and BEFORE the
@@ -1740,6 +1755,12 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 	sp = o.Perf.Span("launch.run_with_proxy")
 	rc, runErr := runWithProxy(runCmd, onStarted, onTerminate, o)
 	sp.End()
+	if runErr == nil {
+		// The same record onStarted writes, for a jail that exited before that goroutine
+		// ran: Run's deferred record would otherwise call a launch that ran not-started. A
+		// no-op when onStarted got there first (launchrecord.go writes once).
+		o.recordLaunchOutcome(launchStarted, -1)
+	}
 	if runErr != nil {
 		out.printf("[bold red]Configured runtime '%s' not found on PATH.[/bold red]", rt)
 		out.print("[dim]Run `yolo check` to validate runtime availability before restarting.[/dim]")
@@ -2160,6 +2181,8 @@ func (o *Options) attachExisting(cname, rt, targetCmd string, cfg *jsonx.Ordered
 	} else {
 		out.printf("[bold cyan]Attaching to existing jail [dim](%s)[/dim]...[/bold cyan]", cname)
 	}
+	// The launch's fate is known: it attaches (launchrecord.go).
+	o.recordLaunchOutcome(launchAttached, -1)
 	// What this attach did NOT deliver: the configured packs, when they differ from the ones
 	// the jail booted with (OQ-PK2 (c)'s notice).
 	o.noteBootedPackSetDiffers(rt, cname, view)
