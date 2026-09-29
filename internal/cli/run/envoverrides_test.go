@@ -71,9 +71,25 @@ func shellWith(vars map[string]string) func(string) string {
 var bearerInShell = shellWith(map[string]string{bearerVar: "sk-bedrock-frozen"})
 
 // awsAuthUserConfig is a user config selecting the shipped claude and aws-auth packs, with
-// extra appended as further top-level members (each beginning with a comma).
+// extra appended as further top-level members (each beginning with a comma). It gives the
+// shipped `bedrock` provider a region (bedrockRegionMember): every launch built on it selects
+// bedrock to pin something about the pointer, and without a region the region pre-flight would
+// refuse it first (OQ-BR6, pinned on its own in regionpreflight_test.go).
 func awsAuthUserConfig(extra string) string {
-	return `{"packs": ["claude", "aws-auth"]` + extra + `}`
+	return `{"packs": ["claude", "aws-auth"]` + bedrockRegionMember + extra + `}`
+}
+
+// testBedrockRegion is the region fixtures give the shipped `bedrock` provider when a launch
+// selects it to pin something other than the region pre-flight.
+const testBedrockRegion = "us-test-1"
+
+// bedrockRegionMember is the user-config member giving the shipped bedrock provider
+// testBedrockRegion, beginning with a comma like every extra member here.
+const bedrockRegionMember = `, "providers": {"bedrock": {"region": "` + testBedrockRegion + `"}}`
+
+// withBedrockRegion is bedrockRegionMember on an in-memory config.
+func withBedrockRegion(cfg *jsonx.OrderedMap) {
+	cfg.Set("providers", newConfig("bedrock", newConfig("region", testBedrockRegion)))
 }
 
 // inEnvSources is the extra member that delivers vars through one inline env_sources

@@ -446,6 +446,28 @@ type Contribution struct {
 	// the provider lives, never who is calling, and the user's own `providers` entry
 	// overrides it like any other field.
 	Region string `json:"region,omitempty"`
+	// RegionEnvName makes a region a LAUNCH REQUIREMENT, and names the variables an agent
+	// on this provider reads its region from when the entry carries no `region` — for
+	// Bedrock, AWS_REGION and AWS_DEFAULT_REGION. The `_name` suffix is the value's type read
+	// out loud, as on api_key_env_name: these are variable NAMES, and the pack never ships
+	// a value. A launch that selects this provider refuses when the composed entry has no
+	// `region` and none of these variables is set in what the launch delivers
+	// (packload.ProviderRegionGaps; docs/design/bedrock-plumbing.md, OQ-BR6).
+	//
+	// WHY A FIELD, and why this one. The ruling refuses a launch of "the selected Bedrock
+	// provider" with no region, and core may not know which provider that is: matching the
+	// name is rejected, the provider marker is OQ-BR2's open question
+	// (docs/design/providers-and-profiles-redesign.md), and core names no AWS variable (the
+	// OQ-SSO8 rule envoverride.go states). This field says neither what the service is nor
+	// how it is reached; it says a region is required and where an agent looks for one,
+	// which is exactly what the refusal needs and nothing more. It survives whatever OQ-BR2
+	// rules.
+	//
+	// A PACK FIELD ONLY. A user's own `providers` entry cannot declare it
+	// (config.knownProviderKeys stays closed), so a provider only the user's config declares
+	// carries no region requirement. Overriding a pack's provider keeps the pack's
+	// requirement, and the user's `region` satisfies it.
+	RegionEnvName []string `json:"region_env_name,omitempty"`
 	// Models maps a model ALIAS an agent asks for to the provider's model ID —
 	// "default"/"fast" → "glm-5.3[1m]". Alias names are open vocabulary: which aliases a
 	// provider's consumers read is the consumer's business, not core's.
@@ -1246,6 +1268,9 @@ type ProviderContribution struct {
 	Endpoints     map[string]ProviderEndpoint
 	APIKeyEnvName EnvNames
 	Region        string
+	// RegionEnvName makes a region this provider's launch requirement; see the field's own
+	// comment on Contribution.
+	RegionEnvName []string
 	Models        map[string]string
 	ModelOptions  map[string]map[string]string
 	// Options is the profile surface this provider declares — the key set a profile for
@@ -1277,6 +1302,7 @@ func (m *Manifest) Providers() []ProviderContribution {
 			Endpoints:     c.Endpoints,
 			APIKeyEnvName: c.APIKeyEnvName,
 			Region:        c.Region,
+			RegionEnvName: c.RegionEnvName,
 			Models:        c.Models,
 			ModelOptions:  c.ModelOptions,
 			Options:       c.Options,
@@ -3311,6 +3337,7 @@ func validateContribution(label string, c Contribution) []string {
 		req("name", c.Name)
 		problems = append(problems, validateProviderEndpoints(label, c.Endpoints)...)
 		problems = append(problems, c.APIKeyEnvName.Problems(label)...)
+		problems = append(problems, regionEnvNameProblems(label, c.RegionEnvName)...)
 		for alias, facts := range c.ModelOptions {
 			if _, exists := c.Models[alias]; !exists {
 				problems = append(problems, fmt.Sprintf("%s: model_options.%s needs a matching models alias", label, alias))

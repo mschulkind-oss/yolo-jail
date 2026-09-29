@@ -482,7 +482,7 @@ func TestMacosUserLaunchCarriesOnlyTheLaunchedAgentsCredentials(t *testing.T) {
 func TestMacosUserLaunchOmitsAnotherAgentsGatedEnv(t *testing.T) {
 	home := packHome(t)
 	writeUserConfig(t, home, `{"packs": ["claude", "codex", "zai", "aws-auth"], "env_sources": [`+
-		`{"ZAI_API_KEY": "tok-gate"}]}`)
+		`{"ZAI_API_KEY": "tok-gate"}]`+bedrockRegionMember+`}`)
 	var stdout, stderr bytes.Buffer
 	o := dispatchOptions(t, t.TempDir(), "macos-user", &stdout, &stderr, nil)
 	o.Args = []string{"codex"}

@@ -1,0 +1,257 @@
+package run
+
+// regionpreflight_test.go pins the REGION PRE-FLIGHT at the jail notch
+// (docs/design/bedrock-plumbing.md §8, OQ-BR6): a launch whose profile selects the shipped
+// `bedrock` provider, with no region on the provider and no AWS_REGION or AWS_DEFAULT_REGION
+// in what reaches the jail, is refused on every arm — the fresh container launch, the attach
+// delivery and every macos-user invocation — and only then.
+//
+// The facts are packload.ProviderRegionGaps' (pinned there); what this file pins is that each
+// ARM asks. Every test drives the shipped claude pack, so deleting its `region_env_name`
+// fails here too. The three arms share one entry point, checkProviderCredentials, whose own
+// call sites are pinned by the tests beside it (TestFreshLaunchChecksProviderCredentialsOnTheAssembledEnv,
+// TestProfileChannelPreflightRefusesTheMacosUserLaunch, the attach tests); the tests here fail
+// if that entry point stops asking about the region, and each drives its arm through the code a
+// launch runs rather than through the callee alone.
+
+import (
+	"bytes"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/image"
+	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/packload"
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+)
+
+// regionVerdict is the region pre-flight's verdict line (packload.ProviderRegionRefusal).
+const regionVerdict = "Refusing to launch: a selected provider is reached through a region, and this launch names none."
+
+// bedrockOnClaude is the shipped claude pack with claude on its `bedrock` profile, and the
+// options that select it.
+func bedrockOnClaude(t *testing.T, o *Options) []*packload.Pack {
+	t.Helper()
+	o.UseProfiles = map[string]string{"claude": "bedrock"}
+	return []*packload.Pack{officialPack(t, "claude")}
+}
+
+// THE SHARED ENTRY POINT ASKS BOTH QUESTIONS. checkProviderCredentials is what every jail arm
+// calls; deleting its call to checkProviderRegions leaves the control below with no refusal.
+// Each silence is pinned against that control, one region source at a time: the provider's
+// `region` from the user's config, AWS_REGION or AWS_DEFAULT_REGION from env_sources, and — on
+// the container arm only — a `-e` pair of the assembled argv.
+func TestCheckProviderCredentialsAsksForTheRegion(t *testing.T) {
+	home := retireHome(t)
+	writeUserPacks(t, home, `[]`)
+	o := retireOptions(t, discardBuf())
+	o.Getenv = shellWith(nil)
+	packs := bedrockOnClaude(t, o)
+
+	lines, refuse := o.checkProviderCredentials(newConfig(), packs, channelFor(t, o, newConfig(), packs, emptyEnv()), nil)
+	if !refuse || len(lines) == 0 || lines[0] != regionVerdict {
+		t.Fatalf("claude on bedrock with no region anywhere must refuse on the region (refuse=%v):\n%s",
+			refuse, strings.Join(lines, "\n"))
+	}
+	got := strings.Join(lines, "\n")
+	for _, want := range []string{`pack claude requires a region for provider "bedrock"`,
+		"neither AWS_REGION nor AWS_DEFAULT_REGION is set",
+		`"providers": {"bedrock": {"region": "<region>"}}`,
+		packload.FromEnvSources + ": none configured", packload.FromPackEnv, packload.FromProfileEnv,
+		"~/.aws/config is not counted", paths.AllowMissingProvidersEnv + "=1"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("the refusal must say %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, packload.FromContainerArgv) {
+		t.Errorf("no argv was assembled, so the argv is not a consulted channel:\n%s", got)
+	}
+
+	cfg := newConfig()
+	withBedrockRegion(cfg)
+	if lines, refuse := o.checkProviderCredentials(cfg, packs, channelFor(t, o, cfg, packs, emptyEnv()), nil); refuse || len(lines) != 0 {
+		t.Errorf("a region on the user's bedrock provider must satisfy the pre-flight:\n%s", strings.Join(lines, "\n"))
+	}
+	for _, v := range []string{"AWS_REGION", "AWS_DEFAULT_REGION"} {
+		env := userEnvWith(map[string]string{v: "eu-west-1"})
+		if lines, refuse := o.checkProviderCredentials(newConfig(), packs, channelFor(t, o, newConfig(), packs, env), nil); refuse || len(lines) != 0 {
+			t.Errorf("%s from env_sources must satisfy the pre-flight:\n%s", v, strings.Join(lines, "\n"))
+		}
+	}
+	argv := envPairs([]string{"-e", "AWS_REGION=eu-west-1"})
+	if lines, refuse := o.checkProviderCredentials(newConfig(), packs, channelFor(t, o, newConfig(), packs, emptyEnv()), argv); refuse || len(lines) != 0 {
+		t.Errorf("AWS_REGION on the assembled container argv must satisfy the pre-flight:\n%s", strings.Join(lines, "\n"))
+	}
+	// And with an argv assembled, the argv is named among the channels consulted.
+	lines, _ = o.checkProviderCredentials(newConfig(), packs, channelFor(t, o, newConfig(), packs, emptyEnv()),
+		envPairs([]string{"-e", "UNRELATED=1"}))
+	if got := strings.Join(lines, "\n"); !strings.Contains(got, packload.FromContainerArgv) {
+		t.Errorf("a container launch must name its argv as a consulted channel:\n%s", got)
+	}
+}
+
+// A REGION IN THE INVOKING SHELL DOES NOT REACH A JAIL, so it satisfies nothing there — and the
+// refusal says it saw it, because that is the one form of the mistake a user can see. Nothing
+// relays AWS_REGION out of that environment (the claude derive composes it from the provider's
+// `region` only), unlike a credential the derive relays, which the credential half counts.
+func TestARegionOnlyInTheLaunchShellIsNamedAndNotCounted(t *testing.T) {
+	home := retireHome(t)
+	writeUserPacks(t, home, `[]`)
+	o := retireOptions(t, discardBuf())
+	o.Getenv = shellWith(map[string]string{"AWS_REGION": "us-west-2"})
+	packs := bedrockOnClaude(t, o)
+	lines, refuse := o.checkProviderCredentials(newConfig(), packs, channelFor(t, o, newConfig(), packs, emptyEnv()), nil)
+	if !refuse {
+		t.Fatalf("a region only in the shell yolo was launched from must not satisfy a jail launch:\n%s",
+			strings.Join(lines, "\n"))
+	}
+	if got := strings.Join(lines, "\n"); !strings.Contains(got,
+		"AWS_REGION is set in the environment yolo was launched from, which this launch does not deliver to the agent") {
+		t.Errorf("the refusal must name the stranded AWS_REGION:\n%s", got)
+	}
+}
+
+// THE HATCH is the credential pre-flight's, and it is a loud continuation here too.
+func TestTheRegionRefusalHonorsTheProviderHatch(t *testing.T) {
+	home := retireHome(t)
+	writeUserPacks(t, home, `[]`)
+	o := retireOptions(t, discardBuf())
+	o.Getenv = shellWith(map[string]string{paths.AllowMissingProvidersEnv: "1"})
+	packs := bedrockOnClaude(t, o)
+	lines, refuse := o.checkProviderCredentials(newConfig(), packs, channelFor(t, o, newConfig(), packs, emptyEnv()), nil)
+	if refuse {
+		t.Errorf("the hatch must let the launch proceed:\n%s", strings.Join(lines, "\n"))
+	}
+	if len(lines) == 0 || !strings.HasPrefix(lines[0], "Warning: "+paths.AllowMissingProvidersEnv+" is set") ||
+		!strings.Contains(strings.Join(lines, "\n"), `provider "bedrock"`) {
+		t.Errorf("the held notice must say what it suppresses:\n%s", strings.Join(lines, "\n"))
+	}
+}
+
+// bedrockNativeLaunch drives Run() to the macos-user arm with the shipped claude pack and
+// `-p bedrock`, over userConfig, and reports whether the handler ran and what it was handed.
+func bedrockNativeLaunch(t *testing.T, userConfig string, shell map[string]string) (int, *nativeLaunch, string) {
+	t.Helper()
+	o, stderr, seen := overrideNativeLaunch(t, userConfig, shellWith(shell))
+	rc := Run(*o)
+	return rc, seen, stderr.String()
+}
+
+// THE macos-user ARM refuses before the backend is dispatched, and launches once a region is
+// visible — the provider's, which reaches the sandbox as claude's AWS_REGION, or env_sources'.
+// A region only in the invoking shell is refused, since the sandbox starts under `env -i`.
+func TestTheMacosUserLaunchRefusesABedrockProfileWithNoRegion(t *testing.T) {
+	rc, seen, errs := bedrockNativeLaunch(t, `{"packs": ["claude"]}`, nil)
+	if rc != 1 || seen.reached {
+		t.Fatalf("claude on bedrock with no region must refuse the macos-user launch before the "+
+			"backend runs: rc=%d reached=%v\n%s", rc, seen.reached, errs)
+	}
+	if !strings.Contains(errs, regionVerdict) || !strings.Contains(errs, `provider "bedrock"`) {
+		t.Errorf("the refusal must be the region pre-flight's:\n%s", errs)
+	}
+
+	rc, seen, errs = bedrockNativeLaunch(t, `{"packs": ["claude"]`+bedrockRegionMember+`}`, nil)
+	if rc != 0 || !seen.reached {
+		t.Fatalf("with the provider's region set the launch must run: rc=%d reached=%v\n%s", rc, seen.reached, errs)
+	}
+	if got := envAt(seen.env, "AWS_REGION"); got != testBedrockRegion {
+		t.Errorf("claude's launch env AWS_REGION = %q, want the provider's %q", got, testBedrockRegion)
+	}
+
+	rc, seen, errs = bedrockNativeLaunch(t, `{"packs": ["claude"], "env_sources": [{"AWS_REGION": "eu-west-1"}]}`, nil)
+	if rc != 0 || !seen.reached || envAt(seen.env, "AWS_REGION") != "eu-west-1" {
+		t.Fatalf("AWS_REGION from env_sources must satisfy the pre-flight and reach the sandbox: "+
+			"rc=%d reached=%v\n%s", rc, seen.reached, errs)
+	}
+
+	rc, seen, errs = bedrockNativeLaunch(t, `{"packs": ["claude"]}`, map[string]string{"AWS_REGION": "us-west-2"})
+	if rc != 1 || seen.reached || !strings.Contains(errs, "AWS_REGION is set in the environment yolo was launched from") {
+		t.Errorf("a region only in the invoking shell reaches no sandbox, so it must refuse and be named: "+
+			"rc=%d reached=%v\n%s", rc, seen.reached, errs)
+	}
+}
+
+// AN UNPROFILED LAUNCH OWES NO REGION: selecting the claude pack is not selecting bedrock. The
+// control that keeps the pre-flight from refusing every claude launch on every machine.
+func TestAnUnprofiledMacosUserLaunchOwesNoRegion(t *testing.T) {
+	o, stderr, seen := overrideNativeLaunch(t, `{"packs": ["claude"]}`, shellWith(nil))
+	o.ProfileName = ""
+	if rc := Run(*o); rc != 0 || !seen.reached {
+		t.Fatalf("an unprofiled claude launch must not be refused for a region: rc=%d\n%s", rc, stderr.String())
+	}
+	if strings.Contains(stderr.String(), regionVerdict) {
+		t.Errorf("an unprofiled launch printed the region refusal:\n%s", stderr.String())
+	}
+}
+
+// THE ATTACH ARM refuses before it writes the live channel file, so a refused entry leaves the
+// running jail's file as the previous entry wrote it; with a region it delivers.
+func TestAnAttachSelectingBedrockWithNoRegionRefusesBeforeTheWrite(t *testing.T) {
+	packs := []*packload.Pack{officialPack(t, "claude")}
+	o, cfg, channel, stderr := attachFixture(t, currentJailEnv, packs, emptyEnv(),
+		func(o *Options, _ *jsonx.OrderedMap) { o.ProfileName = "bedrock" })
+	file := filepath.Join(paths.WorkspaceHomeState(o.Workspace), "yolo-user-env.sh")
+	if rc := o.deliverChannelOnAttach("yolo-ws-abcd1234", "podman", cfg,
+		stagedPacks{root: "/ctx/packs", packs: packs}, channel); rc != 1 {
+		t.Fatalf("an attach selecting bedrock with no region must refuse: rc=%d\n%s", rc, stderr.String())
+	}
+	if !strings.Contains(stderr.String(), regionVerdict) {
+		t.Errorf("the attach refusal must be the region pre-flight's:\n%s", stderr.String())
+	}
+	if _, err := os.Stat(file); err == nil {
+		t.Errorf("a refused attach wrote the live channel file %s", file)
+	}
+
+	o, cfg, channel, stderr = attachFixture(t, currentJailEnv, packs, emptyEnv(),
+		func(o *Options, cfg *jsonx.OrderedMap) { o.ProfileName = "bedrock"; withBedrockRegion(cfg) })
+	if rc := o.deliverChannelOnAttach("yolo-ws-abcd1234", "podman", cfg,
+		stagedPacks{root: "/ctx/packs", packs: packs}, channel); rc != 0 {
+		t.Fatalf("with the provider's region the attach must deliver: rc=%d\n%s", rc, stderr.String())
+	}
+}
+
+// THE FRESH CONTAINER ARM, driven through Run() down the podman path to the pre-flight, with
+// every runtime question stubbed and no podman on PATH — so a launch that stopped refusing could
+// start no container, and would fail somewhere this test tells apart. The region refusal must
+// land, and no `run` may have been asked of the runtime.
+func TestTheFreshPodmanLaunchRefusesABedrockProfileWithNoRegion(t *testing.T) {
+	home := packHome(t)
+	writeUserConfig(t, home, `{"packs": ["claude"]}`)
+	t.Setenv("PATH", t.TempDir())
+	ws := t.TempDir()
+	var stdout, stderr bytes.Buffer
+	o := dispatchOptions(t, ws, "podman", &stdout, &stderr, nil)
+	o.Args = []string{"claude"}
+	o.ProfileName = "bedrock"
+	o.Getenv = shellWith(nil)
+	repo, _ := o.RepoRoot()
+	o.PathExists = func(p string) bool {
+		return p == filepath.Join(prebuiltBinDir(repo.Root), "yolo-entrypoint")
+	}
+	var ran [][]string
+	o.Exec = func(argv []string, _ string, _ []string, _ time.Duration) ExecResult {
+		ran = append(ran, argv)
+		if len(argv) >= 2 && argv[1] == "info" {
+			return ExecResult{Ran: true, RC: 0, Stdout: "host: {}"}
+		}
+		return ExecResult{Ran: true, RC: 0}
+	}
+	o.autoLoad = func(image.AutoLoadOptions) image.LoadResult {
+		return image.LoadResult{OK: true, Ref: goldenImageRef}
+	}
+	if rc := Run(*o); rc != 1 {
+		t.Fatalf("Run() = %d, want 1\nstdout:\n%s\nstderr:\n%s", rc, stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stderr.String(), regionVerdict) {
+		t.Fatalf("the fresh podman launch did not refuse on the region:\nstdout:\n%s\nstderr:\n%s",
+			stdout.String(), stderr.String())
+	}
+	for _, argv := range ran {
+		if len(argv) >= 2 && argv[1] == "run" {
+			t.Errorf("a refused launch asked the runtime to run a container: %v", argv)
+		}
+	}
+}

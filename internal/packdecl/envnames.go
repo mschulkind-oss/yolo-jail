@@ -129,6 +129,32 @@ func (n EnvNames) Problems(label string) []string {
 	return out
 }
 
+// regionEnvNameProblems reports what is wrong with a provider's `region_env_name`: an
+// EMPTY list (the author wrote the key and named nothing, so the region requirement it
+// asks for could never be met by a variable — omit the key instead), a name that is not a
+// usable environment variable name, and a name listed twice. It is not EnvNames.Problems
+// because that one's messages name `api_key_env_name`, and a refusal quoting the wrong
+// field sends the author to the wrong line.
+func regionEnvNameProblems(label string, names []string) []string {
+	if names != nil && len(names) == 0 {
+		return []string{label + ".region_env_name: an empty list names no variable — omit the key instead"}
+	}
+	var out []string
+	seen := map[string]bool{}
+	for _, name := range names {
+		if !ValidEnvName(name) {
+			out = append(out, fmt.Sprintf("%s.region_env_name: invalid env var name %q "+
+				"(must match [A-Za-z_][A-Za-z0-9_]*)", label, name))
+			continue
+		}
+		if seen[name] {
+			out = append(out, fmt.Sprintf("%s.region_env_name: %s is listed twice", label, name))
+		}
+		seen[name] = true
+	}
+	return out
+}
+
 // ValidEnvName reports whether s is a portable environment variable name:
 // [A-Za-z_][A-Za-z0-9_]*.
 func ValidEnvName(s string) bool {

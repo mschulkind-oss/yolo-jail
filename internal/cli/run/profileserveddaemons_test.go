@@ -138,6 +138,7 @@ func TestAnAttachNeedingAnUnstartedAdapterTakesTheSkewDisposition(t *testing.T) 
 		o.UseProfiles = map[string]string{"codex": "bedrock"}
 		v, _ := awsAuthServedConfig(t, packs).Get("loopholes")
 		cfg.Set("loopholes", v)
+		withBedrockRegion(cfg)
 	}
 	o, cfg, channel, stderr := attachFixture(t, currentJailEnv, packs, emptyEnv(), enable)
 	rc, _ := o.attachExisting("yolo-ws-abcd1234", "podman", "true", cfg,
@@ -270,6 +271,7 @@ func TestAnAttachKeepsTheRunningAdaptersScopedToken(t *testing.T) {
 				o.UseProfiles = profiles
 				v, _ := awsAuthServedConfig(t, packs).Get("loopholes")
 				cfg.Set("loopholes", v)
+				withBedrockRegion(cfg)
 			})
 		seed(wsStateOf(o))
 		_, _ = o.attachExisting("yolo-ws-abcd1234", "podman", "true", cfg,

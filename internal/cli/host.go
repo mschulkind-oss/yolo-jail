@@ -544,10 +544,15 @@ func hostExec(flagArgs, cmd []string, out, errw io.Writer, stdin io.Reader) int 
 	// item 14): the verdict, the facts, the remedy, or the override notice that says what it is
 	// suppressing without re-offering the hatch it just honored. Only the "yolo host: " prefix
 	// is this notch's.
-	lines, refuse := packload.ProviderCredentialRefusal(launch.credentialGaps(os.Getenv),
-		os.Getenv(paths.AllowMissingProvidersEnv) != "")
+	held := os.Getenv(paths.AllowMissingProvidersEnv) != ""
+	lines, refuse := packload.ProviderCredentialRefusal(launch.credentialGaps(os.Getenv), held)
 	printHostLines(errw, lines)
-	if refuse {
+	// THE REGION HALF (OQ-BR6, docs/design/bedrock-plumbing.md §8), beside the credential half
+	// as the jail's checkProviderCredentials runs it: the same facts (packload.ProviderRegionGaps),
+	// the same renderer, the same hatch, answered against the environment this notch execs.
+	regionLines, regionRefuse := packload.ProviderRegionRefusal(launch.regionGaps(), held)
+	printHostLines(errw, regionLines)
+	if refuse || regionRefuse {
 		return 1
 	}
 
@@ -753,6 +758,9 @@ type hostComposition struct {
 	// it walked (relative ones already dropped, with their own warning) and the invoking
 	// shell's environment.
 	consulted []string
+	// envSources is consulted's env_sources half alone, for the region pre-flight, which
+	// names the channels it looked in under its own headings (packload.RegionConsulted).
+	envSources []string
 	// scope is the CREDENTIAL GATE's answer for this one-agent launch
 	// (packload.ScopeCredentials, docs/design/provider-credential-scope.md OQ-CN5): the
 	// same function the jail notch's composePackChannel calls, over this notch's user-scope
@@ -1311,6 +1319,30 @@ func (c *hostComposition) credentialGaps(getenv func(string) string) []string {
 	}, consulted)
 }
 
+// regionGaps is the region pre-flight (packload.ProviderRegionGaps, OQ-BR6) for this launch,
+// answered against environ() — the environment the exec hands the agent. Unlike a jail's, that
+// environment INCLUDES the invoking shell, so a region exported there counts here and nothing is
+// ever stranded; and an env_sources null removing AWS_REGION removes it here too, which is why
+// this reads environ() alone rather than falling back to the process lookup.
+func (c *hostComposition) regionGaps() []string {
+	if c.scope == nil {
+		return nil
+	}
+	idx := map[string]string{}
+	for _, kv := range c.environ() {
+		if i := strings.IndexByte(kv, '='); i > 0 {
+			idx[kv[:i]] = kv[i+1:]
+		}
+	}
+	return packload.ProviderRegionGaps(c.packs, c.providers, c.selectedProviders(),
+		func(name string) (string, bool) {
+			v, ok := idx[name]
+			return v, ok && v != ""
+		}, nil,
+		packload.RegionConsulted(c.envSources, packload.FromPackEnv, packload.FromProfileEnv,
+			packload.FromLaunchEnv))
+}
+
 // composeHostEnv builds the environment for one agent launch, and returns it alongside
 // the agent name it resolved.
 func composeHostEnv(bin, profile string, warn func(string)) ([]string, string, error) {
@@ -1586,7 +1618,8 @@ func composeHostVarsWith(cfg *jsonx.OrderedMap, workspace, agent, command, profi
 	// looked and not only that the key never arrived. The inherited environment is named in
 	// the jail's words (packload.FromLaunchEnv), so one refusal reads the same at both notches
 	// (notch-convergence.md item 14).
-	c.consulted = append(config.DescribeEnvSources(workspace, scoped), packload.FromLaunchEnv)
+	c.envSources = config.DescribeEnvSources(workspace, scoped)
+	c.consulted = append(append([]string(nil), c.envSources...), packload.FromLaunchEnv)
 
 	// THE GRANT (docs/design/credential-sources-separation.md OQ-ES5, ruled for the host
 	// 2026-09-27): the named providers' claimed env_sources values, for this one process, keys

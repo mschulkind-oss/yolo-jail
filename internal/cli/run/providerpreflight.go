@@ -46,6 +46,11 @@ import (
 // follows. When it DOES suppress, the notice says what it is suppressing rather than going
 // quiet: nothing was repaired, and the agent's first request against that provider still
 // fails.
+//
+// IT ALSO RUNS THE REGION PRE-FLIGHT (checkProviderRegions, OQ-BR6) and returns both halves'
+// lines, so the three call sites — the fresh container launch, the attach delivery and every
+// macos-user invocation — each ask about a selected provider's region without a fourth call
+// to keep in step with this one.
 func (o *Options) checkProviderCredentials(cfg *jsonx.OrderedMap, packs []*packload.Pack,
 	channel *packChannel, argvPairs map[string]string) (lines []string, refuse bool) {
 	consulted := config.DescribeEnvSources(o.Workspace, cfg)
@@ -56,8 +61,44 @@ func (o *Options) checkProviderCredentials(cfg *jsonx.OrderedMap, packs []*packl
 	// disagree about who gets a credential.
 	facts := packload.ProviderCredentialGaps(packs, channel.providers,
 		channel.scope.SelectedProviders(), channel.deliveryLookup(o, argvPairs), consulted)
+	held := o.Getenv(paths.AllowMissingProvidersEnv) != ""
 	// The refusal's wording is packload's, the host notch's too (notch-convergence.md item 14).
-	return packload.ProviderCredentialRefusal(facts, o.Getenv(paths.AllowMissingProvidersEnv) != "")
+	lines, refuse = packload.ProviderCredentialRefusal(facts, held)
+	// THE REGION HALF (OQ-BR6), in this function rather than beside it at the three call
+	// sites, so every arm that asks about the provider a launch delivers asks both questions:
+	// is its key here, and is its region. Same hatch, same renderer, a verdict of its own.
+	regionLines, regionRefuse := o.checkProviderRegions(cfg, packs, channel, argvPairs, held)
+	return append(lines, regionLines...), refuse || regionRefuse
+}
+
+// checkProviderRegions is the region pre-flight at the jail notch (packload.ProviderRegionGaps;
+// docs/design/bedrock-plumbing.md §8, OQ-BR6): a provider some agent selected whose pack says it
+// is reached through a region, whose composed entry has no `region`, and none of whose region
+// variables reaches the jail, refuses the launch.
+//
+// "REACHES THE JAIL" IS jailOriginLookup's question, not deliveryLookup's: the credential half
+// counts the environment yolo was launched from, because a derive can relay a credential out of
+// it, but nothing relays a region — the claude derive composes AWS_REGION from the provider's
+// `region` only — and no backend forwards that environment under its own name. So a region
+// exported only in the invoking shell is not counted, and the refusal names it as stranded
+// there, which is the one form of this mistake a user can see from their own terminal.
+func (o *Options) checkProviderRegions(cfg *jsonx.OrderedMap, packs []*packload.Pack,
+	channel *packChannel, argvPairs map[string]string, held bool) ([]string, bool) {
+	lookup := func(name string) (string, bool) {
+		v, origin, ok := channel.deliverySource(o, argvPairs, name)
+		if !ok || origin == packload.FromLaunchEnv {
+			return "", false
+		}
+		return v, true
+	}
+	stranded := func(name string) bool { return o.Getenv(name) != "" }
+	channels := []string{packload.FromPackEnv, packload.FromProfileEnv}
+	if argvPairs != nil {
+		channels = append(channels, packload.FromContainerArgv)
+	}
+	facts := packload.ProviderRegionGaps(packs, channel.providers, channel.scope.SelectedProviders(),
+		lookup, stranded, packload.RegionConsulted(config.DescribeEnvSources(o.Workspace, cfg), channels...))
+	return packload.ProviderRegionRefusal(facts, held)
 }
 
 // printProviderRefusal renders a pre-flight's output: every VERDICT line in bold red, the

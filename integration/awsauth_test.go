@@ -149,9 +149,12 @@ func newAWSAuthFixture(t *testing.T, configure func(bin string) string) awsAuthF
 	// `packs`, `use_profiles` and a loophole's `scope: "user"` settings are all user-scope
 	// only. `unnarrowed` rather than a role: the narrowing arm needs `aws sts assume-role`,
 	// and this test is about the channel, not the narrowing (which has its own unit tests).
+	// The provider's region is there because a `bedrock` launch with none is refused before
+	// the jail starts (OQ-BR6); no request reaches AWS, so its value is never used.
 	packHome(t, `{
 		"packs": ["claude", "aws-auth"],
 		"use_profiles": {"claude": "bedrock"},
+		"providers": {"bedrock": {"region": "us-east-1"}},
 		"loopholes": {"aws-auth": {
 			"enabled": true,
 			"settings": {"profile": "`+awsAuthProfile+`", "unnarrowed": true}

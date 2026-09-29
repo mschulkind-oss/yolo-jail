@@ -34,6 +34,9 @@ var hostGateNames = []string{"AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "ZAI_
 	"ANTHROPIC_BASE_URL", "PORT", "DEEPSEEK_API_KEY", "CEREBRAS_API_KEY",
 	"OPENROUTER_API_KEY", "KILO_API_KEY", "YOLO_PROVIDERS"}
 
+// hostGateRegion is the AWS_REGION hostGateHome puts in every host cell's invoking shell.
+const hostGateRegion = "us-test-1"
+
 // hostGateLaunchWith is hostGateLaunch over a user config and invoking-shell values of the
 // caller's choosing.
 func hostGateLaunchWith(t *testing.T, cfg string, shell map[string]string, flags []string,
@@ -101,6 +104,13 @@ func hostGateHome(t *testing.T, cfg string, shell map[string]string) string {
 	for _, k := range hostGateNames {
 		t.Setenv(k, "")
 	}
+	// A REGION IN THE INVOKING SHELL, by default, and never the one this test process happens
+	// to run under (a jail's own AWS_REGION would otherwise decide the region pre-flight here
+	// and not in CI). Every cell selecting `bedrock` is about something else, and without a
+	// region the pre-flight refuses it (OQ-BR6); hostregion_test.go pins that refusal, and a
+	// cell that wants no region passes shell {"AWS_REGION": ""}.
+	t.Setenv("AWS_DEFAULT_REGION", "")
+	t.Setenv("AWS_REGION", hostGateRegion)
 	for k, v := range shell {
 		t.Setenv(k, v)
 	}
