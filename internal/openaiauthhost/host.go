@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"flag"
 	"fmt"
 	"io"
 	"net"
@@ -20,6 +21,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg/codec"
 	"github.com/mschulkind-oss/yolo-jail/internal/broker"
 	"github.com/mschulkind-oss/yolo-jail/internal/execx"
+	"github.com/mschulkind-oss/yolo-jail/internal/launchservice"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
 	"github.com/mschulkind-oss/yolo-jail/internal/openaiauthadapter"
 	"github.com/mschulkind-oss/yolo-jail/internal/openaiauthdaemon"
@@ -191,8 +193,23 @@ func prepare(d deps, p Prelaunch, stderr io.Writer) (*Launch, error) {
 	}
 	launch.live = live
 	end := make(chan error, 1)
+	go func() { end <- serveAdapter(listener, socket, callerToken, d.request, stderr) }()
+	launch.listener = listener
+	launch.adapterEnd = end
+	launch.vars["CODEX_HOME"] = managedHome
+	launch.vars["CODEX_REFRESH_TOKEN_URL_OVERRIDE"] = "http://" + listener.Addr().String() + "/oauth/token"
+	return launch, nil
+}
+
+// serveAdapter is THE HOST-SIDE CODEX REFRESH ADAPTER: Codex's token endpoint on an
+// already-bound loopback listener, behind callerToken, each refresh forwarded to the host
+// broker's private socket through request (openauthclient.RequestUnix in production). One body
+// for both of its placements: `yolo host -- codex` serves it in-process (prepare), and a
+// macos-user launch opens it as a launch-owned doorway outside the sandbox (DoorwayMain;
+// docs/design/host-notch-services.md HS-D15). Closing listener stops it.
+func serveAdapter(listener net.Listener, socket, callerToken string, request requestFunc, stderr io.Writer) error {
 	refresh := func(_ context.Context, marker string) (openaiauthadapter.Token, error) {
-		raw, err := d.request(socket, map[string]any{"action": "refresh", "refresh_token": marker}, stderr)
+		raw, err := request(socket, map[string]any{"action": "refresh", "refresh_token": marker}, stderr)
 		if err != nil {
 			return openaiauthadapter.Token{}, err
 		}
@@ -202,12 +219,49 @@ func prepare(d deps, p Prelaunch, stderr io.Writer) (*Launch, error) {
 		}
 		return token, nil
 	}
-	go func() { end <- openaiauthadapter.Serve(listener, callerToken, refresh) }()
-	launch.listener = listener
-	launch.adapterEnd = end
-	launch.vars["CODEX_HOME"] = managedHome
-	launch.vars["CODEX_REFRESH_TOKEN_URL_OVERRIDE"] = "http://" + listener.Addr().String() + "/oauth/token"
-	return launch, nil
+	return openaiauthadapter.Serve(listener, callerToken, refresh)
+}
+
+// DoorwayMain is `yolo internal daemon openai-auth-adapter --listen <addr>`: Codex's refresh
+// DOORWAY opened outside a sandbox whose agent shares the host's loopback, as the loophole's
+// `jail_daemon.host_cmd` declares (docs/design/host-notch-services.md HS-D15; the word is that
+// ruling's for the thin adapter an agent's client talks to). A macos-user launch starts it as a
+// launch-owned listener (internal/launchservice) on the port it picked for the loophole's
+// `listen`, the port packs/codex's CODEX_REFRESH_TOKEN_URL_OVERRIDE names in that sandbox, and
+// stops it when the sandboxed command exits.
+//
+// It is serveAdapter, the adapter `yolo host -- codex` already serves, with its inputs from the
+// launch's input file: the caller token the launch minted for the loophole (the one the Codex
+// launcher's auth.json writer binds into the refresh marker, openauthclient.WriteCodexAuth), and
+// the host broker's private socket (HS-D3's route, never a jail endpoint file).
+func DoorwayMain(args []string) int {
+	fs := flag.NewFlagSet("openai-auth-adapter", flag.ContinueOnError)
+	listen := fs.String("listen", "", "the loopback address the launch picked")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	if len(fs.Args()) != 0 {
+		fmt.Fprintf(os.Stderr, "openai-auth-adapter: unexpected arguments: %v\n", fs.Args())
+		return 2
+	}
+	return launchservice.ServeListener(BrokerName, *listen, doorwayPrepare(openauthclient.RequestUnix, os.Stderr))
+}
+
+// doorwayPrepare reads the doorway's two inputs and returns its serve: request is how it reaches
+// the broker's socket, a parameter so a test can stand a fake broker in.
+func doorwayPrepare(request requestFunc, stderr io.Writer) launchservice.Prepare {
+	return func(getenv func(string) string) (func(net.Listener) error, error) {
+		token, why := openaiauthadapter.CallerToken(getenv)
+		if why != "" {
+			return nil, errors.New(why)
+		}
+		socket := getenv(openauthclient.HostSocketEnv)
+		if socket == "" {
+			return nil, fmt.Errorf("the launch handed the doorway no host credential socket ($%s is unset)",
+				openauthclient.HostSocketEnv)
+		}
+		return func(l net.Listener) error { return serveAdapter(l, socket, token, request, stderr) }, nil
+	}
 }
 
 // Files of the managed Codex home that carry its caller token and the two locks deciding it.

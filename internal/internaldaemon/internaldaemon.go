@@ -18,10 +18,12 @@ import (
 	"os"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/awsauthdaemon"
+	"github.com/mschulkind-oss/yolo-jail/internal/awscredadapter"
 	"github.com/mschulkind-oss/yolo-jail/internal/hostprocesses"
 	"github.com/mschulkind-oss/yolo-jail/internal/journald"
 	"github.com/mschulkind-oss/yolo-jail/internal/oauthbroker"
 	"github.com/mschulkind-oss/yolo-jail/internal/openaiauthdaemon"
+	"github.com/mschulkind-oss/yolo-jail/internal/openaiauthhost"
 	"github.com/mschulkind-oss/yolo-jail/internal/serialdaemon"
 	"github.com/mschulkind-oss/yolo-jail/internal/wirebridged"
 )
@@ -49,13 +51,21 @@ func IsDaemonArgv(argv []string) bool {
 // for an argv nothing emits any more.
 func Run(args []string) int {
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "usage: yolo internal daemon <aws-auth|claude-oauth-broker|host-processes|journal|openai-auth-broker|serial|wire-bridge> [args...]")
+		fmt.Fprintln(os.Stderr, "usage: yolo internal daemon <aws-auth|aws-credential-adapter|claude-oauth-broker|host-processes|journal|openai-auth-adapter|openai-auth-broker|serial|wire-bridge> [args...]")
 		return 2
 	}
 	rest := args[1:]
 	switch args[0] {
 	case "aws-auth":
 		return awsauthdaemon.Main(rest)
+	case "aws-credential-adapter":
+		// aws-auth's DOORWAY outside a sandbox that shares the host's loopback (the loophole's
+		// `jail_daemon.host_cmd`): a launch-owned listener a macos-user launch starts, handed its
+		// inputs in a file (docs/design/host-notch-services.md HS-D15).
+		return awscredadapter.DoorwayMain(rest)
+	case "openai-auth-adapter":
+		// openai-auth's Codex refresh DOORWAY, the same way (HS-D15; OQ-OA6 route (b)).
+		return openaiauthhost.DoorwayMain(rest)
 	case "claude-oauth-broker":
 		return oauthbroker.Main(rest)
 	case "host-processes":
