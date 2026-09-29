@@ -1277,16 +1277,19 @@ func TestMacArchiveFirstLoadInVMCopierOnPodman(t *testing.T) {
 
 	// The same rootlessness question production asks before a copy, asked of the Mac's default
 	// connection — which is the store the copy has to land in to count.
-	rootless := image.PodmanRootlessness(rt, func(argv []string) (string, bool) {
+	// The same read names the store, which the remote client reports as the VM's.
+	facts := image.ReadPodmanStoreFacts(rt, func(argv []string) (string, bool) {
 		out, rc := macStdout(2*time.Minute, argv...)
 		return out, rc == 0
 	})
-	prefix := image.StoreWritePrefix(rt, rootless)
 	storeWrite := "bare (rootful or unknown)"
-	if len(prefix) > 0 {
+	if prefix := image.StoreWritePrefix(rt, facts.Rootless); len(prefix) > 0 {
 		storeWrite = "`" + strings.Join(prefix, " ") + "` (rootless)"
 	}
-	argv := inVMCopyArgv(prefix, linuxCopier, imgs.a, refA)
+	if facts.StoreKnown {
+		storeWrite += ", store `" + facts.Store.Spec() + "`"
+	}
+	argv := inVMCopyArgv(facts, linuxCopier, imgs.a, refA)
 
 	hadA := macEvictImage(t, rt, refA)
 	if hadA {
@@ -1352,19 +1355,18 @@ func vmLinuxSystem(unameM string) (string, error) {
 
 // inVMCopyArgv is the Linux delivery argv, run inside the VM through `podman machine ssh`.
 //
-// It IS the Linux launch's argv, not a copy of it: image.DeliveryCopyArgv delegates to the
-// copyArgv a launch execs (internal/image/storewrite.go), fed the same exported pieces —
-// image.StoreWritePrefix for the namespace, image.ContainersStorageDest for the destination.
+// It IS the Linux launch's argv, not a copy of it: image.DeliveryCopyArgvFor composes the
+// namespace prefix and the destination (podman's own store, named explicitly) from one
+// `podman info` read exactly as the launch does (internal/image/storespec.go, storeWrite).
 // So a flag the Linux delivery gains reaches this candidate too, and the timing recorded here
 // stays a timing of the Linux path.
 //
 // `podman machine ssh` names no machine, so it is the DEFAULT one, which is the machine the
 // Mac's default connection talks to; it logs in as root on a rootful machine and as the
 // machine user otherwise, which is the store that connection reads.
-func inVMCopyArgv(prefix []string, copier, imageJSON, ref string) []string {
+func inVMCopyArgv(facts image.PodmanStoreFacts, copier, imageJSON, ref string) []string {
 	argv := []string{"podman", "machine", "ssh", "--"}
-	return append(argv, image.DeliveryCopyArgv(prefix, copier, imageJSON,
-		image.ContainersStorageDest(ref))...)
+	return append(argv, image.DeliveryCopyArgvFor("podman", facts, copier, imageJSON, ref)...)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────────────────
@@ -1524,24 +1526,37 @@ func TestVMLinuxSystem(t *testing.T) {
 func TestInVMCopyArgvIsTheLinuxDeliveryArgv(t *testing.T) {
 	const copier, img, ref = "/nix/store/c-skopeo/bin/skopeo", "/nix/store/a-image.json", "localhost/yolo-jail:0123456789abcdef"
 	for _, tc := range []struct {
-		name     string
-		rootless image.PodmanRootless
+		name, info, wantPrefix string
 	}{
-		{"rootless machine", image.RootlessYes},
-		{"rootful machine", image.RootlessNo},
-		{"unknown", image.RootlessUnknown},
+		{"rootless machine", `{"host":{"security":{"rootless":true}},"store":{"graphDriverName":"overlay",` +
+			`"graphRoot":"/var/home/core/.local/share/containers/storage","runRoot":"/run/user/501/containers"}}`,
+			"podman unshare --"},
+		{"rootful machine", `{"host":{"security":{"rootless":false}},"store":{"graphDriverName":"overlay",` +
+			`"graphRoot":"/var/lib/containers/storage","runRoot":"/run/containers/storage"}}`, ""},
+		{"unknown", ``, ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			prefix := image.StoreWritePrefix("podman", tc.rootless)
-			got := inVMCopyArgv(prefix, copier, img, ref)
+			facts := image.ReadPodmanStoreFacts("podman", func([]string) (string, bool) {
+				return tc.info, tc.info != ""
+			})
+			got := inVMCopyArgv(facts, copier, img, ref)
 			want := append([]string{"podman", "machine", "ssh", "--"},
-				image.DeliveryCopyArgv(prefix, copier, img, image.ContainersStorageDest(ref))...)
+				image.DeliveryCopyArgvFor("podman", facts, copier, img, ref)...)
 			if strings.Join(got, "\x00") != strings.Join(want, "\x00") {
 				t.Errorf("inVMCopyArgv =\n  %q\nwant\n  %q", got, want)
 			}
-			if last := got[len(got)-1]; !strings.HasPrefix(last, "containers-storage:") {
+			if lead := strings.Join(got[4:4+len(strings.Fields(tc.wantPrefix))], " "); lead != tc.wantPrefix {
+				t.Errorf("inVMCopyArgv's namespace prefix = %q, want %q", lead, tc.wantPrefix)
+			}
+			last := got[len(got)-1]
+			if !strings.HasPrefix(last, "containers-storage:") {
 				t.Errorf("inVMCopyArgv's destination is %q, not a containers-storage ref: the "+
 					"Linux launch writes the runtime's store, and this candidate must too", last)
+			}
+			// The VM's store is NAMED whenever podman reported one, as a launch's is.
+			if facts.StoreKnown != strings.HasPrefix(last, "containers-storage:[") {
+				t.Errorf("destination %q, store known = %v: the VM copy must name podman's "+
+					"store exactly when the launch would", last, facts.StoreKnown)
 			}
 		})
 	}

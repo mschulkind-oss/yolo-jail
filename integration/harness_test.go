@@ -39,6 +39,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/cli/run"
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
+	"github.com/mschulkind-oss/yolo-jail/internal/image"
 	naming "github.com/mschulkind-oss/yolo-jail/internal/runtime"
 )
 
@@ -561,8 +562,20 @@ func ensureJailImage() {
 	// is the LEGACY :latest name rather than a content ref on purpose — this is
 	// the harness's own load, and imageExists()/checkImageSkew look for a name in
 	// the jail repository, not for the store path this build happened to produce.
-	copy := exec.Command(filepath.Join(copier, "bin", "skopeo"), "--insecure-policy",
-		"copy", "nix:"+manifest, "containers-storage:localhost/"+jailImage)
+	//
+	// THE LAUNCH'S ARGV, from the launch's own read of `podman info`: the namespace
+	// prefix and the store podman reports, named on the destination (issue #47 —
+	// a copier left to its own storage.conf lookup can resolve a different store
+	// from podman's). A store podman did not report falls back to the bare ref, as
+	// the launch does.
+	facts := image.ReadPodmanStoreFacts(rt, func(argv []string) (string, bool) {
+		out, err := exec.Command(argv[0], argv[1:]...).Output()
+		return string(out), err == nil
+	})
+	argv := image.DeliveryCopyArgvFor(rt, facts, image.ImageCopierBinary(copier), manifest,
+		"localhost/"+jailImage)
+	log.Printf("[integration] image copy: %s", strings.Join(argv, " "))
+	copy := exec.Command(argv[0], argv[1:]...)
 	if out, err := copy.CombinedOutput(); err != nil {
 		degraded("%s image copy failed (integration tests may be skipped): %v\n%s",
 			rt, err, strings.TrimSpace(string(out)))

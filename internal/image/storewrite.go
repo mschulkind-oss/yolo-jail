@@ -53,8 +53,11 @@ import (
 // rootless user namespace podman itself uses. Podman does the privileged setup
 // with its setuid helpers, then execs the child inside the FINISHED namespace and
 // sets `_CONTAINERS_USERNS_CONFIGURED=done` — the marker containers/storage reads
-// to know it must not unshare again, and which keeps the store it resolves the
-// ROOTLESS one despite the euid of 0 inside. Measured end to end on the VM above:
+// to know it must not unshare again, and to treat itself as rootless despite the
+// euid of 0 inside. (Treating itself as rootless is NOT the same as resolving the
+// store podman reads: issue #47 is a host where the two lookups disagree, and
+// storespec.go is why the destination now names podman's store outright.)
+// Measured end to end on the VM above:
 //
 //	bare copier → containers-storage:   Error during unshare(...): Operation not permitted
 //	`podman unshare` + the SAME copier  rc 0, and `podman images` really holds the ref
@@ -147,57 +150,23 @@ func StoreWritePrefix(runtime string, rootless PodmanRootless) []string {
 // capture runs an argv and returns its stdout; ok=false for anything that did
 // not run cleanly, which is RootlessUnknown.
 //
+// It is ReadPodmanStoreFacts' namespace half, for callers that want only that
+// (`yolo check`); a delivery reads both halves from the one call. MISSING and
+// FALSE stay different answers there — host.security.rootless decodes into a
+// *bool — because a launch that read "I could not find the field" as "the store
+// is rootful" would take the bare-copy branch on precisely the host that cannot
+// use it.
+//
 // Cost: one subprocess, 22 ms measured in this jail, and only on a launch that is
 // about to copy — the same launch that may spend two minutes building the copier.
 // A warm launch whose image is already loaded never asks.
 func PodmanRootlessness(runtime string, capture func(argv []string) (string, bool)) PodmanRootless {
-	if capture == nil {
-		return RootlessUnknown
-	}
-	out, ok := capture(PodmanInfoCmd(runtime))
-	if !ok {
-		return RootlessUnknown
-	}
-	switch rootlessField(out) {
-	case "true":
-		return RootlessYes
-	case "false":
-		return RootlessNo
-	}
-	return RootlessUnknown
+	return ReadPodmanStoreFacts(runtime, capture).Rootless
 }
 
-// PodmanInfoCmd is the argv PodmanRootlessness runs.
+// PodmanInfoCmd is the argv ReadPodmanStoreFacts runs.
 func PodmanInfoCmd(runtime string) []string {
 	return []string{runtime, "info", "--format", "json"}
-}
-
-// rootlessField extracts host.security.rootless from `podman info --format json`
-// as the literal token podman wrote — "true", "false", or "" when the key is not
-// there at all.
-//
-// A scan for the key rather than encoding/json into a struct of bools, purely so
-// that MISSING and FALSE stay different answers. Decoding gives both the same
-// zero value, and a launch that read "I could not find the field" as "the store
-// is rootful" would take the bare-copy branch on precisely the host that cannot
-// use it. `host.security.rootless` has been in `podman info` since long before
-// any podman this project supports (measured present at 4.9.3 on the CI
-// runners), so its absence means "this is not podman info", never "this podman is
-// old".
-func rootlessField(infoJSON string) string {
-	i := strings.Index(infoJSON, `"rootless"`)
-	if i < 0 {
-		return ""
-	}
-	rest := strings.TrimSpace(infoJSON[i+len(`"rootless"`):])
-	rest = strings.TrimSpace(strings.TrimPrefix(rest, ":"))
-	switch {
-	case strings.HasPrefix(rest, "true"):
-		return "true"
-	case strings.HasPrefix(rest, "false"):
-		return "false"
-	}
-	return ""
 }
 
 // StoreWriteNote is the line a launch prints about the namespace it chose, and it
@@ -206,7 +175,14 @@ func rootlessField(infoJSON string) string {
 // it took": a mode nobody can see is a mode nobody can debug, and the two
 // failures this decision can produce — a refused `podman unshare`, a copier that
 // could not map ownership — are told apart by exactly this line.
-func StoreWriteNote(rootless PodmanRootless) string {
+//
+// It is TWO lines: the namespace, then the store (storeLine) — which store the
+// copy writes, or that yolo could not read it and the copier is choosing.
+func StoreWriteNote(facts PodmanStoreFacts) string {
+	return namespaceLine(facts.Rootless) + "\n" + storeLine(facts)
+}
+
+func namespaceLine(rootless PodmanRootless) string {
 	switch rootless {
 	case RootlessYes:
 		return "  Store write: inside podman's own user namespace (`podman unshare`) — " +
@@ -248,6 +224,21 @@ func retryWouldHelp(tail []string) (bool, string) {
 			"  `podman info` reports a rootless store. Check\n" +
 			"  `podman info --format '{{.Host.Security.Rootless}}'` and `podman unshare id`."
 	}
+	// The copier could not open the store it resolved (issue #47: a rootless copier
+	// resolving the ROOT runroot from a distro storage.conf). A path the process
+	// may not create is refused identically on a second attempt. Reachable only
+	// when the destination carries no explicit store (storespec.go's tri-state).
+	if strings.Contains(joined, "Invalid destination name containers-storage:") &&
+		strings.Contains(joined, "permission denied") {
+		return false, "the copier could not open the containers-storage it resolved for itself, " +
+			"and a second attempt cannot either.\n" +
+			"  yolo names podman's own store on the copy when `podman info` reports one; this\n" +
+			"  copy had none, so the copier took its store from storage.conf, and it is not one\n" +
+			"  this user can write. Compare `podman info --format '{{.Store.GraphRoot}} " +
+			"{{.Store.RunRoot}}'`\n" +
+			"  with the path above; a ~/.config/containers/storage.conf naming podman's store\n" +
+			"  makes the two agree."
+	}
 	// Our own wrapper on a rootful podman — a mode error, not a transient one.
 	if strings.Contains(joined, "please use unshare with rootless") {
 		return false, "podman refused `unshare` because it is not rootless, and it will " +
@@ -281,11 +272,11 @@ func copyArgv(prefix []string, copier, imageJSON, dest string) []string {
 	return append(argv, "nix:"+imageJSON, dest)
 }
 
-// DeliveryCopyArgv is copyArgv, exported for the one caller outside this package that
-// has to run the SAME copy somewhere else: the macOS archive-delivery experiment
-// (integration/macarchivedelivery_test.go, OQ-LR2's in-VM copier candidate) runs a
-// Linux launch's copy inside the podman VM, and its timing only means anything while
-// that argv is this one. A thin delegate rather than a rename, so every in-package
+// DeliveryCopyArgv is copyArgv, exported: the argv for a prefix and destination the
+// caller already has. A caller that wants the podman-on-Linux launch's own copy — the
+// namespace AND the store, from one `podman info` read — wants DeliveryCopyArgvFor
+// (storespec.go), which is what the macOS in-VM copier experiment and the integration
+// harness's image load call. A thin delegate rather than a rename, so every in-package
 // caller and test keeps naming the function the launch calls.
 func DeliveryCopyArgv(prefix []string, copier, imageJSON, dest string) []string {
 	return copyArgv(prefix, copier, imageJSON, dest)

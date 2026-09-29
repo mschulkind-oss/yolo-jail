@@ -80,7 +80,7 @@ func (s *sharedStore) layerCopy(_, dest string, _ []string) (CopyReport, bool) {
 	case <-s.secondCopy:
 	case <-time.After(copyStallWindow):
 	}
-	ref := strings.TrimPrefix(dest, "containers-storage:")
+	ref := containersStorageRef(dest)
 	s.mu.Lock()
 	s.present[ref] = true
 	s.mu.Unlock()
@@ -141,7 +141,7 @@ func TestConcurrentLoadsOfOneRefCopyOnce(t *testing.T) {
 				PresentDigests: func() map[string]struct{} { return nil },
 				// Stubbed so neither goroutine shells out to `podman info`; the
 				// namespace decision is not what this test is about.
-				Rootless: func() PodmanRootless { return RootlessNo },
+				StoreFacts: func() PodmanStoreFacts { return PodmanStoreFacts{Rootless: RootlessNo} },
 			})
 		}(i)
 	}

@@ -119,8 +119,12 @@ func TestSkewMessageIsActionable(t *testing.T) {
 		skewEnv + "=warn",               // the documented escape hatch
 		"nix build --impure .#ociImage", // the manual fix
 		"containers-storage:",           // ...delivered, not streamed
-		".#imageCopier",                 // ...with the copier that reads it
-		"git add",                       // the tracked-files trap
+		// ...into the store podman reports, not the one the copier would resolve
+		// from storage.conf (issue #47), and from podman's namespace when rootless.
+		"containers-storage:[$(podman info --format '" + podmanStoreTemplate + "')]",
+		"{{if .Host.Security.Rootless}}podman unshare --{{end}}",
+		".#imageCopier", // ...with the copier that reads it
+		"git add",       // the tracked-files trap
 	} {
 		if !strings.Contains(msg, want) {
 			t.Errorf("skew message is missing %q:\n%s", want, msg)
@@ -130,7 +134,7 @@ func TestSkewMessageIsActionable(t *testing.T) {
 	// command that writes into a store nothing reads. Apple Container has no
 	// containers-storage; it takes a file and a loader.
 	ac := skewMessage("yolo-jail:latest", "container", wantID, gotID)
-	if strings.Contains(ac, "containers-storage:") {
+	if strings.Contains(ac, "containers-storage:") || strings.Contains(ac, "unshare") {
 		t.Errorf("the Apple Container fix names podman's store:\n%s", ac)
 	}
 	for _, want := range []string{

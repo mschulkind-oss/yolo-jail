@@ -151,12 +151,33 @@ const identityReadScript = "cat " + identityFilePath + " 2>/dev/null" +
 // it gets an OCI archive plus the `container image load` that reads it, which is
 // exactly what internal/image's deliverToAppleContainer does. Naming the wrong
 // one would hand a Mac user a command that writes into a store nothing reads.
+//
+// On podman it NAMES podman's own store, read from `podman info` by the shell,
+// as a launch and `just load` do: a copier left to its own storage.conf lookup
+// can resolve a store podman does not read (issue #47,
+// internal/image/storespec.go).
 func skewFixDest(rt string) string {
 	if rt == "container" {
 		return "oci-archive:/tmp/jail-image.oci:" + jailImage +
 			" && container image load -i /tmp/jail-image.oci"
 	}
-	return "containers-storage:localhost/" + jailImage
+	return `"containers-storage:[$(` + rt + ` info --format '` + podmanStoreTemplate + `')]localhost/` +
+		jailImage + `"`
+}
+
+// podmanStoreTemplate is the Go template that prints podman's store in the
+// containers-storage transport's spec syntax, driver@graphroot+runroot — the
+// shell spelling of image.PodmanStore.Spec without the driver options.
+const podmanStoreTemplate = "{{.Store.GraphDriverName}}@{{.Store.GraphRoot}}+{{.Store.RunRoot}}"
+
+// skewFixPrefix is the namespace half of the manual copy on podman: a rootless
+// store is written from inside `podman unshare`, as a launch writes it
+// (internal/image/storewrite.go). Empty for Apple Container.
+func skewFixPrefix(rt string) string {
+	if rt == "container" {
+		return ""
+	}
+	return "$(" + rt + " info --format '{{if .Host.Security.Rootless}}" + rt + " unshare --{{end}}') "
 }
 
 // degraded reports a harness precondition that could not be met. Every early
@@ -490,7 +511,7 @@ func skewMessage(image, rt, want, got string) string {
 	fmt.Fprintf(&b, "        %s=1 go test -count=1 -timeout 0 ./integration\n", rebuildEnv)
 	fmt.Fprintf(&b, "    rebuild + reload by hand:\n")
 	fmt.Fprintf(&b, "        cd %s && nix build --impure .#ociImage .#imageCopier && \\\n", repoRoot)
-	fmt.Fprintf(&b, "            ./result-1/bin/skopeo --insecure-policy copy \\\n")
+	fmt.Fprintf(&b, "            %s./result-1/bin/skopeo --insecure-policy copy \\\n", skewFixPrefix(rt))
 	fmt.Fprintf(&b, "            \"nix:$(readlink -f ./result)\" %s\n", skewFixDest(rt))
 	fmt.Fprintf(&b, "    accept the skew for this run (a host-CLI-only change, a bisect, ...):\n")
 	fmt.Fprintf(&b, "        %s=warn go test -count=1 -timeout 0 ./integration\n\n", skewEnv)

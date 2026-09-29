@@ -40,9 +40,37 @@ func runImageDeliveryInSection(t *testing.T, rt string, hasSh bool,
 	return out.String(), seen
 }
 
-// rootlessInfo is `podman info --format json`, trimmed to the one field the
-// delivery decision reads.
-const rootlessInfo = `{"host":{"security":{"rootless":true}}}`
+// rootlessInfo is `podman info --format json`, trimmed to the fields the
+// delivery decision reads: the namespace answer and the store.
+const rootlessInfo = `{"host":{"security":{"rootless":true}},"store":{` +
+	`"configFile":"/usr/share/containers/storage.conf","graphDriverName":"overlay",` +
+	`"graphRoot":"/home/u/.local/share/containers/storage","runRoot":"/run/user/1000/containers"}}`
+
+// TestImageDeliverySectionNamesTheStoreALaunchWillWrite pins the section's call
+// of image.StorePreflight. Issue #47's host passed the namespace probe and failed
+// every launch, because the copier chose a different store; so the store is
+// reported as its own line, and a podman that answered without naming one is a
+// warning.
+func TestImageDeliverySectionNamesTheStoreALaunchWillWrite(t *testing.T) {
+	got, _ := runImageDeliveryInSection(t, "podman", true, func(argv []string) ExecResult {
+		if len(argv) >= 2 && argv[1] == "info" {
+			return ExecResult{Ran: true, RC: 0, Stdout: rootlessInfo}
+		}
+		return ExecResult{Ran: true, RC: 0}
+	})
+	if !strings.Contains(got, "Image store: overlay@/home/u/.local/share/containers/storage+/run/user/1000/containers") {
+		t.Errorf("the section does not name podman's store:\n%s", got)
+	}
+	got, _ = runImageDeliveryInSection(t, "podman", true, func(argv []string) ExecResult {
+		if len(argv) >= 2 && argv[1] == "info" {
+			return ExecResult{Ran: true, RC: 0, Stdout: `{"host":{"security":{"rootless":true}}}`}
+		}
+		return ExecResult{Ran: true, RC: 0}
+	})
+	if !strings.Contains(got, "WARN") || !strings.Contains(got, "cannot name podman's store") {
+		t.Errorf("an unnamed store was not a warning:\n%s", got)
+	}
+}
 
 // TestImageDeliverySectionWarnsWhenTheNamespaceIsRefused is the whole reason this
 // preflight exists. On 2026-09-09 a rootless host that could not enter podman's

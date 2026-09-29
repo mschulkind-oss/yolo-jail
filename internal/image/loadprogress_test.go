@@ -54,7 +54,7 @@ func coldLoadOpts(t *testing.T, manifest, copier string, out, report *bytes.Buff
 			return manifest, nil
 		},
 		BuildCopier:    func(string) (string, []string) { return copier, nil },
-		Rootless:       func() PodmanRootless { return RootlessNo },
+		StoreFacts:     func() PodmanStoreFacts { return PodmanStoreFacts{Rootless: RootlessNo} },
 		PresentDigests: func() map[string]struct{} { return nil },
 		Run:            newFakeRuntime().run,
 		LockImageCopy:  func() func() { return func() {} },

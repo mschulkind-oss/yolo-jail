@@ -111,8 +111,8 @@ type AutoLoadOptions struct {
 	// one process, no pipe and no archive on either side. imageJSON is the store
 	// path the nix build resolved to (a nix2container manifest, not a stream
 	// script); dest is the transport-qualified destination the runtime needs —
-	// ContainersStorageDest for podman on Linux, OCILayoutDest for the two archive
-	// backends (deliverViaArchive).
+	// ContainersStorageDestFor for podman on Linux (podman's own store, named),
+	// OCILayoutDest for the two archive backends (deliverViaArchive).
 	// Returns (report, ok); ok=false means the image is NOT delivered and the
 	// reason was already printed, by this seam, because only it holds skopeo's
 	// stderr. nil => the real copy.
@@ -138,14 +138,15 @@ type AutoLoadOptions struct {
 	// agree with what the pipeline decided, and a seam that derived it for itself
 	// could be right while the pipeline's own decision rotted unread.
 	LayerCopy func(imageJSON, dest string, prefix []string) (CopyReport, bool)
-	// Rootless reports whether the runtime's containers-storage is a ROOTLESS
-	// store, which is the whole of the namespace decision above. nil => the real
-	// `podman info` probe.
+	// StoreFacts is the ONE `podman info` read a containers-storage delivery rests
+	// on: whether the store is ROOTLESS (the namespace decision above) and which
+	// store it is (the destination, storespec.go). nil => the real probe,
+	// ReadPodmanStoreFacts. Asked only on the podman-on-Linux copy arm.
 	//
-	// A seam rather than a direct call so the three-way decision is drivable from a
-	// table test: this jail's podman is rootful and no test host can be trusted to
-	// be otherwise, so an injected answer is the only way every branch is reachable.
-	Rootless func() PodmanRootless
+	// A seam rather than a direct call so every branch is drivable from a table
+	// test: this jail's podman is rootful and no test host can be trusted to be
+	// otherwise, so an injected answer is the only way every branch is reachable.
+	StoreFacts func() PodmanStoreFacts
 	// BuildCopier realizes `.#imageCopier` and returns (skopeoPath, stderrTail);
 	// "" means the build failed. nil => the real build.
 	//
@@ -297,9 +298,9 @@ func (o *AutoLoadOptions) fill() {
 			return o.copyImageLayers(imageJSON, dest, prefix)
 		}
 	}
-	if o.Rootless == nil {
-		o.Rootless = func() PodmanRootless {
-			return PodmanRootlessness(o.Runtime, runCapture)
+	if o.StoreFacts == nil {
+		o.StoreFacts = func() PodmanStoreFacts {
+			return ReadPodmanStoreFacts(o.Runtime, runCapture)
 		}
 	}
 	if o.BuildCopier == nil {
@@ -911,10 +912,16 @@ func AutoLoadImage(opts AutoLoadOptions) LoadResult {
 			// has to have its layer ownership mapped through /etc/subuid, which the
 			// copier cannot arrange for itself on a host that restricts unprivileged
 			// user namespaces — so the copy runs inside podman's own.
-			rootless := o.Rootless()
-			fmt.Fprintln(out, StoreWriteNote(rootless))
-			prefix := StoreWritePrefix(o.Runtime, rootless)
-			_, delivered = o.LayerCopy(currentPath, ContainersStorageDest(contentRef), prefix)
+			//
+			// AND INTO WHICH STORE, from the SAME read: the one podman reports, named
+			// on the destination, so the copier's own storage.conf lookup — which a
+			// newer containers/storage resolves differently from podman's (issue #47,
+			// storespec.go) — never picks it. A store podman did not report is not
+			// guessed: the destination is then today's, and the note says so.
+			facts := o.StoreFacts()
+			fmt.Fprintln(out, StoreWriteNote(facts))
+			dest, prefix := storeWrite(o.Runtime, facts, contentRef)
+			_, delivered = o.LayerCopy(currentPath, dest, prefix)
 		}
 		lcp.End()
 		// RELEASED AS SOON AS THE STORE WRITE IS DONE, and before the tags and the

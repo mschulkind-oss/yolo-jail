@@ -30,24 +30,28 @@ func (o *Options) reportImageDelivery(r *reporter, detectedRuntime string) {
 	if o.IsMacOS || detectedRuntime != "podman" {
 		return
 	}
-	rootless := image.PodmanRootlessness(detectedRuntime, func(argv []string) (string, bool) {
+	facts := image.ReadPodmanStoreFacts(detectedRuntime, func(argv []string) (string, bool) {
 		res := o.Exec(argv, "", nil, deliveryProbeTimeout)
 		if !res.Ran || res.Timeout || res.RC != 0 {
 			return "", false
 		}
 		return res.Stdout, true
 	})
-	pf := image.UnsharePreflight(detectedRuntime, rootless, o.PathExists("/bin/sh"),
+	pf := image.UnsharePreflight(detectedRuntime, facts.Rootless, o.PathExists("/bin/sh"),
 		func(argv []string) bool {
 			res := o.Exec(argv, "", nil, deliveryProbeTimeout)
 			return res.Ran && !res.Timeout && res.RC == 0
 		})
-	switch {
-	case pf.Line == "":
-		return
-	case pf.Warn:
-		r.warn(pf.Line, pf.Hint)
-	default:
-		r.ok(pf.Line)
+	// The namespace probe passing says nothing about WHICH store the copy writes
+	// (issue #47 passed it and failed every launch), so the store is its own line,
+	// from the same `podman info`.
+	for _, line := range []image.DeliveryPreflight{pf, image.StorePreflight(facts)} {
+		switch {
+		case line.Line == "":
+		case line.Warn:
+			r.warn(line.Line, line.Hint)
+		default:
+			r.ok(line.Line)
+		}
 	}
 }

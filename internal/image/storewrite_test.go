@@ -108,7 +108,7 @@ func TestARootlessStoreIsWrittenFromInsidePodmansNamespace(t *testing.T) {
 		f := newFakeRuntime()
 		var out bytes.Buffer
 		opts := c2Opts("podman", storePath, f, &out)
-		opts.Rootless = func() PodmanRootless { return RootlessYes }
+		opts.StoreFacts = func() PodmanStoreFacts { return PodmanStoreFacts{Rootless: RootlessYes} }
 
 		if res := AutoLoadImage(opts); !res.OK {
 			t.Fatalf("the launch failed: %s", out.String())
@@ -129,7 +129,7 @@ func TestARootlessStoreIsWrittenFromInsidePodmansNamespace(t *testing.T) {
 		f := newFakeRuntime()
 		var out bytes.Buffer
 		opts := c2Opts("podman", storePath, f, &out)
-		opts.Rootless = func() PodmanRootless { return RootlessNo }
+		opts.StoreFacts = func() PodmanStoreFacts { return PodmanStoreFacts{Rootless: RootlessNo} }
 
 		if res := AutoLoadImage(opts); !res.OK {
 			t.Fatalf("the launch failed: %s", out.String())
@@ -146,7 +146,7 @@ func TestARootlessStoreIsWrittenFromInsidePodmansNamespace(t *testing.T) {
 		f := newFakeRuntime()
 		var out bytes.Buffer
 		opts := c2Opts("podman", storePath, f, &out)
-		opts.Rootless = func() PodmanRootless { return RootlessUnknown }
+		opts.StoreFacts = func() PodmanStoreFacts { return PodmanStoreFacts{Rootless: RootlessUnknown} }
 
 		if res := AutoLoadImage(opts); !res.OK {
 			t.Fatalf("the launch failed: %s", out.String())
@@ -182,7 +182,7 @@ func TestAnArchiveIsNeverWrapped(t *testing.T) {
 			f.runtime = tc.runtime
 			opts.IsMacOS = tc.macOS
 			// A rootless answer that must NOT be consulted on this path.
-			opts.Rootless = func() PodmanRootless { return RootlessYes }
+			opts.StoreFacts = func() PodmanStoreFacts { return PodmanStoreFacts{Rootless: RootlessYes} }
 
 			if res := AutoLoadImage(opts); !res.OK {
 				t.Fatalf("the launch failed: %s", out.String())
@@ -296,6 +296,14 @@ func TestARefusedNamespaceIsNotRetried(t *testing.T) {
 			stderr:   "Error: please use unshare with rootless",
 			wantRuns: 1,
 			wantSays: "Not retrying",
+		},
+		{
+			// Issue #47's exact words, reachable now only when no store was named.
+			name: "the copier could not create the store it resolved for itself",
+			stderr: `time="2026-09-29T10:00:00Z" level=fatal msg="Invalid destination name ` +
+				`containers-storage:localhost/yolo-jail:0123: mkdir /run/containers: permission denied"`,
+			wantRuns: 1,
+			wantSays: "storage.conf",
 		},
 		{
 			name:     "anything else keeps the one retry",

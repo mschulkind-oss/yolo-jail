@@ -165,7 +165,7 @@ func (f *fakeRuntime) layerCopy(imageJSON, dest string, prefix []string) (CopyRe
 	}
 	switch {
 	case strings.HasPrefix(dest, "containers-storage:"):
-		ref := strings.TrimPrefix(dest, "containers-storage:")
+		ref := containersStorageRef(dest)
 		f.present[ref] = "img-from-" + ref
 	case strings.HasPrefix(dest, "oci:"):
 		// `<dir>:<reference>`, split at the FIRST colon: skopeo cannot express a
@@ -297,7 +297,7 @@ func c2Opts(rt string, storePath string, f *fakeRuntime, out *bytes.Buffer) Auto
 		// every pre-existing assertion in this package keeps the argv it was written
 		// against. The rootless branch is asserted where it belongs, in
 		// storewrite_test.go.
-		Rootless: func() PodmanRootless { return RootlessNo },
+		StoreFacts: func() PodmanStoreFacts { return PodmanStoreFacts{Rootless: RootlessNo} },
 	}
 }
 
