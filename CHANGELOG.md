@@ -135,6 +135,19 @@ until it has been measured; see
 
 - GPT-6.1 Sol replaces GPT-6 Sol for every agent on the ChatGPT subscription (`-p codex`): it is the default and the first entry in the model menus, and GPT-6 Sol is no longer listed. If you had picked GPT-6 Sol yourself, pick a model again.
 
+**yolo turns off Codex's background copy in the sessions it launches; a Codex you run yourself is
+untouched.** Since version 0.157, Codex starts a second copy of itself in the background and the
+`codex` you type talks to it. That copy did not follow the Codex yolo installed, so a jail could
+show an older model list, and it updated itself on its own schedule, outside `agent_updates`. It is
+now off in every jail, `macos-user` included, and in `yolo host -- codex`, which also runs Codex
+with `--no-daemon` and, once, stops the background copy and its updater an earlier
+`yolo host -- codex` left running, then removes its files. `codex agents` and `codex queue` need
+the background copy, so they do not work in those sessions. yolo never changes this in your own
+`~/.codex`, even when `yolo host apply` manages your other Codex settings. A background copy a
+`macos-user` session started before you upgraded keeps running until the Mac restarts, and each
+project where Codex ran in a jail keeps copies of it that you can delete. See
+[Codex's background copy](userguide/guides/agent-settings.md#codexs-background-copy).
+
 **A jail that shares your host's network now says so, at launch and in its briefing.** With
 `network.mode: "host"`, in a jail started from inside another jail, and in every macos-user
 jail, services listening on your machine's loopback are reachable from inside the jail. The

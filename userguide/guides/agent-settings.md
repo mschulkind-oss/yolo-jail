@@ -41,6 +41,29 @@ An **MCP server** gives an agent extra tools through the
 it code intelligence such as go-to-definition. [MCP and LSP](mcp-and-lsp.md) covers both.
 [Providers and Models](providers-and-models.md) covers profiles.
 
+## Codex's background copy
+
+Since version 0.157, Codex starts a second copy of itself in the background, and the `codex` you
+type talks to that copy. The copy does not update when Codex does, so it can show an older model
+list, and it installs updates to itself on its own schedule.
+
+yolo turns off Codex's background copy in the sessions it launches: in every jail, `macos-user`
+included, and in `yolo host -- codex`. Codex there works the way it did before 0.157, with the
+model list of the Codex yolo installed. `codex agents` and `codex queue` need the background copy,
+so they do not work in those sessions.
+
+A Codex you run yourself is untouched: yolo never changes this in your own `~/.codex`, even when
+`yolo host apply` manages your other Codex settings.
+
+Two things stay behind from before yolo turned it off:
+
+- On `macos-user`, a background copy that a session started before you upgraded keeps running
+  until you restart the Mac, and Codex in that project keeps using it until then.
+- A project where Codex ran in a jail keeps the background copy's files, about 400 MiB for each
+  Codex version it saw, in `.yolo/home/codex/packages/app-server-daemon` (`.yolo/home/.codex/…` on
+  Apple Container). Nothing uses them now; delete that folder to get the space back. For
+  `yolo host -- codex`, yolo removes its own copy for you.
+
 ## See what yolo wrote, and why
 
 ```bash

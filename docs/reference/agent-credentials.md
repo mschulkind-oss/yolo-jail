@@ -504,6 +504,13 @@ without the credential, as a jail's launcher does. Yolo supervises Codex and clo
 generated Codex wrapper delegates to the same command. The managed home links `config.toml`,
 `AGENTS.md`, and `skills` from the ordinary host Codex home when present; its `auth.json`, session
 state, and cache stay separate. A direct `codex` launch and `~/.codex/auth.json` are untouched.
+The managed launch also keeps Codex's background server off, since one would outlive the launch and
+keep posting refreshes to its closed adapter: the managed `config.toml` sets
+`features.daemon_auto_start = false`, the argv gains `--no-daemon` (disclosed; not beside `agents`,
+`queue` or `--remote`, which Codex refuses it with), and a server or updater an earlier launch left
+in that home is stopped once, when no other launch of it is live
+([OQ-CDX1](../research/codex-background-service.md#OQ-CDX1), [CDX-D2](../research/codex-background-service.md#CDX-D2),
+[CDX-D3](../research/codex-background-service.md#CDX-D3)).
 
 > [!WARNING]
 > The OpenAI service is a host-service loophole, and **neither macOS backend carries it end to
