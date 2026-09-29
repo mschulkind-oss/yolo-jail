@@ -1336,13 +1336,15 @@ func (c *hostComposition) credentialGaps(getenv func(string) string) []string {
 }
 
 // platformSwitchConflicts is PP-D1 for this launch's one agent, read from the real home, the
-// file the agent `yolo host` execs reads itself (packload.PlatformSwitchConflicts).
+// file the agent `yolo host` execs reads itself (packload.PlatformSwitchConflicts), with the
+// host's computed-leaf record saying which switch `yolo host apply` wrote there.
 func (c *hostComposition) platformSwitchConflicts() []packload.PlatformSwitchConflict {
 	if c.scope == nil || c.agent == "" {
 		return nil
 	}
+	home := paths.Home()
 	return packload.PlatformSwitchConflicts(c.packs, c.scope.Selection(), c.resolved, c.providers,
-		paths.Home(), c.agent)
+		home, c.agent, render.HostLeafWrote(home))
 }
 
 // regionGaps is the region pre-flight (packload.ProviderRegionGaps, OQ-BR6) for this launch,

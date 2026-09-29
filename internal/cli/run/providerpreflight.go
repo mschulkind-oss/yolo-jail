@@ -7,6 +7,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	"github.com/mschulkind-oss/yolo-jail/internal/render"
 )
 
 // checkProviderCredentials is the SEVENTH bespoke launch pre-flight
@@ -132,8 +133,11 @@ func (o *Options) notePlatformSwitchConflicts(packs []*packload.Pack, channel *p
 	if channel == nil {
 		return
 	}
+	// The host's computed-leaf record says which switch `yolo host apply` wrote into the user's
+	// file for the HOST selection (HC-D23): its line names yolo's write, not the user's.
+	home := paths.Home()
 	for _, c := range packload.PlatformSwitchConflicts(packs, channel.scope.Selection(),
-		channel.resolvedProfiles, channel.providers, paths.Home(), "") {
+		channel.resolvedProfiles, channel.providers, home, "", render.HostLeafWrote(home)) {
 		o.pr(o.Stderr).print("[yellow]" + c.Line() + "[/yellow]")
 	}
 }

@@ -18,6 +18,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/image"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
+	"github.com/mschulkind-oss/yolo-jail/internal/render"
 )
 
 // switchLine is the part of the line every arm must print.
@@ -72,6 +73,26 @@ func TestAnAttachNamesAUsersOwnBedrockSwitch(t *testing.T) {
 	}
 	if !strings.Contains(stderr.String(), switchLine) {
 		t.Errorf("the attach must name the conflict:\n%s", stderr)
+	}
+
+	// A SWITCH yolo WROTE (HC-D23): with the host's computed-leaf record naming the value the file
+	// holds, the line is the one naming `yolo host apply`'s write, never the user-owned one.
+	o, cfg, channel, stderr = attachFixture(t, currentJailEnv, packs, emptyEnv(), nil)
+	writeHostClaudeSettings(t, os.Getenv("HOME"), `{"env": {"CLAUDE_CODE_USE_BEDROCK": "1"}}`)
+	rec := render.Host(os.Getenv("HOME"), nil, render.OwnershipAssert).LeafRecordPath("claude", "settings")
+	if err := os.MkdirAll(filepath.Dir(rec), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(rec, []byte(`{"/env/CLAUDE_CODE_USE_BEDROCK": "1"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	o.deliverChannelOnAttach("yolo-ws-abcd1234", "podman", cfg, stagedPacks{root: "/ctx/packs", packs: packs}, channel)
+	if got := stderr.String(); !strings.Contains(got, "which `yolo host apply` wrote there for claude's host selection") ||
+		strings.Contains(got, "yolo leaves it alone") {
+		t.Errorf("a switch yolo's host apply wrote must be named as yolo's:\n%s", got)
+	}
+	if err := os.Remove(rec); err != nil {
+		t.Fatal(err)
 	}
 
 	// A switch that is off says nothing.

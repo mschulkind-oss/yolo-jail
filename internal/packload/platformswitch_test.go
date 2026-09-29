@@ -8,7 +8,10 @@ package packload
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/render"
 )
 
 func writeSettings(t *testing.T, home, body string) {
@@ -29,7 +32,7 @@ func TestAUsersOwnSwitchConflictsOnlyWhenTheSelectionDoesNotServeIt(t *testing.T
 		"bedrock-bridge": {Provider: "bedrock", Via: "wire-bridge"}}
 	conflicts := func(home string, profiles map[string]string) []PlatformSwitchConflict {
 		providers, resolved, sel := launchSelection(t, packs, user, userProfiles, profiles)
-		return PlatformSwitchConflicts(packs, sel, resolved, providers, home, "")
+		return PlatformSwitchConflicts(packs, sel, resolved, providers, home, "", render.HostLeafWrote(home))
 	}
 
 	home := t.TempDir()
@@ -71,9 +74,48 @@ func TestAUsersOwnSwitchConflictsOnlyWhenTheSelectionDoesNotServeIt(t *testing.T
 			t.Errorf("CLAUDE_CODE_USE_BEDROCK=%s is on, got %+v", v, got)
 		}
 	}
+	// A SWITCH yolo WROTE (HC-D23): the host's computed-leaf record names the pointer with the
+	// value the file holds, so the conflict is yolo's and its line names `yolo host apply`; a
+	// record naming another value, or none, leaves the switch the user's.
+	for _, tc := range []struct {
+		file, record string
+		yolos        bool
+	}{
+		{`"1"`, `{"/env/CLAUDE_CODE_USE_BEDROCK": "1"}`, true},
+		{`"true"`, `{"/env/CLAUDE_CODE_USE_BEDROCK": "1"}`, false},
+		{`"1"`, `{"/env/OTHER": "1"}`, false},
+		{`"1"`, ``, false},
+	} {
+		h := t.TempDir()
+		writeSettings(t, h, `{"env":{"CLAUDE_CODE_USE_BEDROCK":`+tc.file+`}}`)
+		if tc.record != "" {
+			rec := render.Host(h, nil, render.OwnershipAssert).LeafRecordPath("claude", "settings")
+			if err := os.MkdirAll(filepath.Dir(rec), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(rec, []byte(tc.record), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}
+		got := conflicts(h, map[string]string{"claude": "codex"})
+		if len(got) != 1 || got[0].WrittenByYolo != tc.yolos {
+			t.Errorf("file %s, record %q: conflicts %+v, want one with WrittenByYolo=%v", tc.file, tc.record, got, tc.yolos)
+			continue
+		}
+		line := got[0].Line()
+		if names := strings.Contains(line, "`yolo host apply` wrote there"); names != tc.yolos {
+			t.Errorf("file %s, record %q: the line must name yolo's write exactly when it is yolo's:\n%s",
+				tc.file, tc.record, line)
+		}
+		if leaves := strings.Contains(line, "yolo leaves it alone"); leaves == tc.yolos {
+			t.Errorf("file %s, record %q: only the user's own switch is one yolo leaves alone:\n%s",
+				tc.file, tc.record, line)
+		}
+	}
+
 	// The host notch asks for its one agent only.
 	providers, resolved, sel := launchSelection(t, packs, user, userProfiles, nil)
-	if got := PlatformSwitchConflicts(packs, sel, resolved, providers, home, "codex"); len(got) != 0 {
+	if got := PlatformSwitchConflicts(packs, sel, resolved, providers, home, "codex", nil); len(got) != 0 {
 		t.Errorf("a launch of codex names no conflict of claude's, got %+v", got)
 	}
 }

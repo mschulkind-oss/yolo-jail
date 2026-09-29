@@ -14,6 +14,15 @@ package packload
 // CORE NAMES NO AGENT, FILE OR VARIABLE (OQ-CS8): the switch is the agent pack's declaration
 // (packdecl.PlatformSwitch — packs/claude declares its settings file's env key), read here from
 // the user's own copy of that surface, the one a `readsHost` surface composes as its host layer.
+//
+// A SWITCH yolo WROTE IS NOT THE USER'S, and the line says so. `yolo host apply` writes claude's
+// switch into the real file while the HOST selection is Bedrock (providers.md#pv-d8), so a launch
+// selecting another provider meets a key yolo put there. The host's computed-leaf record
+// (render.Target.LeafRecordPath, HC-D23) names every leaf that apply wrote with its value; a
+// switch holding the recorded value is yolo's, and its line names `yolo host apply`, which clears
+// it once claude's host selection leaves the platform, instead of telling the user to remove a
+// key of theirs. The caller answers from the record (render.HostLeafWrote): this package reads
+// no render target.
 
 import (
 	"fmt"
@@ -27,6 +36,10 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 )
 
+// LeafWrote answers whether yolo's own host apply wrote value at pointer in surface ("agent/name")
+// and it is unchanged since (render.HostLeafWrote). Nil answers no for every switch.
+type LeafWrote func(surface, pointer string, value any) bool
+
 // PlatformSwitchConflict is one agent whose own config switches it onto a platform that its
 // selection does not serve.
 type PlatformSwitchConflict struct {
@@ -38,6 +51,9 @@ type PlatformSwitchConflict struct {
 	// Profile is a declared profile, routed through no via service, over a provider of the
 	// platform — the `-p` the line offers; "" when none is declared.
 	Profile string
+	// WrittenByYolo is whether the switch holds the value `yolo host apply` recorded writing
+	// there (the host's computed-leaf record), so the key is yolo's and not the user's.
+	WrittenByYolo bool
 }
 
 // Line is the one line a launch prints for the conflict.
@@ -45,6 +61,13 @@ func (c PlatformSwitchConflict) Line() string {
 	fix := "select a provider of that platform for " + c.Agent
 	if c.Profile != "" {
 		fix = "select one (-p " + c.Profile + ")"
+	}
+	if c.WrittenByYolo {
+		return fmt.Sprintf("%s: %s sets %s, which `yolo host apply` wrote there for %s's host "+
+			"selection, and it puts %s on its own %s client, but no %s provider is selected for %s, "+
+			"so yolo delivers it none of that platform's credentials: %s, or run `yolo host apply` "+
+			"with %s on a provider of another platform, which removes it.", c.Agent, c.File, c.Key,
+			c.Agent, c.Agent, strconv.Quote(c.Platform), strconv.Quote(c.Platform), c.Agent, fix, c.Agent)
 	}
 	return fmt.Sprintf("%s: %s sets %s, which puts %s on its own %s client, but no %s provider is "+
 		"selected for %s, so yolo delivers it none of that platform's credentials: %s, or remove %s "+
@@ -58,9 +81,10 @@ func (c PlatformSwitchConflict) Line() string {
 // the switch's surface under home, that is ON while the agent's selected provider (sel, the
 // gate's own selection) is not of the switch's platform. A surface this pack does not declare, or
 // one with no host layer, has no user copy to read and is skipped, as is a file that is absent or
-// not JSON: the agent reports its own config errors.
+// not JSON: the agent reports its own config errors. wrote says which switches yolo's own host
+// apply wrote (WrittenByYolo); nil says none did.
 func PlatformSwitchConflicts(packs []*Pack, sel GateSelection, resolved map[string]ResolvedProfile,
-	providers *jsonx.OrderedMap, home, agent string) []PlatformSwitchConflict {
+	providers *jsonx.OrderedMap, home, agent string, wrote LeafWrote) []PlatformSwitchConflict {
 	var out []PlatformSwitchConflict
 	for _, p := range packs {
 		if p == nil || p.Decl == nil {
@@ -74,12 +98,13 @@ func PlatformSwitchConflicts(packs []*Pack, sel GateSelection, resolved map[stri
 				if sel.Platforms[bin] == sw.Platform {
 					continue // served: the selected provider is of the platform
 				}
-				file, on := switchIsOn(p, sw, home)
+				file, value, on := switchIsOn(p, sw, home)
 				if !on {
 					continue
 				}
 				out = append(out, PlatformSwitchConflict{Agent: bin, Platform: sw.Platform,
-					File: file, Key: sw.Key(), Profile: nativeProfileOn(resolved, providers, sw.Platform)})
+					File: file, Key: sw.Key(), Profile: nativeProfileOn(resolved, providers, sw.Platform),
+					WrittenByYolo: wrote != nil && wrote(sw.Surface, sw.Pointer, value)})
 			}
 		}
 	}
@@ -87,8 +112,8 @@ func PlatformSwitchConflicts(packs []*Pack, sel GateSelection, resolved map[stri
 }
 
 // switchIsOn reads sw from the user's own copy of its surface under home, returning the file as
-// the surface spells it and whether the switch is on there.
-func switchIsOn(p *Pack, sw packdecl.PlatformSwitch, home string) (string, bool) {
+// the surface spells it, the value the switch holds there, and whether the switch is on.
+func switchIsOn(p *Pack, sw packdecl.PlatformSwitch, home string) (string, any, bool) {
 	surfaces, _ := p.Surfaces()
 	for _, s := range surfaces {
 		if s.Key().String() != sw.Surface || !s.ReadsHost {
@@ -96,33 +121,33 @@ func switchIsOn(p *Pack, sw packdecl.PlatformSwitch, home string) (string, bool)
 		}
 		rel, ok := strings.CutPrefix(s.Path, "~/")
 		if !ok {
-			return s.Path, false
+			return s.Path, nil, false
 		}
 		data, err := os.ReadFile(filepath.Join(home, rel))
 		if err != nil {
-			return s.Path, false
+			return s.Path, nil, false
 		}
 		doc, err := jsonx.Decode(data)
 		if err != nil {
-			return s.Path, false
+			return s.Path, nil, false
 		}
 		steps, err := jsonptr.Parse(sw.Pointer)
 		if err != nil {
-			return s.Path, false
+			return s.Path, nil, false
 		}
 		v := any(doc)
 		for _, step := range steps {
 			m, ok := v.(*jsonx.OrderedMap)
 			if !ok {
-				return s.Path, false
+				return s.Path, nil, false
 			}
 			if v, ok = m.Get(step); !ok {
-				return s.Path, false
+				return s.Path, nil, false
 			}
 		}
-		return s.Path, switchTruthy(v)
+		return s.Path, v, switchTruthy(v)
 	}
-	return sw.Surface, false
+	return sw.Surface, nil, false
 }
 
 // switchTruthy is the common environment-flag convention a PlatformSwitch documents: JSON true,
