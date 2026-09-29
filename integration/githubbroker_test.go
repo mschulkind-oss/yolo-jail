@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/brokeraudit"
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
@@ -46,6 +47,8 @@ type githubBrokerFixture struct {
 	dir     string
 	opts    []runOption
 	argvLog string
+	// env is opts' launcher environment as KEY=VALUE pairs, for startYoloBackground.
+	env []string
 }
 
 func newGitHubBrokerFixture(t *testing.T) githubBrokerFixture {
@@ -91,14 +94,45 @@ func newGitHubBrokerFixture(t *testing.T) githubBrokerFixture {
 	if err := os.WriteFile(filepath.Join(bin, "gh"), []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	return githubBrokerFixture{
-		dir:     dir,
-		argvLog: argvLog,
-		opts: []runOption{withEnv(
-			"PATH="+bin+string(os.PathListSeparator)+os.Getenv("PATH"),
-			"YOLO_NO_AUTO_IMAGE_REAP=1",
-		)},
+	env := []string{
+		"PATH=" + bin + string(os.PathListSeparator) + os.Getenv("PATH"),
+		"YOLO_NO_AUTO_IMAGE_REAP=1",
 	}
+	return githubBrokerFixture{dir: dir, argvLog: argvLog, env: env, opts: []runOption{withEnv(env...)}}
+}
+
+// recordScope approves the workspace's current remotes from the host, as a human would with
+// `yolo check --accept-config-changes`, and fails unless the check says it recorded want.
+func (fx githubBrokerFixture) recordScope(t *testing.T, want string) {
+	t.Helper()
+	r := runCommand(t, fx.dir, []string{"check", "--no-build", config.AcceptConfigChangesFlag}, fx.opts...)
+	if line := "github-broker repository scope recorded: " + want; r.rc != 0 || !strings.Contains(r.combined(), line) {
+		t.Fatalf("yolo check --accept-config-changes did not record %q:\nrc %d\n%s", line, r.rc, r.combined())
+	}
+}
+
+// addRemote adds a remote to the fixture's checkout.
+func (fx githubBrokerFixture) addRemote(t *testing.T, name, url string) {
+	t.Helper()
+	cmd := exec.Command("git", "remote", "add", name, url)
+	cmd.Dir = fx.dir
+	cmd.Env = packsrc.CleanGitEnv(os.Environ())
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("adding remote %s: %v\n%s", name, err, out)
+	}
+}
+
+// scopeFiles counts the launches' scope files on the host.
+func scopeFiles(t *testing.T) int {
+	t.Helper()
+	entries, _ := os.ReadDir(filepath.Join(paths.GlobalStorageUnder(os.Getenv("HOME")), "broker", "github", "scope"))
+	n := 0
+	for _, e := range entries {
+		if strings.HasSuffix(e.Name(), ".json") {
+			n++
+		}
+	}
+	return n
 }
 
 // brokerDaemonLog is the host daemon's log, for a failure message.
@@ -127,10 +161,7 @@ func TestGitHubBrokerRunsAReadAgainstTheHostGH(t *testing.T) {
 
 	// The HOST check records the scope part, where a launch here would start the broker
 	// (BB-D30) — so the launch below passes no --accept-config-changes and still starts.
-	if r := runCommand(t, fx.dir, []string{"check", "--no-build", config.AcceptConfigChangesFlag}, fx.opts...); !strings.Contains(
-		r.combined(), "github-broker repository scope recorded: yolo-it/app") {
-		t.Fatalf("yolo check --accept-config-changes did not record the scope:\nrc %d\n%s", r.rc, r.combined())
-	}
+	fx.recordScope(t, "yolo-it/app")
 
 	script := ghScript(
 		"gh pr view 32",                         // A: a read, repository from origin
@@ -230,15 +261,11 @@ func TestGitHubBrokerRunsAReadAgainstTheHostGH(t *testing.T) {
 // the git config file and --accept-config-changes; approved, the new repository is readable.
 func TestGitHubBrokerScopeChangeIsApprovedAtTheNextFreshLaunch(t *testing.T) {
 	fx := newGitHubBrokerFixture(t)
-	if r := runCommand(t, fx.dir, []string{"check", "--no-build", config.AcceptConfigChangesFlag}, fx.opts...); r.rc != 0 &&
-		!strings.Contains(r.combined(), "scope recorded") {
-		t.Fatalf("recording the first scope:\n%s", r.combined())
-	}
-	cmd := exec.Command("git", "remote", "add", "upstream", "git@github.com:yolo-up/lib.git")
-	cmd.Dir = fx.dir
-	if out, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("git remote add: %v\n%s", err, out)
-	}
+	// The first approval, which the rest of the test is a change against. A check that
+	// recorded nothing would leave both remotes reading as added, and the refusal below
+	// would still name the new one, so the recording itself is asserted.
+	fx.recordScope(t, "yolo-it/app")
+	fx.addRemote(t, "upstream", "git@github.com:yolo-up/lib.git")
 
 	r := runCommand(t, fx.dir, []string{"run", "--", "true"}, fx.opts...)
 	if r.rc == 0 {
@@ -250,9 +277,90 @@ func TestGitHubBrokerScopeChangeIsApprovedAtTheNextFreshLaunch(t *testing.T) {
 			t.Errorf("the refusal does not name %q:\n%s", s, r.combined())
 		}
 	}
+	// The approved remote is context, not news: the block marks it unchanged.
+	origin := false
+	for _, line := range strings.Split(r.combined(), "\n") {
+		if strings.Contains(line, "yolo-it/app") && strings.Contains(line, `remote "origin"`) {
+			origin = true
+			if !strings.Contains(line, "unchanged") || strings.Contains(line, "added") {
+				t.Errorf("the approved origin is not shown as unchanged: %q", line)
+			}
+		}
+	}
+	if !origin {
+		t.Errorf("the refusal's scope block has no row for the approved origin:\n%s", r.combined())
+	}
 
 	r = runYolo(t, fx.dir, ghScript("gh pr view 1 -R yolo-up/lib"), fx.opts...)
 	if r.rc != 0 || kvLine(r.stdout, "RCA") != "0" {
 		t.Fatalf("an approved remote was not readable: rc %d\n%s%s", r.rc, r.combined(), brokerDaemonLog(t))
+	}
+}
+
+// OQ-BB7 and BB-D32: an ATTACH reads no remotes, never refuses over the scope, and joins the
+// broker the fresh launch started, whose scope stays what that launch approved. A remote
+// added while the jail runs is out of scope until the next fresh launch shows it, and the
+// launch's scope file goes with the launch, not with the attach.
+func TestGitHubBrokerAnAttachKeepsTheRunningScope(t *testing.T) {
+	fx := newGitHubBrokerFixture(t)
+	fx.recordScope(t, "yolo-it/app")
+
+	const release = "release-github-attach"
+	first := startYoloBackground(t, "first", fx.dir,
+		`echo FIRST-UP-$((40+2)); for _ in $(seq 1 600); do [ -f /workspace/`+release+` ] && break; sleep 0.5; done`,
+		fx.env...)
+	t.Cleanup(func() { _ = os.WriteFile(filepath.Join(fx.dir, release), []byte("go\n"), 0o644) })
+	// The ANSWER, not the mention: the boot echoes the command before bash runs it, so the
+	// sync point is the arithmetic only bash can do.
+	deadline := time.Now().Add(jailTimeout())
+	for !strings.Contains(first.combined(), "FIRST-UP-42") {
+		select {
+		case err := <-first.done:
+			t.Fatalf("the first launch exited (%v) before its session ran:\n%s%s", err, first.combined(),
+				brokerDaemonLog(t))
+		default:
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("the first session never ran within %s:\n%s", jailTimeout(), first.combined())
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	awaitLaunchLockReleased(t, fx.dir, first)
+	if n := scopeFiles(t); n != 1 {
+		t.Fatalf("the running jail's launch left %d scope files, want 1", n)
+	}
+
+	fx.addRemote(t, "upstream", "git@github.com:yolo-up/lib.git")
+	// No --accept-config-changes: an attach is never asked about the scope.
+	r := runCommand(t, fx.dir, []string{"run", "--", "bash", "-lc",
+		ghScript("gh pr view 1 -R yolo-up/lib", "gh pr view 2")}, fx.opts...)
+	if r.rc != 0 {
+		t.Fatalf("the attach failed: rc %d\n%s%s", r.rc, r.combined(), brokerDaemonLog(t))
+	}
+	if !strings.Contains(r.combined(), "Attaching to existing jail") {
+		t.Fatalf("this was not an attach:\n%s", r.combined())
+	}
+	if strings.Contains(r.combined(), "yolo-up/lib  remote") || strings.Contains(r.combined(), "repository scope changed") {
+		t.Errorf("the attach read the remotes or asked about the scope:\n%s", r.combined())
+	}
+	if got := kvLine(r.stdout, "RCA"); got != "64" {
+		t.Errorf("a remote added mid-session answered %q, want 64 until a fresh launch approves it:\n%s",
+			got, r.combined())
+	}
+	if got := kvLine(r.stdout, "RCB"); got != "0" || !strings.Contains(r.stdout, "fake gh ran: pr view 2 --repo=yolo-it/app") {
+		t.Errorf("the approved origin answered %q:\n%s", got, r.combined())
+	}
+	if n := scopeFiles(t); n != 1 {
+		t.Errorf("the attach changed the scope files: %d, want 1", n)
+	}
+
+	if err := os.WriteFile(filepath.Join(fx.dir, release), []byte("go\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if rc := first.wait(t, jailTimeout()); rc != 0 {
+		t.Fatalf("the first launch exited %d:\n%s", rc, first.combined())
+	}
+	if n := scopeFiles(t); n != 0 {
+		t.Errorf("a scope file outlived its launch: %d left", n)
 	}
 }
