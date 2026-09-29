@@ -40,9 +40,9 @@ type File struct {
 	// Repos is the approved scope: the workspace's remotes on the forge, as a human
 	// approved them in this launch's config-change gate.
 	Repos []string `json:"repos"`
-	// Widened is what a user-scope widening entry added for this workspace (OQ-BB6). No
-	// build writes it yet; the field is here so a daemon reading an older file and a newer
-	// one agree about where it goes.
+	// Widened is what a user-scope widening entry added for this workspace (OQ-BB6). As
+	// OQ-BB9 ruled (A), its repositories join the scope for every set, which is how the
+	// broker reads them. No build writes it yet: the widening entry is step 2.
 	Widened []string `json:"widened,omitempty"`
 }
 

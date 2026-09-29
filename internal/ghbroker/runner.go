@@ -206,7 +206,7 @@ func (r *Runner) buildEnv(getenv func(string) string) []string {
 		"DO_NOT_TRACK=1",
 	}
 	// The OS keyring, where gh keeps the token by default since 2.26.0, is reached on
-	// Linux over the user's session bus (BB-D37). The address names the user's own bus and
+	// Linux over the user's session bus (BB-D42). The address names the user's own bus and
 	// nothing the jail can set.
 	if v := getenv("DBUS_SESSION_BUS_ADDRESS"); v != "" {
 		env = append(env, "DBUS_SESSION_BUS_ADDRESS="+v)
