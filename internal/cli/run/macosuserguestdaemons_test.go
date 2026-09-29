@@ -9,9 +9,19 @@ package run
 // plan, the served-set split or the settle fails it.
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
+	"time"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/awscredadapter"
+	"github.com/mschulkind-oss/yolo-jail/internal/broker"
+	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/macosuser"
+	"github.com/mschulkind-oss/yolo-jail/internal/packload"
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/svcendpoint"
 )
 
@@ -86,6 +96,57 @@ func TestMacosUserServesTheBedrockPointerThroughALaunchOwnedDoorway(t *testing.T
 	if !strings.Contains(stderr.String(), "and yolo internal daemon aws-credential-adapter --listen '{listen}' on your machine") {
 		t.Errorf("the launch does not disclose the AWS doorway's host argv as running on your machine:\n%s",
 			stderr.String())
+	}
+}
+
+// THE AWS DOORWAY IS HANDED THE ENDPOINT IT FORWARDS TO. It asks the host aws-auth service
+// through the front the launch published for this session, named by YOLO_SERVICE_AWS_AUTH_ENDPOINT
+// (awscredadapter.EndpointEnv), so its input must carry the path the launch's own host service
+// published. Without it the doorway still binds and answers every request ServiceUnreachable,
+// while the launch prints that it opened. Here the aws-auth host service really starts: the test
+// binary serves `internal daemon aws-auth`, a stand-in `aws` on PATH answers its `--version`
+// spawn check, and the profile is configured un-narrowed so the daemon does not refuse. Deleting
+// the endpoint files from doorwayInput fails this.
+func TestMacosUserHandsTheAWSDoorwayTheEndpointItForwardsTo(t *testing.T) {
+	bin := t.TempDir()
+	fakeAWS := "#!/bin/sh\ncase \"$1\" in --version) echo 'aws-cli/2.99.0 fake'; exit 0 ;; esac\nexit 2\n"
+	if err := os.WriteFile(filepath.Join(bin, "aws"), []byte(fakeAWS), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	o, stderr, seen := overrideNativeLaunch(t, awsAuthUserConfig(`, "loopholes": {"aws-auth": {"enabled": true,
+		"settings": {"profile": "yolo-unit", "unnarrowed": true}}}`), shellWith(nil))
+	// The host service is a host-wide singleton, and this package's later launches would adopt
+	// it: stopped here, before the temp HOME holding its state goes.
+	t.Cleanup(func() {
+		broker.BrokerKill(broker.SingletonDeps(awscredadapter.LoopholeName, nil), syscall.SIGTERM, 2*time.Second)
+		_ = os.Remove(paths.HostSingletonLock(awscredadapter.LoopholeName))
+	})
+	doors := observeDoorways(t)
+	published := false
+	run := o.MacosUserRun
+	o.MacosUserRun = func(cfg *jsonx.OrderedMap, ws string, a, b []string, c, d string, h macosuser.HomeOverlay,
+		ctx macosuser.HostContext, dry bool, env *jsonx.OrderedMap, bt []packload.BlockedTool, jd macosuser.JailDaemons) int {
+		if v, ok := env.Get(awscredadapter.EndpointEnv); ok {
+			if p, _ := v.(string); p != "" {
+				_, err := os.Stat(p)
+				published = err == nil
+			}
+		}
+		return run(cfg, ws, a, b, c, d, h, ctx, dry, env, bt, jd)
+	}
+	if rc := Run(*o); rc != 0 {
+		t.Fatalf("Run() = %d\n%s", rc, stderr.String())
+	}
+	endpoint, _ := seen.env.Get(awscredadapter.EndpointEnv)
+	if !published {
+		t.Fatalf("the aws-auth host service published no endpoint while the command ran (%s=%v), so "+
+			"this test has lost its premise:\n%s", awscredadapter.EndpointEnv, endpoint, stderr.String())
+	}
+	_, in := doors.only(t, "aws-auth")
+	if got := in[awscredadapter.EndpointEnv]; got == "" || got != endpoint {
+		t.Errorf("the AWS doorway's input carries %s=%q, want the endpoint the launch published (%v)",
+			awscredadapter.EndpointEnv, got, endpoint)
 	}
 }
 

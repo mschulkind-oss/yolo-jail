@@ -57,10 +57,11 @@ func macosUserServiceEnvVar(name string) string {
 	return paths.ServiceEnvVarPrefix + strings.TrimSuffix(b.String(), "_") + paths.ServiceEnvVarSuffix
 }
 
-// macosUserRunProbe launches script and fails the test when the launch did not run it.
-func macosUserRunProbe(t *testing.T, fix, ws, script string) result {
+// macosUserRunProbe launches script and fails the test when the launch did not run it. opts
+// reach the launch as runMacosUser's do.
+func macosUserRunProbe(t *testing.T, fix, ws, script string, opts ...runOption) result {
 	t.Helper()
-	r := runMacosUser(t, ws, script)
+	r := runMacosUser(t, ws, script, opts...)
 	if r.rc != 0 || !strings.Contains(r.stdout, "=== END ===") {
 		t.Fatalf("backend-parity %s: the macos-user launch did not run its probe (rc %d), so "+
 			"nothing below can be read as a result.\nstdout:\n%s\nstderr:\n%s",

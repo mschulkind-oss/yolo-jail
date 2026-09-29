@@ -85,7 +85,9 @@ import (
 // (awsAuthCredentialMismatches).
 //
 // The runtime must be podman: Apple Container is inert for every loopback-tls loophole
-// (backendInertReason), and macos-user declines every jail daemon, the adapter included.
+// (backendInertReason), and macos-user declines the jail-side adapter and opens it outside the
+// sandbox as a doorway instead (docs/design/host-notch-services.md HS-D15), which
+// TestMacosUserOpensTheAWSDoorwayOutsideTheSandbox measures on a Mac.
 //
 // No t.Parallel(): the integration package runs serially by design, and these two tests
 // share the machine-wide singleton paths above besides.
