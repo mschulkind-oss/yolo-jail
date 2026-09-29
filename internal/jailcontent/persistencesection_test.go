@@ -23,7 +23,7 @@ func TestThePersistenceSectionLeadsWithTheDurableDir(t *testing.T) {
 	sec := persistenceSectionOf(t, out)
 	lead := persistenceHeading + "\n\n" +
 		"**Your work goes in `$YOLO_DURABLE_DIR`** (`/workspace/.yolo/durable`): worktrees, clones, drafts, measurements. Use any layout under it.\n" +
-		"It survives restarts and yolo never deletes it. It lives in the workspace's `.yolo`: hidden from git by yolo's own `.yolo/.gitignore`, seen by the user on the host, and deleted by a `git clean -fdx` (or `-fdX`) in the workspace, so never run one there. The rest of `/workspace` is the user's project.\n"
+		"It survives restarts and yolo never deletes it. It lives in the workspace's `.yolo`, which git ignores (yolo's own `.yolo/.gitignore`) and the user sees on the host, so a `git clean -fdx` (or `-fdX`) in the workspace deletes it: never run one there. The rest of `/workspace` is the user's project.\n"
 	if !strings.HasPrefix(sec, lead) {
 		t.Errorf("the section does not open with the durable dir:\n%s", sec)
 	}
@@ -32,8 +32,10 @@ func TestThePersistenceSectionLeadsWithTheDurableDir(t *testing.T) {
 		// "Survive a restart", not "outlive this session": a new session in the same launch
 		// still sees /tmp.
 		"If a harness, workflow or tool tells you to put work under `/tmp`, put anything that must survive a restart in `$YOLO_DURABLE_DIR` instead; the harness cannot see this jail's storage classes.",
-		// `--lock` says why: the host sees this workspace at "/w", not /workspace.
-		"Make a worktree with `git worktree add --lock \"$YOLO_DURABLE_DIR/worktrees/<task>\"`: git on the host sees this tree at another path, and without the lock would prune it as missing. Drive it with `git -C <path>`, not `cd <path> && …`, so a missing tree fails the command instead of running it in the workspace.",
+		// `--lock` says why: the host has this workspace at "/w", not /workspace. The cause is
+		// in the sentence (the recorded path is one the host lacks), and what a prune takes is
+		// the registration, not the files.
+		"Make a worktree with `git worktree add --lock \"$YOLO_DURABLE_DIR/worktrees/<task>\"`: git records it under this jail's `/workspace`, a path the host does not have, so without the lock a `git worktree prune` or `git gc` on the host would drop its registration. Drive it with `git -C <path>`, not `cd <path> && …`, so a missing tree fails the command instead of running it in the workspace.",
 		"Remove one with `git worktree unlock <path> && git worktree remove <path>`, which refuses while it holds uncommitted changes; `git worktree remove -f -f <path>` discards them.",
 		"- **Per launch** (on disk): `/tmp`, `/run`. Shared by every terminal attached to this jail. Survives nothing",
 		"yolo deletes these once the jail exits",
@@ -68,7 +70,11 @@ func TestThePersistenceSectionLeadsWithTheDurableDir(t *testing.T) {
 	for _, gone := range []string{"~/.yolo/bin", ".claude/worktrees", "git check-ignore", "being designed",
 		"remove yours with `git worktree remove -f -f", "the lock makes it take two",
 		"lost only if", "Survives everything", "never deletes anything there", "this session",
-		"next session", "worktrees go in", "relative-paths", "relativeWorktrees", "useRelativePaths"} {
+		"next session", "worktrees go in", "relative-paths", "relativeWorktrees", "useRelativePaths",
+		// "Hidden from git" is no git term, and read as "git cannot touch it" beside the clean
+		// that deletes the dir BECAUSE git ignores it; "sees this tree at another path … as
+		// missing" had the host's git knowing where the tree is and not finding it.
+		"hidden from git", "sees this tree", "prune it as missing"} {
 		if strings.Contains(sec, gone) {
 			t.Errorf("the section says %q:\n%s", gone, sec)
 		}
@@ -107,12 +113,17 @@ func TestADurableDirThatCouldNotBeMadeIsSaidAndNotOffered(t *testing.T) {
 }
 
 // A nested jail launched from the enclosing jail's /tmp gets a durable dir that is only as
-// durable as that /tmp, and the section says so beside the answer.
-func TestTheDurableCaveatIsSaidBesideTheAnswer(t *testing.T) {
+// durable as that /tmp, and the caveat TAKES THE PLACE OF the lifetime sentence. Said after
+// it, as it was, "yolo never deletes it" stood one line above "lasts only as long as that
+// jail", and the enclosing yolo deletes that /tmp: two lifetimes, one false.
+func TestTheDurableCaveatReplacesTheLifetimeSentence(t *testing.T) {
 	sec := persistenceSectionOf(t, BriefingContent(BriefingInput{Workspace: "/tmp/n", Mechanism: "podman",
 		Persistence: podmanShapedMap(), Durable: &DurableDir{Path: durable.ContainerJailPath, Caveat: "Only as long as X."}}))
-	if !strings.Contains(sec, "the user's project.\n⚠ Only as long as X.\n") {
-		t.Errorf("the caveat is not beside the answer:\n%s", sec)
+	if !strings.Contains(sec, "Use any layout under it.\n⚠ Only as long as X. It lives in the workspace's `.yolo`, ") {
+		t.Errorf("the caveat is not where the lifetime sentence was:\n%s", sec)
+	}
+	if strings.Contains(sec, "never deletes it") {
+		t.Errorf("the caveated lead still says yolo never deletes it:\n%s", sec)
 	}
 }
 
@@ -138,18 +149,19 @@ func TestTheMacosUserSectionIsTheDurableAnswerAtTheRealPath(t *testing.T) {
 	// The host sees this workspace at the same path, so `--lock` is asked for without the
 	// container backends' reason, which would be false here.
 	if !strings.Contains(sec, "/worktrees/<task>\"`. Drive it with `git -C <path>`") ||
-		strings.Contains(sec, "at another path") {
+		strings.Contains(sec, "the host does not have") {
 		t.Errorf("macos-user's worktree line is not `--lock` without the container reason:\n%s", sec)
 	}
 }
 
-// `--LOCK` SAYS WHY ONLY WHERE THE WHY IS TRUE: git on the host prunes a worktree whose
-// recorded path it cannot resolve, which happens only when the jail's spelling of the
-// workspace differs from the host's (DS-D10, docs/design/durable-scratch-space.md §2.6).
-// Through BriefingContent, so a call site that passed the jail's spelling twice, or none,
-// fails here too.
+// `--LOCK` SAYS WHY ONLY WHERE THE WHY IS TRUE: git on the host drops the registration of a
+// worktree whose recorded path it cannot resolve, which happens only when the jail's
+// spelling of the workspace differs from the host's (DS-D10,
+// docs/design/durable-scratch-space.md §2.6). Through BriefingContent, so a call site that
+// passed the jail's spelling twice, or none, fails here too.
 func TestTheLockSaysWhyOnlyWhereTheHostSeesAnotherPath(t *testing.T) {
-	const why = ": git on the host sees this tree at another path, and without the lock would prune it as missing."
+	const why = ": git records it under this jail's `/workspace`, a path the host does not have, " +
+		"so without the lock a `git worktree prune` or `git gc` on the host would drop its registration."
 	for _, c := range []struct {
 		name, workspace, mechanism string
 		want                       bool

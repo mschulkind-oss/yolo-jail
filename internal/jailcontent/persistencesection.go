@@ -16,8 +16,10 @@ type DurableDir struct {
 	// launch has none, and Unavailable says why.
 	Path        string
 	Unavailable string
-	// Caveat is one more sentence when the durable dir is only as durable as something
-	// around it: a nested jail whose workspace lives in the enclosing jail's /tmp.
+	// Caveat is the durable dir's lifetime when it is only as durable as something around
+	// it: a nested jail whose workspace lives in the enclosing jail's /tmp. It REPLACES the
+	// lead's "survives restarts and yolo never deletes it", which the enclosing yolo's
+	// cleanup of that /tmp makes false, so the lifetime is still said once (DS-D32).
 	Caveat string
 }
 
@@ -162,11 +164,19 @@ func persistenceSection(m *PersistenceMap, d *DurableDir, workspace, hostWorkspa
 // `--lock` carries its reason where the reason is true: when the jail's spelling of the
 // workspace differs from the host's (both container backends), a worktree made here records
 // /workspace/… in git's admin files, which git on the host cannot resolve, so a host-side
-// `git worktree prune` or `git gc` drops the registration (DS-D10, MEASURED §2.6). On
-// macos-user the two spellings are one path and the lock is asked for without the reason.
+// `git worktree prune` or `git gc` drops the registration (DS-D10, MEASURED §2.6). The
+// sentence names that cause, the recorded path the host lacks, and what a prune takes, the
+// registration: "git on the host sees this tree at another path … would prune it as missing"
+// read as the host knowing where the tree is, and "prune it" as deleting its files (DS-D32).
+// On macos-user the two spellings are one path and the lock is asked for without the reason.
 // `git -C` carries its own, so a missing tree fails instead of running in the workspace (the
 // §1.1 incident). NOT `--relative-paths`: it writes a repository extension into the user's own
-// `.git/config`, which a git older than 2.48 then refuses outright (DS-D31, MEASURED).
+// `.git/config`, which a git older than 2.48 then refuses until someone removes it by hand
+// (DS-D31, MEASURED).
+//
+// "Which git ignores", not "hidden from git": a `git clean -fdx` deletes the dir BECAUSE git
+// ignores it, and "hidden from git" read as "git cannot touch it" one clause before the clean
+// that does (DS-D32).
 //
 // With no durable dir it says so and why and names no path, so no agent is sent to a
 // directory that does not exist (§5.6).
@@ -187,21 +197,23 @@ func durableLead(d *DurableDir, workspace, hostWorkspace string) []string {
 		}
 	}
 	v := "`$" + durable.EnvVar + "`"
+	lifetime := "It survives restarts and yolo never deletes it."
+	if d.Caveat != "" {
+		lifetime = "⚠ " + d.Caveat
+	}
 	lead := []string{
 		"**Your work goes in " + v + "** (`" + d.Path + "`): worktrees, clones, drafts, " +
 			"measurements. Use any layout under it.",
-		"It survives restarts and yolo never deletes it. It lives in the workspace's `.yolo`: " +
-			"hidden from git by yolo's own `.yolo/.gitignore`, seen by the user on the host, and " +
-			"deleted by a " + durable.CleanCommand + " in the workspace, so never run one there. " +
-			"The rest of `" + workspace + "` is the user's project.",
-	}
-	if d.Caveat != "" {
-		lead = append(lead, "⚠ "+d.Caveat)
+		lifetime + " It lives in the workspace's `.yolo`, which git ignores (yolo's own " +
+			"`.yolo/.gitignore`) and the user sees on the host, so a " + durable.CleanCommand +
+			" in the workspace deletes it: never run one there. The rest of `" + workspace +
+			"` is the user's project.",
 	}
 	worktree := "Make a worktree with `git worktree add --lock \"$" + durable.EnvVar + "/worktrees/<task>\"`"
 	if workspace != hostWorkspace {
-		worktree += ": git on the host sees this tree at another path, and without the lock " +
-			"would prune it as missing"
+		worktree += ": git records it under this jail's `" + workspace + "`, a path the host " +
+			"does not have, so without the lock a `git worktree prune` or `git gc` on the host " +
+			"would drop its registration"
 	}
 	return append(lead,
 		"",

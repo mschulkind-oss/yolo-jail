@@ -12,6 +12,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/durable"
 	"github.com/mschulkind-oss/yolo-jail/internal/ioprio"
 	"github.com/mschulkind-oss/yolo-jail/internal/jailcontent"
+	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
@@ -180,22 +181,68 @@ func TestANestedJailInTheOuterTmpGetsTheCaveat(t *testing.T) {
 	}
 }
 
+// nestInOuterTmp makes o an in-jail launcher whose workspace is a fresh directory in the
+// enclosing jail's per-launch /tmp: the nested-verification loop's shape. Spelled /tmp, not
+// t.TempDir(), which is not under /tmp on darwin; durableCaveat's test is lexical.
+func nestInOuterTmp(t *testing.T, o *Options) {
+	t.Helper()
+	ws, err := os.MkdirTemp("/tmp", "yolo-nested-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(ws) })
+	o.Workspace = ws
+	o.Getenv = func(k string) string {
+		if k == "YOLO_VERSION" {
+			return "9.9.9-test"
+		}
+		return ""
+	}
+}
+
+// nestedLifetime is the caveat as the briefing renders it, in the lifetime sentence's place.
+const nestedLifetime = "Use any layout under it.\n⚠ This workspace is itself inside the enclosing " +
+	"jail's per-launch `/tmp`, so this directory lasts only as long as that jail. It lives in "
+
+// A NESTED JAIL'S BRIEFING STATES ITS DURABLE DIR'S LIFETIME ONCE, AND TRUTHFULLY: the
+// caveat, in place of "yolo never deletes it", which the enclosing yolo's cleanup of its
+// /tmp makes false. Through ensureDurableDir and refreshJailBriefings, so deleting the
+// fresh launch's caveat assignment fails here.
+func TestANestedFreshLaunchBriefsTheCaveatAsTheLifetime(t *testing.T) {
+	o, _ := durableOptions(t)
+	nestInOuterTmp(t, o)
+	o.ensureDurableDir("podman", newConfig())
+	_, sec := durableBriefing(t, o, "podman")
+	if !strings.Contains(sec, nestedLifetime) || strings.Contains(sec, "never deletes it") {
+		t.Errorf("the nested briefing does not give the caveat as the lifetime:\n%s", sec)
+	}
+}
+
 // AN ATTACH MAKES NOTHING AND INHERITS: its briefing names the directory the running jail's
 // launch exported, read from that jail's frozen environment, and a jail started without one
-// is told it has none. Driven through the real attachExisting.
+// is told it has none. A nested jail's attach keeps the caveat: it rewrites the briefing the
+// jail reads, so dropping it there put "yolo never deletes it" back for every agent started
+// after the first terminal. Driven through the real attachExisting.
 func TestAnAttachBriefsTheDurableDirTheJailWasStartedWith(t *testing.T) {
 	packs := claudePackFixture(t)
+	exported := currentJailEnv + durable.EnvVar + "=" + durable.ContainerJailPath + "\n"
 	for _, tc := range []struct {
 		name, env, want string
+		nested          bool
 	}{
-		{"exported", currentJailEnv + durable.EnvVar + "=" + durable.ContainerJailPath + "\n",
-			"**Your work goes in `$YOLO_DURABLE_DIR`** (`/workspace/.yolo/durable`)"},
+		{"exported", exported,
+			"**Your work goes in `$YOLO_DURABLE_DIR`** (`/workspace/.yolo/durable`)", false},
 		{"started without one", currentJailEnv,
 			"**No durable directory this launch**: this jail was started without one (by an older " +
-				"launcher, or a launch that could not make it); a fresh launch tries again."},
+				"launcher, or a launch that could not make it); a fresh launch tries again.", false},
+		{"nested in the outer jail's /tmp", exported, nestedLifetime, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			o, cfg, channel, stderr := attachFixture(t, tc.env, packs, nil, nil)
+			var tune func(*Options, *jsonx.OrderedMap)
+			if tc.nested {
+				tune = func(o *Options, _ *jsonx.OrderedMap) { nestInOuterTmp(t, o) }
+			}
+			o, cfg, channel, stderr := attachFixture(t, tc.env, packs, nil, tune)
 			if rc, _, _ := attachToExec(t, o, cfg, packs, channel); rc != 0 {
 				t.Fatalf("attach rc=%d\n%s", rc, stderr.String())
 			}
@@ -207,8 +254,12 @@ func TestAnAttachBriefsTheDurableDirTheJailWasStartedWith(t *testing.T) {
 			if err != nil {
 				t.Fatalf("the attach wrote no briefing: %v", err)
 			}
-			if sec := sectionOf(string(raw), "## Storage classes: what survives a restart"); !strings.Contains(sec, tc.want) {
+			sec := sectionOf(string(raw), "## Storage classes: what survives a restart")
+			if !strings.Contains(sec, tc.want) {
 				t.Errorf("the attach's briefing does not say %q:\n%s", tc.want, sec)
+			}
+			if tc.nested && strings.Contains(sec, "never deletes it") {
+				t.Errorf("the nested attach's briefing says yolo never deletes it:\n%s", sec)
 			}
 		})
 	}

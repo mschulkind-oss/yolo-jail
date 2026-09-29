@@ -72,6 +72,20 @@ func durableDirFromLaunchEnv(envLines []string, cfg *jsonx.OrderedMap, workspace
 		"launcher, or a launch that could not make it); a fresh launch tries again"}
 }
 
+// attachDurableDir is an attach's durable dir: the one the running jail's launch exported
+// (durableDirFromLaunchEnv), with the fresh launch's caveat. The attach rewrites the briefing
+// the jail reads, so without the caveat a nested jail's second terminal put "yolo never
+// deletes it" back over the first launch's truthful lifetime (DS-D32). The caveat needs no
+// frozen state: it is a fact about the launcher's frame and the workspace, the same for an
+// attach as for the launch, since only the enclosing jail's own processes reach its nested one.
+func (o *Options) attachDurableDir(envLines []string, cfg *jsonx.OrderedMap) *jailcontent.DurableDir {
+	d := durableDirFromLaunchEnv(envLines, cfg, o.Workspace)
+	if d.Path != "" {
+		d.Caveat = o.durableCaveat()
+	}
+	return d
+}
+
 // durableReadonlyReason is the words for a `workspace_readonly` entry covering the durable
 // dir, or "" when none does.
 func durableReadonlyReason(cfg *jsonx.OrderedMap, workspace string) string {
