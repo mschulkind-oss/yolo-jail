@@ -1,6 +1,8 @@
 package stores
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -10,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/durable"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/prune"
 )
@@ -174,6 +177,7 @@ func Inventory(o Options) Report {
 	rep.Stores = append(rep.Stores, aliasStores(o)...)
 	rep.Stores = append(rep.Stores, imageStores(o, rt)...)
 	rep.Stores = append(rep.Stores, scratchStores(o, rt)...)
+	rep.Stores = append(rep.Stores, durableStores(o, rt)...)
 	rep.Stores = append(rep.Stores, nixStores(o)...)
 	return rep
 }
@@ -814,4 +818,68 @@ func sizeClass(s *Store, roots []string, o Options) {
 	if s.Sizing == SizingMeasured {
 		s.Reason = "apparent size; nix hardlinks are counted in every path that holds them"
 	}
+}
+
+// SectionDurable is every known workspace's durable dir (docs/design/durable-scratch-space.md
+// §5.4): the agents' worktrees, clones and drafts under `<workspace>/.yolo/durable`.
+const SectionDurable = "workspace durable dirs"
+
+// durableStores is one row per workspace this command already knows — the workspaces of the
+// runtime's yolo containers (prune.FindYoloWorkspaces) — whose durable dir exists. A
+// workspace with none gets no row: there are no bytes to account for, and "absent" rows for
+// every jail launched before the durable dir existed would only be noise.
+//
+// THE VERDICT IS HUMAN AND THE RECLAIMER NONE, by OQ-DS2's ruling: only the agent that made a
+// worktree knows whether it holds unlanded work, so yolo keeps the growth visible and deletes
+// nothing. The figures follow DS-D3 in every frame: an lstat walk beneath an os.Root and git's
+// own admin files, never git itself, never a file beneath the durable dir.
+func durableStores(o Options, rt string) []Store {
+	if !slices.Contains(paths.SupportedRuntimes, rt) {
+		return nil
+	}
+	var out []Store
+	for _, ws := range prune.FindYoloWorkspaces(rt, o.Exec) {
+		dir := durable.HostPath(ws)
+		if fi, err := os.Lstat(dir); err != nil || !fi.IsDir() {
+			continue
+		}
+		sc := durable.ScanDir(durable.ScanOptions{Workspace: ws, Durable: dir,
+			Aliases: map[string]string{"/workspace": ws}})
+		s := Store{
+			Key:        "durable." + shortHash(ws),
+			Section:    SectionDurable,
+			Name:       filepath.Base(ws) + "/.yolo/durable",
+			Path:       dir,
+			Count:      len(sc.Worktrees),
+			CountLabel: "worktrees",
+			Verdict:    VerdictHuman,
+			Reclaimer:  Reclaimer{Detail: "the user's work; yolo never reclaims it — `git worktree remove`"},
+		}
+		sz, err := durable.Measure(dir, o.Budget, o.Now)
+		switch {
+		case err != nil:
+			s.Sizing, s.Reason = SizingUnknown, err.Error()
+		case sz.Partial:
+			s.Sizing, s.Bytes, s.Reason = SizingPartial, sz.Bytes, fmt.Sprintf("walk budget %s exhausted", o.Budget)
+		default:
+			s.Sizing, s.Bytes = SizingMeasured, sz.Bytes
+		}
+		note := "workspace " + ws
+		if len(sc.Worktrees) > 0 && !sc.Worktrees[0].LastActive.IsZero() {
+			note += fmt.Sprintf("; oldest idle %s (%s)",
+				durable.HumanIdle(o.Now().Sub(sc.Worktrees[0].LastActive)), sc.Worktrees[0].Name())
+		}
+		if len(sc.Others) > 0 {
+			note += fmt.Sprintf("; %d other entries", len(sc.Others))
+		}
+		s.Note = note + ". `yolo check` in that workspace lists each worktree."
+		out = append(out, s)
+	}
+	return out
+}
+
+// shortHash names a per-workspace row's ledger key stably.
+func shortHash(s string) string {
+	sum := sha256.Sum256([]byte(s))
+	return hex.EncodeToString(sum[:])[:16]
 }

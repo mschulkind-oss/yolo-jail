@@ -55,6 +55,44 @@ func Measure(dir string, budget time.Duration, now func() time.Time) (Size, erro
 	return s, nil
 }
 
+// MeasureRel is Measure of rel, a directory below dir, reached one component at a time
+// beneath a root on dir, so a link the jail put at any component is refused rather than
+// followed — the per-worktree figure of the `yolo check` report.
+func MeasureRel(dir, rel string, budget time.Duration, now func() time.Time) (Size, error) {
+	if now == nil {
+		now = time.Now
+	}
+	r, err := paths.OpenStateDirRoot(dir)
+	if err != nil {
+		return Size{}, err
+	}
+	full := dir
+	for _, part := range strings.Split(filepath.ToSlash(rel), "/") {
+		if part == "" || part == "." {
+			continue
+		}
+		if part == ".." {
+			r.Close()
+			return Size{}, &fs.PathError{Op: "open", Path: rel, Err: fs.ErrInvalid}
+		}
+		full = filepath.Join(full, part)
+		sub, err := paths.OpenStateSubdirRoot(r, part, full)
+		r.Close()
+		if err != nil {
+			return Size{}, err
+		}
+		r = sub
+	}
+	defer r.Close()
+	var deadline time.Time
+	if budget > 0 {
+		deadline = now().Add(budget)
+	}
+	var s Size
+	measureRoot(r, &s, deadline, now)
+	return s, nil
+}
+
 func measureRoot(r *os.Root, s *Size, deadline time.Time, now func() time.Time) {
 	f, err := r.Open(".")
 	if err != nil {

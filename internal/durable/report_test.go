@@ -213,3 +213,35 @@ func TestScanDirReadsWhatRealGitWrites(t *testing.T) {
 		t.Errorf("a live worktree was called prunable: %v", sc.Prunable)
 	}
 }
+
+// The per-worktree figure walks to its directory one component at a time beneath the
+// durable dir's root, so a link the jail put on the way is refused rather than followed.
+func TestMeasureRelRefusesALinkOnTheWay(t *testing.T) {
+	ws := workspaceDir(t)
+	dir, err := Ensure(ws)
+	if err != nil {
+		t.Fatal(err)
+	}
+	outside := t.TempDir()
+	if err := os.WriteFile(filepath.Join(outside, "big"), make([]byte, 5000), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, "worktrees", "land"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "worktrees", "land", "f"), make([]byte, 7), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(dir, "worktrees", "evil")); err != nil {
+		t.Fatal(err)
+	}
+	if sz, err := MeasureRel(dir, "worktrees/land", 0, nil); err != nil || sz.Bytes != 7 {
+		t.Errorf("MeasureRel(land) = %+v, %v", sz, err)
+	}
+	if sz, err := MeasureRel(dir, "worktrees/evil", 0, nil); err == nil {
+		t.Errorf("MeasureRel followed a link out of the durable dir: %+v", sz)
+	}
+	if _, err := MeasureRel(dir, "../..", 0, nil); err == nil {
+		t.Error("MeasureRel accepted a path out of the durable dir")
+	}
+}

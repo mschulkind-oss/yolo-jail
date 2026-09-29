@@ -27,8 +27,9 @@ func reportDurableDir(e *Env, now func() time.Time) {
 	}
 	ws := e.WorkspaceDir()
 	// A worktree made on the host records the host's spelling of the workspace; in a
-	// container jail that is YOLO_HOST_DIR, and the same directory is /workspace here.
-	aliases := map[string]string{}
+	// container jail that is YOLO_HOST_DIR, and the same directory is /workspace here. One made
+	// in a container jail records /workspace/…, which on macos-user is the real path.
+	aliases := map[string]string{"/workspace": ws}
 	if host := e.Getenv("YOLO_HOST_DIR"); host != "" && host != ws {
 		aliases[host] = ws
 	}

@@ -241,6 +241,9 @@ func Check(opts Options) int {
 	o.checkDiskUsage(r, merged)
 	r.blank()
 
+	// --- Durable dir: what accumulates there, which yolo reports and never deletes (OQ-DS2) ---
+	o.sectionDurableDir(r, workspace)
+
 	// --- Disk I/O priority: the disk under the workspace (only when one is declared) ---
 	o.sectionIOPriority(r, merged, runtimeSel)
 
