@@ -156,7 +156,8 @@ func newBroker(sf brokerscope.File, spawnCwd string, log io.Writer) (*Broker, fu
 	return b, r.Close
 }
 
-// placementRefusal is the loophole placement rule (config.LoopholePlacementProblems,
+// placementRefusal is the loophole placement rule (config.AgentWritableTreeOf, the tree
+// comparison config.LoopholePlacementProblems makes, without its argv-reading skips;
 // docs/reference/loophole-system.md#the-placement-rule) applied to the host gh: a gh inside
 // the workspace or the jail home tree is a program an agent can rewrite, and the broker runs
 // it on the host as the user, so it refuses it by name. Each workspace is checked as given
@@ -180,8 +181,11 @@ func placementRefusal(workspaces ...string) func(gh string) string {
 	}
 	return func(gh string) string {
 		for _, ws := range trees {
-			if probs := config.LoopholePlacementProblems("gh", []string{gh}, ws); len(probs) > 0 {
-				return "the broker will not run the host gh: " + strings.TrimPrefix(probs[0], "gh[0]: ")
+			if what := config.AgentWritableTreeOf(gh, ws); what != "" {
+				return "the broker will not run the host gh: " + gh + " is inside " + what +
+					", where an agent can rewrite it between launches (the placement rule, " +
+					"docs/reference/loophole-system.md#the-placement-rule). Put a gh installed outside " +
+					"that tree first on the PATH yolo is launched with."
 			}
 		}
 		return ""

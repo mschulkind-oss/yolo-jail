@@ -124,6 +124,22 @@ func TestTheSelfCheckRefusesAGHInsideTheWorkspace(t *testing.T) {
 	assertNotRun(t, marker)
 }
 
+// A workspace path with a space or a parenthesis in it, common on macOS, is still a tree the
+// agent writes. (An argv element with one is not read as a path at all by the placement
+// rule's argv faces, which is why the broker compares the resolved path directly.)
+func TestTheBrokerRefusesAGHInsideAWorkspaceWithASpaceInItsPath(t *testing.T) {
+	ws := filepath.Join(resolvedDir(t), "My Projects (2026)", "app")
+	marker := plantedGH(t, filepath.Join(ws, "bin"))
+	_, err := NewRunner(RunnerOptions{RunDir: filepath.Join(resolvedDir(t), "run"),
+		Getenv: envOf(map[string]string{"PATH": filepath.Join(ws, "bin"), "HOME": resolvedDir(t)}),
+		Refuse: placementRefusal(ws)})
+	var refused *RefusedGHError
+	if !errors.As(err, &refused) {
+		t.Fatalf("err %v, want the placement refusal", err)
+	}
+	assertNotRun(t, marker)
+}
+
 // The home is never read as a workspace: `yolo check` run from it must not refuse every gh
 // installed under it.
 func TestThePlacementRefusalIgnoresTheHome(t *testing.T) {

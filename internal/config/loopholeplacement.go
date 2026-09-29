@@ -295,3 +295,19 @@ func argvPathTarget(arg, workspace string) (string, bool) {
 func underTree(p, dir string) bool {
 	return p == dir || strings.HasPrefix(p, dir+"/")
 }
+
+// AgentWritableTreeOf is the placement rule's tree comparison for a path that is already
+// resolved, such as a program found on PATH, rather than an argv element to be read as one:
+// it names which tree an agent writes holds the absolute path, in the words the rule's
+// messages use, or returns "". None of argvPathTarget's skips apply, since a resolved path
+// with a space or a parenthesis in it is still a path (the github broker's host gh,
+// docs/design/boundary-broker.md BB-D47).
+func AgentWritableTreeOf(path, workspace string) string {
+	p := filepath.Clean(path)
+	for _, tree := range agentWritableTrees(workspace) {
+		if underTree(p, tree.dir) {
+			return tree.what
+		}
+	}
+	return ""
+}
