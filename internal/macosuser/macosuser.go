@@ -428,13 +428,34 @@ func inHomeWorkspaceRefusal(workspace, home string) string {
 		return msg + "Run yolo from a project folder under [bold]" + SharedRootDefault() +
 			"[/bold] instead."
 	}
-	dest := filepath.Join(SharedRootDefault(), filepath.Base(workspace))
+	move, share := inHomeMoveCommands(workspace)
 	return msg + "Move the project under " + SharedRootDefault() + ", then share it, " +
 		"because a move carries no sharing with it:\n" +
-		"  [bold]mv " + shquote.Quote(workspace) + " " + shquote.Quote(dest) + "[/bold]\n" +
-		"  [bold]yolo macos-fix-permissions " + shquote.Quote(dest) + "[/bold]\n" +
+		"  [bold]" + move + "[/bold]\n" +
+		"  [bold]" + share + "[/bold]\n" +
 		"[dim]A copy or a fresh clone made there (cp -R, git clone) is shared as it is " +
 		"created, so\nit needs no `macos-fix-permissions`.[/dim]"
+}
+
+// inHomeWorkspaceFix is the same remedy in plain text, for `yolo check`'s note.
+func inHomeWorkspaceFix(workspace, home string) string {
+	if workspace == home {
+		return "Run yolo from a project folder under " + SharedRootDefault() + " instead; " +
+			"yolo macos-fix-permissions refuses every path in a home."
+	}
+	move, share := inHomeMoveCommands(workspace)
+	return "Move it under " + SharedRootDefault() + ", then share it; a move carries no " +
+		"sharing (a copy or a clone made there is shared already):\n" +
+		"  " + move + "\n" +
+		"  " + share
+}
+
+// inHomeMoveCommands is the pair both spellings of the remedy name: the move to neutral ground,
+// and the share of the DESTINATION.
+func inHomeMoveCommands(workspace string) (move, share string) {
+	dest := filepath.Join(SharedRootDefault(), filepath.Base(workspace))
+	return "mv " + shquote.Quote(workspace) + " " + shquote.Quote(dest),
+		"yolo macos-fix-permissions " + shquote.Quote(dest)
 }
 
 // ---------------------------------------------------------------------------

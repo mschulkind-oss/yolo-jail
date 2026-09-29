@@ -44,10 +44,14 @@ Blast radius, for your peace of mind (from the code):
 ```
 yolo check                         # look for the "macOS-user backend" section
 ```
-Report what it says for: OS, sandbox-exec, sandbox user (expected: not
-provisioned yet), python3, **nix present**, **flake.lock present**. This is the
-readiness probe — a green-ish result here means preconditions are in place, not
-that a run will succeed.
+Report what it says for each row: macOS, not running as root, sandbox-exec,
+sandbox user (expected: FAIL, not provisioned yet, with the two rows that need it
+reported as SKIP), sandbox home, the workspace outside every home and shared with
+the sandbox, **nix present**, **flake.lock present**. Each row above nix is one
+of the conditions the launch itself refuses without (`macosuser.LaunchPreconditions`,
+one list for both), and each FAIL names its fix. A clean section means no such
+condition refuses the launch; the nix build and the bootstrap come after it and
+are what §4 tests.
 
 ## 2. Dry-run the plan — still NO sudo, nothing executes
 Put `runtime: "macos-user"` in a scratch workspace's `yolo-jail.jsonc` (or

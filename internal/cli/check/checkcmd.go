@@ -121,6 +121,11 @@ type Options struct {
 	SkipEnsureStorage bool
 	// IsMacOS overrides the compile-time platform (macOS-stubbed fixtures).
 	IsMacOS bool
+	// Geteuid and PathIsDir are two of the macos-user launch's precondition probes
+	// (macosuser.LaunchProbes) that no other section needs. nil => os.Geteuid and an
+	// os.Stat that reports a directory.
+	Geteuid   func() int
+	PathIsDir func(string) bool
 	// Machine is platform.machine() (x86_64 / aarch64). "" => derived.
 	Machine string
 	// Workspace is the directory whose yolo-jail.jsonc is validated. "" => cwd.
@@ -215,6 +220,15 @@ func fillDefaults(o *Options) {
 		o.PathExists = func(p string) bool {
 			_, err := os.Stat(p)
 			return err == nil
+		}
+	}
+	if o.Geteuid == nil {
+		o.Geteuid = os.Geteuid
+	}
+	if o.PathIsDir == nil {
+		o.PathIsDir = func(p string) bool {
+			fi, err := os.Stat(p)
+			return err == nil && fi.IsDir()
 		}
 	}
 	if o.RepoRoot == nil {

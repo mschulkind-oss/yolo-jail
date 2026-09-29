@@ -3,23 +3,59 @@ package check
 import (
 	"path/filepath"
 	"time"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/macosuser"
 )
 
-// sandboxUser is the dedicated macOS sandbox account.
-const sandboxUser = "_yolojail"
-
-// sandboxUserExists reports whether `id <user>` returns 0.
+// sandboxUserExists reports whether `id <user>` returns 0 — the launch's own probe
+// (macosuser's sandboxUserExistsReal), through this package's Exec seam.
 func (o *Options) sandboxUserExists() bool {
-	res := o.Exec([]string{"id", sandboxUser}, "", nil, 5*time.Second)
+	res := o.Exec([]string{"id", macosuser.SandboxUser}, "", nil, 5*time.Second)
 	if !res.Ran || res.Timeout {
 		return false
 	}
 	return res.RC == 0
 }
 
-// checkMacosUserBackend probes readiness of the
-// native macos-user backend (OS, Seatbelt, sandbox account, nix + flake.lock).
+// macosLaunchProbes answers the launch's precondition questions with this package's seams:
+// the same questions, the same predicates, asked of the same machine.
+func (o *Options) macosLaunchProbes() macosuser.LaunchProbes {
+	return macosuser.LaunchProbes{
+		IsMacOS: func() bool { return o.IsMacOS },
+		Geteuid: o.Geteuid,
+		Which: func(name string) bool {
+			_, ok := o.LookPath(name)
+			return ok
+		},
+		SandboxUserExists: o.sandboxUserExists,
+		PathIsDir:         o.PathIsDir,
+		RunBash: func(script string) int {
+			res := o.Exec([]string{"bash", "-c", script}, "", nil, 10*time.Second)
+			if !res.Ran || res.Timeout {
+				return 1
+			}
+			return res.RC
+		},
+	}
+}
+
+// checkMacosUserBackend reports what stands between this machine and a macos-user launch.
 // Never runs inside a jail.
+//
+// IT ASKS THE LAUNCH'S OWN QUESTIONS. Each row above the build step is one of
+// macosuser.LaunchPreconditions, the list RunMacosUser refuses from, rendered with the fix
+// beside it: running on macOS and not as root, Seatbelt, the sandbox account and its home,
+// the workspace outside every user's home, and the workspace shared with the sandbox. This
+// section used to keep its own shorter list and open with "Experimental backend — readiness
+// only, NOT verified end-to-end", which was the honest thing to say about a list that did not
+// match the launch: it graded a missing sandbox account as a warning and never looked at the
+// workspace, so it passed a Mac every launch from that workspace refused. A row that did not
+// look, because a requirement above it failed, is a SKIP naming that requirement, never a
+// pass.
+//
+// THE BUILD STEP is the next refusal after those: every launch builds the tool closure with
+// the host's `nix`, off PATH, so a missing one refuses it. flake.lock is a warning, not a
+// refusal: nothing refuses a launch for its absence.
 //
 // IT NO LONGER REPORTS THE `packages:` PROFILE. That report is
 // sectionPackageProfile's, gated on the notch composing no `render.PrimBakedImage`
@@ -36,42 +72,32 @@ func (o *Options) sandboxUserExists() bool {
 // requirement the backend had already dropped, which is the worst polarity for a
 // readiness probe: it refuses a host that would have launched fine.
 func (o *Options) checkMacosUserBackend(r *reporter) {
-	r.line(r.style("macOS-user backend", ansiBold) + " " + r.style("(experimental)", ansiDim))
+	r.sectionHeader("macOS-user backend")
 	if o.inJail() {
 		r.skip("Inside jail — macos-user checks skipped", "That backend runs on the host with no container at all; run `yolo check` there.")
 		return
 	}
-	r.warn("Experimental backend — readiness only, NOT verified end-to-end",
-		"A green check here means the preconditions are in place, not that a "+
-			"run will succeed on this hardware.  Inspect the full plan with "+
-			"`yolo --dry-run`; the definitive test is a real run on a Mac "+
-			"(docs/reference/macos-no-vm-direction.md).")
+	for _, res := range macosuser.CheckLaunchPreconditions(o.macosLaunchProbes(), o.Workspace) {
+		switch {
+		case !res.Checked:
+			r.skip("Not checked: "+res.Name,
+				"Needs "+res.Blocker.Name+" first; its row above says how.")
+		case res.Held:
+			r.ok(res.Ready(res.Workspace))
+		default:
+			r.fail(res.Unmet(res.Workspace), res.Fix(res.Workspace))
+		}
+	}
 	if !o.IsMacOS {
-		r.fail("runtime 'macos-user' requires macOS",
-			"It isolates via a dedicated macOS user account; use 'podman' "+
-				"or 'container' on this host.  `yolo --dry-run` still prints the "+
-				"plan here for inspection.")
 		return
 	}
-	if _, ok := o.LookPath("sandbox-exec"); ok {
-		r.ok("Apple Seatbelt (sandbox-exec) available")
-	} else {
-		r.fail("sandbox-exec not found",
-			"Seatbelt ships with macOS; a missing binary means an unusual PATH.")
-	}
-	if o.sandboxUserExists() {
-		r.ok("Sandbox user '" + sandboxUser + "' exists")
-	} else {
-		r.warn("Sandbox user '"+sandboxUser+"' not provisioned",
-			"Run `yolo macos-setup` to create it.")
-	}
 	if _, ok := o.LookPath("nix"); ok {
-		r.ok("nix available (native package materialization)")
+		r.ok("nix available (the launch builds the sandbox's tools with it)")
 	} else {
 		r.fail("nix not found",
-			"This backend materializes `packages:` via native nix; "+
-				"install it (https://nixos.org/download) or the agent gets no "+
-				"declared tools.")
+			"Every macos-user launch builds its tools (git, node, mise and anything in "+
+				"`packages:`) with the host's nix, and refuses without it. Install it: "+
+				"https://nixos.org/download")
 	}
 	repoRes, ok := o.RepoRoot()
 	repoRoot := repoRes.Root

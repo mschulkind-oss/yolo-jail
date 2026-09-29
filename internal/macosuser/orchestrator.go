@@ -375,8 +375,9 @@ func buildPlan(deps Deps, opts Options, darwin *Darwin) RunPlan {
 // RunMacosUser launches agent_argv in the dedicated-user + Seatbelt sandbox.
 // Returns the agent exit code (or 1 on a precondition/setup failure). dry-run
 // builds + prints the plan and RETURNS before the macOS/root gates (so it
-// runs on Linux CI); 1. cheap preconditions (macOS, not-root, sandbox-exec,
-// sandbox user) BEFORE the up-to-30-min nix build; 2. the plan is built AFTER
+// runs on Linux CI); 1. the cheap preconditions (LaunchPreconditions: macOS,
+// not-root, sandbox-exec, the sandbox user and its home, the workspace off every
+// home and shared) BEFORE the up-to-30-min nix build; 2. the plan is built AFTER
 // the gates (it reads host git config); 3. install profile + stage
 // entrypoint; 4. bootstrap; 5. launch.
 func RunMacosUser(deps Deps, opts Options) int {
@@ -414,93 +415,13 @@ func RunMacosUser(deps Deps, opts Options) int {
 		return 0
 	}
 
-	// Fail closed BEFORE any subprocess when we can't run here.
-	if !deps.IsMacOS() {
-		out.print("[bold red]runtime 'macos-user' requires macOS.[/bold red] " +
-			"Use 'podman' or 'container' on this host.\n" +
-			"[dim]Tip: `yolo run --dry-run` prints the full plan on any OS.[/dim]")
-		return 1
-	}
-	// Must NOT be run under sudo — the launch self-escalates, and running as
-	// root makes _host_user() → 'root', misassigning the git identity + ACL.
-	if deps.Geteuid() == 0 {
-		out.print("[bold red]Don't run `yolo` under sudo for the macos-user " +
-			"backend.[/bold red]  It escalates each step itself; running as " +
-			"root breaks the per-user identity/ACL.")
-		return 1
-	}
-
-	// Cheap preconditions FIRST — before the (potentially slow) nix build.
-	if !deps.Which("sandbox-exec") {
-		out.print("[bold red]sandbox-exec not found[/bold red] — the macos-user " +
-			"backend needs Apple Seatbelt (built into macOS).")
-		return 1
-	}
-	if !deps.SandboxUserExists() {
-		out.printf("[bold red]Sandbox user '%s' does not exist.[/bold red]\n"+
-			"Run the one-time setup to create it (`yolo macos-setup`; see "+
-			"`docs/reference/macos-no-vm-direction.md`).", SandboxUser)
-		return 1
-	}
-	// THE HOME IS A SEPARATE FACT FROM THE ACCOUNT, and this check used to make only the
-	// one above. A DELETED home — what `sudo rm -rf /Users/_yolojail` leaves, which the
-	// runbook prescribes for an account predating the home-tier layout — is unrepairable
-	// from inside: /Users is root-owned 0755, so the sandbox uid cannot create it. The
-	// launch therefore ran the entire native nix build and then died in the bootstrap with
-	// twenty `mkdir /Users/_yolojail: permission denied` generator failures, under a
-	// diagnosis that blamed the WORKSPACE ACL and prescribed `macos-fix-permissions`, a
-	// remedy that cannot reach this path. Same rule the sidecar-mirror refusal was fixed
-	// for: name the remedy that reaches the path it names. Measured on hardware
-	// 2026-09-12, and cheap here — one stat, before the build.
-	if !deps.PathIsDir(SandboxHome()) {
-		out.printf("[bold red]Sandbox home '%s' is missing.[/bold red]\n"+
-			"The account '%s' exists, so this is a home that was DELETED rather than a "+
-			"machine that\nwas never set up — and the sandbox user cannot recreate it "+
-			"itself (/Users is root-owned).\n\n"+
-			"Reprovision it — idempotent, and it leaves the account record alone:\n"+
-			"  [bold]yolo macos-setup[/bold]", SandboxHome(), SandboxUser)
-		return 1
-	}
-	// THE WORKSPACE MUST NOT BE IN A USER'S HOME — and this is asked BEFORE the ACL probe
-	// below, which is the whole point of where it sits. A workspace under a home has no
-	// sandbox-group ACE either, so the probe fails for it too, and its refusal names
-	// `yolo macos-fix-permissions`: a command that refuses every path under a home on
-	// purpose (MacosFixPermissions). With the probe first, a project under ~ looped — the
-	// launch said to run the fix, the fix said no, the launch said it again. Before this
-	// check the rule lived only in PlanInvariants, which a launch reaches after the nix
-	// build, behind the probe. PlanInvariants keeps it for the dry-run, which returns above
-	// this line.
-	if home, inHome := HomeContaining(opts.Workspace, ""); inHome {
-		out.print(inHomeWorkspaceRefusal(opts.Workspace, home))
-		return 1
-	}
-	// THE WORKSPACE MUST BE SHARED WITH THE SANDBOX, and this is the cheapest place
-	// to learn it is not. `macos-setup` shares everything under the shared root, and
-	// anything CREATED there afterwards inherits the grant — so by the time a launch
-	// runs, one route is left: a project MOVED or copied in, because rename() creates
-	// nothing and inherits nothing. That is the case this message assumes, because
-	// after setup it is the only one left.
-	//
-	// It REFUSES and names the command rather than offering to fix it inline. An
-	// earlier cut prompted y/N here; the command is the better answer because it is
-	// one thing to learn, it is idempotent, `macos-setup` has already named it, and
-	// it is in `yolo --help` and the diagnosing-the-jail skill. A prompt in every
-	// path teaches nothing and still needs the command to exist.
-	//
-	// Refusing also keeps the O(files) walk off the hot path — ~0.16ms per object,
-	// so ~16s on a repo with a fat node_modules, which is what 84c55268 removed by
-	// moving to an inheriting entry. The check itself is one `ls`.
-	if deps.RunBash(WorkspaceGrantedScript(opts.Workspace, "")) != 0 {
-		out.printf("[bold yellow]%s is not shared with the sandbox user.[/bold yellow]\n"+
-			"It carries no usable ACL entry for the [bold]%s[/bold] group, so the sandbox "+
-			"cannot write here\nand the launch would fail partway through provisioning.\n\n"+
-			"Most likely this project was MOVED or copied into %s: macOS applies the\n"+
-			"shared ACL when a directory is CREATED, and a move inherits nothing. (An ACL "+
-			"also names a\nUUID rather than a name, so entries made before the sandbox "+
-			"account was last recreated are\ninert while still looking correct in `ls -le`.)\n\n"+
-			"Share it — idempotent, safe to re-run:\n"+
-			"  [bold]yolo macos-fix-permissions %s[/bold]",
-			opts.Workspace, SandboxGroup, SharedRootDefault(), opts.Workspace)
+	// THE LAUNCH'S PRECONDITIONS (preconditions.go): the machine and workspace conditions it
+	// refuses without — cheap, and asked BEFORE the up-to-30-minute nix build, in the order
+	// that list gives. The order is load-bearing (the in-home rule before the ACL probe), and
+	// `yolo check` reports from the same list. The first one that does not hold refuses the
+	// launch with its own message; nothing after it is asked.
+	if c, unmet := unmetLaunchPrecondition(deps.launchProbes(), opts.Workspace); unmet {
+		out.print(c.Refusal(opts.Workspace))
 		return 1
 	}
 

@@ -203,6 +203,11 @@ refusal names the field; move it to your user config. A project can still set a 
   said to run `yolo macos-fix-permissions`, which refuses every folder in a home, so running it
   changed nothing. The launch now says first that the project has to move out of your home, and
   prints the commands that move it under `/Users/Shared/yolo` and share it there.
+- `yolo check` on a Mac set up for `macos-user` now checks what a launch refuses to start
+  without, and names the fix beside each: that you are not running as root, Seatbelt, the sandbox
+  user and its home folder, that the project is outside your home, and that it is shared with the
+  sandbox. It used to call the backend experimental, only warn when the sandbox user was missing,
+  and never look at the project, so it could pass a Mac where every launch refused.
 - `yolo check` reported a working Nix as "found but not working: probe failed" when
   `nix --version` took longer than five seconds, as a first run inside a jail on a busy Mac can.
   It now waits as long as its other Nix checks, and says whether Nix timed out, could not be

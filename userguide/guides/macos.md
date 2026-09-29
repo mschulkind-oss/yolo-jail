@@ -173,13 +173,16 @@ cd /Users/Shared/yolo/my-project
 YOLO_RUNTIME=macos-user yolo -- claude     # or "runtime": "macos-user" in the project config
 ```
 
-A launch from a project inside your home stops before it does anything else, and prints the
+A launch from a project inside your home stops before it builds anything, and prints the
 commands that move the project under `/Users/Shared/yolo` and share it there. A fresh clone or a
 copy made there is shared as it is created.
 
 `sudo` asks for your password once per launch to enter the sandbox; that is expected.
 
-**Check without changing anything.** `yolo check` reports whether the sandbox is ready, and
+**Check without changing anything.** Run `yolo check` from the project. It checks each thing a
+launch refuses to start without: that you are on macOS and not running as root, Seatbelt, the
+sandbox user and its home folder, that the project is outside every user's home and shared with
+the sandbox, and Nix. Each failure names the command that fixes it.
 `YOLO_RUNTIME=macos-user yolo --dry-run` prints the full launch plan. Neither needs `sudo`.
 
 **Remove it.**
