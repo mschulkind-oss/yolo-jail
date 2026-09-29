@@ -87,7 +87,7 @@ func TestTheHostDurableSectionRunsNoGit(t *testing.T) {
 		"  worktrees/fix-footer  1 kB measured  idle 41 days  fix-footer  in-jail only  in-jail only\n",
 		"  worktrees/land  1 kB measured  idle 2 days  detached at 1a2b3c4d  in-jail only  in-jail only\n",
 		"  other entries  notes\n",
-		"yolo deletes nothing here.",
+		"  yolo never deletes anything here; a `git clean -fdx` (or `-fdX`) in the workspace does. ",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("the host section does not say %q:\n%s", want, out)
@@ -136,6 +136,22 @@ func TestTheInJailDurableSectionComputesEveryColumn(t *testing.T) {
 		if strings.Contains(k, "rev-list") && !strings.HasSuffix(k, "--branches --remotes") {
 			t.Errorf("unique commits counted against the wrong refs: %q", k)
 		}
+	}
+}
+
+// CHECK() PRINTS THE SECTION, footer included: every other test here calls
+// sectionDurableDir directly, so deleting its one call in check.go left them green.
+func TestCheckPrintsTheDurableSectionWithItsFooter(t *testing.T) {
+	t.Setenv("HOME", t.TempDir()) // no user config, so no accumulated failure ends the check early
+	out := runCheckOverConfigIn(t, `{}`, false, func(ws string) {
+		if _, err := durable.Ensure(ws); err != nil {
+			t.Fatal(err)
+		}
+	})
+	footer := "  yolo never deletes anything here; a " + durable.CleanCommand + " in the workspace does. " +
+		durable.RemoveAdvice + "\n"
+	if !strings.Contains(out, "Durable dir\n") || !strings.Contains(out, footer) {
+		t.Errorf("Check() did not print the durable section and its footer:\n%s", out)
 	}
 }
 

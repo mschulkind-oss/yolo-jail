@@ -666,7 +666,7 @@ func BriefingContent(in BriefingInput) string {
 	if slices.Contains(paths.NativeRuntimes, in.Mechanism) {
 		wsShown = in.Workspace
 	}
-	lines = append(lines, persistenceSection(in.Persistence, in.Durable, wsShown, home)...)
+	lines = append(lines, persistenceSection(in.Persistence, in.Durable, wsShown, in.Workspace, home)...)
 
 	// BEFORE the capability sections, deliberately: these are constraints that change
 	// how everything below them should be read, and a constraint discovered after the

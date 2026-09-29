@@ -79,8 +79,9 @@ func TestTheInJailDurableSectionStopsRunningGitAtItsBudget(t *testing.T) {
 	}
 }
 
-// The footer's removal advice is the one that keeps uncommitted work, and jail-chosen names
-// reach the host terminal without their control characters.
+// The footer says what deletes the directory, in the briefing's words (DS-D31); its removal
+// advice is the one that keeps uncommitted work; and jail-chosen names reach the host
+// terminal without their control characters.
 func TestTheDurableSectionFooterAndNamesAreSafe(t *testing.T) {
 	ws, dir := durableCheckFixture(t)
 	if err := os.Mkdir(filepath.Join(dir, "evil\x1b[2Jname"), 0o755); err != nil {
@@ -88,8 +89,9 @@ func TestTheDurableSectionFooterAndNamesAreSafe(t *testing.T) {
 	}
 	o := &Options{Getenv: func(string) string { return "" }, Now: func() time.Time { return durableNow }}
 	out := runDurableSection(o, ws)
-	if !strings.Contains(out, "yolo deletes nothing here. "+durable.RemoveAdvice) {
-		t.Errorf("the footer does not give the safe removal advice:\n%s", out)
+	if !strings.Contains(out, "yolo never deletes anything here; a "+durable.CleanCommand+
+		" in the workspace does. "+durable.RemoveAdvice) {
+		t.Errorf("the footer does not say what deletes the dir and give the safe removal advice:\n%s", out)
 	}
 	if strings.Contains(out, "\x1b") || !strings.Contains(out, "evil[2Jname") {
 		t.Errorf("a jail-chosen name reached the terminal unfiltered:\n%q", out)

@@ -39,14 +39,23 @@ type DurableDir struct {
 // list of tool caches under ~/.cache (prune.CachePurgeDefaultSubdirs, 30 days by default),
 // with the launch's housekeeping trimming yolo's own image cache there and the boot's store
 // step unlinking DANGLING mise symlinks in /mise (provision.StepPruneStore). All of the
-// machine-tier deletions are of bytes that can be fetched or built again. Nothing in the
-// durable dir is ever deleted (OQ-DS2).
-func persistenceSection(m *PersistenceMap, d *DurableDir, workspace, home string) []string {
+// machine-tier deletions are of bytes that can be fetched or built again. yolo deletes
+// nothing in the durable dir (OQ-DS2).
+//
+// THE DURABLE DIR'S LIFETIME IS SAID ONCE, in the lead (DS-D31). Three fresh readers found it
+// said three ways — "yolo never deletes anything there", "lost only if the workspace's `.yolo`
+// is deleted" and, for the workspace around it, "survives everything" — and could not tell
+// which applied. So the class bullets below state their class's lifetime and add no clause
+// about the durable dir that the lead has not already said.
+//
+// workspace is the workspace at the jail's spelling and hostWorkspace at the host's; they
+// differ on the container backends, which is what makes `--lock` necessary (durableLead).
+func persistenceSection(m *PersistenceMap, d *DurableDir, workspace, hostWorkspace, home string) []string {
 	if m == nil && d == nil {
 		return nil
 	}
 	lines := []string{persistenceHeading, ""}
-	lines = append(lines, durableLead(d, workspace)...)
+	lines = append(lines, durableLead(d, workspace, hostWorkspace)...)
 	if m == nil {
 		// macos-user: it mounts nothing, so there are no classes to derive from mounts; the
 		// durable answer, and the one fact about /tmp that differs most from a container's
@@ -104,8 +113,7 @@ func persistenceSection(m *PersistenceMap, d *DurableDir, workspace, home string
 	}
 	if len(where) > 0 {
 		lines = append(lines, "- **Per workspace**: "+strings.Join(where, "; ")+". Survives "+
-			"restarts and every new launch of this workspace, and is lost only if the workspace's "+
-			"`.yolo` is deleted (a `git clean -x` does that). Another workspace has its own. yolo "+
+			"restarts and every new launch of this workspace; another workspace has its own. yolo "+
 			"deletes nothing here but some agents' old log files (`yolo prune --apply`).")
 	}
 
@@ -126,9 +134,11 @@ func persistenceSection(m *PersistenceMap, d *DurableDir, workspace, home string
 		if hasDurable {
 			mine = "; only `$" + durable.EnvVar + "` inside it is yours"
 		}
+		// "Outlives every jail", not "survives everything": the durable dir is inside it, and a
+		// `git clean -fdx` deletes that, so "everything" contradicted the lead.
 		lines = append(lines, "- **The workspace itself**: "+joinTilde(project, home)+", live on "+
-			"the host: the user's project, not a scratch area"+mine+". Survives everything, and "+
-			"yolo never cleans it up.")
+			"the host: the user's project, not a scratch area"+mine+". It outlives every jail, "+
+			"and yolo never cleans it up.")
 	}
 
 	if !homeDurable {
@@ -147,12 +157,20 @@ func persistenceSection(m *PersistenceMap, d *DurableDir, workspace, home string
 }
 
 // durableLead is the section's first paragraph: the answer to "where does work that must
-// survive a restart go?", then how to make a worktree there — `--lock`, so a host-side
-// `git worktree prune` or `git gc` cannot drop a registration whose /workspace path the host
-// cannot resolve (DS-D10), and `git -C`, so a missing tree fails instead of running in the
-// workspace (the §1.1 incident). With no durable dir it says so and why and names no path,
-// so no agent is sent to a directory that does not exist (§5.6).
-func durableLead(d *DurableDir, workspace string) []string {
+// survive a restart go?", its lifetime said once (DS-D31), then how to make a worktree there.
+//
+// `--lock` carries its reason where the reason is true: when the jail's spelling of the
+// workspace differs from the host's (both container backends), a worktree made here records
+// /workspace/… in git's admin files, which git on the host cannot resolve, so a host-side
+// `git worktree prune` or `git gc` drops the registration (DS-D10, MEASURED §2.6). On
+// macos-user the two spellings are one path and the lock is asked for without the reason.
+// `git -C` carries its own, so a missing tree fails instead of running in the workspace (the
+// §1.1 incident). NOT `--relative-paths`: it writes a repository extension into the user's own
+// `.git/config`, which a git older than 2.48 then refuses outright (DS-D31, MEASURED).
+//
+// With no durable dir it says so and why and names no path, so no agent is sent to a
+// directory that does not exist (§5.6).
+func durableLead(d *DurableDir, workspace, hostWorkspace string) []string {
 	if d == nil {
 		return []string{"Put nothing that must survive a restart under `/tmp`.", ""}
 	}
@@ -163,33 +181,40 @@ func durableLead(d *DurableDir, workspace string) []string {
 		}
 		return []string{
 			"**No durable directory this launch**: " + reason + ". Tell the user. Until it is " +
-				"fixed, put nothing you need next session under `/tmp`, and nothing in `" + workspace +
-				"` without asking: it is the user's project.",
+				"fixed, put nothing that must survive a restart under `/tmp`, and nothing in `" +
+				workspace + "` without asking: it is the user's project.",
 			"",
 		}
 	}
 	v := "`$" + durable.EnvVar + "`"
 	lead := []string{
 		"**Your work goes in " + v + "** (`" + d.Path + "`): worktrees, clones, drafts, " +
-			"measurements, anything that must survive a restart. Use any layout under it; " +
-			"worktrees go in `worktrees/<task>`. yolo never deletes anything there.",
-		"It is inside the workspace, git-ignored by yolo's own `.yolo/.gitignore`, and the user " +
-			"sees the same files on the host; the rest of `" + workspace + "` is the user's project.",
+			"measurements. Use any layout under it.",
+		"It survives restarts and yolo never deletes it. It lives in the workspace's `.yolo`: " +
+			"hidden from git by yolo's own `.yolo/.gitignore`, seen by the user on the host, and " +
+			"deleted by a " + durable.CleanCommand + " in the workspace, so never run one there. " +
+			"The rest of `" + workspace + "` is the user's project.",
 	}
 	if d.Caveat != "" {
 		lead = append(lead, "⚠ "+d.Caveat)
+	}
+	worktree := "Make a worktree with `git worktree add --lock \"$" + durable.EnvVar + "/worktrees/<task>\"`"
+	if workspace != hostWorkspace {
+		worktree += ": git on the host sees this tree at another path, and without the lock " +
+			"would prune it as missing"
 	}
 	return append(lead,
 		"",
 		// The harness sentence: an agent told by its harness or workflow to use /tmp followed
 		// that over the classes below, because the instruction was the more specific one.
+		// "Survive a restart", not "outlive this session": a new session in the same launch
+		// still sees /tmp, and the classes are defined by launches.
 		"If a harness, workflow or tool tells you to put work under `/tmp`, put anything that "+
-			"must outlive this session in "+v+" instead; the harness cannot see this jail's "+
+			"must survive a restart in "+v+" instead; the harness cannot see this jail's "+
 			"storage classes.",
 		"",
-		"Make a worktree with `git worktree add --lock \"$"+durable.EnvVar+"/worktrees/<task>\"` "+
-			"and drive it with `git -C <path>`, not `cd <path> && …`, so a missing tree fails "+
-			"the command instead of running it in the workspace. "+durable.RemoveAdvice,
+		worktree+". Drive it with `git -C <path>`, not `cd <path> && …`, so a missing tree "+
+			"fails the command instead of running it in the workspace. "+durable.RemoveAdvice,
 		"",
 	)
 }

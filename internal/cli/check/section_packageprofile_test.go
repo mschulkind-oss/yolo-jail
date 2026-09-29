@@ -101,9 +101,19 @@ func TestPackageProfileSectionDanglingRootFails(t *testing.T) {
 // resolves to the jail notch through the same predicate as everything else.
 func runCheckOverConfig(t *testing.T, cfgJSON string, isMacOS bool) string {
 	t.Helper()
+	return runCheckOverConfigIn(t, cfgJSON, isMacOS, nil)
+}
+
+// runCheckOverConfigIn is runCheckOverConfig with prep run on the workspace before Check(),
+// for a test whose subject is a section that reads the workspace's own state.
+func runCheckOverConfigIn(t *testing.T, cfgJSON string, isMacOS bool, prep func(workspace string)) string {
+	t.Helper()
 	var out bytes.Buffer
 	opts := baseOptions(t, &out)
 	opts.IsMacOS = isMacOS
+	if prep != nil {
+		prep(opts.Workspace)
+	}
 
 	repo := t.TempDir()
 	must(t, os.WriteFile(filepath.Join(repo, "flake.nix"), []byte("{}"), 0o644))

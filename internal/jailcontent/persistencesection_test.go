@@ -22,24 +22,26 @@ func TestThePersistenceSectionLeadsWithTheDurableDir(t *testing.T) {
 	}
 	sec := persistenceSectionOf(t, out)
 	lead := persistenceHeading + "\n\n" +
-		"**Your work goes in `$YOLO_DURABLE_DIR`** (`/workspace/.yolo/durable`): worktrees, clones, drafts, measurements, anything that must survive a restart. Use any layout under it; worktrees go in `worktrees/<task>`. yolo never deletes anything there.\n" +
-		"It is inside the workspace, git-ignored by yolo's own `.yolo/.gitignore`, and the user sees the same files on the host; the rest of `/workspace` is the user's project.\n"
+		"**Your work goes in `$YOLO_DURABLE_DIR`** (`/workspace/.yolo/durable`): worktrees, clones, drafts, measurements. Use any layout under it.\n" +
+		"It survives restarts and yolo never deletes it. It lives in the workspace's `.yolo`: hidden from git by yolo's own `.yolo/.gitignore`, seen by the user on the host, and deleted by a `git clean -fdx` (or `-fdX`) in the workspace, so never run one there. The rest of `/workspace` is the user's project.\n"
 	if !strings.HasPrefix(sec, lead) {
 		t.Errorf("the section does not open with the durable dir:\n%s", sec)
 	}
 	order := []string{
 		// The relayed /tmp confusion: an agent followed its harness's /tmp over the classes.
-		"If a harness, workflow or tool tells you to put work under `/tmp`, put anything that must outlive this session in `$YOLO_DURABLE_DIR` instead; the harness cannot see this jail's storage classes.",
-		"Make a worktree with `git worktree add --lock \"$YOLO_DURABLE_DIR/worktrees/<task>\"` and drive it with `git -C <path>`, not `cd <path> && …`, so a missing tree fails the command instead of running it in the workspace.",
+		// "Survive a restart", not "outlive this session": a new session in the same launch
+		// still sees /tmp.
+		"If a harness, workflow or tool tells you to put work under `/tmp`, put anything that must survive a restart in `$YOLO_DURABLE_DIR` instead; the harness cannot see this jail's storage classes.",
+		// `--lock` says why: the host sees this workspace at "/w", not /workspace.
+		"Make a worktree with `git worktree add --lock \"$YOLO_DURABLE_DIR/worktrees/<task>\"`: git on the host sees this tree at another path, and without the lock would prune it as missing. Drive it with `git -C <path>`, not `cd <path> && …`, so a missing tree fails the command instead of running it in the workspace.",
 		"Remove one with `git worktree unlock <path> && git worktree remove <path>`, which refuses while it holds uncommitted changes; `git worktree remove -f -f <path>` discards them.",
 		"- **Per launch** (on disk): `/tmp`, `/run`. Shared by every terminal attached to this jail. Survives nothing",
 		"yolo deletes these once the jail exits",
 		"Throwaway files only, never a worktree.",
-		"- **Per workspace**: `$YOLO_DURABLE_DIR`, the one place for your work; in home, only `~/.claude`, `~/.config`, `~/go` (the agents' and tools' own state and installs: never put your work there); `/workspace/.venv` (this jail's own copies, not the host's). Survives restarts and every new launch of this workspace",
-		"lost only if the workspace's `.yolo` is deleted",
+		"- **Per workspace**: `$YOLO_DURABLE_DIR`, the one place for your work; in home, only `~/.claude`, `~/.config`, `~/go` (the agents' and tools' own state and installs: never put your work there); `/workspace/.venv` (this jail's own copies, not the host's). Survives restarts and every new launch of this workspace; another workspace has its own. yolo deletes nothing here but some agents' old log files (`yolo prune --apply`).",
 		"- **Every workspace on this machine**: `~/.cache`, `/mise`. Survives restarts and workspace switches, and every jail on this machine shares them",
 		"Tool caches belong here (pip's `~/.cache/pip`, for one), never your work",
-		"- **The workspace itself**: `/workspace`, live on the host: the user's project, not a scratch area; only `$YOLO_DURABLE_DIR` inside it is yours.",
+		"- **The workspace itself**: `/workspace`, live on the host: the user's project, not a scratch area; only `$YOLO_DURABLE_DIR` inside it is yours. It outlives every jail, and yolo never cleans it up.",
 		"- **Read-only**: the rest of `/home/agent`",
 		"- **Secrets**: nowhere you choose.",
 	}
@@ -59,8 +61,14 @@ func TestThePersistenceSectionLeadsWithTheDurableDir(t *testing.T) {
 	// directory; and nothing is "being designed" any more.
 	// Nor is the doubled `-f` offered as THE way to remove one: it overrides git's refusal
 	// to delete uncommitted work as well as the lock.
+	// The durable dir's lifetime is said ONCE (DS-D31): no second, differently-qualified
+	// version of it, and no "survives everything" for the workspace that contains it. And
+	// `--relative-paths` is never offered: its extension makes a git older than 2.48 refuse
+	// the user's repository, on the host too.
 	for _, gone := range []string{"~/.yolo/bin", ".claude/worktrees", "git check-ignore", "being designed",
-		"remove yours with `git worktree remove -f -f", "the lock makes it take two"} {
+		"remove yours with `git worktree remove -f -f", "the lock makes it take two",
+		"lost only if", "Survives everything", "never deletes anything there", "this session",
+		"next session", "worktrees go in", "relative-paths", "relativeWorktrees", "useRelativePaths"} {
 		if strings.Contains(sec, gone) {
 			t.Errorf("the section says %q:\n%s", gone, sec)
 		}
@@ -74,7 +82,7 @@ func TestThePersistenceSectionLeadsWithTheDurableDir(t *testing.T) {
 
 // The briefing names the variable by the one spelling the launcher exports.
 func TestTheDurableLineNamesTheVariable(t *testing.T) {
-	sec := strings.Join(persistenceSection(podmanShapedMap(), &DurableDir{Path: "/x"}, "/workspace", "/home/agent"), "\n")
+	sec := strings.Join(persistenceSection(podmanShapedMap(), &DurableDir{Path: "/x"}, "/workspace", "/h", "/home/agent"), "\n")
 	if !strings.Contains(sec, "`$"+durable.EnvVar+"`** (`/x`)") {
 		t.Errorf("the lead does not name $%s:\n%s", durable.EnvVar, sec)
 	}
@@ -87,7 +95,8 @@ func TestADurableDirThatCouldNotBeMadeIsSaidAndNotOffered(t *testing.T) {
 	out := BriefingContent(BriefingInput{Workspace: "/w", Mechanism: "podman", Persistence: podmanShapedMap(),
 		Durable: &DurableDir{Unavailable: "`.yolo` is a symbolic link"}})
 	sec := persistenceSectionOf(t, out)
-	if !strings.Contains(sec, "**No durable directory this launch**: `.yolo` is a symbolic link. Tell the user.") {
+	if !strings.Contains(sec, "**No durable directory this launch**: `.yolo` is a symbolic link. Tell the user. "+
+		"Until it is fixed, put nothing that must survive a restart under `/tmp`") {
 		t.Errorf("the section does not say the durable dir is unavailable, and why:\n%s", sec)
 	}
 	for _, gone := range []string{"$YOLO_DURABLE_DIR", "git worktree add", "/workspace/.yolo/durable"} {
@@ -116,7 +125,7 @@ func TestTheMacosUserSectionIsTheDurableAnswerAtTheRealPath(t *testing.T) {
 		Home: "/Users/_yolojail", Durable: &DurableDir{Path: ws + "/.yolo/durable"}}))
 	for _, want := range []string{
 		"**Your work goes in `$YOLO_DURABLE_DIR`** (`" + ws + "/.yolo/durable`)",
-		"the rest of `" + ws + "` is the user's project.",
+		"The rest of `" + ws + "` is the user's project.",
 		"- **`/tmp`** is this Mac's own: it survives this launch, is shared with every workspace and the host user, and is cleared at reboot.",
 	} {
 		if !strings.Contains(sec, want) {
@@ -125,6 +134,43 @@ func TestTheMacosUserSectionIsTheDurableAnswerAtTheRealPath(t *testing.T) {
 	}
 	if strings.Contains(sec, "**Per launch**") || strings.Contains(sec, "/workspace") {
 		t.Errorf("macos-user got a container's classes:\n%s", sec)
+	}
+	// The host sees this workspace at the same path, so `--lock` is asked for without the
+	// container backends' reason, which would be false here.
+	if !strings.Contains(sec, "/worktrees/<task>\"`. Drive it with `git -C <path>`") ||
+		strings.Contains(sec, "at another path") {
+		t.Errorf("macos-user's worktree line is not `--lock` without the container reason:\n%s", sec)
+	}
+}
+
+// `--LOCK` SAYS WHY ONLY WHERE THE WHY IS TRUE: git on the host prunes a worktree whose
+// recorded path it cannot resolve, which happens only when the jail's spelling of the
+// workspace differs from the host's (DS-D10, docs/design/durable-scratch-space.md §2.6).
+// Through BriefingContent, so a call site that passed the jail's spelling twice, or none,
+// fails here too.
+func TestTheLockSaysWhyOnlyWhereTheHostSeesAnotherPath(t *testing.T) {
+	const why = ": git on the host sees this tree at another path, and without the lock would prune it as missing."
+	for _, c := range []struct {
+		name, workspace, mechanism string
+		want                       bool
+	}{
+		{"podman, host elsewhere", "/home/u/p", "podman", true},
+		{"Apple Container, host elsewhere", "/Users/u/p", "container", true},
+		{"podman, host at /workspace itself", "/workspace", "podman", false},
+		{"macos-user", "/Users/Shared/yolo/p", "macos-user", false},
+	} {
+		in := BriefingInput{Workspace: c.workspace, Mechanism: c.mechanism,
+			Durable: &DurableDir{Path: c.workspace + "/.yolo/durable"}}
+		if c.mechanism != "macos-user" {
+			in.Persistence, in.Durable.Path = podmanShapedMap(), durable.ContainerJailPath
+		}
+		sec := persistenceSectionOf(t, BriefingContent(in))
+		if !strings.Contains(sec, "`git worktree add --lock") {
+			t.Errorf("%s: no `--lock` worktree line:\n%s", c.name, sec)
+		}
+		if got := strings.Contains(sec, why); got != c.want {
+			t.Errorf("%s: the lock's reason rendered = %v, want %v:\n%s", c.name, got, c.want, sec)
+		}
 	}
 }
 

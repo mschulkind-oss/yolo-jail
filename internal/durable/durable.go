@@ -51,6 +51,13 @@ const (
 const RemoveAdvice = "Remove one with `git worktree unlock <path> && git worktree remove <path>`, " +
 	"which refuses while it holds uncommitted changes; `git worktree remove -f -f <path>` discards them."
 
+// CleanCommand is the one command that deletes the durable dir, as the briefing and `yolo
+// check` both name it. `.yolo` is an untracked directory whose every file is ignored, so only
+// a clean told both to descend into untracked directories (`-d`) and to take ignored files
+// (`-x` or `-X`) reaches it; `git clean -fx` alone leaves it (MEASURED,
+// docs/design/durable-scratch-space.md Appendix A).
+const CleanCommand = "`git clean -fdx` (or `-fdX`)"
+
 // HostPath is the durable dir of workspace, on the host's side. It creates nothing.
 func HostPath(workspace string) string {
 	return filepath.Join(paths.WorkspaceStateDir(workspace), DirName)
