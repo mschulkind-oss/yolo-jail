@@ -13,6 +13,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
+	"github.com/mschulkind-oss/yolo-jail/internal/termsafe"
 )
 
 // audit.go is `yolo audit` (docs/design/boundary-broker.md §8, BB-D15): the host's view of
@@ -164,15 +165,21 @@ func (f auditFilter) match(e brokeraudit.Event) bool {
 
 // auditLine is one call for a reader: when, which jail, the set, what became of it, the
 // exit code and the command as the broker built it.
+//
+// THE ARGV IS THE JAIL'S WORDS, printed on the host's terminal, so it is quoted for DISPLAY
+// (shquote.JoinDisplay): a word carrying an ESC or a carriage return would otherwise clear
+// the screen, rewrite the lines above it, or retitle the window, and the audit would show
+// something other than what ran. `--json` needs nothing: json.Marshal escapes them.
 func auditLine(e brokeraudit.Event) string {
 	exit := "-"
 	if e.Exit != nil {
 		exit = strconv.Itoa(*e.Exit)
 	}
-	line := fmt.Sprintf("%s  %-12s  %-12s  %-11s  %4s  %s: %s", e.Time, e.Jail, e.Set, e.Outcome, exit,
-		e.Service, shquote.Join(e.Argv))
+	line := fmt.Sprintf("%s  %-12s  %-12s  %-11s  %4s  %s: %s", termsafe.Visible(e.Time),
+		termsafe.Visible(e.Jail), termsafe.Visible(e.Set), termsafe.Visible(e.Outcome), exit,
+		termsafe.Visible(e.Service), shquote.JoinDisplay(e.Argv))
 	if e.Workspace != "" {
-		line += "  [" + e.Workspace + "]"
+		line += "  [" + termsafe.Visible(e.Workspace) + "]"
 	}
 	if e.Redactions > 0 {
 		line += fmt.Sprintf("  (%d redaction(s))", e.Redactions)
