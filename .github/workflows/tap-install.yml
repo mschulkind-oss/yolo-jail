@@ -1,0 +1,111 @@
+name: Homebrew tap install
+
+# THE ONE JOB THAT INSTALLS YOLO THE WAY THE USER GUIDE TELLS A MAC USER TO.
+#
+# release.yml writes the formula and pushes it to the tap; nothing ran it. Every other
+# macOS job tests yolo from this checkout — unit tests (ci.yml's check-macos) or a CLI
+# the integration harness builds with `go build` (nightly-macos.yml, macos-user.yml,
+# apple-container.yml) — so the path a user actually takes — the tap, the
+# formula's source build with Homebrew's own Go, scripts/stage-source-bundle.sh under
+# Homebrew's build environment, the keg layout and its share/ link, and the flake
+# resolution that has to find the bundle through them — had never run anywhere.
+#
+# WHAT IT PROVES, on a stock runner with no container runtime, no Nix and no agent:
+#   1. `brew install mschulkind-oss/tap/yolo-jail` succeeds — verbatim the command in
+#      README.md and userguide/getting-started.md;
+#   2. the formula's own test block passes (`brew test`);
+#   3. tools/tap-install-check: the tap carries the release this run verifies, the
+#      `yolo` on PATH is the keg's, `yolo --version` names the formula's version,
+#      `yolo check --no-build --format json` finds the flake bundle beside the binary
+#      and fails ONLY where a machine without a runtime and Nix must, and the bundle's
+#      prebuilt binaries are executables of the right format.
+# It does NOT launch a jail: that needs a runtime and a Linux image, which is what the
+# other three macOS workflows exist for. tools/tap-install-check/workflow_test.go pins
+# this file's commands to the docs' and to release.yml's formula.
+#
+# ⚠ IT TESTS THE PUBLISHED FORMULA, NOT THIS TREE. The workflow file and the checker
+# come from the default branch; the binary under test is whatever version the tap
+# carries. A checker change must keep accepting what that version prints.
+
+on:
+  # After every release. release.yml is the workflow that pushes the formula, and its
+  # run completing is the first moment the tap can carry the new version. Not
+  # `release: published`: goreleaser creates the release with GITHUB_TOKEN, and events
+  # that token creates never start another workflow (publish.yml states the same trap).
+  # The Release run itself was started by a human's tag push, so workflow_run fires.
+  workflow_run:
+    workflows: [Release]
+    types: [completed]
+  # Weekly, because the formula's inputs move without a release: Homebrew, its Go, and
+  # the macOS image under `macos-latest` all change on their own schedules. Wednesday
+  # 08:00 UTC sits clear of the daily 06:00 and 07:00 macOS nightlies.
+  schedule:
+    - cron: "0 8 * * 3"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release the tap must carry, e.g. 0.11.0. Empty checks the tap against itself."
+        required: false
+        type: string
+
+# No secrets, and read-only: the tap is public and the install is anonymous, exactly as
+# a user's is.
+permissions:
+  contents: read
+
+# See ci.yml for the full rationale (pinned JS actions that still bundle Node 20).
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
+jobs:
+  tap-install:
+    name: brew install from the tap (macOS, Apple silicon)
+    # A failed Release run pushed no formula, or pushed one nobody should install; its
+    # own red run is the signal. tap-install-check refuses such a payload as well.
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
+    # Apple silicon, the architecture the user guide's Mac instructions are written for.
+    # Floating on purpose, like macos-user.yml: a user's `brew install` runs on the
+    # current macOS, and a pinned label would hide the day a new one breaks it. The
+    # runner facts step records which one a run measured.
+    runs-on: macos-latest
+    # A ceiling on waste, not an estimate. The formula is a SOURCE build: Homebrew's Go
+    # compiles the host yolo and scripts/stage-source-bundle.sh cross-compiles the
+    # jail's binaries for both Linux arches. No green run has measured it yet; revise
+    # this against the duration the first ones report.
+    timeout-minutes: 45
+    steps:
+      # INFORMATIONAL ONLY. The absence of a runtime and of Nix is the premise of the
+      # checker's expected failures, so a run records whether it held.
+      - name: Runner facts
+        run: |
+          sw_vers
+          uname -m
+          brew --version
+          for tool in podman container docker nix; do
+            printf '%-10s %s\n' "$tool" "$(command -v "$tool" || echo 'not installed')"
+          done
+
+      # Verbatim the user guide's command, run before anything from this repository is
+      # on the machine.
+      - name: Install from the tap
+        run: brew install mschulkind-oss/tap/yolo-jail
+
+      # The formula's `test do` block (release.yml writes it): `yolo --version` names
+      # the formula's version.
+      - name: Run the formula's test block
+        run: brew test mschulkind-oss/tap/yolo-jail
+
+      # Only now the checkout and a Go toolchain, for the checker, so neither can have
+      # influenced the install above. No credentials are left in the checkout.
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+
+      # The expected version comes from the event payload, read by the checker itself,
+      # so no event field is interpolated into a shell.
+      - name: Verify the installed yolo
+        run: go run ./tools/tap-install-check -formula mschulkind-oss/tap/yolo-jail -expect-from-github-event
