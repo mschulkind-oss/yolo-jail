@@ -50,7 +50,8 @@ func runAudit(args []string) int {
 	if answerHelp("audit", args, os.Stdout) {
 		return 0
 	}
-	return auditMain(args, config.InJail(), paths.BrokerAuditLog(), time.Now(), os.Stdout, os.Stderr)
+	// A registry handler receives the verb itself first (dispatch.go).
+	return auditMain(args[1:], config.InJail(), paths.BrokerAuditLog(), time.Now(), os.Stdout, os.Stderr)
 }
 
 type auditFilter struct {

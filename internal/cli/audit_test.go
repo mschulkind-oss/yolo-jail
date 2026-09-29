@@ -93,6 +93,22 @@ func TestAuditRefusesAnUnknownArgument(t *testing.T) {
 	}
 }
 
+// Through the registry, the way `yolo audit` is dispatched: the handler is handed the verb
+// first. Measured as a real defect by the integration suite before this test existed.
+func TestAuditThroughTheRegistry(t *testing.T) {
+	t.Setenv("YOLO_VERSION", "")
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	l := brokeraudit.Open(filepath.Join(home, ".local", "share", "yolo-jail", "broker", "audit.jsonl"), nil)
+	zero := 0
+	l.Append(brokeraudit.Event{Event: "call", Service: "github", Jail: "j", Argv: []string{"pr", "list"},
+		Set: "read-only", Outcome: "ran", Exit: &zero})
+	rc, out, errOut := runMainCaptured(t, "audit", "--json", "--set", "read-only")
+	if rc != 0 || !strings.Contains(out, `"argv":["pr","list"]`) {
+		t.Fatalf("rc %d out %q err %q", rc, out, errOut)
+	}
+}
+
 func TestAuditWithNoLog(t *testing.T) {
 	rc, out, _ := runAuditCase(t, filepath.Join(t.TempDir(), "none.jsonl"))
 	if rc != 0 || !strings.Contains(out, "No brokered calls recorded") {
