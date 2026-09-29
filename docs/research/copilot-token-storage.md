@@ -3,7 +3,7 @@ title: "Where GitHub Copilot CLI keeps its login, and why one manifest line cann
 date: 2026-09-29
 status: in-review
 tags: [copilot, authentication, credentials, packs, research, measured]
-summary: "Copilot CLI 1.0.89 stores its GitHub token in the system keychain first, on Linux and macOS alike. Only when that fails, and only after the user says yes to a prompt, does it write the token in plain text into ~/.copilot/config.json, a file that also holds folder trust and plugin state. So there is no credential file for the shared_credentials hook to link, and the copilot pack was left unchanged."
+summary: "Copilot CLI 1.0.89 stores its GitHub token in the system keychain first, on Linux and macOS alike. Only when that fails, and only after the user says yes to a prompt, does it write the token in plain text into ~/.copilot/config.json, a file that also holds folder trust and plugin state. So there is no credential file for the shared_credentials hook to link, no directory for the shared_directory hook to share, and the copilot pack was left unchanged."
 vantage:
   status-chip: true
 ---
@@ -19,7 +19,11 @@ the `copilot` half of gap [G16](../plans/setup-support-gaps.md#2-ranked-gap-back
 and a `shared_credentials` hook that turns the agent's credential file into a symlink into that
 directory ([Shared credentials](../reference/jail-home.md#shared-credentials)). G16 sized the
 `copilot` half as those two declarations, pending one fact: whether Copilot keeps its login in a
-single file. The measurement below says it does not.
+single file. The backlog item itself named the directory form of the same mechanism, a
+`shared_directory` hook as `packs/pi` declares it
+([Shared directories](../reference/jail-home.md#shared-directories)), which needs the matching
+fact: a directory that holds the login and nothing else. The measurement below says Copilot has
+neither.
 
 ---
 
@@ -40,15 +44,17 @@ single file. The measurement below says it does not.
   first-launch markers.
 - **So the pack was not changed.** Linking `config.json` would move all of that state to the
   machine tier with the token. On macOS it could also report a successful link while the token
-  sits in the keychain. [§5](#5-why-the-hook-was-not-shipped) gives the costs, and
-  [§6](#6-the-options) the three routes that remain.
+  sits in the keychain. No subdirectory of `~/.copilot` holds the login alone, so a
+  `shared_directory` hook has nothing narrower to share either.
+  [§5](#5-why-the-hook-was-not-shipped) gives the costs, and [§6](#6-the-options) the three
+  routes that remain.
 
 ## 2. What was read
 
 The `copilot` pack installs the npm package `@github/copilot`, which is evergreen. The latest
 published version on 2026-09-29 was **1.0.89**. In 1.0.89 that package is only a loader
-(`npm-loader.js`); 1.0.48 still carried the program in it. The program itself ships in a
-per-platform package as a
+(`npm-loader.js`). It became one at 1.0.64: `npm view` gives 1.0.63's package as about 505 MB
+unpacked and 1.0.64's as about 13 KB. The program itself ships in a per-platform package as a
 [Node single executable application](https://nodejs.org/api/single-executable-applications.html),
 a Node binary with one appended blob, found by its `NODE_SEA_BLOB` marker. Here the blob carries
 one asset, `copilot.tgz`, which unpacks to the JavaScript bundle `app.js` and a Rust native module
@@ -62,12 +68,22 @@ paths include `src/runtime/src/auth/token_store.rs` and `src/runtime/src/auth/cr
 | `app.js`, byte-identical on both platforms | `7b87966eb665ebb7fc5fdfb4e6069dde8c7f668e212b4ad6962bbdb1a5c89113` |
 | `runtime.node`, linux-x64 | `b2c718203574d42589e0bf438524df4b7766243cf66d097a7fc7b2e16e8db12e` |
 | `runtime.node`, darwin-arm64 | `19a6664b9849b07081cb53adfb3b5c6184304d088decf64653cb3b89da9fe57d` |
-| `@github/copilot@1.0.48` `app.js`, the last all-JavaScript store, installed in this jail | `4643c8fe2dc55bb3a988a16001cf9b3d2b70fdbdaec5b7d567102fa7066327db` |
+| `@github/copilot@1.0.48` `app.js`, installed in this jail | `4643c8fe2dc55bb3a988a16001cf9b3d2b70fdbdaec5b7d567102fa7066327db` |
+| `@github/copilot@1.0.60` `app.js` | `31f867a4f5dba13aa4794e33f61ed888b9e488bf41268ab60c954ecfe315c1cb` |
+| `@github/copilot@1.0.63` `app.js` | `4e546b0f9bd7fefaf70613fa6ab6fa970bef0690694a0e6d7a80791b8a0abc03` |
+| `@github/copilot-linux-x64@1.0.64` `app.js`, from its appended blob | `23381e064bbf123f9493fc6b2f7a77ba16e329fff811fa120fa977a752b3420f` |
+| `@github/copilot-linux-x64@1.0.64` `runtime.node`, from its appended blob | `ff0c2eff3c5263ec2a1c461df0e6c81ef1557784e8fd4a22512d519676640f88` |
 
 The native module is compiled, so for 1.0.89 the evidence is its strings: crate names, messages
-and key names, with byte offsets below. The 1.0.48 bundle holds the same store as readable
-JavaScript, which makes the *logic* checkable. 1.0.89 keeps every name and message that logic
-uses, but whether its compiled logic still matches is inferred, not read.
+and key names, with byte offsets below. The *logic* can be read only where the store is still
+JavaScript, and it stopped being JavaScript at 1.0.64. That release's `app.js` hands every store
+call to the native module (`tokenStoreGetToken`, `tokenStoreStoreToken` and four more, offsets
+635214–636077), whose linux-x64 strings now include `src/runtime/src/token_store.rs` (36477175) and the
+`keyring-3.6.3` crate (35533494). Every JavaScript version read here has the same store, function
+for function: 1.0.48, the copy installed in this jail, whose offsets [§3](#3-the-store-step-by-step) cites; 1.0.60 (`app.js`
+7190530–7192119); and 1.0.63, the release before the move (4802155–4803748). 1.0.89 keeps every
+name and message that logic uses, but whether its compiled logic still matches is inferred, not
+read.
 
 ## 3. The store, step by step
 
@@ -110,7 +126,7 @@ go to `copilotTokens` without trying the keychain (7186411). The 1.0.89 runtime 
 (linux 7682985, darwin 63144240). Whether it still skips the keychain is inferred from 1.0.48, not
 read.
 
-### 3.4 Tokens from the environment
+### 3.4 Tokens from the environment, and from the GitHub CLI
 
 `copilot login` reads `COPILOT_GITHUB_TOKEN`, `GH_TOKEN` and `GITHUB_TOKEN` in that order (1.0.89
 `app.js` 7341164), and the 0.0.354 changelog entry says `COPILOT_GITHUB_TOKEN` takes precedence over
@@ -119,6 +135,17 @@ fetched, the native module's advice is to check the variable *"or unset it to us
 login"* (linux 7177923). Its error text also names the kind of token that works: *"If using a Fine-Grained PAT,
 ensure it has the 'Copilot Requests' permission enabled"* (linux 7174794). A classic `ghp_` token
 does not work; since 1.0.5 Copilot says so instead of exiting silently.
+
+One more source is the [GitHub CLI](https://cli.github.com/), `gh`. Copilot runs
+`gh auth token --hostname <host>` and uses the token it prints. In 1.0.48 that is
+`tryGhCliTokenLogin` (`app.js` 7193335), the last entry in the list of login methods Copilot tries
+in order (7196371), after the environment variables and the stored login; its helper runs `gh`
+with those arguments and skips a classic `ghp_` token (4400027). 1.0.89 keeps the route, in the native
+module: `` `gh auth token` process started `` (linux 7699244), `` `gh auth token` exited non-zero ``
+(14727911), `Failed to fetch GitHub CLI user login` (14720271) and a `gh-cli` login type (14727435;
+`app.js` 6279927). When no login is found, its message lists *"Run 'gh auth login' to authenticate
+with the GitHub CLI"* as one way to log in (`app.js` 4941107). So a `gh auth login` also logs Copilot in,
+wherever the two run side by side. [§6](#6-the-options) says why that is not a machine-wide route.
 
 ### 3.5 What else lives in `config.json`
 
@@ -162,12 +189,42 @@ it would pass every existing test. Here is what it would actually do:
 5. **On `macos-user` it can report success while sharing nothing.** If the keychain works there,
    the token never reaches `config.json`. The boot log would still record a linked file.
 
+### The directory hook, `shared_directory`, fits worse
+
+The backlog item named this hook, as `packs/pi` declares it: pi's extension package store,
+`~/.pi/agent/npm`, becomes a link to a machine-scope directory
+([Shared directories](../reference/jail-home.md#shared-directories)). That needs a directory which
+holds the login and nothing else, and Copilot has none. The token is either in the keychain or one
+key of the top-level `config.json` ([§3](#3-the-store-step-by-step)), so a `shared_directory`
+hook on any subdirectory of `~/.copilot` shares no login at all. On `~/.copilot` itself it shares
+all of Copilot's state. 1.0.89 names that state in the code that migrates an
+[XDG](https://specifications.freedesktop.org/basedir-spec/latest/)-located copy of the directory
+into `~/.copilot`, moving these entries one by one (`app.js` 7304385 and 7304499): `session-state`,
+`session-store.db`, `command-history-state` and `installed-plugins`, then `config.json`,
+`mcp-config`, `lsp-config`, `permissions-config`, `copilot-instructions.md`, `mcp-oauth-config`
+and `hooks`. The `copilot` pack renders three of those files per workspace (`config.json`,
+`mcp-config.json` and `lsp-config.json`) and stages the briefing and the skills into the same
+directory. Every cost in the list above would then apply to the whole directory, and every
+repository's sessions and command history would be shared along with the login.
+
 ## 6. The options
+
+The `gh` source ([§3.4](#34-tokens-from-the-environment-and-from-the-github-cli)) is not a route to
+a machine-wide login. The host's `gh` login never reaches a jail
+([the credential boundary](../reference/agent-credentials.md#the-credential-boundary)), so `gh`
+has to log in inside the jail too. There it is per-workspace like Copilot's own: with no keychain
+reachable, `gh auth login` falls back to a plain-text file (its `--help` says so), and that file is
+under `~/.config`, which is a per-workspace overlay on the container backends
+([the mount stack](../reference/jail-home.md#the-mount-stack), tier 2) and a link into the
+workspace's sidecar on `macos-user`
+([the layout](../reference/macos-user-home-tiers.md#the-layout-what-is-a-symlink-what-is-a-mirror)).
+Whether `gh` reaches the keychain on `macos-user` is the same open fact as Copilot's
+([§4](#4-what-that-means-on-each-setup)).
 
 | Route | What changes | What it costs |
 |---|---|---|
 | **A. Force plain text and share `config.json`** | The pack sets `storeTokenPlaintext: true` and adds the `scope: machine` state plus a `shared_credentials` hook on `.copilot/config.json` | Everything in [§5](#5-why-the-hook-was-not-shipped) except item 5. The token is stored in plain text on `macos-user` too, even where a keychain might have worked. It also relies on two unmeasured behaviors of 1.0.89. |
-| **B. A token from `env_sources`** | Nothing in yolo. The user puts `COPILOT_GITHUB_TOKEN=github_pat_…` (fine-grained, with the Copilot Requests permission) in a dotenv file listed under user-scope `env_sources` | The user creates and renews the token. Like every `env_sources` key, it is in the environment of every jail, and whether Copilot hides it from the shells it spawns is unmeasured. Use `COPILOT_GITHUB_TOKEN`, never `GH_TOKEN` or `GITHUB_TOKEN`, which would also sign `gh` in and cross the no-host-git-credentials line. Whether every Copilot feature works with this kind of token is unmeasured. |
+| **B. A token from `env_sources`** | Nothing in yolo. The user puts `COPILOT_GITHUB_TOKEN=github_pat_…` (fine-grained, with the Copilot Requests permission) in a dotenv file listed under user-scope `env_sources` | The user creates and renews the token. Like every `env_sources` key, it is in the environment of every jail, and whether Copilot hides it from the shells it spawns is unmeasured. Use `COPILOT_GITHUB_TOKEN`, never `GH_TOKEN` or `GITHUB_TOKEN`: `gh` reads those two, so a token there would also log `gh` in, and one with more than the Copilot Requests permission would give every jail GitHub API and git access beyond Copilot. No host GitHub credential reaches a jail otherwise ([the credential boundary](../reference/agent-credentials.md#the-credential-boundary)), so the token's permissions are all that this route adds to every jail. Whether every Copilot feature works with this kind of token is unmeasured. |
 | **C. Keep one login per workspace** | Nothing. This is how it works today | One `copilot login` per repository, and on container setups the user must also answer yes to plain-text storage, or the login is not saved. |
 
 1. 💬 **OQ-CT1: Which route makes Copilot's login machine-wide?** A shares state that was never
