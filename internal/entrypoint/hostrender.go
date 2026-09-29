@@ -491,13 +491,18 @@ func renderHostPlans(e *Env, p *packload.Pack, plans []surfacePlan, observe bool
 		// handed — while the leaves ride the contributions it already takes, with the selection's
 		// edge-triggered apply decided here over the file as it stands (OQ-HC3).
 		layers := surfaceLayers{computed: hl.statefulComputed(), inFull: tables}
-		var selectionNext map[string]any
-		selectionTouched := false
+		var selectionNext, leafNext map[string]any
+		selectionTouched, leafTouched := false, false
 		if mechanism == manifest.ModeRMW {
 			lift, clears, next, touched := hostRMWSelection(e, s, path, hl.selection)
-			contribs = contribs.withHostLeaves(mergeSurfaceRoot(hl.leaves, lift), clears)
+			// The computed-leaf record (HC-D23): each leaf the derive asserted on an earlier apply
+			// and no longer does, still holding yolo's value, is cleared. Decided over the derive's
+			// own leaves, before the selection lift, which the selection record decides.
+			leafClears, lnext, ltouched := hostRMWLeafRecord(e, s, path, hl.leaves)
+			contribs = contribs.withHostLeaves(mergeSurfaceRoot(hl.leaves, lift), clears, leafClears)
 			layers = surfaceLayers{computed: hl.tables}
 			selectionNext, selectionTouched = next, touched
+			leafNext, leafTouched = lnext, ltouched
 		}
 		// The OVERLAYS are deliberately NOT stripped. They are applied before the table
 		// write, so regenerateManagedTables clears whatever they merged and rewrites the block
@@ -674,6 +679,10 @@ func renderHostPlans(e *Env, p *packload.Pack, plans []surfacePlan, observe bool
 		// value as one yolo wrote. The stateful arm persists its own (persistStatefulSurface).
 		if selectionTouched {
 			writeSelectionRecord(e, s.Agent, s.Name, selectionNext)
+		}
+		// The computed-leaf record, by the same rule: after the write, and only then.
+		if leafTouched {
+			writeHostLeafRecord(e, s.Agent, s.Name, leafNext)
 		}
 		// `unchanged` when the write reproduced the file, in this posture as in the dry run: the
 		// line and the verdict's counts read the same predicate, so they cannot disagree about

@@ -264,15 +264,19 @@ type surfaceContribs struct {
 	// them: its rmw arm regenerates what regenerateManagedTables is handed (OQ-CO15).
 	hostLeaves map[string]any
 	hostClears []string
+	// hostLeafClears are the RFC 6901 pointers of the computed leaves a host apply clears: each a
+	// leaf yolo's derive asserted on an earlier apply, still holding yolo's value, that the derive
+	// no longer asserts (hostRMWLeafRecord, HC-D23). Applied after hostClears.
+	hostLeafClears []string
 }
 
 // withHostLeaves is c with the host's leaf layer attached, as a new value (c is shared with
-// nothing, but a nil c is the common case).
-func (c *surfaceContribs) withHostLeaves(leaves map[string]any, clears []string) *surfaceContribs {
-	if len(leaves) == 0 && len(clears) == 0 {
+// nothing, but a nil c is the common case). leafClears are pointers (hostLeafClears).
+func (c *surfaceContribs) withHostLeaves(leaves map[string]any, clears, leafClears []string) *surfaceContribs {
+	if len(leaves) == 0 && len(clears) == 0 && len(leafClears) == 0 {
 		return c
 	}
-	out := &surfaceContribs{hostLeaves: leaves, hostClears: clears}
+	out := &surfaceContribs{hostLeaves: leaves, hostClears: clears, hostLeafClears: leafClears}
 	if c != nil {
 		out.overlays, out.lists = c.overlays, c.lists
 	}
@@ -285,6 +289,14 @@ func (c *surfaceContribs) leafLayer() (map[string]any, []string) {
 		return nil, nil
 	}
 	return c.hostLeaves, c.hostClears
+}
+
+// leafClears is the host's computed-leaf clears, nil for none.
+func (c *surfaceContribs) leafClears() []string {
+	if c == nil {
+		return nil
+	}
+	return c.hostLeafClears
 }
 
 // contribsFor is one surface's contributions out of the collected set.
@@ -1479,6 +1491,11 @@ func applyRMWLayers(e *Env, surface manifest.Surface, obj *jsonx.OrderedMap,
 		for _, k := range clears {
 			obj.Delete(k)
 		}
+	}
+	// Then each computed leaf yolo wrote on an earlier apply and its derive no longer asserts,
+	// still holding yolo's value (HC-D23): removed, its parent kept.
+	for _, p := range contribs.leafClears() {
+		deleteLeaf(obj, p)
 	}
 	// Managed: yolo owns these outright, so re-assert every boot.
 	if managed, isMap := surface.Managed.(map[string]any); isMap {
