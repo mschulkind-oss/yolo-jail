@@ -1,12 +1,13 @@
 package jailcontent
 
-// The briefing's "Durable vs ephemeral paths" section (docs/design/durable-scratch-space.md
-// §4.1). This file RENDERS a persistence map; it never decides one. What each path is comes
-// from the run pipeline, which builds the map from the same definitions the launch's mount
-// argv reads (run.persistenceMapFor), so the section is a view of the mounts rather than a
-// hand-written summary of them (DS-P1). A hand-written line is exactly what this replaced:
-// the Environment block's "Home: /home/agent (persistent across sessions)", said of a home
-// that is mounted read-only on podman.
+// The briefing's storage-classes section (docs/design/durable-scratch-space.md §4.1, reframed
+// by the maintainer on 2026-09-28 as storage classes with their lifecycles: DS-D13). This file
+// RENDERS a persistence map; it never decides one. What each path is comes from the run
+// pipeline, which builds the map from the same definitions the launch's mount argv reads
+// (run.persistenceMapFor), so the section is a view of the mounts rather than a hand-written
+// summary of them (DS-P1). A hand-written line is exactly what this replaced: the Environment
+// block's "Home: /home/agent (persistent across sessions)", said of a home that is mounted
+// read-only on podman.
 
 import (
 	"slices"
@@ -14,20 +15,23 @@ import (
 	"strings"
 )
 
-// PathClass is one durability class of the persistence map (the design's §4.1 table). The
-// order of the constants is the order the section renders them in.
+// PathClass is one storage class of the persistence map. The order of the constants is the
+// order the section renders them in.
 type PathClass int
 
 const (
-	// PathWorkspaceDurable survives the jail's exit and the next launch of this same
+	// PathPerLaunch is created for one fresh launch, shared by every terminal that attaches
+	// to that jail, and deleted after the jail exits.
+	PathPerLaunch PathClass = iota + 1
+	// PathWorkspaceDurable survives the jail's exit and every later launch of this same
 	// workspace, and is not shared with any other workspace.
-	PathWorkspaceDurable PathClass = iota + 1
+	PathWorkspaceDurable
 	// PathMachineDurable survives the jail's exit and is shared by every workspace on this
 	// machine (a bind from the machine store).
 	PathMachineDurable
-	// PathPerLaunch is created for one fresh launch, shared by every terminal that attaches
-	// to that jail, and deleted after the jail exits.
-	PathPerLaunch
+	// PathProject is the workspace itself: the host's own directory, live. It survives
+	// everything, and it is the user's project rather than a place for scratch.
+	PathProject
 	// PathInternal is writable and durable but holds yolo's own generated or bookkeeping
 	// content (a generated-script dir, a lock, a log, a history file). It is in the map so
 	// the map covers every writable mount of the launch, and the section never names it:
@@ -38,12 +42,14 @@ const (
 // String names the class, for test failures and debugging.
 func (c PathClass) String() string {
 	switch c {
-	case PathWorkspaceDurable:
-		return "durable, this workspace"
-	case PathMachineDurable:
-		return "durable, every workspace"
 	case PathPerLaunch:
-		return "per-launch"
+		return "per launch"
+	case PathWorkspaceDurable:
+		return "per workspace"
+	case PathMachineDurable:
+		return "every workspace on this machine"
+	case PathProject:
+		return "the workspace itself"
 	case PathInternal:
 		return "internal"
 	}
@@ -57,10 +63,11 @@ type PersistentPath struct {
 	Class PathClass
 }
 
-// PersistenceMap is the launch's persistence map: the paths it makes writable, each with a
-// durability class and a scope. A nil map renders no section, which is every caller that has
-// not resolved a container backend (the host notch, macos-user, and unit tests that build a
-// BriefingInput by hand).
+// PersistenceMap is the launch's persistence map (a term coined in
+// docs/design/durable-scratch-space.md §1.2): the paths it makes writable, each with a storage
+// class. A nil map renders no section, which is every caller that has not resolved a
+// container backend (the host notch, macos-user, and unit tests that build a BriefingInput by
+// hand).
 type PersistenceMap struct {
 	Paths []PersistentPath
 	// PerLaunchInRAM is true when the per-launch paths are tmpfs rather than disk-backed
@@ -82,12 +89,15 @@ func (m *PersistenceMap) Of(c PathClass) []string {
 	return out
 }
 
-// HomeIsDurable reports whether the whole home is itself a per-workspace durable path (Apple
+// HomeIsDurable reports whether the whole home is itself a per-workspace path (Apple
 // Container binds `<ws>/.yolo/home` at the home, read-write, in one mount). When it is not,
 // the home is a read-only base and only the paths the map names are writable in it.
 func (m *PersistenceMap) HomeIsDurable(home string) bool {
 	return slices.Contains(m.Of(PathWorkspaceDurable), home)
 }
+
+// persistenceHeading is the section's heading, which the Home line names.
+const persistenceHeading = "## Storage classes: what survives a restart"
 
 // homeLineNote is the Home line's suffix on a container backend. With a map it states the
 // home's class and points at the section. Without one it states nothing: the old
@@ -99,49 +109,81 @@ func homeLineNote(m *PersistenceMap, home string) string {
 	case m == nil:
 		return ""
 	case m.HomeIsDurable(home):
-		return " (writable, and kept for this workspace; see **Durable vs ephemeral paths** below)"
+		return " (writable, and kept for this workspace; see **Storage classes** below)"
 	default:
-		return " (mostly read-only; see **Durable vs ephemeral paths** below)"
+		return " (mostly read-only; see **Storage classes** below)"
 	}
 }
 
-// persistenceSection renders the section, or nothing for a nil map. A class with no members
+// persistenceSection renders the section, or nothing for a nil map. Each class says where it
+// is, what it survives, who shares it and what yolo cleans up. A class with no members
 // renders no bullet (the design's degenerate-inputs rule).
+//
+// THE CLEANUP CLAUSES are facts about internal/prune and the scratch remover, not about the
+// map; each is the whole of what yolo deletes in that class: the scratch volumes after the
+// jail exits (run.startScratchRemoval), `yolo prune --apply`'s age-out of a few agents' log
+// dirs in the workspace overlay (prune.agentLogWorkspaceSubdirs), and its age-out of a fixed
+// list of tool caches under ~/.cache (prune.CachePurgeDefaultSubdirs, 30 days by default),
+// with the launch's housekeeping trimming yolo's own image cache there and the boot's store
+// step unlinking DANGLING mise symlinks in /mise (provision.StepPruneStore). All of the
+// machine-tier deletions are of bytes that can be fetched or built again.
 func persistenceSection(m *PersistenceMap, home string) []string {
 	if m == nil {
 		return nil
 	}
 	homeDurable := m.HomeIsDurable(home)
-	lines := []string{"## Durable vs ephemeral paths", ""}
+	lines := []string{persistenceHeading, ""}
 
-	// This workspace only: the paths outside the home first (the workspace itself), then
-	// the home's own writable directories.
-	var clauses, inHome []string
+	if perLaunch := m.Of(PathPerLaunch); len(perLaunch) > 0 {
+		backing := "on disk"
+		if m.PerLaunchInRAM {
+			backing = "in RAM"
+		}
+		lines = append(lines, "- **Per launch** ("+backing+"): "+joinTilde(perLaunch, home)+". "+
+			"Shared by every terminal attached to this jail. Survives nothing: a restart is a new "+
+			"launch with new, empty ones, and yolo deletes these once the jail exits. A scratchpad "+
+			"a harness hands you under `/tmp` is in this class.")
+	}
+
+	var where []string
+	var inHome, outside []string
 	for _, p := range m.Of(PathWorkspaceDurable) {
 		switch {
 		case p == home:
 			// Rendered as its own clause below.
 		case strings.HasPrefix(p, home+"/"):
 			inHome = append(inHome, p)
-		case p == "/workspace":
-			clauses = append(clauses, "`/workspace` (the host's own files)")
 		default:
-			clauses = append(clauses, "`"+p+"`")
+			outside = append(outside, p)
 		}
 	}
 	switch {
 	case homeDurable:
-		clauses = append(clauses, "all of `"+home+"` except the paths below")
+		where = append(where, "all of `"+home+"` outside the other classes")
 	case len(inHome) > 0:
-		clauses = append(clauses, "in home, only "+joinTilde(inHome, home))
+		where = append(where, "in home, only "+joinTilde(inHome, home))
 	}
-	if len(clauses) > 0 {
-		lines = append(lines, "- **Survives a restart, this workspace only**: "+strings.Join(clauses, "; ")+".")
+	if len(outside) > 0 {
+		where = append(where, joinTilde(outside, home)+" (this jail's own copies, not the host's)")
+	}
+	if len(where) > 0 {
+		lines = append(lines, "- **Per workspace**: "+strings.Join(where, "; ")+". Survives "+
+			"restarts and every new launch of this workspace; another workspace has its own and "+
+			"never sees these. yolo never removes your work here; `yolo prune --apply` ages out "+
+			"only some agents' old log files.")
 	}
 
 	if machine := m.Of(PathMachineDurable); len(machine) > 0 {
-		lines = append(lines, "- **Survives, shared by every workspace on this machine**: "+
-			joinTilde(machine, home)+".")
+		lines = append(lines, "- **Every workspace on this machine**: "+joinTilde(machine, home)+
+			". Survives restarts and workspace switches, and every jail on this machine shares "+
+			"them at the same time. yolo deletes only what can be fetched or built again here, "+
+			"such as old files in some tool caches under `~/.cache`.")
+	}
+
+	if project := m.Of(PathProject); len(project) > 0 {
+		lines = append(lines, "- **The workspace itself**: "+joinTilde(project, home)+", live on "+
+			"the host: the user's project, not a scratch area. Survives everything, and yolo never "+
+			"cleans it up.")
 	}
 
 	if !homeDurable {
@@ -152,25 +194,13 @@ func persistenceSection(m *PersistenceMap, home string) []string {
 			"directories above. A write there fails.")
 	}
 
-	if perLaunch := m.Of(PathPerLaunch); len(perLaunch) > 0 {
-		ram := ""
-		if m.PerLaunchInRAM {
-			ram = ", in RAM"
-		}
-		lines = append(lines, "- **Deleted once this jail exits** (per launch"+ram+"; every "+
-			"attached terminal shares them): "+joinTilde(perLaunch, home)+". A scratchpad a "+
-			"harness hands you under `/tmp` is in this set.")
-	}
-
-	// THE WORKTREE BULLET, interim until OQ-DS1 names the durable dir. It names no agent's
-	// directory: core does not know what an agent is, and endorsing one agent's worktree dir
-	// for every agent is the design's rejected alternative B″ (DS-D13).
+	// THE GUIDANCE, the maintainer's wording (2026-09-28). No path is recommended for
+	// worktrees until OQ-DS1 names the durable dir, and none may name one agent's directory:
+	// core does not know what an agent is (DS-D13).
 	lines = append(lines,
-		"- **Worktrees and anything you need next session**: inside `/workspace`, in a "+
-			"directory git ignores (`git check-ignore -q <path>` says whether it does), never "+
-			"`/tmp`. Drive them with `git -C <path>`, not `cd <path> && …`, so a missing "+
-			"directory fails the git command itself instead of leaving later commands running "+
-			"in the wrong tree.",
+		"",
+		"Put nothing that must survive a restart under `/tmp`; a dedicated durable directory "+
+			"for worktrees and scratch is being designed.",
 		"",
 	)
 	return lines

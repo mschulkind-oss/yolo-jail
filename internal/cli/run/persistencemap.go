@@ -2,8 +2,8 @@ package run
 
 // THE PERSISTENCE MAP (docs/design/durable-scratch-space.md §1.2, a term coined there): the
 // list of paths a launch makes writable, each with a durability class and a scope, computed
-// from the SAME definitions the mount argv reads. It feeds the briefing's "Durable vs
-// ephemeral paths" section, and TestThePersistenceMapIsTheMountPlan compares it against the
+// from the SAME definitions the mount argv reads. It feeds the briefing's storage-classes
+// section, and TestThePersistenceMapIsTheMountPlan compares it against the
 // assembled argv in both directions (DS-D1), so a writable mount added without the map
 // knowing fails the unit gate.
 //
@@ -76,15 +76,16 @@ var alwaysTmpfsDirs = []string{"/run", "/dev/shm"}
 // persistenceMapFor is the launch's persistence map on a container backend, or nil on a
 // native one (macos-user mounts nothing, and its section is a later slice of the design).
 //
-// Its inputs are the ones the argv's home and scratch mounts read: the runtime, the config
-// (`ephemeral_storage`, `writable_home_dirs`) and the selected packs. It is pure, so an
-// attach re-derives the answer the launch argv acted on.
+// Its inputs are the ones the argv's home, shadow and scratch mounts read: the runtime, the
+// config (`ephemeral_storage`, `writable_home_dirs`, `per_side_paths`), the selected packs and
+// the workspace (whose own entries decide which per-side shadows mount). An attach re-derives
+// the answer the launch argv acted on.
 //
 // NOT IN THE MAP, and stated so the pin test's scope is plain (DS-D14): a `host_files`
 // entry's staged parent dir, which the run pipeline resolves after the briefing is written;
 // a loophole's own bind mounts; and the nix daemon socket. None is a place for an agent's
 // work, and the pin's fixture declares none of them.
-func persistenceMapFor(rt string, cfg *jsonx.OrderedMap, packs []*packload.Pack) *jailcontent.PersistenceMap {
+func persistenceMapFor(rt string, cfg *jsonx.OrderedMap, packs []*packload.Pack, workspace string) *jailcontent.PersistenceMap {
 	if slices.Contains(paths.NativeRuntimes, rt) { // parity: NotApplicable — macos-user mounts nothing; its section is the design's §8 step 5
 		return nil
 	}
@@ -94,9 +95,15 @@ func persistenceMapFor(rt string, cfg *jsonx.OrderedMap, packs []*packload.Pack)
 	}
 	home := func(rel string) string { return jailHome + "/" + rel }
 
-	// The workspace bind, `-v <workspace>:/workspace` on both backends; the per-side shadows
-	// (/workspace/.venv, /workspace/node_modules) sit beneath it and share its class.
-	add("/workspace", jailcontent.PathWorkspaceDurable)
+	// The workspace bind, `-v <workspace>:/workspace` on both backends: the host's own
+	// directory, its own class. The per-side shadows beneath it (/workspace/.venv,
+	// /workspace/node_modules, per_side_paths) are NOT the host's: each is a bind from
+	// <ws>/.yolo/home/venv-shadows, so per workspace — the set venvShadowMountArgs mounts,
+	// computed by the same rules (perSideShadowRels).
+	add("/workspace", jailcontent.PathProject)
+	for _, rel := range perSideShadowRels(cfg, workspace) {
+		add("/workspace/"+rel, jailcontent.PathWorkspaceDurable)
+	}
 
 	if rt == "container" { // parity: HonoredBy — Apple Container binds wsState whole at the home, which is the per-workspace tier podman binds dir by dir
 		// Apple Container binds <ws>/.yolo/home read-write, WHOLE, at the home

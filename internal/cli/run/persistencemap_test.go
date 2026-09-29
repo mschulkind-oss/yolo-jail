@@ -50,7 +50,7 @@ func TestThePersistenceMapIsTheMountPlan(t *testing.T) {
 			in.cfg, in.packs, in.scratchID = cfg, packs, scratchID
 			in.writableHomeDirs = persistenceWritableHomeDirs(cfg, packs)
 			argv := o.assembleRunCmd(in)
-			m := persistenceMapFor(tc.rt, cfg, packs)
+			m := persistenceMapFor(tc.rt, cfg, packs, "/ws")
 			if m == nil {
 				t.Fatalf("no persistence map for %s", tc.rt)
 			}
@@ -65,8 +65,8 @@ func TestThePersistenceMapIsTheMountPlan(t *testing.T) {
 				got := persistenceClassOf(m, mt.dest)
 				if got == 0 {
 					t.Errorf("the argv mounts %q writable (from %q) and the persistence map does "+
-						"not know it: add it to persistencemap.go, or the briefing's Durable vs "+
-						"ephemeral paths section omits it", mt.dest, mt.src)
+						"not know it: add it to persistencemap.go, or the briefing's storage-classes "+
+						"section omits it", mt.dest, mt.src)
 					continue
 				}
 				if want, ok := expectedClassBySource(mt, in, scratchID); ok && !classAgrees(got, want) {
@@ -116,36 +116,40 @@ func TestTheBriefingNamesEveryPathInThePersistenceMap(t *testing.T) {
 				t.Fatalf("no briefing written: %v", err)
 			}
 			body := string(raw)
-			section := sectionOf(body, "## Durable vs ephemeral paths")
+			section := sectionOf(body, "## Storage classes: what survives a restart")
 			if section == "" {
-				t.Fatalf("the %s briefing has no Durable vs ephemeral paths section:\n%s", rt, body)
+				t.Fatalf("the %s briefing has no storage-classes section:\n%s", rt, body)
 			}
 			if strings.Contains(body, "persistent across sessions") {
 				t.Errorf("the briefing still calls the home persistent:\n%s", body)
 			}
-			// Every rendered path appears as a `~/rel` or `/abs` code span in the section.
-			flat := strings.Join(strings.Fields(section), " ")
-			for _, e := range persistenceMapFor(rt, cfg, packs).Paths {
+			// Every path is named as a `~/rel` or `/abs` code span IN ITS OWN CLASS'S bullet,
+			// so a path rendered under the wrong lifecycle fails as surely as a missing one.
+			bullets := classBullets(section)
+			for _, e := range persistenceMapFor(rt, cfg, packs, ws).Paths {
 				if e.Class == jailcontent.PathInternal {
-					if strings.Contains(flat, spanFor(e.Path)) {
+					if strings.Contains(section, spanFor(e.Path)) {
 						t.Errorf("the section names the internal path %s as a place for work", e.Path)
 					}
 					continue
 				}
-				if e.Path == jailHome {
-					if !strings.Contains(flat, "all of `/home/agent`") {
-						t.Errorf("the whole home is durable on %s and the section does not say so:\n%s", rt, section)
-					}
+				bullet, ok := bullets[e.Class]
+				if !ok {
+					t.Errorf("the section has no bullet for class %q, which holds %s:\n%s", e.Class, e.Path, section)
 					continue
 				}
-				if !strings.Contains(flat, spanFor(e.Path)) {
-					t.Errorf("the section does not name %s (class %s):\n%s", spanFor(e.Path), e.Class, section)
+				want := spanFor(e.Path)
+				if e.Path == jailHome {
+					want = "all of `/home/agent`"
+				}
+				if !strings.Contains(bullet, want) {
+					t.Errorf("the %q bullet does not name %s:\n%s", e.Class, want, bullet)
 				}
 			}
 			// The Home line points at the section, and says the true thing per backend.
-			wantHome := "(mostly read-only; see **Durable vs ephemeral paths** below)"
+			wantHome := "(mostly read-only; see **Storage classes** below)"
 			if rt == "container" {
-				wantHome = "(writable, and kept for this workspace; see **Durable vs ephemeral paths** below)"
+				wantHome = "(writable, and kept for this workspace; see **Storage classes** below)"
 			}
 			if !strings.Contains(body, "- **Home**: `/home/agent` "+wantHome) {
 				t.Errorf("the %s Home line is not %q:\n%s", rt, wantHome, body)
@@ -157,7 +161,7 @@ func TestTheBriefingNamesEveryPathInThePersistenceMap(t *testing.T) {
 // macos-user mounts nothing, so it has no map and its briefing no section: the section for
 // that backend is the design's §8 step 5, and a container-shaped one there would be false.
 func TestMacosUserHasNoPersistenceMapYet(t *testing.T) {
-	if m := persistenceMapFor("macos-user", newConfig(), nil); m != nil {
+	if m := persistenceMapFor("macos-user", newConfig(), nil, "/ws"); m != nil {
 		t.Errorf("macos-user got a persistence map: %+v", m)
 	}
 }
@@ -220,7 +224,7 @@ func expectedClassBySource(mt writableMount, in *assembleInput, scratchID string
 	case mt.tmpfs:
 		return jailcontent.PathPerLaunch, true
 	case mt.src == "/ws":
-		return jailcontent.PathWorkspaceDurable, true
+		return jailcontent.PathProject, true
 	case mt.src == in.wsState || strings.HasPrefix(mt.src, in.wsState+"/"):
 		return jailcontent.PathWorkspaceDurable, true
 	case strings.HasPrefix(mt.src, paths.GlobalStorage()+"/"), mt.src == in.miseStore, mt.src == miseStoreVolume:
@@ -256,6 +260,25 @@ func persistenceClassOf(m *jailcontent.PersistenceMap, p string) jailcontent.Pat
 		}
 	}
 	return best
+}
+
+// classBullets maps each class to the bullet line that renders it, by the bullet's label.
+func classBullets(section string) map[jailcontent.PathClass]string {
+	labels := map[string]jailcontent.PathClass{
+		"- **Per launch**":                      jailcontent.PathPerLaunch,
+		"- **Per workspace**":                   jailcontent.PathWorkspaceDurable,
+		"- **Every workspace on this machine**": jailcontent.PathMachineDurable,
+		"- **The workspace itself**":            jailcontent.PathProject,
+	}
+	out := map[jailcontent.PathClass]string{}
+	for _, line := range strings.Split(section, "\n") {
+		for label, c := range labels {
+			if strings.HasPrefix(line, label) {
+				out[c] = line
+			}
+		}
+	}
+	return out
 }
 
 // spanFor is how the section spells a path: `~/rel` under the home, `/abs` elsewhere.

@@ -147,7 +147,7 @@ type BriefingInput struct {
 	// Persistence is the launch's persistence map (persistence.go): which paths survive a
 	// restart, which are shared by every workspace, and which are gone once the jail
 	// exits. The run pipeline builds it from the definitions the mount argv reads, and it
-	// renders the "Durable vs ephemeral paths" section (docs/design/durable-scratch-space.md
+	// renders the storage-classes section (docs/design/durable-scratch-space.md
 	// §4.1). Nil renders no section: macos-user, the host notch and a hand-built input.
 	Persistence *PersistenceMap
 }

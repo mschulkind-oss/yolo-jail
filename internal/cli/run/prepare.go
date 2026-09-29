@@ -202,9 +202,9 @@ func (o *Options) refreshJailBriefings(cname string, cfg *jsonx.OrderedMap, rt s
 		HostNix: !slices.Contains(paths.NativeRuntimes, rt) && o.hostNixMounted(rt), // parity: NotApplicable — a native backend shares the host's paths, so its nix roots are real
 		// THE PERSISTENCE MAP, from the definitions the mount argv reads and the same
 		// selected packs and config it is assembled from (persistencemap.go). It renders
-		// "Durable vs ephemeral paths" and the Home line that points at it
+		// the storage-classes section and the Home line that points at it
 		// (docs/design/durable-scratch-space.md §4.1). Nil on macos-user.
-		Persistence: persistenceMapFor(rt, cfg, staged.packs),
+		Persistence: persistenceMapFor(rt, cfg, staged.packs, o.Workspace),
 	}
 	briefingBody := jailcontent.BriefingContent(in)
 	briefingBody = jailcontent.ComposeBriefing(briefingBody, cfgStr(cfg, "agents_md_extra"))
