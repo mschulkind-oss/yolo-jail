@@ -46,7 +46,7 @@ Ordered by what pays for itself soonest.
 **The evidence is this audit, and the second pass made it much worse than the first.** Five docs the
 roadmap points at held live questions carrying neither a status emoji nor an explicit ID, so no count
 of "what is open" could be taken except by reading ~9,000 lines. Worse, IDs failed to resolve **in
-both directions**: [`boundary-broker.md` §10.6](../design/boundary-broker.md#106-recommendation--build-b1b-vendor-the-policy-engine-do-not-adopt-gh-broker) called a fork in the
+both directions**: [`boundary-broker.md` §A.6](../design/boundary-broker.md#a6-recommendation--build-b1b-vendor-the-policy-engine-do-not-adopt-gh-broker) called a fork in the
 road *"the maintainer's call — see the B1b row in [`roadmap.md`](roadmap.md)"*, and the roadmap cited [`OQ-B1b`](../design/boundary-broker.md#OQ-B1b) back
 at the doc. Neither existed.
 
