@@ -9,8 +9,10 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/brokeraudit"
@@ -93,7 +95,21 @@ func Main(argv []string) int {
 	}
 	b, cleanup := newBroker(sf, spawnCwd, os.Stderr)
 	defer cleanup()
+	// TOLD TO STOP, END gh FIRST. The launcher stops a daemon with SIGTERM to its process
+	// group and SIGKILLs it after a grace; the listener then waits for every call in flight,
+	// and a gh in its own process group never saw the SIGTERM. So the broker kills its gh
+	// children itself, the calls return inside the grace, and the deferred cleanup, which
+	// removes the copy of the host's hosts.yml, runs.
 	stop := make(chan struct{})
+	sig := make(chan os.Signal, 1)
+	signal.Notify(sig, syscall.SIGTERM, syscall.SIGINT)
+	go func() {
+		<-sig
+		if b.runner != nil {
+			b.runner.Shutdown()
+		}
+		close(stop)
+	}()
 	if err := hostservice.ServeFrontedUnix(b.Handle, *socket, stop); err != nil {
 		fmt.Fprintln(os.Stderr, "github-broker:", err)
 		return 1
@@ -111,8 +127,8 @@ func Main(argv []string) int {
 // The launch already discloses the scope on its own terminal (writeScopeFiles), the jail's
 // stderr names a refused gh, and the audit log, which yolo mounts into no jail, holds the rest.
 func newBroker(sf brokerscope.File, spawnCwd string, log io.Writer) (*Broker, func()) {
-	startID, _ := brokerscope.NewLaunchID()
-	runDir := filepath.Join(paths.BrokerSourceDir(Source), "run", startID)
+	sweepRunDirs()
+	runDir := newRunDir()
 	b := &Broker{
 		scope:     NewScope(append(append([]string(nil), sf.Repos...), sf.Widened...)),
 		workspace: sf.Workspace,
@@ -175,11 +191,10 @@ func placementRefusal(workspaces ...string) func(gh string) string {
 // SelfCheck is `doctor_cmd`: it reports the host gh the broker would run, and fails only
 // when there is none.
 func SelfCheck(w io.Writer) int {
-	dir, err := os.MkdirTemp("", "github-broker-check-")
-	if err != nil {
-		fmt.Fprintln(w, "github-broker: cannot make a scratch dir:", err)
-		return 1
-	}
+	// Under run/ like a broker's, not the system temp dir: the check copies the host's
+	// hosts.yml too, and run/ is where a copy a killed check left is collected.
+	sweepRunDirs()
+	dir := newRunDir()
 	// `yolo check` runs this from the workspace, as a launch spawns the daemon, so the cwd is
 	// checked as the workspace.
 	cwd, _ := os.Getwd()

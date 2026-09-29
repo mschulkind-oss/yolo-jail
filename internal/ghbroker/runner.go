@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -73,6 +74,29 @@ type Runner struct {
 	env     []string
 	timeout time.Duration
 	outCap  int64
+
+	// running holds the process group of every gh a Run has started and not yet reaped, so
+	// Shutdown can end them; closed says Shutdown ran, and no Run starts another.
+	mu      sync.Mutex
+	running map[int]bool
+	closed  bool
+}
+
+// Shutdown ends every gh this runner is running, by process group, and lets no Run start
+// another. The broker calls it when it is told to stop.
+//
+// It exists because each gh runs in a process group of its own (so a timeout reaches what
+// gh spawned), and the launcher's SIGTERM to the broker's group therefore never reaches it.
+// Without it a stop during a long read (`run watch`, `pr checks --watch`) waited for gh,
+// outlasted the launcher's grace, and was SIGKILLed: its deferred cleanup never ran, the
+// copy of the host's hosts.yml under run/ stayed, and gh ran on past its own timeout.
+func (r *Runner) Shutdown() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.closed = true
+	for pgid := range r.running {
+		_ = syscall.Kill(-pgid, syscall.SIGKILL)
+	}
 }
 
 // RunnerOptions are the facts a Runner takes from the broker's own process.
@@ -252,16 +276,41 @@ type RunResult struct {
 func (r *Runner) Run(argv []string, stdin []byte, stdout, stderr func([]byte)) RunResult {
 	cmd := exec.Command(r.GhPath, argv...)
 	cmd.Env, cmd.Dir = r.env, filepath.Join(r.runDir, "cwd")
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.SysProcAttr = childProcAttr()
 	if stdin != nil {
 		cmd.Stdin = bytes.NewReader(stdin)
 	}
 	outPipe, _ := cmd.StdoutPipe()
 	errPipe, _ := cmd.StderrPipe()
+	// On Linux the child dies with the broker (childProcAttr's Pdeathsig), which the kernel
+	// ties to the THREAD that started it, so this goroutine keeps its thread until gh is
+	// reaped.
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+	r.mu.Lock()
+	if r.closed {
+		r.mu.Unlock()
+		stderr([]byte("github-broker: the broker is stopping, so nothing ran\n"))
+		return RunResult{Exit: ExitUnavailable}
+	}
 	if err := cmd.Start(); err != nil {
+		r.mu.Unlock()
 		stderr([]byte("github-broker: could not run the host gh: " + err.Error() + "\n"))
 		return RunResult{Exit: ExitUnavailable}
 	}
+	pgid := cmd.Process.Pid
+	if r.running == nil {
+		r.running = map[int]bool{}
+	}
+	r.running[pgid] = true
+	r.mu.Unlock()
+	// Forgotten only once gh is reaped (the deferred call runs after cmd.Wait below), so
+	// Shutdown never signals a process group id the system has handed to someone else.
+	defer func() {
+		r.mu.Lock()
+		delete(r.running, pgid)
+		r.mu.Unlock()
+	}()
 
 	var (
 		mu        sync.Mutex

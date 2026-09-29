@@ -374,11 +374,13 @@ func stateStores(o Options, cacheRows []Store) []Store {
 			s.Note = "broken out per subdir below; the subdir rows are where coverage is decided"
 		case name == filepath.Base(paths.BrokerDir()):
 			// The brokers' directory (docs/design/boundary-broker.md §7, §8): the audit log
-			// is BOUNDED, NOT PRUNED — its writer rotates it — and a launch's scope file goes
-			// with the launch, so no reclaimer runs here, by design.
+			// is BOUNDED, NOT PRUNED — its writer rotates it — and a launch's scope file and a
+			// broker's run dir go with their owner, or, when a kill skipped that, with the next
+			// start's liveness sweep; so no reclaimer runs here, by design.
 			sizeStore(&s, s.Path, o)
 			s.Reclaimer = Reclaimer{Detail: fmt.Sprintf("self-bounded: the audit log rotates at %d MiB "+
-				"and keeps %d archives; a launch's scope file goes with the launch",
+				"and keeps %d archives; a launch's scope file and a broker's run dir go with their owner, "+
+				"or at the next start once that owner is gone",
 				brokeraudit.RotateBytes>>20, brokeraudit.Archives)}
 			s.Verdict = VerdictYolo
 			s.Note = "the brokers' audit log and each launch's repository scope; `yolo prune` never touches the audit log"
