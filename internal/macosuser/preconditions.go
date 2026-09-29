@@ -252,7 +252,7 @@ func LaunchPreconditions() []Precondition {
 					"made before the sandbox account was last recreated are\ninert while still " +
 					"looking correct in `ls -le`.)\n\n" +
 					"Share it — idempotent, safe to re-run:\n" +
-					"  [bold]yolo macos-fix-permissions " + ws + "[/bold]"
+					"  [bold]yolo macos-fix-permissions " + shquote.Quote(ws) + "[/bold]"
 			},
 		},
 	}

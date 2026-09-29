@@ -4,6 +4,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 )
 
 // configureGit sets git name, email and global gitignore from the host-forwarded
@@ -168,9 +170,16 @@ func trustWorkspace(e *Env, git, global string) {
 	if err := runGitConfig(e, git, global, "--global", "--replace-all", "--fixed-value", "safe.directory", ws, ws); err != nil {
 		e.warn("Warning: could not mark " + ws + " as a git safe.directory: " + err.Error() +
 			"; the workspace belongs to another account, so git here will refuse it with " +
-			"\"detected dubious ownership\" (exit 128) until it is set: " +
-			"git config --global --add safe.directory " + ws)
+			"\"detected dubious ownership\" (exit 128) until it is set: " + safeDirectoryRemedy(ws))
 	}
+}
+
+// safeDirectoryRemedy is the command the failure warning names, with the path QUOTED: a
+// workspace such as `/Users/Shared/yolo/My Project` is two words to a shell otherwise, and the
+// pasted command would set safe.directory to `/Users/Shared/yolo/My` and then fail on the
+// stray `Project`.
+func safeDirectoryRemedy(ws string) string {
+	return "git config --global --add safe.directory " + shquote.Quote(ws)
 }
 
 // runGitConfig runs `git config <args>` against the global config file `global`, with stdout

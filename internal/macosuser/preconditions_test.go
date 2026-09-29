@@ -165,3 +165,28 @@ func TestCheckingThePreconditionsSkipsOnlyWhatAFailureMadeMoot(t *testing.T) {
 		}
 	})
 }
+
+// THE SHARING REMEDY QUOTES THE PATH, in the launch's refusal as in yolo check's fix: a project
+// named `My Project` is two words to the shell otherwise, and the pasted command would share
+// `/Users/Shared/yolo/My` and fail on the stray `Project`. Driven through the launch, so it
+// fails if RunMacosUser stops printing this precondition's refusal as well as if the text
+// loses its quoting.
+func TestTheSharingRemedyQuotesTheWorkspace(t *testing.T) {
+	const ws = "/Users/Shared/yolo/My Project"
+	want := "yolo macos-fix-permissions '" + ws + "'"
+	var buf bytes.Buffer
+	d := mockDeps(nil)
+	d.Out = &buf
+	failOne[PreconditionWorkspaceShared](&d)
+	if rc := RunMacosUser(d, newOpts(ws)); rc != 1 {
+		t.Fatalf("rc = %d, want 1\n%s", rc, buf.String())
+	}
+	if !strings.Contains(buf.String(), want) {
+		t.Errorf("the launch's refusal does not say %q:\n%s", want, buf.String())
+	}
+	for _, c := range LaunchPreconditions() {
+		if c.ID == PreconditionWorkspaceShared && !strings.Contains(c.Fix(ws), want) {
+			t.Errorf("yolo check's fix does not say %q:\n%s", want, c.Fix(ws))
+		}
+	}
+}

@@ -200,15 +200,41 @@ func TestTheSafeDirectoryEntryIsTheResolvedWorkspace(t *testing.T) {
 
 // A write that fails is said, naming the setting, the symptom and the command that fixes it:
 // the agent otherwise meets a bare exit 128 with nothing pointing back at the boot.
+//
+// THE COMMAND IS RUN, not read: the workspace's name has a space in it, the remedy is taken out
+// of the warning exactly as printed and handed to a shell with the real git, and the one entry
+// it leaves must be the whole workspace path. Unquoted, the shell split it and git set
+// safe.directory to the path's first word and failed on the second.
 func TestAFailedSafeDirectoryWriteIsReported(t *testing.T) {
+	hermeticGit(t)
+	const ws = "/Users/Shared/yolo/My Project"
 	failing := fakeBin(t, "git", "exit 1")
 	e, stderr, _ := loudEnv(t)
 	e.Vars[DarwinLoginPathEnv] = failing
-	e.Workspace = "/Users/Shared/yolo/proj"
+	e.Workspace = ws
 	configureGit(e)
-	mustContain(t, "a failed safe.directory write", stderr,
-		"safe.directory", "/Users/Shared/yolo/proj", "dubious ownership",
-		"git config --global --add safe.directory /Users/Shared/yolo/proj")
+	mustContain(t, "a failed safe.directory write", stderr, "safe.directory", ws, "dubious ownership")
+
+	const lead = "until it is set: "
+	i := strings.Index(stderr.String(), lead)
+	if i < 0 {
+		t.Fatalf("the warning names no command to run:\n%s", stderr)
+	}
+	remedy := strings.TrimSpace(strings.SplitN(stderr.String()[i+len(lead):], "\n", 2)[0])
+	home := t.TempDir()
+	sh := exec.Command("/bin/sh", "-c", remedy)
+	sh.Env = append(os.Environ(), "PATH="+filepath.Dir(gitBin), "HOME="+home,
+		"GIT_CONFIG_GLOBAL="+filepath.Join(home, ".gitconfig"))
+	if out, err := sh.CombinedOutput(); err != nil {
+		t.Fatalf("the printed remedy %q fails in a shell: %v\n%s", remedy, err, out)
+	}
+	// Line by line, not safeDirectories' fields: the one right answer has a space in it.
+	cmd := exec.Command(gitBin, "config", "--global", "--get-all", "safe.directory")
+	cmd.Env = append(os.Environ(), "HOME="+home, "GIT_CONFIG_GLOBAL="+filepath.Join(home, ".gitconfig"))
+	out, err := cmd.Output()
+	if got := strings.Split(strings.TrimSpace(string(out)), "\n"); err != nil || !slices.Equal(got, []string{ws}) {
+		t.Errorf("the printed remedy %q set safe.directory to %q (%v), want exactly [%q]", remedy, got, err, ws)
+	}
 }
 
 // plantGit writes a `git` into dir that records its argv in marker and exits 0 — what an
