@@ -54,7 +54,7 @@ func TestHostLaunchNamesAUsersOwnBedrockSwitch(t *testing.T) {
 	}
 }
 
-// A SWITCH yolo WROTE, end to end at the host (HC-D23, PP-D1): `yolo host apply` on bedrock writes
+// A SWITCH yolo WROTE, end to end at the host (HC-D25, PP-D1): `yolo host apply` on bedrock writes
 // CLAUDE_CODE_USE_BEDROCK into the real ~/.claude/settings.json (providers.md#pv-d8). A launch on
 // another provider while the host selection is still Bedrock names the key as yolo's, and the
 // apply that moves claude's host selection off Bedrock removes it, after which no line prints.

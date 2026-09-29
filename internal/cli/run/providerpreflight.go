@@ -134,7 +134,7 @@ func (o *Options) notePlatformSwitchConflicts(packs []*packload.Pack, channel *p
 		return
 	}
 	// The host's computed-leaf record says which switch `yolo host apply` wrote into the user's
-	// file for the HOST selection (HC-D23): its line names yolo's write, not the user's.
+	// file for the HOST selection (HC-D25): its line names yolo's write, not the user's.
 	home := paths.Home()
 	for _, c := range packload.PlatformSwitchConflicts(packs, channel.scope.Selection(),
 		channel.resolvedProfiles, channel.providers, home, "", render.HostLeafWrote(home)) {

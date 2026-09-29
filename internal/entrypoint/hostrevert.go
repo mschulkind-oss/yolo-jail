@@ -228,7 +228,7 @@ func withdrawHostSurface(e *Env, s manifest.Surface, observe bool, out *HostReve
 			return fmt.Errorf("%s: removing the config-list record %s: %w", id, listRec, rerr)
 		}
 	}
-	// The computed-leaf record ends with the relationship too (HC-D23): the leaves it names were
+	// The computed-leaf record ends with the relationship too (HC-D25): the leaves it names were
 	// removed with their top-level keys above, or are the user's now.
 	if leafRec := e.renderTarget().LeafRecordPath(s.Agent, s.Name); leafRec != "" {
 		if rerr := os.Remove(leafRec); rerr != nil && !os.IsNotExist(rerr) {

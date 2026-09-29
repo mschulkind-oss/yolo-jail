@@ -1,7 +1,7 @@
 package entrypoint
 
 // hostleafrecord.go is the HOST'S COMPUTED-LEAF RECORD and the clear it enables
-// (docs/design/host-computed-layer.md HC-D23, revising HC-D10 rule 4): `yolo host apply` removes a
+// (docs/design/host-computed-layer.md HC-D25, revising HC-D10 rule 4): `yolo host apply` removes a
 // leaf its derive asserted into a real file once the derive stops asserting it, when the file
 // still holds exactly what yolo wrote there.
 //

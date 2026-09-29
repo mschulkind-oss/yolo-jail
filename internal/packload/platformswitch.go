@@ -18,7 +18,7 @@ package packload
 // A SWITCH yolo WROTE IS NOT THE USER'S, and the line says so. `yolo host apply` writes claude's
 // switch into the real file while the HOST selection is Bedrock (providers.md#pv-d8), so a launch
 // selecting another provider meets a key yolo put there. The host's computed-leaf record
-// (render.Target.LeafRecordPath, HC-D23) names every leaf that apply wrote with its value; a
+// (render.Target.LeafRecordPath, HC-D25) names every leaf that apply wrote with its value; a
 // switch holding the recorded value is yolo's, and its line names `yolo host apply`, which clears
 // it once claude's host selection leaves the platform, instead of telling the user to remove a
 // key of theirs. The caller answers from the record (render.HostLeafWrote): this package reads

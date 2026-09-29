@@ -74,7 +74,7 @@ func TestAUsersOwnSwitchConflictsOnlyWhenTheSelectionDoesNotServeIt(t *testing.T
 			t.Errorf("CLAUDE_CODE_USE_BEDROCK=%s is on, got %+v", v, got)
 		}
 	}
-	// A SWITCH yolo WROTE (HC-D23): the host's computed-leaf record names the pointer with the
+	// A SWITCH yolo WROTE (HC-D25): the host's computed-leaf record names the pointer with the
 	// value the file holds, so the conflict is yolo's and its line names `yolo host apply`; a
 	// record naming another value, or none, leaves the switch the user's.
 	for _, tc := range []struct {

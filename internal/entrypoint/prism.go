@@ -266,7 +266,7 @@ type surfaceContribs struct {
 	hostClears []string
 	// hostLeafClears are the RFC 6901 pointers of the computed leaves a host apply clears: each a
 	// leaf yolo's derive asserted on an earlier apply, still holding yolo's value, that the derive
-	// no longer asserts (hostRMWLeafRecord, HC-D23). Applied after hostClears.
+	// no longer asserts (hostRMWLeafRecord, HC-D25). Applied after hostClears.
 	hostLeafClears []string
 }
 
@@ -1493,7 +1493,7 @@ func applyRMWLayers(e *Env, surface manifest.Surface, obj *jsonx.OrderedMap,
 		}
 	}
 	// Then each computed leaf yolo wrote on an earlier apply and its derive no longer asserts,
-	// still holding yolo's value (HC-D23): removed, its parent kept.
+	// still holding yolo's value (HC-D25): removed, its parent kept.
 	for _, p := range contribs.leafClears() {
 		deleteLeaf(obj, p)
 	}

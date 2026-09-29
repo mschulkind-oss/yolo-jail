@@ -495,7 +495,7 @@ func renderHostPlans(e *Env, p *packload.Pack, plans []surfacePlan, observe bool
 		selectionTouched, leafTouched := false, false
 		if mechanism == manifest.ModeRMW {
 			lift, clears, next, touched := hostRMWSelection(e, s, path, hl.selection)
-			// The computed-leaf record (HC-D23): each leaf the derive asserted on an earlier apply
+			// The computed-leaf record (HC-D25): each leaf the derive asserted on an earlier apply
 			// and no longer does, still holding yolo's value, is cleared. Decided over the derive's
 			// own leaves, before the selection lift, which the selection record decides.
 			leafClears, lnext, ltouched := hostRMWLeafRecord(e, s, path, hl.leaves)

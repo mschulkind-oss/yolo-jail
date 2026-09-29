@@ -9,7 +9,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 )
 
-// HostLeafWrote is the reader of the host's computed-leaf record (LeafRecordPath, HC-D23) for the
+// HostLeafWrote is the reader of the host's computed-leaf record (LeafRecordPath, HC-D25) for the
 // home at home: it answers whether `yolo host apply` wrote value at pointer in surface
 // ("agent/name") and the file still holds exactly that. A launch asks it of a platform switch
 // (packload.PlatformSwitchConflicts, PP-D1) to tell a key yolo wrote into the user's own file from

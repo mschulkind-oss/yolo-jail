@@ -1,6 +1,6 @@
 package entrypoint
 
-// hostleafrecord_test.go pins HC-D23 (docs/design/host-computed-layer.md, revising HC-D10 rule 4)
+// hostleafrecord_test.go pins HC-D25 (docs/design/host-computed-layer.md, revising HC-D10 rule 4)
 // through RenderHostPack, the one host entry, over the real claude pack: a leaf the settings derive
 // asserted into the real ~/.claude/settings.json is cleared by the apply after the derive stops
 // asserting it, when the file still holds yolo's value, and a value of the user's is never

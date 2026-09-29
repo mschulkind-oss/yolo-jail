@@ -457,7 +457,7 @@ func (t Target) SelectionPath(agent, name string) string {
 
 // LeafRecordPath is the HOST's computed-leaf record for one surface: every leaf a derive asserted
 // into a real file through the rmw arm (docs/design/host-computed-layer.md HC-D10 rule 4, as
-// revised by HC-D23), keyed by its RFC 6901 pointer, with the value yolo wrote. It is what lets
+// revised by HC-D25), keyed by its RFC 6901 pointer, with the value yolo wrote. It is what lets
 // an apply clear a leaf yolo wrote once the derive stops asserting it, and what lets a launch
 // tell a switch yolo wrote in the user's file from one the user wrote (PP-D1). Under
 // ProvenanceDir at the host, whatever the contract, because the rmw arm writes leaves under both;

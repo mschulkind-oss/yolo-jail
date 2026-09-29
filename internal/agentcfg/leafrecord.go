@@ -1,7 +1,7 @@
 package agentcfg
 
 // leafrecord.go is the codec of the HOST'S COMPUTED-LEAF RECORD (render.Target.LeafRecordPath;
-// docs/design/host-computed-layer.md HC-D23): the value yolo last wrote at each leaf a derive
+// docs/design/host-computed-layer.md HC-D25): the value yolo last wrote at each leaf a derive
 // asserted into a real file through the rmw arm, keyed by the leaf's RFC 6901 pointer
 // ("/env/CLAUDE_CODE_USE_BEDROCK"). Two readers need the one spelling: the host apply that
 // clears a leaf yolo wrote once its derive stops asserting it, and the launch that tells a

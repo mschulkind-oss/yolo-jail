@@ -75,7 +75,7 @@ func TestAnAttachNamesAUsersOwnBedrockSwitch(t *testing.T) {
 		t.Errorf("the attach must name the conflict:\n%s", stderr)
 	}
 
-	// A SWITCH yolo WROTE (HC-D23): with the host's computed-leaf record naming the value the file
+	// A SWITCH yolo WROTE (HC-D25): with the host's computed-leaf record naming the value the file
 	// holds, the line is the one naming `yolo host apply`'s write, never the user-owned one.
 	o, cfg, channel, stderr = attachFixture(t, currentJailEnv, packs, emptyEnv(), nil)
 	writeHostClaudeSettings(t, os.Getenv("HOME"), `{"env": {"CLAUDE_CODE_USE_BEDROCK": "1"}}`)
