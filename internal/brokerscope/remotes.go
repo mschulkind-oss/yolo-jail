@@ -15,6 +15,8 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/termsafe"
 )
 
 // Remote is one remote on the scope's forge.
@@ -26,6 +28,10 @@ type Remote struct {
 }
 
 // Read is what reading one workspace's remotes found.
+//
+// GitConfig and Problem are FOR DISPLAY, and every control character in them is escaped
+// (termsafe.Visible): both can carry a path the agent chose, a worktree's common directory,
+// and host yolo prints them on the human's terminal while asking about the scope.
 type Read struct {
 	// GitConfig is the file the remotes were read from, "" when none was found.
 	GitConfig string
@@ -70,6 +76,12 @@ func (r Read) RemoteNames(repo string) []string {
 // at the files it reads, and follows a worktree's `.git` file only when the target has
 // git's worktree shape.
 func ReadRemotes(workspace, host string) Read {
+	r := readRemotes(workspace, host)
+	r.GitConfig, r.Problem = termsafe.Visible(r.GitConfig), termsafe.Visible(r.Problem)
+	return r
+}
+
+func readRemotes(workspace, host string) Read {
 	cfgPath, problem := gitConfigPath(workspace)
 	if cfgPath == "" {
 		return Read{Problem: problem}
@@ -168,6 +180,11 @@ func worktreeConfig(dotGit string) (string, string) {
 		c = filepath.Join(g, c)
 	}
 	c = filepath.Clean(c)
+	if termsafe.HasUnsafe(c) {
+		// The common directory's config is the path the scope prompt shows, and git never
+		// names one with a control character.
+		return bad("its commondir names a path with a control character")
+	}
 	if !samePath(filepath.Dir(g), filepath.Join(c, "worktrees")) {
 		return bad("its gitdir is not under the common directory's worktrees/")
 	}

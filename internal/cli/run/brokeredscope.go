@@ -9,6 +9,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholedecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
+	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
 )
 
 // brokeredscope.go is the launch's half of a brokered loophole's repository scope
@@ -38,8 +39,10 @@ func (o *Options) brokeredScopeCheck(rt string, cfg *jsonx.OrderedMap) *config.S
 		read := brokerscope.ReadRemotes(o.Workspace, lp.Brokered.RemoteHost)
 		if read.Problem != "" {
 			// Said at the gate, whether or not the approved scope differs: a scope that reads
-			// empty because of a malformed worktree pointer is not the same as no remote.
-			o.pr(o.Stdout).print("[yellow]" + lp.Name + ": " + read.Problem + "[/yellow]")
+			// empty because of a malformed worktree pointer is not the same as no remote. The
+			// problem can name a path the agent chose, so its markup is escaped (its control
+			// characters already are: brokerscope.Read).
+			o.pr(o.Stdout).print("[yellow]" + lp.Name + ": " + richtext.Escape(read.Problem) + "[/yellow]")
 		}
 		check.Sources = append(check.Sources, config.ScopeSource{
 			Source: lp.Brokered.Source, Label: lp.Name, Read: read})

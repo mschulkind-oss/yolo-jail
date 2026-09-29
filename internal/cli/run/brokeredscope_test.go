@@ -80,6 +80,78 @@ func TestTheGateReadsTheRemotesOfABrokerThatWillStart(t *testing.T) {
 	}
 }
 
+// commonDirWorktree turns the fixture workspace's .git into a worktree pointer whose common
+// directory, inside the workspace, has the name the agent chose. config is that common
+// directory's git config, "" for none.
+func commonDirWorktree(t *testing.T, ws, name, config string) {
+	t.Helper()
+	if err := os.RemoveAll(filepath.Join(ws, ".git")); err != nil {
+		t.Fatal(err)
+	}
+	g := filepath.Join(ws, name, "worktrees", "w")
+	if err := os.MkdirAll(g, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for file, body := range map[string]string{
+		filepath.Join(g, "gitdir"):    "../../../.git\n",
+		filepath.Join(g, "commondir"): "../..\n",
+		filepath.Join(ws, ".git"):     "gitdir: " + name + "/worktrees/w\n",
+	} {
+		if err := os.WriteFile(file, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if config != "" {
+		if err := os.WriteFile(filepath.Join(ws, name, "config"), []byte(config), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+// Nothing the agent names reaches the host's terminal as a sequence or as markup: not in the
+// refusal's scope block, not in its advice, and not in the launch's warning line.
+func TestTheGatePrintsTheAgentsPathsAsText(t *testing.T) {
+	// Control characters in the common directory's name: the pointer reads as empty and the
+	// output holds no ESC at all (color is off here, so the launcher writes none itself).
+	o, buf, _ := brokeredFixture(t)
+	commonDirWorktree(t, o.Workspace, "x\x1b[2K\x1b[1A\x1b]0;owned\a\x1b[8m",
+		"[remote \"origin\"]\n\turl = git@github.com:victim/secret.git\n")
+	o.checkConfigChanges(jsonx.NewOrderedMap(), jsonx.NewOrderedMap(), "podman")
+	if out := buf.String(); strings.ContainsAny(out, "\x1b\a") {
+		t.Fatalf("a terminal sequence from the workspace reached the output:\n%q", out)
+	}
+
+	// Markup in the name: the advice names the git config it was read from as text.
+	o, buf, _ = brokeredFixture(t)
+	commonDirWorktree(t, o.Workspace, "[bold green]c", "[remote \"origin\"]\n\turl = git@github.com:o/r.git\n")
+	if o.checkConfigChanges(jsonx.NewOrderedMap(), jsonx.NewOrderedMap(), "podman") {
+		t.Fatal("a first launch with a GitHub remote and no terminal must refuse")
+	}
+	var advice string
+	for _, line := range strings.Split(buf.String(), "\n") {
+		if strings.Contains(line, "git config:") {
+			advice = line
+		}
+	}
+	if !strings.Contains(advice, "bold green]c") {
+		t.Fatalf("the advice's git config line lost the name's markup to the renderer: %q\n%s", advice, buf.String())
+	}
+
+	// And the warning line the launch prints for a problem.
+	o, buf, _ = brokeredFixture(t)
+	commonDirWorktree(t, o.Workspace, "[bold green]d", "")
+	o.checkConfigChanges(jsonx.NewOrderedMap(), jsonx.NewOrderedMap(), "podman")
+	var warning string
+	for _, line := range strings.Split(buf.String(), "\n") {
+		if strings.HasPrefix(line, "gb: cannot read") {
+			warning = line
+		}
+	}
+	if !strings.Contains(warning, "bold green]d") {
+		t.Fatalf("the warning line lost the name's markup to the renderer: %q\n%s", warning, buf.String())
+	}
+}
+
 // Apple Container starts no broker, so it reads nothing and asks nothing (§5.6).
 func TestTheGateAsksNothingWhereNoBrokerStarts(t *testing.T) {
 	o, _, _ := brokeredFixture(t)

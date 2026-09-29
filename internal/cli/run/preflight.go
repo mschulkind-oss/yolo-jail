@@ -438,7 +438,9 @@ func (o *Options) printChangeRefusal(e *config.ChangedNonInteractiveError) {
 	printScopeBlock(out, e.ScopeBlock)
 	printConfigDiff(out, e.DiffLines)
 	out.print("")
-	out.print(e.Advice())
+	// The advice names files, one of them the git config the scope was read from, which can
+	// sit in a directory the agent named; it carries no markup of its own.
+	out.print(richtext.Escape(e.Advice()))
 }
 
 // printScopeBlock renders the labeled repository-scope block (BB-D31) in the launcher's
