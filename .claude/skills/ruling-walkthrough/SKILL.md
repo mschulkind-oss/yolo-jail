@@ -8,9 +8,9 @@ description: Use when the maintainer wants to go through open design questions (
 Settle a backlog of open design questions (OQs, the `💬 <a id="OQ-…">` items in `docs/`) in a
 live conversation, with low latency: the maintainer answers in chat, the agent records and builds.
 
-## Before the first pair
+## Before the first set
 
-1. **Pre-draft every pair in one delegated pass.** One agent reads each question in its doc
+1. **Pre-draft every question in one delegated pass.** One agent reads each question in its doc
    (the question block, its options, its `_Leaning:_`, and any section it needs to state it
    accurately) and writes a personal, git-ignored file, `swarf/walkthrough-<date>.md`: an index,
    then each question in 8–14 lines — the question in one plain sentence, why it matters (what
@@ -23,7 +23,7 @@ live conversation, with low latency: the maintainer answers in chat, the agent r
 3. **Order:** live defects first, then questions that release a build, then questions that only
    close a doc. Group questions that decide one thing into the same set.
 
-## Presenting a pair
+## Presenting a set
 
 - **Lead each question with its setup**: the concrete situation that raises it, in two or three
   sentences a newcomer can picture ("a repo's `mise.toml` pins node 22.4; you have 20 installed;
@@ -34,11 +34,11 @@ live conversation, with low latency: the maintainer answers in chat, the agent r
   leaned, or adjust?" A question the maintainer asks to set aside is PARKED in a named group in the
   queue file ("git from inside the jail"), not dropped, and the set is refilled from the queue.
 - **Every turn ends with the walkthrough panel**, emulating a UI, and nothing after it:
-  1. **Answers:** every question or musing of the maintainer's that bears on an open pair goes
+  1. **Answers:** every question or musing of the maintainer's that bears on an open question goes
      INSIDE the panel, not above it — anything above scrolls by. It STAYS in every later panel
-     until the pair it bears on is ruled; a turn spent on something else (a landing, an issue)
+     until the question it bears on is ruled; a turn spent on something else (a landing, an issue)
      still re-shows it. Answers to side questions ("nothing needed from you?") go in too.
-  2. **Round progress:** pairs done / remaining in this round, what was ruled this turn, what
+  2. **Round progress:** sets done / remaining in this round, what was ruled this turn, what
      was added to the queue.
   3. **Docs in play:** one line per doc touched this round — its state (reviewing, ruled,
      building, landed) and what is running on it.
@@ -48,7 +48,7 @@ live conversation, with low latency: the maintainer answers in chat, the agent r
   turn ends. Never let a set scroll by above later output.
 - **When the maintainer asks "what is this / why", answer the premise, not the options.** A
   "why X at all?" usually targets the assumption under the options table; say what problem it
-  arises from, then re-present the pair.
+  arises from, then re-present the set.
 - **Before presenting a question, check it against the principles already ruled this session.**
   A question that a standing principle answers ("we construct an environment; we do not sniff
   the command line"; "selecting the pack is the consent") should be recorded as answered, not
