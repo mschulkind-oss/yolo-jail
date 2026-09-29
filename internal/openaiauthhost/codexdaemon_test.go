@@ -235,7 +235,6 @@ func TestTurnUpdaterOffLeavesAFileItCannotReadAsItIs(t *testing.T) {
 type fakeDaemon struct {
 	cmd  *exec.Cmd
 	done chan struct{}
-	once sync.Once
 }
 
 func startFakeDaemon(t *testing.T) *fakeDaemon {
