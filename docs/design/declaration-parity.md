@@ -1303,7 +1303,7 @@ The original seven are all ruled. The review of 2026-09-12 ruled four and dissol
 what the catalog's remaining fixes are shaped by. Everything else in this catalog is an
 approval, not a decision — see [§3](#3-the-four-dispositions-and-how-to-walk-the-catalog).
 
-1. 💬 <a id="OQ-DP8"></a>**[OQ-DP8](#OQ-DP8): how does a declared `jail_daemon.cmd` resolve on a backend with no image?**
+1. ✅ <a id="OQ-DP8"></a>**[OQ-DP8](#OQ-DP8): how does a declared `jail_daemon.cmd` resolve on a backend with no image?**
    Every shipped declaration names a binary that exists only inside the container image — e.g.
    `yolo-jaild openai-auth-adapter --listen 127.0.0.1:1460`. `macos-user` has no image, so the
    argv as declared cannot be executed, and this decides what runs instead. It also decides
@@ -1311,9 +1311,7 @@ approval, not a decision — see [§3](#3-the-four-dispositions-and-how-to-walk-
    subject turns on. **With [OQ-DP9](#OQ-DP9), it gates steps 3 and 4 of
 [`jail-daemon-on-macos-user-plan.md`](jail-daemon-on-macos-user-plan.md#build-order).**
 
-   <!-- vantage: oq id=OQ-DP8 leaning="Give yolo the in-jail dispatch and rewrite argv[0]. The in-jail daemons already dispatch on plain args[0] rather than argv[0] or a symlink, so the dispatch is portable as written; it keeps the host ship set at {yolo}, which AGENTS.md states as a property rather than an accident; and it adds no generated in-jail client, which the transport unification exists to prevent. The visible cost is that a declared cmd is no longer literally executable on this backend, which has to be disclosed rather than hidden." -->
-
-   Three candidates, and the choice is visible outside the code:
+      Three candidates, and the choice is visible outside the code:
 
    | Candidate | Cost |
    | :--- | :--- |
@@ -1328,23 +1326,34 @@ approval, not a decision — see [§3](#3-the-four-dispositions-and-how-to-walk-
    launch disclosure rather than hidden.
 
    **Answer:**
-   > _(empty — fill in when decided)_
+   > **Ruled 2026-09-28, none of the three as written: run it in the right place.** The
+   > maintainer: *"why not make the host environment like the containers? we don't have to litter
+   > the host with these, we can just inject them in the guest … if you would have run it on the
+   > host before, it runs on the host. If you would have run it in the jail container, you run it
+   > on the guest."* The in-jail binaries are built for darwin into the bundle as
+   > `bin/darwin-<arch>` and staged into the guest beside the `yolo` macos-user already stages
+   > for its bootstrap (`stagedYolo`), the guest's counterpart of a container's
+   > `/opt/yolo-jail/bin`. They never reach the host PATH, so the host ship set stays `{yolo}`,
+   > and a declared `cmd` runs exactly as declared: no `argv[0]` rewrite (A rejected), no
+   > generated shim (C rejected).
 
-2. 💬 <a id="OQ-DP9"></a>**[OQ-DP9](#OQ-DP9): does a `jail_daemon` run under the Seatbelt profile?**
+2. ✅ <a id="OQ-DP9"></a>**[OQ-DP9](#OQ-DP9): does a `jail_daemon` run under the Seatbelt profile?**
    [`DP-L3`](#decision-ledger) calls it *"an ordinary child"* and says nothing about confinement.
    The faithful reading of *in-jail* says it is confined; the mechanism as approved does not say
    so. **Getting it wrong puts a pack-declared long-running process outside the only confinement
    this backend has**, which is the property `macos-user` is otherwise defined by.
 
-   <!-- vantage: oq id=OQ-DP9 leaning="Yes, confined. Silence in DP-L3 is not permission, and a pack-declared process is exactly the kind of code the profile exists to bound. The cost is that a daemon needing something the profile denies forces the profile to widen, and that widening is itself a disclosure rather than a detail — which is the right place for that argument to happen." -->
-
-   _Leaning:_ **Yes, confined.** Silence in `DP-L3` is not permission, and a pack-declared
+      _Leaning:_ **Yes, confined.** Silence in `DP-L3` is not permission, and a pack-declared
    long-running process is exactly the code the profile exists to bound. The cost is that a daemon
    needing something the profile denies forces the profile to widen — and that widening is a
    disclosure, not a detail, which is the right place for the argument to happen.
 
    **Answer:**
-   > _(empty — fill in when decided)_
+   > **Ruled 2026-09-28: confined.** It follows from [OQ-DP8](#OQ-DP8)'s principle: a jail daemon
+   > runs in the guest, and the guest is the Seatbelt sandbox. Where there is no network
+   > isolation, callers authenticate by per-launch tokens in files only the right account can
+   > read (NC-D2, the caller tokens), which on macos-user is the sandbox account's file
+   > ownership.
 
 3. ✅ **OQ-DP5: When a site cannot honor a declaration, what does it SAY?**
    A warning is the obvious answer, and the tree has already ruled against it:
