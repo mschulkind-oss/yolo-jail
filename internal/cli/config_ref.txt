@@ -1216,9 +1216,11 @@
                     (a readsHost surface of this pack) that put the agent on a provider
                     platform by themselves, such as claude's
                     `/env/CLAUDE_CODE_USE_BEDROCK` in claude/settings for "aws-bedrock".
-                    yolo never removes one; when the user's copy turns it on (true, 1,
-                    yes, on) and the agent's selected provider is not of that platform,
-                    the launch prints one line naming the key and both fixes.
+                    yolo removes one only where its own `yolo host apply` wrote it and
+                    the file still holds that value; when the user's copy turns it on
+                    (true, 1, yes, on) and the agent's selected provider is not of that
+                    platform, the launch prints one line naming the key and both fixes,
+                    and says so when the key is one `yolo host apply` wrote.
       blocked-tool  {bin, message, suggestion, replacement, flags} — refuse a tool
                     inside the jail and print an alternative.  `flags` limits the block
                     to matching argv (absent = always); `replacement` names the binary
@@ -1571,14 +1573,18 @@
                      bedrock lists six) — the credential itself is never in this
                      config.  A named variable reaches only the agents whose profile
                      selects this provider, and the launch pre-flight refuses a provider
-                     some agent selected whose variable is empty.
+                     some agent selected whose variable is empty.  A provider that sets
+                     no api_key_env_name but a `platform` claims the names every provider
+                     of that platform lists, so a Bedrock provider of your own keeps the
+                     six AWS names to its agents as `bedrock` does.
       platform       what service this provider is, one token in an open vocabulary
                      ("aws-bedrock" for Amazon Bedrock).  Yours gets exactly the behavior
                      a shipped provider of the same platform gets: a Bedrock provider of
                      your own, `{"platform": "aws-bedrock", "region": "eu-west-1"}` with a
                      profile over it, switches claude to its Bedrock client, receives the
-                     aws-auth credential pointer and is required a region.  A value no
-                     pack knows changes nothing.
+                     aws-auth credential pointer, claims the AWS credential variables
+                     `bedrock` claims (unless it lists its own api_key_env_name) and is
+                     required a region.  A value no pack knows changes nothing.
       region         the region a regional provider is reached through.  For a provider
                      whose platform a selected pack declares region variables for
                      (`bedrock`, and any provider of yours with "platform":

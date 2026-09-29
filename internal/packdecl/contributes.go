@@ -457,7 +457,9 @@ type Contribution struct {
 	// which is already a contribution kind, and not `native`, which would be a transport. The
 	// user's own `providers.<name>.platform` sets it for a provider only the user declares,
 	// and overrides a pack's (config.knownProviderKeys), so a provider a user defines gets
-	// the behavior the shipped one does.
+	// the behavior the shipped one does. That includes the CREDENTIAL CLAIMS: a provider that
+	// declares a platform and no api_key_env_name co-claims every name a same-platform
+	// provider lists (packload.credentialClaims; providers-and-profiles-redesign.md PP-D9).
 	//
 	// ⚠ NOT `platforms` (plural, on `program` and `service`), which lists the host OS/arch
 	// pairs a build exists for. The two share a word and nothing else.
@@ -588,7 +590,10 @@ type Contribution struct {
 	// not write; when the switch is on and the agent's selected provider is not of that
 	// platform, the credential gate sends the agent none of that platform's credentials, and the
 	// launch says so in one line naming both fixes (a `-p` over a provider of the platform, or
-	// removing the key; docs/design/providers-and-profiles-redesign.md PP-D1). See PlatformSwitch.
+	// removing the key; docs/design/providers-and-profiles-redesign.md PP-D1). A switch the
+	// agent's own derive wrote there at `yolo host apply` is yolo's: the line says so, and the
+	// next apply that stops asserting it removes it (docs/design/host-computed-layer.md HC-D25).
+	// See PlatformSwitch.
 	//
 	// A PACK FACT because core knows no agent's settings file or variable (OQ-CS8): the pack
 	// says where its agent's switch lives, and core reads it there. ON `program` ALONE: the

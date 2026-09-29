@@ -115,8 +115,11 @@ end
 --   - THE TRANSPORT IS CLAUDE'S OWN: its profile routes through no via service
 --     (ctx.via_url, the wire bridge). The everything profile reaches the same provider through
 --     the bridge (OQ-BR11, OQ-BR1's `bedrock-bridge`), so it must NOT turn claude's native client
---     on; aws-auth's credential pointer still reaches it, keyed on the platform alone, for the
---     bridge to sign with.
+--     on; aws-auth's credential pointer still reaches it, keyed on the platform alone. ⚠ No via
+--     route carries claude yet (it speaks anthropic, the via route the OpenAI wires, and the
+--     bridge has no Bedrock upstream for claude), so today such a profile leaves claude on its
+--     own login with a pointer nothing uses; the launch's via-route gate says so
+--     (wirebridged.unroutedViaNotice). This split is the shape the bridged route will need.
 local function nativeBedrock(ctx)
   return ctx.selected_platform == "aws-bedrock" and (ctx.via_url or "") == ""
 end
@@ -195,7 +198,9 @@ yolo.derive("claude", "settings", function(ctx)
   -- CLAUDE_CODE_USE_BEDROCK in the settings file's `env` block, so a bare `claude` outside yolo
   -- still runs in Bedrock mode (providers.md#pv-d8); the env producer below sets it for a process
   -- yolo launches. Asserted, never tombstoned: a user's own switch here is theirs, and yolo
-  -- deletes nothing it did not write (PP-D1).
+  -- deletes nothing it did not write (PP-D1). One this derive wrote into the real file at
+  -- `yolo host apply` is yolo's, and that apply clears it once this stops asserting it, from
+  -- the host's computed-leaf record (docs/design/host-computed-layer.md HC-D25).
   if nativeBedrock(ctx) then env.CLAUDE_CODE_USE_BEDROCK = "1" end
   local out = {
     mcpServers = ctx.tombstone,

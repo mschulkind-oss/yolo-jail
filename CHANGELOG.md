@@ -82,16 +82,20 @@ started Claude Code without its Bedrock mode or the jail's AWS credentials, and 
 `llamacpp` lost the setting that keeps llama.cpp's prompt cache working. They follow the provider
 now: `"profiles": {"bedrock-sso": {"provider": "bedrock"}}` works like `-p bedrock`, and so does a
 Bedrock provider you declare yourself by adding `"platform": "aws-bedrock"` to it in your user
-config. A profile of your own over the ChatGPT subscription (`openai-codex`) signs pi and Claude
-Code in the way `-p codex` does. A profile that routes Claude Code through the wire bridge to
-Bedrock gets the AWS credentials for the bridge and leaves Claude Code's own Bedrock client off.
-See [what service a provider is](docs/reference/providers.md#the-platform-what-service-a-provider-is).
+config. Either one runs Claude Code in Bedrock mode with the jail's AWS credentials, and hands the
+agents on it the AWS keys in your `env_sources`, as `bedrock` does. A profile of your own over the
+ChatGPT subscription (`openai-codex`) signs pi and Claude Code in the way `-p codex` does. Claude
+Code cannot reach Bedrock through the wire bridge yet, so a profile that adds `"via":
+"wire-bridge"` to a Bedrock provider leaves Claude Code on its own login, and the launch now says
+so. See [what service a provider is](docs/reference/providers.md#the-platform-what-service-a-provider-is).
 
 **A launch now tells you when your own Claude settings turn Bedrock on but no Bedrock provider is
 selected.** With `"env": {"CLAUDE_CODE_USE_BEDROCK": "1"}` in `~/.claude/settings.json`, Claude
 Code runs in Bedrock mode whatever yolo selects, and yolo then hands it no AWS credentials. The
 launch prints one line naming the setting and both fixes, `-p bedrock` or removing the key, in a
-jail and at `yolo host`. yolo leaves your settings alone. See
+jail and at `yolo host`. yolo leaves a setting you wrote alone. When `yolo host apply` wrote it
+there itself, for a host selection on Bedrock, the line says so, and the next `yolo host apply`
+with Claude Code off Bedrock removes it. See
 [a switch in the agent's own config](docs/reference/providers.md#a-switch-in-the-agents-own-config).
 
 pi's subagents can now use your MCP servers. When the pi-subagents extension is in pi's
@@ -109,8 +113,10 @@ now offers the same `openai-codex` models a jail's pi does. As in a jail, yolo w
 server and provider lists whole, so an entry you added through the agent itself is dropped unless
 your config declares it; each is named, and yolo asks before dropping one the first time it writes
 a list. The selected model is written when your selection changes, and a model you pick later in
-the agent stays. MCP presets and servers whose command is a path that exists only inside a jail
-are not written to your machine, and the report names each one. Under `host_management: own`,
+the agent stays. A setting yolo wrote for your configuration, such as Claude Code's Bedrock switch
+or its LSP switch, is removed again by the next apply once your configuration stops calling for
+it, while one you wrote or changed yourself stays. MCP presets and servers whose command is a path
+that exists only inside a jail are not written to your machine, and the report names each one. Under `host_management: own`,
 the files yolo writes whole (pi's, Copilot's and Antigravity's MCP files, Copilot's LSP file, and
 pi's and oh-omp's model files) are now written too, keeping what they already hold, where they
 used to be refused. See [what a host apply writes](docs/design/host-computed-layer.md#14-what-was-built).

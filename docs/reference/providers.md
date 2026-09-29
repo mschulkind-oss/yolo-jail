@@ -229,12 +229,16 @@ on `aws-bedrock` today:
 
 So `"providers": {"bedrock-eu": {"platform": "aws-bedrock", "region": "eu-west-1"}}` with a profile
 over it, or a profile `bedrock-sso` over the shipped `bedrock`, gets all three, as `-p bedrock`
-does. What the platform does NOT carry is a provider's credential claims: the shipped `bedrock`
-claims six AWS variables in its `api_key_env_name`, which the credential gate delivers only to
-agents on it, and a provider of your own claims only what its own `api_key_env_name` lists, so
-without that list an `env_sources` AWS key reaches every process
-([PP-D9](../design/providers-and-profiles-redesign.md#PP-D9)). ⚠ `platform` is not `platforms` (on `program` and `service`), which lists the host OS/arch
-pairs a build exists for.
+does. **The credential claims follow the platform too**
+([PP-D9](../design/providers-and-profiles-redesign.md#PP-D9)): a provider that declares a
+`platform` and no `api_key_env_name` of its own claims every variable a provider of the same
+platform in the composed table lists. So `bedrock-eu` claims the six AWS variables the shipped
+`bedrock` lists, and the [credential gate](#the-credential-gate) delivers an `env_sources` AWS key
+to the agents on either provider and to no other process. Before, `bedrock-eu` claimed nothing
+while `bedrock` still claimed all six, so the gate withheld them from every process, the agent on
+`bedrock-eu` included. A provider that lists its own `api_key_env_name` claims exactly that list
+and inherits nothing. ⚠ `platform` is not `platforms` (on `program` and `service`), which lists
+the host OS/arch pairs a build exists for.
 
 ## The credential preflight
 
@@ -394,7 +398,7 @@ A profile's credentials and gated env reach **only the agent that selected it**
 
 | Value | Who receives it |
 | :--- | :--- |
-| An `env_sources` value whose name a composed provider **claims** (lists in its `api_key_env_name`) | each agent whose selected profile resolves to a claiming provider; no other process, a bare shell included |
+| An `env_sources` value whose name a composed provider **claims** (lists in its `api_key_env_name`, or, for a provider that lists none and declares a `platform`, a same-platform provider lists: [the platform](#the-platform-what-service-a-provider-is)) | each agent whose selected profile resolves to a claiming provider; no other process, a bare shell included |
 | An `env_sources` value no provider claims (`GH_TOKEN`, anything else) | every process, as before |
 | A gated `kind: "env"` contribution | the pack's own agent when its selection satisfies the gate; for a pack that installs no CLI (`aws-auth`), every agent whose selection does. A `platform` gate is satisfied by the selected provider's platform, a `profile` gate by the profile's name ([the `profile` modifier](#the-profile-modifier)) |
 | An env derive's output (the shape vars) | its own agent, and the derive's copy of the table carries the `api_key` of that agent's provider only |
@@ -769,7 +773,10 @@ promoting the line to the terminal is a change at `noteSelectionClears` alone.
 > is selected, and they are process environment rebuilt on every launch, so a deselect simply
 > stops emitting them. The codex profile's picker keys in `claude/settings` (`availableModels`,
 > `modelPicker`) are ordinary computed keys, re-asserted every boot. They leave with the profile
-> for the same reason.
+> for the same reason. At `yolo host apply`, whose `rmw` write re-reads your real file, a computed
+> key the derive stops asserting leaves by the computed-leaf clear
+> ([HC-D25](../design/host-computed-layer.md#HC-D25)) rather than by omission: claude's Bedrock
+> switch is the case that matters, since the host leaves claude's `codex` profile out.
 
 ### A selection outranks a host-layer value
 
@@ -1098,21 +1105,26 @@ cannot see it.
 | **Nothing**: the agent's config does not point at its via URL, for example pi with a via over `openai-codex` | warns on stderr that the via has no effect, and starts ([WG-I15](../design/wire-bridge-gateway.md#WG-I15)) | WARN |
 | **Points the agent at a prefix the bridge serves no route for**: the provider declares neither wire, is not in the composed table, or is the ChatGPT subscription (opencode, whose derive re-points any selected provider) | refuses, naming the profile, the agent, the reason and the via URL ([WG-I13](../design/wire-bridge-gateway.md#WG-I13)) | FAIL |
 | **Points the agent at a route with only the wire it does not prefer**, for example pi on a Responses-only provider such as `openrouter` | warns on stderr, naming the endpoint the provider lacks, and starts ([WG-I14](../design/wire-bridge-gateway.md#WG-I14)) | WARN |
+| **Carries none of the agent's requests**: the agent's first protocol is neither via wire, as claude's and copilot's `anthropic` is, and its config does not point at its via URL | warns on stderr that the via sends none of its requests through the bridge, naming the agent's own switch for the provider's platform when its pack declares one (claude's `CLAUDE_CODE_USE_BEDROCK` for `aws-bedrock`), and starts | WARN |
 
 The agent's **preferred wire** *(coined in [WG-I14](../design/wire-bridge-gateway.md#WG-I14))* is
 the one its pack's first declared protocol names: chat-completions for `openai`, Responses for
 `openai-responses`. For every shipped agent that is the wire its derive speaks on the via route, so
 the third row's requests will fail. It is a warning, not a refusal, because the launcher reads the
 wire off the declared `protocols`, not off what the derive writes, and a pack yolo does not ship
-can write either. An agent whose first protocol is neither, such as claude or copilot, or that
-declares none, such as agy, is not checked: none of their derives read the via URL.
+can write either. An agent whose first protocol is neither, such as claude or copilot, is never
+refused: it gets the fourth row's warning when its config does not point at the via URL. That
+matters for claude on a Bedrock provider, because a via turns claude's own Bedrock client off
+([PP-D4](../design/providers-and-profiles-redesign.md#PP-D4)) while no via route carries claude,
+so claude starts on its own login. An agent that declares no protocols, such as agy, is not
+checked: nothing in its pack reads the via URL.
 
 `via` is a field, not an option: the provider's option census does not apply to it, and a user's
 `via` replaces a pack-shipped one for the same profile name. It works for agents that take a base
 URL and keep its path: pi, oh-omp and opencode, which speak chat-completions there, and codex,
 which speaks Responses. claude and copilot already reach the bridge through its adapter routes,
-which a via profile does not change. At the host notch (`yolo host`) there is no bridge daemon,
-so the agent uses its own client. That holds even when `wire-bridge` is listed in `packs`: the
+which a via profile does not change, and no via route carries either of them. At the host notch
+(`yolo host`) there is no bridge daemon, so the agent uses its own client. That holds even when `wire-bridge` is listed in `packs`: the
 host clears every via address before any derive reads one
 ([WG-I12](../design/wire-bridge-gateway.md#WG-I12)).
 
@@ -1194,8 +1206,12 @@ credentials pointer on a `platform` gate. All three key on the provider's platfo
 profile's name, so a profile of your own over `bedrock`, or a Bedrock provider of your own, gets
 the same ([`OQ-BR8`](../design/providers-and-profiles-redesign.md#OQ-BR8)). The switch also needs
 claude's own transport: a profile over the same provider that routes through the wire bridge
-(`via`) gets the pointer, for the bridge to sign with, and not the switch
-([PP-D4](../design/providers-and-profiles-redesign.md#PP-D4)). Until 2026-09-29 the switch rode a
+(`via`) gets the pointer and not the switch
+([PP-D4](../design/providers-and-profiles-redesign.md#PP-D4)). ⚠ **Nothing routes claude to
+Bedrock through the bridge yet**: claude speaks `anthropic`, the via route passes only the OpenAI
+wires, and the bridge has no Bedrock upstream for claude. So such a profile leaves claude on its
+own login with a pointer nothing uses, and the launch says so
+([what the via does](#routing-a-profile-through-the-bridge-via)). Until 2026-09-29 the switch rode a
 `profile: "bedrock"` gated `env` and `config-overlay` pair. Claude Code honors the settings file's
 `env` block before its first API call ([OQ-4](#pv-oq-4)).
 
@@ -1248,8 +1264,9 @@ bearer beside aws-auth's pointer refuses no host launch.
 An agent can be switched onto a provider platform by its own settings, whatever yolo selects:
 Claude Code reads `CLAUDE_CODE_USE_BEDROCK` from the `env` block of `~/.claude/settings.json`,
 which reaches a jail as `claude/settings`' host layer and is claude's own file at `yolo host`.
-yolo obeys a switch you wrote and deletes nothing it did not write. When the switch is on (JSON
-`true`, `1`, or `1`/`true`/`yes`/`on` in any case) and claude's selected provider is not of that
+yolo obeys a switch you wrote and deletes nothing it did not write; one it wrote itself it removes
+when it stops asserting it (below). When the switch is on (JSON `true`, `1`, or
+`1`/`true`/`yes`/`on` in any case) and claude's selected provider is not of that
 platform, the credential gate sends claude none of that platform's credentials, so the launch
 prints one line naming the conflict and both fixes
 ([PP-D1](../design/providers-and-profiles-redesign.md#PP-D1), ruled 2026-09-29):
@@ -1257,6 +1274,22 @@ prints one line naming the conflict and both fixes
 ```text
 claude: ~/.claude/settings.json sets CLAUDE_CODE_USE_BEDROCK, which puts claude on its own "aws-bedrock" client, but no "aws-bedrock" provider is selected for claude, so yolo delivers it none of that platform's credentials: select one (-p bedrock), or remove CLAUDE_CODE_USE_BEDROCK from ~/.claude/settings.json (yolo leaves it alone).
 ```
+
+**A switch yolo wrote is named as yolo's.** `yolo host apply` writes claude's switch into your real
+`~/.claude/settings.json` while claude's host selection (`use_profiles`) is on a Bedrock provider
+([D8](#pv-d8)), and records the value it wrote at `/env/CLAUDE_CODE_USE_BEDROCK` in the host's
+computed-leaf record, beside the provenance record
+([HC-D25](../design/host-computed-layer.md#HC-D25)). When the file holds that recorded value, the
+line says `yolo host apply` wrote it for claude's host selection, and that applying with claude on
+a provider of another platform removes it, instead of telling you to remove a key of yours:
+
+```text
+claude: ~/.claude/settings.json sets CLAUDE_CODE_USE_BEDROCK, which `yolo host apply` wrote there for claude's host selection, and it puts claude on its own "aws-bedrock" client, but no "aws-bedrock" provider is selected for claude, so yolo delivers it none of that platform's credentials: select one (-p bedrock), or run `yolo host apply` with claude on a provider of another platform, which removes it.
+```
+
+That apply does remove it: a leaf the settings derive stops asserting is cleared when the file
+still holds the value yolo wrote. A switch you wrote before yolo asserted it, or changed after, is
+never recorded and never removed.
 
 The `-p` it offers is a declared profile over a provider of that platform that routes through no
 via service; with none declared it says to select a provider of that platform. It is a disclosure,
@@ -1383,7 +1416,7 @@ Verified at `7ad8358c`, except the deselection rows for the boot log and the id-
 surfaces with a host layer, verified at `38814ba4`, and the rows the `openai-codex` model list
 touched (the clear's log line, codex's `openai-codex` default, the list and pi's copy of it),
 verified at `2a34a176`, except the host half of pi's copy, verified at `f3da48dc`, and the
-tier-alias and pi-subagents rows, verified at `58fc65ce`, and the rows the provider-keyed gates added (the platform, the shipped Bedrock provider, the region requirement, both gates, the platform switches and llamacpp's attribution header), verified at `2a4ba170`. The prose
+tier-alias and pi-subagents rows, verified at `58fc65ce`, and the rows the provider-keyed gates added (the platform, the shipped Bedrock provider, the region requirement, both gates, the platform switches and llamacpp's attribution header), verified at `f93937dd`. The prose
 above explains what each is for; this table is the only place the exact spellings are stated.
 
 | Value | Setting | Defined in |

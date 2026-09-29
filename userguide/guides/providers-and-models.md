@@ -85,14 +85,20 @@ Two more come with the agent packs, with no extra pack to add:
 
   `yolo -p eu -- claude` then runs Claude Code on its own Bedrock client in `eu-west-1`, with the
   `aws-auth` credentials when that loophole is on. `platform` belongs in your user config; a
-  workspace `yolo-jail.jsonc` carrying it is refused. One thing does not carry over: `bedrock`
-  keeps the AWS key variables (`AWS_ACCESS_KEY_ID` and the rest) to the agents on it, and a
-  provider of your own does so only for the variables you list in its `api_key_env_name`, so an
-  AWS key in `env_sources` reaches every process otherwise. A profile of your own over `bedrock`
-  keeps everything. If your own `~/.claude/settings.json` turns
-  Bedrock on (`"env": {"CLAUDE_CODE_USE_BEDROCK": "1"}`) while claude's profile is not a
-  Bedrock one, the launch says so in one line, naming the `-p` that fixes it; yolo leaves the key
-  alone.
+  workspace `yolo-jail.jsonc` carrying it is refused. The AWS keys you put in `env_sources`
+  (`AWS_ACCESS_KEY_ID` and the rest) reach the agents on your provider, as they reach the agents
+  on `bedrock`, and no other process. If you list your own `api_key_env_name` on the provider,
+  only those variables are kept for its agents.
+
+  Claude Code cannot reach Bedrock through the wire bridge yet. A profile that adds
+  `"via": "wire-bridge"` to a Bedrock provider turns Claude Code's own Bedrock client off, so
+  Claude Code runs on its own login; the launch warns when it sees one.
+
+  If your own `~/.claude/settings.json` turns Bedrock on (`"env": {"CLAUDE_CODE_USE_BEDROCK":
+  "1"}`) while claude's profile is not a Bedrock one, the launch says so in one line, naming the
+  `-p` that fixes it; yolo leaves a key you wrote alone. `yolo host apply` writes that key itself
+  while your host selection puts Claude Code on Bedrock, and removes it again once the selection
+  moves off Bedrock; until then the line says the key is yolo's.
 - **`codex`**, in the `claude`, `codex` and `pi` packs: your ChatGPT subscription, through yolo's
   shared OpenAI login. `codex` and `pi` use this login by default; `yolo -p codex -- claude` runs
   Claude Code against it. See [Logins](authentication.md#a-shared-chatgpt-login-for-codex-and-pi).
