@@ -1853,6 +1853,14 @@ func (c *hostComposition) planHostService(e *packload.UnservedAdapterError, pack
 	if !e.Selected || e.ProviderPack != "" {
 		return nil, unservedAdapterRefusal(e, profile, sel, ""), false
 	}
+	// A service this composition already planned that still leaves the pairing unserved is a
+	// contradiction between the gate and the plan, never a reason to plan it twice.
+	for _, p := range c.services {
+		if p.Service == e.Adaptation.Service {
+			return nil, unservedAdapterRefusal(e, profile, sel, "this launch planned it and the "+
+				"pairing still does not resolve through it (a yolo bug)"), false
+		}
+	}
 	d, err := launchservice.Admit(packs, e.Adaptation.Service)
 	if err != nil {
 		var adm *launchservice.AdmissionError
