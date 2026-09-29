@@ -121,6 +121,11 @@ type Loophole struct {
 	// manifest and the VALUES are a fact about the config — they meet in
 	// ResolveSettings (settings.go), which is the only place that combines the two.
 	Settings []Setting
+	// Brokered is the manifest's `brokered` block verbatim, or nil
+	// (loopholedecl/brokered.go): the loophole's repository scope source, read from the
+	// workspace's remotes at each fresh launch, approved in the config-change diff and
+	// handed to its daemon in the launch's scope file.
+	Brokered *Brokered
 	// SupersededBy is the claims that retired every capability this loophole serves —
 	// set at DISCOVERY, where the selected packs' claims and the loophole records are
 	// both in hand. Never a manifest declaration: the same manifest is superseded under

@@ -319,6 +319,9 @@ type Manifest struct {
 	// NIL AND EMPTY MEAN THE SAME THING: this loophole owns no config keys, which is
 	// every manifest written before the block existed.
 	Settings []Setting
+	// Brokered is the `brokered` block (brokered.go), or nil: a loophole whose daemon
+	// runs a host credential's commands, fenced to the workspace's own repositories.
+	Brokered *Brokered
 }
 
 // Decode parses and validates manifest bytes STRICTLY: an unknown key is
@@ -623,6 +626,17 @@ func walk(data *jsonx.OrderedMap, manifestPath, dirName string) (*Manifest, erro
 	if err != nil {
 		return nil, err
 	}
+	brokered, err := parseBrokered(manifestPath, getOrNil(data, keyBrokered))
+	if err != nil {
+		return nil, err
+	}
+	var jailCmd []string
+	if jailDaemon != nil {
+		jailCmd = jailDaemon.Cmd
+	}
+	if err := refuseRepositoryScopeTokenMismatch(manifestPath, brokered, hostDaemon, doctorCmd, jailCmd); err != nil {
+		return nil, err
+	}
 
 	// The {settings} PLACEMENT rules, applied here rather than inside each field's
 	// parser because they need a fact no single field has: how many settings the
@@ -708,6 +722,7 @@ func walk(data *jsonx.OrderedMap, manifestPath, dirName string) (*Manifest, erro
 		PlatformsSet:   platformsSet,
 		Serves:         serves,
 		Settings:       settings,
+		Brokered:       brokered,
 	}, nil
 }
 

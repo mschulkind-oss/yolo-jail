@@ -468,7 +468,8 @@ func TestSubsetManifestProjectsEveryField(t *testing.T) {
 		HostDevices:   []string{"/dev/acme"}, StateFiles: []string{"ca.crt"},
 		Requires:  Requires{CommandOnPath: "python3", CommandOnPathSet: true},
 		Platforms: []string{"linux"}, PlatformsSet: true,
-		Serves: []string{"acme-capability"},
+		Serves:   []string{"acme-capability"},
+		Brokered: &Brokered{Source: "acme", RemoteHost: "acme.test"},
 		Settings: []Setting{{
 			Key: "opt", Type: SettingTypeString, Scope: SettingScopeUser, Default: "",
 		}},

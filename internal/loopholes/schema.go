@@ -27,6 +27,7 @@ type (
 	Requires      = loopholedecl.Requires
 	EnvMap        = loopholedecl.EnvMap
 	Setting       = loopholedecl.Setting
+	Brokered      = loopholedecl.Brokered
 )
 
 // Manifest enum values and the broker_ip default.
