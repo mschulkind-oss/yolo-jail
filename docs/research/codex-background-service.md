@@ -719,7 +719,7 @@ What the comparison teaches:
    > never changes a Codex the user starts directly from a terminal: `yolo host apply` does not
    > write the daemon key into the user's own `~/.codex`, and no `yolo check` row reports on its
    > daemon. This follows the 2026-09-28 ruling that an agent started outside yolo may lack
-   > features, and OQ-OA3's "remains untouched".
+   > features, and [OQ-OA3](../design/openai-auth-broker.md#8-decision-ledger)'s "remains untouched".
 
 ## Decision ledger
 
