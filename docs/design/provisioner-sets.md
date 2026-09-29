@@ -1410,10 +1410,17 @@ recommendation the doc rests on.
 
     <!-- vantage: oq id=OQ-NX4 leaning="(a), moving to (b) if a need is measured: keep the one-variable Go whitelist for the macos-user profile and add variables one at a time only as a need is measured; revisit past about three. HP-DIR3 (2026-09-29) already settled the host half: no packages: profile and no recreated build environment at the host, the agent's commands seeing the user's own shell (OQ-HP7). The floor agent's own startup variables are HP-DIR2's, not this question's." -->
 
-    **Answer:**
+       **Directed 2026-09-29, not yet ruled.** The maintainer, on why not to wait for a measured
+   failure: *"maybe this is an extension point. I don't want to wait for reports of something to fix
+   it because it may be a user hitting this and I want to get ahead of it."* And on the premise:
+   these variables exist only because nix installs certificates, fonts and timezone data in
+   non-standard locations; a system or Homebrew install puts the files where the libraries already
+   look. A measurement on macOS and an extension-point design come back before the ruling.
+
+   **Answer:**
     > _(empty — fill in when decided)_
 
-11. 💬 <a id="OQ-NX5"></a>**OQ-NX5: Is "no PATH pollution" the right claim for a `buildEnv`, or should it be "no
+11. ✅ <a id="OQ-NX5"></a>**OQ-NX5: Is "no PATH pollution" the right claim for a `buildEnv`, or should it be "no
     *undeclared* pollution"?** (The retired doc's [`OQ-5`](#decision-ledger).) A `buildEnv`
     containing `gnugrep` still shadows `/usr/bin/grep` when prepended — the difference from a
     devShell is legibility, not effect, and on a Mac host that is the BSD-vs-GNU hazard arriving by
@@ -1449,10 +1456,12 @@ recommendation the doc rests on.
     the user declared explicitly. And now that the host trigger is gone, (a) can stand without a
     revisit clause unless a guest-side surprise shows up.
 
-    <!-- vantage: oq id=OQ-NX5 leaning="(a): restate the claim as 'no undeclared pollution' and build no warner, because a declared shadow is what packages: ['gnugrep'] asks for. HP-DIR3 (2026-09-29) removed the host half, and with it the old revisit trigger: yolo builds no packages: profile at the host, and the host prefix holds only floor names on no user PATH. OQ-P2, already ruled, keeps yolo's own floor BSD-clean, so any GNU shadow on the macos-user profile is one the user declared." -->
-
     **Answer:**
-    > _(empty — fill in when decided)_
+    > **Ruled 2026-09-29, as leaned: (a).** The maintainer: *"the warning is in principle useful,
+    > but seems like it's hard to implement, and yes, like you did this, so like this is what
+    > happens to you. We can't warn against everything like that."* The claim is "no undeclared
+    > pollution": a package the user lists that shadows a system command is what they asked for,
+    > and yolo builds no warner.
 
 12. 💬 <a id="OQ-NX8"></a>**OQ-NX8: Should the `packages:` key report at all below `jail`, and which command says
     so?** (The retired doc's [`OQ-8`](#decision-ledger).) `packages` is not a pack kind, so the
