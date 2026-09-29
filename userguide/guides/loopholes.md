@@ -66,8 +66,9 @@ Loopholes work fully on Podman on Linux. On a Mac they depend on the runtime:
   end on a Mac.
 - **Apple Container:** none work yet. A jail on Apple Container cannot connect back to the Mac, so
   the launch lists each loophole it had to skip. This includes the shared Claude and ChatGPT logins.
-- **`macos-user`:** the host services start, but the half that must run inside the sandbox does
-  not, so only the ChatGPT login service is usable, and only partly.
+- **`macos-user`:** the host services start, and the half that must run inside the sandbox runs
+  there, confined like the agent, so the ChatGPT login service and Bedrock (`aws-auth`) work. The
+  shared Claude login does not: its in-jail half needs a container, and the launch says so.
 
 [Settings per setup](../reference/settings-per-setup.md#the-loopholes-host-services-a-jail-can-use)
 has the per-loophole detail.

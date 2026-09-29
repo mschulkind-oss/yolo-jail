@@ -296,22 +296,55 @@ identity. Two macOS-only writers run that the Linux boot does not: the unified-l
 and the **login-rc PATH re-prepend**, which re-asserts the sandbox PATH *after* macOS's
 `path_helper` reorders it.
 
-The Linux-only boot steps — the loader cache, cgroup delegation, port forwarding, the daemon
-supervisor, the container bootstrap and venv scripts — are deliberately **not** run. They are
-no-ops or nonsensical on a native user.
+The Linux-only boot steps — the loader cache, cgroup delegation, port forwarding, the container
+bootstrap and venv scripts — are deliberately **not** run. They are no-ops or nonsensical on a
+native user. The bootstrap does not start the daemon supervisor either, and that one is not a
+no-op: the LAUNCH starts it instead, after the bootstrap exits (next section).
+
+### The jail daemons run in the sandbox
+
+A **jail daemon** is a `jail_daemon` a selected pack declares — the in-jail half of a loophole, or
+a pack service's daemon ([`loopholes.md`](../../userguide/guides/loopholes.md)). Since
+[OQ-DP8](../design/declaration-parity.md#OQ-DP8) and [OQ-DP9](../design/declaration-parity.md#OQ-DP9)
+(ruled 2026-09-28: *"if you would have run it in the jail container, you run it on the guest"*),
+this backend runs them the way a container does, in the sandbox:
+
+- **The binaries.** The flake bundle carries a darwin copy of the in-jail set as
+  `bin/darwin-<arch>` beside its Linux dirs (`flake.nix`'s `guestBinaries`; today that is
+  `yolo-jaild` alone). The launch copies it into `/var/yolo-jail/bin`, root-owned, beside the
+  `yolo` it already stages for the bootstrap; a checkout with no prebuilt dir builds
+  `.#guestPrefix` instead. That directory is on the sandbox's PATH and on no host PATH, so the
+  host ship set stays `yolo`.
+- **The supervisor.** `yolo-jaild supervise` runs as `_yolojail`, under the session's Seatbelt
+  profile, through the same `sudo` → `env -i` → `sandbox-exec` → env-file reader layers as the
+  agent. It starts after the provisioning stage and before the agent, and its process group is
+  signalled when the agent exits. Each declared `cmd` runs exactly as declared: `yolo-jaild` is
+  resolved on the sandbox PATH, with no rewrite and no shim.
+- **Their addresses.** The sandbox shares the Mac's loopback, so each daemon's declared port is
+  replaced by one the launch picks, and the pointer its clients get (codex's refresh URL, the
+  `bedrock` credential URI) names the same port.
+- **What is declined, by name.** Three shapes, one `Declined:` line each with the reason: an
+  intercepting loophole's daemon (the Claude OAuth terminator needs a container's `--add-host`
+  and port 443), a pack service's (its host half runs instead, as a launch-owned child), and a
+  command naming the container's loophole folder `/etc/yolo-jail/loopholes`.
+
+**The boundary is the token files.** There is no network isolation here, so a caller proves it
+belongs to this launch with the launch's per-launch caller token
+([NC-D2](../plans/notch-convergence.md#7-decision-ledger)). The supervisor reads every token its
+daemons demand from its own file, `/var/yolo-jail/env/<session>.daemons.env`: root-owned, mode
+`0600`, in a `0700` directory, with one `user:_yolojail` ACE granting read (and search on the
+directory). Not a `group:` ACE, because the `_yolojail` group holds the host user too. The host
+services' endpoint files are the same shape: `0600` in a `0700` directory, one `user:` read ACE.
+A scoped token (`aws-auth`'s) is exported only in that daemon file and in the environment of an
+agent whose profile selects `bedrock`.
 
 > [!WARNING]
-> ⚠ **The daemon supervisor is the one item in that list that is NOT a no-op**, and it was
-> carried there with no id and no rationale beyond "nonsensical on a native user". It is the
-> process that runs every `jail_daemon` a selected pack declares, and the shipped default
-> declares three: a bare `"packs": ["claude"]` joins `openai-auth` and `wire-bridge` through
-> `needs`, so `yolo-jaild oauth-terminator`, `yolo-jaild openai-auth-adapter` and
-> `yolo-jaild wire-bridge` are all declared and none runs. Since 2026-09-18 the launch
-> **declines each by name** rather than saying nothing
-> ([`jail-daemon-on-macos-user-plan.md`](../design/jail-daemon-on-macos-user-plan.md)).
-> Running them is blocked on two unfiled rulings: how a declared `jail_daemon.cmd` resolves on
-> a backend with no image (`yolo-jaild` is not built for darwin), and whether such a child runs
-> under the Seatbelt profile.
+> **None of this has run on a Mac.** The argvs, the ACE commands and the ordering are pinned by
+> unit tests on Linux. What only a Mac settles: that `sandbox-exec` admits the supervisor and the
+> daemons it starts, that a darwin `yolo-jaild` built on Linux is signed well enough to exec,
+> that the `user:` ACE really lets `_yolojail` read the `0600` file (and nothing else can), that
+> `sudo -n` relays the stop's `SIGTERM`, and that no supervisor outlives the session.
+> `TestMacosUserJailDaemonRunsConfinedInTheGuest` is the test that settles them.
 
 ### Content delivery is a copy, not a mount
 
@@ -460,9 +493,9 @@ a host-services directory of its own and removes only that one, so a second term
 workspace neither replaces the first's endpoints nor removes them when it exits
 ([`HSD-4`](jail-home.md#why-its-this-way)).
 
-**What is inert here is the JAIL half.** No `jail_daemon` runs on this backend (see the warning
-above), so a loophole whose work happens inside the jail does nothing however healthy its host
-daemon is. The launch says both things: one `Declined:` line per jail daemon, and — on the
+**The JAIL half runs too**, in the sandbox ([above](#the-jail-daemons-run-in-the-sandbox)), except
+the jail daemons it declines by name. The launch says both things: one `Declined:` line per
+declined jail daemon, and — on the
 **platform** axis only — one line per loophole this machine cannot run at all (`audio`,
 `journal`, `host-processes` and `cgroup-delegate` declare `platforms: ["linux"]`). The
 **briefing** is gated on the backend too, so it does not advertise these under a heading
@@ -499,8 +532,8 @@ has no boundary to punch:
   (`BuildRunPlan` stages it for each endpoint the launch carries, and `PlanInvariants` refuses a
   plan that names an endpoint without one). It was dead-until-needed; it is needed. What is
   still true is the conclusion: the *interception* does not port, and the TLS terminator that
-  would perform it is a `jail_daemon` this backend declines — so refreshes are not serialized
-  here even with the daemon up.
+  would perform it is the one loophole `jail_daemon` this backend declines — so refreshes are not
+  serialized here even with the daemon up.
 
 **The loophole framework itself is worth keeping, and this backend is arguably a better fit
 than a container.** A loophole is "a host-side daemon mediates the jail's access to a

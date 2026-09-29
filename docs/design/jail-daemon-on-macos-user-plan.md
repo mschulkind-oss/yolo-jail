@@ -3,29 +3,30 @@ title: "Plan: start a jail daemon on macos-user"
 date: 2026-09-17
 status: accepted
 tags: [macos-user, loopholes, jail-daemon, parity, plan]
-summary: "The in-jail half of the loophole lifecycle on the native macOS backend. The host half shipped 2026-09-17. Steps 1 and 2 shipped 2026-09-18 — one exported payload composer, hoisted above the backend dispatch, and a Declined: line per declared daemon — so the backend now names what it will not run; step 5 (retracting the stale prose) landed by 2026-09-24. Still no jail daemon runs anywhere on this backend. Steps 3 and 4 are blocked on OQ-DP8 and OQ-DP9 in declaration-parity.md: how a declared argv resolves with no image, and whether the daemon runs confined."
+summary: "The in-jail half of the loophole lifecycle on the native macOS backend. The host half shipped 2026-09-17; steps 1, 2 and 5 by 2026-09-24. Steps 3 and 4 are BUILT (2026-09-28) on OQ-DP8 and OQ-DP9: the bundle carries darwin in-jail binaries as bin/darwin-<arch>, the launch stages them into the sandbox's root-owned prefix, and yolo-jaild supervise runs the declared daemons, verbatim and confined by the Seatbelt profile, with caller tokens in a root-owned 0600 file. Unexecuted on a Mac."
 vantage:
   status-chip: true
 ---
 
 # Plan: start a jail daemon on macos-user
 
-**Status:** DECIDED, 2026-09-22 — work is owed, and two of its steps wait on rulings filed in another
-doc. **Steps 1 and 2 shipped 2026-09-18** (`f6387968`): the
-payload is composed once above the backend dispatch and the native arm declines each entry by
-name. Step 5 landed by 2026-09-24. Steps 3 and 4 — the ones that would make a jail
-daemon actually run — are blocked on [OQ-DP8](declaration-parity.md#OQ-DP8) and
-[OQ-DP9](declaration-parity.md#OQ-DP9).
+**Status:** BUILT, 2026-09-28 — every step is in the tree, and none of steps 3 and 4 has run on a
+Mac. **Steps 1 and 2 shipped 2026-09-18** (`f6387968`): the payload is composed once above the
+backend dispatch. Step 5 landed by 2026-09-24. **Steps 3 and 4 shipped 2026-09-28**
+(`b5b90c21`, `3a7bd8d6`) on the rulings of [OQ-DP8](declaration-parity.md#OQ-DP8) and
+[OQ-DP9](declaration-parity.md#OQ-DP9): the jail daemons run in the Seatbelt guest. The
+implementation decisions the build took are in the [Decision ledger](#decision-ledger).
 
 > **In short.** Half of every loophole is a process that runs *inside* the jail. On
-> `macos-user` that half has never run, and it still does not: the backend accepts the
-> declarations and starts nothing. What changed is that it now SAYS so — one `Declined:` line
-> per declared daemon. The silence is fixed; the absence is not, and the absence is what steps
-> 3 and 4 are for.
+> `macos-user` that half now runs in the sandbox: the bundle carries a darwin `yolo-jaild`, the
+> launch stages it into `/var/yolo-jail/bin` and starts `yolo-jaild supervise` under the session's
+> Seatbelt profile as `_yolojail`, and the OpenAI refresh adapter and the AWS credential adapter
+> serve there. Three shapes of daemon are still declined, each on one `Declined:` line with its
+> reason (see [Decision ledger](#decision-ledger), JD-3).
 
-**Needs your ruling:** none in this plan. The two rulings that steps 3 and 4 wait on are filed as
-open questions in [`declaration-parity.md`](declaration-parity.md#open-questions); see
-[Blockers](#blockers).
+**Needs your ruling:** none. One question the build surfaced is recorded as a follow-up, not
+decided here: whether the wire bridge's jail daemon should also move into the guest
+([JD-4](#decision-ledger)).
 
 ## What this is for, if you have no context
 
@@ -168,7 +169,7 @@ names each of them:
 
 ## Traps
 
-- **`yolo-jaild` does not exist on a Mac. Constraint.** `flake.nix`'s `shippedBinaries` produces
+- **RESOLVED 2026-09-28 (JD-1, JD-2) — `yolo-jaild` did not exist on a Mac. Constraint, as it stood:** `flake.nix`'s `shippedBinaries` produces
   `bin/linux-<arch>` only, `just install` ships `{yolo}`, and `StageBinaryCommands` stages that one
   binary. Three of the four declarations above name it as `argv[0]`.
 - **A symlink does not fix that.** Both binaries dispatch on plain `args[0]`, never `argv[0]` —
@@ -223,14 +224,17 @@ against them.
    *silent* half of `DP-B7` and was the only step with no open question under it. Shape (a) of
    [`OQ-DP5`](declaration-parity.md#decision-ledger) — a coded decline plus a banner line, **not**
    a warning. → `go test ./internal/cli/run`
-3. **Resolve `argv[0]` natively.** Blocked; see [Blockers](#blockers). Whatever the ruling, the
+3. **Resolve `argv[0]` natively.** ✅ BUILT 2026-09-28 as [OQ-DP8](declaration-parity.md#OQ-DP8)
+   ruled: no rewrite; the declared `yolo-jaild` resolves on the sandbox PATH to a darwin build
+   staged into `/var/yolo-jail/bin` (JD-1, JD-2). Whatever the ruling, the
    in-jail daemon entry points must stay one dispatch shared with
    [`cmd/yolo-jaild`](../../cmd/yolo-jaild) — two spellings of it is the drift the transport
    unification exists to end. → `go test ./internal/cli ./cmd/...`
-4. **The confined, supervised child.** `RunPlan.JailDaemonArgv` + a `Deps` seam that starts it and
-   returns a stop, called after the provisioning stage and before `RunWithProxy`, stopped on every
+4. **The confined, supervised child.** ✅ BUILT 2026-09-28 as [OQ-DP9](declaration-parity.md#OQ-DP9)
+   ruled: `RunPlan.JailDaemonArgv` + the `Deps.StartBackground` seam that starts it and returns a
+   stop, called after the provisioning stage and before `RunWithProxy`, stopped on every
    exit path the env-file sweep already covers. Kill the process **group**, matching container
-   teardown. Blocked on the same ruling as step 3 plus the confinement half.
+   teardown (JD-5, JD-6).
    → `go test ./internal/macosuser`
 5. **Retract the stale prose.** Independent of 3 and 4, and half landed with step 2 — the two
    remaining targets are listed under [Ships with](#ships-with).
@@ -242,8 +246,8 @@ against them.
 | :--- | :--- | :--- | :--- |
 | 1 | **done** — the container argv is byte-identical either way, and the gate still drops an unapproved pack (`TestJailDaemonPayloadArgvIsByteIdentical`, `TestJailDaemonsHonorsTheOriginGate`). Mutation: delete the producer call from `runtimeArgsFor` and the container test fails | — | — |
 | 2 | **done** — that one decline line is emitted per declared daemon, asserted by driving `Run` rather than the printer, so deleting the call from the native arm fails the tests | that the line appears on a real launch | — |
-| 3 | `yolo <subcommand> --version`-class dispatch only; no daemon is started by a test | that the resolved path is executable as the sandbox account | — |
-| 4 | the argv shape: `sandbox-exec -f <profile>` present, wrapped by `ExecWithEnvFile`, no composed value on the argv, and `PlanInvariants` refusing a payload with no argv | `TestMacosUserJailDaemonStarts` in [`integration/macosuserjaildaemon_test.go`](../../integration): with `hello-daemon` enabled, `~/.local/state/yolo-jail-daemons/hello-daemon.log` exists **and carries no `spawn failed:` line** (the supervisor's own report of a bad `argv[0]`), and no supervisor survives the session | two concurrent launches of one workspace, for the `1460` collision; and whether Codex actually refreshes through the adapter — no automated test may start an agent |
+| 3 | **done** — the guest set agrees across `flake.nix`, the bundle script and `macosuser.GuestBinaries`; the bundle stages `bin/darwin-<arch>` into its share dir and the host ship set stays `{yolo}` (`guestbundle_test.go`, `shippedguest_test.go`, `TestFlakeAndLauncherAgreeOnThePrefixLayout`); the guest binaries are staged only into `/var/yolo-jail/bin` | that the Linux-built darwin `yolo-jaild` is executable as the sandbox account | — |
+| 4 | **done** — the argv shape: `sandbox-exec -f <profile>` before `yolo-jaild supervise`, wrapped by `ExecWithEnvFile`, no composed value on the argv, the declared `cmd` verbatim in the payload, `PlanInvariants` refusing a payload with no or an unconfined supervisor, the order bootstrap → supervisor → agent → stop, the daemon env file's 0600 and `user:` ACE, and the served set flipping codex's and bedrock's pointers to served (`jaildaemon_test.go`, `macosuserjaildaemon_test.go`, `macosuserguestdaemons_test.go`) | `TestMacosUserJailDaemonRunsConfinedInTheGuest` in [`integration/macosuserjaildaemon_test.go`](../../integration/macosuserjaildaemon_test.go): with a bare `"packs": ["claude"]`, `yolo-jaild` resolves to `/var/yolo-jail/bin`, the OpenAI adapter's log says `serving on` **and carries no `spawn failed:` line**, and no supervisor survives the session (`hello-daemon` is declined, JD-3) | two concurrent launches of one workspace, for the `1460` collision; and whether Codex actually refreshes through the adapter — no automated test may start an agent |
 | 5 | `vantage-check` link and anchor resolution | — | — |
 
 ## Ships with
@@ -320,9 +324,25 @@ against them.
 - **Don't touch the supervisor here.** Its spawn-failure fix shipped separately on 2026-09-18
   (`eb02ad86`); a native spawn that fails should be read from its log, not fixed in `supervisor`.
 
+## Decision ledger
+
+The rulings are [OQ-DP8](declaration-parity.md#OQ-DP8) and [OQ-DP9](declaration-parity.md#OQ-DP9).
+These are the implementation decisions the build took under them (JD is this plan's own prefix,
+coined here).
+
+| ID | Decision | Date | Built |
+| :--- | :--- | :--- | :--- |
+| JD-1 | **The guest set is `yolo-jaild` alone.** It is the supervisor and every in-jail daemon. `yolo` is staged from the running host binary as before; `yolo-entrypoint` is not needed (the bootstrap is `yolo internal darwin-bootstrap`); the four loophole clients belong to Linux-only loopholes. One list in three spellings — `macosuser.GuestBinaries`, `flake.nix`'s `guestBinaries`, `stage-source-bundle.sh`'s `GUEST_BINARIES` — pinned together by tests | 2026-09-28 | `b5b90c21` |
+| JD-2 | **The guest prefix is `/var/yolo-jail/bin`, and the staged `yolo` moved into it.** `SandboxPath` derives its one entry from the staged `yolo`'s directory, so both names resolve and no PATH list is reordered. A bundle ships `bin/darwin-<arch>` for both release arches; a checkout builds `.#guestPrefix` (a darwin cross-compile from `goSrc`) only when the launch has a daemon to run. A failed build refuses the launch | 2026-09-28 | `3a7bd8d6` |
+| JD-3 | **What the guest declines is one split, `loopholes.JailDaemonsRunIn`**, read by the launch's served set, `yolo check`'s prediction and the decline printer: an intercepting loophole's daemon (the OAuth terminator, keyed on the manifest's `intercepts`), a pack service's (its host half runs instead, notch-convergence NC-D65), and an argv naming the container's `/etc/yolo-jail/loopholes` (so `hello-daemon`, whose files an embedded pack cannot make executable anyway, is declined; `{jail_loophole_dir}` is not parameterised) | 2026-09-28 | `3a7bd8d6` |
+| JD-4 | **The wire bridge keeps its host half on macos-user.** Its jail daemon publishes at `/run/yolo-services`, which the guest has no counterpart of, and NC-D65 already serves it launch-owned. Moving it into the guest would retire that half; it is a follow-up question for the maintainer, not decided here | 2026-09-28 | — |
+| JD-5 | **The supervisor reads its own env file**, `/var/yolo-jail/env/<session>.daemons.env`, installed like the session file (0700 directory, content on stdin, 0600, one `user:_yolojail` read ACE) and swept after the supervisor stops. It carries the payload, the shared channel values, every caller token its daemons demand — a scoped one exported, since no agent reads this file — and their endpoints. The agent's session file gains the unscoped tokens a container's shared channel exports | 2026-09-28 | `3a7bd8d6` |
+| JD-6 | **Started after the provisioning stage and before the agent, stopped after it.** `sudo -n` (it must fail, not prompt, beside the agent's terminal), its own process group, SIGTERM then 10 s then SIGKILL; `sudo` relays the SIGTERM. The launch prints one line naming the daemons it started | 2026-09-28 | `3a7bd8d6` |
+| JD-7 | **macos-user picks served addresses** for the daemons its guest runs, because it shares the Mac's loopback — which closes the `1460` collision trap above for two concurrent launches | 2026-09-28 | `3a7bd8d6` |
+
 ## Blockers
 
-**FILED 2026-09-21** as [OQ-DP8](declaration-parity.md#OQ-DP8) and
+**RESOLVED 2026-09-28**, both ruled and built. **FILED 2026-09-21** as [OQ-DP8](declaration-parity.md#OQ-DP8) and
 [OQ-DP9](declaration-parity.md#OQ-DP9), against
 [`DP-L3`](declaration-parity.md#decision-ledger) — which is where they belong, because a plan is
 not where a decision hides. They had been stated only here for four days, which is why the roadmap's 💬 row for them
