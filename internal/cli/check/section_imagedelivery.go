@@ -6,9 +6,10 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/image"
 )
 
-// deliveryProbeTimeout bounds both subprocesses this section runs. Neither may
-// hang a `yolo check`, and a runtime that cannot answer in this window is an
-// unproven fact, which reports nothing (image.DeliveryPreflight says why).
+// deliveryProbeTimeout bounds the one subprocess this section runs, the namespace
+// probe. It may not hang a `yolo check`, and a runtime that cannot answer in this
+// window is an unproven fact, which reports nothing (image.DeliveryPreflight says
+// why).
 const deliveryProbeTimeout = 10 * time.Second
 
 // reportImageDelivery adds the delivery-route line to the Container Image
@@ -23,20 +24,15 @@ const deliveryProbeTimeout = 10 * time.Second
 // `podman info` before anything runs (internal/image/storewrite.go), so it can be
 // reported before anything runs too — which is the whole job of this command.
 //
-// It asks podman TWICE (once for `info`, once for the namespace) and only on the
-// host path: in-jail the image is the host's business, and on macOS delivery goes
-// through an archive that needs no namespace at all.
+// It reads podman's `info` from the readiness gate's answer (podmanready.go), the one a
+// launch would read too, and asks podman one question of its own, whether the namespace can
+// be entered; and only on the host path: in-jail the image is the host's business, and on
+// macOS delivery goes through an archive that needs no namespace at all.
 func (o *Options) reportImageDelivery(r *reporter, detectedRuntime string) {
 	if o.IsMacOS || detectedRuntime != "podman" {
 		return
 	}
-	facts := image.ReadPodmanStoreFacts(detectedRuntime, func(argv []string) (string, bool) {
-		res := o.Exec(argv, "", nil, deliveryProbeTimeout)
-		if !res.Ran || res.Timeout || res.RC != 0 {
-			return "", false
-		}
-		return res.Stdout, true
-	})
+	facts := o.podmanStoreFacts()
 	pf := image.UnsharePreflight(detectedRuntime, facts.Rootless, o.PathExists("/bin/sh"),
 		func(argv []string) bool {
 			res := o.Exec(argv, "", nil, deliveryProbeTimeout)

@@ -30,6 +30,10 @@ func TestMain(m *testing.M) {
 	if len(os.Args) >= 4 && os.Args[1] == "-settings-sleeper-child" {
 		os.Exit(settingsSleeperChildMain(os.Args[2]))
 	}
+	// THE PODMAN READINESS GATE REFUSES BY DEFAULT HERE (podmanready.go): its real attempt
+	// runner starts `podman info` on whatever PATH the test process has. A test that reaches
+	// the gate says what podman answers (Options.PodmanReadiness, answeringPodman).
+	defaultPodmanAttempt = refusingPodmanAttempt
 	release := testsupport.IsolateHostSingletons()
 	code := m.Run()
 	release()

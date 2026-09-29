@@ -213,9 +213,9 @@ func TestExitCodeCleanInJail(t *testing.T) {
 		}
 		return "", false
 	}
+	podmanAnswers(&opts, ExecResult{Stdout: "{}", Ran: true, RC: 0})
 	opts.Exec = fakeExec(map[string]ExecResult{
 		"podman --version": {Stdout: "podman version 5.0.0", Ran: true, RC: 0},
-		"podman info":      {Stdout: "host: {}", Ran: true, RC: 0},
 		"nix --version":    {Stdout: "nix (Nix) 2.30.0", Ran: true, RC: 0},
 		"nix config show":  {Stdout: "", Ran: true, RC: 0},
 		// Entrypoint dry-run: succeed (exit 0, prints ok).
@@ -253,9 +253,9 @@ func TestCheckAccumulatedFailEarlyExit(t *testing.T) {
 		}
 		return "", false
 	}
+	podmanAnswers(&opts, ExecResult{Stdout: "{}", Ran: true, RC: 0})
 	opts.Exec = fakeExec(map[string]ExecResult{
 		"podman --version": {Stdout: "podman version 5.0.0", Ran: true, RC: 0},
-		"podman info":      {Stdout: "host: {}", Ran: true, RC: 0},
 	})
 	// ...but repo root is UNRESOLVED → a non-validation FAIL accumulates before
 	// the gate. (baseOptions already sets RepoRoot -> ("", false).)
@@ -302,10 +302,13 @@ func TestRuntimeStoppedHintIsActionable(t *testing.T) {
 			return "", false
 		}
 		// podman is installed (version OK) but the liveness probe fails — VM/socket
-		// down. No runtime becomes connectable, so the section FAILs with the hint.
+		// down. No runtime becomes connectable, so the section FAILs with the hint. On
+		// Linux that is the readiness gate's answer; on macOS the one-shot `podman info`.
+		stopped := ExecResult{Stdout: "", Stderr: "cannot connect", Ran: true, RC: 1}
+		podmanAnswers(&opts, stopped)
 		opts.Exec = fakeExec(map[string]ExecResult{
 			"podman --version": {Stdout: "podman version 5.0.0", Ran: true, RC: 0},
-			"podman info":      {Stdout: "", Stderr: "cannot connect", Ran: true, RC: 1},
+			"podman info":      stopped,
 		})
 		r := newReporter(&out, false)
 		opts.sectionContainerRuntime(r)
@@ -350,9 +353,9 @@ func TestRuntimeStoppedIsOneRow(t *testing.T) {
 		var out bytes.Buffer
 		opts := baseOptions(t, &out)
 		opts.LookPath = func(name string) (string, bool) { return "/usr/bin/" + name, name == "podman" }
+		podmanAnswers(&opts, stopped)
 		opts.Exec = fakeExec(map[string]ExecResult{
 			"podman --version": {Stdout: "podman version 5.0.0", Ran: true, RC: 0},
-			"podman info":      stopped,
 		})
 		r := newReporter(&out, false)
 		opts.sectionContainerRuntime(r)
@@ -383,9 +386,9 @@ func TestRuntimeStoppedIsOneRow(t *testing.T) {
 			return ""
 		}
 		opts.LookPath = func(name string) (string, bool) { return "/usr/bin/" + name, true }
+		podmanAnswers(&opts, ExecResult{Stdout: "{}", Ran: true, RC: 0})
 		opts.Exec = fakeExec(map[string]ExecResult{
 			"podman --version":        {Stdout: "podman version 5.0.0", Ran: true, RC: 0},
-			"podman info":             {Stdout: "host: {}", Ran: true, RC: 0},
 			"container --version":     {Stdout: "container CLI version 0.5.0", Ran: true, RC: 0},
 			"container system status": stopped,
 		})
@@ -445,9 +448,9 @@ func TestStoppedRuntimeIsOneFailInTheWholeReport(t *testing.T) {
 				return ""
 			}
 			opts.LookPath = func(name string) (string, bool) { return "/usr/bin/" + name, name == "podman" }
+			podmanAnswers(&opts, stopped)
 			opts.Exec = fakeExec(map[string]ExecResult{
 				"podman --version": {Stdout: "podman version 5.8.6", Ran: true, RC: 0},
-				"podman info":      stopped,
 			})
 			if rc := Check(opts); rc != 1 {
 				t.Errorf("exit = %d, want 1 — a stopped runtime still fails the check", rc)
@@ -497,9 +500,8 @@ func TestRuntimeUnavailableMessageIsTrue(t *testing.T) {
 	var out bytes.Buffer
 	opts := baseOptions(t, &out)
 	opts.LookPath = func(name string) (string, bool) { return "/usr/bin/" + name, name == "podman" }
-	opts.Exec = fakeExec(map[string]ExecResult{
-		"podman info": {Ran: true, RC: 125},
-	})
+	podmanAnswers(&opts, ExecResult{Ran: true, RC: 125})
+	opts.Exec = fakeExec(map[string]ExecResult{})
 	_, msg, unavailable := opts.resolveRuntimeForCheck(jsonx.NewOrderedMap())
 	if !unavailable {
 		t.Errorf("a stopped podman is a runtime-availability error")

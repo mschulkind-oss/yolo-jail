@@ -117,8 +117,13 @@ func (o *Options) nativeRuntimeCheck(rt, source string) (string, string, bool) {
 	return rt, "", true
 }
 
-// runtimeIsConnectable reports whether the daemon answers.
+// runtimeIsConnectable reports whether the daemon answers. Podman on Linux asks the
+// readiness gate (podmanready.go), the launch's own, once per check; macOS podman and Apple
+// Container keep a one-shot probe.
 func (o *Options) runtimeIsConnectable(rt string) bool {
+	if o.usesReadinessGate(rt) {
+		return o.podmanGate().Outcome == runtime.PodmanReady
+	}
 	if rt == "container" {
 		res := o.Exec([]string{"container", "system", "status"}, "", nil, 5*time.Second)
 		if !res.Ran || res.Timeout {

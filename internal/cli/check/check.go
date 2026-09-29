@@ -14,6 +14,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/nixdiag"
 	"github.com/mschulkind-oss/yolo-jail/internal/outfmt"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	"github.com/mschulkind-oss/yolo-jail/internal/runtime"
 	"github.com/mschulkind-oss/yolo-jail/internal/storage"
 	"github.com/mschulkind-oss/yolo-jail/internal/tty"
 	"github.com/mschulkind-oss/yolo-jail/internal/version"
@@ -335,6 +336,24 @@ func (o *Options) sectionContainerRuntime(r *reporter) string {
 			continue
 		}
 		version := firstLine(strings.TrimSpace(verRes.Stdout))
+		if o.usesReadinessGate(p.name) {
+			// THE LAUNCH'S GATE, not a probe of check's own (podmanready.go): up to a minute
+			// for podman to finish post-boot cleanup, and the same refusal a launch prints.
+			gate := o.podmanGate()
+			switch gate.Outcome {
+			case runtime.PodmanReady:
+				r.ok(p.name + ": " + version)
+				if detectedRuntime == "" {
+					detectedRuntime = p.name
+				}
+			case runtime.PodmanNotStarted:
+				r.fail(p.name+" found but not working: "+gate.Refusal(p.name), "")
+			default:
+				// The fix first, then podman's own evidence (HE-D2's one row).
+				offline = append(offline, offlineEntry{p.name, version, p.livenessHint + "\n" + gate.Refusal(p.name)})
+			}
+			continue
+		}
 		pingRes := o.Exec(p.livenessCmd, "", nil, 10*time.Second)
 		if !pingRes.Ran || pingRes.Timeout {
 			r.fail(p.name+" found but not working: liveness probe failed", "")

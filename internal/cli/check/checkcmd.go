@@ -35,6 +35,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/reporoot"
+	yoloruntime "github.com/mschulkind-oss/yolo-jail/internal/runtime"
 	"github.com/mschulkind-oss/yolo-jail/internal/selfupdate"
 	"github.com/mschulkind-oss/yolo-jail/internal/tty"
 )
@@ -98,6 +99,18 @@ type Options struct {
 	// Stdin is read for the orphan-jail cleanup prompt. nil => never prompt
 	// (treated as "N").
 	Stdin io.Reader
+	// PodmanReadiness is the podman readiness gate's seams (podmanready.go): the attempt
+	// runner, its clock and its sleep. A zero field takes the real one. check runs the SAME
+	// gate as a launch (PR-D6 of docs/design/podman-reboot-readiness.md), so the two cannot
+	// disagree about whether podman is up.
+	PodmanReadiness yoloruntime.ReadySeams
+	// IsTTYStderr reports whether Stderr is a terminal: the gate's progress line redraws in
+	// place only there, and is written as lines anywhere else. nil => the ioctl probe on
+	// os.Stderr.
+	IsTTYStderr func() bool
+	// podmanReady is the gate's result, asked once per check and read by every section that
+	// needs a podman answer on Linux. nil until the first asks.
+	podmanReady *yoloruntime.ReadyResult
 	// Color enables ANSI styling. The ANSI-stripped output is identical to the
 	// Color=false output (verified by test), so goldens pin Color=false. It is
 	// only honored when IsTTYStdout() is also true (never leak ANSI to a pipe).
@@ -205,6 +218,9 @@ func fillDefaults(o *Options) {
 	}
 	if o.IsTTYStdout == nil {
 		o.IsTTYStdout = func() bool { return tty.IsTerminalFile(os.Stdout) }
+	}
+	if o.IsTTYStderr == nil {
+		o.IsTTYStderr = func() bool { return tty.IsTerminalFile(os.Stderr) }
 	}
 	if o.Machine == "" {
 		o.Machine = pythonMachine()

@@ -133,9 +133,9 @@ func warnChannelFixture(t *testing.T, out *bytes.Buffer, workspaceConfig string)
 		}
 		return "", false
 	}
+	podmanAnswers(&opts, ExecResult{Stdout: "{}", Ran: true, RC: 0})
 	opts.Exec = fakeExec(map[string]ExecResult{
 		"podman --version": {Stdout: "podman version 5.0.0", Ran: true, RC: 0},
-		"podman info":      {Stdout: "host: {}", Ran: true, RC: 0},
 		"nix --version":    {Stdout: "nix (Nix) 2.30.0", Ran: true, RC: 0},
 		"nix config show":  {Stdout: "", Ran: true, RC: 0},
 		"podman images":    {Stdout: "", Ran: true, RC: 0},

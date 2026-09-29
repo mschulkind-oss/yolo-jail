@@ -5,6 +5,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/image"
 )
 
 // runImageDeliveryInSection drives the WHOLE Container Image section, not
@@ -33,6 +35,9 @@ func runImageDeliveryInSection(t *testing.T, rt string, hasSh bool,
 	o.Getenv = func(string) string { return "" }
 	o.Exec = exec
 	o.PathExists = func(string) bool { return hasSh }
+	// `podman info` is the readiness gate's to ask (podmanready.go): the fixture's answer
+	// to it is what the gate hears, and Exec is never asked for it.
+	podmanAnswers(o, answer(image.PodmanInfoCmd(rt)))
 	r := newReporter(&out, false)
 	// A store path is supplied so the section's image question is the cheap
 	// single-inspect one; the delivery line is what these tests read.
@@ -114,7 +119,7 @@ func TestImageDeliverySectionWarnsWhenTheNamespaceIsRefused(t *testing.T) {
 // gets a PASS naming the route, because a mode nobody can see is a mode nobody
 // can debug — the same rule the launch's own "Store write:" line follows.
 func TestImageDeliverySectionReportsAWorkingRootlessRoute(t *testing.T) {
-	got, _ := runImageDeliveryInSection(t, "podman", true, func(argv []string) ExecResult {
+	got, seen := runImageDeliveryInSection(t, "podman", true, func(argv []string) ExecResult {
 		if len(argv) >= 2 && argv[1] == "info" {
 			return ExecResult{Ran: true, RC: 0, Stdout: rootlessInfo}
 		}
@@ -125,6 +130,13 @@ func TestImageDeliverySectionReportsAWorkingRootlessRoute(t *testing.T) {
 	}
 	if strings.Contains(got, "WARN") {
 		t.Errorf("a healthy host was warned at:\n%s", got)
+	}
+	// The store facts are the readiness gate's answer (PR-D6): the section asks podman
+	// only the namespace question of its own.
+	for _, argv := range seen {
+		if len(argv) >= 2 && argv[1] == "info" {
+			t.Errorf("the delivery section ran its own %v; it reads the gate's answer", argv)
+		}
 	}
 }
 

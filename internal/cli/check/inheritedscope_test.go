@@ -136,9 +136,9 @@ func inJailOptions(t *testing.T, out *bytes.Buffer) Options {
 		}
 		return "", false
 	}
+	podmanAnswers(&opts, ExecResult{Stdout: "{}", Ran: true, RC: 0})
 	opts.Exec = fakeExec(map[string]ExecResult{
 		"podman --version": {Stdout: "podman version 5.0.0", Ran: true, RC: 0},
-		"podman info":      {Stdout: "host: {}", Ran: true, RC: 0},
 		"nix --version":    {Stdout: "nix (Nix) 2.24.0", Ran: true, RC: 0},
 	})
 	// The real filesystem, so a user config that EXISTS is reported as parsed.
