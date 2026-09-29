@@ -76,3 +76,30 @@ func TestTheRunPathTellsTheImageLoadWhetherTheJailReadsTheHostStore(t *testing.T
 		}
 	}
 }
+
+// TestTheRunPathLeavesTheStoreReadToTheImageLoad pins what makes `yolo capture`
+// and every ordinary launch take issue #47's fix: the run path hands AutoLoadImage
+// NO StoreFacts and NO LayerCopy, so fill() installs the real `podman info` read
+// and the real copy, and a rootless podman's store reaches the destination
+// (internal/image/storespec.go). A run-path seam that answered either itself would
+// bypass that read with every image-package test still green.
+func TestTheRunPathLeavesTheStoreReadToTheImageLoad(t *testing.T) {
+	var got image.AutoLoadOptions
+	o := goldenOptions(t.TempDir(), t.TempDir())
+	o.Stdout, o.Stderr = &bytes.Buffer{}, &bytes.Buffer{}
+	o.autoLoad = func(opts image.AutoLoadOptions) image.LoadResult {
+		got = opts
+		return image.LoadResult{OK: true}
+	}
+
+	o.autoLoadImage(jsonx.NewOrderedMap(), "podman", t.TempDir(), storePackagesPlan{})
+
+	if got.StoreFacts != nil {
+		t.Error("the run path sets StoreFacts, so the launch's copy no longer reads podman's " +
+			"store from `podman info` itself")
+	}
+	if got.LayerCopy != nil {
+		t.Error("the run path sets LayerCopy, so the destination the image load computes is " +
+			"not the one that is copied to")
+	}
+}

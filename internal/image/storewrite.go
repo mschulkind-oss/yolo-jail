@@ -114,7 +114,7 @@ const (
 // `<runtime> unshare --` for a rootless one.
 //
 // PURE, and the whole decision. The impure half is one `podman info`
-// (PodmanRootlessness), which is what makes every branch here reachable from a
+// (ReadPodmanStoreFacts), which is what makes every branch here reachable from a
 // table test on a machine that has neither a rootless podman nor a kernel that
 // refuses the mapping — and this jail has neither.
 //
@@ -144,24 +144,6 @@ func StoreWritePrefix(runtime string, rootless PodmanRootless) []string {
 		return nil
 	}
 	return []string{runtime, "unshare", "--"}
-}
-
-// PodmanRootlessness asks the runtime whether the store it writes is rootless.
-// capture runs an argv and returns its stdout; ok=false for anything that did
-// not run cleanly, which is RootlessUnknown.
-//
-// It is ReadPodmanStoreFacts' namespace half, for callers that want only that
-// (`yolo check`); a delivery reads both halves from the one call. MISSING and
-// FALSE stay different answers there — host.security.rootless decodes into a
-// *bool — because a launch that read "I could not find the field" as "the store
-// is rootful" would take the bare-copy branch on precisely the host that cannot
-// use it.
-//
-// Cost: one subprocess, 22 ms measured in this jail, and only on a launch that is
-// about to copy — the same launch that may spend two minutes building the copier.
-// A warm launch whose image is already loaded never asks.
-func PodmanRootlessness(runtime string, capture func(argv []string) (string, bool)) PodmanRootless {
-	return ReadPodmanStoreFacts(runtime, capture).Rootless
 }
 
 // PodmanInfoCmd is the argv ReadPodmanStoreFacts runs.
@@ -224,20 +206,29 @@ func retryWouldHelp(tail []string) (bool, string) {
 			"  `podman info` reports a rootless store. Check\n" +
 			"  `podman info --format '{{.Host.Security.Rootless}}'` and `podman unshare id`."
 	}
-	// The copier could not open the store it resolved (issue #47: a rootless copier
-	// resolving the ROOT runroot from a distro storage.conf). A path the process
-	// may not create is refused identically on a second attempt. Reachable only
-	// when the destination carries no explicit store (storespec.go's tri-state).
+	// The copier could not create or open its store. A path the process may not
+	// create is refused identically on a second attempt. Two diagnoses, told apart
+	// by the destination the copier echoes back: a BARE destination is issue #47's
+	// (the copier resolved its store from storage.conf, and that is not a store
+	// this user can write), a NAMED one is podman's own store failing from inside
+	// the copy's namespace (its ownership, or a parent that does not exist), which
+	// no storage.conf changes.
 	if strings.Contains(joined, "Invalid destination name containers-storage:") &&
 		strings.Contains(joined, "permission denied") {
+		if strings.Contains(joined, "Invalid destination name containers-storage:[") {
+			return false, "the copier could not open the store `podman info` reports, which " +
+				"this copy names, and a second attempt cannot either.\n" +
+				"  The path in the error above is podman's own store as the copy's namespace\n" +
+				"  sees it; check that it and its parent exist and are writable there\n" +
+				"  (`podman unshare ls -ld <path>`)."
+		}
 		return false, "the copier could not open the containers-storage it resolved for itself, " +
 			"and a second attempt cannot either.\n" +
-			"  yolo names podman's own store on the copy when `podman info` reports one; this\n" +
-			"  copy had none, so the copier took its store from storage.conf, and it is not one\n" +
-			"  this user can write. Compare `podman info --format '{{.Store.GraphRoot}} " +
+			"  This copy named no store, so the copier took one from storage.conf, and it is\n" +
+			"  not one this user can write. Compare `podman info --format '{{.Store.GraphRoot}} " +
 			"{{.Store.RunRoot}}'`\n" +
-			"  with the path above; a ~/.config/containers/storage.conf naming podman's store\n" +
-			"  makes the two agree."
+			"  with the path above; a storage.conf naming podman's store (for a rootless user,\n" +
+			"  ~/.config/containers/storage.conf) makes the two agree."
 	}
 	// Our own wrapper on a rootful podman — a mode error, not a transient one.
 	if strings.Contains(joined, "please use unshare with rootless") {

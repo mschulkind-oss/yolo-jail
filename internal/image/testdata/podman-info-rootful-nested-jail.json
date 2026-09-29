@@ -1,0 +1,42 @@
+{
+  "host": {
+    "security": {
+      "rootless": false
+    }
+  },
+  "store": {
+    "configFile": "/etc/containers/storage.conf",
+    "containerStore": {
+      "number": 0,
+      "paused": 0,
+      "running": 0,
+      "stopped": 0
+    },
+    "graphDriverName": "overlay",
+    "graphOptions": {
+      "overlay.mount_program": {
+        "Executable": "/nix/store/jxi4gzz2pawg2pppdd3avm7yccpfs8jy-fuse-overlayfs-1.18/bin/fuse-overlayfs",
+        "Package": "Unknown",
+        "Version": "fuse-overlayfs: version 1.18\nFUSE library version 3.18.2\nusing FUSE kernel interface version 7.45"
+      }
+    },
+    "graphRoot": "/var/lib/containers/storage",
+    "graphRootAllocated": 3999693537280,
+    "graphRootUsed": 1788051189760,
+    "graphStatus": {
+      "Backing Filesystem": "btrfs",
+      "Native Overlay Diff": "false",
+      "Supports d_type": "true",
+      "Supports shifting": "true",
+      "Supports volatile": "true",
+      "Using metacopy": "false"
+    },
+    "imageCopyTmpDir": "/var/tmp",
+    "imageStore": {
+      "number": 5
+    },
+    "runRoot": "/run/containers/storage",
+    "volumePath": "/var/lib/containers/storage/volumes",
+    "transientStore": false
+  }
+}

@@ -32,42 +32,52 @@ import (
 // Nothing about the namespace is wrong; the two processes simply mean different
 // stores.
 //
-// # The fix is to stop asking the copier
+// # The fix is to stop asking the copier, on a ROOTLESS podman
 //
 // The launch already runs one `podman info --format json` to decide the
-// namespace. That same output names the store podman uses — driver, graph root,
-// run root — so the destination names it too, in the transport's own store
-// syntax: `containers-storage:[driver@graphroot+runroot:options]ref`. Given BOTH
-// roots and a driver, the copier's storage library opens exactly those
-// directories and takes no path from any storage.conf (store.go GetStore: the
-// config's defaults are used only when every one of the four fields is empty).
-// It is done for a rootful podman as well: there the two lookups already agree,
-// and naming the store makes that agreement a fact of the argv rather than of the
-// host's config files.
+// namespace. That same output names the store podman uses (driver, graph root,
+// run root), so for a ROOTLESS podman the destination names it too, in the
+// transport's own store syntax:
+// `containers-storage:[driver@graphroot+runroot:options]ref`. Given BOTH roots and
+// a driver, the copier's storage library opens exactly those directories and
+// takes no path from any storage.conf (store.go GetStore: the config's defaults
+// are used only when every one of the four fields is empty).
+//
+// A ROOTFUL podman keeps the bare `containers-storage:<ref>`. The disagreement is
+// in the ROOTLESS lookup; root takes its store from the system file in both
+// library versions, so there is no bug there to fix, and naming a store has costs
+// (next section) that a working rootful path would pay for nothing. An UNKNOWN
+// answer keeps the bare destination too: that copy runs with no namespace prefix,
+// which a rootless store refuses whichever store the copier resolves.
 //
 // # What an explicit store costs, and why the options travel with it
 //
-// The same GetStore rule that stops the config's paths also stops the config's
-// DRIVER OPTIONS: with an explicit spec the copier gets exactly the options the
-// spec's `:options` suffix carries and nothing else. So the options podman
-// reports (`store.graphOptions`) are carried, which is the closest thing to
-// today: on a host where podman and the copier read one file, the copier already
-// parsed every one of these. Two shapes cannot be spelled, because the suffix is
-// split on commas and ends at the first `]` — a value containing either (an
-// `overlay.mountopt` of `nodev,metacopy=on`), and a value that is not a string
-// (the additional image stores list). Those are dropped and NAMED on the launch
-// line. `overlay.mount_program`, the one podman renders as an object, is carried
-// as its Executable. What the spec cannot carry at all — the config's image
-// store, pull options, a rootful `remap-uids` — never shaped where layers land
-// for a copy into podman's own graph root.
+// The same GetStore rule that stops the config's paths stops the rest of the
+// config: with an explicit spec the copier gets exactly the driver options the
+// spec's `:options` suffix carries. So the options podman reports
+// (`store.graphOptions`) are carried, which is the closest thing to what the
+// copier read before. `overlay.mount_program`, which podman renders as an object,
+// is carried as its Executable. The additional image stores, which podman renders
+// both as a list (`<driver>.additionalImageStores`) and as a string key holding
+// only the LAST of them (`<driver>.imagestore`), are carried from the list, one
+// `<driver>.imagestore=` per entry (the drivers append each). A value the suffix
+// cannot spell, because it is split on commas and ends at the first `]` (an
+// `overlay.mountopt` of `nodev,metacopy=on`), or a value of any other shape, is
+// dropped and NAMED on the launch line and in `yolo check`.
+//
+// What the spec cannot carry at all is lost on a rootless copy: the config's split
+// `imagestore` (the image then lands in the graph root, which podman still reads
+// as one of its image stores), its `pull_options`, and any repeated driver option
+// podman rendered lossily. That is the price of the copy writing the store podman
+// reads, and only the rootless copy, the one issue #47 breaks, pays it.
 //
 // # Tri-state
 //
 // A store that `podman info` did not report, or reported in a shape the spec
-// cannot express (a relative path, or a `:`, `]` or — in the graph root — `+`,
-// each a delimiter the transport cuts at its first occurrence), is NOT GUESSED.
-// The destination is then today's bare `containers-storage:<ref>` and the launch
-// line says the copier is picking its own store.
+// cannot express (a relative path, or a `:`, `]` or, in the graph root, `+`, each
+// a delimiter the transport cuts at its first occurrence), is NOT GUESSED. The
+// destination is then today's bare `containers-storage:<ref>` and the launch line
+// says the copier is picking its own store.
 
 // PodmanStore is the containers-storage podman reports it uses.
 type PodmanStore struct {
@@ -77,7 +87,8 @@ type PodmanStore struct {
 	// ConfigFile is the storage.conf podman says it read — reported, never used to
 	// decide anything.
 	ConfigFile string
-	// Options are the driver options carried in the spec, `key=value`, sorted.
+	// Options are the driver options carried in the spec, `key=value`, in a stable
+	// order.
 	Options []string
 	// Dropped names the options podman reported that the spec cannot spell.
 	Dropped []string
@@ -103,9 +114,18 @@ type PodmanStoreFacts struct {
 	Unknown    string
 }
 
+// NamesStore reports whether a delivery names podman's store on its destination:
+// only for a ROOTLESS podman whose store was read and can be spelled. Every other
+// answer keeps the bare destination (this file's header says why).
+func (f PodmanStoreFacts) NamesStore() bool {
+	return f.StoreKnown && f.Rootless == RootlessYes
+}
+
 // podmanInfoForStore is the slice of `podman info --format json` a delivery reads.
 // Rootless is a POINTER so an absent field stays "unknown" rather than decoding as
-// false — the two want opposite branches (StoreWritePrefix).
+// false — the two want opposite branches (StoreWritePrefix), because a launch that
+// read "I could not find the field" as "the store is rootful" would take the
+// bare-copy branch on precisely the host that cannot use it.
 type podmanInfoForStore struct {
 	Host struct {
 		Security struct {
@@ -123,7 +143,11 @@ type podmanInfoForStore struct {
 
 // ReadPodmanStoreFacts runs ONE `podman info --format json` (PodmanInfoCmd) and
 // reads both answers from it. capture runs an argv and returns its stdout;
-// ok=false for anything that did not run cleanly.
+// ok=false for anything that did not run cleanly, which is RootlessUnknown.
+//
+// Cost: one subprocess, 22 ms measured in this jail, and only on a launch that is
+// about to copy — the same launch that may spend two minutes building the copier.
+// A warm launch whose image is already loaded never asks.
 func ReadPodmanStoreFacts(runtime string, capture func(argv []string) (string, bool)) PodmanStoreFacts {
 	if capture == nil {
 		return PodmanStoreFacts{Unknown: "`podman info` was not asked"}
@@ -164,8 +188,8 @@ func ReadPodmanStoreFacts(runtime string, capture func(argv []string) (string, b
 
 // unspellableStore says why a store cannot be named in the transport's spec, ""
 // when it can. Each refused character is one ParseReference cuts at its FIRST
-// occurrence (vendored go.podman.io/image/v5/storage/storage_transport.go), so a
-// path containing it would silently name a different directory.
+// occurrence (go.podman.io/image/v5/storage/storage_transport.go), so a path
+// containing it would silently name a different directory.
 func unspellableStore(s PodmanStore) string {
 	switch {
 	case s.Driver == "":
@@ -191,25 +215,57 @@ func unspellableStore(s PodmanStore) string {
 	return ""
 }
 
+// additionalImageStoresKey is the list podman 5 renders every `imagestore=` driver
+// option into (libpod/info.go). Its per-entry twin, `<prefix>imagestore`, is a
+// plain string key each entry OVERWRITES, so it holds only the last store.
+const additionalImageStoresKey = "additionalImageStores"
+
 // spellDriverOptions turns podman's rendered graphOptions back into the
 // `key=value` driver options they came from. A string value is itself;
-// mount_program's object is its Executable; anything else, or a spelling the
-// suffix cannot carry, is dropped by key. Both lists are sorted, so the argv is
-// the same on every launch.
+// mount_program's object is its Executable; the additional-image-stores list is
+// one `<prefix>imagestore=<path>` per entry, and its lossy string twin is skipped;
+// anything else, or a spelling the suffix cannot carry, is dropped by key. Keys are
+// taken in sorted order, so the argv is the same on every launch.
 func spellDriverOptions(opts map[string]json.RawMessage) (carried, dropped []string) {
 	keys := make([]string, 0, len(opts))
 	for k := range opts {
 		keys = append(keys, k)
 	}
 	sort.Strings(keys)
+	spellable := func(k, v string) bool {
+		return k != "" && v != "" && !strings.ContainsAny(k, "=,]") && !strings.ContainsAny(v, ",]")
+	}
 	for _, k := range keys {
+		if prefix, ok := strings.CutSuffix(k, additionalImageStoresKey); ok {
+			var stores []string
+			if json.Unmarshal(opts[k], &stores) != nil {
+				dropped = append(dropped, k)
+				continue
+			}
+			lost := false
+			for _, s := range stores {
+				if !spellable(prefix+"imagestore", s) {
+					lost = true
+					continue
+				}
+				carried = append(carried, prefix+"imagestore="+s)
+			}
+			if lost {
+				dropped = append(dropped, k)
+			}
+			continue
+		}
+		if prefix, ok := strings.CutSuffix(k, "imagestore"); ok {
+			if _, hasList := opts[prefix+additionalImageStoresKey]; hasList {
+				continue // the lossy twin of the list above
+			}
+		}
 		val, ok := driverOptionValue(opts[k])
-		opt := k + "=" + val
-		if !ok || k == "" || val == "" || strings.ContainsAny(k, "=,]") || strings.ContainsAny(val, ",]") {
+		if !ok || !spellable(k, val) {
 			dropped = append(dropped, k)
 			continue
 		}
-		carried = append(carried, opt)
+		carried = append(carried, k+"="+val)
 	}
 	return carried, dropped
 }
@@ -229,11 +285,11 @@ func driverOptionValue(raw json.RawMessage) (string, bool) {
 }
 
 // ContainersStorageDestFor is the destination a podman-on-Linux delivery copies
-// to: the store podman reports, named explicitly, when it is known; today's bare
+// to: the store podman reports, named explicitly, when NamesStore; today's bare
 // ContainersStorageDest otherwise. The ref after the bracket is unchanged, so
 // every name lookup (inspect, tag, the reapers, the identity check) is untouched.
 func ContainersStorageDestFor(facts PodmanStoreFacts, contentRef string) string {
-	if !facts.StoreKnown {
+	if !facts.NamesStore() {
 		return ContainersStorageDest(contentRef)
 	}
 	return "containers-storage:[" + facts.Store.Spec() + "]" + contentRef
@@ -248,22 +304,37 @@ func storeWrite(runtime string, facts PodmanStoreFacts, contentRef string) (dest
 
 // DeliveryCopyArgvFor is the complete argv a podman-on-Linux launch runs for one
 // delivery, for callers outside this package that must run the same copy: the
-// integration harness's own image load and the macOS in-VM copier experiment.
+// integration harness's own image load, `yolo internal image-copy` (which `just
+// load` runs) and the macOS in-VM copier experiment.
 func DeliveryCopyArgvFor(runtime string, facts PodmanStoreFacts, copier, imageJSON, contentRef string) []string {
 	dest, prefix := storeWrite(runtime, facts, contentRef)
 	return copyArgv(prefix, copier, imageJSON, dest)
 }
 
-// StorePreflight is `yolo check`'s store line: the store a launch will copy into,
-// or a WARNING when podman answered but its store cannot be named — that launch
-// will let the copier choose from storage.conf, which is issue #47's failure, and
-// `podman unshare -- /bin/sh -c :` passing says nothing about it. Silent when
-// podman did not answer at all (UnsharePreflight's tri-state rule).
-func StorePreflight(facts PodmanStoreFacts) DeliveryPreflight {
-	if facts.Rootless == RootlessUnknown && !facts.StoreKnown {
-		return DeliveryPreflight{}
+// droppedClause names the driver options a named store could not carry, "" when
+// there are none. The launch line and `yolo check` both end with it.
+func droppedClause(facts PodmanStoreFacts) string {
+	if !facts.NamesStore() || len(facts.Store.Dropped) == 0 {
+		return ""
 	}
-	if !facts.StoreKnown {
+	return " Driver options not carried: " + strings.Join(facts.Store.Dropped, ", ") + "."
+}
+
+// StorePreflight is `yolo check`'s store line: the store a launch will copy into,
+// or a WARNING when a rootless podman answered but its store cannot be named —
+// that launch will let the copier choose from storage.conf, which is issue #47's
+// failure, and `podman unshare -- /bin/sh -c :` passing says nothing about it.
+// Silent when podman did not answer at all (UnsharePreflight's tri-state rule).
+func StorePreflight(facts PodmanStoreFacts) DeliveryPreflight {
+	switch {
+	case facts.NamesStore():
+		line := "Image store: " + facts.Store.Spec() + " (podman's own"
+		if facts.Store.ConfigFile != "" {
+			line += ", from " + facts.Store.ConfigFile
+		}
+		return DeliveryPreflight{Line: line + ") — a launch copies into exactly this store." +
+			droppedClause(facts)}
+	case facts.Rootless == RootlessYes:
 		return DeliveryPreflight{
 			Line: "Image store: yolo cannot name podman's store (" + facts.Unknown + "), so a " +
 				"launch lets the copier pick one from its own storage.conf lookup",
@@ -272,31 +343,36 @@ func StorePreflight(facts PodmanStoreFacts) DeliveryPreflight {
 				"`podman info --format '{{.Store.GraphRoot}} {{.Store.RunRoot}}'`; a " +
 				"~/.config/containers/storage.conf naming that store makes the two agree.",
 		}
+	case facts.Rootless == RootlessNo:
+		return DeliveryPreflight{Line: "Image store: the copier's own storage.conf lookup — " +
+			"a rootful podman and the copier resolve the same system store"}
 	}
-	line := "Image store: " + facts.Store.Spec() + " (podman's own"
-	if facts.Store.ConfigFile != "" {
-		line += ", from " + facts.Store.ConfigFile
-	}
-	line += ") — a launch copies into exactly this store"
-	return DeliveryPreflight{Line: line}
+	return DeliveryPreflight{}
 }
 
 // storeLine is the launch's second store-write line: which store the copy goes
-// to, or that yolo does not know and the copier is choosing.
+// to, or that the copier is choosing and why.
 func storeLine(facts PodmanStoreFacts) string {
-	if !facts.StoreKnown {
+	switch {
+	case facts.NamesStore():
+		line := "  Image store: " + facts.Store.Spec() + " — the store `podman info` reports"
+		if facts.Store.ConfigFile != "" {
+			line += " (podman read " + facts.Store.ConfigFile + ")"
+		}
+		return line + ", named on the copy so the copier cannot resolve another." + droppedClause(facts)
+	case facts.Rootless == RootlessYes:
 		return "  Image store: yolo could not read podman's store (" + facts.Unknown + "), so the " +
 			"copier picks one from its own storage.conf lookup. If that is not the store podman " +
 			"reads, the copy below fails; a ~/.config/containers/storage.conf naming podman's " +
 			"store makes the two agree."
+	case facts.Rootless == RootlessNo:
+		return "  Image store: the copier's own storage.conf lookup — podman is rootful, and root " +
+			"resolves the same system store in both, so the copy names none."
 	}
-	line := "  Image store: " + facts.Store.Spec() + " — the store `podman info` reports"
-	if facts.Store.ConfigFile != "" {
-		line += " (podman read " + facts.Store.ConfigFile + ")"
+	why := facts.Unknown
+	if why == "" {
+		why = "`podman info` did not say whether it is rootless"
 	}
-	line += ", named on the copy so the copier cannot resolve another."
-	if len(facts.Store.Dropped) > 0 {
-		line += " Driver options not carried: " + strings.Join(facts.Store.Dropped, ", ") + "."
-	}
-	return line
+	return "  Image store: the copier's own storage.conf lookup — yolo could not read podman's " +
+		"answer (" + why + "), so the copy names no store."
 }

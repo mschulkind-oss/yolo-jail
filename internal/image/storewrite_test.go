@@ -78,10 +78,10 @@ func TestRootlessnessIsReadFromPodmanInfoAndAMissingFieldIsNotFalse(t *testing.T
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var asked [][]string
-			got := PodmanRootlessness("podman", func(argv []string) (string, bool) {
+			got := ReadPodmanStoreFacts("podman", func(argv []string) (string, bool) {
 				asked = append(asked, argv)
 				return tc.stdout, tc.ok
-			})
+			}).Rootless
 			if got != tc.want {
 				t.Errorf("rootlessness = %v, want %v", got, tc.want)
 			}
@@ -91,7 +91,7 @@ func TestRootlessnessIsReadFromPodmanInfoAndAMissingFieldIsNotFalse(t *testing.T
 		})
 	}
 	// A nil capture is "nothing was asked", which is not an answer either.
-	if got := PodmanRootlessness("podman", nil); got != RootlessUnknown {
+	if got := ReadPodmanStoreFacts("podman", nil).Rootless; got != RootlessUnknown {
 		t.Errorf("with no way to ask, rootlessness = %v, want unknown", got)
 	}
 }
@@ -284,6 +284,9 @@ func TestARefusedNamespaceIsNotRetried(t *testing.T) {
 		stderr   string
 		wantRuns int64
 		wantSays string
+		// wantNot is a sentence the report must NOT contain: the named-store row
+		// would be misdiagnosed as issue #47 if the two arms were one.
+		wantNot string
 	}{
 		{
 			name:     "the copier could not create the namespace",
@@ -298,12 +301,23 @@ func TestARefusedNamespaceIsNotRetried(t *testing.T) {
 			wantSays: "Not retrying",
 		},
 		{
-			// Issue #47's exact words, reachable now only when no store was named.
+			// Issue #47's exact words: a bare destination, a store from storage.conf.
 			name: "the copier could not create the store it resolved for itself",
 			stderr: `time="2026-09-29T10:00:00Z" level=fatal msg="Invalid destination name ` +
 				`containers-storage:localhost/yolo-jail:0123: mkdir /run/containers: permission denied"`,
 			wantRuns: 1,
-			wantSays: "storage.conf",
+			wantSays: "named no store, so the copier took one from storage.conf",
+		},
+		{
+			// The same refusal of a NAMED store is podman's own store failing inside the
+			// namespace, and no storage.conf fixes it.
+			name: "the copier could not create the store the copy names",
+			stderr: `time="2026-09-29T10:00:00Z" level=fatal msg="Invalid destination name ` +
+				`containers-storage:[overlay@/home/u/.local/share/containers/storage+/run/user/1000/containers]` +
+				`localhost/yolo-jail:0123: mkdir /run/user/1000/containers: permission denied"`,
+			wantRuns: 1,
+			wantSays: "the store `podman info` reports, which this copy names",
+			wantNot:  "storage.conf",
 		},
 		{
 			name:     "anything else keeps the one retry",
@@ -327,6 +341,10 @@ func TestARefusedNamespaceIsNotRetried(t *testing.T) {
 			}
 			if !strings.Contains(out.String(), tc.wantSays) {
 				t.Errorf("the report does not say %q:\n%s", tc.wantSays, out.String())
+			}
+			if tc.wantNot != "" && strings.Contains(out.String(), tc.wantNot) {
+				t.Errorf("the report says %q, a diagnosis for a different failure:\n%s",
+					tc.wantNot, out.String())
 			}
 		})
 	}

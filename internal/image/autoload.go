@@ -111,7 +111,7 @@ type AutoLoadOptions struct {
 	// one process, no pipe and no archive on either side. imageJSON is the store
 	// path the nix build resolved to (a nix2container manifest, not a stream
 	// script); dest is the transport-qualified destination the runtime needs —
-	// ContainersStorageDestFor for podman on Linux (podman's own store, named),
+	// ContainersStorageDestFor for podman on Linux (podman's own store, named when rootless),
 	// OCILayoutDest for the two archive backends (deliverViaArchive).
 	// Returns (report, ok); ok=false means the image is NOT delivered and the
 	// reason was already printed, by this seam, because only it holds skopeo's
@@ -913,11 +913,12 @@ func AutoLoadImage(opts AutoLoadOptions) LoadResult {
 			// copier cannot arrange for itself on a host that restricts unprivileged
 			// user namespaces — so the copy runs inside podman's own.
 			//
-			// AND INTO WHICH STORE, from the SAME read: the one podman reports, named
-			// on the destination, so the copier's own storage.conf lookup — which a
-			// newer containers/storage resolves differently from podman's (issue #47,
-			// storespec.go) — never picks it. A store podman did not report is not
-			// guessed: the destination is then today's, and the note says so.
+			// AND INTO WHICH STORE, from the SAME read: on a rootless podman, the one
+			// podman reports, named on the destination, so the copier's own
+			// storage.conf lookup — which a newer containers/storage resolves
+			// differently from podman's for a rootless process (issue #47,
+			// storespec.go) — never picks it. Rootful, unknown, or a store podman did
+			// not report: the destination is today's bare one, and the note says so.
 			facts := o.StoreFacts()
 			fmt.Fprintln(out, StoreWriteNote(facts))
 			dest, prefix := storeWrite(o.Runtime, facts, contentRef)
