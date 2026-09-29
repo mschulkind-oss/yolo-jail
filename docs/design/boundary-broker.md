@@ -886,7 +886,7 @@ covered:
 
 ## 14. Open questions
 
-1. 💬 <a id="OQ-BB1"></a>**[OQ-BB1](#OQ-BB1): Do free reads reach every repository the host login
+1. ✅ <a id="OQ-BB1"></a>**[OQ-BB1](#OQ-BB1): Do free reads reach every repository the host login
    can see?** The host's `gh` login reads every private repository and org the user belongs to. A
    free read of all of them lets a confined, possibly prompt-injected agent read any of them
    without asking, and carry it out through the jail's own network. This decides step 1's read
@@ -904,16 +904,22 @@ covered:
      paths stay scoped. Leaves GraphQL, which names repositories the broker cannot check, as a
      hole in B's fence.
 
-   <!-- vantage: oq id=OQ-BB1 leaning="B: free reads cover the workspace's GitHub remotes as pinned and disclosed at launch, plus a user-scope list; other repositories and account-wide reads ring and are grantable for a time." -->
-
-   _Leaning:_ **B.** It keeps the brief's default (the reads an agent needs for the work in front
+      _Leaning:_ **B.** It keeps the brief's default (the reads an agent needs for the work in front
    of it never ask) while making "read my other private repositories" a thing a human sees once.
    Starting narrow and widening later needs no migration; the reverse does.
 
    **Answer:**
-   > _(empty — fill in when decided)_
+   > **Ruled 2026-09-29: B's default, with widening still open.** The maintainer: *"by default,
+   > let's make it only have visibility into the repository that is for that workspace, but we
+   > should allow the configuration, I guess, at the user level … we can't allow it to be widened
+   > in the workspace … that gives a workspace permission it shouldn't be able to widen and then
+   > if we instead give that permission … at the user level then it would have to be for all
+   > workspaces so how do you give a user level permission a workspace level thing i don't know
+   > that we have this yet."* Free reads reach only the workspace's own GitHub remotes, pinned at
+   > launch. How a wider set is granted is [OQ-BB6](#OQ-BB6): a workspace may never widen its own
+   > reach, and a plain user-scope list would widen every workspace.
 
-2. 💬 <a id="OQ-BB2"></a>**[OQ-BB2](#OQ-BB2): What does a time grant cover, and which writes ask
+2. ✅ <a id="OQ-BB2"></a>**[OQ-BB2](#OQ-BB2): What does a time grant cover, and which writes ask
    every time anyway?** *"You can use GitHub for 15 minutes"* is the brief's example, and taken
    literally it covers merges, deletes and settings. This decides how much one button press
    authorizes.
@@ -927,15 +933,22 @@ covered:
      every account-wide write. Those can only be allowed once.
    - **C — B's scope with no ask-every-time list.** Simpler; a 15-minute grant can merge.
 
-   <!-- vantage: oq id=OQ-BB2 leaning="B: a time grant covers grantable writes to one repository from one jail; deletes, merges, settings, secrets and keys, every gh api write and every account-wide write can only be allowed once." -->
-
-   _Leaning:_ **B.** It is the brief's *"appropriate decision"* made once per class: comments,
+      _Leaning:_ **B.** It is the brief's *"appropriate decision"* made once per class: comments,
    reviews, labels, issue edits and PR creation flow under a grant, and the irreversible or
    repository-wide ones stay in front of the human. unYOLO's single best idea is exactly this
    floor as a code-owned flag ([§A.1](#a1-the-six-claims-from-the-website-pass-checked-against-code)).
 
    **Answer:**
-   > _(empty — fill in when decided)_
+   > **Ruled 2026-09-29, against the leaning: grants are named permission sets.** The maintainer:
+   > *"allow for 15 minutes would be configurable per source, but what I'm proposing here right
+   > now for GitHub and what we'll start with is everything … we're going to have two sets of
+   > permissions. There's the read-only and then there's the read-write set. And then we're just
+   > granting the read-write set for those 15 minutes. And I guess you could extend this
+   > trivially to any number of permission sets."* Each source (GitHub first) defines permission
+   > sets; the default two are **read-only**, always granted, and **read-write**, which a grant
+   > hands over whole for its window (15 minutes by default). No always-ask list in the default;
+   > the set model generalizes to more sets per source, and a source's sets and windows are
+   > configurable.
 
 3. 💬 <a id="OQ-BB3"></a>**[OQ-BB3](#OQ-BB3): Which three buttons?** GNOME shows three and drops
    the rest, so the notification carries three choices and `yolo approve` the others. This decides
@@ -974,6 +987,31 @@ covered:
    **Answer:**
    > _(empty — fill in when decided)_
 
+5. 💬 <a id="OQ-BB6"></a>**[OQ-BB6](#OQ-BB6): How does a user widen one workspace's reach without every workspace getting it?**
+   Raised by [OQ-BB1](#OQ-BB1)'s ruling. A workspace's own config may never widen its own
+   permission, since the agent can edit it; a plain user-scope repository list would widen every
+   workspace at once. The stakes: whether "this project may also read org/other-repo" is
+   expressible at all.
+   - **(a)** A user-scope map keyed by workspace (its path, or its pinned remote), e.g.
+     `"broker": {"github": {"workspaces": {"~/code/app": {"read": ["org/lib"]}}}}`. User-owned, so
+     no workspace can widen itself; the key decides which workspace it applies to.
+   - **(b)** A host-side grant record per workspace, written by `yolo approve --persist` at the
+     host (the fetched-pack approval shape: a record under the state dir no jail can write), shown
+     at launch.
+   - **(c)** Both: (a) for what a user declares ahead of time, (b) for "always for this workspace"
+     answered at the notification.
+
+   _Leaning:_ **(c).** The state-dir record already exists as a pattern (fetched-pack approvals)
+   and is what a notification's "always for this workspace" writes; (a) is the declarative
+   spelling of the same record. Either way it is user-owned and workspace-keyed, and the launch
+   discloses what a workspace was widened to. The same mechanism serves any source's permission
+   sets, not only GitHub's.
+
+   <!-- vantage: oq id=OQ-BB6 leaning="(c): a user-scope map keyed by workspace for what the user declares ahead of time, and a host-side per-workspace grant record (the pack-approval shape) for remember-this answers; both user-owned, both disclosed at launch." -->
+
+   **Answer:**
+   > _(empty — fill in when decided)_
+
 5. 💬 <a id="OQ-B1b"></a>**[OQ-B1b](#OQ-B1b): Vendor unYOLO's policy engine, or re-derive it?**
    `authorization/policy` + `authorization/budget` + `internal/copyx` are MIT, stdlib-only, about
    2,100 lines with a 1,456-line test file, and drop into `vendor/` with no new module
@@ -1000,6 +1038,8 @@ covered:
 
 | ID | Ruling / Decision | Date | Settled in | Built |
 | :--- | :--- | :--- | :--- | :--- |
+| [OQ-BB1](#OQ-BB1) | **Maintainer ruling:** free reads reach only the workspace's own GitHub remotes, pinned at launch; widening is [OQ-BB6](#OQ-BB6) | 2026-09-29 | [§14](#14-open-questions) | pending |
+| [OQ-BB2](#OQ-BB2) | **Maintainer ruling:** grants are per-source named permission sets; GitHub's default two are read-only (always) and read-write (granted whole for a window, 15 min by default); no always-ask list by default | 2026-09-29 | [§14](#14-open-questions) | pending |
 | OQ-A | **Ruled by the brief: the synchronous version is not enough.** A request outlives its connection; the jail waits at most 30 seconds, and the answer comes back later as a ping | 2026-09-28 | [§3](#3-the-flow) | — |
 | OQ-E | **Ruled by the brief: the human answers in a persistent desktop notification on Linux and macOS,** with Allow, Deny and a duration. `yolo approve` is the fallback front-end. Its security half, settled 2026-08-12, stands: authority stays with host processes, never an HTTP port | 2026-09-28 | [§6](#6-the-doorbell-a-persistent-desktop-notification) | — |
 | OQ-C | **Settled by the brief, by my reading, not ruled by name:** stdout, stderr and the exit code of a brokered command cross verbatim, since running read-only commands means seeing their output. No credential crosses because no credential-printing command is brokered | 2026-09-28 | [§4.2](#42-what-crosses-back) | — |
