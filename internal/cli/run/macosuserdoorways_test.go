@@ -225,6 +225,51 @@ func TestMacosUserRunsARefusedDoorwayInTheGuest(t *testing.T) {
 	}
 }
 
+// A REFUSED DOORWAY WHOSE JAIL DAEMON THE GUEST DECLINES TOO IS SAID TO RUN NOWHERE, not in the
+// sandbox: the user guide's own jail_daemon example names `{jail_loophole_dir}`, which the guest
+// declines by name, so the refusal line must follow the daemon to where it actually goes. Before
+// this, one launch printed that daemon's Declined: line and a line saying it ran in the sandbox
+// instead, while the guest was handed nothing. Deleting the decline lookup from
+// noteRefusedDoorways fails this.
+func TestMacosUserSaysARefusedDoorwayTheGuestDeclinesRunsNowhere(t *testing.T) {
+	home := packHome(t)
+	ws := t.TempDir()
+	writeLocalLoopholePack(t, home, "acme-proxy", `{"name": "acme-proxy",
+		"description": "acme proxy", "default_enabled": true, "transport": "loopback-tls",
+		"jail_daemon": {"cmd": ["{jail_loophole_dir}/my-agent", "--listen", "{listen}"],
+		"listen": "127.0.0.1:1999", "caller_token": true,
+		"host_cmd": ["yolo", "internal", "daemon", "acme-adapter", "--listen", "{listen}"]}}`)
+	writeUserConfigJSON(t, home, `{"packs": []}`)
+	doors := observeDoorways(t)
+
+	got := macosUserLaunch(t, ws)
+	if got.rc != 0 {
+		t.Fatalf("Run() = %d, want 0\n%s", got.rc, got.out)
+	}
+	if len(doors.plans) != 0 {
+		t.Errorf("a local pack's host argv was run outside the sandbox: %v", doors.plans[0].Cmd)
+	}
+	if specs := payloadOf(t, got.jailDaemons); len(specs) != 0 {
+		t.Fatalf("the guest was handed %+v, want nothing: its argv names the container's loophole mount", specs)
+	}
+	var refusal string
+	for _, line := range strings.Split(got.out, "\n") {
+		if strings.Contains(line, `Not opened outside the sandbox: the "acme-proxy" doorway's host argv`) {
+			refusal = line
+		}
+	}
+	if refusal == "" {
+		t.Fatalf("the launch does not say it refused the doorway's host argv:\n%s", got.out)
+	}
+	if strings.Contains(refusal, "runs in the sandbox instead") {
+		t.Errorf("the refusal says the jail daemon runs in the sandbox, which declined it:\n%s", got.out)
+	}
+	if !strings.Contains(refusal, "declined in the sandbox too") ||
+		!strings.Contains(got.out, "acme-proxy: /etc/yolo-jail/loopholes/acme-proxy/my-agent") {
+		t.Errorf("the refusal does not point at the jail daemon's own Declined: line:\n%s", got.out)
+	}
+}
+
 // A PACK THAT DECLARES THE ADAPTER WITHOUT A HOST ARGV STILL RUNS IT IN THE GUEST: the doorway
 // rule moves only a doorway whose manifest declares `host_cmd`. This is the premise of the Mac
 // integration test that keeps the guest's supervisor measured (integration/'s

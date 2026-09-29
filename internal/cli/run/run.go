@@ -551,7 +551,7 @@ func Run(opts Options) (rc int) {
 		// a --dry-run states it too — and stating it once here is what keeps the live path
 		// and the plan render from needing two printers that could disagree.
 		o.noteMacosUserJailDaemonDeclines(declinedDaemons)
-		o.noteRefusedDoorways()
+		o.noteRefusedDoorways(declinedDaemons)
 		o.noteUnstartedProfileDaemons()
 		o.noteShadowedServices()
 		// THE OTHER TIER COLLAPSE — #39's mirror image — USED TO BE WARNED ABOUT HERE, and

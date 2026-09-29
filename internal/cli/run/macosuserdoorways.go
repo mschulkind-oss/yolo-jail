@@ -145,12 +145,24 @@ func (o *Options) launchDoorwayPlanned(name string) bool {
 }
 
 // noteRefusedDoorways is the disclosure for admitDoorways: one line per doorway whose host argv
-// this launch will not run, naming it, its pack and why, and saying where it runs instead. A
-// disclosure, so no quiet switch (docs/reference/report-tiers.md, OQ-RO3). Silent when none.
-func (o *Options) noteRefusedDoorways() {
+// this launch will not run, naming it, its pack and why, and saying where its jail daemon goes
+// instead. declined is the guest's own split of the payload (loopholes.JailDaemonsRunIn, which
+// the arm printed just above), because a cleared doorway is judged there like any other jail
+// daemon: the guest runs it, or declines it for a reason of its own, such as an argv naming the
+// container's loophole mount, and then nothing serves it this launch. A disclosure, so no quiet
+// switch (docs/reference/report-tiers.md, OQ-RO3). Silent when none.
+func (o *Options) noteRefusedDoorways(declined []loopholes.DeclinedJailDaemon) {
+	guestDeclines := map[string]bool{}
+	for _, d := range declined {
+		guestDeclines[d.Spec.Name] = true
+	}
 	for _, r := range o.refusedDoorways {
+		where := "Its jail daemon runs in the sandbox instead."
+		if guestDeclines[r.Name] {
+			where = "Its jail daemon is declined in the sandbox too (its Declined: line says why), " +
+				"so nothing serves it this launch."
+		}
 		o.pr(o.Stderr).print(fmt.Sprintf("[yellow]Not opened outside the sandbox: the %q doorway's "+
-			"host argv (pack %q): %s. Its jail daemon runs in the sandbox instead.[/yellow]",
-			r.Name, r.Pack, r.Why))
+			"host argv (pack %q): %s. %s[/yellow]", r.Name, r.Pack, r.Why, where))
 	}
 }

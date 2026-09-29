@@ -229,7 +229,10 @@ agent shares your machine's network, which on a Mac is the `macos-user` backend.
 it outside the sandbox, on the port it picked for `listen`, hands it the caller token, and stops it
 when the agent exits. It needs `listen` and `caller_token`, and `{listen}` is the only placeholder
 it takes. Only yolo's own packs may use it: the Codex and AWS credential helpers do. In any other
-pack yolo does not run it, says so at launch, and runs the `jail_daemon` inside the sandbox as usual.
+pack yolo does not run it and says so at launch, and the `jail_daemon` is handled as if `host_cmd`
+were not there: it runs inside the sandbox, unless the sandbox cannot run it as written. A `cmd`
+that names `{jail_loophole_dir}`, like the example above, is one of those, because that folder
+exists only inside a container; the launch then says the helper runs nowhere.
 
 ### Intercepting a website
 
@@ -323,7 +326,7 @@ ran.
 |---|---|
 | Podman, on Linux or a Mac | Everything |
 | Apple Container | Nothing reaches the host yet: the jail cannot connect to a host program |
-| `macos-user` | Host daemons run; jail daemons do not, so a loophole that relies on one does nothing |
+| `macos-user` | Host daemons run. Jail daemons run inside the sandbox, except one whose `cmd` names `{jail_loophole_dir}` and one that intercepts a website; yolo's own credential helpers run outside it (`host_cmd`) |
 
 In each case the launch names the loopholes that do nothing and says why.
 [What works on each setup](../reference/settings-per-setup.md#the-loopholes-host-services-a-jail-can-use)
