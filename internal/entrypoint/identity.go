@@ -92,9 +92,9 @@ func gitForConfig(e *Env) string {
 // nothing more.
 //
 // THE RESOLVED PATH. git compares the entry against the repository's physical path — newer
-// gits resolve both sides, older ones (Apple's included) compare against getcwd's answer —
-// so a workspace reached through a symlink (/tmp is /private/tmp on a Mac) would otherwise
-// never match. The launcher resolves the workspace already; this does not rely on it.
+// gits resolve both sides, older ones resolve only the repository's — so with an older git a
+// workspace reached through a symlink (/tmp is /private/tmp on a Mac) would never match. The
+// launcher resolves the workspace already; this does not rely on it.
 //
 // IDEMPOTENT, AND IT KEEPS THE USER'S OWN ENTRIES. `--replace-all --fixed-value` rewrites
 // only lines equal to this path and adds one when there is none: a plain `git config
