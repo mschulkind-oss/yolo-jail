@@ -245,6 +245,18 @@ func fakeHostDaemon(t *testing.T, name, home string) *exec.Cmd {
 		_ = cmd.Process.Kill()
 		<-exited
 	})
+	// Start returns once the child's execve has closed its close-on-exec fds, which the kernel
+	// does BEFORE it records where the new image's environment lives, so for a moment
+	// /proc/<pid>/environ reads empty and the process "runs with no HOME". A real daemon is
+	// long past that window when the harness looks; this stand-in is looked at at once, so
+	// wait until it shows the HOME it was given (a CI flake, 1 in ~400 under load, until this).
+	for deadline := time.Now().Add(10 * time.Second); !processRunsWithHome(cmd.Process.Pid, home); {
+		if time.Now().After(deadline) {
+			t.Fatalf("the stand-in %s (pid %d) never showed HOME=%s in /proc/%d/environ",
+				name, cmd.Process.Pid, home, cmd.Process.Pid)
+		}
+		time.Sleep(time.Millisecond)
+	}
 	pidFile := paths.HostSingletonPIDFile(name)
 	for p, body := range map[string]string{
 		paths.HostSingletonLock(name):   "",
