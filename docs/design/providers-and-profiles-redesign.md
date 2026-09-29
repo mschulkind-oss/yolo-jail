@@ -10,7 +10,7 @@ vantage:
 
 # Providers and profiles, redesigned: what `-p <name>` should mean
 
-**Status:** DESIGN, 2026-09-25. Nothing of it is built, and no question in it is ruled.
+**Status:** DESIGN, 2026-09-25. [OQ-BR8](#OQ-BR8) ruled 2026-09-29 (key facts on the provider) and building; nothing else is ruled.
 MEASURED: the split between name-keyed gates and provider-keyed derives
 ([§2.2](#22-gates-key-on-the-name-derives-key-on-the-provider)), read at `7ad8358c`, re-read
 at `f491d192`, and re-checked by grep at `ee8154f2` on 2026-09-24; the three copies of the
@@ -51,16 +51,15 @@ maintainer did not rule it:
   supported both through its native Converse client and through the bridge.
 - **Not ruled:** everything below.
 
-**Needs your ruling:** [OQ-BR2](#OQ-BR2), [OQ-BR8](#OQ-BR8), [OQ-PP1](#OQ-PP1), [OQ-PP2](#OQ-PP2), [OQ-PP3](#OQ-PP3), in this order:
+**Needs your ruling:** [OQ-BR2](#OQ-BR2), [OQ-PP1](#OQ-PP1), [OQ-PP2](#OQ-PP2), [OQ-PP3](#OQ-PP3), in this order:
 
 1. [OQ-BR2](#OQ-BR2) — the marker. It gates builds, so it comes first. _Leaning (⚠ changed
    2026-09-25):_ rule its substance now (a declared, open-vocabulary field, in both schemas),
    spelled so it survives any answer to [OQ-PP1](#OQ-PP1) — for example `platform` — and not
    spelled `service` or `native`.
-2. [OQ-BR8](#OQ-BR8) — do gates key on the profile name or the provider? _Leaning:_ the
-   provider, in each agent's own derive; variants are providers. That fixes which provider a
-   fact fires for, not which agents receive it: that needs
-   [OQ-CN6](provider-credential-scope.md#OQ-CN6)'s per-agent vehicle.
+2. ✅ [OQ-BR8](#OQ-BR8) — **ruled 2026-09-29:** gates key on the provider, in each agent's own
+   derive. Which agents receive a fact is [OQ-CN6](provider-credential-scope.md#OQ-CN6)'s per-agent
+   vehicle, now built.
 3. [OQ-PP1](#OQ-PP1) — what is the one thing `-p` names? _Leaning:_ deliberately none. A
    strawman is offered for you to argue with.
 4. [OQ-PP2](#OQ-PP2) — is the transport declared by the provider or derived per agent?
@@ -356,7 +355,7 @@ transport's home leaves the everything profile distinguished only by its name. T
    **Answer:**
    > _(empty — fill in when decided)_
 
-2. 💬 <a id="OQ-BR8"></a>**[OQ-BR8](#OQ-BR8): Does a contribution's gate key on the profile
+2. ✅ <a id="OQ-BR8"></a>**[OQ-BR8](#OQ-BR8): Does a contribution's gate key on the profile
    NAME or on the provider it selects?** Moved here from bedrock-plumbing on 2026-09-25, id kept.
    It is [OQ-BR4](provider-credential-scope.md#OQ-BR4)'s other direction: BR4 ruled that a gate
    must not fire for the wrong agent; this asks why it fails to fire for the right one
@@ -408,10 +407,16 @@ transport's home leaves the everything profile distinguished only by its name. T
    _Leaning:_ The first option, as the bullets above spell it, built with
    [OQ-BR4](provider-credential-scope.md#OQ-BR4)'s fix, which is the same function.
 
-   <!-- vantage: oq id=OQ-BR8 leaning="Key provider facts on the PROVIDER, in each agent's derive (ctx.selected_provider today, OQ-BR2's marker once it rules): claude's CLAUDE_CODE_USE_BEDROCK, llamacpp's header as a provider option, pi's codex prelaunch env via a pi derive. Compose aws-auth's adapter address into its own provider row, removing the duplicated 1461; model variants as providers. Needed for OQ-BR4's 'as specific as possible'; sufficient only with OQ-CN6's per-agent vehicle, since derive output still lands in the shared env file. Not extends (reopens OQ-CS9); not a warning alone — only a yolo check note for a user pack." -->
-
    **Answer:**
-   > _(empty — fill in when decided)_
+   > **Ruled 2026-09-29, as leaned: key provider facts on the provider, never the profile's
+   > name.** The maintainer: *"just because you have a differently named profile here doesn't mean
+   > that things should happen differently. So we need to fix this bug. Like you need to be able to
+   > define your own and get the same behavior."* The facts move into each agent's derive on
+   > `ctx.selected_provider` now, which fixes a user's own profile over a shipped provider
+   > (`-p bedrock-sso` over `bedrock`). "Define your own" also covers a user's own PROVIDER, which
+   > a provider-name test would miss again; that half needs [OQ-BR2](#OQ-BR2)'s marker, so BR2 is
+   > the remainder and goes to the next review set. The everything profile's switch-but-pointer
+   > split (a transport check, not only "the provider is Bedrock") is part of the build.
 
 3. 💬 <a id="OQ-PP1"></a>**[OQ-PP1](#OQ-PP1): What is the one thing a user names with `-p`?**
    The redesign's core.
@@ -477,6 +482,12 @@ No rulings yet. Why this doc exists, and the maintainer's words that started it,
 **Why it exists** at the top and in [OQ-BR2](#OQ-BR2).
 
 ---
+
+## 8. Decision ledger
+
+| ID | Ruling / Decision | Date | Built |
+| :--- | :--- | :--- | :--- |
+| [OQ-BR8](#OQ-BR8) | **Maintainer ruling:** a provider fact keys on the provider, in each agent's derive, never on the profile's name; a user-defined provider gets the same behavior through [OQ-BR2](#OQ-BR2)'s marker | 2026-09-29 | pending |
 
 ## Appendix: Evidence, and how to re-check it
 
