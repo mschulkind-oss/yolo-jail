@@ -40,9 +40,11 @@ package entrypoint
 import (
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 	"time"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/claudeview"
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 )
@@ -125,7 +127,43 @@ func (e *unknownHookError) Error() string {
 // between jails. It only reaches a directory the pack declared in sharedDirs, so the leak
 // is bounded by a declaration the user can read.
 func (e *Env) linkSharedCredential(p *packload.Pack, h packdecl.Hook) error {
+	if e.skipsForCredentialView(h) {
+		return e.unlinkForCredentialView(p, h)
+	}
 	return e.linkIntoSharedDir(p, h, sharedFileNode)
+}
+
+// skipsForCredentialView reports whether this hook would link the Claude CREDENTIAL VIEW's path
+// on a launch that delivers the view: the launcher resolved claudeview.SwitchEnv to 1 and handed
+// it to this jail (docs/design/claude-login-without-interception.md, CL-D10). The host broker
+// writes a regular file there, and a link to the shared file would put the machine's refresh
+// token back in front of Claude, which is the one thing the view exists not to do.
+//
+// It names Claude's path, which a hook is otherwise too generic to do, because it is the one
+// temporary exception the ruled order allows: the switch, this test and the pack's
+// shared_credentials hook all go with the interception (CL-D2, CL-D7).
+func (e *Env) skipsForCredentialView(h packdecl.Hook) bool {
+	return e.Getenv(claudeview.SwitchEnv) == claudeview.ResolvedValue(true) &&
+		path.Clean(filepath.ToSlash(h.File)) == claudeview.ViewRel
+}
+
+// unlinkForCredentialView is the hook's answer on a view launch: remove EXACTLY the link a
+// previous interception launch's hook wrote (recognised by its target, never followed) and link
+// nothing. The launcher removes the same link host-side before the jail starts
+// (claudeview.Location.RemoveLegacyLink); this is the in-jail half for a home the launcher
+// could not reach, and a no-op otherwise.
+func (e *Env) unlinkForCredentialView(p *packload.Pack, h packdecl.Hook) error {
+	link := filepath.Join(e.Home, filepath.FromSlash(h.File))
+	decision := "credential view: not linked; the host broker writes this file"
+	if cur, err := os.Readlink(link); err == nil && cur == claudeview.LegacyLinkTarget {
+		if err := os.Remove(link); err != nil {
+			return err
+		}
+		decision = "credential view: removed the link to the shared file; the host broker " +
+			"writes this file"
+	}
+	e.logSharedHook(h.Name, p.Name, h.File, h.SharedDir, decision)
+	return nil
 }
 
 // linkSharedDirectory replaces a home subdirectory with a symlink to the pack's declared

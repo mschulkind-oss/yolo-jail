@@ -777,8 +777,12 @@ func (o *Options) kvmArgs(cfg *jsonx.OrderedMap, rt string, keepGroupsAlready bo
 // constructor, so threading it past this one withholds nothing either.
 func (o *Options) loopholesRuntimeArgs(cfg *jsonx.OrderedMap, rt string,
 	jailDaemons []loopholes.JailDaemonSpec) []string {
-	set := loopholes.NewHostSet(cfgMap(cfg, "loopholes"))
-	return set.RuntimeArgsWithJailDaemons(set.Enabled(), rt, jailDaemons)
+	// A CREDENTIAL-VIEW launch drops the interception from the argv (claudecredentialview.go,
+	// CL-D10) and tells the jail it did, so its entrypoint does not link the shared file.
+	view := o.claudeCredentialView(rt, cfg)
+	set := loopholes.NewHostSet(cfgMap(cfg, "loopholes")).WithCredentialView(view)
+	args := set.RuntimeArgsWithJailDaemons(set.Enabled(), rt, jailDaemons)
+	return append(args, o.claudeCredentialViewEnvArgs(rt, cfg)...)
 }
 
 // hasKey reports whether m has key (present, even if the value is falsy).

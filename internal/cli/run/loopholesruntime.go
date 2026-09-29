@@ -177,6 +177,16 @@ func (o *Options) startLoopholes(cname, rt string, cfg *jsonx.OrderedMap) []loop
 	allow := func(string) bool { return true }
 	if rt == "container" { // parity: HonoredBy — Apple Container starts only OpenAI authentication
 		allow = func(name string) bool { return name == openAIAuthBrokerName }
+		// AND THE CLAUDE BROKER WHEN THE LAUNCH DELIVERS THE CREDENTIAL VIEW (CL-D11). Nothing
+		// in an Apple Container jail dials it, and nothing needs to: the singleton is the host
+		// process that writes this workspace's view into the wsState the guest binds, so its
+		// endpoint stays unpublished to the jail (hostScopedEndpointIsUnpublishable), which is
+		// right rather than a gap.
+		if o.claudeCredentialView(rt, cfg) {
+			allow = func(name string) bool {
+				return name == openAIAuthBrokerName || name == broker.BrokerLoopholeName
+			}
+		}
 	}
 	return o.startLoopholesMatching(cname, rt, cfg, allow)
 }

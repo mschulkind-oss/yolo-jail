@@ -4,6 +4,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/claudeview"
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
@@ -751,6 +752,14 @@ func buildBootstrapEnv(workspace string, cfg, gitIdentity, sandboxEnv *jsonx.Ord
 		if v, ok := sandboxEnv.Get(wire); ok {
 			bootstrapEnv.Set(wire, v)
 		}
+	}
+	// THE CREDENTIAL-VIEW SWITCH, relayed for the same reason: the bootstrap renders the pack
+	// hooks, and on a view launch the claude pack's shared_credentials hook must not link the
+	// view's path (entrypoint.skipsForCredentialView). The run pipeline puts the RESOLVED value
+	// in the launch env when the view is on (opt-in here, claudeview.DefaultOn). Temporary, with
+	// the switch (docs/design/claude-login-without-interception.md, CL-D10).
+	if v, ok := sandboxEnv.Get(claudeview.SwitchEnv); ok {
+		bootstrapEnv.Set(claudeview.SwitchEnv, v)
 	}
 
 	// MISE_DATA_DIR, named rather than defaulted — the bootstrap's Env resolves

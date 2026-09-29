@@ -557,6 +557,23 @@ type Set struct {
 	// config) and needs no origin decision — those three carry the user's own
 	// authority by construction. Keyed by module dir, which is Loophole.Path.
 	gate map[string]bool
+	// credentialView says this launch delivers the Claude login as a credential view, which
+	// REPLACES every interception record's jail side effects (WithCredentialView).
+	credentialView bool
+}
+
+// WithCredentialView returns the set with the launch's credential-view decision recorded
+// (claudeview.Selected; docs/design/claude-login-without-interception.md, CL-D10). When on, a
+// record that declares `intercepts` puts nothing in the jail: no --add-host, no CA or state
+// mounts, no module mount and no jail daemon (admitsJailSideEffects), because the view is what
+// replaces all of it. Its HOST daemon is untouched: the broker singleton still runs, since it is
+// what writes the view.
+//
+// TEMPORARY, with the switch it reads: CL-D7's deletion removes the interception declarations
+// themselves, and this method with them.
+func (s Set) WithCredentialView(on bool) Set {
+	s.credentialView = on
+	return s
 }
 
 // gateOf builds the module-dir → approved map from the input modules.

@@ -308,6 +308,15 @@ func admitsJailSideEffects(m *Loophole, runtime string, gate *Set, what string) 
 	// the thing skipped the same fact. That is also what let "tls-intercept"
 	// retire (docs/reference/loophole-transport.md §7.4): it was the field's only
 	// behavioural reader.
+	//
+	// A launch that delivers the Claude login as a CREDENTIAL VIEW skips the same records on
+	// every runtime, for the reason that is the whole design: the view replaces the
+	// interception (docs/design/claude-login-without-interception.md, CL-D10). The decision
+	// arrives on the gate because that is the Set the launch built; the package-level
+	// functions, which carry no gate, never see it.
+	if gate != nil && gate.credentialView && len(m.Intercepts) > 0 {
+		return false
+	}
 	return !(runtime == "container" && len(m.Intercepts) > 0)
 }
 

@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/claudeview"
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/ioprio"
 	"github.com/mschulkind-oss/yolo-jail/internal/jailcontent"
@@ -485,6 +486,14 @@ func Run(opts Options) (rc int) {
 			// guard, removed it under the other session (OQ-HD10's second run, measured).
 			handles := o.startLoopholesDisclosed(cname, rt, cfg, staged.packs)
 			defer o.endServicesSession(handles)
+			// THE CREDENTIAL VIEW, opt-in on this backend until a Mac measures it (CL-D11): the
+			// workspace's view registered and written now that the broker singleton is up, and
+			// the resolved switch handed to the bootstrap, which then does not link the shared
+			// file.
+			o.registerClaudeCredentialView(rt, cname, cfg)
+			if o.claudeCredentialView(rt, cfg) {
+				launchEnv.Set(claudeview.SwitchEnv, claudeview.ResolvedValue(true))
+			}
 			for _, h := range handles {
 				// THE HOST PATH, never the jail path: there is no jail filesystem here, so
 				// the file the daemon published IS the file the sandbox opens.
@@ -1531,6 +1540,10 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 	sp = o.Perf.Span("launch.start_loopholes")
 	hostServices := o.startLoopholesDisclosed(cname, rt, cfg, loadedPacks)
 	sp.End()
+	// The credential view's registration, after the singleton's ensure made its state dir and
+	// before the container starts, so the jail's first read finds a view
+	// (claudecredentialview.go).
+	o.registerClaudeCredentialView(rt, cname, cfg)
 	// in.imageRef — NOT a re-derivation. The insert point is found by searching
 	// the argv for the image ref, so this must be the very value assembly put
 	// there or every pair below is silently dropped (see insertHostServiceEnv).
