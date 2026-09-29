@@ -34,9 +34,7 @@ a bridged profile.
 
 **Start at [§4](#4-the-proposed-shape)**, the shape. The questions fall out of it.
 
-**Needs your ruling:** [OQ-HS3](#OQ-HS3), [OQ-HS4](#OQ-HS4). Both matter only if
-[OQ-NC1](../plans/notch-convergence.md#OQ-NC1) takes its option A, and ruling that option as
-written rules [OQ-HS3](#OQ-HS3) too.
+**Rulings:** [OQ-HS3](#OQ-HS3), per launch (the maintainer, 2026-09-28), and [OQ-HS4](#OQ-HS4), decided as leaned. Nothing here awaits a ruling; the build is the remaining work.
 
 **Reads with:** [`notch-convergence.md`](../plans/notch-convergence.md) (the plan this doc is
 item 3 of: it owns whether the host runs services, the caller-secret ruling, and the selection
@@ -503,15 +501,13 @@ ruled ([NC-D2](../plans/notch-convergence.md#7-decision-ledger), 2026-09-27: *"s
 places"*), with notch-convergence's mechanism (NC-D3). The two questions below refine [OQ-NC1](../plans/notch-convergence.md#OQ-NC1)'s
 option A and are moot under its option B.
 
-1. 💬 <a id="OQ-HS3"></a>**[OQ-HS3](#OQ-HS3): Does a host service live for one launch, or
+1. ✅ <a id="OQ-HS3"></a>**[OQ-HS3](#OQ-HS3): Does a host service live for one launch, or
    outlive it?** [OQ-NC1](../plans/notch-convergence.md#OQ-NC1)'s option A says a service runs *"as a child for its own lifetime"*, so
    ruling that option as written answers this per launch. It is asked separately because the
    answer decides whether `yolo host apply`, `yolo host env` and a direct IDE or cron launch can
    ever carry a bridged profile.
 
-   <!-- vantage: oq id=OQ-HS3 leaning="Per launch. It is HD-R1's no-singleton ruling read for a host launch, OQ-NC1 option A's own wording, and the managed host Codex adapter's shipped shape, and it makes concurrency and version skew non-issues. So host apply renders no bridged address and says a bridged use_profiles selection needs yolo host -- or the host wrappers, yolo host env refuses one, and a direct launch runs on its login." -->
-
-   _Leaning:_ **Per launch.** It is [HD-R1](host-daemon-ownership.md#HD-R1) read for a host
+      _Leaning:_ **Per launch.** It is [HD-R1](host-daemon-ownership.md#HD-R1) read for a host
    launch, [OQ-NC1](../plans/notch-convergence.md#OQ-NC1)'s option A as worded, and the managed Codex adapter's shipped shape.
    Concurrency and version skew cannot arise. **What follows:** `yolo host apply` renders no
    bridged address and says a bridged `use_profiles` selection needs `yolo host --` or the
@@ -524,17 +520,22 @@ option A and are moot under its option B.
    outlives every launch, which NC-D3's per-launch secret is not.
 
    **Answer:**
-   > _(empty — fill in when decided)_
+   > **Ruled 2026-09-28, as leaned: per launch.** The maintainer: *"how or why would a host
+   > service be long lived? sounds like the answer has to be no?"* and then *"I'm totally fine
+   > with agents either being broken or not having features (same as broken) if not launched
+   > correctly once host management is on."* A host service lives for the launch that starts it.
+   > `yolo host apply` renders no bridged address and says a bridged `use_profiles` selection
+   > needs `yolo host --` or the wrappers; `yolo host env` refuses a bridged profile; an agent
+   > started without yolo (an IDE running the binary by path, a cron job without the wrappers on
+   > `PATH`) runs without the bridged feature, and that is accepted, not a defect.
 
-2. 💬 <a id="OQ-HS4"></a>**[OQ-HS4](#OQ-HS4): How does a pack declare a service's host half,
+2. ✅ <a id="OQ-HS4"></a>**[OQ-HS4](#OQ-HS4): How does a pack declare a service's host half,
    and whose host half runs?** This decides whether the host starts services through one generic
    path or one per service, and what a fetched pack can make the host run. [OQ-NC1](../plans/notch-convergence.md#OQ-NC1)'s option A
    names the cost "a second supervisor beside `yolo-jaild supervise`, unless both call one"; this
    is where that is decided.
 
-   <!-- vantage: oq id=OQ-HS4 leaning="The existing host_daemon slot (packdecl.ServiceHostDaemon, declared and carried, not executed), run generically by the host launch the way yolo-jaild supervise runs jail_daemon. Its cmd names yolo, since the host ships only yolo; the launch hands it the address and the caller secret, never on argv; the launch-chosen address overrides WB-D13's manifest-borne 8214 and 8215 and any adapters override at the host; and only an embedded official pack's host half runs, as WB-D9 limits needs, with a fetched pack's refused by name." -->
-
-   _Leaning:_ **The existing `host_daemon` slot, run generically, for embedded packs only.**
+      _Leaning:_ **The existing `host_daemon` slot, run generically, for embedded packs only.**
    `packdecl.ServiceHostDaemon` is *"declared and carried, NOT executed by this build"*, and its
    `Cmd` is *"RAW — token substitution … is the host pipeline's business and arrives with the
    consumer"* ([`contributes.go`](../../internal/packdecl/contributes.go)); `yolo pack
@@ -556,7 +557,14 @@ option A and are moot under its option B.
    since a daemon with no grants is not a loophole ([WB-D16](../reference/wire-bridge.md#wb-d16)).
 
    **Answer:**
-   > _(empty — fill in when decided)_
+   > **Decided 2026-09-28 by the orchestrator, as leaned**, as the mechanism [OQ-HS3](#OQ-HS3)'s
+   > ruling leaves: the existing `host_daemon` slot, run generically by the host launch the way
+   > `yolo-jaild supervise` runs a `jail_daemon`, its argv naming `yolo`, handed its address and
+   > caller secret off argv, the launch-chosen address overriding WB-D13's ports. Only an
+   > embedded official pack's host half runs; a fetched pack's is refused by name, which fails
+   > closed until a trust ruling exists for third-party host code. The decomposition table's
+   > "daemon on the host side" is read as a daemon holding host state for a jail, which a
+   > launch-owned bridge is not. The maintainer may revisit the fetched-pack refusal.
 
 ## 11. Decision Ledger
 
@@ -566,6 +574,8 @@ choices under the design; two are built on branch `worktree-wf_392bd9fc-1fb-1`, 
 
 | ID | Ruling / Decision | Date | Settled in | Built |
 | :--- | :--- | :--- | :--- | :--- |
+| [OQ-HS3](#OQ-HS3) | **Maintainer ruling:** a host service lives for one launch; an agent launched without yolo lacking the bridged feature is accepted | 2026-09-28 | [§10](#10-open-questions) | pending |
+| [OQ-HS4](#OQ-HS4) | *Implementation decision under HS3*, as leaned: the `host_daemon` slot run generically by the launch; embedded official packs only, a fetched pack's host half refused by name | 2026-09-28 | [§10](#10-open-questions) | pending |
 | <a id="HS-D1"></a>[`HS-D1`](#11-decision-ledger) | *Implementation decision, on [NC-D4](../plans/notch-convergence.md#7-decision-ledger).* The host runs the jail's selection closure through notch-convergence item 6's one selection function, after item 2. That revises the sibling branch's ES-D24, whose reason item 2 removes, and [WG-I8](wire-bridge-gateway.md#WG-I8)'s *"`yolo host` runs neither closure"*. Two requirements on those items come from here. First, every pointer at **any** jail daemon is dropped at the host and named on stderr, whichever pack declares it: `aws-auth`'s `1461` and the codex pack's `1460`, which `openai-auth`'s daemon serves (MEASURED reaching `yolo host env --agent codex`), while a pointer the host itself serves, as `openaiauthhost.Prepare` serves `1460` at `yolo host -- codex`, is kept with no notice. Second, ES-D18's refusal words a pack that joined through `needs` as joined, for example *"wire-bridge, which claude needs"*, and never says it is in `packs`: today its `Selected` branch prints *"though %q is in `packs`"* for any selected pack (`unservedAdapterRefusal` in [`host.go`](../../internal/cli/host.go)), which a closure-added pack would make false | 2026-09-28 | [§4.1](#41-selection-the-jails-closure-at-the-host) | — |
 | <a id="HS-D2"></a>[`HS-D2`](#11-decision-ledger) | *Implementation decision.* `yolo host` and `yolo host env` read `-p` in the run path's grammar. This is ES-D27 ([ledger](credential-sources-separation.md#10-decision-ledger)) on the sibling branch, and that row is the authority: one parser (`parseProfileValue`), a pair naming the composed command means the bare name, a pair naming another CLI refuses by name, and `providers.md`'s "do not unify" warning is deleted | 2026-09-28 | [§2.1](#21-the-five-causes) | ✅ `3830c102`, branch `worktree-wf_392bd9fc-1fb-1` |
 | <a id="HS-D3"></a>[`HS-D3`](#11-decision-ledger) | *Implementation decision.* A host half's OpenAI credential comes from the host broker's private socket, through `openauthclient.RequestUnix` on `openaiauthdaemon.HostSocketPath`, the path managed host Codex and pi already use (`openaiauthhost`), and never through a jail endpoint file. The service receives access-token views only, never a refresh token ([`openai-auth-broker.md` §2](openai-auth-broker.md#2-one-writer-and-two-views)). Contingent on [OQ-NC1](../plans/notch-convergence.md#OQ-NC1)'s option A | 2026-09-28 | [§4.3](#43-the-address-and-the-caller-secret) | — |
