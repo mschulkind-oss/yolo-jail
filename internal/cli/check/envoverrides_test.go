@@ -483,3 +483,51 @@ func TestSectionPacksWarnsForAnUncertainOverride(t *testing.T) {
 		t.Errorf("no grant, no finding: failed=%d warned=%d\n%s", r.failed, r.warned, buf.String())
 	}
 }
+
+// A PLATFORM GATE IS PREDICTED FROM THE SELECTED PROVIDER'S PLATFORM (OQ-BR8), as the launch
+// fires it: the gate's own selection (scope.Selection()), never the bare profile names. The
+// contribution is gated on the platform its provider declares, reached through a profile
+// whose name matches nothing, and its override is delivered, so the launch refuses and `check`
+// must FAIL. A name-only selection (packload.ProfilesOnly) fires no platform gate, predicts no
+// override, and exits 0 on a config the launch refuses: packs/aws-auth's pointer is gated this
+// way, so that mutation would stop `check` predicting the bearer-or-static-pair refusal for
+// every Bedrock selection.
+func TestSectionPacksPredictsTheOverrideOfAPlatformGatedContribution(t *testing.T) {
+	dir := t.TempDir()
+	manifest := `{"name": "widgetpack", "contributes": [
+    {"kind": "program", "bin": "someagent", "via": "npm", "package": "@example/someagent",
+     "protocols": ["openai"]},
+    {"kind": "provider", "name": "widgetprovider", "platform": "widget-plat",
+     "endpoints": {"openai": {"base_url": "https://api.example.test/v1"}}},
+    {"kind": "provider", "name": "plainprovider",
+     "endpoints": {"openai": {"base_url": "https://plain.example.test/v1"}}},
+    {"kind": "profile", "name": "anyname", "provider": "widgetprovider"},
+    {"kind": "profile", "name": "plain", "provider": "plainprovider"},
+    {"kind": "env", "platform": "widget-plat",
+     "vars": {"` + widgetPointer + `": "http://127.0.0.1:1461/credentials"},
+     "overridden_by": [{"vars": ["` + widgetToken + `"], "because": "the token wins"}]}]}`
+	if err := os.WriteFile(filepath.Join(dir, "pack.json"), []byte(manifest), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	packsFixture(t, `{"packs": ["file://`+dir+`"]}`)
+	run := func(profile string) (int, string) {
+		t.Helper()
+		var buf bytes.Buffer
+		r := &reporter{w: &buf}
+		(&Options{Workspace: t.TempDir(), Getenv: func(string) string { return "" }}).sectionPacks(r,
+			withEnvSources(useProfiles("someagent", profile), map[string]string{widgetToken: "frozen-token-value"}))
+		return r.failed, buf.String()
+	}
+
+	failed, out := run("anyname")
+	if failed == 0 {
+		t.Fatalf("a platform-gated contribution beside its delivered override must FAIL the check:\n%s", out)
+	}
+	if !strings.Contains(out, widgetToken+" is delivered by "+packload.FromEnvSources) {
+		t.Errorf("the prediction must carry the launch's own words:\n%s", out)
+	}
+	// The control: a profile over a provider of no platform delivers no contribution.
+	if failed, out := run("plain"); failed != 0 {
+		t.Errorf("a provider of another platform fires no platform gate, so nothing is overridden:\n%s", out)
+	}
+}

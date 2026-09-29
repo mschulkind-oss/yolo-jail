@@ -155,3 +155,43 @@ func TestHostLaunchRefusesAProfileEntryValidationRefuses(t *testing.T) {
 		}
 	}
 }
+
+// A PLATFORM GATE REFUSES AT THE HOST TOO (OQ-BR8): the one-agent selection envOverrideFindings
+// builds carries the platform the selected provider declares (packload.SelectionOf), not the
+// profile name alone. The local pack's pointer is gated on "aws-bedrock", declares no
+// `served_by` (so the host delivers it), and is overridden by WIDGET_TOKEN; claude on `bedrock`
+// and on a profile of the user's own over it must each refuse, and a name-only selection
+// (packload.ProfilesOnly) fires no platform gate and lets both run.
+func TestHostLaunchRefusesAPlatformGatedPointerBesideItsOverride(t *testing.T) {
+	for _, profile := range []string{"bedrock", "bedrock-sso"} {
+		t.Run(profile, func(t *testing.T) {
+			home := hostGateHome(t, `{"packs": ["claude"], "env_sources": [{"WIDGET_TOKEN": "frozen"}],
+			  "profiles": {"bedrock-sso": {"provider": "bedrock"}}}`, nil)
+			t.Setenv("WIDGET_TOKEN", "")
+			writeFile(t, filepath.Join(home, ".config", "yolo-jail", "local", "pack.json"),
+				`{"name": "local", "contributes": [{"kind": "env", "platform": "aws-bedrock",
+			  "vars": {"WIDGET_POINTER": "https://widget.example/creds"},
+			  "overridden_by": [{"vars": ["WIDGET_TOKEN"], "because": "the widget client reads WIDGET_TOKEN first"}]}]}`)
+			rc, reached, errw := hostExecRun(t, "claude", "-p", profile)
+			if rc != 1 || reached {
+				t.Fatalf("yolo host -p %s -- claude must refuse the platform-gated pointer beside its "+
+					"override: rc=%d reached=%v\n%s", profile, rc, reached, errw)
+			}
+			for _, want := range []string{"WIDGET_TOKEN is delivered by " + packload.FromEnvSources,
+				"WIDGET_POINTER", "pack local"} {
+				if !strings.Contains(errw, want) {
+					t.Errorf("the refusal must say %q:\n%s", want, errw)
+				}
+			}
+		})
+	}
+	// The control: claude on a provider of no platform gets no pointer, so nothing refuses.
+	home := hostGateHome(t, `{"packs": ["claude"], "env_sources": [{"WIDGET_TOKEN": "frozen"}]}`, nil)
+	writeFile(t, filepath.Join(home, ".config", "yolo-jail", "local", "pack.json"),
+		`{"name": "local", "contributes": [{"kind": "env", "platform": "aws-bedrock",
+	  "vars": {"WIDGET_POINTER": "https://widget.example/creds"},
+	  "overridden_by": [{"vars": ["WIDGET_TOKEN"], "because": "the widget client reads WIDGET_TOKEN first"}]}]}`)
+	if rc, reached, errw := hostExecRun(t, "claude"); rc != 0 || !reached {
+		t.Fatalf("claude on no Bedrock provider receives no pointer and launches: rc=%d\n%s", rc, errw)
+	}
+}
