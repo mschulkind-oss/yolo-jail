@@ -62,10 +62,11 @@ type servedAddressState struct {
 // sharesNetnsFor reports whether a jail launched on rt with cfg shares this process's network
 // namespace — sharesLauncherNetns over the same inputs its other readers pass. A native runtime
 // shares by construction (sharesLauncherNetns says so for every paths.NativeRuntimes entry),
-// and since OQ-DP8/OQ-DP9 macos-user RUNS jail daemons in its guest, on the Mac's own loopback:
-// so it picks a port for each, which is what keeps two concurrent launches off one declared
-// port (jail-daemon-on-macos-user-plan.md's `1460` trap). Only the daemons the guest runs are
-// settled (jailDaemonsFor), so a declined one moves nothing.
+// and since OQ-DP8/OQ-DP9 macos-user RUNS jail daemons in its guest, and since HS-D15 opens the
+// credential doorways outside it (macosuserdoorways.go), both on the Mac's own loopback: so it
+// picks a port for each, which is what keeps two concurrent launches off one declared port
+// (jail-daemon-on-macos-user-plan.md's `1460` trap). Only the daemons the launch serves are
+// settled (jailDaemonsFor, loopholes.ServedJailDaemons), so a declined one moves nothing.
 func (o *Options) sharesNetnsFor(cfg *jsonx.OrderedMap, rt string) bool {
 	// A hand-built Options (every one is a test) has no PathExists seam, and reads as not
 	// nested, which is what fillDefaults' os.Stat answers outside a container too.
