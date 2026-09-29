@@ -13,9 +13,12 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/agentenv"
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
+	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/hostwrap"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/launchservice"
 	"github.com/mschulkind-oss/yolo-jail/internal/openaiauthhost"
+	"github.com/mschulkind-oss/yolo-jail/internal/openauthclient"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/render"
@@ -481,9 +484,12 @@ func hostExec(flagArgs, cmd []string, out, errw io.Writer, stdin io.Reader) int 
 		return 1
 	}
 
-	launch := composeHostLaunch(cmd[0], flags.profile, flags.grant, func(msg string) {
+	// hostServicesStart: this is the one front door that owns its command's lifetime, so a
+	// profile paired through a pack service runs that service's host half for the command
+	// (docs/design/host-notch-services.md; OQ-NC1 A, OQ-HS3 per launch).
+	launch := composeHostLaunchWith(cmd[0], flags.profile, flags.grant, func(msg string) {
 		fmt.Fprintf(errw, "Warning: %s\n", msg)
-	})
+	}, hostServicesStart)
 
 	// THE PROVIDER COMPOSITION's own refusal, before anything else: a provider table this
 	// notch cannot compose is one no launch may exec from, and the credential pre-flight
@@ -572,6 +578,34 @@ func hostExec(flagArgs, cmd []string, out, errw io.Writer, stdin io.Reader) int 
 	// pointer names, so that one is not missing and is not named.
 	printHostLines(errw, launch.unservedLines(managedHostVars(managed)))
 	environ := launch.environ()
+	// THE LAUNCH-OWNED SERVICES (docs/design/host-notch-services.md §4.4): started after the
+	// agent resolved on PATH and after the prelaunch, so a missing agent starts nothing and the
+	// OpenAI login exists before the bridge asks for a view; the agent starts only once each
+	// service is listening, and every one stops when the agent exits. Said on stderr, every
+	// time: this is host code yolo runs on the user's machine, and a launch has no quiet mode.
+	if len(launch.services) > 0 {
+		if managed != nil {
+			environ = managed.Environ(environ)
+		}
+		var running []*launchservice.Running
+		for _, plan := range launch.services {
+			r, err := startLaunchService(plan, launch.serviceInput())
+			if err != nil {
+				for _, started := range running {
+					started.Stop()
+				}
+				fmt.Fprintf(errw, "yolo host: refusing to launch: %v\n", err)
+				return 1
+			}
+			running = append(running, r)
+			fmt.Fprintf(errw, "yolo host: started the %q service (pack %q, pid %d) for %s on %s; "+
+				"it answers only this launch's caller token and stops when %s exits. Its log: %s\n",
+				plan.Service, plan.Pack, r.PID(), launch.agent, strings.Join(plan.Addresses(), ", "),
+				launch.agent, r.Log)
+		}
+		return launchservice.RunAgent(target, argv, environ, stdin, out, errw, running,
+			hostServiceSignals, "yolo host: ")
+	}
 	if managed != nil {
 		environ = managed.Environ(environ)
 		if rc, handled := managed.Run(target, argv, environ, stdin, out, errw); handled {
@@ -589,6 +623,41 @@ func hostExec(flagArgs, cmd []string, out, errw io.Writer, stdin io.Reader) int 
 		return 126
 	}
 	return 0 // unreachable: a successful Exec never returns
+}
+
+// startLaunchService starts one launch-owned service; a var so a test can observe what started.
+var startLaunchService = launchservice.Start
+
+// hostServiceSignals is the channel a launch with a service reads its signals from, nil for this
+// process's own; a var so a test can deliver one without signalling itself.
+var hostServiceSignals chan os.Signal
+
+// serviceInput is what every launch-owned service of this composition is handed
+// (launchservice.Input): the three wire tables for the one agent, the host broker's private
+// socket, and the env_sources the credential gate delivers to that agent for its provider
+// (AgentDelivery.EnvSources), so a service reaches exactly the credential of the provider it
+// serves and no other. The caller token is added by launchservice.Start.
+func (c *hostComposition) serviceInput() map[string]string {
+	use := jsonx.NewOrderedMap()
+	if c.profile != "" {
+		use.Set(c.agent, c.profile)
+	}
+	env := map[string]string{
+		entrypoint.ProvidersWireEnv:   wireJSON(c.providers),
+		entrypoint.ProfilesWireEnv:    wireJSON(packload.ProfilesWireTable(c.resolved)),
+		entrypoint.UseProfilesWireEnv: wireJSON(use),
+		openauthclient.HostSocketEnv:  openaiauthhost.HostSocketPath(),
+	}
+	if d := c.scope.Agent(c.agent); d != nil && d.EnvSources != nil {
+		for _, k := range d.EnvSources.Keys() {
+			if v, _ := d.EnvSources.Get(k); v != nil {
+				if str, ok := v.(string); ok {
+					env[k] = str
+				}
+			}
+		}
+	}
+	return env
 }
 
 // printHostLines writes one pre-flight or disclosure block the way this notch names itself:
@@ -698,6 +767,10 @@ type hostComposition struct {
 	// with its grant widened must spell again (grantRemedy). profile can instead come from
 	// use_profiles, which the re-run picks up by itself.
 	typedProfile string
+	// services are the launch-owned services this composition planned (hostServicesStart), or
+	// the one a pairing needs (hostServicesDetect, with no ports or token): zero or one, since
+	// one agent resolves one pairing (docs/design/host-notch-services.md §4.2).
+	services []*launchservice.Plan
 	// selection is the one selection function's answer this launch composed from: packs is its
 	// complete set, and its causes are the packs the closure joined (selectionLines).
 	selection hostPackSet
@@ -1245,6 +1318,13 @@ func composeHostEnv(bin, profile string, warn func(string)) ([]string, string, e
 //  4. removals — a null in env_sources, i.e. `unset AWS_PROFILE`. Last, so a removal
 //     beats an assignment from any earlier step.
 func composeHostLaunch(bin, profile string, grant *hostGrantRequest, warn func(string)) *hostComposition {
+	return composeHostLaunchWith(bin, profile, grant, warn, hostServicesRefuse)
+}
+
+// composeHostLaunchWith is composeHostLaunch with the launch's answer to a profile that needs a
+// pack service (hostServicesMode): `yolo host --` starts it, every other caller refuses.
+func composeHostLaunchWith(bin, profile string, grant *hostGrantRequest, warn func(string),
+	services hostServicesMode) *hostComposition {
 	agent := filepath.Base(bin)
 	cfg := config.UserScopeConfigOrEmpty()
 	workspace, err := os.Getwd()
@@ -1252,7 +1332,7 @@ func composeHostLaunch(bin, profile string, grant *hostGrantRequest, warn func(s
 		workspace = "."
 	}
 
-	return composeHostVarsFor(cfg, workspace, agent, bin, profile, grant, warn)
+	return composeHostVarsWith(cfg, workspace, agent, bin, profile, grant, warn, services)
 }
 
 // hostEnvVars is the composition itself, without the inherited environment — the
@@ -1305,6 +1385,27 @@ func composeHostVarsGranting(cfg *jsonx.OrderedMap, workspace, agent, profile st
 // refusal the composition makes can spell the launch it refuses (adHocGrantSpelling).
 func composeHostVarsFor(cfg *jsonx.OrderedMap, workspace, agent, command, profile string,
 	grant *hostGrantRequest, warn func(string)) *hostComposition {
+	return composeHostVarsWith(cfg, workspace, agent, command, profile, grant, warn, hostServicesRefuse)
+}
+
+// hostServicesMode is what a host composition does when the one agent it composes for is paired
+// through a pack service's adaptation (docs/design/host-notch-services.md §4.2, the trigger).
+type hostServicesMode int
+
+const (
+	// hostServicesRefuse refuses, naming the launch that would start the service: the answer of
+	// `yolo host env` and every other caller that owns no process lifetime (OQ-HS3, HS-D5).
+	hostServicesRefuse hostServicesMode = iota
+	// hostServicesStart plans the service for this launch (launchservice.NewPlan: its ports and
+	// caller token) and composes the agent against it. `yolo host --` alone asks for it.
+	hostServicesStart
+	// hostServicesDetect records which service the pairing needs and composes nothing further:
+	// `yolo host apply`'s question, which renders no address for it and says so.
+	hostServicesDetect
+)
+
+func composeHostVarsWith(cfg *jsonx.OrderedMap, workspace, agent, command, profile string,
+	grant *hostGrantRequest, warn func(string), services hostServicesMode) *hostComposition {
 	var vars []agentenv.Var
 	c := &hostComposition{agent: agent, command: command}
 
@@ -1403,7 +1504,7 @@ func composeHostVarsFor(cfg *jsonx.OrderedMap, workspace, agent, command, profil
 	// declared options off it (packload.providerOptions) and must measure the surface
 	// this launch carries. The same object is reused at (3), so the pre-flight and the
 	// env derive read the table the resolution was measured against.
-	providers, unservedAdaptations, err := composedHostProviders(cfg, packs)
+	providers, unservedAdaptations, err := composedHostProviders(cfg, packs, nil)
 	if err != nil {
 		c.err = err
 		return c
@@ -1524,10 +1625,47 @@ func composeHostVarsFor(cfg *jsonx.OrderedMap, workspace, agent, command, profil
 		Served: &hostServed,
 	}
 	scope, err := packload.ScopeCredentials(c.scopeInput)
+	// A PAIRING THROUGH A PACK SERVICE'S ADAPTATION (docs/design/host-notch-services.md §4.2). The
+	// composition above served nothing, so the gate refused it; a launch that owns its process
+	// runs the service's host half as a launch-owned child and composes the agent against it
+	// (NC-D65: OQ-NC1's option A at the host). One agent resolves one pairing, so this adds at
+	// most one service; the loop is bounded by the services the selection declares.
+	for tries := 0; err != nil && tries <= len(packs); tries++ {
+		var unserved *packload.UnservedAdapterError
+		if !errors.As(err, &unserved) || unserved.Agent != agent {
+			break
+		}
+		plan, refusal, detected := c.planHostService(unserved, packs, profileName, sel, services)
+		if detected || refusal != nil {
+			c.err = refusal
+			return c
+		}
+		c.services = append(c.services, plan)
+		providers, unservedAdaptations, err = composedHostProviders(cfg, packs, c.services)
+		if err != nil {
+			c.err = err
+			return c
+		}
+		c.providers = providers
+		if resolvedProfiles, err = packload.ResolveProfiles(packs, userProfiles, providers); err != nil {
+			c.err = err
+			return c
+		}
+		// Via stays inert at the host whatever this launch serves (WG-I12).
+		resolvedProfiles, c.unservedVias = packload.ViaServedAt(resolvedProfiles, packs, packload.NothingServed())
+		c.resolved = resolvedProfiles
+		hostServed = launchservice.Served(c.services)
+		c.scopeInput.Providers = providers
+		c.scopeInput.Resolved = resolvedProfiles
+		c.scopeInput.UnservedAdaptations = unservedAdaptations
+		c.scopeInput.Served = &hostServed
+		c.scopeInput.CallerTokens = launchservice.CallerTokens(c.services)
+		scope, err = packload.ScopeCredentials(c.scopeInput)
+	}
 	if err != nil {
 		var unserved *packload.UnservedAdapterError
 		if errors.As(err, &unserved) && unserved.Agent == agent {
-			err = unservedAdapterRefusal(unserved, profileName, sel)
+			err = unservedAdapterRefusal(unserved, profileName, sel, "")
 		}
 		c.err = err
 		return c
@@ -1660,10 +1798,19 @@ func selectedPackInstalls(packs []*packload.Pack, bin string) bool {
 // c.providers — because packload/providers.go states the composition happens exactly once
 // per launch, and two compositions would be two chances for the check and the exec to
 // disagree about what the launch carries.
-func composedHostProviders(cfg *jsonx.OrderedMap, packs []*packload.Pack) (*jsonx.OrderedMap, []packload.Adaptation, error) {
+func composedHostProviders(cfg *jsonx.OrderedMap, packs []*packload.Pack,
+	services []*launchservice.Plan) (*jsonx.OrderedMap, []packload.Adaptation, error) {
 	var user *jsonx.OrderedMap
 	if v, ok := cfg.Get("providers"); ok {
 		user, _ = v.(*jsonx.OrderedMap)
+	}
+	// A LAUNCH THAT STARTS A SERVICE composes its adaptations at the ports it picked, and a
+	// user's `adapters` override of those conversions does not apply here: the launch-chosen
+	// address overrides the manifest's and the user's (OQ-HS4).
+	if len(services) > 0 {
+		addresses := launchservice.WithoutOverrides(hostAdapterAddresses(), packs,
+			launchservice.Names(services))
+		return packload.ComposeProvidersAt(user, packs, addresses, launchservice.Served(services))
 	}
 	// NO ADDRESS A PACK'S OWN SERVICE SERVES (docs/design/credential-sources-separation.md
 	// ES-D18): `yolo host` starts no jail daemon, so nothing is served at this notch
@@ -1685,34 +1832,79 @@ func hostAdapterAddresses() map[string]string {
 	return addresses
 }
 
-// unservedAdapterRefusal words the gate's *packload.UnservedAdapterError for this notch: the
-// profile, the address the agent would have been pointed at and what serves it, that nothing
-// at the host does, and the launch where the profile works. It also says that the pack's
-// place in `packs` changes nothing here, whether the pack is listed or not (ES-D19). Unlisted,
-// the pack is one the ordinary pairing refusal would have told the user to add.
+// planHostService is a host composition's answer to a pairing through a pack service's
+// adaptation (e): the service's plan when this launch will start it, or the refusal, or, for
+// hostServicesDetect, only the record of which service the pairing needs (detected true).
 //
-// THAT LAUNCH IS A CONTAINER JAIL'S (ES-D20). The macos-user backend starts no jail daemons
-// (run.noteMacosUserJailDaemonDeclines), so a pack's service does not run there either and the
-// agent would meet the same dead address. So the refusal names the container backends, says
-// macos-user is not one, and names the dial that picks one for a launch. It never says the
-// profile works "in a jail" unqualified.
+// THE FOUR REFUSALS HS-D5 NARROWS ES-D18 TO. A service with no host half and a service whose
+// pack yolo does not ship (launchservice.Admit) refuse with the reason; `yolo host env`, which
+// owns no process lifetime, refuses naming the launch that would start it (OQ-HS3); and a host
+// half that fails to start is hostExec's (launchservice.Start). A pairing through a pack nothing
+// selects, or a provider no selected pack ships, refuses as before.
+func (c *hostComposition) planHostService(e *packload.UnservedAdapterError, packs []*packload.Pack,
+	profile string, sel hostPackSet, mode hostServicesMode) (*launchservice.Plan, error, bool) {
+	if !e.Selected || e.ProviderPack != "" {
+		return nil, unservedAdapterRefusal(e, profile, sel, ""), false
+	}
+	d, err := launchservice.Admit(packs, e.Adaptation.Service)
+	if err != nil {
+		var adm *launchservice.AdmissionError
+		why := err.Error()
+		if errors.As(err, &adm) {
+			why = adm.Why
+		}
+		return nil, unservedAdapterRefusal(e, profile, sel, why), false
+	}
+	switch mode {
+	case hostServicesDetect:
+		c.services = append(c.services, &launchservice.Plan{Declared: d})
+		return nil, nil, true
+	case hostServicesRefuse:
+		spelling := "yolo host -- " + shquote.Quote(e.Agent)
+		if c.typedProfile != "" {
+			spelling = "yolo host -p " + shquote.Quote(c.typedProfile) + " -- " + shquote.Quote(e.Agent)
+		}
+		return nil, fmt.Errorf("profile %q pairs %s with provider %q through pack %q's %q service, and "+
+			"this command runs no process, so there is no command whose lifetime that service could "+
+			"follow: a host service lives only for the command that starts it "+
+			"(docs/design/host-notch-services.md OQ-HS3). Launch the agent as `%s`, or through its "+
+			"host wrapper, which starts the service for that command and stops it when %s exits",
+			profile, e.Agent, e.Provider, d.Pack, d.Service, spelling, e.Agent), false
+	}
+	plan, err := launchservice.NewPlan(packs, d)
+	if err != nil {
+		return nil, err, false
+	}
+	return plan, nil, false
+}
+
+// unservedAdapterRefusal words the gate's *packload.UnservedAdapterError for this notch when the
+// pairing's service cannot run here: the profile, the address the agent would have been pointed
+// at and what serves it, why this launch cannot start it (why, from launchservice.Admit; "" for a
+// pack nothing selects or a provider no selected pack ships), and the launch where the profile
+// works.
+//
+// THAT LAUNCH IS A CONTAINER JAIL'S (ES-D20): it runs the service's jail daemon, which needs no
+// host half and no trust ruling. A macos-user launch runs a pack service only through its host
+// half, as the host does, so it refuses the same profile, and the refusal names the dial that
+// picks a container backend for one launch. It never says the profile works "in a jail"
+// unqualified.
 //
 // A PACK THE SELECTION CLOSURE JOINED IS WORDED AS JOINED (HS-D1). With `"packs": ["claude"]`
 // the wire bridge joins through claude's `needs`, so "though "wire-bridge" is in `packs`" would
 // send the user to a config line that does not exist; the refusal quotes the cause line instead.
 //
+// A PACK NOTHING SELECTS (!e.Selected) is named with the remedy that is true of it: listing it
+// makes this launch start its service when yolo ships the pack and the service has a host half,
+// and changes nothing otherwise (ES-D19, and HS-D1's converse).
+//
 // THE PROVIDER'S OWN PACK MAY BE MISSING TOO (ES-D25): only a pack yolo ships declares the
-// provider, and nothing selects it. The gate then asks what the pairing would be with that pack
-// composed in, and this is the answer; e.ProviderPack names the pack, and the refusal says that
-// listing it changes nothing here either, so the user is not sent to add it and meet this refusal
-// again. Since the host applies `needs` (notch-convergence item 6), a selected pack whose `needs`
-// names the provider's pack only reaches this when the need's `when_bins` does not hold.
+// provider, and nothing selects it; e.ProviderPack names the pack, and the refusal says that
+// listing it changes nothing here either.
 //
 // THE JAIL SPELLING IS SAID TO BE A JAIL LAUNCH (ES-D26): `yolo -p claude=codex -- claude`
-// starts a container. Read as a host spelling it sent the user to `yolo host -p claude=codex
-// -- claude`, which refused as an undeclared profile named "claude=codex"; the host now parses
-// that pair (ES-D27) and refuses it with this same message.
-func unservedAdapterRefusal(e *packload.UnservedAdapterError, profile string, sel hostPackSet) error {
+// starts a container, not a `yolo host` one.
+func unservedAdapterRefusal(e *packload.UnservedAdapterError, profile string, sel hostPackSet, why string) error {
 	a := e.Adaptation
 	agent, p := shquote.Quote(e.Agent), shquote.Quote(profile)
 	listing := fmt.Sprintf("though %q is in `packs`", a.Pack)
@@ -1721,6 +1913,14 @@ func unservedAdapterRefusal(e *packload.UnservedAdapterError, profile string, se
 	}
 	if !e.Selected {
 		listing = fmt.Sprintf("and adding %q to `packs` does not change that here", a.Pack)
+		if _, err := launchservice.Admit(packload.Embedded(), a.Service); err == nil {
+			listing = fmt.Sprintf("because nothing selects pack %q: add it to `packs` and `yolo host` "+
+				"starts its %q service for the command", a.Pack, a.Service)
+		}
+	}
+	cannot := fmt.Sprintf("which this launch cannot start: %s", why)
+	if why == "" {
+		cannot = "which does not run for this launch"
 	}
 	providerPack := ""
 	if e.ProviderPack != "" {
@@ -1734,15 +1934,15 @@ func unservedAdapterRefusal(e *packload.UnservedAdapterError, profile string, se
 			"the answer either.", e.Provider, e.ProviderPack, needs, e.ProviderPack)
 	}
 	return fmt.Errorf("profile %q would point %s at %s, where pack %q adapts %q → %q for provider %q — "+
-		"and that address is served by the pack's own %q service, a daemon yolo runs only in a "+
-		"container jail. No host process serves it, so `yolo host` will not run %s pointed at it, %s.%s\n"+
-		"  The profile works in a container jail (podman or Apple Container), where that service "+
-		"runs: `yolo -p %s=%s -- %s`, which is a jail launch, not a `yolo host` one. The macos-user "+
-		"backend starts no jail daemons, so the service "+
-		"does not run there either; `YOLO_RUNTIME=podman` or `YOLO_RUNTIME=container` picks a "+
+		"and that address is served by the pack's own %q service, %s. No host process serves it, so "+
+		"`yolo host` will not run %s pointed at it, %s.%s\n"+
+		"  The profile works in a container jail (podman or Apple Container), where that service's "+
+		"jail daemon runs: `yolo -p %s=%s -- %s`, which is a jail launch, not a `yolo host` one. A "+
+		"macos-user launch runs a pack service only through its host half, as `yolo host` does, so "+
+		"it refuses this profile too; `YOLO_RUNTIME=podman` or `YOLO_RUNTIME=container` picks a "+
 		"container backend for one launch.\n"+
 		"  At the host, choose a profile whose provider %s speaks to directly",
-		profile, agent, a.Address, a.Pack, a.From, a.To, e.Provider, a.Service, agent, listing,
+		profile, agent, a.Address, a.Pack, a.From, a.To, e.Provider, a.Service, cannot, agent, listing,
 		providerPack, agent, p, agent, agent)
 }
 

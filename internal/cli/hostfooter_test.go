@@ -220,25 +220,24 @@ func TestHostFooterRunKeepsArgvWhole(t *testing.T) {
 	}
 }
 
-// TestHostFooterLeavesOutARefusedSelection: a `use_profiles` selection the host launch refuses
-// composes nothing at the host, so the footer names the login rather than a bridge no host
-// process runs (docs/design/agent-footer.md FT-D1). Claude's codex profile is refused at the
-// host both when the provider's pack is absent (ES-D25) and when it is listed (ES-D18); before,
-// the footer said `codex (bridge) · host` in both. A profile the host does compose is still
-// named beside it, so the filter drops the refused agent's entry and nothing else.
-func TestHostFooterLeavesOutARefusedSelection(t *testing.T) {
+// TestHostFooterNamesABridgedSelectionTheHostServes: claude's codex profile is one a host launch
+// composes since `yolo host -- claude` starts the wire bridge's host half for it
+// (docs/design/host-notch-services.md HS-D10), so the footer names it as a jail's does, whether
+// the provider's pack joins through claude's `needs` or is listed. Before, the host refused the
+// selection and the footer named the login (FT-D1).
+func TestHostFooterNamesABridgedSelectionTheHostServes(t *testing.T) {
 	cases := []struct {
 		name, config string
 	}{
-		{"the provider's pack absent", `{"packs": ["claude"], "use_profiles": {"claude": "codex"}}`},
+		{"the provider's pack joined", `{"packs": ["claude"], "use_profiles": {"claude": "codex"}}`},
 		{"the provider's pack listed", `{"packs": ["claude", "openai-auth"], "use_profiles": {"claude": "codex"}}`},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			_, command := hostFooterHome(t, c.config)
 			line, stderr := hostFooterRun(t, command)
-			if want := "Opus · yolo: Claude subscription · host"; line != want {
-				t.Errorf("host Claude footer = %q, want %q (no host process runs claude's codex route)", line, want)
+			if want := "Opus · yolo: codex (bridge) · host"; line != want {
+				t.Errorf("host Claude footer = %q, want %q (a host launch runs claude's codex route)", line, want)
 			}
 			if stderr != "" {
 				t.Errorf("the footer wrote to stderr at the host: %q", stderr)
@@ -247,9 +246,8 @@ func TestHostFooterLeavesOutARefusedSelection(t *testing.T) {
 	}
 }
 
-// TestHostFooterTablesKeepsAComposedSelection: hostFooterTables drops only the refused agent.
-// With pi on codex (composed: pi's pack registers no env producer, ES-D25) and claude on codex
-// (refused), the table keeps pi's entry and not claude's.
+// TestHostFooterTablesKeepsAComposedSelection: with pi on codex (composed directly) and claude
+// on codex (composed through the launch-owned bridge, HS-D10), the table keeps both.
 func TestHostFooterTablesKeepsAComposedSelection(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
@@ -257,7 +255,7 @@ func TestHostFooterTablesKeepsAComposedSelection(t *testing.T) {
 	writeFile(t, filepath.Join(home, ".config", "yolo-jail", "config.jsonc"),
 		`{"packs": ["claude", "pi"], "use_profiles": {"claude": "codex", "pi": "codex"}}`)
 	got := hostFooterTables().UseProfiles
-	if got != `{"pi": "codex"}` {
-		t.Errorf("host footer use_profiles = %q, want only pi's composed selection", got)
+	if got != `{"claude": "codex", "pi": "codex"}` {
+		t.Errorf("host footer use_profiles = %q, want both composed selections", got)
 	}
 }

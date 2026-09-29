@@ -7,9 +7,8 @@ package cli
 
 import (
 	"bytes"
+	"io"
 	"os"
-	"os/exec"
-	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -97,44 +96,25 @@ func TestHostPairNamingAnotherCLIRefuses(t *testing.T) {
 	}
 }
 
-// BOTH ORDERS, through cli.Main in a child with a fake claude on PATH: `yolo host -p
-// claude=codex -- claude` and `yolo -p claude=codex host -- claude` reach the host's answer for
-// claude's codex profile (ES-D18, and ES-D25 when openai-auth is not listed), never the
-// undeclared-profile refusal, and never run claude.
-func TestHostPairReachesTheCodexRefusalInBothOrders(t *testing.T) {
+// A `-p claude=codex` pair reaches the bridge in both orders, and through `--profile=`: the pair is
+// read in the run path's grammar (ES-D27), so the host starts the wire bridge for claude rather than
+// reading "claude=codex" as a profile name, whether openai-auth is listed or joins through claude's
+// `needs`.
+func TestHostPairStartsTheBridgeInBothOrders(t *testing.T) {
 	const helper = "YOLO_TEST_HOST_PAIR_SPELLING"
 	if spelling := os.Getenv(helper); spelling != "" {
+		prepareOpenAIAuthHost = func(hostPrelaunch, io.Writer) (managedOpenAIHostLaunch, error) { return nil, nil }
 		os.Exit(Main(append([]string{"yolo"}, strings.Fields(spelling)...)))
 	}
 	for _, cfg := range []string{claudeAlone, `{"packs": ["claude", "openai-auth"]}`} {
 		for _, spelling := range []string{"host -p claude=codex -- claude", "-p claude=codex host -- claude",
 			"host --profile=claude=codex -- claude"} {
 			t.Run(cfg+" "+spelling, func(t *testing.T) {
-				home := t.TempDir()
-				userCfg(t, home, cfg)
-				bin := t.TempDir()
-				fake := "#!/bin/sh\necho FAKE-CLAUDE-RAN\n"
-				if err := os.WriteFile(filepath.Join(bin, "claude"), []byte(fake), 0o755); err != nil {
-					t.Fatal(err)
+				out := runHostSpelling(t, "^TestHostPairStartsTheBridgeInBothOrders$", helper, cfg, spelling)
+				if strings.Contains(out, `"claude=codex"`) {
+					t.Fatalf("yolo %s read the pair as a profile name:\n%s", spelling, out)
 				}
-				cmd := exec.Command(os.Args[0], "-test.run=^TestHostPairReachesTheCodexRefusalInBothOrders$")
-				cmd.Dir = t.TempDir()
-				cmd.Env = append(envWithoutYolo(), helper+"="+spelling, "HOME="+home,
-					"PATH="+bin+string(os.PathListSeparator)+os.Getenv("PATH"), "NO_COLOR=1")
-				out, err := cmd.CombinedOutput()
-				if exit, ok := err.(*exec.ExitError); !ok || exit.ExitCode() != 1 {
-					t.Fatalf("yolo %s: exit = %v, want 1 (a refusal)\n%s", spelling, err, out)
-				}
-				s := string(out)
-				if strings.Contains(s, "FAKE-CLAUDE-RAN") || strings.Contains(s, `"claude=codex"`) {
-					t.Fatalf("yolo %s ran claude or read the pair as a profile name:\n%s", spelling, s)
-				}
-				for _, want := range []string{"http://127.0.0.1:8215", "No host process serves it",
-					"which is a jail launch, not a `yolo host` one"} {
-					if !strings.Contains(s, want) {
-						t.Errorf("yolo %s: the refusal must say %q:\n%s", spelling, want, s)
-					}
-				}
+				assertBridgedClaude(t, spelling, out)
 			})
 		}
 	}

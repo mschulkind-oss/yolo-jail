@@ -1,11 +1,11 @@
 package cli
 
-// hostbridgeadapter_test.go pins the host notch's answer to an adapter only a jail serves
-// (docs/design/credential-sources-separation.md ES-D18; docs/reference/wire-bridge.md, "No
-// host-side bridge"). packs/wire-bridge declares its `openai → anthropic` adaptation beside the
-// `service` whose in-jail daemon serves it, and no host process serves that address. So with
-// wire-bridge listed in `packs`, `yolo host -p cerebras -- claude` must REFUSE, naming why and
-// that the profile works in a jail, rather than run claude pointed at http://127.0.0.1:8214.
+// hostbridgeadapter_test.go pins the host notch's answer to an adapter a pack's own service serves
+// (docs/design/host-notch-services.md; ES-D18 as HS-D5 narrows it). A host launch starts the
+// service's host half for its command (hostservices_test.go has that half); what is pinned here
+// is what stays as it was: an agent that speaks the provider's own wire is not bridged, an
+// adapter no pack service serves still composes, and a service this launch cannot start (a
+// non-official pack's) refuses, naming why and the container jail where the profile works.
 // Every cell runs `yolo host` through hostMain, as the other host cells do.
 
 import (
@@ -21,30 +21,15 @@ import (
 const bridgeConfig = `{"packs": ["claude", "copilot", "cerebras", "wire-bridge"], ` +
 	`"env_sources": [{"CEREBRAS_API_KEY": "tok-c"}]}`
 
-func TestHostRefusesAProfilePointedAtTheInJailBridge(t *testing.T) {
-	rc, env, errs := hostGateRun(t, bridgeConfig, wcShell(nil), []string{"-p", "cerebras"}, "claude")
-	if rc == 0 || env != nil {
-		t.Fatalf("yolo host -p cerebras -- claude must refuse before the exec, not run claude at the "+
-			"bridge's address: rc = %d, ANTHROPIC_BASE_URL = %q\n%s", rc, env["ANTHROPIC_BASE_URL"], errs)
-	}
-	for _, want := range []string{"refusing to launch", `profile "cerebras"`, "claude",
-		"http://127.0.0.1:8214", `"wire-bridge"`, "container jail", "No host process serves it",
-		"`yolo -p claude=cerebras -- claude`"} {
-		if !strings.Contains(errs, want) {
-			t.Errorf("the refusal must say %q:\n%s", want, errs)
-		}
-	}
-}
-
-// `yolo host env` composes the same way, so it refuses the same profile, as an error and with
-// nothing on stdout for a shell to eval.
-func TestHostEnvRefusesAProfilePointedAtTheInJailBridge(t *testing.T) {
+// `yolo host env` owns no process, so it refuses a profile the bridge serves (OQ-HS3), as an error
+// naming the launch that works and with nothing on stdout for a shell to eval.
+func TestHostEnvRefusesAProfilePointedAtTheBridge(t *testing.T) {
 	hostGateHome(t, bridgeConfig, wcShell(nil))
 	var out, errw bytes.Buffer
 	if rc := hostMain([]string{"env", "--agent", "claude", "-p", "cerebras"}, &out, &errw, false, nil); rc == 0 {
 		t.Fatalf("yolo host env --agent claude -p cerebras must refuse:\n%s", out.String())
 	}
-	if out.Len() != 0 || !strings.Contains(errw.String(), "container jail") {
+	if out.Len() != 0 || !strings.Contains(errw.String(), "`yolo host -p cerebras -- claude`") {
 		t.Errorf("stdout = %q, stderr = %q", out.String(), errw.String())
 	}
 }
@@ -100,68 +85,69 @@ func TestHostStillComposesAnAdapterNoPackServiceServes(t *testing.T) {
 	}
 }
 
-// With wire-bridge NOT listed, it joins through claude's `needs` (the one selection function,
-// notch-convergence item 6), and the pairing refuses the same way, once, WORDING THE PACK AS JOINED
-// (HS-D1): "though "wire-bridge" is in `packs`" would send the user to a config line that does not
-// exist, and the ordinary pairing refusal's remedy (outcome 3, "Add it to `packs` and this pairing
-// resolves") is false here, since listing it leads only to the refusal above. The chain is the
-// same for `-p codex` through the bridge's openai-responses adapter, and for that profile the
-// provider's own pack, openai-auth, joins the same way.
-func TestHostNeverTellsTheUserToListTheBridge(t *testing.T) {
-	for _, tc := range []struct {
-		cfg, profile, address string
-	}{
-		{`{"packs": ["claude", "cerebras"], "env_sources": [{"CEREBRAS_API_KEY": "tok-c"}]}`, "cerebras",
-			"http://127.0.0.1:8214"},
-		{`{"packs": ["claude"]}`, "codex", "http://127.0.0.1:8215"},
-	} {
-		rc, env, errs := hostGateRun(t, tc.cfg, wcShell(nil), []string{"-p", tc.profile}, "claude")
-		if rc == 0 || env != nil {
-			t.Fatalf("-p %s -- claude must refuse: rc = %d\n%s", tc.profile, rc, errs)
-		}
-		for _, never := range []string{"Add it to `packs`", "is in `packs`", "not in this launch's provider table"} {
-			if strings.Contains(errs, never) {
-				t.Errorf("-p %s: the refusal must not say %q:\n%s", tc.profile, never, errs)
-			}
-		}
-		for _, want := range []string{`profile "` + tc.profile + `"`, tc.address, `"wire-bridge"`,
-			"No host process serves it",
-			`though "wire-bridge" joined this launch (+ wire-bridge (needed by claude))`,
-			"`yolo -p claude=" + tc.profile + " -- claude`"} {
-			if !strings.Contains(errs, want) {
-				t.Errorf("-p %s: the refusal must say %q:\n%s", tc.profile, want, errs)
-			}
-		}
-	}
-}
-
-// The refusal names the address the user's `adapters` override moves the adapter to, listed or
-// not: the host hands the gate the override, and a refusal naming the manifest's default would
-// point the user at the wrong port.
-func TestHostUnservedRefusalNamesTheAdapterOverride(t *testing.T) {
+// THE LAUNCH-CHOSEN ADDRESS OVERRIDES THE USER'S `adapters` OVERRIDE (OQ-HS4): at the host the
+// bridge's port is one this launch picked, listed or joined, and neither the manifest's 8214 nor
+// the user's 9214.
+func TestHostLaunchChosenAddressOverridesTheAdapterOverride(t *testing.T) {
+	upstream, _ := fakeUpstream(t)
 	for _, packs := range []string{`"claude", "cerebras", "wire-bridge"`, `"claude", "cerebras"`} {
 		cfg := `{"packs": [` + packs + `], "env_sources": [{"CEREBRAS_API_KEY": "tok-c"}], ` +
-			`"adapters": {"openai->anthropic": {"address": "http://127.0.0.1:9214"}}}`
-		rc, _, errs := hostGateRun(t, cfg, wcShell(nil), []string{"-p", "cerebras"}, "claude")
-		if rc == 0 || !strings.Contains(errs, "http://127.0.0.1:9214") || strings.Contains(errs, ":8214") {
-			t.Errorf("packs [%s]: the refusal must name the override address, not the default: rc = %d\n%s",
-				packs, rc, errs)
+			`"adapters": {"openai->anthropic": {"address": "http://127.0.0.1:9214"}}, ` +
+			`"providers": {"cerebras": {"endpoints": {"openai": {"base_url": "` + upstream.URL + `/v1"}}}}}`
+		l := runServiceLaunch(t, cfg, []string{"-p", "cerebras"}, "", nil)
+		base := l.report.Env["ANTHROPIC_BASE_URL"]
+		if l.rc != 0 || base == "" || strings.Contains(base, ":9214") || strings.Contains(base, ":8214") {
+			t.Errorf("packs [%s]: rc = %d, ANTHROPIC_BASE_URL = %q; want a port this launch picked\n%s",
+				packs, l.rc, base, l.errs)
+		}
+		if l.report.WithToken != 200 {
+			t.Errorf("packs [%s]: the bridge at the picked port did not serve: %d", packs, l.report.WithToken)
 		}
 	}
 }
 
-// The jail launch the refusal names works only on a CONTAINER backend: macos-user starts no jail
-// daemons, the bridge included (wire-bridge.md, "No macos-user bridge"), so there claude would
-// be pointed at the same dead address. The refusal says so and names the dial that picks a
-// container backend for one launch, rather than calling the profile one that works "in a jail".
+// localBridgeConfig lists claude with a LOCAL pack named wire-bridge that declares the bridge's
+// service and a host half: a pack yolo does not ship, so its host half never runs (OQ-HS4).
+func localBridgeConfig(t *testing.T, extra string) string {
+	t.Helper()
+	pack := filepath.Join(t.TempDir(), "wire-bridge")
+	if err := os.MkdirAll(pack, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	manifest := `{"contributes": [
+  {"kind": "adapter", "adapts": {"from": "openai", "to": "anthropic"}, "address": "http://127.0.0.1:8214"},
+  {"kind": "service", "name": "wire-bridge", "host_daemon": {"cmd": ["yolo", "internal", "daemon", "wire-bridge"]}}]}`
+	if err := os.WriteFile(filepath.Join(pack, "pack.json"), []byte(manifest), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return `{"packs": ["claude", "cerebras", {"source": "file://` + pack + `", "name": "wire-bridge"}]` + extra + `}`
+}
+
+// A service this launch cannot start refuses naming the address it would have used, the user's
+// `adapters` override included, since nothing here picks a port for it.
+func TestHostUnservedRefusalNamesTheAdapterOverride(t *testing.T) {
+	cfg := localBridgeConfig(t, `, "env_sources": [{"CEREBRAS_API_KEY": "tok-c"}], `+
+		`"adapters": {"openai->anthropic": {"address": "http://127.0.0.1:9214"}}`)
+	rc, _, errs := hostGateRun(t, cfg, wcShell(nil), []string{"-p", "cerebras"}, "claude")
+	if rc == 0 || !strings.Contains(errs, "http://127.0.0.1:9214") || strings.Contains(errs, ":8214") {
+		t.Errorf("the refusal must name the override address, not the default: rc = %d\n%s", rc, errs)
+	}
+}
+
+// The jail launch the refusal names works only on a CONTAINER backend: macos-user runs a pack
+// service only through its host half, as the host does, so it refuses the same profile. The
+// refusal says so and names the dial that picks a container backend for one launch, rather than
+// calling the profile one that works "in a jail".
 func TestHostUnservedRefusalNamesOnlyAContainerJail(t *testing.T) {
-	_, _, errs := hostGateRun(t, bridgeConfig, wcShell(nil), []string{"-p", "cerebras"}, "claude")
+	cfg := localBridgeConfig(t, `, "env_sources": [{"CEREBRAS_API_KEY": "tok-c"}]`)
+	_, _, errs := hostGateRun(t, cfg, wcShell(nil), []string{"-p", "cerebras"}, "claude")
 	for _, want := range []string{
-		"a daemon yolo runs only in a container jail",
-		"The profile works in a container jail (podman or Apple Container), where that service runs: " +
-			"`yolo -p claude=cerebras -- claude`",
-		"The macos-user backend starts no jail daemons, so the service does not run there either",
+		"which this launch cannot start: its pack is not one yolo ships",
+		"The profile works in a container jail (podman or Apple Container), where that service's " +
+			"jail daemon runs: `yolo -p claude=cerebras -- claude`",
+		"A macos-user launch runs a pack service only through its host half",
 		"`YOLO_RUNTIME=podman` or `YOLO_RUNTIME=container`",
+		`though "wire-bridge" is in ` + "`packs`",
 	} {
 		if !strings.Contains(errs, want) {
 			t.Errorf("the refusal must say %q:\n%s", want, errs)

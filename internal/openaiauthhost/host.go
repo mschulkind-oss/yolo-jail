@@ -466,6 +466,13 @@ func (l *Launch) Run(target string, argv, environ []string, stdin io.Reader, std
 	return 0, true
 }
 
+// HostSocketPath is the host broker's private socket, the path ensureSingleton publishes and every
+// host-side consumer of the OpenAI credential service dials: managed Codex, pi's view, and a
+// launch-owned service's host half (docs/design/host-notch-services.md HS-D3).
+func HostSocketPath() string {
+	return openaiauthdaemon.HostSocketPath(paths.HostSingletonSocket(BrokerName))
+}
+
 func ensureSingleton(stderr io.Writer) (string, error) {
 	fronted := paths.HostSingletonSocket(BrokerName)
 	hostSocket := openaiauthdaemon.HostSocketPath(fronted)

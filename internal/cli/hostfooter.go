@@ -1,9 +1,12 @@
 package cli
 
 import (
+	"errors"
+
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/footer"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/launchservice"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 )
 
@@ -57,9 +60,19 @@ func hostFooterTables() footer.Tables {
 	}
 	t.UseProfiles = footerJSON(use)
 	packs := footerHostPacks()
-	providers, unservable, err := composedHostProviders(cfg, packs)
+	providers, unservable, err := composedHostProviders(cfg, packs, nil)
 	if err != nil {
 		return t
+	}
+	// A SELECTION A HOST LAUNCH SERVES WITH A LAUNCH-OWNED SERVICE IS KEPT (HS-D10): since the
+	// host starts a pack service's host half for the command it runs (launchservice), claude's
+	// codex profile is one `yolo host -- claude` composes, so the footer names it as it does in
+	// a jail. The table is recomposed with those services at their DECLARED addresses: the
+	// footer has no launch, so no picked port, and it reads only which route the agent takes.
+	if services := footerLaunchServices(cfg, packs, providers, use, unservable); len(services) > 0 {
+		if providers, unservable, err = composedHostProviders(cfg, packs, services); err != nil {
+			return t
+		}
 	}
 	t.Providers = footerJSON(providers)
 	userProfiles, err := config.LoadProfiles(nil)
@@ -88,6 +101,39 @@ func hostFooterTables() footer.Tables {
 	inert, _ := packload.ViaServedAt(resolved, packs, packload.NothingServed())
 	t.Profiles = footerJSON(packload.ProfilesWireTable(inert))
 	return t
+}
+
+// footerLaunchServices is the services a host launch would start for use's selections, each as a
+// plan with no port or token: the admitted host halves (launchservice.Admit) of the adaptations
+// the pairing gate refuses only because nothing serves them yet.
+func footerLaunchServices(cfg *jsonx.OrderedMap, packs []*packload.Pack, providers *jsonx.OrderedMap,
+	use *jsonx.OrderedMap, unservable []packload.Adaptation) []*launchservice.Plan {
+	userProfiles, err := config.LoadProfiles(nil)
+	if err != nil {
+		return nil
+	}
+	resolved, err := packload.ResolveProfiles(packs, userProfiles, providers)
+	if err != nil {
+		return nil
+	}
+	var out []*launchservice.Plan
+	seen := map[string]bool{}
+	for _, agent := range use.Keys() {
+		v, _ := use.Get(agent)
+		profile, _ := v.(string)
+		var unserved *packload.UnservedAdapterError
+		if !errors.As(packload.PairingRefusal(packs, providers, resolved, agent, profile, unservable), &unserved) ||
+			!unserved.Selected || unserved.ProviderPack != "" || seen[unserved.Adaptation.Service] {
+			continue
+		}
+		d, err := launchservice.Admit(packs, unserved.Adaptation.Service)
+		if err != nil {
+			continue
+		}
+		seen[d.Service] = true
+		out = append(out, &launchservice.Plan{Declared: d})
+	}
+	return out
 }
 
 // footerHostPacks is the selected pack set, resolved offline as a host launch resolves it

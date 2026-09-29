@@ -19,6 +19,7 @@ package cli
 // declaration (OQ-MP3), or a workspace's config (P2).
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"sort"
@@ -27,6 +28,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/launchservice"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 )
 
@@ -65,7 +67,7 @@ func composeHostInputs(cfg *jsonx.OrderedMap, packs []*packload.Pack, home strin
 	var c hostInputComposition
 	vars := map[string]string{}
 
-	providers, unservable, err := composedHostProviders(cfg, packs)
+	providers, unservable, err := composedHostProviders(cfg, packs, nil)
 	if err != nil {
 		return c, fmt.Errorf("your provider table cannot be composed: %w", err)
 	}
@@ -98,6 +100,14 @@ func composeHostInputs(cfg *jsonx.OrderedMap, packs []*packload.Pack, home strin
 		profile, _ := v.(string)
 		if refusal := packload.PairingRefusal(packs, providers, resolved, agent, profile,
 			unservable); refusal != nil {
+			// A BRIDGED SELECTION (docs/design/host-notch-services.md OQ-HS3, ruled per launch):
+			// its address is a port one launch picks for a service that lives only as long as
+			// that launch, so no file can hold it, and the apply says where the selection does
+			// take effect instead of calling it refused.
+			if note := bridgedSelectionNote(packs, agent, profile, refusal); note != "" {
+				c.omitted = append(c.omitted, note)
+				continue
+			}
 			c.omitted = append(c.omitted, fmt.Sprintf("use_profiles %s → %s is not applied at "+
 				"the host: %s", agent, profile, firstLine(refusal.Error())))
 			continue
@@ -228,4 +238,25 @@ func sortedOmitted(lines []string) []string {
 	out := append([]string(nil), lines...)
 	sort.Strings(out)
 	return out
+}
+
+// bridgedSelectionNote is what `yolo host apply` says of a use_profiles selection whose pairing
+// runs through a pack service a host launch starts for its command (launchservice.Admit admits
+// its host half), "" for any other refusal: the apply renders no address for it, and the
+// selection takes effect only through `yolo host --` or the host wrappers. An agent started any
+// other way runs without it, which the maintainer's ruling accepts (OQ-HS3).
+func bridgedSelectionNote(packs []*packload.Pack, agent, profile string, refusal error) string {
+	var unserved *packload.UnservedAdapterError
+	if !errors.As(refusal, &unserved) || !unserved.Selected || unserved.ProviderPack != "" {
+		return ""
+	}
+	d, err := launchservice.Admit(packs, unserved.Adaptation.Service)
+	if err != nil {
+		return ""
+	}
+	return fmt.Sprintf("use_profiles %s → %s renders no address here: it runs through pack %q's "+
+		"%q service, which a host launch starts for its own command and stops when that command "+
+		"exits, so no file can name it. It takes effect through `yolo host -- %s` or the host "+
+		"wrappers; %s started any other way runs without it (docs/design/host-notch-services.md "+
+		"OQ-HS3)", agent, profile, d.Pack, d.Service, agent, agent)
 }

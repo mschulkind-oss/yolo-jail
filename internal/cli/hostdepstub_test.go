@@ -25,6 +25,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/launchservice"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/testsupport"
 )
@@ -43,6 +44,21 @@ import (
 // ambient answers are the developer's own dotfiles and "yolo already rendered those"
 // (isolateTheStagedTree, confighostlayer_test.go, which carries the measurement).
 func TestMain(m *testing.M) {
+	// THE TEST BINARY STANDS IN FOR `yolo` when a launch starts a launch-owned service
+	// (launchservice.SelfExec): a child spawned with testAsYoloArg is cli.Main, so a host launch
+	// under test runs the real host half (`yolo internal daemon wire-bridge`) and never this
+	// package's tests again, which is what a bare os.Executable() self-exec would do.
+	if len(os.Args) > 1 && os.Args[1] == testAsYoloArg {
+		os.Exit(Main(append([]string{"yolo"}, os.Args[2:]...)))
+	}
+	if len(os.Args) > 1 && os.Args[1] == testFakeAgentArg {
+		os.Exit(fakeAgentMain())
+	}
+	if exe, err := os.Executable(); err == nil {
+		launchservice.SelfExec = func(argv []string) []string {
+			return append([]string{exe, testAsYoloArg}, argv[1:]...)
+		}
+	}
 	depInstallRun = func(cmd string, _ io.Writer) error {
 		return fmt.Errorf("test guard: refusing to run a pack's install hint %q — override "+
 			"depInstallRun in your test if the install itself is what you are exercising", cmd)
@@ -56,6 +72,9 @@ func TestMain(m *testing.M) {
 	releaseStagedTree()
 	os.Exit(code)
 }
+
+// testAsYoloArg makes a child of this test binary run as `yolo` (TestMain).
+const testAsYoloArg = "-yolo-cli-test-as-yolo"
 
 // stubBins prepends a temp dir holding an executable stub per name to PATH, and returns it.
 //

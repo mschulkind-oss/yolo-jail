@@ -2,16 +2,16 @@ package cli
 
 // hostmissingprovider_test.go pins the host notch's answer to claude's codex profile on a bare
 // `"packs": ["claude"]` (docs/design/credential-sources-separation.md ES-D24, ES-D25; notch
-// convergence item 6). Only packs/openai-auth declares the openai-codex provider. The host used
-// to apply no `needs`, so that launch held no such provider: it exited 0 and handed claude three
-// context-window constants and no address (measured 2026-09-27), so claude ran on its own Claude
-// login while the footer said "codex (bridge)". Then it refused as a missing provider. Since the
-// host closes the selection as a jail does, openai-auth and wire-bridge join through claude's
-// `needs`, the provider is in the table, and every spelling of the selection refuses as ES-D18's
-// unserved bridge, naming the joined pack as joined (HS-D1) and where the profile works.
+// convergence items 3 and 6). Only packs/openai-auth declares the openai-codex provider. The host
+// used to apply no `needs`, so that launch held no such provider: it exited 0 and handed claude
+// three context-window constants and no address (measured 2026-09-27), so claude ran on its own
+// Claude login while the footer said "codex (bridge)". Then it refused, first as a missing
+// provider and then as ES-D18's unserved bridge. Now openai-auth and wire-bridge join through
+// claude's `needs`, and every spelling starts the bridge's host half for claude
+// (docs/design/host-notch-services.md).
 
 import (
-	"bytes"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -22,60 +22,16 @@ import (
 // claudeAlone is the configuration the defect was measured on.
 const claudeAlone = `{"packs": ["claude"]}`
 
-// hostCodexRefusalPhrases are what the refusal must say for claude on codex with only claude
-// listed: the bridge refusal, the bridge worded as a pack claude's `needs` joined, and the jail
-// launch named as one.
-var hostCodexRefusalPhrases = []string{
-	"refusing to launch", `profile "codex"`, "http://127.0.0.1:8215", "No host process serves it",
-	`though "wire-bridge" joined this launch (+ wire-bridge (needed by claude))`,
-	"`yolo -p claude=codex -- claude`, which is a jail launch, not a `yolo host` one",
-}
-
-// hostCodexRefusalNever is what it must no longer say: that the provider is missing, or that the
-// host adds no pack a `needs` names, both false once the selection closes (item 6).
-var hostCodexRefusalNever = []string{
-	"not in this launch's provider table", "does not add a pack", "is in `packs`",
-}
-
-// In process, through hostMain: `yolo host -p codex -- claude` refuses and reaches no exec.
-func TestHostRefusesCodexForClaudeAlone(t *testing.T) {
-	rc, env, errs := hostGateRun(t, claudeAlone, nil, []string{"-p", "codex"}, "claude")
-	if rc == 0 || env != nil {
-		t.Fatalf("yolo host -p codex -- claude on packs [claude] must refuse before the exec: rc = %d, "+
-			"env = %v\n%s", rc, env, errs)
-	}
-	for _, want := range hostCodexRefusalPhrases {
-		if !strings.Contains(errs, want) {
-			t.Errorf("the refusal must say %q:\n%s", want, errs)
-		}
-	}
-	for _, never := range hostCodexRefusalNever {
-		if strings.Contains(errs, never) {
-			t.Errorf("the refusal must not say %q:\n%s", never, errs)
-		}
-	}
-}
-
-// `yolo host env` shares the composition, so the observe verb refuses the same selection, with
-// nothing on stdout for a shell to eval.
-func TestHostEnvRefusesCodexForClaudeAlone(t *testing.T) {
-	hostGateHome(t, claudeAlone, nil)
-	var out, errw bytes.Buffer
-	if rc := hostMain([]string{"env", "--agent", "claude", "-p", "codex"}, &out, &errw, false, nil); rc == 0 {
-		t.Fatalf("yolo host env --agent claude -p codex must refuse:\n%s", out.String())
-	}
-	if out.Len() != 0 || !strings.Contains(errw.String(), `though "wire-bridge" joined this launch`) {
-		t.Errorf("stdout = %q, stderr = %q", out.String(), errw.String())
-	}
-}
-
-// EVERY FRONT DOOR: the four spellings the dig measured exiting 0, each through cli.Main in a
-// child process with a fake claude first on PATH, so an exec that did happen would print. The
-// child is this test binary re-run with the spelling in an env var, as
-// TestLeadingProfileReachesHostExec does, because Main writes to the process's own streams.
-func TestEveryHostSpellingOfClaudeOnCodexRefuses(t *testing.T) {
+// EVERY FRONT DOOR: the four spellings the dig measured exiting 0 on claude's own login, each
+// through cli.Main in a child process with a fake claude first on PATH that prints what it was
+// handed. Each now starts the wire bridge's host half for claude and points claude at it
+// (docs/design/host-notch-services.md §9). The child is this test binary re-run with the spelling
+// in an env var, as TestLeadingProfileReachesHostExec does, because Main writes to the process's
+// own streams; its OpenAI prelaunch is stubbed, as every host cell's is (hostGateHome).
+func TestEveryHostSpellingOfClaudeOnCodexStartsTheBridge(t *testing.T) {
 	const helper = "YOLO_TEST_HOST_CODEX_SPELLING"
 	if spelling := os.Getenv(helper); spelling != "" {
+		prepareOpenAIAuthHost = func(hostPrelaunch, io.Writer) (managedOpenAIHostLaunch, error) { return nil, nil }
 		os.Exit(Main(append([]string{"yolo"}, strings.Fields(spelling)...)))
 	}
 	for _, tc := range []struct{ cfg, spelling string }{
@@ -85,31 +41,49 @@ func TestEveryHostSpellingOfClaudeOnCodexRefuses(t *testing.T) {
 		{`{"packs": ["claude"], "use_profiles": {"claude": "codex"}}`, "host -- claude"},
 	} {
 		t.Run(tc.spelling, func(t *testing.T) {
-			home := t.TempDir()
-			userCfg(t, home, tc.cfg)
-			bin := t.TempDir()
-			fake := "#!/bin/sh\necho FAKE-CLAUDE-RAN ANTHROPIC_BASE_URL=\"$ANTHROPIC_BASE_URL\"\n"
-			if err := os.WriteFile(filepath.Join(bin, "claude"), []byte(fake), 0o755); err != nil {
-				t.Fatal(err)
-			}
-			cmd := exec.Command(os.Args[0], "-test.run=^TestEveryHostSpellingOfClaudeOnCodexRefuses$")
-			cmd.Dir = t.TempDir()
-			cmd.Env = append(envWithoutYolo(), helper+"="+tc.spelling, "HOME="+home,
-				"PATH="+bin+string(os.PathListSeparator)+os.Getenv("PATH"), "NO_COLOR=1")
-			out, err := cmd.CombinedOutput()
-			exit, ok := err.(*exec.ExitError)
-			if !ok || exit.ExitCode() != 1 {
-				t.Fatalf("yolo %s: exit = %v, want 1 (a refusal)\n%s", tc.spelling, err, out)
-			}
-			if strings.Contains(string(out), "FAKE-CLAUDE-RAN") {
-				t.Fatalf("yolo %s ran claude:\n%s", tc.spelling, out)
-			}
-			for _, want := range hostCodexRefusalPhrases {
-				if !strings.Contains(string(out), want) {
-					t.Errorf("yolo %s: the refusal must say %q:\n%s", tc.spelling, want, out)
-				}
-			}
+			out := runHostSpelling(t, "^TestEveryHostSpellingOfClaudeOnCodexStartsTheBridge$", helper,
+				tc.cfg, tc.spelling)
+			assertBridgedClaude(t, tc.spelling, out)
 		})
+	}
+}
+
+// runHostSpelling runs `yolo <spelling>` in a child of this test binary over cfg, with a fake
+// claude on PATH that prints its base URL and whether it holds a caller token, and returns the
+// output, failing unless the launch exited 0.
+func runHostSpelling(t *testing.T, test, helper, cfg, spelling string) string {
+	t.Helper()
+	home := t.TempDir()
+	userCfg(t, home, cfg)
+	bin := t.TempDir()
+	fake := "#!/bin/sh\necho FAKE-CLAUDE-RAN ANTHROPIC_BASE_URL=\"$ANTHROPIC_BASE_URL\" TOKEN_LEN=${#ANTHROPIC_AUTH_TOKEN}\n"
+	if err := os.WriteFile(filepath.Join(bin, "claude"), []byte(fake), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command(os.Args[0], "-test.run="+test)
+	cmd.Dir = t.TempDir()
+	cmd.Env = append(envWithoutYolo(), helper+"="+spelling, "HOME="+home,
+		"PATH="+bin+string(os.PathListSeparator)+os.Getenv("PATH"), "NO_COLOR=1")
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("yolo %s: exit = %v, want 0\n%s", spelling, err, out)
+	}
+	return string(out)
+}
+
+// assertBridgedClaude checks a launch's output: claude ran, pointed at a loopback port the launch
+// picked rather than the manifest's 8215, with a 64-character caller token, and the launch said
+// it started the bridge.
+func assertBridgedClaude(t *testing.T, spelling, out string) {
+	t.Helper()
+	for _, want := range []string{"FAKE-CLAUDE-RAN ANTHROPIC_BASE_URL=http://127.0.0.1:", "TOKEN_LEN=64",
+		`started the "wire-bridge" service (pack "wire-bridge"`} {
+		if !strings.Contains(out, want) {
+			t.Errorf("yolo %s: the output must say %q:\n%s", spelling, want, out)
+		}
+	}
+	if strings.Contains(out, "127.0.0.1:8215") || strings.Contains(out, "refusing") {
+		t.Errorf("yolo %s used the manifest's port or refused:\n%s", spelling, out)
 	}
 }
 
