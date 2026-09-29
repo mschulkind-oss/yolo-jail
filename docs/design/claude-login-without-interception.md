@@ -36,7 +36,7 @@ host networking."*
 **Start at [§3](#3-the-measured-facts)**, the facts that close most doors, then read
 [§4](#4-the-options-that-remove-the-hosts-entry)'s table.
 
-**Needs your ruling:** [OQ-CL1](#OQ-CL1) (the view everywhere, or only where interception cannot
+**Rulings:** [OQ-CL1](#OQ-CL1) and [OQ-CL2](#OQ-CL2), both ruled 2026-09-28 as leaned. Nothing here awaits a ruling; the build and its measures are the remaining work.
 run) and [OQ-CL2](#OQ-CL2) (what `/login` and `/logout` in a jail mean).
 
 ---
@@ -383,14 +383,12 @@ witness for any request to the token endpoint. None needs a new login.
 
 The mechanism is decided in [§11](#11-decision-ledger). These two change what a user sees.
 
-1. 💬 <a id="OQ-CL1"></a>**[OQ-CL1](#OQ-CL1): Does the credential view replace the interception
+1. ✅ <a id="OQ-CL1"></a>**[OQ-CL1](#OQ-CL1): Does the credential view replace the interception
    everywhere, or only where interception cannot run?** This decides whether the CA, the hosts
    entry and the terminator are deleted, or kept for bridged podman jails beside a second
    mechanism for shared namespaces, `macos-user` and Apple Container.
 
-   <!-- vantage: oq id=OQ-CL1 leaning="Everywhere, and the interception is deleted rather than kept behind a switch. Two mechanisms for one concern is what notch-convergence exists to end, the view covers every setup the interception covers plus three it cannot, and a kept terminator keeps the CA, the unauthenticated proxy branch and the invalid_grant hazard. Delete it once M1 to M6 pass and a real rootless host has run the view for a day." -->
-
-   _Leaning:_ **Everywhere, deleted rather than switched.** Two mechanisms for one concern is what
+      _Leaning:_ **Everywhere, deleted rather than switched.** Two mechanisms for one concern is what
    [notch convergence](../plans/notch-convergence.md#1-the-thesis) exists to end. The view covers
    every setup the interception covers plus three it cannot. A kept terminator keeps the CA, the
    unauthenticated proxy branch and the `invalid_grant` hazard. The order: build the view, pass
@@ -400,7 +398,12 @@ The mechanism is decided in [§11](#11-decision-ledger). These two change what a
    the build.
 
    **Answer:**
-   > _(empty — fill in when decided)_
+   > **Ruled 2026-09-28, as leaned: everywhere, deleted rather than switched.** The maintainer:
+   > *"we can just write the new one in there and it just picks it up. If that's the case, then
+   > yes, we should do that."* The view replaces the hosts entry, the CA and the terminator at
+   > every notch, in the order §10 gives: build the view, pass the §7 measures (the first proving
+   > Claude adopts a rewritten file with no refresh token), a day on a real rootless host, then
+   > delete the interception in the same release.
 
 2. ✅ <a id="OQ-CL2"></a>**[OQ-CL2](#OQ-CL2): What do `/login` and `/logout` in a jail mean?**
    Today a jail's `/login` exchange is proxied, and the proxy mirror makes it the machine's login
