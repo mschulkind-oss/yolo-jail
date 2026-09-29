@@ -49,7 +49,10 @@ jobs:
       # TestShippedPacksDecodeUnderTheLastRelease builds the last release tag's
       # in-jail pack reader from git and runs this tree's shipped packs through
       # that release's boot-time decode passes (manifests, surfaces, overlays),
-      # so a manifest change any of them would refuse fails here.
+      # so a manifest change any of them would refuse fails here. And
+      # tools/tap-install-check's TestTheJudgeAcceptsWhatTheLastReleaseReportsOnABareMac
+      # builds the last release's `yolo check`, the one the tap carries, and runs
+      # it through the tap-install job's judge.
       # Under GitHub Actions a missing tag is a failure, not a skip.
       - uses: actions/checkout@v7
         with:
@@ -124,7 +127,7 @@ jobs:
       github.event_name == 'push' ||
       github.event.pull_request.head.repo.full_name == github.repository
     steps:
-      # Tags too, for the same release-decode test check-go runs.
+      # Tags too, for the same last-release tests check-go runs.
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
