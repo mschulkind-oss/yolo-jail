@@ -46,7 +46,7 @@ in the ledger as [JL-D11](#JL-D11), [JL-D12](#JL-D12) and [JL-D13](#JL-D13).
 
 **Reads with:** [`jail-lifetime-last-session-wins-plan.md`](jail-lifetime-last-session-wins-plan.md)
 (the implementation sketch, incomplete while the question is open) and
-`docs/research/central-yolo-watcher.md` (the sibling exploration of a machine-wide watcher, being
+[`docs/research/central-yolo-watcher.md`](../research/central-yolo-watcher.md) (the sibling exploration of a machine-wide watcher, being
 written alongside this doc). [§11](#11-the-neighbors) lists the other docs, one line each.
 
 ---
@@ -561,7 +561,7 @@ and [OQ-JL1](#OQ-JL1) puts both to the maintainer rather than claiming a fit:
 
 A machine-wide watcher would add, for this feature, only recovery from an owner crash, and it
 would bring back a singleton that HD-R1 retired. What a watcher *would* buy elsewhere is the
-sibling doc's subject (`docs/research/central-yolo-watcher.md`).
+sibling doc's subject ([`docs/research/central-yolo-watcher.md`](../research/central-yolo-watcher.md)).
 
 | Risk | Mitigation |
 |---|---|
@@ -727,7 +727,7 @@ rests on.
 
 ## 11. The neighbors
 
-- `docs/research/central-yolo-watcher.md`, the sibling exploration. It covers what a
+- [`docs/research/central-yolo-watcher.md`](../research/central-yolo-watcher.md), the sibling exploration. It covers what a
   machine-wide watcher would fix beyond this feature, and why this feature does not need one.
 - [`host-daemon-ownership.md`](host-daemon-ownership.md): [HD-R1](host-daemon-ownership.md#HD-R1),
   whose ledger text makes the jail the unit of a daemon's life ([JL-P4](#JL-P4)).
