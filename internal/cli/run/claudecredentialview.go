@@ -8,9 +8,9 @@ package run
 // THE ONE SECOND PATH THIS CONCERN IS ALLOWED, AND ONLY UNTIL THE MEASURES PASS (CL-D10). OQ-CL1
 // ruled that the view replaces the /etc/hosts entry, the CA and the terminator everywhere,
 // deleted rather than switched, after §7's measures on a real Claude and a day on a real
-// rootless host. So podman keeps the interception by default and the view is opt-in there;
-// Apple Container, where the interception never ran, takes the view by default; and macos-user,
-// where it never ran either, stays opt-in until a Mac measures it (claudeview.DefaultOn, CL-D11).
+// rootless host. So the view is opt-in on every backend until they pass (claudeview.DefaultOn,
+// CL-D11): podman keeps the interception, and Apple Container and macos-user keep Claude
+// refreshing its own login, as they do today.
 // Every line here, the switch and its readers are deleted with the interception (CL-D7).
 
 import (

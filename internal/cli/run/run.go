@@ -486,7 +486,7 @@ func Run(opts Options) (rc int) {
 			// guard, removed it under the other session (OQ-HD10's second run, measured).
 			handles := o.startLoopholesDisclosed(cname, rt, cfg, staged.packs)
 			defer o.endServicesSession(handles)
-			// THE CREDENTIAL VIEW, opt-in on this backend until a Mac measures it (CL-D11): the
+			// THE CREDENTIAL VIEW, opt-in until a Mac measures it (CL-D11): the
 			// workspace's view registered and written now that the broker singleton is up, and
 			// the resolved switch handed to the bootstrap, which then does not link the shared
 			// file.

@@ -45,8 +45,8 @@ summary: "What yolo interposes on for Claude OAuth and what it leaves alone: exa
 > **A second delivery exists behind a switch, and it is meant to replace everything below.** With
 > `YOLO_CLAUDE_CREDENTIAL_VIEW` on, a launch installs none of the interception this doc describes
 > and the host broker writes the workspace a **credential view** instead: the access token and
-> its expiry, with no refresh token, so Claude never calls the token endpoint. It is on by default
-> only on Apple Container. What it changes is in
+> its expiry, with no refresh token, so Claude never calls the token endpoint. It is off by default
+> on every backend until its measures pass. What it changes is in
 > [the credential view](#the-credential-view-behind-a-switch); the design is
 > [`claude-login-without-interception.md`](../design/claude-login-without-interception.md), and the
 > interception is deleted once its measures pass
@@ -797,8 +797,9 @@ file — but it does lose the *refresh serialization* across concurrent sessions
 
 **With the credential view on**, both macOS backends do get serialization: the host broker is the
 only refresher, and every jail reads a view ([below](#the-credential-view-behind-a-switch)). It is
-on by default on Apple Container, where the broker singleton now starts for it, and opt-in on
-`macos-user` ([CL-D11](../design/claude-login-without-interception.md#CL-D11)).
+opt-in on both, as everywhere, until measured; on Apple Container the broker singleton starts only
+for a launch that turns it on
+([CL-D11](../design/claude-login-without-interception.md#CL-D11)).
 
 `backendInertReason` ([`loopholeinert.go`](../../internal/cli/run/loopholeinert.go)) reports every
 loophole inert on Apple Container, the admitted OpenAI service included: its daemon starts and writes
@@ -807,7 +808,7 @@ its endpoint file, and the jail still cannot dial it.
 ## The credential view, behind a switch
 
 Everything above is what a launch does with `YOLO_CLAUDE_CREDENTIAL_VIEW` off, which is the
-default on podman and `macos-user`. With it on (the default on Apple Container), a launch changes
+default on every backend. With it set to `1`, a launch changes
 five things:
 
 - **No interception.** Every loophole record that declares `intercepts` puts nothing in the jail:
@@ -979,6 +980,6 @@ offset for re-measurement.
 | Broker error codes | `creds_unreadable`, `no_refresh_token`, `upstream_http`, `upstream_bad_response`, `upstream_unreachable` — **never** `invalid_grant` | `internal/oauthbroker/refresh.go` (`DoRefresh`) |
 | Client id, beta header | `9d1c250a-e61b-44d9-88ed-5944d1962f5e`; `oauth-2025-04-20` — byte-identical to the vendor's | `internal/oauthbroker/oauthbroker.go` (`ClientID`, `OAuthBetaHeader`); Claude Code 2.1.278 (offset 189496381) |
 | Backends carrying the interception | podman only, and only with the credential view off — Apple Container drops the record whole, `macos-user` declines the terminator by name | `internal/loopholes/runtime.go` (`admitsJailSideEffects`); `internal/cli/run/jaildaemondecline.go` |
-| Credential-view switch | `YOLO_CLAUDE_CREDENTIAL_VIEW`: off on podman and `macos-user`, on on Apple Container; `1` or `0` overrides | `internal/claudeview/claudeview.go` (`SwitchEnv`, `DefaultOn`) |
+| Credential-view switch | `YOLO_CLAUDE_CREDENTIAL_VIEW`: off on every backend; `1` turns it on | `internal/claudeview/claudeview.go` (`SwitchEnv`, `DefaultOn`) |
 | Canonical login and view registrations | `claude-credentials.json` and `claude-views/` under `BrokerDir()`, never mounted | `internal/oauthbroker/store.go`, `internal/oauthbroker/views.go` |
 | Refresh floors and cadence | the two-floor pair and the background refresher | owned by [`agent-credentials.md`](agent-credentials.md#current-values), not restated here |

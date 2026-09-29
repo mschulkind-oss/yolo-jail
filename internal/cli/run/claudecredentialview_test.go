@@ -77,24 +77,16 @@ func TestTheSwitchSelectsTheViewOrTheInterceptionAtLaunch(t *testing.T) {
 		t.Error("a view launch still starts the terminator in the jail")
 	}
 
-	// Apple Container: the view by default, and `=0` turns it off. podman and macos-user: off
-	// until measured (CL-D11), and `=1` turns it on.
-	o.Getenv = viewEnv("")
-	if !o.claudeCredentialView("container", jsonx.NewOrderedMap()) {
-		t.Error("Apple Container does not default to the view (CL-D11)")
-	}
-	for _, rt := range []string{"podman", "macos-user"} {
+	// Every backend: off until measured (CL-D11), and `=1` turns it on.
+	for _, rt := range []string{"podman", "macos-user", "container"} {
+		o.Getenv = viewEnv("")
 		if o.claudeCredentialView(rt, jsonx.NewOrderedMap()) {
 			t.Errorf("%s defaults to the view before its measures passed (CL-D10, CL-D11)", rt)
 		}
-	}
-	o.Getenv = viewEnv("0")
-	if o.claudeCredentialView("container", jsonx.NewOrderedMap()) {
-		t.Error("YOLO_CLAUDE_CREDENTIAL_VIEW=0 did not turn the view off on Apple Container")
-	}
-	o.Getenv = viewEnv("1")
-	if !o.claudeCredentialView("macos-user", jsonx.NewOrderedMap()) {
-		t.Error("YOLO_CLAUDE_CREDENTIAL_VIEW=1 did not turn the view on on macos-user")
+		o.Getenv = viewEnv("1")
+		if !o.claudeCredentialView(rt, jsonx.NewOrderedMap()) {
+			t.Errorf("YOLO_CLAUDE_CREDENTIAL_VIEW=1 did not turn the view on on %s", rt)
+		}
 	}
 }
 

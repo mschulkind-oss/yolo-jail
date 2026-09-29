@@ -42,31 +42,29 @@ import (
 // SwitchEnv is the dial that selects the credential view for a launch
 // (CL-D10, docs/design/claude-login-without-interception.md).
 //
-//	podman              off unless the host environment sets it to 1
-//	macos-user          off unless the host environment sets it to 1
-//	container (Apple)   on  unless the host environment sets it to 0
+//	podman, macos-user, container (Apple): off unless the host environment sets it to 1
 //
 // The launcher resolves it once and hands the RESOLVED value to the jail (1 or 0), so the
 // in-jail entrypoint never re-derives a default for a runtime it cannot see.
 const SwitchEnv = "YOLO_CLAUDE_CREDENTIAL_VIEW"
 
-// DefaultOn reports the switch's default for a runtime (CL-D11).
+// DefaultOn reports the switch's default for a runtime (CL-D11): OFF ON EVERY BACKEND, so `=1`
+// is the opt-in everywhere until the measures pass. OQ-CL1's order is measure first.
 //
-//   - podman: off. The interception is the proven path there, and stays the default until §7's
-//     measures pass (OQ-CL1's order).
-//   - Apple Container: ON. The interception never ran there (claude-oauth-interposition.md,
-//     "Where the interposition exists at all"), so every jail's Claude refreshes the one shared
-//     login itself; the jail reads the same Linux plaintext file a podman jail does, from the
-//     same machine-scope shared file the broker migrates from, so turning the view on costs no
-//     login and ends a race that is live today.
-//   - macos-user: off, for three reasons the measures have not reached. Claude on macOS keeps
-//     its login in the Keychain first and the file only as a fallback, and which one a sandbox
-//     account's Claude reads is unmeasured; the sandbox's machine-tier shared file is in the
-//     sandbox account's home, not the host user's store the broker migrates from, so the view
-//     would start with no login; and this backend's launch path has never run on hardware.
-//     Runbook measure M11 is what turns it on.
+//   - podman: the interception is the proven path there.
+//   - Apple Container: the interception never ran there, and Claude holds its own refresh token
+//     and refreshes itself, racing but working. With the view on and M1 unmeasured, a Claude
+//     that did not adopt the rewritten file would lose its login when its eight-hour access
+//     token expired, which is worse than the race.
+//   - macos-user: Claude on macOS keeps its login in the Keychain first and the file only as a
+//     fallback, and which one a sandbox account's Claude reads is unmeasured; the sandbox's
+//     machine-tier shared file is in the sandbox account's home, not the host user's store the
+//     broker migrates from; and this backend's launch path has never run on hardware (M11).
+//
+// Kept as a function of the runtime, though it answers false for all of them, because turning
+// one backend on after its measures pass is a change to this one line.
 func DefaultOn(runtime string) bool {
-	return runtime == "container"
+	return false
 }
 
 // Selected resolves SwitchEnv for one launch on runtime. A value is read as on for 1/true/yes/on

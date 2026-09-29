@@ -43,8 +43,8 @@ func TestSelectedDefaultsPerRuntimeAndHonorsTheDial(t *testing.T) {
 		{"podman", "yes", true},
 		{"macos-user", "", false},
 		{"macos-user", "1", true},
-		{"container", "", true},
-		{"container", "off", false},
+		{"container", "", false},
+		{"container", "1", true},
 		{"podman", "garbage", false},
 	} {
 		if got := Selected(tc.rt, env(tc.val)); got != tc.want {
