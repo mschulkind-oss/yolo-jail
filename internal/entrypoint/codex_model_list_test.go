@@ -369,7 +369,7 @@ func TestEveryCodexModelConsumerReadsTheOneDeclaration(t *testing.T) {
 	// variant placement and the [1m] spelling, stated once here rather than per consumer.
 	decl := shippedCodexDeclaration(t)
 	shipped := expandCodexModels(decl.Models, decl.ModelOptions)
-	wantIDs := []any{"gpt-6.1-sol", "gpt-6.1-sol[1m]", "gpt-6-astra", "gpt-6-astra[1m]", "gpt-6-luna", "gpt-6-luna[1m]", "gpt-6-sol", "gpt-6-sol[1m]"}
+	wantIDs := []any{"gpt-6.1-sol", "gpt-6.1-sol[1m]", "gpt-6-astra", "gpt-6-astra[1m]", "gpt-6-luna", "gpt-6-luna[1m]"}
 	if got := codexIDs(shipped, ""); !reflect.DeepEqual(got, wantIDs) {
 		t.Fatalf("the shipped declaration expands to %v, want %v", got, wantIDs)
 	}
@@ -391,7 +391,6 @@ func TestEveryCodexModelConsumerReadsTheOneDeclaration(t *testing.T) {
 	overrideModels := jsonx.NewOrderedMap()
 	overrideModels.Set("gpt-6-nova", "gpt-6-nova")
 	overrideModels.Set("gpt-6.1-sol", nil)
-	overrideModels.Set("gpt-6-sol", nil)
 	overrideModels.Set("gpt-6-luna", nil)
 	codexOverride.Set("models", overrideModels)
 	user.Set("openai-codex", codexOverride)
@@ -482,7 +481,7 @@ func TestAnAliasForADeclaredCodexIDChangesNoConsumer(t *testing.T) {
 	user := jsonx.NewOrderedMap()
 	codexOverride := jsonx.NewOrderedMap()
 	overrideModels := jsonx.NewOrderedMap()
-	overrideModels.Set("default", "gpt-6-sol")
+	overrideModels.Set("default", "gpt-6.1-sol")
 	overrideModels.Set("fast", "gpt-6-luna")
 	// An added id with no facts of its own under its id-named alias, and a second alias that
 	// sorts before it and names it: the second alias's name fills the gap.

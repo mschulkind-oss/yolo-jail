@@ -22,8 +22,6 @@ var piCodexExactAllow = []any{
 	"openai-codex/gpt-6-astra[1m]",
 	"openai-codex/gpt-6-luna",
 	"openai-codex/gpt-6-luna[1m]",
-	"openai-codex/gpt-6-sol",
-	"openai-codex/gpt-6-sol[1m]",
 }
 
 // This follows the production handoff on both sides: the pack set a pi launch carries

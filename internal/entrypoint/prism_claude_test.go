@@ -336,8 +336,6 @@ func TestConfigureClaudePrismCodexModelPicker(t *testing.T) {
 		"gpt-6-astra[1m]",
 		"gpt-6-luna",
 		"gpt-6-luna[1m]",
-		"gpt-6-sol",
-		"gpt-6-sol[1m]",
 	}
 	if !ok || !reflect.DeepEqual(allowed, wantAllowed) {
 		t.Errorf("availableModels = %v, want Sol first and 1M context options %v", got["availableModels"], wantAllowed)
@@ -354,8 +352,6 @@ func TestConfigureClaudePrismCodexModelPicker(t *testing.T) {
 		map[string]any{"model": "gpt-6-astra[1m]", "label": "GPT-6 Astra (1M context)", "description": "Frontier · 1M context"},
 		map[string]any{"model": "gpt-6-luna", "label": "GPT-6 Luna", "description": "Fast"},
 		map[string]any{"model": "gpt-6-luna[1m]", "label": "GPT-6 Luna (1M context)", "description": "Fast · 1M context"},
-		map[string]any{"model": "gpt-6-sol", "label": "GPT-6 Sol", "description": "Previous Balanced"},
-		map[string]any{"model": "gpt-6-sol[1m]", "label": "GPT-6 Sol (1M context)", "description": "Previous Balanced · 1M context"},
 	}
 	if !reflect.DeepEqual(options, want) {
 		t.Errorf("modelPicker.options = %v, want %v", options, want)
