@@ -116,6 +116,19 @@ type JailDaemon struct {
 	// loopback do not contend for it (docs/plans/notch-convergence.md §2.4, NC-D41). "" for a
 	// daemon that listens on no loopback port. Declared exactly when Cmd names the token.
 	Listen string
+	// HostCmd is `jail_daemon.host_cmd`: the argv that opens this same DOORWAY on the host
+	// instead, for a launch whose agent shares the host's loopback rather than having one of its
+	// own (docs/design/host-notch-services.md HS-D15, the doorway rule; "doorway" is that
+	// ruling's word for the thin adapter an agent's client talks to, which checks the launch's
+	// caller token and forwards to the loophole's host daemon). Such a launch runs it outside
+	// its sandbox as a LAUNCH-OWNED listener (that doc's §1.2 term: a child of the one launch,
+	// on a port it picked, stopped when the launched command exits) in place of the jail
+	// daemon, which then runs nowhere; macos-user is that launch today. RAW: TokenListen is
+	// its one token, resolved to the address the launch picked. It is admitted only from a pack
+	// yolo ships and only when it names `yolo` first (internal/launchservice's admission rule);
+	// otherwise the jail daemon runs where it would have. nil when not declared. Declaring it
+	// needs CallerToken, since the host's loopback is shared with every local process.
+	HostCmd []string
 }
 
 // HostDaemon is a process spawned on the HOST — the sharpest thing a manifest can
@@ -1034,7 +1047,67 @@ func parseJailDaemon(manifestPath string, raw any) (*JailDaemon, error) {
 	if err := refuseListenTokenMismatch(manifestPath, cmd, listen); err != nil {
 		return nil, err
 	}
-	return &JailDaemon{Cmd: cmd, Restart: restart, CallerToken: callerToken, Listen: listen}, nil
+	hostCmd, err := parseJailDaemonHostCmd(manifestPath, m, callerToken, listen)
+	if err != nil {
+		return nil, err
+	}
+	return &JailDaemon{Cmd: cmd, Restart: restart, CallerToken: callerToken, Listen: listen,
+		HostCmd: hostCmd}, nil
+}
+
+// parseJailDaemonHostCmd reads `jail_daemon.host_cmd` (JailDaemon.HostCmd), nil when absent. It
+// must be a non-empty list of strings. It must name TokenListen exactly when `listen` is declared,
+// because the doorway it opens answers at the port the launch picked for that address. It may
+// carry no other token, since nothing else is resolved for it. And the daemon must declare
+// `caller_token`: the host's loopback is every local process's, so a doorway there that answered
+// callers without this launch's token would answer anyone (host-notch-services.md HS-P3).
+func parseJailDaemonHostCmd(manifestPath string, m *jsonx.OrderedMap, callerToken bool,
+	listen string) ([]string, error) {
+	raw, ok := m.Get(keyHostCmd)
+	if !ok || raw == nil {
+		return nil, nil
+	}
+	list, isList := raw.([]any)
+	if !isList || len(list) == 0 || !AllStrings(list) {
+		return nil, Errorf("%s: 'jail_daemon.host_cmd' must be a non-empty list of strings", manifestPath)
+	}
+	cmd := StringSlice(list)
+	if err := refuseControlCharsIn(manifestPath, "'jail_daemon.host_cmd'", cmd); err != nil {
+		return nil, err
+	}
+	if !callerToken {
+		return nil, Errorf("%s: 'jail_daemon.host_cmd' is declared but 'jail_daemon.caller_token' "+
+			"is not true — the doorway it opens listens on the HOST's loopback, which every local "+
+			"process shares, so it must demand this launch's caller token; declare "+
+			"\"caller_token\": true", manifestPath)
+	}
+	for _, s := range cmd {
+		for _, tok := range []string{TokenJailLoopholeDir, TokenLoopholeDir, TokenState,
+			TokenSettings, TokenCallerToken, "{socket}", "{endpoint}"} {
+			if strings.Contains(s, tok) {
+				return nil, Errorf("%s: 'jail_daemon.host_cmd' names '%s', which nothing resolves "+
+					"there — the launch resolves only '%s' in it; the doorway gets the rest of its "+
+					"input from the launch, never on its argv", manifestPath, tok, TokenListen)
+			}
+		}
+	}
+	if listen == "" {
+		return nil, Errorf("%s: 'jail_daemon.host_cmd' is declared but 'jail_daemon.listen' is not — "+
+			"a doorway answers its clients at an address, and the launch picks the port for the "+
+			"one 'listen' declares", manifestPath)
+	}
+	named := false
+	for _, s := range cmd {
+		if strings.Contains(s, TokenListen) {
+			named = true
+		}
+	}
+	if !named {
+		return nil, Errorf("%s: 'jail_daemon.host_cmd' never names '%s' — its clients are pointed "+
+			"at the port the launch picked for 'jail_daemon.listen', so the doorway must be handed "+
+			"it", manifestPath, TokenListen)
+	}
+	return cmd, nil
 }
 
 // parseEnvMap builds an insertion-ordered EnvMap from a JSON object, coercing

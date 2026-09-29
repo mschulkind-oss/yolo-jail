@@ -174,6 +174,25 @@ func TestDaemonClaimSpellsOutHostExecution(t *testing.T) {
 	}
 }
 
+// A DOORWAY'S HOST ARGV is host execution too (`jail_daemon.host_cmd`, host-notch-services.md
+// HS-D15): a launch whose agent shares the host's loopback runs it outside its sandbox, as the
+// user. It joins the base claim, raw, with its {listen} token. Deleting host_cmd from
+// moduleClaims' runs fails this.
+func TestADoorwayHostArgvJoinsTheHostExecutionClaim(t *testing.T) {
+	root := writeLoopholePack(t, map[string]string{"acme-door": `{
+	  "name": "acme-door",
+	  "host_daemon": {"cmd": ["yolo", "internal", "daemon", "acme", "--socket", "{socket}"],
+	                  "publishes": "socket"},
+	  "jail_daemon": {"cmd": ["yolo-jaild", "acme-adapter", "--listen", "{listen}"],
+	                  "listen": "127.0.0.1:1999", "caller_token": true,
+	                  "host_cmd": ["yolo", "internal", "daemon", "acme-adapter", "--listen", "{listen}"]}
+	}`})
+	claims := disclosedCrossings(loadPack(t, root))
+	if !hasClaimContaining(claims, "RUNS", "yolo internal daemon acme-adapter --listen '{listen}'", "on your machine") {
+		t.Errorf("no host-execution claim names the doorway's host argv: %v", claims)
+	}
+}
+
 // G2a: the claim string is the RAW argv — placeholders UNEXPANDED, nothing elided.
 //
 // Both halves are load-bearing, and both fail catastrophically rather than cosmetically.

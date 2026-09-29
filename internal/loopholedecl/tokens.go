@@ -186,7 +186,7 @@ func refuseJailTokenInHostField(manifestPath, field string, args []string) error
 		if strings.Contains(s, TokenListen) {
 			return Errorf(
 				"%s: %s names '%s', a jail daemon's listen address — this field resolves"+
-					" on the HOST, where nothing substitutes it; only 'jail_daemon.cmd' takes it",
+					" on the HOST, where nothing substitutes it; only 'jail_daemon.cmd' and 'jail_daemon.host_cmd' take it",
 				manifestPath, field, TokenListen)
 		}
 		if strings.Contains(s, TokenJailLoopholeDir) {

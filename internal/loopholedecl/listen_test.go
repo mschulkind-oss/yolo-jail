@@ -72,7 +72,7 @@ func TestTheListenTokenIsRefusedWhereTheHostResolvesTheField(t *testing.T) {
 				manifest[k] = v
 			}
 			_, err := decodeMap(t, "adapter", manifest)
-			if err == nil || !strings.Contains(err.Error(), "only 'jail_daemon.cmd' takes it") {
+			if err == nil || !strings.Contains(err.Error(), "only 'jail_daemon.cmd' and 'jail_daemon.host_cmd' take it") {
 				t.Errorf("err = %v, want the host-field refusal", err)
 			}
 		})

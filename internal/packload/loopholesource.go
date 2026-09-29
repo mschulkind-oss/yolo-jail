@@ -318,6 +318,12 @@ func moduleClaims(mod LoopholeModule) []loopholeClaim {
 	if len(m.DoctorCmd) > 0 {
 		runs = append(runs, shquote.Join(m.DoctorCmd))
 	}
+	// A DOORWAY'S HOST ARGV (`jail_daemon.host_cmd`) is host execution too: a launch whose agent
+	// shares the host's loopback runs it outside its sandbox, as the user, in place of the jail
+	// daemon (docs/design/host-notch-services.md HS-D15). RAW, so its {listen} survives.
+	if m.JailDaemon != nil && len(m.JailDaemon.HostCmd) > 0 {
+		runs = append(runs, shquote.Join(m.JailDaemon.HostCmd))
+	}
 	if len(runs) > 0 {
 		out = append(out, loopholeClaim{
 			target:       name,

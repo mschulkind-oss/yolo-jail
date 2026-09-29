@@ -146,6 +146,12 @@ type JailDaemonSpec struct {
 	// rather than a loophole's. NOT on the wire either; JailDaemonsRunIn reads both.
 	Intercepts bool
 	Service    bool
+	// HostCmd is the loophole's `jail_daemon.host_cmd` (loopholedecl.JailDaemon.HostCmd): the argv
+	// that opens this daemon's DOORWAY on the host instead, as a launch-owned listener, for a
+	// launch whose agent shares the host's loopback (docs/design/host-notch-services.md HS-D15;
+	// DoorwaysOutside). nil when not declared, and cleared by a launch that will not admit it,
+	// so the jail daemon runs where it would have. NOT on the wire: the supervisor never runs it.
+	HostCmd []string
 }
 
 // ResolvedCmd is the argv this spec runs: Cmd with loopholedecl.TokenListen resolved to Listen.
@@ -153,6 +159,16 @@ type JailDaemonSpec struct {
 // report never shows a port the daemon was not handed.
 func (sp JailDaemonSpec) ResolvedCmd() []string {
 	return substituteAll(sp.Cmd, loopholedecl.TokenListen, sp.Listen)
+}
+
+// ResolvedHostCmd is the argv the doorway outside runs: HostCmd with loopholedecl.TokenListen
+// resolved to Listen, the same address ResolvedCmd hands the jail daemon, so a client composed
+// for either placement is pointed at the one port. nil when HostCmd is.
+func (sp JailDaemonSpec) ResolvedHostCmd() []string {
+	if len(sp.HostCmd) == 0 {
+		return nil
+	}
+	return substituteAll(sp.HostCmd, loopholedecl.TokenListen, sp.Listen)
 }
 
 // JailDaemons composes THIS LAUNCH'S jail-daemon entries — every admitted record's own,
@@ -336,6 +352,7 @@ func jailDaemonSpecs(loopholes []*Loophole, runtime string, gate *Set,
 			Name: m.Name, Cmd: m.JailDaemon.Cmd, Restart: m.JailDaemon.Restart,
 			CallerToken: m.JailDaemon.CallerToken, Listen: m.JailDaemon.Listen,
 			Intercepts: len(m.Intercepts) > 0,
+			HostCmd:    append([]string(nil), m.JailDaemon.HostCmd...),
 		})
 	}
 	// Pack services' jail daemons join the loopholes' own entries, one list, one env

@@ -249,6 +249,9 @@ func resolve(m *loopholedecl.Manifest, modulePath string) *Loophole {
 			Restart:     m.JailDaemon.Restart,
 			CallerToken: m.JailDaemon.CallerToken,
 			Listen:      m.JailDaemon.Listen,
+			// Carried verbatim: its one token, {listen}, is the launch's to resolve
+			// (JailDaemonSpec.ResolvedHostCmd), and it names no module dir.
+			HostCmd: append([]string(nil), m.JailDaemon.HostCmd...),
 		}
 	}
 

@@ -47,9 +47,9 @@ func TestJailDaemonsRunInSplitsOnlyOnMacosUser(t *testing.T) {
 			t.Errorf("%s declined as %q, want a reason naming %q", d.Spec.Name, d.Why, want[d.Spec.Name])
 		}
 	}
-	names, listen := JailDaemonNamesRunIn("macos-user", specs)
+	names, listen := ServedJailDaemonNames("macos-user", specs)
 	if strings.Join(names, ",") != "openai-auth-broker,aws-auth" || listen["aws-auth"] != "127.0.0.1:1461" {
-		t.Errorf("JailDaemonNamesRunIn = %v %v", names, listen)
+		t.Errorf("ServedJailDaemonNames = %v %v", names, listen)
 	}
 }
 
