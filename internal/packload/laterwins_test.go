@@ -90,3 +90,46 @@ func TestADuplicatedServiceNameIsHeldByTheLaterPack(t *testing.T) {
 		t.Error("a name no pack declares must not be found")
 	}
 }
+
+// THE SAME NAME, EVERY READER: HeldServices keeps the later declaration and records the
+// earlier one as shadowed by it (the launch's disclosure reads that record); the payload's
+// name list carries the name once; and `yolo pack footprint` (Collisions) reports the pair.
+func TestADuplicatedServiceNameIsShadowedForEveryReader(t *testing.T) {
+	a := &Pack{Name: "a", Decl: declFrom(t, `{"contributes":[
+	  {"kind":"service","name":"wire-bridge","endpoint":"a.endpoint","jail_daemon":{"cmd":["yolo-jaild","a"]}}]}`)}
+	b := &Pack{Name: "b", Decl: declFrom(t, `{"contributes":[
+	  {"kind":"service","name":"wire-bridge","endpoint":"b.endpoint","jail_daemon":{"cmd":["yolo-jaild","b"]}},
+	  {"kind":"service","name":"other","jail_daemon":{"cmd":["yolo-jaild","other"]}}]}`)}
+	held, shadowed := HeldServices([]*Pack{a, b})
+	if len(held) != 2 || held[0].Pack != "b" || held[0].Service.Endpoint != "b.endpoint" ||
+		held[1].Service.Name != "other" {
+		t.Errorf("held = %+v, want b's wire-bridge then b's other", held)
+	}
+	if len(shadowed) != 1 || shadowed[0] != (ShadowedService{Name: "wire-bridge", Pack: "a", HeldBy: "b"}) {
+		t.Errorf("shadowed = %+v, want a's wire-bridge shadowed by b", shadowed)
+	}
+	if got := strings.Join(ServiceJailDaemonNames([]*Pack{a, b}), ","); got != "other,wire-bridge" {
+		t.Errorf("ServiceJailDaemonNames = %q, want each name once", got)
+	}
+	found := false
+	for _, c := range Collisions([]*Pack{a, b}) {
+		if c.Target == "wire-bridge" && strings.Join(c.Packs, ",") == "a,b" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("Collisions must report the service name both packs declare: %+v", Collisions([]*Pack{a, b}))
+	}
+}
+
+// A HOLDER WITH NO DAEMON runs none: the earlier pack's jail_daemon is not a fallback, since
+// the endpoint the launch points at is the holder's.
+func TestAServiceHeldWithoutADaemonRunsNone(t *testing.T) {
+	a := &Pack{Name: "a", Decl: declFrom(t, `{"contributes":[
+	  {"kind":"service","name":"svc","jail_daemon":{"cmd":["yolo-jaild","a"]}}]}`)}
+	b := &Pack{Name: "b", Decl: declFrom(t, `{"contributes":[
+	  {"kind":"service","name":"svc","host_daemon":{"cmd":["svc-host"]}}]}`)}
+	if got := ServiceJailDaemonNames([]*Pack{a, b}); len(got) != 0 {
+		t.Errorf("ServiceJailDaemonNames = %v, want none: the holder declares no daemon", got)
+	}
+}

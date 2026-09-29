@@ -22,6 +22,7 @@ package run
 // `settings` — declared, carried, unread — with no consumer in the tree yet.
 
 import (
+	"fmt"
 	"sort"
 	"strconv"
 	"strings"
@@ -49,27 +50,32 @@ import (
 // exactly one place (loopholes.JailDaemonPayload); this file used to build its
 // own objects beside that one, with a comment in each asking the other to stay
 // identical.
+//
+// ONE DAEMON PER SERVICE NAME, the declaration packload.HeldServices says holds it: the LATER
+// pack's in the pack order, the one rule for a duplicated sole-owned claim (notch-convergence
+// NC-D59). serviceEndpointEnvArgs reads the same holder (ServiceNamed), so the daemon that runs
+// is the one whose endpoint file the jail is pointed at. Every declarer used to reach the
+// payload, two daemons racing for one name's endpoint file. When the holder declares no
+// jail_daemon, the name runs none: the earlier pack's daemon is not a fallback. What was set
+// aside is disclosed by noteShadowedServices.
 func serviceJailDaemons(packs []*packload.Pack) []loopholes.JailDaemonSpec {
 	var entries []loopholes.JailDaemonSpec
-	for _, p := range packs {
-		if p.Decl == nil {
+	held, _ := packload.HeldServices(packs)
+	for _, h := range held {
+		s := h.Service
+		if s.JailDaemon == nil || len(s.JailDaemon.Cmd) == 0 {
 			continue
 		}
-		for _, s := range p.Decl.Services() {
-			if s.JailDaemon == nil || len(s.JailDaemon.Cmd) == 0 {
-				continue
-			}
-			restart := s.JailDaemon.Restart
-			if restart == "" {
-				restart = "on-failure"
-			}
-			// CallerToken ALWAYS: every address a service serves names the service's
-			// caller token as its credential (packload's serviceCredentialEnv), so the
-			// daemon behind it demands one (wire-bridge.md WB-D18).
-			entries = append(entries, loopholes.JailDaemonSpec{
-				Name: s.Name, Cmd: s.JailDaemon.Cmd, Restart: restart, CallerToken: true,
-			})
+		restart := s.JailDaemon.Restart
+		if restart == "" {
+			restart = "on-failure"
 		}
+		// CallerToken ALWAYS: every address a service serves names the service's
+		// caller token as its credential (packload's serviceCredentialEnv), so the
+		// daemon behind it demands one (wire-bridge.md WB-D18).
+		entries = append(entries, loopholes.JailDaemonSpec{
+			Name: s.Name, Cmd: s.JailDaemon.Cmd, Restart: restart, CallerToken: true,
+		})
 	}
 	sort.Slice(entries, func(i, j int) bool { return entries[i].Name < entries[j].Name })
 	return entries
@@ -95,6 +101,10 @@ func serviceJailDaemons(packs []*packload.Pack) []loopholes.JailDaemonSpec {
 func (o *Options) jailDaemonsFor(cfg *jsonx.OrderedMap, rt string,
 	packs []*packload.Pack) []loopholes.JailDaemonSpec {
 	set := loopholes.NewHostSet(cfgMap(cfg, "loopholes"))
+	// The service declarations the payload below sets aside, recorded for noteShadowedServices
+	// the way withoutUnselectedProfileDaemons records what it leaves out: every call composes
+	// the same packs, so the record is the same whichever call wrote it last.
+	_, o.shadowedServices = packload.HeldServices(packs)
 	specs := o.withoutUnselectedProfileDaemons(cfg, packs,
 		set.JailDaemons(set.Enabled(), rt, serviceJailDaemons(packs)))
 	// WHERE EACH DAEMON LISTENS (servedaddresses.go): its declared address, or on a jail that
@@ -227,5 +237,20 @@ func (o *Options) noteUnstartedProfileDaemons() {
 			"selected profile is " + strings.Join(quoted, " or ") + ", the profile it serves; select " +
 			"one (`-p <agent>=" + d.Profiles[0] + "`) to start it " +
 			"(provider-credential-scope.md OQ-CN7).[/dim]")
+	}
+}
+
+// noteShadowedServices is the disclosure for the one-daemon-per-name rule serviceJailDaemons
+// follows: one line per service declaration this launch set aside because a later pack
+// declares the same service name, naming both packs. A disclosure, so no quiet switch
+// (docs/reference/report-tiers.md, OQ-RO3), and yellow because the pack the user may have
+// selected for its service is not the one that runs. Silent when no name is declared twice.
+func (o *Options) noteShadowedServices() {
+	for _, s := range o.shadowedServices {
+		o.pr(o.Stderr).print(fmt.Sprintf("[yellow]Service %q: pack %s's declaration is shadowed "+
+			"by pack %s's, the later in the pack order, so this launch uses only pack %s's "+
+			"(its jail daemon and its endpoint). Rename one service to keep both; "+
+			"`yolo pack footprint` reports the pair (notch-convergence NC-D59).[/yellow]",
+			s.Name, s.Pack, s.HeldBy, s.HeldBy))
 	}
 }

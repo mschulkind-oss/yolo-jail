@@ -20,7 +20,9 @@ package run
 // (TestTheJailDaemonPayloadIsComposedAboveTheBackendDispatch).
 
 import (
+	"bytes"
 	"encoding/json"
+	"go/ast"
 	"strings"
 	"testing"
 
@@ -110,5 +112,102 @@ func TestNoServiceContributionEmitsNoDaemonsEnv(t *testing.T) {
 	argv := zaiLaunch(t, []*packload.Pack{officialPack(t, "zai")}, bareConfig(), emptyEnv(), nil)
 	if vals := envArgValues(argv, "YOLO_JAIL_DAEMONS"); len(vals) != 0 {
 		t.Errorf("a launch with no jail daemon and no service must not carry the env: %q", vals)
+	}
+}
+
+// TestADuplicatedServiceNameStartsOnlyTheLaterPacksDaemon: two selected packs declare the
+// wire-bridge SERVICE, the shipped pack and a later one. A service name is a sole-owned claim,
+// so the LATER pack in the pack order holds it (packload.laterWins, notch-convergence NC-D59):
+// the payload carries ONE daemon for the name, the later pack's, and the endpoint variable the
+// witness waits on names that same pack's file, so the daemon that runs is the one whose
+// endpoint the jail is pointed at. Both used to reach the payload, two daemons racing for one
+// endpoint file. The launch says which declaration it set aside, by pack name.
+func TestADuplicatedServiceNameStartsOnlyTheLaterPacksDaemon(t *testing.T) {
+	fork := writePackManifest(t, "bridge-fork", `{"name":"bridge-fork","contributes":[
+		{"kind":"service","name":"wire-bridge","endpoint":"fork.endpoint",
+		 "jail_daemon":{"cmd":["yolo-jaild","wire-bridge","--fork"]}}]}`)
+	packs := []*packload.Pack{
+		officialPack(t, "claude"), officialPack(t, "cerebras"), officialPack(t, "wire-bridge"), fork,
+	}
+	var stderr bytes.Buffer
+	la := zaiLaunchAssembled(t, packs, bareConfig(), cerebrasKey(), func(o *Options) {
+		o.ProfileName = "cerebras"
+		o.Stderr = &stderr
+	})
+
+	vals := envArgValues(la.argv, "YOLO_JAIL_DAEMONS")
+	if len(vals) != 1 {
+		t.Fatalf("YOLO_JAIL_DAEMONS must appear exactly once: %q", vals)
+	}
+	var specs []struct {
+		Name string   `json:"name"`
+		Cmd  []string `json:"cmd"`
+	}
+	if err := json.Unmarshal([]byte(vals[0][strings.IndexByte(vals[0], '=')+1:]), &specs); err != nil {
+		t.Fatalf("the payload is not the supervisor's JSON list: %v\n%s", err, vals[0])
+	}
+	var bridges [][]string
+	for _, s := range specs {
+		if s.Name == "wire-bridge" {
+			bridges = append(bridges, s.Cmd)
+		}
+	}
+	if len(bridges) != 1 {
+		t.Fatalf("one service name must start exactly one daemon, got %d: %v", len(bridges), bridges)
+	}
+	if got := strings.Join(bridges[0], " "); got != "yolo-jaild wire-bridge --fork" {
+		t.Errorf("the daemon that runs is %q, want the LATER pack's (bridge-fork)", got)
+	}
+	if v := envArgValues(la.argv, "YOLO_SERVICE_WIRE_BRIDGE_ENDPOINT"); len(v) != 1 ||
+		v[0] != "YOLO_SERVICE_WIRE_BRIDGE_ENDPOINT=/run/yolo-services/fork.endpoint" {
+		t.Errorf("the endpoint variable must name the file the running daemon publishes: %q", v)
+	}
+
+	// The disclosure reads what the payload composition recorded (jailDaemonsFor), so it
+	// names the declaration the payload actually set aside.
+	la.o.noteShadowedServices()
+	said := stderr.String()
+	for _, want := range []string{`"wire-bridge"`, "pack wire-bridge", "pack bridge-fork", "NC-D59"} {
+		if !strings.Contains(said, want) {
+			t.Errorf("the launch must disclose the shadowed declaration (%q missing):\n%s", want, said)
+		}
+	}
+}
+
+// One declaration per service name says nothing: the disclosure is about a shadowed
+// declaration, and the ordinary bridged launch has none.
+func TestAnUnduplicatedServiceDisclosesNothing(t *testing.T) {
+	var stderr bytes.Buffer
+	la := zaiLaunchAssembled(t, []*packload.Pack{
+		officialPack(t, "claude"), officialPack(t, "cerebras"), officialPack(t, "wire-bridge"),
+	}, bareConfig(), cerebrasKey(), func(o *Options) {
+		o.ProfileName = "cerebras"
+		o.Stderr = &stderr
+	})
+	la.o.noteShadowedServices()
+	if s := stderr.String(); strings.Contains(s, "shadowed") {
+		t.Errorf("no service name is duplicated, so nothing is shadowed:\n%s", s)
+	}
+}
+
+// The shadowed-service disclosure has a call site on each arm that composes a fresh launch's
+// daemon payload, the container path and the macos-user arm, so deleting either fails here
+// (the call graph is the witness, as in TestTheUnstartedDaemonDisclosureIsPrintedByEachFreshArm).
+func TestTheShadowedServiceDisclosureIsPrintedByEachFreshArm(t *testing.T) {
+	for _, fn := range []string{"runContainer", "Run"} {
+		t.Run(fn, func(t *testing.T) {
+			found := false
+			ast.Inspect(funcDeclIn(t, "run.go", fn), func(n ast.Node) bool {
+				if call, ok := n.(*ast.CallExpr); ok {
+					if sel, ok := call.Fun.(*ast.SelectorExpr); ok && sel.Sel.Name == "noteShadowedServices" {
+						found = true
+					}
+				}
+				return true
+			})
+			if !found {
+				t.Errorf("%s never prints noteShadowedServices: a shadowed service would go unsaid", fn)
+			}
+		})
 	}
 }

@@ -35,24 +35,65 @@ func laterWins[K comparable](n int, key func(i int) K) []bool {
 	return holds
 }
 
-// ServiceNamed is the `service` contribution named name that the given packs hold, under the
-// same rule: the LAST declaration in packs' order, ok=false when no pack declares one. A service
-// name is sole-owned (Collisions reports two), and no launch pre-flight refuses a second
-// declarer, so a reader of one service by name asks this rather than taking the first hit.
-func ServiceNamed(packs []*Pack, name string) (packdecl.ServiceContribution, bool) {
-	var out packdecl.ServiceContribution
-	found := false
+// HeldService is one `service` contribution and the pack that declared it.
+type HeldService struct {
+	Pack    string
+	Service packdecl.ServiceContribution
+}
+
+// ShadowedService is a `service` declaration another declaration of the same name holds over:
+// Pack declared Name, and HeldBy, later in the pack order, holds it.
+type ShadowedService struct {
+	Name   string
+	Pack   string
+	HeldBy string
+}
+
+// HeldServices splits packs' `service` contributions under laterWins: held is the one
+// declaration each service name keeps, the LAST in packs' order, in declaration order; shadowed
+// is every other declaration of a held name, in declaration order. A service name is sole-owned
+// (Collisions reports two, so `yolo pack footprint` names the pair), and no launch pre-flight
+// refuses a second declarer, so every reader of the services asks this: the jail-daemon payload
+// (run.serviceJailDaemons), the name-keyed readers (ServiceNamed, ServiceJailDaemonNames), and
+// the launch's disclosure of what it set aside (run.noteShadowedServices).
+func HeldServices(packs []*Pack) (held []HeldService, shadowed []ShadowedService) {
+	var all []HeldService
 	for _, p := range packs {
 		if p == nil || p.Decl == nil {
 			continue
 		}
 		for _, s := range p.Decl.Services() {
-			if s.Name == name {
-				out, found = s, true
-			}
+			all = append(all, HeldService{Pack: p.Name, Service: s})
 		}
 	}
-	return out, found
+	holds := laterWins(len(all), func(i int) string { return all[i].Service.Name })
+	holder := map[string]string{}
+	for i, s := range all {
+		if holds[i] {
+			held = append(held, s)
+			holder[s.Service.Name] = s.Pack
+		}
+	}
+	for i, s := range all {
+		if !holds[i] {
+			shadowed = append(shadowed, ShadowedService{
+				Name: s.Service.Name, Pack: s.Pack, HeldBy: holder[s.Service.Name]})
+		}
+	}
+	return held, shadowed
+}
+
+// ServiceNamed is the `service` contribution named name that the given packs hold, under the
+// same rule (HeldServices), ok=false when no pack declares one. A reader of one service by name
+// asks this rather than taking the first hit.
+func ServiceNamed(packs []*Pack, name string) (packdecl.ServiceContribution, bool) {
+	held, _ := HeldServices(packs)
+	for _, s := range held {
+		if s.Service.Name == name {
+			return s.Service, true
+		}
+	}
+	return packdecl.ServiceContribution{}, false
 }
 
 // lastDeclarer is the last of packs, in the order given, for which declares reports true: the

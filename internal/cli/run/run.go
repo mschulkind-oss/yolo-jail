@@ -502,6 +502,7 @@ func Run(opts Options) (rc int) {
 		// and the plan render from needing two printers that could disagree.
 		o.noteMacosUserJailDaemonDeclines(jailDaemons)
 		o.noteUnstartedProfileDaemons()
+		o.noteShadowedServices()
 		// THE OTHER TIER COLLAPSE — #39's mirror image — USED TO BE WARNED ABOUT HERE, and
 		// is fixed rather than reported: the bootstrap now symlinks every scope:workspace
 		// state dir into <workspace>/.yolo/home, the sidecar the container backends bind
@@ -1183,6 +1184,8 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 	// (b)). Here, on the fresh path, because only a fresh launch starts daemons: an attach's
 	// selection starts none, and settles a daemon it needs and the jail lacks as skew instead.
 	o.noteUnstartedProfileDaemons()
+	// And what it set aside because a later pack declares the same service name (NC-D59).
+	o.noteShadowedServices()
 
 	// Broker singleton + relay: ensure BEFORE building the argv (the sockets-dir
 	// mount + broker env are emitted by the assembler when the socket exists).

@@ -172,6 +172,11 @@ type Options struct {
 	// left out because no agent's selection delivers a gate they serve. Read by the one disclosure
 	// that says so (noteUnstartedProfileDaemons). nil when none was left out.
 	unstartedDaemons []packload.ProfileServedDaemon
+	// shadowedServices are the pack `service` declarations the last jail-daemon payload this
+	// process composed set aside because a later pack declares the same name
+	// (packload.HeldServices, notch-convergence NC-D59). Read by the one disclosure that says so
+	// (noteShadowedServices). nil when no service name is declared twice.
+	shadowedServices []packload.ShadowedService
 	// served is the SERVED ADDRESSES this process has settled on (servedaddresses.go,
 	// docs/plans/notch-convergence.md NC-D41): the ports picked for a jail sharing this
 	// process's network namespace, or the running jail's, adopted by an attach. Zero until then.
