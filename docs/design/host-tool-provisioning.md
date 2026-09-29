@@ -37,7 +37,7 @@ jail's reach. On macOS, the three installer-recipe agents stay uncovered until
 **Start at [§3](#3-the-host-prefix).** The prefix's two rules, *only floor names on PATH* and *never
 jail-reachable*, are what make putting it first safe.
 
-**Needs your ruling:** [OQ-HP1](#OQ-HP1), [OQ-HP2](#OQ-HP2), [OQ-HP3](#OQ-HP3), [OQ-HP4](#OQ-HP4), [OQ-HP5](#OQ-HP5), [OQ-HP6](#OQ-HP6).
+**Needs your ruling:** [OQ-HP3](#OQ-HP3), [OQ-HP4](#OQ-HP4), [OQ-HP5](#OQ-HP5), [OQ-HP6](#OQ-HP6). Ruled 2026-09-29: [OQ-HP1](#OQ-HP1) (on by default), [OQ-HP2](#OQ-HP2) (moot: on no user PATH).
 
 **Reads with:**
 - [`host-tool-provisioning-plan.md`](host-tool-provisioning-plan.md): the implementation sketch.
@@ -299,7 +299,7 @@ installs nothing.
 
 ## Open Questions
 
-1. 💬 <a id="OQ-HP1"></a>**[OQ-HP1](#OQ-HP1): Is the floor on by default?**
+1. ✅ <a id="OQ-HP1"></a>**[OQ-HP1](#OQ-HP1): Is the floor on by default?**
    **Stakes:** whether a bare `"packs": ["claude"]` host user gets offered installs they never
    asked for. **(a)** On by default: every launch checks, and installs happen only on consent
    ([§4](#4-when-provisioning-runs)). **(b)** Opt-in through a user-scope key. **(c)** Off, with
@@ -309,12 +309,16 @@ installs nothing.
    nobody turns on guarantees nothing. [`OQ-HE0`](host-launch-environment.md#oq-he0) isn't
    engaged, because the prefix is machine state yolo owns rather than an ambient input.
 
-   <!-- vantage: oq id=OQ-HP1 leaning="(a) on by default: every host launch checks the floor, and nothing installs without the consent in section 4; the prefix is yolo-owned machine state, not an ambient input, so OQ-HE0 is not engaged." -->
+      **Answer:**
+      > **Ruled 2026-09-29: (a), on by default.** The maintainer: *"this floor should be on by
+      > default for the host agent stuff because you're going to already have to have opted into
+      > host management … Obviously, let it be configured. You could even configure a floor of
+      > nothing … By default, if you include the claude pack, it should also have the floor include
+      > claude on the host."* The floor is the programs of the user-scope selected packs (selecting
+      > the claude pack puts claude in it); it is configurable, down to an empty floor; installs
+      > still need consent. Host wrappers stay optional: they are sugar for `yolo host`.
 
-   **Answer:**
-   > _(empty — fill in when decided)_
-
-2. 💬 <a id="OQ-HP2"></a>**[OQ-HP2](#OQ-HP2): Where does the prefix sit on the composed host PATH?**
+2. ✅ <a id="OQ-HP2"></a>**[OQ-HP2](#OQ-HP2): Where does the prefix sit on the composed host PATH?**
    **Stakes:** whether yolo's copy or the user's declared copy wins when both exist. **(a)**
    First, ahead of `host_path`. **(b)** After `host_path` and before the baseline, as a fallback.
    **(c)** Last.
@@ -324,10 +328,15 @@ installs nothing.
    so through [OQ-PS7](provisioner-sets.md#OQ-PS7)'s override, and then the prefix never holds
    that name. It also matches the jail, where the launch dir precedes every install prefix.
 
-   <!-- vantage: oq id=OQ-HP2 leaning="(a) first: bin/ holds only floor names that nothing on the composed PATH provided at install time, a user preferring their own copy says so through OQ-PS7 and the prefix then never holds it; it mirrors the jail's launch dir." -->
-
-   **Answer:**
-   > _(empty — fill in when decided)_
+      **Answer:**
+      > **Ruled 2026-09-29: moot — the prefix is on no PATH of the user's.** The maintainer: *"It
+      > sits nowhere, right? … This is only going to work with the wrappers or with yolo host. So I
+      > don't think this should change the user's environment by default other than through those
+      > wrappers … if you launch the agent not through the wrapper, we don't care if it's broken."*
+      > yolo host (and the wrappers, which are `yolo host`) runs the floor's program directly; the
+      > user's shell PATH is never changed. Inside a yolo host launch the composed PATH handed to
+      > the agent carries the prefix first, so an agent that starts another agent gets the floor's
+      > copy ([HP-D1](#HP-D1)); that is within the launch yolo owns, not the user's environment.
 
 3. 💬 <a id="OQ-HP3"></a>**[OQ-HP3](#OQ-HP3): How do the installer-recipe agents (`claude`, `codex`, `agy`) reach the prefix?**
    **Stakes:** the three most-used agents. **(a)** Materialize a `yolo capture` of the
@@ -402,4 +411,6 @@ installs nothing.
 
 | ID | Ruling | Date |
 | :--- | :--- | :--- |
-| — | None yet | — |
+| [OQ-HP1](#OQ-HP1) | **Maintainer ruling:** the floor is on by default: the programs of the user-scope selected packs, configurable down to empty, installed with consent | 2026-09-29 |
+| [OQ-HP2](#OQ-HP2) | **Maintainer ruling:** moot; the prefix is on no user PATH, and only `yolo host` and the wrappers use it | 2026-09-29 |
+| <a id="HP-D1"></a>HP-D1 | *Implementation decision under HP2:* a yolo host launch execs the floor's program by path and puts the prefix first on the composed PATH it hands the agent, so a child agent resolves the floor's copy; the user's shell is untouched | 2026-09-29 |
