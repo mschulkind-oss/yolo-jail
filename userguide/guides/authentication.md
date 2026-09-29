@@ -10,7 +10,8 @@ deliberately, in one of three ways:
 - **Let a host service keep one shared login fresh** for every jail, where yolo offers one.
 
 Every login you make inside a jail is kept on your host and survives restarts, so you log in once,
-not once per launch.
+not once per launch. The one exception is a `copilot` login you do not let it store in plain text
+([below](#log-in-inside-the-jail)).
 
 ## Log in inside the jail
 
@@ -22,6 +23,12 @@ gh auth login          # the GitHub CLI
 ```
 
 Copilot, opencode and pi each have their own login command or prompt, the same as outside a jail.
+
+Copilot normally keeps its login in your system keychain, and a jail has none, except possibly on
+`macos-user`, where this has not been tried. So when you log in, `copilot` asks whether it may store
+the token in a plain-text file instead. Say yes to keep the login; the token is then kept
+unencrypted in the project's `.yolo/` folder. If you say no (the default for `copilot login`),
+nothing is saved, and the next `copilot` asks you to log in again.
 
 ## How far one login reaches
 
