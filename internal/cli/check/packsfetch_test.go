@@ -106,6 +106,7 @@ func TestSectionPacksSkipsAPackTheLaunchWouldFetch(t *testing.T) {
 		sync     bool   // fetch the repository into the store first
 		syncRef  string // the ref that fetch was for (default main)
 		later    bool   // commit v2 upstream after the fetch, and fetch it without a checkout
+		legacy   bool   // leave the checkout where an earlier yolo put it: the whole commit at trees/<sha>
 		suffix   string // appended to git+file://<repo>
 		env      func(string) string
 		wantSkip bool
@@ -130,6 +131,11 @@ func TestSectionPacksSkipsAPackTheLaunchWouldFetch(t *testing.T) {
 		// In a jail the refresh step does nothing, so a nested launch refuses the pack.
 		{name: "never fetched, in a jail", suffix: "//sub?ref=main", env: jailEnv,
 			wantFail: true},
+		// An upgraded user's store: the checkout an earlier yolo made, of the whole commit at
+		// trees/<sha>, and none of the subdirectory's own. It holds the pack, so check reads
+		// it rather than reporting it not checked out until the next launch.
+		{name: "an earlier yolo's whole-commit checkout", sync: true, legacy: true,
+			suffix: "//sub?ref=main", env: hostEnv, wantPass: true},
 		// The control: a fetched pack resolves and passes, so the cases above are measuring
 		// the classification and not a fixture that can never resolve.
 		{name: "fetched", sync: true, suffix: "//sub?ref=main", env: hostEnv, wantPass: true},
@@ -147,6 +153,9 @@ func TestSectionPacksSkipsAPackTheLaunchWouldFetch(t *testing.T) {
 			}
 			if tc.later {
 				laterTagWithoutCheckout(t, repo)
+			}
+			if tc.legacy {
+				asEarlierWholeCommitTree(t, repo)
 			}
 			var buf bytes.Buffer
 			r := &reporter{w: &buf}
@@ -175,7 +184,33 @@ func TestSectionPacksSkipsAPackTheLaunchWouldFetch(t *testing.T) {
 			if tc.later {
 				assertNoTree(t, repo, "v2")
 			}
+			if tc.legacy {
+				sha := strings.TrimSpace(gitAt(t, repo, "rev-parse", "main"))
+				if trees, _ := os.ReadDir(filepath.Join(paths.PacksDir(), "trees")); len(trees) != 1 || trees[0].Name() != sha {
+					t.Errorf("`yolo check` wrote into the pack store: trees = %v", trees)
+				}
+			}
 		})
+	}
+}
+
+// asEarlierWholeCommitTree moves the subdirectory checkout syncInto made to trees/<sha>, where
+// a yolo from before subdirectory checkouts kept the WHOLE commit. checkGitRepo's commit has
+// nothing outside sub/, so the subdirectory's tree, completion marker included, is exactly that
+// whole-commit tree.
+func asEarlierWholeCommitTree(t *testing.T, repo string) {
+	t.Helper()
+	sha := strings.TrimSpace(gitAt(t, repo, "rev-parse", "main"))
+	if files := strings.Fields(gitAt(t, repo, "ls-tree", "-r", "--name-only", sha)); len(files) != 1 || !strings.HasPrefix(files[0], "sub/") {
+		t.Fatalf("fixture: the commit holds %v, want only sub/", files)
+	}
+	trees := filepath.Join(paths.PacksDir(), "trees")
+	entries, err := os.ReadDir(trees)
+	if err != nil || len(entries) != 1 || !strings.HasPrefix(entries[0].Name(), sha+"-") {
+		t.Fatalf("fixture: want one subdirectory tree of %s: %v %v", sha, entries, err)
+	}
+	if err := os.Rename(filepath.Join(trees, entries[0].Name()), filepath.Join(trees, sha)); err != nil {
+		t.Fatal(err)
 	}
 }
 

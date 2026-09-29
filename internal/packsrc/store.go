@@ -27,7 +27,9 @@ package packsrc
 // same commit and subdirectory share a checkout and a ref moving does not corrupt an
 // existing tree. A pack in a subdirectory gets a tree holding ONLY that subdirectory
 // (treeDir), so a pack in a large repository checks out, and fetches the file contents
-// of, its own directory rather than the whole repository.
+// of, its own directory rather than the whole repository. An earlier yolo kept every git
+// pack's checkout, of the whole commit, at trees/<sha>; ResolveExisting still reads a
+// subdirectory pack from one, and the next launch checks the subdirectory out on its own.
 
 import (
 	"context"
@@ -552,10 +554,16 @@ func (s *Store) materialize(b budget, a Addr, commit string) (*Resolved, error) 
 // listing still reads by commit.
 func (s *Store) treeDir(a Addr, commit string) string {
 	if a.Path == "" {
-		return filepath.Join(s.Dir, "trees", commit)
+		return s.wholeCommitTree(commit)
 	}
 	sum := sha256.Sum256([]byte(a.Path))
 	return filepath.Join(s.Dir, "trees", commit+"-"+hex.EncodeToString(sum[:6]))
+}
+
+// wholeCommitTree is where a checkout of the whole of commit lives: a repository-root pack's
+// tree, and the tree an earlier yolo made for every git pack, a subdirectory pack's included.
+func (s *Store) wholeCommitTree(commit string) string {
+	return filepath.Join(s.Dir, "trees", commit)
 }
 
 // literalPathspec is the pathspec naming exactly the subdirectory sub, or the whole tree for
@@ -843,7 +851,9 @@ func (s *Store) storeCommit(a Addr) (string, error) {
 // subdirectory pack whose tree is not checked out, `git ls-tree` (checkSubdir), which reads
 // trees and so fetches nothing from the partial mirror. Resolution stays the launch's: the
 // same mirror, the same ref, the same commit, so a pack this answers for is the pack a launch
-// would stage.
+// would stage. A subdirectory pack with no tree of its own is also read from a complete
+// whole-commit tree of that commit, which an earlier yolo left for it (existingFromStore):
+// the same directory of the same commit.
 func (s *Store) ResolveExisting(a Addr, name string) (*Resolved, error) {
 	res, err := s.existingFromStore(a)
 	if err == nil {
@@ -873,6 +883,19 @@ func (s *Store) existingFromStore(a Addr) (*Resolved, error) {
 		defer cancel()
 		if serr := s.checkSubdir(b, s.mirrorPath(a.Repo), a, commit); serr != nil {
 			return nil, serr
+		}
+		// AN EARLIER YOLO'S TREE STILL ANSWERS. Before subdirectory checkouts every git
+		// pack's tree was the whole commit at trees/<commit>, which holds this same
+		// subdirectory of this same commit (and a repository-root pack's tree today is
+		// that same layout). Without it, every read-only reader lost an upgraded user's
+		// subdirectory pack until the next launch checked it out again. Read through
+		// treeResolved, so a link on the way is refused there as anywhere; only the
+		// launch replaces it, by checking the subdirectory out on its own.
+		if a.Path != "" {
+			whole := s.wholeCommitTree(commit)
+			if _, err := os.Stat(filepath.Join(whole, treeCompleteMarker)); err == nil {
+				return treeResolved(a, whole, commit)
+			}
 		}
 		return nil, &storeMiss{kind: ErrNotCheckedOut, msg: fmt.Sprintf("pack %s: commit %s is "+
 			"not checked out in the pack store; the next host launch or `yolo pack install` "+

@@ -1,6 +1,7 @@
 package packsrc
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -102,5 +103,98 @@ func TestResolveExistingLocalAndStaged(t *testing.T) {
 	}
 	if res, err := store.ResolveExisting(a, "p"); err != nil || res.Root != staged {
 		t.Errorf("delivered tree: %+v, %v, want root %s", res, err, staged)
+	}
+}
+
+// legacyWholeTree writes the tree a yolo from before subdirectory checkouts left for every git
+// pack: the WHOLE commit at trees/<commit>, checked out by the command it ran, completion
+// marker last. It returns the tree.
+func legacyWholeTree(t *testing.T, store *Store, a Addr, commit string) string {
+	t.Helper()
+	tree := filepath.Join(store.Dir, "trees", commit)
+	if err := os.MkdirAll(tree, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	gitIn(t, store.mirrorPath(a.Repo), "--work-tree="+tree, "checkout", "--force", commit, "--", ".")
+	if err := os.WriteFile(filepath.Join(tree, treeCompleteMarker), []byte(commit+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return tree
+}
+
+// AFTER AN UPGRADE, A READ-ONLY RESOLUTION STILL READS THE WHOLE-COMMIT TREE AN EARLIER YOLO
+// LEFT. A subdirectory pack's tree is trees/<commit>-<key> now, which nothing makes until the
+// next launch or `yolo pack install`; until then `yolo check`, the agent footer, `yolo pack
+// explain` and validation read through ResolveExisting, which writes nothing, and would each
+// have lost the pack for that one launch. The earlier tree holds the same subdirectory of the
+// same commit, so it answers, through treeResolved's walk. It stands in for nothing else: the
+// launch still checks the subdirectory out on its own, after which that tree answers.
+func TestResolveExistingReadsAWholeCommitTreeAnEarlierYoloLeft(t *testing.T) {
+	repo := gitRepo(t, map[string]string{"sub/pack.json": `{"name":"p"}`, "other/f.txt": "a sibling\n"})
+	store := &Store{Dir: t.TempDir(), Getenv: noStagedTree}
+	a := mustParse(t, "git+file://"+repo+"//sub?ref=main")
+	commit, err := store.Sync(a)
+	if err != nil {
+		t.Fatal(err)
+	}
+	whole := legacyWholeTree(t, store, a, commit)
+
+	res, err := store.ResolveExisting(a, "p")
+	if err != nil {
+		t.Fatalf("with an earlier yolo's whole-commit tree in the store: %v", err)
+	}
+	if res.Root != filepath.Join(whole, "sub") || res.Commit != commit {
+		t.Errorf("ResolveExisting = %+v, want the subdirectory of %s", res, whole)
+	}
+	if trees := treesIn(t, store); len(trees) != 1 || trees[0] != commit {
+		t.Errorf("ResolveExisting wrote trees: %v", trees)
+	}
+
+	launched, err := store.Resolve(a, "p")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if own := filepath.Join(store.treeDir(a, commit), "sub"); launched.Root != own {
+		t.Errorf("the launch resolved %s, want the subdirectory checked out on its own at %s", launched.Root, own)
+	}
+	if res, err := store.ResolveExisting(a, "p"); err != nil || res.Root != launched.Root {
+		t.Errorf("after the launch's checkout, ResolveExisting = %+v, %v; want %s", res, err, launched.Root)
+	}
+}
+
+// The earlier tree is held to what any tree is: complete, and no link on the way to the pack
+// root, whatever git's trees say.
+func TestResolveExistingHoldsAnEarlierTreeToTheSameLine(t *testing.T) {
+	repo := gitRepo(t, map[string]string{"sub/pack.json": `{"name":"p"}`})
+	store := &Store{Dir: t.TempDir(), Getenv: noStagedTree}
+	a := mustParse(t, "git+file://"+repo+"//sub?ref=main")
+	commit, err := store.Sync(a)
+	if err != nil {
+		t.Fatal(err)
+	}
+	whole := legacyWholeTree(t, store, a, commit)
+
+	if err := os.Remove(filepath.Join(whole, treeCompleteMarker)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.ResolveExisting(a, "p"); !errors.Is(err, ErrNotCheckedOut) {
+		t.Errorf("an incomplete earlier tree: err = %v, want ErrNotCheckedOut", err)
+	}
+
+	outside := t.TempDir()
+	if err := os.WriteFile(filepath.Join(outside, "pack.json"), []byte(`{"name":"elsewhere"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.RemoveAll(filepath.Join(whole, "sub")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(whole, "sub")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(whole, treeCompleteMarker), []byte(commit+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if res, err := store.ResolveExisting(a, "p"); err == nil || !strings.Contains(err.Error(), "passes through a symlink (sub)") {
+		t.Errorf("an earlier tree whose subdirectory is a link on disk = %+v, %v; want it refused", res, err)
 	}
 }
