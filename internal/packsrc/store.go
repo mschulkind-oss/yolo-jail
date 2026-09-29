@@ -640,35 +640,78 @@ func (s *Store) prefetchBlobs(b budget, mirror, commit, sub string) {
 //
 // A symlink is refused rather than followed. The checkout writes the link itself, not the
 // directory it names, so the pack would be empty or, through an absolute or `..` target, a
-// directory outside the store. A path THROUGH a symlink (a link `tools` and the address
-// `//tools/pack`) is simply not found: git's trees have no `tools/pack` entry.
+// directory outside the store. So is a path THROUGH a symlink (a link `tools` and the address
+// `//tools/pack`), and by name: git's trees have no `tools/pack` entry, so the lookup of the
+// whole path finds nothing, but "not found" would be wrong about a commit whose every full
+// checkout has that directory, and an earlier yolo, checking out the whole commit, followed
+// such a link, an absolute one to a host directory included. A submodule is refused the same
+// two ways.
 func (s *Store) checkSubdir(b budget, mirror string, a Addr, commit string) error {
 	if a.Path == "" {
 		return nil
 	}
-	out, err := s.runIn(b, mirror, "ls-tree", "-z", commit, "--", literalPathspec(a.Path))
+	mode, err := s.treeEntryMode(b, mirror, commit, a.Path)
 	if err != nil {
-		return fmt.Errorf("reading pack subdirectory %q in commit %s: %w", a.Path, shortCommit(commit), err)
+		return err
 	}
-	for _, rec := range strings.Split(out, "\x00") {
-		meta, name, ok := strings.Cut(rec, "\t")
-		if !ok || name != a.Path {
-			continue
+	what := "a file"
+	switch mode {
+	case "040000":
+		return nil
+	case "":
+		return s.subdirPathBlocked(b, mirror, a, commit)
+	case "120000":
+		what = "a symlink"
+	case "160000":
+		what = "a submodule, which a pack fetch does not follow"
+	}
+	return fmt.Errorf("pack subdirectory %q is %s in commit %s of %s, not a directory",
+		a.Path, what, shortCommit(commit), a.Repo)
+}
+
+// subdirPathBlocked is checkSubdir's answer for a subdirectory the commit has no entry for:
+// the leading directory of it that is a symlink or a submodule, named, when one is, since git
+// records nothing below either; otherwise "not found". It asks one leading path at a time,
+// which only this failure pays for.
+func (s *Store) subdirPathBlocked(b budget, mirror string, a Addr, commit string) error {
+	segs := strings.Split(a.Path, "/")
+	for i := 1; i < len(segs); i++ {
+		prefix := strings.Join(segs[:i], "/")
+		mode, err := s.treeEntryMode(b, mirror, commit, prefix)
+		if err != nil {
+			return err
 		}
-		mode, _, _ := strings.Cut(meta, " ")
-		what := "a file"
 		switch mode {
-		case "040000":
-			return nil
 		case "120000":
-			what = "a symlink"
+			return fmt.Errorf("pack subdirectory %q passes through a symlink (%s) in commit %s of %s",
+				a.Path, prefix, shortCommit(commit), a.Repo)
 		case "160000":
-			what = "a submodule, which a pack fetch does not follow"
+			return fmt.Errorf("pack subdirectory %q passes through a submodule (%s), which a pack "+
+				"fetch does not follow, in commit %s of %s", a.Path, prefix, shortCommit(commit), a.Repo)
 		}
-		return fmt.Errorf("pack subdirectory %q is %s in commit %s of %s, not a directory",
-			a.Path, what, shortCommit(commit), a.Repo)
+		if mode != "040000" {
+			break // absent, or a file: nothing below it either
+		}
 	}
 	return subdirNotFound(a, commit)
+}
+
+// treeEntryMode is the mode git's tree for commit records at path ("040000" a directory,
+// "120000" a symlink, "160000" a submodule, anything else a file), or "" when there is no
+// entry at path. `ls-tree` reads trees only, so it fetches nothing from the partial mirror;
+// the pathspec is literal, so the entry is the one at exactly path.
+func (s *Store) treeEntryMode(b budget, mirror, commit, path string) (string, error) {
+	out, err := s.runIn(b, mirror, "ls-tree", "-z", commit, "--", literalPathspec(path))
+	if err != nil {
+		return "", fmt.Errorf("reading pack subdirectory %q in commit %s: %w", path, shortCommit(commit), err)
+	}
+	for _, rec := range strings.Split(out, "\x00") {
+		if meta, name, ok := strings.Cut(rec, "\t"); ok && name == path {
+			mode, _, _ := strings.Cut(meta, " ")
+			return mode, nil
+		}
+	}
+	return "", nil
 }
 
 // subdirNotFound is the error for an address whose subdirectory the commit does not have.

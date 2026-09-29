@@ -252,8 +252,13 @@ refusal names the field; move it to your user config. A project can still set a 
   checks out only that directory and downloads only its files. It used to download and keep
   every file of the whole repository at that commit. Every git pack also fetches those files in
   one request now: each file used to be a request of its own to the remote, so a pack of a few
-  hundred files could take longer than a launch waits for it. An address whose directory is a
-  symlink in the repository is now refused by name.
+  hundred files could take longer than a launch waits for it.
+- A git pack's repository could make yolo copy files from your machine into the jail. If the
+  directory in a pack's address was a symlink in that repository, or was reached through one,
+  yolo followed the link, so a link to an absolute path made the pack whatever that directory
+  on your machine held. Such an address is now refused, and the refusal names the link. That
+  includes a link to another directory of the same repository, which used to work: write the
+  address of the directory the link points to instead.
 - When your pi's catalog lacks some of the ChatGPT subscription models yolo lists, the warning pi
   shows now tells you why and what to do. Along with the missing models and what they lose, it
   names the pi you are running, for example `Your pi (0.85.1) predates these models`, and says

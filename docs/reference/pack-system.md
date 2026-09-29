@@ -2498,8 +2498,12 @@ a key that does nothing must not be accepted quietly.
   sibling the name would match as a pattern. Each commit and subdirectory gets a checkout of
   its own, created empty, so moving a pack to a new commit leaves no file of the old one
   behind, and a moving ref never corrupts an existing checkout. A pack at the repository root
-  checks out the whole commit. A subdirectory that is a symlink is refused, and so is a path
-  through one, which the commit does not have as a directory. A symlink inside the pack that
+  checks out the whole commit. A subdirectory that is a symlink or a submodule is refused, and
+  so is a path through one, and the refusal names it. That holds for a link to another
+  directory of the same repository too: with `packs/current` a link to `v2`, the address
+  `//packs/current/mypack` is refused, and `//packs/v2/mypack` is the one to write. A pack
+  root is never a directory a link in someone else's repository chose, which could be one
+  on your machine. A symlink inside the pack that
   points out of it, to a sibling directory or an absolute path, refuses the pack
   ([its content rules](#what-a-pack-is-on-disk)); the sibling is not checked out, so such a
   link points at nothing in the store.

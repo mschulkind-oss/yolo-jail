@@ -427,39 +427,62 @@ func TestMaterializeWritesLinksAsLinksAndNotTheirTargets(t *testing.T) {
 // A SUBDIRECTORY THAT IS A SYMLINK, OR IS REACHED THROUGH ONE, IS NO PACK ROOT. Checked out,
 // the link itself would be the root: `//linked` pointing at `../..` or an absolute path would
 // make a pack of a directory outside the store. So the address is refused before anything is
-// written, by what git's trees say, and a path through a link is simply not found (git has no
-// entry below a link).
+// written, by what git's trees say, and the refusal names the link, including a link that is
+// only ON the way: git has no entry below a link, so `//packs/current/mypack` with
+// `packs/current -> v2` would otherwise read as a directory the commit lacks, although every
+// full checkout of that commit has it. A submodule is named the same way, as the whole
+// subdirectory and on the way to it. The read-only resolution a `yolo check` runs reads the
+// same trees and says the same thing.
 func TestMaterializeRefusesASymlinkedSubdirectory(t *testing.T) {
 	repo := gitRepo(t, map[string]string{
-		"real/pack/pack.json": `{"name":"p"}`,
-		"afile":               "not a directory\n",
+		"real/pack/pack.json":       `{"name":"p"}`,
+		"packs/v2/mypack/pack.json": `{"name":"p"}`,
+		"afile":                     "not a directory\n",
 	})
 	for link, target := range map[string]string{
-		"linked":    "real/pack",
-		"escape":    "/etc",
-		"viaparent": "real",
+		"linked":        "real/pack",
+		"escape":        "/etc",
+		"viaparent":     "real",
+		"packs/current": "v2",
 	} {
-		if err := os.Symlink(target, filepath.Join(repo, link)); err != nil {
+		if err := os.Symlink(target, filepath.Join(repo, filepath.FromSlash(link))); err != nil {
 			t.Fatal(err)
 		}
 	}
 	gitIn(t, repo, "add", "-A")
+	// A gitlink: the tree entry a submodule is, mode 160000, naming a commit of another
+	// repository (any commit id will do; nothing follows it).
+	gitIn(t, repo, "update-index", "--add", "--cacheinfo",
+		"160000,"+gitIn(t, repo, "rev-parse", "HEAD")+",gitlinked")
 	gitIn(t, repo, "commit", "-qm", "links")
+	if mode := strings.Fields(gitIn(t, repo, "ls-tree", "HEAD", "gitlinked"))[0]; mode != "160000" {
+		t.Fatalf("fixture: gitlinked has mode %s, want a gitlink", mode)
+	}
 
 	for _, tc := range []struct{ sub, want string }{
 		{"linked", `pack subdirectory "linked" is a symlink`},
 		{"escape", `pack subdirectory "escape" is a symlink`},
-		{"viaparent/pack", `pack subdirectory "viaparent/pack" not found`},
+		{"viaparent/pack", `pack subdirectory "viaparent/pack" passes through a symlink (viaparent)`},
+		{"packs/current/mypack", `pack subdirectory "packs/current/mypack" passes through a symlink (packs/current)`},
+		{"gitlinked", `pack subdirectory "gitlinked" is a submodule`},
+		{"gitlinked/pack", `pack subdirectory "gitlinked/pack" passes through a submodule (gitlinked)`},
 		{"afile", `pack subdirectory "afile" is a file`},
+		{"afile/pack", `pack subdirectory "afile/pack" not found`},
 		{"nosuch", `pack subdirectory "nosuch" not found`},
+		{"packs/nosuch/deeper", `pack subdirectory "packs/nosuch/deeper" not found`},
 	} {
 		store := &Store{Dir: t.TempDir(), Getenv: noStagedTree}
-		o := refreshOne(t, store, "git+file://"+repo+"//"+tc.sub+"?ref=main", time.Unix(1_800_000_000, 0))
+		source := "git+file://" + repo + "//" + tc.sub + "?ref=main"
+		o := refreshOne(t, store, source, time.Unix(1_800_000_000, 0))
 		if o.Err == nil || !strings.Contains(o.Err.Error(), tc.want) {
 			t.Errorf("//%s: err = %v, want %q", tc.sub, o.Err, tc.want)
 		}
 		if trees := treesIn(t, store); len(trees) != 0 {
 			t.Errorf("//%s: a refused subdirectory left trees behind: %v", tc.sub, trees)
+		}
+		if _, err := store.ResolveExisting(mustParse(t, source), "p"); err == nil ||
+			errors.Is(err, ErrNotCheckedOut) || !strings.Contains(err.Error(), tc.want) {
+			t.Errorf("//%s: the read-only resolution says %v, want %q", tc.sub, err, tc.want)
 		}
 	}
 }
