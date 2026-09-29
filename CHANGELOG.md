@@ -9,6 +9,21 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+**Every jail now has a place for work that survives a restart: `$YOLO_DURABLE_DIR`.** Each launch
+makes a directory inside the workspace's own `.yolo` folder and tells every process in the jail
+where it is, on podman, Apple Container and macos-user alike, and every agent's briefing now opens
+its storage section with it: worktrees, clones, drafts and measurements go there, while `/tmp` is
+emptied when the jail exits and the directories in the home belong to the agents and tools
+themselves. It is ignored by git with the rest of `.yolo`, and yolo never deletes anything in it.
+Instead, each launch prints how many worktrees it holds, their total size and how long the oldest
+has been idle, and a second line when worktrees are registered at directories that no longer
+exist. `yolo check` lists each worktree with its size, idle time, branch, the commits that exist
+nowhere else and its changed files, and `yolo stores` shows each workspace's directory. pi's
+subagent worktrees now go there instead of `/tmp`. If the directory cannot be made, for example
+because `.yolo` is a symbolic link, the launch says why and goes on without it. Agents run with
+`yolo host` are told that the machine's `/tmp` may not survive a reboot. See
+[where work survives a restart](docs/design/durable-scratch-space.md).
+
 **`yolo host -p codex -- claude` now runs Claude Code on your ChatGPT subscription, as it does in
 a jail.** yolo starts the wire bridge for that one command, lets only that `claude` use it, and
 stops it when `claude` exits. The same goes for other profiles that need the bridge, such as
