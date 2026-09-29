@@ -566,6 +566,16 @@ is closed rather than narrowed. Re-reading the sentinel before each `rmi` narrow
 makes podman refuse when a container already exists; neither closes the gap between the sentinel
 write and the container's creation.
 
+> [!NOTE]
+> **The lock's scope changed on 2026-09-29 ([OQ-PR2](podman-reboot-readiness.md#OQ-PR2)).** A pass
+> no longer holds `housekeeping.lock` for its whole length: it holds a separate pass lock,
+> non-blocking, so two passes still never interleave and a loser still skips, and takes the shared
+> lock around each deletion only, rechecking under it that the item is still unused. The image
+> reap's recheck reads the current-image pointers and the sentinel a launch records under the same
+> lock. A whole-pass hold kept a launch's re-inspect waiting 16.1 s at the 2026-09-29 reboot; the
+> gap between the sentinel write and the container's creation stated above was never inside that
+> hold either.
+
 **Failure paths.** A measurement that fails skips its class and prints nothing. A delete that
 fails midway stops that class, reports what was removed and what was not (by name — a capture or
 an image is someone's gigabyte), and does **not** stamp the debounce, so the next slot retries.

@@ -283,6 +283,7 @@ and the members that carry meaning:
 | Family | What it covers | Worth knowing |
 | :--- | :--- | :--- |
 | `probes.done` (mark) | the end of the repo-root / storage / config / runtime probes | the first line of every launch after the header |
+| `runtime.ready` | the podman readiness gate inside runtime selection, with a `runtime.ready.attempt` note per attempt | written on a refused launch too; see [the podman readiness wait](#the-podman-readiness-wait) |
 | `launch.*` | every host-side step from staging to the child window: auto-capture, orphan reaping, briefing refresh, the workspace lock, the jail prefix, the image load, workspace state, argv assembly, port forwarding, loophole start, and `launch.run_with_proxy` — the whole child window under one span | `launch.auto_capture` was added after the first real run put most of a two-minute launch in an unspanned installer capture: **a span table's holes are only visible on a real launch** |
 | `image.*` | inside `launch.auto_load_image`: the nix build, the stream load, the tar materialize | split because one span over four unrelated things measured minutes on a real host with no way to say which; the fixes for a slow build and a slow stream have nothing in common |
 | `assemble.*` | the two argv-assembly steps that run subprocesses: the host-loopback probe and the host git identity | |
@@ -676,10 +677,23 @@ marked now: `child.suspended`, then `child.resumed` on `fg`. What happens next:
 
 Once per launch, `podman.facts` notes the facts that decide podman's exit path:
 version, database backend (sqlite or boltdb), events logger, rootless, network
-command and cgroup manager. They come from the `podman info --format json` that
-the host-loopback decision already runs (`hostLoopbackFactsFor`), and no second
-call is made. That call does not run on macOS or in a nested jail, so neither
-records the facts.
+command and cgroup manager. They come from the `podman info --format json` the
+podman readiness gate waited for during runtime selection
+([podman-reboot-readiness.md](../design/podman-reboot-readiness.md), PR-D5),
+which is the launch's only `podman info`: the host-loopback decision and the image
+copy read the same answer. The gate runs for podman on Linux, on the host and in a
+nested jail, so both record the facts; macOS does not.
+
+### The podman readiness wait
+
+The `runtime.ready` span covers the readiness gate, one `runtime.ready.attempt`
+note per attempt follows it —
+`n=<attempt> dur=<seconds>s outcome=<exit=N|still-running|interrupted|not-started>[ stderr=<podman's line>]`,
+the line truncated at 160 characters — and all of them are written on a refused
+launch too, before the refusal returns. So a launch refused at runtime selection
+records how long it waited and what podman said each time. The machine-wide
+launch line (`~/.local/share/yolo-jail/logs/launches.log`) carries the same wait
+and try count for every launch, whether or not timing is on.
 
 > [!WARNING]
 > **The bound is `--stream=false`, and `--until` must not be on the argv at all.**
@@ -1086,7 +1100,9 @@ is the only place the exact values and spellings are stated.
 | Scratch reaper age floor | 1 min | `prune.ScratchVolumeGrace` |
 | Lingering-client line | `yolo: podman stayed N.Ns after its container was removed, <dominant state>` (dim), when `client_exit` > the slow-span threshold | `run.noteLingeringClient` |
 | "Exited right after input" window | 250 ms | `run.quickExitAfterInput` |
-| podman facts note | `podman.facts  version=… database=… events=… rootless=… network=… cgroups=…` | `run.podmanFactsNote`, `run.hostLoopbackFactsFor` |
+| podman facts note | `podman.facts  version=… database=… events=… rootless=… network=… cgroups=…` | `run.podmanFactsNote`, `run.acceptPodmanFacts` |
+| podman readiness span and notes | `runtime.ready`; `runtime.ready.attempt  n=… dur=…s outcome=…[ stderr=…]`, the line cut at 160 characters | `run.waitForPodman`, `runtime.AttemptNote` |
+| podman readiness budget and backoff | 60 s; 1 s, 2 s, then 4 s between early exits | `runtime.PodmanReadyBudget`, `runtime.podmanReadyBackoff` |
 | Signal-arm jail stop | runtime `stop -t 5`, exec bounded at 10 s | `run.teardownStopTimeoutSeconds` |
 | Signal-arm exit code | `128 + signal` | `internal/ttyproxy` |
 | Loophole front close grace | 2 s | `run.frontStopGrace` |

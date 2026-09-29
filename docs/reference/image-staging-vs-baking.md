@@ -846,7 +846,10 @@ runtime section's subject.
 **On a rootless podman, the destination names the store podman reports**, so the copier never
 picks one for itself: `containers-storage:[<driver>@<graphRoot>+<runRoot>:<driver options>]<ref>`,
 every field read from `store` in the same `podman info --format json` the namespace decision
-already runs. That is one read per delivery, not two.
+already reads. That read is the launch's own: the `podman info --format json` runtime selection's
+readiness gate waited for ([podman-reboot-readiness.md](../design/podman-reboot-readiness.md),
+PR-D5), parsed again by `image.ParsePodmanStoreFacts`, so a launch asks podman once — and `yolo
+check`'s Container Image section reads the same gate's answer.
 
 **A rootful podman keeps the bare `containers-storage:<ref>`**, and so does a launch that could not
 tell whether podman is rootless. The disagreement below is in the rootless config lookup; root
@@ -1104,9 +1107,11 @@ serialization, not a cold-store copy. Its rules:
 - **Every failure degrades and none refuses.** An unwritable lock directory, or a filesystem whose
   `flock` fails, warns and leaves the launch doing its own copy — slow, not wrong, since the copy is
   idempotent and the ref content-addressed.
-- **It is not the housekeeping lock, and must not share its file.** Housekeeping callers may *skip*
-  when that lock is held; a copy waiter must never skip, skipping being exactly how the duplicate
-  copy happens. And parking every reaper pass behind a multi-minute copy would be its own defect.
+- **It is not the housekeeping lock, and must not share its file.** A housekeeping pass may *skip*
+  when another pass is running, and takes that lock one deletion at a time
+  ([OQ-PR2](../design/podman-reboot-readiness.md#OQ-PR2)); a copy waiter must never skip, skipping
+  being exactly how the duplicate copy happens. And parking every reaper pass behind a
+  multi-minute copy would be its own defect.
 - **It is taken in-jail too.** A nested jail's podman store is shared by every launch out of that
   jail exactly as a host's is, so unlike the housekeeping seam this one defaults to the real lock.
 
@@ -1456,7 +1461,7 @@ values themselves are stated.
 | The copier | `.#imageCopier` = nix2container's `skopeo-nix2container`, built against this flake's own nixpkgs | `packages.imageCopier` (`flake.nix`); `image.ImageCopierAttr` |
 | Copier out-link (its GC root) | `build/image-copier-<sha16 of repo root>` | `image.ImageCopierOutLink` |
 | Copy argv | `[<runtime> unshare --] <copier> --insecure-policy copy [--dest-oci-accept-uncompressed-layers] nix:<image.json> <dest>`, the flag on an `oci:` layout destination only | `copyArgv`, `StoreWritePrefix` |
-| podman/Linux destination | `containers-storage:[<driver>@<graphRoot>+<runRoot>[:<driver options>]]<ref>` from `podman info`'s `store`; on a rootless podman only; bare `containers-storage:<ref>` when rootful, unknown, or the store is not reported or not spellable | `ContainersStorageDestFor`, `ReadPodmanStoreFacts` |
+| podman/Linux destination | `containers-storage:[<driver>@<graphRoot>+<runRoot>[:<driver options>]]<ref>` from `podman info`'s `store` (on the launch path, the readiness gate's answer); on a rootless podman only; bare `containers-storage:<ref>` when rootful, unknown, or the store is not reported or not spellable | `ContainersStorageDestFor`, `ParsePodmanStoreFacts`, `run.storeFactsFromGate` |
 | Copy retries | at most 1, immediate; none for a denylisted cause; no timeout | `copyImageWithRetry`, `retryWouldHelp` |
 | Copier stderr kept for a failure report | last 12 lines | `copyTailLines` |
 | Transient archives and layouts | `~/.local/share/yolo-jail/image-delivery/<sha16>-<random>.delivery.tmp/`, mode 0700, one per attempt, holding `layout/` and `image.oci-archive`; both archive backends | `paths.ImageDeliveryDir`, `newDeliveryWorkDir`, `DeliveryWorkSuffix` |

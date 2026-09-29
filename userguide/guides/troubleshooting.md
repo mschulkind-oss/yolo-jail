@@ -35,6 +35,10 @@ older image.
 - On Linux, check that `podman info` works and prints `true` for
   `podman info --format '{{.Host.Security.Rootless}}'`. Run Podman and yolo as your own user, never
   with `sudo`.
+- Just after a reboot, a launch may wait up to a minute on `Checking that podman is running` while
+  Podman finishes its own cleanup, printing each error Podman gives meanwhile. It stops at once only
+  when the error cannot clear by itself, and then says what to fix. Each launch also leaves one line
+  in `~/.local/share/yolo-jail/logs/launches.log`, so you can see which workspaces came back.
 - On a Mac, check the runtime is up: `container system status`, or `podman machine list`.
 - Start a fresh jail: `yolo stop`, then launch again. `yolo ps` lists running jails.
 

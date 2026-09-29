@@ -10,13 +10,19 @@ vantage:
 
 # Podman reboot readiness — implementation sketch
 
-**Status:** SKETCH, 2026-09-29, checked against `51620f7e`. The mechanism is
-decided ([PR-D1](podman-reboot-readiness.md#PR-D1)–[PR-D11](podman-reboot-readiness.md#PR-D11)).
-The budget is 60 s ([PR-D12](podman-reboot-readiness.md#PR-D12)); whether it
-applies only near a boot waits on [OQ-PR1](podman-reboot-readiness.md#OQ-PR1), and
-the housekeeping and machine-wide-record steps wait on
-[OQ-PR2](podman-reboot-readiness.md#OQ-PR2) and
-[OQ-PR3](podman-reboot-readiness.md#OQ-PR3). Code is cited by symbol.
+**Status:** BUILT 2026-09-29. This sketch was checked against `51620f7e` and built
+as written, with three changes the rulings of the same day made and the design's
+ledger records: the gate refuses at once on an answer that cannot clear on its own
+([OQ-PR1](podman-reboot-readiness.md#OQ-PR1),
+[PR-D13](podman-reboot-readiness.md#PR-D13)); the housekeeping step below is not the
+skip it sketched but a lock held one deletion at a time
+([OQ-PR2](podman-reboot-readiness.md#OQ-PR2),
+[PR-D14](podman-reboot-readiness.md#PR-D14) to
+[PR-D16](podman-reboot-readiness.md#PR-D16)); and the machine-wide record is built
+([OQ-PR3](podman-reboot-readiness.md#OQ-PR3),
+[PR-D17](podman-reboot-readiness.md#PR-D17)). The design's
+[testing section](podman-reboot-readiness.md#testing-and-the-real-host-check) names
+the tests. Code is cited by symbol.
 
 **Reads with:** [`podman-reboot-readiness.md`](podman-reboot-readiness.md) (the
 design, which wins on behavior).
@@ -77,16 +83,18 @@ design, which wins on behavior).
   lock back, those two are its requirements. The pattern to follow is the
   machine-wide `lockImageCopy` in [`image/copylock.go`](../../internal/image/copylock.go),
   not `flock.go`'s per-container-name `acquireWorkspaceLock`.
-- **Housekeeping** (only if [OQ-PR2](podman-reboot-readiness.md#OQ-PR2) is ruled
-  B): `runHousekeeping` ([`housekeeping.go`](../../internal/cli/run/housekeeping.go))
-  takes the gate's attempt count and wait. When the gate was slow, it returns
-  before `withHousekeepingLock`, so no class runs and the lock is not taken. Every
-  class keeps its debounce stamp, so the next launch runs it. Skipping only the
-  classes that call Podman would not do: `autoReapOldImages`,
-  `reapSupersededStoreOutputs`, `reapSmallAutomaticClasses`,
-  `reapFlakeBundleGenerations` and `reapScratchVolumes` all do, the middle three
-  through `prune.LiveYoloContainers` (and the store-output and flake-bundle reaps
-  also through `prune.LivePrefixSources`).
+- **Housekeeping**, as [OQ-PR2](podman-reboot-readiness.md#OQ-PR2) ruled it — none
+  of the sketch's options: `runHousekeeping`
+  ([`housekeeping.go`](../../internal/cli/run/housekeeping.go)) runs as one pass under
+  `withHousekeepingPass`, which holds a separate pass lock non-blocking for the whole
+  pass and hands every class a `prune.Guard` that takes the shared housekeeping lock
+  around each deletion. Each reaper has a `…Guarded` variant in `internal/prune` (and
+  `flakebundle.ReapGuarded`) whose recheck runs under that lock; the manual `yolo prune`
+  keeps the unguarded names.
+- **The machine-wide launch line** ([OQ-PR3](podman-reboot-readiness.md#OQ-PR3)):
+  [`launchrecord.go`](../../internal/cli/run/launchrecord.go), armed in `Run` beside
+  the launch log and written once, from `onStarted`, the attach, the macos-user
+  dispatch, or `Run`'s return.
 
 ## Tests
 

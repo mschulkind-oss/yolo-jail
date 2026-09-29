@@ -305,7 +305,8 @@ type podmanFailurePattern struct {
 }
 
 // podmanFailurePatterns is OQ-PR1's classification, read from podman v6.1.2's own error
-// texts (the source file each row comes from is named in its comment). TRANSIENT ROWS WIN: a
+// texts (each group's comment names the source file it comes from; the errno and timeout
+// rows are the kernel's and Go's words, which podman wraps in its own). TRANSIENT ROWS WIN: a
 // line that matches one is retried whatever else it says, because the cost of a wrong
 // "transient" is at most the budget and the cost of a wrong "permanent" is a refused launch
 // that would have come up.

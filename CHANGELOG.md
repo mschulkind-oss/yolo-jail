@@ -131,6 +131,15 @@ login now. A way for jails to share the login without intercepting its renewal i
 until it has been measured; see
 [Claude login without interception](docs/design/claude-login-without-interception.md).
 
+**Every launch now leaves one line in `~/.local/share/yolo-jail/logs/launches.log`,** beside the
+log of loophole connections: when it started, which workspace (by the same short code that log
+uses, never the workspace's name), how long it waited for Podman and how many times it asked, and
+whether it started a jail, attached to one, was refused, or was interrupted. The line is written
+as soon as the outcome is known, so after a reboot you can read, in one place and while it
+happens, which workspaces came back and which did not — including a launch refused before its
+jail existed, which nothing recorded before. See
+[Podman readiness after a reboot](docs/design/podman-reboot-readiness.md).
+
 ### Changed
 
 - GPT-6.1 Sol replaces GPT-6 Sol for every agent on the ChatGPT subscription (`-p codex`): it is the default and the first entry in the model menus, and GPT-6 Sol is no longer listed. If you had picked GPT-6 Sol yourself, pick a model again.
@@ -219,6 +228,20 @@ refusal names the field; move it to your user config. A project can still set a 
 
 ### Fixed
 
+- After a reboot, workspaces that relaunch together no longer get refused while Podman finishes
+  starting. The first Podman command after a boot does Podman's own cleanup, and a launch used to
+  give up on it after ten seconds. On Linux, a launch and `yolo check` now wait up to a minute for
+  Podman to answer, show how long they have waited, and print each error Podman gives while they
+  wait; they refuse at once, and say what to fix, only when Podman's answer cannot clear on its
+  own, such as a permission error, a broken user-namespace setup or a request to run
+  `podman system migrate`. A Ctrl-C stops the wait without stopping Podman. The same launch now
+  asks Podman once and uses that answer throughout, so a jail no longer starts with its
+  loopholes unreachable because a later Podman question failed.
+- A launch no longer waits for another workspace's cleanup pass to finish before it can use its
+  image. The cleanup that runs after a jail starts now lets other launches in between each thing
+  it deletes, and checks again that each item is still unused right before deleting it.
+- A launch that cannot ask Podman whether its workspace's jail is already running now stops and
+  says so, instead of starting a second jail beside the running one.
 - Rootless Podman with no storage.conf of your own, as on stock Ubuntu 26.04, no longer fails
   every launch while delivering the image with `mkdir /run/containers: permission denied`. The
   image now goes into the store Podman itself reports, whatever your storage.conf files say, and

@@ -1,17 +1,23 @@
 ---
 title: "Let Podman finish waking before a jail gives up"
 date: 2026-09-29
-status: in-review
+status: accepted
 tags: [design, launch, podman, reliability]
-summary: "A patient, budget-bounded Podman readiness probe shared by the launch and yolo check, whose one answer every later Podman fact on the launch path reads."
+summary: "Built 2026-09-29: a patient, budget-bounded Podman readiness probe shared by the launch and yolo check, whose one answer every later Podman fact on the launch path reads; answers that cannot clear fail at once (OQ-PR1), the housekeeping slot holds its lock one deletion at a time (OQ-PR2), and every launch leaves one machine-wide log line (OQ-PR3)."
 vantage:
   status-chip: true
 ---
 
 # Let Podman finish waking before a jail gives up
 
-**Status:** DESIGN, 2026-09-29, revised the same day after review. Nothing built;
-evidence checked against `51620f7e`. Code is cited by symbol, not by line.
+**Status:** BUILT 2026-09-29, the same day it was designed and its three questions ruled
+([the ledger](#decision-ledger), PR-D1 to PR-D21). MEASURED by unit tests through `run.Run`,
+runtime selection and `check.Check`, on a fake podman whose clock the test drives, plus a real
+subprocess for the attempt runner; [the testing section](#testing-and-the-real-host-check) names
+them. UNMEASURED on a real reboot, and on a rootless podman at all: a nested jail's podman is
+rootful, so the re-exec row of [the kill table](#why-a-timed-out-probe-is-not-a-failed-podman) is
+settled only on CI or a real rootless host. Pre-build evidence was checked against `51620f7e`;
+podman's error texts against podman v6.1.2's source. Code is cited by symbol, not by line.
 
 > **In short.** The first `podman info` after a boot does Podman's own
 > post-boot cleanup. yolo kills that probe at 10 seconds and cancels the launch,
@@ -31,15 +37,19 @@ it cannot name the cause, and the launch is not refused.
 
 **The shape.** One readiness function in `internal/runtime`, called by the
 launch and by `yolo check`. It lets an attempt run until the attempt exits or
-the budget ends, retries only after an early error exit, never kills Podman, and
-hands its parsed answer to every later Podman fact on the launch path.
-**There is no cross-workspace lock**, because Podman already serializes its own
-cleanup.
+the budget ends, retries only after an early error exit that can clear on its own,
+never kills Podman, and hands its parsed answer to every later Podman fact on the
+launch path. **There is no cross-workspace lock**, because Podman already
+serializes its own cleanup. Two rulings rode with it: the housekeeping slot now
+holds its lock one deletion at a time ([OQ-PR2](#OQ-PR2)), and every launch leaves
+one line in a machine-wide log ([OQ-PR3](#OQ-PR3)).
 
-**Cost.** A genuinely broken Podman on Linux reports its final refusal only at
-the end of the budget. The reason for the first failure does appear within the
-progress grace period (2 s). A refused launch may leave one `podman` running,
-and it names that process.
+**Cost.** A Podman that is broken in a way yolo recognises (a permission or
+configuration error, a missing helper, an explicit "run `podman system migrate`")
+refuses at once and names the fix ([OQ-PR1](#OQ-PR1), [PR-D13](#PR-D13)). One broken
+in a way yolo does not recognise reports its final refusal only at the end of the
+budget; the reason for its first failure appears within the progress grace period
+(2 s). A refused launch may leave one `podman` running, and it names that process.
 
 **Start at [the gate](#the-gate).** Its no-kill rule is what makes a reboot
 recoverable.
@@ -206,9 +216,14 @@ which already differs by discarding stderr, is deleted ([PR-D6](#PR-D6)).
    launch's Podman facts ([PR-D5](#PR-D5)).
 3. **An early exit**, meaning nonzero, or zero with unparsable output, is
    retried after a backoff of 1, 2, then 4 s (capped at 4 s), never past the
-   budget. Stderr is kept for diagnosis and never used to classify the error
-   ([PR-D4](#PR-D4)). A missing binary, or one that cannot start, fails at once,
-   as today.
+   budget ([PR-D4](#PR-D4)) — unless podman's own words say it cannot clear on its
+   own. [OQ-PR1](#OQ-PR1)'s ruling added that rule: a permission or configuration
+   error, a missing helper, or an explicit "run `podman system migrate`" refuses at
+   once and names the fix. The classification reads podman's fatal lines only, from
+   a table of podman v6.1.2's error texts; a line that says podman is busy wins over
+   one that looks permanent; and an error the table does not recognise keeps
+   retrying within the budget, never refusing early ([PR-D13](#PR-D13)). A missing
+   binary, or one that cannot start, fails at once, as before.
 4. **At budget expiry, or on an interrupt,** yolo stops waiting. It does not
    kill the attempt: that `podman` may be doing the refresh every later client
    needs. The refusal names the process: *"podman (pid N) is still running; yolo
@@ -216,8 +231,8 @@ which already differs by discarding stderr, is deleted ([PR-D6](#PR-D6)).
 5. **The budget** is 60 s ([PR-D12](#PR-D12)): a constant, with no config key
    and no `YOLO_*` dial. A budget that is too short would be a yolo bug, and
    escape hatches are only for broken user config ([PR-D11](#PR-D11)).
-   [OQ-PR1](#OQ-PR1) asks whether that budget applies to every launch or only to
-   one shortly after a boot.
+   [OQ-PR1](#OQ-PR1) ruled that it applies to every launch and every `yolo check`,
+   never keyed on a reboot.
 
 A warm launch pays nothing new: one `podman info --format json` in place of
 today's two or three separate queries, and no sleep.
@@ -279,25 +294,59 @@ launch records nothing about its probe.
 
 | Risk | Containment |
 | :--- | :--- |
-| A permanent fault costs the full budget. Examples: a needed `podman system migrate` after an upgrade, no `XDG_RUNTIME_DIR` for a restorer started before login (linger off), a `CONTAINER_HOST` or default connection pointing at an inactive socket, a stopped Linux `podman machine` | Its reason is printed within 2 s and the user may interrupt. [OQ-PR1](#OQ-PR1) option B would scope the long budget to the boot window instead. Linux remote connections and Linux `podman machine` get the same hint as today; better hints are out of scope. |
+| A permanent fault podman names in words yolo recognises: a needed `podman system migrate`, a refused user namespace, a broken `newuidmap`, an unparsable `containers.conf`, a permission error | Refused at once, naming the fix ([OQ-PR1](#OQ-PR1), [PR-D13](#PR-D13)). |
+| A permanent fault yolo does not recognise costs the full budget. Examples: a `CONTAINER_HOST` or default connection pointing at an inactive socket, a stopped Linux `podman machine` | Its reason is printed within 2 s and the user may interrupt. Unrecognised is retried by rule: a socket that comes up late at boot is exactly such an answer, and it clears. Linux remote connections and Linux `podman machine` get the same hint as before; better hints are out of scope. |
 | A refused launch leaves a `podman` running | Named in the refusal. It is Podman's own work and finishes or blocks on Podman's own lock. yolo never waits for it again. |
-| Other Podman clients still contend: `podman-restart.service`, quadlet units, other tools, and yolo's own housekeeping | The budget absorbs them. yolo's own share is [OQ-PR2](#OQ-PR2). The host check records which actors ran. |
+| Other Podman clients still contend: `podman-restart.service`, quadlet units, other tools, and yolo's own housekeeping | The budget absorbs them. yolo's own share is smaller: the housekeeping slot now holds its lock one deletion at a time ([OQ-PR2](#OQ-PR2)). The host check records which actors ran. |
 | A slow probe with no reboot, for example behind another workspace's `podman volume rm`. **INFERRED, untested for `podman info`:** [`scratchremoval.go`](../../internal/cli/run/scratchremoval.go) measured such a removal blocking other `podman run`s that mount a volume, and nothing yet shows `info` waiting behind it (host-check step 1 measures it) | The gate does not care why Podman is slow. If `info` does wait there, the gate covers steady-state storage contention too. |
 
 ## Testing and the real-host check
 
-The tests listed in [the plan](podman-reboot-readiness-plan.md) run through runtime
-selection, not an isolated helper. Each fails if the `run` path (explicit or
-autodetected) or `yolo check` stops calling the gate. They also count the `info`
-argv across one whole fake launch and require exactly one. Two cases use a real
-subprocess: a grandchild that holds stdout or stderr open, and an attempt that
-outlives the budget and is left running.
+**What is built and pinned (2026-09-29).** Every test below runs under
+`go test -short` and asks whether it fails if its call site goes:
+
+- **Through runtime selection**, once down each of the three ways a launch reaches
+  it — `YOLO_RUNTIME`, the config's `runtime` key, autodetection
+  (`internal/cli/run/podmanready_test.go`): a podman busy for sixteen attempts that
+  answers on the last one the budget allows; an attempt still running at the end,
+  refused with its pid and left running; every early exit printed and the last one
+  in the refusal; a permanent error refused at once with its fix; an unstartable
+  binary; macOS with Podman Machine and with Apple Container keeping one one-shot
+  probe; the span and notes written on a refusal; a Ctrl-C exiting 130.
+- **One `podman info` per launch**, across a whole fake fresh launch through
+  `run.Run` (`TestALaunchAsksPodmanOnceAndEveryReaderTakesTheGatesAnswer`): the gate
+  asks, the host-loopback decision and the image copy's store facts read its answer,
+  and a rootless pasta host that recovered inside the gate gets the forwarding option
+  and `YOLO_HOST_LOOPBACK=requested` on its argv — the wiring, not the network.
+- **`yolo check`** (`internal/cli/check/podmanready_test.go`): one gate per check,
+  read by the runtime section and the runtime resolution; a permanent error refused
+  at once; macOS never asking the gate. The image delivery section reads the gate's
+  answer and runs no `info` of its own (`section_imagedelivery_test.go`).
+- **The attach decision** refuses on a `ps` that exits 125
+  (`TestAnAttachDecisionThatCannotAskRefuses`).
+- **The attempt runner, on real subprocesses** (`internal/runtime/podmanattempt_test.go`):
+  it returns when a child exits though a grandchild holds its output; an attempt past
+  its deadline is left running, in its own process group; an interrupt stops the wait
+  and not the process.
+- **The classification**, row by row against podman's own texts
+  (`TestClassifyPodmanFailure`), with its logrus lines ignored and transient winning.
+- **The housekeeping slot** (`internal/cli/run/housekeeping_test.go`): two passes never
+  interleave; the shared lock is held during each deletion and free before, between
+  and after; a deletion waits for a launch's hold and rechecks after it; every class
+  hands the guard to its reaper. Each class's recheck is in
+  `internal/prune/guard_test.go` and `internal/flakebundle/flakebundle_test.go`.
+- **The launch line** (`internal/cli/run/launchrecord_test.go`): refused at the gate,
+  refused before it, interrupted, attached, started — written while the jail runs, and
+  before the macos-user backend is handed the launch — and rotation.
+
+The test package's `TestMain` makes the real attempt runner refuse
+([PR-D20](#PR-D20)), so no unit test can reach the machine's podman.
 
 A nested jail partly exercises this, because its first Podman command is a cold
 refresh. But a nested Podman is forced rootful (`--userns=host`), so it takes the
 rootful row of [the kill table](#why-a-timed-out-probe-is-not-a-failed-podman),
 never the re-exec row. **The rootless behavior is settled only on a real
-rootless host.**
+rootless host or CI**, and so is the whole of a real reboot.
 
 **The host check** (the maintainer's, after shipping):
 
@@ -358,6 +407,9 @@ rootless host.**
    > an explicit "run `podman system migrate`"), naming the fix, instead of spending the minute
    > on it.
 
+   **Built 2026-09-29** as [PR-D13](#PR-D13): the classification is a table of podman
+   v6.1.2's own error texts, and anything it does not recognise keeps retrying.
+
 2. ✅ <a id="OQ-PR2"></a>**[OQ-PR2](#OQ-PR2): Should a launch that found Podman
    slow skip its housekeeping pass?** After a reboot, every pre-reboot jail's
    leftovers are due at once. So the first restored launch runs its biggest
@@ -404,6 +456,10 @@ rootless host.**
    > skipped and nothing infers load. Each class re-checks that an item is unused under the lock
    > right before deleting it (image removal already refuses an image a container uses).
 
+   **Built 2026-09-29** as [PR-D14](#PR-D14) to [PR-D16](#PR-D16): a separate pass lock keeps
+   two passes from interleaving, and each class's recheck reads what a launch can change
+   while a pass runs.
+
 3. ✅ <a id="OQ-PR3"></a>**[OQ-PR3](#OQ-PR3): Should every launch leave one
    line in a machine-wide log, so one reboot's storm can be read in one place?**
    This investigation could not find the failing launch. Launch records live in
@@ -438,6 +494,9 @@ rootless host.**
    > passively gather paths that we can use for researching the machine … and the future agents
    > debugging things."*
 
+   **Built 2026-09-29** as [PR-D17](#PR-D17): `~/.local/share/yolo-jail/logs/launches.log`,
+   one line per launch, written when its fate is known.
+
 ## Decision Ledger
 
 Implementation decisions made in this doc. Each one yields to a ruling on the
@@ -450,21 +509,30 @@ user config, never for a yolo bug
 
 | ID | Ruling / Decision | Date | Settled in | Built |
 | :--- | :--- | :--- | :--- | :--- |
-| <a id="PR-D1"></a>PR-D1 | *Implementation decision.* No yolo readiness lock of any scope. Podman's `alive.lck` already serializes the refresh, so a yolo lock would only queue each waiter's cheap verification behind it. Revisit only on a measured storm in which concurrent probes lengthen recovery | 2026-09-29 | [Mechanism](#why-a-timed-out-probe-is-not-a-failed-podman), [Alternatives](#alternatives-and-risks) | — |
-| <a id="PR-D2"></a>PR-D2 | *Implementation decision.* An attempt is never killed. Its only bound is the remaining budget. Retries follow only an early exit | 2026-09-29 | [The gate](#the-gate) | — |
-| <a id="PR-D3"></a>PR-D3 | *Implementation decision.* The probe's stdout and stderr go to unlinked temp files, not pipes, and the probe runs in its own process group (`Setpgid`). A surviving descendant cannot hold `Wait`, closing an output end cannot SIGPIPE a refresh mid-way, and a terminal Ctrl-C does not reach Podman. At expiry or on an interrupt, yolo stops waiting and names the pid | 2026-09-29 | [The gate](#the-gate) | — |
-| <a id="PR-D4"></a>PR-D4 | *Implementation decision.* Every early exit is retryable, after a backoff of 1, 2, then 4 s (capped at 4 s) that never runs past the budget. Stderr is kept for diagnosis and never used to classify. A missing or unstartable binary fails at once | 2026-09-29 | [The gate](#the-gate) | — |
-| <a id="PR-D5"></a>PR-D5 | *Implementation decision.* The gate's probe is `podman info --format json`, and its parsed answer is the launch's one Podman facts record. `hostLoopbackFactsFor`, `AutoLoadOptions.Rootless` and `yolo check`'s image-delivery section read it, and `podman.facts` is noted from it. One `info` per launch, pinned by a whole-launch test | 2026-09-29 | [What the gate's answer replaces](#what-the-gates-answer-replaces) | — |
-| <a id="PR-D6"></a>PR-D6 | *Implementation decision.* `yolo check` calls the same gate with the same budget and the same progress line, so check and the launch cannot disagree about whether Podman is up. `check/probes.go`'s copy of the probe, which already differs by discarding stderr, is deleted. A shorter budget for check would bring back the disagreement this removes | 2026-09-29 | [The gate](#the-gate) | — |
-| <a id="PR-D7"></a>PR-D7 | *Implementation decision.* Linux only. Apple Container and macOS Podman Machine keep the one-shot probe, with an explicit macOS arm pinned by a test. To `podman info`, a stopped VM and a starting VM look alike, and a wait would charge every stopped-VM user the budget | 2026-09-29 | [Verdict](#verdict-and-boundary) | — |
-| <a id="PR-D8"></a>PR-D8 | *Implementation decision.* The attach decision's `ps` becomes tri-state, with a deadline, and "could not ask" refuses the launch rather than launching fresh (the tri-state rule). The other `findRunningContainer` callers are unchanged | 2026-09-29 | [What the gate's answer replaces](#what-the-gates-answer-replaces) | — |
-| <a id="PR-D9"></a>PR-D9 | *Implementation decision.* The wait, retry and success lines go on the launch stream through `Line.Set` and `Line.Println`. The refusal stays on `o.Stdout` with the other runtime-selection refusals. Neither can be hidden ([OQ-RO3](../reference/report-tiers.md#why-its-this-way)) | 2026-09-29 | [What the user sees](#what-the-user-sees-and-what-is-recorded) | — |
-| <a id="PR-D10"></a>PR-D10 | *Implementation decision.* Perf events: the `runtime.ready` span, `runtime.ready.attempt` notes, and `podman.facts` from the gate. All are written on the failure path too | 2026-09-29 | [What is recorded](#what-the-user-sees-and-what-is-recorded) | — |
-| <a id="PR-D11"></a>PR-D11 | *Implementation decision.* The budget is a constant: no config key and no `YOLO_*` dial (the hatch rule) | 2026-09-29 | [The gate](#the-gate) | — |
-| <a id="PR-D12"></a>PR-D12 | *Implementation decision.* The budget is 60 s. It covers the inferred 22.5 s refresh with 2.5× margin, room for its retries, and the 44 s the whole restore storm took. Host-check step 1 re-measures the forced refresh before building, and this row changes if it runs longer. Whether the budget applies only near a boot is [OQ-PR1](#OQ-PR1) | 2026-09-29 | [The gate](#the-gate) | — |
-| [OQ-PR1](#OQ-PR1) | **Maintainer ruling:** the 60 s budget applies to every launch and `yolo check`, never keyed on a reboot; answers that cannot clear on their own fail at once | 2026-09-29 | — | pending |
-| [OQ-PR3](#OQ-PR3) | **Maintainer ruling:** B; one machine-wide line per launch, keyed by the workspace code | 2026-09-29 | — | pending |
-| [OQ-PR2](#OQ-PR2) | **Maintainer ruling:** the housekeeping slot holds the lock one deletion at a time; no skip, no load inference | 2026-09-29 | — | pending |
+| <a id="PR-D1"></a>PR-D1 | *Implementation decision.* No yolo readiness lock of any scope. Podman's `alive.lck` already serializes the refresh, so a yolo lock would only queue each waiter's cheap verification behind it. Revisit only on a measured storm in which concurrent probes lengthen recovery | 2026-09-29 | [Mechanism](#why-a-timed-out-probe-is-not-a-failed-podman), [Alternatives](#alternatives-and-risks) | ✅ 2026-09-29 — nothing to build: no such lock exists |
+| <a id="PR-D2"></a>PR-D2 | *Implementation decision.* An attempt is never killed. Its only bound is the remaining budget. Retries follow only an early exit | 2026-09-29 | [The gate](#the-gate) | ✅ 2026-09-29 — `runtime.WaitForPodman`; `TestAPodmanStillRunningAtTheBudgetIsNamedAndLeftRunning` |
+| <a id="PR-D3"></a>PR-D3 | *Implementation decision.* The probe's stdout and stderr go to unlinked temp files, not pipes, and the probe runs in its own process group (`Setpgid`). A surviving descendant cannot hold `Wait`, closing an output end cannot SIGPIPE a refresh mid-way, and a terminal Ctrl-C does not reach Podman. At expiry or on an interrupt, yolo stops waiting and names the pid | 2026-09-29 | [The gate](#the-gate) | ✅ 2026-09-29 — `runtime.RunPodmanAttempt`; `TestTheAttemptReturnsWhenTheChildExitsThoughAGrandchildHoldsItsOutput`, `TestAnAttemptThatOutlivesTheDeadlineIsLeftRunning`, `TestAnInterruptStopsTheWaitNotTheAttempt` |
+| <a id="PR-D4"></a>PR-D4 | *Implementation decision.* Every early exit is retryable, after a backoff of 1, 2, then 4 s (capped at 4 s) that never runs past the budget. A missing or unstartable binary fails at once. **Amended by the [OQ-PR1](#OQ-PR1) ruling:** stderr now classifies, and an answer that cannot clear on its own refuses at once ([PR-D13](#PR-D13)); this row's backoff governs every other early exit | 2026-09-29 | [The gate](#the-gate) | ✅ 2026-09-29 — `runtime.podmanReadyBackoff`; `TestTheGateRetriesAnEarlyExitUntilTheLastAttemptTheBudgetAllows` |
+| <a id="PR-D5"></a>PR-D5 | *Implementation decision.* The gate's probe is `podman info --format json`, and its parsed answer is the launch's one Podman facts record. `hostLoopbackFactsFor`, `AutoLoadOptions.StoreFacts` and `yolo check`'s image-delivery section read it, and `podman.facts` is noted from it. One `info` per launch, pinned by a whole-launch test | 2026-09-29 | [What the gate's answer replaces](#what-the-gates-answer-replaces) | ✅ 2026-09-29 — `run.acceptPodmanFacts`, `run.storeFactsFromGate`, `image.ParsePodmanStoreFacts`; `TestALaunchAsksPodmanOnceAndEveryReaderTakesTheGatesAnswer` |
+| <a id="PR-D6"></a>PR-D6 | *Implementation decision.* `yolo check` calls the same gate with the same budget and the same progress line, so check and the launch cannot disagree about whether Podman is up. `check/probes.go`'s copy of the probe, which already differs by discarding stderr, is deleted. A shorter budget for check would bring back the disagreement this removes | 2026-09-29 | [The gate](#the-gate) | ✅ 2026-09-29 — `check.podmanGate`; `TestCheckAsksTheReadinessGateOnceForEveryReader`, `TestChecksRuntimeResolutionReadsTheGate` |
+| <a id="PR-D7"></a>PR-D7 | *Implementation decision.* Linux only. Apple Container and macOS Podman Machine keep the one-shot probe, with an explicit macOS arm pinned by a test. To `podman info`, a stopped VM and a starting VM look alike, and a wait would charge every stopped-VM user the budget | 2026-09-29 | [Verdict](#verdict-and-boundary) | ✅ 2026-09-29 — `usesReadinessGate` in `run` and `check`; `TestMacOSKeepsTheOneShotProbe`, `TestCheckOnMacOSNeverAsksTheGate` |
+| <a id="PR-D8"></a>PR-D8 | *Implementation decision.* The attach decision's `ps` becomes tri-state, with a deadline, and "could not ask" refuses the launch rather than launching fresh (the tri-state rule). The other `findRunningContainer` callers are unchanged | 2026-09-29 | [What the gate's answer replaces](#what-the-gates-answer-replaces) | ✅ 2026-09-29 — `run.probeRunningContainer`; `TestAnAttachDecisionThatCannotAskRefuses` |
+| <a id="PR-D9"></a>PR-D9 | *Implementation decision.* The wait, retry and success lines go on the launch stream through `Line.Set` and `Line.Println`. The refusal stays on `o.Stdout` with the other runtime-selection refusals. Neither can be hidden ([OQ-RO3](../reference/report-tiers.md#why-its-this-way)) | 2026-09-29 | [What the user sees](#what-the-user-sees-and-what-is-recorded) | ✅ 2026-09-29 — `runtime.WaitForPodmanShowing`, `runtime.ReadyResult.Refusal`; `TestEveryEarlyExitIsPrintedAndTheRefusalCarriesTheLast` |
+| <a id="PR-D10"></a>PR-D10 | *Implementation decision.* Perf events: the `runtime.ready` span, `runtime.ready.attempt` notes, and `podman.facts` from the gate. All are written on the failure path too | 2026-09-29 | [What is recorded](#what-the-user-sees-and-what-is-recorded) | ✅ 2026-09-29 — `run.waitForPodman`; `TestTheGateRecordsItsSpanAndAttemptsOnARefusal`, `TestPodmanFactsAreRecordedFromTheReadinessGatesAnswer` |
+| <a id="PR-D11"></a>PR-D11 | *Implementation decision.* The budget is a constant: no config key and no `YOLO_*` dial (the hatch rule) | 2026-09-29 | [The gate](#the-gate) | ✅ 2026-09-29 — `runtime.PodmanReadyBudget` |
+| <a id="PR-D12"></a>PR-D12 | *Implementation decision.* The budget is 60 s. It covers the inferred 22.5 s refresh with 2.5× margin, room for its retries, and the 44 s the whole restore storm took. Host-check step 1 re-measures the forced refresh, and this row changes if it runs longer. [OQ-PR1](#OQ-PR1) ruled it applies to every launch, never keyed on a boot | 2026-09-29 | [The gate](#the-gate) | ✅ 2026-09-29, built before host-check step 1 ran: the constant stands until that measurement moves it |
+| <a id="PR-D13"></a>PR-D13 | *Implementation decision*, under [OQ-PR1](#OQ-PR1). An early exit is classified from podman's FATAL lines only — `Error: …`, and the bare lines its rootless C code prints before exiting — never its logrus lines, since a refresh logs an error for one container and still succeeds. The table (`runtime.podmanFailurePatterns`) is podman v6.1.2's own texts, with the source file each group comes from named beside it. **Refused at once, naming a fix:** a user namespace refused or disabled, `newuidmap`/`newgidmap` broken or missing, a subuid mapping error, BoltDB removed or left behind, any message asking for `podman system migrate`, a database configuration mismatch, a `containers.conf` or `storage.conf` that does not parse or validate, a missing OCI runtime or conmon, a permission error, an unknown flag. **Retried:** a locked database, `EAGAIN`/`EBUSY`/`EINTR`/`ETXTBSY`, a timeout, and everything the table does not know (the tri-state rule). "No space left on device" and "cannot connect" are left out on purpose: yolo's own scratch remover may be freeing space, and a socket can come up late at boot. A transient line wins over a permanent one in the same answer | 2026-09-29 | [The gate](#the-gate) | ✅ 2026-09-29 — `runtime.ClassifyPodmanFailure`; `TestClassifyPodmanFailure`, `TestAnAnswerThatCannotClearRefusesAtOnceNamingTheFix`, `TestAnUnrecognizedErrorIsRetriedWithinTheBudget` |
+| <a id="PR-D14"></a>PR-D14 | *Implementation decision*, under [OQ-PR2](#OQ-PR2). Two locks. `housekeeping-pass.lock` is taken non-blocking for the whole pass, so a second pass still skips rather than waits and two passes never interleave. The shared `housekeeping.lock` is taken blocking around each deletion through a `prune.Guard`, and released with `LOCK_UN` between deletions. A pass from a yolo older than this still holds the shared lock for its whole pass: a new pass's deletions wait it out, and an old pass skips while a new one is mid-deletion, so mixed versions never interleave either. The manual `yolo prune` takes neither lock and passes no guard, unchanged | 2026-09-29 | [OQ-PR2](#OQ-PR2) | ✅ 2026-09-29 — `run.withHousekeepingPass`, `run.deletionGuard`; `TestTwoPassesNeverInterleave`, `TestAPassHoldsTheSharedLockOnlyAroundEachDeletion`, `TestAPassSkipsWhileAnotherPassRuns`, `TestADeletionWaitsForALaunchsReinspectAndRechecksAfterIt` |
+| <a id="PR-D15"></a>PR-D15 | *Implementation decision*, under [OQ-PR2](#OQ-PR2). Each class rechecks under the shared lock, right before each deletion, only what a launch can change while a pass runs. **Images:** the current-image pointers, and the load sentinel a launch records under the same lock after its re-inspect, so an image recorded since the pass began is kept; a container created since is `rmi`'s own refusal. **Store outputs:** their roots. **Cache, image tars, delivery directories:** a fresh stat against the listing's own test. **Agent staging:** its age floor, which staging restamps, and its tracking file. **Retired loophole state:** still present and still older than the newest kept. **Flake-bundle generations:** still not the one the stable link names, and still past the grace period. None asks the runtime again per item | 2026-09-29 | [OQ-PR2](#OQ-PR2) | ✅ 2026-09-29 — the `…Guarded` reapers in `internal/prune`, `flakebundle.ReapGuarded`; `internal/prune/guard_test.go`, `TestAGuardedReapKeepsAGenerationActivatedDuringThePass`, `TestEveryClassDeletesUnderTheGuard` |
+| <a id="PR-D16"></a>PR-D16 | *Implementation decision*, under [OQ-PR2](#OQ-PR2). The scratch-volume class deletes nothing in the slot: it starts the detached remover, which removes each volume only once podman says no container references it, and takes no housekeeping lock, since nothing on the load side reads a volume. The per-deletion lock has no deletion to bracket there | 2026-09-29 | [OQ-PR2](#OQ-PR2) | ✅ 2026-09-29 — `reapScratchVolumes` unchanged, outside the guard by design |
+| <a id="PR-D17"></a>PR-D17 | *Implementation decision*, under [OQ-PR3](#OQ-PR3). The file is `~/.local/share/yolo-jail/logs/launches.log`, mode `0600`, beside `crossings.log`, rotated to one `.1` generation past 1 MiB under one `flock` with the write. One line per launch, written once, the moment its fate is known: `<start, UTC> launch jail=<paths.JailShortHash> runtime=<rt> podman_wait=<s> tries=<n> outcome=<started, attached, not-started or interrupted> rc=<n> after=<s>`, with `-` for a field the launch has no value for. `started` means the runtime was spawned (or the macos-user backend handed the launch), written before the container wait; a jail that exits before that goroutine runs is recorded as started when the runtime returns. The time is the launch's start, which is what orders a storm | 2026-09-29 | [OQ-PR3](#OQ-PR3) | ✅ 2026-09-29 — `run.recordLaunchOutcome`; `internal/cli/run/launchrecord_test.go`, including `TestAStartedLaunchWritesItsLineWhileTheJailRuns` |
+| <a id="PR-D18"></a>PR-D18 | *Implementation decision*, under [PR-D8](#PR-D8). The attach decision's deadline is 30 s: it runs right after the gate heard podman answer, so it is not waiting out a refresh, only another launch's container create. Apple Container's `container ls` takes the same tri-state. The refusal names the runtime and the jail, and says why launching fresh would be wrong | 2026-09-29 | [What the gate's answer replaces](#what-the-gates-answer-replaces) | ✅ 2026-09-29 — `run.attachProbeTimeout` |
+| <a id="PR-D19"></a>PR-D19 | *Implementation decision*, under [PR-D6](#PR-D6). `yolo check` asks the gate once and keeps the answer; its progress line and retry lines go to stderr, because the report on stdout may be JSON; the Container Runtime section's failure carries the start hint first and the gate's refusal after it | 2026-09-29 | [The gate](#the-gate) | ✅ 2026-09-29 — `check.podmanGate`; `TestTheRuntimeSectionCarriesTheGatesRefusal` |
+| <a id="PR-D20"></a>PR-D20 | *Implementation decision.* The gate's parts are seams (`Options.PodmanReadiness` on the launch and on check: the attempt runner, its clock, its sleep and its interrupt), never `Exec`, whose kill at a timeout is what the gate exists to avoid. Each test package's `TestMain` makes the real attempt runner refuse, so a unit test that reaches the gate without a fake fails loudly instead of running the machine's podman | 2026-09-29 | [Testing](#testing-and-the-real-host-check) | ✅ 2026-09-29 — `refusingPodmanAttempt` in `internal/cli/run` and `internal/cli/check` |
+| <a id="PR-D21"></a>PR-D21 | *Implementation decision.* The gate's elapsed time is the larger of its clock and the backoffs it slept, so a clock that does not move, such as a test's frozen seam, still ends the loop at the budget | 2026-09-29 | [The gate](#the-gate) | ✅ 2026-09-29 — `TestAFrozenClockStillEndsTheGate` |
+| [OQ-PR1](#OQ-PR1) | **Maintainer ruling:** the 60 s budget applies to every launch and `yolo check`, never keyed on a reboot; answers that cannot clear on their own fail at once | 2026-09-29 | [The gate](#the-gate) | ✅ 2026-09-29 — the budget always; the fail-fast rule is [PR-D13](#PR-D13) |
+| [OQ-PR3](#OQ-PR3) | **Maintainer ruling:** B; one machine-wide line per launch, keyed by the workspace code | 2026-09-29 | [OQ-PR3](#OQ-PR3) | ✅ 2026-09-29 — [PR-D17](#PR-D17) |
+| [OQ-PR2](#OQ-PR2) | **Maintainer ruling:** the housekeeping slot holds the lock one deletion at a time; no skip, no load inference | 2026-09-29 | [OQ-PR2](#OQ-PR2) | ✅ 2026-09-29 — [PR-D14](#PR-D14) to [PR-D16](#PR-D16) |
 
 ## Appendix A: evidence
 
