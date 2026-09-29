@@ -65,7 +65,7 @@ func wantPiSubagents(profile string) map[string]any {
 	case "codex":
 		return map[string]any{
 			"defaultProvider": "openai-codex",
-			"defaultModel":    "openai-codex/gpt-6-sol",
+			"defaultModel":    "openai-codex/gpt-6.1-sol",
 			"modelScope":      scope(piCodexExactAllow...),
 		}
 	case "zai":

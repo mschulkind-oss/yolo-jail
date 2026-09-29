@@ -16,12 +16,14 @@ import (
 // state the family a third time (docs/design/model-lists-and-pickers.md ML-D5). The literal
 // is the expectation; codex_model_list_test.go pins that it follows the declaration.
 var piCodexExactAllow = []any{
-	"openai-codex/gpt-6-sol",
-	"openai-codex/gpt-6-sol[1m]",
+	"openai-codex/gpt-6.1-sol",
+	"openai-codex/gpt-6.1-sol[1m]",
 	"openai-codex/gpt-6-astra",
 	"openai-codex/gpt-6-astra[1m]",
 	"openai-codex/gpt-6-luna",
 	"openai-codex/gpt-6-luna[1m]",
+	"openai-codex/gpt-6-sol",
+	"openai-codex/gpt-6-sol[1m]",
 }
 
 // This follows the production handoff on both sides: the pack set a pi launch carries
@@ -56,8 +58,8 @@ func TestPiCodexProfileSelectsBuiltInProviderAndExplicitModel(t *testing.T) {
 	r.wireProfiles(mustCompactJSON(t, packload.ProfilesWireTable(resolved)))
 	r.render(t, `{"pi":"codex"}`)
 	settings := r.piSettings(t)
-	if settings["defaultProvider"] != "openai-codex" || settings["defaultModel"] != "gpt-6-sol" {
-		t.Fatalf("Pi selection = provider %#v model %#v, want openai-codex/gpt-6-sol",
+	if settings["defaultProvider"] != "openai-codex" || settings["defaultModel"] != "gpt-6.1-sol" {
+		t.Fatalf("Pi selection = provider %#v model %#v, want openai-codex/gpt-6.1-sol",
 			settings["defaultProvider"], settings["defaultModel"])
 	}
 	// NO SCOPE (docs/design/model-lists-and-pickers.md ML-D2): pi's "all" view for
@@ -68,7 +70,7 @@ func TestPiCodexProfileSelectsBuiltInProviderAndExplicitModel(t *testing.T) {
 	}
 	wantSubagents := map[string]any{
 		"defaultProvider": "openai-codex",
-		"defaultModel":    "openai-codex/gpt-6-sol",
+		"defaultModel":    "openai-codex/gpt-6.1-sol",
 		"modelScope": map[string]any{
 			"enforce": true,
 			"strict":  true,

@@ -90,7 +90,7 @@ const auth = JSON.parse(fs.readFileSync(process.env.AUTH_PATH));
 const settings = JSON.parse(fs.readFileSync(process.env.SETTINGS_PATH));
 const c = auth["openai-codex"];
 if (!c || c.type !== "oauth" || c.access !== "fresh-access" || c.refresh !== "yolo-broker:2" || c.expires <= Date.now()) process.exit(11);
-if (settings.defaultProvider !== "openai-codex" || settings.defaultModel !== "gpt-6-sol") process.exit(12);
+if (settings.defaultProvider !== "openai-codex" || settings.defaultModel !== "gpt-6.1-sol") process.exit(12);
 console.log("PI_READY");
 `
 	if err := os.WriteFile(realPi, []byte(fakePi), 0o755); err != nil {

@@ -105,6 +105,8 @@ until it has been measured; see
 
 ### Changed
 
+- GPT-6.1 Sol is now the default model for every agent on the ChatGPT subscription (`-p codex`) and the first entry in its model menus. GPT-6 Sol stays in the menu, listed last. A choice you made yourself is kept.
+
 **A jail that shares your host's network now says so, at launch and in its briefing.** With
 `network.mode: "host"`, in a jail started from inside another jail, and in every macos-user
 jail, services listening on your machine's loopback are reachable from inside the jail. The

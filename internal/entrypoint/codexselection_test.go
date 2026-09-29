@@ -228,7 +228,7 @@ func TestCodexDeriveWritesTheSelectionKeys(t *testing.T) {
 			profiles:     `{"codex":"codex"}`,
 			wire:         `{"codex": {"provider": "openai-codex"}}`,
 			wantProvider: "",
-			wantModel:    "gpt-6-sol",
+			wantModel:    "gpt-6.1-sol",
 			guard:        "llamacpp",
 		},
 		{

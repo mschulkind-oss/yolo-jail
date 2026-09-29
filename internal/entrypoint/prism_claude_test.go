@@ -330,12 +330,14 @@ func TestConfigureClaudePrismCodexModelPicker(t *testing.T) {
 	}
 	allowed, ok := got["availableModels"].([]any)
 	wantAllowed := []any{
-		"gpt-6-sol",
-		"gpt-6-sol[1m]",
+		"gpt-6.1-sol",
+		"gpt-6.1-sol[1m]",
 		"gpt-6-astra",
 		"gpt-6-astra[1m]",
 		"gpt-6-luna",
 		"gpt-6-luna[1m]",
+		"gpt-6-sol",
+		"gpt-6-sol[1m]",
 	}
 	if !ok || !reflect.DeepEqual(allowed, wantAllowed) {
 		t.Errorf("availableModels = %v, want Sol first and 1M context options %v", got["availableModels"], wantAllowed)
@@ -344,15 +346,16 @@ func TestConfigureClaudePrismCodexModelPicker(t *testing.T) {
 	if !ok {
 		t.Fatalf("modelPicker.options missing/!array: %v", picker["options"])
 	}
-	// The options the derive's literal table carried before the list became data, row for
-	// row: the move into packs/openai-auth's declaration changed no byte of the picker.
+	// The options packs/openai-auth's declaration renders, row for row, in its `order`.
 	want := []any{
-		map[string]any{"model": "gpt-6-sol", "label": "GPT-6 Sol", "description": "Balanced"},
-		map[string]any{"model": "gpt-6-sol[1m]", "label": "GPT-6 Sol (1M context)", "description": "Balanced · 1M context"},
+		map[string]any{"model": "gpt-6.1-sol", "label": "GPT-6.1 Sol", "description": "Balanced"},
+		map[string]any{"model": "gpt-6.1-sol[1m]", "label": "GPT-6.1 Sol (1M context)", "description": "Balanced · 1M context"},
 		map[string]any{"model": "gpt-6-astra", "label": "GPT-6 Astra", "description": "Frontier"},
 		map[string]any{"model": "gpt-6-astra[1m]", "label": "GPT-6 Astra (1M context)", "description": "Frontier · 1M context"},
 		map[string]any{"model": "gpt-6-luna", "label": "GPT-6 Luna", "description": "Fast"},
 		map[string]any{"model": "gpt-6-luna[1m]", "label": "GPT-6 Luna (1M context)", "description": "Fast · 1M context"},
+		map[string]any{"model": "gpt-6-sol", "label": "GPT-6 Sol", "description": "Previous Balanced"},
+		map[string]any{"model": "gpt-6-sol[1m]", "label": "GPT-6 Sol (1M context)", "description": "Previous Balanced · 1M context"},
 	}
 	if !reflect.DeepEqual(options, want) {
 		t.Errorf("modelPicker.options = %v, want %v", options, want)

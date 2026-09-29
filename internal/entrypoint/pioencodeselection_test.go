@@ -700,8 +700,8 @@ func TestPiEnabledModelsFollowTheSelectionRules(t *testing.T) {
 		if got := piEnabledModels(t, settings); got != nil {
 			t.Errorf("after the upgrade boot enabledModels = %v, want yolo's old scope cleared", got)
 		}
-		if settings["defaultProvider"] != "openai-codex" || settings["defaultModel"] != "gpt-6-sol" {
-			t.Errorf("the clear moved the pair: %v/%v, want openai-codex/gpt-6-sol",
+		if settings["defaultProvider"] != "openai-codex" || settings["defaultModel"] != "gpt-6.1-sol" {
+			t.Errorf("the clear moved the pair: %v/%v, want openai-codex/gpt-6.1-sol, the declaration's default",
 				settings["defaultProvider"], settings["defaultModel"])
 		}
 		// The whole line: its reason must hold with the profile still active, which the
@@ -744,8 +744,8 @@ func TestPiEnabledModelsFollowTheSelectionRules(t *testing.T) {
 		if got := piEnabledModels(t, settings); got != nil {
 			t.Errorf("after the upgrade boot enabledModels = %v, want the release's computed scope gone", got)
 		}
-		if settings["defaultProvider"] != "openai-codex" || settings["defaultModel"] != "gpt-6-sol" {
-			t.Errorf("the upgrade moved the pair: %v/%v, want openai-codex/gpt-6-sol",
+		if settings["defaultProvider"] != "openai-codex" || settings["defaultModel"] != "gpt-6.1-sol" {
+			t.Errorf("the upgrade moved the pair: %v/%v, want openai-codex/gpt-6.1-sol, the declaration's default",
 				settings["defaultProvider"], settings["defaultModel"])
 		}
 	})

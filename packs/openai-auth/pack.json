@@ -32,16 +32,24 @@
         },
         "gpt-6-sol": {
           "context_window": "272000",
-          "description": "Balanced",
+          "description": "Previous Balanced",
           "long_context_window": "1000000",
           "name": "GPT-6 Sol",
+          "order": "4"
+        },
+        "gpt-6.1-sol": {
+          "context_window": "272000",
+          "description": "Balanced",
+          "long_context_window": "1000000",
+          "name": "GPT-6.1 Sol",
           "order": "1"
         }
       },
       "models": {
         "gpt-6-astra": "gpt-6-astra",
         "gpt-6-luna": "gpt-6-luna",
-        "gpt-6-sol": "gpt-6-sol"
+        "gpt-6-sol": "gpt-6-sol",
+        "gpt-6.1-sol": "gpt-6.1-sol"
       },
       "name": "openai-codex"
     }
