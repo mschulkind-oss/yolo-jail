@@ -199,6 +199,10 @@ refusal names the field; move it to your user config. A project can still set a 
   sandbox's own user, which does not own your project folder, so git refused it with
   "detected dubious ownership" and the agent's first git command failed. The sandbox's git now
   trusts that one folder, and no other.
+- On `macos-user`, a project inside your home folder no longer sends you in a circle. The launch
+  said to run `yolo macos-fix-permissions`, which refuses every folder in a home, so running it
+  changed nothing. The launch now says first that the project has to move out of your home, and
+  prints the commands that move it under `/Users/Shared/yolo` and share it there.
 - `yolo check` reported a working Nix as "found but not working: probe failed" when
   `nix --version` took longer than five seconds, as a first run inside a jail on a busy Mac can.
   It now waits as long as its other Nix checks, and says whether Nix timed out, could not be

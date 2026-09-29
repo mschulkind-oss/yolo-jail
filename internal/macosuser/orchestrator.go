@@ -461,6 +461,19 @@ func RunMacosUser(deps Deps, opts Options) int {
 			"  [bold]yolo macos-setup[/bold]", SandboxHome(), SandboxUser)
 		return 1
 	}
+	// THE WORKSPACE MUST NOT BE IN A USER'S HOME — and this is asked BEFORE the ACL probe
+	// below, which is the whole point of where it sits. A workspace under a home has no
+	// sandbox-group ACE either, so the probe fails for it too, and its refusal names
+	// `yolo macos-fix-permissions`: a command that refuses every path under a home on
+	// purpose (MacosFixPermissions). With the probe first, a project under ~ looped — the
+	// launch said to run the fix, the fix said no, the launch said it again. Before this
+	// check the rule lived only in PlanInvariants, which a launch reaches after the nix
+	// build, behind the probe. PlanInvariants keeps it for the dry-run, which returns above
+	// this line.
+	if home, inHome := HomeContaining(opts.Workspace, ""); inHome {
+		out.print(inHomeWorkspaceRefusal(opts.Workspace, home))
+		return 1
+	}
 	// THE WORKSPACE MUST BE SHARED WITH THE SANDBOX, and this is the cheapest place
 	// to learn it is not. `macos-setup` shares everything under the shared root, and
 	// anything CREATED there afterwards inherits the grant — so by the time a launch

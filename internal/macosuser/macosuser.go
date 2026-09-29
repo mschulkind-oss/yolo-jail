@@ -17,6 +17,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/pytext"
+	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 )
 
 // Dedicated account constants. Frozen contract (must not drift — the run-path
@@ -409,6 +410,31 @@ func HomeContaining(workspace, usersRoot string) (string, bool) {
 		}
 	}
 	return "", false
+}
+
+// inHomeWorkspaceRefusal is the launch's refusal for a workspace under `home`, and it names
+// the fix that reaches the path: moving the project to neutral ground. It must NEVER send the
+// reader to `yolo macos-fix-permissions` for the path it refuses — that command declines
+// every path under a home — which is the loop this message exists to end. The fix-permissions
+// line it does print names the DESTINATION, because `mv` is the one way into the shared root
+// that inherits no sharing (WorkspaceGrantedScript's measurement).
+func inHomeWorkspaceRefusal(workspace, home string) string {
+	msg := "[bold red]" + workspace + " is inside the home folder " + home + ".[/bold red]\n" +
+		"The sandbox user cannot work inside a user's home, so this backend runs only on " +
+		"neutral ground,\nand no command can share a home folder with it: " +
+		"`yolo macos-fix-permissions` refuses one on purpose.\n\n"
+	if workspace == home {
+		// Never suggest moving a whole home.
+		return msg + "Run yolo from a project folder under [bold]" + SharedRootDefault() +
+			"[/bold] instead."
+	}
+	dest := filepath.Join(SharedRootDefault(), filepath.Base(workspace))
+	return msg + "Move the project under " + SharedRootDefault() + ", then share it, " +
+		"because a move carries no sharing with it:\n" +
+		"  [bold]mv " + shquote.Quote(workspace) + " " + shquote.Quote(dest) + "[/bold]\n" +
+		"  [bold]yolo macos-fix-permissions " + shquote.Quote(dest) + "[/bold]\n" +
+		"[dim]A copy or a fresh clone made there (cp -R, git clone) is shared as it is " +
+		"created, so\nit needs no `macos-fix-permissions`.[/dim]"
 }
 
 // ---------------------------------------------------------------------------
