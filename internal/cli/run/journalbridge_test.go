@@ -11,47 +11,29 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mschulkind-oss/yolo-jail/internal/hostprocesses"
+	"github.com/mschulkind-oss/yolo-jail/internal/internaldaemon"
 	"github.com/mschulkind-oss/yolo-jail/internal/journald"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
-	"github.com/mschulkind-oss/yolo-jail/internal/oauthbroker"
-	"github.com/mschulkind-oss/yolo-jail/internal/openaiauthdaemon"
 	"github.com/mschulkind-oss/yolo-jail/internal/svcendpoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/testsupport"
 )
 
-// TestMain lets a self-exec'd `yolo internal daemon journal` spawn resolve to THIS
-// test binary and actually run the journal daemon, so the socket-bind wait succeeds
-// in-process. execx.SelfExecArgv rewrites the leading "yolo" token to
-// os.Executable() (the test binary here), so without this dispatch the spawn would
-// re-exec the test binary, which would ignore the args and never bind the socket.
+// TestMain lets a self-exec'd `yolo internal daemon <name>` spawn resolve to THIS test
+// binary and actually run that daemon. execx.SelfExecArgv rewrites the leading "yolo" token
+// to os.Executable() — the test binary here — so a launch that starts any shipped host
+// daemon re-execs this binary with that argv, and the tests that drive the REAL records
+// (the journal bridge, host-processes and the two credential brokers behind their fronts)
+// depend on the child serving it.
+//
+// EVERY NAME, THROUGH THE PRODUCTION TABLE (internaldaemon.Run), never a list kept here. This
+// dispatch used to name four daemons one by one; a launch that started any other one (aws-auth,
+// for a macos-user launch that enables it) re-ran this whole suite in a detached child that
+// shared this process's host-singleton dir and killed its daemons.
+// TestNoShippedDaemonSelfExecRunsTheSuite says what that cost and pins the fix.
 func TestMain(m *testing.M) {
-	if len(os.Args) >= 4 && os.Args[1] == "internal" && os.Args[2] == "daemon" && os.Args[3] == "journal" {
-		os.Exit(journald.Main(os.Args[4:]))
-	}
-	// The same dispatch for the host-processes daemon, so
-	// TestBundledHostProcessesRunsBehindTheFront can drive the REAL shipped
-	// record — argv and all — instead of a stand-in: its manifest cmd is
-	// ["yolo","internal","daemon","host-processes","--socket","{socket}",…], and
-	// SelfExecArgv rewrites that leading "yolo" to this test binary.
-	if len(os.Args) >= 4 && os.Args[1] == "internal" && os.Args[2] == "daemon" &&
-		os.Args[3] == "host-processes" {
-		os.Exit(hostprocesses.Main(os.Args[4:]))
-	}
-	// And for the OAuth broker, so TestHostScopedBrokerDaemonAnswersThroughTheFront
-	// drives the REAL daemon — the one whose ServeUnix→ServeFrontedUnix move is the
-	// half of the broker conversion no manifest assertion can see.
-	if len(os.Args) >= 4 && os.Args[1] == "internal" && os.Args[2] == "daemon" &&
-		os.Args[3] == "claude-oauth-broker" {
-		os.Exit(oauthbroker.Main(os.Args[4:]))
-	}
-	// OpenAI auth is also host-scoped. macos-user dispatch self-execs this test
-	// binary through the pack's real host-daemon argv, so it needs the same
-	// dispatch as the other host daemons above to bind its test socket.
-	if len(os.Args) >= 4 && os.Args[1] == "internal" && os.Args[2] == "daemon" &&
-		os.Args[3] == "openai-auth-broker" {
-		os.Exit(openaiauthdaemon.Main(os.Args[4:]))
+	if internaldaemon.IsDaemonArgv(os.Args) {
+		os.Exit(internaldaemon.Run(os.Args[3:]))
 	}
 	// `<test-binary> -front-upstream-child <mode> <socket>` is the daemon child
 	// for the publishes:"socket" tests: it binds a REAL AF_UNIX socket, which no

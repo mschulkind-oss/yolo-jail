@@ -309,7 +309,7 @@ func TestWorkspaceSkillsReachTheMacosUserHome(t *testing.T) {
 		return 0
 	}
 	if rc := Run(*o); rc != 0 || !reached {
-		t.Fatalf("Run() = %d, reached=%v\nstderr:\n%s", rc, reached, stderr.String())
+		t.Fatalf("Run() = %d, reached=%v\nstdout:\n%s\nstderr:\n%s", rc, reached, stdout.String(), stderr.String())
 	}
 	if !strings.Contains(stderr.String(), "Workspace skills from .claude/skills mirrored into pi: review") {
 		t.Errorf("the macos-user arm must say what it mirrored too:\n%s", stderr.String())

@@ -7,27 +7,21 @@ import (
 	"strings"
 	"time"
 
-	"github.com/mschulkind-oss/yolo-jail/internal/awsauthdaemon"
 	"github.com/mschulkind-oss/yolo-jail/internal/cli/run"
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/flakebundle"
 	"github.com/mschulkind-oss/yolo-jail/internal/footer"
 	"github.com/mschulkind-oss/yolo-jail/internal/hostmigrate"
-	"github.com/mschulkind-oss/yolo-jail/internal/hostprocesses"
-	"github.com/mschulkind-oss/yolo-jail/internal/journald"
+	"github.com/mschulkind-oss/yolo-jail/internal/internaldaemon"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
 	"github.com/mschulkind-oss/yolo-jail/internal/macosuser"
-	"github.com/mschulkind-oss/yolo-jail/internal/oauthbroker"
-	"github.com/mschulkind-oss/yolo-jail/internal/openaiauthdaemon"
 	"github.com/mschulkind-oss/yolo-jail/internal/openaiauthhost"
 	"github.com/mschulkind-oss/yolo-jail/internal/openauthclient"
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/selfupdate"
-	"github.com/mschulkind-oss/yolo-jail/internal/serialdaemon"
-	"github.com/mschulkind-oss/yolo-jail/internal/wirebridged"
 )
 
 // runInternal dispatches the hidden `yolo internal <cmd>` family — debugging
@@ -300,51 +294,11 @@ func firstNonEmptyEnv(keys ...string) string {
 }
 
 // runInternalDaemon dispatches the hidden `yolo internal daemon <name>` group,
-// callable in-process so a single yolo binary can serve as each one.
-//
-// The MEMBERS are the switch below and the usage line beside it, never a count in
-// this comment: it said "the three host daemons" while the switch held six, and a
-// number here is one more thing to keep true for no reader's benefit. Nor are they
-// all host-scoped — `scope: "host"` is a manifest fact per loophole
-// (`rg -n '"scope": "host"' packs/*/loopholes/*/manifest.jsonc`), and a daemon in
-// this group may be either. The remaining argv is passed through verbatim, so each daemon's
-// flag surface (--socket, --self-check, --init-ca, …) is byte-identical to its
-// standalone binary.
-//
-// `broker-relay` was the fourth and is GONE. It fronted the broker singleton for
-// one jail and stamped a host-asserted jail_id into the request; both jobs are the
-// framework's now — svcendpoint's front publishes the endpoint, and its connection
-// preamble carries the identity — so the daemon was deleted rather than moved
-// (docs/design/broker-as-a-pack.md §7). A name removed from this switch reports
-// "unknown daemon", which is the right answer for an argv nothing emits any more.
+// callable in-process so a single yolo binary can serve as each one. The table is
+// internaldaemon.Run, in a package of its own so a test binary that a launch self-execs
+// as one of these daemons dispatches through the same list (that package says why).
 func runInternalDaemon(args []string) int {
-	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "usage: yolo internal daemon <aws-auth|claude-oauth-broker|host-processes|journal|openai-auth-broker|serial|wire-bridge> [args...]")
-		return 2
-	}
-	rest := args[1:]
-	switch args[0] {
-	case "aws-auth":
-		return awsauthdaemon.Main(rest)
-	case "claude-oauth-broker":
-		return oauthbroker.Main(rest)
-	case "host-processes":
-		return hostprocesses.Main(rest)
-	case "journal":
-		return journald.Main(rest)
-	case "openai-auth-broker":
-		return openaiauthdaemon.Main(rest)
-	case "serial":
-		return serialdaemon.Main(rest)
-	case "wire-bridge":
-		// The wire bridge's HOST HALF (packs/wire-bridge's `host_daemon`): a launch-owned
-		// service a host or macos-user launch starts for the one agent it runs, handed its
-		// inputs in a file, never on this argv (docs/design/host-notch-services.md).
-		return wirebridged.HostMain(rest)
-	default:
-		fmt.Fprintf(os.Stderr, "yolo internal daemon: unknown daemon %q\n", args[0])
-		return 2
-	}
+	return internaldaemon.Run(args)
 }
 
 // runMigrateHost retires host-side artifacts left by the pre-Go (Python)
