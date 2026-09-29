@@ -205,6 +205,11 @@ func (o *Options) refreshJailBriefings(cname string, cfg *jsonx.OrderedMap, rt s
 		// the storage-classes section and the Home line that points at it
 		// (docs/design/durable-scratch-space.md §4.1). Nil on macos-user.
 		Persistence: persistenceMapFor(rt, cfg, staged.packs, o.Workspace),
+		// THE DURABLE DIR the section leads with (durabledir.go): the one this fresh launch
+		// made, or the one the running jail was started with on an attach, or why there is
+		// none. The same value the backend exports as $YOLO_DURABLE_DIR, so the briefing
+		// never names a path the variable does not hold.
+		Durable: o.durable,
 	}
 	briefingBody := jailcontent.BriefingContent(in)
 	briefingBody = jailcontent.ComposeBriefing(briefingBody, cfgStr(cfg, "agents_md_extra"))

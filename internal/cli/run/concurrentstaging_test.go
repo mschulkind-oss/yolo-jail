@@ -35,6 +35,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/durable"
 	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/ioprio"
 	"github.com/mschulkind-oss/yolo-jail/internal/jailcontent"
@@ -312,6 +313,9 @@ func attachStagingFixture(t *testing.T) (home, ws, tree, local string) {
 	if !ok {
 		t.Fatalf("the fresh launch's staging failed:\n%s", out.String())
 	}
+	// As runContainer's fresh path does, so the briefing names the durable dir the jail's
+	// frozen environment (attachThroughRun's inspect) says its launch exported.
+	o.ensureDurableDir("podman", cfg)
 	if _, err := o.refreshJailBriefings(cname, cfg, "podman", staged, ioprio.Normal); err != nil {
 		t.Fatalf("refreshJailBriefings: %v", err)
 	}
@@ -357,7 +361,7 @@ func attachThroughRun(t *testing.T, ws string, mutate func(*Options)) attachRun 
 			return ExecResult{Ran: true, RC: 0, Stdout: "abc123\n"}
 		case len(argv) >= 2 && argv[1] == "inspect":
 			return ExecResult{Ran: true, RC: 0, Stdout: "YOLO_VERSION=9.9.9-test\n" +
-				entrypointContractTagsLine() + "\n"}
+				entrypointContractTagsLine() + "\n" + durable.EnvVar + "=" + durable.ContainerJailPath + "\n"}
 		}
 		return ExecResult{Ran: true, RC: 0}
 	}

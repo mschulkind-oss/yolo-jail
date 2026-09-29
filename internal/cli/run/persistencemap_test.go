@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
+	"github.com/mschulkind-oss/yolo-jail/internal/durable"
 	"github.com/mschulkind-oss/yolo-jail/internal/ioprio"
 	"github.com/mschulkind-oss/yolo-jail/internal/jailcontent"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
@@ -49,6 +50,7 @@ func TestThePersistenceMapIsTheMountPlan(t *testing.T) {
 			in := relocationInput(t, tc.rt, "/ws/.yolo/home", nil)
 			in.cfg, in.packs, in.scratchID = cfg, packs, scratchID
 			in.writableHomeDirs = persistenceWritableHomeDirs(cfg, packs)
+			in.durableDir = durable.ContainerJailPath
 			argv := o.assembleRunCmd(in)
 			m := persistenceMapFor(tc.rt, cfg, packs, "/ws")
 			if m == nil {
@@ -89,6 +91,23 @@ func TestThePersistenceMapIsTheMountPlan(t *testing.T) {
 			if wantRAM := tc.rt == "container" || tc.ephemeral == "tmpfs"; m.PerLaunchInRAM != wantRAM {
 				t.Errorf("PerLaunchInRAM = %v, want %v", m.PerLaunchInRAM, wantRAM)
 			}
+
+			// THE DURABLE DIR HAS NO MOUNT OF ITS OWN (DS-D8): the path the argv exports is
+			// reached through the workspace's bind, so no argv destination is it or lies
+			// below it, and the map covers it with the workspace's class — the same relative
+			// geometry on both sides is what keeps a `--relative-paths` worktree working.
+			got, ok := envValue(argv, durable.EnvVar)
+			if !ok || got != durable.ContainerJailPath {
+				t.Fatalf("the argv exports %s=%q (present %v)", durable.EnvVar, got, ok)
+			}
+			for d := range dests {
+				if d == got || strings.HasPrefix(d, got+"/") {
+					t.Errorf("the argv mounts %q, giving the durable dir a mount of its own", d)
+				}
+			}
+			if c := persistenceClassOf(m, got); c != jailcontent.PathProject {
+				t.Errorf("the durable dir is class %s in the map; it must ride the workspace's bind", c)
+			}
 		})
 	}
 }
@@ -106,6 +125,8 @@ func TestTheBriefingNamesEveryPathInThePersistenceMap(t *testing.T) {
 			emptyLoopholeDirs(t)
 			cfg, packs := persistenceFixture(t, "")
 			o := goldenOptions(ws, home)
+			o.Stdout = discardBuf()
+			o.ensureDurableDir(rt, cfg)
 			staging, err := o.refreshJailBriefings("yolo-ws-abcd1234", cfg, rt,
 				stagedPacks{packs: packs}, ioprio.Normal)
 			if err != nil {
@@ -123,9 +144,24 @@ func TestTheBriefingNamesEveryPathInThePersistenceMap(t *testing.T) {
 			if strings.Contains(body, "persistent across sessions") {
 				t.Errorf("the briefing still calls the home persistent:\n%s", body)
 			}
+			// THE ANSWER FIRST: the section's opening words are the durable dir the launch
+			// made, by its variable and its path, and the per-workspace bullet offers it as
+			// the place for work — above the home dirs, which are the agents' and tools' own.
+			lead := "## Storage classes: what survives a restart\n\n" +
+				"Worktrees, clones, drafts, measurements — anything that must survive a restart — go in " +
+				"`$" + durable.EnvVar + "` (`" + durable.ContainerJailPath + "`)."
+			if !strings.HasPrefix(section, lead) {
+				t.Errorf("the %s section does not lead with the durable dir:\n%s", rt, section)
+			}
+			bullets := classBullets(section)
+			if b := bullets[jailcontent.PathWorkspaceDurable]; !strings.HasPrefix(b,
+				"- **Per workspace**: `$"+durable.EnvVar+"`, for your work; ") ||
+				!strings.Contains(b, "the agents' and tools' own state and installs, not for worktrees or drafts") {
+				t.Errorf("the per-workspace bullet does not offer the durable dir first, or does not say "+
+					"what the home dirs are for:\n%s", b)
+			}
 			// Every path is named as a `~/rel` or `/abs` code span IN ITS OWN CLASS'S bullet,
 			// so a path rendered under the wrong lifecycle fails as surely as a missing one.
-			bullets := classBullets(section)
 			for _, e := range persistenceMapFor(rt, cfg, packs, ws).Paths {
 				if e.Class == jailcontent.PathInternal {
 					if strings.Contains(section, spanFor(e.Path)) {

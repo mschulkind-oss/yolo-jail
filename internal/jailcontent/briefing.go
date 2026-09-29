@@ -150,6 +150,13 @@ type BriefingInput struct {
 	// renders the storage-classes section (docs/design/durable-scratch-space.md
 	// §4.1). Nil renders no section: macos-user, the host notch and a hand-built input.
 	Persistence *PersistenceMap
+
+	// Durable is the launch's durable dir (persistencesection.go): the path the section LEADS
+	// with, or why there is none. Nil renders no durable line, which is every caller that
+	// has not made one — the host notch (OQ-DS3: a static sentence in the host header
+	// instead) and a hand-built input. Non-nil with no map (macos-user) renders the section
+	// with the durable answer alone.
+	Durable *DurableDir
 }
 
 // BriefingContent renders the jail-managed briefing body (before any host-level
@@ -288,6 +295,10 @@ func confinementHeader(confinement, mechanism string, isMacOS bool) []string {
 			"machine, with no container around you. Changes are NOT disposable.",
 			"You have: their real credentials, their real dotfiles, no snapshot to fall back on.",
 			"Absent: nothing is mounted read-only; there is no jail to restart; `sudo` is real.",
+			// OQ-DS3 (docs/design/durable-scratch-space.md §5.7): one static sentence and no
+			// variable, because host /tmp is the machine's own and a per-launch variable
+			// cannot reach the files `yolo host apply` writes.
+			"`/tmp` is this machine's own: it survives an agent restart but may not survive a reboot; put worktrees you need later inside the repository or beside it.",
 		}, enforcementLines(prof)...)
 	case known && notch == render.KindGuest:
 		return append([]string{
@@ -651,7 +662,11 @@ func BriefingContent(in BriefingInput) string {
 	// Right after the Environment block whose Home line points at it, and before every
 	// capability section: where work survives decides where an agent puts it, so it has to
 	// be read before the agent plans anything (docs/design/durable-scratch-space.md §4.1).
-	lines = append(lines, persistenceSection(in.Persistence, home)...)
+	wsShown := "/workspace"
+	if slices.Contains(paths.NativeRuntimes, in.Mechanism) {
+		wsShown = in.Workspace
+	}
+	lines = append(lines, persistenceSection(in.Persistence, in.Durable, wsShown, home)...)
 
 	// BEFORE the capability sections, deliberately: these are constraints that change
 	// how everything below them should be read, and a constraint discovered after the

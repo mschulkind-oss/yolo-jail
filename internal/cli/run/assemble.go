@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
+	"github.com/mschulkind-oss/yolo-jail/internal/durable"
 	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/hostcas"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
@@ -90,6 +91,10 @@ type assembleInput struct {
 	// whole at /home/agent instead.
 	homeSkeleton string
 	wsState      string // <workspace>/.yolo/home
+	// durableDir is the in-jail path this fresh launch's durable dir was made at
+	// (ensureDurableDir), exported as $YOLO_DURABLE_DIR; "" exports nothing. INPUT because
+	// making it creates a directory, which argv assembly must stay free of.
+	durableDir   string
 	miseStore    string // _jail_mise_store_dir()
 	hostTZ       string // "" => no TZ
 	yoloVersion  string // _git_describe_version() or "unknown"
@@ -393,6 +398,12 @@ func (o *Options) assembleRunCmd(in *assembleInput) []string {
 
 	// --- Common env block (frozen order) ---
 	runCmd = append(runCmd, o.commonEnvBlock(in, blockedConfigJSON, netMode)...)
+	// THE DURABLE DIR (durabledir.go), on both container backends, and ONLY when this launch
+	// made it: a variable naming a directory that is not there would send every agent and
+	// tool to nothing. A container env var, so every exec an attach starts inherits it.
+	if in.durableDir != "" {
+		runCmd = append(runCmd, "-e", durable.EnvVar+"="+in.durableDir)
+	}
 
 	// --- yolo-user-env.sh and the per-agent env files (written by deliverChannel) ---
 	// Both are written by the lifecycle phase before this assembly and by every attach.

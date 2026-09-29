@@ -6,6 +6,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/claudeview"
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
+	"github.com/mschulkind-oss/yolo-jail/internal/durable"
 	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
@@ -641,6 +642,15 @@ func buildBootstrapEnv(workspace string, cfg, gitIdentity, sandboxEnv *jsonx.Ord
 	for _, k := range gitIdentity.Keys() {
 		v, _ := gitIdentity.Get(k)
 		bootstrapEnv.Set(k, v)
+	}
+	// THE DURABLE DIR, relayed from the launch env the run pipeline composed, so the
+	// bootstrap's launch line reports on the same directory the agent is told about
+	// (docs/design/durable-scratch-space.md §5.4) — and, like there, only when the launch
+	// made it: an absent variable is how "none this launch" reaches this side.
+	if sandboxEnv != nil {
+		if v, ok := sandboxEnv.Get(durable.EnvVar); ok {
+			bootstrapEnv.Set(durable.EnvVar, v)
+		}
 	}
 	// host_files, IN TWO HALVES THAT COME FROM DIFFERENT PLACES, and the split is the
 	// credential boundary rather than a structure.

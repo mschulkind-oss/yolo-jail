@@ -11,6 +11,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/claudeview"
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
+	"github.com/mschulkind-oss/yolo-jail/internal/durable"
 	"github.com/mschulkind-oss/yolo-jail/internal/ioprio"
 	"github.com/mschulkind-oss/yolo-jail/internal/jailcontent"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
@@ -659,6 +660,14 @@ func Run(opts Options) (rc int) {
 		// is everything above: the pack tree is this launch's own (packtree.go), so its
 		// staging and the host daemons started from it above cannot race another launch's.
 		o.holdLaunchLock(cname)
+		// THE DURABLE DIR, on this backend too: every invocation here is a fresh launch. It is
+		// the workspace's own `.yolo/durable` at its real path, inside the Seatbelt write set
+		// with the rest of the workspace, and it reaches the sandbox through the launch env
+		// the plan layers for the agent (and relays to the bootstrap, whose launch line
+		// reports it) only when it was made (durabledir.go).
+		if d := o.ensureDurableDir(rt, cfg); d.Path != "" {
+			launchEnv.Set(durable.EnvVar, d.Path)
+		}
 		staging, err := o.refreshJailBriefings(cname, cfg, rt, staged,
 			appliedIOPriority(rt, o.IsMacOS, cfgMap(cfg, "resources")))
 		if err != nil {
@@ -1113,6 +1122,11 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 	// Refresh the per-jail skills + AGENTS/CLAUDE staging from this launch's own pack tree. An
 	// attach refreshes from the running jail's tree instead, inside attachExisting, so this
 	// runs only once no attach site has taken the launch.
+	// THE DURABLE DIR, made here because this is a fresh launch and every attach site above
+	// has declined: before the briefing that leads with it and the argv that exports it
+	// (durabledir.go). A failure is one printed line, never a refusal.
+	o.ensureDurableDir(rt, cfg)
+
 	sp = o.Perf.Span("launch.refresh_jail_briefings")
 	agentsPath, err := o.refreshJailBriefings(cname, cfg, rt, staged,
 		appliedIOPriority(rt, o.IsMacOS, cfgMap(cfg, "resources")))
@@ -1389,6 +1403,7 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 		packStaging:      packStaging,
 		capturesDir:      o.CapturesDir(),
 		wsState:          wsState,
+		durableDir:       o.durableJailPath(),
 		miseStore:        jailMiseStoreDir(o.inJail()),
 		hostTZ:           detectHostTZ(),
 		yoloVersion:      o.yoloVersion(repoRoot),
@@ -2085,7 +2100,9 @@ func (o *Options) attachExisting(cname, rt, targetCmd string, cfg *jsonx.Ordered
 	if !view.unreadable {
 		sp := o.Perf.Span("launch.refresh_jail_briefings")
 		// The briefing's I/O priority is the one this jail's processes hold, from its frozen
-		// environment, never the current config's (refreshJailBriefings says why).
+		// environment, never the current config's (refreshJailBriefings says why). So is its
+		// durable dir: the one its launch exported, which this attach inherits.
+		o.durable = durableDirFromLaunchEnv(envLines)
 		_, refreshErr = o.refreshJailBriefings(cname, cfg, rt, view.staged, o.launchedIOPriority(rt, envLines))
 		sp.End()
 	}

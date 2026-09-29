@@ -20,6 +20,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/hostcas"
 	"github.com/mschulkind-oss/yolo-jail/internal/image"
+	"github.com/mschulkind-oss/yolo-jail/internal/jailcontent"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/launchservice"
 	"github.com/mschulkind-oss/yolo-jail/internal/macosuser"
@@ -273,6 +274,11 @@ type Options struct {
 	// scratchRemovalOnce makes the two teardown arms one remover spawn. A pointer for
 	// perfReportOnce's reason: Options is copied by value.
 	scratchRemovalOnce *sync.Once
+	// durable is this launch's durable dir (durabledir.go): made by ensureDurableDir on a
+	// fresh launch, read back from the running jail's environment on an attach, and read by
+	// refreshJailBriefings and by the backend's $YOLO_DURABLE_DIR emission. Nil until one of
+	// those two ran, which renders no durable line and exports nothing.
+	durable *jailcontent.DurableDir
 
 	// acVersion memoizes the `container --version` probe for this launch. Unexported
 	// and nil-by-default so every hand-built Options in a test starts unprobed; see
