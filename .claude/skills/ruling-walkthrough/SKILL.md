@@ -25,10 +25,20 @@ live conversation, with low latency: the maintainer answers in chat, the agent r
 
 ## Presenting a set
 
-- **Lead each question with its setup**: the concrete situation that raises it, in two or three
-  sentences a newcomer can picture ("a repo's `mise.toml` pins node 22.4; you have 20 installed;
-  you run `yolo host -- pi` there…"), BEFORE the options. A question stated only in the doc's own
-  terms ("the stale-shim verdict", "one consent covers the refresh") gets "I don't get this".
+- **Lead each question with its setup, as a story, EVERY time it is shown.** The form the
+  maintainer asked for by name: *"suppose your coworker did this, and then they run that, then this
+  is what happens, and here's why we have the question."* So each question opens with three or four
+  sentences a newcomer can picture:
+  1. **Who and what:** a person and what they have ("a colleague already runs Claude on Bedrock, so
+     their `~/.claude/settings.json` has …").
+  2. **What they run:** the exact command ("they type `yolo -- claude` in a jail").
+  3. **What happens today:** the visible result ("Claude starts in Bedrock mode with no AWS
+     credentials and fails with an auth error that never mentions yolo").
+  4. **Why that makes a question:** the one choice it forces.
+  Then the options, each saying what the user would SEE under it. A question stated only in the
+  doc's own terms ("the stale-shim verdict") gets "I don't get this". ⚠ **Never shorten a question
+  to its options when re-showing it** ("as posed", a one-line recap) — a panel after a notification
+  or a landing re-shows the FULL setup story, because the earlier one has scrolled off.
 - **Four questions at a time** (a "set"), in plain words, each with the leaning and what choosing
   it changes for the user. No doc jargon without a one-phrase definition. Say "rule all four as
   leaned, or adjust?" A question the maintainer asks to set aside is PARKED in a named group in the
@@ -129,3 +139,6 @@ edit this file in the same turn and commit it. Recorded adjustments:
   group, not dropped.
 - 2026-09-29: fewer coined terms per question (BR1's "native client / transport / via" could not be
   followed).
+
+- 2026-09-29: the setup is a story (who, what they run, what happens, why it is a question), on
+  every showing; re-shown sets had been cut to their options and lost the context.
