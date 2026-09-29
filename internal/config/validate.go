@@ -40,6 +40,9 @@ type LoopholeInfo struct {
 	// "the loophole is not known at all" case (info == nil) is the one that stays
 	// unvalidated, and it already has its own warning.
 	Settings []loopholedecl.Setting
+	// Brokered is the loophole's `brokered` block, or nil. Its presence among the
+	// selected packs' loopholes is what arms the mount fence (validateBrokerMountFence).
+	Brokered *loopholedecl.Brokered
 }
 
 // LoopholeResolver supplies the file-backed loophole set (including disabled
@@ -77,6 +80,7 @@ func ValidateConfig(config *jsonx.OrderedMap, workspace string, resolver Loophol
 	validateWorkspaceReadonly(config, errs)
 	validatePerSidePaths(config, errs)
 	validateLoopholes(config, workspace, resolver, errs, warns)
+	validateBrokerMountFence(config, workspace, resolver, errs, warns)
 	validateJournalRetired(config, errs, warns)
 	validateKVM(config, errs)
 	validateEphemeralStorage(config, errs)

@@ -57,6 +57,10 @@ func (r *Resolver) Known() (map[string]config.LoopholeInfo, bool) {
 			// learned the name from here and the declarations from somewhere else
 			// could accept a key for a loophole that is not the one it is validating.
 			Settings: lp.Settings,
+			// The `brokered` block arms the mount fence (config/brokerfence.go). Only a
+			// loophole a SELECTED pack ships is here, which is BB-D26's "with the pack
+			// selected".
+			Brokered: lp.Brokered,
 		}
 	}
 	return out, true
