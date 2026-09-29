@@ -31,7 +31,7 @@ import (
 // rewrite semantics.
 func runInternal(args []string) int {
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "usage: yolo internal <capture-materialize|capture-run|config-dump|daemon|darwin-bootstrap|footer|migrate-host|node-floor-satisfied|openai-auth|openai-auth-client|refresh-servers|bundle-dir|scratch-rm|update-check> [args...]")
+		fmt.Fprintln(os.Stderr, "usage: yolo internal <capture-materialize|capture-run|config-dump|daemon|darwin-bootstrap|footer|image-copy|migrate-host|node-floor-satisfied|openai-auth|openai-auth-client|refresh-servers|bundle-dir|scratch-rm|update-check> [args...]")
 		return 2
 	}
 	switch args[0] {
@@ -102,6 +102,10 @@ func runInternal(args []string) int {
 		// deleting. Exit 0 = satisfied, 1 = not (with what IS available on stdout, for the
 		// refusal to name), 2 = misuse.
 		return runNodeFloorSatisfied(args[1:], os.Stdout)
+	case imageCopyVerb:
+		// The launch's podman-on-Linux image copy for `just load` and the integration
+		// suite's stale-image fix, so neither spells it in shell (internalimagecopy.go).
+		return runImageCopy(args[1:])
 	case "bundle-dir":
 		// The flake-bundle paths `just install` stages through, printed so the
 		// recipe never recomputes them — the drift that once aimed `rm -rf` at the

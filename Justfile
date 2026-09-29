@@ -271,26 +271,17 @@ load: build-image
             "oci-archive:$archive:yolo-jail:latest"
         container image load -i "$archive"
     else
-        # The launch's own two decisions, from podman's own answers
-        # (internal/image/storewrite.go, storespec.go): a rootless store is written
-        # from inside `podman unshare`, and the destination NAMES the store podman
-        # reports, because a copier left to its own storage.conf lookup can resolve
-        # one podman does not read (issue #47). A store podman does not report is
-        # not guessed; the destination is then the bare ref.
-        rt="{{ runtime }}"
-        prefix=()
-        if [ "$("$rt" info --format '{{{{.Host.Security.Rootless}}')" = true ]; then
-            prefix=("$rt" unshare --)
-        fi
-        dest=containers-storage:localhost/yolo-jail:latest
-        store=$("$rt" info --format '{{{{.Store.GraphDriverName}}@{{{{.Store.GraphRoot}}+{{{{.Store.RunRoot}}' || true)
-        case "$store" in
-            *@/*+/*) case "$store" in *:*|*]*) ;; *) dest="containers-storage:[$store]localhost/yolo-jail:latest" ;; esac ;;
-        esac
-        echo "just load: ${prefix[*]:+${prefix[*]} }skopeo copy → $dest"
-        ${prefix[@]+"${prefix[@]}"} ./result-1/bin/skopeo --insecure-policy copy \
-            "nix:$(readlink -f ./result)" \
-            "$dest"
+        # THE LAUNCH'S OWN COPY, not a shell spelling of it: `yolo internal
+        # image-copy` reads `podman info` once and runs image.DeliveryCopyArgvFor —
+        # `podman unshare --` for a rootless store, and on a rootless podman the
+        # store podman reports named on the destination with its driver options,
+        # because a copier left to its own storage.conf lookup can resolve one
+        # podman does not read (issue #47). `go run` because this recipe must not
+        # depend on which `yolo` happens to be installed.
+        go run ./cmd/yolo internal image-copy --runtime "{{ runtime }}" \
+            --copier ./result-1/bin/skopeo \
+            --image "$(readlink -f ./result)" \
+            --ref localhost/yolo-jail:latest
     fi
 
 # Build BOTH image variants on a Linux host and push their closures to the

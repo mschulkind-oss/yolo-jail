@@ -144,40 +144,27 @@ const identityReadScript = "cat " + identityFilePath + " 2>/dev/null" +
 	" || readlink " + identityFilePath + " 2>/dev/null" +
 	" || echo " + identityAbsent
 
-// skewFixDest is the `skopeo copy` DESTINATION for the runtime the suite
-// detected — the half of the manual fix that is not the same on both backends.
+// skewFixCopy is the delivery half of the manual fix for the runtime the suite
+// detected, the half that is not the same on both backends.
 //
-// podman's containers-storage IS the load; Apple Container has no equivalent, so
-// it gets an OCI archive plus the `container image load` that reads it, which is
-// exactly what internal/image's deliverToAppleContainer does. Naming the wrong
-// one would hand a Mac user a command that writes into a store nothing reads.
-//
-// On podman it NAMES podman's own store, read from `podman info` by the shell,
-// as a launch and `just load` do: a copier left to its own storage.conf lookup
-// can resolve a store podman does not read (issue #47,
-// internal/image/storespec.go).
-func skewFixDest(rt string) string {
+// podman's containers-storage IS the load, and the copy into it is two decisions
+// from `podman info` (the `podman unshare` prefix for a rootless store, and on a
+// rootless podman the store named on the destination, issue #47), so the fix runs
+// `yolo internal image-copy`, the launch's own argv, rather than a shell spelling
+// of it that drops the driver options and has no answer for a podman that reports
+// no store. Apple Container has no containers-storage, so it gets an OCI archive
+// plus the `container image load` that reads it, which is exactly what
+// internal/image's deliverToAppleContainer does. Naming the wrong one would hand a
+// Mac user a command that writes into a store nothing reads.
+func skewFixCopy(rt string) string {
 	if rt == "container" {
-		return "oci-archive:/tmp/jail-image.oci:" + jailImage +
+		return "./result-1/bin/skopeo --insecure-policy copy \\\n" +
+			"            \"nix:$(readlink -f ./result)\" oci-archive:/tmp/jail-image.oci:" + jailImage +
 			" && container image load -i /tmp/jail-image.oci"
 	}
-	return `"containers-storage:[$(` + rt + ` info --format '` + podmanStoreTemplate + `')]localhost/` +
-		jailImage + `"`
-}
-
-// podmanStoreTemplate is the Go template that prints podman's store in the
-// containers-storage transport's spec syntax, driver@graphroot+runroot — the
-// shell spelling of image.PodmanStore.Spec without the driver options.
-const podmanStoreTemplate = "{{.Store.GraphDriverName}}@{{.Store.GraphRoot}}+{{.Store.RunRoot}}"
-
-// skewFixPrefix is the namespace half of the manual copy on podman: a rootless
-// store is written from inside `podman unshare`, as a launch writes it
-// (internal/image/storewrite.go). Empty for Apple Container.
-func skewFixPrefix(rt string) string {
-	if rt == "container" {
-		return ""
-	}
-	return "$(" + rt + " info --format '{{if .Host.Security.Rootless}}" + rt + " unshare --{{end}}') "
+	return "go run ./cmd/yolo internal image-copy --runtime " + rt + " \\\n" +
+		"            --copier ./result-1/bin/skopeo --image \"$(readlink -f ./result)\" \\\n" +
+		"            --ref localhost/" + jailImage
 }
 
 // degraded reports a harness precondition that could not be met. Every early
@@ -511,8 +498,7 @@ func skewMessage(image, rt, want, got string) string {
 	fmt.Fprintf(&b, "        %s=1 go test -count=1 -timeout 0 ./integration\n", rebuildEnv)
 	fmt.Fprintf(&b, "    rebuild + reload by hand:\n")
 	fmt.Fprintf(&b, "        cd %s && nix build --impure .#ociImage .#imageCopier && \\\n", repoRoot)
-	fmt.Fprintf(&b, "            %s./result-1/bin/skopeo --insecure-policy copy \\\n", skewFixPrefix(rt))
-	fmt.Fprintf(&b, "            \"nix:$(readlink -f ./result)\" %s\n", skewFixDest(rt))
+	fmt.Fprintf(&b, "            %s\n", skewFixCopy(rt))
 	fmt.Fprintf(&b, "    accept the skew for this run (a host-CLI-only change, a bisect, ...):\n")
 	fmt.Fprintf(&b, "        %s=warn go test -count=1 -timeout 0 ./integration\n\n", skewEnv)
 	fmt.Fprintf(&b, "  Note: nix only sees git-TRACKED files, so `git add` a newly created file\n")

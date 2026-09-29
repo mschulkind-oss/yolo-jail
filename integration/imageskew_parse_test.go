@@ -118,11 +118,12 @@ func TestSkewMessageIsActionable(t *testing.T) {
 		rebuildEnv + "=1",               // the in-jail one-command fix
 		skewEnv + "=warn",               // the documented escape hatch
 		"nix build --impure .#ociImage", // the manual fix
-		"containers-storage:",           // ...delivered, not streamed
-		// ...into the store podman reports, not the one the copier would resolve
-		// from storage.conf (issue #47), and from podman's namespace when rootless.
-		"containers-storage:[$(podman info --format '" + podmanStoreTemplate + "')]",
-		"{{if .Host.Security.Rootless}}podman unshare --{{end}}",
+		// ...delivered by the launch's own copy (the unshare prefix and, rootless,
+		// podman's store named on the destination: issue #47), not a shell spelling
+		// of it that could drift from the launch's.
+		"go run ./cmd/yolo internal image-copy --runtime podman",
+		"--copier ./result-1/bin/skopeo",
+		"--ref localhost/" + jailImage,
 		".#imageCopier", // ...with the copier that reads it
 		"git add",       // the tracked-files trap
 	} {
@@ -130,11 +131,14 @@ func TestSkewMessageIsActionable(t *testing.T) {
 			t.Errorf("skew message is missing %q:\n%s", want, msg)
 		}
 	}
+	if strings.Contains(msg, "containers-storage:") {
+		t.Errorf("the podman fix spells a containers-storage destination itself again:\n%s", msg)
+	}
 	// THE DESTINATION IS PER RUNTIME, and getting it wrong hands a Mac user a
 	// command that writes into a store nothing reads. Apple Container has no
 	// containers-storage; it takes a file and a loader.
 	ac := skewMessage("yolo-jail:latest", "container", wantID, gotID)
-	if strings.Contains(ac, "containers-storage:") || strings.Contains(ac, "unshare") {
+	if strings.Contains(ac, "containers-storage:") || strings.Contains(ac, "image-copy") {
 		t.Errorf("the Apple Container fix names podman's store:\n%s", ac)
 	}
 	for _, want := range []string{
