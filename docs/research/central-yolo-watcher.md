@@ -233,7 +233,7 @@ designs chose, not of what the maintainer ruled.
 7. **Boot-time cleanup** before or alongside podman's own. At the 2026-09-29 reboot podman was
    cleaning up old volumes while yolo's probe failed; leftover per-launch scratch volumes are one
    plausible source of that load, and the reboot doc does not establish cause (INFERRED:
-   [`podman-reboot-readiness.md`](../design/podman-reboot-readiness.md#what-happened-and-what-remains-uncertain)).
+   [`podman-reboot-readiness.md`](../design/podman-reboot-readiness.md#what-happened-and-what-is-still-unknown)).
 8. **Deleting the boundary broker's 7-day records** (designed with no deleter named). The store's
    one writer can delete them at use, when the per-jail broker starts or `yolo approve` reads the
    store: a 7-day-old record is harmless until something reads it.
