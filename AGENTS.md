@@ -185,12 +185,13 @@ live, so edits are visible on the host instantly — there is no sync step.
   `podman unshare -- <copier> copy …`**, because writing a rootless store reproduces layer ownership under
   `/etc/subuid` and so needs a user namespace AppArmor 4 denies unprivileged. **Rootful podman takes the bare
   copy** — `podman unshare` refuses there outright. The branch is decided from `podman info` BEFORE the copy,
-  never by retrying a failure. ⚠ **The same `podman info` read names the STORE on the destination**
-  (`containers-storage:[driver@graphroot+runroot:opts]<ref>`,
-  [`storespec.go`](internal/image/storespec.go)), in both modes: the copier's newer containers/storage
-  resolves a rootless store from storage.conf differently from podman's, and a distro file naming root
-  paths sent it to `/run/containers` (issue #47). A store podman does not report falls back to the bare ref,
-  and the launch says so. macOS podman and Apple Container still take an archive, the VM owning the store.
+  never by retrying a failure. ⚠ **On a rootless podman the same `podman info` read names the STORE on
+  the destination** (`containers-storage:[driver@graphroot+runroot:opts]<ref>`,
+  [`storespec.go`](internal/image/storespec.go)): the copier's newer containers/storage resolves a
+  rootless store from storage.conf differently from podman's, and a distro file naming root paths sent it
+  to `/run/containers` (issue #47). Rootful and unknown keep the bare ref, as does a store podman does not
+  report, and the launch says which. `just load` copies through `yolo internal image-copy`, never a shell
+  spelling. macOS podman and Apple Container still take an archive, the VM owning the store.
 - **The outer jail's binaries are frozen for the session**, chosen by the host launcher at start, so you
   cannot live-patch them in-jail. Verify Go changes in a **nested** jail: it builds the live `/workspace`
   checkout's `.#installPrefix` and mounts THAT. See [Testing](#testing) for the command and the carve-outs.
