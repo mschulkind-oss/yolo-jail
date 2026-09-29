@@ -27,11 +27,9 @@ agent can read it.
 - UNMEASURED: no request has reached Bedrock from any agent, through the bridge, or with any of
   the three credentials.
 
-**Needs your ruling:** [OQ-BR9](#OQ-BR9) and [OQ-BR1](#OQ-BR1), together, because the second
-leans on the first.
-- [OQ-BR9](#OQ-BR9): one `bedrock` provider holding every model family? Leaning yes.
-- [OQ-BR1](#OQ-BR1): what you type. Leaning `-p bedrock` everywhere, plus one name that forces the
-  bridge. It holds only if [OQ-BR9](#OQ-BR9) goes A.
+**Needs your ruling:** none. [OQ-BR9](#OQ-BR9) and [OQ-BR1](#OQ-BR1) were ruled 2026-09-29: one
+`bedrock` pack pulls in every model family, and `-p bedrock` uses each agent's own Bedrock client,
+with `bedrock-bridge` forcing the wire bridge.
 
 ## The Bedrock and provider design set
 
@@ -687,7 +685,7 @@ R6 to R11 moved with the bridge, model-list and search designs.
 
 ## 13. Open Questions
 
-1. 💬 <a id="OQ-BR9"></a>**[OQ-BR9](#OQ-BR9): One Bedrock provider, holding every model family, in its own pack?** With mantle
+1. ✅ <a id="OQ-BR9"></a>**[OQ-BR9](#OQ-BR9): One Bedrock provider, holding every model family, in its own pack?** With mantle
    not shipped, the question is whether one runtime provider carries every family the org selected,
    and who owns it ([§6.1](#61-the-provider-shape-one-bedrock-provider-or-two)). Stakes: whether a
    new vendor is a list entry or a new provider plus profile; whether `-p bedrock` means one thing
@@ -712,12 +710,18 @@ R6 to R11 moved with the bridge, model-list and search designs.
    AgentCore search preset ([`bedrock-web-search.md`](bedrock-web-search.md)). The vendor is
    declared, never parsed.
 
-   <!-- vantage: oq id=OQ-BR9 leaning="A: one runtime provider holding every model family, with a declared per-entry vendor that each derive filters on. It moves out of packs/claude into a new bedrock pack under its existing name, which packs/claude needs, so -p bedrock works for every agent; the same pack ships the AgentCore search preset (bedrock-web-search.md). Never parse the vendor from the id prefix. Rule with OQ-BR1." -->
-
    **Answer:**
-   > _(empty — fill in when decided)_
+   > **Ruled 2026-09-29: A, with the packaging left to the build.** The maintainer: *"I guess we
+   > can split these into different packs if that's convenient, but I do still want one pack that
+   > pulls them all in."* One `bedrock` provider holding every model family (each entry declaring
+   > its maker, never parsed from the id) is the leaning's shape; the build may split it across
+   > packs where that is simpler, provided one `bedrock` pack selects all of it, and every agent
+   > pack that binds Bedrock `needs` that pack, so `"packs": ["codex"]` alone still gets `-p
+   > bedrock`. The traps stand: the provider keeps its six AWS credential names (the gate
+   > withholds by them), ships no default region ([OQ-BR6](#OQ-BR6)), and an agent's fallback is
+   > the first model that agent can call.
 
-2. 💬 <a id="OQ-BR1"></a>**[OQ-BR1](#OQ-BR1): What does a user type to put an agent on Bedrock, and is "native client or wire
+2. ✅ <a id="OQ-BR1"></a>**[OQ-BR1](#OQ-BR1): What does a user type to put an agent on Bedrock, and is "native client or wire
    bridge" something they name?** The maintainer, 2026-09-25, on the earlier version: *"I have no
    idea what any of these are. This is very unclear … maybe bedrock-codex would be the native,
    which is really only useful against the codex agent? would you want that against claude code?
@@ -752,10 +756,15 @@ R6 to R11 moved with the bridge, model-list and search designs.
    its spelling is yours to rule. No profile is named for an agent or a vendor. Rule it with
    [OQ-BR9](#OQ-BR9).
 
-   <!-- vantage: oq id=OQ-BR1 leaning="One name, -p bedrock, means Bedrock in every agent: the agent's own native client where one exists (codex, opencode, pi, and claude for Anthropic models), the wire bridge where none does (copilot, oh-omp). The only second name is one profile that forces the bridge, spelled for the transport (proposed bedrock-bridge; the spelling is yours): it is claude's everything profile and pi's bridge version. No profile named for an agent (bedrock-codex) or a vendor (bedrock-gpt). Depends on OQ-BR9 going A; rule the two together." -->
-
    **Answer:**
-   > _(empty — fill in when decided)_
+   > **Ruled 2026-09-29, as leaned.** The maintainer: *"we get to select it and point it at an
+   > agent just like everywhere else … by default we should pick the right thing, the native by
+   > default, but we should allow configurations to force the bridge."* `-p bedrock` (or `-p
+   > codex=bedrock` for one agent) puts an agent on Bedrock through its own Bedrock client where
+   > it has one, and through the wire bridge where it has none. One shipped profile forces the
+   > bridge, `bedrock-bridge`, which is also claude's route to non-Anthropic models; a user's own
+   > profile can force it the same way with `via`. No profile is named for an agent or a model
+   > maker.
 
 3. ✅ <a id="OQ-BR5"></a>[**OQ-BR5**](#OQ-BR5) (ruled 2026-09-25): **Is pi bound through its native
    Converse client, or through runtime's OpenAI-compatible route?** Both ([Decision Ledger](#decision-ledger)). The
@@ -782,6 +791,8 @@ R6 to R11 moved with the bridge, model-list and search designs.
 
 | ID | Ruling / Decision | Date | Settled in | Built |
 | :--- | :--- | :--- | :--- | :--- |
+| [OQ-BR9](#OQ-BR9) | **Maintainer ruling:** one provider for every model family, packaging free, one `bedrock` pack pulling all of it in | 2026-09-29 | [§6.1](#61-the-provider-shape-one-bedrock-provider-or-two) | pending |
+| [OQ-BR1](#OQ-BR1) | **Maintainer ruling:** `-p bedrock` everywhere, native client by default, `bedrock-bridge` or a user profile's `via` forces the bridge | 2026-09-29 | [§12](#12-what-i-would-build-in-order) | pending |
 | <a id="DIR-BR1"></a>DIR-BR1 | **Every agent reaches every Bedrock model its transport can carry, and every picker shows a current list an org can shape with one pack.** Given as a direction in review: *"Claude should be able to use all of those models with basically no change."* | 2026-09-24 | [§6.5](#65-every-bedrock-model-in-every-agent--the-direction) | — |
 | <a id="DIR-BR2"></a>DIR-BR2 | **The whole matrix**: every agent, every model its transport carries, every supported credential with SSO included, and every model one pick in the agent's menu. *"We need to support single sign on through all of the methods so I can use any model… So we got to support everything everywhere, the whole matrix."* agy is the one hole | 2026-09-24 | [§6.7](#67-the-whole-matrix--every-agent-every-model-every-credential) | — |
 | [OQ-BR11](#OQ-BR11) | **Both claude profiles: native and everything.** *"if you only do native or the rest, then you'll never be able to switch between Claude and, say, OpenAI in one Claude session, which I think we'll want. So I guess just both options."* The bridge routes by model id: Anthropic ids pass untranslated to runtime's Messages, and the rest are translated. It amends the bridge's one-upstream rule. The leaning (two profiles, no routing) was overruled | 2026-09-24 | [Where the split ended up](#where-the-split-ended-up); routing in [`wire-bridge-gateway.md`](wire-bridge-gateway.md) | — |

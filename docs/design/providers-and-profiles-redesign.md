@@ -10,7 +10,7 @@ vantage:
 
 # Providers and profiles, redesigned: what `-p <name>` should mean
 
-**Status:** DESIGN, 2026-09-25. [OQ-BR8](#OQ-BR8) ruled 2026-09-29 (key facts on the provider) and building; nothing else is ruled.
+**Status:** DESIGN, 2026-09-25. [OQ-BR8](#OQ-BR8) and [OQ-BR2](#OQ-BR2) ruled 2026-09-29 (key facts on the provider, recognized by its `platform` field); both building.
 MEASURED: the split between name-keyed gates and provider-keyed derives
 ([§2.2](#22-gates-key-on-the-name-derives-key-on-the-provider)), read at `7ad8358c`, re-read
 at `f491d192`, and re-checked by grep at `ee8154f2` on 2026-09-24; the three copies of the
@@ -51,9 +51,9 @@ maintainer did not rule it:
   supported both through its native Converse client and through the bridge.
 - **Not ruled:** everything below.
 
-**Needs your ruling:** [OQ-BR2](#OQ-BR2), [OQ-PP1](#OQ-PP1), [OQ-PP2](#OQ-PP2), [OQ-PP3](#OQ-PP3), in this order:
+**Needs your ruling:** [OQ-PP1](#OQ-PP1), [OQ-PP2](#OQ-PP2), [OQ-PP3](#OQ-PP3), in this order:
 
-1. [OQ-BR2](#OQ-BR2) — the marker. It gates builds, so it comes first. _Leaning (⚠ changed
+1. ✅ [OQ-BR2](#OQ-BR2) — the marker, **ruled 2026-09-29: a `platform` field.** It gated builds, so it came first. _Leaning (⚠ changed
    2026-09-25):_ rule its substance now (a declared, open-vocabulary field, in both schemas),
    spelled so it survives any answer to [OQ-PP1](#OQ-PP1) — for example `platform` — and not
    spelled `service` or `native`.
@@ -321,7 +321,7 @@ transport's home leaves the everything profile distinguished only by its name. T
 
 ## 7. Open Questions
 
-1. 💬 <a id="OQ-BR2"></a>**[OQ-BR2](#OQ-BR2): How does a derive recognize what a provider is
+1. ✅ <a id="OQ-BR2"></a>**[OQ-BR2](#OQ-BR2): How does a derive recognize what a provider is
    (the marker)?** Moved here from bedrock-plumbing on 2026-09-25, id kept. Candidates and costs
    are [§4](#4-the-marker-how-a-derive-recognizes-what-a-pick-is): a declared field, matching the
    name (rejected), or the implicit reading (fails today). Stakes: it gates bedrock-plumbing's
@@ -350,10 +350,12 @@ transport's home leaves the everything profile distinguished only by its name. T
    ([OQ-BR22](bedrock-web-search.md#OQ-BR22)). The bridge's signer does not wait: [OQ-WG1](wire-bridge-gateway.md#OQ-WG1)
    leans toward keying it on the upstream host.
 
-   <!-- vantage: oq id=OQ-BR2 leaning="Changed 2026-09-25 (was a `service` field). Rule the substance now: a declared, open-vocabulary provider field, unknown values inert, accepted by both packdecl and knownProviderKeys, spelled for what the service is, e.g. `platform` set to `aws-bedrock`. Not `service` (a contribution kind) nor `native` (a transport value in OQ-PP1 c). It survives every OQ-PP1 option. Waiting on it: bedrock-plumbing steps 3-5 and bedrock-web-search step 9.3; not the signer (OQ-WG1)." -->
-
    **Answer:**
-   > _(empty — fill in when decided)_
+   > **Ruled 2026-09-29, as leaned.** A provider declares what service it is in an
+   > open-vocabulary field, `platform` (for example `"platform": "aws-bedrock"`), accepted by
+   > both `internal/packdecl` and `knownProviderKeys`, with unknown values inert. A derive
+   > recognizes Bedrock by that field, never by a name, so a provider a user defines gets the
+   > same behavior as the shipped one, which completes [OQ-BR8](#OQ-BR8).
 
 2. ✅ <a id="OQ-BR8"></a>**[OQ-BR8](#OQ-BR8): Does a contribution's gate key on the profile
    NAME or on the provider it selects?** Moved here from bedrock-plumbing on 2026-09-25, id kept.
@@ -488,6 +490,8 @@ No rulings yet. Why this doc exists, and the maintainer's words that started it,
 | ID | Ruling / Decision | Date | Built |
 | :--- | :--- | :--- | :--- |
 | [OQ-BR8](#OQ-BR8) | **Maintainer ruling:** a provider fact keys on the provider, in each agent's derive, never on the profile's name; a user-defined provider gets the same behavior through [OQ-BR2](#OQ-BR2)'s marker | 2026-09-29 | pending |
+| [OQ-BR2](#OQ-BR2) | **Maintainer ruling:** the marker is a declared provider field, `platform`, open vocabulary, unknown values inert | 2026-09-29 | pending |
+| <a id="PP-D1"></a>PP-D1 | **Maintainer ruling, from a rollout review:** yolo obeys a Bedrock switch (`CLAUDE_CODE_USE_BEDROCK`) that a user wrote in their own Claude settings, and when no Bedrock provider is selected for claude, so the credential gate sends it no AWS credential, the launch prints one line naming the conflict and both fixes (`-p bedrock`, or remove the key). yolo deletes nothing it did not write: the maintainer's *"there could be any uncountable number of environment variables … that we can just like never know about"* rules deletion out; the line exists because the gate is yolo's, so the failure is yolo's to name | 2026-09-29 | pending |
 
 ## Appendix: Evidence, and how to re-check it
 
