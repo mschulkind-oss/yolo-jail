@@ -97,6 +97,31 @@ func TestADoorwayServesBehindItsPlansTokenUntilStopped(t *testing.T) {
 	}
 }
 
+// A DOORWAY ENDS WITH ITS LAUNCH, with no signal sent: closing the lifeline, which is what the
+// kernel does when the launch is SIGKILLed or crashes before its deferred Stop, ends
+// ServeListener and frees the address. TestAServiceEndsWhenItsLaunchIsGone pins the same bound
+// for fakeHostHalf's body, which reads the lifeline itself; this pins ServeListener's own read of
+// it, the one every doorway runs, so a doorway a killed launch left behind cannot keep answering
+// on the host's loopback. Deleting the Lifeline call from serveListener fails this.
+func TestADoorwayEndsWhenItsLaunchIsGone(t *testing.T) {
+	selfAsHostHalf(t)
+	t.Setenv(helperEnv, "doorway:ok")
+	plan, addr := doorwayPlan(t)
+	r, err := Start(plan, map[string]string{"UPSTREAM": "from-the-launch"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(r.Stop)
+	if !dials(addr) {
+		t.Fatal("Start returned before the doorway was listening")
+	}
+	_ = r.lifeline.Close() // what the kernel does when the launch process dies
+	waitGone(t, r, 5*time.Second)
+	if dials(addr) {
+		t.Error("the doorway still listens after its launch's lifeline closed")
+	}
+}
+
 // A DOORWAY THAT CANNOT PREPARE REFUSES THE START, with its reason on one line, before it binds.
 func TestADoorwayThatCannotPrepareRefusesTheStart(t *testing.T) {
 	selfAsHostHalf(t)
