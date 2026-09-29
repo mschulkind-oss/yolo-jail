@@ -35,7 +35,7 @@ calls "no free answer", and it concentrates every jail's crossings in one long-l
 **Start at [§3](#3-three-kinds-of-gap-and-only-one-needs-a-watcher)**, the three kinds of gap.
 Everything else falls out of it.
 
-**Needs your ruling:** [OQ-YW1](#OQ-YW1).
+**Needs your ruling:** none; [OQ-YW1](#OQ-YW1) was ruled 2026-09-29 (no scheduled reclaim).
 
 **Reads with:** `docs/design/jail-lifetime-last-session-wins.md`
 (the sibling from the same run, not in the tree at `51620f7e`, on keeping a jail up until its last session leaves;
@@ -548,7 +548,7 @@ host-side daemon, a resident watcher included, and any ruling can be revised in 
 It is recorded as [YW-D7](#YW-D7). Whether one timer or several carry timed duties is a mechanism
 choice with one answer, recorded as [YW-D8](#YW-D8).
 
-1. 💬 <a id="OQ-YW1"></a>**[OQ-YW1](#OQ-YW1): If [OQ-HD9](../design/host-daemon-ownership.md#OQ-HD9)
+1. ✅ <a id="OQ-YW1"></a>**[OQ-YW1](#OQ-YW1): If [OQ-HD9](../design/host-daemon-ownership.md#OQ-HD9)
    installs a timer, may reclaim also run on it while no launch is present, reversing
    [A6](../design/minimal-disk-footprint.md#7-alternatives-considered)?** A6 rejected a timer for
    reclaim because it runs at moments no user bounds (P7), and "the launch path fires at least as
@@ -567,8 +567,6 @@ choice with one answer, recorded as [YW-D8](#YW-D8).
      `YOLO_NO_AUTO_IMAGE_REAP` into configuration first ([YW-P5](#YW-P5)), and the unit-path rule
      in [§6.2](#62-versions).
 
-   <!-- vantage: oq id=OQ-YW1 leaning="A: keep A6. With the image-load stall off the table (a tick holding the same lock moves it, it does not end it), B's only gain is reclaim on an idle machine, which creates no new launch artifacts while idle, and a prune-only class can move into the launch slot without any timer." -->
-
    _Leaning:_ **A.** An earlier draft leaned B because a tick seemed to take the 62-116 s pass off
    the launch path. It does not: the pass already runs off its own launch's path, and a tick under
    the same lock stalls a concurrent launch the same way. What remains for B is reclaim on an idle
@@ -579,7 +577,10 @@ choice with one answer, recorded as [YW-D8](#YW-D8).
    call-site test pins its launch-path floor.
 
    **Answer:**
-   > _(empty — fill in when decided)_
+   > **Ruled 2026-09-29, as leaned: A.** A6 stands: disk reclaim stays at launch, and any timer
+   > [OQ-HD9](../design/host-daemon-ownership.md#OQ-HD9) brings stays credential-only. The maintainer:
+   > *"no. YOLO has no way of doing this, so... And I don't see why it's beneficial anyway. So,
+   > no."*
 
 ## 11. Decision Ledger
 

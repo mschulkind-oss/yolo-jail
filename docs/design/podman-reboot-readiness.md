@@ -44,10 +44,7 @@ and it names that process.
 **Start at [the gate](#the-gate).** Its no-kill rule is what makes a reboot
 recoverable.
 
-**Needs your ruling:** [OQ-PR1](#OQ-PR1) (whether the long budget applies
-always or only just after a boot),
-[OQ-PR2](#OQ-PR2) (whether housekeeping stands down on a slow launch),
-[OQ-PR3](#OQ-PR3) (a machine-wide record of launch outcomes).
+**Needs your ruling:** none. [OQ-PR1](#OQ-PR1), [OQ-PR2](#OQ-PR2) and [OQ-PR3](#OQ-PR3) were ruled 2026-09-29; the build is released.
 
 **Reads with:** [`podman-reboot-readiness-plan.md`](podman-reboot-readiness-plan.md)
 (the implementation sketch),
@@ -361,7 +358,7 @@ rootless host.**
    > an explicit "run `podman system migrate`"), naming the fix, instead of spending the minute
    > on it.
 
-2. 💬 <a id="OQ-PR2"></a>**[OQ-PR2](#OQ-PR2): Should a launch that found Podman
+2. ✅ <a id="OQ-PR2"></a>**[OQ-PR2](#OQ-PR2): Should a launch that found Podman
    slow skip its housekeeping pass?** After a reboot, every pre-reboot jail's
    leftovers are due at once. So the first restored launch runs its biggest
    reaping pass (7 `podman rmi`s at this reboot) while the other workspaces still
@@ -388,8 +385,6 @@ rootless host.**
      also covers a launch whose own probe was fast but whose neighbors' probes
      are slow. It is a timer standing in for a cause.
 
-   <!-- vantage: oq id=OQ-PR2 leaning="B: a launch whose readiness gate needed a retry or waited past the grace skips the whole housekeeping slot for that pass; the debounce stamps are untouched, so the next launch runs every class." -->
-
    _Leaning:_ B. The slot already skips when its lock is held, so skipping when
    Podman is struggling extends an existing rule rather than adding a mechanism,
    and it removes a contender yolo itself creates. Skipping only the classes that
@@ -399,7 +394,15 @@ rootless host.**
    the 16.1 s lock hold on the load path.
 
    **Answer:**
-   > _(empty — fill in when decided)_
+   > **Ruled 2026-09-29, none of the doc's options as written: the cleanup takes its lock one
+   > deletion at a time.** The maintainer rejected skipping on a slow probe: *"why are we going
+   > to skip a cleanup pass? … You're trying to, like, guess the load from what happens? That
+   > sounds like a bad idea."* Then, shown the new option: *"42, yes, take the leaning, A."* The
+   > measured cost was only the 16.1 s hold on the lock every other launch's image re-inspect
+   > takes. So the housekeeping slot takes the machine-wide lock around each deletion and
+   > releases it between deletions; a launch's re-inspect waits at most one deletion, nothing is
+   > skipped and nothing infers load. Each class re-checks that an item is unused under the lock
+   > right before deleting it (image removal already refuses an image a container uses).
 
 3. ✅ <a id="OQ-PR3"></a>**[OQ-PR3](#OQ-PR3): Should every launch leave one
    line in a machine-wide log, so one reboot's storm can be read in one place?**
@@ -461,6 +464,7 @@ user config, never for a yolo bug
 | <a id="PR-D12"></a>PR-D12 | *Implementation decision.* The budget is 60 s. It covers the inferred 22.5 s refresh with 2.5× margin, room for its retries, and the 44 s the whole restore storm took. Host-check step 1 re-measures the forced refresh before building, and this row changes if it runs longer. Whether the budget applies only near a boot is [OQ-PR1](#OQ-PR1) | 2026-09-29 | [The gate](#the-gate) | — |
 | [OQ-PR1](#OQ-PR1) | **Maintainer ruling:** the 60 s budget applies to every launch and `yolo check`, never keyed on a reboot; answers that cannot clear on their own fail at once | 2026-09-29 | — | pending |
 | [OQ-PR3](#OQ-PR3) | **Maintainer ruling:** B; one machine-wide line per launch, keyed by the workspace code | 2026-09-29 | — | pending |
+| [OQ-PR2](#OQ-PR2) | **Maintainer ruling:** the housekeeping slot holds the lock one deletion at a time; no skip, no load inference | 2026-09-29 | — | pending |
 
 ## Appendix A: evidence
 
