@@ -39,6 +39,11 @@ live conversation, with low latency: the maintainer answers in chat, the agent r
   doc's own terms ("the stale-shim verdict") gets "I don't get this". ⚠ **Never shorten a question
   to its options when re-showing it** ("as posed", a one-line recap) — a panel after a notification
   or a landing re-shows the FULL setup story, because the earlier one has scrolled off.
+- **Number every question for speech.** Each question gets a running number the first time it is
+  shown ("Q30"), kept for good, never reused, never reset per set; the maintainer dictates answers
+  ("thirty, yes; thirty-one, A"). The doc's own id (OQ-BR12) is NOT shown: it means nothing to him
+  and is hard to say. Keep the mapping (Q-number → doc id) in the queue file, and record rulings
+  under the doc id as before.
 - **Four questions at a time** (a "set"), in plain words, each with the leaning and what choosing
   it changes for the user. No doc jargon without a one-phrase definition. Say "rule all four as
   leaned, or adjust?" A question the maintainer asks to set aside is PARKED in a named group in the
@@ -146,3 +151,4 @@ edit this file in the same turn and commit it. Recorded adjustments:
   every showing; re-shown sets had been cut to their options and lost the context.
 - 2026-09-29: side-question answers persist until the set open when they were asked is ruled (the
   GPT-6.1 Sol answer scrolled off and had to be asked for again).
+- 2026-09-29: questions carry running spoken numbers (Q30, Q31, …); doc ids are not shown.
