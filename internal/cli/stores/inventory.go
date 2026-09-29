@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/brokeraudit"
 	"github.com/mschulkind-oss/yolo-jail/internal/durable"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/prune"
@@ -371,6 +372,16 @@ func stateStores(o Options, cacheRows []Store) []Store {
 			s.Reclaimer = Reclaimer{Func: "PurgeCacheByAge", Detail: "per subdir — see the cache section", Trigger: "yolo prune --apply"}
 			s.Verdict = VerdictYolo
 			s.Note = "broken out per subdir below; the subdir rows are where coverage is decided"
+		case name == filepath.Base(paths.BrokerDir()):
+			// The brokers' directory (docs/design/boundary-broker.md §7, §8): the audit log
+			// is BOUNDED, NOT PRUNED — its writer rotates it — and a launch's scope file goes
+			// with the launch, so no reclaimer runs here, by design.
+			sizeStore(&s, s.Path, o)
+			s.Reclaimer = Reclaimer{Detail: fmt.Sprintf("self-bounded: the audit log rotates at %d MiB "+
+				"and keeps %d archives; a launch's scope file goes with the launch",
+				brokeraudit.RotateBytes>>20, brokeraudit.Archives)}
+			s.Verdict = VerdictYolo
+			s.Note = "the brokers' audit log and each launch's repository scope; `yolo prune` never touches the audit log"
 		case filepath.Clean(s.Path) == filepath.Clean(o.SamplesDir()):
 			sizeStore(&s, s.Path, o)
 			s.Reclaimer = Reclaimer{Detail: fmt.Sprintf("self-bounded: %d samples per store", MaxSamples)}

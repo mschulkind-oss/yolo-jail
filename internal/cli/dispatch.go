@@ -54,6 +54,10 @@ var registry = map[string]func(args []string) int{
 	"macos-unshare":         runMacosUnshare,
 	"macos-fix-permissions": runMacosFixPermissions,
 	"update":                runUpdate,
+	// The github-broker's two ends: `gh` is the jail side (Main routes it before the
+	// front door, gh.go), `audit` the host's record of every brokered call (audit.go).
+	"gh":    runGHVerb,
+	"audit": runAudit,
 }
 
 // valueTakingFlags are the flags whose value is the NEXT argv token rather than being

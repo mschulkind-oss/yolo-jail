@@ -54,6 +54,9 @@ var commandHelp = []struct{ name, blurb string }{
 	// only that workspace now, so signing the MACHINE out is this verb's.
 	{"claude-auth", "Manage the machine-wide Claude login: 'status', 'inspect', 'refresh', 'logout'"},
 	{"loopholes", "List and self-check host-capability loopholes"},
+	// The github-broker's two ends, together: what a jail runs, and what the host kept.
+	{"gh", "In a jail: run gh through the github-broker, with the host's login (read-only for now)"},
+	{"audit", "List every brokered call (e.g. the jail's gh commands) and what became of it"},
 	{"init", "Scaffold yolo-jail.jsonc in the current workspace"},
 	{"init-user-config", "Write user-level defaults at ~/.config/yolo-jail/config.jsonc"},
 	{"config", "Inspect generated config: 'config ls' (every composed file), 'render', 'diff', 'reset'"},

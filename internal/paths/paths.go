@@ -811,6 +811,29 @@ func AgentsDir() string { return filepath.Join(GlobalStorage(), "agents") }
 // container name, and the reap/prune paths already speak that name.
 func ApprovalsDir() string { return filepath.Join(GlobalStorage(), "approvals") }
 
+// BrokerDir is the brokered sources' host directory, $HOME/.local/share/yolo-jail/broker:
+// each source's store, its launches' scope files and the audit log
+// (docs/design/boundary-broker.md §7, §8). HOST-SIDE AND UNMOUNTED, like ApprovalsDir,
+// and fenced besides: with a brokered loophole's pack selected, a workspace `mounts` entry
+// reaching it is refused (BB-D26), because the audit log carries argv values from every
+// workspace on the machine and the scope files decide what a running broker admits.
+//
+// Deliberately NOT under logs/, which a `mounts` entry commonly exposes.
+func BrokerDir() string { return filepath.Join(GlobalStorage(), "broker") }
+
+// BrokerSourceDir is one source's directory under BrokerDir, such as broker/github.
+func BrokerSourceDir(source string) string { return filepath.Join(BrokerDir(), source) }
+
+// BrokerScopeFile is one fresh launch's scope file for a source:
+// broker/<source>/scope/<launch-id>.json (BB-D32). Keyed by the launch, never the
+// workspace, so two macos-user sessions of one workspace never share one.
+func BrokerScopeFile(source, launchID string) string {
+	return filepath.Join(BrokerSourceDir(source), "scope", launchID+".json")
+}
+
+// BrokerAuditLog is the append-only audit log every broker writes (BB-D15).
+func BrokerAuditLog() string { return filepath.Join(BrokerDir(), "audit.jsonl") }
+
 // PacksDir returns the machine-wide pack store: $HOME/.local/share/yolo-jail/packs.
 // Packs are USER-scope (config/packs.go), so their fetched content is per-machine —
 // one pack serves every workspace. Their EFFECTS (staged trees, composed files) are

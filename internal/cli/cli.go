@@ -59,6 +59,13 @@ func Main(argv []string) int {
 		return runInternal(args[1:])
 	}
 
+	// `yolo gh` carries another program's stdout and stderr (gh.go), so it is routed here,
+	// before the banner, the update notice and the global flags, any of which would put
+	// yolo's words into gh's output or take one of gh's own flags.
+	if len(args) >= 1 && args[0] == "gh" {
+		return runGH(args[1:])
+	}
+
 	if len(args) >= 1 && args[0] == "--version" {
 		// Resolve the repo root the SAME way run/check do (the shared method), so
 		// an unstamped binary describes the yolo-jail repo, never the cwd's repo.
