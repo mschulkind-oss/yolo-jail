@@ -323,7 +323,7 @@ rootless host.**
 
 ## Open Questions
 
-1. 💬 <a id="OQ-PR1"></a>**[OQ-PR1](#OQ-PR1): Does the 60 s budget apply to every
+1. ✅ <a id="OQ-PR1"></a>**[OQ-PR1](#OQ-PR1): Does the 60 s budget apply to every
    Linux Podman launch, or only to one shortly after a boot?** This applies to
    every Linux Podman launch and every `yolo check`, including one typed by hand.
    It decides how late a permanently broken Podman on a warm host gives its final
@@ -343,15 +343,23 @@ rootless host.**
      refresh and any slow `info` outside the window get today's 10 s refusal
      back, though without the kill ([PR-D2](#PR-D2) still holds).
 
-   <!-- vantage: oq id=OQ-PR1 leaning="A: the budget applies to every launch; a permanent fault's reason already prints within the 2 s grace, and the refresh this design recovers also happens outside a boot." -->
-
    _Leaning:_ A. The first failure's reason prints within 2 s, so the late
    refusal is a cost the user can see and cut short, not a silent minute. And the
    alternative reading of this incident is a refresh at 10:49 with no reboot,
    which B would not recover.
 
    **Answer:**
-   > _(empty — fill in when decided)_
+   > **Ruled 2026-09-29: the budget applies always (the doc's A), and never on a reboot test.**
+   > The maintainer: *"We definitely shouldn't detect a reboot, so we certainly shouldn't do
+   > something only after a reboot. But ideally we can distinguish between 'nobody attempted to
+   > start Podman ever' or 'it's not installed and it's just not responding' so we don't wait for
+   > something to come up that's never going to come up guaranteed. But if we can't do that …
+   > we're going to have that 60 second delay, so we can take your leaning."* So the 60 s budget
+   > covers every launch and `yolo check`, and the build adds a fail-fast rule: yolo retries only
+   > an answer that can clear on its own (Podman busy, a lock held, a database mid-migration) and
+   > refuses at once on one that cannot (no `podman` binary, a permission or configuration error,
+   > an explicit "run `podman system migrate`"), naming the fix, instead of spending the minute
+   > on it.
 
 2. 💬 <a id="OQ-PR2"></a>**[OQ-PR2](#OQ-PR2): Should a launch that found Podman
    slow skip its housekeeping pass?** After a reboot, every pre-reboot jail's
@@ -447,6 +455,7 @@ user config, never for a yolo bug
 | <a id="PR-D10"></a>PR-D10 | *Implementation decision.* Perf events: the `runtime.ready` span, `runtime.ready.attempt` notes, and `podman.facts` from the gate. All are written on the failure path too | 2026-09-29 | [What is recorded](#what-the-user-sees-and-what-is-recorded) | — |
 | <a id="PR-D11"></a>PR-D11 | *Implementation decision.* The budget is a constant: no config key and no `YOLO_*` dial (the hatch rule) | 2026-09-29 | [The gate](#the-gate) | — |
 | <a id="PR-D12"></a>PR-D12 | *Implementation decision.* The budget is 60 s. It covers the inferred 22.5 s refresh with 2.5× margin, room for its retries, and the 44 s the whole restore storm took. Host-check step 1 re-measures the forced refresh before building, and this row changes if it runs longer. Whether the budget applies only near a boot is [OQ-PR1](#OQ-PR1) | 2026-09-29 | [The gate](#the-gate) | — |
+| [OQ-PR1](#OQ-PR1) | **Maintainer ruling:** the 60 s budget applies to every launch and `yolo check`, never keyed on a reboot; answers that cannot clear on their own fail at once | 2026-09-29 | — | pending |
 
 ## Appendix A: evidence
 
