@@ -3,7 +3,7 @@ title: "Reads run, writes ring the doorbell: time-boxed GitHub access across the
 date: 2026-09-28
 status: in-review
 tags: [design, credentials, github, gh, approvals, notifications, loopholes, audit, broker]
-summary: "Revised around the maintainer's 2026-09-28 brief and his 2026-09-29 rulings. A host daemon runs the host's own `gh` login on the jail's behalf, only against the workspace's own GitHub repositories. Each source defines named permission sets: GitHub's default two are read-only, always held, and read-write, which a human hands over whole for a window (15 minutes by default) from a persistent desktop notification on Linux and macOS. The request outlives its connection, the answer reaches the agent later through the `yolo notify` ping channel, and the agent re-issues its command under the grant. Credential-printing and host-reaching commands are refused outright, whatever is granted. Every brokered call is appended to a host audit log that yolo mounts into no jail. Open: the notification's buttons, the macOS notifier, how one workspace's scope is widened, whether the scope is pinned once or read each launch, and how the jail's gh forwarder outranks the image's gh."
+summary: "Revised around the maintainer's 2026-09-28 brief and his 2026-09-29 rulings. A host daemon runs the host's own `gh` login on the jail's behalf, only against the workspace's own GitHub repositories. Each source defines named permission sets: GitHub's default two are read-only, always held, and read-write, which a human hands over whole for a window (15 minutes by default) from a persistent desktop notification on Linux and macOS. The request outlives its connection, the answer reaches the agent later through the `yolo notify` ping channel, and the agent re-issues its command under the grant. Credential-printing and host-reaching commands are refused outright, whatever is granted. Every brokered call is appended to a host audit log that yolo mounts into no jail. The scope is re-read from the workspace's remotes at every fresh launch and approved in that launch's config-change diff; an out-of-scope command is refused, and a user-scope entry keyed by workspace is the only widening. On macOS the notifier is terminal-notifier, a dependency of the Homebrew formula on Apple silicon running macOS 14 or later, where a prebuilt bottle exists. Open: how the jail's gh forwarder outranks the image's gh, and what a workspace's widening entry may admit."
 vantage:
   status-chip: true
 ---
@@ -11,8 +11,9 @@ vantage:
 # Reads run, writes ring the doorbell: time-boxed GitHub access across the jail boundary
 
 **Status:** DESIGN, 2026-09-28. Revised around the maintainer's brief of that day; first sketched
-2026-08-05. [OQ-BB1](#OQ-BB1) and [OQ-BB2](#OQ-BB2) were ruled on 2026-09-29, and the body now
-follows those rulings ([§1.2](#12-what-it-rules)). Nothing built: no GitHub broker daemon, request
+2026-08-05. [OQ-BB1](#OQ-BB1), [OQ-BB2](#OQ-BB2), [OQ-BB3](#OQ-BB3), [OQ-BB4](#OQ-BB4),
+[OQ-BB6](#OQ-BB6) and [OQ-BB7](#OQ-BB7) were ruled on 2026-09-29, and the body now follows those
+rulings ([§1.2](#12-what-it-rules)). Nothing built: no GitHub broker daemon, request
 store, `yolo approve` or `yolo audit` exists under `internal/` or `cmd/` at `c8fda25f`, and no
 notification code exists anywhere in the tree. (`internal/broker` and the `yolo broker` verb do
 exist, and mean the Claude OAuth singleton; see **broker** in [§1.3](#13-terms).) The research behind
@@ -37,19 +38,23 @@ per action. The maintainer put this on the plate for the week of 2026-09-28.
 **notifier** per OS, the `yolo approve` fallback, and the **audit log** ([§1.3](#13-terms)).
 
 **Cost.** One new loophole in a new `github` pack, one vendored D-Bus library, two host verbs
-(`yolo approve`, `yolo audit`), a user-scope config key for a source's sets, and a macOS notifier
-dependency. The write path depends on the `yolo notify` ping box, which is designed and not built.
+(`yolo approve`, `yolo audit`), a user-scope config key for a source's sets and for one
+workspace's widening, a second part to the config-change gate's approval record (the repository
+scope, [§5.6](#56-the-repository-scope)), and `terminal-notifier` as a macOS dependency of the
+Homebrew formula on Apple silicon running macOS 14 or later ([§6.2](#62-macos)). The write path depends on the `yolo notify`
+ping box, which is designed and not built.
 
 **Start at [§3](#3-the-flow)**, the flow. Everything else is what one step of it needs.
 
-**Needs your ruling:** [OQ-BB8](#OQ-BB8). [OQ-BB3](#OQ-BB3), [OQ-BB4](#OQ-BB4), [OQ-BB6](#OQ-BB6)
-and [OQ-BB7](#OQ-BB7) were ruled 2026-09-29.
+**Needs your ruling:** [OQ-BB8](#OQ-BB8) and [OQ-BB9](#OQ-BB9). [OQ-BB3](#OQ-BB3),
+[OQ-BB4](#OQ-BB4), [OQ-BB6](#OQ-BB6) and [OQ-BB7](#OQ-BB7) were ruled 2026-09-29.
 
 **Reads with:** [`agent-event-watchers.md`](agent-event-watchers.md) (the `yolo notify` doorbell
 the answer rides back on), [`loophole-system.md`](../reference/loophole-system.md) and
 [`loophole-transport.md`](../reference/loophole-transport.md) (what the broker is and how a jail
-reaches it), [`provider-credential-scope.md`](provider-credential-scope.md) (delivery as specific
-as possible), [`sso-backed-bedrock.md`](sso-backed-bedrock.md) (the second consumer waiting for a
+reaches it), [`config-safety.md`](../reference/config-safety.md) (the config-change gate the
+scope is approved through), [`provider-credential-scope.md`](provider-credential-scope.md)
+(delivery as specific as possible), [`sso-backed-bedrock.md`](sso-backed-bedrock.md) (the second consumer waiting for a
 request shape). No implementation sketch is open yet.
 
 ---
@@ -109,17 +114,15 @@ comment to a PR, and then it will go to a queue and I can say yes or no."*
   Decided 2026-09-29 as an implementation choice, [BB-D25](#BB-D25): re-derive, since it adds no
   outside code ([§14](#14-open-questions)).
 
-**What the 2026-09-29 rulings changed.** Two of the questions this doc left open were ruled the
+**What the 2026-09-29 rulings changed.** Six of the questions this doc left open were ruled the
 next day, and the body is written to them:
 
 - **[OQ-BB1](#OQ-BB1): the repository scope.** Free reads reach only the workspace's own GitHub
   remotes. This doc bounds every other command by the same scope. The ruled option's text also
-  said reads elsewhere and account-wide reads ring and are grantable for a time. This doc reads
+  said reads elsewhere and account-wide reads ring and are grantable for a time. This doc read
   the maintainer's *"only have visibility into the repository that is for that workspace"* as a
   hard fence instead: an out-of-scope command does not run and rings nobody
-  ([§5.6](#56-the-repository-scope)). That is **a reading, to be confirmed**, and whether a ring
-  comes back is one of [OQ-BB6](#OQ-BB6)'s options. The ruled option also read the remotes at each
-  launch; whether to pin them once instead is [OQ-BB7](#OQ-BB7).
+  ([§5.6](#56-the-repository-scope)). [OQ-BB6](#OQ-BB6)'s ruling confirmed that reading.
 - **[OQ-BB2](#OQ-BB2): permission sets, against my leaning.** Grants hand over a named
   **permission set** for a window, not a class of writes with an always-ask list beside it.
   GitHub's default sets are **read-only**, always held, and **read-write**, handed over whole for
@@ -127,9 +130,30 @@ next day, and the body is written to them:
   windows are configurable ([§5.7](#57-permission-sets)). The earlier leaning's always-ask list,
   which covered deletes, settings, `pr merge` and every `gh api` write, is gone from the default.
   A read-write grant covers all of those.
-- **Unchanged by either:** the refusals in [§5.4](#54-never-brokered). They are about the credential
-  and the host, not about what the agent may do on GitHub, so no set holds them and no grant
-  runs them.
+- **[OQ-BB3](#OQ-BB3): the three buttons**, as leaned: **Allow once**, **Allow read-write 15
+  min** and **Deny**. Dismissing denies too, and longer grants go through `yolo approve`
+  ([§6.4](#64-choosing-a-duration)).
+- **[OQ-BB4](#OQ-BB4): the macOS notifier**, ruled by delegation for the easy default path.
+  `terminal-notifier` 3.x becomes a dependency of the Homebrew formula yolo publishes, on Apple
+  silicon running macOS 14 or later, where Homebrew has a prebuilt bottle, so an install from the
+  tap brings the notifier with it. It stays optional on Intel and on older macOS, with a
+  `yolo check` row, and with no notifier a request waits for `yolo approve`. yolo's
+  own signed helper app replaces it once the macOS release signs ([§6.2](#62-macos)).
+- **[OQ-BB6](#OQ-BB6): widening one workspace.** A user-scope entry keyed by workspace widens that
+  workspace alone. An out-of-scope command keeps refusing and never rings, so a notification can
+  never widen the scope ([§5.6](#56-the-repository-scope)). What that entry may admit is
+  [OQ-BB9](#OQ-BB9).
+- **[OQ-BB7](#OQ-BB7): when the scope is read.** At every fresh launch, from the workspace's
+  remotes, and approved like a config change. The scope becomes part of the config-change gate's
+  host-side approval record, and a scope that differs from the approved one appears in that
+  launch's diff. It takes effect only once approved, by a y or, with no terminal, by
+  `--accept-config-changes`; an N aborts the launch. An attach never re-reads it, unless the
+  attach's skew gate restarts the jail, which makes it a fresh launch
+  ([§5.6](#56-the-repository-scope)). This replaced the doc's earlier leaning, which pinned the
+  scope once at the workspace's first broker launch.
+- **Unchanged by any of them:** the refusals in [§5.4](#54-never-brokered). They are about the
+  credential and the host, not about what the agent may do on GitHub, so no set holds them and no
+  grant runs them.
 
 ### 1.3 Terms
 
@@ -143,8 +167,13 @@ Every term here is coined in this doc unless it says otherwise.
 | **permission set** | A named group of commands a source defines, such as GitHub's **read-only** and **read-write**. A jail holds a set either always or for a window, and a command runs when the jail holds a set containing it ([§5.7](#57-permission-sets)) | Not a scope: which repositories a command may touch is the repository scope's question, and no set widens it |
 | **standing set** | Coined here: a permission set every jail always holds, such as read-only. Its commands run with no human | Not a grant: nothing is recorded, and it cannot be revoked per jail |
 | **windowed set** | Coined here: a permission set a human hands over for a window and a use count, such as read-write | Not a session: its window ends by the clock or the use count, whichever comes first |
-| **repository scope** | Coined here: the GitHub repositories a jail's calls may touch, pinned from the workspace's remotes ([§5.6](#56-the-repository-scope), [OQ-BB1](#OQ-BB1)) | Not the set of repositories the host login can see, which is every repository the user can reach |
-| **out of scope** | A command whose repository is outside the repository scope, or that names no repository the broker can check (account-wide) | Not a request: under this doc's reading of [OQ-BB1](#OQ-BB1) it never rings, since no grant widens the scope ([OQ-BB6](#OQ-BB6) may change that) |
+| **repository scope** | Coined here: the GitHub repositories a jail's calls may touch. It is the approved scope plus any widening entry, fixed for the life of the fresh launch that approved it, in a scope file keyed by that launch ([§5.6](#56-the-repository-scope), [BB-D32](#BB-D32), [OQ-BB1](#OQ-BB1)) | Not the set of repositories the host login can see, which is every repository the user can reach |
+| **fresh launch**, **attach** | Not coined here: a fresh launch creates the container, and an attach joins one already running. Only a fresh launch runs the config-change gate ([`config-safety.md`](../reference/config-safety.md#where-it-runs-and-where-it-deliberately-does-not)) | An attach is not a launch that re-reads anything. One exception: an attach whose skew gate restarts the jail continues as a fresh launch, and re-reads like one |
+| **approval record** | Not coined here: the config-change gate's host-side record of the workspace config a human last approved, `paths.ApprovalsDir()/<container-name>.json`, written only on a y, `--accept-config-changes`, a host `yolo check --accept-config-changes`, or silently when there is no record yet and nothing to approve (an empty config, and under this doc an empty scope) ([`config-safety.md`](../reference/config-safety.md)). This doc adds a scope part to it ([BB-D30](#BB-D30)) | Not mounted into any jail, and not the broker's request store |
+| **approved scope** | Coined here: the `owner/repo` list a human last approved for a workspace, read from its remotes and held in the approval record's scope part | Not the remotes as they are now: a remote added since is not in it until the next fresh launch's diff is approved |
+| **scope block** | Coined here: the labeled block the config-change diff opens with when the scope changed, naming each repository added or removed ([BB-D31](#BB-D31)) | Not a line of the config JSON diff |
+| **widening entry** | Coined here: a user-scope config entry, keyed by one workspace's host path, that adds repositories to that workspace's scope alone ([OQ-BB6](#OQ-BB6), [BB-D33](#BB-D33)). Whether it can also limit a repository to some sets, or admit account-wide commands, is [OQ-BB9](#OQ-BB9) | Not approved in the config diff: user config is trusted on disk and never prompts |
+| **out of scope** | A command whose repository is outside the repository scope, or that names no repository the broker can check (account-wide) | Not a request: it is refused with exit 64 and never rings, since [OQ-BB6](#OQ-BB6) ruled that no notification widens the scope. A widening entry can add a repository; whether one can ever admit an account-wide command is [OQ-BB9](#OQ-BB9) |
 | **free read** | A command in a standing set whose repository is in scope. Runs with no human | Not "any GET": the classifier decides, not the HTTP verb alone |
 | **write** | Shorthand for a command in no standing set. With GitHub's default sets, a command in read-write and not in read-only | Not a command the classifier cannot fully parse: an unknown flag or command word is refused, not a write ([§5.1](#51-the-rule)) |
 | **request** | A command whose set the jail does not hold, held in the store until a human answers or it expires. It has an id (`r-` plus 8 hex), the jail, the exact parsed command, the set it asks for and a state | Not a connection: it outlives the call that filed it |
@@ -190,12 +219,16 @@ Numbered so later sections and sibling docs can cite them.
   human answer moves them.
 - <a id="BB-P9"></a>**BB-P9. A workspace never widens its own reach through the broker.** The
   agent can edit the workspace, so the broker's own configuration is user-scope only: nothing the
-  workspace says can add a repository to its scope or a command to a set, and the scope is read
-  by the host ([§5.6](#56-the-repository-scope)). This is the maintainer's reasoning in
-  [OQ-BB1](#OQ-BB1)'s ruling. **Its limit:** a workspace-scope `mounts` entry accepts any host
-  path, so without a fence it could mount the broker's store or the host `gh` login into the next
-  launch once a human approves the config diff. [BB-D26](#BB-D26) refuses that; other workspace
-  keys that reach the host are gated by the config-change diff, not by this principle.
+  workspace says can add a command to a set. The one workspace input to the scope is its remotes,
+  which the host reads, and a change to them takes effect only once a human approves it in the
+  launch's config-change diff ([§5.6](#56-the-repository-scope)). This is the maintainer's
+  reasoning in [OQ-BB1](#OQ-BB1)'s and [OQ-BB7](#OQ-BB7)'s rulings. **Its limit:** a
+  workspace-scope `mounts` entry accepts any host path, so without a fence it could mount the
+  broker's store or the host `gh` login into the next launch once a human approves the config
+  diff. [BB-D26](#BB-D26) refuses that. No mount can write the approval record's directory,
+  where the approved scope lives, since every `mounts` entry is a read-only bind
+  ([BB-D34](#BB-D34)); other workspace keys that reach the host are gated by the config-change
+  diff, not by this principle.
 
 ## 2. What exists today
 
@@ -341,9 +374,12 @@ problem.
 
 | Step | What fails | What happens, and who finds out |
 | :--- | :--- | :--- |
+| Launch | The scope read from the remotes differs from the approved scope, and the human answers N | The launch aborts, as for any config change, and the approval record is untouched ([§5.6](#56-the-repository-scope)) |
+| Launch | The same, with no terminal and no `--accept-config-changes` | The launch refuses, printing the scope block and naming the git config file it came from ([BB-D31](#BB-D31)) |
+| Launch | `.git/config` is unreadable, or a worktree's `.git` file has the wrong shape | The scope reads as empty and the launch says why; against a non-empty approved scope that is a change, shown in the diff as every repository removed |
 | Forward | The broker is not running or unreachable | The forwarder exits 69 (`EX_UNAVAILABLE`) naming the loophole and `yolo check`. It never falls back to a `gh` of its own |
 | Classify | The argv does not parse, or names a refused command | Exit 64 naming the rule; one audit line, set `refused` |
-| Classify | The repository is outside the scope, or the command names none | Exit 64 naming the pinned repositories and that a wider scope is the user's to grant ([OQ-BB6](#OQ-BB6)); one audit line, set `out-of-scope`; no request |
+| Classify | The repository is outside the scope, or the command names none | Exit 64 naming the scope's repositories. For a repository outside the scope, it names the user-scope widening entry that would add it; for an account-wide command, it says that no widening entry admits one, since whether one ever may is [OQ-BB9](#OQ-BB9) ([§5.6](#56-the-repository-scope)). One audit line, set `out-of-scope`; no request and no notification |
 | Run | The host `gh` is missing or has no login | Exit 69, naming `gh auth status` on the host. The broker never starts a login |
 | Run | The call exceeds 300 seconds | Killed; exit 124, as `ExecAllowlisted` does; audited |
 | Run | Output exceeds 16 MiB | Cut, with a last stderr line saying so; audited with the byte count |
@@ -404,8 +440,9 @@ programs ([§9.5](#95-host-code-execution-through-gh)):
 - **The forwarder resolves the repository in the jail**: from `-R`, then from the workspace's
   `origin` remote read by the jail's own git, and sends it as a field. Running git there is safe;
   the jail is the confined side. The field is a convenience, never an authority: the broker checks
-  it against the repository scope the host pinned ([§5.6](#56-the-repository-scope)), so a jail
-  that edits its remotes changes only which in-scope repository a bare command means.
+  it against the repository scope the launch approved ([§5.6](#56-the-repository-scope)). So a
+  jail that edits its remotes changes only which in-scope repository a bare command means. A
+  remote it adds reaches the scope only if a human approves it in the next fresh launch's diff.
 - **It sends stdin** when the argv reads `-`, and forwards the exit code it gets back.
 - **`yolo gh status <id>`** reports a request's state; **`yolo gh wait <id>`** blocks until it
   is decided, for scripts. Both are reads of the store through the broker; neither decides
@@ -500,7 +537,7 @@ GitHub's default standing set. MEASURED against `gh` 2.101.0 in this jail. The f
 refusals that keep each entry a read; `-w/--web` is refused everywhere, because it runs the host's
 browser. **Scope** says what the repository check reads: *repository* means the command names one
 repository, which must be in scope; *none* means it reads nothing the user's login makes private;
-*account-wide* means it reads across the account and is out of scope under the default
+*account-wide* means it reads across the account, so it is out of scope and refused with exit 64
 ([§5.6](#56-the-repository-scope)).
 
 | Command path | Scope | Flag notes |
@@ -520,7 +557,7 @@ repository, which must be in scope; *none* means it reads nothing the user's log
 | `secret list`, `variable list`, `variable get` | repository | `--org` and `--user` make them account-wide. `-e/--env` names an Actions environment, which belongs to one repository, so it stays repository-scoped. `secret list -a/--app` picks the secret store (actions, agents, codespaces, dependabot) and stays repository-scoped. `secret list` returns names (INFERRED); Actions variables are not secret by GitHub's own model |
 | `ruleset list/view/check`, `discussion list/view` | repository | `ruleset --org` makes it account-wide |
 | `search code`, `search commits`, `search issues`, `search prs` | repository, only when the search's **complete qualifier set**, from its flags and its query text together, names in-scope repositories alone: `--repo` naming in-scope repositories, no `--owner` flag (MEASURED in `gh search code --help`), and no `repo:`, `org:`, `user:` or `owner:` qualifier in the query text | otherwise account-wide. Several `repo:` qualifiers are ORed, which is why the query text is checked too (INFERRED). Any other qualifier-adding flag a command's grammar carries counts the same way |
-| `search repos`, `repo list`, `gist view`, `gist list`, `org list`, `status`, `agent-task list/view`, `project list/view/field-list/item-list` | account-wide | in the set, so they run once [OQ-BB6](#OQ-BB6) admits account-wide reads; `agent-task --follow` bounded by the call timeout; `project` needs a scope a default login lacks (INFERRED) |
+| `search repos`, `repo list`, `gist view`, `gist list`, `org list`, `status`, `agent-task list/view`, `project list/view/field-list/item-list` | account-wide | in the set, but refused as out of scope with exit 64 and no notification: [OQ-BB6](#OQ-BB6) ruled that no ring admits them, and whether a widening entry may is [OQ-BB9](#OQ-BB9); `agent-task --follow` bounded by the call timeout; `project` needs a scope a default login lacks (INFERRED) |
 | `auth status` | none | **only** without `-t/--show-token`, which prints the token (MEASURED) |
 | `api` | by path | only under [§5.3](#53-gh-api)'s rule |
 
@@ -557,15 +594,15 @@ own parse (MEASURED against a local echo server, [Appendix B](#b2-gh-probes)):
 4. **Host files:** a `-F` value beginning `@` is refused, and `--input` is allowed only as `-`
    ([§5.5](#55-argv-hazards)).
 5. **Repository scope** for REST: the path's `repos/{owner}/{repo}` prefix is the repository
-   the scope check reads. A path with no repository is account-wide, so out of scope under the
-   default.
+   the scope check reads. A path with no repository is account-wide, so out of scope and refused
+   ([§5.6](#56-the-repository-scope)).
 6. **GraphQL** (`graphql`, `/graphql`, `api/graphql`) is always `POST`, even for a query. It is
    read-only only if the `query` field, passed as `-f query=…`, parses as a GraphQL document in
    which **every** operation is a `query` (the anonymous `{…}` shorthand counts). `mutation`,
    `subscription`, a document that fails to parse, or a query arriving any other way is
    read-write. `operationName` is never trusted to pick one. **A GraphQL call names no repository
-   the broker can check, so every one is account-wide**, and out of scope under the default,
-   whichever set it falls in.
+   the broker can check, so every one is account-wide**, and out of scope and refused, whichever
+   set it falls in.
 7. **Harmless:** `--paginate`, `--slurp`, `-i`, `--silent`, `--preview`, `--cache`.
 8. **A `gh api` write is read-write like any other write.** Under the ruled default, a live
    read-write grant covers `gh api -X DELETE repos/o/r/issues/comments/1`, and `repo delete` and
@@ -610,49 +647,201 @@ definition naming one is a configuration error, and nothing lifts them
 
 [OQ-BB1](#OQ-BB1)'s ruling: the broker sees only the workspace's own repositories. The
 **repository scope** is that list, and it bounds every set, windowed ones included: a live
-read-write grant never touches a repository outside it.
+read-write grant never touches a repository outside it. It has two sources: the **approved
+scope**, read from the workspace's remotes and approved by a human, and any **widening entry**
+the user wrote for this workspace ([§1.3](#13-terms)).
 
-**How it is pinned.** Under [OQ-BB7](#OQ-BB7)'s leaning, the first launch that starts the broker
-for a workspace pins its scope. (Under its other option, every launch reads the remotes the same
-way and pins them for that launch.)
+**When it is read.** [OQ-BB7](#OQ-BB7)'s ruling: at every **fresh launch** that starts the
+broker, and never at an **attach** ([§1.3](#13-terms)). One attach is the exception: when the
+attach's skew gate settles a pack, profile-daemon or contract skew by restarting the jail
+(`skewRestarted` in `internal/cli/run/run.go`), `Run` continues as a fresh launch through the
+config-change gate, so that invocation re-reads the remotes and may show the scope block. A launch
+starts the broker when the github pack is selected, its loophole is enabled, and the backend runs
+it ([§4.4](#44-per-notch-and-backend)). macos-user has no attach, so every invocation there reads
+the scope, and two terminals in one workspace are two concurrent sessions, each with its own
+scope file ([BB-D32](#BB-D32)). Apple Container starts no broker, so it reads nothing.
+
+**How it is read** ([BB-D19](#BB-D19)):
 
 1. The host reads the workspace's `.git/config` **as text, with no host `git` process**, since git
    in an agent-writable checkout can run code through its config
    ([§9.5](#95-host-code-execution-through-gh)). It ignores `include` and `includeIf` directives,
    and it follows no symlink.
    **A worktree's `.git` file is agent-written**, so its `gitdir:` line is an agent-chosen host
-   path, and following it blindly would let the agent point the pin at another project's
+   path, and following it blindly would let the agent point the scope at another project's
    remotes. The host accepts it only as git lays a worktree out: the `gitdir:` target `G` must
    contain a `gitdir` back-pointer naming this workspace's own `.git` file, `G/commondir` names
    the common directory `C`, and `G` must be `C/worktrees/<name>`. The config read is then
-   `C/config`. Any other shape is disclosed and pins an empty scope.
-2. It takes every remote URL on `github.com`, in https, `ssh://` and `git@github.com:` forms, and
-   reduces each to `owner/repo`.
-3. It records that list in the store as the workspace's scope, keyed by the workspace's host path,
-   and the launch discloses it: *"github-broker: scope for this workspace: o/r, me/r-fork."*
+   `C/config`. Any other shape is disclosed and reads as an empty scope.
+2. It takes every remote URL on `github.com`, in https, `ssh://` and `git@github.com:` forms,
+   reduces each to `owner/repo`, and keeps the remote's name for the diff.
+3. It hands that list to the config-change gate. Nothing uses it until it is approved.
 
-**Later launches, under [OQ-BB7](#OQ-BB7)'s leaning, read the pin, not the remotes.** A GitHub
-remote added since, by the user or by the agent, is disclosed as outside the scope:
-*"github-broker: remote upstream (x/y) is not in this workspace's scope."* It is not admitted.
-Admitting it, and any other change to a pinned scope, is [OQ-BB6](#OQ-BB6)'s mechanism. This
-**departs from the ruled option's text**, which read the remotes at each launch; [OQ-BB7](#OQ-BB7) puts the
-choice to the maintainer, with the argument for each.
+**How it is approved.** The remotes are workspace state the agent can edit, which is the case the
+config-change gate exists for: its principle P2 is that the gate protects against the agent
+([`config-safety.md`](../reference/config-safety.md#principles)). So the scope takes that gate's
+path rather than a new one. The gate runs
+`CheckConfigChanges` at every fresh launch: it compares the workspace config with the **approval
+record**, shows a unified diff, and asks y/N, default N. With no terminal it refuses unless the
+launch passed `--accept-config-changes`. The scope joins that one decision:
 
-**Out of scope means it does not run, under this doc's reading of the ruling.** A command whose
-repository is outside the scope, or that names none the broker can check, exits 64 naming the
-pinned repositories. It files no request and rings nobody. An Allow button for it would let a
-request the agent composed widen the scope, and "read my other private repository" is what a
-prompt-injected agent would ask for. The ruled option's text said such reads ring and are
-grantable for a time. This doc reads the maintainer's *"only have visibility into the repository
-that is for that workspace"* as the stricter fence, and [OQ-BB6](#OQ-BB6) option (e) is the ring
-coming back. Until [OQ-BB6](#OQ-BB6) is ruled, widening has no path at all, which is the direction that needs
-no migration later.
+- **What the record gains** ([BB-D30](#BB-D30)). The approval record is today one canonical JSON
+  of the workspace config, at `ApprovalSnapshotPath`, and its serialization is a frozen contract:
+  one byte of drift re-prompts every workspace on the machine. So that file stays exactly as it
+  is, and the scope is a second part beside it, `approvals/<container-name>.scope.json`. It holds
+  the approved list per source, such as `{"github": ["me/r-fork", "o/r"]}`, sorted and serialized
+  by the same `SnapshotJSON`. **The scope part is written, and compared, only by a launch or a
+  host `yolo check` that would start the broker**: the github pack selected, its loophole enabled,
+  and a backend that runs it. Everywhere else only the config part is written. So a workspace
+  whose launches never start a broker never gains the file and is never re-prompted, and the
+  first launch that does start one compares against no scope part. Where the scope part is in
+  play, both parts are written together, and only by the four paths that write the record: a y,
+  `--accept-config-changes`, a host `yolo check --accept-config-changes`, which then reads the
+  remotes too, and silently, for a part that has no record yet and nothing to approve (a `{}`
+  config, an empty scope). An N or a refusal writes neither. Today `CheckConfigChanges` writes a
+  `{}` config part in its no-record branch before it returns (`internal/config/snapshot.go`), so
+  that write moves to after the scope part is decided: both parts land together, or neither does.
+- **When it asks.** Whenever the scope read now differs from the approved scope, in either
+  direction: a repository added or one removed. If both config and scope match, the launch
+  proceeds without asking. With no scope part yet, as at the first launch that starts the broker
+  in a workspace, a non-empty scope is a diff against none, so that launch asks once. That
+  includes a fresh workspace whose config is `{}`, which today passes silently. With no scope
+  part yet, an empty scope is nothing to approve and is recorded silently, as an empty config
+  is. An unreadable `.git/config`, or a worktree `.git` file of the wrong shape, reads as an empty
+  scope ([§3.5](#35-failure-paths)), so against a non-empty approved scope it asks too, with every
+  repository shown as removed.
+- **An exception to P3, and why it holds.**
+  [`config-safety.md`](../reference/config-safety.md#principles)'s P3 is *"Adding a pack, a
+  package, or a loophole at user scope applies to every workspace instantly, with no prompt
+  anywhere."* `packs` is user-scope-only ([OQ-TP9](trust-paths.md#decision-ledger)), so selecting
+  the github pack makes the next launch of every workspace with a GitHub remote ask once. That
+  prompt is not about the user's pack edit, which P3 rightly never re-confirms. It is about the
+  remotes, which the agent can edit, and P1 (the gate goes where the authority changes) and P2
+  (the gate protects against the agent) place the gate there. When only the scope changed, the
+  launch shows the scope block alone, with no config diff under it.
+- **What the diff shows** ([BB-D31](#BB-D31)). The **scope block** comes first, above the config
+  diff, whenever the scope changed:
 
-**Account-wide commands** are out of scope under the default, in every set: searches without an
-in-scope `--repo`, every GraphQL call, `gh api` paths with no repository, gists, orgs, `status`,
-`repo list`, and writes that create something outside a repository (`repo create`, `repo fork`,
-`gist create`). A workspace with no GitHub remote has an empty scope, and the launch says so.
-Only the commands [§5.2](#52-the-read-only-set) marks with scope *none* run there.
+  ```text
+  ⚠  Workspace config and GitHub repository scope changed since last run:
+  github-broker repository scope, read from this workspace's .git/config:
+    + x/y      remote "upstream"   added
+    - o/old                        removed
+      o/r      remote "origin"     unchanged
+  --- previous workspace config
+  +++ current workspace config
+  …
+  Accept these workspace config and repository scope changes? [y/N]
+  ```
+
+  The header and the question are this design's, and illustrative. Today the header is
+  `⚠  Workspace config changed since last run:` and the question is
+  `Accept these workspace config changes? [y/N]` (`changePrompter.Prompt` in
+  `internal/cli/run/preflight.go`). The non-interactive refusal's headline is *"Workspace config
+  changed since the last approved launch, and this launch has no terminal to approve it on."*
+  (`ChangedNonInteractiveError.Headline` in `internal/config/snapshot.go`). When only the remotes
+  changed, all three would announce a config change that did not happen, above the block meant to
+  be read first. So each names the scope whenever the scope changed, and names only the scope when
+  the config did not ([BB-D31](#BB-D31)). The non-interactive refusal prints the same block, and
+  its advice names the git config file the scope came from and the scope part's path, beside the
+  workspace config files and the approved-config path it already names.
+- **The trap the block answers.** [OQ-BB6](#OQ-BB6)'s option (d) was declined in part because a
+  widening written in the agent's file *"rides a diff the human may approve alongside an ordinary
+  package change."* By [OQ-BB7](#OQ-BB7)'s ruling the scope rides that same diff, so the same trap
+  is open: in one session an agent asks for a package and adds a remote, and the human reads the
+  package line and presses y. The answer is where and how the block is drawn. It always comes
+  first, it is labeled as the scope, and it names each repository added or removed with the remote
+  it came from. It is never rendered as JSON lines inside the config diff, where a new `owner/repo`
+  string reads like any other value. One y still approves the whole bundle, as ruled. What the
+  block cannot do is make the human read it, the limit [§9.1](#91-the-notification-is-a-social-engineering-channel)
+  states for the notification.
+
+**How the broker gets it** ([BB-D32](#BB-D32)). Once the gate passes, the fresh launch writes the
+approved scope, plus any widening entry, to the store as that launch's scope file,
+`scope/<launch-id>.json`, and only then spawns the broker, handing it the file's name in the spawn
+arguments a restart reuses. The launch id is a random value the fresh launch draws. The file is
+keyed by it, not by the workspace or the container name, because on macos-user two terminals in
+one workspace are two concurrent sessions that share the container name and the preamble's jail
+id, the per-container-name collision [OQ-HD10](host-daemon-ownership.md#OQ-HD10) measured for
+endpoint files. Keyed by workspace, the second session's approval would replace the scope under
+the first session's broker. On the container path the key changes nothing visible: one jail runs
+per container name, and a second terminal attaches to it. The broker reads that file alone:
+never the remotes, and never the approval record. A broker restarted mid-session reads the same
+file, so neither a host `yolo check --accept-config-changes` nor another session's launch, run
+while the jail is up, changes a running jail's scope. The launch's teardown removes the file, and
+one left by a launch that died is collected once that launch is known gone, never by age. The
+launch discloses what the broker starts with: *"github-broker: scope for this workspace: o/r,
+me/r-fork."* **An attach** joins the running jail's broker with the scope its fresh launch
+approved. It reads no remotes and writes nothing, so a remote added mid-session changes nothing
+until the next fresh launch shows it in the diff. An attach whose skew gate restarts the jail is
+that next fresh launch.
+
+```mermaid
+flowchart TD
+  L["fresh launch that starts the broker"] --> R["host reads .git/config as text"]
+  R --> C{"scope and workspace config<br/>match the approval record?"}
+  C -->|yes| W["write this launch's scope file:<br/>approved scope + widening entry"]
+  C -->|"only a part with no record yet,<br/>and it is empty: an empty config or scope"| S["record silently"]
+  S --> W
+  C -->|no| D["diff: scope block first,<br/>then the config diff"]
+  D --> T{"terminal?"}
+  T -->|yes| Q["y/N, default N"]
+  T -->|"no, flag passed"| A["record both parts"]
+  T -->|"no, no flag"| X["refuse the launch"]
+  Q -->|y| A
+  Q -->|N| Y["abort; record untouched"]
+  A --> W
+  W --> B["spawn the broker; it reads only that file"]
+  AT["attach"] --> SK{"skew gate restarts the jail?"}
+  SK -->|no| K["the running broker keeps its scope;<br/>nothing re-read, nothing written"]
+  SK -->|yes| L
+```
+
+**Widening one workspace** ([OQ-BB6](#OQ-BB6), [BB-D33](#BB-D33)). A workspace may never widen its
+own reach, and a plain user-scope list would widen every workspace. The ruled answer is a
+**widening entry**: a user-scope config entry keyed by one workspace's host path, adding
+repositories to that workspace's scope alone. The spelling is illustrative, under the same
+user-scope key as the sets ([§5.7](#57-permission-sets)):
+
+```jsonc
+"brokered": {
+  "github": {
+    "workspaces": {
+      "~/code/app": { "repos": ["org/lib"] }
+    }
+  }
+}
+```
+
+- **Keyed by the host path**, with `~` expanded and symlinks resolved, and matched against the
+  workspace the launch resolved, the path the container name is derived from. Not keyed by a
+  remote: the remotes are re-read at each launch from a file the agent edits, so a remote-keyed
+  entry would let an agent pick which user entry applies to it.
+- **Not in the config diff.** It is user config, which only the host user writes and which the
+  gate trusts on disk ([`config-safety.md`](../reference/config-safety.md#why-user-config-never-prompts)).
+  The launch discloses it instead: *"github-broker: scope widened by user config: org/lib."*
+- **What it may admit** beyond whole repositories, such as account-wide commands or a repository
+  under only some sets, is [OQ-BB9](#OQ-BB9).
+
+**Out of scope means it does not run.** A command whose repository is outside the scope, or that
+names none the broker can check, exits 64. The message names the scope's repositories, and then
+splits by case. For a repository outside the scope, it names the widening entry that would add
+it. For an account-wide command, it says that no widening entry admits one, since no entry can
+under the current design; whether one ever may is [OQ-BB9](#OQ-BB9). It files no request and
+rings nobody. An Allow button for it
+would let a request the agent composed widen the scope, and "read my other private repository" is
+what a prompt-injected agent would ask for. The ruled [OQ-BB1](#OQ-BB1) option's text said such
+reads ring and are grantable for a time. This doc read the maintainer's *"only have visibility into
+the repository that is for that workspace"* as the stricter fence, and [OQ-BB6](#OQ-BB6)'s ruling
+confirmed it by declining its option (e), the ring. For a repository, the widening entry is the
+only way in; for an account-wide command there is none today.
+
+**Account-wide commands** are out of scope in every set: searches without an in-scope `--repo`,
+every GraphQL call, `gh api` paths with no repository, gists, orgs, `status`, `repo list`, and
+writes that create something outside a repository (`repo create`, `repo fork`, `gist create`). A
+workspace with no GitHub remote has an empty scope, and the launch says so. Only the commands
+[§5.2](#52-the-read-only-set) marks with scope *none* run there, unless a widening entry adds a
+repository.
 
 ### 5.7 Permission sets
 
@@ -722,12 +911,15 @@ the implementer picks it, and `yolo config-ref` is its authority once built. It 
   `read-only`, change a window, or make `read-write` standing. That is their call, at their
   scope, and the launch discloses every set that differs from the default:
   *"github-broker: sets from user config: read-only (+ pr comment), review 1h, read-write 15m."*
-- **What is not definable:** a set cannot name repositories (the scope is [§5.6](#56-the-repository-scope)'s),
+- **What is not definable:** a set cannot name repositories (the scope is [§5.6](#56-the-repository-scope)'s,
+  and a widening entry adds repositories to the scope; whether it can limit one to certain sets is
+  [OQ-BB9](#OQ-BB9)'s option C),
   and a set that admits a refused command is a configuration error `yolo check` reports
   ([BB-P8](#BB-P8)).
 - The key at workspace scope is refused, naming the user-scope file
-  ([BB-P9](#BB-P9)). A workspace-keyed spelling for one workspace's widening is
-  [OQ-BB6](#OQ-BB6)'s question.
+  ([BB-P9](#BB-P9)). One workspace's widening lives under the same user-scope key, keyed by that
+  workspace's host path: the widening entry of [§5.6](#56-the-repository-scope), ruled by
+  [OQ-BB6](#OQ-BB6).
 
 ## 6. The doorbell: a persistent desktop notification
 
@@ -778,18 +970,66 @@ A posting process must be an app bundle to use `UNUserNotificationCenter`; a bar
 
 | Option | Buttons and answer | Persistence | State (SOURCED unless marked) |
 | :--- | :--- | :--- | :--- |
-| **terminal-notifier ≥ 3.0** | `-action` buttons (more than one collapses into an **Options** menu); prints the action; `@CLOSED`, `@TIMEOUT`; exit 3 not authorized, 4 no GUI session | "Alerts" style, a per-app user setting in System Settings | Rebuilt on UserNotifications, 3.0.0 on 2026-08-23 and 3.1.0 on 2026-08-30 (MEASURED against the GitHub API). Homebrew's formula (3.1.0) pours a prebuilt bottle on Apple silicon (macOS 14 and later), and Homebrew does not quarantine a bottle, so Gatekeeper does not block it. Where no bottle exists, Intel for one, it builds from source, which needs full Xcode (`depends_on xcode: :build`), not just the Command Line Tools (SOURCED from the formula). **Not** the "actions removed, unmaintained" 2.x that older advice describes |
-| A yolo-shipped helper `.app` | The same API, our own categories and a `.customDismissAction` so a dismissal is reported | as above | Ad-hoc signing is enough for a locally built bundle; a downloaded one needs Developer ID signing and notarization to avoid Gatekeeper (INFERRED) |
+| **terminal-notifier ≥ 3.0** | `-action` buttons (more than one collapses into an **Options** menu); prints the action; `@CLOSED`, `@TIMEOUT`; exit 3 not authorized, 4 no GUI session | "Alerts" style, a per-app user setting in System Settings | **Chosen** ([OQ-BB4](#OQ-BB4)). Rebuilt on UserNotifications, 3.0.0 on 2026-08-23 and 3.1.0 on 2026-08-30 (MEASURED against the GitHub API). Homebrew's formula (3.1.0) pours a prebuilt bottle on Apple silicon (macOS 14 and later), and Homebrew does not quarantine a bottle, so Gatekeeper does not block it. Where no bottle exists, on Intel or on Apple silicon before macOS 14, it builds from source, which needs full Xcode (`depends_on xcode: :build`), not just the Command Line Tools (SOURCED from the formula). **Not** the "actions removed, unmaintained" 2.x that older advice describes |
+| A yolo-shipped helper `.app` | The same API, our own categories and a `.customDismissAction` so a dismissal is reported | as above | Later, once the release signs ([OQ-BB4](#OQ-BB4)). Ad-hoc signing is enough for a locally built bundle; a downloaded one needs Developer ID signing and notarization to avoid Gatekeeper (INFERRED) |
 | alerter 26.5 | `--actions` dropdown, `--timeout`, `--json` | as above | Rejected: still the deprecated `NSUserNotification` plus private keys and a bundle-id swizzle (MEASURED in its source), fragile on macOS 26 |
 | `osascript` `display notification` | none | banner | No buttons, no answer |
 | `osascript` `display dialog`, `choose from list` | 1 to 3 buttons, or any number of list items; `giving up after N` | modal window | Works with nothing installed, but it is a modal window that takes focus, not the toast the brief asked for |
 
 Two facts shape all of them. The answer comes to a process that must still be running, so the
 broker keeps the notifier child alive for the request's life, as on Linux. And the "Alerts"
-style that keeps a notification on screen is the user's setting, not the app's: a first run
-must tell the user to switch it, and a banner that auto-hides still keeps its buttons in
-Notification Center. `timeSensitive` needs a capability an ad-hoc build lacks (INFERRED); it is
-not relied on. Which of these yolo uses is [OQ-BB4](#OQ-BB4).
+style that keeps a notification on screen is the user's setting, not the app's: yolo must tell
+the user to switch it, and a banner that auto-hides still keeps its buttons in Notification
+Center. `timeSensitive` needs a capability an ad-hoc build lacks (INFERRED); it is not relied on.
+
+**What yolo uses** ([OQ-BB4](#OQ-BB4), ruled by delegation): terminal-notifier now, as the default
+path, and yolo's own helper app later. Never a modal dialog.
+
+- **The Homebrew formula brings it** ([BB-D35](#BB-D35)). The formula that
+  [`release.yml`](../../.github/workflows/release.yml) generates for the tap gains
+  `depends_on "terminal-notifier"` only where terminal-notifier's bottle exists: inside
+  Homebrew's macOS, Apple-silicon and macOS-version conditions, such as `on_macos`, `on_arm` and
+  `on_sonoma :or_newer` nested in that order. Whether Homebrew accepts that nesting, or wants the
+  conditions spelled another way, is UNVERIFIED and is checked with the formula change. So
+  `brew install mschulkind-oss/tap/yolo-jail` on an Apple-silicon Mac running macOS 14 or later
+  pours the notifier's bottle, while yolo itself builds from source as it always does: the
+  formula has no `bottle do` block, and its `install` runs `go build` under
+  `depends_on "go" => :build`. Linux Homebrew, Intel Macs and Apple-silicon Macs before macOS 14
+  never get the dependency. There it would build from source with full Xcode, so a hard
+  dependency would make yolo itself fail to install on such a Mac without Xcode, and yolo
+  supports those Macs with podman
+  ([getting started](../../userguide/getting-started.md)).
+- **Optional elsewhere, with a `yolo check` row.** On macOS, with the github pack selected and no
+  terminal-notifier 3.0 or later on `PATH`, `yolo check` shows a warning row. It names
+  `brew install terminal-notifier`, says that an Intel Mac, or an Apple-silicon Mac before
+  macOS 14, builds it from source with full Xcode, and says that requests wait for `yolo approve`
+  until then. The row fires on an Apple-silicon Mac running macOS 14 or later too, for a yolo
+  that did not come from the tap. Without the github pack there is no row.
+- **How the broker drives it** ([BB-D36](#BB-D36)). The broker resolves it once at daemon start,
+  on the launch's `PATH`, to an absolute path, reads its version and discloses both, as it does
+  for `gh` ([§4.1](#41-how-the-broker-runs-gh)). A 2.x is no notifier. Each request gets one child
+  carrying [§6.4](#64-choosing-a-duration)'s three choices as `-action` values, which macOS shows
+  in the **Options** menu, and no `-timeout`, so the notification never times out on its own and
+  the request's own 60-minute expiry governs. The action the child prints is the answer.
+  `@CLOSED` is a Deny, as a dismissal is on Linux.
+- **Every other outcome of the child re-shows, and never allows.** A child that prints
+  `@TIMEOUT` anyway has exited, and its notification is gone. So has one that prints anything
+  other than a known action key or `@CLOSED`, such as a body click (`@CONTENTCLICKED` in the
+  terminal-notifier and alerter lineage, unverified for 3.x), and one that exits with no output
+  other than exit 3 or 4. Each leaves the request pending with nothing on screen, so the broker
+  re-shows it once. A second such outcome for the same request falls back to the no-notifier path
+  of [§6.5](#65-when-there-is-no-notifier-or-nobody-answers): the request stays filed, the
+  launch's terminal gets its notice line, and `yolo approve` answers.
+- **Withdrawing.** When a request is decided elsewhere, the broker ends the child and withdraws
+  the notification. How 3.x withdraws one is the first thing the macOS build measures.
+- **The first notification asks for Alerts.** The first notification the broker posts through a
+  given notifier carries one extra body line: set this app's notification style to Alerts in
+  System Settings, so a request stays on screen. A marker under `GLOBAL_STORAGE/broker/`, keyed by
+  the notifier's bundle identifier, records that the line was shown. So the helper app that later
+  replaces terminal-notifier asks once more, since the style is set per app.
+- **Later, the helper app.** Once yolo's macOS release has a signing step, a yolo-shipped helper
+  `.app` replaces the dependency: the same API, with a dismissal reported through its own
+  `.customDismissAction`.
 
 ### 6.3 What the notification shows
 
@@ -801,10 +1041,12 @@ Rendered by the broker from its own parse ([BB-P4](#BB-P4)), never from a string
   1. the canonical command, with each value longer than 60 characters elided to its first 40,
      its length and a short hash, and stdin shown as `stdin: 412 bytes`;
   2. the repository;
-  3. **what the set hands over**, from the set's definition, never the command: for the default,
-     `read-write: every write to o/r, merges and deletes included, for 15 min`. The button grants
-     the set, not the command shown above it, and the human must be told so in the notification
-     itself;
+  3. **what the set hands over**, from the set's definition, never the command, naming every
+     repository in the jail's scope, a widening entry's included under [OQ-BB9](#OQ-BB9)'s
+     leaning A (under its option C, only the repositories that set may be used on): for the default,
+     `read-write: every write to o/r and me/r-fork, merges and deletes included, for 15 min`. The
+     button grants the set, not the command shown above it, and the human must be told so in the
+     notification itself;
   4. the jail's workspace path as the host sees it, and the agent if the forwarder reported one,
      marked as reported by the jail;
   5. the request id, the time it expires, and `yolo approve r-3f9a0c21` as the alternative;
@@ -818,7 +1060,7 @@ Rendered by the broker from its own parse ([BB-P4](#BB-P4)), never from a string
 GNOME shows three buttons, so the notification carries three, and every longer choice goes through
 `yolo approve`:
 
-| Button (the leaning in [OQ-BB3](#OQ-BB3)) | What it grants |
+| Button ([OQ-BB3](#OQ-BB3), ruled A) | What it grants |
 | :--- | :--- |
 | **Allow once** | This exact command, one use, valid 15 minutes |
 | **Allow read-write 15 min** | The request's set, `read-write` by default, for that set's window and use cap: 15 minutes and 25 uses by default. Under a user's own sets the label names the set and its window, such as **Allow review 1 h** |
@@ -836,8 +1078,9 @@ requested, and none exceeds the ceiling.
 ### 6.5 When there is no notifier, or nobody answers
 
 **No notifier** means any of: no session bus in the launch's environment, no owner of
-`org.freedesktop.Notifications`, no `actions` capability, xfce's Do Not Disturb, macOS exit 3 or 4,
-or no macOS notifier at all. Then:
+`org.freedesktop.Notifications`, no `actions` capability, xfce's Do Not Disturb, terminal-notifier's
+exit 3 or 4, or no terminal-notifier 3.0 or later on a Mac, where `yolo check` names the install
+([§6.2](#62-macos)). Then:
 
 1. **The request is filed anyway.** It waits for `yolo approve` exactly as for a button.
 2. **The launch's terminal gets one notice line**, printed by the launching `yolo` process above
@@ -904,17 +1147,23 @@ Rules:
   jails, even two on one repository, and never spans launches.
 - **The store** lives at `GLOBAL_STORAGE/broker/github/` (under `~/.local/share/yolo-jail`), `0700`,
   one JSON file per request and grant, in its own directory so that no sweep of another store
-  ever reaps a pending human decision. Each workspace's pinned repository scope
-  ([§5.6](#56-the-repository-scope)) is a file under `scope/` there. yolo mounts it into no jail,
-  and a `mounts` entry that would is refused at workspace scope and disclosed at user scope
-  ([BB-D26](#BB-D26)).
-- **One writer, serialized.** Every mutation, from any broker or `yolo approve`, goes through one
-  function under an `flock` on the store. A decision names the request state it saw; the first
-  decision written wins, and a later one is told the request is already decided (unYOLO's
-  `expected_revision`, re-derived, since two front-ends now exist).
+  ever reaps a pending human decision. Each fresh launch's scope, the approved scope plus any
+  widening entry, is a file under `scope/` there, keyed by a launch id rather than by the
+  workspace, written by the fresh launch that approved it and read by that launch's broker
+  ([§5.6](#56-the-repository-scope), [BB-D32](#BB-D32)). The approved scope itself lives in the
+  config-change gate's approval record, not here ([BB-D30](#BB-D30)). yolo mounts neither into
+  any jail. A `mounts` entry reaching the store is refused at workspace scope and disclosed at
+  user scope ([BB-D26](#BB-D26)). One reaching the approval record can only read it, since every
+  `mounts` bind is read-only ([BB-D34](#BB-D34)).
+- **One writer, serialized.** Every mutation, from any broker, `yolo approve` or the launch
+  writing a scope file, goes through one function under an `flock` on the store. A decision names
+  the request state it saw; the first decision written wins, and a later one is told the request
+  is already decided (unYOLO's `expected_revision`, re-derived, since two front-ends now exist).
 - **Retention:** decided requests and ended grants stay 7 days for `yolo approve` to show, then go.
-  The audit log keeps the record. A scope pin is never aged out: only
-  [OQ-BB6](#OQ-BB6)'s mechanism changes one.
+  The audit log keeps the record. A launch's scope file is removed by that launch's teardown, or
+  collected once the launch is known gone, and is never aged out. The approved scope it came from is part of the config-change
+  gate's approval record ([`config-safety.md`](../reference/config-safety.md#file-locations)),
+  which nothing ages out either.
 
 ## 8. Audit
 
@@ -974,6 +1223,13 @@ Everything the agent controls, it can use to talk the human into a yes. So:
 What remains: a human can still be persuaded by a plausible command. The notification makes the
 real command legible; it cannot make the human read it.
 
+**The launch's config diff is a second such channel.** The agent writes the remotes the scope is
+read from, and a scope change is approved in the same diff as a package change
+([OQ-BB7](#OQ-BB7)). So the scope never appears as a JSON line inside that diff. It is the
+labeled scope block at the diff's head, naming each repository added or removed and the remote it
+came from ([§5.6](#56-the-repository-scope)). The same limit applies: the block makes a new
+repository legible, and it cannot make the human read it.
+
 ### 9.2 Prompt fatigue
 
 A doorbell that rings too often trains a reflexive yes, which is worse than no doorbell because
@@ -985,6 +1241,10 @@ belongs in a standing set, and a user can put it there ([§5.7](#57-permission-s
 is the evidence for moving it. The permission-set ruling pushes the other way too. A read-write
 grant rings once and then covers merges and deletes unseen for its window. A user who would say no
 to those defines a narrower set, and the audit log shows which commands ran under which grant.
+The scope asks rarely by construction: once, at the first broker launch of each workspace that
+has a GitHub remote, and after that only at a fresh launch whose remotes, or their readability,
+changed, a removal included ([§5.6](#56-the-repository-scope)). A widening entry, being user
+config, never asks at all.
 
 ### 9.3 A jail forging an approval
 
@@ -995,7 +1255,10 @@ Every path to a decision is host-only ([BB-P3](#BB-P3)):
   `mounts` entry could add one, and the launch should say so), and is accepted only from the
   notification server's current owner;
 - the macOS answer arrives on the stdout of a child the broker started;
-- `yolo approve` writes a store the jail cannot see.
+- `yolo approve` writes a store the jail cannot see;
+- the scope is approved through the config-change gate, whose record is host-side and mounted by
+  yolo into no jail. A `mounts` entry can only read that record, since every `mounts` bind is
+  read-only, so no mount lets a jail write an approval ([BB-D34](#BB-D34)).
 
 The jail's only channel to the broker is the framed request, and no request field is read as a
 decision, a grant, a jail identity or a duration. **What this does not stop:** any process running
@@ -1043,6 +1306,9 @@ without its own Allow once.
   is the only lever here.
 - **A user's own `mounts` of the broker's directory or the host `gh` login.** At user scope that
   is the user's authority, so the launch discloses it rather than refusing it ([BB-D26](#BB-D26)).
+- **A read-only mount of the approvals directory**, at either scope. It shows every workspace's
+  approved config and GitHub scope, repository names rather than a credential, and it is not
+  fenced ([BB-D34](#BB-D34)). It cannot write an approval.
 - **git.** `git push` and `git fetch` do not go through this broker; the jail uses its own
   credential or has none. The credential-injecting proxy for git is B1b
   ([§13](#13-what-this-does-not-cover-and-the-other-two-tiers)).
@@ -1079,33 +1345,49 @@ of unYOLO's ideas behind triggers. The asynchronous ruling fires three of them:
 1. **The read path and the audit log.** A `github` pack shipping the `github-broker` loophole
    (off until enabled, R2 of [`loophole-system.md`](../reference/loophole-system.md#principles))
    and the jail's `gh` forwarder; the broker's `gh` execution ([§4.1](#41-how-the-broker-runs-gh));
-   the classifier with the `read-only` set, the refusals, and the repository scope with its pin
-   and disclosures ([§5.6](#56-the-repository-scope)); the audit log, `yolo audit`, and the mount
-   fence ([BB-D26](#BB-D26)). The forwarder's placement waits on [OQ-BB8](#OQ-BB8).
+   the classifier with the `read-only` set and the refusals; the repository scope, read at every
+   fresh launch, recorded as the approval record's scope part, shown as the scope block at the
+   head of the config-change diff, recorded by host `yolo check --accept-config-changes` too where
+   the check would start the broker, and handed to the broker in the launch's scope file
+   ([§5.6](#56-the-repository-scope), [BB-D30](#BB-D30) to [BB-D32](#BB-D32)); the audit log,
+   `yolo audit`, and the mount fence ([BB-D26](#BB-D26)). The forwarder's placement waits on [OQ-BB8](#OQ-BB8).
    Every read-write command returns exit 77 with *"writes need approval, which this version cannot
    ask for"*, audited. Useful on day one: the agent reads PRs, runs and issues with no token in the jail.
 2. **Writes on Linux.** The `read-write` set and set grants, user-scope set configuration
-   ([§5.7](#57-permission-sets)), the request store, the bounded wait, the D-Bus notifier,
+   ([§5.7](#57-permission-sets)) and the widening entry under the same key
+   ([BB-D33](#BB-D33)), the request store, the bounded wait, the D-Bus notifier,
    `yolo approve`, and the answer as a ping. The ping needs `yolo notify` and its box, step 1 of
    [`agent-event-watchers.md` §10](agent-event-watchers.md#10-what-i-would-build-in-order), and a
    deliverer in the agent's pack to reach the model (steps 3 and 4 there, for Claude and pi). It
    needs neither step 2 (the `sidecar` kind) nor step 6 (host-side sidecars, which wait on
    [OQ-EW1](agent-event-watchers.md#OQ-EW1)). Until a deliverer lands for an agent, `yolo gh status` carries the answer.
-3. **macOS.** The notifier [OQ-BB4](#OQ-BB4) picks, and the macos-user endpoint grant measured on
-   a Mac.
+3. **macOS.** terminal-notifier as the notifier ([§6.2](#62-macos)): the broker driving it as a
+   child with the three choices, `@CLOSED` as a Deny, every other outcome re-showing the request
+   and never allowing it, and the first notification's Alerts line ([BB-D36](#BB-D36)); the dependency, on Apple silicon running macOS 14 or later, in the formula
+   [`release.yml`](../../.github/workflows/release.yml) generates, and the `yolo check` row
+   ([BB-D35](#BB-D35)); and the macos-user endpoint grant measured on a Mac. yolo's own signed
+   helper app replaces the dependency later, once the macOS release has a signing step
+   ([OQ-BB4](#OQ-BB4)).
 
-[OQ-BB1](#OQ-BB1) and [OQ-BB2](#OQ-BB2) are ruled. What still waits on a ruling: step 1's
-forwarder placement ([OQ-BB8](#OQ-BB8)) and whether its scope is pinned once
-([OQ-BB7](#OQ-BB7)); step 2's buttons ([OQ-BB3](#OQ-BB3)); step 3's notifier
-([OQ-BB4](#OQ-BB4)); and any way to widen one workspace's scope ([OQ-BB6](#OQ-BB6)), which no step
-needs: until it is ruled, out of scope means refused.
+[OQ-BB1](#OQ-BB1), [OQ-BB2](#OQ-BB2), [OQ-BB3](#OQ-BB3), [OQ-BB4](#OQ-BB4), [OQ-BB6](#OQ-BB6) and
+[OQ-BB7](#OQ-BB7) are ruled. What still waits on a ruling: step 1's forwarder placement
+([OQ-BB8](#OQ-BB8)), and what step 2's widening entry may admit beyond whole repositories
+([OQ-BB9](#OQ-BB9)). Until the widening entry is built, out of scope means refused with no way
+in.
 
 **Testing constraints.** No test may call GitHub or start an agent. The classifier is tested on
 argv alone, against a table pinned to a `gh` version; the executor against a fake `gh` that
 reports the environment, cwd and argv it received, which is how the refusals in
 [§5.5](#55-argv-hazards) get a test that fails when the scrub is deleted. The D-Bus notifier is
-tested against a private `dbus-daemon` with a fake notification server. A human measures the three
-desktops by hand before [§6.1](#61-linux)'s table is claimed as yolo's behavior.
+tested against a private `dbus-daemon` with a fake notification server, and the macOS notifier
+against a fake `terminal-notifier` that prints a chosen action. The scope's approval is tested
+through the launch's own call site, since
+[`config-safety.md`](../reference/config-safety.md#where-it-runs-and-where-it-deliberately-does-not)
+records a gate whose call was deleted with the unit tests still green: the test must fail if the
+launch stops reading the remotes or stops handing the scope to the gate. A human measures the
+three desktops by hand before [§6.1](#61-linux)'s table is claimed as yolo's behavior, and
+installs from the tap on an Apple-silicon Mac running macOS 14 or later before [§6.2](#62-macos)'s
+is.
 
 ## 12. What done looks like
 
@@ -1130,9 +1412,14 @@ desktops by hand before [§6.1](#61-linux)'s table is claimed as yolo's behavior
    log shows each under the grant's id.
 8. `gh pr view 1 -R other/private`, `gh search code foo` and `gh api graphql -f query='{viewer{login}}'`
    each exit 64 naming the scope, with or without a live grant, and ring nobody.
-9. Under [OQ-BB7](#OQ-BB7)'s leaning, a `git remote add` in the jail followed by a restart does
-   not widen the scope: the launch names the new remote as outside it. A worktree `.git` file whose
-   `gitdir:` points at another project pins an empty scope and says why.
+9. After `git remote add upstream https://github.com/x/y` in the jail, `gh pr view 1 -R x/y`
+   still exits 64, and an attach that does not restart the jail changes nothing. The next fresh
+   launch, an attach whose skew gate restarts the jail included, opens its diff with the
+   scope block naming `x/y` added from remote `upstream`. N aborts the launch and leaves the
+   approval record untouched. With no terminal the launch refuses, naming
+   `--accept-config-changes` and the git config file. y admits `x/y`, and the launch after that
+   asks nothing. A worktree `.git` file whose `gitdir:` points at another project reads as an
+   empty scope and says why.
 10. A user-scope set definition that admits `auth token` fails `yolo check`; the sources key in
     the workspace config is refused. `yolo approve --for` past a set's ceiling is refused.
 11. Stopping the jail ends its grants: after a restart, a write rings again. So does a restart
@@ -1143,6 +1430,26 @@ desktops by hand before [§6.1](#61-linux)'s table is claimed as yolo's behavior
 14. With the pack selected, a workspace `mounts` entry of `~/.local/share/yolo-jail`,
     `GLOBAL_STORAGE/broker` or the host `gh` config directory refuses the launch; the same entry
     at user scope is disclosed.
+15. A workspace whose launches never start the broker keeps its approval record byte for byte and
+    is not asked again, and a host `yolo check --accept-config-changes` there writes no scope
+    part. Its first launch with the pack enabled asks once if it has a GitHub remote, with the
+    scope block against none, and records an empty scope silently if it has none. A first launch
+    with a `{}` config and a GitHub remote that is answered N leaves no record of either part.
+16. On macos-user, two sessions in one workspace each get their own scope file. A second
+    session approving a new remote leaves the first session's broker, and a restart of it, on
+    the scope its own launch approved.
+17. A widening entry for `~/code/app` naming `org/lib` lets `gh pr view 1 -R org/lib` run in
+    that workspace, disclosed at launch and absent from the diff. The same command in any other
+    workspace exits 64, naming the widening entry that would admit it. `gh search code foo`
+    exits 64 in every workspace, saying no widening entry admits an account-wide command.
+18. On an Apple-silicon Mac running macOS 14 or later, `brew install mschulkind-oss/tap/yolo-jail`
+    pours terminal-notifier's bottle and builds yolo from source. A request shows its three
+    choices in the **Options** menu, the first notification carries the Alerts line, and closing
+    the notification denies; a fake notifier that prints `@TIMEOUT`, an unknown line or nothing
+    re-shows the request once and then leaves it to `yolo approve`, never allowing it. On an
+    Intel Mac, or an Apple-silicon Mac before macOS 14, the tap install does not pull
+    terminal-notifier; without it, `yolo check` with the github pack selected shows the row, and a
+    request waits for `yolo approve`.
 
 ## 13. What this does not cover, and the other two tiers
 
@@ -1396,7 +1703,39 @@ covered:
    **Answer:**
    > _(empty — fill in when decided)_
 
-8. ✅ <a id="OQ-B1b"></a>**[OQ-B1b](#OQ-B1b): Vendor unYOLO's policy engine, or re-derive it?**
+8. 💬 <a id="OQ-BB9"></a>**[OQ-BB9](#OQ-BB9): What may a workspace's widening entry admit?**
+   Raised by [OQ-BB6](#OQ-BB6)'s ruling, which chose a user-scope entry keyed by workspace
+   ([§5.6](#56-the-repository-scope)) but not what the entry holds. The option's example listed
+   repositories to read (`{"read": ["org/lib"]}`). In the ruled design, though, the scope bounds
+   every set, and account-wide commands are refused in every workspace with no way in:
+   unqualified search, every GraphQL call, gists, `status`. This decides whether a widened
+   repository is writable under a read-write grant, and whether any workspace can ever run an
+   account-wide read.
+
+   - **A — Whole repositories, joining the scope for every set.** A listed repository behaves
+     like one read from a remote: its reads are free, and its writes ring for the request's set.
+     Account-wide commands stay refused everywhere. Nothing new in the model. The cost: a
+     read-write grant rung for `o/r` also covers merges on `org/lib` for its window, which the
+     notification names ([§6.3](#63-what-the-notification-shows)).
+   - **B — A, plus a per-entry switch admitting account-wide commands** in that workspace, in
+     whatever set admits them. `gh search code` and GraphQL queries become usable where the user
+     wants them, at the cost of the widest read the login has, for that workspace.
+   - **C — Repositories, each with the sets it may be used under,** such as `org/lib` under
+     `read-only` alone. A user can say "read, never write" for a borrowed repository. The cost is
+     a dimension the model does not have today: the scope says where and the sets say what, and
+     nothing says "this set, only here".
+
+   <!-- vantage: oq id=OQ-BB9 leaning="A: whole repositories that join the workspace's scope for every set, with account-wide commands still refused everywhere." -->
+
+   _Leaning:_ **A.** It is the smallest shape that does what the ruling asks, widening that
+   workspace alone. It keeps the sets about what and the scope about where ([BB-P8](#BB-P8)). And
+   starting narrow needs no migration later, the argument [OQ-BB1](#OQ-BB1)'s leaning made. B and
+   C each fit on top of A later without changing an entry written for A.
+
+   **Answer:**
+   > _(empty — fill in when decided)_
+
+9. ✅ <a id="OQ-B1b"></a>**[OQ-B1b](#OQ-B1b): Vendor unYOLO's policy engine, or re-derive it?**
    `authorization/policy` + `authorization/budget` + `internal/copyx` are MIT, stdlib-only, about
    2,100 lines with a 1,456-line test file, and drop into `vendor/` with no new module
    requirement ([§A.6](#a6-recommendation--build-b1b-vendor-the-policy-engine-do-not-adopt-gh-broker)).
@@ -1460,21 +1799,28 @@ covered:
 | <a id="BB-D16"></a>[`BB-D16`](#15-decision-ledger) | *Implementation decision.* The broker reads the host token once, host-side, only to redact it from output and count redactions in the audit line | 2026-09-28 | [§4.2](#42-what-crosses-back) | — |
 | <a id="BB-D17"></a>[`BB-D17`](#15-decision-ledger) | *Implementation decision.* The broker is not offered at `yolo host`, where the agent is the user; Apple Container reports it inert; a nested jail reports its host `gh` unauthenticated | 2026-09-28 | [§4.4](#44-per-notch-and-backend) | — |
 | <a id="BB-D18"></a>[`BB-D18`](#15-decision-ledger) | *Implementation decision.* A launch with the broker enabled and a `GH_TOKEN` or `GITHUB_TOKEN` reaching the jail's environment discloses that the token bypasses the broker, and removes nothing. Its limit, stated: a token in a workspace file (this workspace's `.env`) is invisible to it | 2026-09-28 | [§4.3](#43-the-jail-side) | — |
-| <a id="BB-D19"></a>[`BB-D19`](#15-decision-ledger) | *Implementation decision.* How the scope is read, whenever it is read: the host reads the workspace's `.git/config` as text with no host `git` process and no symlink following, ignores `include` directives, and follows a worktree's `gitdir:` only when the target has git's worktree shape (a `gitdir` back-pointer naming this workspace's `.git` file, and a `commondir` whose `worktrees/` holds it), otherwise pinning an empty scope with a disclosure; it takes every `github.com` remote as `owner/repo`, records the list in the store keyed by the workspace's host path, and discloses it. *Revised 2026-09-29:* **when** it is read, once or at each launch, was recorded here as a decision; it departs from the ruled option's text and is now [OQ-BB7](#OQ-BB7) | 2026-09-29 | [§5.6](#56-the-repository-scope) | — |
-| <a id="BB-D20"></a>[`BB-D20`](#15-decision-ledger) | *A reading of [OQ-BB1](#OQ-BB1)'s ruling, to be confirmed, not a decision.* The ruled option's text had out-of-scope reads ring, and [OQ-BB6](#OQ-BB6) (e) would restore that. The scope bounds every set. A command whose repository is outside it, or that names none the broker can check (unqualified search, every GraphQL call, `gh api` paths with no repository, gists, orgs, `status`, `repo list`, `repo create`, `repo fork`), exits 64 naming the pinned repositories, is audited as `out-of-scope`, and files no request: no notification can widen the scope. A search is in scope only when its complete qualifier set, from flags (`--repo`, `--owner`) and query text together, names in-scope repositories alone | 2026-09-29 | [§5.6](#56-the-repository-scope) | — |
+| <a id="BB-D19"></a>[`BB-D19`](#15-decision-ledger) | *Implementation decision.* How the scope is read: the host reads the workspace's `.git/config` as text with no host `git` process and no symlink following, ignores `include` directives, and follows a worktree's `gitdir:` only when the target has git's worktree shape (a `gitdir` back-pointer naming this workspace's `.git` file, and a `commondir` whose `worktrees/` holds it), otherwise reading an empty scope with a disclosure; it takes every `github.com` remote as `owner/repo`, keeping each remote's name for the diff. *Revised 2026-09-29, twice:* **when** it is read was first recorded here as a decision, then put to [OQ-BB7](#OQ-BB7), whose ruling sets it: at every fresh launch that starts the broker, never at an attach. The list now goes to the config-change gate ([BB-D30](#BB-D30)), not into the store keyed by the workspace's host path, which was the pin | 2026-09-29 · revised 2026-09-29 | [§5.6](#56-the-repository-scope) | — |
+| <a id="BB-D20"></a>[`BB-D20`](#15-decision-ledger) | *A reading of [OQ-BB1](#OQ-BB1)'s ruling, confirmed 2026-09-29 by [OQ-BB6](#OQ-BB6)'s, which declined its option (e), the ring.* The ruled option's text had out-of-scope reads ring. The scope bounds every set. A command whose repository is outside it, or that names none the broker can check (unqualified search, every GraphQL call, `gh api` paths with no repository, gists, orgs, `status`, `repo list`, `repo create`, `repo fork`), exits 64 naming the scope's repositories, is audited as `out-of-scope`, and files no request: no notification can widen the scope. The message splits by case: for a repository outside the scope it names the widening entry that would add it, and for an account-wide command it says that no widening entry admits one, since none can under the current design and whether one ever may is [OQ-BB9](#OQ-BB9). A search is in scope only when its complete qualifier set, from flags (`--repo`, `--owner`) and query text together, names in-scope repositories alone | 2026-09-29 · confirmed 2026-09-29 | [§5.6](#56-the-repository-scope) | — |
 | <a id="BB-D21"></a>[`BB-D21`](#15-decision-ledger) | *Implementation decision.* A source's permission sets are an ordered list; each has a name, a mode (standing or windowed), rules in the classifier's vocabulary, and for a windowed set a window and a use cap. A command runs if the jail holds any set admitting it; otherwise the request names the first windowed set in order that admits it. GitHub's defaults: `read-only`, standing, [§5.2](#52-the-read-only-set)'s table; `read-write`, windowed, every command parsed, in scope and not refused, 15 minutes and 25 uses. The use cap is [OQ-B](#15-decision-ledger)'s second bound, carried over by this doc and **not** part of the maintainer's words; confirm or drop it | 2026-09-29 | [§5.7](#57-permission-sets) | — |
 | <a id="BB-D22"></a>[`BB-D22`](#15-decision-ledger) | *Implementation decision.* Refusals are the broker's code, checked before any set, and are not a set property: a set that admits a refused command is a configuration error `yolo check` reports, and no grant or answer runs one. A set cannot name repositories | 2026-09-29 | [§5.4](#54-never-brokered), [§5.7](#57-permission-sets) | — |
 | <a id="BB-D23"></a>[`BB-D23`](#15-decision-ledger) | *Implementation decision.* A source's sets are configured at user scope only, under one key per source, spelled so it does not collide with `yolo broker`; that key at workspace scope is refused, since the agent can edit the workspace. Every set is definable there, `read-only` included, and the launch discloses every set that differs from the default | 2026-09-29 | [§5.7](#57-permission-sets) | — |
 | <a id="BB-D24"></a>[`BB-D24`](#15-decision-ledger) | *Implementation decision.* A grant hands over exactly the set the request named, or Allow once; the human may choose its time up to the set's ceiling and fewer uses, but no front-end hands over a different set, so `yolo approve` has no `--set` flag. The notification states what the set hands over, from the set's definition, and labels its duration button with the set's name and window | 2026-09-29 | [§6.3](#63-what-the-notification-shows), [§7](#7-grants-and-the-request-store) | — |
 | <a id="BB-D25"></a>[`BB-D25`](#15-decision-ledger) | *Implementation decision,* answering [OQ-B1b](#OQ-B1b): unYOLO's policy engine is re-derived, not vendored. Refusal before any set, a code-owned refusal list, and narrowing-only grants are written against `gh`'s command paths. Revisit if a second broker makes one policy file across services worth wanting | 2026-09-29 | [§14](#14-open-questions) | — |
-| <a id="BB-D26"></a>[`BB-D26`](#15-decision-ledger) | *Implementation decision.* With the github pack selected, a `mounts` entry whose host source is, contains or lies inside `GLOBAL_STORAGE/broker/` (the store, the scope pins and the audit log) or the host `gh` config directory is refused at workspace scope, naming the entry, and disclosed at user scope. `validateMounts` puts no limit on a host path today, and `mounts` is a workspace key | 2026-09-29 | [§7](#7-grants-and-the-request-store), [§8](#8-audit) | — |
+| <a id="BB-D26"></a>[`BB-D26`](#15-decision-ledger) | *Implementation decision.* With the github pack selected, a `mounts` entry whose host source is, contains or lies inside `GLOBAL_STORAGE/broker/` (the store, the launches' scope files and the audit log) or the host `gh` config directory is refused at workspace scope, naming the entry, and disclosed at user scope. `validateMounts` puts no limit on a host path today, and `mounts` is a workspace key | 2026-09-29 | [§7](#7-grants-and-the-request-store), [§8](#8-audit) | — |
 | <a id="BB-D27"></a>[`BB-D27`](#15-decision-ledger) | *Implementation decision.* Every grant carries the broker's start id, a random value drawn when that broker starts, and a broker honors only grants carrying its own. The preamble's jail id is per workspace and survives restarts, so cleanup at exit alone would let a grant left by a killed broker match the next launch | 2026-09-29 | [§7](#7-grants-and-the-request-store) | — |
 | <a id="BB-D28"></a>[`BB-D28`](#15-decision-ledger) | *Implementation decision.* A positional argument that names a host file (`release upload`, `release create` assets, `repo deploy-key add`, `ssh-key add`, `gpg-key add`, and every other command whose usage takes a file, pattern or directory argument in the tested range) is refused, or taken from the forwarder's stdin where the command reads `-` | 2026-09-29 | [§5.4](#54-never-brokered) | — |
 | <a id="BB-D29"></a>[`BB-D29`](#15-decision-ledger) | *A reading, to be confirmed.* Every windowed set declares a ceiling, `max_window`, and no front-end grants past it; `read-write` defaults to `session` (the jail's life, capped at 12 hours). This keeps `yolo approve --for 1h` and `--for session` a narrowing under [OQ-B](#15-decision-ledger)'s policy ceiling ≥ request ≥ grant, where a set with a window alone would make them a widening | 2026-09-29 | [§5.7](#57-permission-sets), [§7](#7-grants-and-the-request-store) | — |
+| <a id="BB-D30"></a>[`BB-D30`](#15-decision-ledger) | *Implementation decision,* carrying out [OQ-BB7](#OQ-BB7)'s ruling. The approved scope is a second part of the config-change gate's approval record, `paths.ApprovalsDir()/<container-name>.scope.json`, holding the approved `owner/repo` list per source, sorted and serialized by `SnapshotJSON`. The ruling's *"approval snapshot"* is carried out as this second part of the same record, not inside the snapshot file, because the snapshot's serialization is a frozen contract: one byte of drift re-prompts every workspace on the machine. The workspace-config part beside it is unchanged. **The scope part is written, and compared, only by a fresh launch or a host `yolo check` that would start the broker** (the github pack selected, its loophole enabled, a backend that runs it); everywhere else only the config part is written, so a workspace whose launches never start a broker never gains the file and is never asked again. A fresh launch that starts the broker compares both parts, and any scope difference, a repository added or removed, is a change. With no scope part yet, a non-empty scope diffs against none, so the first such launch of each workspace with a GitHub remote asks once, a `{}` config included; an empty scope records silently. That first ask is an exception to [`config-safety.md`](../reference/config-safety.md#principles)'s P3, since selecting the user-scope-only github pack makes every such workspace ask once. It holds because the prompt is about the agent-editable remotes, not the user's pack edit, and P1 and P2 place the gate there. Where the scope part is in play, both parts are written together, by a y, `--accept-config-changes`, a host `yolo check --accept-config-changes`, which then reads the remotes too, or silently for a part that has no record yet and nothing to approve (a `{}` config, an empty scope); an N or a refusal writes neither. So the no-record `{}` branch of `CheckConfigChanges`, which today writes the config part before it returns, defers that write until the scope part is decided, and both parts land together or neither does. A path that deletes the record, such as the capture cleanup, deletes both; deleting either alone fails safe, since a missing part diffs against none | 2026-09-29 | [§5.6](#56-the-repository-scope) | pending |
+| <a id="BB-D31"></a>[`BB-D31`](#15-decision-ledger) | *Implementation decision,* answering the trap [OQ-BB6](#OQ-BB6)'s option (d) named, a widening riding along a routine diff. When the scope changed, the config-change diff opens with a labeled scope block, above the config diff, naming each repository added or removed and the remote it came from. The scope is never rendered as JSON lines inside the config diff. One y approves the whole bundle, as ruled. The header above the diff, the y/N question and `ChangedNonInteractiveError.Headline` name the scope whenever it changed, and only the scope when the config did not; today they read *"Workspace config changed since last run"*, *"Accept these workspace config changes?"* and *"Workspace config changed since the last approved launch…"*, which would announce a config change that did not happen when only the remotes moved. The non-interactive refusal prints the same block, and its advice names the git config file the scope was read from and the scope part's path, beside the workspace config files and the approved-config path it names today | 2026-09-29 | [§5.6](#56-the-repository-scope), [§9.1](#91-the-notification-is-a-social-engineering-channel) | pending |
+| <a id="BB-D32"></a>[`BB-D32`](#15-decision-ledger) | *Implementation decision.* Once the gate passes, the fresh launch writes the approved scope plus any widening entry to the store as that launch's scope file, `scope/<launch-id>.json`, keyed by a random id the launch draws, then spawns the broker with the file's name in spawn arguments a restart reuses. The broker reads only that file: never the remotes, never the approval record. The file is keyed by launch, not by workspace or container name, because on macos-user two terminals in one workspace are two concurrent sessions sharing the container name and the preamble's jail id, the collision [OQ-HD10](host-daemon-ownership.md#OQ-HD10) measured for endpoint files, and one session's approval must not replace the scope under another's running or restarted broker. On the container path one jail runs per container name and a second terminal attaches, so the key changes nothing there. A restarted broker reads the same file, so neither a host pre-approval nor another session's launch while the jail runs changes its scope. The launch's teardown removes the file, and one left by a launch that died is collected once that launch is known gone, never by age. An attach reads no remotes and writes nothing, unless its skew gate restarts the jail, which is then a fresh launch | 2026-09-29 | [§5.6](#56-the-repository-scope), [§7](#7-grants-and-the-request-store) | pending |
+| <a id="BB-D33"></a>[`BB-D33`](#15-decision-ledger) | *Implementation decision,* forced by [OQ-BB7](#OQ-BB7)'s ruling. The widening entry [OQ-BB6](#OQ-BB6) ruled for is keyed by the workspace's host path, `~` expanded and symlinks resolved, and matched against the path the launch resolved. It is not keyed by a remote, the other key option (a) named: that key assumed a pinned scope, and remotes are now re-read at each launch from a file the agent edits, so a remote key would let an agent pick which entry applies to it. The entry lives under the same user-scope key as the sets, is not part of the config-change diff (user config never prompts, [`OQ-S1`](../reference/config-safety.md#oq-s1)), and is disclosed at launch. What it may hold beyond whole repositories is [OQ-BB9](#OQ-BB9) | 2026-09-29 | [§5.6](#56-the-repository-scope), [§5.7](#57-permission-sets) | pending |
+| <a id="BB-D34"></a>[`BB-D34`](#15-decision-ledger) | *Implementation decision,* following from [OQ-BB7](#OQ-BB7)'s ruling, which puts the approved scope under `paths.ApprovalsDir()`. **No mount fence for it.** Integrity needs none: every `mounts` entry becomes a read-only bind (`-v host:container:ro` in `internal/cli/run/assemble.go`), Apple Container skips them where it cannot honor `:ro` (`roBindsUnsupported`), and macos-user does not honor them (`noteMacosUserCtxMountGaps`), so no mount can write the record or its scope part. The host-side location is the whole protection, as [`config-safety.md`](../reference/config-safety.md#file-locations) says of the config part, whose threat is integrity, not secrecy. Secrecy does not earn one either: a read-only mount of `approvals/` shows every workspace's approved config and GitHub scope, which are repository names, not a credential, and at workspace scope that mount is itself in the config diff a human approves. So it is not refused. *Revised 2026-09-29:* this row first extended [BB-D26](#BB-D26)'s refusal to the approvals directory, on the premise that a mount could write it; none can | 2026-09-29 · revised 2026-09-29 | [§7](#7-grants-and-the-request-store), [§9.3](#93-a-jail-forging-an-approval) | pending |
+| <a id="BB-D35"></a>[`BB-D35`](#15-decision-ledger) | *Implementation decision,* carrying out [OQ-BB4](#OQ-BB4)'s ruling. The formula [`release.yml`](../../.github/workflows/release.yml) generates gains `depends_on "terminal-notifier"` only where terminal-notifier's bottle exists: inside Homebrew's `on_macos`, `on_arm` and `on_sonoma :or_newer` conditions, a nesting the formula change verifies. So Linux Homebrew, Intel Macs and Apple-silicon Macs before macOS 14 never get it, since there it would build from source with full Xcode and a hard dependency would fail yolo's own install on such a Mac without Xcode. The ruling's *"on Apple silicon, where Homebrew pours a bottle"* is carried out as Apple silicon on macOS 14 or later, where the bottle is. `brew install mschulkind-oss/tap/yolo-jail` pours the notifier's bottle while yolo itself builds from source, since the formula has no `bottle do` block. On macOS, with the github pack selected and no terminal-notifier 3.0 or later on `PATH`, `yolo check` shows a warning row naming `brew install terminal-notifier`, the full-Xcode source build on Intel or on Apple silicon before macOS 14, and that requests wait for `yolo approve`. The row fires on Apple silicon on macOS 14 or later too for an install not from the tap, and not at all without the pack | 2026-09-29 | [§6.2](#62-macos) | pending |
+| <a id="BB-D36"></a>[`BB-D36`](#15-decision-ledger) | *Implementation decision.* The broker resolves terminal-notifier once at daemon start on the launch's `PATH`, discloses its path and version, and treats a version below 3.0 as no notifier. One child per request carries the three choices as `-action` values and no `-timeout`, and lives until the request is decided; the printed action is the answer and `@CLOSED` is a Deny. Every other outcome leaves the request with nothing on screen and is never an Allow: `@TIMEOUT`, any other output (such as a body click, `@CONTENTCLICKED` in the terminal-notifier and alerter lineage, unverified for 3.x), and an exit with no output other than exit 3 or 4. Each re-shows the request once; a second for the same request falls back to [§6.5](#65-when-there-is-no-notifier-or-nobody-answers)'s no-notifier path. *Revised 2026-09-29:* `@TIMEOUT` was first ignored, which would have left a request pending behind a notifier that had already exited. A request decided elsewhere ends the child and withdraws the notification, by a mechanism the macOS build measures first. The first notification through a given notifier adds the Alerts line; a marker under `GLOBAL_STORAGE/broker/`, keyed by the notifier's bundle identifier, records it, so the later helper app asks once more | 2026-09-29 | [§6.2](#62-macos) | pending |
 | [OQ-BB3](#OQ-BB3) | **Maintainer ruling:** A; Allow once · Allow read-write 15 min · Deny, dismissal denies | 2026-09-29 | [§14](#14-open-questions) | pending |
-| [OQ-BB4](#OQ-BB4) | **Maintainer ruling, delegated:** terminal-notifier as a dependency of the published Homebrew formula on Apple silicon, optional on Intel, `yolo approve` without it; yolo's own signed helper once the release signs | 2026-09-29 | [§14](#14-open-questions) | pending |
+| [OQ-BB4](#OQ-BB4) | **Maintainer ruling, delegated:** terminal-notifier as a dependency of the published Homebrew formula on Apple silicon (carried out as macOS 14 or later, where the bottle is, [BB-D35](#BB-D35)), optional on Intel and older macOS, `yolo approve` without it; yolo's own signed helper once the release signs | 2026-09-29 | [§14](#14-open-questions) | pending |
 | [OQ-BB6](#OQ-BB6) | **Maintainer ruling:** (a), a user-scope entry keyed by workspace; (e) not adopted, so an out-of-scope read refuses | 2026-09-29 | [§14](#14-open-questions) | pending |
-| [OQ-BB7](#OQ-BB7) | **Maintainer ruling:** the scope is re-read at each fresh launch and is part of the config-change approval snapshot; a changed scope takes effect only once approved in that launch's diff | 2026-09-29 | [§14](#14-open-questions) | pending |
+| [OQ-BB7](#OQ-BB7) | **Maintainer ruling:** the scope is re-read at each fresh launch and is part of the config-change gate's approval record (a second file beside the snapshot, [BB-D30](#BB-D30)); a changed scope takes effect only once approved in that launch's diff | 2026-09-29 | [§14](#14-open-questions) | pending |
 
 ## Appendix A — prior art: unYOLO, re-analyzed from source (2026-08-12)
 
