@@ -181,18 +181,43 @@ function codexModelDefinition(entry, lookup) {
 // The output cap pi's models.json loader gives a model that states none.
 const DEFAULT_MAX_TOKENS = 16384;
 
+// piVersion returns the running pi's version, or undefined when it cannot be read. pi's
+// extension API passes no version, but the package root is one of the specifiers pi's loader
+// resolves for extensions (an alias to its own index.js, or a virtual module in a bundled
+// binary; core/extensions/loader.js and virtual-modules.js), and that root exports VERSION.
+// A package.json path would not survive the bundled binary, which has no files to read.
+// "0.0.0" is what pi reports when it could not read its own package.json (config.js), so it
+// counts as unreadable rather than as a version.
+async function piVersion() {
+	try {
+		const { VERSION } = await import("@earendil-works/pi-coding-agent");
+		return typeof VERSION === "string" && VERSION.length > 0 && VERSION !== "0.0.0" ? VERSION : undefined;
+	} catch {
+		return undefined;
+	}
+}
+
 // degradedWarning says which registered models fell back to the defaults above, or returns
 // undefined when pi's catalog described every one. The fallback registers a model pi cannot
 // think with, send images to or give its real output cap, and pi is not version-pinned, so a
-// renamed catalog module would otherwise cost every model that silently.
-function degradedWarning(list, catalog) {
+// renamed catalog module would otherwise cost every model that silently. A catalog that
+// loaded but lacks an id most likely belongs to a pi older than the model (a host pi is the
+// user's own install, updated on the user's schedule), so that warning names the running pi
+// and the remedy, reading the version only then. A catalog that did not load is a different
+// fault, which an update is not known to fix, so its message makes no such claim.
+async function degradedWarning(list, catalog) {
 	const what = `registered as text-only with no thinking levels and a ${DEFAULT_MAX_TOKENS}-token output cap`;
 	if (catalog.failure) {
 		return `yolo: pi's own openai-codex catalog did not load (${catalog.failure}), so the ${list.length} ChatGPT subscription models yolo lists are ${what}.`;
 	}
 	const missing = [...new Set(list.map((entry) => entry.base ?? entry.id))].filter((id) => !catalog.lookup(id));
 	if (missing.length === 0) return undefined;
-	return `yolo: pi's openai-codex catalog has no ${missing.join(", ")}, so ${missing.length === 1 ? "that model is" : "those models are"} ${what}.`;
+	const these = missing.length === 1 ? "this model" : "these models";
+	const version = await piVersion();
+	const cause = version
+		? `Your pi (${version}) predates ${these}; \`pi update\` fixes it.`
+		: `Your pi may predate ${these}; \`pi update\` fixes it.`;
+	return `yolo: pi's openai-codex catalog has no ${missing.join(", ")}, so ${missing.length === 1 ? "that model is" : "those models are"} ${what}. ${cause}`;
 }
 
 // pi awaits an extension's factory (core/extensions/loader.js), so the catalog import
@@ -217,7 +242,7 @@ export default async function registerYoloOpenAIAuth(pi) {
 	// ONCE PER LOAD, where the user can see it: pi's own notification when there is a UI, else
 	// stderr, which is what pi's extension runner does with its own diagnostics. session_start
 	// fires again on /new and on a resume, and the degradation is the same each time.
-	const warning = list.length > 0 ? degradedWarning(list, catalog) : undefined;
+	const warning = list.length > 0 ? await degradedWarning(list, catalog) : undefined;
 	if (warning) {
 		let told = false;
 		pi.on?.("session_start", (_event, ctx) => {

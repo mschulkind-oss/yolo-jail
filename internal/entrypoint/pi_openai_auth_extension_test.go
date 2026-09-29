@@ -490,3 +490,108 @@ func TestPiOpenAIAuthExtensionWarnsOnceWhenPisCatalogCannotDescribeAModel(t *tes
 		}
 	})
 }
+
+// piPackageStub installs a stand-in for pi's own package root, the specifier the extension
+// reads VERSION from, resolved the way node resolves the extension's bare import from its
+// directory. body is the module's source, so a root exporting no version is spellable.
+func (f piExtensionFixture) piPackageStub(t *testing.T, body string) {
+	t.Helper()
+	pkg := filepath.Join(f.dir, "node_modules", "@earendil-works", "pi-coding-agent")
+	if err := os.MkdirAll(pkg, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(pkg, "package.json"), []byte(
+		`{"name":"@earendil-works/pi-coding-agent","type":"module","exports":{".":"./index.js"}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(pkg, "index.js"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// Two ids the catalog stub lacks, the shape of a pi older than the GPT-6 models.
+const piTwoMissingModelsFixture = `{"models":[{"id":"gpt-6-sol"},{"id":"gpt-6-luna"},{"id":"gpt-6-nova"}]}`
+
+// A MISSING MODEL NAMES ITS LIKELY CAUSE AND THE FIX. A catalog that loaded but lacks an id is,
+// in the common case, a pi older than the model, so the one warning names the running pi's
+// version and `pi update`; with no version to read it still gives the remedy, hedged. A catalog
+// that did not load, or one that describes every id, makes no claim about pi's age.
+func TestPiOpenAIAuthExtensionNamesPisVersionAndTheRemedyWhenAModelIsMissing(t *testing.T) {
+	t.Run("a readable version is named", func(t *testing.T) {
+		f := newPiExtensionFixture(t)
+		f.modelsFile(t, piTwoMissingModelsFixture)
+		f.catalogStub(t)
+		f.piPackageStub(t, `export const VERSION = "0.85.1";`+"\n")
+		notified, warned := f.runWarningHarness(t, true)
+		if len(notified) != 1 || len(warned) != 0 {
+			t.Fatalf("notified %q, stderr %q, want exactly one notification", notified, warned)
+		}
+		msg := notified[0][1]
+		for _, want := range []string{"gpt-6-luna, gpt-6-nova", "16384", "Your pi (0.85.1) predates these models", "`pi update` fixes it"} {
+			if !strings.Contains(msg, want) {
+				t.Errorf("notification = %q, want it to contain %q", msg, want)
+			}
+		}
+	})
+	t.Run("one missing model reads in the singular", func(t *testing.T) {
+		f := newPiExtensionFixture(t)
+		f.modelsFile(t, piCodexModelsFixture)
+		f.catalogStub(t)
+		f.piPackageStub(t, `export const VERSION = "0.85.1";`+"\n")
+		notified, warned := f.runWarningHarness(t, false)
+		if len(notified) != 0 {
+			t.Fatalf("notified %q without a UI", notified)
+		}
+		if len(warned) != 1 || !strings.Contains(warned[0], "Your pi (0.85.1) predates this model; `pi update` fixes it.") {
+			t.Errorf("stderr warnings = %q, want one naming pi 0.85.1 and the remedy in the singular", warned)
+		}
+	})
+	unreadable := map[string]string{
+		"no package root":          "",
+		"a root exporting none":    "export const OTHER = 1;\n",
+		"pi's unread-package mark": `export const VERSION = "0.0.0";` + "\n",
+		"a non-string version":     "export const VERSION = 85;\n",
+	}
+	for name, body := range unreadable {
+		t.Run("unreadable version: "+name, func(t *testing.T) {
+			f := newPiExtensionFixture(t)
+			f.modelsFile(t, piTwoMissingModelsFixture)
+			f.catalogStub(t)
+			if body != "" {
+				f.piPackageStub(t, body)
+			}
+			notified, warned := f.runWarningHarness(t, true)
+			if len(notified) != 1 || len(warned) != 0 {
+				t.Fatalf("notified %q, stderr %q, want exactly one notification", notified, warned)
+			}
+			msg := notified[0][1]
+			if !strings.Contains(msg, "Your pi may predate these models; `pi update` fixes it.") {
+				t.Errorf("notification = %q, want the hedged remedy", msg)
+			}
+			if strings.Contains(msg, "Your pi (") || strings.Contains(msg, "0.0.0") {
+				t.Errorf("notification = %q names a version it could not read", msg)
+			}
+		})
+	}
+	t.Run("no missing model, no warning", func(t *testing.T) {
+		f := newPiExtensionFixture(t)
+		f.modelsFile(t, `{"models":[{"id":"gpt-6-sol"},{"id":"gpt-6-astra"}]}`)
+		f.catalogStub(t)
+		f.piPackageStub(t, `export const VERSION = "0.85.1";`+"\n")
+		if notified, warned := f.runWarningHarness(t, true); len(notified) != 0 || len(warned) != 0 {
+			t.Errorf("a catalog describing every id warned: notified %q, stderr %q", notified, warned)
+		}
+	})
+	t.Run("a catalog that did not load makes no age claim", func(t *testing.T) {
+		f := newPiExtensionFixture(t)
+		f.modelsFile(t, piTwoMissingModelsFixture)
+		f.piPackageStub(t, `export const VERSION = "0.85.1";`+"\n")
+		notified, _ := f.runWarningHarness(t, true)
+		if len(notified) != 1 || !strings.Contains(notified[0][1], "did not load") {
+			t.Fatalf("notifications = %q, want one saying the catalog did not load", notified)
+		}
+		if msg := notified[0][1]; strings.Contains(msg, "predate") || strings.Contains(msg, "0.85.1") {
+			t.Errorf("notification = %q blames pi's age for a catalog that did not load", msg)
+		}
+	})
+}

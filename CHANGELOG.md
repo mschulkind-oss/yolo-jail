@@ -182,6 +182,11 @@ refusal names the field; move it to your user config. A project can still set a 
   over a link pointing out of the pack; it now follows the links and gets the files they point to,
   whether or not the pack's entry filters it with `only` or `exclude`. A pack fetched from git
   that holds such a link is still refused, in a jail and at the host.
+- When your pi's catalog lacks some of the ChatGPT subscription models yolo lists, the warning pi
+  shows now tells you why and what to do. Along with the missing models and what they lose, it
+  names the pi you are running, for example `Your pi (0.85.1) predates these models`, and says
+  that `pi update` fixes it. If yolo cannot read pi's version, the warning says your pi may
+  predate them. Before, it named only the missing models.
 
 ## [0.11.0] - 2026-09-28
 
