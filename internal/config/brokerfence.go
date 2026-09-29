@@ -31,6 +31,15 @@ func validateBrokerMountFence(config *jsonx.OrderedMap, workspace string, resolv
 	if resolver == nil || inJail() {
 		return
 	}
+	// NO MOUNT, NO QUESTION: the loophole set is asked for only when there is a mount to fence,
+	// as validateLoopholes asks only when there is a `loopholes` block. The real resolver's first
+	// answer resolves the configured packs and is memoized for the process, so asking on every
+	// ValidateConfig fixed that answer under whichever home validated first — in internal/cli's
+	// suite, a later test's `yolo loopholes status` then ran pack doctors it had never configured.
+	mounts := mountHostSources(config)
+	if len(mounts) == 0 {
+		return
+	}
 	known, _ := resolver.Known()
 	var names []string
 	for name, info := range known {
@@ -59,10 +68,6 @@ func validateBrokerMountFence(config *jsonx.OrderedMap, workspace string, resolv
 		fencedPaths[i] = f.path
 	}
 
-	mounts := mountHostSources(config)
-	if len(mounts) == 0 {
-		return
-	}
 	wsMounts := map[string]bool{}
 	if wsCfg, err := LoadWorkspaceConfig(workspace, false, func(string) {}); err == nil && wsCfg != nil {
 		for spec := range mountHostSources(wsCfg) {

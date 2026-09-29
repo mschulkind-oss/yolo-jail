@@ -121,3 +121,39 @@ func TestValidateConfigRunsTheMountFence(t *testing.T) {
 		t.Fatalf("errs %q", errs)
 	}
 }
+
+// countingResolver counts Known() calls. The real resolver is not free, and not pure: its first
+// answer resolves the configured packs from the store and is memoized for the process.
+type countingResolver struct {
+	fenceResolver
+	calls *int
+}
+
+func (r countingResolver) Known() (map[string]LoopholeInfo, bool) {
+	*r.calls++
+	return r.fenceResolver.Known()
+}
+
+// A config with no `mounts` has nothing to fence, so the fence must not ask for the loophole
+// set at all. It did, on every ValidateConfig, and the answer was not free: the real resolver's
+// first call resolves the configured packs and memoizes them for the process. In
+// internal/cli's suite that made `yolo check` under one test's home fix the pack loopholes that
+// a later test's `yolo loopholes status` executed the doctors of, under another home.
+func TestTheMountFenceAsksForTheLoopholeSetOnlyWhenThereIsAMount(t *testing.T) {
+	t.Setenv("YOLO_VERSION", "") // the fence stands down in a jail; these are host cases
+	os.Unsetenv("YOLO_VERSION")
+	calls := 0
+	r := countingResolver{brokeredResolver, &calls}
+	for _, cfg := range []string{`{}`, `{"mounts": []}`, `{"packs": ["claude"]}`} {
+		e, w := &[]string{}, &[]string{}
+		validateBrokerMountFence(decode(t, cfg), t.TempDir(), r, e, w)
+		if calls != 0 || len(*e) != 0 || len(*w) != 0 {
+			t.Fatalf("%s: Known() called %d times, errs %q warns %q", cfg, calls, *e, *w)
+		}
+	}
+	// The control: a mount does consult it, so the zero above is about the missing mount.
+	fenceCase(t, r, []string{"~/code/lib:/ctx/lib"}, nil)
+	if calls != 1 {
+		t.Fatalf("with a mount, Known() was called %d times, want 1", calls)
+	}
+}
