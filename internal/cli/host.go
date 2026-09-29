@@ -811,15 +811,18 @@ type hostComposition struct {
 	// origins is, index for index with vars, the delivery channel each var came from (the
 	// packload.From* phrases, fromRemoval for an unset), for the env-override check's lookup
 	// (envOverrideFindings), which names where a delivered variable came from. originPacks is,
-	// index for index, the pack whose `env` contribution the var is, "" for any other source.
+	// index for index, the pack each var is attributed to: the declaring pack for a pack `env`
+	// var, the agent's own installing pack for a shape var (its env derive's output), and ""
+	// for an env_sources value or a removal.
 	origins, originPacks []string
 }
 
 // prelaunch is the declarative OpenAI prelaunch this launch's composition carries for its
 // command (docs/plans/notch-convergence.md item 15, row C6): the YOLO_AUTH_PRELAUNCH_<BIN>_*
 // values a jail's launcher reads, read here from the same composed variables the agent is
-// handed, so the prelaunch fires exactly when the pack's `env` delivers it. pi's pack gates its
-// view on the codex profile, so `yolo host -p zai -- pi` declares none and starts no login.
+// handed, so the prelaunch fires exactly when the agent's composition delivers it. pi's env
+// derive composes the view only when pi's selected provider is openai-codex, whatever the profile
+// is named (OQ-BR8), so `yolo host -p zai -- pi` declares none and starts no login.
 // Pack is the pack whose contribution set the view flag (or the login), which keys the managed
 // home. interactive is whether a human can answer a login.
 func (c *hostComposition) prelaunch(interactive bool) openaiauthhost.Prelaunch {
