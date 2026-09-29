@@ -194,7 +194,29 @@ func lingeringClient(t *testing.T) (*exec.Cmd, string) {
 	}
 	slave.Close()
 	t.Cleanup(func() { _ = c.Process.Kill(); _ = c.Wait(); master.Close() })
+	waitBlockedInRead(t, c.Process.Pid)
 	return c, ptsName
+}
+
+// waitBlockedInRead returns once pid is blocked in read(2) on fd 0, the state every caller's
+// "names the read" assertion is about. Start returns when dd has been exec'd, not when it
+// reaches its read: on a loaded runner a sample taken at once caught dd still loading its
+// locale ("open: /usr/lib/locale/…", CI run 36500602808), and the assertion failed on a
+// correct probe. /proc/<pid>/syscall's first field is the syscall number (unix.SYS_READ is
+// this arch's), the second its first argument.
+func waitBlockedInRead(t *testing.T, pid int) {
+	t.Helper()
+	want := strconv.Itoa(unix.SYS_READ)
+	for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); time.Sleep(5 * time.Millisecond) {
+		b, err := os.ReadFile(fmt.Sprintf("/proc/%d/syscall", pid))
+		if err != nil {
+			continue
+		}
+		if f := strings.Fields(string(b)); len(f) > 1 && f[0] == want && f[1] == "0x0" {
+			return
+		}
+	}
+	t.Fatalf("pid %d never blocked in read(0): the lingering client did not reach its read", pid)
 }
 
 func waitForFile(t *testing.T, ws, want string) {
