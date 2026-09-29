@@ -668,6 +668,14 @@ func Run(opts Options) (rc int) {
 		if d := o.ensureDurableDir(rt, cfg); d.Path != "" {
 			launchEnv.Set(durable.EnvVar, d.Path)
 		}
+		// CLAUDE'S CREDENTIAL STORE, on this backend too (CL-D22, claudesecurestorage.go): the
+		// account home's machine-scope directory, which the bootstrap lays as a real directory
+		// (entrypoint.DeriveDarwinHomeLayout) inside the Seatbelt profile's home write grant.
+		// Through the launch env, so the session env file carries it to every process of the
+		// session, as the container argv carries it to every exec. A --dry-run plan shows it.
+		if dir := o.claudeSecureStorageDir(rt, cfg, staged.packs, macosuser.SandboxHome()); dir != "" {
+			launchEnv.Set(claudeview.SecureStorageEnv, dir)
+		}
 		staging, err := o.refreshJailBriefings(cname, cfg, rt, staged,
 			appliedIOPriority(rt, o.IsMacOS, cfgMap(cfg, "resources")))
 		if err != nil {

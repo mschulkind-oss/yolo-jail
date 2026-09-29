@@ -545,6 +545,10 @@ func podmanLinuxGolden(home string) []string {
 		// export fails here, which is the only place that would notice.
 		"-e", "YOLO_RUNTIME=podman",
 	)
+	// Claude's credential store, pointed at the machine-scope directory bound above (CL-D22):
+	// Claude opens the real file there, with no symlink in its credential path. Off only on a
+	// credential-view launch, which this fixture is not.
+	add("-e", "CLAUDE_SECURESTORAGE_CONFIG_DIR=/home/agent/.claude-shared-credentials")
 	// yolo-user-env.sh mount.
 	add("-v", wsState+"/yolo-user-env.sh:/home/agent/.config/yolo-user-env.sh")
 	// The per-agent env files (the credential gate's container vehicle, OQ-CN6): a

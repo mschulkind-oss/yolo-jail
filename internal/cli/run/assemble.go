@@ -404,6 +404,10 @@ func (o *Options) assembleRunCmd(in *assembleInput) []string {
 	if in.durableDir != "" {
 		runCmd = append(runCmd, "-e", durable.EnvVar+"="+in.durableDir)
 	}
+	// CLAUDE'S CREDENTIAL STORE, on both container backends (CL-D22, claudesecurestorage.go): the
+	// machine-scope directory the shared dirs above bind, so Claude opens the real file there.
+	// macos-user renders the same value into its launch env (run.go).
+	runCmd = append(runCmd, o.claudeSecureStorageEnvArgs(rt, cfg, in.packs)...)
 
 	// --- yolo-user-env.sh and the per-agent env files (written by deliverChannel) ---
 	// Both are written by the lifecycle phase before this assembly and by every attach.

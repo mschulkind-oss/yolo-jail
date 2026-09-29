@@ -126,6 +126,27 @@ func (e *unknownHookError) Error() string {
 // behavior, not an inconvenience — so this is the one hook that deliberately leaks state
 // between jails. It only reaches a directory the pack declared in sharedDirs, so the leak
 // is bounded by a declaration the user can read.
+//
+// UNDER CL-D22's BRIDGE IT RUNS UNCHANGED, and that is a decision, not an oversight. The launcher
+// points Claude's credential store at this hook's shared dir (claudeview.SecureStorageEnv), so
+// Claude opens the shared file itself and no longer reads the link this hook writes. The hook
+// still earns its keep, and cannot hurt the file Claude now opens:
+//
+//   - its copy-if-empty is what carries a login a pre-bridge Claude left in this workspace (the
+//     private file its first save renamed over the link) into the file Claude now opens, when
+//     the machine has no other login, so that login survives the upgrade;
+//   - the link keeps the old path naming the one file for anything that still reads it (Claude's
+//     session-resume copy reads `~/.claude/.credentials.json` directly, beside its store; search
+//     the 2.1.284 binary for `claude-resume-`);
+//   - its only write into the shared dir is that copy, into an ABSENT or EMPTY shared file, and
+//     it removes nothing there: a populated shared file wins, and Claude's own lock files
+//     beside it are never touched. A workspace that a pre-bridge refresh left holding the
+//     newer login therefore loses that private copy once more, as it did at every boot before;
+//     when the shared file holds the refresh token that refresh spent, Claude asks for one last
+//     login, and writes it into the shared file directly.
+//
+// Making it read the bridge's variable instead would add a second reader of a temporary
+// switch, deleted with the directory (CL-D7), to buy nothing the list above does not.
 func (e *Env) linkSharedCredential(p *packload.Pack, h packdecl.Hook) error {
 	if e.skipsForCredentialView(h) {
 		return e.unlinkForCredentialView(p, h)

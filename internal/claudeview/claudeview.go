@@ -101,6 +101,26 @@ const ViewFile = ".credentials.json"
 // no other (RemoveLegacyLink).
 var LegacyLinkTarget = filepath.Join("..", ".claude-shared-credentials", ViewFile)
 
+// SecureStorageEnv is the variable that moves Claude's credential store: Claude opens
+// `CLAUDE_SECURESTORAGE_CONFIG_DIR ?? CLAUDE_CONFIG_DIR ?? ~/.claude` + `.credentials.json`, and
+// keeps its refresh lock (`.oauth_refresh.lock`) and its write lock (`.storage-write.lock`) in
+// that same directory. MEASURED in the 2.1.284 binary (search `CLAUDE_SECURESTORAGE_CONFIG_DIR;`):
+// an empty value falls back to `~/.claude`, and `~` is not expanded, so the value is an absolute
+// path. On macOS the Keychain service name gains a suffix hashed from the same directory once
+// the variable is set (search `Claude Code${`), so a login Claude kept in a Keychain rather than
+// in this file would not be found under the new name.
+//
+// THE BRIDGE (CL-D22, docs/design/claude-login-without-interception.md). Until the view replaces
+// the interception, a launch that links Claude's credential into the machine-scope shared
+// directory also sets this variable to that directory, so Claude reads and writes the real file
+// there and no symlink sits in its credential path. Without it, Claude's first save after a
+// refresh (a temp file renamed over the path) replaced the link with a private file, the next
+// boot discarded that file in favor of the shared one, and the shared one held the refresh token
+// the save had already spent: a login on every launch after the first refresh, on the two
+// backends no broker serves. A VIEW launch never sets it, since the view is a file at ViewRel
+// that Claude must read instead. Deleted with the view's switch and the shared directory (CL-D7).
+const SecureStorageEnv = "CLAUDE_SECURESTORAGE_CONFIG_DIR"
+
 // HostSubdir is the name of the workspace overlay directory, under <workspace>/.yolo/home, that
 // holds a runtime's `~/.claude`: podman binds each overlay entry with its leading dot stripped,
 // macos-user links the account home's `~/.claude` to the same stripped name, and Apple Container
