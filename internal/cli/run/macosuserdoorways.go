@@ -16,8 +16,9 @@ package run
 // WHAT IS A DOORWAY is declared, never named here: a loophole whose `jail_daemon` declares
 // `host_cmd`, the argv that opens it outside (loopholes.DoorwaysOutside). What may run is the
 // launch-owned mechanism's admission rule (launchservice.AdmitDoorway: a pack yolo ships, an
-// argv naming `yolo`), applied once where the payload is composed (admitDoorways), so a refused
-// one runs as the jail daemon it also is, in the guest, and every reader of the payload agrees.
+// argv naming `yolo`), applied to the payload by launchservice.AdmitDoorways where it is composed
+// (admitDoorways) and in `yolo check`'s prediction of it, so a refused one is judged as the jail
+// daemon it also is, and the launch and the prediction agree on what is served.
 //
 // WHERE AND TO WHOM IT ANSWERS was settled before this file runs: the served address is the one
 // jailDaemonsFor settled for the loophole (servedaddresses.go), and the token the one the channel
@@ -31,7 +32,6 @@ package run
 // launch.
 
 import (
-	"errors"
 	"fmt"
 	"strings"
 
@@ -44,11 +44,6 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
-// refusedDoorway is a doorway whose host argv this launch did not admit, and why.
-type refusedDoorway struct {
-	Name, Pack, Why string
-}
-
 // startMacosUserDoorway starts one launch-owned doorway and returns it and its log; a var so a
 // test can observe the start without spawning one.
 var startMacosUserDoorway = func(plan *launchservice.Plan, env map[string]string) (launchedService, string, error) {
@@ -59,44 +54,15 @@ var startMacosUserDoorway = func(plan *launchservice.Plan, env map[string]string
 	return r, r.Log, nil
 }
 
-// loopholePacks maps each loophole a selected pack ships to that pack's name (the later pack when
-// two declare one name, which PackLoopholeNameConflicts refuses before a launch gets here).
-func loopholePacks(packs []*packload.Pack) map[string]string {
-	out := map[string]string{}
-	for _, d := range packLoopholeDecls(packs) {
-		out[d.Name] = d.Pack
-	}
-	return out
-}
-
 // admitDoorways clears the host argv of every doorway in specs that the launch-owned mechanism
-// does not admit (launchservice.AdmitDoorway), recording why for noteRefusedDoorways, and returns
-// specs. A cleared one is an ordinary jail daemon again: the guest runs it, confined, where a
-// fetched or local pack's jail daemon runs (OQ-DP8, OQ-DP9). Called by jailDaemonsFor on every
-// runtime, since the answer is a fact about the pack and not the backend; only macos-user reads a
-// host argv at all.
+// does not admit, recording the refusals for noteRefusedDoorways, and returns the payload
+// (launchservice.AdmitDoorways, the one admission `yolo check`'s prediction applies too). A
+// cleared one is an ordinary jail daemon again: a container runs it, and the macos-user guest
+// runs it, confined, or declines it by name (OQ-DP8, OQ-DP9). Called by jailDaemonsFor on every
+// runtime, since the answer is a fact about the pack and not the backend; only macos-user reads
+// a host argv at all.
 func (o *Options) admitDoorways(packs []*packload.Pack, specs []loopholes.JailDaemonSpec) []loopholes.JailDaemonSpec {
-	o.refusedDoorways = nil
-	var packOf map[string]string
-	for i := range specs {
-		if len(specs[i].HostCmd) == 0 || specs[i].Service {
-			continue
-		}
-		if packOf == nil {
-			packOf = loopholePacks(packs)
-		}
-		if _, err := launchservice.AdmitDoorway(packs, packOf[specs[i].Name], specs[i].Name,
-			specs[i].HostCmd); err != nil {
-			why := err.Error()
-			var adm *launchservice.AdmissionError
-			if errors.As(err, &adm) {
-				why = adm.Why
-			}
-			o.refusedDoorways = append(o.refusedDoorways,
-				refusedDoorway{Name: specs[i].Name, Pack: packOf[specs[i].Name], Why: why})
-			specs[i].HostCmd = nil
-		}
-	}
+	specs, o.refusedDoorways = launchservice.AdmitDoorways(packs, specs)
 	return specs
 }
 
@@ -107,7 +73,7 @@ func (o *Options) admitDoorways(packs []*packload.Pack, specs []loopholes.JailDa
 func (o *Options) planMacosUserDoorways(rt string, specs []loopholes.JailDaemonSpec,
 	packs []*packload.Pack, channel *packChannel) []*launchservice.Plan {
 	o.launchDoorways = nil
-	packOf := loopholePacks(packs)
+	packOf := launchservice.LoopholePacks(packs)
 	for _, s := range loopholes.DoorwaysOutside(rt, specs) {
 		d, err := launchservice.AdmitDoorway(packs, packOf[s.Name], s.Name, s.ResolvedHostCmd())
 		if err != nil {

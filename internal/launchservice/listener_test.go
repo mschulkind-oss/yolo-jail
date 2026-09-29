@@ -17,6 +17,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
@@ -133,6 +134,46 @@ func TestADoorwayThatCannotPrepareRefusesTheStart(t *testing.T) {
 	}
 	if dials(addr) {
 		t.Error("a doorway that refused still bound its address")
+	}
+}
+
+// ADMISSION OVER A PAYLOAD (AdmitDoorways, what the launch and `yolo check` both apply): an
+// official pack's doorway keeps its host argv; a local pack's loses it and is reported, naming
+// its pack; a pack service's daemon and an intercepting loophole's are neither admitted nor
+// refused, since no launch opens either outside; and the caller's slice is not written.
+func TestAdmitDoorwaysClearsAndReportsOnlyTheRefusedDoorways(t *testing.T) {
+	loophole := func(n string) string {
+		return `{"kind": "loophole", "from": "loopholes/` + n + `"}`
+	}
+	official := packFrom(t, "creds", `{"name": "creds", "contributes": [`+loophole("creds-door")+`]}`, true)
+	local := packFrom(t, "local", `{"name": "local", "contributes": [`+loophole("acme-door")+`, `+
+		loophole("acme-intercept")+`]}`, false)
+	host := []string{"yolo", "internal", "daemon", "x", "--listen", "{listen}"}
+	specs := []loopholes.JailDaemonSpec{
+		{Name: "creds-door", HostCmd: host},
+		{Name: "acme-door", HostCmd: host},
+		{Name: "acme-intercept", HostCmd: host, Intercepts: true},
+		{Name: "wire-bridge", HostCmd: host, Service: true},
+		{Name: "plain"},
+	}
+	got, refused := AdmitDoorways([]*packload.Pack{official, local}, specs)
+	if len(refused) != 1 || refused[0].Name != "acme-door" || refused[0].Pack != "local" ||
+		!strings.Contains(refused[0].Why, "its pack is not one yolo ships") {
+		t.Fatalf("refused = %+v, want the local pack's acme-door alone, with the admission reason", refused)
+	}
+	kept := map[string]bool{}
+	for _, s := range got {
+		kept[s.Name] = len(s.HostCmd) > 0
+	}
+	want := map[string]bool{"creds-door": true, "acme-door": false, "acme-intercept": true,
+		"wire-bridge": true, "plain": false}
+	for name, w := range want {
+		if kept[name] != w {
+			t.Errorf("%s keeps its host argv = %v, want %v", name, kept[name], w)
+		}
+	}
+	if len(specs[1].HostCmd) == 0 {
+		t.Error("AdmitDoorways cleared the host argv in the caller's slice")
 	}
 }
 

@@ -2,6 +2,7 @@ package check
 
 import (
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/launchservice"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 )
@@ -13,7 +14,8 @@ import (
 // YOLO_RUNTIME or the config names actually SERVES, through the same
 // loopholes.ServedJailDaemonNames the launch's servedDaemons asks. So on macos-user the
 // prediction serves the daemons its sandbox runs (OQ-DP8/OQ-DP9) and the doorways the launch
-// opens outside it (host-notch-services.md HS-D15), declines the same ones the launch declines
+// opens outside it (host-notch-services.md HS-D15), after the same admission of their host argvs
+// the launch applies (launchservice.AdmitDoorways), declines the same ones the launch declines
 // by name, and every gate it predicts refuses or withholds what that launch does.
 //
 // No runtime named predicts a container one, which is what a launch with none named resolves
@@ -30,9 +32,13 @@ func (o *Options) predictedServed(merged *jsonx.OrderedMap, packs []*packload.Pa
 	for _, name := range packload.ServiceJailDaemonNames(packs) {
 		services = append(services, loopholes.JailDaemonSpec{Name: name, Service: true})
 	}
+	// A DOORWAY'S HOST ARGV RUNS ONLY FROM A PACK YOLO SHIPS, and the launch clears every one it
+	// refuses before anything reads its payload (launchservice.AdmitDoorways, the one admission
+	// both readers apply): so a refused doorway is judged here as the jail daemon it becomes.
+	specs, _ := launchservice.AdmitDoorways(packs, set.JailDaemons(set.Enabled(), rt, services))
 	// Each daemon at its DECLARED listen address: a prediction binds nothing, so it has no
 	// port of a shared namespace's launch to know, and a pointer naming {listen} composes to
 	// the address a private namespace serves (docs/plans/notch-convergence.md NC-D41).
-	names, listen := loopholes.ServedJailDaemonNames(rt, set.JailDaemons(set.Enabled(), rt, services))
+	names, listen := loopholes.ServedJailDaemonNames(rt, specs)
 	return packload.ServedInJail(names).WithListen(listen)
 }
