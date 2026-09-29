@@ -143,6 +143,13 @@ type BriefingInput struct {
 	// as stale (docs/design/in-jail-nix-roots.md §2). macos-user shares the host's
 	// filesystem, so its roots are real and it never sets this.
 	HostNix bool
+
+	// Persistence is the launch's persistence map (persistence.go): which paths survive a
+	// restart, which are shared by every workspace, and which are gone once the jail
+	// exits. The run pipeline builds it from the definitions the mount argv reads, and it
+	// renders the "Durable vs ephemeral paths" section (docs/design/durable-scratch-space.md
+	// §4.1). Nil renders no section: macos-user, the host notch and a hand-built input.
+	Persistence *PersistenceMap
 }
 
 // BriefingContent renders the jail-managed briefing body (before any host-level
@@ -592,7 +599,11 @@ func BriefingContent(in BriefingInput) string {
 			"  pull/push, fetch, or any sync step for this directory.",
 			"  ⚠ There is no `/workspace` on this backend. Skills and docs that name",
 			"  `/workspace` — including the built-in ones — mean the path above.",
-			"- **Home**: `"+home+"` (persistent across sessions)",
+			// Not "persistent across sessions": true of this account home, but it hid the
+			// fact that matters, that one home serves every workspace on the machine
+			// (docs/design/durable-scratch-space.md §2.2, §4.1).
+			"- **Home**: `"+home+"` (one account home, shared by every workspace on this",
+			"  machine; its per-workspace directories are links into this workspace's `.yolo/home`)",
 			"- **OS**: macOS, Seatbelt-confined (no container, no systemd, no sudo)",
 		)
 	} else {
@@ -602,7 +613,11 @@ func BriefingContent(in BriefingInput) string {
 			"  instantly visible here and vice versa; there is never a git",
 			"  pull/push, fetch, or any sync step between the jail and the host",
 			"  for this directory.",
-			"- **Home**: `"+home+"` (persistent across sessions)",
+			// NOT "(persistent across sessions)", which this line said until the durable-paths
+			// slice: on podman the home is a read-only bind, so the claim invited writes that
+			// fail, and the agent fell back to /tmp, which is deleted after the jail exits
+			// (docs/design/durable-scratch-space.md §2.5).
+			"- **Home**: `"+home+"`"+homeLineNote(in.Persistence, home),
 			"- **OS**: NixOS-based minimal container (no systemd, no sudo)",
 		)
 	}
@@ -633,6 +648,10 @@ func BriefingContent(in BriefingInput) string {
 		"Use `rg -n <pattern> [path]`.",
 		"",
 	)
+	// Right after the Environment block whose Home line points at it, and before every
+	// capability section: where work survives decides where an agent puts it, so it has to
+	// be read before the agent plans anything (docs/design/durable-scratch-space.md §4.1).
+	lines = append(lines, persistenceSection(in.Persistence, home)...)
 
 	// BEFORE the capability sections, deliberately: these are constraints that change
 	// how everything below them should be read, and a constraint discovered after the

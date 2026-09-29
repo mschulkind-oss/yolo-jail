@@ -9,6 +9,8 @@ covers:
   - internal/cli/run/workspaceskills.go
   - internal/jailcontent/write.go
   - internal/cli/run/prepare.go
+  - internal/jailcontent/persistence.go
+  - internal/cli/run/persistencemap.go
   - internal/cli/run/briefingdest.go
   - internal/cli/run/briefingreadback.go
   - internal/cli/run/unmatchedaudience.go
@@ -126,17 +128,21 @@ conditional sections that appear only when their data exists. Emission order, fr
 4. **Environment** — workspace, home, OS, the network paragraph, the two port sections, and
    the resource limits the backend actually imposes.
 5. **The `rg --replace` trap** warning.
-6. **What this environment does NOT do for you** — conditional, the backend's own
+6. **Durable vs ephemeral paths** — on a container backend, which paths survive a restart for
+   this workspace, which are shared by every workspace, which are read-only, which are gone
+   once the jail exits, and where worktrees go. Rendered from the launch's persistence map
+   (see below); absent on `macos-user` and at the host notch.
+7. **What this environment does NOT do for you** — conditional, the backend's own
    limitations. Placed **before** the capability sections deliberately: these are
    constraints that change how everything below them should be read, and a constraint
    discovered after the capability it qualifies has already been read too late.
-7. **Loopholes** — conditional, the actual active set by name rather than an instruction to
+8. **Loopholes** — conditional, the actual active set by name rather than an instruction to
    enumerate.
-8. **Blocked Tools** — conditional, from the blocked-tool config merged with what packs
+9. **Blocked Tools** — conditional, from the blocked-tool config merged with what packs
    contribute.
-9. **Additional Context Mounts** — conditional, and filtered to the mounts the backend will
+10. **Additional Context Mounts** — conditional, and filtered to the mounts the backend will
    actually bind.
-10. **Limitations**, **Packages & Resource Limits**, **Skills** — the three standing
+11. **Limitations**, **Packages & Resource Limits**, **Skills** — the three standing
     sections. On a backend with no container the middle one is **Packages**: it offers no
     resource cap and says outright that `resources` is not enforced there.
 
@@ -194,6 +200,13 @@ asked for. This is one rule with several call sites, and each was a real defect:
   `Honored` has no backend term, so on a backend that starts no host services the unfiltered
   list advertises daemons that do not exist. An agent reading a false capability list does
   not merely lack a feature — it plans around one it does not have.
+- **Paths** come from the **persistence map** (a term coined in
+  [`durable-scratch-space.md`](../design/durable-scratch-space.md#12-terms)): each path the
+  launch mounts writable, with a durability class, built from the same lists the mount argv
+  iterates. A unit test compares it against the assembled argv in both directions, so a
+  writable mount added without the map fails the gate. The Home line points at the section and
+  no longer says the home is "persistent across sessions", which was false of podman's
+  read-only home.
 - **Nix** gets a line only where the launch mounts the host's nix daemon and store, decided by
   the predicate that emits those mounts. There, every GC root the jail asks for is recorded
   under the jail's spelling of the link, which the host daemon cannot resolve and deletes as

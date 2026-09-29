@@ -1,0 +1,280 @@
+package run
+
+import (
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/config"
+	"github.com/mschulkind-oss/yolo-jail/internal/ioprio"
+	"github.com/mschulkind-oss/yolo-jail/internal/jailcontent"
+	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/packload"
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	"github.com/mschulkind-oss/yolo-jail/internal/prune"
+)
+
+// THE PERSISTENCE MAP IS THE MOUNT PLAN, OR THE BRIEFING LIES (DS-D1,
+// docs/design/durable-scratch-space.md). The line this replaced — "Home: /home/agent
+// (persistent across sessions)" — was hand-written, and it was false the day the home went
+// :ro. So the map is compared against the ASSEMBLED ARGV, per backend, in both directions:
+//
+//   - every writable mount the argv makes (a -v without :ro, every --tmpfs) must be covered
+//     by a map entry, and the class the map gives it must agree with where the argv's
+//     SOURCE lives — the workspace or <ws>/.yolo/home is "this workspace", the machine
+//     store is "every workspace", a scratch volume of THIS launch or a tmpfs is "per
+//     launch". So a writable dir added to the argv without the map fails here, and so does
+//     a /tmp that stops being per-launch;
+//   - every map entry must be an argv destination, so the map cannot name a dir no mount
+//     makes.
+//
+// The inputs are the ones refreshJailBriefings hands persistenceMapFor — the config and the
+// selected packs — assembled into the argv the way Run assembles them.
+func TestThePersistenceMapIsTheMountPlan(t *testing.T) {
+	for _, tc := range []struct {
+		name, rt, ephemeral string
+	}{
+		{"podman-volumes", "podman", ""},
+		{"podman-tmpfs", "podman", "tmpfs"},
+		{"apple-container", "container", ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			home := t.TempDir()
+			t.Setenv("HOME", home)
+			emptyLoopholeDirs(t)
+			o := goldenOptions("/ws", home)
+			cfg, packs := persistenceFixture(t, tc.ephemeral)
+			const scratchID = "0123456789abcdef"
+			in := relocationInput(t, tc.rt, "/ws/.yolo/home", nil)
+			in.cfg, in.packs, in.scratchID = cfg, packs, scratchID
+			in.writableHomeDirs = persistenceWritableHomeDirs(cfg, packs)
+			argv := o.assembleRunCmd(in)
+			m := persistenceMapFor(tc.rt, cfg, packs)
+			if m == nil {
+				t.Fatalf("no persistence map for %s", tc.rt)
+			}
+
+			mounts := writableMountsOf(argv)
+			if len(mounts) == 0 {
+				t.Fatal("parsed no writable mounts from the argv; the parser is broken")
+			}
+			dests := map[string]bool{}
+			for _, mt := range mounts {
+				dests[mt.dest] = true
+				got := persistenceClassOf(m, mt.dest)
+				if got == 0 {
+					t.Errorf("the argv mounts %q writable (from %q) and the persistence map does "+
+						"not know it: add it to persistencemap.go, or the briefing's Durable vs "+
+						"ephemeral paths section omits it", mt.dest, mt.src)
+					continue
+				}
+				if want, ok := expectedClassBySource(mt, in, scratchID); ok && !classAgrees(got, want) {
+					t.Errorf("%q: the map says %s, but its argv source %q makes it %s",
+						mt.dest, got, mt.src, want)
+				}
+			}
+			for _, e := range m.Paths {
+				if !dests[e.Path] {
+					t.Errorf("the persistence map names %q (class %s), and the argv mounts nothing "+
+						"there writable", e.Path, e.Class)
+				}
+			}
+
+			// /tmp specifically, because it is the path the incident turned on: per launch,
+			// and the briefing's "in RAM" note true of its backing.
+			if got := persistenceClassOf(m, "/tmp"); got != jailcontent.PathPerLaunch {
+				t.Errorf("/tmp is class %s in the map, want per-launch", got)
+			}
+			if wantRAM := tc.rt == "container" || tc.ephemeral == "tmpfs"; m.PerLaunchInRAM != wantRAM {
+				t.Errorf("PerLaunchInRAM = %v, want %v", m.PerLaunchInRAM, wantRAM)
+			}
+		})
+	}
+}
+
+// And the map must REACH THE BRIEFING, from the production call site: the section is
+// asserted in the file refreshJailBriefings writes, and every non-internal map entry must be
+// named there. Deleting the Persistence field from refreshJailBriefings' BriefingInput, or
+// the section's append in BriefingContent, fails this test.
+func TestTheBriefingNamesEveryPathInThePersistenceMap(t *testing.T) {
+	for _, rt := range []string{"podman", "container"} {
+		t.Run(rt, func(t *testing.T) {
+			home := t.TempDir()
+			t.Setenv("HOME", home)
+			ws := t.TempDir()
+			emptyLoopholeDirs(t)
+			cfg, packs := persistenceFixture(t, "")
+			o := goldenOptions(ws, home)
+			staging, err := o.refreshJailBriefings("yolo-ws-abcd1234", cfg, rt,
+				stagedPacks{packs: packs}, ioprio.Normal)
+			if err != nil {
+				t.Fatalf("refreshJailBriefings: %v", err)
+			}
+			raw, err := os.ReadFile(filepath.Join(staging, briefingStagingName(claudeBriefingDest)))
+			if err != nil {
+				t.Fatalf("no briefing written: %v", err)
+			}
+			body := string(raw)
+			section := sectionOf(body, "## Durable vs ephemeral paths")
+			if section == "" {
+				t.Fatalf("the %s briefing has no Durable vs ephemeral paths section:\n%s", rt, body)
+			}
+			if strings.Contains(body, "persistent across sessions") {
+				t.Errorf("the briefing still calls the home persistent:\n%s", body)
+			}
+			// Every rendered path appears as a `~/rel` or `/abs` code span in the section.
+			flat := strings.Join(strings.Fields(section), " ")
+			for _, e := range persistenceMapFor(rt, cfg, packs).Paths {
+				if e.Class == jailcontent.PathInternal {
+					if strings.Contains(flat, spanFor(e.Path)) {
+						t.Errorf("the section names the internal path %s as a place for work", e.Path)
+					}
+					continue
+				}
+				if e.Path == jailHome {
+					if !strings.Contains(flat, "all of `/home/agent`") {
+						t.Errorf("the whole home is durable on %s and the section does not say so:\n%s", rt, section)
+					}
+					continue
+				}
+				if !strings.Contains(flat, spanFor(e.Path)) {
+					t.Errorf("the section does not name %s (class %s):\n%s", spanFor(e.Path), e.Class, section)
+				}
+			}
+			// The Home line points at the section, and says the true thing per backend.
+			wantHome := "(mostly read-only; see **Durable vs ephemeral paths** below)"
+			if rt == "container" {
+				wantHome = "(writable, and kept for this workspace; see **Durable vs ephemeral paths** below)"
+			}
+			if !strings.Contains(body, "- **Home**: `/home/agent` "+wantHome) {
+				t.Errorf("the %s Home line is not %q:\n%s", rt, wantHome, body)
+			}
+		})
+	}
+}
+
+// macos-user mounts nothing, so it has no map and its briefing no section: the section for
+// that backend is the design's §8 step 5, and a container-shaped one there would be false.
+func TestMacosUserHasNoPersistenceMapYet(t *testing.T) {
+	if m := persistenceMapFor("macos-user", newConfig(), nil); m != nil {
+		t.Errorf("macos-user got a persistence map: %+v", m)
+	}
+}
+
+// persistenceFixture is the config and packs both tests use: the official claude pack (one
+// writable dir and one machine-scope shared dir) and a writable_home_dirs entry, so every
+// source of a writable home mount is represented.
+func persistenceFixture(t *testing.T, ephemeral string) (*jsonx.OrderedMap, []*packload.Pack) {
+	t.Helper()
+	sec := jsonx.NewOrderedMap()
+	sec.Set("blocked_tools", []any{})
+	cfg := newConfig("security", sec, "writable_home_dirs", []any{".pi-lens"})
+	if ephemeral != "" {
+		cfg.Set("ephemeral_storage", ephemeral)
+	}
+	packs := claudePackFixture(t)
+	if got := persistenceWritableHomeDirs(cfg, packs); len(got) != 1 {
+		t.Fatalf("the fixture's writable_home_dirs entry did not validate: %v", got)
+	}
+	return cfg, packs
+}
+
+// persistenceWritableHomeDirs is what Run hands assembleInput.writableHomeDirs.
+func persistenceWritableHomeDirs(cfg *jsonx.OrderedMap, packs []*packload.Pack) []string {
+	return config.WritableHomeDirs(cfg, packs)
+}
+
+type writableMount struct {
+	src, dest string
+	tmpfs     bool
+}
+
+// writableMountsOf parses every writable mount out of an argv: `-v src:dest[:opts]` whose
+// options do not include ro, and every `--tmpfs dest[:opts]`.
+func writableMountsOf(argv []string) []writableMount {
+	var out []writableMount
+	for i := 0; i+1 < len(argv); i++ {
+		switch argv[i] {
+		case "-v", "--volume":
+			parts := strings.Split(argv[i+1], ":")
+			if len(parts) < 2 {
+				continue
+			}
+			if len(parts) >= 3 && strings.Contains(","+parts[2]+",", ",ro,") {
+				continue
+			}
+			out = append(out, writableMount{src: parts[0], dest: parts[1]})
+		case "--tmpfs":
+			out = append(out, writableMount{dest: strings.SplitN(argv[i+1], ":", 2)[0], tmpfs: true})
+		}
+	}
+	return out
+}
+
+// expectedClassBySource is the class an argv mount's SOURCE implies, where the source says.
+// ok is false for a source that carries no scope of its own (the per-jail host-services dir
+// under /run, which is per launch by the tmpfs it sits in).
+func expectedClassBySource(mt writableMount, in *assembleInput, scratchID string) (jailcontent.PathClass, bool) {
+	switch {
+	case mt.tmpfs:
+		return jailcontent.PathPerLaunch, true
+	case mt.src == "/ws":
+		return jailcontent.PathWorkspaceDurable, true
+	case mt.src == in.wsState || strings.HasPrefix(mt.src, in.wsState+"/"):
+		return jailcontent.PathWorkspaceDurable, true
+	case strings.HasPrefix(mt.src, paths.GlobalStorage()+"/"), mt.src == in.miseStore, mt.src == miseStoreVolume:
+		return jailcontent.PathMachineDurable, true
+	}
+	if _, id, _, ok := prune.ParseScratchVolumeName(mt.src); ok {
+		if id != scratchID {
+			// A scratch volume that is not this launch's is a /tmp a relaunch could be
+			// handed again: the per-launch property is gone.
+			return 0, true
+		}
+		return jailcontent.PathPerLaunch, true
+	}
+	return 0, false
+}
+
+// classAgrees: a per-workspace source may back an INTERNAL entry (yolo's own files in
+// <ws>/.yolo/home), and that is the only licensed difference.
+func classAgrees(got, want jailcontent.PathClass) bool {
+	return got == want || (want == jailcontent.PathWorkspaceDurable && got == jailcontent.PathInternal)
+}
+
+// persistenceClassOf is the class the map gives an in-jail path: the class of the deepest
+// map entry at or above it, or 0 when none covers it. A mount nested inside a mapped
+// directory (a cache relocation inside ~/.cache, a per-side shadow inside /workspace)
+// inherits that directory's class, which is how podman resolves it: the deeper bind wins
+// only for its own subtree.
+func persistenceClassOf(m *jailcontent.PersistenceMap, p string) jailcontent.PathClass {
+	best, bestLen := jailcontent.PathClass(0), -1
+	for _, e := range m.Paths {
+		if (p == e.Path || strings.HasPrefix(p, e.Path+"/")) && len(e.Path) > bestLen {
+			best, bestLen = e.Class, len(e.Path)
+		}
+	}
+	return best
+}
+
+// spanFor is how the section spells a path: `~/rel` under the home, `/abs` elsewhere.
+func spanFor(p string) string {
+	if strings.HasPrefix(p, jailHome+"/") {
+		return "`~/" + strings.TrimPrefix(p, jailHome+"/") + "`"
+	}
+	return "`" + p + "`"
+}
+
+// sectionOf returns the `## ` section headed by heading, up to the next `## `.
+func sectionOf(body, heading string) string {
+	i := strings.Index(body, heading)
+	if i < 0 {
+		return ""
+	}
+	rest := body[i:]
+	if j := strings.Index(rest[len(heading):], "\n## "); j >= 0 {
+		return rest[:len(heading)+j+1]
+	}
+	return rest
+}

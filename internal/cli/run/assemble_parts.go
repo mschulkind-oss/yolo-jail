@@ -12,6 +12,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	"github.com/mschulkind-oss/yolo-jail/internal/prune"
 )
 
 // appleContainerBaseMounts builds the Apple Container base mounts: single
@@ -59,13 +60,15 @@ func appleContainerBaseMounts(rt string, runFlags []string, workspace string, in
 		"-v", wsState+":/home/agent",
 		"-v", paths.GlobalCache()+":/home/agent/.cache",
 		"-v", miseStoreVolume+":/mise",
-		"--tmpfs", "/tmp",
-		"--tmpfs", "/var/tmp",
-		"--tmpfs", "/var/lib/containers",
-		"--tmpfs", "/var/cache/containers",
-		"--tmpfs", "/run",
-		"--tmpfs", "/dev/shm",
 	)
+	// Every scratch dir is a bare tmpfs here: the four scratch slots podman backs with named
+	// volumes, then /run and /dev/shm. The same two lists the persistence map reads.
+	for _, s := range prune.ScratchSlots {
+		runCmd = append(runCmd, "--tmpfs", s.Dest)
+	}
+	for _, d := range alwaysTmpfsDirs {
+		runCmd = append(runCmd, "--tmpfs", d)
+	}
 	// The machine-wide tier, nested inside the /home/agent bind exactly as
 	// GlobalCache is above. This costs ONE mount per declared shared dir — two
 	// today across every shipped pack (claude's and agy's) — not one per file in
@@ -112,20 +115,22 @@ func podmanBaseMounts(rt string, runFlags []string, workspace string, in *assemb
 	runCmd = append(runCmd,
 		"-v", workspace+":/workspace",
 		"-v", in.homeSkeleton+":/home/agent:ro",
-		"-v", filepath.Join(ws, "npm-global")+":/home/agent/.npm-global",
-		"-v", filepath.Join(ws, "local")+":/home/agent/.local",
-		"-v", filepath.Join(ws, "go")+":/home/agent/go",
-		// ONE anchor for BOTH generated-script dirs. The entrypoint writes
-		// ~/.yolo/bin/{block,launch} every boot and /home/agent is :ro, so without a rw
-		// bind the boot fails EROFS — but they need only ONE, because they are subdirs of
-		// a common parent. They stay separate DIRECTORIES because blockers must precede
-		// the real tool on PATH and lazy installers must not (see entrypoint.Env.LaunchDir);
-		// gathering them in the filesystem is not gathering them on PATH, and nothing may
-		// ever put this parent on PATH.
-		"-v", filepath.Join(ws, "yolo-bin")+":/home/agent/.yolo/bin",
-		"-v", filepath.Join(ws, "config")+":/home/agent/.config",
-		"-v", paths.GlobalCache()+":/home/agent/.cache",
 	)
+	// The per-workspace home binds up to ~/.config: npm-global, local, go, then ONE anchor
+	// for BOTH generated-script dirs (yolo-bin). The entrypoint writes
+	// ~/.yolo/bin/{block,launch} every boot and /home/agent is :ro, so without a rw bind the
+	// boot fails EROFS — but they need only ONE, because they are subdirs of a common
+	// parent. They stay separate DIRECTORIES because blockers must precede the real tool on
+	// PATH and lazy installers must not (see entrypoint.Env.LaunchDir); gathering them in
+	// the filesystem is not gathering them on PATH, and nothing may ever put this parent on
+	// PATH.
+	//
+	// From a list rather than literals because the briefing's persistence map reads the
+	// same one (persistencemap.go), so the section cannot name a dir this argv does not bind.
+	for _, b := range podmanEarlyHomeBinds() {
+		runCmd = append(runCmd, "-v", filepath.Join(ws, b.Subtree)+":/home/agent/"+b.HomeRel)
+	}
+	runCmd = append(runCmd, "-v", paths.GlobalCache()+":/home/agent/.cache")
 	// Cache relocations: a rw bind nested INSIDE the .cache mount above, so
 	// ~/.cache/<subdir> in the jail is an ordinary writable dir backed by other
 	// storage. Emitted here purely for readability — podman sorts mounts by
@@ -152,16 +157,10 @@ func podmanBaseMounts(rt string, runFlags []string, workspace string, in *assemb
 	// and a user who moved `pants` to get 40 G off their home disk would silently
 	// get 27 G of it back.
 	runCmd = append(runCmd, hostCASAliasArgs(in.hostCASAlias)...)
-	runCmd = append(runCmd,
-		"-v", filepath.Join(ws, "yolo-bootstrap.sh")+":/home/agent/.yolo-bootstrap.sh",
-		"-v", filepath.Join(ws, "yolo-venv-precreate.sh")+":/home/agent/.yolo-venv-precreate.sh",
-		"-v", filepath.Join(ws, "yolo-perf.log")+":/home/agent/.yolo-perf.log",
-		"-v", filepath.Join(ws, "yolo-socat.log")+":/home/agent/.yolo-socat.log",
-		"-v", filepath.Join(ws, "yolo-entrypoint.lock")+":/home/agent/.yolo-entrypoint.lock",
-		"-v", filepath.Join(ws, "yolo-ca-bundle.crt")+":/home/agent/.yolo-ca-bundle.crt",
-		"-v", filepath.Join(ws, "bash_history")+":/home/agent/.bash_history",
-		"-v", filepath.Join(ws, "ssh")+":/home/agent/.ssh",
-	)
+	// yolo's single-file binds, then ~/.ssh — the same list the persistence map reads.
+	for _, b := range podmanLateHomeBinds() {
+		runCmd = append(runCmd, "-v", filepath.Join(ws, b.Subtree)+":/home/agent/"+b.HomeRel)
+	}
 	// Writable home dirs: extra $HOME subpaths (config writable_home_dirs) made
 	// read-write by nesting a bind INSIDE the :ro home skeleton. The OCI
 	// runtime does NOT auto-create mountpoints inside a :ro bind mount (crun
