@@ -20,9 +20,12 @@ a model is user config only; `packs/claude/derive.lua` and `packs/pi/derive.lua`
 `openai-codex` ids then; packs/claude's `bedrock` provider declares no `models`. SOURCED
 2026-09-25 from AWS's model cards: the Anthropic-on-Bedrock geographic prefixes are `us.`, `eu.`,
 `au.`, `jp.` and `global.`, and the set differs per model
-([§5.3](#53-the-prerequisite-verify-before-an-id-ships)). UNMEASURED: whether Claude Code's
-gateway model discovery survives `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1`, and the format of
-codex's `model_catalog_json`. Code claims cite a symbol, never a line.
+([§5.3](#53-the-prerequisite-verify-before-an-id-ships)). Read 2026-09-29, and no longer
+unmeasured: Claude Code's gateway model discovery survives
+`CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1` but cannot carry a non-Anthropic id, and codex's
+`model_catalog_json` is a file of full catalog entries
+([§14](#14-how-each-agents-menu-is-set-researched-2026-09-29)). Code claims cite a symbol, never
+a line.
 
 **The question this doc answers.** When you pick a provider with `-p`, something has to decide
 which model the agent starts on and which models its menu offers. Usually the agent can decide
@@ -36,36 +39,49 @@ current.
   in a built-in pack that comes with yolo, not in core ([OQ-BR3](#OQ-BR3)). That also answers
   provider-switching's "does yolo ship the ids?" ([OQ-PSW3](#OQ-PSW3)).
 - **Built, 2026-09-27:** the `openai-codex` list moved into data, in the provider's own pack.
-  That is [OQ-ML1](#OQ-ML1)'s option (b), and the question stays open
-  ([ML-D1](#ML-D1)). pi writes no model scope for it any more ([ML-D2](#ML-D2)). Nothing else of
-  this design is built. Every other model list is a per-pack alias map
-  ([§3](#3-what-exists-today)).
+  That is [OQ-ML1](#OQ-ML1)'s option (b), which the question's 2026-09-29 ruling kept: each
+  provider declares its own default in its own pack ([ML-D1](#ML-D1)). pi writes no model scope
+  for it any more ([ML-D2](#ML-D2)). Nothing else of this design is built. Every other model list
+  is a per-pack alias map ([§3](#3-what-exists-today)).
 - **Moved here on 2026-09-25**, with their ids unchanged: [OQ-BR3](#OQ-BR3) and
   [OQ-BR12](#OQ-BR12)–[OQ-BR15](#OQ-BR15) from [`bedrock-plumbing.md`](bedrock-plumbing.md), and
   [OQ-PSW1](#OQ-PSW1) and [OQ-PSW3](#OQ-PSW3) from the retired `provider-switching.md`.
   Those two carried the old prefix `PS`, as `PS1` and `PS3`, until later that day, when that doc's series was
   renamed `OQ-PSW` because [`provisioner-sets.md`](provisioner-sets.md) also uses `OQ-PS`.
 
-**Needs your ruling:** [OQ-ML2](#OQ-ML2) first, because it decides how many ids the other questions are about; then [OQ-ML1](#OQ-ML1), [OQ-BR12](#OQ-BR12), [OQ-BR13](#OQ-BR13), [OQ-BR14](#OQ-BR14), [OQ-PSW1](#OQ-PSW1) and [OQ-BR15](#OQ-BR15). Ruled 2026-09-29: [OQ-ML1](#OQ-ML1), [OQ-ML2](#OQ-ML2) and [OQ-BR12](#OQ-BR12). [OQ-BR13](#OQ-BR13) is directed (render the list into every agent's model selection by whatever mechanism each supports) and being researched per agent.
+**Needs your ruling:** [OQ-MM1](#OQ-MM1) first, because it decides what most agents' menus
+show; then [OQ-MM3](#OQ-MM3), [OQ-BR14](#OQ-BR14) and [OQ-PSW1](#OQ-PSW1). Ruled 2026-09-29:
+[OQ-ML1](#OQ-ML1), [OQ-ML2](#OQ-ML2) and [OQ-BR12](#OQ-BR12). [OQ-BR13](#OQ-BR13) was directed
+the same day (set the model selection however each agent allows) and is researched in
+[§14](#14-how-each-agents-menu-is-set-researched-2026-09-29). That research also settled two
+questions without asking: [OQ-BR15](#OQ-BR15) on evidence (the bridge serves no model list), and
+[OQ-MM2](#OQ-MM2) on a corrected premise (copilot's key already sits in a 0600 per-agent file).
 
-- [OQ-ML1](#OQ-ML1): the shape of the built-in picks pack. Leaning: one yolo-shipped pack that
-  adds `models` entries to other packs' providers, joined through `needs`, and yielding to any
-  other writer.
-- [OQ-ML2](#OQ-ML2): which provider × agent cases get a yolo pick. Leaning: exactly the cases
-  where the agent would otherwise start on a wrong-family id or on none. Cost: claude's native
-  `-p bedrock` gets no pick, so `-p anthropic` and `-p bedrock` may put `opus` on different
-  models; ruling the other way ships Anthropic-on-Bedrock ids whose geographic prefixes differ per
-  model and must each be read off that model's AWS card
-  ([§5.3](#53-the-prerequisite-verify-before-an-id-ships)).
-- [OQ-BR12](#OQ-BR12): a `models` contribution kind so a company pack can shape a list. Leaning:
-  yes, with `add` and `only`.
-- [OQ-BR13](#OQ-BR13): how each derive renders the list into its agent's picker. Leaning: each
-  derive renders the one list into its own agent's surface.
+- [OQ-ML1](#OQ-ML1): the shape of the built-in picks pack. Ruled 2026-09-29: there is no separate
+  picks pack. Each provider declares its own default in its own pack, and that default layers
+  like all config.
+- [OQ-ML2](#OQ-ML2): which provider × agent cases get a yolo pick. Ruled 2026-09-29, narrower
+  than the leaning: yolo picks a model only to make a session valid, and never steers a valid
+  choice unless the config opts in.
+- [OQ-BR12](#OQ-BR12): a `models` contribution kind so a company pack can shape a list. Ruled
+  2026-09-29: yes, with `add` and `only`, for any provider. The engineer's own config writes last.
+- [OQ-BR13](#OQ-BR13): how each derive renders the list into its agent's picker. Directed
+  2026-09-29: however each agent allows; the mechanisms are
+  [§14](#14-how-each-agents-menu-is-set-researched-2026-09-29)'s table.
+- [OQ-MM1](#OQ-MM1): what a list that only adds does to an agent's own catalog. Leaning: it sits
+  beside the catalog, and only an `only` makes a menu exact.
+- [OQ-MM2](#OQ-MM2): where copilot's model file gets its key, if it cannot read it from the
+  environment. Settled 2026-09-29: in a second file beside the 0600 per-agent env file that
+  already holds that key ([MM-D10](#MM-D10)).
+- [OQ-MM3](#OQ-MM3): whether a list with no `only` refuses other models on a gateway that serves
+  more than the list, and what keeps claude's start valid where nothing refuses. Leaning: refuse
+  by default. With the switch off, yolo writes the start model once through claude's selection.
 - [OQ-BR14](#OQ-BR14): how the lists stay current. Leaning: the agents' own catalogs, plus a
   `yolo check` warning.
 - [OQ-PSW1](#OQ-PSW1): claude's derive reads `balanced`/`fast`. Leaning: yes, keeping
   `sonnet`/`haiku` as synonyms.
-- [OQ-BR15](#OQ-BR15): the bridge serves `GET /v1/models`. **Later, measure first.**
+- [OQ-BR15](#OQ-BR15): the bridge serves `GET /v1/models`. Settled 2026-09-29 on the
+  measurement it waited on: never ([MM-D4](#MM-D4)).
 
 **Out of scope, and where it lives instead.** Refusing an off-list model at the wire:
 [`wire-bridge-gateway.md`](wire-bridge-gateway.md#OQ-WG3), which reads this doc's effective
@@ -189,9 +205,9 @@ MEASURED at `ee8154f2`, 2026-09-24, unless marked.
   `GET /openai/v1/models` on `bedrock-runtime`, so nothing yolo ships can ask Bedrock which models
   exist.
 - **The agents' own Bedrock catalogs** (2026-09-24): pi-ai 0.87.1 ships 165 Bedrock entries, all
-  on Converse (MEASURED count). opencode 1.18.32's embedded models.dev has 179 Bedrock entries
-  (SOURCED from the research pass, not re-counted). claude and copilot have no catalog for a
-  non-Anthropic model.
+  on Converse (MEASURED count). opencode 1.18.32's embedded models.dev has 166 Bedrock entries
+  (MEASURED 2026-09-29 in the installed binary; the research pass's 179 was never re-counted).
+  claude and copilot have no catalog for a non-Anthropic model.
 
 ---
 
@@ -359,9 +375,11 @@ that also declares `sol` has four aliases, and that is not an error.
 **claude is where it bites.** Its env derive reads the vendor names `sonnet` and `haiku`
 literally. The proposal: read `balanced` → `ANTHROPIC_DEFAULT_SONNET_MODEL` and `fast` →
 `ANTHROPIC_DEFAULT_HAIKU_MODEL`, keeping `sonnet`/`haiku` as synonyms so no user config breaks
-([OQ-PSW1](#OQ-PSW1)). It says nothing yet about the opus tier, or the Fable tier
-(`ANTHROPIC_DEFAULT_FABLE_MODEL`), which [OQ-BR13](#OQ-BR13) maps only from a declared `fable`
-alias.
+([OQ-PSW1](#OQ-PSW1)). It says nothing yet about the opus tier. Whenever a list replaces
+claude's built-ins (a routed list, or an `only`), every tier, the Fable tier
+(`ANTHROPIC_DEFAULT_FABLE_MODEL`) included, is pinned to a list id: the tier's own alias where
+the list declares one, and the default entry otherwise. A list that sits beside claude's own rows
+pins only the tiers it names by alias ([MM-D2](#MM-D2)).
 
 ---
 
@@ -414,29 +432,34 @@ Found while writing this doc, against the tree at `ee8154f2`:
 
 ## 8. Rendering the effective list into each picker
 
-Each derive writes the effective list into its own agent's picker ([OQ-BR13](#OQ-BR13)):
+Each derive writes the effective list into its own agent's picker ([OQ-BR13](#OQ-BR13)). The
+table below is the summary; each agent's mechanism, what it refuses and the evidence are
+[§14](#14-how-each-agents-menu-is-set-researched-2026-09-29), researched 2026-09-29.
 
 | Agent | Picker surface | Notes |
 | :--- | :--- | :--- |
-| claude | `modelPicker.options`, `availableModels` | `availableModels` puts the resolved default first, then the rest in list order; `modelPicker` uses list order |
-| pi | `enabledModels`; for `openai-codex`, the registered catalog itself | `enabledModels` is a soft shortlist, never a boundary: Tab shows every credentialed model ([`provider-credential-scope.md`](provider-credential-scope.md#241-what-pis-enabledmodels-actually-constrains)). For `openai-codex` yolo writes none: the extension registers exactly the declared list, so pi's "all" view is that list ([ML-D2](#ML-D2)) |
-| opencode | its provider `whitelist` | per the research pass |
-| oh-omp | `models.yml` | not installed here; unverified |
-| codex | `model_catalog_json` | format unread, so codex gets the selection only until it is read |
-| copilot | one `COPILOT_MODEL` | the first entry it can call |
+| claude | `modelPicker.options`, `availableModels` | `availableModels` puts the resolved default first, then the rest in list order; `modelPicker` uses list order. claude's Default row always stays ([§14.2](#142-what-each-row-rests-on)) |
+| pi | an extension's registration of exactly the list; `models.json` rows for a list that adds | built for `openai-codex` ([ML-D2](#ML-D2), [ML-D3](#ML-D3)) and generalized by [MM-D6](#MM-D6). `enabledModels` alone is a soft shortlist, never a boundary ([`provider-credential-scope.md`](provider-credential-scope.md#241-what-pis-enabledmodels-actually-constrains)) |
+| opencode | its provider `whitelist` | also refuses every other model ([MM-D7](#MM-D7)) |
+| oh-omp | `enabledModels` in `config.yml`; `models.yml` rows | the scope fails open ([MM-D8](#MM-D8)) |
+| codex | `model_catalog_json` | full entries copied from codex's own catalog at prelaunch ([MM-D9](#MM-D9)); until built, the selection only |
+| copilot | one `COPILOT_MODEL`; later `providers.json` | the whole list once [MM-D10](#MM-D10) is built |
 
 Rules:
 
 - **Written once per launch** at the boot render, as managed layers, like every derive output.
 - **An interactive `/model` choice still wins** until yolo's own selection changes (the
   `selection` namespace, unchanged).
-- **claude's built-in options are replaced only on the everything profile**, whose built-ins are
-  Anthropic names that profile should not lead with. The native profile keeps them and adds the
-  list's entries beside them.
-- **`enforceAvailableModels` is set only when an `only` narrowed the list.** A list that merely
-  adds must never lock a user out of the agent's built-in choices. `openai-codex` keeps its
-  enforcement with no exception: the picks pack would state that list as an `add` plus an `only`
-  over the declared ids.
+- **claude's built-in options are replaced on every routed provider and under an `only`**
+  ([MM-D1](#MM-D1)), which revises the 2026-09-25 plan of replacing them only on the everything
+  profile: on a routed provider they only restate the tier pins ([MM-D2](#MM-D2)) under Anthropic
+  labels. What the native profile shows for a list that only adds is [OQ-MM1](#OQ-MM1).
+- **A refusal is set only where the list is the provider's whole universe or an `only` narrowed
+  it**, and only while the profile's enforcement switch is on ([MM-D5](#MM-D5)). A list that
+  merely adds beside an agent's own catalog must never lock a user out of that catalog.
+  `openai-codex` is a whole universe whose service serves nothing else, so it keeps its
+  enforcement. Whether a whole-universe list refuses on a gateway that serves more than the list,
+  such as z.ai, OpenRouter or Kilo, is [OQ-MM3](#OQ-MM3).
 - **The GPT-6 lists moved into data** (BUILT 2026-09-27, [ML-D1](#ML-D1)): into the provider's
   own pack rather than the picks pack of [§5.1](#51-its-shape). claude's rendered `openai-codex`
   output stayed byte-identical, and a test fails when any consumer's read of the declaration is
@@ -483,10 +506,12 @@ other path). There is nothing upstream to proxy: runtime has no model-list endpo
 bridge would serve the list yolo composed, from memory. That is not "discovery" in
 [providers.md](../reference/providers.md#what-this-does-not-license)'s sense.
 
-UNMEASURED, and the thing to measure first: whether discovery survives the
-`CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1` the claude derive sets on every routed launch. It
-lives here beside [OQ-BR13](#OQ-BR13) because each is the other's alternative for claude. If
-built, it amends WB-D14's one-route surface.
+**Settled 2026-09-29: never** ([MM-D4](#MM-D4)). The thing to measure first was whether
+discovery survives the `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1` the claude derive sets on
+every routed launch. It does, but discovery keeps only ids containing "claude" or "anthropic",
+never runs on claude's native profile, and is hidden once the built-ins are replaced, and no
+other agent reads such a route ([§14.3](#143-the-bridges-part-and-get-v1models)). So
+[WB-D14](../reference/wire-bridge.md#wb-d14)'s one-route surface stays.
 
 ---
 
@@ -496,7 +521,9 @@ built, it amends WB-D14's one-route surface.
 
 - a model id in core: no Go table, no translation table;
 - a network call for models at launch;
-- `enforceAvailableModels` without an `only`;
+- a refusal, `enforceAvailableModels` included, on a list that only adds beside an agent's own
+  catalog ([MM-D1](#MM-D1), [MM-D5](#MM-D5)). A list on a gateway that serves more than it is
+  [OQ-MM3](#OQ-MM3)'s;
 - a pick for a case the agent can default on;
 - a pick with no date and no source in the pack README;
 - an Anthropic-on-Bedrock id whose geographic prefix is unverified.
@@ -511,8 +538,9 @@ profile, and what the bridge may dial is now
 - **No catalog.** yolo tracks no provider's full model list, region matrix or pricing
   ([§2](#2-the-ruling-and-how-it-fits-what-was-said-before)).
 - **No closed alias vocabulary.** `default`/`fast`/`balanced`/`frontier` warn; they never refuse.
-- **No enforcement at the wire.** A picker is a menu. Refusing an off-list model in the request
-  path is [`wire-bridge-gateway.md`](wire-bridge-gateway.md#OQ-WG3)'s.
+- **No enforcement at the wire.** Refusing an off-list model in the request path is
+  [`wire-bridge-gateway.md`](wire-bridge-gateway.md#OQ-WG3)'s. The refusals an agent can make
+  itself, listed in [§14.1](#141-the-table), follow that doc's switch ([MM-D5](#MM-D5)).
 
 Rejected or leaning against, each argued in its question: fetching Bedrock's list at launch
 and shipping a dated catalog snapshot ([OQ-BR14](#OQ-BR14) options B and C), and picks scattered
@@ -538,7 +566,8 @@ through each provider's own pack ([OQ-ML1](#OQ-ML1) option (b)).
    [§7.3](#73-two-fields-the-entry-shape-is-missing)), then **picker rendering**, moving the
    GPT-6 lists into data under the byte-identical test ([OQ-BR13](#OQ-BR13)). The move itself
    is BUILT (2026-09-27), into the provider's own pack rather than a `models` kind
-   ([ML-D1](#ML-D1)); a `models` kind would take over that declaration.
+   ([ML-D1](#ML-D1)); a `models` kind would take over that declaration. Picker rendering per
+   agent has its own order, [§14.4](#144-build-order), whose first step needs no `models` kind.
 2. **The picks pack** ([OQ-ML1](#OQ-ML1)), with the cases [OQ-ML2](#OQ-ML2) rules, each id dated;
    Anthropic ids only after the prefix check ([§5.3](#53-the-prerequisite-verify-before-an-id-ships)).
    provider-switching's three-line `models` map for claude's native `bedrock` provider lands here
@@ -548,13 +577,19 @@ through each provider's own pack ([OQ-ML1](#OQ-ML1) option (b)).
 4. **First-party providers** for claude, with no picks under [OQ-ML2](#OQ-ML2)'s leaning
    ([§5.4](#54-first-party-providers-are-a-use-of-this)).
 5. **The `yolo check` staleness warning** ([OQ-BR14](#OQ-BR14)).
-6. **A bridge `GET /v1/models`** waits on its measurement ([OQ-BR15](#OQ-BR15)).
+6. ~~A bridge `GET /v1/models`~~: dropped 2026-09-29, never to be built ([MM-D4](#MM-D4)).
 
 **Done when:**
 
-1. A company pack with `only` over five ids makes exactly those five, in its order, appear in
-   claude's, pi's and opencode's pickers, each filtered to what that agent can call. copilot's
-   `COPILOT_MODEL` is the first entry it can call.
+1. A company pack with `only` over five ids makes exactly those five appear in claude's, pi's,
+   opencode's and codex's pickers, each filtered to what that agent can call: in the pack's
+   order except opencode's, which sorts by release date, and below claude's Default row. oh-omp
+   shows the same five only on a provider it has a list for: the via row under yolo's `bedrock`
+   key, or a key omp does not ship. omp's native Bedrock client gets no list
+   ([MM-D8](#MM-D8)).
+   copilot's menu is the same five once [MM-D10](#MM-D10) is built, its first entry until then.
+   With the profile's enforcement switch on, each agent that can refuse
+   ([§14.1](#141-the-table)) refuses a sixth id.
 2. The `openai-codex` pickers render byte-identically to today after the GPT-6 lists move into
    data, and the test fails if the render's call site is deleted. Met for claude on 2026-09-27;
    pi's changed on purpose, since it gets no scope for `openai-codex` ([ML-D2](#ML-D2)).
@@ -569,7 +604,410 @@ through each provider's own pack ([OQ-ML1](#OQ-ML1) option (b)).
 
 ---
 
-## 14. Open Questions
+## 14. How each agent's menu is set (researched 2026-09-29)
+
+This section answers [OQ-BR13](#OQ-BR13)'s direction, *"set the model selection however we
+can"*, one agent at a time. Three research passes read each agent's shipped bundle or source at
+the version named. pi's model code was also loaded as a library, with an isolated home and no
+network. No agent CLI was run and no model request was sent. Every claim is marked
+MEASURED (observed in a shipped bundle or a library load), SOURCED (read in vendor source or
+docs) or INFERRED. Vendor code is cited as file and line at the version named, which does not
+move; yolo's own code is cited by symbol, as everywhere else in this doc.
+
+**Versions read:** Claude Code 2.1.285, the release `packs/claude`'s installer tracks. copilot
+1.0.89, npm's latest on 2026-09-29. This jail's copilot 1.0.48 is a leftover: the copilot pack is not selected
+here, so no launcher updates it (MEASURED: `~/.yolo/bin/launch` has no copilot launcher). pi
+0.87.1, the copy the jail's launcher had installed when it was read, and 0.99.1, published
+2026-09-29; both were measured on 2026-09-29. oh-omp 0.15.3, the version
+`packs/omp` pins; 0.15.4 changes no model code. opencode 1.18.32. codex 0.158.0.
+
+Three words used below:
+
+- An **exact menu** *(coined here)*: the agent's model menu for the selected provider offers the
+  effective list's models and no others. It is not a refusal. A menu can be exact while the agent
+  still runs a model typed on its command line.
+- A **refusal** is the agent, or the wire bridge, declining a request for a model outside the list.
+  The bridge's is [OQ-WG3](wire-bridge-gateway.md#OQ-WG3)'s: one list, and an enforcement switch
+  on the profile that defaults on. It can act only on the **bridge path**
+  ([wire-bridge-gateway §6](wire-bridge-gateway.md#6-part-5--all-traffic-through-the-bridge-new-direction-design)),
+  never on an agent's native client, and for pi, oh-omp, opencode and codex that means a **via
+  route** ([wire-bridge-gateway §4](wire-bridge-gateway.md#4-part-3--the-sign-only-openai-chat-completions-route-ruled)).
+- A list is the provider's **whole universe** *(coined here)* when the agent has no catalog of its
+  own for that provider, so yolo's list is the only way a model reaches its menu: every provider
+  claude is routed to through `ANTHROPIC_BASE_URL`, every copilot provider, and every provider key
+  pi, oh-omp or opencode does not ship. There an exact menu takes nothing away from the menu. Not
+  the same as an `only`, which narrows a provider the agent may well have a catalog for, and not a
+  claim that the service behind it serves nothing else: a gateway usually serves more.
+
+### 14.1 The table
+
+What each agent can show, and what refuses. "Under an `only`" marks what renders when a `models`
+contribution narrowed the list; what a list that only adds renders beside an agent's own catalog
+is [OQ-MM1](#OQ-MM1).
+
+| Agent, path | Shows exactly the list by | Other models refused by | Build step |
+| :--- | :--- | :--- | :--- |
+| **claude, native profile** (its own Bedrock client) | Never quite exactly. `modelPicker` with `replaceBuiltInOptions: true` shows claude's Default row, which cannot be removed, then the list, plus the session's current model when that is off the list (MEASURED). With `availableModels` and `enforceAvailableModels`, Default keeps the tier default when that tier's model is listed, and otherwise takes the first listed entry shaped like an Anthropic id (MEASURED, [§14.2](#142-what-each-row-rests-on)) | claude's own `availableModels`, client side, with four gaps ([§14.2](#142-what-each-row-rests-on)). The bridge never sees this path | Under an `only`, the three keys; every tier pinned to a list id beside `CLAUDE_CODE_USE_BEDROCK` ([MM-D1](#MM-D1), [MM-D2](#MM-D2), [MM-D5](#MM-D5)) |
+| **claude, routed** (`ANTHROPIC_BASE_URL` at the bridge, or at a gateway's own Anthropic endpoint) | `modelPicker` with the built-ins always replaced, since the list is the whole universe: Default, then the list. Built today for `openai-codex` only | claude's `availableModels` where it renders: on `openai-codex` and under an `only`, and on a gateway's list as [OQ-MM3](#OQ-MM3) rules. On the bridge path, the bridge's allowlist, which also sees claude's background requests | Generalize the `openai-codex` branch of `yolo.derive("claude", "settings")` to every routed provider; pin every tier; stop steering the start model ([MM-D1](#MM-D1) to [MM-D3](#MM-D3)) |
+| **copilot** (through the bridge on Bedrock and the other bridged providers; direct otherwise, [§14.2](#142-what-each-row-rests-on)) | Today one entry, `COPILOT_MODEL`, because copilot's environment-variable setup carries one model (SOURCED). A `providers.json` file, present in 1.0.89 and absent in 1.0.48, holds a provider and a row per model, so the whole list can show (SOURCED) | No copilot setting refuses a model configured this way (SOURCED). On a bridged provider the bridge's allowlist is the only refusal, and every copilot request passes it. On a direct provider nothing refuses | After four measurements, a `copilot/providers` surface, or a file beside copilot's env file if the key cannot come from the environment ([MM-D10](#MM-D10)) |
+| **pi, a provider pi ships** (`amazon-bedrock`, `zai`, `cerebras`, `openrouter`, `openai-codex`) | An extension's `registerProvider(<id>, { models })` replaces that provider's list and keeps pi's own client, address and credential (MEASURED on 0.87.1 and 0.99.1). Built for `openai-codex` ([ML-D3](#ML-D3)). A `models.json` row cannot narrow: it adds beside pi's catalog | Every menu path is bound to the list, but `--model <provider>/<unlisted id>` still runs, with a warning (MEASURED). A `streamSimple` wrapper in the same registration refuses it in-process (MEASURED up to delegation). The bridge only on a via route | Generalize `pi/codex-models` into one per-provider data file; register exactly under an `only`; add the wrapper under the switch ([MM-D6](#MM-D6)) |
+| **pi, a provider yolo defines** (a key pi does not ship: yolo's `bedrock` via row, `kilo`, `llamacpp`) | Already exact: a `models.json` row under a key pi does not ship is the whole list (MEASURED) | The same `--model` gap and the same wrapper; the bridge on a via route | Nothing for the menu; the wrapper as above |
+| **oh-omp** (0.15.3) | `enabledModels` in `~/.oh-omp/agent/config.yml`: the selector then shows only that scope, with no "all" view (SOURCED). It fails open when no pattern matches. omp's own Bedrock catalog stops at Claude 4.6, and `models.yml` cannot add a Converse model, so a current Bedrock list exists only as the via row under yolo's `bedrock` key, which is exact | `--model` refuses an id omp does not know, but accepts any known model outside the scope, and `modelRoles` can name one too (SOURCED). The bridge on the via row | A new `oh-omp/settings` surface writing `enabledModels`, with the start model through the selection ([MM-D8](#MM-D8)) |
+| **opencode, native** (`amazon-bedrock`, and yolo providers named like catalog ones: `openrouter`, `kilo`, `zai`, `cerebras`) | `provider.<id>.whitelist` set to the list's ids, each also declared under `provider.<id>.models` (SOURCED). The order stays opencode's: newest release date first | The whitelist itself: any other model fails as "Model not found". Hiding and refusing cannot be separated. The bridge on a via route | Write the whitelist; take the display name from the entry, never the alias ([MM-D7](#MM-D7)) |
+| **codex** (0.158.0) | `model_catalog_json`, a file of full catalog entries applied at startup for every provider; `priority` sets the order and `display_name` the name (SOURCED). The entries must be copied from codex's own catalog: one with no instructions runs codex with empty system instructions | Nothing in codex: an off-catalog model runs on fallback metadata (SOURCED). The bridge on a via route, which `openai-codex` never has ([WG-I21](wire-bridge-gateway.md#WG-I21)) | A new prelaunch step that reads codex's bundled catalog and writes the filtered file; last ([MM-D9](#MM-D9)) |
+
+### 14.2 What each row rests on
+
+**claude**, 2.1.285.
+
+- **Keys and scopes** (SOURCED, [settings reference](https://code.claude.com/docs/en/settings-reference.md)
+  and [model configuration](https://code.claude.com/docs/en/model-config.md)). `modelPicker` is
+  `{ options: [{ model, label, description, behavesAs }], replaceBuiltInOptions }`, read only from
+  managed settings, `--settings` and user settings, never a project's. `availableModels` may sit in
+  any file: a managed list replaces the rest, otherwise user, project and local lists concatenate.
+  `enforceAvailableModels` may sit in any file but is ignored whenever a managed source exists.
+  `availableModelsMatch` and `deniedModels` are managed-only. `/model`'s Enter saves `model` into
+  user settings. yolo writes these keys to `~/.claude/settings.json`, the `claude/settings`
+  surface.
+- **The Default row stays** (MEASURED, binary offset 201940036:
+  `if(s.replaceBuiltInOptions===!0)return[...e.filter((k)=>k.value===null),...S]`). A curated row the
+  allowlist drops is removed, and when every row is dropped claude falls back to its built-ins.
+  "Default, resolving to the list's default, then the list" is the closest claude gets, and it is
+  what yolo renders for `openai-codex` today, where the tier pins, not the allowlist, make
+  Default the declared default.
+- **What Default resolves to under enforcement** (MEASURED by reading 2.1.285's enforcement
+  fallback, `function Fd(e,n,r)` at offset 198349654; not run). This replaces the unmeasured
+  claim, made here before, that Default resolves to the list's first entry. Default keeps the
+  tier default whenever that tier's model is allowed. Only when it is not does claude walk
+  `availableModels` in order (offset 198351832). It skips every entry that fails `Od()`, which
+  accepts an id matching `^((us|eu|apac|jp|au|us-gov|global)\.)?(anthropic\.|claude-)`
+  (`fD`, offset 198357325), a Bedrock ARN, or anything on Foundry. An id shaped like
+  `gpt-6-sol` or `glm-5.3` is first rewritten to `claude-gpt-6-sol` (`vs=/^[a-z]+-\d/`, offset
+  198352336), and what claude then selects for it is unresolved. When no entry survives, claude
+  logs *"keeping the tier default"* (offset 198353071). So on a routed or everything list of
+  Kimi, GPT or GLM ids, list order does not decide what Default resolves to. The tier pins do
+  ([MM-D2](#MM-D2)).
+- **What `availableModels` refuses** (MEASURED at offsets 198322072 and 198322244; SOURCED,
+  model-config "Restrict model selection"): `/model <x>` for an unlisted id; an unlisted
+  `--model`, `ANTHROPIC_MODEL` or saved `model`, each replaced at startup by Default; a subagent's
+  or teammate's model, which falls back; a skill's model override; and a tier variable pointing
+  outside the list. A plain id matches exactly and, at user scope, also by `-`-segment prefix,
+  with a `claude-` prefix tried as well (gap 1; `$r` at offset 198322072, `OM` beside `ny`). So a
+  plain `gpt-6-sol` also admits `gpt-6-sol-<anything>` and `claude-gpt-6-sol…`.
+
+> [!WARNING]
+> **Four gaps in claude's own refusal**, all on the client, all MEASURED in 2.1.285 unless marked:
+>
+> 1. **At user scope an entry matches by prefix**, one `-` segment at a time (offset 198318674,
+>    `function ny(e,n)`), so `us.anthropic.claude-opus-5` also admits `us.anthropic.claude-opus-5-5`,
+>    a different model ([§5.3](#53-the-prerequisite-verify-before-an-id-ships) has both). The exact
+>    form is managed-only.
+> 2. **Haiku background requests, hooks and helper requests that pick their own model, and the
+>    auto-mode classifier's Opus fallback on non-Anthropic providers are not restricted** (SOURCED,
+>    the `availableModelsMatch` description and model-config). Pinning every tier to a list id
+>    ([MM-D2](#MM-D2)) routes them onto the list.
+> 3. **A repository's `.claude/settings.json` can add entries** (lists concatenate) **and switch
+>    enforcement off.** It cannot change `modelPicker`. That is the engineer's own config having the
+>    last word, as [OQ-BR12](#OQ-BR12) was ruled.
+> 4. **Any managed source switches user-level enforcement off silently** unless it sets both keys
+>    itself (offsets 198355187 and 198349782): `/etc/claude-code/managed-settings.json`, an MDM
+>    profile, or a `managed-settings.d` directory. A managed `availableModels` also replaces yolo's
+>    list. No container jail has `/etc/claude-code` (MEASURED here); the host notch and a managed Mac
+>    can. Default then resolves by tier: on Bedrock the opus tier (offset 198349496); behind a
+>    gateway, unresolved in the minified code, so every tier is pinned.
+
+- **Gateway model discovery cannot carry the list** (MEASURED + SOURCED,
+  [gateway protocol](https://code.claude.com/docs/en/llm-gateway-protocol.md)). It does survive
+  `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1` since 2.1.257, the fact [§10](#10-later-the-bridges-get-v1models)
+  waited on. But it keeps only ids matching `/(claude|anthropic)/i` (offset 198300426), never runs
+  while any `CLAUDE_CODE_USE_*` is set, adds only models `availableModels` allows, and
+  `replaceBuiltInOptions` hides what it found. So a bridge `/v1/models` could never carry a GPT or
+  Kimi entry ([MM-D4](#MM-D4)).
+- **The claude env derive steers against [OQ-ML2](#OQ-ML2)'s ruling today** (SOURCED + read).
+  `ANTHROPIC_MODEL` outranks the saved `model`, and claude returns to it at every launch
+  (model-config, "Set a default model for new sessions"). `yolo.env("claude")` sets it on every
+  `openai-codex` launch. On any other provider it sets it whenever a model resolves: the
+  resolved `model` option names an alias in the provider's `models` map, or the map has a
+  `default` alias, or, with neither, the option is set to anything but `default`, which is then
+  used as a literal id. A map with no such alias and no option emits nothing. The resolved option
+  includes the provider's declared default, which the derive cannot tell from the profile's own
+  value (`packload.ResolvedProfile`), so a plain `-p zai` sets `glm-5.3` at every launch. A valid
+  `/model` choice is overridden each launch. Its `openai-codex` branch also pins only the opus
+  tier. Both are implementation fixes ([MM-D2](#MM-D2), [MM-D3](#MM-D3)). Outside `openai-codex`
+  the steering fix waits on [OQ-MM3](#OQ-MM3), since that pin is today the only check on claude's
+  start there.
+- **Ids and windows** (SOURCED). Picker rows take full provider-form ids verbatim; for Bedrock the
+  docs' own example is `us.anthropic.claude-opus-4-8`. Provider prefixes are not stripped and
+  `[1m]` is stripped on both sides. The context window is one global value
+  (`CLAUDE_CODE_MAX_CONTEXT_TOKENS`); `[1m]` is its only per-row variation. `behavesAs` (2.1.257+)
+  lends a row a known Claude model's capabilities.
+
+**copilot**, 1.0.89, read from the `copilot.tgz` inside `@github/copilot-linux-x64`'s
+single-executable binary.
+
+- **Which path copilot takes** (read in `packs/copilot/derive.lua` and `packload.adaptEndpoints`).
+  The derive sends copilot to the provider's `anthropic` endpoint when there is one, and to its
+  `openai` endpoint otherwise. Core composes the bridge's address as the `anthropic` endpoint of
+  every provider that offers `openai` and lacks `anthropic`, when the bridge is served and a
+  selected agent speaks `anthropic`. So in a jail copilot goes through the bridge on Bedrock,
+  Cerebras and Kilo, with the launch's caller token. It goes direct to z.ai's, OpenRouter's and
+  llama.cpp's own Anthropic endpoints, with the provider's own key. At the host notch Cerebras and
+  Kilo go direct too, since copilot speaks their own wire
+  ([wire-bridge.md](../reference/wire-bridge.md#at-the-host-notch)).
+- **Environment-variable setup is one model** (SOURCED, the `copilot help providers` text in
+  `app.js`): `COPILOT_MODEL`, or `COPILOT_PROVIDER_MODEL_ID` with `COPILOT_PROVIDER_WIRE_MODEL`, and
+  a model is mandatory. `packs/copilot`'s env derive writes the one under the profile's alias. There
+  is no discovery for these models, and a second one cannot be picked in the TUI
+  ([copilot-cli#3795](https://github.com/github/copilot-cli/issues/3795),
+  [#3282](https://github.com/github/copilot-cli/issues/3282), both open).
+- **`providers.json`** (SOURCED,
+  [config-dir reference](https://docs.github.com/en/copilot/reference/copilot-cli-reference/cli-config-dir-reference#providersjson)):
+  an object with `providers` and `models`, at `COPILOT_PROVIDERS_CONFIG` or `~/.copilot/providers.json`,
+  which overrides every `COPILOT_PROVIDER_*` variable once it declares anything. Present in
+  1.0.89 and absent from 1.0.48 (MEASURED: no match in its `app.js`); which release added it is
+  unread. GitHub publishes no schema. The fields are INFERRED from the
+  SDK built for 1.0.89 (`@github/copilot-sdk` 1.0.15: `NamedProviderConfig` with `apiKey` and
+  `bearerToken`, `ProviderModelConfig` with `wireModel`), which the native validator's messages
+  match. A picker selection is `<provider>/<id>`.
+- **Its credential is literal text.** A derive never receives the hydrated key
+  ([providers.md](../reference/providers.md#derives-the-delivery-mechanism)). An `apiKeyCommand`
+  field appears among the provider fields in the native runtime's strings, but the 1.0.15 SDK's
+  types carry no such field (MEASURED 2026-09-29), so whether the file accepts one is UNMEASURED.
+  Where the key goes if it does not is [OQ-MM2](#OQ-MM2), settled as [MM-D10](#MM-D10) says.
+- **GitHub's own models may join the menu.** `app.js` merges these models into copilot's own list
+  (`mergeByokModelList`), so a copilot also signed in to GitHub may show GitHub's models beside
+  yolo's (INFERRED; UNMEASURED).
+- **No copilot setting refuses these models** (SOURCED, the config-dir reference). The repository's
+  `.github/allowed_models.txt` "cannot filter out custom models added using BYOK". A host
+  `allowedModels` list exists only as an SDK session option, with no flag or variable. The managed
+  `model` key is a default only.
+- ⚠ **Background requests.** copilot's help names prompt refinement and session and branch naming as
+  separate requests, and the runtime holds hard-coded small-model ids such as `gpt-4o-mini`. Which
+  ids those carry in this mode must be measured before the bridge's default-on refusal applies to
+  copilot, or it breaks them loudly (INFERRED).
+- **A side defect for `packs/copilot`**, outside this doc: since 1.0.35 user settings live in
+  `~/.copilot/settings.json`, and copilot moves any it finds in `config.json` there at startup
+  (SOURCED, the changelog's 1.0.35 entry; MEASURED present in 1.0.48, whose `app.js` holds
+  *"Settings migration: moved ${m} setting(s) from config.json to settings.json"*). The pack
+  writes its status-line defaults into `config.json` as a read-modify-write surface, so every
+  boot rewrites what copilot then drains. That holds at 1.0.48, the version the copilot env
+  derive's provenance cites.
+
+**pi**, 0.87.1 and 0.99.1.
+
+- **The list is built in layers** (SOURCED, 0.99.1 `dist/core/provider-composer.js`:332-352): pi's
+  catalog (plus a pi.dev overlay on the catalog only); then `models.json`, which adds or replaces
+  by id and never removes (137-170); then an extension's `registerProvider` with `models`, which
+  replaces the provider's whole list (171-178; `docs/custom-provider.md`:30); then metadata-only
+  overrides. 0.87.1 has the same semantics.
+- **Registration makes a pi-shipped provider exact** (MEASURED on both versions, library load,
+  `PI_OFFLINE=1`, a dummy `AWS_BEARER_TOKEN_BEDROCK`). `amazon-bedrock` has 176 entries on 0.99.1
+  and 165 on 0.87.1. A `models.json` row makes it 177. A registration of three ids makes it exactly
+  3, including an id absent from the catalog, all on `bedrock-converse-stream` to the built-in
+  endpoint, with the credential pi's own chain finds. `models: []` hides a provider entirely.
+- **A `models.json` row is exact only under a key pi does not ship** (MEASURED on 0.99.1). yolo's
+  `bedrock` row gives exactly its 2 models; an `openrouter` row with one model gives 398; the `zai`
+  row gives 8, pi's 7 plus yolo's `glm-4.6`. So the `zai`, `cerebras` and `openrouter` lists yolo
+  renders for pi today are not exact menus.
+- **A registered model gets only `api` and `baseUrl` from pi** (SOURCED, provider-composer.js:111-136).
+  Reasoning, cost, window and input types must come with each definition, from `getBuiltinModel`,
+  as `yolo-openai-auth.js` already does. Both helpers are still exported in 0.99.1, from a module
+  pi's extension loader provides (`virtual-modules.js`:28).
+- **`--model` escapes the list** (MEASURED on both versions). `pi --model amazon-bedrock/eu.anthropic.claude-opus-5-5`
+  against an exact list builds a custom model and prints *"Model … not found for provider … Using
+  custom model id."* (`model-resolver.js`:130-143, 431-456); nothing downstream checks the id
+  (`model-runtime.js`:447-477). Every other path is bound to the list: `/model` and its Tab "all"
+  view, Ctrl+P, `/model <term>`, RPC `set_model`, and `enabledModels` patterns.
+- **pi can refuse in-process** (MEASURED on 0.99.1). A registration carrying `api` and a
+  `streamSimple` wrapper that throws for an off-list id and hands a listed one to pi's own provider
+  object ended the `--model` turn above with *"yolo: amazon-bedrock/eu.anthropic.claude-opus-5-5 is
+  not in this jail's model list"* (provider-composer.js:360-363; pi-ai `dist/api/lazy.js`:36-46).
+  The listed id reached the delegate; the real Bedrock stream behind it was not called, so that a
+  second provider object authenticates the same is INFERRED. It covers the `--model` fallback,
+  resumed sessions and an extension's `setModel`, not `--no-extensions`. The weaker hooks cannot
+  refuse: a throw in `before_provider_request` is caught and the request goes ahead
+  (`extensions/runner.js`:1060-1088).
+
+> [!NOTE]
+> **Two claims elsewhere are now wrong for pi.** [wire-bridge-gateway §6](wire-bridge-gateway.md#6-part-5--all-traffic-through-the-bridge-new-direction-design)
+> says the bridge is the only place a refusal can live, and [OQ-CN4](provider-credential-scope.md#OQ-CN4)
+> rests on pi's only lever on the "all" view being the credential. A registration narrows the "all"
+> view, and a wrapper refuses. Neither changes what [OQ-CN4](provider-credential-scope.md#OQ-CN4)
+> ruled, since withholding stays the security property. A note is owed in both docs.
+
+- **Narrowing does not reopen the shadowing trap** (MEASURED for the models-only form). A
+  registration passing only `models` keeps the built-in provider's address, wire and credential,
+  so it works however [pi-codex-provider-shadowing OQ-3](pi-codex-provider-shadowing.md#OQ-3) is
+  ruled. The refusing form cannot be models-only: pi 0.99.1's `validateExtensionProvider` throws
+  *"\"api\" is required when registering streamSimple"* (provider-composer.js:326-328), so it
+  carries `models`, `api` and `streamSimple`. That this form still authenticates through pi's own
+  chain is INFERRED, since its listed id reached the delegate but the real stream was not called.
+- **pi 0.99.0 renamed its `openai-codex` provider "OpenAI Codex (legacy)"** (SOURCED, pi-ai
+  `dist/providers/openai-codex.js`:9). yolo's registration sets no `name`, and the composed name
+  falls back to the built-in's (provider-composer.js:378), so pi 0.99 labels yolo's provider
+  "(legacy)" (INFERRED). 0.99.0 also gives pi's `openai` provider a ChatGPT login, which yolo does
+  not use, and adds `registerVirtualModel()`, which adds rows rather than filtering them.
+- **Catalog currency** (MEASURED counts). 0.87.1's `openai-codex` catalog lacks `gpt-6.1-sol`,
+  yolo's declared default; 0.99.1 has it. A jail still on 0.87.1 registers it with defaults, and
+  [ML-D7](#ML-D7) warns. On 0.99.1 pi's own default after `/login` is `gpt-6.1-sol`, which the list
+  has, so [ML-D4](#ML-D4)'s "not available" message should stop (INFERRED).
+- **UNMEASURED:** whether the shipped `pi` bundle resolves `yolo-openai-auth.js`'s dynamic catalog
+  import. Unbundled library use fell back to defaults on both versions; [ML-D3](#ML-D3) and
+  [ML-D7](#ML-D7) measured success through pi's own loader at 0.87.1. A nested-jail launch showing
+  no [ML-D7](#ML-D7) warning settles it.
+
+**oh-omp**, tag v0.15.3 source and the shipped `@oh-labs/oh-omp-linux-x64` binary.
+
+- **`models.yml` adds or replaces by provider and id, and cannot narrow a built-in provider**
+  (SOURCED, `packages/coding-agent/src/config/model-registry.ts`:900-932). A key omp does not ship is
+  exact. Its `api` enum has no `bedrock-converse-stream` (181-191, 243-253). The Bedrock catalog has
+  94 entries whose Anthropic ids end at `claude-opus-4-6`; the codex static list ends at `gpt-5.4`,
+  and codex models are otherwise discovered online.
+- **An extension's registration does not last** (SOURCED, model-registry.ts:1778-1862 and 785-832;
+  the same code in the binary at offsets 106789493 and 106820899). It needs a base URL and a key,
+  `models: []` does nothing, and the next refresh rebuilds from the catalog and `models.yml`. The
+  selector refreshes every time it opens without a scope (`model-selector.ts`:295-305, binary offset
+  123442148), and so do login and logout.
+- **The `enabledModels` scope is exact** (SOURCED, `settings-schema.ts`:253; `main.ts`:655-662;
+  `model-resolver.ts`:622-715; model-selector.ts:127-128 and 295-301). It is resolved once at
+  startup, the selector shows only the scope, and it fails open when no pattern matches. `--model`
+  resolves against every registry model and refuses an unknown one (717-811; binary offset
+  106849446 holds "not found. Use --list-models"). `modelRoles` (`default`, `smol`, `slow`, `plan`,
+  `commit`) may name models outside the scope.
+- Upstream oh-my-pi's `main` appears to keep runtime registrations across reloads. It was read
+  lightly and is not relied on here.
+
+**opencode**, tag v1.18.32 source, read and not run.
+
+- **Keys** (SOURCED, `packages/core/src/v1/config/config.ts`:68-79; `provider.ts`:13-126):
+  `enabled_providers`, `disabled_providers` (checked first), `model`, `small_model`, and per
+  provider `whitelist`, `blacklist` and `models`.
+- **The filter** (SOURCED, `packages/opencode/src/provider/provider.ts`:1448-1452 and 1671-1719).
+  After the catalog, plugins and config merge, the loader drops every provider not allowed and
+  applies `whitelist` and `blacklist` to every model left, the user's own included, matching on
+  opencode's model key. The TUI lists exactly that. Any other model fails in `getModel`
+  (1871-1893); an invalid `--model` is skipped quietly; an off-list `small_model` falls back to the
+  main model (1941-1946).
+- **Order is opencode's** (SOURCED, `packages/tui/src/component/dialog-model.tsx`:23-129 and
+  186-196): each provider's models newest release date first, then by title, under Favorites and
+  Recent. A made-up `release_date` is the only lever, and yolo does not fake one.
+
+> [!WARNING]
+> **Two defects in what `packs/opencode` renders today.** *Catalog collision* (MEASURED on the
+> installed 1.18.32 binary): `openrouter`, `kilo`, `zai` and `cerebras` are also catalog ids, and
+> opencode starts a config provider from the catalog entry of the same id (provider.ts:1483-1491).
+> So `-p openrouter` offers the whole catalog, about 374 models, plus the user's map; about 381 for
+> `kilo`, 18 for `zai`, 2 for `cerebras`. Native `amazon-bedrock` has 166
+> ([§3](#3-what-exists-today)). Whether that is a defect or intended is
+> [OQ-MM1](#OQ-MM1). *Display name* (INFERRED): the derive sets each model's `name` to its yolo
+> alias, and a config name beats the catalog's, so an entry under `default` shows as "default".
+> The same holds for pi and oh-omp: `packs/pi/derive.lua` builds `{ id = modelId, name = alias }`
+> unless the entry's `model_options` names it, and `packs/omp/derive.lua` builds
+> `{ id = id, name = alias }` always, so cerebras's and llamacpp's one model shows as "default"
+> there too. Fixed for all three by [MM-D7](#MM-D7).
+
+- **Bedrock** (SOURCED, `packages/core/src/models-dev.ts`:160-247; provider.ts:301-460). The catalog
+  is built in and refreshed hourly from models.opencode.ai; a whitelist makes the menu immune to
+  that drift. opencode adds a region prefix to a bare Claude or Nova id from `AWS_REGION` at request
+  time, so the menu's id and the wire's can differ, which matters only to a bridge allowlist.
+- `experimental.policies` works per provider only, and in 1.18.32 only `opencode debug v2` reads it
+  (SOURCED). Config layers replace arrays whole (remeda `mergeDeep`), so a repository's
+  `opencode.json` can replace yolo's whitelist, the engineer's own config again having the last
+  word. `/etc/opencode` outranks everything but MDM.
+
+**codex**, tag rust-v0.158.0 source; the installed 0.158.0 binary.
+
+- **The picker** (SOURCED, `codex-rs/models-manager/src/manager.rs`:168-180 and 725-731;
+  `protocol/src/openai_models.rs`:942-975; `tui/src/chatwidget/model_popups.rs`:82-106 and 207-228).
+  It sorts the catalog by `priority`, shows entries whose `visibility` is `list`, and marks the
+  first as the default. `/model` takes no inline argument, so the picker is the only way to choose
+  in the TUI.
+- **`model_catalog_json = "<absolute path>"`** (SOURCED, `config/src/config_toml.rs`:396-399;
+  `core/src/config/mod.rs`:2129-2158; `model-provider/src/provider.rs`:546-617). A top-level key,
+  also allowed per codex profile and in managed requirements. At startup it swaps in a static
+  catalog for every provider, the ChatGPT subscription and Bedrock runtime included, with no fetch.
+  The file is `{"models": [ModelInfo, …]}` with at least one model, the shape
+  `codex debug models [--bundled]` prints. That is the format this doc's status line called unread.
+- ⚠ **An entry cannot be thin** (SOURCED, openai_models.rs:404-479;
+  `prompts/src/model_instructions.rs`:8-17). Ten fields are required, and an entry with no
+  `model_messages.instructions_template` or `base_instructions` runs codex with **empty** system
+  instructions, logging only a warning. Bundled entries are 20 to 65 KB each, mostly prompt text
+  (MEASURED). So entries are copied from codex's own catalog, and copied entries must clear
+  `upgrade` and `availability_nux` (`amazon_bedrock/catalog.rs`:112-113), or codex's migration
+  prompt steers users off the list: in 0.158.0's catalog `gpt-5.6-*` and `gpt-5.5` carry an
+  upgrade to `gpt-6-sol` or `gpt-6-luna`.
+- **Without the file** (SOURCED, manager.rs:480-620). On a ChatGPT login codex lists its bundled
+  catalog merged with the subscription's backend list, cached for 300 s. So `-p codex`'s picker
+  shows the subscription's list rather than yolo's three ids (INFERRED; the backend list is
+  UNMEASURED). A custom provider gets codex's bundled OpenAI catalog, so `-p openrouter` on codex
+  lists OpenAI model names against a non-OpenAI endpoint (INFERRED).
+- **codex refuses nothing** (SOURCED, manager.rs:201-225 and 647-684). An explicit model runs on
+  fallback metadata with a warning. `review_model`, `default_subagent_model`, the memories models
+  and codex's hard-coded background models bypass the picker (codex-auto-review, or `gpt-5.6-luna`
+  on an API key; `global.openai.gpt-5.6-luna` and `-terra` on Bedrock runtime).
+- **`gpt-6.1-sol`, yolo's declared default, is absent from the installed 0.158.0 binary**
+  (MEASURED: `grep -a -c` counts 0), whose catalog has `gpt-6-sol`. 0.159.1's catalog adds it at
+  priority 1 (SOURCED).
+
+### 14.3 The bridge's part, and `GET /v1/models`
+
+The bridge's allowlist exists once an `only` has narrowed the list, and only while the profile's
+switch is on ([OQ-WG3](wire-bridge-gateway.md#OQ-WG3)). It reaches copilot only on a bridged
+provider (Bedrock, and in a jail Cerebras and Kilo, [§14.2](#142-what-each-row-rests-on)),
+claude on any profile whose base URL is the bridge, and pi, oh-omp, opencode and codex only on a
+via route. It never reaches an agent's native client: claude's native profile, pi's, opencode's
+and codex's own Bedrock clients, and codex's `openai-codex`, which has no via route
+([WG-I21](wire-bridge-gateway.md#WG-I21)). Nor does it reach copilot or claude on a gateway's own
+endpoint, such as z.ai's.
+
+Before its default-on refusal applies to an agent, that agent's background traffic has to be on the
+list. For claude, pinning every tier does it ([MM-D2](#MM-D2)). For codex, the derive points
+`review_model` and the memories models at listed ids. For copilot, the ids are measured first
+([§14.2](#142-what-each-row-rests-on)).
+
+**No agent would read a `GET /v1/models`.** claude's discovery drops every id without "claude" or
+"anthropic" in it, never runs on the native profile, and is hidden once the built-ins are replaced.
+opencode never asks an OpenAI-compatible or Bedrock provider for its models (SOURCED, provider.ts:671
+and 1661-1669). codex asks only with `model_catalog_url` plus an off-by-default feature, and
+expects its own format. copilot has no such discovery. So the bridge never serves one
+([MM-D4](#MM-D4)).
+
+### 14.4 Build order
+
+1. **claude, on today's provider maps.** Render `modelPicker` for every routed provider and pin
+   every tier ([MM-D1](#MM-D1), [MM-D2](#MM-D2)). The allowlist keys stay where they are today,
+   on `openai-codex` alone, so that is where `ANTHROPIC_MODEL` moves onto the opt-in
+   ([MM-D3](#MM-D3)). On every other provider today's pin is the only thing keeping claude's
+   start valid, so it stays until [OQ-MM3](#OQ-MM3) says what replaces it. Also the display
+   names in opencode's, pi's and oh-omp's rows ([MM-D7](#MM-D7)). Nothing new is needed but the
+   opt-in's option.
+2. **The `models` kind with `only`** ([§13](#13-build-order-and-what-done-looks-like) step 1),
+   which every "under an `only`" cell waits on.
+3. **Under an `only`, the menus:** claude's native `modelPicker`, pi's generalized registration
+   (after the nested-jail check of the bundled catalog import), and oh-omp's `enabledModels`.
+4. **The refusal switch** ([MM-D5](#MM-D5)), and with it every refusal it governs: claude's
+   allowlist beyond `openai-codex` (where [OQ-MM3](#OQ-MM3) puts it), opencode's whitelist,
+   which cannot hide without refusing, pi's wrapper, and the bridge's allowlist that
+   [`wire-bridge-gateway.md`](wire-bridge-gateway.md#8-build-order) builds, each after that
+   agent's background ids are on the list. **No refusal ships before its off switch does**, so
+   nothing before this step refuses beyond what `openai-codex` refuses today.
+5. **copilot's `providers.json`** ([MM-D10](#MM-D10)), after its four measurements.
+6. **codex's catalog at prelaunch** ([MM-D9](#MM-D9)), last, because it alone needs a new
+   mechanism.
+
+**Measurements it waits on**, each readable from a shipped bundle or against a mock provider,
+never a real model: whether copilot's
+`providers.json` takes its key from the environment, whether a signed-in copilot merges GitHub's
+models, whether `COPILOT_MODEL` or the settings `model` accepts `<provider>/<id>`, and which ids
+copilot's background requests carry; whether `codex debug models --bundled`, with the Bedrock
+runtime provider selected, prints the Bedrock runtime catalog (`amazon_bedrock/catalog.rs`) rather
+than the OpenAI one, offline and credential-free; the shipped `pi` bundle's catalog import;
+whether a pi registration carrying the refusal wrapper still authenticates through pi's own
+chain; and what the subscription's backend list holds.
+
+---
+
+## 15. Open Questions
 
 1. ✅ <a id="OQ-ML1"></a>**[OQ-ML1](#OQ-ML1): What shape is the built-in picks pack, and how
    does it join a launch without breaking "nothing is active by default"?**
@@ -631,7 +1069,7 @@ through each provider's own pack ([OQ-ML1](#OQ-ML1) option (b)).
 3. ✅ <a id="OQ-BR3"></a>**[OQ-BR3](#OQ-BR3): Does yolo ship model aliases at all?** (moved
    from [`bedrock-plumbing.md`](bedrock-plumbing.md) on 2026-09-25, id kept.) **Ruled
    2026-09-25:** yes, where the agent cannot default, in a built-in pack that comes with yolo
-   ([Decision Ledger](#15-decision-ledger)). The old proposal, `default`/`balanced`/`fast` →
+   ([Decision Ledger](#16-decision-ledger)). The old proposal, `default`/`balanced`/`fast` →
    `global.openai.gpt-5.6-{sol,terra,luna}`, was already stale before the ruling: pi-ai 0.87.1's catalog lists
    `openai.gpt-6-astra` (bare, `us.`, `global.`) beside GPT-5.6, Bedrock serves GPT-6 Astra on
    runtime as `us.openai.gpt-6-astra` / `global.openai.gpt-6-astra` (SOURCED
@@ -675,7 +1113,7 @@ through each provider's own pack ([OQ-ML1](#OQ-ML1) option (b)).
    > `providers.<name>.models` writes last, not as a policy yolo chooses but because an engineer
    > can always override their own config.
 
-6. 💬 <a id="OQ-BR13"></a>**[OQ-BR13](#OQ-BR13): How does each derive render the effective list
+6. ✅ <a id="OQ-BR13"></a>**[OQ-BR13](#OQ-BR13): How does each derive render the effective list
    into its agent's picker?** (moved from [`bedrock-plumbing.md`](bedrock-plumbing.md), id kept.)
    [§8](#8-rendering-the-effective-list-into-each-picker). Stakes: what a user sees at launch,
    whether an org's `only` can lock a picker, and whether the hard-coded GPT-6 lists become data.
@@ -690,13 +1128,29 @@ through each provider's own pack ([OQ-ML1](#OQ-ML1) option (b)).
    `only` meaningless; **C**, for claude, a bridge `/v1/models` instead ([OQ-BR15](#OQ-BR15),
    unmeasured).
 
-   <!-- vantage: oq id=OQ-BR13 leaning="A: each derive renders the one effective list into its agent's own picker — claude modelPicker/availableModels, pi enabledModels, opencode whitelist, omp models.yml, copilot's first callable entry. Replace built-ins only on claude's bridged profile, set enforceAvailableModels only under an only, map the Fable tier only from a declared fable alias, and hold codex's model_catalog_json until its format is read. Move the hard-coded GPT-6 lists into data under a byte-identical test." -->
-
    _Leaning:_ A. Move the GPT-6 lists into data under a byte-identical test, which needs the
    `description` field.
 
    **Answer:**
-   > _(empty — fill in when decided)_
+   > **Directed 2026-09-29: set the model selection however each agent allows.** The maintainer:
+   > *"For BR 13, yes, I want us to set the model selection however we can … you can like send it
+   > over the wire or whatever with wire bridge … I know there are options here. I need you to
+   > research whatever it is and then come back to me if there's a real decision here."* Option A,
+   > widened from "each agent's picker surface" to whatever each agent offers, a refusal included.
+
+   The research is [§14](#14-how-each-agents-menu-is-set-researched-2026-09-29): its table gives
+   each agent's mechanism, and the implementation decisions are [MM-D1](#MM-D1) to
+   [MM-D10](#MM-D10). What happened to the four sub-choices: claude's built-ins are replaced on
+   every routed provider and under an `only`, not only on the everything profile ([MM-D1](#MM-D1));
+   refusal follows where the list reaches and the profile's switch, so `enforceAvailableModels`
+   renders on `openai-codex` and under an `only`, while a routed list with no `only` on a gateway
+   that serves more is [OQ-MM3](#OQ-MM3) ([MM-D1](#MM-D1), [MM-D5](#MM-D5)); the Fable tier is
+   pinned like every other tier wherever the built-ins are replaced ([MM-D2](#MM-D2)); codex's
+   catalog format is now read, and codex gets a catalog last ([MM-D9](#MM-D9)). Two real decisions
+   are left: [OQ-MM1](#OQ-MM1), what a list that only adds does to an agent's own catalog, and
+   [OQ-MM3](#OQ-MM3), whether a list refuses on a gateway that serves more than it, and what keeps
+   claude's start valid where nothing refuses. [OQ-MM2](#OQ-MM2), copilot's key, was settled on a
+   corrected premise.
 
 7. 💬 <a id="OQ-BR14"></a>**[OQ-BR14](#OQ-BR14): How do the lists stay current?** (moved from
    [`bedrock-plumbing.md`](bedrock-plumbing.md), id kept.) [§9](#9-currency-the-agents-catalogs-plus-a-staleness-warning).
@@ -734,7 +1188,7 @@ through each provider's own pack ([OQ-ML1](#OQ-ML1) option (b)).
    **Answer:**
    > _(empty — fill in when decided)_
 
-9. 💬 <a id="OQ-BR15"></a>**[OQ-BR15](#OQ-BR15): Does the bridge serve `GET /v1/models`, and
+9. ✅ <a id="OQ-BR15"></a>**[OQ-BR15](#OQ-BR15): Does the bridge serve `GET /v1/models`, and
    when?** (moved from [`bedrock-plumbing.md`](bedrock-plumbing.md), id kept.) **Later; measure first.**
    [§10](#10-later-the-bridges-get-v1models). Stakes: whether claude's picker follows the list with
    no settings write, and whether the bridge grows a second endpoint whose value is unproven.
@@ -744,13 +1198,17 @@ through each provider's own pack ([OQ-ML1](#OQ-ML1) option (b)).
    [OQ-BR13](#OQ-BR13)'s settings rendering, on an unmeasured dependency; **C**, never, which is
    fine if settings rendering suffices and forecloses nothing A does not defer.
 
-   <!-- vantage: oq id=OQ-BR15 leaning="A, later: first measure whether CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY survives CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1; if it does, the bridge serves GET /v1/models from the composed effective list with no upstream call — runtime has no list endpoint to proxy." -->
-
    _Leaning:_ A. Measure first. If discovery survives, serve the effective list from memory and
    never call upstream for it.
 
    **Answer:**
-   > _(empty — fill in when decided)_
+   > **Settled 2026-09-29 by the measurement it waited on: C, never** ([MM-D4](#MM-D4)). Discovery
+   > does survive `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1`, so the leaning's condition held,
+   > but the same read showed discovery cannot carry the list: it keeps only ids containing
+   > "claude" or "anthropic", never runs on claude's native profile, and is hidden once
+   > `replaceBuiltInOptions` replaces the built-ins. opencode, codex and copilot never read such a
+   > route either ([§14.3](#143-the-bridges-part-and-get-v1models)). One sensible answer, so it
+   > was decided rather than asked, under [OQ-BR13](#OQ-BR13)'s direction.
 
 10. ✅ <a id="OQ-ML3"></a>**[OQ-ML3](#OQ-ML3): Does `yolo host apply` render the `openai-codex`
     list for pi?** Today it does not ([ML-D8](#ML-D8)): the host notch runs no derive for content,
@@ -775,9 +1233,153 @@ through each provider's own pack ([OQ-ML1](#OQ-ML1) option (b)).
     2026-09-28** by that ruling: the host runs the jail's derives, so host pi gets the declared
     list ([ML-D8](#ML-D8) records what this answer decided).
 
+11. 💬 <a id="OQ-MM1"></a>**[OQ-MM1](#OQ-MM1): When a list only adds models, does the agent's
+    menu still show the agent's own catalog for that provider?** Stakes: what every agent with a
+    catalog shows by default, and whether yolo's own default pick can shrink a menu.
+
+    **The setup.** Priya's company pack adds three Bedrock models, GPT-6 Astra, Kimi and Claude
+    Opus 5.5, to the `bedrock` provider with an `add` and no `only`. She runs
+    `yolo -p bedrock -- opencode`. With [§14.1](#141-the-table) built, opencode and pi can show
+    exactly those three: pi without refusing anything, opencode only by refusing every other model
+    too. The other native Bedrock clients take one family each ([§1](#1-the-words-plainly) for
+    claude; [`bedrock-plumbing.md`](bedrock-plumbing.md#where-the-split-ended-up) for codex):
+    claude's `-p bedrock`, its native profile, shows its Default row and Opus 5.5 at most, and
+    codex's shows GPT-6 Astra. GPT-6 Astra and Kimi reach claude only on the everything profile,
+    whose list is exact anyway. Nobody has decided what an `add` means for the catalog the agent
+    already has.
+    The same shape exists today with a user's own list: Dana's five-model
+    `providers.openrouter.models` shows in opencode among its whole OpenRouter catalog, about 374
+    models, because opencode starts any provider named `openrouter` from its catalog; pi's `zai`
+    menu is its own 7 models plus yolo's. The research passes recommended opposite answers, so it
+    is asked.
+
+    Options, with what Priya and Dana would see:
+
+    - **A. An `add` sits beside the agent's catalog; only an `only` makes a menu exact.** Priya sees
+      opencode's 166 Bedrock models with her three among them, pi's 176, and claude's built-in rows
+      with Opus 5.5 appended. One `only` line in her company's pack makes opencode's and pi's
+      menus exactly her list, and claude's exactly Opus 5.5 below its Default row. Dana sees her
+      five among opencode's 374 until she states them as an `only`. Where the agent has no
+      catalog for the provider, such as any provider claude is routed to or a key the agent does
+      not ship, every menu is exact anyway.
+    - **B. Any list makes the menu exact.** Priya sees exactly her three in opencode and pi, and
+      Opus 5.5 alone below claude's Default row, and opencode refuses every other model. Dana sees
+      exactly her five. A provider pack's own one-model default, which [OQ-ML1](#OQ-ML1)'s ruling has every provider declare, then shrinks
+      that agent's menu to one model, unless a declared default is told apart from a list.
+    - **C. Exact for the user's own list, beside for a pack's.** Dana sees exactly her five; Priya
+      sees her three beside the catalog. The same list means two things depending on who wrote it.
+
+    <!-- vantage: oq id=OQ-MM1 leaning="A: an add sits beside the agent's own catalog for that provider, and only an only makes the menu exact (claude's native built-ins stay, opencode and pi keep their catalogs); a provider the agent has no catalog for (any provider claude is routed to, or a key the agent does not ship) is exact anyway. The verbs already say 'these too' and 'just these', and B would let yolo's own one-model default shrink a menu." -->
+
+    _Leaning:_ A. The verbs already say it: `add` means "these too" and `only` means "just these",
+    so a company gets either with one line. B lets yolo's own default pick cut a menu to one
+    model, and C gives one list two meanings.
+
+    **Answer:**
+    > _(empty — fill in when decided)_
+
+12. ✅ <a id="OQ-MM2"></a>**[OQ-MM2](#OQ-MM2): If copilot's model file cannot read its key from
+    the environment, may yolo write the key into a file, so copilot shows the whole list?**
+    Stakes: copilot's menu, one model or the list, against where a credential may be written.
+
+    **The setup.** Sam runs `yolo -p bedrock -- copilot`. copilot reaches Bedrock only through
+    the wire bridge, and its menu has one model, the list's default, because copilot's
+    environment-variable setup carries exactly one ([§14.2](#142-what-each-row-rests-on)).
+    copilot 1.0.89 can show a whole list from a `providers.json` file, but the file holds its key
+    as literal text. That key is whatever `COPILOT_PROVIDER_API_KEY` carries today: the launch's
+    caller token on a bridged provider ([WB-D18](../reference/wire-bridge.md#wb-d18)), and the
+    provider's own key on a direct one, such as z.ai. **It is already in a file.** On the
+    container backends an env derive's output is written to
+    `<workspace>/.yolo/home/agent-env/copilot.sh`, 0600 in a 0700 directory, rewritten on every
+    entry and kept in the workspace's state between launches
+    ([the credential gate](../reference/providers.md#the-credential-gate)). What the rules forbid
+    is narrower: the caller token is *"never in a rendered config file, where each derive writes
+    the variable's name instead"* ([caller authentication](../reference/wire-bridge.md#caller-authentication)),
+    and a derive, which renders surfaces, never receives a hydrated key
+    ([providers.md](../reference/providers.md#derives-the-delivery-mechanism)). Two unmeasured
+    fields might let the file take its key from the environment: a key command, or a fallback to
+    `COPILOT_PROVIDER_API_KEY`. The build measures them first, and if either works this question
+    closes by itself.
+
+    Options, with what Sam would see:
+
+    - **A. Keep one model.** Sam's menu shows only the default. Another listed model is reachable
+      only by typing its id, and on a bridged provider the bridge still refuses anything off the
+      list.
+    - **B. A second file in the per-agent env directory.** The launch's per-agent env writer puts
+      the file beside `copilot.sh`, with the same mode and lifetime, and points copilot at it with
+      `COPILOT_PROVIDERS_CONFIG`. Sam sees the whole list, and no reader gains anything
+      `copilot.sh` does not already give it.
+    - **C. The file in copilot's home, as a rendered surface.** Sam sees the whole list, but the
+      key sits in `~/.copilot/providers.json`, a rendered config file, which the caller-token rule
+      forbids, and the derive that renders it never holds the key.
+
+    _Leaning:_ B. It adds a second file of a kind that already exists, in the same directory, with
+    the same readers.
+
+    **Answer:**
+    > **Settled 2026-09-29 on a corrected premise, rather than asked: B** ([MM-D10](#MM-D10)). The
+    > question was first drafted on the premise that no secret is ever written to a file, and
+    > offered B as a file under `/run` that lived as long as the launch, with a named exception to
+    > that rule. The credential gate already writes this very value to `agent-env/copilot.sh`, so
+    > B adds no new reader and needs no exception. A gives up the list that
+    > [OQ-BR13](#OQ-BR13)'s direction asks for, and C breaks the caller-token rule. That left one
+    > sensible answer, so it was decided.
+
+13. 💬 <a id="OQ-MM3"></a>**[OQ-MM3](#OQ-MM3): On a gateway that serves more than its list, does
+    a list with no `only` refuse other models, and what keeps claude's start valid where nothing
+    refuses?** Stakes: whether a gateway model that works today stops working once yolo renders a
+    list, and whether [OQ-ML2](#OQ-ML2)'s "every start valid" survives the enforcement switch
+    being off.
+
+    **The setup.** Where the agent has no catalog of its own for a provider, the list is the
+    provider's whole universe ([§14](#14-how-each-agents-menu-is-set-researched-2026-09-29)):
+    every provider claude is routed to, and every key pi, oh-omp or opencode does not ship.
+    [§8](#8-rendering-the-effective-list-into-each-picker) sets a refusal there by default, under
+    the profile's switch ([MM-D5](#MM-D5)). On `openai-codex` that costs nothing, since the
+    subscription serves only the list. On a gateway it does. Lee's z.ai list has three GLM models,
+    and `/model glm-4.7` works on z.ai today. With claude's allowlist on a z.ai launch, claude
+    refuses it until Lee lists it or turns the switch off, and pi's wrapper does the same on a Kilo
+    list. [OQ-WG3](wire-bridge-gateway.md#OQ-WG3) ruled the list enforced by default (*"If we put
+    it in the model picker, it's allowed … let's have it even default on enforced"*). That ruling
+    was about the bridge, and it added that a list *"does not mean that we need the bridge to deny
+    it"*. claude cannot separate the two either: its allowlist is also its only start check that
+    does not steer ([§14.2](#142-what-each-row-rests-on)). With the switch off claude gets
+    `modelPicker` alone, and nothing yolo writes checks the start. Omar's saved first-party
+    `claude-opus-5-5`, carried into the everything profile, then starts unchecked and fails at its
+    first request (INFERRED). That breaks [OQ-ML2](#OQ-ML2)'s *"whenever you start up a session,
+    we always want to make sure that we have picked one of those models"*.
+
+    Options, with what Lee and Omar would see:
+
+    - **A. Refuse by default wherever the list is the whole universe**, as [MM-D1](#MM-D1) was
+      first drafted. Lee's `glm-4.7` is refused until he lists it or turns the switch off. With
+      the switch off, Omar starts unchecked, so a start is valid only while the switch is on.
+    - **B. Refuse only on `openai-codex` and under an `only`, and check claude's start with a pin
+      everywhere else.** yolo writes the list's default into claude's settings `model` key once,
+      through the selection namespace, so a later `/model` choice is kept until the provider
+      changes. Lee keeps `glm-4.7` with the switch on, and Omar starts on the list's default. The
+      cost: an exception to providers.md's rule that
+      [yolo never writes claude a model id through the selection namespace](../reference/providers.md#deselection-clear-what-yolo-wrote-keep-what-the-user-wrote),
+      and a `claude` started outside yolo reads that id too.
+    - **C. A's default, plus B's pin whenever the switch is off.** Lee is refused by default, and
+      turning the switch off gives him `glm-4.7` with a start that stays valid. Omar starts valid
+      either way.
+
+    <!-- vantage: oq id=OQ-MM3 leaning="C: refuse by default wherever the list is the whole universe, as OQ-WG3's default-on switch says, and when the switch is off check claude's start with a pin yolo writes once into claude's settings model key through the selection namespace, so a later /model choice is kept. It keeps both rulings as spoken, and the one exception to providers.md's rule is paid only with the switch off." -->
+
+    _Leaning:_ C. It keeps both rulings as spoken: the list enforced by default
+    ([OQ-WG3](wire-bridge-gateway.md#OQ-WG3)) and every start valid ([OQ-ML2](#OQ-ML2)). A gateway
+    user then has one switch that costs only the refusal. B is kinder to gateways, but refuses
+    nothing by default where [OQ-WG3](wire-bridge-gateway.md#OQ-WG3) said to, and pays the
+    exception on every gateway launch.
+
+    **Answer:**
+    > _(empty — fill in when decided)_
+
 ---
 
-## 15. Decision Ledger
+## 16. Decision Ledger
 
 | ID | Ruling / Decision | Date | Settled in | Built |
 | :--- | :--- | :--- | :--- | :--- |
@@ -792,10 +1394,26 @@ through each provider's own pack ([OQ-ML1](#OQ-ML1) option (b)).
 | <a id="ML-D7"></a>ML-D7 | *Implementation decision.* **The extension warns, once per load, when pi's catalog cannot describe a model it registers.** Without pi's catalog entry a model registers with the defaults [ML-D3](#ML-D3) names: text-only, no thinking levels and a 16,384-token output cap. That happens when the catalog import fails, when the module no longer exports `getBuiltinModel`, or when the catalog lacks an id, such as a model the user added. pi is not version-pinned in `packs/pi/pack.json`, and the hand copy the lookup replaced could not degrade this way, so a renamed alias would otherwise cost every model silently. The warning goes through pi's own `ctx.ui.notify(…, "warning")` at `session_start` when there is a UI, and to stderr when there is none, which is what pi's extension runner does with its own diagnostics. It names the ids the catalog lacks, or the import failure. An empty list attempts no import and says nothing, since pi's built-in catalog stays in place. MEASURED 2026-09-27 through pi 0.87.1's own `discoverAndLoadExtensions` with an isolated home: the shipped six-entry list resolves every entry from the catalog and warns nothing, and a list adding `gpt-6-nova` warns once, naming it. Found in review, 2026-09-27 | 2026-09-27 | [pi-codex-provider-shadowing §2.2](pi-codex-provider-shadowing.md#22-pi-pi-coding-agent) | ✅ `20769a45` |
 | <a id="ML-D8"></a>ML-D8 | *Implementation decision*, **SUPERSEDED 2026-09-28** by [OQ-HC1](host-computed-layer.md#OQ-HC1): `yolo host apply` now renders the declared `openai-codex` list into `pi/codex-models` at the host, and host pi registers it ([host-computed-layer §14](host-computed-layer.md#14-what-was-built)); `TestTheHostNotchLeavesPiOnItsOwnCodexCatalog` is inverted as `TestTheHostNotchGivesPiTheDeclaredCodexList`. What this row decided: *Implementation decision.* **At the host notch pi keeps its own `openai-codex` catalog, and the docs say so.** `yolo host apply` renders a surface from its declared layers only: it runs no derive for content, since the host target's computed layer is empty by design ([host-render-target §3.3](host-render-target.md#33-what-each-target-supplies)), and it composes no provider table. `pi/codex-models` holds nothing but a derive's expansion of the declaration, so it renders as `{}` under `host_management: assert` and is refused under `own`, which runs no `computed` surface. The extension the host notch delivers then registers no models, and host pi shows pi-ai's built-in `openai-codex` list: in pi 0.87.1 the three GPT-6 ids with no `[1m]` variant, beside five GPT-5.x ids (MEASURED 2026-09-27 with `getBuiltinModels`). That is what v0.10.0 gave host pi too, since its extension registered the login alone. The hand copy that registered yolo's list at the host came later and never shipped in a release. There is still one list at the host, because a host apply selects no profile and no other agent renders an `openai-codex` list there. Whether the host should render the declaration is [OQ-ML3](#OQ-ML3). Three places said the file renders at every boot, and each now says every jail boot: [ML-D3](#ML-D3), the extension's comment and [pi-codex-provider-shadowing §2.2](pi-codex-provider-shadowing.md#22-pi-pi-coding-agent). `TestTheHostNotchLeavesPiOnItsOwnCodexCatalog` runs the host render, the host files delivery and the delivered extension in both contracts, and fails once the host renders a list. Found in review, 2026-09-27 | 2026-09-27 | [§3](#3-what-exists-today) | ✅ `f3da48dc` |
 | OQ-ML3 | **A, for now: `yolo host apply` renders no `openai-codex` list, and host pi keeps pi-ai's own catalog.** *"basically option 1, but then make sure there's a design doc about the host option left."* Whether the host notch should derive what a jail derives is [`host-computed-layer.md`](host-computed-layer.md)'s [OQ-HC1](host-computed-layer.md#OQ-HC1) | 2026-09-27 | [OQ-ML3](#OQ-ML3) | ✅ [ML-D8](#ML-D8) |
+| OQ-ML1 | **No separate picks pack, and nothing always on: each provider declares its own default in its own pack, and that default layers like all config.** A company or user pack, or user config, overrides it, and yolo does not chase the newest model. Several active providers per agent moved to [`active-provider-sets.md`](active-provider-sets.md) | 2026-09-29 | [OQ-ML1](#OQ-ML1) | the `openai-codex` declaration ([ML-D1](#ML-D1)) |
+| OQ-ML2 | **yolo picks a model only to make a session valid, and never steers a valid choice unless the config opts in.** *"YOLO by default should never pick a default model … whenever you start up a session, we always want to make sure that we have picked one of those models."* The pick is the agent's upstream default when that is one of the provider's models, else the provider's declared default, else the first model it lists. Narrower than the leaning | 2026-09-29 | [OQ-ML2](#OQ-ML2) | — |
+| OQ-BR12 | **A: a `models` contribution kind, with the verbs `add` and `only`, for any provider; the engineer's own `providers.<name>.models` writes last.** *"of course their own config still has the last word because they could make that happen regardless."* Moved from [`bedrock-plumbing.md`](bedrock-plumbing.md), id kept | 2026-09-29 | [§7](#7-how-a-company-pack-shapes-a-list-the-models-kind) | — |
+| OQ-BR13 | **Directed: set the model selection however each agent allows.** *"I want us to set the model selection however we can … I need you to research whatever it is and then come back to me if there's a real decision here."* Researched per agent in [§14](#14-how-each-agents-menu-is-set-researched-2026-09-29); the mechanisms are [MM-D1](#MM-D1) to [MM-D10](#MM-D10), and what is left to rule is [OQ-MM1](#OQ-MM1) and [OQ-MM3](#OQ-MM3). [OQ-MM2](#OQ-MM2) was settled on a corrected premise | 2026-09-29 | [§14](#14-how-each-agents-menu-is-set-researched-2026-09-29) | `openai-codex` only ([ML-D1](#ML-D1)) |
+| OQ-BR15 | **Never: the bridge serves no `GET /v1/models`.** Settled by the measurement the question waited on, under [OQ-BR13](#OQ-BR13)'s direction ([MM-D4](#MM-D4)) | 2026-09-29 | [§14.3](#143-the-bridges-part-and-get-v1models) | — |
+| OQ-MM2 | **B: if copilot's `providers.json` cannot read its key from the environment, the launch's per-agent env writer puts the file beside `agent-env/copilot.sh`, with the same mode and lifetime.** Settled on a corrected premise, rather than asked: the key is already in that 0600 file, so a second file adds no reader, while a rendered config file would break the caller-token rule ([MM-D10](#MM-D10)) | 2026-09-29 | [OQ-MM2](#OQ-MM2) | — |
+| <a id="MM-D1"></a>MM-D1 | *Implementation decision.* **claude's picker keys follow where the list reaches.** On a routed provider, whose list is the whole universe (the bridge, a gateway's own Anthropic endpoint, `openai-codex`), `yolo.derive("claude", "settings")` always writes `modelPicker` with `replaceBuiltInOptions: true`. The built-ins go because on a routed provider they are only claude's tier names, meaning whatever the tier pins say ([MM-D2](#MM-D2)), so the list's own rows show instead. That revises [OQ-BR13](#OQ-BR13)'s sub-choice "built-ins replaced only on the everything profile". `availableModels`, with the default first, and `enforceAvailableModels: true` render on `openai-codex`, as today, and under an `only`, while the profile's switch is on ([MM-D5](#MM-D5)). The allowlist is claude's one way to make a session valid without steering it, which [OQ-ML2](#OQ-ML2)'s ruling asks for: an off-list saved model is replaced at startup by Default, which the tier pins make a list model ([§14.2](#142-what-each-row-rests-on)), while a valid `/model` choice survives the next launch ([MM-D3](#MM-D3)). Whether the allowlist also renders on a routed list with no `only` is [OQ-MM3](#OQ-MM3): there a gateway such as z.ai, Kilo or OpenRouter serves more than the list, and claude would refuse a typed id the list lacks. Rendering it there by default would also revise the sub-choice "`enforceAvailableModels` only under an `only`". On the native profile it writes the same three under an `only`. What an `add` writes there is [OQ-MM1](#OQ-MM1)'s; under its leaning, rows appended with `replaceBuiltInOptions: false` and no allowlist. This restates [§11](#11-forbidden-and-non-goals)'s ban as: no refusal on a list that sits beside an agent's own catalog. The keys go to `~/.claude/settings.json`, the one scope besides managed settings and `--settings` that reads `modelPicker` | 2026-09-29 | [§14.1](#141-the-table) | `openai-codex` only |
+| <a id="MM-D2"></a>MM-D2 | *Implementation decision.* **Every list that replaces claude's built-ins pins all of claude's tiers to list ids**: a routed list ([MM-D1](#MM-D1)), and an `only`. `ANTHROPIC_DEFAULT_OPUS_MODEL`, `_SONNET_`, `_HAIKU_` and `_FABLE_`, with their `_NAME` and `_DESCRIPTION` where the entry has a name or description: each takes the tier's alias where the list declares one (which names count is [OQ-PSW1](#OQ-PSW1)'s), else the default entry. Why: claude's background, hook and classifier requests pick by tier and `availableModels` does not cover them, so an unpinned tier reaches an off-list model or draws the bridge's refusal. And the Default row resolves by tier whenever that tier's model is allowed, so on a list of non-Anthropic ids the pins are the only thing that makes Default a list model; under a managed source it resolves by tier too ([§14.2](#142-what-each-row-rests-on)). **Beside claude's own rows**, under an `add` on the native profile ([OQ-MM1](#OQ-MM1)'s leaning), only the tiers the list names by alias are pinned. The retained Sonnet and Haiku rows, and the haiku-tier background traffic, then keep resolving as claude resolves them, a valid choice of the agent's own that [OQ-ML2](#OQ-ML2) forbids yolo to steer. This supersedes [OQ-BR13](#OQ-BR13)'s sub-choice "the Fable tier only from a declared `fable` alias" wherever the built-ins are replaced. **A pin travels with what makes it valid:** in the process env beside `ANTHROPIC_BASE_URL` on a routed provider, and in `claude/settings`' `env` block beside `CLAUDE_CODE_USE_BEDROCK` on the native profile, the channel [PV-D8](../reference/providers.md#pv-d8) chose because a host apply and a bare `claude` both keep it. A routed pin never goes in the settings file, where a bare `claude` would send it to Anthropic | 2026-09-29 | [§14.2](#142-what-each-row-rests-on) | — |
+| <a id="MM-D3"></a>MM-D3 | *Implementation decision.* **claude's start model is pinned only on an opt-in the derive can see.** `ANTHROPIC_MODEL` and `CLAUDE_CODE_SUBAGENT_MODEL` are emitted only when the profile sets `pin_model` *(an option name coined here, provisional)*, the opt-in [OQ-ML2](#OQ-ML2)'s ruling allows; like any profile option, the provider's declared option set must admit it (the census [ML-D1](#ML-D1) names). The profile's `model` option cannot be the opt-in. `packload.ResolveProfiles` merges each provider's declared option defaults under the profile's own values, so that *"a derive never has to know whether a value was stated or inherited"* (`ResolvedProfile`). zai's declared `glm-5.3`, and cerebras's and llamacpp's `default`, therefore read exactly like a user's pin, and [OQ-ML1](#OQ-ML1)'s ruling has every provider declare a default, so every provider would count as opted in. `model` keeps its job of naming the list's default entry, which [MM-D2](#MM-D2)'s tier pins and `availableModels`' order lead with. With `availableModels` and enforcement on, an off-list start model is already replaced by Default, which the tier pins make a list model ([MM-D2](#MM-D2)), so a valid start needs no pin; where the allowlist does not render, what keeps the start valid is [OQ-MM3](#OQ-MM3)'s. Until that is ruled, those providers keep today's pin: it steers, but dropping it would leave their start unchecked ([§14.4](#144-build-order)). The variable would override every `/model` choice at every launch, since claude returns to it each time. Subagents otherwise inherit the session's model or their tier, both on the list by [MM-D2](#MM-D2). Changes the `openai-codex` branch of `yolo.env("claude")` and its provider-`models` branch | 2026-09-29 | [§14.2](#142-what-each-row-rests-on) | — |
+| <a id="MM-D4"></a>MM-D4 | *Implementation decision.* **The bridge serves no `GET /v1/models`, now or later.** claude's gateway discovery survives `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1` but keeps only ids containing "claude" or "anthropic", never runs while a `CLAUDE_CODE_USE_*` variable is set, adds only allowed models, and is hidden by `replaceBuiltInOptions`; opencode, codex and copilot never ask such a route (MEASURED and SOURCED, [§14.3](#143-the-bridges-part-and-get-v1models)). [WB-D14](../reference/wire-bridge.md#wb-d14)'s one-route surface is unchanged | 2026-09-29 | [§14.3](#143-the-bridges-part-and-get-v1models) | — (nothing to build) |
+| <a id="MM-D5"></a>MM-D5 | *Implementation decision.* **One switch decides every refusal, and a list never changes an agent's path.** [OQ-WG3](wire-bridge-gateway.md#OQ-WG3)'s enforcement switch, a profile setting that defaults on, governs each refusal yolo installs: the bridge's allowlist, claude's `availableModels` and `enforceAvailableModels`, and pi's wrapper. With it off the list only shapes menus: claude gets `modelPicker` alone, so an off-list saved model is no longer replaced at startup, and pi gets a registration without the wrapper. Nothing yolo writes then checks claude's start, which [OQ-ML2](#OQ-ML2)'s ruling requires; what does is [OQ-MM3](#OQ-MM3)'s, and under its leaning yolo writes the start model once through claude's selection namespace. opencode cannot shape its menu without refusing, so with the switch off it gets no whitelist, and `yolo check` says its menu is then not narrowed. **On claude's native profile the refusal is claude's own, client side**, with [§14.2](#142-what-each-row-rests-on)'s four gaps, and yolo describes it that way, as [OQ-CN4](provider-credential-scope.md#OQ-CN4) requires of a soft limit. An `only` never moves claude onto the bridge, since a profile picks one path ([OQ-WG5](wire-bridge-gateway.md#OQ-WG5)); a company that wants the wire to refuse selects a bridged profile. yolo writes no managed Claude Code settings file, which would close the prefix gap but override the engineer's own settings, against [OQ-BR12](#OQ-BR12)'s *"their own config still has the last word"* | 2026-09-29 | [§14.1](#141-the-table) | — |
+| <a id="MM-D6"></a>MM-D6 | *Implementation decision.* **pi: an `only` becomes an extension registration of exactly the list, for any provider pi ships.** The data travels the way `pi/codex-models` does ([ML-D3](#ML-D3)), generalized into one derive-rendered file keyed by pi's provider id (yolo's native `bedrock` is pi's `amazon-bedrock`), and each entry's facts come from `getBuiltinModel`. With the switch off the registration passes `models` only, which keeps pi's own address, wire and credential (MEASURED). With it on ([MM-D5](#MM-D5)) the registration is `models`, `api` and a `streamSimple` wrapper, since pi 0.99.1 refuses a `streamSimple` without `api`. That pi's own credential still reaches the delegated stream in that form is INFERRED, and measured before it ships ([§14.4](#144-build-order)). Either form sets its own `name`, so pi 0.99 does not label yolo's `openai-codex` provider "(legacy)", and each row's display name follows [MM-D7](#MM-D7)'s rule. Where the registration is exact, no `enabledModels` is written for that provider, as [ML-D2](#ML-D2) did for `openai-codex`. An `add` stays a `models.json` row (what it shows is [OQ-MM1](#OQ-MM1)'s). **An `only` narrows only the provider it names:** providers the engineer signed into (pi's `auth.json`, oh-omp's `agent.db`) are untouched, and withholding a credential stays [`provider-credential-scope.md`](provider-credential-scope.md#OQ-CN4)'s | 2026-09-29 | [§14.2](#142-what-each-row-rests-on) | `openai-codex` only ([ML-D3](#ML-D3)) |
+| <a id="MM-D7"></a>MM-D7 | *Implementation decision.* **opencode: `provider.<id>.whitelist` is the list's ids, each also declared under `provider.<id>.models`**, beside today's `enabled_providers`, wherever the menu is to be exact (a whole-universe list or an `only`, [§14.1](#141-the-table)) and the switch is on ([MM-D5](#MM-D5)). **A model's display `name` is the entry's own `name` fact, or absent so the agent's catalog name shows, never its yolo alias**, which today shows an entry under `default` as "default". The rule is stated once for every catalog-writing derive: opencode's `provider.<id>.models`, pi's `models.json` rows and registration ([MM-D6](#MM-D6)), and oh-omp's `models.yml` rows ([MM-D8](#MM-D8)), which today use the alias the same way. opencode's order, newest first, is accepted; yolo writes no made-up `release_date` | 2026-09-29 | [§14.2](#142-what-each-row-rests-on) | — |
+| <a id="MM-D8"></a>MM-D8 | *Implementation decision.* **oh-omp gets a settings surface, `~/.oh-omp/agent/config.yml`, writing `enabledModels` as the list's exact ids**, and `modelRoles.default` through the selection namespace, the way pi's `defaultModel` is written. Its `models.yml` rows take [MM-D7](#MM-D7)'s display-name rule. A scope naming ids omp does not know fails open to its full list; yolo cannot see that at render time, and it is the case [OQ-BR14](#OQ-BR14)'s `yolo check` warning exists for. On 0.15.x a current Bedrock list exists only as the via row under yolo's `bedrock` key, so omp's native Bedrock client gets no list. `packs/omp` stays on its pinned fork here; whether it should move to upstream oh-my-pi, which appears to keep runtime registrations, is that pack's question | 2026-09-29 | [§14.2](#142-what-each-row-rests-on) | — |
+| <a id="MM-D9"></a>MM-D9 | *Implementation decision.* **codex gets an exact menu from a catalog yolo filters at prelaunch.** Before codex starts (it installs lazily, so not at boot), the launcher reads `codex debug models --bundled`, which its help describes as *"Skip refresh and dump only the bundled catalog shipped with this binary"*, so offline for the OpenAI catalog (SOURCED). For Bedrock runtime this waits on a measurement ([§14.4](#144-build-order)): `--bundled`, with that provider selected, must print the Bedrock runtime catalog (`amazon_bedrock/catalog.rs`), not the OpenAI one, offline and with no credential. The launcher keeps the list's ids; renumbers `priority` in list order; applies each entry's name as `display_name`; clears `upgrade` and `availability_nux`; and writes a per-launch file that `model_catalog_json` names, through the selection. **An id the installed catalog lacks is left out, with a warning like [ML-D7](#ML-D7)'s**, never written without instructions, since that runs codex with empty system instructions. Only providers whose ids codex's own catalog carries get a file (`openai-codex`, and Bedrock runtime once that measurement holds); a custom provider keeps `model` alone until an entry safe for a non-OpenAI model is measured. When the bridge refuses on a via route, the derive points `review_model` and the memories models at listed ids. It is the first step where a program's output feeds a render, so it lives in the launcher, not a derive, whose sandbox has no `io`. It freezes the subscription's live list for the session, as claude and pi already do for `openai-codex` | 2026-09-29 | [§14.2](#142-what-each-row-rests-on) | — |
+| <a id="MM-D10"></a>MM-D10 | *Implementation decision.* **copilot's whole list goes in a `providers.json` file named by `COPILOT_PROVIDERS_CONFIG`**: one provider, the endpoint copilot's env derive picks today with its `anthropic` or `openai` type (the bridge's on a bridged provider, the provider's own on a direct one, [§14.2](#142-what-each-row-rests-on)), and one model row per entry with `wireModel` the wire-true id. Its key is the value `COPILOT_PROVIDER_API_KEY` carries today: the launch's caller token on a bridged provider, and the provider's own key, such as z.ai's, on a direct one. **Where the file can name its key by environment variable**, it is a secret-free `copilot/providers` surface rendered by `yolo.derive("copilot", "providers")`. **Where it cannot**, it is written host-side by the per-agent env writer, beside `agent-env/copilot.sh`, with the same mode and lifetime, from the env derive that already holds the key, since a surface derive never receives one ([OQ-MM2](#OQ-MM2)). It needs a copilot that has `providers.json`, which 1.0.89 has and 1.0.48 lacks, and four measurements first ([§14.4](#144-build-order)). Until then copilot keeps one `COPILOT_MODEL`. A `model` default for copilot, if ever written, belongs in `~/.copilot/settings.json`, where copilot has kept user settings since 1.0.35, moving any it finds in `config.json` | 2026-09-29 | [§14.2](#142-what-each-row-rests-on) | — |
 
 ---
 
-## 16. Evidence
+## 17. Evidence
 
 **Repo**: every code claim is in [§3](#3-what-exists-today), cited by symbol and measured at
 `ee8154f2` (2026-09-24), except the `openai-codex` list, measured at `2a34a176` (2026-09-27), and
@@ -811,7 +1429,18 @@ only by `grep -c -a`: `modelPicker` (15), `replaceBuiltInOptions` (5), `enforceA
 (9), `ANTHROPIC_CUSTOM_MODEL_OPTION` (12), `CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY` (6),
 `ANTHROPIC_DEFAULT_FABLE_MODEL` (15). Documented at code.claude.com per the 2026-09-24 research
 pass. None was exercised, and what discovery does under
-`CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1` is unread.
+`CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1` was unread then. Superseded by the 2026-09-29 read of
+2.1.285 below.
+
+**The 2026-09-29 research** behind [§14](#14-how-each-agents-menu-is-set-researched-2026-09-29),
+which carries each claim's citation beside it. Read, never run: claude 2.1.285
+(`~/.local/share/claude/versions/2.1.285`, cited by binary offset); copilot 1.0.89 (the
+`copilot.tgz` asset inside `@github/copilot-linux-x64`, fetched with `npm pack`, and
+`@github/copilot-sdk` 1.0.15, built for it); codex 0.158.0 (the installed binary, and source at tag
+`rust-v0.158.0`); opencode 1.18.32 (the installed binary, and source at tag `v1.18.32`); oh-omp
+0.15.3 (source at tag `v0.15.3`, and the shipped binary). pi 0.87.1 and 0.99.1 were loaded as a
+library through pi's own `ModelRuntime` and extension loader, under Node 24 with an isolated home
+and `PI_OFFLINE=1`, and no session or request. Every fetched package was deleted afterwards.
 
 **Claude Code's tier aliases**, SOURCED 2026-09-04: they resolve per provider, to older models on
 Bedrock, and `ANTHROPIC_DEFAULT_*_MODEL` repoints them
@@ -828,7 +1457,8 @@ own `loadExtensions` with an isolated home ([ML-D3](#ML-D3)).
 
 **Model catalogs**, 2026-09-24: pi-ai 0.87.1's `dist/providers/data/amazon-bedrock.json` holds
 165 entries, all `bedrock-converse-stream` (MEASURED count; 0.85.1 holds 121). opencode 1.18.32's
-embedded models.dev has 179 Bedrock entries (SOURCED from the research pass, not re-counted).
+embedded models.dev has 166 Bedrock entries (MEASURED 2026-09-29 in the installed binary; the
+research pass's 179 was never re-counted).
 opencode's provider `whitelist`/`blacklist`, pi's `enabledModels`, oh-omp's `models.yml` and
 copilot's single `COPILOT_MODEL` come from the same pass; pi's and copilot's are what their
 derives write today. codex 0.156.1's catalog and its fallback-metadata message are in
