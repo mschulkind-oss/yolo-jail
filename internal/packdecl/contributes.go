@@ -559,11 +559,10 @@ type Contribution struct {
 	// column. Name (REQUIRED, shared with provider/profile above) is the service's
 	// whole identity; the two daemon halves are at-least-one.
 	JailDaemon *ServiceJailDaemon `json:"jail_daemon,omitempty"`
-	// HostDaemon is the service's HOST half: declared and carried, NOT executed by
-	// this build. No host-daemon path exists for services yet — the launcher
-	// ignores it (see packservices.go in internal/cli/run) — but validation
-	// accepts it, because §2.1 rules one kind carries both halves and a host
-	// daemon's arrival must not be a schema change on top of a behavior change.
+	// HostDaemon is the service's HOST half: the argv a host launch (`yolo host --`, the
+	// wrappers) and a macos-user launch run as a launch-owned child when the one agent they
+	// start is paired through this service (internal/launchservice;
+	// docs/design/host-notch-services.md OQ-HS4). Only an official pack's host half runs.
 	HostDaemon *ServiceHostDaemon `json:"host_daemon,omitempty"`
 	// Endpoint is the service's endpoint FILE NAME: the file lands at
 	// /run/yolo-services/<endpoint> (paths.ServiceEndpointExt, ".endpoint", is the
@@ -1390,16 +1389,16 @@ type ServiceJailDaemon struct {
 	Restart string `json:"restart,omitempty"`
 }
 
-// ServiceHostDaemon is a service's HOST half: declared and carried, NOT executed
-// by this build. No host-daemon path exists for services yet — validation accepts
-// the declaration and the launcher ignores it (a comment at the composition site
-// says the same thing) — because §2.1 rules one kind carries both halves, and a
-// host daemon's arrival should not have to be a schema change on top of a
-// behavior change. The oauth broker's `yolo internal daemon` self-exec is the
-// worked shape the consumer will follow.
+// ServiceHostDaemon is a service's HOST half, run by internal/launchservice as a child of the
+// one host or macos-user launch whose agent is paired through the service, for that launch's
+// lifetime (docs/design/host-notch-services.md OQ-HS3, OQ-HS4). The launch hands it its address
+// and caller token in a 0600 input file, never on the argv, and stops it when the agent exits.
+// Only an official pack's host half runs (packload.Pack.Official); a fetched or local pack's is
+// refused by name.
 type ServiceHostDaemon struct {
-	// Cmd is the argv, RAW — token substitution ({socket}, {endpoint}) is the
-	// host pipeline's business and arrives with the consumer.
+	// Cmd is the argv. Its first word must be `yolo`, which the launch resolves to its own
+	// binary (execx.SelfExecArgv): the host ships only `yolo`, and host daemons are
+	// `yolo internal daemon <name>`. No token is substituted.
 	Cmd []string `json:"cmd"`
 }
 

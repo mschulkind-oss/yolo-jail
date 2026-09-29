@@ -90,6 +90,14 @@ type Pack struct {
 	// visible. Always empty on the strict authoring path, where the same manifest is
 	// refused as a load problem instead.
 	SkewNotes []string
+	// Official reports that this pack is one yolo ships: loaded from the embedded set
+	// (loadEmbeddedPack), or resolved from a `packs` entry that names an embedded pack
+	// (config.ResolvePack, which also stages such a pack and keeps the mark on the copy). A
+	// fetched or local pack is never official, whatever its name. It is what admits a
+	// service's host half to run at the host and on macos-user
+	// (docs/design/host-notch-services.md OQ-HS4: only an embedded official pack's host half
+	// runs), the one place a pack's ORIGIN, rather than its declaration, decides.
+	Official bool
 
 	// origDecl is the declaration this pack was CLONED FROM by ResolveDestinations, or nil for a
 	// pack that is not a clone. The clone's Decl appends a synthesized `{into, from}` copy of each
@@ -913,7 +921,11 @@ func embeddedPackDirs(embedded fs.FS) ([]string, error) {
 // mayAccessHost is true. That is why WHERE such a tree lives is a security decision
 // (paths.EmbeddedPacksDir states it).
 func loadEmbeddedPack(root, name string) (*Pack, []string) {
-	return LoadDir(root, name)
+	p, probs := LoadDir(root, name)
+	if p != nil {
+		p.Official = true
+	}
+	return p, probs
 }
 
 // loadEmbeddedPacks loads every pack of embedded from an already-written tree at dest.

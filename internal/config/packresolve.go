@@ -161,6 +161,11 @@ func ResolvePack(entry PackEntry, spec ResolvePackSpec) (ResolvedPack, error) {
 	if out.Pack != nil && loadFrom != root {
 		out.Pack.SourceRoot = root
 	}
+	if out.Pack != nil {
+		// A staged or filtered copy of an embedded pack is still yolo's own
+		// (packload.Pack.Official); nothing else is.
+		out.Pack.Official = entry.Embedded()
+	}
 	return out, nil
 }
 

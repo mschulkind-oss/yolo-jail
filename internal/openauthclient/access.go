@@ -31,6 +31,18 @@ func RequestAccessToken(endpointPath string, stderr io.Writer) (AccessTokenView,
 	return decodeAccessTokenView(response, time.Now())
 }
 
+// RequestAccessTokenUnix is RequestAccessToken over the host-only broker socket
+// (RequestUnix), for a host half: a launch-owned service outside every jail, which reaches the
+// credential service the way managed host Codex and pi do and never through a jail endpoint file
+// (docs/design/host-notch-services.md HS-D3). It receives the same access-only view.
+func RequestAccessTokenUnix(socketPath string, stderr io.Writer) (AccessTokenView, error) {
+	response, err := RequestUnix(socketPath, map[string]any{"action": "token", "view": "access"}, stderr)
+	if err != nil {
+		return AccessTokenView{}, err
+	}
+	return decodeAccessTokenView(response, time.Now())
+}
+
 func decodeAccessTokenView(response json.RawMessage, now time.Time) (AccessTokenView, error) {
 	var raw map[string]json.RawMessage
 	if err := json.Unmarshal(response, &raw); err != nil {

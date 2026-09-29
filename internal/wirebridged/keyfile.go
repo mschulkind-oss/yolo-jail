@@ -52,6 +52,32 @@ func resolveKey(keyEnvName, home, agent string) (key, source string) {
 	return "", ""
 }
 
+// keyFor is the route credential lookup for the daemon running under e: in a jail the key channel
+// (resolveKey), and in the HOST HALF the launch's input and this process's environment only, both
+// already folded into e (launchservice.ReadInput). A host half reads no key file: the files under
+// ~/.config are a jail home's, and at the host the credential gate's delivery for the served
+// agent arrives in the input instead (docs/design/host-notch-services.md §4.3).
+func keyFor(e *entrypoint.Env, name, agent string) (key, source string) {
+	if !hostHalf(e) {
+		return resolveKey(name, e.Home, agent)
+	}
+	if name == "" {
+		return "", ""
+	}
+	if v := e.Getenv(name); v != "" {
+		return v, "the launch's input"
+	}
+	return "", ""
+}
+
+// keySources names where keyFor looks, for a refusal that has to say.
+func keySources(e *entrypoint.Env, agent string) string {
+	if hostHalf(e) {
+		return "the launch's input or this process's environment"
+	}
+	return keyChannelDescription(e.Home, agent) + " or this process's environment"
+}
+
 // keyChannelDescription names the files resolveKey reads for agent, for a
 // refusal that has to say where it looked.
 func keyChannelDescription(home, agent string) string {

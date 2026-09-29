@@ -263,6 +263,17 @@ func serve(ctx context.Context, route route, e *entrypoint.Env) int {
 // returns why it cannot serve (a missing credential): the bridge never serves
 // unauthenticated upstream traffic (wire-bridge.md §5).
 func adapterHandler(route route, e *entrypoint.Env) (http.Handler, string, string) {
+	if route.CodexAccessToken && hostHalf(e) {
+		// THE HOST HALF (HS-D3): the host broker's private socket, which the launch names in
+		// this daemon's input, and never a jail endpoint file.
+		socket := e.Getenv(openauthclient.HostSocketEnv)
+		if socket == "" {
+			return nil, "", "Codex route needs " + openauthclient.HostSocketEnv +
+				" from the launch; no unauthenticated upstream is served"
+		}
+		return NewCodexResponsesHandlerUnix(route.UpstreamBaseURL, socket),
+			"OpenAI credential service access-token views (host socket)", ""
+	}
 	if route.CodexAccessToken {
 		endpoint := e.Getenv(openauthclient.EndpointEnv)
 		if endpoint == "" {
@@ -277,27 +288,25 @@ func adapterHandler(route route, e *entrypoint.Env) (http.Handler, string, strin
 		// now and resolved lazily per request (signing.go). A jail with no source at
 		// all idles, as a missing key does: the bridge never serves unauthenticated.
 		env := sigv4.EnvFrom(func(name string) string {
-			v, _ := resolveKey(name, e.Home, route.Agent)
+			v, _ := keyFor(e, name, route.Agent)
 			return v
 		})
 		if !hasAWSCredentialSource(env) {
 			return nil, "", fmt.Sprintf("provider %q's upstream is Bedrock (%s), and none of its "+
 				"credential sources is set — a static AWS_ACCESS_KEY_ID + AWS_SECRET_ACCESS_KEY pair, "+
 				"the aws-auth pointer AWS_CONTAINER_CREDENTIALS_FULL_URI, or AWS_BEARER_TOKEN_BEDROCK — "+
-				"in %s or this process's environment", route.ProviderName, route.UpstreamBaseURL,
-				keyChannelDescription(e.Home, route.Agent))
+				"in %s", route.ProviderName, route.UpstreamBaseURL, keySources(e, route.Agent))
 		}
 		return newSignedChatHandler(route.UpstreamBaseURL,
 				wirebridge.ChatOptions{OmitStreamUsage: route.OmitStreamUsage},
 				&bedrockSigner{region: route.SignRegion, chain: &sigv4.Chain{Env: env}}),
 			"SigV4 for bedrock in " + route.SignRegion + ", from " + env.String(), ""
 	}
-	key, keySource := resolveKey(route.KeyEnvName, e.Home, route.Agent)
+	key, keySource := keyFor(e, route.KeyEnvName, route.Agent)
 	if key == "" && route.KeyEnvName != "" {
 		return nil, "", fmt.Sprintf("provider %q names credential variable %s, and it is set "+
-			"neither in %s nor in this process's environment — the bridge never serves "+
-			"unauthenticated upstream traffic (wire-bridge.md §5)",
-			route.ProviderName, route.KeyEnvName, keyChannelDescription(e.Home, route.Agent))
+			"neither in %s — the bridge never serves unauthenticated upstream traffic "+
+			"(wire-bridge.md §5)", route.ProviderName, route.KeyEnvName, keySources(e, route.Agent))
 	}
 	return newChatHandler(route.UpstreamBaseURL, key,
 		wirebridge.ChatOptions{OmitStreamUsage: route.OmitStreamUsage}), keySource, ""
@@ -406,7 +415,14 @@ func servePlan(ctx context.Context, p plan, e *entrypoint.Env) int {
 	// The endpoint file names the FIRST listener (the adapter route's when there is one):
 	// its contract is "a listener of this daemon exists at the address inside", which the
 	// reachability witness probes, and any one bound listener proves the daemon is up.
-	if err := publishEndpoint(EndpointFile, ls[0].ln.Addr().String()); err != nil {
+	//
+	// THE HOST HALF PUBLISHES NO FILE: nothing at the host reads one, its launch learns it is
+	// listening from the readiness line below, and a file under a jail path is one of the inputs
+	// the host half moved off (docs/design/host-notch-services.md §2.2).
+	published := !hostHalf(e)
+	if !published {
+		logf("a host half: no endpoint file is published; the launch reads the readiness line")
+	} else if err := publishEndpoint(EndpointFile, ls[0].ln.Addr().String()); err != nil {
 		// The listeners are abandoned with the process, one statement from now: the
 		// only reason to close them explicitly is the in-process test that asserts
 		// the port is free again, and a Close error on a listener nobody will
@@ -420,9 +436,13 @@ func servePlan(ctx context.Context, p plan, e *entrypoint.Env) int {
 		return 1
 	}
 	signalReady(ServiceName)
+	endpointName := EndpointFile
+	if !published {
+		endpointName = "none, a host half"
+	}
 	for i, line := range serving {
 		line = strings.ReplaceAll(line, "{addr}", ls[i].ln.Addr().String())
-		logf("serving %s", strings.ReplaceAll(line, "{endpoint}", EndpointFile))
+		logf("serving %s", strings.ReplaceAll(line, "{endpoint}", endpointName))
 	}
 	logf("every listener requires this launch's caller token ($%s) on each request, as "+
 		"Authorization: Bearer or x-api-key, and refuses anything else 401 (wire-bridge.md WB-D18)",
@@ -454,6 +474,9 @@ func servePlan(ctx context.Context, p plan, e *entrypoint.Env) int {
 		// listener points the next reader — and the reachability witness — at a
 		// closed port. An absent file is the expected case only if something
 		// else removed it first.
+		if !published {
+			return 0
+		}
 		if err := os.Remove(EndpointFile); err != nil && !errors.Is(err, os.ErrNotExist) {
 			logf("could not remove the endpoint file %s on shutdown: %v — it now names a "+
 				"listener that no longer exists", EndpointFile, err)

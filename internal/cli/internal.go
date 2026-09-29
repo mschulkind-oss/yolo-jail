@@ -27,6 +27,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/selfupdate"
 	"github.com/mschulkind-oss/yolo-jail/internal/serialdaemon"
+	"github.com/mschulkind-oss/yolo-jail/internal/wirebridged"
 )
 
 // runInternal dispatches the hidden `yolo internal <cmd>` family — debugging
@@ -318,7 +319,7 @@ func firstNonEmptyEnv(keys ...string) string {
 // "unknown daemon", which is the right answer for an argv nothing emits any more.
 func runInternalDaemon(args []string) int {
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "usage: yolo internal daemon <aws-auth|claude-oauth-broker|host-processes|journal|openai-auth-broker|serial> [args...]")
+		fmt.Fprintln(os.Stderr, "usage: yolo internal daemon <aws-auth|claude-oauth-broker|host-processes|journal|openai-auth-broker|serial|wire-bridge> [args...]")
 		return 2
 	}
 	rest := args[1:]
@@ -335,6 +336,11 @@ func runInternalDaemon(args []string) int {
 		return openaiauthdaemon.Main(rest)
 	case "serial":
 		return serialdaemon.Main(rest)
+	case "wire-bridge":
+		// The wire bridge's HOST HALF (packs/wire-bridge's `host_daemon`): a launch-owned
+		// service a host or macos-user launch starts for the one agent it runs, handed its
+		// inputs in a file, never on this argv (docs/design/host-notch-services.md).
+		return wirebridged.HostMain(rest)
 	default:
 		fmt.Fprintf(os.Stderr, "yolo internal daemon: unknown daemon %q\n", args[0])
 		return 2

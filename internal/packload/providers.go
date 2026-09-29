@@ -939,9 +939,10 @@ func serviceClaimDetail(c packdecl.Contribution) string {
 		parts = append(parts, "jail daemon ["+strings.Join(c.JailDaemon.Cmd, " ")+"]")
 	}
 	if c.HostDaemon != nil {
-		// Declared and carried, not executed (the field's own doc says why); the
-		// footprint reports what the pack WANTS either way.
-		parts = append(parts, "host daemon ["+strings.Join(c.HostDaemon.Cmd, " ")+"] (declared, not yet executed)")
+		// Run by a host or macos-user launch as a launch-owned child, and only for an
+		// official pack (docs/design/host-notch-services.md OQ-HS4); the footprint reports
+		// what the pack WANTS either way.
+		parts = append(parts, "host daemon ["+strings.Join(c.HostDaemon.Cmd, " ")+"] (runs at the host and on macos-user for a pack yolo ships; refused for any other)")
 	}
 	if c.Endpoint != "" {
 		parts = append(parts, "endpoint /run/yolo-services/"+c.Endpoint)

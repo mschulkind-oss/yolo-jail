@@ -121,7 +121,9 @@ its raw argv — so run yolo pack footprint before you select a pack that ships 
 
 service is the opposite of loophole: a daemon the JAIL runs for itself (the wire bridge is
 the first one), never gated and never a claim. Its jail daemon joins the same supervised
-list the loopholes use; its host daemon half is declared but not yet executed by yolo.
+list the loopholes use. Its host daemon half runs at the host and on macos-user as a child
+of the one launch that needs it, and only for a pack yolo ships: a fetched or local pack's
+host daemon is refused by name.
 
 program vs requires is install-vs-presence: program means yolo installs the tool (a lazy
 launcher near the head of PATH, which also keeps it up to date), requires means it must

@@ -18,6 +18,14 @@
     },
     {
       "endpoint": "wire-bridge.endpoint",
+      "host_daemon": {
+        "cmd": [
+          "yolo",
+          "internal",
+          "daemon",
+          "wire-bridge"
+        ]
+      },
       "jail_daemon": {
         "cmd": [
           "yolo-jaild",

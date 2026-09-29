@@ -121,3 +121,30 @@ func TestResolvePackDeclarationModeAnswersAsTheLaunchDoes(t *testing.T) {
 		t.Errorf("the staged copy must hold the link's target as a file: %q, %v", body, err)
 	}
 }
+
+// AN EMBEDDED ENTRY RESOLVES OFFICIAL, IN EVERY MODE, and nothing else does (packload.Pack.Official,
+// the mark that admits a service's host half, docs/design/host-notch-services.md OQ-HS4). A local
+// pack that takes an embedded pack's name is not yolo's, whatever it declares.
+func TestResolvePackMarksOnlyAnEmbeddedEntryOfficial(t *testing.T) {
+	for _, spec := range []ResolvePackSpec{{}, {Dest: filepath.Join(t.TempDir(), "wire-bridge")}} {
+		res, err := ResolvePack(EmbeddedPackEntry("wire-bridge"), spec)
+		if err != nil || res.Pack == nil || !res.Pack.Official {
+			t.Errorf("an embedded entry (dest %q) must resolve official: %+v, %v", spec.Dest, res.Pack, err)
+		}
+	}
+	dir := filepath.Join(t.TempDir(), "wire-bridge")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "pack.json"), []byte(`{}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	local := PackEntry{Source: "file://" + dir, Name: "wire-bridge"}
+	res, err := ResolvePack(local, ResolvePackSpec{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Pack.Official {
+		t.Error("a local pack named like an embedded one resolved official")
+	}
+}

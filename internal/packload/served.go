@@ -127,8 +127,15 @@ func ServedAtContainer(names []string) ServedDaemons {
 	return s
 }
 
-// NothingServed is the set a notch that runs no jail daemon serves: the host, and macos-user.
+// NothingServed is the set a notch that runs no jail daemon serves: the host, and macos-user,
+// before either starts a launch-owned service.
 func NothingServed() ServedDaemons { return ServedDaemons{} }
+
+// ServedByLaunch is the set a host or macos-user launch serves once it has decided to start the
+// named pack services' host halves as launch-owned children (internal/launchservice,
+// docs/design/host-notch-services.md): those services, and no jail daemon, since that notch still
+// runs none. Their addresses come from WithRebind, the ports that launch picked.
+func ServedByLaunch(services []string) ServedDaemons { return ServedAtContainer(services) }
 
 // ServedAtRuntime is the served set of a jail launch on runtime rt whose composed payload names
 // the daemons in names: every one of them on a container runtime, and none on macos-user,

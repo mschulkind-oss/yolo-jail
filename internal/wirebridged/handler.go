@@ -85,6 +85,23 @@ func NewResponsesHandler(upstreamBaseURL, apiKey string) http.Handler {
 // refresh token, and a 401 gets exactly one new view before the error is
 // relayed to Claude.
 func NewCodexResponsesHandler(upstreamBaseURL, brokerEndpoint string) http.Handler {
+	return newCodexResponsesHandler(upstreamBaseURL, func(stderr io.Writer) (openauthclient.AccessTokenView, error) {
+		return openauthclient.RequestAccessToken(brokerEndpoint, stderr)
+	})
+}
+
+// NewCodexResponsesHandlerUnix is NewCodexResponsesHandler for the bridge's HOST HALF: the
+// access-only view comes from the host broker's private socket (openauthclient.RequestUnix), the
+// path managed host Codex and pi use, never from a jail endpoint file
+// (docs/design/host-notch-services.md HS-D3).
+func NewCodexResponsesHandlerUnix(upstreamBaseURL, brokerSocket string) http.Handler {
+	return newCodexResponsesHandler(upstreamBaseURL, func(stderr io.Writer) (openauthclient.AccessTokenView, error) {
+		return openauthclient.RequestAccessTokenUnix(brokerSocket, stderr)
+	})
+}
+
+func newCodexResponsesHandler(upstreamBaseURL string,
+	requestView func(io.Writer) (openauthclient.AccessTokenView, error)) http.Handler {
 	h := newHandler(upstreamBaseURL, "/responses", "",
 		translateCodexResponsesRequest, wirebridge.TranslateResponsesResponse,
 		func() streamTranslator { return wirebridge.NewResponsesStreamTranslator() }).(*bridgeHandler)
@@ -97,8 +114,7 @@ func NewCodexResponsesHandler(upstreamBaseURL, brokerEndpoint string) http.Handl
 		// a credential one — the access token arrives on the stdout frame this
 		// callback returns — so forwarding it to the daemon log leaks nothing and
 		// is the difference between a diagnosable 401 and a mysterious one.
-		view, err := openauthclient.RequestAccessToken(brokerEndpoint,
-			logWriter("OpenAI credential service: "))
+		view, err := requestView(logWriter("OpenAI credential service: "))
 		if err != nil {
 			return "", "", err
 		}
