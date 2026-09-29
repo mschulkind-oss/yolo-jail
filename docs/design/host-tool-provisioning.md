@@ -401,7 +401,7 @@ installs nothing.
       > We don't have to ask again … certainly not the second time."* Selecting the pack in user
       > config IS the consent. The floor installs and keeps current what the selected packs declare,
       > the same way a jail's launchers do (throttled, at the agent's own invocation); no install or
-      > update prompt. This also retires the consent clause of [OQ-HP1](#OQ-HP1)'s answer and §4's
+      > update prompt. This also retires the consent clause of [OQ-HP1](#OQ-HP1)'s answer and [§4](#4-when-provisioning-runs)'s
       > consent design ([HP-D3](#HP-D3)).
 
 6. 💬 <a id="OQ-HP6"></a>**[OQ-HP6](#OQ-HP6): Does yolo run `mise install` on the stale-shim verdict?**
