@@ -66,7 +66,13 @@ comments cite them by number.
    workspace config is the file an in-jail agent can rewrite, and it is the file the gate
    evaluates.
 3. **P3 — No prompt fatigue from global edits.** Adding a pack, a package, or a loophole at
-   user scope applies to every workspace instantly, with no prompt anywhere.
+   user scope applies to every workspace instantly, with no prompt anywhere. **One exception,
+   ruled as one** ([BB-D30](../design/boundary-broker.md#BB-D30)): selecting a pack whose loophole
+   declares `brokered`, and turning that loophole on, makes the next fresh launch of each
+   workspace with a remote on its forge ask once. What it asks about is the workspace's
+   agent-editable remotes, not the user's edit, so the question is P2's, and P1 is kept: the
+   edit itself is never shown back to the user who made it
+   ([the repository scope](#the-repository-scope-the-records-second-part)).
 4. **P4 — A fresh workspace confirms its config.** A repository cloned from the internet is
    a config nobody on this machine has approved; its first launch shows it and asks.
 
@@ -77,7 +83,11 @@ comments cite them by number.
   `TestCheckConfigChangesSnapshotLandsOutsideTheWorkspace`, which asserts both halves — the
   new path is written and the old workspace path is not.
 - **Workspace scope only.** `CheckConfigChanges` is handed `LoadWorkspaceConfig`'s result at
-  both call sites, never `LoadConfig`'s. A user-config change cannot produce a diff.
+  both call sites, never `LoadConfig`'s. A user-config change cannot produce a config diff.
+  The merged config is read for one thing, whether a brokered loophole starts, and a user
+  edit that starts one therefore makes a workspace with a remote on its forge ask about its
+  repository scope, P3's one exception. The scope block shows the workspace's remotes, never
+  the user's edit.
 - **Fail-closed without a terminal.** Unapproved workspace config plus no TTY plus no
   `--accept-config-changes` is fatal, and the snapshot is **not** rewritten — so the same
   diff is still there to approve on the next interactive launch.

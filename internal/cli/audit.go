@@ -28,7 +28,7 @@ the github-broker, whether it ran, was refused, was out of the workspace's
 repository scope, or needed an approval. One line per call, oldest first, from
 ~/.local/share/yolo-jail/broker/audit.jsonl and its rotated archives.
 
-Refuses inside a jail: the log is not mounted into any jail.
+Refuses inside a jail: the log is on the host, and yolo mounts it into no jail.
 
 Flags:
   --since <when>      Only calls at or after <when>: a duration back from now
@@ -44,7 +44,8 @@ Flags:
 
 Examples:
   yolo audit                          # everything the log holds
-  yolo audit --since 1h --set refused # the last hour's refusals
+  yolo audit --since 1h --set refused # the last hour's commands the broker never runs
+  yolo audit --set out-of-scope       # commands that reached outside the workspace's repositories
   yolo audit --json | jq .argv        # the canonical argv of each call`
 
 func runAudit(args []string) int {

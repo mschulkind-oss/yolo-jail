@@ -66,6 +66,7 @@ that launch with `--accept-config-changes`, or ahead of time on your machine wit
 | `gh pr comment`, `gh issue edit`, `gh pr merge`, `gh api -X POST ...` and other writes | Nothing runs. It exits with code 77: writes need an approval step, not built yet |
 | `gh auth token`, `--jq`, `--web`, `gh api` to a full URL, a command that would read or write a file on your machine | Never runs, whatever else is allowed. It exits with code 64 and says why |
 | A repository outside this project, or a command across your whole account, such as a search with no `--repo` | Never runs. It exits with code 64 and names the repositories it can reach |
+| A search whose words could reach another repository: a `repo:`, `org:`, `user:` or `owner:` in the query, a parenthesis, or the word `OR` or `NOT`, in `gh search`, or in `gh pr list`, `gh issue list` or `gh discussion list` with `--search` or a filter | Never runs. It exits with code 64 and says which words. Search with plain words, and filter the `--json` output inside the jail instead |
 
 The repository is the one `-R OWNER/REPO` names, or else the project's `origin` remote. To send
 text on standard input, pass `-`, as in `--body-file -`.
@@ -78,15 +79,20 @@ The jail's own copy of `gh` is still there, holding no login: run it with
 
 ## What it records
 
-Every command the broker is sent is written to a log on your machine, whether it ran or not. The
-log is never visible inside any jail. To read it:
+Every command the broker is sent is written to a log on your machine, whether it ran or not. yolo
+mounts that log into no jail. If a `mounts` entry of your own reaches it, yolo allows the mount
+and warns you that the jail can read it. To read the log:
 
 ```bash
 yolo audit                       # every call, oldest first
 yolo audit --since 1h            # the last hour
-yolo audit --set refused         # only what was refused
+yolo audit --set refused         # refused for the credential or for your machine
+yolo audit --set out-of-scope    # refused because it reached outside the project
 yolo audit --json                # one JSON object per call
 ```
+
+A command a jail sent can contain any characters. `yolo audit` shows control characters as escapes,
+such as `\x1b`, so a command cannot change what your terminal shows.
 
 ## Where it works
 
@@ -115,5 +121,9 @@ yolo audit --json                # one JSON object per call
   was started before you turned it on. Turn it on as above and start a fresh jail.
 - **`gh` exits 69** saying the host has no `gh` or no login: install `gh` on your machine and run
   `gh auth status` there.
+- **`gh` exits 69** saying the broker will not run the host `gh`: the first `gh` on your `PATH` is
+  inside the project or inside yolo's jail home, where an agent could have put it. The broker
+  also skips relative `PATH` entries such as `./bin`. Make sure the `gh` you installed comes first
+  on your `PATH`, from a directory outside the project.
 - **`yolo check`** shows the broker's own check: which `gh` it would run, its version, and whether
   it found a login.

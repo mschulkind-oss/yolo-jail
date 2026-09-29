@@ -17,12 +17,13 @@ This first version is read-only: pull requests, issues, workflow runs, releases,
 and `gh api` reads run, while every command that would change something on GitHub stops with exit
 77, since the approval step for writes is not built yet. Commands that could print the token or
 reach your machine, such as `gh auth token`, `--jq`, `--web` or `gh api` to a full URL, never run,
-and neither does anything outside the project's repositories. Which repositories those are comes
-from the project's git remotes, and yolo asks you to approve that list in the launch's usual
-config-change prompt, shown first and labeled, whenever it changes; `yolo check
---accept-config-changes` approves it ahead of time. Every command a jail sends is recorded on
-your machine, and the new `yolo audit` lists them. With the pack selected, a project may not mount
-the service's directory or your `gh` login into the jail. See
+and neither does anything outside the project's repositories, including a search whose words could
+reach another one. Which repositories those are comes from the project's git remotes, and yolo
+asks you to approve that list in the launch's usual config-change prompt, shown first and
+labeled, whenever it changes; `yolo check --accept-config-changes` approves it ahead of time.
+Every command a jail sends is recorded on your machine, and the new `yolo audit` lists them. The
+service runs only a `gh` installed outside the project, and with the pack selected a project may
+not mount the service's directory or your `gh` login into the jail. See
 [GitHub without a token in the jail](userguide/guides/github.md).
 
 A pack can now put its own program in front of a command in the jail. An `intercept` entry in a
