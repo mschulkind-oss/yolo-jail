@@ -173,6 +173,10 @@ refusal names the field; move it to your user config. A project can still set a 
   `nix --version` took longer than five seconds, as a first run inside a jail on a busy Mac can.
   It now waits as long as its other Nix checks, and says whether Nix timed out, could not be
   run or exited with an error.
+- `yolo check` no longer fails when the Claude login broker has stopped and left its PID file
+  behind, as it does whenever its state directory is removed. It now warns that the broker is not
+  running, like it does when none was ever started, because the next launch that selects `claude`
+  starts a fresh one.
 - A jail no longer deletes pi's `mcp.json` every time it starts. 0.11.0 removed it to clean up
   the copy older versions of yolo wrote there, and so also deleted the one you or a pi
   extension keep, such as the MCP servers a subagent's `mcp:` tools are looked up in. yolo's

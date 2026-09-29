@@ -363,8 +363,20 @@ func (o *Options) reportBrokerDaemon(r *reporter) {
 				"`yolo broker status` reports state, "+
 				"`yolo broker restart` cycles.")
 	case !status.pidLive:
-		r.fail(fmt.Sprintf("loophole claude-oauth-broker: stale PID file, pid %d not running", status.pid),
-			"Run `yolo broker restart` to clean up and respawn.")
+		// A WARN, like the row above, because it is the same state: nothing is serving and
+		// the next launch spawns a broker, over this file (EnsureSingleton reads a dead pid
+		// as "not alive"). The file only says a broker RAN and stopped. Since the broker
+		// exits by design when its state dir goes (hostservice.WatchStateDir) and its PID
+		// file is the SPAWNER's to write, a clean exit leaves one every time — grading it a
+		// FAIL failed `yolo check` for every workspace on the machine until the next launch.
+		//
+		// Reported, never removed: a launch racing this check may have just spawned a
+		// broker and rewritten the file, and deleting it then would orphan that daemon.
+		r.warn(fmt.Sprintf("loophole claude-oauth-broker: daemon not running (its PID file "+
+			"names pid %d, which has exited)", status.pid),
+			"It stopped — its state directory was removed, or it crashed (see "+
+				broker.BrokerLogPath()+"). The first `yolo run` that selects claude spawns "+
+				"a fresh one over the stale file; `yolo broker restart` does it now.")
 	default:
 		socketState := "missing"
 		if status.socketExists {
