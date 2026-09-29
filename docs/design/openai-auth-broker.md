@@ -8,8 +8,8 @@ summary: "A machine-wide OpenAI credential service owns refresh-token rotation a
 
 # One OpenAI refresh owner for Codex, Pi, hosts, and jails
 
-**Status:** DESIGN, 2026-09-24 — built except one backend's refresh consumer, and
-that one owes a ruling ([OQ-OA6](#OQ-OA6)); one sentence of
+**Status:** DESIGN, 2026-09-24 — built except one backend's refresh consumer, whose
+shape was ruled 2026-09-29 ([OQ-OA6](#OQ-OA6): a launch-owned doorway); one sentence of
 [§2](#2-one-writer-and-two-views) turned out unbuildable and owes another
 ([OQ-OA7](#OQ-OA7)). The canonical transaction, host service, container
 adapters, pack dependency, browser login, managed host launch, status and
@@ -17,7 +17,7 @@ self-check are implemented, and so are host-only import and logout
 (`4de78ac0`, 2026-09-18; the public `yolo openai-auth` verb since `fafb7493`,
 2026-09-20) and Apple Container reporting the service inert
 (`36c47baa`, 2026-09-18). **Not built:** a Codex refresh consumer on
-`macos-user`, which is [OQ-OA6](#OQ-OA6). **Unmeasured:** the
+`macos-user`, ruled in [OQ-OA6](#OQ-OA6) and building. **Unmeasured:** the
 [§7](#7-completion-criteria) criteria only real hardware reaches.
 
 > **In short.** A yolo host service owns one OpenAI subscription grant and is
@@ -37,7 +37,7 @@ host Codex keeps its existing home and, if logged in there, an independent grant
 
 **Start at [§2](#2-one-writer-and-two-views)** — the ownership rule.
 
-**Needs your ruling:** [OQ-OA6](#OQ-OA6), [OQ-OA7](#OQ-OA7).
+**Needs your ruling:** [OQ-OA7](#OQ-OA7). [OQ-OA6](#OQ-OA6) was ruled 2026-09-29.
 
 **Reads with:** [`openai-auth-broker-plan.md`](openai-auth-broker-plan.md) (the
 implementation hand-off), [`../research/openai-subscription-auth.md`](../research/openai-subscription-auth.md)
@@ -213,10 +213,11 @@ bodies, authorization codes, PKCE verifiers, or callback query strings.
 | OQ-OA3 | `yolo host -- codex` shares the broker through a managed Codex home; direct host Codex remains untouched. | 2026-09-14 |
 | OQ-OA4 | Container browser callbacks use one temporary, state-routed host relay; `macos-user` uses its native loopback. | 2026-09-14 |
 | OQ-OA5 | All backends use authenticated loopback TLS and the same refresh algorithm; none intercepts `auth.openai.com`. | 2026-09-14 |
+| OQ-OA6 | Route (b): on `macos-user` the Codex refresh doorway is a launch-owned listener, by [HS-D15](host-notch-services.md#HS-D15)'s doorway rule. | 2026-09-29 |
 
 ## 9. Open questions
 
-1. 💬 <a id="OQ-OA6"></a>**OQ-OA6: On `macos-user`, does Codex's refresh adapter come from a launch-owned listener, or wait for native jail daemons?**
+1. ✅ <a id="OQ-OA6"></a>**OQ-OA6: On `macos-user`, does Codex's refresh adapter come from a launch-owned listener, or wait for native jail daemons?**
    [§4](#4-backend-transport) says this backend uses the same adapters and does not run the
    container-only in-jail daemon, but the shipped Codex adapter IS that daemon
    (`yolo-jaild openai-auth-adapter`, declared as the manifest's `jail_daemon`), and
@@ -235,7 +236,7 @@ bodies, authorization codes, PKCE verifiers, or callback query strings.
    generic jail-daemon work lands, and whether one manifest key may have two delivery
    mechanisms, a declared jail daemon on containers and a launcher-owned listener here.
 
-   <!-- vantage: oq id=OQ-OA6 leaning="Route (b), a launch-owned adapter. It is the openaiauthhost shape already shipped for host Codex, it matches §4's statement that this backend does not run the container-only in-jail daemon, and it needs neither OQ-DP8 nor OQ-DP9. The cost is a second delivery mechanism for one manifest key, which OQ-DP9's confinement ruling could later make unnecessary." -->
+   
 
    _Leaning:_ **Route (b).** It is already written once, it matches what
    [§4](#4-backend-transport) says this backend does, and it is subject to neither blocker. The
@@ -243,7 +244,14 @@ bodies, authorization codes, PKCE verifiers, or callback query strings.
    [OQ-DP9](declaration-parity.md#OQ-DP9)'s confinement ruling might later make unnecessary.
 
    **Answer:**
-   > _(empty — fill in when decided)_
+   > **Ruled 2026-09-29, route (b), under a rule stated once for every backend
+   > ([HS-D15](host-notch-services.md#HS-D15)):** the host service is the same everywhere, and its
+   > doorway (the thin adapter that checks the launch's caller token and forwards to the host
+   > service) opens on whichever loopback the agent sees. A container has a loopback of its own, so
+   > the doorway runs inside it as a jail daemon; `macos-user` and `yolo host` share the Mac's, so
+   > the launch opens it outside as a launch-owned listener. The maintainer, on why an in-jail
+   > placement was never a principle: *"the host doesn't have to run [in the jail] anyway, so the
+   > host can access it."* The same rule covers aws-auth's credential adapter (port 1461).
 
 2. 💬 <a id="OQ-OA7"></a>**[OQ-OA7](#OQ-OA7): does [§2](#2-one-writer-and-two-views) drop "after an unauthorized response, the adapter asks once more"?**
    Measured against pi 0.87.0 (2026-09-22): pi never calls a provider's `refreshToken` on a
