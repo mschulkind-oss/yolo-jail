@@ -442,7 +442,7 @@ func AutoLoadImage(opts AutoLoadOptions) LoadResult {
 	o := &opts
 	out := o.Out
 
-	sentinel := filepath.Join(paths.BuildDir(), "last-load-"+o.Runtime)
+	sentinel := LoadSentinelPath(paths.BuildDir(), o.Runtime)
 	outLink := filepath.Join(paths.BuildDir(), fmt.Sprintf("run-result-%d", o.Getpid()))
 	pkgJSON := ""
 	if len(o.ExtraPackages) > 0 {

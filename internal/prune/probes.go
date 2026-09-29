@@ -503,6 +503,15 @@ func listImagesByOwnerLabel(rt string, run RunFunc) string {
 // tagged rows; it is the whole safety story for nameless ones — with the plain
 // (never `-f`) `rmi` below as the backstop that fails rather than kills.
 func PruneOldImages(rt string, protected map[string]struct{}, protectedKnown bool, apply bool, run RunFunc) (removed []string, declined ImageReapDecline) {
+	return pruneOldImages(rt, protected, protectedKnown, apply, run, nil, nil)
+}
+
+// pruneOldImages is PruneOldImages with each `rmi` bracketed by guard (guard.go). recheck,
+// run under the guard's lock right before an image's `rmi`, is handed every tag that image
+// carried and reports whether it may still go; a false skips it, and a skipped image is not
+// in the returned list. The manual `yolo prune` passes neither.
+func pruneOldImages(rt string, protected map[string]struct{}, protectedKnown bool, apply bool, run RunFunc,
+	guard Guard, recheck func(tags []string) bool) (removed []string, declined ImageReapDecline) {
 	// THE CANDIDATE LISTING COMES FIRST, and the order is load-bearing since
 	// OQ-LS2 made a decline an ERROR on the manual path. A machine where yolo
 	// has never launched has no current-image pointers, so protectedKnown is
@@ -570,12 +579,14 @@ func PruneOldImages(rt string, protected map[string]struct{}, protectedKnown boo
 	var images []ImageEntry
 	seen := map[string]bool{}
 	keepIDs := map[string]bool{}
+	tagsByID := map[string][]string{}
 	for _, line := range strings.Split(rows, "\n") {
 		parts := pySplitMax(strings.TrimSpace(line), 2)
 		if len(parts) < 3 {
 			continue
 		}
 		id := parts[0]
+		tagsByID[id] = append(tagsByID[id], tagOf(parts[1]))
 		if _, live := protected[tagOf(parts[1])]; live {
 			// ANY protected name saves the whole image: the newest one wears both a
 			// content tag and :latest, and removal is by ID, so a per-row verdict
@@ -617,19 +628,29 @@ func PruneOldImages(rt string, protected map[string]struct{}, protectedKnown boo
 		}
 		toRemove = append(toRemove, e.ID)
 	}
-	if apply {
-		for _, id := range toRemove {
+	if !apply {
+		return toRemove, ""
+	}
+	attempted := []string{}
+	for _, id := range toRemove {
+		tags := tagsByID[id]
+		ran := guard.Do(func() bool { return recheck == nil || recheck(tags) }, func() {
 			// NO -f. Forcing is what turned a disk-space sweep into a jail
 			// killer: `rmi -f` removes the CONTAINERS using an image, so every
 			// mistake in the selection above costs somebody their session. A
 			// plain `rmi` FAILS on an image a container still uses, which makes
 			// the safety a property of podman rather than of this function
 			// getting its evidence right — belt to guard #0's braces, and the
-			// half that keeps working when the evidence is wrong.
+			// half that keeps working when the evidence is wrong. It is also the
+			// in-use half of a guarded pass's recheck: a container created on the
+			// image since the listing makes this `rmi` fail.
 			run([]string{rt, "rmi", id}, rmiTimeout)
+		})
+		if ran {
+			attempted = append(attempted, id)
 		}
 	}
-	return toRemove, ""
+	return attempted, ""
 }
 
 // relayShortHash is the 8-char hash keying a jail's broker-relay pid/lock/socket

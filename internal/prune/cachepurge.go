@@ -59,6 +59,13 @@ var cachePurgeForbidden = map[string]struct{}{
 //
 // now is the clock seam; the cutoff is now - olderThanDays*86400.
 func PurgeCacheByAge(cacheRoot string, subdirs []string, relocations map[string]string, olderThanDays float64, apply bool, now time.Time) (bytesRemoved int64, filesRemoved int) {
+	return PurgeCacheByAgeGuarded(cacheRoot, subdirs, relocations, olderThanDays, apply, now, nil)
+}
+
+// PurgeCacheByAgeGuarded is PurgeCacheByAge with each file's removal bracketed by guard
+// (guard.go). Its recheck re-reads the file right before the removal: a file some jail
+// rewrote since the walk saw it is no longer older than the cutoff, and is kept.
+func PurgeCacheByAgeGuarded(cacheRoot string, subdirs []string, relocations map[string]string, olderThanDays float64, apply bool, now time.Time, guard Guard) (bytesRemoved int64, filesRemoved int) {
 	cutoff := now.Add(-time.Duration(olderThanDays * 86400 * float64(time.Second)))
 
 	// The cache root is opened FOLLOWING a link at it, and so is a relocation target: neither
@@ -78,11 +85,11 @@ func PurgeCacheByAge(cacheRoot string, subdirs []string, relocations map[string]
 		var f int
 		if target := relocations[sub]; target != "" {
 			if r, err := os.OpenRoot(target); err == nil {
-				b, f = purgeOldFilesUnder(r, ".", cutoff, apply)
+				b, f = purgeOldFilesUnder(r, ".", cutoff, apply, guard)
 				r.Close()
 			}
 		} else if cache != nil {
-			b, f = purgeOldFilesUnder(cache, sub, cutoff, apply)
+			b, f = purgeOldFilesUnder(cache, sub, cutoff, apply, guard)
 		}
 		bytesRemoved += b
 		filesRemoved += f
@@ -110,7 +117,7 @@ var purgeBeforeRemove func(rel string)
 // A directory the jail swaps for a link, before the walk or between the walk's check and the
 // removal, leaves the root, and r refuses the removal rather than deleting the host file of the
 // same name behind it.
-func purgeOldFilesUnder(r *os.Root, rel string, cutoff time.Time, apply bool) (bytesRemoved int64, filesRemoved int) {
+func purgeOldFilesUnder(r *os.Root, rel string, cutoff time.Time, apply bool, guard Guard) (bytesRemoved int64, filesRemoved int) {
 	info, err := r.Lstat(rel)
 	if err != nil || !info.IsDir() {
 		return 0, 0
@@ -139,10 +146,18 @@ func purgeOldFilesUnder(r *os.Root, rel string, cutoff time.Time, apply bool) (b
 		}
 		size := st.Size()
 		if apply {
-			if purgeBeforeRemove != nil {
-				purgeBeforeRemove(path)
-			}
-			if err := r.Remove(path); err != nil {
+			removed := false
+			guard.Do(func() bool {
+				// Under the guard's lock, the walk's own test, asked again.
+				again, err := r.Lstat(path)
+				return err == nil && again.Mode().IsRegular() && again.ModTime().Before(cutoff)
+			}, func() {
+				if purgeBeforeRemove != nil {
+					purgeBeforeRemove(path)
+				}
+				removed = r.Remove(path) == nil
+			})
+			if !removed {
 				return nil
 			}
 		}

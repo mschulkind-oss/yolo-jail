@@ -36,7 +36,7 @@ const autoReapOptOutEnv = "YOLO_NO_AUTO_IMAGE_REAP"
 // actually freed something, so a launch that never triggers a reap looks
 // exactly as it did before this existed. A failure or a skip here must never
 // cost the launch — nothing here is checked by the caller.
-func (o *Options) autoReapOldImages(rt string) {
+func (o *Options) autoReapOldImages(rt string, guard prune.Guard) {
 	if o.Getenv(autoReapOptOutEnv) != "" {
 		return
 	}
@@ -46,7 +46,7 @@ func (o *Options) autoReapOldImages(rt string) {
 	// zero RC, and prune's `res.Ran && res.RC == 0` checks would misread a killed
 	// process as a clean, empty success.
 	run := o.pruneRunFunc()
-	removed, ran, declined := prune.AutoReapOldImages(rt, buildDir, o.Now(), run)
+	removed, ran, declined := prune.AutoReapOldImagesGuarded(rt, buildDir, o.Now(), run, guard)
 	switch {
 	case declined != "":
 		// TO THE LOG, NOT THE TERMINAL. This runs in the post-launch slot, where

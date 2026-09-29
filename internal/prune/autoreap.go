@@ -3,10 +3,76 @@ package prune
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/image"
 )
+
+// loadSentinelSnapshot is a runtime's load sentinel (image.LoadSentinelPath) as read at one
+// moment: its store paths, oldest first, and the file's mtime. ok is false when it could not
+// be read, which is also "no launch has recorded anything yet".
+type loadSentinelSnapshot struct {
+	paths []string
+	mtime time.Time
+	ok    bool
+}
+
+func readLoadSentinel(path string) loadSentinelSnapshot {
+	st, err := os.Stat(path)
+	if err != nil {
+		return loadSentinelSnapshot{}
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return loadSentinelSnapshot{}
+	}
+	var ps []string
+	for _, line := range strings.Split(string(data), "\n") {
+		if s := strings.TrimSpace(line); s != "" {
+			ps = append(ps, s)
+		}
+	}
+	return loadSentinelSnapshot{paths: ps, mtime: st.ModTime(), ok: true}
+}
+
+// loadRecordsSince is the image tags (image.ImageStoreKey) of the store paths a launch
+// recorded in the load sentinel after before was read.
+//
+// image.AddLoadedPath rewrites the file with the path it records moved to the END, so a path
+// recorded since is one that is new, or one that now comes after a path it used to precede.
+// The last path is counted whenever the file changed at all: a launch re-recording the path
+// that was already last leaves no other trace, and counting it only keeps an image, which is
+// the safe direction for a reaper.
+func loadRecordsSince(before, after loadSentinelSnapshot) map[string]bool {
+	out := map[string]bool{}
+	if !after.ok {
+		return out
+	}
+	if before.ok && after.mtime.Equal(before.mtime) && slices.Equal(before.paths, after.paths) {
+		return out
+	}
+	was := map[string]int{}
+	for i, p := range before.paths {
+		was[p] = i
+	}
+	for i, p := range after.paths {
+		bi, known := was[p]
+		recorded := !known || i == len(after.paths)-1
+		for _, q := range after.paths[:i] {
+			if qi, ok := was[q]; known && ok && qi > bi {
+				recorded = true
+				break
+			}
+		}
+		if recorded {
+			out[image.ImageStoreKey(p)] = true
+		}
+	}
+	return out
+}
 
 // THERE IS NO DefaultKeepImages ANY MORE, and this is where it was.
 //
@@ -97,6 +163,26 @@ func RecordAutoImageReap(sentinel string, now time.Time) {
 // ran reports whether the pass actually executed (true even when removed is
 // empty — the debounce, not "nothing to remove", is what ran distinguishes).
 func AutoReapOldImages(rt, buildDir string, now time.Time, run RunFunc) (removed []string, ran bool, declined ImageReapDecline) {
+	return AutoReapOldImagesGuarded(rt, buildDir, now, run, nil)
+}
+
+// AutoReapOldImagesGuarded is AutoReapOldImages with each `rmi` bracketed by guard — the
+// housekeeping slot's per-deletion lock (OQ-PR2 of docs/design/podman-reboot-readiness.md).
+//
+// THE RECHECK, run under that lock right before each `rmi`, reads the two things a launch can
+// change while the pass runs:
+//
+//   - the current-image pointers (CurrentImageTags), because a workspace that recorded this
+//     image as its current one since the listing now protects it;
+//   - the runtime's load sentinel (image.LoadSentinelPath), which a launch records its image
+//     in under the SAME lock, right after its re-inspect found the image present. An image a
+//     launch recorded there since the pass began is one that launch is about to run: removing
+//     it is the race the lock exists to close, and the one a pass that held the lock
+//     throughout closed by keeping that re-inspect out.
+//
+// The third thing — a container created on the image since — needs no read: a plain `rmi`
+// refuses an image a container uses.
+func AutoReapOldImagesGuarded(rt, buildDir string, now time.Time, run RunFunc, guard Guard) (removed []string, ran bool, declined ImageReapDecline) {
 	sentinel := filepath.Join(buildDir, autoReapSentinelName)
 	if !DueForAutoImageReap(sentinel, AutoReapInterval, now) {
 		// DEBOUNCED, not declined. Nothing is wrong and nothing is said: this is
@@ -104,8 +190,29 @@ func AutoReapOldImages(rt, buildDir string, now time.Time, run RunFunc) (removed
 		// line here would be noise in front of every launch (OQ-LS2).
 		return nil, false, ""
 	}
+	var recheck func(tags []string) bool
+	if guard != nil {
+		loads := image.LoadSentinelPath(buildDir, rt)
+		before := readLoadSentinel(loads)
+		recheck = func(tags []string) bool {
+			current, known := CurrentImageTags(buildDir)
+			if !known {
+				return false // the evidence is gone: not a licence to remove
+			}
+			recorded := loadRecordsSince(before, readLoadSentinel(loads))
+			for _, t := range tags {
+				if _, kept := current[t]; kept {
+					return false
+				}
+				if recorded[t] {
+					return false
+				}
+			}
+			return true
+		}
+	}
 	protectedTags, known := CurrentImageTags(buildDir)
-	removed, declined = PruneOldImages(rt, protectedTags, known, true, run)
+	removed, declined = pruneOldImages(rt, protectedTags, known, true, run, guard, recheck)
 	if declined != "" {
 		// DECLINED. Deliberately NOT stamped: the debounce records that a pass
 		// ran, and a pass that could not establish its evidence did not run. The

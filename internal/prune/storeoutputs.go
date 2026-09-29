@@ -80,16 +80,8 @@ func SupersededStoreOutputs(storeDir string, rootDirs []string, inUse map[string
 	for p := range inUse {
 		rooted[p] = true
 	}
-	for _, dir := range rootDirs {
-		entries, err := os.ReadDir(dir)
-		if err != nil {
-			continue
-		}
-		for _, e := range entries {
-			if target, err := os.Readlink(filepath.Join(dir, e.Name())); err == nil {
-				rooted[target] = true
-			}
-		}
+	for target := range rootedTargets(rootDirs) {
+		rooted[target] = true
 	}
 	out := []string{}
 	for _, suffix := range yoloStoreOutputSuffixes {
@@ -122,18 +114,50 @@ func StoreDeleteCmd(path string) []string {
 	return []string{"nix", "store", "delete", path}
 }
 
+// rootedTargets is the symlink targets of every root under rootDirs: the store paths yolo
+// has rooted. An unreadable directory contributes nothing.
+func rootedTargets(rootDirs []string) map[string]bool {
+	rooted := map[string]bool{}
+	for _, dir := range rootDirs {
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			continue
+		}
+		for _, e := range entries {
+			if target, err := os.Readlink(filepath.Join(dir, e.Name())); err == nil {
+				rooted[target] = true
+			}
+		}
+	}
+	return rooted
+}
+
 // DeleteSupersededStoreOutputs removes the given paths, returning those it
 // actually removed. A path nix refuses (still live) is SKIPPED silently: that is
 // the second veto doing its job, not an error to report.
 func DeleteSupersededStoreOutputs(paths []string, apply bool, run RunFunc) []string {
+	return DeleteSupersededStoreOutputsGuarded(paths, apply, run, nil, nil)
+}
+
+// DeleteSupersededStoreOutputsGuarded is DeleteSupersededStoreOutputs with each `nix store
+// delete` bracketed by guard (guard.go). Its recheck re-reads rootDirs right before each
+// deletion: a launch that rooted one of these paths since the listing (a prefix it just
+// built) has made it not superseded. The in-use half needs no read here: a jail launched
+// since the listing roots its prefix before its container starts, and nix itself refuses
+// a live path.
+func DeleteSupersededStoreOutputsGuarded(paths []string, apply bool, run RunFunc, guard Guard, rootDirs []string) []string {
 	done := []string{}
 	for _, p := range paths {
 		if !apply {
 			done = append(done, p)
 			continue
 		}
-		res := run(StoreDeleteCmd(p), storeDeleteTimeout)
-		if res.Ran && res.RC == 0 {
+		var removed bool
+		guard.Do(func() bool { return !rootedTargets(rootDirs)[p] }, func() {
+			res := run(StoreDeleteCmd(p), storeDeleteTimeout)
+			removed = res.Ran && res.RC == 0
+		})
+		if removed {
 			done = append(done, p)
 		}
 	}

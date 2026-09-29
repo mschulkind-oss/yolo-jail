@@ -53,7 +53,7 @@ func PurgeAgentLogs(workspaces []string, globalCache string, olderThanDays float
 			continue
 		}
 		for _, sub := range agentLogWorkspaceSubdirs {
-			b, f := purgeOldFilesUnder(home, sub, cutoff, apply)
+			b, f := purgeOldFilesUnder(home, sub, cutoff, apply, nil)
 			bytesRemoved += b
 			filesRemoved += f
 		}
@@ -62,7 +62,7 @@ func PurgeAgentLogs(workspaces []string, globalCache string, olderThanDays float
 	// The shared cache is followed at its root, as PurgeCacheByAge's is, and walked beneath it.
 	if cache, err := os.OpenRoot(globalCache); err == nil {
 		for _, sub := range agentLogGlobalCacheSubdirs {
-			b, f := purgeOldFilesUnder(cache, sub, cutoff, apply)
+			b, f := purgeOldFilesUnder(cache, sub, cutoff, apply, nil)
 			bytesRemoved += b
 			filesRemoved += f
 		}

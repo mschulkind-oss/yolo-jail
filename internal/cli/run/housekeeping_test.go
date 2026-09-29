@@ -4,49 +4,194 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"syscall"
 	"testing"
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/image"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	"github.com/mschulkind-oss/yolo-jail/internal/prune"
 )
 
-// TestHousekeepingLockSkipsWhenHeld pins the choice that makes the slot safe to
-// call from every launch: a pass whose lock is already held SKIPS rather than
-// waits. Waiting would buy a duplicate pass at the price of blocking a launch,
-// and the thing that must not happen — two passes interleaving over machine-wide
-// stores — is prevented either way.
-func TestHousekeepingLockSkipsWhenHeld(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-	path := HousekeepingLockPath()
+// holdLock takes path's flock on a descriptor of its own, as another process would, and
+// returns the release.
+func holdLock(t *testing.T, path string) func() {
+	t.Helper()
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	held, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY, 0o644)
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY, 0o644)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer held.Close()
-	if err := syscall.Flock(int(held.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
-		t.Fatalf("could not take the lock for the test: %v", err)
+	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		t.Fatalf("could not take %s for the test: %v", path, err)
 	}
+	return func() {
+		_ = syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
+		_ = f.Close()
+	}
+}
 
+// lockFree reports whether path's flock can be taken right now, taking and dropping it.
+func lockFree(t *testing.T, path string) bool {
+	t.Helper()
+	return !launchLockHeld(t, path)
+}
+
+// TestAPassSkipsWhileAnotherPassRuns pins the choice that makes the slot safe to
+// call from every launch: a pass that finds another pass running SKIPS rather than
+// waits. Waiting would buy a duplicate pass at the price of a slot, and the thing
+// that must not happen — two passes interleaving over machine-wide stores — is
+// prevented either way. Since OQ-PR2 the pass has its own lock for this, held for the
+// whole pass, so the SHARED lock a launch's re-inspect takes is no longer what a pass
+// skips on: a pass that finds only that one held runs, and its deletions wait.
+func TestAPassSkipsWhileAnotherPassRuns(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
 	o := &Options{}
 	fillDefaults(o)
+
+	release := holdLock(t, HousekeepingPassLockPath())
 	ran := false
-	o.withHousekeepingLock(func() { ran = true })
+	o.withHousekeepingPass(func(prune.Guard) { ran = true })
 	if ran {
-		t.Fatal("the slot ran while another holder had the machine-wide lock — two passes over " +
-			"podman's image store and build/roots is the interleaving OQ-BF5's lock exists to stop")
+		t.Fatal("a pass ran while another pass held the pass lock — two passes over podman's " +
+			"image store and build/roots is the interleaving OQ-BF5's lock exists to stop")
+	}
+	release()
+	o.withHousekeepingPass(func(prune.Guard) { ran = true })
+	if !ran {
+		t.Fatal("the slot skipped with the pass lock free — skipping must be about contention, not a default")
 	}
 
-	// Released: the very next call runs.
-	_ = syscall.Flock(int(held.Fd()), syscall.LOCK_UN)
-	o.withHousekeepingLock(func() { ran = true })
+	// A launch's re-inspect holding the SHARED lock does not make a pass skip.
+	releaseShared := holdLock(t, HousekeepingLockPath())
+	defer releaseShared()
+	ran = false
+	o.withHousekeepingPass(func(prune.Guard) { ran = true })
 	if !ran {
-		t.Fatal("the slot skipped with the lock free — skipping must be about contention, not a default")
+		t.Fatal("a pass skipped because a launch held the shared lock: the pass would then never " +
+			"run on a busy machine, and its deletions are what wait for that lock now")
 	}
+}
+
+// TestTwoPassesNeverInterleave is OQ-PR2's proof obligation: with the shared lock let go
+// between deletions, a second pass started while the first is between deletions must still
+// not run at all.
+func TestTwoPassesNeverInterleave(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	first, second := &Options{}, &Options{}
+	fillDefaults(first)
+	fillDefaults(second)
+
+	between := make(chan struct{})
+	finish := make(chan struct{})
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		first.withHousekeepingPass(func(guard prune.Guard) {
+			guard.Do(nil, func() {})
+			close(between) // one deletion done, the shared lock let go, the pass not over
+			<-finish
+			guard.Do(nil, func() {})
+		})
+	}()
+	<-between
+	if !lockFree(t, HousekeepingLockPath()) {
+		t.Fatal("the first pass holds the shared lock between deletions")
+	}
+	secondRan := false
+	second.withHousekeepingPass(func(prune.Guard) { secondRan = true })
+	close(finish)
+	<-done
+	if secondRan {
+		t.Fatal("a second pass ran between the first pass's deletions: the two interleaved")
+	}
+}
+
+// TestAPassHoldsTheSharedLockOnlyAroundEachDeletion: the shared lock — the one a launch's
+// image re-inspect blocks on — is held during a deletion and free before, between and
+// after, so the re-inspect waits at most one deletion (OQ-PR2).
+func TestAPassHoldsTheSharedLockOnlyAroundEachDeletion(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	o := &Options{}
+	fillDefaults(o)
+	shared := HousekeepingLockPath()
+	var heldDuring, freeBefore, freeBetween []bool
+	o.withHousekeepingPass(func(guard prune.Guard) {
+		for i := 0; i < 3; i++ {
+			freeBefore = append(freeBefore, lockFree(t, shared))
+			guard.Do(func() bool { return true }, func() {
+				heldDuring = append(heldDuring, !lockFree(t, shared))
+			})
+			freeBetween = append(freeBetween, lockFree(t, shared))
+		}
+	})
+	for i := range heldDuring {
+		if !heldDuring[i] || !freeBefore[i] || !freeBetween[i] {
+			t.Errorf("deletion %d: held during=%v, free before=%v, free after=%v", i+1,
+				heldDuring[i], freeBefore[i], freeBetween[i])
+		}
+	}
+	if len(heldDuring) != 3 {
+		t.Fatalf("ran %d deletions, want 3", len(heldDuring))
+	}
+}
+
+// TestADeletionWaitsForALaunchsReinspectAndRechecksAfterIt: a deletion that finds a launch
+// holding the shared lock waits for it, then rechecks — so what the launch recorded while it
+// held the lock (the load sentinel, in the image class) is what the recheck reads.
+func TestADeletionWaitsForALaunchsReinspectAndRechecksAfterIt(t *testing.T) {
+	for _, launchRecords := range []bool{true, false} {
+		t.Setenv("HOME", t.TempDir())
+		o := &Options{}
+		fillDefaults(o)
+		release := holdLock(t, HousekeepingLockPath())
+		var recorded atomicBool
+		deleted := make(chan bool, 1)
+		go o.withHousekeepingPass(func(guard prune.Guard) {
+			ran := false
+			guard.Do(func() bool { return !recorded.load() }, func() { ran = true })
+			deleted <- ran
+		})
+		select {
+		case <-deleted:
+			t.Fatal("the deletion ran while a launch held the shared lock")
+		case <-time.After(150 * time.Millisecond):
+		}
+		if launchRecords {
+			recorded.store(true) // the launch records the item under its lock, then lets go
+		}
+		release()
+		select {
+		case ran := <-deleted:
+			if ran == launchRecords {
+				t.Errorf("launch recorded the item=%v, yet the deletion ran=%v: the recheck must "+
+					"read what the launch recorded while it held the lock", launchRecords, ran)
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatal("the deletion never ran after the launch let go")
+		}
+	}
+}
+
+// atomicBool is a flag two goroutines share.
+type atomicBool struct {
+	mu sync.Mutex
+	v  bool
+}
+
+func (b *atomicBool) load() bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.v
+}
+
+func (b *atomicBool) store(v bool) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.v = v
 }
 
 // TestHousekeepingLockIsMachineWide: the stores it protects are machine-wide, so
@@ -71,7 +216,7 @@ func TestReapRunsInTheSlotNotBeforeTheContainer(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(string(runSrc), "\n\to.autoReapOldImages(rt)\n") {
+	if strings.Contains(string(runSrc), "\n\to.autoReapOldImages(rt, guard)\n") {
 		t.Error("run.go calls autoReapOldImages on the pre-container path again — OQ-BF5 moved it " +
 			"into the housekeeping slot so a first pass over a backlog stops holding the launch")
 	}
@@ -86,11 +231,11 @@ func TestReapRunsInTheSlotNotBeforeTheContainer(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(hkSrc), "o.autoReapOldImages(rt)") ||
-		!strings.Contains(string(hkSrc), "withHousekeepingLock") {
+	if !strings.Contains(string(hkSrc), "o.autoReapOldImages(rt, guard)") ||
+		!strings.Contains(string(hkSrc), "withHousekeepingPass") {
 		t.Fatal("the slot no longer runs the image reap under the machine-wide lock")
 	}
-	if !strings.Contains(string(hkSrc), "o.measureAndPurgeCache(reclaimConsent)") {
+	if !strings.Contains(string(hkSrc), "o.measureAndPurgeCache(reclaimConsent, guard)") {
 		t.Fatal("the slot no longer measures the cache class — the offered tier reads what the " +
 			"LAST slot measured (§5.3 measure late, offer early), so without this the offer " +
 			"never has a size and silently never fires")
@@ -99,7 +244,7 @@ func TestReapRunsInTheSlotNotBeforeTheContainer(t *testing.T) {
 		t.Fatal("run.go no longer makes the offer before the container attaches — the offered " +
 			"tier stops existing and OQ-BF1's whole disposition is inert")
 	}
-	if !strings.Contains(string(hkSrc), "o.reapSupersededStoreOutputs(rt)") {
+	if !strings.Contains(string(hkSrc), "o.reapSupersededStoreOutputs(rt, guard)") {
 		t.Fatal("the slot no longer reclaims yolo's own superseded store outputs (OQ-BF3) — " +
 			"that class has no other collector at all, and was measured accruing 0.43 GB/day")
 	}
@@ -118,7 +263,7 @@ func TestStoreOutputReapIsHostOnly(t *testing.T) {
 		called = true
 		return ExecResult{Ran: true}
 	}
-	o.reapSupersededStoreOutputs("podman")
+	o.reapSupersededStoreOutputs("podman", nil)
 	if called {
 		t.Fatal("the store-output reap ran inside a jail — it cannot distinguish rooted from " +
 			"unrooted there, so it must refuse rather than guess (the same refusal RunNixStoreGC has)")
@@ -184,7 +329,7 @@ func TestSmallClassesKeepTheirTriState(t *testing.T) {
 	o.Exec = func(argv []string, _ string, _ []string, _ time.Duration) ExecResult {
 		return ExecResult{Ran: false} // the runtime cannot be enumerated
 	}
-	o.reapSmallAutomaticClasses("podman", "yolo-test-launching")
+	o.reapSmallAutomaticClasses("podman", "yolo-test-launching", nil)
 
 	if due, _ := o.classDebounce("small-classes"); !due {
 		t.Fatal("a declined pass stamped its debounce — one unreachable runtime would then cost " +
@@ -201,16 +346,55 @@ func TestSlotRunsEveryAutomaticClass(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, call := range []string{
-		"o.autoReapOldImages(rt)",
-		"o.reapSupersededStoreOutputs(rt)",
-		"o.measureAndPurgeCache(reclaimConsent)",
-		"o.reapSmallAutomaticClasses(rt, cname)",
-		"o.reapImageTars(rt)",
-		"o.reapFlakeBundleGenerations(rt)",
+		"o.autoReapOldImages(rt, guard)",
+		"o.reapSupersededStoreOutputs(rt, guard)",
+		"o.measureAndPurgeCache(reclaimConsent, guard)",
+		"o.reapSmallAutomaticClasses(rt, cname, guard)",
+		"o.reapImageTars(rt, guard)",
+		"o.reapFlakeBundleGenerations(rt, guard)",
 	} {
 		if !strings.Contains(string(src), call) {
 			t.Errorf("the housekeeping slot no longer calls %s — that is a §5.2 automatic-tier "+
 				"row with no other collector", call)
+		}
+	}
+}
+
+// TestEveryClassDeletesUnderTheGuard is OQ-PR2's call-site pin: each class hands the slot's
+// per-deletion guard to the reaper that deletes, so every deletion in the pass happens under
+// the shared lock with its recheck. A class that went back to the unguarded reaper would
+// delete with no lock at all now that the pass no longer holds one — every guard unit test
+// green.
+func TestEveryClassDeletesUnderTheGuard(t *testing.T) {
+	src := ""
+	for _, f := range []string{"housekeeping.go", "autoreapimages.go"} {
+		b, err := os.ReadFile(f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		src += string(b)
+	}
+	for _, call := range []string{
+		"prune.AutoReapOldImagesGuarded(rt, buildDir, o.Now(), run, guard)",
+		"prune.DeleteSupersededStoreOutputsGuarded(candidates, true, run, guard, rootDirs)",
+		"prune.PurgeCacheByAgeGuarded(cacheRoot, subdirs, nil, cacheAgeDays, true, o.Now(), guard)",
+		"prune.PruneOrphanAgentStagingGuarded(",
+		"prune.PruneRetiredLoopholeStateGuarded(",
+		"prune.PruneImageCacheGuarded(",
+		"prune.PruneImageDeliveryGuarded(paths.ImageDeliveryDir(), true, guard)",
+		"flakebundle.ReapGuarded(paths.FlakeBundleDir(), sources, known, true, o.Now(), guard)",
+		"o.withHousekeepingPass(func(guard prune.Guard) {",
+	} {
+		if !strings.Contains(src, call) {
+			t.Errorf("the slot no longer calls %s — a class deleting outside the per-deletion "+
+				"lock, or a slot that no longer runs as one pass", call)
+		}
+	}
+	for _, unguarded := range []string{"prune.AutoReapOldImages(", "prune.DeleteSupersededStoreOutputs(",
+		"prune.PruneOrphanAgentStaging(", "prune.PruneRetiredLoopholeState(", "prune.PruneImageCache(",
+		"prune.PruneImageDelivery(", "flakebundle.Reap("} {
+		if strings.Contains(src, unguarded) {
+			t.Errorf("the slot calls the unguarded %s", unguarded)
 		}
 	}
 }
@@ -225,7 +409,7 @@ func TestBundleGenerationReapAsksWhatIsRunning(t *testing.T) {
 		t.Fatal(err)
 	}
 	fn := afterFunc(string(src), "func (o *Options) reapFlakeBundleGenerations(")
-	for _, want := range []string{"LivePrefixSources(", "if !known {", "flakebundle.Reap("} {
+	for _, want := range []string{"LivePrefixSources(", "if !known {", "flakebundle.ReapGuarded("} {
 		if !strings.Contains(fn, want) {
 			t.Fatalf("the bundle-generation pass no longer calls %s. Generations exist so a "+
 				"`just install` cannot delete a running jail's binaries; a reap that does not "+
@@ -289,7 +473,7 @@ func TestTheImageTarSlotAlsoReapsInterruptedDeliveries(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	o.reapImageTars("podman")
+	o.reapImageTars("podman", nil)
 	if _, err := os.Stat(stale); !os.IsNotExist(err) {
 		t.Error("the housekeeping slot left an interrupted image delivery in place")
 	}

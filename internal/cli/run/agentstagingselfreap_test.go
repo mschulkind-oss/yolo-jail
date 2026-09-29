@@ -108,7 +108,7 @@ func TestReapSmallClassesSparesTheLaunchingJail(t *testing.T) {
 		}
 	}
 
-	o.reapSmallAutomaticClasses("podman", launching)
+	o.reapSmallAutomaticClasses("podman", launching, nil)
 
 	if _, err := os.Stat(filepath.Join(staged, "marker")); err != nil {
 		t.Errorf("the launch reaped the packs it had just staged: %v\n"+

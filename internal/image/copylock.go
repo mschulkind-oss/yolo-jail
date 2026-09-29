@@ -26,9 +26,10 @@ package image
 //
 // They protect different things on different timescales and must not share a
 // file. The housekeeping lock (internal/cli/run/housekeeping.go, OQ-BF5) is
-// taken by every reaper pass and by the load path's inspect-and-record; its
-// housekeeping callers are allowed to SKIP when it is held, because that work
-// is best-effort on a debounce and another holder is already doing it. This one
+// taken around each deletion of a reaper pass (OQ-PR2) and by the load path's
+// inspect-and-record; a pass is allowed to SKIP when another pass is running,
+// because that work is best-effort on a debounce and another pass is already
+// doing it. This one
 // is held across a multi-minute copy, and its waiter must never skip — skipping
 // is precisely how the duplicate copy happens. Folding the two together would
 // park every housekeeping pass on the machine behind a 4-minute copy, and would

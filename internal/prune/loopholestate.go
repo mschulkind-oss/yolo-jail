@@ -62,6 +62,13 @@ const RetiredLoopholeStateDir = ".retired"
 // A missing archive is the normal case (no pack has ever shipped a loophole, or none has
 // been deselected) and reports nothing.
 func PruneRetiredLoopholeState(stateRoot string, keep int, apply bool) (bytesRemoved int64, removed int, removedNames []string) {
+	return PruneRetiredLoopholeStateGuarded(stateRoot, keep, apply, nil)
+}
+
+// PruneRetiredLoopholeStateGuarded is PruneRetiredLoopholeState with each generation's
+// removal bracketed by guard (guard.go). Its recheck asks again, right before the removal,
+// whether the generation is still in the archive and still older than the newest `keep`.
+func PruneRetiredLoopholeStateGuarded(stateRoot string, keep int, apply bool, guard Guard) (bytesRemoved int64, removed int, removedNames []string) {
 	if keep < 0 {
 		keep = 0
 	}
@@ -89,7 +96,12 @@ func PruneRetiredLoopholeState(stateRoot string, keep int, apply bool) (bytesRem
 		// generation on the --apply path (which is the only path where the label matters).
 		label := name + " (" + joinLoopholeNames(dir) + ")"
 		if apply {
-			if err := os.RemoveAll(dir); err != nil {
+			gone := false
+			guard.Do(func() bool {
+				st, err := os.Lstat(dir)
+				return err == nil && st.IsDir() && !newestRetiredGenerations(archive, keep)[name]
+			}, func() { gone = os.RemoveAll(dir) == nil })
+			if !gone {
 				continue // report only what actually went
 			}
 		}
@@ -100,6 +112,26 @@ func PruneRetiredLoopholeState(stateRoot string, keep int, apply bool) (bytesRem
 		removedNames = append(removedNames, label)
 	}
 	return bytesRemoved, removed, removedNames
+}
+
+// newestRetiredGenerations is the names of the newest keep generations in archive now.
+func newestRetiredGenerations(archive string, keep int) map[string]bool {
+	entries, err := os.ReadDir(archive)
+	if err != nil {
+		return map[string]bool{}
+	}
+	var gens []string
+	for _, e := range entries {
+		if e.IsDir() && looksLikeArchiveStamp(e.Name()) {
+			gens = append(gens, e.Name())
+		}
+	}
+	sort.Strings(gens)
+	out := map[string]bool{}
+	for i := len(gens) - 1; i >= 0 && len(gens)-i <= keep; i-- {
+		out[gens[i]] = true
+	}
+	return out
 }
 
 // joinLoopholeNames lists the loophole directories inside one generation, comma-separated,

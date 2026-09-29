@@ -28,6 +28,17 @@ import (
 // Unlike the symlink sweeps this DOES reclaim real bytes (the staged skill
 // trees), so its total folds into the reclaimed-bytes summary.
 func PruneOrphanAgentStaging(agentsDir string, known map[string]struct{}, liveKnown bool, olderThan time.Duration, apply bool, now time.Time) (bytesRemoved int64, dirsRemoved int, removedNames []string) {
+	return PruneOrphanAgentStagingGuarded(agentsDir, known, liveKnown, olderThan, apply, now, nil, "")
+}
+
+// PruneOrphanAgentStagingGuarded is PruneOrphanAgentStaging with each removal bracketed by
+// guard (guard.go). Its recheck asks again, right before the removal, what a launch can
+// change while a pass runs: the dir is still past the age floor — a launch staging into it
+// restamps its mtime (run's touchAgentStagingDir) — and no tracking file for the name has
+// appeared under containerDir ("" skips that half). The live set is not asked again: a jail
+// started since the listing staged into its dir first, which the age floor already sees.
+func PruneOrphanAgentStagingGuarded(agentsDir string, known map[string]struct{}, liveKnown bool, olderThan time.Duration,
+	apply bool, now time.Time, guard Guard, containerDir string) (bytesRemoved int64, dirsRemoved int, removedNames []string) {
 	removedNames = []string{}
 	if !liveKnown {
 		return 0, 0, removedNames
@@ -55,7 +66,21 @@ func PruneOrphanAgentStaging(agentsDir string, known map[string]struct{}, liveKn
 		}
 		size := dirSizeBytes(dir)
 		if apply {
-			if err := os.RemoveAll(dir); err != nil {
+			removed := false
+			guard.Do(func() bool {
+				again, err := os.Lstat(dir)
+				if err != nil || again.Mode()&os.ModeSymlink != 0 || !again.IsDir() ||
+					now.Sub(again.ModTime()) < olderThan {
+					return false
+				}
+				if containerDir != "" {
+					if _, err := os.Lstat(filepath.Join(containerDir, name)); err == nil {
+						return false // tracked since the listing
+					}
+				}
+				return true
+			}, func() { removed = os.RemoveAll(dir) == nil })
+			if !removed {
 				continue
 			}
 		}

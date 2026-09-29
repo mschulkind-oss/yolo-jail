@@ -77,12 +77,19 @@ func writeHousekeepingNote(open func(workspace, name string, flag int, perm fs.F
 	_, _ = fmt.Fprintf(f, "%s  %s\n", now.UTC().Format(time.RFC3339), line)
 }
 
-// housekeepingLockName is the machine-wide lock every housekeeping pass and
+// housekeepingLockName is the machine-wide lock every housekeeping DELETION and
 // every load-and-record step takes.
 //
 // MACHINE-WIDE, not per workspace: the stores it protects (podman's image store,
 // build/roots, the caches) are machine-wide, so two launches in different
 // workspaces are exactly the collision it exists to prevent.
+//
+// HELD ONE DELETION AT A TIME (OQ-PR2 of docs/design/podman-reboot-readiness.md,
+// ruled 2026-09-29). It used to be held for the whole pass, and every other
+// launch's image re-inspect waited for that pass: 16.1 s at the 2026-09-29 reboot,
+// on a host already slow because podman was finishing its post-boot refresh. A
+// pass now takes it around each deletion and lets go between deletions, so a
+// re-inspect waits at most one deletion.
 const housekeepingLockName = "housekeeping.lock"
 
 // HousekeepingLockPath is that lock's path, beside the per-workspace locks.
@@ -90,45 +97,96 @@ func HousekeepingLockPath() string {
 	return filepath.Join(paths.GlobalStorage(), "locks", housekeepingLockName)
 }
 
-// withHousekeepingLock runs fn while holding the machine-wide housekeeping lock,
-// and SKIPS fn entirely if the lock is already held.
+// housekeepingPassLockName is the lock a housekeeping PASS holds for its whole
+// length, non-blocking, beside the per-deletion one. It is what keeps two passes
+// from interleaving now that the shared lock is let go between deletions: a second
+// launch's slot finds it held and skips its pass, as it skipped when the shared lock
+// was held for the pass. Nothing but a pass takes it, so nothing ever waits on it.
+const housekeepingPassLockName = "housekeeping-pass.lock"
+
+// HousekeepingPassLockPath is the pass lock's path, beside the shared one.
+func HousekeepingPassLockPath() string {
+	return filepath.Join(paths.GlobalStorage(), "locks", housekeepingPassLockName)
+}
+
+// withHousekeepingPass runs fn as one housekeeping pass, and SKIPS fn entirely if
+// another pass is running.
 //
-// SKIP RATHER THAN WAIT, deliberately. Every caller is best-effort housekeeping
-// on a debounce; another launch holding the lock means the work is already being
-// done, so waiting would buy a duplicate pass at the price of blocking a launch.
-// The one thing that must not happen is two passes interleaving, and skipping
-// prevents that as completely as waiting does.
+// SKIP RATHER THAN WAIT, deliberately, and for passes this is unchanged. Every
+// caller is best-effort housekeeping on a debounce; another launch's pass running
+// means the work is already being done, so waiting would buy a duplicate pass at the
+// price of a slot. The one thing that must not happen is two passes interleaving,
+// and the pass lock, taken non-blocking for the whole pass, prevents it.
 //
-// THE RACE THIS CLOSES is narrower than "two reapers at once", because `rmi` is
-// no longer forced (feddc5e0) and fails on an image with a container. What is
-// left is the window between another launch's image inspect and its
-// AddLoadedPath: B decides its image is present, A's reap sees no container on
-// it yet and no sentinel entry, and removes it — then B's `podman run` fails on
-// an image that existed a moment ago. So the LOAD side takes the same lock
-// around its re-inspect-and-record, and only that: holding it across the stream
-// itself would serialise every launch's image load on the machine.
-func (o *Options) withHousekeepingLock(fn func()) {
-	path := HousekeepingLockPath()
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+// fn is handed the per-deletion prune.Guard every class brackets each deletion with:
+// it takes the SHARED lock (HousekeepingLockPath), blocking, runs the class's
+// recheck, deletes only if the item is still unused, and lets go. Blocking is right
+// there: the other holders are a launch's re-inspect-and-record, which is short, and
+// a pass from a yolo older than this rule, which holds the shared lock for its whole
+// pass — waiting it out keeps the two passes' deletions from interleaving too.
+//
+// THE RACE THE SHARED LOCK CLOSES is narrower than "two reapers at once", because
+// `rmi` is no longer forced (feddc5e0) and fails on an image with a container. What
+// is left is the window between another launch's image inspect and its
+// AddLoadedPath: B decides its image is present, A's reap sees no container on it
+// yet and no sentinel entry, and removes it — then B's `podman run` fails on an
+// image that existed a moment ago. So the LOAD side takes the same lock around its
+// re-inspect-and-record, and only that; and since a pass no longer keeps that
+// re-inspect out for its whole length, the image class's recheck reads the load
+// sentinel B records under the lock (prune.AutoReapOldImagesGuarded).
+func (o *Options) withHousekeepingPass(fn func(guard prune.Guard)) {
+	pass, ok := openLockFile(HousekeepingPassLockPath())
+	if !ok {
 		return
+	}
+	defer pass.Close()
+	if err := syscall.Flock(int(pass.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		return // another pass is running: it is doing this work
+	}
+	defer func() { _ = syscall.Flock(int(pass.Fd()), syscall.LOCK_UN) }()
+	shared, ok := openLockFile(HousekeepingLockPath())
+	if !ok {
+		return
+	}
+	defer shared.Close()
+	fn(deletionGuard(shared))
+}
+
+// deletionGuard is the per-deletion bracket over the shared housekeeping lock: take it,
+// recheck, delete, let go. A lock that cannot be taken skips the deletion — the safe
+// direction for a reaper, and the next pass retries.
+func deletionGuard(shared *os.File) prune.Guard {
+	return func(recheck func() bool, del func()) bool {
+		fd := int(shared.Fd())
+		if err := syscall.Flock(fd, syscall.LOCK_EX); err != nil {
+			return false
+		}
+		// Released with LOCK_UN, the file staying open for the next deletion (flock.go's
+		// rule): a child a deletion forks carries the descriptor until its exec, and
+		// LOCK_UN on any duplicate releases the lock for all of them.
+		defer func() { _ = syscall.Flock(fd, syscall.LOCK_UN) }()
+		if recheck != nil && !recheck() {
+			return false
+		}
+		del()
+		return true
+	}
+}
+
+// openLockFile opens (creating) a lock file under locks/, false when it cannot.
+func openLockFile(path string) (*os.File, bool) {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return nil, false
 	}
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY, 0o644)
 	if err != nil {
-		return
+		return nil, false
 	}
-	if ferr := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); ferr != nil {
-		_ = f.Close()
-		return // held elsewhere: the other holder is doing this work
-	}
-	defer func() {
-		_ = syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
-		_ = f.Close()
-	}()
-	fn()
+	return f, true
 }
 
-// runHousekeeping is the slot's body: every automatic class, in one place, under
-// one lock, after the container is up.
+// runHousekeeping is the slot's body: every automatic class, in one place, as one
+// pass, after the container is up, each deletion under the shared lock.
 //
 // Ordering inside it is not load-bearing today — each class is independent and
 // debounced on its own stamp. What IS load-bearing is that this runs AFTER the
@@ -137,13 +195,15 @@ func (o *Options) withHousekeepingLock(fn func()) {
 func (o *Options) runHousekeeping(rt string, reclaimConsent bool, cname string) {
 	sp := o.Perf.Span("housekeeping.slot")
 	defer sp.End()
-	o.withHousekeepingLock(func() {
-		o.autoReapOldImages(rt)
-		o.reapSupersededStoreOutputs(rt)
-		o.measureAndPurgeCache(reclaimConsent)
-		o.reapSmallAutomaticClasses(rt, cname)
-		o.reapImageTars(rt)
-		o.reapFlakeBundleGenerations(rt)
+	o.withHousekeepingPass(func(guard prune.Guard) {
+		o.autoReapOldImages(rt, guard)
+		o.reapSupersededStoreOutputs(rt, guard)
+		o.measureAndPurgeCache(reclaimConsent, guard)
+		o.reapSmallAutomaticClasses(rt, cname, guard)
+		o.reapImageTars(rt, guard)
+		o.reapFlakeBundleGenerations(rt, guard)
+		// Deletes nothing in the slot: it starts the detached remover, which removes each
+		// volume only once podman says no container references it (scratchremoval.go).
 		o.reapScratchVolumes(rt)
 	})
 }
@@ -156,7 +216,7 @@ func (o *Options) runHousekeeping(rt string, reclaimConsent bool, cname string) 
 // in this class. It is bounded by cacheWalkBudget, and a class that exceeds it
 // reports what it summed so far as partial, which the offer then says out loud
 // rather than presenting a short count as the whole truth.
-func (o *Options) measureAndPurgeCache(consented bool) {
+func (o *Options) measureAndPurgeCache(consented bool, guard prune.Guard) {
 	if o.inJail() {
 		return // the host cache is the host's to sweep
 	}
@@ -185,7 +245,7 @@ func (o *Options) measureAndPurgeCache(consented bool) {
 	if !consented || bytes == 0 {
 		return
 	}
-	removed, _ := prune.PurgeCacheByAge(cacheRoot, subdirs, nil, cacheAgeDays, true, o.Now())
+	removed, _ := prune.PurgeCacheByAgeGuarded(cacheRoot, subdirs, nil, cacheAgeDays, true, o.Now(), guard)
 	if removed > 0 {
 		o.housekeepingNote("cache: reclaimed %s older than %d days, as agreed",
 			prune.FmtBytes(removed), int(cacheAgeDays))
@@ -214,10 +274,13 @@ func fmtCachePurgeDetail(files int) string {
 // best-effort work on a debounce — if someone else holds the lock, the work is
 // already happening and skipping costs nothing. A launch cannot skip: it needs
 // the window closed or its `podman run` may fail on an image removed underneath
-// it. The wait is bounded by the other holder's pass — and that pass is NOT always
-// short: host-perf.log has housekeeping.slot at 62 s and 116 s on the maintainer's
-// host. So a launch that has to wait SAYS so, and shows for how long, rather than
-// sitting silent between the nix build and "Image load needed".
+// it. The wait is bounded by ONE DELETION of another launch's pass, which holds the
+// lock around each deletion and lets go between them (OQ-PR2 of
+// docs/design/podman-reboot-readiness.md). It used to be the whole pass —
+// housekeeping.slot measured 62 s and 116 s on the maintainer's host, and 16.1 s at
+// the 2026-09-29 reboot — and a pass from a yolo older than that rule still holds
+// it that long. So a launch that has to wait SAYS so, and shows for how long, rather
+// than sitting silent between the nix build and "Image load needed".
 //
 // nil in-jail: nothing inside a jail reaps the host's images, so there is
 // nothing to serialise against and the lock file is not even on a shared
@@ -298,7 +361,7 @@ func (o *Options) classDebounce(class string) (due bool, done func()) {
 // Host-only. In-jail /nix/store is a read-only bind of the host's and the
 // gcroots dir is unmounted, so a jail cannot tell rooted from unrooted and must
 // not guess; the same refusal RunNixStoreGC already has.
-func (o *Options) reapSupersededStoreOutputs(rt string) {
+func (o *Options) reapSupersededStoreOutputs(rt string, guard prune.Guard) {
 	if o.inJail() {
 		return
 	}
@@ -336,7 +399,7 @@ func (o *Options) reapSupersededStoreOutputs(rt string) {
 		done()
 		return
 	}
-	removed := prune.DeleteSupersededStoreOutputs(candidates, true, run)
+	removed := prune.DeleteSupersededStoreOutputsGuarded(candidates, true, run, guard, rootDirs)
 	done()
 	if len(removed) > 0 {
 		o.housekeepingNote("store outputs: reclaimed %d superseded path(s) (OQ-BF3)", len(removed))
@@ -359,7 +422,7 @@ func (o *Options) reapSupersededStoreOutputs(rt string) {
 // copy of that into the launch path would be a second definition of what a
 // superseded capture is. It stays a `yolo prune` class until that reader has one
 // home.
-func (o *Options) reapSmallAutomaticClasses(rt, launchingCname string) {
+func (o *Options) reapSmallAutomaticClasses(rt, launchingCname string, guard prune.Guard) {
 	if o.inJail() {
 		return
 	}
@@ -421,10 +484,12 @@ func (o *Options) reapSmallAutomaticClasses(rt, launchingCname string) {
 	if launchingCname != "" {
 		known[launchingCname] = struct{}{}
 	}
-	_, dirs, _ := prune.PruneOrphanAgentStaging(paths.AgentsDir(), known, live.Known,
-		time.Hour, true, o.Now())
-	_, gens, _ := prune.PruneRetiredLoopholeState(filepath.Join(paths.GlobalStorage(), "state"),
-		hostArchiveKeepInSlot, true)
+	// Each removal under the shared lock (guard), rechecking that the dir is still past the
+	// age floor and still untracked (prune.PruneOrphanAgentStagingGuarded).
+	_, dirs, _ := prune.PruneOrphanAgentStagingGuarded(paths.AgentsDir(), known, live.Known,
+		time.Hour, true, o.Now(), guard, paths.ContainerDir())
+	_, gens, _ := prune.PruneRetiredLoopholeStateGuarded(filepath.Join(paths.GlobalStorage(), "state"),
+		hostArchiveKeepInSlot, true, guard)
 	done()
 	if dirs+gens > 0 {
 		o.housekeepingNote("small classes: reclaimed %d agent staging dir(s), %d loophole state generation(s)",
@@ -448,7 +513,7 @@ func (o *Options) reapSmallAutomaticClasses(rt, launchingCname string) {
 //
 // Host-only. In-jail, the state dir is the jail's own and holds no generations a
 // host install staged.
-func (o *Options) reapFlakeBundleGenerations(rt string) {
+func (o *Options) reapFlakeBundleGenerations(rt string, guard prune.Guard) {
 	if o.inJail() {
 		return
 	}
@@ -465,7 +530,7 @@ func (o *Options) reapFlakeBundleGenerations(rt string) {
 	if !known {
 		return // not stamped: the next launch retries
 	}
-	removed := flakebundle.Reap(paths.FlakeBundleDir(), sources, known, true, o.Now())
+	removed := flakebundle.ReapGuarded(paths.FlakeBundleDir(), sources, known, true, o.Now(), guard)
 	done()
 	if len(removed) > 0 {
 		o.housekeepingNote("flake bundle: reclaimed %d superseded generation(s)", len(removed))
@@ -489,7 +554,7 @@ const hostArchiveKeepInSlot = 3
 // fallback still loads whatever tar exists (image.newestTars). A change that
 // "finished" this by removing the reader would break the safety net OQ-DF1
 // deliberately kept.
-func (o *Options) reapImageTars(rt string) {
+func (o *Options) reapImageTars(rt string, guard prune.Guard) {
 	if o.Getenv(autoReapOptOutEnv) != "" {
 		return
 	}
@@ -498,10 +563,10 @@ func (o *Options) reapImageTars(rt string) {
 		return
 	}
 	keep := prune.ResolveImageCacheKeep(prune.ImageCacheKeepUnset, rt)
-	bytes, files := prune.PruneImageCache(filepath.Join(paths.GlobalStorage(), "cache", "images"), keep, true)
+	bytes, files := prune.PruneImageCacheGuarded(filepath.Join(paths.GlobalStorage(), "cache", "images"), keep, true, guard)
 	// An interrupted archive delivery's directory (image-delivery/) is the same
 	// kind of bytes, reclaimed on the same debounce.
-	db, dn := prune.PruneImageDelivery(paths.ImageDeliveryDir(), true)
+	db, dn := prune.PruneImageDeliveryGuarded(paths.ImageDeliveryDir(), true, guard)
 	bytes, files = bytes+db, files+dn
 	done()
 	if files > 0 {

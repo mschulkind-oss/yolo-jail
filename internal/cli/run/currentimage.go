@@ -23,8 +23,11 @@ import (
 // Immediately after autoLoadImage returns OK and BEFORE the container starts,
 // under the machine-wide housekeeping lock — the same lock OQ-BF5 gave the load
 // path so an inspect-and-record can never interleave with another launch's reap.
-// Taking it here is what keeps this write from landing in the middle of a sweep
-// that has already read the pointer directory.
+// A sweep holds that lock one deletion at a time since OQ-PR2
+// (docs/design/podman-reboot-readiness.md), so this write can land between two of
+// its deletions; the image reap's recheck re-reads the pointers under the lock
+// before each `rmi` (prune.AutoReapOldImagesGuarded), which is what keeps a sweep
+// that read the pointer directory earlier from acting on the old answer.
 //
 // A NARROW WINDOW SURVIVES, and it is smaller than the one OQ-BF5 closed rather
 // than a reopening of it. AutoLoadImage brackets its own inspect + sentinel

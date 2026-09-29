@@ -86,7 +86,7 @@ func TestAutoReapOldImagesWiring(t *testing.T) {
 	// this package uses rather than reasoning about which seams are load-bearing).
 	fillDefaults(o)
 
-	o.autoReapOldImages("podman")
+	o.autoReapOldImages("podman", nil)
 
 	if len(rmiCalls) != 1 || rmiCalls[0] != "id-old" {
 		t.Fatalf("rmi calls = %v, want [id-old] — the other three are workspaces' current "+
@@ -111,7 +111,7 @@ func TestAutoReapOldImagesWiring(t *testing.T) {
 	// drops the debounce (e.g. by calling prune.PruneOldImages directly
 	// instead of prune.AutoReapOldImages).
 	buf.Reset()
-	o.autoReapOldImages("podman")
+	o.autoReapOldImages("podman", nil)
 	if len(rmiCalls) != 1 {
 		t.Errorf("a debounced second call issued more rmi calls: %v", rmiCalls)
 	}
@@ -157,7 +157,7 @@ func TestAutoReapOldImagesWiringDeclinesOnUnknownRetention(t *testing.T) {
 	t.Run("nothing of ours: silent, and not a decline", func(t *testing.T) {
 		var rmiCalls []string
 		o, out, errBuf := newOpts(t, "", &rmiCalls)
-		o.autoReapOldImages("podman")
+		o.autoReapOldImages("podman", nil)
 		if len(rmiCalls) != 0 {
 			t.Errorf("rmi called with no retention evidence: %v", rmiCalls)
 		}
@@ -171,7 +171,7 @@ func TestAutoReapOldImagesWiringDeclinesOnUnknownRetention(t *testing.T) {
 		var rmiCalls []string
 		o, out, errBuf := newOpts(t,
 			"id1 localhost/yolo-jail:1111111111111111 2026-07-01 09:00:00 +0000 UTC\n", &rmiCalls)
-		o.autoReapOldImages("podman")
+		o.autoReapOldImages("podman", nil)
 		if len(rmiCalls) != 0 {
 			t.Errorf("rmi called with no retention evidence: %v", rmiCalls)
 		}
@@ -207,7 +207,7 @@ func TestAutoReapOldImagesOptOut(t *testing.T) {
 		return ExecResult{Ran: true, RC: 0}
 	}
 
-	o.autoReapOldImages("podman")
+	o.autoReapOldImages("podman", nil)
 }
 
 // readHousekeepingLog reads the slot's log for a workspace, or "" when it does

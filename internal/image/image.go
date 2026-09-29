@@ -11,6 +11,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 
@@ -157,6 +158,14 @@ func ReadLoadedPaths(sentinel string) map[string]struct{} {
 		}
 	}
 	return out
+}
+
+// LoadSentinelPath is a runtime's load sentinel under buildDir: the file AddLoadedPath
+// records each launch's image in, under the housekeeping lock. One spelling, because the
+// image reaper reads it too, to learn which images a launch recorded while its pass ran
+// (prune.AutoReapOldImagesGuarded).
+func LoadSentinelPath(buildDir, runtime string) string {
+	return filepath.Join(buildDir, "last-load-"+runtime)
 }
 
 // CurrentLoadedPath returns the MOST-RECENT store path recorded in a runtime's

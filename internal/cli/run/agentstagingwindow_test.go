@@ -90,7 +90,7 @@ func TestAnotherLaunchsSweepCannotReapThisLaunchsStaging(t *testing.T) {
 	capOpts.Exec = func([]string, string, []string, time.Duration) ExecResult {
 		return ExecResult{Ran: true, RC: 0, Stdout: ""}
 	}
-	capOpts.reapSmallAutomaticClasses("podman", capture)
+	capOpts.reapSmallAutomaticClasses("podman", capture, nil)
 
 	if _, err := os.Stat(marker); err != nil {
 		t.Errorf("a concurrent launch's sweep reaped the packs this launch had just staged: %v\n"+

@@ -191,6 +191,39 @@ func TestReapKeepsWhatIsStillRunning(t *testing.T) {
 	}
 }
 
+// TestAGuardedReapKeepsAGenerationActivatedDuringThePass is the per-deletion recheck
+// (OQ-PR2 of docs/design/podman-reboot-readiness.md): the housekeeping slot lets go of its
+// lock between deletions, so a `just install` that points the stable link at a generation
+// after the listing must make the recheck keep it — and with nothing changed, it goes.
+func TestAGuardedReapKeepsAGenerationActivatedDuringThePass(t *testing.T) {
+	for _, activate := range []bool{false, true} {
+		stable := stableIn(t)
+		old := time.Now().Add(-48 * time.Hour)
+		gen := stageBundle(t, stable, old, 1)
+		stageBundle(t, stable, time.Now(), 2) // so gen is not current at the listing
+		if err := os.Chtimes(gen, old, old); err != nil {
+			t.Fatal(err)
+		}
+		guard := func(recheck func() bool, del func()) bool {
+			if activate {
+				if _, err := Activate(stable, gen); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if !recheck() {
+				return false
+			}
+			del()
+			return true
+		}
+		removed := ReapGuarded(stable, map[string]bool{}, true, true, time.Now(), guard)
+		_, err := os.Stat(gen)
+		if (err == nil) != activate || (len(removed) == 1) == activate {
+			t.Errorf("activated during the pass=%v: kept=%v removed=%v", activate, err == nil, removed)
+		}
+	}
+}
+
 // TestReapDeclinesWhenLivenessIsUnknown is the tri-state, and it is the property
 // that keeps this from being the bug it fixes. "No jail is using this" and "I
 // could not ask the runtime" produce the same empty set of sources; deleting on

@@ -81,6 +81,14 @@ var imageCacheLstat = os.Lstat
 // the rest of this package declines on an answer it could not get: "unreadable"
 // and "reclaimable" are different facts, and only one of them is safe to act on.
 func PruneImageCache(imagesDir string, keep int, apply bool) (bytesRemoved int64, filesRemoved int) {
+	return PruneImageCacheGuarded(imagesDir, keep, apply, nil)
+}
+
+// PruneImageCacheGuarded is PruneImageCache with each file's removal bracketed by guard
+// (guard.go). Its recheck asks again whether the file is the one the listing judged: a tar
+// whose mtime moved since was rewritten by a launch and is now the newest, and a *.tmp is
+// still past the grace floor.
+func PruneImageCacheGuarded(imagesDir string, keep int, apply bool, guard Guard) (bytesRemoved int64, filesRemoved int) {
 	info, err := os.Stat(imagesDir)
 	if err != nil || !info.IsDir() {
 		return 0, 0
@@ -133,7 +141,12 @@ func PruneImageCache(imagesDir string, keep int, apply bool) (bytesRemoved int64
 	if keep < len(tars) {
 		for _, t := range tars[keep:] {
 			if apply {
-				if err := os.Remove(t.path); err != nil {
+				removed := false
+				guard.Do(func() bool {
+					again, err := imageCacheLstat(t.path)
+					return err == nil && again.Mode().IsRegular() && again.ModTime().UnixNano() == t.mtime
+				}, func() { removed = os.Remove(t.path) == nil })
+				if !removed {
 					continue
 				}
 			}
@@ -145,7 +158,12 @@ func PruneImageCache(imagesDir string, keep int, apply bool) (bytesRemoved int64
 	// Orphan tmp files: sweep the ones past the floor, regardless of keep.
 	for _, t := range tmps {
 		if apply {
-			if err := os.Remove(t.path); err != nil {
+			removed := false
+			guard.Do(func() bool {
+				again, err := imageCacheLstat(t.path)
+				return err == nil && again.Mode().IsRegular() && time.Since(again.ModTime()) >= imageCacheTmpGraceFloor
+			}, func() { removed = os.Remove(t.path) == nil })
+			if !removed {
 				continue
 			}
 		}

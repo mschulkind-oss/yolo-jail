@@ -27,6 +27,13 @@ import (
 // the sweep cannot lstat, is left alone. Returns (bytesRemoved, dirsRemoved);
 // apply=false reports without touching disk.
 func PruneImageDelivery(dir string, apply bool) (bytesRemoved int64, dirsRemoved int) {
+	return PruneImageDeliveryGuarded(dir, apply, nil)
+}
+
+// PruneImageDeliveryGuarded is PruneImageDelivery with each directory's removal bracketed by
+// guard (guard.go). Its recheck asks again whether the newest mtime inside is still past the
+// floor: a delivery that is writing into it is not a leftover.
+func PruneImageDeliveryGuarded(dir string, apply bool, guard Guard) (bytesRemoved int64, dirsRemoved int) {
 	children, err := os.ReadDir(dir)
 	if err != nil {
 		return 0, 0
@@ -46,7 +53,16 @@ func PruneImageDelivery(dir string, apply bool) (bytesRemoved int64, dirsRemoved
 			continue
 		}
 		if apply {
-			if err := os.RemoveAll(p); err != nil {
+			removed := false
+			guard.Do(func() bool {
+				again, err := imageCacheLstat(p)
+				if err != nil || !again.IsDir() {
+					return false
+				}
+				_, newestNow := treeSizeAndNewest(p, again.ModTime())
+				return time.Since(newestNow) >= imageCacheTmpGraceFloor
+			}, func() { removed = os.RemoveAll(p) == nil })
+			if !removed {
 				continue
 			}
 		}
