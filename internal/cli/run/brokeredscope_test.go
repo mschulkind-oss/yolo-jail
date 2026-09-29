@@ -88,6 +88,63 @@ func TestTheGateReadsTheRemotesOfABrokerThatWillStart(t *testing.T) {
 	}
 }
 
+// The interactive y/N (BB-D31): at a terminal, a change to the scope alone gets the
+// scope-only header and question, the labeled block comes first, and one `y` records the
+// scope part. Without this pin, a prompt that dropped the block or kept the config-only
+// wording asked "Workspace config changed" over an empty diff, and one `y` approved an
+// owner/repo nobody was shown.
+func TestTheInteractivePromptShowsTheScopeFirstAndRecordsIt(t *testing.T) {
+	for _, c := range []struct {
+		name             string
+		wsCfg            *jsonx.OrderedMap
+		header, question string
+	}{
+		{"scope only", jsonx.NewOrderedMap(), "Repository scope changed since last run:",
+			"Accept these repository scope changes? [y/N]"},
+		{"config and scope", func() *jsonx.OrderedMap {
+			m := jsonx.NewOrderedMap()
+			m.Set("packages", []any{"jq"})
+			return m
+		}(), "Workspace config and repository scope changed since last run:",
+			"Accept these workspace config and repository scope changes? [y/N]"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			o, buf, _ := brokeredFixture(t)
+			o.IsTTYStdin = func() bool { return true }
+			o.Stdin = strings.NewReader("y\n")
+			if c.name == "config and scope" {
+				// A previous approval of an empty config, so the packages line is a change.
+				if err := config.RecordApproval(o.Workspace, jsonx.NewOrderedMap(), nil); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if !o.checkConfigChanges(c.wsCfg, jsonx.NewOrderedMap(), "podman") {
+				t.Fatalf("a `y` was refused:\n%s", buf.String())
+			}
+			out := buf.String()
+			header := strings.Index(out, c.header)
+			block := strings.Index(out, `+ o/r  remote "origin"  added`)
+			question := strings.Index(out, c.question)
+			if header < 0 || block < 0 || question < 0 {
+				t.Fatalf("want the header %q, the block row and the question %q:\n%s", c.header, c.question, out)
+			}
+			if !(header < block && block < question) {
+				t.Fatalf("the header, the scope block and the question are out of order:\n%s", out)
+			}
+			if c.name == "config and scope" {
+				if diff := strings.Index(out, `"jq"`); diff < 0 || diff < block {
+					t.Fatalf("the config diff must follow the scope block:\n%s", out)
+				}
+			} else if strings.Contains(out, "Workspace config changed since last run:") {
+				t.Fatalf("a scope-only change used the config-only header:\n%s", out)
+			}
+			if got := config.ApprovedScope(o.Workspace, "gbsrc"); len(got) != 1 || got[0] != "o/r" {
+				t.Fatalf("the `y` did not record the scope part: %v", got)
+			}
+		})
+	}
+}
+
 // commonDirWorktree turns the fixture workspace's .git into a worktree pointer whose common
 // directory, inside the workspace, has the name the agent chose. config is that common
 // directory's git config, "" for none.
