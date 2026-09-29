@@ -42,7 +42,12 @@ written — they corrected four of the five items that asked them, one of them o
 environment and never provisions or activates the workspace's runtime): [`OQ-PS1`](#OQ-PS1),
 whose `packages:` half is answered no, and [`OQ-PS10`](#OQ-PS10), [`OQ-NX4`](#OQ-NX4),
 [`OQ-NX5`](#OQ-NX5) and [`OQ-NX8`](#OQ-NX8), whose host halves follow from it. Each keeps a
-remaining question, and all five still need a ruling.
+remaining question. [`OQ-PS1`](#OQ-PS1) and [`OQ-NX5`](#OQ-NX5) were ruled the same day; the
+other three still need a ruling.
+**[`OQ-NX4`](#OQ-NX4) was researched and restated the same day**: the locator variables a
+non-container notch needs, the corporate-certificate trap, and an extension-point design are
+[§16](#16-locator-variables-on-a-non-container-notch-researched-2026-09-29), and the research
+opened [`OQ-PS14`](#OQ-PS14) and [`OQ-PS15`](#OQ-PS15).
 
 > **In short.** yolo already is a package manager — the corpus has held that position since
 > [`program-delivery.md` §6.3](program-delivery.md#63-installers-that-just-do-whatever-capture-the-install-then-treat-the-capture-as-the-package)
@@ -80,7 +85,7 @@ The survey that forced all of it — the inventory, the coverage matrix, the nix
 [`provisioner-evidence.md`](provisioner-evidence.md), and you need it to **check** the argument
 rather than to follow it.
 
-**Needs your ruling:** [`OQ-PS5`](#OQ-PS5), [`OQ-PS6`](#OQ-PS6), [`OQ-PS7`](#OQ-PS7), [`OQ-PS8`](#OQ-PS8), [`OQ-PS9`](#OQ-PS9), [`OQ-PS10`](#OQ-PS10), [`OQ-PS11`](#OQ-PS11), [`OQ-PS12`](#OQ-PS12), [`OQ-PS13`](#OQ-PS13), [`OQ-NX4`](#OQ-NX4), [`OQ-NX5`](#OQ-NX5), [`OQ-NX8`](#OQ-NX8), [`OQ-NX9`](#OQ-NX9).
+**Needs your ruling:** [`OQ-PS5`](#OQ-PS5), [`OQ-PS6`](#OQ-PS6), [`OQ-PS7`](#OQ-PS7), [`OQ-PS8`](#OQ-PS8), [`OQ-PS9`](#OQ-PS9), [`OQ-PS10`](#OQ-PS10), [`OQ-PS11`](#OQ-PS11), [`OQ-PS12`](#OQ-PS12), [`OQ-PS13`](#OQ-PS13), [`OQ-NX4`](#OQ-NX4), [`OQ-NX8`](#OQ-NX8), [`OQ-NX9`](#OQ-NX9), [`OQ-PS14`](#OQ-PS14), [`OQ-PS15`](#OQ-PS15).
 
 > [!NOTE]
 > **Scope note — this doc absorbed
@@ -995,12 +1000,630 @@ What this doc takes from them, in the order they decide things here:
 
 ---
 
+## 16. Locator variables on a non-container notch (researched 2026-09-29)
+
+**Why this section exists.** [`OQ-NX4`](#OQ-NX4) was directed on 2026-09-29, not ruled. The
+maintainer asked whether these variables are an extension point, and stated a premise to check.
+This section is that check and that design, and the restated question links back here.
+
+**How it was researched.** In a Linux jail. The nix facts are `nix eval` runs against this flake's
+two pins in `flake.lock` (`nixpkgs` at `e158d9ed`, which serves Apple Silicon Macs and Linux, and
+`nixpkgs-x86-darwin` at `04f2338d` for Intel Macs), plus one `x86_64-linux` build of the profile.
+The macOS behavior is read from source and from vendor documents. **Nothing was measured on a
+Mac**; [§16.6](#166-what-a-mac-session-must-measure-before-the-ruling) lists what must be. yolo code
+is cited at `c7ff7670`, and no code has changed since. No agent CLI was run: two agent binaries
+were read as bytes.
+
+**Labels.** **MEASURED**: a command ran here and the claim is its output, as in
+[§14](#14-facts-verified-for-this-doc). **SOURCED**: read in the cited file at the cited version,
+or in a vendor's document. **INFERRED**: reasoned from sourced facts, not observed.
+
+**Terms used in this section:**
+
+- **Locator variable**: the maintainer's word (2026-09-29) for an environment variable whose only
+  job is to tell a program where a file it needs lives, such as `SSL_CERT_FILE`,
+  `FONTCONFIG_FILE`, `TZDIR` or `PKG_CONFIG_PATH`. Not a variable that changes what a program does
+  (`NO_COLOR`), and not `PATH`, which this question never covered.
+- **Compiled-in default**: the path a program was built to look at when its locator variable is
+  unset.
+- **The profile**: the one nix `buildEnv` (a single store directory that merges the outputs of
+  several packages) that a macos-user launch builds. It is `packages.yoloNoncontainerProfile` in
+  `flake.nix`: the [macos-user package floor](../reference/macos-user-provisioning.md) plus the
+  declared `packages:`. Not nix's **default profile**, `/nix/var/nix/profiles/default`, which the
+  nix installer fills and yolo does not own.
+- **System keychain**: the Mac-wide certificate and password store,
+  `/Library/Keychains/System.keychain`. An employer's **MDM** (Mobile Device Management, the way
+  IT configures a Mac remotely) installs its CAs there. Not the **login keychain**, which belongs to
+  one user and lives in that user's home.
+- **trustd**: the macOS daemon a program asks, over XPC (macOS's messaging between processes),
+  whether a certificate chain is trusted.
+- **Seatbelt**: macOS's per-process sandbox rules, written as a `sandbox-exec` profile. yolo's
+  macos-user profile is generated in `internal/macosuser/seatbelt.go`.
+
+### 16.1 The premise, and three corrections
+
+The premise, from the directed note on [`OQ-NX4`](#OQ-NX4): these variables exist only because nix
+puts certificates, fonts and timezone data in non-standard places, and a system or Homebrew install
+puts the files where the libraries already look.
+
+**It is right in direction.** nix gives every package its own directory under `/nix/store`. A
+program and the data it reads from another package (certificates, fonts, `.pc` files) can
+therefore be joined only at run time, and a locator variable is how. Homebrew builds its one shared
+prefix (`/opt/homebrew`) into each formula, so its tools find their data with no variable. One word
+needs changing: Homebrew's files are not in *standard* places either. They sit under one prefix that
+each tool was built to look in.
+
+**It is exactly right for `PKG_CONFIG_PATH`.** Homebrew's pkgconf has its prefix's `lib/pkgconfig`
+and `share/pkgconfig` built in. nix's pkg-config knows only its own store path, which is why yolo
+already sets this one. It sets only half of it, though: yolo names the profile's `lib/pkgconfig`
+and not its `share/pkgconfig`, where zlib keeps its `.pc` file
+([§16.2](#162-what-each-library-does-on-macos-with-its-variable-unset)). SOURCED:
+[homebrew-core `pkgconf.rb` at `7caa51be`, lines 46-55](https://github.com/Homebrew/homebrew-core/blob/7caa51be/Formula/p/pkgconf.rb#L46-L55);
+the reason the image's `Env` block gives (`flake.nix` lines 1632-1638).
+
+**Three corrections:**
+
+1. **Certificates: nix tools on a Mac already find a bundle with no variable set.** nixpkgs builds
+   OpenSSL on darwin to fall back to the Mozilla bundle in nix's default profile
+   ([§16.2](#162-what-each-library-does-on-macos-with-its-variable-unset)). So the variable does not
+   decide *whether* a tool finds certificates. It decides *which*: Mozilla's public roots alone, or
+   a bundle that also holds a CA an employer installed. Homebrew needs no variable because it
+   **generates** its bundle from the System keychain when it installs or upgrades, not because of
+   where the file sits. And several non-nix installs are just as blind to the keychain: uv,
+   pip-installed certifi and requests, python.org Python, and nodejs.org Node without
+   `--use-system-ca` ([§16.3](#163-the-corporate-certificate-trap)).
+2. **`TZDIR` and `LD_LIBRARY_PATH` are Linux concerns.** No reader on macOS needs either one
+   ([§16.2](#162-what-each-library-does-on-macos-with-its-variable-unset)).
+3. **Fonts need a generated file, not a pointer.** No config file nixpkgs ships lists the macOS
+   font folders, so pointing `FONTCONFIG_FILE` into the store does not help
+   ([§16.4](#164-fonts-a-generated-file-not-a-pointer)).
+
+**On the hesitation, "maybe this is an extension point": yes.** Every row the research found is
+triggered by a fact about the profile or the launch (a directory exists, the keychain holds a CA),
+never by a failure report. So each row can ship before a user hits the problem.
+[§16.5](#165-the-extension-point-declared-rows) is the design, and it is option (a) of the restated
+[`OQ-NX4`](#OQ-NX4).
+
+### 16.2 What each library does on macOS with its variable unset
+
+| Variable | Who reads it on macOS | Unset, with nix's build | Needed on macOS? |
+| :--- | :--- | :--- | :--- |
+| `NIX_SSL_CERT_FILE`, `SSL_CERT_FILE` | nix OpenSSL, and everything built on it | falls back to the default profile's Mozilla bundle | to choose *which* roots ([§16.3](#163-the-corporate-certificate-trap)) |
+| `FONTCONFIG_FILE`, `FONTCONFIG_PATH` | nix fontconfig, in a program that calls it: its own `fc-*` tools, or pango only when `PANGOCAIRO_BACKEND=fc` | finds no config: DejaVu Sans only, and an error on every run | for those programs, pointing at a generated file ([§16.4](#164-fonts-a-generated-file-not-a-pointer)) |
+| `PKG_CONFIG_PATH` | nix pkg-config | searches only its own store path | yes. yolo sets it to `lib/pkgconfig` only, and misses `share/pkgconfig` |
+| `TZDIR` | GLib; not Apple's libc | GLib falls back to the zoneinfo macOS ships | no |
+| `LD_LIBRARY_PATH` | nothing: macOS's loader reads `DYLD_*` instead | nothing changes | no |
+
+The evidence, row by row:
+
+- **Certificates.** nixpkgs OpenSSL 3.6.4 on darwin looks for a CA file in this order:
+  `$NIX_SSL_CERT_FILE`, then `$SSL_CERT_FILE`, then the built-in
+  `/nix/var/nix/profiles/default/etc/ssl/certs/ca-bundle.crt`. Its certificate directory is inside
+  its own store path, and the build deletes it. On Linux the built-in file is
+  `/etc/ssl/certs/ca-certificates.crt` instead. MEASURED: `nix eval` of `openssl`'s version and
+  patch list at `e158d9ed` for `aarch64-darwin`. SOURCED at `e158d9ed`:
+  [`use-etc-ssl-certs-darwin.patch` line 10](https://github.com/NixOS/nixpkgs/blob/e158d9ed9b51c98974c5e66e1ba1c9e0255fecaa/pkgs/development/libraries/openssl/3.5/use-etc-ssl-certs-darwin.patch#L10),
+  [its Linux twin, line 10](https://github.com/NixOS/nixpkgs/blob/e158d9ed9b51c98974c5e66e1ba1c9e0255fecaa/pkgs/development/libraries/openssl/3.5/use-etc-ssl-certs.patch#L10),
+  [`nix-ssl-cert-file.patch`](https://github.com/NixOS/nixpkgs/blob/e158d9ed9b51c98974c5e66e1ba1c9e0255fecaa/pkgs/development/libraries/openssl/3.0/nix-ssl-cert-file.patch),
+  and [`openssl/default.nix` lines 205 and 327](https://github.com/NixOS/nixpkgs/blob/e158d9ed9b51c98974c5e66e1ba1c9e0255fecaa/pkgs/development/libraries/openssl/default.nix#L205).
+  The Intel pin `04f2338d` carries the same patch line.
+- **Everything built on it.** nix curl is built with no CA bundle of its own and falls back to
+  OpenSSL's. nix git goes through that curl. nix Python's `ssl` module and nix certifi read
+  `NIX_SSL_CERT_FILE`. nix Node 24 is built to use OpenSSL's default store instead of Node's bundled
+  roots. MEASURED: `nix eval` of the configure flags at `e158d9ed` (curl: `--with-ca-fallback`,
+  `--without-ca-bundle`, `--without-ca-path`; `nodejs_24` 24.20.0: `--openssl-use-def-ca-store`,
+  `--shared-openssl`). SOURCED:
+  [`curlMinimal/package.nix` lines 214-219](https://github.com/NixOS/nixpkgs/blob/e158d9ed9b51c98974c5e66e1ba1c9e0255fecaa/pkgs/by-name/cu/curlMinimal/package.nix#L214-L219),
+  [`nodejs.nix` line 323](https://github.com/NixOS/nixpkgs/blob/e158d9ed9b51c98974c5e66e1ba1c9e0255fecaa/pkgs/development/web/nodejs/nodejs.nix#L323),
+  and [certifi's `env.patch`](https://github.com/NixOS/nixpkgs/blob/e158d9ed9b51c98974c5e66e1ba1c9e0255fecaa/pkgs/development/python-modules/certifi/env.patch).
+- **Who put the bundle there.** Both nix installers put nss-cacert (Mozilla's roots) in the default
+  profile, but the official one does it only conditionally. It skips cacert when
+  `NIX_SSL_CERT_FILE` already named an existing file outside the store at install time, which is
+  exactly what a corporate user who set up a bundle first would have. Every nix OpenSSL client in
+  the sandbox then fails TLS to every host, public ones included (INFERRED from the lookup order
+  above). SOURCED:
+  [NixOS/nix 2.34.0 `install-multi-user.sh` lines 976-980](https://github.com/NixOS/nix/blob/2.34.0/scripts/install-multi-user.sh#L976-L980);
+  Determinate's
+  [`setup_default_profile.rs`, lines 17 and 125](https://github.com/DeterminateSystems/nix-installer/blob/main/src/action/base/setup_default_profile.rs)
+  (main, fetched 2026-09-29), which installs it unconditionally.
+- **Fonts.** nixpkgs fontconfig is built to look for `/etc/fonts/fonts.conf`, which a Mac does not
+  have, and to cache in `/var/cache/fontconfig`, which the Seatbelt does not let the sandbox write.
+  It then falls back to a built-in config holding only DejaVu Sans (minimal) and
+  `~/.local/share/fonts`, and prints `Fontconfig error: Cannot load default config file`. MEASURED:
+  `fontconfig.configureFlags` for `aarch64-darwin` at `e158d9ed`. SOURCED:
+  [`fontconfig/default.nix` lines 58-64](https://github.com/NixOS/nixpkgs/blob/e158d9ed9b51c98974c5e66e1ba1c9e0255fecaa/pkgs/development/libraries/fontconfig/default.nix#L58-L64);
+  fontconfig 2.18.3
+  [`src/fcinit.c` lines 40-54](https://gitlab.freedesktop.org/fontconfig/fontconfig/-/blob/2.18.3/src/fcinit.c#L40-54)
+  and [`src/fcxml.c` line 3649](https://gitlab.freedesktop.org/fontconfig/fontconfig/-/blob/2.18.3/src/fcxml.c#L3649).
+  Homebrew's fontconfig is built with its own prefix's `fonts.conf` and with `/System/Library/Fonts`,
+  `/Library/Fonts`, `~/Library/Fonts` and the newest `com_apple_MobileAsset_Font*` directory, so it
+  needs nothing:
+  [`fontconfig.rb` at `e424db29`, lines 50-69](https://github.com/Homebrew/homebrew-core/blob/e424db29/Formula/f/fontconfig.rb#L50-L69).
+- **Which programs reach fontconfig on macOS.** Fewer than on Linux. nixpkgs builds pango 1.57.1
+  for darwin with both a CoreText and a fontconfig backend, and `pango_cairo_font_map_new()` picks
+  CoreText, macOS's own text system, whenever `PANGOCAIRO_BACKEND` is unset. graphviz 15.1.1 lays
+  its text out through exactly that call, so `dot -Tpng` most likely uses the Mac's own fonts and
+  never reads `fonts.conf` (INFERRED; not run on a Mac). fontconfig's own tools, `fc-match` and
+  `fc-list`, call it directly. MEASURED: the aarch64-darwin `libpangocairo-1.0.0.dylib` in
+  cache.nixos.org (`/nix/store/8p3fhxs2…-pango-1.57.1`, read with `nix store cat`) carries the
+  string ` coretext fontconfig`, and pango compiles in the word `coretext` only when it is built
+  with both CoreText and cairo's Quartz support. SOURCED: pango 1.57.1 `pango/pangocairo-fontmap.c` lines 80-82; graphviz 15.1.1
+  `plugin/pango/gvtextlayout_pango.c` line 85.
+- **`TZDIR`.** No reader on macOS needs it. nix packages on darwin link Apple's own C library,
+  which ignores it: it reads only `$TZ` and has its zoneinfo directory fixed at build time. nix
+  Python's `zoneinfo` module is built pointing at the store's tzdata. Readers that do honor
+  `TZDIR`, such as GLib on every Unix (nixpkgs builds GLib 2.88.3 for darwin), fall back to the
+  zoneinfo macOS ships when it is unset; GLib's own list names `/var/db/timezone/zoneinfo` for
+  macOS. The image sets `TZDIR` only for glibc on Linux (`flake.nix` line 1644). SOURCED: Apple
+  [Libc-1752.120.2 `localtime.c` lines 692 and 1609](https://github.com/apple-oss-distributions/Libc/blob/Libc-1752.120.2/stdtime/FreeBSD/localtime.c#L692);
+  nixpkgs
+  [`cpython/default.nix` lines 499-500](https://github.com/NixOS/nixpkgs/blob/e158d9ed9b51c98974c5e66e1ba1c9e0255fecaa/pkgs/development/interpreters/python/cpython/default.nix#L499-L500);
+  GLib 2.88.3
+  [`glib/gtimezone.c` lines 563-568, 582 and 645](https://gitlab.gnome.org/GNOME/glib/-/blob/2.88.3/glib/gtimezone.c#L563-568).
+- **`LD_LIBRARY_PATH` and `DYLD_*`.** nix binaries on darwin record absolute store paths for their
+  libraries (INFERRED from how nixpkgs builds for darwin; not measured). And the `DYLD_*` variables
+  could not cross the launch anyway. `sudo`, `/usr/bin/env`, `/usr/bin/sandbox-exec`, `/bin/sh` and
+  `/bin/zsh` are all protected by System Integrity Protection (SIP), and macOS purges `DYLD_*` when
+  it launches a protected program. SOURCED: Apple's
+  [System Integrity Protection Guide, "Runtime Protections"](https://developer.apple.com/library/archive/documentation/Security/Conceptual/System_Integrity_Protection_Guide/RuntimeProtections/RuntimeProtections.html);
+  the launch chain in `LaunchArgv` and `ExecWithEnvFile` (`internal/macosuser/macosuser.go` lines
+  806-815, `internal/macosuser/envfile.go` lines 275-286). The image's `LD_LIBRARY_PATH` exists
+  for non-nix binaries in a Linux image that has no `/lib` (`flake.nix` lines 863-873).
+
+**What the sandbox gets today:**
+
+- **None of the nix installer's variables.** The launch runs `sudo … /usr/bin/env -i` with a closed
+  list: `HOME`, `USER`, `SHELL`, `PATH`, `MISE_DATA_DIR`, a copy of the login `PATH`, and the path of
+  the session env file. That file adds terminal and color variables, git identity, pack `env` and
+  `env_sources`, `NIX_REMOTE` and `NIX_CONFIG`, and `PKG_CONFIG_PATH` when `<profile>/lib/pkgconfig`
+  exists. The container's combined CA-bundle step is marked *"not ported"* on this backend. SOURCED:
+  `sandboxEnvPairs` (`internal/macosuser/macosuser.go` lines 836-863), `MacosSandboxEnv`
+  (`internal/macosuser/orchestrator.go` lines 210-227), `hostNixEnv`
+  (`internal/macosuser/hostnix.go` lines 61-64), `ProfilePaths` (`internal/darwinpkg/darwinpkg.go`
+  lines 204-228), the merge in `internal/macosuser/runplan.go` lines 302-316, and
+  `generate_ca_bundle`'s darwin reason (`internal/entrypoint/bootsteps.go` lines 256-270).
+- **A profile with a bundle, and with no fonts or zoneinfo.** The profile has
+  `etc/ssl/certs/ca-bundle.crt`, `lib/pkgconfig` and `share/pkgconfig`, and has no
+  `share/zoneinfo` and no `etc/fonts`, **even when `packages:` lists `fontconfig`**.
+  `share/pkgconfig` is zlib's: its `.pc` file lives only there, and yolo names only
+  `lib/pkgconfig`. So with `pkg-config` in `packages:`, `pkg-config zlib` fails in the sandbox
+  today (INFERRED), and so does anything whose `.pc` file requires zlib, as `libcurl.pc` does.
+  MEASURED: in the built profile,
+  `share/pkgconfig` links to `zlib-1.3.2-dev`'s copy, and the aarch64-darwin `zlib-1.3.2-dev` in
+  cache.nixos.org holds only `share/pkgconfig/zlib.pc` (`nix store ls`). fontconfig installs only its `bin`
+  output by default, `fonts.conf` lives in its `out` output, and the profile adds only `bin`, `lib`
+  and `dev`. MEASURED: `nix eval` at `e158d9ed` for `aarch64-darwin` (`outputsToInstall` is `[bin]`
+  for fontconfig, `[bin, man]` for tzdata, `[out]` for cacert), and
+  `nix build --no-link .#packages.x86_64-linux.yoloNoncontainerProfile` at `c7ff7670`. That was a
+  Linux build of the same `buildEnv`; the output selection does not depend on the platform, per the
+  darwin eval. `flake.nix` (lines 1707-1716) already records the same fontconfig trap for the
+  store-delivered extras, measured 2026-09-06, and the profile itself is at `flake.nix` lines
+  1955-1959. **So the old setup story of [`OQ-NX4`](#OQ-NX4) was half wrong**: TLS tools *do* find a
+  bundle, and fontconfig has nothing in the profile to point at.
+- **Certificates that depend on how the host installed nix** (INFERRED; not measured on a Mac):
+
+  | Host's nix | What a `zsh -c` agent in the sandbox has | So nix curl, git, Python and Node trust |
+  | :--- | :--- | :--- |
+  | Stock or Determinate | no `NIX_SSL_CERT_FILE`. `nix-daemon.sh`, the one place the installers set it, is sourced from `/etc/zshrc` and `/etc/bashrc`, which `zsh -c` does not read | Mozilla's roots in the default profile: public sites work, a corporate CA is missing |
+  | nix-darwin | `NIX_SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt`, because `/etc/zshenv`, which every zsh reads, sources nix-darwin's environment | the CAs listed in nix-darwin's `security.pki` option, which it builds from files, not from the keychain |
+
+  SOURCED: NixOS/nix 2.34.0
+  [`nix-profile-daemon.sh.in` lines 31-71](https://github.com/NixOS/nix/blob/2.34.0/scripts/nix-profile-daemon.sh.in#L31-L71)
+  (it exports `NIX_PROFILES`, `XDG_DATA_DIRS`, `NIX_SSL_CERT_FILE` and `PATH`, and nothing for
+  fonts, timezones or libraries) and
+  [`install-multi-user.sh` line 1032](https://github.com/NixOS/nix/blob/2.34.0/scripts/install-multi-user.sh#L1032);
+  Determinate's
+  [`configure_shell_profile.rs` line 12](https://github.com/DeterminateSystems/nix-installer/blob/main/src/action/common/configure_shell_profile.rs);
+  nix-darwin
+  [`security/pki/default.nix` at `def1e23b`, lines 24-41 and 86-87](https://github.com/nix-darwin/nix-darwin/blob/def1e23b/modules/security/pki/default.nix#L24-L41),
+  [`programs/zsh/default.nix` at `6d789c5a`, lines 150-161](https://github.com/nix-darwin/nix-darwin/blob/6d789c5a/modules/programs/zsh/default.nix#L150-L161),
+  and [`environment/default.nix` at `4cff07de`, lines 8-9 and 163-168](https://github.com/nix-darwin/nix-darwin/blob/4cff07de/modules/environment/default.nix#L163-L168)
+  (fetched 2026-09-29). The sandbox's trust therefore already varies with the host's shell files,
+  and yolo decides none of it.
+
+  ⚠ **The nix-darwin row has a second consequence** (INFERRED). Its environment file exports each
+  variable unconditionally, `PATH` included, and it runs inside the agent's own `zsh -c`, after the
+  session env file has been read. A value yolo put in the env file for `NIX_SSL_CERT_FILE` would be
+  overwritten there, and so, it appears, would the launch's `PATH`. Whether that happens on a
+  nix-darwin host is item 1 of [§16.6](#166-what-a-mac-session-must-measure-before-the-ruling).
+- **An asymmetry inside nix.** nix *itself*, the client yolo hands the sandbox, tries
+  `/etc/ssl/certs/ca-certificates.crt` first, and nixpkgs OpenSSL never looks at that path on
+  darwin. On a nix-darwin Mac that file exists and holds whatever nix-darwin's bundle lists. A
+  `zsh -c` agent there already has `NIX_SSL_CERT_FILE` naming the same file (the table above), so
+  inside zsh the two agree. A process that does not start through zsh, such as the bash
+  provisioning stage, has no variable: there `nix build` reads nix-darwin's bundle while nix curl
+  and git read Mozilla's roots, so one can succeed where the other fails (INFERRED). SOURCED:
+  NixOS/nix 2.34.0
+  [`filetransfer.cc` lines 37-51](https://github.com/NixOS/nix/blob/2.34.0/src/libstore/filetransfer.cc#L37-L51).
+
+### 16.3 The corporate-certificate trap
+
+An employer that inspects TLS traffic (Zscaler, Netskope and similar products decrypt HTTPS and
+re-sign it with their own certificate) has its MDM install that CA into the System keychain.
+Whether a tool in the sandbox then works depends on where the tool gets its trust, not on who
+installed the tool:
+
+| Tool | Where it gets trust on macOS | Sees an MDM-installed CA with no variable? |
+| :--- | :--- | :--- |
+| Go programs such as `gh`; mise; pip 24.2 and later | asks trustd | yes. Go ignores `SSL_CERT_FILE` on macOS entirely |
+| nix curl, nix git, nix Python (`ssl`, certifi), nix Node and everything npm installs under it | nix OpenSSL's file ([§16.2](#162-what-each-library-does-on-macos-with-its-variable-unset)) | no, only if `NIX_SSL_CERT_FILE` or `SSL_CERT_FILE` names a bundle that contains it |
+| uv | its bundled Mozilla roots | no, only with `UV_SYSTEM_CERTS=true` or `SSL_CERT_FILE` |
+| pip-installed requests and certifi; python.org Python | certifi's bundle | no, only with `REQUESTS_CA_BUNDLE` (requests) or `SSL_CERT_FILE` (python.org's `ssl`). python.org's certificate step installs certifi's Mozilla roots, not the keychain's |
+| nodejs.org Node | its bundled roots | no, only with `NODE_EXTRA_CA_CERTS`, `--use-system-ca`, or `NODE_USE_SYSTEM_CA=1` (added in 24.6.0) |
+| Claude Code | its bundled roots plus the system store, by default | yes, unless the system store comes back empty inside the Seatbelt (below) |
+
+SOURCED: Go go1.26.7
+[`cert_pool.go` line 108](https://github.com/golang/go/blob/go1.26.7/src/crypto/x509/cert_pool.go#L108)
+and [`root_darwin.go` lines 43 and 62](https://github.com/golang/go/blob/go1.26.7/src/crypto/x509/root_darwin.go#L43);
+[mise v2026.8.6 `Cargo.toml`](https://github.com/jdx/mise/blob/v2026.8.6/Cargo.toml) (default
+feature `native-tls`; the version MEASURED at the pin);
+[uv 0.12.17's certificates doc](https://github.com/astral-sh/uv/blob/0.12.17/docs/concepts/authentication/certificates.md)
+(the version MEASURED at the pin);
+[pip 26.2.1, HTTPS certificates](https://pip.pypa.io/en/stable/topics/https-certificates/);
+[cpython `install_certificates.command` lines 26-42](https://github.com/python/cpython/blob/main/Mac/BuildScript/resources/install_certificates.command#L26-L42)
+(main, read 2026-09-29); Node v24.20.0
+[`doc/api/cli.md`](https://github.com/nodejs/node/blob/v24.20.0/doc/api/cli.md); Claude Code's
+[network configuration doc](https://code.claude.com/docs/en/network-config), "CA certificate store".
+
+**yolo's own sandbox collides with "just use the keychain"** (INFERRED; not measured). The Seatbelt
+profile denies reads under `/Library/Keychains` and `/System/Library/Keychains`, and the agent runs
+as a separate macOS account.
+
+- A tool that hands the whole check to trustd, a daemon outside the sandbox, should still see an
+  MDM CA: Go, mise, pip, and uv with system certificates on.
+- A tool that *lists* the keychain's certificates from inside its own process probably does not.
+  Node's `--use-system-ca` does exactly that, and Claude Code's system store may.
+- Neither kind sees trust the human added to their own login keychain. That is per-user trust, and
+  the sandbox is another user ([`OQ-PS15`](#OQ-PS15)).
+
+SOURCED: `internal/macosuser/seatbelt.go` lines 67-72 (*"a tool that reads the keychain file
+directly is the failure to watch for, and this deny is one line to revert if one turns up"*) and
+lines 140-147; Node v24.20.0
+[`crypto_context.cc` lines 503-505 and 556-576](https://github.com/nodejs/node/blob/v24.20.0/src/crypto/crypto_context.cc#L556-L576)
+(`SecItemCopyMatching` over the default and System keychains); Apple Security
+[`SecTrustSettings.h` at `db15acbe`, lines 222-231](https://github.com/apple-oss-distributions/Security/blob/db15acbe/trust/headers/SecTrustSettings.h#L222-L231)
+(the user, admin and system trust domains). MEASURED: the Claude Code 2.1.285 Linux bundle carries
+`CA certs: system store … returned empty` and `Failed to load system CA certificates` near byte
+offset 101852500, so it has a system-store path that can come back empty.
+
+**How the platforms already handle it:**
+
+- **Homebrew generates its bundle from the keychain.** Its `ca-certificates` post-install exports
+  the System keychain and the system root store, and keeps only unexpired TLS server CAs that
+  macOS verifies: under the `ssl` policy for `System.keychain` (`security verify-cert … -p ssl`)
+  and under the `basic` policy for `SystemRootCertificates.keychain` (lines 116-117). It then adds
+  Mozilla's roots and points `openssl@3`'s `cert.pem` at the result. The file is a snapshot, taken
+  at install or upgrade. SOURCED:
+  [`ca-certificates.rb` at `a48f632d`, lines 96-153](https://github.com/Homebrew/homebrew-core/blob/a48f632d/Formula/c/ca-certificates.rb#L96-L153);
+  [`openssl@3.rb` at `29441026`, lines 115-118](https://github.com/Homebrew/homebrew-core/blob/29441026/Formula/o/openssl@3.rb#L115-L118).
+- **Determinate Nix exports the keychain when its daemon starts.** `determinate-nixd` writes
+  `/etc/nix/macos-keychain.crt` at startup and points **nix's own** `ssl-cert-file` setting at it.
+  A new CA needs a daemon restart. SOURCED:
+  [the determinate-nixd docs](https://docs.determinate.systems/determinate-nix/determinate-nixd);
+  [`place_nix_configuration.rs` lines 59-64](https://github.com/DeterminateSystems/nix-installer/blob/main/src/action/common/place_nix_configuration.rs#L59-L64);
+  [nix-installer issue 1465](https://github.com/DeterminateSystems/nix-installer/issues/1465)
+  (2025-02-24, showing the file and the `nix.conf` line).
+- **nix-darwin builds its bundle from files you list**, not from the keychain
+  ([`security/pki/default.nix` lines 32-41 and 86-87](https://github.com/nix-darwin/nix-darwin/blob/def1e23b/modules/security/pki/default.nix#L32-L41)).
+- **Agent vendors ship their own tables of CA variables.** The codex 0.158.0 binary carries
+  `CODEX_CA_CERTIFICATE` plus the list `SSL_CERT_FILE`, `REQUESTS_CA_BUNDLE`, `CURL_CA_BUNDLE`,
+  `NODE_EXTRA_CA_CERTS`, `GIT_SSL_CAINFO`, `CARGO_HTTP_CAINFO`, `BUNDLE_SSL_CA_CERT`,
+  `npm_config_cafile` and `NPM_CONFIG_CAFILE`. MEASURED: `rg -a -o -b` over the
+  x86_64-linux-musl binary, offsets 235248109 and 235893974. Claude Code 2.1.285 ships
+  `CLAUDE_CODE_CERT_STORE` (first at offset 98120540). Their macOS builds were not inspected.
+
+**How this doc leans to handle it.** This is the mechanism under option (a) of
+[`OQ-PS14`](#OQ-PS14), which holds the decision:
+
+1. **Ask macOS where the tool can.** Go, mise and pip already do, and need nothing.
+2. **Copy where the tool cannot, fresh at every launch.** The yolo process that starts the sandbox
+   runs as the human, outside it, and `System.keychain` is world-readable on stock macOS (the
+   Seatbelt profile's own comment, `seatbelt.go` lines 140-141), so the read needs no elevation. It
+   applies Homebrew's filter (unexpired, a TLS server CA, `security verify-cert -p ssl`), joins the
+   result with the profile's Mozilla bundle and with any loophole CA (as the container's bundle
+   does), and writes the file per session beside the session env file, not into the sandbox home
+   ([§16.5](#165-the-extension-point-declared-rows), "Where the rows are applied").
+   `NIX_SSL_CERT_FILE`, `SSL_CERT_FILE`, `REQUESTS_CA_BUNDLE`, `CURL_CA_BUNDLE` and
+   `GIT_SSL_CAINFO` point at it: the container's four, plus the one nix OpenSSL reads first.
+   `NODE_EXTRA_CA_CERTS` points at a second file: one PEM file holding the extra CAs alone,
+   concatenated, which Node adds to its bundled roots. Node reads that variable as a single file
+   (Node v24.20.0 `doc/api/cli.md` line 3522, `NODE_EXTRA_CA_CERTS=file`), so the container
+   launcher's shape is not copied. It joins several CA paths with `:`
+   (`internal/loopholes/runtime.go` line 478), which Node would read as one missing path once a
+   launch has two loophole CAs. That is a latent container fault, for a separate fix.
+3. **Disclose it.** The launch names each CA it took from the keychain. The keychain stays the
+   source of truth: read at every launch, never written. That is fresher than Homebrew's
+   install-time snapshot and than Determinate's export at daemon start.
+4. **Set the variables after `/etc/zshenv` has run** (INFERRED, from the nix-darwin row in
+   [§16.2](#162-what-each-library-does-on-macos-with-its-variable-unset)). Otherwise the host's
+   `/etc/zshenv` can overwrite them before the agent starts. yolo has no step for this today.
+   `/bin/sh` reads the session env file and then execs `/bin/zsh -c`, so `/etc/zshenv` always runs after the
+   file (`ExecWithEnvFile`, `internal/macosuser/envfile.go`), and yolo writes no `~/.zshenv`. The
+   `.zprofile`, `.zshrc` and `.bash_profile` that `WriteLoginRC` writes
+   (`internal/entrypoint/darwin.go`) are not read by `zsh -c`. nix-darwin's `/etc/zshenv` runs its
+   `set-environment` file only under `[[ -o rcs ]]` and only while
+   `__NIX_DARWIN_SET_ENVIRONMENT_DONE` is unset, and that file exports `PATH` and default `PAGER`
+   (`less -R`) and `EDITOR` (`nano`) as well. SOURCED: nix-darwin `programs/zsh/default.nix` at
+   `6d789c5a`, lines 150-161, and `environment/default.nix` at `4cff07de`, lines 155-168. Three
+   mechanisms, each with a cost:
+   - **A generated `~/.zshenv`** that re-sources the file `YOLO_DARWIN_ENV_FILE` names, a
+     variable already on the `env -i` argv, and re-prepends `$YOLO_DARWIN_LOGIN_PATH` the way
+     `WriteLoginRC` does. It runs in every zsh, after `/etc/zshenv`. The home is shared by every
+     workspace, so the file can only re-read the value indirectly and never hold it. The cost: in
+     every child zsh it also resets any of those variables a parent process changed.
+   - **`zsh -f`** (the `NO_RCS` option) on the launch, which nix-darwin's zshenv respects. The
+     cost: it covers that one shell only. `set-environment` never ran, so the guard variable is
+     unset, and every child zsh the agent starts (a shell tool's `zsh -c`) runs it and overwrites
+     the values after all. It also skips `~/.zshenv`.
+   - **`__NIX_DARWIN_SET_ENVIRONMENT_DONE=1`** in the env file, so every zsh, children included,
+     skips `set-environment`. The cost: it rests on a nix-darwin internal name, and it drops
+     everything that file sets (its `PATH`, `NIX_PROFILES`, the XDG directories and the user's
+     `environment.variables`), not only the variables that conflict.
+
+   This doc leans to the generated `~/.zshenv`, the one mechanism that is yolo's own and reaches
+   child shells. [§16.6](#166-what-a-mac-session-must-measure-before-the-ruling) item 1 measures
+   whether it is needed at all.
+
+This ports `generate_ca_bundle`, which today is marked not ported on this backend. It also fits
+the direction the maintainer gave on 2026-09-29 for Copilot's token, a credential rather than a
+CA: *"We shouldn't just steamroll over that. We should work with it"*
+([`OQ-CT1`](../research/copilot-token-storage.md#OQ-CT1)). That means working with the system store
+and disclosing any copy. The cost is unmeasured: one `security find-certificate` over
+`System.keychain`, plus one `verify-cert` for each certificate found there. That should be a small
+number, because the public roots come from Mozilla's bundle rather than from the system root store
+(INFERRED).
+
+⚠ **The container jail has the same gap, and this design does not close it.** Its combined bundle
+is built from the image's Mozilla bundle and the loophole CAs alone (`GenerateCABundle`,
+`internal/entrypoint/system.go`), so a host's corporate CA reaches no container jail either. That
+is outside this question, and is recorded here so it is not lost.
+
+### 16.4 Fonts: a generated file, not a pointer
+
+For macos-user, port the container's store-fonts generator, fix its rule-set include, and add the
+macOS font folders. At each launch, write a `fonts.conf` per session, beside the session env file
+and not into the sandbox home ([§16.5](#165-the-extension-point-declared-rows), "Where the rows
+are applied"), that:
+
+- includes the upstream rule set, `<fontconfig.out>/etc/fonts/conf.d`, by its absolute store path.
+  The flake has to name fontconfig's `out` output explicitly, as `yoloImageExtras` already does
+  for the same trap (`flake.nix` lines 1707-1716). Including the upstream `fonts.conf` does not
+  bring the rule set along: nixpkgs builds fontconfig with `--sysconfdir=/etc`, so that file's
+  include is the absolute `/etc/fonts/conf.d`, which a Mac does not have, and the aliases and
+  hinting rules are skipped without a word. MEASURED: line 103 of `etc/fonts/fonts.conf` is
+  `<include ignore_missing="yes">/etc/fonts/conf.d</include>` in both the aarch64-darwin output
+  (`/nix/store/w94ydwhq…-fontconfig-2.18.3`, read from cache.nixos.org with `nix store cat`) and
+  the x86_64-linux one, and `conf.d` sits beside it in the same output;
+- lists `/System/Library/Fonts`, `/Library/Fonts`, the newest
+  `/System/Library/Assets{,V2}/com_apple_MobileAsset_Font*` directory and
+  `<profile>/share/fonts`, so a font package in `packages:` counts. The MobileAsset directory is
+  where macOS keeps the fonts it downloads on demand, many non-Latin faces among them. Homebrew
+  picks it with the same glob when the formula is built; yolo resolves it at each launch.
+  Homebrew lists these folders rather than fontconfig's defaults because *"fc-cache recursing
+  unnecessary directories"* costs time (`fontconfig.rb` lines 59-67), so the list stays this
+  short. The Seatbelt profile starts from `(allow default)`, so the system folders are readable
+  (`seatbelt.go` line 94; INFERRED for the MobileAsset folder);
+- sets a cache directory the sandbox can write, since the compiled-in `/var/cache/fontconfig` is
+  not writable there. This is the one piece that stays in the sandbox home (`~/.cache/fontconfig`),
+  because it must be writable. Sharing it across workspaces is safe, since fontconfig names each
+  cache file after the font directory it describes (INFERRED);
+
+and then point `FONTCONFIG_FILE` at it and `FONTCONFIG_PATH` at its directory. SOURCED:
+`configureStoreFontconfig` (`internal/entrypoint/storepackages.go` lines 154-188), which does all
+of this except the macOS folders and the rule-set include.
+
+⚠ **`configureStoreFontconfig` has the same gap.** It includes the profile's `fonts.conf` and
+nothing else, and its comment (lines 144-147) claims the *"relative `<include>conf.d` then
+resolves inside the profile, so the upstream rule set comes along"*. For this build the include is
+absolute, as measured above, so a lean container image gets no rule set either. That is a separate
+fix, and it needs a test.
+
+- **It fires on every macos-user launch**, not only when the profile holds fontconfig. A program
+  that calls fontconfig brings it as a dependency, and a `buildEnv` links only the packages listed
+  in it, so fontconfig can be in use without appearing in the profile (INFERRED). Which programs
+  call it on macOS is unmeasured beyond fontconfig's own `fc-*` tools. graphviz, for one, links
+  fontconfig but lays text out through CoreText by default
+  ([§16.2](#162-what-each-library-does-on-macos-with-its-variable-unset)). The file is small and
+  only fontconfig reads the variables, so firing every time costs nothing.
+- **A file in the sandbox home is not an alternative.** A `~/.config/fontconfig/fonts.conf` there
+  would need no variable, because even fontconfig's built-in fallback includes that file (`fcinit.c`
+  line 53). But the sandbox home is one home every workspace shares, so it cannot hold a
+  file naming one workspace's `<profile>/share/fonts`, and the fallback still prints
+  `Cannot load default config file` on every run (SOURCED: `fcinit.c` lines 43-54, `fcxml.c` line
+  3649).
+- **The human's own `~/Library/Fonts` is not listed.** The Seatbelt denies reads under `/Users`,
+  apart from the workspace and the sandbox home (`seatbelt.go` lines 130-139). A user who needs a
+  font can declare a font package. Staging the human's own fonts would mean reading the human's
+  home, the same line [`OQ-PS15`](#OQ-PS15) asks about for certificates, and it is not proposed.
+
+### 16.5 The extension point: declared rows
+
+**Two shapes of row** *(both terms coined here)*:
+
+- **Locator row**: sets a variable to one or more paths inside the profile, joined with `:`, each
+  added only when it exists, and fires only when at least one does. Today's one variable is a
+  locator row, and an incomplete one: `PKG_CONFIG_PATH` points at `lib/pkgconfig` and misses
+  `share/pkgconfig`.
+- **Derived-file row**: sets one or more variables to a file yolo composes at launch, using a
+  closed set of generators that core owns, the way core owns the hook set. The CA bundle
+  ([§16.3](#163-the-corporate-certificate-trap)) and the macOS `fonts.conf`
+  ([§16.4](#164-fonts-a-generated-file-not-a-pointer)) are the two generators.
+
+Neither shape is a pack `env` contribution, which sets a literal value on every launch and knows
+nothing about the profile. A switch such as `UV_SYSTEM_CERTS=true` is a literal, so it needs no new
+shape, since a pack's `env` already sets it. Under the leaned CA row it would change nothing anyway,
+because uv reads `SSL_CERT_FILE` ahead of it (SOURCED: the uv certificates doc says `SSL_CERT_FILE`
+overrides "the default certificate source entirely").
+
+**Three sources.** Core's rows cannot be overridden; between the other two, the user's wins:
+
+1. **Core rows**: a Go table in `internal/darwinpkg`, replacing the single `if` in `ProfilePaths`.
+   That package's own doc names it the mechanism for macos-user today and for a Linux `guest` notch
+   next (`internal/darwinpkg/darwinpkg.go` lines 1-15). Core rows own their variables, so a pack or
+   user row naming one is refused by name.
+2. **Pack rows**: a new contribution kind, holding locator rows only. Its footprint is exclusive
+   per variable, the way `env`'s is (a variable two packs claim collides), and
+   `yolo pack footprint` lists it. Derived-file rows stay core's alone, because a generator reads the
+   host (the keychain) or composes config, which is core's to own.
+3. **User rows**: an `env` field on a `packages:` object entry, as a new key beside `name`,
+   `outputs` and the rest (`knownPackageKeys`, `internal/config/config.go` line 187). Locator rows
+   only. A user row replaces a pack row for the same variable, the way a user's
+   `security.blocked_tools` entry replaces a pack's.
+
+A sketch of the two new spellings, not a schema (the names are placeholders):
+
+```jsonc
+// pack.json: a locator row, relative to the profile
+{ "kind": "locator", "vars": { "GI_TYPELIB_PATH": "lib/girepository-1.0" } }
+
+// yolo-jail.jsonc: the same row, declared by the user on the package it serves
+"packages": [
+  { "name": "gobject-introspection", "env": { "GI_TYPELIB_PATH": "lib/girepository-1.0" } }
+]
+```
+
+**The rows core would ship on macOS:**
+
+| Variables | Shape | Fires when | Why |
+| :--- | :--- | :--- | :--- |
+| `PKG_CONFIG_PATH` | locator row: `lib/pkgconfig` and `share/pkgconfig`, each added when it exists | either directory exists | a fix to today's row, which misses zlib's `share/pkgconfig` ([§16.2](#162-what-each-library-does-on-macos-with-its-variable-unset)) |
+| `NIX_SSL_CERT_FILE`, `SSL_CERT_FILE`, `REQUESTS_CA_BUNDLE`, `CURL_CA_BUNDLE`, `GIT_SSL_CAINFO` | derived-file row: the CA bundle | every launch, if [`OQ-PS14`](#OQ-PS14) is ruled (a) | [§16.3](#163-the-corporate-certificate-trap) |
+| `NODE_EXTRA_CA_CERTS` | derived-file row: one PEM file holding the extra CAs alone | there is at least one | Node reads one file and adds it to its own roots |
+| `FONTCONFIG_FILE`, `FONTCONFIG_PATH` | derived-file row: `fonts.conf` | every launch | [§16.4](#164-fonts-a-generated-file-not-a-pointer) |
+
+The `share/pkgconfig` arm gets a `darwinpkg` test of its own, beside the one that pins
+`lib/pkgconfig` today (`darwinpkg_test.go` line 185).
+
+**No `TZDIR` or `LD_LIBRARY_PATH` row on macOS**, because no reader there needs them
+([§16.2](#162-what-each-library-does-on-macos-with-its-variable-unset)). A future Linux `guest`
+notch gets a table of its own, and a shorter one, because there the premise is nearly exact.
+nixpkgs OpenSSL on Linux looks in `/etc/ssl/certs/ca-certificates.crt`, the Debian, Ubuntu and Arch
+path, which holds whatever CAs the distro's own tools added, corporate ones included. nix glibc
+looks in `/usr/share/zoneinfo`. The exceptions are the Fedora and RHEL family, whose bundle sits at
+`/etc/pki/tls/certs/ca-bundle.crt`, openSUSE, whose bundle sits at `/etc/ssl/ca-bundle.pem`, and
+fontconfig, which would read a distro `fonts.conf` written for a different fontconfig version
+(INFERRED). SOURCED:
+[`use-etc-ssl-certs.patch` line 10](https://github.com/NixOS/nixpkgs/blob/e158d9ed9b51c98974c5e66e1ba1c9e0255fecaa/pkgs/development/libraries/openssl/3.5/use-etc-ssl-certs.patch#L10);
+[`glibc/common.nix` lines 214-216](https://github.com/NixOS/nixpkgs/blob/e158d9ed9b51c98974c5e66e1ba1c9e0255fecaa/pkgs/development/libraries/glibc/common.nix#L214-L216);
+[nix 2.34.0 `nix-profile-daemon.sh.in` lines 46-47 and 50-51](https://github.com/NixOS/nix/blob/2.34.0/scripts/nix-profile-daemon.sh.in#L46-L51).
+
+**Where the rows are applied.**
+
+- **Against the profile's store path**, not against each package's store path. That needs no
+  extra `nix eval`, and it stays pure Go, testable the way `darwinpkg_test.go` pins
+  `PKG_CONFIG_PATH` today (line 185).
+- **On the host side of the launch, into per-session files beside the env file.** Not into the
+  sandbox home. `/Users/_yolojail` is one account home that every workspace shares
+  (`internal/render/target.go` line 588; `sandboxEnvPairs`' comment in
+  `internal/macosuser/macosuser.go`), and both derived files are per workspace: the `fonts.conf`
+  names `<profile>/share/fonts`, and the CA bundle holds that launch's loophole CAs. Two
+  concurrent launches would overwrite each other's copy. The host-side yolo also runs as the
+  human, not as the sandbox account. The channel that already exists is the session env file:
+  `/var/yolo-jail/env/<session>.env`, where `<session>` is the per-workspace name the Seatbelt
+  profile and the staged pack tree are keyed by. It is root-owned, written through `sudo tee`,
+  with one read ACE (an access-control entry) for the sandbox account (`SandboxEnvFile`,
+  `SandboxEnvDirCommands`,
+  `internal/macosuser/envfile.go` lines 28-33 and 85-98). It is per session so that *"two
+  workspaces launching at once cannot read each other's composed environment"*, and read-only so
+  the sandbox cannot choose its own environment. The derived files go beside it, keyed by the
+  same session name, written the same way, with the same ACE, and swept with it. The variables reach
+  the agent through the env file, the way `PKG_CONFIG_PATH` does
+  (`internal/macosuser/runplan.go` lines 302-316), and are set again after `/etc/zshenv` has run
+  ([§16.3](#163-the-corporate-certificate-trap), item 4). The font cache is the one exception
+  ([§16.4](#164-fonts-a-generated-file-not-a-pointer)).
+- **Disclosed.** The launch names each variable it set. A launch has no quiet mode
+  ([`OQ-RO3`](../reference/report-tiers.md#why-its-this-way)), so this is one more line, not an
+  option.
+
+**On a container jail.** `JailFields` honors every kind in `packdecl.KnownKinds()` by default
+(`internal/render/fieldset.go` lines 187-201), so the new kind would count as honored at `jail`
+on the container backends too, and `packages:` entries are read on every backend. An accepted
+declaration with no effect is the defect [`declaration-parity.md`](declaration-parity.md) exists
+to name, so each container case needs an answer. `FieldSet` is keyed by notch, not by backend, so
+it cannot say "honored on macos-user and not on podman". The kind goes into
+`jailRenderedElsewhere` (fieldset.go line 220) with its reason, because the launch produces its
+effect and the render path does not, as for `loophole`. Each backend's launch then answers for
+itself, and this doc leans to resolving a row against wherever that launch's packages land
+(INFERRED design):
+
+- **A baked container image**: against `/`, where the image lays the packages out. The image's
+  own `PKG_CONFIG_PATH` is `/lib/pkgconfig:/share/pkgconfig:/usr/lib/pkgconfig`
+  (`flake.nix` lines 1632-1638).
+- **A store-delivered container** (`YOLO_STORE_PACKAGES=1`): against each profile named on
+  `YOLO_STORE_PROFILES`, first one wins, the farm's own precedence. That path needs wiring of its
+  own, because its host half discards `ProfilePaths`' env today:
+  `internal/cli/run/storepackages.go` line 342 returns only the profile path and the skip list.
+- **The core rows stay macOS rows.** A container already has its own CA bundle
+  (`GenerateCABundle`), its own `fonts.conf` (baked, or `configureStoreFontconfig`), and the
+  image's `PKG_CONFIG_PATH`.
+
+The fallback is to refuse the kind and `packages[].env` by name on the container backends until
+one of these is built. Either way the answer is written down and not left to the default.
+
+**Never at the host.** The new kind is refused at the host, with a reason naming
+[`HP-DIR3`](host-tool-provisioning.md#HP-DIR3), written the way the existing refusals are
+(`refusalReasons`, `internal/render/fieldset.go` lines 61-104). It cannot simply be left out of
+`render.HostFields`. That set is *"the reduced set a host/guest target honors"*, and
+`Target.Fields()` returns it for `KindGuest` too (fieldset.go lines 298-304), so leaving the kind
+out would also refuse it at the future Linux `guest` notch, its next consumer, with a host-only
+reason. So either `guest` gets its own field set before the kind lands (its census is Phase 7's to
+state, as the `Fields()` comment says), or the refusal is made for `KindHost` alone. There is no
+profile at the host to resolve against in any case. A `packages:` entry's `env` is inert there
+because `packages:` itself is inert there ([`OQ-NX8`](#OQ-NX8)).
+
+**Why a new kind, and not a `{profile}` token on `env`.** `env` already takes one placeholder,
+`{listen}`, for a loophole's endpoint, so a second token looks cheaper. It fits badly, for three
+reasons (INFERRED design):
+
+- `env` is honored at the host (`render.HostFields`), where a `{profile}` token has nothing to
+  resolve, so every such value would need a host refusal of its own.
+- `env` sets its values on every launch, while a locator row fires only when its path exists.
+- `env`'s contract is *"literal strings only (no interpolation, no host reads)"*
+  (`internal/packdecl/kinds.go` lines 139-142), with `{listen}` as the one exception
+  (`internal/packdecl/listentoken_test.go`).
+
+### 16.6 What a Mac session must measure before the ruling
+
+None of these probes needs an agent CLI. Run each one in `yolo -- zsh -c '…'` on the macos-user
+backend, then again in the human's own Terminal, and record which installer the host's nix came
+from: stock, Determinate or nix-darwin. When a Mac session takes them, they belong in
+[the Mac runbook](../plans/runbooks/mac-provisioner-measurements.md) as a new item.
+
+1. `echo "$NIX_SSL_CERT_FILE|$SSL_CERT_FILE|$PAGER|$EDITOR|$PATH"`, then the same `echo` in a
+   child `zsh -c` (the way an agent's shell tool starts one), and
+   `ls -l /nix/var/nix/profiles/default/etc/ssl/certs/ca-bundle.crt`: which bundle the sandbox
+   inherits, and, on nix-darwin, whether `/etc/zshenv` replaced the launch's `PATH` or set
+   `PAGER` and `EDITOR`
+   ([§16.3](#163-the-corporate-certificate-trap), item 4).
+2. `curl -sv https://example.com -o /dev/null 2>&1 | rg -i 'CAfile|verify'`: which file nix curl
+   uses.
+3. `python3 -c 'import ssl; print(ssl.get_default_verify_paths())'`.
+4. `node -p "require('tls').getCACertificates('system').length"`, and
+   `NODE_USE_SYSTEM_CA=1 node -e "require('https').get('https://example.com', r => console.log(r.statusCode))"`:
+   whether the Seatbelt's keychain denies empty Node's system store.
+5. On a Mac with a corporate CA: `mise ls-remote jq`, `git ls-remote https://github.com/NixOS/nix`,
+   `uv pip install --dry-run requests`, and the same `uv` command with `UV_SYSTEM_CERTS=true`.
+6. Inside the sandbox, `security find-certificate -a /Library/Keychains/System.keychain | head -1`,
+   which should be denied.
+7. With `packages: ["fontconfig"]`: `fc-match 'Hiragino Sans'` and `fc-list | wc -l`, watching
+   for the fontconfig error and for DejaVu Sans as the answer. As a control, with
+   `packages: ["graphviz"]`: `echo 'digraph{a [label="日本語"]}' | dot -Tpng -o /tmp/x.png`, once
+   bare and once with `PANGOCAIRO_BACKEND=fc`. The bare run should go through CoreText and print
+   no fontconfig error; the second should behave like `fc-match`
+   ([§16.2](#162-what-each-library-does-on-macos-with-its-variable-unset)).
+8. Outside the sandbox,
+   `time security find-certificate -a -p /Library/Keychains/System.keychain | wc -l`: the cost of
+   the export in [§16.3](#163-the-corporate-certificate-trap).
+
+---
+
 ## Open Questions
 
 The live questions, in id order — this doc's own `PS` series, including the ones carved out of
 compound questions on 2026-09-11 ([the carve table](#the-2026-09-11-carve-one-question-one-decision)),
 plus the retired doc's under an `NX` prefix ([the id map](#question-id-map-old-spelling--new)).
-[`OQ-PS11`](#OQ-PS11) gates [`OQ-PS5`](#OQ-PS5); [`OQ-PS2`](#decision-ledger) and
+[`OQ-PS11`](#OQ-PS11) gates [`OQ-PS5`](#OQ-PS5), and [`OQ-PS14`](#OQ-PS14) gates
+[`OQ-PS15`](#OQ-PS15); [`OQ-PS2`](#decision-ledger) and
 [`OQ-PS3`](#decision-ledger) were ruled on 2026-09-11 and are in the
 [Decision Ledger](#decision-ledger). Each question below is written to be decidable **on its own** —
 that is what the carve was for — with stakes and a leaning; the leaning is mine and is not a
@@ -1371,53 +1994,87 @@ recommendation the doc rests on.
    **Answer:**
    > _(empty — fill in when decided)_
 
-10. 💬 <a id="OQ-NX4"></a>**OQ-NX4: Does the environment need to carry *variables*, not just PATH?** (The retired
-    doc's [`OQ-4`](#decision-ledger).) A `buildEnv` cannot; a devShell can, and that is the *only*
-    real argument for one ([the four mechanisms, compared](provisioner-evidence.md#32-the-four-nix-mechanisms-compared-and-why-never-a-devshell)).
-    Verified 2026-08-23: the Go whitelist is still exactly one variable, `PKG_CONFIG_PATH`, and only
-    when `<out>/lib/pkgconfig` exists (`internal/darwinpkg/darwinpkg.go`, re-resolved
-    2026-09-11). The jail's baked `Env` carries `SSL_CERT_FILE`, `LD_LIBRARY_PATH`,
-    `PKG_CONFIG_PATH`, `FONTCONFIG_*`, `TZDIR`. **What it decides:** whether the devShell rejection
-    is re-opened on this one axis (never on PATH — that is not in question), and how far "mimic the
-    in-jail env" can go for a non-container notch.
+10. 💬 <a id="OQ-NX4"></a>**OQ-NX4: Should a non-container notch get its locator variables from a
+    declared table, and who may add a row?** (The retired doc's [`OQ-4`](#decision-ledger), first
+    asked as *"does the environment need to carry variables, not just PATH?"*, and restated
+    2026-09-29 from the research in
+    [§16](#16-locator-variables-on-a-non-container-notch-researched-2026-09-29).) A *locator
+    variable* is one whose only job is to tell a program where a file it needs lives;
+    [§16](#16-locator-variables-on-a-non-container-notch-researched-2026-09-29) defines it and the
+    other terms used here.
 
-    **Narrowed 2026-09-29 by principle [`HP-DIR3`](host-tool-provisioning.md#HP-DIR3): at the
-    host, no.** HP-DIR3 says that at the host yolo manages the agent's environment and never
-    provisions the workspace's runtime. The variables in question (`SSL_CERT_FILE`,
-    `PKG_CONFIG_PATH`, `LD_LIBRARY_PATH`, `FONTCONFIG_*`, `TZDIR`) would come with a `packages:`
-    tool profile, and there is none at the host ([`OQ-PS1`](#OQ-PS1)'s narrowing). Recreating the
-    jail's build environment for the workspace's commands would be provisioning the workspace's
-    runtime, and [`OQ-HP7`](host-tool-provisioning.md#OQ-HP7), ruled under HP-DIR3, already says
-    the commands the agent runs see the user's own shell environment, mise included. ⚠ This does
-    not decide which variables, if any, the floor agent's own fixed startup environment carries.
-    That is the agent's environment, and yolo's job, under
-    [`HP-DIR2`](host-tool-provisioning.md#HP-DIR2) item 2.
+    **Setup.** Priya's workspace runs on the macos-user backend, a jail that is a dedicated macOS
+    account, whose tools yolo builds into one nix profile. Her agent builds a PDF report with a
+    script that asks fontconfig which font file to embed (`fc-match -f '%{file}' 'Hiragino Sans'`),
+    so she adds `packages: ["fontconfig"]`. Today nix fontconfig looks for
+    `/etc/fonts/fonts.conf`, which no Mac has. It prints
+    `Fontconfig error: Cannot load default config file` and falls back to a config holding DejaVu
+    Sans alone, so `fc-match` answers DejaVu Sans. A Japanese label comes out as empty boxes, and
+    one meant for the company font installed in `/Library/Fonts` comes out in DejaVu Sans. The
+    `fontconfig` package does not
+    bring its config file into the profile. yolo sets one locator variable, `PKG_CONFIG_PATH`, and
+    only a yolo release can add another. (SOURCED and MEASURED in
+    [§16.2](#162-what-each-library-does-on-macos-with-its-variable-unset) and
+    [§16.4](#164-fonts-a-generated-file-not-a-pointer). `fc-match`'s answer and the boxes are
+    INFERRED, since DejaVu Sans has no Japanese glyphs. Which other tools reach fontconfig on
+    macOS is unmeasured: graphviz's `dot`, for one, lays its text out through CoreText, macOS's
+    own text system, by default, and most likely never reads the file.)
 
-    **The remaining question is the whole decision, on the jail side.** Setup: a workspace on the
-    macos-user backend (a jail that is a dedicated macOS account, which yolo does provision)
-    declares `packages: ["openssl", "pkg-config", "fontconfig"]`. Its profile prepends
-    `<out>/bin` and sets only `PKG_CONFIG_PATH`, and only when `<out>/lib/pkgconfig` exists
-    (`darwinpkg`'s one-variable whitelist). So a tool that needs `FONTCONFIG_FILE` or
-    `SSL_CERT_FILE` finds neither. A future Linux `guest` notch would have the same shape.
+    **Why it is a question. Directed 2026-09-29, not yet ruled.** The old leaning waited for a
+    measured failure before adding each variable. The maintainer directed otherwise: *"maybe this
+    is an extension point. I don't want to wait for reports of something to fix it because it may
+    be a user hitting this and I want to get ahead of it."* His premise, that these variables exist
+    only because nix puts files in non-standard places, holds in direction and needs three
+    corrections ([§16.1](#161-the-premise-and-three-corrections)). nix tools already find *a*
+    certificate bundle, and the variable picks *which* one. No reader on macOS needs `TZDIR` or
+    `LD_LIBRARY_PATH`. And fonts need a generated file, not a pointer. Where the rows live decides who
+    can add one, and how early.
 
-    **(a)** Keep the one-variable Go whitelist.
-    **(b)** Add variables to the whitelist one at a time, as a measured need appears.
-    **(c)** Reopen a devShell-style dump (about 121 variables and the whole stdenv on PATH).
+    **(a) A declared table with three sources.** Core ships the rows in
+    [§16.5](#165-the-extension-point-declared-rows): `PKG_CONFIG_PATH`, extended to
+    `share/pkgconfig`, a CA bundle, and a generated macOS `fonts.conf`. Packs add rows through a
+    new contribution kind, and a user adds one with an `env` field on a `packages:` entry.
+    `fc-match` finds the Mac's own fonts, and Priya's report renders in them, with nothing in her
+    config beyond the package. The launch names each variable it set, `yolo pack footprint` lists
+    a pack's rows, and a tool yolo has never met is fixed by its pack or by one line of her config
+    rather than by a yolo release.
+    **(b) Core rows only.** Priya sees the same result. A tool yolo did not anticipate still needs
+    a yolo release, or a variable she sets by hand that yolo knows nothing about.
+    **(c) The table lives in `flake.nix`**, which prints exact store paths as JSON. Priya sees the
+    same result, but the rows are nix code that `yolo pack footprint` cannot show, and no pack can
+    add one.
+    **(d) Keep the one-variable whitelist** and add a row each time a failure is reported, which
+    was the old leaning. Priya keeps seeing boxes until someone reports it.
+    **(e) Reopen a devShell-style dump**: about 121 variables, and the whole stdenv (nixpkgs'
+    standard build environment) on PATH
+    ([the four mechanisms, compared](provisioner-evidence.md#32-the-four-nix-mechanisms-compared-and-why-never-a-devshell)).
+    Priya still sees boxes. Nothing in nixpkgs points fontconfig at the macOS font folders, and
+    cacert's setup hook sets only Mozilla's bundle.
 
-    _Leaning:_ **(a), moving to (b) if a need is measured.** One variable is not a case for 121,
-    and an explicit list in Go is more auditable than a derivation's dump. Revisit past about
-    three variables.
+    **Not at the host: settled 2026-09-29 by principle
+    [`HP-DIR3`](host-tool-provisioning.md#HP-DIR3).** At the host yolo manages the agent's
+    environment and never provisions the workspace's runtime, so there is no `packages:` profile
+    there ([`OQ-PS1`](#OQ-PS1)'s narrowing), and the agent's commands see the user's own shell
+    environment ([`OQ-HP7`](host-tool-provisioning.md#OQ-HP7)). Under (a), the new kind is
+    refused at the host alone, with a reason naming HP-DIR3. The host's field set is also the
+    guest's today, so leaving the kind out of it would refuse it at `guest` too
+    ([§16.5](#165-the-extension-point-declared-rows), "Never at the host"). A `packages:` entry's
+    `env` is inert at the host because `packages:` is ([`OQ-NX8`](#OQ-NX8)). The floor agent's own startup
+    variables are a separate matter, [`HP-DIR2`](host-tool-provisioning.md#HP-DIR2) item 2's.
 
-    <!-- vantage: oq id=OQ-NX4 leaning="(a), moving to (b) if a need is measured: keep the one-variable Go whitelist for the macos-user profile and add variables one at a time only as a need is measured; revisit past about three. HP-DIR3 (2026-09-29) already settled the host half: no packages: profile and no recreated build environment at the host, the agent's commands seeing the user's own shell (OQ-HP7). The floor agent's own startup variables are HP-DIR2's, not this question's." -->
+    _Leaning:_ **(a).** Every core row fires on a fact about the profile or the launch, not on a
+    failure report, so rows can ship ahead of reports, which is the direction given. A pack row
+    keeps a tool's variable with the pack that knows the tool, and a user row covers a package no
+    pack knows. The table has no `TZDIR` or `LD_LIBRARY_PATH` row on macOS, because no reader
+    there needs them. The container backends answer for the new kind too
+    ([§16.5](#165-the-extension-point-declared-rows), "On a container jail"). This question rules only that the certificate row exists; where its certificates
+    come from is [`OQ-PS14`](#OQ-PS14). If a new pack kind is judged too much surface for now, (b)
+    is the fallback: it fixes every case the research found, and it grows into (a) without changing
+    a core row.
 
-       **Directed 2026-09-29, not yet ruled.** The maintainer, on why not to wait for a measured
-   failure: *"maybe this is an extension point. I don't want to wait for reports of something to fix
-   it because it may be a user hitting this and I want to get ahead of it."* And on the premise:
-   these variables exist only because nix installs certificates, fonts and timezone data in
-   non-standard locations; a system or Homebrew install puts the files where the libraries already
-   look. A measurement on macOS and an extension-point design come back before the ruling.
+    <!-- vantage: oq id=OQ-NX4 leaning="(a): a declared table of locator rows with three sources: core rows (PKG_CONFIG_PATH extended to share/pkgconfig, a CA bundle built at launch, a generated macOS fonts.conf), a new pack contribution kind for profile-relative locator rows, and an env field on a packages: entry. Rows ship ahead of failure reports, as the maintainer directed on 2026-09-29. No TZDIR or LD_LIBRARY_PATH row on macOS, since no reader there needs them. The new kind is refused at the host alone under HP-DIR3 (not dropped from HostFields, which guest shares), container backends resolve rows where their packages land or refuse by name, and the CA row's source is OQ-PS14's. Fallback: (b), core rows only." -->
 
-   **Answer:**
+    **Answer:**
     > _(empty — fill in when decided)_
 
 11. ✅ <a id="OQ-NX5"></a>**OQ-NX5: Is "no PATH pollution" the right claim for a `buildEnv`, or should it be "no
@@ -1583,6 +2240,100 @@ recommendation the doc rests on.
     what the jail already gives for the same fault.
 
     <!-- vantage: oq id=OQ-PS13 leaning="(b) print and run a download-check-run command, so the prompt still shows the exact command and the host refuses a non-script body naming the URL, as the jail does." -->
+
+    **Answer:**
+    > _(empty — fill in when decided)_
+
+15. 💬 <a id="OQ-PS14"></a>**OQ-PS14: How does a macos-user sandbox trust a certificate authority
+    that IT installed on the Mac?** Opened 2026-09-29 by the research for [`OQ-NX4`](#OQ-NX4)
+    ([§16.3](#163-the-corporate-certificate-trap)).
+
+    **Setup.** Sam's employer runs Zscaler, which decrypts HTTPS traffic and re-signs it with its
+    own certificate, and its MDM put "Zscaler Root CA" into the Mac's System keychain. Sam runs
+    `yolo` on the macos-user backend, and the agent runs `git clone https://github.com/…` or
+    `npx some-mcp-server`. Today the sandbox starts from an empty environment, so nix git, curl and
+    Node fall back to the Mozilla bundle in nix's default profile and fail with
+    `SSL certificate problem: unable to get local issuer certificate`. `gh` and `mise` probably
+    work, because they ask macOS itself, and `uv` fails. The same commands may work in Sam's own
+    Terminal. If Sam set `NIX_SSL_CERT_FILE` before installing nix, the official nix installer
+    skipped that bundle (Determinate's installs it regardless), and every nix TLS client in the
+    sandbox fails against every site. (INFERRED from the
+    sourced facts in [§16.2](#162-what-each-library-does-on-macos-with-its-variable-unset) and
+    [§16.3](#163-the-corporate-certificate-trap); not yet seen on a Mac.)
+
+    **Why it is a question.** The maintainer prefers working with the Mac's own store to copying
+    around it. His words for Copilot's token on 2026-09-29 were *"We shouldn't just steamroll over
+    that. We should work with it"* ([`OQ-CT1`](../research/copilot-token-storage.md#OQ-CT1)). But
+    yolo's own Seatbelt profile denies reading the keychain files from inside the sandbox, on
+    purpose, and the tools that fail here cannot ask macOS at all. Each route below trades those
+    facts differently.
+
+    **(a) Ask macOS where the tool can, and copy where it cannot, fresh at each launch.** Tools that
+    ask macOS (gh, mise, pip) keep working. At every launch, the yolo process that starts the
+    sandbox, running as Sam outside it, reads the System keychain, keeps only the CAs macOS trusts
+    for TLS, joins them with Mozilla's bundle, and points the OpenSSL-family variables at the
+    result and `NODE_EXTRA_CA_CERTS` at a file of the extra CAs alone. Sam sees
+    `Trusting 1 certificate authority from this Mac's System keychain: Zscaler Root CA` at launch,
+    clones work, and a CA that IT removes is gone at the next launch.
+    **(b) Switches only, and no file.** yolo sets `UV_SYSTEM_CERTS=true` and `NODE_USE_SYSTEM_CA=1`.
+    gh, uv, mise and pip work. git, curl and Python still fail with the same error, and Node may
+    too, because it lists the keychain's certificates from inside the sandbox, where the keychain
+    files are denied.
+    **(c) Open the keychain to the sandbox**: remove the two Seatbelt keychain denies and set
+    `NODE_USE_SYSTEM_CA=1`. Node-based tools may then work. git, curl and Python still fail, and the
+    agent can read the System keychain file, a deny the Seatbelt profile calls load-bearing.
+    **(d) Reuse a bundle the platform already made**: Determinate's `/etc/nix/macos-keychain.crt`
+    or nix-darwin's `/etc/ssl/certs/ca-certificates.crt`. Only Determinate's is an export of the
+    keychain, as fresh as its daemon's last start. nix-darwin builds its file from the files its
+    `security.pki` option lists, not from the keychain
+    ([§16.3](#163-the-corporate-certificate-trap)), so it helps Sam only if that option already
+    lists the Zscaler CA. It does nothing on stock nix.
+    **(e) Leave it to the user, as today.** Sam points `NIX_SSL_CERT_FILE` at a bundle through an
+    `env_sources` file. The bundle must sit where the sandbox can read it, such as the workspace or
+    `/Users/Shared`, and not in Sam's home, whose reads the Seatbelt denies. It goes stale when IT
+    rotates the CA.
+
+    _Leaning:_ **(a).** The keychain stays the source of truth: it is read at every launch and
+    never written, and every CA taken from it is named at launch. It is the only route that fixes
+    git, curl, Python and Node together without opening the keychain to the agent, and it is the
+    direction given for Copilot's token (work with the system store, and disclose any copy) applied
+    to certificates. Keep (d) only as evidence of what users already expect. The cost of the read
+    is unmeasured ([§16.6](#166-what-a-mac-session-must-measure-before-the-ruling), item 8).
+
+    <!-- vantage: oq id=OQ-PS14 leaning="(a): at every launch the host-side yolo reads the System keychain, keeps only CAs macOS trusts for TLS, joins them with Mozilla's bundle and any loophole CA, and points NIX_SSL_CERT_FILE, SSL_CERT_FILE, REQUESTS_CA_BUNDLE, CURL_CA_BUNDLE and GIT_SSL_CAINFO at the result (NODE_EXTRA_CA_CERTS at the extra CAs alone), naming each CA at launch. The keychain stays the source of truth, read fresh and never written, and the Seatbelt keychain denies stay. Keep (d) only as evidence of what users expect." -->
+
+    **Answer:**
+    > _(empty — fill in when decided)_
+
+16. 💬 <a id="OQ-PS15"></a>**OQ-PS15: Does the sandbox also trust a CA that the launching user
+    trusted only for themselves?** Opened 2026-09-29 with [`OQ-PS14`](#OQ-PS14), and asked only if
+    that question is ruled (a).
+
+    **Setup.** Lee trusted a staging server's CA by double-clicking it in Keychain Access, so it
+    sits in Lee's login keychain marked "Always Trust". The macos-user agent runs as a different
+    macOS account, and macOS does not extend one user's personal trust to another. So `gh`
+    against the staging GitHub Enterprise server, a Go program that asks trustd, works in Lee's
+    Terminal and fails inside the sandbox. (nix curl fails in both places, since it reads no
+    keychain in any shell.) [`OQ-PS14`](#OQ-PS14)'s leaning exports only the System keychain, so
+    this stays broken under it. (INFERRED from Apple's per-user trust domain, which
+    [§16.3](#163-the-corporate-certificate-trap) cites; not measured.)
+
+    **Why it is a question.** Including those CAs gives the agent trust that only Lee granted, not
+    the Mac's administrator. Leaving them out makes the sandbox behave differently from Lee's own
+    shell.
+
+    **(a) The Mac's trust only.** Lee's staging call fails inside. When Lee's login keychain holds
+    such a CA, the launch names it:
+    `Not trusted in the sandbox (your login keychain only): staging-ca`.
+    **(b) Also export the certificates Lee's login keychain marks as trusted for TLS.** The call
+    works, and the launch lists those CAs as `from your login keychain`.
+    **(c) (a) by default, with a config key that opts in to (b).**
+
+    _Leaning:_ **(c), shipping (a) first.** The sandbox account is, by design, another user of this
+    Mac, and the launch names what it left out, so Lee is not left guessing. The opt-in serves the
+    user who wants their own shell's trust and says so.
+
+    <!-- vantage: oq id=OQ-PS15 leaning="(c), shipping (a) first: by default the sandbox trusts only the Mac's System keychain, and the launch names any login-keychain-only CA it left out; a later config key opts in to exporting the user's own TLS-trusted CAs. The sandbox account is by design another user of the Mac." -->
 
     **Answer:**
     > _(empty — fill in when decided)_

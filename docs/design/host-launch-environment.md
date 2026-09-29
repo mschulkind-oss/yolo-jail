@@ -3,21 +3,28 @@ title: "A host launch that does not depend on who launched it — composing `yol
 date: 2026-09-25
 status: in-review
 tags: [design, host, env, path, mise, depcheck, predictability]
-summary: "`yolo host` resolves its target, probes pack dependencies and runs installers against whatever PATH its caller happened to hold, so the same command gives different verdicts from a terminal and from Waybar. Compose the host PATH from a fixed per-OS baseline plus a user-scope `host_path` declaration, resolve every host-notch decision against that one value, and stage the change report-first."
+summary: "`yolo host` resolves its target, probes pack dependencies and runs installers against whatever PATH its caller happened to hold, so the same command gives different verdicts from a terminal and from Waybar. Compose a host PATH from a fixed per-OS baseline plus a user-scope `host_path` declaration and resolve yolo's PATH checks against that one value; run, and check, a program a selected pack delivers by its host agent floor entry; hand the agent the caller's PATH with the composed value and the floor after it; stage the checks' change report-first."
 ---
 
 # A host launch that does not depend on who launched it — composing `yolo host`'s PATH
 
 **Status:** DESIGN, 2026-09-25 — a proposal; nothing built. Evidence read against the working tree
-on that date. Two questions were narrowed on 2026-09-29 by principle
-[HP-DIR3](host-tool-provisioning.md#HP-DIR3) (at the host, yolo manages the agent's environment and
-never provisions or activates the workspace's runtime): [OQ-HE1](#oq-he1) may no longer default to
-mise's directories, and [OQ-HE10](#oq-he10)'s option (a) is ruled out. Both still need a ruling.
+on that date. Two rulings of 2026-09-29 reshaped it. Principle
+[HP-DIR3](host-tool-provisioning.md#HP-DIR3) says that at the host yolo manages the agent's
+environment and never provisions or activates the workspace's runtime. The maintainer's ruling
+[HP-DIR4](host-tool-provisioning.md#HP-DIR4) says `yolo host` runs the
+[floor](#0-the-governing-ruling)'s copy of any agent a selected pack delivers, from any launcher.
+Under them [OQ-HE10](#oq-he10) is answered (c): the caller's PATH comes first in the PATH the agent
+is handed.
+[OQ-HE1](#oq-he1) is narrowed to programs no selected pack delivers, and still needs a ruling.
+[OQ-HE11](#oq-he11), raised in review the same day, asks what runs for a selected pack's program
+the floor cannot hold.
 
-> **In short.** `yolo host` should make every decision against the environment it composes, not
+> **In short.** `yolo host` should make every check against the environment it composes, not
 > the one it inherited. PATH is the input where that fails today. Composing it from a fixed
-> baseline plus a declared list, and routing every host-notch lookup through that one value,
-> removes the "works from my terminal, not from Waybar" class of failure.
+> baseline plus a declared list, routing yolo's other PATH checks through that one value, and
+> running a selected pack's agent from the [host agent floor](#0-the-governing-ruling) removes the
+> "works from my terminal, not from Waybar" class of failure.
 
 **Why it matters.** A Waybar-started job ran `yolo host -- opencode`. The provider keys arrived,
 but `opencode` (installed through mise) was not found, because mise reaches PATH only through
@@ -26,22 +33,28 @@ and `check-deps` each give a verdict that depends on the caller. `yolo check` do
 question at all.
 
 **The shape.** One resolver builds the *composed host PATH* from a baseline, `host_path` and
-`YOLO_HOST_PATH`. Every host-notch consumer (exec, dependency probe, installer re-probe,
-`check-deps`, `yolo check`) asks that resolver instead of reading `PATH`.
+`YOLO_HOST_PATH`. A program a selected pack [delivers](#0-the-governing-ruling) is exec'd from the
+floor by path and checked by its floor entry. Every other PATH check yolo makes at the host
+(dependency probe, installer re-probe, `check-deps`, `yolo check`) asks that resolver instead of
+reading `PATH`. The agent is handed the caller's PATH with the composed value and the floor after it
+([OQ-HE10](#oq-he10)), and any other target is looked up on that same PATH.
 
-**Cost.** A host launch no longer sees a tool that lives only in the caller's PATH. That covers
-`claude` in `~/.local/bin`, an npm global prefix and mise shims, until the user names those
-directories. The staging in [§4](#4-migration--report-first-then-enforce) exists to make that
-visible before it breaks anything.
+**Cost.** yolo's own checks no longer see a tool that lives only in the caller's PATH, such as a
+`requires` tool in `~/.cargo/bin` or behind mise's shims, until the user names its directory. The
+selected packs' agents do not pay this: the floor supplies them, and a copy the user installed
+(`~/.local/bin/claude`) is not the one that runs. Where the floor cannot hold a selected pack's
+program, what runs is [OQ-HE11](#oq-he11). The agent's own commands keep the caller's PATH
+first. The staging in [§4](#4-migration--report-first-then-enforce) exists to make the checks'
+change visible before it breaks anything.
 
 **Start at [§2.1](#21-the-criterion--decision-inputs-versus-carried-variables).** It holds the
 criterion that decides what is composed and what passes through; the rest follows from it.
 
-**Needs your ruling:** [OQ-HE1](#oq-he1), [OQ-HE2](#oq-he2), [OQ-HE3](#oq-he3), [OQ-HE4](#oq-he4), [OQ-HE5](#oq-he5), [OQ-HE6](#oq-he6), [OQ-HE7](#oq-he7), [OQ-HE8](#oq-he8), [OQ-HE9](#oq-he9), [OQ-HE10](#oq-he10).
+**Needs your ruling:** [OQ-HE1](#oq-he1), [OQ-HE2](#oq-he2), [OQ-HE3](#oq-he3), [OQ-HE4](#oq-he4), [OQ-HE5](#oq-he5), [OQ-HE6](#oq-he6), [OQ-HE7](#oq-he7), [OQ-HE8](#oq-he8), [OQ-HE9](#oq-he9), [OQ-HE11](#oq-he11). Ruled: [OQ-HE0](#oq-he0), [OQ-HE10](#oq-he10) (c).
 
 **Reads with:**
-- [`host-tool-provisioning.md`](host-tool-provisioning.md): whether yolo installs the floor this
-  design resolves against (its own agent installs, or a `mise install`).
+- [`host-tool-provisioning.md`](host-tool-provisioning.md): the floor, which supplies every agent a
+  selected pack delivers to a host launch ([HP-DIR4](host-tool-provisioning.md#HP-DIR4)).
 - [`host-agent-environment.md`](../reference/host-agent-environment.md): the host env channel and
   wrappers. This design overturns its "start from the current environment" for PATH.
 - [`report-tiers.md`](../reference/report-tiers.md#the-dependency-rule): the dependency rule, whose
@@ -63,6 +76,20 @@ Everything below is subordinate to that ruling. It **supersedes** an earlier sug
 mise's shims directory to PATH "opportunistically," meaning whenever it exists. Any dependence on
 ambient state has to be named, either by an explicit config key or by a `YOLO_*` variable.
 
+**How far it reaches, after 2026-09-29.** The ruling stays whole for yolo's own PATH checks:
+whether a pack's agent and its dependencies are present reads nothing the launcher chose. Whether a
+launch refuses for a missing credential still reads the ambient environment
+(`credentialGaps(os.Getenv)`) until [OQ-HE6](#oq-he6) rules. For the programs the selected packs
+deliver, the floor is now what satisfies the presence check. `yolo host -- <agent>` runs the floor's
+copy from any launcher ([HP-DIR4](host-tool-provisioning.md#HP-DIR4)), so the answer is the same
+from a terminal and from Waybar. Two later rulings bound what this ruling covers:
+
+- The commands the agent runs see the user's own environment
+  ([OQ-HP7](host-tool-provisioning.md#OQ-HP7)), so the caller's PATH reaches the child first
+  ([OQ-HE10](#oq-he10)).
+- A program no selected pack delivers resolves on the user's PATH as usual (HP-DIR4). Which copy of
+  it runs is the user's business, as when they type it, and not a check of yolo's.
+
 It also **overturns, for PATH**, a ruling that is built and documented:
 
 - [`host-agent-environment.md`'s execution flow](../reference/host-agent-environment.md#execution-flow),
@@ -71,7 +98,8 @@ It also **overturns, for PATH**, a ruling that is built and documented:
   own shell, which the agent should otherwise inherit whole."
 
 Both remain true for the variables [§2.1](#21-the-criterion--decision-inputs-versus-carried-variables)
-classifies as carried. Neither remains true for PATH.
+classifies as carried, and for the start of the child's PATH, which is the caller's
+([OQ-HE10](#oq-he10)). Neither remains true for the PATH yolo's own checks read.
 
 Terms used throughout:
 
@@ -80,8 +108,26 @@ Terms used throughout:
 - **Notch:** a position on yolo's confinement dial. The jail notch is a podman or Apple Container
   container, the macos-user notch is macOS Seatbelt under a dedicated account, and the host notch is
   `yolo host` ([`host-render-target.md`](host-render-target.md)).
-- ***Composed host PATH*** *(coined here):* the PATH yolo builds for a host launch from the pieces
-  in [§2.2](#22-how-the-composed-host-path-is-built), independent of the ambient PATH.
+- ***Composed host PATH*** *(coined here):* the PATH value yolo builds for a host launch from the
+  pieces in [§2.2](#22-how-the-composed-host-path-is-built), independent of the ambient PATH. Every
+  PATH check yolo makes reads it and nothing else, except that a program a selected pack delivers is
+  checked by its floor entry. The child's PATH carries it after the caller's ([OQ-HE10](#oq-he10)).
+- **Host agent floor**, or *the floor* (coined in
+  [`host-tool-provisioning.md`](host-tool-provisioning.md#defined-terms)): the `program` binaries
+  of the packs the user-scope config selects, which yolo installs into a host directory of its own,
+  the *host prefix*, and runs from there. Its `bin/` holds one executable per provisioned agent
+  and nothing else, no `node` or `npm`
+  ([§3 there](host-tool-provisioning.md#3-the-host-prefix)).
+- ***Delivers*** *(the rulings' word, defined here):* a selected pack *delivers* a program when the
+  floor holds, or can provision, an entry for it on this machine. A program the floor can provision
+  but has not yet is delivered: the launch installs it first
+  ([HP-D3](host-tool-provisioning.md#HP-D3)). A selected pack's program is **not** delivered when
+  the floor cannot hold it here: it is configured out of the floor
+  ([OQ-HP1](host-tool-provisioning.md#OQ-HP1)'s "a floor of nothing"), handed to another
+  provisioner by [OQ-PS7](provisioner-sets.md#OQ-PS7)'s override, unpublished for this OS and
+  architecture, or an installer agent on macOS before the host capture
+  ([HP-D2](host-tool-provisioning.md#HP-D2)) ships. What runs for such a program is
+  [OQ-HE11](#oq-he11).
 
 ## 1. Inventory — what `yolo host` takes from its caller today
 
@@ -148,25 +194,39 @@ The ruling is about yolo's predictability, so:
   `COLORTERM` and — when set — `NO_COLOR` explicitly (`internal/cli/run/assemble.go`).
 
 **PATH falls in both classes.** yolo reads it to resolve the target and probe dependencies, and the
-child reads it for every subprocess it spawns. An npm-installed CLI whose entry script is
-`#!/usr/bin/env node` needs `node` on the child's PATH. So PATH is composed, and **the composed
-value is also the child's PATH.** Resolving against one PATH and exec'ing into another would move
-the incident one process down instead of fixing it.
+child reads it for every subprocess it spawns. The two halves are ruled separately:
 
-That rule is under review: [OQ-HE10](#oq-he10) proposes that the composed value be the child
-PATH's **prefix** rather than all of it, with the ambient PATH carried after it. yolo's decisions
-still read only the composed value. Everything yolo resolved still resolves the same way in the
-child, because the composed entries come first. The ambient tail adds the user's own tools and
-never outranks what yolo checked. What that tail supplies still varies with the launcher, and no
-design can guarantee it.
+- **yolo's checks never read the ambient PATH.** A program a selected pack delivers is checked by
+  its floor entry, the copy that runs. Every other PATH check (a `requires` tool, `detectManager`,
+  the installer re-probe) resolves against the composed value. That is the decision-input half, and
+  the governing ruling covers it.
+- **The child's PATH is the ambient PATH, then the composed value, then the floor's `bin/`**, with
+  duplicates removed and the first occurrence kept ([OQ-HE10](#oq-he10), ruled (c); the floor's
+  place last is [HE-D1](#he-d1)). That is the carried half: the commands a host agent runs see the
+  user's own environment ([OQ-HP7](host-tool-provisioning.md#OQ-HP7)). The composed value fills in
+  the system directories a bare launcher's PATH lacks.
 
-*Narrowed 2026-09-29 by principle [HP-DIR3](host-tool-provisioning.md#HP-DIR3): the rule as first
-written, where the composed value is the child's whole PATH, is ruled out. The commands a host agent
-runs see the user's own shell environment ([OQ-HP7](host-tool-provisioning.md#OQ-HP7)), so the
-caller's PATH has to reach the child. Which comes first, and the leaning (now ambient first), are in
-[OQ-HE10](#oq-he10). [§3](#3-one-authority--the-seam)'s "Child PATH" row and
-[§5](#5-tests-that-would-pin-it)'s test 1 still describe the rule as first written, and change with
-that ruling.*
+This doc first wrote one rule for both halves: the composed value as the child's whole PATH, so
+that yolo never resolves against one PATH and execs into another. An npm-installed CLI whose entry
+script is `#!/usr/bin/env node` needs `node` on the child's PATH, and resolving it anywhere else
+would move the incident one process down. The rulings close that gap differently:
+
+- **A program a selected pack delivers, named bare, is looked up on no PATH.** It execs from the
+  floor, and its own startup runs in the floor's set environment: for an npm agent, the floor's own
+  `node` by absolute path, with mise stripped ([HP-DIR2](host-tool-provisioning.md#HP-DIR2) item
+  2, [HP-DIR4](host-tool-provisioning.md#HP-DIR4)). Only a bare name (no `/`) picks the floor's
+  copy.
+- **A target given as a path is exec'd as given**, as `hostwrap.LookPathSkipping` honors one today
+  (*"the user named a file"*). Its composition is still keyed on its base name, as today. So
+  `yolo host -- ~/src/claude/dist/claude` runs that build, with the claude pack's environment and
+  launch flags.
+- **Any other target is looked up on the child's PATH itself**, so what yolo execs is what that
+  PATH names first. Whether that also covers a selected pack's program the floor cannot hold is
+  [OQ-HE11](#oq-he11)'s question.
+
+What the rulings give up: a dependency yolo checked against the composed value can resolve to a
+different copy in the child, because the caller's PATH comes first there. What that ambient part
+supplies varies with the launcher, and no design can guarantee it.
 
 How the criterion classifies the rest of [§1.2](#12-ambient-values-yolo-reads-to-decide-something):
 
@@ -181,7 +241,9 @@ How the criterion classifies the rest of [§1.2](#12-ambient-values-yolo-reads-t
 In the environment-manager closure tiers
 ([`yolo-as-environment-manager.md`](yolo-as-environment-manager.md#the-full-closure)), the ambient
 PATH is an **Undeclared** input: it participates and nothing names it. This design moves it to
-**Declared-impure**: named by `host_path`, with content that is machine state.
+**Declared-impure** for yolo's checks: named by `host_path`, with content that is machine state.
+What reaches the child, and the lookup of a target no selected pack delivers, is carried like
+`TERM`, by ruling ([OQ-HE10](#oq-he10)).
 
 ### 2.2 How the composed host PATH is built
 
@@ -279,9 +341,11 @@ present; the version selected here is not installed,"** with the remedy `mise in
 dependency rule treats that verdict as missing.
 
 Whether yolo runs that `mise install` itself, and whether it keeps agent installs of its own on the
-host so that the floor a selected pack needs never depends on the user's mise, is
-[`host-tool-provisioning.md`](host-tool-provisioning.md)'s question. This doc only resolves and
-reports.
+host so that the floor a selected pack needs never depends on the user's mise, were
+[`host-tool-provisioning.md`](host-tool-provisioning.md)'s questions. It ruled both: yolo never runs
+it at the host ([OQ-HP6](host-tool-provisioning.md#OQ-HP6)), and the floor supplies the selected
+packs' agents ([OQ-HP1](host-tool-provisioning.md#OQ-HP1),
+[HP-DIR4](host-tool-provisioning.md#HP-DIR4)). This doc only resolves and reports.
 
 Other managers need no typed entry. Homebrew, npm's global prefix, pipx and `~/.local/bin` all put
 real binaries in a fixed directory, and a plain `host_path` string names it. A pack-declared install
@@ -289,22 +353,29 @@ directory would cover the shipped installers without user config; that is [OQ-HE
 
 ## 3. One authority — the seam
 
-**Rule.** At the host notch, every lookup that decides something resolves against the **same
-composed host PATH value**, computed **once per process** by one resolver. The resolver's package
-and name are the implementer's choice; this doc calls it `hostpath.Compose`. It returns the ordered
-entries, the joined value, where each entry came from (baseline, `host_path`, `YOLO_HOST_PATH`,
-inherit), and a `LookPath(bin)` that knows the shim entries.
+**Rule.** At the host notch, a program a selected pack [delivers](#0-the-governing-ruling) is
+checked by its floor entry, the copy that runs. Every other PATH check yolo makes (a `requires`
+tool, `detectManager`, the installer re-probe) resolves against the **same composed host PATH
+value**, computed **once per process** by one resolver. The resolver's package and name are the
+implementer's choice; this doc calls it `hostpath.Compose`. It returns the ordered entries, the
+joined value, where each entry came from (baseline, `host_path`, `YOLO_HOST_PATH`, inherit), and a
+`LookPath(bin)` that knows the shim entries.
+
+Three exec rules sit beside it, from [HP-DIR4](host-tool-provisioning.md#HP-DIR4) and
+`hostwrap.LookPathSkipping`: a bare name (no `/`) of a program a selected pack delivers execs from
+the floor by path; a target given as a path is exec'd as given; and any other target is looked up
+on the child's PATH ([OQ-HE10](#oq-he10)), as the user's shell would find it.
 
 The consumers:
 
 | Consumer | Today | After |
 | :--- | :--- | :--- |
-| `hostExec` target | `resolveHostTarget(os.Getenv("PATH"), …)` | `resolveHostTarget(composed.Value(), …)`. The skip list is unchanged |
-| Child PATH | inherited | `environ()` overlays `PATH=<composed>` last, after removals, so no pack env or profile can replace it. A pack wanting a PATH entry declares it, if ever, through [OQ-HE2](#oq-he2) |
-| Dependency probe (gate survey, `yolo host apply`, `check-deps`, re-probe) | `depcheck.LookPath` = `exec.LookPath` | `depcheck` takes the lookup from its caller. The package-level `var` remains a test seam only |
+| `hostExec` target | `resolveHostTarget(os.Getenv("PATH"), …)` | A bare name (no `/`) of a program a selected pack delivers: its floor entry, by path, whatever the caller's PATH holds. A target given as a path: exec'd as given, as `LookPathSkipping` honors one today; it still gets the composition its base name keys. Any other program, a selected pack's program the floor cannot hold included until [OQ-HE11](#oq-he11) rules: `resolveHostTarget(<child PATH>, …)`, the value the next row builds. The skip list is unchanged |
+| Child PATH | inherited | `environ()` overlays `PATH=<ambient>:<composed>:<floor bin/>`, duplicates removed with the first kept ([OQ-HE10](#oq-he10), ruled (c)). It is overlaid last, after removals, so no pack env or profile can replace it. A pack wanting a PATH entry declares it, if ever, through [OQ-HE2](#oq-he2) |
+| Dependency probe (gate survey, `yolo host apply`, `check-deps`, re-probe) | `depcheck.LookPath` = `exec.LookPath` | `depcheck` takes the lookup from its caller. A program a selected pack delivers is answered by its floor entry, the copy that runs ([`host-tool-provisioning.md` §7](host-tool-provisioning.md#7-what-yolo-check-reports)); every other dependency by the composed value. The package-level `var` remains a test seam only |
 | `detectManager` | bare `exec.LookPath` | the same lookup |
-| `runDepInstallCommand` | the inherited environ | the composed environ, so an install lands where the re-probe looks |
-| `yolo check` | never probes pack dependencies | gains a **host launch** section: the composed entries with their sources, each declared entry's existence, and each selected pack program's resolution through the same `LookPath`, including the shim verdict |
+| `runDepInstallCommand` | the inherited environ | the inherited environ with `PATH` set to the composed value alone: not the child's PATH, which starts with the caller's, so an accepted `npm install -g` runs the `npm` found on the same value the re-probe reads, not the caller's |
+| `yolo check` | never probes pack dependencies | gains a **host launch** section: the composed entries with their sources, each declared entry's existence, each selected pack program's floor entry (naming any other copy it finds as not run by `yolo host`), and every other dependency's resolution through the same `LookPath`, including the shim verdict |
 
 **In-jail**, `config.InJail()` makes the resolver return the process PATH unchanged. The jail's PATH
 is already composed (`entrypoint.BootPath`), and an in-jail `check-deps` asks about the jail.
@@ -313,7 +384,10 @@ is already composed (`entrypoint.BootPath`), and an in-jail `check-deps` asks ab
 check`'s wrapper section) keep reading the ambient PATH. Their question is *about the caller's
 shell*: "will a bare `claude` typed there reach the wrapper?" That is a report on the ambient
 environment, not a decision made from it. So is the wrapper body's own `exec yolo`, which runs in
-the caller's shell.
+the caller's shell. So are the two places the ambient PATH reaches by ruling: the start of the
+child's PATH, and the lookup of a target no selected pack delivers, which reads that child PATH
+([OQ-HE10](#oq-he10), [HP-DIR4](host-tool-provisioning.md#HP-DIR4)). Neither decides whether one of
+yolo's checks passes.
 
 **Forbidden.** No host-notch consumer may call `os.Getenv("PATH")` or bare `exec.LookPath` to make
 a decision. The exemptions above are the only readers of the ambient PATH.
@@ -322,66 +396,95 @@ a decision. The exemptions above are the only readers of the ambient PATH.
 
 ### 4.1 Stages
 
-What breaks when PATH stops being inherited: anything found only through an ambient entry that the
-baseline does not contain. The known cases are:
+What breaks when yolo's checks stop reading the inherited PATH: a dependency found only through an
+ambient entry that the composed value does not contain. Two cases this list used to lead with no
+longer break. A program a selected pack delivers runs from the floor, whatever copy the user has
+in `~/.local/bin` ([HP-DIR4](host-tool-provisioning.md#HP-DIR4)); one the floor cannot hold is
+[OQ-HE11](#oq-he11)'s. The tools the child spawns still find the caller's PATH first
+([OQ-HE10](#oq-he10)). The known cases are dependencies yolo probes that live in:
 
-- `claude` in `~/.local/bin` (the claude pack's installer);
-- an npm global prefix such as `~/.npm-global/bin` (every `via: "npm"` program);
+- an npm global prefix such as `~/.npm-global/bin`;
 - mise shims or activated install dirs;
 - `~/go/bin`, `~/.cargo/bin`, `~/.nix-profile/bin`;
-- `/opt/homebrew/bin` on macOS, if not in the baseline ([OQ-HE8](#oq-he8));
-- the tools the **child** spawns, which yolo cannot enumerate.
+- `/opt/homebrew/bin` on macOS, if not in the baseline ([OQ-HE8](#oq-he8)).
 
 | Stage | Trigger | Resolution | What it prints |
 | :--- | :--- | :--- | :--- |
-| **1 — report** | `host_path` unset | Ambient PATH, as today, for the exec, the probe **and** the child. Behavior is unchanged | For each binary yolo itself resolves (the exec target and every probed dependency) that the composed PATH would resolve **differently** (missing, or at another path), one stderr line: *"`opencode` resolved from `/home/u/.local/share/mise/shims`, an inherited PATH entry not named in `host_path`; add `\"host_path\": [{\"mise\": \"shims\"}]` to `~/.config/yolo-jail/config.jsonc`."* `yolo check`'s host launch section shows the same findings |
-| **2 — enforce, opt-in** | `host_path` set, or `YOLO_HOST_PATH` set | The composed host PATH everywhere ([§3](#3-one-authority--the-seam)) | Only the miss diagnostic ([§4.2](#42-the-diagnostic-for-a-miss)) |
-| **3 — enforce by default** | a later named release ([OQ-HE9](#oq-he9)) | The composed host PATH, from the baseline alone when `host_path` is unset | The miss diagnostic |
+| **1 — report** | `host_path` unset | Ambient PATH, as today, for every check the composed value will answer. Those checks' verdicts are unchanged | For each dependency yolo probes that the composed PATH would resolve **differently** (missing, or at another path), one stderr line: *"`rg` resolved from `/home/u/.cargo/bin`, an inherited PATH entry not named in `host_path`; add `"host_path": ["~/.cargo/bin"]` to `~/.config/yolo-jail/config.jsonc`."* `yolo check`'s host launch section shows the same findings |
+| **2 — enforce, opt-in** | `host_path` set, or `YOLO_HOST_PATH` set | The composed host PATH for every check ([§3](#3-one-authority--the-seam)) | Only the miss diagnostic ([§4.2](#42-the-diagnostic-for-a-miss)) |
+| **3 — enforce by default** | a later named release ([OQ-HE9](#oq-he9)) | The composed host PATH for every check, from the baseline alone when `host_path` is unset ([OQ-HE1](#oq-he1)) | The miss diagnostic |
 
 Stage 1's notice is emitted on every launch it applies to, with no rate limit. A background job's
-stderr is where its operator looks. Stage 1 **cannot see what the child will spawn**; that is the
-residual risk stage 3 carries, and the stage-3 release note must say so. The notice is a disclosure
-under the launch stream's rules
+stderr is where its operator looks. The notice is a disclosure under the launch stream's rules
 ([`report-tiers.md`](../reference/report-tiers.md#the-launch-stream)), so no flag hides it.
+
+**The stages stage the checks, and nothing else.** The exec and the child's PATH follow
+[§3](#3-one-authority--the-seam) from the first release, independent of these stages. Two changes a
+user can see therefore arrive at once, with stage 1: a program a selected pack delivers execs from
+the floor rather than the user's copy ([HP-DIR4](host-tool-provisioning.md#HP-DIR4)), and every
+child's PATH gains the composed value and the floor's `bin/` after the caller's. The check of a
+delivered program by its floor entry goes with its exec, so it too applies from the first release:
+checking the ambient PATH for a program the launch runs from the floor would report a copy that
+does not run. What the stages hold back is the composed-value checks alone. With `host_path` unset
+(stage 1), the composed value in the child's PATH is the one stage 3 will enforce: the baseline
+alone under [OQ-HE1](#oq-he1)'s leaning. Stage 1's notice compares against that same value. Both
+additions to the child's PATH follow the caller's PATH, so no stage changes what the caller's PATH
+already finds.
 
 There is **no hatch** beyond `host_path` itself. An `{"inherit": "PATH"}` entry ([OQ-HE5](#oq-he5))
 is config, not a hatch: it names the dependence.
 
 ### 4.2 The diagnostic for a miss
 
-When a binary is missing from the composed host PATH, yolo still exits 127 for the exec, and the
-dependency rule still applies to the probe. Before it does, yolo looks in two places to write the
-message:
+A miss has two shapes, and each gets its own message. Both draw on a compiled list of
+***hint locations*** *(coined here)*: the shims and installs under mise's default data dir,
+`~/.local/bin`, `~/.npm-global/bin`, `~/go/bin`, `~/.cargo/bin`, `~/.nix-profile/bin`,
+`/opt/homebrew/bin` and `/home/linuxbrew/.linuxbrew/bin`.
 
-- the ambient PATH;
-- a compiled list of ***hint locations*** *(coined here)*: the shims and installs under mise's
-  default data dir, `~/.local/bin`, `~/.npm-global/bin`, `~/go/bin`, `~/.cargo/bin`,
-  `~/.nix-profile/bin`, `/opt/homebrew/bin` and `/home/linuxbrew/.linuxbrew/bin`.
+**A probe miss.** When a dependency is missing from the composed host PATH, the dependency rule
+still applies to the probe. Before it does, yolo looks on the ambient PATH and at the hint
+locations, then prints one of:
 
-Then it prints one of:
-
-- **Found on the ambient PATH:** *"`opencode` is not on the composed host PATH. The invoking PATH
-  has it at `<path>`; add `<dir>` to `host_path`."*
+- **Found on the ambient PATH:** *"`rg` is not on the composed host PATH. The invoking PATH has it
+  at `<path>`; add `<dir>` to `host_path`."*
 - **Found at a hint location:** the same message, naming the location. For a mise install it
   suggests `{"mise": "shims"}`.
 - **Found nowhere:** today's message, plus the composed entries so the reader can see what was
   searched.
 
+**An exec miss.** When a target no selected pack delivers is missing from the child's PATH, yolo
+still exits 127. That PATH starts with the ambient PATH, so a target missing from it is never on the
+ambient PATH, and yolo consults the hint locations alone. It prints one of:
+
+- **Found at a hint location:** *"`notes-sync` is not on this launch's PATH (the invoking PATH,
+  then the composed entries). `~/.local/bin` has it; add `~/.local/bin` to `host_path`."* For a
+  mise install it suggests `{"mise": "shims"}`.
+- **Found nowhere:** today's message, plus the entries of this launch's PATH, so the reader can see
+  what was searched.
+
 **Hint locations never resolve anything.** They change only the text of a failure, never its
-outcome. That keeps them outside the ruling. The gate survey's decision text uses the same
-diagnostic, so the render-suppressing "missing dependency" and the exec's 127 name the same remedy.
+outcome. That keeps them outside the ruling. The gate survey's decision text uses the probe-miss
+message, so the render-suppressing "missing dependency" and the exec's 127 both name `host_path`
+as the remedy.
 
 ## 5. Tests that would pin it
 
 Each test is chosen by the repo's question: **does it fail if I delete the call site?**
 
 1. **Exec call site.** Drive `hostMain` with `hostSyscallExec` stubbed.
-   - Setup: an ambient `PATH` whose only hit for `tool` is in a directory not in `host_path`, and a
-     `host_path` naming a second directory holding a different `tool`.
-   - Assert: the exec'd path is the declared one, **and** the `PATH` in the passed environ equals
-     the composed value.
-   - It fails if `hostExec` goes back to `os.Getenv("PATH")`, or if `environ()` stops overlaying
-     PATH.
+   - Setup: a selected pack declaring the program `tool`, with a provisioned floor entry for it,
+     and an ambient `PATH` whose first hit for `tool` is a user's copy elsewhere. A second program,
+     `other`, that no selected pack declares, has one copy on the ambient `PATH` and a different one
+     in a directory `host_path` names.
+   - Assert: `yolo host -- tool` execs the floor entry, not the user's copy, and
+     `yolo host -- other` execs the ambient hit. `yolo host -- <dir>/tool`, a path naming the
+     user's copy, execs that file, not the floor entry, and still gets the `tool` pack's launch
+     flags. In all three, the `PATH` in the passed environ is the ambient PATH, then the composed
+     value, then the floor's `bin/`, with duplicates removed.
+   - It fails if `hostExec` looks a pack's agent up on a PATH, if it replaces a path-shaped target
+     with the floor entry, if it resolves any other target against a value other than the child's
+     PATH, or if `environ()` stops overlaying PATH or puts the composed value ahead of the
+     caller's.
 2. **Parity across launchers.** Run the same config through the gate survey, `check-deps` and
    `yolo check`'s host launch section twice: once with a minimal ambient environ (`HOME` and a
    one-entry `PATH`), once with a rich one containing an extra tool directory. Assert identical
@@ -389,7 +492,10 @@ Each test is chosen by the repo's question: **does it fail if I delete the call 
    composed lookup.
 3. **Re-probe and installer agreement.** Stub `depInstallRun` to drop a binary into a declared
    directory that is absent from the ambient PATH. Assert that the `--assert` run succeeds. Today it
-   reads as a decline.
+   reads as a decline. Also assert the installer was handed `PATH` equal to the composed value
+   exactly: no ambient entry, no floor `bin/`. It fails if `runDepInstallCommand` is given the
+   child's PATH or the inherited one. Today's seam, `depInstallRun(cmd, out)`, carries no environ,
+   so pinning this needs the seam to take the environ the install runs with.
 4. **`detectManager` through the seam.** A manager present only on the ambient PATH is not
    detected.
 5. **Shim verdict.** A fake shims dir whose link target is a stub `mise` that fails `which`. Assert
@@ -399,10 +505,17 @@ Each test is chosen by the repo's question: **does it fail if I delete the call 
    even when validation is bypassed. The inheritance-table classification test covers the new key.
 7. **Grammar.** Relative, `~user/`, `$`- and `:`-containing entries are refused. `YOLO_HOST_PATH`
    replaces rather than merges. `host_path: []` gives the baseline alone.
-8. **Stage 1 notice.** With `host_path` unset and the target found only through an ambient entry,
-   the launch still execs the ambient hit **and** prints the notice naming the entry. Deleting the
-   notice call fails it.
+8. **Stage 1 notice.** With `host_path` unset and a probed dependency found only through an
+   ambient entry, the probe still finds it **and** the launch prints the notice naming the entry.
+   Deleting the notice call fails it.
 9. **In-jail passthrough.** Under `config.InJail()` the resolver returns the process PATH unchanged.
+10. **A selected pack's program the floor cannot hold** ([OQ-HE11](#oq-he11), pending its ruling).
+    Setup: a selected pack declaring `tool`, the floor configured to exclude it, and a user's copy
+    on the ambient `PATH`. Under the leaning, assert that `yolo host -- tool` execs the ambient
+    copy, prints the disclosure line naming why the floor holds none, and still injects the `tool`
+    pack's launch flags. It fails if a floor-less program exits 127 as a floor miss, or if the
+    disclosure call is deleted. Rewrite the assertion to the ruled option when
+    [OQ-HE11](#oq-he11) is answered.
 
 ## 6. Relation to the other notches
 
@@ -411,7 +524,9 @@ Each test is chosen by the repo's question: **does it fail if I delete the call 
     plus explicit `-e` pairs.
   - macos-user launches through `/usr/bin/env -i` with the closed list `sandboxEnvPairs`, whose
     PATH is `macosuser.SandboxPath`. Everything else crosses in the session env file.
-  - The host notch is the one notch that inherits, and this design closes that gap.
+  - The host notch is the one notch that inherits. This design closes that gap for yolo's own
+    checks, and leaves the child's PATH starting with the caller's, by ruling
+    ([OQ-HE10](#oq-he10)).
 - **The contents should not be unified.** The host's real directories are not the jail's
   (`~/.yolo/bin/block` and `~/.yolo/bin/launch` do not exist on the host), and AGENTS.md already
   records that `SandboxPath` and `BootPath` disagree with nothing comparing them. What *is* shared is
@@ -435,8 +550,11 @@ Each test is chosen by the repo's question: **does it fail if I delete the call 
 
 ## 8. Risks
 
-- **Stage 3 breaks tools the child spawns.** Stage 1 cannot report them. Mitigation: the release
-  note, `{"inherit": "PATH"}` if [OQ-HE5](#oq-he5) is accepted, and `yolo check` listing the composed entries.
+- **A check and the child can disagree.** A dependency the composed value lacks reads as missing
+  even when the agent's commands would find it on the caller's PATH, which comes first in the
+  child's ([OQ-HE10](#oq-he10)). Mitigation: the miss diagnostic names the directory to add to
+  `host_path`, stage 1 reports it before anything is enforced, `{"inherit": "PATH"}` if
+  [OQ-HE5](#oq-he5) is accepted, and `yolo check` lists the composed entries.
 - **Shim confirmation costs time on the gate's one-second budget.** On a budget overrun the survey
   reports "cannot determine" and launches (the existing disposition), so the worst case is
   today's behavior.
@@ -447,68 +565,84 @@ Each test is chosen by the repo's question: **does it fail if I delete the call 
 
 ### <a id="oq-he1"></a>💬 [`OQ-HE1`](#oq-he1) — what does an unset `host_path` resolve to once enforced? — **OPEN**
 
-**Narrowed 2026-09-29 by principle [HP-DIR3](host-tool-provisioning.md#HP-DIR3): no default may
-include mise's shims or install directories.** HP-DIR3 says that at the host yolo manages the
-agent's environment and never the workspace's runtime; in the maintainer's words, *"we don't
-maintain the host development environment, the workspace's runtime."* The generous form as first
-written added the [hint locations](#42-the-diagnostic-for-a-miss) to every host launch whose user
-never configured `host_path`, and those include the shims and installs under mise's default data
-dir.
+**Setup.** A user selects the claude pack and a pack that lists `rg` under `requires`. Their `rg`
+is a hand-installed binary in `~/.cargo/bin`, which their shell rc puts on PATH. They also keep a
+script of their own, `notes-sync`, in `~/.local/bin`; no pack delivers it, and a Waybar widget
+whose PATH is `/usr/bin:/bin` runs `yolo host -- notes-sync`. They have never set `host_path`.
+Today yolo checks and resolves both against the PATH it was handed: from a terminal both are
+found, and from the widget `rg` reads as missing and `notes-sync` exits 127. After
+[stage 3](#41-stages), yolo's checks read the composed host PATH, so an unset `host_path` has to
+stand for some fixed list. This question is which list.
 
-- A mise shim picks a version from the cwd's mise config, which is the workspace's runtime.
-  Depending on mise's settings, it can also install that version at run time
-  ([§2.3](#23-tool-managers--mise-and-the-shim-is-not-installed-problem)).
-- mise documents putting the shims directory on PATH as a way of activating mise: `mise activate
-  --shims` is its shorthand for exactly that entry ([Appendix A](#appendix-a--evidence)). HP-DIR3
-  and [OQ-HP6](host-tool-provisioning.md#OQ-HP6) forbid yolo activating mise, or installing through
-  it, at the host.
-- The composed host PATH also reaches the agent's children under both [OQ-HE10](#oq-he10) options
-  still open, so a default mise entry would activate mise for the workspace's commands even when
-  the user's own PATH lacks it.
-- It is also the opportunistic mise-shims append that [OQ-HE0](#oq-he0) superseded.
+**What no longer turns on it.** `claude` runs from the [floor](#0-the-governing-ruling) under
+every option, from any launcher, wherever the floor can hold it
+([HP-DIR4](host-tool-provisioning.md#HP-DIR4); elsewhere, [OQ-HE11](#oq-he11)). Whatever the
+caller's PATH holds, the agent's commands find it there first ([OQ-HE10](#oq-he10)). So the list
+decides only programs no selected pack delivers, in three places:
 
-[HP-DIR2](host-tool-provisioning.md#HP-DIR2) item 1's "mise shims included" does not cut the other
-way. Read next to [OQ-HP7](host-tool-provisioning.md#OQ-HP7)'s "the user's own shell environment,
-mise included", it means the user's own activation passes through, not that yolo adds mise. A user
-may still name mise's shims in `host_path` themselves, which is the user's act rather than yolo's;
-how they name it is [OQ-HE3](#oq-he3), which stays open. The mise locations stay in the miss
-diagnostic ([§4.2](#42-the-diagnostic-for-a-miss)), because a hint location only changes a
-message's text and never resolves anything.
+- the dependency check of a `requires` tool such as `rg`, from every launcher, because the check
+  reads the composed value alone;
+- the target of `yolo host -- <cmd>` for a program no pack delivers, when the caller's PATH lacks
+  it, as the widget's does;
+- what the agent's own commands find when the caller's PATH lacks a directory, because the
+  composed value follows the caller's PATH in the child's. From the widget, a launched claude's
+  `rg` calls find only what the composed value names.
 
-**The remaining question.** Once the composed host PATH is enforced and `host_path` is unset, is the
-default the baseline alone, or the baseline plus the non-mise hint locations that exist? The
-baseline is the per-OS list of system directories in
-[§2.2](#22-how-the-composed-host-path-is-built). The non-mise hint locations are `~/.local/bin`,
-`~/.npm-global/bin`, `~/go/bin`, `~/.cargo/bin`, `~/.nix-profile/bin`, `/opt/homebrew/bin` and
-`/home/linuxbrew/.linuxbrew/bin`.
+**The options.**
 
-**Setup.** A user has `claude` installed by its own installer in `~/.local/bin`, and the claude pack
-selected. They also have a hand-installed `rg` in `~/.cargo/bin` that a pack lists under
-`requires`. With `host_path` unset, a Waybar widget whose PATH is `/usr/bin:/bin` runs
-`yolo host -- claude`.
+- **(a) Strict: the baseline alone**, the per-OS list of system directories in
+  [§2.2](#22-how-the-composed-host-path-is-built). The check reports `rg` missing from every
+  launcher, the terminal included, with a diagnostic naming `~/.cargo/bin` for `host_path`. From a
+  terminal the agent's own `rg` calls still work, because the caller's PATH comes first in the
+  child's. From the widget, the agent's own `rg` calls fail too, as they do today, until
+  `host_path` names `~/.cargo/bin`. From the widget, `notes-sync` still exits 127, now with the same
+  kind of diagnostic. One line, `"host_path": ["~/.cargo/bin", "~/.local/bin"]`, fixes all three.
+- **(b) Generous without mise: the baseline plus the non-mise hint locations that exist.** Those
+  are `~/.local/bin`, `~/.npm-global/bin`, `~/go/bin`, `~/.cargo/bin`, `~/.nix-profile/bin`,
+  `/opt/homebrew/bin` and `/home/linuxbrew/.linuxbrew/bin`. `rg` reads present from every
+  launcher, the widget's `notes-sync` runs, and from the widget the agent's own `rg` calls find
+  `~/.cargo/bin/rg`. It is as deterministic as (a), because it depends on no launch environment.
+  But it is a guess compiled into yolo and filtered by existence, the shape of the opportunistic
+  append [OQ-HE0](#oq-he0) superseded.
 
-**Strict:** the baseline alone. yolo sees neither directory. It runs the
-[host agent floor](host-tool-provisioning.md#defined-terms)'s `claude` (the floor is the selected
-packs' programs, which yolo installs into its own prefix, on by default since
-[OQ-HP1](host-tool-provisioning.md#OQ-HP1)). The `rg` dependency reads as missing, with a
-diagnostic naming `~/.cargo/bin` for `host_path`.
-
-**Generous without mise:** the baseline plus the non-mise hint locations, existence-filtered. yolo
-finds the user's own `claude` and `rg`, the same as from a terminal, but by a guess compiled into
-yolo. It is as deterministic as strict, because it depends on no launch environment, but it has
-the shape of the "opportunistic" append the ruling superseded.
-
-**Leaning: strict**, with [stage 1](#41-stages)'s notices as the migration path. The ruling's
+**Leaning: (a) strict**, with [stage 1](#41-stages)'s notices as the migration path. The ruling's
 objection to opportunism reads as an objection to yolo guessing, and a fixed guess is still a
-guess. The floor now covers what strict used to break, the selected packs' own agents, so the
-generous list mainly saves tools outside any pack a one-line `host_path` entry.
+guess. What strict costs has shrunk. The floor supplies the selected packs' agents, and the
+caller's PATH still reaches the agent's commands. So strict costs a one-line `host_path` entry for
+a `requires` tool outside the baseline, for a program no pack delivers that a bare-PATH launcher
+starts, and for an agent a bare-PATH launcher starts whose own commands use such a tool.
 
-**Flag for the maintainer.** HP-DIR2 item 1 (`yolo host -- <cmd>` composes "the user's PATH …
-with the floor as a FALLBACK after it") puts the user's own copy ahead of the floor. Strict puts
-the floor's copy ahead for yolo's decisions. Whether HP-DIR2 changes what "enforced" means for
-`yolo host` needs a ruling of its own.
+**What narrowed it, 2026-09-29.**
 
-<!-- vantage: oq id=OQ-HE1 leaning="Strict: an unset host_path resolves to the baseline alone once enforced, with stage 1's notices as the migration path. HP-DIR3 (2026-09-29) already ruled out any default that includes mise's shims or install dirs. The generous form without mise (the baseline plus the existence-filtered non-mise hint locations) is still a guess compiled into yolo, and the host agent floor now covers the selected packs' own agents that strict used to break. Open flag: whether HP-DIR2 item 1 (the user's PATH first, the floor as a fallback) changes what enforced means for yolo host." -->
+- **No default may include mise's shims or install directories**, by principle
+  [HP-DIR3](host-tool-provisioning.md#HP-DIR3). At the host, yolo manages the agent's environment
+  and never the workspace's runtime; in the maintainer's words, *"we don't maintain the host
+  development environment, the workspace's runtime."* The generous form as first written included
+  the shims and installs under mise's default data dir.
+  - A mise shim picks a version from the cwd's mise config, which is the workspace's runtime.
+    Depending on mise's settings, it can also install that version at run time
+    ([§2.3](#23-tool-managers--mise-and-the-shim-is-not-installed-problem)).
+  - mise documents putting the shims directory on PATH as a way of activating mise: `mise activate
+    --shims` is its shorthand for exactly that entry ([Appendix A](#appendix-a--evidence)). HP-DIR3
+    and [OQ-HP6](host-tool-provisioning.md#OQ-HP6) forbid yolo activating mise, or installing
+    through it, at the host.
+  - The composed host PATH also reaches the agent's children, after the caller's PATH
+    ([OQ-HE10](#oq-he10)). A default mise entry would therefore activate mise for the workspace's
+    commands whenever the caller's PATH lacks it.
+  - It is also the opportunistic mise-shims append that [OQ-HE0](#oq-he0) superseded.
+
+  [HP-DIR2](host-tool-provisioning.md#HP-DIR2) item 1's "mise shims included" does not cut the
+  other way. It describes the environment the agent's commands run in, where the user's own
+  activation passes through (HP-DIR4's correction), and does not have yolo add mise. A user may
+  still name mise's shims in `host_path` themselves, which is the user's act rather than yolo's; how
+  they name it is [OQ-HE3](#oq-he3), still open. The mise locations stay in the miss diagnostic
+  ([§4.2](#42-the-diagnostic-for-a-miss)), because a hint location only changes a message's text
+  and never resolves anything.
+- **Which copy of a pack's agent runs is settled.** This question used to flag that HP-DIR2 item 1
+  (the user's PATH first, the floor as a fallback) put the user's own copy ahead of the floor's.
+  HP-DIR4 answered the flag: the floor's copy runs, and item 1 was never about which copy.
+
+<!-- vantage: oq id=OQ-HE1 leaning="(a) strict: an unset host_path resolves to the baseline alone once enforced, with stage 1's notices as the migration path. It now decides only programs no selected pack delivers: a requires tool yolo checks, from every launcher; a target a bare-PATH launcher starts; and what an agent a bare-PATH launcher starts finds when its own commands use such a tool, which under (a) fails until host_path names the directory. The floor supplies the selected packs' agents from any launcher (HP-DIR4), and the caller's PATH still comes first for the agent's commands (OQ-HE10). HP-DIR3 already ruled out any default with mise's shims or install dirs; the generous list without mise is still a guess compiled into yolo." -->
 
 > **Answer:**
 
@@ -549,12 +683,26 @@ mixes two authorities, and `yolo check` names which one won.
 
 ### <a id="oq-he5"></a>💬 [`OQ-HE5`](#oq-he5) — offer `{"inherit": "PATH"}`? — **OPEN**
 
+**Setup.** After [stage 3](#41-stages), the user from [OQ-HE1](#oq-he1)'s setup keeps `rg` in
+`~/.cargo/bin`, where a pack's `requires` check looks for it. They would rather yolo's checks see
+what their shell sees than name that directory, so they write `"host_path": [{"inherit": "PATH"}]`.
+From a terminal the check then finds `rg`. From a Waybar widget whose PATH is `/usr/bin:/bin` it
+reads missing.
+
 The ruling permits a *named* dependence on the launch environment, and this entry is exactly that.
-It is also the off-ramp for anyone who wants today's behavior.
+**Narrowed 2026-09-29 by [OQ-HE10](#oq-he10)'s ruling (c).** The child's PATH already starts with
+the caller's, so the entry no longer changes what the agent or its commands find. Its only effect is
+on yolo's own checks, which then follow the launcher. It is no longer an off-ramp to today's
+behavior as a whole, only to today's checks.
 
-**Leaning: offer it.** `yolo check` labels it as the one non-deterministic entry.
+- **Offer it.** The user's checks agree with what their terminal's agent finds, and Waybar and the
+  terminal can disagree again. `yolo check` labels it as the one non-deterministic entry.
+- **Don't.** The user names `~/.cargo/bin` in `host_path`, and every launcher gets the same verdict.
 
-<!-- vantage: oq id=OQ-HE5 leaning="Offer the inherit-PATH entry: it is the named dependence on the launch environment the ruling permits, and the off-ramp for anyone who wants today's behavior. yolo check labels it as the one non-deterministic entry." -->
+**Leaning: offer it.** It is config that names the dependence, which the ruling allows, and it is
+the one way to keep a check in agreement with the terminal's agent without listing directories.
+
+<!-- vantage: oq id=OQ-HE5 leaning="Offer the inherit-PATH entry. Since OQ-HE10 ruled (c) the child already starts with the caller's PATH, so the entry affects only yolo's own checks. It is the named dependence on the launch environment the ruling permits, and the one way to keep a check in agreement with what the terminal's agent finds without listing directories. yolo check labels it as the one non-deterministic entry." -->
 
 > **Answer:**
 
@@ -608,7 +756,7 @@ default flips in a later release named at the time. It does not flip on a timer,
 
 > **Answer:**
 
-### <a id="oq-he10"></a>💬 [`OQ-HE10`](#oq-he10) — is the composed value the child's whole PATH, or its prefix? — **OPEN**
+### <a id="oq-he10"></a>✅ [`OQ-HE10`](#oq-he10) — is the composed value the child's whole PATH, or its prefix? — **RULED (c) 2026-09-29**
 
 Raised by the maintainer in review, 2026-09-25. yolo can't require a particular outside PATH to run
 at all, and what it provides has to be there whoever launched it. Yet a tool the user put on PATH in
@@ -619,12 +767,13 @@ ruled out, so the composed value cannot be the child's whole PATH.** (a) was the
 composed value only, as [§2.1](#21-the-criterion--decision-inputs-versus-carried-variables) was
 first written. Under HP-DIR3, as [OQ-HP7](host-tool-provisioning.md#OQ-HP7) applied it, the
 commands a host agent runs see the user's own shell environment, mise included, exactly as the user
-would run them. [HP-DIR2](host-tool-provisioning.md#HP-DIR2) item 1 says the same for any
-`yolo host -- <cmd>`: the user's PATH, with the floor as a fallback. A child PATH built only from
-the baseline plus `host_path` would have yolo choosing the workspace's runtime. For example, it
-would drop the user's mise-selected `node` from the `npm test` the agent runs. So the caller's PATH
-has to reach the child. What yolo decides (which binary to exec, whether a dependency is present)
-can still read only the composed value, so [OQ-HE0](#oq-he0) is untouched.
+would run them. [HP-DIR2](host-tool-provisioning.md#HP-DIR2) item 1 says the same for the
+environment the agent's commands run in ([HP-DIR4](host-tool-provisioning.md#HP-DIR4)'s reading):
+the user's PATH, with the floor after it. A child PATH built only from the baseline plus
+`host_path` would have yolo choosing the workspace's runtime. For example, it would drop the user's
+mise-selected `node` from the `npm test` the agent runs. So the caller's PATH has to reach the
+child. What yolo checks (whether a dependency is present) can still avoid the ambient PATH, so
+[OQ-HE0](#oq-he0) is untouched. Which binary is exec'd is in the answer below.
 
 **The remaining question.** Once the composed host PATH is enforced, which comes first in the
 child's PATH: yolo's composed entries, or the caller's own PATH? Terms:
@@ -652,17 +801,110 @@ duplicates removed. `npm test` finds the mise shim and node 22, exactly as in th
 baseline fills in for a launcher whose PATH lacks it (Waybar). This doc first rejected (c) because
 an npm CLI's own `node` would resolve against the caller's PATH, which is the incident one process
 down. HP-DIR2 item 2 now answers that for a delivered agent (one yolo runs from the floor): it
-starts on the floor's own node, by absolute path, with mise stripped. A target the user installed
-resolves its interpreter the way it does outside yolo.
+starts on the floor's own node, by absolute path, with mise stripped. A target no selected pack
+delivers resolves its interpreter the way it does outside yolo.
 
-**Leaning: (c).** [OQ-HP7](host-tool-provisioning.md#OQ-HP7)'s *"exactly as the user would run them"* and HP-DIR2's order (the user's
-PATH first, the floor as a fallback) both describe it, and HP-DIR2 item 2 removes the reason this
-doc rejected it.
+**Leaning: (c).** [OQ-HP7](host-tool-provisioning.md#OQ-HP7)'s *"exactly as the user would run
+them"* and HP-DIR2's order (the user's PATH first, the floor as a fallback) both describe it, and
+HP-DIR2 item 2 removes the reason this doc rejected it.
 
-**Still to decide:** does [OQ-HE5](#oq-he5)'s `{"inherit": "PATH"}` keep any use under (c) beyond
-decisions? And does HP-DIR2 item 1 already mean the maintainer ruled (c)?
+This question left two things to decide: whether [OQ-HE5](#oq-he5)'s `{"inherit": "PATH"}` keeps
+any use under (c) beyond decisions, and whether HP-DIR2 item 1 already meant the maintainer had
+ruled (c). The answer settles both.
 
-<!-- vantage: oq id=OQ-HE10 leaning="(c): the child's PATH is the ambient PATH followed by the composed host PATH, duplicates removed; decisions still read only the composed value, so OQ-HE0 holds. HP-DIR3 (2026-09-29) already ruled out (a), the composed value as the child's whole PATH. OQ-HP7's 'exactly as the user would run them' and HP-DIR2's order (the user's PATH first, the floor as a fallback) both describe (c), and HP-DIR2 item 2 (a delivered agent starts on the floor's node by absolute path, mise stripped) removes this doc's reason for rejecting it." -->
+> **Answer:**
+> **Ruled 2026-09-29, as leaned: (c)**, under [OQ-HP7](host-tool-provisioning.md#OQ-HP7) and the
+> maintainer's ruling [HP-DIR4](host-tool-provisioning.md#HP-DIR4). The child's PATH is the
+> ambient PATH, then the composed value, then the floor's `bin/`, with duplicates removed and the
+> first occurrence kept. yolo's own checks still never read the ambient PATH (a program a
+> selected pack delivers by its floor entry, everything else by the composed value), so
+> [OQ-HE0](#oq-he0) holds.
+>
+> - **The child.** [OQ-HP7](host-tool-provisioning.md#OQ-HP7) ruled that the commands a host
+>   agent runs see the user's own shell environment, *"exactly as the user would run them."* (c)
+>   is that order.
+> - **The target, which (c) alone left open.** HP-DIR4: `yolo host -- <agent>` runs the floor's
+>   copy whenever a selected pack delivers that agent, from any launcher, and a copy the user
+>   installed is not the one that runs. The maintainer: *"I thought the whole point of running
+>   yolo host was to get the actual agent."* A program no selected pack delivers is looked up on
+>   the child's PATH, as the user's shell would find it.
+> - **HP-DIR2 item 1 did describe (c)**, for the environment the agent's commands run in. It was
+>   never about which copy of a pack's agent runs; that is HP-DIR4's correction.
+> - **`{"inherit": "PATH"}` now affects only yolo's checks**, since the child already starts with
+>   the caller's PATH. Whether to offer it stays [OQ-HE5](#oq-he5)'s question.
+>
+> The floor's place last, after the composed value, is [HE-D1](#he-d1).
+
+### <a id="oq-he11"></a>💬 [`OQ-HE11`](#oq-he11) — what runs for a selected pack's program the floor cannot hold? — **OPEN**
+
+Raised in review, 2026-09-29. [HP-DIR4](host-tool-provisioning.md#HP-DIR4) says
+`yolo host -- <agent>` runs the floor's copy, and that a copy the user installed is not the one that
+runs. Both assume the floor has a copy. It has none, and never will on this machine, for a selected
+pack's program in four cases the rulings already allow:
+
+- the floor is configured to exclude it ([OQ-HP1](host-tool-provisioning.md#OQ-HP1)'s answer: *"You
+  could even configure a floor of nothing"*);
+- [OQ-PS7](provisioner-sets.md#OQ-PS7)'s override hands it to another provisioner, which keeps it
+  out of the prefix ([`host-tool-provisioning.md` §6](host-tool-provisioning.md#6-the-seams));
+- its vendor publishes no build for this OS and architecture, so no install is ever attempted
+  ([§2 there](host-tool-provisioning.md#2-the-floor-what-it-contains-and-what-it-doesnt));
+- it is an installer agent on macOS, whose host capture ([HP-D2](host-tool-provisioning.md#HP-D2))
+  must be measured on a Mac before it ships.
+
+This doc calls such a program *not delivered* ([§0](#0-the-governing-ruling)). The question is
+which binary `yolo host -- <it>` execs. The launch's composition is not in question: it keys on the
+command's base name, so the pack's profile, provider env and launch flags apply under every option.
+
+**Setup.** Two users, neither with `host_path` set.
+
+- A Mac user selects the claude pack. Their `claude` came from the vendor's installer, in
+  `~/.local/bin`, which their shell rc puts on PATH. The day HP-DIR4 lands, the host capture has not
+  shipped, so the floor holds no `claude`. Today `yolo host -- claude` works from their terminal.
+- A Linux user selects the claude pack and prefers Homebrew's `claude`, which they say through
+  [OQ-PS7](provisioner-sets.md#OQ-PS7)'s override (*"Claude from brew"*, the maintainer's own
+  example there). Their terminal PATH has `/home/linuxbrew/.linuxbrew/bin`; a Waybar widget's PATH
+  is `/usr/bin:/bin`.
+
+**The options.**
+
+- **(a) Look it up on the child's PATH, like a program no selected pack delivers, and say so.**
+  The launch prints one line: *"the floor holds no `claude` here (<reason>); running `<path>`, found
+  on this launch's PATH."* The Mac user's terminal launch works as today, and the brew user's
+  terminal launch runs Homebrew's `claude`. From the widget the brew user's launch exits 127 with
+  [§4.2](#42-the-diagnostic-for-a-miss)'s exec-miss message, until `host_path` names
+  `/home/linuxbrew/.linuxbrew/bin`; the composed value is in the child's PATH, so that one entry
+  fixes the widget. But a terminal can still pick a different copy, because the caller's PATH comes
+  first. It departs from HP-DIR4's "a copy the user installed is not the one that runs", in the one
+  case where the floor has nothing to run instead.
+- **(b) Look it up on the composed value alone, and say so.** The same copy from every launcher,
+  as [OQ-HE0](#oq-he0) asks of a check. But the Mac user's working `yolo host -- claude` stops
+  working from their terminal until `host_path` names `~/.local/bin`, and the brew user's until it
+  names `/home/linuxbrew/.linuxbrew/bin`.
+- **(c) Refuse.** Exit 127, naming why the floor holds none and the remedy. HP-DIR4 read literally.
+  The Mac user's working `yolo host -- claude` stops working the day HP-DIR4 lands, until the host
+  capture ships, and a user who configured a floor of nothing can run no selected pack's agent
+  through `yolo host`.
+
+For the override case alone there is a fourth shape: the override chooses which provisioner fills
+the floor's entry instead of removing it, so the floor records where Homebrew put `claude` and execs
+that path. The brew user's program is then delivered, and falls outside this question. It needs
+[OQ-PS7](provisioner-sets.md#OQ-PS7)'s override to name a location, which
+[`provisioner-sets.md`](provisioner-sets.md) has not decided, so it is a refinement of (a), (b) or
+(c) for that case, not a replacement for them.
+
+Under every option, `yolo check` reports the program as **no floor entry**, with the reason
+([`host-tool-provisioning.md` §7](host-tool-provisioning.md#7-what-yolo-check-reports)). Under (a)
+and (b) the dependency probe checks it against the composed value, as it checks a `requires` tool.
+[§5](#5-tests-that-would-pin-it) test 10 pins the leaning, and is rewritten to the ruled option.
+
+**Leaning: (a), with the disclosure line.** In these four cases yolo has no copy of its own to run,
+so HP-DIR4's "the floor's copy runs" has nothing to act on. (a) treats the program the way HP-DIR4
+already treats one no selected pack delivers, and the disclosure line keeps the difference from
+being silent. (b) and (c) break a launch that works today in exchange for a guarantee the floor
+cannot give on that machine. This is a departure from HP-DIR4's words, which is why it is filed
+here rather than settled in the body.
+
+<!-- vantage: oq id=OQ-HE11 leaning="(a): a selected pack's program the floor cannot hold (configured out of the floor, handed to another provisioner by OQ-PS7's override, unpublished for this OS and architecture, or an installer agent on macOS before the host capture ships) is looked up on the child's PATH like a program no selected pack delivers, and the launch prints one line saying the floor holds no copy and why. It keeps the Mac user's working yolo host -- claude working before HP-D2 ships. It departs from HP-DIR4's 'a copy the user installed is not the one that runs' only where the floor has nothing to run instead." -->
 
 > **Answer:**
 
@@ -670,7 +912,9 @@ decisions? And does HP-DIR2 item 1 already mean the maintainer ruled (c)?
 
 | Id | Date | Decision | Why it holds |
 | :--- | :--- | :--- | :--- |
-| <a id="oq-he0"></a>[**OQ-HE0**](#oq-he0) | 2026-09-25 | `yolo host` does not depend on the environment it was launched in unless a `YOLO_*` variable or explicit config names the dependence. This supersedes the opportunistic mise-shims append, and for PATH it overturns "start from the current environment" | Maintainer ruling ([§0](#0-the-governing-ruling)). The same command must give the same verdict from a terminal, Waybar, systemd, cron and an IDE |
+| <a id="oq-he0"></a>[**OQ-HE0**](#oq-he0) | 2026-09-25 | `yolo host` does not depend on the environment it was launched in unless a `YOLO_*` variable or explicit config names the dependence. This supersedes the opportunistic mise-shims append, and for PATH it overturns "start from the current environment" | Maintainer ruling ([§0](#0-the-governing-ruling)). The same command must give the same verdict from a terminal, Waybar, systemd, cron and an IDE. Since 2026-09-29 it governs yolo's own checks; the child's PATH and a target no selected pack delivers follow [OQ-HE10](#oq-he10) |
+| [**OQ-HE10**](#oq-he10) | 2026-09-29 | (c): the child's PATH is the ambient PATH, then the composed value, then the floor's `bin/`, duplicates removed. A bare name of a program a selected pack delivers execs from the floor by path; a path is exec'd as given; any other bare name is looked up on that child PATH. yolo's own checks never read the ambient PATH | Answered by [OQ-HP7](host-tool-provisioning.md#OQ-HP7) (the agent's commands see the user's own environment) and the maintainer's ruling [HP-DIR4](host-tool-provisioning.md#HP-DIR4) (the floor's copy of a pack's agent runs, from any launcher) |
+| <a id="he-d1"></a>**HE-D1** | 2026-09-29 | *Implementation decision under [OQ-HE10](#oq-he10):* the floor's `bin/` goes last in the child's PATH, after the composed value | HP-DIR4 puts the floor after the user's PATH, and the composed value stands in for the system directories and `host_path` entries the user's PATH would normally hold. The floor holds only agent names, so last means a child's lookup of an agent reaches the floor only where nothing of the user's has one |
 
 ## Appendix A — evidence
 
@@ -688,9 +932,18 @@ working tree on 2026-09-25. They are cited by function, not by line.
   - `composeHostLaunch` takes the workspace from `os.Getwd()`. Its provider `lookup` tries the
     user env first, then `os.LookupEnv`.
   - `hostWrappersStatus` uses `hostwrap.OnPath(os.Getenv("PATH"), …)`.
+  - Read 2026-09-29, for [§2.1](#21-the-criterion--decision-inputs-versus-carried-variables)'s
+    exec rules and [OQ-HE11](#oq-he11): a host launch keys on the command's base name.
+    `composeHostLaunchWith` sets `agent := filepath.Base(bin)`, and `composeHostVarsWith` resolves
+    the profile (`effectiveHostProfiles`), the pack selection (`loadedHostPacks`), the provider env,
+    the credential gate and any launch service for that agent. `injectHostLaunchFlags` calls
+    `packload.InjectLaunchFlags`, which looks the flags up by `filepath.Base` of the command.
+    `selectedPackInstalls` is the predicate for "a selected pack installs this name".
 - **`internal/hostwrap/hostwrap.go`:**
   - `Body` is `exec yolo host -- <bin> "$@"` under `#!/usr/bin/env bash`.
-  - `LookPathSkipping` skips empty entries and requires an executable the caller may run.
+  - `LookPathSkipping` skips empty entries and requires an executable the caller may run. A target
+    containing a separator is honored as-is (read 2026-09-29): *"the user named a file, not a PATH
+    lookup, and second-guessing that would be surprising."*
 - **`internal/cli/hostapplygate.go`:**
   - `hostApplyGate` is a no-op in-jail and opt-in through `HostApplyOnLaunchEnabled`.
   - It runs the survey under `hostApplyGateBudget` (one second).
