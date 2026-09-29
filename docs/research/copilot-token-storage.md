@@ -235,7 +235,14 @@ Whether `gh` reaches the keychain on `macos-user` is the same open fact as Copil
    _Leaning:_ B, as a documented user-guide recipe, with C left as the default. Not A.
 
    **Answer:**
-   > _(empty — fill in when decided)_
+   > **Directed 2026-09-29, not yet ruled.** The maintainer: *"31D is reasonable, although we should
+   > maybe disclose this somehow. Is there no chance that we can involve the system keychain? It
+   > seems like they're taking the more responsible path for credential storage. We shouldn't just
+   > steamroll over that. We should work with it. I would much prefer to just handle this
+   > correctly."* A fourth route is on the table (D: yolo copies only the `copilotTokens` entry into
+   > each workspace's `config.json`, disclosed), but the preferred direction is to make the system
+   > keychain reachable from the jail so Copilot's own keychain-first path works. A design for that
+   > comes back before the ruling.
 
 ## 7. What is still unmeasured
 
