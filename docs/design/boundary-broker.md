@@ -3,7 +3,7 @@ title: "Reads run, writes ring the doorbell: time-boxed GitHub access across the
 date: 2026-09-28
 status: in-review
 tags: [design, credentials, github, gh, approvals, notifications, loopholes, audit, broker]
-summary: "Revised around the maintainer's 2026-09-28 brief. A host daemon runs the host's own `gh` login on the jail's behalf: an allowlisted read runs at once, and anything else rings the doorbell, a persistent desktop notification on Linux and macOS whose answer is a time-boxed grant. The request outlives its connection, the answer reaches the agent later through the `yolo notify` ping channel, and the agent re-issues its command under the grant. Every brokered call is appended to a host-only audit log. The brief rules OQ-A (asynchronous) and OQ-E (a notification), and by my reading OQ-C (the output crosses). OQ-B1b and four new questions stay open."
+summary: "Revised around the maintainer's 2026-09-28 brief and his 2026-09-29 rulings. A host daemon runs the host's own `gh` login on the jail's behalf, only against the workspace's own GitHub repositories. Each source defines named permission sets: GitHub's default two are read-only, always held, and read-write, which a human hands over whole for a window (15 minutes by default) from a persistent desktop notification on Linux and macOS. The request outlives its connection, the answer reaches the agent later through the `yolo notify` ping channel, and the agent re-issues its command under the grant. Credential-printing and host-reaching commands are refused outright, whatever is granted. Every brokered call is appended to a host-only audit log. Open: the notification's buttons, the macOS notifier, how one workspace's scope is widened, and OQ-B1b."
 vantage:
   status-chip: true
 ---
@@ -11,32 +11,37 @@ vantage:
 # Reads run, writes ring the doorbell: time-boxed GitHub access across the jail boundary
 
 **Status:** DESIGN, 2026-09-28. Revised around the maintainer's brief of that day; first sketched
-2026-08-05. Nothing built: no broker daemon, request store, `yolo approve` or `yolo audit` exists
-under `internal/` or `cmd/` at `c8fda25f`, and no notification code exists anywhere in the tree.
-The research behind [§5](#5-read-or-write-the-allowlist) and
-[§6](#6-the-doorbell-a-persistent-desktop-notification) is dated 2026-09-28 and marked MEASURED,
-SOURCED or INFERRED throughout ([Appendix B](#appendix-b--the-research-evidence)).
+2026-08-05. [OQ-BB1](#OQ-BB1) and [OQ-BB2](#OQ-BB2) were ruled on 2026-09-29, and the body now
+follows those rulings ([§1.2](#12-what-it-rules)). Nothing built: no broker daemon, request store,
+`yolo approve` or `yolo audit` exists under `internal/` or `cmd/` at `c8fda25f`, and no
+notification code exists anywhere in the tree. The research behind
+[§5](#5-which-set-the-classifier) and [§6](#6-the-doorbell-a-persistent-desktop-notification) is
+dated 2026-09-28 and marked MEASURED, SOURCED or INFERRED throughout
+([Appendix B](#appendix-b--the-research-evidence)).
 
 > **In short.** The GitHub credential never crosses the boundary; the command does. A host daemon
-> runs the host's own `gh` for the jail: an allowlisted read runs at once, and any other command
-> waits for a human, who answers in a desktop notification with a time-boxed grant that reaches
-> the agent later through the `yolo notify` doorbell.
+> runs the host's own `gh` for the jail, and only against the workspace's own repositories. Each
+> command belongs to a named permission set. The read-only set is always held, so its commands
+> run at once. A command in the read-write set waits for a human, who can hand that whole set to
+> the jail for 15 minutes from a desktop notification. The answer reaches the agent later through
+> the `yolo notify` doorbell. Commands that could print the credential or reach the host are
+> refused, whatever set is held.
 
 **Why it matters.** Today a jail either has no GitHub access or holds a token, which makes the
 boundary a fiction for that token's whole life: every use is unaudited and nothing can be revoked
 per action. The maintainer put this on the plate for the week of 2026-09-28.
 
-**The shape.** A jail-side `gh` forwarder, a host **broker** daemon that classifies and runs `gh`,
-a host **request store** holding requests and grants, a **notifier** per OS, the `yolo approve`
-fallback, and the **audit log** ([§1.3](#13-terms)).
+**The shape.** A jail-side `gh` forwarder, a host **broker** daemon that assigns each command to a
+**permission set** and runs `gh`, a host **request store** holding requests and grants, a
+**notifier** per OS, the `yolo approve` fallback, and the **audit log** ([§1.3](#13-terms)).
 
 **Cost.** One new loophole in a new `github` pack, one vendored D-Bus library, two host verbs
-(`yolo approve`, `yolo audit`), and a macOS notifier dependency. The write path depends on the
-`yolo notify` ping box, which is designed and not built.
+(`yolo approve`, `yolo audit`), a user-scope config key for a source's sets, and a macOS notifier
+dependency. The write path depends on the `yolo notify` ping box, which is designed and not built.
 
 **Start at [§3](#3-the-flow)**, the flow. Everything else is what one step of it needs.
 
-**Needs your ruling:** [OQ-BB1](#OQ-BB1), [OQ-BB2](#OQ-BB2), [OQ-BB3](#OQ-BB3), [OQ-BB4](#OQ-BB4), [OQ-B1b](#OQ-B1b).
+**Needs your ruling:** [OQ-BB3](#OQ-BB3), [OQ-BB4](#OQ-BB4), [OQ-BB6](#OQ-BB6), [OQ-B1b](#OQ-B1b).
 
 **Reads with:** [`agent-event-watchers.md`](agent-event-watchers.md) (the `yolo notify` doorbell
 the answer rides back on), [`loophole-system.md`](../reference/loophole-system.md) and
@@ -85,7 +90,7 @@ comment to a PR, and then it will go to a queue and I can say yes or no."*
 | *"This could be rather delayed … it may come back at any time"* | **[OQ-A](#15-decision-ledger): the synchronous version is not enough.** A request outlives its connection | [§3](#3-the-flow), [§7](#7-grants-and-the-request-store) |
 | *"a toast notification … on Mac and Linux … persistent … allow or deny for some time period"* | **[OQ-E](#15-decision-ledger): the human answers in a persistent desktop notification**, with Allow, Deny and a duration. `yolo approve` survives as the fallback | [§6](#6-the-doorbell-a-persistent-desktop-notification) |
 | *"GitHub is the first target … just GitHub logged in like normal … Using the CLI would be preferable or a direct API"* | The first broker is GitHub's, over the host's own `gh` login, with `gh api` as the direct-API route | [§4](#4-execution-a-host-daemon-runs-the-hosts-gh) |
-| *"by default the agent can run a set of read-only commands. If they need a write command … ring the doorbell"* | A read allowlist runs without asking; **everything else is a write** | [§5](#5-read-or-write-the-allowlist) |
+| *"by default the agent can run a set of read-only commands. If they need a write command … ring the doorbell"* | The read-only set runs without asking; **every other command the broker accepts needs a grant** | [§5](#5-which-set-the-classifier) |
 | *"you can use GitHub for 15 minutes"* | Grants are time-boxed | [§7](#7-grants-and-the-request-store) |
 | *"audit the use of those credentials if that's even possible"* | Every brokered call is logged on the host | [§8](#8-audit) |
 | *"use this notification channel for the background watcher … to relay this information back"* | The answer reaches the agent as a `yolo notify` ping | [§3.3](#33-the-answer-comes-back-through-the-doorbell) |
@@ -95,11 +100,29 @@ comment to a PR, and then it will go to a queue and I can say yes or no."*
 - **[OQ-C](#15-decision-ledger), does the jail see the result or only success?** Settled by the
   brief, **by my reading**: *"the agent can run a set of read-only commands"* means nothing unless
   the agent sees what they print. So stdout, stderr and the exit code cross, and "no credential
-  crosses" becomes a property of the allowlist, which admits no command that prints one
-  ([§4.2](#42-what-crosses-back)). Recorded in the ledger as a reading, not a ruling; say so if
+  crosses" becomes a property of the refusal list, which holds every command that prints one and
+  which no set or grant lifts ([§4.2](#42-what-crosses-back)). Recorded in the ledger as a reading, not a ruling; say so if
   it is wrong.
 - **[OQ-B1b](#OQ-B1b), vendor unYOLO's policy engine or re-derive it?** Not touched by the brief.
   Still open, with a changed leaning ([§14](#14-open-questions)).
+
+**What the 2026-09-29 rulings changed.** Two of the questions this doc left open were ruled the
+next day, and the body is written to them:
+
+- **[OQ-BB1](#OQ-BB1): the repository scope.** Free reads reach only the workspace's own GitHub
+  remotes, pinned at launch. So does every other command: a command whose repository is outside
+  that scope, or that names no repository, does not run ([§5.6](#56-the-repository-scope)).
+  How one workspace's scope is widened is [OQ-BB6](#OQ-BB6).
+- **[OQ-BB2](#OQ-BB2): permission sets, against my leaning.** Grants hand over a named
+  **permission set** for a window, not a class of writes with an always-ask list beside it.
+  GitHub's default sets are **read-only**, always held, and **read-write**, handed over whole for
+  15 minutes by default. The model allows any number of sets per source, and a source's sets and
+  windows are configurable ([§5.7](#57-permission-sets)). The earlier leaning's always-ask list,
+  which covered deletes, settings, `pr merge` and every `gh api` write, is gone from the default.
+  A read-write grant covers all of those.
+- **Unchanged by either:** the refusals in [§5.4](#54-never-brokered). They are about the credential
+  and the host, not about what the agent may do on GitHub, so no set holds them and no grant
+  runs them.
 
 ### 1.3 Terms
 
@@ -107,14 +130,19 @@ Every term here is coined in this doc unless it says otherwise.
 
 | Term | Meaning | What it is not |
 | :--- | :--- | :--- |
-| **broker** | The host daemon that receives a jail's `gh` argv, classifies it, runs the host's `gh` for a free read or a granted write, and files a request for anything else. One per jail, a loophole's host daemon ([`loophole-system.md`](../reference/loophole-system.md)) | Not a proxy: it never forwards the jail's bytes to GitHub, and never hands the jail a token |
+| **broker** | The host daemon that receives a jail's `gh` argv, assigns it to a permission set, runs the host's `gh` when the jail holds that set, and files a request otherwise. One per jail, a loophole's host daemon ([`loophole-system.md`](../reference/loophole-system.md)) | Not a proxy: it never forwards the jail's bytes to GitHub, and never hands the jail a token |
 | **brokered call** | One argv the jail sent the broker, whatever became of it | Not a crossing in [`crossings.log`](../reference/loophole-protocol.md)'s sense, which is a connection |
-| **free read** | A command the allowlist classes as a read and the read scope admits ([OQ-BB1](#OQ-BB1)). Runs with no human | Not "any GET": the allowlist decides, not the HTTP verb alone |
-| **write** | Every command that is not a free read, including every command the allowlist does not know | Not only commands that change GitHub: a command that writes a host file is one too |
-| **request** | A write the broker could not run, held in the store until a human answers or it expires. It has an id (`r-` plus 8 hex), the jail, the exact parsed command and a state | Not a connection: it outlives the call that filed it |
-| **grant** | What a human's Allow creates: a scope, an expiry and a use count ([§7](#7-grants-and-the-request-store)). A write inside a live grant runs with no new request | Not a token. Nothing leaves the host |
-| **ask-every-time write** | A write no grant covers, so every one files its own request ([OQ-BB2](#OQ-BB2)). unYOLO's `Grantable: false`, re-derived ([§A.1](#a1-the-six-claims-from-the-website-pass-checked-against-code)) | Not a refusal: it can still be allowed once |
-| **refused** | A command the broker never runs, with or without a human ([§5.4](#54-never-brokered)) | Not a write awaiting approval |
+| **source** | The maintainer's word (2026-09-29) for a service a broker fronts with a host credential. GitHub is the first; each source has its own classifier, sets and store | Not a pack: one pack could ship several sources |
+| **permission set** | A named group of commands a source defines, such as GitHub's **read-only** and **read-write**. A jail holds a set either always or for a window, and a command runs when the jail holds a set containing it ([§5.7](#57-permission-sets)) | Not a scope: which repositories a command may touch is the repository scope's question, and no set widens it |
+| **standing set** | Coined here: a permission set every jail always holds, such as read-only. Its commands run with no human | Not a grant: nothing is recorded, and it cannot be revoked per jail |
+| **windowed set** | Coined here: a permission set a human hands over for a window and a use count, such as read-write | Not a session: its window ends by the clock or the use count, whichever comes first |
+| **repository scope** | Coined here: the GitHub repositories a jail's calls may touch, pinned from the workspace's remotes ([§5.6](#56-the-repository-scope), [OQ-BB1](#OQ-BB1)) | Not the set of repositories the host login can see, which is every repository the user can reach |
+| **out of scope** | A command whose repository is outside the repository scope, or that names no repository the broker can check (account-wide) | Not a request: it never rings, since no grant widens the scope |
+| **free read** | A command in a standing set whose repository is in scope. Runs with no human | Not "any GET": the classifier decides, not the HTTP verb alone |
+| **write** | Shorthand for a command in no standing set. With GitHub's default sets, a command in read-write and not in read-only | Not only commands that change GitHub: a command whose flags the classifier does not know is one too |
+| **request** | A command whose set the jail does not hold, held in the store until a human answers or it expires. It has an id (`r-` plus 8 hex), the jail, the exact parsed command, the set it asks for and a state | Not a connection: it outlives the call that filed it |
+| **grant** | What a human's Allow creates: one command or one windowed set, an expiry and a use count ([§7](#7-grants-and-the-request-store)). A command inside a live grant runs with no new request | Not a token. Nothing leaves the host |
+| **refused** | A command the broker never runs, whatever set the jail holds and whatever a human answers ([§5.4](#54-never-brokered)) | Not a request awaiting approval, and not a set a configuration can define |
 | **request store** | The host directory holding requests and grants, written only under its lock | Not the audit log, which records what happened and decides nothing |
 | **notifier** | The per-OS piece that shows a request to the human and returns the button pressed | Not the ping box, which carries answers to the agent |
 | **audit log** | The append-only host file recording every brokered call and every decision | Not jail-writable, and not `crossings.log` |
@@ -132,9 +160,10 @@ Numbered so later sections and sibling docs can cite them.
   the command on the host with the host's login and returns its output. It never hands the jail
   a token, not scoped, not short-lived. The moment a token crosses, every later use is
   unaudited and unrevocable.
-- <a id="BB-P2"></a>**BB-P2. An allowlist, never a denylist.** A command is a read only if the
-  allowlist names it with the flags it carries. Anything the classifier does not recognize is a
-  write, including every new `gh` subcommand a `gh` upgrade adds.
+- <a id="BB-P2"></a>**BB-P2. An allowlist, never a denylist.** A command is in a standing set
+  only if that set's allowlist names it with the flags it carries. Nothing the classifier does not
+  recognize is ever in a standing set: an unknown flag puts a command in read-write, and an unknown
+  command word, including every new `gh` subcommand a `gh` upgrade adds, is refused.
 - <a id="BB-P3"></a>**BB-P3. Approval comes only from the host.** An answer counts only if it
   came from the notifier the broker itself started, or from `yolo approve` over a socket no jail
   can reach. Nothing a jail sends is ever read as a decision.
@@ -148,6 +177,15 @@ Numbered so later sections and sibling docs can cite them.
   program, a cwd, an environment variable or a host file.
 - <a id="BB-P7"></a>**BB-P7. Every brokered call is audited.** Refused ones included, since a
   refusal is the most interesting line in an audit log.
+- <a id="BB-P8"></a>**BB-P8. Sets decide what, never where, and never the refusals.** A permission
+  set names commands. It cannot widen the repository scope, and it cannot hold a refused command.
+  Those two fences are the broker's code, not configuration, so no grant, no set definition and no
+  human answer moves them.
+- <a id="BB-P9"></a>**BB-P9. A workspace never widens its own reach.** The agent can edit the
+  workspace, so nothing the workspace says can add a repository to its scope or a command to a set.
+  Set definitions are user-scope, and the scope is pinned by the host
+  ([§5.6](#56-the-repository-scope)). This is the maintainer's reasoning in
+  [OQ-BB1](#OQ-BB1)'s ruling.
 
 ## 2. What exists today
 
@@ -184,18 +222,18 @@ sequenceDiagram
   participant P as ping box
   A->>F: gh pr view 32
   F->>B: argv, repo, stdin
-  B->>B: classify: free read
+  B->>B: set read-only (standing), repo in scope
   B->>B: run host gh
   B-->>F: stdout, stderr, exit
   A->>F: gh pr comment 32 --body-file -
   F->>B: argv, repo, stdin
-  B->>S: no live grant: file request r-3f9a0c21
+  B->>S: set read-write, not held: file request r-3f9a0c21
   B->>N: show the exact command
   B-->>F: (holds up to 30 s) pending r-3f9a0c21, exit 75
   Note over A: the agent works on
-  H->>N: Allow 15 min (maybe an hour later)
-  N->>B: action "allow-15m"
-  B->>S: decide r-3f9a0c21, grant g-7d2e0b91
+  H->>N: Allow read-write 15 min (maybe an hour later)
+  N->>B: action "allow-set"
+  B->>S: decide r-3f9a0c21, grant g-7d2e0b91 (read-write)
   B->>P: ping: approved, re-run
   P-->>A: next turn opens with the ping
   A->>F: gh pr comment 32 --body-file -
@@ -209,8 +247,9 @@ sequenceDiagram
 
 1. The agent runs `gh <args>` in the jail. The jail's `gh` is the forwarder
    ([§4.3](#43-the-jail-side)), which sends the argv, the repository it resolved, and stdin.
-2. The broker parses the argv against the allowlist ([§5](#5-read-or-write-the-allowlist)). A free
-   read runs at once, as [§4.1](#41-how-the-broker-runs-gh) describes.
+2. The broker parses the argv, checks its repository against the jail's repository scope, and
+   assigns it to a permission set ([§5](#5-which-set-the-classifier)). A command in a standing set
+   (read-only, by default) runs at once, as [§4.1](#41-how-the-broker-runs-gh) describes.
 3. stdout, stderr and the exit code return to the forwarder, which prints them and exits with
    that code. The audit log gets one line.
 
@@ -218,9 +257,10 @@ A read never touches the request store and never notifies anyone.
 
 ### 3.2 A write, and the bounded wait
 
-1. The broker parses a write. If a live grant covers it ([§7](#7-grants-and-the-request-store)),
-   it runs as a read does, spending one use.
-2. Otherwise the broker files a request and shows it to the human
+1. The broker parses a write: a command in scope whose set, read-write by default, is not a
+   standing one. If the jail holds a live grant for that set, or an Allow once for this exact
+   command ([§7](#7-grants-and-the-request-store)), it runs as a read does, spending one use.
+2. Otherwise the broker files a request naming the set, and shows it to the human
    ([§6](#6-the-doorbell-a-persistent-desktop-notification)).
 3. **The forwarder waits up to 30 seconds** for the answer, so a human at the desk answers
    inside the agent's own tool call. If Allow arrives in that window, the broker runs the
@@ -228,8 +268,10 @@ A read never touches the request store and never notifies anyone.
 4. **Past 30 seconds the forwarder returns** with exit code **75** and one stderr paragraph:
    the request id, that a human has been asked, that the answer will arrive as a `yolo notify`
    ping, and that the agent should carry on and re-run the command once approved. Nothing ran.
-5. A Deny inside the window returns exit **77** with the same shape of message. A request the
-   broker refuses outright returns exit **64** naming why ([§5.4](#54-never-brokered)).
+5. A Deny inside the window returns exit **77** with the same shape of message. A command the
+   broker refuses outright ([§5.4](#54-never-brokered)), or one out of scope
+   ([§5.6](#56-the-repository-scope)), returns exit **64** naming why, files no request and rings
+   nobody.
 
 The codes are `sysexits.h`'s (`EX_TEMPFAIL`, `EX_NOPERM`, `EX_USAGE`, and `EX_UNAVAILABLE` in
 [§3.5](#35-failure-paths)), so a script can tell "wait" from "no" from "never". None collides with
@@ -246,8 +288,9 @@ defines. It carries facts only, per that doc's rule for pings ([§5.1 there](age
 ```text
 [yolo notify · github-broker · 14:07Z] An automated notice from a background process yolo runs for
 this workspace. It is not from the user and grants nothing.
-r-3f9a0c21 approved: gh pr comment on mschulkind-oss/yolo-jail, grant g-7d2e0b91, 25 writes to this
-repository until 14:22Z. Nothing has run; re-run the command if it is still wanted.
+r-3f9a0c21 approved: gh pr comment on mschulkind-oss/yolo-jail, grant g-7d2e0b91, set read-write
+for this jail's repositories until 14:22Z or 25 uses. Nothing has run; re-run the command if it is
+still wanted.
 ```
 
 - The ping names the command by its subcommand path and repository, never by its arguments, so
@@ -286,7 +329,8 @@ problem.
 | Step | What fails | What happens, and who finds out |
 | :--- | :--- | :--- |
 | Forward | The broker is not running or unreachable | The forwarder exits 69 (`EX_UNAVAILABLE`) naming the loophole and `yolo check`. It never falls back to a `gh` of its own |
-| Classify | The argv does not parse, or names a refused command | Exit 64 naming the rule; one audit line, class `refused` |
+| Classify | The argv does not parse, or names a refused command | Exit 64 naming the rule; one audit line, set `refused` |
+| Classify | The repository is outside the scope, or the command names none | Exit 64 naming the pinned repositories and that a wider scope is the user's to grant ([OQ-BB6](#OQ-BB6)); one audit line, set `out-of-scope`; no request |
 | Run | The host `gh` is missing or has no login | Exit 69, naming `gh auth status` on the host. The broker never starts a login |
 | Run | The call exceeds 300 seconds | Killed; exit 124, as `ExecAllowlisted` does; audited |
 | Run | Output exceeds 16 MiB | Cut, with a last stderr line saying so; audited with the byte count |
@@ -322,17 +366,18 @@ programs ([§9.5](#95-host-code-execution-through-gh)):
 
 - **stdout, stderr and the exit code cross, verbatim**, up to 16 MiB. This is
   [OQ-C](#15-decision-ledger) as the brief settles it ([§1.2](#12-what-it-rules)).
-- **No credential crosses because no command that prints one is brokered.** `auth token`,
+- **No credential crosses because no command that prints one is brokered**, under any set or
+  grant. `auth token`,
   `auth git-credential`, `auth status -t`, `config get … oauth_token` and `--jq` (which can read
   the environment) are refused outright, MEASURED as printing a token in this jail with fake
   credentials ([Appendix B](#b2-gh-probes)).
 - **Defense in depth:** at start the broker reads the host token once, host-side, and replaces
   any occurrence of it in output with `[redacted by yolo]`, counting it in the audit line. That
   count should always be zero; a non-zero one is a classifier bug.
-- **What still crosses by design** is anything the user's login can read. A read allowlist does
+- **What still crosses by design** is anything the user's login can read. The read-only set does
   not stop a confined agent reading a private repository and carrying it out of the jail through
-  its own network. Whether free reads reach every repository the login can see is
-  [OQ-BB1](#OQ-BB1).
+  its own network. [OQ-BB1](#OQ-BB1)'s ruling bounds that to the workspace's own repositories
+  ([§5.6](#56-the-repository-scope)).
 
 ### 4.3 The jail side
 
@@ -342,8 +387,9 @@ programs ([§9.5](#95-host-code-execution-through-gh)):
   pack places it is the implementer's.
 - **The forwarder resolves the repository in the jail**: from `-R`, then from the workspace's
   `origin` remote read by the jail's own git, and sends it as a field. Running git there is safe;
-  the jail is the confined side. The broker still checks the repository against the read scope
-  ([OQ-BB1](#OQ-BB1)).
+  the jail is the confined side. The field is a convenience, never an authority: the broker checks
+  it against the repository scope the host pinned ([§5.6](#56-the-repository-scope)), so a jail
+  that edits its remotes changes only which in-scope repository a bare command means.
 - **It sends stdin** when the argv reads `-`, and forwards the exit code it gets back.
 - **`yolo gh status <id>`** reports a request's state; **`yolo gh wait <id>`** blocks until it
   is decided, for scripts. Both are reads of the store through the broker; neither decides
@@ -385,60 +431,90 @@ App, but its setup cost is exactly what the brief asked to avoid (*"just GitHub 
 normal"*). It stays a later option behind the same broker, which is why the broker's credential
 source is one seam, not a design choice spread through it.
 
-## 5. Read or write: the allowlist
+## 5. Which set: the classifier
+
+The classifier answers one question per call: **which permission set does this command belong
+to, and is its repository in scope?** It returns one of four outcomes, checked in this order:
+
+1. **refused**: a command no set may hold ([§5.4](#54-never-brokered));
+2. **out of scope**: its repository is outside the jail's repository scope, or it names none the
+   broker can check ([§5.6](#56-the-repository-scope));
+3. **a standing set**: read-only by default. It runs at once;
+4. **a windowed set**: read-write by default. It runs under a live grant for that set, or files a
+   request.
+
+Refusal comes first, so no set definition and no grant can reach a refused command
+([BB-P8](#BB-P8)). This is unYOLO's deny-before-grant, re-derived
+([§A.6](#a6-recommendation--build-b1b-vendor-the-policy-engine-do-not-adopt-gh-broker)).
 
 ### 5.1 The rule
 
 1. **Parse as `gh` does**: flags anywhere, including before the subcommand (`gh -R o/r pr view
-   1` parses, MEASURED), long and short forms, `=` and separate values. A bundled short flag the
-   classifier does not know makes the whole argv a write.
-2. **Match the command path exactly** against the allowlist: `pr view`, not a prefix. Aliases
-   and extensions never resolve, because the broker's `gh` has none
-   ([§4.1](#41-how-the-broker-runs-gh)), and the classifier refuses any word that is not a
-   built-in path.
-3. **Check every flag** against that entry's permitted set. An unknown flag makes the command a
-   write, not a read with a flag ignored.
-4. **Check the repository** against the read scope ([OQ-BB1](#OQ-BB1)).
-5. **Classify:** free read, grantable write, ask-every-time write, or refused.
-6. **The classifier is keyed to a `gh` version range.** At daemon start the broker reads the
-   host `gh`'s version. Outside the tested range every command is a write, and the launch says
-   so, because a `gh` release can add a subcommand or a side effect to an old one.
+   1` parses, MEASURED), long and short forms, `=` and separate values, and bundled short flags.
+   The classifier carries every command's flag grammar for the tested `gh` range (which flags take
+   a value), so a flag's value is never mistaken for a flag or a positional argument.
+2. **Match the command path exactly**: `pr view`, not a prefix. Aliases and extensions never
+   resolve, because the broker's `gh` has none ([§4.1](#41-how-the-broker-runs-gh)), and the
+   classifier refuses any word that is not a built-in path.
+3. **Check every flag** against that command's grammar. **An unknown flag, or an argv that does not
+   parse, is refused**, not placed in a set. Before the 2026-09-29 ruling an unknown flag made a
+   command a write, which put it in front of a human every time. A read-write grant now runs a
+   write with nobody looking, so a flag the classifier cannot name is refused instead: it could be
+   one a later `gh` added that prints a token or runs a program.
+4. **Check the refusals** ([§5.4](#54-never-brokered)), then **the repository** against the scope
+   ([§5.6](#56-the-repository-scope)).
+5. **Find its sets**: every set whose rules admit the command with the flags it carries. It runs if
+   the jail holds any of them; otherwise the request names the first windowed one in the source's
+   declared order ([§5.7](#57-permission-sets)). With GitHub's default sets, a command
+   [§5.2](#52-the-read-only-set)'s table admits is read-only, and every other command that reached
+   this step is read-write.
+6. **The classifier is keyed to a `gh` version range.** At daemon start the broker reads the host
+   `gh`'s version. Outside the tested range no set applies: nothing is standing, a set grant covers
+   nothing, and each command needs its own **Allow once**, with the notification saying the host
+   `gh` is untested. The launch says so too. A `gh` release can add a subcommand, a flag or a side
+   effect, and outside the range the refusal list cannot promise to know it.
 
-### 5.2 The free reads
+### 5.2 The read-only set
 
-MEASURED against `gh` 2.101.0 in this jail. The flag notes are the refusals that keep each
-entry a read; `-w/--web` is refused everywhere, because it runs the host's browser.
+GitHub's default standing set. MEASURED against `gh` 2.101.0 in this jail. The flag notes are the
+refusals that keep each entry a read; `-w/--web` is refused everywhere, because it runs the host's
+browser. **Scope** says what the repository check reads: *repository* means the command names one
+repository, which must be in scope; *none* means it reads nothing the user's login makes private;
+*account-wide* means it reads across the account and is out of scope under the default
+([§5.6](#56-the-repository-scope)).
 
-| Command path | Flag notes |
-| :--- | :--- |
-| `pr view`, `pr list`, `pr diff`, `pr status` | `pr status` only with an explicit `-R` |
-| `pr checks` | `--watch` and `--interval` allowed, bounded by the call timeout |
-| `issue view`, `issue list`, `issue status` | |
-| `issue develop --list` | only with `--list`; without it the command creates a branch |
-| `run view`, `run list`, `run watch` | `--log`, `--log-failed` allowed |
-| `workflow view`, `workflow list` | `--yaml` allowed |
-| `repo view`, `repo list`, `repo read-dir` | |
-| `repo read-file` | `-o/--output` and `--clobber` refused: they write host files |
-| `repo gitignore list/view`, `repo license list/view`, `repo autolink list/view`, `repo deploy-key list` | |
-| `release view`, `release list`, `release verify` | |
-| `search code`, `search commits`, `search issues`, `search prs`, `search repos` | account-wide: see [OQ-BB1](#OQ-BB1) |
-| `gist view`, `gist list`, `label list`, `cache list`, `org list`, `status` | account-wide ones as above |
-| `secret list`, `variable list`, `variable get` | `secret list` returns names (INFERRED); Actions variables are not secret by GitHub's own model |
-| `ruleset list/view/check`, `discussion list/view`, `agent-task list/view` | `agent-task --follow` bounded by the call timeout |
-| `project list/view/field-list/item-list` | needs the `project` scope, which a default login lacks (INFERRED) |
-| `auth status` | **only** without `-t/--show-token`, which prints the token (MEASURED) |
-| `api` | only under [§5.3](#53-gh-api)'s rule |
+| Command path | Scope | Flag notes |
+| :--- | :--- | :--- |
+| `pr view`, `pr list`, `pr diff`, `pr status` | repository | `pr status` only with an explicit `-R` |
+| `pr checks` | repository | `--watch` and `--interval` allowed, bounded by the call timeout |
+| `issue view`, `issue list`, `issue status` | repository | |
+| `issue develop --list` | repository | only with `--list`; without it the command creates a branch |
+| `run view`, `run list`, `run watch` | repository | `--log`, `--log-failed` allowed |
+| `workflow view`, `workflow list` | repository | `--yaml` allowed |
+| `repo view`, `repo read-dir` | repository | `repo view` with no argument means the forwarder's repository |
+| `repo read-file` | repository | `-o/--output` and `--clobber` refused: they write host files |
+| `repo autolink list/view`, `repo deploy-key list` | repository | |
+| `repo gitignore list/view`, `repo license list/view` | none | GitHub's public templates |
+| `release view`, `release list`, `release verify` | repository | |
+| `label list`, `cache list` | repository | |
+| `secret list`, `variable list`, `variable get` | repository | `--org`, `--env` and `--user` make them account-wide. `secret list` returns names (INFERRED); Actions variables are not secret by GitHub's own model |
+| `ruleset list/view/check`, `discussion list/view` | repository | `ruleset --org` makes it account-wide |
+| `search code`, `search commits`, `search issues`, `search prs` | repository, only with `--repo` naming in-scope repositories and no `repo:`, `org:`, `user:` or `owner:` qualifier in the query text | otherwise account-wide. Several `repo:` qualifiers are ORed, which is why the query text is checked too (INFERRED) |
+| `search repos`, `repo list`, `gist view`, `gist list`, `org list`, `status`, `agent-task list/view`, `project list/view/field-list/item-list` | account-wide | in the set, so they run once [OQ-BB6](#OQ-BB6) admits account-wide reads; `agent-task --follow` bounded by the call timeout; `project` needs a scope a default login lacks (INFERRED) |
+| `auth status` | none | **only** without `-t/--show-token`, which prints the token (MEASURED) |
+| `api` | by path | only under [§5.3](#53-gh-api)'s rule |
 
-`--jq`/`-q` and `--template` are refused on every entry, read or write: `--jq 'env.GH_TOKEN'` and
+`--jq`/`-q` and `--template` are refused on every entry, in every set: `--jq 'env.GH_TOKEN'` and
 `'$ENV.GH_TOKEN'` printed tokens from the environment (MEASURED; `gh` turns on the environment
 access its jq library disables by default, SOURCED). The refusal says to pipe `--json` output into
 `jq` in the jail instead. `--json <fields>` is allowed.
 
-**Everything not in this table is a write.** That includes, by name, the look-alikes that are not
-reads: `pr checkout` and `co` (local git), `repo clone`, `gist clone`, `run download`,
-`release download`, `attestation download` (host files), `repo set-default` without `--view`
-(local git config), `browse` (runs the browser even with no network call, MEASURED), and every
-`--dry-run` (`pr create --dry-run` *"May still push git changes"*, MEASURED in its help).
+**Every other command that is parsed, in scope and not refused is read-write.** That includes
+every `--dry-run` (`pr create --dry-run` *"May still push git changes"*, MEASURED in its help). The
+look-alikes that are not reads, `pr checkout` and `co` (local git), `repo clone`, `gist clone`,
+`run download`, `release download`, `attestation download` (host files), `repo set-default` without
+`--view` (local git config) and `browse` (runs the browser even with no network call, MEASURED),
+are not read-write: they are refused ([§5.4](#54-never-brokered)).
 
 ### 5.3 `gh api`
 
@@ -447,30 +523,39 @@ any parameters were added. Override the method with `--method`."* The broker's r
 own parse (MEASURED against a local echo server, [Appendix B](#b2-gh-probes)):
 
 1. **Effective method:** `-X`/`--method` uppercased if given; else `POST` if any `-f`, `-F`,
-   `--raw-field`, `--field` or `--input` is present; else `GET`. `GET` and `HEAD` are candidate
-   reads. Everything else is a write.
+   `--raw-field`, `--field` or `--input` is present; else `GET`. `GET` and `HEAD` are candidates
+   for read-only. Every other method is read-write.
 2. **Endpoint:** a path, never a URL. Anything containing `://` is refused: `gh api http://…`
    sent the enterprise token over plain HTTP to the named host (MEASURED). `--hostname` is refused.
 3. **Headers:** `-H` refused except an allowlisted `Accept:` value. `X-HTTP-Method-Override`
-   passes through `gh` untouched (MEASURED), so a `GET` carrying it is not a read.
+   passes through `gh` untouched (MEASURED), which is why an arbitrary header is refused rather
+   than trusted: a `GET` carrying it would reach GitHub as a `DELETE`.
 4. **Host files:** a `-F` value beginning `@` is refused, and `--input` is allowed only as `-`
    ([§5.5](#55-argv-hazards)).
-5. **Repository scope** for a REST read: the path's `repos/{owner}/{repo}` prefix is the
-   repository [OQ-BB1](#OQ-BB1) checks. A path with no repository is account-wide.
-6. **GraphQL** (`graphql`, `/graphql`, `api/graphql`) is always `POST`, even for a query. It is a
-   read only if the `query` field, passed as `-f query=…`, parses as a GraphQL document in which
-   **every** operation is a `query` (the anonymous `{…}` shorthand counts). `mutation`,
-   `subscription`, a document that fails to parse, or a query arriving any other way is a write.
-   `operationName` is never trusted to pick one. A GraphQL query names no repository the broker
-   can check, so it is account-wide.
+5. **Repository scope** for REST: the path's `repos/{owner}/{repo}` prefix is the repository
+   the scope check reads. A path with no repository is account-wide, so out of scope under the
+   default.
+6. **GraphQL** (`graphql`, `/graphql`, `api/graphql`) is always `POST`, even for a query. It is
+   read-only only if the `query` field, passed as `-f query=…`, parses as a GraphQL document in
+   which **every** operation is a `query` (the anonymous `{…}` shorthand counts). `mutation`,
+   `subscription`, a document that fails to parse, or a query arriving any other way is
+   read-write. `operationName` is never trusted to pick one. **A GraphQL call names no repository
+   the broker can check, so every one is account-wide**, and out of scope under the default,
+   whichever set it falls in.
 7. **Harmless:** `--paginate`, `--slurp`, `-i`, `--silent`, `--preview`, `--cache`.
-8. **Every `gh api` write is ask-every-time.** A time grant covering `gh api -X POST` would cover
-   every endpoint, merges and deletes included, and would empty [OQ-BB2](#OQ-BB2)'s list of
-   meaning.
+8. **A `gh api` write is read-write like any other write.** Under the ruled default, a live
+   read-write grant covers `gh api -X DELETE repos/o/r/issues/comments/1`, and `repo delete` and
+   `pr merge` besides, for its window. That is the cost [OQ-BB2](#OQ-BB2)'s ruling accepted. A user
+   who wants some of those in front of them every time defines a narrower windowed set
+   ([§5.7](#57-permission-sets)); the broker's code does not.
 
 ### 5.4 Never brokered
 
-Refused with or without a human, because no answer makes them safe to run on the host:
+Refused whatever set the jail holds and whatever a human answers, because no answer makes them
+safe to run on the host. **These are not a permission-set question.** They are about the credential
+and the host, not about what the agent may do on GitHub, so they are the broker's code: a set
+definition naming one is a configuration error, and nothing lifts them
+([BB-P8](#BB-P8)).
 
 | Refused | Why |
 | :--- | :--- |
@@ -487,14 +572,121 @@ Refused with or without a human, because no answer makes them safe to run on the
 | # | Hazard (MEASURED unless marked) | What the broker does |
 | :--- | :--- | :--- |
 | H1 | `-R HOST/o/r`, a URL argument on another host, and `GH_HOST` all send the call, with a token, to the host named | Pins `GH_HOST=github.com`; refuses three-segment `-R` and off-GitHub URLs |
-| H2 | `--jq` reads the environment | Refused everywhere ([§5.2](#52-the-free-reads)) |
+| H2 | `--jq` reads the environment | Refused everywhere ([§5.2](#52-the-read-only-set)) |
 | H3 | An alias can run shell (`gh alias set --shell`); `co` can be redefined; multi-word aliases under built-in parents work | No `config.yml`; exact command-path match; `co` refused |
 | H4 | An extension resolves any unknown word to a binary | Empty data dir; unknown words refused |
 | H5 | `GH_BROWSER`, `BROWSER`, `GH_PAGER`, `PAGER`, `GH_EDITOR`, `VISUAL`, `EDITOR` are exec paths | Environment built from nothing ([§4.1](#41-how-the-broker-runs-gh)) |
 | H6 | Flags parse before the subcommand | The parser skips flags wherever they sit |
 | H7 | The cwd's git repository leaks into `{owner}/{repo}`, `pr status` and a bare `pr view` | Empty cwd; explicit `-R` |
-| H8 | Token-printing verbs | Refused, no approval path |
+| H8 | Token-printing verbs | Refused, no approval path and no set |
 | H9 | `-F x=@file`, `--input file`, `--body-file file` read a host file the agent names, and put it in a request (`-X GET -F q=@secret.txt` put the file in the query string) | Refused; the forwarder sends the jail's file as stdin and the argv says `-` |
+
+### 5.6 The repository scope
+
+[OQ-BB1](#OQ-BB1)'s ruling: the broker sees only the workspace's own repositories. The
+**repository scope** is that list, and it bounds every set, windowed ones included: a live
+read-write grant never touches a repository outside it.
+
+**How it is pinned.** The first launch that starts the broker for a workspace pins its scope:
+
+1. The host reads the workspace's `.git/config` **as text, with no host `git` process**, since git
+   in an agent-writable checkout can run code through its config
+   ([§9.5](#95-host-code-execution-through-gh)). It follows a worktree's `gitdir:` file to the
+   shared config and ignores `include` and `includeIf` directives.
+2. It takes every remote URL on `github.com`, in https, `ssh://` and `git@github.com:` forms, and
+   reduces each to `owner/repo`.
+3. It records that list in the store as the workspace's scope, keyed by the workspace's host path,
+   and the launch discloses it: *"github-broker: scope for this workspace: o/r, me/r-fork."*
+
+**Later launches read the pin, not the remotes.** A GitHub remote added since, by the user or by
+the agent, is disclosed as outside the scope: *"github-broker: remote upstream (x/y) is not in
+this workspace's scope."* It is not admitted. Admitting it, and any other change to a pinned
+scope, is [OQ-BB6](#OQ-BB6)'s mechanism.
+
+**Why pin once rather than read the remotes each launch.** The remotes are in the workspace, and
+the agent can edit them. Re-reading them at every launch would let one session's
+`git remote add` widen the next session's scope, which is exactly the workspace widening its own
+reach that the ruling forbids ([BB-P9](#BB-P9)). Pinning at the first launch is trust on first use:
+it trusts the remotes the workspace had when the broker was first enabled there. It does not help
+if the agent edited the remotes before that launch. The first launch's disclosure is the only
+defense in that case.
+
+**Out of scope means it does not run.** A command whose repository is outside the scope, or that
+names none the broker can check, exits 64 naming the pinned repositories. It files no request and
+rings nobody. An Allow button for it would let a request the agent composed widen the scope, and
+"read my other private repository" is what a prompt-injected agent would ask for. Until
+[OQ-BB6](#OQ-BB6) is ruled, widening has no path at all, which is the direction that needs no
+migration later.
+
+**Account-wide commands** are out of scope under the default, in every set: searches without an
+in-scope `--repo`, every GraphQL call, `gh api` paths with no repository, gists, orgs, `status`,
+`repo list`, and writes that create something outside a repository (`repo create`, `repo fork`,
+`gist create`). A workspace with no GitHub remote has an empty scope, and the launch says so.
+Only the commands [§5.2](#52-the-read-only-set) marks with scope *none* run there.
+
+### 5.7 Permission sets
+
+[OQ-BB2](#OQ-BB2)'s ruling: each source defines named permission sets, and a grant hands over one
+set for a window. A source's sets form an ordered list. Each set has a name, a mode (standing or
+windowed), and rules admitting commands. A windowed set also has a default window and a use cap.
+
+**GitHub's default sets:**
+
+| Set | Mode | Admits | Window | Uses |
+| :--- | :--- | :--- | :--- | :--- |
+| `read-only` | standing | [§5.2](#52-the-read-only-set)'s table | — | — |
+| `read-write` | windowed | every command that is parsed, in scope and not refused | 15 minutes | 25 |
+
+**How a command finds its set.** A command runs if the jail holds any set admitting it: a
+standing set, or a windowed set under a live grant. Otherwise the request names the first windowed
+set, in the source's order, that admits it, and the notification offers that set
+([§6.4](#64-choosing-a-duration)). With the two defaults this reduces to "reads run, the rest asks
+for read-write". The use cap is [OQ-B](#15-decision-ledger)'s second bound on a reusable grant,
+kept alongside the window.
+
+**More than two sets.** The model is not specific to two. A user who wants comments to flow for an
+hour but merges and deletes to stay behind a short window could declare this, in order:
+
+| Set | Mode | Admits | Window |
+| :--- | :--- | :--- | :--- |
+| `read-only` | standing | the default table | — |
+| `review` | windowed | `pr comment`, `pr review`, `issue comment`, `issue edit`, `pr edit` | 1 hour |
+| `read-write` | windowed | the default: everything else | 15 minutes |
+
+A `pr comment` request then asks for `review`, and a `pr merge` request asks for `read-write`. A
+jail holding `read-write` can also comment, since `read-write` admits every command.
+
+**Configuration is user-scope only.** A source's sets live in the user-scope config
+(`~/.config/yolo-jail/config.jsonc`) under one key per source. The spelling below is illustrative;
+the implementer picks it, and `yolo config-ref` is its authority once built:
+
+```jsonc
+"broker": {
+  "github": {
+    "sets": [
+      { "name": "read-only", "mode": "standing" },
+      { "name": "review", "mode": "windowed", "window": "1h", "uses": 50,
+        "admit": ["pr comment", "pr review", "issue comment", "issue edit", "pr edit"] },
+      { "name": "read-write", "mode": "windowed", "window": "15m", "uses": 25 }
+    ]
+  }
+}
+```
+
+- A set named like a default, with no `admit`, keeps the default's rules.
+- A rule is written in the classifier's own vocabulary: command paths with the flag conditions
+  [§5.2](#52-the-read-only-set) uses, and for `gh api` a method and a path pattern under
+  `repos/{owner}/{repo}`.
+- **Everything about the sets is definable**, as the maintainer put it: a user may add a write to
+  `read-only`, change a window, or make `read-write` standing. That is their call, at their
+  scope, and the launch discloses every set that differs from the default:
+  *"github-broker: sets from user config: read-only (+ pr comment), review 1h, read-write 15m."*
+- **What is not definable:** a set cannot name repositories (the scope is [§5.6](#56-the-repository-scope)'s),
+  and a set that admits a refused command is a configuration error `yolo check` reports
+  ([BB-P8](#BB-P8)).
+- A `broker` key at workspace scope is refused, naming the user-scope file
+  ([BB-P9](#BB-P9)). A workspace-keyed spelling for one workspace's widening is
+  [OQ-BB6](#OQ-BB6)'s question.
 
 ## 6. The doorbell: a persistent desktop notification
 
@@ -562,34 +754,42 @@ not relied on. Which of these yolo uses is [OQ-BB4](#OQ-BB4).
 
 Rendered by the broker from its own parse ([BB-P4](#BB-P4)), never from a string the jail sent:
 
-- **Title, fixed by yolo:** `yolo: GitHub write requested` (or `… ask-every-time write`).
+- **Title, fixed by yolo:** `yolo: GitHub read-write requested`, naming the set the request asks
+  for.
 - **Body, in order:**
   1. the canonical command, with each value longer than 60 characters elided to its first 40,
      its length and a short hash, and stdin shown as `stdin: 412 bytes`;
-  2. the repository, or `account-wide`;
-  3. the jail's workspace path as the host sees it, and the agent if the forwarder reported one,
+  2. the repository;
+  3. **what the set hands over**, from the set's definition, never the command: for the default,
+     `read-write: every write to o/r, merges and deletes included, for 15 min`. The button grants
+     the set, not the command shown above it, and the human must be told so in the notification
+     itself;
+  4. the jail's workspace path as the host sees it, and the agent if the forwarder reported one,
      marked as reported by the jail;
-  4. the request id, the time it expires, and `yolo approve r-3f9a0c21` as the alternative;
-  5. the agent's note if it passed `--reason`, at most 140 characters, labeled
+  5. the request id, the time it expires, and `yolo approve r-3f9a0c21` as the alternative;
+  6. the agent's note if it passed `--reason`, at most 140 characters, labeled
      `agent's note (unverified):`, always last.
 - **Cleaned:** control characters and terminal escapes removed from every field, and bidirectional
   override characters too, so no field can visually reorder another.
 
 ### 6.4 Choosing a duration
 
-GNOME shows three buttons, so the button set is three, and every longer choice goes through
+GNOME shows three buttons, so the notification carries three, and every longer choice goes through
 `yolo approve`:
 
 | Button (the leaning in [OQ-BB3](#OQ-BB3)) | What it grants |
 | :--- | :--- |
 | **Allow once** | This exact command, one use, valid 15 minutes |
-| **Allow 15 min** | [OQ-BB2](#OQ-BB2)'s grant scope for 15 minutes, 25 uses |
+| **Allow read-write 15 min** | The request's set, `read-write` by default, for that set's window and use cap: 15 minutes and 25 uses by default. Under a user's own sets the label names the set and its window, such as **Allow review 1 h** |
 | **Deny** | Nothing; the same command is refused silently for 10 minutes |
 
-Dismissing the notification is also a Deny ([BB-P5](#BB-P5)). An ask-every-time write shows
-**Allow once** and **Deny** only. On macOS the same three appear in the Options menu, and a fourth
-would fit there, but one set on both systems is simpler to learn. `yolo approve r-… --for 1h` and
-`--for session` give the longer grants ([§7](#7-grants-and-the-request-store)).
+Dismissing the notification is also a Deny ([BB-P5](#BB-P5)). Every request shows the same three,
+since the default has no always-ask list ([OQ-BB2](#OQ-BB2)). When the host `gh` is outside the
+tested range, no set grant applies ([§5.1](#51-the-rule)), so the middle button is absent and the
+notification says why. On macOS the same three appear in the Options menu, and a fourth
+would fit there, but one button layout on both systems is simpler to learn. `yolo approve r-… --for 1h` and
+`--for session` hand over the same set for longer ([§7](#7-grants-and-the-request-store)); no
+flag hands over a different set than the one requested.
 
 ### 6.5 When there is no notifier, or nobody answers
 
@@ -607,7 +807,7 @@ or no macOS notifier at all. Then:
    ```console
    $ yolo approve                      # list pending requests and live grants, every jail
    $ yolo approve r-3f9a0c21           # allow once
-   $ yolo approve r-3f9a0c21 --for 15m # or 1h, or session
+   $ yolo approve r-3f9a0c21 --for 15m # the request's set; or 1h, or session
    $ yolo approve r-3f9a0c21 --deny
    $ yolo approve --revoke g-7d2e0b91  # or --revoke all
    ```
@@ -629,39 +829,44 @@ is a thin local client of the store with its own operator credential
 ## 7. Grants and the request store
 
 **A request** is the parsed canonical command, its repository, the stdin digest, the jail id from
-the preamble, the workspace, the class, the time filed and its state: `pending`, then one of
+the preamble, the workspace, the set it asks for, the time filed and its state: `pending`, then one of
 `allowed`, `denied`, `expired` or `refused`. Its identity for duplicate-joining and for
 **Allow once** is a SHA-256 over the canonical argv, the repository and the stdin digest, which is
 unYOLO's content-addressed plan, re-derived ([§A.1](#a1-the-six-claims-from-the-website-pass-checked-against-code)).
 
-**A grant** carries:
+**A grant hands over one permission set, or one command, for a window.** It carries:
 
 | Field | Value |
 | :--- | :--- |
-| Scope | **Allow once:** one request digest. **A time grant:** [OQ-BB2](#OQ-BB2)'s scope, leaning to grantable writes to one repository from one jail |
+| Covers | **Allow once:** one request digest. **A set grant:** the windowed set the request named, `read-write` by default, whole: every command that set admits, on every repository in the jail's scope ([§5.7](#57-permission-sets)). Never a repository outside the scope, and never a refused command |
 | Holder | The jail id from the preamble, never a field a request carries |
-| Expiry | 15 minutes, 1 hour, or `session`: until that jail stops, capped at 12 hours |
-| Uses | Allow once: 1. A time grant: 25 |
-| Narrowing | The human may only narrow: a shorter time, fewer uses, never an ask-every-time write, never another jail ([OQ-B](#15-decision-ledger)) |
+| Expiry | Allow once: 15 minutes. A set grant: the set's window (15 minutes for `read-write` by default), or 1 hour or `session` through `yolo approve`. `session` lasts until that jail stops, capped at 12 hours |
+| Uses | Allow once: 1. A set grant: the set's use cap, 25 by default |
+| Narrowing | The human may only narrow: Allow once instead of the set, a shorter time, fewer uses. Never a different set from the one requested, never another jail ([OQ-B](#15-decision-ledger)) |
 
 Rules:
 
 - **Expiry is checked at use**, against the clock, never by a sweeper. A grant that expired is
   kept for the audit and matches nothing.
-- **A jail stopping ends every grant it holds**, time grants included, when the broker for that
+- **A jail stopping ends every grant it holds**, set grants included, when the broker for that
   jail exits.
+- **Several grants at once:** a jail may hold several live grants, of one set or of several. A
+  command runs under the first that covers it, and spends that grant's use.
 - **Revocation** is `yolo approve --revoke <grant>` or `--revoke all`, effective at the next call.
 - **Several jails at once:** every request and grant belongs to one jail. `yolo approve` lists
   all of them with their workspace; a grant never spans jails, even two on one repository.
 - **The store** lives at `GLOBAL_STORAGE/broker/github/` (under `~/.local/share/yolo-jail`), `0700`,
   one JSON file per request and grant, in its own directory so that no sweep of another store
-  ever reaps a pending human decision. It is never mounted into a jail.
+  ever reaps a pending human decision. Each workspace's pinned repository scope
+  ([§5.6](#56-the-repository-scope)) is a file under `scope/` there. It is never mounted into a
+  jail.
 - **One writer, serialized.** Every mutation, from any broker or `yolo approve`, goes through one
   function under an `flock` on the store. A decision names the request state it saw; the first
   decision written wins, and a later one is told the request is already decided (unYOLO's
   `expected_revision`, re-derived, since two front-ends now exist).
 - **Retention:** decided requests and ended grants stay 7 days for `yolo approve` to show, then go.
-  The audit log keeps the record.
+  The audit log keeps the record. A scope pin is never aged out: only
+  [OQ-BB6](#OQ-BB6)'s mechanism changes one.
 
 ## 8. Audit
 
@@ -684,7 +889,7 @@ per-agent record.
   | `agent` | as the forwarder reported it, marked `reported` |
   | `argv` | the canonical argv, values in full |
   | `stdin` | byte count and SHA-256, never the bytes |
-  | `class` | `read`, `write`, `ask-every-time` or `refused` |
+  | `set` | the set the classifier assigned (`read-only`, `read-write`, or a user-defined name), or `refused` or `out-of-scope` |
   | `outcome` | `ran`, `pending`, `denied`, `refused` |
   | `request`, `grant` | ids, when any |
   | `exit`, `bytes_out`, `elapsed_ms`, `redactions` | as run |
@@ -693,7 +898,7 @@ per-agent record.
 - **Bounded, not pruned:** rotated at 8 MiB, four archives kept, so at most 40 MiB. `yolo prune`
   never touches it. A write failure warns once per daemon and never blocks a call, as
   `crossaudit` does, because an audit that can refuse work becomes a reason to turn it off.
-- **Viewing:** `yolo audit` on the host, with `--since`, `--jail`, `--workspace`, `--class`,
+- **Viewing:** `yolo audit` on the host, with `--since`, `--jail`, `--workspace`, `--set`,
   `--grant` and `--json`; it refuses in a jail. `yolo stores` lists the file under the state
   directory, reclaimed by rotation only.
 - **Payload rule:** the 2026-08 draft's tension, a connection audit that is payload-free by rule
@@ -720,11 +925,14 @@ real command legible; it cannot make the human read it.
 ### 9.2 Prompt fatigue
 
 A doorbell that rings too often trains a reflexive yes, which is worse than no doorbell because
-it manufactures the appearance of oversight. The design's defenses: reads never ring; a time grant
-covers a burst of related writes; a duplicate joins its pending request; a denied command stays
+it manufactures the appearance of oversight. The design's defenses: reads never ring; a set grant
+covers every write for its window; a duplicate joins its pending request; a denied command stays
 quiet for 10 minutes; a jail may have at most three requests pending. The forcing question stays
 the one the 2026-08 draft asked: **would the human ever say no?** A command they never refuse
-belongs in the grant scope, not in front of them. The audit log is the evidence for moving it.
+belongs in a standing set, and a user can put it there ([§5.7](#57-permission-sets)). The audit log
+is the evidence for moving it. The permission-set ruling pushes the other way too. A read-write
+grant rings once and then covers merges and deletes unseen for its window. A user who would say no
+to those defines a narrower set, and the audit log shows which commands ran under which grant.
 
 ### 9.3 A jail forging an approval
 
@@ -779,7 +987,8 @@ runs nothing as a read.
   and run `gh` itself. The boundary is the jail's; the broker makes crossing it deliberate,
   audited and revocable.
 - **A confined agent exfiltrating what a free read returned.** The jail has network egress; a read
-  is a read. [OQ-BB1](#OQ-BB1) narrows what reads reach, which is the only lever here.
+  is a read. The repository scope ([§5.6](#56-the-repository-scope)) narrows what reads reach, which
+  is the only lever here.
 - **git.** `git push` and `git fetch` do not go through this broker; the jail uses its own
   credential or has none. The credential-injecting proxy for git is B1b
   ([§13](#13-what-this-does-not-cover-and-the-other-two-tiers)).
@@ -788,7 +997,7 @@ runs nothing as a read.
 
 | Option | Credential in the jail? | Per-action control | Async answer | Setup | Verdict |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| **A. This design:** host `gh`, allowlist, notification, grants, ping | no | yes | yes | `gh auth login` on the host | **Recommended** |
+| **A. This design:** host `gh`, permission sets, repository scope, notification, grants, ping | no | yes | yes | `gh auth login` on the host | **Recommended** |
 | B. A fine-grained PAT in the jail (today's workspace `.env`) | yes | none | — | per repo | Kept as the user's choice, disclosed ([§4.3](#43-the-jail-side)); not the product |
 | C. An App installation token minted per grant and handed to the jail | yes, for an hour | none inside the hour | yes | an App per org | Rejected ([§4.5](#45-the-alternative-mint-a-narrow-token)) |
 | D. An App token held by the broker instead of the user's login | no | yes | yes | an App per org | A later credential source behind A, not a different design |
@@ -816,19 +1025,22 @@ of unYOLO's ideas behind triggers. The asynchronous ruling fires three of them:
 1. **The read path and the audit log.** A `github` pack shipping the `github-broker` loophole
    (off until enabled, R2 of [`loophole-system.md`](../reference/loophole-system.md#principles))
    and the jail's `gh` forwarder; the broker's `gh` execution ([§4.1](#41-how-the-broker-runs-gh));
-   the classifier with the free reads and the refusals; `broker-audit.jsonl` and `yolo audit`.
-   Every write returns exit 77 with *"writes need approval, which this version cannot ask for"*,
-   audited. Useful on day one: the agent reads PRs, runs and issues with no token in the jail.
-2. **Writes on Linux.** The request store and grants, the bounded wait, the D-Bus notifier,
+   the classifier with the `read-only` set, the refusals, and the repository scope with its pin
+   and disclosures ([§5.6](#56-the-repository-scope)); `broker-audit.jsonl` and `yolo audit`.
+   Every read-write command returns exit 77 with *"writes need approval, which this version cannot
+   ask for"*, audited. Useful on day one: the agent reads PRs, runs and issues with no token in the jail.
+2. **Writes on Linux.** The `read-write` set and set grants, user-scope set configuration
+   ([§5.7](#57-permission-sets)), the request store, the bounded wait, the D-Bus notifier,
    `yolo approve`, and the answer as a ping. The ping needs `yolo notify` and its box, steps 1
    and 2 of [`agent-event-watchers.md` §10](agent-event-watchers.md#10-what-i-would-build-in-order);
    until they land, `yolo gh status` carries the answer.
 3. **macOS.** The notifier [OQ-BB4](#OQ-BB4) picks, and the macos-user endpoint grant measured on
    a Mac.
 
-What waits on a ruling: step 1's read scope ([OQ-BB1](#OQ-BB1)) and step 2's grant scope and
-buttons ([OQ-BB2](#OQ-BB2), [OQ-BB3](#OQ-BB3)). Step 1 can be built with the leaning and narrowed
-later; widening later is the direction that needs no migration.
+[OQ-BB1](#OQ-BB1) and [OQ-BB2](#OQ-BB2) are ruled, so step 1 waits on nothing. What still waits
+on a ruling: step 2's buttons ([OQ-BB3](#OQ-BB3)), step 3's notifier ([OQ-BB4](#OQ-BB4)), and any
+way to widen one workspace's scope ([OQ-BB6](#OQ-BB6)), which no step needs: until it is ruled,
+out of scope means refused.
 
 **Testing constraints.** No test may call GitHub or start an agent. The classifier is tested on
 argv alone, against a table pinned to a `gh` version; the executor against a fake `gh` that
@@ -845,17 +1057,26 @@ desktops by hand before [§6.1](#61-linux)'s table is claimed as yolo's behavior
    `gh -R x co 1` and `gh api -F q=@/etc/passwd user` each exit 64 in the jail and are audited as
    `refused`; none runs a host process but the broker's own.
 3. `gh pr comment 32 -R o/r --body-file -` with no grant shows a GNOME notification carrying the
-   exact command, the repository and the workspace, with three buttons; pressing **Allow 15 min**
-   within 30 seconds prints the comment URL in the jail.
-4. The same after 30 seconds exits 75 naming the request; pressing **Allow 15 min** an hour later
-   rings the agent with an `approved` ping; re-running posts once.
+   exact command, the repository, the workspace and what `read-write` hands over, with three
+   buttons; pressing **Allow read-write 15 min** within 30 seconds prints the comment URL in the
+   jail.
+4. The same after 30 seconds exits 75 naming the request; pressing **Allow read-write 15 min** an
+   hour later rings the agent with an `approved` ping; re-running posts once.
 5. Dismissing the notification, or leaving it 60 minutes, pings `denied` or `expired`, and the
    same command stays quiet for 10 minutes.
 6. `yolo approve` over SSH lists the pending request and answers it; the notification disappears.
    `yolo approve` in a jail refuses.
-7. `gh api -X DELETE repos/o/r/issues/comments/1` inside a live time grant still rings.
-8. Stopping the jail ends its grants: after a restart, a write rings again.
-9. A launch with `GH_TOKEN` reaching the jail says that token bypasses the broker.
+7. Inside a live `read-write` grant, `gh issue edit 5 -R o/r` and
+   `gh api -X POST repos/o/r/issues/5/comments -f body=x` run with no notification, and the audit
+   log shows each under the grant's id.
+8. `gh pr view 1 -R other/private`, `gh search code foo` and `gh api graphql -f query='{viewer{login}}'`
+   each exit 64 naming the scope, with or without a live grant, and ring nobody.
+9. A `git remote add` in the jail followed by a restart does not widen the scope: the launch
+   names the new remote as outside it.
+10. A user-scope set definition that admits `auth token` fails `yolo check`; a `broker` key in the
+    workspace config is refused.
+11. Stopping the jail ends its grants: after a restart, a write rings again.
+12. A launch with `GH_TOKEN` reaching the jail says that token bypasses the broker.
 
 ## 13. What this does not cover, and the other two tiers
 
@@ -867,7 +1088,8 @@ The 2026-08 draft found that approval is the heaviest of three tiers, and that i
 | **proxy** | host-side, injected after egress | no | it cannot, but the action is mechanically checkable: B1b for git, `claude-oauth-broker`'s shipped shape re-aimed ([§A.3](#a3-fit-against-yolo-concretely)) |
 | **approve** | host-side, action gated | **yes** | the judgment is human: this design |
 
-This design is the approve tier with the filter tier folded into it as the free reads. Not
+This design is the approve tier with the filter tier folded into it as the standing
+`read-only` set. Not
 covered:
 
 - **git transport.** `git push`/`fetch` stay the jail's business; B1b is the proxy that would
@@ -952,18 +1174,22 @@ covered:
 
 3. 💬 <a id="OQ-BB3"></a>**[OQ-BB3](#OQ-BB3): Which three buttons?** GNOME shows three and drops
    the rest, so the notification carries three choices and `yolo approve` the others. This decides
-   what one press most often grants.
+   what one press most often grants. *Restated 2026-09-29 for [OQ-BB2](#OQ-BB2)'s permission sets.
+   The duration button now hands over the request's whole set, `read-write` by default, so it is
+   labeled with the set. The options and the leaning are otherwise unchanged.*
 
-   - **A — Allow once · Allow 15 min · Deny.** An explicit Deny, the brief's 15 minutes, and the
-     narrowest yes. 1 hour and session through `yolo approve`.
-   - **B — Allow 15 min · Allow 1 hour · This session**, dismissal meaning Deny. Three durations,
-     but no one-shot yes and no visible no.
+   - **A — Allow once · Allow read-write 15 min · Deny.** An explicit Deny, the brief's 15
+     minutes, and a narrow yes: the one command shown, against a set that under the ruled default
+     also covers merges and deletes. 1 hour and session through `yolo approve`.
+   - **B — Allow read-write 15 min · 1 hour · This session**, dismissal meaning Deny. Three
+     durations, but every press hands over the whole set, with no one-shot yes and no visible no.
 
-   <!-- vantage: oq id=OQ-BB3 leaning="A: Allow once, Allow 15 min, Deny; dismissing also denies, and longer grants go through yolo approve." -->
+   <!-- vantage: oq id=OQ-BB3 leaning="A: Allow once, Allow read-write 15 min, Deny; dismissing also denies, and longer grants go through yolo approve." -->
 
-   _Leaning:_ **A.** "Allow once" is the answer that most often fits a single comment, a visible
-   Deny is clearer than a dismissal that means no on some desktops and "later" to the human, and
-   the brief's own example is 15 minutes.
+   _Leaning:_ **A.** "Allow once" is the answer that most often fits a single comment. The
+   permission-set ruling makes it matter more: without it, the only yes to one comment hands over
+   `read-write` whole for 15 minutes. A visible Deny is clearer than a dismissal that means no on
+   some desktops and "later" to the human, and the brief's own example is 15 minutes.
 
    **Answer:**
    > _(empty — fill in when decided)_
@@ -1007,29 +1233,44 @@ covered:
    discloses what a workspace was widened to. The same mechanism serves any source's permission
    sets, not only GitHub's.
 
+   *What it also carries, since the body was reconciled on 2026-09-29.* The scope is pinned at the
+   workspace's first broker launch and never re-read from the remotes
+   ([§5.6](#56-the-repository-scope), [BB-D19](#BB-D19)). So this mechanism is also how a remote
+   added later is admitted, and how account-wide calls (search, GraphQL, gists) would be admitted
+   for one workspace. Until it is ruled, an out-of-scope command is refused and rings nobody
+   ([BB-D20](#BB-D20)), and option (b)'s notification answer does not exist. Choosing (b) or (c)
+   means an out-of-scope call rings again, offering "always for this workspace", which reverses
+   BB-D20's no-ring rule for that one answer.
+
    <!-- vantage: oq id=OQ-BB6 leaning="(c): a user-scope map keyed by workspace for what the user declares ahead of time, and a host-side per-workspace grant record (the pack-approval shape) for remember-this answers; both user-owned, both disclosed at launch." -->
 
    **Answer:**
    > _(empty — fill in when decided)_
 
-5. 💬 <a id="OQ-B1b"></a>**[OQ-B1b](#OQ-B1b): Vendor unYOLO's policy engine, or re-derive it?**
+6. 💬 <a id="OQ-B1b"></a>**[OQ-B1b](#OQ-B1b): Vendor unYOLO's policy engine, or re-derive it?**
    `authorization/policy` + `authorization/budget` + `internal/copyx` are MIT, stdlib-only, about
    2,100 lines with a 1,456-line test file, and drop into `vendor/` with no new module
    requirement ([§A.6](#a6-recommendation--build-b1b-vendor-the-policy-engine-do-not-adopt-gh-broker)).
-   This decides whether the classifier's four outcomes and the grant floor are yolo's code or a
-   pinned copy of someone else's. (The id predates the grammar `vantage-check` accepts for a
+   This decides whether the classifier's four outcomes and the permission-set model are yolo's
+   code or a pinned copy of someone else's. (The id predates the grammar `vantage-check` accepts for a
    review button, and keeps its spelling because other docs cite it, so it carries no `oq`
    directive.)
 
    - **A — Copy at a pinned SHA.** A tested evaluator for free; a policy model built for unYOLO's
      operation registry, which does not parse argv.
-   - **B — Re-derive the ideas.** Deny-before-grant, the ask-every-time flag and narrowing-only
-     grants, as a few hundred lines keyed to `gh`'s command paths.
+   - **B — Re-derive the ideas.** Deny-before-grant (here, refusal before any set), a
+     code-owned floor no policy lifts (here, the refusal list, where unYOLO has its `Grantable`
+     flag), and narrowing-only grants, as a few hundred lines keyed to `gh`'s command paths.
 
-   _Leaning:_ **B.** The brief's shape is an argv classifier with a code-owned allowlist, and the
-   three ideas worth taking are each a few dozen lines. What the engine adds is a user-editable
-   policy file across operations, which this slice does not have. Revisit if a second broker makes
-   one policy file across services worth wanting.
+   _Leaning:_ **B.** The brief's shape is an argv classifier with a code-owned refusal list, and the
+   three ideas worth taking are each a few dozen lines. A set is a list of command paths in the
+   classifier's own vocabulary, not unYOLO's operation registry with target kinds and attributes.
+   Revisit if a second broker makes one policy file across services worth wanting.
+
+   *Updated 2026-09-29:* the argument above used to add that the engine's user-editable policy
+   file was something this slice lacked. The permission-set ruling gives the slice one, the
+   per-source sets at user scope ([§5.7](#57-permission-sets)), so that half is gone. The default
+   also has no per-operation always-ask flag for `Grantable` to carry.
 
    **Answer:**
    > _(empty — fill in when decided)_
@@ -1047,13 +1288,13 @@ covered:
 | OQ-D | **A pointer, not a question:** delegated to [`agent-auth-modes.md`](agent-auth-modes.md) [OQ-1](agent-auth-modes.md#12-decision-ledger), ruled there 2026-08-29 (launch-time selection, failover deferred), so this broker holds no auth-mode state | 2026-08-12 · delegate ruled 2026-08-29 | [§13](#13-what-this-does-not-cover-and-the-other-two-tiers) | — |
 | <a id="BB-D1"></a>[`BB-D1`](#15-decision-ledger) | *Implementation decision.* The broker is a loophole host daemon, one per jail, in a new `github` pack, off until enabled; the jail reaches it over the loopback-TLS transport, and every grant and request is keyed on the preamble's host-asserted jail id, never on a request field | 2026-09-28 | [§4.4](#44-per-notch-and-backend) | — |
 | <a id="BB-D2"></a>[`BB-D2`](#15-decision-ledger) | *Implementation decision.* The broker runs `gh` from a canonical argv it rebuilt, in an empty broker-owned cwd, with an environment built from nothing, a broker-owned `GH_CONFIG_DIR` holding only `hosts.yml`, empty XDG data, cache and state dirs, `GH_HOST=github.com`, an explicit two-segment `-R`, a 300-second timeout and a 16 MiB output cap | 2026-09-28 | [§4.1](#41-how-the-broker-runs-gh) | — |
-| <a id="BB-D3"></a>[`BB-D3`](#15-decision-ledger) | *Implementation decision.* The classifier parses flags anywhere, matches command paths exactly, checks every flag against its entry, treats anything unrecognized as a write, and treats every command as a write when the host `gh` is outside the tested version range | 2026-09-28 | [§5.1](#51-the-rule) | — |
-| <a id="BB-D4"></a>[`BB-D4`](#15-decision-ledger) | *Implementation decision.* `gh api`: method by `gh`'s own rule; URLs, `--hostname` and non-`Accept` headers refused; GraphQL a read only when every operation parses as a query from `-f query=`; every `gh api` write asks every time | 2026-09-28 | [§5.3](#53-gh-api) | — |
+| <a id="BB-D3"></a>[`BB-D3`](#15-decision-ledger) | *Implementation decision.* The classifier parses flags anywhere against each command's flag grammar for the tested `gh` range, matches command paths exactly, and refuses an unknown word, an unknown flag or an argv that does not parse. Outside the tested range no set applies and every command needs Allow once. *Revised 2026-09-29:* an unknown flag used to make a command a write, which a human saw every time; under a read-write grant nobody sees it, so it is refused | 2026-09-28 · revised 2026-09-29 | [§5.1](#51-the-rule) | — |
+| <a id="BB-D4"></a>[`BB-D4`](#15-decision-ledger) | *Implementation decision.* `gh api`: method by `gh`'s own rule; URLs, `--hostname` and non-`Accept` headers refused; GraphQL read-only only when every operation parses as a query from `-f query=`, and every GraphQL call account-wide. *Revised 2026-09-29:* a `gh api` write is read-write like any other write, where it used to ask every time | 2026-09-28 · revised 2026-09-29 | [§5.3](#53-gh-api) | — |
 | <a id="BB-D5"></a>[`BB-D5`](#15-decision-ledger) | *Implementation decision.* `--jq`, `--template`, `-w/--web`, `-e/--editor`, host-file arguments and the refused command families never run; host files cross only as the jail's stdin, capped at 1 MiB | 2026-09-28 | [§5.4](#54-never-brokered) | — |
 | <a id="BB-D6"></a>[`BB-D6`](#15-decision-ledger) | *Implementation decision.* The forwarder waits up to 30 seconds; an Allow inside the window runs the command then. Exit 75 means pending, 77 denied, 64 refused, 69 broker or login unavailable; none collides with `gh`'s own codes | 2026-09-28 | [§3.2](#32-a-write-and-the-bounded-wait) | — |
 | <a id="BB-D7"></a>[`BB-D7`](#15-decision-ledger) | *Implementation decision.* An approval after the wait runs nothing: it creates a grant and the agent re-issues, because an argv approved late may be stale and a command run at approval time can run twice | 2026-09-28 | [§3.4](#34-the-agent-re-issues-under-the-grant) | — |
 | <a id="BB-D8"></a>[`BB-D8`](#15-decision-ledger) | *Implementation decision.* A request's identity is a SHA-256 over the canonical argv, repository and stdin digest. A duplicate joins its pending request; three pending per jail at most; a denied command is refused silently for 10 minutes; an unanswered request expires as denied after 60 minutes | 2026-09-28 | [§7](#7-grants-and-the-request-store) | — |
-| <a id="BB-D9"></a>[`BB-D9`](#15-decision-ledger) | *Implementation decision.* A grant is held by one jail; Allow once is one use valid 15 minutes, a time grant 25 uses for 15 minutes, 1 hour or the jail's life capped at 12 hours; expiry is checked at use; a jail stopping ends its grants; `yolo approve --revoke` ends one or all | 2026-09-28 | [§7](#7-grants-and-the-request-store) | — |
+| <a id="BB-D9"></a>[`BB-D9`](#15-decision-ledger) | *Implementation decision.* A grant is held by one jail; Allow once is one use valid 15 minutes; a set grant hands over the requested set for its window and use cap (`read-write`: 15 minutes, 25 uses), or 1 hour or the jail's life capped at 12 hours through `yolo approve`; expiry is checked at use; a jail stopping ends its grants; `yolo approve --revoke` ends one or all. *Revised 2026-09-29* from "a time grant" to a set grant | 2026-09-28 · revised 2026-09-29 | [§7](#7-grants-and-the-request-store) | — |
 | <a id="BB-D10"></a>[`BB-D10`](#15-decision-ledger) | *Implementation decision.* The store is `GLOBAL_STORAGE/broker/github/`, `0700`, never mounted, one JSON file per record, mutated only under one `flock` by one function; the first decision written wins; decided records are kept 7 days | 2026-09-28 | [§7](#7-grants-and-the-request-store) | — |
 | <a id="BB-D11"></a>[`BB-D11`](#15-decision-ledger) | *Implementation decision.* The Linux notifier speaks D-Bus through vendored `godbus/dbus` v5 on a private connection with auto-start off, to the launch's own `DBUS_SESSION_BUS_ADDRESS` only; urgency critical, `resident`, timeout 0, no `"default"` action; `ActionInvoked` accepted only from the name's current owner; `CloseNotification` when decided elsewhere; the broker holds the connection for the request's life. Chosen over `notify-send --wait`, which needs libnotify 0.7.10 and cannot withdraw or replace its notification | 2026-09-28 | [§6.1](#61-linux) | — |
 | <a id="BB-D12"></a>[`BB-D12`](#15-decision-ledger) | *Implementation decision.* The notification's title is fixed by yolo; its body is the broker's canonical command with long values elided and hashed, the repository, the workspace, the request id and the `yolo approve` spelling, and last an optional agent note of at most 140 characters labeled unverified; every field is stripped of control, escape and bidirectional characters | 2026-09-28 | [§6.3](#63-what-the-notification-shows) | — |
@@ -1063,6 +1304,12 @@ covered:
 | <a id="BB-D16"></a>[`BB-D16`](#15-decision-ledger) | *Implementation decision.* The broker reads the host token once, host-side, only to redact it from output and count redactions in the audit line | 2026-09-28 | [§4.2](#42-what-crosses-back) | — |
 | <a id="BB-D17"></a>[`BB-D17`](#15-decision-ledger) | *Implementation decision.* The broker is not offered at `yolo host`, where the agent is the user; Apple Container reports it inert; a nested jail reports its host `gh` unauthenticated | 2026-09-28 | [§4.4](#44-per-notch-and-backend) | — |
 | <a id="BB-D18"></a>[`BB-D18`](#15-decision-ledger) | *Implementation decision.* A launch with the broker enabled and a `GH_TOKEN` or `GITHUB_TOKEN` reaching the jail discloses that the token bypasses the broker, and removes nothing | 2026-09-28 | [§4.3](#43-the-jail-side) | — |
+| <a id="BB-D19"></a>[`BB-D19`](#15-decision-ledger) | *Implementation decision.* The repository scope is pinned at the first launch that starts the broker for a workspace: the host reads the workspace's `.git/config` as text with no host `git` process, follows a worktree's `gitdir:`, ignores `include` directives, takes every `github.com` remote as `owner/repo`, records the list in the store keyed by the workspace's host path, and discloses it. Later launches read the pin, not the remotes, and disclose any GitHub remote outside it; only [OQ-BB6](#OQ-BB6)'s mechanism changes a pin. Chosen over re-reading the remotes each launch, which would let one session's agent widen the next session's scope ([BB-P9](#BB-P9)) | 2026-09-29 | [§5.6](#56-the-repository-scope) | — |
+| <a id="BB-D20"></a>[`BB-D20`](#15-decision-ledger) | *Implementation decision.* The scope bounds every set. A command whose repository is outside it, or that names none the broker can check (unqualified search, every GraphQL call, `gh api` paths with no repository, gists, orgs, `status`, `repo list`, `repo create`, `repo fork`), exits 64 naming the pinned repositories, is audited as `out-of-scope`, and files no request: no notification can widen the scope. A search is in scope only with `--repo` naming in-scope repositories and no `repo:`, `org:`, `user:` or `owner:` qualifier in its query | 2026-09-29 | [§5.6](#56-the-repository-scope) | — |
+| <a id="BB-D21"></a>[`BB-D21`](#15-decision-ledger) | *Implementation decision.* A source's permission sets are an ordered list; each has a name, a mode (standing or windowed), rules in the classifier's vocabulary, and for a windowed set a window and a use cap. A command runs if the jail holds any set admitting it; otherwise the request names the first windowed set in order that admits it. GitHub's defaults: `read-only`, standing, [§5.2](#52-the-read-only-set)'s table; `read-write`, windowed, every command parsed, in scope and not refused, 15 minutes and 25 uses. The use cap is [OQ-B](#15-decision-ledger)'s second bound, kept | 2026-09-29 | [§5.7](#57-permission-sets) | — |
+| <a id="BB-D22"></a>[`BB-D22`](#15-decision-ledger) | *Implementation decision.* Refusals are the broker's code, checked before any set, and are not a set property: a set that admits a refused command is a configuration error `yolo check` reports, and no grant or answer runs one. A set cannot name repositories | 2026-09-29 | [§5.4](#54-never-brokered), [§5.7](#57-permission-sets) | — |
+| <a id="BB-D23"></a>[`BB-D23`](#15-decision-ledger) | *Implementation decision.* A source's sets are configured at user scope only, under one key per source; a `broker` key at workspace scope is refused, since the agent can edit the workspace. Every set is definable there, `read-only` included, and the launch discloses every set that differs from the default | 2026-09-29 | [§5.7](#57-permission-sets) | — |
+| <a id="BB-D24"></a>[`BB-D24`](#15-decision-ledger) | *Implementation decision.* A grant hands over exactly the set the request named, or Allow once; the human may narrow its time or uses but no front-end hands over a different set, so `yolo approve` has no `--set` flag. The notification states what the set hands over, from the set's definition, and labels its duration button with the set's name and window | 2026-09-29 | [§6.3](#63-what-the-notification-shows), [§7](#7-grants-and-the-request-store) | — |
 
 ## Appendix A — prior art: unYOLO, re-analyzed from source (2026-08-12)
 
