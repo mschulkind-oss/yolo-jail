@@ -54,6 +54,21 @@ A comment arriving through Vantage review (`## Review Comments for …`) is the 
 record it as above, then deliver one `.vantage/inbox/*.jsonl` line per comment acted on
 (write to `.writing`, then `mv`), each with a fresh nonce, AFTER the doc is saved.
 
+## Docs that arrive mid-walkthrough
+
+A design doc another agent writes (pushed from the host, or landed by a teammate) joins the queue:
+review it before presenting it. Run a workflow over it — independent lenses (evidence against
+current main, incident logs such as `/ctx/host-yolo-logs`, design against the standing rulings,
+coverage gaps, decidability) → one editor applying the confirmed findings and restating each
+question walkthrough-ready → skeptics refuting the edited claims → a fix pass. Its questions then
+enter the queue in plain words like the rest.
+
+## A ruling that changes a doc's model
+
+When a ruling replaces a doc's framework (not just picks an option), the doc's BODY still
+describes the old one. Reconcile the body in the same pass (a delegated editor), and restate any
+still-open sibling question whose options the ruling changed, before presenting it.
+
 ## Keep builds moving
 
 - A ruling that releases a build: brief a builder agent immediately (worktree isolation,
@@ -71,3 +86,7 @@ The process is adjusted as it runs. When the maintainer changes how the walkthro
 edit this file in the same turn and commit it. Recorded adjustments:
 - 2026-09-29: two questions at a time; the pair is always the last thing in the turn.
 - 2026-09-29: a ruling that is none of the options is recorded in his words.
+- 2026-09-29: a ruling that raises a follow-on question files it as a new OQ with a leaning
+  (BB1 → BB6) and queues it, rather than leaving the gap in prose.
+- 2026-09-29: with ultracode on, review/improve passes on arriving docs and doc reconciliation
+  run as workflows, not single agents.
