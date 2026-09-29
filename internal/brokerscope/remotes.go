@@ -9,12 +9,16 @@
 package brokerscope
 
 import (
+	"errors"
+	"fmt"
+	"io"
 	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
+	"syscall"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/termsafe"
 )
@@ -86,15 +90,14 @@ func readRemotes(workspace, host string) Read {
 	if cfgPath == "" {
 		return Read{Problem: problem}
 	}
-	fi, err := os.Lstat(cfgPath)
+	data, err := readCapped(cfgPath, GitConfigCap)
 	switch {
-	case err != nil:
-		return Read{GitConfig: cfgPath, Problem: "cannot read " + cfgPath + ": " + err.Error()}
-	case !fi.Mode().IsRegular():
+	case errors.Is(err, errNotRegular):
 		return Read{GitConfig: cfgPath, Problem: cfgPath + " is not a regular file (a symlink is not followed)"}
-	}
-	data, err := os.ReadFile(cfgPath)
-	if err != nil {
+	case errors.Is(err, errTooLarge):
+		return Read{GitConfig: cfgPath, Problem: fmt.Sprintf("%s is larger than %d bytes, more than any git "+
+			"config git writes, so it is not read", cfgPath, GitConfigCap)}
+	case err != nil:
 		return Read{GitConfig: cfgPath, Problem: "cannot read " + cfgPath + ": " + err.Error()}
 	}
 	r := Read{GitConfig: cfgPath}
@@ -203,18 +206,50 @@ func samePath(a, b string) bool {
 }
 
 func readSmallRegular(path string) (string, error) {
-	fi, err := os.Lstat(path)
+	b, err := readCapped(path, 64<<10)
+	return string(b), err
+}
+
+// GitConfigCap bounds the git config the scope reader loads: 1 MiB, far past any config git
+// writes. The file is agent-writable, and a sparse `truncate -s 64G .git/config` costs the
+// agent no disk while every host launch would read it whole.
+const GitConfigCap = 1 << 20
+
+var (
+	errNotRegular = errors.New("not a regular file")
+	errTooLarge   = errors.New("larger than the cap")
+)
+
+// readCapped reads a regular file of at most limit bytes, deciding on the file it OPENED
+// rather than on a path it looked at first: it opens with O_NOFOLLOW, so a last component
+// swapped for a symlink after any check fails to open, and with O_NONBLOCK, so a FIFO
+// cannot hang the launch; then it fstats what it holds and reads through a limit. An agent
+// in the jail can replace the file while the host reads it, which a Lstat-then-ReadFile
+// pair cannot see.
+func readCapped(path string, limit int64) ([]byte, error) {
+	f, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
+	if errors.Is(err, syscall.ELOOP) {
+		return nil, errNotRegular
+	}
 	if err != nil {
-		return "", err
+		return nil, err
+	}
+	defer f.Close()
+	fi, err := f.Stat()
+	if err != nil {
+		return nil, err
 	}
 	if !fi.Mode().IsRegular() {
-		return "", &os.PathError{Op: "read", Path: path, Err: os.ErrInvalid}
+		return nil, errNotRegular
 	}
-	if fi.Size() > 64<<10 {
-		return "", &os.PathError{Op: "read", Path: path, Err: os.ErrInvalid}
+	data, err := io.ReadAll(io.LimitReader(f, limit+1))
+	if err != nil {
+		return nil, err
 	}
-	b, err := os.ReadFile(path)
-	return string(b), err
+	if int64(len(data)) > limit {
+		return nil, errTooLarge
+	}
+	return data, nil
 }
 
 type remoteURL struct{ name, url string }
