@@ -46,7 +46,7 @@ current.
   Those two carried the old prefix `PS`, as `PS1` and `PS3`, until later that day, when that doc's series was
   renamed `OQ-PSW` because [`provisioner-sets.md`](provisioner-sets.md) also uses `OQ-PS`.
 
-**Needs your ruling:** [OQ-ML2](#OQ-ML2) first, because it decides how many ids the other questions are about; then [OQ-ML1](#OQ-ML1), [OQ-BR12](#OQ-BR12), [OQ-BR13](#OQ-BR13), [OQ-BR14](#OQ-BR14), [OQ-PSW1](#OQ-PSW1) and [OQ-BR15](#OQ-BR15). Ruled 2026-09-29: [OQ-ML1](#OQ-ML1) and [OQ-ML2](#OQ-ML2).
+**Needs your ruling:** [OQ-ML2](#OQ-ML2) first, because it decides how many ids the other questions are about; then [OQ-ML1](#OQ-ML1), [OQ-BR12](#OQ-BR12), [OQ-BR13](#OQ-BR13), [OQ-BR14](#OQ-BR14), [OQ-PSW1](#OQ-PSW1) and [OQ-BR15](#OQ-BR15). Ruled 2026-09-29: [OQ-ML1](#OQ-ML1), [OQ-ML2](#OQ-ML2) and [OQ-BR12](#OQ-BR12). [OQ-BR13](#OQ-BR13) is directed (render the list into every agent's model selection by whatever mechanism each supports) and being researched per agent.
 
 - [OQ-ML1](#OQ-ML1): the shape of the built-in picks pack. Leaning: one yolo-shipped pack that
   adds `models` entries to other packs' providers, joined through `needs`, and yielding to any
@@ -645,7 +645,7 @@ through each provider's own pack ([OQ-ML1](#OQ-ML1) option (b)).
    provider, claude's `bedrock` map) get ids is [OQ-ML2](#OQ-ML2)'s. The geo-prefix verification
    stays a build prerequisite ([§5.3](#53-the-prerequisite-verify-before-an-id-ships)).
 
-5. 💬 <a id="OQ-BR12"></a>**[OQ-BR12](#OQ-BR12): Is there a `models` contribution kind, so a
+5. ✅ <a id="OQ-BR12"></a>**[OQ-BR12](#OQ-BR12): Is there a `models` contribution kind, so a
    company pack can shape another pack's provider?** (moved from [`bedrock-plumbing.md`](bedrock-plumbing.md), id kept.)
    [§7](#7-how-a-company-pack-shapes-a-list-the-models-kind). Stakes: whether an org can ship its
    model selection once, or every user copies it into their own config.
@@ -662,13 +662,18 @@ through each provider's own pack ([OQ-ML1](#OQ-ML1) option (b)).
    need `alias` and `description` ([§7.3](#73-two-fields-the-entry-shape-is-missing)), which the
    leaning did not name.
 
-   <!-- vantage: oq id=OQ-BR12 leaning="A: a new models contribution kind naming a provider, with add and only verbs and ordered object-form entries carrying vendor; add unions in pack order, only intersects, the user's providers.<name>.models is the last writer. Reopens OQ-GP2 only in that a pack may now carry a list — yolo's own packs still ship as few ids as OQ-BR3 rules." -->
-
    _Leaning:_ A. `add` unions in pack order, `only` intersects, and the user's config is the last
    writer. yolo's own packs ship as few ids as [OQ-BR3](#OQ-BR3)'s ruling allows.
 
    **Answer:**
-   > _(empty — fill in when decided)_
+   > **Ruled 2026-09-29, as leaned: A, for every provider.** The maintainer: *"you ship a pack
+   > that narrows that overall bedrock provider, in the same way it could narrow one of the
+   > individual packs' providers. But also … an engineer is going to do whatever they want to do.
+   > So of course their own config still has the last word because they could make that happen
+   > regardless."* A `models` contribution names any provider (the `bedrock` provider or a single
+   > pack's own) and either adds entries or keeps only the ones it names; the user's own
+   > `providers.<name>.models` writes last, not as a policy yolo chooses but because an engineer
+   > can always override their own config.
 
 6. 💬 <a id="OQ-BR13"></a>**[OQ-BR13](#OQ-BR13): How does each derive render the effective list
    into its agent's picker?** (moved from [`bedrock-plumbing.md`](bedrock-plumbing.md), id kept.)

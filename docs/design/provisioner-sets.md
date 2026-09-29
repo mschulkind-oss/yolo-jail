@@ -80,7 +80,7 @@ The survey that forced all of it — the inventory, the coverage matrix, the nix
 [`provisioner-evidence.md`](provisioner-evidence.md), and you need it to **check** the argument
 rather than to follow it.
 
-**Needs your ruling:** [`OQ-PS1`](#OQ-PS1), [`OQ-PS5`](#OQ-PS5), [`OQ-PS6`](#OQ-PS6), [`OQ-PS7`](#OQ-PS7), [`OQ-PS8`](#OQ-PS8), [`OQ-PS9`](#OQ-PS9), [`OQ-PS10`](#OQ-PS10), [`OQ-PS11`](#OQ-PS11), [`OQ-PS12`](#OQ-PS12), [`OQ-PS13`](#OQ-PS13), [`OQ-NX4`](#OQ-NX4), [`OQ-NX5`](#OQ-NX5), [`OQ-NX8`](#OQ-NX8), [`OQ-NX9`](#OQ-NX9).
+**Needs your ruling:** [`OQ-PS5`](#OQ-PS5), [`OQ-PS6`](#OQ-PS6), [`OQ-PS7`](#OQ-PS7), [`OQ-PS8`](#OQ-PS8), [`OQ-PS9`](#OQ-PS9), [`OQ-PS10`](#OQ-PS10), [`OQ-PS11`](#OQ-PS11), [`OQ-PS12`](#OQ-PS12), [`OQ-PS13`](#OQ-PS13), [`OQ-NX4`](#OQ-NX4), [`OQ-NX5`](#OQ-NX5), [`OQ-NX8`](#OQ-NX8), [`OQ-NX9`](#OQ-NX9).
 
 > [!NOTE]
 > **Scope note — this doc absorbed
@@ -1006,7 +1006,7 @@ plus the retired doc's under an `NX` prefix ([the id map](#question-id-map-old-s
 that is what the carve was for — with stakes and a leaning; the leaning is mine and is not a
 recommendation the doc rests on.
 
-1. 💬 <a id="OQ-PS1"></a>**OQ-PS1: Should the host notch use the user's nix when `/nix` is present?** The premise of
+1. ✅ <a id="OQ-PS1"></a>**OQ-PS1: Should the host notch use the user's nix when `/nix` is present?** The premise of
    the retired doc, which treated [the absence of nix](provisioner-evidence.md#38-what-if-the-user-has-no-nix) as terminal, and whose mechanism has two
    consumers and no host caller (F1). **This asks one thing and nothing
    else**: does the already-built `yoloNoncontainerPackages` attribute get a third caller. What it
@@ -1065,10 +1065,15 @@ recommendation the doc rests on.
    the second. [`HP-D2`](host-tool-provisioning.md#HP-D2) wants one materialization path for the
    floor. And the user's pluralism (*"claude from brew"*) is still served by the override.
 
-   <!-- vantage: oq id=OQ-PS1 leaning="(b): the user's nix serves an agent need at the host (an agent CLI, the floor's Node, a requires binary) only when the user ranks it up through OQ-PS7's override, never by default. HP-DIR3 (2026-09-29) already answered the packages half no: yoloNoncontainerPackages gets no host caller, packages: being the workspace's runtime. The floor is designed to cover every program pack on both OSes, which removes the old leaning's remaining argument (nix alone covers the agent CLIs on Linux); HP-D2 wants one materialization path; and the override still serves 'claude from brew'." -->
-
    **Answer:**
-   > _(empty — fill in when decided)_
+   > **Ruled 2026-09-29, as leaned: (b).** The maintainer: *"maybe we can allow you to use Nix
+   > here for where you get the host floor, but in general, I think if we're going to be
+   > capturing these in a way like the Arch AUR does it, it's actually desirable to use the
+   > official installer, so there's no additional things layered on top of that and we can manage
+   > that ourselves."* The floor's default source is each agent's official installer, captured as
+   > the floor already does (OQ-HP3); the user's nix serves an agent need only when the user's
+   > config ranks it up ([`OQ-PS7`](#OQ-PS7)), never by default. The `packages:` half was already answered no
+   > by HP-DIR3.
 
 2. 💬 <a id="OQ-PS5"></a>**OQ-PS5: Does the kind get renamed to `package`?** **Narrowed by
    [`OQ-PS3`](#decision-ledger)'s ruling**, which removed one of the two answers this question used
