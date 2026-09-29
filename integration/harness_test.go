@@ -839,6 +839,17 @@ func writeProject(t *testing.T, configJSON string) string {
 			"entry in the user config via packHome (codexProbeProvider is the worked "+
 			"example):\n%s", configJSON)
 	}
+	// And the rest of a provider's credential routing (notch-convergence OQ-NC6): its
+	// `endpoints` in any form and its `api_key_env_name` are user-scope only too, refused in a
+	// workspace config with the same `yolo check` error.
+	for _, key := range []string{`"endpoints"`, `"api_key_env_name"`} {
+		if strings.Contains(configJSON, key) {
+			t.Fatalf("writeProject got %s, which is USER SCOPE ONLY — it decides where a "+
+				"provider's credential goes, and a workspace config carrying it is a `yolo "+
+				"check` error that refuses the launch. Put the `providers` entry in the user "+
+				"config via packHome:\n%s", key, configJSON)
+		}
+	}
 	t.Cleanup(func() {
 		forceRemoveContainer(dir)
 		// Before t.TempDir()'s own RemoveAll runs (cleanups are LIFO, so this
