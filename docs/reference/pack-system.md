@@ -2489,7 +2489,9 @@ a key that does nothing must not be accepted quietly.
   store: a bare mirror per repository and a checkout per commit. The mirror is a partial
   (`--filter=blob:none`) clone: it holds every commit and directory listing of the
   repository's branches and tags, and a file's contents only once a checkout needs them. A
-  remote that does not support partial clone ignores the filter and sends everything.
+  checkout fetches the contents it lacks in one request before it starts, since git's own
+  checkout would fetch each file separately, one connection to the remote apiece. A remote
+  that does not support partial clone ignores the filter and sends everything.
 - **A pack in a subdirectory checks out that subdirectory and nothing else**, so a pack living
   in a large repository downloads the contents of its own files, not the repository's. The
   subdirectory is matched literally: a directory named `p*` checks out that directory and no

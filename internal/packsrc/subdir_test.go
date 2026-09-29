@@ -296,6 +296,91 @@ func TestRefreshFetchesOnlyTheSubdirectorysContents(t *testing.T) {
 	}
 }
 
+// lazyFetchesIn counts the fetches git started ON ITS OWN in a GIT_TRACE log: the one-blob
+// fetches a checkout of a partial mirror spawns for each file it lacks. A fetch the store runs
+// itself is a top-level command (`built-in:`), never a `run_command:` line.
+func lazyFetchesIn(t *testing.T, trace string) int {
+	t.Helper()
+	data, err := os.ReadFile(trace)
+	if err != nil && !os.IsNotExist(err) {
+		t.Fatal(err)
+	}
+	n := 0
+	for _, line := range strings.Split(string(data), "\n") {
+		if strings.Contains(line, "run_command:") && strings.Contains(line, " fetch origin ") {
+			n++
+		}
+	}
+	return n
+}
+
+// A CHECKOUT FETCHES THE FILES IT NEEDS IN ONE REQUEST. git's pathspec checkout of a partial
+// mirror fetches each missing file by itself, one process and one connection apiece, which
+// against a real remote costs about a quarter of a second a file (prefetchBlobs has the
+// measurement). The store fetches them first, in one batch, so the checkout starts none of its
+// own. The CONTROL runs the same checkout on a plain clone and must see one lazy fetch per
+// file, so a zero below cannot come from a trace that stopped recording them. The
+// subdirectory's name carries a space and a glob class, which the prefetch's path lookup must
+// take literally, and its sibling must still not be downloaded.
+func TestCheckoutFetchesTheFilesItNeedsInOneRequest(t *testing.T) {
+	const sub = "pack [v2]"
+	files := map[string]string{"elsewhere/big.bin": "not the pack's\n"}
+	for _, name := range []string{"pack.json", "a.md", "b.md", "skills/s/SKILL.md", "skills/t/SKILL.md"} {
+		files[sub+"/"+name] = name + " of the pack\n"
+	}
+	repo := gitRepo(t, files)
+	gitIn(t, repo, "config", "uploadpack.allowFilter", "true")
+	head := gitIn(t, repo, "rev-parse", "HEAD")
+
+	control := filepath.Join(t.TempDir(), "control.git")
+	gitIn(t, "", "clone", "-q", "--bare", "--filter=blob:none", "file://"+repo, control)
+	controlTrace := filepath.Join(t.TempDir(), "control.trace")
+	cmd := (&Store{Env: append(os.Environ(), "GIT_TRACE="+controlTrace)}).gitCmd(t.Context(), control,
+		"--work-tree="+t.TempDir(), "checkout", "--force", head, "--", literalPathspec(sub))
+	cmd.Env = append(cmd.Env, "GIT_INDEX_FILE="+filepath.Join(t.TempDir(), "index"))
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("control checkout: %v\n%s", err, out)
+	}
+	if n := lazyFetchesIn(t, controlTrace); n != 5 {
+		t.Fatalf("control: a lazy checkout of 5 files started %d fetches of its own, want 5 — the "+
+			"trace no longer shows what this test counts", n)
+	}
+
+	for _, tc := range []struct{ name, suffix, want string }{
+		{"a subdirectory pack", "//" + sub, sub + "/pack.json"},
+		{"a repository-root pack", "", "elsewhere/big.bin"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			trace := filepath.Join(t.TempDir(), "store.trace")
+			store := &Store{Dir: t.TempDir(), Getenv: noStagedTree,
+				Env: append(os.Environ(), "GIT_TRACE="+trace)}
+			source := "git+file://" + repo + tc.suffix + "?ref=main"
+			if o := refreshOne(t, store, source, time.Unix(1_800_000_000, 0)); o.Err != nil {
+				t.Fatal(o.Err)
+			}
+			if n := lazyFetchesIn(t, trace); n != 0 {
+				t.Errorf("the checkout fetched %d files one at a time, want them all fetched first in one request", n)
+			}
+			a := mustParse(t, source)
+			res, err := store.Resolve(a, "p")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := treeFiles(t, store.treeDir(a, res.Commit)); !slices.Contains(got, tc.want) {
+				t.Errorf("tree = %v, want it to hold %s", got, tc.want)
+			}
+			if tc.suffix == "" {
+				return
+			}
+			mirror := store.mirrorPath(a.Repo)
+			sibling := gitIn(t, repo, "rev-parse", "HEAD:elsewhere/big.bin")
+			if !strings.Contains(gitIn(t, mirror, "rev-list", "--objects", "--all", "--missing=print"), "?"+sibling) {
+				t.Error("the prefetch downloaded a file outside the pack's subdirectory")
+			}
+		})
+	}
+}
+
 // SYMLINKS IN A SUBDIRECTORY PACK. The checkout writes a link as a link, as it always did, and
 // the pack loader judges it (packstage's no-escape rule; the config package's
 // TestResolvePackRefusesAFetchedSubdirectorysEscapingLinks drives that end to end). What

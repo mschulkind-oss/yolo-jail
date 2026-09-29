@@ -250,9 +250,10 @@ refusal names the field; move it to your user config. A project can still set a 
   that holds such a link is still refused, in a jail and at the host.
 - A git pack in a subdirectory of a large repository (`git+…/repo//path/to/pack?ref=…`) now
   checks out only that directory and downloads only its files. It used to download and keep
-  every file of the whole repository at that commit. An address whose directory is a symlink
-  in the repository is now refused by name. A pack at the root of its repository is fetched as
-  before.
+  every file of the whole repository at that commit. Every git pack also fetches those files in
+  one request now: each file used to be a request of its own to the remote, so a pack of a few
+  hundred files could take longer than a launch waits for it. An address whose directory is a
+  symlink in the repository is now refused by name.
 - When your pi's catalog lacks some of the ChatGPT subscription models yolo lists, the warning pi
   shows now tells you why and what to do. Along with the missing models and what they lose, it
   names the pi you are running, for example `Your pi (0.85.1) predates these models`, and says

@@ -571,7 +571,8 @@ func literalPathspec(sub string) string {
 }
 
 // checkoutTree checks sub of commit (the whole commit when sub is "") out of the mirror into
-// tree, which the caller has just created empty.
+// tree, which the caller has just created empty, having fetched the file contents it needs in
+// one request first (prefetchBlobs).
 //
 // THROUGH A PRIVATE, EMPTY INDEX. A bare mirror's own index is state shared by every checkout
 // the mirror has served: an earlier whole-repository checkout leaves every path of that
@@ -584,9 +585,52 @@ func (s *Store) checkoutTree(b budget, mirror, tree, commit, sub string) error {
 		return err
 	}
 	defer os.RemoveAll(idx)
+	s.prefetchBlobs(b, mirror, commit, sub)
 	_, err = s.runEnv(b, mirror, []string{"GIT_INDEX_FILE=" + filepath.Join(idx, "index")},
 		withFsck("--work-tree="+tree, "checkout", "--force", commit, "--", literalPathspec(sub))...)
 	return err
+}
+
+// prefetchBlobs fetches, in ONE request, every file's contents the checkout of sub at commit
+// (the whole commit when sub is "") needs and the partial mirror lacks.
+//
+// Without it the checkout fetches them itself, ONE `git fetch` PER FILE: a pathspec checkout
+// has no batch prefetch, so each missing blob is its own fetch process and, against a remote,
+// its own connection. Measured 2026-09-29 against a GitHub HTTPS remote of 2,992 files: a
+// 54-file directory took 12.6s that way (about 233ms a file) and 0.46s as one fetch; the
+// whole commit took 4.9s as one fetch; and the whole-commit checkout this store ran before
+// it checked out subdirectories alone ran out of the launch's budget (LaunchFetchTimeout)
+// after about 425 per-file fetches, leaving the pack unusable, where a launch's refresh of the
+// 54-file directory now takes about 1.5s from an empty store.
+//
+// It asks the mirror which blobs under the tree are missing (`rev-list --missing=print`,
+// which reads trees and fetches nothing; `<commit>:<sub>` looks the path up literally), then
+// fetches exactly those with the arguments git uses for one lazy fetch of its own, given all
+// of them at once. BEST-EFFORT: a failure here leaves the checkout to fetch lazily, as it
+// always could, and a remote that is really unreachable is then the checkout's error.
+func (s *Store) prefetchBlobs(b budget, mirror, commit, sub string) {
+	treeish := commit + "^{tree}"
+	if sub != "" {
+		treeish = commit + ":" + sub
+	}
+	out, err := s.runIn(b, mirror, "rev-list", "--objects", "--missing=print", treeish)
+	if err != nil {
+		return
+	}
+	var missing strings.Builder
+	for _, line := range strings.Split(out, "\n") {
+		if oid, ok := strings.CutPrefix(strings.TrimSpace(line), "?"); ok {
+			missing.WriteString(oid + "\n")
+		}
+	}
+	if missing.Len() == 0 {
+		return
+	}
+	cmd := s.gitCmd(b.ctx, mirror, withFsck("-c", "fetch.negotiationAlgorithm=noop",
+		"fetch", "origin", "--no-tags", "--no-write-fetch-head", "--recurse-submodules=no",
+		"--filter=blob:none", "--stdin")...)
+	cmd.Stdin = strings.NewReader(missing.String())
+	_ = cmd.Run()
 }
 
 // checkSubdir reports whether a's subdirectory is a DIRECTORY in commit, the one thing a pack
