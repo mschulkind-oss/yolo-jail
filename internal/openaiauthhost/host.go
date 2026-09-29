@@ -43,6 +43,17 @@ type deps struct {
 	workspace func() (string, error)
 	// newToken mints the managed adapter's per-launch caller token (svcendpoint.NewToken).
 	newToken func() (string, error)
+	// procs is how the managed Codex home's one-time daemon retirement reads and signals a
+	// process (codexdaemon.go); nil takes ps and kill.
+	procs *daemonProcs
+}
+
+// daemonProcs is d.procs, or the real ps and kill.
+func (d deps) daemonProcs() daemonProcs {
+	if d.procs != nil {
+		return *d.procs
+	}
+	return realDaemonProcs()
 }
 
 // Launch carries environment overrides and, for Codex, the loopback adapter
@@ -54,6 +65,9 @@ type Launch struct {
 	// live is this launch's shared lock on the managed home's live-launch lock
 	// (sharedCallerToken), held until the agent exits.
 	live *os.File
+	// noDaemon is set on a managed Codex launch, whose argv gets `--no-daemon` (Argv,
+	// codexdaemon.go): Codex's background server stays off in a launch yolo manages (OQ-CDX1).
+	noDaemon bool
 }
 
 // PrelaunchPrefix begins every variable of the declarative OpenAI prelaunch a pack's `env`
@@ -178,7 +192,7 @@ func prepare(d deps, p Prelaunch, stderr io.Writer) (*Launch, error) {
 	// and so sent back by Codex alone. Held in this process and in 0600 files of the managed
 	// home only: never in the environment, which the adapter's client does not need. Every
 	// concurrent launch shares that home and so that auth.json, so they share the token too.
-	callerToken, live, err := sharedCallerToken(managedHome, d.newToken)
+	callerToken, live, alone, err := sharedCallerToken(managedHome, d.newToken)
 	if err != nil {
 		return nil, err
 	}
@@ -186,6 +200,11 @@ func prepare(d deps, p Prelaunch, stderr io.Writer) (*Launch, error) {
 		_ = live.Close()
 		return nil, err
 	}
+	// CODEX'S BACKGROUND SERVER STAYS OFF HERE (OQ-CDX1, codexdaemon.go): the config key is in
+	// the managed config prepareCodexHome just wrote, the flag is Argv's, and this shuts down,
+	// once, what an earlier launch's daemon left behind in THIS home. Never the user's ~/.codex.
+	retireManagedDaemon(managedHome, alone, d.daemonProcs(), stderr)
+	launch.noDaemon = true
 	listener, err := d.listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		_ = live.Close()
@@ -283,50 +302,55 @@ const (
 //
 // Sharing proves no less than a per-launch token did: both live in 0600 files of the one managed
 // home, so the proof was always "the caller can read the managed Codex home".
-func sharedCallerToken(managed string, mint func() (string, error)) (string, *os.File, error) {
+//
+// alone reports that this launch minted, so no other launch of the home is live: what lets the
+// daemon retirement (retireManagedDaemon) stop a process no other session is attached to.
+func sharedCallerToken(managed string, mint func() (string, error)) (string, *os.File, bool, error) {
 	if err := os.MkdirAll(managed, 0o700); err != nil {
-		return "", nil, fmt.Errorf("create managed Codex home: %w", err)
+		return "", nil, false, fmt.Errorf("create managed Codex home: %w", err)
 	}
 	decide, err := lockFile(filepath.Join(managed, decideLockFile), syscall.LOCK_EX)
 	if err != nil {
-		return "", nil, err
+		return "", nil, false, err
 	}
 	defer decide.Close()
 	live, err := os.OpenFile(filepath.Join(managed, liveLockFile), os.O_CREATE|os.O_RDWR, 0o600)
 	if err != nil {
-		return "", nil, fmt.Errorf("open managed Codex launch lock: %w", err)
+		return "", nil, false, fmt.Errorf("open managed Codex launch lock: %w", err)
 	}
 	tokenPath := filepath.Join(managed, callerTokenFile)
 	var token string
+	alone := false
 	switch err := syscall.Flock(int(live.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); {
 	case err == nil:
 		// No other launch of this home is live: mint, so a token outlives no session it served.
+		alone = true
 		if token, err = mint(); err != nil {
 			_ = live.Close()
-			return "", nil, fmt.Errorf("mint the managed Codex credential adapter's caller token: %w", err)
+			return "", nil, false, fmt.Errorf("mint the managed Codex credential adapter's caller token: %w", err)
 		}
 		if err := atomicWritePrivate(tokenPath, []byte(token)); err != nil {
 			_ = live.Close()
-			return "", nil, err
+			return "", nil, false, err
 		}
 	case errors.Is(err, syscall.EWOULDBLOCK):
 		data, err := os.ReadFile(tokenPath)
 		if err != nil || !svcendpoint.IsToken(string(data)) {
 			_ = live.Close()
-			return "", nil, fmt.Errorf("another `yolo host -- codex` is running, but its caller token %s "+
+			return "", nil, false, fmt.Errorf("another `yolo host -- codex` is running, but its caller token %s "+
 				"is unreadable or malformed (%v); end the other session and retry", tokenPath, err)
 		}
 		token = string(data)
 	default:
 		_ = live.Close()
-		return "", nil, fmt.Errorf("lock managed Codex launch lock: %w", err)
+		return "", nil, false, fmt.Errorf("lock managed Codex launch lock: %w", err)
 	}
 	// Converting an exclusive lock to shared is not atomic, which is why decide is still held.
 	if err := syscall.Flock(int(live.Fd()), syscall.LOCK_SH); err != nil {
 		_ = live.Close()
-		return "", nil, fmt.Errorf("lock managed Codex launch lock: %w", err)
+		return "", nil, false, fmt.Errorf("lock managed Codex launch lock: %w", err)
 	}
-	return token, live, nil
+	return token, live, alone, nil
 }
 
 func lockFile(path string, how int) (*os.File, error) {
@@ -405,6 +429,10 @@ func prepareCodexHome(managed, ordinary, workspace string, response json.RawMess
 // keys project trust under projects.<absolute-path>.trust_level. The ordinary
 // config remains untouched, and the managed copy is rebuilt on every launch so
 // host config changes still take effect.
+//
+// It also turns Codex's background server off (features.daemon_auto_start = false, OQ-CDX1,
+// codexdaemon.go), whatever the ordinary config says: this home is the launch's, and a daemon
+// started in it would outlive the launch and its refresh adapter.
 func writeManagedCodexConfig(destination, source, workspace string) error {
 	root := map[string]any{}
 	if data, err := os.ReadFile(source); err == nil {
@@ -427,6 +455,7 @@ func writeManagedCodexConfig(destination, source, workspace string) error {
 		projects[workspace] = project
 	}
 	project["trust_level"] = "trusted"
+	setDaemonAutoStartOff(root)
 	data, err := (codec.TOML{}).Encode(root)
 	if err != nil {
 		return fmt.Errorf("encode managed Codex config: %w", err)

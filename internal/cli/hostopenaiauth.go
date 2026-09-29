@@ -8,6 +8,9 @@ import (
 
 type managedOpenAIHostLaunch interface {
 	Environ([]string) []string
+	// Argv is the managed launch's rewrite of the command, and its disclosure (nil when
+	// unchanged): a managed Codex launch adds --no-daemon (openaiauthhost's codexdaemon.go).
+	Argv([]string) ([]string, []string)
 	Run(string, []string, []string, io.Reader, io.Writer, io.Writer) (int, bool)
 }
 

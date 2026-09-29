@@ -40,6 +40,8 @@ func (f setsVarManagedLaunch) Environ(base []string) []string {
 	return base
 }
 
+func (setsVarManagedLaunch) Argv(argv []string) ([]string, []string) { return argv, nil }
+
 func (setsVarManagedLaunch) Run(string, []string, []string, io.Reader, io.Writer, io.Writer) (int, bool) {
 	return 23, true
 }

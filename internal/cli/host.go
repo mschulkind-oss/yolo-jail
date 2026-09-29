@@ -579,6 +579,15 @@ func hostExec(flagArgs, cmd []string, out, errw io.Writer, stdin io.Reader) int 
 		fmt.Fprintf(errw, "yolo host: prepare shared OpenAI authentication: %v\n", err)
 		return 1
 	}
+	// THE MANAGED LAUNCH'S OWN ARGV REWRITE (OQ-CDX1): a managed Codex launch runs with
+	// --no-daemon, so it never attaches to a background server an earlier launch left running
+	// with that launch's refresh address. Before both exec paths below, and disclosed like the
+	// pack flags above: a launch has no quiet mode.
+	if managed != nil {
+		var disclosure []string
+		argv, disclosure = managed.Argv(argv)
+		printHostLines(errw, disclosure)
+	}
 	// WHAT THIS NOTCH WITHHOLDS BECAUSE NOTHING HERE SERVES IT (notch convergence item 2),
 	// after the managed launch is prepared, because that launch serves one of them itself:
 	// `yolo host -- codex` runs its own refresh adapter and sets the URL the codex pack's
