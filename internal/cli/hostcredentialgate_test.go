@@ -204,7 +204,7 @@ func TestHostEnvDisclosesWhatItsSliceWithholds(t *testing.T) {
 	if rc := hostMain([]string{"env"}, &out, &errw, false, nil); rc != 0 {
 		t.Fatalf("yolo host env: rc = %d\n%s", rc, errw.String())
 	}
-	if strings.Contains(out.String(), "tok-host") || strings.Contains(out.String(), "ZAI_API_KEY") {
+	if strings.Contains(out.String(), "tok-host") || hostExports(out.String(), "ZAI_API_KEY") {
 		t.Errorf("claude's slice must not export pi's provider key:\n%s", out.String())
 	}
 	if !strings.Contains(out.String(), "export GH_TOKEN='gh-host'") {

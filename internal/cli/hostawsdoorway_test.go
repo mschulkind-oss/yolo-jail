@@ -506,7 +506,7 @@ func TestHostEnvNamesTheLaunchThatOpensTheDoorway(t *testing.T) {
 	if rc := hostMain([]string{"env", "--agent", "pi", "-p", "bedrock"}, &out, &errw, false, nil); rc != 0 {
 		t.Fatalf("rc = %d\n%s", rc, errw.String())
 	}
-	if strings.Contains(out.String(), "AWS_CONTAINER_CREDENTIALS_FULL_URI") {
+	if hostExports(out.String(), "AWS_CONTAINER_CREDENTIALS_FULL_URI") {
 		t.Errorf("yolo host env exported the pointer of a doorway nothing opened:\n%s", out.String())
 	}
 	for _, want := range []string{"AWS_CONTAINER_CREDENTIALS_FULL_URI", "`yolo host -p bedrock -- pi` opens it"} {

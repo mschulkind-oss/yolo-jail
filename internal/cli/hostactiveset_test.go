@@ -147,7 +147,7 @@ func TestHostEnvNarrowsABareListForClaudeAndSaysSo(t *testing.T) {
 	if !strings.Contains(out.String(), "export ZAI_API_KEY='tok-zai'") {
 		t.Errorf("claude's slice must carry zai's key, the list's first entry:\n%s", out.String())
 	}
-	if strings.Contains(out.String(), "OPENROUTER_API_KEY") {
+	if hostExports(out.String(), "OPENROUTER_API_KEY") {
 		t.Errorf("claude ignores openrouter, so its key must not be exported:\n%s", out.String())
 	}
 	for _, want := range []string{"claude takes one profile", "ignores openrouter"} {

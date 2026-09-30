@@ -777,20 +777,8 @@ var hostServiceSignals chan os.Signal
 // (AgentDelivery.EnvSources), so a service reaches exactly the credential of the provider it
 // serves and no other. The caller token is added by launchservice.Start.
 func (c *hostComposition) serviceInput() map[string]string {
-	use := jsonx.NewOrderedMap()
-	if c.profile != "" {
-		set := c.set
-		if len(set) == 0 {
-			set = []string{c.profile}
-		}
-		use.Set(c.agent, packload.ProfileSetWire(set))
-	}
-	env := map[string]string{
-		entrypoint.ProvidersWireEnv:   wireJSON(c.providers),
-		entrypoint.ProfilesWireEnv:    wireJSON(packload.ProfilesWireTable(c.resolved)),
-		entrypoint.UseProfilesWireEnv: wireJSON(use),
-		openauthclient.HostSocketEnv:  openaiauthhost.HostSocketPath(),
-	}
+	env := c.wireTables()
+	env[openauthclient.HostSocketEnv] = openaiauthhost.HostSocketPath()
 	if d := c.scope.Agent(c.agent); d != nil && d.EnvSources != nil {
 		for _, k := range d.EnvSources.Keys() {
 			if v, _ := d.EnvSources.Get(k); v != nil {
@@ -801,6 +789,30 @@ func (c *hostComposition) serviceInput() map[string]string {
 		}
 	}
 	return env
+}
+
+// wireTables is this launch's three wire tables, serialized and keyed by the names in
+// entrypoint.WireTables: the composed provider table, the resolved profile table, and a
+// selection holding this one agent's entry alone ("{}" when it selected no profile). ONE
+// composition for both of its readers, the agent's own environment (step 3b of
+// composeHostVarsWith; docs/design/agent-footer.md FT-D2) and every launch-owned service
+// (serviceInput), so the footer, `yolo host env` and a launch's bridge are never handed
+// different tables for one launch. A jail's channel writes the same three names
+// (run's packChannel.wireTableValues). A fresh map each call.
+func (c *hostComposition) wireTables() map[string]string {
+	use := jsonx.NewOrderedMap()
+	if c.profile != "" {
+		set := c.set
+		if len(set) == 0 {
+			set = []string{c.profile}
+		}
+		use.Set(c.agent, packload.ProfileSetWire(set))
+	}
+	return map[string]string{
+		entrypoint.ProvidersWireEnv:   wireJSON(c.providers),
+		entrypoint.ProfilesWireEnv:    wireJSON(packload.ProfilesWireTable(c.resolved)),
+		entrypoint.UseProfilesWireEnv: wireJSON(use),
+	}
 }
 
 // printHostLines writes one pre-flight or disclosure block the way this notch names itself:
@@ -866,7 +878,7 @@ type hostComposition struct {
 	agent string
 	// vars is the composition proper, in application order: the pack env fold (per pack,
 	// static then that pack's profile-gated entries), env_sources, the provider's env
-	// shape, and the removals last.
+	// shape, the three wire tables (wireTables), and the removals last.
 	vars []agentenv.Var
 	// packs and providers are the selected pack set and the composed provider table the
 	// vars were composed from.
@@ -1594,7 +1606,8 @@ func composeHostEnv(bin, profile string, warn func(string)) ([]string, string, e
 //     hydrates your credentials" something to hydrate INTO on a host.
 //  3. the resolved profile's vars — the profile-gated env entries its pack declares,
 //     plus the provider environment the agent pack's derive composes (packload.AgentEnv,
-//     the same runner the jail's podman argv is built from).
+//     the same runner the jail's podman argv is built from), then YOLO_PROVIDERS,
+//     YOLO_PROFILES and YOLO_USE_PROFILES as this launch composed them (FT-D2).
 //  4. removals — a null in env_sources, i.e. `unset AWS_PROFILE`. Last, so a removal
 //     beats an assignment from any earlier step.
 func composeHostLaunch(bin, profile string, grant *hostGrantRequest, warn func(string)) *hostComposition {
@@ -1628,7 +1641,8 @@ func composeHostLaunchWith(bin, profile string, grant *hostGrantRequest, warn fu
 //  2. env_sources — the SECRET channel, and the step that gives "env_sources hydrates
 //     your credentials" something to hydrate INTO on a host;
 //  3. the resolved profile's provider vars — the env derive of the agent's own pack, run
-//     by packload.AgentEnv, the same runner the jail's podman argv is built from.
+//     by packload.AgentEnv, the same runner the jail's podman argv is built from, then the
+//     three wire tables the launch composed for this agent (FT-D2), under a jail's names.
 //
 // Removals come last so an `unset` beats an assignment from any earlier source, including
 // one inherited from the invoking shell.
@@ -2082,6 +2096,23 @@ func composeHostVarsWith(cfg *jsonx.OrderedMap, workspace, agent, command, profi
 			c.origins = append(c.origins, packload.FromProfileEnv)
 			c.originPacks = append(c.originPacks, owner)
 		}
+	}
+
+	// (3b) THE WIRE TABLES the launch composed for this agent (docs/design/agent-footer.md
+	// FT-D2, OQ-FT15), under the names a jail's channel uses: YOLO_PROVIDERS, YOLO_PROFILES and a
+	// YOLO_USE_PROFILES holding this agent's entry alone. The footer renderer reads its own env
+	// first (OQ-FT6), so a one-launch `yolo host -p zai -- claude` names zai rather than the
+	// config's selection. ALL THREE ON EVERY LAUNCH, empty tables included, so a launch started
+	// inside another agent's launch replaces what it inherited instead of keeping that launch's
+	// selection. After the pack fold, env_sources and the shape, so none of those can write a
+	// table this launch did not compose (FT-D3); before the removals, whose "an unset beats every
+	// assignment" holds for these too. Ranged over entrypoint.WireTables, as every jail writer
+	// ranges (NC-D22), and attributed to the launch's own composition, since no pack declares them.
+	wire := c.wireTables()
+	for _, k := range entrypoint.WireTables() {
+		vars = append(vars, agentenv.Var{Key: k, Value: wire[k]})
+		c.origins = append(c.origins, packload.FromProfileEnv)
+		c.originPacks = append(c.originPacks, "")
 	}
 
 	// (4) removals last, so an unset beats every assignment above no matter which source

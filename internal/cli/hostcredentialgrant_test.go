@@ -457,7 +457,7 @@ func TestHostEnvShellHeldNameIsDisclosedAsNotAdded(t *testing.T) {
 	if rc := hostMain([]string{"env"}, &out, &errw, false, nil); rc != 0 {
 		t.Fatalf("yolo host env: rc = %d\n%s", rc, errw.String())
 	}
-	if strings.Contains(out.String(), "ZAI_API_KEY") {
+	if hostExports(out.String(), "ZAI_API_KEY") {
 		t.Errorf("claude's slice still adds nothing for zai's key:\n%s", out.String())
 	}
 	line := scopeLine(t, errw.String(), "ZAI_API_KEY")

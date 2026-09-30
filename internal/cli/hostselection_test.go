@@ -149,7 +149,7 @@ func TestNoHostLaunchOfClaudeExportsAnUnservedPointer(t *testing.T) {
 	if rc := hostMain([]string{"env", "--agent", "claude", "-p", "bedrock"}, &out, &errw, false, nil); rc != 0 {
 		t.Fatalf("yolo host env rc=%d\n%s", rc, errw.String())
 	}
-	if strings.Contains(out.String(), "AWS_CONTAINER_") {
+	if hostExportsPrefix(out.String(), "AWS_CONTAINER_") != "" {
 		t.Errorf("yolo host env -p bedrock exported aws-auth's pointer:\n%s", out.String())
 	}
 	if !strings.Contains(errw.String(), "AWS_CONTAINER_CREDENTIALS_FULL_URI") {

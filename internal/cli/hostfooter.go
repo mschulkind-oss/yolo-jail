@@ -11,19 +11,19 @@ import (
 )
 
 // hostFooterTables is the host notch's half of the agent footer's billing route
-// (docs/design/agent-footer.md OQ-FT6): the three wire tables no host launch exports,
-// composed from the user config so a host Claude's footer names the profile the config
-// selects. footer.WithHostTables asks for it only outside a jail and only when the agent's
-// own env carries no selection ("env first").
+// (docs/design/agent-footer.md OQ-FT6): the three wire tables, composed from the user config
+// for an agent whose env carries none, so a host Claude that `yolo host --` did not start still
+// names the profile the config selects. footer.WithHostTables asks for it only outside a jail
+// and only when the agent's own env carries no selection ("env first").
 //
 // THE RESOLUTION IS `yolo host env`'s WITH NO `-p`, piece by piece: the user-scope config's
 // `profile` (effectiveHostProfiles, with no `-p`, since a status-line command has
 // none), the user's `profiles` (config.LoadProfiles), the provider table
 // (composedHostProviders) and the profile resolution over both (packload.ResolveProfiles).
 // So it names what a host launch with no `-p` composes. A one-launch `yolo host -p X --
-// <agent>` is invisible to it: that launch exports no YOLO_* table (composeHostVars), so the
-// footer still names the config's selection, or the login when the config selects nothing
-// (docs/design/agent-footer.md §4).
+// <agent>` never reaches it: that launch exports the three tables it composed
+// (composeHostVarsWith's step 3b, FT-D2), so the renderer reads them from the env first and
+// this is not asked.
 //
 // THE ONE PLACE IT PARTS FROM THAT PATH is loading the packs, and it is a deliberate
 // narrowing: footerHostPacks reads each selected pack's declarations where the store already
@@ -45,10 +45,10 @@ import (
 // A SELECTION THE HOST LAUNCH REFUSES IS LEFT OUT (docs/design/agent-footer.md FT-D1). The
 // footer names what the host composed, and for an agent whose selected profile the host's
 // protocol gate refuses it composes nothing: `yolo host -- claude` refuses claude's codex
-// profile (ES-D18, ES-D25), so a claude running on this host with that selection was started
-// outside `yolo host`, or by `yolo host -p <other>`, whose one-launch selection this table
-// cannot see (OQ-FT15): that claude runs on the typed profile while the footer names the
-// login. The footer used to say `codex (bridge) · host` there, a bridge the host never runs. Only the pairing gate is asked (packload.PairingRefusal,
+// profile (ES-D18, ES-D25), so a claude running on this host with that selection and no tables
+// in its env was started outside `yolo host`, which leaves it on its login. (One started by
+// `yolo host -p <other>` carries that launch's tables, so this table is not asked for it.) The
+// footer used to say `codex (bridge) · host` there, a bridge the host never runs. Only the pairing gate is asked (packload.PairingRefusal,
 // with the host's unservable adaptations), the one refusal that turns on the selection itself;
 // a selection whose table could not be composed at all is left as it was.
 func hostFooterTables() footer.Tables {
