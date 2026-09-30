@@ -1008,6 +1008,18 @@ re-seen on the way — claude builds its chain resolver only when `AWS_BEARER_TO
 and opencode's loader only when no bearer is set — and matches the rows above. The wire bridge's
 signer is unbuilt, so it stays INFERRED, as [OQ-SSO8](#OQ-SSO8) records.
 
+**What it decides at `yolo host`, added 2026-09-29.** `yolo host -- <agent>` now hands an agent
+on a Bedrock provider this pointer too, at an adapter the launch opens for it
+([`host-notch-services.md` §4.8](host-notch-services.md#48-yolo-host)), and at the host the agent
+inherits the user's own shell and reads its own config. The order above is why that breaks no
+agent a user already runs on Bedrock through a profile of their own: in every consumer measured,
+the profile providers (SSO and ini in the JavaScript SDKs, `Profile` in codex's crate) come
+before the container provider, so an `AWS_PROFILE` in the shell, or in claude's own
+`~/.claude/settings.json` `env` block, is resolved first and the pointer is not asked while that
+profile resolves. What the pointer does change is the static pair and the bearer: exported in
+the shell beside it, they are delivered at the host, and the [OQ-SSO8](#OQ-SSO8) refusal fires
+there as it does in a jail (`TestHostRefusesABearerBesideTheDoorwaysPointer`).
+
 ```console
 $ npm pack @anthropic-ai/claude-code-linux-x64@2.1.282 opencode-linux-x64@1.18.32 @openai/codex@0.157.0-linux-x64
 $ grep -c -a -F 'AWS_PROFILE is set, skipping fromEnv' package/claude     # after extracting each tarball

@@ -62,6 +62,19 @@ The gate is the provider, not the profile's name: a profile of your own over `be
 provider of your own that declares `"platform": "aws-bedrock"`, get the pointer as `-p bedrock`
 does ([`OQ-BR8`](../../docs/design/providers-and-profiles-redesign.md#OQ-BR8)).
 
+**The same config serves `yolo host`.** With `"use_profiles": {"pi": "bedrock"}` (or
+`yolo host -p bedrock -- pi`), `yolo host -- pi` starts the host service if it is not running,
+opens the adapter for pi alone on a port it picks, hands pi the pointer and its token, and stops
+the adapter when pi exits; it says so on stderr:
+
+```
+yolo host: opened the "aws-auth" doorway (pack "aws-auth", pid …) on 127.0.0.1:… for pi: it answers only this launch's caller token, forwards to the host's "aws-auth" service, and stops when pi exits. …
+```
+
+With the loophole off, the launch withholds the pointer and says how to turn it on. pi counts
+the pointer as a credential; so do opencode and, by its AWS SDK's chain, codex and claude
+([`host-notch-services.md` §4.8](../../docs/design/host-notch-services.md#48-yolo-host)).
+
 | Setting | What it does |
 |---|---|
 | `profile` | the AWS profile the service resolves — the one you `aws sso login --profile`. Absent: the daemon refuses at spawn and names this key. Its `region` in `~/.aws/config` is also the region an agent this service serves is given when nothing else names one ([the bedrock pack](../bedrock/README.md#what-the-provider-declares)) |
@@ -129,7 +142,9 @@ declaration ([`OQ-SSO8`](../../docs/design/sso-backed-bedrock.md#OQ-SSO8)).
 
 "Delivers" means into the jail, through `env_sources` or a pack. A variable exported only in
 the shell you run `yolo` from never reaches the jail, so it is not refused, and an
-`AWS_PROFILE` exported there does not excuse a pair that `env_sources` delivers. A directory
+`AWS_PROFILE` exported there does not excuse a pair that `env_sources` delivers. At
+`yolo host`, which opens the adapter too, the agent inherits that shell, so a bearer or a pair
+exported there is delivered and refuses a launch that hands the agent the pointer. A directory
 grant such as `~/.aws/` counts only on a backend that delivers it: podman, and Apple
 Container from 1.1.0. macos-user never copies one.
 
@@ -160,14 +175,16 @@ no other process, a bare shell included. In a container jail it crosses in that 
 env file, sourced by its launcher. The processes an agent spawns inherit it, as they inherit
 anything in the agent's environment. **It crosses only where the adapter runs.** The pointer
 names this loophole's jail daemon (`served_by: "aws-auth"`), so a launch that does not run it
-leaves the pointer out and says so: `yolo host`, which runs no jail daemon, and a jail launch
-that has not enabled the loophole. macos-user runs the adapter too, but outside its sandbox: the
-sandboxed agent shares the Mac's loopback, so the launch opens the adapter itself as a listener
-it owns, on a port it picks, answering only this launch's caller token and stopping when the
-sandboxed command exits
-([`host-notch-services.md` HS-D15](../../docs/design/host-notch-services.md#HS-D15)). So it
-delivers the pointer, at that port
-([notch convergence §2.4](../../docs/plans/notch-convergence.md#24-the-addresses-those-secrets-protect-are-composed-not-literal)). **Do not "fix" the gate by narrowing it to the pack's own bins**: that
+leaves the pointer out and says why: a jail launch that has not enabled the loophole, and
+`yolo host env`, which runs no process. macos-user opens the adapter outside its sandbox, on the
+Mac's loopback the agent shares, as a listener that launch owns, and `yolo host -- <agent>` does
+the same for the one agent it runs when that agent is on a Bedrock provider, stopping it when the
+agent exits; both deliver the pointer at a port the launch picks
+([`host-notch-services.md` HS-D15](../../docs/design/host-notch-services.md#HS-D15),
+[§4.8](../../docs/design/host-notch-services.md#48-yolo-host);
+[notch convergence §2.4](../../docs/plans/notch-convergence.md#24-the-addresses-those-secrets-protect-are-composed-not-literal)).
+An `AWS_PROFILE` of your own still wins at the host: every shipped agent's AWS client asks the
+profile before the pointer, so an agent you already point at a profile keeps signing with it. **Do not "fix" the gate by narrowing it to the pack's own bins**: that
 would break this pack outright, because CLI-less is the case the gate's CLI-less arm exists
 for.
 
@@ -314,12 +331,13 @@ says so and exits, and the launch reports it.
 > is in daily use against a live `aws sso login`
 > ([the try-out](#trying-it-on-a-real-host), 2026-09-29).
 
-**A podman backend, or macos-user.** On `macos-user` the adapter runs outside the sandbox, on
-the Mac, as a listener the launch owns: started only when some agent's selected provider is
-Bedrock, answering only this launch's caller token, and stopped when the sandboxed command
-exits; the sandbox runs no copy of it
+**A podman backend, macos-user, or `yolo host`.** On `macos-user` the adapter runs outside the
+sandbox, on the Mac, as a listener the launch owns: started only when some agent's selected
+provider is Bedrock, answering only this launch's caller token, and stopped when the sandboxed
+command exits; the sandbox runs no copy of it
 ([`host-notch-services.md` HS-D15](../../docs/design/host-notch-services.md#HS-D15); not yet
-run on a Mac). Apple Container
+run on a Mac). `yolo host -- <agent>` opens it the same way for an agent on a Bedrock provider.
+Apple Container
 (`runtime: "container"`) carries no container→host connection — measured on 1.1.0: the
 handshake completes and nothing crosses — so no loopback-TLS loophole is reachable
 there. That skip is expected to expire with an upstream release rather than stand

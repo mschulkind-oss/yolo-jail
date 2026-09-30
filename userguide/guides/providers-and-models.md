@@ -93,6 +93,8 @@ Two more come with the agent packs, with no extra pack to add:
   it uses your host's `aws sso login`, narrowed to one role before it reaches the jail. The
   credential service inside the jail runs only when an agent is on a Bedrock provider, and only
   that agent can use it. See [Host Access and Loopholes](loopholes.md#the-loopholes-yolo-ships).
+  `yolo host -- pi` on a Bedrock profile gets the same credentials, from a helper that runs for
+  that one command; an `AWS_PROFILE` of your own still comes first for every agent.
   Name the AWS region as `"providers": {"bedrock": {"region": "us-east-1"}}` in your config, as
   `AWS_REGION` in an `env_sources` entry, or as the `region` of your AWS profile in
   `~/.aws/config`. yolo reads that file on your machine for the profile your credential comes

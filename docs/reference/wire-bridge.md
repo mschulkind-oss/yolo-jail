@@ -812,7 +812,9 @@ yolo host: + bedrock (needed by claude)
 yolo host: + openai-auth (needed by claude)
 yolo host: + wire-bridge (needed by claude)
 yolo host: + aws-auth (needed by bedrock)
-yolo host: Profile codex: declared: claude; received: aws-auth, bedrock, claude, openai-auth, wire-bridge
+yolo host: Profile codex: declared by claude; claude → provider "openai-codex", on its "anthropic" endpoint
+yolo host: Not set at this notch, because nothing here serves it (docs/plans/notch-convergence.md §2.4):
+  profile "bedrock-bridge"'s via — its service does not run here, so its agents keep their own clients rather than routing through it
 yolo host: started the "wire-bridge" service (pack "wire-bridge", pid 96868) for claude on 127.0.0.1:36501; it answers only this launch's caller token and stops when claude exits. Its log: ~/.local/share/yolo-jail/logs/launch-service-wire-bridge.log
 ```
 

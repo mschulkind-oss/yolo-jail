@@ -1436,21 +1436,53 @@ refused, naming the grant that is legal there, `--with-credentials`
 ([the host notch](#the-credential-gate)); the key's `"*"` or string form simply does not reach it,
 so that command runs with no profile and nothing is refused.
 
-When anything is selected, the launch prints one line per distinct profile name: **DECLARED** —
-the selected packs shipping a profile of that name — and **RECEIVED** — every selected pack,
-because every derive gets the whole table. It never says *honored* ([OQ-10](#pv-oq-10)): what a
-derive does with the string is unobservable from the launcher, and a transparency line that
-overclaims is the silent-skip failure wearing a badge. An attach that delivers a profile prints
-the same line, and so do `yolo host --` and `yolo host env`, over the one profile their launch
-selects (`packload.ProfileDisclosures`, the one function both notches call).
+When anything is selected, the launch prints one line per distinct profile name. It names the
+selected packs that **declare** the name (or says your config's `profiles` does), and then, for
+each agent the profile table keys to it, the provider its selection resolved to and how that
+agent reaches it at this notch:
+
+```text
+Profile bedrock: declared by bedrock; claude → provider "bedrock", through claude's own "aws-bedrock" client; pi → provider "bedrock", through pi's own "aws-bedrock" client
+```
+
+The route is what the launch composed, read from declarations: the endpoint protocol resolution
+paired (`on its "openai" endpoint`), a via that serves the agent here (`through pack
+"wire-bridge"'s via route`), the agent's own client for a provider named only by its platform, or
+its own client for a provider that re-points nothing. **A platform is bound by the agent's pack**:
+it ships a provider of that platform, needs a selected pack that does, or declares its program's
+switch or region variables for it; every shipped agent pack that binds Bedrock needs
+`packs/bedrock` ([the shipped Bedrock provider](#the-shipped-bedrock-provider)). A **warning** follows
+the line, naming why and the fix, in two cases:
+
+- the provider names no endpoint, only a platform, and no selected pack binds that platform for
+  the agent, so the selection configures nothing for it (copilot under `-p bedrock`, which has no
+  Bedrock client of its own);
+- the provider names no endpoint, so [the credential preflight](#the-credential-preflight) asks
+  nothing of it, and none of the credential variables it claims reaches the agent at this notch.
+  The warning names them, and names the withheld pointer that would carry one when there is one
+  (aws-auth's, with its loophole off). "Reaches" is what that agent receives: in a jail its own
+  delivery and a container's `-e` pairs, at `yolo host` the environment the exec hands it, the
+  shell included.
+
+It never says *honored* ([OQ-10](#pv-oq-10)): a binding is a declaration, and what a derive does
+with the string is unobservable from the launcher. The every-pack **received** list the line used
+to carry is gone: the table does reach every pack's derive whole, which is true of every launch
+and so told no one anything, and on 2026-09-29 it listed fifteen receivers for a `yolo host -- pi`
+that started with no model and no key. An attach that delivers a profile prints the same line, and
+so do `yolo host --` and `yolo host env`, over the one profile their launch selects
+(`packload.ProfileDisclosures`, the one function every notch calls). It is a disclosure, so no
+flag hides it ([OQ-RO3](report-tiers.md#why-its-this-way)).
 
 The host notch also runs the [OQ-SSO8](../design/sso-backed-bedrock.md#OQ-SSO8) override check
 a jail launch runs: a pack's env contribution delivered beside a variable the pack declares
 overrides it refuses `yolo host --`, and `yolo host env` prints the same refusal without
 refusing. The one input that differs is the invoking shell, which the agent `yolo host` execs
 inherits, so a variable exported there counts as delivered at the host and never in a jail. A
-pointer the host withholds because nothing there serves it has nothing to override, so a Bedrock
-bearer beside aws-auth's pointer refuses no host launch.
+pointer the host withholds because nothing there serves it has nothing to override. The one it
+serves does: since `yolo host --` opens aws-auth's adapter for an agent on a Bedrock provider
+([`host-notch-services.md` §4.8](../design/host-notch-services.md#48-yolo-host)), a Bedrock
+bearer or a static key pair exported beside that pointer refuses the launch as in a jail, and
+`yolo host env`, which opens nothing, withholds the pointer and refuses nothing.
 
 ### A switch in the agent's own config
 
@@ -1642,7 +1674,7 @@ above explains what each is for; this table is the only place the exact spelling
 | Kinds that take the `platform` gate | `env` — one gate per contribution, `profile` or `platform`; `platform` on `provider` is the declaration | `packdecl` `validateContribution` |
 | Platform switches | a `program`'s `platform_switches` `[{platform, surface, pointer}]`; claude's: `aws-bedrock`, `claude/settings`, `/env/CLAUDE_CODE_USE_BEDROCK`; on when `true`, `1`, `yes` or `on` | `packs/claude/pack.json`, `packload.PlatformSwitchConflicts` |
 | Profile flag grammar | `-p` / `--profile`: a bare name, or `cli=name` (comma-separated, repeatable), on every notch; at `yolo host` / `yolo host env` a pair may name only the one command composed | `internal/cli` (`parseProfileValue`; `applyProfileValue` on the run path, `hostProfileFor` at the host) |
-| Profile disclosure line | `Profile <name>: declared: <packs or none>; received: <every selected pack>` | `run.noteUseProfiles` |
+| Profile disclosure line | `Profile <name>: declared by <packs, or your config's profiles>; <agent> → provider "<p>", <route>; …`, then one `Warning: profile "<name>" …` line per agent the selection reaches nothing for or delivers no credential to | `packload.ProfileDisclosures`; printed by `run.noteUseProfiles` and `hostComposition.profileLines` |
 | Conventional tier aliases | `default`, `fast`, `balanced`, `frontier`; a missing one warns at boot as `pack derive for <agent>: provider "<name>" declares no "<alias>" model alias …`, and only when a derive asks `yolo.model_for` for it | `luahook.ConventionalModelAliases`, `luahook.MissingTierAliasNote` |
 | pi-subagents' block | `subagents.defaultProvider`, `subagents.defaultModel` (`<provider>/<id>`, deleted when no default resolves), `subagents.modelScope` `{enforce: true, strict: true, allow}` (the configured ids, or `<provider>/*`), in `~/.pi/agent/settings.json` whenever a pi profile selects `openai-codex`, a provider pi can reach, or a Bedrock provider on pi's own client (then `amazon-bedrock`) | `packs/pi/derive.lua` (`piSubagents`) |
 | zai model IDs | `glm-4.6`, `glm-5.3`, `glm-5.3-flash`; the default is `glm-5.3`. These are wire-true IDs; Claude alone appends `[1m]` when `context_window` ≥ 1000000. | `packs/zai/pack.json` |

@@ -70,6 +70,10 @@ Loopholes work fully on Podman on Linux. On a Mac they depend on the runtime:
 - **`macos-user`:** the host services start, and the half that must run inside the sandbox runs
   there, confined like the agent, so the ChatGPT login service and Bedrock (`aws-auth`) work. The
   shared Claude login does not: its in-jail half needs a container, and the launch says so.
+- **`yolo host`, with no jail:** Bedrock through `aws-auth` works too. `yolo host -- pi` (or any
+  agent on a Bedrock profile) runs the credential helper for that one command, on your machine's
+  own loopback, and stops it when the agent exits. An `AWS_PROFILE` you already use still wins.
+  Tested with stand-ins for the agent and for `aws`, not yet with a real agent.
 
 [Settings per setup](../reference/settings-per-setup.md#the-loopholes-host-services-a-jail-can-use)
 has the per-loophole detail.

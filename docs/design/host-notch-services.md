@@ -3,7 +3,7 @@ title: "A pack's service runs wherever its agent runs"
 date: 2026-09-28
 status: accepted
 tags: [design, services, wire-bridge, host, notches, profiles, credentials, macos-user]
-summary: "Built 2026-09-28: yolo host and the macos-user launch start each needed pack service's host half as a child of that one launch, on a loopback port it picked, answering only that launch's caller token, and stop it when the agent exits (OQ-NC1 ruled A, OQ-HS3 per launch, OQ-HS4 as leaned). Built 2026-09-29: the doorway rule (HS-D15), so macos-user opens the Codex and AWS credential doorways the same way. This doc holds the shape, the rulings, and the implementation decisions HS-D1 to HS-D20."
+summary: "Built 2026-09-28: yolo host and the macos-user launch start each needed pack service's host half as a child of that one launch, on a loopback port it picked, answering only that launch's caller token, and stop it when the agent exits (OQ-NC1 ruled A, OQ-HS3 per launch, OQ-HS4 as leaned). Built 2026-09-29: the doorway rule (HS-D15), so macos-user opens the Codex and AWS credential doorways the same way, and yolo host opens the AWS one for an agent on Bedrock. This doc holds the shape, the rulings, and the implementation decisions HS-D1 to HS-D22."
 vantage:
   status-chip: true
 ---
@@ -23,7 +23,14 @@ credential doorways open outside the sandbox through the same mechanism. MEASURE
 unit tests through `run.Run`, one against a real Codex doorway process and one against a real
 aws-auth host service; UNMEASURED on a Mac, where
 `TestMacosUserOpensTheCodexDoorwayOutsideTheSandbox` and
-`TestMacosUserOpensTheAWSDoorwayOutsideTheSandbox` are what settle it.
+`TestMacosUserOpensTheAWSDoorwayOutsideTheSandbox` are what settle it. **At `yolo host` the AWS
+doorway is BUILT 2026-09-29** (`cc389997`; [HS-D21](#HS-D21), [HS-D22](#HS-D22),
+[§4.8](#48-yolo-host)): for an agent whose profile selects a Bedrock provider, with aws-auth
+enabled, `yolo host --` opens the adapter as its own listener and hands that agent the pointer.
+MEASURED by unit tests through `hostMain` against a real aws-auth host service and a real doorway
+process, a fake `aws` and a fake agent. No agent CLI has fetched a credential through it; what
+each agent's client does with the pointer was read from its published code
+([§4.8](#48-yolo-host)).
 
 > **In short.** A service a selected pack needs is part of the environment description, not
 > part of the jail. So if the host runs pack services at all
@@ -44,14 +51,15 @@ a bridged profile.
 
 **Start at [§4](#4-the-proposed-shape)**, the shape. The questions fall out of it.
 
-**Rulings:** [OQ-HS3](#OQ-HS3), per launch (the maintainer, 2026-09-28), [OQ-HS4](#OQ-HS4), decided as leaned, and [HS-D15](#HS-D15), the doorway rule (the maintainer, 2026-09-29). All three are built, HS-D15 for macos-user. Nothing here awaits a ruling.
+**Rulings:** [OQ-HS3](#OQ-HS3), per launch (the maintainer, 2026-09-28), [OQ-HS4](#OQ-HS4), decided as leaned, and [HS-D15](#HS-D15), the doorway rule (the maintainer, 2026-09-29). All three are built, HS-D15 for macos-user and, for the AWS doorway, at `yolo host`. Nothing here awaits a ruling.
 
 **Reads with:** [`notch-convergence.md`](../plans/notch-convergence.md) (the plan this doc is
 item 3 of: it owns whether the host runs services, the caller-secret ruling, and the selection
 and served-address items this design sits on), and [§12](#12-the-neighbors) (the other siblings,
 one line each). The code is `internal/launchservice` (admission, plan, start, stop, the agent's run),
 `internal/wirebridged/hosthalf.go` (the bridge's host half), `internal/cli/host.go` (the host
-launch) and `internal/cli/run/macosuserservices.go` (the macos-user arm).
+launch), `internal/cli/run/macosuserservices.go` (the macos-user arm), and the doorways in
+`internal/cli/run/macosuserdoorways.go` and `internal/cli/run/hostdoorways.go`.
 
 ---
 
@@ -406,7 +414,7 @@ parent of both processes (`launchservice.RunAgent`). This is [OQ-HS3](#OQ-HS3)'s
 | :--- | :--- |
 | `yolo host -- <agent>`, `yolo -p <p> host -- <agent>`, `yolo --at host …` | starts the service |
 | the host wrappers (`exec yolo host -- <bin>`, [`hostwrap.go`](../../internal/hostwrap/hostwrap.go)) | the same front door, so the same result |
-| `yolo host env` | refuses a bridged profile, naming the `yolo host -p <p> -- <agent>` spelling: an env script cannot own a service's lifetime ([OQ-HS3](#OQ-HS3)) |
+| `yolo host env` | refuses a bridged profile, naming the `yolo host -p <p> -- <agent>` spelling: an env script cannot own a service's lifetime ([OQ-HS3](#OQ-HS3)). For the same reason it opens no credential doorway: it exports no pointer at one and names the launch that opens it ([HS-D21](#HS-D21)) |
 | `yolo host apply` | renders no bridged address, since a per-launch address cannot sit in a file, and says a bridged `use_profiles` selection takes effect only through `yolo host --` or the wrappers ([OQ-HS3](#OQ-HS3), [OQ-HC3](host-computed-layer.md#OQ-HC3)) |
 | a direct launch (an IDE, cron, a shell with no wrappers) | gets only the rendered files, so it runs on the login. claude's host status line reads the config's selection ([OQ-FT6](agent-footer.md#OQ-FT6)). At `1baf1fd4` it says `codex (bridge) · host` there (row 3 of [§2](#2-what-the-host-does-today-measured)); the sibling branch leaves a selection the host refuses out of it (FT-D1), so it names the login. Once the host composes a bridged selection, the line would name the bridge again while a direct launch runs on its login. That is [`agent-footer.md`](agent-footer.md)'s to settle |
 | a container jail | the caller secret, by NC-D2 (the bridge part is in flight) |
@@ -446,6 +454,76 @@ keeper, and every session of the workspace there uses one set
 ([JL-D38](jail-lifetime-last-session-wins.md#JL-D38)). They still open on the machine's loopback,
 outside Seatbelt, as [HS-D15](#HS-D15) rules; only the process that owns them changes
 ([JL-D43](jail-lifetime-last-session-wins.md#JL-D43)). Designed, not built.
+
+### 4.8 `yolo host`
+
+**The AWS doorway, since [HS-D21](#HS-D21).** An agent `yolo host` runs is this machine's own
+process on the machine's own loopback, so under [HS-D15](#HS-D15) the host launch opens the
+doorway outside too, through the mechanism macos-user uses. It opens aws-auth's doorway for the
+one agent it runs when that agent's profile selects a provider of platform `aws-bedrock` and the
+`aws-auth` loophole is enabled: the condition on which a jail starts the adapter
+([OQ-CN7](provider-credential-scope.md#OQ-CN7) (b)). In order (`hostExec`):
+
+1. **The composition** plans the doorway (`run.PlanHostDoorways`): a loopback port it picked by
+   binding `127.0.0.1:0`, never the declared `1461`, and a caller token it minted. The served set
+   it hands the credential gate serves `aws-auth` at that address, so the gate composes
+   `AWS_CONTAINER_CREDENTIALS_FULL_URI` and the scoped `AWS_CONTAINER_AUTHORIZATION_TOKEN` for
+   that agent alone, as a jail's gate does for its jail daemon.
+2. **The pre-flights** read that served set, so the [OQ-SSO8](sso-backed-bedrock.md#OQ-SSO8)
+   check sees the pointer it delivers: a Bedrock bearer beside it refuses the launch here as in a
+   jail, before anything opens.
+3. **The start** discloses the host code it runs, then ensures the host-wide aws-auth singleton
+   and a front over it for this launch, in a host-services dir of the launch's own (the
+   macos-user session mechanism, `servicessession.go`), then opens the doorway
+   (`launchservice.Start`) with that front's endpoint file. That is [HS-D19](#HS-D19)'s route.
+4. **The agent** runs as the launch's child (`launchservice.RunAgent`). When it exits the doorway
+   stops, then the front closes and the session dir goes.
+
+What stays closed says why, on the `Not set at this notch` line: a disabled loophole names the
+config key that enables it, a refused host argv names the refusal, and `yolo host env`, which runs
+no process, names the launch that opens it. Codex's refresh doorway is not opened here
+([HS-D22](#HS-D22)).
+
+**What each agent does with the pointer.** Read on 2026-09-29 from the published packages,
+fetched with `npm view` and `curl` into a scratch directory; nothing was installed or run, and no
+request was made.
+
+| Agent | Artifact read | Does it count the pointer as a credential? | What its client then signs with | Grade |
+| :--- | :--- | :--- | :--- | :--- |
+| pi | `@earendil-works/pi-ai@0.99.1`, the AI package `@earendil-works/pi-coding-agent@0.99.1` depends on (`^0.99.1`; 0.99.1 is the latest) | **Yes.** `dist/env-api-keys.js` lines 139–155: `getEnvApiKey("amazon-bedrock")` answers `"<authenticated>"` when `AWS_CONTAINER_CREDENTIALS_FULL_URI` is set, beside `AWS_PROFILE`, the key pair, the bearer, the relative URI and a web-identity file. `dist/providers/amazon-bedrock.js` lines 53–82: the provider's `resolve` returns `source: "ECS task role"` for it | `dist/api/bedrock-converse-stream.js` lines 45–99: `profile` is `AWS_PROFILE` when set, `credentials` only for a static pair, otherwise the SDK's default chain, whose last link is the container provider; the region is `options.region`, `AWS_REGION` or `AWS_DEFAULT_REGION` (lines 948–953) | READ |
+| opencode | `opencode-linux-x64@1.18.33`, `bin/opencode` (a Bun bundle), its `amazon-bedrock` loader | **Yes.** Autoload is refused only when none of `AWS_PROFILE` (or `options.profile`), `AWS_ACCESS_KEY_ID`, a bearer, `options.apiKey`, `AWS_WEB_IDENTITY_TOKEN_FILE` and `AWS_CONTAINER_CREDENTIALS_RELATIVE_URI \|\| AWS_CONTAINER_CREDENTIALS_FULL_URI` is set | `credentialProvider = fromNodeProviderChain(AWS_PROFILE ? {profile} : {})` unless a bearer is set; the region is `options.region ?? AWS_REGION ?? "us-east-1"` | READ |
+| codex | `@openai/codex@0.159.2-linux-x64`, `vendor/x86_64-unknown-linux-musl/bin/codex` (Rust) | **INFERRED yes.** Its Bedrock sign-in flow prints "Checking for existing AWS credentials..." and "No AWS credentials found.", beside the strings `AWS_BEARER_TOKEN_BEDROCK`, `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY`; which sources that check reads is not readable from strings | aws-config 1.8.12's default chain, `EnvironmentProfileEcsContainerEc2InstanceMetadata` in its strings; its `ecs.rs` reads `AWS_CONTAINER_CREDENTIALS_FULL_URI` and `AWS_CONTAINER_AUTHORIZATION_TOKEN` and accepts only an address that resolves to an allowed IP, which loopback is | INFERRED |
+| claude | the chain order in [`sso-backed-bedrock.md` §11](sso-backed-bedrock.md#11-evidence-and-how-to-re-check-it) (2.1.282) | No check of its own: `CLAUDE_CODE_USE_BEDROCK` and the default chain | env, SSO, ini, process, token file, then the container provider | MEASURED (the chain) |
+
+So yolo renders nothing more for pi: pi's own check accepts the pointer, and the models and
+default model its Bedrock row carries are the derive's already
+([`bedrock-plumbing.md` §6.2](bedrock-plumbing.md#62-what-each-derive-emits)).
+
+**An explicit profile still wins.** Every client above puts the container provider after the
+profile provider, so an agent the user already points at an AWS profile of their own (an
+`AWS_PROFILE` in the shell, or in claude's own `~/.claude/settings.json` `env` block, which
+Claude Code applies before its first request, [`providers.md` OQ-4](../reference/providers.md#pv-oq-4))
+signs with that profile whenever the profile resolves, and the doorway is not asked. The launch passes that `AWS_PROFILE` through untouched and refuses nothing over it: the
+override declaration names no `AWS_PROFILE`, and lets a static pair through beside one
+(`TestHostClaudeKeepsItsOwnAWSProfileBesideTheDoorway`). claude at `yolo host` on its own
+settings keeps working with aws-auth on, and without it nothing changes.
+
+**The region at the host is the jail's.** The derives compose it the same way at both notches:
+pi's and claude's env derives set `AWS_REGION` from the provider's `region` (pinned: pi receives
+the provider's region at the host), and codex's and opencode's config derives write it into their
+own config. The region pre-flight asks the same question of the environment the exec hands the
+agent, which at the host includes the shell
+([BR-D2](bedrock-plumbing.md#BR-D2)).
+
+> [!NOTE]
+> **What the tests prove, and what they do not.** There is no network namespace at the host, so
+> the doorway binds the machine's own loopback and there is no forwarding hop to get wrong: the
+> nested-jail blindness [`AGENTS.md`](../../AGENTS.md) warns about has nothing to hide here. The
+> tests run a real aws-auth host service and a real doorway process, with the test binary
+> standing in for `yolo`, against a fake `aws`, and a fake agent that fetches the pointer the way
+> an SDK's container provider does. They settle the wiring, the token check and the teardown.
+> They do not show which credential a real agent's SDK picks, which the table above reads from
+> code.
 
 ## 5. Alternatives considered
 
@@ -493,8 +571,8 @@ outside Seatbelt, as [HS-D15](#HS-D15) rules; only the process that owns them ch
   nothing serves them ([§4.1](#41-selection-the-jails-closure-at-the-host)); serving them is the
   same shape, and [OQ-NC1](../plans/notch-convergence.md#OQ-NC1)'s option A covers it.
   **Built for macos-user** by the doorway rule ([HS-D15](#HS-D15), [§4.7](#47-macos-user)). At
-  `yolo host`, Codex's doorway was already launch-owned (the managed adapter), and the AWS
-  doorway is not built ([HS-D20](#HS-D20)).
+  `yolo host`, Codex's doorway was already launch-owned (the managed adapter, for `yolo host --
+  codex`), and the AWS doorway is built too ([HS-D21](#HS-D21), [§4.8](#48-yolo-host)).
 - **The host status line's truth for direct launches** ([`agent-footer.md`](agent-footer.md)).
 - **Loophole host daemons**, which are [HD-R1](host-daemon-ownership.md#HD-R1)'s own work.
 - **The `guest` notch**, which has no launch path yet.
@@ -520,6 +598,8 @@ unit tests covered that route (`TestResponsesNonStreamRoundTrip` in
 5. **`macos-user`**, as [§4.7](#47-macos-user) says. ✅ `5a626c94`.
 6. **The credential doorways on `macos-user`**, by [HS-D15](#HS-D15). ✅ `1b35ed10`, `1a276996`,
    `d7e17341`, `fea3b6c7`.
+7. **The AWS doorway at `yolo host`**, by [HS-D15](#HS-D15), as [§4.8](#48-yolo-host) says
+   ([HS-D21](#HS-D21), [HS-D22](#HS-D22)). ✅ `cc389997`.
 
 ## 9. What done looks like
 
@@ -542,8 +622,15 @@ where the item says otherwise.
   spelling (`TestHostEnvRefusesABridgedProfile`).
 - Two concurrent `yolo host -p codex -- claude` launches both work. By construction (two plans,
   two picked ports, two tokens, [HS-D9](#HS-D9)); UNMEASURED end to end.
-- `yolo host -p bedrock -- claude` with `"packs": ["claude"]` hands claude no
-  `AWS_CONTAINER_CREDENTIALS_FULL_URI`, and says so on stderr.
+- ✅ `yolo host -p bedrock -- claude` with `"packs": ["claude"]` and aws-auth off hands claude no
+  `AWS_CONTAINER_CREDENTIALS_FULL_URI`, and says so on stderr, naming the config key that turns
+  the loophole on (`TestHostOpensNoDoorwayWhenTheLoopholeIsDisabled`).
+- ✅ With aws-auth on, `yolo host -- pi` on `use_profiles: {pi: bedrock}` hands pi the pointer
+  and its token for a doorway this launch opened, which serves the host service's credential with
+  the token and refuses `401` without it, and is gone after pi exits; so do claude, codex and
+  opencode, and `-p bedrock` (`TestHostPiOnBedrockGetsCredentialsThroughALaunchOwnedDoorway`,
+  `TestHostOpensTheAWSDoorwayForEveryBedrockAgent`). A doorway that cannot start refuses the
+  launch (`TestHostRefusesWhenTheDoorwayCannotStart`).
 - `yolo host env --agent codex` with `"packs": ["codex"]` exports no
   `CODEX_REFRESH_TOKEN_URL_OVERRIDE` and says so on stderr, while `yolo host -- codex` prints no
   such line.
@@ -626,7 +713,8 @@ option A and are moot under its option B.
 The rulings are the maintainer's [OQ-HS3](#OQ-HS3) and [HS-D15](#HS-D15), and notch-convergence's
 ([NC-D1, NC-D2](../plans/notch-convergence.md#7-decision-ledger), [OQ-NC1](../plans/notch-convergence.md#OQ-NC1)).
 The rest are mechanism choices under the design. HS-D6 to HS-D14 were made while building it,
-and HS-D16 to HS-D20 while building HS-D15.
+HS-D16 to HS-D20 while building HS-D15 for macos-user, and HS-D21 and HS-D22 while building it at
+`yolo host`.
 
 | ID | Ruling / Decision | Date | Settled in | Built |
 | :--- | :--- | :--- | :--- | :--- |
@@ -646,12 +734,14 @@ and HS-D16 to HS-D20 while building HS-D15.
 | <a id="HS-D12"></a>[`HS-D12`](#11-decision-ledger) | *Implementation decision,* [OQ-HS4](#OQ-HS4)'s gate. "Official" is the pack's origin, `packload.Pack.Official`: set by the embedded loader and by `config.ResolvePack` for an embedded entry, staged copies included, and never for a fetched or local pack whatever its name. The pack holding the service under the later-wins rule decides. The argv must start with `yolo`, which the launch resolves to its own binary (`execx.SelfExecArgv`). Validation does not refuse another argv, since a fetched pack's is refused at the launch by name either way | 2026-09-28 | [§10](#10-open-questions) | ✅ `f8a99ed2` |
 | <a id="HS-D13"></a>[`HS-D13`](#11-decision-ledger) | *Implementation decision.* **The host half serves its adapter route only**: a via stays inert outside a jail ([WG-I12](wire-bridge-gateway.md#WG-I12)), so `wirebridged.runHostHalf` drops the via plan, and a plan with nothing to serve answers `failed` on the readiness pipe and exits rather than idling, since a launch that started it asked for a route | 2026-09-28 | [§4.2](#42-the-trigger) | ✅ `f8a99ed2` |
 | <a id="HS-D14"></a>[`HS-D14`](#11-decision-ledger) | *Implementation decision,* [§4.7](#47-macos-user). On macos-user **every profiled agent's pairing counts**, not only the launched command's: that arm writes each profiled agent's env file for a shell that starts one later. The service starts after the host services and before the sandboxed command, and stops when the command returns. The jail-daemon decline names the bridge's jail daemon with "(its host half runs for this launch instead)", and a dry run says what it would start. The macos-user arm is pinned by unit tests with the start stubbed, and has not run on a Mac | 2026-09-28 | [§4.7](#47-macos-user) | ✅ `5a626c94` |
-| <a id="HS-D15"></a>[`HS-D15`](#11-decision-ledger) | **Maintainer ruling (2026-09-29), the doorway rule:** a credential service's host half is the same on every backend, and its **doorway** (the thin adapter an agent's client talks to, which checks the launch's caller token and forwards to the host half) opens on whichever loopback the agent sees. A container has its own loopback, so the doorway is a jail daemon inside it; `macos-user` and `yolo host` share the machine's, so the launch opens the doorway outside as a launch-owned listener ([§4.7](#47-macos-user)). An in-jail doorway was a consequence of the container's network namespace (the AWS SDK speaks plain http only to `127.0.0.0/8`, and Codex's refresh override wants a local URL), never a principle, so this is not an exception to [OQ-DP8](declaration-parity.md#OQ-DP8), which governs processes that must run inside. It releases the macos-user doorways for `openai-auth` ([OQ-OA6](openai-auth-broker.md#OQ-OA6)) and `aws-auth` | 2026-09-29 | [§4.7](#47-macos-user) | ✅ macos-user: `1b35ed10`, `1a276996`, `d7e17341`, `fea3b6c7`, `824cb859` (HS-D16 to HS-D20). `yolo host`: Codex's was already launch-owned; aws-auth's is not built ([HS-D20](#HS-D20)) |
+| <a id="HS-D15"></a>[`HS-D15`](#11-decision-ledger) | **Maintainer ruling (2026-09-29), the doorway rule:** a credential service's host half is the same on every backend, and its **doorway** (the thin adapter an agent's client talks to, which checks the launch's caller token and forwards to the host half) opens on whichever loopback the agent sees. A container has its own loopback, so the doorway is a jail daemon inside it; `macos-user` and `yolo host` share the machine's, so the launch opens the doorway outside as a launch-owned listener ([§4.7](#47-macos-user)). An in-jail doorway was a consequence of the container's network namespace (the AWS SDK speaks plain http only to `127.0.0.0/8`, and Codex's refresh override wants a local URL), never a principle, so this is not an exception to [OQ-DP8](declaration-parity.md#OQ-DP8), which governs processes that must run inside. It releases the macos-user doorways for `openai-auth` ([OQ-OA6](openai-auth-broker.md#OQ-OA6)) and `aws-auth` | 2026-09-29 | [§4.7](#47-macos-user) | ✅ macos-user: `1b35ed10`, `1a276996`, `d7e17341`, `fea3b6c7`, `824cb859` (HS-D16 to HS-D20). `yolo host`: Codex's was already launch-owned (the managed adapter); aws-auth's ✅ `cc389997` ([HS-D21](#HS-D21), [HS-D22](#HS-D22), [§4.8](#48-yolo-host)) |
 | <a id="HS-D16"></a>[`HS-D16`](#11-decision-ledger) | *Implementation decision,* [HS-D15](#HS-D15). **A doorway's host argv is declared, as `jail_daemon.host_cmd`**, beside the jail daemon's `cmd`: a loophole's `host_daemon` slot is its host service's, and a doorway outside is the jail daemon's other placement, not a second service. `{listen}` is its one token, resolved to the address the launch settled, and it needs `caller_token` and `listen` (`loopholedecl.parseJailDaemonHostCmd`). The footprint names it in the loophole's host-execution claim for a pack yolo ships, and leaves it out for any other, whose host argv no launch admits (`packload.moduleClaims`). Chosen over rewriting `yolo-jaild <name>` into a `yolo` argv, which [OQ-DP8](declaration-parity.md#OQ-DP8) rules out: a declared `cmd` runs exactly as declared. The shipped two are `yolo internal daemon openai-auth-adapter` and `yolo internal daemon aws-credential-adapter` | 2026-09-29 | [§4.7](#47-macos-user) | ✅ `1b35ed10`, `d7e17341`, `fea3b6c7`, `f8529a43` |
 | <a id="HS-D17"></a>[`HS-D17`](#11-decision-ledger) | *Implementation decision.* **One mechanism, under [HS-D12](#HS-D12)'s rule.** A doorway runs through `internal/launchservice` as a service's host half does: `AdmitDoorway` (the loophole's pack must be one yolo ships, the argv must name `yolo`), `PlanAt`, `Start` and `Stop`, with a daemon side of its own, `ServeListener` (read the input file, bind, answer `ready`, serve until SIGTERM or the lifeline's EOF). Admission over a payload is one function, `launchservice.AdmitDoorways`, which both of its readers call before anything reads it: the launch, where the payload is composed (`run.admitDoorways`, in `jailDaemonsFor`), and `yolo check`'s prediction (`check.predictedServed`). A refused host argv is cleared, so its jail daemon is judged like any other: the guest runs it ([OQ-DP9](declaration-parity.md#OQ-DP9)) or declines it by name. The launch names the refusal on a `Not opened outside the sandbox` line, which says whether that jail daemon runs in the sandbox or, declined there too, nowhere. A pack service's daemon and an intercepting loophole's are never doorways, so admission skips them | 2026-09-29 | [§4.7](#47-macos-user) | ✅ `1a276996`, `fea3b6c7`, `5b1059a1`, `6e8dce61` |
 | <a id="HS-D18"></a>[`HS-D18`](#11-decision-ledger) | *Implementation decision.* **The doorway answers where, and to whom, its clients were composed, with no second composition.** On macos-user the guest declines a doorway's jail daemon (`loopholes.JailDaemonsRunIn`) and the served set still counts it (`loopholes.ServedJailDaemons`, which `yolo check` predicts through too), so the launch settles a picked port for it and mints its caller token as it did for the guest's copy, and `PlanAt` hands both to the doorway. So packs/codex's `CODEX_REFRESH_TOKEN_URL_OVERRIDE`, the token the Codex launcher binds into the refresh marker, and aws-auth's pointer and scoped `AWS_CONTAINER_AUTHORIZATION_TOKEN` all name the listener the launch starts. The AWS doorway opens only when some agent's profile selects `bedrock`, since it comes from the same payload ([OQ-CN7](provider-credential-scope.md#OQ-CN7) (b)) | 2026-09-29 | [§4.7](#47-macos-user) | ✅ `1b35ed10`, `fea3b6c7` |
 | <a id="HS-D19"></a>[`HS-D19`](#11-decision-ledger) | *Implementation decision.* **Each doorway forwards by a route the host already has.** The Codex doorway is `openaiauthhost.serveAdapter`, the one adapter body `yolo host -- codex` serves in-process, asking the broker's private socket ([HS-D3](#HS-D3)). The AWS doorway is the jail adapter's handler, asking through the session's aws-auth front by the endpoint file the launch published; with no endpoint (the host service refused at spawn) it still serves and answers each request `ServiceUnreachable`, as the jail's copy does. Doorways start after the host services and before the sandboxed command, and stop when it returns. One that does not start refuses the launch ([§4.5](#45-failure-paths)) and stops the doorways already open, and a doorway whose launch dies ends on its lifeline's EOF, as a service's host half does. The decline line adds "(its doorway runs for this launch, outside the sandbox)", and a dry run prints `Would open …` with the argv | 2026-09-29 | [§4.7](#47-macos-user) | ✅ `d7e17341`, `fea3b6c7`; pinned by `77c9a6ef`, `4912461e`, `c7bcef10` |
-| <a id="HS-D20"></a>[`HS-D20`](#11-decision-ledger) | *Implementation decision, scope.* **`yolo host` is unchanged.** Its Codex doorway was already launch-owned (the managed adapter, now the same `serveAdapter` body), so it is not moved onto `launchservice`. `yolo host -p bedrock` still withholds the AWS pointer and names it, because the host notch starts no aws-auth host service or front for a doorway to forward to; opening that doorway at the host is the same shape and is not built. With both shipped doorways outside the guest, no shipped pack hands the guest's jail-daemon supervisor anything; a pack that declares a loophole jail daemon without `host_cmd` still runs it there | 2026-09-29 | [§7](#7-what-this-does-not-cover) | not built (the host's AWS doorway) |
+| <a id="HS-D20"></a>[`HS-D20`](#11-decision-ledger) | *Implementation decision, scope.* **`yolo host` is unchanged.** Its Codex doorway was already launch-owned (the managed adapter, now the same `serveAdapter` body), so it is not moved onto `launchservice`. `yolo host -p bedrock` still withholds the AWS pointer and names it, because the host notch starts no aws-auth host service or front for a doorway to forward to; opening that doorway at the host is the same shape and is not built. With both shipped doorways outside the guest, no shipped pack hands the guest's jail-daemon supervisor anything; a pack that declares a loophole jail daemon without `host_cmd` still runs it there. **Revised 2026-09-29 by [HS-D21](#HS-D21):** the host's AWS doorway is built, with its host service and front, the same shape; the Codex half of this row stands ([HS-D22](#HS-D22)) | 2026-09-29 | [§7](#7-what-this-does-not-cover) | ✅ as scoped; the host's AWS doorway ✅ `cc389997` ([HS-D21](#HS-D21)) |
+| <a id="HS-D21"></a>[`HS-D21`](#11-decision-ledger) | *Implementation decision,* [HS-D15](#HS-D15) at `yolo host`. **The host opens aws-auth's doorway through the macos-user mechanism, with no second one.** The composition plans it (`run.PlanHostDoorways`): the loophole set of the packs the host's own selection function chose (a documented convergence exemption, since the host stages no tree to record), their jail daemons filtered as a jail's are (enabled, the gate delivered, `launchservice.AdmitDoorways`), a port picked on `127.0.0.1`, a minted token, `launchservice.PlanAt`. The gate composes against that served set (`HostDoorways.Served`, marked `ServedDaemons.AtHost`), and so does the [OQ-SSO8](sso-backed-bedrock.md#OQ-SSO8) check, so a bearer beside the served pointer refuses at the host as in a jail; that meets notch-convergence item 13's done-when, which [NC-D34](../plans/notch-convergence.md#NC-D34) recorded as unmeetable while the host served no pointer. The start is the macos-user order ([HS-D19](#HS-D19)): the exec disclosure for the doorway's pack, the host singleton ensured and fronted in a host-services dir of the launch's own (`startLoopholesMatching` with the host's runtime name takes the session arm and a `127.0.0.1` advertise), then `launchservice.Start`; the agent runs under `launchservice.RunAgent`, and on its exit the doorway stops, the front closes and the dir goes. A doorway left closed carries its reason onto the `Not set at this notch` line (`ServedDaemons.WithNotServedWhy`): the loophole is disabled, naming the key; its host argv is refused; or the front door runs no process, naming the launch that opens it. The host's default clause no longer says a jail daemon never runs at the host | 2026-09-29 | [§4.8](#48-yolo-host) | ✅ `cc389997`; pinned by `TestHostPiOnBedrockGetsCredentialsThroughALaunchOwnedDoorway`, `TestHostOpensTheAWSDoorwayForEveryBedrockAgent`, `TestHostRefusesABearerBesideTheDoorwaysPointer`, `TestHostOpensNoDoorwayWhenTheLoopholeIsDisabled`, `TestHostEnvNamesTheLaunchThatOpensTheDoorway`, `TestHostRefusesWhenTheDoorwayCannotStart` |
+| <a id="HS-D22"></a>[`HS-D22`](#11-decision-ledger) | *Implementation decision, scope.* **At the host a doorway opens only for a PROFILE-SERVED daemon** (packload's term: every pointer naming it is gated on a profile or a platform) **whose gate the launched agent's selection satisfies.** One launch runs one agent, so a doorway whose pointer is ungated would open for an agent that is not its client: codex's `CODEX_REFRESH_TOKEN_URL_OVERRIDE` reaches every agent the host composes and serves only codex, and `yolo host -- codex` already serves that URL from the managed adapter ([HS-D20](#HS-D20)). So the Codex doorway stays unopened here and its pointer stays named as withheld for any other agent. Chosen over opening every admitted doorway as macos-user does, where one sandbox holds every agent | 2026-09-29 | [§4.8](#48-yolo-host) | ✅ `cc389997`; pinned by `TestHostOpensTheAWSDoorwayForEveryBedrockAgent` (codex's refresh pointer still named) and `TestHostOpensNoDoorwayForAnAgentOffBedrock` |
 
 ## 12. The neighbors
 
