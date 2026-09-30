@@ -73,6 +73,57 @@ func TestOmpScopesANarrowedList(t *testing.T) {
 	}
 }
 
+// OH-OMP'S SCOPE LEADS WITH THE DEFAULT ENTRY EVEN WHEN IT IS NOT FIRST IN LIST ORDER, because
+// omp starts on the scope's first entry whenever its remembered model is off the scope (MM-D12):
+// the first slot is the start rule, not presentation. zai narrowed to glm-4.6 and glm-5.3 puts
+// the declared default, glm-5.3, second by id; a profile naming glm-4.6 puts it first; and one
+// naming glm-5.3-flash, on a list keeping all three, puts the last entry first. A scope built in
+// plain list order passes TestOmpScopesANarrowedList, whose default already sorts first.
+func TestOmpScopeLeadsWithADefaultNotFirstInOrder(t *testing.T) {
+	omp, err := embeddedPack("omp")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name, only, profile string
+		user                map[string]packload.UserProfile
+		want                []any
+	}{
+		{"the declared default, second by id", `["glm-4.6","glm-5.3"]`, "zai", nil,
+			[]any{"zai/glm-5.3", "zai/glm-4.6"}},
+		{"a profile's model, last by id", `["glm-4.6","glm-5.3","glm-5.3-flash"]`, "zai-flash",
+			map[string]packload.UserProfile{"zai-flash": {Provider: "zai", Options: map[string]string{"model": "glm-5.3-flash"}}},
+			[]any{"zai/glm-5.3-flash", "zai/glm-4.6", "zai/glm-5.3"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			providers, profiles := zaiNarrowedTo(t, "omp", tc.user, tc.only)
+			var errw bytes.Buffer
+			e := &Env{Home: t.TempDir(), Workspace: t.TempDir(), Stderr: &errw, Vars: map[string]string{
+				"YOLO_PROVIDERS":    providers,
+				"YOLO_USE_PROFILES": `{"oh-omp":"` + tc.profile + `"}`,
+				"YOLO_PROFILES":     profiles,
+			}}
+			withCtxRoot(t, t.TempDir(), "omp")
+			ConfigurePackSurfaces(e, []*packload.Pack{omp})
+			if fails := e.GenFailures(); len(fails) != 0 {
+				t.Fatalf("boot render failed: %v\n%s", fails, errw.String())
+			}
+			raw, err := os.ReadFile(filepath.Join(e.Home, ".oh-omp", "agent", "config.yml"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			decoded, err := (codec.YAML{}).Decode(raw)
+			if err != nil {
+				t.Fatalf("config.yml is not YAML: %v\n%s", err, raw)
+			}
+			cfg, _ := decoded.(map[string]any)
+			if got := cfg["enabledModels"]; !reflect.DeepEqual(got, tc.want) {
+				t.Errorf("enabledModels = %v, want %v: the default entry first, the rest in list order", got, tc.want)
+			}
+		})
+	}
+}
+
 // COPILOT UNDER AN `only` (§14.1, copilot): one COPILOT_MODEL, since copilot's
 // environment-variable setup carries one, and it is the narrowed list's default entry (§7.2):
 // the profile's `model` when the list holds it, else the `default` alias, else the list's first
