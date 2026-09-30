@@ -84,6 +84,13 @@ func (o *Options) nixDaemonStoreCheck(r *reporter) {
 	case res.RC == 0 && !o.IsMacOS:
 		// No trusted-user verdict here: it diagnoses the macOS Linux-builder offload, whose
 		// `--builders` line needs a trusted user, and a Linux build runs locally without one.
+		//
+		// A STORE nix OPENED ITSELF IS NOT A DAEMON THAT ANSWERED: a single-user install, or
+		// root on any install, reports "Store URL: local", and no daemon was asked at all.
+		if url := nixStoreURL(output); url != "" && !nixDaemonStoreURL(url) {
+			r.ok("Nix store: " + url + ", opened directly (no daemon was asked)")
+			return
+		}
 		r.ok("Nix daemon: connected")
 	case res.RC == 0 && strings.Contains(output, "Trusted: 1"):
 		r.ok("Nix daemon: connected, user is trusted")
@@ -120,6 +127,22 @@ func (o *Options) nixDaemonStoreCheck(r *reporter) {
 		}
 		r.fail("Nix daemon: connection failed", hint+o.nixDaemonRestart())
 	}
+}
+
+// nixStoreURL is the "Store URL:" line's value in `nix store info` output, "" when there is none.
+func nixStoreURL(output string) string {
+	for _, line := range strings.Split(output, "\n") {
+		if v, ok := strings.CutPrefix(strings.TrimSpace(line), "Store URL:"); ok {
+			return strings.TrimSpace(v)
+		}
+	}
+	return ""
+}
+
+// nixDaemonStoreURL reports whether a store URL names the daemon: `daemon`, or the daemon socket
+// spelled as a `unix://` URL.
+func nixDaemonStoreURL(url string) bool {
+	return url == "daemon" || strings.HasPrefix(url, "unix://")
 }
 
 // nixDaemonRestart is the restart for this OS's service manager: launchd's kickstart on macOS

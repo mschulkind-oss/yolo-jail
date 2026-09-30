@@ -277,3 +277,26 @@ func TestTheLinuxNixDaemonFaultsNameTheRestart(t *testing.T) {
 		})
 	}
 }
+
+// A STORE OPENED DIRECTLY IS NOT A DAEMON THAT ANSWERED. `nix store info` succeeds on a
+// single-user install, and for root on any install, by opening the store itself ("Store URL:
+// local"), so no daemon was asked at all. Off macOS that used to read "Nix daemon: connected",
+// a claim about a daemon that may not exist, on a host whose jails then get no daemon socket to
+// delegate to (internal/cli/run's shouldMountHostNix). The line says what was found instead.
+func TestALocalNixStoreIsNotReportedAsAConnectedDaemon(t *testing.T) {
+	r, _, out := runLinuxNixSection(t, ExecResult{Ran: true, RC: 0,
+		Stdout: "Store URL: local\nVersion: 2.31.2\nTrusted: 1\n"}, true)
+	if _, ok := findingFor(r, "Nix daemon: connected"); ok {
+		t.Errorf("a store nix opened directly must not be reported as a connected daemon:\n%s", out)
+	}
+	f, ok := findingFor(r, "Nix store: local, opened directly (no daemon was asked)")
+	if !ok || f.Status != "pass" {
+		t.Errorf("the local store must be named as what answered:\n%s", out)
+	}
+	// And a daemon reached by its socket's URL is still a daemon.
+	r, _, out = runLinuxNixSection(t, ExecResult{Ran: true, RC: 0,
+		Stdout: "Store URL: unix:///nix/var/nix/daemon-socket/socket\nVersion: 2.31.2\n"}, true)
+	if _, ok := findingFor(r, "Nix daemon: connected"); !ok {
+		t.Errorf("a daemon reached by its socket URL is a connected daemon:\n%s", out)
+	}
+}

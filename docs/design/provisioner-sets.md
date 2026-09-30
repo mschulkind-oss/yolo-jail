@@ -2344,7 +2344,9 @@ recommendation the doc rests on.
     > The profile-report half shipped 2026-09-14, as stated above.
     >
     > **Built 2026-09-30** (`sectionNix`, `internal/cli/check/section_nix_probe.go`). Off macOS a
-    > daemon that answers is `Nix daemon: connected`, with no trust verdict. A timeout or a failed
+    > daemon that answers is `Nix daemon: connected`, with no trust verdict, and a store `nix`
+    > opened itself (a single-user install, or root on any) is named as that store rather than as
+    > a daemon, since no daemon was asked. A timeout or a failed
     > connection is a `[FAIL]` naming `sudo systemctl restart nix-daemon` when `systemctl` is on
     > the PATH, and otherwise the nix-daemon service and whoever runs it, which in a jail is the
     > host. On macOS every line reads as it did.
