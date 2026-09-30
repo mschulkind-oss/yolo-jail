@@ -589,6 +589,9 @@ func TestValidateProviderModelObjects(t *testing.T) {
 		`{"kilo": {"models": {"default": {"id": "deepseek-v4.1-flash"}}}}`,
 		`{"kilo": {"models": {"default": {"id": "deepseek-v4.1-flash", "name": "DeepSeek V4.1 Flash", "reasoning": true, "input": ["text", "image"], "cost": {"input": 0.3, "output": 1.2, "cache_read": 0.006, "cache_write": 0}, "context_window": 1048576, "max_tokens": 384000}}}}`,
 		`{"kilo": {"models": {"fast": "glm-5.3-flash", "smart": {"id": "glm-5.3", "reasoning": false}}}}`,
+		// The maker (bedrock-plumbing.md OQ-BR9): one lowercase token, open vocabulary.
+		`{"bedrock": {"models": {"kimi": {"id": "moonshotai.kimi-k3", "vendor": "moonshotai"}}}}`,
+		`{"bedrock": {"models": {"x": {"id": "m", "vendor": "z.ai"}}}}`,
 	}
 	for _, body := range valid {
 		if errs := providerErrors(t, body); len(errs) != 0 {
@@ -607,6 +610,10 @@ func TestValidateProviderModelObjects(t *testing.T) {
 		{`{"kilo": {"models": {"default": {"id": "m", "cost": {"input": 1}}}}}`, ".models.default.cost.output: required"},
 		{`{"kilo": {"models": {"default": {"id": "m", "cost": {"input": 1, "output": 2, "cache_read": 3, "cache_write": 4, "cacheRead": 5}}}}}`, ".models.default.cost.cacheRead: unknown key"},
 		{`{"kilo": {"models": {"default": {"id": "m", "context_window": -1}}}}`, ".models.default.context_window: expected a positive number"},
+		{`{"bedrock": {"models": {"x": {"id": "m", "vendor": "OpenAI"}}}}`, ".models.x.vendor: expected the model's maker as one lowercase token"},
+		{`{"bedrock": {"models": {"x": {"id": "m", "vendor": ""}}}}`, ".models.x.vendor: expected the model's maker"},
+		{`{"bedrock": {"models": {"x": {"id": "m", "vendor": "open ai"}}}}`, ".models.x.vendor: expected the model's maker"},
+		{`{"bedrock": {"models": {"x": {"id": "m", "vendor": 7}}}}`, ".models.x.vendor: expected the model's maker"},
 	}
 	for _, tc := range invalid {
 		errs := providerErrors(t, tc.body)

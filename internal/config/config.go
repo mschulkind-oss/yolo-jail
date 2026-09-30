@@ -214,7 +214,13 @@ var (
 	// §"Profiles and options": there the provider declares the option NAMES and core
 	// validates no values, so an unread option is inert BY DESIGN — a model field must not
 	// be). A fact added here is a deliberate schema change, not a spelling a user can invent.
-	knownModelKeys = set("id", "name", "reasoning", "input", "cost", "context_window", "max_tokens")
+	//
+	// `vendor` is the model's MAKER (docs/design/bedrock-plumbing.md OQ-BR9, "vendor" coined
+	// there): one lowercase token, open vocabulary, read by the derives of a provider that
+	// serves several makers' models, where an agent's own client can call only some of them
+	// (claude's Bedrock client serves Anthropic models alone). Core interprets none of it, and
+	// an entry with no vendor is offered to every agent.
+	knownModelKeys = set("id", "name", "vendor", "reasoning", "input", "cost", "context_window", "max_tokens")
 	// knownModelCostKeys is the closed set of rates inside that `cost` object. Canonical
 	// snake; the consuming derive translates to its agent's spelling (pi's cacheRead/...).
 	knownModelCostKeys = set("input", "output", "cache_read", "cache_write")

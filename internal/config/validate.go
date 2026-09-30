@@ -1316,6 +1316,12 @@ func validateModelEntry(entry *jsonx.OrderedMap, path string, errs *[]string) {
 			add(errs, path+".name: expected a non-empty string")
 		}
 	}
+	if v, ok := entry.Get("vendor"); ok && v != nil {
+		if s, isString := asStr(v); !isString || !packdecl.ValidModelVendor(s) {
+			add(errs, path+".vendor: expected the model's maker as one lowercase token, "+
+				`such as "anthropic" or "openai"`)
+		}
+	}
 	if v, ok := entry.Get("reasoning"); ok && v != nil {
 		if !isBool(v) {
 			add(errs, path+".reasoning: expected a boolean")

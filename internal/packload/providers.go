@@ -273,6 +273,12 @@ func flattenModelFacts(obj *jsonx.OrderedMap) *jsonx.OrderedMap {
 	if v, ok := obj.Get("name"); ok {
 		facts.Set("name", v)
 	}
+	// The model's maker (docs/design/bedrock-plumbing.md OQ-BR9), lowered to the same flat key
+	// a pack's model_options declares it under, so a user's entry and a shipped one are read by
+	// one helper in each derive that filters on it.
+	if v, ok := obj.Get("vendor"); ok {
+		facts.Set("vendor", v)
+	}
 	return facts
 }
 

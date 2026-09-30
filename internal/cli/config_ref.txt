@@ -1569,7 +1569,7 @@
       wire_api       the DIALECT an endpoint speaks, when it is not the protocol key's
                      own default; declared inside an `endpoints` entry.
       api_key_env_name  the NAME of the variable you hydrate (env_sources), or a list of
-                     names for a provider with several credential routes (packs/claude's
+                     names for a provider with several credential routes (packs/bedrock's
                      bedrock lists six) — the credential itself is never in this
                      config.  A named variable reaches only the agents whose profile
                      selects this provider, and the launch pre-flight refuses a provider
@@ -1602,6 +1602,16 @@
                      `balanced` (the middle tier) and `frontier` (the most capable).
                      A convention, not a requirement: when a pack asks for one this
                      provider does not name, the launch warns and proceeds.
+                     A value may be an object instead of an id string: {id, name, vendor,
+                     reasoning, input, cost, context_window, max_tokens}, where `id` is
+                     the wire model id and the rest are facts an agent's derive reads.
+                     `vendor` is the model's MAKER, one lowercase token such as
+                     "anthropic" or "openai": on a provider that serves several makers'
+                     models (`bedrock`), each agent is offered only the entries its own
+                     client can call (claude's Bedrock client, Anthropic's alone), and an
+                     entry with no vendor is offered to every agent.
+                     Example: {"bedrock": {"models": {"kimi":
+                     {"id": "global.moonshotai.kimi-k3", "vendor": "moonshotai"}}}}
       capabilities   the named jobs this provider performs for itself, e.g.
                      ["web_search"].  A launch that selects it OMITS every
                      `mcp_servers` entry whose "provides" names one of them — the

@@ -250,6 +250,25 @@ func TestComposeProvidersLowersModelObjects(t *testing.T) {
 	}
 }
 
+// A USER'S ENTRY NAMES ITS MAKER the way a shipped one does (docs/design/bedrock-plumbing.md
+// OQ-BR9): the object form's `vendor` lowers to model_options.<alias>.vendor beside the pack's
+// own entries' facts, which is the one key each derive's callableModels reads, so a model the
+// user adds is filtered for each agent exactly as the shipped ones are.
+func TestComposeProvidersLowersAUserModelsVendor(t *testing.T) {
+	pack := shippedPack(t, "bedrock")
+	user := userProviders(t, `{"bedrock":{"models":{"kimi":{"id":"moonshotai.kimi-k3","vendor":"moonshotai"}}}}`)
+	s := dump(t, compose(t, user, []*Pack{pack}))
+	if !strings.Contains(s, `"kimi": "moonshotai.kimi-k3"`) {
+		t.Errorf("the user's entry must lower to its bare id, got %s", s)
+	}
+	if !strings.Contains(s, `"kimi": {"vendor": "moonshotai"}`) {
+		t.Errorf("the user's vendor must lower into model_options.kimi, got %s", s)
+	}
+	if !strings.Contains(s, `"vendor": "anthropic"`) || !strings.Contains(s, `"vendor": "openai"`) {
+		t.Errorf("the pack's own entries must keep their makers beside the user's, got %s", s)
+	}
+}
+
 // TestComposeProvidersRefusesAManufacturedAddressPair pins D2 (docs/reference/providers.md
 // §4.1, OQ-PT2): the shorthand and the endpoint map are each legal alone, and the config
 // validator refuses them together in an entry a user wrote — but this merge is PER FIELD,

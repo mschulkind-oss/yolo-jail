@@ -3449,6 +3449,10 @@ func validateContribution(label string, c Contribution) []string {
 			if len(facts) == 0 {
 				problems = append(problems, fmt.Sprintf("%s: model_options.%s has no facts", label, alias))
 			}
+			if v, has := facts["vendor"]; has && !ValidModelVendor(v) {
+				problems = append(problems, fmt.Sprintf("%s: model_options.%s.vendor %q is not one lowercase "+
+					"token naming the model's maker, such as \"anthropic\" or \"openai\"", label, alias, v))
+			}
 		}
 		// The option NAMES are the one thing here worth checking: they are the key set
 		// every profile for this provider is measured against, so an empty one declares a

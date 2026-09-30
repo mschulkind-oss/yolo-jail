@@ -39,6 +39,102 @@ local function in_full(ctx, t)
   return t
 end
 
+-- THE MODELS OF A MULTI-MAKER PROVIDER THIS AGENT CAN CALL. callableModels expands a provider's
+-- `models` and `model_options` (for Bedrock, the declaration packs/bedrock/pack.json ships,
+-- with the user's `providers.<name>` merged over it) into the ordered list of the entries this
+-- agent's own client can call (docs/design/bedrock-plumbing.md OQ-BR9). Each entry declares its
+-- maker as the `vendor` fact, and the maker is never parsed out of the id. `makers` is the set
+-- of vendors this agent's client serves, nil meaning every one, and an entry that declares no
+-- vendor (a user's string-form alias) is offered to every agent.
+--
+-- ONE ROW PER ID, as codexModelList builds it (docs/design/model-lists-and-pickers.md ML-D6):
+-- the alias spelled as the id supplies its facts first, and every other alias naming the same
+-- id fills only a fact still missing, in sorted alias order. A row's `facts` are those merged
+-- model_options strings. The rows are ordered by the `order` fact (declared before undeclared),
+-- then by id, so the first row is the provider's declared default among what this agent can
+-- call, which is the fallback OQ-BR9's ruling names: "the first model that agent can call".
+--
+-- ⚠ DUPLICATED VERBATIM in packs/claude/derive.lua, packs/codex/derive.lua,
+-- packs/opencode/derive.lua and packs/pi/derive.lua, because a derive cannot load another file
+-- (the sandbox has no require and no io). internal/entrypoint/bedrock_model_list_test.go fails
+-- when the copies differ.
+local function callableModels(p, makers)
+  if type(p) ~= "table" or type(p.models) ~= "table" then return {} end
+  local opts = type(p.model_options) == "table" and p.model_options or {}
+  local aliases = {}
+  for alias in pairs(p.models) do
+    if type(alias) == "string" then table.insert(aliases, alias) end
+  end
+  table.sort(aliases)
+  local rows, byId = {}, {}
+  local function absorb(id, alias)
+    local r = byId[id]
+    if not r then
+      r = { id = id, facts = {} }
+      byId[id] = r
+      table.insert(rows, r)
+    end
+    local f = type(opts[alias]) == "table" and opts[alias] or {}
+    for k, v in pairs(f) do
+      if r.facts[k] == nil and type(v) == "string" and v ~= "" then r.facts[k] = v end
+    end
+  end
+  for _, alias in ipairs(aliases) do
+    if alias ~= "" and p.models[alias] == alias then absorb(alias, alias) end
+  end
+  for _, alias in ipairs(aliases) do
+    local id = p.models[alias]
+    if type(id) == "string" and id ~= "" and id ~= alias then absorb(id, alias) end
+  end
+  for _, r in ipairs(rows) do
+    r.order = tonumber(r.facts.order)
+    r.vendor = r.facts.vendor
+  end
+  table.sort(rows, function(a, b)
+    if a.order and b.order and a.order ~= b.order then return a.order < b.order end
+    if a.order and not b.order then return true end
+    if b.order and not a.order then return false end
+    return a.id < b.id
+  end)
+  local list = {}
+  for _, r in ipairs(rows) do
+    if r.vendor == nil or makers == nil or makers[r.vendor] then table.insert(list, r) end
+  end
+  return list
+end
+
+-- callableModel is the model this agent starts on among `list` (callableModels' answer for it):
+-- the profile's `model` when it names, as an alias or as an id, an entry this agent can call,
+-- or names an id the provider does not list at all (the user's own literal, passed through);
+-- else the provider's `default` alias when this agent can call it; else, only when `pick` is
+-- set, the first entry this agent can call. nil when none of those applies. A profile `model`
+-- naming a listed entry this agent CANNOT call is skipped, never sent: that id is one this
+-- agent's client would refuse.
+--
+-- `pick` is off for an agent whose own default on the service is already one of its models
+-- (claude's Bedrock client picks an Anthropic model itself), because yolo picks a model only to
+-- make a session valid (docs/design/model-lists-and-pickers.md OQ-ML2, ruled 2026-09-29).
+local function callableModel(p, list, profile, pick)
+  local models = (type(p) == "table" and type(p.models) == "table") and p.models or {}
+  local callable, listed = {}, {}
+  for _, e in ipairs(list) do callable[e.id] = true end
+  for alias, id in pairs(models) do
+    if type(id) == "string" then listed[id] = true end
+    if type(alias) == "string" then listed[alias] = true end
+  end
+  local m = type(profile) == "table" and profile.model or nil
+  if type(m) == "string" and m ~= "" and m ~= "default" then
+    local id = models[m]
+    if type(id) ~= "string" then id = m end
+    if callable[id] then return id end
+    if not listed[id] then return id end
+  end
+  local d = models["default"]
+  if type(d) == "string" and callable[d] then return d end
+  if pick and list[1] then return list[1].id end
+  return nil
+end
+
 yolo.derive("opencode", "config", function(ctx)
   local res = {}
 

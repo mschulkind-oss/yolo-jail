@@ -103,6 +103,102 @@ local function codexDefault(list, profile)
   return list[1] and list[1].id
 end
 
+-- THE MODELS OF A MULTI-MAKER PROVIDER THIS AGENT CAN CALL. callableModels expands a provider's
+-- `models` and `model_options` (for Bedrock, the declaration packs/bedrock/pack.json ships,
+-- with the user's `providers.<name>` merged over it) into the ordered list of the entries this
+-- agent's own client can call (docs/design/bedrock-plumbing.md OQ-BR9). Each entry declares its
+-- maker as the `vendor` fact, and the maker is never parsed out of the id. `makers` is the set
+-- of vendors this agent's client serves, nil meaning every one, and an entry that declares no
+-- vendor (a user's string-form alias) is offered to every agent.
+--
+-- ONE ROW PER ID, as codexModelList builds it (docs/design/model-lists-and-pickers.md ML-D6):
+-- the alias spelled as the id supplies its facts first, and every other alias naming the same
+-- id fills only a fact still missing, in sorted alias order. A row's `facts` are those merged
+-- model_options strings. The rows are ordered by the `order` fact (declared before undeclared),
+-- then by id, so the first row is the provider's declared default among what this agent can
+-- call, which is the fallback OQ-BR9's ruling names: "the first model that agent can call".
+--
+-- ⚠ DUPLICATED VERBATIM in packs/claude/derive.lua, packs/codex/derive.lua,
+-- packs/opencode/derive.lua and packs/pi/derive.lua, because a derive cannot load another file
+-- (the sandbox has no require and no io). internal/entrypoint/bedrock_model_list_test.go fails
+-- when the copies differ.
+local function callableModels(p, makers)
+  if type(p) ~= "table" or type(p.models) ~= "table" then return {} end
+  local opts = type(p.model_options) == "table" and p.model_options or {}
+  local aliases = {}
+  for alias in pairs(p.models) do
+    if type(alias) == "string" then table.insert(aliases, alias) end
+  end
+  table.sort(aliases)
+  local rows, byId = {}, {}
+  local function absorb(id, alias)
+    local r = byId[id]
+    if not r then
+      r = { id = id, facts = {} }
+      byId[id] = r
+      table.insert(rows, r)
+    end
+    local f = type(opts[alias]) == "table" and opts[alias] or {}
+    for k, v in pairs(f) do
+      if r.facts[k] == nil and type(v) == "string" and v ~= "" then r.facts[k] = v end
+    end
+  end
+  for _, alias in ipairs(aliases) do
+    if alias ~= "" and p.models[alias] == alias then absorb(alias, alias) end
+  end
+  for _, alias in ipairs(aliases) do
+    local id = p.models[alias]
+    if type(id) == "string" and id ~= "" and id ~= alias then absorb(id, alias) end
+  end
+  for _, r in ipairs(rows) do
+    r.order = tonumber(r.facts.order)
+    r.vendor = r.facts.vendor
+  end
+  table.sort(rows, function(a, b)
+    if a.order and b.order and a.order ~= b.order then return a.order < b.order end
+    if a.order and not b.order then return true end
+    if b.order and not a.order then return false end
+    return a.id < b.id
+  end)
+  local list = {}
+  for _, r in ipairs(rows) do
+    if r.vendor == nil or makers == nil or makers[r.vendor] then table.insert(list, r) end
+  end
+  return list
+end
+
+-- callableModel is the model this agent starts on among `list` (callableModels' answer for it):
+-- the profile's `model` when it names, as an alias or as an id, an entry this agent can call,
+-- or names an id the provider does not list at all (the user's own literal, passed through);
+-- else the provider's `default` alias when this agent can call it; else, only when `pick` is
+-- set, the first entry this agent can call. nil when none of those applies. A profile `model`
+-- naming a listed entry this agent CANNOT call is skipped, never sent: that id is one this
+-- agent's client would refuse.
+--
+-- `pick` is off for an agent whose own default on the service is already one of its models
+-- (claude's Bedrock client picks an Anthropic model itself), because yolo picks a model only to
+-- make a session valid (docs/design/model-lists-and-pickers.md OQ-ML2, ruled 2026-09-29).
+local function callableModel(p, list, profile, pick)
+  local models = (type(p) == "table" and type(p.models) == "table") and p.models or {}
+  local callable, listed = {}, {}
+  for _, e in ipairs(list) do callable[e.id] = true end
+  for alias, id in pairs(models) do
+    if type(id) == "string" then listed[id] = true end
+    if type(alias) == "string" then listed[alias] = true end
+  end
+  local m = type(profile) == "table" and profile.model or nil
+  if type(m) == "string" and m ~= "" and m ~= "default" then
+    local id = models[m]
+    if type(id) ~= "string" then id = m end
+    if callable[id] then return id end
+    if not listed[id] then return id end
+  end
+  local d = models["default"]
+  if type(d) == "string" and callable[d] then return d end
+  if pick and list[1] then return list[1].id end
+  return nil
+end
+
 -- nativeBedrock: claude reaches the selected provider through its OWN Bedrock client, which
 -- CLAUDE_CODE_USE_BEDROCK switches on. Two facts decide it, and neither is a profile's name
 -- (docs/design/providers-and-profiles-redesign.md OQ-BR8, ruled 2026-09-29: "just because you
@@ -344,7 +440,12 @@ yolo.env("claude", function(ctx)
   -- llama.cpp/ollama/vLLM endpoint, speaks OpenAI, so this branch aimed
   -- ANTHROPIC_BASE_URL at a server claude cannot talk to. A user config carrying it is a
   -- validation refusal naming this spelling.
-  if p.endpoints and p.endpoints.anthropic and p.endpoints.anthropic.base_url then
+  --
+  -- NOT FOR CLAUDE'S OWN BEDROCK CLIENT (nativeBedrock): CLAUDE_CODE_USE_BEDROCK composes its
+  -- own URL from the region, and an anthropic endpoint on a Bedrock provider is the wire
+  -- bridge's (a user who gave the provider an `openai` endpoint gets the adapter's twin), which
+  -- only a profile routing claude through the bridge asks for.
+  if p.endpoints and p.endpoints.anthropic and p.endpoints.anthropic.base_url and not nativeBedrock(ctx) then
     baseUrl = p.endpoints.anthropic.base_url
   end
   if baseUrl then
@@ -473,6 +574,33 @@ yolo.env("claude", function(ctx)
   if not selected and alias ~= "default" then
     selected = alias
   end
+  -- A BEDROCK PROVIDER SERVES SEVERAL MAKERS' MODELS, and claude's own Bedrock client calls
+  -- Anthropic's alone: Bedrock's Messages API serves Claude only
+  -- (docs/design/bedrock-plumbing.md §2, OQ-BR9). So on it the model comes from the entries
+  -- whose `vendor` is anthropic, or that declare none, through callableModel: the profile's
+  -- `model`, else the provider's `default` alias, and otherwise NOTHING. No first-callable
+  -- pick, because Claude Code on Bedrock starts on an Anthropic model of its own, which is a
+  -- valid session yolo does not steer (docs/design/model-lists-and-pickers.md OQ-ML2), and the
+  -- shipped list names no `default`. A profile routed through a via service with no
+  -- anthropic endpoint to carry it pins nothing either: claude runs on its own login there,
+  -- where a Bedrock id is one it cannot call.
+  local bedrockCallable = nil
+  if ctx.selected_platform == "aws-bedrock" then
+    if nativeBedrock(ctx) then
+      local list = callableModels(p, { anthropic = true })
+      selected = callableModel(p, list, ctx.profile, false)
+      bedrockCallable = {}
+      for _, e in ipairs(list) do bedrockCallable[e.id] = true end
+    elseif not routed then
+      selected = nil
+    end
+  end
+  -- The tier aliases a Bedrock provider names are held to the same makers.
+  local function tier(name)
+    local id = m[name]
+    if bedrockCallable and id and not bedrockCallable[id] then return nil end
+    return id
+  end
   if selected then
     if isKilo then
       selected = normalizeKiloModel(selected)
@@ -481,8 +609,8 @@ yolo.env("claude", function(ctx)
     out.ANTHROPIC_DEFAULT_OPUS_MODEL = selected .. suffix
     -- A curated provider can publish real picker IDs instead of Claude-tier aliases.
     -- Keep all tiers on the selected model rather than falling back upstream.
-    local sonnet = m.sonnet or selected
-    local haiku = m.haiku or selected
+    local sonnet = tier("sonnet") or selected
+    local haiku = tier("haiku") or selected
     if isKilo then
       sonnet = normalizeKiloModel(sonnet)
       haiku = normalizeKiloModel(haiku)
