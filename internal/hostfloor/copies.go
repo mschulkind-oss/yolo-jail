@@ -40,7 +40,7 @@ func (f *Floor) OtherCopies(bin, pathEnv, home string, skip []string) []string {
 			dirs = append(dirs, d)
 		}
 	}
-	dirs = append(dirs, HintLocations(home)...)
+	dirs = append(dirs, f.hints(home)...)
 	seen := map[string]bool{}
 	var out []string
 	for _, d := range dirs {
@@ -58,4 +58,12 @@ func (f *Floor) OtherCopies(bin, pathEnv, home string, skip []string) []string {
 		}
 	}
 	return out
+}
+
+// hints is Floor.Hints for home, or the compiled list when no Hints is set.
+func (f *Floor) hints(home string) []string {
+	if f.Hints != nil {
+		return f.Hints(home)
+	}
+	return HintLocations(home)
 }

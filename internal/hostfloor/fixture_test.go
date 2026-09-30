@@ -26,6 +26,8 @@ type world struct {
 	version string
 	out     *syncBuffer
 	floor   *Floor
+	// root holds the world's HOME and its stand-ins for the machine-wide hint folders (machineDir).
+	root string
 }
 
 // syncBuffer is a bytes.Buffer safe for the concurrent writers a two-launch test has.
@@ -57,7 +59,9 @@ func newWorld(t *testing.T) *world {
 	t.Helper()
 	dist := floortest.NewDist(t)
 	w := &world{t: t, dist: dist, plat: dist.Platform, version: floortest.Shipped, out: newSyncBuffer()}
-	home := filepath.Join(resolvedTemp(t), "home")
+	root := resolvedTemp(t)
+	w.root = root
+	home := filepath.Join(root, "home")
 	must(t, os.MkdirAll(home, 0o755))
 	w.floor = &Floor{
 		Dir:    filepath.Join(home, ".local", "share", "yolo-jail", "host-floor"),
@@ -67,11 +71,33 @@ func newWorld(t *testing.T) *world {
 		Environ: append(dist.Environ(), "NPM_CONFIG_PREFIX=/somewhere/else", "npm_config_prefix=/also/else",
 			"NODE_OPTIONS=--require /tmp/evil.js", "PATH=/nowhere"),
 		Home:   home,
+		Hints:  worldHints(root),
 		Out:    w.out,
 		Prefix: "yolo host: ",
 	}
 	return w
 }
+
+// worldHints is the Floor.Hints a world hands in: HintLocations with each folder outside home moved
+// under root (machineDir), so every folder OtherCopies reads is the fixture's own. Without it, a
+// Mac with Homebrew's claude in /opt/homebrew/bin (`brew install --cask claude-code`) reports one
+// more copy than any other machine does.
+func worldHints(root string) func(home string) []string {
+	return func(home string) []string {
+		var out []string
+		for _, d := range HintLocations(home) {
+			if rel, err := filepath.Rel(home, d); err != nil || !filepath.IsLocal(rel) {
+				d = machineDir(root, d)
+			}
+			out = append(out, d)
+		}
+		return out
+	}
+}
+
+// machineDir is a world's stand-in, under its root, for the machine-wide hint folder dir
+// (/opt/homebrew/bin).
+func machineDir(root, dir string) string { return filepath.Join(root, "machine", dir) }
 
 func (w *world) publish(name, latest string, opts ...string) { w.dist.Publish(name, latest, opts...) }
 func (w *world) npmCalls(verb string) []string               { return w.dist.NpmCalls(verb) }

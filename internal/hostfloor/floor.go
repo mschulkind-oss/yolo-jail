@@ -183,6 +183,10 @@ type Floor struct {
 	Environ []string
 	// Home is the HOME an installer runs with. "" => $HOME.
 	Home string
+	// Hints is the hint locations OtherCopies looks at for a home, besides the PATH it is handed.
+	// nil => HintLocations. A test hands in folders under its own root, so what it reports never
+	// depends on what this machine keeps in /opt/homebrew/bin.
+	Hints func(home string) []string
 	// Out receives the progress lines and the installers' own output. nil => discarded.
 	Out io.Writer
 	// Prefix starts every line this package prints ("yolo host: ").

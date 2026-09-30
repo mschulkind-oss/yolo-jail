@@ -545,6 +545,36 @@ func TestOtherCopiesNamesAHandInstalledCopyAndSkipsTheFloor(t *testing.T) {
 	}
 }
 
+// TestOtherCopiesNamesAHomebrewCopyOffThePath: Homebrew's claude (`brew install --cask
+// claude-code`) is named though the PATH yolo was handed does not reach it, after the PATH's copy
+// and in hint order — the Mac fact that made the test above machine-dependent, set here in the
+// world's own stand-ins for /opt/homebrew/bin and /home/linuxbrew/.linuxbrew/bin.
+func TestOtherCopiesNamesAHomebrewCopyOffThePath(t *testing.T) {
+	w := newWorld(t)
+	local := filepath.Join(w.root, "on-path")
+	var want []string
+	for _, d := range []string{local, machineDir(w.root, "/opt/homebrew/bin"),
+		machineDir(w.root, "/home/linuxbrew/.linuxbrew/bin")} {
+		must(t, os.MkdirAll(d, 0o755))
+		must(t, os.WriteFile(filepath.Join(d, "claude"), []byte("#!/bin/sh\n"), 0o755))
+		want = append(want, filepath.Join(d, "claude"))
+	}
+	got := w.floor.OtherCopies("claude", local, w.floor.Home, nil)
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Errorf("OtherCopies = %v, want %v", got, want)
+	}
+}
+
+// TestOtherCopiesWithNoHintsLooksAtTheCompiledList: the floor `yolo check` builds sets no Hints, so
+// it looks at HintLocations — the world's stand-ins are a test's alone.
+func TestOtherCopiesWithNoHintsLooksAtTheCompiledList(t *testing.T) {
+	home := resolvedTemp(t)
+	got, want := (&Floor{}).hints(home), HintLocations(home)
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Errorf("hints = %v, want HintLocations %v", got, want)
+	}
+}
+
 // TestACaptureThatHoldsNoRunnableProgramIsNoFloorEntry: codex's installer leaves ~/.local/bin/codex
 // a link into ~/.codex, which no capture records. Its capture can never run outside the jail that
 // made it, so the floor has no entry for it — whether the store already holds that capture, or the
