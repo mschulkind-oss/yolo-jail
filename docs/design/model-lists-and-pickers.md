@@ -21,7 +21,10 @@ four defects [§14](#14-how-each-agents-menu-is-set-researched-2026-09-29) found
 2026-09-30: `yolo check`'s currency warning ([MM-D16](#MM-D16), [§9](#9-currency-the-agents-catalogs-plus-a-staleness-warning))
 and claude's conventional tier aliases ([MM-D17](#MM-D17)). Also on 2026-09-30, each after
 the measurement it waited on, recorded in [§14.4](#144-build-order):
-pi's refusing wrapper ([MM-D6](#MM-D6), [MM-D21](#MM-D21); [§14.6](#146-what-was-built-2026-09-30)). MEASURED at
+pi's refusing wrapper ([MM-D6](#MM-D6), [MM-D21](#MM-D21); [§14.6](#146-what-was-built-2026-09-30)).
+copilot's `providers.json` ([MM-D10](#MM-D10)) is stopped: its measurement found that the file's
+models join GitHub's own, which the decision did not expect, and that is now
+[OQ-MM4](#OQ-MM4). MEASURED at
 `ee8154f2` (2026-09-24): a pack's provider `models` is a flat alias → id map; the object form of
 a model is user config only; `packs/claude/derive.lua` and `packs/pi/derive.lua` hard-coded the
 `openai-codex` ids then; packs/claude's `bedrock` provider declares no `models`. SOURCED
@@ -62,6 +65,10 @@ current.
 - **Built, 2026-09-30, each on a measurement [§14.4](#144-build-order) records:** pi's refusal,
   a `streamSimple` wrapper in its registration of a narrowed list ([MM-D21](#MM-D21),
   [§14.6](#146-what-was-built-2026-09-30)).
+- **Stopped, 2026-09-30, on its measurement:** copilot's `providers.json`
+  ([MM-D10](#MM-D10)). The file's providers are additive to GitHub's own, so a copilot signed in
+  to GitHub would show GitHub's models beside the list and send a GitHub pick to GitHub
+  ([OQ-MM4](#OQ-MM4)).
 - **Moved here on 2026-09-25**, with their ids unchanged: [OQ-BR3](#OQ-BR3) and
   [OQ-BR12](#OQ-BR12)–[OQ-BR15](#OQ-BR15) from [`bedrock-plumbing.md`](bedrock-plumbing.md), and
   [OQ-PSW1](#OQ-PSW1) and [OQ-PSW3](#OQ-PSW3) from the retired `provider-switching.md`.
@@ -69,7 +76,7 @@ current.
   renamed `OQ-PSW` because [`provisioner-sets.md`](provisioner-sets.md) also uses `OQ-PS`.
 
 **Needs your ruling:** [OQ-MM1](#OQ-MM1) first, because it decides what most agents' menus
-show; then [OQ-MM3](#OQ-MM3). Decided 2026-09-30 as implementation choices, each reversible:
+show; then [OQ-MM3](#OQ-MM3); then [OQ-MM4](#OQ-MM4), filed 2026-09-30, on copilot's whole list. Decided 2026-09-30 as implementation choices, each reversible:
 [OQ-BR14](#OQ-BR14) ([MM-D16](#MM-D16)) and [OQ-PSW1](#OQ-PSW1) ([MM-D17](#MM-D17)). Ruled 2026-09-29:
 [OQ-ML1](#OQ-ML1), [OQ-ML2](#OQ-ML2) and [OQ-BR12](#OQ-BR12). [OQ-BR13](#OQ-BR13) was directed
 the same day (set the model selection however each agent allows) and is researched in
@@ -633,7 +640,9 @@ through each provider's own pack ([OQ-ML1](#OQ-ML1) option (b)).
    shows the same five only on a provider it has a list for: the via row under yolo's `bedrock`
    key, or a key omp does not ship. omp's native Bedrock client gets no list
    ([MM-D8](#MM-D8)).
-   copilot's menu is the same five once [MM-D10](#MM-D10) is built, its first entry until then.
+   copilot's menu is the same five once [MM-D10](#MM-D10) is built, its first entry until then;
+   whether that can be met at all is [OQ-MM4](#OQ-MM4)'s, since the file that carries the list
+   also brings GitHub's models.
    With the profile's enforcement switch on, each agent that can refuse
    ([§14.1](#141-the-table)) refuses a sixth id.
 2. The `openai-codex` pickers render byte-identically to today after the GPT-6 lists move into
@@ -696,7 +705,7 @@ is [OQ-MM1](#OQ-MM1).
 | :--- | :--- | :--- | :--- |
 | **claude, native profile** (its own Bedrock client) | Never quite exactly. `modelPicker` with `replaceBuiltInOptions: true` shows claude's Default row, which cannot be removed, then the list, plus the session's current model when that is off the list (MEASURED). With `availableModels` and `enforceAvailableModels`, Default keeps the tier default when that tier's model is listed, and otherwise takes the first listed entry shaped like an Anthropic id (MEASURED, [§14.2](#142-what-each-row-rests-on)) | claude's own `availableModels`, client side, with four gaps ([§14.2](#142-what-each-row-rests-on)). The bridge never sees this path | Under an `only`, the three keys; every tier pinned to a list id beside `CLAUDE_CODE_USE_BEDROCK` ([MM-D1](#MM-D1), [MM-D2](#MM-D2), [MM-D5](#MM-D5)) |
 | **claude, routed** (`ANTHROPIC_BASE_URL` at the bridge, or at a gateway's own Anthropic endpoint) | `modelPicker` with the built-ins always replaced, since the list is the whole universe: Default, then the list. Built today for `openai-codex` only | claude's `availableModels` where it renders: on `openai-codex` and under an `only`, and on a gateway's list as [OQ-MM3](#OQ-MM3) rules. On the bridge path, the bridge's allowlist, which also sees claude's background requests | Generalize the `openai-codex` branch of `yolo.derive("claude", "settings")` to every routed provider; pin every tier; stop steering the start model ([MM-D1](#MM-D1) to [MM-D3](#MM-D3)) |
-| **copilot** (through the bridge on Bedrock and the other bridged providers; direct otherwise, [§14.2](#142-what-each-row-rests-on)) | Today one entry, `COPILOT_MODEL`, because copilot's environment-variable setup carries one model (SOURCED). A `providers.json` file, present in 1.0.89 and absent in 1.0.48, holds a provider and a row per model, so the whole list can show (SOURCED) | No copilot setting refuses a model configured this way (SOURCED). On a bridged provider the bridge's allowlist is the only refusal, and every copilot request passes it. On a direct provider nothing refuses | After four measurements, a `copilot/providers` surface, or a file beside copilot's env file if the key cannot come from the environment ([MM-D10](#MM-D10)) |
+| **copilot** (through the bridge on Bedrock and the other bridged providers; direct otherwise, [§14.2](#142-what-each-row-rests-on)) | Today one entry, `COPILOT_MODEL`, because copilot's environment-variable setup carries one model (SOURCED). A `providers.json` file, present in 1.0.89 and absent in 1.0.48, holds a provider and a row per model, so the whole list can show (SOURCED) | No copilot setting refuses a model configured this way (SOURCED). On a bridged provider the bridge's allowlist is the only refusal, and every copilot request passes it. On a direct provider nothing refuses | After four measurements, a `copilot/providers` surface, or a file beside copilot's env file if the key cannot come from the environment ([MM-D10](#MM-D10)). **Stopped 2026-09-30**: the file's models join GitHub's own ([§14.4](#144-build-order), [OQ-MM4](#OQ-MM4)) |
 | **pi, a provider pi ships** (`amazon-bedrock`, `zai`, `cerebras`, `openrouter`, `openai-codex`) | An extension's `registerProvider(<id>, { models })` replaces that provider's list and keeps pi's own client, address and credential (MEASURED on 0.87.1 and 0.99.1). Built for `openai-codex` ([ML-D3](#ML-D3)). A `models.json` row cannot narrow: it adds beside pi's catalog | Every menu path is bound to the list, but `--model <provider>/<unlisted id>` still runs, with a warning (MEASURED). A `streamSimple` wrapper in the same registration refuses it in-process, and hands a listed model to pi's own stream with pi's own credential (MEASURED 2026-09-30 on 0.99.1's shipped bundle against a mock endpoint, [§14.4](#144-build-order)). The bridge only on a via route | Generalize `pi/codex-models` into one per-provider data file; register exactly under an `only`; add the wrapper under the switch ([MM-D6](#MM-D6)). **Built 2026-09-30** for every provider but `openai-codex`, whose list travels in its own registration ([MM-D14](#MM-D14), [MM-D21](#MM-D21)) |
 | **pi, a provider yolo defines** (a key pi does not ship: yolo's `bedrock` via row, `kilo`, `llamacpp`) | Already exact: a `models.json` row under a key pi does not ship is the whole list (MEASURED) | The same `--model` gap and the same wrapper, delegating to pi's api registry since pi ships no provider of that id (MEASURED 2026-09-30 on 0.99.1 for `kilo`); the bridge on a via route | Nothing for the menu; the wrapper as above, **built 2026-09-30** |
 | **oh-omp** (0.15.3) | `enabledModels` in `~/.oh-omp/agent/config.yml`: the selector then shows only that scope, with no "all" view (SOURCED). It fails open when no pattern matches. omp's own Bedrock catalog stops at Claude 4.6, and `models.yml` cannot add a Converse model, so a current Bedrock list exists only as the via row under yolo's `bedrock` key, which is exact | `--model` refuses an id omp does not know, but accepts any known model outside the scope, and `modelRoles` can name one too (SOURCED). The bridge on the via row | A new `oh-omp/settings` surface writing `enabledModels`, with the start model through the selection ([MM-D8](#MM-D8)) |
@@ -823,9 +832,13 @@ single-executable binary.
   field appears among the provider fields in the native runtime's strings, but the 1.0.15 SDK's
   types carry no such field (MEASURED 2026-09-29), so whether the file accepts one is UNMEASURED.
   Where the key goes if it does not is [OQ-MM2](#OQ-MM2), settled as [MM-D10](#MM-D10) says.
-- **GitHub's own models may join the menu.** `app.js` merges these models into copilot's own list
+  Read again on 2026-09-30 ([§14.4](#144-build-order)): the shape 1.0.89 documents takes no
+  variable, and `apiKeyCommand` is still unread.
+- **GitHub's own models join the menu.** `app.js` merges these models into copilot's own list
   (`mergeByokModelList`), so a copilot also signed in to GitHub may show GitHub's models beside
-  yolo's (INFERRED; UNMEASURED).
+  yolo's (INFERRED here; MEASURED 2026-09-30 on 1.0.89, [§14.4](#144-build-order): the file's
+  providers are additive to GitHub's, and a GitHub model picked there is GitHub's to serve). That
+  is [OQ-MM4](#OQ-MM4).
 - **No copilot setting refuses these models** (SOURCED, the config-dir reference). The repository's
   `.github/allowed_models.txt` "cannot filter out custom models added using BYOK". A host
   `allowedModels` list exists only as an SDK session option, with no flag or variable. The managed
@@ -1059,7 +1072,8 @@ expects its own format. copilot has no such discovery. So the bridge never serve
    ([`wire-bridge-gateway.md` §6.1](wire-bridge-gateway.md#61-how-the-allowlist-is-built)), which
    admits codex's and copilot's requests whole, their background ids not being on the list yet;
    and **2026-09-30** for pi's wrapper, after its measurement below ([MM-D21](#MM-D21)).
-5. **copilot's `providers.json`** ([MM-D10](#MM-D10)), after its four measurements. Not built.
+5. **copilot's `providers.json`** ([MM-D10](#MM-D10)), after its four measurements. **Stopped
+   2026-09-30** on the second of them, recorded below, and filed as [OQ-MM4](#OQ-MM4). Not built.
 6. **codex's catalog at prelaunch** ([MM-D9](#MM-D9)), last, because it alone needs a new
    mechanism. Not built.
 
@@ -1083,9 +1097,42 @@ never a real model, and each marked here as it is taken:
 - **The shipped `pi` bundle's catalog import. MEASURED the same day, in the same runs:** the bundled
   loader serves `@earendil-works/pi-ai/providers/all` as a virtual module, and the extension named
   zai's models from pi's catalog (`GLM-5.3`, not the bare id).
-- Whether copilot's `providers.json` takes its key from the environment, whether a signed-in
-  copilot merges GitHub's models, whether `COPILOT_MODEL` or the settings `model` accepts
-  `<provider>/<id>`, and which ids copilot's background requests carry.
+- **copilot's four, read 2026-09-30 in copilot 1.0.89**, npm's latest that day: the package
+  embedded in `@github/copilot-linux-x64`'s single-executable binary (its `app.js`, the
+  `copilot-sdk` it bundles, `schemas/api.schema.json`, and the strings of
+  `prebuilds/linux-x64/runtime.node`, the native runtime). Nothing was run. What each one found:
+  - **Whether `providers.json` takes its key from the environment. MEASURED: not as the package
+    documents the file.** `app.js` reads the file named by `COPILOT_PROVIDERS_CONFIG`, else
+    `providers.json` in copilot's config directory, and hands its `providers` and `models` arrays
+    unchanged to the native runtime (`providerContextCreateFromConfig`), expanding nothing. The
+    provider shape the package documents, `NamedProviderConfig` in `api.schema.json`, allows no
+    other property and carries the credential only as a literal `apiKey` or `bearerToken`, or as
+    `hasBearerTokenProvider`, which asks an SDK host for a token and has no host when the CLI
+    reads a file. The `COPILOT_PROVIDER_*` variables stop applying once the file declares
+    anything. The native runtime's struct has 11 fields to the schema's 10, and an
+    `apiKeyCommand` string sits among its provider keys, so whether the file takes a key command
+    is still UNMEASURED: strings cannot show which struct owns it. For [MM-D10](#MM-D10) this is
+    its second branch, a file beside `agent-env/copilot.sh`, and no contradiction.
+  - **Whether a signed-in copilot merges GitHub's models. MEASURED: yes, and this contradicts
+    [MM-D10](#MM-D10).** The bundled SDK's `SessionConfig.providers` says named providers are
+    *"additive: they coexist with Copilot API auth so models from CAPI and one or more BYOK
+    providers can be mixed within a single session"*, while with the environment variables, in
+    copilot's own help, *"the CLI uses this provider instead of GitHub Copilot's model routing"*.
+    And `app.js` merges the file's models (`mergeByokModelList`) into the list GitHub's API
+    returns. So in the
+    file's mode a copilot signed in to GitHub shows GitHub's models beside the list, a GitHub
+    model picked there is served by GitHub rather than the profile's provider, an `only` no
+    longer decides copilot's menu, and the bridge never sees that request. MM-D10 promised the
+    list, [§13](#13-build-order-and-what-done-looks-like)'s "copilot's menu is the same five".
+    The item is stopped and the choice is [OQ-MM4](#OQ-MM4). Whether the file's mode starts at
+    all with no GitHub login is decided in the native runtime: UNMEASURED.
+  - **Whether `COPILOT_MODEL` or the settings `model` accepts `<provider>/<id>`. MEASURED in
+    part:** every file model is selected as `provider/id` (the schema's `ProviderModelConfig.id`),
+    and `app.js` hands `--model`, the settings `model` and `COPILOT_MODEL` to the native runtime
+    (`modelCliStartupConfiguration`), whose rule is UNMEASURED.
+  - **Which ids copilot's background requests carry. UNMEASURED.** The native runtime picks
+    them; only a copilot process against a mock provider would show them, and this build starts
+    none.
 - Whether `codex debug models --bundled`, with the Bedrock runtime provider selected, prints the
   Bedrock runtime catalog (`amazon_bedrock/catalog.rs`) rather than the OpenAI one, offline and
   credential-free.
@@ -1529,6 +1576,57 @@ drives the production call site, the boot render or the shipped file, and fails 
     **Answer:**
     > _(empty — fill in when decided)_
 
+14. 💬 <a id="OQ-MM4"></a>**[OQ-MM4](#OQ-MM4): copilot can show a whole model list only in a mode
+    that also shows GitHub's own models. Should yolo use that mode?** Filed 2026-09-30, when the
+    measurement [MM-D10](#MM-D10) waited on contradicted it ([§14.4](#144-build-order)). Stakes:
+    copilot's menu, one model or the list, against whether a copilot signed in to GitHub can pick
+    a model GitHub serves while its profile names another provider, past a company's `only` and
+    past the wire bridge.
+
+    **The setup.** Sam's company pack narrows `bedrock` to five models with an `only`, and Sam
+    runs `yolo -p bedrock -- copilot`. Today copilot's menu is one model, the list's default, set
+    through copilot's environment variables, the mode in which, in copilot's own help, *"the CLI
+    uses this provider instead of GitHub Copilot's model routing"*. Every request goes to Bedrock
+    through the wire bridge, which refuses a sixth model. [MM-D10](#MM-D10) planned the whole list
+    through copilot's `providers.json`. Reading copilot 1.0.89 found that the file's providers are
+    additive: they *"coexist with Copilot API auth"*, and copilot merges their models into the list
+    GitHub's API returns. Sam is signed in to GitHub with a Copilot plan, so in that mode his menu
+    shows the five and every model GitHub offers him, and a GitHub model he picks is served by
+    GitHub, not Bedrock. The company's `only` then shapes only part of the menu, and the bridge
+    never sees that request. Riya is not signed in, and would see just the five, if the file's mode
+    starts at all without a GitHub login, which is UNMEASURED. Either way the file holds its key
+    as literal text, so it would be written beside `agent-env/copilot.sh`, as
+    [OQ-MM2](#OQ-MM2) settled.
+
+    Options, with what Sam would see:
+
+    - **A. Keep one model, and drop MM-D10.** Sam's menu is the list's default alone, and every
+      request stays on Bedrock behind the bridge. Another listed model is reachable only by
+      typing its id, and whether copilot accepts it that way is unmeasured.
+    - **B. Write the file on every provider.** Sam sees the five and GitHub's models, and a GitHub
+      pick goes to GitHub. An `only` narrows the provider's part of the menu and nothing else.
+    - **C. Write the file only for a list no `only` narrowed, and keep one model under an
+      `only`.** A list that merely adds sits beside copilot's own catalog, which is GitHub's, the
+      way [OQ-MM1](#OQ-MM1)'s leaning has an `add` sit beside every agent's catalog. Under an
+      `only` Sam keeps today's single model, on Bedrock, behind the bridge. One agent then runs in
+      two modes, chosen by the verb.
+    - **D. Write the file and keep copilot off GitHub**, with its offline mode. Sam sees the five
+      alone, but offline also turns off copilot's web tools, its GitHub MCP server and its
+      updates, and copilot's help says offline wants the environment variable
+      `COPILOT_PROVIDER_BASE_URL`, so whether it accepts the file at all is unmeasured.
+
+    <!-- vantage: oq id=OQ-MM4 leaning="A: keep copilot on one COPILOT_MODEL and drop MM-D10, since a profile picks one path (OQ-WG5, as MM-D5 reads it for a list) and every other agent's list stays inside the provider the profile selects; B and C would be the only renderings in this doc that let a session leave its provider, and D costs copilot's web tools, GitHub MCP server and updates on a mode not measured to accept the file. Revisit when copilot offers a way to show a file's models alone." -->
+
+    _Leaning:_ A. A profile picks one path, as [OQ-WG5](wire-bridge-gateway.md#OQ-WG5) ruled for
+    the native and bridged paths and [MM-D5](#MM-D5) reads for a list, and every other agent's
+    list stays inside the provider the profile selects. B and C would be the only
+    renderings in this doc that let a session leave its provider, for a longer menu. D pays for
+    the menu with copilot's web tools, GitHub MCP server and updates, on a mode not measured to
+    take the file. Revisit when copilot offers a way to show a file's models alone.
+
+    **Answer:**
+    > _(empty — fill in when decided)_
+
 ---
 
 ## 16. Decision Ledger
@@ -1562,7 +1660,7 @@ drives the production call site, the boot render or the shipped file, and fails 
 | <a id="MM-D7"></a>MM-D7 | *Implementation decision.* **opencode: `provider.<id>.whitelist` is the list's ids, each also declared under `provider.<id>.models`**, beside today's `enabled_providers`, wherever the menu is to be exact (a whole-universe list or an `only`, [§14.1](#141-the-table)) and the switch is on ([MM-D5](#MM-D5)). **A model's display `name` is the entry's own `name` fact, or absent so the agent's catalog name shows, never its yolo alias**, which today shows an entry under `default` as "default". The rule is stated once for every catalog-writing derive: opencode's `provider.<id>.models`, pi's `models.json` rows and registration ([MM-D6](#MM-D6)), and oh-omp's `models.yml` rows ([MM-D8](#MM-D8)), which today use the alias the same way. opencode's order, newest first, is accepted; yolo writes no made-up `release_date` | 2026-09-29 | [§14.2](#142-what-each-row-rests-on) | ✅ display names, `TestNoCatalogRowIsNamedAfterItsAlias`; the whitelist under an `only`, `TestOpencodeWhitelistsANarrowedList`; the selection on the list's default entry under an `only` that dropped the profile's model, `TestOpencodeStartsOnANarrowedListsDefault`; the whitelist on opencode's own Bedrock row, `TestOpencodeWhitelistsANarrowedListOnItsOwnBedrockClient`; a whole-universe list's whitelist waits on [OQ-MM3](#OQ-MM3) |
 | <a id="MM-D8"></a>MM-D8 | *Implementation decision.* **oh-omp gets a settings surface, `~/.oh-omp/agent/config.yml`, writing `enabledModels` as the list's exact ids**, and `modelRoles.default` through the selection namespace, the way pi's `defaultModel` is written. Its `models.yml` rows take [MM-D7](#MM-D7)'s display-name rule. A scope naming ids omp does not know fails open to its full list; yolo cannot see that at render time, and it is the case [OQ-BR14](#OQ-BR14)'s `yolo check` warning exists for. On 0.15.x a current Bedrock list exists only as the via row under yolo's `bedrock` key, so omp's native Bedrock client gets no list. `packs/omp` stays on its pinned fork here; whether it should move to upstream oh-my-pi, which appears to keep runtime registrations, is that pack's question | 2026-09-29 | [§14.2](#142-what-each-row-rests-on) | ✅ `TestOmpScopesANarrowedList`, with no `modelRoles.default` write ([MM-D12](#MM-D12)) |
 | <a id="MM-D9"></a>MM-D9 | *Implementation decision.* **codex gets an exact menu from a catalog yolo filters at prelaunch.** Before codex starts (it installs lazily, so not at boot), the launcher reads `codex debug models --bundled`, which its help describes as *"Skip refresh and dump only the bundled catalog shipped with this binary"*, so offline for the OpenAI catalog (SOURCED). For Bedrock runtime this waits on a measurement ([§14.4](#144-build-order)): `--bundled`, with that provider selected, must print the Bedrock runtime catalog (`amazon_bedrock/catalog.rs`), not the OpenAI one, offline and with no credential. The launcher keeps the list's ids; renumbers `priority` in list order; applies each entry's name as `display_name`; clears `upgrade` and `availability_nux`; and writes a per-launch file that `model_catalog_json` names, through the selection. **An id the installed catalog lacks is left out, with a warning like [ML-D7](#ML-D7)'s**, never written without instructions, since that runs codex with empty system instructions. Only providers whose ids codex's own catalog carries get a file (`openai-codex`, and Bedrock runtime once that measurement holds); a custom provider keeps `model` alone until an entry safe for a non-OpenAI model is measured. When the bridge refuses on a via route, the derive points `review_model` and the memories models at listed ids. It is the first step where a program's output feeds a render, so it lives in the launcher, not a derive, whose sandbox has no `io`. It freezes the subscription's live list for the session, as claude and pi already do for `openai-codex` | 2026-09-29 | [§14.2](#142-what-each-row-rests-on) | — (the selection under an `only`, `TestCodexSelectsANarrowedListsDefault`) |
-| <a id="MM-D10"></a>MM-D10 | *Implementation decision.* **copilot's whole list goes in a `providers.json` file named by `COPILOT_PROVIDERS_CONFIG`**: one provider, the endpoint copilot's env derive picks today with its `anthropic` or `openai` type (the bridge's on a bridged provider, the provider's own on a direct one, [§14.2](#142-what-each-row-rests-on)), and one model row per entry with `wireModel` the wire-true id. Its key is the value `COPILOT_PROVIDER_API_KEY` carries today: the launch's caller token on a bridged provider, and the provider's own key, such as z.ai's, on a direct one. **Where the file can name its key by environment variable**, it is a secret-free `copilot/providers` surface rendered by `yolo.derive("copilot", "providers")`. **Where it cannot**, it is written host-side by the per-agent env writer, beside `agent-env/copilot.sh`, with the same mode and lifetime, from the env derive that already holds the key, since a surface derive never receives one ([OQ-MM2](#OQ-MM2)). It needs a copilot that has `providers.json`, which 1.0.89 has and 1.0.48 lacks, and four measurements first ([§14.4](#144-build-order)). Until then copilot keeps one `COPILOT_MODEL`. A `model` default for copilot, if ever written, belongs in `~/.copilot/settings.json`, where copilot has kept user settings since 1.0.35, moving any it finds in `config.json` | 2026-09-29 | [§14.2](#142-what-each-row-rests-on) | — (`COPILOT_MODEL` under an `only`, `TestCopilotStartsOnANarrowedListsDefault`; the `settings.json` home for a copilot setting, [MM-D15](#MM-D15)) |
+| <a id="MM-D10"></a>MM-D10 | *Implementation decision.* **copilot's whole list goes in a `providers.json` file named by `COPILOT_PROVIDERS_CONFIG`**: one provider, the endpoint copilot's env derive picks today with its `anthropic` or `openai` type (the bridge's on a bridged provider, the provider's own on a direct one, [§14.2](#142-what-each-row-rests-on)), and one model row per entry with `wireModel` the wire-true id. Its key is the value `COPILOT_PROVIDER_API_KEY` carries today: the launch's caller token on a bridged provider, and the provider's own key, such as z.ai's, on a direct one. **Where the file can name its key by environment variable**, it is a secret-free `copilot/providers` surface rendered by `yolo.derive("copilot", "providers")`. **Where it cannot**, it is written host-side by the per-agent env writer, beside `agent-env/copilot.sh`, with the same mode and lifetime, from the env derive that already holds the key, since a surface derive never receives one ([OQ-MM2](#OQ-MM2)). It needs a copilot that has `providers.json`, which 1.0.89 has and 1.0.48 lacks, and four measurements first ([§14.4](#144-build-order)). Until then copilot keeps one `COPILOT_MODEL`. A `model` default for copilot, if ever written, belongs in `~/.copilot/settings.json`, where copilot has kept user settings since 1.0.35, moving any it finds in `config.json` | 2026-09-29 | [§14.2](#142-what-each-row-rests-on) | — **stopped 2026-09-30** on its measurement: the file's models join GitHub's own ([§14.4](#144-build-order)), which is [OQ-MM4](#OQ-MM4)'s to rule (`COPILOT_MODEL` under an `only`, `TestCopilotStartsOnANarrowedListsDefault`; the `settings.json` home for a copilot setting, [MM-D15](#MM-D15)) |
 | <a id="MM-D11"></a>MM-D11 | *Implementation decision.* **The `models` kind composes in two passes inside `packload.ComposeProviders`, between the packs' own providers and the user's entries.** Every `add` applies, in pack order then declaration order, and then every `only`, the `only`s intersecting. Two passes because the literal "packs apply in `packs` order" of [§7.2](#72-composition-rules) would let an `add` from a pack listed after a company's `only` re-open it. An added entry lands under its own id, its facts in `model_options` in the flat vocabulary a user's object-form entry lowers into, plus `vendor`, `description` and `order`, and its `alias` beside it; a duplicate id or alias keeps the first writer's, and an `only` id nothing added is dropped. For a provider some contribution names, the list's current order is first written down as `order` facts, which added entries continue, because every consumer sorts entries with an `order` ahead of those without; a provider no contribution names composes byte-identically. A narrowed entry carries `models_only: true` (`packload.ModelsOnlyKey`), a composed fact no user key can spell, and it is what each derive renders an exact menu from. The user's `providers.<name>.models` composes last PER ALIAS rather than replacing the list, as [§7.2](#72-composition-rules)'s letter says: replacing would end [ML-D4](#ML-D4)'s one-alias recovery and change how every string-form map composes today. A provider only the user declares is shaped too, and one nobody declares is inert. `yolo check` names what the pass could not do (`packload.WithModelNotes`) | 2026-09-29 | [§7.2](#72-composition-rules) | ✅ `packload.applyModelContributions`, pinned by `internal/packload/modellists_test.go`; an `only` dropping two adjacent entries, which kept the second, fixed and pinned by `TestAModelsOnlyDropsAdjacentEntries` |
 | <a id="MM-D12"></a>MM-D12 | *Implementation decision.* **oh-omp's start needs no `modelRoles.default` write, revising [MM-D8](#MM-D8).** The selection namespace lifts top-level scalars and arrays only, and `modelRoles.default` is a key of a record. With a scope and no `--model`, oh-omp 0.15.3 starts on the model its own `modelRoles.default` remembers when that is in the scope, else on the scope's first entry (read in the shipped binary's startup code, not run). So an `enabledModels` scope that leads with the default entry makes every start valid without steering a valid saved choice, which is [OQ-ML2](#OQ-ML2)'s ruling | 2026-09-29 | [§14.2](#142-what-each-row-rests-on) | ✅ `TestOmpScopesANarrowedList`; the default-first scope pinned where the default is not first in list order, `TestOmpScopeLeadsWithADefaultNotFirstInOrder` |
 | <a id="MM-D13"></a>MM-D13 | *Implementation decision.* **The switch is spelled `enforce_models`, a profile FIELD that defaults on** (the name is coined here). A field like `via`, not a provider option, so no provider's option census has to admit it: it is a fact about the selection. It is a boolean in user config (a string is refused), and a `kind: "profile"` contribution may carry it; the user's value wins over a pack's. It crosses in `YOLO_PROFILES` under the reserved `_enforce_models` key only when a profile states it, and a derive reads `ctx.enforce_models`, true unless the profile says false, so an entrypoint older than the key hands its derives the default. `pin_model`, [MM-D3](#MM-D3)'s provisional name, is kept, and declared with no default on the shipped providers that declare options (zai, cerebras, llamacpp, kilo, openrouter), so their census admits it | 2026-09-29 | [§14.1](#141-the-table) | ✅ `TestAProfileEnforceModelsIsABooleanField`, `TestTheModelEnforcementSwitchReachesBothDerivePaths`, `TestClaudeUnderAnOnlyOnARoutedProvider` |
@@ -1620,7 +1718,10 @@ with `--ignore-scripts`, was loaded through its shipped bundle (`dist/bundle/ind
 own `createAgentSessionServices`, which loads extensions and creates no session, with an isolated
 home and `PI_OFFLINE=1`. Its requests went to a Node HTTP server on 127.0.0.1 that recorded each
 request's path and `Authorization` header and answered with an error, so no model ran and nothing
-left the machine. Every fetched package was deleted afterwards.
+left the machine. copilot 1.0.89 was fetched with `npm pack` as `@github/copilot-linux-x64`; the
+`copilot.tgz` its single-executable binary embeds was cut out at the gzip stream holding `app.js`
+and unpacked, and `app.js`, the bundled `copilot-sdk`'s types, `schemas/api.schema.json` and the
+native runtime's strings were read, none run. Every fetched package was deleted afterwards.
 
 **Claude Code's tier aliases**, SOURCED 2026-09-04: they resolve per provider, to older models on
 Bedrock, and `ANTHROPIC_DEFAULT_*_MODEL` repoints them
