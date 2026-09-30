@@ -568,8 +568,9 @@ Each test is chosen by the repo's question: **does it fail if I delete the call 
    `host_path`, and assert every caller reads it missing and prints the miss line. It fails if any
    caller stops passing the resolver's lookup, since bare `exec.LookPath` never sees `host_path`.
 3. **Re-probe and installer agreement.** Stub `depInstallRun` to drop a binary into a `host_path`
-   folder that is absent from the ambient PATH. Assert that the `--assert` run succeeds; today it
-   reads as a decline. Also assert the installer was handed `PATH` equal to the launch PATH
+   folder that is absent from the ambient PATH. Assert that the `--assert` run succeeds. Today it
+   refuses with *"installing `<bin>` did not produce it"*, because the re-probe reads only the
+   ambient PATH. Also assert the installer was handed `PATH` equal to the launch PATH
    exactly, with no floor `bin/`. Today's seam, `depInstallRun(cmd, out)`, carries no environ, so
    pinning this needs the seam to take the environ the install runs with.
 4. **`detectManager` through the seam.** A manager present only in a `host_path` folder is
