@@ -28,6 +28,11 @@ const jailWorkspace = "/workspace"
 // TestARefusedFloorSkipsNoUnrelatedStep (command_refusal_test.go) runs the composed bytes and
 // fails if the venv step moves back behind it.
 //
+// AND IT RUNS WHATEVER THE STEPS BEFORE IT DID (provision.Stage, AR-L4): a failed `mise
+// install` used to skip it through the `&&` join, so no Node floor was checked. The four steps
+// above it are still joined with `&&` among themselves, so a failed `mise install` still skips
+// the venv step. TestAFailedMiseInstallStillRunsTheBootstrap runs the composed bytes for that.
+//
 // ONE thing binds THESE bytes: testdata/final_cmd_bash.txt, which
 // TestFirstSessionBytesAreTheGolden (command_test.go) compares for exact equality against the
 // provisioning stage and the first session's command joined as the first session runs them —
@@ -40,13 +45,17 @@ const jailWorkspace = "/workspace"
 // Tools resolve on install only; a workspace mise.lock, when present, governs
 // resolution (mise honors it by default), and upgrades happen only through an
 // explicit act — docs/design/program-delivery.md OQ-PD3.
-var setupScript = provision.SetupBypassingShims(
-	provision.StepPruneStore,
-	provision.StepAnnounceMiseInstall,
-	provision.StepMiseInstall,
-	provision.StepRunVenvPrecreate,
-	provision.StepAnnounceBootstrap,
-	provision.StepRunBootstrap,
+var setupScript = provision.StageBypassingShims(
+	[]string{
+		provision.StepPruneStore,
+		provision.StepAnnounceMiseInstall,
+		provision.StepMiseInstall,
+		provision.StepRunVenvPrecreate,
+	},
+	[]string{
+		provision.StepAnnounceBootstrap,
+		provision.StepRunBootstrap,
+	},
 )
 
 // startupLog is the in-jail provisioning log path — the workspace bind's .yolo sidecar,

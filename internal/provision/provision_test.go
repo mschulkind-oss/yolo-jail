@@ -325,3 +325,61 @@ func TestMiseInstallIsVerboseOnlyWhenSomethingIsMissing(t *testing.T) {
 		})
 	}
 }
+
+// Stage (AR-L4, docs/design/agent-program-runtimes.md) runs the bootstrap whatever the steps
+// before it did, and its status is the one the wrapper needs: the refusal first, then the
+// steps' failure, then the bootstrap's own. Run in BOTH shapes, the bare body macos-user runs
+// and the container's `sh -c '…'` wrapping, so a quote that breaks the wrapping fails too.
+func TestStageRunsTheBootstrapWhateverTheStepsDid(t *testing.T) {
+	refused := "(exit " + strconv.Itoa(RefusedStatus) + ")"
+	for _, tc := range []struct {
+		name             string
+		steps, bootstrap string
+		wantRC           int
+	}{
+		{"all succeed", "true", "true", 0},
+		{"a step fails, the bootstrap succeeds", "(exit 3)", "true", 3},
+		{"a step fails, the bootstrap refuses", "(exit 3)", refused, RefusedStatus},
+		{"a step fails, the bootstrap fails too", "(exit 3)", "(exit 4)", 3},
+		{"the bootstrap fails", "true", "(exit 4)", 4},
+		{"the bootstrap refuses", "true", refused, RefusedStatus},
+	} {
+		for _, shape := range []struct {
+			name string
+			body func(steps, bootstrap []string) string
+		}{{"bare", Stage}, {"sh -c", StageBypassingShims}} {
+			t.Run(tc.name+"/"+shape.name, func(t *testing.T) {
+				dir := t.TempDir()
+				ran := filepath.Join(dir, "bootstrap-ran")
+				body := shape.body([]string{"true", tc.steps},
+					[]string{"touch " + ran, tc.bootstrap})
+				err := exec.Command("bash", "-c", "("+body+")").Run()
+				rc := 0
+				if ee, ok := err.(*exec.ExitError); ok {
+					rc = ee.ExitCode()
+				} else if err != nil {
+					t.Fatal(err)
+				}
+				if rc != tc.wantRC {
+					t.Errorf("stage exit = %d, want %d:\n%s", rc, tc.wantRC, body)
+				}
+				if _, err := os.Stat(ran); err != nil {
+					t.Errorf("the bootstrap did not run: %v\n%s", err, body)
+				}
+			})
+		}
+	}
+}
+
+// And the steps before the bootstrap stay joined with && among themselves: a failing step
+// still skips the ones after it (on the container, a failed `mise install` still skips the
+// venv step).
+func TestStageKeepsTheStepsBeforeTheBootstrapJoined(t *testing.T) {
+	dir := t.TempDir()
+	after := filepath.Join(dir, "after")
+	body := Stage([]string{"false", "touch " + after}, []string{"true"})
+	_ = exec.Command("bash", "-c", "("+body+")").Run()
+	if _, err := os.Stat(after); err == nil {
+		t.Errorf("a step after a failing one ran; only the bootstrap stops depending on them:\n%s", body)
+	}
+}

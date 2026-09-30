@@ -24,13 +24,20 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/provision"
 )
 
-// stageFixture is a temp HOME with fake `mise`, a fake bootstrap exiting bootstrapRC, and a
-// fake venv step that records that it ran.
+// stageFixture is a temp HOME with fake `mise`, a fake bootstrap exiting bootstrapRC that records
+// that it ran, and a fake venv step that records that it ran.
 type stageFixture struct {
-	home, fakeBin, log, venvRan string
+	home, fakeBin, log, venvRan, bootRan string
 }
 
 func newStageFixture(t *testing.T, bootstrapRC int) stageFixture {
+	t.Helper()
+	return newStageFixtureMise(t, bootstrapRC, 0)
+}
+
+// newStageFixtureMise is newStageFixture with `mise install` exiting miseInstallRC (offline, or
+// a broken workspace mise.toml, when it is not 0). `mise env` and `mise ls` still succeed.
+func newStageFixtureMise(t *testing.T, bootstrapRC, miseInstallRC int) stageFixture {
 	t.Helper()
 	if _, err := exec.LookPath("bash"); err != nil {
 		t.Skip("no bash on PATH; the composed command is bash")
@@ -41,6 +48,7 @@ func newStageFixture(t *testing.T, bootstrapRC int) stageFixture {
 		fakeBin: filepath.Join(home, "fake-bin"),
 		log:     filepath.Join(home, "ws", ".yolo", "startup.log"),
 		venvRan: filepath.Join(home, "venv-ran"),
+		bootRan: filepath.Join(home, "bootstrap-ran"),
 	}
 	for _, d := range []string{f.fakeBin, filepath.Dir(f.log)} {
 		if err := os.MkdirAll(d, 0o755); err != nil {
@@ -48,12 +56,13 @@ func newStageFixture(t *testing.T, bootstrapRC int) stageFixture {
 		}
 	}
 	for path, body := range map[string]string{
-		// `mise install --quiet` succeeds; `mise env -s bash` prints nothing to eval.
-		filepath.Join(f.fakeBin, "mise"): "#!/bin/sh\nexit 0\n",
+		// `mise install --quiet` exits miseInstallRC; `mise env -s bash` prints nothing to eval.
+		filepath.Join(f.fakeBin, "mise"): "#!/bin/sh\n[ \"$1\" = install ] && exit " +
+			strconv.Itoa(miseInstallRC) + "\nexit 0\n",
 		filepath.Join(home, ".yolo-venv-precreate.sh"): "#!/bin/sh\ntouch " +
 			shellQuoteForTest(f.venvRan) + "\n",
-		filepath.Join(home, ".yolo-bootstrap.sh"): "#!/bin/sh\necho 'bootstrap says why' >&2\nexit " +
-			strconv.Itoa(bootstrapRC) + "\n",
+		filepath.Join(home, ".yolo-bootstrap.sh"): "#!/bin/sh\ntouch " + shellQuoteForTest(f.bootRan) +
+			"\necho 'bootstrap says why' >&2\nexit " + strconv.Itoa(bootstrapRC) + "\n",
 	} {
 		if err := os.WriteFile(path, []byte(body), 0o755); err != nil {
 			t.Fatal(err)
@@ -165,6 +174,47 @@ func TestARefusedFloorSkipsNoUnrelatedStep(t *testing.T) {
 		t.Errorf("the venv step did not run when the bootstrap refused — a Node floor must not "+
 			"cost a workspace its python venv: %v", err)
 	}
+}
+
+// TestAFailedMiseInstallStillRunsTheBootstrap is AR-L4 (docs/design/agent-program-runtimes.md)
+// on the container: a failed `mise install` used to skip the bootstrap through the `&&` join, so
+// a workspace's broken mise.toml silenced the Node floor's refusal. The bootstrap now runs
+// whatever `mise install` did. Its refusal still stops the launch; with no refusal the stage
+// degrades as a failed `mise install` always did, recorded and continued, and the venv step,
+// which needs `mise install`, is still skipped.
+func TestAFailedMiseInstallStillRunsTheBootstrap(t *testing.T) {
+	t.Run("the bootstrap refuses", func(t *testing.T) {
+		f := newStageFixtureMise(t, provision.RefusedStatus, 1)
+		rc, stdout, _ := f.run(t, targetCmdForTest, false)
+		if _, err := os.Stat(f.bootRan); err != nil {
+			t.Fatalf("a failed `mise install` skipped the bootstrap, so no Node floor was checked: %v", err)
+		}
+		if rc != provision.RefusedStatus {
+			t.Errorf("rc = %d, want provision.RefusedStatus (%d): the refusal must win over the "+
+				"earlier failure", rc, provision.RefusedStatus)
+		}
+		if strings.Contains(stdout, targetMarker) {
+			t.Errorf("the target ran after the bootstrap refused:\n%s", stdout)
+		}
+	})
+	t.Run("the bootstrap succeeds", func(t *testing.T) {
+		f := newStageFixtureMise(t, 0, 1)
+		rc, stdout, stderr := f.run(t, targetCmdForTest+"; exit 5", false)
+		if _, err := os.Stat(f.bootRan); err != nil {
+			t.Fatalf("a failed `mise install` skipped the bootstrap: %v", err)
+		}
+		if _, err := os.Stat(f.venvRan); err == nil {
+			t.Error("the venv step ran after `mise install` failed; the steps before the " +
+				"bootstrap stay joined with &&")
+		}
+		if !strings.Contains(stderr, "Provisioning failed (exit 1)") {
+			t.Errorf("a failed `mise install` must still be reported with its own status:\n%s", stderr)
+		}
+		if !strings.Contains(stdout, targetMarker) || rc != 5 {
+			t.Errorf("a failed `mise install` must still degrade and reach the target (rc %d):\n%s",
+				rc, stdout)
+		}
+	})
 }
 
 // TestAnOrdinaryBootstrapFailureStillReachesTheTarget is the vacuity guard for the two tests

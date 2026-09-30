@@ -2,6 +2,9 @@ package macosuser
 
 import (
 	"bytes"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
@@ -271,6 +274,54 @@ func TestStageTakesFourOfTheSixSteps(t *testing.T) {
 	if strings.Contains(body, "~/.yolo-bootstrap.sh") {
 		t.Error("the stage execs ~/.yolo-bootstrap.sh, which is the CONTAINER's bind " +
 			"destination; this backend has no bind and no file at that path")
+	}
+}
+
+// AR-L4 (docs/design/agent-program-runtimes.md) on this backend: the stage body RUNS its
+// bootstrap after a failed `mise install`, which used to skip it through the `&&` join and so
+// check no Node floor. The body's status is the refusal when the bootstrap refused, and
+// `mise install`'s failure otherwise, so the failure still degrades as it did. The body runs
+// under bash with a fake mise and a fake bootstrap, in the subshell provision.Script puts it in.
+func TestAFailedMiseInstallStillRunsThisBackendsBootstrap(t *testing.T) {
+	if _, err := exec.LookPath("bash"); err != nil {
+		t.Skip("no bash on PATH")
+	}
+	for _, tc := range []struct {
+		name        string
+		bootstrapRC int
+		wantRC      int
+	}{
+		{"the bootstrap refuses", provision.RefusedStatus, provision.RefusedStatus},
+		{"the bootstrap succeeds", 0, 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			ran := filepath.Join(dir, "bootstrap-ran")
+			script := filepath.Join(dir, "yolo-bootstrap.sh")
+			for path, body := range map[string]string{
+				filepath.Join(dir, "mise"): "#!/bin/sh\n[ \"$1\" = install ] && exit 1\nexit 0\n",
+				script:                     "#!/bin/sh\ntouch '" + ran + "'\nexit " + strconv.Itoa(tc.bootstrapRC) + "\n",
+			} {
+				if err := os.WriteFile(path, []byte(body), 0o755); err != nil {
+					t.Fatal(err)
+				}
+			}
+			cmd := exec.Command("bash", "-c", "("+ProvisionSetup(script)+")")
+			cmd.Env = append(os.Environ(), "PATH="+dir+":"+os.Getenv("PATH"))
+			err := cmd.Run()
+			rc := 0
+			if ee, ok := err.(*exec.ExitError); ok {
+				rc = ee.ExitCode()
+			} else if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := os.Stat(ran); err != nil {
+				t.Fatalf("a failed `mise install` skipped the bootstrap: %v", err)
+			}
+			if rc != tc.wantRC {
+				t.Errorf("stage body exit = %d, want %d", rc, tc.wantRC)
+			}
+		})
 	}
 }
 

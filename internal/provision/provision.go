@@ -78,9 +78,14 @@ func StartupLog(workspace string) string {
 // ⚠ THE BOOTSTRAP IS THE LAST STEP ON BOTH BACKENDS, because it is the one step that can
 // exit RefusedStatus, and a refusal must not cost the steps that follow it. The container
 // used to run the venv step AFTER it, so a refused floor would also have skipped venv
-// creation — a step that has nothing to do with Node. Every step before it still gates it
-// (a failed `mise install` skips the bootstrap, as it always did); what that leaves unchecked
-// is docs/design/agent-program-runtimes.md's OQ-AR6, still open.
+// creation — a step that has nothing to do with Node.
+//
+// AND NO STEP BEFORE IT GATES IT (docs/design/agent-program-runtimes.md AR-L4). A failed
+// `mise install` (offline, or a broken workspace mise.toml) used to skip the bootstrap through
+// the `&&` join, so no Node floor was checked and the launch degraded like any failed stage:
+// a workspace's own file silencing a refusal OQ-AR3 ruled has no escape hatch. Stage runs the
+// bootstrap whatever the steps before it did, and those steps stay joined with `&&` among
+// themselves, so on the container a failed `mise install` still skips the venv step.
 //
 // They are constants rather than a rendered script because the two backends take
 // DIFFERENT SUBSETS, and a subset is only legible if the members have names. What each
@@ -142,7 +147,38 @@ func Setup(steps ...string) string { return strings.Join(steps, " && ") }
 // process sets the variable in that process's environment instead and calls Setup — which
 // is also what lets it embed an absolute path without nesting quotes inside `sh -c '…'`.
 func SetupBypassingShims(steps ...string) string {
-	return "YOLO_BYPASS_SHIMS=1 sh -c '" + Setup(steps...) + "'"
+	return bypassingShims(Setup(steps...))
+}
+
+// bypassingShims is the container's `YOLO_BYPASS_SHIMS=1 sh -c '…'` wrapping of a stage body,
+// which must carry no single quote (SetupBypassingShims says why the wrapper exists).
+func bypassingShims(body string) string { return "YOLO_BYPASS_SHIMS=1 sh -c '" + body + "'" }
+
+// Stage is the stage body both backends run: steps joined with `&&` as Setup joins them, then
+// bootstrap (itself joined with `&&`: the announce line and the script), which runs WHETHER OR
+// NOT the steps succeeded (AR-L4, the comment above the step constants).
+//
+// ITS STATUS IS THE ONE THE WRAPPER NEEDS, in this order: RefusedStatus when the bootstrap
+// refused, so a refusal is never lost to an earlier failure; otherwise the steps' status when
+// they failed, so a failed `mise install` still degrades exactly as it did (Script records it and
+// continues); otherwise the bootstrap's own. The refusal status is rendered from the constant, so
+// this body and Script cannot disagree about the number.
+//
+// Every quote in it is a double quote, so the container can still wrap it in `sh -c '…'`
+// (StageBypassingShims); `exit` then ends that `sh`, and on macos-user the subshell Script puts
+// the body in.
+func Stage(steps, bootstrap []string) string {
+	refused := strconv.Itoa(RefusedStatus)
+	return "{ " + Setup(steps...) + "; }; _ys=$?; " +
+		"{ " + Setup(bootstrap...) + "; }; _yb=$?; " +
+		`if [ "$_yb" -eq ` + refused + ` ]; then exit "$_yb"; fi; ` +
+		`if [ "$_ys" -ne 0 ]; then exit "$_ys"; fi; ` +
+		`exit "$_yb"`
+}
+
+// StageBypassingShims wraps Stage the way SetupBypassingShims wraps Setup: the container's form.
+func StageBypassingShims(steps, bootstrap []string) string {
+	return bypassingShims(Stage(steps, bootstrap))
 }
 
 // Script wraps a setup body with the tee-to-log, the FailedMarker record, the red console

@@ -56,12 +56,19 @@ import (
 // `bootstrapScript` is the ABSOLUTE path of the generated script — this backend has no
 // bind to reach it through at ~/.yolo-bootstrap.sh, and deliberately writes it into the
 // workspace sidecar instead (entrypoint.DarwinBootstrapScriptPath).
+//
+// The bootstrap runs whether or not `mise install` succeeded (provision.Stage, AR-L4), as on
+// the container: a workspace's broken mise.toml must not be what skips the Node floor check.
 func ProvisionSetup(bootstrapScript string) string {
-	return provision.Setup(
-		provision.StepAnnounceMiseInstall,
-		provision.StepMiseInstall,
-		provision.StepAnnounceBootstrap,
-		provision.StepRunBootstrapAt(bootstrapScript),
+	return provision.Stage(
+		[]string{
+			provision.StepAnnounceMiseInstall,
+			provision.StepMiseInstall,
+		},
+		[]string{
+			provision.StepAnnounceBootstrap,
+			provision.StepRunBootstrapAt(bootstrapScript),
+		},
 	)
 }
 
