@@ -10,7 +10,10 @@ vantage:
 
 # The manifest language: declarations stay inert data, and the syntax should stop fighting us
 
-**Status:** DESIGN, 2026-09-20. Nothing built; four questions open. Re-checked against the tree
+**Status:** DESIGN, 2026-09-30 — three rulings owed, [`OQ-M1`](#OQ-M1) to [`OQ-M3`](#OQ-M3);
+[`OQ-M4`](#OQ-M4) was decided as an implementation choice ([MN-D1](#MN-D1)). Nothing built: re-checked
+2026-09-30, every shipped manifest is still one flat `contributes` list tagged by `kind`, and
+`packs/claude` still repeats `"agent": "claude"` on its own contributions. Re-checked against the tree
 and the sibling rulings 2026-09-24: the identity lever in [§3](#3-what-is-actually-free-to-change)
 now follows [`OQ-D5`](slots-and-contributions.md#OQ-D5) (declared once per pack, never derived),
 which that doc ruled on 2026-09-20. Sibling to
@@ -42,7 +45,7 @@ written today is a migration debt tomorrow, so the format should be chosen once.
 > pack "conventionally" mounts something removes a claim. The first is the goal; the second is
 > forbidden under every option below.
 
-**Needs your ruling:** [`OQ-M1`](#OQ-M1) (do the model change?), [`OQ-M2`](#OQ-M2) (which syntax?), [`OQ-M3`](#OQ-M3) (may a manifest be pure code that returns data?), [`OQ-M4`](#OQ-M4) (does the user config share the language?).
+**Needs your ruling:** [`OQ-M1`](#OQ-M1) (do the model change, and when?), [`OQ-M2`](#OQ-M2) (which syntax?), [`OQ-M3`](#OQ-M3) (may a manifest be pure code that returns data?). [`OQ-M4`](#OQ-M4) (does the user config share the language?) was decided as an implementation choice, [MN-D1](#MN-D1): it does not.
 
 **Reads with:** [`pack-system.md`](../reference/pack-system.md) (the contribution model and the
 total-enumeration rule), [`trust-paths.md`](trust-paths.md) (the origin gate and why a pack
@@ -234,6 +237,20 @@ Dhall (total, typed).
 
 1. 💬 <a id="OQ-M1"></a>**OQ-M1: Do the syntax-free model change first?**
 
+   ⚠ **Restated 2026-09-30 with lettered options**, because the block named none. "The model change" is
+   [§3](#3-what-is-actually-free-to-change)'s three syntax-independent levers: group entries by kind,
+   so `"program": {…}` replaces `{"kind": "program", …}` in a list; state the pack's agent once, which
+   is [`OQ-D5`](slots-and-contributions.md#OQ-D5)'s ruled rule and is not built; and give each kind
+   defaults for `into`, `path` and `codec`. Under (A) or (B) every manifest is rewritten, a fetched
+   pack's included. The options:
+
+   - **(A) Yes, now, on its own**, before any syntax decision.
+   - **(B) Yes, but in the same breaking change as
+     [`slots-and-contributions.md`](slots-and-contributions.md)'s `exposes` split**, so every manifest
+     is rewritten once. That build is blocked on that doc's own open questions
+     ([`OQ-D6`](slots-and-contributions.md#OQ-D6) to [`OQ-D12`](slots-and-contributions.md#OQ-D12)).
+   - **(C) No.** The flat, `kind`-tagged list stays, and readability waits for [OQ-M2](#OQ-M2).
+
    <!-- vantage: oq id=OQ-M1 leaning="Yes. Grouping by kind and stating the pack's identity once are syntax-independent and are the two largest sources of redundancy." -->
 
    _Leaning:_ Yes — it is independent of the syntax decision, needs no dependency, and removes the
@@ -279,6 +296,12 @@ Dhall (total, typed).
    > it moves the number the wrong way. Direction is robust across xz/bzip2 and levels 1–9; the
    > THRESHOLD is not. Do not re-derive a byte-ratio gate for this question.
 
+   ⚠ **Restated 2026-09-30 with letters**, which are [§4](#4-the-options)'s own: **(A)** JSON (JSONC)
+   restructured, the model change only; **(B)** data-only Lua in the sandbox `derive.lua` already runs
+   in; **(C)** Starlark, a new dependency. D (Jsonnet, CUE, Dhall) is set aside in [§4](#4-the-options)
+   as overpowered for data, and E (YAML or TOML) in [§6](#6-recommendation) as no fix on its own. B
+   and C also need [OQ-M3](#OQ-M3)'s yes.
+
    _Leaning:_ **Strike the re-measure precondition and decide on readability, not ratio.** If a
    language is still wanted, Lua remains the cheapest (vendored, familiar, comments + reuse) and
    Starlark the best-designed at the cost of a dependency — but the measurement no longer argues for
@@ -291,31 +314,39 @@ Dhall (total, typed).
 
    <!-- vantage: oq id=OQ-M3 leaning="Yes, if the sandbox is pure and the RESULT is validated and footprinted, so the total-claim rule survives by construction rather than by trust." -->
 
+   ⚠ **Restated 2026-09-30 with letters.** It matters only if [OQ-M2](#OQ-M2) picks (B) or (C).
+   **(A) Yes**, on M5's condition below. **(B) No**: a manifest is always a literal data file, which
+   leaves [OQ-M2](#OQ-M2) only (A). A third option, code for shipped packs but not fetched ones, is not
+   offered: [`OQ-PB4`](../reference/pack-system.md#oq-pb4) refused that shape for briefing defaults,
+   because a rule keyed on how a pack was fetched makes one pack behave two ways.
+
    _Leaning:_ Yes — with M5 as the condition: the sandbox has no I/O and no effects, and the *value*
    it returns goes through the same schema check and footprint as a literal manifest. This is the
    one genuine trust-model change in the doc and it should be ruled explicitly, not slipped in with
-   a syntax choice. `derive.lua` already establishes the precedent.
+   a syntax choice. `derive.lua` already establishes the precedent: yolo runs a pack's `derive.lua`
+   in that sandbox today (`packload.DeriveScript` reads it from the pack's own tree), though what it
+   returns is config values, never a claim.
 
    **Answer:**
    > _(empty — fill in when decided)_
 
-4. 💬 <a id="OQ-M4"></a>**OQ-M4: Does the user/workspace config (`yolo-jail.jsonc`) share the language?**
-
-   <!-- vantage: oq id=OQ-M4 leaning="Not necessarily. The user config is settings, not declarations; it may keep a syntax that is read-only-data even if the manifest moves." -->
+4. ✅ <a id="OQ-M4"></a>**OQ-M4: Does the user/workspace config (`yolo-jail.jsonc`) share the language?**
 
    _Leaning:_ Not necessarily — the user config is *settings* (no claims to enumerate), so it may
    keep a plain data syntax even if the manifest moves. Sharing is a convenience, not a
    requirement, and coupling the two decisions would slow the manifest's.
 
    **Answer:**
-   > _(empty — fill in when decided)_
+   > Decided as an implementation choice ([MN-D1](#MN-D1)), reversible: no. `yolo-jail.jsonc` and
+   > `~/.config/yolo-jail/config.jsonc` stay JSONC whatever [OQ-M2](#OQ-M2) rules, and moving them
+   > would be a proposal of its own.
 
 ## 8. Decision ledger
 
 | ID | Ruling / Decision | Date | Settled in | Built |
 | :--- | :--- | :--- | :--- | :--- |
-| — | None settled yet | — | — | — |
 | **OQ-M1** | — | — | — | — |
 | **OQ-M2** | — | — | — | — |
 | **OQ-M3** | — | — | — | — |
-| **OQ-M4** | — | — | — | — |
+| **OQ-M4** | Decided as an implementation choice: [MN-D1](#MN-D1) | 2026-09-30 | [§7](#7-open-questions) | — |
+| <a id="MN-D1"></a>MN-D1 | *Implementation decision, [OQ-M4](#OQ-M4).* **The user and workspace config keep JSONC, whatever [OQ-M2](#OQ-M2) rules for manifests.** The user config is settings, with no claims to enumerate, so the rule this doc exists to protect ([M2](#2-principles)) does not reach it. yolo already deleted the one scripted user config it had, `config.lua`, because it had no user ([`OQ-LT1`](../reference/pack-system.md#oq-lt1)). And coupling the two would make the manifest ruling wait on a rewrite of every user's config. Reversible: a proposal to move the user config would start from the manifest's ruling rather than wait for it | 2026-09-30 | [§7](#7-open-questions) | nothing to build |
