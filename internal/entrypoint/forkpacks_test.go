@@ -165,6 +165,41 @@ func TestTheSourceLauncherMaterializesTheHostsKeyOncePerKey(t *testing.T) {
 	}
 }
 
+// TestTheSourceLauncherKeysItsBuildToItsOwnHome: the record of which key a home holds is the
+// home's, not the machine's. ~/.cache is bound from the machine's shared cache into every jail
+// (run's podmanBaseMounts), while the materialized program lives in the workspace's own home, so
+// a key record kept in ~/.cache lets one workspace's materialize vouch for another's files. Here a
+// second workspace, sharing the first's ~/.cache as every jail on a machine does, still holds the
+// BASE's upstream program from before the fork was selected: its launcher must put the fork's
+// build in place, never exec the upstream program under the fork's name.
+func TestTheSourceLauncherKeysItsBuildToItsOwnHome(t *testing.T) {
+	home1, launcher1, fakeBin, argvLog := forkLauncher(t, `{"pi":{"key":"k1"}}`)
+	if out, rc := runForkLauncher(t, home1, launcher1, fakeBin); rc != 0 || !strings.Contains(out, "FORK_BUILD_RAN k1") {
+		t.Fatalf("rc=%d, the first workspace did not run k1's build:\n%s", rc, out)
+	}
+
+	home2 := t.TempDir()
+	if err := os.Symlink(filepath.Join(home1, ".cache"), filepath.Join(home2, ".cache")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(home2, ".local", "bin"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home2, ".local", "bin", "pi"),
+		[]byte("#!/bin/bash\necho UPSTREAM_PI_RAN\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	_, launcher2, _, _ := forkLauncherInHome(t, home2, `{"pi":{"key":"k1"}}`)
+	out, rc := runForkLauncher(t, home2, launcher2, fakeBin)
+	if rc != 0 || strings.Contains(out, "UPSTREAM_PI_RAN") || !strings.Contains(out, "FORK_BUILD_RAN k1") {
+		t.Errorf("rc=%d, the second workspace ran %q, want k1's build put in its own home:\n%s", rc,
+			strings.TrimSpace(out), out)
+	}
+	if calls, _ := os.ReadFile(argvLog); strings.Count(string(calls), "capture-materialize") != 2 {
+		t.Errorf("want one materialize per home, got: %q", calls)
+	}
+}
+
 // forkLauncherInHome regenerates the launchers into an existing home, as the next boot does.
 func forkLauncherInHome(t *testing.T, home, deliveries string) (string, string, string, string) {
 	t.Helper()

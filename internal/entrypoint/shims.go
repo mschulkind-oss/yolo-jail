@@ -465,7 +465,7 @@ func GenerateAgentLaunchers(e *Env) error {
 				// fallback, because a jail that ran the upstream program under the fork's name
 				// would be the wrong program looking like the right one.
 				segments := sourceAgentLauncherSegments(inst, forkDeliveryFor(forks, inst.Bin), stampDir,
-					receiptsFile(e), capturesDir(e), agentUpdatesAllows(e, p.Name), servers,
+					forkKeyDir(e), receiptsFile(e), capturesDir(e), agentUpdatesAllows(e, p.Name), servers,
 					launchFlagsFor(e, packs, inst.Bin))
 				prefix := nodeExecPrefix(inst.NodeFloor)
 				launcher = strings.Join(segments, prefix)

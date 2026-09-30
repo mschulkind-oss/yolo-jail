@@ -786,8 +786,10 @@ capture or build jail, so a build cannot start a build.
 In the jail the forked bin's launcher is a **source launcher**
 ([`forklauncher.go`](../../internal/entrypoint/forklauncher.go)). Its first run deletes the
 `produces` paths, materializes the key from the mounted store
-(`yolo internal capture-materialize --key`), and records the key; every later run execs the
-program, and a launch handing it a new key replaces the build. With no key it prints the reason and
+(`yolo internal capture-materialize --key`), and records the key under `~/.local/state/yolo` in
+that home; every later run execs the program, and a launch handing it a new key replaces the build.
+The record is the home's own, never the machine-wide `~/.cache` every jail shares, so one
+workspace's materialize cannot vouch for what another workspace's home holds. With no key it prints the reason and
 exits 1. It never installs the base's package in its place, never runs an older build still in the
 home, and has no update step: `yolo pack update` in the jail says the pin moves it. A fork's
 `node_floor`, or its base's, joins the launcher's exec prefix as an npm launcher's does.

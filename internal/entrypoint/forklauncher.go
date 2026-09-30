@@ -26,6 +26,7 @@ package entrypoint
 import (
 	"encoding/json"
 	"fmt"
+	"path/filepath"
 	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
@@ -84,15 +85,26 @@ func forkDeliveryFor(d map[string]ForkDelivery, bin string) ForkDelivery {
 		" (a launcher older than the fork route, or a jail with no capture store)"}
 }
 
+// forkKeyDir is where a home records which fork build key it holds, one file per bin: IN THE HOME'S
+// OWN STORAGE, beside the materialized program, never in ~/.cache. The launchers' other stamps live
+// in ~/.cache, which every jail on the machine binds from one shared directory — right for "when did
+// anything on this machine last poll", and wrong for "which build is in THIS home": a key recorded
+// there by one workspace's materialize would let another workspace's launcher exec whatever its own
+// home holds at the program path — an older pin's build, or the base's upstream program from before
+// the fork was selected — as the build the host asked for. ~/.local is per workspace, like the
+// program surfaces the build's files land in.
+func forkKeyDir(e *Env) string { return filepath.Join(e.Home, ".local", "state", "yolo", "fork-keys") }
+
 // sourceAgentLauncherSegments renders the source launcher for one program a fork builds, split at
 // every exec-prefix position (npmAgentLauncherSegments' reason: a declared node_floor that nothing
-// meets at generation is joined in by the provisioning stage).
-func sourceAgentLauncherSegments(inst *packdecl.Install, d ForkDelivery, stampDir, receiptsPath,
+// meets at generation is joined in by the provisioning stage). keyDir is forkKeyDir.
+func sourceAgentLauncherSegments(inst *packdecl.Install, d ForkDelivery, stampDir, keyDir, receiptsPath,
 	capturesPath string, updates bool, servers launcherServers, flags *packload.LaunchInjection) []string {
 	token := execPrefixToken()
 	r := strings.NewReplacer(append([]string{
 		"__YOLO_BIN__", shquote.Quote(inst.Bin),
 		"__YOLO_PROGRAM_PATH__", shquote.Quote(inst.ProgramPath()),
+		"__YOLO_FORK_KEY_DIR__", shquote.Quote(keyDir),
 		"__YOLO_FORK_KEY__", shquote.Quote(d.Key),
 		"__YOLO_FORK_REASON__", shquote.Quote(d.Reason),
 		"__YOLO_FORKED_BY__", shquote.Quote(inst.ForkedBy),
@@ -126,7 +138,10 @@ SOURCE=__YOLO_SOURCE__
 # key is materialized, so an older build's files do not outlive its pin.
 PRODUCES=(__YOLO_PRODUCES__)
 STAMP_DIR=__YOLO_STAMP_DIR__
-KEY_STAMP="$STAMP_DIR/$BIN.fork-key"
+# Which key THIS home holds: in the home's own storage, never the machine-shared ~/.cache that
+# STAMP_DIR is in, or one workspace's materialize would vouch for another workspace's files.
+KEY_DIR=__YOLO_FORK_KEY_DIR__
+KEY_STAMP="$KEY_DIR/$BIN"
 _YOLO_RECEIPTS=__YOLO_RECEIPTS_FILE__
 CAPTURES_DIR=__YOLO_CAPTURES_DIR__
 # The pre-launch refresh's throttle and bounds, the other launchers' own numbers.
@@ -189,6 +204,7 @@ if [ ! -x "$REAL_BIN" ] || [ "$(cat "$KEY_STAMP" 2>/dev/null || true)" != "$KEY"
         echo "  ⚠ $BIN is not available: fork $FORKED_BY's build ($KEY) could not be put in place" >&2
         exit 1
     fi
+    mkdir -p "$KEY_DIR"
     printf '%s\n' "$KEY" > "$KEY_STAMP"
 fi
 
