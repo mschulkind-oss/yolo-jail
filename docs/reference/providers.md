@@ -1527,7 +1527,8 @@ model ids the agent knows with no network, read from the files its pack names in
 ([pack-system.md](pack-system.md#model_catalog)). An id no catalog knows is one warning per
 provider, never a refusal; when no catalog could be read, one skip says the check could not ask
 and why. Nothing is run and no network is reached: in a jail the check reads the jail's npm
-install, at the host yolo's floor copy, so an agent not installed yet is one it could not ask. A
+install, at the host yolo's floor copy when the floor holds the one `yolo host --` runs, so an
+agent not installed yet, or one the floor holds no entry for, is one it could not ask. A
 provider every endpoint of which is on this machine (`localhost`, a loopback address,
 `host.containers.internal`) is left out, since its ids are the ones your own server serves
 ([MM-D20](../design/model-lists-and-pickers.md#MM-D20)). Today only pi's pack declares a catalog:

@@ -144,36 +144,66 @@ type declaredCatalog struct {
 
 // declaredCatalogs lists the model catalogs the selected packs' npm programs declare, each with
 // the package directory this notch installed it into: in a jail the jail's npm prefix
-// ($NPM_CONFIG_PREFIX/lib/node_modules/<package>, where its launcher installs it), at the host
-// the host floor's copy, which is what `yolo host -- <agent>` runs (host-tool-provisioning.md).
+// (<prefix>/lib/node_modules/<package>, where its launcher installs it), at the host the host
+// floor's copy, which is what `yolo host -- <agent>` runs (host-tool-provisioning.md).
+//
+// THE HOST'S COPY IS THE ONE THE FLOOR'S DISPOSITION SAYS `yolo host` RUNS (hostfloor.Status, the
+// answer the Host agent floor section prints), never whatever record the prefix still holds: a
+// program with no floor entry (`host_floor` leaves its pack out, or this machine cannot hold it)
+// runs from the launch's PATH (OQ-HE11), so a record left from before is a copy no launch runs,
+// and a program not yet provisioned is one the check could not ask.
 func (o *Options) declaredCatalogs(packs []*packload.Pack) []declaredCatalog {
-	var out []declaredCatalog
-	var records map[string]*hostfloor.Record
 	inJail := o.getenv("YOLO_VERSION") != ""
+	var in []hostfloor.PackPrograms
 	for _, p := range packs {
 		installs, _ := p.HonoredInstalls()
-		for _, in := range installs {
-			if in.Kind != "npm" || len(in.ModelCatalog) == 0 {
+		in = append(in, hostfloor.PackPrograms{Pack: p.Name, Installs: installs})
+	}
+	var floor *hostfloor.Floor
+	progs := map[string]hostfloor.Program{}
+	if !inJail {
+		list := hostfloor.Programs(in)
+		for _, p := range list {
+			progs[p.Bin()] = p
+		}
+		floor = o.hostFloor(list)
+	}
+	var out []declaredCatalog
+	for _, p := range in {
+		for _, inst := range p.Installs {
+			if inst.Kind != "npm" || len(inst.ModelCatalog) == 0 {
 				continue
 			}
-			c := declaredCatalog{name: in.Bin, globs: in.ModelCatalog}
-			name, _ := packdecl.SplitNpmSpec(in.Package)
-			switch {
-			case inJail:
+			c := declaredCatalog{name: inst.Bin, globs: inst.ModelCatalog}
+			name, _ := packdecl.SplitNpmSpec(inst.Package)
+			if inJail {
 				prefix := o.getenv("NPM_CONFIG_PREFIX")
 				if prefix == "" {
 					c.missing = "this jail names no npm prefix (NPM_CONFIG_PREFIX), so there is nowhere to look"
-					break
+				} else {
+					c.dir = filepath.Join(prefix, "lib", "node_modules", filepath.FromSlash(name))
+					c.missing = "not installed in this jail yet: its launcher installs it on first use"
 				}
-				c.dir = filepath.Join(prefix, "lib", "node_modules", filepath.FromSlash(name))
-				c.missing = "not installed in this jail yet: its launcher installs it on first use"
+				out = append(out, c)
+				continue
+			}
+			prog, ok := progs[inst.Bin]
+			if !ok {
+				c.missing = "yolo's host floor holds no program named " + inst.Bin
+				out = append(out, c)
+				continue
+			}
+			st := floor.Status(prog)
+			switch st.Disposition {
+			case hostfloor.Provisioned:
+				c.dir = st.Record.NpmPackageDir(prog.Install.Package)
+				c.missing = "yolo's floor copy of it holds no installed " + name + " package"
+			case hostfloor.Missing:
+				c.missing = "not in yolo's host floor yet (" + st.Reason + "): the first `yolo host -- " +
+					inst.Bin + "`, or `yolo host apply --assert`, installs it"
 			default:
-				if records == nil {
-					records = o.hostFloor(nil).Records()
-				}
-				c.dir = records[in.Bin].NpmPackageDir(in.Package)
-				c.missing = "yolo's host floor holds no copy of it yet: the first `yolo host -- " +
-					in.Bin + "`, or `yolo host apply --assert`, installs one"
+				c.missing = "no floor entry: " + st.Reason + ". `yolo host -- " + inst.Bin +
+					"` runs the one on the PATH it is started with, whose catalog this check does not read"
 			}
 			out = append(out, c)
 		}

@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -130,9 +131,59 @@ func TestCheckPassesWhenEveryListedIDIsKnown(t *testing.T) {
 // runs: the record's npm package directory.
 func TestCheckReadsTheHostFloorsCopyAtTheHost(t *testing.T) {
 	floorDir := t.TempDir()
+	provisionAgentx(t, floorDir, "alpha-1")
+	out, _ := runHostCatalogCheck(t, &hostfloor.Floor{Dir: floorDir, GOOS: runtime.GOOS, GOARCH: runtime.GOARCH})
+	if want := `provider "gw" lists "ghost-9", which no installed agent's catalog knows`; !strings.Contains(out, want) {
+		t.Errorf("the host check should say %q from the floor's copy:\n%s", want, out)
+	}
+}
+
+// A FLOOR COPY `yolo host` DOES NOT RUN IS NOT READ. With `host_floor` leaving the pack out, the
+// program has no floor entry and `yolo host -- agentx` runs the copy on its PATH (OQ-HE11), so the
+// copy the floor still holds from before is one no launch runs: its catalog is not the installed
+// agent's, and the check says it could not ask, naming why, rather than checking against it or
+// telling the user that a launch would install one.
+func TestCheckDoesNotReadAFloorCopyYoloHostDoesNotRun(t *testing.T) {
+	floorDir := t.TempDir()
+	provisionAgentx(t, floorDir, "alpha-1")
+	out, r := runHostCatalogCheck(t, &hostfloor.Floor{Dir: floorDir, GOOS: runtime.GOOS, GOARCH: runtime.GOARCH,
+		Include: func(string) bool { return false }})
+	if strings.Contains(out, "which no installed agent's catalog knows") || strings.Contains(out, "checked against agentx") {
+		t.Errorf("the check read the catalog of a floor copy `yolo host` does not run:\n%s", out)
+	}
+	if !strings.Contains(out, "no installed agent's catalog could be read") || r.skipped == 0 {
+		t.Errorf("with no copy `yolo host` runs readable, the check must say it could not ask:\n%s", out)
+	}
+	if !strings.Contains(out, "agentx: no floor entry: the user config's `host_floor` leaves pack") ||
+		!strings.Contains(out, "runs the one on the PATH") {
+		t.Errorf("the skip must say why the floor holds no entry and what `yolo host` runs instead:\n%s", out)
+	}
+	if strings.Contains(out, "installs one") || strings.Contains(out, "installs it") {
+		t.Errorf("no launch installs a program the floor holds no entry for:\n%s", out)
+	}
+}
+
+// provisionAgentx makes agentx a PROVISIONED floor entry under floorDir, the copy `yolo host --
+// agentx` runs: a record whose Exec and launcher exist, over a fixture install whose catalog
+// names ids.
+func provisionAgentx(t *testing.T, floorDir string, ids ...string) {
+	t.Helper()
 	installDir := filepath.Join(floorDir, "programs", "agentx", "1")
-	rec := &hostfloor.Record{Schema: 1, Bin: "agentx", Via: "npm", Dir: installDir}
-	installAgentx(t, rec.NpmPackageDir("@test/agentx"), "alpha-1")
+	rec := &hostfloor.Record{Schema: 1, Bin: "agentx", Pack: "catalogpack", Via: "npm",
+		Declared: "@test/agentx@latest", Dir: installDir}
+	pkg := rec.NpmPackageDir("@test/agentx")
+	installAgentx(t, pkg, ids...)
+	entry := filepath.Join(pkg, "bin", "cli")
+	launcher := filepath.Join(floorDir, "bin", "agentx")
+	for _, f := range []string{entry, launcher} {
+		if err := os.MkdirAll(filepath.Dir(f), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(f, []byte("#!/bin/sh\n"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	rec.Entry, rec.Exec = entry, []string{entry}
 	b, _ := json.Marshal(rec)
 	if err := os.MkdirAll(filepath.Join(floorDir, "records"), 0o700); err != nil {
 		t.Fatal(err)
@@ -140,18 +191,20 @@ func TestCheckReadsTheHostFloorsCopyAtTheHost(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(floorDir, "records", "agentx.json"), b, 0o600); err != nil {
 		t.Fatal(err)
 	}
+}
+
+// runHostCatalogCheck runs sectionPacks over the catalog pack at the host, reading floor.
+func runHostCatalogCheck(t *testing.T, floor *hostfloor.Floor) (string, *reporter) {
+	t.Helper()
 	packsFixture(t, `{"packs": ["file://`+catalogPack(t)+`"]}`)
 	var buf bytes.Buffer
 	r := &reporter{w: &buf}
 	o := &Options{
 		Getenv:    func(string) string { return "" },
-		HostFloor: func([]hostfloor.Program) *hostfloor.Floor { return &hostfloor.Floor{Dir: floorDir} },
+		HostFloor: func([]hostfloor.Program) *hostfloor.Floor { return floor },
 	}
 	o.sectionPacks(r, jsonx.NewOrderedMap())
-	out := buf.String()
-	if want := `provider "gw" lists "ghost-9", which no installed agent's catalog knows`; !strings.Contains(out, want) {
-		t.Errorf("the host check should say %q from the floor's copy:\n%s", want, out)
-	}
+	return buf.String(), r
 }
 
 // THE SHIPPED DECLARATION READS pi 0.99.1's LAYOUT: its catalog is one JSON file per provider under
