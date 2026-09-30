@@ -304,10 +304,14 @@ func requireConsumersRender(t *testing.T, got codexConsumers, want []codexModel)
 		t.Errorf("claude modelPicker.options = %v, want %v", got.claudeOptions, wantOptions)
 	}
 
+	// EVERY TIER IS PINNED TO THE DEFAULT ENTRY (MM-D2): the declared list names no tier alias,
+	// and claude's background, hook and classifier requests pick by tier, so an unpinned one
+	// reached the Claude subscription's own model through a bridge that serves none.
 	wantEnv := map[string]string{
-		"ANTHROPIC_MODEL":              first.ID,
-		"CLAUDE_CODE_SUBAGENT_MODEL":   first.ID,
-		"ANTHROPIC_DEFAULT_OPUS_MODEL": first.ID,
+		"ANTHROPIC_DEFAULT_OPUS_MODEL":   first.ID,
+		"ANTHROPIC_DEFAULT_SONNET_MODEL": first.ID,
+		"ANTHROPIC_DEFAULT_HAIKU_MODEL":  first.ID,
+		"ANTHROPIC_DEFAULT_FABLE_MODEL":  first.ID,
 	}
 	if first.Name != "" {
 		wantEnv["ANTHROPIC_DEFAULT_OPUS_MODEL_NAME"] = first.Name
@@ -318,6 +322,15 @@ func requireConsumersRender(t *testing.T, got codexConsumers, want []codexModel)
 	for k, v := range wantEnv {
 		if got.claudeEnv[k] != v {
 			t.Errorf("claude env %s = %q, want %q", k, got.claudeEnv[k], v)
+		}
+	}
+	// NO START PIN WITHOUT THE OPT-IN (MM-D3). claude returns to ANTHROPIC_MODEL at every
+	// launch, over a `/model` choice it saved, so pinning it overrode a valid choice every
+	// time; the allowlist already replaces an off-list saved model with Default, which the
+	// tier pins above make the list's default.
+	for _, k := range []string{"ANTHROPIC_MODEL", "CLAUDE_CODE_SUBAGENT_MODEL"} {
+		if v, set := got.claudeEnv[k]; set {
+			t.Errorf("claude env %s = %q, want it unset — the profile does not opt in with pin_model", k, v)
 		}
 	}
 

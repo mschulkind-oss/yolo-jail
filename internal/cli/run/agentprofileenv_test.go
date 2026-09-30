@@ -324,12 +324,13 @@ func TestAssembleEmitsCodexBridgeProfileEnv(t *testing.T) {
 		"ANTHROPIC_DEFAULT_OPUS_MODEL=gpt-6.1-sol",
 		"ANTHROPIC_DEFAULT_OPUS_MODEL_DESCRIPTION=Balanced (default)",
 		"ANTHROPIC_DEFAULT_OPUS_MODEL_NAME=GPT-6.1 Sol",
-		"ANTHROPIC_MODEL=gpt-6.1-sol",
 		"CLAUDE_CODE_AUTO_COMPACT_WINDOW=1000000",
 		"CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1",
 		"CLAUDE_CODE_MAX_CONTEXT_TOKENS=1050000",
-		"CLAUDE_CODE_SUBAGENT_MODEL=gpt-6.1-sol",
 	}
+	// No ANTHROPIC_MODEL and no CLAUDE_CODE_SUBAGENT_MODEL: the shipped codex profile does not
+	// opt in with pin_model, and claude returns to ANTHROPIC_MODEL at every launch, over a
+	// valid /model choice (docs/design/model-lists-and-pickers.md MM-D3).
 	if len(got) != len(want) {
 		t.Fatalf("codex profile env = %q, want %q", got, want)
 	}
@@ -349,12 +350,15 @@ func TestAssembleEmitsCodexBridgeProfileEnvWith1MModel(t *testing.T) {
 		"agents", []any{"claude"}, "security", sec, "profile", profiles),
 		[]string{"claude", "openai-auth", "wire-bridge"},
 		func() {
-			writeProfilesAtHome(t, `{"codex": {"provider": "openai-codex", "model": "gpt-6-astra[1m]"}}`)
+			// pin_model is the opt-in to pinning the start (MM-D3); `model` names the default
+			// entry, which every tier is pinned to (MM-D2).
+			writeProfilesAtHome(t, `{"codex": {"provider": "openai-codex", "model": "gpt-6-astra[1m]", "pin_model": "true"}}`)
 		})
 	got := la.channelEnv(t, "ANTHROPIC_BASE_URL", "ANTHROPIC_MODEL",
-		"CLAUDE_CODE_SUBAGENT_MODEL")
+		"CLAUDE_CODE_SUBAGENT_MODEL", "ANTHROPIC_DEFAULT_HAIKU_MODEL")
 	want := []string{
 		"ANTHROPIC_BASE_URL=http://127.0.0.1:8215",
+		"ANTHROPIC_DEFAULT_HAIKU_MODEL=gpt-6-astra[1m]",
 		"ANTHROPIC_MODEL=gpt-6-astra[1m]",
 		"CLAUDE_CODE_SUBAGENT_MODEL=gpt-6-astra[1m]",
 	}

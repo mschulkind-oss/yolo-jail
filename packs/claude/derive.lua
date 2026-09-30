@@ -199,6 +199,46 @@ local function callableModel(p, list, profile, pick)
   return nil
 end
 
+-- pinModel is the profile's opt-in to pinning claude's START model (MM-D3; `pin_model` is an
+-- option name coined there, provisional): "true" or "1". Anything else, absence included, is
+-- no opt-in. It cannot be the `model` option: ResolveProfiles merges a provider's declared
+-- option defaults under the profile's own values, so a provider's declared `model` reads
+-- exactly like a user's choice, and every provider declares a default (OQ-ML1's ruling).
+local function pinModel(profile)
+  local v = type(profile) == "table" and profile.pin_model or nil
+  return v == "true" or v == "1"
+end
+
+-- THE TIER PINS (docs/design/model-lists-and-pickers.md MM-D2). claude's background, hook and
+-- classifier requests pick a model BY TIER, and the Default row resolves by tier whenever that
+-- tier's model is allowed, so on a list claude has no catalog for, an unpinned tier reaches a
+-- model the list does not hold (claude's own Anthropic default, through a route that serves
+-- none). Each tier takes the id under its own alias where the provider's `models` map declares
+-- one (which further names count, `balanced` and `fast`, is OQ-PSW1's), else `default`, the
+-- list's default entry. A tier resolving to the default entry says so in its description,
+-- which is what claude's Default row shows. `entries` carries each id's name and description.
+local claudeTiers = { { "opus", "OPUS" }, { "sonnet", "SONNET" }, { "haiku", "HAIKU" }, { "fable", "FABLE" } }
+
+local function pinTiers(out, models, entries, default)
+  local byId = {}
+  for _, e in ipairs(entries) do
+    if byId[e.id] == nil then byId[e.id] = e end
+  end
+  for _, tier in ipairs(claudeTiers) do
+    local id = type(models) == "table" and models[tier[1]] or nil
+    if type(id) ~= "string" or id == "" then id = default end
+    if id then
+      local e = byId[id] or {}
+      local var = "ANTHROPIC_DEFAULT_" .. tier[2] .. "_MODEL"
+      out[var] = id
+      out[var .. "_NAME"] = e.name
+      if e.description then
+        out[var .. "_DESCRIPTION"] = (id == default) and (e.description .. " (default)") or e.description
+      end
+    end
+  end
+end
+
 -- nativeBedrock: claude reaches the selected provider through its OWN Bedrock client, which
 -- CLAUDE_CODE_USE_BEDROCK switches on. Two facts decide it, and neither is a profile's name
 -- (docs/design/providers-and-profiles-redesign.md OQ-BR8, ruled 2026-09-29: "just because you
@@ -306,26 +346,35 @@ yolo.derive("claude", "settings", function(ctx)
   -- bridge likewise sends model IDs unchanged, so expose the subscription
   -- catalog directly instead of asking users to infer a Claude tier alias.
   -- Replacing the built-ins prevents retired choices from leaking into
-  -- a Codex-profile launch; `Default` resolves to ANTHROPIC_MODEL below.
+  -- a Codex-profile launch.
   --
   -- THE LIST IS THE ONE DECLARATION (codexModelList above; packs/openai-auth/pack.json),
-  -- the same list pi's extension registers, so the two pickers cannot drift. Both
-  -- availableModels and modelPicker.options follow its order, the declared default first.
-  -- availableModels' FIRST entry is what Claude Code's RETAINED built-in `Default` row
-  -- resolves to, so leading with the default makes `Default` resolve to it while the
-  -- explicit picker list beneath it presents the same models in the same order.
+  -- the same list pi's extension registers, so the two pickers cannot drift.
+  -- modelPicker.options follows its order; availableModels leads with the default entry.
+  -- Claude Code's RETAINED built-in `Default` row keeps the tier default whenever that tier's
+  -- model is allowed (2.1.285's enforcement fallback, docs/design/model-lists-and-pickers.md
+  -- §14.2), so what makes it the list's default is the env derive's tier pins (pinTiers), not
+  -- this order.
   if ctx.selected_provider == "openai-codex" then
-    -- The client retains a hard-coded Default row. Constraining Default makes it
-    -- resolve to the FIRST allowlisted ID, the declared default; modelPicker then lists
-    -- every declared model beneath it, each 1M variant right after its base.
+    -- The allowlist is what keeps a session valid without steering it (MM-D1): an off-list
+    -- saved model is replaced at startup by Default, and a valid `/model` choice survives the
+    -- next launch, since the env derive pins no start model without `pin_model` (MM-D3).
+    -- modelPicker lists every declared model beneath Default, each 1M variant right after its
+    -- base.
     --
     -- A list the user's config emptied writes none of the three keys: an enforced empty
     -- allowlist would leave claude with no model it may pick.
     local list = codexModelList(ctx.providers and ctx.providers["openai-codex"])
     if #list > 0 then
+      -- availableModels leads with the DEFAULT ENTRY, the one the profile's `model` names or
+      -- else the first declared (MM-D1); modelPicker keeps the declared order.
+      local default = codexDefault(list, ctx.profile)
       local ids, options = {}, {}
       for _, e in ipairs(list) do
-        table.insert(ids, e.id)
+        if e.id == default then table.insert(ids, e.id) end
+      end
+      for _, e in ipairs(list) do
+        if e.id ~= default then table.insert(ids, e.id) end
         table.insert(options, { model = e.id, label = e.name or e.id, description = e.description })
       end
       out.availableModels = ids
@@ -396,9 +445,8 @@ yolo.env("claude", function(ctx)
     -- proving the OpenAI login first would be a prompt for a credential this launch never uses.
     if not codexEp then return {} end
     local list = codexModelList(p)
-    local first = list[1] or {}
     local model = codexDefault(list, ctx.profile)
-    return {
+    local out = {
       YOLO_AUTH_PRELAUNCH_CLAUDE_LOGIN = login,
       ANTHROPIC_BASE_URL = codexEp,
       -- THE TOKEN THAT STOPS THE LOGIN LEAKING. With no ANTHROPIC_AUTH_TOKEN, claude sends its
@@ -408,19 +456,6 @@ yolo.env("claude", function(ctx)
       -- the variable overrides the login, so claude sends this instead: the bridge's per-launch
       -- caller token, which the composed endpoint names as its credential (routedAuthToken).
       ANTHROPIC_AUTH_TOKEN = codexEp and routedAuthToken(codexAnthropic),
-      -- Pin a fresh Codex-profile chat and every unassigned subagent to the
-      -- profile's model, else the declared default. The picker above remains
-      -- available for an intentional per-session choice.
-      ANTHROPIC_MODEL = model,
-      CLAUDE_CODE_SUBAGENT_MODEL = model,
-      -- Claude Code retains its own Default row even when custom picker
-      -- options replace the built-ins. Pin and label that row as the declared
-      -- default too, so choosing it cannot silently return to the Claude
-      -- subscription model advertised by the local client. Each is omitted when
-      -- the list has no first entry to name.
-      ANTHROPIC_DEFAULT_OPUS_MODEL = first.id,
-      ANTHROPIC_DEFAULT_OPUS_MODEL_NAME = first.name,
-      ANTHROPIC_DEFAULT_OPUS_MODEL_DESCRIPTION = first.description and (first.description .. " (default)"),
       -- These are the Responses models' real 1.05M-token context capacity and
       -- Claude Code's documented 1M maximum proactive-compaction threshold.
       -- Stating both is necessary for an unrecognised custom model ID.
@@ -428,6 +463,23 @@ yolo.env("claude", function(ctx)
       CLAUDE_CODE_AUTO_COMPACT_WINDOW = "1000000",
       CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC = "1",
     }
+    -- EVERY TIER ON THE LIST (MM-D2). Claude Code keeps its own Default row even when the
+    -- picker's options replace the built-ins, and that row, like every background request,
+    -- resolves by tier; pinned only at opus, the other tiers reached the Claude subscription's
+    -- models through a bridge that serves the Responses models alone. Each is omitted when the
+    -- list names no default.
+    pinTiers(out, p.models, list, model)
+    -- THE START IS PINNED ONLY ON THE OPT-IN (MM-D3). claude returns to ANTHROPIC_MODEL at
+    -- every launch, over the `/model` choice it saved, so this used to override a valid choice
+    -- every time. The allowlist the settings derive writes makes the session valid without it:
+    -- an off-list saved model is replaced at startup by Default, which the tier pins above make
+    -- the list's default. A profile that wants every session to start on its model says
+    -- `pin_model`.
+    if pinModel(ctx.profile) then
+      out.ANTHROPIC_MODEL = model
+      out.CLAUDE_CODE_SUBAGENT_MODEL = model
+    end
+    return out
   end
   if not p then return {} end
   local out = {}
