@@ -760,6 +760,29 @@ func EmbeddedPacksDirUnder(home string) string {
 	return filepath.Join(GlobalStorageUnder(home), embeddedPacksLeaf)
 }
 
+// packBinariesLeaf is the state-dir child holding the DOWNLOADED PACK BINARIES
+// (internal/packbin).
+const packBinariesLeaf = "pack-binaries"
+
+// PackBinariesDir returns $HOME/.local/share/yolo-jail/pack-binaries — the cache of the
+// executables loophole manifests declare under `binaries`, each build verified against the
+// manifest's sha256 and kept at <dir>/<sha256>/<name> with its exec bit set
+// (docs/design/broker-as-a-pack.md BP-D1). `yolo pack install` fills it; a launch only reads
+// it.
+//
+// ⚠ NO JAIL MOUNTS THE DIRECTORY, for HostFloorDir's reason: a host daemon's binary is run
+// from here by absolute path, with the user's authority, so a copy a jail could write would
+// be a file the host executes because of where it sits. A jail daemon's build reaches the
+// jail as ONE read-only file bind (internal/loopholes' runtime args), never through this
+// directory.
+func PackBinariesDir() string { return PackBinariesDirUnder(home()) }
+
+// PackBinariesDirUnder is PackBinariesDir under an EXPLICIT home — see GlobalStorageUnder
+// for why a caller that has already resolved a home must not re-derive it from $HOME.
+func PackBinariesDirUnder(home string) string {
+	return filepath.Join(GlobalStorageUnder(home), packBinariesLeaf)
+}
+
 // hostFloorLeaf is the state-dir child holding the HOST AGENT FLOOR (internal/hostfloor).
 const hostFloorLeaf = "host-floor"
 
