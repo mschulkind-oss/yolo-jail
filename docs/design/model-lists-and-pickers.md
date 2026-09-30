@@ -25,7 +25,9 @@ measurement it waited on, recorded in [§14.4](#144-build-order): pi's refusing 
 `openai-codex` too once a second measurement followed the subscription login through it
 ([MM-D23](#MM-D23)), and codex's
 prelaunch catalog on `openai-codex` ([MM-D9](#MM-D9), [MM-D22](#MM-D22)), whose Bedrock half
-the measurement ruled out. copilot's `providers.json` ([MM-D10](#MM-D10)) is stopped: its
+the measurement ruled out. codex's menu at `yolo host` is designed, not built
+([§14.7](#147-codexs-menu-at-yolo-host-designed-2026-09-30)), and part of it waits on
+[OQ-MM5](#OQ-MM5). copilot's `providers.json` ([MM-D10](#MM-D10)) is stopped: its
 measurement found that the file's models join GitHub's own, which the decision did not expect,
 and that is now [OQ-MM4](#OQ-MM4). MEASURED at
 `ee8154f2` (2026-09-24): a pack's provider `models` is a flat alias → id map; the object form of
@@ -71,6 +73,11 @@ current.
   login, whose path through the wrapper was measured on its own ([MM-D23](#MM-D23)); and
   codex's exact menu on `openai-codex`, a catalog its launcher writes from codex's own before
   the exec ([MM-D9](#MM-D9), [MM-D22](#MM-D22); [§14.6](#146-what-was-built-2026-09-30)).
+- **Designed, 2026-09-30, not built:** codex's menu at `yolo host`, from a list the launch
+  composes for itself ([MM-D24](#MM-D24) to [MM-D27](#MM-D27);
+  [§14.7](#147-codexs-menu-at-yolo-host-designed-2026-09-30)). The design found that a host `-p`
+  does not choose codex's provider, which only the configured profile does there, so it builds a
+  menu only where the two agree, and asks which should win ([OQ-MM5](#OQ-MM5)).
 - **Stopped, 2026-09-30, on its measurement:** copilot's `providers.json`
   ([MM-D10](#MM-D10)). The file's providers are additive to GitHub's own, so a copilot signed in
   to GitHub would show GitHub's models beside the list and send a GitHub pick to GitHub
@@ -82,8 +89,9 @@ current.
   renamed `OQ-PSW` because [`provisioner-sets.md`](provisioner-sets.md) also uses `OQ-PS`.
 
 **Needs your ruling:** [OQ-MM1](#OQ-MM1) first, because it decides what most agents' menus
-show; then [OQ-MM3](#OQ-MM3); then [OQ-MM4](#OQ-MM4), filed 2026-09-30, on copilot's whole list. Decided 2026-09-30 as implementation choices, each reversible:
-[OQ-BR14](#OQ-BR14) ([MM-D16](#MM-D16)) and [OQ-PSW1](#OQ-PSW1) ([MM-D17](#MM-D17)). Ruled 2026-09-29:
+show; then [OQ-MM3](#OQ-MM3); then [OQ-MM4](#OQ-MM4), filed 2026-09-30, on copilot's whole list;
+then [OQ-MM5](#OQ-MM5), filed the same day, on what a host `-p` means for codex. Decided
+2026-09-30 as implementation choices, each reversible: [OQ-BR14](#OQ-BR14) ([MM-D16](#MM-D16)) and [OQ-PSW1](#OQ-PSW1) ([MM-D17](#MM-D17)). Ruled 2026-09-29:
 [OQ-ML1](#OQ-ML1), [OQ-ML2](#OQ-ML2) and [OQ-BR12](#OQ-BR12). [OQ-BR13](#OQ-BR13) was directed
 the same day (set the model selection however each agent allows) and is researched in
 [§14](#14-how-each-agents-menu-is-set-researched-2026-09-29). That research also settled two
@@ -109,6 +117,11 @@ questions without asking: [OQ-BR15](#OQ-BR15) on evidence (the bridge serves no 
 - [OQ-MM3](#OQ-MM3): whether a list with no `only` refuses other models on a gateway that serves
   more than the list, and what keeps claude's start valid where nothing refuses. Leaning: refuse
   by default. With the switch off, yolo writes the start model once through claude's selection.
+- [OQ-MM4](#OQ-MM4): whether copilot should show a whole list in the only mode that can, which
+  also shows GitHub's own models. Leaning: no; copilot keeps one model.
+- [OQ-MM5](#OQ-MM5): whether a `-p` at `yolo host` moves codex onto its provider for that
+  launch, so codex's menu there can follow the `-p`. Leaning: yes, through the `CODEX_HOME` yolo
+  already rebuilds at every launch with its login.
 - [OQ-BR14](#OQ-BR14): how the lists stay current. Decided 2026-09-30 ([MM-D16](#MM-D16)): the
   agents' own catalogs, plus a `yolo check` warning. Built 2026-09-30, reading the catalog files
   an agent's pack declares ([MM-D19](#MM-D19)); today pi's alone.
@@ -1262,6 +1275,60 @@ build took as far as the argv codex is exec'd with; and that a pi session shows 
 refusal as the turn's error, on `openai-codex` as on the other providers, which each
 measurement took as far as the refused stream.
 
+### 14.7 codex's menu at `yolo host` (designed 2026-09-30)
+
+[MM-D22](#MM-D22) built codex's menu in a jail and left the host owed under
+[NC-D1](../plans/notch-convergence.md#7-decision-ledger), which rules one code path per concern
+with the notch as an input. This section designs the host half. Nothing in it is built.
+
+**What `yolo host -- codex` does today** (read in yolo's code at `fa7b2a60`, not run):
+
+- It resolves the binary (the host floor's copy, else the launch PATH), adds the pack's launch
+  flags (`packload.InjectLaunchFlags`), and runs the declarative OpenAI prelaunch. codex's pack
+  declares its view flag unconditionally, so with yolo's OpenAI login present codex runs in a
+  yolo-owned `CODEX_HOME` whose `config.toml` is rebuilt from the user's `~/.codex/config.toml`
+  at every launch (`prepareCodexHome`, `writeManagedCodexConfig`), and `yolo host` stays resident
+  for the refresh adapter (`openaiauthhost.Launch.Run`). Without the login it execs codex.
+- `codex/model-list` is `notAtHost`, no launcher runs, and codex keeps its own menu.
+- ⚠ **A host `-p` does not choose codex's provider.** codex reads its provider and model from
+  its config file, and at the host only `yolo host apply` writes that file, for the profile the
+  config's `profile` key names, never a launch's `-p`
+  ([OQ-HC3](host-computed-layer.md#OQ-HC3); `composeHostInputs`). The launch's `-p` reaches
+  codex's environment (the provider's variables, the three wire tables of
+  [FT-D2](agent-footer.md#FT-D2)), and nothing in its argv or in the managed copy of its config.
+  The prelaunch does not depend on it, since codex's pack declares its view flag with no gate. So [MM-D22](#MM-D22)'s premise, that a list composed for the launch's `-p`
+  follows the provider codex runs on, holds only when the `-p` and the configured profile name
+  the same provider. Which one should win is [OQ-MM5](#OQ-MM5).
+- **codex reads the menu again at every thread start** (SOURCED, codex 0.159.2: the app server's
+  `thread_processor.rs` loads the config through `ConfigManager::load_with_overrides`, which
+  re-applies the launch's `-c` overrides, `current_cli_overrides`, and fails the thread on a
+  config error). So a menu file must outlive codex's startup: one removed while codex runs fails
+  its next `/new`. In a jail every launch reads the list the boot rendered, so all of them name
+  one menu at one fixed path, replaced only when codex itself changes.
+
+**The design**, each piece an implementation decision that holds whichever way
+[OQ-MM5](#OQ-MM5) is ruled:
+
+1. **The list is composed by the launch** ([MM-D24](#MM-D24)): `yolo host --` runs the pack's
+   own list derive over the launch's wire tables, the derive a jail's boot runs, and renders no
+   file.
+2. **It is built only when the launch and the configured profile agree** ([MM-D25](#MM-D25)):
+   the provider the launch selected for the program is the one its configured profile selects.
+   Otherwise the launch adds no menu and says why. That is the intersection of
+   [OQ-MM5](#OQ-MM5)'s options, so no launch hands codex another provider's models.
+3. **The step is the jail's** ([MM-D26](#MM-D26)): `internal/modelmenu`'s build, with the list
+   as an argument, run by `yolo host --` against the program it is about to run. The flag goes
+   right after `argv[0]`, as in a jail, and is disclosed with the pack's flags.
+4. **The menu lives in yolo's state and goes only when nothing can read it**
+   ([MM-D27](#MM-D27)): one file per cache key (the hash of the declaration, the list and
+   codex's binary by which [MM-D22](#MM-D22) reuses a menu), under a lock each running program
+   holds, so concurrent launches with different lists never overwrite or delete each other's
+   menu.
+
+A codex started outside yolo, from an IDE or a shell without yolo's wrappers, gets no menu at the
+host: [OQ-HS3](host-notch-services.md#OQ-HS3) ruled that an agent launched outside yolo lacks a
+launch-owned feature, and this is one.
+
 ---
 
 ## 15. Open Questions
@@ -1693,6 +1760,53 @@ measurement took as far as the refused stream.
     **Answer:**
     > _(empty — fill in when decided)_
 
+15. 💬 <a id="OQ-MM5"></a>**[OQ-MM5](#OQ-MM5): At `yolo host`, should a `-p` choose codex's
+    provider for that launch, so its model menu can follow the `-p`?** Filed 2026-09-30, when
+    designing codex's menu at the host found that [MM-D22](#MM-D22)'s premise holds only in part
+    ([§14.7](#147-codexs-menu-at-yolo-host-designed-2026-09-30)). Stakes: whether
+    `yolo host -p codex -- codex` runs codex on the ChatGPT subscription with yolo's menu, as a
+    jail does, and whether a host `-p` means for codex what it means at every other notch.
+
+    **The setup.** In a jail, `yolo -p codex -- codex` starts codex on the subscription with a
+    menu of three models ([MM-D22](#MM-D22)). At the host, codex reads its provider from its
+    config file, and only `yolo host apply` writes that file, for the profile the config's
+    `profile` key names, never for a launch's `-p` ([OQ-HC3](host-computed-layer.md#OQ-HC3)). A
+    `-p` reaches codex's environment, not its provider. Kim's config names
+    no profile for codex, so her `yolo host -p codex -- codex` starts codex on its own default,
+    which happens to be the ChatGPT login. Lee's config names `zai` for codex, so his starts codex
+    on z.ai, without the z.ai key a z.ai launch would deliver. A menu built for the `-p` is right
+    for Kim by luck and hands OpenAI's models to codex on z.ai for Lee, the fault
+    [MM-D22](#MM-D22) exists to prevent. A menu built for the configured profile is right for both,
+    but then the `-p` changes nothing codex shows. Until this is ruled, [MM-D25](#MM-D25) builds a
+    menu only where the two agree.
+
+    Options, with what Kim and Lee would see:
+
+    - **A. codex stays on its configured provider at the host, and the menu follows that.** A host
+      `-p` stays an environment choice for codex. Kim gets the menu once her config names `codex`
+      for codex, with or without `-p`. Lee's `-p codex` runs z.ai with codex's own menu, and the launch
+      says the `-p` did not move codex.
+    - **B. A host `-p` moves codex for that launch, and the menu follows it.** The launch writes
+      its own selection into the config of the `CODEX_HOME` yolo already rebuilds for codex at
+      every launch with yolo's login, leaving the user's `~/.codex/config.toml` untouched. Kim and
+      Lee both get the subscription and its menu, as in a jail. A launch without yolo's login has
+      no such home and stays as in A. codex becomes the one host agent whose file-held selection
+      follows a `-p`, until the same is done for pi, whose selection is also file-held.
+    - **C. Neither: a `-p` naming another provider than the configured one is refused at the
+      host for codex**, naming `yolo host apply` with that profile configured. Nothing runs on a
+      provider the user did not mean, and `-p` stops being usable for codex at the host.
+
+    <!-- vantage: oq id=OQ-MM5 leaning="B: a host -p moves codex for that launch by writing the launch's selection into the CODEX_HOME yolo already rebuilds at every launch with its login, and the menu follows it, since NC-D1 rules that the host acts like every other notch and at every other notch -p codex -- codex is the subscription with its menu; the user's own ~/.codex stays untouched, and until this is ruled MM-D25 builds only where the -p and the configured profile agree." -->
+
+    _Leaning:_ B. [NC-D1](../plans/notch-convergence.md#7-decision-ledger) rules that the host acts
+    like every other notch (*"host is supposed to act like everywhere else"*), and at every other
+    notch `-p codex -- codex` is the subscription with its menu. The launch already rebuilds a
+    config file for codex that yolo owns, so carrying the selection there touches nothing of the
+    user's. A keeps a host `-p` that does not do what it says, and C takes it away.
+
+    **Answer:**
+    > _(empty — fill in when decided)_
+
 ---
 
 ## 16. Decision Ledger
@@ -1738,8 +1852,12 @@ measurement took as far as the refused stream.
 | <a id="MM-D17"></a>MM-D17 | *Implementation decision*, under [OQ-XM2](../research/extension-model-defaults.md#OQ-XM2). **claude's derive reads the conventional aliases for its tiers: `balanced` pins the Sonnet tier, `fast` the Haiku tier, and `frontier` the Opus tier wherever a tier pin reads an alias ([MM-D2](#MM-D2)'s pins); `sonnet`, `haiku` and `opus` stay as synonyms, and a vendor name wins where a provider declares both** ([OQ-PSW1](#OQ-PSW1), moved with synonyms). On a routed provider the Opus pin stays the selected model, as today. **Why:** [OQ-XM2](../research/extension-model-defaults.md#OQ-XM2) ruled the vocabulary yolo publishes and that each adapter maps it onto its agent's own names, and [XM-D2](../research/extension-model-defaults.md#XM-D2) warns every provider that lacks one of the four, so providers will declare them; a claude derive that reads only vendor names would leave its Sonnet and Haiku tiers on the default for such a provider. The vendor name wins because whoever wrote `sonnet` wrote it for claude. The synonyms keep every existing config working. Reversible: claude's tier names are read in one table (`claudeTiers`) and one routed branch | 2026-09-30 | [§6](#6-tier-aliases-default-fast-balanced) | ✅ 2026-09-30: each tier's names in `claudeTiers` (`packs/claude/derive.lua`), read by `tierAlias` in all four tier reads: the `openai-codex` list's pins, the pins under an `only`, the routed fable pin, and the provider branch's Sonnet and Haiku pins. `TestClaudeRoutedTiersReadTheConventionalAliases`, `TestClaudeTierVendorNameWinsOverTheConventionalAlias`, `TestClaudeNativeBedrockTiersReadTheConventionalAliases` and `TestClaudeUnderAnOnlyReadsTheConventionalAliases` (`internal/entrypoint/claudetieraliases_test.go`), and on the `openai-codex` list `TestAnAliasForADeclaredCodexIDChangesNoConsumer`, whose `fast` alias now moves claude's Haiku tier; all but the vendor-name cell fail with the conventional names dropped from the table |
 | <a id="MM-D18"></a>MM-D18 | *Implementation decision, building [MM-D17](#MM-D17).* **A tier takes the first of its names that the provider declares for a model claude's client can call; a name it cannot call gives way to the tier's next name.** On claude's own Bedrock client, a `sonnet` naming another maker's model (Bedrock's Messages API serves Claude alone, [OQ-BR9](bedrock-plumbing.md#OQ-BR9)) no longer leaves the Sonnet tier on the default when `balanced` names a Claude model; under an `only`, a name outside the narrowed list gives way the same way. The letter of MM-D17, "a vendor name wins where a provider declares both", is kept wherever both names are usable. Chosen over letting the unusable vendor name win and falling to the default, because the default is what MM-D17 exists to stop a tier landing on when the provider named a model for it. One helper, `tierAlias`, answers every tier read | 2026-09-30 | [§6](#6-tier-aliases-default-fast-balanced) | ✅ 2026-09-30: `TestClaudeNativeBedrockTiersReadTheConventionalAliases` (its `sonnet` names a Moonshot model and its `balanced` a Claude one) |
 | <a id="MM-D21"></a>MM-D21 | *Implementation decision, building [MM-D6](#MM-D6)'s refusing form on the 2026-09-30 measurement ([§14.4](#144-build-order)).* **The wrapper hands a listed model to the stream pi would have run it on, rebuilt from what pi exports: the built-in provider of that id when it serves the model's api, else pi's api registry, with pi's options untouched.** That is what pi 0.99.1's `composeModelProvider` does for a registration without a `streamSimple`, and pi resolves the credential into those options before it calls the wrapper, so the credential needs no handling of yolo's (MEASURED for a bearer token, SigV4 keys and a models.json row's `${VAR}` key). **The registration names one api**: the derive states the api of the models.json row it writes for the provider, and for pi's own Bedrock client, which has no row, the extension takes the api pi's catalog gives the listed ids. **A list whose models run on two pi apis, or whose stream cannot be found, is registered as the exact menu alone, and pi warns once that it cannot refuse there.** pi hands a wrapper only the models of its registration's api, and pi's `--model` fallback copies a listed model of either api, so a wrapper on one would refuse only part of what `--model` reaches, which reads as enforcement and is not. No list the derive renders reaches that branch today: every provider but pi's own Bedrock client carries its models.json row's one api, OpenRouter's included although pi's own OpenRouter catalog mixes apis, and pi's Bedrock catalog is on one api (`TestPiNarrowedOpenRouterListNamesItsRowsOneAPI`), so it guards a pi whose catalog or exports change. **Each list carries the switch of the profile that governs it**, the active-set entry's for its provider, else the primary's, the rule opencode's whitelist already follows, so one profile's `enforce_models` means the same in both agents. The refusal names the model, the list and `"enforce_models": false`, as the bridge's does. **The registered ids are the ids pi's models.json row sends**, since the registration replaces that row's list and the refusal compares against it: on Kilo a bare `deepseek-…` id is spelled `deepseek/deepseek-…`, as the row and the selection spell it (`normalizeKiloModel`) | 2026-09-30 | [§14.2](#142-what-each-row-rests-on) | ✅ 2026-09-30: `yolo.derive("pi", "model-lists")` (`enforce` from `piEnforceFor`, `api` from the row) and `packs/pi/extensions/yolo-model-lists.js` (`listApi`, `delegateFor`); `TestPiModelListsExtensionRefusesAModelOutsideTheList`, `TestPiModelListsExtensionDelegatesAProviderPiDoesNotShipToItsAPIRegistry`, `TestPiModelListsExtensionSaysWhenAListSpanningTwoAPIsCannotBeRefused`, `TestPiModelListsExtensionReadsTheBedrockAPIFromPisCatalog`, `TestPiNarrowedListCarriesItsProfilesModelSwitch`, `TestPiNarrowedKiloListRegistersTheIdsItsRowSends`, `TestPiNarrowedOpenRouterListNamesItsRowsOneAPI` |
-| <a id="MM-D22"></a>MM-D22 | *Implementation decision, building [MM-D9](#MM-D9) on the 2026-09-30 measurement ([§14.4](#144-build-order)).* **The launcher names codex's menu with `-c model_catalog_json=<file>` for the run it wrote the file for, never from `config.toml` through the selection, as MM-D9's letter says.** codex refuses to load a config whose `model_catalog_json` names no file, and a key the boot renders would name the file for every codex start: one the launcher never ran for, one whose menu could not be written (codex too old to print its catalog, a list none of whose ids it knows), and a `codex` resolved past the launcher. The flag is added only after the file exists, and `-c` is global and later wins, so a user's own `-c model_catalog_json` still does. **The step is a pack declaration, `model_menu` on a `program` (`packdecl.ModelMenu`, coined 2026-09-30), and the projection is Go, `yolo internal model-menu` (`internal/modelmenu`)**: the argv that prints the catalog, the list and menu paths, the flag, and the catalog's entry, id, order and name keys and the keys to clear and set are packs/codex's words, so both shared launcher templates carry one step keyed on no bin, and the shell only reads the flag words, NUL-separated. **The menu is rebuilt only when codex's binary, the list or the declaration changed** (a key file beside it), so a launch runs `codex debug models --bundled` once per change, not per start. The key file also records the listed ids the menu left out, so every launch that reuses the menu repeats [MM-D9](#MM-D9)'s warning for them, not only the one that rebuilt it (`TestRunSaysAtEveryLaunchWhichListedIDTheMenuLeavesOut`). **`YOLO_NO_LAUNCH_FLAGS=1` skips it**, since its words are a pack's flag. **At the host notch nothing is built yet, which leaves [NC-D1](../plans/notch-convergence.md#7-decision-ledger)'s convergence owed here.** Not for want of a place: `yolo host --` already rewrites codex's argv (the pack's launch flags, a managed launch's `--no-daemon`), and a subscription launch runs in a yolo-owned `CODEX_HOME` whose config yolo rewrites at every launch (`openaiauthhost.prepareCodexHome`), where a menu file could go. What is missing is the list: it is a surface, and a host render writes a surface for the configured selection, never a launch's `-p` ([OQ-HC3](host-computed-layer.md#OQ-HC3)), so a list `yolo host apply` wrote cannot tell a `yolo host -p codex` launch from a `-p openrouter` one, and a menu built from it would hand OpenAI's models to codex on another provider. Building it takes the list composed for the launch itself. Until then the list surface is `notAtHost` and host codex keeps its own menu | 2026-09-30 | [§14.2](#142-what-each-row-rests-on) | ✅ 2026-09-30: `packs/codex/pack.json` (`model_menu`, the `codex/model-list` surface), `yolo.derive("codex", "model-list")`, `modelMenuShellFn` in both launcher templates, `modelmenu.Run`; `TestCodexLauncherHandsCodexItsModelMenu`, `TestCodexLauncherAddsNoMenuWhereThereIsNone`, `TestTheNpmLauncherHandsItsProgramAModelMenuToo`, `TestYoloInternalModelMenuRunsTheMenuAgainstHome`, `TestRunReusesTheMenuUntilTheListOrTheProgramChanges` |
+| <a id="MM-D22"></a>MM-D22 | *Implementation decision, building [MM-D9](#MM-D9) on the 2026-09-30 measurement ([§14.4](#144-build-order)).* **The launcher names codex's menu with `-c model_catalog_json=<file>` for the run it wrote the file for, never from `config.toml` through the selection, as MM-D9's letter says.** codex refuses to load a config whose `model_catalog_json` names no file, and a key the boot renders would name the file for every codex start: one the launcher never ran for, one whose menu could not be written (codex too old to print its catalog, a list none of whose ids it knows), and a `codex` resolved past the launcher. The flag is added only after the file exists, and `-c` is global and later wins, so a user's own `-c model_catalog_json` still does. **The step is a pack declaration, `model_menu` on a `program` (`packdecl.ModelMenu`, coined 2026-09-30), and the projection is Go, `yolo internal model-menu` (`internal/modelmenu`)**: the argv that prints the catalog, the list and menu paths, the flag, and the catalog's entry, id, order and name keys and the keys to clear and set are packs/codex's words, so both shared launcher templates carry one step keyed on no bin, and the shell only reads the flag words, NUL-separated. **The menu is rebuilt only when codex's binary, the list or the declaration changed** (a key file beside it), so a launch runs `codex debug models --bundled` once per change, not per start. The key file also records the listed ids the menu left out, so every launch that reuses the menu repeats [MM-D9](#MM-D9)'s warning for them, not only the one that rebuilt it (`TestRunSaysAtEveryLaunchWhichListedIDTheMenuLeavesOut`). **`YOLO_NO_LAUNCH_FLAGS=1` skips it**, since its words are a pack's flag. **At the host notch nothing is built yet, which leaves [NC-D1](../plans/notch-convergence.md#7-decision-ledger)'s convergence owed here.** Not for want of a place: `yolo host --` already rewrites codex's argv (the pack's launch flags, a managed launch's `--no-daemon`), and a subscription launch runs in a yolo-owned `CODEX_HOME` whose config yolo rewrites at every launch (`openaiauthhost.prepareCodexHome`), where a menu file could go. What is missing is the list: it is a surface, and a host render writes a surface for the configured selection, never a launch's `-p` ([OQ-HC3](host-computed-layer.md#OQ-HC3)), so a list `yolo host apply` wrote cannot tell a `yolo host -p codex` launch from a `-p openrouter` one, and a menu built from it would hand OpenAI's models to codex on another provider. Building it takes the list composed for the launch itself. Until then the list surface is `notAtHost` and host codex keeps its own menu | 2026-09-30 | [§14.2](#142-what-each-row-rests-on) | ✅ 2026-09-30: `packs/codex/pack.json` (`model_menu`, the `codex/model-list` surface), `yolo.derive("codex", "model-list")`, `modelMenuShellFn` in both launcher templates, `modelmenu.Run`; `TestCodexLauncherHandsCodexItsModelMenu`, `TestCodexLauncherAddsNoMenuWhereThereIsNone`, `TestTheNpmLauncherHandsItsProgramAModelMenuToo`, `TestYoloInternalModelMenuRunsTheMenuAgainstHome`, `TestRunReusesTheMenuUntilTheListOrTheProgramChanges`. The host half: designed 2026-09-30, not built ([§14.7](#147-codexs-menu-at-yolo-host-designed-2026-09-30), [MM-D24](#MM-D24) to [MM-D27](#MM-D27)); that design found this row's "list composed for the launch" right only where the launch's `-p` and the configured profile select the same provider, since a host `-p` does not choose codex's provider ([OQ-MM5](#OQ-MM5)) |
 | <a id="MM-D23"></a>MM-D23 | *Implementation decision, building [MM-D6](#MM-D6)'s refusing form on `openai-codex` on the 2026-09-30 measurement of the subscription login ([§14.4](#144-build-order)).* **The wrapper goes in `yolo-openai-auth.js`'s own registration, the one that carries the login: with a list and `enforce` on, it adds a `streamSimple` that throws yolo's refusal for an id off the list and hands a listed one, options untouched, to pi's built-in `openai-codex` provider, else pi's api registry for `openai-codex-responses`.** The login needs no handling of yolo's: pi composes the registration's `oauth` as the provider's auth whatever else it carries, and turns the stored credential into the bearer token before it calls the wrapper, refreshing it through the registration's own `refreshToken` first when fewer than five minutes remain, and pi's own stream reads the account id out of that token (MEASURED). One registration states the list, the login and the refusal together, so the refusal can only compare against the list it registers. A second `openai-codex` registration from `yolo-model-lists.js` was the alternative, rejected because pi merges a re-registration's defined keys over the earlier one (`ModelRuntime.registerProvider`), so the refused list and the registered one would come from two files in whichever order pi loads them; [MM-D14](#MM-D14) kept the list in this registration for the login's sake already. **It refuses on the declared list whether or not an `only` narrowed it**, as claude's allowlist does on `openai-codex` ([MM-D1](#MM-D1)): the registration replaces pi's whole `openai-codex` catalog ([ML-D3](#ML-D3)), so the list is pi's exact menu for the provider either way, and every option of [OQ-MM3](#OQ-MM3) refuses there. **Its switch is `piEnforceFor`'s**, the rule [MM-D21](#MM-D21) reads for pi's other lists: the active-set entry's on `openai-codex`, else the primary profile's, else the default, on. So a launch that selects no profile refuses too, since pi registers the provider on every launch and can switch to it after a `/login`; `pi/codex-models` carries the switch as `enforce`, beside the list. **A stream that cannot be found registers the exact menu alone and warns once**, as [MM-D21](#MM-D21)'s does, rather than a wrapper with nowhere to hand a listed model. **The refusal's words are one text in both extensions**, copied rather than shared: pi loads every `.js` file in its extensions directory as an extension and reports one that exports no factory as a load error (`discoverExtensionsInDir`, `dist/core/extensions/loader.js`), so a shared module would be one more file delivered elsewhere for one sentence, and a test keeps the copies identical | 2026-09-30 | [§14.2](#142-what-each-row-rests-on) | ✅ 2026-09-30: `yolo.derive("pi", "codex-models")` (`enforce` from `piEnforceFor`) and `packs/pi/extensions/yolo-openai-auth.js` (`codexDelegate`, the registration's `streamSimple`); `TestPiOpenAIAuthExtensionRefusesAModelOutsideTheCodexList`, `TestPiOpenAIAuthExtensionRefusesWithNoProfileSelected`, `TestPiOpenAIAuthExtensionRefusesNothingWithTheSwitchOff`, `TestPiOpenAIAuthExtensionRefusesNothingWithoutAList`, `TestPiOpenAIAuthExtensionDelegatesToPisAPIRegistryWithoutABuiltIn`, `TestPiOpenAIAuthExtensionSaysWhenItCannotRefuse`, `TestPisTwoRefusalsAreWordedAlike`; in a real `-p codex` launch, `TestCodexProfileRendersOneModelListForEveryAgent` |
+| <a id="MM-D24"></a>MM-D24 | *Implementation decision, designing [MM-D22](#MM-D22)'s host half ([§14.7](#147-codexs-menu-at-yolo-host-designed-2026-09-30)).* **At `yolo host` the list is composed by the launch: `yolo host --` runs the program's pack's list derive, the one registered on the surface whose path its `model_menu.list` names (`codex/model-list`), in-process over the launch's own wire tables (`hostComposition.wireTables`, [FT-D2](agent-footer.md#FT-D2)), and hands the answer to the menu step. No file is rendered, and the surface stays `notAtHost`.** The derive and the wire readers are the ones a jail's boot runs ([HC-D13](host-computed-layer.md#HC-D13)), so the list keeps one declaration ([ML-D1](#ML-D1)) and one code path ([NC-D1](../plans/notch-convergence.md#7-decision-ledger)); the notch changes only where the tables come from. A file `yolo host apply` rendered was the alternative, and fails twice: it is written for the configured profile alone ([OQ-HC3](host-computed-layer.md#OQ-HC3)), and it can be older than the launch, since only a wrapped launch with `host_apply_on_launch` on renders first. The surface's `notAtHost` reason, which says `yolo host --` runs codex with no launcher, is reworded when this is built | 2026-09-30 | [§14.7](#147-codexs-menu-at-yolo-host-designed-2026-09-30) | — designed, not built |
+| <a id="MM-D25"></a>MM-D25 | *Implementation decision, built around [OQ-MM5](#OQ-MM5) ([§14.7](#147-codexs-menu-at-yolo-host-designed-2026-09-30)).* **The host builds a menu only when the provider the launch selected for the program is the provider its configured profile selects: no `-p`, or a `-p` over the same provider as the program's `profile` entry.** Otherwise it adds no flag and prints one line saying that the `-p` does not choose codex's provider at the host, so codex keeps its own menu. Why: a host `-p` reaches codex's environment but not the config file that decides its provider, which only `yolo host apply` writes, for the configured profile (read at `fa7b2a60`), so a list for a `-p` over another provider could hand OpenAI's models to codex on z.ai, the fault [MM-D22](#MM-D22) exists to prevent. When the two agree, every option of [OQ-MM5](#OQ-MM5) builds this very menu, so this much can be built before the ruling. A launch through a generated wrapper carries no `-p`, so it always agrees; a config file older than the configuration is the staleness `host_apply_on_launch` re-renders. The comparison is of providers, not profile names, because the list derive reads the provider | 2026-09-30 | [§14.7](#147-codexs-menu-at-yolo-host-designed-2026-09-30) | — designed, not built |
+| <a id="MM-D26"></a>MM-D26 | *Implementation decision ([§14.7](#147-codexs-menu-at-yolo-host-designed-2026-09-30)).* **The host step is the jail's: `internal/modelmenu`'s build, split so the list is an argument, which the jail's `yolo internal model-menu` reads from its file and `yolo host --` passes from [MM-D24](#MM-D24).** The catalog run, the projection, the cache key and the missing-id warning stay one implementation. `yolo host --` runs it after the binary resolves and the pack's flags are added, against the resolved target, so the catalog is the program that runs (the floor's copy where there is one). The flag goes right after `argv[0]`, ahead of the pack's flags and the user's own argv, where the jail's launcher puts it, so a user's own `-c model_catalog_json` still wins, `-c` being global and last-wins ([§14.4](#144-build-order)). The managed launch's `--no-daemon` rewrite still runs last, as today. `YOLO_NO_LAUNCH_FLAGS=1` skips it, as in a jail. It is disclosed with the pack's flags (`LaunchInjection.DisclosureLines`), because a launch has no quiet mode ([OQ-RO3](../reference/report-tiers.md#why-its-this-way)), and the missing-id warning prints at every launch whose menu lacks an id ([MM-D22](#MM-D22)). Nothing in it can refuse the launch: every failure is a warning, and codex keeps its own menu. `yolo host env`, which launches nothing, builds none | 2026-09-30 | [§14.7](#147-codexs-menu-at-yolo-host-designed-2026-09-30) | — designed, not built |
+| <a id="MM-D27"></a>MM-D27 | *Implementation decision ([§14.7](#147-codexs-menu-at-yolo-host-designed-2026-09-30)).* **At the host the menu lives in yolo's machine state, never in the user's real `~/.codex`: one directory per pack and program, one file per cache key, and a lock each running program holds for its whole life.** codex reads the file again at every thread start (SOURCED, 0.159.2), and two host launches of one program may hold different lists at once, one with a company's `only` and one without, or one with no list at all. A fixed path, the jail's, would let one launch replace or remove the menu another codex still reads, and a codex whose menu is gone fails its next `/new`. So each menu is named by its cache key, the hash of the declaration, the list and the program's binary by which [MM-D22](#MM-D22) already decides to reuse a menu, and is never overwritten. Every launch that names a menu holds the directory's lock shared for its program's life, and one that writes a new menu first removes the others, only when it can take that lock exclusively, that is when no program holding a menu of the directory is running: collected by liveness, never by age, and a lock it cannot take removes nothing. That is the exclusive-then-shared pattern by which the managed `CODEX_HOME`'s live-launch lock already tells a launch it is alone (`sharedCallerToken`). The lock is held by the resident `yolo host` process where it stays (a managed launch, a launch with services), and on the exec path by the program itself: Go opens files close-on-exec, so the step clears that flag on the lock's descriptor before the exec. The directory is not the managed `CODEX_HOME`, because a launch without yolo's login has none, and core cannot know that `CODEX_HOME` is codex's. `yolo stores` lists it as yolo's. In a jail nothing changes: every launch of one jail reads the list its boot rendered, so one path serves them all | 2026-09-30 | [§14.7](#147-codexs-menu-at-yolo-host-designed-2026-09-30) | — designed, not built |
 
 ---
 
@@ -1806,6 +1924,17 @@ a Node HTTP server on 127.0.0.1 that recorded each request's path, `Authorizatio
 made-up token with an account-id claim, and the credential client the extension calls was a
 shell stand-in on `PATH`. No session ran, no model was reached, and nothing left the machine.
 Every fetched package was deleted afterwards.
+
+**The host design** ([§14.7](#147-codexs-menu-at-yolo-host-designed-2026-09-30)), read and never
+run: yolo's own `hostExec`, `composeHostVarsWith`, `composeHostInputs`,
+`packload.InjectLaunchFlags` and `openaiauthhost`'s `prepare`, `prepareCodexHome`,
+`writeManagedCodexConfig`, `sharedCallerToken` and `Launch.Run` at `fa7b2a60`; and codex
+0.159.2's source, the tag `rust-v0.159.2` tarball from GitHub, for where `model_catalog_json` is
+read (`load_catalog_json` and its caller `load_config_with_layer_stack` in
+`core/src/config/mod.rs`) and when the app server loads the config again
+(`ConfigManager::load_with_overrides` and `current_cli_overrides` in
+`app-server/src/config_manager.rs`, called at thread start from
+`app-server/src/request_processors/thread_processor.rs`). The tarball was deleted afterwards.
 
 **Claude Code's tier aliases**, SOURCED 2026-09-04: they resolve per provider, to older models on
 Bedrock, and `ANTHROPIC_DEFAULT_*_MODEL` repoints them

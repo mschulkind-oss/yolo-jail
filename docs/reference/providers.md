@@ -1065,8 +1065,11 @@ pack ships, and every agent that can use the provider renders that one list
   `-c model_catalog_json=…` ([MM-D9](../design/model-lists-and-pickers.md#MM-D9),
   [MM-D22](../design/model-lists-and-pickers.md#MM-D22)). An id codex's catalog lacks is left
   out with a warning, and with none left codex keeps its own menu. At the host codex keeps its
-  own menu: the step is not built there yet
-  ([MM-D22](../design/model-lists-and-pickers.md#MM-D22));
+  own menu: the step is designed there and not built
+  ([§14.7](../design/model-lists-and-pickers.md#147-codexs-menu-at-yolo-host-designed-2026-09-30)),
+  and part of it waits on
+  [OQ-MM5](../design/model-lists-and-pickers.md#OQ-MM5), since a host `-p` does not choose
+  codex's provider;
 - **pi**'s extension registers exactly the list for `openai-codex`, read from a file yolo writes
   at every jail boot, with the cost, thinking and image facts taken from pi's own catalog. pi gets
   no model scope for it, and its sub-agents may use only the listed ids. A listed model pi's
