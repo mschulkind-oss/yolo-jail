@@ -3,7 +3,7 @@ title: "Any background process can ring the agent, and yolo carries the ring to 
 date: 2026-09-28
 status: in-review
 tags: [design, sidecars, notify, hooks, claude, pi, codex, opencode, copilot, agy, omp, prompt-injection, credentials, enablement, dotfiles]
-summary: "yolo runs user-declared background processes (sidecars) for the life of a launch and gives them one agent-agnostic doorbell, `yolo notify`, which writes a ping into a ping box; a per-agent deliverer, shipped by that agent's own pack, carries each ping into the session: an asyncRewake hook for Claude, an extension for pi and omp, a plugin for opencode, an extension for copilot, a next-turn hook for codex and agy. The CI watcher is the worked example. Declaring a sidecar never starts it: each machine turns one on with an explicit host command, recorded in machine-local state that a synced dotfile never carries, and a repository's own sidecar also needs acknowledgement against its current declaration. A ping wakes one agent session per ping box, the master: the first one launched, unless an agent claims it with the in-jail `yolo notify master --claim`. A keeper owns the ping box and the host-side sidecars at every notch, replacing the lock that passed a sidecar from launch to launch. Every declared sidecar waits for an explicit turn-on (OQ-EW10, ruled). One question remains: whether the doorbell (the box and the deliverers) is on in a launch where no sidecar is."
+summary: "yolo runs user-declared background processes (sidecars) for the life of a launch and gives them one agent-agnostic doorbell: a command, `yolo notify`, writes a ping into a ping box; a per-agent deliverer, shipped by that agent's own pack, carries each ping into the session: an asyncRewake hook for Claude, an extension for pi and omp, a plugin for opencode, an extension for copilot, a next-turn hook for codex and agy. The CI watcher is the worked example. Declaring a sidecar never starts it: each machine turns one on with an explicit host command, recorded in machine-local state that a synced dotfile never carries, and a repository's own sidecar also needs acknowledgement against its current declaration. A ping wakes one agent session per ping box, the master: the first one launched, unless an agent claims it with the in-jail `yolo notify master --claim`. A keeper owns the ping box and the host-side sidecars at every notch, replacing the lock that passed a sidecar from launch to launch. Every declared sidecar waits for an explicit turn-on (OQ-EW10, ruled). One question remains: whether the doorbell (the box and the deliverers) is on in a launch where no sidecar is."
 vantage:
   status-chip: true
 ---
@@ -84,7 +84,7 @@ Four principles carry the design, numbered so later sections and questions can c
   route ships in that agent's pack, in the pack kinds that already exist, as
   [`AGENTS.md`](../../AGENTS.md) requires of everything else. Core's part is the ping box and
   the reader commands every deliverer shares.
-- <a id="EW-P3"></a>**EW-P3. A ping is a doorbell, not an instruction.** Pinged text enters the
+- <a id="EW-P3"></a>**EW-P3. A ping is a doorbell's ring, not an instruction.** Pinged text enters the
   model's context, so it is a prompt-injection channel. yolo bounds it, frames it as an
   automated notice that carries no user authority, and routes it through the agent's
   non-user channel wherever one exists ([§5](#5-security)).
@@ -110,6 +110,7 @@ Every term here is coined in this doc unless it says otherwise.
 | **sidecar** | A background process declared in yolo config or by a pack, which yolo starts with a launch once it is enabled on that machine ([§12](#12-enabling-a-sidecar-redesign-2026-09-29)), and stops when the launch ends | Not a `kind: "service"` ([§3.1](#31-declaring-a-sidecar)), which serves the jail's own loopback and holds no grant; and not agy's own `sidecars` directory ([Appendix A](#a6-agy-129)) |
 | **side** | Where a sidecar runs. `agent`: beside the agent, inside its confinement. `host`: on the host, outside it. At the host notch the two are the same place | Not the notch. The notch is where the agent runs; the side is where the sidecar runs relative to it |
 | **ping** | One short text notice a process hands to yolo for the foreground agent, with a sender label, a time and an id | Not a user turn, and not a command |
+| **doorbell** | This doc's word for the whole path a ping takes: the one command that rings it, `yolo notify`, the ping box, and the deliverers that carry a ping into a session. A ping is one ring of it | Not `yolo notify` alone, which is only its command, and not any vendor's notification feature |
 | **ping box** | The store that holds pings until the master's deliverer takes them, and the box's session list. One per keeper: one per container jail, and at macos-user and at `yolo host` one per workspace on the machine at that notch ([EW-D24](#EW-D24)). Its format is private to core | Not the Claude inbox socket, and not a queue any agent reads directly |
 | **keeper** | Not coined here: [`jail-lifetime-last-session-wins.md`](jail-lifetime-last-session-wins.md#11-terms) coins it. The one host process that holds a jail's host services, or at macos-user and `yolo host` a workspace's, from its first session to its last | Not a supervisor, and not machine-wide |
 | **agent session** | One running agent process whose deliverer has called one of `yolo notify`'s reader forms: one claude, one pi ([§3.6](#36-which-session-a-ping-wakes-the-master)) | Not a yolo session: a bare `yolo` shell is one yolo session in which several agent sessions can come and go, and a shell with no deliverer is none |
@@ -120,7 +121,7 @@ Every term here is coined in this doc unless it says otherwise.
 | **replicator** | Whatever copies config between machines: a git-synced dotfiles repository, GNU Stow, Syncthing, chezmoi. It writes `~/.config` exactly as the user does, and it cannot know which machine the user meant | Not the agent. It is the actor the enablement gate stands against ([§12.2](#122-where-the-record-lives-and-why-there)) |
 | **enablement record** | A host-side file in yolo's machine-local state saying that sidecar N, from source S, may run (or, from `disable`, may not) for workspace W, or for every workspace, on this machine. Written only by the enabling act, which under [OQ-EW5](#OQ-EW5)'s leaning is `yolo sidecar enable` and `disable` ([§12.3](#123-the-command)) | Not config, and not synced by yolo: it sits beside the config-change gate's approval record ([EW-D14](#EW-D14)) |
 | **gated set** | The maintainer's phrase, from the [OQ-EW3](#OQ-EW3) and [OQ-EW4](#OQ-EW4) rulings: the declared sidecars that wait for an explicit act before they run. Since [OQ-EW10](#OQ-EW10)'s ruling it is every declared sidecar ([EW-D13](#EW-D13)) | Not a list anyone writes. The config declares the set; each machine's records decide which members run there |
-| **acknowledgement** | The enablement record of a sidecar that a workspace's own config or a fetched pack declares, which also holds a hash of that declaration, so a changed declaration is not started ([§12.4](#124-a-sidecar-a-repository-declares)) | Not the config-change prompt, under [OQ-EW7](#OQ-EW7)'s leaning |
+| **acknowledgement** | The enablement record of a sidecar that a workspace's own config or a fetched pack declares, which also holds a hash of that declaration, so a changed declaration is not started ([§12.4](#124-a-sidecar-a-repository-declares)) | For a fetched pack's sidecar, not the config-change prompt. For the workspace's own, since [OQ-EW7](#OQ-EW7)'s ruling (B), the config-change diff's sidecar section is the acknowledgement, and [§12.4](#124-a-sidecar-a-repository-declares) still describes the leaning until that carry-out ([EW-D23](#EW-D23)) |
 | **authorship filter** | A watcher reporting only CI runs whose commit this checkout pushed, read from git's local record of its own pushes ([§12.6](#126-two-machines-one-project)) | Not a lock. It narrows what one watcher reports and promises nothing about another |
 
 ## 2. What exists today
@@ -169,14 +170,15 @@ the model, and whether that works while the agent is idle. The evidence behind e
 | **omp** | The same extension, if omp's API is pi's, as the omp pack's own `yolo-footer.js` comment claims | One file under `~/.oh-omp/agent/extensions/` | **wake**, UNMEASURED | INFERRED; omp is not installed here |
 | **opencode** | A plugin calling `client.session.prompt` on the active session, or the HTTP API (`/session/{id}/prompt_async`, `/tui/submit-prompt`) when the TUI runs with `--port` | One plugin file under `~/.config/opencode/plugins/` | **wake**, UNMEASURED | SOURCED ([plugins](https://opencode.ai/docs/plugins), [server](https://opencode.ai/docs/server)); the routes are MEASURED in the binary |
 | **copilot** | An extension that calls `joinSession()` for *"the user's current foreground session"* and then `session.send()` | One extension directory in copilot's user extensions dir. Extensions load by default | **wake**, UNMEASURED | MEASURED in the package's bundled SDK docs |
-| **codex** | A `UserPromptSubmit` hook returning `additionalContext`. For waking: `codex queue --thread <id> --message <text>` through the shared app-server daemon | The hook is one config entry. `queue` needs the TUI to be on the shared daemon, not its embedded fallback, and whether a queued message starts a turn on an idle thread is open upstream ([openai/codex#49081](https://github.com/openai/codex/issues/49081)) | **next turn** first; wake once measured | hooks SOURCED ([hooks](https://learn.chatgpt.com/docs/hooks)); `queue` MEASURED in `--help` |
+| **codex** | A `UserPromptSubmit` hook returning `additionalContext`. For waking: `codex queue --thread <id> --message <text>` through the shared app-server daemon | The hook is one config entry. `queue` needs the TUI to be on the shared daemon, not its embedded fallback, and whether a queued message starts a turn on an idle thread is open upstream ([openai/codex#49081](https://github.com/openai/codex/issues/49081)) | **next turn**; the wake route is closed while [OQ-CDX1](../research/codex-background-service.md#OQ-CDX1) keeps the daemon off wherever yolo launches Codex | hooks SOURCED ([hooks](https://learn.chatgpt.com/docs/hooks)); `queue` MEASURED in `--help` |
 | **agy** | A `PreInvocation` hook returning `injectSteps` with a `userMessage`. For waking: `agy agentapi send-message`, which appears to need the running server's address and CSRF token | The hook is one `hooks.json` entry | **next turn** first | MEASURED in agy's embedded docs; the wake route is INFERRED |
 | a plain shell | Nothing | — | **held** | — |
 
 **The shape of the answer:** four of the seven agents (claude, pi, opencode, copilot) have a
 route that wakes an idle session from a file or a process the agent's own pack can ship, and
-omp probably shares pi's. codex and agy have one that reaches the next turn, and one that might
-wake, which needs measuring. None of the wake routes needs the agent to take part, and none
+omp probably shares pi's. codex and agy have one that reaches the next turn. agy has one that
+might wake, which needs measuring; codex's is closed while its background server is off
+([OQ-CDX1](../research/codex-background-service.md#OQ-CDX1)). None of the wake routes needs the agent to take part, and none
 needs yolo to learn a vendor's socket protocol.
 
 ## 3. The shape
@@ -431,15 +433,24 @@ tier, so the launch can say what a sidecar's pings will do ([§3.5](#35-failure-
   kills the child. The docs require exactly that pairing of start and cleanup.
 - **omp, wake, unmeasured.** The omp pack ships the same file at its own extension path. This
   rests on omp's API being pi's, which is the omp pack's claim and is unchecked.
-- **opencode, wake.** A plugin file that spawns `--follow` and calls `client.session.prompt` on
-  the session it last saw active.
-- **copilot, wake.** An extension that spawns `--follow`, joins the foreground session and calls
-  `session.send`. copilot offers no non-user role for this, so the framing line in
+- **opencode, wake.** A plugin file that spawns `yolo notify --follow --reader opencode:<session>
+  --agent-pid <pid>`, with opencode's own `process.pid`, since a plugin runs inside opencode, and
+  calls `client.session.prompt` on the session it last saw active.
+- **copilot, wake.** An extension that spawns `yolo notify --follow --reader copilot:<session>
+  --agent-pid <pid>`, with its own `process.ppid`, since copilot runs an extension as its child,
+  then joins the foreground session and calls `session.send`. copilot offers no non-user role for this, so the framing line in
   [§5](#5-security) is the whole marker.
-- **codex, next turn.** A `UserPromptSubmit` hook running `yolo notify --drain --format codex`.
-  A wake route, a codex-pack sidecar piping `--follow` into `codex queue`, waits on measurement
-  ([§10](#10-what-i-would-build-in-order)).
-- **agy, next turn.** A `PreInvocation` hook running `yolo notify --drain --format agy`.
+- **codex, next turn.** A `UserPromptSubmit` hook running `yolo notify --drain --reader
+  codex:<session> --agent-pid $PPID --format codex`, the session id from the hook's input as in
+  claude's. A wake route, a codex-pack sidecar piping `--follow` into `codex queue`, is closed for
+  now: `queue` reaches a running Codex only through Codex's background server, and
+  [OQ-CDX1](../research/codex-background-service.md#OQ-CDX1) turned that server off wherever yolo
+  launches Codex.
+- **agy, next turn.** A `PreInvocation` hook running `yolo notify --drain --reader agy:<session>
+  --agent-pid $PPID --format agy`.
+- **Every deliverer passes `--reader` and `--agent-pid`**, so its agent registers and can be
+  master ([EW-D27](#EW-D27)). How each finds its session id and pid is its pack's, and INFERRED
+  until measured with that deliverer.
 - **A plain shell, held.** Nothing is delivered. `yolo notify --pending` shows what waits.
 
 ### 3.5 Failure paths
@@ -736,7 +747,7 @@ carries only:
 
 It never carries text a third party can write: commit messages, branch names, PR or issue
 titles and bodies, log lines, review comments, file contents fetched from the network. The ping
-is the doorbell; the agent opens the door by reading the source itself.
+rings the doorbell; the agent opens the door by reading the source itself.
 
 > [!WARNING]
 > **The box is not a new way into the agent from inside the jail**, and it should not be
@@ -889,7 +900,9 @@ directed and lands with step 1.
    [OQ-EW1](#OQ-EW1) has ruled who may declare it.
 7. **codex and agy next-turn hooks; opencode, copilot and omp wake deliverers**, each measured
    by a human before its tier is declared. Then codex's `queue` wake route, once
-   [openai/codex#49081](https://github.com/openai/codex/issues/49081) settles.
+   [openai/codex#49081](https://github.com/openai/codex/issues/49081) settles and only if
+   [OQ-CDX1](../research/codex-background-service.md#OQ-CDX1), which turned Codex's background
+   server off, is revisited.
 8. **macos-user agent side**, once something there can keep it to one instance per workspace
    ([§3.2](#32-lifecycle-per-side-and-per-notch)). [OQ-DP8](declaration-parity.md#OQ-DP8), which
    it first waited on, is ruled and built for jail daemons.
@@ -910,14 +923,19 @@ directed and lands with step 1.
    first machine's record placed in the second machine's store starts nothing either, and the
    launch says the record was made on another machine.
 5. A sidecar declared in a workspace's own `yolo-jail.jsonc` starts only after it is
-   acknowledged on this machine. Editing its `cmd` stops it being started at the next fresh
-   launch, with a line naming the change, and `--accept-config-changes` never starts one (under
-   [OQ-EW7](#OQ-EW7)'s leaning). Under `yolo host` it does not run at all, and the launch says
-   why.
-6. Under [OQ-EW5](#OQ-EW5)'s leaning: in-jail, `yolo sidecar enable` for the jail's own
-   workspace refuses and names the host command.
+   acknowledged on this machine, which under [OQ-EW7](#OQ-EW7)'s ruling (B) is approving the
+   config-change diff whose own section shows it, its command line included;
+   `--accept-config-changes` acknowledges it too. Editing its `cmd` changes the config, so the next
+   fresh launch shows the change in that section and starts it only once that diff is approved.
+   Under `yolo host` it does not run at all, and the launch says why.
+6. In-jail, `yolo sidecar enable` for the jail's own workspace refuses a host-side sidecar and
+   names the host command, as [OQ-EW5](#OQ-EW5) ruled. For an agent-side one,
+   [OQ-EW10](#OQ-EW10) lets the jail's own agent turn it on; what that looks like comes with its
+   design.
 7. `yolo -- bash`, then `yolo notify hi`, then `yolo notify --pending` lists the ping, and the
-   launch said that bash has no deliverer.
+   launch said that bash has no deliverer. That is [OQ-EW11](#OQ-EW11)'s A. Under its leaning, B,
+   with no sidecar on for the workspace, `yolo notify hi` exits 3 and says no sidecar is on for
+   this workspace on this machine.
 8. A ping carrying a terminal escape sequence and 5 KB of text arrives cleaned and cut, with the
    cut marked.
 9. Ten pings in ten seconds from one sidecar arrive as at most six delivered messages, the last
@@ -1188,7 +1206,10 @@ keeper, starts none and names the ones running.
 The *"pings reach …"* clause names the box's master ([EW-D32](#EW-D32)). At a launch whose box has
 no master yet, it is this launch's agent and its tier, as the rows show. At an attach or a launch
 that joins a keeper it names the current master, for example *"pings reach the master session,
-claude:ab12 (first launched; wake), not this one"*.
+claude:ab12 (first launched; wake), not this one"*. The two rows for a sidecar the workspace's
+own config declares follow [OQ-EW7](#OQ-EW7)'s leaning. Under its ruling (B) the remedy there is
+that sidecar's section of the config-change diff, not `yolo sidecar enable`, and those rows are
+redone with that carry-out ([EW-D23](#EW-D23)).
 
 ### 12.6 Two machines, one project
 
@@ -1689,7 +1710,8 @@ What follows from it:
 11. 💬 <a id="OQ-EW11"></a>**[OQ-EW11](#OQ-EW11): Is the doorbell on in every launch, or only
     in a launch where a sidecar is on?** This decides whether the part of this feature that is
     still on by default ([§12.8](#128-what-is-on-by-default-revisited-2026-09-29)) stays on: the
-    ping box, the deliverers and the session list. No sidecar is on by default under any answer.
+    doorbell ([§1.2](#12-terms)), meaning the ping box, the deliverers and the session list; the
+    `yolo notify` command itself ships either way. No sidecar is on by default under any answer.
 
     _Setup:_ Matt has not enabled `ci-watch` on his laptop. In yolo-jail there he runs
     `yolo -- claude` in one terminal and `yolo -- pi` in another, and nothing on the laptop is set
@@ -1713,14 +1735,17 @@ What follows from it:
       background task cannot ring its session unless some sidecar is on there. For Claude its own
       Monitor tool already covers that case ([Appendix A.1](#a1-claude-21284)); for pi nothing does.
 
-    <!-- vantage: oq id=OQ-EW11 leaning="B: turn the doorbell on only where a sidecar will start, since nothing in yolo is active by default, A runs an unmeasured hook in every Claude session and a resident yolo host launch for a box nothing writes, and the use B gives up was never asked for." -->
+    <!-- vantage: oq id=OQ-EW11 leaning="B: turn the doorbell on only where a sidecar will start, since nothing in yolo is active by default, A runs an unmeasured hook in every Claude session and a resident yolo host launch for a box nothing writes; the use B gives up, any background process ringing, stays open by declaring that process a sidecar." -->
 
     _Leaning:_ **B.** Nothing in yolo is active by default: an empty config gives a jail with no
     agent, and the launch says so (`run.warnIfNoPacks`, [`AGENTS.md`](../../AGENTS.md)). A pays
     for a deliverer in every Claude session, before its long-idle behavior is measured, and for a
     keeper and a resident `yolo host` launch, all for a box nothing is set to write. What B gives
-    up, an agent ringing its own session from a background task, is not what the maintainer asked
-    for: he asked for sidecars ([§1.1](#11-why-now)). **The trap:** if an agent ringing its own
+    up is part of what the maintainer asked for: *"any generic background process that can decide
+    however it wants to ping the foreground agent session"* ([§1.1](#11-why-now)). Under B such a
+    process reaches a session only where some sidecar is on, or once it is declared as a sidecar
+    and turned on itself, which keeps the use at the price of one declaration and one turn-on per
+    process, and matches his later doubt about *"trying to enable this by default"*. **The trap:** if an agent ringing its own
     or another session is a use the maintainer wants in every launch, a long build or a deploy
     announcing itself, A is right, and the master is what makes A safe with several sessions in
     one box.
@@ -1736,7 +1761,7 @@ recorded so an implementer does not reopen them.
 | ID | Ruling / Decision | Date | Settled in | Built |
 | :--- | :--- | :--- | :--- | :--- |
 | <a id="EW-D1"></a>[`EW-D1`](#14-decision-ledger) | *Implementation decision.* A sidecar is its own contribution kind, `sidecar`, not a `kind: "service"`: a service holds no grant and has an endpoint, a witness and a caller token; a host-side sidecar holds a credential and has none of those. Agent-side sidecars reuse the supervisor | 2026-09-28 | [§3.1](#31-declaring-a-sidecar) | — |
-| <a id="EW-D2"></a>[`EW-D2`](#14-decision-ledger) | *Implementation decision.* The doorbell is `yolo notify`, a subcommand of the one binary on both sides, not a new `cmd/` binary, so it adds nothing to `shippedBinaries` or the bundle | 2026-09-28 | [§3.3](#33-yolo-notify-and-the-ping-box) | — |
+| <a id="EW-D2"></a>[`EW-D2`](#14-decision-ledger) | *Implementation decision.* The doorbell's one command, `yolo notify`, is a subcommand of the one binary on both sides, not a new `cmd/` binary, so it adds nothing to `shippedBinaries` or the bundle | 2026-09-28 | [§3.3](#33-yolo-notify-and-the-ping-box) | — |
 | <a id="EW-D3"></a>[`EW-D3`](#14-decision-ledger) | *Implementation decision.* The box is a launch-owned host directory mounted into the jail, one file per ping, renamed into place. Readers poll once a second and use filesystem notifications only as a speed-up. *Revised 2026-09-29:* at the host notch and on macos-user the box is per workspace on the machine, not per launch ([EW-D19](#EW-D19)). *Revised again 2026-09-29:* the box is the keeper's at every notch, and it holds the session list ([EW-D24](#EW-D24), [EW-D26](#EW-D26)) | 2026-09-28 · revised 2026-09-29 | [§3.3](#33-yolo-notify-and-the-ping-box) | — |
 | <a id="EW-D4"></a>[`EW-D4`](#14-decision-ledger) | *Implementation decision.* Deliverers never read the box. They call `yolo notify --wait`, `--follow` or `--drain`, so the format stays private to core and one reader implementation serves every agent | 2026-09-28 | [§3.3](#33-yolo-notify-and-the-ping-box) | — |
 | <a id="EW-D5"></a>[`EW-D5`](#14-decision-ledger) | *Implementation decision.* Claude's deliverer is an `asyncRewake` command hook on `SessionStart` and `Stop`, one waiter per session by lock, with an explicit 86400-second timeout. Not the inbox socket ([§7](#7-alternatives-considered) option E) and not MCP channels (option D) | 2026-09-28 | [§3.4](#34-deliverers-per-agent) | — |
@@ -1866,7 +1891,9 @@ package carries no docs. INFERRED only.
   sent as `thread/queue/add` to the shared app-server daemon on `app-server-control.sock`. The
   TUI uses that daemon by default and falls back to an embedded server that `queue` cannot reach
   (MEASURED, strings). The daemon also offers `turn/start`, `turn/steer`, `thread/inject_items`
-  and `thread/loaded/list` (MEASURED, a schema generated from the binary).
+  and `thread/loaded/list` (MEASURED, a schema generated from the binary). Since
+  [OQ-CDX1](../research/codex-background-service.md#OQ-CDX1) was ruled on 2026-09-29, yolo turns
+  that daemon off wherever it launches Codex, so `queue` has nothing to reach in a yolo launch.
 - Whether a queued message starts a turn on an idle thread is unsettled:
   [openai/codex#49081](https://github.com/openai/codex/issues/49081), filed 2026-09-28, reports
   queued messages not sent after a turn ends.
