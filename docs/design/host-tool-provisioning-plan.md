@@ -25,12 +25,22 @@ holds settled detail the design doesn't need.
   outside a container (macos-user, `internal/entrypoint/darwin.go`). Check whether a host-shaped
   `Env` can point `LaunchDir`, `NpmBin` and the stamp dir at the prefix without a second template.
   A second copy of the launcher body is the drift to avoid.
-- **The collision and platform checks.** `launcherShadows`
-  (`internal/entrypoint/launchercollision.go`) and the platform predicate
-  `packdecl.Install.UnpublishedReason` (was `launcherUnpublished`). The shadow check's probe path at the host is the
-  launch PATH ([`host-launch-environment.md` §2.2](host-launch-environment.md#22-the-launch-path-and-what-host_path-adds)),
-  which never holds the prefix. Never add the prefix's own install dirs, for the
-  reason `launchercollision.go` gives: that turns evergreen off after the first install.
+- **The platform check, and not the shadow check.** Reuse the platform predicate
+  `packdecl.Install.UnpublishedReason` (was `launcherUnpublished`). Do not reuse `launcherShadows`
+  (`internal/entrypoint/launchercollision.go`) at the host, on any probe path. The jail runs it
+  so a launcher never shadows a tool the image provides. The floor has nothing to shadow: its
+  `bin/` is last on the agent's PATH ([HE-D1](host-launch-environment.md#he-d1)), and no copy
+  already on the machine stops the floor installing its own
+  ([§4 of the design](host-tool-provisioning.md#4-when-provisioning-runs),
+  [HP-DIR4](host-tool-provisioning.md#HP-DIR4)).
+  - **Never probe the launch PATH for it.** That PATH is whatever the launcher handed yolo
+    ([`host-launch-environment.md` §2.2](host-launch-environment.md#22-the-launch-path-and-what-host_path-adds)).
+    A terminal's PATH holds `~/.local/bin/claude`, so a terminal launch would write no floor entry
+    and a Waybar launch would. What the floor holds would then depend on who started yolo, and
+    [HE-DIR1](host-launch-environment.md#he-dir1) keeps it fixed.
+  - **A terminal's PATH also holds the user's install dirs** (`~/.local/bin`, the npm prefix).
+    Probing them is the kill switch `launchercollision.go` warns about: after the first install
+    the check finds the installed copy, so evergreen stops.
 - **The Node floor resolution.** `internal/entrypoint/nodefloor.go` and `packdecl/nodefloor.go`
   for the exec prefix.
 - **Consent recording.** Look at how fetched-pack host approvals are recorded before inventing a
