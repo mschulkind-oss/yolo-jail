@@ -108,7 +108,10 @@ real jail rendered pi's files and environment for `-p pi=zai,openrouter` and
 `-p pi=zai,bedrock`. The build first spelled the config list under `use_profiles`, and was
 re-expressed on the `profile` key when it landed after that rename
 ([PP-D10](../design/providers-and-profiles-redesign.md#PP-D10)). UNMEASURED: no pi session was run,
-so none switched providers.
+so none switched providers. opencode took a set on 2026-09-30
+([AP-D15](../design/active-provider-sets.md#AP-D15)), MEASURED the same way: unit tests over its
+render, the jail's channel and `yolo host`, and two integration launches rendering its file for
+`-p opencode=zai,openrouter` and `-p opencode=zai,bedrock`; no opencode session was run.
 
 A **provider** is a declaration of a service's facts — where its endpoints are, which wire
 protocol each speaks, which model aliases it offers, which environment variable holds its
@@ -324,7 +327,7 @@ a key while Bedrock's is the AWS chain ([BR-D10](../design/bedrock-plumbing.md#B
 | :--- | :--- | :--- |
 | claude | `CLAUDE_CODE_USE_BEDROCK` | the switch, `AWS_REGION` from the provider's `region`, and a model only as above |
 | codex | built-in `amazon-bedrock-runtime` | `model_provider = "amazon-bedrock-runtime"`, `model`, and `[model_providers.amazon-bedrock-runtime.aws] region` only for a provider-declared region; no other field, since codex refuses them |
-| opencode | built-in `amazon-bedrock` | `provider["amazon-bedrock"]` with the list's models and `options.region` only for a provider-declared region, no `npm` and no endpoint; `model` and `small_model` `amazon-bedrock/<id>`, `enabled_providers` naming it |
+| opencode | built-in `amazon-bedrock` | `provider["amazon-bedrock"]` with the list's models and `options.region` only for a provider-declared region, no `npm` and no endpoint; `model` and `small_model` `amazon-bedrock/<id>`, `enabled_providers` naming it; as a later entry of an [active set](#an-active-set-several-profiles-for-one-agent), the same row, and `amazon-bedrock` in `enabled_providers` after the entries before it |
 | pi | built-in `amazon-bedrock` on Converse | `providers["amazon-bedrock"].models` in models.json with each entry's facts and no `baseUrl`, `api` or `apiKey`; `defaultProvider`/`defaultModel`, `enabledModels` and pi-subagents' policy over the list; `AWS_REGION` from the provider's `region` in pi's environment |
 
 opencode reads `AWS_REGION` and not `AWS_DEFAULT_REGION`, and falls back to `us-east-1`, so its
@@ -722,7 +725,9 @@ Two consequences to know:
   container's frozen environment, another agent's file), so a stale inherited value does not
   win. A derive's tombstone removes only such a value, too. The menu half of
 [`OQ-CN4`](../design/provider-credential-scope.md#OQ-CN4) is each agent's own key:
-opencode's derive writes `enabled_providers: [<selected provider>]` beside its selected model;
+opencode's derive writes `enabled_providers: [<selected provider>]` beside its selected model,
+or every provider of its [active set](#an-active-set-several-profiles-for-one-agent), the primary
+first;
 claude's single `ANTHROPIC_BASE_URL` already reaches one provider per launch; pi's
 `enabledModels` is a soft shortlist and restricts nothing. For `openai-codex` pi gets no
 `enabledModels` at all: its extension registers exactly
@@ -1067,7 +1072,7 @@ What each agent actually receives, from one composed table and one selection:
 | :--- | :--- | :--- |
 | codex | `~/.codex/config.toml` `[model_providers.<id>]` (TOML); never a row for `openai-codex` | top-level `model_provider` + `model`; `model` alone for `openai-codex` ([above](#selecting-openai-codex-for-codex)) |
 | pi | `~/.pi/agent/models.json` `providers.<id>` (JSON; credential as `apiKey: "${VAR}"` config-value syntax); never a row for `openai-codex`, whose models the extension registers from [the declared list](#the-openai-codex-model-list) | `~/.pi/agent/settings.json` `defaultProvider` + `defaultModel` (a pair of bare ids), and `enabledModels` (the scoped list, default first), which is not written for `openai-codex`. Also, for every provider, pi-subagents' `subagents` block: `defaultModel` as `<provider>/<id>` (the same model), and `modelScope` `{enforce, strict, allow}` over the provider's configured ids, or `<provider>/*` when it configures none, so a child agent never crosses providers ([XM-D3](../research/extension-model-defaults.md#XM-D3), [XM-D4](../research/extension-model-defaults.md#XM-D4)). For an [active set](#an-active-set-several-profiles-for-one-agent) the pair stays the primary's, `enabledModels` is each entry's run in set order, each led by its own default (an `openai-codex` entry adds its declared base ids, never a `[1m]` variant, since `enabledModels` are minimatch patterns), and `modelScope.allow` is the union, so a child may use any listed provider and none other; each entry's profile options reach its own catalog row, and the OpenAI login pre-launches when any entry is `openai-codex` |
-| opencode | `~/.config/opencode/opencode.json` `provider.<id>` — `baseURL`/`apiKey` live UNDER `options` | top-level `model = "<provider>/<model>"` |
+| opencode | `~/.config/opencode/opencode.json` `provider.<id>` — `baseURL`/`apiKey` live UNDER `options` | top-level `model = "<provider>/<model>"` and `small_model`, with `enabled_providers` naming the selected provider, written only when a model resolves. For an [active set](#an-active-set-several-profiles-for-one-agent) `model` and `small_model` stay the primary's and `enabled_providers` names every entry in set order, a Bedrock entry as `amazon-bedrock` wherever it sits; opencode reads that key as a filter ("When set, ONLY these providers will be enabled", its 1.18.32 schema), so the order states the set and does not order opencode's menu. Each entry's own `enforce_models` decides the `whitelist` on its provider's row |
 | omp | `~/.oh-omp/agent/models.yml` `providers.<id>` (YAML; credential as the provider's env-var NAME, which oh-omp resolves before treating it as a literal) | **none** — the derive writes a catalog and no selection key, so a selected profile makes the provider *available* and the user chooses it inside the agent |
 | copilot | no catalog (BYOK is env-var-only; no copilot config file has provider keys) | process env from the copilot pack's env derive: `COPILOT_PROVIDER_BASE_URL` (the sole activation gate), `COPILOT_PROVIDER_TYPE`, `COPILOT_PROVIDER_WIRE_API` (openai type only), `COPILOT_MODEL` (required — a provider with no resolvable alias composes nothing at all), `COPILOT_PROVIDER_API_KEY` (a placeholder for a keyless loopback endpoint), `COPILOT_PROVIDER_MAX_PROMPT_TOKENS` ← the provider's `context_window` option |
 | claude | no catalog (claude has no provider directory) | process env from the claude pack's env derive: the address and credential for the provider's `anthropic` endpoint (`ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN` — a dummy token on a routed launch that has no key, so claude never falls back to the user's own subscription login), `AWS_REGION` from the provider's `region`, one model id per claude tier resolved from the provider's aliases (the selected one from the profile's `model` option; on a Bedrock provider only from its Anthropic entries, and none unless named, [the shipped Bedrock provider](#the-shipped-bedrock-provider)), and knobs composed from provider options (the context window, request and stream timeouts). Claude's `[1m]` suffix is appended to every model id when the `context_window` option is at least one million — it is Claude Code's client syntax for the context-1m beta, stripped before the wire — and non-essential traffic is disabled on any routed launch. The exact variable set is the derive's, in `packs/claude/derive.lua` |
@@ -1309,8 +1314,10 @@ the plain name, byte for byte, so no existing config moves.
   entry: `-p pi=,claude=zai` selects nothing for pi and zai for claude, as it always did. A
   profile name may not contain `,`, refused in both schemas where `=` is.
 - **Who may hold one.** An agent whose pack declares `provider_sets` on the program that installs
-  it (`packdecl.Contribution.ProviderSets`): pi today. A list named at any other agent (claude,
-  codex, copilot) is refused before anything starts, naming the one-profile spelling
+  it (`packdecl.Contribution.ProviderSets`): pi and opencode today
+  ([AP-D15](../design/active-provider-sets.md#AP-D15) for opencode). A list named at any other
+  agent (claude, codex, copilot, oh-omp) is refused before anything starts, naming the
+  one-profile spelling
   ([OQ-AP2](../design/active-provider-sets.md#OQ-AP2)), by config validation for a list named in
   the `profile` key (`validateProfile`), by `checkProfileTargets` for a typed pair, and again
   after resolution by `packload.ProfileSetProblems`. A **bare** list, one naming no agent — a bare
@@ -1331,7 +1338,8 @@ the plain name, byte for byte, so no existing config moves.
   agent cannot be paired with, named by position. Every entry must be declared.
 - **What the derive sees.** `ctx.selected_provider` and `ctx.profile` are the primary, as ever, so
   a derive written before sets reads a set of one unchanged. `ctx.active_set` lists every entry in
-  order, each with `profile_name`, `provider`, `platform` and `profile`, and
+  order, each with `profile_name`, `provider`, `platform`, `profile` and its own profile's
+  `enforce_models` ([AP-D16](../design/active-provider-sets.md#AP-D16)), and
   `yolo.model_for(alias, provider)` answers for any entry of the set and nil outside it.
 - **Every notch.** The jail's channel carries the list in `YOLO_USE_PROFILES`, and an attach
   delivering one needs the `profile-sets` contract tag, so a jail an older yolo launched takes the
@@ -1343,9 +1351,10 @@ the plain name, byte for byte, so no existing config moves.
   saying what the key's bare list narrowed, as a launch does.
 
 The launch names each set of more than one in order ("Active set for pi: zai, openrouter"), beside
-the per-name profile lines, which answer for each entry what it reaches for the agent holding it. What pi renders from a set is in [per-agent
-delivery](#per-agent-delivery). The config-overlay `profile` modifier still gates on the primary
-alone, and opencode does not yet declare `provider_sets`.
+the per-name profile lines, which answer for each entry what it reaches for the agent holding it.
+What pi and opencode render from a set is in [per-agent delivery](#per-agent-delivery). The
+config-overlay `profile` modifier still gates on the primary alone, and oh-omp does not yet
+declare `provider_sets`.
 
 > [!WARNING]
 > **`autonomy` and `profile` are two kinds on purpose; do not merge them** ([OQ-1](#pv-oq-1)).
