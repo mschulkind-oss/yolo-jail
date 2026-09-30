@@ -452,7 +452,38 @@ func (h *passthroughHandler) do(r *http.Request, body []byte) (*http.Response, e
 	}
 	target := base.JoinPath(r.URL.EscapedPath())
 	target.RawQuery = r.URL.RawQuery
-	ctx, cancel := context.WithCancelCause(r.Context())
+	return sendHeaderBounded(r.Context(), h.client, func(ctx context.Context) (*http.Request, error) {
+		req, err := http.NewRequestWithContext(ctx, r.Method, target.String(), bytes.NewReader(body))
+		if err != nil {
+			return nil, err
+		}
+		for _, k := range []string{"Content-Type", "Accept"} {
+			if v := r.Header.Get(k); v != "" {
+				req.Header.Set(k, v)
+			}
+		}
+		switch {
+		case h.signer != nil:
+			if err := h.signer.authorize(req, body); err != nil {
+				return nil, err
+			}
+		case h.key != "":
+			req.Header.Set("Authorization", "Bearer "+h.key)
+		}
+		return req, nil
+	})
+}
+
+// sendHeaderBounded sends the request build makes over a context this function owns, and
+// bounds only the wait for the upstream's response HEADERS by viaHeaderTimeout (WG-I24): a
+// timer cancels the context with errViaHeaderTimeout if no response has arrived by then, and
+// once one has, the body's read runs for as long as the upstream keeps sending. The context
+// lives exactly as long as the response (cancelOnClose), so closing the body releases it.
+// Both pass-throughs send through here: the via route's and the adapter route's Messages
+// pass-through for a Bedrock upstream (messages.go), neither of which may cut a long stream.
+func sendHeaderBounded(parent context.Context, client *http.Client,
+	build func(context.Context) (*http.Request, error)) (*http.Response, error) {
+	ctx, cancel := context.WithCancelCause(parent)
 	timer := time.AfterFunc(viaHeaderTimeout, func() { cancel(errViaHeaderTimeout) })
 	handedOff := false
 	defer func() {
@@ -461,24 +492,11 @@ func (h *passthroughHandler) do(r *http.Request, body []byte) (*http.Response, e
 			cancel(nil)
 		}
 	}()
-	req, err := http.NewRequestWithContext(ctx, r.Method, target.String(), bytes.NewReader(body))
+	req, err := build(ctx)
 	if err != nil {
 		return nil, err
 	}
-	for _, k := range []string{"Content-Type", "Accept"} {
-		if v := r.Header.Get(k); v != "" {
-			req.Header.Set(k, v)
-		}
-	}
-	switch {
-	case h.signer != nil:
-		if err := h.signer.authorize(req, body); err != nil {
-			return nil, err
-		}
-	case h.key != "":
-		req.Header.Set("Authorization", "Bearer "+h.key)
-	}
-	resp, err := h.client.Do(req)
+	resp, err := client.Do(req)
 	timer.Stop()
 	if context.Cause(ctx) == errViaHeaderTimeout {
 		if err == nil {
