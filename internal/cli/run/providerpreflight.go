@@ -124,9 +124,15 @@ func (o *Options) checkProviderRegions(cfg *jsonx.OrderedMap, packs []*packload.
 		// EACH ENTRY OF THE AGENT'S ACTIVE SET (docs/design/active-provider-sets.md AP-P1): a
 		// regional provider anywhere in pi's set needs its region delivered to pi. The region
 		// file's lookup is the one the fill read for that provider (AgentDelivery.RegionFile).
-		for _, provider := range packload.SetProvidersOf(d) {
+		//
+		// THE PRIMARY ENTRY THROUGH A SERVED VIA is read for its region by the via's service, not
+		// by the agent's own client (RegionAsk.ThroughVia): the via route serves the agent's
+		// primary profile alone (wirebridged.viaRoutesFor).
+		through := packload.ViaURLFor(channel.resolvedProfiles[d.Profile], agent) != ""
+		for i, provider := range packload.SetProvidersOf(d) {
 			asks = append(asks, packload.RegionAsk{Agent: agent, Provider: provider,
-				File: d.RegionFileFor(provider),
+				File:       d.RegionFileFor(provider),
+				ThroughVia: i == 0 && through,
 				Lookup: func(name string) (string, bool) {
 					if v, found := argvPairs[name]; found && v != "" {
 						return v, true

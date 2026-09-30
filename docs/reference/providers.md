@@ -441,7 +441,10 @@ its first Bedrock request, and claude, opencode and pi silently use `us-east-1`.
   agent reads on a platform, and the preflight then counts only those for it. packs/opencode
   lists `AWS_REGION` for `aws-bedrock`, so `AWS_DEFAULT_REGION` alone is no region for opencode,
   and the refusal says it reached opencode unread
-  ([BR-D18](../design/bedrock-plumbing.md#BR-D18)). It is never the shell yolo was launched from,
+  ([BR-D18](../design/bedrock-plumbing.md#BR-D18)). Under a profile that routes the agent
+  through the wire bridge (`bedrock-bridge`), the bridge reads the region in the agent's place,
+  from every variable the provider lists, so there `AWS_DEFAULT_REGION` counts for opencode too
+  ([WG-I38](../design/wire-bridge-gateway.md#WG-I38)). It is never the shell yolo was launched from,
   which no backend forwards; a region found only there is named in the refusal as not
   delivered. At `yolo host --` the exec'd environment includes that shell, so it counts
   ([BR-D2](../design/bedrock-plumbing.md#BR-D2)).

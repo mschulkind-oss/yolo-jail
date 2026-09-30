@@ -360,3 +360,34 @@ func TestTheRegionIsAskedOfALaterEntryOfPisSet(t *testing.T) {
 		t.Errorf("pi on [zai, bedrock] must receive the provider's region as AWS_REGION, got %q", v)
 	}
 }
+
+// THROUGH THE WIRE BRIDGE THE BRIDGE READS THE REGION (docs/design/wire-bridge-gateway.md WG-I38):
+// opencode on `bedrock-bridge` sends its requests to the bridge's via route, and the bridge, not
+// opencode's own Bedrock loader, reads the region from what reaches opencode, AWS_REGION then
+// AWS_DEFAULT_REGION. So AWS_DEFAULT_REGION alone is a region for that launch, and refusing it as
+// one "opencode does not read" refuses a launch the bridge serves. On `-p bedrock` opencode's own
+// client reads the region and the refusal stands (TestOpencodeOnBedrockIsNotGivenARegionItDoesNotRead).
+func TestOpencodeThroughTheBridgeIsGivenTheRegionTheBridgeReads(t *testing.T) {
+	home := retireHome(t)
+	writeUserPacks(t, home, `[]`)
+	o := retireOptions(t, discardBuf())
+	o.Getenv = shellWith(nil)
+	packs := []*packload.Pack{officialPack(t, "opencode"), officialPack(t, "openai-auth"),
+		officialPack(t, "bedrock"), officialPack(t, "wire-bridge")}
+	o.UseProfiles = map[string]string{"opencode": "bedrock-bridge"}
+
+	env := userEnvWith(map[string]string{"AWS_DEFAULT_REGION": "eu-west-1"})
+	channel := channelFor(t, o, newConfig(), packs, env)
+	if r := channel.resolvedProfiles["bedrock-bridge"]; packload.ViaURLFor(r, "opencode") == "" {
+		t.Fatalf("fixture: opencode's bedrock-bridge via is not served at this notch (%+v), so this checks nothing", r)
+	}
+	if lines, refuse := o.checkProviderCredentials(newConfig(), packs, channel, nil); refuse {
+		t.Errorf("opencode through the bridge given AWS_DEFAULT_REGION, which the bridge reads, was refused:\n%s",
+			strings.Join(lines, "\n"))
+	}
+	env = userEnvWith(nil)
+	if lines, refuse := o.checkProviderCredentials(newConfig(), packs, channelFor(t, o, newConfig(), packs, env), nil); !refuse {
+		t.Errorf("control: opencode through the bridge with no region at all must still be refused:\n%s",
+			strings.Join(lines, "\n"))
+	}
+}

@@ -125,6 +125,14 @@ type RegionAsk struct {
 	// read nothing: the refusal names the file and profile it consulted and why they gave no
 	// region, and offers the file as a third way to set one.
 	File *RegionFileLookup
+	// ThroughVia says the agent reaches Provider through a via service its profile names and this
+	// notch serves (ViaURLFor), so the agent's own client never reads the region: the service
+	// reads it from what reaches the agent (the wire bridge reads AWS_REGION then
+	// AWS_DEFAULT_REGION, docs/design/wire-bridge-gateway.md WG-I38). Such an agent is asked about
+	// every variable the platform lists, not the fewer its program's pack says the program reads
+	// (agentRegionVars): opencode on `bedrock-bridge` given AWS_DEFAULT_REGION alone has a region
+	// the bridge uses.
+	ThroughVia bool
 }
 
 // ProviderRegionGaps returns the FACT lines of the region pre-flight, empty when every agent on
@@ -165,6 +173,9 @@ func ProviderRegionGaps(packs []*Pack, providers *jsonx.OrderedMap, asks []Regio
 			lookup = func(string) (string, bool) { return "", false }
 		}
 		vars, narrowedBy := agentRegionVars(packs, ask.Agent, platform, req.vars)
+		if ask.ThroughVia {
+			vars, narrowedBy = req.vars, ""
+		}
 		if anySet(vars, lookup) {
 			continue
 		}
