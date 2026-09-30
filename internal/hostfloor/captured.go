@@ -37,6 +37,14 @@ func noEntryReasonOf(err error) string {
 	return ""
 }
 
+// captureRelocatable reports whether entry's manifest lets it be materialized into a home other
+// than the one it was captured in — the full reference scan ran and found nothing it cannot
+// rewrite (capture.Manifest.Relocatable). An unreadable manifest is not relocatable.
+func captureRelocatable(entry *capture.Entry) bool {
+	m, err := capture.ReadManifest(entry.Root)
+	return err == nil && m.Relocatable
+}
+
 // capturedProgram reports why entry holds no runnable ~/.local/bin/<bin>, or "" when it does: a
 // regular file with an execute bit, or a symlink chain that ends at one inside the capture.
 func capturedProgram(entry *capture.Entry, bin string) string {

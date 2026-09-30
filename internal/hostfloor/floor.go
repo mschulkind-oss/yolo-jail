@@ -369,25 +369,40 @@ func (f *Floor) provisionable(st Status) Status {
 	if st.Program.Install.Kind != "native" || f.ResolveCapture == nil {
 		return st
 	}
-	if entry, err := f.ResolveCapture(st.Program.Bin()); err == nil {
+	entry, err := f.ResolveCapture(st.Program.Bin())
+	if err == nil {
 		if why := capturedProgram(entry, st.Program.Bin()); why != "" {
 			st.Disposition = NoEntry
 			st.Reason = "the capture of " + st.Program.Bin() + " on this machine cannot run outside a jail: " + why
+			return st
+		}
+		// An entry recorded before captures scanned their contents moves out of /home/agent only
+		// by being captured again (HP-D7), which needs what any capture needs.
+		if !captureRelocatable(entry) {
+			if why := f.cannotCapture(); why != "" {
+				st.Disposition = NoEntry
+				st.Reason = "the capture of " + st.Program.Bin() + " on this machine was recorded for a " +
+					"jail's home only, and " + why
+			}
 		}
 		return st
 	}
-	why := ""
-	switch {
-	case f.Capture == nil:
-		why = "this machine cannot run `yolo capture`"
-	case f.CaptureUnavailable != nil:
-		why = f.CaptureUnavailable()
-	}
-	if why != "" {
+	if why := f.cannotCapture(); why != "" {
 		st.Disposition = NoEntry
 		st.Reason = "there is no capture of " + st.Program.Bin() + " on this machine, and " + why
 	}
 	return st
+}
+
+// cannotCapture says why this machine cannot run the capture act now, "" when it can.
+func (f *Floor) cannotCapture() string {
+	switch {
+	case f.Capture == nil:
+		return "this machine cannot run `yolo capture`"
+	case f.CaptureUnavailable != nil:
+		return f.CaptureUnavailable()
+	}
+	return ""
 }
 
 // usable reports whether a record's files are all still there: the launcher and every

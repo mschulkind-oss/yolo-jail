@@ -354,6 +354,20 @@ func TestACaptureRecordedForTheJailHomeOnlyIsRecapturedOnce(t *testing.T) {
 	if captures != 1 || st.Record.Version != "2.1.267" {
 		t.Errorf("captures %d, version %s", captures, st.Record.Version)
 	}
+
+	// The same jail-home-only entry on a machine that cannot capture: no floor entry here, since
+	// the one way to move it is a capture this machine cannot run.
+	other := newWorld(t)
+	other.floor.GOOS = "linux"
+	jailOnly := newCaptureStore(t)
+	jailOnly.add("claude", "2.1.200", false)
+	other.floor.ResolveCapture = jailOnly.resolve
+	other.floor.Capture = func(string) error { t.Fatal("a capture ran on a machine that cannot"); return nil }
+	other.floor.CaptureUnavailable = func() string { return "no container runtime (podman) is on PATH" }
+	if st := other.floor.Status(installerProgram("claude", "claude")); st.Disposition != NoEntry ||
+		!strings.Contains(st.Reason, "recorded for a jail's home only") {
+		t.Errorf("a jail-home-only capture with no way to recapture: %s (%s)", st.Disposition, st.Reason)
+	}
 }
 
 // TestAnInstallerProgramThisMachineCanNeitherMaterializeNorCaptureHasNoFloorEntry: no capture in
