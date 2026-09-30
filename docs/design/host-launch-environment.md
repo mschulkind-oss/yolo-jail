@@ -15,7 +15,7 @@ summary: "At `yolo host`, yolo's checks (is a program a pack needs present, and 
 > and [OQ-HE6](#oq-he6) is open ([§9](#9-open-questions)).
 
 **Status:** DESIGN, 2026-09-25; restated 2026-09-29 under [HE-DIR1](#he-dir1). Nothing is built.
-The code claims were re-read against `8f7468dd` on 2026-09-29. Besides HE-DIR1 it rests on three
+The code claims were re-read against `303e0367` on 2026-09-29. Besides HE-DIR1 it rests on three
 rulings of that day:
 
 - principle [HP-DIR3](host-tool-provisioning.md#HP-DIR3): at the host, yolo manages the agent's
@@ -940,7 +940,7 @@ here rather than settled in the body.
 
 Every claim in [§1](#1-inventory--what-yolo-host-takes-from-its-caller-today) was read in the
 working tree on 2026-09-25, and the ones this restatement leans on were re-read against
-`8f7468dd` on 2026-09-29. They are cited by function, not by line.
+`303e0367` on 2026-09-29. They are cited by function, not by line.
 
 - **`internal/cli/host.go`:**
   - `hostExec`'s order: `parseHostExecFlags`, `hostApplyGate`, `composeHostLaunch`, the
