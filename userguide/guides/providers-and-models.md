@@ -88,8 +88,10 @@ Two more come with the agent packs, with no extra pack to add:
   Add a model with its maker, so it reaches only the agents that take that maker (opencode and
   pi take every maker, Claude Code Anthropic's and codex OpenAI's):
   `"providers": {"bedrock": {"models": {"kimi": {"id": "global.moonshotai.kimi-k3", "vendor": "moonshotai"}}}}`.
-  Copilot and oh-omp cannot use Bedrock yet. codex, opencode and pi on Bedrock have not yet been
-  tested against a real AWS account.
+  Copilot and oh-omp have no Bedrock support of their own, so they reach Bedrock only through
+  the wire bridge, with `-p bedrock-bridge` (below). Neither pack brings the `bedrock` pack in,
+  so beside them alone, list it in `packs`. No agent on Bedrock has yet been tested against a
+  real AWS account, through its own client or the bridge.
 
   With the `aws-auth` loophole on,
   it uses your host's `aws sso login`, narrowed to one role before it reaches the jail. The
@@ -126,11 +128,20 @@ Two more come with the agent packs, with no extra pack to add:
   on `bedrock`, and no other process. If you list your own `api_key_env_name` on the provider,
   only those variables are kept for its agents.
 
-  No agent can reach Bedrock through the wire bridge yet. The `bedrock-bridge` profile, and any
-  profile that adds `"via": "wire-bridge"` to a Bedrock provider, is where that will work: in a
-  jail today it turns each agent's own Bedrock client off, so Claude Code runs on its own login
-  and the launch warns, while codex, opencode, pi and oh-omp are refused. Use `bedrock` meanwhile.
-  At `yolo host`, which has no bridge, such a profile uses each agent's own Bedrock client.
+  `-p bedrock-bridge` sends each agent to Bedrock through the wire bridge instead of its own
+  client, and so does any profile that adds `"via": "wire-bridge"` to a Bedrock provider. The
+  bridge reaches Bedrock in the region the agent was given, found the same three ways, and signs
+  every request with your AWS credentials itself. Under it Claude Code can switch between Claude
+  and every other model on the list in one session: a Claude model goes to Bedrock untranslated,
+  so prompt caching and thinking keep working, and any other model is translated. codex,
+  opencode, pi and oh-omp send their own requests through the bridge unchanged, and Copilot
+  starts on the first model on the list. A Bedrock provider of your own that names its own
+  address in `endpoints` is signed there too, whatever the address, once its `platform` says
+  `aws-bedrock`. The bridge signs with a key pair, the `aws-auth` login or a Bedrock API key, and
+  not with a profile in `~/.aws`, so a jail whose only AWS credential is `AWS_PROFILE` gets a
+  bridge that answers every request with an error naming the three it takes. At `yolo host`,
+  which has no bridge, such a profile uses each agent's own Bedrock client, and Copilot and
+  oh-omp reach nothing.
 
   If your own `~/.claude/settings.json` turns Bedrock on (`"env": {"CLAUDE_CODE_USE_BEDROCK":
   "1"}`) while claude's profile is not a Bedrock one, the launch says so in one line, naming the
@@ -313,6 +324,15 @@ agent allows it:
 | pi | exactly the list | a model typed with `--model` still runs, with a warning |
 | oh-omp | exactly the list | a model typed with `--model` still runs |
 | Codex, Copilot | the agent's usual menu, starting on the list's default model | not refused yet; a narrowed menu is planned |
+
+When an agent reaches the provider through the wire bridge, the bridge refuses any other model
+too, whatever the agent's own menu allows: pi, opencode, oh-omp or codex on a profile with
+`"via": "wire-bridge"`, and Claude Code and Copilot on a provider the bridge carries to them, such
+as Cerebras or `bedrock-bridge`. The agent gets an error naming the model, the list, and the
+setting that turns the refusal off. Codex and Copilot are the exceptions: some of their own
+background requests use models off the list, so the bridge lets their requests through and notes
+an off-list model in its log. For the same reason, while Copilot shares the bridge with Claude
+Code on one provider, the bridge refuses neither.
 
 To keep the menus but stop the refusals, set `"enforce_models": false` on the profile:
 `"profiles": {"zai-open": {"provider": "zai", "enforce_models": false}}`. opencode then shows its

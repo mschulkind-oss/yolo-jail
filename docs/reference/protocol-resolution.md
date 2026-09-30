@@ -335,6 +335,33 @@ configuration file.
 > built-in subscription provider rather than a composed fact — expired when step 4 gave that
 > provider a public Responses endpoint.
 
+<a id="an-address-composed-for-a-via"></a>
+
+### An address composed for a via
+
+An adapter may also front a provider that names no `from` address at all, when its own service
+can reach that provider by what it is. The adapter declares the provider platforms it fronts,
+`"adapts": {"from": "openai", "to": "anthropic", "from_platforms": ["aws-bedrock"]}`, which
+`packdecl` refuses on a pack that contributes no `service`, since only the pack's own daemon can
+compose an upstream for such a provider. `packs/wire-bridge`'s chat-completions adapter declares
+`aws-bedrock`: the wire bridge reaches Bedrock runtime at a URL it composes from the provider's
+region, because a pack cannot know the region
+([`wire-bridge-gateway.md` WG-I39](../design/wire-bridge-gateway.md#WG-I39)).
+
+The address composed that way is marked on the endpoint, `"for_via": "<service>"`
+(`packload.ForViaKey`), and the mark changes three answers:
+
+- **It is used only under a profile whose `via` names that service.** An agent with its own
+  client for the platform keeps that client on every other profile, and the service serves the
+  address only for such a profile. The profile line reads the provider without the address for a
+  profile with no via (`packload.EndpointsForProfile`).
+- **It never makes a pairing unspeakable.** The provider names no endpoint of its own, so an agent
+  that cannot speak the marked protocol resolves as the nothing-to-settle case of a provider with
+  no endpoints, as it did before the address was composed. codex, opencode and pi on `-p bedrock`,
+  beside a claude that speaks `anthropic`, are not refused.
+- **An agent that does speak it resolves on it**, as on any adapter's address; whether its derive
+  uses it is the derive's, under the rule above.
+
 ## Degenerate inputs, and what each resolves to
 
 | Input | Resolved as |

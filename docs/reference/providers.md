@@ -340,10 +340,17 @@ and thinking levels.
 **`bedrock-bridge`** is the pack's second profile, `{provider: bedrock, via: wire-bridge}`, the
 one shipped way to force the wire bridge ([`OQ-BR1`](../design/bedrock-plumbing.md#OQ-BR1)).
 Under it no agent runs its own Bedrock client: codex, opencode, pi and oh-omp get their via rows
-([routing a profile through the bridge](#routing-a-profile-through-the-bridge-via)). The bridge
-has no upstream for a provider named by region alone yet, so the launch refuses those four and
-warns claude, which starts on its own login
-([BR-D16](../design/bedrock-plumbing.md#BR-D16), [WG-I26](../design/wire-bridge-gateway.md#WG-I26)).
+([routing a profile through the bridge](#routing-a-profile-through-the-bridge-via)), and claude
+and copilot are routed at the bridge's adapter address, which composition gives `bedrock` for
+this profile alone ([BR-D16](../design/bedrock-plumbing.md#BR-D16),
+[WG-I26](../design/wire-bridge-gateway.md#WG-I26)). The provider names no address, so the bridge
+reaches `bedrock-runtime`'s own `/openai/v1` in the region, the provider's `region` or else the
+served agent's `AWS_REGION` then `AWS_DEFAULT_REGION`, and signs every request itself
+([WG-I37](../design/wire-bridge-gateway.md#WG-I37) to
+[WG-I39](../design/wire-bridge-gateway.md#WG-I39)). The address is marked `for_via` in the
+composed table: it is no endpoint for a profile without the via, so `-p bedrock` reaches each agent
+exactly as before, and codex, opencode and pi are not refused over an address they cannot speak.
+copilot, which has no Bedrock client, starts on the list's first model.
 
 ## The credential preflight
 
@@ -1582,11 +1589,12 @@ profile's name, so a profile of your own over `bedrock`, or a Bedrock provider o
 the same ([`OQ-BR8`](../design/providers-and-profiles-redesign.md#OQ-BR8)). The switch also needs
 claude's own transport: a profile over the same provider that routes through the wire bridge
 (`via`) gets the pointer and not the switch
-([PP-D4](../design/providers-and-profiles-redesign.md#PP-D4)). ⚠ **Nothing routes claude to
-Bedrock through the bridge yet**: claude speaks `anthropic`, the via route passes only the OpenAI
-wires, and the bridge has no Bedrock upstream for claude. So in a jail such a profile leaves
-claude on its own login with a pointer nothing uses, and the launch says so
-([what the via does](#routing-a-profile-through-the-bridge-via)). Until 2026-09-29 the switch rode a
+([PP-D4](../design/providers-and-profiles-redesign.md#PP-D4)). claude speaks `anthropic`, which
+the via route does not pass, so on the shipped `bedrock` such a profile routes claude at the
+bridge's adapter address, composed for the via, and the bridge reaches Bedrock by region
+([`wire-bridge-gateway.md` WG-I39](../design/wire-bridge-gateway.md#WG-I39)). On a Bedrock provider
+whose anthropic address is its own, the bridge carries none of claude's requests, and the launch
+says so ([what the via does](#routing-a-profile-through-the-bridge-via)). Until 2026-09-29 the switch rode a
 `profile: "bedrock"` gated `env` and `config-overlay` pair. Claude Code honors the settings file's
 `env` block before its first API call ([OQ-4](#pv-oq-4)).
 

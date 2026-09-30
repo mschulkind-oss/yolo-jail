@@ -94,8 +94,9 @@ which its page states.
 | pi | every entry: its built-in `amazon-bedrock` provider drives Converse | Claude Opus 5.5 (Global) |
 
 copilot and oh-omp have no Bedrock client of their own, and reach Bedrock only through yolo's
-wire bridge, which cannot yet reach a provider named by a region alone; `-p bedrock` does not
-configure them. agy has no way to reach Bedrock at all.
+wire bridge, under `-p bedrock-bridge` (below); `-p bedrock` does not configure them, and a jail
+of them alone lists this pack in `packs` to have either profile. agy has no way to reach Bedrock
+at all.
 
 codex's client reads the region from `AWS_REGION` or `AWS_DEFAULT_REGION` itself, so yolo writes
 its `aws.region` only for a region you set on the provider. That order is INFERRED: the one
@@ -165,16 +166,24 @@ agent's own Bedrock client. It is the one profile that forces the bridge, and it
 claude's route to non-Anthropic models goes. A profile of your own forces it the same way with
 `via`.
 
-**It carries no agent yet.** The bridge reaches a Bedrock provider only at an address, and one
-named by a region alone gives it none to reach, so today:
+**Every agent rides it.** The provider names a region and no address, so the bridge composes
+Bedrock runtime's own `https://bedrock-runtime.<region>.amazonaws.com/openai/v1` from the region:
+the provider's `region` when you set one, else the `AWS_REGION` (then `AWS_DEFAULT_REGION`) the
+agent was given, which the launch fills from `~/.aws/config` when nothing else names one. The
+bridge signs each request with the agent's own AWS credentials: a key pair, the `aws-auth`
+pointer, or a Bedrock API key (`AWS_BEARER_TOKEN_BEDROCK`), and never a profile in `~/.aws`.
 
-- **claude** runs on its own login, and the launch warns that the profile sends none of its
-  requests through the bridge;
-- **codex, pi, opencode and oh-omp** are refused at launch, because the bridge would serve their
-  route nothing: the refusal names the profile and says to drop its `via`.
+- **claude** is routed at the bridge's Anthropic address, the everything profile: every model on
+  the list in one session, Claude Opus 5.5 untranslated to Bedrock's own Messages route and the
+  OpenAI models translated.
+- **codex, pi, opencode and oh-omp** send their own OpenAI-shaped requests through the bridge
+  unchanged, pi, opencode and oh-omp chat-completions and codex Responses.
+- **copilot** is routed at the bridge's Anthropic address too, and starts on the list's first
+  model, since the list names no `default`.
 
-No agent quietly falls back to its own Bedrock client, since the profile asked for the bridge.
-Use `-p bedrock` for an agent's own client in the meantime.
+No agent quietly falls back to its own Bedrock client, since the profile asked for the bridge. At
+`yolo host`, which has no bridge, the profile uses each agent's own client. No request has reached
+Bedrock through the bridge yet; see [the wire bridge](../../docs/reference/wire-bridge.md#which-upstream-is-bedrocks).
 
 ## Why it needs `aws-auth`
 

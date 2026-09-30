@@ -33,7 +33,10 @@ start stubbed. No agent CLI and no Mac have run it. [The Messages
 pass-through](#the-messages-pass-through-on-a-bedrock-upstream) was added 2026-09-29. Its route
 and stream framing are SOURCED from AWS's documentation and the Anthropic SDK's source, and it is
 MEASURED in-process only, against a fake upstream serving that documented format. No request has
-reached Bedrock through it.
+reached Bedrock through it. [Which upstream is Bedrock's](#which-upstream-is-bedrocks), the
+region-composed upstream and [the model allowlist](#the-model-allowlist) were added 2026-09-30,
+and are MEASURED the same way: the production boot over the shipped packs, against a stubbed
+upstream, and no request to AWS.
 
 A **wire bridge** *(coined here)* is a daemon that manufactures, on the agent's loopback, a wire
 protocol a provider does not natively serve, by translating to one it does. It runs in the jail,
@@ -92,6 +95,9 @@ bridge exists, and should not.
 | The via route: the per-agent table, the prefix mux, the wire split, the pass-through, per-upstream credentials | `internal/wirebridged` (`via.go`: `viaRoutesFor`, `viaUpstreams`, `viaMux`, `viaWireSplit`, `passthroughHandler`, `viaHandlerFor`); the serve plan in `boot.go` (`planFor`, `servePlan`) |
 | The Messages pass-through on a Bedrock upstream: the list's Anthropic ids, the split by model, the untranslated forward and relay | `internal/wirebridged` (`messages.go`: `anthropicModelIDs`, `messagesPassthrough`; `route.AnthropicModels` in `boot.go`; the split in `bridgeHandler.ServeHTTP`) |
 | The via selection: the profile field, the address, the pack closure, the per-agent URL | `internal/packdecl` (`ProfileContribution.Via`, `ServiceContribution.ViaAddress`); `internal/packload` (`via.go`: `ResolveVias`; `profiles.go`: `ViaURLFor`) |
+| Which upstream is Bedrock's, its region, and runtime's URL composed from it | `internal/wirebridged` (`bedrockroute.go`: `bedrockSigning`, `regionalBedrock`, `envRegion`, `route.resolveRegion`); `internal/sigv4` (`RegionVars`, `ValidRegion`, `BedrockRuntimeHost`) |
+| The adapter address composed onto a provider of a fronted platform, marked for a via | `internal/packdecl` (`AdapterPair.FromPlatforms`); `internal/packload` (`adaptEndpoints`, `ForViaKey`, `EndpointsForProfile`); `packs/wire-bridge` (`from_platforms`) |
+| The model allowlist | `internal/wirebridged` (`allowlist.go`: `allowlistsFor`, `adapterAllowlist`, `modelAllowlist.checks`); `internal/packdecl` (`unlisted_background_models`, `SendsUnlistedModels`) |
 
 **Reads with:** [`providers.md`](providers.md) (what a provider declares and which agent reads
 which endpoint — the authority), [`pack-system.md`](pack-system.md) (the contribution model, and
@@ -324,13 +330,13 @@ Exactly one is used per request, so a signature and a bearer never travel togeth
 ### The Messages pass-through, on a Bedrock upstream
 
 Everything the table above strips, a Claude model on Bedrock keeps. When the Anthropic route's
-upstream is a `bedrock-runtime.<region>.amazonaws.com` host, the bridge reads the provider's
-model list at boot, and each request's `model` picks one of two upstreams
+upstream is Bedrock's ([which upstream is Bedrock's](#which-upstream-is-bedrocks)), the bridge
+reads the provider's model list at boot, and each request's `model` picks one of two upstreams
 ([`wire-bridge-gateway.md` §3.1](../design/wire-bridge-gateway.md#31-how-it-is-built)):
 
 - **A model the list declares `"vendor": "anthropic"` for** is forwarded untranslated to
-  `https://bedrock-runtime.<region>.amazonaws.com/anthropic/v1/messages`, Bedrock's own Anthropic
-  Messages route. The body crosses as the agent sent it, so `cache_control`, `thinking`,
+  `/anthropic/v1/messages` on the upstream's host, Bedrock's own Anthropic Messages route
+  (`https://bedrock-runtime.<region>.amazonaws.com/anthropic/v1/messages` on runtime's own host). The body crosses as the agent sent it, so `cache_control`, `thinking`,
   `metadata`, tools and every other field reach Claude unchanged. The agent's `anthropic-version`
   (`2023-06-01` when it sends none) and `anthropic-beta` headers go with it, and its caller token
   never does. The answer, streamed as Anthropic server-sent events or not, is relayed byte for
@@ -373,12 +379,42 @@ Both upstreams share the route's SigV4 signer and credential chain. A Bedrock AP
 The serve line names the Messages URL and the ids it carries, and each request line that went
 untranslated says so, with its model id. No body is ever logged.
 
-> [!WARNING]
-> **Only a provider the bridge reaches at runtime's `/openai/v1` has this route.** A Bedrock
-> provider that declares no `openai` endpoint, such as the shipped `bedrock`, which each agent's
-> own Bedrock client reaches from a region, gives the bridge no address and so no Anthropic
-> route to serve it on, until the region-composed URL lands
-> ([`wire-bridge-gateway.md` §8](../design/wire-bridge-gateway.md#8-build-order), step 1).
+<a id="which-upstream-is-bedrocks"></a>
+
+### Which upstream is Bedrock's, and the region-composed one
+
+**The provider's `platform` decides, then the host**
+([`WG-I37`](../design/wire-bridge-gateway.md#WG-I37)). A provider whose `platform` is
+`aws-bedrock` is signed with SigV4 at whatever `https` address it names: runtime's own host, a
+FIPS or VPC endpoint, or a proxy. A provider that declares no such platform is signed only when
+its upstream host is exactly `bedrock-runtime.<region>.amazonaws.com`, and any other address
+carries the provider's bearer key as before. A Bedrock provider at a plain `http` address is not
+served: the route idles with that reason.
+
+**The region** ([`WG-I38`](../design/wire-bridge-gateway.md#WG-I38)) is the runtime host's
+region when the upstream is that host; else the provider's own `region`; else the served agent's
+`AWS_REGION`, then `AWS_DEFAULT_REGION`, read at boot from the same key channel as its credential
+(the credential gate's region fill puts a region from `~/.aws/config` in `AWS_REGION`). A value
+that is not a region's shape is refused by name, never used, so no variable can name a host. With
+no region, the adapter route idles and a via route answers `503`, each naming the variables it
+read. The serve line says which variable the region came from.
+
+**A Bedrock provider that names no address** ([`WG-I39`](../design/wire-bridge-gateway.md#WG-I39)),
+such as the shipped `bedrock`, is reached at runtime's own
+`https://bedrock-runtime.<region>.amazonaws.com/openai/v1`, composed from that region:
+
+- **On a via route** that one base carries both wires, so pi's, opencode's and oh-omp's
+  chat-completions and codex's Responses reach it alike.
+- **On the adapter route**, which claude and copilot reach, the provider needs an anthropic
+  address to be routed at. `packs/wire-bridge`'s `openai → anthropic` adapter declares
+  `"from_platforms": ["aws-bedrock"]`, so composition gives such a provider the adapter's address
+  and marks it `"for_via": "wire-bridge"` in the composed table. The mark means the address is
+  used only under a profile whose `via` names the bridge (`bedrock-bridge`): the daemon serves the
+  route only for such a profile, copilot's derive composes nothing without one, and on
+  `-p bedrock` claude keeps its own Bedrock client. An address with the mark never makes a
+  provider unspeakable to an agent that cannot use it, and is no endpoint at all for a profile
+  without the via, so codex, opencode and pi on `-p bedrock` are unchanged
+  ([protocol resolution](protocol-resolution.md#an-address-composed-for-a-via)).
 
 <a id="streamed-usage"></a>
 
@@ -498,10 +534,16 @@ declared `via_address`, under the path prefix `/agent/<agent>/`. The design and 
   the provider does not declare gets a 404 naming the provider, and is never translated or sent to
   the other endpoint. pi, oh-omp and opencode send chat-completions; codex sends Responses.
 - **The credential is per upstream.** A route reads its provider's `api_key_env_name` from the
-  same key channel as the adapter route ([WB-D4](#wb-d4)). An upstream on an exact
-  `bedrock-runtime.<region>.amazonaws.com` host is signed with SigV4 instead, through the same
-  chain as the adapter route. The agent's own `Authorization` header, which carries the launch's
-  [caller token](#caller-authentication), is never forwarded.
+  same key channel as the adapter route ([WB-D4](#wb-d4)). A Bedrock upstream
+  ([which upstream is Bedrock's](#which-upstream-is-bedrocks)) is signed with SigV4 instead,
+  through the same chain as the adapter route, and a Bedrock provider that names no address is
+  reached at runtime's own `/openai/v1` in the served agent's region. The agent's own
+  `Authorization` header, which carries the launch's [caller token](#caller-authentication), is
+  never forwarded.
+- **A model off a narrowed list is refused.** When a `models` `only` narrowed the provider's list
+  and the agent's profile keeps `enforce_models` on, a request naming another model gets a `400`
+  `invalid_request_error` naming the model, the list and the switch, and nothing is sent upstream
+  ([the model allowlist](#the-model-allowlist)).
 - **An upstream with no credential idles alone.** It answers 503 with an OpenAI-shaped error
   naming the variable (or, for Bedrock, the credential sources) it needs, and the other routes
   still serve. The daemon log states each route's upstream and credential source, or why it idles.
@@ -523,6 +565,38 @@ prints `+ wire-bridge (via of profile <name>, active for <agent>)`. So a pi-only
 daemon. As with `needs` ([WB-D9](#wb-d9)), a via may name only an embedded official pack, and that
 pack must declare a service with a `via_address`; either failure refuses the launch, naming the
 profile.
+
+<a id="the-model-allowlist"></a>
+
+### The model allowlist
+
+On the bridge path the bridge is the one hard refusal of a model outside the provider's list
+([`wire-bridge-gateway.md` §6](../design/wire-bridge-gateway.md#6-part-5--all-traffic-through-the-bridge-new-direction-design),
+[OQ-WG3](../design/wire-bridge-gateway.md#OQ-WG3)). There is no second list: the allowlist is the
+provider's composed list after a `models` `only`, the one every picker renders
+([`model-lists-and-pickers.md`](../design/model-lists-and-pickers.md#7-how-a-company-pack-shapes-a-list-the-models-kind)).
+A list no `only` narrowed refuses nothing. The switch is the profile's `enforce_models`, on unless
+the profile says `false`.
+
+| Route | Refuses when | The refusal |
+| :--- | :--- | :--- |
+| a via route | the provider's list is narrowed and the agent's own profile has the switch on | an OpenAI-shaped `400` |
+| the adapter route | the list is narrowed and every agent reaching the provider there (claude, copilot) has the switch on and none is exempt, because the bridge cannot tell their requests apart | an Anthropic-shaped `400`, before the Messages pass-through or the translation |
+
+Each refusal names the model, the provider, the list and the setting that turns it off, and a body
+naming `model` twice is refused too, since the bridge reads one and the provider might read the
+other ([WG-I40](../design/wire-bridge-gateway.md#WG-I40), [WG-I43](../design/wire-bridge-gateway.md#WG-I43)).
+A request that names no model, such as `GET /models`, is not the list's.
+
+**Exempt agents** ([WG-I41](../design/wire-bridge-gateway.md#WG-I41)). A program whose pack
+declares `"unlisted_background_models": true` sends requests for models off the list that yolo does
+not pin to it, so the bridge admits every model it sends and logs an off-list one. `packs/codex`
+declares it (its review and memories models bypass the picker) and so does `packs/copilot` (which
+ids its background requests carry is unmeasured). claude does not: yolo pins every one of its
+tiers to the list. The daemon reads the declarations from the jail's staged pack tree, and when
+it cannot read one it refuses no model and says so in its log
+([WG-I42](../design/wire-bridge-gateway.md#WG-I42)). The serve line says, per route, whether a
+model off the list is refused or logged.
 
 ## Caller authentication
 
