@@ -518,16 +518,7 @@ func TestStageHookPanicIsContained(t *testing.T) {
 // a pty with no foreground process group signals nobody when its size changes.
 // A test that only resized would assert nothing at all.
 func TestWinchResignalsTheChild(t *testing.T) {
-	master, slave, err := openPty()
-	if err != nil {
-		t.Skipf("cannot open pty: %v", err)
-	}
-	defer unix.Close(master)
-
-	origIn, origOut := os.Stdin, os.Stdout
-	os.Stdin = os.NewFile(uintptr(slave), "pty-slave-stdin")
-	os.Stdout = os.NewFile(uintptr(slave), "pty-slave-stdout")
-	defer func() { os.Stdin, os.Stdout = origIn, origOut; unix.Close(slave) }()
+	master, _ := fakeHostTTY(t)
 
 	// `sleep & wait` rather than a bare `sleep`: a POSIX shell defers a trap until
 	// the current foreground command finishes, so a bare sleep would swallow the
@@ -535,13 +526,19 @@ func TestWinchResignalsTheChild(t *testing.T) {
 	// kills the sleep too — a backgrounded child inherits the proxy pty and holds
 	// it open, so the proxy's drain would never see EOF and the test would hang
 	// after already having proved its point.
-	done := make(chan int, 1)
-	go func() {
-		rc, _ := RunWithProxy([]string{"sh", "-c",
-			`trap 'stty size <&0; kill $S 2>/dev/null; exit 0' WINCH; sleep 10 & S=$!; wait`}, nil, nil)
-		done <- rc
-	}()
-	time.Sleep(200 * time.Millisecond)
+	//
+	// THE RESIZE WAITS FOR THE CHILD TO SAY ITS TRAP IS SET: the T it prints once the
+	// trap and $S are in place. That T also proves the proxy is pumping, which it starts
+	// only after registering for SIGWINCH. A 200ms sleep used to stand in for both. When
+	// sh was slow to start, the re-signal reached a shell with no trap yet, which ignores
+	// SIGWINCH by default, and the failure below then blamed resyncWinsize. The sleep
+	// outlasts every wait below, so a missing signal cannot end the child inside one.
+	run := startProxied(t, master, []string{"sh", "-c",
+		`trap 'stty size <&0; kill $S 2>/dev/null; exit 0' WINCH; sleep 30 & S=$!; printf T; wait`}, Observer{})
+	if got, ok := readUntil(master, "T", childDeadline); !ok {
+		t.Fatalf("the child never said its WINCH trap was set (read %q): the child or the proxy "+
+			"never got going, which says nothing about resizes", got)
+	}
 
 	// Resize the FAKE HOST pty, then tell the proxy the way the kernel would.
 	want := &unix.Winsize{Row: 41, Col: 137}
@@ -554,40 +551,19 @@ func TestWinchResignalsTheChild(t *testing.T) {
 
 	// The child's `stty size` lands on the proxy pty, which the proxy pumps to
 	// os.Stdout — the fake host pty slave — so it comes back out of `master`.
-	out := make(chan string, 1)
-	go func() {
-		buf := make([]byte, 256)
-		var acc []byte
-		for {
-			n, err := unix.Read(master, buf)
-			if n > 0 {
-				acc = append(acc, buf[:n]...)
-				if strings.Contains(string(acc), "41 137") {
-					out <- string(acc)
-					return
-				}
-			}
-			if err != nil {
-				out <- string(acc)
-				return
-			}
+	if got, ok := readUntil(master, "41 137", childDeadline); !ok {
+		// Anything but the proxy's own reset on its way out is the child's report.
+		if strings.TrimSpace(strings.ReplaceAll(got, termReset, "")) != "" {
+			t.Fatalf("child reported %q, want the resized 41x137", got)
 		}
-	}()
-
-	select {
-	case got := <-out:
-		if !strings.Contains(got, "41 137") {
-			t.Errorf("child reported %q, want the resized 41x137", got)
-		}
-	case <-time.After(5 * time.Second):
 		t.Fatal("the child never saw a SIGWINCH. The proxy writes the new size to its " +
 			"pty but that pty has no foreground process group, so nothing signals the " +
 			"child — this is size drift, and resyncWinsize's targeted re-signal is what " +
 			"closes it.")
 	}
 	select {
-	case <-done:
-	case <-time.After(5 * time.Second):
+	case <-run.done:
+	case <-time.After(childDeadline):
 		t.Error("proxy did not return after the child exited")
 	}
 }
