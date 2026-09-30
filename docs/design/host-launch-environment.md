@@ -124,9 +124,9 @@ accepts that: *"it's just not feasible to otherwise know these things."* The fix
   shell rc should reach a host agent *"just the same as it is outside"*. The doc filed it as
   [OQ-HE10](#oq-he10) and applied it to the agent's PATH only.
 - **2026-09-29.** [HP-DIR2](host-tool-provisioning.md#HP-DIR2) (*"yolo host will let it use the
-  node from the project. It will have a fallback of the floor"*) and [OQ-HE10](#oq-he10) (c) put the caller's
-  PATH first for the agent. The same questions were then queued for a ruling a second time, and
-  HE-DIR1 answered that the checks read that PATH too.
+  node from the project. It will have a fallback of the floor"*) and [OQ-HE10](#oq-he10) (c) put
+  the caller's PATH first for the agent. The same questions were then queued for a ruling a second
+  time, and [HE-DIR1](#he-dir1) answered that the checks read that PATH too.
 
 **What stands of the 2026-09-25 ruling.**
 
@@ -146,7 +146,7 @@ accepts that: *"it's just not feasible to otherwise know these things."* The fix
 
 **What follows the launcher**, by ruling:
 
-- whether a program yolo checks for but does not provide is found (HE-DIR1);
+- whether a program yolo checks for but does not provide is found ([HE-DIR1](#he-dir1));
 - which copy of a program no floor entry covers runs, as when the user types it
   ([HP-DIR4](host-tool-provisioning.md#HP-DIR4), [OQ-HE11](#oq-he11));
 - what the agent's own commands find: the caller's PATH, first ([OQ-HP7](host-tool-provisioning.md#OQ-HP7),
@@ -328,7 +328,9 @@ folder a pack declares ([OQ-HE2](#oq-he2)), no typed entry for mise ([OQ-HE3](#o
 HE-DIR1.
 
 **With `host_path` unset, the launch PATH is the ambient PATH**, which is what every check reads
-today. A user who never writes the key sees no verdict change.
+today. A user who never writes the key sees no verdict change but one: a wrapper in the wrap dir no
+longer counts as the program it wraps ([HE-D5](#he-d5)), a false *present* whose launch would have
+exited 127 anyway, since the exec already skips that folder.
 
 **`host_path` grammar.** `host_path` is a list of directory strings. Each is absolute, or starts
 with `~/`, which is expanded against `paths.Home()`. Validation refuses:
@@ -662,12 +664,12 @@ into the list.
 
 ### <a id="oq-he6"></a>💬 [`OQ-HE6`](#oq-he6) — does yolo keep looking for API keys in the shell that started it? — **OPEN**
 
-**Setup.** Your `~/.bashrc` has `export ANTHROPIC_API_KEY=…`, and your claude profile runs on
-Anthropic's API with that key. You have never listed a key file in `env_sources`, the user-config
-list of files yolo reads keys from. From a terminal, `yolo host -- claude` starts. A Waybar button
-running the same command never read `.bashrc`, so yolo refuses before claude starts. The refusal
-says the key is not set, that yolo looked in *"the environment yolo was launched from"*, and that
-the key belongs in one of the places it looked.
+**Setup.** You select the pi and zai packs, and your `~/.bashrc` has `export ZAI_API_KEY=…`, the
+key the zai provider names. You have never listed a key file in `env_sources`, the user-config
+list of files yolo reads keys from. From a terminal, `yolo host -p zai -- pi` starts. A Waybar
+button running the same command never read `.bashrc`, so yolo refuses before pi starts. The
+refusal says `ZAI_API_KEY` is not set, that yolo looked in *"the environment yolo was launched
+from"*, and that the key belongs in one of the places it looked.
 
 That is the PATH case over again: whether the launch refuses depends on who started yolo. Today
 yolo reads the shell for keys at both notches.
