@@ -277,7 +277,7 @@ func (o *Options) awaitJailMainEnd(m *jailMain, cname, rt string) (stopped bool)
 	case <-time.After(jailMainEndGrace):
 	}
 	if o.findRunningContainer(cname, rt) != "" {
-		o.stopJail(cname, rt)
+		o.stopJail(cname, rt, firstSessionEndedReason)
 		stopped = true
 	}
 	<-m.exited

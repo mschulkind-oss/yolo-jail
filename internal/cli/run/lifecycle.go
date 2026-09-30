@@ -191,7 +191,12 @@ func (o *Options) liveYoloContainers(rt string) (map[string]struct{}, bool) {
 
 // stopJail does a best-effort stop (--rm removes it), then drops the owner-PID
 // file. Bounded timeout so teardown can't hang.
-func (o *Options) stopJail(cname, rt string) {
+//
+// reason says why, and is recorded BEFORE the stop (stopreason.go): every session the stop ends
+// prints it, and a record written after would race the sessions reading it. Every caller has to
+// give one, so no stop is silent to the sessions it ends.
+func (o *Options) stopJail(cname, rt, reason string) {
+	o.recordJailStop(cname, reason)
 	if rt == "container" {
 		o.Exec([]string{"container", "stop", cname}, "", nil, 30*time.Second)
 	} else {
@@ -249,7 +254,7 @@ func (o *Options) reapOrphanedJails(rt string) {
 			continue // a session is still in it, or its count cannot be read
 		}
 		out.printf("[dim]Reaping orphaned jail %s (owner pid %d is gone)...[/dim]", name, pid)
-		o.stopJail(name, rt)
+		o.stopJail(name, rt, orphanReapReason(o.Getpid(), pid))
 		o.stopLoopholes(nil, hostServiceSocketsDir(name, o.IsMacOS), name, rt)
 		sessions.release()
 	}

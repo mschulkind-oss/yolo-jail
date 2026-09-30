@@ -370,9 +370,10 @@ func TestADisarmedLaunchSignalArmDoesNothing(t *testing.T) {
 // the hold form carrying this launch's stage; the session lock and the signal arm are taken
 // before the main process starts; the first session is the first-session run, handed the arm,
 // and its command is sessionCmd's; the arm stays armed from the first session's return through
-// the main process's end, and is disarmed after it and before the teardown; the launch's status
-// is firstSessionStatus's. The deferred session-lock release at Run's top is pinned too.
-// Deleting any of them fails here.
+// the main process's end, and is disarmed after it and before the teardown; the first session's
+// end is recorded for the jail's other sessions before the main process's end is waited for
+// (stopreason.go); the launch's status is firstSessionStatus's. The deferred session-lock release
+// at Run's top is pinned too. Deleting any of them fails here.
 func TestTheFreshLaunchRunsTheJailAsAHoldAndItsFirstSessionByExec(t *testing.T) {
 	fd := funcDecl(t, "run.go", "runContainer")
 	pos := map[string]token.Pos{}
@@ -394,7 +395,7 @@ func TestTheFreshLaunchRunsTheJailAsAHoldAndItsFirstSessionByExec(t *testing.T) 
 		switch name {
 		case "provisionStage", "sessionCmd", "firstSessionExecCmd", "holdSessionLock",
 			"armLaunchSignals", "startJailMain", "awaitReady", "runArmedSession", "detach",
-			"awaitJailMainEnd", "firstSessionStatus", "teardownAfterExit":
+			"recordFirstSessionEnd", "awaitJailMainEnd", "firstSessionStatus", "teardownAfterExit":
 			firstPos(name, call.Pos())
 		case "disarm":
 			disarms = append(disarms, call.Pos())
@@ -419,7 +420,7 @@ func TestTheFreshLaunchRunsTheJailAsAHoldAndItsFirstSessionByExec(t *testing.T) 
 	})
 	order := []string{"append HoldMainArg", "provisionStage", "firstSessionExecCmd", "sessionCmd",
 		"holdSessionLock", "armLaunchSignals", "startJailMain", "awaitReady", "runArmedSession",
-		"detach", "awaitJailMainEnd", "firstSessionStatus", "teardownAfterExit"}
+		"detach", "recordFirstSessionEnd", "awaitJailMainEnd", "firstSessionStatus", "teardownAfterExit"}
 	last := token.NoPos
 	for _, name := range order {
 		p, ok := pos[name]

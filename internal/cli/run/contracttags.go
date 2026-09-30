@@ -508,7 +508,7 @@ var (
 // about to publish into (stopLoopholes leaves the dir to a launch that holds the lock).
 func (o *Options) restartJailForAttach(cname, rt string) bool {
 	o.pr(o.Stdout).printf("[bold cyan]Stopping %s; this launch then starts it fresh...[/bold cyan]", cname)
-	o.stopJail(cname, rt)
+	o.stopJail(cname, rt, attachRestartReason(o.Getpid()))
 	for i := 0; i < restartPollAttempts; i++ {
 		if id, answered := o.probeExistingContainer(cname, rt, 5*time.Second); answered && id == "" {
 			return true

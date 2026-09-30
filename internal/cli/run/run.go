@@ -1753,7 +1753,7 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 		o.Perf.Mark("terminate.signal")
 		o.lingerFinalSample("final (terminate arm)")
 		sp := o.Perf.Span("terminate.stop_jail")
-		o.stopJail(cname, rt)
+		o.stopJail(cname, rt, launcherInterruptedReason(o.Getpid()))
 		sp.End()
 		sp = o.Perf.Span("terminate.cleanup_port_forwarding")
 		cleanupPortForwarding(socatProcs, portSocketDir)
@@ -1896,10 +1896,16 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 	var rc int
 	if jm.awaitReady() {
 		var execErr error
+		sessionStart := o.Now()
 		rc, execErr = runArmedSession(firstExec, arm, o)
 		if !arm.detach() {
 			select {} // the signal arm is ending this launch; never race it
 		}
+		// WHY THE JAIL IS ABOUT TO END, for every session attached to it: its first session has,
+		// and the main process follows that out. Recorded now, before the end, since those
+		// sessions read it the moment theirs is cut short; and only when no stop was recorded
+		// since this session began, which would be what ended it (stopreason.go).
+		o.recordFirstSessionEnd(cname, sessionStart)
 		if execErr != nil {
 			out.printf("[bold red]Configured runtime '%s' not found on PATH.[/bold red]", rt)
 			out.print("[dim]Run `yolo check` to validate runtime availability before restarting.[/dim]")
@@ -2185,6 +2191,9 @@ func startedLoophole(handles []loopholeDaemon, name string) bool {
 func (o *Options) attachExisting(cname, rt, targetCmd string, cfg *jsonx.OrderedMap,
 	staged stagedPacks, channel *packChannel, raced bool, release func()) (rc int, restarted bool) {
 	out := o.pr(o.Stdout)
+	// The moment this entry began: a stop record older than it explains some earlier end, never
+	// this session's (stopreason.go).
+	attachStart := o.Now()
 	released := false
 	releaseLock := func() {
 		if !released && release != nil {
@@ -2439,9 +2448,18 @@ func (o *Options) attachExisting(cname, rt, targetCmd string, cfg *jsonx.Ordered
 	if msg := o.diagnoseBrokenPrefix(rt, cname, rc); msg != "" {
 		o.pr(o.Stderr).print(msg)
 	}
-	sp = o.Perf.Span("shutdown.oom_check")
-	o.maybeWarnAboutOOMKiller(rc, rt)
+	// WHY THE JAIL ENDED UNDER THIS SESSION, when it did: the status a jail's end gives an exec,
+	// a runtime that says the jail is gone, and the record whatever ended it wrote
+	// (stopreason.go). A recorded stop explains a 137, so the OOM hint, which would blame the
+	// machine's memory for it, is left out then.
+	sp = o.Perf.Span("attach.why_the_jail_ended")
+	stopped := o.noteJailEnded(cname, rt, rc, attachStart)
 	sp.End()
+	if !stopped {
+		sp = o.Perf.Span("shutdown.oom_check")
+		o.maybeWarnAboutOOMKiller(rc, rt)
+		sp.End()
+	}
 	o.emitTimingReport(rc, cname, rt)
 	return rc, false
 }

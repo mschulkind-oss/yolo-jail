@@ -44,6 +44,27 @@ func (s *stopRun) run(argv []string) (string, bool, int) {
 }
 
 func TestStopJail(t *testing.T) {
+	// A stop records why before it stops (run.RecordJailStop), under the machine's storage.
+	t.Setenv("HOME", t.TempDir())
+	t.Run("the stop records why before it stops", func(t *testing.T) {
+		cname := runtime.FromWorkspace("/ws")
+		record := filepath.Join(paths.GlobalStorage(), "owners", cname+".stopped")
+		var atStop []byte
+		s := &stopRun{stats: []string{"true\n", ""}}
+		run := func(argv []string) (string, bool, int) {
+			if len(argv) > 1 && argv[1] == "stop" {
+				atStop, _ = os.ReadFile(record)
+			}
+			return s.run(argv)
+		}
+		var out, err bytes.Buffer
+		if rc := stopJail(&out, &err, "/ws", "podman", run, nil); rc != 0 {
+			t.Fatalf("rc=%d, err=%s", rc, err.String())
+		}
+		if !strings.Contains(string(atStop), "`yolo stop` (pid ") {
+			t.Errorf("at the stop the record held %q, want yolo stop's reason", atStop)
+		}
+	})
 	t.Run("running jail is stopped gracefully", func(t *testing.T) {
 		var out, err bytes.Buffer
 		s := &stopRun{stats: []string{"true\n", ""}}

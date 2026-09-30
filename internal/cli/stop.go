@@ -131,6 +131,9 @@ func stopJail(stdout, stderr io.Writer, ws, rt string,
 		return 0
 	}
 
+	// Why, for every session the stop ends, recorded before it (recordYoloStop): each prints it
+	// once its own session is cut short.
+	recordYoloStop(cname)
 	sp = p.Span("stop.stop_container")
 	_, ran, rc = run([]string{rt, "stop", cname})
 	sp.End()
@@ -140,4 +143,10 @@ func stopJail(stdout, stderr io.Writer, ws, rt string,
 	}
 	fmt.Fprintf(stdout, "Stopped %s. The next yolo launch starts fresh.\n", cname)
 	return 0
+}
+
+// recordYoloStop records, for the sessions a stop of cname's jail ends, that `yolo stop` ended it
+// (run.RecordJailStop). Outside stopJail because that function's runner parameter is named run.
+func recordYoloStop(cname string) {
+	run.RecordJailStop(cname, run.YoloStopReason(os.Getpid()))
 }
