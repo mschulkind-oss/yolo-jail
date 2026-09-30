@@ -226,10 +226,16 @@ func TestPublishDirIsPrivateAndVerified(t *testing.T) {
 
 	t.Run("listen refuses the same directories", func(t *testing.T) {
 		dir := filepath.Join(privateDir(t), "open")
-		if err := os.Mkdir(dir, 0o755); err != nil {
+		if err := os.Mkdir(dir, 0o700); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := Listen(filepath.Join(dir, "svc.endpoint"), "127.0.0.1"); err == nil {
+		// Chmod, not Mkdir's mode: the umask filters Mkdir's, and under 077 a 0o755
+		// request comes out 0o700, a private directory Listen rightly accepts.
+		if err := os.Chmod(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if l, err := Listen(filepath.Join(dir, "svc.endpoint"), "127.0.0.1"); err == nil {
+			_ = l.Close()
 			t.Error("Listen bound a port for a publication it must refuse to write")
 		}
 	})
