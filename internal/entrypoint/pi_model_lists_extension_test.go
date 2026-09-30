@@ -123,7 +123,7 @@ console.log(JSON.stringify(registrations));
 		t.Fatalf("running the shipped extension: %v\n%s", err, out)
 	}
 	var got []struct {
-		Name   string                    `json:"name"`
+		Name   string                     `json:"name"`
 		Config map[string]json.RawMessage `json:"config"`
 	}
 	if err := json.Unmarshal(out, &got); err != nil {
