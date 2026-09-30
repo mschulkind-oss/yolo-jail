@@ -243,7 +243,7 @@ line numbers are left out on purpose, because they drift.
 
 | # | Concern | Jail | Host | macos-user | Divergence | Merge | Ruling |
 |---|---|---|---|---|---|---|---|
-| A1 | `-p` grammar | `parseRunArgs` → `applyProfileValue`: a NAME, or `cli=name,…` | `parseHostExecFlags`, plus a second loop in `hostEnv`: a bare NAME only | as jail | `yolo host -p claude=zai -- claude` refuses a profile named `claude=zai` (MEASURED) | One grammar for every front door | — (**in flight**, ES-D27, [§5](#5-already-merged-and-in-flight)) |
+| A1 | `-p` grammar | `parseRunArgs` → `applyProfileValue`: a NAME, or `cli=name,…` | `parseHostExecFlags`, plus a second loop in `hostEnv`: a bare NAME only | as jail | `yolo host -p claude=zai -- claude` refuses a profile named `claude=zai` (MEASURED) | One grammar for every front door | — (✅ **built**, ES-D27, [§5](#5-already-merged-and-in-flight)) |
 | A2 | Missing, empty and glued values; unknown flags | `-p -- x` reads the injected `run` token as the profile. `--profile=` **executes `--profile=`** in a real jail (MEASURED, rc 127). `-p=` is accepted | "needs a value". `--profile=` is silently empty. `-p=zai` is refused with the full usage | as jail | The same typo gets opposite outcomes | One value-flag reader for `-p`, `--profile`, `--at`, `--network` and `--with-credentials`. A missing or empty value gives "`<flag>` needs a value", rc 2. `-p=` is accepted everywhere. `refuseUnknownFlags`' wording everywhere | — |
 | A3 | `--at host` spellings | `parseRunArgs` → `refuseUnbuiltNotch` | `RewriteArgv`/`stripHostNotch` routes `yolo --at host … --` only | as jail | `yolo --at host -- c` runs. `yolo run --at host -- c` and a bare `yolo --at host` refuse. `yolo host --at host` gives rc 2 | The front door decides the notch once, wherever `--at` sits. `yolo host` takes `--at host` as a no-op. A run flag with no host meaning gets a named refusal | — ([OQ-2](../reference/host-agent-environment.md#oq-2) rules the alias; `confinement: host` stays refused by [`OQ-DP3`](../design/declaration-parity.md#decision-ledger)) |
 | A4 | Config-change approval | the `--accept-config-changes` flag | `YOLO_ACCEPT_CONFIG_CHANGES` only; the explicit `yolo host [flags] --` refuses the flag | as jail | One approval, two spellings, each refused at the other notch | Accept the flag on the explicit host spelling. The env var stays for the wrapper path only | [OQ-NC10](#OQ-NC10): found while building item 10, no code reads the env var, so the host has nothing for the flag to approve. ✅ Ruled A, which replaces this row's merge: the variable is retired and the flag stays refused by name, built `a1812373` ([NC-D64](#NC-D64)) |
@@ -341,7 +341,7 @@ after it, except where its **After** cell says otherwise.
 
 | # | Item | Closes | Kind | After | Done when |
 |---|---|---|---|---|---|
-| 9 | One value-flag reader (the `-p` grammar is in flight as ES-D27) | A1, A2 | **pure merge.** ✅ Built, `ffb7cd65`, with the fix-forward `f984f389` ([NC-D19](#NC-D19)) | — | `--profile=` refuses with rc 2 at both notches, and `-p=zai` works at both |
+| 9 | One value-flag reader (the `-p` grammar is ES-D27, built on its own) | A1, A2 | **pure merge.** ✅ Built, `ffb7cd65`, with the fix-forward `f984f389` ([NC-D19](#NC-D19)) | — | `--profile=` refuses with rc 2 at both notches, and `-p=zai` works at both |
 | 10 | The notch decided once at the front door; `--accept-config-changes` on the explicit host spelling | A3, A4 | **pure merge.** ✅ A3 built, `434c0920` ([NC-D20](#NC-D20)). ✅ A4 ruled by [OQ-NC10](#OQ-NC10) (no host approval: the variable retired, the flag refused by name) and built, `a1812373` ([NC-D64](#NC-D64)) | 9 | Every `--at host` spelling routes the same way |
 | 11 | One profile table builder; delivery narrows it to the launched process | A6 | **behavior-changing.** ✅ Built `b2ca409a` ([NC-D62](#NC-D62)), as [OQ-NC5](#OQ-NC5) ruled. Met: `yolo host --help` and `yolo run --help` both name the rule, and a test reads both | 6, 9 | One recipient rule, named in `--help` at both notches |
 | 12 | `--with-credentials` in a jail | A5 | **behavior-changing, gated** on [`OQ-ES5`](../design/credential-sources-separation.md#OQ-ES5)'s jail half | 11 | — |
@@ -391,14 +391,14 @@ is reported verified only against a real rootless host or CI, with
 | What | Where it stands | Rows |
 |---|---|---|
 | `-p` accepted before the `host` verb (`yolo -p bedrock host -- claude`) | **on main**, `1baf1fd4` | A1 (spelling) |
-| The host codex no-op: a profile whose provider the launch does not hold refuses (`packload.MissingProviderError`, ES-D24 to ES-D26), and the host footer leaves out a selection the host refuses | **in flight**, branch `worktree-wf_392bd9fc-1fb-1` (`TestAClaudeCodexSelectionWithoutItsProviderRefuses`, `TestHostFooterTablesLeaveOutAListWhoseFirstEntryTheHostRefuses`), not on main | B1's symptom, C1 |
-| The host reads `-p` in the run path's grammar (`parseProfileValue`, ES-D27). A pair naming another CLI refuses by name, and providers.md's "do not unify" warning is replaced | **in flight**, the same branch (`TestHostProfileForReadsTheRunGrammar`, `TestHostPairNamingAnotherCLIRefuses`) | A1 |
+| The host codex no-op: a profile whose provider the launch does not hold refuses (`packload.MissingProviderError`, ES-D24 to ES-D26), and the host footer leaves out a selection the host refuses | **on main**, pinned by `TestAClaudeCodexSelectionWithoutItsProviderRefuses` and `TestHostFooterTablesLeaveOutAListWhoseFirstEntryTheHostRefuses` | B1's symptom, C1 |
+| The host reads `-p` in the run path's grammar (`parseProfileValue`, ES-D27). A pair naming another CLI refuses by name, and providers.md's "do not unify" warning is replaced | **on main**, pinned by `TestHostProfileForReadsTheRunGrammar` and `TestHostPairNamingAnotherCLIRefuses` | A1 |
 | Per-launch caller auth for the wire bridge, amending [WB-D4](../reference/wire-bridge.md#wb-d4) | **built**, `ea083e97` ([WB-D18](../reference/wire-bridge.md#wb-d18)); item 1's other four services followed in `a5fd280f` | E1, item 1 |
 | [`host-notch-services.md`](../design/host-notch-services.md): the full shape of [OQ-NC1](#OQ-NC1)'s option A at the host. Its HS-D1 runs the closure through item 6's one selection function after item 2, HS-D2 is ES-D27, and its host halves take this plan's caller secret (NC-D2, NC-D3) | **built**, accepted: both its questions ruled and item 3 built ([NC-D65](#NC-D65)) | B1, E2, item 3 |
 | [`host-computed-layer.md`](../design/host-computed-layer.md): derives at the host | **on main**, in-review. The HC-D1 to HC-D5 follow-up fixes are in flight on `worktree-wf_ac5e8112-da7-1` | D4, D1 |
 
 > [!WARNING]
-> **ES-D24 is the trap for item 6.** The in-flight branch keeps the host off the closure on purpose,
+> **ES-D24 is the trap for item 6.** It kept the host off the closure on purpose,
 > because running it adds aws-auth's `AWS_CONTAINER_CREDENTIALS_FULL_URI=http://127.0.0.1:1461/…` to
 > `yolo host -p bedrock -- claude`: a pointer at an address nothing on the host serves, and one that
 > [§2](#2-security-first-the-boundary-that-is-not-one) shows is an injection channel. That measurement
