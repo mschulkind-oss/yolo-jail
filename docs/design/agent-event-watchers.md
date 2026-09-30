@@ -358,9 +358,9 @@ are what every deliverer calls. The box format stays private to core.
 | Form | Who calls it | Behavior |
 | :--- | :--- | :--- |
 | `yolo notify [--from NAME] [--] TEXT` (or TEXT on stdin) | a sidecar, a script, the agent itself | Writes one ping. Exits 0 on success, 2 on empty or oversized input it could not truncate, 3 when `YOLO_NOTIFY_BOX` is unset or missing (*"not running under a yolo launch"*), so a sidecar can fall back to printing. `--from` defaults to `YOLO_NOTIFY_FROM`, then to `shell` |
-| `yolo notify --wait --reader ID` | a hook that blocks, such as Claude's | Blocks until at least one ping is unread by that reader, prints them as one framed message, marks them read and exits 2. Exits 0 at once, printing nothing, if another `--wait` holds that reader's lock, or if there is no box |
-| `yolo notify --follow --reader ID` | an extension or plugin that stays running, such as pi's | Streams each batch of new pings as one JSON line, marking each read as it is written, until its stdin closes |
-| `yolo notify --drain --reader ID [--format F]` | a next-turn hook, such as codex's | Prints every unread ping and marks it read, then exits 0 immediately, printing nothing when there is none. `--format` renders the agent's hook output shape, and each shape is named by the pack that needs it |
+| `yolo notify --wait --reader ID` | a hook that blocks, such as Claude's | Holds its agent session's reader lock, which arms it, and blocks until its session is the master and a ping is untaken; takes those pings, prints them as one framed message and exits 2. Exits 0 at once, printing nothing, if another `--wait` of the same agent session holds that lock, or if there is no box |
+| `yolo notify --follow --reader ID` | an extension or plugin that stays running, such as pi's | Holds its agent session's reader lock while it runs, and whenever its session is the master, takes each batch of untaken pings and streams it as one JSON line, until its stdin closes |
+| `yolo notify --drain --reader ID [--format F]` | a next-turn hook, such as codex's | If its session is the master, takes and prints every untaken ping; then exits 0 immediately, printing nothing when there is none. `--format` renders the agent's hook output shape, and each shape is named by the pack that needs it |
 | `yolo notify --pending` | a human, or the agent | Lists the pings no master has taken yet, and marks nothing |
 | `yolo notify master [--claim \| --release] [--reader ID]` | an agent, usually because the user asked it to, or a human | Shows the box's agent sessions, oldest first, and which is master and why; `--claim` makes the agent session it runs under the master, and `--release` gives that claim back ([§3.6](#36-which-session-a-ping-wakes-the-master)) |
 
@@ -393,7 +393,11 @@ The box:
 - **Retention.** The box keeps the newest **200** pings. A box ends with its keeper.
 - **Concurrency.** Writers never coordinate, because each ping is its own file. Which reader
   takes a ping is the master rule, and the take is an atomic create in the box, so no ping is
-  taken twice ([EW-D30](#EW-D30)). Two readers with one id are serialized by that id's lock.
+  taken twice ([EW-D30](#EW-D30)). Two readers of one agent session are serialized by that
+  session's reader lock, which is keyed on the agent session (its pid and start time), never on
+  the reader id alone: two claudes resuming one conversation in two tabs (`claude --continue`)
+  can carry one session id, and a lock on the id would let one's waiter shut out the other's
+  ([EW-D27](#EW-D27)).
 - **Forbidden.** The host side never reads the box, so nothing the jail writes there can reach
   the host. The host side's writer never follows a link it finds in the box, since the jail can
   plant one. It creates each file relative to the box directory, exclusively and without
@@ -449,7 +453,7 @@ tier, so the launch can say what a sidecar's pings will do ([§3.5](#35-failure-
 | Ringing | `yolo notify` finds no box | Exit 3; the sidecar decides what to do. The CI watcher prints instead ([§4](#4-the-worked-example-the-ci-watcher)) |
 | Ringing | The sidecar floods | Past **6 pings per 60 seconds** from one `from` label, later pings stay in the box, undelivered, and the next delivered message says how many were held and names `yolo notify --pending` |
 | Delivery | The agent's pack ships no deliverer, or its tier is **held** | At launch, one disclosure line per enabled sidecar naming what its pings will do with this agent, for example *"ci-watch: pings reach claude immediately"*, *"ci-watch: pings reach codex at your next prompt"*, *"ci-watch: pings wait in the box (bash has no deliverer); `yolo notify --pending` lists them"* |
-| Delivery | A wake deliverer dies without cleanup (the Claude waiter killed, the pi child gone) | Its pings stay unread and are delivered the next time that reader arms: the next `Stop` for Claude, the next `session_start` for pi. None is lost while the launch lives |
+| Delivery | A wake deliverer dies without cleanup, or times out (the Claude waiter killed or past its 86400 seconds, the pi child gone) | Its session is passed over until it re-arms, at the next `Stop` for Claude or the next `session_start` for pi, and meanwhile pings go to the next armed session, or wait untaken if none is ([EW-D28](#EW-D28)). None is lost while the box lives, except one its master took just before its agent exited ([§3.6](#36-which-session-a-ping-wakes-the-master)) |
 | Delivery | No agent session in the box is alive, or the master exits | Pings wait untaken. The next ping goes to the next-oldest live agent session, and when none is left, the next agent session to register becomes master and takes what waits, under the cap of 20 ([EW-D28](#EW-D28)). `yolo notify --pending` lists them meanwhile |
 
 ### 3.6 Which session a ping wakes: the master
@@ -512,22 +516,41 @@ the process's start time, the reader id, the tier its pack declares, and the tim
 session is alive while a process with that pid and that start time exists, so a reused pid is
 never taken for it. The start time is field 22 of `/proc/<pid>/stat` on Linux, and the kernel's
 process record, read through `sysctl`, on macOS. A later call with the same pid and a new reader
-id, such as after claude's `/clear` or a pi reload, updates the id and keeps its place.
+id, such as after claude's `/clear` or a pi reload, updates the id and keeps its place. Whether a
+process in a macos-user sandbox may read another sandboxed process's record through `sysctl`
+under the Seatbelt profile is UNMEASURED. Where it cannot, a wake session's held reader lock is
+the evidence it is alive, which the master rule reads anyway (below), and a next-turn session,
+which holds no lock between prompts, is master there only by a claim.
 
 **The default, and when the master exits** ([EW-D28](#EW-D28)).
 
-- **With no claim in force, the master is the earliest registered agent session still alive.**
-  That is *"pick the first one launched"*, read as the first agent to start listening, which is
-  the first launched that can hear a ping at all.
+- **With no claim in force, the master is the earliest registered agent session that can take a
+  ping.** A wake session counts while its reader is armed: a `--wait` or `--follow` holding its
+  session's reader lock, which the kernel drops if the reader dies. A next-turn session counts
+  while its agent process lives. That is *"pick the first one launched"*, read with *"Let the
+  first one that gets there take it"* from the same answer: the first agent to start listening,
+  among those listening now.
+- **A master that is not armed is passed over, not lost.** Claude's waiter has a `timeout` of
+  86400 seconds and is re-armed only by `Stop` ([§3.4](#34-deliverers-per-agent)), so a claude idle
+  for a day, or one whose waiter died, is not armed, and the next ping goes to the next session
+  that is. Once it re-arms, it is the master again for the ping after. Without this, a live
+  claude with no waiter would hold every session's pings until its user typed into it.
 - **The master is resolved each time a ping is taken, never handed over.** When the master exits,
   the next ping goes to the next-oldest live session, and nothing runs at the moment of the exit.
 - **A claim lapses with its session**, and then the default applies again: the master does not
-  fall back to whoever claimed before.
+  fall back to whoever claimed before. While the claimant lives, its claim holds whether or not it
+  is armed: the user asked for that session, so a ping waits for it to re-arm, and
+  `yolo notify master` shows it as not armed.
 - **A ping rung while no agent session is alive waits untaken.** The next master takes it when it
   arms, under the box's cap: the newest 20, with a line saying how many older ones were left.
 - **The tier does not decide who is master.** A codex session launched first is master even
-  though its pings wait for the user's next prompt there, and `yolo notify master` shows that tier
-  beside it, so the user can have another session claim.
+  though its pings wait for the user's next prompt there, since *"pick the first one launched"*
+  says so. `yolo notify master` shows that tier beside it, and each launch's disclosure names the
+  master and its tier ([§3.5](#35-failure-paths)), so the user can have another session claim.
+- **A ping taken just before its master's agent exits is lost.** The take is final, so no other
+  session is handed it again. The window is the moment between a waiter's exit and claude acting
+  on its output, or between a follow line and pi's send. `yolo notify master` lists the last pings
+  taken and who took each, so a person can see one. INFERRED.
 
 **The in-jail command** ([EW-D29](#EW-D29)):
 
@@ -564,8 +587,9 @@ $ yolo notify master --claim --reader pi:3f2a     # hand it to a named session i
 **What the other sessions see** ([EW-D30](#EW-D30)). Nothing of a ping: no wake, and no copy at
 their next turn. *"This is the one that gets it"* is the rule, and a copy marked *"delivered to
 claude"* at the next turn of a second agent in the same checkout is an invitation to act on it,
-which is what option B of [OQ-EW9](#OQ-EW9) warned about. Their deliverers stay armed, so the
-next-oldest one inherits without a restart. `yolo notify --pending` and `yolo notify master` show
+which is what option B of [OQ-EW9](#OQ-EW9) warned about. Their deliverers stay armed while they
+can, so the next-oldest armed one inherits without a restart; a claude waiter that timed out
+re-arms at that claude's next `Stop`. `yolo notify --pending` and `yolo notify master` show
 what waits and what was taken, to anyone who asks. Each ping is taken by an atomic create in the
 box, so a master change racing a take gives the ping to one session, never two.
 
@@ -907,6 +931,9 @@ directed and lands with step 1.
 15. Two claudes in one jail: the first registered is master, the second is woken by nothing, and
     when the first quits the next ping wakes the second.
 16. With every agent session gone, a ping waits; the next agent to start takes it at once.
+17. A claude master idle past its waiter's timeout, or whose waiter was killed, is passed over:
+    the next ping wakes the next armed session, and after that claude's next turn it is master
+    again. Two claudes resuming one conversation in two tabs each keep an armed waiter.
 
 ## 12. Enabling a sidecar (redesign, 2026-09-29)
 
@@ -1730,8 +1757,8 @@ recorded so an implementer does not reopen them.
 | <a id="EW-D24"></a>[`EW-D24`](#14-decision-ledger) | *Implementation decision, under [OQ-JL5](jail-lifetime-last-session-wins.md#OQ-JL5)'s ruling.* **The ping box is the keeper's at every notch**: one per keeper, which is one per container jail and one per workspace at each of macos-user and `yolo host`, created when the key starts and removed, session list included, when it ends. At a container backend it is bind mounted into the jail; at `yolo host` it lives in host state no jail mounts, never under the workspace's `.yolo/`, which the same workspace's container jail can write; at macos-user it lives in a two-account dir of the shape setup provisions, outside every workspace, so no container jail of the workspace can write it (unmeasured and unbuilt). A box never spans two notches ([JL-D37](jail-lifetime-last-session-wins.md#JL-D37)), since a box a more confined notch writes and a less confined agent reads would reverse [EW-D8](#EW-D8). Until the keeper lands at containers, the launch that creates the container owns it, as [EW-D3](#EW-D3) said | 2026-09-29 | [§3.3](#33-yolo-notify-and-the-ping-box) | — |
 | <a id="EW-D25"></a>[`EW-D25`](#14-decision-ledger) | *Implementation decision, replacing [EW-D19](#EW-D19).* **Within one notch, the workspace's keeper owns each sidecar it starts from its key's first session to its last**, so a second launch there joins the keeper, starts none, shares the box, and nothing passes from launch to launch. **Across notches, one instance per workspace per machine is kept by a per-sidecar kernel lock that only keepers take**: a keeper that finds it held starts none and its launch names the holder; one that could start the sidecar later (every sidecar at `yolo host`, every host-side one elsewhere, never an agent-side one in a container, whose supervisor is fixed at boot) waits on the lock and starts its own instance when the other key ends, re-checking the vetoes, the records and the declaration's hash first. At macos-user an agent-side sidecar cannot take part, since each session's guest supervisor would start its own and only keepers take the lock, so it is not started there ([§3.2](#32-lifecycle-per-side-and-per-notch)). Forced by [JL-D14](jail-lifetime-last-session-wins.md#JL-D14): a lock that hands a running jail's sidecar from launch to launch is the handoff rejected for container jails, while a second keeper starting its own instance after the first has gone moves nothing running | 2026-09-29 | [§12.7](#127-one-machine-several-launches-or-sessions) | — |
 | <a id="EW-D26"></a>[`EW-D26`](#14-decision-ledger) | *Implementation decision, carrying out [EW-DIR3](#EW-DIR3).* **The master is an agent session, and the session list lives in the box, kept by `yolo notify`'s reader forms, not by the keeper.** Forced three ways in a jail: only the jail side sees agent sessions (a reader id is the deliverer's, and a bare shell's agents are invisible to the host), while the keeper counts sessions only as one shared lock ([JL-D2](jail-lifetime-last-session-wins.md#JL-D2)); the host side never reads the box ([EW-D8](#EW-D8)), so a keeper-held list would need a new jail-to-host channel for a claim; and any jail process can already write the box, so a list outside it protects nothing (Test 1 of [`gate-placement-principle.md`](../reference/gate-placement-principle.md#test-1--the-authority-test-could-this-actor-already-do-it)). At `yolo host` the first two do not hold, since the agent is the resident session's child and the host-side deliverers read the box; the list stays in the box there because the third still holds, and one list shape serves every notch. The keeper owns the box's lifetime ([EW-D24](#EW-D24)) | 2026-09-29 | [§3.6](#36-which-session-a-ping-wakes-the-master) | — |
-| <a id="EW-D27"></a>[`EW-D27`](#14-decision-ledger) | *Implementation decision.* **An agent session registers through its deliverer's first reader call, which passes `--agent-pid`**, and is recorded with that pid, the process's start time (`/proc/<pid>/stat` field 22 on Linux, the kernel's process record through `sysctl` on macOS), its reader id, its tier and the time. It is alive while a process with that pid and start time exists, so a reused pid never passes for it. A later call from the same pid with a new reader id (claude's `/clear`, a pi reload) updates the id and keeps its place. Each agent's pack names how its deliverer finds the pid, since core does not know what an agent is ([EW-P2](#EW-P2)); claude's `$PPID` is INFERRED and measured with its deliverer | 2026-09-29 | [§3.6](#36-which-session-a-ping-wakes-the-master) | — |
-| <a id="EW-D28"></a>[`EW-D28`](#14-decision-ledger) | *Implementation decision, reading [EW-DIR3](#EW-DIR3)'s "pick the first one launched".* **With no claim in force the master is the earliest registered agent session still alive, resolved at each take, never handed over.** When it exits, the next ping goes to the next-oldest live one; a claim lapses with its session and the default resumes, never an earlier claimant; a ping rung with no live agent session waits and the next master takes it under the cap of 20. The tier does not decide: a next-turn agent launched first is master, and `yolo notify master` shows its tier so the user can have another claim | 2026-09-29 | [§3.6](#36-which-session-a-ping-wakes-the-master) | — |
+| <a id="EW-D27"></a>[`EW-D27`](#14-decision-ledger) | *Implementation decision.* **An agent session registers through its deliverer's first reader call, which passes `--agent-pid`**, and is recorded with that pid, the process's start time (`/proc/<pid>/stat` field 22 on Linux, the kernel's process record through `sysctl` on macOS), its reader id, its tier and the time. It is alive while a process with that pid and start time exists, so a reused pid never passes for it. A later call from the same pid with a new reader id (claude's `/clear`, a pi reload) updates the id and keeps its place. Each agent session's reader lock is keyed on that session, its pid and start time, never on the reader id alone, since two claudes resuming one conversation can carry one session id. Where a macos-user sandbox cannot read another process's record (UNMEASURED), a wake session's held reader lock is its liveness, and a next-turn session is master there only by a claim. Each agent's pack names how its deliverer finds the pid, since core does not know what an agent is ([EW-P2](#EW-P2)); claude's `$PPID` is INFERRED and measured with its deliverer | 2026-09-29 | [§3.6](#36-which-session-a-ping-wakes-the-master) | — |
+| <a id="EW-D28"></a>[`EW-D28`](#14-decision-ledger) | *Implementation decision, reading [EW-DIR3](#EW-DIR3)'s "pick the first one launched".* **With no claim in force the master is the earliest registered agent session that can take a ping, resolved at each take, never handed over.** A wake session can while its reader holds its session's reader lock, and a next-turn session while its agent lives; one whose waiter timed out or died is passed over until it re-arms, since *"Let the first one that gets there take it"* is in the same answer. When it exits, the next ping goes to the next-oldest one that can take it; a claim holds while its claimant lives, armed or not; a claim lapses with its session and the default resumes, never an earlier claimant; a ping rung with no live agent session waits and the next master takes it under the cap of 20. The tier does not decide: a next-turn agent launched first is master, and `yolo notify master` and each launch's disclosure show its tier so the user can have another claim. A ping taken just before its master's agent exits is lost, and the last takes are listed | 2026-09-29 | [§3.6](#36-which-session-a-ping-wakes-the-master) | — |
 | <a id="EW-D29"></a>[`EW-D29`](#14-decision-ledger) | *Implementation decision, carrying out [EW-DIR3](#EW-DIR3)'s in-jail command.* **`yolo notify master` shows the list; `--claim` makes the calling agent session master; `--release` gives the claim back; `--reader ID` names another session.** It lives under `yolo notify`, since the master governs every ping, while `yolo sidecar` turns sidecars on and off, a different act with its own rules of who may run it ([EW-D17](#EW-D17), as [OQ-EW10](#OQ-EW10) revised it). The caller passes nothing: the command walks its own ancestors to the first registered agent process, with `--reader` as the fallback where that cannot be read (macos-user's Seatbelt profile, UNMEASURED). **A claim needs no prompt**: a confirmation would stop nothing any jail process cannot already do to the box, and an agent's tool shell has no terminal to answer one; *"likely on request of the user"* is how an agent comes to run it, not a gate. The claim is printed and recorded (who, when, whom it displaced), and the environment briefing names the command wherever a box exists | 2026-09-29 | [§3.6](#36-which-session-a-ping-wakes-the-master) | — |
 | <a id="EW-D30"></a>[`EW-D30`](#14-decision-ledger) | *Implementation decision, reading [EW-DIR3](#EW-DIR3)'s "this is the one that gets it".* **Only the master is handed a ping: other sessions get no wake and no copy at their next turn**, since a marked copy in front of a second agent in one checkout invites it to act, which is [OQ-EW9](#OQ-EW9)'s option B risk. Their deliverers stay armed to inherit. Each ping is taken once, by an atomic create in the box, so a claim racing a take gives it to one session, never two. Several sessions of one agent are several agent sessions, and nothing keys on the agent's name ([EW-P2](#EW-P2)) | 2026-09-29 | [§3.6](#36-which-session-a-ping-wakes-the-master) | — |
 | <a id="EW-D31"></a>[`EW-D31`](#14-decision-ledger) | *Implementation decision.* **A host-side sidecar's log and its `YOLO_SIDECAR_STATE` live in host state no jail mounts**, keyed by the workspace's container name beside the keeper's log, never under the workspace's `.yolo/`; an agent-side sidecar's stay inside its confinement. The keeper opens and rotates the log without following a link, and mirrors it into `launch.log` only through `paths.OpenWorkspaceStateFile`, as [JL-D19](jail-lifetime-last-session-wins.md#JL-D19) mirrors the keeper's own lines. Forced as [EW-D24](#EW-D24) was for the box: the same workspace's container jail can write `.yolo/`, so a link planted there would turn the keeper's log write, or a host-side sidecar's state write, into a write to any file the host user can, and state a jail can edit would shape the pings a host-side sidecar sends to an unconfined `yolo host` agent | 2026-09-29 | [§3.2](#32-lifecycle-per-side-and-per-notch) | — |
