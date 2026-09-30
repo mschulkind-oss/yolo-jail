@@ -342,9 +342,12 @@ folder a pack declares ([OQ-HE2](#oq-he2)), no typed entry for mise ([OQ-HE3](#o
 HE-DIR1.
 
 **With `host_path` unset, the launch PATH is the ambient PATH**, which is what every check reads
-today. A user who never writes the key sees no verdict change but one: a wrapper in the wrap dir no
-longer counts as the program it wraps ([HE-D5](#he-d5)), a false *present* whose launch would have
-exited 127 anyway, since the exec already skips that folder.
+today. A user who never writes the key sees no change in a PATH check's verdict but one: a wrapper
+in the wrap dir no longer counts as the program it wraps ([HE-D5](#he-d5)), a false *present* whose
+launch would have exited 127 anyway, since the exec already skips that folder. A program a
+selected pack delivers leaves the PATH checks altogether: its floor entry answers for it
+([§3](#3-one-authority--the-seam)), and what that changes is in
+[§4.1](#41-nothing-to-stage).
 
 **`host_path` grammar.** `host_path` is a list of directory strings. Each is absolute, or starts
 with `~/`, which is expanded against `paths.Home()`. Validation refuses:
@@ -469,9 +472,22 @@ two checks can disagree. The wrapper checks above are the only readers of the ba
 
 ### 4.1 Nothing to stage
 
-Nothing that works today stops working because of this design, so it ships whole, with no
-report-first stage and no migration notice ([HE-D8](#he-d8)). With `host_path` unset, every check
-reads the PATH it reads today. What a user sees change, from the first release:
+**The PATH half changes no check that works today**, so it ships whole, with no report-first stage
+and no migration notice ([HE-D8](#he-d8)). With `host_path` unset, every check of a program no
+floor entry covers reads the PATH it reads today.
+
+**The floor half does change what runs, and a launch that works today can fail.** A delivered
+agent named bare runs from the floor, not from the user's copy
+([HP-DIR4](host-tool-provisioning.md#HP-DIR4)). Where the floor has no copy yet, the first such
+launch installs it before the exec, with a terminal or without one
+([HP-D3](host-tool-provisioning.md#HP-D3)). That install is bounded at 600 s, and it fails offline
+or behind a proxy that blocks it
+([§4 of the floor design](host-tool-provisioning.md#4-when-provisioning-runs)). So a
+`yolo host -- claude` that runs `~/.local/bin/claude` today can fail the first time on a machine
+with no network. That change is HP-DIR4's, and HP-D3 discloses the install on the launch line.
+This design adds no notice of its own.
+
+What a user sees change, from the first release:
 
 - a program a selected pack delivers runs from the floor, not from a copy the user installed
   ([HP-DIR4](host-tool-provisioning.md#HP-DIR4));
@@ -948,7 +964,7 @@ here rather than settled in the body.
 | <a id="he-d5"></a>**HE-D5** | 2026-09-29 | *Implementation decision:* one resolver computes the launch PATH once per process; every host PATH check goes through its lookup, which skips `yoloManagedDirs()` as the exec's does | Two readers of PATH can disagree, and a check that did not skip the wrap dir would read a wrapper as the program it wraps |
 | <a id="he-d6"></a>**HE-D6** | 2026-09-29 | *Implementation decision:* an install the dependency gate runs gets `PATH` set to the launch PATH, and the re-probe reads the same value | The re-probe then asks the PATH the installer ran with, so an install that lands in a `host_path` folder is found |
 | <a id="he-d7"></a>**HE-D7** | 2026-09-29 | *Implementation decision:* `yolo check`'s host launch section reads the PATH of the shell it runs in, plus `host_path`, and says so in the section | A check run from a terminal cannot see a widget's PATH, and a green section must not read as a promise about every launcher |
-| <a id="he-d8"></a>**HE-D8** | 2026-09-29 | *Implementation decision under HE-DIR1:* no staging and no migration notice. The design ships whole | With `host_path` unset, every check reads the PATH it reads today, so nothing breaks that a notice would have warned about. The report-first stages existed only for the withdrawn switch |
+| <a id="he-d8"></a>**HE-D8** | 2026-09-29 | *Implementation decision under HE-DIR1:* no staging and no migration notice for the PATH half. The design ships whole | With `host_path` unset, every check of a program no floor entry covers reads the PATH it reads today, so no PATH verdict breaks that a notice would have warned about. The report-first stages existed only for the withdrawn switch. The floor half does change what runs: a delivered agent runs from the floor, and its first install can fail offline ([§4.1](#41-nothing-to-stage)). That change is [HP-DIR4](host-tool-provisioning.md#HP-DIR4)'s, and [HP-D3](host-tool-provisioning.md#HP-D3) discloses the install on the launch line |
 | <a id="he-d9"></a>**HE-D9** | 2026-09-29 | *Implementation decision under HE-DIR1 and [OQ-HE10](#oq-he10) (c):* the child's PATH has no per-OS baseline either. It is the launch PATH, then the floor's `bin/`. **The cost, stated:** (c) as asked said the baseline "fills in for a launcher whose PATH lacks it (Waybar)". A bare launcher's child now gets only what its launcher handed yolo, plus `host_path`'s folders. For example, a Mac hotkey launcher's agent no longer finds `/opt/homebrew/bin` unless `host_path` names it | One PATH for the checks and the child ([§2.1](#21-the-criterion--decision-inputs-versus-carried-variables)), so a check never reads missing a tool the agent then finds, or the reverse. The baseline's contents were [OQ-HE1](#oq-he1)'s and [OQ-HE8](#oq-he8)'s open questions and never ruled, so (c) named a list nobody had decided. One `host_path` line fixes the checks and the child at once, and every delivered agent runs from the floor whatever the launcher's PATH holds ([HP-DIR4](host-tool-provisioning.md#HP-DIR4)). Reversible: a baseline for the child alone would reopen [OQ-HE1](#oq-he1) and [OQ-HE8](#oq-he8) for the child |
 | <a id="he-d10"></a>**HE-D10** | 2026-09-29 | *Implementation decision, reversible, answering [OQ-HE6](#oq-he6):* at `yolo host`, the shell that started yolo keeps counting for the three checks that read it today (the credential pre-flight, the region pre-flight and the [OQ-SSO8](sso-backed-bedrock.md#OQ-SSO8) override check) and for the credential gate's delivery. Nothing is built. A refusal names where yolo looked, the launch environment among them | The check reads what the delivery reads (`checkProviderCredentials`: *"the check and the delivery cannot disagree"*), and at the host the delivery is the inherited shell plus what yolo composes ([CN-D13](provider-credential-scope.md#7-decision-ledger), [BR-D2](bedrock-plumbing.md#BR-D2)). Stopping only the check refuses launches the delivery serves. Stopping the delivery too drops `ANTHROPIC_AUTH_TOKEN` for `yolo host -p zai -- claude`. [OQ-HE0](#oq-he0) was said about PATH, so reading it as covering keys is the widening HE-DIR1 corrected (the recorder's reading) |
 
