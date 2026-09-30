@@ -433,12 +433,18 @@ file carries the exec bit the pack's tree could not. The `macos-user` guest decl
 daemon whose argv names a jail binary, as it declines `{jail_loophole_dir}`: that path exists
 only in a container. A host binary runs there as it does anywhere.
 
-**No pack yolo ships declares `binaries` yet**, because yolo's own release does not build one:
-which platforms it will build, where it will publish them and how each digest gets into the
-embedded manifest are decided and not built
-([`broker-as-a-pack.md` §14](../design/broker-as-a-pack.md#14-the-release-matrix)).
-`TestNoShippedManifestDeclaresABinaryYet` (`internal/loopholedecl`) fails the short suite if an
-embedded manifest declares one first, since its URLs would name files no release publishes.
+**No pack yolo ships declares `binaries` yet.** When one does, yolo's own release builds the
+program from `cmd/<name>` for each platform the release ships `yolo` to that the loophole runs
+on (a jail build is always `linux/<arch>`), and publishes each build as a bare file on the tag's
+GitHub release, named `<name>_<version>_<goos>_<goarch>`
+([`broker-as-a-pack.md` §14](../design/broker-as-a-pack.md#14-the-release-matrix)). The
+url and `sha256` are committed before the tag by `just pin-pack-binaries <version>`, which runs
+the pin tool (`tools/pack-binaries`) and builds reproducibly with one pinned Go. `just release`,
+the release before it uploads, and PyPI's gate each rebuild and refuse a digest the tree does
+not produce. `TestEveryOfficialBinaryIsOnTheReleaseMatrix` (`internal/loopholedecl`) holds every
+embedded manifest to that matrix in the short suite, so a build no release produces is refused
+before it can ship. What main pins between two releases is open
+([`OQ-BP7`](../design/broker-as-a-pack.md#OQ-BP7)).
 
 > [!WARNING]
 > **A yolo older than the key reads a manifest with `binaries` tolerantly**: it skips the key
