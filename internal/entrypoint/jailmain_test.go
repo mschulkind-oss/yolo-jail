@@ -3,9 +3,11 @@ package entrypoint
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"testing"
@@ -421,7 +423,8 @@ func TestTheStageRunsWithItsStatusAndTheSessionActivation(t *testing.T) {
 // hold-main jail waits for the boot and takes or waits for provisioning before its own pass,
 // which writes the pass log rather than the main process's boot.log (attachPassLog, whose
 // choice TestASessionsPassLeavesTheJailsBootLog drives); the stage runs after the pass and
-// before the exec. Deleting any of these calls fails here.
+// before the exec, through provisionThisSession, which records its duration. Deleting any of
+// these calls fails here.
 func TestMainWiresTheHoldAndTheGateInOrder(t *testing.T) {
 	src, err := os.ReadFile("boot.go")
 	if err != nil {
@@ -448,7 +451,7 @@ func TestMainWiresTheHoldAndTheGateInOrder(t *testing.T) {
 		"markBoot(bootRefused)",
 		"blog.finish(nil)",
 		"return holdExitStatus(holdJail(command, os.Stderr))",
-		"gate.provision(",
+		"provisionThisSession(e, gate, runProvisionStage)",
 		"return &ExitStatus{Code: rc}",
 		"return execBash(e, command, mode != modeFirstSession)",
 	}
@@ -470,5 +473,77 @@ func TestMainWiresTheHoldAndTheGateInOrder(t *testing.T) {
 	}
 	if !strings.Contains(string(hold), "signal.Notify(signals, syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM)") {
 		t.Error("holdJail no longer catches the signals it must drop and the one it ends on")
+	}
+}
+
+// TestProvisioningHandsTheShellItsDuration: the in-container timing block reads how long the
+// first session's provisioning took from ProvisionMillisEnv, in the session's own environment
+// and in the process's, which the shell it execs inherits.
+func TestProvisioningHandsTheShellItsDuration(t *testing.T) {
+	withJailMainDir(t)
+	t.Setenv(ProvisionMillisEnv, "")
+	announceReady("the stage", &bytes.Buffer{})
+	g := newSessionGate(true, &bytes.Buffer{})
+	if p, err := g.claim(); err != nil || !p {
+		t.Fatalf("claim: %v %v", p, err)
+	}
+	e := NewEnv(map[string]string{})
+	var ran string
+	rc := provisionThisSession(e, g, func(got *Env, stage string) int {
+		if got != e {
+			t.Error("the stage was not run with the session's own Env")
+		}
+		ran = stage
+		time.Sleep(30 * time.Millisecond)
+		return 0
+	})
+	if rc != 0 || ran != "the stage" {
+		t.Fatalf("rc %d ran %q, want 0 and the recorded stage", rc, ran)
+	}
+	for where, v := range map[string]string{"the session's Env": e.Getenv(ProvisionMillisEnv), "the process": os.Getenv(ProvisionMillisEnv)} {
+		if ms, err := strconv.Atoi(v); err != nil || ms < 30 {
+			t.Errorf("%s carries %s=%q, want the stage's duration in milliseconds (at least 30)", where, ProvisionMillisEnv, v)
+		}
+	}
+}
+
+const provisionInterruptRoleEnv = "YOLO_ENTRYPOINT_PROVISION_INTERRUPT_ROLE"
+
+// TestACtrlCDuringProvisioningIsTheStagesToDecide: a Ctrl-C at the first session's terminal
+// reaches its entrypoint and the stage together (one process group). The entrypoint must
+// survive it, so that it records what the STAGE decided: a stage that exits 130 on the
+// interrupt is a refusal with that status, which every waiting session then reads. Without the
+// entrypoint catching SIGINT for the stage's life it would die first, and the waiters would
+// read an abandoned run instead. The child process stands in for the first session's
+// entrypoint, in a process group of its own, as a terminal's foreground job is.
+func TestACtrlCDuringProvisioningIsTheStagesToDecide(t *testing.T) {
+	if _, err := exec.LookPath("bash"); err != nil {
+		t.Skip("needs bash")
+	}
+	if dir := os.Getenv(provisionInterruptRoleEnv); dir != "" {
+		jailMainDir = dir
+		announceReady(`trap 'exit 130' INT; kill -INT 0; sleep 5; exit 0`, &bytes.Buffer{})
+		g := newSessionGate(true, &bytes.Buffer{})
+		if p, err := g.claim(); err != nil || !p {
+			fmt.Println("claim:", p, err)
+			os.Exit(2)
+		}
+		home := t.TempDir()
+		e := NewEnv(map[string]string{"JAIL_HOME": home})
+		e.Home = home
+		rc := provisionThisSession(e, g, runProvisionStage)
+		raw, _ := readMainState(provisionOutcomeFile)
+		fmt.Printf("RC=%d OUTCOME=%s\n", rc, raw)
+		os.Exit(0)
+	}
+	cmd := exec.Command(os.Args[0], "-test.run=^TestACtrlCDuringProvisioningIsTheStagesToDecide$", "-test.count=1")
+	cmd.Env = append(os.Environ(), provisionInterruptRoleEnv+"="+filepath.Join(t.TempDir(), "main"))
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("the first session's entrypoint did not survive the Ctrl-C (%v):\n%s", err, out)
+	}
+	if !strings.Contains(string(out), "RC=130 OUTCOME=refused 130") {
+		t.Errorf("want the stage's 130 recorded as the run's refusal:\n%s", out)
 	}
 }

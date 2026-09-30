@@ -119,10 +119,11 @@ func TestTheMainProcessClientRunsDetachedFromTheTerminalsSignals(t *testing.T) {
 }
 
 // TestAMainProcessThatExitsBeforeReadyIsARefusal: awaitReady is false, the status is the
-// client's, and the refusal's lines are all printed by the time exited closes.
+// client's, and the refusal's lines are all printed by the time exited closes, a last line with
+// no newline included (the relay's flush, which startJailMain must call at the stream's end).
 func TestAMainProcessThatExitsBeforeReadyIsARefusal(t *testing.T) {
 	var stderr lockedBuffer
-	m, err := startJailMain([]string{"sh", "-c", `echo "BOOT REFUSED here" >&2; exit 1`},
+	m, err := startJailMain([]string{"sh", "-c", `echo "BOOT REFUSED here" >&2; printf 'and its last words' >&2; exit 1`},
 		&bytes.Buffer{}, &stderr, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -136,6 +137,9 @@ func TestAMainProcessThatExitsBeforeReadyIsARefusal(t *testing.T) {
 	}
 	if !strings.Contains(stderr.String(), "BOOT REFUSED here") {
 		t.Errorf("the refusal's line was not relayed before exited: %q", stderr.String())
+	}
+	if !strings.HasSuffix(stderr.String(), "and its last words") {
+		t.Errorf("the refusal's partial last line was lost: %q", stderr.String())
 	}
 }
 
@@ -360,7 +364,8 @@ func TestADisarmedLaunchSignalArmDoesNothing(t *testing.T) {
 // before the main process starts; the first session is the first-session run, handed the arm,
 // and its command is sessionCmd's; the arm stays armed from the first session's return through
 // the main process's end, and is disarmed after it and before the teardown; the launch's status
-// is firstSessionStatus's. Deleting any of them fails here.
+// is firstSessionStatus's. The deferred session-lock release at Run's top is pinned too.
+// Deleting any of them fails here.
 func TestTheFreshLaunchRunsTheJailAsAHoldAndItsFirstSessionByExec(t *testing.T) {
 	fd := funcDecl(t, "run.go", "runContainer")
 	pos := map[string]token.Pos{}
@@ -434,5 +439,54 @@ func TestTheFreshLaunchRunsTheJailAsAHoldAndItsFirstSessionByExec(t *testing.T) 
 	}
 	if !disarmedAfterTheEnd {
 		t.Error("runContainer does not disarm the signal arm after the main process's end and before the teardown")
+	}
+
+	// Run's deferred release of the session lock: auto-capture runs this pipeline in-process,
+	// so without it the process would count itself in the jail for its whole life.
+	deferredRelease := false
+	ast.Inspect(funcDecl(t, "run.go", "Run"), func(n ast.Node) bool {
+		if d, ok := n.(*ast.DeferStmt); ok && skelCallee(d.Call) == "releaseSessionLock" {
+			deferredRelease = true
+		}
+		return true
+	})
+	if !deferredRelease {
+		t.Error("Run no longer defers releaseSessionLock")
+	}
+}
+
+// TestTheTerminateArmKillsTheMainProcessClient pins onTerminate's kill of the main process's
+// `<rt> run` client, TARGETED at its pid. That client leads a process group of its own, so no
+// signal to the launcher's group reaches it, and without the kill an arm's teardown would
+// leave it running with nobody waiting on it.
+func TestTheTerminateArmKillsTheMainProcessClient(t *testing.T) {
+	var onTerminate *ast.FuncLit
+	ast.Inspect(funcDecl(t, "run.go", "runContainer"), func(n ast.Node) bool {
+		if as, ok := n.(*ast.AssignStmt); ok && len(as.Lhs) == 1 && skelIdent(as.Lhs[0]) == "onTerminate" {
+			if fl, ok := as.Rhs[0].(*ast.FuncLit); ok {
+				onTerminate = fl
+			}
+		}
+		return true
+	})
+	if onTerminate == nil {
+		t.Fatal("runContainer's onTerminate closure moved; re-anchor this pin, do not delete it")
+	}
+	killsIt := false
+	ast.Inspect(onTerminate, func(n ast.Node) bool {
+		call, ok := n.(*ast.CallExpr)
+		if !ok || skelCallee(call) != "Kill" {
+			return true
+		}
+		// jm.cmd.Process.Kill()
+		if proc, ok := call.Fun.(*ast.SelectorExpr).X.(*ast.SelectorExpr); ok && proc.Sel.Name == "Process" {
+			if cmd, ok := proc.X.(*ast.SelectorExpr); ok && cmd.Sel.Name == "cmd" && skelIdent(cmd.X) == "jm" {
+				killsIt = true
+			}
+		}
+		return true
+	})
+	if !killsIt {
+		t.Error("onTerminate no longer kills the main process's client (jm.cmd.Process.Kill)")
 	}
 }

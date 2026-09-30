@@ -11,7 +11,6 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
-	"strconv"
 	"strings"
 	"time"
 )
@@ -671,10 +670,7 @@ func Main(args []string) error {
 	// command, which is where it ran when it was the container's own first clause. Its status
 	// is the session's when it refused, so `yolo -- …` returns what the stage returned.
 	if provisioner {
-		start := time.Now()
-		rc := gate.provision(func(stage string) int { return runProvisionStage(e, stage) })
-		setEnvBoth(e, ProvisionMillisEnv, strconv.FormatInt(time.Since(start).Milliseconds(), 10))
-		if rc != 0 {
+		if rc := provisionThisSession(e, gate, runProvisionStage); rc != 0 {
 			return &ExitStatus{Code: rc}
 		}
 	}
