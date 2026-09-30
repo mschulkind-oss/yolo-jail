@@ -180,6 +180,33 @@ func TestHostApplyRendersPisSet(t *testing.T) {
 	}
 }
 
+// `yolo host apply` LEAVES OUT a set every launch notch refuses, rather than writing its primary
+// into the user's real files: two entries on one provider (a user's zai-fast beside zai) is
+// named on the report, and pi's settings.json carries no selection from it. Deleting the
+// omission branch in composeHostInputs writes defaultProvider zai.
+func TestHostApplyLeavesOutASetItCannotRender(t *testing.T) {
+	home := hostComputedHome(t, `{"packs":["pi","zai"],
+		"profiles":{"zai-fast":{"provider":"zai"}},
+		"use_profiles":{"pi":["zai","zai-fast"]}}`)
+	var out, errw bytes.Buffer
+	if rc := hostMain([]string{"apply", "--assert"}, &out, &errw, false, strings.NewReader("y\n")); rc != 0 {
+		t.Fatalf("yolo host apply --assert rc=%d\n%s%s", rc, out.String(), errw.String())
+	}
+	report := out.String() + errw.String()
+	for _, want := range []string{"use_profiles pi → zai, zai-fast is not applied at the host",
+		`both resolve to provider "zai"`} {
+		if !strings.Contains(report, want) {
+			t.Errorf("the apply must say %q:\n%s", want, report)
+		}
+	}
+	settings := readJSONAt(t, home, ".pi/agent/settings.json")
+	for _, key := range []string{"defaultProvider", "defaultModel", "enabledModels"} {
+		if v, ok := settings[key]; ok {
+			t.Errorf("a set the apply left out must write no selection, but %s = %v", key, v)
+		}
+	}
+}
+
 // The credential pre-flight at the host demands every entry's key and names the missing one's
 // position; the agent is never started on the rest.
 func TestHostRefusesASetMissingAnEntrysKey(t *testing.T) {
