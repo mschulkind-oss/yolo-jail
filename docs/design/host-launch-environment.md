@@ -11,8 +11,8 @@ summary: "At `yolo host`, yolo's checks (is a program a pack needs present, and 
 > ⚠ **Read [§0](#0-the-governing-ruling) first.** On 2026-09-29 the maintainer ruled that yolo's checks at
 > the host **read the PATH yolo was started with** ([HE-DIR1](#he-dir1)). The doc had read the
 > 2026-09-25 ruling the opposite way and asked [OQ-HE1](#oq-he1) to [OQ-HE9](#oq-he9) on that
-> reading, twice. It is restated under HE-DIR1: eight of those nine are retired or answered by it,
-> and [OQ-HE6](#oq-he6) is open ([§9](#9-open-questions)).
+> reading, twice. It is restated under HE-DIR1, which retires or answers each of them except
+> [OQ-HE6](#oq-he6), which is open ([§9](#9-open-questions)).
 
 **Status:** DESIGN, 2026-09-25; restated 2026-09-29 under [HE-DIR1](#he-dir1). Nothing is built.
 The code claims were re-read against `303e0367` on 2026-09-29. Besides HE-DIR1 it rests on three
@@ -607,8 +607,8 @@ Each test is chosen by the repo's question: **does it fail if I delete the call 
 
 ## 9. Open questions
 
-One question is open, [OQ-HE6](#oq-he6). The nine others the 2026-09-25 reading raised are retired
-or answered by [HE-DIR1](#he-dir1). Each keeps its anchor and says why in a line.
+One question is open, [OQ-HE6](#oq-he6). Every other question the 2026-09-25 reading raised is
+retired or answered by [HE-DIR1](#he-dir1). Each keeps its anchor and says why in a line.
 
 ### <a id="oq-he1"></a>✅ [`OQ-HE1`](#oq-he1) — what does an unset `host_path` resolve to once enforced? — **ANSWERED BY HE-DIR1, 2026-09-29**
 
@@ -915,7 +915,7 @@ here rather than settled in the body.
 
 | Id | Date | Decision | Why it holds |
 | :--- | :--- | :--- | :--- |
-| <a id="he-dir1"></a>**HE-DIR1** | 2026-09-29 | **Maintainer ruling, revising [OQ-HE0](#oq-he0) for PATH:** yolo's checks at the host read the PATH yolo was started with, when it has one, plus `host_path` when set; nothing is guessed, and a bare-PATH launcher may get a different answer. *"It's just not feasible to otherwise know these things … I just don't see any way around it."* | The "checks never read the ambient PATH" extension of [OQ-HE0](#oq-he0) was the doc's, never the maintainer's. Under it, [OQ-HE6](#oq-he6) is restated and open; the other eight of [OQ-HE1](#oq-he1) to [OQ-HE9](#oq-he9) are retired or answered ([§9](#9-open-questions)) |
+| <a id="he-dir1"></a>**HE-DIR1** | 2026-09-29 | **Maintainer ruling, revising [OQ-HE0](#oq-he0) for PATH:** yolo's checks at the host read the PATH yolo was started with, when it has one, plus `host_path` when set; nothing is guessed, and a bare-PATH launcher may get a different answer. *"It's just not feasible to otherwise know these things … I just don't see any way around it."* | The "checks never read the ambient PATH" extension of [OQ-HE0](#oq-he0) was the doc's, never the maintainer's. Under it, [OQ-HE6](#oq-he6) is restated and open; the rest of [OQ-HE1](#oq-he1) to [OQ-HE9](#oq-he9) are retired or answered ([§9](#9-open-questions)) |
 | <a id="oq-he0"></a>[**OQ-HE0**](#oq-he0) | 2026-09-25 | `yolo host` does not depend on the environment it was launched in unless a `YOLO_*` variable or explicit config names the dependence. This supersedes the opportunistic mise-shims append. **Revised for PATH by [HE-DIR1](#he-dir1)**: the PATH yolo was started with is read | Maintainer ruling ([§0](#0-the-governing-ruling)). It still governs every decision input but PATH; whether it covers credentials, which yolo reads from the shell today, is [OQ-HE6](#oq-he6) |
 | [**OQ-HE10**](#oq-he10) | 2026-09-29 | (c): the child's PATH is the ambient PATH, then `host_path`'s folders (the "composed value", now without a baseline), then the floor's `bin/`, duplicates removed. A bare name of a program a selected pack delivers execs from the floor by path; a path is exec'd as given; any other bare name is looked up on that child PATH | Answered by [OQ-HP7](host-tool-provisioning.md#OQ-HP7) (the agent's commands see the user's own environment) and the maintainer's ruling [HP-DIR4](host-tool-provisioning.md#HP-DIR4) (the floor's copy of a pack's agent runs, from any launcher). Its recorded "checks never read the ambient PATH" is superseded by [HE-DIR1](#he-dir1) |
 | [**OQ-HE11**](#oq-he11) | 2026-09-29 | (a): a program the floor cannot hold runs from the child's PATH, and the launch says the floor holds no copy and why. The macOS host capture is prioritized | Keeps a Mac user's working `yolo host -- claude` working until [HP-D2](host-tool-provisioning.md#HP-D2) ships; departs from [HP-DIR4](host-tool-provisioning.md#HP-DIR4) only where the floor has nothing to run instead |
