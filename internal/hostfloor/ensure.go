@@ -172,6 +172,11 @@ func (f *Floor) newerThan(ctx context.Context, p Program, rec *Record) (string, 
 			return "", fmt.Errorf("its Node v%s is gone from the floor", rec.Node)
 		}
 		name, _ := packdecl.SplitNpmSpec(p.Install.Package)
+		// SAID BEFORE THE POLL, because the poll is the network: a slow or unreachable registry
+		// holds the launch for up to the poll timeout, once an interval, before the "starting"
+		// line — a wait that is yolo's, not the agent's, and a launch has no quiet mode.
+		f.say("checking the npm registry for a newer %s than %s (at most %s)", p.Bin(), rec.Version,
+			f.pollTimeout())
 		res, err := f.runBounded(ctx, f.pollTimeout(), f.Dir, f.npmEnv(nodeBin, ""),
 			[]string{filepath.Join(nodeBin, "npm"), "view", name, "version"}, true)
 		if err != nil {
