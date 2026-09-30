@@ -275,3 +275,17 @@ func TestHostFooterTablesFoldTheProfileKeysDefault(t *testing.T) {
 		}
 	}
 }
+
+// A LIST in the profile key (docs/design/active-provider-sets.md) reaches the footer's table as
+// the list, whose first entry the footer names; its pairing is the first entry's, so a list the
+// host composes is kept like the name it starts with.
+func TestHostFooterTablesKeepAComposedList(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+	writeFile(t, filepath.Join(home, ".config", "yolo-jail", "config.jsonc"),
+		`{"packs": ["claude", "pi", "zai", "openrouter"], "profile": {"pi": ["zai", "openrouter"]}}`)
+	if got := hostFooterTables().UseProfiles; got != `{"pi": ["zai", "openrouter"]}` {
+		t.Errorf("host footer profile = %q, want pi's list", got)
+	}
+}

@@ -89,10 +89,16 @@ func hostFooterTables() footer.Tables {
 		return t
 	}
 	composed := jsonx.NewOrderedMap()
+	// A value is an agent's ACTIVE SET (docs/design/active-provider-sets.md), a name or a list;
+	// the footer names its first entry (packload.ProfileTable), so that is the pairing asked.
+	sets := packload.ProfileSets(use)
 	for _, agent := range use.Keys() {
 		v, _ := use.Get(agent)
-		if profile, _ := v.(string); packload.PairingRefusal(packs, providers, resolved, agent,
-			profile, unservable) != nil {
+		profile := ""
+		if set := sets[agent]; len(set) > 0 {
+			profile = set[0]
+		}
+		if packload.PairingRefusal(packs, providers, resolved, agent, profile, unservable) != nil {
 			continue
 		}
 		composed.Set(agent, v)
