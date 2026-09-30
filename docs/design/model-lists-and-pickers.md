@@ -19,13 +19,13 @@ neither [OQ-MM1](#OQ-MM1) nor [OQ-MM3](#OQ-MM3) decides — the `models` kind, t
 switch, each agent's rendering under an `only`, claude's routed picker and tier pins, and the
 four defects [§14](#14-how-each-agents-menu-is-set-researched-2026-09-29) found ([§14.5](#145-what-was-built-2026-09-29)). On
 2026-09-30: `yolo check`'s currency warning ([MM-D16](#MM-D16), [§9](#9-currency-the-agents-catalogs-plus-a-staleness-warning))
-and claude's conventional tier aliases ([MM-D17](#MM-D17)). Also on 2026-09-30, each after
-the measurement it waited on, recorded in [§14.4](#144-build-order):
-pi's refusing wrapper ([MM-D6](#MM-D6), [MM-D21](#MM-D21); [§14.6](#146-what-was-built-2026-09-30)),
-and codex's prelaunch catalog on `openai-codex` ([MM-D9](#MM-D9), [MM-D22](#MM-D22)), whose
-Bedrock half the measurement ruled out. copilot's `providers.json` ([MM-D10](#MM-D10)) is stopped: its measurement found that the file's
-models join GitHub's own, which the decision did not expect, and that is now
-[OQ-MM4](#OQ-MM4). MEASURED at
+and claude's conventional tier aliases ([MM-D17](#MM-D17)). Also on 2026-09-30, each after the
+measurement it waited on, recorded in [§14.4](#144-build-order): pi's refusing wrapper
+([MM-D6](#MM-D6), [MM-D21](#MM-D21); [§14.6](#146-what-was-built-2026-09-30)), and codex's
+prelaunch catalog on `openai-codex` ([MM-D9](#MM-D9), [MM-D22](#MM-D22)), whose Bedrock half
+the measurement ruled out. copilot's `providers.json` ([MM-D10](#MM-D10)) is stopped: its
+measurement found that the file's models join GitHub's own, which the decision did not expect,
+and that is now [OQ-MM4](#OQ-MM4). MEASURED at
 `ee8154f2` (2026-09-24): a pack's provider `models` is a flat alias → id map; the object form of
 a model is user config only; `packs/claude/derive.lua` and `packs/pi/derive.lua` hard-coded the
 `openai-codex` ids then; packs/claude's `bedrock` provider declares no `models`. SOURCED
@@ -1124,10 +1124,9 @@ never a real model, and each marked here as it is taken:
     providers can be mixed within a single session"*, while with the environment variables, in
     copilot's own help, *"the CLI uses this provider instead of GitHub Copilot's model routing"*.
     And `app.js` merges the file's models (`mergeByokModelList`) into the list GitHub's API
-    returns. So in the
-    file's mode a copilot signed in to GitHub shows GitHub's models beside the list, a GitHub
-    model picked there is served by GitHub rather than the profile's provider, an `only` no
-    longer decides copilot's menu, and the bridge never sees that request. MM-D10 promised the
+    returns. So in the file's mode a copilot signed in to GitHub shows GitHub's models beside the
+    list, a GitHub model picked there is served by GitHub rather than the profile's provider, an
+    `only` no longer decides copilot's menu, and the bridge never sees that request. MM-D10 promised the
     list, [§13](#13-build-order-and-what-done-looks-like)'s "copilot's menu is the same five".
     The item is stopped and the choice is [OQ-MM4](#OQ-MM4). Whether the file's mode starts at
     all with no GitHub login is decided in the native runtime: UNMEASURED.
@@ -1157,8 +1156,10 @@ never a real model, and each marked here as it is taken:
   **Two more facts the build rests on, read the same way.** A `model_catalog_json` naming no file
   stops codex's config from loading (`load_catalog_json` in `core/src/config/mod.rs` reads the
   file with `?`, and the binary holds its *"failed to parse model_catalog_json path"* and
-  *"must contain at least one model"* messages). And `-c` is a global, appending flag whose later
-  value wins (`utils/cli/src/config_override.rs`). Both decide [MM-D22](#MM-D22).
+  *"must contain at least one model"* messages). And `-c` is a global, appending flag, whose
+  root-level values rank below those given after a subcommand, and whose value, when it does not
+  parse as TOML, is taken as a string, which an absolute path never parses as
+  (`utils/cli/src/config_override.rs`). Both decide [MM-D22](#MM-D22).
 - **What the subscription's backend list holds. UNMEASURED**, and neither a shipped bundle nor a
   mock provider can answer it: it is the live answer of the ChatGPT backend for one account. The
   menu yolo builds replaces it for the session ([MM-D9](#MM-D9)), so no build waits on it.
@@ -1223,6 +1224,11 @@ drives the production call site, the boot render or the shipped file, and fails 
 | :--- | :--- | :--- |
 | pi's refusing wrapper ([MM-D6](#MM-D6), [MM-D21](#MM-D21)) | `yolo.derive("pi", "model-lists")` gives each narrowed list the switch of the profile that governs it, as `enforce`, and the api of the models.json row it writes, as `api`. With `enforce` on, `yolo-model-lists.js` registers the list with that api, or the one pi's catalog gives it, and a `streamSimple` that throws yolo's refusal for an id off the list and hands a listed one to pi's own stream: the built-in provider of that id when it serves the api, else pi's api registry. A list spanning two pi apis, or one whose stream the extension cannot find, registers the exact menu alone and warns once. With `enforce` off, `models` alone, as before | `TestPiModelListsExtensionRefusesAModelOutsideTheList`, `TestPiModelListsExtensionRegistersTheRenderedListAlone`, `TestPiModelListsExtensionDelegatesAProviderPiDoesNotShipToItsAPIRegistry`, `TestPiModelListsExtensionSaysWhenAListSpanningTwoAPIsCannotBeRefused`, `TestPiModelListsExtensionReadsTheBedrockAPIFromPisCatalog`, `TestPiNarrowedListCarriesItsProfilesModelSwitch`, `TestPiGetsANarrowedListToRegister` |
 | codex's menu on `openai-codex` ([MM-D9](#MM-D9), [MM-D22](#MM-D22)) | `yolo.derive("codex", "model-list")` writes the subscription's list, ids and names in order, to `~/.codex/yolo-model-list.json` on `-p codex` alone. The codex program's new `model_menu` declaration tells its launcher to run `codex debug models --bundled` through `yolo internal model-menu`, which keeps that catalog's entries for the listed ids in list order, renumbers `priority`, takes each name as `display_name`, clears `upgrade` and `availability_nux`, sets `visibility`, writes `~/.codex/yolo-model-menu.json`, and prints `-c model_catalog_json=<file>`, which the launcher puts ahead of the user's argv. An id the catalog lacks is left out with a warning; with none left, or no catalog, no flag. The menu is rebuilt only when codex, the list or the declaration changed. Both launcher templates carry the step | `TestCodexLauncherHandsCodexItsModelMenu`, `TestCodexLauncherAddsNoMenuWhereThereIsNone`, `TestCodexModelListIsTheSubscriptionsListOnly`, `TestCodexModelMenuReadsTheListItsSurfaceWrites`, `TestTheNpmLauncherHandsItsProgramAModelMenuToo`, `TestYoloInternalModelMenuRunsTheMenuAgainstHome`, `internal/modelmenu/modelmenu_test.go`, `internal/packdecl/modelmenu_test.go` |
+
+**What only a real run can confirm.** That codex 0.159.2 reads the menu through
+`-c model_catalog_json=<file>` and its `/model` picker shows exactly those entries, which this
+build took as far as the argv codex is exec'd with; and that a pi session shows the wrapper's
+refusal as the turn's error, which the measurement took as far as the refused stream.
 
 ---
 
