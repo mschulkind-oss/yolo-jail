@@ -578,11 +578,16 @@ func hostExec(flagArgs, cmd []string, out, errw io.Writer, stdin io.Reader) int 
 		printHostLines(errw, block)
 	}
 
-	target, err := resolveHostTarget(os.Getenv("PATH"), cmd[0])
-	if err != nil {
-		fmt.Fprintf(errw, "yolo host: %v\n", err)
-		return 127
+	// WHICH BINARY RUNS (HP-DIR4, host-launch-environment.md §3): a bare name of a program a
+	// selected pack delivers is the FLOOR's copy, installed first when missing; a path is exec'd
+	// as given; anything else is looked up on the child's PATH — the caller's PATH, then the
+	// floor's bin/ (OQ-HE10 (c), HE-D1), which is also the PATH the child is handed below.
+	childPath := hostChildPath(os.Getenv("PATH"), hostFloorBinDir())
+	resolved, rc := resolveHostLaunchTarget(launch.packs, cmd[0], childPath, errw)
+	if rc != 0 {
+		return rc
 	}
+	target := resolved.Path
 	// argv[0] stays the name the user typed, not the resolved path: agents branch on it
 	// (usage text, `$0`), and handing them an absolute path changes what they print.
 	argv := injectHostLaunchFlags(launch.packs, append([]string{cmd[0]}, cmd[1:]...), errw)
@@ -608,7 +613,7 @@ func hostExec(flagArgs, cmd []string, out, errw io.Writer, stdin io.Reader) int 
 	// `yolo host -- codex` runs its own refresh adapter and sets the URL the codex pack's
 	// pointer names, so that one is not missing and is not named.
 	printHostLines(errw, launch.unservedLines(managedHostVars(managed)))
-	environ := launch.environ()
+	environ := launch.childEnviron(childPath)
 	// THE LAUNCH-OWNED SERVICES (docs/design/host-notch-services.md §4.4): started after the
 	// agent resolved on PATH and after the prelaunch, so a missing agent starts nothing and the
 	// OpenAI login exists before the bridge asks for a view; the agent starts only once each

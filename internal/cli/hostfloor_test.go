@@ -1,0 +1,222 @@
+package cli
+
+import (
+	"bytes"
+	"errors"
+	"io"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/hostfloor"
+	"github.com/mschulkind-oss/yolo-jail/internal/hostfloor/floortest"
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+)
+
+// productionHostFloor is newHostFloor as the package built it, kept so a test can reach the
+// production wiring (the call sites) while TestMain holds the disarmed default.
+var productionHostFloor = newHostFloor
+
+// disarmTheHostFloor makes the package's default floor one that can install NOTHING: its Node
+// distribution is an address nothing listens on and it has no capture act, so no test that
+// happens to launch a selected pack's agent can download a runtime or boot a capture jail — the
+// no-agent-tests rule one level down, as depInstallRun's guard is. It also leaves every pack out
+// (`host_floor: false`), so a fixture that launches `yolo host -- claude` against a stub on PATH
+// keeps exec'ing that stub: the OQ-HE11 branch, with its one line. A test about the floor itself
+// installs its own (withTestFloor).
+func disarmTheHostFloor() {
+	newHostFloor = func(out io.Writer, progs []hostfloor.Program) *hostfloor.Floor {
+		f := productionHostFloor(out, progs)
+		f.Include = func(string) bool { return false }
+		f.Node.BaseURL = "http://127.0.0.1:1/test-guard-no-node-download"
+		f.Capture = func(bin string) error {
+			return errors.New("test guard: refusing to run `yolo capture " + bin + "`")
+		}
+		return f
+	}
+}
+
+// withTestFloor gives this test the PRODUCTION floor wiring — the prefix under HOME, the
+// user-scope `host_floor` and `agent_updates`, the capture store — with its Node taken from a fake
+// distribution and its npm the fake registry's, and no capture act. It returns the distribution,
+// whose registry the test publishes into.
+func withTestFloor(t *testing.T) *floortest.Dist {
+	t.Helper()
+	dist := floortest.NewDist(t)
+	orig := newHostFloor
+	newHostFloor = func(out io.Writer, progs []hostfloor.Program) *hostfloor.Floor {
+		f := productionHostFloor(out, progs)
+		f.Node = hostfloor.NodeDist{BaseURL: dist.URL, Shipped: floortest.Shipped,
+			Pinned: map[string]string{dist.Platform: dist.SHA256}}
+		f.Environ = append(os.Environ(), dist.Environ()...)
+		f.Capture = func(bin string) error {
+			return errors.New("test guard: refusing to run `yolo capture " + bin + "`")
+		}
+		return f
+	}
+	t.Cleanup(func() { newHostFloor = orig })
+	return dist
+}
+
+// floorLaunchFixture is a host whose user config selects one fixture pack declaring
+// `program floorcli via npm`, with a HAND-INSTALLED floorcli on the caller's PATH — the copy
+// HP-DIR4 says `yolo host` does not run. extra is appended to the config object.
+func floorLaunchFixture(t *testing.T, extra string) (dist *floortest.Dist, handInstalled string) {
+	t.Helper()
+	home := floortest.ResolvedTemp(t)
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+	t.Setenv("YOLO_VERSION", "")
+	t.Chdir(floortest.ResolvedTemp(t))
+	pack := filepath.Join(floortest.ResolvedTemp(t), "floorpack")
+	writeFile(t, filepath.Join(pack, "pack.json"), `{"name":"floorpack","contributes":[
+	  {"kind":"program","bin":"floorcli","via":"npm","package":"floorcli-pkg"}]}`)
+	writeFile(t, filepath.Join(home, ".config", "yolo-jail", "config.jsonc"),
+		`{"packs":[{"source":"file://`+pack+`","name":"floorpack"}]`+extra+`}`)
+	orig := prepareOpenAIAuthHost
+	prepareOpenAIAuthHost = func(hostPrelaunch, io.Writer) (managedOpenAIHostLaunch, error) { return nil, nil }
+	t.Cleanup(func() { prepareOpenAIAuthHost = orig })
+	dist = withTestFloor(t)
+	dist.Publish("floorcli-pkg", "1.0.0", "bin=floorcli")
+	return dist, filepath.Join(stubBins(t, "floorcli"), "floorcli")
+}
+
+// execCapture stands in for the exec and records what `yolo host` handed it.
+type execCapture struct {
+	execed bool
+	target string
+	argv   []string
+	env    []string
+}
+
+func captureHostExec(t *testing.T) *execCapture {
+	t.Helper()
+	got := &execCapture{}
+	orig := hostSyscallExec
+	hostSyscallExec = func(target string, argv, env []string) error {
+		got.execed, got.target, got.argv, got.env = true, target, argv, env
+		return nil
+	}
+	t.Cleanup(func() { hostSyscallExec = orig })
+	return got
+}
+
+func envValue(env []string, key string) string {
+	for _, kv := range env {
+		if v, ok := strings.CutPrefix(kv, key+"="); ok {
+			return v
+		}
+	}
+	return ""
+}
+
+// TestHostLaunchRunsTheFloorsCopyOfASelectedPacksAgent pins HP-DIR4 at the CALL SITE — hostExec,
+// through the production floor wiring — and §8's first two rows: the first launch installs the
+// agent into the floor (saying so), and every launch, from a terminal PATH that has a
+// hand-installed copy or from a widget's bare PATH, execs the FLOOR's copy by path. The child's
+// PATH is the caller's, then the floor's bin/ last (OQ-HE10 (c), HE-D1). Replace the resolution in
+// hostExec with the old PATH lookup and the first assertion fails: the target is the stub.
+func TestHostLaunchRunsTheFloorsCopyOfASelectedPacksAgent(t *testing.T) {
+	dist, handInstalled := floorLaunchFixture(t, "")
+	got := captureHostExec(t)
+	var errw bytes.Buffer
+	if rc := hostExec(nil, []string{"floorcli", "--flag"}, io.Discard, &errw, nil); rc != 0 || !got.execed {
+		t.Fatalf("hostExec rc=%d execed=%v:\n%s", rc, got.execed, errw.String())
+	}
+	floorBin := filepath.Join(paths.HostFloorDir(), "bin")
+	launcher := filepath.Join(floorBin, "floorcli")
+	if got.target != launcher {
+		t.Fatalf("exec'd %s, want the floor's copy %s (the caller's PATH has %s, which HP-DIR4 "+
+			"says is not the copy `yolo host` runs)", got.target, launcher, handInstalled)
+	}
+	if strings.Join(got.argv, " ") != "floorcli --flag" {
+		t.Errorf("argv = %q: argv[0] stays the name the user typed", got.argv)
+	}
+	childPath := envValue(got.env, "PATH")
+	if !strings.HasPrefix(childPath, filepath.Dir(handInstalled)+string(os.PathListSeparator)) ||
+		!strings.HasSuffix(childPath, string(os.PathListSeparator)+floorBin) {
+		t.Errorf("child PATH = %s, want the caller's PATH first and %s last", childPath, floorBin)
+	}
+	if !strings.Contains(errw.String(), "installing floorcli into yolo's floor") {
+		t.Errorf("the first launch installed without saying so:\n%s", errw.String())
+	}
+
+	// From a Waybar widget: a bare PATH, no mise, no ~/.local/bin. Same copy, no second install.
+	t.Setenv("PATH", "/usr/bin:/bin")
+	errw.Reset()
+	*got = execCapture{}
+	if rc := hostExec(nil, []string{"floorcli"}, io.Discard, &errw, nil); rc != 0 || got.target != launcher {
+		t.Fatalf("from a bare PATH: rc=%d target=%s\n%s", rc, got.target, errw.String())
+	}
+	if n := len(dist.NpmCalls("install")); n != 1 {
+		t.Errorf("npm install ran %d times across two launches, want 1", n)
+	}
+}
+
+// TestHostLaunchOfAProgramTheFloorCannotHoldRunsThePATHCopyAndSaysSo is OQ-HE11's interim
+// behavior (the ruling is open; the task keeps today's behavior): a selected pack's program with
+// no floor entry — here `host_floor` leaves the pack out — is looked up on the caller's PATH, and
+// one line says the copy is not yolo's. Nothing is installed.
+func TestHostLaunchOfAProgramTheFloorCannotHoldRunsThePATHCopyAndSaysSo(t *testing.T) {
+	dist, handInstalled := floorLaunchFixture(t, `,"host_floor":{"floorpack":false}`)
+	got := captureHostExec(t)
+	var errw bytes.Buffer
+	if rc := hostExec(nil, []string{"floorcli"}, io.Discard, &errw, nil); rc != 0 || got.target != handInstalled {
+		t.Fatalf("rc=%d target=%s, want the PATH copy %s\n%s", rc, got.target, handInstalled, errw.String())
+	}
+	if !strings.Contains(errw.String(), "yolo has no copy of floorcli") ||
+		!strings.Contains(errw.String(), "host_floor") {
+		t.Errorf("the launch did not say the copy is not yolo's, and why:\n%s", errw.String())
+	}
+	if len(dist.NpmCalls("install")) != 0 {
+		t.Error("a program the floor may not hold was installed")
+	}
+	if _, err := os.Stat(paths.HostFloorDir()); err == nil {
+		t.Errorf("the launch created %s for a program with no floor entry", paths.HostFloorDir())
+	}
+}
+
+// TestHostLaunchThatCannotInstallItsAgentRefusesAndExecsNothing: a first install that fails is
+// the launch's failure — exit 127, the installer's own last line, no exec of some other copy.
+func TestHostLaunchThatCannotInstallItsAgentRefusesAndExecsNothing(t *testing.T) {
+	dist, _ := floorLaunchFixture(t, "")
+	dist.Publish("floorcli-pkg", "1.0.0", "bin=floorcli", "fail")
+	got := captureHostExec(t)
+	var errw bytes.Buffer
+	rc := hostExec(nil, []string{"floorcli"}, io.Discard, &errw, nil)
+	if rc != 127 || got.execed {
+		t.Fatalf("rc=%d execed=%v (target %s), want 127 and no exec\n%s", rc, got.execed, got.target, errw.String())
+	}
+	for _, want := range []string{"could not install floorcli into yolo's floor", "npm ERR! 404"} {
+		if !strings.Contains(errw.String(), want) {
+			t.Errorf("stderr lacks %q:\n%s", want, errw.String())
+		}
+	}
+}
+
+// TestHostLaunchOfATargetGivenAsAPathRunsThatFile: `yolo host -- ~/src/x/dist/floorcli` runs that
+// build, keyed on its base name for the composition, and never the floor's copy.
+func TestHostLaunchOfATargetGivenAsAPathRunsThatFile(t *testing.T) {
+	dist, handInstalled := floorLaunchFixture(t, "")
+	got := captureHostExec(t)
+	var errw bytes.Buffer
+	if rc := hostExec(nil, []string{handInstalled}, io.Discard, &errw, nil); rc != 0 || got.target != handInstalled {
+		t.Fatalf("rc=%d target=%s, want %s as given\n%s", rc, got.target, handInstalled, errw.String())
+	}
+	if len(dist.NpmCalls("install")) != 0 {
+		t.Error("a target given as a path installed the floor's copy")
+	}
+}
+
+// TestHostChildPathIsTheCallersThenTheFloorsDeduplicated.
+func TestHostChildPathIsTheCallersThenTheFloorsDeduplicated(t *testing.T) {
+	sep := string(os.PathListSeparator)
+	got := hostChildPath(strings.Join([]string{"/a", "", "/b", "/a", "/floor/bin"}, sep), "/floor/bin")
+	if want := strings.Join([]string{"/a", "/b", "/floor/bin"}, sep); got != want {
+		t.Errorf("hostChildPath = %q, want %q", got, want)
+	}
+	if got := hostChildPath("", "/floor/bin"); got != "/floor/bin" {
+		t.Errorf("an empty caller PATH gives %q", got)
+	}
+}

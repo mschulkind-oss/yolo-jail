@@ -74,6 +74,7 @@ func TestMain(m *testing.M) {
 		return fmt.Errorf("test guard: refusing to run a pack's install hint %q — override "+
 			"depInstallRun in your test if the install itself is what you are exercising", cmd)
 	}
+	disarmTheHostFloor()
 	releaseStagedTree := isolateTheStagedTree()
 	// `yolo host-daemon`, `yolo broker` and host launches ensure real host singletons;
 	// they get a private directory, not the machine-wide /tmp/yolo-<name>.* (testsupport).

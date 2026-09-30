@@ -1,0 +1,209 @@
+package cli
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"io"
+	"os"
+	"runtime"
+	"strings"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/capture"
+	"github.com/mschulkind-oss/yolo-jail/internal/config"
+	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
+	"github.com/mschulkind-oss/yolo-jail/internal/hostfloor"
+	"github.com/mschulkind-oss/yolo-jail/internal/hostwrap"
+	"github.com/mschulkind-oss/yolo-jail/internal/packload"
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+)
+
+// hostfloor.go wires the HOST AGENT FLOOR (internal/hostfloor,
+// docs/design/host-tool-provisioning.md) into the host verbs: which programs are in it (the
+// user-scope selection's `program` contributions), every policy input it reads (`host_floor`,
+// `agent_updates`, the capture store and the capture act), and the one question a launch asks of
+// it — which binary runs for a bare name.
+
+// floorPrograms is the floor's candidate set for a selection: one Program per bin across the
+// packs' install contributions, the first declaration winning, as a jail's launchers do.
+func floorPrograms(packs []*packload.Pack) []hostfloor.Program {
+	in := make([]hostfloor.PackPrograms, 0, len(packs))
+	for _, p := range packs {
+		installs, _ := p.HonoredInstalls()
+		in = append(in, hostfloor.PackPrograms{Pack: p.Name, Installs: installs})
+	}
+	return hostfloor.Programs(in)
+}
+
+// newHostFloor is the machine's floor, with every input read from where it lives: the prefix
+// under the state dir, this host's platform, the user-scope `host_floor` and `agent_updates`, the
+// capture store and the capture act. out receives its progress lines, which are a launch's
+// stderr: an agent's stdout is routinely parsed, so nothing here may write to it.
+//
+// A var so a test can hand a launch a floor whose Node comes from a local server and whose
+// captures are a fixture; nothing but a test reassigns it.
+var newHostFloor = func(out io.Writer, progs []hostfloor.Program) *hostfloor.Floor {
+	store := &capture.Store{Dir: paths.CapturesDir()}
+	floorWire, updatesWire := config.HostFloorWire(), config.AgentUpdatesWire()
+	return &hostfloor.Floor{
+		Dir:       paths.HostFloorDir(),
+		GOOS:      runtime.GOOS,
+		GOARCH:    runtime.GOARCH,
+		NodeFloor: hostfloor.HighestNodeFloor(progs),
+		Include:   func(pack string) bool { return entrypoint.PackPolicyAllows(floorWire, pack) },
+		UpdatesAllowed: func(pack string) bool {
+			return entrypoint.PackPolicyAllows(updatesWire, pack)
+		},
+		ResolveCapture: func(bin string) (*capture.Entry, error) {
+			entry, _, err := resolveCaptureFor(store, bin, capture.Platform())
+			return entry, err
+		},
+		// The capture act itself — the same `yolo capture <bin>` a human runs and a jail
+		// launch's auto-capture calls — with its report on the launch's stderr too.
+		Capture: func(bin string) error {
+			if rc := captureHost([]string{bin}, out, out, false); rc != 0 {
+				return fmt.Errorf("`yolo capture %s` exited %d", bin, rc)
+			}
+			return nil
+		},
+		Home:   paths.Home(),
+		Out:    out,
+		Prefix: "yolo host: ",
+	}
+}
+
+// hostFloorBinDir is the floor's bin/, the directory a host launch appends last to its child's
+// PATH (HE-D1).
+func hostFloorBinDir() string { return (&hostfloor.Floor{Dir: paths.HostFloorDir()}).BinDir() }
+
+// floorProgram finds bin among progs.
+func floorProgram(progs []hostfloor.Program, bin string) (hostfloor.Program, bool) {
+	for _, p := range progs {
+		if p.Bin() == bin {
+			return p, true
+		}
+	}
+	return hostfloor.Program{}, false
+}
+
+// hostTargetOrigin is where the binary a host launch execs came from — the fact the launch's
+// "starting" line names, so a slow startup is visibly the agent's and not yolo's.
+type hostTargetOrigin int
+
+const (
+	// originFloor: yolo's floor copy of a program a selected pack delivers (HP-DIR4).
+	originFloor hostTargetOrigin = iota
+	// originPath: looked up on this launch's PATH — a program no selected pack delivers, or one
+	// the floor cannot hold here (OQ-HE11, until it is ruled).
+	originPath
+	// originGiven: the target was given as a path and is exec'd as given.
+	originGiven
+)
+
+// hostTarget is what a host launch execs.
+type hostTarget struct {
+	Path   string
+	Origin hostTargetOrigin
+}
+
+// resolveHostLaunchTarget decides which binary `yolo host -- <cmd0>` runs, by the three exec rules
+// of host-launch-environment.md §3 (HP-DIR4, OQ-HE10):
+//
+//   - a BARE NAME of a program a selected pack delivers runs the FLOOR's copy, by path, whatever
+//     the caller's PATH holds — installed first when missing (a launch installs what it needs,
+//     HP-D3, with progress lines: a launch has no quiet mode);
+//   - a target GIVEN AS A PATH is exec'd as given;
+//   - anything else is looked up on the child's PATH (the caller's PATH, then the floor's bin/),
+//     as the user's shell would find it — and so is a selected pack's program the floor cannot
+//     hold on this machine, with one line saying so, which keeps today's behavior while OQ-HE11
+//     is open.
+//
+// The second return is the exit code of a launch this refuses (127: the program is not
+// available), 0 otherwise. In a jail there is no floor: the jail's own launchers are on PATH.
+func resolveHostLaunchTarget(packs []*packload.Pack, cmd0, childPath string, errw io.Writer) (hostTarget, int) {
+	onPath := func() (hostTarget, int) {
+		target, err := resolveHostTarget(childPath, cmd0)
+		if err != nil {
+			fmt.Fprintf(errw, "yolo host: %v\n", err)
+			return hostTarget{}, 127
+		}
+		origin := originPath
+		if strings.ContainsRune(cmd0, os.PathSeparator) {
+			origin = originGiven
+		}
+		return hostTarget{Path: target, Origin: origin}, 0
+	}
+	if config.InJail() || strings.ContainsRune(cmd0, os.PathSeparator) || !selectedPackInstalls(packs, cmd0) {
+		return onPath()
+	}
+	progs := floorPrograms(packs)
+	prog, ok := floorProgram(progs, cmd0)
+	if !ok {
+		return onPath()
+	}
+	floor := newHostFloor(errw, progs)
+	st, _, err := floor.Ensure(context.Background(), prog)
+	switch {
+	case errors.Is(err, hostfloor.ErrNoEntry):
+		// OQ-HE11 is open: keep today's behavior — the launch's PATH — and say, once, that the
+		// copy about to run is not yolo's.
+		fmt.Fprintf(errw, "yolo host: yolo has no copy of %s %s (%s); looking for it on your PATH\n",
+			cmd0, noCopyWhere(), st.Reason)
+		// The floor's own bin/ is skipped: an entry left there from before `host_floor` left
+		// the pack out is not what "no copy" may run.
+		target, err := hostwrap.LookPathSkipping(childPath, cmd0, append(yoloManagedDirs(), floor.BinDir()))
+		if err != nil {
+			fmt.Fprintf(errw, "yolo host: %v\n", err)
+			return hostTarget{}, 127
+		}
+		return hostTarget{Path: target, Origin: originPath}, 0
+	case err != nil:
+		fmt.Fprintf(errw, "yolo host: could not install %s into yolo's floor: %v\n", cmd0, err)
+		return hostTarget{}, 127
+	}
+	return hostTarget{Path: st.Launcher, Origin: originFloor}, 0
+}
+
+// noCopyWhere names the machine the no-copy line is about.
+func noCopyWhere() string {
+	if runtime.GOOS == "darwin" {
+		return "on this Mac yet"
+	}
+	return "on this machine"
+}
+
+// hostChildPath is the PATH a host launch hands its child (OQ-HE10, ruled (c), and HE-D1): the
+// caller's own PATH, then the floor's bin/, duplicates removed with the first kept. The caller's
+// PATH comes first because the commands a host agent runs see the user's own environment, mise
+// included (OQ-HP7); the floor's bin/ comes last because it holds agent names only, so it supplies
+// one only where nothing of the user's has it. (The composed host PATH of host_path and the
+// per-OS baseline, which belongs between the two, is not built yet.)
+func hostChildPath(ambient, floorBin string) string {
+	var out []string
+	seen := map[string]bool{}
+	for _, d := range append(strings.Split(ambient, string(os.PathListSeparator)), floorBin) {
+		if d == "" || seen[d] {
+			continue
+		}
+		seen[d] = true
+		out = append(out, d)
+	}
+	return strings.Join(out, string(os.PathListSeparator))
+}
+
+// childEnviron is environ() with the child's PATH overlaid LAST — after every pack env, profile
+// and removal, so none of them can replace it (host-launch-environment.md §3). In a jail there is
+// no floor, and the environment is left as it is.
+func (c *hostComposition) childEnviron(childPath string) []string {
+	env := c.environ()
+	if config.InJail() {
+		return env
+	}
+	out := make([]string, 0, len(env)+1)
+	for _, kv := range env {
+		if !strings.HasPrefix(kv, "PATH=") {
+			out = append(out, kv)
+		}
+	}
+	return append(out, "PATH="+childPath)
+}
