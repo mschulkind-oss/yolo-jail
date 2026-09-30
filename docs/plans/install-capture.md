@@ -1025,8 +1025,11 @@ wrong one to sequence on.
   its file — a parallel ledger is the shape [§6](../design/program-delivery.md#6-the-general-seam-one-ledger-many-resolvers)'s warning says was killed once already.
 - **Don't fix `DISABLE_AUTOUPDATER` here.** [OQ-PD15](../design/program-delivery.md#-oq-pd15--does-capture-gate-the-evergreen-rollout-or-trail-it--resolved-2026-09-03)'s ruling names it as separately fixable today and
   gated on none of this.
-- **Don't add a `via` value.** Capture is the installer resolver's `record`+`materialize`; `knownVias`
-  (`packdecl/contributes.go:306`) stays a two-value set.
+- **Don't add a `via` value for capture.** Capture is the installer resolver's `record`+`materialize`,
+  not a delivery route of its own. ⚠ `knownVias` (`packdecl/contributes.go`) is no longer a two-value
+  set: the fork route added `source`, ruled as a new `via` by
+  [OQ-FP3](../design/forked-programs-as-packs.md#14-decision-ledger), and a fork's store entry is a
+  capture of its build.
 - **Don't reach for `archive/tar`.** See the last trap; the entry is a tree.
 
 ## Blockers

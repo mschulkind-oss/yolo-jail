@@ -1201,15 +1201,17 @@ receipt ([OQ-PD1](#decision-ledger)).
 
 ### 6.2 Pay the enum tolerance before the next mechanism arrives
 
-**Paid (`0a4d241c`).** The `via` field is a **closed two-value set** — `validateContribution`
-rejects anything but `npm` and `installer` — and until the tolerance landed, the two halves of the
+**Paid (`0a4d241c`).** The `via` field is a **closed set** — `validateContribution`
+rejected anything but `npm` and `installer` when this was written — and until the tolerance landed, the two halves of the
 system disagreed about a third value: `DecodeTolerant` skipped unknown *kinds* but validated known
 ones, so an unknown `via` **value** on kind `program` was a validation problem, and the boot path
 treats any problem as fatal — a pack declaring `via: "uv"` staged for an older baked entrypoint
 was a refused boot. Now `DecodeTolerant` drops a `program` whose non-empty `via` it does not know,
 with a skip note (`unknownViaSkip`, beside the unknown-kind rule it mirrors), strict `Decode`
 still refuses loudly, and an **empty** `via` stays fatal on both paths — a program naming no
-mechanism is a defect both ends of the version boundary agree on.
+mechanism is a defect both ends of the version boundary agree on. ⚠ The third value arrived
+2026-09-30: `source`, a fork's delivery
+([OQ-FP3](forked-programs-as-packs.md#14-decision-ledger)).
 
 Two boundaries survive the payment. **The tolerance protects only images baked after it**: a third
 `via` value must still wait for a `just load` on every host that will see it, because the jail

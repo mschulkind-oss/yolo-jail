@@ -693,6 +693,39 @@ formula is AWS's deprecated ECS CLI, not the CLI this pack means. `brew-cask` wi
 > prints it; `yolo host apply --assert` runs it behind its one prompt, with no terminal
 > ([`PS-D1`](../design/provisioner-sets.md#PS-D1)).
 
+<a id="program-via-source"></a>**`via: "source"` is a fork**: a program built from a pinned source
+address instead of a registry or a vendor installer
+([`forked-programs-as-packs.md`](../design/forked-programs-as-packs.md)). A fork is declared as a
+fork OF a base pack and claims no name of its own:
+
+```json
+{ "kind": "program", "bin": "pi", "via": "source", "fork_of": "pi",
+  "source": "git+https://github.com/you/pi-fork?ref=main",
+  "build": "npm ci && npm run build && npm install -g .",
+  "produces": [".npm-global/bin/pi", ".npm-global/lib/node_modules/pi-fork"] }
+```
+
+- **`fork_of`** names the base pack. The base keeps the bin, so its launch flags, autonomy
+  posture, profiles, briefing and skills stay its own
+  ([FP-D2](../design/forked-programs-as-packs.md#FP-D2)).
+- **`source`** is a pack source address, git transports only. A `file://` directory is refused,
+  because a directory has no revision to key a build on. `git+file://` names a local repository and
+  is accepted.
+- **`build`** is one command line, run by bash in the checked-out source.
+- **`produces`** lists the home-relative paths the build must leave, each inside a program surface
+  (`.npm-global`, `.local`, `go`, or codex's `.codex/packages/standalone`). One of them must be the
+  program itself at `.local/bin/<bin>`, `.npm-global/bin/<bin>` or `go/bin/<bin>`.
+
+Beside those four, a fork may declare `platforms` (where it builds) and `node_floor`. `packdecl`
+refuses every other program field on a fork by name, because each belongs to the base
+([FP-D6](../design/forked-programs-as-packs.md#FP-D6)). An inherited `update` verb or
+`install_hints` would replace the pinned build with the vendor's release. The four fork fields are
+refused on every other kind and every other `via`.
+
+A fork's own contribution installs nothing: `InstallContributions` skips it, and it claims no agent
+name. Its footprint claim is `<bin> (fork of <base>)`, review-worthy, and names the source and the
+build.
+
 #### `requires`
 
 A binary that must **already exist**. Asserts presence and installs nothing — no launcher,
