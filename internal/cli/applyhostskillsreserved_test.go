@@ -52,6 +52,7 @@ func reservedFixture(t *testing.T) string {
 		`{"packs":[{"source":"file://`+packDir+`","name":"rf"}]}`)
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+	defaultReport(t)
 	return home
 }
 

@@ -39,6 +39,16 @@ func verboseReport(t *testing.T) {
 	t.Setenv(paths.VerboseEnv, "1")
 }
 
+// defaultReport pins the DEFAULT verbosity, for a fixture whose tests read the compressed view.
+// reportVerbose reads YOLO_VERBOSE from the environment, and the invoking shell may export it (a
+// documented dial, OQ-RO2), so without this a default-view pin fails on that developer's machine
+// alone (TestDefaultViewPinsHoldWithYOLOVerboseExported). A test wanting the verbose view calls
+// verboseReport after its fixture.
+func defaultReport(t *testing.T) {
+	t.Helper()
+	t.Setenv(paths.VerboseEnv, "")
+}
+
 // detailFixture is one pack whose contributions produce a line in each class the split sorts.
 //
 // FIVE CLASSES, and the last two were added on 2026-09-11 because they were the two detail on
@@ -67,8 +77,30 @@ func detailFixture(t *testing.T) string {
 	selectPacks(t, home, `{"source":"file://`+packDir+`","name":"detailpack"}`)
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+	defaultReport(t)
 	stubBins(t, "detailbin")
 	return home
+}
+
+// THE DEFAULT-VIEW PINS OWN THE VERBOSITY. YOLO_VERBOSE is a documented dial a developer may
+// export, and reportVerbose reads it from the environment, so a pin that asserts what the
+// DEFAULT view omits must blank it or it fails on that developer's machine alone. Each such pin
+// runs again here with the variable exported, and holds only because its fixture blanks it.
+func TestDefaultViewPinsHoldWithYOLOVerboseExported(t *testing.T) {
+	for _, pin := range []struct {
+		name string
+		run  func(*testing.T)
+	}{
+		{"DefaultViewCompressesAndVerboseItemizes", TestHostApplyDefaultViewCompressesAndVerboseItemizes},
+		{"CompressesTheDependencyAndSettledSurfaceLines", TestHostApplyCompressesTheDependencyAndSettledSurfaceLines},
+		{"TierOneFactsAreOneLineByDefault", TestHostApplyTierOneFactsAreOneLineByDefault},
+		{"AnnouncesASyncRootOnlyWhenItIsNew", TestHostApplyAnnouncesASyncRootOnlyWhenItIsNew},
+	} {
+		t.Run(pin.name, func(t *testing.T) {
+			t.Setenv(paths.VerboseEnv, "1")
+			pin.run(t)
+		})
+	}
 }
 
 // THE DEFAULT VIEW IS THE COMPRESSED ONE, AND --verbose ADDS THE ITEMIZATION (OQ-RO1). Both
@@ -180,6 +212,9 @@ func TestHostApplyCompressesTheDependencyAndSettledSurfaceLines(t *testing.T) {
 // inherited-only assertion above would still pass and this one would not.
 func TestReportVerboseHonorsTypedAndInheritedSpellings(t *testing.T) {
 	t.Setenv(paths.VerboseEnv, "")
+	// The typed half below sets the process's typed signal; it comes back when this ends, and
+	// starts false whatever ran before (TestFlagTypingTestsRestoreTheVerboseState).
+	resetVerboseFlagTyped(t)
 	if reportVerbose() {
 		t.Fatal("no flag and no variable, yet the report claims verbose")
 	}

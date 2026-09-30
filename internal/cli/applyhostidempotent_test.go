@@ -38,6 +38,7 @@ func shippedPacksFixture(t *testing.T) string {
 	selectPacks(t, home, `"claude","codex","copilot","opencode","pi","agy"`)
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+	defaultReport(t)
 	return home
 }
 

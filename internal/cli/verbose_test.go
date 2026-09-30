@@ -54,6 +54,10 @@ func TestApplyVerboseFlagStripsAndPublishes(t *testing.T) {
 // routeDecision-level pin: a verbose flag must not turn a runnable argv into
 // an unknown command — the reason the strip runs before RewriteArgv.
 func TestVerboseFlagKeepsRouting(t *testing.T) {
+	// The strip publishes the variable and sets the typed signal; both come back when this ends
+	// (TestFlagTypingTestsRestoreTheVerboseState).
+	t.Setenv(paths.VerboseEnv, "")
+	resetVerboseFlagTyped(t)
 	for _, argv := range [][]string{
 		{"yolo", "--verbose", "--", "bash"},
 		{"yolo", "-v"},
@@ -62,6 +66,34 @@ func TestVerboseFlagKeepsRouting(t *testing.T) {
 		if d := routeDecision(applyVerboseFlag(argv[1:])); d != "run" && d != "dispatch:run" && d != "dispatch:stop" {
 			t.Errorf("routing after verbose strip of %v = %q", argv, d)
 		}
+	}
+}
+
+// THE TESTS THAT TYPE THE FLAG PUT BOTH HALVES BACK. applyVerboseFlag publishes YOLO_VERBOSE
+// with os.Setenv and sets verboseFlagTyped, and neither is undone by anything but the test
+// that caused it: left set, every later test in this binary reads a verbose report and a
+// typed flag it never asked for, which under `go test -count=2` failed the default-view pins
+// and TestReportVerboseHonorsTypedAndInheritedSpellings's own fixture check on every run
+// after the first.
+func TestFlagTypingTestsRestoreTheVerboseState(t *testing.T) {
+	t.Setenv(paths.VerboseEnv, "")
+	resetVerboseFlagTyped(t)
+	for _, pin := range []struct {
+		name string
+		run  func(*testing.T)
+	}{
+		{"VerboseFlagKeepsRouting", TestVerboseFlagKeepsRouting},
+		{"ReportVerboseHonorsTypedAndInheritedSpellings", TestReportVerboseHonorsTypedAndInheritedSpellings},
+	} {
+		t.Run(pin.name, pin.run)
+		if v := os.Getenv(paths.VerboseEnv); v != "" {
+			t.Errorf("after %s, %s=%q is left in the process environment", pin.name, paths.VerboseEnv, v)
+		}
+		if verboseFlagTyped {
+			t.Errorf("after %s, verboseFlagTyped is left set", pin.name)
+		}
+		t.Setenv(paths.VerboseEnv, "")
+		verboseFlagTyped = false
 	}
 }
 
