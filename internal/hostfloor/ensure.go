@@ -418,7 +418,13 @@ func (f *Floor) installFromCapture(p Program, dir string) (*Record, error) {
 		return nil, &noEntryError{reason: "the capture of " + p.Bin() + " on this machine cannot run " +
 			"outside a jail: " + why}
 	}
-	res, err := capture.Materialize(capture.MaterializeOptions{Entry: entry, Home: home, Stderr: f.out()})
+	// CONFINED: the manifest is the capture jail's account of itself, and this materialize runs on
+	// the host, so nothing it names may land outside home or be written through a link beneath it.
+	materialize := func(e *capture.Entry) (*capture.MaterializeResult, error) {
+		return capture.Materialize(capture.MaterializeOptions{Entry: e, Home: home, Stderr: f.out(),
+			Confined: true})
+	}
+	res, err := materialize(entry)
 	if errors.Is(err, capture.ErrNotRelocatable) && !recaptured && f.Capture != nil {
 		// A capture recorded before captures scanned their contents may only be materialized
 		// into the jail home it was made in. A new capture records the full scan, and newest
@@ -429,7 +435,7 @@ func (f *Floor) installFromCapture(p Program, dir string) (*Record, error) {
 		if entry, err = f.recapture(p.Bin()); err != nil {
 			return nil, err
 		}
-		res, err = capture.Materialize(capture.MaterializeOptions{Entry: entry, Home: home, Stderr: f.out()})
+		res, err = materialize(entry)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("materializing the capture of %s: %w", p.Bin(), err)

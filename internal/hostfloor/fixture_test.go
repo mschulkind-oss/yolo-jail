@@ -108,6 +108,14 @@ func newCaptureStore(t *testing.T) *captureStore {
 // in ~/.local/share/<bin>/versions/<version> and ~/.local/bin/<bin> an ABSOLUTE link to it — the
 // shape claude's installer leaves. relocatable says whether the manifest records the full scan.
 func (c *captureStore) add(bin, version string, relocatable bool) *capture.Entry {
+	c.t.Helper()
+	return c.addShaped(bin, version, relocatable, nil)
+}
+
+// addShaped is add with a last say: shape, when set, may change the tree and the manifest before
+// the entry is admitted — the manifest being the capture jail's claim, which a test can make lie.
+func (c *captureStore) addShaped(bin, version string, relocatable bool,
+	shape func(tree string, m *capture.Manifest)) *capture.Entry {
 	t := c.t
 	t.Helper()
 	staged, err := c.store.Stage(bin + "-" + version)
@@ -137,6 +145,9 @@ func (c *captureStore) add(bin, version string, relocatable bool) *capture.Entry
 	}
 	if relocatable {
 		m.RefScan, m.Relocatable = capture.RefScanFull, true
+	}
+	if shape != nil {
+		shape(tree, m)
 	}
 	must(t, capture.WriteManifest(staged, m))
 	entry, err := c.store.AdmitEntry(staged)

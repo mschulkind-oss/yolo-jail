@@ -91,6 +91,13 @@ type MaterializeOptions struct {
 	// real choice a caller should have to make on purpose, because the report is the only
 	// place a machine learns why its materialize cost a gigabyte.
 	Stderr io.Writer
+	// Confined says Home is a directory made for this entry alone, whose program the HOST runs
+	// with the user's full authority — the host agent floor's install directory. On top of the
+	// entry checks every materialize makes, a confined one requires Home to be absent or empty,
+	// keeps every entry inside the capture surfaces, and follows no symlink beneath Home while it
+	// writes (confine.go). Never set for a jail's home: macos-user's reaches `.local` through a
+	// link a materialize must follow.
+	Confined bool
 }
 
 // MaterializeResult reports what was put where, and by which mechanism.
@@ -177,6 +184,18 @@ func Materialize(opts MaterializeOptions) (*MaterializeResult, error) {
 		return nil, fmt.Errorf("capture materialize: entry %s is a %s capture and this is %s",
 			opts.Entry.Key, m.Platform, Platform())
 	}
+	// THE ENTRIES ARE A TREE UNDER THE HOME, checked before anything is written (confine.go):
+	// the manifest is the capture jail's own account of itself, and an entry that climbs out, or
+	// lies beneath a link the same run creates, would otherwise be placed outside the home.
+	if err := checkEntries(m.Entries); err != nil {
+		return nil, fmt.Errorf("capture materialize: entry %s has a manifest no capture writes: %w",
+			opts.Entry.Key, err)
+	}
+	if opts.Confined {
+		if err := checkConfinedManifest(m, home); err != nil {
+			return nil, fmt.Errorf("capture materialize: entry %s: %w", opts.Entry.Key, err)
+		}
+	}
 	// THE RELOCATION CONTRACT (Manifest.Relocatable), all three clauses.
 	//
 	// Clause one is the whole container story and it is the fall-through below: a
@@ -207,6 +226,11 @@ func Materialize(opts MaterializeOptions) (*MaterializeResult, error) {
 	}
 	ch := &chain{reflink: true, link: true}
 	for _, e := range m.Entries {
+		if opts.Confined {
+			if err := confinedParents(home, e.Path, e.Kind == KindDir); err != nil {
+				return res, fmt.Errorf("capture materialize %s: %w", e.Path, err)
+			}
+		}
 		if err := placeEntry(opts.Entry.Tree, home, e, ch, rel, res); err != nil {
 			return res, fmt.Errorf("capture materialize %s: %w", e.Path, err)
 		}
@@ -262,6 +286,9 @@ func placeEntry(tree, home string, e ManifestEntry, ch *chain, rel *relocation, 
 		}
 		return nil
 	default:
+		if err := regularSource(src); err != nil {
+			return err
+		}
 		if rel != nil && rel.content[e.Path] {
 			// Not through the chain: see rewrite.go for why a rewritten file is always
 			// its own inode, and why it never passes through replaceable (a failed
