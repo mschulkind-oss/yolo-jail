@@ -35,6 +35,8 @@ func Fixtures() []Fixture {
 		{"a tag that is not a page", "<div>\necho hi\n", Script},
 		{"control bytes and no shebang", "\x01\x02\x03\x1f\x7f\necho hi\n", NonText},
 		{"a shebang script carrying control bytes", "#!/bin/sh\n# \x01\x02\x7f\n", Script},
-		{"UTF-8 and text control bytes, no shebang", "# installer ✓ \t\x1b[32m \x1a end\r\n", Script},
+		// ESC and SUB are text in file(1)'s table. The ESC is not followed by `[`: this is data,
+		// not a color escape, and internal/tty's inventory reads every such literal as one.
+		{"UTF-8 and text control bytes, no shebang", "# installer ✓ \t\x1b \x1a end\r\n", Script},
 	}
 }
