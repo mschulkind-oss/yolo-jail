@@ -263,6 +263,9 @@ func Check(opts Options) int {
 	// --- Host agent floor: yolo's own copies of the selected agents, which `yolo host` runs ---
 	o.sectionHostFloor(r)
 
+	// --- Host launch PATH: what `yolo host` searches, as read from this shell, plus host_path ---
+	o.sectionHostLaunchPath(r)
+
 	// --- Updates: the last cached update check (never the network) ---
 	o.sectionUpdates(r)
 

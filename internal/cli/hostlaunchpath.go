@@ -4,7 +4,6 @@ import (
 	"os"
 	"sort"
 
-	"github.com/mschulkind-oss/yolo-jail/internal/hostfloor"
 	"github.com/mschulkind-oss/yolo-jail/internal/hostpath"
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
@@ -31,9 +30,7 @@ func hostLaunchPath() *hostpath.Launch { return hostpath.Resolve(os.Getenv("PATH
 // launch PATH itself, or — for a launch started with no PATH at all — the floor installer's system
 // folders in its place, ahead of `host_path`'s (the floor design's HP-D12; the checks keep HE-D4's
 // `host_path` alone).
-func hostChildLaunch(lp *hostpath.Launch) *hostpath.Launch {
-	return lp.WithStandIn(hostfloor.BaselinePath())
-}
+func hostChildLaunch(lp *hostpath.Launch) *hostpath.Launch { return lp.Child() }
 
 // depDeclarers is which selected packs declare one binary, by kind: the "required by" a miss line
 // puts beside a program.

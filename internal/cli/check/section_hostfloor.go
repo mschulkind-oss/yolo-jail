@@ -2,7 +2,6 @@ package check
 
 import (
 	"fmt"
-	"path/filepath"
 	"runtime"
 	"sort"
 	"strings"
@@ -11,6 +10,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/hostfloor"
+	"github.com/mschulkind-oss/yolo-jail/internal/hostpath"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
@@ -51,7 +51,9 @@ func (o *Options) sectionHostFloor(r *reporter) {
 	r.sectionHeader("Host agent floor")
 	r.dim("yolo's own copies of your selected packs' agents, which `yolo host -- <agent>` runs, in " +
 		floor.Dir)
-	pathEnv := o.Getenv("PATH")
+	// THE LAUNCH PATH, as a launch from this shell would read it (hostpath; HE-D7): the PATH this
+	// check was started with, then host_path's folders, as the child of `yolo host` searches it.
+	lp := hostpath.Resolve(o.Getenv("PATH")).Child()
 	home := paths.Home()
 	selected := map[string]bool{}
 	for _, p := range progs {
@@ -68,19 +70,17 @@ func (o *Options) sectionHostFloor(r *reporter) {
 			r.dim(fmt.Sprintf("%s — not in the floor yet (%s): the first `yolo host -- %s`, or `yolo host "+
 				"apply --assert`, installs it", p.Bin(), st.Reason, p.Bin()))
 		case hostfloor.NoEntry:
-			// With no floor entry, the copy on the launch's PATH IS what runs (OQ-HE11's interim),
-			// so it is named as that rather than as a copy `yolo host` does not run. The PATH is
-			// the one this check was started with: a launcher with another PATH may find another
-			// copy, or none.
-			runs := "and the PATH this check was started with has none"
-			for _, d := range filepath.SplitList(pathEnv) {
-				if c := filepath.Join(d, p.Bin()); d != "" && d != floor.BinDir() && isExecutableFile(c) {
-					runs = "here, " + c
-					break
-				}
+			// With no floor entry, the copy on the launch's PATH IS what runs (OQ-HE11 (a)), so it
+			// is named as that rather than as a copy `yolo host` does not run. The PATH is the
+			// launch PATH as read here — the one this check was started with, then host_path's
+			// folders — through the exec's own lookup: a launcher with another PATH may find
+			// another copy, or none.
+			runs := "and this check's PATH, with host_path's folders, has none"
+			if c, err := lp.LookPathSkipping(p.Bin(), floor.BinDir()); err == nil {
+				runs = "here, " + c
 			}
 			r.dim(fmt.Sprintf("%s — no floor entry: %s. `yolo host -- %s` runs the one on the PATH it is "+
-				"started with (%s)", p.Bin(), st.Reason, p.Bin(), runs))
+				"started with, then host_path's folders (%s)", p.Bin(), st.Reason, p.Bin(), runs))
 			// A copy the floor installed before it stopped holding this program is a deselected entry,
 			// which yolo host never runs (the launch's lookup skips the floor's bin/).
 			if _, left := records[p.Bin()]; left {
@@ -94,8 +94,8 @@ func (o *Options) sectionHostFloor(r *reporter) {
 		if st.Disposition == hostfloor.NoEntry {
 			continue
 		}
-		skip := []string{paths.GeneratedBinDir()}
-		for _, other := range floor.OtherCopies(p.Bin(), pathEnv, home, skip) {
+		skip := hostpath.ManagedDirs()
+		for _, other := range floor.OtherCopies(p.Bin(), lp.Value(), home, skip) {
 			r.dim(fmt.Sprintf("%s: also at %s — not run by `yolo host`", p.Bin(), other))
 		}
 	}

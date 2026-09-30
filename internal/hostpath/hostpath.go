@@ -117,6 +117,11 @@ func (l *Launch) WithStandIn(dirs []string) *Launch {
 	return &c
 }
 
+// Child is WithStandIn with the floor installer's system folders (hostfloor.BaselinePath) as the
+// stand-in: the launch PATH a `yolo host` child is handed, less the floor's bin/ the launch appends,
+// and what the exec's lookup of a target no floor entry covers searches.
+func (l *Launch) Child() *Launch { return l.WithStandIn(hostfloor.BaselinePath()) }
+
 // uniqueEntries is dirs without empty entries and without any already in seen or earlier in dirs.
 func uniqueEntries(dirs, seen []string) []string {
 	have := map[string]bool{}

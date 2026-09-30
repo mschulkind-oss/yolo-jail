@@ -133,7 +133,7 @@ func TestCheckSaysWhyAProgramHasNoFloorEntry(t *testing.T) {
 	o.HostFloor = nil
 	out, _ := runHostFloorSection(o)
 	if !strings.Contains(out, "floorcli — no floor entry: the user config's `host_floor` leaves pack floorpack out") ||
-		!strings.Contains(out, "runs the one on the PATH it is started with (here, "+hand+")") {
+		!strings.Contains(out, "runs the one on the PATH it is started with, then host_path's folders (here, "+hand+")") {
 		t.Errorf("section:\n%s", out)
 	}
 	// With no floor entry the PATH copy is what runs, so it is not listed as one yolo host does
