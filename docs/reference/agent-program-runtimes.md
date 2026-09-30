@@ -1,7 +1,7 @@
 ---
 status: current
 verified: 2026-09-30
-verified_commit: 6adafc32
+verified_commit: e31c282c
 covers:
   - internal/packdecl/nodefloor.go
   - internal/entrypoint/nodefloor.go
@@ -21,7 +21,7 @@ summary: "Which Node runs an npm-delivered program. A `program` contribution may
 
 # Agent program runtimes — which Node runs an npm-delivered program
 
-**Status:** CURRENT as of 2026-09-30, verified against `6adafc32`. The three gaps the design stub
+**Status:** CURRENT as of 2026-09-30, verified against `e31c282c`. The three gaps the design stub
 recorded ([`../design/agent-program-runtimes.md`](../design/agent-program-runtimes.md)) were closed
 that day: macos-user starts its stage for a floor the host cannot show met, a failed `mise install`
 no longer skips the floor check, and the stage regenerates the launchers of a floor it met
