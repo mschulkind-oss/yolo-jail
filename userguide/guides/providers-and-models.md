@@ -206,6 +206,14 @@ bridge** is a small service that runs inside the jail and translates between the
 like `yolo -p cerebras -- claude` still works. It comes in automatically with the packs that need
 it, and it is not a loophole: it runs entirely inside the jail and gives no access to your host.
 
+Translating costs a few features: prompt caching and extended thinking do not survive it. On
+Amazon Bedrock the bridge skips translation for Claude models. When Claude Code or Copilot reaches
+Bedrock through the bridge, a model that the provider's model list names with the maker
+(`vendor`) `anthropic` goes to Bedrock's own Claude endpoint exactly as the agent sent it, so
+caching and thinking work, and every other model on the list is translated as before. This works
+for a Bedrock provider whose `openai` endpoint is Bedrock's `/openai/v1` address. The shipped
+`bedrock` provider does not go through the bridge yet.
+
 On your own machine the bridge runs for one command. `yolo host -p codex -- claude` runs Claude
 Code on your ChatGPT subscription: yolo starts the bridge beside `claude`, lets only that `claude`
 use it, and stops it when `claude` exits. A selection in the `profile` key works the same way through

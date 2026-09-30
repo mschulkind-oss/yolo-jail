@@ -3,7 +3,7 @@ title: "The wire bridge as the jail's model gateway: signing, routing by model a
 date: 2026-09-25
 status: accepted
 tags: [wire-bridge, bedrock, aws, sigv4, routing, failover, models, allowlist, providers, subscription]
-summary: "What the wire bridge may do once it stands in front of an agent's model traffic. Four parts are ruled and unbuilt: it signs its own AWS requests with SigV4, routes claude's everything profile by model id, offers a sign-only OpenAI chat-completions route, and carries claude's subscription with opt-in per-model failover to Bedrock. A fifth part, ruled 2026-09-25: a profile can send its agent's traffic through the bridge (native pass-through or translated) instead of the agent's own client, so the bridge can enforce the picker's model list (on by default) and route each agent by a per-agent path prefix. The via route passes OpenAI chat-completions and Responses through (codex rides the second); Converse, the last native wire, waits on OQ-WG8, which asks whether pi's own client still uses the AWS credential on that route. The signer keys on the upstream address now and on a provider marker once one exists."
+summary: "What the wire bridge may do once it stands in front of an agent's model traffic. Four parts are ruled: it signs its own AWS requests with SigV4 (built), routes claude's everything profile by model id so Claude models reach Bedrock's own Messages route untranslated (built 2026-09-29 for a Bedrock upstream the bridge can reach), offers a sign-only OpenAI chat-completions route (built), and carries claude's subscription with opt-in per-model failover to Bedrock (unbuilt). A fifth part, ruled 2026-09-25: a profile can send its agent's traffic through the bridge (native pass-through or translated) instead of the agent's own client, so the bridge can enforce the picker's model list (on by default) and route each agent by a per-agent path prefix. The via route passes OpenAI chat-completions and Responses through (codex rides the second); Converse, the last native wire, waits on OQ-WG8, which asks whether pi's own client still uses the AWS credential on that route. The signer keys on the upstream address now and on a provider marker once one exists."
 vantage:
   status-chip: true
 ---
@@ -19,14 +19,21 @@ day, carrying its bridge questions with their ids unchanged. **Part 1 (signing) 
 2026-09-25** ([§2](#2-part-1--the-bridge-signs-its-own-upstream-requests-ruled)), except the
 region-composed upstream URL. **Part 3 (the sign-only route) and Part 5's selection are BUILT,
 2026-09-25** ([§4.1](#41-how-it-is-built)): a profile's `via` puts its agent on a per-agent route of
-the bridge. Parts 2 and 4, and Part 5's allowlist, are DECIDED and unbuilt; Part 5's four questions
-were ruled in review on 2026-09-25. **Part 2 was released for build on 2026-09-29**
-([WG-I25](#WG-I25)): every ruling its done-condition waited on is in. **MEASURED:** what the bridge does today
+the bridge. **Part 2 (routing by model id) is BUILT, 2026-09-29** ([§3.1](#31-how-it-is-built),
+[WG-I30](#WG-I30)–[WG-I35](#WG-I35)): on a Bedrock upstream, a model the provider's list declares
+Anthropic's goes untranslated to runtime's own Messages route, and every other model is translated
+as before. The shipped `bedrock-bridge` profile does not reach it yet, because that provider names
+a region and no address, and the bridge's region-composed URL is still owed
+([§8](#8-build-order), step 1). Part 4 and Part 5's allowlist are DECIDED and unbuilt; Part 5's
+four questions were ruled in review on 2026-09-25. **MEASURED:** what the bridge does today
 ([§1](#1-what-the-bridge-does-today)), from the code at `5e8e64f6`, symbols re-checked at
 `ee8154f2`; the signer against AWS's published SigV4 test suite (31 cases) and through the real
-bridge handler with the network stubbed. **UNMEASURED:** no request has reached real Bedrock
-through the bridge with any credential, so AWS has never accepted one of its signatures. Nobody
-has exercised runtime's Anthropic Messages route or the subscription's usage-limit response. The
+bridge handler with the network stubbed. **SOURCED, 2026-09-29:** runtime's Messages route is
+`/anthropic/v1/messages` and streams Anthropic server-sent events, read from AWS's docs and the
+Anthropic SDK's source ([§3](#3-part-2--routing-by-model-id-for-claudes-everything-profile-ruled)).
+**UNMEASURED:** no request has reached real Bedrock through the bridge with any credential, so AWS
+has never accepted one of its signatures. Nobody has sent a request to runtime's Messages route or
+seen the subscription's usage-limit response. The
 via route is MEASURED in-process only: its tests run the real daemon, mux and signer against a
 stubbed upstream, and the pi, oh-omp and opencode derives against the real shipped `derive.lua`.
 No agent has sent a request through it, and whether `bedrock-runtime` serves Responses at
@@ -46,8 +53,9 @@ from their installed client sources, and oh-omp's from its published package
 [OQ-WG1](#OQ-WG1)–[OQ-WG7](#OQ-WG7) are settled ([Decision Ledger](#decision-ledger)); WG6 and WG7 are built.
 [OQ-WG1](#OQ-WG1) carries a follow-up that waits on [OQ-BR2](providers-and-profiles-redesign.md#OQ-BR2):
 re-key the signer on the provider's Bedrock marker. Part 2, which passes Claude models through
-untranslated so prompt caching survives, needs no ruling: it is
-[OQ-BR11](bedrock-plumbing.md#OQ-BR11)'s, and it is released for build ([WG-I25](#WG-I25)).
+untranslated so prompt caching survives, needed no ruling: it is
+[OQ-BR11](bedrock-plumbing.md#OQ-BR11)'s, released for build as [WG-I25](#WG-I25) and built
+2026-09-29 ([§3.1](#31-how-it-is-built)).
 
 **Where the provider split ended up**, in plain words, because every part below leans on it.
 Each agent reaches Bedrock in one of two ways. It either uses **its own native Bedrock client**
@@ -104,7 +112,8 @@ MEASURED from the code at `5e8e64f6`; the symbols named were re-checked present 
   which signing needs.
 - **What translation loses.** `cache_control`, `thinking` and every unmapped key are dropped.
   `count_tokens` is refused with a 404 ([WB-D14](../reference/wire-bridge.md#wb-d14)). Only
-  `POST /v1/messages` is served.
+  `POST /v1/messages` is served. Since 2026-09-29 a Claude model on a Bedrock upstream skips
+  translation and keeps all of it but `count_tokens` ([§3.1](#31-how-it-is-built)).
 - **copilot prefers the Anthropic endpoint** (`packs/copilot/derive.lua`), so a bridged provider
   reaches copilot through the bridge.
 
@@ -229,7 +238,8 @@ claude at the bridge (`ANTHROPIC_BASE_URL`, never `CLAUDE_CODE_USE_BEDROCK`), an
 routes by model id**:
 
 - **An Anthropic id** is forwarded **untranslated** to runtime's own Anthropic Messages route,
-  signed like every request, so `cache_control`, `thinking` and `count_tokens` survive. The
+  signed like every request, so `cache_control`, `thinking` and `count_tokens` survive (as built,
+  `count_tokens` does not: runtime documents none on that route, [WG-I35](#WG-I35)). The
   bridge knows an id is Anthropic's from the list entry's declared **vendor** (the model's
   maker, coined in [`bedrock-plumbing.md`](bedrock-plumbing.md), defined now in
   [`model-lists-and-pickers.md`](model-lists-and-pickers.md)), never by parsing the id.
@@ -239,11 +249,34 @@ This **amends** the bridge's rule that it dials only the upstream selected at bo
 ([`wire-bridge.md`](../reference/wire-bridge.md#lifecycle-and-failure-behavior)): the everything
 route has two upstreams under one provider, chosen per request.
 
-**UNMEASURED, and the first thing to measure.** AWS's endpoints page lists the Messages API on
-`bedrock-runtime` (read 2026-09-25). Nobody has read that route's path, or whether it streams
-Anthropic SSE or AWS's binary event-stream. If the latter, the bridge must re-frame it. This is
-the builder's first measurement, not a choice left to rule: either answer is built, and only the
-amount of framing code differs.
+**The measurement, SOURCED 2026-09-29: the route is `/anthropic/v1/messages`, and it streams
+Anthropic SSE, so the bridge relays it byte for byte and re-frames nothing.** This was the
+builder's first measurement, not a choice left to rule. It was read, and AWS was never called:
+
+- **The path and the body.** AWS's *Inference using Anthropic Messages API* page gives runtime's
+  base URL as `https://bedrock-runtime.{region}.amazonaws.com/anthropic`, and its `curl` example
+  posts the first-party body, with `model` and `stream` in it, to `/anthropic/v1/messages` with an
+  `anthropic-version: 2023-06-01` header. InvokeModel's body is different: it takes
+  `anthropic_version` in the body and the model in the path.
+- **The stream framing.** The same page streams from that route with the plain Anthropic SDK,
+  `Anthropic(base_url=".../anthropic")` and `client.messages.stream`. That client's decoder is the
+  SSE one. In the Anthropic Python SDK only the InvokeModel client, `AnthropicBedrock`, which
+  rewrites a request to `/model/{id}/invoke-with-response-stream`, overrides `_make_sse_decoder`
+  with an AWS event-stream decoder (`lib/bedrock/_client.py`, `_stream_decoder.py`). The Messages
+  client for AWS's other endpoint family, `AnthropicBedrockMantle`, keeps the default SSE decoder
+  (`lib/bedrock/_mantle.py`). The binary event stream is InvokeModel's framing, not this route's.
+- **The credential.** The endpoints page marks SigV4 and Bedrock API keys as both supported on
+  `bedrock-runtime`. The Messages page's API-key example sends the key as `x-api-key`. No example
+  signs `/anthropic/v1/messages` with SigV4, so the bridge signing it for the service `bedrock`,
+  the name runtime signs its other routes with, is INFERRED.
+- **What the route does not serve.** No `count_tokens` is documented on runtime's Messages route.
+  AWS's token-counting page says a Claude model offered only through cross-Region inference has
+  no CountTokens on runtime at all, and points to the `bedrock-mantle` endpoint, which yolo does
+  not ship ([DIR-BR3](bedrock-plumbing.md#DIR-BR3)).
+
+A measurement read from documentation can still be wrong. So an answer framed as AWS's binary
+event stream is refused by name rather than relayed ([WG-I30](#WG-I30)), and the first real turn
+confirms or refutes the rest ([§3.1](#31-how-it-is-built)).
 
 **Risk R7.** Translation loses something a non-Anthropic model needs: tool-call fidelity,
 reasoning, or a vendor's streaming quirk. The bridge already fails closed on an unknown block
@@ -257,8 +290,96 @@ before shipping that vendor in a company pack.
 open ([WG-I25](#WG-I25)). Claude's everything profile completes one
 turn against a non-Anthropic model on runtime (a DeepSeek or Qwen id), once under each of the
 three credentials, and copilot does the same. Under the SSO credential the turn still succeeds
-after the first credential set expires, with no relaunch. It is a manual runbook on a real host;
-automated tests never make API calls.
+after the first credential set expires, with no relaunch. The same session then switches to an
+Anthropic model on the list and completes two turns: the second reports
+`cache_read_input_tokens` above zero, and a turn with thinking on shows a thinking block. It is a
+manual runbook on a real host; automated tests never make API calls.
+
+### 3.1 How it is built
+
+**BUILT 2026-09-29**, released as [WG-I25](#WG-I25). The route this part changes is the adapter
+route: the `anthropic → openai` translation on its own port, which claude reaches through
+`ANTHROPIC_BASE_URL` and copilot through its preferred anthropic endpoint. When that route's
+upstream is a `bedrock-runtime` host (the signer's own test, `bedrockSignRegion`), the route holds
+a second upstream, runtime's Messages route on the same host. Each request's `model` picks one:
+
+| Link | What it does | Lives in |
+| :--- | :--- | :--- |
+| The list | at boot, every id the provider's list declares vendor `anthropic` for, read off the composed entry (`models.<alias>` is the id, `model_options.<alias>.vendor` its maker) | `wirebridged.anthropicModelIDs`, called from `wirebridged.routeFor` into `route.AnthropicModels` |
+| The handler | the signed chat handler gains the Messages pass-through, under the same signer and credential chain | `wirebridged.newSignedChatHandler`, `wirebridged.newMessagesPassthrough`, from `wirebridged.adapterHandler` |
+| The split | a request whose `model` (its `[1m]` suffix trimmed) is on that set goes untranslated; every other request is translated as before | `bridgeHandler.ServeHTTP`, `messagesPassthrough.claims` |
+| The pass-through | the body as sent to `https://<runtime host>/anthropic/v1/messages`, with `anthropic-version` and `anthropic-beta`; the answer relayed byte for byte and flushed | `messagesPassthrough.serve`, `.do`, `.relay` |
+| The log | the serve line names the Messages URL and the ids it carries; each request line says when it went untranslated; never a body | `wirebridged.messagesServeNote`; `bridgeHandler.ServeHTTP` |
+
+The build made six implementation decisions. Their ids start at 30 because a concurrent build of
+the `bedrock` pack numbers its own decisions from WG-I25 on:
+
+1. <a id="WG-I30"></a>**[WG-I30](#WG-I30)**: **the framing is relayed, and the other framing is
+   refused by name.** The stream is Anthropic SSE ([§3](#3-part-2--routing-by-model-id-for-claudes-everything-profile-ruled)),
+   so the bridge copies it byte for byte and decodes nothing. A 2xx answer whose `Content-Type`
+   is `application/vnd.amazon.eventstream` gets an Anthropic-shaped 502 naming that framing, and
+   the log says the same. **Why:** the framing is read, not observed. If the read is wrong, the
+   first request says so in words, and claude never receives binary frames it cannot parse.
+2. <a id="WG-I31"></a>**[WG-I31](#WG-I31)**: **one credential chain for both upstreams, and the
+   key goes as `x-api-key` on this route.** The pass-through signs with the route's own
+   `bedrockSigner`, so the chat-completions and Messages upstreams share one credential cache,
+   one expiry refresh and the same three failure statuses ([§2.1](#21-behavior-the-signer-fixes)).
+   When `AWS_BEARER_TOKEN_BEDROCK` is the only source, it travels as `x-api-key: <key>`, the form
+   AWS's Messages page documents for this route, where runtime's OpenAI-compatible routes take
+   `Authorization: Bearer`. A signature and a key never travel together. The agent's own
+   `Authorization` and `x-api-key` carry the caller token, and are never copied upstream
+   ([WB-D18](../reference/wire-bridge.md#wb-d18)).
+3. <a id="WG-I32"></a>**[WG-I32](#WG-I32)**: **a refusal keeps its status, in Anthropic's
+   shape.** The route speaks claude's protocol, so its statuses already mean what an Anthropic
+   client reads them as, and a 529 or a 429 reaches claude as itself. The translating route maps
+   5xx to 502 because an OpenAI status does not. An Anthropic-shaped error body is relayed as
+   sent. Any other, such as AWS's `{"message": …}` envelope, is put into the Anthropic shape with
+   AWS's message and the status's Anthropic error type. `Retry-After`, `x-should-retry` and the
+   request ids are copied back.
+4. <a id="WG-I33"></a>**[WG-I33](#WG-I33)**: **a truncated stream aborts the agent's connection,
+   and only the wait for headers is bounded.** A body read that fails, or an SSE stream that ends
+   before `message_stop` or an `error` event, aborts the connection with `http.ErrAbortHandler`,
+   after a log line naming the model, the byte count and the cause. The bridge watches only the
+   head of each line for those two events, so a text delta that happens to contain the words does
+   not count. The translating route answers the same case with an `error` event it writes itself,
+   but here the bytes are the upstream's and the cut may fall inside an event, so WG-I24's answer
+   is the one that cannot corrupt the stream. The wait for response headers is bounded by
+   `viaHeaderTimeout`, through the via route's own `sendHeaderBounded`. The body's read is not
+   bounded, since a long thinking turn can outlast any whole-exchange timeout, which the
+   translating route still has.
+5. <a id="WG-I34"></a>**[WG-I34](#WG-I34)**: **the id is looked up, as the list spells it.** A
+   request's `model` is matched against the list's ids after trimming Claude's `[1m]` suffix,
+   which is Claude Code's client spelling of the 1M-context variant and never a wire id
+   ([`providers.md`](../reference/providers.md)). When the suffix was there, the forwarded body's
+   `model` is the trimmed id. That is the one body edit the pass-through makes, and the translator
+   makes it too. An id two aliases name with different vendors is none of them, and it stays
+   translated with a log line naming it. An id the list does not name, and a listed id with no
+   vendor, are translated, so an Anthropic model reaches the pass-through only by being listed
+   with `"vendor": "anthropic"`.
+6. <a id="WG-I35"></a>**[WG-I35](#WG-I35)**: **`count_tokens` stays refused, for Anthropic models
+   too.** [§3](#3-part-2--routing-by-model-id-for-claudes-everything-profile-ruled)'s text expected
+   it to survive the pass-through, but runtime documents no `count_tokens` on its Messages route,
+   and AWS says a Claude model that launched with cross-Region inference only has no CountTokens
+   on runtime at all. The one documented path for such a model is on `bedrock-mantle`, which yolo
+   does not ship. An undocumented route could
+   answer with something other than the 404 that sends claude to its own estimator
+   ([WB-D14](../reference/wire-bridge.md#wb-d14)), so the refusal stands until a real run shows
+   runtime serving it.
+
+**What is not built, or not closed:**
+
+- **The shipped `bedrock-bridge` profile does not reach this route.** The shipped `bedrock`
+  provider names a region and no address, and the bridge reaches a Bedrock provider only at an
+  `openai` address, until the region-composed URL lands ([§8](#8-build-order), step 1). Today
+  the pass-through serves a provider whose `endpoints.openai.base_url` is runtime's
+  `/openai/v1`, and whose list names its Claude models with `vendor: "anthropic"`: a company
+  pack's provider, or a user's own once object-form model entries carry `vendor` in user config.
+- **The `anthropic-beta` values claude sends are forwarded as sent**, and nobody knows which of
+  them runtime accepts. On `ANTHROPIC_BASE_URL`, claude sends the betas it sends the first-party
+  API, and a value runtime rejects fails the request with a 400, which the bridge relays
+  ([WG-I32](#WG-I32)). Only a real turn settles it.
+- **No request has reached the route.** The tests run the production boot, handler, signer and
+  relay against a fake upstream that serves the documented format.
 
 ---
 
@@ -757,6 +878,12 @@ Three earlier non-licenses are reopened here by name:
    ([WB-D15](../reference/wire-bridge.md#wb-d15)), and `count_tokens` stays refused
    ([WB-D14](../reference/wire-bridge.md#wb-d14)). The step starts with [§3](#3-part-2--routing-by-model-id-for-claudes-everything-profile-ruled)'s one measurement,
    SSE or binary event-stream.
+   **BUILT 2026-09-29** ([§3.1](#31-how-it-is-built), [WG-I30](#WG-I30)–[WG-I35](#WG-I35)). The
+   measurement, SOURCED: `/anthropic/v1/messages`, streaming Anthropic SSE. The route is live for
+   a Bedrock provider the bridge reaches at runtime's `/openai/v1`. `-p bedrock-bridge` reaches it
+   once step 1's region-composed URL gives the shipped provider an address; until then that
+   profile does not route claude at the bridge at all, and `count_tokens` stays refused either
+   way ([WG-I35](#WG-I35)).
 3. **The sign-only route**
    ([§4](#4-part-3--the-sign-only-openai-chat-completions-route-ruled)), for oh-omp and pi.
    **BUILT 2026-09-25** as the via route, with Part 5's selection ([§4.1](#41-how-it-is-built)).
@@ -1080,8 +1207,14 @@ Three earlier non-licenses are reopened here by name:
 | WG-I15 | **The via checks run the agent's own derives to see whether the via re-points it; a via that re-points nothing is disclosed as having no effect, never refused.** An implementation decision | 2026-09-26 | [WG-I15](#WG-I15) | 2026-09-26: `packload.DerivedViaPointers`, `wirebridged.ViaRouteGate` |
 | WG-I23 | **A via route forwards only a canonical path (no `.`, `..` or empty segment, no decoded `?` or `#`), and forwards it escaped; any other gets a 404.** An implementation decision, closing a bypass of WG-I20 | 2026-09-26 | [WG-I23](#WG-I23) | 2026-09-26: `wirebridged.canonicalViaTail`, `passthroughHandler.do` |
 | WG-I24 | **A stream the upstream cuts short aborts the agent's connection and is logged; only the wait for response headers is bounded.** An implementation decision | 2026-09-26 | [WG-I24](#WG-I24) | 2026-09-26: `passthroughHandler.ServeHTTP`, `wirebridged.viaHeaderTimeout` |
-| WG-I25 | **Part 2, routing by model id, is released for build: pass Anthropic ids untranslated to runtime's Messages route, built with or right after the `bedrock-bridge` profile.** Until then a Claude model on that profile is translated, losing `cache_control` and `thinking`. Whether runtime streams Anthropic SSE or AWS's binary event-stream is the builder's first measurement, not a choice. An implementation decision: the behavior is [OQ-BR11](bedrock-plumbing.md#OQ-BR11)'s, and [OQ-BR9](bedrock-plumbing.md#OQ-BR9), [OQ-BR12](model-lists-and-pickers.md#OQ-BR12) and [OQ-BR13](model-lists-and-pickers.md#OQ-BR13) have ruled or been directed | 2026-09-29 | [§8](#8-build-order) step 2 | — |
+| WG-I25 | **Part 2, routing by model id, is released for build: pass Anthropic ids untranslated to runtime's Messages route, built with or right after the `bedrock-bridge` profile.** Until then a Claude model on that profile is translated, losing `cache_control` and `thinking`. Whether runtime streams Anthropic SSE or AWS's binary event-stream is the builder's first measurement, not a choice. An implementation decision: the behavior is [OQ-BR11](bedrock-plumbing.md#OQ-BR11)'s, and [OQ-BR9](bedrock-plumbing.md#OQ-BR9), [OQ-BR12](model-lists-and-pickers.md#OQ-BR12) and [OQ-BR13](model-lists-and-pickers.md#OQ-BR13) have ruled or been directed | 2026-09-29 | [§8](#8-build-order) step 2 | 2026-09-29, [§3.1](#31-how-it-is-built): the adapter route on a `bedrock-runtime` upstream sends a model its list declares vendor `anthropic` for to `/anthropic/v1/messages` untranslated (`wirebridged.anthropicModelIDs`, `messagesPassthrough`); pinned through the production boot by `TestAnAnthropicModelGoesUntranslatedToBedrocksMessagesRoute` and `TestEveryOtherModelOnTheRouteIsStillTranslated`. Unreached by `bedrock-bridge` until [§8](#8-build-order) step 1's region-composed URL |
 | <a id="WG-I26"></a>WG-I26 | **codex's via row covers a Bedrock provider that names no endpoint**: under a profile with a `via`, the selected provider of platform `aws-bedrock` gets codex's via row (Responses at its via URL, the first OpenAI entry of the list), as pi's, opencode's and oh-omp's derives already give every selected provider, rather than no row. The bridge, not codex, reaches Bedrock on that route, and a row the route cannot serve is the launch's to refuse ([WG-I13](#WG-I13)) rather than the derive's to hide: with no row, WG-I15 disclosed "the via has no effect", which was false, since without the via codex runs its own Bedrock client ([`bedrock-plumbing.md` BR-D16](bedrock-plumbing.md#BR-D16)). Until the region-composed URL lands ([§8](#8-build-order), step 1), the shipped `bedrock-bridge` therefore refuses codex, pi, opencode and oh-omp and warns claude. An implementation decision | 2026-09-29 | [§4.1](#41-how-it-is-built) | 2026-09-29: `packs/codex/derive.lua` (`codexViaBedrock`); pinned by `TestTheShippedBedrockBridgeProfileMeetsEachAgentAsItCan` and `TestCodexOnABridgedBedrockProfileRidesItsViaRoute` |
+| WG-I30 | **Runtime's Messages stream is relayed byte for byte, and an answer framed as AWS's binary event stream is refused 502 by name.** The framing is SOURCED, not observed. An implementation decision | 2026-09-29 | [WG-I30](#WG-I30) | 2026-09-29: `messagesPassthrough.serve`; `TestAnEventStreamAnswerIsRefusedByName` |
+| WG-I31 | **The Messages upstream shares the route's signer and chain, and a Bedrock API key goes as `x-api-key` on it.** An implementation decision | 2026-09-29 | [WG-I31](#WG-I31) | 2026-09-29: `bedrockSigner.authorizeAs`, `messagesPassthrough.do`; `TestABedrockAPIKeyGoesAsXAPIKeyOnTheMessagesRoute`, `TestAnExpiredSignatureOnTheMessagesRouteIsRefreshedOnce` |
+| WG-I32 | **A refusal on the Messages route keeps its status; an Anthropic-shaped body is relayed as sent, any other is put into Anthropic's shape.** An implementation decision | 2026-09-29 | [WG-I32](#WG-I32) | 2026-09-29: `relayMessagesError`; `TestMessagesRefusalsKeepTheirStatusInAnthropicsShape` |
+| WG-I33 | **A Messages stream that fails or ends before `message_stop` or an `error` event aborts the agent's connection; only the wait for headers is bounded.** An implementation decision, WG-I24's rule on the adapter route | 2026-09-29 | [WG-I33](#WG-I33) | 2026-09-29: `messagesPassthrough.relay`, `sseClose`, `sendHeaderBounded`; `TestAMessagesStreamCutShortAbortsTheAgentsConnection`, `TestAMessagesStreamEndingBeforeMessageStopAborts` |
+| WG-I34 | **A request's model is looked up in the list with its `[1m]` suffix trimmed, and sent trimmed; an id whose aliases disagree on the vendor stays translated.** An implementation decision | 2026-09-29 | [WG-I34](#WG-I34) | 2026-09-29: `messagesPassthrough.claims`, `withModel`, `anthropicModelIDs`; `TestTheOneMillionSuffixIsTrimmedForLookupAndOnTheWire`, `TestAnthropicModelIDsReadsTheDeclaredVendor` |
+| WG-I35 | **`count_tokens` stays refused for Anthropic models too**: runtime documents none on its Messages route. An implementation decision, amending [§3](#3-part-2--routing-by-model-id-for-claudes-everything-profile-ruled)'s "`count_tokens` survive[s]" | 2026-09-29 | [WG-I35](#WG-I35) | 2026-09-29: unchanged `bridgeHandler.ServeHTTP` refusal; `TestCountTokensStaysRefusedForAnAnthropicModel` |
 | OQ-WG2 | **All-traffic mode is a property of the profile**, opt-in and off by default; one active profile per agent decides how it reaches the world | 2026-09-25 | [§6](#6-part-5--all-traffic-through-the-bridge-new-direction-design) | — |
 | OQ-WG3 | **One list** (the picker's effective list after an `only`), **and a separate enforcement switch** on the profile, **default on**; off means the list only shapes pickers | 2026-09-25 | [§6](#6-part-5--all-traffic-through-the-bridge-new-direction-design) | — |
 | OQ-WG4 | **A path prefix per agent on the one listen port**, written by each derive; an unknown prefix is refused; a port per agent only for an agent measured to drop a base URL's path (delegated, decided in review) | 2026-09-25 | [§6](#6-part-5--all-traffic-through-the-bridge-new-direction-design) | — |
@@ -1111,6 +1244,10 @@ Re-check instructions:
 | *"use temporary security credentials provided by AWS Security Token Service (AWS STS) service whenever possible"*; keys *"when your use case blocks the use of temporary AWS STS credentials"*; SCPs to block both actions. Posted 2025-10-17, updated 2026-07-01 | AWS Security Blog, *Securing Amazon Bedrock API keys* |
 | Long-term key mechanics: one IAM user per key, two per user for rotation, expiry from one day to never | IAM user guide, read 2026-09-04 |
 | The Messages API is listed on `bedrock-runtime`; path and stream framing unread | Bedrock endpoints page, read 2026-09-25 |
+| Runtime's Messages base URL is `https://bedrock-runtime.{region}.amazonaws.com/anthropic`; a `curl` posts the first-party body (`model`, `stream`) to `/anthropic/v1/messages` with `anthropic-version: 2023-06-01` and the Bedrock API key as `x-api-key`; streaming uses the plain Anthropic SDK, `Anthropic(base_url=".../anthropic")` with `messages.stream` | *Inference using Anthropic Messages API* page, read 2026-09-29 |
+| SigV4 and Bedrock API keys both supported on `bedrock-runtime`; IAM `bedrock:InvokeModel`, and `bedrock:InvokeModelWithResponseStream` for streaming; prompt caching supported on runtime | Bedrock endpoints page, read 2026-09-29 |
+| Claude models that launched with cross-Region inference only have no CountTokens on `bedrock-runtime`; Anthropic's `count_tokens` is at `bedrock-mantle`'s `/anthropic/v1/messages/count_tokens` | *Monitor your token usage by counting tokens* page, read 2026-09-29 |
+| Only `AnthropicBedrock` (InvokeModel: `/model/{id}/invoke-with-response-stream`) overrides `_make_sse_decoder` with `AWSEventStreamDecoder`; `AnthropicBedrockMantle` keeps the default SSE `Stream` and signs as `bedrock-mantle` | anthropic-sdk-python `main`, `src/anthropic/lib/bedrock/_client.py`, `_stream_decoder.py`, `_mantle.py`, read 2026-09-29 |
 
 **Client sources**, read 2026-09-26; nothing was run:
 

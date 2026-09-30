@@ -52,6 +52,17 @@ pack's `contributes`, `{"kind": "intercept", "bin": "<name>", "forward": [...]}`
 `<name>` run the pack's forwarder, while the installed program stays at its own path and
 `YOLO_BYPASS_SHIMS=1` still runs it. The `github` pack uses it for `gh`. See `yolo pack --help`.
 
+**Claude models on Amazon Bedrock keep prompt caching and extended thinking through the wire
+bridge.** When Claude Code or Copilot reaches Bedrock through the bridge, a model that the
+provider's model list names with the maker `anthropic` now goes to Bedrock's own Claude endpoint
+exactly as the agent wrote it. It used to be translated to OpenAI's format, which dropped its
+cache markers and its thinking. The other models on the same list are translated as before, so
+one Claude Code session can move between Claude and another maker's model. This works for a
+Bedrock provider whose `openai` endpoint is Bedrock's `/openai/v1` address; the shipped `bedrock`
+provider does not go through the bridge yet. Claude Code still counts tokens with its own
+estimate there. See
+[the Messages pass-through](docs/reference/wire-bridge.md#the-messages-pass-through-on-a-bedrock-upstream).
+
 **Every jail now has a place for work that survives a restart: `$YOLO_DURABLE_DIR`.** Each launch
 makes a directory inside the workspace's own `.yolo` folder and tells every process in the jail
 where it is, on podman, Apple Container and macos-user alike, and every agent's briefing now opens

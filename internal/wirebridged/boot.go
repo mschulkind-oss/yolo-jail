@@ -32,8 +32,10 @@
 // means the listener exists), count_tokens refuses 404 (WB-D14), every inbound
 // request must carry the launch's caller token and is refused 401 without it
 // (auth.go, WB-D18), that inbound credential is never forwarded upstream (WB-D4's
-// outbound half), and nothing but the boot-selected upstream is ever dialed, no
-// body and no key ever logged (§5's forbidden list).
+// outbound half), and nothing but the boot-selected upstream is ever dialed — for a
+// Bedrock route that is two upstreams, both composed at boot from the one provider row,
+// the translating one and runtime's Messages route (messages.go) — no body and no key
+// ever logged (§5's forbidden list).
 package wirebridged
 
 import (
