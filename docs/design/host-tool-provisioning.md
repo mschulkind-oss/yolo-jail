@@ -136,8 +136,10 @@ All of this was read from the tree at `7e529260`.
   (`internal/cli/applyhostdepgate.go`) offers the pack's remedy behind one prompt and runs it with
   `sh -c` in the inherited environment (`runDepInstallCommand`). So the program lands wherever that
   environment's npm prefix or the vendor's default puts it, which is a place a later launch's PATH
-  may not name. [OQ-PS13](provisioner-sets.md#OQ-PS13) records that this run skips the jail
-  launcher's installer-body check.
+  may not name. [OQ-PS13](provisioner-sets.md#OQ-PS13) recorded that this run skipped the jail
+  launcher's installer-body check; since 2026-09-30 an installer's remedy carries the same check
+  ([PS-D4](provisioner-sets.md#PS-D4)) and runs with no terminal
+  ([PS-D1](provisioner-sets.md#PS-D1)).
 - **Seven shipped packs declare a program.** Four use npm recipes (`copilot`, `oh-omp`,
   `opencode`, `pi`). Three use vendor installer recipes (`agy`, `claude`, `codex`). `oh-omp` is
   version-pinned (`@0.15.3`), and `pi` declares `node_floor: "22.19"`.

@@ -315,7 +315,7 @@ verified 2026-08-23; the flake line numbers re-resolved 2026-09-11 (**the merged
 | A **gcroot** on the realized profile | **SHIPPED 2026-08-05** — the root *is* the build's `--out-link`, so it cannot be skipped | `internal/darwinpkg/gcroot.go`, `darwinpkg.go:117-141` |
 | The resolved profile **reported** to a human | **SHIPPED 2026-08-05** for `describe`, and **2026-09-14** for `check` — both now gated on `PrimBakedImage` being absent ([the model doc's build order](provisioner-sets.md), step 2) | `printPackageProfile` (`internal/cli/describe.go`), `sectionPackageProfile` (`internal/cli/check/section_packageprofile.go`) |
 | `yolo check` verifying nix + `/nix` + trusted-user **on macOS** | **SHIPPED** | `cli/check/section_nix_probe.go`, `sections_macos_platform.go` |
-| The same, on **Linux** | **NOT WIRED** — `IsMacOS`-gated | the `o.IsMacOS && hasNix` branch in `section_nix_probe.go`, and `sectionMacOSPlatform`'s call in `check.go` ([`OQ-NX9`](provisioner-sets.md#OQ-NX9)) |
+| The same, on **Linux** | **PARTLY WIRED 2026-09-30** — the daemon connectivity probe runs wherever `nix` is found ([`PS-D5`](provisioner-sets.md#PS-D5)); the trusted-user verdict, the extra-platforms and builder block, and the platform section stay `IsMacOS`-gated by that decision | `sectionNix` in `section_nix_probe.go`, and `sectionMacOSPlatform`'s call in `check.go` ([`OQ-NX9`](provisioner-sets.md#OQ-NX9)) |
 | A **caller** for the profile at the `host` notch | **DOES NOT EXIST** | `yolo host apply` never touches nix (`cli/apply.go`: no `packages` handling) |
 | `packages:` reported by `yolo host apply` / `check --at host` | **DOES NOT EXIST** — `packages` is not a pack *kind*, so the `FieldSet` census never sees it | `render/fieldset.go`, `cli/apply.go` ([`OQ-NX8`](provisioner-sets.md#OQ-NX8)) |
 
@@ -585,7 +585,8 @@ doc treated as terminal.
 1. **No nix at all** (the common macOS/Linux user). The resolver is unavailable. `yolo check`
    already fails on `nix not found` and prints the download URL
    (`internal/cli/check/section_nix_probe.go:25`, read 2026-09-11) — but on Linux the `/nix`-exists
-   and `nix store info` probes are `IsMacOS`-gated and never run ([`OQ-NX9`](provisioner-sets.md#OQ-NX9)). **Telling
+   and `nix store info` probes were `IsMacOS`-gated and never ran ([`OQ-NX9`](provisioner-sets.md#OQ-NX9);
+   the `nix store info` probe runs on every OS since 2026-09-30, [`PS-D5`](provisioner-sets.md#PS-D5)). **Telling
    a brew user to install nix to get `copilot` is worse than `brew install copilot-cli`**, so
    `install_hints` stays the floor. ⚠ **Re-examined 2026-09-11: that objection is about RANKING,
    and it does not reach [`OQ-PS9`](provisioner-sets.md#OQ-PS9).** It says nix must not lead the macOS default order —

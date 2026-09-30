@@ -670,8 +670,12 @@ formula is AWS's deprecated ECS CLI, not the CLI this pack means. `brew-cask` wi
 > repo has, with nothing in the output to say so (measured once at 16 releases behind), and
 > `detectManager` reaches `nix` only by *elimination*, so a user cannot select it
 > deliberately anyway. `nix` hints belong on genuine third-party dependencies where the
-> user's own package manager is the right answer. A printed `curl … | sh` is a **suggestion
-> the user runs**, never something yolo runs.
+> user's own package manager is the right answer. A `via: installer` program's remedy is a
+> download-check-run command, never a pipe into `sh`: it fetches the script to a temporary file,
+> `yolo internal installer-check` refuses a web page or a binary naming the URL, and only then
+> does `sh` run it ([`PS-D4`](../design/provisioner-sets.md#PS-D4)). `yolo check-deps` only
+> prints it; `yolo host apply --assert` runs it behind its one prompt, with no terminal
+> ([`PS-D1`](../design/provisioner-sets.md#PS-D1)).
 
 #### `requires`
 

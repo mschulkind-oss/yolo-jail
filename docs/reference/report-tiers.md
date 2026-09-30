@@ -426,7 +426,12 @@ Six properties an implementer would otherwise decide by accident:
 3. **One prompt**, listing every missing dependency and the exact command each install would run,
    answered once. The blocker groups print **above** the prompt, whether the answer is yes, no or
    nobody's — that visibility is the protection against a piped `y`, since `promptYesNo` has no
-   terminal gate by contract.
+   terminal gate by contract. A `via: installer` program's command downloads the script to a
+   temporary file, checks it and only then runs it, never a pipe into `sh`
+   ([`PS-D4`](../design/provisioner-sets.md#PS-D4)), and it runs with no terminal and no stdin,
+   which the prompt says before it is answered
+   ([`PS-D1`](../design/provisioner-sets.md#PS-D1)); a package manager's command keeps the
+   terminal for `sudo`.
 4. **Silence is NO**, so an unattended `--assert` refuses rather than installing.
 5. **An install that runs and leaves the binary missing is a decline.** The re-probe is the
    command's *answer*, not its exit code: an installer that exits 0 and delivers nothing leaves the
