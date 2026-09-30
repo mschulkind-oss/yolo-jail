@@ -411,14 +411,33 @@ func TestForwardedInputAfterTheDeathIsTimedNeverRecorded(t *testing.T) {
 			"stty raw -echo; dd bs=1 count=7 of=/dev/null 2>/dev/null; exit 3"}, nil, nil, o)
 		done <- rc
 	}()
-	time.Sleep(300 * time.Millisecond)
+	// EVERY WRITE WAITS FOR WHAT IT DEPENDS ON, never for a fixed time. Two sleeps (300ms,
+	// then 100ms) stood in for both, and a machine where sh and stty took longer to exec lost
+	// the first: input that reaches a still-cooked pty is held for a newline and its ^C is
+	// eaten by ISIG, so dd never read its 7 bytes and the test gave up on "child never exited".
+	//
+	// 1. The child's pty is raw, read through the pty-mode reader the proxy handed the linger
+	//    slot (Observer.Pty). From then on the pty passes every byte through to dd, whether or
+	//    not dd has reached its read yet.
+	waitForProxyState(t, "the child's pty to turn raw (Observer.Pty's reader)", func() bool {
+		o.linger.mu.Lock()
+		mode := o.linger.ptyMode
+		o.linger.mu.Unlock()
+		return mode != nil && mode() == "icanon=off isig=off echo=off"
+	})
 	_, _ = master.Write([]byte("secret"))
-	time.Sleep(100 * time.Millisecond)
+	// 2. The proxy has forwarded "secret" as a chunk of its own, so the ^C below is one too:
+	//    a proxy slower to read than the old 100ms sleep got both in a single 7-byte chunk,
+	//    which is neither note the assertions want. It also means the proxy is in its pump, so
+	//    its own stdin is raw and the ^C is forwarded rather than eaten there.
+	waitForProxyState(t, "the proxy to forward the first chunk", func() bool {
+		return o.linger.inputNotes.Load() >= 1
+	})
 	_, _ = master.Write([]byte{0x03})
 	select {
 	case <-done:
-	case <-time.After(5 * time.Second):
-		t.Fatal("child never exited")
+	case <-time.After(forwardedInputBudget):
+		t.Fatalf("child never exited within %v of its 7th byte", forwardedInputBudget)
 	}
 	if o.linger.ptyMode == nil {
 		t.Error("runWithProxy did not hand the pty-mode reader to the slot (Observer.Pty)")
@@ -444,6 +463,23 @@ func TestForwardedInputAfterTheDeathIsTimedNeverRecorded(t *testing.T) {
 	}
 	if strings.Contains(file, "secret") {
 		t.Fatal("forwarded CONTENT reached the log — it can be a password")
+	}
+}
+
+// forwardedInputBudget bounds each wait in TestForwardedInputAfterTheDeathIsTimedNeverRecorded.
+// Every one of them is normally met within milliseconds of a process's exec; ten seconds is
+// generous for exec latency on a loaded laptop or CI runner, and a proxy or child that never
+// gets there still fails, naming the step.
+const forwardedInputBudget = 10 * time.Second
+
+// waitForProxyState polls cond until it holds, failing with what it waited for once
+// forwardedInputBudget runs out.
+func waitForProxyState(t *testing.T, what string, cond func() bool) {
+	t.Helper()
+	for deadline := time.Now().Add(forwardedInputBudget); !cond(); time.Sleep(5 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatalf("waited %v for %s", forwardedInputBudget, what)
+		}
 	}
 }
 
