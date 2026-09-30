@@ -1506,16 +1506,21 @@ should show instead is an open question ([OQ-MM1](../design/model-lists-and-pick
 
 **`enforce_models`** is a profile field, like `via`, that decides whether a narrowed list also
 REFUSES other models. It defaults to on: claude's allowlist (`availableModels` with
-`enforceAvailableModels`) and opencode's whitelist then turn away a model outside the list. Off
-(`"enforce_models": false`), the list only shapes the menus, and opencode's menu is not narrowed at
+`enforceAvailableModels`), opencode's whitelist and pi's extension then turn away a model outside
+the list. Off (`"enforce_models": false`), the list only shapes the menus, and opencode's menu is not narrowed at
 all, since its whitelist cannot hide without refusing. With the switch off claude's start pin
 returns, on `openai-codex` and under an `only` alike, wherever the profile's `model` or the
 provider's default names a model: no allowlist then keeps an off-list saved model from starting,
 so a `/model` choice lasts one session. On `openai-codex` the switch governs
 claude's allowlist too. On claude's own Bedrock client the refusal is claude's alone, client side,
 with [the four gaps](../design/model-lists-and-pickers.md#142-what-each-row-rests-on) that come
-with it, so a repository's `.claude/settings.json` can widen or switch it off. pi and oh-omp do
-not refuse yet: `--model` still runs an unlisted id.
+with it, so a repository's `.claude/settings.json` can widen or switch it off. pi's refusal is
+its extension's: a model outside the list, typed with `--model` or resumed from a session, ends
+its turn with an error naming the list and the switch, before any request leaves
+([MM-D21](../design/model-lists-and-pickers.md#MM-D21)). It does not hold under
+`pi --no-extensions`, and on a list whose models run on two pi apis (OpenRouter's catalog mixes
+them) pi shows the menu and says once that it cannot refuse there. oh-omp does not refuse yet:
+`--model` still runs a model outside the scope.
 
 **`pin_model`** is a profile option (`"pin_model": "true"`) asking claude to START every session
 on the profile's model. Where claude's allowlist renders it is off by default, since the

@@ -46,8 +46,8 @@ has a new section showing that PATH and whether each tool your packs need is on 
 approved list.** A `models` entry in a pack's `contributes` adds models to a provider's list
 (`add`) or keeps only the ones it names (`only`), for a provider the pack ships or one another
 pack ships. Under an `only`, the list is each agent's model menu for that provider where the agent
-allows it: Claude Code, opencode, pi and oh-omp show exactly the list, and Claude Code and opencode
-also refuse any other model; Codex and Copilot start on the list's default model. An agent that
+allows it: Claude Code, opencode, pi and oh-omp show exactly the list, and Claude Code, opencode
+and pi also refuse any other model; Codex and Copilot start on the list's default model. An agent that
 reaches the provider through the wire bridge is refused any other model by the bridge too,
 except Codex and Copilot, whose own background requests use models off the list, and Claude Code
 while Copilot shares its provider through the bridge. A profile's new

@@ -1183,6 +1183,23 @@ yolo.derive("pi", "codex-models", function(ctx)
   return { models = models }
 end)
 
+-- piEnforceFor is the model-list switch (enforce_models, MM-D5) that governs provName's list: the
+-- switch of the active-set entry on that provider, its own profile's, since every entry is live
+-- (docs/design/active-provider-sets.md AP-P1); else the primary's, ctx.enforce_models, on unless
+-- the profile says false. The rule packs/opencode/derive.lua's opencodeEnforceFor reads its
+-- whitelist by, so one profile's switch means the same in both agents. An entrypoint older than
+-- the per-entry field hands nil there, and the list reads the primary's.
+local function piEnforceFor(ctx, provName)
+  if provName ~= ctx.selected_provider and type(ctx.active_set) == "table" then
+    for _, e in ipairs(ctx.active_set) do
+      if e.provider == provName and type(e.enforce_models) == "boolean" then
+        return e.enforce_models
+      end
+    end
+  end
+  return ctx.enforce_models ~= false
+end
+
 -- model-lists (~/.pi/agent/yolo-model-lists.json): every provider list a `models` contribution
 -- narrowed with an `only` (packload's `models_only`), keyed by pi's provider id, for
 -- packs/pi/extensions/yolo-model-lists.js to register (docs/design/model-lists-and-pickers.md
@@ -1199,12 +1216,19 @@ end)
 -- rides the models.json via row instead). Each entry carries what yolo declares; the extension
 -- takes every other fact from pi's own catalog (getBuiltinModel).
 --
--- ONLY UNDER AN `only`, and only the models-only registration. A list that merely adds stays a
--- models.json row beside pi's catalog: what an `add` does to pi's catalog is OQ-MM1's,
--- unruled. And the refusing form of the registration, a `streamSimple` wrapper that turns away
--- `--model <provider>/<unlisted id>`, is not built: that pi's own credential still reaches the
--- delegated stream in that form is INFERRED, to be measured first (MM-D6, §14.4), so pi can
--- still run an unlisted id typed on its command line, with a warning.
+-- ONLY UNDER AN `only`. A list that merely adds stays a models.json row beside pi's catalog: what
+-- an `add` does to pi's catalog is OQ-MM1's, unruled.
+--
+-- AND THE SWITCH DECIDES THE FORM (MM-D5, MM-D6): each provider's entry carries `enforce`, the
+-- switch of the profile that governs it (piEnforceFor), and the extension registers the list
+-- with a refusing `streamSimple` wrapper while it is on, so `pi --model <provider>/<unlisted id>`
+-- ends its turn with yolo's refusal instead of running; off, `models` alone, and the list only
+-- shapes pi's menu. That the wrapper's delegate still carries pi's own credential was MEASURED
+-- 2026-09-30 on pi 0.99.1's shipped bundle against a mock endpoint (MM-D21). The entry also
+-- carries `api`, the one pi api the refusing registration names, where this derive knows it: the
+-- api of the models.json row it writes for the provider (piReachable, or the via row's
+-- chat-completions). pi's own Bedrock client has no row, and the extension reads that api from
+-- pi's catalog, which this derive cannot see.
 yolo.derive("pi", "model-lists", function(ctx)
   local lists = {}
   for name, prov in pairs(ctx.providers or {}) do
@@ -1216,6 +1240,13 @@ yolo.derive("pi", "model-lists", function(ctx)
     local usable = type(prov) == "table" and (viaRow or nativeBedrock or piReachable(prov) ~= nil)
     if name ~= "openai-codex" and usable and prov.models_only == true then
       local piID = nativeBedrock and "amazon-bedrock" or name
+      local rowApi = nil
+      if viaRow then
+        rowApi = "openai-completions"
+      elseif not nativeBedrock then
+        local _, reachableApi = piReachable(prov)
+        rowApi = reachableApi
+      end
       local provOpts = type(prov.options) == "table" and prov.options or {}
       local models = {}
       for _, e in ipairs(codexModelList(prov)) do
@@ -1236,7 +1267,7 @@ yolo.derive("pi", "model-lists", function(ctx)
         table.insert(models, m)
       end
       if #models > 0 then
-        lists[piID] = { models = models }
+        lists[piID] = { models = models, enforce = piEnforceFor(ctx, name), api = rowApi }
       end
     end
   end

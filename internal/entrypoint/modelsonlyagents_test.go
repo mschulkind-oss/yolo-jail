@@ -395,12 +395,72 @@ func TestPiGetsANarrowedListToRegister(t *testing.T) {
 	if len(lists) != 1 {
 		t.Errorf("pi model-lists = %v, want only the narrowed provider", lists)
 	}
+	// The switch is on by default, so the extension refuses outside the list (MM-D21), on the api
+	// of the models.json row the models derive writes for zai.
+	if zai["enforce"] != true || zai["api"] != "openai-completions" {
+		t.Errorf("pi model-lists zai enforce/api = %v/%v, want true/openai-completions", zai["enforce"], zai["api"])
+	}
 	settings := r.piSettings(t)
 	if settings["defaultProvider"] != "zai" || settings["defaultModel"] != "glm-5.3" {
 		t.Errorf("pi selection = %v/%v, want zai/glm-5.3", settings["defaultProvider"], settings["defaultModel"])
 	}
 	if scope, present := settings["enabledModels"]; present {
 		t.Errorf("pi enabledModels = %v, want none: the registration is the exact list", scope)
+	}
+}
+
+// EACH NARROWED LIST CARRIES THE SWITCH OF THE PROFILE THAT GOVERNS IT (MM-D5 for pi, the rule
+// opencode's whitelist follows): the primary's, and for a later active-set entry that entry's own,
+// every entry being live (AP-P1). pi's own Bedrock client has no models.json row, so its list
+// carries no api and the extension reads one from pi's catalog. Each case sets the switches apart,
+// so reading one switch for every list, or none, fails one of them.
+func TestPiNarrowedListCarriesItsProfilesModelSwitch(t *testing.T) {
+	const sol = "us.openai.gpt-6.1-sol"
+	company := companyModelsPack(t,
+		`{"kind":"models","provider":"zai","only":["glm-5.3"]},{"kind":"models","provider":"bedrock","only":["`+sol+`"]}`)
+	packs := append(testPacksForAgent(t, "pi", "zai"), company)
+	off := false
+	for _, tc := range []struct {
+		name         string
+		user         map[string]packload.UserProfile
+		use          string
+		zai, bedrock bool
+	}{
+		{"the primary's switch off", map[string]packload.UserProfile{"zai-open": {Provider: "zai", EnforceModels: &off}},
+			`{"pi":"zai-open"}`, false, false},
+		{"the primary's switch on", nil, `{"pi":"zai"}`, true, true},
+		{"a later entry's own switch off",
+			map[string]packload.UserProfile{"bedrock-open": {Provider: "bedrock", EnforceModels: &off}},
+			`{"pi":["zai","bedrock-open"]}`, true, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			table, err := packload.ComposeProviders(nil, packs)
+			if err != nil {
+				t.Fatal(err)
+			}
+			resolved, err := packload.ResolveProfiles(packs, tc.user, table)
+			if err != nil {
+				t.Fatal(err)
+			}
+			r := newPioencodeRender(t, mustCompactJSON(t, table))
+			r.wireProfiles(mustCompactJSON(t, packload.ProfilesWireTable(resolved)))
+			r.render(t, tc.use)
+			lists, _ := r.surface(t, ".pi", "agent", "yolo-model-lists.json")["providers"].(map[string]any)
+			zai, _ := lists["zai"].(map[string]any)
+			if zai["enforce"] != tc.zai {
+				t.Errorf("zai enforce = %v, want %v", zai["enforce"], tc.zai)
+			}
+			bedrock, _ := lists["amazon-bedrock"].(map[string]any)
+			if bedrock == nil {
+				t.Fatalf("pi model-lists = %v, want yolo's bedrock list as pi's amazon-bedrock", lists)
+			}
+			if bedrock["enforce"] != tc.bedrock {
+				t.Errorf("amazon-bedrock enforce = %v, want %v", bedrock["enforce"], tc.bedrock)
+			}
+			if api, has := bedrock["api"]; has {
+				t.Errorf("amazon-bedrock api = %v, want none: pi's own Bedrock client has no models.json row", api)
+			}
+		})
 	}
 }
 

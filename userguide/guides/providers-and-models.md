@@ -328,7 +328,7 @@ agent allows it:
 |---|---|---|
 | Claude Code | exactly the list (on its own Bedrock client, the list's Claude models), below its Default row | refused |
 | opencode | exactly the list | refused |
-| pi | exactly the list | a model typed with `--model` still runs, with a warning |
+| pi | exactly the list | refused (on OpenRouter, a list mixing models pi talks to in two different ways is shown but not refused, and pi says so) |
 | oh-omp | exactly the list | a model typed with `--model` still runs |
 | Codex, Copilot | the agent's usual menu, starting on the list's default model | not refused yet; a narrowed menu is planned |
 
