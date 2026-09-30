@@ -89,3 +89,69 @@ func TestClaudeOnBedrockStartsOnlyOnAnAnthropicModel(t *testing.T) {
 		})
 	}
 }
+
+// WHAT CLAUDE'S OWN BEDROCK CLIENT CANNOT USE STAYS OUT OF ITS ENVIRONMENT. Three branches of
+// packs/claude's env derive, each driven through the assembled launch channel with the pack's
+// own list:
+//
+//   - an anthropic endpoint on a Bedrock provider is the wire bridge's twin of an `openai`
+//     endpoint the user gave it, and claude's own client composes its URL from the region, so
+//     under the native profile no ANTHROPIC_BASE_URL (and no bridge caller token) is written;
+//   - a tier alias the user names on the provider is held to the makers claude can call, so a
+//     `sonnet` naming an OpenAI id leaves that tier on the pinned Anthropic model;
+//   - a profile routed through the bridge, on a provider with no anthropic endpoint to carry
+//     claude, runs claude on its own login, so the profile's model (an OpenAI id here) is not
+//     handed to it.
+func TestClaudeOnBedrockTakesNothingItsOwnClientCannotUse(t *testing.T) {
+	const opus = "global.anthropic.claude-opus-5-5"
+	const sol = "us.openai.gpt-6.1-sol"
+	packs := []string{"claude", "bedrock", "aws-auth", "openai-auth", "wire-bridge"}
+	withProfile := func(profile string) func() {
+		return func() { writeProfilesAtHome(t, profile) }
+	}
+
+	t.Run("an openai endpoint's bridge twin is not claude's native address", func(t *testing.T) {
+		cfg := bedrockRegionOnly(nil)
+		prov, _ := cfg.Get("providers")
+		bedrock, _ := prov.(*jsonx.OrderedMap).Get("bedrock")
+		ep := jsonx.NewOrderedMap()
+		ep.Set("base_url", "https://bedrock-runtime.us-east-1.amazonaws.com/openai/v1")
+		ep.Set("wire_api", "openai-chat-completions")
+		eps := jsonx.NewOrderedMap()
+		eps.Set("openai", ep)
+		bedrock.(*jsonx.OrderedMap).Set("endpoints", eps)
+		la := assembleWithPacksAssembled(t, cfg, packs)
+		if got := la.channelEnv(t, "ANTHROPIC_BASE_URL", "ANTHROPIC_AUTH_TOKEN"); len(got) != 0 {
+			t.Errorf("claude on its own Bedrock client was pointed at the bridge: %q", got)
+		}
+		if sw := la.channelEnv(t, "CLAUDE_CODE_USE_BEDROCK"); !slices.Equal(sw, []string{"CLAUDE_CODE_USE_BEDROCK=1"}) {
+			t.Errorf("claude on bedrock must still run its own Bedrock client: %q", sw)
+		}
+	})
+
+	t.Run("a tier alias of another maker leaves the tier on the pinned model", func(t *testing.T) {
+		models := jsonx.NewOrderedMap()
+		models.Set("sonnet", sol)
+		models.Set("haiku", sol)
+		la := assembleWithPacksAssembled(t, bedrockRegionOnly(models), packs,
+			withProfile(`{"bedrock": {"provider": "bedrock", "model": "`+opus+`"}}`))
+		got := la.channelEnv(t, claudeModelKeys...)
+		slices.Sort(got)
+		want := []string{"ANTHROPIC_DEFAULT_HAIKU_MODEL=" + opus, "ANTHROPIC_DEFAULT_OPUS_MODEL=" + opus,
+			"ANTHROPIC_DEFAULT_SONNET_MODEL=" + opus, "ANTHROPIC_MODEL=" + opus, "ANTHROPIC_SMALL_FAST_MODEL=" + opus}
+		if !slices.Equal(got, want) {
+			t.Errorf("claude's model env = %q, want every tier on %s", got, opus)
+		}
+	})
+
+	t.Run("a bridged profile's model is not handed to claude on its own login", func(t *testing.T) {
+		la := assembleWithPacksAssembled(t, bedrockRegionOnly(nil), packs,
+			withProfile(`{"bedrock": {"provider": "bedrock", "via": "wire-bridge", "model": "`+sol+`"}}`))
+		if got := la.channelEnv(t, claudeModelKeys...); len(got) != 0 {
+			t.Errorf("claude on its own login was handed a Bedrock model: %q", got)
+		}
+		if sw := la.channelEnv(t, "CLAUDE_CODE_USE_BEDROCK"); len(sw) != 0 {
+			t.Errorf("a bridged profile must not switch claude to its own Bedrock client: %q", sw)
+		}
+	})
+}
