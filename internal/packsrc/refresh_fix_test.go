@@ -483,7 +483,12 @@ func TestRefreshTimeoutEndsAStalledHTTPRemote(t *testing.T) {
 			c.Close()
 		}
 	})
-	store := &Store{Dir: t.TempDir(), Getenv: noStagedTree, Timeout: 2 * time.Second, Detached: true}
+	// NO PROXY FOR THE LOOPBACK REMOTE. A proxy the developer's environment names (http_proxy,
+	// which git's curl honors for an http:// URL, or a global http.proxy) took the connection
+	// instead, so the clone failed at once with "Failed to connect to <proxy> over proxy" and
+	// never met the stall this test is about. no_proxy exempts the listener's host from both.
+	env := append(os.Environ(), "no_proxy=127.0.0.1", "NO_PROXY=127.0.0.1")
+	store := &Store{Dir: t.TempDir(), Getenv: noStagedTree, Timeout: 2 * time.Second, Detached: true, Env: env}
 	src := "git+http://" + ln.Addr().String() + "/acme/repo?ref=main"
 	start := time.Now()
 	outs, err := store.Refresh([]RefreshPack{{Name: "p", Source: src}}, RefreshOptions{})
