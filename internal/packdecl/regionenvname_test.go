@@ -74,3 +74,18 @@ func TestARegionVariableMustBeAList(t *testing.T) {
 		t.Error(`region_env_name: "AWS_REGION" (a string) must be refused`)
 	}
 }
+
+// A PACK'S REGION IS ONE DNS LABEL, as a user's is (config.validateProviderEntries): an agent
+// builds its service's host name from it, so a fetched pack shipping "attacker.example/#" as a
+// region would send every request on the provider, and its credential, to that host.
+func TestAProviderRegionIsOneDNSLabel(t *testing.T) {
+	for _, bad := range []string{"attacker.example/#", "us-east-1.evil", "US-EAST-1"} {
+		_, problems := Decode([]byte(`{"contributes":[{"kind":"provider","name":"p","region":"` + bad + `"}]}`))
+		if got := strings.Join(problems, "\n"); !strings.Contains(got, `"region"`) || !strings.Contains(got, "one DNS label") {
+			t.Errorf("region %q must be refused, naming the field:\n%s", bad, got)
+		}
+	}
+	if _, problems := Decode([]byte(`{"contributes":[{"kind":"provider","name":"p","region":"eu-west-1"}]}`)); len(problems) != 0 {
+		t.Errorf("control: a region is legal: %v", problems)
+	}
+}

@@ -276,7 +276,10 @@ provider's `api_key_env_name` in a project's workspace config is now refused, as
 already was, and so is anything else there that decides where a
 provider's key goes: any change to its `endpoints`, and removing a provider with `null`. Each
 refusal names the field; move it to your user config. A project can still set a provider's
-`models`, `options`, `region` and `capabilities`. See
+`models`, `options`, `region` and `capabilities`, and a `region` must now be a region name, such
+as `us-east-1`, in any config: Claude Code and opencode build their Bedrock address from it, so a
+project's `region` with a dot or a slash in it could have sent your prompts and your AWS
+credential to a server of its choosing. See
 [settings per setup](userguide/reference/settings-per-setup.md).
 
 ### Fixed

@@ -6,6 +6,7 @@ covers:
   - internal/packdecl/contributes.go
   - internal/packdecl/envnames.go
   - internal/packdecl/platform.go
+  - internal/packdecl/region.go
   - internal/packload/regionpreflight.go
   - internal/packload/platformswitch.go
   - internal/packload/credentialscope.go
@@ -382,6 +383,20 @@ its first Bedrock request, and claude, opencode and pi silently use `us-east-1`.
   Whether to count it there is open with the maintainer; the hatch below is the way through.
 - **Scope.** As the credential preflight's: a provider nobody selects, and an entry a `null`
   dropped, demand nothing.
+
+### A region is a host-name part
+
+A provider's `region` is **one DNS label**: lowercase letters and digits with single hyphens
+between them, at most 63 characters (`us-east-1`, `us-gov-west-1`). Anything else is refused at
+every scope: a pack manifest, the user config, and a workspace config, whose file is checked on
+its own as well as in the merged map. The reason is where the value goes. Claude Code and
+opencode 1.18.32 build their Bedrock address as `https://bedrock-runtime.${region}.amazonaws.com`
+with no check of their own (read from their shipped binaries on 2026-09-29, never run), so a
+workspace `region` of `attacker.example/#` would have sent every prompt, every file the agent
+read and the Bedrock credential to `bedrock-runtime.attacker.example`. A label can name a host
+only inside the domain the agent appends. yolo keeps no list of regions: which exist, and which
+serve which model, is AWS's to change. The rule is `packdecl.RegionProblem`, read by
+`config.validateProviderRegion` and the manifest validator.
 
 The refusal names the pack, the provider and its platform, the agents on it that receive no
 region, both ways to set a region and every channel consulted.
@@ -1506,7 +1521,7 @@ above explains what each is for; this table is the only place the exact spelling
 | The `openai-codex` model list | ids `gpt-6.1-sol`, `gpt-6-astra`, `gpt-6-luna` in that order, each with a `[1m]` variant at 1,000,000 tokens after it; declared as `models` (alias = id) plus `model_options` facts `order`, `name`, `description`, `context_window`, `long_context_window` | `packs/openai-auth/pack.json` |
 | pi's copy of that list | `~/.pi/agent/yolo-openai-codex-models.json`, the computed surface `pi/codex-models`: `{"models": [{"id", "base", "name", "contextWindow"}, …]}`, read by the openai-auth extension at load. At the host notch it is `{}` under `host_management: assert` and refused under `own` | `packs/pi/pack.json`, `packs/pi/extensions/yolo-openai-auth.js` |
 | User config keys | `providers` (merged-scope — **except the ADDRESS**), `profiles` / `use_profiles` (user-scope-only); `agent_profiles` refused by name as the old spelling of `use_profiles` | `internal/config` |
-| Provider credential-routing scope | Every provider field that decides where a credential goes is **USER-SCOPE ONLY**: a workspace `yolo-jail.jsonc` or `yolo-jail.local.jsonc` carrying one is a fatal config error naming the field and the user config. The address, `endpoints.<protocol>.base_url`, since 2026-09-17 ([`OQ-LM3`](../research/local-model-endpoints.md#oq-lm3)). Since 2026-09-28 ([OQ-NC6](../plans/notch-convergence.md#OQ-NC6), the field list [NC-D63](../plans/notch-convergence.md#NC-D63)) also the rest of `endpoints` in any form (a protocol with no URL, a `wire_api`, a null removing an endpoint or the map), `api_key_env_name` (a value re-points the claim, a null unclaims the key so every process receives it), and a null provider or null `providers`, which remove claims. Since 2026-09-29 also `platform`, which decides which agents a pack's credential pointer reaches ([PP-D7](../design/providers-and-profiles-redesign.md#PP-D7)). `models`, `options`, `region` and `capabilities` still merge from either scope. The reason is the workspace file is AGENT-EDITABLE, and these fields decide where a credential and the inference behind it go. The entry-level `base_url` shorthand is refused at any scope | `internal/config/validate.go` (`validateProviderCredentialScope`) |
+| Provider credential-routing scope | Every provider field that decides where a credential goes is **USER-SCOPE ONLY**: a workspace `yolo-jail.jsonc` or `yolo-jail.local.jsonc` carrying one is a fatal config error naming the field and the user config. The address, `endpoints.<protocol>.base_url`, since 2026-09-17 ([`OQ-LM3`](../research/local-model-endpoints.md#oq-lm3)). Since 2026-09-28 ([OQ-NC6](../plans/notch-convergence.md#OQ-NC6), the field list [NC-D63](../plans/notch-convergence.md#NC-D63)) also the rest of `endpoints` in any form (a protocol with no URL, a `wire_api`, a null removing an endpoint or the map), `api_key_env_name` (a value re-points the claim, a null unclaims the key so every process receives it), and a null provider or null `providers`, which remove claims. Since 2026-09-29 also `platform`, which decides which agents a pack's credential pointer reaches ([PP-D7](../design/providers-and-profiles-redesign.md#PP-D7)). `models`, `options`, `region` and `capabilities` still merge from either scope, a `region` only as one DNS label ([a region is a host-name part](#a-region-is-a-host-name-part)). The reason is the workspace file is AGENT-EDITABLE, and these fields decide where a credential and the inference behind it go. The entry-level `base_url` shorthand is refused at any scope | `internal/config/validate.go` (`validateProviderCredentialScope`, `validateProviderRegion`) |
 | Missing-provider hatch | `YOLO_ALLOW_MISSING_PROVIDERS=1`, for the credential and the region preflights | `internal/paths` |
 | Provider platform | `platform`, one token, open vocabulary; `aws-bedrock` is the one value read today (claude's derive, aws-auth's gate, the region preflight); a derive reads the selected provider's as `ctx.selected_platform` | `packdecl.PlatformProblem`, `luahook` (`selectedPlatform`) |
 | The shipped Bedrock provider | `bedrock` in the bedrock pack: `"platform": "aws-bedrock"`, no endpoints, no region, no options, the six AWS credential names under `api_key_env_name`; needed by claude, codex, opencode and pi, and needing aws-auth | `packs/bedrock/pack.json`, each agent pack's `needs` |

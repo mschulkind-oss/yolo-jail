@@ -1550,7 +1550,8 @@
     credential (GH_TOKEN, say) to that provider, or unclaim a key so every process
     receives it, and one that can relabel a provider's platform can hand its agents a
     credential pointer meant for another service.
-    `models`, `options`, `region` and `capabilities` still merge from either scope.
+    `models`, `options`, `region` and `capabilities` still merge from either scope, a
+    `region` only as a region name (below).
     Per entry:
       base_url       [bold yellow]REMOVED[/bold yellow] — an entry carrying it is REFUSED, naming the
                      explicit spelling.  The bare field said WHERE without saying WHICH
@@ -1585,8 +1586,11 @@
                      aws-auth credential pointer, claims the AWS credential variables
                      `bedrock` claims (unless it lists its own api_key_env_name) and is
                      required a region.  A value no pack knows changes nothing.
-      region         the region a regional provider is reached through.  For a provider
-                     whose platform a selected pack declares region variables for
+      region         the region a regional provider is reached through, as one DNS label
+                     ("us-east-1"): the agents build their service's host name from it,
+                     so a value with a dot, a slash or a "#" is refused at every scope.
+                     For a provider whose platform a selected pack declares region
+                     variables for
                      (`bedrock`, and any provider of yours with "platform":
                      "aws-bedrock"), a launch with no `region` here and neither
                      AWS_REGION nor AWS_DEFAULT_REGION delivered to the agent is REFUSED,

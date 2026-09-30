@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"net/url"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -1218,9 +1219,7 @@ func validateProviderEntries(config *jsonx.OrderedMap, errs, warns *[]string) {
 			validateWireAPI(w, path+".wire_api", errs)
 		}
 		if r, ok := cfg.Get("region"); ok && r != nil {
-			if !isStr(r) {
-				add(errs, path+".region: expected a string")
-			}
+			validateProviderRegion(r, path+".region", errs)
 		}
 		// What service the provider is (OQ-BR2, docs/design/providers-and-profiles-redesign.md):
 		// the shape rule is packdecl's, so a user's own provider and a pack's cannot accept
@@ -1284,6 +1283,22 @@ func validateProviderEntries(config *jsonx.OrderedMap, errs, warns *[]string) {
 			validateStringList(c, path+".capabilities", errs)
 		}
 	}
+}
+
+// validateProviderRegion checks one `providers.<name>.region` value: a string shaped like one DNS
+// label (packdecl.RegionProblem). Both passes of validateProviders call it, the workspace file's
+// and the merged map's, so a workspace region is reported by whichever sees it first and not
+// twice: the refusal is one line about one field.
+func validateProviderRegion(v any, path string, errs *[]string) {
+	s, ok := asStr(v)
+	msg := path + ": expected a string"
+	if ok {
+		msg = packdecl.RegionProblem(path, s)
+	}
+	if msg == "" || slices.Contains(*errs, msg) {
+		return
+	}
+	add(errs, msg)
 }
 
 // validateModelEntry checks one OBJECT-form `models.<alias>` entry: the closed field set,
@@ -1439,7 +1454,11 @@ const providersKey = "providers"
 //
 // `models`, `options`, `region` and `capabilities` still merge, deliberately: they steer a
 // request that still goes to the provider the credential was issued for, and a workspace that
-// pins a model alias for its own repo is what the key is ordinarily for.
+// pins a model alias for its own repo is what the key is ordinarily for. ⚠ `region` holds that
+// only because of its SHAPE: the agents build their service's host name from it, so a value that
+// is not one DNS label is refused here too (validateProviderRegion), and the one a workspace may
+// write can then name only a region of the domain the agent appends. NC-D63 judged the field to
+// route no credential before that was read (docs/plans/notch-convergence.md).
 //
 // It is the same boundary `profiles`/`use_profiles` draw one step further in (profiles.go's
 // userScopeOnlyMessage, OQ-CS5): a profile decides WHICH declared provider an agent talks to,
@@ -1491,6 +1510,14 @@ func validateProviderCredentialScope(workspace string, errs *[]string) {
 				"aws-bedrock) reaches every agent whose selected provider declares it; a workspace "+
 				"value could relabel a provider so that its agents receive a credential they were "+
 				"never given, or, as null, withhold one."))
+		}
+		// `region` MERGES from a workspace, but only as a region: every agent that reads it builds
+		// its service's host name from it (packdecl.RegionProblem), so a repo file writing
+		// "attacker.example/#" there would choose the host every prompt and the provider's
+		// credential go to. Checked here, on the workspace file itself, and not only by the merged
+		// pass below, for this function's reason: the merged map is not the security boundary.
+		if r, has := entry.Get("region"); has && r != nil {
+			validateProviderRegion(r, path+".region", errs)
 		}
 		if _, has := entry.Get("api_key_env_name"); has {
 			add(errs, providerCredentialScopeMessage(path+".api_key_env_name", "it names the "+

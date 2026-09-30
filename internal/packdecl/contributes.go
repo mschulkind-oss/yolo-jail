@@ -3434,6 +3434,13 @@ func validateContribution(label string, c Contribution) []string {
 		req("name", c.Name)
 		problems = append(problems, validateProviderEndpoints(label, c.Endpoints)...)
 		problems = append(problems, c.APIKeyEnvName.Problems(label)...)
+		// An agent builds its service's host name from the region (RegionProblem), so a pack's
+		// is held to one DNS label as a user's is.
+		if c.Region != "" {
+			if prob := RegionProblem(label+": \"region\"", c.Region); prob != "" {
+				problems = append(problems, prob)
+			}
+		}
 		problems = append(problems, regionEnvNameProblems(label, c.RegionEnvName)...)
 		// The variables are a fact about a PLATFORM (the requirement keys on it, OQ-BR2), so a
 		// list with no platform to attach it to requires nothing of anybody.
