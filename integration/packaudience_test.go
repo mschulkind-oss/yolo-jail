@@ -271,3 +271,41 @@ func TestPackAudienceRefusesAnAgentTheJailDoesNotHave(t *testing.T) {
 		}
 	}
 }
+
+// TestShippedAgentPacksBriefOnlyTheirOwnAgentAboutWorktrees is the shipped half of the same
+// rule (docs/design/durable-scratch-space.md DS-D33): the claude and pi packs each carry prose
+// about their own agent's worktree tools, addressed to that agent alone, and a jail selecting
+// both plus codex must put each section in its own agent's file and in no other. Here rather
+// than only in run.TestEachAgentPackShipsItsOwnWorktreeProseToItsOwnAgent because this is the
+// file the agent opens, from the packs embedded in the CLI the suite built.
+func TestShippedAgentPacksBriefOnlyTheirOwnAgentAboutWorktrees(t *testing.T) {
+	requireJail(t)
+
+	dir := writeProject(t, `{}`)
+	packHome(t, `{"packs": ["claude", "pi", "codex"]}`)
+
+	const claude, pi = "## Claude Code's own worktrees", "## Where pi's workflow tools put worktrees"
+	// `rg -c -F` exits non-zero on no match, so each negative is an explicit `|| echo`, and
+	// each file's base briefing is asserted too, so a missing file cannot read as "absent".
+	// The markers are read from STDOUT alone: the launch echoes the whole command to stderr
+	// ("⚡ Executing: bash -lc '…'"), so every marker this command spells is in the combined
+	// output whatever the jail's files hold, and a negative read from there always passes.
+	r := runYolo(t, dir, strings.Join([]string{
+		`rg -c -F "` + claude + `" /home/agent/.claude/CLAUDE.md && echo CLAUDE_HAS_CLAUDE`,
+		`rg -c -F "` + pi + `" /home/agent/.claude/CLAUDE.md || echo CLAUDE_LACKS_PI`,
+		`rg -c -F "` + pi + `" /home/agent/.pi/agent/AGENTS.md && echo PI_HAS_PI`,
+		`rg -c -F "` + claude + `" /home/agent/.pi/agent/AGENTS.md || echo PI_LACKS_CLAUDE`,
+		`rg -c -F "` + claude + `" /home/agent/.codex/AGENTS.md || echo CODEX_LACKS_CLAUDE`,
+		`rg -c -F "` + pi + `" /home/agent/.codex/AGENTS.md || echo CODEX_LACKS_PI`,
+		`rg -c 'Storage classes' /home/agent/.codex/AGENTS.md && echo CODEX_STILL_BRIEFED`,
+	}, "; "))
+
+	for _, want := range []string{"CLAUDE_HAS_CLAUDE", "CLAUDE_LACKS_PI", "PI_HAS_PI",
+		"PI_LACKS_CLAUDE", "CODEX_LACKS_CLAUDE", "CODEX_LACKS_PI", "CODEX_STILL_BRIEFED"} {
+		if !strings.Contains(r.stdout, want) {
+			t.Errorf("missing %s — each shipped agent pack's worktree prose must reach its own "+
+				"agent's briefing and no other\nrc %d\nstdout: %s\nstderr: %s",
+				want, r.rc, r.stdout, r.stderr)
+		}
+	}
+}
