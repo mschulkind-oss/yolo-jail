@@ -211,7 +211,7 @@ decides it, so a reader can re-measure rather than trust a tally.
 | `providers.*.wire_api` | the value | **Fatal**, closed enum (R4). `config.validateWireAPI`. |
 | `providers.*.base_url` | the value | **Fatal** where the URL carries userinfo — a plaintext credential in a git-tracked file. `config.providerURLProblem`. |
 | Contribution `kind` | the value | **Fatal** at load for a known build; **skip + report** across the version boundary. `packdecl.KnownKind` / `packdecl.DecodeTolerant`. |
-| `supersedes.capability` | the capability name | **Structurally** fatal at load in `packdecl`; the **match** is **fatal** at the host launch, a pack pre-flight over the staged set (`run.refuseUnmatchedSupersessions`), a `[FAIL]` in `yolo check`, and reported by `yolo loopholes list`/`status`. One sentence at all three (`loopholes.unmatchedSupersessions`, surfaced by `SupersessionProblems`), plus a skew clause when `version.SourceSkew` proves one. |
+| `supersedes.capability` | the capability name | **Structurally** fatal at load in `packdecl`; the **match** is **fatal** at the host launch, a pack pre-flight over the staged set (`run.refuseUnmatchedSupersessions`), and at `yolo host` through the same gate (`run.UnmatchedSupersessionRefusal`), a `[FAIL]` in `yolo check`, and reported by `yolo loopholes list`/`status`. One sentence at all three (`loopholes.unmatchedSupersessions`, surfaced by `SupersessionProblems`), plus a skew clause when `version.SourceSkew` proves one. |
 | `env_sources` | file paths | **Warn + skip**, and correctly so. `config.ResolveEnvSourcesFull`. |
 
 > [!IMPORTANT]
