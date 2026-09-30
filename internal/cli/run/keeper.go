@@ -103,6 +103,12 @@ func KeeperMain(args []string, seams KeeperSeams) int {
 			return 2
 		}
 	}
+	// A refused argv adopts nothing: an *os.File made for a descriptor this process may not own
+	// would close it from its finalizer at some later collection.
+	if planPath == "" {
+		fmt.Fprintf(os.Stderr, "usage: yolo internal daemon %s --plan <file> --progress-fd <n> --lifeline-fd <n> [--lock-fd <n>]\n", KeeperVerb)
+		return 2
+	}
 	// FIRST: no child the keeper starts may hold what it inherited (JL-D29). A Go child receives
 	// ExtraFiles without close-on-exec, by convention, so socat, the fronted daemons, the runtime
 	// client and the scratch remover would otherwise each keep the pipe and the lock alive.
@@ -118,10 +124,6 @@ func KeeperMain(args []string, seams KeeperSeams) int {
 	progress := file("--progress-fd", "keeper-progress")
 	lifeline := file("--lifeline-fd", "keeper-lifeline")
 	lock := file("--lock-fd", "keeper-launch-lock")
-	if planPath == "" {
-		fmt.Fprintf(os.Stderr, "usage: yolo internal daemon %s --plan <file> --progress-fd <n> --lifeline-fd <n> [--lock-fd <n>]\n", KeeperVerb)
-		return 2
-	}
 	// SIGHUP and SIGPIPE are received and dropped, SIGINT and SIGTERM end the jail in order: through
 	// signal.Notify and never signal.Ignore, whose SIG_IGN every child would inherit (JL-D24, JL-D29).
 	signals := make(chan os.Signal, 8)

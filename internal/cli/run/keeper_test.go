@@ -14,6 +14,8 @@ import (
 	"go/ast"
 	"os"
 	"path/filepath"
+	goruntime "runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -929,6 +931,31 @@ func TestKeeperMainRefusesABadArgv(t *testing.T) {
 		if rc := KeeperMain(args, KeeperSeams{}); rc != 2 {
 			t.Errorf("KeeperMain(%q) = %d, want 2", args, rc)
 		}
+	}
+}
+
+// TestAKeeperArgvWithoutAPlanLeavesItsDescriptorsAlone: an argv KeeperMain refuses must not have
+// adopted the descriptors it names. It used to wrap each in an *os.File before seeing that --plan
+// was missing, and the wrapper's finalizer closed the descriptor at a later garbage collection. In
+// the test binary TestKeeperMainRefusesABadArgv's "--progress-fd 3" was then some other file's
+// descriptor: on macOS, go test's own testlog, whose closing failed the package after every test
+// had passed ("can't write .../testlog.txt: bad file descriptor").
+func TestAKeeperArgvWithoutAPlanLeavesItsDescriptorsAlone(t *testing.T) {
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+	defer w.Close()
+	if rc := KeeperMain([]string{"--progress-fd", strconv.Itoa(int(w.Fd()))}, KeeperSeams{}); rc != 2 {
+		t.Fatalf("KeeperMain with no --plan = %d, want 2", rc)
+	}
+	for i := 0; i < 5; i++ {
+		goruntime.GC()
+		time.Sleep(10 * time.Millisecond)
+	}
+	if _, err := w.Write([]byte("x")); err != nil {
+		t.Fatalf("KeeperMain refused the argv, yet a descriptor it never took was closed behind it: %v", err)
 	}
 }
 
