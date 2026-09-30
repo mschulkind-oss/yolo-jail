@@ -1275,7 +1275,7 @@ the plain name, byte for byte, so no existing config moves.
   those agents and the entries they ignore ([OQ-AP3](../design/active-provider-sets.md#OQ-AP3);
   `packload.NarrowBareList`, `packload.BareListNote`). The entries an agent ignores must still be
   declared: `-p zai,typo` refuses naming `typo` whichever agents are selected
-  (`checkProfileDeclarations` in a jail, `hostBareTailUndeclared` at `yolo host` and
+  (`checkProfileDeclarations` in a jail, `hostBareListUndeclared` at `yolo host` and
   `yolo host env`).
 - **What a set refuses** (`packload.ProfileSetProblems`, at every notch and predicted by
   `yolo check`): a name listed twice; two entries resolving to one provider; two entries on one

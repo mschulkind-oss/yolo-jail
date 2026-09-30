@@ -119,6 +119,12 @@ func TestHostRefusesAnUndeclaredEntryOfABareList(t *testing.T) {
 		t.Errorf("yolo host must name the ignored entry nothing declares:\n%s", errs)
 	}
 
+	// Checked in order, so a list whose first entry is undeclared names that one first.
+	rc, _, errs = hostGateRun(t, cfg, nil, []string{"-p", "nosuch,typo"}, "claude")
+	if rc == 0 || !strings.Contains(errs, `profile "nosuch" (entry 1 of the bare -p list nosuch,typo)`) {
+		t.Errorf("an undeclared first entry must be named first (rc=%d):\n%s", rc, errs)
+	}
+
 	hostGateHome(t, cfg, nil)
 	var out, errw bytes.Buffer
 	if rc := hostEnv([]string{"-p", "zai,typo"}, &out, &errw); rc == 0 {
