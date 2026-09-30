@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -82,67 +83,46 @@ func TestTheHoldDropsHangupsAndInterruptsAndEndsOnSigterm(t *testing.T) {
 	}
 }
 
-// TestAHoldThatASigtermEndedExitsWithItsStatus: the main process's status is the one fact the
-// launcher has that tells a jail stopped from outside from a first session killed while its
-// jail ran (run.firstSessionStatus), since the kernel SIGKILLs every session in both cases.
+// TestAHoldThatASigtermEndedExitsWithItsStatus: a stopped jail's main process exits 128+SIGTERM,
+// the status of a process the signal ended, which is what the jail's keeper reads off its client.
 func TestAHoldThatASigtermEndedExitsWithItsStatus(t *testing.T) {
 	var st *ExitStatus
 	if err := holdExitStatus(true); !errors.As(err, &st) || st.Code != 128+int(syscall.SIGTERM) || st.Message != "" {
 		t.Errorf("a hold a SIGTERM ended returns %v, want a silent exit status of %d", err, 128+int(syscall.SIGTERM))
 	}
 	if err := holdExitStatus(false); err != nil {
-		t.Errorf("a hold that followed its first session out returns %v, want a clean exit", err)
+		t.Errorf("a hold that ended otherwise returns %v, want a clean exit", err)
 	}
 }
 
-// TestTheHoldFollowsTheFirstSession: until the keeper exists the jail lives with its first
-// session, so the hold ends once the registered first session's process is gone — and not
-// before one registered.
-func TestTheHoldFollowsTheFirstSession(t *testing.T) {
+// TestTheHoldOutlivesItsFirstSession: since the keeper (step 3 of
+// docs/design/jail-lifetime-last-session-wins.md §7), nothing a session does ends the hold. A first
+// session registered and gone leaves it holding, and only a SIGTERM ends it. Until then the hold
+// followed its first session out, which is what ended every other session with the first. Drives
+// holdJail itself, so a hold that follows its first session again fails here.
+func TestTheHoldOutlivesItsFirstSession(t *testing.T) {
 	withJailMainDir(t)
-	alive := make(chan struct{})
-	saved := processExists
-	processExists = func(pid int) bool {
-		select {
-		case <-alive:
-			return false
-		default:
-			return pid == 4242
-		}
-	}
-	t.Cleanup(func() { processExists = saved })
-
-	gone := followFirstSession(5 * time.Millisecond)
-	select {
-	case <-gone:
-		t.Fatal("the hold followed a first session that never registered")
-	case <-time.After(40 * time.Millisecond):
-	}
-	if !newSessionGate(false, &bytes.Buffer{}).registerFirst(4242) {
+	// A pid no process can have: the first session is gone.
+	if !newSessionGate(false, &bytes.Buffer{}).registerFirst(1 << 30) {
 		t.Fatal("the first registration was refused")
 	}
-	select {
-	case <-gone:
-		t.Fatal("the hold ended while the first session was alive")
-	case <-time.After(40 * time.Millisecond):
-	}
-	close(alive)
-	select {
-	case <-gone:
-	case <-time.After(time.Second):
-		t.Fatal("the hold did not end when the first session's process did")
-	}
-
-	signals := make(chan os.Signal)
 	done := make(chan bool, 1)
-	go func() { done <- holdUntil(signals, gone) }()
+	go func() { done <- holdJail("", io.Discard) }()
+	select {
+	case <-done:
+		t.Fatal("the hold ended with its first session gone")
+	case <-time.After(500 * time.Millisecond):
+	}
+	if err := syscall.Kill(os.Getpid(), syscall.SIGTERM); err != nil {
+		t.Fatal(err)
+	}
 	select {
 	case terminated := <-done:
-		if terminated {
-			t.Error("a hold that followed its first session out says a SIGTERM ended it")
+		if !terminated {
+			t.Error("the hold ended without saying a SIGTERM ended it")
 		}
-	case <-time.After(time.Second):
-		t.Fatal("holdUntil did not return on the first session's end")
+	case <-time.After(5 * time.Second):
+		t.Fatal("the hold did not end on SIGTERM")
 	}
 }
 
@@ -468,8 +448,10 @@ func TestMainWiresTheHoldAndTheGateInOrder(t *testing.T) {
 		last = i
 	}
 	hold, _ := os.ReadFile("jailmain.go")
-	if !strings.Contains(string(hold), "holdUntil(signals, followFirstSession(firstSessionPoll))") {
-		t.Error("holdJail no longer follows the first session")
+	// Since the keeper, nothing but a SIGTERM ends the hold: it follows no session out
+	// (TestTheHoldOutlivesItsFirstSession drives it).
+	if !strings.Contains(string(hold), "holdUntil(signals, nil)") {
+		t.Error("holdJail no longer holds until a SIGTERM alone")
 	}
 	if !strings.Contains(string(hold), "signal.Notify(signals, syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM)") {
 		t.Error("holdJail no longer catches the signals it must drop and the one it ends on")

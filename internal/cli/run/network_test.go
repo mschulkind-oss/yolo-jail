@@ -10,7 +10,7 @@ import (
 func TestStartHostPortForwardingEmpty(t *testing.T) {
 	o := &Options{}
 	fillDefaults(o)
-	if got := o.startHostPortForwarding(nil, "c", t.TempDir()); got != nil {
+	if got := o.startPortForwards(o.planPortForwards(nil), "c", t.TempDir()); got != nil {
 		t.Errorf("expected nil for no forwards, got %v", got)
 	}
 }
@@ -27,7 +27,7 @@ func TestStartHostPortForwardingSpawnsSocat(t *testing.T) {
 	o := &Options{}
 	fillDefaults(o)
 	socketDir := filepath.Join(t.TempDir(), "yolo-fwd-test")
-	procs := o.startHostPortForwarding([]any{8080, "9090:5432"}, "test", socketDir)
+	procs := o.startPortForwards(o.planPortForwards([]any{8080, "9090:5432"}), "test", socketDir)
 	t.Cleanup(func() { cleanupPortForwarding(procs, socketDir) })
 
 	if len(procs) != 2 {

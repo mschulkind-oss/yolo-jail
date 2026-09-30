@@ -156,6 +156,13 @@ type Options struct {
 	// by an attach before its exec, and released by Run's deferred releaseSessionLock. nil
 	// until then, on macos-user, and in a caller that never takes it.
 	sessionLock *sessionLock
+	// keeperDrainSeen is set when this launch's count found the jail's keeper ending it
+	// (takeSessionLock's errKeeperDraining): the arrival then waits for the keeper instead of
+	// entering a jail being stopped (docs/design/jail-lifetime-last-session-wins.md JL-D28).
+	keeperDrainSeen bool
+	// keeperMode is set on a KEEPER's own Options (keeper.go): the children it starts get the
+	// kernel's death signal, and its self-execs run its own binary.
+	keeperMode bool
 	// packTree is the pack tree THIS launch staged (packtree.go), one per launch and never
 	// edited afterwards (docs/reference/pack-system.md#oq-pk2). "" until staging.
 	packTree string

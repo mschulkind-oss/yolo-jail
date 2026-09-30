@@ -352,12 +352,13 @@ func TestCheckProviderCredentialsIgnoresAnUnselectedPack(t *testing.T) {
 // shape (TestFreshLaunchPrintsTheProfileLineBesideTheHostAccessLine, which this mirrors,
 // including the ordering assertions): the check has to run AFTER the argv is assembled —
 // that argv is the environment it answers against — and BEFORE the host daemons spawn, so
-// a refusal never has to unwind a process it started.
+// a refusal never has to unwind a process it started. The container arm's daemons are its
+// keeper's, and its disclosure is the last thing before them this launch does.
 func TestFreshLaunchChecksProviderCredentialsOnTheAssembledEnv(t *testing.T) {
 	const (
 		assemble = "assembleRunCmd"
 		check    = "checkProviderCredentials"
-		daemons  = "startLoopholesDisclosed"
+		daemons  = "discloseLoopholes"
 	)
 	fn := methodDecl(t, "run.go", "runContainer")
 

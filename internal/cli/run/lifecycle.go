@@ -1,6 +1,7 @@
 package run
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -108,20 +109,6 @@ func (o *Options) probeRunningContainer(cname, rt string, timeout time.Duration)
 	return strings.TrimSpace(res.Stdout), true
 }
 
-// awaitRunningContainer polls findRunningContainer until the container is
-// visible (or the bounded attempts run out) and returns what it printed — the
-// container's short id for podman, "" when it never appeared. onStarted's wait:
-// the lock is released after it, and the Window A probe is armed with its id.
-func (o *Options) awaitRunningContainer(cname, rt string) string {
-	for i := 0; i < lockReleasePollAttempts; i++ {
-		if id := o.findRunningContainer(cname, rt); id != "" {
-			return id
-		}
-		time.Sleep(time.Duration(lockReleasePollIntervalSeconds * float64(time.Second)))
-	}
-	return ""
-}
-
 // findExistingContainer returns the container ID/name if it exists, running OR
 // stopped.
 func (o *Options) findExistingContainer(cname, rt string) string {
@@ -189,12 +176,16 @@ func (o *Options) liveYoloContainers(rt string) (map[string]struct{}, bool) {
 	return runtime.ParsePodmanLive(res.Stdout), true
 }
 
-// stopJail does a best-effort stop (--rm removes it), then drops the owner-PID
-// file. Bounded timeout so teardown can't hang.
+// stopJail does a best-effort stop (--rm removes it). Bounded timeout so teardown can't hang.
 //
 // reason says why, and is recorded BEFORE the stop (stopreason.go): every session the stop ends
 // prints it, and a record written after would race the sessions reading it. Every caller has to
 // give one, so no stop is silent to the sessions it ends.
+//
+// THE OWNER-PID FILE IS NOT ITS TO REMOVE any more. It names the jail's keeper, and a stop may come
+// from anyone: the keeper's own teardown removes it while it still names the keeper, the reaper
+// while it still names the dead owner it read (clearOwnerPIDIf, JL-D28 (4)). An unconditional
+// removal here took the file of the next jail's keeper away whenever a stop ran late.
 func (o *Options) stopJail(cname, rt, reason string) {
 	o.recordJailStop(cname, reason)
 	if rt == "container" {
@@ -203,13 +194,22 @@ func (o *Options) stopJail(cname, rt, reason string) {
 		o.Exec([]string{rt, "stop", "-t", strconv.Itoa(teardownStopTimeoutSeconds), cname}, "", nil,
 			time.Duration(teardownStopTimeoutSeconds+5)*time.Second)
 	}
-	clearOwnerPID(cname)
 }
 
-// reapOrphanedJails stops running jails whose owning yolo-run process is gone.
-// Conservative — only reaps what it can prove orphaned
-// (a live jail with a dead recorded owner PID). Apple Container has no owner-PID
-// lifecycle yet, so it's a no-op there.
+// reapOrphanedJails stops running jails whose owner is gone. Conservative — only reaps what it can
+// prove orphaned: a live jail whose owner-PID file names a dead process, whose keeper's liveness
+// lock is free, and whose session lock no session holds.
+//
+// THE LIVENESS LOCK IS THE EVIDENCE for a jail a keeper owns (JL-D7, JL-D18): the reaper takes it
+// exclusively, then the session lock, and holds both across the stop and the host-services cleanup,
+// so an arrival meanwhile waits for the reap as it waits for a draining keeper (JL-D28). A lock it
+// cannot take is a keeper alive, or another reaper at work: it leaves the jail. A jail started before
+// keepers has no keeper to hold the lock, so its lock is free and its old owner-PID rule decides.
+//
+// APPLE CONTAINER'S KEEPER-ERA JAILS ARE REAPED TOO: its jails used to have no owner-PID lifecycle,
+// so the reaper returned at once there; a jail a keeper started there has a start record
+// (keeperstate.go), which is what makes its dead owner evidence. One started before keepers still
+// has none, and is left as it always was.
 //
 // The orphan's host-services dir goes with it. Its owner died without its teardown, so
 // nothing else removes the dir, and the endpoint files in it name fronts that died with
@@ -229,57 +229,84 @@ func (o *Options) stopJail(cname, rt, reason string) {
 // jail it leaves alone and says nothing about: its sessions are the evidence it is not
 // orphaned, and "could not count" is never zero.
 func (o *Options) reapOrphanedJails(rt string) {
-	if rt == "container" {
-		return
-	}
 	live, ok := o.liveYoloContainers(rt)
 	if !ok || len(live) == 0 {
 		return
 	}
 	out := o.pr(o.Stdout)
 	for name := range live {
-		raw, err := os.ReadFile(ownerPIDFile(name))
-		if err != nil {
+		if rt == "container" { // parity: HonoredBy — only a keeper-era Apple Container jail has an owner-PID lifecycle, whose start record is the evidence
+			if _, keeperEra := readKeeperRecord(name); !keeperEra {
+				continue
+			}
+		}
+		pid, ok := readOwnerPID(name)
+		if !ok {
 			continue // no owner recorded — can't prove orphaned
 		}
-		pid, err := strconv.Atoi(strings.TrimSpace(string(raw)))
+		liveness, err := holdLivenessLock(name)
 		if err != nil {
-			continue
+			continue // its keeper is alive, or another reaper is at work
 		}
 		if o.PIDAlive(pid) {
+			releaseLock(liveness)
 			continue
 		}
 		sessions, ok := tryExclusiveSessionLock(name)
 		if !ok {
+			releaseLock(liveness)
 			continue // a session is still in it, or its count cannot be read
 		}
 		out.printf("[dim]Reaping orphaned jail %s (owner pid %d is gone)...[/dim]", name, pid)
 		o.stopJail(name, rt, orphanReapReason(o.Getpid(), pid))
 		o.stopLoopholes(nil, hostServiceSocketsDir(name, o.IsMacOS), name, rt)
+		clearOwnerPIDIf(name, pid)
+		removeKeeperRecord(name, pid)
 		sessions.release()
+		releaseLock(liveness)
 	}
 }
 
-// noteGoneOwner is what an attach says about a jail whose recorded owner is dead. The orphan
-// sweep keeps such a jail while a session is in it (reapOrphanedJails), so an entry can now
-// find one, and its host services were the dead launcher's: the fronts and the cgroup delegate
-// died with it, whatever it left running is unowned, and nothing restarts them ("a jail whose
-// launcher is gone is relaunched, not attached-and-repaired", attachExisting). The entry still
-// goes ahead, since stopping would end the other session, but it says what it is entering and
-// the one remedy. Silent when no owner is recorded or it cannot be read, and when it is alive.
-func (o *Options) noteGoneOwner(cname, rt string) {
-	raw, err := os.ReadFile(ownerPIDFile(cname))
-	if err != nil {
-		return
+// refuseUnkeptJail is an arrival at a running jail whose keeper is dead (an UNKEPT jail): it is
+// refused, as OQ-JL7 ruled (JL-D13), naming what is left in it and the one remedy. The sessions run
+// on without host services, and nothing restarts the keeper ("a jail whose launcher is gone is
+// relaunched, not attached-and-repaired", attachExisting): entering would put one more session in a
+// jail with no credential services, port forwards or cgroup delegate. `yolo stop` then tears it down
+// itself, and the next launch is fresh (JL-D30).
+//
+// A jail whose liveness lock is free and which has no start record and a live owner is not unkept:
+// an older yolo's launcher owns it, and the arrival attaches as it always did.
+func (o *Options) refuseUnkeptJail(cname, rt string) bool {
+	if probeKeeper(cname) != keeperGone {
+		return false
 	}
-	pid, err := strconv.Atoi(strings.TrimSpace(string(raw)))
-	if err != nil || o.PIDAlive(pid) {
-		return
+	rec, era := o.keeperEra(cname)
+	if !era {
+		return false
 	}
-	o.pr(o.Stderr).printf("[yellow]Warning: the yolo that started this jail (pid %d) is gone, so the "+
-		"host services it ran for the jail may be down: yolo's credential services, port forwards "+
-		"and the cgroup delegate. %s, then a launch, restores them, and ends every session in the "+
-		"jail.[/yellow]", pid, stopRemedy(rt, cname))
+	who := "its keeper"
+	if rec.PID > 0 {
+		who = fmt.Sprintf("its keeper (pid %d)", rec.PID)
+	}
+	o.pr(o.Stderr).printf("[bold red]Refusing to enter %s: %s is gone, so the jail's host services "+
+		"(yolo's credential services, port forwards and the cgroup delegate) are down, and %s "+
+		"without them.[/bold red]", cname, who, o.jailSessionsLeft(rt, cname))
+	o.pr(o.Stderr).printf("[dim]Run %s: it ends them and the jail, and a launch after it starts the "+
+		"jail fresh.[/dim]", stopRemedy(rt, cname))
+	return true
+}
+
+// jailSessionsLeft words the sessions that still run in a jail, for display (jailSessionCount).
+func (o *Options) jailSessionsLeft(rt, cname string) string {
+	n, ok := o.jailSessionCount(rt, cname)
+	switch {
+	case !ok:
+		return "its sessions still run in it"
+	case n == 1:
+		return "1 session still runs in it"
+	default:
+		return fmt.Sprintf("%d sessions still run in it", n)
+	}
 }
 
 // maybeWarnAboutOOMKiller: on macOS+podman exit 137 with a Podman Machine under

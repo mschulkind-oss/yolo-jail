@@ -2,11 +2,10 @@ package cli
 
 // stop.go is `yolo stop`: end this workspace's running jail deliberately.
 //
-// The ordinary lifecycle needs this rarely — a jail lives in the terminal that
-// launched it, and exiting (or Ctrl-C-ing) that session tears the jail down
-// with you (--rm sweeps the container). `yolo stop` is for the container with
-// no live terminal left to own it: a launcher that died, a wedged session, a
-// headless straggler. It is also the first half of the recommended replacement
+// The ordinary lifecycle needs this rarely — a jail lives while any session in it
+// does, and the last one to leave tears it down (its keeper does, and --rm sweeps
+// the container). `yolo stop` ends every session at once: a wedged session, a
+// headless straggler, a jail whose keeper is gone. It is also the first half of the recommended replacement
 // series — `yolo stop`, then an ordinary `yolo` launch — which is what every
 // message that used to recommend the old `--new` flag now names instead
 // (--new was removed in 0.9.0, recorded in CHANGELOG.md: its one-command
@@ -30,15 +29,16 @@ const stopUsage = `Usage: yolo stop
 
 Stop this workspace's running jail.
 
-Rarely needed: a jail lives in the terminal that launched it, and exiting (or
-Ctrl-C) that session tears the jail down with you. This is for the container
-with no live terminal left to own it — a dead launcher, a wedged session, a
-headless straggler — and it is the first half of the recommended replacement
-series whenever a change cannot reach a running jail:
+Rarely needed: a jail lives while any session in it does, and quitting the
+last one tears it down. This ends every session at once — a wedged session, a
+headless straggler, a jail whose keeper is gone — and it is the first half of
+the recommended replacement series whenever a change cannot reach a running
+jail:
 
     yolo stop && yolo -- <cmd>
 
-Stopping IS the end of that jail's sessions; the next launch starts fresh.
+Stopping IS the end of that jail's sessions; the next launch starts fresh. It
+returns once the jail's teardown is done, and prints it.
 Idempotent: with nothing running it says so and succeeds.
 
 Flags:
@@ -126,7 +126,16 @@ func stopJail(stdout, stderr io.Writer, ws, rt string,
 		fmt.Fprintf(stderr, "yolo stop: the %s runtime could not be run.\n", rt)
 		return 1
 	}
+	// The keeper's log as it stands before the stop, so the teardown streamed below is the one this
+	// stop causes (run.FinishStop).
+	logFrom := keeperLogOffset(ws)
 	if rc != 0 || strings.TrimSpace(state) != "true" {
+		// A jail whose container is gone and whose keeper is still ending it: the stop waits for that
+		// teardown, as it waits for the one it causes, so the next launch finds it done.
+		if keeperAlive(ws) {
+			fmt.Fprintf(stdout, "This workspace's jail (%s) is already ending.\n", cname)
+			return finishStop(stdout, stderr, ws, rt, logFrom, stopCapture(stderr))
+		}
 		fmt.Fprintf(stdout, "No jail running for this workspace (%s).\n", cname)
 		return 0
 	}
@@ -141,8 +150,29 @@ func stopJail(stdout, stderr io.Writer, ws, rt string,
 		fmt.Fprintf(stderr, "yolo stop: stopping %s failed (rc %d).\n", cname, rc)
 		return 1
 	}
+	// THE TEARDOWN, before the stop returns (docs/design/jail-lifetime-last-session-wins.md JL-D25):
+	// the jail's keeper runs it and this streams it, and a jail whose keeper died gets it from here
+	// (JL-D30). Returning at the runtime's stop would let the next launch, or a `yolo config diff`,
+	// meet a teardown still running.
+	sp = p.Span("stop.keeper_teardown")
+	frc := finishStop(stdout, stderr, ws, rt, logFrom, stopCapture(stderr))
+	sp.End()
+	if frc != 0 {
+		return frc
+	}
 	fmt.Fprintf(stdout, "Stopped %s. The next yolo launch starts fresh.\n", cname)
 	return 0
+}
+
+// finishStop is run.FinishStop behind a var, so a test can pin that the stop reaches it.
+var finishStop = run.FinishStop
+
+// stopCapture is the E3 config capture `yolo stop` hands the reap of an unkept jail, as a launch is
+// handed it (commands.go).
+func stopCapture(stderr io.Writer) func(workspace, rt string) {
+	return func(workspace, rt string) {
+		captureOnTerminate(workspace, rt, func(msg string) { fmt.Fprintln(stderr, "Warning: "+msg) })
+	}
 }
 
 // recordYoloStop records, for the sessions a stop of cname's jail ends, that `yolo stop` ended it
@@ -150,3 +180,9 @@ func stopJail(stdout, stderr io.Writer, ws, rt string,
 func recordYoloStop(cname string) {
 	run.RecordJailStop(cname, run.YoloStopReason(os.Getpid()))
 }
+
+// keeperLogOffset and keeperAlive are run.KeeperLogOffset and run.KeeperAlive, outside stopJail for
+// recordYoloStop's reason.
+func keeperLogOffset(ws string) int64 { return run.KeeperLogOffset(ws) }
+
+func keeperAlive(ws string) bool { return run.KeeperAlive(ws) }

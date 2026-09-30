@@ -326,6 +326,15 @@ func runInternalDaemon(args []string) int {
 	return internaldaemon.Run(args)
 }
 
+// runJailKeeper is `yolo internal daemon jail-keeper`: a container jail's keeper
+// (internal/cli/run/keeper.go), wired with what this package wires into a launch, since the E3
+// config capture it runs at the jail's end lives here.
+func runJailKeeper(args []string) int {
+	return run.KeeperMain(args, run.KeeperSeams{CaptureOnTerminate: captureOnTerminate})
+}
+
+func init() { internaldaemon.JailKeeper = runJailKeeper }
+
 // runMigrateHost retires host-side artifacts left by the pre-Go (Python)
 // distribution, so `go install ./cmd/yolo` can land its binary. The Justfile
 // `install` recipe runs it through `go run` immediately before `go install` —

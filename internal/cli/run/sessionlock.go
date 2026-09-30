@@ -10,11 +10,12 @@ package run
 // to keep it. It is HOST state that no jail mounts (the launch lock's own directory), so
 // nothing inside a jail can hold a jail open (JL-P2).
 //
-// WHAT READS IT TODAY is the orphan reaper, which reaps a jail only when it can take the lock
-// EXCLUSIVELY — zero sessions — and holds it across the reap (JL-D7), so a jail whose first
-// launcher was SIGKILLed while another terminal was attached is no longer stopped under that
-// terminal by the next `yolo` in any workspace (the design's §2.3, item 4). The design's
-// keeper, when it exists, drains on the same lock.
+// WHAT READS IT is the jail's KEEPER, which blocks on the lock taken exclusively and ends the jail
+// once it holds it — zero sessions (keeper.go, the design's §9.5); a quitting session, which asks
+// after letting its own go whether it was the last (probeAfterQuit, keeperstate.go); and the orphan
+// reaper, which reaps a jail only when it can take the lock exclusively and holds it across the
+// reap (JL-D7), so a jail whose owner died while a terminal was attached is not stopped under that
+// terminal by the next `yolo` in any workspace (the design's §2.3, item 4).
 //
 // THE RULES THE DESIGN SETS, and where each is kept:
 //
@@ -69,9 +70,17 @@ func openSessionLock(cname string) (*os.File, error) {
 	return os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0o644)
 }
 
+// errKeeperDraining is a session lock the jail's keeper holds exclusively: zero sessions, and the
+// keeper is ending the jail. A session never counts itself into it, and never waits for it here,
+// where its caller holds the launch lock the keeper's teardown guards take non-blocking
+// (docs/design/jail-lifetime-last-session-wins.md JL-D28): the caller waits for the keeper instead,
+// with the launch lock released.
+var errKeeperDraining = errors.New("this jail's keeper is ending it")
+
 // takeSessionLock takes LOCK_SH on cname's session lock, waiting up to sessionLockWait while
 // another process holds it exclusively. contended reports that it had to wait: the exclusive
-// holder was a reaper stopping this jail, so the caller looks at the container again. A nil
+// holder was a reaper stopping this jail, so the caller looks at the container again. When the
+// exclusive holder is the jail's own keeper, draining, it returns errKeeperDraining at once. A nil
 // lock with a nil error never happens; an error means this session is uncounted.
 func takeSessionLock(cname string) (lock *sessionLock, contended bool, err error) {
 	f, err := openSessionLock(cname)
@@ -89,6 +98,10 @@ func takeSessionLock(cname string) (lock *sessionLock, contended bool, err error
 			return nil, contended, err
 		}
 		contended = true
+		if probeKeeper(cname) == keeperAlive {
+			_ = f.Close()
+			return nil, true, errKeeperDraining
+		}
 		if !time.Now().Before(deadline) {
 			_ = f.Close()
 			return nil, contended, errors.New("another yolo process has held it exclusively for " +
@@ -134,6 +147,10 @@ func (o *Options) holdSessionLock(cname string) (contended bool) {
 		return false
 	}
 	lock, contended, err := takeSessionLock(cname)
+	if errors.Is(err, errKeeperDraining) {
+		o.keeperDrainSeen = true
+		return true
+	}
 	if err != nil {
 		o.pr(o.Stderr).printf("[dim]Warning: could not count this session in %s (%s); "+
 			"an orphan sweep may stop the jail under it once its launcher is gone[/dim]",

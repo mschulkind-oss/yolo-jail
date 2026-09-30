@@ -71,7 +71,7 @@ func TestRunContainerDisclosesImplicitProviderForwardsBeforeTheMerge(t *testing.
 			switch pfdCallee(n) {
 			case "discloseImplicitProviderForwards":
 				discloses = append(discloses, n)
-			case "startHostPortForwarding":
+			case "planPortForwards":
 				if startPos == token.NoPos {
 					startPos = n.Pos()
 				}
@@ -117,10 +117,10 @@ func TestRunContainerDisclosesImplicitProviderForwardsBeforeTheMerge(t *testing.
 			"implicit forwards are one list, so no implicit port can be told apart and named")
 	}
 	if startPos == token.NoPos {
-		t.Fatal("runContainer no longer calls startHostPortForwarding — this pin's anchor moved")
+		t.Fatal("runContainer no longer calls planPortForwards — this pin's anchor moved")
 	}
 	if !(call.Pos() < startPos) {
-		t.Error("the disclosure runs after the host forwarders start: the hole opens before it is named")
+		t.Error("the disclosure runs after the host forwards are planned for the keeper: the hole is decided before it is named")
 	}
 
 	// The lists it is handed.

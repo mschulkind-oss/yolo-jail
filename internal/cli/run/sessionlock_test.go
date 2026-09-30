@@ -1,6 +1,9 @@
 package run
 
 import (
+	"bytes"
+	"go/ast"
+	"go/token"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -161,48 +164,90 @@ func TestTheSessionCountLeavesOutAHoldMainProcess(t *testing.T) {
 	}
 }
 
-// TestAnAttachIntoAJailWhoseLauncherIsGoneSaysSo: the orphan sweep keeps a jail with a session
-// in it, so an attach can enter one whose owner is dead, whose host services went with it. The
-// attach says so and names the remedy; with the owner alive, or none recorded, it says nothing.
-func TestAnAttachIntoAJailWhoseLauncherIsGoneSaysSo(t *testing.T) {
+// TestAnArrivalAtAJailWhoseKeeperIsGoneIsRefused is JL-D13, as OQ-JL7 ruled: a running jail whose
+// keeper is dead (a start record beside a free liveness lock), or one an earlier yolo started whose
+// launcher is dead, is not entered; the refusal names what runs in it and `yolo stop`. A jail whose
+// keeper is alive, or whose older launcher still is, or that records no owner at all, is entered as
+// it always was.
+func TestAnArrivalAtAJailWhoseKeeperIsGoneIsRefused(t *testing.T) {
+	const cname = "yolo-ws-abcd1234"
 	for _, tc := range []struct {
-		name  string
-		owner string
-		alive bool
-		warn  bool
+		name          string
+		owner         string
+		alive, record bool
+		keeperHolds   bool
+		refuse        bool
 	}{
-		{"dead owner", "4242", false, true},
-		{"live owner", "4242", true, false},
-		{"no owner recorded", "", false, false},
+		{"a keeper that died", "4242", false, true, false, true},
+		{"a keeper whose pid was reused", "4242", true, true, false, true},
+		{"an earlier launcher that died", "4242", false, false, false, true},
+		{"a live keeper", "4242", false, true, true, false},
+		{"an earlier launcher still alive", "4242", true, false, false, false},
+		{"no owner recorded", "", false, false, false, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			s := newSkewAttach(t, false, false, "", map[string]string{AllowAttachSkewEnv: "1"})
-			s.o.PIDAlive = func(int) bool { return tc.alive }
+			t.Setenv("HOME", t.TempDir())
+			o := goldenOptions("/ws", t.TempDir())
+			var errBuf bytes.Buffer
+			o.Stderr = &errBuf
+			o.PIDAlive = func(int) bool { return tc.alive }
+			o.Exec = func(argv []string, _ string, _ []string, _ time.Duration) ExecResult {
+				return ExecResult{Ran: true, Stdout: "2\n"} // inspect's exec count
+			}
 			if tc.owner != "" {
 				if err := os.MkdirAll(ownerPIDDir(), 0o755); err != nil {
 					t.Fatal(err)
 				}
-				if err := os.WriteFile(ownerPIDFile("yolo-ws-abcd1234"), []byte(tc.owner+"\n"), 0o644); err != nil {
+				if err := os.WriteFile(ownerPIDFile(cname), []byte(tc.owner+"\n"), 0o644); err != nil {
 					t.Fatal(err)
 				}
 			}
-			if rc, restarted := s.attach(); rc != 0 || restarted {
-				t.Fatalf("rc=%d restarted=%v\n%s", rc, restarted, s.stderr.String())
+			if tc.record {
+				if err := writeKeeperRecord(cname, keeperRecord{PID: 4242}); err != nil {
+					t.Fatal(err)
+				}
 			}
-			s.o.releaseSessionLock()
-			got := strings.Contains(s.stderr.String(), "the yolo that started this jail (pid 4242) is gone")
-			if got != tc.warn {
-				t.Errorf("warned=%v, want %v:\n%s", got, tc.warn, s.stderr.String())
+			if tc.keeperHolds {
+				live, err := holdLivenessLock(cname)
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer releaseLock(live)
 			}
-			if tc.warn && !strings.Contains(s.stderr.String(), "'yolo stop' from this workspace, then a launch") {
-				t.Errorf("the warning does not name the remedy:\n%s", s.stderr.String())
+			if got := o.refuseUnkeptJail(cname, "podman"); got != tc.refuse {
+				t.Fatalf("refused=%v, want %v:\n%s", got, tc.refuse, errBuf.String())
+			}
+			if tc.refuse && (!strings.Contains(errBuf.String(), "Refusing to enter "+cname) ||
+				!strings.Contains(errBuf.String(), "'yolo stop' from this workspace")) {
+				t.Errorf("the refusal does not name the jail and the remedy:\n%s", errBuf.String())
 			}
 		})
+	}
+	// The call site: the arrival refuses before it attaches.
+	var refusePos, attachPos token.Pos
+	ast.Inspect(funcDecl(t, "run.go", "runContainer"), func(n ast.Node) bool {
+		if call, ok := n.(*ast.CallExpr); ok {
+			switch skelCallee(call) {
+			case "refuseUnkeptJail":
+				if refusePos == token.NoPos {
+					refusePos = call.Pos()
+				}
+			case "attachExisting":
+				if attachPos == token.NoPos {
+					attachPos = call.Pos()
+				}
+			}
+		}
+		return true
+	})
+	if refusePos == token.NoPos || attachPos == token.NoPos || refusePos > attachPos {
+		t.Error("runContainer no longer refuses an unkept jail before its attach decision attaches")
 	}
 }
 
 // TestAnAttachIsCountedBeforeItsExec: the attach arm holds the jail's session lock by the time
-// it execs, taken while the launch lock was still held, and a restart-free attach keeps it.
+// it execs, taken while the launch lock was still held, and its quit lets it go (endSession) before
+// it looks at what it left behind.
 func TestAnAttachIsCountedBeforeItsExec(t *testing.T) {
 	s := newSkewAttach(t, false, false, "", map[string]string{AllowAttachSkewEnv: "1"})
 	counted := false
@@ -222,11 +267,7 @@ func TestAnAttachIsCountedBeforeItsExec(t *testing.T) {
 		t.Errorf("the attach was not counted before it released the launch lock (released=%v counted=%v)",
 			lockReleased, counted)
 	}
-	if !sessionLockHeld(t, "yolo-ws-abcd1234") {
-		t.Error("the attach does not hold its session lock through the exec")
-	}
-	s.o.releaseSessionLock()
-	if sessionLockHeld(t, "yolo-ws-abcd1234") {
-		t.Error("releaseSessionLock left the lock held")
+	if sessionLockHeld(t, "yolo-ws-abcd1234") || s.o.sessionLock != nil {
+		t.Error("the attach's quit left its session lock held")
 	}
 }

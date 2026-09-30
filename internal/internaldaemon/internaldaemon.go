@@ -29,6 +29,10 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/wirebridged"
 )
 
+// JailKeeper is the `jail-keeper` member's entry, set by internal/cli (run.KeeperMain with the
+// seams the CLI wires into a launch). nil in a binary that never set it, which refuses the member.
+var JailKeeper func(args []string) int
+
 // IsDaemonArgv reports whether argv (os.Args, program name first) is the self-exec of a
 // daemon in this group: `<program> internal daemon …`. A TestMain asks it before m.Run.
 func IsDaemonArgv(argv []string) bool {
@@ -52,11 +56,20 @@ func IsDaemonArgv(argv []string) bool {
 // for an argv nothing emits any more.
 func Run(args []string) int {
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "usage: yolo internal daemon <aws-auth|aws-credential-adapter|claude-oauth-broker|github-broker|host-processes|journal|openai-auth-adapter|openai-auth-broker|serial|wire-bridge> [args...]")
+		fmt.Fprintln(os.Stderr, "usage: yolo internal daemon <aws-auth|aws-credential-adapter|claude-oauth-broker|github-broker|host-processes|jail-keeper|journal|openai-auth-adapter|openai-auth-broker|serial|wire-bridge> [args...]")
 		return 2
 	}
 	rest := args[1:]
 	switch args[0] {
+	case "jail-keeper":
+		// A container jail's KEEPER (internal/cli/run/keeper.go): the process a fresh launch spawns
+		// to own the jail's host services and its life. Its code is the run pipeline's, whose tests
+		// dispatch through this function, so this package cannot import it: the CLI sets JailKeeper.
+		if JailKeeper == nil {
+			fmt.Fprintln(os.Stderr, "yolo internal daemon: jail-keeper is not wired into this binary")
+			return 2
+		}
+		return JailKeeper(rest)
 	case "aws-auth":
 		return awsauthdaemon.Main(rest)
 	case "aws-credential-adapter":

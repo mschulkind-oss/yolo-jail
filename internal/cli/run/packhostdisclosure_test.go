@@ -301,8 +301,16 @@ func TestEverySpawnEntryDisclosesHostExecFirst(t *testing.T) {
 	spawnEntries := map[string]bool{
 		"startLoopholes":         true,
 		"startLoopholesMatching": true,
+		"startPlannedLoopholes":  true,
 	}
 	const discloser = "notePackHostExec"
+	// THE KEEPER'S START IS THE ONE SPAWN THAT DOES NOT DISCLOSE ITSELF, by design: a container
+	// launch discloses in its terminal, before it spawns the keeper (JL-D6), and the keeper runs
+	// only the plan that disclosure was printed from. So a call in the keeper's run is sanctioned
+	// when, and only when, the keeper refused an undisclosed daemon first (checkPlan), and the
+	// launch's own disclosure is pinned before its spawn (TestTheFreshLaunchRunsTheJailAsAHoldAnd
+	// ItsFirstSessionByExec).
+	const planCheck = "checkPlan"
 
 	files, err := os.ReadDir(".")
 	if err != nil {
@@ -332,8 +340,12 @@ func TestEverySpawnEntryDisclosesHostExecFirst(t *testing.T) {
 			// EARLIEST one: a wrapper may not disclose after spawning and be excused by a
 			// second call further down.
 			disclosedAt := token.NoPos
+			isKeeperRun := fn.Name.Name == "run" && fn.Recv != nil && len(fn.Recv.List) == 1 &&
+				receiverName(fn.Recv.List[0].Type) == "keeper"
 			ast.Inspect(fn.Body, func(n ast.Node) bool {
-				if callsMethod(n, discloser) && (disclosedAt == token.NoPos || n.Pos() < disclosedAt) {
+				if (callsMethod(n, discloser) || callsMethod(n, "discloseLoopholes") ||
+					(isKeeperRun && callsMethod(n, planCheck))) &&
+					(disclosedAt == token.NoPos || n.Pos() < disclosedAt) {
 					disclosedAt = n.Pos()
 				}
 				return true
@@ -362,6 +374,10 @@ func TestEverySpawnEntryDisclosesHostExecFirst(t *testing.T) {
 			})
 		}
 	}
+	// discloseLoopholes stands for the disclosure above only while it opens with it.
+	if calls := callsIn(funcDecl(t, "packloopholes.go", "discloseLoopholes")); !calls[discloser] {
+		t.Errorf("discloseLoopholes no longer calls %s", discloser)
+	}
 	for entry := range spawnEntries {
 		if !sawEntry[entry] {
 			t.Errorf("this guard names %q as a spawn entry and the package has no such "+
@@ -375,6 +391,17 @@ func TestEverySpawnEntryDisclosesHostExecFirst(t *testing.T) {
 			"boundary). Wrap it the way startLoopholesDisclosed and startOpenAIAuthDisclosed "+
 			"do:\n  %s", strings.Join(offenders, "\n  "))
 	}
+}
+
+// receiverName is a method receiver's type name, pointer or not.
+func receiverName(e ast.Expr) string {
+	if star, ok := e.(*ast.StarExpr); ok {
+		e = star.X
+	}
+	if id, ok := e.(*ast.Ident); ok {
+		return id.Name
+	}
+	return ""
 }
 
 // callsMethod reports whether n is a call to a method of the given name on anything — the

@@ -1,6 +1,7 @@
 package run
 
 import (
+	"os"
 	"slices"
 	"strings"
 	"testing"
@@ -158,9 +159,20 @@ func TestRunNormalThreadsTheLoadedRefIntoAssembly(t *testing.T) {
 			"Assembly has no other source for it, so the argv would name the " +
 			"unresolvable placeholder (TestUnthreadedImageRefDoesNotFallBackToALegacyTag)")
 	}
-	if !strings.Contains(src, "insertHostServiceEnv(runCmd, in.imageRef, hostServices)") {
-		t.Error("runNormal's host-service insert no longer reads assembleInput.imageRef. " +
-			"It must be the SAME field assembly appended — a second derivation is what " +
+	// The keeper inserts the services' pairs (keeper.go), at the plan's ref, which the plan takes
+	// from the very field assembly appended.
+	plan, err := os.ReadFile("keeperspawn.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	keeper, err := os.ReadFile("keeper.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(plan), "ImageRef: in.imageRef") ||
+		!strings.Contains(string(keeper), "insertHostServiceEnv(append([]string{}, p.RunCmd...), p.ImageRef, k.handles)") {
+		t.Error("the host-service insert no longer reads assembleInput.imageRef through the keeper's " +
+			"plan. It must be the SAME field assembly appended — a second derivation is what " +
 			"silently drops every `-e <VAR>=<path>` pair " +
 			"(TestHostServiceEnvIsInsertedAtTheThreadedImageRef)")
 	}

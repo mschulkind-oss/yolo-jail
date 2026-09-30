@@ -618,6 +618,16 @@ func (o *Options) notePackJailCode(packs []*packload.Pack) {
 // launch serves.
 func (o *Options) startLoopholesDisclosed(cname, rt string, cfg *jsonx.OrderedMap,
 	packs []*packload.Pack, payload []loopholes.JailDaemonSpec) []loopholeDaemon {
+	o.discloseLoopholes(rt, cfg, packs)
+	return o.startPlannedLoopholes(cname, rt, cfg, payload)
+}
+
+// discloseLoopholes is the spawn boundary's first half: everything a user must be told before any of
+// a launch's host services start. startLoopholesDisclosed runs it right before its start; a fresh
+// CONTAINER launch runs it itself, in its terminal, before it spawns the keeper that starts them
+// (docs/design/jail-lifetime-last-session-wins.md §9.6's warning, JL-D6): the keeper has no terminal,
+// and a line it printed after its spawn would be a notification rather than a disclosure.
+func (o *Options) discloseLoopholes(rt string, cfg *jsonx.OrderedMap, packs []*packload.Pack) {
 	o.notePackHostExec(packs)
 	// The JAIL half of the same question — pack code that runs, on the other side of the
 	// boundary — and it prints here because this wrapper is the last host-side moment before
@@ -653,6 +663,14 @@ func (o *Options) startLoopholesDisclosed(cname, rt string, cfg *jsonx.OrderedMa
 	// is what expires it. No backend branch is left at this call site, which is the other half
 	// of the fix — a report that treats every pack alike cannot acquire a second exemption.
 	o.notePackLoopholesInert(rt, packs, cfg)
+}
+
+// startPlannedLoopholes is the spawn boundary's second half: the host services themselves, and the
+// launch check once they are up. Its callers are startLoopholesDisclosed, below its disclosure, and
+// the keeper, which starts only what the launch disclosed from its plan (keeper.go's checkPlan
+// refuses anything else first).
+func (o *Options) startPlannedLoopholes(cname, rt string, cfg *jsonx.OrderedMap,
+	payload []loopholes.JailDaemonSpec) []loopholeDaemon {
 	// Each daemon's readiness wait is bounded at seconds and they run one after
 	// another, so a slow host service can hold the launch for several of them: the
 	// start gets a progress line (silent when the services answer promptly, which

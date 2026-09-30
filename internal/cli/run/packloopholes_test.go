@@ -187,7 +187,9 @@ func TestWrappedPluginCodeDisclosureCannotBeSuppressed(t *testing.T) {
 			continue
 		}
 		switch fn.Name.Name {
-		case "startLoopholesDisclosed":
+		case "discloseLoopholes":
+			// The spawn boundary's disclosure half, which a fresh container launch runs in its
+			// terminal before it spawns the keeper that starts the services.
 			boundary = fn
 		case "notePackJailCode", "packJailCodeLines", "jailCodeSummary":
 			// A dial read anywhere in the disclosure's own body is a quiet mode with no
@@ -207,7 +209,7 @@ func TestWrappedPluginCodeDisclosureCannotBeSuppressed(t *testing.T) {
 		}
 	}
 	if boundary == nil {
-		t.Fatal("startLoopholesDisclosed is gone — this guard has lost its subject and is " +
+		t.Fatal("discloseLoopholes is gone — this guard has lost its subject and is " +
 			"now weaker than it reads; repoint it at whatever discloses before the spawn")
 	}
 	for g := range gated {

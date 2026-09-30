@@ -144,95 +144,25 @@ func TestAMainProcessThatExitsBeforeReadyIsARefusal(t *testing.T) {
 }
 
 // TestTheFirstSessionIsAnExecOfTheFirstSessionForm: the attach's argv shape, -t only on a
-// terminal, the detach sequence off on podman (JL-D27) and on no other runtime, the entrypoint
-// by absolute path, and the two-argument first-session form.
+// terminal, the detach sequence off on podman (JL-D27) and on no other runtime, the session's own
+// id for its hangup (JL-D4), the entrypoint by absolute path, and the two-argument first-session
+// form.
 func TestTheFirstSessionIsAnExecOfTheFirstSessionForm(t *testing.T) {
 	o := goldenOptions("/ws", t.TempDir())
-	got := o.firstSessionExecCmd("podman", "yolo-ws-1", "the command")
-	want := []string{"podman", "exec", "-i", "--detach-keys=", "yolo-ws-1", JailEntrypointPath,
-		entrypoint.FirstSessionArg, "the command"}
+	got := o.firstSessionExecCmd("podman", "yolo-ws-1", "the command", "abcd")
+	want := []string{"podman", "exec", "-i", "--detach-keys=", "-e", entrypoint.SessionIDEnv + "=abcd",
+		"yolo-ws-1", JailEntrypointPath, entrypoint.FirstSessionArg, "the command"}
 	if strings.Join(got, "\x00") != strings.Join(want, "\x00") {
 		t.Errorf("no tty: %q, want %q", got, want)
 	}
 	o.IsTTYStdout = func() bool { return true }
-	got = o.firstSessionExecCmd("container", "yolo-ws-1", "c")
+	got = o.firstSessionExecCmd("container", "yolo-ws-1", "c", "abcd")
 	if len(got) < 4 || got[0] != "container" || got[2] != "-i" || got[3] != "-t" {
 		t.Errorf("tty: %q, want -i -t", got)
 	}
 	for _, a := range got {
 		if strings.HasPrefix(a, "--detach-keys") {
 			t.Errorf("Apple Container got podman's detach-keys flag, unmeasured there: %q", got)
-		}
-	}
-}
-
-// TestTheJailEndsWithTheFirstSessionEvenWhenTheHoldDoesNotFollow: a main process that exits
-// by itself is simply waited for; one that does not within the grace is stopped, since this
-// launch still ends the jail with its own session.
-func TestTheJailEndsWithTheFirstSessionEvenWhenTheHoldDoesNotFollow(t *testing.T) {
-	saved := jailMainEndGrace
-	jailMainEndGrace = 50 * time.Millisecond
-	t.Cleanup(func() { jailMainEndGrace = saved })
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-
-	o := goldenOptions("/ws", home)
-	var stops []string
-	m := &jailMain{exited: make(chan struct{})}
-	o.Exec = func(argv []string, _ string, _ []string, _ time.Duration) ExecResult {
-		switch {
-		case len(argv) > 1 && argv[1] == "ps":
-			return ExecResult{Ran: true, RC: 0, Stdout: "abc123\n"}
-		case len(argv) > 1 && argv[1] == "stop":
-			stops = append(stops, argv[len(argv)-1])
-			close(m.exited)
-			return ExecResult{Ran: true, RC: 0}
-		}
-		return ExecResult{Ran: false}
-	}
-	if !o.awaitJailMainEnd(m, "yolo-ws-1", "podman") {
-		t.Error("awaitJailMainEnd stopped the jail and did not say so")
-	}
-	if len(stops) != 1 || stops[0] != "yolo-ws-1" {
-		t.Errorf("stops %v, want one stop of the jail the hold did not end", stops)
-	}
-
-	stops = nil
-	followed := &jailMain{exited: make(chan struct{})}
-	close(followed.exited)
-	if o.awaitJailMainEnd(followed, "yolo-ws-1", "podman") {
-		t.Error("awaitJailMainEnd said it stopped a jail whose main process followed its session out")
-	}
-	if len(stops) != 0 {
-		t.Errorf("a main process that followed its first session out was stopped: %v", stops)
-	}
-}
-
-// TestAJailStoppedFromOutsideReturnsWhatItDidBefore: the kernel SIGKILLs a session whose jail's
-// main process ended, so `yolo stop` leaves the first session's exec at 137, or fails the exec
-// outright when it lands as the exec starts; over a hold that a SIGTERM ended, which this
-// launcher did not send, the launch returns 143 as it did when the session was the main
-// process, and the OOM hint keyed on 137 stays quiet. Every other pairing keeps the session's
-// own status.
-func TestAJailStoppedFromOutsideReturnsWhatItDidBefore(t *testing.T) {
-	const killed, termed = 128 + int(syscall.SIGKILL), 128 + int(syscall.SIGTERM)
-	for _, tc := range []struct {
-		name            string
-		session, main   int
-		launcherStopped bool
-		want            int
-	}{
-		{"stopped from outside", killed, termed, false, termed},
-		{"stopped as the exec started: the runtime's own failure", 255, termed, false, termed},
-		{"stopped from outside after the command succeeded", 0, termed, false, 0},
-		{"killed while its jail ran (the OOM killer): the hold followed it out", killed, 0, false, killed},
-		{"the launcher stopped it after its grace", killed, termed, true, killed},
-		{"the command's own status", 7, 0, false, 7},
-		{"a command that died of SIGTERM itself", termed, 0, false, termed},
-	} {
-		if got := firstSessionStatus(tc.session, tc.main, tc.launcherStopped); got != tc.want {
-			t.Errorf("%s: firstSessionStatus(%d, %d, %v) = %d, want %d",
-				tc.name, tc.session, tc.main, tc.launcherStopped, got, tc.want)
 		}
 	}
 }
@@ -305,10 +235,8 @@ func TestTheLaunchSignalArmTearsDownThroughTheFirstSessionsHandle(t *testing.T) 
 	}
 }
 
-// TestTheLaunchSignalArmStaysArmedOnceTheFirstSessionReturns is the stretch the first
-// session's return leaves: the main process's client lingering (Window A) or the launcher's
-// grace before it stops a hold that did not follow. The arm must still run the teardown there,
-// and it must leave the detached session's client alone.
+// TestTheLaunchSignalArmStaysArmedOnceTheFirstSessionReturns: a detached arm still runs its
+// teardown on a signal, until it is disarmed, and it leaves the detached session's client alone.
 func TestTheLaunchSignalArmStaysArmedOnceTheFirstSessionReturns(t *testing.T) {
 	h := &fakeSessionHandle{}
 	tore := false
@@ -366,19 +294,19 @@ func TestADisarmedLaunchSignalArmDoesNothing(t *testing.T) {
 }
 
 // TestTheFreshLaunchRunsTheJailAsAHoldAndItsFirstSessionByExec pins runContainer's call sites,
-// which no unit test can drive (they start a real container): the main process's argv ends in
-// the hold form carrying this launch's stage; the session lock and the signal arm are taken
-// before the main process starts; the first session is the first-session run, handed the arm,
-// and its command is sessionCmd's; the arm stays armed from the first session's return through
-// the main process's end, and is disarmed after it and before the teardown; the first session's
-// end is recorded for the jail's other sessions before the main process's end is waited for, from
-// the session's status, and an end that status leaves undecided is settled from the main
-// process's after it (stopreason.go); the launch's status is firstSessionStatus's. The deferred session-lock release
-// at Run's top is pinned too. Deleting any of them fails here.
+// which no unit test can drive (they start a real container), in the keeper's shape (step 3 of
+// docs/design/jail-lifetime-last-session-wins.md §7): the host services are disclosed and planned
+// before anything spawns; the main process's argv ends in the hold form carrying this launch's
+// stage; the first session is named in the jail; the plan and the keeper's line come before the
+// session lock, and the lock before the keeper's spawn (JL-D16); one arm is installed after the
+// spawn and retargeted at ready to the session's own teardown, whose hangup ends that session alone
+// (JL-D4); the first session is the first-session run, handed that arm; and its quit is endSession's.
+// runContainer itself NEVER stops the jail and never runs the teardown chain: those are the
+// keeper's. The deferred session-lock release at Run's top is pinned too. Deleting any of them
+// fails here.
 func TestTheFreshLaunchRunsTheJailAsAHoldAndItsFirstSessionByExec(t *testing.T) {
 	fd := funcDecl(t, "run.go", "runContainer")
 	pos := map[string]token.Pos{}
-	var disarms []token.Pos
 	firstPos := func(name string, p token.Pos) {
 		if _, seen := pos[name]; !seen {
 			pos[name] = p
@@ -386,7 +314,7 @@ func TestTheFreshLaunchRunsTheJailAsAHoldAndItsFirstSessionByExec(t *testing.T) 
 	}
 	ast.Inspect(fd, func(n ast.Node) bool {
 		if _, ok := n.(*ast.FuncLit); ok {
-			return false // onStarted and onTerminate are pinned by their own tests
+			return false // the relay's event callbacks are pinned by their own tests
 		}
 		call, ok := n.(*ast.CallExpr)
 		if !ok {
@@ -394,13 +322,15 @@ func TestTheFreshLaunchRunsTheJailAsAHoldAndItsFirstSessionByExec(t *testing.T) 
 		}
 		name := skelCallee(call)
 		switch name {
-		case "provisionStage", "sessionCmd", "firstSessionExecCmd", "holdSessionLock",
-			"armLaunchSignals", "startJailMain", "awaitReady", "runArmedSession", "detach",
-			"recordFirstSessionEnd", "awaitJailMainEnd", "settleFirstSessionEnd", "firstSessionStatus",
-			"teardownAfterExit":
+		case "discloseLoopholes", "plannedLoopholeNames", "provisionStage", "newSessionID",
+			"firstSessionExecCmd", "sessionCmd", "keeperPlanFor", "keeperLine", "holdSessionLock",
+			"startKeeper", "armLaunchSignals", "relayKeeper", "retarget", "runArmedSession",
+			"detach", "endSession":
 			firstPos(name, call.Pos())
-		case "disarm":
-			disarms = append(disarms, call.Pos())
+		case "stopJail", "teardownAfterExit", "startLoopholes", "startLoopholesDisclosed",
+			"startPlannedLoopholes", "startPortForwards", "startJailMain":
+			t.Errorf("runContainer calls %s: the keeper owns the jail's host services and its end, "+
+				"and the first session's launcher never stops the jail (JL-D4)", name)
 		case "runWithProxy":
 			t.Error("the fresh launch runs a proxy with an arm of its own; its first session must be " +
 				"runArmedSession's, under the launch's one arm")
@@ -413,28 +343,28 @@ func TestTheFreshLaunchRunsTheJailAsAHoldAndItsFirstSessionByExec(t *testing.T) 
 				t.Errorf("the first session is handed %v, want the launch's signal arm", call.Args[1])
 			}
 		}
+		if name == "retarget" && len(call.Args) == 1 {
+			if c, ok := call.Args[0].(*ast.CallExpr); !ok || skelCallee(c) != "attachTeardown" {
+				t.Errorf("the arm is retargeted at ready to %v, want the session's own teardown "+
+					"(attachTeardown), which hangs that session up and never stops the jail", call.Args[0])
+			}
+		}
+		if name == "endSession" && len(call.Args) == 6 {
+			if b, ok := call.Args[5].(*ast.Ident); !ok || b.Name != "true" {
+				t.Errorf("the first session's quit is endSession's with first=%v, want true", call.Args[5])
+			}
+		}
 		if name == "append" && len(call.Args) == 3 {
 			if sel, ok := call.Args[1].(*ast.SelectorExpr); ok && sel.Sel.Name == "HoldMainArg" {
 				firstPos("append HoldMainArg", call.Pos())
 			}
 		}
-		// The first session's end is judged on the session's own status, and an undecided one on
-		// the main process's: a jail ended from outside is not the first session's end.
-		if name == "recordFirstSessionEnd" && len(call.Args) == 3 && skelIdent(call.Args[2]) != "rc" {
-			t.Errorf("the first session's end is recorded from %v, want the session's status (rc)", call.Args[2])
-		}
-		if name == "settleFirstSessionEnd" && len(call.Args) == 3 {
-			if sel, ok := call.Args[2].(*ast.SelectorExpr); !ok || sel.Sel.Name != "exitCode" {
-				t.Errorf("an undecided first session's end is settled from %v, want the main process's "+
-					"status (jm.exitCode)", call.Args[2])
-			}
-		}
 		return true
 	})
-	order := []string{"append HoldMainArg", "provisionStage", "firstSessionExecCmd", "sessionCmd",
-		"holdSessionLock", "armLaunchSignals", "startJailMain", "awaitReady", "runArmedSession",
-		"detach", "recordFirstSessionEnd", "awaitJailMainEnd", "settleFirstSessionEnd",
-		"firstSessionStatus", "teardownAfterExit"}
+	order := []string{"discloseLoopholes", "plannedLoopholeNames", "append HoldMainArg",
+		"provisionStage", "newSessionID", "firstSessionExecCmd", "sessionCmd", "keeperPlanFor",
+		"keeperLine", "holdSessionLock", "startKeeper", "armLaunchSignals", "relayKeeper", "retarget",
+		"runArmedSession", "detach", "endSession"}
 	last := token.NoPos
 	for _, name := range order {
 		p, ok := pos[name]
@@ -446,21 +376,6 @@ func TestTheFreshLaunchRunsTheJailAsAHoldAndItsFirstSessionByExec(t *testing.T) 
 			t.Errorf("%s is out of order in runContainer", name)
 		}
 		last = p
-	}
-	// The arm is live from the first session's return through the main process's end: no
-	// disarm between them, and one after it, before the normal teardown.
-	disarmedAfterTheEnd := false
-	for _, p := range disarms {
-		if p > pos["runArmedSession"] && p < pos["awaitJailMainEnd"] {
-			t.Error("runContainer disarms the signal arm between the first session's return and the " +
-				"main process's end, where a hangup would then kill the launcher with no teardown")
-		}
-		if p > pos["awaitJailMainEnd"] && p < pos["teardownAfterExit"] {
-			disarmedAfterTheEnd = true
-		}
-	}
-	if !disarmedAfterTheEnd {
-		t.Error("runContainer does not disarm the signal arm after the main process's end and before the teardown")
 	}
 
 	// Run's deferred release of the session lock: auto-capture runs this pipeline in-process,
@@ -477,38 +392,52 @@ func TestTheFreshLaunchRunsTheJailAsAHoldAndItsFirstSessionByExec(t *testing.T) 
 	}
 }
 
-// TestTheTerminateArmKillsTheMainProcessClient pins onTerminate's kill of the main process's
-// `<rt> run` client, TARGETED at its pid. That client leads a process group of its own, so no
-// signal to the launcher's group reaches it, and without the kill an arm's teardown would
-// leave it running with nobody waiting on it.
-func TestTheTerminateArmKillsTheMainProcessClient(t *testing.T) {
-	var onTerminate *ast.FuncLit
-	ast.Inspect(funcDecl(t, "run.go", "runContainer"), func(n ast.Node) bool {
-		if as, ok := n.(*ast.AssignStmt); ok && len(as.Lhs) == 1 && skelIdent(as.Lhs[0]) == "onTerminate" {
-			if fl, ok := as.Rhs[0].(*ast.FuncLit); ok {
-				onTerminate = fl
+// TestNoSessionsArmStopsTheJail is JL-D4 for every session, the first included: a session's signal
+// arm ends that session and never stops the jail, which is its other sessions' too. The fresh
+// launch's arm runs keeperPreReadyTeardown until ready, which ends the launch alone (its keeper
+// unwinds on the lifeline), and attachTeardown from then on, as an attach's does. Deleting a
+// stopJail ban, or giving either teardown a stopJail, fails here.
+func TestNoSessionsArmStopsTheJail(t *testing.T) {
+	for _, tc := range []struct{ file, fn string }{
+		{"keeperspawn.go", "keeperPreReadyTeardown"},
+		{"sessionhangup.go", "attachTeardown"},
+		{"sessionhangup.go", "attachSignalArm"},
+	} {
+		calls := callsIn(funcDecl(t, tc.file, tc.fn))
+		for _, forbidden := range []string{"stopJail", "teardownAfterExit", "stopLoopholes"} {
+			if calls[forbidden] {
+				t.Errorf("%s calls %s: a session's arm ends only its own session (JL-D4)", tc.fn, forbidden)
 			}
 		}
-		return true
-	})
-	if onTerminate == nil {
-		t.Fatal("runContainer's onTerminate closure moved; re-anchor this pin, do not delete it")
 	}
+	if !callsIn(funcDecl(t, "sessionhangup.go", "attachTeardown"))["hangUpAttachSession"] {
+		t.Error("attachTeardown no longer hangs up its session's own processes (OQ-JL8)")
+	}
+	if !callsIn(funcDecl(t, "keeperspawn.go", "keeperPreReadyTeardown"))["closeLifeline"] {
+		t.Error("keeperPreReadyTeardown no longer closes the lifeline, which is what has the keeper unwind")
+	}
+}
+
+// TestTheKeeperKillsAMainProcessClientThatOutlivedItsContainer pins the keeper's kill of the main
+// process's `<rt> run` client, TARGETED at its pid, once its chain is done: that client leads a
+// process group of its own, the keeper's teardown never waits for it (so Window A stays off every
+// terminal, JL-D17), and without the kill it would be left running with nobody waiting on it.
+func TestTheKeeperKillsAMainProcessClientThatOutlivedItsContainer(t *testing.T) {
 	killsIt := false
-	ast.Inspect(onTerminate, func(n ast.Node) bool {
+	ast.Inspect(funcDecl(t, "keeper.go", "finish"), func(n ast.Node) bool {
 		call, ok := n.(*ast.CallExpr)
 		if !ok || skelCallee(call) != "Kill" {
 			return true
 		}
-		// jm.cmd.Process.Kill()
+		// k.jm.cmd.Process.Kill()
 		if proc, ok := call.Fun.(*ast.SelectorExpr).X.(*ast.SelectorExpr); ok && proc.Sel.Name == "Process" {
-			if cmd, ok := proc.X.(*ast.SelectorExpr); ok && cmd.Sel.Name == "cmd" && skelIdent(cmd.X) == "jm" {
+			if cmd, ok := proc.X.(*ast.SelectorExpr); ok && cmd.Sel.Name == "cmd" {
 				killsIt = true
 			}
 		}
 		return true
 	})
 	if !killsIt {
-		t.Error("onTerminate no longer kills the main process's client (jm.cmd.Process.Kill)")
+		t.Error("the keeper's finish no longer kills the main process's client (k.jm.cmd.Process.Kill)")
 	}
 }

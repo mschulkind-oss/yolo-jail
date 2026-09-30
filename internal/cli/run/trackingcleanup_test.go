@@ -98,7 +98,7 @@ func TestANormalExitForgetsAGoneContainersTracking(t *testing.T) {
 
 // TestANormalExitReleasesTheLaunchsOwnLockFirst is the ordering the normal-exit arm depends
 // on. The launch's lock (acquireWorkspaceLock, the path runContainer takes) may still be held
-// when the child exits — onStarted releases it only after awaitRunningContainer's poll, on a
+// when the child exits — a keeper releases it only after its running wait, on a
 // goroutine the proxy never joins — and while it is, the teardown's non-blocking take
 // declines and the tracking file stays. Released first, from both goroutines at once as
 // onStarted and the exit arm can, the same teardown drops it.
@@ -212,119 +212,62 @@ func TestTrackingStaysUnlessTheContainerIsKnownGone(t *testing.T) {
 	})
 }
 
-// TestEveryEndOfTheLaunchForgetsTheContainer pins the two call sites in runContainer that no
-// unit test can drive: the signal arm (the onTerminate closure) and the runtime-never-started
-// branch. Each must call forgetGoneContainer AFTER its own lock.Close(), or the non-blocking
-// take inside finds this very process holding the lock and the file always stays. The
-// normal-exit call is driven for real by TestANormalExitForgetsAGoneContainersTracking.
+// TestEveryEndOfTheLaunchForgetsTheContainer pins the ends no unit test drives with a real
+// container, now the KEEPER'S (docs/design/jail-lifetime-last-session-wins.md §9.5) and the fresh
+// launch's own when no keeper started: each must reach forgetGoneContainer, and only AFTER the
+// launch lock this process holds (the launch's, or the one it handed the keeper) is released, or
+// the non-blocking take inside finds this very process holding it and the tracking file always
+// stays (JL-D31). And the keeper's end asks only after stopping the jail: before its stop the
+// container is alive by definition, so the probe could only ever answer "still there".
 func TestEveryEndOfTheLaunchForgetsTheContainer(t *testing.T) {
-	fd := funcDecl(t, "run.go", "runContainer")
-
-	// requireAfterClose checks that body calls forgetGoneContainer, and only after a
-	// lock.Close().
-	requireAfterClose := func(what string, body *ast.BlockStmt) {
+	// order returns the first position of each named call in fn.
+	order := func(file, fn string, names ...string) map[string]token.Pos {
 		t.Helper()
-		var closePos, forgetPos token.Pos
-		ast.Inspect(body, func(n ast.Node) bool {
-			call, ok := n.(*ast.CallExpr)
-			if !ok {
-				return true
-			}
-			switch skelCallee(call) {
-			case "Close":
-				if sel, ok := call.Fun.(*ast.SelectorExpr); ok && skelIdent(sel.X) == "lock" && closePos == token.NoPos {
-					closePos = call.Pos()
+		pos := map[string]token.Pos{}
+		ast.Inspect(funcDecl(t, file, fn), func(n ast.Node) bool {
+			if call, ok := n.(*ast.CallExpr); ok {
+				for _, name := range names {
+					if _, seen := pos[name]; !seen && skelCallee(call) == name {
+						pos[name] = call.Pos()
+					}
 				}
-			case "forgetGoneContainer":
-				forgetPos = call.Pos()
 			}
 			return true
 		})
-		if forgetPos == token.NoPos {
-			t.Errorf("%s no longer calls forgetGoneContainer: a jail that ends there keeps its "+
-				"tracking file, so the reaper keeps its AGENTS_DIR entry and every skeleton in it", what)
-			return
-		}
-		if closePos == token.NoPos || forgetPos < closePos {
-			t.Errorf("%s calls forgetGoneContainer before lock.Close(): the non-blocking take "+
-				"finds this launch's own lock held, and the tracking file never goes", what)
-		}
+		return pos
 	}
-
-	var onTerminate, runErr *ast.BlockStmt
-	ast.Inspect(fd, func(n ast.Node) bool {
-		switch x := n.(type) {
-		case *ast.AssignStmt:
-			if len(x.Lhs) == 1 && skelIdent(x.Lhs[0]) == "onTerminate" && len(x.Rhs) == 1 {
-				if fl, ok := x.Rhs[0].(*ast.FuncLit); ok {
-					onTerminate = fl.Body
-				}
-			}
-		case *ast.IfStmt:
-			if be, ok := x.Cond.(*ast.BinaryExpr); ok && skelIdent(be.X) == "runErr" && be.Op == token.NEQ {
-				runErr = x.Body
-			}
-		}
-		return true
-	})
-	if onTerminate == nil || runErr == nil {
-		t.Fatalf("runContainer's onTerminate closure (found: %v) or its `if runErr != nil` branch "+
-			"(found: %v) moved; re-anchor this pin, do not delete it", onTerminate != nil, runErr != nil)
-	}
-	requireAfterClose("runContainer's signal arm (onTerminate)", onTerminate)
-	requireAfterClose("runContainer's runtime-never-started branch", runErr)
-
-	// The normal-exit arm: a top-level lock.Close() after the runErr branch and before
-	// teardownAfterExit. onStarted's own release waits on awaitRunningContainer's poll and the
-	// proxy does not join it, so without this the teardown's non-blocking takes can meet this
-	// launch's own lock (TestANormalExitReleasesTheLaunchsOwnLockFirst shows the effect).
-	runErrIdx, closeIdx, teardownIdx := -1, -1, -1
-	for i, st := range fd.Body.List {
-		if is, ok := st.(*ast.IfStmt); ok && is.Body == runErr {
-			runErrIdx = i
-		}
-		es, ok := st.(*ast.ExprStmt)
-		if !ok {
+	for _, tc := range []struct{ file, fn, release, forget string }{
+		{"keeperspawn.go", "unwindUnspawned", "releaseLaunchLock", "forgetGoneContainer"},
+		{"keeper.go", "unwindUnstarted", "releaseLaunchLock", "forgetGoneContainer"},
+		{"keeper.go", "beforeReady", "releaseLaunchLock", "endJail"},
+	} {
+		pos := order(tc.file, tc.fn, tc.release, tc.forget)
+		r, rok := pos[tc.release]
+		f, fok := pos[tc.forget]
+		if !rok || !fok {
+			t.Errorf("%s no longer calls %s and %s; re-anchor this pin, do not delete it", tc.fn, tc.release, tc.forget)
 			continue
 		}
-		call, ok := es.X.(*ast.CallExpr)
-		if !ok {
-			continue
-		}
-		switch skelCallee(call) {
-		case "Close":
-			if sel, ok := call.Fun.(*ast.SelectorExpr); ok && skelIdent(sel.X) == "lock" {
-				closeIdx = i
-			}
-		case "teardownAfterExit":
-			teardownIdx = i
+		if f < r {
+			t.Errorf("%s calls %s before %s: the non-blocking take finds this process's own lock held, "+
+				"and the tracking file never goes", tc.fn, tc.forget, tc.release)
 		}
 	}
-	if teardownIdx < 0 {
-		t.Fatal("runContainer no longer calls teardownAfterExit at its top level; re-anchor this pin, do not delete it")
+	// The keeper's end: its stop, then the chain, which forgets the container.
+	pos := order("keeper.go", "endJail", "stopJail", "confirmGone", "teardownAfterExit")
+	if pos["stopJail"] == token.NoPos || pos["teardownAfterExit"] == token.NoPos ||
+		!(pos["stopJail"] < pos["confirmGone"] && pos["confirmGone"] < pos["teardownAfterExit"]) {
+		t.Error("the keeper's end must stop the jail, confirm it gone, THEN run the chain that forgets it")
 	}
-	if closeIdx < 0 || closeIdx < runErrIdx || closeIdx > teardownIdx {
-		t.Errorf("runContainer's normal-exit arm does not release the lock before teardownAfterExit "+
-			"(runErr branch at %d, lock.Close at %d, teardown at %d): a child that exits before its "+
-			"container is seen running leaves its tracking file and skeleton behind", runErrIdx, closeIdx, teardownIdx)
+	// The chain itself forgets the container (TestANormalExitForgetsAGoneContainersTracking drives it).
+	if !callsIn(funcDecl(t, "run.go", "teardownAfterExit"))["forgetGoneContainer"] {
+		t.Error("teardownAfterExit no longer calls forgetGoneContainer")
 	}
-
-	// And the signal arm asks only after stopping the jail: before stopJail the container is
-	// alive by definition, so the probe could only ever answer "still there".
-	var stopPos, forgetPos token.Pos
-	ast.Inspect(onTerminate, func(n ast.Node) bool {
-		if call, ok := n.(*ast.CallExpr); ok {
-			switch skelCallee(call) {
-			case "stopJail":
-				stopPos = call.Pos()
-			case "forgetGoneContainer":
-				forgetPos = call.Pos()
-			}
-		}
-		return true
-	})
-	if stopPos == token.NoPos || forgetPos < stopPos {
-		t.Error("the signal arm asks whether the container is gone before stopping it")
+	// And the keeper's readiness wait releases the launch lock before it tells the launch the
+	// container runs, as onStarted released it once the container was visible.
+	pos = order("keeper.go", "awaitRunning", "releaseLaunchLock", "event")
+	if pos["releaseLaunchLock"] == token.NoPos || pos["event"] == token.NoPos || pos["event"] < pos["releaseLaunchLock"] {
+		t.Error("awaitRunning must release the launch lock before it says the container is running")
 	}
 }
 
@@ -385,36 +328,57 @@ func TestASkeletonStaysUnlessTheContainerIsKnownGone(t *testing.T) {
 	}
 }
 
-// TestEveryEndHandsTheSkeletonOn pins that each of runContainer's three ends passes the
-// skeleton it built (in.homeSkeleton) to the known-gone cleanup: the signal arm and the
-// runtime-never-started branch to forgetGoneContainer, the normal exit to teardownAfterExit.
-// A call that passed "" would still drop the tracking file and leave the skeleton to pile up.
+// TestEveryEndHandsTheSkeletonOn pins that the skeleton the fresh launch built (in.homeSkeleton)
+// reaches the known-gone cleanup at every end: the fresh launch's own unwinds hand it to
+// unwindUnspawned, its plan hands it to the keeper, and the keeper's ends hand the plan's to
+// forgetGoneContainer and to the chain. A call that passed "" would still drop the tracking file
+// and leave the skeleton to pile up.
 func TestEveryEndHandsTheSkeletonOn(t *testing.T) {
-	fd := funcDecl(t, "run.go", "runContainer")
-	passesSkeleton := func(call *ast.CallExpr) bool {
-		for _, a := range call.Args {
-			if sel, ok := a.(*ast.SelectorExpr); ok && skelIdent(sel.X) == "in" && sel.Sel.Name == "homeSkeleton" {
-				return true
-			}
-		}
-		return false
+	isField := func(a ast.Expr, x, field string) bool {
+		sel, ok := a.(*ast.SelectorExpr)
+		return ok && skelIdent(sel.X) == x && sel.Sel.Name == field
 	}
-	found := map[string]int{}
-	ast.Inspect(fd, func(n ast.Node) bool {
-		if call, ok := n.(*ast.CallExpr); ok {
-			switch name := skelCallee(call); name {
-			case "forgetGoneContainer", "teardownAfterExit":
-				if passesSkeleton(call) {
-					found[name]++
-				} else {
-					t.Errorf("runContainer calls %s without in.homeSkeleton at %v", name, call.Pos())
-				}
+	unwinds := 0
+	ast.Inspect(funcDecl(t, "run.go", "runContainer"), func(n ast.Node) bool {
+		if call, ok := n.(*ast.CallExpr); ok && skelCallee(call) == "unwindUnspawned" {
+			if len(call.Args) == 4 && isField(call.Args[3], "in", "homeSkeleton") {
+				unwinds++
+			} else {
+				t.Errorf("runContainer calls unwindUnspawned without in.homeSkeleton at %v", call.Pos())
 			}
 		}
 		return true
 	})
-	if found["forgetGoneContainer"] != 2 || found["teardownAfterExit"] != 1 {
-		t.Errorf("want two forgetGoneContainer calls and one teardownAfterExit call handing on "+
-			"in.homeSkeleton, got %v", found)
+	if unwinds != 2 {
+		t.Errorf("runContainer hands in.homeSkeleton to %d unwindUnspawned calls, want 2 (the plan's and the spawn's failures)", unwinds)
+	}
+	sawPlan := false
+	ast.Inspect(funcDecl(t, "keeperspawn.go", "keeperPlanFor"), func(n ast.Node) bool {
+		if kv, ok := n.(*ast.KeyValueExpr); ok && skelIdent(kv.Key) == "Skeleton" && isField(kv.Value, "in", "homeSkeleton") {
+			sawPlan = true
+		}
+		return true
+	})
+	if !sawPlan {
+		t.Error("the keeper's plan no longer carries in.homeSkeleton")
+	}
+	for _, tc := range []struct{ fn, callee string }{
+		{"unwindUnstarted", "forgetGoneContainer"},
+		{"endJail", "teardownAfterExit"},
+	} {
+		handed := false
+		ast.Inspect(funcDecl(t, "keeper.go", tc.fn), func(n ast.Node) bool {
+			if call, ok := n.(*ast.CallExpr); ok && skelCallee(call) == tc.callee {
+				for _, a := range call.Args {
+					if isField(a, "p", "Skeleton") {
+						handed = true
+					}
+				}
+			}
+			return true
+		})
+		if !handed {
+			t.Errorf("the keeper's %s no longer hands the plan's skeleton to %s", tc.fn, tc.callee)
+		}
 	}
 }

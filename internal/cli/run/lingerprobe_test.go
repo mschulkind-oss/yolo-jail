@@ -6,7 +6,6 @@ import (
 	"bytes"
 	"fmt"
 	"go/ast"
-	"go/parser"
 	"go/token"
 	"os"
 	"os/exec"
@@ -497,25 +496,16 @@ func TestPodmanFactsAreRecordedFromTheReadinessGatesAnswer(t *testing.T) {
 	}
 }
 
-// THE CALL-SITE PINS for the two closures inside runContainer, which no unit
-// test can invoke: onStarted must arm the probe with its own *os.Process and the
-// id awaitRunningContainer returned, before the housekeeping slot; onTerminate
-// must mark the signal and take the final sample BEFORE stopJail, the step
-// that can itself hang.
+// THE CALL-SITE PINS for the probe, which moved with the main process's client into the keeper
+// (docs/design/jail-lifetime-last-session-wins.md JL-D62): awaitRunning must learn the container's
+// id, release the launch lock, then arm the probe with that id and the client's own *os.Process;
+// the keeper's signal arm must take the final sample BEFORE it ends the jail, the step that can
+// itself hang. No unit test can invoke either with a real client.
 func TestTheArmsCallTheProbe(t *testing.T) {
-	fset := token.NewFileSet()
-	f, err := parser.ParseFile(fset, "run.go", nil, 0)
-	if err != nil {
-		t.Fatal(err)
-	}
 	calls := map[string][]token.Pos{}
 	var armArgs []ast.Expr
-	for _, decl := range f.Decls {
-		fd, ok := decl.(*ast.FuncDecl)
-		if !ok || fd.Name.Name != "runContainer" {
-			continue
-		}
-		ast.Inspect(fd, func(n ast.Node) bool {
+	for _, fn := range []string{"awaitRunning", "run"} {
+		ast.Inspect(funcDecl(t, "keeper.go", fn), func(n ast.Node) bool {
 			call, ok := n.(*ast.CallExpr)
 			if !ok {
 				return true
@@ -525,41 +515,60 @@ func TestTheArmsCallTheProbe(t *testing.T) {
 				return true
 			}
 			name := sel.Sel.Name
-			if name == "Mark" && len(call.Args) == 1 {
-				if lit, ok := call.Args[0].(*ast.BasicLit); ok {
-					name = "Mark(" + lit.Value + ")"
-				}
-			}
 			if name == "startLingerProbe" {
 				armArgs = call.Args
 			}
-			calls[name] = append(calls[name], call.Pos())
+			calls[fn+"."+name] = append(calls[fn+"."+name], call.Pos())
 			return true
 		})
 	}
 	first := func(name string) token.Pos {
 		if len(calls[name]) == 0 {
-			t.Fatalf("runContainer no longer calls %s", name)
+			t.Fatalf("the keeper no longer calls %s", name)
 		}
 		return calls[name][0]
 	}
-	if first("awaitRunningContainer") > first("startLingerProbe") ||
-		first("startLingerProbe") > first("runHousekeeping") {
-		t.Error("onStarted must learn the id, arm the probe, THEN run housekeeping (which can run a minute)")
+	if first("awaitRunning.probeRunningContainer") > first("awaitRunning.releaseLaunchLock") ||
+		first("awaitRunning.releaseLaunchLock") > first("awaitRunning.startLingerProbe") {
+		t.Error("awaitRunning must learn the id, release the launch lock, THEN arm the probe")
 	}
 	if len(armArgs) != 4 {
 		t.Fatalf("startLingerProbe args = %d", len(armArgs))
 	}
-	if id, ok := armArgs[3].(*ast.Ident); !ok || id.Name != "proc" {
-		t.Error("the probe must be armed with onStarted's own *os.Process — the client it watches")
+	if sel, ok := armArgs[3].(*ast.SelectorExpr); !ok || sel.Sel.Name != "Process" {
+		t.Error("the probe must be armed with the main process's client's own *os.Process — the client it watches")
 	}
 	if id, ok := armArgs[2].(*ast.Ident); !ok || id.Name != "ctrID" {
-		t.Error("the probe must be armed with the id awaitRunningContainer learned")
+		t.Error("the probe must be armed with the id the running wait learned")
 	}
-	sig := first(`Mark("terminate.signal")`)
-	final := first("lingerFinalSample")
-	if sig > final || final > first("stopJail") {
-		t.Error("onTerminate must mark the signal and take the final sample before stopJail")
+	// The keeper's signal branch: the final sample, then the jail's end.
+	var sample, end token.Pos
+	ast.Inspect(funcDecl(t, "keeper.go", "run"), func(n ast.Node) bool {
+		cc, ok := n.(*ast.CommClause)
+		if !ok {
+			return true
+		}
+		for _, st := range cc.Body {
+			ast.Inspect(st, func(n ast.Node) bool {
+				call, ok := n.(*ast.CallExpr)
+				if !ok {
+					return true
+				}
+				switch skelCallee(call) {
+				case "lingerFinalSample":
+					sample = call.Pos()
+				case "endJail":
+					if sample != token.NoPos && end == token.NoPos {
+						end = call.Pos()
+					}
+				}
+				return true
+			})
+		}
+		return true
+	})
+	if sample == token.NoPos || end == token.NoPos || sample > end {
+		t.Error("the keeper's signal branch must take the final sample before it ends the jail")
 	}
 }
 

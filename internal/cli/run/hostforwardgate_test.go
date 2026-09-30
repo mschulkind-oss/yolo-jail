@@ -35,7 +35,7 @@ import (
 )
 
 // fakeSocatOnPath puts a `socat` on PATH that creates its UNIX-LISTEN socket file and
-// then sleeps, so startHostPortForwarding's condition-poll succeeds immediately and a
+// then sleeps, so startPortForwards's condition-poll succeeds immediately and a
 // spawned forward is observable as both a live process handle and a socket file.
 //
 // Shared with TestStartHostPortForwardingSpawnsSocat (network_test.go), which wrote it
@@ -73,7 +73,7 @@ func forwardsConfig(mode string) *jsonx.OrderedMap {
 }
 
 // TestHostPortForwardingFollowsTheAppliedNetMode drives the production gate into the
-// production spawner — o.hostForwardPorts(cfg, rt) then o.startHostPortForwarding(…),
+// production spawner — o.hostForwardPorts(cfg, rt) then o.startPortForwards(…),
 // the two statements runContainer runs — and measures socats rather than a mode string.
 // The wiring between them is pinned separately, by
 // TestFreshLaunchGatesHostPortForwardingOnTheAppliedMode below; between the two, a
@@ -114,7 +114,7 @@ func TestHostPortForwardingFollowsTheAppliedNetMode(t *testing.T) {
 
 			socketDir := filepath.Join(t.TempDir(), "yolo-fwd-test")
 			forwards := o.hostForwardPorts(forwardsConfig(tc.configMode), tc.rt)
-			procs := o.startHostPortForwarding(forwards, "test", socketDir)
+			procs := o.startPortForwards(o.planPortForwards(forwards), "test", socketDir)
 			t.Cleanup(func() { cleanupPortForwarding(procs, socketDir) })
 
 			if len(procs) != tc.wantSocats {
@@ -152,7 +152,7 @@ func TestHostPortForwardingFollowsTheAppliedNetMode(t *testing.T) {
 // Three claims, which together make the pre-fix code unrepresentable:
 //
 //  1. runContainer calls hostForwardPorts and BINDS the result;
-//  2. that same identifier is what it hands startHostPortForwarding — a gate whose answer
+//  2. that same identifier is what it hands startPortForwards — a gate whose answer
 //     the spawner does not receive is not a gate;
 //  3. runContainer names no "forward_host_ports" literal of its own. Any re-derivation
 //     has to read that config key by name, so its absence is what forbids the inline copy
@@ -163,7 +163,7 @@ func TestHostPortForwardingFollowsTheAppliedNetMode(t *testing.T) {
 func TestFreshLaunchGatesHostPortForwardingOnTheAppliedMode(t *testing.T) {
 	const (
 		gate    = "hostForwardPorts"
-		spawner = "startHostPortForwarding"
+		spawner = "planPortForwards"
 		key     = `"forward_host_ports"`
 	)
 	fn := methodDecl(t, "run.go", "runContainer")

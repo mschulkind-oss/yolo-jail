@@ -351,7 +351,9 @@ func TestADaemonsWordsCannotRestyleOrSplitTheLaunchOutput(t *testing.T) {
 // TestBothLaunchArmsHandTheLaunchCheckTheirPayload is the call-site half the tests above cannot
 // reach: they drive startLoopholesDisclosed directly, so they would stay green if run.go handed
 // it nil, and then aws-auth, whose jail daemon a nil payload never serves, would never be asked.
-// Both the container arm and the macos-user arm must pass the payload they composed.
+// Both the container arm and the macos-user arm must pass the payload they composed: the macos-user
+// arm to startLoopholesDisclosed, the container arm to its keeper's plan, which the keeper hands
+// its start.
 func TestBothLaunchArmsHandTheLaunchCheckTheirPayload(t *testing.T) {
 	body, err := os.ReadFile("run.go")
 	if err != nil {
@@ -360,10 +362,19 @@ func TestBothLaunchArmsHandTheLaunchCheckTheirPayload(t *testing.T) {
 	all := regexp.MustCompile(`startLoopholesDisclosed\(`).FindAllIndex(body, -1)
 	withPayload := regexp.MustCompile(
 		`startLoopholesDisclosed\(cname, rt, cfg, [a-zA-Z.]+, jailDaemons\)`).FindAllIndex(body, -1)
-	if len(all) != 2 || len(withPayload) != 2 {
+	if len(all) != 1 || len(withPayload) != 1 {
 		t.Errorf("run.go calls startLoopholesDisclosed %d times, %d of them with the launch's "+
-			"jailDaemons payload; want both arms (container and macos-user) to hand it over",
-			len(all), len(withPayload))
+			"jailDaemons payload; want the macos-user arm to hand it over", len(all), len(withPayload))
+	}
+	if !regexp.MustCompile(`keeperPlanFor\(cfg, rt, cname, staged, services, jailDaemons,`).Match(body) {
+		t.Error("the container arm no longer puts its jailDaemons payload in its keeper's plan")
+	}
+	keeper, err := os.ReadFile("keeper.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !regexp.MustCompile(`startPlannedLoopholes\(p\.Cname, p\.Runtime, cfg, p\.Payload\)`).Match(keeper) {
+		t.Error("the keeper no longer hands its start the plan's payload")
 	}
 }
 

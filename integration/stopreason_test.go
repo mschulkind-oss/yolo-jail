@@ -17,10 +17,11 @@ import (
 	naming "github.com/mschulkind-oss/yolo-jail/internal/runtime"
 )
 
-// TestAnAttachWhoseJailEndedSaysWhy: a second terminal is attached when the jail ends, first
-// because the session that started it quit, then because `yolo stop` stopped it, then because a
-// stop from outside yolo did. Each time the attach returns 137, the status of a process the jail's
-// end killed, and says what ended it, or that nothing recorded why.
+// TestAnAttachWhoseJailEndedSaysWhy: a second terminal is attached when the jail ends, first because
+// `yolo stop` stopped it, then because a stop from outside yolo did. Each time the attach returns
+// 137, the status of a process the jail's end killed, and says what ended it, or that nothing
+// recorded why. (The session that started the jail quitting ends nothing any more:
+// TestQuittingTheFirstSessionLeavesTheOthersRunning.)
 func TestAnAttachWhoseJailEndedSaysWhy(t *testing.T) {
 	requireJail(t)
 	const release = "release-first"
@@ -38,22 +39,6 @@ func TestAnAttachWhoseJailEndedSaysWhy(t *testing.T) {
 		}
 		return first, attach
 	}
-
-	t.Run("its first session quit", func(t *testing.T) {
-		dir := writeProject(t, `{}`)
-		first, attach := start(t, dir)
-		writeRelease(t, dir, release)
-		if rc := first.wait(t, jailTimeout()); rc != 0 {
-			t.Errorf("the first session ended rc %d:\n%s", rc, first.combined())
-		}
-		if rc := attach.wait(t, jailTimeout()); rc != 137 {
-			t.Errorf("the attached session ended rc %d, want 137 from its jail's end:\n%s", rc, attach.combined())
-		}
-		if !strings.Contains(attach.combined(),
-			"This session ended because its jail stopped: the session that started it ended") {
-			t.Errorf("the attached session was not told why its jail ended:\n%s", attach.combined())
-		}
-	})
 
 	t.Run("yolo stop", func(t *testing.T) {
 		dir := writeProject(t, `{}`)
@@ -76,9 +61,8 @@ func TestAnAttachWhoseJailEndedSaysWhy(t *testing.T) {
 		}
 	})
 
-	// A stop from outside yolo records nothing, so the attached session says that nothing did,
-	// and never that the session that started the jail ended: that session's exec returned 137
-	// because its jail ended too, and its launcher must not record that as its own end.
+	// A stop from outside yolo records nothing, so the attached session says that nothing did, and
+	// so does the session that started the jail, whose exec returned 137 because its jail ended too.
 	t.Run("a stop from outside yolo", func(t *testing.T) {
 		dir := writeProject(t, `{}`)
 		first, attach := start(t, dir)
@@ -98,11 +82,12 @@ func TestAnAttachWhoseJailEndedSaysWhy(t *testing.T) {
 		if !strings.Contains(got, "This session ended because its jail stopped, and nothing recorded why") {
 			t.Errorf("the attached session was not told that nothing recorded why its jail ended:\n%s", got)
 		}
-		if strings.Contains(got, "the session that started it ended") {
-			t.Errorf("a stop from outside yolo was blamed on the first session:\n%s", got)
+		// Nothing recorded a stop, so the first session keeps its exec's status (JL-D59).
+		if rc := first.wait(t, jailTimeout()); rc != 137 {
+			t.Errorf("the first session ended rc %d, want 137 from its jail's end:\n%s", rc, first.combined())
 		}
-		if rc := first.wait(t, jailTimeout()); rc != 143 {
-			t.Errorf("the first session ended rc %d, want 143 from a stopped jail:\n%s", rc, first.combined())
+		if !strings.Contains(first.combined(), "nothing recorded why") {
+			t.Errorf("the first session was not told its jail ended:\n%s", first.combined())
 		}
 	})
 }

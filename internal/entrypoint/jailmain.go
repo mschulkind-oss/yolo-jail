@@ -18,11 +18,10 @@ package entrypoint
 // dropped, through signal.Notify and never signal.Ignore, whose SIG_IGN every later child
 // would inherit: a stray hangup must not end every session (JL-D15).
 //
-// And, until the design's keeper exists (its step 3), THE FIRST SESSION: the hold also ends
-// when the first session's process does. That keeps what a user sees as it was — a jail lives
-// with the terminal that launched it, even after that terminal's launcher was SIGKILLed and
-// nothing is left on the host to stop it — while the container underneath already has the
-// keeper's shape. Step 3 replaces this with the host-side session count and deletes it.
+// And nothing else. Until the design's keeper existed (its step 3) the hold also ended when the
+// first session's process did, so a jail lived with the terminal that launched it; now the
+// host-side session count decides, and the jail's keeper stops the jail when its last session is
+// gone (docs/design/jail-lifetime-last-session-wins.md §9.5), so no session is special here.
 //
 // # Provisioning, once per container, on the first session's terminal
 //
@@ -111,7 +110,8 @@ const (
 	provisionClaimFile = "provision.claimed"
 	// provisionOutcomeFile is provisioning's one outcome: "done", or "refused <status>".
 	provisionOutcomeFile = "provision.outcome"
-	// firstSessionFile names the first session's pid, so the hold can follow it.
+	// firstSessionFile names the first session's pid: whichever exec registered it first is the
+	// one that runs provisioning.
 	firstSessionFile = "first-session"
 )
 
@@ -141,16 +141,7 @@ var (
 	sessionPoll = 200 * time.Millisecond
 	// waitNoticeAfter is how long a wait stays silent before it says what it waits for.
 	waitNoticeAfter = 2 * time.Second
-	// firstSessionPoll is how often the hold looks at the first session.
-	firstSessionPoll = 100 * time.Millisecond
 )
-
-// processExists reports whether pid names a live process. A var so tests can stand in a
-// process that exits.
-var processExists = func(pid int) bool {
-	err := syscall.Kill(pid, 0)
-	return err == nil || errors.Is(err, syscall.EPERM)
-}
 
 // entryMode is which of the three things this entrypoint invocation is.
 type entryMode int
@@ -237,22 +228,19 @@ func markBoot(state string) { _ = writeMainState(bootStateFile, state) }
 
 // holdJail is the main process's life after a boot that succeeded: record the stage for the
 // first session, say the boot is done (the state file for sessions, BootReadyLine for the
-// launcher), and hold until SIGTERM or the first session's end. terminated says a SIGTERM
-// ended it, and Main then exits 128+SIGTERM (holdExitStatus).
+// launcher), and hold until SIGTERM. terminated says a SIGTERM ended it, and Main then exits
+// 128+SIGTERM (holdExitStatus). A channel that never closes stands where the first session's end
+// was until the keeper: nothing a session does ends the hold.
 func holdJail(stage string, stderr io.Writer) (terminated bool) {
 	announceReady(stage, stderr)
 	signals := make(chan os.Signal, 4)
 	signal.Notify(signals, syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM)
 	defer signal.Stop(signals)
-	return holdUntil(signals, followFirstSession(firstSessionPoll))
+	return holdUntil(signals, nil)
 }
 
 // holdExitStatus is the main process's end once its hold is over. A hold that a SIGTERM ended
-// exits 128+SIGTERM, the status of a process the signal ended, and one that followed its first
-// session out exits 0. The launcher reads the difference (run.firstSessionStatus): the kernel
-// SIGKILLs every session of a jail whose main process ends, so a first session's exec reports
-// 137 both when the jail was stopped from outside and when the session was killed while the
-// jail ran, and only this status tells a stop from an OOM kill.
+// exits 128+SIGTERM, the status of a process the signal ended; one that ended otherwise exits 0.
 func holdExitStatus(terminated bool) error {
 	if terminated {
 		return &ExitStatus{Code: 128 + int(syscall.SIGTERM)}
@@ -269,44 +257,19 @@ func announceReady(stage string, stderr io.Writer) {
 	fmt.Fprintln(stderr, BootReadyLine)
 }
 
-// holdUntil blocks until a SIGTERM arrives (terminated) or firstGone closes. SIGHUP and SIGINT
-// are received and dropped.
-func holdUntil(signals <-chan os.Signal, firstGone <-chan struct{}) (terminated bool) {
+// holdUntil blocks until a SIGTERM arrives (terminated) or released closes; a nil released never
+// does. SIGHUP and SIGINT are received and dropped.
+func holdUntil(signals <-chan os.Signal, released <-chan struct{}) (terminated bool) {
 	for {
 		select {
 		case s := <-signals:
 			if s == syscall.SIGTERM {
 				return true
 			}
-		case <-firstGone:
+		case <-released:
 			return false
 		}
 	}
-}
-
-// followFirstSession closes the returned channel once the first session has registered and
-// its process is gone. It never closes when no first session registers: then only a SIGTERM
-// ends the hold, and a jail whose launcher died before its first exec is left to the next
-// launch's orphan reaper, which finds its owner dead and no session in it.
-func followFirstSession(poll time.Duration) <-chan struct{} {
-	gone := make(chan struct{})
-	go func() {
-		pid := 0
-		for pid == 0 {
-			if raw, ok := readMainState(firstSessionFile); ok {
-				if n, err := strconv.Atoi(raw); err == nil && n > 0 {
-					pid = n
-					break
-				}
-			}
-			time.Sleep(poll)
-		}
-		for processExists(pid) {
-			time.Sleep(poll)
-		}
-		close(gone)
-	}()
-	return gone
 }
 
 // sessionGate is one session's side of pid 1's boot and of provisioning.

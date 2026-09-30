@@ -94,16 +94,30 @@ func TestNoReturnAfterTheSkeletonLeaksIt(t *testing.T) {
 		t.Fatal("no podman arm building the skeleton in runContainer; re-anchor this pin, do not delete it")
 	}
 	final := fd.Body.List[len(fd.Body.List)-1]
+	// Once the keeper is spawned the skeleton is ITS, carried in the plan, and every end after that
+	// is its to clean (TestEveryEndHandsTheSkeletonOn): the fresh launch arms its signals right after
+	// a spawn that succeeded, and returns after that are exempt here.
+	spawned := token.NoPos
+	ast.Inspect(fd, func(n ast.Node) bool {
+		if call, ok := n.(*ast.CallExpr); ok && skelCallee(call) == "armLaunchSignals" && spawned == token.NoPos {
+			spawned = call.Pos()
+		}
+		return true
+	})
+	if spawned == token.NoPos {
+		t.Fatal("runContainer no longer arms its signals after the keeper's spawn; re-anchor this pin")
+	}
 
 	checked := 0
 	var walk func(block *ast.BlockStmt)
 	walk = func(block *ast.BlockStmt) {
 		for i, st := range block.List {
-			if ret, ok := st.(*ast.ReturnStmt); ok && ret.Pos() > arm.End() && st != final {
+			if ret, ok := st.(*ast.ReturnStmt); ok && ret.Pos() > arm.End() && ret.Pos() < spawned && st != final {
 				checked++
 				discarded := false
 				for _, before := range block.List[:i] {
-					if callsIn(before)["discardUnheldSkeleton"] {
+					// unwindUnspawned discards it (keeperspawn.go), with the pack tree.
+					if callsIn(before)["discardUnheldSkeleton"] || callsIn(before)["unwindUnspawned"] {
 						discarded = true
 					}
 				}

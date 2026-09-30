@@ -6,29 +6,24 @@ package run
 //
 // A fresh launch used to run `<rt> run -it … yolo-entrypoint '<the first session's command>'`
 // under the TTY proxy, so the first session was the container's pid 1 and its runtime client
-// held the terminal. Now it runs three things in order:
+// held the terminal. Now two processes run the jail's two halves:
 //
-//  1. THE MAIN PROCESS, `<rt> run … yolo-entrypoint --yolo-hold-main '<the stage>'`, as a child
-//     with no terminal and in a process group of its own, so nothing typed at the terminal and
-//     no signal the terminal's job gets reaches its client (startJailMain). Its stdout is the
-//     launcher's; its stderr is relayed line by line until BootReadyLine, which is not printed,
-//     so the boot reads on the terminal as it always did (relayUntilReady).
+//  1. THE MAIN PROCESS, `<rt> run … yolo-entrypoint --yolo-hold-main '<the stage>'`, is started by
+//     the jail's KEEPER (keeper.go), as a child with no terminal and in a process group of its
+//     own, so nothing typed at a terminal and no signal a terminal's job gets reaches its client
+//     (startJailMain). Its output crosses the keeper's progress pipe to the fresh launch, which
+//     prints it as the boot always read; BootReadyLine is not printed (readyRelay). It holds until
+//     a SIGTERM: nothing a session does ends it.
 //  2. THE FIRST SESSION, `<rt> exec -i [-t] <cname> yolo-entrypoint --yolo-first-session
-//     '<command>'`, under the TTY proxy, which takes the terminal (firstSessionExecCmd). Its
-//     exit status is the launch's, as the container's was, and a jail stopped from outside
-//     still returns what it did (firstSessionStatus).
-//  3. THE END: the main process follows its first session out, and the launcher waits for its
-//     client to exit, stopping the jail itself only when it did not (awaitJailMainEnd). Then
-//     today's teardown chain, unchanged.
+//     '<command>'`, is the fresh launch's own, under the TTY proxy, which takes the terminal
+//     (firstSessionExecCmd). It is an ordinary session: its end is its quit (endSession,
+//     keeperspawn.go), and the jail ends when its keeper sees the last session gone.
 //
-// ONE SIGNAL ARM covers all three, the launch's own (launchSignalArm): the proxy installs none
-// for the first session and hands the arm its Handle instead, so no signal falls between two
-// arms, and a hangup while the main process's client lingers still runs the teardown.
-//
-// WHAT A USER SEES DOES NOT CHANGE, by design: this launch still owns the jail's host services
-// and still ends the jail with its own session. What changes underneath is that no session is
-// the container's main process any more, which is what the design's keeper needs to let the
-// first terminal go.
+// ONE SIGNAL ARM covers the fresh launch's window (launchSignalArm): until the jail is ready it
+// ends the launch alone, which has the keeper unwind; from ready on it is retargeted to the
+// session's own teardown, whose hangup ends that session and nothing else (JL-D4). The proxy
+// installs none for the first session and hands the arm its Handle instead, so no signal falls
+// between two arms. An attach runs its session under an arm of the same kind.
 
 import (
 	"bytes"
@@ -195,12 +190,12 @@ func startJailMain(argv []string, stdout, stderr io.Writer, onExit func()) (*jai
 // process's client has exited.
 var relayDrainWait = time.Second
 
-// safeOnStarted runs a fresh launch's onStarted on its own goroutine's behalf, and keeps a
-// panic in it from taking the launch down with the jail running, as the proxy's own
-// callback runner does (ttyproxy.safeCallback).
-func safeOnStarted(onStarted func(*os.Process), p *os.Process) {
+// safeRun runs fn on its caller's goroutine and keeps a panic in it from taking the launch down
+// with the jail running, as the proxy's own callback runner does (ttyproxy.safeCallback): the
+// fresh launch's housekeeping slot runs under it.
+func safeRun(fn func()) {
 	defer func() { _ = recover() }()
-	onStarted(p)
+	fn()
 }
 
 // exitCodeOf is an exec.Cmd.Wait error as the status a shell would report: 0, the child's
@@ -247,63 +242,17 @@ func (m *jailMain) awaitReady() bool {
 // of its argv, which makes this exec the one that runs provisioning on its terminal. The
 // command is sessionCmd's. No NO_COLOR argument: this launch composed the container's
 // environment, so it already carries the launch's own (noColorEnvArgs). No detach sequence, as
-// on every session's exec (runtime.DetachKeysArgs, JL-D27).
-func (o *Options) firstSessionExecCmd(rt, cname, command string) []string {
+// on every session's exec (runtime.DetachKeysArgs, JL-D27). sessionID names the session in the
+// jail, for its signal arm's hangup, as an attach's does (sessionhangup.go): this launch froze the
+// session-hangup contract tag into the container it starts, so the jail always knows the form.
+func (o *Options) firstSessionExecCmd(rt, cname, command, sessionID string) []string {
 	argv := []string{rt, "exec", "-i"}
 	if o.IsTTYStdout() {
 		argv = append(argv, "-t")
 	}
 	argv = append(argv, runtime.DetachKeysArgs(rt)...)
+	argv = append(argv, sessionEnvArgs(sessionID)...)
 	return append(argv, cname, JailEntrypointPath, entrypoint.FirstSessionArg, command)
-}
-
-// jailMainEndGrace is how long the launcher waits, after its first session has returned, for
-// the main process to follow it out on its own (the hold polls the first session every 100 ms)
-// before it stops the jail itself. A var so a test need not wait it out.
-var jailMainEndGrace = 10 * time.Second
-
-// awaitJailMainEnd ends the jail with this launch's own session, as the launch always has:
-// the hold normally exits by itself within a poll of the first session's end. When it has not
-// within jailMainEndGrace and the container is still running — an exec client that died while
-// its session ran on, or a first session that never registered — the launcher stops it, and
-// says so (stopped). Then it waits for the client, as the proxy used to wait for it: the
-// client's lingering exit after its container is gone is Window A, and it is measured, not cut
-// short. The launch's signal arm stays live throughout, so a hangup or a `kill %1` in that
-// stretch still runs the teardown.
-func (o *Options) awaitJailMainEnd(m *jailMain, cname, rt string) (stopped bool) {
-	select {
-	case <-m.exited:
-		return false
-	case <-time.After(jailMainEndGrace):
-	}
-	if o.findRunningContainer(cname, rt) != "" {
-		o.stopJail(cname, rt, firstSessionEndedReason)
-		stopped = true
-	}
-	<-m.exited
-	return stopped
-}
-
-// firstSessionStatus is the launch's exit status from its first session's and its main
-// process's. They differ when the jail is STOPPED FROM OUTSIDE — `yolo stop`, an attach-skew
-// restart in another terminal — where the launch returned 143 while the first session was the
-// container's main process. A pid namespace whose init exits has every other process in it
-// SIGKILLed by the kernel, so the first session's exec now reports 137 however its command
-// meant to end; and a stop that lands as the exec starts fails the exec itself, with the
-// runtime's own status (255 from podman, for a container gone from its database). The hold
-// says which it was: it exits 128+SIGTERM when a SIGTERM, the signal a stop sends, ended it,
-// and 0 when it followed its first session out (entrypoint.holdExitStatus). So a failed
-// session over a hold that a SIGTERM this launcher did not send ended is a stopped jail, and
-// the launch returns 143 as before, which also keeps the macOS OOM hint
-// (maybeWarnAboutOOMKiller, keyed on 137) from blaming the VM for a stop. A session killed
-// while its jail still ran, by the OOM killer or anything else, keeps its 137, since its hold
-// then follows it out with 0.
-func firstSessionStatus(sessionRC, mainRC int, launcherStopped bool) int {
-	sigterm := 128 + int(syscall.SIGTERM)
-	if sessionRC != 0 && mainRC == sigterm && !launcherStopped {
-		return sigterm
-	}
-	return sessionRC
 }
 
 // sessionHandle is the first session's runtime client's half of the launch arm's teardown:
@@ -315,22 +264,23 @@ type sessionHandle interface {
 	Kill()
 }
 
-// launchSignalArm is the fresh launch's ONE signal arm for its whole child window: from before
-// the main process starts, through the first session's exec, until the main process's client
-// has exited (Window A included), so exactly one arm acts on each signal at every instant. The
-// TTY proxy runs the first session with no arm of its own and hands this one its Handle
-// (attach), through which it restores the terminal first and kills the exec client last. A
-// SIGINT, SIGHUP or SIGTERM runs the launch's own teardown (onTerminate, then the embedded pack
-// tree's release, as the proxy's arm does) and exits 128+N, which is what the proxy's arm did
-// when it held the terminal from the container's start.
+// launchSignalArm is the fresh launch's ONE signal arm for its whole window: from the keeper's
+// spawn, through the boot it relays and the first session's exec, until that session has returned,
+// so exactly one arm acts on each signal at every instant. The TTY proxy runs the first session
+// with no arm of its own and hands this one its Handle (attach), through which it restores the
+// terminal first and kills the exec client last. A SIGINT, SIGHUP or SIGTERM runs the arm's
+// teardown (then the embedded pack tree's release, as the proxy's arm does) and exits 128+N. The
+// teardown is the pre-ready one until the jail is ready, and the session's from then on (retarget,
+// keeperspawn.go): neither ever stops the jail, which is its keeper's (JL-D4).
 //
-// An attach runs its one session under an arm of the same kind (attachSignalArm), whose
-// onTerminate hangs up that session's processes in the jail instead of stopping the jail.
+// An attach runs its one session under an arm of the same kind (attachSignalArm), whose teardown
+// hangs up that session's processes in the jail.
 type launchSignalArm struct {
 	mu          sync.Mutex
 	signals     chan os.Signal
 	done        chan struct{}
 	session     sessionHandle // the first session's, while its run is in progress
+	onTerminate func()        // the teardown a signal runs (retarget replaces it)
 	stopped     bool
 	terminating bool
 }
@@ -343,7 +293,7 @@ func armLaunchSignals(onTerminate func()) *launchSignalArm {
 // armLaunchSignalsWith is armLaunchSignals with the process exit as a parameter, so a test can
 // drive the arm to its end without ending the test binary.
 func armLaunchSignalsWith(onTerminate func(), exit func(int)) *launchSignalArm {
-	a := &launchSignalArm{signals: make(chan os.Signal, 4), done: make(chan struct{})}
+	a := &launchSignalArm{signals: make(chan os.Signal, 4), done: make(chan struct{}), onTerminate: onTerminate}
 	signal.Notify(a.signals, syscall.SIGINT, syscall.SIGHUP, syscall.SIGTERM)
 	go func() {
 		for {
@@ -356,8 +306,9 @@ func armLaunchSignalsWith(onTerminate func(), exit func(int)) *launchSignalArm {
 				}
 				a.terminating = true
 				h := a.session
+				teardown := a.onTerminate
 				a.mu.Unlock()
-				a.terminate(h, onTerminate)
+				a.terminate(h, teardown)
 				exit(128 + int(s.(syscall.Signal)))
 				return
 			case <-a.done:
@@ -391,6 +342,20 @@ func (a *launchSignalArm) terminate(h sessionHandle, onTerminate func()) {
 		h.Kill()
 	}
 	packload.ReleaseEmbedded()
+}
+
+// retarget replaces the teardown a signal runs from here on: a fresh launch's arm ends the launch
+// alone until its jail is ready, and from then on its session, as an attach's does (keeperspawn.go).
+// One arm for the whole window, so no signal falls between two. It returns false when the arm has
+// begun a teardown, which then owns the exit.
+func (a *launchSignalArm) retarget(onTerminate func()) bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.terminating {
+		return false
+	}
+	a.onTerminate = onTerminate
+	return true
 }
 
 // attach is the first session's run handing the arm its Handle, once its exec client is

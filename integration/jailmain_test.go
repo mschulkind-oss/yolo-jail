@@ -36,8 +36,9 @@ const jailShapeProbe = `pat="--yolo-""hold-main"; ` +
 // (the runtime's init) has the entrypoint's hold as its child, the session itself was exec'd
 // into the container (its parent is outside the pid namespace, so bash reads $PPID as 0), pid
 // 1's boot is done and provisioning recorded "done" before the command ran. The jail still ends
-// with its first session: nothing of it is left once the launch returns, and the command's
-// status is the launch's.
+// when its only session does: nothing of it is left once the launch returns, since that launch
+// was the last session and waited for its keeper's teardown, and the command's status is the
+// launch's.
 func TestTheMainProcessIsAHoldAndTheFirstSessionAnExec(t *testing.T) {
 	requireJail(t)
 	dir := writeProject(t, `{}`)
@@ -66,10 +67,11 @@ func TestTheMainProcessIsAHoldAndTheFirstSessionAnExec(t *testing.T) {
 	}
 }
 
-// TestAnOrphanSweepSparesAJailWithASessionInIt is §2.3 item 4: the first launcher is SIGKILLed
-// while a second terminal is attached. The next launch in ANOTHER workspace sweeps orphans,
-// finds this jail's owner dead — and leaves it running, because the attached session holds the
-// jail's session lock. Once that session leaves, the next sweep reaps the jail.
+// TestAnOrphanSweepSparesAJailWithASessionInIt is §2.3 item 4, with the keeper: the first launcher
+// is SIGKILLed while a second terminal is attached. That is one session ending, however it ended:
+// the jail's keeper owns the jail, so the next launch in ANOTHER workspace, sweeping orphans, finds
+// its owner alive and leaves it; an entry attaches as to any running jail; and once the attached
+// session leaves, the last one, the keeper ends the jail, with no sweep needed.
 func TestAnOrphanSweepSparesAJailWithASessionInIt(t *testing.T) {
 	requireJail(t)
 	dir := writeProject(t, `{}`)
@@ -82,6 +84,7 @@ func TestAnOrphanSweepSparesAJailWithASessionInIt(t *testing.T) {
 	t.Cleanup(func() { writeRelease(t, dir, releaseFirst) })
 	awaitOutput(t, first, regexp.MustCompile(`FIRST-IN-42`))
 	awaitLaunchLockReleased(t, dir, first)
+	keeper := keeperPID(t, dir)
 
 	attach := startYoloBackground(t, "attach", dir,
 		`echo "ATTACH-SAW=$(cat /run/yolo/main/provision.outcome)"; echo ATTACH-IN-$((40+2)); `+
@@ -99,13 +102,8 @@ func TestAnOrphanSweepSparesAJailWithASessionInIt(t *testing.T) {
 	if err := syscall.Kill(first.pid, syscall.SIGKILL); err != nil {
 		t.Fatalf("killing the first launcher: %v", err)
 	}
-	// Reaped, not merely signalled. Not first.wait: its runtime clients outlive it holding the
-	// output pipe, so the helper's Wait returns only once they exit, with the jail.
-	for deadline := time.Now().Add(30 * time.Second); syscall.Kill(first.pid, 0) == nil; {
-		if time.Now().After(deadline) {
-			t.Fatalf("the SIGKILLed first launcher (pid %d) was never reaped", first.pid)
-		}
-		time.Sleep(20 * time.Millisecond)
+	if !awaitProcessGone(first.pid, 30*time.Second) {
+		t.Fatalf("the SIGKILLed first launcher (pid %d) was never reaped", first.pid)
 	}
 
 	sweep := runYolo(t, other, "true")
@@ -113,20 +111,19 @@ func TestAnOrphanSweepSparesAJailWithASessionInIt(t *testing.T) {
 		t.Fatalf("the sweeping launch failed: rc %d\n%s", sweep.rc, sweep.combined())
 	}
 	if strings.Contains(sweep.combined(), "Reaping orphaned jail "+cname) {
-		t.Errorf("the sweep reaped a jail with a session in it:\n%s", sweep.combined())
+		t.Errorf("the sweep reaped a jail whose keeper is alive:\n%s", sweep.combined())
 	}
 	if n := runningContainers(t, cname); n != 1 {
 		t.Fatalf("the jail with a session in it is not running after the sweep (%d containers)", n)
 	}
 
-	// An entry into the kept jail is told that its launcher, and with it its host services, is
-	// gone, and how to get them back.
+	// An entry into the kept jail is an ordinary attach: its host services are its keeper's.
 	entry := runYolo(t, dir, "echo ENTERED-$((40+2))")
 	if entry.rc != 0 || !strings.Contains(entry.stdout, "ENTERED-42") {
 		t.Fatalf("an entry into the kept jail failed: rc %d\n%s", entry.rc, entry.combined())
 	}
-	if !strings.Contains(entry.stderr, "the yolo that started this jail (pid ") {
-		t.Errorf("the entry did not say the jail's launcher is gone:\n%s", entry.combined())
+	if strings.Contains(entry.stderr, "is gone") {
+		t.Errorf("the entry was told a live keeper's jail lost its owner:\n%s", entry.combined())
 	}
 
 	writeRelease(t, dir, releaseAttach)
@@ -136,49 +133,12 @@ func TestAnOrphanSweepSparesAJailWithASessionInIt(t *testing.T) {
 	if !strings.Contains(attach.combined(), "ATTACH-OUT-42") {
 		t.Errorf("the attached session did not finish its command:\n%s", attach.combined())
 	}
-
-	// No session left and the owner dead: now it is an orphan, and the next sweep reaps it.
-	reap := runYolo(t, other, "true")
-	if !strings.Contains(reap.combined(), "Reaping orphaned jail "+cname) {
-		t.Errorf("the sweep after the last session left did not reap the orphan:\n%s", reap.combined())
-	}
+	// The last session left: its keeper ended the jail, and itself.
 	if n := runningContainers(t, cname); n != 0 {
-		t.Errorf("%d containers named %s remain after the reap", n, cname)
+		t.Errorf("%d containers named %s remain after the last session left", n, cname)
 	}
-}
-
-// TestAHangupWhileTheMainProcessLingersStillEndsTheJail: once the first session's exec has
-// returned, the launcher still waits for the main process's client: its lingering exit (Window
-// A), or the grace before it stops a hold that did not follow. A hangup there, from a closed
-// tab or a `kill %1`, must still run the launch's teardown, as it did while the proxy held the
-// container's own client: the launcher exits 128+SIGHUP and leaves no container behind. The
-// session freezes the hold, so the main process cannot follow it out and the launcher is still
-// in its grace when the signal lands.
-func TestAHangupWhileTheMainProcessLingersStillEndsTheJail(t *testing.T) {
-	requireJail(t)
-	dir := writeProject(t, `{}`)
-	cname := naming.FromWorkspace(dir)
-
-	first := startYoloBackground(t, "first", dir, `pat="--yolo-""hold-main"; `+
-		`for p in /proc/[0-9]*; do c=$(tr '\0' ' ' < "$p/cmdline" 2>/dev/null); `+
-		`case "$c" in *"$pat"*) kill -STOP "${p#/proc/}" && echo "FROZE-$((40+2))";; esac; done`)
-	awaitOutput(t, first, regexp.MustCompile(`FROZE-42`))
-	// The session has returned; the launcher waits out its grace on a hold that cannot follow.
-	time.Sleep(2 * time.Second)
-	if n := runningContainers(t, cname); n != 1 {
-		t.Fatalf("the jail is not running while its launcher waits on the main process (%d containers):\n%s",
-			n, first.combined())
-	}
-
-	if err := syscall.Kill(first.pid, syscall.SIGHUP); err != nil {
-		t.Fatalf("hanging up the launcher: %v", err)
-	}
-	if rc := first.wait(t, jailTimeout()); rc != 128+int(syscall.SIGHUP) {
-		t.Errorf("the hung-up launcher returned %d, want %d from its teardown:\n%s",
-			rc, 128+int(syscall.SIGHUP), first.combined())
-	}
-	if n := runningContainers(t, cname); n != 0 {
-		t.Errorf("%d containers named %s remain after the hung-up launcher's teardown", n, cname)
+	if !awaitProcessGone(keeper, 10*time.Second) {
+		t.Errorf("the keeper (pid %d) outlived its jail", keeper)
 	}
 }
 

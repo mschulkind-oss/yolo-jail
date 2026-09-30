@@ -37,55 +37,61 @@ func TestRestoreTerminalRunsTheInjectedClosure(t *testing.T) {
 	}
 }
 
-// THE CALL-SITE PIN. onTerminate is built inside runContainer, which starts a real
-// container, so the closure cannot be driven from a unit test — the same constraint that
-// made TestFreshLaunchChecksProviderCredentialsOnTheAssembledEnv an AST pin. What is
-// asserted is the property that was violated: the terminate closure reaches
-// restoreTerminal, and it does so AFTER the timing report, so the launch's last words
-// land in the tab that ran it.
+// THE CALL-SITE PIN. The fresh launch's teardown before its jail is ready is built by
+// keeperPreReadyTeardown, and runs in the launch's signal arm, which os.Exit(128+n)s the moment it
+// returns, so it cannot be driven from a unit test. What is asserted is the property that was
+// violated: the teardown reaches restoreTerminal, and it does so AFTER the timing report, so the
+// launch's last words land in the tab that ran it. From ready on the arm runs attachTeardown, which
+// puts the terminal back too.
 func TestTerminateClosureRestoresTheTerminalAfterTheReport(t *testing.T) {
 	fset := token.NewFileSet()
-	f, err := parser.ParseFile(fset, "run.go", nil, parser.ParseComments)
+	f, err := parser.ParseFile(fset, "keeperspawn.go", nil, parser.ParseComments)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	var body string
 	ast.Inspect(f, func(n ast.Node) bool {
-		as, ok := n.(*ast.AssignStmt)
-		if !ok || len(as.Lhs) != 1 {
+		fd, ok := n.(*ast.FuncDecl)
+		if !ok || fd.Name.Name != "keeperPreReadyTeardown" {
 			return true
 		}
-		id, ok := as.Lhs[0].(*ast.Ident)
-		if !ok || id.Name != "onTerminate" {
-			return true
-		}
-		lit, ok := as.Rhs[0].(*ast.FuncLit)
-		if !ok {
-			return true
-		}
-		var sb strings.Builder
-		for _, stmt := range lit.Body.List {
-			sb.WriteString(exprText(fset, stmt) + "\n")
-		}
-		body = sb.String()
+		ast.Inspect(fd.Body, func(n ast.Node) bool {
+			lit, ok := n.(*ast.FuncLit)
+			if !ok || body != "" {
+				return true
+			}
+			var sb strings.Builder
+			for _, stmt := range lit.Body.List {
+				sb.WriteString(exprText(fset, stmt) + "\n")
+			}
+			body = sb.String()
+			return false
+		})
 		return false
 	})
 	if body == "" {
-		t.Fatal("could not find the onTerminate closure in run.go — this pin is vacuous")
+		t.Fatal("could not find keeperPreReadyTeardown's closure in keeperspawn.go — this pin is vacuous")
 	}
 
 	restoreAt := strings.Index(body, "restoreTerminal")
 	reportAt := strings.Index(body, "emitTimingReport")
 	if restoreAt < 0 {
-		t.Error("onTerminate does not call restoreTerminal(). ttyproxy os.Exit(128+n)s " +
+		t.Error("the pre-ready teardown does not call restoreTerminal(). The arm os.Exit(128+n)s " +
 			"the moment this closure returns and os.Exit runs no defers, so the front " +
 			"door's `defer restore()` never fires on the signal arm — Ctrl-C would hand " +
 			"the terminal back still wearing the jail's tab icon and colour.")
 	}
+	if reportAt < 0 {
+		t.Error("the pre-ready teardown does not print the timing report, which no statement after " +
+			"the arm's exit could")
+	}
 	if reportAt >= 0 && restoreAt >= 0 && restoreAt < reportAt {
 		t.Error("restoreTerminal() runs BEFORE emitTimingReport(): the launch's final " +
 			"output would land in a tab already handed back to the user's shell.")
+	}
+	if !callsIn(funcDecl(t, "sessionhangup.go", "attachTeardown"))["restoreTerminal"] {
+		t.Error("the session's teardown no longer puts the terminal back")
 	}
 }
 

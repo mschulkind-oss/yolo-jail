@@ -10,23 +10,40 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
-// startHostPortForwarding spawns one
-// `socat UNIX-LISTEN:<sock>,fork,mode=777 TCP:127.0.0.1:<hostPort>` per parsed
+// planPortForwards parses the host forwards a fresh launch's gate answered (hostForwardPorts, merged
+// with the implicit provider forwards) into the ones its keeper starts, printing each warning the
+// parse has on the launch's own terminal, before the spawn. nil when there are none, or the entries
+// do not parse.
+func (o *Options) planPortForwards(forwardHostPorts []any) []PortForward {
+	if len(forwardHostPorts) == 0 {
+		return nil
+	}
+	parsed, err := ParsePortForwards(forwardHostPorts, o.pr(o.Stderr).print)
+	if err != nil {
+		return nil
+	}
+	return parsed
+}
+
+// startPortForwards spawns one
+// `socat UNIX-LISTEN:<sock>,fork,mode=777 TCP:127.0.0.1:<hostPort>` per planned
 // forward, waits (condition-poll) for the socket files to appear, and returns the
 // live process handles (native proxying is out of scope). Must run BEFORE the
 // container so the socket files exist when the container-side socat connects.
 //
-// forwardHostPorts are the raw config entries; cname keys the socat log; socketDir
-// is the per-jail /tmp/yolo-fwd-<cname> dir. Returns the socat *exec.Cmd handles.
-func (o *Options) startHostPortForwarding(forwardHostPorts []any, cname string, socketDir string) []*exec.Cmd {
-	if len(forwardHostPorts) == 0 {
+// cname keys the socat log; socketDir is the per-jail /tmp/yolo-fwd-<cname> dir. Returns the socat
+// *exec.Cmd handles.
+//
+// THE WHOLE DIR GOES FIRST, not just the sockets about to be forwarded (JL-D32). It is bind-mounted
+// read-write into the workspace's next jail, and a socat a SIGKILLed launch or keeper left behind
+// for a forward the config has since dropped would stay reachable from that jail through its socket.
+// And each socat a keeper starts gets the kernel's death signal, so none outlives the keeper.
+func (o *Options) startPortForwards(parsed []PortForward, cname string, socketDir string) []*exec.Cmd {
+	if len(parsed) == 0 {
 		return nil
 	}
 	out := o.pr(o.Stderr)
-	parsed, err := ParsePortForwards(forwardHostPorts, out.print)
-	if err != nil || len(parsed) == 0 {
-		return nil
-	}
+	_ = os.RemoveAll(socketDir)
 	if err := os.MkdirAll(socketDir, 0o755); err != nil {
 		return nil
 	}
@@ -38,9 +55,12 @@ func (o *Options) startHostPortForwarding(forwardHostPorts []any, cname string, 
 	var expected []string
 	for _, pf := range parsed {
 		sockPath := SocketPath(socketDir, pf.LocalPort)
-		_ = os.Remove(sockPath) // remove stale socket from a previous run
 		argv := SocatArgv(sockPath, pf.HostPort)
 		cmd := exec.Command(argv[0], argv[1:]...)
+		if o.keeperMode {
+			cmd.SysProcAttr = &syscall.SysProcAttr{}
+			setChildDeathSignal(cmd.SysProcAttr)
+		}
 		cmd.Stdout = nil
 		if logFile != nil {
 			cmd.Stderr = logFile

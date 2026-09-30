@@ -11,7 +11,6 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/broker"
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
-	"github.com/mschulkind-oss/yolo-jail/internal/execx"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
 	"github.com/mschulkind-oss/yolo-jail/internal/openaiauth"
@@ -333,7 +332,6 @@ func (o *Options) startLoopholesMatching(set loopholes.Set, cname, rt string, cf
 		}
 	}
 	o.writeScopeFiles(cname, brokered)
-	manifestSpecs := set.ManifestHostDaemonSpecs(discovered)
 	// The TRANSPORT comes from the Loophole record, not from the config-shaped spec
 	// map, because it is the framework's decision and not a user-supplied key. A name
 	// absent here (a config loophole with only a `command`) takes the default in
@@ -350,35 +348,7 @@ func (o *Options) startLoopholesMatching(set loopholes.Set, cname, rt string, cf
 			daemonOf[lp.Name] = lp.HostDaemon
 		}
 	}
-	external := map[string]*jsonx.OrderedMap{}
-	var order []string
-	if manifestSpecs != nil {
-		for _, name := range manifestSpecs.Keys() {
-			if v, _ := manifestSpecs.Get(name); v != nil {
-				if m, ok := v.(*jsonx.OrderedMap); ok {
-					external[name] = m
-					order = append(order, name)
-				}
-			}
-		}
-	}
-	if loopCfg := cfgMap(cfg, "loopholes"); loopCfg != nil {
-		for _, name := range loopCfg.Keys() {
-			if !allow(name) {
-				continue
-			}
-			if _, seen := external[name]; seen {
-				continue
-			}
-			spec := cfgMap(loopCfg, name)
-			if spec != nil {
-				if _, hasCmd := spec.Get("command"); hasCmd {
-					external[name] = spec
-					order = append(order, name)
-				}
-			}
-		}
-	}
+	order, external := hostDaemonOrder(set, discovered, cfg, allow)
 	for _, name := range order {
 		// THE BUILTIN-NAME SKIP IS GONE, and its absence is the last piece of the
 		// activation sprint rather than a simplification.
@@ -431,6 +401,51 @@ func (o *Options) startLoopholesMatching(set loopholes.Set, cname, rt string, cf
 		}
 	}
 	return handles
+}
+
+// hostDaemonOrder is the spawn's list: the name of every loophole whose host daemon the spawn runs,
+// in the order it runs them, and each one's config-shaped spec. The manifests' own host daemons
+// first (the set's ManifestHostDaemonSpecs, which is where the origin gate bites), then a config
+// `loopholes` entry with a `command` that no manifest already named. discovered is the set's enabled
+// records the backend allows.
+//
+// ONE FUNCTION FOR TWO READERS: startLoopholesMatching, which spawns from it, and
+// plannedLoopholeNames (keeper.go), which a fresh launch discloses and its keeper checks the spawn
+// against. Two copies of the selection are how a disclosure comes to name a different set from the
+// one that runs.
+func hostDaemonOrder(set loopholes.Set, discovered []*loopholes.Loophole, cfg *jsonx.OrderedMap,
+	allow func(string) bool) ([]string, map[string]*jsonx.OrderedMap) {
+	manifestSpecs := set.ManifestHostDaemonSpecs(discovered)
+	external := map[string]*jsonx.OrderedMap{}
+	var order []string
+	if manifestSpecs != nil {
+		for _, name := range manifestSpecs.Keys() {
+			if v, _ := manifestSpecs.Get(name); v != nil {
+				if m, ok := v.(*jsonx.OrderedMap); ok {
+					external[name] = m
+					order = append(order, name)
+				}
+			}
+		}
+	}
+	if loopCfg := cfgMap(cfg, "loopholes"); loopCfg != nil {
+		for _, name := range loopCfg.Keys() {
+			if !allow(name) {
+				continue
+			}
+			if _, seen := external[name]; seen {
+				continue
+			}
+			spec := cfgMap(loopCfg, name)
+			if spec != nil {
+				if _, hasCmd := spec.Get("command"); hasCmd {
+					external[name] = spec
+					order = append(order, name)
+				}
+			}
+		}
+	}
+	return order, external
 }
 
 // cgroupDelegateHonored is the cgroup delegate's SWITCH — the thing that replaced
@@ -567,11 +582,12 @@ func (o *Options) stopLoopholes(handles []loopholeDaemon, socketsDir, cname, rt 
 	}()
 
 	if cname != "" {
-		// A MARK, not a span: this probe runs the runtime's ps with timeout 0
-		// (lifecycle.go), so if the runtime hangs here this mark is the last
-		// line in the timing file — the dangling record that names where the
-		// prompt went to die (gap T2 in docs/reference/perf-logging.md, which
-		// owns the bound).
+		// A MARK, not a span: if the runtime hangs here this mark is the last line in the
+		// timing file — the dangling record that names where the prompt went to die (gap T2 in
+		// docs/reference/perf-logging.md). The probe is BOUNDED now, by trackingProbeTimeout,
+		// which is the keeper's rule for every runtime call it makes (JL-D34): a keeper stuck
+		// here would hold every later launch of the workspace, and `yolo stop` too. A probe that
+		// times out is "could not ask", which leaves the dir, as a failed one always did.
 		o.Perf.Mark("shutdown.container_check")
 		// TRI-STATE, not findExistingContainer's collapsed answer, which reads "the
 		// runtime could not be asked" as "no container", and the rmtree below would
@@ -584,7 +600,7 @@ func (o *Options) stopLoopholes(handles []loopholeDaemon, socketsDir, cname, rt 
 		// in /tmp: the next launch of this workspace unlinks each stale endpoint and
 		// upstream socket before its spawn (reportStaleRemoval) and removes both at
 		// its own teardown.
-		id, known := o.probeExistingContainer(cname, rt, 0)
+		id, known := o.probeExistingContainer(cname, rt, trackingProbeTimeout)
 		if id != "" {
 			out.printf("[dim]Container %s still exists; leaving its "+
 				"sockets dir alone.[/dim]", cname)
@@ -919,7 +935,7 @@ func (o *Options) resolveDaemonArgv(name string, spec *jsonx.OrderedMap, daemonP
 	// need not contain "yolo" (the old console-script name `yolo-host-processes`
 	// wasn't on it, which broke the spawn). A config loophole's own command
 	// (argv[0] != "yolo") is left untouched.
-	return execx.SelfExecArgv(cmdArgs), true
+	return o.selfExecArgv(cmdArgs), true
 }
 
 // startHostSingleton is the `host_daemon.scope: "host"` path: ONE daemon per
@@ -1166,6 +1182,11 @@ func (o *Options) startExternalService(
 			"could not open %s (%v).[/yellow]", name, logPath, err)
 	}
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	// A KEEPER'S DAEMON ENDS WITH THE KEEPER (JL-D32): it leads a session of its own, so no pane
+	// close reaches it, and no reaper kills it, so after a SIGKILLed keeper it would run on unowned.
+	if o.keeperMode {
+		setChildDeathSignal(cmd.SysProcAttr)
+	}
 	// env overrides.
 	env := os.Environ()
 	envSet := false

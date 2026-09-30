@@ -4,23 +4,18 @@ package run
 // read by every session the end cut short (docs/design/jail-lifetime-last-session-wins.md §2.3
 // item 3 and §4.5, JL-D53).
 //
-// An attached session used to be told nothing when its jail ended under it. Its exec returned,
-// the attach printed the broken-prefix post-mortem when that applied and the macOS OOM hint on a
-// 137, and the user was left to guess why an agent in the middle of its work had vanished — most
-// often because the jail's FIRST session, in another terminal, had quit, which ends the jail
-// until the keeper exists (JL-D46). Now each yolo process that ends a jail says why first, in one
-// record per container name, and an attach whose exec returned the way a jail's end ends it asks
-// the runtime whether the jail is gone and, when it is, prints the record.
+// A session used to be told nothing when its jail ended under it. Its exec returned, it printed the
+// broken-prefix post-mortem when that applied and the macOS OOM hint on a 137, and the user was left
+// to guess why an agent in the middle of its work had vanished. Now each yolo process that ends a
+// jail says why first, in one record per container name, and a session whose exec returned the way
+// a jail's end ends it asks the runtime whether the jail is gone and, when it is, prints the record
+// (endSession, keeperspawn.go, for every session, the fresh launch's first included).
 //
 // WHO WRITES IT, AND WHEN. A process about to stop the jail writes it before the stop and
-// replaces whatever was there, since it is the cause: stopJail (the fresh launch's signal arm,
-// an attach-skew restart, the orphan reaper, a hold that did not follow its first session),
-// `yolo stop` and `yolo check`'s orphan cleanup (RecordJailStop). The fresh launch writes one more, the end of its first session,
-// which ends the jail with no stop of its own (the hold follows it out). That one is a
-// consequence and may itself be the result of a stop another process recorded, so it is written
-// only when nothing was recorded since the session began (recordFirstSessionEnd); and a session
-// whose status is the one a jail's end gives may be the result of an end nothing recorded, so its
-// end waits for the main process's status (settleFirstSessionEnd).
+// replaces whatever was there, since it is the cause: stopJail (the keeper's drain and its signal
+// arm, a launch whose keeper died, an attach-skew restart, the orphan reaper), `yolo stop` and
+// `yolo check`'s orphan cleanup (RecordJailStop). The first session's end ends nothing any more:
+// the jail lives while any session does, so there is no first-session record to write.
 //
 // HOW A READER KNOWS IT IS THIS JAIL'S. Every record carries the time it was written, and an
 // attach believes only one written after it began: a record left by an earlier jail of the same
@@ -102,55 +97,6 @@ func RecordJailStop(cname, reason string) {
 	writeJailStop(cname, jailStopRecord{At: time.Now(), Reason: reason, PID: os.Getpid()})
 }
 
-// firstSessionEndedReason is why a jail ends when the session that started it does.
-const firstSessionEndedReason = "the session that started it ended, and a jail still ends with " +
-	"the session that started it"
-
-// recordFirstSessionEnd records that the fresh launch's first session ended, as soon as its exec
-// returned rc, unless something recorded a stop since that session began: then the session ended
-// because of that stop, and the record already says why.
-//
-// A status a jail's end gives (jailEndStatus) leaves the end UNDECIDED instead, and nothing is
-// written: the session may have ended because its jail did, from outside yolo — `podman stop`, an
-// out-of-memory kill of the container — which records nothing, and a first-session record written
-// then would tell every attached session that the first session's quitting ended the jail. The
-// caller settles it once the main process has ended (settleFirstSessionEnd).
-func (o *Options) recordFirstSessionEnd(cname string, since time.Time, rc int) (undecided bool) {
-	if jailEndStatus(rc) {
-		return true
-	}
-	o.recordFirstSessionEndSince(cname, since)
-	return false
-}
-
-// settleFirstSessionEnd decides an undecided first session's end from the main process's status:
-// 0 is a hold that followed its first session out (entrypoint.holdExitStatus), so the session's
-// end is what ended the jail, and is recorded as recordFirstSessionEnd would have; any other
-// status is a main process a signal ended, so the jail ended under the session, and whatever
-// stopped it recorded why or nothing did. The record lands after the jail's end then, which the
-// attach's wait for a late record (stopRecordWait) covers.
-func (o *Options) settleFirstSessionEnd(cname string, since time.Time, mainRC int) {
-	if mainRC != 0 {
-		return
-	}
-	o.recordFirstSessionEndSince(cname, since)
-}
-
-// recordFirstSessionEndSince writes the first session's end, unless a stop was recorded since the
-// session began.
-func (o *Options) recordFirstSessionEndSince(cname string, since time.Time) {
-	if rec, ok := readJailStop(cname); ok && !rec.At.Before(since) {
-		return
-	}
-	o.recordJailStop(cname, firstSessionEndedReason)
-}
-
-// launcherInterruptedReason is why the fresh launch's signal arm stops the jail.
-func launcherInterruptedReason(pid int) string {
-	return fmt.Sprintf("the terminal that started it was closed, or the yolo that started it "+
-		"(pid %d) was sent a signal", pid)
-}
-
 // attachRestartReason is why an attach-skew restart stops the jail.
 func attachRestartReason(pid int) string {
 	return fmt.Sprintf("a launch in another terminal (pid %d) restarted it, to deliver what it "+
@@ -211,21 +157,20 @@ func (o *Options) whyTheJailEnded(cname, rt string, rc int, since time.Time) (re
 	}
 }
 
-// noteJailEnded prints why this session's jail ended, when it did, and returns whether a record
-// said why: a stop then explains the 137, and the caller skips the OOM hint that would blame the
-// VM for it.
-func (o *Options) noteJailEnded(cname, rt string, rc int, since time.Time) (recorded bool) {
-	reason, ended := o.whyTheJailEnded(cname, rt, rc, since)
+// reportJailEnded prints why a session's jail ended, for whyTheJailEnded's answer: nothing when it
+// did not end, the record's reason when one said, and what ends a jail with no record otherwise. A
+// recorded stop explains a 137, so the caller then skips the OOM hint, which would blame the
+// machine's memory for it (endSession).
+func (o *Options) reportJailEnded(rt, reason string, ended bool) {
 	if !ended {
-		return false
+		return
 	}
 	err := o.pr(o.Stderr)
 	if reason != "" {
 		err.printf("[bold yellow]This session ended because its jail stopped: %s.[/bold yellow]", reason)
-		return true
+		return
 	}
 	err.printf("[bold yellow]This session ended because its jail stopped, and nothing recorded why: "+
 		"an out-of-memory kill, a crash, or a stop from outside yolo (`%s stop`) ends a jail "+
 		"this way.[/bold yellow]", rt)
-	return false
 }

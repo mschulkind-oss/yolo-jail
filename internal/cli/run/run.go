@@ -24,6 +24,7 @@ import (
 	_ "github.com/mschulkind-oss/yolo-jail/internal/packreg" // registers the embedded packs with packload
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/render"
+	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
 	"github.com/mschulkind-oss/yolo-jail/internal/runtime"
 	"github.com/mschulkind-oss/yolo-jail/internal/storage"
 	"github.com/mschulkind-oss/yolo-jail/internal/version"
@@ -1124,45 +1125,67 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 	// more: the pack tree is this launch's own (packtree.go), so there is nothing shared to
 	// protect until here. Before the orphan sweep, so a reaped orphan of THIS workspace leaves
 	// its host-services dir to this relaunch (stopLoopholes' guard).
-	o.holdLaunchLock(cname)
+	// THE ARRIVAL, which may have to wait for the previous jail's keeper and then decide again
+	// (docs/design/jail-lifetime-last-session-wins.md JL-D28, JL-D12): a keeper still ending this
+	// workspace's jail is waited for with the launch lock RELEASED, since its teardown's guards take
+	// that lock non-blocking and would otherwise back off and leak what they clean, and the
+	// decision is then made again from the top, because another launch may have started a jail
+	// meanwhile.
+	for {
+		o.holdLaunchLock(cname)
 
-	// Sweep jails orphaned by an uncatchable kill before the attach decision.
-	sp := o.Perf.Span("launch.reap_orphaned_jails")
-	o.reapOrphanedJails(rt)
-	sp.End()
+		// Sweep jails orphaned by an uncatchable kill before the attach decision.
+		sp := o.Perf.Span("launch.reap_orphaned_jails")
+		o.reapOrphanedJails(rt)
+		sp.End()
 
-	existingCID := ""
-	if !o.NeverAttach {
-		// TRI-STATE (PR-D8 of docs/design/podman-reboot-readiness.md): a runtime that could
-		// not say whether this workspace's jail is running refuses the launch, rather than
-		// starting a fresh one beside a jail that may be up.
-		cid, known := o.probeRunningContainer(cname, rt, attachProbeTimeout)
-		if !known {
-			out.printf("[bold red]Refusing to launch: could not ask %s whether this workspace's "+
-				"jail (%s) is already running.[/bold red]", rt, cname)
-			out.printf("[dim]Launching fresh could start a second jail beside a running one. Run "+
-				"`%s ps` to diagnose, then launch again.[/dim]", rt)
+		existingCID := ""
+		if !o.NeverAttach {
+			// TRI-STATE (PR-D8 of docs/design/podman-reboot-readiness.md): a runtime that could
+			// not say whether this workspace's jail is running refuses the launch, rather than
+			// starting a fresh one beside a jail that may be up.
+			cid, known := o.probeRunningContainer(cname, rt, attachProbeTimeout)
+			if !known {
+				out.printf("[bold red]Refusing to launch: could not ask %s whether this workspace's "+
+					"jail (%s) is already running.[/bold red]", rt, cname)
+				out.printf("[dim]Launching fresh could start a second jail beside a running one. Run "+
+					"`%s ps` to diagnose, then launch again.[/dim]", rt)
+				return 1
+			}
+			existingCID = cid
+		}
+
+		if existingCID != "" {
+			// A JAIL WHOSE KEEPER DIED is not entered (JL-D13, as OQ-JL7 ruled): its sessions run on
+			// without host services, and `yolo stop` then a launch is the remedy.
+			if o.refuseUnkeptJail(cname, rt) {
+				return 1
+			}
+			// The attach's window over the workspace's shared staging ends inside attachExisting,
+			// once its contract gate has passed (contracttags.go) and it has refreshed the skills
+			// and briefing staging from the running jail's own pack tree; the exec reads none of
+			// it back. Held across the attach session, the lock would make every other terminal in
+			// the workspace wait for this one to exit. Held through the gate, because a gate that
+			// restarts the jail continues below as a fresh launch, and the stopped jail's teardown
+			// leaves its host-services dir alone only for a launch holding the lock.
+			//
+			// A launch that WAITED for the lock found this jail because the launch it waited for
+			// started it, so it gets the raced banner, as it did when it waited further down.
+			if rc, restarted := o.attachExisting(cname, rt, targetCmd, cfg, staged, channel, o.launchLockWaited, o.releaseLaunchLock); !restarted {
+				return rc
+			}
+			// Restarted: the jail this entry could not use is stopped and gone, and this launch
+			// is now a fresh one — the path below, lock still held. Or its count found the jail's
+			// keeper ending it, which is waited for below.
+		}
+		// EVERY FRESH LAUNCH WAITS FOR AN OLD KEEPER (JL-D28 (1)): one keeper per container name at
+		// every instant. The attach-skew restart has waited already, holding the lock (JL-D26).
+		if probeKeeper(cname) == keeperGone {
+			break
+		}
+		if !o.awaitPreviousKeeper(cname) {
 			return 1
 		}
-		existingCID = cid
-	}
-
-	if existingCID != "" {
-		// The attach's window over the workspace's shared staging ends inside attachExisting,
-		// once its contract gate has passed (contracttags.go) and it has refreshed the skills
-		// and briefing staging from the running jail's own pack tree; the exec reads none of
-		// it back. Held across the attach session, the lock would make every other terminal in
-		// the workspace wait for this one to exit. Held through the gate, because a gate that
-		// restarts the jail continues below as a fresh launch, and the stopped jail's teardown
-		// leaves its host-services dir alone only for a launch holding the lock.
-		//
-		// A launch that WAITED for the lock found this jail because the launch it waited for
-		// started it, so it gets the raced banner, as it did when it waited further down.
-		if rc, restarted := o.attachExisting(cname, rt, targetCmd, cfg, staged, channel, o.launchLockWaited, o.releaseLaunchLock); !restarted {
-			return rc
-		}
-		// Restarted: the jail this entry could not use is stopped and gone, and this launch
-		// is now a fresh one — the path below, lock still held.
 	}
 
 	// --- Fresh launch: config-change approval ---
@@ -1258,7 +1281,7 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 	// (durabledir.go). A failure is one printed line, never a refusal.
 	o.ensureDurableDir(rt, cfg)
 
-	sp = o.Perf.Span("launch.refresh_jail_briefings")
+	sp := o.Perf.Span("launch.refresh_jail_briefings")
 	agentsPath, err := o.refreshJailBriefings(cname, cfg, rt, staged,
 		appliedIOPriority(rt, o.IsMacOS, cfgMap(cfg, "resources")))
 	sp.End()
@@ -1652,52 +1675,32 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 		portSocketDir = o.fwdSocketDir(cname)
 	}
 
-	// Tracking + owner-PID + window title. The tracking file is removed again by
-	// forgetGoneContainer, on each of the three ends below, once the container is known gone.
+	// Tracking + window title. The tracking file is removed again by forgetGoneContainer, at the
+	// keeper's end, once the container is known gone. The OWNER-PID FILE is the keeper's to write,
+	// not this launch's: it names the jail's owner, and that is the keeper, for the jail's whole
+	// life (docs/design/jail-lifetime-last-session-wins.md JL-D18).
 	_ = runtimeWriteTracking(cname, o.Workspace)
-	o.writeOwnerPID(cname)
-	// THE PACK TREE CHANGES HANDS here: from now on the container holds it, so Run's deferred
-	// discard leaves it, and it goes with the tracking file once the container is known gone.
-	// The live-tree record names it for a later attach, which takes the lock this launch holds
-	// until its container is running, so no attach can find the container without the record.
+	// THE PACK TREE CHANGES HANDS here: from now on the container holds it and the keeper owns it,
+	// so Run's deferred discard leaves it, and it goes with the tracking file once the container is
+	// known gone. The live-tree record names it for a later attach, which takes the launch lock this
+	// launch hands its keeper, so no attach can find the container without the record.
 	if err := writeLivePackTree(cname, packStaging); err != nil {
 		out.printf("[yellow]Warning: could not record the pack tree this jail boots from (%s); "+
 			"an attach to it will compose from the configured packs instead[/yellow]", err.Error())
 	}
 	o.packTreeHeld = true
 
-	// Start host-side port forwarding BEFORE the container.
-	var socatProcs []*exec.Cmd
+	// THE HOST-EXECUTION DISCLOSURE, in this terminal and BEFORE THE SPAWN (§4.3 G4; JL-D6). The
+	// keeper starts the host services, and runs exactly the plan this was printed from: it refuses
+	// a daemon the plan does not name (keeper.go's checkPlan). A keeper that printed its own
+	// disclosures would print them after its spawn, which is a notification rather than a
+	// disclosure (the design's §9.6 warning).
+	o.discloseLoopholes(rt, cfg, loadedPacks)
+	services := o.plannedLoopholeNames(rt, cfg)
+	var forwards []PortForward
 	if portSocketDir != "" {
-		sp = o.Perf.Span("launch.start_port_forwarding")
-		socatProcs = o.startHostPortForwarding(forwardHostPorts, cname, portSocketDir)
-		sp.End()
+		forwards = o.planPortForwards(forwardHostPorts)
 	}
-
-	// Start host services (cgroup delegate + external) BEFORE the container,
-	// inserting each `-e VAR=<path>` pair at index(image).
-	//
-	// Through startLoopholesDisclosed, never startLoopholes directly: the host-EXECUTION
-	// disclosure has to precede the spawn (§4.3 G4). It used to be an entire phase LOWER,
-	// down in the banner block — so a pack-shipped daemon was already running when its line
-	// printed, and the spawn is silent on success, which meant "a fetched pack's daemon could
-	// start on every launch for months with the only host-side record being a lockfile the
-	// user has to go read." The wrapper also carries the inert-backend report, so a backend
-	// that will start nothing says so instead of looking provisioned (B-0).
-	sp = o.Perf.Span("launch.start_loopholes")
-	hostServices := o.startLoopholesDisclosed(cname, rt, cfg, loadedPacks, jailDaemons)
-	sp.End()
-	// The credential view's registration, after the singleton's ensure made its state dir and
-	// before the container starts, so the jail's first read finds a view
-	// (claudecredentialview.go).
-	o.registerClaudeCredentialView(rt, cname, cfg)
-	// in.imageRef — NOT a re-derivation. The insert point is found by searching
-	// the argv for the image ref, so this must be the very value assembly put
-	// there or every pair below is silently dropped (see insertHostServiceEnv).
-	// Reading the same field is what makes that divergence unrepresentable rather
-	// than merely unlikely: before C2 both sides called jailImageRef(rt) and
-	// agreed only because both hardcoded a constant.
-	runCmd = insertHostServiceEnv(runCmd, in.imageRef, hostServices)
 
 	// THE MAIN PROCESS'S TAIL: the hold form of the entrypoint's argv, carrying the
 	// provisioning stage for the first session to run on its terminal (entrypoint/jailmain.go).
@@ -1706,8 +1709,14 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 	// recording gate: the in-container timing block is PRINT-ONLY (the jail appends to
 	// ~/.yolo-perf.log with or without it), so a silently-recording launch must not switch it
 	// on — it is the second half of the noise D12 removes, and the larger half on a fast host.
+	//
+	// The host services' endpoint pairs are not in it yet: the keeper inserts them before the image
+	// once it has started them (insertHostServiceEnv), exactly where this launch used to.
 	runCmd = append(runCmd, entrypoint.HoldMainArg, o.provisionStage())
-	firstExec := o.firstSessionExecCmd(rt, cname, o.sessionCmd(targetCmd))
+	// THE FIRST SESSION IS NAMED IN THE JAIL, as an attach's is (sessionhangup.go), so its arm hangs
+	// up its own processes and nothing else (JL-D4, as OQ-JL8 ruled).
+	sessionID := newSessionID()
+	firstExec := o.firstSessionExecCmd(rt, cname, o.sessionCmd(targetCmd), sessionID)
 
 	if o.Getenv("YOLO_DEBUG") != "" {
 		// Write RAW (not via the rich-stripping printer): the argv contains
@@ -1722,86 +1731,6 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 	// LAST launch's slot measured, which is what "measure late, offer early"
 	// means. A non-TTY launch gets one printed line and no prompt.
 	reclaimConsent := o.maybeOfferReclaim()
-
-	// onStarted releases the lock once the container is visible, on its own goroutine; it is
-	// handed the MAIN PROCESS'S client, whose exit Window A measures. onTerminate is the
-	// Ctrl-C/window-close/SIGTERM teardown, run by the launch's signal arm, the one arm of the
-	// whole child window (jailmain.go's launchSignalArm).
-	var jm *jailMain
-	onStarted := func(proc *os.Process) {
-		// The launch's fate is known: its runtime is spawned (launchrecord.go). First, before
-		// the wait below, which can take seconds.
-		o.recordLaunchOutcome(launchStarted, -1)
-		ctrID := o.awaitRunningContainer(cname, rt)
-		lock.Close()
-		// The Window A probe, armed with the id that wait learned and BEFORE the
-		// housekeeping slot, which can run for a minute: a jail that quits during
-		// it must still be watched. Arming costs one inotify watch; nothing is
-		// sampled unless the container dies (lingerprobe.go).
-		o.startLingerProbe(rt, cname, ctrID, proc)
-		// THE HOUSEKEEPING SLOT (OQ-BF5). After the workspace lock is released
-		// and the container is visible — so a reap can never be looking at this
-		// launch's image before its container exists — and on the proxy's
-		// goroutine, so nothing here delays the jail.
-		o.runHousekeeping(rt, reclaimConsent, cname)
-	}
-	onTerminate := func() {
-		// FIRST, while the podman client may still be alive: the moment the
-		// signal arrived (Window A's end when the client never exited — a user
-		// who gave up on a lingering quit) and one last sample of it, written
-		// before anything here can be the thing that hangs.
-		o.Perf.Mark("terminate.signal")
-		o.lingerFinalSample("final (terminate arm)")
-		sp := o.Perf.Span("terminate.stop_jail")
-		o.stopJail(cname, rt, launcherInterruptedReason(o.Getpid()))
-		sp.End()
-		sp = o.Perf.Span("terminate.cleanup_port_forwarding")
-		cleanupPortForwarding(socatProcs, portSocketDir)
-		sp.End()
-		lock.Close()
-		sp = o.Perf.Span("terminate.stop_loopholes")
-		o.stopLoopholes(hostServices, socketsDir, cname, rt)
-		sp.End()
-		// After stopJail and after this launch's lock is released: the tracking file goes
-		// only once the runtime says no container of this name is left (trackingcleanup.go).
-		sp = o.Perf.Span("terminate.clear_tracking")
-		o.forgetGoneContainer(cname, rt, in.homeSkeleton)
-		sp.End()
-		// The scratch volumes, to the detached remover, which waits for the container the
-		// stop above is ending to let go of them. Before anything below that can hang.
-		o.startScratchRemoval(rt)
-		// E3, after stopJail so the jail is not still writing the surfaces we read.
-		sp = o.Perf.Span("terminate.capture_config")
-		o.captureConfigOnTerminate(rt)
-		sp.End()
-		// Same position and same reason as the normal arm's: after this arm's
-		// whole chain, so --until now is later than every event, and before the
-		// report, which renders what this recorded. The Once makes the two arms
-		// one query on the interleaving path.
-		o.recordWindowA(cname, rt)
-		// The report prints HERE, inside the closure, because the proxy
-		// os.Exit(128+n)s the moment this returns — no statement after it
-		// will ever run, and defers do not fire on this path. The file sink
-		// already holds every event; this is the terminal copy (design D6).
-		o.emitTimingReport(0, cname, rt)
-		// THE TERMINAL LAST, for the same reason the report is here at all and one
-		// step further: the front door's `defer restore()` never fires on this arm,
-		// so Ctrl-C left the tab wearing the jail's icon and colour for the rest of
-		// that terminal's life. After the report, so the launch's final words land
-		// in the tab that ran it rather than in one already handed back.
-		o.restoreTerminal()
-		// The main process's client, TARGETED at its pid, for the reason the proxy's arm kills
-		// its own child: a runtime client that outlived its container would be left running
-		// with nobody waiting on it once this process exits. An error means it already exited.
-		if jm != nil {
-			_ = jm.cmd.Process.Kill()
-		}
-		// The embedded pack tree is released AFTER this closure, by the launch's own arm
-		// (launchSignalArm.terminate), as runWithProxy releases it for the proxy's other
-		// callers (proxy_linux.go), which pass no onTerminate at all: still after everything
-		// above. The first session's exec client is the arm's to kill too, through the handle
-		// its proxy gave it.
-	}
 
 	// Fresh-launch line (with resource parts) to stderr for log capture (audit
 	// §B#4. The version and platform came earlier, from the startup banner every
@@ -1824,9 +1753,8 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 	// visible every launch, not just recorded in a lockfile — the transparency half of the
 	// approval model.
 	//
-	// The READ half only. Host EXECUTION was disclosed above, before startLoopholes, and
-	// deliberately not repeated here: this point in the pipeline is after the spawn, where
-	// the same line would be a notification rather than a disclosure (§4.3 G4).
+	// The READ half only. Host EXECUTION was disclosed above, before the keeper's spawn, and
+	// deliberately not repeated here.
 	o.notePackHostAccess(loadedPacks, channel)
 
 	// And beside it, for the same reason: a WRITABLE bind of the host user's own
@@ -1842,114 +1770,101 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 	// derive is about to receive rather than infer it from an env var.
 	o.noteUseProfiles(channel, loadedPacks, envPairs(runCmd))
 
-	// THIS LAUNCH IS A SESSION OF THE JAIL IT STARTS, counted before the container exists and
-	// while the launch lock is held (sessionlock.go), so no orphan sweep can find the jail
-	// running with nobody counted in it.
+	// THE PLAN (keeperplan.go, JL-D20): everything above that the keeper runs, as one value.
+	plan, err := o.keeperPlanFor(cfg, rt, cname, staged, services, jailDaemons, forwards,
+		portSocketDir, socketsDir, runCmd, in)
+	if err != nil {
+		out.printf("[bold red]Refusing to launch: %s[/bold red]", err.Error())
+		o.unwindUnspawned(cname, rt, packStaging, in.homeSkeleton)
+		return 1
+	}
+	// THE KEEPER IS DISCLOSED, last before its spawn (JL-D21): a process that outlives this
+	// terminal is exactly what a launch's disclosures exist to name.
+	o.pr(o.Stderr).print("[dim]" + richtext.Escape(o.keeperLine(cname, services, len(forwards), rt)) + "[/dim]")
+
+	// THIS LAUNCH IS A SESSION OF THE JAIL IT STARTS, counted before the keeper exists and while
+	// the launch lock is held (sessionlock.go, JL-D16), so the keeper can never see zero sessions
+	// before the first one has begun, and no orphan sweep can find the jail running with nobody
+	// counted in it.
 	o.holdSessionLock(cname)
 
-	// THE LAUNCH'S SIGNAL ARM, the one arm of the whole child window (jailmain.go): from before
-	// the main process starts, through the first session's exec, whose proxy installs none of
-	// its own, until the main process's client has exited. Before, not after: the proxy used to
-	// arm at the container's spawn, and a Ctrl-C during the boot must still end the jail it
-	// started.
-	arm := armLaunchSignals(onTerminate)
-
-	// The whole child window — the main process's spawn, its boot, the first session, and
-	// podman's own post-exit cleanup — under one span, with the proxy's internal transitions
-	// arriving as `child.*` marks through the stage hook (design H1/H2) and the main process's
-	// client's as `jail_main.*` marks.
+	// THE KEEPER, handed the plan, the progress pipe, the lifeline and the launch lock (JL-D31),
+	// and from here the owner of the jail's host services and of the jail's life (§9). The whole
+	// child window — the keeper's start, the boot it relays and the first session — under one span.
 	sp = o.Perf.Span("launch.run_with_proxy")
-	var runErr error
-	jm, runErr = startJailMain(runCmd, os.Stdout, os.Stderr, func() { o.Perf.Mark("jail_main.exited") })
-	if runErr != nil {
+	kp, err := o.startKeeper(plan)
+	if err != nil {
+		sp.End()
+		out.printf("[bold red]%s[/bold red]", err.Error())
+		o.unwindUnspawned(cname, rt, packStaging, in.homeSkeleton)
+		return 1
+	}
+	// ONE SIGNAL ARM FOR THE WHOLE WINDOW (keeperspawn.go). Until ready a signal ends this launch
+	// alone, which closes the lifeline and so has the keeper unwind; from ready on it is the
+	// session's arm, retargeted rather than replaced, so no signal falls between two arms.
+	arm := armLaunchSignals(o.keeperPreReadyTeardown(kp, cname, rt))
+	ready := relayKeeper(kp.progress, o.Stdout, o.Stderr, os.Stdout, os.Stderr, keeperEvents{
+		started: func(pid int) { o.pr(o.Stderr).printf("[dim]keeper: started, pid %d[/dim]", pid) },
+		spawned: func() {
+			o.Perf.Mark("jail_main.spawned")
+			// The launch's fate is known: its runtime is spawned (launchrecord.go).
+			o.recordLaunchOutcome(launchStarted, -1)
+		},
+		// THE HOUSEKEEPING SLOT (OQ-BF5), which stays in this launch (JL-D10): after the launch
+		// lock is released and the container is visible, so a reap can never be looking at this
+		// launch's image before its container exists, and on its own goroutine, so nothing here
+		// delays the jail. It dies at this launch's exit, restartable by design.
+		running: func() { go safeRun(func() { o.runHousekeeping(rt, reclaimConsent, cname) }) },
+	})
+	_ = kp.progress.Close()
+	if !ready {
+		// The keeper ended before the jail was ready: a boot that refused, a runtime that would
+		// not start it, a service or the container that failed to start, or this launch's own
+		// signal. It unwound what it started, and its status is the launch's, as the container's
+		// always was. Its exit, not the pipe's end, is the evidence (JL-D29).
+		<-kp.exited
 		sp.End()
 		if !arm.disarm() {
 			select {} // the signal arm is ending this launch; never race it
 		}
-		out.printf("[bold red]Configured runtime '%s' not found on PATH.[/bold red]", rt)
-		out.print("[dim]Run `yolo check` to validate runtime availability before restarting.[/dim]")
-		cleanupPortForwarding(socatProcs, portSocketDir)
-		// The runtime never started, so no container ever held this skeleton or pack tree.
-		discardUnheldSkeleton(cname, in.homeSkeleton)
-		forgetLivePackTree(cname, packStaging)
-		discardPackTree(cname, packStaging)
-		// Release the lock BEFORE stop_loopholes (its guard takes the same lock
-		// non-blocking, and on_started never ran) and before the tracking cleanup, which
-		// takes it the same way.
-		lock.Close()
-		o.stopLoopholes(hostServices, socketsDir, cname, rt)
-		o.forgetGoneContainer(cname, rt, in.homeSkeleton)
-		clearOwnerPID(cname)
-		return 1
+		kp.closeLifeline()
+		o.emitTimingReport(kp.exitCode, cname, rt)
+		return kp.exitCode
 	}
-	o.Perf.Mark("jail_main.spawned")
-	// The same record onStarted writes, here as well for a jail whose main process exits before
-	// that goroutine runs: Run's deferred record would otherwise call a launch that ran
-	// not-started. Whichever comes second is a no-op (launchrecord.go writes once).
-	o.recordLaunchOutcome(launchStarted, -1)
-	go safeOnStarted(onStarted, jm.cmd.Process)
-
-	// THE BOOT, relayed to the terminal by startJailMain until its ready line; then THE FIRST
-	// SESSION, by exec under the TTY proxy, whose status is the launch's. A main process whose
-	// client exits first never booted — a refusal, or a runtime that would not start it — and
-	// its status is the launch's instead, as the container's always was.
-	var rc int
-	if jm.awaitReady() {
-		var execErr error
-		sessionStart := o.Now()
-		rc, execErr = runArmedSession(firstExec, arm, o)
-		if !arm.detach() {
-			select {} // the signal arm is ending this launch; never race it
-		}
-		// WHY THE JAIL IS ABOUT TO END, for every session attached to it: its first session has,
-		// and the main process follows that out. Recorded now, before the end, since those
-		// sessions read it the moment theirs is cut short; and only when no stop was recorded
-		// since this session began, which would be what ended it (stopreason.go). A status a
-		// jail's end gives leaves it undecided, settled below from the main process's status: a
-		// jail ended from outside yolo is not this session's end.
-		endUndecided := o.recordFirstSessionEnd(cname, sessionStart, rc)
-		if execErr != nil {
-			out.printf("[bold red]Configured runtime '%s' not found on PATH.[/bold red]", rt)
-			out.print("[dim]Run `yolo check` to validate runtime availability before restarting.[/dim]")
-			rc = 1
-		}
-		// The jail ends with this session, as it always has: the main process follows it out,
-		// and the launcher stops it only when it did not (awaitJailMainEnd). The arm is still
-		// live: this is Window A, the main process's client lingering, and a hangup or a
-		// `kill %1` here must still run the teardown. Then the launch's status, which a jail
-		// stopped from outside would otherwise report as a SIGKILLed session.
-		launcherStopped := o.awaitJailMainEnd(jm, cname, rt)
-		if endUndecided {
-			o.settleFirstSessionEnd(cname, sessionStart, jm.exitCode)
-		}
-		rc = firstSessionStatus(rc, jm.exitCode, launcherStopped)
-	} else {
-		<-jm.exited
-		rc = jm.exitCode
+	// READY: from here this launch is an ordinary session of its jail (§9.3). The lifeline is done:
+	// the keeper stops reading it at ready, since a first session's end is one session ending.
+	if !arm.retarget(o.attachTeardown(rt, cname, sessionID)) {
+		select {} // the signal arm is ending this launch; never race it
 	}
-	if !arm.disarm() {
+	kp.closeLifeline()
+	sessionStart := o.Now()
+	logFrom := keeperLogSize(cname)
+	rc, execErr := runArmedSession(firstExec, arm, o)
+	if !arm.detach() || !arm.disarm() {
 		select {} // the signal arm is ending this launch; never race it
 	}
 	sp.End()
-
-	// Normal exit teardown. Release the lock FIRST: onStarted releases it only after
-	// awaitRunningContainer, which polls for up to five seconds, and nothing here waits for
-	// that goroutine. A child that exits before its container is ever seen running (podman
-	// refusing the argv, a container dying in the first poll) would otherwise reach the
-	// tracking cleanup with this launch's own lock still held, and its non-blocking take would
-	// decline, leaving the file and the skeleton behind.
-	lock.Close()
-	o.teardownAfterExit(socatProcs, portSocketDir, hostServices, socketsDir, cname, rt, in.homeSkeleton, rc)
+	if execErr != nil {
+		out.printf("[bold red]Configured runtime '%s' not found on PATH.[/bold red]", rt)
+		out.print("[dim]Run `yolo check` to validate runtime availability before restarting.[/dim]")
+		rc = 1
+	}
+	// ITS QUIT IS ANY SESSION'S (endSession): why the jail ended under it when it did, then its
+	// lock, then one line while others remain, or the keeper's teardown streamed when it was the
+	// last. The prompt comes back as soon as the agent is gone.
+	rc = o.endSession(cname, rt, rc, sessionStart, logFrom, true)
 	o.emitTimingReport(rc, cname, rt)
 	return rc
 }
 
-// teardownAfterExit is the normal-exit shutdown chain, extracted from
-// runContainer so its span call sites are unit-reachable: the timing surface
-// this accompanies was call-site-unpinned for its whole life (the old single-
-// Total block's comment recorded the debt), and a chain this repo cannot unit-
-// test is a chain whose spans can silently stop being emitted. Deleting any
-// span below fails TestTeardownChainEmitsShutdownSpans.
+// teardownAfterExit is a jail's shutdown chain once its container is stopped: the KEEPER'S, run in
+// the keeper after its stop (keeper.go's endJail), and the reap's, run by an unkept jail's last
+// session or `yolo stop` (reapUnkeptJail). It was the fresh launch's normal-exit tail until the
+// keeper took the jail's host services over, and moved unchanged. Its span call sites are
+// unit-reachable on purpose: the timing surface this accompanies was call-site-unpinned for its
+// whole life (the old single-Total block's comment recorded the debt), and a chain this repo cannot
+// unit-test is a chain whose spans can silently stop being emitted. Deleting any span below fails
+// TestTeardownChainEmitsShutdownSpans.
 func (o *Options) teardownAfterExit(socatProcs []*exec.Cmd, portSocketDir string,
 	hostServices []loopholeDaemon, socketsDir, cname, rt, skeleton string, rc int) {
 	// FIRST: the scratch volumes' deletion, started detached and never awaited
@@ -1975,7 +1890,9 @@ func (o *Options) teardownAfterExit(socatProcs []*exec.Cmd, portSocketDir string
 	sp = o.Perf.Span("shutdown.capture_config")
 	o.captureConfigOnTerminate(rt)
 	sp.End()
-	clearOwnerPID(cname)
+	// Only while it still names this process (JL-D28 (4)): the keeper's, when the keeper runs this
+	// chain. A teardown that ran late would otherwise take the next jail's keeper's file away.
+	clearOwnerPIDIf(cname, o.Getpid())
 	sp = o.Perf.Span("shutdown.oom_check")
 	o.maybeWarnAboutOOMKiller(rc, rt)
 	sp.End()
@@ -2319,11 +2236,13 @@ func (o *Options) attachExisting(cname, rt, targetCmd string, cfg *jsonx.Ordered
 		}
 	}
 	// THIS ENTRY IS A SESSION OF THE JAIL, counted while the launch lock is held and before the
-	// exec (sessionlock.go), so an orphan sweep never stops a jail with this session in it. A
-	// count that had to wait was waiting on a sweep that held the lock to stop this very jail:
-	// when the jail is gone after it, this launch is a fresh one, lock still held, before
-	// anything below discards the pack tree the fresh path boots from.
-	if o.holdSessionLock(cname) && o.findRunningContainer(cname, rt) == "" {
+	// exec (sessionlock.go), so an orphan sweep never stops a jail with this session in it, and its
+	// keeper never drains under it. A count that had to wait was waiting on a sweep that held the
+	// lock to stop this very jail: when the jail is gone after it, this launch is a fresh one, lock
+	// still held, before anything below discards the pack tree the fresh path boots from. A count
+	// that found the jail's KEEPER holding the lock is arriving during a drain (JL-D28): it never
+	// counts itself into a jail being stopped, and the caller waits for that keeper instead.
+	if o.holdSessionLock(cname) && (o.keeperDrainSeen || o.findRunningContainer(cname, rt) == "") {
 		o.releaseSessionLock()
 		return 0, true
 	}
@@ -2371,9 +2290,6 @@ func (o *Options) attachExisting(cname, rt, targetCmd string, cfg *jsonx.Ordered
 	}
 	// The launch's fate is known: it attaches (launchrecord.go).
 	o.recordLaunchOutcome(launchAttached, -1)
-	// A jail whose launcher is gone, which the orphan sweep now keeps while a session is in it:
-	// what this entry is walking into, and the one remedy (noteGoneOwner).
-	o.noteGoneOwner(cname, rt)
 	// What this attach did NOT deliver: the configured packs, when they differ from the ones
 	// the jail booted with (OQ-PK2 (c)'s notice).
 	o.noteBootedPackSetDiffers(rt, cname, view)
@@ -2453,6 +2369,8 @@ func (o *Options) attachExisting(cname, rt, targetCmd string, cfg *jsonx.Ordered
 	// killed, since killing the client alone left them running there with no terminal. Armed
 	// just before the exec and disarmed once it returns, with or without a terminal.
 	arm := o.attachSignalArm(rt, cname, sessionID)
+	// What the keeper records from here on is this session's to be shown at its quit (JL-D19).
+	logFrom := keeperLogSize(cname)
 	sp := o.Perf.Span("attach.exec")
 	rc, err := runArmedSession(runCmd, arm, o)
 	sp.End()
@@ -2472,18 +2390,12 @@ func (o *Options) attachExisting(cname, rt, targetCmd string, cfg *jsonx.Ordered
 	if msg := o.diagnoseBrokenPrefix(rt, cname, rc); msg != "" {
 		o.pr(o.Stderr).print(msg)
 	}
-	// WHY THE JAIL ENDED UNDER THIS SESSION, when it did: the status a jail's end gives an exec,
-	// a runtime that says the jail is gone, and the record whatever ended it wrote
-	// (stopreason.go). A recorded stop explains a 137, so the OOM hint, which would blame the
-	// machine's memory for it, is left out then.
-	sp = o.Perf.Span("attach.why_the_jail_ended")
-	stopped := o.noteJailEnded(cname, rt, rc, attachStart)
-	sp.End()
-	if !stopped {
-		sp = o.Perf.Span("shutdown.oom_check")
-		o.maybeWarnAboutOOMKiller(rc, rt)
-		sp.End()
-	}
+	// ITS QUIT, which is every session's (endSession, keeperspawn.go): WHY THE JAIL ENDED UNDER IT,
+	// when it did (the status a jail's end gives an exec, a runtime that says the jail is gone, and
+	// the record whatever ended it wrote, stopreason.go; a recorded stop explains a 137, so the OOM
+	// hint is left out then); then its session lock; then one line while other sessions remain, the
+	// keeper's teardown streamed when it was the last, or the reap of a jail whose keeper died.
+	rc = o.endSession(cname, rt, rc, attachStart, logFrom, false)
 	o.emitTimingReport(rc, cname, rt)
 	return rc, false
 }

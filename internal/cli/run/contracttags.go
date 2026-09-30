@@ -515,18 +515,35 @@ var (
 func (o *Options) restartJailForAttach(cname, rt string) bool {
 	o.pr(o.Stdout).printf("[bold cyan]Stopping %s; this launch then starts it fresh...[/bold cyan]", cname)
 	o.stopJail(cname, rt, attachRestartReason(o.Getpid()))
-	for i := 0; i < restartPollAttempts; i++ {
+	gone := false
+	for i := 0; i < restartPollAttempts && !gone; i++ {
 		if id, answered := o.probeExistingContainer(cname, rt, 5*time.Second); answered && id == "" {
-			return true
+			gone = true
+			break
 		}
 		time.Sleep(restartPollInterval)
 	}
 	// Still there. A stopped leftover is removed the way the fresh path removes any stale one;
 	// a container that is still RUNNING did not stop, and launching beside it cannot work.
-	if o.findRunningContainer(cname, rt) == "" && o.removeStaleContainer(cname, rt) {
-		return true
+	if !gone && o.findRunningContainer(cname, rt) == "" && o.removeStaleContainer(cname, rt) {
+		gone = true
 	}
-	o.pr(o.Stderr).printf("[bold red]Refusing to launch: %s did not stop.[/bold red] "+
-		"[dim]Try %s, then launch again.[/dim]", cname, stopRemedy(rt, cname))
-	return false
+	if !gone {
+		o.pr(o.Stderr).printf("[bold red]Refusing to launch: %s did not stop.[/bold red] "+
+			"[dim]Try %s, then launch again.[/dim]", cname, stopRemedy(rt, cname))
+		return false
+	}
+	// AND ITS KEEPER GONE TOO, before this launch spawns its own (JL-D26): one keeper per container
+	// name at every instant, which the liveness lock's name assumes. Waited for holding the launch
+	// lock, which is safe because a keeper never blocks on that lock, and which is what leaves the old
+	// keeper's guarded teardown backing off the host-services dir this launch is about to publish into.
+	if probeKeeper(cname) != keeperGone {
+		o.pr(o.Stdout).printf("[dim]Waiting for the keeper of the stopped jail to finish its teardown...[/dim]")
+		if !waitForKeeper(cname, 0, keeperTeardownWait, nil, nil) {
+			o.noteKeeperStillRunning(cname, keeperTeardownWait)
+			o.pr(o.Stderr).printf("[bold red]Refusing to launch: the keeper of the stopped %s is still running.[/bold red]", cname)
+			return false
+		}
+	}
+	return true
 }

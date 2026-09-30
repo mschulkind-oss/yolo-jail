@@ -136,6 +136,26 @@ func (l *workspaceLock) Close() {
 	_ = l.f.Close()
 }
 
+// handOff ends this process's hold on the lock WITHOUT releasing the lock: a child it spawned holds a
+// duplicate of the descriptor, and the lock is that child's from here (a fresh launch's keeper,
+// docs/design/jail-lifetime-last-session-wins.md JL-D31). Close would unlock every duplicate, the
+// child's included, which is exactly what must not happen. Idempotent with Close.
+func (l *workspaceLock) handOff() {
+	if l == nil {
+		return
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.closed {
+		return
+	}
+	l.closed = true
+	if l.path != "" {
+		heldLaunchLocks.forget(l.path, l)
+	}
+	_ = l.f.Close()
+}
+
 // AcquireWorkspaceLockFor is the exported front door: take the per-workspace launch lock
 // and return the release, which is idempotent and never nil.
 //
