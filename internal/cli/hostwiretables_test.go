@@ -136,9 +136,7 @@ func TestHostLaunchFooterNamesAOneLaunchProfile(t *testing.T) {
 	home, command := hostFooterHome(t, zaiOverBedrock)
 	t.Setenv("YOLO_VERSION", "")
 	t.Setenv("AWS_REGION", hostGateRegion)
-	for _, k := range hostGateNames {
-		t.Setenv(k, "")
-	}
+	blankHostGateShell(t)
 	for _, k := range entrypoint.WireTables() {
 		t.Setenv(k, "")
 	}
