@@ -17,6 +17,7 @@ import (
 // Here rather than only in run.TestLaunchRefusesAnUnmatchedSupersession because the served set
 // is the one the suite's CLI ships — the capability comes from the embedded claude pack, not a
 // fixture — and "the launch stops" is a fact about the binary. The unit tests assert the words.
+// `yolo host env` closes it, for the host notch's half of the same gate.
 func TestLaunchRefusesAnUnmatchedSupersession(t *testing.T) {
 	requireJail(t)
 
@@ -64,6 +65,20 @@ func TestLaunchRefusesAnUnmatchedSupersession(t *testing.T) {
 	} {
 		if !strings.Contains(c.combined(), want) {
 			t.Errorf("`yolo check` is missing %q:\n%s", want, c.combined())
+		}
+	}
+
+	// And the host notch refuses the same claim through the same gate (RM-D5): `yolo host env`
+	// composes what `yolo host --` would exec, so it refuses with nothing on stdout to eval.
+	// YOLO_VERSION blanked because the suite may run inside a jail, and this is the host's verb.
+	h := runCommand(t, dir, []string{"host", "env", "--agent", "claude"}, withEnv("YOLO_VERSION="))
+	if h.rc == 0 || strings.TrimSpace(h.stdout) != "" {
+		t.Errorf("`yolo host env` composed an environment over a claim the jail launch refused "+
+			"(rc %d):\n%s", h.rc, h.combined())
+	}
+	for _, want := range []string{"a selected pack's `supersedes` names a capability", sentence} {
+		if !strings.Contains(h.combined(), want) {
+			t.Errorf("`yolo host env` is missing %q:\n%s", want, h.combined())
 		}
 	}
 }
