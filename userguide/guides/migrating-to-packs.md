@@ -256,7 +256,9 @@ $ yolo check-deps
 
 It also writes a manifest for your package manager, such as a `Brewfile`, and never installs
 anything itself. `yolo host apply --assert` stops at a missing tool and offers to run its install
-command; answering no writes nothing.
+command; answering no writes nothing. For a tool with its own install script, that command
+downloads the script, checks that it is a script and not a web page or a program, and only then
+runs it, with no terminal, so the installer cannot stop to ask you anything.
 
 ### Step 4: run an agent with its keys and profile
 

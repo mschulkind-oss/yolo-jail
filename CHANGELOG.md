@@ -430,6 +430,11 @@ the agent.
 
 ### Fixed
 
+- An agent's own install script can no longer stop and wait for an answer: in a jail, on its first
+  use or when it updates, and at `yolo host apply --assert`, it now runs with no terminal and no
+  input, so a question it asks takes its default or fails instead of waiting. At the host, that
+  install also downloads the script first and refuses a web page or a program in its place,
+  naming the address, instead of piping whatever it got into `sh`.
 - After a reboot, workspaces that relaunch together no longer get refused while Podman finishes
   starting. The first Podman command after a boot does Podman's own cleanup, and a launch used to
   give up on it after ten seconds. On Linux, a launch and `yolo check` now wait up to a minute for

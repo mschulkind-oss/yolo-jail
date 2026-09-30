@@ -450,6 +450,7 @@ And these need fixing before you launch:
 | `nix not found` | [Step 1](#step-1-install-nix), then open a new terminal |
 | On a Mac: `Nix daemon: connection failed` | Turn on flakes: the `experimental-features` line in [Other ways to get Nix](#other-ways-to-get-nix) |
 | On a Mac: `Nix daemon: connected but user is NOT trusted` | [Let yolo use its binary cache](#let-yolo-use-its-binary-cache). It is only a `[WARN]`, but the first launch needs it |
+| On Linux: `Nix daemon: store operation timed out` or `Nix daemon: connection failed` | Restart the daemon with the command the note names, usually `sudo systemctl restart nix-daemon`. The launch builds its image through it |
 | `No container runtime installed`, or `… installed but not started` | [Step 2](#step-2-install-a-container-runtime), or the start command the note names |
 | `No packs are configured, so this jail has no coding agent` | [Choose an agent](#choose-an-agent) |
 
