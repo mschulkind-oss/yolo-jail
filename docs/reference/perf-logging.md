@@ -729,8 +729,9 @@ decides whether the block is printed. It therefore rides the **reporting** gate:
 a quietly recording launch leaves it off the argv.
 
 Since the container's main process became a hold and the first session an exec
-([`jail-lifetime-last-session-wins.md`](../design/jail-lifetime-last-session-wins.md), step 2
-of its §7), the provisioning stage runs before that command, in a shell of its own on the first
+(step 2 of
+[`jail-lifetime-last-session-wins.md` §7](../design/jail-lifetime-last-session-wins.md#7-what-i-would-build-in-order)),
+the provisioning stage runs before that command, in a shell of its own on the first
 session's terminal, so the block's `mise install + bootstrap` line reads the stage's duration
 from `YOLO_PROVISION_MS`, which the entrypoint sets for that session. Its
 `--- Entrypoint (config generation) ---` section is the first session's own boot pass, the

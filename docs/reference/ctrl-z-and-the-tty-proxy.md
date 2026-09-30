@@ -48,8 +48,9 @@ Inside the container that group is the session's shell plus the application plus
 because **`bash -c '<cmd>'` runs the command in its own process group, does not enable job
 control, and just waits.** There is no job-control shell in between. The session's shell was the
 container's PID 1 until the main process became a hold and every session, the first included, an
-exec ([`jail-lifetime-last-session-wins.md`](../design/jail-lifetime-last-session-wins.md), step 2
-of its §7); the wedge is the same either way. So:
+exec (step 2 of
+[`jail-lifetime-last-session-wins.md` §7](../design/jail-lifetime-last-session-wins.md#7-what-i-would-build-in-order));
+the wedge is the same either way. So:
 
 - the application receives `SIGTSTP` and stops;
 - the session's shell receives it and stops;
