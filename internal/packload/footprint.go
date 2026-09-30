@@ -581,6 +581,11 @@ func FootprintOf(p *Pack) Footprint {
 			if c.RegionFile != nil {
 				add(packdecl.KindReadsHost, c.RegionFile.Path, regionFileClaimDetail(c), true)
 			}
+		case packdecl.KindModels:
+			// The target is the provider whose list this shapes. CombineOverlay, so no
+			// collision is possible — several packs shaping one list is the feature — and it
+			// is never review-worthy: model ids are facts about a service.
+			add(packdecl.KindModels, c.Provider, modelsClaimDetail(c), false)
 		case packdecl.KindAdapter:
 			// The target IS the PAIR, with no discriminator, so the generic exclusive loop in
 			// Collisions is the whole cross-pack check: two packs declaring one conversion

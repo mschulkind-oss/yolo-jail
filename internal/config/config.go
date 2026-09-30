@@ -222,7 +222,7 @@ var (
 	// serves several makers' models, where an agent's own client can call only some of them
 	// (claude's Bedrock client serves Anthropic models alone). Core interprets none of it, and
 	// an entry with no vendor is offered to every agent.
-	knownModelKeys = set("id", "name", "vendor", "reasoning", "input", "cost", "context_window", "max_tokens")
+	knownModelKeys = set("id", "name", "description", "vendor", "reasoning", "input", "cost", "context_window", "max_tokens")
 	// knownModelCostKeys is the closed set of rates inside that `cost` object. Canonical
 	// snake; the consuming derive translates to its agent's spelling (pi's cacheRead/...).
 	knownModelCostKeys = set("input", "output", "cache_read", "cache_write")

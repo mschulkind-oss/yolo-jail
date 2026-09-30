@@ -246,6 +246,12 @@ func (o *Options) sectionPacks(r *reporter, merged *jsonx.OrderedMap) {
 	for _, w := range pairWarns {
 		r.warn(w, "")
 	}
+	// What the `models` contributions of the selected packs could not do as written — a
+	// duplicate, an `only` id nothing added, a provider nothing declares — over the same
+	// selected set, since a pack pulled in by `needs` shapes a list at launch too.
+	for _, w := range modelListNotes(loaded, merged) {
+		r.warn(w, "")
+	}
 
 	// The launch's ENV-OVERRIDE refusal, predicted over the same selected set and for the
 	// same reason it sits in this section rather than in Merged Configuration: both the

@@ -136,6 +136,9 @@ func writeCensusPack(t *testing.T, dir string) {
 		packdecl.KindProvider: `{"kind":"provider","name":"census",` +
 			`"endpoints":{"openai":{"base_url":"https://census.example/v4","wire_api":"openai-chat-completions"}},` +
 			`"api_key_env_name":"CENSUS_API_KEY"}`,
+		// models shapes the census provider's list above, the provider this pack ships.
+		packdecl.KindModels: `{"kind":"models","provider":"census",` +
+			`"add":[{"id":"census-model","vendor":"census"}]}`,
 		packdecl.KindLoophole: `{"kind":"loophole","from":"loopholes/censushole"}`,
 		// adapter declares a protocol PAIR and the address that serves it, and nothing
 		// about who runs it — so a fixture needs no daemon and no sibling service. The

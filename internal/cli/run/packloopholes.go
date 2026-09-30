@@ -232,6 +232,10 @@ var disclosureClasses = map[packdecl.Kind]disclosureClass{
 	// the jail's derives consume; nothing on the host is touched, so there is nothing to
 	// announce at the spawn.
 	packdecl.KindProvider: disclosureSkip,
+	// models is provider's call, for provider's reason: it shapes the model list of a
+	// provider in the same composed table, with model ids and facts about the service, and
+	// touches nothing on the host.
+	packdecl.KindModels: disclosureSkip,
 
 	// service is the anti-loophole (wire-bridge.md §2.1): it binds the JAIL's own
 	// loopback, reads no host state, and crosses nothing — the same call as provider,

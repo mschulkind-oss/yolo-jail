@@ -87,6 +87,9 @@ func ComposeProviders(user *jsonx.OrderedMap, packs []*Pack, opts ...ComposeOpti
 		out.Set(s.prov.Name, shippedProviderEntry(s.prov))
 		shipper[s.prov.Name] = s.pack
 	}
+	// THE `models` CONTRIBUTIONS, between the packs' own providers and the user's entries, so
+	// the engineer's own `providers.<name>.models` writes last (OQ-BR12; modellists.go).
+	applyModelContributions(out, user, packs, cfg.modelNote)
 	if user == nil {
 		// The adapter pass runs on EVERY return, not only the one with a user layer: a
 		// launch whose providers are entirely pack-shipped is the common bridged case, and
@@ -271,8 +274,10 @@ func flattenModelFacts(obj *jsonx.OrderedMap) *jsonx.OrderedMap {
 			facts.Set(key, numberString(v))
 		}
 	}
-	if v, ok := obj.Get("name"); ok {
-		facts.Set("name", v)
+	for _, key := range []string{"name", "description"} {
+		if v, ok := obj.Get(key); ok {
+			facts.Set(key, v)
+		}
 	}
 	// The model's maker (docs/design/bedrock-plumbing.md OQ-BR9), lowered to the same flat key
 	// a pack's model_options declares it under, so a user's entry and a shipped one are read by

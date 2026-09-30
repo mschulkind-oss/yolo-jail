@@ -44,6 +44,9 @@ type hostInputComposition struct {
 	// surfaces its facts reach — so this line is where the run names them (the census rule:
 	// nothing a pack declares is silently absent).
 	providers, selection []string
+	// shaped names each `models` contribution the composition applied, "<provider> (<pack>
+	// add|only)": like a provider, it renders invisibly, into the lists the derives write.
+	shaped []string
 }
 
 // summary is the detail line naming what the composition carries.
@@ -55,8 +58,12 @@ func (c hostInputComposition) summary() string {
 	if len(c.selection) > 0 {
 		selection = strings.Join(c.selection, ", ")
 	}
-	return "provider table composed for the derives: " + providers +
+	line := "provider table composed for the derives: " + providers +
 		" · profile selection (the profile key): " + selection
+	if len(c.shaped) > 0 {
+		line += " · model lists shaped by `models`: " + strings.Join(c.shaped, ", ")
+	}
+	return line
 }
 
 // composeHostInputs composes the derive inputs for a host render of packs into home, from the
@@ -83,6 +90,15 @@ func composeHostInputs(cfg *jsonx.OrderedMap, packs []*packload.Pack, home strin
 	vars[entrypoint.ProvidersWireEnv] = wireJSON(providers)
 	if providers != nil {
 		c.providers = append(c.providers, providers.Keys()...)
+	}
+	for _, p := range packs {
+		for _, mc := range p.Decl.ModelsContributions() {
+			verb := "add"
+			if len(mc.Only) > 0 {
+				verb = "only"
+			}
+			c.shaped = append(c.shaped, mc.Provider+" ("+p.Name+" "+verb+")")
+		}
 	}
 
 	userProfiles, err := config.LoadProfiles(nil)

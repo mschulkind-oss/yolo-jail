@@ -199,6 +199,20 @@ const (
 	// A pack shipping TWO providers is ordinary: the exclusivity is per NAME, not per
 	// pack.
 	KindProvider Kind = "provider"
+	// KindModels: ENTRIES ADDED TO, OR A NARROWING OF, A NAMED PROVIDER'S MODEL LIST
+	// (docs/design/model-lists-and-pickers.md §7, OQ-BR12, ruled 2026-09-29; models.go). It
+	// names any provider, the `bedrock` provider or a single pack's own, and takes one verb:
+	// `add`, model entries appended to the list, or `only`, the ids the list keeps. It exists
+	// because `provider` is sole-owned by name, so nothing else lets a company pack shape the
+	// list another pack ships.
+	//
+	// CombineOverlay, config-list's rule: applied after the provider's owner, in pack order
+	// then declaration order, and never a collision, since several packs shaping one list is
+	// the feature. The composition (packload.ComposeProviders) applies every `add` before
+	// every `only`, so a company's narrowing cannot be escaped by a pack listed after it, and
+	// the user's own `providers.<name>.models` writes last. Not review-worthy: it reads
+	// nothing on the host and runs nothing.
+	KindModels Kind = "models"
 	// KindLoophole: a loophole MODULE the pack ships — a directory holding a
 	// `manifest.jsonc`, named by `from`
 	// (docs/reference/loophole-system.md#the-loophole-contribution-kind).
@@ -491,6 +505,14 @@ var footprints = map[Kind]Footprint{
 		Kind: KindProvider, Combine: CombineExclusive,
 		Claims: "a named provider's endpoints, wire protocols and model aliases; " +
 			"the credential is supplied by user config",
+	},
+	KindModels: {
+		// CombineOverlay: ordered after the provider's owner and never a collision (the const
+		// block's comment). Not review-worthy: model entries are facts about a service, the
+		// class a provider's own `models` is.
+		Kind: KindModels, Combine: CombineOverlay,
+		Claims: "model entries added to, or a narrowing of, a named provider's model list " +
+			"(your own providers.<name>.models still writes last)",
 	},
 	KindLoophole: {
 		// Exclusive by loophole NAME (the module dir's basename). MayBeReviewWorthy is

@@ -327,6 +327,13 @@ type Contribution struct {
 	Path string          `json:"path,omitempty"`
 	Add  json.RawMessage `json:"add,omitempty"`
 
+	// --- models (docs/design/model-lists-and-pickers.md §7, OQ-BR12; models.go) ---
+	// A `models` contribution shapes the model list of the provider its `provider` field
+	// names, with ONE verb: `add`, the same field config-list appends with, here an array of
+	// model entries (ModelEntry); or Only, the ids to keep. Only is this kind's alone, refused
+	// everywhere else (modelsProblems).
+	Only []string `json:"only,omitempty"`
+
 	// --- state ---
 	At    string `json:"at,omitempty"`    // state: the home-relative subtree
 	Scope string `json:"scope,omitempty"` // state: "workspace" (default) | "machine"
@@ -3184,11 +3191,14 @@ func validateContribution(label string, c Contribution) []string {
 	// declared field. config-overlay is named in the message's migration because it is the
 	// kind an author reaching for "append to this array" writes first, and there `add`
 	// would be silently ignored while the merge patch replaced the array.
+	// `add` is also the `models` kind's append verb (models.go), where it carries model entries
+	// rather than JSON values for an array; modelsProblems checks it there.
+	problems = append(problems, modelsProblems(label, c)...)
 	if c.Kind != KindConfigList {
 		for _, f := range []struct {
 			name string
 			set  bool
-		}{{"path", c.Path != ""}, {"add", len(c.Add) > 0}} {
+		}{{"path", c.Path != ""}, {"add", len(c.Add) > 0 && c.Kind != KindModels}} {
 			if !f.set {
 				continue
 			}

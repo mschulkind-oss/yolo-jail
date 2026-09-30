@@ -592,6 +592,10 @@ func TestValidateProviderModelObjects(t *testing.T) {
 		// The maker (bedrock-plumbing.md OQ-BR9): one lowercase token, open vocabulary.
 		`{"bedrock": {"models": {"kimi": {"id": "moonshotai.kimi-k3", "vendor": "moonshotai"}}}}`,
 		`{"bedrock": {"models": {"x": {"id": "m", "vendor": "z.ai"}}}}`,
+		// `description`, the second line claude's picker shows (docs/design/
+		// model-lists-and-pickers.md §7.3): a pack's `models` entry carries one, and a user's
+		// own entry must be able to say what a pack's can.
+		`{"kilo": {"models": {"smart": {"id": "glm-5.3", "description": "Balanced"}}}}`,
 	}
 	for _, body := range valid {
 		if errs := providerErrors(t, body); len(errs) != 0 {
@@ -614,6 +618,7 @@ func TestValidateProviderModelObjects(t *testing.T) {
 		{`{"bedrock": {"models": {"x": {"id": "m", "vendor": ""}}}}`, ".models.x.vendor: expected the model's maker"},
 		{`{"bedrock": {"models": {"x": {"id": "m", "vendor": "open ai"}}}}`, ".models.x.vendor: expected the model's maker"},
 		{`{"bedrock": {"models": {"x": {"id": "m", "vendor": 7}}}}`, ".models.x.vendor: expected the model's maker"},
+		{`{"kilo": {"models": {"default": {"id": "m", "description": ""}}}}`, ".models.default.description: expected a non-empty string"},
 	}
 	for _, tc := range invalid {
 		errs := providerErrors(t, tc.body)

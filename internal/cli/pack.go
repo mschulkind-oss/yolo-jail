@@ -107,6 +107,11 @@ one file's audience never stops another file from shipping:
   provider         ship a provider's service facts: endpoints by wire protocol, model
                    aliases, and the option names a profile may set; the credential is
                    an env-var NAME only you hydrate
+  models           {provider, add: [{id, vendor, alias, name, description, ...}]} or
+                   {provider, only: [id, ...]} — shape the model list of any provider,
+                   another pack's included: add entries, or keep only the ids named;
+                   every add applies before every only, and your own
+                   providers.<name>.models writes last
   adapter          {adapts:{from, to}, address} — a protocol conversion and where the
                    converted wire is served, so an agent speaking one wire can be
                    pointed at a provider offering the other; says nothing about who

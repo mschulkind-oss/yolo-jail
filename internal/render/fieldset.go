@@ -261,6 +261,10 @@ func HostFields() FieldSet {
 		// providers table at user scope and runs each surface's derive over it (OQ-HC1), and
 		// `yolo host -- <program>` composes the same table into the launched process.
 		packdecl.KindProvider: true,
+		// models is honored and built for provider's reason: it shapes the providers table
+		// packload.ComposeProviders composes, which `yolo host apply` and `yolo host --`
+		// compose too.
+		packdecl.KindModels: true,
 		// adapter is provider's constant companion and gets provider's answer, for
 		// provider's reason: it declares an ADDRESS, and an address reaches an agent through
 		// the providers table a LAUNCH composes, never through a file this command writes.

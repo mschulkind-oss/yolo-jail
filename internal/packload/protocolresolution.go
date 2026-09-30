@@ -83,6 +83,8 @@ type composeOpts struct {
 	// served is the notch's served set (WithServed); servedSet says one was given at all.
 	served    ServedDaemons
 	servedSet bool
+	// modelNote receives what the `models` pass could not do as written (WithModelNotes).
+	modelNote func(string)
 }
 
 // ServiceAdaptations returns the conversions packs declare whose own pack serves them with a

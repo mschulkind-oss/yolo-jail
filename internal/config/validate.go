@@ -1355,9 +1355,11 @@ func validateModelEntry(entry *jsonx.OrderedMap, path string, errs *[]string) {
 			add(errs, path+".id: expected a non-empty string")
 		}
 	}
-	if v, ok := entry.Get("name"); ok && v != nil {
-		if s, isString := asStr(v); !isString || s == "" {
-			add(errs, path+".name: expected a non-empty string")
+	for _, key := range []string{"name", "description"} {
+		if v, ok := entry.Get(key); ok && v != nil {
+			if s, isString := asStr(v); !isString || s == "" {
+				add(errs, path+"."+key+": expected a non-empty string")
+			}
 		}
 	}
 	if v, ok := entry.Get("vendor"); ok && v != nil {

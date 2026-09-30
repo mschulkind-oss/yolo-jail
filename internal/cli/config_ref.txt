@@ -1454,6 +1454,19 @@
                     ship a credential that way either.  A
                     provider name is sole-owned — two packs shipping one is a launch
                     error.
+      models        {provider, add:[{id, vendor, alias, name, description,
+                    context_window, max_tokens, reasoning, input, cost}]} or
+                    {provider, only:[id...]} — SHAPES the model list of the provider
+                    it names, any provider's, another pack's included: `add` appends
+                    entries (a duplicate id keeps the first writer's), `only` keeps the
+                    ids it names and drops the rest.  One verb per contribution.
+                    Every `add` applies, in pack order, before every `only`, and two
+                    `only`s intersect; then your own `providers.<name>.models` composes
+                    over the result, so your config has the last word.  `vendor` (the
+                    model's maker) is required on each entry; `alias` makes the entry
+                    reachable under a second name, such as `default`.  `yolo check`
+                    names a duplicate, an `only` id nothing added, and a provider
+                    nothing declares.
       adapter       {adapts:{from, to}, address} — a PROTOCOL CONVERSION: the wire it
                     reads, the wire it speaks, and where the converted wire is served.
                     An agent that speaks `to` can be pointed at a provider that offers
@@ -1656,9 +1669,16 @@
                      env_sources, or the profile's `region` in that file.
                      YOLO_ALLOW_MISSING_PROVIDERS=1 launches anyway.
       models         {alias: model id} — the aliases a profile's `model` option names.
+                     A value may instead be an object, {id, name, description,
+                     context_window, max_tokens, reasoning, input, cost}: the wire id
+                     plus the facts an agent's menu shows (`description` is the second
+                     line claude's picker gives a model).
                      The agent pack's own derive.lua decides which alias each of the
                      agent's keys reads; `default` is the alias used when a profile
                      states no option, and it is an ordinary name, not a keyword.
+                     This map composes LAST, over the provider's own list and every
+                     pack's `models` contribution (added entries, or an `only`), so
+                     your aliases, additions and nulls win.
                      Four names are CONVENTIONAL TIER ALIASES every provider is
                      expected to declare: `default`, `fast` (cheap and quick),
                      `balanced` (the middle tier) and `frontier` (the most capable).
