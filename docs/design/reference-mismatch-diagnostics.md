@@ -418,7 +418,9 @@ order.)*
    sites: `TestLaunchRefusesAnUnmatchedSupersession` and `TestLaunchAcceptsAMatchedSupersession`
    (`internal/cli/run`) fail if the pre-flight's call is deleted, and
    `TestCheckLoopholesGradesAnUnmatchedSupersession` (`internal/cli/check`) if the row stops being
-   a `[FAIL]`.
+   a `[FAIL]`. The integration suite's `TestLaunchRefusesAnUnmatchedSupersession` runs the
+   design's own example in a real launch, `claude-oauth-refersh` beside the shipped claude pack,
+   and asserts both the refusal and `check`'s non-zero exit.
 5. **The skew diagnostic.** Ships with or before step 4 — a refusal that cannot say "your image is
    old" is a worse refusal than the warning it replaces. **SHIPPED 2026-09-30, with step 4**, as
    [RM-D2](#RM-D2) decided [`OQ-RM3`](#OQ-RM3): `UnmatchedSupersessionFix` calls
