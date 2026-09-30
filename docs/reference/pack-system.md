@@ -726,6 +726,22 @@ A fork's own contribution installs nothing: `InstallContributions` skips it, and
 name. Its footprint claim is `<bin> (fork of <base>)`, review-worthy, and names the source and the
 build.
 
+**The selection rewrites the base.** Where the selected set is final, a copy of the base pack's
+program is rewritten with the fork's delivery (`packload.ApplyForks`), so every reader of the base's
+programs, the launcher generator and the host floor included, sees the fork's. It runs in the one
+selection function (`config.SelectPacks`), which every host verb and the launch read, and in the
+jail's pack loader over the staged tree, whose base `pack.json` is unchanged. The rewrite keeps the
+base's `refresh`, `protocols`, `provider_sets`, `platform_switches`, `capabilities`,
+`platform_regions`, `unlisted_background_models` and `node_floor` (a fork's own `node_floor`
+replaces it). It drops every other delivery field of the base: `package`, `url`, `flags`, `update`,
+`versions_dir`, `install_hints`, `model_catalog`, and `platforms` unless the fork declares its own.
+
+A fork brings its base into the launch the way an unconditional [`needs`](wire-bridge.md#needs--a-conditional-pack-dependency)
+entry does, with a cause line (`+ pi (forked by pi-matt)`), when the base is a pack yolo ships. A
+base yolo does not ship must be in `packs` by name. The selection refuses a fork whose base is
+absent, a base that declares no program by the fork's bin, a pack forking itself, and two forks of
+one program.
+
 #### `requires`
 
 A binary that must **already exist**. Asserts presence and installs nothing — no launcher,
