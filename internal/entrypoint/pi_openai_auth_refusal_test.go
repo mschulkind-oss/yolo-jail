@@ -24,11 +24,12 @@ import (
 )
 
 // renderedCodexModels is the pi/codex-models file a real boot render of the pi pack writes over
-// the provider table its needs closure composes, with useProfiles as the launch's selection and
-// user as the user's own profiles.
-func renderedCodexModels(t *testing.T, user map[string]packload.UserProfile, useProfiles string) []byte {
+// the provider table its needs closure composes, with useProfiles as the launch's selection,
+// user as the user's own profiles, and extra naming any further shipped pack whose provider the
+// selection needs.
+func renderedCodexModels(t *testing.T, user map[string]packload.UserProfile, useProfiles string, extra ...string) []byte {
 	t.Helper()
-	packs := testPacksForAgent(t, "pi")
+	packs := testPacksForAgent(t, "pi", extra...)
 	providers, err := packload.ComposeProviders(nil, packs)
 	if err != nil {
 		t.Fatal(err)
@@ -257,6 +258,42 @@ func TestPiOpenAIAuthExtensionRefusesWithNoProfileSelected(t *testing.T) {
 	run := runPiCodexRefusal(t, list, piCodexStub(false), "", "gpt-5.5")
 	if len(run.Attempts) != 1 || run.Attempts[0].Error == "" {
 		t.Errorf("attempts = %+v, want gpt-5.5 refused", run.Attempts)
+	}
+}
+
+// THE SWITCH IS THE ONE OF THE PROFILE THAT GOVERNS openai-codex, not the primary's alone
+// (MM-D23, piEnforceFor): in an active set whose later entry is on openai-codex, that entry's
+// own enforce_models decides the subscription list's refusal, whichever way the primary's
+// points. Handing the list the primary's switch instead passes every other test here.
+func TestPiCodexListTakesTheSwitchOfTheActiveSetEntryOnOpenAICodex(t *testing.T) {
+	off := false
+	for _, tc := range []struct {
+		name string
+		user map[string]packload.UserProfile
+		use  string
+		want bool
+	}{
+		{"the codex entry's switch off under a primary that enforces",
+			map[string]packload.UserProfile{"codex-open": {Provider: "openai-codex", EnforceModels: &off}},
+			`{"pi":["zai","codex-open"]}`, false},
+		{"the codex entry's switch on under a primary that does not",
+			map[string]packload.UserProfile{"zai-open": {Provider: "zai", EnforceModels: &off}},
+			`{"pi":["zai-open","codex"]}`, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			list := renderedCodexModels(t, tc.user, tc.use, "zai")
+			var file map[string]any
+			if err := json.Unmarshal(list, &file); err != nil {
+				t.Fatal(err)
+			}
+			if models, _ := file["models"].([]any); len(models) == 0 {
+				t.Fatalf("pi/codex-models under %s = %s, want the subscription's list", tc.use, list)
+			}
+			if file["enforce"] != tc.want {
+				t.Errorf("pi/codex-models under %s has enforce = %v, want %v: the switch of the "+
+					"active-set entry on openai-codex", tc.use, file["enforce"], tc.want)
+			}
+		})
 	}
 }
 
