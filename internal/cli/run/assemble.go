@@ -15,6 +15,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	"github.com/mschulkind-oss/yolo-jail/internal/runtime"
 	"github.com/mschulkind-oss/yolo-jail/internal/storage"
 )
 
@@ -360,6 +361,11 @@ func (o *Options) assembleRunCmd(in *assembleInput) []string {
 		// podman only: whether Apple Container's client can be told the same is unmeasured.
 		runFlags = append(runFlags, "--sig-proxy=false")
 	}
+	// NO DETACH SEQUENCE on the main process's client, as on every session's exec
+	// (runtime.DetachKeysArgs, JL-D27). This client holds no terminal, so nothing can type the
+	// sequence at it today; it carries the flag anyway because the rule is every run and exec,
+	// and the keeper's client that replaces it must not be the one exception.
+	runFlags = append(runFlags, runtime.DetachKeysArgs(rt)...)
 	// NO -t, ON ANY TERMINAL. The main process is a hold that reads nothing and whose output
 	// the launcher relays line by line (jailmain.go's relay); the session that owns the
 	// terminal is the first session's exec, which takes -t there (firstSessionExecCmd).

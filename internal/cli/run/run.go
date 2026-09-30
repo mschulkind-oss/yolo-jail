@@ -2388,6 +2388,10 @@ func (o *Options) attachExisting(cname, rt, targetCmd string, cfg *jsonx.Ordered
 	if o.IsTTYStdout() {
 		execFlags = append(execFlags, "-t")
 	}
+	// No key sequence detaches this client from its session (runtime.DetachKeysArgs, JL-D27):
+	// a detached client returns as if the session had ended, and leaves its agent running
+	// headless in the jail.
+	execFlags = append(execFlags, runtime.DetachKeysArgs(rt)...)
 	// The container's environment is the one it was LAUNCHED with, so this invocation's
 	// NO_COLOR rides the exec itself — and a NO_COLOR the launch froze is cleared when
 	// this invocation has none (attachNoColorEnvArgs says why).

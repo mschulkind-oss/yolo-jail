@@ -11,6 +11,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/execx"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	"github.com/mschulkind-oss/yolo-jail/internal/runtime"
 )
 
 // brokerLoopholeName is the Claude broker's loophole name. Its socket and PID file are
@@ -172,7 +173,12 @@ func (o *Options) brokerEndpointVisibleInJail(rt, cname string) *bool {
 		return nil
 	}
 	jailEndpoint := hostServiceDefaultJailEndpoint(brokerLoopholeName)
-	res := o.Exec([]string{rt, "exec", cname, "sh", "-c", "test -f " + jailEndpoint}, "", nil, 10*time.Second)
+	// With the detach sequence off, as on every exec yolo issues into a jail
+	// (runtime.DetachKeysArgs, JL-D27). This one reads no stdin, so nothing can type it; the
+	// rule is every exec, so a new one copied from this line starts with it.
+	argv := append([]string{rt, "exec"}, runtime.DetachKeysArgs(rt)...)
+	argv = append(argv, cname, "sh", "-c", "test -f "+jailEndpoint)
+	res := o.Exec(argv, "", nil, 10*time.Second)
 	if !res.Ran || res.Timeout {
 		return nil
 	}

@@ -437,11 +437,12 @@ func podmanLinuxGolden(home string) []string {
 	// insert("--cgroupns=private", 3) → --rm -i --init --cgroupns=private
 	// --read-only --name cname; then --read-only-tmpfs=false --pull=never
 	// --log-driver none --security-opt unmask=/proc/sys --sig-proxy=false (no -t on any
-	// terminal: the main process is a hold, and the first session's exec takes the -t).
+	// terminal: the main process is a hold, and the first session's exec takes the -t), and
+	// the detach sequence off, as on every podman run and exec (JL-D27).
 	add("podman", "run",
 		"--rm", "-i", "--init", "--cgroupns=private", "--read-only", "--name", "yolo-ws-abcd1234",
 		"--read-only-tmpfs=false", "--pull=never", "--log-driver", "none",
-		"--security-opt", "unmask=/proc/sys", "--sig-proxy=false")
+		"--security-opt", "unmask=/proc/sys", "--sig-proxy=false", "--detach-keys=")
 	// podman base mounts. The home root is THIS JAIL'S skeleton, not the machine store
 	// (<state>/home) every podman jail used to share: that store's only mounts left are the
 	// selected packs' shared dirs, below (docs/design/base-home-legacy-state.md#29-backends).

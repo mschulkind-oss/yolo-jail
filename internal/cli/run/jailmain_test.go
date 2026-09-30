@@ -144,11 +144,13 @@ func TestAMainProcessThatExitsBeforeReadyIsARefusal(t *testing.T) {
 }
 
 // TestTheFirstSessionIsAnExecOfTheFirstSessionForm: the attach's argv shape, -t only on a
-// terminal, the entrypoint by absolute path, and the two-argument first-session form.
+// terminal, the detach sequence off on podman (JL-D27) and on no other runtime, the entrypoint
+// by absolute path, and the two-argument first-session form.
 func TestTheFirstSessionIsAnExecOfTheFirstSessionForm(t *testing.T) {
 	o := goldenOptions("/ws", t.TempDir())
 	got := o.firstSessionExecCmd("podman", "yolo-ws-1", "the command")
-	want := []string{"podman", "exec", "-i", "yolo-ws-1", JailEntrypointPath, entrypoint.FirstSessionArg, "the command"}
+	want := []string{"podman", "exec", "-i", "--detach-keys=", "yolo-ws-1", JailEntrypointPath,
+		entrypoint.FirstSessionArg, "the command"}
 	if strings.Join(got, "\x00") != strings.Join(want, "\x00") {
 		t.Errorf("no tty: %q, want %q", got, want)
 	}
@@ -156,6 +158,11 @@ func TestTheFirstSessionIsAnExecOfTheFirstSessionForm(t *testing.T) {
 	got = o.firstSessionExecCmd("container", "yolo-ws-1", "c")
 	if len(got) < 4 || got[0] != "container" || got[2] != "-i" || got[3] != "-t" {
 		t.Errorf("tty: %q, want -i -t", got)
+	}
+	for _, a := range got {
+		if strings.HasPrefix(a, "--detach-keys") {
+			t.Errorf("Apple Container got podman's detach-keys flag, unmeasured there: %q", got)
+		}
 	}
 }
 

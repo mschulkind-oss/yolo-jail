@@ -383,6 +383,10 @@ func TestJailEndpointProbeUsesTestF(t *testing.T) {
 	if !strings.Contains(joined, "/run/yolo-services/claude-oauth-broker.endpoint") {
 		t.Errorf("probe does not name the in-jail endpoint file: %q", joined)
 	}
+	// Every exec yolo issues into a jail turns off podman's detach sequence (JL-D27).
+	if len(gotArgv) < 3 || gotArgv[1] != "exec" || gotArgv[2] != "--detach-keys=" {
+		t.Errorf("probe argv = %q, want `podman exec --detach-keys= …`", joined)
+	}
 }
 
 // retiredLoopholeDir points the RETIRED hand-placed loopholes dir (OQ-LP10) at a fresh

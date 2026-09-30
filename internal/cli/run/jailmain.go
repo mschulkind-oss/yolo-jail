@@ -42,6 +42,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
+	"github.com/mschulkind-oss/yolo-jail/internal/runtime"
 )
 
 // jailMain is a started main-process client: the `<rt> run` of the hold.
@@ -245,12 +246,14 @@ func (m *jailMain) awaitReady() bool {
 // `-i`, `-t` on a terminal, the jail's entrypoint by absolute path, with the first-session form
 // of its argv, which makes this exec the one that runs provisioning on its terminal. The
 // command is sessionCmd's. No NO_COLOR argument: this launch composed the container's
-// environment, so it already carries the launch's own (noColorEnvArgs).
+// environment, so it already carries the launch's own (noColorEnvArgs). No detach sequence, as
+// on every session's exec (runtime.DetachKeysArgs, JL-D27).
 func (o *Options) firstSessionExecCmd(rt, cname, command string) []string {
 	argv := []string{rt, "exec", "-i"}
 	if o.IsTTYStdout() {
 		argv = append(argv, "-t")
 	}
+	argv = append(argv, runtime.DetachKeysArgs(rt)...)
 	return append(argv, cname, JailEntrypointPath, entrypoint.FirstSessionArg, command)
 }
 
