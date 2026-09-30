@@ -157,3 +157,31 @@ func (c *captureStore) resolve(bin string) (*capture.Entry, error) {
 type clock struct{ t time.Time }
 
 func (c *clock) now() time.Time { return c.t }
+
+// addLinkedOut admits a capture shaped like codex's: ~/.local/bin/<bin> an absolute link into
+// ~/.<bin>/…, which no capture surface records, so the entry holds the link and nothing it names.
+func (c *captureStore) addLinkedOut(bin string) *capture.Entry {
+	t := c.t
+	t.Helper()
+	staged, err := c.store.Stage(bin + "-linked-out")
+	must(t, err)
+	tree := capture.TreeDir(staged)
+	must(t, os.MkdirAll(filepath.Join(tree, ".local", "bin"), 0o755))
+	target := "/home/agent/." + bin + "/packages/standalone/current/bin/" + bin
+	must(t, os.Symlink(target, filepath.Join(tree, ".local", "bin", bin)))
+	must(t, capture.WriteManifest(staged, &capture.Manifest{
+		Schema: capture.ManifestSchema, Home: "/home/agent", Platform: capture.Platform(),
+		Surfaces: []string{".local"}, Excluded: []string{},
+		Entries: []capture.ManifestEntry{
+			{Path: ".local", Kind: capture.KindDir, Mode: "0755"},
+			{Path: ".local/bin", Kind: capture.KindDir, Mode: "0755"},
+			{Path: ".local/bin/" + bin, Kind: capture.KindSymlink, Target: target},
+		},
+		AbsoluteRefs: []capture.AbsoluteRef{{Path: ".local/bin/" + bin, Kind: capture.RefSymlinkTarget, Value: target}},
+		RefScan:      capture.RefScanFull, Relocatable: true,
+	}))
+	entry, err := c.store.AdmitEntry(staged)
+	must(t, err)
+	c.byBin[bin] = entry
+	return entry
+}

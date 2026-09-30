@@ -92,6 +92,11 @@ func (f *Floor) Ensure(ctx context.Context, p Program) (Status, Outcome, error) 
 			f.say("could not reinstall %s (%v); running the installed %s", p.Bin(), err, st.Record.Version)
 			return st, Kept, nil
 		}
+		if why := noEntryReasonOf(err); why != "" {
+			// Not a failed install: the install learned the floor cannot hold this program here
+			// (a fresh capture that holds no runnable binary). Reported as what it is.
+			st.Disposition, st.Reason = NoEntry, why
+		}
 		return st, "", err
 	}
 	f.say("installed %s %s → %s", p.Bin(), rec.Version, f.Launcher(p.Bin()))
@@ -408,6 +413,10 @@ func (f *Floor) installFromCapture(p Program, dir string) (*Record, error) {
 			return nil, err
 		}
 		recaptured = true
+	}
+	if why := capturedProgram(entry, p.Bin()); why != "" {
+		return nil, &noEntryError{reason: "the capture of " + p.Bin() + " on this machine cannot run " +
+			"outside a jail: " + why}
 	}
 	res, err := capture.Materialize(capture.MaterializeOptions{Entry: entry, Home: home, Stderr: f.out()})
 	if errors.Is(err, capture.ErrNotRelocatable) && !recaptured && f.Capture != nil {

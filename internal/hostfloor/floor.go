@@ -370,7 +370,11 @@ func (f *Floor) provisionable(st Status) Status {
 	if st.Program.Install.Kind != "native" || f.ResolveCapture == nil {
 		return st
 	}
-	if _, err := f.ResolveCapture(st.Program.Bin()); err == nil {
+	if entry, err := f.ResolveCapture(st.Program.Bin()); err == nil {
+		if why := capturedProgram(entry, st.Program.Bin()); why != "" {
+			st.Disposition = NoEntry
+			st.Reason = "the capture of " + st.Program.Bin() + " on this machine cannot run outside a jail: " + why
+		}
 		return st
 	}
 	why := ""

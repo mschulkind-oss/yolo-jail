@@ -521,3 +521,32 @@ func TestOtherCopiesNamesAHandInstalledCopyAndSkipsTheFloor(t *testing.T) {
 		t.Errorf("OtherCopies = %v", got)
 	}
 }
+
+// TestACaptureThatHoldsNoRunnableProgramIsNoFloorEntry: codex's installer leaves ~/.local/bin/codex
+// a link into ~/.codex, which no capture records. Its capture can never run outside the jail that
+// made it, so the floor has no entry for it — whether the store already holds that capture, or the
+// install makes it — and nothing is materialized.
+func TestACaptureThatHoldsNoRunnableProgramIsNoFloorEntry(t *testing.T) {
+	w := newWorld(t)
+	w.floor.GOOS = "linux"
+	codex := installerProgram("codex", "codex")
+
+	cs := newCaptureStore(t)
+	w.floor.ResolveCapture = cs.resolve
+	cs.addLinkedOut("codex")
+	st := w.floor.Status(codex)
+	if st.Disposition != NoEntry || !strings.Contains(st.Reason, "which the capture did not record") {
+		t.Fatalf("with the store's capture: %s (%s)", st.Disposition, st.Reason)
+	}
+
+	fresh := newCaptureStore(t)
+	w.floor.ResolveCapture = fresh.resolve
+	w.floor.Capture = func(bin string) error { fresh.addLinkedOut(bin); return nil }
+	st, _, err := w.floor.Ensure(context.Background(), codex)
+	if !errors.Is(err, ErrNoEntry) || st.Disposition != NoEntry || !strings.Contains(st.Reason, "cannot run outside a jail") {
+		t.Fatalf("when the install makes the capture: err %v, %s (%s)", err, st.Disposition, st.Reason)
+	}
+	if dirs, _ := os.ReadDir(w.floor.programsDir("codex")); len(dirs) != 0 {
+		t.Errorf("an unusable capture left %d install directories", len(dirs))
+	}
+}
