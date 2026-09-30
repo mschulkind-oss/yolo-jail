@@ -18,6 +18,9 @@ const (
 	// KindProgram is a program that is not a main package at cmd/<name>, or that links the
 	// packs embed.
 	KindProgram
+	// KindDigest is a sha256 the tree does not build. The census never reports one, since it
+	// builds nothing; the pin tool does.
+	KindDigest
 )
 
 // Problem is one way an official binary fails the release matrix.
