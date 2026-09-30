@@ -108,6 +108,30 @@ func TestCopilotStartsOnANarrowedListsDefault(t *testing.T) {
 	}
 }
 
+// CODEX UNDER AN `only` (§14.1, codex): until the prelaunch catalog (MM-D9) is built, what an
+// `only` gives codex is its selection, and that selection is the narrowed list's default entry
+// even when the only dropped the model the profile would otherwise start on.
+func TestCodexSelectsANarrowedListsDefault(t *testing.T) {
+	company := companyModelsPack(t, `{"kind":"models","provider":"openrouter","add":[
+	    {"id":"x-1","vendor":"x"},{"id":"x-2","vendor":"x"}]},
+	  {"kind":"models","provider":"openrouter","only":["x-2"]}`)
+	packs := append(testPacksForAgent(t, "codex", "openrouter"), company)
+	table, err := packload.ComposeProviders(nil, packs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := packload.ResolveProfiles(packs, nil, table)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg := renderCodexConfig(t, mustCompactJSON(t, table), `{"codex":"openrouter"}`,
+		mustCompactJSON(t, packload.ProfilesWireTable(resolved)))
+	if cfg["model_provider"] != "openrouter" || cfg["model"] != "x-2" {
+		t.Errorf("codex selection = %v/%v, want openrouter/x-2, the narrowed list's only entry",
+			cfg["model_provider"], cfg["model"])
+	}
+}
+
 // zaiNarrowed composes zai's shipped provider narrowed by a company pack's `only`, and resolves
 // the profiles (zai's own and the user's).
 func zaiNarrowed(t *testing.T, agent string, user map[string]packload.UserProfile) (providers, profiles string) {

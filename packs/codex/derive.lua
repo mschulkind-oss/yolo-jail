@@ -525,6 +525,13 @@ yolo.derive("codex", "config", function(ctx)
         local alias = (ctx.profile and ctx.profile.model) or "default"
         if type(m) == "table" and m[alias] then
           sel.model = m[alias]
+        elseif type(m) == "table" and p.models_only == true then
+          -- UNDER AN `only` (docs/design/model-lists-and-pickers.md §14.1, codex): the narrowed
+          -- list's default entry (§7.2), the `default` alias else the first entry, when the only
+          -- dropped the profile's model. The selection is all codex gets for now: its exact menu
+          -- is a catalog filtered at prelaunch (MM-D9), not built.
+          local first = codexModelList(p)[1]
+          sel.model = m.default or (first and first.id)
         end
         res.selection = sel
       end
