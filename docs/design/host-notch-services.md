@@ -498,23 +498,36 @@ request was made.
 
 So yolo renders nothing more for pi: pi's own check accepts the pointer, and the models and
 default model its Bedrock row carries are the derive's already
-([`bedrock-plumbing.md` §6.2](bedrock-plumbing.md#62-what-each-derive-emits)).
+([`bedrock-plumbing.md` §6.2](bedrock-plumbing.md#62-what-each-derive-emits)). At the host that
+derive output reaches pi's own `~/.pi/agent` only through the host render: `yolo host apply`, or
+the [host launch gate](../reference/host-apply-staleness.md) when it is on. With the gate off,
+`yolo host -- pi` hands pi the pointer and writes none of pi's config.
 
 **An explicit profile still wins.** Every client above puts the container provider after the
 profile provider, so an agent the user already points at an AWS profile of their own (an
 `AWS_PROFILE` in the shell, or in claude's own `~/.claude/settings.json` `env` block, which
 Claude Code applies before its first request, [`providers.md` OQ-4](../reference/providers.md#pv-oq-4))
-signs with that profile whenever the profile resolves, and the doorway is not asked. The launch passes that `AWS_PROFILE` through untouched and refuses nothing over it: the
-override declaration names no `AWS_PROFILE`, and lets a static pair through beside one
-(`TestHostClaudeKeepsItsOwnAWSProfileBesideTheDoorway`). claude at `yolo host` on its own
-settings keeps working with aws-auth on, and without it nothing changes.
+signs with that profile whenever the profile resolves, and the doorway is not asked. The launch
+passes that `AWS_PROFILE` through untouched and refuses nothing over it: the override declaration
+names no `AWS_PROFILE`, and lets a static pair through beside one
+(`TestHostClaudeKeepsItsOwnAWSProfileBesideTheDoorway`). So the doorway takes no credential away
+from claude on its own settings, with aws-auth on or off. What decides whether that launch starts
+at all is the region pre-flight below, not the doorway.
 
 **The region at the host is the jail's.** The derives compose it the same way at both notches:
 pi's and claude's env derives set `AWS_REGION` from the provider's `region` (pinned: pi receives
 the provider's region at the host), and codex's and opencode's config derives write it into their
 own config. The region pre-flight asks the same question of the environment the exec hands the
 agent, which at the host includes the shell
-([BR-D2](bedrock-plumbing.md#BR-D2)).
+([BR-D2](bedrock-plumbing.md#BR-D2)). ⚠ **It counts nothing else**, so a region that reaches the
+agent only through its own config is refused at the host too: an `AWS_REGION` in claude's own
+`~/.claude/settings.json` `env` block, and the region of the `AWS_PROFILE` in `~/.aws/config`,
+both of which Claude Code reads. A `yolo host -- claude` on a Bedrock profile whose region lives
+only there is refused until the provider's `region` or an exported `AWS_REGION` names one, or
+the launch sets `YOLO_ALLOW_MISSING_PROVIDERS=1`, with aws-auth on or off. That refusal is the
+region pre-flight's ([OQ-BR6](bedrock-plumbing.md#OQ-BR6)), independent of the doorway. Counting
+the credential profile's `~/.aws/config` region is directed and not yet built
+([BR-DIR1](bedrock-plumbing.md#BR-DIR1)); the `settings.json` region is not part of it.
 
 > [!NOTE]
 > **What the tests prove, and what they do not.** There is no network namespace at the host, so

@@ -31,6 +31,7 @@ workspace `yolo-jail.jsonc` — see [Why every key is user-scope](#why-every-key
 ```jsonc
 {
   "packs": ["claude"],
+  "providers": {"bedrock": {"region": "us-east-1"}},
   "loopholes": {
     "aws-auth": {
       "enabled": true,
@@ -44,7 +45,11 @@ workspace `yolo-jail.jsonc` — see [Why every key is user-scope](#why-every-key
 }
 ```
 
-Then `yolo -p bedrock -- claude`. `claude` brings this pack with it: the claude pack
+The region is there because a Bedrock launch that names none is refused before it starts, and a
+region in `~/.aws/config` is not counted
+([the region preflight](../../docs/reference/providers.md#the-region-preflight)); an
+`AWS_REGION` in an `env_sources` entry works too. Then `yolo -p bedrock -- claude`. `claude`
+brings this pack with it: the claude pack
 `needs` the [`bedrock`](../bedrock/README.md) pack, which ships the Bedrock provider and
 `needs` `aws-auth`, and the launch prints `+ bedrock (needed by claude)` and
 `+ aws-auth (needed by bedrock)`. codex, opencode and pi need `bedrock` the same way, so you
@@ -62,7 +67,7 @@ The gate is the provider, not the profile's name: a profile of your own over `be
 provider of your own that declares `"platform": "aws-bedrock"`, get the pointer as `-p bedrock`
 does ([`OQ-BR8`](../../docs/design/providers-and-profiles-redesign.md#OQ-BR8)).
 
-**The same config serves `yolo host`.** With `"profile": {"pi": "bedrock"}` (or
+**The same config serves `yolo host`.** With `"profile": {"pi": "bedrock"}` added (or
 `yolo host -p bedrock -- pi`), `yolo host -- pi` starts the host service if it is not running,
 opens the adapter for pi alone on a port it picks, hands pi the pointer and its token, and stops
 the adapter when pi exits; it says so on stderr:
