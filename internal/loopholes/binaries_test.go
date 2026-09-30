@@ -43,9 +43,14 @@ func isolateBinaryCache(t *testing.T) string {
 }
 
 // cacheBuild puts a build in the cache the way packbin.Fetcher admits one: at its digest, 0555.
+// A build already at that digest is the same build, so it is kept: on a Linux host both sides
+// share one digest, and rewriting the 0555 file is EACCES for any user but root.
 func cacheBuild(t *testing.T, dir, sum, name string) string {
 	t.Helper()
 	p := packbin.Path(dir, sum, name)
+	if _, err := os.Stat(p); err == nil {
+		return p
+	}
 	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
 		t.Fatal(err)
 	}
