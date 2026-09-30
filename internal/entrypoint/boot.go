@@ -543,7 +543,7 @@ func activationPrefix(e *Env) string {
 // returns (execs bash). It returns an error only if the final exec itself fails.
 func Main(args []string) error {
 	// THE DISK I/O PRIORITY, FIRST: before EnvFromOS (the second image removes its re-exec
-	// marker from the environment that call copies) and before attachBootLog (a re-exec
+	// marker from the environment that call copies) and before attachPassLog (a re-exec
 	// after it would rotate boot.log twice). Nothing above this line may start a process
 	// or touch a file, because on the path that applies a priority the first image never
 	// gets past it (iopriority.go). What it found is reported once the log is open.
@@ -599,14 +599,11 @@ func Main(args []string) error {
 	// the state OQ-R2's flip makes reachable, where there is no jail left to ask.
 	// Never fatal: any failure here yields plain stderr. See bootlog.go.
 	//
-	// THE FIRST SESSION'S PASS IS THE JAIL'S SECOND, and it goes to the log alone: the main
-	// process's boot printed every one of these lines on this same terminal a moment ago,
-	// relayed by the launcher, and a second copy of each would read as a second boot.
-	bootOut := io.Writer(os.Stderr)
-	if mode == modeFirstSession && gate != nil {
-		bootOut = io.Discard
-	}
-	blog := attachBootLog(e, bootOut)
+	// A SESSION'S PASS IS NOT THE JAIL'S BOOT (attachPassLog): in a jail whose main process is a
+	// hold, boot.log is that process's, and a session's pass goes to the session log, the first
+	// session's to the log alone, since the main process's boot has just printed the same lines
+	// on this terminal.
+	blog := attachPassLog(e, mode, gate != nil, os.Stderr)
 	reportIOPriority(e, ioOutcome)
 
 	p := newPerfLog()

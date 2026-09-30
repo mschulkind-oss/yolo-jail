@@ -218,9 +218,11 @@ func TestIOPriorityReachesEveryProcessOfTheJail(t *testing.T) {
 		}
 	}
 
-	// The attach's boot rotated the first boot's log aside ONCE: each of the two logs holds
-	// its own boot's record, which a double rotation would have lost.
-	for _, name := range []string{"boot.log", "boot.log.prev"} {
+	// Each boot pass records it in its own log, and none rotated another's away: the main
+	// process's boot is boot.log, the attach's pass the session log, and the first session's
+	// pass the session log's previous one (a double rotation, or a session's pass rotating
+	// boot.log, would have lost one of the three).
+	for _, name := range []string{"boot.log", "boot.session.log", "boot.session.log.prev"} {
 		b, err := os.ReadFile(filepath.Join(dir, ".yolo", name))
 		if err != nil || !strings.Contains(string(b), `resources.io.priority: "low" (be/7) on every thread`) {
 			t.Errorf(".yolo/%s does not record the applied priority (%v):\n%s", name, err, b)

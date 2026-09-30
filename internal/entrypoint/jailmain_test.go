@@ -418,8 +418,10 @@ func TestTheStageRunsWithItsStatusAndTheSessionActivation(t *testing.T) {
 // TestMainWiresTheHoldAndTheGateInOrder pins Main's call sites, which no test can execute (the
 // session path ends in an exec that replaces the process): the main process marks its boot
 // before the boot and holds after it, and exits with what ended its hold; a session of a
-// hold-main jail waits for the boot and takes or waits for provisioning before its own pass;
-// the stage runs after the pass and before the exec. Deleting any of these calls fails here.
+// hold-main jail waits for the boot and takes or waits for provisioning before its own pass,
+// which writes the pass log rather than the main process's boot.log (attachPassLog, whose
+// choice TestASessionsPassLeavesTheJailsBootLog drives); the stage runs after the pass and
+// before the exec. Deleting any of these calls fails here.
 func TestMainWiresTheHoldAndTheGateInOrder(t *testing.T) {
 	src, err := os.ReadFile("boot.go")
 	if err != nil {
@@ -439,7 +441,7 @@ func TestMainWiresTheHoldAndTheGateInOrder(t *testing.T) {
 		"gate.awaitBoot()",
 		"gate.claim()",
 		"gate.await()",
-		"attachBootLog(e, bootOut)",
+		"blog := attachPassLog(e, mode, gate != nil, os.Stderr)",
 		"runBootSteps(&bootRun{e: e, target: bootContainer",
 		"if err := genFailuresError(e); err != nil {",
 		"gate.abandon()",

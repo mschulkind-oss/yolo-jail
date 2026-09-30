@@ -109,6 +109,72 @@ func TestBootLogRecordsARefusedBoot(t *testing.T) {
 	}
 }
 
+// A jail whose main process is a hold boots twice per launch and once more per attach: pid 1's
+// boot, then each session's own pass. Only pid 1's is boot.log. A first session's pass that
+// rotated it pushed the jail's real boot into boot.log.prev at every launch, and the previous
+// launch's log (a refused one's evidence) out of both. This runs the three passes in the order
+// a launch and an attach make them.
+func TestASessionsPassLeavesTheJailsBootLog(t *testing.T) {
+	e, ws := bootLogEnv(t, nil)
+	older := attachBootLog(e, &bytes.Buffer{})
+	e.warn("THE LAUNCH BEFORE, which refused")
+	older.finish(errors.New("boom"))
+
+	var pid1Term, firstTerm, attachTerm bytes.Buffer
+	pid1 := attachPassLog(e, modeHold, false, &pid1Term)
+	e.warn("PID 1 BOOT, the jail's own")
+	pid1.finish(nil)
+
+	first := attachPassLog(e, modeFirstSession, true, &firstTerm)
+	e.warn("FIRST SESSION PASS")
+	first.finish(nil)
+
+	attach := attachPassLog(e, modeSession, true, &attachTerm)
+	e.warn("ATTACH PASS")
+	attach.finish(nil)
+
+	if got := readBootLog(t, ws, bootLogName); !strings.Contains(got, "PID 1 BOOT") || strings.Contains(got, "PASS") {
+		t.Errorf("boot.log is not pid 1's boot alone:\n%s", got)
+	}
+	if got := readBootLog(t, ws, bootLogPrevName); !strings.Contains(got, "THE LAUNCH BEFORE") || !strings.Contains(got, "boom") {
+		t.Errorf("boot.log.prev lost the previous launch's refused boot:\n%s", got)
+	}
+	if got := readBootLog(t, ws, bootSessionLogName); !strings.Contains(got, "ATTACH PASS") {
+		t.Errorf("the session log is not the latest session's pass:\n%s", got)
+	}
+	if got := readBootLog(t, ws, bootSessionLogPrevName); !strings.Contains(got, "FIRST SESSION PASS") {
+		t.Errorf("the session log's previous pass is not the first session's:\n%s", got)
+	}
+
+	// The terminal: pid 1's boot reaches it (the launcher relays it), the first session's pass
+	// does not (a second copy of the same boot), an attach's does.
+	if !strings.Contains(pid1Term.String(), "PID 1 BOOT") {
+		t.Errorf("pid 1's boot did not reach its stderr: %q", pid1Term.String())
+	}
+	if firstTerm.Len() != 0 {
+		t.Errorf("the first session's pass printed on its terminal: %q", firstTerm.String())
+	}
+	if !strings.Contains(attachTerm.String(), "ATTACH PASS") {
+		t.Errorf("an attach's pass did not reach its terminal: %q", attachTerm.String())
+	}
+}
+
+// A session of a jail launched before the hold existed is that jail's old shape: its pass
+// writes boot.log, as every boot did.
+func TestAPassInAJailWithoutAHoldIsItsBootLog(t *testing.T) {
+	e, ws := bootLogEnv(t, nil)
+	var term bytes.Buffer
+	blog := attachPassLog(e, modeSession, false, &term)
+	e.warn("A BOOT OF THE OLD SHAPE")
+	blog.finish(nil)
+	if got := readBootLog(t, ws, bootLogName); !strings.Contains(got, "A BOOT OF THE OLD SHAPE") {
+		t.Errorf("boot.log:\n%s", got)
+	}
+	if !strings.Contains(term.String(), "A BOOT OF THE OLD SHAPE") {
+		t.Errorf("the pass did not reach its terminal: %q", term.String())
+	}
+}
+
 // The natural response to a broken jail is to launch it again. Without rotation
 // that second launch destroys the only record of the first.
 func TestBootLogKeepsOnePriorBoot(t *testing.T) {
@@ -216,10 +282,9 @@ func TestBootPathActuallyWiresTheLog(t *testing.T) {
 	got := string(src)
 
 	for _, want := range []struct{ frag, why string }{
-		{"attachBootLog(e, bootOut)",
-			"the boot must install the tee; without this the log is never opened"},
-		{"bootOut := io.Writer(os.Stderr)",
-			"every boot but the first session's second pass tees to the terminal"},
+		{"attachPassLog(e, mode, gate != nil, os.Stderr)",
+			"the boot must install the tee, on the terminal's stderr (attachPassLog decides the " +
+				"first session's pass alone goes to its log only); without this the log is never opened"},
 		{"blog.finish(err)",
 			"a REFUSED boot must be recorded — it is the case with no jail left to ask"},
 		{"blog.finish(nil)",

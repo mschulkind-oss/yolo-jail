@@ -337,7 +337,7 @@ func TestReportIOPrioritySplitsTheTwoSinks(t *testing.T) {
 // tests above cannot: Main runs the whole boot for real, so its source is what is checked,
 // as TestMainHoldsInsideTheGeneratorRefusalAndStillReturnsTheError does. applyIOPriority
 // must be Main's first statement, take os.Args, and come before EnvFromOS; its report must
-// follow attachBootLog. Deleting either call fails this.
+// follow attachPassLog. Deleting either call fails this.
 func TestMainAppliesTheIOPriorityFirstAndReportsItAfterTheLog(t *testing.T) {
 	fset := token.NewFileSet()
 	f, err := parser.ParseFile(fset, "boot.go", nil, 0)
@@ -373,14 +373,14 @@ func TestMainAppliesTheIOPriorityFirstAndReportsItAfterTheLog(t *testing.T) {
 		}
 		return true
 	})
-	for _, name := range []string{"EnvFromOS", "attachBootLog", "reportIOPriority"} {
+	for _, name := range []string{"EnvFromOS", "attachPassLog", "reportIOPriority"} {
 		if _, ok := pos[name]; !ok {
 			t.Fatalf("Main no longer calls %s", name)
 		}
 	}
-	if !(pos["applyIOPriority"] < pos["EnvFromOS"] && pos["attachBootLog"] < pos["reportIOPriority"]) {
-		t.Errorf("order in Main: applyIOPriority %v, EnvFromOS %v, attachBootLog %v, reportIOPriority %v; "+
+	if !(pos["applyIOPriority"] < pos["EnvFromOS"] && pos["attachPassLog"] < pos["reportIOPriority"]) {
+		t.Errorf("order in Main: applyIOPriority %v, EnvFromOS %v, attachPassLog %v, reportIOPriority %v; "+
 			"the apply must precede EnvFromOS and the report must follow the log", pos["applyIOPriority"],
-			pos["EnvFromOS"], pos["attachBootLog"], pos["reportIOPriority"])
+			pos["EnvFromOS"], pos["attachPassLog"], pos["reportIOPriority"])
 	}
 }

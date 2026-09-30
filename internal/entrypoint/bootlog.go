@@ -61,10 +61,38 @@ const bootLogName = "boot.log"
 // launch it again, which without this would overwrite the only evidence.
 const bootLogPrevName = "boot.log.prev"
 
+// bootSessionLogName is the boot pass of a SESSION of a jail whose main process is a hold
+// (jailmain.go), the first session's included, and bootSessionLogPrevName the pass before it.
+// boot.log stays the MAIN PROCESS'S alone: its boot is the one that started the jail's daemons
+// and ran the reachability witness, which is what boot.log's reader is after. A session's pass
+// that rotated boot.log would push that boot into boot.log.prev on every launch, and the
+// previous launch's log, a refused one included, out of both after a single relaunch: exactly
+// the evidence bootLogPrevName exists to keep.
+const (
+	bootSessionLogName     = "boot.session.log"
+	bootSessionLogPrevName = "boot.session.log.prev"
+)
+
 // bootLog is the open per-boot log. A nil *bootLog is valid and does nothing, which
 // is what every failure path returns.
 type bootLog struct {
 	f *os.File
+}
+
+// attachPassLog is attachBootLog for this invocation's boot pass. The container's main process,
+// and any invocation in a jail whose main process is not a hold (one launched before the hold
+// existed), write boot.log as a boot always has. A session of a hold jail writes the session
+// log instead (bootSessionLogName), and the FIRST session's pass goes to that log alone: the
+// main process's boot printed every one of the same lines on this same terminal a moment ago,
+// relayed by the launcher, and a second copy of each would read as a second boot.
+func attachPassLog(e *Env, mode entryMode, holdSession bool, stderr io.Writer) *bootLog {
+	if !holdSession {
+		return attachBootLog(e, stderr)
+	}
+	if mode == modeFirstSession {
+		stderr = io.Discard
+	}
+	return attachBootLogAs(e, stderr, bootSessionLogName, bootSessionLogPrevName)
 }
 
 // attachBootLog rotates the previous log aside, opens a fresh one, and INSTALLS the
@@ -79,6 +107,12 @@ type bootLog struct {
 // it stays the stderr passed in, and the returned *bootLog is nil, which every
 // method accepts.
 func attachBootLog(e *Env, stderr io.Writer) *bootLog {
+	return attachBootLogAs(e, stderr, bootLogName, bootLogPrevName)
+}
+
+// attachBootLogAs is attachBootLog writing the log named name, rotating the previous one to
+// prevName.
+func attachBootLogAs(e *Env, stderr io.Writer, name, prevName string) *bootLog {
 	e.Stderr = stderr
 
 	// The JAIL half of the same ensure the host launcher does (paths.EnsureWorkspaceStateDir):
@@ -90,11 +124,11 @@ func attachBootLog(e *Env, stderr io.Writer) *bootLog {
 	if err != nil {
 		return nil
 	}
-	path := filepath.Join(dir, bootLogName)
+	path := filepath.Join(dir, name)
 
 	// Rotate rather than truncate. Ignore the error: a missing previous log is the
 	// normal first-boot case, and a rotation that fails must not cost us the new log.
-	_ = os.Rename(path, filepath.Join(dir, bootLogPrevName))
+	_ = os.Rename(path, filepath.Join(dir, prevName))
 
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
 	if err != nil {
