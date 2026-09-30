@@ -138,8 +138,10 @@ Two more come with the agent packs, with no extra pack to add:
   starts on the first model on the list. A Bedrock provider of your own that names its own
   address in `endpoints` is signed there too, whatever the address, once its `platform` says
   `aws-bedrock`. The bridge signs with a key pair, the `aws-auth` login or a Bedrock API key, and
-  not with a profile in `~/.aws`, so a jail whose only AWS credential is `AWS_PROFILE` gets a
-  bridge that answers every request with an error naming the three it takes. At `yolo host`,
+  not with a profile in `~/.aws`, so in a jail whose only AWS credential is `AWS_PROFILE` it has
+  nothing to sign with. codex, opencode, pi and oh-omp then get an error on every request, naming
+  the three credentials it takes. Claude Code and Copilot get no bridge to talk to: with only them
+  on the profile the jail does not start, and says why, naming the same three. At `yolo host`,
   which has no bridge, such a profile uses each agent's own Bedrock client, and Copilot and
   oh-omp reach nothing.
 
