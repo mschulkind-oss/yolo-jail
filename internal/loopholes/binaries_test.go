@@ -46,6 +46,12 @@ func isolateBinaryCache(t *testing.T) string {
 func cacheBuild(t *testing.T, dir, sum, name string) string {
 	t.Helper()
 	p := packbin.Path(dir, sum, name)
+	// On a Linux host the host and jail builds are one digest (sideSums), so a test caches the same
+	// path twice. The file is 0555, and a second write over it fails for every user but root, so
+	// the helper passed only in a jail running as uid 0 and failed on CI.
+	if _, err := os.Stat(p); err == nil {
+		return p
+	}
 	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
 		t.Fatal(err)
 	}
