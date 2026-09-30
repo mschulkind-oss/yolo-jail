@@ -223,9 +223,12 @@ func TestShippedDerivesDeclareTheirInFullTables(t *testing.T) {
 		"claude/config":   {"mcpServers"},
 		"claude/settings": nil, // env is asserted leaf by leaf — the CO13 case itself
 		"codex/config":    {"mcp_servers", "model_providers"},
-		"copilot/lsp":     {"lspServers"},
-		"copilot/mcp":     {"mcpServers"},
-		"oh-omp/models":   {"providers"},
+		// Its one key, `models`, is an ARRAY, as pi/codex-models' is: the list codex's launcher
+		// writes its model menu from (MM-D22), with no named entries to call stale.
+		"codex/model-list": nil,
+		"copilot/lsp":      {"lspServers"},
+		"copilot/mcp":      {"mcpServers"},
+		"oh-omp/models":    {"providers"},
 		// Its only output is the selection's enabledModels, an array: no table to declare.
 		"oh-omp/settings": nil,
 		"opencode/config": {"mcp", "provider"},
