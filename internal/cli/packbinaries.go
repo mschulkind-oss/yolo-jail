@@ -55,6 +55,15 @@ func fetchPackBinaries(packs []*packload.Pack, f packbin.Fetcher, goos, goarch s
 			if mod.Decl == nil {
 				continue // an unreadable manifest is reported where the pack is loaded
 			}
+			// A loophole whose `platforms` leaves this machine out runs nothing here, so it needs
+			// none of its builds — not even one declared for this machine's platform, which a
+			// build list and a `platforms` list may both name. The launch reports it on the
+			// platform axis; install says why it fetched nothing.
+			if len(mod.Decl.BinariesNeeded(goos, goarch)) > 0 && !mod.Decl.SupportsPlatform(goos, goarch) {
+				pr.Printf("[dim]%s: loophole %s does not run on %s/%s (its `platforms`), so none "+
+					"of its binaries is fetched[/dim]", p.Name, mod.Name, goos, goarch)
+				continue
+			}
 			for _, n := range mod.Decl.BinariesNeeded(goos, goarch) {
 				label := fmt.Sprintf("%s: loophole %s: binary %s for %s", p.Name, mod.Name,
 					n.Binary, n.Platform)

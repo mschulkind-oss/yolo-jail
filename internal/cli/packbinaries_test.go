@@ -28,6 +28,12 @@ import (
 // pack-binary cache under that HOME.
 func binaryPackHome(t *testing.T, url, sum string) string {
 	t.Helper()
+	return binaryPackHomeWith(t, url, sum, "")
+}
+
+// binaryPackHomeWith is binaryPackHome with extra manifest keys, written as `"key": value, `.
+func binaryPackHomeWith(t *testing.T, url, sum, extra string) string {
+	t.Helper()
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	pack := filepath.Join(home, "packs", "toolpack")
@@ -36,7 +42,7 @@ func binaryPackHome(t *testing.T, url, sum string) string {
 		t.Fatal(err)
 	}
 	platform := runtime.GOOS + "/" + runtime.GOARCH
-	manifest := `{"name": "tool", "transport": "none",
+	manifest := `{"name": "tool", "transport": "none", ` + extra + `
 	  "binaries": {"toold": {"` + platform + `": {"url": "` + url + `", "sha256": "` + sum + `"}}},
 	  "doctor_cmd": ["{binary:toold}", "--self-check"]}`
 	if err := os.WriteFile(filepath.Join(mod, "manifest.jsonc"), []byte(manifest), 0o644); err != nil {
@@ -127,5 +133,42 @@ func TestPackInstallRefusesABinaryWhoseDigestDoesNotMatch(t *testing.T) {
 	}
 	if packbin.Present(packbin.Path(cache, pinned, "toold")) {
 		t.Error("a mismatched download was cached")
+	}
+}
+
+// A loophole whose `platforms` leaves this machine out runs nothing here, so install fetches none
+// of its builds, even one declared for this machine: BP-D5 fetches what this machine NEEDS, and a
+// loophole it cannot run needs nothing (the launch reports it on the platform axis). Deleting the
+// SupportsPlatform skip in fetchPackBinaries fails this.
+func TestPackInstallFetchesNothingForALoopholeThisMachineCannotRun(t *testing.T) {
+	body := []byte("#!/bin/sh\necho toold\n")
+	var hits int
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits++
+		_, _ = w.Write(body)
+	}))
+	t.Cleanup(srv.Close)
+	prev := packBinaryFetcher
+	packBinaryFetcher = func() packbin.Fetcher {
+		return packbin.Fetcher{Dir: paths.PackBinariesDir(), Client: srv.Client()}
+	}
+	t.Cleanup(func() { packBinaryFetcher = prev })
+	other := "plan9"
+	if runtime.GOOS == other {
+		other = "linux"
+	}
+	sum := sha256Hex(body)
+	cache := binaryPackHomeWith(t, srv.URL+"/toold", sum, `"platforms": ["`+other+`"], `)
+
+	var out, errw bytes.Buffer
+	if rc := packMain([]string{"install"}, &out, &errw, false); rc != 0 {
+		t.Fatalf("install rc = %d\n%s%s", rc, out.String(), errw.String())
+	}
+	if hits != 0 || packbin.Present(packbin.Path(cache, sum, "toold")) {
+		t.Errorf("install fetched a build for a loophole this machine cannot run (%d requests):\n%s",
+			hits, out.String())
+	}
+	if !strings.Contains(out.String(), "does not run on "+runtime.GOOS+"/"+runtime.GOARCH) {
+		t.Errorf("install did not say why it fetched nothing:\n%s", out.String())
 	}
 }

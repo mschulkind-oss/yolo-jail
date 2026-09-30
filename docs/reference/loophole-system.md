@@ -409,7 +409,8 @@ substitutes it. A token must name a declared binary, and a declared binary must 
 token, since one nothing runs would be downloaded for nothing.
 
 **Only `yolo pack install` fetches**, for every selected pack, embedded ones included, and
-whatever the loophole's switch says. It verifies each build against its digest and admits it
+whatever the loophole's switch says, but nothing for a loophole whose `platforms` leaves this
+machine out. It verifies each build against its digest and admits it
 by rename into `~/.local/share/yolo-jail/pack-binaries/<sha256>/<name>`, mode `0555`, a
 directory no jail mounts: a host daemon's build runs from there with the user's authority. A
 **launch never fetches**, so an offline launch of a pack whose builds are cached is an ordinary
