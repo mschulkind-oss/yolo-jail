@@ -591,6 +591,15 @@ func (o *Options) assembleRunCmd(in *assembleInput) []string {
 		// stack, so the two loopbacks are one), which is why a nested jail is no evidence
 		// about the branch below — §7 of the design doc, and the carve-out in AGENTS.md.
 		runCmd = append(runCmd, "--net="+applied)
+	} else if in.sealed {
+		// THE SEAL (seal.go, FP-D13): a fork's build gets the runtime's own bridge and NOT the
+		// host's loopback. Forwarding it is what makes every loopback-TLS service reachable from a
+		// jail — and every other service the host binds to 127.0.0.1 with them, which is the reach
+		// FP-D11 withholds a port forward for. A build starts no service of yolo's to reach, so
+		// nothing is asked of the host, and the jail is told `unknown`: yolo did not look.
+		if applied != "bridge" {
+			runCmd = append(runCmd, "--net="+applied)
+		}
 	} else {
 		if applied != "bridge" {
 			runCmd = append(runCmd, "--net="+applied)

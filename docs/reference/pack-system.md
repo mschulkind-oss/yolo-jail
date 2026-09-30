@@ -761,7 +761,10 @@ pack store's mirror and copied into a workspace inside the capture store. The or
 then runs the fork's `build` there under the seal (`run.Options.Sealed`), which withholds every
 crossing of the host into the jail: `env_sources`, pack `env`, provider credentials, `host_files`,
 `mounts`, pack `mount` and reads-host layers, loopholes and host services, machine-scope pack
-directories, the host-cache alias and the nix daemon socket. `~/.cache` and `/mise` are private
+directories, the host-cache alias and the nix daemon socket. It also withholds the host's network:
+the build runs on the runtime's own bridge whatever `network.mode` says, with no host-loopback
+forwarding, so no service the host binds to 127.0.0.1 is in its reach
+([FP-D13](../design/forked-programs-as-packs.md#FP-D13)). `~/.cache` and `/mise` are private
 directories of the build's workspace. The selection is narrowed to the fork and its configured
 base. A build whose result misses a `produces` path stores nothing, and so does one that leaves a
 link into its own workspace, which is deleted when the build ends: `npm install -g .` is the common

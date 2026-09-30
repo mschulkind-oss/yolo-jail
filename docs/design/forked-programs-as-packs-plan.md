@@ -199,6 +199,11 @@ design as [FP-D10](forked-programs-as-packs.md#FP-D10) onward.
   ([FP-D12](forked-programs-as-packs.md#FP-D12)). The examples in the pack reference, the user
   guide and the `packdecl` test use `npm install -g "$(npm pack --silent)"` instead, and the two
   docs list the package's directory in `produces`.
+- Review, after step 6: the seal left the host's network crossing. A user config's
+  `network.mode: "host"` put the build in the host's namespace, and the default bridge on a rootless
+  pasta host forwarded the host's loopback, either one reaching every service the host binds to
+  127.0.0.1. A sealed build now runs on the runtime's own bridge with no forwarding
+  ([FP-D13](forked-programs-as-packs.md#FP-D13)).
 
 ## Build order
 

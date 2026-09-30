@@ -54,7 +54,16 @@ func markLaunchCheck(h loopholeDaemon, lp *loopholes.Loophole) loopholeDaemon {
 
 // resolveNetMode returns the container network mode this launch will use, resolved
 // the same way the assembler resolves it (config `network.mode` overrides the flag).
+//
+// UNDER THE SEAL it is always the runtime's own bridge (seal.go, FP-D13): `network.mode: "host"`
+// would put a fork's build in the host's network namespace, where every service the host binds to
+// 127.0.0.1 is in reach — the reach FP-D11 withholds a port forward for. Answered HERE rather than
+// at the selector, so the assembler, the briefing and the shared-network disclosure, which all read
+// this one answer, agree that a build is bridged.
 func (o *Options) resolveNetMode(cfg *jsonx.OrderedMap) string {
+	if o.Sealed {
+		return "bridge"
+	}
 	netMode := o.Network
 	if netSec := cfgMap(cfg, "network"); netSec != nil {
 		if m := mapStr(netSec, "mode"); m != "" {

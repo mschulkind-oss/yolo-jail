@@ -25,6 +25,10 @@ package run
 //	machine-scope pack dirs                neither made nor bound, nor claude's secure storage
 //	~/.cache and /mise                     private directories of the build's workspace
 //	host port forwards, published ports    none
+//	the host's network (resolveNetMode,    the runtime's own bridge, whatever `network.mode`
+//	assembleRunCmd)                        says, and no host-loopback forwarding (FP-D13); a
+//	                                       nested launch is still forced onto its launcher's
+//	                                       namespace, which is itself a jail's
 //	`mounts`, pack `mount`, reads-host     none, the surfaces' host layers included
 //	the host briefing prepend              none
 //	the nix daemon socket                  not bound; the store stays mounted read-only when
@@ -36,8 +40,8 @@ package run
 //
 // What stays is TOOLCHAIN, not credential (FP-D9): the image, `packages`, `mise_tools` and a
 // base's `node_floor` (installed into the private /mise, at the cost of that download once per
-// build), the git identity (a name and an address), and the network, which a build needs for its
-// dependencies and which the launch discloses.
+// build), the git identity (a name and an address), and the network — the runtime's bridge, never
+// the host's — which a build needs for its dependencies and which the launch discloses.
 //
 // The selection is narrowed as well (Options.OnlyPacks): every other selected pack's loopholes and
 // machine-scope directories are channels the build does not need.

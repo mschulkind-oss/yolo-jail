@@ -221,3 +221,45 @@ func stagedBriefingsHold(t *testing.T, cname, text string) bool {
 	}
 	return false
 }
+
+// TestASealedBuildReachesNoHostServiceThroughTheNetwork: the seal withholds a port forward because
+// a forward reaches a host service (FP-D11), and the host's network reaches every one of them. So a
+// sealed build is handed neither the host's loopback — the forwarding option a rootless pasta host
+// gets on the default bridge — nor the host's namespace a user config's `network.mode: "host"` asks
+// for: either puts every service the host binds to 127.0.0.1 in reach of the build. The build keeps
+// the network itself, on the runtime's own bridge, for its dependencies.
+func TestASealedBuildReachesNoHostServiceThroughTheNetwork(t *testing.T) {
+	for name, cfgNet := range map[string]any{"the default bridge": nil, `network.mode "host"`: newConfig("mode", "host")} {
+		t.Run(name, func(t *testing.T) {
+			home := t.TempDir()
+			t.Setenv("HOME", home)
+			emptyLoopholeDirs(t)
+			for _, sealed := range []bool{false, true} {
+				o, _ := pastaHostOptions(t, "/ws", home, false)
+				o.Sealed = sealed
+				in := relocationInput(t, "podman", t.TempDir(), nil)
+				in.sealed = sealed
+				if cfgNet != nil {
+					in.cfg.Set("network", cfgNet)
+				}
+				argv := o.assembleRunCmd(in)
+				selectors := networkSelectors(argv)
+				loopback, _ := envValue(argv, paths.HostLoopbackEnvVar)
+				if !sealed {
+					// The fixture's own proof: unsealed, this host does reach the host's network.
+					if len(selectors) == 0 {
+						t.Fatalf("the unsealed fixture emits no network selector, so the site is unexercised")
+					}
+					continue
+				}
+				if len(selectors) != 0 {
+					t.Errorf("a sealed build is handed the host's network: %v", selectors)
+				}
+				if loopback != paths.HostLoopbackUnknown {
+					t.Errorf("a sealed build is told %s=%q, want %q: yolo asked for no forwarding",
+						paths.HostLoopbackEnvVar, loopback, paths.HostLoopbackUnknown)
+				}
+			}
+		})
+	}
+}
