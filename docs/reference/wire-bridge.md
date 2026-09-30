@@ -947,8 +947,10 @@ launch, for the one agent it runs, stopped when that agent exits). The mechanism
   by any route, the bridge gets SIGTERM and, 2 seconds later, SIGKILL. If the launch dies without
   cleanup, the bridge sees its lifeline pipe close and exits at once. A bridge that dies
   mid-session is named on stderr once and not restarted.
-- **It is said.** Every start prints one line naming the service, its pack, its pid, its
-  address and its log. `yolo host env` refuses a bridged profile, naming the `yolo host --`
+- **It is said.** Every start prints one line naming the service, its pack, its pid, the
+  address its agent was pointed at and its log. That address is the one route the bridge opens,
+  though the plan picked a port for each of its adapters
+  ([HS-D24](../design/host-notch-services.md#HS-D24)). `yolo host env` refuses a bridged profile, naming the `yolo host --`
   spelling, and `yolo host apply` writes no bridged address and says a bridged selection in the
   `profile` key takes effect only through `yolo host --` or the wrappers.
 
