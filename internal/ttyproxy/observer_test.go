@@ -44,47 +44,60 @@ func (r *inputRec) snapshot() ([]int, []string, []string) {
 // key's name — through the real RunWithProxyObserved on a real pty, so a
 // deleted call in the pump fails here. It also reads the child's pty mode
 // through the master, and that reader goes dead once the master is closed.
+//
+// It WAITS ON WHAT IT WATCHES, never on a clock. The mode reader is polled until it
+// reports the child's stty, and the ^C is typed once the Input observer has seen "hello"
+// go by. Fixed sleeps of 300ms and 100ms used to stand in for both. When an exec was slow,
+// the reader was asked before stty had run, or the ^C met a line discipline that was
+// still cooked, or the two writes coalesced into one read.
 func TestObserverSeesInputSizesCtrlCAndThePtyMode(t *testing.T) {
-	master, slave, err := openPty()
-	if err != nil {
-		t.Skipf("cannot open pty: %v", err)
-	}
-	defer unix.Close(master)
-	origIn, origOut := os.Stdin, os.Stdout
-	os.Stdin = os.NewFile(uintptr(slave), "pty-slave-stdin")
-	os.Stdout = os.NewFile(uintptr(slave), "pty-slave-stdout")
-	defer func() { os.Stdin, os.Stdout = origIn, origOut; unix.Close(slave) }()
+	master, slave := fakeHostTTY(t)
 
 	var rec inputRec
 	var mode func() string
 	gotMode := make(chan struct{})
-	done := make(chan int, 1)
-	go func() {
-		rc, _ := RunWithProxyObserved([]string{"sh", "-c",
-			"stty raw -echo; dd bs=1 count=6 of=/dev/null 2>/dev/null; exit 42"}, nil, nil,
-			Observer{Input: rec.input, Pty: func(m func() string) { mode = m; close(gotMode) }})
-		done <- rc
-	}()
+	run := startProxied(t, master, []string{"sh", "-c",
+		"stty raw -echo; dd bs=1 count=6 of=/dev/null 2>/dev/null; exit 42"},
+		Observer{Input: rec.input, Pty: func(m func() string) { mode = m; close(gotMode) }})
 	select {
 	case <-gotMode:
-	case <-time.After(5 * time.Second):
+	case <-time.After(childDeadline):
 		t.Fatal("Observer.Pty was never called: the pty-mode reader is not handed out")
 	}
-	time.Sleep(300 * time.Millisecond) // the child's stty has run
-	during := mode()
+	// Typing waits for the host tty to be raw as well, which the proxy makes it just after
+	// handing the reader out. Until then the tty would echo input and swallow a ^C.
+	const raw = "icanon=off isig=off echo=off"
+	for deadline := time.Now().Add(childDeadline); ; time.Sleep(10 * time.Millisecond) {
+		during := mode()
+		if during == raw && lflag(slave)&(unix.ICANON|unix.ISIG|unix.ECHO) == 0 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("pty mode while the child held it raw = %q, want %q (host tty lflag %#x)",
+				during, raw, lflag(slave))
+		}
+	}
 	if _, err := unix.Write(master, []byte("hello")); err != nil {
 		t.Fatal(err)
 	}
-	time.Sleep(100 * time.Millisecond) // two reads, not one chunk
+	// Two reads, not one chunk: the ^C is typed only once the pump has taken "hello".
+	for deadline := time.Now().Add(childDeadline); ; time.Sleep(10 * time.Millisecond) {
+		if sizes, _, _ := rec.snapshot(); len(sizes) > 0 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("Observer.Input never saw the typed \"hello\": the pump does not report input")
+		}
+	}
 	if _, err := unix.Write(master, []byte{interruptByte}); err != nil {
 		t.Fatal(err)
 	}
 	select {
-	case rc := <-done:
+	case rc := <-run.done:
 		if rc != 42 {
 			t.Fatalf("rc = %d", rc)
 		}
-	case <-time.After(5 * time.Second):
+	case <-time.After(childDeadline):
 		t.Fatal("child never read its six bytes")
 	}
 
@@ -94,9 +107,6 @@ func TestObserverSeesInputSizesCtrlCAndThePtyMode(t *testing.T) {
 	}
 	if len(keys) != 2 || keys[0] != "" || keys[1] != KeyCtrlC {
 		t.Errorf("input keys = %q, want [\"\" %q] — only a lone ^C is named", keys, KeyCtrlC)
-	}
-	if during != "icanon=off isig=off echo=off" {
-		t.Errorf("pty mode while the child held it raw = %q", during)
 	}
 	// Reuse the master's fd number (the lowest free fd is the one just closed):
 	// an unguarded reader would now answer for SOMEONE ELSE'S pty.
