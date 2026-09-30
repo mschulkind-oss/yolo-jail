@@ -10,8 +10,12 @@ vantage:
 
 # `yolo -- true` says it provisions, and leaves every agent CLI uninstalled
 
-**Status:** DESIGN, 2026-09-22; re-checked against the tree 2026-09-24. **The readiness act is not
-built**, and all three questions are open. One piece shipped: alternative B, the message fix
+**Status:** DESIGN, 2026-09-22; re-checked against the tree 2026-09-24; questions triaged
+2026-09-30. **The readiness act is not built.** One question is open, [OQ-JR1](#OQ-JR1) (what a
+failed install does to the launch). [OQ-JR2](#OQ-JR2) is answered by
+[HP-DIR2](host-tool-provisioning.md#HP-DIR2): every declared program, once per home.
+[OQ-JR3](#OQ-JR3) is decided as an implementation choice, [JR-D1](#JR-D1): `yolo apply --at jail`
+runs the launch's readiness act with no target. One piece shipped: alternative B, the message fix
 ([§5](#5-alternatives-with-verdicts)), landed 2026-09-24 (`a323fd9a`), so `yolo apply --at jail` no
 longer says a launch provisions declared programs.
 
@@ -44,7 +48,8 @@ readiness to the *declared set* rather than to a refresh.
 **Start at [§2](#2-the-host-notch-already-has-this-and-says-why)** — the host's act is the model, and
 it is already written down.
 
-**Needs your ruling:** [OQ-JR1](#OQ-JR1), [OQ-JR2](#OQ-JR2), [OQ-JR3](#OQ-JR3).
+**Needs your ruling:** [OQ-JR1](#OQ-JR1). [OQ-JR2](#OQ-JR2) is answered by a standing ruling, and
+[OQ-JR3](#OQ-JR3) was decided as an implementation choice ([JR-D1](#JR-D1)).
 
 **Reads with:** [`program-delivery.md`](program-delivery.md) (owns the launcher and
 [`OQ-PD12a`](program-delivery.md#decision-ledger), the lazy ruling this must not contradict),
@@ -156,8 +161,10 @@ questions rather than fixed: a failed `mise install` skips the bootstrap, so no 
   promised.
 - **No silent cost.** A launch that installs says so, per the report tiers — a launch has no quiet
   mode, and this reports something yolo did.
-- **Not a fix for `yolo apply --at jail` being a stub.** Whether that verb grows a real
-  implementation is [OQ-JR3](#OQ-JR3); this doc is about what a launch leaves behind.
+- **Not a fix for `yolo apply --at jail` being a stub.** This doc is about what a launch leaves
+  behind. The verb follows it: [OQ-JR3](#OQ-JR3) was decided as [JR-D1](#JR-D1), so once the
+  launch is a readiness act, `yolo apply --at jail` runs that act with no target instead of
+  pointing at it.
 
 ## 5. Alternatives, with verdicts
 
@@ -166,17 +173,17 @@ questions rather than fixed: a failed `mise install` skips the bootstrap, so no 
 | **A. Leave it; the launcher installs on first use and that works** | **Rejected** — it works for a human who types the name, and fails every other consumer: a script, an IDE pointing at an absolute path, a `yolo -- true` that was told it provisions. The promise is the defect, not the laziness. |
 | **B. Fix the message instead of the behaviour** — stop claiming `yolo -- true` provisions | **Rejected as the answer; SHIPPED 2026-09-24 as the cheap half** (`a323fd9a` — the message, the `apply` help line and the migration guide). It removed the false statement without giving the notch a readiness act, so `yolo apply --at jail` still has nothing to offer but a pointer. |
 | **C. Re-adopt eager-at-boot wholesale** | **Rejected** — that is the 2026-09-03 shape, and its four costs (a jail-level fatal, a hatch, three ordering constraints, an update of every agent on every launch) were deleted for reasons that still hold. Install-only in the provisioning stage keeps none of them except one ordering constraint. |
-| **D. A dedicated `yolo provision` verb** | **Runner-up.** The env-manager plan already calls a no-exec jail provision a follow-up, and a verb would give `apply --at jail` something real to delegate to. Rejected as the *primary* fix because it leaves an ordinary launch still unready — the gap is in the launch, and a new verb does not close it. Feeds [OQ-JR3](#OQ-JR3). |
+| **D. A dedicated `yolo provision` verb** | **Runner-up.** The env-manager plan already calls a no-exec jail provision a follow-up, and a verb would give `apply --at jail` something real to delegate to. Rejected as the *primary* fix because it leaves an ordinary launch still unready — the gap is in the launch, and a new verb does not close it. Fed [OQ-JR3](#OQ-JR3), decided as [JR-D1](#JR-D1) with no new verb: `yolo apply --at jail` runs the launch's own act. |
 | **E. Install at first invocation but block the launch until it finishes** | **Rejected as the worst of both** — it pays the cost at the least observable moment and still leaves a jail that started unready. |
 
 ## 6. Risks
 
 | Risk | Mitigation |
 | :--- | :--- |
-| **R1.** A jail that never runs an agent pays its install — the objection that killed the eager shape. | Install-only and once per home, not per launch: the cost is paid on a cold home and never again, where the deleted shape paid a network round-trip every launch. [OQ-JR2](#OQ-JR2) is whether that is still too much. |
-| **R2.** An offline cold home cannot install, and the launch has to decide. | The provisioning stage's five neighbours all degrade rather than refuse ([§3](#3-what-ready-has-to-mean-here)'s home). [OQ-JR1](#OQ-JR1) rules it; whichever way, it is stated rather than inherited. |
+| **R1.** A jail that never runs an agent pays its install — the objection that killed the eager shape. | Install-only and once per home, not per launch: the cost is paid on a cold home and never again, where the deleted shape paid a network round-trip every launch. [OQ-JR2](#OQ-JR2) asked whether that is still too much, and is answered: every declared program, because narrowing would mean reading the command line ([HP-DIR2](host-tool-provisioning.md#HP-DIR2)). |
+| **R2.** An offline cold home cannot install, and the launch has to decide. | The provisioning stage's five neighbours all degrade rather than refuse ([§3](#3-what-ready-has-to-mean-here)'s home). [OQ-JR1](#OQ-JR1) rules it, and is the one question still open; whichever way, it is stated rather than inherited. |
 | **R3.** The change is made and the launcher's cold branch is left in place, so nothing proves the eager path ran. | The cold branch **must stay** — it is the fallback for an install that failed and for a program added to a running jail. So the done-condition cannot be "the branch is gone"; it is [§7](#7-what-done-looks-like)'s observable state of a fresh jail. |
-| **R4.** `macos-user`'s provisioning stage is not the container's. | Since 2026-09-12 that backend has a confined stage of its own (`runProvisionStage`, between the darwin bootstrap and the agent — [the stage](../reference/macos-user-provisioning.md#the-stage)), so there is a place for readiness there; it runs a subset of the container's steps, under `env -i`. Named, not assumed away: [OQ-JR2](#OQ-JR2) decides whether readiness ships container-first with the gap reported on that backend. |
+| **R4.** `macos-user`'s provisioning stage is not the container's. | Since 2026-09-12 that backend has a confined stage of its own (`runProvisionStage`, between the darwin bootstrap and the agent — [the stage](../reference/macos-user-provisioning.md#the-stage)), so there is a place for readiness there; it runs a subset of the container's steps, under `env -i`. Named, not assumed away: [JR-D2](#JR-D2) ships readiness container-first and has a macos-user launch name each declared program it did not install, until that backend's stage carries the step. |
 
 ## 7. What done looks like
 
@@ -199,37 +206,63 @@ questions rather than fixed: a failed `mise install` skips the bootstrap, so no 
    `PROVISIONING FAILED` and continues unless a human at a TTY says no; the bootstrap records that
    *"an offline boot fails here routinely and simply retries next launch"*. But a jail that started
    without the program its pack declared is the unready environment this doc exists to stop. Stakes:
-   whether "ready" is a promise or a best effort at this notch — and note
-   [`../reference/agent-program-runtimes.md`](../reference/agent-program-runtimes.md)'s
-   [`OQ-AR3`](../reference/agent-program-runtimes.md#oq-ar3) already ruled **refuse** for
-   the adjacent case of an unsatisfiable interpreter floor.
+   whether "ready" is a promise or a best effort at this notch.
 
-   <!-- vantage: oq id=OQ-JR1 leaning="Degrade on a network failure, refuse on a declared-program failure that leaves nothing runnable — the distinction being whether the jail can still do the job it was selected for. A blanket refusal makes an offline cold boot unusable; a blanket degrade re-creates the exact false success this doc opens with." -->
+   *Restated 2026-09-30.* Two standing rulings pull opposite ways.
+   [`OQ-PD12`](program-delivery.md#decision-ledger) scoped an absent agent's failed install to the
+   command: *"Offline with the agent **absent** → that command fails, loudly, naming the network.
+   **No jail refuses to boot over this**"*
+   ([`program-delivery.md`](program-delivery.md#what-evergreen-means-precisely)). That was ruled
+   for the launcher's install at first use, which is all there was. And
+   [`OQ-AR3`](../reference/agent-program-runtimes.md#oq-ar3) refuses a launch whose declared Node
+   floor nothing satisfies, an offline one included, because *"if a pack is selected, the jail must
+   be able to run what it declares."* The leaning was written two ways, and one of them cannot
+   hold: readiness installs only a program that is absent ([§3](#3-what-ready-has-to-mean-here)),
+   so every failed install leaves that pack with *"no runnable program"*, and a test on that alone
+   refuses every failure, offline ones included. The comment's version, which splits by the
+   failure's cause, is the one restated as (A).
 
-   _Leaning:_ **Degrade when the install merely failed, refuse when the jail has no runnable program
-   for a selected pack.** A blanket refusal makes an offline cold boot unusable; a blanket degrade
-   re-creates the false success this doc opens with.
+   - **(A)** Split by cause. Offline, the launch starts, names each program it could not install,
+     and the launcher's cold branch retries when the name is run. A package or installer that
+     fails while the network is up refuses the launch, naming the pack, the program and the
+     installer's error, with no escape hatch. yolo has to tell the two apart, by whether the
+     registry or installer URL answered at all.
+   - **(B)** Always degrade. The launch starts and names each program it could not install,
+     whatever the cause. It is [`OQ-PD12`](program-delivery.md#decision-ledger)'s rule carried to
+     the launch.
+   - **(C)** Always refuse, as [`OQ-AR3`](../reference/agent-program-runtimes.md#oq-ar3) does for a
+     floor. An offline cold home cannot start a jail while a program-declaring pack is selected.
+
+   <!-- vantage: oq id=OQ-JR1 leaning="(A): degrade on a network failure, refuse on a failure with the network up — the distinction being whether anything but the connection is wrong. (C) makes an offline cold boot unusable; (B) re-creates the false success this doc opens with for a package that will never install." -->
+
+   _Leaning:_ **(A).** (C) makes an offline cold boot unusable. (B) re-creates the false success
+   this doc opens with for a package that will never install.
 
    **Answer:**
    > _(empty — fill in when decided)_
 
-2. 💬 <a id="OQ-JR2"></a>**[OQ-JR2](#OQ-JR2): is readiness scoped to every declared program, or only to what the launch might run?**
+2. ✅ <a id="OQ-JR2"></a>**[OQ-JR2](#OQ-JR2): is readiness scoped to every declared program, or only to what the launch might run?**
    The selected pack set is statically knowable, but a config selecting seven program-declaring packs
    makes a cold home install seven CLIs to run one — the precise cost that deleted the 2026-09-03
    shape, minus the per-launch repetition. Narrowing it needs a signal core does not have, since
    there is no agent registry and argv is not sniffed. Stakes: the cold-home cost, and whether
    `macos-user` ships with the gap named rather than closed.
 
-   <!-- vantage: oq id=OQ-JR2 leaning="Every declared program, once per home. Narrowing needs core to guess what the jail will run, which is the registry this project deleted; and the cost is bounded and one-time rather than per-launch, which is what made the earlier shape intolerable." -->
-
    _Leaning:_ **Every declared program, once per home.** Narrowing needs core to guess what the jail
    will run, which is the registry this project deleted — and the cost is one-time rather than
    per-launch, which is what made the earlier shape intolerable.
 
    **Answer:**
-   > _(empty — fill in when decided)_
+   > Answered by [HP-DIR2](host-tool-provisioning.md#HP-DIR2) (2026-09-29): *"we construct an
+   > environment. We do not sniff the command line"*, so readiness covers every program a selected
+   > pack declares, once per home, and nothing narrows it to what the launch might run. Two rulings
+   > already apply the same scope: the host floor holds the programs of the selected packs
+   > ([OQ-HP1](host-tool-provisioning.md#OQ-HP1), 2026-09-29: *"if you include the claude pack, it
+   > should also have the floor include claude on the host"*), and a fork's build is triggered by
+   > the selected pack set ([OQ-FP4](forked-programs-as-packs.md#14-decision-ledger), 2026-09-22).
+   > The stake's `macos-user` half is sequencing, decided as [JR-D2](#JR-D2).
 
-3. 💬 <a id="OQ-JR3"></a>**[OQ-JR3](#OQ-JR3): does `yolo apply --at jail` become real, or keep pointing at the launch?**
+3. ✅ <a id="OQ-JR3"></a>**[OQ-JR3](#OQ-JR3): does `yolo apply --at jail` become real, or keep pointing at the launch?**
    Today it is a stub that points at the launch. Its message was the false claim this doc opens
    with until 2026-09-24, when alternative B corrected it to say declared programs install on first
    use. Once the launch is a readiness act, the stub could say *provisioning happens as part of
@@ -237,20 +270,23 @@ questions rather than fixed: a failed `mise install` skips the bootstrap, so no 
    already defers. Stakes: whether every notch ends up with the same verb, or the jail stays the one
    whose readiness act is spelled `yolo -- true`.
 
-   <!-- vantage: oq id=OQ-JR3 leaning="Keep it a pointer, with the message corrected. Once the launch genuinely provisions, the stub's sentence is true and a second path to the same work is a second thing to keep correct — but revisit if a consumer appears that cannot spawn a container just to provision one." -->
-
    _Leaning:_ **Keep it a pointer, with the message corrected.** Once the launch genuinely
    provisions, that sentence is true, and a second path to the same work is a second thing to keep
    correct. Revisit if a consumer appears that cannot afford to start a container just to provision.
 
    **Answer:**
-   > _(empty — fill in when decided)_
+   > Decided as an implementation choice ([JR-D1](#JR-D1)), reversible: `yolo apply --at jail`
+   > runs the launch's own readiness act with no target command, the same code path as
+   > `yolo -- true`, so there is no second path to keep correct, and the verb means at the jail
+   > what it means at the host.
 
 ## 9. Decision Ledger
 
-No rulings yet. Rows land here as [§8](#8-open-questions)'s questions are answered, and the ruling
-moves into the body section it governs.
+Rows land here as [§8](#8-open-questions)'s questions are answered or decided, and the ruling moves
+into the body section it governs. [OQ-JR1](#OQ-JR1) is still open.
 
 | ID | Ruling / Decision | Date | Settled in | Built |
 | :--- | :--- | :--- | :--- | :--- |
-| — | — | — | — | — |
+| OQ-JR2 | **Answered by [HP-DIR2](host-tool-provisioning.md#HP-DIR2), not ruled here: every program a selected pack declares, once per home.** The maintainer's words there: *"we construct an environment. We do not sniff the command line."* Narrowing readiness to what a launch might run needs exactly that signal, or the agent registry this project deleted. The host floor already takes the selected packs' programs ([OQ-HP1](host-tool-provisioning.md#OQ-HP1)), and a fork's build already keys on the selected pack set ([OQ-FP4](forked-programs-as-packs.md#14-decision-ledger)) | 2026-09-29, recorded 2026-09-30 | [§3](#3-what-ready-has-to-mean-here), [§6](#6-risks) R1 | — |
+| <a id="JR-D1"></a>JR-D1 | *Implementation decision, [OQ-JR3](#OQ-JR3).* **`yolo apply --at jail` runs the launch's readiness act with no target command.** It is the launch path, the same one `yolo -- true` takes, never a second provisioner. The leaning kept a pointer to avoid *"a second path to the same work"*, and delegating to the launch gives no second path. What it adds is the notch as an input: [NC-D1](../plans/notch-convergence.md#7-decision-ledger) (*"host is supposed to act like everywhere else"*) has `yolo apply` perform each notch's readiness act, as `yolo host apply --assert` does at the host. It is also the jail meaning [`yolo-as-environment-manager.md` §3.1](yolo-as-environment-manager.md#31-apply-is-the-verb-the-current-design-is-missing) gave the verb, *"builds the image, stages packs, renders config, and exits"*. It is built with the readiness act. Until then the corrected pointer (`a323fd9a`) stays, since a launch today leaves the declared programs uninstalled. On a jail that is already running, `yolo -- true` attaches and stages nothing, so the verb says so rather than claiming a provision. Reversible: the verb goes back to printing the pointer | 2026-09-30 | [§4](#4-what-this-does-not-license), [§5](#5-alternatives-with-verdicts) D | — |
+| <a id="JR-D2"></a>JR-D2 | *Implementation decision, [§6](#6-risks) R4 and [OQ-JR2](#OQ-JR2)'s `macos-user` stake.* **Readiness ships container-first, and a macos-user launch names each declared program it did not install** until that backend's provisioning stage carries the step. It is never silent there: [`backend-parity.md`](backend-parity.md#3-the-dispositions--the-most-important-section)'s `Warned`, not `Dropped`. Two things on that backend shape the step: the stage starts only for `mise_tools` today (`ProvisionNeeded`), which is [OQ-AR5](agent-program-runtimes.md#OQ-AR5)'s subject for a floor and gets the same start rule here, and the stage runs under `env -i`. Reversible: the backend can ship with the container instead of after it | 2026-09-30 | [§6](#6-risks) R4 | — |
