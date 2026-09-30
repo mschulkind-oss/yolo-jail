@@ -10,9 +10,10 @@ vantage:
 
 # Last session wins: implementation sketch
 
-**Status:** SKETCH, 2026-09-29. It is incomplete, and it is unstable while
+**Status:** SKETCH, 2026-09-29. It is incomplete.
 [OQ-JL5](jail-lifetime-last-session-wins.md#OQ-JL5) to
-[OQ-JL8](jail-lifetime-last-session-wins.md#OQ-JL8) are open.
+[OQ-JL8](jail-lifetime-last-session-wins.md#OQ-JL8), which it waited on, were ruled on
+2026-09-29.
 [OQ-JL1](jail-lifetime-last-session-wins.md#OQ-JL1) was directed on 2026-09-29, and every note
 below assumes its answer: a **keeper**, one small background process per running container jail,
 owns the jail's host services and ends itself
@@ -104,5 +105,5 @@ host-side shared lock each session holds while it runs
 
   Integration tests: two sessions in one jail, quit the first, and the second still answers while
   the first terminal has its prompt back. Also `kill -9` of the keeper, followed by an arrival,
-  which is refused under [OQ-JL7](jail-lifetime-last-session-wins.md#OQ-JL7)'s leaning
+  which is refused, as [OQ-JL7](jail-lifetime-last-session-wins.md#OQ-JL7) ruled
   ([JL-D13](jail-lifetime-last-session-wins.md#JL-D13)).
