@@ -517,7 +517,7 @@ packs. UNMEASURED: no launch was run, and no pi session was watched switching pr
 
 | Piece | Where it lives |
 | :--- | :--- |
-| The `-p` grammar: a comma continues the previous pair's list; an element before any pair and an empty entry are misuse, exit 2 | `parseProfileValue` in [`runcmd.go`](../../internal/cli/runcmd.go), read by the jail launch and `yolo host` alike |
+| The `-p` grammar: a comma continues the previous pair's list; an element before any pair, an empty entry and a name after an empty pair are misuse, exit 2; an empty pair (`pi=`) still selects nothing for its CLI, beside other pairs too | `parseProfileValue` in [`runcmd.go`](../../internal/cli/runcmd.go), read by the jail launch and `yolo host` alike |
 | `use_profiles` takes an array; an empty one, a repeated name and a non-name are refused; a profile name may not contain `,` | `validateUseProfiles` in [`validate.go`](../../internal/config/validate.go); `checkProfileEntry`; packdecl's profile validation |
 | The set-capable declaration, `provider_sets` on `program` ([AP-D2](#AP-D2)); `packs/pi` declares it | `packdecl.Contribution.ProviderSets`, `Manifest.HoldsProviderSets` |
 | A list named at an agent that holds no set is refused, naming the fix ([OQ-AP2](#OQ-AP2)) | config validation over every resolvable pack (`config.SetCapableCLINames`); `checkProfileTargets`; `packload.ProfileSetProblems` after resolution |

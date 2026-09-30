@@ -560,6 +560,12 @@ func TestProfileFlagTakesBothGrammars(t *testing.T) {
 			[]string{"-p", "pi=zai,openrouter", "-p", "pi=kilo"}, "", map[string]string{"pi": "kilo"}},
 		{"a bare list is one value, carried whole", []string{"-p", "zai,openrouter"},
 			"zai,openrouter", nil},
+		// An EMPTY PAIR beside another is that CLI's selection of nothing, as it was before
+		// lists: a pair, not an empty entry of a list.
+		{"an empty pair before another selects nothing for its CLI",
+			[]string{"-p", "pi=,claude=zai"}, "", map[string]string{"pi": "", "claude": "zai"}},
+		{"an empty pair after another selects nothing for its CLI",
+			[]string{"-p", "claude=zai,pi="}, "", map[string]string{"claude": "zai", "pi": ""}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -595,7 +601,7 @@ func TestProfileListGrammarRefusesWhatItCannotPlace(t *testing.T) {
 		{"pi=zai,,openrouter", "entry 2 of the list is empty"},
 		{"pi=zai,", "entry 2 of the list is empty"},
 		{"zai,,openrouter", "entry 2 of the list is empty"},
-		{"pi=,openrouter", "entry 1 of the list is empty"},
+		{"pi=,openrouter", `"openrouter" follows pi=, which selects no profile for pi`},
 	}
 	for _, tc := range cases {
 		t.Run(tc.value, func(t *testing.T) {

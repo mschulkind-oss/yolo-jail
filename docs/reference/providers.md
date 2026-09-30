@@ -1257,9 +1257,11 @@ the plain name, byte for byte, so no existing config moves.
   comma continues the list of the CLI named before it: `-p pi=zai,openrouter,claude=codex`. A
   later pair for a CLI replaces its whole list, and a typed pair replaces the config's list for
   the launch ([AP-D4](../design/active-provider-sets.md#AP-D4)). A bare element before any pair
-  (`-p zai,pi=openrouter`) and an empty entry are refused as misuse, exit 2; until this build the
-  first was dropped in silence, so `-p pi=zai,openrouter` started pi on zai alone. A profile name
-  may not contain `,`, refused in both schemas where `=` is.
+  (`-p zai,pi=openrouter`), an empty entry (`-p pi=zai,`) and a name after an empty pair
+  (`-p pi=,openrouter`) are refused as misuse, exit 2; until this build the first was dropped in
+  silence, so `-p pi=zai,openrouter` started pi on zai alone. An empty pair is not an empty
+  entry: `-p pi=,claude=zai` selects nothing for pi and zai for claude, as it always did. A
+  profile name may not contain `,`, refused in both schemas where `=` is.
 - **Who may hold one.** An agent whose pack declares `provider_sets` on the program that installs
   it (`packdecl.Contribution.ProviderSets`): pi today. A list named at any other agent (claude,
   codex, copilot) is refused before anything starts, naming the one-profile spelling
