@@ -50,7 +50,9 @@ that started it: quitting that terminal's agent, or closing its window, ends the
 terminal that joined it. Start the long-running agent first, or start both from the jail's own
 shell (a bare `yolo`). A terminal that started a jail and was killed outright, with `kill -9`,
 leaves its agent running in the jail with no window, and the jail with it; the next `yolo` no
-longer cleans that jail up while another terminal is still in it.
+longer cleans that jail up while another terminal is still in it. A terminal that joins it then
+is warned that the jail's logins through yolo, port forwards and cgroup delegate may be down, and
+`yolo stop` followed by `yolo` brings them back.
 
 ## After a config change
 
