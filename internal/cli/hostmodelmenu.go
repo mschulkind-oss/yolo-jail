@@ -27,6 +27,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/modelmenu"
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
@@ -101,13 +102,22 @@ func (m *hostMenu) rewrite(argv []string) ([]string, []string) {
 }
 
 // modelMenu is the step: the menu this launch hands its program, or nil when there is none to hand
-// — no declaration, YOLO_NO_LAUNCH_FLAGS=1, a `-p` over another provider than the configured one,
-// no list, or a build that failed. target is the resolved program, catalogEnv the environment its
-// catalog run gets (the one the program itself will). Nothing here refuses the launch: every
-// failure is a line on errw, and the program keeps its own menu.
+// — no declaration, a jail, YOLO_NO_LAUNCH_FLAGS=1, a `-p` over another provider than the
+// configured one, no list, or a build that failed. target is the resolved program, catalogEnv the
+// environment its catalog run gets (the one the program itself will). Nothing here refuses the
+// launch: every failure is a line on errw, and the program keeps its own menu.
 func (c *hostComposition) modelMenu(target string, catalogEnv []string, errw io.Writer) *hostMenu {
 	p, spec := hostMenuProgram(c.packs, c.agent)
 	if spec == nil {
+		return nil
+	}
+	// IN A JAIL THE JAIL'S LAUNCHER ANSWERS, as it does for the binary (resolveHostLaunchTarget
+	// runs the PATH copy there; MM-D28 (9)): that launcher builds the program's menu from the list
+	// the jail's boot rendered for the jail's own selection, workspace scope and the jail
+	// launch's `-p` included. A menu composed here, from the user scope's `profile`, would come
+	// later in the argv and win (`-c` is last-wins), handing the program another selection's
+	// models; and the store would be made in the jail's own home, which no host step is about.
+	if config.InJail() {
 		return nil
 	}
 	// The jail's escape, and the same one: the menu's words are a pack's flag (MM-D22).

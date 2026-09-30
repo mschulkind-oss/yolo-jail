@@ -365,3 +365,21 @@ func TestHostCodexReadsItsCatalogInTheEnvironmentTheLaunchComposed(t *testing.T)
 		t.Errorf("the catalog run's PATH lacks the floor's bin/ %s, the child's PATH:\n%s", hostFloorBinDir(), got)
 	}
 }
+
+// IN A JAIL THE JAIL'S OWN LAUNCHER ANSWERS FOR THE MENU (MM-D28 (9)), as it does for the binary
+// (TestInAJailThereIsNoHostFloor): `yolo host -- codex` there runs the PATH copy, the jail's
+// launcher, which builds codex's menu from the list the jail's boot rendered for the jail's own
+// selection. A host menu composed from the user scope's `profile` would come later in the argv and
+// win, `-c` being last-wins, so it adds none, reads no catalog and creates no store in the jail.
+func TestHostCodexInAJailLeavesTheMenuToTheJailsLauncher(t *testing.T) {
+	home := hostGateHome(t, codexOnTheSubscription, nil)
+	t.Setenv("YOLO_VERSION", "0.0.0-test")
+	l := runHostMenu(t, home, "", nil, nil, "exec")
+	if l.rc != 0 || !reflect.DeepEqual(l.argv, []string{"codex", "exec"}) || l.catalogReads != 0 {
+		t.Errorf("in a jail codex got %q (rc=%d) after %d catalog reads, want its own argv and none\n%s",
+			l.argv, l.rc, l.catalogReads, l.errs)
+	}
+	if _, err := os.Stat(paths.HostModelMenusDirUnder(home)); !os.IsNotExist(err) {
+		t.Errorf("an in-jail launch created %s (%v)", paths.HostModelMenusDirUnder(home), err)
+	}
+}
