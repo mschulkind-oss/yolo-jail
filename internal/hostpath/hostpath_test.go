@@ -1,6 +1,7 @@
 package hostpath
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"slices"
@@ -18,8 +19,8 @@ import (
 const sep = string(os.PathListSeparator)
 
 // host is one test's fake machine: home is a temp HOME with the user config at its usual place and
-// no jail, and root is a temp folder standing in for "/" under every hint folder the home does not
-// hold.
+// no jail, and root is a temp folder standing in for "/", under which every hint folder the home
+// does not hold is moved and a test puts any system folder a lookup searches.
 //
 // THE HINT FOLDERS ARE THE MACHINE'S UNLESS A TEST REPLACES THEM. hostfloor.HintLocations names
 // /opt/homebrew/bin and /home/linuxbrew/.linuxbrew/bin outright, and no fake HOME moves those, so a
@@ -288,19 +289,29 @@ func TestHintIsAHintNeverAFolderOnThePath(t *testing.T) {
 // TestResolveReadsTheUserConfigsHostPathAndPassesThroughInAJail: the production resolver takes
 // host_path from the user config and skips yolo's generated tree; in a jail it returns the process
 // PATH unchanged, ignores host_path, and prints no miss line (§3, "In-jail").
+//
+// Every folder the lookup searches is one this test made. With the real /usr/bin after the wrapper,
+// a machine with ripgrep at /usr/bin/rg (a Linux distribution's package) resolved rg past the
+// skipped wrapper, which is right, and this test reported it as reading the wrapper.
 func TestResolveReadsTheUserConfigsHostPathAndPassesThroughInAJail(t *testing.T) {
-	home := fakeHost(t).home
+	h := fakeHost(t)
+	home := h.home
+	sys, abs := filepath.Join(h.root, "usr", "bin"), filepath.Join(h.root, "opt", "x", "bin")
 	cfg := filepath.Join(home, ".config", "yolo-jail", "config.jsonc")
 	if err := os.MkdirAll(filepath.Dir(cfg), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(cfg, []byte(`{"host_path": ["~/tools/bin", "/opt/x/bin"]}`), 0o644); err != nil {
+	body, err := json.Marshal(map[string][]string{"host_path": {"~/tools/bin", abs}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(cfg, body, 0o644); err != nil {
 		t.Fatal(err)
 	}
 	wrap := filepath.Join(home, ".local", "share", "yolo-jail", "bin", "wrap")
 	writeExe(t, wrap, "rg")
-	l := Resolve(wrap + sep + "/usr/bin")
-	if want := strings.Join([]string{wrap, "/usr/bin", filepath.Join(home, "tools", "bin"), "/opt/x/bin"}, sep); l.Value() != want {
+	l := Resolve(wrap + sep + sys)
+	if want := strings.Join([]string{wrap, sys, filepath.Join(home, "tools", "bin"), abs}, sep); l.Value() != want {
 		t.Errorf("Resolve = %q, want %q", l.Value(), want)
 	}
 	if got, err := l.LookPath("rg"); err == nil {
