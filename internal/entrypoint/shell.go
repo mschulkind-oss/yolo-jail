@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/provision"
 	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
@@ -332,6 +333,10 @@ func BootstrapScript(e *Env) string {
 		// the programs and packs that declare it. Baked for macos-user's `env -i`, per the
 		// comment at the consuming site.
 		"__YOLO_NODE_FLOOR_CHECKS__", nodeFloorChecks(e),
+		// Where a floor-pending record is and where its launcher goes (AR-L5), baked for the
+		// same reason as the checks.
+		"__YOLO_FLOOR_PENDING_DIR__", shquote.Quote(e.FloorPendingDir()),
+		"__YOLO_LAUNCH_DIR__", shquote.Quote(e.LaunchDir()),
 		// The one status the stage's wrapper passes through as a refusal. Spelled by
 		// provision, the package that tests for it, and never here.
 		"__YOLO_REFUSED_STATUS__", strconv.Itoa(provision.RefusedStatus),
@@ -472,19 +477,47 @@ fi
 # PREFIX rather than a floor.  That asymmetry is the whole point: a prefix is wrong for
 # ACCEPTING an installed version (it would fetch 22.19.0 while 22.23.2 sits there) and
 # exactly right for INSTALLING one, because what it fetches satisfies >= floor.
-_yolo_floor_refused=""
-_yolo_node_floor() {
-    if yolo internal node-floor-satisfied "$1" >/dev/null 2>&1; then
+#
+# ONCE A FLOOR IS MET, ITS LAUNCHERS ARE FINISHED (AR-L5).  A launcher's interpreter is
+# resolved when it is generated, at boot and before this stage, so a node installed here
+# (by the floor's install below, or by the workspace's own mise install above) would reach
+# the launcher only at the next boot.  A launcher that resolved nothing at generation left a
+# floor-pending record; the bins after the second argument are the floor's launchers, and
+# only a record that exists costs a yolo call, so a launch that installed nothing pays a
+# [ -f ] test per bin.  The two directories are BAKED, for env -i's reason above.
+_YOLO_FLOOR_PENDING=__YOLO_FLOOR_PENDING_DIR__
+_YOLO_LAUNCH_DIR=__YOLO_LAUNCH_DIR__
+_yolo_floor_launchers() {
+    local _b _any=""
+    for _b in "$@"; do
+        if [ -f "$_YOLO_FLOOR_PENDING/$_b" ]; then _any=1; fi
+    done
+    if [ -z "$_any" ]; then
         return 0
     fi
-    echo "  ↳ installing node@$1 (for $2)" >&2
-    mise install "node@$1" >&2 || true
+    # A failure is a WARNING: the floor is met, and what is left is the one-boot lag.
+    yolo internal node-floor-launchers --pending="$_YOLO_FLOOR_PENDING" \
+        --launch="$_YOLO_LAUNCH_DIR" "$@" >&2 ||
+        echo "  ⚠ the launchers of $* were not regenerated; they take the new node at the next boot" >&2
+    return 0
+}
+_yolo_floor_refused=""
+_yolo_node_floor() {
+    local _floor="$1" _who="$2"
+    shift 2
+    if yolo internal node-floor-satisfied "$_floor" >/dev/null 2>&1; then
+        _yolo_floor_launchers "$@"
+        return 0
+    fi
+    echo "  ↳ installing node@$_floor (for $_who)" >&2
+    mise install "node@$_floor" >&2 || true
     # Exit 1 means "not satisfied" and prints what IS available on stdout; any other
     # non-zero means the predicate itself could not answer, and saying "none" then would
     # be a claim nobody measured.
     local _avail _rc=0
-    _avail=$(yolo internal node-floor-satisfied "$1" 2>/dev/null) || _rc=$?
+    _avail=$(yolo internal node-floor-satisfied "$_floor" 2>/dev/null) || _rc=$?
     if [ "$_rc" = 0 ]; then
+        _yolo_floor_launchers "$@"
         return 0
     fi
     if [ "$_rc" != 1 ]; then
@@ -494,10 +527,10 @@ _yolo_node_floor() {
     # not a ready environment, and reporting success while leaving it unready states a
     # result that was not achieved.
     echo "yolo: REFUSING to start this jail: a selected pack needs a Node that is not here." >&2
-    echo "      Needed by: $2" >&2
-    echo "      Floor:     Node >=$1 (installing node@$1 failed)" >&2
+    echo "      Needed by: $_who" >&2
+    echo "      Floor:     Node >=$_floor (installing node@$_floor failed)" >&2
     echo "      Available: ${_avail:-none}" >&2
-    echo "      Make a Node >=$1 available (installing one needs the network), or drop" >&2
+    echo "      Make a Node >=$_floor available (installing one needs the network), or drop" >&2
     echo "      the pack from your packs list." >&2
     _yolo_floor_refused=1
 }
@@ -597,6 +630,10 @@ fi
 type nodeFloorDecl struct {
 	Floor      string
 	DeclaredBy []string
+	// Launchers is each declaring program whose LAUNCHER takes the interpreter (an npm one, with
+	// a usable bin name), by bin: the launchers the stage regenerates once the floor is met
+	// (AR-L5, floorlaunchers.go). A native program's launcher runs no interpreter.
+	Launchers []string
 }
 
 // declaredNodeFloors is the set of DISTINCT Node floors the selected packs' `program`
@@ -665,6 +702,9 @@ func nodeFloorDecls(packs []*packload.Pack) []nodeFloorDecl {
 			if !slices.Contains(d.DeclaredBy, who) {
 				d.DeclaredBy = append(d.DeclaredBy, who)
 			}
+			if in.Kind == "npm" && packdecl.ValidBinName(in.Bin) && !slices.Contains(d.Launchers, in.Bin) {
+				d.Launchers = append(d.Launchers, in.Bin)
+			}
 		}
 	}
 	out := make([]nodeFloorDecl, 0, len(byFloor))
@@ -675,16 +715,22 @@ func nodeFloorDecls(packs []*packload.Pack) []nodeFloorDecl {
 	return out
 }
 
-// nodeFloorChecks renders declaredNodeFloors as the bootstrap's `_yolo_node_floor <floor> <who>`
-// calls, one per line, or "" when no selected pack declares a floor.
+// nodeFloorChecks renders declaredNodeFloors as the bootstrap's
+// `_yolo_node_floor <floor> <who> [<bin>...]` calls, one per line, or "" when no selected pack
+// declares a floor. The bins are the floor's Launchers, which the call hands to the launcher
+// regeneration once the floor is met (AR-L5).
 //
 // Every value is shquote'd into a bare word: the floor is validated (packdecl.ValidNodeFloor) but
 // the bin and the pack name are pack-supplied strings, and this is shell source.
 func nodeFloorChecks(e *Env) string {
 	var lines []string
 	for _, d := range declaredNodeFloors(e) {
-		lines = append(lines, "_yolo_node_floor "+shquote.Quote(d.Floor)+" "+
-			shquote.Quote(strings.Join(d.DeclaredBy, " and ")))
+		line := "_yolo_node_floor " + shquote.Quote(d.Floor) + " " +
+			shquote.Quote(strings.Join(d.DeclaredBy, " and "))
+		if len(d.Launchers) > 0 {
+			line += " " + shquote.Join(d.Launchers)
+		}
+		lines = append(lines, line)
 	}
 	return strings.Join(lines, "\n")
 }

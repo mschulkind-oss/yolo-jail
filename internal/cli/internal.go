@@ -31,7 +31,7 @@ import (
 // rewrite semantics.
 func runInternal(args []string) int {
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "usage: yolo internal <capture-materialize|capture-run|config-dump|daemon|darwin-bootstrap|footer|image-copy|migrate-host|node-floor-satisfied|openai-auth|openai-auth-client|refresh-servers|bundle-dir|scratch-rm|update-check> [args...]")
+		fmt.Fprintln(os.Stderr, "usage: yolo internal <capture-materialize|capture-run|config-dump|daemon|darwin-bootstrap|footer|image-copy|migrate-host|node-floor-launchers|node-floor-satisfied|openai-auth|openai-auth-client|refresh-servers|bundle-dir|scratch-rm|update-check> [args...]")
 		return 2
 	}
 	switch args[0] {
@@ -102,6 +102,13 @@ func runInternal(args []string) int {
 		// deleting. Exit 0 = satisfied, 1 = not (with what IS available on stdout, for the
 		// refusal to name), 2 = misuse.
 		return runNodeFloorSatisfied(args[1:], os.Stdout)
+	case "node-floor-launchers":
+		// AR-L5 (docs/design/agent-program-runtimes.md), called by the GENERATED BOOTSTRAP SCRIPT
+		// once a Node floor is met: it regenerates the launchers that floor's programs were
+		// generated with before the stage installed their interpreter
+		// (entrypoint.RegenerateFloorLaunchers). Hidden: it rewrites launchers in the home it is
+		// pointed at, and its caller is the bootstrap.
+		return runNodeFloorLaunchers(args[1:], os.Stderr)
 	case imageCopyVerb:
 		// The launch's podman-on-Linux image copy for `just load` and the integration
 		// suite's stale-image fix, so neither spells it in shell (internalimagecopy.go).
@@ -438,6 +445,39 @@ func runNodeFloorSatisfied(args []string, stdout io.Writer) int {
 	}
 	if entrypoint.ResolveNodeForFloor(args[0]) == "" {
 		fmt.Fprintln(stdout, entrypoint.DescribeAvailableNodes())
+		return 1
+	}
+	return 0
+}
+
+// runNodeFloorLaunchers is `yolo internal node-floor-launchers --pending=<dir> --launch=<dir>
+// <bin>...`: the bootstrap's regeneration of the launchers of a floor it has just seen met (AR-L5;
+// entrypoint.RegenerateFloorLaunchers does the work). Both directories are the bootstrap's baked
+// values, never derived here, because macos-user runs the stage under `env -i`. Exit 0 when every
+// record was finished or had nothing to finish, 1 when one could not be, naming it, and 2 on misuse.
+func runNodeFloorLaunchers(args []string, out io.Writer) int {
+	const usage = "usage: yolo internal node-floor-launchers --pending=<dir> --launch=<dir> <bin>..."
+	var pending, launch string
+	var bins []string
+	for _, a := range args {
+		switch {
+		case strings.HasPrefix(a, "--pending="):
+			pending = strings.TrimPrefix(a, "--pending=")
+		case strings.HasPrefix(a, "--launch="):
+			launch = strings.TrimPrefix(a, "--launch=")
+		case strings.HasPrefix(a, "--"):
+			fmt.Fprintln(os.Stderr, usage)
+			return 2
+		default:
+			bins = append(bins, a)
+		}
+	}
+	if pending == "" || launch == "" || len(bins) == 0 {
+		fmt.Fprintln(os.Stderr, usage)
+		return 2
+	}
+	if err := entrypoint.RegenerateFloorLaunchers(pending, launch, bins, out); err != nil {
+		fmt.Fprintf(os.Stderr, "yolo internal node-floor-launchers: %v\n", err)
 		return 1
 	}
 	return 0

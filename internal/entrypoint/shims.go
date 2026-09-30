@@ -360,6 +360,11 @@ func GenerateAgentLaunchers(e *Env) error {
 	if err := resetAnchorDir(launcherDir); err != nil {
 		return err
 	}
+	// The floor-pending records are this generation's and no other's (writeFloorPending), so
+	// they are cleared with the launchers they belong to.
+	if err := resetAnchorDir(e.FloorPendingDir()); err != nil {
+		return err
+	}
 	stampDir := filepath.Join(e.Home, ".cache", "yolo-agent-stamps")
 	// B2's generation-time collision check, computed ONCE for the whole loop: the probe
 	// path and the declared mise set are the same for every pack. See launchercollision.go
@@ -436,8 +441,17 @@ func GenerateAgentLaunchers(e *Env) error {
 			var launcher string
 			switch inst.Kind {
 			case "npm":
-				launcher = npmAgentLauncher(inst, stampDir, receiptsFile(e),
+				segments := npmAgentLauncherSegments(inst, stampDir, receiptsFile(e),
 					agentUpdatesAllows(e, p.Name), servers, launchFlagsFor(e, packs, inst.Bin))
+				prefix := nodeExecPrefix(inst.NodeFloor)
+				launcher = strings.Join(segments, prefix)
+				// AR-L5: a declared floor nothing met at generation leaves the render's segments
+				// behind, for the provisioning stage to join with the interpreter it installs.
+				if inst.NodeFloor != "" && prefix == "" {
+					if err := writeFloorPending(e, inst.Bin, inst.NodeFloor, segments); err != nil {
+						return err
+					}
+				}
 			case "native":
 				launcher = nativeAgentLauncher(inst, stampDir, receiptsFile(e), capturesDir(e),
 					agentUpdatesAllows(e, p.Name), servers, launchFlagsFor(e, packs, inst.Bin))
@@ -485,6 +499,22 @@ func GenerateAgentLaunchers(e *Env) error {
 // a survivor, and that report is correct.
 func npmAgentLauncher(inst *packdecl.Install, stampDir, receiptsPath string,
 	updates bool, servers launcherServers, flags *packload.LaunchInjection) string {
+	return strings.Join(npmAgentLauncherSegments(inst, stampDir, receiptsPath, updates, servers, flags),
+		nodeExecPrefix(inst.NodeFloor))
+}
+
+// npmAgentLauncherSegments is npmAgentLauncher split at every place the exec prefix goes, so
+// joining the segments with a prefix IS the launcher rendered with it, byte for byte. It exists
+// for AR-L5 (docs/design/agent-program-runtimes.md): a launcher whose declared floor resolved to
+// nothing at generation keeps these segments (writeFloorPending), and the provisioning stage joins
+// them with the interpreter it has just installed (RegenerateFloorLaunchers), so every other byte
+// of the regenerated launcher is the one the boot rendered.
+//
+// The split point is a token no value can hold: random per render, so a pack value that happens
+// to spell the template's sentinel cannot become a place the interpreter is spliced.
+func npmAgentLauncherSegments(inst *packdecl.Install, stampDir, receiptsPath string,
+	updates bool, servers launcherServers, flags *packload.LaunchInjection) []string {
+	token := execPrefixToken()
 	binName := inst.Bin
 	pkgName, pkgVersion := splitNpmSpec(inst.Package)
 	pinned := "0"
@@ -524,9 +554,11 @@ func npmAgentLauncher(inst *packdecl.Install, stampDir, receiptsPath string,
 		// A declared floor that resolves to NOTHING also renders empty here. The refusal for that
 		// case is the launch's ("The refusal", same doc), not this generator's — a content generator that refused
 		// would refuse during `yolo check`, which is an observe verb.
-		"__YOLO_EXEC_PREFIX__", nodeExecPrefix(inst.NodeFloor),
+		//
+		// Spliced as the split token here; npmAgentLauncher joins the segments with the prefix.
+		"__YOLO_EXEC_PREFIX__", token,
 	}, append(launchFlagSplices(flags), refreshSplices(inst.Refresh)...)...)...)
-	return r.Replace(npmLauncherTemplate)
+	return strings.Split(r.Replace(npmLauncherTemplate), token)
 }
 
 // nodeExecPrefix renders the resolved interpreter as a shell-quoted word plus one space, or "".
@@ -537,7 +569,11 @@ func npmAgentLauncher(inst *packdecl.Install, stampDir, receiptsPath string,
 // when there is no prefix — putting the space in the template would leave `exec  "$REAL_BIN"` and
 // break the byte-identity the no-floor case is pinned on.
 func nodeExecPrefix(floor string) string {
-	node := ResolveNodeForFloor(floor)
+	return execPrefixFor(ResolveNodeForFloor(floor))
+}
+
+// execPrefixFor is nodeExecPrefix for an interpreter already resolved: "" for none.
+func execPrefixFor(node string) string {
 	if node == "" {
 		return ""
 	}

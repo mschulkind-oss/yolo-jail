@@ -361,6 +361,12 @@ func (e *Env) BlockDir() string { return filepath.Join(e.GeneratedBinDir(), "blo
 // It was HOME/.yolo-launchers until 2026-08-30; see BlockDir for the rename's reason.
 func (e *Env) LaunchDir() string { return filepath.Join(e.GeneratedBinDir(), "launch") }
 
+// FloorPendingDir holds one record per npm launcher whose declared Node floor nothing met when
+// it was generated (writeFloorPending, AR-L5), for the provisioning stage to finish once it has
+// installed a satisfying node. Under the same anchor as LaunchDir, cleared with it, and on no
+// PATH: a record is data, never a program.
+func (e *Env) FloorPendingDir() string { return filepath.Join(e.GeneratedBinDir(), "floor-pending") }
+
 // MiseShims is MISE_DATA/shims.
 func (e *Env) MiseShims() string { return filepath.Join(e.MiseData, "shims") }
 

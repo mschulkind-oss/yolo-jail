@@ -69,8 +69,10 @@ func newFloorBootstrap(t *testing.T, manifests map[string]string) floorBootstrap
 	fakes := map[string]string{
 		// The predicate. Its answer is the case's to choose; on "no" it prints what is
 		// available, as the real one does (runNodeFloorSatisfied).
+		// The launcher regeneration (AR-L5) is recorded and answers FAKE_LAUNCHERS_RC.
 		"yolo": `#!/bin/bash
 echo "yolo $*" >> "$FAKE_LOG"
+if [ "$1 $2" = "internal node-floor-launchers" ]; then exit "${FAKE_LAUNCHERS_RC:-0}"; fi
 [ "$1 $2" = "internal node-floor-satisfied" ] || exit 99
 if [ -n "${FAKE_SATISFIED:-}" ]; then exit 0; fi
 if [ -n "${FAKE_SATISFIED_AFTER_INSTALL:-}" ] && [ -e "$FAKE_STATE/installed-$3" ]; then exit 0; fi

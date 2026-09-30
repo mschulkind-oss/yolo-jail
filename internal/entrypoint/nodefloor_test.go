@@ -191,49 +191,6 @@ func TestAnUnsatisfiableFloorStillRendersAPlainExec(t *testing.T) {
 	}
 }
 
-// THE STAGE-INSTALL GAP (docs/design/agent-program-runtimes.md, OQ-AR7): the interpreter is
-// resolved ONCE, when the launcher is generated, and generation runs at boot BEFORE the
-// provisioning stage. So a node the stage installs satisfies the floor CHECK (which asks the
-// resolver again) but is not in the launcher of the launch that installed it; the next
-// generation, i.e. the next boot, bakes it. This pins that documented behavior, so the reference's
-// Resolution table cannot drift back into claiming the launcher execs a stage-installed node on
-// the launch that installs it. A fix for OQ-AR7 is expected to change this test.
-func TestAStageInstalledNodeReachesTheLauncherOnlyAtTheNextGeneration(t *testing.T) {
-	stubImageNode(t, "20.20.2")
-	root := fakeMiseStore(t)
-	inst := &packdecl.Install{Kind: "npm", Bin: "thing", Package: "thing", NodeFloor: "22.19"}
-
-	// Boot: nothing satisfies yet, so the launcher is baked with a plain exec.
-	atBoot := npmAgentLauncher(inst, "/stamps", "/receipts", false, launcherServers{}, nil)
-
-	// The stage installs node@22.19 into the store; the floor check's resolver now sees it.
-	bin := filepath.Join(root, "22.19.0", "bin")
-	if err := os.MkdirAll(bin, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(bin, "node"), []byte("#!/bin/sh\n"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	installed := filepath.Join(bin, "node")
-	if got := ResolveNodeForFloor("22.19"); got != installed {
-		t.Fatalf("after the install the check's resolver must see %q, got %q", installed, got)
-	}
-
-	for _, line := range execLinesOf(atBoot) {
-		if !strings.Contains(line, `exec "$REAL_BIN" `) {
-			t.Errorf("the launcher generated before the install must not name an interpreter; got: %s", line)
-		}
-	}
-
-	// Next boot: generation runs again against the now-populated store and bakes the interpreter.
-	nextBoot := npmAgentLauncher(inst, "/stamps", "/receipts", false, launcherServers{}, nil)
-	for _, line := range execLinesOf(nextBoot) {
-		if !strings.Contains(line, "exec "+shquote.Quote(installed)+" \"$REAL_BIN\" ") {
-			t.Errorf("the next generation must bake the stage-installed interpreter; got: %s", line)
-		}
-	}
-}
-
 // execLinesOf returns EVERY exec-the-program line. Plural on purpose: the first draft of this file
 // checked only the first match and passed while the re-entry guard's exec was still unwrapped.
 func execLinesOf(launcher string) []string {
@@ -285,16 +242,18 @@ func TestFloorsAreDistinctSortedAndKeepEveryDeclarer(t *testing.T) {
 	})})
 	got := declaredNodeFloors(e)
 	want := []nodeFloorDecl{
-		{Floor: "22.19", DeclaredBy: []string{"program em (pack mid)", "program zed (pack zeta)"}},
-		{Floor: "24", DeclaredBy: []string{"program ay (pack alpha)"}},
+		{Floor: "22.19", DeclaredBy: []string{"program em (pack mid)", "program zed (pack zeta)"},
+			Launchers: []string{"em", "zed"}},
+		{Floor: "24", DeclaredBy: []string{"program ay (pack alpha)"}, Launchers: []string{"ay"}},
 	}
 	if fmt.Sprint(got) != fmt.Sprint(want) {
 		t.Errorf("declaredNodeFloors =\n  %v\nwant\n  %v", got, want)
 	}
-	// And the rendered calls quote what they bake: the declarer list is one shell word.
+	// And the rendered calls quote what they bake: the declarer list is one shell word, and each
+	// launcher the floor's regeneration hands on (AR-L5) is one more.
 	checks := nodeFloorChecks(e)
-	if want := "_yolo_node_floor 22.19 'program em (pack mid) and program zed (pack zeta)'\n" +
-		"_yolo_node_floor 24 'program ay (pack alpha)'"; checks != want {
+	if want := "_yolo_node_floor 22.19 'program em (pack mid) and program zed (pack zeta)' em zed\n" +
+		"_yolo_node_floor 24 'program ay (pack alpha)' ay"; checks != want {
 		t.Errorf("nodeFloorChecks =\n%s\nwant\n%s", checks, want)
 	}
 }
