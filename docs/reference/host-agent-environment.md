@@ -249,7 +249,9 @@ refused for naming no command, the host verb having no default one.
    ([`host-tool-provisioning.md`](../design/host-tool-provisioning.md), HP-DIR4). A target given
    as a path is exec'd as given. Anything else, and a selected pack's program the floor cannot hold
    on this machine (said on one line), is looked up on the child's PATH (step 3), **skipping
-   yolo-managed directories**.
+   yolo-managed directories** and the floor's own `bin/`: a name there that no selected pack
+   delivers is an entry the floor no longer keeps, which is never run, and `yolo host apply
+   --assert` removes it.
 2. **Resolve the pack configuration** — the active profile for the launched command, and its
    effective `env` for the active workspace. The profile is a typed `-p`, else the command's
    entry in the `profile` key, else its `"*"` (or the key's string form) when a selected pack
@@ -262,7 +264,8 @@ refused for naming no command, the host verb having no default one.
    `env_sources` (the secret channel), overlay the resolved `env`, then **apply removals**: a
    `null` is an `unset`, not an empty string. PATH is overlaid last: the caller's PATH, then the
    floor's `bin/`, which holds agent names only, so an agent's own commands see the caller's PATH
-   first. A dependency probe answers a program the floor delivers by its floor entry; every other
+   first. A caller with no PATH at all (`env -i`) gets the system directories the floor's
+   installers run with in its place, so an agent's commands still resolve. A dependency probe answers a program the floor delivers by its floor entry; every other
    PATH check still reads the caller's PATH, and
    [`host-launch-environment.md`](../design/host-launch-environment.md) proposes composing it.
 4. **Say what starts** — one line naming the target and where it came from (yolo's floor copy,

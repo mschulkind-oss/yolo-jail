@@ -30,10 +30,13 @@ the floor cannot hold.
 then the floor's `bin/` ([OQ-HE10](#oq-he10) (c), [HE-D1](#he-d1)); a program the floor delivers
 answered by its floor entry in the dependency probe and `check-deps`; and, while
 [OQ-HE11](#oq-he11) is open, its leaning's behavior: a selected pack's program with no floor entry
-is looked up on the child's PATH and the launch says so in one line. **Not built:** the composed
-host PATH itself (`host_path`, the per-OS baseline, `YOLO_HOST_PATH`, §2.2), so nothing sits between
-the caller's PATH and the floor's `bin/` yet, and yolo's other PATH checks still read the ambient
-PATH; and the stage-1 notices of §4.
+is looked up on the child's PATH and the launch says so in one line. The launch's own lookup skips
+the floor's `bin/`, where a hit could only be an entry the floor no longer keeps
+([HP-D11](host-tool-provisioning.md#HP-D11)), and a caller with no PATH at all gets the floor
+installer's system baseline in its place ([HP-D12](host-tool-provisioning.md#HP-D12)).
+**Not built:** the composed host PATH itself (`host_path`, the per-OS baseline, `YOLO_HOST_PATH`,
+§2.2), so nothing sits between the caller's PATH and the floor's `bin/` yet, and yolo's other PATH
+checks still read the ambient PATH; and the stage-1 notices of §4.
 
 > **In short.** `yolo host` should make every check against the environment it composes, not
 > the one it inherited. PATH is the input where that fails today. Composing it from a fixed

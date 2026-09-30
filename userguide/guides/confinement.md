@@ -72,7 +72,8 @@ in `~/.local/share/yolo-jail/host-floor`:
   own installer (claude, for example) comes from the machine's `yolo capture` of that installer, the
   same copy your jails use, so on Linux the first one may run a capture if the machine has none yet.
 - **Keeping it current.** The floor updates an agent the way a jail does: at most once an hour, when
-  you start it, unless `agent_updates` freezes that pack.
+  you start it, unless `agent_updates` freezes that pack. It says when it is checking for a newer
+  version, so a slow package registry is not a launch that hangs saying nothing.
 - **What it cannot hold yet.** On a Mac, yolo has no copy yet of an agent with its own installer;
   `yolo host` runs the one on your PATH and says so. The same happens on Linux for codex, whose
   installer puts its program where a capture cannot record it, for any agent whose vendor
@@ -81,7 +82,8 @@ in `~/.local/share/yolo-jail/host-floor`:
 - **Choosing.** Set `"host_floor": false` in your user config for a floor of nothing, or
   `"host_floor": {"*": true, "claude": false}` to leave one pack out; `yolo host` then runs that
   agent from your PATH. `yolo host apply --assert` removes the floor's copy of an agent you no
-  longer select.
+  longer select, or have left out; until it does, `yolo host` does not run that copy, and says so
+  when it finds no other.
 
 Just before it hands over, `yolo host` prints one line naming what it starts and where it came from,
 so a slow start is visibly the agent's.
