@@ -638,8 +638,11 @@ test of the bridge's Codex route against a stub upstream
    `TestTheBridgeRefusesEveryCallerWithoutThisLaunchsToken` and
    `TestTheCallerTokenIsNeverForwardedUpstream`.
 2. **Served addresses**, notch-convergence item 2, so no notch hands on a pointer nothing serves.
+   ✅ `TestAListenPointerComposesItsDaemonsServedAddress` and
+   `TestASharedNamespaceLaunchMovesEveryServedAddressTogether`.
 3. **[HS-D1](#HS-D1), the selection closure at the host**, notch-convergence item 6, after
-   step 2.
+   step 2. ✅ `config.SelectPacks`, `TestEveryHostVerbSelectsThroughTheOneFunction` and
+   `TestNoHostLaunchOfClaudeExportsAnUnservedPointer`.
 4. **The host half**, with [HS-D3](#HS-D3), the host half of [HS-D4](#HS-D4), and
    [HS-D5](#HS-D5). ✅ the mechanism, `TestStartWaitsForReadinessAndStopEndsTheService` and
    `TestTheHostHalfServesFromItsInputAndPublishesNoFile`; the host launch,
