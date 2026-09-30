@@ -69,11 +69,12 @@ func TestOpencodeRunsOnEveryProviderOfItsSet(t *testing.T) {
 // agent runs, and nothing reaches AWS.
 func TestOpencodeRunsOnABedrockEntryAfterItsFirst(t *testing.T) {
 	requireJail(t)
-	t.Setenv("ZAI_API_KEY", "integration-probe-not-a-real-key")
+	t.Setenv("ZAI_API_KEY", "") // delivered through env_sources, as above
 	const region, opus = "eu-west-1", "global.anthropic.claude-opus-5-5"
 
 	dir := writeProject(t, `{}`)
-	packHome(t, `{"packs": ["opencode", "zai"], "providers": {"bedrock": {"region": "`+region+`"}}}`)
+	packHome(t, `{"packs": ["opencode", "zai"], "providers": {"bedrock": {"region": "`+region+`"}}, `+
+		`"env_sources": [{"ZAI_API_KEY": "integration-probe-not-a-real-key"}]}`)
 	r := runCommand(t, dir, append(jailRunArgs(), "-p", "opencode=zai,bedrock", "--", "true"))
 	if r.rc != 0 {
 		t.Fatalf("the set launch failed: rc %d\n%s", r.rc, r.combined())

@@ -108,8 +108,8 @@ func (o *Options) printEnvOverrideWarnings(findings []packload.EnvOverrideFindin
 // static pair delivered through env_sources step aside, while the jail gets the pair and
 // no AWS_PROFILE — the silent wrong answer the rule exists to catch.
 //
-// The credential pre-flight keeps the full lookup (deliveryLookup), because there the
-// launch environment IS an input: the relay can draw a credential from it.
+// The credential pre-flight asks the same question per agent (checkProviderCredentials),
+// where the launch environment counts only through a relay (CredentialScope.Relays).
 func (c *packChannel) jailOriginLookup(o *Options, argvPairs map[string]string) packload.OriginLookup {
 	return func(name string) (string, bool) {
 		_, origin, ok := c.deliverySource(o, argvPairs, name)

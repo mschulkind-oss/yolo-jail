@@ -120,7 +120,11 @@ func TestUndeclaredProfileNameRefusesTheLaunch(t *testing.T) {
 func TestProfileOptionSelectsTheAliasInTheAgentsOwnFile(t *testing.T) {
 	requireJail(t)
 
-	t.Setenv("CEREBRAS_API_KEY", "integration-probe-not-a-real-key")
+	// The key rides env_sources, the channel the credential gate delivers into the agent's own
+	// env file: the shell yolo is launched from reaches no jail's agent (bedrock-plumbing.md BR-D2),
+	// and the pre-flight refuses a key left only there for an agent nothing relays it to. The
+	// shell's own copy is blanked, so the launch cannot lean on it.
+	t.Setenv("CEREBRAS_API_KEY", "")
 
 	// The codex-speakable neighbour is the vacuity guard (codex_selection_test.go): with
 	// llamacpp cataloged in the same render, "codex wrote nothing" cannot be mistaken for
@@ -128,6 +132,7 @@ func TestProfileOptionSelectsTheAliasInTheAgentsOwnFile(t *testing.T) {
 	// the packs, because a provider address is user-scope only — see codexProbeProvider.
 	dir := writeProject(t, `{}`)
 	packHome(t, `{"packs": ["pi", "codex", "cerebras"], `+codexProbeProvider+`, `+
+		`"env_sources": [{"CEREBRAS_API_KEY": "integration-probe-not-a-real-key"}], `+
 		`"profiles": {"cb-alias": {"provider": "cerebras", "model": "default"}}}`)
 
 	// runCommand rather than runYolo: the flag goes BEFORE the `--` that starts the

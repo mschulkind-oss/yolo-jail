@@ -14,7 +14,8 @@ import (
 // (docs/reference/providers.md#the-credential-preflight, #pv-oq-13): a SELECTED pack that requires
 // a provider — by shipping one, or by a variant naming one — is refused when the composed
 // providers table has no such entry or when the credential variable that entry points at
-// is not set in what this launch would deliver. It returns the lines to print and whether
+// does not reach every agent that selected it (provider-credential-scope.md CN-D25). It
+// returns the lines to print and whether
 // the caller must stop: lines alone cannot carry that, because the escape hatch turns a
 // refusal into a LOUD CONTINUATION, and a caller that only looked at len(lines) would exit
 // on the notice (measured — this is the bug the first nested launch caught).
@@ -60,8 +61,26 @@ func (o *Options) checkProviderCredentials(cfg *jsonx.OrderedMap, packs []*packl
 	// whose key this launch delivers to anybody, so they are the only ones it may demand.
 	// The SAME scope the vehicles deliver from, so the check and the delivery cannot
 	// disagree about who gets a credential.
-	facts := packload.ProviderCredentialGapsIn(packs, channel.providers,
-		channel.scope, channel.deliveryLookup(o, argvPairs), consulted)
+	//
+	// PER AGENT, and the environment yolo was launched from only through a RELAY: no jail
+	// backend hands that environment to the jail's processes (bedrock-plumbing.md BR-D2), so a
+	// key found only there reaches an agent when its env derive copied the value into the
+	// agent's own environment, as claude's does into ANTHROPIC_AUTH_TOKEN, and for no other.
+	// opencode, pi and codex read the variable itself, and counting the shell for them started
+	// them with no key. Every other channel is asked of the agent, as the region half below asks
+	// (CredentialScope.DeliveredTo), and the argv's `-e` pairs reach every process of a
+	// container.
+	reaches := func(agent, name string) bool {
+		if v, found := argvPairs[name]; found && v != "" {
+			return true
+		}
+		if _, ok := channel.scope.DeliveredTo(agent, name); ok {
+			return true
+		}
+		return channel.scope.Relays(agent, o.Getenv(name))
+	}
+	facts := packload.ProviderCredentialGapsTo(packs, channel.providers, channel.scope, reaches,
+		func(name string) bool { return o.Getenv(name) != "" }, consulted)
 	held := o.Getenv(paths.AllowMissingProvidersEnv) != ""
 	// The refusal's wording is packload's, the host notch's too (notch-convergence.md item 14).
 	lines, refuse = packload.ProviderCredentialRefusal(facts, held)

@@ -354,8 +354,8 @@ func (o *Options) checkProfileDeclarations(fold config.ProfileFold,
 	return fmt.Errorf("packs: %s", strings.Join(problems, "\npacks: "))
 }
 
-// deliveryLookup is what "set in this launch's environment" means to the credential
-// pre-flight, in the order the launch would have used the value:
+// deliverySource answers whether this launch delivers a variable, non-empty, and the PHRASE
+// naming which of five sources answered, in the order the launch would have used the value:
 //
 //  1. the hydrated env_sources (the secret channel);
 //  2. argvPairs — the `-e K=V` pairs of the assembled container argv, which carry the
@@ -364,22 +364,16 @@ func (o *Options) checkProfileDeclarations(fold config.ProfileFold,
 //  3. the composed channel's own pack env and shape vars — the same pairs the container
 //     argv carries, spelled out so the check means the same thing on a backend that has
 //     no argv to read;
-//  4. the environment yolo itself was launched from, which the relay can draw on.
+//  4. the environment yolo itself was launched from, which reaches the jail by no channel
+//     and which the one reader, jailOriginLookup, drops.
 //
 // An EMPTY value is unset at every step: the env-derive runner drops an empty value
 // rather than composing an empty token, and an empty credential is the failure the
 // pre-flight exists to name, not an escape from it.
-func (c *packChannel) deliveryLookup(o *Options, argvPairs map[string]string) func(string) (string, bool) {
-	return func(name string) (string, bool) {
-		v, _, ok := c.deliverySource(o, argvPairs, name)
-		return v, ok
-	}
-}
-
-// deliverySource is deliveryLookup's body, plus the PHRASE naming which of the five
-// sources answered. Everything above reads through it, so the two questions — would
-// this launch deliver the variable, and from where — cannot be answered by two walks
-// that disagree about the order.
+//
+// The credential pre-flight does not read this: it asks each AGENT what reaches it
+// (checkProviderCredentials), since a launch-wide answer counted the launching shell for an
+// agent nothing relays it to.
 //
 // The phrase exists because a refusal has to name where each side was DECLARED
 // (docs/reference/protocol-resolution.md#the-four-outcomes): "something overrides that
@@ -399,10 +393,9 @@ func (c *packChannel) deliveryLookup(o *Options, argvPairs map[string]string) fu
 // exists to avoid rather than to introduce. WHICH channels exist and IN WHAT ORDER they
 // are consulted stays here, where the launch composes them.
 //
-// ⚠ THE FIFTH SOURCE IS NOT A DELIVERY INTO THE JAIL. The launch environment is here
-// because the credential pre-flight asks what the relay can draw on; nothing forwards it
-// into the jail under its own name. So the env-override pre-flight reads this through
-// jailOriginLookup (envoverrides.go), which drops that answer.
+// ⚠ THE FIFTH SOURCE IS NOT A DELIVERY INTO THE JAIL: nothing forwards the launch
+// environment into the jail under its own name. So the env-override pre-flight reads this
+// through jailOriginLookup (envoverrides.go), which drops that answer.
 //
 // "DELIVERED" MEANS TO SOME PROCESS OF THE LAUNCH, since the credential gate (OQ-CN2):
 // the shared set or any one agent's. A hydrated credential the gate withholds from every

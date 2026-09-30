@@ -353,3 +353,74 @@ func TestPiPreLaunchesTheCodexLoginForAnyEntry(t *testing.T) {
 		t.Errorf("pi on zai alone must pre-launch nothing, got %q", got)
 	}
 }
+
+// THE JAIL'S PRE-FLIGHT ASKS EACH AGENT (ProviderCredentialGapsTo): every agent whose set holds
+// a provider must receive its key, and a key left only in the environment yolo was launched
+// from counts for an agent whose env derive relayed its value (CredentialScope.Relays) and for
+// no other, since no jail process inherits that environment. relay copies zai's key into a
+// variable of its own, as claude's derive does into ANTHROPIC_AUTH_TOKEN; reader relays nothing,
+// as opencode and pi, which read the variable itself.
+func TestTheJailsCredentialPreflightAsksEachAgent(t *testing.T) {
+	relay := scopePack(t, "relay", `{"name":"relay","contributes":[
+	  {"kind":"program","bin":"relay","via":"npm","package":"@acme/relay","protocols":["openai"]}]}`,
+		`yolo.env("relay", function(ctx)
+  local p = ctx.providers[ctx.selected_provider]
+  if p and p.api_key then return { RELAYED_TOKEN = p.api_key } end
+  return {}
+end)`)
+	scopeFor := func(profiles map[string]string, shell string) *CredentialScope {
+		t.Helper()
+		scope, err := ScopeCredentials(ScopeInput{
+			Packs:     []*Pack{relay},
+			Providers: twoProviders(t),
+			Profiles:  profiles,
+			Resolved:  map[string]ResolvedProfile{"zai-profile": {Provider: "zai"}},
+			Fallback: func(name string) (string, bool) {
+				if name == "ZAI_API_KEY" && shell != "" {
+					return shell, true
+				}
+				return "", false
+			},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return scope
+	}
+	gaps := func(scope *CredentialScope, shell string, also map[string]bool) string {
+		reaches := func(agent, name string) bool {
+			return also[agent] || scope.Relays(agent, shell)
+		}
+		return strings.Join(ProviderCredentialGapsTo(nil, twoProviders(t), scope, reaches,
+			func(string) bool { return shell != "" }, []string{"env_sources"}), "\n")
+	}
+
+	both := map[string]string{"relay": "zai-profile", "reader": "zai-profile"}
+	if got := gaps(scopeFor(map[string]string{"relay": "zai-profile"}, "sk-shell"), "sk-shell", nil); got != "" {
+		t.Errorf("relay copied the shell's key into its own environment, so nothing is missing:\n%s", got)
+	}
+	got := gaps(scopeFor(both, "sk-shell"), "sk-shell", nil)
+	for _, want := range []string{
+		"ZAI_API_KEY is set only in the environment yolo was launched from, which no process of a jail inherits, and nothing relays it to reader",
+		`deliver it through an env_sources entry, which hands it to the agents on "zai" alone`} {
+		if !strings.Contains(got, want) {
+			t.Errorf("the pre-flight must say %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "relays it to relay") {
+		t.Errorf("relay received the key and must not be named:\n%s", got)
+	}
+	// A key reaching one agent through a channel the other does not share is named for the
+	// other alone.
+	got = gaps(scopeFor(both, ""), "", map[string]bool{"relay": true})
+	if !strings.Contains(got, "ZAI_API_KEY does not reach reader, although it reaches relay") {
+		t.Errorf("a key one agent receives and another does not must name the other:\n%s", got)
+	}
+	got = gaps(scopeFor(both, ""), "", nil)
+	if !strings.Contains(got, "ZAI_API_KEY is not set in this launch's environment") {
+		t.Errorf("a key nothing carries is not set:\n%s", got)
+	}
+	if scopeFor(both, "sk-shell").Relays("relay", "") {
+		t.Error("an empty value relays nothing")
+	}
+}

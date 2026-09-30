@@ -15,6 +15,7 @@ package packload
 
 import (
 	"errors"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -659,10 +660,9 @@ type providerRequirement struct {
 // and an agent that cannot reach the provider owes nobody a credential.
 //
 // lookup answers "is this variable set in what this launch would deliver" — the whole
-// assembled environment, not one channel of it. On the jail notch that is the env_sources
-// hydration, the -e pairs of the assembled argv, and the environment yolo itself was
-// launched from (which the env derive can draw on); on the host notch it is the
-// composed process env. A cataloged provider that declares no api_key_env_name is checked
+// assembled environment, not one channel of it: on the host notch, the composed process env,
+// which includes the shell yolo was launched from. The jail notch asks per agent instead
+// (ProviderCredentialGapsTo), because no jail process inherits that shell. A cataloged provider that declares no api_key_env_name is checked
 // for EXISTENCE only — an entry can be in an agent's dictionary without naming where its
 // key lives — and a provider with no endpoint (Bedrock, whose credential is the ambient
 // AWS chain yolo cannot inspect) is not required at all, because it reaches no catalog.
@@ -689,8 +689,22 @@ type providerRequirement struct {
 // which is exactly the mysterious-first-request failure that ruling was about.
 func ProviderCredentialGaps(packs []*Pack, providers *jsonx.OrderedMap, selected []string,
 	lookup func(string) (string, bool), consulted []string) []string {
-	return providerCredentialGaps(packs, providers, selected, nil, lookup, consulted)
+	return providerCredentialGaps(packs, providers, selected, nil, lookupGap(lookup), consulted)
 }
+
+// lookupGap is the launch-wide question: a credential variable is delivered when lookup finds
+// it set, non-empty, anywhere in what the launch delivers.
+func lookupGap(lookup func(string) (string, bool)) func(provider, keyName string) []string {
+	return func(_, keyName string) []string {
+		if v, ok := lookup(keyName); ok && v != "" {
+			return nil
+		}
+		return []string{notSetGap}
+	}
+}
+
+// notSetGap is the fact's tail for a credential no channel of the launch carries.
+const notSetGap = "is not set in this launch's environment"
 
 // ProviderCredentialGapsIn is ProviderCredentialGaps over the credential gate's own answer: the
 // providers it demands are the gate's SelectedProviders — every entry of every active set
@@ -698,18 +712,65 @@ func ProviderCredentialGaps(packs []*Pack, providers *jsonx.OrderedMap, selected
 // of some agent's set names that entry, its position and the agent (CredentialScope.SetPosition),
 // so `-p pi=zai,openrouter` with no OPENROUTER_API_KEY says openrouter is second in pi's set
 // rather than leaving the reader to wonder why a provider pi does not start on is required.
-// Every launch arm and the host notch call this one; the list-taking form stays for a caller
-// with no gate.
+// The host notch calls this one and every jail arm the per-agent ProviderCredentialGapsTo; the
+// list-taking form stays for a caller with no gate.
 func ProviderCredentialGapsIn(packs []*Pack, providers *jsonx.OrderedMap, scope *CredentialScope,
 	lookup func(string) (string, bool), consulted []string) []string {
 	return providerCredentialGaps(packs, providers, scope.SelectedProviders(), scope.SetPosition,
-		lookup, consulted)
+		lookupGap(lookup), consulted)
 }
 
-// providerCredentialGaps is both forms' body; position, when non-nil, names where a provider
-// sits in an active set, "" for nowhere worth naming.
+// ProviderCredentialGapsTo is ProviderCredentialGapsIn asked PER AGENT, the form a notch calls
+// whose agents do not inherit the environment yolo was launched from: the jail's, on a
+// container, an attach and macos-user alike (docs/design/bedrock-plumbing.md BR-D2, "the
+// composed jail environment is what reaches the agent"). Each agent whose active set holds a
+// provider must receive that provider's key: reaches answers whether the variable reaches the
+// agent through a channel of this notch, or its value does through the agent's own env derive
+// (a relay, CredentialScope.Relays).
+//
+// stranded reports whether a variable nothing delivers is set in the environment yolo was
+// launched from. Such a key reaches the agent by no channel, and the fact says so rather than
+// "is not set", which the user, seeing it in their own shell, would read as false; the launch
+// that counted it started opencode, pi and codex with no key, since each reads the variable
+// itself and none relays it. Nil names nothing stranded.
+func ProviderCredentialGapsTo(packs []*Pack, providers *jsonx.OrderedMap, scope *CredentialScope,
+	reaches func(agent, name string) bool, stranded func(string) bool, consulted []string) []string {
+	gap := func(provider, keyName string) []string {
+		var missing, reached []string
+		for _, agent := range scope.Agents() {
+			if !slices.Contains(SetProvidersOf(scope.Agent(agent)), provider) {
+				continue
+			}
+			if reaches(agent, keyName) {
+				reached = append(reached, agent)
+			} else {
+				missing = append(missing, agent)
+			}
+		}
+		switch {
+		case len(missing) == 0:
+			return nil
+		case stranded != nil && stranded(keyName):
+			return []string{"is set only in the environment yolo was launched from, which no process " +
+				"of a jail inherits, and nothing relays it to " + andList(missing),
+				"    that environment counts only for an agent whose env derive relays the key; deliver " +
+					"it through an env_sources entry, which hands it to the agents on " + quoted(provider) + " alone"}
+		case len(reached) > 0:
+			return []string{"does not reach " + andList(missing) + ", although it reaches " + andList(reached)}
+		default:
+			return []string{notSetGap}
+		}
+	}
+	return providerCredentialGaps(packs, providers, scope.SelectedProviders(), scope.SetPosition,
+		gap, consulted)
+}
+
+// providerCredentialGaps is every form's body; position, when non-nil, names where a provider
+// sits in an active set, "" for nowhere worth naming. gap answers nil for a provider whose key
+// is delivered, else the fact's tail after "whose credential variable K " and any indented lines
+// to print under the fact.
 func providerCredentialGaps(packs []*Pack, providers *jsonx.OrderedMap, selected []string,
-	position func(string) string, lookup func(string) (string, bool), consulted []string) []string {
+	position func(string) string, gap func(provider, keyName string) []string, consulted []string) []string {
 	isSelected := make(map[string]bool, len(selected))
 	for _, name := range selected {
 		isSelected[name] = true
@@ -724,7 +785,8 @@ func providerCredentialGaps(packs []*Pack, providers *jsonx.OrderedMap, selected
 		if keyName == "" {
 			continue // cataloged and needs no single credential pointer
 		}
-		if v, ok := lookup(keyName); ok && v != "" {
+		tail := gap(req.provider, keyName)
+		if len(tail) == 0 {
 			continue
 		}
 		who := "your config declares" // an entry only the user's config put in the table
@@ -732,13 +794,14 @@ func providerCredentialGaps(packs []*Pack, providers *jsonx.OrderedMap, selected
 			who = "pack " + req.pack + " requires"
 		}
 		fact := "  • " + who + " provider " + quoted(req.provider) +
-			", whose credential variable " + keyName + " is not set in this launch's environment"
+			", whose credential variable " + keyName + " " + tail[0]
 		if position != nil {
 			if where := position(req.provider); where != "" {
 				fact += " (" + where + "; yolo never starts an agent on part of its set)"
 			}
 		}
 		facts = append(facts, fact)
+		facts = append(facts, tail[1:]...)
 	}
 	if len(facts) == 0 {
 		return nil

@@ -466,6 +466,10 @@ the agent.
   of the file Copilot moved it out of at every start, only for the next launch to put it back.
 - opencode, pi and oh-omp no longer show a model named "default" or "fast" in their menus: a
   model shows its own name, or its id.
+- A jail launch whose pi, opencode or Codex key is only exported in the shell you ran `yolo` from
+  now stops before anything starts, names the key and tells you to put it in `env_sources`. That
+  shell never reaches a jail, so the agent used to start with no key and fail at its first
+  request. Claude Code and Copilot still start, since yolo hands them the key itself.
 - opencode on a profile whose provider lists no models, such as `openrouter` or `kilo`, now shows
   only that provider in its menu, as it already did on one that lists them; it still picks the
   model itself. Until now it showed every provider, including ones it had no key for.

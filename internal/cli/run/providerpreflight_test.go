@@ -228,10 +228,12 @@ func TestCheckProviderCredentialsHatchLiftsTheRefusal(t *testing.T) {
 	}
 }
 
-// The refusal is quiet once the key arrives by ANY channel the launch would deliver —
-// env_sources, the assembled -e argv (a variant's own env, or a provider variable the
-// agent's env derive already relayed), or the environment yolo itself was launched
-// from. A check that only looked in one of the three would refuse launches that work.
+// The refusal is quiet once the key arrives by ANY channel the launch delivers to the agent —
+// env_sources, or the assembled -e argv (a variant's own env, or a provider variable the
+// agent's env derive already relayed). A check that only looked in one would refuse launches
+// that work. The environment yolo itself was launched from is no such channel: it reaches a
+// jail's agent only through its derive's relay, so acme, which has no derive, is refused with
+// the key left there (launchshellcredential_test.go pins the relay).
 func TestCheckProviderCredentialsSilentOnceTheKeyArrives(t *testing.T) {
 	home := retireHome(t)
 	writeUserPacks(t, home, `[]`)
@@ -264,9 +266,11 @@ func TestCheckProviderCredentialsSilentOnceTheKeyArrives(t *testing.T) {
 		}
 		return ""
 	}
-	if lines, refuse := o.checkProviderCredentials(newConfig(), packs, channelFor(t, o, newConfig(), packs, emptyEnv()), nil); len(lines) != 0 || refuse {
-		t.Errorf("a key exported in the invoking shell must satisfy the check — the env "+
-			"derive can draw on it:\n%s", strings.Join(lines, "\n"))
+	lines, refuse := o.checkProviderCredentials(newConfig(), packs, channelFor(t, o, newConfig(), packs, emptyEnv()), nil)
+	if !refuse || !strings.Contains(strings.Join(lines, "\n"), "ZAI_API_KEY is set only in the environment yolo was launched from") {
+		t.Errorf("a key exported only in the invoking shell reaches acme by no channel, and nothing "+
+			"relays it, so the check must refuse and say where the key was left (refuse=%v):\n%s",
+			refuse, strings.Join(lines, "\n"))
 	}
 }
 

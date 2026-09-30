@@ -61,8 +61,12 @@ func TestCodexSelectionFollowsTheActiveProfile(t *testing.T) {
 
 	// zai ships api_key_env_name = ZAI_API_KEY and its provider is cataloged (it carries
 	// endpoints), so the credential preflight refuses a launch that cannot deliver it —
-	// selected or not (internal/packload requiredProviders). Set before any launch.
-	t.Setenv("ZAI_API_KEY", "integration-probe-not-a-real-key")
+	// selected or not (internal/packload requiredProviders).
+	// The key rides env_sources, the channel the credential gate delivers into the agent's own
+	// env file: the shell yolo is launched from reaches no jail's agent (bedrock-plumbing.md BR-D2),
+	// and the pre-flight refuses a key left only there for an agent nothing relays it to. The
+	// shell's own copy is blanked, so the launch cannot lean on it.
+	t.Setenv("ZAI_API_KEY", "")
 
 	t.Run("a selected provider codex cannot speak is never selected", func(t *testing.T) {
 		dir := writeProject(t, `{}`)
@@ -70,7 +74,7 @@ func TestCodexSelectionFollowsTheActiveProfile(t *testing.T) {
 		// profile activated at codex's CLI name — the flag spelling, scoped to this
 		// launch exactly as a user would type it.
 		packHome(t, `{"packs": ["claude", "zai", "codex", "pi", "opencode"], `+
-			codexProbeProvider+`}`)
+			`"env_sources": [{"ZAI_API_KEY": "integration-probe-not-a-real-key"}], `+codexProbeProvider+`}`)
 		// runCommand rather than runYolo/runYoloDirect: the flag goes BEFORE the `--`
 		// that starts the container command, which neither wrapper's shape allows.
 		r := runCommand(t, dir, append(jailRunArgs(), "-p", "codex=zai", "--", "true"))

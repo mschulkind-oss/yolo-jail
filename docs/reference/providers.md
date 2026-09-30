@@ -373,6 +373,18 @@ notches call). The region pre-flight asks each entry too, and the region fill re
 `~/.aws/config` for the first entry that needs a region, so a Bedrock entry after the first is
 given its profile's region as a primary one is (`AgentDelivery.RegionFileFor`).
 
+**In a jail the key must reach each agent on the provider**, through what that agent receives:
+`env_sources`, a selected pack's `env`, the profile's provider environment, or, on a container,
+the argv's `-e` pairs. The shell yolo was launched from reaches no process of a jail
+([BR-D2](../design/bedrock-plumbing.md#BR-D2)), so a key left only there counts for an agent
+whose env derive copies its value into the agent's own environment (claude's
+`ANTHROPIC_AUTH_TOKEN`, copilot's `COPILOT_PROVIDER_API_KEY`) and for no other. opencode, pi and
+codex read the variable itself, so for them the refusal names the variable as left in that shell
+and offers `env_sources` (`packload.ProviderCredentialGapsTo`,
+[CN-D25](../design/provider-credential-scope.md#7-decision-ledger)); until 2026-09-30 the check
+counted that shell for every agent, and those three started with no key. At `yolo host` the agent
+inherits that shell, so it counts there.
+
 The refusal names the provider, the pack that shipped it (or the user config, when only the
 user's entry put it there), the variable, and **every channel consulted** — the `env_sources`
 entries and the invoking environment. That last line exists because `env_sources` fails open (a

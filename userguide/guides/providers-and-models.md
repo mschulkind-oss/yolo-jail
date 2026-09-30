@@ -30,7 +30,9 @@ Two words do the work:
    ZAI_API_KEY=your-key-here
    ```
 
-   Never put a key value in a `.jsonc` file.
+   Never put a key value in a `.jsonc` file. Keep the key in `env_sources` rather than
+   exporting it in your shell: inside a jail, pi, opencode and Codex see only the keys yolo
+   delivers, so a launch that finds their key only in your shell stops and tells you to move it.
 
 3. **Select the profile** for one launch with `-p`, or make it your default with the `profile` key
    in your user config:

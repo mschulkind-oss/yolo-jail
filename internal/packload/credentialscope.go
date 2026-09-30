@@ -869,6 +869,28 @@ func (s *CredentialScope) DeliveredTo(agent, name string) (string, bool) {
 	return value, value != ""
 }
 
+// Relays reports whether agent's env derive composed value into the agent's own environment
+// under some name: the RELAY, by which a credential only the environment yolo was launched from
+// holds (ScopeInput.Fallback) still reaches the agent, as claude's derive copies a provider's key
+// into ANTHROPIC_AUTH_TOKEN. It is how the jail's credential pre-flight tells an agent that
+// received such a key from one that reads the variable itself, which no jail backend forwards
+// (ProviderCredentialGapsTo). A value is compared, never returned; an empty one relays nothing.
+func (s *CredentialScope) Relays(agent, value string) bool {
+	if s == nil || value == "" {
+		return false
+	}
+	d := s.agents[agent]
+	if d == nil {
+		return false
+	}
+	for _, v := range d.Shape {
+		if !v.Unset && v.Value == value {
+			return true
+		}
+	}
+	return false
+}
+
 // Empty reports whether a delivery carries nothing beyond the shared set.
 func (d *AgentDelivery) Empty() bool {
 	if d == nil {

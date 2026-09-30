@@ -17,11 +17,16 @@ import (
 func TestPiRunsOnEveryProviderOfItsSet(t *testing.T) {
 	requireJail(t)
 	// Both providers' keys, since the credential pre-flight demands every entry's (AP-D3).
-	t.Setenv("ZAI_API_KEY", "integration-probe-not-a-real-key")
-	t.Setenv("OPENROUTER_API_KEY", "integration-probe-not-a-real-key")
+	// The keys ride env_sources, the channel the credential gate delivers into the agent's own
+	// env file: the shell yolo is launched from reaches no jail's agent (bedrock-plumbing.md BR-D2),
+	// and the pre-flight refuses a key left only there for an agent nothing relays it to. The
+	// shell's own copies are blanked, so the launch cannot lean on them.
+	t.Setenv("ZAI_API_KEY", "")
+	t.Setenv("OPENROUTER_API_KEY", "")
 
 	dir := writeProject(t, `{}`)
-	packHome(t, `{"packs": ["pi", "zai", "openrouter"]}`)
+	packHome(t, `{"packs": ["pi", "zai", "openrouter"], "env_sources": [`+
+		`{"ZAI_API_KEY": "integration-probe-not-a-real-key", "OPENROUTER_API_KEY": "integration-probe-not-a-real-key"}]}`)
 	r := runCommand(t, dir, append(jailRunArgs(), "-p", "pi=zai,openrouter", "--", "true"))
 	if r.rc != 0 {
 		t.Fatalf("the set launch failed: rc %d\n%s", r.rc, r.combined())
@@ -69,11 +74,12 @@ func TestPiRunsOnEveryProviderOfItsSet(t *testing.T) {
 // agent runs, and nothing reaches AWS.
 func TestPiRunsOnABedrockEntryAfterItsFirst(t *testing.T) {
 	requireJail(t)
-	t.Setenv("ZAI_API_KEY", "integration-probe-not-a-real-key")
+	t.Setenv("ZAI_API_KEY", "") // delivered through env_sources, as above
 	const region, opus = "eu-west-1", "global.anthropic.claude-opus-5-5"
 
 	dir := writeProject(t, `{}`)
-	packHome(t, `{"packs": ["pi", "zai"], "providers": {"bedrock": {"region": "`+region+`"}}}`)
+	packHome(t, `{"packs": ["pi", "zai"], "providers": {"bedrock": {"region": "`+region+`"}}, `+
+		`"env_sources": [{"ZAI_API_KEY": "integration-probe-not-a-real-key"}]}`)
 	// pi's own env file, sourced as pi's launcher sources it; absent when nothing is scoped to pi,
 	// which then reads as no region rather than as a failed launch.
 	r := runCommand(t, dir, append(jailRunArgs(), "-p", "pi=zai,bedrock", "--", "bash", "-lc",
@@ -107,11 +113,12 @@ func TestPiRunsOnABedrockEntryAfterItsFirst(t *testing.T) {
 // rest. Through config resolution, the one fold, the boot render and the launch lines.
 func TestTheProfileKeysListReachesPiWholeAndClaudeFirst(t *testing.T) {
 	requireJail(t)
-	t.Setenv("ZAI_API_KEY", "integration-probe-not-a-real-key")
-	t.Setenv("OPENROUTER_API_KEY", "integration-probe-not-a-real-key")
+	t.Setenv("ZAI_API_KEY", "") // delivered through env_sources, as above
+	t.Setenv("OPENROUTER_API_KEY", "")
 
 	dir := writeProject(t, `{}`)
-	packHome(t, `{"packs": ["claude", "pi", "zai", "openrouter"], "profile": ["zai", "openrouter"]}`)
+	packHome(t, `{"packs": ["claude", "pi", "zai", "openrouter"], "profile": ["zai", "openrouter"], `+
+		`"env_sources": [{"ZAI_API_KEY": "integration-probe-not-a-real-key", "OPENROUTER_API_KEY": "integration-probe-not-a-real-key"}]}`)
 	r := runCommand(t, dir, append(jailRunArgs(), "--", "true"))
 	if r.rc != 0 {
 		t.Fatalf("the key's list launch failed: rc %d\n%s", r.rc, r.combined())

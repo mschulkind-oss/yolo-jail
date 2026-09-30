@@ -25,8 +25,9 @@ import (
 // own the surfaces under test, plus zai — the pack that DECLARES the `zai` variant and
 // ships the provider fact, installing no CLI of its own. Selecting a pack renders its
 // surfaces and installs no CLI, so no vendor install happens in this test
-// (providers_test.go TestProvidersRenderInTheAgentsOwnVocabulary is the same trick).
-const piAndOpencodePacks = `{"packs": ["pi", "opencode", "zai"]}`
+// (providers_test.go TestProvidersRenderInTheAgentsOwnVocabulary is the same trick). zai's key
+// rides env_sources, the one channel that reaches pi and opencode in a jail.
+const piAndOpencodePacks = `{"packs": ["pi", "opencode", "zai"], "env_sources": [{"ZAI_API_KEY": "integration-probe-not-a-real-key"}]}`
 
 // pioencodeSurface is one rendered agent file decoded as the JSON object the agent reads,
 // with the keys a selection must and must not add. The `selection` key is the reserved
@@ -84,8 +85,12 @@ func TestPiAndOpencodeSelectionFollowTheActiveProfile(t *testing.T) {
 
 	// zai ships api_key_env_name = ZAI_API_KEY, and the selected-pack credential preflight
 	// refuses a launch whose environment cannot deliver it (internal/packload
-	// ProviderCredentialGaps). Set before any launch.
-	t.Setenv("ZAI_API_KEY", "integration-probe-not-a-real-key")
+	// ProviderCredentialGaps), so piAndOpencodePacks delivers it.
+	// The key rides env_sources, the channel the credential gate delivers into the agent's own
+	// env file: the shell yolo is launched from reaches no jail's agent (bedrock-plumbing.md BR-D2),
+	// and the pre-flight refuses a key left only there for an agent nothing relays it to. The
+	// shell's own copy is blanked, so the launch cannot lean on it.
+	t.Setenv("ZAI_API_KEY", "")
 
 	t.Run("a profile at both CLIs writes both selections, and no profile clears what yolo wrote", func(t *testing.T) {
 		dir := writeProject(t, `{}`)
