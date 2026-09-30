@@ -303,6 +303,65 @@ func TestOpencodeAndPiPreferANarrowedListsDefaultAlias(t *testing.T) {
 	}
 }
 
+// OPENCODE'S OWN BEDROCK CLIENT GETS THE WHITELIST TOO. The native `amazon-bedrock` row (Bedrock
+// step 2's) lists the narrowed entries, but those rows add beside opencode's own Bedrock catalog
+// and cannot narrow it, so without the whitelist an `only` left that menu whole and refused
+// nothing. The same switch governs it: off, no whitelist.
+func TestOpencodeWhitelistsANarrowedListOnItsOwnBedrockClient(t *testing.T) {
+	const opus, sol = "global.anthropic.claude-opus-5-5", "us.openai.gpt-6.1-sol"
+	company := companyModelsPack(t, `{"kind":"models","provider":"bedrock","only":["`+sol+`","`+opus+`"]}`)
+	packs := append(testPacksForAgent(t, "opencode"), company)
+	off := false
+	for _, tc := range []struct {
+		name     string
+		user     map[string]packload.UserProfile
+		profile  string
+		enforced bool
+	}{
+		{"enforced by default", nil, "bedrock", true},
+		{"with enforce_models off", map[string]packload.UserProfile{"bedrock-open": {Provider: "bedrock", EnforceModels: &off}}, "bedrock-open", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			table, err := packload.ComposeProviders(nil, packs)
+			if err != nil {
+				t.Fatal(err)
+			}
+			resolved, err := packload.ResolveProfiles(packs, tc.user, table)
+			if err != nil {
+				t.Fatal(err)
+			}
+			r := newPioencodeRender(t, mustCompactJSON(t, table))
+			r.wireProfiles(mustCompactJSON(t, packload.ProfilesWireTable(resolved)))
+			r.render(t, `{"opencode":"`+tc.profile+`"}`)
+			cfg := r.ocConfig(t)
+			rows, _ := cfg["provider"].(map[string]any)
+			native, _ := rows["amazon-bedrock"].(map[string]any)
+			if native == nil {
+				t.Fatalf("no provider[\"amazon-bedrock\"] row: %v", rows)
+			}
+			models, _ := native["models"].(map[string]any)
+			var ids []string
+			for id := range models {
+				ids = append(ids, id)
+			}
+			sort.Strings(ids)
+			if want := []string{opus, sol}; !reflect.DeepEqual(ids, want) {
+				t.Errorf("amazon-bedrock models = %v, want the narrowed list %v", ids, want)
+			}
+			whitelist, has := native["whitelist"]
+			switch {
+			case tc.enforced && !reflect.DeepEqual(whitelist, []any{opus, sol}):
+				t.Errorf("amazon-bedrock whitelist = %v, want the narrowed ids", whitelist)
+			case !tc.enforced && has:
+				t.Errorf("amazon-bedrock whitelist = %v with enforce_models off, want none", whitelist)
+			}
+			if cfg["model"] != "amazon-bedrock/"+opus {
+				t.Errorf("model = %v, want amazon-bedrock/%s, the narrowed list's first entry", cfg["model"], opus)
+			}
+		})
+	}
+}
+
 // NO WHITELIST FOR A LIST NO `only` NARROWED: what an `add` does to opencode's own catalog is
 // OQ-MM1's, and whether a list with no `only` refuses on a gateway serving more is OQ-MM3's.
 func TestOpencodeWritesNoWhitelistForAnUnnarrowedList(t *testing.T) {

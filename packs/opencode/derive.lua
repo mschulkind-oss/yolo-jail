@@ -328,6 +328,15 @@ yolo.derive("opencode", "config", function(ctx)
       if type(p) == "table" and type(p.region) == "string" and p.region ~= "" then
         entry.options = { region = p.region }
       end
+      -- Under an `only`, the same whitelist as a generic row's (above): these rows add beside
+      -- opencode's own Bedrock catalog and cannot narrow it, so the whitelist is the menu, and
+      -- it refuses too, so only while the profile's switch is on (MM-D5, MM-D7).
+      if type(p) == "table" and p.models_only == true and ctx.enforce_models ~= false and next(entry.models) ~= nil then
+        local ids = {}
+        for id in pairs(entry.models) do table.insert(ids, id) end
+        table.sort(ids)
+        entry.whitelist = ids
+      end
       provOut[opencodeBedrockProvider] = entry
     end
     if next(provOut) ~= nil then
