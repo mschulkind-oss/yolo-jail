@@ -494,6 +494,10 @@ func TestWillServeAndTheBootResolutionAreOneDecision(t *testing.T) {
 		{bridgedProviders, `{}`, `{"claude":"cerebras-fast"}`},
 		{`{"other":{"endpoints":{"anthropic":{"base_url":"http://127.0.0.1:8214"}}}}`,
 			`{"cerebras-fast":{"provider":"cerebras"}}`, `{"claude":"cerebras-fast"}`},
+		// An ACTIVE SET's list (docs/design/active-provider-sets.md) reads as its primary, the
+		// entry the agent's one route serves.
+		{bridgedProviders, `{"cerebras-fast":{"provider":"cerebras"},"other":{"provider":"other"}}`,
+			`{"claude":["cerebras-fast","other"]}`},
 	}
 	for i, tc := range tables {
 		env := routeEnv(tc.providers, tc.profiles, tc.useProfiles)
@@ -504,6 +508,19 @@ func TestWillServeAndTheBootResolutionAreOneDecision(t *testing.T) {
 			t.Errorf("case %d: WillServe = %v, boot resolution says serve=%v (idle %q) — "+
 				"the decision has split in two", i, got, want, idle)
 		}
+	}
+}
+
+// A list value lowers to its first entry, the primary, and so serves the route a string naming
+// that entry serves: without the lowering the list read as "no profile" and the bridge idled.
+func TestAnActiveSetsListRoutesItsPrimary(t *testing.T) {
+	env := routeEnv(bridgedProviders, `{"cerebras-fast":{"provider":"cerebras"},"other":{"provider":"other"}}`,
+		`{"claude":["cerebras-fast","other"]}`)
+	if got := useProfilesTable(env.LoadUseProfiles())["claude"]; got != "cerebras-fast" {
+		t.Fatalf("useProfilesTable read claude's list as %q, want its primary cerebras-fast", got)
+	}
+	if _, idle := resolveRoute(env); idle != "" {
+		t.Errorf("a list whose primary is bridged must serve, idled: %s", idle)
 	}
 }
 

@@ -210,7 +210,12 @@ func renderPackSet(e *Env, packs []*packload.Pack,
 	// declarations included. The selection below reads both — the pack manifests cannot answer
 	// for a name only the user declares, and re-deriving here would be the second
 	// implementation of ResolveProfiles the one-composition rule forbids.
-	profiles := packload.ProfileTable(e.LoadUseProfiles())
+	useProfiles := e.LoadUseProfiles()
+	profiles := packload.ProfileTable(useProfiles)
+	// Each agent's whole ACTIVE SET off the same table (docs/design/active-provider-sets.md
+	// §4.3): the primary is profiles' entry, and a set-capable derive reads the rest as
+	// ctx.active_set.
+	sets := packload.ProfileSets(useProfiles)
 	resolved := e.LoadProfiles()
 	// The §4.2 autonomy policy comes from THIS target's confinement profile — the same
 	// render.ProfileFor table the host render reads (plan §6c step 1) — never a literal. It
@@ -235,7 +240,7 @@ func renderPackSet(e *Env, packs []*packload.Pack,
 			src := jailLayerSource{
 				tables:       tablesForAgent(tables, mcp, pl.surface.Agent),
 				deriveScript: deriveScript,
-				sel:          surfaceSelectionFor(packs, resolved, profiles, pl.surface),
+				sel:          surfaceSelectionFor(packs, resolved, profiles, sets, pl.surface),
 			}
 			if err := step("configure_"+pl.surface.Agent+"_"+pl.surface.Name, func() error {
 				return renderPlannedSurface(e, pl, src)

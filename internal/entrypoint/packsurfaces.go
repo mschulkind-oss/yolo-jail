@@ -241,6 +241,9 @@ type surfaceSelection struct {
 	// Provider is what that variant delivers — ctx.selected_provider; "" when no
 	// variant is active.
 	Provider string
+	// ActiveSet is the agent's whole active set, Profile first — ctx.active_set
+	// (docs/design/active-provider-sets.md §4.3); nil when no variant is active.
+	ActiveSet []luahook.SetEntry
 	// NativeCapabilities is what this surface's agent's BUILT-IN authentication source
 	// performs for itself (§6.1 clause 1's pack.json half). It belongs beside the other
 	// two because it completes the same answer: Provider names the source when a profile
@@ -273,14 +276,28 @@ type surfaceSelection struct {
 // under user; the manifests are only what fed it. A BUILT-IN source is the opposite case:
 // no user config declares one, there is no launcher table for it to be in, and the only
 // statement of it is the manifest of the pack that installs the CLI (§6.1 clause 1).
+//
+// sets is the launch's active-set table (packload.ProfileSets over the same YOLO_USE_PROFILES
+// profiles was lowered from; docs/design/active-provider-sets.md §4.3): the agent's whole set
+// reaches the derive as ctx.active_set, its first entry being the Profile and Provider above.
+// Nil, or a set whose first entry is not profiles' primary, reads as the one profile.
 func surfaceSelectionFor(packs []*packload.Pack, resolved map[string]packload.ResolvedProfile,
-	profiles map[string]string, s manifest.Surface) surfaceSelection {
+	profiles map[string]string, sets map[string][]string, s manifest.Surface) surfaceSelection {
+	profile := profiles[s.Agent]
+	set := sets[s.Agent]
+	if len(set) == 0 || set[0] != profile {
+		set = nil
+		if profile != "" {
+			set = []string{profile}
+		}
+	}
 	return surfaceSelection{
-		Profile:            profiles[s.Agent],
-		Provider:           packload.ProviderFor(resolved, profiles[s.Agent]),
+		Profile:            profile,
+		Provider:           packload.ProviderFor(resolved, profile),
+		ActiveSet:          packload.ActiveSetFor(set, resolved),
 		NativeCapabilities: packload.NativeCapabilities(packs, s.Agent),
-		ViaURL:             packload.ViaURLFor(resolved[profiles[s.Agent]], s.Agent),
-		ViaAPIKeyEnvName:   packload.ViaAPIKeyEnvNameFor(packs, resolved[profiles[s.Agent]], s.Agent),
+		ViaURL:             packload.ViaURLFor(resolved[profile], s.Agent),
+		ViaAPIKeyEnvName:   packload.ViaAPIKeyEnvNameFor(packs, resolved[profile], s.Agent),
 	}
 }
 
@@ -319,6 +336,7 @@ func deriveComputedLayer(e *Env, surface manifest.Surface, deriveScript string, 
 		ProfileName:        sel.Profile,
 		SelectedProvider:   sel.Provider,
 		Profile:            activeProfileOptions(e, sel.Profile),
+		ActiveSet:          sel.ActiveSet,
 		NativeCapabilities: sel.NativeCapabilities,
 		ViaURL:             sel.ViaURL,
 		ViaAPIKeyEnvName:   sel.ViaAPIKeyEnvName,

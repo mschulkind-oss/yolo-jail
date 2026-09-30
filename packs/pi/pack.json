@@ -16,6 +16,7 @@
         "openai",
         "openai-responses"
       ],
+      "provider_sets": true,
       "refresh": {
         "argv": [
           "update",

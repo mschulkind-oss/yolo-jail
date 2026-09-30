@@ -51,8 +51,14 @@ type ScopeInput struct {
 	// read off it, so a user's override of a provider's api_key_env_name re-points the gate
 	// exactly as it re-points the pre-flight.
 	Providers *jsonx.OrderedMap
-	// Profiles is the CLI-keyed effective selection (ProfileTable).
+	// Profiles is the CLI-keyed effective selection (ProfileTable): each agent's primary.
 	Profiles map[string]string
+	// Sets is each agent's whole ACTIVE SET (ProfileSets; docs/design/active-provider-sets.md
+	// §4.5), when the launch selects one: every entry's claimed key reaches that agent, and only
+	// that agent. Its first entry must be the agent's Profiles entry. Nil, or an agent it does
+	// not name, reads that agent's set as its one Profiles entry, which is every launch whose
+	// sets all have one entry.
+	Sets map[string][]string
 	// Resolved is the launch's resolved profile table (ResolveProfiles).
 	Resolved map[string]ResolvedProfile
 	// EnvSources is the hydrated env_sources, in hydration order. Nil is an empty channel.
@@ -147,9 +153,16 @@ type CredentialScope struct {
 
 // AgentDelivery is what one agent receives beyond the shared set.
 type AgentDelivery struct {
-	Agent    string
+	Agent string
+	// Profile and Provider are the agent's PRIMARY: its set's first entry, and the provider
+	// that entry resolves to.
 	Profile  string
 	Provider string
+	// Set is the agent's whole active set, the primary first, and Providers, index for index,
+	// the provider each entry resolves to (docs/design/active-provider-sets.md §4.5). A set of
+	// one is Profile and Provider alone; a grant-only process has neither.
+	Set       []string
+	Providers []string
 	// Granted is the providers this process's grant names (ScopeInput.Grants), sorted and
 	// deduplicated; empty without one. A grant-only process has no Profile and no Provider.
 	Granted []string
@@ -189,8 +202,9 @@ func ScopeCredentials(in ScopeInput) (*CredentialScope, error) {
 		served:           in.Served,
 		// THE GATE'S VIEW OF THE SELECTION (OQ-BR8): each agent's profile and the platform of
 		// the provider it resolves to, over this launch's own table, so every fold below and
-		// every reader of Selection() answers a `platform` gate from one resolution.
-		sel: SelectionOf(in.Profiles, in.Resolved, in.Providers),
+		// every reader of Selection() answers a `platform` gate from one resolution. Over the
+		// whole active set (AP-P1), so a gate any entry satisfies fires for that agent.
+		sel: SelectionOfSets(in.setTable(), in.Resolved, in.Providers),
 	}
 	for _, e := range s.servedFold(EnvFold(in.Packs, s.sel, "")) {
 		if s.sharedPackEnv == nil {
@@ -220,6 +234,11 @@ func ScopeCredentials(in ScopeInput) (*CredentialScope, error) {
 		}
 		if profile != "" {
 			d.Provider = ProviderFor(in.Resolved, profile)
+			d.Set = in.setFor(agent)
+			d.Providers = make([]string, len(d.Set))
+			for i, name := range d.Set {
+				d.Providers[i] = ProviderFor(in.Resolved, name)
+			}
 		}
 		for _, k := range s.envSources.Keys() {
 			if _, claimed := s.claims[k]; claimed && s.delivers(d, k) {
@@ -243,7 +262,7 @@ func ScopeCredentials(in ScopeInput) (*CredentialScope, error) {
 		}
 		shape, err := AgentEnv(in.Packs, in.Providers, in.Profiles, agent, profile,
 			s.LookupFor(agent), WithResolvedProfiles(in.Resolved),
-			WithUnservedAdaptations(in.UnservedAdaptations))
+			WithUnservedAdaptations(in.UnservedAdaptations), WithActiveSet(d.Set))
 		if err != nil {
 			return nil, err
 		}
@@ -253,6 +272,32 @@ func ScopeCredentials(in ScopeInput) (*CredentialScope, error) {
 	// asked of its whole delivery (BR-DIR1).
 	s.fillRegions(in)
 	return s, nil
+}
+
+// setFor is agent's active set as the gate reads it: its Sets entry when that is a set whose
+// first entry is the agent's primary, else the one Profiles entry. A Sets entry disagreeing with
+// Profiles about the primary is a caller composing two tables from two merges, and the primary
+// the rest of the gate reads wins.
+func (in ScopeInput) setFor(agent string) []string {
+	profile := in.Profiles[agent]
+	if profile == "" {
+		return nil
+	}
+	if set := in.Sets[agent]; len(set) > 0 && set[0] == profile {
+		return set
+	}
+	return []string{profile}
+}
+
+// setTable is every agent's set (setFor), keyed like Profiles.
+func (in ScopeInput) setTable() map[string][]string {
+	out := make(map[string][]string, len(in.Profiles))
+	for agent, profile := range in.Profiles {
+		if profile != "" {
+			out[agent] = in.setFor(agent)
+		}
+	}
+	return out
 }
 
 // servedFold is fold with every entry whose `served_by` daemon is not served at this notch
@@ -557,6 +602,41 @@ func (s *CredentialScope) receives(provider, name string) bool {
 	return false
 }
 
+// receivesAny is receives over an active set: an agent may see a claimed name when ANY
+// provider of its set claims it (docs/design/active-provider-sets.md §4.5, "each entry's claimed
+// key reaches that agent, and only that agent"). An empty set receives the unclaimed names only.
+func (s *CredentialScope) receivesAny(providers []string, name string) bool {
+	if len(providers) == 0 {
+		return s.receives("", name)
+	}
+	for _, p := range providers {
+		if s.receives(p, name) {
+			return true
+		}
+	}
+	return false
+}
+
+// SetProvidersOf is the providers delivery d's active set resolves to, the primary first, for a
+// notch's pre-flight that asks one question per provider an agent runs on (the region
+// pre-flight). Nil for a nil delivery or a grant-only process.
+func SetProvidersOf(d *AgentDelivery) []string { return d.setProviders() }
+
+// setProviders is the providers d's active set resolves to, the primary first: Providers when
+// the gate composed them, else the one Provider, else none.
+func (d *AgentDelivery) setProviders() []string {
+	if d == nil {
+		return nil
+	}
+	if len(d.Providers) > 0 {
+		return d.Providers
+	}
+	if d.Provider != "" {
+		return []string{d.Provider}
+	}
+	return nil
+}
+
 // delivers reports whether delivery d's process may see variable name: what its profile's
 // provider receives, plus every name a provider its grant names claims. A nil delivery is a
 // process with neither, which receives the unclaimed names only.
@@ -564,7 +644,7 @@ func (s *CredentialScope) delivers(d *AgentDelivery, name string) bool {
 	if d == nil {
 		return s.receives("", name)
 	}
-	if s.receives(d.Provider, name) {
+	if s.receivesAny(d.setProviders(), name) {
 		return true
 	}
 	for _, g := range d.Granted {
@@ -583,15 +663,14 @@ func (s *CredentialScope) delivers(d *AgentDelivery, name string) bool {
 // granted key reaches the process's environment and never its derive, so no derive can
 // point the agent at a granted provider (the grant re-points nothing).
 func (s *CredentialScope) LookupFor(agent string) func(string) (string, bool) {
-	provider := ""
-	if d := s.agents[agent]; d != nil {
-		provider = d.Provider
-	}
+	// The agent's whole active set (§4.5): "the api_key of each provider in that agent's set and
+	// no other", so a set-capable derive's copy of the table carries every entry's key.
+	providers := s.agents[agent].setProviders()
 	return func(name string) (string, bool) {
 		if v, ok := s.callerTokens[name]; ok && v != "" {
 			return v, true
 		}
-		if !s.receives(provider, name) {
+		if !s.receivesAny(providers, name) {
 			return "", false
 		}
 		if v, ok := s.envSources.Get(name); ok {
@@ -661,12 +740,34 @@ func (s *CredentialScope) SelectedProviders() []string {
 	seen := map[string]bool{}
 	var out []string
 	for _, d := range s.agents {
-		if d.Provider != "" && !seen[d.Provider] {
-			seen[d.Provider] = true
-			out = append(out, d.Provider)
+		// Every entry of every set (§4.5): the pre-flight demands each entry's key.
+		for _, p := range d.setProviders() {
+			if p != "" && !seen[p] {
+				seen[p] = true
+				out = append(out, p)
+			}
 		}
 	}
 	sort.Strings(out)
+	return out
+}
+
+// Sets is each agent's active set as the gate composed it, the primary first: the agents with
+// a set of more than one entry and nothing else, for a refusal that names an entry's position
+// (SetPhrase). Nil when every set has one entry.
+func (s *CredentialScope) Sets() map[string][]string {
+	if s == nil {
+		return nil
+	}
+	var out map[string][]string
+	for agent, d := range s.agents {
+		if len(d.Set) > 1 {
+			if out == nil {
+				out = map[string][]string{}
+			}
+			out[agent] = d.Set
+		}
+	}
 	return out
 }
 
@@ -861,6 +962,26 @@ func (s *CredentialScope) DisclosureWith(notes DisclosureNotes) []string {
 	}
 	if len(order) == 0 {
 		return nil
+	}
+	// IN SET ORDER (docs/design/active-provider-sets.md §4.5): when an agent holds a set of more
+	// than one, each entry's key is named in the order the set lists its provider, so pi's
+	// `zai, openrouter` discloses ZAI_API_KEY before OPENROUTER_API_KEY whatever order
+	// env_sources hydrated them in. Stable, so a launch with no such set keeps hydration order.
+	if sets := s.Sets(); len(sets) > 0 {
+		rank := func(claimants []string) int {
+			best := len(s.claims) + 1<<20
+			for _, d := range s.agents {
+				for i, p := range d.setProviders() {
+					if slices.Contains(claimants, p) && i < best {
+						best = i
+					}
+				}
+			}
+			return best
+		}
+		sort.SliceStable(order, func(i, j int) bool {
+			return rank(groups[order[i]].claimants) < rank(groups[order[j]].claimants)
+		})
 	}
 	lines := []string{s.disclosureRule()}
 	for _, key := range order {

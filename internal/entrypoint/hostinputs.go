@@ -119,8 +119,9 @@ func (h *hostSources) selectionFor(s manifest.Surface) surfaceSelection {
 	if h.in != nil {
 		packs = h.in.Packs
 	}
+	use := h.e.LoadUseProfiles()
 	return surfaceSelectionFor(packs, h.e.LoadProfiles(),
-		packload.ProfileTable(h.e.LoadUseProfiles()), s)
+		packload.ProfileTable(use), packload.ProfileSets(use), s)
 }
 
 // skippedNotes are the per-surface lines for the servers agent's requires_env gate removed,

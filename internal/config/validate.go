@@ -12,6 +12,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholedecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
+	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/pytext"
 )
@@ -1848,23 +1849,33 @@ func validateUseProfilesRetired(config *jsonx.OrderedMap, errs, warns *[]string)
 	add(errs, msg)
 }
 
-// validateProfile checks the `profile` key's shape: a profile name, or an object of CLI name →
-// profile name (or null) with "*" for every agent it does not name.
+// validateProfile checks the `profile` key's shape: a profile name or a LIST of them (every
+// agent's), or an object of CLI name → profile name, list or null, with "*" for every agent it
+// does not name.
+//
+// A LIST is an agent's ACTIVE SET (docs/design/active-provider-sets.md OQ-AP1, ruled
+// 2026-09-29; the doc coins the term): the profiles it runs on, in order, its first entry where
+// a fresh session starts. A list NAMED at an agent whose pack does not declare provider_sets is
+// refused (OQ-AP2). The string form, the top-level list and "*" name no agent, so a list there
+// is a BARE list, narrowed to its first entry at such an agent and said at launch (OQ-AP3,
+// config.ProfileTableFor), never refused for it.
 func validateProfile(config *jsonx.OrderedMap, errs *[]string) {
 	v, present := config.Get(ProfileKey)
 	if !present || v == nil {
 		return
 	}
-	if name, isString := v.(string); isString {
-		if problem := profileNameProblem(name); problem != "" {
+	switch v.(type) {
+	case string, []any:
+		if _, problem := profileSetOf(v); problem != "" {
 			add(errs, "config.profile: "+problem)
 		}
 		return
 	}
 	profiles, ok := asMap(v)
 	if !ok {
-		add(errs, "config.profile: expected a string (the profile every agent runs) or an "+
-			"object (CLI name → profile name, \"*\" for every agent it does not name)")
+		add(errs, "config.profile: expected a string (the profile every agent runs), a list "+
+			"(the profiles every agent runs, in order) or an object (CLI name → profile name or "+
+			"list, \"*\" for every agent it does not name)")
 		return
 	}
 	// The KEY is a CLI name — the binary a pack installs — and an unknown one is fatal
@@ -1886,6 +1897,7 @@ func validateProfile(config *jsonx.OrderedMap, errs *[]string) {
 		}
 	}
 	installed, namespaceKnown := []string(nil), false
+	var capable map[string]bool
 	if wantsNamespace {
 		// An unresolvable configured pack makes the namespace unknowable, and that pack
 		// is refused on its own terms — louder, and first — by `yolo check`'s Packs
@@ -1895,6 +1907,16 @@ func validateProfile(config *jsonx.OrderedMap, errs *[]string) {
 		// about this config alone.
 		if names, known := UseProfileCLINames(); known {
 			installed, namespaceKnown = names, true
+			// The set-capable half is asked only when an agent is NAMED with a list of more
+			// than one, since it walks the same universe again.
+			for _, k := range keys {
+				if val, _ := profiles.Get(k); k != ProfileEveryAgent {
+					if list, isList := val.([]any); isList && len(list) > 1 {
+						capable, _ = SetCapableCLINames()
+						break
+					}
+				}
+			}
 		}
 	}
 	for _, agent := range keys {
@@ -1903,19 +1925,63 @@ func validateProfile(config *jsonx.OrderedMap, errs *[]string) {
 		if profV == nil {
 			continue
 		}
-		name, isString := profV.(string)
-		if !isString {
-			add(errs, path+": expected a string profile name, or null for none")
-			continue
-		}
-		if problem := profileNameProblem(name); problem != "" {
+		set, problem := profileSetOf(profV)
+		if problem != "" {
 			add(errs, path+": "+problem)
 			continue
 		}
-		if agent != ProfileEveryAgent && namespaceKnown && !containsStr(installed, agent) {
+		if agent == ProfileEveryAgent {
+			continue
+		}
+		if namespaceKnown && !containsStr(installed, agent) {
 			add(errs, unknownProfileKeyError(agent, installed))
+			continue
+		}
+		// A list NAMED at an agent whose pack does not declare provider_sets is refused before
+		// anything starts (OQ-AP2), over the same universe the key is checked against: whether
+		// this workspace selects the agent's pack or not, the list asks it for what it cannot do.
+		if len(set) > 1 && namespaceKnown && !capable[agent] {
+			add(errs, path+": "+packload.SingleProviderSetRefusal(agent, set))
 		}
 	}
+}
+
+// profileSetOf reads one `profile` value as an active set: a profile name, or a non-empty array
+// of distinct profile names, in order. The problem is the refusal's text after the path, "" when
+// the value is a set. null is the caller's (no selection), so it never reaches here.
+func profileSetOf(v any) ([]string, string) {
+	if name, isString := v.(string); isString {
+		if problem := profileNameProblem(name); problem != "" {
+			return nil, problem
+		}
+		return []string{name}, ""
+	}
+	list, isList := v.([]any)
+	if !isList {
+		return nil, "expected a profile name, a list of them (the agent's active set, first " +
+			"entry where a session starts), or null for none"
+	}
+	if len(list) == 0 {
+		return nil, "an empty list selects nothing, and nothing has one spelling: null " +
+			"(or remove the key)"
+	}
+	seen := map[string]bool{}
+	set := make([]string, 0, len(list))
+	for i, e := range list {
+		name, isString := e.(string)
+		if !isString || name == "" {
+			return nil, fmt.Sprintf("entry %d of the list is not a profile name", i+1)
+		}
+		if problem := profileNameProblem(name); problem != "" {
+			return nil, fmt.Sprintf("entry %d of the list: %s", i+1, problem)
+		}
+		if seen[name] {
+			return nil, fmt.Sprintf("profile %q is listed twice — a set names each profile once", name)
+		}
+		seen[name] = true
+		set = append(set, name)
+	}
+	return set, ""
 }
 
 // profileNameProblem is what is wrong with name as a `profile` value, "" when nothing is. An

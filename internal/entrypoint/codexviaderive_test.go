@@ -121,13 +121,13 @@ func TestAViaProfileReachesCodexThroughTheWire(t *testing.T) {
 	e := &Env{Vars: map[string]string{"YOLO_PROFILES": wire}}
 	surface := manifest.Surface{Agent: "codex", Name: "config"}
 
-	sel := surfaceSelectionFor(nil, e.LoadProfiles(), map[string]string{"codex": "pr", "pi": "plain"}, surface)
+	sel := surfaceSelectionFor(nil, e.LoadProfiles(), map[string]string{"codex": "pr", "pi": "plain"}, nil, surface)
 	if r := codexRow(t, codexConfigFor(t, sel), "router"); r["base_url"] != viaBase+"/agent/codex" {
 		t.Errorf("codex's router base_url = %v, want %s/agent/codex", r["base_url"], viaBase)
 	}
 
 	// The via profile active for ANOTHER agent gives codex nothing.
-	sel = surfaceSelectionFor(nil, e.LoadProfiles(), map[string]string{"codex": "plain", "pi": "pr"}, surface)
+	sel = surfaceSelectionFor(nil, e.LoadProfiles(), map[string]string{"codex": "plain", "pi": "pr"}, nil, surface)
 	if sel.ViaURL != "" {
 		t.Errorf("codex ViaURL = %q, want none (the via profile is pi's)", sel.ViaURL)
 	}

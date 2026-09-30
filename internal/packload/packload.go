@@ -21,6 +21,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 
@@ -272,6 +273,12 @@ type FoldNote struct {
 // (the merge-patch convention the table uses), and a null decoded into map[string]string
 // would arrive as "" and read as a selection of an empty name. Dropping the key here is
 // what keeps "no profile" and "profile removed" the same fact at every fold.
+//
+// A LIST VALUE LOWERS TO ITS FIRST ENTRY, the set's PRIMARY (docs/design/active-provider-sets.md
+// AP-D1): every fold that predates active sets reads "the selected profile" as the one a fresh
+// session starts on, so a derive written before sets sees a one-entry set exactly as today
+// (AP-P1). The whole set is ProfileSets'; only a set-capable agent is ever handed one longer
+// than one, which is what makes this lowering safe for every other reader.
 func ProfileTable(m *jsonx.OrderedMap) map[string]string {
 	if m == nil {
 		return nil
@@ -279,8 +286,12 @@ func ProfileTable(m *jsonx.OrderedMap) map[string]string {
 	var out map[string]string
 	for _, k := range m.Keys() {
 		v, _ := m.Get(k)
-		name, ok := v.(string)
-		if !ok || name == "" {
+		set, ok := ProfileSetValue(v)
+		if !ok {
+			continue
+		}
+		name := set[0]
+		if name == "" {
 			continue
 		}
 		if out == nil {
@@ -610,11 +621,66 @@ type EnvFoldEntry struct {
 // inputs and hands it out (CredentialScope.Selection), so the env-override pre-flight and the
 // fold every vehicle delivers read one answer to "which gates fire for whom".
 type GateSelection struct {
-	// Profiles is the CLI-keyed effective selection (ProfileTable).
+	// Profiles is the CLI-keyed effective selection (ProfileTable): each agent's PRIMARY.
 	Profiles map[string]string
 	// Platforms maps each agent with a selected profile to the `platform` its provider's
 	// composed entry declares; an agent whose provider declares none has no entry.
 	Platforms map[string]string
+	// Sets is each agent's whole active set (ProfileSets), when the caller composed one: a gate
+	// is satisfied by ANY entry of the set (docs/design/active-provider-sets.md AP-P1, "each
+	// provider in the set"), so a `platform` gate fires for pi on [zai, bedrock] as it would for
+	// pi on bedrock alone. Nil reads each agent's set as its one Profiles entry.
+	Sets map[string][]string
+	// SetPlatforms is, index for index with Sets, the platform of each entry's provider, ""
+	// for one that declares none.
+	SetPlatforms map[string][]string
+}
+
+// SelectionOfSets is SelectionOf over a whole active-set table: Profiles and Platforms answer
+// for each agent's primary, and Sets and SetPlatforms carry every entry, so a gate reads the
+// set. A table of one-entry sets builds exactly SelectionOf's answer plus the two set fields.
+func SelectionOfSets(sets map[string][]string, resolved map[string]ResolvedProfile,
+	providers *jsonx.OrderedMap) GateSelection {
+	primary := map[string]string{}
+	for agent, set := range sets {
+		if len(set) > 0 && set[0] != "" {
+			primary[agent] = set[0]
+		}
+	}
+	sel := SelectionOf(primary, resolved, providers)
+	for agent, set := range sets {
+		if len(set) == 0 {
+			continue
+		}
+		if sel.Sets == nil {
+			sel.Sets, sel.SetPlatforms = map[string][]string{}, map[string][]string{}
+		}
+		sel.Sets[agent] = set
+		platforms := make([]string, len(set))
+		for i, name := range set {
+			platforms[i] = entryString(providerEntry(providers, ProviderFor(resolved, name)), "platform")
+		}
+		sel.SetPlatforms[agent] = platforms
+	}
+	return sel
+}
+
+// platformSelected reports whether agent's selection resolves to a provider of platform: any
+// entry of its set when the selection carries sets, else its primary's.
+func (sel GateSelection) platformSelected(agent, platform string) bool {
+	if platforms, ok := sel.SetPlatforms[agent]; ok {
+		return slices.Contains(platforms, platform)
+	}
+	return sel.Platforms[agent] == platform
+}
+
+// profileSelected reports whether agent's selection names profile: any entry of its set when
+// the selection carries sets, else its primary.
+func (sel GateSelection) profileSelected(agent, profile string) bool {
+	if set, ok := sel.Sets[agent]; ok {
+		return slices.Contains(set, profile)
+	}
+	return sel.Profiles[agent] == profile
 }
 
 // SelectionOf builds the gate's view of a selection: profiles as selected, and each agent's
@@ -716,11 +782,11 @@ func gateFiresFor(packs []*Pack, p *Pack, profile, platform string, sel GateSele
 	}
 	switch {
 	case platform != "":
-		if sel.Platforms[agent] != platform {
+		if !sel.platformSelected(agent, platform) {
 			return false
 		}
 	case profile != "":
-		if sel.Profiles[agent] != profile {
+		if !sel.profileSelected(agent, profile) {
 			return false
 		}
 	default:

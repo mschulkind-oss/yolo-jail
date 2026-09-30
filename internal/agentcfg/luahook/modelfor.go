@@ -48,10 +48,11 @@ func MissingTierAliasNote(provider, alias string) string {
 		provider, alias, strings.Join(ConventionalModelAliases, ", "), provider, alias)
 }
 
-// installModelFor registers yolo.model_for(alias) on the yolo table, closed over the ctx the
-// session was built for.
+// installModelFor registers yolo.model_for(alias[, provider]) on the yolo table, closed over
+// the ctx the session was built for.
 //
 //	local qualified, id = yolo.model_for("fast")  -- "zai/glm-5.3-flash", "glm-5.3-flash"
+//	local q2, id2 = yolo.model_for("default", "openrouter") -- one entry of the active set
 //
 // It returns two strings, the model as `<selected provider>/<id>` and the bare id, or nil
 // when nothing resolves. The bare id is returned too because agents disagree about the
@@ -61,8 +62,10 @@ func MissingTierAliasNote(provider, alias string) string {
 //
 // The rules, each chosen so that a derive can call it unconditionally:
 //
-//   - ONLY THE SELECTED PROVIDER is consulted. Another provider declaring the alias is never
-//     borrowed from, because a child agent handed that model would cross providers.
+//   - ONLY THE SELECTED PROVIDER is consulted, or, given the optional second argument, that
+//     provider when it is an entry of the agent's active set (DeriveCtx.ActiveSet). Another
+//     provider declaring the alias is never borrowed from, because a child agent handed that
+//     model would cross providers; a provider outside the set answers nil.
 //   - No provider selected, or a selected provider the table has no row for: nil, silently.
 //     There is no provider to warn about, and the launch's own gate reports an unknown one.
 //   - A CONVENTIONAL alias the provider does not declare: nil, and ctx.Warn is told once per
@@ -76,24 +79,55 @@ func MissingTierAliasNote(provider, alias string) string {
 func installModelFor(L *lua.LState, yolo *lua.LTable, ctx *DeriveCtx) {
 	L.SetField(yolo, modelForName, L.NewFunction(func(L *lua.LState) int {
 		alias := L.CheckString(1)
-		id, ok := resolveModelAlias(ctx, alias)
+		provider := ""
+		if ctx != nil {
+			provider = ctx.SelectedProvider
+		}
+		// THE OPTIONAL PROVIDER (docs/design/active-provider-sets.md §4.3): a set-capable derive
+		// asks for one entry of its agent's active set by name. A provider outside the set
+		// answers nil, so XM-D1's "never borrow another provider's alias" holds for the set.
+		if L.GetTop() >= 2 && L.Get(2) != lua.LNil {
+			provider = L.CheckString(2)
+			if !inActiveSet(ctx, provider) {
+				L.Push(lua.LNil)
+				return 1
+			}
+		}
+		id, ok := resolveModelAlias(ctx, provider, alias)
 		if !ok {
 			L.Push(lua.LNil)
 			return 1
 		}
-		L.Push(lua.LString(ctx.SelectedProvider + "/" + id))
+		L.Push(lua.LString(provider + "/" + id))
 		L.Push(lua.LString(id))
 		return 2
 	}))
 }
 
-// resolveModelAlias is model_for's lookup, over the same providers table the derive's
-// ctx.providers is built from.
-func resolveModelAlias(ctx *DeriveCtx, alias string) (string, bool) {
-	if ctx == nil || ctx.SelectedProvider == "" {
+// inActiveSet reports whether provider is the selected provider or the provider of some entry
+// of ctx's active set: the providers yolo.model_for may answer for.
+func inActiveSet(ctx *DeriveCtx, provider string) bool {
+	if ctx == nil || provider == "" {
+		return false
+	}
+	if provider == ctx.SelectedProvider {
+		return true
+	}
+	for _, e := range ctx.ActiveSet {
+		if e.Provider == provider {
+			return true
+		}
+	}
+	return false
+}
+
+// resolveModelAlias is model_for's lookup for one provider, over the same providers table the
+// derive's ctx.providers is built from.
+func resolveModelAlias(ctx *DeriveCtx, provider, alias string) (string, bool) {
+	if ctx == nil || provider == "" {
 		return "", false
 	}
-	row, isRow := ctx.Tables[sourceProviders][ctx.SelectedProvider].(map[string]any)
+	row, isRow := ctx.Tables[sourceProviders][provider].(map[string]any)
 	if !isRow {
 		return "", false
 	}
@@ -102,7 +136,7 @@ func resolveModelAlias(ctx *DeriveCtx, alias string) (string, bool) {
 		return id, true
 	}
 	if isConventionalAlias(alias) && ctx.Warn != nil {
-		ctx.Warn(MissingTierAliasNote(ctx.SelectedProvider, alias))
+		ctx.Warn(MissingTierAliasNote(provider, alias))
 	}
 	return "", false
 }

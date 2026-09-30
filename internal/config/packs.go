@@ -624,6 +624,39 @@ func validatePacks(workspace string, errs *[]string) {
 // typo'd profile key. Same contract as resolvePackLoopholeModules on the run side,
 // whose silent-and-empty answer is this one's twin.
 func UseProfileCLINames() ([]string, bool) {
+	clis, known := useProfileCLIs()
+	if !known {
+		return nil, false
+	}
+	names := make([]string, 0, len(clis))
+	for name := range clis {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names, true
+}
+
+// SetCapableCLINames is the subset of UseProfileCLINames whose program declares
+// `provider_sets` (docs/design/active-provider-sets.md AP-D2): the CLIs a use_profiles LIST
+// of more than one profile may name. Answered over the same universe, with the same known
+// contract, so a validator asking both questions cannot see two different sets of packs.
+func SetCapableCLINames() (map[string]bool, bool) {
+	clis, known := useProfileCLIs()
+	if !known {
+		return nil, false
+	}
+	out := map[string]bool{}
+	for name, holds := range clis {
+		if holds {
+			out[name] = true
+		}
+	}
+	return out, true
+}
+
+// useProfileCLIs is the one walk both namespaces above read: every CLI a resolvable pack
+// installs, mapped to whether its program declares `provider_sets`.
+func useProfileCLIs() (map[string]bool, bool) {
 	entries, err := LoadPacks(func(string) {})
 	if err != nil {
 		return nil, false
@@ -639,7 +672,7 @@ func UseProfileCLINames() ([]string, bool) {
 	seen := map[string]bool{}
 	for _, p := range embedded {
 		for _, bin := range p.InstallBins() {
-			seen[bin] = true
+			seen[bin] = p.Decl.HoldsProviderSets(bin)
 		}
 	}
 	for _, entry := range entries {
@@ -657,15 +690,10 @@ func UseProfileCLINames() ([]string, bool) {
 			return nil, false
 		}
 		for _, bin := range res.Pack.InstallBins() {
-			seen[bin] = true
+			seen[bin] = res.Pack.Decl.HoldsProviderSets(bin)
 		}
 	}
-	names := make([]string, 0, len(seen))
-	for name := range seen {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-	return names, true
+	return seen, true
 }
 
 // MarshalPacks renders resolved entries as the compact JSON that travels in

@@ -23,6 +23,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg/luahook"
 	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg/manifest"
@@ -135,6 +136,15 @@ func AgentEnv(packs []*Pack, providers *jsonx.OrderedMap, useProfiles map[string
 	if err := refuseUnspeakableProvider(packs, owner, agent, profile, selected, providers, cfg.unserved); err != nil {
 		return nil, err
 	}
+	// EVERY LATER ENTRY OF THE ACTIVE SET PAIRS TOO (docs/design/active-provider-sets.md AP-P1):
+	// each is a provider the agent's config points it at, so each is asked the gate's question.
+	// A pairing only an unserved adaptation would resolve is refused as a plain error naming the
+	// entry, never as *UnservedAdapterError: a notch plans at most one launch-owned service, for
+	// the primary's pairing (AP-D7, host-notch-services.md §4.2), so a later entry that needs
+	// one is not a pairing any service planned here would carry.
+	if err := refuseUnspeakableSetEntries(packs, owner, agent, profile, cfg, providers); err != nil {
+		return nil, err
+	}
 	script := DeriveScript(owner)
 	if script == "" {
 		return nil, nil
@@ -145,6 +155,7 @@ func AgentEnv(packs []*Pack, providers *jsonx.OrderedMap, useProfiles map[string
 		ProfileName:      profile,
 		SelectedProvider: selected,
 		Profile:          cfg.profileOptions(profile),
+		ActiveSet:        ActiveSetFor(cfg.setOr(profile), cfg.resolved),
 		ViaURL:           ViaURLFor(cfg.resolved[profile], agent),
 		ViaAPIKeyEnvName: ViaAPIKeyEnvNameFor(packs, cfg.resolved[profile], agent),
 		// The built-in source's capabilities, resolved the same way the surface path
@@ -201,6 +212,48 @@ type agentEnvOpts struct {
 	resolved map[string]ResolvedProfile
 	// unserved is WithUnservedAdaptations' list.
 	unserved []Adaptation
+	// set is WithActiveSet's list.
+	set []string
+}
+
+// WithActiveSet hands the runner the agent's whole active set (docs/design/active-provider-sets.md
+// §4.3), the primary first: the derive reads it as ctx.active_set, and every later entry is
+// asked the protocol gate's question. A set whose first entry is not the profile AgentEnv was
+// called for, or none, reads as the one profile, which is every caller composing no set.
+func WithActiveSet(set []string) AgentEnvOption {
+	return func(o *agentEnvOpts) { o.set = set }
+}
+
+// setOr is the active set for a run on profile: WithActiveSet's list when its primary is
+// profile, else profile alone.
+func (o agentEnvOpts) setOr(profile string) []string {
+	if len(o.set) > 0 && o.set[0] == profile {
+		return o.set
+	}
+	if profile == "" {
+		return nil
+	}
+	return []string{profile}
+}
+
+// refuseUnspeakableSetEntries asks the protocol gate about every entry of the active set after
+// the primary, which AgentEnv's own call already asked. A refusal names the entry's position.
+func refuseUnspeakableSetEntries(packs []*Pack, owner *Pack, agent, profile string,
+	cfg agentEnvOpts, providers *jsonx.OrderedMap) error {
+	set := cfg.setOr(profile)
+	for i, name := range set {
+		if i == 0 {
+			continue
+		}
+		err := refuseUnspeakableProvider(packs, owner, agent, name, ProviderFor(cfg.resolved, name),
+			providers, cfg.unserved)
+		if err == nil {
+			continue
+		}
+		return fmt.Errorf("profile %q, entry %d of %s's profiles (%s): %s", name, i+1, agent,
+			strings.Join(set, ", "), strings.TrimSuffix(err.Error(), "\n"))
+	}
+	return nil
 }
 
 // WithUnservedAdaptations hands the protocol gate the conversions this notch can never serve

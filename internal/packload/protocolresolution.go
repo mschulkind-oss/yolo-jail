@@ -737,6 +737,36 @@ func PairingRefusals(packs []*Pack, providers *jsonx.OrderedMap,
 	return out
 }
 
+// SetEntryPairingRefusals is PairingRefusals for the entries AFTER each agent's primary in an
+// active-set table (ProfileSets; docs/design/active-provider-sets.md AP-P1), agents in name
+// order, each refusal naming the entry's position: what AgentEnv refuses at launch for a later
+// entry (refuseUnspeakableSetEntries), predicted from configuration. The primaries are
+// PairingRefusals' to ask, so a caller asks both.
+func SetEntryPairingRefusals(packs []*Pack, providers *jsonx.OrderedMap,
+	resolved map[string]ResolvedProfile, sets map[string][]string, unserved []Adaptation) []error {
+	agents := make([]string, 0, len(sets))
+	for agent := range sets {
+		agents = append(agents, agent)
+	}
+	sort.Strings(agents)
+	var out []error
+	for _, agent := range agents {
+		set := sets[agent]
+		if len(set) < 2 {
+			continue
+		}
+		owner := binOwner(packs, agent)
+		if owner == nil {
+			continue
+		}
+		cfg := agentEnvOpts{resolved: resolved, unserved: unserved, set: set}
+		if err := refuseUnspeakableSetEntries(packs, owner, agent, set[0], cfg, providers); err != nil {
+			out = append(out, err)
+		}
+	}
+	return out
+}
+
 // PairingRefusal is the gate's answer for ONE agent on one profile, or nil — PairingRefusals'
 // body, with the notch's unservable adaptations (UnservedAdaptationsAt; nil where
 // the packs' services run). An agent with no profile, or one no selected pack installs, pairs

@@ -665,6 +665,12 @@ func resolveRoute(e *entrypoint.Env) (route, string) {
 // like malformed input in the channel. logOnce, not logf: resolveRoute is
 // re-evaluated every poll tick for the daemon's whole idle lifetime, and the fact
 // does not change while the channel does not.
+//
+// AN ACTIVE SET's value is a list (docs/design/active-provider-sets.md), and it reads as its
+// first entry, the PRIMARY: an agent has one via route, whose upstream is the provider its
+// primary resolves to, which is why a via entry may sit in a set only first (AP-D9,
+// packload.ProfileSetProblems). The lowering is packload.ProfileSetValue's, so the bridge and
+// every other reader agree about which entry is first.
 func useProfilesTable(m *jsonx.OrderedMap) map[string]string {
 	out := map[string]string{}
 	if m == nil {
@@ -673,6 +679,9 @@ func useProfilesTable(m *jsonx.OrderedMap) map[string]string {
 	for _, k := range m.Keys() {
 		v, _ := m.Get(k)
 		s, isString := v.(string)
+		if set, isSet := packload.ProfileSetValue(v); isSet {
+			s, isString = set[0], true
+		}
 		if !isString && v != nil {
 			logOnce("use-profiles-nonstring:"+k, "YOLO_USE_PROFILES entry %q is a %T, not a "+
 				"profile name; reading it as \"no profile active for %s\" rather than guessing — "+

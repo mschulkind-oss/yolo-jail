@@ -33,11 +33,11 @@ func TestSurfaceSelectionGivesViaURLOnlyToTheViaAgent(t *testing.T) {
 		"plain": {Provider: "zai"},
 	}
 	profiles := map[string]string{"pi": "pz", "opencode": "plain"}
-	if got := surfaceSelectionFor(nil, resolved, profiles, manifest.Surface{Agent: "pi", Name: "models"}).ViaURL; got != viaBase+"/agent/pi" {
+	if got := surfaceSelectionFor(nil, resolved, profiles, nil, manifest.Surface{Agent: "pi", Name: "models"}).ViaURL; got != viaBase+"/agent/pi" {
 		t.Errorf("pi ViaURL = %q, want %s/agent/pi", got, viaBase)
 	}
 	for _, agent := range []string{"opencode", "codex"} {
-		if got := surfaceSelectionFor(nil, resolved, profiles, manifest.Surface{Agent: agent}).ViaURL; got != "" {
+		if got := surfaceSelectionFor(nil, resolved, profiles, nil, manifest.Surface{Agent: agent}).ViaURL; got != "" {
 			t.Errorf("%s ViaURL = %q, want none (its profile is not a via profile)", agent, got)
 		}
 	}
@@ -127,7 +127,7 @@ func TestAViaProfileReachesPiThroughTheWire(t *testing.T) {
 		t.Fatal(err)
 	}
 	e := &Env{Vars: map[string]string{"YOLO_PROFILES": wire}}
-	sel := surfaceSelectionFor(nil, e.LoadProfiles(), map[string]string{"pi": "pz"},
+	sel := surfaceSelectionFor(nil, e.LoadProfiles(), map[string]string{"pi": "pz"}, nil,
 		manifest.Surface{Agent: "pi", Name: "models"})
 	provs := piModelsFor(t, sel, e, viaProvidersTable())
 	if got := provs["zai"].(map[string]any)["baseUrl"]; got != viaBase+"/agent/pi" {

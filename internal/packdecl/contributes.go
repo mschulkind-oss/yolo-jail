@@ -187,6 +187,18 @@ type Contribution struct {
 	//
 	// See nodefloor.go for the comparison, and why a mise selector cannot express this.
 	NodeFloor string `json:"node_floor,omitempty"`
+	// ProviderSets declares that this program holds SEVERAL PROVIDERS IN ONE SESSION: its
+	// pack's derives read the whole active set (ctx.active_set), so a `use_profiles` list, or a
+	// `-p <bin>=a,b` list, of more than one profile may select for its bin. `program` only.
+	//
+	// An ACTIVE SET is a term docs/design/active-provider-sets.md coins: the ordered list of
+	// profiles one agent runs on for one launch, the first of which is where a fresh session
+	// starts. A program that declares nothing is SINGLE-PROVIDER, and a list named at its bin is
+	// refused before anything starts (OQ-AP2), because a derive written before sets reads only
+	// ctx.selected_provider and would run the first entry in silence. The declaration fails
+	// closed where that derive would fail open (AP-D2), which is why it sits on the pack rather
+	// than being inferred: core does not know what an agent can hold.
+	ProviderSets bool `json:"provider_sets,omitempty"`
 	// After, as `"host:<path>"` on a `briefing`, prepends the user's own host file to the
 	// jail's composed briefing (run.briefingHostOverlay → jailcontent.PrependHostBriefing) — so a
 	// personal AGENTS.md outranks anything a pack ships INSIDE A JAIL.
@@ -1418,6 +1430,21 @@ func (m *Manifest) NativeCapabilities(bin string) []string {
 		}
 	}
 	return nil
+}
+
+// HoldsProviderSets reports whether the program this pack installs at bin declares
+// `provider_sets` (docs/design/active-provider-sets.md AP-D2): whether its agent may be handed
+// an active set of more than one profile. Keyed by bin for NativeCapabilities' reason.
+func (m *Manifest) HoldsProviderSets(bin string) bool {
+	if bin == "" {
+		return false
+	}
+	for _, c := range m.Contributions() {
+		if c.Kind == KindProgram && c.Bin == bin {
+			return c.ProviderSets
+		}
+	}
+	return false
 }
 
 // AdapterPair is the protocol pair an adapter converts: the wire it reads and the wire it
@@ -3046,6 +3073,14 @@ func validateContribution(label string, c Contribution) []string {
 	if prob := nodeFloorProblem(label+": \"node_floor\"", c.NodeFloor); prob != "" {
 		problems = append(problems, prob)
 	}
+	// `provider_sets` is program's alone, for `node_floor`'s reason: it is a fact about what the
+	// agent a program installs can hold, and a use_profiles key names that program's bin.
+	if c.ProviderSets && c.Kind != KindProgram {
+		problems = append(problems, fmt.Sprintf(
+			"%s: kind %q does not take \"provider_sets\" — it declares that the agent a PROGRAM "+
+				"installs holds several providers in one session, so only \"program\" has an agent "+
+				"to declare it for", label, c.Kind))
+	}
 	// `reserved` is skills' alone, refused in `profile`'s position and for `profile`'s reason:
 	// the only consumer is the skills destination walk, so a reserved name on any other kind is
 	// a declaration that silently protects nothing.
@@ -3534,6 +3569,13 @@ func validateContribution(label string, c Contribution) []string {
 			problems = append(problems, label+": kind \"profile\" name "+strconv.Quote(c.Name)+
 				" must not contain '=' — the -p/--profile value grammar dispatches on it "+
 				"(bare name = every selected pack; cli=name = one CLI)")
+		}
+		// Nor a comma, since a comma separates the entries of one agent's list
+		// (docs/design/active-provider-sets.md OQ-AP1): `-p pi=zai,openrouter`.
+		if strings.Contains(c.Name, ",") {
+			problems = append(problems, label+": kind \"profile\" name "+strconv.Quote(c.Name)+
+				" must not contain ',' — the -p/--profile value grammar separates the profiles "+
+				"of one agent's list with it (-p pi=zai,openrouter)")
 		}
 		// `config` is a body half the kind carried before OQ-PT8 and the one tombstone
 		// cannot catch, because `config` is a live field on two other kinds. Here it is

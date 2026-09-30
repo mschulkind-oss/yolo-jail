@@ -82,6 +82,16 @@ type DeriveCtx struct {
 	// the agent's own choice of model stays untouched.
 	Profile map[string]string
 
+	// ActiveSet is the agent's whole ACTIVE SET (docs/design/active-provider-sets.md §4.3: the
+	// ordered list of profiles one agent runs on for one launch, a term that doc coins), exposed
+	// as ctx.active_set: one table per entry, in set order, with the entry's profile_name, the
+	// provider it resolves to, that provider's platform and the entry's resolved option map
+	// (profile). Its FIRST entry is the one SelectedProvider, ProfileName and Profile describe,
+	// so a derive written before sets reads a set of one exactly as today, and only an agent
+	// whose pack declares `provider_sets` is ever handed more than one entry. Nil is no
+	// selection, exposed as an empty list.
+	ActiveSet []SetEntry
+
 	// ViaURL is the agent's per-agent route on the service its active profile's `via`
 	// names (docs/design/wire-bridge-gateway.md OQ-WG7 (d)), exposed as ctx.via_url; ""
 	// when the agent uses its own client. A derive that writes an OpenAI-protocol base URL
@@ -165,6 +175,15 @@ type DeriveCtx struct {
 	// registration listings). The two paths that render a surface — the jail's boot loop and
 	// `yolo check`'s dry run, sharing entrypoint.deriveComputedLayer — set it.
 	Warn func(msg string)
+}
+
+// SetEntry is one entry of DeriveCtx.ActiveSet: a profile of the agent's active set, the provider
+// it resolves to, and its resolved option map (declared defaults under the profile's own values,
+// the table ctx.profile carries for the primary).
+type SetEntry struct {
+	ProfileName string
+	Provider    string
+	Profile     map[string]string
 }
 
 // DeriveVM is the boundary for running a derive producer, mirroring LuaVM. The
@@ -561,6 +580,24 @@ func buildDeriveCtxTable(L *lua.LState, ctx *DeriveCtx, sentinel, emptyArr *lua.
 		L.SetField(profile, k, lua.LString(ctx.Profile[k]))
 	}
 	L.SetField(t, "profile", profile)
+	// ctx.active_set, always a list: one table per entry of the agent's active set, in order,
+	// each with the fields ctx carries for the primary (profile_name, the selected provider as
+	// `provider`, its row's `platform`, and the option map as `profile`), so a set-capable
+	// derive reads every entry the one way it reads the first.
+	set := L.NewTable()
+	for i, e := range ctx.ActiveSet {
+		entry := L.NewTable()
+		L.SetField(entry, "profile_name", lua.LString(e.ProfileName))
+		L.SetField(entry, "provider", lua.LString(e.Provider))
+		L.SetField(entry, "platform", lua.LString(providerPlatform(ctx, e.Provider)))
+		opts := L.NewTable()
+		for _, k := range sortedStringKeys(e.Profile) {
+			L.SetField(opts, k, lua.LString(e.Profile[k]))
+		}
+		L.SetField(entry, "profile", opts)
+		set.RawSetInt(i+1, entry)
+	}
+	L.SetField(t, "active_set", set)
 	have := sourceCapabilities(ctx)
 	for _, src := range knownDeriveSources {
 		table := ctx.Tables[src]
@@ -583,10 +620,17 @@ func buildDeriveCtxTable(L *lua.LState, ctx *DeriveCtx, sentinel, emptyArr *lua.
 // "" when there is no selection, no row, or no platform on it (a non-string value included:
 // the config validator refuses one, and a derive must not be handed a value it cannot compare).
 func selectedPlatform(ctx *DeriveCtx) string {
-	if ctx.SelectedProvider == "" {
+	return providerPlatform(ctx, ctx.SelectedProvider)
+}
+
+// providerPlatform is the `platform` of provider's row in ctx's providers table, "" for no
+// provider, no row, or no string platform on it: selectedPlatform's rule for any provider, which
+// ctx.active_set reads for each entry.
+func providerPlatform(ctx *DeriveCtx, provider string) string {
+	if provider == "" {
 		return ""
 	}
-	row, ok := ctx.Tables[sourceProviders][ctx.SelectedProvider].(map[string]any)
+	row, ok := ctx.Tables[sourceProviders][provider].(map[string]any)
 	if !ok {
 		return ""
 	}

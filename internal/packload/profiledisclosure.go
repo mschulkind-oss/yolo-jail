@@ -20,6 +20,7 @@ package packload
 
 import (
 	"fmt"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -31,7 +32,13 @@ import (
 // its CLI-keyed profile table (ProfileTable), its selected packs, and the resolved profiles and
 // composed provider table the credential gate composed it against.
 type ProfileDisclosureInput struct {
-	Table     map[string]string
+	Table map[string]string
+	// Sets is each agent's whole ACTIVE SET (ProfileSets; docs/design/active-provider-sets.md),
+	// Table's values being their first entries. When given, every name ANY set lists gets its
+	// line and each agent holding it is answered for it, so a later entry says where it landed
+	// as the primary does (the design's §6: "the launch disclosure … print each agent's set in
+	// order"). nil reads Table alone.
+	Sets      map[string][]string
 	Packs     []*Pack
 	Resolved  map[string]ResolvedProfile
 	Providers *jsonx.OrderedMap
@@ -106,9 +113,19 @@ func (d ProfileDisclosure) Warnings() []string {
 // are unrelated declarations of one selector value, and saying so beats hiding the coincidence.
 func ProfileDisclosures(in ProfileDisclosureInput) []ProfileDisclosure {
 	byName := map[string][]string{}
-	for agent, name := range in.Table {
-		if name != "" {
-			byName[name] = append(byName[name], agent)
+	if in.Sets != nil {
+		for agent, set := range in.Sets {
+			for _, name := range set {
+				if name != "" && !slices.Contains(byName[name], agent) {
+					byName[name] = append(byName[name], agent)
+				}
+			}
+		}
+	} else {
+		for agent, name := range in.Table {
+			if name != "" {
+				byName[name] = append(byName[name], agent)
+			}
 		}
 	}
 	if len(byName) == 0 {
@@ -285,4 +302,27 @@ func credentialWarning(in ProfileDisclosureInput, agent, profile, provider strin
 	return fmt.Sprintf("Warning: profile %q delivers %s no credential for provider %q at this "+
 		"notch: none of %s reaches it, so %s starts on a credential it finds itself or on none. %s",
 		profile, agent, provider, strings.Join(claims, ", "), agent, fix)
+}
+
+// ActiveSetLines is one line per agent holding an ACTIVE SET of more than one profile
+// (docs/design/active-provider-sets.md), agents in name order, naming the set in its order and
+// which entry a fresh session starts on — the reading the risk table asks the launch to show
+// before anything runs, since `pi=zai,codex` names a CLI and a profile in one value. Nil when
+// every set has one entry, so a launch with none prints what it always printed.
+func ActiveSetLines(sets map[string][]string) []string {
+	agents := make([]string, 0, len(sets))
+	for agent, set := range sets {
+		if len(set) > 1 {
+			agents = append(agents, agent)
+		}
+	}
+	sort.Strings(agents)
+	out := make([]string, 0, len(agents))
+	for _, agent := range agents {
+		set := sets[agent]
+		out = append(out, "Active set for "+agent+": "+strings.Join(set, ", ")+
+			" — every entry's provider is live in one session, and a fresh session starts on "+
+			set[0]+" when yolo has to pick")
+	}
+	return out
 }

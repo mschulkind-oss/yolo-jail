@@ -617,6 +617,27 @@ type providerRequirement struct {
 // which is exactly the mysterious-first-request failure that ruling was about.
 func ProviderCredentialGaps(packs []*Pack, providers *jsonx.OrderedMap, selected []string,
 	lookup func(string) (string, bool), consulted []string) []string {
+	return providerCredentialGaps(packs, providers, selected, nil, lookup, consulted)
+}
+
+// ProviderCredentialGapsIn is ProviderCredentialGaps over the credential gate's own answer: the
+// providers it demands are the gate's SelectedProviders — every entry of every active set
+// (docs/design/active-provider-sets.md §4.5) — and a fact about a provider that is a later entry
+// of some agent's set names that entry, its position and the agent (CredentialScope.SetPosition),
+// so `-p pi=zai,openrouter` with no OPENROUTER_API_KEY says openrouter is second in pi's set
+// rather than leaving the reader to wonder why a provider pi does not start on is required.
+// Every launch arm and the host notch call this one; the list-taking form stays for a caller
+// with no gate.
+func ProviderCredentialGapsIn(packs []*Pack, providers *jsonx.OrderedMap, scope *CredentialScope,
+	lookup func(string) (string, bool), consulted []string) []string {
+	return providerCredentialGaps(packs, providers, scope.SelectedProviders(), scope.SetPosition,
+		lookup, consulted)
+}
+
+// providerCredentialGaps is both forms' body; position, when non-nil, names where a provider
+// sits in an active set, "" for nowhere worth naming.
+func providerCredentialGaps(packs []*Pack, providers *jsonx.OrderedMap, selected []string,
+	position func(string) string, lookup func(string) (string, bool), consulted []string) []string {
 	isSelected := make(map[string]bool, len(selected))
 	for _, name := range selected {
 		isSelected[name] = true
@@ -638,8 +659,14 @@ func ProviderCredentialGaps(packs []*Pack, providers *jsonx.OrderedMap, selected
 		if req.pack != "" {
 			who = "pack " + req.pack + " requires"
 		}
-		facts = append(facts, "  • "+who+" provider "+quoted(req.provider)+
-			", whose credential variable "+keyName+" is not set in this launch's environment")
+		fact := "  • " + who + " provider " + quoted(req.provider) +
+			", whose credential variable " + keyName + " is not set in this launch's environment"
+		if position != nil {
+			if where := position(req.provider); where != "" {
+				fact += " (" + where + "; yolo never starts an agent on part of its set)"
+			}
+		}
+		facts = append(facts, fact)
 	}
 	if len(facts) == 0 {
 		return nil

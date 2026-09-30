@@ -71,10 +71,10 @@ func TestSurfaceSelectionNamesTheViaServicesCallerToken(t *testing.T) {
 		"plain": {Provider: "zai"},
 	}
 	profiles := map[string]string{"pi": "pz", "opencode": "plain"}
-	if got := surfaceSelectionFor(packs, resolved, profiles, manifest.Surface{Agent: "pi", Name: "models"}).ViaAPIKeyEnvName; got != bridgeTokenVar {
+	if got := surfaceSelectionFor(packs, resolved, profiles, nil, manifest.Surface{Agent: "pi", Name: "models"}).ViaAPIKeyEnvName; got != bridgeTokenVar {
 		t.Errorf("pi's via credential = %q, want %s", got, bridgeTokenVar)
 	}
-	if got := surfaceSelectionFor(packs, resolved, profiles, manifest.Surface{Agent: "opencode"}).ViaAPIKeyEnvName; got != "" {
+	if got := surfaceSelectionFor(packs, resolved, profiles, nil, manifest.Surface{Agent: "opencode"}).ViaAPIKeyEnvName; got != "" {
 		t.Errorf("opencode's via credential = %q, want none (its profile is not a via profile)", got)
 	}
 }

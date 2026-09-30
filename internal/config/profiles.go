@@ -115,6 +115,11 @@ func checkProfileEntry(name string, raw any) (packload.UserProfile, string) {
 			`-p/--profile value grammar dispatches on it (bare name = every selected ` +
 			`pack; cli=name = one CLI), and a name carrying it would be unspellable`
 	}
+	if strings.Contains(name, ",") {
+		return packload.UserProfile{}, path + `: a profile name must not contain "," — the ` +
+			`-p/--profile value grammar separates the profiles of one agent's list with it ` +
+			`(-p pi=zai,openrouter), and a name carrying it would be unspellable`
+	}
 	m, ok := raw.(*jsonx.OrderedMap)
 	if !ok {
 		return packload.UserProfile{}, path + ": expected an object with a \"provider\" and option values"

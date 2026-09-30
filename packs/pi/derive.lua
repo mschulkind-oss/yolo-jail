@@ -126,6 +126,26 @@ local piCompatFields = {
   { option = "max_tokens_field", field = "maxTokensField" },
 }
 
+-- piProfileFor is the resolved option map of the profile pi's ACTIVE SET selects provName
+-- through, or nil when the set holds no entry on it (docs/design/active-provider-sets.md §4.3:
+-- the active set, a term that doc coins, is the ordered list of profiles one agent runs on). The
+-- primary is ctx.profile, as it always was; every later entry is its ctx.active_set row, so a
+-- profile option reaches its own provider's catalog row whichever position it holds. With a set
+-- of one this is exactly the old `ctx.selected_provider == provName` read.
+local function piProfileFor(ctx, provName)
+  if ctx.selected_provider == provName and type(ctx.profile) == "table" then
+    return ctx.profile
+  end
+  if type(ctx.active_set) == "table" then
+    for _, e in ipairs(ctx.active_set) do
+      if e.provider == provName and type(e.profile) == "table" then
+        return e.profile
+      end
+    end
+  end
+  return nil
+end
+
 -- providerOption reads one declared option off the provider, falling back to the active
 -- profile's value for the provider that profile selects — the same two-step the context
 -- window and max-tokens reads below take, and deliberately the same one: a provider's
@@ -134,8 +154,9 @@ local function providerOption(prov, ctx, provName, name)
   if type(prov) == "table" and type(prov.options) == "table" and prov.options[name] ~= nil then
     return prov.options[name]
   end
-  if ctx.selected_provider == provName and type(ctx.profile) == "table" then
-    return ctx.profile[name]
+  local profile = piProfileFor(ctx, provName)
+  if profile then
+    return profile[name]
   end
   return nil
 end
@@ -555,11 +576,12 @@ yolo.derive("pi", "models", function(ctx)
         cw = tonumber(prov.options.context_window or prov.options.max_context_tokens)
         maxTokens = tonumber(prov.options.max_tokens or prov.options.max_output_tokens)
       end
-      if not cw and ctx.selected_provider == name and type(ctx.profile) == "table" then
-        cw = tonumber(ctx.profile.context_window or ctx.profile.max_context_tokens)
+      local entryProfile = piProfileFor(ctx, name)
+      if not cw and entryProfile then
+        cw = tonumber(entryProfile.context_window or entryProfile.max_context_tokens)
       end
-      if not maxTokens and ctx.selected_provider == name and type(ctx.profile) == "table" then
-        maxTokens = tonumber(ctx.profile.max_tokens or ctx.profile.max_output_tokens)
+      if not maxTokens and entryProfile then
+        maxTokens = tonumber(entryProfile.max_tokens or entryProfile.max_output_tokens)
       end
       if type(prov.models) == "table" then
         local aliases = {}
@@ -598,13 +620,13 @@ yolo.derive("pi", "models", function(ctx)
           table.insert(modelList, m)
         end
       end
-      if #modelList == 0 and isKilo and ctx.selected_provider == name and type(ctx.profile) == "table" and ctx.profile.model then
-        local modelId = normalizeKiloModel(ctx.profile.model)
+      if #modelList == 0 and isKilo and entryProfile and entryProfile.model then
+        local modelId = normalizeKiloModel(entryProfile.model)
         local modelCw = cw
         if not modelCw and (modelId == "deepseek/deepseek-v4.1-flash" or string.find(modelId, "^deepseek/")) then
           modelCw = 1048576
         end
-        local m = { id = modelId, name = ctx.profile.model }
+        local m = { id = modelId, name = entryProfile.model }
         if modelCw then
           m.contextWindow = modelCw
         end
@@ -750,6 +772,110 @@ local function piSubagents(ctx, provider, model, ids)
   return sub
 end
 
+-- THE ACTIVE SET (docs/design/active-provider-sets.md, OQ-AP1 to OQ-AP3 ruled 2026-09-29). pi
+-- is SET-CAPABLE (packs/pi/pack.json's `provider_sets`): `-p pi=zai,openrouter` or
+-- `"use_profiles": {"pi": ["zai", "openrouter"]}` makes every listed provider live in one
+-- session, and ctx.active_set carries the entries in order. The first entry, the PRIMARY, is
+-- ctx.selected_provider and ctx.profile as it always was, so the settings derive below answers
+-- for it unchanged; piSetSettings then widens that answer to the set, and a set of one returns
+-- it untouched (AP-P1: byte-identical to a single profile).
+--
+-- piSetRun is one entry's run of pi's scoped picker (enabledModels): the entry's own list, its
+-- default leading (§4.4). openai-codex writes no enabledModels of its own (ML-D2), so in a set of
+-- more than one its declared BASE ids are added (AP-D6): the `[1m]` variants are left out,
+-- because enabledModels are minimatch patterns, in which `[1m]` is a character class that
+-- would match an id ending in "1" or "m" rather than the variant, and the variants stay one Tab
+-- away in pi's "all" view.
+local function piSetRun(ctx, out)
+  local sel = out.selection
+  if type(sel.enabledModels) == "table" then
+    return sel.enabledModels
+  end
+  if sel.defaultProvider ~= "openai-codex" then
+    return nil
+  end
+  local base = {}
+  for _, e in ipairs(codexModelList(ctx.providers and ctx.providers["openai-codex"])) do
+    if not e.base then
+      table.insert(base, e.id)
+    end
+  end
+  local run = {}
+  for _, id in ipairs(base) do
+    if id == sel.defaultModel then
+      table.insert(run, "openai-codex/" .. id)
+    end
+  end
+  for _, id in ipairs(base) do
+    if id ~= sel.defaultModel then
+      table.insert(run, "openai-codex/" .. id)
+    end
+  end
+  return run
+end
+
+-- piSetSettings widens the primary's settings (out) to pi's whole active set: enabledModels is
+-- the primary's run, then each later entry's run in set order (§4.4), and pi-subagents'
+-- modelScope allows the union of every entry's scope, so a child may run on any provider in the
+-- set and on none outside it (§4.6, AP-D5). defaultProvider, defaultModel and subagents'
+-- defaultModel stay the primary's: a fresh session starts where the first entry says, and a
+-- model the user saved on any entry is never steered (OQ-ML2).
+--
+-- Each later entry is answered by settingsFor ITSELF, over a copy of ctx whose selection is
+-- that entry's, so every rule the primary follows (a provider pi lists itself, a kilo id, a
+-- provider with no model list) answers for it too, with no second copy of any of them. The copy
+-- carries no via: a via entry may sit only first (AP-D9), and its route is the primary's.
+local function piSetSettings(ctx, out, settingsFor)
+  local set = ctx.active_set
+  if type(set) ~= "table" or #set < 2 or type(out) ~= "table" or type(out.selection) ~= "table" then
+    return out
+  end
+  local enabled, allow, seenRun, seenAllow = {}, {}, {}, {}
+  local function add(list, into, seen)
+    if type(list) ~= "table" then return end
+    for _, v in ipairs(list) do
+      if not seen[v] then
+        seen[v] = true
+        table.insert(into, v)
+      end
+    end
+  end
+  local function scopeOf(o)
+    local sub = o.subagents
+    if type(sub) == "table" and type(sub.modelScope) == "table" then
+      return sub.modelScope.allow
+    end
+    return nil
+  end
+  add(piSetRun(ctx, out), enabled, seenRun)
+  add(scopeOf(out), allow, seenAllow)
+  for i = 2, #set do
+    local e = set[i]
+    local ectx = {}
+    for k, v in pairs(ctx) do
+      ectx[k] = v
+    end
+    ectx.selected_provider = e.provider
+    ectx.selected_platform = e.platform
+    ectx.profile_name = e.profile_name
+    ectx.profile = e.profile
+    ectx.via_url = ""
+    ectx.via_api_key_env_name = ""
+    local eo = settingsFor(ectx)
+    if type(eo) == "table" and type(eo.selection) == "table" then
+      add(piSetRun(ectx, eo), enabled, seenRun)
+      add(scopeOf(eo), allow, seenAllow)
+    end
+  end
+  if #enabled > 0 then
+    out.selection.enabledModels = enabled
+  end
+  if type(out.subagents) == "table" and #allow > 0 then
+    out.subagents.modelScope = { enforce = true, strict = true, allow = allow }
+  end
+  return out
+end
+
 -- The selection — defaultProvider and defaultModel, pi's OWN selection keys, verified from
 -- the published package the launcher installs (pi 0.84.4, npm-extracted, the CLI never
 -- run): dist/core/settings-manager.d.ts:71-72 declares the pair, the ids match EXACTLY
@@ -790,7 +916,10 @@ end
 -- omitted when the provider declares no models or names no such alias, leaving pi to
 -- resolve its own model within the named provider — model ids must match the provider's
 -- list exactly, so guessing one would be a selection pi refuses at resolution time.
-yolo.derive("pi", "settings", function(ctx)
+--
+-- piSettingsFor answers for ONE entry, ctx's selected provider; the registration below it widens
+-- the answer to pi's whole active set (piSetSettings).
+local function piSettingsFor(ctx)
   if ctx.selected_provider == nil or ctx.selected_provider == "" then
     return {}
   end
@@ -876,9 +1005,11 @@ yolo.derive("pi", "settings", function(ctx)
   -- here (the tolerant guard's stub), which writes no default, the degraded result a
   -- missing alias already has.
   if type(p) == "table" and type(p.models) == "table" and next(p.models) ~= nil then
-    local _, id = yolo.model_for(alias)
+    -- Named explicitly, so the answer is this entry's provider when piSetSettings asks for a
+    -- later entry of the active set (yolo.model_for answers only inside the set).
+    local _, id = yolo.model_for(alias, ctx.selected_provider)
     if not id and alias ~= "default" then
-      _, id = yolo.model_for("default")
+      _, id = yolo.model_for("default", ctx.selected_provider)
     end
     if id then
       sel.defaultModel = id
@@ -954,6 +1085,10 @@ yolo.derive("pi", "settings", function(ctx)
     subagents = piSubagents(ctx, ctx.selected_provider, sel.defaultModel, configured),
     selection = sel,
   }
+end
+
+yolo.derive("pi", "settings", function(ctx)
+  return piSetSettings(ctx, piSettingsFor(ctx), piSettingsFor)
 end)
 
 -- codex-models (~/.pi/agent/yolo-openai-codex-models.json): the openai-codex model list
@@ -1017,21 +1152,35 @@ end)
 -- because it is pi's own built-in provider id, the same test the settings derive above makes
 -- (PP-D2).
 --
+-- The login is wanted when openai-codex is ANY ENTRY OF THE ACTIVE SET
+-- (docs/design/active-provider-sets.md AP-P1): pi on [zai, codex] can switch to its built-in
+-- openai-codex provider mid-session, so it needs the login too.
+--
 -- And THE BEDROCK REGION, when pi's own Bedrock client is the transport (piNativeBedrock): a
 -- region the provider declares reaches pi as AWS_REGION, because pi reads its region from its
 -- environment and has no config field for it (api/bedrock-converse-stream.js, pi 0.99.1). A
 -- region the environment already carries needs nothing: the launch delivers it to pi itself.
+local function piSetHas(ctx, provider)
+  if ctx.selected_provider == provider then return true end
+  if type(ctx.active_set) == "table" then
+    for _, e in ipairs(ctx.active_set) do
+      if e.provider == provider then return true end
+    end
+  end
+  return false
+end
+
 yolo.env("pi", function(ctx)
+  local env = {}
   if piNativeBedrock(ctx) then
     local p = ctx.providers and ctx.providers[ctx.selected_provider] or nil
     if type(p) == "table" and type(p.region) == "string" and p.region ~= "" then
-      return { AWS_REGION = p.region }
+      env.AWS_REGION = p.region
     end
-    return {}
   end
-  if ctx.selected_provider ~= "openai-codex" then return {} end
-  return {
-    YOLO_AUTH_PRELAUNCH_PI_FLAG = "--pi-auth",
-    YOLO_AUTH_PRELAUNCH_PI_PATH = ".pi/agent/auth.json",
-  }
+  if piSetHas(ctx, "openai-codex") then
+    env.YOLO_AUTH_PRELAUNCH_PI_FLAG = "--pi-auth"
+    env.YOLO_AUTH_PRELAUNCH_PI_PATH = ".pi/agent/auth.json"
+  end
+  return env
 end)
