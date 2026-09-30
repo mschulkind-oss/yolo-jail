@@ -3,9 +3,11 @@
 package ttyproxy
 
 import (
+	"errors"
 	"os"
 	"os/signal"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"testing"
 	"time"
@@ -13,9 +15,119 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// TestCtrlCTerminatesProxy drives the real pump with a real pty. It pins the
-// raw-mode Ctrl-C call site: the byte is consumed by the proxy and triggers a
-// targeted self-interrupt rather than reaching the runtime's pty.
+// childDeadline bounds each wait on a proxied child in these tests. It is a bound, not a
+// pace: nothing sleeps it off, and on a quiet machine every wait ends within milliseconds.
+// It is this generous because one wait can cover an exec or two (sh, stty, dd), and each
+// can take hundreds of milliseconds on a loaded laptop or under a tracer. The fixed sleeps
+// these tests used to pace themselves with were sized for a quiet machine. Anywhere else
+// they failed, with messages blaming the product.
+const childDeadline = 10 * time.Second
+
+// fakeHostTTY makes a fresh pty's slave this process's stdin and stdout for the rest of
+// the test, the way a terminal is the launcher's, and returns both ends. What the test
+// writes to master is typed input, and what the proxy writes to stdout comes back out of
+// it. One *os.File holds the slave, and closing that file is what releases the number, so
+// no finalizer can close it a second time after a later test's openPty has reused it.
+func fakeHostTTY(t *testing.T) (master, slave int) {
+	t.Helper()
+	master, slave, err := openPty()
+	if err != nil {
+		t.Skipf("cannot open pty: %v", err)
+	}
+	f := os.NewFile(uintptr(slave), "pty-slave")
+	origIn, origOut := os.Stdin, os.Stdout
+	os.Stdin, os.Stdout = f, f
+	t.Cleanup(func() {
+		os.Stdin, os.Stdout = origIn, origOut
+		_ = f.Close()
+		_ = unix.Close(master)
+	})
+	return master, slave
+}
+
+// proxyRun is one RunWithProxyObserved on its own goroutine. done carries its exit code.
+type proxyRun struct {
+	done     chan int
+	finished chan struct{}
+	child    atomic.Pointer[os.Process]
+}
+
+// startProxied runs cmd under the real proxy on a goroutine, on the terminal fakeHostTTY
+// made. Driving proxyLoop by hand would pin the loop and leave RunWithProxy free to
+// reintroduce, above it, whatever a test pins.
+//
+// Its cleanup runs before fakeHostTTY's and ends a run that a failing test abandoned. Left
+// running, that run keeps polling the fake terminal's descriptor numbers after they are
+// closed. It then reads the input of whichever later test's openPty reuses them, and fails
+// that test too. Its child also stays orphaned for good, because it inherited its own
+// pty's master. The cleanup ends the child the ways these tests' scripts allow: plain
+// bytes finish a dd, and a SIGWINCH fires the winch test's trap. SIGKILL is the last
+// resort.
+func startProxied(t *testing.T, master int, cmd []string, obs Observer) *proxyRun {
+	t.Helper()
+	r := &proxyRun{done: make(chan int, 1), finished: make(chan struct{})}
+	go func() {
+		defer close(r.finished)
+		rc, _ := RunWithProxyObserved(cmd, func(p *os.Process) { r.child.Store(p) }, nil, obs)
+		r.done <- rc
+	}()
+	t.Cleanup(func() {
+		select {
+		case <-r.finished:
+			return
+		default:
+		}
+		_, _ = unix.Write(master, []byte("................"))
+		if p := r.child.Load(); p != nil {
+			_ = p.Signal(syscall.SIGWINCH)
+		}
+		select {
+		case <-r.finished:
+			return
+		case <-time.After(time.Second):
+		}
+		if p := r.child.Load(); p != nil {
+			_ = p.Kill()
+		}
+		select {
+		case <-r.finished:
+		case <-time.After(childDeadline):
+			t.Log("the proxied run outlived its test; a later pty test may see its descriptors")
+		}
+	})
+	return r
+}
+
+// readUntil reads master until what it has read contains want, and reports whether it
+// did before d ran out. It returns what it read either way, for the failure message.
+func readUntil(master int, want string, d time.Duration) (string, bool) {
+	var got []byte
+	buf := make([]byte, 256)
+	deadline := time.Now().Add(d)
+	for !strings.Contains(string(got), want) {
+		left := time.Until(deadline)
+		if left <= 0 {
+			return string(got), false
+		}
+		fds := []unix.PollFd{{Fd: int32(master), Events: unix.POLLIN}}
+		n, err := unix.Poll(fds, int(left/time.Millisecond)+1)
+		if errors.Is(err, unix.EINTR) || (err == nil && n == 0) {
+			continue
+		}
+		if err != nil || fds[0].Revents&unix.POLLIN == 0 {
+			return string(got), false
+		}
+		m, err := unix.Read(master, buf)
+		if m > 0 {
+			got = append(got, buf[:m]...)
+		}
+		if err != nil || m == 0 {
+			return string(got), false
+		}
+	}
+	return string(got), true
+}
+
 // TestCtrlCReachesTheJail pins the 2026-09-19 ruling: ^C is forwarded to the pty like
 // any other byte, so the JAIL's line discipline decides what it means.
 //
@@ -25,23 +137,12 @@ import (
 // `podman exec -it` contract.
 //
 // The assertion is that the byte ARRIVES, which is the whole behaviour change: the child
-// here is a `cat` on a raw pty, so a delivered 0x03 comes back out rather than raising a
-// signal, and reading it back proves the proxy passed it through instead of eating it.
+// here reads one byte from a raw pty and then exits 42, so that exit proves the proxy
+// passed the 0x03 through instead of eating it.
 func TestCtrlCReachesTheJail(t *testing.T) {
 	// Same plumbing as TestPtyPassthrough, which is the proven shape: a pty whose
-	// slave stands in for os.Stdin, and the real RunWithProxy on top of it. Driving
-	// proxyLoop by hand would pin the loop while leaving RunWithProxy free to
-	// reintroduce an interception above it.
-	master, slave, err := openPty()
-	if err != nil {
-		t.Skipf("cannot open pty: %v", err)
-	}
-	defer unix.Close(master)
-
-	origIn, origOut := os.Stdin, os.Stdout
-	os.Stdin = os.NewFile(uintptr(slave), "pty-slave-stdin")
-	os.Stdout = os.NewFile(uintptr(slave), "pty-slave-stdout")
-	defer func() { os.Stdin, os.Stdout = origIn, origOut; unix.Close(slave) }()
+	// slave stands in for os.Stdin, and the real RunWithProxy on top of it.
+	master, _ := fakeHostTTY(t)
 
 	// WHAT THIS CAN AND CANNOT ASSERT, stated because two earlier drafts asserted the
 	// wrong thing.
@@ -55,30 +156,45 @@ func TestCtrlCReachesTheJail(t *testing.T) {
 	//
 	// So what is pinned is DELIVERY, which is the entire behaviour change: the byte
 	// reaches the child instead of being eaten. The child puts its own pty in raw mode
-	// first, because a cooked pty returns nothing to a reader until a newline — a draft
-	// without `stty raw` failed on a PLAIN byte too, which is what proved the plumbing
-	// wrong rather than the fix. If this test ever fails, send an ordinary byte first.
-	done := make(chan int, 1)
-	go func() {
-		rc, _ := RunWithProxy([]string{"sh", "-c",
-			"stty raw -echo; dd bs=1 count=1 of=/dev/null 2>/dev/null; exit 42"}, nil, nil)
-		done <- rc
-	}()
-
-	time.Sleep(300 * time.Millisecond)
+	// first, because a cooked pty returns nothing to a reader until a newline, and its
+	// line discipline swallows a ^C. A draft without `stty raw` failed on a PLAIN byte
+	// too, which is what proved the plumbing wrong rather than the fix.
+	//
+	// THE ^C IS WRITTEN ONLY ONCE THE CHILD SAYS ITS PTY IS RAW: the R it prints after
+	// stty. That R also proves the proxy is pumping, which it starts only after it has
+	// made the host tty raw. A fixed sleep used to stand in for both. When an exec was
+	// slow the byte reached a line discipline that was still cooked and was swallowed
+	// there, and the failure below then blamed the proxy.
+	run := startProxied(t, master, []string{"sh", "-c",
+		"stty raw -echo; printf R; dd bs=1 count=1 of=/dev/null 2>/dev/null; exit 42"}, Observer{})
+	if got, ok := readUntil(master, "R", childDeadline); !ok {
+		t.Fatalf("the child never said its pty was raw (read %q): the child or the proxy never "+
+			"got going, which says nothing about ^C", got)
+	}
 	if _, err := unix.Write(master, []byte{interruptByte}); err != nil {
 		t.Fatal(err)
 	}
 
 	select {
-	case rc := <-done:
+	case rc := <-run.done:
 		if rc != 42 {
 			t.Errorf("child rc = %d, want 42 — it never read the ^C byte", rc)
 		}
-	case <-time.After(5 * time.Second):
-		t.Fatal("^C never reached the child: the proxy ate it. That is the pre-2026-09-19 " +
-			"behaviour, where Ctrl-C quit the launcher instead of reaching the jail — at a " +
-			"bash prompt it tore the session down rather than clearing the line.")
+	case <-time.After(childDeadline):
+		// Tell an eaten ^C apart from a proxy that forwards nothing at all.
+		if _, err := unix.Write(master, []byte{'x'}); err != nil {
+			t.Fatal(err)
+		}
+		select {
+		case <-run.done:
+			t.Fatal("^C never reached the child, though a plain byte written after it did: the " +
+				"proxy ate it. That is the pre-2026-09-19 behaviour, where Ctrl-C quit the " +
+				"launcher instead of reaching the jail — at a bash prompt it tore the session " +
+				"down rather than clearing the line.")
+		case <-time.After(childDeadline):
+			t.Fatal("neither the ^C nor a plain byte written after it reached the child, which " +
+				"had said its pty was raw: the proxy is forwarding no input at all")
+		}
 	}
 }
 
