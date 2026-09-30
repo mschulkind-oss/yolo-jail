@@ -11,9 +11,10 @@ vantage:
 # Where an agent's work survives a restart, and why it keeps choosing /tmp
 
 **Status:** DECIDED, 2026-09-28. All three questions ruled in review the same day. Built
-through the durable dir, its report and the pi extension on 2026-09-29
-([§9](#9-the-first-build-slice)); the claude and pi pack prose and Apple Container's own
-wording remain. Evidence verified at `c8fda25f` in a podman jail on a rootless Linux host
+whole on 2026-09-29 ([§9](#9-the-first-build-slice)): the durable dir, its report, the pi
+extension, the claude and pi packs' own prose, and each backend's own wording of the
+section. Apple Container's wording is unit-tested only; no Mac has rendered it. Evidence
+verified at `c8fda25f` in a podman jail on a rootless Linux host
 ([Appendix A](#appendix-a--the-measured-runs)).
 
 > **In short.** The agent chose `/tmp` because nothing it reads says which paths outlive the
@@ -431,7 +432,8 @@ sketch is kept as the design's argument, not updated to match:
 ```
 
 **Per-backend wording.** Apple Container says the whole home is durable for this workspace and
-`/tmp` is in RAM. macos-user says the home is shared by every workspace, has no per-launch class,
+`/tmp` is in RAM; as built, the map's two facts pick those clauses, not the backend's name
+([DS-D34](#DS-D34)). macos-user says the home is shared by every workspace, has no per-launch class,
 and that `/tmp` is the machine's own: it survives this launch, is shared with every workspace and
 the host user, and is cleared at reboot, so a name there must be unique (`mktemp`). The host notch
 gets one static sentence ([§5.7](#57-every-notch-and-backend)).
@@ -610,6 +612,9 @@ tools that never read a briefing.
 | opencode | workspace-durable (`~/.local/share/opencode/worktree`) | none |
 | copilot, agy, omp | no tool found | none; a pack line follows when a tool exists |
 
+As built, the claude and pi rows' prose is one file in each pack, addressed to that agent
+alone ([DS-D33](#DS-D33)).
+
 **Why an extension and not a pack `env` value for pi.** The value must name the workspace, which
 is `/workspace` on two backends and the real path on the third, and `env` values are literal
 ([§4](#4-the-constraints)). A relative value (`.yolo/durable/…`) resolves against pi's repository
@@ -681,7 +686,9 @@ beside it."*
 
 **Costs:**
 
-- Every jail briefing grows by about ten lines, on every agent's instruction file.
+- Every jail briefing grows by about ten lines, on every agent's instruction file, and
+  Claude's and pi's by one section more, their own worktree prose, at both notches
+  ([DS-D33](#DS-D33)).
 - Every fresh launch whose durable dir holds anything prints one or two more lines, and the
   in-jail boot spends up to 2 s on the size walk.
 - A new directory appears in every workspace's `.yolo`, a new variable in every jail, a new
@@ -697,6 +704,7 @@ beside it."*
 | The host report becomes a host-read channel | metadata and admin-file bytes only, beneath an `os.Root`, no link followed, bounded size; no git run on the host ([§5.4](#54-the-durable-dir-report)) |
 | An agent writes into `.yolo` outside the durable dir, next to files yolo reads (`handover.md`, `config-boot.json`) | the section names only `$YOLO_DURABLE_DIR`, never `.yolo` itself; the jail could already write `.yolo`, so no capability is added |
 | The pi extension overrides a user's choice | it sets the variable only when unset, and pi-subagents' own `worktreeBaseDir` config outranks the variable |
+| pi-subagents ends every worktree run with a plain `git worktree prune` (SOURCED, 0.35.1's `cleanupWorktrees`), which in a container jail drops the registration of every unlocked worktree whose recorded path is the host's, since that path does not exist there ([DS-D20](#DS-D20)'s class). Found while building [DS-D33](#DS-D33) | **none built.** Worktrees made in the jail by the section's convention are `--lock`ed, so they are kept. A worktree made on the host, beside the repository or in its `.claude/worktrees` at the host notch, is exposed unless locked. The remedy is upstream: prune only the run's own registrations |
 
 ## 8. What this does not cover
 
@@ -722,9 +730,15 @@ beside it."*
 sentence and macos-user wording ([DS-D18](#DS-D18) to [DS-D23](#DS-D23)), then the review's
 fixes the same day ([DS-D24](#DS-D24) to [DS-D30](#DS-D30)), a wording pass after three
 fresh readers ([DS-D31](#DS-D31)) and that pass's review ([DS-D32](#DS-D32)). The section now
-leads with the durable dir. What remains is
-step 5's claude and pi pack prose and step 6's Apple Container wording, which today is the
-podman section with the whole home in the per-workspace class and the per-launch set in RAM.
+leads with the durable dir.
+
+**Built later on 2026-09-29, completing the slice:** step 5's claude and pi pack prose
+([DS-D33](#DS-D33)) and step 6's Apple Container wording ([DS-D34](#DS-D34)), which had been
+the podman section with the whole home in the per-workspace class and the per-launch set in
+RAM. Both are pinned by unit tests through their production call sites. No Mac has rendered
+the Apple Container section, and no agent has read either pack's prose. Found while building:
+pi-subagents' own cleanup can drop host-made worktrees' registrations in a container jail
+([§7](#7-costs-and-risks)).
 
 What I would build, in order, each step shippable alone.
 
@@ -804,11 +818,11 @@ found only the per-launch scratch volumes. All three questions were ruled in rev
 | [`OQ-DS1`](#OQ-DS1) | The durable dir is `<workspace>/.yolo/durable`, exported as `$YOLO_DURABLE_DIR`; "scratch" is taken by the per-launch volumes | 2026-09-28 | [§5.2](#52-the-durable-dir) | `7ef2a99b` |
 | [`OQ-DS2`](#OQ-DS2) | yolo never deletes the durable dir's contents. Every fresh launch prints one line (worktree count, size, oldest idle); `yolo check` lists each worktree with size, idle, branch, unique commits and changed files; `yolo stores` gives each workspace's dir a row | 2026-09-28 | [§5.4](#54-the-durable-dir-report) | `2c828cca`, `0ff39d7d` |
 | [`OQ-DS3`](#OQ-DS3) | The host notch gets one static sentence in the host header and no variable | 2026-09-28 | [§5.7](#57-every-notch-and-backend) | `7ef2a99b` |
-| <a id="DS-D1"></a>[`DS-D1`](#12-decision-ledger) | *Implementation decision,* [DS-P1](#DS-P1). The section is rendered from the storage-class map, which reads the argv's own definitions, and a unit test compares the map against the assembled golden argv per backend in both directions. It must fail when a writable mount is added without the map knowing, which is the "does it fail if I delete the call site" test | 2026-09-28 | [§5.1](#51-the-storage-class-map-and-the-briefing-section) | — |
+| <a id="DS-D1"></a>[`DS-D1`](#12-decision-ledger) | *Implementation decision,* [DS-P1](#DS-P1). The section is rendered from the storage-class map, which reads the argv's own definitions, and a unit test compares the map against the assembled golden argv per backend in both directions. It must fail when a writable mount is added without the map knowing, which is the "does it fail if I delete the call site" test | 2026-09-28 | [§5.1](#51-the-storage-class-map-and-the-briefing-section) | `0ce12e15` |
 | <a id="DS-D2"></a>[`DS-D2`](#12-decision-ledger) | *Implementation decision.* The launcher is the one writer of the durable dir, beneath a root on `.yolo`, on every fresh launch; it exports the variable only on success, and a failure never refuses the launch | 2026-09-28 | [§5.2](#52-the-durable-dir) | `7ef2a99b` |
 | <a id="DS-D3"></a>[`DS-D3`](#12-decision-ledger) | *Implementation decision.* Host code never follows a link, reads file content, or removes anything beneath the durable dir. Its only contact is the report's `lstat` walk and the admin files' bytes, beneath an `os.Root`, and it runs no `git` in the workspace | 2026-09-28 | [§5.2](#52-the-durable-dir), [§5.4](#54-the-durable-dir-report) | `2c828cca`, `0ff39d7d` |
 | <a id="DS-D4"></a>[`DS-D4`](#12-decision-ledger) | *Implementation decision.* pi-subagents is pointed at the durable dir by a pi pack extension that sets `PI_SUBAGENTS_WORKTREE_DIR` when unset, not by a pack `env` value (literal only) or a core token. It does nothing where `YOLO_DURABLE_DIR` is unset | 2026-09-28 | [§5.5](#55-every-agent-learns-it-each-through-its-own-pack) | `46dbc94d` |
-| <a id="DS-D5"></a>[`DS-D5`](#12-decision-ledger) | *Implementation decision.* Agent tools with a durable default keep it, as the agent's choice, and core never recommends one. Claude's worktrees are not redirected: a `WorktreeCreate` hook loses the cleanup sweep, `.worktreeinclude` and transcript-follows-worktree, prompts at the host notch outside `.claude/worktrees/`, and a symlinked `.claude/worktrees` is refused outright | 2026-09-28 | [§5.5](#55-every-agent-learns-it-each-through-its-own-pack) | — |
+| <a id="DS-D5"></a>[`DS-D5`](#12-decision-ledger) | *Implementation decision.* Agent tools with a durable default keep it, as the agent's choice, and core never recommends one. Claude's worktrees are not redirected: a `WorktreeCreate` hook loses the cleanup sweep, `.worktreeinclude` and transcript-follows-worktree, prompts at the host notch outside `.claude/worktrees/`, and a symlinked `.claude/worktrees` is refused outright | 2026-09-28 | [§5.5](#55-every-agent-learns-it-each-through-its-own-pack) | `13a959fe` |
 | <a id="DS-D6"></a>[`DS-D6`](#12-decision-ledger) | *Implementation decision.* yolo writes no repository `.gitignore` or `.git/info/exclude` entry; `.yolo`'s own `*` covers the durable dir | 2026-09-28 | [§5.2](#52-the-durable-dir) | `7ef2a99b` |
 | <a id="DS-D7"></a>[`DS-D7`](#12-decision-ledger) | *Implementation decision,* [DS-P3](#DS-P3). `/tmp` and the other scratch volumes stay per-launch; no durable `/tmp`, no `TMPDIR` redirect | 2026-09-28 | [§6](#6-alternatives-considered) | — |
 | <a id="DS-D8"></a>[`DS-D8`](#12-decision-ledger) | *Implementation decision.* The durable dir has no mount of its own; it is reached through the workspace's mount at the workspace's spelling, which keeps host and jail geometry identical | 2026-09-28 | [§5.2](#52-the-durable-dir) | `7ef2a99b` |
@@ -835,6 +849,8 @@ found only the per-launch scratch volumes. All three questions were ruled in rev
 | <a id="DS-D30"></a>[`DS-D30`](#12-decision-ledger) | *Implementation decision,* [§5.6](#56-failure-paths), from review. An attach to a jail started without a durable dir names a cause still present (a covering `workspace_readonly` entry, a link at `.yolo`) through `durable.Check`, which makes nothing, else says neutrally that a fresh launch tries again. macos-user's `--dry-run` makes no directory: it checks, and describes the path a real launch would export | 2026-09-29 | [§5.6](#56-failure-paths) | `05884466` |
 | <a id="DS-D31"></a>[`DS-D31`](#12-decision-ledger) | *Implementation decision,* amending [DS-D29](#DS-D29)'s wording and [DS-D10](#DS-D10)'s `--relative-paths` clause, after three fresh readers found the durable dir's lifetime said three ways (*"yolo never deletes anything there"*, *"lost only if the workspace's `.yolo` is deleted"*, and *"survives everything"* for the workspace around it). The lead says it once: the dir survives restarts and yolo never deletes it; it lives in `.yolo`, which git ignores and the user sees, so a `git clean -fdx` (or `-fdX`) in the workspace deletes it, and the agent never runs one there. `-fdx`, not the `-x` first proposed: without `-d` a clean does not reach `.yolo` ([§5.2](#52-the-durable-dir), MEASURED). The per-workspace bullet drops its loss clause (*"lost only if … `.yolo` is deleted"*) and keeps its own class's lifetime, the workspace bullet says it outlives every jail, and `yolo check`'s footer says what deletes the dir, the check's reader being the one at the host's terminal. The harness sentence and the no-durable-dir line say *"survive a restart"*, not *"outlive this session"* or *"next session"*: a new session in the same launch still sees `/tmp`. `--lock` says why only where the jail and the host spell the workspace differently, so not on macos-user; the reason's words are [DS-D32](#DS-D32)'s. The briefing names no `--relative-paths` ([§5.3](#53-the-worktree-convention), MEASURED [§2.6](#26-a-worktree-records-absolute-paths-measured)) | 2026-09-29 | [§5.1](#51-the-storage-class-map-and-the-briefing-section), [§5.3](#53-the-worktree-convention) | `2a5cb786` |
 | <a id="DS-D32"></a>[`DS-D32`](#12-decision-ledger) | *Implementation decision,* amending [DS-D31](#DS-D31)'s wording from review. **`--lock`'s reason names its cause and what a prune takes**: *"git records it under this jail's `/workspace`, a path the host does not have, so without the lock a `git worktree prune` or `git gc` on the host would drop its registration"*. DS-D31's *"git on the host sees this tree at another path, and without the lock would prune it as missing"* read as the host knowing where the tree is, and *"prune it"* as deleting the files, when a prune drops only the registration ([§2.6](#26-a-worktree-records-absolute-paths-measured)). **The lead says the dir is in `.yolo`, "which git ignores"**, not *"hidden from git"*: the clean deletes it because git ignores it, and *"hidden from git"* read as "git cannot touch it". **A nested jail's caveat replaces the lifetime sentence** instead of following it, so *"yolo never deletes it"* no longer stands above *"lasts only as long as that jail"*, and **an attach carries the caveat too**: it rewrites the briefing, and without it a nested jail's second terminal restored the false sentence. [§5.3](#53-the-worktree-convention)'s lock-in claim is corrected: git 2.47.2 refuses `git config --local --unset` but not `git config -f .git/config --unset`, which restores the repository (MEASURED); the ruling not to name `--relative-paths` stands | 2026-09-29 | [§5.1](#51-the-storage-class-map-and-the-briefing-section), [§5.3](#53-the-worktree-convention), [§5.6](#56-failure-paths) | `c701745a` |
+| <a id="DS-D33"></a>[`DS-D33`](#12-decision-ledger) | *Implementation decision,* [DS-D5](#DS-D5), [§5.5](#55-every-agent-learns-it-each-through-its-own-pack). The claude and pi packs each ship one file, `briefing/worktrees.md`, as a content line addressed to their own agent alone (`{"from": …, "agents": ["claude"]}`, and `["pi"]`). A `briefing/` file no line names broadcasts to every agent, and a content `into` narrows only at the host notch, so either would hand one agent's tool facts to every agent, which [DS-P2](#DS-P2) and row B″ reject. Each text holds at both notches: it names `$YOLO_DURABLE_DIR` only as *"in a yolo jail"*, and puts the user's or the project's place for a hand-made worktree first ([§5.8](#58-placement-core-a-pack-or-the-user)). Claude's says Claude Code's own worktrees stay in `.claude/worktrees/` and must not be linked, and that a hand-made one is not one of them; pi's says where pi-subagents' worktrees go and what outranks the extension, that pi-dynamic-workflows' `.pi/worktrees/` survives and shows as untracked, and that neither is a pattern. It is the first addressed line a shipped agent pack carries: `TestShippedAgentPacksKeepIntoForSkew` held that only a user's pack may, because an entrypoint built before the audiences field (`9218bf76`, 2026-09-02, before v0.10.0) refuses a briefing line with no `into`. That window is accepted. It needs a host built from this tree paired with such an entrypoint, which the source-skew gate refuses unless `YOLO_ALLOW_SOURCE_SKEW=1`, and `just install` repairs it. Destination lines still keep `into` and take no `agents` | 2026-09-29 | [§5.5](#55-every-agent-learns-it-each-through-its-own-pack) | `13a959fe` |
+| <a id="DS-D34"></a>[`DS-D34`](#12-decision-ledger) | *Implementation decision,* [DS-P1](#DS-P1), [§5.1](#51-the-storage-class-map-and-the-briefing-section)'s per-backend wording. Apple Container's section is chosen by the two facts its map carries, never by the backend's name. A per-launch set in RAM is said to be gone when the jail stops and to use the jail's memory, replacing podman's *"yolo deletes these once the jail exits"*, so podman under `ephemeral_storage: "tmpfs"` says it too. A whole-home bind says the home is writable and kept in this workspace's `.yolo/home`, and that yolo deletes nothing there but its own files, since `yolo prune`'s log age-out looks for podman's dot-stripped overlay names (`prune.agentLogWorkspaceSubdirs`) and that backend keeps the dots. The read-only bullet becomes *"Rewritten at each launch"*: there the briefing is a writable copy and the skills a `:ro` bind a release before 1.1.0 may ignore, so a write may succeed and lasts only until the next launch | 2026-09-29 | [§5.1](#51-the-storage-class-map-and-the-briefing-section) | `3853ed4f` |
 
 ## 13. The neighbors
 

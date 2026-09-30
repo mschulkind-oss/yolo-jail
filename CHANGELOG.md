@@ -64,7 +64,10 @@ oldest has been idle, and a second line when worktrees in the workspace or in th
 registered at directories that no longer exist. `yolo check` lists each worktree with its size,
 idle time, branch, the commits that exist nowhere else and its changed files, and `yolo stores`
 shows the directory of each workspace whose jail is running. pi's
-subagent worktrees now go there instead of `/tmp`. If the directory cannot be made, for example
+subagent worktrees now go there instead of `/tmp`. Claude and pi are also told, each in a section
+only that agent receives, where their own tools put worktrees and that those places are not for
+worktrees they make by hand; `yolo host apply` writes the same section into their instructions on
+your machine. If the directory cannot be made, for example
 because `.yolo` is a symbolic link, the launch says why and goes on without it. Agents run with
 `yolo host` are told that the machine's `/tmp` may not survive a reboot. See
 [where work survives a restart](docs/design/durable-scratch-space.md).
@@ -407,8 +410,10 @@ credential to a server of its choosing. See
   which is deleted once the jail exits. The briefing now lists the jail's storage classes: what
   is gone at every restart, what lasts for this workspace, what every workspace on the machine
   shares, and the workspace itself, with what each survives and what yolo cleans up. It tells
-  the agent to keep nothing it needs after a restart under `/tmp`. Apple Container jails get the
-  same section.
+  the agent to keep nothing it needs after a restart under `/tmp`. Apple Container jails get a
+  section of their own, which says that the whole home is kept for the workspace, that `/tmp`
+  is held in the jail's memory, and that the briefing and skills files are rewritten at each
+  launch.
 - A value you set on the command line beats a profile's value again. `ANTHROPIC_MODEL=x claude`,
   or an `export` in the jail's shell, had been overridden by what the selected profile sets for
   that agent; your value now wins, and the profile's still replaces one yolo set itself.

@@ -884,6 +884,15 @@ directory delivers **both**: `pi-rules.md` to pi, and every `briefing/` file to 
 Naming `briefing/pi.md` the same way narrows that one file and leaves the rest broadcasting. The
 order of the `contributes` list never changes which files are delivered, or where.
 
+**A shipped agent pack addresses its own prose to its own agent.** The claude and pi packs each
+ship `briefing/worktrees.md` as `{"kind": "briefing", "from": "briefing/worktrees.md", "agents":
+["claude"]}` (`["pi"]` for pi), because the file is about that agent's own tool: named by no
+line it would broadcast to every agent, and a content `into` narrows only at the host notch
+([below](#briefing-non-goals)). Their destination lines keep `into` and take no `agents`, and
+content in an agent pack may name only that pack's own agent; `TestShippedAgentPacksKeepIntoForSkew`
+holds both, and states the version-skew window the addressed line accepts
+([DS-D33](../design/durable-scratch-space.md#DS-D33)).
+
 **Two content contributions naming one source are refused**, naming both
 ([`OQ-PB5`](#oq-pb5)): the same cleaned `from`, or
 both omitting it. Every legitimate shape already has a one-contribution spelling — one `agents`

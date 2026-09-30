@@ -27,7 +27,8 @@ summary: "Where the text an in-jail agent reads at session start comes from: the
 **Status:** CURRENT as of 2026-09-23, verified against `7ad8358c`. MEASURED: the audience
 model runs end to end in a real container in CI's integration jobs, which were green at that
 commit. [The workspace layer](#the-workspace-layer) was added on 2026-09-27 with the code that
-builds it.
+builds it. The Storage classes item and part 4's shipped-pack prose were brought up to date on
+2026-09-29 with the code that changed them.
 
 Every coding agent reads an instruction file at session start. yolo **composes one per
 destination**, host-side, on every invocation (on an attach, from the packs the running jail
@@ -128,11 +129,19 @@ conditional sections that appear only when their data exists. Emission order, fr
 4. **Environment** — workspace, home, OS, the network paragraph, the two port sections, and
    the resource limits the backend actually imposes.
 5. **The `rg --replace` trap** warning.
-6. **Storage classes** — on a container backend, the jail's storage classes (per launch, per
-   workspace, every workspace on the machine, the workspace itself), each with its paths, what
-   it survives, who shares it and what yolo cleans up, then the read-only rest of the home and
-   one line of guidance: nothing that must survive a restart goes under `/tmp`. Rendered from
-   the launch's persistence map (see below); absent on `macos-user` and at the host notch.
+6. **Storage classes** — leads with the launch's durable dir, `$YOLO_DURABLE_DIR`, as the
+   place for work that must survive a restart and for `--lock`ed worktrees, or says why this
+   launch has none ([`durable-scratch-space.md`](../design/durable-scratch-space.md)). On a
+   container backend the jail's storage classes follow (per launch, per workspace, every
+   workspace on the machine, the workspace itself), each with its paths, what it survives, who
+   shares it and what yolo cleans up, rendered from the launch's persistence map (see below).
+   The map's two backend facts pick the wording, never the backend's name: a per-launch set in
+   RAM (Apple Container, or podman under `ephemeral_storage: "tmpfs"`) is gone when the jail
+   stops and uses the jail's memory; a read-only home (podman) ends with its read-only rest,
+   and a whole-home bind (Apple Container) with the files yolo rewrites at each launch instead.
+   On `macos-user` the section is the durable dir and one line about the Mac's shared `/tmp`.
+   At the host notch it is absent, and the confinement header says in one sentence what the
+   machine's `/tmp` survives.
 7. **What this environment does NOT do for you** — conditional, the backend's own
    limitations. Placed **before** the capability sections deliberately: these are
    constraints that change how everything below them should be read, and a constraint
@@ -169,7 +178,10 @@ files are ordered by pack-relative path, byte-wise, and joined with the same one
 pack's prose reads as one section. Empty prose is skipped rather than emitting an empty section.
 What a pack ships is its `briefing/` directory and any file a contribution names with `from` —
 never a root `AGENTS.md`, `CLAUDE.md` or `GEMINI.md`, which is the pack repository's own
-([`pack-system.md`](pack-system.md#what-a-pack-is-on-disk)).
+([`pack-system.md`](pack-system.md#what-a-pack-is-on-disk)). Two shipped agent packs carry
+prose of their own, each addressed to its own agent alone: the claude and pi packs say where
+their agent's own workflow tools put worktrees
+([DS-D33](../design/durable-scratch-space.md#DS-D33)).
 
 **`briefing_provenance: true` labels each pack's section** with `<!-- from pack: NAME -->`, once
 per section however many files it joins, as a debugging aid. It is off by default, for two measured reasons:
