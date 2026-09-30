@@ -3,7 +3,7 @@ title: "What `yolo host` reads for PATH — the PATH it was started with, plus `
 date: 2026-09-25
 status: in-review
 tags: [design, host, env, path, mise, depcheck, predictability]
-summary: "At `yolo host`, yolo's checks (is a program a pack needs present, and which copy of a program no floor entry covers runs) read the PATH yolo was started with, plus the folders a user-scope `host_path` list adds, by the maintainer's ruling HE-DIR1. Nothing else is guessed, and a launcher with a bare PATH can get a different answer from a terminal. What stays fixed whoever starts yolo is what yolo provides: the host agent floor's copy of each selected pack's agent, and the floor's own Node. The agent is handed that same PATH with the floor's `bin/` after it, and a miss prints one line naming the PATH searched and the `host_path` fix. One question is open: whether yolo keeps looking for API keys in the shell that started it."
+summary: "At `yolo host`, yolo's checks (is a program a pack needs present, and which copy of a program no floor entry covers runs) read the PATH yolo was started with, plus the folders a user-scope `host_path` list adds, by the maintainer's ruling HE-DIR1. The checks look in no other folder, and a launcher with a bare PATH can get a different answer from a terminal. What stays fixed whoever starts yolo is what yolo provides: the host agent floor's copy of each selected pack's agent, and the floor's own Node. The agent is handed that same PATH with the floor's `bin/` after it, and a miss prints one line naming the PATH searched and the `host_path` fix. One question is open: whether yolo keeps looking for API keys in the shell that started it."
 ---
 
 # What `yolo host` reads for PATH — the PATH it was started with, plus `host_path`, and the floor for the agents yolo provides
@@ -97,10 +97,11 @@ accepts that: *"it's just not feasible to otherwise know these things."* The fix
 > ⚠ **Maintainer ruling, 2026-09-29 (evening), which REVISES the one below for PATH:** "I think that you need to go back and review that decision again. I thought we decided that we can pick up the path if it's there because it's just not feasible to otherwise know these things. … I think this is the second time you're bringing this back up, so it needs to be presented in a more prominent location also. I just don't see any way around it. And then I think we just get things from [PATH]." (The last word
 > was dictated; speech-to-text wrote "pet" for PATH.)
 >
-> **So: at `yolo host`, yolo's checks read the PATH yolo was started with, when it has one.** Whether a
+> **What it means here** (the recorder's reading, not the maintainer's words): **at `yolo host`, yolo's
+> checks read the PATH yolo was started with, when it has one.** Whether a
 > program a pack needs is present (`rg` for the guardrails pack, a pack's `requires`), and which copy of a
 > program no floor entry covers, are answered from that PATH, as they are today. `host_path`, when set, adds
-> folders to it. Nothing else is guessed. A launcher that passes a bare PATH (a Waybar button, cron, a
+> folders to it. The checks look in no other folder. A launcher that passes a bare PATH (a Waybar button, cron, a
 > macOS hotkey launcher) can therefore get a different answer from a terminal, and that is accepted: *"it's
 > just not feasible to otherwise know these things."* What stays fixed regardless of the launcher is what
 > yolo itself provides: the floor's copy of each pack's agent ([HP-DIR4](host-tool-provisioning.md#HP-DIR4))
@@ -132,7 +133,8 @@ accepts that: *"it's just not feasible to otherwise know these things."* The fix
 
 - **No folder of yolo's own guessing.** The 09-25 ruling superseded an earlier suggestion to
   append mise's shims directory to PATH "opportunistically," meaning whenever it exists. That
-  still holds, and HE-DIR1 says it again: *"nothing else is guessed."*
+  still holds. HE-DIR1 names PATH as the source (*"we just get things from [PATH]"*), and a
+  folder yolo adds whenever it exists would be a source of yolo's own.
 - **Every other input yolo reads to decide something** still has to be named by config or by a
   `YOLO_*` variable. One input is undecided: a launch that refuses for a missing credential
   looks in the shell that started yolo today (`credentialGaps(os.Getenv)`), and whether it
@@ -496,7 +498,9 @@ Its rules:
   mise's default shims folder (`~/.local/share/mise/shims`), `/opt/homebrew/bin` and
   `/home/linuxbrew/.linuxbrew/bin`.
 - **A hint location never resolves anything.** It changes only the line's text, never whether a
-  check passes or what runs. That is what keeps it inside HE-DIR1's *"nothing else is guessed."*
+  check passes or what runs. That keeps it inside HE-DIR1: a check answers from PATH (*"we just
+  get things from [PATH]"*) and from the folders the user names in `host_path`, and a hint
+  location only helps the user write that line.
 - **Where it prints:** the launch gate's decision text, `yolo host apply`'s dependency refusal,
   `check-deps`, and the exec's exit 127, where it replaces today's *"not found in PATH (searched N
   directories, skipping yolo's own)"*. Once per missing program per run.
@@ -617,8 +621,9 @@ the PATH yolo was started with: (a) a per-OS baseline of system folders, or (b) 
 per-user tool folders that exist.
 
 > **Answer:** Neither. Answered by [HE-DIR1](#he-dir1): the checks never stop reading the PATH yolo
-> was started with, so an unset `host_path` means that PATH alone, as today. *"Nothing else is
-> guessed"* rules out both lists.
+> was started with, so an unset `host_path` means that PATH alone, as today. Both lists would be
+> folders yolo adds on its own, and HE-DIR1 names PATH as the source: *"we just get things from
+> [PATH]."*
 
 ### <a id="oq-he2"></a>✅ [`OQ-HE2`](#oq-he2) — may a pack declare the directory its program installs into? — **ANSWERED BY HE-DIR1, 2026-09-29**
 
@@ -628,8 +633,8 @@ was a program the floor cannot hold, such as an installer agent on macOS before 
 started from a launcher whose PATH lacks `~/.local/bin`.
 
 > **Answer:** No. Answered by [HE-DIR1](#he-dir1): a launch's folders come from the PATH yolo was
-> started with and from `host_path`, and nothing else is guessed; a pack's folder would be a third
-> source. The case shrinks as the prioritized macOS host capture ships ([OQ-HE11](#oq-he11)'s
+> started with (*"we just get things from [PATH]"*) and from `host_path`, the user's own list. A
+> pack's folder would be a third source, one the user did not name. The case shrinks as the prioritized macOS host capture ships ([OQ-HE11](#oq-he11)'s
 > direction). Until then the user's one `host_path` line covers it, and the miss line prints it.
 
 ### <a id="oq-he3"></a>✅ [`OQ-HE3`](#oq-he3) — ship the `{"mise": "shims"}` typed entry, or plain directories only? — **ANSWERED BY HE-DIR1, 2026-09-29**
@@ -915,17 +920,17 @@ here rather than settled in the body.
 
 | Id | Date | Decision | Why it holds |
 | :--- | :--- | :--- | :--- |
-| <a id="he-dir1"></a>**HE-DIR1** | 2026-09-29 | **Maintainer ruling, revising [OQ-HE0](#oq-he0) for PATH:** yolo's checks at the host read the PATH yolo was started with, when it has one, plus `host_path` when set; nothing is guessed, and a bare-PATH launcher may get a different answer. *"It's just not feasible to otherwise know these things … I just don't see any way around it."* | The "checks never read the ambient PATH" extension of [OQ-HE0](#oq-he0) was the doc's, never the maintainer's. Under it, [OQ-HE6](#oq-he6) is restated and open; the rest of [OQ-HE1](#oq-he1) to [OQ-HE9](#oq-he9) are retired or answered ([§9](#9-open-questions)) |
+| <a id="he-dir1"></a>**HE-DIR1** | 2026-09-29 | **Maintainer ruling, revising [OQ-HE0](#oq-he0) for PATH:** *"we can pick up the path if it's there because it's just not feasible to otherwise know these things … I just don't see any way around it. And then I think we just get things from [PATH]."* The recorder's reading: yolo's checks at the host read the PATH yolo was started with, when it has one, plus `host_path` when set; they look in no other folder, and a bare-PATH launcher may get a different answer | The "checks never read the ambient PATH" extension of [OQ-HE0](#oq-he0) was the doc's, never the maintainer's. Under it, [OQ-HE6](#oq-he6) is restated and open; the rest of [OQ-HE1](#oq-he1) to [OQ-HE9](#oq-he9) are retired or answered ([§9](#9-open-questions)) |
 | <a id="oq-he0"></a>[**OQ-HE0**](#oq-he0) | 2026-09-25 | `yolo host` does not depend on the environment it was launched in unless a `YOLO_*` variable or explicit config names the dependence. This supersedes the opportunistic mise-shims append. **Revised for PATH by [HE-DIR1](#he-dir1)**: the PATH yolo was started with is read | Maintainer ruling ([§0](#0-the-governing-ruling)). It still governs every decision input but PATH; whether it covers credentials, which yolo reads from the shell today, is [OQ-HE6](#oq-he6) |
 | [**OQ-HE10**](#oq-he10) | 2026-09-29 | (c): the child's PATH is the ambient PATH, then `host_path`'s folders (the "composed value", now without a baseline), then the floor's `bin/`, duplicates removed. A bare name of a program a selected pack delivers execs from the floor by path; a path is exec'd as given; any other bare name is looked up on that child PATH | Answered by [OQ-HP7](host-tool-provisioning.md#OQ-HP7) (the agent's commands see the user's own environment) and the maintainer's ruling [HP-DIR4](host-tool-provisioning.md#HP-DIR4) (the floor's copy of a pack's agent runs, from any launcher). Its recorded "checks never read the ambient PATH" is superseded by [HE-DIR1](#he-dir1) |
 | [**OQ-HE11**](#oq-he11) | 2026-09-29 | (a): a program the floor cannot hold runs from the child's PATH, and the launch says the floor holds no copy and why. The macOS host capture is prioritized | Keeps a Mac user's working `yolo host -- claude` working until [HP-D2](host-tool-provisioning.md#HP-D2) ships; departs from [HP-DIR4](host-tool-provisioning.md#HP-DIR4) only where the floor has nothing to run instead |
-| [**OQ-HE1**](#oq-he1) | 2026-09-29 | Answered by HE-DIR1: an unset `host_path` means the PATH yolo was started with, alone; no baseline and no per-user list | HE-DIR1's "nothing else is guessed" |
+| [**OQ-HE1**](#oq-he1) | 2026-09-29 | Answered by HE-DIR1: an unset `host_path` means the PATH yolo was started with, alone; no baseline and no per-user list | HE-DIR1: *"we just get things from [PATH]"*; either list would be folders yolo adds on its own |
 | [**OQ-HE2**](#oq-he2) | 2026-09-29 | Answered by HE-DIR1: no pack declares a folder | A launch's folders come from the ambient PATH and `host_path` only |
 | [**OQ-HE3**](#oq-he3) | 2026-09-29 | Answered by HE-DIR1: `host_path` takes plain folders only; no typed mise entry, and no `mise which` confirmation of a shim | *"We just get things from PATH"*, with [HP-DIR3](host-tool-provisioning.md#HP-DIR3) |
 | [**OQ-HE4**](#oq-he4) | 2026-09-29 | Retired by HE-DIR1: no `YOLO_HOST_PATH` | A job sets `PATH` itself, and the checks read it |
 | [**OQ-HE5**](#oq-he5) | 2026-09-29 | Retired by HE-DIR1: no `{"inherit": "PATH"}` entry | The ambient PATH starts every launch PATH |
 | [**OQ-HE7**](#oq-he7) | 2026-09-29 | Retired by HE-DIR1: a jail launch keeps finding its tools on the PATH it was started with; nothing here governs a jail launch's other reads | The rule it asked to extend no longer holds for PATH at `yolo host` itself, and [OQ-HE0](#oq-he0) names `yolo host` |
-| [**OQ-HE8**](#oq-he8) | 2026-09-29 | Retired by HE-DIR1: no macOS baseline, and no baseline on any OS | Nothing is guessed; `host_path` names Homebrew's prefix where a launcher lacks it |
+| [**OQ-HE8**](#oq-he8) | 2026-09-29 | Retired by HE-DIR1: no macOS baseline, and no baseline on any OS | A baseline would be folders yolo adds on its own; `host_path` names Homebrew's prefix where a launcher lacks it |
 | [**OQ-HE9**](#oq-he9) | 2026-09-29 | Retired by HE-DIR1: no stage 3, and no stages | There is no switch of the checks to stage ([HE-D8](#he-d8)) |
 | <a id="he-d1"></a>**HE-D1** | 2026-09-29 | *Implementation decision under [OQ-HE10](#oq-he10):* the floor's `bin/` goes last in the child's PATH, after the launch PATH | HP-DIR4 puts the floor after the user's PATH. The floor holds only agent names, so last means a child's lookup of an agent reaches the floor only where nothing of the user's has one |
 | <a id="he-d2"></a>**HE-D2** | 2026-09-29 | *Implementation decision under HE-DIR1:* a PATH check or target lookup that misses prints the miss line: the program, the whole launch PATH searched (its `host_path` part marked), and the `host_path` fix, naming the folder when a hint location holds the program ([§4.2](#42-the-diagnostic-for-a-miss)) | HE-DIR1 accepts that a bare launcher can miss what a terminal finds. The line makes that miss self-explaining from the launcher's own output, and a hint location changes only its text |
