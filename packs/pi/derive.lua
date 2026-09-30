@@ -1128,7 +1128,13 @@ local function piSettingsFor(ctx)
   -- revert the user's scoped list on the next launch. Under the selection it takes the
   -- pair's rules: written on activation, a user edit kept, yolo's own list cleared on
   -- deselect (OQ-PSW2). An array is a leaf there, replaced whole.
-  sel.enabledModels = enabled
+  --
+  -- NOT under an `only`: pi's extension then registers exactly the narrowed list for this
+  -- provider (the pi/model-lists surface below), so pi's "all" view IS the list and a scope
+  -- could only restate it, as ML-D2 ruled for openai-codex (MM-D6).
+  if not (type(p) == "table" and p.models_only == true) then
+    sel.enabledModels = enabled
+  end
   -- The scope is the CONFIGURED list, not `enabled`: a provider with no list whose profile
   -- names a model enables that one model as pi's shortlist, but yolo does not know the
   -- provider's models, so its children get the whole provider (piSubagents).
@@ -1167,6 +1173,64 @@ yolo.derive("pi", "codex-models", function(ctx)
     table.insert(models, { id = e.id, base = e.base, name = e.name, contextWindow = e.context_window })
   end
   return { models = models }
+end)
+
+-- model-lists (~/.pi/agent/yolo-model-lists.json): every provider list a `models` contribution
+-- narrowed with an `only` (packload's `models_only`), keyed by pi's provider id, for
+-- packs/pi/extensions/yolo-model-lists.js to register (docs/design/model-lists-and-pickers.md
+-- MM-D6). pi layers a provider's list as its own catalog, then models.json rows, which add or
+-- replace by id and NEVER remove, then an extension's `registerProvider(<id>, { models })`,
+-- which replaces the whole list (MEASURED on pi 0.87.1 and 0.99.1). So a models.json row cannot
+-- narrow a provider pi ships, and a registration can: it makes the narrowed list pi's exact
+-- menu while pi keeps its own address, wire and credential for the provider.
+--
+-- The same channel pi/codex-models is (ML-D3): a JavaScript extension cannot read the
+-- declaration, and this surface is the one channel that reaches it. openai-codex stays in
+-- codex-models, whose registration also carries the subscription login. yolo's Bedrock provider
+-- is pi's `amazon-bedrock` on pi's own client (a profile routing it through a via service
+-- rides the models.json via row instead). Each entry carries what yolo declares; the extension
+-- takes every other fact from pi's own catalog (getBuiltinModel).
+--
+-- ONLY UNDER AN `only`, and only the models-only registration. A list that merely adds stays a
+-- models.json row beside pi's catalog: what an `add` does to pi's catalog is OQ-MM1's,
+-- unruled. And the refusing form of the registration, a `streamSimple` wrapper that turns away
+-- `--model <provider>/<unlisted id>`, is not built: that pi's own credential still reaches the
+-- delegated stream in that form is INFERRED, to be measured first (MM-D6, §14.4), so pi can
+-- still run an unlisted id typed on its command line, with a warning.
+yolo.derive("pi", "model-lists", function(ctx)
+  local lists = {}
+  for name, prov in pairs(ctx.providers or {}) do
+    if name ~= "openai-codex" and type(prov) == "table" and prov.models_only == true then
+      local piID = name
+      if prov.platform == "aws-bedrock" and not (ctx.via_url ~= nil and ctx.via_url ~= "" and name == ctx.selected_provider) then
+        piID = "amazon-bedrock"
+      end
+      local provOpts = type(prov.options) == "table" and prov.options or {}
+      local models = {}
+      for _, e in ipairs(codexModelList(prov)) do
+        local mopts = type(prov.model_options) == "table" and prov.model_options[e.base or e.id] or nil
+        local m = {
+          id = e.id,
+          base = e.base,
+          name = e.name,
+          contextWindow = e.context_window or tonumber(provOpts.context_window or provOpts.max_context_tokens),
+        }
+        if type(mopts) == "table" then
+          m.maxTokens = tonumber(mopts.max_tokens)
+        end
+        local facts = piModelFacts(mopts, prov, ctx, name)
+        if facts then
+          for k, v in pairs(facts) do m[k] = v end
+        end
+        table.insert(models, m)
+      end
+      if #models > 0 then
+        lists[piID] = { models = models }
+      end
+    end
+  end
+  if next(lists) == nil then return {} end
+  return { providers = in_full(ctx, lists) }
 end)
 
 -- mcp: passthrough — canonical mcp_servers lands verbatim under mcpServers

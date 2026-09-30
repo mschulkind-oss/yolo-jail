@@ -83,3 +83,47 @@ func TestOpencodeWritesNoWhitelistForAnUnnarrowedList(t *testing.T) {
 		t.Errorf("provider.zai.whitelist = %v, want none for a list no only narrowed", zai["whitelist"])
 	}
 }
+
+// PI UNDER AN `only` (§14.1, pi on a provider pi ships; MM-D6): the narrowed list reaches pi's
+// extension as data, keyed by pi's provider id, and pi's selection writes no enabledModels for
+// it, since the registration makes pi's "all" view the list (as ML-D2 ruled for openai-codex).
+func TestPiGetsANarrowedListToRegister(t *testing.T) {
+	providers, profiles := zaiNarrowed(t, "pi", nil)
+	r := newPioencodeRender(t, providers)
+	r.wireProfiles(profiles)
+	r.render(t, `{"pi":"zai"}`)
+	file := r.surface(t, ".pi", "agent", "yolo-model-lists.json")
+	lists, _ := file["providers"].(map[string]any)
+	zai, _ := lists["zai"].(map[string]any)
+	rows, _ := zai["models"].([]any)
+	var ids []any
+	for _, row := range rows {
+		ids = append(ids, row.(map[string]any)["id"])
+	}
+	if want := []any{"glm-5.3", "glm-5.3-flash"}; !reflect.DeepEqual(ids, want) {
+		t.Errorf("pi model-lists zai ids = %v, want the narrowed list %v", ids, want)
+	}
+	if len(lists) != 1 {
+		t.Errorf("pi model-lists = %v, want only the narrowed provider", lists)
+	}
+	settings := r.piSettings(t)
+	if settings["defaultProvider"] != "zai" || settings["defaultModel"] != "glm-5.3" {
+		t.Errorf("pi selection = %v/%v, want zai/glm-5.3", settings["defaultProvider"], settings["defaultModel"])
+	}
+	if scope, present := settings["enabledModels"]; present {
+		t.Errorf("pi enabledModels = %v, want none: the registration is the exact list", scope)
+	}
+}
+
+// A LIST NO `only` NARROWED GIVES PI NOTHING TO REGISTER: it stays a models.json row beside pi's
+// own catalog (what an `add` does to that catalog is OQ-MM1's), and the scope stays as before.
+func TestPiRegistersNothingForAnUnnarrowedList(t *testing.T) {
+	r := newPioencodeRender(t, zaiReachableJSON)
+	r.render(t, `{"pi":"zai"}`)
+	if file := r.surface(t, ".pi", "agent", "yolo-model-lists.json"); len(file) != 0 {
+		t.Errorf("pi model-lists = %v, want nothing for a list no only narrowed", file)
+	}
+	if _, present := r.piSettings(t)["enabledModels"]; !present {
+		t.Error("pi enabledModels went missing for an unnarrowed list")
+	}
+}

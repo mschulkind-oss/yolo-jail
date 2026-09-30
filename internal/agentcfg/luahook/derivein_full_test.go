@@ -137,6 +137,9 @@ func inFullProbeCtx(agent, surface string) *DeriveCtx {
 				}},
 				"api_key_env_name": "PROBE_API_KEY",
 				"models":           map[string]any{"default": "probe-model"},
+				// Narrowed by a `models` contribution's `only` (packload.ModelsOnlyKey), so
+				// the tables only a narrowed list produces (pi/model-lists' providers) are probed.
+				"models_only": true,
 			}},
 		},
 	}
@@ -233,6 +236,9 @@ func TestShippedDerivesDeclareTheirInFullTables(t *testing.T) {
 		// Its one key, `models`, is an ARRAY — a leaf, with no named entries to call stale —
 		// so there is no table here to declare in full.
 		"pi/codex-models": nil,
+		// Keyed by pi's provider id, one entry per narrowed list, each regenerated from the
+		// composed table (MM-D6), so one on disk this run did not produce is yolo's stale output.
+		"pi/model-lists": {"providers"},
 	}
 	// The fixed-key-set tables, the other half of the classification: each must be
 	// PRODUCED by one of the two probe worlds and never declared, or a later in_full around

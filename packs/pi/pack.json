@@ -59,6 +59,11 @@
       "kind": "files"
     },
     {
+      "from": "extensions/yolo-model-lists.js",
+      "into": ".pi/agent/extensions/yolo-model-lists.js",
+      "kind": "files"
+    },
+    {
       "from": "extensions/yolo-footer.js",
       "into": ".pi/agent/extensions/yolo-footer.js",
       "kind": "files"
@@ -99,6 +104,13 @@
           "mode": "computed",
           "name": "codex-models",
           "path": "~/.pi/agent/yolo-openai-codex-models.json"
+        },
+        {
+          "agent": "pi",
+          "codec": "json",
+          "mode": "computed",
+          "name": "model-lists",
+          "path": "~/.pi/agent/yolo-model-lists.json"
         },
         {
           "agent": "pi",
