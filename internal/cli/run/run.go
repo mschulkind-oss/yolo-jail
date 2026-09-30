@@ -1303,9 +1303,9 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 	// a build an attach waited for would reach no jail, and an auto-capture differs in exactly that
 	// a running jail's launchers read the store lazily. Under the launch lock, as the image load
 	// is: a second terminal in this workspace waits for this jail and then attaches to it.
-	sp = o.Perf.Span("launch.fork_builds")
+	forkSpan := o.Perf.Span("launch.fork_builds")
 	o.forkDelivered = o.forkDeliveriesFor(rt)
-	sp.End()
+	forkSpan.End()
 
 	// Refresh the per-jail skills + AGENTS/CLAUDE staging from this launch's own pack tree. An
 	// attach refreshes from the running jail's tree instead, inside attachExisting, so this
