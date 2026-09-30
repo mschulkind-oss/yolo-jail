@@ -1535,7 +1535,11 @@ session.
 login per request. On 2026-09-29 one ran about ten hours across the maintainer's four-hourly SSO
 logout and login, with no restart and no failed request
 ([`sso-backed-bedrock.md` §11](sso-backed-bedrock.md#11-evidence-and-how-to-re-check-it),
-done-condition 4). A keeper holding the aws-auth front for a day of sessions is the same shape.
+done-condition 4, from the service log and the maintainer's report). He repeated it while this
+section was reviewed: *"I have something that logs out and logs back in, specifically the SSO
+profile, every four hours on the host. And it's been much more than four hours. And I haven't
+lost any connectivity."* A keeper holding the aws-auth front for a day of sessions is the same
+shape.
 
 **The roster** ([§1.1](#11-terms)) is what makes the keeper's listeners usable by a later launch.
 The keeper writes it once its services are up, `0600`, in host state no jail mounts, beside its
