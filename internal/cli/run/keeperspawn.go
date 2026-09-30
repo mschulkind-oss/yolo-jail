@@ -548,15 +548,46 @@ func (o *Options) finishStop(cname, rt string, logFrom int64) int {
 	return 0
 }
 
-// WaitForKeeper blocks until no keeper holds the workspace's jail, or timeout passes. A keeper
-// outlives the launch that spawned it: when that launch's session was the last and was killed
-// rather than quit, nothing waits for the teardown the keeper then runs, which writes into the
-// workspace (the config capture, launch.log) and the machine's state. Its caller is the
-// integration suite, which must not delete a workspace a keeper is still tearing down.
+// WaitForKeeper blocks until no keeper holds the workspace's jail, or until a session is seen still
+// in the jail, or timeout passes. A keeper outlives the launch that spawned it: when that launch's
+// session was the last and was killed rather than quit, nothing waits for the teardown the keeper
+// then runs, which writes into the workspace (the config capture, launch.log) and the machine's
+// state. Its caller is the integration suite, which must not delete a workspace a keeper is still
+// tearing down.
+//
+// A SESSION STILL IN THE JAIL ends the wait at once: the keeper is rightly keeping the jail up for
+// it, and not ending it, and that session's own launch waits again once it has gone (the suite's
+// cleanups run last-registered first, so a foreground entry's wait runs before the release of a
+// background session started earlier).
 func WaitForKeeper(workspace string, timeout time.Duration) error {
 	cname := yoloruntime.FromWorkspace(workspace)
-	if waitForKeeper(cname, keeperLogSize(cname), timeout, nil, nil) {
-		return nil
+	deadline := time.Now().Add(timeout)
+	for {
+		if probeKeeper(cname) == keeperGone || sessionsRemain(cname) {
+			return nil
+		}
+		if !time.Now().Before(deadline) {
+			return fmt.Errorf("the keeper of %s is still running after %s", cname, timeout)
+		}
+		time.Sleep(keeperPoll)
 	}
-	return fmt.Errorf("the keeper of %s is still running after %s", cname, timeout)
+}
+
+// sessionsRemain reports whether some session holds cname's session lock shared: a shared take
+// succeeds, so no keeper is draining, and an exclusive one fails, so someone is in.
+func sessionsRemain(cname string) bool {
+	f, err := openSessionLock(cname)
+	if err != nil {
+		return false
+	}
+	defer f.Close()
+	if err := flockSyscall(int(f.Fd()), syscall.LOCK_SH|syscall.LOCK_NB); err != nil {
+		return false
+	}
+	_ = syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
+	if err := flockSyscall(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		return true
+	}
+	_ = syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
+	return false
 }
