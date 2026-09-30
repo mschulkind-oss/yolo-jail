@@ -2327,11 +2327,13 @@ func (o *Options) attachExisting(cname, rt, targetCmd string, cfg *jsonx.Ordered
 	// call this replaces was deliberate. An attach used to re-ensure the per-jail
 	// broker relay (behind the same gate the launch path uses, OQ-A11), because the
 	// relay was a separate process that could have died since launch. The jail's
-	// half of the credential path is now a front owned by the yolo process that
-	// LAUNCHED the jail; a different process attaching cannot heal it, and starting
-	// a second front over the same endpoint file would hand the jail a credential
-	// its terminator never asked for. A jail whose launcher is gone is relaunched,
-	// not attached-and-repaired.
+	// half of the credential path is now a front owned by the jail's KEEPER, the process
+	// the launch that started it spawned; a different process attaching cannot heal it,
+	// and starting a second front over the same endpoint file would hand the jail a
+	// credential its terminator never asked for. A jail whose launcher is gone is relaunched,
+	// not attached-and-repaired, and the launcher that counts is the keeper: an entry into a
+	// jail whose keeper died is refused (refuseUnkeptJail), and `yolo stop` then a launch is
+	// the remedy.
 
 	execFlags := []string{"-i"}
 	if o.IsTTYStdout() {

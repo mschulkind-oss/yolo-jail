@@ -504,7 +504,7 @@ func (o *Options) cgroupDelegateHonored(set loopholes.Set) bool {
 // exists" is the whole liveness question. A host-wide singleton serving other
 // jails never writes there: its rendezvous is keyed by the loophole name
 // (paths.HostSingletonSocket), and each jail's endpoint file for it is published
-// by that jail's own front, in the yolo process that launched the jail. The one exception is macos-user, whose
+// by that jail's own front, in the jail's keeper (keeper.go). The one exception is macos-user, whose
 // caller passes no cname and so skips both guards. That is right there because the dir is the
 // SESSION's own (servicessession.go): no relaunch or second session publishes into it, so its
 // session's end is the whole liveness answer. It was wrong while two sessions of one workspace

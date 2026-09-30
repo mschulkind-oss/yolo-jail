@@ -262,11 +262,10 @@ func firstNonEmptyLine(s, fallback string) string {
 //
 // IT ASKS AND NEVER STARTS. An attach runs above the config-change approval gate and never
 // starts, ensures or restarts a service (noteSingletonSettingsDrift's rule), and a front belongs
-// to the process that launched the jail. So a loophole with no published endpoint is not asked:
-// its launch did not start it, or the backend does not run it (Apple Container starts no
-// aws-auth service). An endpoint file left by a launcher that has since died is dialled and
-// fails, which prints the dim "could not ask" line, and that is true: the jail cannot reach the
-// service either.
+// to the jail's keeper. So a loophole with no published endpoint is not asked: its launch did not
+// start it, or the backend does not run it (Apple Container starts no aws-auth service). An
+// endpoint file left by a keeper that has since died is dialled and fails, which prints the dim
+// "could not ask" line, and that is true: the jail cannot reach the service either.
 func (o *Options) runAttachLaunchChecks(cname, rt string, cfg *jsonx.OrderedMap, payload []loopholes.JailDaemonSpec) {
 	socketsDir := hostServiceSocketsDir(cname, o.IsMacOS)
 	var running []loopholeDaemon
