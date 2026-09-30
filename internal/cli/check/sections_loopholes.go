@@ -14,6 +14,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
 	"github.com/mschulkind-oss/yolo-jail/internal/nixdiag"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	"github.com/mschulkind-oss/yolo-jail/internal/runtime"
 	"github.com/mschulkind-oss/yolo-jail/internal/svcendpoint"
 )
 
@@ -467,8 +468,10 @@ func (o *Options) checkBrokerEndpoint(r *reporter, label, endpointPath, rt, cnam
 	}
 }
 
-// checkHostServiceLiveness verifies, for each running
-// jail, that each external host_daemon's socket is alive.
+// checkHostServiceLiveness verifies, for each running jail, that each external
+// host_daemon's socket or endpoint is alive. The loopholes it expects are this workspace's,
+// so on a jail of another workspace it grades only what that jail published, and an absent
+// file there is a [SKIP] rather than a [FAIL].
 func (o *Options) checkHostServiceLiveness(r *reporter) {
 	if o.inJail() {
 		// Say so, rather than returning silently. Every sibling section announces why
@@ -528,6 +531,16 @@ func (o *Options) checkHostServiceLiveness(r *reporter) {
 	// loopback hop to be wrong about — the socket is bind-mounted, not routed — and a
 	// caveat printed there would train the reader to skip it where it matters.
 	probedLoopbackTLS := false
+	// THE LIST ABOVE IS THIS WORKSPACE'S, and the jails below are the machine's. externals
+	// comes from this process's packs and this workspace's config, while the listing is
+	// every running yolo jail, so a jail launched from ANOTHER workspace, whose config never
+	// selected one of these loopholes, publishes nothing for it — and was graded "[FAIL] …
+	// no endpoint published", telling the user to restart a jail that would publish nothing
+	// after the restart either (reproduced 2026-09-29, a flaky integration test whenever
+	// another suite's jail was up). This check cannot know another workspace's selection, so
+	// on a foreign jail an ABSENT file is a skip; a file that jail DID publish is its own
+	// service and is still probed below, and this workspace's own jail is graded as always.
+	ownJail := runtime.FromWorkspace(o.Workspace)
 	for _, cname := range cnames {
 		socketsDir := hostServiceSocketsDir(cname, o.IsMacOS)
 		// Every service of this jail publishes into one directory, so a missing directory is
@@ -545,20 +558,33 @@ func (o *Options) checkHostServiceLiveness(r *reporter) {
 					"created.  Relaunch the jail to recreate it.", socketsDir))
 			continue
 		}
+		// Resolved once per jail, and only when a skip needs it: it can cost a runtime exec.
+		foreignWorkspace, foreignResolved := "", false
 		for _, lp := range externals {
 			label := fmt.Sprintf("loophole %s @ %s", lp.Name, cname)
+			published := publishedServicePath(socketsDir, lp)
+			if cname != ownJail && !o.PathExists(published) {
+				if !foreignResolved {
+					foreignWorkspace, foreignResolved = o.getContainerWorkspace(cname, rt), true
+				}
+				r.skip(label+": not graded from this workspace ("+foreignJailWhose(foreignWorkspace)+")",
+					fmt.Sprintf("Nothing is published at %s, and this jail was launched from another "+
+						"workspace, whose config may not select %s at all, so an absence there is "+
+						"not a fault this check can see.  Run `yolo check` in that workspace to "+
+						"grade it; a file it does publish is still probed from here.", published, lp.Name))
+				continue
+			}
 			if lp.Name == brokerLoopholeName {
 				probedLoopbackTLS = true
-				o.checkBrokerEndpoint(r, label,
-					filepath.Join(socketsDir, lp.Name+paths.ServiceEndpointExt), rt, cname)
+				o.checkBrokerEndpoint(r, label, published, rt, cname)
 				continue
 			}
 			if lp.Transport == loopholes.TransportLoopbackTLS {
 				probedLoopbackTLS = true
-				o.checkLoopbackTLSService(r, label, filepath.Join(socketsDir, lp.Name+paths.ServiceEndpointExt), lp.Name)
+				o.checkLoopbackTLSService(r, label, published, lp.Name)
 				continue
 			}
-			sockPath := filepath.Join(socketsDir, lp.Name+".sock")
+			sockPath := published
 			if !o.PathExists(sockPath) {
 				r.fail(label+": no socket",
 					fmt.Sprintf("Expected %s.  Daemon never started or "+
@@ -581,6 +607,27 @@ func (o *Options) checkHostServiceLiveness(r *reporter) {
 	if probedLoopbackTLS {
 		r.dim(hostSideProbeCaveat)
 	}
+}
+
+// publishedServicePath is the one file a jail's host service lp publishes into socketsDir:
+// the endpoint file for the Claude broker's front and every loopback-TLS service, the
+// socket for everything else. The liveness section asks it both whether a foreign jail
+// published anything and where each probe looks, so the two cannot name different files.
+func publishedServicePath(socketsDir string, lp *loopholes.Loophole) string {
+	if lp.Name == brokerLoopholeName || lp.Transport == loopholes.TransportLoopbackTLS {
+		return filepath.Join(socketsDir, lp.Name+paths.ServiceEndpointExt)
+	}
+	return filepath.Join(socketsDir, lp.Name+".sock")
+}
+
+// foreignJailWhose names another workspace's jail for a skip row: with its workspace when
+// the tracking file or the runtime says which (getContainerWorkspace), and without one when
+// neither does, rather than printing that lookup's "unknown" placeholder as if it were a path.
+func foreignJailWhose(workspace string) string {
+	if workspace == "" || workspace == "unknown" {
+		return "another workspace's jail"
+	}
+	return "another workspace's jail: " + workspace
 }
 
 // checkLoopbackTLSService probes one loopback-TLS host service end-to-end, naming

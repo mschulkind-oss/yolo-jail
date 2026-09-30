@@ -393,6 +393,12 @@ credential to a server of its choosing. See
   behind, as it does whenever its state directory is removed. It now warns that the broker is not
   running, like it does when none was ever started, because the next launch that selects `claude`
   starts a fresh one.
+- `yolo check` no longer fails over another project's running jail. It checked every running jail
+  for the loopholes this project turns on, so a jail started from a project that never turned one
+  on failed with "no endpoint published", and the advice to restart it could not help. A jail of
+  another project is now checked only on what it actually runs; each loophole it does not run is
+  listed as skipped, with that jail's project when yolo knows it, and `yolo check` run in that
+  project still checks all of them.
 - A jail no longer deletes pi's `mcp.json` every time it starts. 0.11.0 removed it to clean up
   the copy older versions of yolo wrote there, and so also deleted the one you or a pi
   extension keep, such as the MCP servers a subagent's `mcp:` tools are looked up in. yolo's

@@ -1,10 +1,13 @@
 package integration
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
+	goruntime "runtime"
 	"strings"
 	"testing"
 	"time"
@@ -13,6 +16,8 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/packsrc"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	naming "github.com/mschulkind-oss/yolo-jail/internal/runtime"
+	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 )
 
 // THE GITHUB BROKER, END TO END (docs/design/boundary-broker.md §11 step 1, §12).
@@ -103,12 +108,95 @@ func newGitHubBrokerFixture(t *testing.T) githubBrokerFixture {
 
 // recordScope approves the workspace's current remotes from the host, as a human would with
 // `yolo check --accept-config-changes`, and fails unless the check says it recorded want.
+//
+// THE RECORDING IS ASSERTED FIRST, AND ON ITS OWN. The check's exit code covers every section,
+// and one of them grades every running jail on the machine; when that section failed on
+// another run's jail, the test used to report "did not record" beside the very line saying it
+// had. A [FAIL] naming another container is set aside here as TestYoloCheckValidConfig sets it
+// aside (foreignJailFails); any other failure still fails the test, with its own message.
 func (fx githubBrokerFixture) recordScope(t *testing.T, want string) {
 	t.Helper()
 	r := runCommand(t, fx.dir, []string{"check", "--no-build", config.AcceptConfigChangesFlag}, fx.opts...)
-	if line := "github-broker repository scope recorded: " + want; r.rc != 0 || !strings.Contains(r.combined(), line) {
+	if line := "github-broker repository scope recorded: " + want; !strings.Contains(r.combined(), line) {
 		t.Fatalf("yolo check --accept-config-changes did not record %q:\nrc %d\n%s", line, r.rc, r.combined())
 	}
+	if r.rc != 0 {
+		own, foreign := foreignJailFails(r.stdout, naming.FromWorkspace(fx.dir))
+		if r.rc != 1 || len(own) > 0 || len(foreign) == 0 {
+			t.Fatalf("yolo check --accept-config-changes recorded the scope and then exited %d:\n%s",
+				r.rc, r.combined())
+		}
+		t.Logf("`yolo check` recorded the scope and exited 1 on %d [FAIL] row(s), every one about "+
+			"ANOTHER jail on this machine:\n%s", len(foreign), strings.Join(foreign, "\n"))
+	}
+}
+
+// withForeignJail puts a fake `podman` first on the fixture's launcher PATH that reports one
+// more running yolo jail than the runtime does, and returns the fixture using it, that jail's
+// name and its workspace. No second container is started.
+//
+// The jail it adds is what another workspace's running jail looks like from the host when that
+// workspace's config selected no github-broker: its host-services directory exists, because
+// every container launch makes one, and holds no github-broker endpoint. Every other podman
+// call passes through to the real one; a call naming the added jail answers only the
+// workspace lookup `yolo check` makes and fails the rest, as a runtime would for a container
+// it does not have.
+func (fx githubBrokerFixture) withForeignJail(t *testing.T) (githubBrokerFixture, string, string) {
+	t.Helper()
+	realPodman, err := exec.LookPath("podman")
+	if err != nil {
+		t.Fatalf("finding the real podman: %v", err)
+	}
+	// Named from this test's workspace, so an overlapping run adds a jail of its own rather
+	// than sharing (and removing) this one's directory.
+	sum := sha256.Sum256([]byte(fx.dir))
+	foreign := "yolo-foreign-" + hex.EncodeToString(sum[:4])
+	otherWorkspace := t.TempDir()
+
+	// The check runs in a child `yolo`, whose host-singleton directory is the default one.
+	svcDir := paths.HostServicesDir(foreign, goruntime.GOOS == "darwin")
+	if err := os.MkdirAll(svcDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(svcDir) })
+
+	bin := t.TempDir()
+	script := "#!/bin/sh\n" +
+		"real=" + shquote.Quote(realPodman) + "\n" +
+		"foreign=" + shquote.Quote(foreign) + "\n" +
+		"if [ \"$1\" = ps ]; then\n" +
+		"  case \"$*\" in\n" +
+		"    *'name=^yolo-'*)\n" +
+		"      \"$real\" \"$@\" || exit $?\n" +
+		"      case \"$*\" in\n" +
+		"        *RunningFor*) printf '%s\\t%s\\n' \"$foreign\" 'About a minute ago' ;;\n" +
+		"        *) printf '%s\\n' \"$foreign\" ;;\n" +
+		"      esac\n" +
+		"      exit 0 ;;\n" +
+		"  esac\n" +
+		"fi\n" +
+		"for a in \"$@\"; do\n" +
+		"  [ \"$a\" = \"$foreign\" ] || continue\n" +
+		"  case \"$*\" in\n" +
+		"    inspect*Config.Env*) printf 'YOLO_HOST_DIR=%s\\n' " + shquote.Quote(otherWorkspace) + "; exit 0 ;;\n" +
+		"  esac\n" +
+		"  echo \"Error: no container with name or ID \\\"$foreign\\\" found\" >&2\n" +
+		"  exit 125\n" +
+		"done\n" +
+		"exec \"$real\" \"$@\"\n"
+	if err := os.WriteFile(filepath.Join(bin, "podman"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	var env []string
+	for _, kv := range fx.env {
+		if p, ok := strings.CutPrefix(kv, "PATH="); ok {
+			kv = "PATH=" + bin + string(os.PathListSeparator) + p
+		}
+		env = append(env, kv)
+	}
+	fx.env, fx.opts = env, []runOption{withEnv(env...)}
+	return fx, foreign, otherWorkspace
 }
 
 // addRemote adds a remote to the fixture's checkout.
@@ -253,6 +341,50 @@ func TestGitHubBrokerRunsAReadAgainstTheHostGH(t *testing.T) {
 	scopeDir := filepath.Join(paths.GlobalStorageUnder(os.Getenv("HOME")), "broker", "github", "scope")
 	if entries, _ := os.ReadDir(scopeDir); len(entries) != 0 {
 		t.Errorf("a scope file outlived its launch: %v", entries)
+	}
+}
+
+// TestGitHubBrokerRecordsTheScopeBesideAnotherWorkspacesJail is the regression for the flake
+// in the test above, reproduced 2026-09-29: `yolo check --accept-config-changes` recorded the
+// scope and exited 1, because its per-jail liveness section expected this workspace's
+// github-broker endpoint from EVERY running jail, and another run's jail — whose workspace had
+// not selected the loophole — had published none. The same shape reaches a user running
+// `yolo check` in one workspace while another workspace's jail runs.
+//
+// The other jail is a fake one (withForeignJail), so the test needs no second container and
+// does not depend on one being up. It asserts the whole verdict strictly: a [SKIP] for the
+// other jail, naming its workspace, no [FAIL] about it, and exit 0 unless some REAL foreign
+// jail's row accounts for it.
+func TestGitHubBrokerRecordsTheScopeBesideAnotherWorkspacesJail(t *testing.T) {
+	fx, foreign, otherWorkspace := newGitHubBrokerFixture(t).withForeignJail(t)
+
+	r := runCommand(t, fx.dir, []string{"check", "--no-build", config.AcceptConfigChangesFlag}, fx.opts...)
+	out := r.combined()
+	if line := "github-broker repository scope recorded: yolo-it/app"; !strings.Contains(out, line) {
+		t.Fatalf("the check did not record %q:\nrc %d\n%s", line, r.rc, out)
+	}
+	// The fake runtime reached the check: the Running Jails block lists the added jail.
+	if !strings.Contains(out, foreign+" -> "+otherWorkspace) {
+		t.Fatalf("the fake podman's jail %s is not in the check's jail list, so nothing below "+
+			"measures the liveness section:\n%s", foreign, out)
+	}
+	skip := "[SKIP] loophole github-broker @ " + foreign +
+		": not graded from this workspace (another workspace's jail: " + otherWorkspace + ")"
+	if !strings.Contains(out, skip) {
+		t.Errorf("no row %q:\n%s", skip, out)
+	}
+	for _, line := range strings.Split(r.stdout, "\n") {
+		if strings.Contains(line, "[FAIL]") && strings.Contains(line, foreign) {
+			t.Errorf("another workspace's jail was graded against this workspace's loopholes: %s", line)
+		}
+	}
+	if r.rc != 0 {
+		own, others := foreignJailFails(r.stdout, naming.FromWorkspace(fx.dir))
+		if r.rc != 1 || len(own) > 0 || len(others) == 0 {
+			t.Fatalf("expected rc 0, got %d\n%s", r.rc, out)
+		}
+		t.Logf("`yolo check` exited 1 on %d [FAIL] row(s) about other jails on this machine:\n%s",
+			len(others), strings.Join(others, "\n"))
 	}
 }
 
