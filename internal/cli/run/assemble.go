@@ -359,10 +359,16 @@ func (o *Options) assembleRunCmd(in *assembleInput) []string {
 		runFlags = append(runFlags, "--pull=never")
 		runFlags = append(runFlags, "--log-driver", "none")
 		runFlags = append(runFlags, "--security-opt", "unmask=/proc/sys")
+		// THE CLIENT FORWARDS NO SIGNAL INTO THE MAIN PROCESS. pid 1 is a hold, and the
+		// launcher's own signal arm is what ends the jail on a hangup or an interrupt; a
+		// client that also forwarded one would be a second way for a stray signal to end
+		// every session (docs/design/jail-lifetime-last-session-wins.md JL-D15, §3.1).
+		// podman only: whether Apple Container's client can be told the same is unmeasured.
+		runFlags = append(runFlags, "--sig-proxy=false")
 	}
-	if o.IsTTYStdout() {
-		runFlags = append(runFlags, "-t")
-	}
+	// NO -t, ON ANY TERMINAL. The main process is a hold that reads nothing and whose output
+	// the launcher relays line by line (jailmain.go's relay); the session that owns the
+	// terminal is the first session's exec, which takes -t there (firstSessionExecCmd).
 
 	// --- base run_cmd (mounts) ---
 	var runCmd []string
@@ -943,7 +949,7 @@ func (o *Options) assembleRunCmd(in *assembleInput) []string {
 		// renamed it --timing), and it stayed put on the belief that a rename was a
 		// host->jail contract change no step here owned. That premise was false: the
 		// launcher emits this pair AND generates the bash that the block belongs to
-		// (command.go's buildFinalInternalCmd), so both halves are host-side and move
+		// (command.go's buildSessionCmd), so both halves are host-side and move
 		// in one commit. The old spelling was also a strict prefix of YOLO_PROFILES —
 		// the resolved auth-profile table, which IS read in the jail — so one grep
 		// conflated two unrelated mechanisms. NOT named YOLO_TIMING: that is paths.
@@ -1111,6 +1117,11 @@ func (o *Options) commonEnvBlock(in *assembleInput, blockedConfigJSON, netMode s
 		// launch a later attach can inspect: an attach from a newer yolo compares the tags
 		// it needs against these, and a missing one never rides along silently.
 		"-e", entrypoint.ContractTagsEnv+"="+launchContractTagsValue(),
+		// THE MAIN PROCESS IS A HOLD (entrypoint/jailmain.go): the container's pid 1 boots and
+		// holds, and every session enters by exec. Frozen into the container so that every
+		// session's entrypoint inherits it and waits for the boot and for provisioning, and so
+		// that the host can read it off an inspect (jailSessionCount).
+		"-e", entrypoint.JailMainEnv+"="+entrypoint.JailMainHold,
 		// The three provider/profile wire tables are NOT here: they cross in
 		// yolo-user-env.sh's channel section (writeUserEnvFile's doc) with the shared
 		// pack env fold, the per-agent values in each agent's own env file

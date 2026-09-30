@@ -436,11 +436,12 @@ func podmanLinuxGolden(home string) []string {
 	// run_flags: base ["--rm","-i","--init","--read-only","--name",cname] then
 	// insert("--cgroupns=private", 3) → --rm -i --init --cgroupns=private
 	// --read-only --name cname; then --read-only-tmpfs=false --pull=never
-	// --log-driver none --security-opt unmask=/proc/sys  (no -t: not a tty).
+	// --log-driver none --security-opt unmask=/proc/sys --sig-proxy=false (no -t on any
+	// terminal: the main process is a hold, and the first session's exec takes the -t).
 	add("podman", "run",
 		"--rm", "-i", "--init", "--cgroupns=private", "--read-only", "--name", "yolo-ws-abcd1234",
 		"--read-only-tmpfs=false", "--pull=never", "--log-driver", "none",
-		"--security-opt", "unmask=/proc/sys")
+		"--security-opt", "unmask=/proc/sys", "--sig-proxy=false")
 	// podman base mounts. The home root is THIS JAIL'S skeleton, not the machine store
 	// (<state>/home) every podman jail used to share: that store's only mounts left are the
 	// selected packs' shared dirs, below (docs/design/base-home-legacy-state.md#29-backends).
@@ -533,6 +534,7 @@ func podmanLinuxGolden(home string) []string {
 		// from the launch must fail here, since an attach from this build would then refuse
 		// a jail this build launched.
 		"-e", "YOLO_CONTRACT_TAGS=entry-channel,agent-env-files,profile-sets",
+		"-e", "YOLO_JAIL_MAIN=hold",
 		// The three provider/profile wire tables are NOT on the argv: they cross in
 		// yolo-user-env.sh's channel section with the pack env fold and the shape
 		// vars (writeUserEnvFile), so the container's frozen environment holds no

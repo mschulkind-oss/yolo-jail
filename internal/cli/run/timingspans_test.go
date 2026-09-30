@@ -11,6 +11,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/image"
+	"github.com/mschulkind-oss/yolo-jail/internal/lingerprobe"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/perf"
 )
@@ -223,6 +224,50 @@ func TestSlowSpanNoticeIsSilentWhileTheContainerHoldsTheTerminal(t *testing.T) {
 		if !strings.Contains(string(got), want) {
 			t.Errorf("host-perf.log missing %q — the suppressed notice must still be recorded:\n%s", want, got)
 		}
+	}
+}
+
+// TestSlowSpanNoticeIsSilentWhileTheBootIsRelayed: a fresh launch relays its main process's
+// boot to the terminal from jail_main.spawned, before the first session's exec marks
+// child.spawned, so the window opens there; and jail_main.exited closes it, so a slow step of
+// the teardown after the jail is gone still names itself.
+func TestSlowSpanNoticeIsSilentWhileTheBootIsRelayed(t *testing.T) {
+	ws := t.TempDir()
+	o := goldenOptions(ws, t.TempDir())
+	o.Timing = true
+	var out, errb bytes.Buffer
+	o.Stdout, o.Stderr = &out, &errb
+	o.initPerf("yolo-ws-test0001")
+	requireWallClockSpans(t, o.Perf)
+
+	o.Perf.Mark("jail_main.spawned")
+	slowSpanEnd(o.Perf, "housekeeping.slot")
+	if strings.Contains(errb.String(), "housekeeping.slot took") {
+		t.Errorf("a slow-span notice reached the terminal while the boot was being relayed:\n%s", errb.String())
+	}
+	o.Perf.Mark("jail_main.exited")
+	slowSpanEnd(o.Perf, "shutdown.stop_loopholes")
+	if !strings.Contains(errb.String(), "shutdown.stop_loopholes took") {
+		t.Errorf("no slow-span notice once the main process's client was gone:\n%s", errb.String())
+	}
+}
+
+// TestWindowAEndsAtTheMainProcessClientsExit: since the first session is an exec, the proxy's
+// child.exited is that exec's, which returns before the container dies. Window A ends at the
+// main process's client's exit when there is one.
+func TestWindowAEndsAtTheMainProcessClientsExit(t *testing.T) {
+	ws := t.TempDir()
+	o := goldenOptions(ws, t.TempDir())
+	o.Timing = true
+	o.Stdout, o.Stderr = &bytes.Buffer{}, &bytes.Buffer{}
+	o.initPerf("yolo-ws-test0002")
+	o.Perf.Mark("child.exited")
+	time.Sleep(5 * time.Millisecond)
+	o.Perf.Mark("jail_main.exited")
+	main, _ := o.Perf.LastEvent("jail_main.exited")
+	end, ok := o.windowAEnd(lingerprobe.Result{})
+	if !ok || !end.Equal(main.At) {
+		t.Errorf("Window A ends at %v (ok %v), want the main process's client's exit %v", end, ok, main.At)
 	}
 }
 

@@ -17,6 +17,10 @@ import (
 // The Options param mirrors the Linux half's stage-hook seam; this fallback
 // has only spawn and child-exit to mark, and a nil collector's Mark is a
 // no-op, so the marks are unconditional here too.
+// proxyInstallsSignalArm is false here: this fallback installs none, so the fresh launch's own
+// arm (launchSignalArm) stays armed through the first session's exec.
+func proxyInstallsSignalArm(*Options) bool { return false }
+
 func runWithProxy(cmd []string, onStarted func(*os.Process), onTerminate func(), o *Options) (int, error) {
 	_ = onTerminate
 	c := exec.Command(cmd[0], cmd[1:]...)

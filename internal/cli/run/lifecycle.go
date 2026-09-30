@@ -213,6 +213,16 @@ func (o *Options) stopJail(cname, rt string) {
 // workspace may be relaunching while this reap runs: a relaunch that holds the lock, or
 // whose container exists but is not yet running, keeps the dir
 // (TestReapingAnOrphanKeepsTheDirOfARelaunch).
+//
+// A DEAD OWNER IS NOT ENOUGH: the jail must also have no session in it. A first launcher
+// SIGKILLed while another terminal was attached leaves that terminal's session running in the
+// jail, and stopping the jail would end it (docs/design/jail-lifetime-last-session-wins.md
+// §2.3, item 4). So the reaper takes the jail's session lock exclusively (sessionlock.go),
+// which succeeds only while no session holds it, and HOLDS it across the stop and the
+// host-services cleanup (JL-D7): an arrival meanwhile cannot count itself into a jail being
+// stopped, and waits instead (takeSessionLock). A lock it cannot take, or cannot open, is a
+// jail it leaves alone and says nothing about: its sessions are the evidence it is not
+// orphaned, and "could not count" is never zero.
 func (o *Options) reapOrphanedJails(rt string) {
 	if rt == "container" {
 		return
@@ -231,11 +241,17 @@ func (o *Options) reapOrphanedJails(rt string) {
 		if err != nil {
 			continue
 		}
-		if !o.PIDAlive(pid) {
-			out.printf("[dim]Reaping orphaned jail %s (owner pid %d is gone)...[/dim]", name, pid)
-			o.stopJail(name, rt)
-			o.stopLoopholes(nil, hostServiceSocketsDir(name, o.IsMacOS), name, rt)
+		if o.PIDAlive(pid) {
+			continue
 		}
+		sessions, ok := tryExclusiveSessionLock(name)
+		if !ok {
+			continue // a session is still in it, or its count cannot be read
+		}
+		out.printf("[dim]Reaping orphaned jail %s (owner pid %d is gone)...[/dim]", name, pid)
+		o.stopJail(name, rt)
+		o.stopLoopholes(nil, hostServiceSocketsDir(name, o.IsMacOS), name, rt)
+		sessions.release()
 	}
 }
 

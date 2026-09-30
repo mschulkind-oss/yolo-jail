@@ -151,6 +151,11 @@ type Options struct {
 	// (holdLaunchLock has the window, per backend). nil until then, and in a caller that
 	// never takes it.
 	launchLock *workspaceLock
+	// sessionLock is this launch's hold on its container jail's SESSION LOCK (sessionlock.go):
+	// LOCK_SH, taken under the launch lock by the fresh launch before its container starts and
+	// by an attach before its exec, and released by Run's deferred releaseSessionLock. nil
+	// until then, on macos-user, and in a caller that never takes it.
+	sessionLock *sessionLock
 	// packTree is the pack tree THIS launch staged (packtree.go), one per launch and never
 	// edited afterwards (docs/reference/pack-system.md#oq-pk2). "" until staging.
 	packTree string
@@ -655,15 +660,20 @@ func newTimingLog(enabled bool, ws, cname string, stderr io.Writer, notice func(
 // order them differently: the normal arm exits then restores, while the signal
 // arm restores termios BEFORE running onTerminate (ttyproxy's terminate case),
 // and the `terminate.*` spans that arm times are precisely the ones a user
-// waiting through a slow Ctrl-C needs named.
+// waiting through a slow Ctrl-C needs named. A fresh launch opens it earlier, at
+// jail_main.spawned: the main process's boot is relayed to the terminal from then
+// (jailmain.go), and jail_main.exited closes it like child.exited.
 func slowSpanNoticeSink(notice func(string)) perf.Sink {
 	var childHoldsTerminal atomic.Bool
 	return func(e perf.Event) {
 		if e.Kind == perf.KindMark {
 			switch e.Name {
-			case "child.spawned":
+			// jail_main.spawned: the main process's boot is relayed to the terminal from its
+			// spawn (jailmain.go), which is the stretch the container's own client held it
+			// before the main process became a hold.
+			case "child.spawned", "jail_main.spawned":
 				childHoldsTerminal.Store(true)
-			case "child.exited", "child.termios_restored":
+			case "child.exited", "child.termios_restored", "jail_main.exited":
 				childHoldsTerminal.Store(false)
 			}
 			return

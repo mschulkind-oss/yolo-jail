@@ -169,7 +169,7 @@ func TestRunChecksEveryBindSourceBeforeTheContainerStarts(t *testing.T) {
 	src := runSource(t)
 	call := strings.Index(src, "o.unsharedBindSources(rt, bindSources(runCmd, in.imageRef))")
 	assembled := strings.Index(src, "runCmd := o.assembleRunCmd(in)")
-	started := strings.Index(src, "runWithProxy(runCmd,")
+	started := strings.Index(src, "startJailMain(runCmd,")
 	if call < 0 {
 		t.Fatal("Run no longer checks the assembled argv's bind sources against the Podman " +
 			"Machine's shares: a workspace, `mounts` or `host_files` source the VM cannot see " +

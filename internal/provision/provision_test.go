@@ -150,8 +150,10 @@ func TestSetupBypassingShimsActuallyBypasses(t *testing.T) {
 	}
 }
 
-// runStage runs Script(setup) followed by a TARGET line, the way the container composes
-// it (buildFinalInternalCmd: the stage, then `…; <target>`), with the log in a temp dir and
+// runStage runs Script(setup) followed by a TARGET line in one shell, which is equivalent to
+// the way a container's first session runs them (the stage in a shell of its own, then the
+// command only when the stage exited 0: run.buildProvisionStage and entrypoint/jailmain.go),
+// because Script `exit`s on everything the entrypoint treats as a refusal, with the log in a temp dir and
 // stdin wired to `stdin` (nil = /dev/null, the non-interactive shape). It returns the exit
 // status, stdout, stderr and the log.
 func runStage(t *testing.T, setup string, stdin *os.File) (rc int, stdout, stderr, log string) {

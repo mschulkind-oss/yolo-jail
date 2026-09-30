@@ -457,12 +457,15 @@ func (o *Options) jailSessionsPhrase(rt, cname string) string {
 	return fmt.Sprintf("every session in it (%d running now)", n)
 }
 
-// jailSessionCount counts the sessions in a running jail: the one that launched it (the
-// container's main process) plus each live exec, which is how every attach enters. podman drops
-// an exec session when it exits, so ExecIDs lists the live ones (measured on podman 5.8.6: a
-// finished exec is gone from it, a running one stays). No runtime is special-cased: an inspect
-// that fails or answers anything but a count — Apple Container's has not been measured — reads
-// as "cannot tell", and the phrase then names every session without a number.
+// jailSessionCount counts the sessions in a running jail, for DISPLAY ONLY: it decides nothing
+// (the session lock does, sessionlock.go), because it also counts an exec whose terminal is gone.
+// Each live exec is a session, which is how every session of a jail whose main process is a
+// hold enters, the first included (entrypoint.JailMainEnv). A jail launched before that ran
+// its first session AS its main process, which is one more. podman drops an exec session when
+// it exits, so ExecIDs lists the live ones (measured on podman 5.8.6: a finished exec is gone
+// from it, a running one stays). No runtime is special-cased: an inspect that fails or answers
+// anything but a count — Apple Container's has not been measured — reads as "cannot tell", and
+// the phrase then names every session without a number.
 func (o *Options) jailSessionCount(rt, cname string) (int, bool) {
 	if o.Exec == nil {
 		return 0, false
@@ -475,7 +478,10 @@ func (o *Options) jailSessionCount(rt, cname string) (int, bool) {
 	if err != nil || n < 0 {
 		return 0, false
 	}
-	return n + 1, true
+	if envLineValue(o.inspectContainerEnv(rt, cname), entrypoint.JailMainEnv) != entrypoint.JailMainHold {
+		n++ // the main process is the first session
+	}
+	return n, true
 }
 
 // restartPollAttempts and restartPollInterval bound how long a restart waits for the stopped

@@ -244,6 +244,12 @@ func (o *Options) recordWindowA(cname, rt string) {
 // most worth recording and the one the proxy never marks an exit for; the
 // shutdown.window_a_cut.signal mark says the end is the signal, not an exit.
 func (o *Options) windowAEnd(probe lingerprobe.Result) (time.Time, bool) {
+	// The MAIN PROCESS'S client first: since the container's pid 1 became a hold, the podman
+	// run whose exit ends Window A is that client (jailmain.go), and the proxy's child is the
+	// first session's exec, which exits before its container dies.
+	if main, ok := o.Perf.LastEvent("jail_main.exited"); ok {
+		return main.At, true
+	}
 	if child, ok := o.Perf.LastEvent("child.exited"); ok {
 		return child.At, true
 	}

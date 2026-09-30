@@ -1,6 +1,7 @@
 package run
 
 import (
+	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/provision"
 	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 	"github.com/mschulkind-oss/yolo-jail/internal/tty"
@@ -28,9 +29,10 @@ const jailWorkspace = "/workspace"
 // fails if the venv step moves back behind it.
 //
 // ONE thing binds THESE bytes: testdata/final_cmd_bash.txt, which
-// TestBuildFinalInternalCmdBashGolden (command_test.go) compares for exact equality
-// against buildFinalInternalCmd's output — and that output composes this variable, so
-// any drift here is a golden diff. The in-jail entrypoint parses none of it.
+// TestFirstSessionBytesAreTheGolden (command_test.go) compares for exact equality against the
+// provisioning stage and the first session's command joined as the first session runs them —
+// and the stage composes this variable, so any drift here is a golden diff. The in-jail
+// entrypoint runs the stage and parses none of it.
 //
 // This comment used to claim the literal "PROVISIONING FAILED" as a second binder of
 // this string. It is not in these bytes at all: provisionScript below emits it, and its
@@ -52,11 +54,11 @@ var setupScript = provision.SetupBypassingShims(
 var startupLog = provision.StartupLog(jailWorkspace)
 
 // miseActivate is the one-time mise activation + blocker-dir re-prepend that runs
-// after provisioning. Bound by the same single thing setupScript is:
-// buildFinalInternalCmd composes it, and TestBuildFinalInternalCmdBashGolden pins
-// that composed output byte-for-byte against testdata/final_cmd_bash.txt. Nothing
-// else reads these bytes — a change here is legible as a golden diff, and is only a
-// contract to the extent the golden is re-blessed deliberately.
+// before the first session's command. Bound by the same single thing setupScript is:
+// buildSessionCmd composes it, and TestFirstSessionBytesAreTheGolden pins that composed
+// output byte-for-byte against testdata/final_cmd_bash.txt. Nothing else reads these
+// bytes — a change here is legible as a golden diff, and is only a contract to the extent
+// the golden is re-blessed deliberately.
 const miseActivate = `. "$HOME/.config/yolo-user-env.sh" 2>/dev/null; ` +
 	`eval "$(mise env -s bash)" 2>/dev/null; export PATH="$HOME/.yolo/bin/block:$PATH"`
 
@@ -67,14 +69,16 @@ const miseActivate = `. "$HOME/.config/yolo-user-env.sh" 2>/dev/null; ` +
 // console line.
 //
 // It is also what keeps a REFUSED stage from reaching the target: provision.Script ends in
-// `exit` on provision.RefusedStatus, and because provisionScript is spliced into
-// buildFinalInternalCmd's top-level `bash -c` rather than a subshell, that exit ends the
-// container's command before miseActivate, the Executing banner and the target.
+// `exit` on provision.RefusedStatus (and on a declined prompt), which ends the stage's own
+// shell with that status. The entrypoint runs the stage as its own shell on the first
+// session's terminal and records a non-zero status as the jail's refusal
+// (entrypoint/jailmain.go), so the session's command — miseActivate, the Executing banner
+// and the target — never runs, and every other session is refused with the same status.
 //
-// The WHOLE string is composed into buildFinalInternalCmd's output, pinned byte-for-byte
-// (its color=true form) by TestBuildFinalInternalCmdBashGolden against
-// testdata/final_cmd_bash.txt — so drift is a golden diff. The cross-process contract the literal carries is documented where
-// the literal now lives (provision.FailedMarker), which is also where its readers are
+// The WHOLE string is composed into buildProvisionStage's output, pinned byte-for-byte (its
+// color=true form) by TestFirstSessionBytesAreTheGolden against testdata/final_cmd_bash.txt —
+// so drift is a golden diff. The cross-process contract the literal carries is documented
+// where the literal now lives (provision.FailedMarker), which is also where its readers are
 // named; the golden would be re-blessed around a rename without complaint, and only a
 // single definition makes the rename a compile error instead.
 func provisionScript(color bool) string { return provision.Script(startupLog, setupScript, color) }
@@ -89,8 +93,7 @@ func scriptSGR(color bool, code string) (open, reset string) {
 	return `\033[` + code + `m`, `\033[0m`
 }
 
-// provisioningLine is the "📦 Provisioning tools..." line both branches of
-// buildFinalInternalCmd print first.
+// provisioningLine is the "📦 Provisioning tools..." line the stage prints first.
 func provisioningLine(color bool) string {
 	dim, reset := scriptSGR(color, "2")
 	return `printf '` + dim + `📦 Provisioning tools...` + reset + `\n' >&2; `
@@ -106,17 +109,23 @@ func provisioningLine(color bool) string {
 // noColorEnvArgs hands the jail — so the script and the jail it runs in agree.
 func (o *Options) scriptColor() bool { return !tty.NoColor(o.Getenv) }
 
-// finalInternalCmd is buildFinalInternalCmd with this launch's two decisions made:
-// the timing report (timingReporting, the PRINT gate) and the script's color. The
-// launch calls THIS, never buildFinalInternalCmd directly —
-// TestTheLaunchBuildsItsCommandThroughFinalInternalCmd pins that, so the color decision
+// provisionStage is buildProvisionStage with this launch's color decision made. The launch
+// hands it to the container's main process (entrypoint.HoldMainArg), which records it for the
+// first session. The launch calls THIS, never buildProvisionStage directly —
+// TestTheLaunchBuildsItsCommandsThroughTheColorDecision pins that, so the color decision
 // cannot be dropped at the call site while the function below stays green.
-func (o *Options) finalInternalCmd(targetCmd string) string {
-	return buildFinalInternalCmd(targetCmd, o.timingReporting(), o.scriptColor())
+func (o *Options) provisionStage() string { return buildProvisionStage(o.scriptColor()) }
+
+// sessionCmd is buildSessionCmd with this launch's two decisions made: the timing report
+// (timingReporting, the PRINT gate) and the script's color. It is the first session's command
+// (firstSessionExecCmd); an attach's command is its bare target, which the entrypoint
+// announces itself.
+func (o *Options) sessionCmd(targetCmd string) string {
+	return buildSessionCmd(targetCmd, o.timingReporting(), o.scriptColor())
 }
 
-// executingBanner is the "⚡ Executing: <target>" line both branches of
-// buildFinalInternalCmd print just before the target runs.
+// executingBanner is the "⚡ Executing: <target>" line both branches of buildSessionCmd
+// print just before the target runs.
 //
 // THE TARGET IS printf's ARGUMENT, NEVER ITS FORMAT. It used to be spliced into the format
 // string (with only its single quotes escaped), so every `%` and `\` in a command was a
@@ -128,32 +137,44 @@ func executingBanner(targetCmd string, color bool) string {
 	return `printf '` + cyan + `⚡ Executing: %s` + reset + `\n' ` + shquote.Quote(targetCmd) + ` >&2`
 }
 
-// buildFinalInternalCmd assembles the final_internal_cmd:
-// the provisioning message → provision_script → mise activate → executing
+// buildProvisionStage is the provisioning STAGE a launch runs once per container: the
+// provisioning message, then provisionScript. It runs as its own shell on the FIRST
+// session's terminal (entrypoint/jailmain.go), after that session's boot pass and before its
+// command. Until the container's main process became a hold it was the first clause of the
+// container's own command, and the bytes did not change when it moved: the stage and
+// buildSessionCmd's command, joined by "; ", are exactly that old command
+// (TestFirstSessionBytesAreTheGolden).
+func buildProvisionStage(color bool) string {
+	return provisioningLine(color) + provisionScript(color)
+}
+
+// buildSessionCmd assembles the first session's command: mise activate → executing
 // message (executingBanner) → target command. timing wraps each phase in timers (the
 // timing branch; --timing since docs/reference/providers.md OQ-PT5 — the in-jail report
-// it prints still says "YOLO Jail Profile", which is a name this step did not own).
+// it prints still says "YOLO Jail Profile", which is a name this step did not own). The
+// stage ran before this command in a shell of its own, so the timing branch reads its
+// duration from entrypoint.ProvisionMillisEnv, which the entrypoint sets for the session.
 //
-// THIS is where the "frozen bytes" claim the three constants above make actually
-// lives: TestBuildFinalInternalCmdBashGolden pins this function's non-timing output
-// against testdata/final_cmd_bash.txt, and that output closes over setupScript,
-// provisionScript and miseActivate — so the golden is the single binder for all four.
-// The timing branch has NO golden. The other tests here are property checks rather than
-// byte pins, and three of them cover BOTH branches: TestExecutingBannerPrintsTheTargetVerbatim
-// (the banner, run through bash), TestARefusedStageNeverReachesTheTarget (the composed
-// command run with a refusing bootstrap) and TestFinalInternalCmdNeverUpgrades (the one
-// OQ-PD3 property). Anything else confined to the timing branch still ships green.
+// THIS is where the "frozen bytes" claim the constants above make actually lives, with
+// buildProvisionStage: TestFirstSessionBytesAreTheGolden pins the two joined against
+// testdata/final_cmd_bash.txt, and they close over setupScript, provisionScript and
+// miseActivate — so the golden is the single binder for all of them. The timing branch has
+// NO golden. The other tests here are property checks rather than byte pins, and three of
+// them cover BOTH branches: TestExecutingBannerPrintsTheTargetVerbatim (the banner, run
+// through bash), TestARefusedStageNeverReachesTheTarget (the stage run with a refusing
+// bootstrap, then the command only if the stage succeeded, as the entrypoint does) and
+// TestFinalInternalCmdNeverUpgrades (the one OQ-PD3 property). Anything else confined to
+// the timing branch still ships green.
 //
-// `color` is scriptColor's decision, made by finalInternalCmd. The golden pins color=true;
+// `color` is scriptColor's decision, made by sessionCmd. The golden pins color=true;
 // color=false is exactly those bytes minus their escapes, which
 // TestFinalInternalCmdIsTheGoldenWhenColorIsOn asserts, so NO_COLOR moved no frozen byte for
 // a launch that does not set it.
-func buildFinalInternalCmd(targetCmd string, timing, color bool) string {
+func buildSessionCmd(targetCmd string, timing, color bool) string {
 	if timing {
 		return "" +
 			"exec 3>&2; " +
-			provisioningLine(color) +
-			"_t0=$(date +%s%N); " + provisionScript(color) + "; " +
+			`_p="${` + entrypoint.ProvisionMillisEnv + `:-0}"; ` +
 			"_t1=$(date +%s%N); " +
 			miseActivate + "; " +
 			"_t2=$(date +%s%N); " +
@@ -164,10 +185,10 @@ func buildFinalInternalCmd(targetCmd string, timing, color bool) string {
 			"echo '' >&3; echo '--- Entrypoint (config generation) ---' >&3; " +
 			`awk '/^=== YOLO/{buf=""} {buf=buf $0 "\n"} END{printf "%s", buf}' ~/.yolo-perf.log >&3 2>/dev/null; ` +
 			"echo '' >&3; echo '--- Container setup ---' >&3; " +
-			`printf '  mise install + bootstrap: %s\n' "$(( (_t1 - _t0) / 1000000 ))ms" >&3; ` +
+			`printf '  mise install + bootstrap: %s\n' "${_p}ms" >&3; ` +
 			`printf '  mise hook-env:            %s\n' "$(( (_t2 - _t1) / 1000000 ))ms" >&3; ` +
 			`printf '  command execution:        %s\n' "$(( (_t3 - _t2) / 1000000 ))ms" >&3; ` +
-			`printf '  total in-container:       %s\n' "$(( (_t3 - _t0) / 1000000 ))ms" >&3; ` +
+			`printf '  total in-container:       %s\n' "$(( _p + (_t3 - _t1) / 1000000 ))ms" >&3; ` +
 			"echo '' >&3; " +
 			"echo '--- Node path comparison ---' >&3; " +
 			"_n0=$(date +%s%N); /bin/node --version >/dev/null 2>&1; _n1=$(date +%s%N); " +
@@ -178,8 +199,6 @@ func buildFinalInternalCmd(targetCmd string, timing, color bool) string {
 			"exit $_rc"
 	}
 	return "" +
-		provisioningLine(color) +
-		provisionScript(color) + "; " +
 		miseActivate + "; " +
 		executingBanner(targetCmd, color) + "; " +
 		targetCmd

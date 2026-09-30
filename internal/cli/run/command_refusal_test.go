@@ -1,9 +1,9 @@
 package run
 
-// command_refusal_test.go RUNS the composed container command — both branches of
-// buildFinalInternalCmd — against fake steps, because every property it pins is a property
-// of the composition rather than of any one constant: that a refusing bootstrap ends the
-// command before the target (the container half of docs/reference/agent-program-runtimes.md
+// command_refusal_test.go RUNS what the first session runs — the provisioning stage, then
+// both branches of buildSessionCmd — against fake steps, because every property it pins is a
+// property of the composition rather than of any one constant: that a refusing bootstrap ends
+// the session before the target (the container half of docs/reference/agent-program-runtimes.md
 // OQ-AR3), that the refusal skips no unrelated step, that an ordinary failure still
 // degrades, and that the Executing banner prints the target it is about to run.
 //
@@ -20,6 +20,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/provision"
 )
 
@@ -63,29 +64,44 @@ func newStageFixture(t *testing.T, bootstrapRC int) stageFixture {
 
 func shellQuoteForTest(s string) string { return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'" }
 
-// run executes buildFinalInternalCmd(target, timing) in bash, stdin at /dev/null (the
-// non-interactive shape every harnessed launch has).
+// run executes the first session the way the entrypoint does (runFirstSession), with the
+// stage and the command this launch composes, stdin at /dev/null (the non-interactive shape
+// every harnessed launch has).
 func (f stageFixture) run(t *testing.T, target string, timing bool) (rc int, stdout, stderr string) {
 	t.Helper()
-	return f.runComposed(t, buildFinalInternalCmd(target, timing, true))
+	return f.runFirstSession(t, buildProvisionStage(true), buildSessionCmd(target, timing, true))
 }
 
-// runComposed runs an already-composed container command the way run does.
-func (f stageFixture) runComposed(t *testing.T, composed string) (rc int, stdout, stderr string) {
+// runFirstSession runs what the first session runs, in the entrypoint's order
+// (entrypoint/jailmain.go): the stage as its own bash; then, only when the stage exited 0, the
+// session's command in a second bash, with the stage's duration where the entrypoint puts it.
+// A stage that exits non-zero is the session's status, and the command never runs — which is
+// the entrypoint's gate, pinned in internal/entrypoint by
+// TestARefusedProvisioningRefusesEveryWaiterWithItsStatus and TestMainWiresTheHoldAndTheGateInOrder.
+func (f stageFixture) runFirstSession(t *testing.T, stage, session string) (rc int, stdout, stderr string) {
 	t.Helper()
-	cmdText := finalCmdIn(t, composed, f.log)
-	cmd := exec.Command("bash", "-c", cmdText)
-	cmd.Dir = f.home
-	cmd.Env = []string{"HOME=" + f.home, "PATH=" + f.fakeBin + ":/bin:/usr/bin"}
 	var out, errb strings.Builder
-	cmd.Stdout, cmd.Stderr = &out, &errb
+	rc = f.runBash(t, finalCmdIn(t, stage, f.log), nil, &out, &errb)
+	if rc != 0 {
+		return rc, out.String(), errb.String()
+	}
+	rc = f.runBash(t, session, []string{entrypoint.ProvisionMillisEnv + "=12"}, &out, &errb)
+	return rc, out.String(), errb.String()
+}
+
+func (f stageFixture) runBash(t *testing.T, text string, env []string, out, errb *strings.Builder) int {
+	t.Helper()
+	cmd := exec.Command("bash", "-c", text)
+	cmd.Dir = f.home
+	cmd.Env = append([]string{"HOME=" + f.home, "PATH=" + f.fakeBin + ":/bin:/usr/bin"}, env...)
+	cmd.Stdout, cmd.Stderr = out, errb
 	err := cmd.Run()
 	if ee, ok := err.(*exec.ExitError); ok {
-		rc = ee.ExitCode()
+		return ee.ExitCode()
 	} else if err != nil {
 		t.Fatalf("the composed command could not be run: %v", err)
 	}
-	return rc, out.String(), errb.String()
+	return 0
 }
 
 // finalCmdIn points the composed command's startup log at logPath, and refuses to hand back
@@ -173,7 +189,7 @@ func TestAnOrdinaryBootstrapFailureStillReachesTheTarget(t *testing.T) {
 // spliced into the FORMAT: `stat -c "%u:%g %a"` printed as `stat -c "0:0 0x0p+0"`.
 //
 // Run through bash rather than grepped for an escape, and checked in both branches of
-// buildFinalInternalCmd, so deleting either call site of executingBanner fails here.
+// buildSessionCmd, so deleting either call site of executingBanner fails here.
 func TestExecutingBannerPrintsTheTargetVerbatim(t *testing.T) {
 	bash, err := exec.LookPath("bash")
 	if err != nil {
@@ -190,8 +206,8 @@ func TestExecutingBannerPrintsTheTargetVerbatim(t *testing.T) {
 	} {
 		banner := executingBanner(target, true)
 		for _, timing := range []bool{false, true} {
-			if !strings.Contains(buildFinalInternalCmd(target, timing, true), banner+"; "+target) {
-				t.Errorf("timing=%v: buildFinalInternalCmd does not print executingBanner(%q) "+
+			if !strings.Contains(buildSessionCmd(target, timing, true), banner+"; "+target) {
+				t.Errorf("timing=%v: buildSessionCmd does not print executingBanner(%q) "+
 					"immediately before the target", timing, target)
 			}
 		}

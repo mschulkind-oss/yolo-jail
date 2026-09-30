@@ -310,7 +310,7 @@ func TestTheFreshPathHandsItsPackTreeToTheContainer(t *testing.T) {
 			case "refreshJailBriefings":
 				refresh = st.Pos()
 				refreshes++
-			case "runWithProxy":
+			case "startJailMain":
 				start = st.Pos()
 			case "holdLaunchLock":
 				lockPos = st.Pos()
@@ -328,7 +328,7 @@ func TestTheFreshPathHandsItsPackTreeToTheContainer(t *testing.T) {
 	})
 	for name, pos := range map[string]token.Pos{"attachExisting": lastAttach, "writeLivePackTree": record,
 		"packTreeHeld = true": held, "retireLegacyPackStaging": retire, "refreshJailBriefings": refresh,
-		"runWithProxy": start, "holdLaunchLock": lockPos} {
+		"startJailMain": start, "holdLaunchLock": lockPos} {
 		if pos == token.NoPos {
 			t.Fatalf("runContainer no longer has %s; re-anchor this pin, do not delete it", name)
 		}

@@ -12,11 +12,11 @@ import (
 
 // command_nocolor_test.go pins the one color decision the generated container script has:
 // scriptColor, the NO_COLOR half of the gate over the launch environment, made by
-// finalInternalCmd for every line the script prints.
+// provisionStage and sessionCmd for every line the script prints.
 
-// TestTheContainerScriptHonorsNoColor RUNS the composed command a launch builds —
-// finalInternalCmd, the launch's own entry — against a failing bootstrap, so all three of
-// its lines print: the provisioning line, the red provisioning failure, and the
+// TestTheContainerScriptHonorsNoColor RUNS what a launch builds for its first session —
+// provisionStage and sessionCmd, the launch's own entries — against a failing bootstrap, so all
+// three of its lines print: the provisioning line, the red provisioning failure, and the
 // "⚡ Executing" hand-over. With NO_COLOR unset they are colored (the control); with
 // NO_COLOR=1 in the launch environment none carries an escape, and the words and the
 // outcome are unchanged.
@@ -33,7 +33,7 @@ func TestTheContainerScriptHonorsNoColor(t *testing.T) {
 			}
 			return ""
 		}
-		rc, stdout, stderr := f.runComposed(t, o.finalInternalCmd(targetCmdForTest))
+		rc, stdout, stderr := f.runFirstSession(t, o.provisionStage(), o.sessionCmd(targetCmdForTest))
 		if rc != 0 || !strings.Contains(stdout, targetMarker) {
 			t.Fatalf("NO_COLOR=%q: the launch did not reach its target (rc %d):\n%s\n%s",
 				tc.noColor, rc, stdout, stderr)
@@ -51,16 +51,17 @@ func TestTheContainerScriptHonorsNoColor(t *testing.T) {
 	}
 }
 
-// TestFinalInternalCmdIsTheGoldenWhenColorIsOn: with NO_COLOR unset, the launch's command is
-// byte-for-byte the golden — honoring NO_COLOR moved no frozen byte for anyone who has not
-// set it — and with it set, the plain command differs from the golden only by escapes.
+// TestFinalInternalCmdIsTheGoldenWhenColorIsOn: with NO_COLOR unset, the launch's first-session
+// bytes are byte-for-byte the golden — honoring NO_COLOR moved no frozen byte for anyone who
+// has not set it — and with it set, the plain bytes differ from the golden only by escapes.
 func TestFinalInternalCmdIsTheGoldenWhenColorIsOn(t *testing.T) {
 	want, err := os.ReadFile(filepath.Join("testdata", "final_cmd_bash.txt"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	o := goldenOptions("/ws", t.TempDir())
-	if got := o.finalInternalCmd("bash"); got != string(want) {
+	firstSession := func() string { return o.provisionStage() + "; " + o.sessionCmd("bash") }
+	if got := firstSession(); got != string(want) {
 		t.Errorf("NO_COLOR unset: the launch's command is not the golden\n got: %q\nwant: %q", got, want)
 	}
 	o.Getenv = func(k string) string {
@@ -69,7 +70,7 @@ func TestFinalInternalCmdIsTheGoldenWhenColorIsOn(t *testing.T) {
 		}
 		return ""
 	}
-	plain := o.finalInternalCmd("bash")
+	plain := firstSession()
 	if strings.Contains(plain, `\033`) {
 		t.Errorf("NO_COLOR=1: the launch's command still carries an escape:\n%s", plain)
 	}
@@ -82,18 +83,20 @@ func TestFinalInternalCmdIsTheGoldenWhenColorIsOn(t *testing.T) {
 	}
 }
 
-// TestTheLaunchBuildsItsCommandThroughFinalInternalCmd is the call-site pin. The launch
+// TestTheLaunchBuildsItsCommandsThroughTheColorDecision is the call-site pin. The launch
 // cannot be driven through its container here, so this reads the package: the ONLY
-// production caller of buildFinalInternalCmd is finalInternalCmd (which makes the color
-// decision), and something in the package calls finalInternalCmd. A launch that went back
-// to calling buildFinalInternalCmd with its own color argument fails the first half.
-func TestTheLaunchBuildsItsCommandThroughFinalInternalCmd(t *testing.T) {
+// production caller of buildProvisionStage is provisionStage and of buildSessionCmd is
+// sessionCmd (which make the color decision), and something in the package calls each of
+// those. A launch that went back to calling a builder with its own color argument fails the
+// first half; one that stopped handing the stage or the session command over fails the
+// second.
+func TestTheLaunchBuildsItsCommandsThroughTheColorDecision(t *testing.T) {
 	files, err := filepath.Glob("*.go")
 	if err != nil {
 		t.Fatal(err)
 	}
-	var builders []string
-	usedFinal := false
+	builders := map[string][]string{}
+	used := map[string]bool{}
 	for _, file := range files {
 		if strings.HasSuffix(file, "_test.go") {
 			continue
@@ -114,25 +117,27 @@ func TestTheLaunchBuildsItsCommandThroughFinalInternalCmd(t *testing.T) {
 				}
 				switch fn := call.Fun.(type) {
 				case *ast.Ident:
-					if fn.Name == "buildFinalInternalCmd" {
-						builders = append(builders, file+":"+fd.Name.Name)
+					if fn.Name == "buildProvisionStage" || fn.Name == "buildSessionCmd" {
+						builders[fn.Name] = append(builders[fn.Name], file+":"+fd.Name.Name)
 					}
 				case *ast.SelectorExpr:
-					if fn.Sel.Name == "finalInternalCmd" {
-						usedFinal = true
+					if fn.Sel.Name == "provisionStage" || fn.Sel.Name == "sessionCmd" {
+						used[fn.Sel.Name] = true
 					}
 				}
 				return true
 			})
 		}
 	}
-	if len(builders) != 1 || !strings.HasSuffix(builders[0], ":finalInternalCmd") {
-		t.Errorf("buildFinalInternalCmd's production callers are %v, want only finalInternalCmd: "+
-			"any other caller decides the script's color itself, and can decide it without "+
-			"NO_COLOR", builders)
-	}
-	if !usedFinal {
-		t.Error("nothing in the package calls finalInternalCmd, so no launch builds its " +
-			"command through the color decision")
+	for builder, wrapper := range map[string]string{"buildProvisionStage": "provisionStage",
+		"buildSessionCmd": "sessionCmd"} {
+		if got := builders[builder]; len(got) != 1 || !strings.HasSuffix(got[0], ":"+wrapper) {
+			t.Errorf("%s's production callers are %v, want only %s: any other caller decides the "+
+				"script's color itself, and can decide it without NO_COLOR", builder, got, wrapper)
+		}
+		if !used[wrapper] {
+			t.Errorf("nothing in the package calls %s, so no launch hands it over through the "+
+				"color decision", wrapper)
+		}
 	}
 }

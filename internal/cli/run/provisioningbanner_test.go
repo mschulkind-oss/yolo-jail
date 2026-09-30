@@ -79,11 +79,11 @@ func TestProvisioningFailedBannerBindsItsThreeSites(t *testing.T) {
 
 // TestFinalInternalCmdClosesOverEveryFrozenConstant checks the claim the three
 // "frozen bytes" comments now make: ONE golden freezes all of them, because
-// buildFinalInternalCmd composes all of them. If a constant stopped being composed, its
-// comment would be promising a pin that no longer covers it — and the golden would keep
-// passing, since the golden only ever sees this function's output.
+// buildProvisionStage and buildSessionCmd compose all of them. If a constant stopped being
+// composed, its comment would be promising a pin that no longer covers it — and the golden
+// would keep passing, since the golden only ever sees these functions' output.
 func TestFinalInternalCmdClosesOverEveryFrozenConstant(t *testing.T) {
-	got := buildFinalInternalCmd("bash", false, true)
+	got := buildProvisionStage(true) + "; " + buildSessionCmd("bash", false, true)
 	for name, part := range map[string]string{
 		"setupScript":     setupScript,
 		"provisionScript": provisionScript(true),

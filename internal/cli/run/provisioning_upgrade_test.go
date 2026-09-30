@@ -4,13 +4,13 @@ import "testing"
 
 // TestFinalInternalCmdNeverUpgrades pins design ruling OQ-PD3
 // (docs/design/program-delivery.md): a launch resolves tools on install only —
-// no `mise upgrade` runs per launch, in either branch of buildFinalInternalCmd.
-// The golden in TestBuildFinalInternalCmdBashGolden covers the non-profile
-// branch only; the profile branch composes the same provisionScript and is
-// otherwise unpinned, so a reintroduced upgrade would ship green there.
+// no `mise upgrade` runs per launch, in the provisioning stage or in either branch of the
+// first session's command. The golden in TestFirstSessionBytesAreTheGolden covers the
+// non-profile branch only; the profile branch composes the same stage and is otherwise
+// unpinned, so a reintroduced upgrade would ship green there.
 func TestFinalInternalCmdNeverUpgrades(t *testing.T) {
 	for _, profile := range []bool{false, true} {
-		got := buildFinalInternalCmd("bash", profile, true)
+		got := buildProvisionStage(true) + "; " + buildSessionCmd("bash", profile, true)
 		if contains(got, "mise upgrade") {
 			t.Errorf("profile=%v: launch command runs `mise upgrade`: %q", profile, got)
 		}

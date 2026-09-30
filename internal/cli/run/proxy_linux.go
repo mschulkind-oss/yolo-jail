@@ -41,6 +41,11 @@ func runWithProxy(cmd []string, onStarted func(*os.Process), onTerminate func(),
 	return ttyproxy.RunWithProxyObserved(cmd, onStarted, withEmbeddedRelease(onTerminate), obs)
 }
 
+// proxyInstallsSignalArm reports whether runWithProxy will install its own signal arm: the
+// TTY proxy does on a terminal, and its plain path does not. The fresh launch's own arm steps
+// aside for it exactly then (launchSignalArm.handOff), and covers every other case itself.
+func proxyInstallsSignalArm(o *Options) bool { return o.IsTTYStdin() }
+
 // terminateRelease is what the signal arm calls last. A variable only so the control half of
 // TestSignalArmReleasesTheFallbackTree can prove the release is what removes the tree.
 var terminateRelease = packload.ReleaseEmbedded

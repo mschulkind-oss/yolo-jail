@@ -6,26 +6,28 @@ import (
 	"testing"
 )
 
-// TestBuildFinalInternalCmdBashGolden pins the non-profile final_internal_cmd
-// bytes for target_cmd="bash" against a golden (testdata/final_cmd_bash.txt).
-// This is a frozen host-state contract — the bash -c payload the container runs.
-func TestBuildFinalInternalCmdBashGolden(t *testing.T) {
+// TestFirstSessionBytesAreTheGolden pins the provisioning stage and the first session's
+// command for target_cmd="bash" against a golden (testdata/final_cmd_bash.txt), joined by
+// "; " as the first session runs them: the stage, then the command. This is a frozen
+// host-state contract — the bytes were the container's own `bash -c` payload until the main
+// process became a hold, and splitting them between the stage and the session moved none.
+func TestFirstSessionBytesAreTheGolden(t *testing.T) {
 	want, err := os.ReadFile(filepath.Join("testdata", "final_cmd_bash.txt"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	got := buildFinalInternalCmd("bash", false, true)
+	got := buildProvisionStage(true) + "; " + buildSessionCmd("bash", false, true)
 	if got != string(want) {
-		t.Errorf("final_internal_cmd mismatch\n got: %q\nwant: %q", got, string(want))
+		t.Errorf("first-session bytes mismatch\n got: %q\nwant: %q", got, string(want))
 	}
 }
 
-// TestBuildFinalInternalCmdQuotingEscapesDisplay: the raw target_cmd (unescaped) is what
-// actually runs at the tail; only the banner's copy of it is quoted. How the banner renders
-// it is TestExecutingBannerPrintsTheTargetVerbatim's job, which runs it rather than
-// grepping for an escape.
-func TestBuildFinalInternalCmdQuotingEscapesDisplay(t *testing.T) {
-	got := buildFinalInternalCmd("echo 'hi'", false, true)
+// TestBuildSessionCmdQuotingEscapesDisplay: the raw target_cmd (unescaped) is what actually
+// runs at the tail; only the banner's copy of it is quoted. How the banner renders it is
+// TestExecutingBannerPrintsTheTargetVerbatim's job, which runs it rather than grepping for an
+// escape.
+func TestBuildSessionCmdQuotingEscapesDisplay(t *testing.T) {
+	got := buildSessionCmd("echo 'hi'", false, true)
 	if !hasSuffixStr(got, "; echo 'hi'") {
 		t.Errorf("target_cmd tail not raw: %q", got)
 	}
