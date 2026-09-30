@@ -1168,3 +1168,71 @@ func TestAssembleNeverMountsTheEmbeddedPackCache(t *testing.T) {
 	t.Run("apple container, staged packs", func(t *testing.T) { apple(t, false) })
 	t.Run("apple container, embedded packs", func(t *testing.T) { apple(t, true) })
 }
+
+// TestAssembleNeverMountsTheHostFloor pins the host agent floor's one security property at the
+// launcher (docs/design/host-tool-provisioning.md §3, "Never under a segment a jail mounts"): the
+// host executes the floor's programs with the user's full authority, so no launch may bind the
+// floor, anything under it, or an ancestor that would carry it in wholesale — in ANY mode, since
+// even a read-only view would let a jail read the prefix's receipts and records. A floor that
+// exists under the launch's HOME makes the assertion non-vacuous.
+func TestAssembleNeverMountsTheHostFloor(t *testing.T) {
+	check := func(t *testing.T, home string, argv []string) {
+		t.Helper()
+		floor := paths.HostFloorDirUnder(home)
+		under := func(p, dir string) bool { return p == dir || strings.HasPrefix(p, dir+string(filepath.Separator)) }
+		sawState := false
+		for _, m := range mountSources(argv) {
+			if m.src == "" || !under(m.src, home) {
+				continue
+			}
+			if under(m.src, paths.GlobalStorageUnder(home)) {
+				sawState = true
+			}
+			if under(m.src, floor) || under(floor, m.src) {
+				t.Errorf("the launch bind-mounts %s (ro=%v), which reaches the host agent floor %s", m.src, m.ro, floor)
+			}
+		}
+		if !sawState {
+			t.Fatalf("no mount under the state dir was parsed out of the argv — the assertion is vacuous")
+		}
+	}
+	resolvedTemp := func(t *testing.T) string {
+		d, err := filepath.EvalSymlinks(t.TempDir())
+		if err != nil {
+			t.Fatal(err)
+		}
+		return d
+	}
+	plantFloor := func(t *testing.T, home string) {
+		if err := os.MkdirAll(filepath.Join(paths.HostFloorDirUnder(home), "bin"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Run("podman", func(t *testing.T) {
+		home := resolvedTemp(t)
+		t.Setenv("HOME", home)
+		plantFloor(t, home)
+		emptyLoopholeDirs(t)
+		o := goldenOptions("/ws", home)
+		sec := jsonx.NewOrderedMap()
+		sec.Set("blocked_tools", []any{})
+		check(t, home, o.assembleRunCmd(&assembleInput{
+			cfg:          newConfig("security", sec),
+			rt:           "podman",
+			cname:        "yolo-ws-abcd1234",
+			packs:        claudePackFixture(t),
+			agentsPath:   "/agents/yolo-ws-abcd1234",
+			wsState:      "/ws/.yolo/home",
+			miseStore:    "/mise-store",
+			yoloVersion:  "unknown",
+			mountTargets: map[string]struct{}{},
+		}))
+	})
+	t.Run("apple container", func(t *testing.T) {
+		ws, home := t.TempDir(), resolvedTemp(t)
+		t.Setenv("HOME", home)
+		plantFloor(t, home)
+		o, in, _ := acPackInput(t, ws, home)
+		check(t, home, o.assembleRunCmd(in))
+	})
+}
