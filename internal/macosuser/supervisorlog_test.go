@@ -22,6 +22,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/supervisor"
+	"github.com/mschulkind-oss/yolo-jail/internal/testsupport"
 )
 
 // readyLine is what a started supervisor writes into its log (supervisor.Main).
@@ -108,6 +109,7 @@ func TestTheSupervisorArgvSendsItsOutputToTheWorkspaceLog(t *testing.T) {
 // directory the wrapper made. /bin/sh and /bin/mkdir are the same absolute paths on Linux and
 // macOS, so this runs the wrapper's exact bytes.
 func TestTheLogWrapperAppendsStdoutAndStderrToTheLog(t *testing.T) {
+	testsupport.UnsetLCAll(t) // the child shell's output is compared exactly
 	ws := t.TempDir()
 	plan := BuildRunPlanWithDaemons(ws, jsonx.NewOrderedMap(), []string{"codex"}, []string{"codex"},
 		"/opt/yolo/bin/yolo", "", HomeOverlay{}, HostContext{}, jsonx.NewOrderedMap(), mockDarwin(), nil,
@@ -244,6 +246,7 @@ func TestASupervisorThatDiesAfterItsLineIsNotStarted(t *testing.T) {
 // needs to say "exited before it started" and quote sudo's refusal. Without Exited a failed start
 // would read as a silent one; without Output a sudo -n refusal would leave no trace again.
 func TestStartBackgroundRealReportsExitAndCapturesOutput(t *testing.T) {
+	testsupport.UnsetLCAll(t) // the child shell's output is compared exactly
 	bg, err := startBackgroundReal([]string{"/bin/sh", "-c", "echo 'sudo: a password is required' >&2; exit 1"})
 	if err != nil {
 		t.Fatal(err)

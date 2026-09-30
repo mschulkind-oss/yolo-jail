@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	"github.com/mschulkind-oss/yolo-jail/internal/testsupport"
 )
 
 // surfaceroot_test.go covers the two things slice 3 added to the driver: the SECOND PATH to
@@ -113,6 +114,7 @@ func stdoutInodes(t *testing.T, s string) map[string]uint64 {
 // walks `$HOME/.local`, which here is a symlink: WalkDir does not descend a symlinked root,
 // the baseline records one unchanged symlink, and the captured tree comes out EMPTY.
 func TestSurfaceRootIsTheDoorTheDriverUses(t *testing.T) {
+	testsupport.UnsetLCAll(t) // the child shell's output is compared exactly
 	home, state := twoPathHome(t)
 	out := filepath.Join(t.TempDir(), "staging-1")
 	var stdout, stderr strings.Builder

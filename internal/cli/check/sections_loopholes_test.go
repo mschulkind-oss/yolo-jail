@@ -16,6 +16,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/svcendpoint"
+	"github.com/mschulkind-oss/yolo-jail/internal/testsupport"
 )
 
 // privateDir returns a 0700 dir. t.TempDir() creates 0755, which svcendpoint
@@ -1411,6 +1412,7 @@ func TestHostServiceLivenessSkipsAnInertLoophole(t *testing.T) {
 //
 // "no output" stays for the case it is true of.
 func TestCheckLoopholesShowsAnUngradedFailingSelfCheck(t *testing.T) {
+	testsupport.UnsetLCAll(t) // the child shell's output is compared exactly
 	moduleRoot := isolatedModuleDir(t)
 	selfCheckModule(t, moduleRoot, "acme-chatty",
 		[]string{"/bin/sh", "-c", "echo 'acme: credential store unreadable'; exit 1"})

@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
+	"github.com/mschulkind-oss/yolo-jail/internal/testsupport"
 )
 
 // lockedBuffer is a bytes.Buffer safe to read while a relay goroutine writes it.
@@ -77,6 +78,7 @@ func TestARelayThatNeverSeesReadyFlushesItsLastLine(t *testing.T) {
 // (so the terminal's Ctrl-C never reaches it), and its exit status and exit mark arrive once it
 // is gone.
 func TestTheMainProcessClientRunsDetachedFromTheTerminalsSignals(t *testing.T) {
+	testsupport.UnsetLCAll(t) // the child shell's output is compared exactly
 	release := t.TempDir() + "/release"
 	script := `echo "boot says hello" >&2; echo "stdout line"; printf '%s\n' "$READY" >&2; ` +
 		`while [ ! -e "$RELEASE" ]; do sleep 0.02; done; exit 3`

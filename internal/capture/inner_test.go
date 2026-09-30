@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	"github.com/mschulkind-oss/yolo-jail/internal/testsupport"
 )
 
 // installerScript is the fixture "installer": a shell script standing in for a vendor's
@@ -174,6 +175,7 @@ func inodeOf(t *testing.T, path string) uint64 {
 // empty and this goes red — the surface set is not a constant the code merely agrees with,
 // it is the thing that decides what a capture is.
 func TestRunCapturesTheInstallersDeltaAndNothingElse(t *testing.T) {
+	testsupport.UnsetLCAll(t) // the child shell's output is compared exactly
 	home := t.TempDir()
 	out := filepath.Join(t.TempDir(), "staging-1")
 	fixtureHome(t, home)

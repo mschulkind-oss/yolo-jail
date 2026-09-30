@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/testsupport"
 )
 
 // launcher_test.go pins what bin/<bin> may contain: a shebang, comments, and ONE line that runs —
@@ -28,6 +30,7 @@ func runnableLines(script string) []string {
 // TestTheLauncherScriptRunsOnlyItsExecLine: a Version and a Pack carrying line breaks and shell
 // syntax stay inside the comment, and running the script runs the program and nothing else.
 func TestTheLauncherScriptRunsOnlyItsExecLine(t *testing.T) {
+	testsupport.UnsetLCAll(t) // the child shell's output is compared exactly
 	dir := resolvedTemp(t)
 	prog := filepath.Join(dir, "prog")
 	must(t, os.WriteFile(prog, []byte("#!/bin/sh\necho ran \"$@\"\n"), 0o755))

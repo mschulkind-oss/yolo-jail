@@ -5,6 +5,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/testsupport"
 )
 
 // killGroupAtCleanup stops a test's leftover process group once the test ends. The runner
@@ -21,6 +23,7 @@ func killGroupAtCleanup(t *testing.T, pid int) {
 // closed them — the 22.5 s overrun of podman-reboot-readiness.md, and 100 s in its
 // reproduction.
 func TestTheAttemptReturnsWhenTheChildExitsThoughAGrandchildHoldsItsOutput(t *testing.T) {
+	testsupport.UnsetLCAll(t) // the child shell's output is compared exactly
 	start := time.Now()
 	a := RunPodmanAttempt([]string{"sh", "-c", `sleep 30 & echo '{"ok":true}'; echo warm >&2; exit 0`},
 		time.Now().Add(20*time.Second), nil)

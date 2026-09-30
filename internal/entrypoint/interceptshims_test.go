@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/testsupport"
 )
 
 // writePackWithIntercepts stages a one-pack YOLO_PACK_ROOT whose manifest carries the
@@ -82,6 +84,7 @@ func TestABlockerWinsOverAnIntercept(t *testing.T) {
 // The shim, run: arguments reach the forwarder unchanged, spaces and quotes included;
 // with YOLO_BYPASS_SHIMS they reach the real program instead.
 func TestInterceptShimRuns(t *testing.T) {
+	testsupport.UnsetLCAll(t) // the child shell's output is compared exactly
 	dir := t.TempDir()
 	real := filepath.Join(dir, "real")
 	if err := os.WriteFile(real, []byte("#!/bin/sh\necho \"real:$*\"\n"), 0o755); err != nil {

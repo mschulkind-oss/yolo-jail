@@ -13,6 +13,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/journald"
 	"github.com/mschulkind-oss/yolo-jail/internal/svcendpoint"
+	"github.com/mschulkind-oss/yolo-jail/internal/testsupport"
 )
 
 // shortSocketDir returns a scratch dir directly under /tmp.
@@ -297,6 +298,7 @@ func TestEndpointFaultsAreAttributed(t *testing.T) {
 // jail-facing moved: the env var, the endpoint path and the framing are functions of
 // the loophole name and the transport alone.
 func TestEndToEndOverLoopbackTLS(t *testing.T) {
+	testsupport.UnsetLCAll(t) // the child shell's output is compared exactly
 	dir := shortSocketDir(t)
 
 	// A fake journalctl on PATH: the daemon resolves the name against this

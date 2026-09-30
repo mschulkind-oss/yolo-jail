@@ -18,6 +18,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	"github.com/mschulkind-oss/yolo-jail/internal/testsupport"
 )
 
 // inlinePack is a real staged-shape pack (LoadDir) from one manifest string.
@@ -194,6 +195,7 @@ end)`
 // the shared file's own values (the profile must win), and per-command values of the user's
 // own (the user must win) — for the override and for the tombstone.
 func TestAgentEnvFileLetsTheUsersValueWinAndOverridesAnInheritedOne(t *testing.T) {
+	testsupport.UnsetLCAll(t) // the child shell's output is compared exactly
 	if _, err := exec.LookPath("bash"); err != nil {
 		t.Skip("bash not found")
 	}
