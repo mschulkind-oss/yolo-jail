@@ -18,7 +18,8 @@ key sequence detaches a session's client, and a session whose jail ends under it
 process, every session by exec, provisioning's recorded outcome, and the session lock the orphan
 reaper honors. Step 3, 2026-09-30, at the container backends: the keeper, so quitting the first
 agent no longer ends the others, and the first terminal gets its prompt back
-([JL-D55](#JL-D55) to [JL-D63](#JL-D63) ledger how; verified against `1157cde6`). The keeper at
+([JL-D55](#JL-D55) to [JL-D63](#JL-D63) ledger how; verified against `1157cde6`; the review
+of 2026-09-30 fixed what [JL-D64](#JL-D64) to [JL-D69](#JL-D69) record). The keeper at
 `yolo host` and macos-user (step 5) waits on [OQ-JL9](#OQ-JL9), and step 4's Mac runs are owed.
 [OQ-JL1](#OQ-JL1) was
 directed by the maintainer on 2026-09-29, and the design it produced is
@@ -1166,7 +1167,11 @@ The keeper ends on exactly three observations, and never on a timer ([JL-D17](#J
    by hand. It learns this from the runtime (`podman wait`, or its attached client's exit,
    whichever comes first), without polling. In nested podman `podman wait` returned within 5 ms
    of a `podman stop` (MEASURED). It confirms with the same probe, records the reason and runs
-   the chain. It then takes the session lock exclusively, once the sessions whose exec ended have
+   the chain. A client's exit is not the container's end until that probe says so: a client
+   killed, or a Mac's remote client that lost its machine, leaves the container running, and the
+   keeper then keeps holding and asks again every few seconds ([JL-D64](#JL-D64)). A container
+   the keeper's own stop did not end is left unkept, its records in place ([JL-D65](#JL-D65)).
+   It then takes the session lock exclusively, once the sessions whose exec ended have
    dropped theirs, and exits ([§4.2](#42-the-count-a-host-side-session-lock), [JL-D28](#JL-D28)).
    Sessions still attached see their exec end and print the reason. `yolo stop` itself waits
    for the liveness lock and streams the teardown, as a last session does ([JL-D25](#JL-D25)).
