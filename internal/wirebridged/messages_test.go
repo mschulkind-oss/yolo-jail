@@ -541,6 +541,10 @@ func TestMessagesRefusalsKeepTheirStatusInAnthropicsShape(t *testing.T) {
 			up.responses = []func() *http.Response{func() *http.Response {
 				r := jsonResponse(c.status, c.body)
 				r.Header.Set("Retry-After", "7")
+				r.Header.Set("X-Should-Retry", "true")
+				r.Header.Set("Request-Id", "req_refused_1")
+				r.Header.Set("X-Amzn-Requestid", "aws-refused-1")
+				r.Header.Set("X-Amzn-Errortype", "ValidationException")
 				return r
 			}}
 			rec := postMessagesTo(t, messagesHandler(sigv4.Env{AccessKeyID: "AKID", SecretAccessKey: "s"}), claudeRequest)
@@ -558,8 +562,13 @@ func TestMessagesRefusalsKeepTheirStatusInAnthropicsShape(t *testing.T) {
 				doc.Error.Type != c.wantType || !strings.Contains(doc.Error.Message, c.wantMsg) {
 				t.Errorf("body %s, want an Anthropic %s carrying %q", rec.Body, c.wantType, c.wantMsg)
 			}
-			if rec.Header().Get("Retry-After") != "7" {
-				t.Errorf("Retry-After not relayed: %v", rec.Header())
+			// The retry hints and the request ids a support case names come back (WG-I32);
+			// nothing else of AWS's does.
+			for k, want := range map[string]string{"Retry-After": "7", "X-Should-Retry": "true",
+				"Request-Id": "req_refused_1", "X-Amzn-Requestid": "aws-refused-1", "X-Amzn-Errortype": ""} {
+				if got := rec.Header().Get(k); got != want {
+					t.Errorf("%s = %q, want %q: %v", k, got, want, rec.Header())
+				}
 			}
 		})
 	}
@@ -584,6 +593,52 @@ func TestAnExpiredSignatureOnTheMessagesRouteIsRefreshedOnce(t *testing.T) {
 	if up.requests[1].URL.String() != messagesAt || !strings.Contains(up.requests[1].Header.Get("Authorization"), "Credential=ASIA2/") ||
 		!bytes.Equal(up.bodies[0], up.bodies[1]) {
 		t.Errorf("the retry must resend the same body to the Messages route with the refreshed set")
+	}
+}
+
+// TestTheMessagesRouteKeepsTheSignersFailureStatuses (WG-I31, §2.1): the pass-through shares
+// the route's credential chain, so it answers a credential it cannot resolve as the
+// translating upstream does, in Anthropic's shape and before any upstream call: no source is
+// a 401 naming the three it tried, and an unreachable aws-auth pointer a 503 naming aws-auth
+// and `aws sso login`. Neither is the 502 of an unavailable upstream.
+func TestTheMessagesRouteKeepsTheSignersFailureStatuses(t *testing.T) {
+	dead := httptest.NewServer(http.NotFoundHandler())
+	deadURI := dead.URL + "/credentials"
+	dead.Close()
+	for _, c := range []struct {
+		name     string
+		env      sigv4.Env
+		status   int
+		typ      string
+		mentions []string
+	}{
+		{"no credential source", sigv4.Env{}, http.StatusUnauthorized, "authentication_error",
+			[]string{"AWS_ACCESS_KEY_ID", "AWS_CONTAINER_CREDENTIALS_FULL_URI", "AWS_BEARER_TOKEN_BEDROCK"}},
+		{"aws-auth unreachable", sigv4.Env{ContainerURI: deadURI}, http.StatusServiceUnavailable, "api_error",
+			[]string{"aws-auth", "aws sso login"}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			up := withUpstream(t)
+			rec := postMessagesTo(t, messagesHandler(c.env), claudeRequest)
+			var doc struct {
+				Type  string `json:"type"`
+				Error struct{ Type, Message string }
+			}
+			if err := json.Unmarshal(rec.Body.Bytes(), &doc); err != nil || doc.Type != "error" {
+				t.Fatalf("body %s is not Anthropic's error shape", rec.Body)
+			}
+			if rec.Code != c.status || up.calls() != 0 {
+				t.Fatalf("status %d after %d upstream calls, want %d and none: %s", rec.Code, up.calls(), c.status, rec.Body)
+			}
+			if doc.Error.Type != c.typ {
+				t.Errorf("error type %q, want %q", doc.Error.Type, c.typ)
+			}
+			for _, want := range c.mentions {
+				if !strings.Contains(doc.Error.Message, want) {
+					t.Errorf("the %d must name %s: %s", c.status, want, doc.Error.Message)
+				}
+			}
+		})
 	}
 }
 
