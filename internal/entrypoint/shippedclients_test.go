@@ -7,6 +7,9 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/releasematrix"
+	"github.com/mschulkind-oss/yolo-jail/packs"
 )
 
 // The ship set is spelled in THREE places and each one is silent when it is
@@ -36,10 +39,18 @@ import (
 //     source checkout. That divergence is invisible from inside a dev jail,
 //     which only ever takes the source path.
 //
-// goprobe is the one deliberate omission — a dev-only deployment tripwire that
-// must never reach the runtime PATH. It is listed explicitly so that "absent
-// from the ship set" has to be a decision rather than an oversight; an
+// goprobe is the one deliberate omission today — a dev-only deployment tripwire
+// that must never reach the runtime PATH. It is listed explicitly so that
+// "absent from the ship set" has to be a decision rather than an oversight; an
 // accidental omission is otherwise indistinguishable from the intended one.
+//
+// An OFFICIAL PACK BINARY joins it (docs/design/broker-as-a-pack.md §14.4, step
+// 3): a cmd/<name> that a loophole manifest in the packs embed declares under
+// `binaries`. `yolo pack install` downloads it from the release and a launch
+// binds it into a jail from the cache, so it is never mounted from the prefix,
+// and shipping it as well would put a second copy on every jail's PATH that no
+// pin covers. TestAnOfficialPackBinaryIsDownloadedNeverMounted holds every such
+// program here.
 var shipSetExemptCmds = map[string]bool{"goprobe": true}
 
 // repoRoot locates the checkout from this test file's compile-time path.
@@ -175,6 +186,71 @@ func TestLoopholeClientsAreBaked(t *testing.T) {
 }
 
 func shipEnumerated(set map[string]bool, name string) bool { return set[name] }
+
+// TestAnOfficialPackBinaryIsDownloadedNeverMounted is the program's place in the
+// tree (docs/design/broker-as-a-pack.md §14.4, step 3), over every binary a
+// loophole manifest in the packs embed declares. Each is built from its cmd/<name>
+// by the pin tool and reaches a jail as a download, so it is exempt from the ship
+// set beside goprobe and in neither ship list: the flake and the bundle compile
+// every cmd/ directory and copy only the shipped set, so an exempt program costs
+// each of them one compile and reaches no jail that way. Its root .gitignore line
+// is TestEveryBuildableBinaryIsIgnoredAtTheRoot's, as for every cmd/ directory.
+func TestAnOfficialPackBinaryIsDownloadedNeverMounted(t *testing.T) {
+	entries, err := releasematrix.Manifests(packs.FS)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) == 0 {
+		t.Fatal("the packs embed yielded no loophole manifest, so this test checks nothing")
+	}
+	var names []string
+	for _, e := range releasematrix.WithBinaries(entries) {
+		for _, b := range e.Manifest.Binaries {
+			names = append(names, b.Name)
+		}
+	}
+	root := repoRoot(t)
+	shipped := parseShipList(t, filepath.Join(root, "flake.nix"), nixListRe)
+	bundled := parseShipList(t, filepath.Join(root, "scripts", "stage-source-bundle.sh"), bashArrayRe)
+	for _, p := range officialBinaryPlaceProblems(names, shipSetExemptCmds, shipped, bundled) {
+		t.Error(p)
+	}
+}
+
+// officialBinaryPlaceProblems is every official binary out of its place: not
+// exempt from the ship set, or in either ship list.
+func officialBinaryPlaceProblems(names []string, exempt, shipped, bundled map[string]bool) []string {
+	var out []string
+	for _, name := range names {
+		if !exempt[name] {
+			out = append(out, "cmd/"+name+" is an official pack binary and is not in "+
+				"shipSetExemptCmds — add it there: it is downloaded from the release, never "+
+				"mounted from the prefix")
+		}
+		if shipped[name] || bundled[name] {
+			out = append(out, "cmd/"+name+" is an official pack binary and is in a ship list "+
+				"(flake.nix shippedBinaries or stage-source-bundle.sh SHIPPED_BINARIES) — drop "+
+				"it: a mounted copy would sit on every jail's PATH with no pin")
+		}
+	}
+	return out
+}
+
+func TestOfficialBinaryPlaceProblems(t *testing.T) {
+	exempt := map[string]bool{"goprobe": true, "term": true}
+	if got := officialBinaryPlaceProblems([]string{"term"}, exempt, map[string]bool{"yolo": true},
+		map[string]bool{"yolo": true}); len(got) != 0 {
+		t.Errorf("an exempt, unshipped binary: %v", got)
+	}
+	got := officialBinaryPlaceProblems([]string{"other"}, exempt, map[string]bool{"other": true}, nil)
+	if len(got) != 2 || !strings.Contains(got[0], "not in shipSetExemptCmds") ||
+		!strings.Contains(got[1], "is in a ship list") {
+		t.Errorf("an unexempt, shipped binary: %v", got)
+	}
+	if got := officialBinaryPlaceProblems([]string{"term"}, exempt, nil, map[string]bool{"term": true}); len(got) != 1 {
+		t.Errorf("a binary only the bundle ships: %v", got)
+	}
+}
 
 // TestStaleGeneratedClientsAreUnlinked is the PATH-shadow cutover test.
 //
