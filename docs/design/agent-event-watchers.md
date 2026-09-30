@@ -43,7 +43,8 @@ a sidecar is enabled.
 
 **Start at [§3](#3-the-shape)**, the shape. The per-agent answer is [§2.2](#22-what-each-agent-can-hear).
 
-**Needs your ruling:** [OQ-EW10](#OQ-EW10) and [OQ-EW9](#OQ-EW9), from the enablement redesign;
+**Needs your ruling:** [OQ-EW10](#OQ-EW10), from the enablement redesign; [OQ-EW9](#OQ-EW9) was
+directed 2026-09-29 ([EW-DIR3](#EW-DIR3)) and is being designed;
 [OQ-EW5](#OQ-EW5) to [OQ-EW8](#OQ-EW8) were ruled 2026-09-29. The feature stays held until they are
 ruled ([EW-DIR1](#EW-DIR1)). [OQ-EW1](#OQ-EW1), [OQ-EW3](#OQ-EW3) and [OQ-EW4](#OQ-EW4) were ruled
 2026-09-29, and [OQ-EW2](#OQ-EW2) is superseded by [OQ-EW8](#OQ-EW8) and [OQ-EW9](#OQ-EW9).
@@ -1326,8 +1327,14 @@ inside one machine, and there a lock is cheap, because everything is on one file
    Two `yolo host` terminals share one box and one watcher under [EW-D19](#EW-D19), so the same
    answer covers them.
 
-   **Answer:**
-   > _(empty — fill in when decided)_
+   **Answer:** directed, not ruled ([EW-DIR3](#EW-DIR3)), 2026-09-29. None of A to C as written:
+   > "I don't really know what to do. The best thing I can come up with is pick one at random. Let the first one that gets there take it. We could have multiple clawed agents in one. We could have multiple pies. So it's not even clear what you would do here. Yeah, I mean, this makes me question entirely. Even trying to enable this by default, because of exactly this, I mean, like, we need to be able to somehow identify a message. Master here. We need a way of saying this is the one that gets it. So I guess we need to be able to have agents elect to be the Master. Otherwise, we need to just like pick the first one launched to have rules. I think that's pretty good. probably the way to go. But we need some inside jail YOLO command where agents can poke and see who is the Master and claim it for themselves if they need to, likely on request of the user."
+
+   Read as: one session per jail is the **master** (the maintainer's word) and is the one a ping
+   wakes; by default it is the first session launched; an in-jail `yolo` command shows which session
+   is master and lets an agent claim it, usually because the user asked it to; and whether sidecars
+   should be on by default is to be reconsidered in that light. The design comes back as new
+   questions.
 
 10. 💬 <a id="OQ-EW10"></a>**[OQ-EW10](#OQ-EW10): Does every declared sidecar wait for a
     machine's explicit act, or may the config exempt some?** This decides whether a sidecar that
@@ -1394,6 +1401,7 @@ recorded so an implementer does not reopen them.
 | [OQ-EW8](#OQ-EW8) | **Maintainer ruling:** B; no cross-machine filter, disclosure and `yolo sidecar list` only | 2026-09-29 | [§12](#12-enabling-a-sidecar-redesign-2026-09-29) | pending |
 | <a id="EW-DIR1"></a>EW-DIR1 | **Maintainer direction:** the feature is held until enabling a sidecar is an intentional per-machine act that a synced dotfile cannot trigger, and two machines watching one project is designed for ([OQ-EW2](#OQ-EW2)) | 2026-09-29 | [§12](#12-enabling-a-sidecar-redesign-2026-09-29) | — |
 | <a id="EW-DIR2"></a>EW-DIR2 | **Maintainer direction,** the second on [OQ-EW2](#OQ-EW2): declaring a watcher's shape is separate from the explicit permission that activates it, and yolo does not try to guarantee a single watcher across machines | 2026-09-29 | [§12.6](#126-two-machines-one-project) | — |
+| <a id="EW-DIR3"></a>EW-DIR3 | **Maintainer direction** on [OQ-EW9](#OQ-EW9): a ping wakes one session per jail, the **master** (the maintainer's word); by default the first session launched; an in-jail `yolo` command shows the master and lets an agent claim it, likely at the user's request; and whether sidecars are on by default is to be reconsidered given this | 2026-09-29 | [§13](#13-open-questions) | designing |
 | [OQ-EW4](#OQ-EW4) | **Maintainer ruling:** A, inside a gate: *"it starts everywhere you specify the config needs to allow a gated set."* Read as: no second config switch per workspace. Which sidecars the gate covers is [OQ-EW10](#OQ-EW10), and its mechanics are [OQ-EW5](#OQ-EW5) to [OQ-EW7](#OQ-EW7) | 2026-09-29 | [§12.1](#121-declaring-is-not-enabling) | pending |
 | <a id="EW-D13"></a>[`EW-D13`](#14-decision-ledger) | *Implementation decision, under [OQ-EW10](#OQ-EW10)'s leaning (A),* carrying out [OQ-EW4](#OQ-EW4), [EW-DIR1](#EW-DIR1) and [EW-DIR2](#EW-DIR2); it changes if [OQ-EW10](#OQ-EW10) is ruled otherwise. The gated set is every declared sidecar, from every source: none runs on a machine without that machine's enablement record, and no declaration can exempt itself. Config's `enabled` can only veto: `false` at any scope keeps a sidecar off, and `true` at any scope starts nothing, since otherwise the replicator is the trigger. This deliberately differs from loopholes, whose `enabled` switches on from either scope | 2026-09-29 | [§12.1](#121-declaring-is-not-enabling) | — |
 | <a id="EW-D14"></a>[`EW-D14`](#14-decision-ledger) | *Implementation decision.* The enablement record lives under `paths.ApprovalsDir()`, as a part beside the approval record for one workspace and as one machine-wide file whose name no container name can take (every container name begins `yolo-`, `FromResolved` in [`naming.go`](../../internal/runtime/naming.go)). Never under `~/.config/yolo-jail`, never under `cache/`, never mounted into a jail. Under [OQ-EW5](#OQ-EW5)'s leaning (A), only `yolo sidecar enable` and `disable` write it; under every answer, nothing that writes it writes config. It holds, per sidecar, on or off, the name, the declaring source (user config, the local pack, a pack identified by the source address its entry is written with and never by its name, or the workspace), the time, and for a sidecar the workspace or a fetched pack declares a hash of every field of the resolved declaration, plus, for a fetched pack, its locked commit. A record is honored only for a declaration from the same source and, where it holds a hash or a commit, the same ones. A missing record fails safe, and a path that deletes the approval record deletes this part too. *Revised 2026-09-29:* a pack is keyed by source address rather than name, fetched packs are hash-bound, the hash covers every field rather than `cmd`, `side` and `restart`, and a record can say off | 2026-09-29 · revised 2026-09-29 | [§12.2](#122-where-the-record-lives-and-why-there) | — |
