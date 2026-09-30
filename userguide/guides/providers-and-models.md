@@ -195,8 +195,9 @@ yolo -p opencode=zai,openrouter -- opencode
   launch says which agents ignore the rest. Every name in it must still be a profile that exists,
   including the ones an agent ignores.
 - **When the first entry names no model**, as `openrouter` and `kilo` do out of the box, opencode
-  is not narrowed to the list and starts on its own saved choice, exactly as with that one profile
-  alone; list a provider that has a default model first to have opencode start there.
+  still shows only the listed providers and picks the model itself: a model you picked before on
+  one of them, else a default of its own among them. List a provider that has a default model
+  first to have opencode start there.
 - A profile that routes through the wire bridge (`"via": "wire-bridge"`) can only be listed first.
   Two profiles over the same provider cannot share a list, and neither can two Bedrock providers,
   since each agent reads one AWS region. One Bedrock profile can sit anywhere in the list

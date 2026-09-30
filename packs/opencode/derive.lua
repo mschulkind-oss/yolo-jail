@@ -482,8 +482,10 @@ yolo.derive("opencode", "config", function(ctx)
   -- for opencode that is a key of the provider's models table, the same keying the
   -- catalog half above already builds); else the provider's declared `default` alias;
   -- else the ONE model it declares, where "which model" has only one possible answer;
-  -- else nothing — and with `model` being a single key, nothing means NO selection at
-  -- all, never a half one naming a provider with no model under it. The one-model
+  -- else nothing — and with `model` being a single key, nothing means NO `model` at all,
+  -- never a half one naming a provider with no model under it. The provider filter is written
+  -- either way (enabled_providers, below): with no model yolo names the providers and opencode
+  -- chooses within them (docs/design/active-provider-sets.md §4.4, AP-D17). The one-model
   -- answer belongs to the DEFAULT ask only: a profile that named an alias the provider
   -- does not declare asked a question the table cannot answer, and "some other model
   -- that happened to be alone" is not the answer — that is the same honest degradation
@@ -496,16 +498,15 @@ yolo.derive("opencode", "config", function(ctx)
       -- because opencode's own default for `amazon-bedrock` is unread
       -- (docs/design/model-lists-and-pickers.md §4, "yes until measured"), and a session left to
       -- an unknown default may start on a bare id runtime refuses. The small model is the same
-      -- one: the list states no cheaper tier. enabled_providers follows the selection, as below.
+      -- one: the list states no cheaper tier. enabled_providers names the set, as below.
       local model = callableModel(p, callableModels(p, nil), ctx.profile, true)
+      local sel = { enabled_providers = opencodeSetProviders(ctx, opencodeBedrockProvider, provOut) }
       if model then
         local qualified = opencodeBedrockProvider .. "/" .. model
-        res.selection = {
-          model = qualified,
-          small_model = qualified,
-          enabled_providers = opencodeSetProviders(ctx, opencodeBedrockProvider, provOut),
-        }
+        sel.model = qualified
+        sel.small_model = qualified
       end
+      res.selection = sel
     elseif providerEndpoint(p) then
       local alias = (ctx.profile and ctx.profile.model) or "default"
       local modelID = nil
@@ -532,8 +533,9 @@ yolo.derive("opencode", "config", function(ctx)
           end
         end
       end
+      local sel = {}
       if modelID then
-        local sel = { model = ctx.selected_provider .. "/" .. modelID }
+        sel.model = ctx.selected_provider .. "/" .. modelID
         local smallAlias = (ctx.profile and ctx.profile.small_model)
         local smallID = nil
         if smallAlias and type(p.models) == "table" then
@@ -544,24 +546,28 @@ yolo.derive("opencode", "config", function(ctx)
           smallID = modelID
         end
         sel.small_model = ctx.selected_provider .. "/" .. smallID
-        -- THE MENU FOLLOWS THE SELECTION (docs/design/provider-credential-scope.md OQ-CN4,
-        -- "both, named separately"): the credential gate withholds every other provider's
-        -- key from opencode, and opencode registers a catalog row without an auth check, so
-        -- without this its menu would still offer providers it can no longer call.
-        -- enabled_providers is opencode's own HARD key — "When set, ONLY these providers
-        -- will be enabled" — so this is the ergonomic half of the ruling, never a model list:
-        -- it names the providers the profile selected and nothing else: the one provider of
-        -- a single profile, and every provider of an active set, the primary first
-        -- (opencodeSetProviders; docs/design/active-provider-sets.md §4.4, "enabled_providers
-        -- names every provider in the set, in order"). It rides the selection beside `model`,
-        -- so a deselect clears it with the model (OQ-PSW2) and a set that loses an entry
-        -- rewrites it whole (§4.10). And it is written only when a model is, since narrowing
-        -- the providers while opencode starts on its own persisted choice would disable the
-        -- provider that choice names: a set whose primary resolves no model (openrouter and
-        -- kilo declare none) writes neither, as that one profile alone does.
-        sel.enabled_providers = opencodeSetProviders(ctx, ctx.selected_provider, provOut)
-        res.selection = sel
       end
+      -- THE MENU FOLLOWS THE SELECTION (docs/design/provider-credential-scope.md OQ-CN4,
+      -- "both, named separately"): the credential gate withholds every other provider's
+      -- key from opencode, and opencode registers a catalog row without an auth check, so
+      -- without this its menu would still offer providers it can no longer call.
+      -- enabled_providers is opencode's own HARD key — "When set, ONLY these providers
+      -- will be enabled" — so this is the ergonomic half of the ruling, never a model list:
+      -- it names the providers the profile selected and nothing else: the one provider of
+      -- a single profile, and every provider of an active set, the primary first
+      -- (opencodeSetProviders; docs/design/active-provider-sets.md §4.4, "enabled_providers
+      -- names every provider in the set, in order"). It rides the selection beside `model`,
+      -- so a deselect clears it with the model (OQ-PSW2) and a set that loses an entry
+      -- rewrites it whole (§4.10).
+      --
+      -- IT IS WRITTEN WHETHER OR NOT A MODEL RESOLVES (AP-D17): a primary that declares no
+      -- models (openrouter and kilo ship none) has no pick to give, so yolo names the providers
+      -- and no model, and opencode chooses within them (§4.4). Its start order, read from the
+      -- 1.18.32 binary's strings, is the config's `model`, then a recent pick whose provider is
+      -- loaded, then the first loaded provider's default, so a saved choice inside the set is
+      -- kept and one outside it is passed over (AP-P3, "the set is the boundary").
+      sel.enabled_providers = opencodeSetProviders(ctx, ctx.selected_provider, provOut)
+      res.selection = sel
     end
   end
 

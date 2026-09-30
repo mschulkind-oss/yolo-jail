@@ -82,27 +82,38 @@ func TestOpencodesFirstEntryDecidesItsStartModel(t *testing.T) {
 	}
 }
 
-// A PRIMARY THAT RESOLVES NO MODEL WRITES NO SELECTION (AP-D15): enabled_providers rides the
-// selection, so a set whose first entry declares no models (openrouter and kilo ship none) writes
-// neither `model` nor the filter, as that one profile alone does, rather than narrowing the
-// providers under a start model yolo did not choose. Both rows are still written.
-func TestAnOpencodeSetWhosePrimaryHasNoModelWritesNoSelection(t *testing.T) {
+// A PRIMARY THAT RESOLVES NO MODEL STILL HOLDS opencode TO THE SET (§4.4, AP-P3, AP-D17): a set
+// whose first entry declares no models (openrouter and kilo ship none) writes no `model`, so
+// opencode chooses, and still writes the filter, so it chooses within the set: its start order
+// tries a recent pick only when that pick's provider is loaded, then the first loaded provider.
+// One profile alone is held the same way. Both rows are still written.
+func TestAnOpencodeSetWhosePrimaryHasNoModelIsStillHeldToTheSet(t *testing.T) {
 	const noModels = `{
   "open":{"api_key_env_name":"OPEN_API_KEY","endpoints":{"openai":{"base_url":"https://open.example/v1"}}},
   "zai":{"api_key_env_name":"ZAI_API_KEY","models":{"default":"glm-5.3","glm-5.3":"glm-5.3"},
     "endpoints":{"openai":{"base_url":"https://api.z.ai/api/coding/paas/v4"}}}}`
-	r := newPioencodeRender(t, noModels)
-	r.wireProfiles(`{"open":{"provider":"open"},"zai":{"provider":"zai"}}`)
-	r.render(t, `{"opencode":["open","zai"]}`)
-	cfg := r.ocConfig(t)
-	for _, key := range []string{"model", "small_model", "enabled_providers"} {
-		if v, ok := cfg[key]; ok {
-			t.Errorf("opencode.json %s = %v, want none: the primary resolves no model", key, v)
+	for _, tc := range []struct {
+		set  string
+		want []string
+	}{
+		{`["open","zai"]`, []string{"open", "zai"}},
+		{`"open"`, []string{"open"}},
+	} {
+		r := newPioencodeRender(t, noModels)
+		r.wireProfiles(`{"open":{"provider":"open"},"zai":{"provider":"zai"}}`)
+		r.render(t, `{"opencode":`+tc.set+`}`)
+		cfg := r.ocConfig(t)
+		for _, key := range []string{"model", "small_model"} {
+			if v, ok := cfg[key]; ok {
+				t.Errorf("%s: opencode.json %s = %v, want none: the primary resolves no model", tc.set, key, v)
+			}
 		}
-	}
-	rows := ocRows(t, cfg)
-	if rows["open"] == nil || rows["zai"] == nil {
-		t.Errorf("both entries' rows must still be written: %v", rows)
+		if got := strs(cfg["enabled_providers"]); !reflect.DeepEqual(got, tc.want) {
+			t.Errorf("%s: enabled_providers = %v, want %v: opencode chooses, within the set", tc.set, got, tc.want)
+		}
+		if rows := ocRows(t, cfg); rows["open"] == nil || rows["zai"] == nil {
+			t.Errorf("%s: both providers' rows must still be written: %v", tc.set, rows)
+		}
 	}
 }
 

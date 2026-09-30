@@ -25,6 +25,7 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -415,35 +416,42 @@ func TestOpencodeDeriveWritesTheSelectionKey(t *testing.T) {
 		// none, which is the no-option world every profile without a `model` value lives in.
 		wire  string
 		guard string // a provider that must still be cataloged; "" selects the only one
+		// wantProviders is enabled_providers, nil asserting it is ABSENT: the menu follows the
+		// selected provider whether or not a model resolves (OQ-CN4; active-provider-sets.md
+		// AP-D17), and nothing is written where no provider is selected.
+		wantProviders []string
 	}{
 		{
-			name:      "an opencode-reachable provider is selected with its default alias",
-			providers: zaiReachableJSON,
-			profiles:  `{"opencode":"zai"}`,
-			wire:      `{"zai": {"provider": "zai", "model": "glm-5.3"}}`,
-			wantModel: "zai/glm-5.3",
+			name:          "an opencode-reachable provider is selected with its default alias",
+			providers:     zaiReachableJSON,
+			profiles:      `{"opencode":"zai"}`,
+			wire:          `{"zai": {"provider": "zai", "model": "glm-5.3"}}`,
+			wantModel:     "zai/glm-5.3",
+			wantProviders: []string{"zai"},
 		},
 		{
 			// OQ-CS4 at opencode's key: the option names the alias, the id under it joins
 			// the provider with the one slash opencode splits on, and the catalog row the
 			// prefix names is the same one this derive wrote.
-			name:      "the profile's model option names the alias",
-			providers: zaiReachableJSON,
-			profiles:  `{"opencode":"zai"}`,
-			wire:      `{"zai": {"provider": "zai", "model": "glm-5.3-flash"}}`,
-			wantModel: "zai/glm-5.3-flash",
+			name:          "the profile's model option names the alias",
+			providers:     zaiReachableJSON,
+			profiles:      `{"opencode":"zai"}`,
+			wire:          `{"zai": {"provider": "zai", "model": "glm-5.3-flash"}}`,
+			wantModel:     "zai/glm-5.3-flash",
+			wantProviders: []string{"zai"},
 		},
 		{
 			// An option naming an alias the provider does not declare asks a question the
 			// table cannot answer, and the one-model fallback is deliberately NOT the
 			// answer — that fallback belongs to the default ask, where "which model" has
 			// only one possible reply. Here it would be a silent override of an explicit
-			// one, so the key stays absent and opencode's own choice stands.
-			name:      "an option naming an unknown alias writes nothing",
-			providers: noDefaultJSON,
-			profiles:  `{"opencode":"solo"}`,
-			wire:      `{"solo": {"provider": "solo", "model": "turbo"}}`,
-			guard:     "solo",
+			// one, so the key stays absent and opencode chooses, within the provider selected.
+			name:          "an option naming an unknown alias writes no model",
+			providers:     noDefaultJSON,
+			profiles:      `{"opencode":"solo"}`,
+			wire:          `{"solo": {"provider": "solo", "model": "turbo"}}`,
+			guard:         "solo",
+			wantProviders: []string{"solo"},
 		},
 		{
 			// OQ-CS2 again, with a guard: with `model` unset opencode falls back to its own
@@ -473,19 +481,21 @@ func TestOpencodeDeriveWritesTheSelectionKey(t *testing.T) {
 		{
 			// One model declared and no alias for it: "which model" has a single possible
 			// answer, so the derive claims it rather than writing a provider half.
-			name:      "a provider with a single model selects that model",
-			providers: noDefaultJSON,
-			profiles:  `{"opencode":"solo"}`,
-			wantModel: "solo/qwen",
+			name:          "a provider with a single model selects that model",
+			providers:     noDefaultJSON,
+			profiles:      `{"opencode":"solo"}`,
+			wantModel:     "solo/qwen",
+			wantProviders: []string{"solo"},
 		},
 		{
 			// Two models and no default: any pick would be a guess, `model` is one key so
-			// there is no partial write, and the honest degradation is no selection at all —
-			// opencode's own choice stands.
-			name:      "a provider with two models and no default writes nothing",
-			providers: noDefaultJSON,
-			profiles:  `{"opencode":"split"}`,
-			guard:     "split",
+			// there is no partial write, and the honest degradation is no `model` at all —
+			// opencode chooses, held to the provider selected.
+			name:          "a provider with two models and no default writes no model",
+			providers:     noDefaultJSON,
+			profiles:      `{"opencode":"split"}`,
+			guard:         "split",
+			wantProviders: []string{"split"},
 		},
 	}
 
@@ -499,6 +509,13 @@ func TestOpencodeDeriveWritesTheSelectionKey(t *testing.T) {
 			config := r.ocConfig(t)
 
 			requireOpencodeSelection(t, config, tc.wantModel)
+			got, present := config["enabled_providers"]
+			switch {
+			case tc.wantProviders == nil && present:
+				t.Errorf("opencode.json enabled_providers = %#v, want none: no provider is selected", got)
+			case tc.wantProviders != nil && !reflect.DeepEqual(strs(got), tc.wantProviders):
+				t.Errorf("opencode.json enabled_providers = %#v, want %#v", got, tc.wantProviders)
+			}
 
 			if tc.guard != "" {
 				provs, ok := config["provider"].(map[string]any)

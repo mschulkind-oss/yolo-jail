@@ -127,7 +127,7 @@ into your files and says so; a `claude` you start some other way runs on its own
 `"profile": {"pi": ["zai", "openrouter"]}` in your config, and the agent's model picker offers
 every listed provider's models, the agent receives every listed provider's key while other agents
 and a plain shell receive none of them, and pi's child agents may use any listed provider and no
-other. opencode shows exactly the listed providers when the first one has a default model. A new
+other. opencode shows exactly the listed providers. A new
 session starts on the first provider's default model, and a model you pick yourself in pi stays
 picked.
 A missing key for any listed provider stops the launch and names that provider and its place in
@@ -465,6 +465,9 @@ the agent.
   of the file Copilot moved it out of at every start, only for the next launch to put it back.
 - opencode, pi and oh-omp no longer show a model named "default" or "fast" in their menus: a
   model shows its own name, or its id.
+- opencode on a profile whose provider lists no models, such as `openrouter` or `kilo`, now shows
+  only that provider in its menu, as it already did on one that lists them; it still picks the
+  model itself. Until now it showed every provider, including ones it had no key for.
 - Rootless Podman with no storage.conf of your own, as on stock Ubuntu 26.04, no longer fails
   every launch while delivering the image with `mkdir /run/containers: permission denied`. The
   image now goes into the store Podman itself reports, whatever your storage.conf files say, and
