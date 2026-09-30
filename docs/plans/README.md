@@ -296,9 +296,7 @@ $ rg -n '^status: ' docs/design docs/plans docs/research \
     | rg -v '^[^:]+:[0-9]+:status: (draft|in-review|accepted|deprecated|current)$'
 ```
 
-**Run 2026-09-30:** 7a reports one doc, `docs/design/workspace-skills-plan.md`, which has no stage and
-whose legacy line reads `SUPERSEDED by the build, 2026-09-27` rather than `WORD, date`; 7b and 7c
-report nothing. 7b reaches every BUILT doc through its `stage:`, since no legacy `BUILT` line is
+**Run 2026-09-30:** 7a, 7b and 7c report nothing. 7b reaches every BUILT doc through its `stage:`, since no legacy `BUILT` line is
 left in the tree.
 
 **7a and 7c are findings; 7b is a finding; the state itself is not checkable by any of them.** A

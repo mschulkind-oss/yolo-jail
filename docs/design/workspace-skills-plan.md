@@ -2,6 +2,7 @@
 title: "Sketch: workspace skills"
 date: 2026-09-17
 status: deprecated
+stage: SUPERSEDED
 tags: [plan, sketch, skills, packs, workspace, implementation]
 summary: "Implementation material parked beside workspace-skills.md while its six questions are open: the declaration a pack would carry, the change points in the skills staging, the symlink walk that must not reuse the existing copier, the links mechanism's git plumbing, the tests that pin call sites, and the corpus edits. Not a hand-off; nothing here decides behaviour."
 vantage:
@@ -10,7 +11,7 @@ vantage:
 
 # Sketch: workspace skills
 
-**Status:** SUPERSEDED by the build, 2026-09-27 — mechanism A shipped as v1 (`bd79aed3`,
+**Status:** 2026-09-27 — replaced by the build: mechanism A shipped as v1 (`bd79aed3`,
 `7df13e51`), and every choice this sketch left open is a `WS-D` row in
 [the design's ledger](workspace-skills.md#12-decision-ledger). Kept for the tree facts it
 gathered; where it and the tree disagree, the tree wins. Mechanism B's section is the material
