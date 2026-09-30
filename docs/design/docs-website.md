@@ -1,14 +1,14 @@
 ---
 title: "The user guide becomes a website, deployed exactly the way Vantage deploys its own"
 date: 2026-09-25
-status: in-review
+status: accepted
 tags: [docs, website, userguide, vantage, cloudflare, deploy]
-summary: "The user guide is split into a closed userguide/ tree, built with pinned Vantage, and configured for a Cloudflare static-assets Worker. Repository build steps are in place; the dashboard connection and custom-domain attachment remain human actions."
+summary: "The user guide is split into a closed userguide/ tree, built with pinned Vantage, and served by a Cloudflare static-assets Worker at docs.yolo-jail.mschulkind.dev. Both questions are settled: the address by ruling, and which reference page crosses into the guide as an implementation choice."
 ---
 
 # The user guide becomes a website, deployed exactly the way Vantage deploys its own
 
-**Status:** DESIGN, 2026-09-25 — one ruling owed, [OQ-DW2](#OQ-DW2), whose leaning the repository build implements provisionally. [OQ-DW1](#OQ-DW1) is ruled. The repository build is in place; connecting the Cloudflare dashboard and attaching the custom domain are human steps, still pending. Vantage claims were checked against `mschulkind-oss/vantage` at `4b2ccbc` and against the live sites on this date; the original yolo-jail measurement was at `7e529260`.
+**Status:** DECIDED, 2026-09-30 — no ruling owed. [OQ-DW1](#OQ-DW1) is ruled, and [OQ-DW2](#OQ-DW2) was decided as an implementation choice ([DW-D1](#DW-D1)), matching what the repository build already did. The site serves at `docs.yolo-jail.mschulkind.dev` (probed 2026-09-30: HTTP 200, a Vantage static export), so the dashboard connection and the custom domain are in place. Owed: [§4](#4-done-looks-like)'s last condition is not met yet, since that `rg` still prints lines (2026-09-30), one of them in `packs/claude`. Vantage claims were checked against `mschulkind-oss/vantage` at `4b2ccbc` and against the live sites on 2026-09-25; the original yolo-jail measurement was at `7e529260`.
 
 > **In short.** The user guide becomes a published site by copying Vantage's setup whole: a
 > `userguide/` tree, one build script, one static-assets Worker and a dashboard-configured Cloudflare
@@ -32,7 +32,7 @@ are repointed, and about 50 distinct link targets that leave the guide tree are 
 **Start at [§2.2](#22-the-closed-tree-rule).** That rule is the only design decision that isn't a
 copy of Vantage's.
 
-**Needs your ruling:** [OQ-DW2](#OQ-DW2); its leaning was used for the repository build.
+**Needs your ruling:** nothing. [OQ-DW2](#OQ-DW2) (which reference pages cross into the guide) was decided as an implementation choice, [DW-D1](#DW-D1).
 
 **Address ruled:** [OQ-DW1](#OQ-DW1) names `docs.yolo-jail.mschulkind.dev`.
 
@@ -245,7 +245,7 @@ needs no build.
    **Answer (maintainer, 2026-09-25):**
    > `docs.yolo-jail.mschulkind.dev`. The `workers.dev` address stays enabled; attach the custom domain in the Cloudflare dashboard after connecting Workers Builds.
 
-2. 💬 <a id="OQ-DW2"></a>**[OQ-DW2](#OQ-DW2): Which `docs/reference/` pages cross into the guide?**
+2. ✅ <a id="OQ-DW2"></a>**[OQ-DW2](#OQ-DW2): Which `docs/reference/` pages cross into the guide?**
    The closed-tree rule turns every outbound link into a GitHub URL, which is right for contributor
    material and wrong for a page a learner needs. `settings-per-setup.md` is linked six times from
    the guide and is a per-setup table of what works. The rest (`loophole-protocol.md`,
@@ -256,13 +256,14 @@ needs no build.
    _Leaning:_ **(a)**. It is the only one written for someone choosing a setup rather than changing
    the code. The `AGENTS.md` authority table follows it to its new path.
 
-   <!-- vantage: oq id=OQ-DW2 leaning="(a): move settings-per-setup.md into userguide/reference/ and leave the rest on GitHub; it is the only one written for someone choosing a setup rather than changing the code." -->
-
    **Answer:**
-   > _(empty — fill in when decided)_
+   > Decided as an implementation choice ([DW-D1](#DW-D1)), reversible: **(a)**. `settings-per-setup.md`
+   > lives in the guide as `userguide/reference/settings-per-setup.md`, where the build already put it, and
+   > every other reference page stays on GitHub behind an absolute link.
 
 ## Decision Ledger
 
 | ID | Ruling | Date |
 | :--- | :--- | :--- |
 | OQ-DW1 | The published address is `docs.yolo-jail.mschulkind.dev`; attach it in the dashboard while retaining `workers.dev`. | 2026-09-25 |
+| <a id="DW-D1"></a>DW-D1 | *Implementation decision, [OQ-DW2](#OQ-DW2).* **(a): `settings-per-setup.md` crosses into the guide, and no other reference page does.** It is the one page the guide links that is written for a reader choosing a setup, which is what the maintainer called the guide in their 2026-09-23 review of that page: *"this is for a user learning about yolo, not me as a developer"*. The other pages the guide links (`loophole-protocol.md`, `mcp-configuration.md`, `config-safety.md`, …) explain the machinery, and the guide keeps per-mechanism detail in `docs/reference/` ([§2.1](#21-layout)). Moving nothing would send a learner to GitHub for the table of what works in their setup. The repository build already made this move; this row makes it settled rather than provisional. Reversible: moving another page later is a `git mv` and its links, with the closed-tree check ([§2.2](#22-the-closed-tree-rule), `scripts/check-userguide-closed-tree.py`) refusing any link left pointing outside the guide | 2026-09-30 |
