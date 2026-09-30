@@ -93,6 +93,7 @@ they are rendered into a jail.
 | Config surfaces, the layer fold, the four modes | `internal/agentcfg` (`manifest.Surface`, `Compose`, `ManifestWith`) |
 | `config-overlay` fold and the `profile` gate | `internal/packoverlay` |
 | `config-list` entries: the fold, per-entry capture, the `rmw` insert record | `internal/agentcfg` (`listcontrib.go`, `ListCaptureRefusal`), `internal/entrypoint` (`applyRMWLayers`) |
+| `models` contributions: the add-then-only pass, the `models_only` mark, the check notes | `internal/packdecl` (`models.go`), `internal/packload` (`modellists.go`, called by `ComposeProviders`) |
 | The managed floor — the compose pipeline's last step | `internal/agentcfg` (`enforceManaged`, `enforceManagedTOML`) |
 | The Lua sandbox: `yolo.derive` / `yolo.env` | `internal/agentcfg/luahook` (`GopherLuaVM`, `DeriveCtx`) |
 | Which contribution governs each prose and skills source | `internal/packload` (`GovernedSources`) |
@@ -469,7 +470,7 @@ the semantic axis, and it is short:
 | **Shared** | many independent claimants are the ordinary case | `requires` · `reads-host` · `mount` |
 | **Merge** | many inputs into one target is the feature | `skills` · `env` (a key claimed twice collides) |
 | **Concat** | ordered concatenation | `briefing` |
-| **Overlay** | ordered after the target's owner, never a collision | `config-overlay` (later wins, per-key provenance) · [`config-list`](#adding-entries-to-an-array-config-list) (entries appended, first occurrence wins) |
+| **Overlay** | ordered after the target's owner, never a collision | `config-overlay` (later wins, per-key provenance) · [`config-list`](#adding-entries-to-an-array-config-list) (entries appended, first occurrence wins) · `models` (a provider's model list: every `add` appended, then every `only` intersected, the user's own `providers.<name>.models` last; [providers.md](providers.md#model-lists-shaped-by-packs)) |
 | **Scoped** | the same subtree at two scopes is an error | `state` |
 | **PerHook** | per hook name | `hook` |
 

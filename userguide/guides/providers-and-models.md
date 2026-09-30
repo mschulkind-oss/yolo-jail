@@ -262,6 +262,52 @@ Provider addresses, `profiles` and `profile` are read from your user config only
 `yolo-jail.jsonc` cannot set them, because an agent that can edit its project could otherwise send
 its requests to a server you did not choose. `yolo config-ref` documents every provider field.
 
+## Model menus, and a company's model list
+
+When Claude Code reaches a provider through yolo (z.ai, OpenRouter, Kilo, Cerebras, llama.cpp,
+your ChatGPT subscription, or one of your own), its model menu lists that provider's models
+instead of Opus, Sonnet and Haiku, and those three, Fable too, all point at the provider's models.
+A model you pick with `/model` stays picked at the next launch on your ChatGPT subscription and on
+a list a pack narrowed with `only` (below); on the other providers Claude Code still starts on the
+provider's default model each time.
+
+A pack can shape a provider's model list, even one another pack ships. That lets a company hand
+its people one list of the models it has approved, instead of everyone copying the list into
+their own config. `add` puts models on the list, and `only` keeps just the ones it names:
+
+```jsonc
+// in the company pack's pack.json
+"contributes": [
+  { "kind": "models", "provider": "openrouter", "add": [
+      { "id": "~anthropic/claude-sonnet-latest", "vendor": "anthropic",
+        "name": "Claude Sonnet", "description": "Balanced" } ] },
+  { "kind": "models", "provider": "zai", "only": ["glm-5.3", "glm-5.3-flash"] }
+]
+```
+
+With an `only`, each agent's menu for that provider shows the list and nothing else, where the
+agent allows it:
+
+| Agent | What it shows under an `only` | Other models |
+|---|---|---|
+| Claude Code | exactly the list (on its own Bedrock client, the list's Claude models), below its Default row | refused |
+| opencode | exactly the list | refused |
+| pi | exactly the list | a model typed with `--model` still runs, with a warning |
+| oh-omp | exactly the list | a model typed with `--model` still runs |
+| Codex, Copilot | the agent's usual menu, starting on the list's default model | not refused yet; a narrowed menu is planned |
+
+To keep the menus but stop the refusals, set `"enforce_models": false` on the profile:
+`"profiles": {"zai-open": {"provider": "zai", "enforce_models": false}}`. opencode then shows its
+full menu again, because it cannot narrow a menu without refusing.
+
+To have Claude Code start every session on the profile's model, even after you pick another with
+`/model`, set `"pin_model": "true"` on the profile.
+
+A pack that only adds models, with no `only`, puts them beside the agent's own models, as before.
+Your own `providers.<name>.models` always has the last word: a model you add or remove there
+applies after every pack's list. `yolo check` names a model a pack adds twice, an `only` that names
+a model nothing added, and a list for a provider nothing declares.
+
 ## After a change
 
 Run `yolo check` after editing your config. A new key or a new `-p` choice reaches a running jail

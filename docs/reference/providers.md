@@ -212,6 +212,14 @@ therefore a user `providers` entry that overrides nothing. The table stays flat 
 provider — and where one key serves several wire shapes the shape axis lives inside the entry
 as `endpoints.<protocol>` ([OQ-2](#pv-oq-2)).
 
+Between the packs' providers and the user's entries, the **models pass** applies every selected
+pack's `kind: "models"` contribution: each `add` appends model entries to the list of the
+provider it names, in pack order, and then each `only` keeps just the ids it names, the `only`s
+intersecting. A narrowed entry carries `models_only: true`, the composed fact each agent's derive
+renders an exact menu from ([Model lists shaped by packs](#model-lists-shaped-by-packs)). The
+user's own `providers.<name>.models` then composes over the result per alias, so your config has
+the last word ([MM-D11](../design/model-lists-and-pickers.md#MM-D11)).
+
 Last, over the finished table, the **adapter pass** fills in an endpoint for a protocol a
 provider does not serve but a selected adapter converts to — below the user layer, so an address
 the user wrote always wins ([`protocol-resolution.md`](protocol-resolution.md)).
@@ -1012,8 +1020,12 @@ The subscription's models are declared once, on the `openai-codex` provider the 
 pack ships, and every agent that can use the provider renders that one list
 ([ML-D1](../design/model-lists-and-pickers.md#ML-D1)):
 
-- **claude** offers exactly the list in its picker and allows nothing else, and starts on the
-  profile's `model` or the first id;
+- **claude** offers exactly the list in its picker and, while the profile's `enforce_models` is
+  on (the default), allows nothing else. Every tier (opus, sonnet, haiku, fable) is pinned to the
+  profile's `model` or the first id, so claude's Default row and its background requests use a
+  listed model. The start model is pinned only when the profile sets `pin_model: "true"`, since
+  claude returns to a pinned start at every launch, over a model chosen with `/model`
+  ([MM-D3](../design/model-lists-and-pickers.md#MM-D3));
 - **codex** starts on the profile's `model` or the first id;
 - **pi**'s extension registers exactly the list for `openai-codex`, read from a file yolo writes
   at every jail boot, with the cost, thinking and image facts taken from pi's own catalog. pi gets
@@ -1415,6 +1427,49 @@ which a via profile does not change, and no via route carries either of them. At
 (`yolo host`) there is no bridge daemon, so the agent uses its own client. That holds even when `wire-bridge` is listed in `packs`: the
 host clears every via address before any derive reads one
 ([WG-I12](../design/wire-bridge-gateway.md#WG-I12)).
+
+### Model lists shaped by packs
+
+A pack can shape the model list of any provider, one another pack ships included, with a
+`kind: "models"` contribution (`yolo config-ref` has the fields;
+[OQ-BR12](../design/model-lists-and-pickers.md#OQ-BR12)). It takes one verb: `add` appends model
+entries, each naming its maker as `vendor`, or `only` keeps just the ids it names. A company
+ships its model policy this way once, instead of every engineer copying a list into their own
+config:
+
+```jsonc
+{ "kind": "models", "provider": "bedrock", "add": [
+    { "id": "global.anthropic.claude-opus-5-5", "vendor": "anthropic", "name": "Claude Opus 5.5" },
+    { "id": "global.moonshot.kimi-k3", "vendor": "moonshot", "name": "Kimi K3" } ] },
+{ "kind": "models", "provider": "bedrock", "only": [
+    "global.anthropic.claude-opus-5-5", "global.moonshot.kimi-k3" ] }
+```
+
+A list an `only` narrowed is each agent's exact menu for that provider wherever the agent allows
+one ([§14.1](../design/model-lists-and-pickers.md#141-the-table)): claude's `modelPicker` (on its
+own Bedrock client, the list's Anthropic models), an extension registration in pi, a `whitelist`
+in opencode and an `enabledModels` scope in oh-omp. codex and copilot start on the list's default
+entry: the profile's `model` when the list holds it, else the `default` alias, else the first
+entry. A list a pack only ADDS to keeps today's rendering beside the agent's own catalog; what it
+should show instead is an open question ([OQ-MM1](../design/model-lists-and-pickers.md#OQ-MM1)).
+
+**`enforce_models`** is a profile field, like `via`, that decides whether a narrowed list also
+REFUSES other models. It defaults to on: claude's allowlist (`availableModels` with
+`enforceAvailableModels`) and opencode's whitelist then turn away a model outside the list. Off
+(`"enforce_models": false`), the list only shapes the menus, and opencode's menu is not narrowed at
+all, since its whitelist cannot hide without refusing. On `openai-codex` the switch governs
+claude's allowlist too. On claude's own Bedrock client the refusal is claude's alone, client side,
+with [the four gaps](../design/model-lists-and-pickers.md#142-what-each-row-rests-on) that come
+with it, so a repository's `.claude/settings.json` can widen or switch it off. pi and oh-omp do
+not refuse yet: `--model` still runs an unlisted id.
+
+**`pin_model`** is a profile option (`"pin_model": "true"`) asking claude to START every session
+on the profile's model. Where claude's allowlist renders it is off by default, since the
+allowlist already replaces an off-list saved model with Default, and a pinned start overrides a
+model chosen with `/model` at every launch
+([MM-D3](../design/model-lists-and-pickers.md#MM-D3)). Elsewhere today's start pin stays until
+[OQ-MM3](../design/model-lists-and-pickers.md#OQ-MM3) is ruled. The shipped providers that declare
+options declare `pin_model` too, so a profile over them may set it.
 
 ### The `profile` modifier
 
