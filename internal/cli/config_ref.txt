@@ -928,6 +928,8 @@
     gets the usual system folders ahead of them.
     Nothing else is added: yolo guesses no folder of its own, and runs no mise
     command.  To reach mise's tools from every launcher, list its shims folder.
+    It does not reach the container runtime yolo boots jails with, `yolo capture`
+    included: that is still found on the PATH yolo was started with.
     WHEN SOMETHING IS MISSING, yolo prints one line naming the program, the pack
     that needs it, the whole PATH it searched with this key's part marked, and
     this key as the fix, naming a common folder such as ~/.cargo/bin when one of

@@ -73,7 +73,9 @@ var newHostFloor = func(out io.Writer, progs []hostfloor.Program) *hostfloor.Flo
 		// A capture boots a jail, so a machine whose runtime is not installed cannot make one —
 		// and an installer program with no capture in the store then has no floor entry here,
 		// rather than an install bound to fail. The capture act itself finds the runtime on PATH,
-		// so this asks the same question it will.
+		// so this asks the same question it will: the AMBIENT PATH, never `host_path`, since the
+		// capture boots a jail and a jail launch finds its runtime on the PATH it was started with
+		// (host-launch-environment.md §3, "Exempt, by name").
 		CaptureUnavailable: func() string {
 			rt := captureRuntime()
 			if _, err := exec.LookPath(rt); err != nil {
