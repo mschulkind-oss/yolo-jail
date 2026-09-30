@@ -1694,8 +1694,8 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 
 	// onStarted releases the lock once the container is visible, on its own goroutine; it is
 	// handed the MAIN PROCESS'S client, whose exit Window A measures. onTerminate is the
-	// Ctrl-C/window-close/SIGTERM teardown, run by the launch's signal arm until the first
-	// session's exec takes the terminal and by the TTY proxy's arm while it has it.
+	// Ctrl-C/window-close/SIGTERM teardown, run by the launch's signal arm, the one arm of the
+	// whole child window (jailmain.go's launchSignalArm).
 	var jm *jailMain
 	onStarted := func(proc *os.Process) {
 		// The launch's fate is known: its runtime is spawned (launchrecord.go). First, before
@@ -1765,10 +1765,11 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 		if jm != nil {
 			_ = jm.cmd.Process.Kill()
 		}
-		// The embedded pack tree is released AFTER this closure, by runWithProxy itself
-		// (proxy_linux.go) and by the launch's own arm (armLaunchSignals): the proxy's other
-		// callers pass no onTerminate at all, so one release there covers every arm, still
-		// after everything above.
+		// The embedded pack tree is released AFTER this closure, by the launch's own arm
+		// (launchSignalArm.terminate), as runWithProxy releases it for the proxy's other
+		// callers (proxy_linux.go), which pass no onTerminate at all: still after everything
+		// above. The first session's exec client is the arm's to kill too, through the handle
+		// its proxy gave it.
 	}
 
 	// Fresh-launch line (with resource parts) to stderr for log capture (audit
@@ -1815,10 +1816,12 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 	// running with nobody counted in it.
 	o.holdSessionLock(cname)
 
-	// THE LAUNCH'S SIGNAL ARM, from before the main process starts until the first session's
-	// exec hands it to the proxy's (jailmain.go). Before, not after: the proxy used to arm at
-	// the container's spawn, and a Ctrl-C during the boot must still end the jail it started.
-	arm := armLaunchSignals(onTerminate, proxyInstallsSignalArm(o))
+	// THE LAUNCH'S SIGNAL ARM, the one arm of the whole child window (jailmain.go): from before
+	// the main process starts, through the first session's exec, whose proxy installs none of
+	// its own, until the main process's client has exited. Before, not after: the proxy used to
+	// arm at the container's spawn, and a Ctrl-C during the boot must still end the jail it
+	// started.
+	arm := armLaunchSignals(onTerminate)
 
 	// The whole child window — the main process's spawn, its boot, the first session, and
 	// podman's own post-exit cleanup — under one span, with the proxy's internal transitions
@@ -1861,10 +1864,9 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 	// its status is the launch's instead, as the container's always was.
 	var rc int
 	if jm.awaitReady() {
-		arm.handOff()
 		var execErr error
-		rc, execErr = runWithProxy(firstExec, nil, onTerminate, o)
-		if !arm.disarm() {
+		rc, execErr = runFirstSession(firstExec, arm, o)
+		if !arm.detach() {
 			select {} // the signal arm is ending this launch; never race it
 		}
 		if execErr != nil {
@@ -1873,14 +1875,16 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 			rc = 1
 		}
 		// The jail ends with this session, as it always has: the main process follows it out,
-		// and the launcher stops it only when it did not (awaitJailMainEnd).
+		// and the launcher stops it only when it did not (awaitJailMainEnd). The arm is still
+		// live: this is Window A, the main process's client lingering, and a hangup or a
+		// `kill %1` here must still run the teardown.
 		o.awaitJailMainEnd(jm, cname, rt)
 	} else {
-		if !arm.disarm() {
-			select {} // the signal arm is ending this launch; never race it
-		}
 		<-jm.exited
 		rc = jm.exitCode
+	}
+	if !arm.disarm() {
+		select {} // the signal arm is ending this launch; never race it
 	}
 	sp.End()
 

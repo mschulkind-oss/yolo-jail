@@ -33,18 +33,29 @@ import (
 // mode, read through the master, so it can say whether a forwarded ^C reached
 // podman as data or as a signal.
 func runWithProxy(cmd []string, onStarted func(*os.Process), onTerminate func(), o *Options) (int, error) {
-	obs := ttyproxy.Observer{
+	return ttyproxy.RunWithProxyObserved(cmd, onStarted, withEmbeddedRelease(onTerminate), proxyObserver(o))
+}
+
+// proxyObserver is the Observer every proxied run of a launch shares: the `child.*` marks, the
+// forwarded-input sizes and the pty mode.
+func proxyObserver(o *Options) ttyproxy.Observer {
+	return ttyproxy.Observer{
 		Stage: func(stage string) { o.Perf.Mark("child." + stage) },
 		Input: o.noteForwardedInput,
 		Pty:   o.linger.setPtyMode,
 	}
-	return ttyproxy.RunWithProxyObserved(cmd, onStarted, withEmbeddedRelease(onTerminate), obs)
 }
 
-// proxyInstallsSignalArm reports whether runWithProxy will install its own signal arm: the
-// TTY proxy does on a terminal, and its plain path does not. The fresh launch's own arm steps
-// aside for it exactly then (launchSignalArm.handOff), and covers every other case itself.
-func proxyInstallsSignalArm(o *Options) bool { return o.IsTTYStdin() }
+// runFirstSession runs a fresh launch's first session under the TTY proxy with NO ARM OF THE
+// PROXY'S OWN: the launch's arm, installed before the main process started and kept until its
+// client has exited, is the one arm for the whole child window, and the proxy hands it the
+// Handle it needs to put the terminal back and end the exec client (launchSignalArm.attach).
+// Two arms handing a signal between them each lost one in the gap.
+func runFirstSession(cmd []string, arm *launchSignalArm, o *Options) (int, error) {
+	obs := proxyObserver(o)
+	obs.Arm = func(h ttyproxy.Handle) { arm.attach(h) }
+	return ttyproxy.RunWithProxyObserved(cmd, nil, nil, obs)
+}
 
 // terminateRelease is what the signal arm calls last. A variable only so the control half of
 // TestSignalArmReleasesTheFallbackTree can prove the release is what removes the tree.

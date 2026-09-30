@@ -17,10 +17,6 @@ import (
 // The Options param mirrors the Linux half's stage-hook seam; this fallback
 // has only spawn and child-exit to mark, and a nil collector's Mark is a
 // no-op, so the marks are unconditional here too.
-// proxyInstallsSignalArm is false here: this fallback installs none, so the fresh launch's own
-// arm (launchSignalArm) stays armed through the first session's exec.
-func proxyInstallsSignalArm(*Options) bool { return false }
-
 func runWithProxy(cmd []string, onStarted func(*os.Process), onTerminate func(), o *Options) (int, error) {
 	_ = onTerminate
 	c := exec.Command(cmd[0], cmd[1:]...)
@@ -44,3 +40,27 @@ func runWithProxy(cmd []string, onStarted func(*os.Process), onTerminate func(),
 	}
 	return 1, nil
 }
+
+// runFirstSession is the fallback's first session: the same plain foreground exec, with the
+// launch's own arm (launchSignalArm) handed the client so its teardown ends it at its pid.
+// There is no terminal to put back here: the runtime's own client sets its tty modes.
+func runFirstSession(cmd []string, arm *launchSignalArm, o *Options) (int, error) {
+	c := exec.Command(cmd[0], cmd[1:]...)
+	c.Stdin, c.Stdout, c.Stderr = os.Stdin, os.Stdout, os.Stderr
+	if err := c.Start(); err != nil {
+		return 0, err
+	}
+	o.Perf.Mark("child.spawned")
+	arm.attach(plainSessionHandle{c})
+	err := c.Wait()
+	o.Perf.Mark("child.exited")
+	return exitCodeOf(err), nil
+}
+
+// plainSessionHandle is the fallback's sessionHandle: nothing to restore, and the client to
+// kill.
+type plainSessionHandle struct{ c *exec.Cmd }
+
+func (plainSessionHandle) Terminate() bool { return true }
+
+func (h plainSessionHandle) Kill() { _ = h.c.Process.Kill() }

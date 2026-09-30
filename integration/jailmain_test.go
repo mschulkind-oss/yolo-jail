@@ -147,6 +147,41 @@ func TestAnOrphanSweepSparesAJailWithASessionInIt(t *testing.T) {
 	}
 }
 
+// TestAHangupWhileTheMainProcessLingersStillEndsTheJail: once the first session's exec has
+// returned, the launcher still waits for the main process's client: its lingering exit (Window
+// A), or the grace before it stops a hold that did not follow. A hangup there, from a closed
+// tab or a `kill %1`, must still run the launch's teardown, as it did while the proxy held the
+// container's own client: the launcher exits 128+SIGHUP and leaves no container behind. The
+// session freezes the hold, so the main process cannot follow it out and the launcher is still
+// in its grace when the signal lands.
+func TestAHangupWhileTheMainProcessLingersStillEndsTheJail(t *testing.T) {
+	requireJail(t)
+	dir := writeProject(t, `{}`)
+	cname := naming.FromWorkspace(dir)
+
+	first := startYoloBackground(t, "first", dir, `pat="--yolo-""hold-main"; `+
+		`for p in /proc/[0-9]*; do c=$(tr '\0' ' ' < "$p/cmdline" 2>/dev/null); `+
+		`case "$c" in *"$pat"*) kill -STOP "${p#/proc/}" && echo "FROZE-$((40+2))";; esac; done`)
+	awaitOutput(t, first, regexp.MustCompile(`FROZE-42`))
+	// The session has returned; the launcher waits out its grace on a hold that cannot follow.
+	time.Sleep(2 * time.Second)
+	if n := runningContainers(t, cname); n != 1 {
+		t.Fatalf("the jail is not running while its launcher waits on the main process (%d containers):\n%s",
+			n, first.combined())
+	}
+
+	if err := syscall.Kill(first.pid, syscall.SIGHUP); err != nil {
+		t.Fatalf("hanging up the launcher: %v", err)
+	}
+	if rc := first.wait(t, jailTimeout()); rc != 128+int(syscall.SIGHUP) {
+		t.Errorf("the hung-up launcher returned %d, want %d from its teardown:\n%s",
+			rc, 128+int(syscall.SIGHUP), first.combined())
+	}
+	if n := runningContainers(t, cname); n != 0 {
+		t.Errorf("%d containers named %s remain after the hung-up launcher's teardown", n, cname)
+	}
+}
+
 // writeRelease writes a release file a background session's script is polling for.
 func writeRelease(t *testing.T, dir, name string) {
 	t.Helper()

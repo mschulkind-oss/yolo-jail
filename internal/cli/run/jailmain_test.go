@@ -5,6 +5,7 @@ import (
 	"go/ast"
 	"go/token"
 	"os"
+	"os/signal"
 	"strings"
 	"sync"
 	"syscall"
@@ -192,58 +193,145 @@ func TestTheJailEndsWithTheFirstSessionEvenWhenTheHoldDoesNotFollow(t *testing.T
 	}
 }
 
-// TestTheLaunchSignalArmTearsDownAndStepsAsideForTheProxy drives the arm with real signals to
-// this process: armed, a SIGHUP runs the teardown and exits 128+1; handed off to a proxy that
-// arms itself, it does nothing; and once it has begun, disarm says so, so the launch's own
-// goroutine leaves the rest to it.
-func TestTheLaunchSignalArmTearsDownAndStepsAsideForTheProxy(t *testing.T) {
-	// Handed off: nothing runs, and disarm is clean.
-	quiet := armLaunchSignalsWith(func() { t.Error("a handed-off arm ran the teardown") }, true,
-		func(int) { t.Error("a handed-off arm exited") })
-	quiet.handOff()
-	if err := syscall.Kill(os.Getpid(), syscall.SIGHUP); err != nil {
-		t.Fatal(err)
-	}
-	time.Sleep(100 * time.Millisecond)
-	if !quiet.disarm() {
-		t.Error("disarm of an arm that never fired reported a teardown under way")
-	}
+// fakeSessionHandle records what the arm asks of the first session's run, in order.
+type fakeSessionHandle struct {
+	mu    sync.Mutex
+	calls []string
+}
 
-	// Armed: the teardown, then the exit, with 128+SIGHUP.
-	tore := make(chan struct{})
+func (h *fakeSessionHandle) Terminate() bool { h.record("terminate"); return true }
+func (h *fakeSessionHandle) Kill()           { h.record("kill") }
+
+func (h *fakeSessionHandle) record(c string) {
+	h.mu.Lock()
+	h.calls = append(h.calls, c)
+	h.mu.Unlock()
+}
+
+func (h *fakeSessionHandle) seen() string {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return strings.Join(h.calls, ",")
+}
+
+// armAndHangUp installs an arm around onTerminate, lets setup attach to it, sends this process
+// a SIGHUP, and returns the exit code the arm chose.
+func armAndHangUp(t *testing.T, onTerminate func(), setup func(*launchSignalArm)) (*launchSignalArm, int) {
+	t.Helper()
 	codes := make(chan int, 1)
-	armed := armLaunchSignalsWith(func() { close(tore) }, false, func(code int) { codes <- code })
-	// A proxy that does not arm (no terminal) leaves this one armed after handOff.
-	armed.handOff()
+	arm := armLaunchSignalsWith(onTerminate, func(code int) { codes <- code })
+	if setup != nil {
+		setup(arm)
+	}
 	if err := syscall.Kill(os.Getpid(), syscall.SIGHUP); err != nil {
 		t.Fatal(err)
 	}
 	select {
 	case code := <-codes:
-		if code != 128+int(syscall.SIGHUP) {
-			t.Errorf("exit %d, want %d", code, 128+int(syscall.SIGHUP))
-		}
+		return arm, code
 	case <-time.After(5 * time.Second):
-		t.Fatal("the armed arm did not exit on SIGHUP")
+		t.Fatal("the arm did not exit on SIGHUP")
+		return arm, 0
 	}
-	select {
-	case <-tore:
-	default:
-		t.Error("the arm exited without running the teardown")
+}
+
+// TestTheLaunchSignalArmTearsDownThroughTheFirstSessionsHandle drives the arm with a real
+// SIGHUP while a first session's run is attached: the terminal goes back first (the handle's
+// Terminate), then the launch's teardown, then the exec client (Kill), then the exit with
+// 128+SIGHUP; the arm leaves SIGTTOU ignored, so a teardown from the background is not stopped
+// by its own writes; and afterwards neither detach nor disarm lets the launch's goroutine run a
+// second teardown.
+func TestTheLaunchSignalArmTearsDownThroughTheFirstSessionsHandle(t *testing.T) {
+	h := &fakeSessionHandle{}
+	arm, code := armAndHangUp(t, func() { h.record("onTerminate") }, func(a *launchSignalArm) { a.attach(h) })
+	if code != 128+int(syscall.SIGHUP) {
+		t.Errorf("exit %d, want %d", code, 128+int(syscall.SIGHUP))
 	}
-	if armed.disarm() {
+	if got := h.seen(); got != "terminate,onTerminate,kill" {
+		t.Errorf("the arm ran %q, want the terminal back, then the teardown, then the client killed", got)
+	}
+	if !signal.Ignored(syscall.SIGTTOU) {
+		t.Error("the arm's teardown left SIGTTOU at its default, which stops a teardown run from the background")
+	}
+	if arm.detach() {
+		t.Error("detach after the arm began the teardown must report it, so the launch does not race it")
+	}
+	if arm.disarm() {
 		t.Error("disarm after the arm began the teardown must report it, so the launch does not run it twice")
 	}
+}
+
+// TestTheLaunchSignalArmStaysArmedOnceTheFirstSessionReturns is the stretch the first
+// session's return leaves: the main process's client lingering (Window A) or the launcher's
+// grace before it stops a hold that did not follow. The arm must still run the teardown there,
+// and it must leave the detached session's client alone.
+func TestTheLaunchSignalArmStaysArmedOnceTheFirstSessionReturns(t *testing.T) {
+	h := &fakeSessionHandle{}
+	tore := false
+	_, code := armAndHangUp(t, func() { tore = true }, func(a *launchSignalArm) {
+		a.attach(h)
+		if !a.detach() {
+			t.Error("detach of an arm that never fired reported a teardown under way")
+		}
+	})
+	if code != 128+int(syscall.SIGHUP) || !tore {
+		t.Errorf("after the first session returned, a SIGHUP exited %d with teardown=%v; want %d with it",
+			code, tore, 128+int(syscall.SIGHUP))
+	}
+	if got := h.seen(); got != "" {
+		t.Errorf("the arm acted on a detached session's client: %q", got)
+	}
+}
+
+// TestAFirstSessionThatAttachesDuringATeardownIsTerminated: a signal that lands after the main
+// process's boot but before the first session's proxy hands over its handle finds no handle;
+// the handle that arrives mid-teardown is terminated at once (its raw terminal put back, its
+// return blocked) and its client killed at the end.
+func TestAFirstSessionThatAttachesDuringATeardownIsTerminated(t *testing.T) {
+	h := &fakeSessionHandle{}
+	var arm *launchSignalArm
+	_, code := armAndHangUp(t, func() {
+		arm.attach(h)
+		h.record("onTerminate done")
+	}, func(a *launchSignalArm) { arm = a })
+	if code != 128+int(syscall.SIGHUP) {
+		t.Errorf("exit %d, want %d", code, 128+int(syscall.SIGHUP))
+	}
+	if got := h.seen(); got != "terminate,onTerminate done,kill" {
+		t.Errorf("a handle attached mid-teardown saw %q, want it terminated on arrival and killed at the end", got)
+	}
+}
+
+// TestADisarmedLaunchSignalArmDoesNothing: once the main process's client has exited and the
+// launch disarms, the normal teardown owns the rest and a signal no longer reaches the arm.
+func TestADisarmedLaunchSignalArmDoesNothing(t *testing.T) {
+	quiet := armLaunchSignalsWith(func() { t.Error("a disarmed arm ran the teardown") },
+		func(int) { t.Error("a disarmed arm exited") })
+	if !quiet.disarm() {
+		t.Error("disarm of an arm that never fired reported a teardown under way")
+	}
+	// Something must still catch the signal for the test binary to survive it.
+	catch := make(chan os.Signal, 1)
+	signal.Notify(catch, syscall.SIGHUP)
+	defer signal.Stop(catch)
+	if err := syscall.Kill(os.Getpid(), syscall.SIGHUP); err != nil {
+		t.Fatal(err)
+	}
+	<-catch
+	time.Sleep(100 * time.Millisecond)
 }
 
 // TestTheFreshLaunchRunsTheJailAsAHoldAndItsFirstSessionByExec pins runContainer's call sites,
 // which no unit test can drive (they start a real container): the main process's argv ends in
 // the hold form carrying this launch's stage; the session lock and the signal arm are taken
-// before the main process starts; the first session is the proxy's child and its command is
-// sessionCmd's; the jail's end is awaited before the teardown. Deleting any of them fails here.
+// before the main process starts; the first session is the first-session run, handed the arm,
+// and its command is sessionCmd's; the arm stays armed from the first session's return through
+// the main process's end, and is disarmed after it and before the teardown. Deleting any of
+// them fails here.
 func TestTheFreshLaunchRunsTheJailAsAHoldAndItsFirstSessionByExec(t *testing.T) {
 	fd := funcDecl(t, "run.go", "runContainer")
 	pos := map[string]token.Pos{}
+	var disarms []token.Pos
 	firstPos := func(name string, p token.Pos) {
 		if _, seen := pos[name]; !seen {
 			pos[name] = p
@@ -260,13 +348,21 @@ func TestTheFreshLaunchRunsTheJailAsAHoldAndItsFirstSessionByExec(t *testing.T) 
 		name := skelCallee(call)
 		switch name {
 		case "provisionStage", "sessionCmd", "firstSessionExecCmd", "holdSessionLock",
-			"armLaunchSignals", "startJailMain", "awaitReady", "handOff", "runWithProxy",
+			"armLaunchSignals", "startJailMain", "awaitReady", "runFirstSession", "detach",
 			"awaitJailMainEnd", "teardownAfterExit":
 			firstPos(name, call.Pos())
+		case "disarm":
+			disarms = append(disarms, call.Pos())
+		case "runWithProxy":
+			t.Error("the fresh launch runs a proxy with an arm of its own; its first session must be " +
+				"runFirstSession's, under the launch's one arm")
 		}
-		if name == "runWithProxy" && len(call.Args) > 0 {
-			if id, ok := call.Args[0].(*ast.Ident); !ok || id.Name != "firstExec" {
-				t.Errorf("the fresh launch's proxy runs %v, want the first session's exec (firstExec)", call.Args[0])
+		if name == "runFirstSession" && len(call.Args) > 1 {
+			if skelIdent(call.Args[0]) != "firstExec" {
+				t.Errorf("the fresh launch's first session runs %v, want the first session's exec (firstExec)", call.Args[0])
+			}
+			if skelIdent(call.Args[1]) != "arm" {
+				t.Errorf("the first session is handed %v, want the launch's signal arm", call.Args[1])
 			}
 		}
 		if name == "append" && len(call.Args) == 3 {
@@ -277,8 +373,8 @@ func TestTheFreshLaunchRunsTheJailAsAHoldAndItsFirstSessionByExec(t *testing.T) 
 		return true
 	})
 	order := []string{"append HoldMainArg", "provisionStage", "firstSessionExecCmd", "sessionCmd",
-		"holdSessionLock", "armLaunchSignals", "startJailMain", "awaitReady", "handOff",
-		"runWithProxy", "awaitJailMainEnd", "teardownAfterExit"}
+		"holdSessionLock", "armLaunchSignals", "startJailMain", "awaitReady", "runFirstSession",
+		"detach", "awaitJailMainEnd", "teardownAfterExit"}
 	last := token.NoPos
 	for _, name := range order {
 		p, ok := pos[name]
@@ -290,5 +386,20 @@ func TestTheFreshLaunchRunsTheJailAsAHoldAndItsFirstSessionByExec(t *testing.T) 
 			t.Errorf("%s is out of order in runContainer", name)
 		}
 		last = p
+	}
+	// The arm is live from the first session's return through the main process's end: no
+	// disarm between them, and one after it, before the normal teardown.
+	disarmedAfterTheEnd := false
+	for _, p := range disarms {
+		if p > pos["runFirstSession"] && p < pos["awaitJailMainEnd"] {
+			t.Error("runContainer disarms the signal arm between the first session's return and the " +
+				"main process's end, where a hangup would then kill the launcher with no teardown")
+		}
+		if p > pos["awaitJailMainEnd"] && p < pos["teardownAfterExit"] {
+			disarmedAfterTheEnd = true
+		}
+	}
+	if !disarmedAfterTheEnd {
+		t.Error("runContainer does not disarm the signal arm after the main process's end and before the teardown")
 	}
 }

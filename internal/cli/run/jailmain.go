@@ -20,6 +20,10 @@ package run
 //     client to exit, stopping the jail itself only when it did not (awaitJailMainEnd). Then
 //     today's teardown chain, unchanged.
 //
+// ONE SIGNAL ARM covers all three, the launch's own (launchSignalArm): the proxy installs none
+// for the first session and hands the arm its Handle instead, so no signal falls between two
+// arms, and a hangup while the main process's client lingers still runs the teardown.
+//
 // WHAT A USER SEES DOES NOT CHANGE, by design: this launch still owns the jail's host services
 // and still ends the jail with its own session. What changes underneath is that no session is
 // the container's main process any more, which is what the design's keeper needs to let the
@@ -259,7 +263,9 @@ var jailMainEndGrace = 10 * time.Second
 // within jailMainEndGrace and the container is still running — an exec client that died while
 // its session ran on, or a first session that never registered — the launcher stops it. Then
 // it waits for the client, as the proxy used to wait for it: the client's lingering exit after
-// its container is gone is Window A, and it is measured, not cut short.
+// its container is gone is Window A, and it is measured, not cut short. The launch's signal
+// arm stays live throughout, so a hangup or a `kill %1` in that stretch still runs the
+// teardown.
 func (o *Options) awaitJailMainEnd(m *jailMain, cname, rt string) {
 	select {
 	case <-m.exited:
@@ -272,54 +278,55 @@ func (o *Options) awaitJailMainEnd(m *jailMain, cname, rt string) {
 	<-m.exited
 }
 
-// launchSignalArm is the fresh launch's signal arm for the stretch the TTY proxy does not
-// cover: from the main process's start until the first session's exec takes the terminal, and
-// through that exec when stdin is no terminal (the proxy's plain path installs no arm). A
-// SIGINT, SIGHUP or SIGTERM runs the launch's own teardown (onTerminate, then the embedded
-// pack tree's release, as the proxy's arm does) and exits 128+N, which is what the proxy's arm
-// did when it held the terminal from the container's start.
+// sessionHandle is the first session's runtime client's half of the launch arm's teardown:
+// the TTY proxy's Handle on Linux (ttyproxy.Observer.Arm), the plain spawn's elsewhere.
+// Terminate puts the host terminal back and keeps the proxy from returning on its own; Kill
+// ends the client at its pid.
+type sessionHandle interface {
+	Terminate() bool
+	Kill()
+}
+
+// launchSignalArm is the fresh launch's ONE signal arm for its whole child window: from before
+// the main process starts, through the first session's exec, until the main process's client
+// has exited (Window A included), so exactly one arm acts on each signal at every instant. The
+// TTY proxy runs the first session with no arm of its own and hands this one its Handle
+// (attach), through which it restores the terminal first and kills the exec client last. A
+// SIGINT, SIGHUP or SIGTERM runs the launch's own teardown (onTerminate, then the embedded pack
+// tree's release, as the proxy's arm does) and exits 128+N, which is what the proxy's arm did
+// when it held the terminal from the container's start.
 type launchSignalArm struct {
 	mu          sync.Mutex
 	signals     chan os.Signal
 	done        chan struct{}
-	proxyArms   bool
-	deferred    bool // the proxy's own arm has the terminal
+	session     sessionHandle // the first session's, while its run is in progress
 	stopped     bool
 	terminating bool
 }
 
-// armLaunchSignals installs the arm. proxyArms says the proxy will install its own arm when
-// it takes the terminal (a terminal on stdin), so this one steps aside then (handOff).
-func armLaunchSignals(onTerminate func(), proxyArms bool) *launchSignalArm {
-	return armLaunchSignalsWith(onTerminate, proxyArms, os.Exit)
+// armLaunchSignals installs the arm.
+func armLaunchSignals(onTerminate func()) *launchSignalArm {
+	return armLaunchSignalsWith(onTerminate, os.Exit)
 }
 
 // armLaunchSignalsWith is armLaunchSignals with the process exit as a parameter, so a test can
 // drive the arm to its end without ending the test binary.
-func armLaunchSignalsWith(onTerminate func(), proxyArms bool, exit func(int)) *launchSignalArm {
-	a := &launchSignalArm{signals: make(chan os.Signal, 4), done: make(chan struct{}),
-		proxyArms: proxyArms}
+func armLaunchSignalsWith(onTerminate func(), exit func(int)) *launchSignalArm {
+	a := &launchSignalArm{signals: make(chan os.Signal, 4), done: make(chan struct{})}
 	signal.Notify(a.signals, syscall.SIGINT, syscall.SIGHUP, syscall.SIGTERM)
-	terminate := func() {
-		if onTerminate != nil {
-			onTerminate()
-		}
-		// The process's embedded pack tree, which the exit below would otherwise leak, for the
-		// reason the proxy's arm releases it (proxy_linux.go's withEmbeddedRelease).
-		packload.ReleaseEmbedded()
-	}
 	go func() {
 		for {
 			select {
 			case s := <-a.signals:
 				a.mu.Lock()
-				if a.deferred || a.stopped || a.terminating {
+				if a.stopped || a.terminating {
 					a.mu.Unlock()
 					continue
 				}
 				a.terminating = true
+				h := a.session
 				a.mu.Unlock()
-				terminate()
+				a.terminate(h, onTerminate)
 				exit(128 + int(s.(syscall.Signal)))
 				return
 			case <-a.done:
@@ -330,18 +337,61 @@ func armLaunchSignalsWith(onTerminate func(), proxyArms bool, exit func(int)) *l
 	return a
 }
 
-// handOff is called before the proxy takes the terminal: when the proxy installs its own arm,
-// this one lets every signal through to it and does nothing.
-func (a *launchSignalArm) handOff() {
+// terminate is the arm's teardown, in the proxy's order. From the background too: `kill %1`
+// finds a job the user ^Z'd while the main process's client lingered there, and a tty write on
+// the way out would raise SIGTTOU and stop it again, so both job-control signals are ignored
+// first. Then the terminal, when the first session's run holds it, before the teardown prints;
+// then onTerminate; then the exec client, at its pid, read again because a run that started
+// while the teardown ran attaches late (attach); then the embedded pack tree, which the exit
+// would otherwise leak, for the reason the proxy's arm releases it (proxy_linux.go's
+// withEmbeddedRelease).
+func (a *launchSignalArm) terminate(h sessionHandle, onTerminate func()) {
+	signal.Ignore(syscall.SIGTTOU, syscall.SIGTTIN)
+	if h != nil {
+		h.Terminate()
+	}
+	if onTerminate != nil {
+		onTerminate()
+	}
 	a.mu.Lock()
-	defer a.mu.Unlock()
-	if a.proxyArms {
-		a.deferred = true
+	h = a.session
+	a.mu.Unlock()
+	if h != nil {
+		h.Kill()
+	}
+	packload.ReleaseEmbedded()
+}
+
+// attach is the first session's run handing the arm its Handle, once its exec client is
+// started and the terminal is the proxy's. A teardown already under way did not have it, so
+// the Terminate it skipped runs here: the terminal the proxy just made raw goes back, and the
+// proxy's own return stays blocked for the arm's exit.
+func (a *launchSignalArm) attach(h sessionHandle) {
+	a.mu.Lock()
+	a.session = h
+	late := a.terminating
+	a.mu.Unlock()
+	if late {
+		h.Terminate()
 	}
 }
 
+// detach ends the first session's part in the arm once its run has returned. It returns false
+// when the arm has begun the teardown, which then owns the exit: the caller must leave the rest
+// to it rather than race it.
+func (a *launchSignalArm) detach() bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.terminating {
+		return false
+	}
+	a.session = nil
+	return true
+}
+
 // disarm ends the arm, after which a signal has its default effect, as it always had once the
-// proxy returned. It returns false when the arm has already begun the teardown: the caller —
+// proxy returned: the launch calls it once the main process's client has exited, before the
+// normal teardown. It returns false when the arm has already begun the teardown: the caller —
 // the launch's own goroutine, woken because that teardown stopped the jail — must then leave
 // the rest to the arm, which exits the process, rather than run the teardown a second time.
 // Idempotent.
