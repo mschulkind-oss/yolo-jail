@@ -8,10 +8,12 @@ package cli
 
 import (
 	"bytes"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
+	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 )
 
 // setHostCfg selects the shipped claude, pi, zai and openrouter packs and hydrates both
@@ -27,7 +29,9 @@ func TestHostRunsPiOnItsWholeSet(t *testing.T) {
 		t.Errorf("pi on [zai, openrouter] must receive both keys: ZAI=%q OPENROUTER=%q",
 			env["ZAI_API_KEY"], env["OPENROUTER_API_KEY"])
 	}
-	for _, want := range []string{"Active set for pi: zai, openrouter",
+	// Every entry says where it landed, the second as well as the primary (profileLines, over the
+	// whole set), beside the set's own line and each key's disclosure.
+	for _, want := range []string{"Active set for pi: zai, openrouter", "Profile zai:", "Profile openrouter:",
 		"ZAI_API_KEY (provider zai): pi only", "OPENROUTER_API_KEY (provider openrouter): pi only"} {
 		if !strings.Contains(errs, want) {
 			t.Errorf("the launch must say %q:\n%s", want, errs)
@@ -168,6 +172,40 @@ func TestHostAsksTheRegionOfALaterEntry(t *testing.T) {
 		[]string{"-p", "pi=zai,bedrock"}, "pi")
 	if env["AWS_REGION"] != "eu-west-7" {
 		t.Errorf("pi on [zai, bedrock] must receive the provider's region: AWS_REGION = %q\n%s", env["AWS_REGION"], errs)
+	}
+}
+
+// widgetSetPack is a local pack declaring a provider of platform widget-plat pi can reach, a
+// profile over it, and a pointer gated on that platform that WIDGET_TOKEN overrides: aws-auth's
+// shape in made-up names, for a set whose SECOND entry is the gated platform.
+const widgetSetPack = `{"name": "local", "contributes": [
+  {"kind": "provider", "name": "widgetprovider", "platform": "widget-plat",
+   "endpoints": {"openai": {"base_url": "https://widget.example/v1"}}},
+  {"kind": "profile", "name": "widget", "provider": "widgetprovider"},
+  {"kind": "env", "platform": "widget-plat", "vars": {"WIDGET_POINTER": "https://widget.example/creds"},
+   "overridden_by": [{"vars": ["WIDGET_TOKEN"], "because": "the widget client reads WIDGET_TOKEN first"}]}]}`
+
+// A PLATFORM GATE A LATER ENTRY FIRES is checked for an override at the host (AP-P1): pi on
+// [zai, widget] receives the widget-plat pointer, and WIDGET_TOKEN delivered beside it overrides
+// it, so the launch refuses. envOverrideFindings builds its selection over the whole set
+// (SelectionOfSets); read over the primary alone it sees zai, fires no gate, and pi runs.
+func TestHostRefusesAnOverrideOfAPointerALaterEntryGates(t *testing.T) {
+	home := hostGateHome(t, `{"packs": ["pi", "zai"], "env_sources": [`+
+		`{"ZAI_API_KEY": "tok-zai", "WIDGET_TOKEN": "frozen"}]}`, nil)
+	t.Setenv("WIDGET_TOKEN", "")
+	writeFile(t, filepath.Join(home, ".config", "yolo-jail", "local", "pack.json"), widgetSetPack)
+	rc, reached, errw := hostExecRun(t, "pi", "-p", "pi=zai,widget")
+	if rc != 1 || reached {
+		t.Fatalf("pi on [zai, widget] beside WIDGET_TOKEN must refuse: rc=%d reached=%v\n%s", rc, reached, errw)
+	}
+	for _, want := range []string{"WIDGET_TOKEN is delivered by " + packload.FromEnvSources, "WIDGET_POINTER"} {
+		if !strings.Contains(errw, want) {
+			t.Errorf("the refusal must say %q:\n%s", want, errw)
+		}
+	}
+	// The control: pi on zai alone receives no pointer, so nothing is overridden.
+	if rc, reached, errw := hostExecRun(t, "pi", "-p", "pi=zai"); rc != 0 || !reached {
+		t.Fatalf("pi on zai alone must launch: rc=%d\n%s", rc, errw)
 	}
 }
 

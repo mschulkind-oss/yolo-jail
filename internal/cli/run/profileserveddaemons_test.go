@@ -55,6 +55,24 @@ func awsPayloadNames(t *testing.T, packs []*packload.Pack, tune func(*Options)) 
 	return names, stderr.String()
 }
 
+// A LATER ENTRY OF AN ACTIVE SET starts the daemon its platform serves (docs/design/active-
+// provider-sets.md AP-P1): pi on [zai, bedrock] receives aws-auth's pointer for its second entry,
+// so the adapter behind it must join the payload. daemonSelection builds its view over each
+// agent's whole set; over the primary alone it sees zai, and the pointer pi is handed would name
+// an adapter that never started.
+func TestTheAWSAdapterStartsForALaterEntryOfASet(t *testing.T) {
+	packs := []*packload.Pack{officialPack(t, "pi"), officialPack(t, "zai"),
+		officialPack(t, "aws-auth"), officialPack(t, "bedrock")}
+	names, said := awsPayloadNames(t, packs,
+		func(o *Options) { o.UseProfiles = map[string]string{"pi": "zai,bedrock"} })
+	if !names["aws-auth"] {
+		t.Errorf("pi's set holds bedrock second, so the aws-auth adapter must join the payload:\n%s", said)
+	}
+	if strings.Contains(said, "Not started") {
+		t.Errorf("a started adapter was disclosed as not started:\n%s", said)
+	}
+}
+
 // CN7 (b): enabling the loophole no longer starts the adapter; selecting `bedrock` does. The
 // OpenAI refresh adapter, whose pointer codex receives ungated, is not a profile-served daemon
 // and starts either way.

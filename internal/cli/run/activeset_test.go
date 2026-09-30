@@ -213,6 +213,30 @@ func TestAnUndeclaredEntryOfABareListRefusesWithNoSetCapableAgent(t *testing.T) 
 	}
 }
 
+// A PRE-CHANGE JAIL FROZE ONE PROFILE PER CLI, so its launch-time delivery stands in for an attach
+// only when the attach selects exactly that. An attach carrying pi's [zai, openrouter] into a jail
+// frozen at pi=zai does not: openrouter's key and pi's list would never arrive. Through
+// attachContractFor, the attach's own decision; comparing the sets by their primaries alone
+// stands the frozen zai in for the list.
+func TestAFrozenSingleProfileDoesNotStandInForASet(t *testing.T) {
+	home := packHome(t)
+	o := goldenOptions(t.TempDir(), home)
+	o.UseProfiles = map[string]string{"pi": "zai,openrouter"}
+	channel := channelFor(t, o, bareConfig(), setPacks(t), zaiAndRouterKeys())
+	frozenAt := func(use string) []string {
+		return []string{"YOLO_VERSION=0.8.0", `YOLO_PROVIDERS={"zai": {}}`, "YOLO_USE_PROFILES=" + use}
+	}
+	if c := attachContractFor(channel, frozenAt(`{"pi": "zai"}`)); c.standIn {
+		t.Error("a jail frozen at pi=zai must not stand in for an attach selecting pi's [zai, openrouter]")
+	}
+	if c := attachContractFor(channel, frozenAt(`{"pi": ["openrouter", "zai"]}`)); c.standIn {
+		t.Error("a set is ordered: [openrouter, zai] must not stand in for [zai, openrouter]")
+	}
+	if c := attachContractFor(channel, frozenAt(`{"pi": ["zai", "openrouter"]}`)); !c.standIn {
+		t.Error("the same set, entry for entry, is the same selection and must stand in")
+	}
+}
+
 // AP-D12: two entries on ONE REGIONAL PLATFORM refuse, naming both. pi on [bedrock, bedrock-eu]
 // (a second provider of platform aws-bedrock) would read one AWS_REGION and one credential chain
 // for both, and pi binds the platform to its one amazon-bedrock provider. Through the

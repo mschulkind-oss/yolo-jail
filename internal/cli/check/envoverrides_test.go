@@ -507,6 +507,45 @@ func TestSectionPacksWarnsForAnUncertainOverride(t *testing.T) {
 	}
 }
 
+// A PLATFORM GATE FIRES FOR A LATER ENTRY OF AN ACTIVE SET (docs/design/active-provider-sets.md
+// AP-P1), and check predicts it as the launch fires it: someagent holds [plain, anyname], the
+// second on a provider of the gated platform, with the override delivered, so the launch refuses
+// and `check` must FAIL. The check hands the gate every agent's whole set (ScopeInput.Sets);
+// without it the gate sees plain alone and predicts nothing.
+func TestSectionPacksPredictsTheOverrideOfAPlatformGateALaterEntryFires(t *testing.T) {
+	dir := t.TempDir()
+	manifest := `{"name": "widgetpack", "contributes": [
+    {"kind": "program", "bin": "someagent", "via": "npm", "package": "@example/someagent",
+     "protocols": ["openai"], "provider_sets": true},
+    {"kind": "provider", "name": "widgetprovider", "platform": "widget-plat",
+     "endpoints": {"openai": {"base_url": "https://api.example.test/v1"}}},
+    {"kind": "provider", "name": "plainprovider",
+     "endpoints": {"openai": {"base_url": "https://plain.example.test/v1"}}},
+    {"kind": "profile", "name": "anyname", "provider": "widgetprovider"},
+    {"kind": "profile", "name": "plain", "provider": "plainprovider"},
+    {"kind": "env", "platform": "widget-plat",
+     "vars": {"` + widgetPointer + `": "http://127.0.0.1:1461/credentials"},
+     "overridden_by": [{"vars": ["` + widgetToken + `"], "because": "the token wins"}]}]}`
+	if err := os.WriteFile(filepath.Join(dir, "pack.json"), []byte(manifest), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	packsFixture(t, `{"packs": ["file://`+dir+`"]}`)
+	selection := jsonx.NewOrderedMap()
+	selection.Set("someagent", []any{"plain", "anyname"})
+	merged := jsonx.NewOrderedMap()
+	merged.Set("use_profiles", selection)
+	var buf bytes.Buffer
+	r := &reporter{w: &buf}
+	(&Options{Workspace: t.TempDir(), Getenv: func(string) string { return "" }}).sectionPacks(r,
+		withEnvSources(merged, map[string]string{widgetToken: "frozen-token-value"}))
+	if r.failed == 0 {
+		t.Fatalf("a later entry's platform gate beside its delivered override must FAIL the check:\n%s", buf.String())
+	}
+	if !strings.Contains(buf.String(), widgetToken+" is delivered by "+packload.FromEnvSources) {
+		t.Errorf("the prediction must carry the launch's own words:\n%s", buf.String())
+	}
+}
+
 // A PLATFORM GATE IS PREDICTED FROM THE SELECTED PROVIDER'S PLATFORM (OQ-BR8), as the launch
 // fires it: the gate's own selection (scope.Selection()), never the bare profile names. The
 // contribution is gated on the platform its provider declares, reached through a profile

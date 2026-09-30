@@ -246,6 +246,31 @@ func TestAPlatformGateFiresForAnyEntryOfTheSet(t *testing.T) {
 	}
 }
 
+// A `profile` gate fires for an agent whose set names that profile anywhere, not only first
+// (AP-P1), through the gate both notches call: pi on [zai, fast] receives the env gated on
+// `fast`. Reading only the primary (profileSelected's set branch cut to set[0]) withholds it.
+func TestAProfileGateFiresForAnyEntryOfTheSet(t *testing.T) {
+	agent := setPack(t, "pi", true)
+	gated := scopePack(t, "gated", `{"name":"gated","contributes":[
+	  {"kind":"env","profile":"fast","vars":{"FAST_MODE":"on"}}]}`, "")
+	providers := userProviders(t, `{
+	  "zai":{"endpoints":{"openai":{"base_url":"https://api.z.ai/v4"}}},
+	  "router":{"endpoints":{"openai":{"base_url":"https://router.example/v1"}}}}`)
+	resolved := map[string]ResolvedProfile{"zai": {Provider: "zai"}, "fast": {Provider: "router"}}
+	scope, err := ScopeCredentials(ScopeInput{
+		Packs: []*Pack{agent, gated}, Providers: providers, Resolved: resolved,
+		Profiles: map[string]string{"pi": "zai"},
+		Sets:     map[string][]string{"pi": {"zai", "fast"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := scope.Agent("pi").PackEnv["FAST_MODE"]; got != "on" {
+		t.Errorf("pi's set names `fast` second, so its profile gate must fire: PackEnv = %v",
+			scope.Agent("pi").PackEnv)
+	}
+}
+
 // Every later entry is asked the protocol gate's question (AP-P1): an entry the agent cannot
 // speak refuses the whole launch, naming its position, rather than rendering the rest.
 func TestALaterEntryTheAgentCannotSpeakRefuses(t *testing.T) {
