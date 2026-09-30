@@ -1530,8 +1530,9 @@ and why. Nothing is run and no network is reached: in a jail the check reads the
 install, at the host yolo's floor copy, so an agent not installed yet is one it could not ask. A
 provider every endpoint of which is on this machine (`localhost`, a loopback address,
 `host.containers.internal`) is left out, since its ids are the ones your own server serves
-([MM-D20](../design/model-lists-and-pickers.md#MM-D20)). Today only pi's pack declares a catalog.
-The other agents keep theirs inside their programs, and no launch makes a model-list network call.
+([MM-D20](../design/model-lists-and-pickers.md#MM-D20)). Today only pi's pack declares a catalog:
+no other shipped agent's package was found to ship one as a file
+([MM-D19](../design/model-lists-and-pickers.md#MM-D19)). No launch makes a model-list network call.
 
 ### The `profile` modifier
 
