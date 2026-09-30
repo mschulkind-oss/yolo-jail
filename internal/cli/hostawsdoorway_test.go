@@ -402,6 +402,41 @@ func TestHostOpensNoDoorwayForAnAgentOffBedrock(t *testing.T) {
 	}
 }
 
+// NO DOORWAY FOR AN AGENT WITH NO CLIENT FOR IT. copilot has no Bedrock client of its own (its
+// pack binds no aws-bedrock provider), so `-p bedrock` configures nothing for it, and the profile
+// line warns so. The aws-auth pointer is gated on the provider's platform alone, so the gate
+// would still hand copilot a live credential for AWS tools it happens to run; at the host that
+// meant spawning aws-auth's host code and opening its doorway for an agent that is not its
+// client. The launch now opens nothing and runs no pack code for it, withholds the pointer,
+// names why on the "Not set at this notch" line, and the warning no longer claims copilot
+// starts as if no profile were selected.
+func TestHostOpensNoDoorwayForAnAgentWithNoClientOfThePlatform(t *testing.T) {
+	cfg := `{"packs": ["copilot", "aws-auth", "bedrock"], ` +
+		`"providers": {"bedrock": {"region": "eu-west-1"}}, ` +
+		`"loopholes": {"aws-auth": {"enabled": true, "settings": {"profile": "` + doorwayProfile +
+		`", "unnarrowed": true}}}}`
+	l := runDoorwayLaunch(t, cfg, nil, []string{"-p", "bedrock"}, "copilot")
+	if l.rc != 0 || !l.execed || len(l.started) != 0 {
+		t.Fatalf("rc = %d, exec'd %v, started %d; want a plain exec with no doorway for an agent "+
+			"with no Bedrock client\n%s", l.rc, l.execed, len(l.started), l.errs)
+	}
+	for _, not := range []string{`opened the "aws-auth" doorway`, "This launch runs pack code on your machine",
+		"starts as if no profile were selected"} {
+		if strings.Contains(l.errs, not) {
+			t.Errorf("the launch must not say %q for copilot:\n%s", not, l.errs)
+		}
+	}
+	for _, want := range []string{
+		`Warning: profile "bedrock" reaches nothing for copilot`,
+		"Not set at this notch", "AWS_CONTAINER_CREDENTIALS_FULL_URI",
+		`because copilot has no client of platform "aws-bedrock"`,
+	} {
+		if !strings.Contains(l.errs, want) {
+			t.Errorf("the launch must say %q:\n%s", want, l.errs)
+		}
+	}
+}
+
 // `yolo host env` RUNS NO PROCESS, so it opens no doorway: it withholds the pointer and names the
 // launch that opens it, and starts nothing.
 func TestHostEnvNamesTheLaunchThatOpensTheDoorway(t *testing.T) {

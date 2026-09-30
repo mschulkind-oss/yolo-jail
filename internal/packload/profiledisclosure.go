@@ -195,10 +195,10 @@ func profileReach(in ProfileDisclosureInput, agent, profile string) ProfileReach
 		r.Warnings = append(r.Warnings, fmt.Sprintf("Warning: profile %s reaches nothing for %s: "+
 			"provider %q names no endpoint, only platform %q, and no selected pack gives %s a "+
 			"client of that platform (a pack binds a platform by shipping a provider of it, "+
-			"needing a pack that does, or declaring its program's switch or region for it), so %s "+
-			"starts as if no profile were selected. Select a profile whose provider %s reaches "+
-			"(`-p %s=<name>`), or none for %s", quoted, agent, r.Provider, platform, agent,
-			agent, agent, agent, agent))
+			"needing a pack that does, or declaring its program's switch or region for it), so "+
+			"nothing this profile configures reaches %s's own client. Select a profile whose "+
+			"provider %s reaches (`-p %s=<name>`), or none for %s", quoted, agent, r.Provider,
+			platform, agent, agent, agent, agent, agent))
 	default:
 		r.Route = "on its own client, which the provider re-points nowhere (it names no endpoint)"
 	}
@@ -208,6 +208,16 @@ func profileReach(in ProfileDisclosureInput, agent, profile string) ProfileReach
 		}
 	}
 	return r
+}
+
+// AgentBindsPlatform reports whether agent has a client of platform in this launch: some
+// selected pack installs agent, and that pack binds the platform for it (bindsPlatform). It is
+// the test the profile line's "reaches nothing" warning applies, exported for the host launch,
+// which opens a platform-gated doorway only for an agent that has a client for it
+// (docs/design/host-notch-services.md HS-D23).
+func AgentBindsPlatform(packs []*Pack, agent, platform string) bool {
+	owner := binOwner(packs, agent)
+	return owner != nil && owner.Decl != nil && bindsPlatform(packs, owner, agent, platform)
 }
 
 // bindsPlatform reports whether owner, the pack installing agent, binds platform for it: it

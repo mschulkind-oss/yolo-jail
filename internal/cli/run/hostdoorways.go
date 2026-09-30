@@ -13,9 +13,10 @@ package run
 //
 // WHICH DOORWAYS. The ones a selected pack's pointer serves for the agent this launch runs: a
 // PROFILE-SERVED daemon (coined in internal/packload's profileserved.go: every pointer naming it
-// is gated on a profile or a provider platform) whose gate the agent's selection satisfies, and
-// whose loophole is enabled. That is aws-auth's AWS container-credentials adapter for an agent
-// on a Bedrock provider (OQ-CN7 (b): the jail starts it on the same condition). A doorway whose
+// is gated on a profile or a provider platform) whose gate the agent's selection satisfies, a
+// platform gate counting only for an agent with a client of that platform (HS-D23), and whose
+// loophole is enabled. That is aws-auth's AWS container-credentials adapter for an agent on a
+// Bedrock provider (OQ-CN7 (b): the jail starts it on the same condition). A doorway whose
 // pointer is ungated, which the Codex refresh adapter is, is not opened here: its pointer
 // reaches every agent the host composes and serves none of them but codex, and `yolo host --
 // codex` already serves that URL from the managed adapter (HS-D20).
@@ -83,12 +84,30 @@ type HostDoorways struct {
 func PlanHostDoorways(cfg *jsonx.OrderedMap, packs []*packload.Pack, sel packload.GateSelection,
 	opens bool, launch string) (*HostDoorways, error) {
 	d := &HostDoorways{listen: map[string]string{}, notOpened: map[string]string{}}
-	// The doorways this agent's selection asks for: every profile-served daemon, less the ones
-	// no gate of the selection delivers (the jail's own filter, withoutUnselectedProfileDaemons).
+	// AN AGENT WITH NO CLIENT OF ITS SELECTION'S PLATFORM IS NOT A DOORWAY'S CLIENT (HS-D23).
+	// A platform gate fires on the provider's platform alone, so copilot under `-p bedrock`,
+	// which has no Bedrock client of its own (the profile line warns that the selection reaches
+	// nothing for it), would get aws-auth's doorway, the host code behind it and a live
+	// credential it has no model client to use. The doorways are planned over the selection less
+	// such an agent's platform, and a doorway only its platform asked for stays closed, naming why.
+	gateSel, clientless := withoutClientlessPlatforms(packs, sel)
 	undelivered := map[string]bool{}
-	for _, u := range packload.UnselectedProfileServedDaemons(packs, sel) {
+	for _, u := range packload.UnselectedProfileServedDaemons(packs, gateSel) {
 		undelivered[u.Name] = true
 	}
+	if len(clientless) > 0 {
+		askedByPlatform := map[string]bool{}
+		for _, u := range packload.UnselectedProfileServedDaemons(packs, sel) {
+			askedByPlatform[u.Name] = true
+		}
+		for name := range undelivered {
+			if !askedByPlatform[name] {
+				d.notOpened[name] = noClientWhy(clientless)
+			}
+		}
+	}
+	// The doorways this agent's selection asks for: every profile-served daemon, less the ones
+	// no gate of the selection delivers (the jail's own filter, withoutUnselectedProfileDaemons).
 	var wanted []string
 	for _, name := range packload.ProfileServedDaemonNames(packs) {
 		if !undelivered[name] {
@@ -153,6 +172,43 @@ func PlanHostDoorways(cfg *jsonx.OrderedMap, packs []*packload.Pack, sel packloa
 		}
 	}
 	return d, nil
+}
+
+// withoutClientlessPlatforms is sel less the platform of each agent that has no client of it
+// (packload.AgentBindsPlatform), and those agents' platforms by agent.
+func withoutClientlessPlatforms(packs []*packload.Pack, sel packload.GateSelection) (packload.GateSelection,
+	map[string]string) {
+	clientless := map[string]string{}
+	for agent, platform := range sel.Platforms {
+		if !packload.AgentBindsPlatform(packs, agent, platform) {
+			clientless[agent] = platform
+		}
+	}
+	if len(clientless) == 0 {
+		return sel, nil
+	}
+	out := packload.GateSelection{Profiles: sel.Profiles, Platforms: map[string]string{}}
+	for agent, platform := range sel.Platforms {
+		if _, skip := clientless[agent]; !skip {
+			out.Platforms[agent] = platform
+		}
+	}
+	return out, clientless
+}
+
+// noClientWhy is the clause for a doorway only a clientless agent's platform asked for.
+func noClientWhy(clientless map[string]string) string {
+	agents := make([]string, 0, len(clientless))
+	for agent := range clientless {
+		agents = append(agents, agent)
+	}
+	slices.Sort(agents)
+	var parts []string
+	for _, agent := range agents {
+		parts = append(parts, fmt.Sprintf("%s has no client of platform %q", agent, clientless[agent]))
+	}
+	return "which this launch does not open, because " + strings.Join(parts, " and ") +
+		" (the profile line's warning above)"
 }
 
 // notOpenedWhy is the clause for a doorway this launch's agent asks for and the launch does not
