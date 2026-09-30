@@ -14,6 +14,7 @@ package entrypoint
 
 import (
 	"bytes"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -77,6 +78,9 @@ type prelaunchProbe struct {
 	// bodyPatch replaces baked literals in the rendered launcher (old → new), for a cell that
 	// must shorten a bound it cannot otherwise wait out.
 	bodyPatch map[string]string
+	// stderrWatch, when set, also receives the launcher's stderr AS IT IS WRITTEN, so a cell
+	// can act on what the launcher says at the moment it says it rather than after a sleep.
+	stderrWatch io.Writer
 }
 
 // newPrelaunchProbe seeds a fake program at REAL_BIN (so the launch path, not the cold-install
@@ -168,6 +172,9 @@ func (p *prelaunchProbe) run(t *testing.T, pathPrefix string, env ...string) (st
 	cmd.Stdin = strings.NewReader("typed-by-the-user\n")
 	var out, errb bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &out, &errb
+	if p.stderrWatch != nil {
+		cmd.Stderr = io.MultiWriter(&errb, p.stderrWatch)
+	}
 	if err := cmd.Run(); err != nil {
 		t.Fatalf("launcher failed: %v\nstdout:\n%s\nstderr:\n%s", err, out.String(), errb.String())
 	}

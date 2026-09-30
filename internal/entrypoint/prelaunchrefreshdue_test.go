@@ -40,17 +40,50 @@ func (p *prelaunchProbe) setWatched(t *testing.T, content string) {
 
 func (p *prelaunchProbe) seenDir() string { return filepath.Join(p.stamps, "refresh", "tool.seen") }
 
-// The wait loop's poll, as the launcher bakes it and as the two waiting cells shorten it.
+// The wait loop's poll, as the launcher bakes it and as the waiting cells replace it.
 // The loop counts one unit of UPDATE_TIMEOUT per poll, so under the shortened poll a unit
 // is waitPoll rather than a second. The baked spelling pairs the one-second sleep with that
 // count, and bodyPatch refuses to run a cell whose literal is gone, so a loop that stopped
 // sleeping a second per counted unit still fails these cells, as the real-second waits
 // they used to spend did.
+//
+// The replacement also writes waitPollMark to stderr on every poll, with a shell builtin, and
+// the cells COUNT polls instead of timing the launcher. Elapsed time measures the machine as
+// much as the loop: one launcher run starts about twenty processes (mkdir, date, stat, cksum
+// and the rest) around the wait, so where starting a process costs tens of milliseconds
+// instead of one, the budgets these cells used to set were spent before the loop was reached
+// or while it ran: with every exec delayed on Linux, the timed versions of all three passed at
+// 60ms a process start and failed at 80ms. A count of polls is the same number on every
+// machine.
 const (
 	waitPollBaked = "\n        sleep 1\n        waited=$((waited + 1))\n"
-	waitPollFast  = "\n        sleep 0.1\n        waited=$((waited + 1))\n"
+	waitPollMark  = "yolo-test: refresh-lock wait poll"
+	waitPollFast  = "\n        echo '" + waitPollMark + "' >&2\n        sleep 0.1\n        waited=$((waited + 1))\n"
 	waitPoll      = 100 * time.Millisecond
 )
+
+// waitPolls counts the polls a launcher run made under waitPollFast.
+func waitPolls(stderr string) int { return strings.Count(stderr, waitPollMark+"\n") }
+
+// onStderrMark is a probe stderrWatch that calls fire once the launcher has written mark n
+// times. It runs on os/exec's one copying goroutine for stderr, so it needs no lock, and it
+// fires as the launcher writes the mark, not after a sleep chosen to be long enough.
+type onStderrMark struct {
+	mark  string
+	n     int
+	fire  func()
+	seen  strings.Builder
+	fired bool
+}
+
+func (w *onStderrMark) Write(b []byte) (int, error) {
+	w.seen.Write(b)
+	if !w.fired && strings.Count(w.seen.String(), w.mark) >= w.n {
+		w.fired = true
+		w.fire()
+	}
+	return len(b), nil
+}
 
 // TestRefreshDueOnChangeFollowsContent: inside UPDATE_INTERVAL, a launch refreshes when and only
 // when the watched content is one no refresh has succeeded for — a rewrite with the same bytes
@@ -128,18 +161,20 @@ func TestRefreshWaitsOutAHolderForNewContent(t *testing.T) {
 	if err := os.Mkdir(p.lockPath(), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	// UPDATE_TIMEOUT stays 60, so the bound is 60 polls: six seconds against the holder's
-	// 800ms.
+	// UPDATE_TIMEOUT stays 60, so the bound is 60 polls.
 	p.bodyPatch = map[string]string{waitPollBaked: waitPollFast}
-	go func() {
-		time.Sleep(800 * time.Millisecond)
+	// The holder releases when the launcher writes its SECOND poll mark, never on a clock. The
+	// loop writes that mark only after its first poll found the lock still held and kept
+	// waiting, so however long this machine takes to reach the wait, the launcher has waited
+	// on a real holder before the release, and can only have refreshed after it.
+	p.stderrWatch = &onStderrMark{mark: waitPollMark + "\n", n: 2, fire: func() {
 		_ = os.Remove(p.lockPath())
-	}()
-	start := time.Now()
+	}}
 	stdout, stderr := p.run(t, "")
 	log := p.logLines(t)
-	if time.Since(start) < 600*time.Millisecond {
-		t.Errorf("the launch did not wait for the holder")
+	if n := waitPolls(stderr); n < 2 {
+		t.Errorf("the launch did not wait for the holder: %d polls, want at least 2 "+
+			"(the holder releases on the second):\n%s", n, stderr)
 	}
 	if !strings.Contains(stderr, "waiting for it") {
 		t.Errorf("the wait must be said:\n%s", stderr)
@@ -161,10 +196,12 @@ func TestRefreshDoesNotWaitForContentAlreadyRefreshed(t *testing.T) {
 	if err := os.Mkdir(p.lockPath(), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	start := time.Now()
+	// Counted, not timed: a launch that entered the wait loop would write one mark per poll,
+	// sixty of them before giving up.
+	p.bodyPatch = map[string]string{waitPollBaked: waitPollFast}
 	_, stderr := p.run(t, "")
-	if time.Since(start) > 900*time.Millisecond || strings.Contains(stderr, "waiting for it") {
-		t.Errorf("a held lock for seen content must not be waited on:\n%s", stderr)
+	if n := waitPolls(stderr); n != 0 || strings.Contains(stderr, "waiting for it") {
+		t.Errorf("a held lock for seen content must not be waited on (%d polls):\n%s", n, stderr)
 	}
 	if !strings.Contains(stderr, "another refresh holds") {
 		t.Errorf("the skip must be said:\n%s", stderr)
@@ -187,11 +224,16 @@ func TestRefreshWaitIsBounded(t *testing.T) {
 	}
 	start := time.Now()
 	stdout, stderr := p.run(t, "")
-	// The upper bound is what pins UPDATE_TIMEOUT being honored: the unpatched 60 polls of
-	// waitPoll take about 6s, so 30 polls (3s) fails a loop that ignores the patched value
-	// while leaving the real 5-poll wait ample headroom under load.
-	if el := time.Since(start); el < 5*waitPoll || el > 30*waitPoll {
-		t.Errorf("the wait must last about UPDATE_TIMEOUT, took %s", el)
+	// The poll COUNT pins UPDATE_TIMEOUT being honored: a loop ignoring the patched value
+	// polls 60 times, one giving up early fewer than 5. There is no upper time bound, because
+	// the run around those polls costs whatever this machine charges to start its processes.
+	// The lower bound stays: a slow machine only lengthens the wait, so it fails only a loop
+	// whose polls stopped sleeping.
+	if n := waitPolls(stderr); n != 5 {
+		t.Errorf("the wait must last UPDATE_TIMEOUT polls: want 5, got %d\n%s", n, stderr)
+	}
+	if el := time.Since(start); el < 5*waitPoll {
+		t.Errorf("five polls of %s took only %s: the polls stopped sleeping", waitPoll, el)
 	}
 	log := p.logLines(t)
 	if countLine(log, "REFRESH") != 0 || !strings.Contains(stderr, "another refresh holds") {
