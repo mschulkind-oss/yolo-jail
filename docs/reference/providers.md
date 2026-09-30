@@ -1311,7 +1311,8 @@ the plain name, byte for byte, so no existing config moves.
   composes the same channel. `yolo host -- <agent>` and `yolo host env --agent <agent>` take the
   same `-p` and `profile` key, open aws-auth's doorway for a Bedrock entry anywhere in the set,
   and fill a Bedrock entry's region from `~/.aws/config` as a primary's is; `yolo host apply`
-  renders the key's set into the agent's own files, leaving out a whole set it cannot render.
+  renders the key's set into the agent's own files, leaving out a whole set it cannot render and
+  saying what the key's bare list narrowed, as a launch does.
 
 The launch names each set of more than one in order ("Active set for pi: zai, openrouter"), beside
 the per-name profile lines, which answer for each entry what it reaches for the agent holding it. What pi renders from a set is in [per-agent
