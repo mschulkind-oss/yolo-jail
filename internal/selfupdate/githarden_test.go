@@ -165,16 +165,30 @@ func TestGitCommandIsDetachedAndBounded(t *testing.T) {
 }
 
 // A remote that accepts the connection and never answers must not hang a
-// source check past its deadline.
+// source check past its deadline: once git is blocked on that remote, ending
+// the check's context ends the check, promptly, as an ls-remote failure.
+//
+// The context ends when the remote has the connection, not on a clock started
+// before Check. Such a clock also has to cover the local git runs before
+// ls-remote (symbolic-ref and two config reads), and where starting git is
+// slow they spend it: the check then fails as "no upstream branch" and never
+// reaches the remote this is about. Ending it on contact is also the only way
+// to know the stall was reached at all.
 func TestCheckSourceEndsAtItsDeadlineAgainstAStalledRemote(t *testing.T) {
 	requireGit(t)
 	isolateGitConfig(t)
+	// The request must reach this listener, not a proxy the machine names:
+	// one that refuses or answers ends ls-remote before the stall.
+	t.Setenv("no_proxy", "*")
+	t.Setenv("NO_PROXY", "*")
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Skipf("no loopback listener: %v", err)
 	}
 	var mu sync.Mutex
 	var conns []net.Conn
+	contacted := make(chan struct{})
+	var contact sync.Once
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
@@ -186,6 +200,7 @@ func TestCheckSourceEndsAtItsDeadlineAgainstAStalledRemote(t *testing.T) {
 			mu.Lock()
 			conns = append(conns, c) // held open, never answered
 			mu.Unlock()
+			contact.Do(func() { close(contacted) })
 		}
 	}()
 	t.Cleanup(func() {
@@ -206,16 +221,38 @@ func TestCheckSourceEndsAtItsDeadlineAgainstAStalledRemote(t *testing.T) {
 	gitIn(t, dir, "config", "branch.main.merge", "refs/heads/main")
 	ch := Channel{Kind: KindSource, SourceDir: dir, Branch: "main", Version: gitIn(t, dir, "rev-parse", "HEAD")}
 
-	const deadline = 2 * time.Second
-	ctx, cancel := context.WithTimeout(context.Background(), deadline)
+	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	start := time.Now()
-	st := Check(ctx, ch, State{}, CheckDeps{Git: runGit, Now: fixedNow})
-	if took := time.Since(start); took > deadline+1500*time.Millisecond {
-		t.Errorf("the check took %s against a stalled remote (deadline %s)", took, deadline)
+	result := make(chan State, 1)
+	go func() { result <- Check(ctx, ch, State{}, CheckDeps{Git: runGit, Now: fixedNow}) }()
+
+	// A hang detector, not a budget: three local git runs, git and its
+	// transport helper starting, and one loopback connect.
+	select {
+	case <-contacted:
+	case st := <-result:
+		t.Fatalf("the check ended before git reached the remote: %+v", st)
+	case <-time.After(time.Minute):
+		t.Fatal("git did not reach the remote within a minute")
 	}
-	if st.Available || !strings.Contains(st.Error, "ls-remote") {
-		t.Errorf("got %+v, want an ls-remote failure", st)
+
+	// Half the WaitDelay on purpose: a Cancel that killed git alone would leave
+	// its transport helper holding an output pipe until that backstop, and this
+	// must tell the two apart. Killing and reaping the process group takes
+	// milliseconds; the rest is room for a loaded machine.
+	bound := gitCommand(t.Context(), dir).WaitDelay / 2
+	ended := time.Now()
+	cancel()
+	select {
+	case st := <-result:
+		if took := time.Since(ended); took > bound {
+			t.Errorf("the check took %s to end after its context did, against a stalled remote (bound %s)", took, bound)
+		}
+		if st.Available || !strings.Contains(st.Error, "ls-remote") {
+			t.Errorf("got %+v, want an ls-remote failure", st)
+		}
+	case <-time.After(10 * bound):
+		t.Fatalf("the check was still running %s after its context ended, against a stalled remote", 10*bound)
 	}
 }
 
