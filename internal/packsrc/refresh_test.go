@@ -127,15 +127,56 @@ func TestRefreshFetchesANeverFetchedPack(t *testing.T) {
 }
 
 // (a) again, for a mirror that EXISTS but lacks the ref: a newly-configured tag is fetched even
-// though the mirror's other ref was fetched a moment ago.
+// though the mirror's other ref was fetched a moment ago. A ref the mirror lacks is git's
+// answer, not a failure, so nothing is reported beyond the fetch.
 func TestRefreshFetchesARefTheMirrorLacks(t *testing.T) {
 	f := newRefreshFixture(t)
 	f.refresh(t, false, RefreshPack{Name: "p", Source: f.source("main")})
 	c2 := commitFile(t, f.repo, "two", "2")
 	gitIn(t, f.repo, "tag", "v2")
 	outs := f.refresh(t, false, RefreshPack{Name: "q", Source: f.source("v2")})
-	if o := outs[0]; o.Err != nil || !o.Fetched || !o.First || o.Commit != c2 {
+	if o := outs[0]; o.Err != nil || o.FetchErr != nil || o.Warning() != "" || !o.Fetched || !o.First || o.Commit != c2 {
 		t.Errorf("outcome = %+v, want v2 fetched at %s", o, c2)
+	}
+}
+
+// ONLY GIT'S OWN "NO SUCH COMMIT" IS ABSENT, and classifyRef returns it with no error for
+// every shape git answers it in (exit status 1, measured with git 2.55): a ref the mirror
+// lacks, silently; a tag naming a tree, with "expected commit type" on stderr; a full SHA
+// neither the partial mirror nor its remote holds, with its failed lazy fetch on stderr. What
+// does resolve is classified by kind, a tag before a branch.
+func TestClassifyRefAbsentIsGitsOwnAnswer(t *testing.T) {
+	f := newRefreshFixture(t)
+	c1 := f.head(t)
+	gitIn(t, f.repo, "tag", "v1")
+	gitIn(t, f.repo, "tag", "treetag", gitIn(t, f.repo, "rev-parse", "HEAD^{tree}"))
+	gitIn(t, f.repo, "tag", "both")
+	gitIn(t, f.repo, "branch", "both")
+	f.refresh(t, false, RefreshPack{Name: "p", Source: f.source("main")})
+	mirror := f.store.mirrorPath(mustParse(t, f.source("main")).Repo)
+	for _, tc := range []struct {
+		ref         string
+		kind        refKind
+		name, local string
+	}{
+		{"main", refBranch, "refs/heads/main", c1},
+		{"refs/heads/main", refBranch, "refs/heads/main", c1},
+		{"v1", refTag, "refs/tags/v1", c1},
+		{"refs/tags/v1", refTag, "refs/tags/v1", c1},
+		{"both", refTag, "refs/tags/both", c1},
+		{c1, refCommit, "", c1},
+		{"HEAD", refOther, "", c1},
+		{"nope", refUnresolved, "", ""},
+		{"refs/heads/nope", refUnresolved, "", ""},
+		{"refs/tags/nope", refUnresolved, "", ""},
+		{"treetag", refUnresolved, "", ""},
+		{"0123456789abcdef0123456789abcdef01234567", refUnresolved, "", ""},
+	} {
+		kind, name, local, err := f.store.classifyRef(mirror, tc.ref)
+		if err != nil || kind != tc.kind || name != tc.name || local != tc.local {
+			t.Errorf("classifyRef(%q) = %v, %q, %q, %v; want %v, %q, %q, nil",
+				tc.ref, kind, name, local, err, tc.kind, tc.name, tc.local)
+		}
 	}
 }
 
@@ -281,7 +322,8 @@ func TestRefreshFetchTimeoutIsAFailure(t *testing.T) {
 	}
 	// 3s, not the 500ms this was: the timeout is also each local rev-parse's budget, and one that
 	// overran under a full parallel `go test ./...` left the ref unclassified, so nothing was
-	// fetched (TestRefreshTimeoutKillsTheTransportHelper states it). The fetch still hangs 30s.
+	// fetched (TestRefreshTimeoutKillsTheTransportHelper states it, and what an overrun reports
+	// now). The fetch still hangs 30s.
 	f.store.Git, f.store.Timeout = hang, 3*time.Second
 	f.now = f.now.Add(2 * BranchRefreshInterval)
 	start := time.Now()

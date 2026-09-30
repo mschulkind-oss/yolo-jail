@@ -9,6 +9,8 @@ package packsrc
 //	a tag that resolves (refs/tags/<ref>)                    never fetch — frozen
 //	a branch that resolves (refs/heads/<ref>)                fetch when the last good
 //	                                                         fetch is over an hour old
+//	a ref git could not look up (a local rev-parse           never fetch for it; report
+//	timed out or git failed)                                 the failure (FetchErr)
 //
 // Anything else that resolves (an abbreviated SHA, HEAD) never triggers a fetch, since it
 // does not name itself as moving. (HEAD is symbolic, so it still follows its branch when
@@ -27,6 +29,13 @@ package packsrc
 // and one warning names the pack and the error. With no usable local copy, resolution
 // fails later exactly as it did before, by name, and its message carries the fetch error
 // (fetchFailure) instead of advice to run a command that would fail the same way.
+//
+// A REF THE MIRROR COULD NOT BE ASKED ABOUT IS NOT A MISSING REF. When git gives no answer
+// (revParse: a timeout, a corrupt mirror, a git that fails), what the ref names and whether
+// it moves are unknown, so it asks for no fetch (one could move a tag it pins) and is
+// reported through the same FetchErr, warned about with the cached commit or carried by
+// resolution's error. Read as "no such ref", it once made a branch classify as neither tag
+// nor branch, so a due refresh was skipped with nothing said.
 //
 // CONCURRENCY. Fetch and checkout run under an exclusive flock per mirror, and the
 // lockfile's load-modify-save under an exclusive flock of its own, so two launches at
@@ -105,7 +114,9 @@ type Outcome struct {
 	// pack's repository and subdirectory. The second case is a monorepo's second subpath,
 	// or a pack whose address moved: its content arrives without any fetch.
 	First bool
-	// FetchErr is a fetch that failed. With Commit set, the cached copy is in use.
+	// FetchErr is a refresh that failed: a fetch, or the local read of the ref that decides
+	// whether to fetch (classifyRef), which git could not answer. With Commit set, the
+	// cached copy is in use.
 	FetchErr error
 	// Err is why the pack is unusable (bad address, unresolvable ref, failed checkout).
 	Err error
@@ -273,18 +284,26 @@ func (s *Store) refreshMirror(repo string, items []refreshItem, outcomes []Outco
 		kind  refKind
 		name  string // the full ref name for a tag or branch
 		local string // the commit the ref resolved to before any fetch
+		err   error  // git could not be asked what the ref names: kind and local are unknown
 	}
 	before := make([]pre, len(items))
 	needFetch := force
 	existed := mirrorExists(mirror)
 	for i, it := range items {
 		if existed {
-			before[i].kind, before[i].name, before[i].local = s.classifyRef(mirror, it.addr.Ref)
+			p := &before[i]
+			p.kind, p.name, p.local, p.err = s.classifyRef(mirror, it.addr.Ref)
 		}
 		o := &outcomes[it.idx]
 		o.Prev = before[i].local
-		o.First = before[i].local == ""
+		// Unknown is not "no local copy": the lockfile, when there is one, says whether the
+		// pack was delivered before.
+		o.First = before[i].local == "" && before[i].err == nil
 		switch {
+		case before[i].err != nil:
+			// NO FETCH ON ITS ACCOUNT: whether the ref moves is exactly what could not be read,
+			// and a fetch for a ref that may be a pinned tag is what the ref rule forbids. The
+			// failure is reported below; the next launch asks again (no stamp was written).
 		case before[i].local == "":
 			needFetch = true
 		case before[i].kind == refBranch && !s.stampFresh(it.addr, now, interval):
@@ -329,8 +348,16 @@ func (s *Store) refreshMirror(repo string, items []refreshItem, outcomes []Outco
 	for i, it := range items {
 		o := &outcomes[it.idx]
 		o.Fetched = fetched
-		if needFetch && !fetched {
+		switch {
+		case fetched:
+			// The fetch another pack of the mirror needed refreshed this one too, and the
+			// resolution below reads its ref afresh.
+		case needFetch:
+			// A failed fetch is the refresh failure of every pack on the mirror, one git could
+			// not be asked about included.
 			o.FetchErr = fetchErr
+		case before[i].err != nil:
+			o.FetchErr = before[i].err
 		}
 		commit := before[i].local
 		switch {
@@ -350,8 +377,9 @@ func (s *Store) refreshMirror(repo string, items []refreshItem, outcomes []Outco
 				continue
 			}
 			// The mirror exists now although it did not resolve the ref before: a clone
-			// that succeeded ahead of a fetch that failed. What the clone brought is the
-			// cached copy, used with the fetch error warned about like any other.
+			// that succeeded ahead of a fetch that failed, or a ref git could not be asked
+			// about. What the mirror holds is the cached copy, used with the failure warned
+			// about like any other; a mirror git still cannot read is resolveCommit's error.
 			c, rerr := s.resolveCommit(mirror, it.addr)
 			if rerr != nil {
 				o.Err = rerr
@@ -412,7 +440,10 @@ func (s *Store) restoreTags(mirror string, before map[string]string) {
 // Best-effort: a ref that cannot be restored resolves to whatever the fetch left, and the
 // commit change is then disclosed like any other.
 func (s *Store) restoreRef(mirror, ref, commit string) {
-	if ref == "" || commit == "" || s.revParse(mirror, ref) == commit {
+	if ref == "" || commit == "" {
+		return
+	}
+	if cur, err := s.revParse(mirror, ref); err == nil && cur == commit {
 		return
 	}
 	_, _ = s.run(mirror, "update-ref", ref, commit)
@@ -433,35 +464,42 @@ const (
 // and the commit it resolves to, with no network. A TAG IS CHECKED BEFORE A BRANCH
 // because that is git's own precedence for a bare name, and so the commit resolveCommit
 // picks for the ref as written.
-func (s *Store) classifyRef(mirror, ref string) (refKind, string, string) {
-	if isFullSHA(ref) {
-		if sha := s.revParse(mirror, ref); sha != "" {
-			return refCommit, "", sha
-		}
-		return refUnresolved, "", ""
+//
+// refUnresolved with a nil error is git's answer that the mirror holds no such commit. An
+// error is a lookup git did not answer (revParse), naming it; the lookups after it are not
+// asked, since a later candidate cannot answer for an earlier one (a branch lookup that
+// succeeds says nothing about a tag lookup that timed out).
+func (s *Store) classifyRef(mirror, ref string) (refKind, string, string, error) {
+	type lookup struct {
+		kind refKind
+		rev  string
+		name string // what the kind records as the full ref name
 	}
+	var lookups []lookup
 	switch {
+	case isFullSHA(ref):
+		lookups = []lookup{{refCommit, ref, ""}}
 	case strings.HasPrefix(ref, "refs/tags/"):
-		if sha := s.revParse(mirror, ref); sha != "" {
-			return refTag, ref, sha
-		}
-		return refUnresolved, "", ""
+		lookups = []lookup{{refTag, ref, ref}}
 	case strings.HasPrefix(ref, "refs/heads/"):
-		if sha := s.revParse(mirror, ref); sha != "" {
-			return refBranch, ref, sha
+		lookups = []lookup{{refBranch, ref, ref}}
+	default:
+		lookups = []lookup{
+			{refTag, "refs/tags/" + ref, "refs/tags/" + ref},
+			{refBranch, "refs/heads/" + ref, "refs/heads/" + ref},
+			{refOther, ref, ""},
 		}
-		return refUnresolved, "", ""
 	}
-	if sha := s.revParse(mirror, "refs/tags/"+ref); sha != "" {
-		return refTag, "refs/tags/" + ref, sha
+	for _, l := range lookups {
+		sha, err := s.revParse(mirror, l.rev)
+		if err != nil {
+			return refUnresolved, "", "", fmt.Errorf("reading %s in the pack mirror: %w", l.rev, err)
+		}
+		if sha != "" {
+			return l.kind, l.name, sha, nil
+		}
 	}
-	if sha := s.revParse(mirror, "refs/heads/"+ref); sha != "" {
-		return refBranch, "refs/heads/" + ref, sha
-	}
-	if sha := s.revParse(mirror, ref); sha != "" {
-		return refOther, "", sha
-	}
-	return refUnresolved, "", ""
+	return refUnresolved, "", "", nil
 }
 
 // isFullSHA reports whether ref is a full 40-hex commit id.

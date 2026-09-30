@@ -685,6 +685,11 @@ fix it. See [capabilities and supersession](docs/reference/pack-system.md#capabi
   on your machine held. Such an address is now refused, and the refusal names the link. That
   includes a link to another directory of the same repository, which used to work: write the
   address of the directory the link points to instead.
+- A launch no longer silently skips updating a git pack that follows a branch when git cannot
+  read yolo's copy of the pack's repository, because the read took too long or the copy is
+  damaged. It now warns, naming the pack, its ref and git's error, and uses the version it has.
+  When git cannot read the copy at all, the launch still stops, but now shows git's error where
+  it used to say the ref was missing.
 - When your pi's catalog lacks some of the ChatGPT subscription models yolo lists, the warning pi
   shows now tells you why and what to do. Along with the missing models and what they lose, it
   names the pi you are running, for example `Your pi (0.85.1) predates these models`, and says

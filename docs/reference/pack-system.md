@@ -2668,6 +2668,7 @@ a key that does nothing must not be accepted quietly.
   | a full 40-hex commit SHA the mirror holds | never fetches. A commit is frozen |
   | a tag the mirror holds (`refs/tags/<ref>`) | never fetches. A tag is treated as immutable, so following a re-pointed tag takes an explicit `yolo pack install` or `yolo pack update` |
   | a branch (`refs/heads/<ref>`) | fetches when the last successful refresh of that mirror and ref is more than an hour old, and otherwise uses the mirror as it is |
+  | unreadable: git gave no answer about it (the lookup timed out, or git failed, as on a damaged mirror) | fetches nothing for it, since whether the ref moves is what could not be read, and reports the failure as a failed fetch is reported (below). Only git's own answer that the mirror lacks the ref counts as "not in the store" |
 
   The hour is the same interval the in-jail agent launchers use for their evergreen update
   check. A refresh time is recorded in the pack store only when a fetch succeeds. **A
@@ -2676,14 +2677,16 @@ a key that does nothing must not be accepted quietly.
   another workspace sharing the mirror stays where it was. "Refresh"
   here means re-fetching a pack's mirror; it is unrelated to a `program` contribution's
   `refresh` field, which is a program's own pre-launch step ([`program`](#program)).
-- **A failed fetch** (offline, refused credentials, timeout) **is not fatal when the ref
-  already resolves locally**: the launch prints one warning naming the pack and the error, and
-  uses the commit it has. When there is no usable local copy, resolution fails as it always
-  has, fatally and by name, and the message carries the fetch error. A ref that a fetch
-  **succeeded** without finding (a typo in `?ref=`, a deleted branch) is fatal too, and says
-  so: no later launch repairs it. Each launch-time fetch of a repository runs under one
-  timeout, shorter than `install`'s, covering its clone, its fetch and the checkouts after
-  them, so a hung remote costs a bounded wait and then counts as a failed fetch.
+- **A failed fetch** (offline, refused credentials, timeout), **or an unreadable ref, is not
+  fatal when the ref still resolves locally**: the launch prints one warning naming the pack
+  and the error (for an unreadable ref, the lookup and git's own error), and uses the commit it
+  has. When there is no usable local copy, resolution fails as it always has, fatally and by
+  name, and the message carries the fetch error, or git's error for a mirror git cannot read
+  rather than a claim that the ref is missing. A ref that a fetch **succeeded** without finding
+  (a typo in `?ref=`, a deleted branch) is fatal too, and says so: no later launch repairs it.
+  Each launch-time fetch of a repository runs under one timeout, shorter than `install`'s,
+  covering its clone, its fetch and the checkouts after them, so a hung remote costs a bounded
+  wait and then counts as a failed fetch.
 - **Every move is disclosed.** A pack delivered for the first time prints
   `Fetched pack <name>: <ref> → <short sha>`: one fetched now, or one whose repository and
   subdirectory the lockfile has no entry for (a monorepo's second subpath, which arrives

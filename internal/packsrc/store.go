@@ -401,14 +401,31 @@ func (s *Store) fetchMirror(b budget, a Addr, explicit bool) error {
 	return nil
 }
 
-// revParse resolves one revision to a full commit SHA in the mirror, or "" when it does
-// not name a commit there. It reads refs and objects only.
-func (s *Store) revParse(mirror, rev string) string {
+// revParse resolves one revision to a full commit SHA in the mirror. It reads refs and
+// objects only.
+//
+// "" WITH A NIL ERROR IS GIT'S OWN ANSWER that rev names no commit in the mirror, and it is
+// the only answer that means absent. `rev-parse --verify --quiet` gives it as exit status 1,
+// whatever it printed (measured, git 2.55): silently for a ref the mirror lacks, and with a
+// message on stderr for a ref naming a tree or a blob, for a broken loose ref git ignores, and
+// for a full SHA the partial mirror lacks once its lazy fetch of it fails. Every one of those is
+// repaired by a fetch, or is a ref no fetch will find, so each must read as absent; a stricter
+// test on stderr would stop a pinned commit the remote lacks from reading as missing.
+//
+// ANYTHING ELSE IS AN ERROR, never absent: a run that overran the store's timeout, git's own
+// fatal exit 128 (not a repository, an unparseable config or packed-refs, a corrupt object), a
+// signal, or a git that could not be run. Reading those as "no such ref" made the launch's
+// refresh skip a due fetch in silence (classifyRef).
+func (s *Store) revParse(mirror, rev string) (string, error) {
 	out, err := s.run(mirror, "rev-parse", "--verify", "--quiet", rev+"^{commit}")
-	if err != nil {
-		return ""
+	if err == nil {
+		return strings.TrimSpace(out), nil
 	}
-	return strings.TrimSpace(out)
+	var exit *exec.ExitError
+	if errors.As(err, &exit) && exit.ExitCode() == 1 {
+		return "", nil
+	}
+	return "", err
 }
 
 // ErrNotFetched marks a resolution failure that a FETCH is what repairs: the store has no
@@ -439,12 +456,19 @@ func (e *storeMiss) Unwrap() error { return e.kind }
 // different: the fetch this process tried FAILED (the error names why); a fetch
 // SUCCEEDED and the remote does not have the ref (a typo in ?ref=, or a deleted branch —
 // no launch repairs it); or nothing has fetched it yet (ErrNotFetched — the next host
-// launch does).
+// launch does). A fourth is not about the ref at all: git could not read the mirror (a
+// rev-parse that timed out or failed, revParse), and the error is git's own, since neither a
+// fetch nor an edit of ?ref= is what repairs it.
 func (s *Store) resolveCommit(mirror string, a Addr) (string, error) {
 	// Try the ref as written, then as a branch/tag. rev-parse on a bare repo
-	// resolves a SHA, a branch, or a tag without touching the network.
+	// resolves a SHA, a branch, or a tag without touching the network. A lookup that
+	// FAILED ends the search: a later candidate cannot answer for the one before it.
 	for _, cand := range []string{a.Ref, "refs/heads/" + a.Ref, "refs/tags/" + a.Ref} {
-		if sha := s.revParse(mirror, cand); sha != "" {
+		sha, err := s.revParse(mirror, cand)
+		if err != nil {
+			return "", fmt.Errorf("could not read ref %q in the pack mirror of %s: %s", a.Ref, a.Repo, oneLine(err))
+		}
+		if sha != "" {
 			return sha, nil
 		}
 	}

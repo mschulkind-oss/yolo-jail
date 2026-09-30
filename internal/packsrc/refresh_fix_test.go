@@ -60,10 +60,11 @@ func TestGitCmdHygiene(t *testing.T) {
 // leave the wait blocked on that pipe. Detached, the whole group dies at the deadline.
 //
 // THE TIMEOUT IS NOT ONLY THE FETCH'S. Every local git run before it (the rev-parses that
-// classify the ref) gets the same timeout as its own budget, and a rev-parse that overruns
-// reads as "no such ref": `main` then classifies as neither tag nor branch, nothing is
-// fetched, and FetchErr is nil. At 700ms that happened under a full parallel
-// `go test ./...` on macOS. 3s leaves the rev-parses room; the fetch still hangs for 20s.
+// classify the ref) gets the same timeout as its own budget. At 700ms one of them overran under
+// a full parallel `go test ./...` on macOS; that read as "no such ref", so nothing was fetched
+// and FetchErr was nil. It is now the refresh's own failure, naming the rev-parse
+// (TestRefreshReportsARefItCouldNotRead), which this test would report instead of the fetch's
+// timeout. 3s leaves the rev-parses room; the fetch still hangs for 20s.
 func TestRefreshTimeoutKillsTheTransportHelper(t *testing.T) {
 	f := newRefreshFixture(t)
 	pack := RefreshPack{Name: "p", Source: f.source("main")}
@@ -98,6 +99,103 @@ func TestRefreshTimeoutIsBoundedWithoutDetach(t *testing.T) {
 	}
 	if o.FetchErr == nil || !strings.Contains(o.FetchErr.Error(), "timed out") {
 		t.Errorf("outcome = %+v, want a fetch timeout", o)
+	}
+}
+
+// A REF THE REFRESH COULD NOT READ IS A FAILURE, NOT A MISSING REF. The fake git fails only
+// the rev-parse asking whether `main` is a branch (refs/heads/main), the way a git error (exit
+// 128) or an overrun of the store's timeout does; every other run is real git. The pack
+// follows a branch, is past its interval and its remote has moved on, so this launch's refresh
+// was due: it must say it could not refresh, naming the lookup and git's error, and keep the
+// cached commit. Read as "no such ref", the failure made `main` classify as neither tag nor
+// branch, so nothing was fetched, FetchErr was nil, and a launch said nothing.
+func TestRefreshReportsARefItCouldNotRead(t *testing.T) {
+	for _, tc := range []struct {
+		name, fail, cause string
+		timeout           time.Duration
+	}{
+		{"git error", `echo "fatal: simulated rev-parse failure" >&2; exit 128`, "simulated rev-parse failure", 0},
+		// 3s for the reason TestRefreshTimeoutKillsTheTransportHelper states: every other local
+		// git run gets the same timeout as its own budget.
+		{"timeout", "exec sleep 30", "git rev-parse timed out", 3 * time.Second},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newRefreshFixture(t)
+			c1 := f.head(t)
+			pack := RefreshPack{Name: "p", Source: f.source("main")}
+			f.refresh(t, false, pack)
+			commitFile(t, f.repo, "two", "2")
+			f.store.Git = writeScript(t, `for a in "$@"; do [ "$a" = 'refs/heads/main^{commit}' ] && { `+
+				tc.fail+`; }; done
+exec git "$@"
+`)
+			f.store.Timeout, f.store.Detached = tc.timeout, true
+			f.now = f.now.Add(2 * BranchRefreshInterval)
+			o := f.refresh(t, false, pack)[0]
+			if o.FetchErr == nil {
+				t.Fatalf("outcome = %+v: the due refresh was skipped and no failure was reported", o)
+			}
+			for _, want := range []string{"refs/heads/main", tc.cause} {
+				if !strings.Contains(o.FetchErr.Error(), want) {
+					t.Errorf("FetchErr = %q, want it to name %q", o.FetchErr, want)
+				}
+			}
+			if o.Err != nil || o.Fetched || o.Commit != c1 {
+				t.Errorf("outcome = %+v, want the cached %s in use and nothing fetched", o, c1[:8])
+			}
+			w := o.Warning()
+			t.Logf("Warning() = %s", w)
+			for _, want := range []string{"pack p:", "could not refresh main", "refs/heads/main", tc.cause,
+				"using the cached " + c1[:8]} {
+				if !strings.Contains(w, want) {
+					t.Errorf("Warning() = %q, want it to contain %q", w, want)
+				}
+			}
+		})
+	}
+}
+
+// A MIRROR GIT CANNOT READ AT ALL is named by git's own error, in the refresh's outcome and in
+// the resolution a launch stops on: never as a ref the remote lacks, nor as one the next launch
+// fetches (ErrNotFetched). Real corruption rather than a fake git: a packed-refs line git
+// rejects makes every rev-parse in the mirror exit 128, "fatal: unexpected line in
+// ./packed-refs" (measured with git 2.55).
+func TestRefreshNamesGitsErrorForAMirrorItCannotRead(t *testing.T) {
+	f := newRefreshFixture(t)
+	pack := RefreshPack{Name: "p", Source: f.source("main")}
+	a := mustParse(t, pack.Source)
+	f.refresh(t, false, pack)
+	mirror := f.store.mirrorPath(a.Repo)
+	gitIn(t, mirror, "pack-refs", "--all")
+	pr, err := os.OpenFile(filepath.Join(mirror, "packed-refs"), os.O_APPEND|os.O_WRONLY, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pr.WriteString("not a packed ref line\n"); err != nil {
+		t.Fatal(err)
+	}
+	pr.Close()
+
+	f.now = f.now.Add(2 * BranchRefreshInterval)
+	o := f.refresh(t, false, pack)[0]
+	const cause = "unexpected line"
+	if o.FetchErr == nil || !strings.Contains(o.FetchErr.Error(), cause) {
+		t.Errorf("FetchErr = %v, want git's %q", o.FetchErr, cause)
+	}
+	if o.Err == nil || o.Commit != "" {
+		t.Fatalf("outcome = %+v, want the pack unusable", o)
+	}
+	if !strings.Contains(o.Err.Error(), `"main"`) || !strings.Contains(o.Err.Error(), cause) ||
+		strings.Contains(o.Err.Error(), "not found") || errors.Is(o.Err, ErrNotFetched) {
+		t.Errorf("Err = %v, want the ref and git's %q, not a missing ref", o.Err, cause)
+	}
+	// The launch's resolution, in the same process or a later one (neither the commit a refresh
+	// decided nor its fetch record survives a process), says the same.
+	decidedCommits.Delete(f.store.decidedKey(a))
+	_, rerr := f.store.Resolve(a, "p")
+	if rerr == nil || !strings.Contains(rerr.Error(), cause) || strings.Contains(rerr.Error(), "not found") ||
+		errors.Is(rerr, ErrNotFetched) || strings.Contains(rerr.Error(), "\n") {
+		t.Errorf("Resolve error = %q, want one line naming git's %q, not a missing ref", rerr, cause)
 	}
 }
 
