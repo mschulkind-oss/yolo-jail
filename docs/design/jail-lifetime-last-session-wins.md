@@ -39,11 +39,9 @@ how the first terminal gets its prompt back, how re-entering works, how it ends 
 discloses, its signals, and each notch. [§2.4](#24-everything-the-first-terminals-process-owns-today)
 is what it takes over, and [§5](#5-how-terrible-is-it) answers "how terrible is this".
 
-**Needs your ruling** ([OQ-JL5](#OQ-JL5) was ruled A, a keeper at every notch if supportable, and
-[OQ-JL6](#OQ-JL6) A, both 2026-09-29):
-
-- [OQ-JL7](#OQ-JL7): what the running sessions see when the keeper is killed;
-- [OQ-JL8](#OQ-JL8): does closing a pane end that pane's agent, or leave it running.
+**Needs your ruling:** nothing from the keeper design is open. [OQ-JL5](#OQ-JL5) was ruled A (a keeper
+at every notch, if supportable), and [OQ-JL6](#OQ-JL6), [OQ-JL7](#OQ-JL7) and [OQ-JL8](#OQ-JL8) A, all
+2026-09-29; the keeper at `yolo host` and macos-user is being designed.
 
 **Reads with:** [`jail-lifetime-last-session-wins-plan.md`](jail-lifetime-last-session-wins-plan.md)
 (the implementation sketch, written for the keeper),
@@ -1342,7 +1340,7 @@ notches get one too is [OQ-JL5](#OQ-JL5).
    As ledgered: [JL-D11](#JL-D11) and [JL-D12](#JL-D12) stand, with no linger. A lone tab's switch is
    a fresh launch; the jail's own shell switches agents with no teardown.
 
-4. 💬 <a id="OQ-JL7"></a>**[OQ-JL7](#OQ-JL7): When the keeper is killed while sessions run,
+4. ✅ <a id="OQ-JL7"></a>**[OQ-JL7](#OQ-JL7): When the keeper is killed while sessions run,
    what do those sessions and the next arrival see?**
 
    **The setup.** Matt has Claude in one tab and Codex in another, both in one workspace's jail.
@@ -1389,10 +1387,11 @@ notches get one too is [OQ-JL5](#OQ-JL5).
    has no scope of its own, or a host whose systemd-oomd picks it), A's degraded agents fail
    mid-task in confusing ways, and B's plain stop would be kinder.
 
-   **Answer:**
-   > _(empty — fill in when decided)_
+   **Answer:** **A** (maintainer, 2026-09-29): *"93A."* The sessions run on without host services and
+   are told when they end; a new arrival is refused, naming the live sessions and `yolo stop`; the
+   container is reaped once they leave.
 
-5. 💬 <a id="OQ-JL8"></a>**[OQ-JL8](#OQ-JL8): When a pane or window closes, does that
+5. ✅ <a id="OQ-JL8"></a>**[OQ-JL8](#OQ-JL8): When a pane or window closes, does that
    session's agent end, or keep running?**
 
    **The setup.** Matt works in herdr with two panes on one workspace: Claude in pane 1, halfway
@@ -1436,8 +1435,9 @@ notches get one too is [OQ-JL5](#OQ-JL5).
    keep. Then B is what he wants, and JL-P2 needs a count the host can still bound, for example a
    headless session counted only until its agent exits and listed by `yolo ps`.
 
-   **Answer:**
-   > _(empty — fill in when decided)_
+   **Answer:** **A** (maintainer, 2026-09-29): *"94A."* The agent ends with its pane: the session's
+   launcher hangs up its own in-jail processes before it exits, and the other sessions and the jail
+   carry on.
 
 ---
 
@@ -1452,6 +1452,8 @@ what it rests on. A row that depends on a question still open says so.
 | [OQ-JL1](#OQ-JL1) | **Directed by the maintainer: a small background process owns a shared jail, and the first terminal never waits for the others.** *"I don't want a solution where the first terminal waits. The idea is to get my terminal back and reuse it. … I think it is going to have to be some sort of small background process. But then it needs to know how to end itself as well."* That rejects D, the leaning, which was the first launcher holding the jail after its own agent quits; C, ownership migrating to a surviving terminal, has no background process and goes with it. Which background process is [JL-D14](#JL-D14); how it ends itself is [JL-D17](#JL-D17); re-entry and "hand ownership over" are [JL-D22](#JL-D22) | 2026-09-29 | [§9](#9-the-keeper-design-2026-09-29) | — |
 | [OQ-JL5](#OQ-JL5) | **Maintainer ruling:** A, if supportable: a keeper at every notch that starts a long-lived host service or sidecar, `yolo host` and macos-user included, with no backend carved out and any feasibility problem named rather than turned into an exception. Presented with the letters swapped; ruled by its words | 2026-09-29 | [§10](#10-open-questions) | designing |
 | [OQ-JL6](#OQ-JL6) | **Maintainer ruling:** A; no linger. The jail tears down when its last session exits, so a lone tab's agent switch is a fresh launch ([JL-D11](#JL-D11), [JL-D12](#JL-D12) stand) | 2026-09-29 | [§10](#10-open-questions) | as ledgered |
+| [OQ-JL7](#OQ-JL7) | **Maintainer ruling:** A; a killed keeper leaves its sessions running without host services, each told when it ends; a new arrival is refused naming the live sessions and `yolo stop`; the container is reaped once they leave | 2026-09-29 | [§10](#10-open-questions) | pending |
+| [OQ-JL8](#OQ-JL8) | **Maintainer ruling:** A; a session's agent ends with its pane (its launcher hangs up its own in-jail processes before exiting); the other sessions and the jail carry on | 2026-09-29 | [§10](#10-open-questions) | pending |
 | <a id="JL-D1"></a>JL-D1 | *Implementation decision.* **pid 1 is a hold process, and every session enters by exec.** Forced by coupling 2 (MEASURED). The subreaper-plus-detach variant was weighed and rejected ([§3](#3-the-options)). The remaining design space is who owns the host half | 2026-09-29 | [§4.1](#41-the-container-a-hold-process-as-pid-1-and-every-session-an-exec) | — |
 | <a id="JL-D2"></a>JL-D2 | *Implementation decision.* **The count is a host-only kernel lock**, taken under the launch lock. `ExecIDs` is for display only. Follows [JL-P2](#JL-P2): a lock is SIGKILL-safe and needs no runtime call, which also sidesteps Apple Container's unmeasured `ExecIDs`. The layout is one shared file per container name, because [JL-D28](#JL-D28) needs one file the keeper can hold exclusively from its drain to its exit; a per-session registry has none ([§4.2](#42-the-count-a-host-side-session-lock)) | 2026-09-29 | [§4.2](#42-the-count-a-host-side-session-lock) | — |
 | <a id="JL-D3"></a>JL-D3 | *Implementation decision.* **An unopenable lock means "sessions remain".** The keeper then waits only for the container's own end. Follows [JL-P3](#JL-P3) | 2026-09-29 | [§4.4](#44-failure-paths) | — |
