@@ -13,10 +13,11 @@ import (
 // (docs/design/bedrock-plumbing.md OQ-BR9, ruled 2026-09-29: one `bedrock` pack pulls in the
 // provider, and every agent pack that binds Bedrock `needs` it, so `"packs": ["codex"]` alone
 // gets `-p bedrock`). The `bedrock` pack in turn NEEDS aws-auth, unconditionally, the way it
-// was packs/claude's need when the provider was claude's (sso-backed-bedrock plan step 5): the
-// credential service belongs with the provider it serves, so a codex-only selection gets it
-// too. Selecting it changes nothing observable on its own: the pointer is gated on the
-// provider's platform and the loophole ships disabled.
+// was packs/claude's need when the provider was claude's (docs/design/sso-backed-bedrock.md §12
+// step 5, moved to packs/bedrock by bedrock-plumbing.md BR-D15): the credential service belongs
+// with the provider it serves, so a codex-only selection gets it too. Selecting it changes
+// nothing observable on its own: the pointer is gated on the provider's platform and the
+// loophole ships disabled.
 
 // shippedByName materializes the embedded official set, keyed by pack name.
 func shippedByName(t *testing.T) map[string]*Pack {
