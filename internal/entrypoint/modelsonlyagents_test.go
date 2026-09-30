@@ -73,6 +73,41 @@ func TestOmpScopesANarrowedList(t *testing.T) {
 	}
 }
 
+// COPILOT UNDER AN `only` (§14.1, copilot): one COPILOT_MODEL, since copilot's
+// environment-variable setup carries one, and it is the narrowed list's default entry (§7.2):
+// the profile's `model` when the list holds it, else the `default` alias, else the list's first
+// entry. Here the only drops zai's declared default, glm-5.3, so a copilot that looked only at
+// the profile's model composed nothing and fell back to its GitHub login. The whole list in
+// copilot's menu is providers.json's (MM-D10), after its four measurements.
+func TestCopilotStartsOnANarrowedListsDefault(t *testing.T) {
+	company := companyModelsPack(t, `{"kind":"models","provider":"zai","only":["glm-5.3-flash","glm-4.6"]}`)
+	packs := append(testPacksForAgent(t, "copilot", "zai"), company)
+	table, err := packload.ComposeProviders(nil, packs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := packload.ResolveProfiles(packs, nil, table)
+	if err != nil {
+		t.Fatal(err)
+	}
+	vars, err := packload.AgentEnv(packs, table, map[string]string{"copilot": "zai"}, "copilot", "zai",
+		func(string) (string, bool) { return "", false }, packload.WithResolvedProfiles(resolved))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]string{}
+	for _, v := range vars {
+		got[v.Key] = v.Value
+	}
+	// The narrowed list keeps the provider's order, which for zai, declaring none, is by id.
+	if got["COPILOT_MODEL"] != "glm-4.6" {
+		t.Errorf("COPILOT_MODEL = %q, want glm-4.6, the narrowed list's first entry (env %v)", got["COPILOT_MODEL"], got)
+	}
+	if got["COPILOT_PROVIDER_BASE_URL"] == "" {
+		t.Errorf("copilot was not pointed at zai: %v", got)
+	}
+}
+
 // zaiNarrowed composes zai's shipped provider narrowed by a company pack's `only`, and resolves
 // the profiles (zai's own and the user's).
 func zaiNarrowed(t *testing.T, agent string, user map[string]packload.UserProfile) (providers, profiles string) {

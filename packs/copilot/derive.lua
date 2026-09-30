@@ -73,6 +73,33 @@ local function isLocalEndpoint(url)
          string.find(url, "://0%.0%.0%.0")
 end
 
+-- narrowedFirst is a provider list's first entry in the order every list consumer shares: the
+-- `order` fact (declared before undeclared, read under the alias spelled as the id first), then
+-- the id. nil for an empty list.
+local function narrowedFirst(p)
+  local opts = type(p.model_options) == "table" and p.model_options or {}
+  local function orderOf(id)
+    local own = opts[id]
+    if type(own) == "table" and tonumber(own.order) then return tonumber(own.order) end
+    for alias, target in pairs(p.models or {}) do
+      local f = opts[alias]
+      if target == id and type(f) == "table" and tonumber(f.order) then return tonumber(f.order) end
+    end
+    return nil
+  end
+  local rows = {}
+  for _, id in pairs(p.models or {}) do
+    if type(id) == "string" and id ~= "" then table.insert(rows, { id = id, order = orderOf(id) }) end
+  end
+  table.sort(rows, function(a, b)
+    if a.order and b.order and a.order ~= b.order then return a.order < b.order end
+    if a.order and not b.order then return true end
+    if b.order and not a.order then return false end
+    return a.id < b.id
+  end)
+  return rows[1] and rows[1].id
+end
+
 yolo.env("copilot", function(ctx)
   local p = ctx.providers[ctx.selected_provider]
   if not p then return {} end
@@ -116,11 +143,21 @@ yolo.env("copilot", function(ctx)
   end
   local m = p.models or {}
   local alias = (ctx.profile and ctx.profile.model) or "default"
-  if not m[alias] then return {} end
+  local model = m[alias]
+  -- UNDER AN `only` (docs/design/model-lists-and-pickers.md §14.1, copilot) the narrowed list
+  -- is the provider's whole menu, and its DEFAULT ENTRY is §7.2's: the profile's `model` when
+  -- the list holds it, else the `default` alias, else the list's first entry. An only that drops
+  -- the profile's model must not leave copilot on its GitHub login, so the first entry answers.
+  -- Still one model: copilot's environment-variable setup carries one, and the whole list is
+  -- providers.json's to show, after the measurements MM-D10 names.
+  if not model and p.models_only == true then
+    model = m.default or narrowedFirst(p)
+  end
+  if not model then return {} end
   local out = {
     COPILOT_PROVIDER_BASE_URL = base,
     COPILOT_PROVIDER_TYPE = ptype,
-    COPILOT_MODEL = m[alias],
+    COPILOT_MODEL = model,
   }
   if wire then out.COPILOT_PROVIDER_WIRE_API = wire end
   local cw = ctx.profile and (ctx.profile.context_window or ctx.profile.max_context_tokens)
