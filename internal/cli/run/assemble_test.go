@@ -547,6 +547,9 @@ func podmanLinuxGolden(home string) []string {
 		// export fails here, which is the only place that would notice.
 		"-e", "YOLO_RUNTIME=podman",
 	)
+	// The context dir, on every container launch whether or not a context mount was declared
+	// (context-mounts.md CX-D4).
+	add("-e", "YOLO_CONTEXT_DIR=/ctx")
 	// Claude's credential store, pointed at the machine-scope directory bound above (CL-D22):
 	// Claude opens the real file there, with no symlink in its credential path. Off only on a
 	// credential-view launch, which this fixture is not.

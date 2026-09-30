@@ -1,6 +1,7 @@
 package macosuser
 
 import (
+	"regexp"
 	"strings"
 	"testing"
 
@@ -452,7 +453,9 @@ func TestPlanRenderNamesTheContextTreeEitherWay(t *testing.T) {
 		t.Errorf("a launch that carried no host bytes does not say so, which leaves it "+
 			"indistinguishable from a backend that cannot carry any:\n%s", bare.String())
 	}
-	if strings.Contains(bare.String(), packload.CtxRoot+"/") {
+	// A path that BEGINS at /ctx, not one containing it: the staged tree itself is
+	// /var/yolo-jail/ctx/<cname>, which every plan now names as $YOLO_CONTEXT_DIR (CX-D4).
+	if regexp.MustCompile(`(^|[\s=:'"])` + regexp.QuoteMeta(packload.CtxRoot+"/")).MatchString(bare.String()) {
 		t.Errorf("the plan names a literal /ctx path, which cannot exist on macOS:\n%s",
 			bare.String())
 	}

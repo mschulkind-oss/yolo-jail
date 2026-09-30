@@ -392,6 +392,27 @@ func StageCtxCommands(hostCtxTree, cname, sd string) [][]string {
 	}
 }
 
+// StageEmptyCtxCommands stages an EMPTY root-owned directory at StagedCtxRoot, for a launch
+// whose host CLI composed no context tree: $YOLO_CONTEXT_DIR is exported on every launch
+// (docs/design/context-mounts.md CX-D4), so the directory it names must exist even when
+// nothing is in it — an empty one says "no context mounts", which is true. Same rm-then-mv
+// shape as StageCtxCommands, so a previous launch's tree never survives into this one.
+func StageEmptyCtxCommands(cname, sd string) [][]string {
+	if sd == "" {
+		sd = stateDir
+	}
+	dst := StagedCtxRoot(cname, sd)
+	tmp := dst + ".new"
+	return [][]string{
+		{mkdirBin, "-p", filepath.Join(sd, ctxLeaf)},
+		{rmBin, "-rf", tmp},
+		{mkdirBin, tmp},
+		{chmodBin, "755", tmp},
+		{rmBin, "-rf", dst},
+		{mvBin, "-f", tmp, dst},
+	}
+}
+
 // ---------------------------------------------------------------------------
 // Workspace location — must be neutral ground, never inside a home
 // ---------------------------------------------------------------------------

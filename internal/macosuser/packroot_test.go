@@ -1,6 +1,7 @@
 package macosuser
 
 import (
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -86,8 +87,11 @@ func TestRunPlanWithoutPacksNamesNoPackRoot(t *testing.T) {
 			t.Errorf("bootstrap argv names a pack root nothing staged: %q", a)
 		}
 	}
+	// Pack staging is the rm-then-mv under the PACKS leaf; the context dir is staged on every
+	// launch (CX-D4), so an rm elsewhere is not this test's subject.
+	packsLeaf := filepath.Dir(StagedPackRoot(plan.Cname, ""))
 	for _, c := range plan.StageCommands {
-		if len(c) > 0 && c[0] == rmBin {
+		if len(c) > 2 && c[0] == rmBin && strings.HasPrefix(c[2], packsLeaf+"/") {
 			t.Errorf("a pack-less launch still runs pack staging: %v", c)
 		}
 	}

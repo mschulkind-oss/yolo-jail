@@ -37,7 +37,11 @@ type RunPlan struct {
 	// none. Absence is the honest way to say "this launch carried no host bytes"; it is
 	// also what makes the host-layer report say `unsupported`, so the two can never
 	// disagree about whether this backend delivered.
-	CtxRoot       string
+	CtxRoot string
+	// ContextDir is what $YOLO_CONTEXT_DIR names for the agent and the bootstrap: the same
+	// root-owned tree as CtxRoot, but set on EVERY launch and staged every launch, empty when
+	// nothing was composed (docs/design/context-mounts.md CX-D4).
+	ContextDir    string
 	BootstrapArgv []string
 	// ProvisionArgv is the CONFINED provisioning stage, run between the bootstrap and
 	// the agent — nil when this config gives it nothing to do (ProvisionNeeded), which
@@ -389,6 +393,16 @@ func BuildRunPlanWithDaemons(workspace string, cfg *jsonx.OrderedMap, agents, ag
 	if hostCtx.Tree != "" {
 		ctxRoot = StagedCtxRoot(cname, "")
 	}
+	// THE CONTEXT DIR (docs/design/context-mounts.md CX-D4): the same root-owned tree, named
+	// to the AGENT on every launch whether or not anything was composed into it, so pack
+	// text and agents spell a context path `$YOLO_CONTEXT_DIR/<rel>` here as on a container
+	// (where it is /ctx). The tree is staged every launch for that reason — empty when the
+	// host CLI composed nothing (StageEmptyCtxCommands) — which is the deliberate departure
+	// from YOLO_CTX_ROOT's absence-is-the-signal rule: that variable keeps it, and stays
+	// the entrypoint's alone. The agent's copy rides the session env file, since the launch
+	// argv's `env -i` list is closed (sandboxEnvPairs).
+	contextDir := StagedCtxRoot(cname, "")
+	sandboxEnv = withEnvVar(sandboxEnv, paths.ContextDirEnv, contextDir)
 	// THE WORKSPACE SIDECAR — <workspace>/.yolo/home, the same directory the podman argv
 	// binds the jail home's per-workspace dirs from (paths.WorkspaceHomeState, one spelling
 	// for both backends). Naming it is what turns the tier collapse off: the bootstrap
@@ -397,6 +411,7 @@ func BuildRunPlanWithDaemons(workspace string, cfg *jsonx.OrderedMap, agents, ag
 	bootstrapEnv := buildBootstrapEnv(workspace, cfg, gitIdentity, sandboxEnv, packRoot,
 		homeOverlay, ctxRoot, hostCtx, paths.WorkspaceHomeState(workspace), SandboxHome(),
 		darwinPrefix, blockedTools)
+	bootstrapEnv.Set(paths.ContextDirEnv, contextDir)
 
 	stagedYolo := StagedYoloPath("")
 	offendingHome, offendingSet := HomeContaining(workspace, "")
@@ -441,7 +456,11 @@ func BuildRunPlanWithDaemons(workspace string, cfg *jsonx.OrderedMap, agents, ag
 	stageCommands := append([][]string{}, StageBinaryCommands(selfExe, "")...)
 	stageCommands = append(stageCommands, StagePackCommands(hostPackRoot, cname, "")...)
 	stageCommands = append(stageCommands, StageHomeOverlayCommands(hostHomeOverlay.Tree, cname, "")...)
-	stageCommands = append(stageCommands, StageCtxCommands(hostCtx.Tree, cname, "")...)
+	if hostCtx.Tree != "" {
+		stageCommands = append(stageCommands, StageCtxCommands(hostCtx.Tree, cname, "")...)
+	} else {
+		stageCommands = append(stageCommands, StageEmptyCtxCommands(cname, "")...)
+	}
 	stageCommands = append(stageCommands, endpointGrantCommands(sandboxEnv)...)
 
 	// THE GUEST'S JAIL DAEMONS (OQ-DP8, OQ-DP9; jaildaemon.go), composed only when the
@@ -477,6 +496,7 @@ func BuildRunPlanWithDaemons(workspace string, cfg *jsonx.OrderedMap, agents, ag
 		StageCommands:       stageCommands,
 		PackRoot:            packRoot,
 		CtxRoot:             ctxRoot,
+		ContextDir:          contextDir,
 		BootstrapArgv:       DarwinBootstrapArgv(stagedYolo, SandboxHome(), bootstrapEnv, ""),
 		ProvisionArgv:       provisionArgv,
 		ProvisionScriptPath: provisionScriptPath,
@@ -915,6 +935,32 @@ func PlanInvariants(plan RunPlan) []string {
 				"YOLO_CTX_ROOT="+plan.CtxRoot+" is not baked into the bootstrap env; the "+
 					"entrypoint would read host layers from the literal /ctx, which does not "+
 					"exist on macOS, and every surface would compose from its defaults layer")
+		}
+	}
+
+	// THE CONTEXT DIR IS NAMED AND IT EXISTS (CX-D4). Every launch tells the agent where its
+	// context mounts live, so the name must be the root-owned staged tree — never a path the
+	// agent can write, where a context tree could be re-pointed — something must stage it,
+	// and both the bootstrap and the agent's env file must carry it.
+	if plan.ContextDir == "" || !strings.HasPrefix(plan.ContextDir, plan.StagedDir+"/") {
+		problems = append(problems,
+			"the context dir "+quoteOrNone(plan.ContextDir)+" is not under the root-owned state "+
+				"dir "+plan.StagedDir+"; $"+paths.ContextDirEnv+" would name a tree the agent "+
+				"can rewrite, or nothing")
+	} else {
+		if !stagesTreeAt(plan.StageCommands, plan.ContextDir) {
+			problems = append(problems,
+				"nothing stages the context dir at "+plan.ContextDir+"; $"+paths.ContextDirEnv+
+					" would name a directory that is not there")
+		}
+		if !containsArg(plan.BootstrapArgv, paths.ContextDirEnv+"="+plan.ContextDir) {
+			problems = append(problems,
+				paths.ContextDirEnv+"="+plan.ContextDir+" is not baked into the bootstrap env")
+		}
+		if !SandboxEnvFileSets(plan.EnvFileContent, paths.ContextDirEnv, plan.ContextDir) {
+			problems = append(problems,
+				"the session env file does not export "+paths.ContextDirEnv+"="+plan.ContextDir+
+					"; the agent would not know where its context mounts live")
 		}
 	}
 
@@ -1653,4 +1699,19 @@ func cfgStrList(cfg *jsonx.OrderedMap, key string) []string {
 func (p RunPlan) envFile() (string, string) { return p.EnvFile, p.EnvFileContent }
 func (p RunPlan) envFileCommands() ([][]string, [][]string) {
 	return p.EnvFileCommands, p.EnvFileGrantCommands
+}
+
+// withEnvVar returns a copy of env with key set to value, env itself untouched: the caller's
+// launch env is theirs, and a plan builder that wrote into it would be a side effect a pure
+// function is not allowed.
+func withEnvVar(env *jsonx.OrderedMap, key, value string) *jsonx.OrderedMap {
+	out := jsonx.NewOrderedMap()
+	if env != nil {
+		for _, k := range env.Keys() {
+			v, _ := env.Get(k)
+			out.Set(k, v)
+		}
+	}
+	out.Set(key, value)
+	return out
 }

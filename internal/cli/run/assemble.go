@@ -404,6 +404,13 @@ func (o *Options) assembleRunCmd(in *assembleInput) []string {
 
 	// --- Common env block (frozen order) ---
 	runCmd = append(runCmd, o.commonEnvBlock(in, blockedConfigJSON, netMode)...)
+	// THE CONTEXT DIR (docs/design/context-mounts.md CX-D4), on both container backends and on
+	// EVERY launch: /ctx is where every context mount lands here, and the directory exists
+	// whether or not one was declared. macos-user exports its own value (its staged tree),
+	// so pack text and agents spell a context path `$YOLO_CONTEXT_DIR/<rel>` everywhere.
+	// Not YOLO_CTX_ROOT, which is the entrypoint's composition input and means ~/.yolo-ctx
+	// on Apple Container.
+	runCmd = append(runCmd, "-e", paths.ContextDirEnv+"="+paths.ContainerContextDir)
 	// THE DURABLE DIR (durabledir.go), on both container backends, and ONLY when this launch
 	// made it: a variable naming a directory that is not there would send every agent and
 	// tool to nothing. A container env var, so every exec an attach starts inherits it.
