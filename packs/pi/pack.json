@@ -36,6 +36,13 @@
       "kind": "briefing"
     },
     {
+      "agents": [
+        "pi"
+      ],
+      "from": "briefing/worktrees.md",
+      "kind": "briefing"
+    },
+    {
       "agent": "pi",
       "into": ".pi/agent/skills",
       "kind": "skills",

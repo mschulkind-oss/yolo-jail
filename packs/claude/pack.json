@@ -36,6 +36,13 @@
       "kind": "briefing"
     },
     {
+      "agents": [
+        "claude"
+      ],
+      "from": "briefing/worktrees.md",
+      "kind": "briefing"
+    },
+    {
       "agent": "claude",
       "into": ".claude/skills",
       "kind": "skills",

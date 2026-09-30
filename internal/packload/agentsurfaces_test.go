@@ -33,10 +33,14 @@ func agentPacks(t *testing.T) []*packload.Pack {
 	return out
 }
 
+// destsOf is the DESTINATIONS a pack declares of one kind: the contributions that name an
+// `agent`, which is what makes a line a destination rather than content (P5 (briefing
+// defaults), docs/reference/pack-system.md#briefing-p5). An agent pack may also ship content
+// of its own — the claude and pi packs' worktree prose — and that is not a destination.
 func destsOf(p *packload.Pack, kind packdecl.Kind) []string {
 	var out []string
 	for _, c := range p.Decl.Contributions() {
-		if c.Kind == kind {
+		if c.Kind == kind && c.Agent != "" {
 			out = append(out, c.Into)
 		}
 	}
@@ -110,13 +114,18 @@ func TestEveryAgentPackDeclaresItsBriefingIdentity(t *testing.T) {
 			if c.Kind != packdecl.KindBriefing {
 				continue
 			}
-			found = true
 			if c.Agent == "" {
-				t.Errorf("pack %q declares a briefing destination %q with no `agent` — it is "+
-					"then unaddressable, and a content pack naming this agent delivers nothing "+
-					"while nothing anywhere reports it", p.Name, c.Into)
+				// CONTENT the pack ships for its own agent (TestShippedAgentPacksKeepIntoForSkew
+				// holds its shape) — unless it names a path, which is what a destination that
+				// lost its `agent` looks like, and which a jail would broadcast besides.
+				if c.Into != "" {
+					t.Errorf("pack %q declares a briefing destination %q with no `agent` — it is "+
+						"then unaddressable, and a content pack naming this agent delivers nothing "+
+						"while nothing anywhere reports it", p.Name, c.Into)
+				}
 				continue
 			}
+			found = true
 			if !bins[c.Agent] {
 				t.Errorf("pack %q briefing declares `agent: %q`, which is not a bin it owns "+
 					"(%v) — the audience namespace IS the bin namespace, and `-p %s` would "+
@@ -124,7 +133,7 @@ func TestEveryAgentPackDeclaresItsBriefingIdentity(t *testing.T) {
 			}
 		}
 		if !found {
-			t.Errorf("pack %q installs an agent and declares no briefing at all", p.Name)
+			t.Errorf("pack %q installs an agent and declares no briefing destination at all", p.Name)
 		}
 	}
 }
@@ -146,23 +155,51 @@ func TestEveryAgentPackDeclaresItsBriefingIdentity(t *testing.T) {
 // it, and the gate is silent for any skew it cannot prove (a binary whose stamp names no
 // commit in the tree). Those are the launches where a newer host stages a shipped pack for an
 // older entrypoint, and a shipped pack that dropped `into` would brick exactly those boots;
-// re-pairing the halves (`just install`) is the recovery. Only a USER's own pack — whose
-// author chose the version that reads the shape — may reach the addressed shape.
+// re-pairing the halves (`just install`) is the recovery.
+//
+// ONE ADDRESSED SHAPE IS SHIPPED, ON PURPOSE (docs/design/durable-scratch-space.md DS-D33): an
+// agent pack's own content for its OWN agent, `{"kind": "briefing", "from": …, "agents":
+// [<its own agent>]}`. The claude and pi packs ship worktree prose that way, because it names
+// one agent's tool, and no other shape delivers it to that agent alone: a `briefing/` file
+// nobody names broadcasts to every agent, and a content `into` narrows only at the host notch
+// (a jail broadcasts it — docs/reference/pack-system.md, "A content `into` narrows at the host
+// notch only"). The accepted cost is the window above for that one line: an entrypoint built
+// before the audiences field (9218bf76, 2026-09-02, first released in v0.10.0) refuses it, a
+// pairing the source-skew gate refuses unless YOLO_ALLOW_SOURCE_SKEW=1 and `just install`
+// repairs. The DESTINATION keeps `into` and never takes `agents`, as before, and content may
+// name only the pack's own agent: a broadcast or another agent's name would put one agent's
+// tool facts in every agent's instructions, or fail every launch that does not select the
+// agent it names (docs/reference/agent-briefings.md#ba-p3).
 func TestShippedAgentPacksKeepIntoForSkew(t *testing.T) {
 	for _, p := range agentPacks(t) {
+		own := map[packdecl.Kind]string{}
+		for _, c := range p.Decl.Contributions() {
+			if (c.Kind == packdecl.KindBriefing || c.Kind == packdecl.KindSkills) && c.Agent != "" {
+				own[c.Kind] = c.Agent
+			}
+		}
 		for _, c := range p.Decl.Contributions() {
 			if c.Kind != packdecl.KindBriefing && c.Kind != packdecl.KindSkills {
 				continue
 			}
+			if c.Agent == "" {
+				if len(c.Agents) != 1 || c.Agents[0] != own[c.Kind] || c.Into != "" {
+					t.Errorf("pack %q ships %s content routed by agents %v and into %q — an agent "+
+						"pack's own content names exactly its own agent (%q) and no path: anything "+
+						"else reaches other agents, or names one a jail may not select",
+						p.Name, c.Kind, c.Agents, c.Into, own[c.Kind])
+				}
+				continue
+			}
 			if c.Into == "" {
-				t.Errorf("pack %q ships a %s contribution with no `into` — an entrypoint built "+
+				t.Errorf("pack %q ships a %s destination with no `into` — an entrypoint built "+
 					"before the audiences field refuses it outright, so the very next launch on a "+
 					"skewed machine dies at boot", p.Name, c.Kind)
 			}
 			if len(c.Agents) != 0 {
-				t.Errorf("pack %q ships a %s contribution with `agents: %v` — an agent pack owns "+
+				t.Errorf("pack %q ships a %s destination with `agents: %v` — an agent pack owns "+
 					"a destination and names its own identity with `agent`; the audience selector "+
-					"belongs to CONTENT packs", p.Name, c.Kind, c.Agents)
+					"is for content", p.Name, c.Kind, c.Agents)
 			}
 		}
 	}

@@ -25,6 +25,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/jailcontent"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	officialpacks "github.com/mschulkind-oss/yolo-jail/packs"
 )
 
 // userProseFixture builds a home whose ~/.claude/CLAUDE.md is HAND-WRITTEN, plus a pack that
@@ -324,17 +325,24 @@ func TestApplyHostBriefingDroppingThePackLeavesNoOrphan(t *testing.T) {
 	}
 
 	// The prose pack leaves. `claude` still NAMES the destination, so yolo still owns it and
-	// composes the host base into it; the pack's rule is gone, and nothing is archived.
+	// composes the host base into it, followed by the claude pack's own prose (its worktree
+	// section, docs/design/durable-scratch-space.md DS-D33); the dropped pack's rule is gone,
+	// and nothing is archived.
 	selectPacks(t, home, `"claude"`)
 	rc, report := applyWith(t, true, strings.NewReader("y\n"))
 	if rc != 0 {
 		t.Fatalf("apply after the prose pack's drop rc=%d\n%s", rc, report)
 	}
+	claudeOwn, err := officialpacks.FS.ReadFile("claude/briefing/worktrees.md")
+	if err != nil {
+		t.Fatalf("the claude pack's own prose: %v", err)
+	}
+	want := jailcontent.ComposeBriefingSections(jailcontent.HostBriefingBase("", paths.IsMacOS),
+		[]jailcontent.BriefingSection{{Pack: "claude", Text: strings.TrimRight(string(claudeOwn), "\n")}}, false)
 	after, err := os.ReadFile(dest)
-	if err != nil || strings.Contains(string(after), "Pack rule: use rg.") ||
-		string(after) != jailcontent.HostBriefingBase("", paths.IsMacOS) {
-		t.Errorf("with only the agent pack left the destination is the host base alone: %v\n%q\n%s",
-			err, after, report)
+	if err != nil || strings.Contains(string(after), "Pack rule: use rg.") || string(after) != want {
+		t.Errorf("with only the agent pack left the destination is the host base and the claude "+
+			"pack's own prose: %v\n%q\n%s", err, after, report)
 	}
 	if got := archivedBriefings(t, home); len(got) != 0 {
 		t.Errorf("a destination a selected pack still declares is not an orphan: %v\n%s", got, report)

@@ -75,7 +75,7 @@ func TestAppleContainerMaterializesSingleFiles(t *testing.T) {
 	// path the assembler never looks at.
 	briefDest := ""
 	for _, c := range loadedPacks[0].Decl.Contributions() {
-		if c.Kind == packdecl.KindBriefing {
+		if c.Kind == packdecl.KindBriefing && c.Agent != "" { // the destination, not the pack's own prose
 			briefDest = c.Into
 		}
 	}
