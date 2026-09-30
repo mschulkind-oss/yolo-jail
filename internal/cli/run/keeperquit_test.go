@@ -11,6 +11,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	yoloruntime "github.com/mschulkind-oss/yolo-jail/internal/runtime"
 )
 
 // TestTheLastSessionsQuitStreamsItsKeepersTeardown: a quit whose shared lock was the last one finds
@@ -57,6 +59,124 @@ func TestTheLastSessionsQuitStreamsItsKeepersTeardown(t *testing.T) {
 	}
 	if probeKeeper(cname) != keeperGone {
 		t.Error("the last quit returned before its keeper was gone")
+	}
+}
+
+// TestALastQuitTheKeeperOvertakesStillStreamsItsTeardown: the keeper, blocked on the exclusive
+// session lock, can take it between the quitting session's shared take and its exclusive one. The
+// exclusive take then fails with no other session in the jail, and read as another session's hold,
+// the quit said the jail stays up for its other sessions while the keeper was tearing it down: a
+// flake of TestTheLastSessionsQuitStreamsItsKeepersTeardown under load, and a wrong line for a user.
+// The seam makes that interleaving certain: the probe's exclusive take waits until the keeper holds
+// the lock.
+func TestALastQuitTheKeeperOvertakesStillStreamsItsTeardown(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	const cname = "yolo-overtaken-quit"
+	live, err := holdLivenessLock(cname)
+	if err != nil {
+		t.Fatal(err)
+	}
+	session, _, err := takeSessionLock(cname)
+	if err != nil {
+		t.Fatal(err)
+	}
+	logF, err := openKeeperLog(cname)
+	if err != nil {
+		t.Fatal(err)
+	}
+	start, held := make(chan struct{}), make(chan struct{})
+	go func() {
+		f, _ := openSessionLock(cname)
+		<-start
+		_ = syscall.Flock(int(f.Fd()), syscall.LOCK_EX)
+		close(held)
+		time.Sleep(100 * time.Millisecond)
+		_, _ = logF.WriteString("12:00:00.000 keeper: done\n")
+		_ = logF.Close()
+		_ = f.Close()
+		releaseLock(live)
+	}()
+	orig := flockSyscall
+	t.Cleanup(func() { flockSyscall = orig })
+	var sawShared, overtaken bool
+	flockSyscall = func(fd, how int) error {
+		switch {
+		case how == syscall.LOCK_SH|syscall.LOCK_NB:
+			sawShared = true
+		case how == syscall.LOCK_EX|syscall.LOCK_NB && sawShared && !overtaken:
+			// The session lock's exclusive take, after its shared one: the keeper goes first.
+			overtaken = true
+			close(start)
+			<-held
+		}
+		return orig(fd, how)
+	}
+	o := goldenOptions("/ws", t.TempDir())
+	var errBuf bytes.Buffer
+	o.Stderr = &errBuf
+	o.sessionLock = session
+	o.Exec = func(argv []string, _ string, _ []string, _ time.Duration) ExecResult {
+		return ExecResult{Ran: true, Stdout: "abc123\n"}
+	}
+	if rc := o.endSession(cname, "podman", 0, time.Now(), 0, true); rc != 0 {
+		t.Errorf("rc %d", rc)
+	}
+	if !overtaken {
+		t.Fatal("the probe never made its exclusive take, so the keeper never overtook it")
+	}
+	if strings.Contains(errBuf.String(), "stays up for") || !strings.Contains(errBuf.String(), "keeper: done") {
+		t.Errorf("a last quit the keeper overtook must stream the teardown, not say others remain:\n%s",
+			errBuf.String())
+	}
+}
+
+// TestWaitForKeeperWaitsOutADrainThatOvertakesItsProbe: the integration suite's wait on a keeper
+// (WaitForKeeper) ends at once when a session is still in the jail. The same overtaking made it read
+// the keeper's fresh exclusive hold as a session's and return while the keeper was still tearing the
+// jail down, so a test could delete a workspace the keeper was still writing into.
+func TestWaitForKeeperWaitsOutADrainThatOvertakesItsProbe(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	ws := t.TempDir()
+	cname := yoloruntime.FromWorkspace(ws)
+	live, err := holdLivenessLock(cname)
+	if err != nil {
+		t.Fatal(err)
+	}
+	start, held, gone := make(chan struct{}), make(chan struct{}), make(chan struct{})
+	go func() {
+		f, _ := openSessionLock(cname)
+		<-start
+		_ = syscall.Flock(int(f.Fd()), syscall.LOCK_EX)
+		close(held)
+		time.Sleep(200 * time.Millisecond)
+		close(gone)
+		releaseLock(live)
+		_ = f.Close()
+	}()
+	orig := flockSyscall
+	t.Cleanup(func() { flockSyscall = orig })
+	var sawShared, overtaken bool
+	flockSyscall = func(fd, how int) error {
+		switch {
+		case how == syscall.LOCK_SH|syscall.LOCK_NB:
+			sawShared = true
+		case how == syscall.LOCK_EX|syscall.LOCK_NB && sawShared && !overtaken:
+			overtaken = true
+			close(start)
+			<-held
+		}
+		return orig(fd, how)
+	}
+	if err := WaitForKeeper(ws, 10*time.Second); err != nil {
+		t.Fatal(err)
+	}
+	if !overtaken {
+		t.Fatal("the wait never probed the session lock, so the keeper never overtook it")
+	}
+	select {
+	case <-gone:
+	default:
+		t.Error("WaitForKeeper returned while the keeper still held the jail, reading its drain as a session")
 	}
 }
 

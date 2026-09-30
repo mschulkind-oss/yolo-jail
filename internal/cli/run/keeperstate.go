@@ -287,11 +287,9 @@ func (o *Options) keeperEra(cname string) (keeperRecord, bool) {
 
 // probeAfterQuit is a quitting session's look at its jail once its own session lock is gone
 // (JL-D11, JL-D30; the probe's order is JL-D57). A keeper blocked on the exclusive session lock
-// takes it within a scheduling tick of the last shared one going, so:
-//
-//   - a shared take that fails is the keeper's exclusive hold: this was the last session;
-//   - a shared take that succeeds, beside an exclusive one that fails, is another session;
-//   - an exclusive take that succeeds is nobody at all, the keeper not yet having run: look again.
+// takes it within a scheduling tick of the last shared one going, so readSessionLockHolder's answer
+// is the state: the keeper's exclusive hold is the last session gone, a shared hold is another
+// session, and nobody is the keeper not yet having run, so look again.
 //
 // A free liveness lock is no keeper: an unkept jail (keeperEra), reaped by the session that finds
 // no other one, or a jail an older yolo's launcher still owns.
@@ -320,26 +318,72 @@ func (o *Options) probeAfterQuit(cname string) (quitState, quitLocks) {
 		if err != nil {
 			return quitUnknown, quitLocks{}
 		}
-		shErr := flockSyscall(int(f.Fd()), syscall.LOCK_SH|syscall.LOCK_NB)
-		if shErr != nil {
-			_ = f.Close()
-			if errors.Is(shErr, syscall.EWOULDBLOCK) || errors.Is(shErr, syscall.EAGAIN) {
-				return quitLast, quitLocks{}
-			}
-			return quitUnknown, quitLocks{}
-		}
-		_ = syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
-		exErr := flockSyscall(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
-		_ = syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
+		holder := readSessionLockHolder(f)
 		_ = f.Close()
-		if exErr != nil {
+		switch holder {
+		case heldExclusive:
+			return quitLast, quitLocks{}
+		case heldShared:
 			return quitOthers, quitLocks{}
+		case heldUnknown:
+			return quitUnknown, quitLocks{}
 		}
 		if !time.Now().Before(deadline) {
 			return quitUnknown, quitLocks{}
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
+}
+
+// sessionLockHolder is who holds a jail's session lock, as non-blocking takes read it.
+type sessionLockHolder int
+
+const (
+	// heldByNobody: neither a session nor the keeper holds it.
+	heldByNobody sessionLockHolder = iota
+	// heldExclusive: the keeper holds it exclusively, draining the jail.
+	heldExclusive
+	// heldShared: one or more sessions hold it shared.
+	heldShared
+	// heldUnknown: a take failed for a reason other than contention.
+	heldUnknown
+)
+
+// readSessionLockHolder reads who holds the session lock open at f, without waiting. A shared take
+// that fails is an exclusive hold, and an exclusive take that succeeds is nobody. An exclusive take
+// that fails after a shared one succeeded is NOT yet a session's shared hold: a keeper blocked on
+// the exclusive lock can take it between the two takes, and its failure is then the keeper's hold.
+// So a second shared take decides: it fails under the keeper's exclusive hold, and succeeds beside
+// the sessions' shared ones. Read without that second take, a last session the keeper overtook said
+// its jail stayed up for other sessions while the keeper tore it down.
+func readSessionLockHolder(f *os.File) sessionLockHolder {
+	fd := int(f.Fd())
+	shared := func() (bool, sessionLockHolder) {
+		err := flockSyscall(fd, syscall.LOCK_SH|syscall.LOCK_NB)
+		if err == nil {
+			_ = syscall.Flock(fd, syscall.LOCK_UN)
+			return true, heldByNobody
+		}
+		if errors.Is(err, syscall.EWOULDBLOCK) || errors.Is(err, syscall.EAGAIN) {
+			return false, heldExclusive
+		}
+		return false, heldUnknown
+	}
+	if ok, h := shared(); !ok {
+		return h
+	}
+	err := flockSyscall(fd, syscall.LOCK_EX|syscall.LOCK_NB)
+	if err == nil {
+		_ = syscall.Flock(fd, syscall.LOCK_UN)
+		return heldByNobody
+	}
+	if !errors.Is(err, syscall.EWOULDBLOCK) && !errors.Is(err, syscall.EAGAIN) {
+		return heldUnknown
+	}
+	if ok, h := shared(); !ok {
+		return h
+	}
+	return heldShared
 }
 
 // keeperDraining reports whether cname's keeper is ending its jail: it is alive, and it holds the

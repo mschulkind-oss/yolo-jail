@@ -573,21 +573,13 @@ func WaitForKeeper(workspace string, timeout time.Duration) error {
 	}
 }
 
-// sessionsRemain reports whether some session holds cname's session lock shared: a shared take
-// succeeds, so no keeper is draining, and an exclusive one fails, so someone is in.
+// sessionsRemain reports whether some session holds cname's session lock shared, rather than the
+// keeper holding it to drain the jail (readSessionLockHolder).
 func sessionsRemain(cname string) bool {
 	f, err := openSessionLock(cname)
 	if err != nil {
 		return false
 	}
 	defer f.Close()
-	if err := flockSyscall(int(f.Fd()), syscall.LOCK_SH|syscall.LOCK_NB); err != nil {
-		return false
-	}
-	_ = syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
-	if err := flockSyscall(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
-		return true
-	}
-	_ = syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
-	return false
+	return readSessionLockHolder(f) == heldShared
 }
