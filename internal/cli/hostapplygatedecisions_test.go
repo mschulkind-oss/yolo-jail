@@ -128,6 +128,13 @@ func TestHostExecLaunchesOverAnotherPacksMissingDependency(t *testing.T) {
 			t.Errorf("the hook must say %q:\n%s", want, report)
 		}
 	}
+	// THE MISS LINE BESIDE THE DECISION TEXT (host-launch-environment.md §4.2, HE-D2): a missing
+	// dependency beside pending changes — the first launch before any apply — is still a miss, so
+	// the gate's decision branch prints the line too, not only its in-sync branch. Delete the
+	// reportGateMisses call after reportHostApplyGateDecisions and this fails.
+	if want := "yolo host: yolo-test-absent-bin (required by the needy pack) is not on this launch's PATH"; !strings.Contains(report, want) {
+		t.Errorf("the gate's decision branch lacks the miss line %q:\n%s", want, report)
+	}
 }
 
 // THE DEFENSE BEHIND THE PRE-CHECK. Should the observe pass ever miss a question, the buffered
