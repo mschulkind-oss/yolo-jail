@@ -137,8 +137,9 @@ conditional sections that appear only when their data exists. Emission order, fr
    shares it and what yolo cleans up, rendered from the launch's persistence map (see below).
    The map's two backend facts pick the wording, never the backend's name: a per-launch set in
    RAM (Apple Container, or podman under `ephemeral_storage: "tmpfs"`) is gone when the jail
-   stops and uses the jail's memory; a read-only home (podman) ends with its read-only rest,
-   and a whole-home bind (Apple Container) with the files yolo rewrites at each launch instead.
+   stops and uses the jail's memory; after the class bullets, a read-only home (podman) gets a
+   bullet for its read-only rest, and a whole-home bind (Apple Container) one for the files yolo
+   rewrites at each launch instead. The Secrets line comes last on both.
    On `macos-user` the section is the durable dir and one line about the Mac's shared `/tmp`.
    At the host notch it is absent, and the confinement header says in one sentence what the
    machine's `/tmp` survives.
