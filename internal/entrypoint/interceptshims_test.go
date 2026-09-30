@@ -95,7 +95,16 @@ func TestInterceptShimRuns(t *testing.T) {
 	if err := os.WriteFile(shim, []byte(InterceptShimContent("p", "x", real, []string{"fwd", "--"})), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	env := append(os.Environ(), "PATH="+dir+":/usr/bin:/bin")
+	// The first run is the one WITHOUT the bypass, so the suite's own YOLO_BYPASS_SHIMS must
+	// not reach it: AGENTS.md tells installers and scripts to set it, and a go test started
+	// from one of them inherits it.
+	var env []string
+	for _, kv := range os.Environ() {
+		if !strings.HasPrefix(kv, "YOLO_BYPASS_SHIMS=") {
+			env = append(env, kv)
+		}
+	}
+	env = append(env, "PATH="+dir+":/usr/bin:/bin")
 	cmd := exec.Command(shim, "pr view", "it's")
 	cmd.Env = env
 	out, err := cmd.CombinedOutput()
