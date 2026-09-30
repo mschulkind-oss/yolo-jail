@@ -32,7 +32,10 @@ summary: "macos-user provisions itself the way a container jail does, by two mec
 were updated on 2026-09-25 for the deletion of the LSP install recipes
 ([`mcp-configuration.md`](mcp-configuration.md#binaries-are-the-users)): yolo installs no
 language server on any backend now, so that key no longer starts, feeds or is checked by the
-stage.
+stage. The skip rule, the bootstrap's place in the stage and the installer-prompt warning were
+updated on 2026-09-30 for [AR-L3](../design/agent-program-runtimes.md#AR-L3),
+[AR-L4](../design/agent-program-runtimes.md#AR-L4) and
+[PS-D1](../design/provisioner-sets.md#PS-D1), read from code and unit tests only.
 
 A container jail gets its tools from two places: an image **floor** that exists before any
 config asks for anything, and an imperative **stage** that runs inside the jail before the
@@ -256,7 +259,9 @@ the **first** process under that profile, not a second.
 > `/dev/tty` and waited for a human. Seatbelt was working correctly both times — the sandbox
 > home is *supposed* to be writable and the tty is the launch's own. Every generated
 > PATH-ordering and launcher artifact lives inside that home, so a stage that runs installers
-> on a schedule inherits both effects, unprompted.
+> on a schedule inherits both effects, unprompted. The prompt half is closed since 2026-09-30:
+> the launcher starts a vendor installer in a session of its own, with no `/dev/tty` and a
+> `/dev/null` stdin ([PS-D1](../design/provisioner-sets.md#PS-D1)). The rc-file half is not.
 
 ### What the stage runs, and what it does not
 
@@ -267,15 +272,25 @@ decisions with stated reasons:
 | :--- | :--- | :--- | :--- |
 | prune dangling store symlinks | ✅ | ❌ | gated on `YOLO_STORE_PRUNE_OK`, which the container's launcher sets only after proving no other jail is live. Nothing here computes that proof, so the step would be permanently inert — a line that reads like a feature and is one only on the other backend. |
 | announce + `mise install` (verbose only when `mise ls --missing` lists a tool) | ✅ | ✅ | the announce lines are steps, not decoration: a tee'd `startup.log` shows a reader the last thing that *started*, and a cold install's own line-per-step progress follows them. |
-| announce + the generated bootstrap script | ✅ | ✅ | by **absolute path**, not `~/.yolo-bootstrap.sh` — see below |
+| announce + the generated bootstrap script | ✅ | ✅ | by **absolute path**, not `~/.yolo-bootstrap.sh` — see below. It runs **whether or not the steps above it succeeded** (`provision.Stage`, [AR-L4](../design/agent-program-runtimes.md#AR-L4)), so a failed `mise install` cannot skip a Node floor's check; the stage's status is the bootstrap's refusal when it refused, and otherwise the first failure |
 | `~/.yolo-venv-precreate.sh` | ✅ | ❌ | its body tests `/workspace/mise.toml` and shells out to `/bin/python3`, so on a Mac it would find neither and exit 0 on every launch — a step that reports success having never run. Nothing generates it here either. **A Mac workspace configuring `_.python.venv` gets no pre-created venv.** |
 
-**The skip rule** (`ProvisionNeeded`): the stage runs when `mise_tools` is non-empty, so a bare
-`yolo -- bash` in a workspace that declares no tools pays nothing — no extra privileged step, no
-sudo, no `mise install` against an empty config. `lsp_servers` counted too until the LSP install
-recipes were deleted; it only renders config now, so a stage started for it would do nothing. The plan carries no
-stage argv at all in that case, and every invariant is written to say nothing about an empty
-one.
+**The skip rule** (`ProvisionNeeded`): the stage runs when `mise_tools` is non-empty, or when a
+selected pack declares a Node floor the host cannot show met
+([AR-L3](../design/agent-program-runtimes.md#AR-L3)), so a bare `yolo -- bash` in a workspace that
+declares no tools pays nothing — no extra privileged step, no sudo, no `mise install` against an
+empty config. `lsp_servers` counted too until the LSP install recipes were deleted; it only
+renders config now, so a stage started for it would do nothing. The plan carries no stage argv
+at all in that case, and every invariant is written to say nothing about an empty one.
+
+**A declared floor is asked on the host, before the sandbox exists** (`floorStageFor`, in
+`buildPlan`). This backend has no mount namespace, so the package floor's nodes the sandbox's
+resolution reads first (each `node` on the sandbox `PATH` outside its home) are files the host can
+read too, through `entrypoint.PackageFloorMeets`. The floors are read from the staged pack tree
+the bootstrap renders from. The rule fails toward the stage: no readable candidate, a version it
+cannot read, or a tree it cannot read starts the stage, whose bootstrap asks the full resolution
+again and installs or refuses. The dry run shows the stage with the floor it runs for, and since
+a dry run materializes no floor, it shows it for any declared floor.
 
 **`mcp_presets` is deliberately not in the skip rule.** The preset *wrappers* are not generated
 on this backend — their bodies are Linux-absolute, and `RunDarwinBootstrap` warns and says so —

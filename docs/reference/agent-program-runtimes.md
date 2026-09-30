@@ -1,30 +1,35 @@
 ---
 status: current
-verified: 2026-09-25
-verified_commit: 5a44129d
+verified: 2026-09-30
+verified_commit: 06b14e03
 covers:
   - internal/packdecl/nodefloor.go
   - internal/entrypoint/nodefloor.go
+  - internal/entrypoint/floorlaunchers.go
   - internal/entrypoint/shims.go
   - internal/entrypoint/shell.go
   - internal/provision/provision.go
   - internal/cli/run/command.go
+  - internal/cli/internal.go
   - internal/macosuser/orchestrator.go
+  - internal/macosuser/provision.go
   - packs/pi/pack.json
   - integration/nodefloor_test.go
 tags: [packs, programs, mise, node, path-resolution, agent-clis, launchers, provisioning]
-summary: "Which Node runs an npm-delivered program. A `program` contribution may declare a Node floor; the launcher generator resolves one absolute interpreter that meets it (the image's node, then the newest satisfying one in the mise store) and execs the program under it, so a workspace's mise pin keeps governing everything except that one process. The provisioning stage installs an interpreter when none satisfies the floor, and refuses the launch when one still does not."
+summary: "Which Node runs an npm-delivered program. A `program` contribution may declare a Node floor; the launcher generator resolves one absolute interpreter that meets it (the image's node, then the newest satisfying one in the mise store) and execs the program under it, so a workspace's mise pin keeps governing everything except that one process. The provisioning stage installs an interpreter when none satisfies the floor, regenerates the launchers that were written before it, and refuses the launch when nothing satisfies the floor still."
 ---
 
 # Agent program runtimes — which Node runs an npm-delivered program
 
-**Status:** CURRENT as of 2026-09-25, verified against `5a44129d` plus the uncommitted
-Node-floor refusal change in the working tree that day (the refusal's exit status, the bootstrap's
-four-part message, the macos-user package-floor candidate), which lands in the commit before this
-doc's. **UNMEASURED:** no run of the shipped behavior is recorded. The failure it prevents was
-measured in a jail on 2026-09-21. The two launches that would measure the fix are integration
-tests that have not run yet ([What is measured](#what-is-measured)). The macos-user half is
-[UNVERIFIED](#macos-user-unverified).
+**Status:** CURRENT as of 2026-09-30, verified against `06b14e03`. The three gaps the design stub
+recorded ([`../design/agent-program-runtimes.md`](../design/agent-program-runtimes.md)) were closed
+that day: macos-user starts its stage for a floor the host cannot show met, a failed `mise install`
+no longer skips the floor check, and the stage regenerates the launchers of a floor it met
+([Where the refusal did not reach](#where-the-refusal-did-not-reach)). **UNMEASURED:** no run of
+the shipped behavior on a real workload is recorded. The failure it prevents was measured in a jail
+on 2026-09-21. The refusal's launch and the Node 20 pin's launch passed as integration tests on
+2026-09-30 in a nested jail, the second with its `pi --version` cell skipped
+([What is measured](#what-is-measured)). The macos-user half is [UNVERIFIED](#macos-user-unverified).
 
 A **Node floor** is the minimum Node version a program's own entrypoint needs. A pack declares it
 on the `program` contribution that installs the program. When a floor is declared, the
@@ -41,8 +46,9 @@ still does not, the launch **refuses**: the jail does not start.
 | The launcher splice | `internal/entrypoint` (`npmAgentLauncher`, `nodeExecPrefix`, `npmLauncherTemplate`) |
 | The eager install and the refusal | `internal/entrypoint` (`GenerateBootstrapScript`, `declaredNodeFloors`, `nodeFloorChecks`) |
 | The predicate the bootstrap calls | `yolo internal node-floor-satisfied` (`runNodeFloorSatisfied`, `internal/cli`) |
-| The status that stops the launch | `internal/provision` (`RefusedStatus`, `Script`) |
-| The two backends' handling of it | `internal/cli/run` (the stage's step order), `internal/macosuser` (`runProvisionStage`) |
+| The launchers finished once the stage meets a floor | `internal/entrypoint` (`floorlaunchers.go`: `writeFloorPending`, `RegenerateFloorLaunchers`; `npmAgentLauncherSegments`), called as `yolo internal node-floor-launchers` (`runNodeFloorLaunchers`, `internal/cli`) |
+| The status that stops the launch | `internal/provision` (`RefusedStatus`, `Script`, and `Stage`, which runs the bootstrap whatever the steps before it did) |
+| The two backends' handling of it | `internal/cli/run` (the stage's step order), `internal/macosuser` (`runProvisionStage`; `floorStageFor` and `ProvisionNeeded`, which start the stage for a floor the host cannot show met, over `entrypoint.PackageFloorMeets` and `entrypoint.DeclaredNodeFloorsAt`) |
 | The one declaring pack today | `packs/pi/pack.json` |
 
 **Reads with:** [`pack-system.md`](pack-system.md) (the `program` contribution kind),
@@ -51,7 +57,7 @@ the package floor), [`../research/tool-provisioning.md`](../research/tool-provis
 other Node-resolution layer, and why there are several),
 [`../design/program-delivery.md`](../design/program-delivery.md) (the launcher and its evergreen
 update), [`mise-node-dynamic-linking.md`](mise-node-dynamic-linking.md) (why the image has one node by
-default). Two questions about where the refusal reaches are still open, in
+default). The three gaps the design stub recorded, and how each was closed, are in
 [`../design/agent-program-runtimes.md`](../design/agent-program-runtimes.md).
 
 ---
@@ -126,7 +132,7 @@ candidates in this order and takes the first that satisfies:
 | :--- | :--- | :--- |
 | 1 | **The image's node**, at `/bin/node`, whose version is read from the name of the nix store path it links into (`<hash>-nodejs-slim-24.20.0`), and by a bounded `--version` exec only when that name is not a nixpkgs node's. On macos-user, which has no image, the stand-in is the **package floor's node**: each `node` in an entry of the sandbox's real `PATH` that does not lie under `$HOME`, in `PATH` order (`packageFloorNodes`) | Self-contained, always present, no install, and the node the MCP wrappers already target. It is read at an absolute path, never through `PATH`, because `PATH` would hit the mise shims first. On macos-user, dropping every entry under the home drops the sandbox's own prefixes, above all the mise shims, whose node *is* the workspace pin. `imageProbePath` in `internal/entrypoint` applies the same rule when it asks what the launch provides on that backend |
 | 2 | **The newest satisfying node in the mise store**, `$MISE_DATA_DIR/installs/node/*` | Already-installed toolchains, resolved offline by path. The store's directory names are versions, so nothing is executed and nothing is fetched |
-| 3 | **An interpreter the provisioning stage installs** for this floor. ⚠ It reaches the floor *check* on the launch that installs it, and the *launcher* only from the next boot on ([below](#a-stage-installed-interpreter-reaches-the-launcher-one-boot-late)) | An interpreter is environment, and the environment is provisioned before the agent runs, never on first use ([`OQ-AR2`](#oq-ar2)) |
+| 3 | **An interpreter the provisioning stage installs** for this floor. It reaches the floor *check*, and the stage then regenerates the *launcher* to exec it, on the launch that installs it ([below](#a-stage-installed-interpreter-reaches-the-launcher-one-boot-late)) | An interpreter is environment, and the environment is provisioned before the agent runs, never on first use ([`OQ-AR2`](#oq-ar2)) |
 | 4 | Nothing satisfies it | **The launch refuses** ([The refusal](#the-refusal)) |
 
 The resolver sees candidates 1 and 2 only. Candidate 3 is not a separate lookup: the stage
@@ -134,20 +140,27 @@ installs into the mise store, and the stage's check asks the resolver again afte
 
 <a id="a-stage-installed-interpreter-reaches-the-launcher-one-boot-late"></a>
 
-> [!WARNING]
-> **A stage-installed interpreter reaches the launcher one boot late.** The launcher's
-> interpreter is resolved once, when the launcher is generated, and generation is a boot step
-> (`generate_agent_launchers` in `internal/entrypoint`'s `boot.go`, and in `darwin.go` on
-> macos-user) that runs *before* the provisioning stage. So on the launch that installs a
-> satisfying node, the floor check passes and nothing refuses, but the program's launcher was
-> already written with a plain `exec "$REAL_BIN"`, and the program runs under whatever node
-> `PATH` gives it, which in a workspace pinning an old Node is the failure the floor exists to
-> prevent. The next boot regenerates the launcher against the now-populated store and bakes the
-> interpreter. `TestAStageInstalledNodeReachesTheLauncherOnlyAtTheNextGeneration`
-> (`internal/entrypoint`) pins this. No shipped floor reaches it today, because candidate 1
-> satisfies pi's floor on both backends (the image's `nodejs_24`, and the package floor's on
-> macos-user); a floor above the image's node would. The fix is open as
-> [`OQ-AR7`](../design/agent-program-runtimes.md#OQ-AR7).
+> [!NOTE]
+> **A stage-installed interpreter reaches the launcher on the launch that installs it, because
+> the stage finishes the launcher** ([AR-L5](../design/agent-program-runtimes.md#AR-L5),
+> [AR-L6](../design/agent-program-runtimes.md#AR-L6)). The launcher's interpreter is resolved
+> once, when the launcher is generated, and generation is a boot step (`generate_agent_launchers`
+> in `internal/entrypoint`'s `boot.go`, and in `darwin.go` on macos-user) that runs *before* the
+> provisioning stage. Until 2026-09-30 that left the launch that installed a satisfying node with
+> a launcher written as a plain `exec "$REAL_BIN"`, running the program under whatever node `PATH`
+> gave it, the failure the floor exists to prevent, until the next boot. Now a launcher whose
+> declared floor resolved to nothing at generation leaves a **floor-pending record**, a term this
+> doc and the code use for its render split at every place the interpreter goes, plus the floor,
+> in `~/.yolo/bin/floor-pending/<bin>`. Once the bootstrap sees the floor met, whether by the
+> floor's own install or by the workspace's `mise install` before it, it runs
+> `yolo internal node-floor-launchers`, which resolves the floor again and joins the record with
+> the interpreter: the next boot's launcher, byte for byte, which
+> `TestAStageInstalledNodeReachesTheLauncherOnTheLaunchThatInstalledIt` (`internal/entrypoint`)
+> pins. Only a record that exists costs a call, so a launch that installs nothing pays a file
+> test per program, and a regeneration that fails is a warning, the one-boot lag being what is
+> left. No shipped floor reaches this path today, because candidate 1 satisfies pi's floor on both
+> backends (the image's `nodejs_24`, and the package floor's on macos-user); a floor above the
+> image's node would.
 
 **Reading the mise store.** mise keeps alias directories beside real version directories (`24`
 pointing at `24.19.0`, measured), and a name that parses as a version is treated as that version.
@@ -269,7 +282,8 @@ How it works, on both backends:
    candidates in the same order the resolver considers, one line per distinct binary). It exits 2
    on misuse, including a floor it cannot compare. Any status other than 0 or 1 is reported as
    "the predicate could not answer" rather than as "none available", because "none" would be a
-   claim nobody measured.
+   claim nobody measured. A floor that is met, on either ask, then has its launchers finished
+   ([the note under Resolution](#a-stage-installed-interpreter-reaches-the-launcher-one-boot-late)).
 3. **The refusal is an exit status.** A floor still unmet sets a flag, and the bootstrap's last
    act is to exit `provision.RefusedStatus`, which is rendered from the Go constant into the
    script so the producer and the consumer cannot disagree about the number. It is the one
@@ -287,8 +301,12 @@ How it works, on both backends:
 **The floor check is last, and so is the bootstrap.** The check sits at the end of the bootstrap
 script, and the bootstrap is the last step of the stage on both backends. So a refusal costs no
 unrelated work: the MCP preset installs above it still run, and the container's venv step runs
-before the bootstrap rather than after it. The steps are joined with `&&`, so a step placed after
-the bootstrap would be skipped by a refusal.
+before the bootstrap rather than after it. **And the bootstrap runs whatever the steps before it
+did** (`provision.Stage`, [AR-L4](../design/agent-program-runtimes.md#AR-L4)): those steps are
+joined with `&&` among themselves, so a failed `mise install` still skips the venv step, but it
+no longer skips the floor check. The stage's status is `RefusedStatus` when the bootstrap
+refused, and otherwise the first failure, so a failed `mise install` with no refusal degrades
+exactly as before.
 
 > [!WARNING]
 > **This is the one fatal in the provisioning class, and the cost is real.** Every neighbouring
@@ -310,22 +328,27 @@ pack, or make a satisfying interpreter available (which needs the network to ins
 terminal prompt offering to continue anyway would be that hatch, which is why `provision.Script`
 tests for the refusal before it would prompt.
 
-### Where the refusal does not reach
+### Where the refusal did not reach
 
-Two cases start a jail the ruling says should not start, and a third starts one whose launcher
-does not yet honor the floor. All three are still true of the tree. Their fixes were decided on
-2026-09-30 as implementation choices and are not built; the design stub holds them
-([AR-L3](../design/agent-program-runtimes.md#AR-L3)–[AR-L5](../design/agent-program-runtimes.md#AR-L5)):
+Two cases started a jail the ruling says should not start, and a third started one whose launcher
+did not yet honor the floor. All three were closed on 2026-09-30; the design stub holds the
+decisions ([AR-L3](../design/agent-program-runtimes.md#AR-L3)–[AR-L7](../design/agent-program-runtimes.md#AR-L7)):
 
-- [`OQ-AR5`](../design/agent-program-runtimes.md#OQ-AR5): **macos-user starts no provisioning
-  stage without `mise_tools`** (`ProvisionNeeded` in `internal/macosuser`), so a workspace
-  selecting a floor-declaring pack with no `mise_tools` gets neither the install nor the refusal.
-- [`OQ-AR6`](../design/agent-program-runtimes.md#OQ-AR6): **a failed `mise install` skips the
-  bootstrap**, because the stage's steps are joined with `&&`, so no floor is checked and the
-  launch degrades like any failed stage.
-- [`OQ-AR7`](../design/agent-program-runtimes.md#OQ-AR7): **the launch that installs a
-  satisfying interpreter passes the check with a launcher that does not exec it**
-  ([one boot late](#a-stage-installed-interpreter-reaches-the-launcher-one-boot-late)).
+- [`OQ-AR5`](../design/agent-program-runtimes.md#OQ-AR5): **macos-user started no provisioning
+  stage without `mise_tools`**, so a workspace selecting a floor-declaring pack with no
+  `mise_tools` got neither the install nor the refusal. `ProvisionNeeded` now also starts the stage
+  for a declared floor the host cannot show met: before the sandbox exists, the host reads the
+  floors the staged packs declare and asks whether a `node` on the sandbox's `PATH` outside its
+  home meets each (`floorStageFor`, `entrypoint.PackageFloorMeets`). Every doubt starts the stage,
+  which asks the full resolution again
+  ([`macos-user-provisioning.md`](macos-user-provisioning.md#what-the-stage-runs-and-what-it-does-not)).
+- [`OQ-AR6`](../design/agent-program-runtimes.md#OQ-AR6): **a failed `mise install` skipped the
+  bootstrap**, through the `&&` join, so no floor was checked. The bootstrap now runs whatever the
+  steps before it did ([above](#the-refusal)).
+- [`OQ-AR7`](../design/agent-program-runtimes.md#OQ-AR7): **the launch that installed a
+  satisfying interpreter passed the check with a launcher that did not exec it.** The stage now
+  finishes that launcher
+  ([the note under Resolution](#a-stage-installed-interpreter-reaches-the-launcher-one-boot-late)).
 
 ## What this does not do
 
@@ -353,20 +376,25 @@ only hardware measurement on record for `via: npm` there, `npm: command not foun
 [`macos-user-provisioning.md`](macos-user-provisioning.md#what-each-imperative-config-key-delivers-here)
 still marks the npm route there as not measured on hardware. No backend-specific carve-out was
 added, and nothing has shown whether one is needed. Settle it on a Mac, with a floor-declaring
-program, before building anything backend-shaped here.
+program, before building anything backend-shaped here. The one backend-shaped piece that exists,
+the host's check of whether a declared floor starts the stage
+([AR-L3](../design/agent-program-runtimes.md#AR-L3)), rests on the same inference and was
+written for it: if the package floor's node is where `flake.nix` says, the host shows pi's floor
+met and no stage starts, and if it is not, the stage starts and asks again.
 
 ## What is measured
 
-Nothing about the shipped behavior has been watched running. The failure it prevents, and each
-measured claim above, carry their own dates. These are the checks that would measure it:
+No real workload has been watched running under the shipped behavior. The failure it prevents,
+and each measured claim above, carry their own dates. These are the checks that measure it:
 
 | Check | Instrument | State |
 | :--- | :--- | :--- |
-| A floor nothing satisfies refuses the launch in one message naming pack, program, floor and what is available, and the target never runs | `TestAnUnsatisfiableNodeFloorRefusesTheLaunch` (`integration/nodefloor_test.go`) | written, not yet run |
-| In a workspace whose `mise.toml` pins Node 20, pi's launcher execs an interpreter meeting pi's floor on both exec paths, while the shell's `node` stays at 20 | `TestANode20WorkspacePinDoesNotChooseThePiInterpreter` (same file) | written, not yet run |
+| A floor nothing satisfies refuses the launch in one message naming pack, program, floor and what is available, and the target never runs | `TestAnUnsatisfiableNodeFloorRefusesTheLaunch` (`integration/nodefloor_test.go`) | passed 2026-09-30, in a nested jail |
+| In a workspace whose `mise.toml` pins Node 20, pi's launcher execs an interpreter meeting pi's floor on both exec paths, while the shell's `node` stays at 20 | `TestANode20WorkspacePinDoesNotChooseThePiInterpreter` (same file) | passed 2026-09-30, in a nested jail; its `pi --version` cell, which installs pi from its vendor, was skipped |
 | `opencode` still starts in that same jail (its bin is never wrapped) | none; the unit tier pins the byte-identical launcher | not measured |
-| A floor the image does not meet is satisfied by an interpreter installed during provisioning, so a program's first invocation downloads nothing. On that launch the launcher does not yet exec it ([one boot late](#a-stage-installed-interpreter-reaches-the-launcher-one-boot-late)) | the unit tier runs the bootstrap against fakes, and pins the one-boot-late launcher (`internal/entrypoint`) | not measured in a launch |
-| The macos-user node | a Mac | [UNVERIFIED](#macos-user-unverified) |
+| A floor the image does not meet is satisfied by an interpreter installed during provisioning, so a program's first invocation downloads nothing, and the stage regenerates its launcher to exec it on that launch ([the note under Resolution](#a-stage-installed-interpreter-reaches-the-launcher-one-boot-late)) | the unit tier generates the launcher, installs a fake node and regenerates it, and runs the bootstrap's regeneration call against fakes (`internal/entrypoint`) | not measured in a launch |
+| A failed `mise install` still runs the floor check | the unit tier runs both backends' stage bodies against a failing fake `mise` (`internal/cli/run`, `internal/macosuser`, `internal/provision`) | not measured in a launch |
+| The macos-user node, and the host's check that starts the stage for a floor | a Mac | [UNVERIFIED](#macos-user-unverified) |
 
 <a id="not-built"></a>
 
@@ -407,4 +435,6 @@ table is the only place the exact values are stated.
 | The refusal's exit status | `78` (`sysexits.h`'s `EX_CONFIG`) | `provision.RefusedStatus` |
 | `yolo internal node-floor-satisfied` exit statuses | `0` satisfied, `1` not (availability on stdout), `2` misuse | `runNodeFloorSatisfied`, `internal/cli` |
 | The launcher's exec-prefix sentinel | `__YOLO_EXEC_PREFIX__` | `npmLauncherTemplate`, `internal/entrypoint` |
+| Where a floor-pending record lives | `~/.yolo/bin/floor-pending/<bin>`, cleared with the launch dir each boot | `Env.FloorPendingDir`, `internal/entrypoint` |
+| `yolo internal node-floor-launchers` exit statuses | `0` every record finished or nothing to finish, `1` a record or launcher it could not handle, `2` misuse | `runNodeFloorLaunchers`, `internal/cli` |
 | The image's baked node package | `nodejs_24` | `coreFloorNames`, `flake.nix` |
