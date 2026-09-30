@@ -601,3 +601,27 @@ func TestPiOpenAIAuthExtensionNamesPisVersionAndTheRemedyWhenAModelIsMissing(t *
 		}
 	})
 }
+
+// THE REGISTRATION NAMES ITS OWN PROVIDER. pi 0.99.0 renamed its built-in openai-codex
+// provider "OpenAI Codex (legacy)" (pi-ai dist/providers/openai-codex.js), and pi composes a
+// provider's display name as the extension's `name`, else models.json's, else the built-in's
+// (0.99.1 dist/core/provider-composer.js, composeModelProvider). A registration with no `name`
+// therefore showed yolo's subscription provider as "(legacy)" in pi's menus
+// (docs/design/model-lists-and-pickers.md §14.2; MM-D6: "Either form sets its own name").
+// With and without a model list, because the name must not depend on the list.
+func TestPiOpenAIAuthExtensionNamesTheProviderItRegisters(t *testing.T) {
+	for _, tc := range []struct {
+		name, file string
+	}{{"with the rendered list", piCodexModelsFixture}, {"with no list", ""}} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newPiExtensionFixture(t)
+			if tc.file != "" {
+				f.modelsFile(t, tc.file)
+			}
+			f.run(t, piRegisterHarness+`
+if (typeof cfg.name !== "string" || cfg.name.length === 0) throw new Error("the registration sets no name, so pi falls back to its built-in's label: " + JSON.stringify(cfg.name));
+if (/legacy/i.test(cfg.name)) throw new Error("the registration names the provider " + JSON.stringify(cfg.name));
+`)
+		})
+	}
+}

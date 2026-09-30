@@ -227,6 +227,12 @@ export default async function registerYoloOpenAIAuth(pi) {
 	const catalog = list.length > 0 ? await codexCatalog() : { lookup: () => undefined };
 	const lookup = catalog.lookup;
 	pi.registerProvider("openai-codex", {
+		// The provider's display name. pi composes it as this registration's `name`, else
+		// models.json's, else its built-in provider's (provider-composer.js,
+		// composeModelProvider), and pi 0.99.0 renamed that built-in "OpenAI Codex (legacy)". So
+		// a registration naming nothing showed yolo's subscription login under a label for a
+		// provider pi no longer recommends (docs/design/model-lists-and-pickers.md §14.2).
+		name: "OpenAI Codex",
 		baseUrl: "https://chatgpt.com/backend-api",
 		api: "openai-codex-responses",
 		oauth: {
