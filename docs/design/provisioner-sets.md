@@ -1918,10 +1918,12 @@ recommendation the doc rests on.
      and an `/etc/synthetic.conf` firmlink. This is a strictly larger elevation class than every
      remedy [`OQ-9`](../plans/environment-manager-plan.md#open-questions-to-resolve-before-their-phase)
      batched.
-   - **yolo would drive someone else's installer, not write one.** Both user-facing guides already
-     recommend the Determinate installer by name (`docs/guides/USER_GUIDE.md`,
-     `docs/guides/macos.md`, read 2026-09-11), so the work is the confirm, the sudo pass-through
-     and the failure reporting — the same shape as any other driven remedy, one rung up.
+   - **yolo would drive someone else's installer, not write one.** The user guide already
+     recommends the Determinate installer by name
+     ([`getting-started.md`](../../userguide/getting-started.md#step-1-install-nix), read
+     2026-09-30; on 2026-09-11 the macOS page named it too), so the work is the confirm, the sudo
+     pass-through and the failure reporting — the same shape as any other driven remedy, one rung
+     up.
    - **The trusted-user follow-on is the part that does not fit.** A fresh install leaves the
      invoking user untrusted, which is exactly what `yolo check` already flags; and the nearest
      precedent in the tree **refuses to write host nix config at all** — *"only a human can set it —

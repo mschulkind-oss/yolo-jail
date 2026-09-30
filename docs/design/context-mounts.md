@@ -105,10 +105,12 @@ own state and cache dirs, `cache_relocations` targets (user scope, podman only),
 Two premises in the brief are stale and should not be built on:
 
 - "Approved at pack install against the word read-only" describes a gate
-  [OQ-TP9](trust-paths.md#decision-ledger) deleted on 2026-09-04. DP-B2's row and
-  `docs/guides/macos.md` still say it.
-- `docs/guides/macos.md` describes macos-user `mounts` as "silently ignored, with no warning". That
-  has been false since the warning landed.
+  [OQ-TP9](trust-paths.md#decision-ledger) deleted on 2026-09-04. DP-B2's row still says it. The
+  macOS guide said it too on this doc's date, and
+  [`userguide/guides/macos.md`](../../userguide/guides/macos.md) no longer does (read 2026-09-30).
+- The macOS guide described macos-user `mounts` as "silently ignored, with no warning", which has
+  been false since the warning landed. [`userguide/guides/macos.md`](../../userguide/guides/macos.md)
+  now says there are no `mounts` on that backend and no longer calls them silent (read 2026-09-30).
 
 ## 2. Read-write context mounts
 

@@ -540,9 +540,9 @@ graduated reference names the claims they still do not cover rather than roundin
 ## Track M verification runbooks
 
 [`runbooks/`](runbooks) holds the Mac hardware verification procedures — they
-are the revival plan's Track M gates, not user-facing reference (they moved here
-from `docs/guides/runbooks/`). See the [sequencing-2026-07](sequencing-2026-07.md#runbooks) for their
-status:
+are the revival plan's Track M gates, not user-facing reference, which is why they
+left the user guide's old directory. See the [sequencing-2026-07](sequencing-2026-07.md#runbooks)
+for their status and that move:
 
 | Doc | What it is | Status |
 |---|---|---|

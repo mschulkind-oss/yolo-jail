@@ -295,8 +295,9 @@ stub. So prune does not over-report freed bytes — it goes **blind**.
 
 ### Phase 3 — docs
 
-10. README config block + `yolo config-ref` + a `docs/guides/USER_GUIDE.md`
-    section: when relocating is worth it (large cold caches yes; `uv`,
+10. README config block + `yolo config-ref` + a user guide section (now
+    [`storage.md`](../../userguide/guides/storage.md#relocating-a-cache-subdir-to-other-storage)):
+    when relocating is worth it (large cold caches yes; `uv`,
     `go-build`, `pip` no — those are hit on every build and are
     latency-sensitive), and the **manual migration procedure** — stop all jails,
     `rsync -aH --remove-source-files`, verify, then set the config.
@@ -388,7 +389,9 @@ _Leaning was:_ implement for podman, warn-and-skip on `container`.
 > around a device limit and **nobody has run a relocation on real Apple Container
 > hardware**. Skipping loudly beats half-applying, so the skip stands (work item
 > 6), but it is an untested-therefore-unimplemented, not a limitation. The
-> warning text and `docs/guides/macos.md` were corrected to say so. `macos-user`
+> warning text and the user guide were corrected to say so; the guide now says it in
+> [`settings-per-setup.md`](../../userguide/reference/settings-per-setup.md#what-works-in-each-setup)'s
+> `cache_relocations` note ("Neither cell is a backend limitation"). `macos-user`
 > has no bind mounts either, so the mechanism has nowhere to attach there — but
 > that is an absence, not a non-need, and nothing substitutes for it.
 >

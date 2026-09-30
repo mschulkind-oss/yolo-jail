@@ -3,7 +3,7 @@
 A contribution of the official **`claude` pack** — `packs/claude/pack.json` declares
 `{"kind": "loophole", "from": "loopholes/claude-oauth-broker"}`, so selecting `packs: ["claude"]` is
 what installs it. Serializes Claude OAuth refreshes so multi-jail setups don't burn the single-use
-refresh token. See [`docs/research/claude-oauth-refresh-mechanics.md`](../../../../docs/research/claude-oauth-refresh-mechanics.md) for design rationale, [`docs/research/claude-token-logouts.md`](../../../../docs/research/claude-token-logouts.md) for operator triage, [`docs/guides/loopholes.md`](../../../../userguide/guides/loopholes.md) for the loophole system.
+refresh token. See [`docs/research/claude-oauth-refresh-mechanics.md`](../../../../docs/research/claude-oauth-refresh-mechanics.md) for design rationale, [`docs/research/claude-token-logouts.md`](../../../../docs/research/claude-token-logouts.md) for operator triage, [`userguide/guides/loopholes.md`](../../../../userguide/guides/loopholes.md) for the loophole system.
 
 It was `bundled_loopholes/claude-oauth-broker/` until 2026-08-19, and it was the **last** inhabitant
 of that channel: this move is what emptied and retired it

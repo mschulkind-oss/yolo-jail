@@ -959,9 +959,11 @@ bricking a launch.
 **Overkill for transport; the right vehicle only if you want policy at the
 boundary.** What it would buy: host-side credential holding (an API key never
 visible in the jail), per-jail bearer identity, typed `scope: "user"` settings a
-workspace config can't widen, and auditing — `docs/guides/loopholes.md:15`
-literally names `llm-audit` ("logs every inference request") as its canonical
-hypothetical.
+workspace config can't widen, and auditing — the loophole guide named
+`llm-audit` ("logs every inference request") as its canonical hypothetical until
+`d42165a8` split that page on 2026-09-28, and neither
+[`loopholes.md`](../../userguide/guides/loopholes.md) nor
+[`writing-loopholes.md`](../../userguide/guides/writing-loopholes.md) names it now.
 
 What it costs: `loopback-tls` is the **only** transport
 (`internal/loopholedecl/enums.go:25-28,122`), and a pack-shipped loophole is

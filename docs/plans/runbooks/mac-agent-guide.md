@@ -175,10 +175,10 @@ alongside M1.
   `YOLO_RUNTIME=macos-user yolo -- claude` — yolo is now its own sandbox with the
   nix layer; SandVault retires from the loop.
 - **Driver:** Track M §M2 in the plan. Update the support-matrix cells
-  (`docs/research/macos-support-matrix.md`), then update `docs/guides/macos.md` —
-  it already frames macos-user as revived, but its runtime table still lists only
-  Podman + Apple Container and does not yet present macos-user as a selectable
-  runtime. Do this **after** the launch works, so the guide never advertises a
+  (`docs/research/macos-support-matrix.md`), then update
+  [`userguide/guides/macos.md`](../../../userguide/guides/macos.md). Its runtime table
+  now lists `macos-user` as a selectable runtime, marked "in development" (read
+  2026-09-30). Do this **after** the launch works, so the guide never advertises a
   backend that hasn't been verified on hardware.
 - **Do not start until M1 is green.**
 

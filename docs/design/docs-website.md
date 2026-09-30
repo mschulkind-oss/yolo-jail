@@ -8,7 +8,7 @@ summary: "The user guide is split into a closed userguide/ tree, built with pinn
 
 # The user guide becomes a website, deployed exactly the way Vantage deploys its own
 
-**Status:** DECIDED, 2026-09-30 — no ruling owed. [OQ-DW1](#OQ-DW1) is ruled, and [OQ-DW2](#OQ-DW2) was decided as an implementation choice ([DW-D1](#DW-D1)), matching what the repository build already did. The site serves at `docs.yolo-jail.mschulkind.dev` (probed 2026-09-30: HTTP 200, a Vantage static export), so the dashboard connection and the custom domain are in place. Owed: [§4](#4-done-looks-like)'s last condition is not met yet, since that `rg` still prints lines (2026-09-30), one of them in `packs/claude`. Vantage claims were checked against `mschulkind-oss/vantage` at `4b2ccbc` and against the live sites on 2026-09-25; the original yolo-jail measurement was at `7e529260`.
+**Status:** DECIDED, 2026-09-30 — no ruling owed. [OQ-DW1](#OQ-DW1) is ruled, and [OQ-DW2](#OQ-DW2) was decided as an implementation choice ([DW-D1](#DW-D1)), matching what the repository build already did. The site serves at `docs.yolo-jail.mschulkind.dev` (probed 2026-09-30: HTTP 200, a Vantage static export), so the dashboard connection and the custom domain are in place. [§4](#4-done-looks-like)'s last condition, that no file names the deleted guide directory, is met as of 2026-09-30, in the form [DW-D2](#DW-D2) gives it. Vantage claims were checked against `mschulkind-oss/vantage` at `4b2ccbc` and against the live sites on 2026-09-25; the original yolo-jail measurement was at `7e529260`.
 
 > **In short.** The user guide becomes a published site by copying Vantage's setup whole: a
 > `userguide/` tree, one build script, one static-assets Worker and a dashboard-configured Cloudflare
@@ -205,7 +205,17 @@ needs no build.
 - A commit adding `[x](../docs/reference/foo.md)` to a guide page fails `just check-ci`.
 - Renaming `scripts/build-site.sh` without updating the dashboard produces a red
   `Workers Builds: yolo-jail` check on the PR, not a silent stale site.
-- `rg -n 'docs/guides/' docs internal cmd packs README.md AGENTS.md` prints nothing.
+- No file outside the move's own record names the deleted directory as a path. This prints
+  nothing:
+
+  ```console
+  $ rg -no '\S*docs/guides/\S*' docs internal cmd packs README.md AGENTS.md \
+      -g '!docs/design/docs-website.md' -g '!docs/design/docs-website-plan.md' \
+      -g '!docs/plans/sequencing-2026-07.md' | rg -v '://'
+  ```
+
+  ✅ Met 2026-09-30. The first spelling of this check, a bare `rg -n` over the same paths, could
+  never print nothing: [DW-D2](#DW-D2) says why, and what each exclusion is.
 
 ## 5. Non-goals
 
@@ -267,3 +277,4 @@ needs no build.
 | :--- | :--- | :--- |
 | OQ-DW1 | The published address is `docs.yolo-jail.mschulkind.dev`; attach it in the dashboard while retaining `workers.dev`. | 2026-09-25 |
 | <a id="DW-D1"></a>DW-D1 | *Implementation decision, [OQ-DW2](#OQ-DW2).* **(a): `settings-per-setup.md` crosses into the guide, and no other reference page does.** It is the one page the guide links that is written for a reader choosing a setup, which is what the maintainer called the guide in their 2026-09-23 review of that page: *"this is for a user learning about yolo, not me as a developer"*. The other pages the guide links (`loophole-protocol.md`, `mcp-configuration.md`, `config-safety.md`, …) explain the machinery, and the guide keeps per-mechanism detail in `docs/reference/` ([§2.1](#21-layout)). Moving nothing would send a learner to GitHub for the table of what works in their setup. The repository build already made this move; this row makes it settled rather than provisional. Reversible: moving another page later is a `git mv` and its links, with the closed-tree check ([§2.2](#22-the-closed-tree-rule), `scripts/check-userguide-closed-tree.py`) refusing any link left pointing outside the guide | 2026-09-30 |
+| <a id="DW-D2"></a>DW-D2 | *Implementation decision.* [§4](#4-done-looks-like)'s last check is respelled so that a finished tree can pass it. As first written, `rg -n` over the same paths could not print nothing: it matched its own line, and it matched text that names the deleted directory on purpose. The respelled check prints only the path-shaped word around each match (`-o`). It drops a word that is a URL (`://`), because two research docs cite other sites' own `/docs/guides/` pages. It skips three files: this design and its sketch, which record the move and must name what it deleted, and `sequencing-2026-07.md`, a superseded 2026-07-22 snapshot that names the paths of its date, as it names the also-deleted `bundled_loopholes/`. Every other mention was repointed at the file's `userguide/` or `docs/plans/runbooks/` home, and reworded where the guide no longer says what it was cited for, or where the path was only history (the runbooks' old home, in the plans index) | 2026-09-30 |

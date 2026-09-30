@@ -765,8 +765,9 @@ The bullets below are the original plan; see that runbook for what actually ran.
   this automatic) + install SandVault (github.com/webcoyote/sandvault) and
   smoke-test: can the sandboxed agent build Go, run `go test`, talk to the nix
   daemon socket, and run `container`/AC CLI? Whatever the profile blocks moves
-  to the human column. Deliverable: a short `docs/guides/runbooks/`
-  mac-sandvault-session.md recording the working recipe.
+  to the human column. Deliverable: a short
+  [`runbooks/mac-sandvault-session.md`](runbooks/mac-sandvault-session.md) recording the
+  working recipe.
 - **M1 — verification pass (after J2 lands):** agent under SandVault pulls,
   cross-checks build + dry-run goldens on darwin; human drives
   `mac-macos-user-e2e.md` [§3](runbooks/mac-macos-user-e2e.md#3-one-time-setup--the-privileged-step-plain-yolo-not-sudo)–[§7](runbooks/mac-macos-user-e2e.md#7-cleanup): macos-setup, first real Seatbelt launch
@@ -784,7 +785,7 @@ The bullets below are the original plan; see that runbook for what actually ran.
   `YOLO_RUNTIME=macos-user yolo -- claude` — yolo is now its own SandVault
   with the nix layer. Retire SandVault from the loop. Update the support
   matrix cells (macos-user "run agent" [M], AC "run agent in jail" [M] if
-  exercised), then rewrite `docs/guides/macos.md` (it still says macos-user
+  exercised), then rewrite [`macos.md`](../../userguide/guides/macos.md) (it still says macos-user
   "was removed", lists uv/cli.py-era prerequisites — done in `43bd846`) —
   deliberately **after** the launch works, so the guide never advertises a
   broken backend.
