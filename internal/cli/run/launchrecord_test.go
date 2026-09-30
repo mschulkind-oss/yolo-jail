@@ -36,6 +36,44 @@ func launchLines(t *testing.T) []string {
 	return lines
 }
 
+// lineNamesWorkspace reports whether a launch line carries the workspace: its path anywhere, or
+// its folder name as a whole field value. A substring test on the folder name alone flaked: a
+// test's workspace is a temp dir named like "002", which a hex jail code such as 8002b8d0 can
+// contain by chance.
+func lineNamesWorkspace(line, ws string) bool {
+	if strings.Contains(line, ws) {
+		return true
+	}
+	base := filepath.Base(ws)
+	for _, field := range strings.Fields(line) {
+		value := field
+		if i := strings.IndexByte(field, '='); i >= 0 {
+			value = field[i+1:]
+		}
+		if value == base {
+			return true
+		}
+	}
+	return false
+}
+
+func TestLineNamesWorkspaceIsNotFooledByAJailCodeThatContainsTheFolderName(t *testing.T) {
+	ws := "/tmp/TestSomething123/002"
+	for _, tc := range []struct {
+		line string
+		want bool
+	}{
+		{"2026-09-30T03:29:17Z launch jail=8002b8d0 runtime=podman outcome=started rc=-", false},
+		{"2026-09-30T03:29:17Z launch jail=8002b8d0 workspace=002 outcome=started", true},
+		{"2026-09-30T03:29:17Z launch jail=8002b8d0 path=/tmp/TestSomething123/002 outcome=started", true},
+		{"2026-09-30T03:29:17Z launch 002 outcome=started", true},
+	} {
+		if got := lineNamesWorkspace(tc.line, ws); got != tc.want {
+			t.Errorf("lineNamesWorkspace(%q) = %v, want %v", tc.line, got, tc.want)
+		}
+	}
+}
+
 // assertOneLaunchLine checks the log holds exactly one line for ws, with every want field,
 // and nothing that names the workspace.
 func assertOneLaunchLine(t *testing.T, ws string, want ...string) string {
@@ -51,7 +89,7 @@ func assertOneLaunchLine(t *testing.T, ws string, want ...string) string {
 			t.Errorf("launch line lacks %q:\n%s", w, line)
 		}
 	}
-	if strings.Contains(line, ws) || strings.Contains(line, filepath.Base(ws)) {
+	if lineNamesWorkspace(line, ws) {
 		t.Errorf("the launch line names the workspace; it must carry only the code:\n%s", line)
 	}
 	if _, err := time.Parse(time.RFC3339, strings.Fields(line)[0]); err != nil ||
