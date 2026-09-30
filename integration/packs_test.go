@@ -305,7 +305,11 @@ func isolateHome(t *testing.T, userConfig string) {
 	// THE REGION FILL reads the AWS config the launching shell names (docs/design/bedrock-plumbing.md
 	// BR-DIR1): a developer's own AWS_CONFIG_FILE would hand every Bedrock launch here their real
 	// region, so the isolated home's ~/.aws/config, absent unless a test writes one, is the file.
-	t.Setenv("AWS_CONFIG_FILE", "")
+	// And a region or profile left in that shell keeps the file unread in a jail (BR-D2), so the
+	// shell running the suite, a jail's own AWS_REGION included, must not decide a launch here.
+	for _, k := range []string{"AWS_CONFIG_FILE", "AWS_REGION", "AWS_DEFAULT_REGION", "AWS_PROFILE"} {
+		t.Setenv(k, "")
+	}
 }
 
 // packHome is isolateHome for a test that needs a SPECIFIC user config — in practice a
