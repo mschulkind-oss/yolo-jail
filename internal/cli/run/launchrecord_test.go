@@ -6,9 +6,11 @@ package run
 
 import (
 	"bytes"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -234,5 +236,49 @@ func TestTheMachineWideLaunchLogRotates(t *testing.T) {
 	}
 	if old, err := os.ReadFile(path + ".1"); err != nil || string(old) != full {
 		t.Errorf("the archived generation is not the full log (%v)", err)
+	}
+}
+
+// ROTATION UNDER CONTENTION: launches that reach a full log at the same moment — a restore
+// storm, the event this log exists to record — rotate it once, and lose neither the archived
+// generation nor any launch's line. Each round fills the log to the brim, then releases a
+// crowd of writers at once. A lock taken on the file being rotated let a writer that opened
+// the old file rename the NEW one over the archive, deleting the whole previous generation.
+func TestConcurrentLaunchesAtTheRotationBoundaryLoseNothing(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	path := MachineLaunchLogPath()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	full := strings.Repeat("x", launchLogMaxBytes-10) + "\n"
+	const writers = 24
+	for round := 0; round < 8; round++ {
+		_ = os.Remove(path + ".1")
+		if err := os.WriteFile(path, []byte(full), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		start := make(chan struct{})
+		var wg sync.WaitGroup
+		for i := 0; i < writers; i++ {
+			wg.Add(1)
+			go func(i int) {
+				defer wg.Done()
+				<-start
+				appendLaunchLine(path, fmt.Sprintf("launch %d.%d\n", round, i))
+			}(i)
+		}
+		close(start)
+		wg.Wait()
+		archived, err := os.ReadFile(path + ".1")
+		if err != nil || string(archived) != full {
+			t.Fatalf("round %d: the archived generation is %d bytes (%v), want the full log that was "+
+				"rotated: concurrent rotation deleted it", round, len(archived), err)
+		}
+		active, _ := os.ReadFile(path)
+		for i := 0; i < writers; i++ {
+			if want := fmt.Sprintf("launch %d.%d\n", round, i); strings.Count(string(active), want) != 1 {
+				t.Fatalf("round %d: launch %d's line is not in the active log exactly once:\n%s", round, i, active)
+			}
+		}
 	}
 }

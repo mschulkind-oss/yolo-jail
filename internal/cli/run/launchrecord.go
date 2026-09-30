@@ -120,33 +120,37 @@ func launchLine(rec *launchRecord, rt string, ready *runtime.ReadyResult, outcom
 		now.Sub(rec.start).Seconds())
 }
 
-// appendLaunchLine appends line to path, rotating first when the file is full. The flock
+// appendLaunchLine appends line to path, rotating first when the file is full. One flock
 // covers the size check, the rotation and the write, because every launch on the machine
 // writes this one file.
+//
+// THE LOCK IS A SIBLING FILE THAT IS NEVER ROTATED (path + ".lock"), and the log is opened
+// only once it is held. A lock on the log's own descriptor locks an inode, not the name: two
+// launches that opened a full log together each rotated it in turn, the second renaming the
+// FRESH file (holding the first one's line) over the archive, which deleted the whole
+// previous generation; and a launch that opened the fresh file meanwhile was excluded by
+// nothing. A restore storm is exactly when launches meet at the boundary.
 func appendLaunchLine(path, line string) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return
+	}
+	lock, err := os.OpenFile(path+".lock", os.O_CREATE|os.O_WRONLY, 0o600)
+	if err != nil {
+		return
+	}
+	defer lock.Close()
+	fd := int(lock.Fd())
+	if err := syscall.Flock(fd, syscall.LOCK_EX); err != nil {
+		return
+	}
+	defer func() { _ = syscall.Flock(fd, syscall.LOCK_UN) }()
+	if st, err := os.Stat(path); err == nil && st.Size() > 0 && st.Size()+int64(len(line)) > launchLogMaxBytes {
+		_ = os.Rename(path, path+".1")
 	}
 	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
 	if err != nil {
 		return
 	}
 	defer f.Close()
-	fd := int(f.Fd())
-	if err := syscall.Flock(fd, syscall.LOCK_EX); err != nil {
-		return
-	}
-	defer func() { _ = syscall.Flock(fd, syscall.LOCK_UN) }()
-	if st, err := f.Stat(); err == nil && st.Size() > 0 && st.Size()+int64(len(line)) > launchLogMaxBytes {
-		if os.Rename(path, path+".1") == nil {
-			fresh, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
-			if err != nil {
-				return
-			}
-			defer fresh.Close()
-			_, _ = fresh.WriteString(line)
-			return
-		}
-	}
 	_, _ = f.WriteString(line)
 }
