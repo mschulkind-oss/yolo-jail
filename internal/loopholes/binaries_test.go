@@ -287,23 +287,45 @@ func TestANestedLaunchBindsTheBuildItsOuterJailMounted(t *testing.T) {
 	}
 }
 
+// hostToolModule writes a loophole whose one program is its HOST daemon's: no jail reference,
+// so on every platform the loophole's only need is the host build, and a test of the host half
+// cannot be answered by the jail half instead (on Linux the two platforms are one).
+func hostToolModule(t *testing.T, md string) string {
+	t.Helper()
+	mod := mkdir(t, filepath.Join(md, "hosttool"))
+	writeManifest(t, mod, map[string]any{
+		"name": "hosttool", "description": "runs toold on the host",
+		"binaries": map[string]any{"toold": builds(map[string]string{hostPlatform: sumHost})},
+		"host_daemon": map[string]any{"cmd": []any{"{binary:toold}", "--socket", "{socket}"},
+			"publishes": "socket"},
+	})
+	return mod
+}
+
+func loadHostTool(t *testing.T) (*Loophole, string, string) {
+	t.Helper()
+	unsetJail(t)
+	cache := isolateBinaryCache(t)
+	md := modsDir(t)
+	lp, err := LoadLoophole(hostToolModule(t, md))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return lp, cache, md
+}
+
 // Inside a jail a HOST reference is the host's business: the jail's own cache not holding it
 // does not make the loophole read as off, for `requires`' reason (presence decides in a jail).
+// The module names the build on the host side only, so this bites on every platform; deleting
+// the `!n.Jail` half of UnfetchedBinaryReason's in-jail skip fails it.
 func TestInAJailAHostBuildIsTheHostsBusiness(t *testing.T) {
-	lp, _, _ := loadTool(t, map[string]string{hostPlatform: sumHost})
+	lp, _, _ := loadHostTool(t)
+	if lp.BinariesFetched() {
+		t.Fatal("precondition: out of a jail, an uncached host build counted as fetched")
+	}
 	t.Setenv("YOLO_VERSION", "test")
-	if hostPlatform == jailPlatform {
-		// One platform: the jail reference has a build too, and it is not mounted here.
-		if lp.BinariesFetched() {
-			t.Error("an unmounted, uncached jail build counted as present in a jail")
-		}
-		return
-	}
-	if !lp.SupportedHere() {
-		// No linux build: unsupported, which is the platform axis's answer, not this one's.
-		return
-	}
-	if !lp.BinariesFetched() {
-		t.Error("in a jail, an uncached HOST build made the loophole read as not fetched")
+	if !lp.BinariesFetched() || !lp.Active() {
+		r, _ := lp.InactiveReason()
+		t.Errorf("in a jail, an uncached HOST build made the loophole read as off: %s", r)
 	}
 }
