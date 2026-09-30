@@ -275,7 +275,7 @@ the profile your credential comes from, the one `aws-auth` serves, else your `AW
 launch naming the region, the file and the profile. Each agent on Bedrock must receive a region
 itself, so a region only another agent gets does not count for it, and neither does one the agent
 ignores: opencode reads `AWS_REGION` and not `AWS_DEFAULT_REGION`, so with only the latter it is
-given your profile's region, or refused when your profile names none. A Bedrock provider you
+refused, rather than sent to `us-east-1` or to a profile region other than the one you set. A Bedrock provider you
 declare yourself with `"platform": "aws-bedrock"` is checked the same way. In a jail, an
 `AWS_REGION` exported only in your own shell does not count, because it never reaches the jail,
 and the refusal says when it saw one there. `yolo host -p bedrock -- claude` counts your shell's

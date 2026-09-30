@@ -413,11 +413,12 @@ AWS SDKs claude and codex use read it. Core names no AWS file, section or variab
 ([BR-D21](../design/bedrock-plumbing.md#BR-D21)).
 
 - **When.** Only for an agent on a provider of that platform whose composed entry sets no
-  `region` and to which none of the region variables that agent reads reaches (at `yolo host`,
-  counting the invoking shell it inherits). The region is delivered in the first variable the
-  agent reads: `AWS_REGION` for every shipped agent, so opencode, which ignores
-  `AWS_DEFAULT_REGION`, is given `AWS_REGION` when it receives only the other
-  ([BR-D23](../design/bedrock-plumbing.md#BR-D23)).
+  `region` and to which none of the platform's region variables reaches (at `yolo host`,
+  counting the invoking shell it inherits). One the agent does not read counts here too: opencode
+  receiving only `AWS_DEFAULT_REGION` is not given the file's region in its place, which may
+  differ, and is refused as the preflight says
+  ([BR-D23](../design/bedrock-plumbing.md#BR-D23)). The region is delivered in the first
+  variable the agent reads: `AWS_REGION` for every shipped agent.
 - **Which profile.** The one the agent's credential comes from
   ([BR-D21](../design/bedrock-plumbing.md#BR-D21)): when an `env` contribution declaring
   `region_profile_setting` reaches the agent, the setting it names of the loophole it is

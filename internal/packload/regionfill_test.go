@@ -269,21 +269,69 @@ func TestTheRegionFillFillsOnlyAnAgentWithNoRegion(t *testing.T) {
 	}
 }
 
-// IN THE VARIABLE THE AGENT READS (BR-D18): opencode reads AWS_REGION alone, so an
-// AWS_DEFAULT_REGION it receives is no region of its, and it is given the file's region as
-// AWS_REGION — where claude, which reads AWS_DEFAULT_REGION, is given nothing.
+// IN THE VARIABLE THE AGENT READS (BR-D18): the region goes in the first variable each agent
+// reads, AWS_REGION for claude and for opencode, which reads nothing else.
 func TestTheRegionFillDeliversInTheVariableTheAgentReads(t *testing.T) {
 	home := regionHome(t, regionConfig)
 	packs := embeddedNamed(t, "claude", "opencode", "aws-auth", "bedrock", "openai-auth", "wire-bridge")
 	nothing := NothingServed()
 	s, _ := fillCase{packs: packs, profiles: map[string]string{"claude": "bedrock", "opencode": "bedrock"},
-		envSources: hydrated("AWS_DEFAULT_REGION", "eu-central-1"), served: &nothing,
-		src: &RegionFileSource{Getenv: launchEnv(map[string]string{"HOME": home})}}.scope(t)
-	if got := shapeValue(s.Agent("opencode"), "AWS_REGION"); got != "us-east-2" {
-		t.Errorf("opencode, which ignores AWS_DEFAULT_REGION, was given AWS_REGION=%q, want the file's us-east-2", got)
+		served: &nothing, src: &RegionFileSource{Getenv: launchEnv(map[string]string{"HOME": home})}}.scope(t)
+	for _, agent := range []string{"claude", "opencode"} {
+		if d := s.Agent(agent); shapeValue(d, "AWS_REGION") != "us-east-2" || d.RegionFile == nil ||
+			d.RegionFile.Var != "AWS_REGION" {
+			t.Errorf("%s must be given the file's us-east-2 as AWS_REGION: %+v", agent, d.RegionFile)
+		}
 	}
-	if d := s.Agent("claude"); shapeValue(d, "AWS_REGION") != "" || d.RegionFile != nil {
-		t.Errorf("claude reads AWS_DEFAULT_REGION, so it needs nothing from the file: %+v", d.RegionFile)
+}
+
+// NEVER OVER A REGION THE AGENT IGNORES (BR-D18 kept): a platform region variable that reaches an
+// agent which does not read it is a region the user chose for this launch, so the file's region,
+// which may differ, is not put in its place. opencode receiving only AWS_DEFAULT_REGION=eu-central-1
+// was given the file's us-east-2 while claude beside it ran in eu-central-1, with no refusal and a
+// disclosure saying no region variable reached it; it is refused again, naming the unread
+// variable, and the file is not offered as a remedy that would not be read.
+func TestTheRegionFillLeavesAnUnreadRegionToTheRefusal(t *testing.T) {
+	home := regionHome(t, regionConfig)
+	packs := embeddedNamed(t, "claude", "opencode", "aws-auth", "bedrock", "openai-auth", "wire-bridge")
+	nothing := NothingServed()
+	for _, tc := range []struct {
+		name      string
+		env       *jsonx.OrderedMap
+		inherited map[string]string
+	}{
+		{"AWS_DEFAULT_REGION from env_sources", hydrated("AWS_DEFAULT_REGION", "eu-central-1"), nil},
+		{"AWS_DEFAULT_REGION in the shell yolo host's agent inherits", nil, map[string]string{"AWS_DEFAULT_REGION": "eu-central-1"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			src := &RegionFileSource{Getenv: launchEnv(map[string]string{"HOME": home})}
+			if tc.inherited != nil {
+				src.Inherited = func(name string) (string, bool) { v, ok := tc.inherited[name]; return v, ok }
+			}
+			s, providers := fillCase{packs: packs, profiles: map[string]string{"claude": "bedrock", "opencode": "bedrock"},
+				envSources: tc.env, served: &nothing, src: src}.scope(t)
+			d := s.Agent("opencode")
+			if got := shapeValue(d, "AWS_REGION"); got != "" || d.RegionFile != nil {
+				t.Fatalf("opencode, which receives AWS_DEFAULT_REGION unread, was given the file's AWS_REGION=%q (%+v)",
+					got, d.RegionFile)
+			}
+			if lines := s.RegionLines(); lines != nil {
+				t.Errorf("nothing was filled, so nothing is disclosed: %v", lines)
+			}
+			lookup := func(name string) (string, bool) {
+				if v, ok := s.DeliveredTo("opencode", name); ok {
+					return v, true
+				}
+				v := tc.inherited[name]
+				return v, v != ""
+			}
+			facts := strings.Join(ProviderRegionGaps(packs, providers, []RegionAsk{{Agent: "opencode",
+				Provider: d.Provider, File: d.RegionFile, Lookup: lookup}}, nil, nil), "\n")
+			if !strings.Contains(facts, "AWS_DEFAULT_REGION reaches opencode, which does not read it") ||
+				strings.Contains(facts, "~/.aws/config") {
+				t.Errorf("the refusal must name the unread variable and offer no file it would not read:\n%s", facts)
+			}
+		})
 	}
 }
 

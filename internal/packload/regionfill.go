@@ -38,11 +38,12 @@ package packload
 // is a Python start per launch per agent. The same format internal/awsauth's DetectForm reads.
 //
 // WHAT COUNTS AS "OTHERWISE NONE" mirrors the SDKs' precedence (BR-D23): the provider's own
-// `region` first, then a region variable the agent reads that already reaches it, then the file.
-// A region variable the agent does NOT read (AWS_DEFAULT_REGION for opencode, BR-D18) does not
-// count, so such an agent is given the file's region in the variable it does read. The value
-// must be one DNS label (packdecl.RegionProblem), since agents build a host name from it; one
-// that is not is never delivered, and the refusal says why.
+// `region` first, then a region variable that already reaches the agent, then the file. A region
+// variable the agent does NOT read (AWS_DEFAULT_REGION for opencode, BR-D18) is no region of its,
+// and no license to put the file's in its place either: the user set that one for this launch,
+// so the fill leaves the agent to the pre-flight, which refuses naming the unread variable. The
+// value must be one DNS label (packdecl.RegionProblem), since agents build a host name from it;
+// one that is not is never delivered, and the refusal says why.
 
 import (
 	"errors"
@@ -178,6 +179,15 @@ func (s *CredentialScope) fillRegion(in ScopeInput, src *RegionFileSource, reqs 
 			}
 		}
 		return "", false
+	}
+	// A REGION ALREADY THERE: any of the platform's region variables reaching the agent, read or
+	// not. One it reads is its region. One it does not read (AWS_DEFAULT_REGION for opencode,
+	// BR-D18) is still a region the user chose for this launch, so the file's, which may differ,
+	// is not put in its place; the pre-flight refuses, naming the variable that reached it unread.
+	for _, v := range req.vars {
+		if _, ok := reaches(v); ok {
+			return nil
+		}
 	}
 	for _, v := range vars {
 		if _, ok := reaches(v); ok {
