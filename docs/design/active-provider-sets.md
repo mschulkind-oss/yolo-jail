@@ -13,11 +13,12 @@ vantage:
 **Status:** ACCEPTED, 2026-09-29, and the first slice is BUILT ([§8](#8-what-i-would-build-in-order)
 steps 1, 2 and 4; [§13](#13-what-was-built-2026-09-29)): the grammar, the config list, the
 single-provider refusal, the bare-list narrowing, and pi holding a set at every notch. opencode
-(step 3) and several via routes (step 5) are not built. MEASURED: unit tests pin each rule
-through the call site a launch runs, and two integration launches rendered pi's files for a set
-in a real jail ([§13](#13-what-was-built-2026-09-29)). UNMEASURED: no pi session was run, so none
-switched providers, and no request reached a provider. The code evidence for §2 and §3 was read at `f26397cc`, and
-the per-agent capabilities from each agent's config format and its derive, not from a run.
+(step 3) and several via routes (step 5) are not built. MEASURED: unit tests pin each rule, every
+call site the review cut to the set's first entry now fails one, and two integration launches
+rendered pi's files for a set in a real jail ([§13](#13-what-was-built-2026-09-29)). UNMEASURED:
+no pi session was run, so none switched providers, and no request reached a provider. The code
+evidence for §2 and §3 was read at `f26397cc`, and the per-agent capabilities from each agent's
+config format and its derive, not from a run.
 
 > **In short.** An agent's selection stops being one profile and becomes an ordered **active
 > set** of them. Every provider in the set is live for that agent, which means its catalog, its
@@ -515,9 +516,9 @@ made in this doc, and every one yields to a ruling on the questions above.
 ## 13. What was built, 2026-09-29
 
 The first slice ([§8](#8-what-i-would-build-in-order) steps 1, 2 and 4), at every notch.
-MEASURED: each rule below is pinned by a unit test through the call site a launch runs, over the
-shipped packs, and each such test was checked to fail when its call site reads only the set's
-first entry. Two integration launches in a real jail, `TestPiRunsOnEveryProviderOfItsSet`
+MEASURED: each rule below is pinned by a unit test over the shipped packs, and every call site
+the review cut to the set's first entry, one at a time (listed below), now fails a test. Two
+integration launches in a real jail, `TestPiRunsOnEveryProviderOfItsSet`
 (`-p pi=zai,openrouter`) and `TestPiRunsOnABedrockEntryAfterItsFirst` (`-p pi=zai,bedrock`),
 rendered pi's files and environment for a set. UNMEASURED: no pi session was run, so none was
 watched switching providers, and no request reached any provider.
