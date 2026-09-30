@@ -14,6 +14,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/durable"
 	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
+	"github.com/mschulkind-oss/yolo-jail/internal/hostcas"
 	"github.com/mschulkind-oss/yolo-jail/internal/ioprio"
 	"github.com/mschulkind-oss/yolo-jail/internal/jailcontent"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
@@ -333,7 +334,7 @@ func Run(opts Options) (rc int) {
 	// is that both arms below consume THIS value, so `yolo -p zai -- claude` composes the
 	// same environment on a container and on a native sandbox instead of composing it
 	// twice (or, on one of them, not at all).
-	channel, err := o.composePackChannel(cfg, staged.packs, nil)
+	channel, err := o.launchChannel(cfg, staged.packs)
 	if err != nil {
 		// The composed provider table is the one thing a launch cannot disagree with
 		// itself about, so a composition that refuses refuses HERE — above the backend
@@ -367,6 +368,10 @@ func Run(opts Options) (rc int) {
 	// (loopholes.JailDaemonsRunIn) into the daemons its Seatbelt guest runs — handed to the
 	// guest's supervisor, OQ-DP8/OQ-DP9 — and the ones it declines BY NAME.
 	jailDaemons := o.jailDaemonsFor(cfg, rt, staged.packs)
+	// None under the seal (seal.go): a fork build runs no loophole and no pack service.
+	if o.Sealed {
+		jailDaemons = nil
+	}
 
 	// macos-user native branch: route to the injected handler,
 	// which wires internal/macosuser (SBPL sandbox, dscl provisioning, the
@@ -874,7 +879,12 @@ func (o *Options) stageRunPacks(cname string) (stagedPacks, bool) {
 		return stagedPacks{}, false
 	}
 	o.packTree = root
-	o.recordAndRetirePackLoopholes(packs)
+	// NOT FOR A NARROWED SELECTION (a fork build, seal.go): the retirement pass reads a pack this
+	// launch does not carry as one that LEFT `packs`, so a build carrying two packs would archive
+	// the loophole state of every other pack the user selected.
+	if o.OnlyPacks == nil {
+		o.recordAndRetirePackLoopholes(packs)
+	}
 	return stagedPacks{root: root, packs: packs, briefings: briefings}, true
 }
 
@@ -1422,7 +1432,8 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 	// (maybeOfferReclaim) between the spawn and the proxy exits with the dir in place,
 	// the same outcome as a SIGKILLed launch (docs/reference/jail-home.md).
 	socketsDir := hostServiceSocketsDir(cname, o.IsMacOS)
-	if rt != "container" && brokerLoopholeActive(cfg) {
+	// Not under the seal (seal.go): a fork build starts no host service.
+	if rt != "container" && brokerLoopholeActive(cfg) && !o.Sealed {
 		o.brokerEnsure()
 	}
 
@@ -1437,7 +1448,8 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 	// from a PRE-UPGRADE yolo is swept by `yolo prune --apply`, which keeps that
 	// sweep for exactly one release.
 	storePruneOK := false
-	if !o.inJail() {
+	// A sealed build prunes nothing: its /mise is its own, and it has no reason to (seal.go).
+	if !o.inJail() && !o.Sealed {
 		live, known := o.liveYoloContainers(rt)
 		if known && len(live) == 0 {
 			storePruneOK = true
@@ -1452,9 +1464,17 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 	// the mountpoint it would otherwise invent for us is root-owned. A failure
 	// here is fatal rather than a warning — continuing would start a jail whose
 	// cache silently sits back on the filesystem the user moved it off.
-	relocations, relErr := config.LoadCacheRelocations(func(msg string) {
-		out.printf("[yellow]Warning: %s[/yellow]", msg)
-	})
+	//
+	// UNDER THE SEAL there are none, and none of the rest of this block's host crossings either —
+	// the host-CAS alias, host_files, the machine-scope pack dirs (seal.go): a fork build's
+	// ~/.cache is its own workspace's, and it gets no host file of any kind.
+	var relocations []config.CacheRelocation
+	var relErr error
+	if !o.Sealed {
+		relocations, relErr = config.LoadCacheRelocations(func(msg string) {
+			out.printf("[yellow]Warning: %s[/yellow]", msg)
+		})
+	}
 	if relErr != nil {
 		out.printf("[bold red]%s[/bold red]", relErr.Error())
 		lock.Close()
@@ -1484,7 +1504,10 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 	// yolo that shipped before this — so refusing a launch over it would trade a
 	// working jail for a preference about where bytes live. Every decline is
 	// disclosed instead (noteHostCASAlias, at the banner).
-	hostCAS := prepareHostCASAlias(o.planHostCASAlias(rt, relocations))
+	var hostCAS []hostcas.Disposition
+	if !o.Sealed {
+		hostCAS = prepareHostCASAlias(o.planHostCASAlias(rt, relocations))
+	}
 
 	// User host_files (docs/reference/composed-file-permissions.md). Read with the same
 	// scope rule as cache_relocations — a SOURCE-BEARING entry comes only from the
@@ -1498,9 +1521,13 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 	// renders fail-open in the entrypoint anyway (a missing source falls back to
 	// the defaults layer), so a jail that starts without one composed file is the
 	// feature degrading, not the jail running against the wrong storage.
-	hostFiles, hfErr := config.LoadHostFiles(cfg, func(msg string) {
-		out.printf("[yellow]Warning: %s[/yellow]", msg)
-	}, !o.inJail())
+	var hostFiles []config.HostFileEntry
+	var hfErr error
+	if !o.Sealed {
+		hostFiles, hfErr = config.LoadHostFiles(cfg, func(msg string) {
+			out.printf("[yellow]Warning: %s[/yellow]", msg)
+		}, !o.inJail())
+	}
 	if hfErr != nil {
 		out.printf("[yellow]Warning: host_files: %s — no host files staged[/yellow]", hfErr.Error())
 		hostFiles = nil
@@ -1533,10 +1560,24 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 	// loaded, so a CONFIGURED pack's shared dir had no source and podman refused the whole
 	// container with a bare statfs error. Fatal for that reason, and before the skeleton, so
 	// the refusal leaves nothing behind.
-	if err := ensureSharedDirSources(loadedPacks); err != nil {
-		out.printf("[bold red]%s[/bold red]", err.Error())
-		lock.Close()
-		return 1
+	if !o.Sealed { // the seal binds none of them (seal.go)
+		if err := ensureSharedDirSources(loadedPacks); err != nil {
+			out.printf("[bold red]%s[/bold red]", err.Error())
+			lock.Close()
+			return 1
+		}
+	}
+	// A SEALED BUILD'S ~/.cache AND /mise ARE ITS OWN: private directories of its workspace, made
+	// before the argv names them (seal.go). Every other launch binds the machine's shared two.
+	cacheDir, miseStore := paths.GlobalCache(), jailMiseStoreDir(o.inJail())
+	if o.Sealed {
+		var serr error
+		if cacheDir, miseStore, serr = sealedStores(o.Workspace); serr != nil {
+			out.printf("[bold red]could not make the sealed build's own cache and mise store: %s[/bold red]",
+				serr.Error())
+			lock.Close()
+			return 1
+		}
 	}
 
 	// --- Assemble the ordered argv ---
@@ -1562,7 +1603,9 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 		capturesDir:      o.CapturesDir(),
 		wsState:          wsState,
 		durableDir:       o.durableJailPath(),
-		miseStore:        jailMiseStoreDir(o.inJail()),
+		miseStore:        miseStore,
+		cacheDir:         cacheDir,
+		sealed:           o.Sealed,
 		hostTZ:           detectHostTZ(),
 		yoloVersion:      o.yoloVersion(repoRoot),
 		mountTargets:     BindMountTargets(),
@@ -1665,7 +1708,10 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 	// reading the shared predicate (see the method's comment for both failures that
 	// caused).
 	forwardHostPorts := o.hostForwardPorts(cfg, rt)
-	if appliedNetMode(rt, o.resolveNetMode(cfg), o.inContainer()) == "bridge" {
+	if o.Sealed {
+		// A sealed build reaches no host service through a forward (seal.go).
+		forwardHostPorts = nil
+	} else if appliedNetMode(rt, o.resolveNetMode(cfg), o.inContainer()) == "bridge" {
 		// Disclose BEFORE merging, while the declared list is still separable from the
 		// implicit one — after the merge there is no way to tell which ports the user wrote
 		// (OQ-PC2). This is the only disclosure site: assembleRunCmd performs the same merge
@@ -1699,8 +1745,14 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 	// a daemon the plan does not name (keeper.go's checkPlan). A keeper that printed its own
 	// disclosures would print them after its spawn, which is a notification rather than a
 	// disclosure (the design's §9.6 warning).
-	o.discloseLoopholes(rt, cfg, loadedPacks)
-	services := o.plannedLoopholeNames(rt, cfg)
+	//
+	// NEVER UNDER THE SEAL (seal.go): a fork build starts no loophole and no host service, and
+	// registers no credential view, so the plan names none and the keeper is told it is sealed.
+	var services []string
+	if !o.Sealed {
+		o.discloseLoopholes(rt, cfg, loadedPacks)
+		services = o.plannedLoopholeNames(rt, cfg)
+	}
 	var forwards []PortForward
 	if portSocketDir != "" {
 		forwards = o.planPortForwards(forwardHostPorts)

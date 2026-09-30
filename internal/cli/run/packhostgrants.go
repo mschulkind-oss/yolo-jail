@@ -139,6 +139,12 @@ func (o *Options) hostFileArgs(in *assembleInput) []string {
 // into /var/yolo-jail/ctx. "unsupported" is a statement about a LAUNCH that delivered
 // nothing, never about a backend that cannot.
 func (o *Options) hostLayerEnv(in *assembleInput) []string {
+	// A SEALED BUILD CARRIES NO HOST LAYER AT ALL (seal.go), which is its own report: every
+	// surface composes without one and nothing refuses, where "supported" with nothing delivered
+	// would read as the user having no such file.
+	if in.sealed {
+		return []string{"-e", packload.HostLayerEnvVar + "=" + packload.HostLayersUnsupportedWire()}
+	}
 	wire, err := entrypoint.HostLayerWire{
 		HostLayerReport: packload.HostLayerReport{
 			Delivery:  packload.HostLayersSupported,

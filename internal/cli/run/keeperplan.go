@@ -49,6 +49,9 @@ type keeperPlan struct {
 	// PackTree is the launch's staged pack tree, and Packs the names it loaded from it, in order.
 	PackTree string   `json:"pack_tree"`
 	Packs    []string `json:"packs"`
+	// Sealed is the launch's seal (seal.go, Options.Sealed): a sealed plan starts no loophole,
+	// no host service and no credential view, whatever else it carries.
+	Sealed bool `json:"sealed,omitempty"`
 	// Services are the loopholes whose host daemons the launch disclosed the start of
 	// (plannedLoopholeNames). The keeper starts none it does not find here.
 	Services []string `json:"services"`

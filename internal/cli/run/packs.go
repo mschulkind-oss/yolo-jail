@@ -126,6 +126,9 @@ func (o *Options) stagePacks(cname string) (string, []*packload.Pack, []jailcont
 	if err != nil {
 		return "", nil, nil, fmt.Errorf("packs: %w", err)
 	}
+	// A fork BUILD's narrowed selection (Options.OnlyPacks, seal.go): the fork and its configured
+	// base, and whatever those two join.
+	entries = o.narrowedPackEntries(entries)
 	tree, err := newPackTree(cname)
 	if err != nil {
 		return "", nil, nil, err

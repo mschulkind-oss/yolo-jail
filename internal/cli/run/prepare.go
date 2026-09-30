@@ -245,7 +245,8 @@ func (o *Options) refreshJailBriefings(cname string, cfg *jsonx.OrderedMap, rt s
 		// agents treat the user's every-repository rules as foreign (config.BriefingProvenance).
 		content := jailcontent.ComposePackBriefings(briefingBody, packBriefings, d.Agent,
 			config.BriefingProvenance(cfg))
-		if hostOverlay := briefingHostOverlay(d.After); hostOverlay != "" {
+		// Not under the seal (seal.go): a fork build reads no file of the host's home.
+		if hostOverlay := briefingHostOverlay(d.After); hostOverlay != "" && !o.Sealed {
 			if src := filepath.Join(home, hostOverlay); mayPrependHostBriefing(src, home, dests, generated) {
 				content = jailcontent.PrependHostBriefing(src, content)
 			}

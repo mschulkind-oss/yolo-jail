@@ -155,7 +155,7 @@ func (o *Options) keeperPlanFor(cfg *jsonx.OrderedMap, rt, cname string, staged 
 		PackTree: staged.root, Packs: names, Services: services, Payload: payload,
 		ApprovedScopes: o.approvedScopes, Forwards: forwards, ForwardDir: forwardDir,
 		SocketsDir: socketsDir, RunCmd: runCmd, ImageRef: in.imageRef, Skeleton: in.homeSkeleton,
-		ScratchVolumes: o.scratchVolumes, PerfRecording: o.timingRecording(),
+		ScratchVolumes: o.scratchVolumes, PerfRecording: o.timingRecording(), Sealed: o.Sealed,
 	}, nil
 }
 

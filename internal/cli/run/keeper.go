@@ -278,10 +278,12 @@ func (k *keeper) run() int {
 		k.socat = o.startPortForwards(p.Forwards, p.Cname, p.ForwardDir)
 		sp.End()
 	}
-	sp := o.Perf.Span("launch.start_loopholes")
-	k.handles = o.startPlannedLoopholes(p.Cname, p.Runtime, cfg, p.Payload)
-	sp.End()
-	o.registerClaudeCredentialView(p.Runtime, p.Cname, cfg)
+	if !p.Sealed { // the seal starts no loophole and registers no credential view (seal.go)
+		sp := o.Perf.Span("launch.start_loopholes")
+		k.handles = o.startPlannedLoopholes(p.Cname, p.Runtime, cfg, p.Payload)
+		sp.End()
+		o.registerClaudeCredentialView(p.Runtime, p.Cname, cfg)
+	}
 
 	// THE CONTAINER. The launch's argv, with the services' endpoint pairs inserted before the image,
 	// exactly where the fresh path used to insert them.

@@ -58,8 +58,8 @@ func appleContainerBaseMounts(rt string, runFlags []string, workspace string, in
 	runCmd = append(runCmd,
 		"-v", workspace+":/workspace",
 		"-v", wsState+":/home/agent",
-		"-v", paths.GlobalCache()+":/home/agent/.cache",
-		"-v", miseStoreVolume+":/mise",
+		"-v", in.cacheSource()+":/home/agent/.cache",
+		"-v", in.miseSource(miseStoreVolume)+":/mise",
 	)
 	// Every scratch dir is a bare tmpfs here: the four scratch slots podman backs with named
 	// volumes, then /run and /dev/shm. The same two lists the persistence map reads.
@@ -90,11 +90,34 @@ func appleContainerBaseMounts(rt string, runFlags []string, workspace string, in
 	// pre-created only because ITS /home/agent base is `:ro`, where crun's mkdirat
 	// fails EROFS — see podmanBaseMounts. The two backends differ here for a reason
 	// that is about the parent mount's mode, not about the nested dir.)
-	for _, dir := range packload.SharedDirs(in.packs) {
-		runCmd = append(runCmd, "-v",
-			filepath.Join(paths.GlobalHome(), dir)+":/home/agent/"+dir)
+	//
+	// None under the seal (seal.go): a fork build is handed no machine-scope directory.
+	if !in.sealed {
+		for _, dir := range packload.SharedDirs(in.packs) {
+			runCmd = append(runCmd, "-v",
+				filepath.Join(paths.GlobalHome(), dir)+":/home/agent/"+dir)
+		}
 	}
 	return runCmd
+}
+
+// cacheSource is the host side of the jail's ~/.cache: the machine's shared cache, or a sealed
+// build's own (assembleInput.cacheDir, seal.go).
+func (in *assembleInput) cacheSource() string {
+	if in.cacheDir != "" {
+		return in.cacheDir
+	}
+	return paths.GlobalCache()
+}
+
+// miseSource is the source of the jail's /mise: shared (the named volume given, or the machine's
+// bind dir in in.miseStore), or — under the seal — the build's own directory, whatever the
+// platform, since a named volume is shared by every jail on the machine (seal.go).
+func (in *assembleInput) miseSource(sharedVolume string) string {
+	if in.sealed || sharedVolume == "" {
+		return in.miseStore
+	}
+	return sharedVolume
 }
 
 // podmanBaseMounts builds the podman base mounts: this jail's :ro home skeleton +
@@ -130,7 +153,7 @@ func podmanBaseMounts(rt string, runFlags []string, workspace string, in *assemb
 	for _, b := range podmanEarlyHomeBinds() {
 		runCmd = append(runCmd, "-v", filepath.Join(ws, b.Subtree)+":/home/agent/"+b.HomeRel)
 	}
-	runCmd = append(runCmd, "-v", paths.GlobalCache()+":/home/agent/.cache")
+	runCmd = append(runCmd, "-v", in.cacheSource()+":/home/agent/.cache")
 	// Cache relocations: a rw bind nested INSIDE the .cache mount above, so
 	// ~/.cache/<subdir> in the jail is an ordinary writable dir backed by other
 	// storage. Emitted here purely for readability — podman sorts mounts by
@@ -173,11 +196,12 @@ func podmanBaseMounts(rt string, runFlags []string, workspace string, in *assemb
 		runCmd = append(runCmd, "-v",
 			filepath.Join(ws, config.WritableHomeBackingSubdir, rel)+":/home/agent/"+rel)
 	}
-	// mise store: named volume on macOS, bind dir otherwise.
+	// mise store: named volume on macOS, bind dir otherwise — and a sealed build's own dir on
+	// either (miseSource).
 	if isMacOS {
-		runCmd = append(runCmd, "-v", miseStoreVolume+":/mise")
+		runCmd = append(runCmd, "-v", in.miseSource(miseStoreVolume)+":/mise")
 	} else {
-		runCmd = append(runCmd, "-v", in.miseStore+":/mise")
+		runCmd = append(runCmd, "-v", in.miseSource("")+":/mise")
 	}
 	return runCmd
 }

@@ -470,6 +470,21 @@ type Options struct {
 	// PLATFORM likewise — only the pipeline knows which backend is about to run, and the
 	// one answer that looks right and is wrong is the host's own (containerJailPlatform).
 	AutoCapture func(bins []string, platform string)
+	// Sealed is THE SEAL (docs/design/forked-programs-as-packs.md FP-D9; seal.go): this launch is
+	// a fork BUILD, whose command is arbitrary code from a repository a pack named, so the jail is
+	// handed no credential and nothing that writes outside its own workspace and home. Every
+	// CROSSING SITE — a place in this pipeline that hands the jail something of the host's: an env
+	// pair, a bind, a started host service — asks it where it hands that thing over, rather than
+	// the loaded config being narrowed, because much of the pipeline reads the user config file
+	// directly. seal.go lists the sites. Set by the build act alone (internal/cli's forkbuild.go);
+	// false for every other launch, `yolo capture` of an installer included.
+	Sealed bool
+	// OnlyPacks, when non-nil, narrows this launch's `packs` entries to the ones named here, before
+	// the selection closure runs (so the packs those entries need or fork still join). The build
+	// act sets it to the fork and its configured base (FP-D9: a build that works only while some
+	// unrelated pack is selected would not reproduce on a second machine). nil selects every entry,
+	// the conventional local pack included, as every other launch does.
+	OnlyPacks []string
 	// MacosUserRun handles the runtime==macos-user native branch. It receives the resolved config,
 	// workspace, selected agents, the post-`--` argv, the repo root, the staged pack
 	// root, the dry-run flag, and the launch's composed profile/provider channel in

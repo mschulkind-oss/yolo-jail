@@ -95,8 +95,15 @@ type assembleInput struct {
 	// durableDir is the in-jail path this fresh launch's durable dir was made at
 	// (ensureDurableDir), exported as $YOLO_DURABLE_DIR; "" exports nothing. INPUT because
 	// making it creates a directory, which argv assembly must stay free of.
-	durableDir   string
-	miseStore    string // _jail_mise_store_dir()
+	durableDir string
+	miseStore  string // _jail_mise_store_dir(), or a sealed build's own (seal.go)
+	// cacheDir is the host side of the jail's ~/.cache: the machine's shared cache
+	// (paths.GlobalCache), or a sealed build's own (seal.go). "" reads as the machine's, which is
+	// what every hand-built assembleInput in a test gets for free.
+	cacheDir string
+	// sealed is THE SEAL (Options.Sealed, seal.go), carried here so argv assembly withholds every
+	// crossing site it emits. False for every launch but a fork build.
+	sealed       bool
 	hostTZ       string // "" => no TZ
 	yoloVersion  string // _git_describe_version() or "unknown"
 	mountTargets map[string]struct{}
@@ -321,6 +328,12 @@ func (o *Options) assembleRunCmd(in *assembleInput) []string {
 	if applied == "bridge" {
 		forwardHostPorts = mergeHostForwards(forwardHostPorts, in.envChannel(o).localProviderForwards)
 	}
+	// THE SEAL (seal.go): a fork build publishes no port and reaches no host service through a
+	// forward. Withheld after the computation above, so a nested launch's warning about the
+	// ports it would have dropped anyway still reads the same.
+	if in.sealed {
+		publishArgs, forwardHostPorts = nil, nil
+	}
 
 	normalizedBlocked := config.NormalizeBlockedToolsWith(cfgMap(cfg, "security"), packload.BlockedTools(in.packs))
 	blockedConfigJSON := jsonDumps(normalizedBlocked)
@@ -333,11 +346,13 @@ func (o *Options) assembleRunCmd(in *assembleInput) []string {
 	// where the bind is emitted, so no path emits the one without the other
 	// (docs/design/context-mounts.md §2.4).
 	var mountArgs []string
-	rootful := o.rootfulPodmanHost(rt)
-	for _, m := range o.configCtxMounts(rt, cfg, out.print) {
-		mountArgs = append(mountArgs, "-v", m.bindArg())
-		if m.rw {
-			out.print(rwMountDisclosure(m, rootful))
+	if !in.sealed { // a fork build gets no `mounts` element (seal.go)
+		rootful := o.rootfulPodmanHost(rt)
+		for _, m := range o.configCtxMounts(rt, cfg, out.print) {
+			mountArgs = append(mountArgs, "-v", m.bindArg())
+			if m.rw {
+				out.print(rwMountDisclosure(m, rootful))
+			}
 		}
 	}
 
@@ -395,10 +410,13 @@ func (o *Options) assembleRunCmd(in *assembleInput) []string {
 		// B5: machine-wide (cross-jail) dirs, from the registry rather than a
 		// hardcoded per-agent branch. These come from GlobalHome, NOT ws_state, so a
 		// credential survives across workspaces — see packload.SharedDirs for why that
-		// tier exists and why widening it is a real decision.
-		for _, dir := range packload.SharedDirs(in.packs) {
-			runCmd = append(runCmd, "-v",
-				filepath.Join(paths.GlobalHome(), dir)+":/home/agent/"+dir)
+		// tier exists and why widening it is a real decision. None under the seal: a
+		// fork build is handed no pack's machine-scope directory (seal.go).
+		if !in.sealed {
+			for _, dir := range packload.SharedDirs(in.packs) {
+				runCmd = append(runCmd, "-v",
+					filepath.Join(paths.GlobalHome(), dir)+":/home/agent/"+dir)
+			}
 		}
 	}
 
@@ -420,7 +438,9 @@ func (o *Options) assembleRunCmd(in *assembleInput) []string {
 	// CLAUDE'S CREDENTIAL STORE, on both container backends (CL-D22, claudesecurestorage.go): the
 	// machine-scope directory the shared dirs above bind, so Claude opens the real file there.
 	// macos-user renders the same value into its launch env (run.go).
-	runCmd = append(runCmd, o.claudeSecureStorageEnvArgs(rt, cfg, in.packs)...)
+	if !in.sealed { // it names a machine-scope directory, which a sealed build is not given
+		runCmd = append(runCmd, o.claudeSecureStorageEnvArgs(rt, cfg, in.packs)...)
+	}
 
 	// --- yolo-user-env.sh and the per-agent env files (written by deliverChannel) ---
 	// Both are written by the lifecycle phase before this assembly and by every attach.
@@ -456,7 +476,9 @@ func (o *Options) assembleRunCmd(in *assembleInput) []string {
 	gpuVendor := "nvidia"
 	gpuUnavailableReason := ""
 	gpuEnabled := false
-	if gpuSec := cfgMap(cfg, "gpu"); gpuSec != nil {
+	// A sealed build requests no GPU (seal.go), so neither the passthrough nor the userns branch
+	// NVIDIA's needs is chosen for it.
+	if gpuSec := cfgMap(cfg, "gpu"); gpuSec != nil && !in.sealed {
 		gpuRequested = mapBoolOr(gpuSec, "enabled", false)
 		gpuVendor = mapStrOr(gpuSec, "vendor", "nvidia")
 	}
@@ -497,7 +519,12 @@ func (o *Options) assembleRunCmd(in *assembleInput) []string {
 	}
 
 	// --- host nix daemon + store ---
-	if o.hostNixMounted(rt) {
+	if o.hostNixMounted(rt) && in.sealed {
+		// THE SEAL (seal.go): no daemon socket, which would let a fork's build ask the host's
+		// nix daemon to build and register anything it likes. The store stays, read-only, for
+		// the store-delivered packages a launch may take its toolchain from.
+		runCmd = append(runCmd, "-v", hostNixStore+":"+hostNixStore+":ro")
+	} else if o.hostNixMounted(rt) {
 		runCmd = append(runCmd,
 			"-v", hostNixSocket+":"+hostNixSocket,
 			"-v", hostNixStore+":"+hostNixStore+":ro",
@@ -656,21 +683,25 @@ func (o *Options) assembleRunCmd(in *assembleInput) []string {
 	// --- host port forwarding flags (the socat lifecycle is separate) ---
 	runCmd = append(runCmd, o.forwardHostPortsArgs(rt, in.cname, forwardHostPorts)...)
 
-	// --- host services sockets dir + broker endpoint env ---
-	runCmd = append(runCmd, o.hostServicesMountArgs(rt, in.cname, cfg)...)
+	// THE SEAL (seal.go) withholds the next four groups: a fork build reaches no host service, and
+	// is handed no host device — a device node is a write channel outside its workspace and home.
+	if !in.sealed {
+		// --- host services sockets dir + broker endpoint env ---
+		runCmd = append(runCmd, o.hostServicesMountArgs(rt, in.cname, cfg)...)
 
-	// --- device passthrough ---
-	runCmd = append(runCmd, o.deviceArgs(cfg)...)
+		// --- device passthrough ---
+		runCmd = append(runCmd, o.deviceArgs(cfg)...)
 
-	// --- GPU warn + memlock + vendor-specific flags ---
-	if gpuRequested && !gpuEnabled {
-		out.print("[yellow]Warning: GPU requested but " + gpuUnavailableReason + " — " +
-			"starting without GPU passthrough[/yellow]")
+		// --- GPU warn + memlock + vendor-specific flags ---
+		if gpuRequested && !gpuEnabled {
+			out.print("[yellow]Warning: GPU requested but " + gpuUnavailableReason + " — " +
+				"starting without GPU passthrough[/yellow]")
+		}
+		runCmd = append(runCmd, o.gpuArgs(cfg, rt, gpuEnabled, gpuVendor)...)
+
+		// --- KVM ---
+		runCmd = append(runCmd, o.kvmArgs(cfg, rt, slices.Contains(runCmd, "keep-groups"))...)
 	}
-	runCmd = append(runCmd, o.gpuArgs(cfg, rt, gpuEnabled, gpuVendor)...)
-
-	// --- KVM ---
-	runCmd = append(runCmd, o.kvmArgs(cfg, rt, slices.Contains(runCmd, "keep-groups"))...)
 
 	// --- resources ---
 	runCmd = append(runCmd, o.resourceArgs(cfg, rt)...)
@@ -686,7 +717,7 @@ func (o *Options) assembleRunCmd(in *assembleInput) []string {
 	// rather than downgrade, and say so: the visible symptom is nvim coming up
 	// unconfigured, which is otherwise an odd thing to have to explain to yourself.
 	hostNvim := filepath.Join(homeDir(), ".config", "nvim")
-	if isDir(hostNvim) {
+	if isDir(hostNvim) && !in.sealed { // a fork build is handed no host config (seal.go)
 		if reason := o.roBindsUnsupported(rt); reason != "" {
 			out.print("[yellow]Skipping host nvim config (~/.config/nvim): " + reason + "[/yellow]")
 		} else {
@@ -768,10 +799,19 @@ func (o *Options) assembleRunCmd(in *assembleInput) []string {
 	runCmd = append(runCmd, o.venvShadowMountArgs(cfg, in.wsState)...)
 
 	// --- user config mount (nested jails) ---
-	runCmd = append(runCmd, o.userConfigMountArgs(rt, in.wsState)...)
+	// Not under the seal: the inherited copy of the user config is host config a fork build has
+	// no use for, and it carries inline env_sources (seal.go).
+	if !in.sealed {
+		runCmd = append(runCmd, o.userConfigMountArgs(rt, in.wsState)...)
+	}
 
 	// --- MISE_DISABLE_TOOLS env ---
-	userEnv := config.ResolveEnvSources(o.Workspace, cfg, nil)
+	// A sealed build hydrates no env_sources to read it from: hydrating one runs the commands and
+	// reads the files it names on the host (seal.go).
+	userEnv := jsonx.NewOrderedMap()
+	if !in.sealed {
+		userEnv = config.ResolveEnvSources(o.Workspace, cfg, nil)
+	}
 	miseDisabled := config.MergeMiseDisabledTools(mapGet(userEnv, "MISE_DISABLE_TOOLS"))
 	runCmd = append(runCmd, "-e", "MISE_DISABLE_TOOLS="+miseDisabled)
 
@@ -875,10 +915,13 @@ func (o *Options) assembleRunCmd(in *assembleInput) []string {
 	runCmd = append(runCmd, o.capturesArgs(rt, in.capturesDir)...)
 
 	// --- host files (pack-declared, origin-gated) ---
-	runCmd = append(runCmd, o.hostFileArgs(in)...)
-
 	// --- pack `mount` contributions: host-home dir/file :ro under /ctx ---
-	runCmd = append(runCmd, o.hostMountArgs(in)...)
+	// Neither under the seal: a fork build reads no file of the host's home, a surface's host
+	// layer included (seal.go).
+	if !in.sealed {
+		runCmd = append(runCmd, o.hostFileArgs(in)...)
+		runCmd = append(runCmd, o.hostMountArgs(in)...)
+	}
 
 	// --- pack `env` contributions: static jail env vars ---
 	// NOT on the argv. The pack env fold crosses in yolo-user-env.sh's channel
@@ -981,16 +1024,22 @@ func (o *Options) assembleRunCmd(in *assembleInput) []string {
 	// its canonical credentials from crossing. Materialize that list's inert marker
 	// immediately before the loophole runtime resolves bind sources, so a normal
 	// launch neither widens the mount nor warns that its safe source is absent.
-	o.prepareOpenAIAuthMountSentinel(cfg)
-	runCmd = append(runCmd, o.loopholesRuntimeArgs(cfg, rt, in.jailDaemons)...)
+	//
+	// NONE UNDER THE SEAL (seal.go): a fork build runs no loophole — no CA it trusts, no
+	// --add-host, no jail daemon, no endpoint — so none of this is emitted, the witness's
+	// registration below included.
+	if !in.sealed {
+		o.prepareOpenAIAuthMountSentinel(cfg)
+		runCmd = append(runCmd, o.loopholesRuntimeArgs(cfg, rt, in.jailDaemons)...)
 
-	// --- jail-facing service endpoint env (the witness's registration) ---
-	// Beside the composition above on purpose: a service whose daemon joins
-	// YOLO_JAIL_DAEMONS here is the same service whose endpoint file the env
-	// var below advertises to the in-jail reachability witness — emitted only
-	// when the launch has decided the daemon will actually serve (§5's
-	// WARNING), so an idle bridge never registers.
-	runCmd = append(runCmd, serviceEndpointEnvArgs(in, o)...)
+		// --- jail-facing service endpoint env (the witness's registration) ---
+		// Beside the composition above on purpose: a service whose daemon joins
+		// YOLO_JAIL_DAEMONS here is the same service whose endpoint file the env
+		// var below advertises to the in-jail reachability witness — emitted only
+		// when the launch has decided the daemon will actually serve (§5's
+		// WARNING), so an idle bridge never registers.
+		runCmd = append(runCmd, serviceEndpointEnvArgs(in, o)...)
+	}
 
 	// --- image + entrypoint ---
 	//
