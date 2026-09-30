@@ -88,6 +88,65 @@ func TestHostNarrowsABareListForClaudeAndSaysSo(t *testing.T) {
 	}
 }
 
+// AP-D3 at the host: an undeclared SECOND entry of pi's set refuses before the exec, naming it,
+// and pi never starts on the declared first. Cutting the composition's declaration loop to the
+// set's first entry passes `typo` through to the exec.
+func TestHostRefusesAnUndeclaredLaterEntry(t *testing.T) {
+	rc, env, errs := hostGateRun(t, setHostCfg, nil, []string{"-p", "pi=zai,typo"}, "pi")
+	if rc == 0 || env != nil {
+		t.Fatalf("pi on [zai, typo] must refuse before the exec (rc=%d)\n%s", rc, errs)
+	}
+	if !strings.Contains(errs, `profile "typo" selected for pi`) {
+		t.Errorf("the refusal must name the undeclared second entry:\n%s", errs)
+	}
+}
+
+// OQ-AP3 with AP-D3 at the host: claude takes a bare list's first entry alone, and the entries it
+// ignores must still be declared, at `yolo host --` and `yolo host env` alike. They used to go
+// unchecked, so `-p zai,typo -- claude` ran claude on zai.
+func TestHostRefusesAnUndeclaredEntryOfABareList(t *testing.T) {
+	const cfg = `{"packs": ["claude", "zai"], "env_sources": [{"ZAI_API_KEY": "tok-zai"}]}`
+	const says = `profile "typo" (entry 2 of the bare -p list zai,typo)`
+	rc, env, errs := hostGateRun(t, cfg, nil, []string{"-p", "zai,typo"}, "claude")
+	if rc == 0 || env != nil {
+		t.Fatalf("a bare list with an undeclared entry must refuse before the exec (rc=%d)\n%s", rc, errs)
+	}
+	if !strings.Contains(errs, says) {
+		t.Errorf("yolo host must name the ignored entry nothing declares:\n%s", errs)
+	}
+
+	hostGateHome(t, cfg, nil)
+	var out, errw bytes.Buffer
+	if rc := hostEnv([]string{"-p", "zai,typo"}, &out, &errw); rc == 0 {
+		t.Fatalf("yolo host env must refuse the same list (rc=0):\n%s", out.String())
+	}
+	if !strings.Contains(errw.String(), says) {
+		t.Errorf("yolo host env must name the ignored entry nothing declares:\n%s", errw.String())
+	}
+}
+
+// OQ-AP3 at `yolo host env`: with no --agent the verb composes claude's slice, and a bare list is
+// narrowed to its first entry for claude, with the one line saying what it ignores. Without the
+// narrowing the same value is a list at claude, which refuses (OQ-AP2).
+func TestHostEnvNarrowsABareListForClaudeAndSaysSo(t *testing.T) {
+	hostGateHome(t, setHostCfg, nil)
+	var out, errw bytes.Buffer
+	if rc := hostEnv([]string{"-p", "zai,openrouter"}, &out, &errw); rc != 0 {
+		t.Fatalf("hostEnv rc = %d, stderr:\n%s", rc, errw.String())
+	}
+	if !strings.Contains(out.String(), "export ZAI_API_KEY='tok-zai'") {
+		t.Errorf("claude's slice must carry zai's key, the list's first entry:\n%s", out.String())
+	}
+	if strings.Contains(out.String(), "OPENROUTER_API_KEY") {
+		t.Errorf("claude ignores openrouter, so its key must not be exported:\n%s", out.String())
+	}
+	for _, want := range []string{"claude runs one provider per session", "ignores openrouter"} {
+		if !strings.Contains(errw.String(), want) {
+			t.Errorf("yolo host env must say %q:\n%s", want, errw.String())
+		}
+	}
+}
+
 // `yolo host apply` renders the use_profiles set into pi's own files (§4.9), through the real
 // command: the start pair is the primary's and the scoped list spans both providers, and the
 // report names the selection as the set.

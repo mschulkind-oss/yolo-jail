@@ -1270,7 +1270,10 @@ the plain name, byte for byte, so no existing config moves.
   `packload.ProfileSetProblems`. A **bare** list (`-p zai,openrouter`) goes whole to every
   set-capable agent and its first entry to every other, and the launch prints one line naming
   those agents and the entries they ignore ([OQ-AP3](../design/active-provider-sets.md#OQ-AP3);
-  `packload.NarrowBareList`, `packload.BareListNote`).
+  `packload.NarrowBareList`, `packload.BareListNote`). The entries an agent ignores must still be
+  declared: `-p zai,typo` refuses naming `typo` whichever agents are selected
+  (`checkProfileDeclarations` in a jail, `hostBareTailUndeclared` at `yolo host` and
+  `yolo host env`).
 - **What a set refuses** (`packload.ProfileSetProblems`, at every notch and predicted by
   `yolo check`): a name listed twice; two entries resolving to one provider; a via profile
   anywhere but first ([AP-D9](../design/active-provider-sets.md#AP-D9)), since an agent has one

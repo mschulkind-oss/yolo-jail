@@ -178,6 +178,41 @@ func TestATypedPairReplacesAConfigListWhole(t *testing.T) {
 	}
 }
 
+// AP-D3: EVERY entry of a set must be declared, not only its primary. An undeclared SECOND entry
+// refuses the launch through the composition, naming that entry, and pi never starts on the
+// declared first. Deleting the declaration loop's walk over the whole set (or cutting it to
+// the first entry) passes `typo` through.
+func TestAnUndeclaredLaterEntryRefusesTheLaunch(t *testing.T) {
+	home := packHome(t)
+	o := goldenOptions(t.TempDir(), home)
+	o.UseProfiles = map[string]string{"pi": "zai,typo"}
+	_, err := o.composePackChannel(bareConfig(), setPacks(t), zaiAndRouterKeys())
+	if err == nil || !strings.Contains(err.Error(), `profile "typo" selected for pi`) {
+		t.Fatalf("composePackChannel = %v, want the refusal naming pi's second entry", err)
+	}
+}
+
+// OQ-AP3 with AP-D3: a BARE list's every entry must be declared, even where no agent takes the
+// list whole. claude takes a bare list's first entry alone, so with no set-capable agent
+// selected the tail reaches no agent's set, and it used to go unchecked: `-p zai,typo` started
+// claude on zai, where the same value refused as soon as pi was selected.
+func TestAnUndeclaredEntryOfABareListRefusesWithNoSetCapableAgent(t *testing.T) {
+	home := packHome(t)
+	o := goldenOptions(t.TempDir(), home)
+	o.ProfileName = "zai,typo"
+	packs := []*packload.Pack{officialPack(t, "claude"), officialPack(t, "zai")}
+	_, err := o.composePackChannel(bareConfig(), packs, zaiAndRouterKeys())
+	if err == nil || !strings.Contains(err.Error(), `profile "typo" (entry 2 of the bare -p list zai,typo)`) {
+		t.Fatalf("composePackChannel = %v, want the bare list's undeclared entry refused", err)
+	}
+	// Declared throughout, the same bare list composes and claude narrows to zai.
+	o.ProfileName = "zai,openrouter"
+	packs = append(packs, officialPack(t, "openrouter"))
+	if _, err := o.composePackChannel(bareConfig(), packs, zaiAndRouterKeys()); err != nil {
+		t.Errorf("a declared bare list must compose: %v", err)
+	}
+}
+
 // An EMPTY PAIR (`-p pi=`, alone or beside `claude=zai`) crosses as the empty string it always
 // did, the selection of nothing, never as an empty list: the jail reads a string "" as no
 // selection, and a `[]` would be a list value no older jail was ever handed.

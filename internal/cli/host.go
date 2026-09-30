@@ -470,16 +470,49 @@ func hostProfileFor(v, agent string, envVerb bool) (string, error) {
 // resolvable pack (config.SetCapableCLINames), since a CLI is installed by one pack wherever it
 // is selected; when that universe cannot be enumerated nothing is narrowed, and the composition's
 // own check refuses the list rather than dropping part of it in silence.
-func narrowHostBareList(typed, list, agent string) (string, string) {
+//
+// EVERY ENTRY IS STILL DECLARED (AP-D3): the entries the agent ignores never reach the
+// composition, whose declaration check reads only the set it is handed, so they are asked here,
+// over the same packs and user profiles that check reads (hostBareTailUndeclared). A typo in the
+// tail refuses as it would at pi, and as it does in a jail.
+func narrowHostBareList(typed, list, agent string) (string, string, error) {
 	entries := packload.SplitProfileList(list)
 	if strings.Contains(typed, "=") || len(entries) <= 1 {
-		return list, ""
+		return list, "", nil
 	}
 	capable, known := config.SetCapableCLINames()
 	if !known || capable[agent] {
-		return list, ""
+		return list, "", nil
 	}
-	return entries[0], packload.BareListNote(entries, nil, []string{agent}, false)
+	if err := hostBareListUndeclared(agent, entries); err != nil {
+		return "", "", err
+	}
+	return entries[0], packload.BareListNote(entries, nil, []string{agent}, false), nil
+}
+
+// hostBareListUndeclared refuses the first entry of a bare list that nothing declares, in the
+// jail's words (checkProfileDeclarations), every entry in order, so an undeclared first entry is
+// named before the tail. The declared names are the ones the composition will read: the selected
+// packs for agent on the list's first entry and the user's profile declarations. A selection or a
+// profiles file the composition refuses is left for it to refuse, in its own words, so this adds
+// no second message for one problem.
+func hostBareListUndeclared(agent string, entries []string) error {
+	sel := loadedHostPacks(config.UserScopeConfigOrEmpty(), agent, entries[0])
+	if sel.launchRefusal() != nil {
+		return nil
+	}
+	userProfiles, err := config.LoadProfiles(nil)
+	if err != nil {
+		return nil
+	}
+	declared := packload.DeclaredProfileNames(sel.packs, userProfiles)
+	for i, name := range entries {
+		if !slices.Contains(declared, name) {
+			return fmt.Errorf("packs: profile %q (entry %d of the bare -p list %s): %s", name, i+1,
+				strings.Join(entries, ","), packload.UndeclaredProfileMessage(name, declared))
+		}
+	}
+	return nil
 }
 
 // hostExec composes the environment and launches the target.
@@ -506,7 +539,11 @@ func hostExec(flagArgs, cmd []string, out, errw io.Writer, stdin io.Reader) int 
 		fmt.Fprintf(errw, "yolo host: %v\n", err)
 		return 2
 	}
-	profile, bareNote := narrowHostBareList(flags.profile, profile, filepath.Base(cmd[0]))
+	profile, bareNote, err := narrowHostBareList(flags.profile, profile, filepath.Base(cmd[0]))
+	if err != nil {
+		fmt.Fprintf(errw, "yolo host: refusing to launch: %v\n", err)
+		return 1
+	}
 	if bareNote != "" {
 		fmt.Fprintf(errw, "yolo host: %s\n", bareNote)
 	}
@@ -2532,7 +2569,11 @@ func hostEnv(args []string, out, errw io.Writer) int {
 		fmt.Fprintf(errw, "yolo host env: %v\n", err)
 		return 2
 	}
-	profile, bareNote := narrowHostBareList(typedProfile, profile, agent)
+	profile, bareNote, err := narrowHostBareList(typedProfile, profile, agent)
+	if err != nil {
+		fmt.Fprintf(errw, "yolo host env: %v\n", err)
+		return 1
+	}
 	if bareNote != "" {
 		fmt.Fprintf(errw, "yolo host env: %s\n", bareNote)
 	}

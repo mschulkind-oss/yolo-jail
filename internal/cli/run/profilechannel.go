@@ -151,7 +151,7 @@ func (o *Options) composePackChannel(cfg *jsonx.OrderedMap, packs []*packload.Pa
 	// buys: declaration is MANDATORY, so a selected name nothing declares refuses here
 	// rather than silently doing nothing. Before the resolution below, because an
 	// undeclared name has no resolution to argue about.
-	if err := o.checkProfileDeclarations(profiles, userProfiles, packs); err != nil {
+	if err := o.checkProfileDeclarations(fold, userProfiles, packs); err != nil {
 		return nil, err
 	}
 	// The provider table composes BEFORE the profiles resolve, because the resolution
@@ -302,8 +302,9 @@ func (o *Options) composePackChannelWith(cfg *jsonx.OrderedMap, packs []*packloa
 // packs ship plus every user `profiles` entry — because that is exactly the union the
 // design makes a profile name answer to; a second list here would be a second idea of
 // "declared".
-func (o *Options) checkProfileDeclarations(profiles *jsonx.OrderedMap,
+func (o *Options) checkProfileDeclarations(fold config.ProfileFold,
 	userProfiles map[string]packload.UserProfile, packs []*packload.Pack) error {
+	profiles := fold.Table
 	if profiles.Len() == 0 {
 		return nil
 	}
@@ -313,6 +314,7 @@ func (o *Options) checkProfileDeclarations(profiles *jsonx.OrderedMap,
 		isDeclared[name] = true
 	}
 	var problems []string
+	reported := map[string]bool{}
 	sets := packload.ProfileSets(profiles)
 	for _, agent := range profiles.Keys() {
 		// EVERY ENTRY of the agent's active set (docs/design/active-provider-sets.md AP-D3): one
@@ -321,8 +323,29 @@ func (o *Options) checkProfileDeclarations(profiles *jsonx.OrderedMap,
 			if name == "" || isDeclared[name] {
 				continue
 			}
+			reported[name] = true
 			problems = append(problems, fmt.Sprintf("profile %q selected for %s: %s",
 				name, agent, packload.UndeclaredProfileMessage(name, declared)))
+		}
+	}
+	// AND EVERY ENTRY OF A BARE LIST, whichever agents took it (OQ-AP3 read with AP-D3), the
+	// config key's or a -p's. An agent whose pack declares no provider_sets took its first entry
+	// alone (config.FoldProfiles), so the rest are in no agent's set above, and a typo there
+	// would pass whenever no set-capable agent is selected and refuse whenever one is. Asked
+	// only when the list reached some agent, as a bare name always was: the fold records a list
+	// no CLI received as none.
+	if bare := fold.BareList; len(bare) > 1 {
+		spelled := "the bare -p list " + strings.Join(bare, ",")
+		if fold.BareFrom == profileFoldFromKey {
+			spelled = "the profile key's list " + strings.Join(bare, ",")
+		}
+		for i, name := range bare {
+			if isDeclared[name] || reported[name] {
+				continue
+			}
+			reported[name] = true
+			problems = append(problems, fmt.Sprintf("profile %q (entry %d of %s): %s",
+				name, i+1, spelled, packload.UndeclaredProfileMessage(name, declared)))
 		}
 	}
 	if len(problems) == 0 {
@@ -330,6 +353,7 @@ func (o *Options) checkProfileDeclarations(profiles *jsonx.OrderedMap,
 	}
 	return fmt.Errorf("packs: %s", strings.Join(problems, "\npacks: "))
 }
+
 
 // deliveryLookup is what "set in this launch's environment" means to the credential
 // pre-flight, in the order the launch would have used the value:
