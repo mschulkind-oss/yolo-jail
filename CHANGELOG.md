@@ -503,8 +503,8 @@ fix it. See [capabilities and supersession](docs/reference/pack-system.md#capabi
 - A terminal whose jail ends under it now says why: the terminal that started the jail quit,
   `yolo stop`, a restart from another terminal, or that nothing recorded a reason, such as an
   out-of-memory kill.
-- Typing `ctrl-p` then `ctrl-q` in a jail no longer drops you out of the session while its agent
-  keeps running in the background; the keys reach the program you are in.
+- Typing `ctrl-p` then `ctrl-q` in a podman jail no longer drops you out of the session while its
+  agent keeps running in the background; the keys reach the program you are in.
 - `.yolo/boot.log` now always holds how the jail itself started, however many terminals join it
   afterwards. Each terminal that joined used to replace it with its own start-up, pushing the
   jail's start aside and, once a second terminal had joined, out of the log. A joining
