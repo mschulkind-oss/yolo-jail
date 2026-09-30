@@ -11,10 +11,11 @@ summary: "Five audits found that the host notch, the container jail and macos-us
 **Status:** DECIDED, 2026-09-28 — owed: **work.** The thesis and every pure merge in the build list
 are ruled by the maintainer's 2026-09-27 words ([§1](#1-the-thesis)). Caller authentication for the
 loopback services is ruled the same day and comes first ([§2](#2-security-first-the-boundary-that-is-not-one)).
-The wire-bridge part of it is being built elsewhere. The word is `DECIDED` although 💬 questions
-are open. Each one gates a single build item, and none of them gates the thesis or blocks the items
-before it, so this is [the tie-breaker](README.md#the-vocabulary--seven-words-and-the-word-names-what-is-owed)
-applied to per-item gates. That judgement is stated here so it can be checked. Each item's row in
+The wire-bridge part of it is being built elsewhere. The word was `DECIDED` while 💬 questions
+were open, because each one gated a single build item and none gated the thesis or blocked the items
+before it, which is [the tie-breaker](README.md#the-vocabulary--seven-words-and-the-word-names-what-is-owed)
+applied to per-item gates. Since 2026-09-30 none is open: the last, [OQ-NC2](#OQ-NC2), was found
+answered by another doc's ruling. Each item's row in
 [§4](#4-the-ordered-build-list) says when it is built. Evidence was verified against `eb0af5ee` on
 2026-09-28. The measurements are the five auditors' from 2026-09-27, taken in scratch homes under
 `/tmp` against a binary built from that commit.
@@ -42,7 +43,7 @@ premise is retired.
 **Start at [§2](#2-security-first-the-boundary-that-is-not-one)**, the only part that is urgent, then
 [§4](#4-the-ordered-build-list).
 
-**Needs your ruling:** [OQ-NC2](#OQ-NC2), reopened for a fix without hosts-file interception. Also ruled 2026-09-28: [OQ-NC3](#OQ-NC3) (keep autonomy, disclosed) and [OQ-NC10](#OQ-NC10) (retire the unread variable). Ruled 2026-09-28: [OQ-NC1](#OQ-NC1) (run services at every notch), [OQ-NC6](#OQ-NC6) (credential-routing provider fields are user-scope only), [OQ-NC7](#OQ-NC7) (host claude keeps its own login for now), and by parity [OQ-NC4](#OQ-NC4), [OQ-NC5](#OQ-NC5), [OQ-NC8](#OQ-NC8), [OQ-NC9](#OQ-NC9), [OQ-NC11](#OQ-NC11).
+**Needs your ruling:** nothing. [OQ-NC2](#OQ-NC2), reopened for a fix without hosts-file interception, was found answered on 2026-09-30 by [OQ-CL1](../design/claude-login-without-interception.md#OQ-CL1): the credential view deletes the terminator at every notch. Also ruled 2026-09-28: [OQ-NC3](#OQ-NC3) (keep autonomy, disclosed) and [OQ-NC10](#OQ-NC10) (retire the unread variable). Ruled 2026-09-28: [OQ-NC1](#OQ-NC1) (run services at every notch), [OQ-NC6](#OQ-NC6) (credential-routing provider fields are user-scope only), [OQ-NC7](#OQ-NC7) (host claude keeps its own login for now), and by parity [OQ-NC4](#OQ-NC4), [OQ-NC5](#OQ-NC5), [OQ-NC8](#OQ-NC8), [OQ-NC9](#OQ-NC9), [OQ-NC11](#OQ-NC11).
 
 **Reads with:** [`wire-bridge.md`](../reference/wire-bridge.md#wb-d4) (WB-D4, the premise
 [§2](#2-security-first-the-boundary-that-is-not-one) retires),
@@ -331,7 +332,7 @@ after it, except where its **After** cell says otherwise.
 | 1 | Per-launch caller secret for the bridge, both OpenAI adapter halves, the AWS adapter and the terminator ([§2.3](#23-the-fix-every-service-authenticates-its-caller-at-every-notch)) | E1, C2's injection half | **behavior-changing, ruled** (2026-09-27). ✅ **Built**: the bridge `ea083e97`, the other four `a5fd280f` ([NC-D12](#NC-D12) to [NC-D15](#NC-D15)). Verified by unit tests driving each service's real handler and each client's real writer; the shared-namespace configurations it exists for are in the reachability carve-out and are verified only by CI or a real rootless host. The terminator's proxy branch stays unauthenticated ([OQ-NC2](#OQ-NC2)) | — | A caller without the secret is refused at every notch and service; the selecting agent is served |
 | 2 | Served addresses composed from the serving daemon; ephemeral ports where the client takes a composed address; one "served at this notch" predicate feeding one provider-composition helper | C1, C2, the macos-user dead addresses | **pure merge.** The host and macos-user converge on "dropped and named", which is ES-D18's rule generalized. ✅ **Built in part** (`8805439f`, [NC-D16](#NC-D16)): one predicate (`packload.ServedDaemons`, `ServedAtRuntime`), one composition (`ComposeProvidersAt`, `ViaServedAt`) at the jail, macos-user, the host and `yolo check`, and a pack `env` pointer declares its daemon (`served_by`) so the credential gate withholds and names it where that daemon does not run. ✅ **The rest built**, pinned by `TestAListenPointerComposesItsDaemonsServedAddress`, `TestASharedNamespaceLaunchMovesEveryServedAddressTogether` and `TestAnAttachComposesForTheRunningJailsServedAddresses` ([NC-D41](#NC-D41) to [NC-D44](#NC-D44); fixes [NC-D45](#NC-D45), `TestAServiceDaemonRefusesTheListenToken`, and [NC-D46](#NC-D46), `TestLaunchBannerNamesThePointersServedAddress`): a pointer's address is composed from its daemon's declaration (`jail_daemon.listen`, spelled `{listen}`), and a shared-namespace launch serves every jail daemon and pack service on ports it picked, which an attach re-reads. Verified by unit tests over the production compositions and, in the nested jail (a shared namespace), by two concurrent bridged launches that collided on `:8214` before (`TestTwoJailsOnOneLoopbackServeOnTheirOwnPorts`, Linux podman only: a macOS podman machine's host mode is the VM's namespace, [NC-D43](#NC-D43)). The `network.mode: "host"` arm on a real host is in the reachability carve-out: verified only by CI or a real rootless host | 1 | No notch exports an address nothing serves. `yolo check` predicts per runtime |
 | 3 | Run the selected packs' services at a service-less notch | E2 | **behavior-changing, ruled** ([OQ-NC1](#OQ-NC1) A, [`OQ-HS3`](../design/host-notch-services.md#OQ-HS3), [`OQ-HS4`](../design/host-notch-services.md#OQ-HS4)). ✅ **Built**: the mechanism, `TestStartWaitsForReadinessAndStopEndsTheService` and `TestTheHostHalfServesFromItsInputAndPublishesNoFile`; the host launch, `TestHostCodexClaudeRunsThroughALaunchOwnedBridge`; macos-user, `TestTheMacosUserArmStartsTheServiceAndStopsItAfterTheCommand`; and the disclosure's address list, `launchservice.Plan.AddressesIn` ([NC-D65](#NC-D65); HS-D6 to HS-D14 in [`host-notch-services.md`](../design/host-notch-services.md#11-decision-ledger)). Verified by unit tests through `hostMain` and the macos-user arm of `run.Run`. The loopback listener the host half binds is in the reachability carve-out below: its reach from a real `macos-user` sandbox is verified only on a Mac | 1, 2 | `-p cerebras -- claude` works at the host and on macos-user, or refuses identically at both. Met: it works at both, and a service neither can start refuses at both, naming why |
-| 4 | The terminator on a shared namespace | E3 | **behavior-changing, gated** on [OQ-NC2](#OQ-NC2) | 1 | — |
+| 4 | The terminator on a shared namespace | E3 | **superseded**, since [OQ-NC2](#OQ-NC2) was answered by [OQ-CL1](../design/claude-login-without-interception.md#OQ-CL1): nothing is built here. The terminator goes at every notch with the interception, [`claude-login-without-interception.md` §10](../design/claude-login-without-interception.md#10-what-i-would-build-in-order) step 5 | 1 | — |
 
 ### Tier 2 — one selection (P1, P2)
 
@@ -446,7 +447,7 @@ is reported verified only against a real rootless host or CI, with
    > [`OQ-HS3`](../design/host-notch-services.md#OQ-HS3) and
    > [`OQ-HS4`](../design/host-notch-services.md#OQ-HS4).
 
-2. 💬 <a id="OQ-NC2"></a>**OQ-NC2: What does the Claude OAuth terminator do on a shared network
+2. ✅ <a id="OQ-NC2"></a>**OQ-NC2: What does the Claude OAuth terminator do on a shared network
    namespace?** It must listen on `127.0.0.1:443`, because `--add-host` maps `platform.claude.com`
    to loopback and the port cannot move. On `network.mode: "host"` or a nested jail, a second jail
    finds `:443` held, or binds the host's own. This decides whether such a jail's claude refreshes
@@ -468,12 +469,20 @@ is reported verified only against a real rootless host or CI, with
      otherwise decline by name. After item 1 it authenticates by refresh-token match and serves the
      same machine-wide credential, so sharing it is correct.
 
-   <!-- vantage: oq id=OQ-NC2 leaning="C: reuse a yolo terminator already on that loopback, since after item 1 it authenticates by refresh-token match and serves the same machine-wide credential; otherwise decline by name and disclose the refresh race." -->
-
    _Leaning:_ C, falling back to A with the race disclosed. B refuses a configuration that works
    today for a reason the user cannot act on.
 
    **Answer:**
+   > **Answered by [OQ-CL1](../design/claude-login-without-interception.md#OQ-CL1) (2026-09-28):
+   > the terminator is deleted at every notch, so a shared network namespace needs no `:443`
+   > listener and none of A, B or C is built.** The maintainer: *"we can just write the new one in
+   > there and it just picks it up. If that's the case, then yes, we should do that."* The host
+   > broker writes each workspace a credential view with no refresh token, so Claude never
+   > refreshes and nothing intercepts `platform.claude.com`; the unauthenticated proxy branch goes
+   > with the terminator. The deletion lands after that doc's measures pass. Until then the view is
+   > the opt-in `YOLO_CLAUDE_CREDENTIAL_VIEW=1`, which drops the terminator from a launch, and a
+   > shared-namespace jail without it keeps today's behavior. Recorded 2026-09-30.
+   >
    > **Not ruled; reopened 2026-09-28 for a real fix.** The maintainer rejects all three options:
    > *"I want to fix this for real. I don't love any of these options … do we really need [the
    > /etc/hosts entry]? Is there no option or environment we can pass to claude to handle this
@@ -716,6 +725,7 @@ is reported verified only against a real rootless host or CI, with
 | [OQ-NC3](#OQ-NC3) | **Maintainer ruling**, as leaned: A, a jail on a shared network keeps autonomy, disclosed from a network primitive in `render.Profile` | 2026-09-28 | [§6](#6-open-questions) | ✅ `9a5c5b68` ([NC-D47](#NC-D47)) |
 | [OQ-NC10](#OQ-NC10) | **Maintainer ruling**, as leaned: A, retire `YOLO_ACCEPT_CONFIG_CHANGES` and keep refusing the flag by name | 2026-09-28 | [§6](#6-open-questions) | ✅ `a1812373` ([NC-D64](#NC-D64)) |
 | [OQ-NC5](#OQ-NC5) | *The parity ruling's NC5 half, recorded on its own row for its build:* a bare `-p` reaches agent CLIs only, at every notch | 2026-09-28 | [§6](#6-open-questions) | ✅ `b2ca409a` ([NC-D62](#NC-D62)) |
+| [OQ-NC2](#OQ-NC2) | **Answered by [OQ-CL1](../design/claude-login-without-interception.md#OQ-CL1)** (ruled 2026-09-28, recorded here 2026-09-30): the credential view replaces the hosts entry, the CA and the terminator at every notch, *"we can just write the new one in there and it just picks it up"*, so a shared namespace needs no `:443` listener and item 4 is superseded | 2026-09-30 | [§6](#6-open-questions) | — the deletion waits on [`claude-login-without-interception.md`](../design/claude-login-without-interception.md#10-what-i-would-build-in-order)'s measures; the view is built behind `YOLO_CLAUDE_CREDENTIAL_VIEW` |
 | NC-D1 | **Maintainer ruling.** Merge the host and jail notches as far as possible: one description, one code path per concern, the notch as an input. "Parsing profiles should be the same", and "host is supposed to act like everywhere else" | 2026-09-27 | [§1](#1-the-thesis) | — |
 | NC-D2 | **Maintainer ruling.** A loopback service's safety never rests on the jail's network namespace ("jails … can be house type and then it's identical … solve it in both places"). This retires the premise of [WB-D4](../reference/wire-bridge.md#wb-d4) and the awscredadapter "no token" design | 2026-09-27 | [§2.2](#22-why-that-premise-is-false-in-a-jail-too) | ✅ `ea083e97`, `a5fd280f` |
 | NC-D3 | *Implementation decision.* The per-service mechanisms of [§2.3](#23-the-fix-every-service-authenticates-its-caller-at-every-notch): each client carries the secret in a slot it already has, so no agent changes, and the terminator authenticates by refresh-token match | 2026-09-28 | [§2.3](#23-the-fix-every-service-authenticates-its-caller-at-every-notch) | ✅ `ea083e97`, `a5fd280f` |
