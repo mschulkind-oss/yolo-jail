@@ -1352,7 +1352,7 @@ that can be mistyped is checked against the right set, and each check is fatal:
 
 | Spelling | Checked against | Where |
 | :--- | :--- | :--- |
-| a `profile` **key** other than `"*"` | the CLI names every **resolvable** pack installs — selected or not | config validation (`yolo check` and every launch); at the host notch (`yolo host --`, `yolo host env`) the provider and profile section of the same validation over user scope (`config.ValidateProviderSection`), with the launched command's own key refused first, adding the `-p` spelling that is legal (`config.UnknownProfileKey`) |
+| a `profile` **key** other than `"*"` | the CLI names every **resolvable** pack installs — selected or not | config validation (`yolo check` and every launch); at the host notch (`yolo host --`, `yolo host env`, `yolo host apply` and its automatic run at a wrapped launch, `yolo config render --at host`) the provider and profile section of the same validation over user scope (`config.ValidateProviderSection`), with the launched command's own key refused first, adding the `-p` spelling that is legal (`config.UnknownProfileKey`) |
 | `-p <cli>=<name>` | the same namespace | launch preflight (`checkProfileTargets`) — a flag never reaches config validation |
 | a selected profile **name** | the declared set: selected packs' profiles plus the user's `profiles` | launch preflight, both notches |
 | a `-p`/`--profile` with **no value** (trailing, followed by `--`, or `--profile=`) | nothing: it is refused as "`-p` needs a value", exit 2 | the front door, both notches, through one value-flag reader that `--at`, `--network` and `--with-credentials` share |

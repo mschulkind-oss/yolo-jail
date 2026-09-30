@@ -136,6 +136,17 @@ func hostApplyGate(errw io.Writer, stdin io.Reader, bin string) bool {
 	if config.HostManagementMode() == config.HostManagementNone {
 		return true
 	}
+	// A CONFIG THE LAUNCH REFUSES IS NOT RENDERED FIRST. The composition after this gate runs
+	// the provider and profile section of validation and refuses on it, so the gate asks the same
+	// question before its observe pass rather than auto-applying a render of that config and
+	// only then refusing: measured with the retired `use_profiles`, the launch printed
+	// "synchronized" for an apply that had just deselected the home's profile, and then refused.
+	// The render composition refuses it too (composeHostInputs), which alone would make this a
+	// cannot-determine followed by the refusal; asked here, the launch says one thing.
+	if err := hostProviderSectionRefusal(config.UserScopeConfigOrEmpty(), nil); err != nil {
+		fmt.Fprintf(errw, "yolo host: refusing to launch %s: %v\n", bin, err)
+		return false
+	}
 
 	// ONE WRITER PER HOME (§4.6, hostapplylock.go), taken around the WHOLE observe-then-write
 	// sequence rather than around the write alone. Locking only the apply would leave the

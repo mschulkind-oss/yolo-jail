@@ -67,6 +67,15 @@ func composeHostInputs(cfg *jsonx.OrderedMap, packs []*packload.Pack, home strin
 	var c hostInputComposition
 	vars := map[string]string{}
 
+	// THE PROVIDER AND PROFILE SECTION OF VALIDATION first, as `yolo host --` runs it: every
+	// input below reads those keys, and the selection reads `profile` alone, so a config every
+	// launch refuses (the retired `use_profiles` among it) would otherwise compose as if it
+	// selected nothing, and an --assert would deselect the home's profile. In-jail, where the
+	// config is a snapshot and a retired key only warns, the warning is named with the rest.
+	if err := hostProviderSectionRefusal(cfg, func(w string) { c.omitted = append(c.omitted, w) }); err != nil {
+		return c, err
+	}
+
 	providers, unservable, err := composedHostProviders(cfg, packs, nil)
 	if err != nil {
 		return c, fmt.Errorf("your provider table cannot be composed: %w", err)

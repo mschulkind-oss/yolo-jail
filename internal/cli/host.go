@@ -1548,15 +1548,9 @@ func composeHostVarsWith(cfg *jsonx.OrderedMap, workspace, agent, command, profi
 	// provider written with removed keys composed into a launch that sent claude to its own
 	// first-party endpoint with a model named `m1`. After ES-D5's refusal above, which says
 	// the same thing about the launched command's own key and adds the spelling that is legal.
-	if errs, warns := config.ValidateProviderSection(cfg); len(errs) > 0 {
-		c.err = fmt.Errorf("config: %s that every launch refuses (`yolo check` reports the "+
-			"same):\n  ✗ %s", plural(len(errs), "a problem", fmt.Sprintf("%d problems", len(errs))),
-			strings.Join(errs, "\n  ✗ "))
+	if err := hostProviderSectionRefusal(cfg, warn); err != nil {
+		c.err = err
 		return c
-	} else if warn != nil {
-		for _, w := range warns {
-			warn(w)
-		}
 	}
 
 	// The user's profile declarations, resolved ONCE for this launch — the host notch's
@@ -2463,4 +2457,32 @@ func hostWrappersStatus(pr richtext.Printer, errw io.Writer) int {
 	pr.Printf("[yellow]NOT on this shell's PATH[/yellow] — add this line to your shell rc:")
 	pr.Printf("  [bold]%s[/bold]", hostwrap.PathLine(dir))
 	return 0
+}
+
+// hostProviderSectionRefusal is the provider and profile section of validation
+// (config.ValidateProviderSection, notch-convergence NC-D35) over the user scope a host notch
+// composes from: nil when it is clean, else one error naming every problem in the words each
+// host reader prints. Its warnings (a retired key read off an in-jail snapshot) go to warn, or
+// nowhere when it is nil.
+//
+// ONE FUNCTION FOR EVERY HOST READER OF THOSE KEYS: the launch composition (composeHostVarsWith),
+// the render composition (composeHostInputs: `yolo host apply` in both postures, the automatic
+// apply a wrapped launch runs, `yolo config render --at host`) and the launch gate, which asks
+// before its observe pass. Every one of them reads the selection off the `profile` key alone, so
+// a reader that skipped this refusal did not refuse the retired `use_profiles`: it ignored it,
+// and an --assert then deselected the profile an earlier apply had written into the real home
+// (PP-D11: "use_profiles is an error on the host").
+func hostProviderSectionRefusal(cfg *jsonx.OrderedMap, warn func(string)) error {
+	errs, warns := config.ValidateProviderSection(cfg)
+	if len(errs) > 0 {
+		return fmt.Errorf("config: %s that every launch refuses (`yolo check` reports the "+
+			"same):\n  ✗ %s", plural(len(errs), "a problem", fmt.Sprintf("%d problems", len(errs))),
+			strings.Join(errs, "\n  ✗ "))
+	}
+	if warn != nil {
+		for _, w := range warns {
+			warn(w)
+		}
+	}
+	return nil
 }

@@ -19,10 +19,12 @@ import (
 )
 
 // gatedFixture is writeOverlayFixture plus a `profile` body, so a test can state
-// which profiles the user selected (an empty profilesJSON means no `profile` key).
+// which profiles the user selected (an empty profilesJSON means no `profile` key). The `acme`
+// binary is stubbed on PATH, for the owner pack acmeAgentOwnerPackJSON declares.
 func gatedFixture(t *testing.T, profilesJSON string, packs map[string]string) string {
 	t.Helper()
 	home := writeOverlayFixture(t, packs)
+	stubBins(t, "acme")
 	if profilesJSON == "" {
 		return home
 	}
@@ -40,6 +42,16 @@ func gatedFixture(t *testing.T, profilesJSON string, packs map[string]string) st
 	return home
 }
 
+// acmeAgentOwnerPackJSON is acmeOwnerPackJSON as an AGENT pack: it also installs a CLI named
+// acme. A `profile` key selects by the binary a pack installs, so without the program every
+// launch, `yolo check` and `yolo host apply` refuse `{"acme": ...}` as naming no CLI, and "*"
+// (or the string form) reaches no agent the gate could key acme/settings on.
+const acmeAgentOwnerPackJSON = `{"name":"acme","contributes":[
+  {"kind":"program","bin":"acme","via":"npm","package":"acme"},
+  {"kind":"config","config":[{"agent":"acme","name":"settings","codec":"json",
+    "path":"~/.acme/settings.json","defaults":{"theme":"system"},
+    "managed":{"telemetry":false}}]}]}`
+
 // The gated contributor: acme/settings, only while profile "zai" is active for acme.
 const acmeGatedPackJSON = `{"name":"acme-zai","contributes":[
   {"kind":"config-overlay","profile":"zai","surface":"acme/settings",
@@ -50,7 +62,7 @@ const acmeGatedPackJSON = `{"name":"acme-zai","contributes":[
 // gated contribution exactly as it holds for an ungated one.
 func TestApplyHostRendersGatedOverlayWhenProfileSelected(t *testing.T) {
 	gatedFixture(t, `{"acme":"zai"}`, map[string]string{
-		"acme":     acmeOwnerPackJSON,
+		"acme":     acmeAgentOwnerPackJSON,
 		"acme-zai": acmeGatedPackJSON,
 	})
 	// R3's contribution line is the --verbose view's since §4.5 (see TestApplyHostNamesThe
@@ -79,7 +91,7 @@ func TestApplyHostRendersGatedOverlayWhenProfileSelected(t *testing.T) {
 // jail render makes, because selection is the optionality (providers.md#the-profile-modifier).
 func TestApplyHostSkipsGatedOverlayWhenProfileNotSelected(t *testing.T) {
 	gatedFixture(t, `{"acme":"bedrock"}`, map[string]string{
-		"acme":     acmeOwnerPackJSON,
+		"acme":     acmeAgentOwnerPackJSON,
 		"acme-zai": acmeGatedPackJSON,
 	})
 

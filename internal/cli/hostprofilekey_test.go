@@ -9,6 +9,7 @@ package cli
 
 import (
 	"bytes"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -92,5 +93,73 @@ func TestYoloHostApplyFoldsTheProfileKeysDefault(t *testing.T) {
 		if settings["defaultProvider"] != "openai-codex" {
 			t.Errorf("%s: \"*\" did not select pi's codex provider at the host: %v", name, settings)
 		}
+	}
+}
+
+// THE RETIRED KEY REFUSES EVERY HOST RENDER, not only a host launch: `yolo host apply` (both
+// postures), the automatic apply a wrapped launch runs, and `yolo config render --at host` read
+// the selection off the new key alone, so a `use_profiles` they did not refuse was one they
+// silently ignored, and an --assert then deselected the profile an earlier apply had written
+// into the real home. Each case starts from a home the key applied pi's codex profile into, then
+// respells the selection under the old key; the refusal must name it and the home must keep
+// what the earlier apply wrote.
+func TestEveryHostRenderRefusesTheRetiredUseProfilesKey(t *testing.T) {
+	const retired = `{"packs":["pi"], "host_apply_on_launch": true, "use_profiles": {"pi": "codex"}}`
+	applied := func(t *testing.T) string {
+		t.Helper()
+		home := hostComputedHome(t, `{"packs":["pi"], "host_apply_on_launch": true, "profile": {"pi": "codex"}}`)
+		var out, errw bytes.Buffer
+		if rc := hostMain([]string{"apply", "--assert"}, &out, &errw, false, strings.NewReader("y\n")); rc != 0 {
+			t.Fatalf("fixture: yolo host apply --assert rc=%d\n%s%s", rc, out.String(), errw.String())
+		}
+		if got := readJSONAt(t, home, ".pi/agent/settings.json")["defaultProvider"]; got != "openai-codex" {
+			t.Fatalf("fixture: the profile key did not select pi's codex provider: %v", got)
+		}
+		writeFile(t, filepath.Join(home, ".config", "yolo-jail", "config.jsonc"), retired)
+		return home
+	}
+	for name, run := range map[string]func() (int, string){
+		"yolo host apply --assert": func() (int, string) {
+			var out, errw bytes.Buffer
+			rc := hostMain([]string{"apply", "--assert"}, &out, &errw, false, strings.NewReader("y\n"))
+			return rc, out.String() + errw.String()
+		},
+		"yolo host apply (dry run)": func() (int, string) {
+			var out, errw bytes.Buffer
+			rc := hostMain([]string{"apply"}, &out, &errw, false, nil)
+			return rc, out.String() + errw.String()
+		},
+		"yolo host -- pi (the wrapper's automatic apply)": func() (int, string) {
+			var out, errw bytes.Buffer
+			rc := hostMain([]string{"--", "pi"}, &out, &errw, false, nil)
+			return rc, out.String() + errw.String()
+		},
+		"yolo config render --at host": func() (int, string) {
+			rc, out, errs := runConfigVerb(t, "render", "pi/settings", "--at", "host")
+			return rc, out + errs
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			home := applied(t)
+			rc, report := run()
+			if rc == 0 {
+				t.Errorf("%s accepted the retired key (rc=0):\n%s", name, report)
+			}
+			if !strings.Contains(report, "config.use_profiles: RENAMED") {
+				t.Errorf("%s must refuse the retired key by name:\n%s", name, report)
+			}
+			if strings.Contains(report, "synchronized") {
+				t.Errorf("%s rendered before refusing:\n%s", name, report)
+			}
+			// The launch gate asks before its observe pass, so a wrapped launch says one thing:
+			// not "could not check … launching pi anyway" and then a refusal.
+			if strings.Contains(report, "anyway") {
+				t.Errorf("%s said it was launching and then refused:\n%s", name, report)
+			}
+			if got := readJSONAt(t, home, ".pi/agent/settings.json")["defaultProvider"]; got != "openai-codex" {
+				t.Errorf("%s deselected the profile an earlier apply wrote: defaultProvider = %v\n%s",
+					name, got, report)
+			}
+		})
 	}
 }
