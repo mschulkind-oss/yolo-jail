@@ -58,12 +58,18 @@ func TestGitCmdHygiene(t *testing.T) {
 // (f) A TIMEOUT ENDS A GIT WHOSE HELPER HOLDS THE OUTPUT PIPE. The fake git leaves a
 // background child holding stderr, the shape git-remote-http takes; killing git alone would
 // leave the wait blocked on that pipe. Detached, the whole group dies at the deadline.
+//
+// THE TIMEOUT IS NOT ONLY THE FETCH'S. Every local git run before it (the rev-parses that
+// classify the ref) gets the same timeout as its own budget, and a rev-parse that overruns
+// reads as "no such ref": `main` then classifies as neither tag nor branch, nothing is
+// fetched, and FetchErr is nil. At 700ms that happened under a full parallel
+// `go test ./...` on macOS. 3s leaves the rev-parses room; the fetch still hangs for 20s.
 func TestRefreshTimeoutKillsTheTransportHelper(t *testing.T) {
 	f := newRefreshFixture(t)
 	pack := RefreshPack{Name: "p", Source: f.source("main")}
 	f.refresh(t, false, pack)
 	f.store.Git = writeScript(t, "for a in \"$@\"; do [ \"$a\" = fetch ] && { sleep 20 & exec sleep 20; }; done\nexec git \"$@\"\n")
-	f.store.Timeout, f.store.Detached = 700*time.Millisecond, true
+	f.store.Timeout, f.store.Detached = 3*time.Second, true
 	f.now = f.now.Add(2 * BranchRefreshInterval)
 	start := time.Now()
 	o := f.refresh(t, false, pack)[0]
@@ -71,18 +77,19 @@ func TestRefreshTimeoutKillsTheTransportHelper(t *testing.T) {
 		t.Errorf("the refresh took %s: the helper outlived the timeout", took)
 	}
 	if o.FetchErr == nil || !strings.Contains(o.FetchErr.Error(), "git fetch timed out") {
-		t.Errorf("FetchErr = %v, want a labelled timeout", o.FetchErr)
+		t.Errorf("outcome = %+v, want a labelled fetch timeout", o)
 	}
 }
 
 // The same shape on a store that is NOT Detached (`yolo pack install`, at a terminal): git
-// alone is killed, and WaitDelay bounds the wait on the orphan's pipe.
+// alone is killed, and WaitDelay bounds the wait on the orphan's pipe. 3s for the reason
+// TestRefreshTimeoutKillsTheTransportHelper states.
 func TestRefreshTimeoutIsBoundedWithoutDetach(t *testing.T) {
 	f := newRefreshFixture(t)
 	pack := RefreshPack{Name: "p", Source: f.source("main")}
 	f.refresh(t, false, pack)
 	f.store.Git = writeScript(t, "for a in \"$@\"; do [ \"$a\" = fetch ] && { sleep 20 & exec sleep 20; }; done\nexec git \"$@\"\n")
-	f.store.Timeout = 500 * time.Millisecond
+	f.store.Timeout = 3 * time.Second
 	f.now = f.now.Add(2 * BranchRefreshInterval)
 	start := time.Now()
 	o := f.refresh(t, false, pack)[0]
@@ -90,7 +97,7 @@ func TestRefreshTimeoutIsBoundedWithoutDetach(t *testing.T) {
 		t.Errorf("the refresh took %s: WaitDelay did not bound the orphan's pipe", took)
 	}
 	if o.FetchErr == nil || !strings.Contains(o.FetchErr.Error(), "timed out") {
-		t.Errorf("FetchErr = %v, want a timeout", o.FetchErr)
+		t.Errorf("outcome = %+v, want a fetch timeout", o)
 	}
 }
 
@@ -137,10 +144,16 @@ func TestRefreshTimeoutEndsAStalledHTTPRemote(t *testing.T) {
 
 // (f) ONE BUDGET PER FETCH, not per git run: a clone and a fetch that each fit the timeout
 // but together exceed it are a timeout.
+//
+// THE REAL CLONE RUNS INSIDE THE BUDGET TOO, after the injected sleep, so the margin left
+// for it is the budget minus one sleep. It was 0.4s (1s budget, 0.6s sleeps), and under a
+// full parallel `go test ./...` on macOS the clone alone overran it (and overran 1.2s, at
+// 3s and 1.8s): the clone timed out first and the fetch this test is about never ran. 6s
+// and 3.6s keep both properties (one sleep fits, two do not) and give the clone 2.4s.
 func TestRefreshSharesOneBudgetAcrossCloneAndFetch(t *testing.T) {
 	f := newRefreshFixture(t)
-	f.store.Git = writeScript(t, "for a in \"$@\"; do case \"$a\" in clone|fetch) sleep 0.6; break;; esac; done\nexec git \"$@\"\n")
-	f.store.Timeout = time.Second
+	f.store.Git = writeScript(t, "for a in \"$@\"; do case \"$a\" in clone|fetch) sleep 3.6; break;; esac; done\nexec git \"$@\"\n")
+	f.store.Timeout = 6 * time.Second
 	o := f.refresh(t, false, RefreshPack{Name: "p", Source: f.source("main")})[0]
 	if o.FetchErr == nil || !strings.Contains(o.FetchErr.Error(), "git fetch timed out") {
 		t.Errorf("outcome = %+v, want the fetch to time out on the budget the clone spent", o)
