@@ -195,6 +195,40 @@ func TestPinThenCheckThenStage(t *testing.T) {
 	}
 }
 
+// The call site of the recipe's first item (BP-D9): every build a verb makes is made by the go
+// the toolchain dependency returned, never by the go on PATH, whose version nothing ties to the
+// release runner's. The stand-in toolchain logs each call and then runs the real go; the go on
+// PATH refuses, so a build that reached for it fails the run.
+func TestEveryBuildIsMadeWithTheToolchain(t *testing.T) {
+	realGo := hostGo(t)
+	root := fixtureCheckout(t)
+	dir := t.TempDir()
+	calls := filepath.Join(dir, "calls")
+	writeFile(t, dir, "toolchain/bin/go", "#!/bin/sh\nprintf '%s\\n' \"$1\" >>'"+calls+"'\nexec '"+
+		realGo+"' \"$@\"\n")
+	writeFile(t, dir, "path/go", "#!/bin/sh\necho 'the go on PATH was run' >&2\nexit 97\n")
+	for _, p := range []string{"toolchain/bin/go", "path/go"} {
+		if err := os.Chmod(filepath.Join(dir, filepath.FromSlash(p)), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Setenv("PATH", filepath.Join(dir, "path")+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	toolchain := filepath.Join(dir, "toolchain", "bin", "go")
+	for _, verb := range []string{"pin", "check"} {
+		var out, errb bytes.Buffer
+		code := run([]string{verb, "0.2.0"}, &out, &errb, deps{root: root, environ: os.Environ(),
+			toolchain: func() (string, error) { return toolchain, nil }})
+		if code != 0 {
+			t.Fatalf("%s: exit %d\n%s%s", verb, code, out.String(), errb.String())
+		}
+	}
+	// Two platforms, built once by pin and once by check.
+	if got := strings.Fields(readFile(t, dir, "calls")); strings.Join(got, " ") != "build build build build" {
+		t.Errorf("the toolchain ran %q, want four builds", got)
+	}
+}
+
 // What done looks like (§14.4): editing the program after pinning makes the check refuse, naming
 // the binary, the platform and both digests — and stage publishes nothing.
 func TestCheckRefusesAProgramEditedAfterThePin(t *testing.T) {
