@@ -29,7 +29,9 @@ by unit tests through `hostMain`; so is the one-row-per-cause shape of the `yolo
 ([HE-D2](#he-d2)), pinned by the section's own unit tests. Execution flow step 3's `host_path`
 folders and the launch PATH every host check reads are from 2026-09-30
 ([host-launch-environment.md's HE-DIR1](../design/host-launch-environment.md#he-dir1)), pinned by
-unit tests through `hostExec`, `checkDepsMain`, `applyHost` and the launch gate.
+unit tests through `hostExec`, `checkDepsMain`, `applyHost` and the launch gate. Step 3's wire
+tables are from 2026-09-30 ([FT-D2](../design/agent-footer.md#FT-D2)), pinned by unit tests
+through `hostMain`.
 
 Inside a jail, injecting environment is trivial: yolo controls the process spawn, so it passes
 `-e KEY=VAL` and PID 1 has the exact environment. On the host it controls nothing — the user
@@ -265,8 +267,12 @@ refused for naming no command, the host verb having no default one.
    ([ES-D5](../design/credential-sources-separation.md#10-decision-ledger)), so no profile
    selects for such a command.
 3. **Compose the process environment** — start from the current environment, hydrate
-   `env_sources` (the secret channel), overlay the resolved `env`, then **apply removals**: a
-   `null` is an `unset`, not an empty string. PATH is overlaid last: the caller's PATH, then each
+   `env_sources` (the secret channel), overlay the resolved `env`, set the three **wire tables** a
+   jail launch also carries (`YOLO_PROVIDERS`, `YOLO_PROFILES`, and `YOLO_USE_PROFILES` holding
+   this one command's profile, `{}` when it has none), then **apply removals**: a `null` is an
+   `unset`, not an empty string. The tables are set on every launch, so a launch started inside
+   another replaces what it inherited, and an agent's footer names the profile this launch runs on
+   ([FT-D2](../design/agent-footer.md#FT-D2)). PATH is overlaid last: the caller's PATH, then each
    folder of the user-scope `host_path` list not already on it, then the floor's `bin/`, which
    holds agent names only, so an agent's own commands see the caller's PATH first. A caller with no
    PATH at all (`env -i`) gets the system directories the floor's installers run with in its place,

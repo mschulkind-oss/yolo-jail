@@ -474,6 +474,10 @@ fix it. See [capabilities and supersession](docs/reference/pack-system.md#capabi
   input, so a question it asks takes its default or fails instead of waiting. At the host, that
   install also downloads the script first and refuses a web page or a program in its place,
   naming the address, instead of piping whatever it got into `sh`.
+- An agent's footer on your own machine now names the profile you picked for that one launch.
+  `yolo host -p zai -- claude` used to show the profile your config selects, or your
+  subscription, while Claude ran on z.ai; it now shows `zai`, as the same launch in a jail does.
+  `yolo host env` prints the same profile and provider tables the launch hands the agent.
 - After a reboot, workspaces that relaunch together no longer get refused while Podman finishes
   starting. The first Podman command after a boot does Podman's own cleanup, and a launch used to
   give up on it after ten seconds. On Linux, a launch and `yolo check` now wait up to a minute for
