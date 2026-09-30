@@ -17,6 +17,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/awsauth"
 	"github.com/mschulkind-oss/yolo-jail/internal/awsauthdaemon"
+	"github.com/mschulkind-oss/yolo-jail/internal/broker"
 	"github.com/mschulkind-oss/yolo-jail/internal/hostservice"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
@@ -264,20 +265,50 @@ func TestALaunchWhoseAgentsDoNotReachTheServiceAsksNothing(t *testing.T) {
 	}
 }
 
-// TestADaemonThatCannotAnswerIsSaidSo: a daemon started by an older yolo does not know the
-// action and exits non-zero. The launch still proceeds, and says it could not ask, so the
-// absence of a warning is never read as a clean bill.
+// TestADaemonThatCannotAnswerIsSaidSo: a daemon that fails the check exits non-zero. The
+// launch still proceeds, and says it could not ask, so the absence of a warning is never read
+// as a clean bill.
 func TestADaemonThatCannotAnswerIsSaidSo(t *testing.T) {
+	launchCheckIsolation(t)
+	serveLaunchCheckDaemon(t, func(s *hostservice.Session) {
+		s.Stderr("the state file is unreadable\n")
+		s.Exit(1)
+	})
+	got := launchWithCheckedService(t, "podman", servedPayload())
+	for _, want := range []string{"loophole " + launchCheckFixtureName + ": could not ask",
+		"exited 1", "the state file is unreadable"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("the launch does not say %q:\n%s", want, got)
+		}
+	}
+}
+
+// TestAHostWideDaemonOlderThanTheLaunchCheckIsNamedWithItsRestart: nothing restarts a host-wide
+// daemon when yolo is upgraded, so after an upgrade the one a previous yolo started keeps
+// running, answers `unknown action: launch-check` (its handler's default case) and exits 2.
+// That is the upgraded user the check exists for, and a generic "could not ask" would leave
+// every warning off with no way out named: the launch says the daemon predates this yolo and
+// names the command that restarts it, as the preamble warning beside it does.
+func TestAHostWideDaemonOlderThanTheLaunchCheckIsNamedWithItsRestart(t *testing.T) {
 	launchCheckIsolation(t)
 	serveLaunchCheckDaemon(t, func(s *hostservice.Session) {
 		s.Stderr("unknown action: launch-check\n")
 		s.Exit(2)
 	})
 	got := launchWithCheckedService(t, "podman", servedPayload())
-	for _, want := range []string{"loophole " + launchCheckFixtureName + ": could not ask",
-		"exited 2", "unknown action: launch-check"} {
-		if !strings.Contains(got, want) {
-			t.Errorf("the launch does not say %q:\n%s", want, got)
+	var line string
+	for _, l := range strings.Split(got, "\n") {
+		if strings.Contains(l, "loophole "+launchCheckFixtureName+": ") {
+			if line != "" {
+				t.Fatalf("the launch printed more than one launch-check line:\n%s", got)
+			}
+			line = l
+		}
+	}
+	for _, want := range []string{"predates this yolo", "does not answer the launch check",
+		broker.CycleCommand(launchCheckFixtureName)} {
+		if !strings.Contains(line, want) {
+			t.Errorf("the launch-check line does not say %q:\n%s", want, got)
 		}
 	}
 }
@@ -333,5 +364,21 @@ func TestBothLaunchArmsHandTheLaunchCheckTheirPayload(t *testing.T) {
 		t.Errorf("run.go calls startLoopholesDisclosed %d times, %d of them with the launch's "+
 			"jailDaemons payload; want both arms (container and macos-user) to hand it over",
 			len(all), len(withPayload))
+	}
+}
+
+// TestAPerLaunchDaemonThatDoesNotKnowTheCheckNamesNoRestart: a per-launch daemon was started by
+// this launch from its manifest, so restarting it changes nothing, and the line says what is
+// wrong (the manifest declares a check the daemon lacks) with the daemon's own words.
+func TestAPerLaunchDaemonThatDoesNotKnowTheCheckNamesNoRestart(t *testing.T) {
+	e := &launchCheckUnknownError{rc: 2, detail: "unknown action: launch-check"}
+	line := unknownLaunchCheckLine(loopholeDaemon{name: "per-launch"}, e)
+	if strings.Contains(line, "restart") || strings.Contains(line, "predates") {
+		t.Errorf("a per-launch daemon's line names a restart or an older yolo: %s", line)
+	}
+	for _, want := range []string{"its manifest declares", "unknown action: launch-check"} {
+		if !strings.Contains(line, want) {
+			t.Errorf("the line lacks %q: %s", want, line)
+		}
 	}
 }

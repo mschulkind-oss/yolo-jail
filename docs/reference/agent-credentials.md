@@ -717,8 +717,10 @@ mint a Bedrock credential for this launch: …`, in the same words as the `4xx` 
 to add the profile or point the setting at another for a profile the host's `~/.aws/config` does
 not have. The jail then starts as it would have. A mint still running when the budget runs out is
 reported by the previous attempt's failure and its age, or, when there is none, by a dim line
-saying the launch could not tell. A service that cannot be asked, such as one started by an older
-yolo, gets a dim line too. The warning is a disclosure, so no flag hides it
+saying the launch could not tell. A service that cannot be asked gets a dim line too, but for one
+started by an older yolo: nothing restarts the host-wide service when yolo is upgraded, and the
+one still running does not know the question, so the launch warns that it predates this yolo and
+names `yolo host-daemon restart aws-auth`. The warning is a disclosure, so no flag hides it
 ([`OQ-RO3`](report-tiers.md#why-its-this-way)).
 
 The check cannot see a session that ended after the cached credential was minted: that

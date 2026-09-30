@@ -1,6 +1,7 @@
 package hostservice
 
 import (
+	"strings"
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
@@ -33,6 +34,15 @@ import (
 // not: a launch check is not allowed to hold a launch for a slow upstream. The launch reads for
 // a short margin past the budget and then gives up, printing a note. The daemon clamps the
 // value to LaunchCheckBudgetCap, so a caller cannot park a goroutine for long.
+//
+// # A daemon that does not know the action
+//
+// The action-protocol handlers of the credential daemons (aws-auth's, openai-auth's and the
+// Claude broker's) answer an action they do not know with a non-zero exit and
+// `unknown action: <action>` on stderr, and a host-wide daemon outlives the yolo that started
+// it: nothing restarts one on an upgrade. So a launch reads that answer to its launch check as
+// a daemon older than itself (IsUnknownLaunchCheck), and says so with the restart command,
+// rather than as a check that merely failed.
 //
 // First consumer: packs/aws-auth, whose daemon answers with the mint failure that would fail
 // the jail's first Bedrock request (docs/design/sso-backed-bedrock.md SSO-D1).
@@ -93,4 +103,13 @@ func LaunchCheckBudgetOf(s *Session) time.Duration {
 		return LaunchCheckBudgetCap
 	}
 	return budget
+}
+
+// IsUnknownLaunchCheck reports whether a daemon's first stderr line is its handler's answer to
+// an action it does not know, for the launch-check action. The Claude broker quotes the action
+// (`unknown action: 'launch-check'`), the other daemons do not, so the test is the prefix and
+// the action's name rather than one spelling.
+func IsUnknownLaunchCheck(stderrLine string) bool {
+	line := strings.TrimSpace(stderrLine)
+	return strings.HasPrefix(line, "unknown action:") && strings.Contains(line, LaunchCheckAction)
 }

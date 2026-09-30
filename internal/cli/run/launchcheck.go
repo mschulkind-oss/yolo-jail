@@ -11,6 +11,7 @@ import (
 	"time"
 	"unicode"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/broker"
 	"github.com/mschulkind-oss/yolo-jail/internal/frameproto"
 	"github.com/mschulkind-oss/yolo-jail/internal/hostservice"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
@@ -44,6 +45,13 @@ import (
 // first request that fails clearly). A daemon that could not be asked, or did not answer within
 // the budget, gets one dim line saying so: the check is a disclosure, so its absence must not
 // read as a clean bill. No flag hides either (docs/reference/report-tiers.md, OQ-RO3).
+//
+// ONE FAILURE IS A WARNING, with its fix: a host-wide daemon that does not know the action.
+// Nothing restarts a host-wide daemon when yolo is upgraded, so the one a previous yolo started
+// keeps running and answers every launch check `unknown action: launch-check`. That is every
+// upgraded user, the people the check was built for, so the launch says the daemon predates
+// this yolo and names broker.CycleCommand, as the connection-preamble warning in
+// startHostSingleton does for the same kind of daemon.
 //
 // # What it costs
 //
@@ -101,6 +109,12 @@ func (o *Options) runLaunchChecks(rt string, started []loopholeDaemon, payload [
 	out := o.pr(o.Stderr)
 	for i, h := range due {
 		a := answers[i]
+		var unknown *launchCheckUnknownError
+		if errors.As(a.err, &unknown) {
+			out.print("[bold yellow]loophole " + h.name + ": " +
+				richtext.Escape(launchCheckText(unknownLaunchCheckLine(h, unknown))) + "[/bold yellow]")
+			continue
+		}
 		if a.err != nil {
 			out.print("[dim]loophole " + h.name + ": could not ask the host service what this " +
 				"launch should know: " + richtext.Escape(launchCheckText(a.err.Error())) + "[/dim]")
@@ -114,6 +128,31 @@ func (o *Options) runLaunchChecks(rt string, started []loopholeDaemon, payload [
 			out.print("[dim]loophole " + h.name + ": " + richtext.Escape(launchCheckText(n)) + "[/dim]")
 		}
 	}
+}
+
+// launchCheckUnknownError is a daemon's answer that it does not know the launch-check action
+// (hostservice.IsUnknownLaunchCheck).
+type launchCheckUnknownError struct {
+	rc     int
+	detail string
+}
+
+func (e *launchCheckUnknownError) Error() string {
+	return fmt.Sprintf("it exited %d: %s", e.rc, e.detail)
+}
+
+// unknownLaunchCheckLine is the warning for a daemon that does not know the action. A host-wide
+// daemon is one a previous yolo started, and restarting it is the fix. A per-launch daemon was
+// started by this launch from its manifest, so a manifest declares a check its daemon does not
+// answer, and there is no command to name.
+func unknownLaunchCheckLine(h loopholeDaemon, e *launchCheckUnknownError) string {
+	const cannot = "so this launch cannot warn about what would fail its agents' requests"
+	if h.hostWide {
+		return "the host-wide daemon predates this yolo and does not answer the launch check, " +
+			cannot + ". Fix it with: " + broker.CycleCommand(h.name)
+	}
+	return "its daemon does not answer the launch check its manifest declares (it said: " +
+		e.detail + "), " + cannot
 }
 
 // launchCheckText makes a daemon's string safe to print as one terminal line: control
@@ -183,10 +222,12 @@ func exchangeLaunchCheck(conn net.Conn, budget time.Duration) (hostservice.Launc
 				return hostservice.LaunchCheckReport{}, err
 			}
 			if rc != 0 {
-				// A daemon started by a yolo that predates the launch check answers an unknown
-				// action this way; its stderr names the action it did not know.
-				return hostservice.LaunchCheckReport{}, fmt.Errorf("it exited %d: %s", rc,
-					firstNonEmptyLine(stderr.String(), "no diagnostic"))
+				detail := firstNonEmptyLine(stderr.String(), "no diagnostic")
+				// A daemon started by a yolo that predates the launch check answers this way.
+				if hostservice.IsUnknownLaunchCheck(detail) {
+					return hostservice.LaunchCheckReport{}, &launchCheckUnknownError{rc, detail}
+				}
+				return hostservice.LaunchCheckReport{}, fmt.Errorf("it exited %d: %s", rc, detail)
 			}
 			var report hostservice.LaunchCheckReport
 			if err := json.Unmarshal(bytes.TrimSpace(stdout.Bytes()), &report); err != nil {

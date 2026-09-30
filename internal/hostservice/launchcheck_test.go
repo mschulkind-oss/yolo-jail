@@ -36,3 +36,21 @@ func TestLaunchCheckBudgetIsTheLaunchesAndCapped(t *testing.T) {
 		})
 	}
 }
+
+// TestAnUnknownLaunchCheckIsReadInEachHandlersSpelling: the aws-auth and openai-auth handlers
+// print the action bare and the Claude broker quotes it, and each is a daemon too old for the
+// check. A failure that merely mentions the action, or another action's refusal, is not.
+func TestAnUnknownLaunchCheckIsReadInEachHandlersSpelling(t *testing.T) {
+	for line, want := range map[string]bool{
+		"unknown action: launch-check":     true,
+		"unknown action: 'launch-check'":   true,
+		"  unknown action: launch-check  ": true,
+		"unknown action: status":           false,
+		"launch-check failed: no state":    false,
+		"":                                 false,
+	} {
+		if got := IsUnknownLaunchCheck(line); got != want {
+			t.Errorf("IsUnknownLaunchCheck(%q) = %v, want %v", line, got, want)
+		}
+	}
+}

@@ -34,9 +34,12 @@ type loopholeDaemon struct {
 	stop       func()
 	// launchCheck is the manifest's `host_daemon.launch_check`, and hasJailDaemon whether the
 	// loophole declares a jail_daemon: together they decide whether the launch asks this
-	// daemon the launch check (launchcheck.go). Set by markLaunchCheck.
+	// daemon the launch check (launchcheck.go). hostWide is `host_daemon.scope: "host"`, which
+	// decides what the launch says of a daemon that does not know the check. Set by
+	// markLaunchCheck.
 	launchCheck   bool
 	hasJailDaemon bool
+	hostWide      bool
 }
 
 // markLaunchCheck copies the two facts the launch check reads from lp onto h.
@@ -46,6 +49,7 @@ func markLaunchCheck(h loopholeDaemon, lp *loopholes.Loophole) loopholeDaemon {
 	}
 	h.launchCheck = lp.HostDaemon.LaunchCheck
 	h.hasJailDaemon = lp.JailDaemon != nil
+	h.hostWide = lp.HostDaemon.Scope == loopholes.ScopeHost
 	return h
 }
 

@@ -227,8 +227,10 @@ starting your program, or finding it already running, the launch sends it one re
 `{"warnings": [...], "notes": [...]}`: each warning prints as a yellow line naming your loophole,
 each note as a dim one, and then the jail starts anyway. Answer within the budget, from what your
 program already knows; a program that does not answer in time, or at all, gets a dim line saying
-so. The launch asks only when the jail uses your loophole's jail program, or when you declare
-none. `aws-auth` uses it to say that an SSO session has lapsed. The
+so. A `"host"` program started by an older yolo keeps running after the user upgrades, and when
+it answers `unknown action: launch-check` on stderr with a non-zero exit, the launch prints a
+yellow line saying it predates this yolo and naming `yolo host-daemon restart <name>`. The launch
+asks only when the jail uses your loophole's jail program, or when you declare none. `aws-auth` uses it to say that an SSO session has lapsed. The
 [frame protocol](https://github.com/mschulkind-oss/yolo-jail/blob/main/docs/reference/loophole-protocol.md#the-launch-check)
 has the details.
 

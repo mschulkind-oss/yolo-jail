@@ -443,7 +443,9 @@ credential to a server of its choosing. See
   session has expired, or the profile is not in your AWS config. The warning names the problem
   and the command or setting that fixes it, and the jail starts as before, picking up the fix
   with no relaunch. Until now only the service's log, `yolo check` and the agent's first failed
-  request said so. See
+  request said so. The service keeps running when you upgrade yolo, and the one an earlier yolo
+  started cannot answer the question, so the launch says that instead and names
+  `yolo host-daemon restart aws-auth`. See
   [when the SSO session lapses](docs/reference/agent-credentials.md#when-the-sso-session-lapses).
 
 ## [0.11.0] - 2026-09-28

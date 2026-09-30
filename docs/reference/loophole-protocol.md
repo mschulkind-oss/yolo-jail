@@ -478,6 +478,11 @@ never refuses a launch, and no flag hides what it prints. `budget_ms` is how lon
 waits for the answer. The daemon answers within it, from what it already knows when that is
 enough, and clamps it to a cap whoever sends it. A non-zero exit, a malformed answer or no answer
 within the budget plus a short margin prints one dim line saying the daemon could not be asked.
+One non-zero exit is a warning instead: a `scope: "host"` daemon whose first stderr line starts
+`unknown action:` and names `launch-check`, the answer yolo's daemons give an action they do not
+know. That daemon was started by an earlier yolo and kept running through the upgrade, since
+nothing restarts one when yolo changes, so the yellow line says it predates this yolo and names
+`yolo host-daemon restart <name>`.
 The first daemon to declare it is `aws-auth`
 ([`agent-credentials.md`](agent-credentials.md#when-the-sso-session-lapses)).
 
