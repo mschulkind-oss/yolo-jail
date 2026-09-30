@@ -341,18 +341,21 @@ model list at boot, and each request's `model` picks one of two upstreams
   its vendor. Claude's `[1m]` suffix is trimmed for the lookup and from the body sent, and from
   the list's own ids, so a list that spells an id `…[1m]` for claude names the same model.
 
-**Where the vendor comes from.** Only a pack can declare one, as `model_options.<alias>.vendor`
-on its provider: a company pack's, or the local pack's. A user's `providers` entry has no
-`vendor` field, so a model the user adds is translated. Two consequences of reading the
+**Where the vendor comes from.** The list entry declares it. A pack declares it as
+`model_options.<alias>.vendor` on its provider: a company pack's, or the local pack's. A user
+declares it as the `vendor` of an object-form entry in their own `providers` config, such as
+`"mine": {"id": "<a Claude model id>", "vendor": "anthropic"}`
+([providers.md](providers.md#the-shipped-bedrock-provider)). A plain `"alias": "id"` declares
+none, so a model the user adds that way is translated. Two consequences of reading the
 declaration rather than the id:
 
-- An alias that declares no vendor changes nothing. A user alias for a pack's Claude id leaves
-  that id on the pass-through. Two aliases that declare *different* vendors for one id leave it
-  translated, and the serve log names the id.
+- An alias that declares no vendor changes nothing. A user's plain alias for a pack's Claude id
+  leaves that id on the pass-through. Two aliases that declare *different* vendors for one id,
+  a pack's and a user's included, leave it translated, and the serve log names the id.
 - A pack's vendor belongs to the id the pack wrote. When the user's config points the pack's
   alias at another id, composition drops the pack's vendor for it
   ([providers.md](providers.md#a-re-pointed-alias-loses-the-packs-vendor)), so that id is
-  translated.
+  translated unless the user's entry declares its own vendor.
 
 Both upstreams share the route's SigV4 signer and credential chain. A Bedrock API key goes as
 `x-api-key` on the Messages route, the header AWS documents there. On the Messages route:

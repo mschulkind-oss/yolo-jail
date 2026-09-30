@@ -535,8 +535,9 @@ type Contribution struct {
 	// Consumers decide which facts they understand; a user may override an
 	// individual alias after the pack's facts are composed under their config.
 	// One fact does not outlive a user pointing the alias at a different id:
-	// `vendor`, the maker of the id declared here, which the wire bridge routes on
-	// and a user's config cannot write (packload.dropRepointedVendors).
+	// `vendor`, the maker of the id declared here, which the wire bridge routes on;
+	// only a vendor the user's own entry declares describes the user's id
+	// (packload.dropRepointedVendors).
 	ModelOptions map[string]map[string]string `json:"model_options,omitempty"`
 	// Options is the profile surface the provider DECLARES (docs/reference/providers.md,
 	// OQ-CS4): a FLAT map of option name to default value, read exactly like its neighbour

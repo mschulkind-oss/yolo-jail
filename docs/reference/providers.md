@@ -1105,8 +1105,9 @@ each picker renders the list are designed in [`model-lists-and-pickers.md`](../d
 > is written, and `api_key_env` is absent.
 
 A `models.<alias>` value is either the bare wire-id string (the shorthand) or an **object**:
-`id` (required — the wire id, which is usually not the alias), plus optional `name`,
-`reasoning`, `input`, `cost`, `context_window`, and `max_tokens`. The field set is **closed**
+`id` (required — the wire id, which is usually not the alias), plus optional `name`, `vendor`
+(the model's maker, [above](#the-shipped-bedrock-provider)), `reasoning`, `input`, `cost`,
+`context_window`, and `max_tokens`. The field set is **closed**
 (an unknown key is refused, not accepted-and-ignored), and the facts are canonical snake —
 `cost.cache_read`/`cache_write`, translated to pi's `cacheRead`/`cacheWrite` by the derive.
 `id` is required rather than inferred from the alias because the merge replaces: the moment a
@@ -1157,10 +1158,12 @@ upstream, an id declared `anthropic` goes untranslated to Bedrock's Anthropic Me
 ([the Messages pass-through](wire-bridge.md#the-messages-pass-through-on-a-bedrock-upstream)).
 The vendor describes the id the pack put under that alias, so when your `models.<alias>` names a
 different id, as a string or as an object's `id`, the composed entry drops the pack's `vendor`
-for that alias and keeps its other facts. Your config cannot declare a vendor (the object form's
-field set above has none), so a vendor carried over to your id could not be corrected. Restating
-the pack's own id keeps it. `packload.dropRepointedVendors` is the rule;
-`TestARepointedAliasDropsTheShippedVendor` pins it.
+for that alias and keeps its other facts. Your object-form entry names your id's maker in its own
+`vendor`, and that one is kept: the drop removes only the pack's. A string-form alias names no
+maker, so your id then carries no vendor: the bridge translates it, and every agent is offered
+it. Restating the pack's own id keeps the pack's vendor. `packload.dropRepointedVendors` is the
+rule; `TestARepointedAliasDropsTheShippedVendor` and
+`TestARepointedAliasKeepsTheVendorTheUserDeclares` pin it.
 
 The provider's `options` is the **fallback**: a fact common to every model is declared once
 there, and a per-model value overrides it for that alias. The facts are **additive** — an alias

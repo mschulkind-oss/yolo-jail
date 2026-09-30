@@ -286,20 +286,26 @@ func flattenModelFacts(obj *jsonx.OrderedMap) *jsonx.OrderedMap {
 // dropRepointedVendors removes, from a pack-shipped entry about to take the user layer, the
 // `vendor` of every alias the user points at a DIFFERENT model id. A shipped vendor names
 // the maker of the id the pack put under that alias, not of the alias: kept over the user's
-// id, it would declare that id the pack model's maker's, and the wire bridge routes on it
-// (wirebridged.anthropicModelIDs sends an id declared "anthropic" untranslated to Bedrock's
-// Anthropic Messages route, so a DeepSeek id there fails at AWS instead of being
-// translated). A user's own entry declares no vendor (model-lists-and-pickers.md §7.2), and
-// `vendor` is not a key a user's config can write (config.knownModelKeys), so a stale one
-// could not be corrected there either.
+// id, it would declare that id the pack model's maker's, and both its readers act on it. The
+// wire bridge routes on it (wirebridged.anthropicModelIDs sends an id declared "anthropic"
+// untranslated to Bedrock's Anthropic Messages route, so a DeepSeek id there fails at AWS
+// instead of being translated), and each derive's callableModels offers an entry that declares
+// a maker only to the agents whose client can call that maker.
+//
+// The user's own entry is the one that can say whose model the new id is: an object-form
+// `models.<alias>` takes `vendor` (config.knownModelKeys, bedrock-plumbing.md OQ-BR9), and
+// liftModelFacts lowers it into model_options AFTER this drop, so a vendor the user declares
+// is the one the alias ends with. A string-form alias declares none, and the id then carries
+// no vendor at all: translated by the bridge, and offered to every agent.
 //
 // Only the vendor goes. The other shipped facts keep the per-field rule liftModelFacts
-// states, since a user's object-form entry can override each of them; the vendor is the
-// one fact it cannot. Restating the pack's own id, as a string or as an object's `id`, is
-// no re-pointing and keeps everything. The comparison is on the id exactly as spelled: core
-// does not interpret an id, so a different spelling is a different id (the pack's X
-// re-pointed to claude's X[1m] loses the vendor too). That errs the safe way: an id missing
-// its vendor is only translated, where an id carrying a wrong one fails the request.
+// states: a context window or a price roughly describes a replacement too, while a maker
+// carried to another maker's id is simply false. Restating the pack's own id, as a string or
+// as an object's `id`, is no re-pointing and keeps everything. The comparison is on the id
+// exactly as spelled: core does not interpret an id, so a different spelling is a different
+// id (the pack's X re-pointed to claude's X[1m] loses the vendor too). That errs the safe
+// way: an id missing its vendor is only translated, where an id carrying a wrong one fails
+// the request.
 func dropRepointedVendors(shipped, user *jsonx.OrderedMap) {
 	userModels := childMap(user, "models")
 	shippedModels := childMap(shipped, "models")

@@ -53,16 +53,17 @@ pack's `contributes`, `{"kind": "intercept", "bin": "<name>", "forward": [...]}`
 `YOLO_BYPASS_SHIMS=1` still runs it. The `github` pack uses it for `gh`. See `yolo pack --help`.
 
 **Claude models on Amazon Bedrock keep prompt caching and extended thinking through the wire
-bridge.** When Claude Code or Copilot reaches Bedrock through the bridge, a model that a pack's
-provider list marks as made by Anthropic now goes to Bedrock's own Claude endpoint exactly as the
-agent wrote it. It used to be translated to OpenAI's format, which dropped its cache markers and
-its thinking. The other models on the same list are translated as before, so one Claude Code
-session can move between Claude and another maker's model. The maker is declared by a pack (one
-your organization ships, or your local pack), not by your own `providers` config: a model you add
-there is translated, and so is a pack's short name you point at a different model. This works for
-a Bedrock provider whose `openai` endpoint is Bedrock's `/openai/v1` address; the shipped
-`bedrock` provider does not go through the bridge yet. Claude Code still counts tokens with its
-own estimate there. See
+bridge.** When Claude Code or Copilot reaches Bedrock through the bridge, a model its provider's
+list marks as made by Anthropic now goes to Bedrock's own Claude endpoint exactly as the agent
+wrote it. It used to be translated to OpenAI's format, which dropped its cache markers and its
+thinking. The other models on the same list are translated as before, so one Claude Code session
+can move between Claude and another maker's model. The maker is the list entry's `vendor`: a pack
+declares it (one your organization ships, or your local pack), and so does a model you add under
+`providers` in its object form, `{"id": "…", "vendor": "anthropic"}`. A model you add as a plain
+id is translated, and so is a pack's short name you point at a different model, unless your entry
+names that model's maker. This works for a Bedrock provider whose `openai` endpoint is Bedrock's
+`/openai/v1` address; the shipped `bedrock` provider does not go through the bridge yet. Claude
+Code still counts tokens with its own estimate there. See
 [the Messages pass-through](docs/reference/wire-bridge.md#the-messages-pass-through-on-a-bedrock-upstream).
 
 **Every jail now has a place for work that survives a restart: `$YOLO_DURABLE_DIR`.** Each launch

@@ -357,10 +357,9 @@ func TestAListIDSpelledWithTheOneMillionSuffixPassesThrough(t *testing.T) {
 
 // TestAUserLayerOverThePackListRoutesByTheDeclaredVendor composes a user's `providers` entry
 // over the pack's list, as a launch does, and reads the route the daemon boots with:
-//   - the user points the pack's opus alias at a DeepSeek id: the pack's vendor was the
-//     pack model's maker, not DeepSeek's, so that id is translated (it would otherwise go
-//     untranslated to the Anthropic route and fail at AWS), and the user cannot declare a
-//     vendor to correct it;
+//   - the user points the pack's opus alias at a DeepSeek id, as a plain string: the pack's
+//     vendor was the pack model's maker, not DeepSeek's, so that id is translated (it would
+//     otherwise go untranslated to the Anthropic route and fail at AWS);
 //   - the user adds an alias of their own for the pack's sonnet id: it declares no maker, so
 //     the pack's declaration stands and the id stays on the pass-through, with no conflict.
 func TestAUserLayerOverThePackListRoutesByTheDeclaredVendor(t *testing.T) {
@@ -401,6 +400,61 @@ func TestAUserLayerOverThePackListRoutesByTheDeclaredVendor(t *testing.T) {
 	}
 	if _, claimed := passthrough.claims(sonnetID); !claimed {
 		t.Errorf("the handler does not claim the pack's sonnet")
+	}
+}
+
+// TestAVendorTheUserDeclaresRoutesTheirModel: a user's object-form entry declares its own
+// id's maker as `vendor` (config.knownModelKeys, bedrock-plumbing.md OQ-BR9), and the bridge
+// reads it exactly as it reads a pack's, through the production ComposeProviders and routeFor:
+//   - a Claude id the user adds, declared anthropic, goes on the pass-through;
+//   - the pack's opus alias re-pointed at a DeepSeek id declared deepseek is translated, the
+//     pack's anthropic not carried under it;
+//   - a user alias declaring another maker for the pack's sonnet id makes that id a conflict,
+//     so it is translated and named for the serve log (WG-I34).
+func TestAVendorTheUserDeclaresRoutesTheirModel(t *testing.T) {
+	const (
+		deepseek = "us.deepseek.r1-v1:0"
+		newer    = "global.anthropic.claude-sonnet-6"
+	)
+	user := mustProviders(t, `{"br":{"models":{
+	 "opus":{"id":"`+deepseek+`","vendor":"deepseek"},
+	 "mine":{"id":"`+newer+`","vendor":"anthropic"},
+	 "sonnet-as-qwen":{"id":"`+sonnetID+`","vendor":"qwen"}}}}`)
+	rt, idle := routeFor(composedBedrockTableUnder(t, user), map[string]string{"claude": "bp"},
+		map[string]packload.ResolvedProfile{"bp": {Provider: "br"}})
+	if idle != "" {
+		t.Fatalf("idle: %s", idle)
+	}
+	if !rt.AnthropicModels[newer] {
+		t.Errorf("a Claude id the user declared anthropic is not on the pass-through: %v", rt.AnthropicModels)
+	}
+	if rt.AnthropicModels[deepseek] || rt.AnthropicModels[opusID] {
+		t.Errorf("the re-pointed opus alias must carry only the user's deepseek: %v", rt.AnthropicModels)
+	}
+	if rt.AnthropicModels[sonnetID] {
+		t.Errorf("sonnet's id is declared anthropic by the pack and qwen by the user, so it is no maker's: %v", rt.AnthropicModels)
+	}
+	if fmt.Sprint(rt.VendorConflicts) != "["+sonnetID+" "+clashID+"]" {
+		t.Errorf("VendorConflicts = %v, want the user's sonnet clash beside the pack's own", rt.VendorConflicts)
+	}
+	for _, v := range sigv4.EnvVars {
+		t.Setenv(v, "")
+	}
+	home := t.TempDir()
+	writeKeyChannel(t, home, "export AWS_ACCESS_KEY_ID='AKID'", "export AWS_SECRET_ACCESS_KEY='s'")
+	h, _, idle := adapterHandler(rt, tokenEnv(map[string]string{"JAIL_HOME": home}))
+	if idle != "" {
+		t.Fatalf("adapter handler idle: %s", idle)
+	}
+	passthrough := h.(*bridgeHandler).messages
+	if passthrough == nil {
+		t.Fatalf("the handler has no Messages pass-through, though the user declared a Claude id")
+	}
+	if _, claimed := passthrough.claims(newer); !claimed {
+		t.Errorf("the handler does not claim the user's Claude id")
+	}
+	if _, claimed := passthrough.claims(deepseek); claimed {
+		t.Errorf("the handler claims the user's DeepSeek id for the Messages route")
 	}
 }
 

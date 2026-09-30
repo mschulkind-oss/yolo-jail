@@ -79,9 +79,9 @@ func TestShippedModelFactsSurviveUserModelObjects(t *testing.T) {
 // maker of the id the PACK put under that alias, and the wire bridge routes on it
 // (wirebridged.anthropicModelIDs sends an id declared "anthropic" untranslated to Bedrock's
 // Messages route). A user who points the alias at another id must not inherit the pack's
-// maker for it: the id would be sent in a protocol its model does not speak, and `vendor`
-// is not a key a user's config can write to correct it. Restating the pack's own id keeps
-// the vendor, and the other facts keep today's per-field rule.
+// maker for it: the id would be sent in a protocol its model does not speak. Restating the
+// pack's own id keeps the vendor, and the other facts keep today's per-field rule. None of
+// the user's entries here declares a vendor of its own; the next test is the one that does.
 func TestARepointedAliasDropsTheShippedVendor(t *testing.T) {
 	pack := &Pack{Name: "br", Decl: declFrom(t, `{"contributes":[{"kind":"provider","name":"br",
 	 "models":{"opus":"global.anthropic.claude-opus-5-5","sonnet":"global.anthropic.claude-sonnet-5",
@@ -106,6 +106,37 @@ func TestARepointedAliasDropsTheShippedVendor(t *testing.T) {
 	// The pack's declaration is untouched: the next composition reads it whole again.
 	if s := dump(t, compose(t, nil, []*Pack{pack})); !strings.Contains(s, `"opus": {"context_window": "1000000", "vendor": "anthropic"}`) {
 		t.Errorf("composing over a user layer changed the pack's own facts: %s", s)
+	}
+}
+
+// TestARepointedAliasKeepsTheVendorTheUserDeclares: the drop removes only the PACK's vendor.
+// A user's object-form entry names its own id's maker as `vendor` (config.knownModelKeys,
+// bedrock-plumbing.md OQ-BR9), and that declaration is the one the re-pointed alias ends
+// with, whichever maker it names: another maker's (so the pack's anthropic is not merged back
+// under it) or anthropic itself for a newer Claude id. A new alias of the user's own keeps
+// its declared vendor beside the pack's entries. Fails if the drop ran after the user's facts
+// were lowered, or if it deleted the user's vendor along with the pack's.
+func TestARepointedAliasKeepsTheVendorTheUserDeclares(t *testing.T) {
+	pack := &Pack{Name: "br", Decl: declFrom(t, `{"contributes":[{"kind":"provider","name":"br",
+	 "models":{"opus":"global.anthropic.claude-opus-5-5","sonnet":"global.anthropic.claude-sonnet-5"},
+	 "model_options":{"opus":{"vendor":"anthropic","context_window":"1000000"},"sonnet":{"vendor":"anthropic"}}}]}`)}
+	user := userProviders(t, `{"br":{"models":{
+	 "opus":{"id":"us.deepseek.r1-v1:0","vendor":"deepseek"},
+	 "sonnet":{"id":"global.anthropic.claude-sonnet-6","vendor":"anthropic"},
+	 "kimi":{"id":"global.moonshotai.kimi-k3","vendor":"moonshotai"}}}}`)
+	got := dump(t, compose(t, user, []*Pack{pack}))
+	for _, want := range []string{
+		`"opus": {"context_window": "1000000", "vendor": "deepseek"}`,
+		`"sonnet": {"vendor": "anthropic"}`,
+		`"kimi": {"vendor": "moonshotai"}`,
+		`"sonnet": "global.anthropic.claude-sonnet-6"`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("a vendor the user declares must be the one the alias ends with; want %s in:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, `"vendor": "anthropic", "context_window"`) || strings.Count(got, `"vendor": "anthropic"`) != 1 {
+		t.Errorf("the pack's anthropic must survive only where the user declared it again: %s", got)
 	}
 }
 

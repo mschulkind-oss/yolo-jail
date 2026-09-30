@@ -3,7 +3,7 @@ title: "The wire bridge as the jail's model gateway: signing, routing by model a
 date: 2026-09-25
 status: accepted
 tags: [wire-bridge, bedrock, aws, sigv4, routing, failover, models, allowlist, providers, subscription]
-summary: "What the wire bridge may do once it stands in front of an agent's model traffic. Four parts are ruled: it signs its own AWS requests with SigV4 (built), routes claude's everything profile by model id so Claude models reach Bedrock's own Messages route untranslated (built 2026-09-29 for a Bedrock upstream the bridge can reach), offers a sign-only OpenAI chat-completions route (built), and carries claude's subscription with opt-in per-model failover to Bedrock (unbuilt). A fifth part, ruled 2026-09-25: a profile can send its agent's traffic through the bridge (native pass-through or translated) instead of the agent's own client, so the bridge can enforce the picker's model list (on by default) and route each agent by a per-agent path prefix. The via route passes OpenAI chat-completions and Responses through (codex rides the second); Converse, the last native wire, waits on OQ-WG8, which asks whether pi's own client still uses the AWS credential on that route. The signer keys on the upstream address now and on a provider marker once one exists."
+summary: "What the wire bridge may do once it stands in front of an agent's model traffic. Four parts are ruled: it signs its own AWS requests with SigV4 (built), routes claude's everything profile by model id so Claude models reach Bedrock's own Messages route untranslated (built 2026-09-29 for a Bedrock upstream the bridge can reach), offers a sign-only OpenAI chat-completions route (built), and carries claude's subscription with opt-in per-model failover to Bedrock (unbuilt). A fifth part, ruled 2026-09-25: a profile can send its agent's traffic through the bridge (native pass-through or translated) instead of the agent's own client, so the bridge can enforce the picker's model list (on by default) and route each agent by a per-agent path prefix. The via route passes OpenAI chat-completions and Responses through (codex rides the second); Converse, the last native wire, waits on OQ-WG8, which asks whether pi's own client still uses the AWS credential on that route. The signer keys on the upstream address; re-keying it on the provider's platform marker, which exists since 2026-09-29, is unbuilt."
 vantage:
   status-chip: true
 ---
@@ -51,8 +51,9 @@ from their installed client sources, and oh-omp's from its published package
   Converse is not built until it rules.
 
 [OQ-WG1](#OQ-WG1)–[OQ-WG7](#OQ-WG7) are settled ([Decision Ledger](#decision-ledger)); WG6 and WG7 are built.
-[OQ-WG1](#OQ-WG1) carries a follow-up that waits on [OQ-BR2](providers-and-profiles-redesign.md#OQ-BR2):
-re-key the signer on the provider's Bedrock marker. Part 2, which passes Claude models through
+[OQ-WG1](#OQ-WG1) carries a follow-up, unblocked since [OQ-BR2](providers-and-profiles-redesign.md#OQ-BR2)'s
+`platform` was built 2026-09-29 and not built: re-key the signer on the provider's Bedrock
+marker. Part 2, which passes Claude models through
 untranslated so prompt caching survives, needed no ruling: it is
 [OQ-BR11](bedrock-plumbing.md#OQ-BR11)'s, released for build as [WG-I25](#WG-I25) and built
 2026-09-29 ([§3.1](#31-how-it-is-built)).
@@ -311,8 +312,8 @@ a second upstream, runtime's Messages route on the same host. Each request's `mo
 | The pass-through | the body as sent to `https://<runtime host>/anthropic/v1/messages`, with `anthropic-version` and `anthropic-beta`; the answer relayed byte for byte and flushed | `messagesPassthrough.serve`, `.do`, `.relay` |
 | The log | the serve line names the Messages URL and the ids it carries; each request line says when it went untranslated; never a body | `wirebridged.messagesServeNote`; `bridgeHandler.ServeHTTP` |
 
-The build made six implementation decisions. Their ids start at 30 because a concurrent build of
-the `bedrock` pack numbers its own decisions from WG-I25 on:
+The build made six implementation decisions. Their ids start at 30 because the `bedrock` pack's
+concurrent build numbered its own from WG-I26 on ([WG-I26](#WG-I26)):
 
 1. <a id="WG-I30"></a>**[WG-I30](#WG-I30)**: **the framing is relayed, and the other framing is
    refused by name.** The stream is Anthropic SSE ([§3](#3-part-2--routing-by-model-id-for-claudes-everything-profile-ruled)),
@@ -361,10 +362,12 @@ the `bedrock` pack numbers its own decisions from WG-I25 on:
    it, while an alias that declares no vendor neither adds nor removes one, so a second, bare
    alias for a listed Claude id leaves it on the pass-through. An id the list does not name, and
    a listed id no alias declares a vendor for, are translated, so an Anthropic model reaches the
-   pass-through only by being listed with `"vendor": "anthropic"`. That declaration is a pack's:
-   when a user's config points a pack's alias at another id, composition drops the pack's vendor
-   for that alias (`packload.dropRepointedVendors`), because it named the maker of the pack's
-   model and user config cannot write one.
+   pass-through only by being listed with `"vendor": "anthropic"`, by a pack's `model_options`
+   or by a user's object-form entry (`vendor` joined the user's model entry in the
+   [OQ-BR9](bedrock-plumbing.md#OQ-BR9) build). When a user's config points a pack's alias at
+   another id, composition drops the pack's vendor for that alias
+   (`packload.dropRepointedVendors`), because it named the maker of the pack's model; the vendor
+   the user's own entry declares, if any, is the one the alias keeps.
 6. <a id="WG-I35"></a>**[WG-I35](#WG-I35)**: **`count_tokens` stays refused, for Anthropic models
    too.** [§3](#3-part-2--routing-by-model-id-for-claudes-everything-profile-ruled)'s text expected
    it to survive the pass-through, but runtime documents no `count_tokens` on its Messages route,
@@ -382,7 +385,7 @@ the `bedrock` pack numbers its own decisions from WG-I25 on:
   `openai` address, until the region-composed URL lands ([§8](#8-build-order), step 1). Today
   the pass-through serves a provider whose `endpoints.openai.base_url` is runtime's
   `/openai/v1`, and whose list names its Claude models with `vendor: "anthropic"`: a company
-  pack's provider, or a user's own once object-form model entries carry `vendor` in user config.
+  pack's provider, or a user's own, whose object-form model entries take `vendor` too.
 - **The `anthropic-beta` values claude sends are forwarded as sent**, and nobody knows which of
   them runtime accepts. On `ANTHROPIC_BASE_URL`, claude sends the betas it sends the first-party
   API, and a value runtime rejects fails the request with a 400, which the bridge relays
@@ -1222,7 +1225,7 @@ Three earlier non-licenses are reopened here by name:
 | WG-I31 | **The Messages upstream shares the route's signer and chain, and a Bedrock API key goes as `x-api-key` on it.** An implementation decision | 2026-09-29 | [WG-I31](#WG-I31) | 2026-09-29: `bedrockSigner.authorizeAs`, `messagesPassthrough.do`; `TestABedrockAPIKeyGoesAsXAPIKeyOnTheMessagesRoute`, `TestAnExpiredSignatureOnTheMessagesRouteIsRefreshedOnce`, and the 401 and 503 by `TestTheMessagesRouteKeepsTheSignersFailureStatuses` |
 | WG-I32 | **A refusal on the Messages route keeps its status; an Anthropic-shaped body is relayed as sent, any other is put into Anthropic's shape.** An implementation decision | 2026-09-29 | [WG-I32](#WG-I32) | 2026-09-29: `relayMessagesError`; `TestMessagesRefusalsKeepTheirStatusInAnthropicsShape`, which also pins `Retry-After`, `x-should-retry` and both request ids coming back |
 | WG-I33 | **A Messages stream that fails or ends before `message_stop` or an `error` event aborts the agent's connection; only the wait for headers is bounded.** Whether to watch follows the answer's `Content-Type`, not the request's `stream` flag. An implementation decision, WG-I24's rule on the adapter route | 2026-09-29 | [WG-I33](#WG-I33) | 2026-09-29: `messagesPassthrough.relay`, `sseClose`, `sendHeaderBounded`; `TestAMessagesStreamCutShortAbortsTheAgentsConnection`, `TestAMessagesStreamEndingBeforeMessageStopAborts`, `TestTheStreamWatchFollowsTheAnswersFraming`; over the real listener, `TestAnUnstreamedAnswerIsRelayedVerbatim` (a JSON answer is no cut) and `TestAnAgentThatHangsUpMidStreamIsNoCut` |
-| WG-I34 | **A request's model is looked up in the list with its `[1m]` suffix trimmed, and sent trimmed; the list's ids are keyed the same way. Only a declared vendor counts: an id whose aliases declare different vendors stays translated, and an alias declaring none changes nothing. A pack's vendor does not follow an alias the user points at another id.** An implementation decision | 2026-09-29 | [WG-I34](#WG-I34) | 2026-09-29: `messagesPassthrough.claims`, `withModel`, `anthropicModelIDs`, `packload.dropRepointedVendors`; `TestTheOneMillionSuffixIsTrimmedForLookupAndOnTheWire`, `TestAnthropicModelIDsReadsTheDeclaredVendor`, `TestAListIDSpelledWithTheOneMillionSuffixPassesThrough`, the conflict log line in `TestAnAnthropicModelGoesUntranslatedToBedrocksMessagesRoute`, `TestAUserLayerOverThePackListRoutesByTheDeclaredVendor` (through `ComposeProviders` and `routeFor`), `TestARepointedAliasDropsTheShippedVendor` |
+| WG-I34 | **A request's model is looked up in the list with its `[1m]` suffix trimmed, and sent trimmed; the list's ids are keyed the same way. Only a declared vendor counts: an id whose aliases declare different vendors stays translated, and an alias declaring none changes nothing. A pack's vendor does not follow an alias the user points at another id; a vendor the user's entry declares does.** An implementation decision | 2026-09-29 | [WG-I34](#WG-I34) | 2026-09-29: `messagesPassthrough.claims`, `withModel`, `anthropicModelIDs`, `packload.dropRepointedVendors`; `TestTheOneMillionSuffixIsTrimmedForLookupAndOnTheWire`, `TestAnthropicModelIDsReadsTheDeclaredVendor`, `TestAListIDSpelledWithTheOneMillionSuffixPassesThrough`, the conflict log line in `TestAnAnthropicModelGoesUntranslatedToBedrocksMessagesRoute`, `TestAUserLayerOverThePackListRoutesByTheDeclaredVendor` and `TestAVendorTheUserDeclaresRoutesTheirModel` (through `ComposeProviders` and `routeFor`), `TestARepointedAliasDropsTheShippedVendor`, `TestARepointedAliasKeepsTheVendorTheUserDeclares` |
 | WG-I35 | **`count_tokens` stays refused for Anthropic models too**: runtime documents none on its Messages route. An implementation decision, amending [§3](#3-part-2--routing-by-model-id-for-claudes-everything-profile-ruled)'s "`count_tokens` survive[s]" | 2026-09-29 | [WG-I35](#WG-I35) | 2026-09-29: unchanged `bridgeHandler.ServeHTTP` refusal; `TestCountTokensStaysRefusedForAnAnthropicModel` |
 | OQ-WG2 | **All-traffic mode is a property of the profile**, opt-in and off by default; one active profile per agent decides how it reaches the world | 2026-09-25 | [§6](#6-part-5--all-traffic-through-the-bridge-new-direction-design) | — |
 | OQ-WG3 | **One list** (the picker's effective list after an `only`), **and a separate enforcement switch** on the profile, **default on**; off means the list only shapes pickers | 2026-09-25 | [§6](#6-part-5--all-traffic-through-the-bridge-new-direction-design) | — |
