@@ -111,6 +111,60 @@ func TestTheMacosUserArmStartsTheServiceAndStopsItAfterTheCommand(t *testing.T) 
 			t.Errorf("the launch must say %q:\n%s", want, stderr.String())
 		}
 	}
+	// ONLY THE ROUTE THE COMMAND WAS POINTED AT (HS-D24): the plan moved 8215 too, and the channel's
+	// provider table names its picked port under openai-codex, a route claude on cerebras never takes.
+	assertNamesOnlyTheRoute(t, stderr.String(), `Started the "wire-bridge" service`, started[0])
+}
+
+// assertNamesOnlyTheRoute checks that the line of out starting with lead names plan's picked
+// 8214 (claude's route on cerebras) and not its picked 8215 (codex's, which it was not pointed at).
+func assertNamesOnlyTheRoute(t *testing.T, out, lead string, plan *launchservice.Plan) {
+	t.Helper()
+	i := strings.Index(out, lead)
+	if i < 0 {
+		t.Fatalf("no line starts with %q:\n%s", lead, out)
+	}
+	line, _, _ := strings.Cut(out[i:], "\n")
+	if used := plan.Moved["127.0.0.1:8214"]; used == "" || !strings.Contains(line, used) {
+		t.Errorf("the line does not name %q, the route the command was pointed at:\n%s", used, line)
+	}
+	if unused := plan.Moved["127.0.0.1:8215"]; unused == "" || strings.Contains(line, unused) {
+		t.Errorf("the line names %q, a route the command was not pointed at:\n%s", unused, line)
+	}
+}
+
+// A DRY RUN NAMES THE SAME ROUTE THE START WOULD (HS-D24): the plan render starts nothing, and its
+// "Would start" line names the one address the command was pointed at, not every address the plan
+// moved (8214's and 8215's picked ports).
+func TestTheMacosUserDryRunNamesOnlyTheRouteItsCommandIsPointedAt(t *testing.T) {
+	o, stderr, seen := overrideNativeLaunch(t, `{"packs": ["claude", "cerebras"], `+
+		`"env_sources": [{"CEREBRAS_API_KEY": "csk-test"}]}`, shellWith(nil))
+	o.ProfileName = "cerebras"
+	o.DryRun = true
+	orig := startMacosUserService
+	startMacosUserService = func(p *launchservice.Plan, _ map[string]string) (launchedService, string, error) {
+		t.Errorf("a dry run started %q", p.Service)
+		return nil, "", errors.New("no")
+	}
+	t.Cleanup(func() { startMacosUserService = orig })
+	if rc := Run(*o); rc != 0 {
+		t.Fatalf("Run() = %d\n%s", rc, stderr.String())
+	}
+	base, _ := seen.env.Get("ANTHROPIC_BASE_URL")
+	s, _ := base.(string)
+	u, err := url.Parse(s)
+	if err != nil || u.Port() == "" || u.Port() == "8214" {
+		t.Fatalf("the command's ANTHROPIC_BASE_URL = %v, want a picked port", base)
+	}
+	lead := `Would start the "wire-bridge" service (pack "wire-bridge") on [`
+	i := strings.Index(stderr.String(), lead)
+	if i < 0 {
+		t.Fatalf("the dry run must say what it would start:\n%s", stderr.String())
+	}
+	named, _, _ := strings.Cut(stderr.String()[i+len(lead):], "]")
+	if named != u.Host {
+		t.Errorf("the dry run names [%s], want only [%s], the route the command was pointed at", named, u.Host)
+	}
 }
 
 // NOTHING STARTS WHEN NO PROFILE NEEDS A SERVICE: claude with no profile on macos-user plans none.

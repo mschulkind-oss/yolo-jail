@@ -149,7 +149,10 @@ type serviceLaunch struct {
 	errs    string
 	report  fakeAgentReport
 	started []*launchservice.Running
-	execed  bool
+	// listening is, for each started service, every address its plan moved that accepted a
+	// connection once the service said it was ready: what it opened, as against what it planned.
+	listening [][]string
+	execed    bool
 }
 
 // runServiceLaunch runs `yolo host <flags> -- claude` over cfg, the fake agent in mode, and
@@ -189,6 +192,14 @@ func runServiceLaunchWith(t *testing.T, cfg string, flags []string, mode string,
 		r, err := origStart(p, env)
 		if r != nil {
 			got.started = append(got.started, r)
+			var open []string
+			for _, a := range p.Addresses() {
+				if c, derr := net.DialTimeout("tcp", a, 200*time.Millisecond); derr == nil {
+					_ = c.Close()
+					open = append(open, a)
+				}
+			}
+			got.listening = append(got.listening, open)
 		}
 		return r, err
 	}
@@ -279,8 +290,16 @@ func TestHostCodexClaudeRunsThroughALaunchOwnedBridge(t *testing.T) {
 			t.Errorf("the launch must disclose the service it runs (%q):\n%s", want, l.errs)
 		}
 	}
+	// THE SERVICE OPENS, AND THE LAUNCH NAMES, ONLY THE ROUTE CLAUDE WAS POINTED AT (HS-D24). The
+	// plan moves every address the bridge's adaptations declare (HS-D9), and the composed provider
+	// table claude now carries (FT-D2) names every one of them, packs/wire-bridge's Bedrock
+	// adapter's included, which it composes onto the bedrock provider for a via profile claude is
+	// not on (WG-I39). Neither the bridge's listeners nor the disclosure may follow the table.
 	if unused := l.started[0].Plan.Moved["127.0.0.1:8214"]; unused == "" || strings.Contains(l.errs, unused) {
 		t.Errorf("the disclosure names %q, a route claude was not pointed at:\n%s", unused, l.errs)
+	}
+	if len(l.listening) != 1 || len(l.listening[0]) != 1 || l.listening[0][0] != u.Host {
+		t.Errorf("the bridge listened at %v, want only %s, the route claude was pointed at", l.listening, u.Host)
 	}
 	// THE HAND-OVER LINE on the launch-owned-services path: what starts and where it came from,
 	// after the service lines — the last thing yolo says before the agent's own startup.

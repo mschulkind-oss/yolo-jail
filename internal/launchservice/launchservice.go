@@ -332,23 +332,56 @@ func (p *Plan) Addresses() []string {
 	return out
 }
 
-// AddressesIn is the plan's addresses that some value of environ (KEY=VALUE entries) names: the
-// ones an agent was actually pointed at, for the disclosure, since the service binds only the
-// routes its agents use. Every address when none is named.
-func (p *Plan) AddressesIn(environ []string) []string {
+// PointedAt is the plan's addresses that the provider environment a launch composed for agents
+// names: each one's AgentDelivery.Shape, the env derive's output, which is where a derive points
+// its agent at a route (claude's ANTHROPIC_BASE_URL). Those are the only routes the service
+// opens, since it serves by the same selection the derives composed from, so they are what every
+// notch's disclosure names (docs/design/host-notch-services.md HS-D24): `yolo host --`, the
+// macos-user start, and that arm's dry run. A nil delivery counts for nothing, and a plan none of
+// the agents was pointed into names every address rather than none.
+//
+// THE SHAPE, NEVER THE AGENT'S WHOLE ENVIRONMENT. That also carries the three wire tables
+// (docs/design/agent-footer.md FT-D2), and the composed provider table names every address this
+// plan moved, a route no agent was pointed at included: packs/wire-bridge's Bedrock adapter
+// composes a `for_via` address onto the bedrock provider whenever that pack joins
+// (docs/design/wire-bridge-gateway.md WG-I39), and only a profile routing through the bridge
+// uses it. Matched against the whole environment, `yolo host -p codex -- claude` disclosed that
+// address as one its bridge opened.
+func (p *Plan) PointedAt(deliveries ...*packload.AgentDelivery) []string {
 	var out []string
 	for _, a := range p.Addresses() {
-		for _, kv := range environ {
-			if strings.Contains(kv, a) {
-				out = append(out, a)
-				break
-			}
+		if shapesName(deliveries, a) {
+			out = append(out, a)
 		}
 	}
 	if len(out) == 0 {
 		return p.Addresses()
 	}
 	return out
+}
+
+// shapesName reports whether a value of some delivery's Shape names the address hostPort: an
+// occurrence of it that no further digit follows, so 127.0.0.1:4313 is not named by a URL on
+// 127.0.0.1:43137.
+func shapesName(deliveries []*packload.AgentDelivery, hostPort string) bool {
+	for _, d := range deliveries {
+		if d == nil {
+			continue
+		}
+		for _, v := range d.Shape {
+			for rest := v.Value; ; {
+				i := strings.Index(rest, hostPort)
+				if i < 0 {
+					break
+				}
+				rest = rest[i+len(hostPort):]
+				if rest == "" || rest[0] < '0' || rest[0] > '9' {
+					return true
+				}
+			}
+		}
+	}
+	return false
 }
 
 func loopbackHostPort(raw string) string {

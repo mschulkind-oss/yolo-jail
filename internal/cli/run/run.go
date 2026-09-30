@@ -503,7 +503,7 @@ func Run(opts Options) (rc int) {
 			for _, plan := range o.launchServices {
 				o.pr(o.Stderr).print(fmt.Sprintf("Would start the %q service (pack %q) on %v for "+
 					"this launch, outside the sandbox, until the command exits.", plan.Service,
-					plan.Pack, plan.Addresses()))
+					plan.Pack, o.servicePointedAt(plan, channel)))
 			}
 			for _, plan := range doorways {
 				o.pr(o.Stderr).print(fmt.Sprintf("Would open the %q doorway (pack %q) on %v for "+

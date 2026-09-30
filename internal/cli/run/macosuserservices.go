@@ -139,21 +139,24 @@ func (o *Options) startMacosUserServices(channel *packChannel) (func(), error) {
 			return func() {}, err
 		}
 		running = append(running, r)
-		// The addresses its agents were pointed at: it binds only the routes they use.
-		var shaped []string
-		for _, agent := range o.launchServiceAgents[plan.Service] {
-			if d := channel.scope.Agent(agent); d != nil {
-				for _, v := range d.Shape {
-					shaped = append(shaped, v.Key+"="+v.Value)
-				}
-			}
-		}
 		o.pr(o.Stderr).print(fmt.Sprintf("Started the %q service (pack %q, pid %d) on %s for this "+
 			"launch, outside the sandbox: it answers only this launch's caller token and stops "+
 			"when the command exits. Its log: %s", plan.Service, plan.Pack, r.PID(),
-			strings.Join(plan.AddressesIn(shaped), ", "), log))
+			strings.Join(o.servicePointedAt(plan, channel), ", "), log))
 	}
 	return stop, nil
+}
+
+// servicePointedAt is the addresses of plan its agents were pointed at, the only routes it opens:
+// launchservice.Plan.PointedAt over the channel's delivery to each agent whose pairing needed it,
+// the one reading the start line, the dry run's line and `yolo host --` share
+// (docs/design/host-notch-services.md HS-D24).
+func (o *Options) servicePointedAt(plan *launchservice.Plan, channel *packChannel) []string {
+	var deliveries []*packload.AgentDelivery
+	for _, agent := range o.launchServiceAgents[plan.Service] {
+		deliveries = append(deliveries, channel.scope.Agent(agent))
+	}
+	return plan.PointedAt(deliveries...)
 }
 
 // launchServiceRunning reports whether this launch runs the named service's host half, for the

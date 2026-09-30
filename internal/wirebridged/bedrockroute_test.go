@@ -191,6 +191,25 @@ func TestTheAdapterAddressServesOnlyAViaProfile(t *testing.T) {
 	}
 }
 
+// TestAJailBridgeOnCodexPlansOnlyClaudesRoute: the jail's half of HS-D24's rule
+// (docs/design/host-notch-services.md). The shipped composed table names the Bedrock adapter's
+// address under bedrock (WG-I39) beside the Codex route's under openai-codex, and the jail's
+// agents carry that table (FT-D2's names), yet a boot whose only selection is claude on `codex`
+// plans claude's route alone: no via route and nothing at 8214, the address no agent was pointed at.
+func TestAJailBridgeOnCodexPlansOnlyClaudesRoute(t *testing.T) {
+	providers, resolved := shippedBridgeTables(t, "")
+	if v, _ := providers.Get("bedrock"); endpointBaseURL(v.(*jsonx.OrderedMap), "anthropic") != "http://127.0.0.1:8214" {
+		t.Fatalf("the shipped table no longer composes the Bedrock adapter's address onto bedrock: %v", v)
+	}
+	p := planFor(providers, map[string]string{"claude": "codex"}, resolved)
+	if p.adapter == nil || p.adapter.ProviderName != "openai-codex" || p.adapter.ListenAddr != CodexResponsesListenAddr {
+		t.Fatalf("the adapter route = %+v (%s), want claude's Codex route on %s", p.adapter, p.adapterWhy, CodexResponsesListenAddr)
+	}
+	if len(p.via.Routes) != 0 || p.via.ListenAddr != "" {
+		t.Errorf("the boot plans via routes %+v on %q, and no agent is on a via profile", p.via.Routes, p.via.ListenAddr)
+	}
+}
+
 // TestTheSignerKeysOnTheProvidersPlatform pins OQ-WG1's follow-up (WG-I37): a provider that says it
 // is Bedrock is signed at the address it names, a FIPS endpoint or a proxy the host rule never
 // matched, for the host's region, else its own, else the served agent's; over plain http it is not

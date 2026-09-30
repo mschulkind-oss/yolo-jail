@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/agentenv"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
@@ -350,6 +351,39 @@ func TestAdmitRefusesAnArgvThatIsNotYoloAndAMissingHalf(t *testing.T) {
 	half := packFrom(t, "b", `{"contributes": [{"kind": "service", "name": "b", "jail_daemon": {"cmd": ["yolo-jaild", "b"]}}]}`, true)
 	if _, err := Admit([]*packload.Pack{half}, "b"); err == nil || !strings.Contains(err.Error(), "declares no host half") {
 		t.Errorf("a service with no host half: %v", err)
+	}
+}
+
+// THE DISCLOSURE NAMES THE ROUTES THE AGENTS WERE POINTED AT (HS-D24): PointedAt reads each
+// agent's provider environment, the derive's output, and names only the plan's addresses a value
+// of it names. The composed provider table names every address the plan moved, so a pointer
+// read out of the agent's whole environment (which carries the three wire tables since FT-D2)
+// disclosed a route the service never opened. A port that only prefixes another is not named by
+// it, a nil delivery counts for nothing, and a plan no agent was pointed into names every
+// address rather than none.
+func TestPointedAtNamesOnlyTheAddressesTheAgentsShapeNames(t *testing.T) {
+	p := &Plan{Moved: map[string]string{"127.0.0.1:8214": "127.0.0.1:4313", "127.0.0.1:8215": "127.0.0.1:38913"}}
+	claude := &packload.AgentDelivery{Agent: "claude", Shape: []agentenv.Var{
+		{Key: "ANTHROPIC_BASE_URL", Value: "http://127.0.0.1:38913"},
+		{Key: "ANTHROPIC_AUTH_TOKEN", Value: "tok"},
+	}}
+	if got := p.PointedAt(claude, nil); len(got) != 1 || got[0] != "127.0.0.1:38913" {
+		t.Errorf("PointedAt(claude) = %v, want the one address claude's ANTHROPIC_BASE_URL names", got)
+	}
+	prefix := &packload.AgentDelivery{Agent: "copilot", Shape: []agentenv.Var{
+		{Key: "COPILOT_PROVIDER_BASE_URL", Value: "http://127.0.0.1:43137"},
+	}}
+	if got := p.PointedAt(prefix); len(got) != 2 {
+		t.Errorf("PointedAt(a port 127.0.0.1:4313 only prefixes) = %v, want every address, as for none named", got)
+	}
+	both := &packload.AgentDelivery{Agent: "copilot", Shape: []agentenv.Var{
+		{Key: "COPILOT_PROVIDER_BASE_URL", Value: "http://127.0.0.1:4313/v1"},
+	}}
+	if got := p.PointedAt(claude, both); len(got) != 2 || got[0] != "127.0.0.1:38913" || got[1] != "127.0.0.1:4313" {
+		t.Errorf("PointedAt(claude, copilot) = %v, want both agents' addresses, sorted", got)
+	}
+	if got := p.PointedAt(); len(got) != 2 {
+		t.Errorf("PointedAt() = %v, want every address when no agent's environment names one", got)
 	}
 }
 

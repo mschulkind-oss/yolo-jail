@@ -731,10 +731,13 @@ func hostExec(flagArgs, cmd []string, out, errw io.Writer, stdin io.Reader) int 
 				return 1
 			}
 			running = append(running, r)
+			// The addresses the agent's provider environment points it at, the only routes the
+			// service opens (HS-D24): never read out of environ, whose wire tables (FT-D2) name
+			// every address the plan moved.
 			fmt.Fprintf(errw, "yolo host: started the %q service (pack %q, pid %d) for %s on %s; "+
 				"it answers only this launch's caller token and stops when %s exits. Its log: %s\n",
-				plan.Service, plan.Pack, r.PID(), launch.agent, strings.Join(plan.AddressesIn(environ), ", "),
-				launch.agent, r.Log)
+				plan.Service, plan.Pack, r.PID(), launch.agent,
+				strings.Join(plan.PointedAt(launch.scope.Agent(launch.agent)), ", "), launch.agent, r.Log)
 		}
 		// WHAT STARTS, AND FROM WHERE, the last line before the hand-over: a slow agent startup
 		// is then visibly the agent's, not yolo's.
