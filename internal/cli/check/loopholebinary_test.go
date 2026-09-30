@@ -1,6 +1,7 @@
 package check
 
 import (
+	"os"
 	"runtime"
 	"strings"
 	"testing"
@@ -12,7 +13,14 @@ import (
 // `yolo check` rather than noted: a launch never downloads one (docs/design/broker-as-a-pack.md
 // BP-D5), so the loophole stays off until the user runs the command the row names. Deleting the
 // UnfetchedBinaryReason branch in checkLoopholes turns the row into a quiet [OK] and fails this.
+//
+// OUT OF A JAIL, pinned rather than inherited: internal/loopholes reads YOLO_VERSION's PRESENCE
+// itself (runCheckLoopholes' Getenv does not reach it), and inside a jail a host build is the
+// host's business, so under a jail's environment this row is a self-check that could not run
+// and the test failed for a reason that is not the code's.
 func TestCheckWarnsAboutALoopholeWaitingForItsBinary(t *testing.T) {
+	t.Setenv("YOLO_VERSION", "")
+	os.Unsetenv("YOLO_VERSION")
 	moduleRoot := isolatedModuleDir(t)
 	cache := t.TempDir()
 	prev := loopholes.BinaryCacheDir
