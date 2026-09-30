@@ -64,8 +64,11 @@ nothing added. See
 `yolo -p codex -- codex` shows GPT-6.1 Sol, GPT-6 Astra and GPT-6 Luna, the models Claude Code
 and pi offer there, in that order and nothing else, and a pack's `only` narrows it the same way.
 yolo builds the menu from your Codex's own list of the models it knows, again whenever Codex is
-updated, so a model your Codex is too old to know is left out and yolo says so. On other
-providers, and under `yolo host`, Codex keeps its own menu. See
+updated, so a model your Codex is too old to know is left out and yolo says so.
+`yolo host -- codex` shows the same menu when your config's `profile` picks the subscription for
+Codex, keeping it in yolo's own folder rather than your `~/.codex`; a `-p` naming another provider
+there leaves Codex's own menu, and yolo says why, since at the host Codex runs on the provider its
+own config names. On other providers Codex keeps its own menu. See
 [model menus](userguide/guides/providers-and-models.md#model-menus-and-a-companys-model-list).
 
 **Agents can use `gh` in a jail with your own GitHub login, and the jail never holds a GitHub

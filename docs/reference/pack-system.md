@@ -688,8 +688,15 @@ through `yolo internal model-menu`, only when the list names a model, and rebuil
 when the program, the list or this declaration changed. An id the catalog lacks is left out with
 a warning; with none left, or no readable catalog, no flag is added and the program keeps its own
 menu. `YOLO_NO_LAUNCH_FLAGS=1` skips it with the launch flags
-([`model-lists-and-pickers.md` MM-D22](../design/model-lists-and-pickers.md#MM-D22)). On
-`program` alone, any `via`. `packdecl` refuses a missing `catalog` or an empty word in it, a
+([`model-lists-and-pickers.md` MM-D22](../design/model-lists-and-pickers.md#MM-D22)).
+`yolo host -- <bin>` runs the same build against the program it is about to exec, with no file at
+`list`: it runs the derive of the surface at that path over its own launch's provider tables, and
+writes the menu under `~/.local/share/yolo-jail/model-menus/<pack>/<bin>/`, one file per cache
+key, kept while a program reading it runs, instead of at `into`. It builds one only when the
+launch's `-p`, if any, selects the provider the config's `profile` selects for the program, and
+discloses the flag the way it discloses a pack's launch flags
+([MM-D24](../design/model-lists-and-pickers.md#MM-D24) to
+[MM-D28](../design/model-lists-and-pickers.md#MM-D28)). On `program` alone, any `via`. `packdecl` refuses a missing `catalog` or an empty word in it, a
 `list` or `into` that is empty, absolute, unclean or escaping the home, the two at one path, a
 `flag` that never spells `{into}`, a missing `entries` or `id`, and an entry key given two roles.
 

@@ -307,7 +307,15 @@ subscription in its `/model` menu, the ones Claude Code shows there, in the same
 nothing else. yolo builds that menu from Codex's own list of the
 models it knows, again whenever Codex is updated, so a model your Codex is too old to know is left
 out, and yolo says so each time Codex starts; updating Codex brings it back. On any other provider,
-and under `yolo host`, Codex keeps its usual menu.
+Codex keeps its usual menu.
+
+`yolo host -- codex` shows the same menu when your config's `profile` picks your ChatGPT
+subscription for Codex (`"profile": {"codex": "codex"}`), and yolo keeps the menu in its own
+folder, never in your `~/.codex`. There, a `-p` does not change which provider Codex runs on:
+Codex reads that from its own config, which `yolo host apply` writes for the profile your config
+names. So a `-p` naming another provider than that one leaves Codex's usual menu in place, and
+yolo says why each time. To use yolo's menu at the host, set `profile` for Codex in your config
+and run `yolo host apply`.
 
 pi shows the same models for your ChatGPT subscription and runs no other one there, as Claude
 Code does. A model typed with `pi --model` stops with an error naming the list, and a session you

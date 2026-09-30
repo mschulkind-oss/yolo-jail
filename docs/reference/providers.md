@@ -1064,12 +1064,16 @@ pack ships, and every agent that can use the provider renders that one list
   to `~/.codex/yolo-model-menu.json` before it execs codex, and hands codex the file with
   `-c model_catalog_json=…` ([MM-D9](../design/model-lists-and-pickers.md#MM-D9),
   [MM-D22](../design/model-lists-and-pickers.md#MM-D22)). An id codex's catalog lacks is left
-  out with a warning, and with none left codex keeps its own menu. At the host codex keeps its
-  own menu: the step is designed there and not built
-  ([§14.7](../design/model-lists-and-pickers.md#147-codexs-menu-at-yolo-host-designed-2026-09-30)),
-  and part of it waits on
-  [OQ-MM5](../design/model-lists-and-pickers.md#OQ-MM5), since a host `-p` does not choose
-  codex's provider;
+  out with a warning, and with none left codex keeps its own menu. `yolo host -- codex` runs the
+  same step, over a list it composes for its own launch, with the menu kept under
+  `~/.local/share/yolo-jail/model-menus/` for as long as a codex reading it runs and never in
+  `~/.codex` ([MM-D24](../design/model-lists-and-pickers.md#MM-D24) to
+  [MM-D28](../design/model-lists-and-pickers.md#MM-D28)). It builds one only when the launch
+  names no `-p`, or a `-p` over the provider the config's `profile` selects for codex, because a
+  host `-p` does not choose codex's provider: `yolo host apply` writes that into codex's config
+  for the configured profile alone. A `-p` over another provider gets codex's own menu and a line
+  saying why, and which of the two should win is
+  [OQ-MM5](../design/model-lists-and-pickers.md#OQ-MM5);
 - **pi**'s extension registers exactly the list for `openai-codex`, read from a file yolo writes
   at every jail boot, with the cost, thinking and image facts taken from pi's own catalog. pi gets
   no model scope for it, and its sub-agents may use only the listed ids. A listed model pi's

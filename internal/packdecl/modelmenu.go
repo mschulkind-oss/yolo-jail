@@ -36,6 +36,13 @@ const ModelMenuInto = "{into}"
 // file is written, Flag is not added and the program starts on its own catalog; `yolo`'s
 // YOLO_NO_LAUNCH_FLAGS=1 skips it with the launch flags; and the file is rebuilt only when the
 // program, the list or this declaration changed.
+//
+// `yolo host -- <bin>` RUNS THE SAME BUILD (docs/design/model-lists-and-pickers.md MM-D24 to
+// MM-D28), with the same guarantees and two differences of place: no file sits at List, so the
+// host runs the derive of the surface at that path over its own launch's tables; and the menu is
+// kept in yolo's state, one file per cache key, rather than at Into, since two host launches of
+// one program can hold different lists at once. It builds one only when the launch's `-p`, if
+// any, selects the provider the configured profile does.
 type ModelMenu struct {
 	// Catalog is the program's own argv, bin omitted, that prints its catalog as ONE JSON
 	// object on stdout, with no network and no credential: `["debug", "models", "--bundled"]`
@@ -43,9 +50,11 @@ type ModelMenu struct {
 	Catalog []string `json:"catalog"`
 	// List is the home-relative path of yolo's list, a file the pack's own derive renders (a
 	// computed `config` surface): `{"models": [{"id": "...", "name": "..."}]}`, in menu order.
-	// A file naming no model is "no menu this launch".
+	// A file naming no model is "no menu this launch". At the host the path names the surface
+	// whose derive the launch runs, and no file is read.
 	List string `json:"list"`
-	// Into is the home-relative path the menu is written to.
+	// Into is the home-relative path a jail's launcher writes the menu to. The host keeps its
+	// menus in yolo's state instead (paths.HostModelMenusDir).
 	Into string `json:"into"`
 	// Flag is the argv words the launcher adds, ahead of the user's own, when it wrote a menu.
 	// ModelMenuInto in a word becomes Into's absolute path: `["-c", "model_catalog_json={into}"]`
