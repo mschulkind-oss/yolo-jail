@@ -46,9 +46,10 @@ Two words do the work:
    The key takes the same three forms as `-p`. `"profile": "zai"` selects zai for every agent,
    like `-p zai`. `"profile": { "claude": "zai" }` selects it for one agent, like
    `-p claude=zai`. `"profile": { "*": "zai", "pi": "kilo" }` selects zai for every agent you
-   do not name, like `-p zai -p pi=kilo`. A `-p` on the command line replaces the key for that
-   launch. The key used to be called `use_profiles`; yolo refuses the old name and shows your
-   entries under the new one.
+   do not name, like `-p zai -p pi=kilo`. A `-p` on the command line beats the key for that
+   launch, for the agents it selects for: `-p kilo` runs every agent on kilo, and
+   `-p claude=kilo` changes only claude, the key still choosing for the rest. The key used to be
+   called `use_profiles`; yolo refuses the old name and shows your entries under the new one.
 
 A key reaches only the agents whose profile selects its provider. Another agent, or a plain shell in
 the jail, does not see it, and the launch lists which keys went where. If the selected provider's

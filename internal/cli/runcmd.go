@@ -59,9 +59,10 @@ Flags:
                      NAME selects it for every agent CLI the selected packs install
                      that no pair names, and never the command after ` + "`--`" + `, as
                      at the host; <cli>=<name> (e.g. claude=zai, comma-separated,
-                     repeatable) selects it for the named CLI only. Any -p replaces
-                     the config's 'profile' key for this launch, the persistent
-                     spelling that takes the same forms ('yolo config-ref'). At the
+                     repeatable) selects it for the named CLI only. A -p beats the
+                     config's 'profile' key, the persistent spelling that takes the
+                     same forms ('yolo config-ref'), for each CLI it selects for;
+                     every CLI no -p selects for keeps the key's selection. At the
                      host an arbitrary command gets a provider's key only from
                      'yolo host --with-credentials <provider> -- <cmd>'.
   A value flag with no value (a trailing -p, '-p --', '--profile=') is refused,

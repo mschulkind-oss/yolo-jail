@@ -210,12 +210,12 @@ jail keeps copies of it that you can delete. See
 as `-p`.** Write `"profile": "bedrock"` to run every agent on one profile, the way `-p bedrock`
 does, `"profile": {"pi": "codex"}` to choose for one agent, or
 `"profile": {"*": "bedrock", "pi": "codex"}` to run pi on codex and every agent you do not name
-on bedrock, the way `-p bedrock -p pi=codex` does. A `-p` still replaces your config's choice for
-one launch, in a jail and at `yolo host` alike. The old `use_profiles` key is refused with a
-message that shows your entries under the new name, so a config written for the last release
-stops with the fix in hand instead of starting agents without their profile. On the command line,
-a `-p pi=codex` next to a bare `-p bedrock` now keeps pi on codex, in either order; before, the
-bare name won for every agent. See
+on bedrock, the way `-p bedrock -p pi=codex` does. A `-p` still beats your config's choice for
+one launch, for the agents it selects, in a jail and at `yolo host` alike. The old `use_profiles`
+key is refused with a message that shows your entries under the new name, so a config written
+for the last release stops with the fix in hand instead of starting agents without their
+profile. On the command line, a `-p pi=codex` next to a bare `-p bedrock` now keeps pi on
+codex, in either order; before, the bare name won for every agent. See
 [providers and models](userguide/guides/providers-and-models.md).
 
 **A jail that shares your host's network now says so, at launch and in its briefing.** With
