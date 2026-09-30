@@ -146,14 +146,15 @@ func newAWSAuthFixture(t *testing.T, configure func(bin string) string) awsAuthF
 	// and this test is about the channel, not the narrowing (which has its own unit tests).
 	// The provider's region is there because a `bedrock` launch with none is refused before
 	// the jail starts (OQ-BR6); no request reaches AWS, so its value is never used.
-	return newAWSAuthFixtureWith(t, awsAuthUserConfig(`["claude", "aws-auth"]`, "claude"), true, configure)
+	return newAWSAuthFixtureWith(t, awsAuthUserConfig(`["claude", "aws-auth"]`, "claude", ""), true, configure)
 }
 
 // awsAuthUserConfig is the fixture's user config: packs, agent on the bedrock profile, a region,
-// and aws-auth enabled un-narrowed for the fixture's profile.
-func awsAuthUserConfig(packs, agent string) string {
+// and aws-auth enabled un-narrowed for the fixture's profile. extra is more top-level keys,
+// each followed by a comma, or "".
+func awsAuthUserConfig(packs, agent, extra string) string {
 	return `{
-		"packs": ` + packs + `,
+		` + extra + `"packs": ` + packs + `,
 		"profile": {"` + agent + `": "bedrock"},
 		"providers": {"bedrock": {"region": "us-east-1"}},
 		"loopholes": {"aws-auth": {
@@ -519,7 +520,10 @@ echo "HTTP=$(curl -sS -o "$PWD/awsauth-host-body.json" -w '%{http_code}' -H "Aut
 // nothing about a jail's reachability (the warning at the top of this file).
 func TestAWSAuthServesAYoloHostAgentThroughItsDoorway(t *testing.T) {
 	expires := time.Now().Add(time.Hour).UTC().Truncate(time.Second)
-	fx := newAWSAuthFixtureWith(t, awsAuthUserConfig(`["pi"]`, "pi"), false, func(bin string) string {
+	// `host_floor: false`: `yolo host -- pi` otherwise runs yolo's own floor copy of pi,
+	// installing the real pi to do it, where this test needs the stand-in on PATH (and no
+	// automated test may run an agent CLI).
+	fx := newAWSAuthFixtureWith(t, awsAuthUserConfig(`["pi"]`, "pi", `"host_floor": false, `), false, func(bin string) string {
 		raw, err := json.Marshal(map[string]any{"Version": 1, "AccessKeyId": "ASIAYOLOHOSTDOORWAY",
 			"SecretAccessKey": "yolo-host-secret", "SessionToken": "yolo-host-session-token",
 			"Expiration": expires.Format(time.RFC3339)})
